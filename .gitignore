@@ -119,6 +119,7 @@ config/local*
 # ── Test-Ausgaben ────────────────────────────────────────────────────────────
 coverage.xml
 .coverage
+.coverage.*
 htmlcov/
 junit.xml
 
@@ -128,3 +129,6 @@ AppDir/
 
 # Lokaler Tool-Cache
 .cache/
+
+# Lokale Git-Backups
+.git.bak-*/
