@@ -203,16 +203,53 @@ class LAIONCLAPPlugin:
             text_emb_path = self.MODELS_DIR / "text_embeddings.npy"
 
             if audio_enc_path.exists() and text_emb_path.exists():
-                self._audio_session = ort.InferenceSession(
-                    str(audio_enc_path),
-                    providers=["CPUExecutionProvider"],
-                )
+                # Memory-Budget-Guard (Schicht 1) — PFLICHT vor jedem ML-Modell-Laden
+                _onnx_budget_ok = True
+                _ml_release_onnx = None
+                try:
+                    from backend.core.ml_memory_budget import (  # noqa: PLC0415
+                        release as _ml_release_onnx,
+                        try_allocate as _try_alloc_onnx,
+                    )
+
+                    if not _try_alloc_onnx("LaionCLAP_ONNX", 0.30):
+                        logger.warning("LAION-CLAP: ML-Budget erschöpft (ONNX) — überspringe ONNX-Pfad")
+                        _onnx_budget_ok = False
+                except ImportError:
+                    pass  # Budget-Modul optional — weiter
+
+                if not _onnx_budget_ok:
+                    raise MemoryError("LaionCLAP_ONNX: Budget erschöpft")
+
+                try:
+                    self._audio_session = ort.InferenceSession(
+                        str(audio_enc_path),
+                        providers=["CPUExecutionProvider"],
+                    )
+                except Exception:
+                    if _ml_release_onnx is not None:
+                        _ml_release_onnx("LaionCLAP_ONNX")
+                    raise
                 self._text_embeddings = np.load(str(text_emb_path))
                 self._model_loaded = True
                 logger.info(
                     "🔵 LAION-CLAP: ONNX Audio-Encoder + %d Tag-Embeddings geladen",
                     len(self._text_embeddings),
                 )
+                # PLM-Registrierung (Schicht 2) nach erfolgreichem Load
+                try:
+                    from backend.core.plugin_lifecycle_manager import (  # noqa: PLC0415
+                        get_plugin_lifecycle_manager as _get_plm_onnx,
+                    )
+
+                    self._audio_session
+                    _get_plm_onnx().register(
+                        "LaionCLAP_ONNX",
+                        size_gb=0.30,
+                        unload_fn=lambda: setattr(self, "_audio_session", None),
+                    )
+                except Exception:
+                    pass
                 return
         except Exception as exc:
             logger.debug("LAION-CLAP ONNX-Pfad nicht verfügbar: %s", exc)
@@ -322,6 +359,7 @@ class LAIONCLAPPlugin:
             # Globaler ML-Budget-Guard: ~2.2 GB für LAION-CLAP.
             try:
                 from backend.core.ml_memory_budget import try_allocate as _try_alloc  # noqa: PLC0415
+
                 if not _try_alloc("LAION-CLAP", 2.2):
                     return False  # Budget erschöpft → PANNs-DSP-Fallback
             except Exception:
@@ -379,6 +417,7 @@ class LAIONCLAPPlugin:
             # Only the audio-branch weights are used for audio embeddings.
             try:
                 from laion_clap.clap_module.factory import load_state_dict as _load_sd  # noqa: PLC0415
+
                 _state = _load_sd(str(ckpt_path), skip_params=True)
                 # Drop keys whose shapes differ from the current model so that
                 # load_state_dict(..., strict=False) can proceed without errors.
@@ -404,6 +443,7 @@ class LAIONCLAPPlugin:
             # PLM-Registrierung für LRU-basierte Auto-Eviction
             try:
                 from backend.core.plugin_lifecycle_manager import register_plugin as _reg_plm  # noqa: PLC0415
+
                 _unload_fn = globals().get("unload_laion_clap")
                 if _unload_fn is not None:
                     _reg_plm("LAION-CLAP", size_gb=2.2, unload_fn=_unload_fn)
@@ -732,6 +772,7 @@ def unload_laion_clap() -> None:
     Aufruf: nach dem Tag-Matching / Analyse zu Beginn der Pipeline.
     """
     import gc  # noqa: PLC0415
+
     if _instance is not None:
         _instance._clap_model = None
         _instance._session = None
@@ -739,6 +780,7 @@ def unload_laion_clap() -> None:
         gc.collect()
         try:
             from backend.core.ml_memory_budget import release as _rel  # noqa: PLC0415
+
             _rel("LAION-CLAP")
         except Exception:
             pass
