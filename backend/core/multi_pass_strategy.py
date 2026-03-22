@@ -827,7 +827,12 @@ class MultiPassEngine:
                 logger.info(f"    → {score}")
 
             except Exception as e:
-                logger.error(f"  ❌ Variant '{variant.name}' failed: {e}")
+                logger.error(
+                    "  ❌ Variant '%s' failed: %s",
+                    variant.name,
+                    e,
+                    exc_info=True,
+                )
                 continue
 
         if len(results) == 0:

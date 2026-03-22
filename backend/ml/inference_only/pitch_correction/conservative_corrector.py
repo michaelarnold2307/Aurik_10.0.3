@@ -170,8 +170,7 @@ class ConservativePitchCorrector:
         # Step 6: Conduct Check (DCS threshold)
         if correction_plan.damage_cost_score > self.max_dcs:
             logger.warning(
-                f"Pitch correction REJECTED: DCS too high "
-                f"({correction_plan.damage_cost_score:.2f} > {self.max_dcs})"
+                f"Pitch correction REJECTED: DCS too high ({correction_plan.damage_cost_score:.2f} > {self.max_dcs})"
             )
             return audio, {
                 "corrected": False,
@@ -335,6 +334,11 @@ class ConservativePitchCorrector:
                     continue
 
                 segment = audio[start_sample:end_sample]
+
+                # Skip segments too short for librosa pitch_shift (requires >= n_fft=2048 samples)
+                # or segments that are silent (would cause empty-frequency-set pitch_tuning warning)
+                if len(segment) < 2048 or np.max(np.abs(segment)) < 1e-6:
+                    continue
 
                 # Pitch shift (librosa preserves formants approximately)
                 n_steps = correction["correction_cents"] / 100.0  # semitones

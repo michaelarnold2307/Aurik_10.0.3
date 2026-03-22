@@ -113,6 +113,10 @@ class DefectType(Enum):
     BIAS_ERROR = "bias_error"  # Falscher Vormagnetisierungsstrom bei Bandaufnahme → phase_04 + phase_03 + phase_29
     # --- Spec §6.3 v9.10.57: Sibilanten-Überbetonung (ergibt 28 DefectTypes) ---
     SIBILANCE = "sibilance"  # Zischlautüberbetonung (> 6 kHz) — De-Esser-Trigger (phase_19 + phase_43)
+    # --- v9.10.57b: Transport-Bump (ergibt 29 DefectTypes) ---
+    TRANSPORT_BUMP = (
+        "transport_bump"  # Impulsartige Mikro-Geschwindigkeitssprünge 50–300 ms (Kassette/Tape-Holpern) → phase_12
+    )
 
 
 class MaterialType(Enum):
@@ -132,8 +136,6 @@ class MaterialType(Enum):
     WAX_CYLINDER = "wax_cylinder"  # Phonograph-Wachswalze (1890–1930), HF ≤ 5 kHz
     WIRE_RECORDING = "wire_recording"  # Drahtband (1940–1955), Jitter, Frequenzgang-Einbrüche
     LACQUER_DISC = "lacquer_disc"  # Acetat-Lackfolien (1930–1950), Risse, Substrat-Rauschen
-    QUADROPHONY = "quadrophony"  # 4-Kanal-Quadrofonie (1970–1978), SQ/QS/CD-4-Matrix
-    AMBISONIC = "ambisonic"  # Ambisonic B-Format (W/X/Y/Z), ITU-R BS.2076
     UNKNOWN = "unknown"
 
 
@@ -227,6 +229,7 @@ class DefectScanner:
             DefectType.BIAS_ERROR: 1.0,  # N/A: Shellac ist kein Magnetband — kein Aufnahme-Bias
             DefectType.AZIMUTH_ERROR: 1.0,  # N/A: Shellac ist Disc-Format — kein Magnetkopf-Azimuth
             DefectType.SIBILANCE: 0.6,  # Schwere Nadel + begrenzter HF → Zischlaut-Verzerrung bei Hochpegel-Passagen
+            DefectType.TRANSPORT_BUMP: 0.5,  # Plattenteller-Transport: mechanisches Holpern bei 78 rpm
         },
         MaterialType.VINYL: {
             DefectType.CLICKS: 0.4,
@@ -259,6 +262,7 @@ class DefectScanner:
             DefectType.BIAS_ERROR: 1.0,  # N/A: Schallplatte ist kein Magnetband — kein Aufnahme-Bias
             DefectType.AZIMUTH_ERROR: 1.0,  # N/A: Vinyl ist Disc-Format — kein Magnetkopf-Azimuth
             DefectType.SIBILANCE: 0.7,  # Sehr häufig: Tonabnehmer-Sibilanz + Phono-Stufe; De-Esser-Pflicht
+            DefectType.TRANSPORT_BUMP: 0.4,  # Plattenspieler-Transport: mechanisches Holpern möglich
         },
         MaterialType.TAPE: {
             DefectType.CLICKS: 0.7,
@@ -291,6 +295,7 @@ class DefectScanner:
             DefectType.BIAS_ERROR: 0.3,  # SEHR HÄUFIG: falscher Bias für Bandsorte (Chromdioxid/Normallage)
             DefectType.AZIMUTH_ERROR: 0.30,  # Häufig! Kassettenköpfe neigen zu Azimuth-Drift zwischen verschiedenen Decks
             DefectType.SIBILANCE: 0.5,  # Kassettenkopf-HF-Sättigung → Zischlaut-Betonung bei Hochfrequenz-Peaking
+            DefectType.TRANSPORT_BUMP: 0.3,  # Kassetten-Transport: Capstan/Andruckrolle-Holpern sehr häufig
         },
         MaterialType.CD_DIGITAL: {
             DefectType.CLICKS: 0.8,
@@ -323,6 +328,7 @@ class DefectScanner:
             DefectType.BIAS_ERROR: 1.0,  # N/A: CD digital — kein Wechselstrom-Bias
             DefectType.AZIMUTH_ERROR: 1.0,  # N/A: CD digital — kein Magnetkopf
             DefectType.SIBILANCE: 0.3,  # CD: geringe Sibilanz-Gefahr; De-Emphasis-Fehler bei frühen CDs möglich
+            DefectType.TRANSPORT_BUMP: 1.0,  # N/A: CD digital — kein mechanischer Transport
         },
         MaterialType.REEL_TAPE: {
             DefectType.CLICKS: 0.8,
@@ -355,6 +361,7 @@ class DefectScanner:
             DefectType.BIAS_ERROR: 0.3,  # Häufig: gemischte Bandsorten → falscher Bias-Strom beim Schnitt
             DefectType.AZIMUTH_ERROR: 0.25,  # Sehr häufig: Profi-Bandmaschinen mit verschiedenen Schnittköpfen
             DefectType.SIBILANCE: 0.4,  # Profi-Spulenband: HF-Sättigung bei hohem Bandfluss → Zischlaut-Überbetonung
+            DefectType.TRANSPORT_BUMP: 0.2,  # Profi-Bandmaschine: Transport stabiler als Kassette
         },
         MaterialType.DAT: {
             DefectType.CLICKS: 0.9,
@@ -387,6 +394,7 @@ class DefectScanner:
             DefectType.BIAS_ERROR: 1.0,  # N/A: DAT digital — kein analoger Bias erforderlich
             DefectType.AZIMUTH_ERROR: 0.50,  # DAT-Rotationskopf: Azimuth kann durch Kopfverschleiß driften
             DefectType.SIBILANCE: 0.2,  # DAT digital — geringe Sibilanz-Gefahr (selten bei Profi-DAT-Aufnahmen)
+            DefectType.TRANSPORT_BUMP: 0.6,  # DAT-Laufwerk: Rotationskopf-Transport kann holpern
         },
         MaterialType.MP3_LOW: {
             DefectType.CLICKS: 0.9,
@@ -419,6 +427,7 @@ class DefectScanner:
             DefectType.BIAS_ERROR: 1.0,  # N/A: MP3 digital — kein analoger Bias
             DefectType.AZIMUTH_ERROR: 1.0,  # N/A: MP3 digital — kein Magnetkopf
             DefectType.SIBILANCE: 0.6,  # MP3 128 kbps: psychoakustitsche Maskierung → starke Sibilanzverzerrung typisch
+            DefectType.TRANSPORT_BUMP: 1.0,  # N/A: MP3 digital — kein mechanischer Transport
         },
         MaterialType.MP3_HIGH: {
             DefectType.CLICKS: 0.9,
@@ -451,6 +460,7 @@ class DefectScanner:
             DefectType.BIAS_ERROR: 1.0,  # N/A: MP3 digital — kein analoger Bias
             DefectType.AZIMUTH_ERROR: 1.0,  # N/A: MP3 digital — kein Magnetkopf
             DefectType.SIBILANCE: 0.3,  # MP3 ≥ 192 kbps: deutlich weniger Sibilanz-Artefakte als Low-Bitrate
+            DefectType.TRANSPORT_BUMP: 1.0,  # N/A: MP3 digital — kein mechanischer Transport
         },
         MaterialType.AAC: {
             DefectType.CLICKS: 0.9,
@@ -483,6 +493,7 @@ class DefectScanner:
             DefectType.BIAS_ERROR: 1.0,  # N/A: AAC digital — kein analoger Bias
             DefectType.AZIMUTH_ERROR: 1.0,  # N/A: AAC digital — kein Magnetkopf
             DefectType.SIBILANCE: 0.4,  # AAC-Codec kann bei mittleren Bitraten Zischlaut-Artefakte einführen
+            DefectType.TRANSPORT_BUMP: 1.0,  # N/A: AAC digital — kein mechanischer Transport
         },
         MaterialType.MINIDISC: {
             DefectType.CLICKS: 0.9,
@@ -515,6 +526,7 @@ class DefectScanner:
             DefectType.BIAS_ERROR: 1.0,  # N/A: MiniDisc ATRAC digital — kein analoger Bias
             DefectType.AZIMUTH_ERROR: 0.60,  # MiniDisc Rotationskopf: Azimuth-Drift bei Alterung möglich
             DefectType.SIBILANCE: 0.5,  # ATRAC-Codec (MiniDisc): Sibilanz-Artefakte charakteristisch bei 132 kbps
+            DefectType.TRANSPORT_BUMP: 0.7,  # MiniDisc-Laufwerk: Rotationstransport kann holpern
         },
         MaterialType.STREAMING: {
             DefectType.CLICKS: 0.9,
@@ -547,6 +559,7 @@ class DefectScanner:
             DefectType.BIAS_ERROR: 1.0,  # N/A: Streaming digital — kein analoger Bias
             DefectType.AZIMUTH_ERROR: 1.0,  # N/A: Streaming digital — kein Magnetkopf
             DefectType.SIBILANCE: 0.4,  # Streaming-Codec (Opus/AAC): variable Bitraten → Sibilanz-Artefakte möglich
+            DefectType.TRANSPORT_BUMP: 1.0,  # N/A: Streaming digital — kein mechanischer Transport
         },
         MaterialType.UNKNOWN: dict.fromkeys(DefectType, 0.6),
         MaterialType.WAX_CYLINDER: {
@@ -581,6 +594,7 @@ class DefectScanner:
             DefectType.BIAS_ERROR: 1.0,  # N/A: Wachswalze mechanisch — kein Magnetband-Bias
             DefectType.AZIMUTH_ERROR: 1.0,  # N/A: mechanische Abtastung — kein Magnetkopf
             DefectType.SIBILANCE: 1.0,  # N/A: HF ≤ 5 kHz, Zischlautbereich physikalisch nicht erreichbar
+            DefectType.TRANSPORT_BUMP: 0.5,  # Walzen-Transportholpern bei mechanischer Abtastung
         },
         MaterialType.WIRE_RECORDING: {
             # Drahtbandaufnahme (1940–1955): Jitter, Frequenzgang-Einbrüche, Magnetisierungs-Dropout
@@ -614,6 +628,7 @@ class DefectScanner:
             DefectType.BIAS_ERROR: 0.4,  # AC-Bias oft falsch justiert bei primitiven Drahtbandgeräten
             DefectType.AZIMUTH_ERROR: 0.40,  # Draht-Magnetkopf: Azimuth-Fehler durch primitive Justierung häufig
             DefectType.SIBILANCE: 0.5,  # Drahtband: begrenzter HF-Frequenzgang → De-Esser teilweise relevant
+            DefectType.TRANSPORT_BUMP: 0.3,  # Drahtbandfuehrung: Transportrueckeln durch primitive Mechanik
         },
         MaterialType.LACQUER_DISC: {
             # Acetat-Lackfolien-Heimaufnahme (1930–1950): Risse, Substrat-Rauschen, Rille-Ermüdung
@@ -647,72 +662,7 @@ class DefectScanner:
             DefectType.BIAS_ERROR: 1.0,  # N/A: Lackfolie ist kein Magnetband — kein Aufnahme-Bias
             DefectType.AZIMUTH_ERROR: 1.0,  # N/A: Lackfolie ist mechanisches Disc-Format — kein Magnetkopf
             DefectType.SIBILANCE: 0.4,  # Heimaufnahme-Nadel: Zischlaute bei HF-Überbetonung möglich
-        },
-        MaterialType.QUADROPHONY: {
-            # 4-Kanal-Quadrofonie (1970–1978): CD-4, SQ/QS-Matrix — Kanalübersprechen & Phasenfehler
-            DefectType.CLICKS: 0.5,
-            DefectType.CRACKLE: 0.4,  # Vinyl-Trägermedium häufig
-            DefectType.HUM: 0.5,
-            DefectType.WOW: 0.30,  # Vinyl-Träger: Plattenteller-Gleichlauf < 0.5 Hz
-            DefectType.FLUTTER: 0.35,  # Abtastarm-Resonanz 0.5–200 Hz im Quad-Betrieb
-            DefectType.STEREO_IMBALANCE: 0.3,  # Kanalungleichgewicht in 4-Kanal-Matrix
-            DefectType.DIGITAL_ARTIFACTS: 0.8,  # Meist analoger Träger
-            DefectType.LOW_FREQ_RUMBLE: 0.4,
-            DefectType.HIGH_FREQ_NOISE: 0.4,
-            DefectType.COMPRESSION_ARTIFACTS: 0.5,  # CD-4 FM-Träger-Verzerrung möglich
-            DefectType.PHASE_ISSUES: 0.2,  # Matrix-Dekodierung → Phasenfehler typisch
-            DefectType.DROPOUTS: 0.4,
-            DefectType.CLIPPING: 0.5,
-            DefectType.DC_OFFSET: 0.5,
-            DefectType.BANDWIDTH_LOSS: 0.4,
-            DefectType.PITCH_DRIFT: 0.4,
-            DefectType.REVERB_EXCESS: 0.5,
-            DefectType.PRINT_THROUGH: 0.6,
-            DefectType.QUANTIZATION_NOISE: 0.8,  # Analoger Träger
-            DefectType.JITTER_ARTIFACTS: 0.7,
-            DefectType.DYNAMIC_COMPRESSION_EXCESS: 0.5,
-            DefectType.SOFT_SATURATION: 0.4,
-            DefectType.HEAD_WEAR: 0.6,
-            DefectType.PRE_ECHO: 0.3,  # Quad-Disc: ATRAC- oder MP3-Downkonvertierung → Pre-Echo möglich
-            DefectType.TRANSIENT_SMEARING: 0.4,
-            DefectType.RIAA_CURVE_ERROR: 0.4,  # Quad-Disc: SQ/QS-Matrix + EQ-Kurven-Fehler möglich
-            DefectType.ALIASING: 0.4,  # Matrix-Dekodierung und Downmix erzeugen Aliasing-Artefakte
-            DefectType.BIAS_ERROR: 0.3,  # 4-Kanal-Spulenband: Bias-Fehler bei gemischten Bandsorten häufig
-            DefectType.AZIMUTH_ERROR: 0.30,  # Quad-Spulenband (ggf.): Azimuth-Fehler zwischen 2- und 4-Spur-Köpfen
-            DefectType.SIBILANCE: 0.5,  # Vinyl/Bandträger: Tonabnehmer-Sibilanz + Matrizierungsartefakte (CD-4/SQ) möglich
-        },
-        MaterialType.AMBISONIC: {
-            # Ambisonic B-Format (W/X/Y/Z): Kugelmikrofon-Mehrkanal, ITU-R BS.2076
-            DefectType.CLICKS: 0.6,
-            DefectType.CRACKLE: 0.7,
-            DefectType.HUM: 0.5,
-            DefectType.WOW: 0.70,  # Ambisonic: WOW vom Aufzeichnungsmedium abhängig
-            DefectType.FLUTTER: 0.70,  # Ambisonic: FLUTTER vom Aufzeichnungsmedium abhängig
-            DefectType.STEREO_IMBALANCE: 0.5,  # Multi-Kanal: kein klassisches L/R-Ungleichgewicht
-            DefectType.DIGITAL_ARTIFACTS: 0.5,  # Digitale Aufzeichnung üblich
-            DefectType.LOW_FREQ_RUMBLE: 0.5,
-            DefectType.HIGH_FREQ_NOISE: 0.5,
-            DefectType.COMPRESSION_ARTIFACTS: 0.5,
-            DefectType.PHASE_ISSUES: 0.2,  # B-Format Phasenkohärenz W/X/Y/Z kritisch
-            DefectType.DROPOUTS: 0.5,
-            DefectType.CLIPPING: 0.5,
-            DefectType.DC_OFFSET: 0.5,
-            DefectType.BANDWIDTH_LOSS: 0.5,
-            DefectType.PITCH_DRIFT: 0.6,
-            DefectType.REVERB_EXCESS: 0.5,
-            DefectType.PRINT_THROUGH: 0.8,
-            DefectType.QUANTIZATION_NOISE: 0.5,
-            DefectType.JITTER_ARTIFACTS: 0.5,
-            DefectType.DYNAMIC_COMPRESSION_EXCESS: 0.5,
-            DefectType.SOFT_SATURATION: 0.6,
-            DefectType.HEAD_WEAR: 0.7,
-            DefectType.PRE_ECHO: 0.2,  # N/A: Ambisonics digital — Pre-Echo nur aus Quell-Codec möglich
-            DefectType.TRANSIENT_SMEARING: 0.4,  # Phasenfehler können Transienten verbreitern
-            DefectType.RIAA_CURVE_ERROR: 1.0,  # N/A: Ambisonics modernes Format — keine Disc-Entzerrungskurve
-            DefectType.ALIASING: 0.2,  # Modernes Format — professionelle Handhabung, AA meist korrekt
-            DefectType.BIAS_ERROR: 1.0,  # N/A: Ambisonics digital — kein analoger Bias
-            DefectType.AZIMUTH_ERROR: 0.50,  # Ambisonic: Magnetbandaufnahme möglich — Azimuth-Fehler wirkt B-Format-Inkohärenz
-            DefectType.SIBILANCE: 0.3,  # Ambisonic: Hochqualitatives Kugelmikrofon — Sibilanz selten, B-Format-Summierung kann es verstärken
+            DefectType.TRANSPORT_BUMP: 0.5,  # Plattenteller-Holpern bei Heimaufnahme-Technik
         },
     }
 
@@ -738,7 +688,7 @@ class DefectScanner:
         audio: np.ndarray,
         sample_rate: int | None = None,
         material_type: MaterialType | None = None,
-        progress_callback: Optional["Callable[[int], None]"] = None,
+        progress_callback: Optional["Callable[[int, str], None]"] = None,
     ) -> DefectAnalysisResult:
         """
         Hauptmethode: Scannt Audio-Daten und erkennt alle 20 Defekttypen.
@@ -824,61 +774,64 @@ class DefectScanner:
             is_stereo = False
             audio_mono = audio
 
-        def _prog(pct: int) -> None:
+        def _prog(pct: int, name: str = "") -> None:
             if progress_callback is not None:
                 with contextlib.suppress(Exception):
-                    progress_callback(pct)
+                    try:
+                        progress_callback(pct, name)
+                    except TypeError:
+                        progress_callback(pct)  # type: ignore[call-arg]
 
         # Alle 28 Defekttypen sequentiell — nach jedem Schritt Fortschritt melden
         scores = {}
 
-        _prog(5)
+        _prog(5, "Klicks")
         scores[DefectType.CLICKS] = self._detect_clicks(audio_mono if not is_stereo else audio)
-        _prog(10)
+        _prog(10, "Knistern")
         scores[DefectType.CRACKLE] = self._detect_crackle(audio_mono)
-        _prog(16)
+        _prog(16, "Brummen")
         scores[DefectType.HUM] = self._detect_hum(audio_mono)
-        _prog(22)
+        _prog(22, "Tonhöhenschwankung")
         scores[DefectType.WOW] = self._detect_wow(audio_mono)  # IEC 60386 < 0.5 Hz
         scores[DefectType.FLUTTER] = self._detect_flutter(audio_mono)  # IEC 60386 0.5–200 Hz
         scores[DefectType.AZIMUTH_ERROR] = self._detect_azimuth_error(audio)  # PHD-Slope L/R
-        _prog(28)
+        _prog(28, "Stereo-Ungleichgewicht")
         scores[DefectType.STEREO_IMBALANCE] = (
             self._detect_stereo_imbalance(audio) if is_stereo else DefectScore(DefectType.STEREO_IMBALANCE, 0.0, 0.0)
         )
-        _prog(34)
+        _prog(34, "Digitalartefakte")
         scores[DefectType.DIGITAL_ARTIFACTS] = self._detect_digital_artifacts(audio_mono)
-        _prog(40)
+        _prog(40, "Tieffrequenz-Rumpeln")
         scores[DefectType.LOW_FREQ_RUMBLE] = self._detect_low_freq_rumble(audio_mono)
-        _prog(46)
+        _prog(46, "Hochfrequenzrauschen")
         scores[DefectType.HIGH_FREQ_NOISE] = self._detect_high_freq_noise(audio_mono)
-        _prog(52)
+        _prog(52, "Kompressions-Artefakte")
         scores[DefectType.COMPRESSION_ARTIFACTS] = self._detect_compression_artifacts(audio_mono)
-        _prog(58)
+        _prog(58, "Phasenfehler")
         scores[DefectType.PHASE_ISSUES] = (
             self._detect_phase_issues(audio) if is_stereo else DefectScore(DefectType.PHASE_ISSUES, 0.0, 0.0)
         )
-        _prog(64)
+        _prog(64, "Aussetzer")
         scores[DefectType.DROPOUTS] = self._detect_dropouts(audio_mono)
-        _prog(70)
+        _prog(70, "Übersteuerung")
         # --- Weltklasse-Erweiterung: 4 neue Defekttypen ---
         scores[DefectType.CLIPPING] = self._detect_clipping(audio_mono)
-        _prog(75)
+        _prog(75, "DC-Versatz")
         scores[DefectType.DC_OFFSET] = self._detect_dc_offset(audio_mono)
-        _prog(80)
+        _prog(80, "Bandbreitenverlust")
         scores[DefectType.BANDWIDTH_LOSS] = self._detect_bandwidth_loss(audio_mono)
-        _prog(84)
+        _prog(84, "Tonhöhendrift")
         scores[DefectType.PITCH_DRIFT] = self._detect_pitch_drift(audio_mono)
-        _prog(88)
+        _prog(88, "Übermäßiger Hall")
         scores[DefectType.REVERB_EXCESS] = self._detect_reverb_excess(audio_mono)
-        _prog(91)
+        _prog(91, "Durchkopieren")
         scores[DefectType.PRINT_THROUGH] = self._detect_print_through(audio_mono)
-        _prog(94)
+        _prog(94, "Quantisierungsrauschen")
         # --- Weltklasse-Erweiterung Runde 3 ---
         scores[DefectType.QUANTIZATION_NOISE] = self._detect_quantization_noise(audio_mono)
-        _prog(96)
+        _prog(96, "Jitter-Artefakte")
         scores[DefectType.JITTER_ARTIFACTS] = self._detect_jitter_artifacts(audio_mono)
-        _prog(98)
+        _prog(98, "Überkompression")
         scores[DefectType.DYNAMIC_COMPRESSION_EXCESS] = self._detect_dynamic_compression_excess(audio_mono)
         # --- Vollständige 28-Typen-Erweiterung (F-7) ---
         scores[DefectType.SOFT_SATURATION] = self._detect_soft_saturation(audio_mono)
@@ -889,6 +842,7 @@ class DefectScanner:
         scores[DefectType.TRANSIENT_SMEARING] = self._detect_transient_smearing(audio_mono)
         scores[DefectType.PRE_ECHO] = self._detect_pre_echo(audio_mono)
         scores[DefectType.ALIASING] = self._detect_aliasing(audio_mono)
+        scores[DefectType.TRANSPORT_BUMP] = self._detect_transport_bump(audio_mono)
         _prog(99)
 
         analysis_time = time.time() - start_time
@@ -1485,6 +1439,154 @@ class DefectScanner:
             confidence=0.75,
             locations=[],
             metadata={"wow_energy_ratio": wow_ratio, "frame_rate_hz": float(frame_rate)},
+        )
+
+    def _detect_transport_bump(self, audio: np.ndarray) -> DefectScore:
+        """Detect TRANSPORT_BUMP: impulsive micro-speed jumps (50–300 ms) from tape transport shocks.
+
+        These are distinct from continuous wow/flutter: they manifest as a sudden,
+        abrupt pitch excursion (±1–5 %) with simultaneous amplitude perturbation,
+        typically caused by mechanical jolts (vibration, capstan slip, tape-guide bump).
+
+        Algorithm:
+            1. Short-window (20 ms hop) RMS envelope → detect amplitude transients
+            2. Short-window zero-crossing-rate (ZCR) → detect pitch-rate transients
+            3. Combined: both RMS and ZCR show transient within ±150 ms → transport bump
+            4. Minimum duration 50 ms, maximum 300 ms → filter by event width
+            5. Severity = max(event_magnitudes); confidence from event count + material
+
+        Returns:
+            DefectScore with locations [(start_s, end_s), ...] for each bump event.
+        """
+        n = len(audio)
+        sr = self.sample_rate
+        min_dur_s = 0.05  # 50 ms minimum bump width
+        max_dur_s = 0.30  # 300 ms maximum bump width
+        # Minimum 2 s of audio to analyse
+        if n < sr * 2:
+            return DefectScore(DefectType.TRANSPORT_BUMP, 0.0, 0.3)
+
+        # Parameters
+        hop_s = 0.020  # 20 ms hop
+        win_s = 0.040  # 40 ms window
+        hop = max(1, int(hop_s * sr))
+        win = max(1, int(win_s * sr))
+        n_frames = (n - win) // hop
+
+        if n_frames < 10:
+            return DefectScore(DefectType.TRANSPORT_BUMP, 0.0, 0.3)
+
+        # 1. Compute short-time RMS envelope
+        rms_env = np.empty(n_frames, dtype=np.float64)
+        for i in range(n_frames):
+            start = i * hop
+            rms_env[i] = float(np.sqrt(np.mean(audio[start : start + win] ** 2) + 1e-12))
+
+        # 2. Compute short-time ZCR (zero-crossing rate) — proxy for instantaneous spectral centroid
+        zcr_env = np.empty(n_frames, dtype=np.float64)
+        for i in range(n_frames):
+            start = i * hop
+            frame = audio[start : start + win]
+            zcr_env[i] = float(np.sum(np.abs(np.diff(np.signbit(frame))))) / max(1.0, float(win))
+
+        # 3. Compute first-order derivatives (rate of change)
+        rms_diff = np.abs(np.diff(rms_env))
+        zcr_diff = np.abs(np.diff(zcr_env))
+
+        if len(rms_diff) < 4:
+            return DefectScore(DefectType.TRANSPORT_BUMP, 0.0, 0.3)
+
+        # 4. Threshold: adaptive (median + 4 × MAD for both)
+        rms_med = float(np.median(rms_diff))
+        rms_mad = float(np.median(np.abs(rms_diff - rms_med))) + 1e-12
+        zcr_med = float(np.median(zcr_diff))
+        zcr_mad = float(np.median(np.abs(zcr_diff - zcr_med))) + 1e-12
+
+        rms_thr = rms_med + 4.0 * rms_mad
+        zcr_thr = zcr_med + 4.0 * zcr_mad
+
+        # 5. Find frames where BOTH rms_diff AND zcr_diff exceed their thresholds
+        #    within a ±3 frame (±60 ms) window → simultaneous perturbation
+        rms_peaks = rms_diff > rms_thr
+        zcr_peaks = zcr_diff > zcr_thr
+
+        # Dilate zcr_peaks by ±3 frames for temporal alignment tolerance
+        dilated_zcr = np.zeros_like(zcr_peaks)
+        for shift in range(-3, 4):
+            shifted = np.roll(zcr_peaks, shift)
+            if shift < 0:
+                shifted[shift:] = False
+            elif shift > 0:
+                shifted[:shift] = False
+            dilated_zcr |= shifted
+
+        candidates = rms_peaks & dilated_zcr
+
+        # 6. Group consecutive candidate frames into events, filter by duration
+        min_frames = max(1, int(min_dur_s / hop_s))
+        max_frames = max(1, int(max_dur_s / hop_s))
+
+        locations: list[tuple[float, float]] = []
+        magnitudes: list[float] = []
+
+        i = 0
+        while i < len(candidates):
+            if candidates[i]:
+                start_frame = i
+                while i < len(candidates) and candidates[i]:
+                    i += 1
+                end_frame = i
+                event_len = end_frame - start_frame
+                if min_frames <= event_len <= max_frames:
+                    t_start = float(start_frame * hop) / sr
+                    t_end = float(min(end_frame * hop + win, n)) / sr
+                    locations.append((t_start, t_end))
+                    # Magnitude: max RMS delta within event
+                    mag = float(np.max(rms_diff[start_frame:end_frame]))
+                    magnitudes.append(mag)
+            else:
+                i += 1
+
+        n_bumps = len(locations)
+        if n_bumps == 0:
+            return DefectScore(DefectType.TRANSPORT_BUMP, 0.0, 0.6)
+
+        # 7. Severity: based on magnitude and frequency of events
+        duration_s = n / sr
+        bump_density = n_bumps / max(1.0, duration_s / 60.0)  # bumps per minute
+        max_mag = float(max(magnitudes)) if magnitudes else 0.0
+        # Normalize magnitude relative to global RMS
+        global_rms = float(np.sqrt(np.mean(audio**2) + 1e-12))
+        rel_mag = max_mag / (global_rms + 1e-12)
+
+        severity = float(
+            np.clip(
+                0.3 * min(1.0, bump_density / 10.0) + 0.7 * min(1.0, rel_mag / 5.0),
+                0.0,
+                1.0,
+            )
+        )
+        confidence = float(np.clip(0.5 + 0.05 * n_bumps, 0.5, 0.95))
+
+        logger.info(
+            "transport_bump detection: n_bumps=%d, density=%.1f/min, max_rel_mag=%.2f, severity=%.3f",
+            n_bumps,
+            bump_density,
+            rel_mag,
+            severity,
+        )
+
+        return DefectScore(
+            defect_type=DefectType.TRANSPORT_BUMP,
+            severity=severity,
+            confidence=confidence,
+            locations=locations,
+            metadata={
+                "n_bumps": n_bumps,
+                "bump_density_per_min": bump_density,
+                "max_relative_magnitude": rel_mag,
+                "magnitudes": [float(m) for m in magnitudes[:20]],  # limit for metadata size
+            },
         )
 
     def _detect_flutter(self, audio: np.ndarray) -> DefectScore:
@@ -2656,11 +2758,11 @@ class DefectScanner:
             sib_mask = (freqs >= 4000.0) & (freqs <= 12000.0)
             sib_frac = float(np.sum(psd[sib_mask]) / total_power)
 
-            # Expected sibilance zone fraction for natural music: ~0.10–0.20
-            # Problematic: > 0.35
-            severity = float(np.clip((sib_frac - 0.20) / 0.20, 0.0, 1.0))
+            # Expected sibilance zone fraction for natural music: ~0.08–0.15
+            # Problematic: > 0.25 (de-essing needed)
+            severity = float(np.clip((sib_frac - 0.12) / 0.20, 0.0, 1.0))
             threshold = self.thresholds.get(DefectType.SIBILANCE, 0.5)
-            if severity < threshold * 0.3:
+            if severity < threshold * 0.15:
                 severity = 0.0
 
             return DefectScore(
@@ -2694,7 +2796,7 @@ class DefectScanner:
             severity = float(np.clip(max(over_bias_sev, under_bias_sev), 0.0, 1.0))
 
             threshold = self.thresholds.get(DefectType.BIAS_ERROR, 0.5)
-            if severity < threshold * 0.4:
+            if severity < threshold * 0.20:
                 severity = 0.0
 
             return DefectScore(
@@ -2757,11 +2859,11 @@ class DefectScanner:
             hf_ratio = hf_e / ref_e
 
             # Fresh head: hf_ratio ~ 0.3–1.0 for normal music
-            # Severely worn: hf_ratio < 0.05
-            severity = float(np.clip((0.10 - hf_ratio) / 0.08, 0.0, 1.0))
+            # Moderately worn: hf_ratio 0.10–0.20; severely worn: < 0.05
+            severity = float(np.clip((0.20 - hf_ratio) / 0.08, 0.0, 1.0))
 
             threshold = self.thresholds.get(DefectType.HEAD_WEAR, 0.5)
-            if severity < threshold * 0.3:
+            if severity < threshold * 0.15:
                 severity = 0.0
 
             return DefectScore(
@@ -2829,7 +2931,7 @@ class DefectScanner:
             mean_rt = float(np.mean(rise_times_ms))
             severity = float(np.clip((mean_rt - 8.0) / 20.0, 0.0, 1.0))
             threshold = self.thresholds.get(DefectType.TRANSIENT_SMEARING, 0.5)
-            if severity < threshold * 0.3:
+            if severity < threshold * 0.15:
                 severity = 0.0
 
             return DefectScore(
@@ -2896,7 +2998,7 @@ class DefectScanner:
             mean_ratio = float(np.mean(pre_echo_ratios))
             severity = float(np.clip((mean_ratio - 1.5) / 4.5, 0.0, 1.0))
             threshold = self.thresholds.get(DefectType.PRE_ECHO, 0.5)
-            if severity < threshold * 0.3:
+            if severity < threshold * 0.15:
                 severity = 0.0
 
             return DefectScore(
@@ -2935,7 +3037,7 @@ class DefectScanner:
             severity = float(np.clip((near_nyq_ratio - 0.6) / 0.8, 0.0, 1.0))
 
             threshold = self.thresholds.get(DefectType.ALIASING, 0.5)
-            if severity < threshold * 0.3:
+            if severity < threshold * 0.15:
                 severity = 0.0
 
             return DefectScore(

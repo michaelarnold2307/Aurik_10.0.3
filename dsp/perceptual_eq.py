@@ -4,6 +4,7 @@ perceptual_eq.py - Perceptual EQ (Hörmodell, AI) für Aurik 6.0
 Dieses Modul stellt ein Perceptual-EQ-Modul auf Basis von Hörmodellen als Stub bereit.
 """
 
+import logging
 import warnings
 
 import numpy as np
@@ -14,6 +15,10 @@ try:
 except ImportError:
     torch = None
     ort = None
+
+from dsp._memory_budget_guard import check_budget
+
+_logger = logging.getLogger(__name__)
 
 
 class PerceptualEQ:
@@ -31,11 +36,14 @@ class PerceptualEQ:
         self.backend = None
         if model_path:
             if ort is not None:
-                try:
-                    self.model = ort.InferenceSession(model_path)
-                    self.backend = "onnx"
-                except Exception as e:
-                    warnings.warn(f"ONNX-Modell konnte nicht geladen werden: {e}")
+                if not check_budget("perceptual_eq_onnx", 0.1):
+                    _logger.warning("Memory budget exceeded for perceptual_eq ONNX — using DSP fallback")
+                else:
+                    try:
+                        self.model = ort.InferenceSession(model_path)
+                        self.backend = "onnx"
+                    except Exception as e:
+                        warnings.warn(f"ONNX-Modell konnte nicht geladen werden: {e}")
             elif torch is not None:
                 try:
                     self.model = torch.jit.load(model_path)

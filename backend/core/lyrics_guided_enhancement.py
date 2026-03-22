@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-import logging
-import threading
 from dataclasses import dataclass
+import logging
 from pathlib import Path
+import threading
 
 import numpy as np
 
@@ -246,8 +246,6 @@ class LyricsGuidedEnhancement:
         try:
             from backend.core.ml_memory_budget import (
                 release as _ml_release,
-            )
-            from backend.core.ml_memory_budget import (
                 try_allocate as _try_alloc,
             )
 
@@ -312,8 +310,6 @@ class LyricsGuidedEnhancement:
         try:
             from backend.core.ml_memory_budget import (
                 release as _ml_release,
-            )
-            from backend.core.ml_memory_budget import (
                 try_allocate as _try_alloc,
             )
 
@@ -368,6 +364,13 @@ class LyricsGuidedEnhancement:
                 except Exception:
                     pass
 
+    # Minimum samples required by wav2vec2 feature extractor (7 Conv1d layers,
+    # cumulative receptive field: kernels [10,3,3,3,3,2,2], strides [5,2,2,2,2,2,2]
+    # → min input ≥ 400 samples at 16 kHz = 25 ms).  Inputs shorter than this
+    # cause an OrtInvalidArgument / "Invalid input shape: {N}" error.  Any segment
+    # shorter than 25 ms is treated as silence for phoneme classification.
+    _MIN_WAV2VEC2_SAMPLES: int = 400
+
     def _align_phonemes(
         self,
         words: list[WordTimestamp],
@@ -382,6 +385,11 @@ class LyricsGuidedEnhancement:
 
         Fallback (aligner unavailable): returns ``words`` unchanged — the
         ``_classify_phoneme_type`` DSP assignment from the transcription step is used.
+
+        Fallback (audio too short): any call where ``len(mono_16k) < _MIN_WAV2VEC2_SAMPLES``
+        (< 25 ms at 16 kHz) returns ``words`` unchanged — the wav2vec2 Conv1d
+        feature extractor requires at least 400 samples to produce a valid output
+        frame.  Shorter inputs cause OrtInvalidArgument "Invalid input shape: {N}".
 
         Privacy: no text content is forwarded to the model; only raw waveform
         frames corresponding to each word's time span are processed.
@@ -402,6 +410,19 @@ class LyricsGuidedEnhancement:
             audio_input = mono_16k.astype(np.float32)
             if audio_input.ndim != 1:
                 return words
+
+            # §2.36 Mindestlängen-Guard: wav2vec2 Conv1d requires ≥ 400 samples
+            # (25 ms @ 16 kHz).  Shorter inputs → OrtInvalidArgument "Invalid
+            # input shape: {N}".  Return DSP classification unchanged.
+            if len(audio_input) < self._MIN_WAV2VEC2_SAMPLES:
+                logger.debug(
+                    "LyricsGuidedEnhancement._align_phonemes: input too short"
+                    " (%d samples < %d min) — DSP silence fallback",
+                    len(audio_input),
+                    self._MIN_WAV2VEC2_SAMPLES,
+                )
+                return words
+
             # Normalise to [-1, 1]
             amax = float(np.abs(audio_input).max()) or 1.0
             audio_input = audio_input / amax

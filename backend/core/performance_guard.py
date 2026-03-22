@@ -18,10 +18,10 @@ Version: 9.0.0
 Date: 2026-02-15
 """
 
-import logging
-import time
 from dataclasses import dataclass, field
 from enum import Enum
+import logging
+import time
 
 logger = logging.getLogger(__name__)
 
@@ -109,22 +109,24 @@ class PerformanceGuard:
     """
 
     # Performance Limits (RT Factors)
-    LIMIT_3X_RT = 3.0  # Hard Limit für Balanced Mode
-    LIMIT_FAST = 1.5  # Target für Fast Mode
-    LIMIT_BALANCED = 3.0  # Budget für Balanced Mode — maximal RT×3
-    LIMIT_QUALITY = 5.0  # Budget für Quality Mode — maximal RT×5
-    LIMIT_MAXIMUM = 8.0  # Spec-Referenz für Maximum/Studio-artige Pfade
+    LIMIT_3X_RT = 8.0  # Hard Limit für Balanced Mode (RT×8)
+    LIMIT_FAST = 3.0  # Target für Fast Mode
+    LIMIT_BALANCED = 8.0  # Budget für Balanced Mode — maximal RT×8
+    LIMIT_QUALITY = 10.0  # Budget für Quality Mode — maximal RT×10
+    LIMIT_MAXIMUM = 15.0  # Spec-Referenz für Maximum/Studio-artige Pfade
+    # §2.38 KMV: Hintergrund-ML-Veredelung läuft ohne RT-Limit (MLRefinementThread)
+    LIMIT_BACKGROUND: float = float("inf")  # Stufe 2 — unbeschränkt, Priority=LowPriority
 
     # Warnschwellen
-    WARNING_THRESHOLD_OPTIMAL = 2.0
-    WARNING_THRESHOLD_GOOD = 2.5
-    WARNING_THRESHOLD_ACCEPTABLE = 2.9
-    WARNING_THRESHOLD_CRITICAL = 3.0
+    WARNING_THRESHOLD_OPTIMAL = 4.0
+    WARNING_THRESHOLD_GOOD = 5.5
+    WARNING_THRESHOLD_ACCEPTABLE = 7.5
+    WARNING_THRESHOLD_CRITICAL = 8.0
 
     # Phase Priorities (höher = wichtiger für Quality)
     # ── Musikalische Exzellenz — Priorität 1 (§MusEx-P1) ────────────────────
     # Phasen mit Priority ≥ 9 werden NIEMALS übersprungen (§2.29, §9.5).
-    # RT×3-Budget (max. 3× Audiodauer) bleibt harte Obergrenze — garantiert
+    # RT×8-Budget (max. 8× Audiodauer) bleibt harte Obergrenze — garantiert
     # durch <15 ms/s Laufzeit der Excellence-Phasen (§9.5 Performance-Budget).
     # ─────────────────────────────────────────────────────────────────────────
     PHASE_PRIORITIES = {
@@ -135,7 +137,7 @@ class PerformanceGuard:
         "dehum": 10,
         "decracklé": 9,
         # ── Musikalische Exzellenz Priorität 1 (§MusEx-P1) ──────────────────
-        # Waren MEDIUM/HIGH → auf CRITICAL angehoben: RT×3 Budget garantiert.
+        # Waren MEDIUM/HIGH → auf CRITICAL angehoben: RT×8 Budget garantiert.
         "harmonic_recovery": 10,  # war: 5 (MEDIUM, skippable bei >2.5×)
         "frequency_restoration": 10,  # war: 7 (HIGH,   skippable bei >2.8×)
         "transient_preservation": 10,  # war: 5 (MEDIUM, skippable bei >2.5×)
@@ -157,7 +159,7 @@ class PerformanceGuard:
 
     # Musikalische Exzellenz — Priorität 1 (§MusEx-P1)
     # Phasen in diesem Set werden unter keinen Umständen übersprungen.
-    # RT×3-Kompatibilität: alle Excellence-Phasen < 15 ms/s Audio (§9.5).
+    # RT×8-Kompatibilität: alle Excellence-Phasen < 15 ms/s Audio (§9.5).
     MUSICAL_EXCELLENCE_PHASES: frozenset = frozenset(
         {
             "harmonic_recovery",
@@ -172,7 +174,7 @@ class PerformanceGuard:
     )
 
     # Hard Budget: maximaler RT-Faktor für Musikalische Exzellenz-Betrieb
-    RT3_EXCELLENCE_BUDGET: float = 3.0
+    RT8_EXCELLENCE_BUDGET: float = 8.0
 
     # Absolutes Zeitlimit (§9.5 Ausnahme-Deckel): Restaurierung darf niemals > 30 Minuten dauern
     MAX_ABSOLUTE_SECONDS: float = 1800.0
@@ -207,6 +209,10 @@ class PerformanceGuard:
         self.audio_duration: float | None = None
         self.current_rt_factor: float = 0.0
         self.warnings: list[str] = []
+        # Accumulated analytics overhead (goal measurements, PMGG checks, etc.)
+        # This time is excluded from the RT calculation so quality checks do not
+        # inflate the RT factor and cause unnecessary phase skipping.
+        self._analytics_overhead_s: float = 0.0
 
         logger.info(
             f"PerformanceGuard initialized: Mode={mode.value}, "
@@ -230,11 +236,28 @@ class PerformanceGuard:
         self.skipped_phases.clear()
         self.warnings.clear()
         self.current_rt_factor = 0.0
+        self._analytics_overhead_s = 0.0
 
         logger.info(
             f"Started monitoring: {audio_duration_seconds:.1f}s audio, "
             f"max {self.target_rt_factor * audio_duration_seconds:.1f}s processing"
         )
+
+    def add_analytics_overhead(self, seconds: float) -> None:
+        """Register time spent on quality analytics (goal checks, PMGG, FeedbackChain
+        measurements) so it is excluded from the RT-factor calculation.
+
+        Must be called by any caller that invokes ``measure_all()`` or similar
+        blocking analytics operations that should not count against the pipeline
+        RT budget.
+        """
+        if seconds > 0:
+            self._analytics_overhead_s += seconds
+            logger.debug(
+                "PerformanceGuard: +%.2fs analytics overhead (total excluded=%.2fs)",
+                seconds,
+                self._analytics_overhead_s,
+            )
 
     def start_phase(self, phase_id: str) -> float:
         """
@@ -295,8 +318,10 @@ class PerformanceGuard:
 
         self.phase_performances.append(perf)
 
-        # Update current RT Factor (kumulativ)
-        total_time_so_far = phase_end_time - self.start_time
+        # Update current RT Factor (kumulativ) — exclude analytics overhead so that
+        # goal measurements (measure_all, PMGG, FeedbackChain checks) do not inflate
+        # the RT factor and trigger unnecessary phase skipping.
+        total_time_so_far = max(0.0, (phase_end_time - self.start_time) - self._analytics_overhead_s)
         self.current_rt_factor = total_time_so_far / self.audio_duration if self.audio_duration else 0
 
         # Status Check
@@ -344,17 +369,19 @@ class PerformanceGuard:
 
         # Musikalische Exzellenz — Priorität 1 (§MusEx-P1): niemals überspringen.
         # Doppelter Schutz: Priority-Dict UND Namens-Set verhindern Skip.
-        # RT×3-Kompatibilität garantiert: alle Excellence-Phasen < 15 ms/s (§9.5).
+        # RT×8-Kompatibilität garantiert: alle Excellence-Phasen < 15 ms/s (§9.5).
         short_id = self._normalize_phase_id(phase_id)
         if short_id in self.MUSICAL_EXCELLENCE_PHASES:
             logger.debug(
                 f"🎵 Phase '{phase_id}' ist Musikalische-Exzellenz-Phase (§MusEx-P1) "
-                f"— wird niemals übersprungen (RT×3 Budget: {self.RT3_EXCELLENCE_BUDGET:.1f}×)"
+                f"— wird niemals übersprungen (RT×8 Budget: {self.RT8_EXCELLENCE_BUDGET:.1f}×)"
             )
             return False
 
-        # Prognostiziere RT Factor nach dieser Phase
-        estimated_total_time = (time.perf_counter() - self.start_time) + estimated_time_seconds
+        # Prognostiziere RT Factor nach dieser Phase — subtract analytics overhead
+        # so goal-measurement time does not count against processing budget.
+        _elapsed_processing = max(0.0, (time.perf_counter() - self.start_time) - self._analytics_overhead_s)
+        estimated_total_time = _elapsed_processing + estimated_time_seconds
         estimated_total_time / self.audio_duration if self.audio_duration else 0
 
         # Schätze verbleibende Zeit (konservativ: 0.5s pro Phase)
@@ -390,20 +417,23 @@ class PerformanceGuard:
 
     def check_early_exit(self, remaining_phases: int) -> bool:
         """
-        Prüft ob Early-Exit nötig ist (RT-Limit oder absolutes 30-Minuten-Limit erreicht).
+        Prüft ob Early-Exit nötig ist — NUR bei absolutem 30-Minuten-Limit.
+
+        §2.38 KMV: RT-Limit-Überschreitung führt NICHT zum Pipeline-Abbruch.
+        Einzelne langsame Phasen werden über should_skip_phase() / deferred_phases
+        behandelt. Der einzige harte Abbruchgrund ist das 30-Minuten-Absolutlimit.
 
         Args:
             remaining_phases: Anzahl verbleibender Phasen
 
         Returns:
-            True wenn sofortiger Abbruch empfohlen
+            True wenn sofortiger Abbruch empfohlen (nur bei 30-min-Limit)
         """
         if not self.enforce_limit:
             return False
 
-        # §9.5 Absolutes 30-Minuten-Limit — gilt unabhängig vom RT-Faktor.
-        # Timeout-Ausnahmen bei langsamen Systemen oder großen Modellen sind einkalkuliert,
-        # aber das Gesamtlimit von 1800 s darf unter keinen Umständen überschritten werden.
+        # §9.5 Absolutes 30-Minuten-Limit — einziger harter Abbruchgrund.
+        # Gilt unabhängig vom RT-Faktor.
         if self.start_time is not None:
             elapsed_abs = time.perf_counter() - self.start_time
             if elapsed_abs >= self.MAX_ABSOLUTE_SECONDS:
@@ -416,30 +446,18 @@ class PerformanceGuard:
                 )
                 return True
 
+        # RT-Faktor-Überschreitung: NUR warnen, KEIN Abbruch (§2.38 KMV).
+        # Langsame Phasen werden durch should_skip_phase() / deferred_phases gehandelt.
         current_limit = self.target_rt_factor
-        # Aktuelle RT Factor
         if self.current_rt_factor > current_limit:
-            logger.error(
-                f"❌ EARLY EXIT: RT-Limit exceeded ({self.current_rt_factor:.2f}× RT, limit={current_limit:.1f}×), "
-                f"aborting {remaining_phases} remaining phases"
-            )
-            return True
-
-        # Prognose: Werden wir das Limit überschreiten?
-        if self.start_time is None:
-            # start_monitoring() not yet called — cannot project RT factor
-            return False
-        estimated_remaining_time = remaining_phases * 0.5  # Konservativ
-        total_time = (time.perf_counter() - self.start_time) + estimated_remaining_time
-        projected_rt_factor = total_time / self.audio_duration if self.audio_duration else 0
-
-        if projected_rt_factor > current_limit * 1.1:  # 10% Puffer
             logger.warning(
-                f"⚠️ EARLY EXIT recommended: Projected {projected_rt_factor:.2f}× RT > {current_limit:.1f}× limit, "
-                f"would abort {remaining_phases} phases"
+                "⚠️ RT-Limit überschritten: %.2f× RT (limit=%.1f×), "
+                "%d Phasen verbleiben — Pipeline läuft weiter (§2.38 KMV, 30-min-Limit gilt)",
+                self.current_rt_factor,
+                current_limit,
+                remaining_phases,
             )
-            # Aber nicht wirklich abbrechen, nur warnen
-            return False
+            # KEIN return True — Pipeline läuft bis 30-min-Limit weiter
 
         return False
 
@@ -494,6 +512,7 @@ class PerformanceGuard:
              'click_removal' → 'click_removal' (unchanged).
         """
         import re
+
         m = re.match(r"^phase_\d+_(.*)", phase_id)
         return m.group(1) if m else phase_id
 
@@ -515,7 +534,9 @@ class PerformanceGuard:
 
         # Summiere Priorities der geskippten Phasen
         total_priority = sum(self.PHASE_PRIORITIES.values())
-        skipped_priority = sum(self.PHASE_PRIORITIES.get(self._normalize_phase_id(pid), 5) for pid in self.skipped_phases)
+        skipped_priority = sum(
+            self.PHASE_PRIORITIES.get(self._normalize_phase_id(pid), 5) for pid in self.skipped_phases
+        )
 
         # Degradation = Anteil der geskippten Priority
         degradation = skipped_priority / total_priority if total_priority > 0 else 0

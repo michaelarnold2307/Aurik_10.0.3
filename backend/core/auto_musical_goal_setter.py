@@ -36,9 +36,9 @@ Date: 2026-02-17
 
 from __future__ import annotations
 
+from dataclasses import asdict, dataclass
 import logging
 import math
-from dataclasses import asdict, dataclass
 from typing import Any
 
 from backend.core.defect_scanner import DefectAnalysisResult, DefectType, MaterialType
@@ -304,24 +304,6 @@ _MATERIAL_ADJUSTMENTS: dict[MaterialType, dict[str, float]] = {
         "denoise_strength": -0.05,
         "declip_strength": +0.10,  # Codec-Artefakte reparieren
     },
-    MaterialType.QUADROPHONY: {
-        "target_snr_db": +1.0,
-        "target_authenticity": +0.03,
-        "target_naturalness": +0.02,
-        "target_clarity": +0.03,
-        "target_brightness": -0.02,
-        "denoise_strength": -0.05,
-        "click_sensitivity": -0.04,
-    },
-    MaterialType.AMBISONIC: {
-        "target_snr_db": +2.0,
-        "target_authenticity": +0.04,
-        "target_naturalness": +0.03,
-        "target_clarity": +0.04,
-        "target_brightness": -0.02,
-        "denoise_strength": -0.06,
-        "click_sensitivity": -0.05,
-    },
     MaterialType.UNKNOWN: {},  # Keine Anpassung
 }
 
@@ -342,8 +324,6 @@ _MATERIAL_PQS_TARGETS: dict[MaterialType, float] = {
     MaterialType.AAC: 4.2,
     MaterialType.MINIDISC: 4.0,
     MaterialType.STREAMING: 4.1,  # §6.2: Dropouts, Codec-Artefakte, Bitrate-Varianz
-    MaterialType.QUADROPHONY: 4.1,
-    MaterialType.AMBISONIC: 4.1,
     MaterialType.UNKNOWN: 3.8,
 }
 
@@ -480,9 +460,30 @@ class AutoMusicalGoalSetter:
                 params[param] = float(max(lo, min(hi, val)))
 
         # SNR-Ziele: physikalisch sinnvoll
-        params["target_snr_db"] = float(max(20.0, min(80.0, float(params["target_snr_db"]) if math.isfinite(float(params["target_snr_db"])) else 42.0)))
-        params["target_dynamic_range_db"] = float(max(4.0, min(30.0, float(params["target_dynamic_range_db"]) if math.isfinite(float(params["target_dynamic_range_db"])) else 14.0)))
-        params["target_lufs"] = float(max(-23.0, min(-8.0, float(params["target_lufs"]) if math.isfinite(float(params["target_lufs"])) else -16.0)))
+        params["target_snr_db"] = float(
+            max(
+                20.0,
+                min(80.0, float(params["target_snr_db"]) if math.isfinite(float(params["target_snr_db"])) else 42.0),
+            )
+        )
+        params["target_dynamic_range_db"] = float(
+            max(
+                4.0,
+                min(
+                    30.0,
+                    (
+                        float(params["target_dynamic_range_db"])
+                        if math.isfinite(float(params["target_dynamic_range_db"]))
+                        else 14.0
+                    ),
+                ),
+            )
+        )
+        params["target_lufs"] = float(
+            max(
+                -23.0, min(-8.0, float(params["target_lufs"]) if math.isfinite(float(params["target_lufs"])) else -16.0)
+            )
+        )
 
         # ----------------------------------------------------------------
         # Schritt 5: Widerspruchsprüfung

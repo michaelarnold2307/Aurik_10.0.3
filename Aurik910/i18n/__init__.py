@@ -119,7 +119,7 @@ _TRANSLATIONS: dict[str, dict[str, str]] = {
         "status.processing_item": "Verarbeite: {file}",
         "status.completed": "Abgeschlossen",
         "status.completed_with_errors": "Abgeschlossen mit Fehlern",
-        "status.completed_success_summary": "✅  {count} Datei(en) erfolgreich restauriert – ▶ Anhören oder 💾 Speichern",
+        "status.completed_success_summary": "✅  {count} Datei(en) erfolgreich restauriert und gespeichert – ▶ Jetzt anhören",
         "status.completed_mixed_summary": "⚠️  {ok} restauriert, {failed} fehlgeschlagen – Protokoll prüfen",
         "status.completed_failed_summary": "❌  {failed} konnten nicht verarbeitet werden – Protokoll prüfen",
         "status.loading_file": "📂  Wird geladen: {file} …",

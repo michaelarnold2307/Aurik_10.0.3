@@ -1,5 +1,198 @@
 # Aurik 9 — Changelog
 
+## Version 9.10.70 — §2.38 KMV: Kontinuierliche ML-Veredelung (Mär 2026)
+
+### Zusammenfassung
+
+Neues Architektur-Konzept **[RELEASE_MUST]**: Kontinuierliche ML-Veredelung (KMV §2.38).
+Löst das grundlegende Problem, dass RT-Limit-Überschreitungen bisher zu dauerhaftem Qualitätsverlust führten.
+
+**Kern-Idee — Zweistufiger Export:**
+- **Stufe 1 (BatchProcessingThread)**: RT-limitiert (`LIMIT_BALANCED/QUALITY/MAXIMUM`). Bei RT-Überschreitung:
+  DSP-Fallback PLUS Phase in `deferred_phases` eintragen (kein endgültiger Abbruch).
+  Atomischer Sofort-Export nach Phase-Pipeline — der Nutzer erhält *sofort* eine hörbare Exportdatei.
+- **Stufe 2 (MLRefinementThread)**: Startet automatisch wenn `len(deferred_phases) > 0` und ≥ 4 GB RAM frei.
+  `LIMIT_BACKGROUND = float("inf")` — kein RT-Limit. `QThread.LowPriority` + `os.nice(10)` auf Linux.
+  Vollständige UV3-Pipeline mit gecachten Analyse-Ergebnissen aus Stufe 1 (kein Neustart von
+  DefectScanner, EraClassifier, MediumClassifier). Nach Abschluss: atomischer Overwrite der Exportdatei
+  wenn `quality(v2) ≥ quality(v1)`, sonst Stufe-1-Export behalten.
+
+**Qualitätsgarantie**: Der Nutzer erhält nach Stufe 2 stets die **bestmögliche ML-Qualität** — unabhängig
+davon wie lange die Verarbeitung dauert. Stufe 2 läuft vollständig im Hintergrund ohne UI-Blockade.
+
+### Geänderte Dateien
+
+**`backend/core/performance_guard.py`**:
+- Neue Konstante: `LIMIT_BACKGROUND: float = float("inf")` (§2.38 KMV Stufe 2, ausschließlich für `MLRefinementThread`)
+
+**`.github/copilot-instructions.md`**:
+- PerformanceGuard-Sektion: neue Semantik "Überschreitung → DSP-Fallback + `deferred_phases`" statt hartem Abbruch
+- Neuer [RELEASE_MUST]-Block `§2.38 Kontinuierliche ML-Veredelung (KMV)` mit vollständiger Spec:
+  Stufe-1/Stufe-2-Tabelle, RAM-Guard, `DeferredRefinementJob`-Pflichtfelder, Signalkontrakt, UI-Spec,
+  RestorationResult-Pflichtfelder, Memory-Guard, Verbote
+- Checkliste neues Kernmodul: `deferred_phases in RestorationResult` (list[str], default=[]) ergänzt
+
+**`.github/specs/02_pipeline_architecture.md`**:
+- `FAST_GOALS_SUBSET` in §2.29: staler Key `"natuerlichkeit_mfcc_proxy"` → `"natuerlichkeit"` (kanonisch)
+- RestorationResult: drei neue §2.38-Felder `deferred_phases`, `refinement_complete`, `stufe2_quality_estimate`
+- Neues Kapitel §2.38 mit vollständiger KMV-Spec: Pipeline-Ablauf (Mermaid-Stil), RAM-Guard, `DeferredRefinementJob`-Dataclass, `MLRefinementThread`-Signalkontrakt, Invarianten
+
+**`.github/specs/08_architecture_and_distribution.md`**:
+- Softwareschichten-Diagramm erweitert: `BatchProcessingThread` + `MLRefinementThread` in UI-Schicht,
+  `PerformanceGuard (BALANCED/QUALITY/MAXIMUM/∞)` + `MLRefinementQueue` in Backend-Core-Schicht
+
+### Neue Pflicht-Signals (`MLRefinementThread`)
+
+```python
+refinement_started(str, int)      # output_path, n_deferred_phases
+refinement_phase_done(str, float) # phase_id, quality_improvement_delta
+refinement_progress(int, str)     # pct 0–100, phase_name
+refinement_complete(str, object)  # output_path, final_RestorationResult
+refinement_cancelled(str)         # output_path → Stufe-1-Export bleibt
+```
+
+### Neue RestorationResult-Felder
+
+```python
+deferred_phases:         list[str] = field(default_factory=list)  # §2.38 KMV
+refinement_complete:     bool = False
+stufe2_quality_estimate: Optional[float] = None
+```
+
+---
+
+## Version 9.10.69 — PMGG: natuerlichkeit Key-Mismatch + FFT-Scope-Fix (Mär 2026)
+
+### Zusammenfassung
+
+Zwei strukturelle Defekte in `backend/core/per_phase_musical_goals_gate.py` (PMGG §2.29) behoben:
+
+**Bug 1 — P1-Ziel `natuerlichkeit` nie überwacht (Key-Mismatch §2.29 × §2.32):**
+`FAST_GOALS_SUBSET` enthielt `"natuerlichkeit_mfcc_proxy"` statt des kanonischen Keys `"natuerlichkeit"`.
+`GoalApplicabilityFilter` (§2.32) liefert ausschließlich kanonische Keys. Der Schnitt
+`FAST_GOALS_SUBSET ∩ applicable_goals` ergab für `natuerlichkeit` immer ∅ → das P1-Ziel
+(Schwellwert ≥ 0.90, höchste Klasse) wurde in der gesamten Per-Phase-Überwachung **nie geprüft**.
+Fix: Key in `FAST_GOALS_SUBSET` und `_measure_quick` auf `"natuerlichkeit"` vereinheitlicht.
+
+**Bug 2 — Fragile FFT-Scope-Abhängigkeit: 6 Goals kaskadieren bei Brillanz-Fehler:**
+`fft_mag`, `freqs`, `tot_energy` wurden innerhalb des `brillanz`-try-Blocks berechnet.
+Bei einem dortigen Fehler fielen `waerme`, `natuerlichkeit`, `authentizitaet`, `transparenz`,
+`bass_kraft`, `separation_fidelity` still auf `0.5` zurück — keine Regression erkennbar, kein Schutz.
+Fix: FFT-Pre-Computation in einen eigenen try/except-Block vor alle Metrik-Blöcke gezogen;
+alle 6 abhängigen Metriken referenzieren jetzt sicher vordefinierte Arrays.
+
+### Änderungen
+
+| Prio | Datei | Problem | Fix |
+|---|---|---|---|
+| **P1** | `backend/core/per_phase_musical_goals_gate.py` | `FAST_GOALS_SUBSET` enthielt `"natuerlichkeit_mfcc_proxy"` — P1-Ziel §2.32 nie überwacht | Key auf `"natuerlichkeit"` (kanonisch) geändert |
+| **P1** | `backend/core/per_phase_musical_goals_gate.py` | `_measure_quick` schrieb Scores unter `"natuerlichkeit_mfcc_proxy"` → NaN-Guard-Loop verfehlte Key | Output-Key ebenfalls auf `"natuerlichkeit"` geändert |
+| **P2** | `backend/core/per_phase_musical_goals_gate.py` | `fft_mag`/`freqs`/`tot_energy` im `brillanz`-try-Block — 6 Goals kaskadieren bei Fehler | FFT in eigenem try/except pre-computed; alle Metrik-Blöcke sind jetzt unabhängig voneinander |
+| **Tests** | `tests/test_per_phase_musical_goals_gate.py` | Keine Tests für Key-Alignment oder FFT-Scope-Isolation | 8 neue Tests: `test_41`–`test_48` (Klassen `TestCanonicalKeyAlignment` + `TestFFTScopeRobustness`) |
+
+### Auswirkungen
+
+- Alle 14 Musical Goals werden ab jetzt korrekt per Phase überwacht (inkl. `natuerlichkeit`)
+- P1-Ziel `natuerlichkeit ≥ 0.90` löst bei Regression korrekt Retries und Rollback aus
+- FFT-Fehler isoliert — kein kaskadierender Blind-Spot über 6 Metriken mehr
+- `spec/.github/specs/02_pipeline_architecture.md` Zeile 229 enthält noch den alten Proxy-Key; wird in nächstem Spec-Update korrigiert
+
+---
+
+## Version 9.10.68 — §2.36 LyricsGuidedEnhancement: wav2vec2 Mindestlängen-Guard (Mär 2026)
+
+### Zusammenfassung
+
+Frontend-Tiefenanalyse (22.03.2026) identifizierte `OrtInvalidArgument: Invalid input shape: {1}` im wav2vec2-Aligner des §2.36-Pflichtmoduls. Der Conv1d-Feature-Extractor von wav2vec2 benötigt mindestens 400 Samples (25 ms @ 16 kHz) als Eingabe. Bei sehr kurzen Stille-Segmenten oder Edge-Chunks wurde diese Grenze unterschritten. Fix: `_MIN_WAV2VEC2_SAMPLES = 400`-Guard in `_align_phonemes()` vor dem ONNX-Call.
+
+### Änderungen
+
+#### Bugfix: §2.36 LyricsGuidedEnhancement
+
+- **`backend/core/lyrics_guided_enhancement.py`**:
+  - **`_MIN_WAV2VEC2_SAMPLES = 400`** als Klassen-Konstante: Dokumentiert den kumulativen Rezeptivfeld des wav2vec2 Conv1d-Feature-Extractors (Kernel [10,3,3,3,3,2,2], Stride [5,2,2,2,2,2,2] → Min. 400 Samples = 25 ms @ 16 kHz)
+  - **Mindestlängen-Guard in `_align_phonemes()`**: Vor dem `_aligner_session.run()` wird `len(audio_input) < _MIN_WAV2VEC2_SAMPLES` geprüft. Bei Unterschreitung: sofortige DSP-Fallback-Rückgabe (`return words`), kein ONNX-Aufruf, kein Absturz
+  - Verhindert `OrtInvalidArgument: Invalid input shape: {N}` für N < 400 (beobachtet: N=1 bei kurzen Stille-Chunks in Tape-Material von 1890)
+
+#### Neue Tests (79 gesamt, +2)
+
+- **`tests/unit/test_lyrics_guided_enhancement.py`**:
+  - **`test_lge_41_align_phonemes_too_short_returns_words_unchanged`**: Prüft 1-Sample, 399-Sample (unter Schwelle → Session NICHT aufgerufen) und 400-Sample (exakt an Grenze → Session aufgerufen)
+  - **`test_lge_42_align_phonemes_boundary_values`**: Prüft `_MIN_WAV2VEC2_SAMPLES == 400` (Konstanten-Invariante)
+
+## Version 9.10.67 — Debug-Session: Kritische Diffusion-Inpainting-Bugfixes + Pipeline-Härtung (Mär 2026)
+
+### Zusammenfassung
+
+Frontend-Debug-Session deckte 16 Befunde (W-1 bis W-16) auf. Die kritischsten: Phase 55 verwarf **jeden** erfolgreichen FlowMatching/CQTdiff-Aufruf wegen falschem `np.isfinite()`-Aufruf auf Dataclass statt `.audio`. Zusätzlich: CQTdiff-Keyword-Mismatch, fehlende Exception-Tracebacks, falsche Methodennamen in Debug-Launcher, RT-Budget-Korrektur auf 8× und einheitliche 10-Stufen-Pipeline-Nummerierung.
+
+### Änderungen
+
+#### Kritische Bugfixes (Phase 55 / Diffusion Inpainting)
+
+- **`backend/core/phases/phase_55_diffusion_inpainting.py`**:
+  - **isfinite-Bug (Schweregrad: kritisch)**: `np.isfinite(result)` auf `InpaintingResult`-Dataclass → `TypeError` still geschluckt → jedes erfolgreiche FlowMatching/CQTdiff-Ergebnis verworfen. **Fix**: `result.success` prüfen + `np.isfinite(result.audio[start:end]).all()`
+  - **CQTdiff-Keyword-Mismatch**: `plugin.inpaint(audio=audio, sr=sample_rate, gap_start=start, gap_end=end)` → `got an unexpected keyword argument 'gap_start'`. **Fix**: `gap_start_sample=start, gap_end_sample=end` (korrekte API-Signatur von `CQTdiffPlusPlugin.inpaint()`)
+- **`plugins/flow_matching_plugin.py`**: Gleicher CQTdiff-Keyword-Fix in `_try_cqtdiff_plus()` — positionale Argumente auf benannte `gap_start_sample=` / `gap_end_sample=` umgestellt
+
+#### Debug-/Logging-Fixes
+
+- **`backend/core/multi_pass_strategy.py`** (W-8): `logger.error("Variante %s fehlgeschlagen", name)` → ergänzt um `exc_info=True` für vollständige Tracebacks in Logs statt nur Error-Message
+- **`debug_frontend_launch.py`** (W-11): Primärer Methoden-Lookup `_start_batch_processing` → korrigiert zu `_start_processing` (tatsächlicher Methodenname in `ModernMainWindow`)
+
+#### RT-Budget-Korrektur (RT×3 → RT×8)
+
+- **12+ Dateien** (`denker/aurik_denker.py`, `backend/core/multi_pass_strategy.py`, `backend/core/phases/phase_03_denoise.py`, `phase_06_frequency_restoration.py`, `phase_12_wow_flutter_fix.py`, `phase_20_reverb_reduction.py`, `phase_31_speed_pitch_correction.py`, `backend/core/unified_restorer_v3.py`, `Aurik910/ui/modern_window.py`, Tests und weitere): Alle RT-Budget-Referenzen von `3× Echtzeit` / `RT×3` auf `8× Echtzeit` / `LIMIT_BALANCED = 8.0` angeglichen (Spec §2.37 PerformanceGuard)
+
+#### Pipeline-Stufen-Renummerierung ([Xb/8] → [X/10])
+
+- **8+ Dateien** (`denker/aurik_denker.py`, `backend/core/unified_restorer_v3.py`, `backend/core/multi_pass_strategy.py`, `Aurik910/ui/modern_window.py` und weitere): Gemischte Stufennummerierung `[1b/8]`, `[2/8]`, `[3b/8]` etc. einheitlich auf reines **10-Stufen-Schema** `[1/10]` bis `[10/10]` umgestellt + wissenschaftliche Validierung der 10-stufigen Pipeline-Architektur
+
+### Spec-Referenz
+
+- §4.4 Fallback-Kaskade: FlowAudio → CQTdiff+ → DiffWave → NMF-β — Phase 55 funktioniert nun korrekt für alle Kaskadenstufen
+- §2.37 PerformanceGuard: `LIMIT_BALANCED = 8.0` (8× Echtzeit), `LIMIT_QUALITY = 10.0`, `LIMIT_MAXIMUM = 15.0`
+- Pipeline-Visualisierung: 10 sequentielle Stufen mit Fortschrittsanzeige [1/10]–[10/10]
+
+---
+
+## Version 9.10.66 — FlowAudio SOTA: Conditional Flow Matching Inpainting (Mär 2026)
+
+### Zusammenfassung
+
+Neues Plugin `plugins/flow_audio_sota.py` — Conditional Flow Matching (CFM) für kontextbewusste Audio-Lückenfüllung nach Lipman et al. 2023 / Bai et al. 2024. Rein DSP-basiert (kein vortrainiertes Modell nötig), physik-informierter Velocity-Field-Ansatz.
+
+### Änderungen
+
+- **`plugins/flow_audio_sota.py`**: `FlowAudioModel` mit Singleton-Pattern (`get_flow_audio_model()`); OT-basierte Flow-ODE (4–16 Euler-Schritte); kontextkonditionierte Target-Schätzung aus Sinusoidal-Partial-Tracking + LPC-Spektralenvelope (Ord. 36 @ 48 kHz) + stochastischem Residual; PGHI-Phasenrekonstruktion nach jeder Spektralmodifikation; Hanning-Crossfade an Lückengrenzen (10 ms); Energie-Matching zum Kontext; NaN/Inf-Guards + Clip [-1, 1]
+- **`tests/unit/test_flow_audio_sota.py`**: 45 Unit-Tests (Validierung, Spektralanalyse, STFT/PGHI, Flow-ODE, Target-Schätzung, Finalisierung, Full-Pipeline, Singleton/Thread-Safety)
+
+### Spec-Referenz
+
+Fallback-Kaskade §4.4: FlowAudio (CFM) → CQTdiff+ → DiffWave ONNX → NMF-β DSP. Import-Kontrakt: `FlowMatchingPlugin._try_flow_audio()` → `FlowAudioModel().inpaint()`. SR-Pflicht 48 kHz. PGHI nach jeder Spektralmodifikation.
+
+---
+
+## Version 9.10.65 — TRANSPORT_BUMP: Bandhopser-Erkennung und -Reparatur (Mär 2026)
+
+### Zusammenfassung
+
+Neuer 29. Defekttyp `TRANSPORT_BUMP` (Bandhopser) — impulsive Mikro-Geschwindigkeitssprünge (50–300 ms) durch mechanische Transporterschütterungen bei Kassetten- und Bandaufnahmen. Unterscheidet sich von kontinuierlichem Wow/Flutter (< 4 Hz) und Dropouts (Signalverlust).
+
+### Änderungen
+
+- **`backend/core/defect_scanner.py`**: `DefectType.TRANSPORT_BUMP` als 29. Enum-Mitglied; `_detect_transport_bump()` mit Dual-Domain-Erkennung (RMS + ZCR), adaptivem Schwellwert (Median + 4×MAD), zeitlicher Dilatation (±60 ms)
+- **`backend/core/causal_defect_reasoner.py`**: `transport_bump` in CAUSES, alle 14 MATERIAL_PRIORS (tape=0.12 höchster Prior), CAUSE_TO_PHASES → phase_12 + phase_24 + phase_31, CAUSE_PARAMS mit bump_correction_strength/crossfade/envelope-Parametern
+- **`backend/core/phases/phase_12_wow_flutter_fix.py`**: Step 6b in `process()` — liest `transport_bump_locations` aus kwargs; `_repair_transport_bumps()` mit lokaler PSOLA-Pitch-Glättung + Hanning-Envelope-Morphing + Crossfade; Hilfsmethoden `_smooth_bump_envelope()`, `_local_pitch_flatten()`, `_quick_pitch_estimate()`
+- **`Aurik910/ui/modern_window.py`**: „Bandhopser" in `_DEFECT_LABELS`, `_severity_thresholds`, `_PHASE_EXPL`, `_PHASE_REDUCES`; Severity-/Location-Integration in `_defect_analysis_to_display()` und `_result_scores_to_display()`
+- **`tests/unit/test_transport_bump.py`**: 41 Unit-Tests (Enum, Erkennung, Reasoning, Reparatur, Hilfs-Methoden, UI-Integration)
+
+### Spec-Referenz
+
+DefectScanner (29 Typen total); CausalDefectReasoner routing: `transport_bump` → phase_12+24+31; Material-Priors: tape=0.12, wire_recording=0.08, digital=0.01.
+
+---
+
 ## Version 9.10.64 — SR-Assertion-Verletzungen in Analyse-Modulen behoben (Mär 2026)
 
 ### Zusammenfassung
@@ -377,13 +570,13 @@ koordiniert. EraClassifier + GermanSchlagerClassifier + CLAP — vollständig mi
 | **D-1** | `backend/core/musikalischer_globalplan.py` | Neues Kernmodul: `MusikalischerGlobalplanDienst` (Singleton, Double-Checked Locking); 13 Ära-Profile (1890–2020); Genre-Modifikatoren (Schlager, Jazz, Klassik, Rock, Pop, Volksmusik, Oper); 17 Per-Phase-Adjustments; `use_ml_classifiers`-Flag gegen Doppelaufruf |
 | **D-2** | `backend/core/unified_restorer_v3.py` | `RestorationConfig.global_plan`-Feld; `_active_global_plan` in `restore()`; `_profiled_phase_call()` schleust phasenspezifische Parameter aus dem Plan als kwargs ein |
 | **D-3** | `denker/restaurier_denker.py` | `global_plan`-Parameter in `restauriere()` + Weitergabe an `restore()` |
-| **D-4** | `denker/aurik_denker.py` | **Stufe 2b** (zwischen DefektDenker↔StrategieDenker): DSP-only Globalplan; `AurikErgebnis.global_plan`-Feld; Enrichment nach Stufe 4 mit `era_decade` aus `RestorationResult` |
+| **D-4** | `denker/aurik_denker.py` | **Stufe 4** (zwischen DefektDenker↔StrategieDenker): DSP-only Globalplan; `AurikErgebnis.global_plan`-Feld; Enrichment nach Stufe 8 mit `era_decade` aus `RestorationResult` |
 | **D-5** | `tests/unit/test_musikalischer_globalplan.py` | 60 neue Tests (Singleton, Typen, 17 Phase-Adjustments, Cross-Phase-Koordination, NaN/Inf, Mono/Stereo, Ära-Profile, Genre-Modifikatoren, SR-Invariante) |
 
 ### Architektonischer Kern: Cross-Phase-Reasoning
 
 ```text
-AurikDenker.Stufe 2b
+AurikDenker.Stufe 4
   → erstelle_globalplan(audio, sr, use_ml_classifiers=False)   # DSP-only
     → 13 Ära-Profile × Genre-Modifikatoren → stilbewusste Zielwerte
     → 17 phasenspezifische Adjustments berechnen
@@ -404,8 +597,8 @@ AurikDenker.Stufe 4
 ### Anti-Parallelwelten-Konformität
 
 EraClassifier und GermanSchlagerClassifier laufen bereits in `UnifiedRestorerV3`
-parallel (§P-3, 9.10.49). Stufe 2b ruft sie mit `use_ml_classifiers=False` auf
-(reine DSP-Heuristik). Nach Stufe 4 wird `RestorationResult.era_decade` in den
+parallel (§P-3, 9.10.49). Stufe 4 ruft sie mit `use_ml_classifiers=False` auf
+(reine DSP-Heuristik). Nach Stufe 8 wird `RestorationResult.era_decade` in den
 Plan zurückgeschrieben — kein Doppelaufruf.
 
 ### Invarianten

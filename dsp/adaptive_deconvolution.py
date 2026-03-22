@@ -3,12 +3,14 @@ Adaptive Deconvolution / Inverse Filtering Modul für Aurik 6.0 (SOTA-Maximum)
 SOTA-tauglich, adaptiv, mit automatischer Parameteroptimierung (klassische DSP, SOTA-Maximum).
 """
 
-import logging
 from dataclasses import asdict, dataclass
+import logging
 from pathlib import Path
 from typing import Any
 
 import numpy as np
+
+from dsp._memory_budget_guard import check_budget
 
 try:
     pass
@@ -104,6 +106,8 @@ class AdaptiveDeconvolution:
                     try:
                         import onnxruntime as _ort
 
+                        if not check_budget("adaptive_deconv_onnx", 0.1):
+                            raise RuntimeError("Memory budget exceeded")
                         _sess = _ort.InferenceSession(str(onnx_path), providers=["CPUExecutionProvider"])
                         _in_name = _sess.get_inputs()[0].name
                         _ir_name = _sess.get_inputs()[1].name

@@ -9,6 +9,8 @@ import os
 import numpy as np
 import onnxruntime as ort
 
+from dsp._memory_budget_guard import check_budget
+
 logger = logging.getLogger(__name__)
 
 MODEL_PATH_BANQUET = os.path.abspath(
@@ -30,7 +32,11 @@ class SotaVocalSeparator:
             self.model_path = model_path or MODEL_PATH_BANQUET
         self.session = None
         if os.path.exists(self.model_path):
-            self.session = ort.InferenceSession(self.model_path)
+            _model_size_gb = os.path.getsize(self.model_path) / (1024**3)
+            if check_budget("sota_vocal_separator", max(0.1, _model_size_gb)):
+                self.session = ort.InferenceSession(self.model_path)
+            else:
+                logger.warning("Memory budget exceeded for vocal separator — returning original")
         else:
             logger.warning(f"[WARN] ONNX-Modell nicht gefunden: {self.model_path}")
 

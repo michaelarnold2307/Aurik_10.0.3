@@ -10,12 +10,16 @@
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │  Desktop-UI  (Aurik910/)   PyQt5 · ModernMainWindow          │
+│    BatchProcessingThread (Stufe 1, RT-limitiert)             │
+│    MLRefinementThread    (Stufe 2, LIMIT_BACKGROUND=∞)       │
 ├─────────────────────────────────────────────────────────────┤
 │  Frontend-Bridge  backend/api/bridge.py  Lazy-Imports        │
 ├─────────────────────────────────────────────────────────────┤
 │  Orchestrator  denker/aurik_denker.py  8 Stufen (kanonisch)  │
 ├─────────────────────────────────────────────────────────────┤
 │  Backend-Core  backend/core/ · plugins/ · dsp/  DSP + ML   │
+│    PerformanceGuard  (Limiten: BALANCED/QUALITY/MAXIMUM/∞)   │
+│    MLRefinementQueue (DeferredRefinementJob, thread-safe)    │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -428,6 +432,7 @@ _PHASE_REDUCES = {
 ```
 
 **Out-of-the-Box-Garantie:**
+
 - Kein Download beim ersten Start
 - Kein Download nach der Installation
 - Alle SOTA-Upgrade-Modelle lokal gebündelt in Programmierphase vorab integriert

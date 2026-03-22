@@ -16,12 +16,12 @@ CPU-Only.
 
 from __future__ import annotations
 
+from dataclasses import dataclass, field
 import logging
 import math
 import os
-import threading
-from dataclasses import dataclass, field
 from pathlib import Path
+import threading
 
 import numpy as np
 
@@ -55,6 +55,7 @@ _instance: VersaPlugin | None = None
 # Result dataclass
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class VersaResult:
     """Ergebnis der VERSA MOS-Schätzung.
@@ -81,6 +82,7 @@ class VersaResult:
 # ---------------------------------------------------------------------------
 # VersaPlugin
 # ---------------------------------------------------------------------------
+
 
 class VersaPlugin:
     """SingMOS Pro via VERSA Toolkit — referenzfreier Musik-MOS.
@@ -119,11 +121,6 @@ class VersaPlugin:
         logger.debug("VERSA: vocal_conf=%.3f", max_vocal_conf)
         return max_vocal_conf
 
-    @staticmethod
-    def _should_use_singmos(audio: np.ndarray, sr: int) -> bool:
-        """Uses SingMOS only for vocal-dominant content per spec."""
-        return VersaPlugin._vocal_confidence(audio, sr) >= 0.5
-
     # Budget: wav2vec2-large (s3prl, ~600 MB) + SingMOS Pro checkpoint (~150 MB)
     _BUDGET_GB: float = 0.80
 
@@ -152,9 +149,7 @@ class VersaPlugin:
         _s3prl_sys_cache = Path(os.path.expanduser("~/.cache/s3prl/download"))
 
         def _has_wav2vec(_dir: Path) -> bool:
-            return _dir.exists() and any(
-                "wav2vec_vox_new" in f.name for f in _dir.iterdir()
-            )
+            return _dir.exists() and any("wav2vec_vox_new" in f.name for f in _dir.iterdir())
 
         _wav2vec2_cached = _has_wav2vec(_s3prl_bundled_dl) or _has_wav2vec(_s3prl_sys_cache)
 
@@ -176,6 +171,7 @@ class VersaPlugin:
 
         try:
             from backend.core.ml_memory_budget import try_allocate as _try_alloc
+
             if not _try_alloc("VersaSingMOS", size_gb=self._BUDGET_GB):
                 logger.warning("VERSA SingMOS Pro: ML-Budget erschöpft (%.2f GB) — PQS-Fallback.", self._BUDGET_GB)
                 return
@@ -283,7 +279,11 @@ class VersaPlugin:
         _blended_conf = float(_w * _singmos_result.confidence + (1.0 - _w) * _pqs_result.confidence)
         logger.debug(
             "VERSA: Blended MOS=%.3f (SingMOS=%.3f×%.2f + PQS=%.3f×%.2f)",
-            _blended_mos, _singmos_result.mos, _w, _pqs_result.mos, 1.0 - _w,
+            _blended_mos,
+            _singmos_result.mos,
+            _w,
+            _pqs_result.mos,
+            1.0 - _w,
         )
         return VersaResult(mos=_blended_mos, model_used="singmos_pqs_blend", confidence=_blended_conf)
 
@@ -318,9 +318,7 @@ class VersaPlugin:
             assert self._pseudo_mos_metric is not None  # guarded by _model_loaded check
             for _candidate in (mono_16k[np.newaxis, :], mono_16k):
                 try:
-                    _scores = self._pseudo_mos_metric(
-                        _candidate, _MODEL_SR, self._predictor_dict, self._predictor_fs
-                    )
+                    _scores = self._pseudo_mos_metric(_candidate, _MODEL_SR, self._predictor_dict, self._predictor_fs)
                     break
                 except Exception as _shape_exc:
                     _last_exc = _shape_exc
@@ -368,14 +366,38 @@ class VersaPlugin:
                 return VersaResult(mos=3.0, model_used="pqs_dsp_fallback", confidence=0.40)
 
             # Energie-Schätzung via Gammatone-approximierter Bark-Filterbank
-            spec = np.fft.rfft(mono[:min(n, 4 * sr)].astype(np.float64))
+            spec = np.fft.rfft(mono[: min(n, 4 * sr)].astype(np.float64))
             mag = np.abs(spec)
             freqs = np.linspace(0, sr / 2, len(mag))
 
             # 24 Bark-Bänder
-            bark_edges = [50, 100, 200, 300, 400, 510, 630, 770, 920, 1080,
-                          1270, 1480, 1720, 2000, 2320, 2700, 3150, 3700,
-                          4400, 5300, 6400, 7700, 9500, 12000, 15500]
+            bark_edges = [
+                50,
+                100,
+                200,
+                300,
+                400,
+                510,
+                630,
+                770,
+                920,
+                1080,
+                1270,
+                1480,
+                1720,
+                2000,
+                2320,
+                2700,
+                3150,
+                3700,
+                4400,
+                5300,
+                6400,
+                7700,
+                9500,
+                12000,
+                15500,
+            ]
             band_energies: list[float] = []
             for i in range(len(bark_edges) - 1):
                 lo, hi = bark_edges[i], bark_edges[i + 1]
@@ -387,20 +409,44 @@ class VersaPlugin:
                 return VersaResult(mos=3.0, model_used="pqs_dsp_fallback", confidence=0.40)
 
             total_e = float(np.mean(band_energies))
-            rms = float(np.sqrt(np.mean(mono ** 2))) + 1e-10
+            rms = float(np.sqrt(np.mean(mono**2))) + 1e-10
             # dB-normalized SNR: relative to local signal level (not fixed 0.01 floor)
             # This prevents penalizing quiet but high-quality recordings (pianissimo, classical).
             # Noise floor estimated from lowest-energy Bark bands (top 25% quietest).
             _sorted_be = sorted(band_energies)
-            _noise_floor_e = float(np.mean(_sorted_be[:max(1, len(_sorted_be) // 4)])) + 1e-12
-            _signal_e = float(np.mean(_sorted_be[len(_sorted_be) // 2:])) + 1e-12
+            _noise_floor_e = float(np.mean(_sorted_be[: max(1, len(_sorted_be) // 4)])) + 1e-12
+            _signal_e = float(np.mean(_sorted_be[len(_sorted_be) // 2 :])) + 1e-12
             snr_db = 10.0 * math.log10(_signal_e / _noise_floor_e)
             snr_db = float(np.clip(snr_db, -10.0, 50.0))
 
             # Frequency-weighted SNR aus Bark-Bändern (mittlere Bänder gewichtet)
-            weights = np.array([0.5, 0.6, 0.8, 1.0, 1.2, 1.4, 1.5, 1.5,
-                                1.4, 1.3, 1.2, 1.1, 1.0, 0.9, 0.8, 0.7,
-                                0.6, 0.5, 0.4, 0.3, 0.2, 0.1, 0.1][: len(band_energies)])
+            weights = np.array(
+                [
+                    0.5,
+                    0.6,
+                    0.8,
+                    1.0,
+                    1.2,
+                    1.4,
+                    1.5,
+                    1.5,
+                    1.4,
+                    1.3,
+                    1.2,
+                    1.1,
+                    1.0,
+                    0.9,
+                    0.8,
+                    0.7,
+                    0.6,
+                    0.5,
+                    0.4,
+                    0.3,
+                    0.2,
+                    0.1,
+                    0.1,
+                ][: len(band_energies)]
+            )
             w_e = np.array(band_energies[: len(weights)]) * weights
             freq_snr = 20.0 * math.log10(float(np.mean(w_e)) / (total_e + 1e-12) + 1e-5)
             combined_snr = 0.6 * snr_db + 0.4 * float(np.clip(freq_snr + 20, -10, 50))

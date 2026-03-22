@@ -965,11 +965,11 @@ class TestAurikErgebnisInvarianten:
         assert fb.stage_notes["fail_reasons"][0]["error_code"] == "PIPELINE_BLOCKED"
 
 
-# ─── Vollständig gemockte Orchestrierung (alle 8 Stufen) ─────────────────────
+# ─── Vollständig gemockte Orchestrierung (alle 10 Stufen) ───────────────────
 
 
 def _full_mock_ctx(audio: np.ndarray) -> Any:
-    """Context-Manager der alle 8 Stufen in AurikDenker mockt.
+    """Context-Manager der alle 10 Stufen in AurikDenker mockt.
 
     Verhindert jeden echten Aufruf von RestaurierDenker, CDPAMPlugin,
     CrepePlugin oder ähnlicher schwerer ML-Infrastruktur.

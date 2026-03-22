@@ -96,7 +96,7 @@ def hz_to_mel(f_hz: float) -> float:
 | Neuronale Synthese | ML: **Vocos 48 kHz nativ** ONNX → 44,1 kHz → BigVGAN v2 → HiFi-GAN | PGHI-ISTFT | ~~Griffin-Lim~~ |
 | Generatives Inpainting | ML: **Flow Matching** | CQTdiff+ → DiffWave → NMF-β | ~~DDPM 1000 Schritte~~ |
 | Audio-Tagging | ML: **BEATs** (iter3) → PANNs CNN14 | DSP Spectral Fingerprint | — |
-| MOS (ohne Referenz) | ML: **VERSA** → SingMOS (Gesang, PANNs Vocals ≥ 0.5) | PQS-Gammatone-DSP | ~~PESQ/DNSMOS/CDPAM~~ |
+| MOS (ohne Referenz) | ML: **VERSA** → SingMOS (Gesang, PANNs Vocals ≥ 0.3–0.7, Blend-Zone) | PQS-Gammatone-DSP | ~~PESQ/DNSMOS/CDPAM~~ |
 | MOS-Verifikation Gesang | ML: **UTMOS** (`utmos_plugin`, ≥18 MB PyTorch) → SingMOS | VERSA → PQS-Gammatone | ~~PESQ/NISQA~~ |
 | Speech/Music Enhancement | ML: **MP-SENet 2023** ONNX | SGMSE+ ONNX → OMLSA DSP | ~~DCCRN/FullSubNet+~~ |
 | MOS (mit Referenz) | ML: **ViSQOL v3** (**`--audio` PFLICHT**) | PQS-DSP | ~~--speech Mode~~ |
@@ -110,6 +110,7 @@ def hz_to_mel(f_hz: float) -> float:
 ## §4.5 Pflicht-Algorithmus-Spezifikationen
 
 ### Rauschunterdrückung (Phase 03, 29)
+
 ```
 Pflicht: OMLSA (Cohen & Berdugo 2002) + IMCRA-Variante (Cohen 2003)
 Gain-Glättung: MMSE-LSA
@@ -146,6 +147,7 @@ Kritische Architekturnotiz (Stand März 2026):
 ```
 
 ### Inpainting (Phase 24, 55)
+
 ```
 Kurze Lücken < 50 ms: NMF mit β-Divergenz (β=1, Itakura-Saito) + PGHI
 Lange Lücken 50–999 ms: CQTdiff+ (Moliner & Välimäki, ICASSP 2023)
@@ -157,6 +159,7 @@ VERBOTEN: VampNet (kein gebündeltes Plugin, kein stabiler ONNX-Export)
 ```
 
 ### Codec-Artefakte (Phase 23, 50)
+
 ```
 Pflicht: Apollo (Zhang et al. 2024)
     - Band-Splitting-RNN: Audio → 24 Sub-Bänder
@@ -166,6 +169,7 @@ Fallback: Resemble-Enhance ONNX → DSP Spectral Repair + PGHI
 ```
 
 ### Print-Through-Reduktion (Phase 29, reel_tape)
+
 ```
 Pflicht: Bidirektionale Adaptive Temporal Subtraction (LMS-basiert, Widrow & Stearns 1985)
 Physikalisches Modell: Print-Through entsteht auf BEIDEN Seiten der Masterwicklung
@@ -186,6 +190,7 @@ VERBOTEN: Comb-Filter, einseitiges α-Modell als Pflicht-Implementierung
 ```
 
 ### Multi-Resolution STFT (Phase 03, 06, 07, 23, 50)
+
 ```python
 # MRSA-Fenster @ SR=48000 Hz:
 ZONES = {
@@ -199,6 +204,7 @@ ZONES = {
 ```
 
 ### Neuronale Synthese / Vocoder-Kaskade (wenn PQS-MOS < 4.3)
+
 ```
 4-stufige Fallback-Kaskade (Studio-2026):
     1. Vocos 48 kHz nativ — vocos_mel_spec_24khz.onnx (CPUExecutionProvider)
@@ -211,6 +217,7 @@ VERBOTEN: Griffin-Lim als Endschritt in Studio-2026
 ```
 
 ### Pit-Korrektur (Phase 12, 31)
+
 ```
 Primär: FCPE → CREPE → RMVPE (nur wenn stabil verifiziert) + DTW
 Bei Gesang (PANNs Vocals ≥ 0.4):
@@ -220,6 +227,7 @@ DSP-Fallback: PESTO (Riou et al. ISMIR 2023) → pYIN (Mauch & Dixon 2014)
 ```
 
 ### Phasen-Rekonstruktion (nach JEDER Spektral-Modifikation)
+
 ```
 PFLICHT: PGHI (Perraudin et al. 2013)
 Fallback: Griffin-Lim ≥ 32 Iterationen
@@ -227,6 +235,7 @@ ABSOLUT VERBOTEN: Direkte ISTFT auf modifiziertem Betragsspektrum
 ```
 
 ### Dithering (24→16 bit Export)
+
 ```
 PRIMÄR: POW-r Typ 3 (Wannamaker et al. 1992) — ~+6 dB effektiver SNR
 FALLBACK: TPDF-Dithering (±1 LSB)
@@ -237,22 +246,22 @@ VERBOTEN: Truncation ohne Dithering
 
 ## §12 Referenzen (Auswahl — Pflicht-Algorithmen)
 
-- Cohen & Berdugo (2002): IMCRA — *Noise Estimation by Minima Controlled Recursive Averaging*
-- Cohen (2003): OMLSA — *Noise Spectrum Estimation in Adverse Environments*
-- Le Roux & Vincent (2013): *Consistent Wiener Filtering for Audio Source Separation*
-- Perraudin et al. (2013): PGHI — *A Non-Iterative Method for STFT Phase (Re)construction*
-- Févotte & Idier (2011): *Algorithms for NMF with the β-Divergence*
-- Mauch & Dixon (2014): pYIN — *A Fundamental Frequency Estimator Using Probabilistic Threshold Distributions*
-- Fletcher (1964): *Normal Vibration Frequencies of a Stiff Piano String*
+- Cohen & Berdugo (2002): IMCRA — _Noise Estimation by Minima Controlled Recursive Averaging_
+- Cohen (2003): OMLSA — _Noise Spectrum Estimation in Adverse Environments_
+- Le Roux & Vincent (2013): _Consistent Wiener Filtering for Audio Source Separation_
+- Perraudin et al. (2013): PGHI — _A Non-Iterative Method for STFT Phase (Re)construction_
+- Févotte & Idier (2011): _Algorithms for NMF with the β-Divergence_
+- Mauch & Dixon (2014): pYIN — _A Fundamental Frequency Estimator Using Probabilistic Threshold Distributions_
+- Fletcher (1964): _Normal Vibration Frequencies of a Stiff Piano String_
 - Engel et al. (2020): DDSP — ICLR 2020 (Google Magenta)
-- Bregman (1990): *Auditory Scene Analysis* — MIT Press
+- Bregman (1990): _Auditory Scene Analysis_ — MIT Press
 - Moore, Glasberg & Baer (2006): Virtual Pitch — JASA
-- Zhang et al. (2024): Apollo — *Band-sequence Modeling for High-Quality Music Restoration*
-- Moliner & Välimäki (ICASSP 2023): CQTdiff+ — *Solving Audio Inverse Problems with a Diffusion Model*
-- Lu et al. (2023): BS-RoFormer — *Music Source Separation with Band-Split RoPE Transformer*
-- Siuzdak (2023): Vocos — *Resynthesizing Speech and Music with Neural Vocoders*
-- Wannamaker et al. (1992): POW-r — *A Theory of Nonsubtractive Dither*
-- Lipman et al. (2023): *Flow Matching for Generative Modeling*
-- Radford et al. (2022): Whisper — *Robust Speech Recognition via Large-Scale Weak Supervision*
-- ISO 226:2023: *Acoustics — Normal Equal-Loudness-Level Contours*
-- ITU-R BS.1770-5 (2023): *Algorithms to measure audio programme loudness*
+- Zhang et al. (2024): Apollo — _Band-sequence Modeling for High-Quality Music Restoration_
+- Moliner & Välimäki (ICASSP 2023): CQTdiff+ — _Solving Audio Inverse Problems with a Diffusion Model_
+- Lu et al. (2023): BS-RoFormer — _Music Source Separation with Band-Split RoPE Transformer_
+- Siuzdak (2023): Vocos — _Resynthesizing Speech and Music with Neural Vocoders_
+- Wannamaker et al. (1992): POW-r — _A Theory of Nonsubtractive Dither_
+- Lipman et al. (2023): _Flow Matching for Generative Modeling_
+- Radford et al. (2022): Whisper — _Robust Speech Recognition via Large-Scale Weak Supervision_
+- ISO 226:2023: _Acoustics — Normal Equal-Loudness-Level Contours_
+- ITU-R BS.1770-5 (2023): _Algorithms to measure audio programme loudness_

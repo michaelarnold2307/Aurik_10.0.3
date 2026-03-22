@@ -16,11 +16,12 @@ Type-Annotations nach §3.7.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 import logging
 import math
 import threading
-from dataclasses import dataclass
-from typing import Any
+from typing import Any, Optional
+from collections.abc import Callable
 
 import numpy as np
 
@@ -187,6 +188,7 @@ class DefektDenker:
         *,
         material: str = "unknown",
         validate_audio: bool = True,
+        progress_callback: Callable[[int, str], None] | None = None,
     ) -> DefektErgebnis:
         """Erkennt und klassifiziert Defekte im Audio-Signal.
 
@@ -218,7 +220,7 @@ class DefektDenker:
         scan_result: Any | None = None
         if self._scanner is not None:
             try:
-                scan_result = self._scanner.scan(audio, sample_rate=sr)
+                scan_result = self._scanner.scan(audio, sample_rate=sr, progress_callback=progress_callback)
                 defect_scores = self._extract_scores(scan_result)
             except Exception as exc:
                 logger.warning("DefektDenker: scan() fehlgeschlagen (%s).", exc)
@@ -367,8 +369,7 @@ class DefektDenker:
         pct = int(confidence * 100)
         sev_label = "stark" if severity > 0.6 else ("mittel" if severity > 0.3 else "leicht")
         return (
-            f"Hauptursache erkannt: {label} ({pct} % Konfidenz). "
-            f"Defekt-Schwere: {sev_label} ({int(severity * 100)} %)."
+            f"Hauptursache erkannt: {label} ({pct} % Konfidenz). Defekt-Schwere: {sev_label} ({int(severity * 100)} %)."
         )
 
 

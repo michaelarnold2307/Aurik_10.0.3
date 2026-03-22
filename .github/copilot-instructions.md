@@ -149,7 +149,7 @@ Baseline-Key: `iZotope RX 11 (commercial)` (OQS 71.0). RX 10-Key als Legacy-Alia
 - **UI-Gating**: Magic-Buttons während aktiver Verarbeitung deaktiviert.
 - **Atomisches Schreiben**: `.tmp` → `os.replace` für Export-Dateien.
 
-**[RELEASE_MUST] Härtungsfahrplan**: (1) Denker-Einstieg erzwungen • (2) Konkurrenzfreiheit • (3) AMRB-Determinismus • (4) ML-Failure-Fallbacks (`release_mode = primary|fallback|blocked`) • (5) Export-Gate • (6) 3×RT + OOM-Budget • (7) Kein manueller Bypass.
+**[RELEASE_MUST] Härtungsfahrplan**: (1) Denker-Einstieg erzwungen • (2) Konkurrenzfreiheit • (3) AMRB-Determinismus • (4) ML-Failure-Fallbacks (`release_mode = primary|fallback|blocked`) • (5) Export-Gate • (6) 8×RT + OOM-Budget • (7) Kein manueller Bypass.
 
 ## Kanonischer Pipeline-Ablauf (Zusammenfassung)
 
@@ -199,6 +199,18 @@ Primär → Fallback1 → DSP-Fallback-Kaskade für alle Anwendungsfälle.
 > Alle Analyse-/Scan-/Klassifikations-Module (DefectScanner, `classify_clipping`, `analyse_clipping`, RestorabilityEstimator, EraClassifier, MediumClassifier) arbeiten bei **nativer Import-SR**. THD-Berechnungen nutzen `sr` nur für Frequenz-Bin-Zuordnung — die Mathematik ist SR-agnostisch. **VERBOTEN**: `assert sr == 48000` in diesen Modulen. `assert sr == 48000` gilt **ausschließlich** für Verarbeitungs-Phasen (01–56) und Plugins.
 
 1920–1940: Rolloff ≤ 7 kHz nicht erweitern, H2/H4 bewahren. 1940–1975: `phase_22` nur emulieren, nie eliminieren.
+
+## §2.9 PANNs Instrument-Phasen-Aktivierungsmatrix (Pflicht-Schwellwerte)
+
+| PANNs-Kategorie | Phase | Schwellwert |
+|---|---|---|
+| Singing voice / Vocals / Speech | `phase_19` + `phase_42` + `phase_43` + VocalAIEnhancement | ≥ 0.40 / ≥ 0.35 |
+| Guitar / Electric Guitar | `phase_44_guitar_enhancement` | ≥ 0.50 |
+| Brass / Trumpet / Saxophone | `phase_45_brass_enhancement` | ≥ 0.50 |
+| Drum / Percussion | `phase_51_drums_enhancement` | ≥ 0.50 |
+| Piano / Keyboard | `phase_52_piano_restoration` | ≥ 0.50 |
+
+> **Invariante**: Instrument-Schwelle ist einheitlich **0.50** (nicht 0.60). Höherer Wert blockiert Enhancement bei Ensemble-Aufnahmen. Änderungen hier → immer auch `backend/core/unified_restorer_v3.py` L≈5822 + `plugins/panns_plugin.py` Docstring anpassen.
 
 ## Vocal-Restaurierungskette (§2.8)
 
@@ -269,6 +281,7 @@ logger.info("phase=%s score=%.2f", phase, score)  # kein print(); Logs auf Engli
 □ OQS ≥ 80 auf mindestens einem AMRB-Szenario nachweisbar
 □ quality_estimate ≥ 0.55 im E2E-Test (result.quality_estimate-Assertion)
 □ goal_applicability in RestorationResult gespeichert (GoalApplicabilityFilter-Ergebnis)
+□ deferred_phases in RestorationResult vorhanden (list[str], default=[]) — §2.38 KMV
 □ CHANGELOG.md Eintrag
 □ Alle bestehenden Tests weiterhin grün (aktuell ~7750+ Pytest-IDs)
 ```
@@ -299,11 +312,60 @@ logger.info("phase=%s score=%.2f", phase, score)  # kein print(); Logs auf Engli
 - Torch-Modelle: `model.to("cpu")`; `torch.set_num_threads(os.cpu_count())`
 - MERT (3,9 GB) / AudioSR (5,9 GB): nur Lazy-Load bei Bedarf
 
-### [RELEASE_MUST] PerformanceGuard — 3×-Echtzeit-Limit
+### [RELEASE_MUST] PerformanceGuard — 8×-Echtzeit-Limit
 
-- `LIMIT_BALANCED = 3.0` (3× Echtzeit, Standard-Modus), `LIMIT_QUALITY = 5.0`, `LIMIT_MAXIMUM = 8.0`
-- Überschreitung → Phase abbrechen + DSP-Fallback; `time.perf_counter()` um jeden ONNX-Call/Phase-Ausführung.
-- `RT3_EXCELLENCE_BUDGET = 3.0` (Benchmark-Gate-Referenz). Kein Silence-Padding.
+- `LIMIT_BALANCED = 8.0` (8× Echtzeit, Standard-Modus), `LIMIT_QUALITY = 10.0`, `LIMIT_MAXIMUM = 15.0`
+- Überschreitung in Stufe 1 → DSP-Fallback **+ Phase in `deferred_phases` eintragen** (kein endgültiger Abbruch)
+- `LIMIT_BACKGROUND = float("inf")` — ausschließlich für `MLRefinementThread` (§2.38 KMV Stufe 2)
+- `RT8_EXCELLENCE_BUDGET = 8.0` (Benchmark-Gate-Referenz). Kein Silence-Padding.
+
+### [RELEASE_MUST] §2.38 Kontinuierliche ML-Veredelung (KMV) — Vollqualitäts-Garantie
+
+**Kernprinzip**: RT-Limit-Überschreitung führt nie zu dauerhaftem Qualitätsverlust im Export.
+
+| Stufe | Thread | RT-Limit | Ergebnis |
+|---|---|---|---|
+| **Stufe 1** | `BatchProcessingThread` | `LIMIT_BALANCED/QUALITY/MAXIMUM` | Sofort-Export (DSP-Fallback wo RT überschritten), listenable |
+| **Stufe 2** | `MLRefinementThread` | `LIMIT_BACKGROUND = ∞` | Automatischer Overwrite mit voller ML-Qualität |
+
+**Stufe-2-Startbedingungen** (alle müssen erfüllt sein):
+- `len(result.deferred_phases) > 0` (Stufe 1 hatte RT-überschrittene Phasen)
+- `psutil.virtual_memory().available / 1024**3 ≥ 4.0` (RAM-Guard)
+- Kein anderer `MLRefinementThread` aktiv (Single-active-Invariante)
+
+**Ablauf Stufe 2**:
+1. `DeferredRefinementJob` erstellen (gecachte Analyse-Ergebnisse aus Stufe 1, `no_rt_limit=True`)
+2. `MLRefinementThread` starten: `Priority = QThread.LowPriority`, `os.nice(10)` auf Linux
+3. Vollständige UV3-Pipeline (kein Neustart DefectScanner/EraClassifier/MediumClassifier — gecacht)
+4. `isInterruptionRequested()` zwischen jeder Phase prüfen (Escape-Abbruch möglich)
+5. Qualitätsinvariante: `stufe2_quality_estimate ≥ stufe1_quality` → sonst Overwrite verweigern
+6. Atomischer Overwrite: `output.tmp` → `os.replace(output_path)`
+
+**`DeferredRefinementJob`-Pflicht-Felder**: `output_path`, `audio_original`, `sr`, `mode`, `deferred_phase_ids`, `cached_defect_result`, `cached_era_result`, `cached_medium_result`, `stufe1_quality`
+
+**`MLRefinementThread` Pflicht-Signale**:
+```python
+refinement_started(str, int)      # output_path, n_deferred_phases
+refinement_phase_done(str, float) # phase_id, quality_improvement_delta
+refinement_progress(int, str)     # pct 0–100, phase_name
+refinement_complete(str, object)  # output_path, final_RestorationResult
+refinement_cancelled(str)         # output_path → Stufe-1-Export bleibt
+```
+
+**UI (§11.4 Ergänzung)**:
+- Stufe-2-Indikator: `refinement_progress_bar` (3 px, türkis `#00BCD4`, unter `phase_progress_bar`), sichtbar nur während Stufe 2
+- Status-Text: `"ML-Veredelung: 3/5 Phasen verbessert..."`, nach Fertigstellung: `"Export vollständig restauriert ✓ — ML-Qualität"` (Notification, 5 s)
+- Escape-Handling: `requestInterruption()` trifft **sowohl** `BatchProcessingThread` **als auch** aktiven `MLRefinementThread`
+
+**RestorationResult-Pflicht-Felder** (§2.38):
+```python
+deferred_phases:         list[str] = field(default_factory=list)  # Phasen für Stufe 2
+refinement_complete:     bool = False                              # True nach ML-Veredelung
+stufe2_quality_estimate: Optional[float] = None                   # quality nach vollst. ML-Pass
+```
+
+**Memory**: `DeferredRefinementJob.audio_original` via `ml_memory_budget.try_allocate("kmv_job", size_gb)` registrieren; nach Stufe-2-Export oder Abbruch `release("kmv_job")`.
+**VERBOTEN**: `LIMIT_BACKGROUND` für `BatchProcessingThread` verwenden.
 
 ### [RELEASE_MUST] `ml_memory_budget` — Zentrale OOM-Schutzschicht
 
@@ -376,7 +438,7 @@ Fehlermeldungen immer mit **Ursache** + **Lösungsvorschlag** auf Deutsch.
 `Space` Play/Pause | `A` Original | `B` Restauriert | `Ctrl+O` Öffnen | `Ctrl+S` Export | `Ctrl+R` Restoration | `Ctrl+Shift+R` Studio 2026 | `Escape` Abbruch | `Ctrl+Z` Pfad-Clipboard | `L` Lyrics-Overlay
 
 ### Watchdog-Timer
-`QTimer(self)`, `setSingleShot(True)`, Timeout `max(300_000, n_files * 600_000)` ms. Start vor `batch_thread.start()`. Callback: `requestInterruption()` → `wait(3000)` → `terminate()`.
+`QTimer(self)`, `setSingleShot(True)`. Timeout-Formel: `_per_file_ms = max(3_600_000, int(audio_dur_s * 8_000) + 900_000)` → `_watchdog_ms = max(3_600_000, n_files * _per_file_ms)` (Minimum **60 Min.**). Start vor `batch_thread.start()`. Callback: `requestInterruption()` → `wait(3000)` → `terminate()`.
 
 ### Bridge-Fallback (`_BRIDGE_AVAILABLE`)
 `from backend.api.bridge import ...` in `try/except ImportError` wrappen. Bei Fehler: `_BRIDGE_AVAILABLE = False` + Stubs. `_export_guard`-Stub vollständig implementieren (NaN-Guard + Clip). Alle anderen Stubs: `return None`.

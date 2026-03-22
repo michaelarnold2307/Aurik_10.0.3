@@ -15,6 +15,8 @@ import os
 
 import numpy as np
 
+from dsp._memory_budget_guard import check_budget
+
 MODEL_PATH = "../../models/hifi_gan/hifi_gan.onnx"
 
 
@@ -30,7 +32,8 @@ class SotaSpeechSuperRes:
                 os.path.join(os.path.dirname(__file__), "../models/diffwave/diffwave_model.onnx")
             )
             if use_diffwave and os.path.exists(diffwave_path):
-                self.diffwave_session = ort.InferenceSession(diffwave_path)
+                if check_budget("speech_superres_diffwave", 0.2):
+                    self.diffwave_session = ort.InferenceSession(diffwave_path)
         except ImportError:
             pass
         # HiFi-GAN-ONNX laden
@@ -39,7 +42,8 @@ class SotaSpeechSuperRes:
 
             hifigan_path = MODEL_PATH
             if use_hifigan and os.path.exists(hifigan_path):
-                self.hifigan_session = ort.InferenceSession(hifigan_path)
+                if check_budget("speech_superres_hifigan", 0.15):
+                    self.hifigan_session = ort.InferenceSession(hifigan_path)
         except ImportError:
             pass
 

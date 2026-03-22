@@ -11,10 +11,10 @@ Spec §1.2, §2.5, §2.29, §8.1 — v9.10.45
 
 from __future__ import annotations
 
+from dataclasses import dataclass, field
 import logging
 import math
 import threading
-from dataclasses import dataclass, field
 
 import numpy as np
 
@@ -31,7 +31,7 @@ except Exception:  # ImportError, AttributeError, etc.
     UnifiedVocalAIEnhancer = None  # type: ignore[assignment,misc]
     EmotionPreservationMode = None  # type: ignore[assignment]
 
-_3X_RT_LIMIT: float = 3.0  # Maximaler RT-Faktor (Spec §9.5)
+_3X_RT_LIMIT: float = 8.0  # Maximaler RT-Faktor (Spec §9.5)
 
 
 # ─── Ergebnis-Datenklasse ────────────────────────────────────────────────────
@@ -198,8 +198,7 @@ class ExzellenzDenker:
             )
             if versa_mos < 3.5:
                 warnings.append(
-                    f"VERSA MOS={versa_mos:.2f} < 3.5 — Qualität unter Mindestniveau,"
-                    " Nachbearbeitung empfohlen"
+                    f"VERSA MOS={versa_mos:.2f} < 3.5 — Qualität unter Mindestniveau, Nachbearbeitung empfohlen"
                 )
             elif versa_mos >= 4.3:
                 improvements.append(f"VERSA MOS={versa_mos:.2f} ≥ 4.3 — Studioqualität erreicht")
@@ -234,7 +233,8 @@ class ExzellenzDenker:
                 _rp_audio, _rp_result = _opt_rp.optimize(optimiertes_audio)
                 _rp_audio = np.clip(
                     np.nan_to_num(_rp_audio.astype(np.float32), nan=0.0, posinf=0.0, neginf=0.0),
-                    -1.0, 1.0,
+                    -1.0,
+                    1.0,
                 )
                 _rp_goals = self.messe_ziele(_rp_audio, sr)
                 _rp_passed = sum(1 for v in _rp_goals.values() if math.isfinite(v) and v >= _GOAL_MIN)
@@ -250,12 +250,17 @@ class ExzellenzDenker:
                     )
                     logger.info(
                         "ExzellenzDenker Re-Pass %d: %d Violations korrigiert → %d/%d Goals",
-                        _re_pass_i, len(_violations), passed, len(goals),
+                        _re_pass_i,
+                        len(_violations),
+                        passed,
+                        len(goals),
                     )
                 else:
                     logger.debug(
                         "ExzellenzDenker Re-Pass %d: keine Verbesserung (%d→%d Goals), abgebrochen",
-                        _re_pass_i, passed, _rp_passed,
+                        _re_pass_i,
+                        passed,
+                        _rp_passed,
                     )
                     break  # No improvement → stop re-passing
             except Exception as _rp_exc:
@@ -264,9 +269,7 @@ class ExzellenzDenker:
 
         note = (
             f"Exzellenz-Optimierung abgeschlossen: Score {score:.3f}, "
-            f"{passed}/{len(goals)} Ziele erfüllt"
-            + (f", VERSA MOS={versa_mos:.2f}" if versa_mos > 0.0 else "")
-            + "."
+            f"{passed}/{len(goals)} Ziele erfüllt" + (f", VERSA MOS={versa_mos:.2f}" if versa_mos > 0.0 else "") + "."
         )
 
         return ExzellenzErgebnis(

@@ -13,12 +13,12 @@ CPU-Only: CPUExecutionProvider — kein CUDA.
 Out-of-the-Box: Kein Download beim ersten Start.
 """
 
+from dataclasses import dataclass, field
 import logging
 import math
+from math import gcd
 import os
 import threading
-from dataclasses import dataclass, field
-from math import gcd
 
 import numpy as np
 from scipy.signal import istft, resample_poly, stft
@@ -139,8 +139,8 @@ class VocosPlugin:
         # ── ML-Budget-Check VOR dem Laden (§5.1 OOM-Schutz) ──────────────────
         _allocated = False
         try:
-            from backend.core.ml_memory_budget import release as _release
-            from backend.core.ml_memory_budget import try_allocate
+            from backend.core.ml_memory_budget import release as _release, try_allocate
+
             if not try_allocate("Vocos", size_gb=0.12):
                 logger.warning("Vocos: ML-Budget erschöpft — Griffin-Lim-Fallback")
                 return
@@ -181,6 +181,7 @@ class VocosPlugin:
             # ── PLM-Registrierung (LRU-Tracking, §5.1 OOM-Schutz) ─────────────────
             try:
                 from backend.core.plugin_lifecycle_manager import get_plugin_lifecycle_manager
+
                 _self_ref = self
 
                 def _vocos_unload() -> None:
@@ -189,6 +190,7 @@ class VocosPlugin:
                     _self_ref._fallback_mode = "griffin_lim_fallback"
                     try:
                         from backend.core.ml_memory_budget import release as _ml_release
+
                         _ml_release("Vocos")
                     except ImportError:
                         pass
@@ -201,6 +203,7 @@ class VocosPlugin:
             if _allocated:
                 try:
                     from backend.core.ml_memory_budget import release as _release
+
                     _release("Vocos")
                 except ImportError:
                     pass
@@ -340,8 +343,7 @@ class VocosPlugin:
             audio_model = self._resample(audio, sr, model_sr)
 
             # 2. Mel-Spektrogramm berechnen [n_mels, T] → [1, n_mels, T] (modellspezifisches n_fft/hop)
-            mel = self._compute_mel(audio_model, model_sr, n_mels,
-                                    n_fft=self._mel_n_fft, hop=self._mel_hop)
+            mel = self._compute_mel(audio_model, model_sr, n_mels, n_fft=self._mel_n_fft, hop=self._mel_hop)
             mel_input = mel[np.newaxis].astype(np.float32)  # [1, n_mels, T]
 
             # 3. ONNX-Inferenz (CPUExecutionProvider — §9.5)
@@ -518,7 +520,7 @@ class VocosPlugin:
         """
         if mode == "restoration":
             raise ValueError(
-                "Vocos im Restoration-Modus deaktiviert — " "nur Studio-2026-Modus erlaubt (§1.4 Aurik Spec)."
+                "Vocos im Restoration-Modus deaktiviert — nur Studio-2026-Modus erlaubt (§1.4 Aurik Spec)."
             )
         assert sr == AURIK_SR, f"SR muss {AURIK_SR} Hz sein, erhalten: {sr}"
 
@@ -527,7 +529,7 @@ class VocosPlugin:
 
         # §4.4 Spec SOTA-Matrix — Fallback-Kaskade (aktualisiert März 2026):
         #   Stufe 1:   Vocos 44.1 kHz ONNX  (primär, volles Spektrum bis 22 kHz)
-        #   Stufe 1b:  Vocos 24 kHz ONNX    (falls 44.1 kHz fehlt)
+        #   Stufe 2:  Vocos 24 kHz ONNX    (falls 44.1 kHz fehlt)
         #   Stufe 1.5: BigVGAN v2 ONNX      (GAN-basierter Wideband-Vocoder, 48 kHz)
         #   Stufe 2:   HiFi-GAN ONNX        (neuronaler Fallback)
         #   Stufe 3:   Griffin-Lim+         (DSP-Letzfall, ≥ 32 Iter.)

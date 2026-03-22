@@ -46,12 +46,12 @@ Autor: Aurik 9.0 Development Team / v9.15
 
 from __future__ import annotations
 
+from dataclasses import dataclass, field
 import logging
 import math
 import threading
 import time
-from dataclasses import dataclass, field
-from typing import Any, Dict, Optional, Set, Tuple
+from typing import Any
 
 import numpy as np
 
@@ -126,15 +126,15 @@ def _get_adaptive_threshold(restorability_score: float) -> float:
     return REGRESSION_THRESHOLD_POOR
 
 
-# Alle 14 Musical Goals werden per-Phase geprüft — 6 bereits vorhanden,
-# 8 neu ergänzt als schnelle DSP-Proxies (kein ML, ≤ 200 ms gesamt §2.29).
-# "natuerlichkeit_mfcc_proxy" ist der Per-Phase-Alias für "natuerlichkeit".
+# All 14 Musical Goals are checked per-phase — DSP-only proxies, no ML (≤ 200 ms total §2.29).
+# "natuerlichkeit" uses an MFCC-smoothness DSP proxy internally but is exposed under its
+# canonical key so GoalApplicabilityFilter intersection (§2.32) works correctly.
 FAST_GOALS_SUBSET: list[str] = [
     "brillanz",
     "waerme",
     "groove",
     "tonal_center",
-    "natuerlichkeit_mfcc_proxy",  # Proxy-Key für natuerlichkeit (§2.29 DSP-only)
+    "natuerlichkeit",  # canonical key — MFCC-smoothness DSP proxy, matches GoalApplicabilityFilter
     "timbre_authentizitaet",
     # 8 neu (DSP-Proxies, v9.10.57):
     "bass_kraft",
@@ -216,12 +216,22 @@ def _measure_quick(audio: np.ndarray, sr: int) -> dict[str, float]:
 
     scores: dict[str, float] = {}
 
+    # ── Pre-compute spectrum once — brillanz, waerme, bass_kraft, natuerlichkeit,
+    #    authentizitaet, transparenz, separation_fidelity all share these arrays.
+    #    If FFT fails every dependent metric gracefully falls back to 0.5 via its
+    #    own try/except; the shared variables are always defined.
+    try:
+        fft_mag: np.ndarray = np.abs(np.fft.rfft(mono))
+        freqs: np.ndarray = np.fft.rfftfreq(len(mono), d=1.0 / sr)
+        tot_energy: float = float(np.mean(fft_mag**2)) + 1e-12
+    except Exception:
+        fft_mag = np.zeros(len(mono) // 2 + 1, dtype=np.float32)
+        freqs = np.zeros(len(mono) // 2 + 1, dtype=np.float32)
+        tot_energy = 1e-12
+
     # ── Brillanz (HF-Energie > 8 kHz) ─────────────────────────────────
     try:
-        fft_mag = np.abs(np.fft.rfft(mono))
-        freqs = np.fft.rfftfreq(len(mono), d=1.0 / sr)
         hf_energy = float(np.mean(fft_mag[freqs > 8000] ** 2))
-        tot_energy = float(np.mean(fft_mag**2)) + 1e-12
         scores["brillanz"] = float(np.clip(hf_energy / tot_energy / 0.3 + 0.4, 0.0, 1.0))
     except Exception:
         scores["brillanz"] = 0.5
@@ -274,6 +284,7 @@ def _measure_quick(audio: np.ndarray, sr: int) -> dict[str, float]:
         scores["tonal_center"] = 0.5
 
     # ── Natürlichkeit (MFCC-Proxy: spektrale Glattheit) ───────────────
+    # Canonical key "natuerlichkeit" — aligned with GoalApplicabilityFilter §2.32.
     try:
         n_mfcc = min(20, len(fft_mag) // 2)
         mfcc_approx = np.log(np.convolve(fft_mag[: len(fft_mag) // 2], np.ones(10) / 10, mode="valid") + 1e-12)
@@ -281,11 +292,11 @@ def _measure_quick(audio: np.ndarray, sr: int) -> dict[str, float]:
             smoothness = 1.0 - float(np.std(np.diff(mfcc_approx[:n_mfcc]))) / (
                 float(np.std(mfcc_approx[:n_mfcc])) + 1e-12
             )
-            scores["natuerlichkeit_mfcc_proxy"] = float(np.clip(smoothness, 0.0, 1.0))
+            scores["natuerlichkeit"] = float(np.clip(smoothness, 0.0, 1.0))
         else:
-            scores["natuerlichkeit_mfcc_proxy"] = 0.5
+            scores["natuerlichkeit"] = 0.5
     except Exception:
-        scores["natuerlichkeit_mfcc_proxy"] = 0.5
+        scores["natuerlichkeit"] = 0.5
 
     # ── Timbre-Authentizität (MFCC-basiert: Pearson auf log-Mel) ──────
     try:
@@ -342,10 +353,7 @@ def _measure_quick(audio: np.ndarray, sr: int) -> dict[str, float]:
         # RMS-Varianz über 10ms-Frames (Ausdruck)
         hop_e = max(1, sr // 100)
         rms_frames = np.array(
-            [
-                float(np.sqrt(np.mean(mono[i : i + hop_e] ** 2) + 1e-12))
-                for i in range(0, len(mono) - hop_e, hop_e)
-            ]
+            [float(np.sqrt(np.mean(mono[i : i + hop_e] ** 2) + 1e-12)) for i in range(0, len(mono) - hop_e, hop_e)]
         )
         variance_score = float(np.clip(np.var(rms_frames) * 1000.0, 0.0, 1.0)) if len(rms_frames) > 2 else 0.5
         scores["emotionalitaet"] = float(np.clip(0.5 * crest_score + 0.5 * variance_score, 0.0, 1.0))
@@ -434,8 +442,7 @@ def _measure_quick(audio: np.ndarray, sr: int) -> dict[str, float]:
     try:
         # Proxy: Varianz der Energiehüllkurve-Ableitungen (scharfe Transienten = hohe Varianz)
         hop_a = max(1, sr // 200)  # 5 ms
-        env_a = np.array([float(np.max(np.abs(mono[i : i + hop_a])))
-                          for i in range(0, len(mono) - hop_a, hop_a)])
+        env_a = np.array([float(np.max(np.abs(mono[i : i + hop_a]))) for i in range(0, len(mono) - hop_a, hop_a)])
         if len(env_a) > 4:
             # Erste Ableitung der Hüllkurve
             d_env = np.diff(env_a)
@@ -452,7 +459,7 @@ def _measure_quick(audio: np.ndarray, sr: int) -> dict[str, float]:
     except Exception:
         scores["artikulation"] = 0.5
 
-    # NaN-Schutz (§3.1)
+    # NaN-guard (§3.1) — all 14 canonical keys including "natuerlichkeit"
     for k in FAST_GOALS_SUBSET:
         if k not in scores or not math.isfinite(scores[k]):
             scores[k] = 0.5
@@ -572,7 +579,7 @@ class PerPhaseMusicalGoalsGate:
             self._rollback_count += 1
             if self._rollback_count > 3 and not self._user_warned:
                 self._user_warned = True
-                logger.warning("ℹ️ Einige Verarbeitungsschritte wurden angepasst, " "um den Klang zu schützen.")
+                logger.warning("ℹ️ Einige Verarbeitungsschritte wurden angepasst, um den Klang zu schützen.")
 
         goal_regressions = {
             g: scores_after.get(g, 0.5) - scores_before.get(g, 0.5)
@@ -694,10 +701,12 @@ class PerPhaseMusicalGoalsGate:
         if phase_kwargs is None:
             phase_kwargs = {}
         # Timing-modifizierende Phasen: kein Wet/Dry (Phasen-Artefakte)
-        _TIMING_PHASES = frozenset({
-            "phase_12_wow_flutter_fix",
-            "phase_31_speed_pitch_correction",
-        })
+        _TIMING_PHASES = frozenset(
+            {
+                "phase_12_wow_flutter_fix",
+                "phase_31_speed_pitch_correction",
+            }
+        )
         try:
             # Strength als Kwarg übergeben, damit Phasen ihn OPTIONAL nutzen können
             kw = dict(phase_kwargs)

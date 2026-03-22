@@ -94,6 +94,7 @@ class DemucsV4Plugin:
             logger.warning("Demucs ONNX-Ladefehler: %s — DSP-Fallback aktiv.", exc)
             try:
                 from backend.core.ml_memory_budget import release as _rel
+
                 _rel("DemucsV4")
             except Exception:
                 pass
@@ -109,6 +110,8 @@ class DemucsV4Plugin:
 
         Returns:
             Dict mit Schlüsseln "vocals", "drums", "bass", "other", "guitar", "piano".
+
+        Priority: MDX23C (Kim_Vocal_2) → HTDemucs 6s ONNX → HPSS-DSP-Fallback.
         """
         assert sr == 48000, f"SR muss 48000 Hz sein, erhalten: {sr}"
         audio = np.nan_to_num(audio.astype(np.float32), nan=0.0, posinf=0.0, neginf=0.0)
@@ -119,9 +122,23 @@ class DemucsV4Plugin:
         elif audio.ndim == 2 and audio.shape[1] != 2:
             audio = np.stack([audio[:, 0], audio[:, 0]], axis=1)
 
-        stems = self._infer_onnx(audio, sr) if self._session is not None else self._hpss_fallback(audio, sr)
+        # Primary: MDX23C (Kim_Vocal_2) — production-grade vocal separation (§4.4 spec)
+        try:
+            from plugins.mdx23c_plugin import separate_stems as _mdx_stems
 
-        return stems
+            mdx_result = _mdx_stems(audio, sr)
+            if mdx_result and "vocals" in mdx_result:
+                logger.info("DemucsV4: MDX23C primary path used (Kim_Vocal_2).")
+                return mdx_result
+        except Exception as exc:
+            logger.warning("DemucsV4: MDX23C primary failed (%s) — HTDemucs/HPSS fallback.", exc)
+
+        # Fallback 1: HTDemucs 6s ONNX (if loaded)
+        if self._session is not None:
+            return self._infer_onnx(audio, sr)
+
+        # Fallback 2: HPSS-DSP
+        return self._hpss_fallback(audio, sr)
 
     def separate_vocals(self, audio: np.ndarray, sr: int) -> tuple[np.ndarray, np.ndarray]:
         """Gibt (vocals, instruments) zurück (Shortcut für 2-Stem-Betrieb)."""

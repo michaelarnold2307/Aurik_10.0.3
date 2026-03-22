@@ -13,11 +13,13 @@
 | **`studio2026`** | Highend-Studio-Klang | Modern, kräftig — PQS MOS ≥ 4.5, Brillanz ≥ 0.90, Bass-Kraft ≥ 0.88, GP `mode="studio2026"` aggressiv |
 
 **Restoration-Modus Pflicht-Invarianten:**
+
 - Chroma-Korrelation Original↔Restauriert ≥ 0.95
 - LUFS-Differenz ≤ 1 LU
 - Kein hinzugefügtes Harmonic-Exciter-Material
 
 **Studio-2026-Modus Pflicht-Invarianten:**
+
 - PQS MOS ≥ 4.5 (Weltklasse)
 - Brillanz-Score ≥ 0.90 (verschärft)
 - Bass-Kraft ≥ 0.88 (verschärft)
@@ -78,6 +80,7 @@ class StemRemixBalancer:
 ## §2.2 Pipeline-Ablauf (kanonisch, Code-genau)
 
 ### §2.2.1 Parallelisierungs-Invariante
+
 - TIER 0 und TIER 1: IMMER sequenziell
 - TIER 2–4: dürfen parallelisieren; Merge via `np.mean` NUR wenn gleiche Frequenzzone
 - TIER 6: IMMER sequenziell (EQ → Polish → LUFS → TruePeak → Format)
@@ -111,10 +114,10 @@ Audio-Eingang (mono/stereo, beliebige SR)
     (ONNX gibt GIL frei → echte Parallelität)
 
     ↓
-[MusikalischerGlobalplanDienst]  ← Stufe 2b (Cross-Phase-Reasoning)
+[MusikalischerGlobalplanDienst]  ← Stufe 4 (Cross-Phase-Reasoning)
     │ erstelle_globalplan(audio, sr, use_ml_classifiers=False)  [DSP-only]
     │ 13 Ära-Profile × 7 Genre-Modifikatoren → 17 Per-Phase-Adjustments
-    │ Enrichment nach Stufe 4 mit era_decade (→ RestorationConfig.global_plan)
+    │ Enrichment nach Stufe 8 mit era_decade (→ RestorationConfig.global_plan)
     ↓
 [DefectScanner]  → DefectAnalysisResult (28 DefectTypes)
     ↓
@@ -195,9 +198,14 @@ class RestorationResult:
     goal_priority_log:    list[str] = field(default_factory=list)
     preview_mos:          Optional[float] = None
     era_decade:           Optional[int] = None
+    # ── §2.38 KMV-Felder ─────────────────────────────────────
+    deferred_phases:      list[str] = field(default_factory=list)   # Phasen die Stufe 2 benötigen
+    refinement_complete:  bool = False                               # True nach ML-Veredelung
+    stufe2_quality_estimate: Optional[float] = None                  # quality nach vollständigem ML-Pass
 ```
 
 **quality_estimate-Formel (normativ):**
+
 ```python
 quality_estimate = 0.40 * (1 - defect_severity) + 0.60 * (pqs_mos - 1) / 4
 # VERBOTEN: * 1.15 Bonus; quality_estimate aus defect_severity allein
@@ -205,6 +213,7 @@ quality_estimate = 0.40 * (1 - defect_severity) + 0.60 * (pqs_mos - 1) / 4
 ```
 
 **Serialisierungsregeln:**
+
 - `audio`-Feld wird NICHT in JSON serialisiert
 - NaN/Inf-Werte → `null` (via `clean_nans()`)
 - `genealogy` → separates `<sha256_prefix>_genealogy.json`
@@ -226,7 +235,7 @@ _RETRY_STRENGTHS: list[float] = [0.65, 0.50, 0.35, 0.20, 0.10]
 # Schnell-Ziele (≤ 200 ms Gesamtcheck):
 FAST_GOALS_SUBSET = [
     "brillanz", "waerme", "groove",
-    "tonal_center", "natuerlichkeit_mfcc_proxy", "timbre_authentizitaet",
+    "tonal_center", "natuerlichkeit", "timbre_authentizitaet",
 ]
 # Phasen-adaptive Sample-Dauer (§9.7.3):
 PHASE_SAMPLE_DURATIONS = {
@@ -244,3 +253,80 @@ for phase in selected_phases:
         applicable_goals=goal_filter.applicable,
     )
 ```
+
+---
+
+## §2.38 Kontinuierliche ML-Veredelung (KMV) — [RELEASE_MUST]
+
+> **Kernprinzip**: Der PerformanceGuard verwirft überschrittene Phasen nie endgültig — er _deferriert_ sie.
+> RT-Limit-Überschreitung führt zu DSP-Fallback für Sofort-Export **plus** automatischer Hintergrund-Veredelung.
+
+### Zweistufiger Export-Ablauf
+
+```
+Stufe 1 (Sofort-Export, RT-limitiert)
+    │  Phasen die RT-Limit überschreiten: DSP-Fallback + in deferred_phases eingetragen
+    │  Pipeline finalisiert; Qualitäts-Gate bestanden?
+    │   └─ Nein → Stufe 1 abgebrochen (Fail-Reason in metadata)
+    │   └─ Ja  → Atomischer Export (immediately listenable)
+    │              Wenn len(deferred_phases) > 0:
+    ↓
+Stufe 2 (Hintergrund-ML-Veredelung, LIMIT_BACKGROUND = ∞)
+    │  MLRefinementThread startet automatisch nach Stufe-1-Export
+    │  Gecachte Analyse-Ergebnisse aus Stufe 1 (kein Neustart von DefectScanner,
+    │    EraClassifier, MediumClassifier, GPParameterOptimizer)
+    │  Vollständige UV3-Pipeline ohne RT-Limit (no_rt_limit=True)
+    │  QThread.LowPriority + os.nice(10) auf Linux
+    │  isInterruptionRequested() zwischen jeder Phase prüfen
+    │  Qualitätsinvariante: quality(v2) ≥ quality(v1) → sonst alten Export behalten
+    └→ Atomischer Export-Overwrite: result_v2.tmp → os.replace(output_path)
+       signal: refinement_complete(output_path, final_RestorationResult)
+```
+
+### RAM-Guard (Stufe 2 Startbedingung)
+
+```python
+import psutil
+avail_gb = psutil.virtual_memory().available / 1024**3
+if avail_gb < 4.0:
+    logger.warning("KMV Stufe 2 übersprungen: nur %.1f GB RAM verfügbar (< 4 GB)", avail_gb)
+    return  # Stufe-1-Export bleibt permanent
+```
+
+### DeferredRefinementJob (Pflicht-Dataclass)
+
+```python
+@dataclass
+class DeferredRefinementJob:
+    """Queued job for background ML refinement (§2.38)."""
+    output_path:          str                       # Pfad der Stufe-1-Exportdatei
+    audio_original:       np.ndarray                # Original-Audio (unkomprimiert, pre-pipeline)
+    sr:                   int                       # Sample-Rate (48000)
+    mode:                 str                       # "restoration" | "studio_2026"
+    deferred_phase_ids:   list[str]                 # Phasen die in Stufe 1 deferriert wurden
+    cached_defect_result: Any                       # DefectAnalysisResult aus Stufe 1
+    cached_era_result:    Any                       # EraResult aus Stufe 1
+    cached_medium_result: Any                       # ClassificationResult aus Stufe 1
+    stufe1_quality:       float                     # quality_estimate Stufe 1 (Mindest-Benchmark)
+    created_at:           float = field(default_factory=time.time)
+```
+
+### MLRefinementThread — Signal-Kontrakt
+
+```python
+class MLRefinementThread(QThread):
+    refinement_started    = pyqtSignal(str, int)    # output_path, n_deferred_phases
+    refinement_phase_done = pyqtSignal(str, float)  # phase_id, quality_improvement_delta
+    refinement_progress   = pyqtSignal(int, str)    # pct 0–100, phase_name
+    refinement_complete   = pyqtSignal(str, object) # output_path, final_RestorationResult
+    refinement_cancelled  = pyqtSignal(str)         # output_path → Stufe-1-Export bleibt
+```
+
+### Invarianten
+
+- `LIMIT_BACKGROUND = float("inf")` ist ausschließlich für `MLRefinementThread` — niemals für BatchProcessingThread
+- Atomisches Schreiben: `output_path.tmp` → `os.replace(output_path)` nach vollständigem Pass
+- Kein Downgrade: `if stufe2_result.quality_estimate < job.stufe1_quality: skip_overwrite()`
+- Single active refinement: Pro Prozess höchstens ein aktiver `MLRefinementThread`
+- Escape-Abbruch: `requestInterruption()` → Stufe-1-Export bleibt unverändert erhalten
+- `DeferredRefinementJob.audio_original` registriert in `ml_memory_budget` (Budget-Guard); freigegeben unmittelbar nach Stufe-2-Export oder Abbruch

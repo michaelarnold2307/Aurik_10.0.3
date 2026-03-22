@@ -256,7 +256,7 @@ def _try_cqtdiff_plus_plugin(audio: np.ndarray, start: int, end: int, sample_rat
         from plugins.cqtdiff_plus_plugin import CQTdiffPlusPlugin
 
         plugin = CQTdiffPlusPlugin()
-        result = plugin.inpaint(audio=audio, sr=sample_rate, gap_start=start, gap_end=end)
+        result = plugin.inpaint(audio=audio, sr=sample_rate, gap_start_sample=start, gap_end_sample=end)
         # InpaintingResult.audio = volles Audio-Signal mit gefüllter Lücke
         repaired_segment = result.audio[start:end]
         if repaired_segment is not None and np.isfinite(repaired_segment).all():
@@ -286,8 +286,10 @@ def _try_flow_matching_plugin(audio: np.ndarray, start: int, end: int, sample_ra
         from flow_matching_plugin import inpaint_flow
 
         result = inpaint_flow(audio, start, end, sample_rate)
-        if result is not None and np.isfinite(result).all():
-            return np.clip(result, -1.0, 1.0)
+        if result is not None and result.success:
+            repaired_segment = result.audio[start:end]
+            if repaired_segment is not None and np.isfinite(repaired_segment).all():
+                return np.clip(repaired_segment.astype(np.float32), -1.0, 1.0)
         return None
     except Exception as _e:
         logger.debug("FlowMatchingPlugin nicht verfügbar: %s", _e)

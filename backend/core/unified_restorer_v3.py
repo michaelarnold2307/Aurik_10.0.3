@@ -25,12 +25,12 @@ Date: 2026-02-15
 """
 
 import dataclasses
+from dataclasses import dataclass, field
 import gc
 import logging
 import math
 import pathlib
 import time
-from dataclasses import dataclass, field
 from typing import Any, Optional
 
 import numpy as np
@@ -48,11 +48,11 @@ try:
     MEMORY_PROFILING_AVAILABLE = True
 except ImportError:
     MEMORY_PROFILING_AVAILABLE = False
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import contextlib
 import importlib
 import os
 import sys
-from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from backend.core.adaptive_core_scheduler import AdaptiveCoreScheduler
 
@@ -130,6 +130,10 @@ class RestorationResult:
     goal_priority_log: list[str] = field(default_factory=list)  # GoalPriorityProtocol-Entscheidungen (§2.2)
     preview_mos: float | None = None  # Schnell-MOS vor Vollprüfung (§2.2)
     era_decade: int | None = None  # Erkannte Aufnahme-Ära (§2.2)
+    # --- §2.38 KMV (Kontinuierliche ML-Veredelung) Pflichtfelder ---
+    deferred_phases: list[str] = field(default_factory=list)  # Phasen für Stufe 2
+    refinement_complete: bool = False  # True nach ML-Veredelung
+    stufe2_quality_estimate: float | None = None  # quality nach vollst. ML-Pass
 
 
 class UnifiedRestorerV3:
@@ -450,8 +454,8 @@ class UnifiedRestorerV3:
             "balanced": QualityMode.BALANCED,
             "restoration": QualityMode.QUALITY,  # Restoration nutzt volle Quality-Pipeline
             "quality": QualityMode.QUALITY,
-            "maximum": QualityMode.MAXIMUM,       # §9.5: 8× RT — war fälschlich BALANCED (3×)
-            "studio_2026": QualityMode.MAXIMUM,   # §9.5: 8× RT — war fälschlich BALANCED (3×)
+            "maximum": QualityMode.MAXIMUM,  # §9.5: 8× RT — war fälschlich BALANCED (3×)
+            "studio_2026": QualityMode.MAXIMUM,  # §9.5: 8× RT — war fälschlich BALANCED (3×)
         }
         _mode_kwarg = kwargs.pop("mode", None)
         if _mode_kwarg is not None:
@@ -484,7 +488,7 @@ class UnifiedRestorerV3:
         # ── Early-Exit Guard: Minimum Signal Length ───────────────────────────
         # Signals shorter than 100 ms (4800 samples @ 48 kHz) cannot be meaningfully
         # restored. HPSS, STFT and ML metrics produce garbage on such tiny buffers and
-        # trigger misleading warnings (PQS-MOS, 3×RT violations, Musical Goals).
+        # trigger misleading warnings (PQS-MOS, 8×RT violations, Musical Goals).
         # Return a no-op pass-through result immediately to avoid polluting the log.
         _MIN_MEANINGFUL_SAMPLES = 4800  # 100 ms @ 48 kHz
         _audio_size_check = audio.size
@@ -779,19 +783,24 @@ class UnifiedRestorerV3:
                 if _gp_decade is not None and _gp_era_conf >= 0.35:
                     try:
                         from backend.core.era_classifier import EraResult as _EraResult
+
                         _old_decade = getattr(_era_result, "decade", "?")
                         _era_result = _EraResult(
                             decade=int(_gp_decade),
                             era_label=f"{_gp_decade}er",
                             confidence=_gp_era_conf,
                             material_prior=_gp_material or getattr(_era_result, "material_prior", "unknown"),
-                            noise_profile=getattr(_era_result, "noise_profile", None) or __import__("numpy").zeros(24, dtype="float32"),
+                            noise_profile=getattr(_era_result, "noise_profile", None)
+                            or __import__("numpy").zeros(24, dtype="float32"),
                             tier_used=0,
                             hf_rolloff_hz=getattr(_era_result, "hf_rolloff_hz", 20000.0),
                         )
                         logger.info(
                             "§Dach GlobalPlan-Prior: EraClassifier decade=%s→%d material=%s (Konfidenz=%.2f)",
-                            _old_decade, _gp_decade, _gp_material, _gp_era_conf,
+                            _old_decade,
+                            _gp_decade,
+                            _gp_material,
+                            _gp_era_conf,
                         )
                     except Exception as _gp_era_exc:
                         logger.debug("GlobalPlan-Era-Override fehlgeschlagen: %s", _gp_era_exc)
@@ -802,11 +811,13 @@ class UnifiedRestorerV3:
                     if _chunk_mc_conf < 0.55:
                         try:
                             from backend.core.medium_classifier import MaterialType as _MatType
+
                             _gp_mat_type = _MatType(_gp_material)
                             _classified_material = _gp_mat_type
                             logger.info(
                                 "§Dach GlobalPlan-Prior: MediumClassifier material→%s (Chunk-Konfidenz=%.2f)",
-                                _gp_material, _chunk_mc_conf,
+                                _gp_material,
+                                _chunk_mc_conf,
                             )
                         except Exception:
                             pass  # MaterialType-Wert unbekannt → Chunk-Ergebnis behalten
@@ -833,10 +844,13 @@ class UnifiedRestorerV3:
                 _gp_genre = getattr(_gp_portrait, "genre", None)
                 _gp_genre_conf = float(getattr(_gp_portrait, "genre_confidence", 0.0))
                 _gp_subgenre = getattr(_gp_portrait, "subgenre", "unknown")
-                _chunk_genre_conf = float(getattr(_schlager_result, "confidence", 0.0)) if _schlager_result is not None else 0.0
+                _chunk_genre_conf = (
+                    float(getattr(_schlager_result, "confidence", 0.0)) if _schlager_result is not None else 0.0
+                )
                 if _gp_genre == "schlager" and _gp_genre_conf >= 0.35 and _gp_genre_conf >= _chunk_genre_conf:
                     try:
                         from backend.core.genre_classifier import GenreResult as _GenreResult
+
                         _schlager_result = _GenreResult(
                             is_schlager=True,
                             confidence=_gp_genre_conf,
@@ -846,7 +860,8 @@ class UnifiedRestorerV3:
                         )
                         logger.info(
                             "§Dach GlobalPlan-Prior: Genre→Schlager subgenre=%s (conf=%.2f)",
-                            _gp_subgenre, _gp_genre_conf,
+                            _gp_subgenre,
+                            _gp_genre_conf,
                         )
                     except Exception:
                         pass
@@ -875,19 +890,23 @@ class UnifiedRestorerV3:
                 if _gp_decade_e is not None and _gp_era_conf_e >= 0.35 and _gp_era_conf_e >= _chunk_era_conf_e:
                     try:
                         from backend.core.era_classifier import EraResult as _EraResult2
+
                         _gp_mat_e = getattr(_gp_portrait_else, "material", None)
                         _era_result = _EraResult2(
                             decade=int(_gp_decade_e),
                             era_label=f"{_gp_decade_e}er",
                             confidence=_gp_era_conf_e,
                             material_prior=_gp_mat_e or getattr(_era_result, "material_prior", "unknown"),
-                            noise_profile=getattr(_era_result, "noise_profile", None) or __import__("numpy").zeros(24, dtype="float32"),
+                            noise_profile=getattr(_era_result, "noise_profile", None)
+                            or __import__("numpy").zeros(24, dtype="float32"),
                             tier_used=0,
                             hf_rolloff_hz=getattr(_era_result, "hf_rolloff_hz", 20000.0),
                         )
                         logger.info(
                             "§Dach GlobalPlan-Prior (else): decade→%d material→%s (conf=%.2f)",
-                            _gp_decade_e, _gp_mat_e, _gp_era_conf_e,
+                            _gp_decade_e,
+                            _gp_mat_e,
+                            _gp_era_conf_e,
                         )
                     except Exception:
                         pass
@@ -912,10 +931,13 @@ class UnifiedRestorerV3:
                 _gp_genre_e = getattr(_gp_portrait_else, "genre", None)
                 _gp_genre_conf_e = float(getattr(_gp_portrait_else, "genre_confidence", 0.0))
                 _gp_subgenre_e = getattr(_gp_portrait_else, "subgenre", "unknown")
-                _chunk_genre_conf_e = float(getattr(_schlager_result, "confidence", 0.0)) if _schlager_result is not None else 0.0
+                _chunk_genre_conf_e = (
+                    float(getattr(_schlager_result, "confidence", 0.0)) if _schlager_result is not None else 0.0
+                )
                 if _gp_genre_e == "schlager" and _gp_genre_conf_e >= 0.35 and _gp_genre_conf_e >= _chunk_genre_conf_e:
                     try:
                         from backend.core.genre_classifier import GenreResult as _GenreResult
+
                         _schlager_result = _GenreResult(
                             is_schlager=True,
                             confidence=_gp_genre_conf_e,
@@ -925,7 +947,8 @@ class UnifiedRestorerV3:
                         )
                         logger.info(
                             "§Dach GlobalPlan-Prior (else): Genre→Schlager subgenre=%s (conf=%.2f)",
-                            _gp_subgenre_e, _gp_genre_conf_e,
+                            _gp_subgenre_e,
+                            _gp_genre_conf_e,
                         )
                     except Exception:
                         pass
@@ -964,8 +987,9 @@ class UnifiedRestorerV3:
 
             _panns_for_gaf = kwargs.get("panns_tags", {})
             _mat_for_gaf = _classified_material.value if _classified_material is not None else "unknown"
+            _era_decade_for_gaf = getattr(_era_result, "decade", None) if _era_result is not None else None
             _goal_applicability = evaluate_goal_applicability(
-                audio, sample_rate, _mat_for_gaf, _era_result, _panns_for_gaf
+                audio, sample_rate, _mat_for_gaf, _era_decade_for_gaf, _panns_for_gaf
             )
             logger.info(
                 "🎯 GoalApplicabilityFilter: %d anwendbar, %d nicht-anwendbar",
@@ -1065,12 +1089,15 @@ class UnifiedRestorerV3:
                 "Possible cause: internal scanner exception. Solution: check scanner logs."
             )
             from backend.core.defect_scanner import DefectAnalysisResult
+
             defect_result = DefectAnalysisResult(
                 material_type=MaterialType.UNKNOWN if _classified_material is None else _classified_material,
                 scores={},
                 analysis_time_seconds=0.0,
                 sample_rate=sample_rate,
-                duration_seconds=float(len(audio) / sample_rate) if audio.ndim == 1 else float(audio.shape[-1] / sample_rate),
+                duration_seconds=(
+                    float(len(audio) / sample_rate) if audio.ndim == 1 else float(audio.shape[-1] / sample_rate)
+                ),
             )
         material_type = defect_result.material_type
 
@@ -1224,9 +1251,8 @@ class UnifiedRestorerV3:
             defect_result.material_type,
         )
         _pass_through_mode = (
-            ((_input_snr_db > 40.0 and _max_defect_severity < 0.15) or _clean_digital_mode)
-            and not _localized_critical
-        )
+            (_input_snr_db > 40.0 and _max_defect_severity < 0.15) or _clean_digital_mode
+        ) and not _localized_critical
         if _localized_critical:
             logger.info(
                 "🛡️ Local-Defect-Guard: Schonmodus deaktiviert (localized_count=%d, max=%.3f, thr=%.3f)",
@@ -1244,8 +1270,7 @@ class UnifiedRestorerV3:
         if _mp3_maximum_guard and not _pass_through_mode:
             _pass_through_mode = True
             logger.info(
-                "🛡️ MP3-Maximum-Guard: material=%s, mode=%s, SNR=%.1f dB, max_defect=%.3f "
-                "→ Schonmodus erzwungen",
+                "🛡️ MP3-Maximum-Guard: material=%s, mode=%s, SNR=%.1f dB, max_defect=%.3f → Schonmodus erzwungen",
                 material_type.value if hasattr(material_type, "value") else str(material_type),
                 self.config.mode.value,
                 _input_snr_db,
@@ -1452,12 +1477,14 @@ class UnifiedRestorerV3:
         _material_phase_initial_strengths: dict[str, float] = {}
         try:
             from backend.core.defect_phase_mapper import get_material_initial_strength as _get_mat_strength
+
             _mat_val = material_type.value if hasattr(material_type, "value") else str(material_type)
             # Alle bekannten Phase-IDs aus beiden Quellen konsolidieren
             _all_phase_ids = set(_vintage_phase_strength_caps.keys())
             # Alle Phase-IDs aus MaterialPhaseFactors für dieses Material ermitteln
             try:
                 from backend.core.defect_phase_mapper import _MATERIAL_PHASE_FACTORS as _mpf
+
                 _all_phase_ids.update(_mpf.get(_mat_val, {}).keys())
             except Exception:
                 pass
@@ -1471,12 +1498,13 @@ class UnifiedRestorerV3:
             if _material_phase_initial_strengths:
                 logger.debug(
                     "§2.31 Material-Phase-Initialstärken: %d Phasen angepasst für material=%s",
-                    len(_material_phase_initial_strengths), _mat_val,
+                    len(_material_phase_initial_strengths),
+                    _mat_val,
                 )
         except Exception as _mps_exc:
             logger.debug("Material-Phase-Initialstärken-Aufbau fehlgeschlagen: %s", _mps_exc)
         self._material_phase_initial_strengths = _material_phase_initial_strengths
-        restored_audio, executed_phases, skipped_phases = self._execute_pipeline(
+        restored_audio, executed_phases, skipped_phases, deferred_phases = self._execute_pipeline(
             audio,
             sample_rate,
             material_type,
@@ -1503,7 +1531,7 @@ class UnifiedRestorerV3:
                 from backend.core.ensemble_processor import process_ensemble
 
                 def _ep_restoration_fn(_a: np.ndarray, _sr: int, _strength: float) -> np.ndarray:
-                    _res, _, _ = self._execute_pipeline(
+                    _res, _, _, _ = self._execute_pipeline(
                         _a,
                         _sr,
                         material_type,
@@ -1624,16 +1652,23 @@ class UnifiedRestorerV3:
                     _gpp_sr = sample_rate
                     # Cache: speichere letzte Scores um doppelte measure_all-Aufrufe zu vermeiden
                     _gpp_prev_scores: dict[str, float] = {}
+                    _gpp_analytics_s: list[float] = [0.0]  # mutable accumulator for closure
 
                     def _gpp_fc_callback(_ab: np.ndarray, _aa: np.ndarray) -> tuple[bool, str]:
                         nonlocal _gpp_prev_scores
+                        import time as _t_gpp
+
                         try:
                             # Reuse cached scores for 'before' when available (same audio)
                             if _gpp_prev_scores:
                                 _sb = _gpp_prev_scores
                             else:
+                                _t0g = _t_gpp.perf_counter()
                                 _sb = _gpp_checker.measure_all(_ab, _gpp_sr)
+                                _gpp_analytics_s[0] += _t_gpp.perf_counter() - _t0g
+                            _t0g = _t_gpp.perf_counter()
                             _sa = _gpp_checker.measure_all(_aa, _gpp_sr)
+                            _gpp_analytics_s[0] += _t_gpp.perf_counter() - _t0g
                             _gpp_prev_scores = _sa  # cache for next iteration
                             _res = _check_gpp(_sb, _sa)
                             return _res.should_abort, _res.reason
@@ -1647,11 +1682,22 @@ class UnifiedRestorerV3:
                     logger.debug("§GPP-WIRE: nicht verfügbar — %s", _gpp_wire_exc)
                 _fc_chain_result = _fc_chain.run(restored_audio, _fc_phases_list, ceiling=_fc_ceiling_val)
                 restored_audio = _fc_chain_result.audio
+                # Report analytics overhead to PerformanceGuard so goal-measurement
+                # time inside FeedbackChain does not inflate the RT factor.
+                _fc_analytics = getattr(_fc_chain_result, "analytics_overhead_s", 0.0)
+                # Also accumulate GPP-callback analytics overhead (captured via closure)
+                try:
+                    _fc_analytics += _gpp_analytics_s[0]
+                except Exception:
+                    pass
+                if self.performance_guard and _fc_analytics > 0:
+                    self.performance_guard.add_analytics_overhead(_fc_analytics)
                 logger.info(
-                    "🔄 FeedbackChain: score=%.3f retries=%d t=%.2fs (%d Post-Phasen)",
+                    "🔄 FeedbackChain: score=%.3f retries=%d t=%.2fs analytics_overhead=%.2fs (%d Post-Phasen)",
                     _fc_chain_result.overall_score,
                     getattr(_fc_chain_result, "total_retries", _fc_chain_result.iterations),
                     _fc_chain_result.total_time_s,
+                    _fc_analytics,
                     len(_fc_phases_list),
                 )
             else:
@@ -1711,8 +1757,6 @@ class UnifiedRestorerV3:
             try:
                 from plugins.matchering_plugin import (
                     is_matchering_available as _mg_avail,
-                )
-                from plugins.matchering_plugin import (
                     match_reference as _match_ref,
                 )
 
@@ -1767,8 +1811,6 @@ class UnifiedRestorerV3:
         try:
             from backend.core.lyrics_guided_enhancement import (
                 get_content_aware_processor as _get_cap,
-            )
-            from backend.core.lyrics_guided_enhancement import (
                 get_lyrics_guided_enhancement as _get_lge,
             )
 
@@ -1981,8 +2023,7 @@ class UnifiedRestorerV3:
             logger.warning("ExcellenceOptimizer nicht verfügbar — DSP-Fallback aktiv: %s", _ex_exc)
             # Guaranteed DSP-Fallback: Presence enhancement + NaN-Guard (§Checkliste §3.x)
             try:
-                from scipy.signal import butter as _butter
-                from scipy.signal import lfilter as _lfilter
+                from scipy.signal import butter as _butter, lfilter as _lfilter
 
                 _ex_rms = float(np.sqrt(np.mean(restored_audio.astype(np.float64) ** 2) + 1e-12))
                 if _ex_rms > 1e-4:  # Nicht auf Stille anwenden
@@ -2090,8 +2131,6 @@ class UnifiedRestorerV3:
         try:
             from backend.core.perceptual_quality_scorer import (
                 score_audio as _score_audio,
-            )
-            from backend.core.perceptual_quality_scorer import (
                 score_audio_absolute as _score_abs,
             )
 
@@ -2162,9 +2201,7 @@ class UnifiedRestorerV3:
         try:
             from backend.core.musical_goals.adaptive_goals_system import get_adaptive_goals_and_config
 
-            _adaptive_goals = get_adaptive_goals_and_config(
-                audio, sample_rate, _classified_material, defect_result
-            )
+            _adaptive_goals = get_adaptive_goals_and_config(audio, sample_rate, _classified_material, defect_result)
             logger.info(
                 "🎯 AdaptiveGoalThresholds: konfiguriert (material=%s)",
                 getattr(_classified_material, "value", str(_classified_material)),
@@ -2608,7 +2645,7 @@ class UnifiedRestorerV3:
         # Build Result
         total_time = time.time() - start_time
         rt_factor = total_time / audio_duration
-        # Absolutes 30-Minuten-Budget (1800 s) statt relativem 3×RT-Faktor —
+        # Absolutes 30-Minuten-Budget (1800 s) statt relativem 8×RT-Faktor —
         # kurze Clips erzeugen naturgemäß hohe rt_factors, die kein echtes Problem sind.
         _ABSOLUTE_BUDGET_S = 1800.0
         if self.config.enforce_3x_rt and total_time > _ABSOLUTE_BUDGET_S:
@@ -2657,6 +2694,7 @@ class UnifiedRestorerV3:
             defect_scores={dt: defect_result.scores[dt].severity for dt in DefectType if dt in defect_result.scores},
             phases_executed=executed_phases,
             phases_skipped=skipped_phases,
+            deferred_phases=deferred_phases,  # §2.38 KMV: RT-skipped phases for Stage 2
             total_time_seconds=total_time,
             rt_factor=rt_factor,
             quality_estimate=quality_estimate,
@@ -2793,8 +2831,6 @@ class UnifiedRestorerV3:
             try:
                 from backend.core.artist_signature_store import (
                     VoiceCharacteristics as _VoiceCharacteristics,
-                )
-                from backend.core.artist_signature_store import (
                     get_signature_store as _get_sig_store2,
                 )
 
@@ -2894,9 +2930,7 @@ class UnifiedRestorerV3:
         # §2.29 PMGG-Rollback-Log: Phasen-Namen wo ein Rollback (action=="rollback") stattfand
         try:
             _phase_gate_entries = getattr(self, "_pmgg_log_entries", [])
-            result.phase_gate_log = [
-                e.phase_id for e in _phase_gate_entries if getattr(e, "action", "") == "rollback"
-            ]
+            result.phase_gate_log = [e.phase_id for e in _phase_gate_entries if getattr(e, "action", "") == "rollback"]
         except Exception:
             result.phase_gate_log = []
 
@@ -3057,17 +3091,9 @@ class UnifiedRestorerV3:
         try:
             from backend.core.authenticity_metrics import (
                 BreathDetector as _BreathDetector,
-            )
-            from backend.core.authenticity_metrics import (
                 PlosiveDetector as _PlosiveDetector,
-            )
-            from backend.core.authenticity_metrics import (
                 RoomToneDetector as _RoomToneDetector,
-            )
-            from backend.core.authenticity_metrics import (
                 SibilanceDetector as _SibilanceDetector,
-            )
-            from backend.core.authenticity_metrics import (
                 TransientDetector as _TransientDetector,
             )
 
@@ -3106,11 +3132,7 @@ class UnifiedRestorerV3:
         try:
             from backend.core.musical_quality_assurance import (
                 MediumType as _MediumType,
-            )
-            from backend.core.musical_quality_assurance import (
                 MusicalQualityAssurance as _MQA,
-            )
-            from backend.core.musical_quality_assurance import (
                 ProcessingMode as _ProcessingMode,
             )
 
@@ -3178,35 +3200,15 @@ class UnifiedRestorerV3:
             from backend.core.aesthetic_judgment import CompositeAestheticScoreCalculator as _CASCalc
             from backend.core.data_models import (
                 AnalysisProfile as _AProfile,
-            )
-            from backend.core.data_models import (
                 DynamicsAnalysis as _DynAnal,
-            )
-            from backend.core.data_models import (
                 FeatureVectors as _FeatVec,
-            )
-            from backend.core.data_models import (
                 FormatInfo as _FormatInfo,
-            )
-            from backend.core.data_models import (
                 Genre as _DataGenre,
-            )
-            from backend.core.data_models import (
                 MaterialChainAnalysis as _MatChain,
-            )
-            from backend.core.data_models import (
                 MediaType as _MediaType,
-            )
-            from backend.core.data_models import (
                 MusicalContext as _MusCtx,
-            )
-            from backend.core.data_models import (
                 SpectralAnalysis as _SpectralAnal,
-            )
-            from backend.core.data_models import (
                 StereoAnalysis as _StereoAnal,
-            )
-            from backend.core.data_models import (
                 VocalAnalysis as _VocalAnal,
             )
 
@@ -3689,11 +3691,7 @@ class UnifiedRestorerV3:
         try:
             from backend.core.processing_modes import (
                 ProcessingMode as _PM22,
-            )
-            from backend.core.processing_modes import (
                 get_processing_config as _get_pcfg,
-            )
-            from backend.core.processing_modes import (
                 list_available_modes as _list_modes,
             )
 
@@ -3815,8 +3813,7 @@ class UnifiedRestorerV3:
         # v9.10.23 — AdaptiveChainRouter: optimale Phasenkette für Material
         _acr_result: dict | None = None
         try:
-            from backend.core.adaptive_chain_router import CHAIN_TEMPLATES as _CHAIN_TPL
-            from backend.core.adaptive_chain_router import AdaptiveChainRouter as _ACR
+            from backend.core.adaptive_chain_router import CHAIN_TEMPLATES as _CHAIN_TPL, AdaptiveChainRouter as _ACR
 
             _acr_material = "UNKNOWN"
             if _era_result and isinstance(_era_result, dict):
@@ -4101,8 +4098,7 @@ class UnifiedRestorerV3:
         # v9.10.27 — adaptive_plugins: VoiceHealthNet + LanguageNet
         _adp_result: dict | None = None
         try:
-            from backend.core.adaptive_plugins import LanguageNet as _LN27
-            from backend.core.adaptive_plugins import VoiceHealthNet as _VHN27
+            from backend.core.adaptive_plugins import LanguageNet as _LN27, VoiceHealthNet as _VHN27
 
             _adp_audio27 = restored_audio if restored_audio.ndim == 1 else np.mean(restored_audio, axis=0)
             _vhn27 = _VHN27().analyze(_adp_audio27, {})
@@ -4157,11 +4153,7 @@ class UnifiedRestorerV3:
         try:
             from backend.core.exotic_media_support import (
                 EXOTIC_DEFECTS as _EDF27,
-            )
-            from backend.core.exotic_media_support import (
                 EXOTIC_MEDIA_TEMPLATES as _EMT27,
-            )
-            from backend.core.exotic_media_support import (
                 ExoticMediaHandler as _EMH27,
             )
 
@@ -4415,9 +4407,9 @@ class UnifiedRestorerV3:
         # v9.10.31 — module_coordinator: create_coordinator()
         _mco_result: dict | None = None
         try:
+            from backend.core.module_communication import ModuleCommunicationBus as _MCBus31
             from backend.core.module_coordinator import create_coordinator as _cc31
             from backend.core.processing_context import ProcessingContext as _PCtx31
-            from backend.core.module_communication import ModuleCommunicationBus as _MCBus31
 
             _mco31 = _cc31(context=_PCtx31(session_id="probe"), bus=_MCBus31())
             _mco_result = {
@@ -4462,11 +4454,7 @@ class UnifiedRestorerV3:
         try:
             from backend.core.dummy_models import (
                 AuthenticityModel as _AuthM31,
-            )
-            from backend.core.dummy_models import (
                 DenoiserModel as _DM31,
-            )
-            from backend.core.dummy_models import (
                 SibilantModel as _SibM31,
             )
 
@@ -5465,8 +5453,6 @@ class UnifiedRestorerV3:
         try:
             from backend.core.ab_compare_manager import (
                 get_ab_manager as _ab_get34,
-            )
-            from backend.core.ab_compare_manager import (
                 store_ab_session as _ab_store34,
             )
 
@@ -5796,10 +5782,10 @@ class UnifiedRestorerV3:
             return panns_tags.get(tag, 0.0) >= threshold
 
         vocals_detected = panns("Singing voice", 0.40) or panns("Vocals", 0.40) or panns("Speech", 0.35)
-        guitar_detected = panns("Guitar", 0.60) or panns("Electric guitar", 0.60)
-        brass_detected = panns("Brass instrument", 0.60) or panns("Trumpet", 0.60) or panns("Saxophone", 0.60)
+        guitar_detected = panns("Guitar", 0.50) or panns("Electric guitar", 0.50)
+        brass_detected = panns("Brass instrument", 0.50) or panns("Trumpet", 0.50) or panns("Saxophone", 0.50)
         drums_detected = panns("Drum", 0.50) or panns("Percussion", 0.50)
-        piano_detected = panns("Piano", 0.60) or panns("Keyboard (musical)", 0.60)
+        piano_detected = panns("Piano", 0.50) or panns("Keyboard (musical)", 0.50)
 
         selected: list[str] = []
 
@@ -6718,10 +6704,12 @@ class UnifiedRestorerV3:
         # §MusikalischeHarmonisierung: Defekt-Severity-Wet/Dry für non-PMGG-Pfade
         # Berechne Severity-Faktor VOR Phasenausführung (benötigt Original-Audio für Mix)
         _sev_wet_dry: float = 1.0
-        _TIMING_PHASES_WD = frozenset({
-            "phase_12_wow_flutter_fix",
-            "phase_31_speed_pitch_correction",
-        })
+        _TIMING_PHASES_WD = frozenset(
+            {
+                "phase_12_wow_flutter_fix",
+                "phase_31_speed_pitch_correction",
+            }
+        )
         _defect_scores_wd = kwargs.get("defect_scores")
         if _defect_scores_wd and phase_metadata.phase_id not in _TIMING_PHASES_WD:
             try:
@@ -6741,7 +6729,8 @@ class UnifiedRestorerV3:
             if isinstance(_pa, np.ndarray) and _pa.shape == _audio_before_phase.shape:
                 result.audio = np.clip(
                     (_audio_before_phase + _sev_wet_dry * (_pa - _audio_before_phase)).astype(np.float32),
-                    -1.0, 1.0,
+                    -1.0,
+                    1.0,
                 )
                 logger.debug(
                     "🎵 DefectSeverity Wet/Dry %s: factor=%.2f",
@@ -6795,6 +6784,7 @@ class UnifiedRestorerV3:
         current_audio = audio.copy()
         executed = []
         skipped = []
+        deferred = []  # §2.38 KMV: phases skipped by PerformanceGuard for Stage 2 refinement
         # §Punkt3 Phasen-Regressionsprotokoll: RMS-Delta je Phase (sequentielle Ausführung)
         # Einheit: dBFS-Differenz nach - vor Phase. Positiv = Energie gestiegen, negativ = gesunken.
         self._phase_regression_log: dict[str, float] = {}
@@ -6872,6 +6862,7 @@ class UnifiedRestorerV3:
                         phase_id, estimated_time, len(selected_phases) - 1
                     ):
                         skipped.append(phase_id)
+                        deferred.append(phase_id)  # §2.38 KMV: RT-skipped → Stage 2
                         continue
                     phase_start = (
                         self.performance_guard.start_phase(phase_id) if self.performance_guard else time.time()
@@ -6884,10 +6875,12 @@ class UnifiedRestorerV3:
                             _pct_p = _phase_progress_start + int(
                                 (_phase_progress_end - _phase_progress_start) * _n_sub_p / _n_sel_p
                             )
-                            _lbl_p = phase_id.replace("phase_", "").replace("_", " ").title()
+                            _lbl_p = (self.phase_metadata.get(phase_id) or {}).get("name") or phase_id.replace(
+                                "phase_", ""
+                            ).replace("_", " ").title().lstrip("0123456789 ")
                             progress_callback(
                                 _pct_p,
-                                f"Phase {_n_sub_p + 1}/{_n_sel_p}: {_lbl_p} [{phase_id}]",
+                                f"{_lbl_p} [{phase_id}]",
                                 0.0,
                             )
                         except Exception:
@@ -6917,10 +6910,12 @@ class UnifiedRestorerV3:
                             )
                             if progress_callback is not None:
                                 try:
-                                    _phase_label = phase_id.replace("phase_", "").replace("_", " ").title()
+                                    _phase_label = (self.phase_metadata.get(phase_id) or {}).get(
+                                        "name"
+                                    ) or phase_id.replace("phase_", "").replace("_", " ").title().lstrip("0123456789 ")
                                     progress_callback(
                                         _phase_pct,
-                                        f"Phase {_idx_ex + 1}/{_n_sel}: {_phase_label} [{phase_id}]",
+                                        f"{_phase_label} [{phase_id}]",
                                         0.0,
                                     )
                                 except Exception as _cb_exc:
@@ -6986,6 +6981,7 @@ class UnifiedRestorerV3:
                     phase_id, estimated_time, remaining
                 ):
                     skipped.append(phase_id)
+                    deferred.append(phase_id)  # §2.38 KMV: RT-skipped → Stage 2
                     continue
                 phase_start = self.performance_guard.start_phase(phase_id) if self.performance_guard else time.time()
                 # §2.16 TQC mid-pipeline: Snapshot vor zeitmodifizierenden Phasen
@@ -7001,10 +6997,12 @@ class UnifiedRestorerV3:
                         _pct_pre = _phase_progress_start + int(
                             (_phase_progress_end - _phase_progress_start) * _idx_pre / _n_sel_pre
                         )
-                        _lbl_pre = phase_id.replace("phase_", "").replace("_", " ").title()
+                        _lbl_pre = (self.phase_metadata.get(phase_id) or {}).get("name") or phase_id.replace(
+                            "phase_", ""
+                        ).replace("_", " ").title().lstrip("0123456789 ")
                         progress_callback(
                             _pct_pre,
-                            f"Phase {_idx_pre + 1}/{_n_sel_pre}: {_lbl_pre} [{phase_id}]",
+                            f"{_lbl_pre} [{phase_id}]",
                             0.0,
                         )
                     except Exception:
@@ -7017,9 +7015,7 @@ class UnifiedRestorerV3:
                             # Phasen arbeiten proportional zur gemessenen Defekt-Schwere,
                             # nicht mit festen Material-Defaults.
                             _mat_strength = (
-                                material_initial_strengths.get(phase_id, 1.0)
-                                if material_initial_strengths
-                                else 1.0
+                                material_initial_strengths.get(phase_id, 1.0) if material_initial_strengths else 1.0
                             )
                             try:
                                 from backend.core.defect_phase_mapper import get_phase_defect_severity
@@ -7067,10 +7063,12 @@ class UnifiedRestorerV3:
                             )
                             if progress_callback is not None:
                                 try:
-                                    _phase_label = phase_id.replace("phase_", "").replace("_", " ").title()
+                                    _phase_label = (self.phase_metadata.get(phase_id) or {}).get(
+                                        "name"
+                                    ) or phase_id.replace("phase_", "").replace("_", " ").title().lstrip("0123456789 ")
                                     progress_callback(
                                         _phase_pct,
-                                        f"Phase {_idx_ex + 1}/{_n_sel}: {_phase_label} [{phase_id}]",
+                                        f"{_phase_label} [{phase_id}]",
                                         0.0,
                                     )
                                 except Exception as _cb_exc:
@@ -7118,10 +7116,14 @@ class UnifiedRestorerV3:
                                 )
                                 if progress_callback is not None:
                                     try:
-                                        _phase_label = phase_id.replace("phase_", "").replace("_", " ").title()
+                                        _phase_label = (self.phase_metadata.get(phase_id) or {}).get(
+                                            "name"
+                                        ) or phase_id.replace("phase_", "").replace("_", " ").title().lstrip(
+                                            "0123456789 "
+                                        )
                                         progress_callback(
                                             _phase_pct,
-                                            f"Phase {_idx_ex + 1}/{_n_sel}: {_phase_label} [{phase_id}]",
+                                            f"{_phase_label} [{phase_id}]",
                                             0.0,
                                         )
                                     except Exception as _cb_exc:
@@ -7162,10 +7164,12 @@ class UnifiedRestorerV3:
                             )
                             if progress_callback is not None:
                                 try:
-                                    _phase_label = phase_id.replace("phase_", "").replace("_", " ").title()
+                                    _phase_label = (self.phase_metadata.get(phase_id) or {}).get(
+                                        "name"
+                                    ) or phase_id.replace("phase_", "").replace("_", " ").title().lstrip("0123456789 ")
                                     progress_callback(
                                         _phase_pct,
-                                        f"Phase {_idx_ex + 1}/{_n_sel}: {_phase_label} [{phase_id}]",
+                                        f"{_phase_label} [{phase_id}]",
                                         0.0,
                                     )
                                 except Exception as _cb_exc:
@@ -7220,7 +7224,7 @@ class UnifiedRestorerV3:
                     skipped.extend(selected_phases[len(executed) :])
                     break
         self._pmgg_log_entries = _pmgg_log_entries
-        return current_audio, executed, skipped
+        return current_audio, executed, skipped, deferred
 
     @staticmethod
     def _resolve_adaptive_goal_thresholds(adaptive_goals_payload: Any) -> dict[str, float]:
@@ -7270,7 +7274,7 @@ class UnifiedRestorerV3:
             try:
                 from backend.core.perceptual_quality_scorer import score_audio_absolute  # type: ignore
 
-                _pqs_result = score_audio_absolute(audio, sample_rate=sample_rate)
+                _pqs_result = score_audio_absolute(audio, sr=sample_rate)
                 _mos = float(getattr(_pqs_result, "pqs_mos", getattr(_pqs_result, "mos", pqs_mos)))
                 if math.isfinite(_mos) and 1.0 <= _mos <= 5.0:
                     pqs_mos = _mos
@@ -7328,8 +7332,8 @@ def get_restorer(mode: str = "quality") -> "UnifiedRestorerV3":
                     "balanced": QualityMode.BALANCED,
                     "restoration": QualityMode.QUALITY,  # Restoration nutzt volle Quality-Pipeline
                     "quality": QualityMode.QUALITY,
-                    "maximum": QualityMode.MAXIMUM,       # §9.5: 8× RT — war fälschlich BALANCED (3×)
-                    "studio_2026": QualityMode.MAXIMUM,   # §9.5: 8× RT — war fälschlich BALANCED (3×)
+                    "maximum": QualityMode.MAXIMUM,  # §9.5: 8× RT — war fälschlich BALANCED (3×)
+                    "studio_2026": QualityMode.MAXIMUM,  # §9.5: 8× RT — war fälschlich BALANCED (3×)
                 }
                 qmode = _mode_map.get(mode.lower(), QualityMode.QUALITY)
                 config = RestorationConfig(mode=qmode)

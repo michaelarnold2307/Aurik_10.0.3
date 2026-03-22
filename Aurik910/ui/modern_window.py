@@ -221,31 +221,30 @@ except ImportError:
 
 # ── Quality Meter: circular arc gauge (MOS 0–5 → green/yellow/red) ──────────
 class QualityMeterWidget(QWidget):
-    """Circular arc gauge displaying MOS quality (0–5 scale).
+    """Horizontal VU-style quality bar displaying MOS quality (0–5 scale).
 
-    Visual design: 220° arc from bottom-left to bottom-right;
-    gradient: red (MOS 0) → yellow (MOS 2.5) → green (MOS 5).
-    Fixed 88×80 px; works with PyQt5 QPainter.
+    Fills left→right with a red→yellow→green gradient.
+    Always visible; shows placeholder text when not yet measured.
     """
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
-        self.setFixedSize(88, 80)
+        from PyQt5.QtWidgets import QSizePolicy
+
+        self.setFixedHeight(22)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self._mos: float = 0.0
         self._max_mos: float = 5.0
-        self.setToolTip("Klangqualitäts-Anzeige (0–5)")
+        self.setToolTip("Klangqualitäts-Anzeige (MOS 0–5)")
 
     def set_mos(self, mos: float) -> None:
-        """Update meter to *mos* value (0–5), show widget and repaint."""
+        """Update meter to *mos* value (0–5) and repaint."""
         self._mos = float(max(0.0, min(self._max_mos, mos)))
-        if self._mos > 0.01:
-            self.setVisible(True)
         self.update()
 
     def reset(self) -> None:
-        """Reset meter to empty state and hide the widget."""
+        """Reset meter to empty state."""
         self._mos = 0.0
-        self.setVisible(False)
         self.update()
 
     def paintEvent(self, event) -> None:
@@ -253,66 +252,54 @@ class QualityMeterWidget(QWidget):
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
 
         w, h = self.width(), self.height()
-        margin = 8
-        diameter = min(w, h) * 2 - margin * 2
-        rx = (w - diameter) / 2
-        ry = h - diameter / 2 - margin + 4
-        rect = QRectF(rx, ry, diameter, diameter)
+        m = 2
 
-        # Arc parameters: start=-220° (bottom-left) span=220° (clockwise to bottom-right)
-        # Qt angles: 0° = 3 o'clock, positive = counter-clockwise (×16 for Qt units)
-        start_angle_deg = -200.0  # bottom-left
-        span_deg = 220.0
+        # ── Container background ──────────────────────────────────────
+        bg_rect = QRectF(m, m, w - 2 * m, h - 2 * m)
+        p.setPen(QPen(QColor(50, 65, 100, 90), 1))
+        p.setBrush(QBrush(QColor(16, 20, 38, 200)))
+        p.drawRoundedRect(bg_rect, 3, 3)
 
-        # Background track (dark grey)
-        pen_bg = QPen(QColor(40, 48, 70), 7, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap)
-        p.setPen(pen_bg)
-        p.setBrush(Qt.BrushStyle.NoBrush)
-        p.drawArc(rect, int((start_angle_deg) * 16), int(-span_deg * 16))
+        fraction = self._mos / self._max_mos  # 0.0–1.0
 
-        # Coloured arc proportional to MOS
-        fraction = self._mos / self._max_mos  # 0.0 – 1.0
+        # ── Gradient fill (left → right) ──────────────────────────────
         if fraction > 0.001:
-            # Interpolate hue: 0=red (0°), 0.5=yellow (60°), 1=green (120°)
-            hue = int(fraction * 120.0)  # 0–120 HSV degrees
-            colour = QColor.fromHsv(hue, 220, 230)
-            pen_fg = QPen(colour, 7, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap)
-            p.setPen(pen_fg)
-            p.drawArc(rect, int(start_angle_deg * 16), int(-span_deg * fraction * 16))
+            fill_w = (w - 2 * m) * fraction
+            fill_rect = QRectF(m, m, fill_w, h - 2 * m)
 
-        # Centre value text
+            # Gradient spans full bar width so leading edge always shows color
+            grad = QLinearGradient(m, 0, w - m, 0)
+            grad.setColorAt(0.0, QColor(210, 55, 55, 210))
+            grad.setColorAt(0.35, QColor(215, 175, 35, 210))
+            grad.setColorAt(1.0, QColor(55, 195, 75, 210))
+
+            clip_path = QPainterPath()
+            clip_path.addRoundedRect(fill_rect, 3, 3)
+            p.setClipPath(clip_path)
+            p.fillRect(fill_rect, QBrush(grad))
+            p.setClipping(False)
+
+        # ── Tick marks at 1/5, 2/5, 3/5, 4/5 ────────────────────────
+        p.setPen(QPen(QColor(40, 55, 90, 130), 1))
+        inner_w = w - 2 * m
+        for step in range(1, 5):
+            tx = m + inner_w * step / 5
+            p.drawLine(QPointF(tx, m + 2), QPointF(tx, h - m - 2))
+
+        # ── Text overlay ──────────────────────────────────────────────
+        font = p.font()
+        font.setPointSize(7)
         if self._mos > 0.01:
-            p.setPen(QPen(QColor(220, 225, 235)))
-            font = p.font()
-            font.setPointSize(9)
             font.setBold(True)
             p.setFont(font)
-            p.drawText(
-                QRect(0, int(h * 0.35), w, int(h * 0.40)),
-                Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter,
-                f"{self._mos:.1f}",
-            )
-            # "Klang" subscript label
-            p.setPen(QPen(QColor(130, 148, 168)))
-            font2 = p.font()
-            font2.setPointSize(6)
-            font2.setBold(False)
-            p.setFont(font2)
-            p.drawText(
-                QRect(0, int(h * 0.58), w, int(h * 0.30)),
-                Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter,
-                "Klang",
-            )
+            p.setPen(QPen(QColor(230, 235, 245)))
+            p.drawText(bg_rect, Qt.AlignmentFlag.AlignCenter, f"Klang  {self._mos:.1f} / 5.0")
         else:
-            p.setPen(QPen(QColor(80, 90, 110)))
-            font = p.font()
-            font.setPointSize(8)
+            font.setBold(False)
             p.setFont(font)
-            p.drawText(
-                QRect(0, int(h * 0.35), w, int(h * 0.40)),
-                Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter,
-                "—",
-            )
+            p.setPen(QPen(QColor(75, 90, 115)))
+            p.drawText(bg_rect, Qt.AlignmentFlag.AlignCenter, "Klangqualität: Noch nicht gemessen")
+
         p.end()
 
 
@@ -369,6 +356,7 @@ def _defect_analysis_to_display(scores: dict, status: str = "detected") -> dict:
     sev_riaa = _sev_opt("RIAA_CURVE_ERROR")
     sev_alias = _sev_opt("ALIASING")
     sev_bias = _sev_opt("BIAS_ERROR")
+    sev_transport_bump = _sev_opt("TRANSPORT_BUMP")
 
     # Zeitpositionen (locations) pro Defekttyp für vertikale Marker in der Wellenform.
     # Format: {"clicks": [(t_start, t_end), ...], ...}
@@ -415,6 +403,7 @@ def _defect_analysis_to_display(scores: dict, status: str = "detected") -> dict:
         "riaa_curve_error": round(sev_riaa * 100.0, 1),
         "aliasing": round(sev_alias * 100.0, 1),
         "bias_error": round(sev_bias * 100.0, 1),
+        "transport_bump": round(sev_transport_bump * 100.0, 1),
         # Zeitpositionen (Sekunden) für vertikale Wellenform-Marker
         "_locations": {
             "clicks": _locs(DefectType.CLICKS),
@@ -445,6 +434,7 @@ def _defect_analysis_to_display(scores: dict, status: str = "detected") -> dict:
             "riaa_curve_error": _locs_opt("RIAA_CURVE_ERROR"),
             "aliasing": _locs_opt("ALIASING"),
             "bias_error": _locs_opt("BIAS_ERROR"),
+            "transport_bump": _locs_opt("TRANSPORT_BUMP"),
         },
         "status": status,
     }
@@ -498,6 +488,7 @@ def _result_scores_to_display(defect_scores: dict, status: str = "completed") ->
     sev_riaa = _f_opt("RIAA_CURVE_ERROR")
     sev_alias = _f_opt("ALIASING")
     sev_bias = _f_opt("BIAS_ERROR")
+    sev_transport_bump = _f_opt("TRANSPORT_BUMP")
 
     return {
         "clicks": int(sev_clicks * 500),
@@ -529,6 +520,7 @@ def _result_scores_to_display(defect_scores: dict, status: str = "completed") ->
         "riaa_curve_error": round(sev_riaa * 100.0, 1),
         "aliasing": round(sev_alias * 100.0, 1),
         "bias_error": round(sev_bias * 100.0, 1),
+        "transport_bump": round(sev_transport_bump * 100.0, 1),
         "_locations": {},  # Nach Restaurierung keine Zeitpositionen verfügbar
         "status": status,
     }
@@ -752,6 +744,7 @@ class BatchProcessingThread(QThread):
     phase_progress = pyqtSignal(int)  # sub-phase progress 0–100 within current step
     scan_progress = pyqtSignal(float)  # waveform scan-cursor fraction 0.0–1.0
     quality_update = pyqtSignal(float)  # live MOS estimate 0.0–5.0
+    phase_step_update = pyqtSignal(int, int)  # (current_step, total_steps) — Stufe X von Y
 
     def __init__(self, queue: SimpleBatchQueue):
         super().__init__()
@@ -794,7 +787,9 @@ class BatchProcessingThread(QThread):
                 # Mark as processing
                 item.status = "processing"
                 item.progress = 0
+                self._last_phase_state = None  # reset live-time state for new item
                 self.item_started.emit(item.id)
+                self.phase_step_update.emit(1, 13)
                 self.phase_update.emit(f"Restaurierung startet: {Path(item.input_file).name}")
                 # Sofort 3 % zeigen — noch bevor Audio-Loading beginnt.
                 # Ohne diesen Emit bleibt die Bar bei 0,00 % für die gesamte
@@ -822,7 +817,7 @@ class BatchProcessingThread(QThread):
                 # Map GUI modes to Denker modes (§2.2 Spec)
                 mode = item.settings.get("mode", "RESTORATION")
                 if mode == "STUDIO_2026":
-                    ui_mode = "BALANCED"
+                    ui_mode = "MAXIMUM"
                     _aurik_mode = "studio2026"
                 else:  # RESTORATION
                     ui_mode = "QUALITY"
@@ -838,6 +833,7 @@ class BatchProcessingThread(QThread):
                 self.item_progress.emit(item.id, 28)
 
                 # Defect analysis phase: Cache-First (kein Doppelscan, §9.4)
+                self.phase_step_update.emit(2, 13)
                 self.phase_update.emit("Schadensbewertung wird präzisiert …")
 
                 _cached_scan = get_cached_defect_result(item.input_file)
@@ -865,6 +861,7 @@ class BatchProcessingThread(QThread):
                 self.item_progress.emit(item.id, 50)
 
                 # Process
+                self.phase_step_update.emit(3, 13)
                 self.phase_update.emit("Musik wird restauriert …")
 
                 # Phase 2: Correction starting
@@ -952,7 +949,7 @@ class BatchProcessingThread(QThread):
                 #   avg_phase_dur is a rolling average of actual inter-phase elapsed
                 #   time, self-calibrating after the first two phase transitions.
                 _SP_INTERVAL = 0.033  # ~30 fps
-                _SP_MAX_STEP = 2.5  # fast catch-up
+                _SP_MAX_STEP = 0.8  # Wirbelstrombremse: reduced max step for smooth deceleration
                 _sp: dict = {
                     "current": 50.0,
                     "target": 50.0,
@@ -971,7 +968,13 @@ class BatchProcessingThread(QThread):
                     Main bar: time-proportional creep — no stagnation, no jumps.
                     Sub-bar (_sp2): eases 0→target on phase-start, then drifts toward 100
                     so the bar always shows activity between phase checkpoints.
+
+                    Throttle: only emit signals when value actually changes to avoid
+                    flooding the Qt event queue with spurious repaints at 30 fps.
                     """
+                    _last_emit_val: int = -1
+                    _last_phase_pct: int = -1
+                    _last_scan_int: int = -1  # int(frac * 500) for ~0.2 % granularity
                     while True:
                         time.sleep(_SP_INTERVAL)
                         with _sp_lock:
@@ -985,7 +988,12 @@ class BatchProcessingThread(QThread):
                             sub_tgt = _sp2["target"]
                         gap = tgt - cur
                         if gap > 0.05:
-                            step = min(gap, _SP_MAX_STEP)
+                            # Wirbelstrombremse: exponential damping — fast start,
+                            # smooth deceleration.  step ∝ gap means larger distances
+                            # start fast and decelerate as the bar approaches target,
+                            # exactly like a physical eddy-current brake.
+                            step = max(0.08, gap * 0.065)
+                            step = min(step, _SP_MAX_STEP)
                             new_cur = cur + step
                         else:
                             # Time-proportional creep: (last_jump * 0.75) pts / avg_dur s
@@ -1003,8 +1011,30 @@ class BatchProcessingThread(QThread):
                             _sp2["current"] = sub_new
                         emit_val = min(90, int(new_cur))
                         _item.progress = emit_val
-                        self.item_progress.emit(_item.id, emit_val)
-                        self.phase_progress.emit(min(100, int(sub_new)))
+                        # Throttle: only emit when integer value changes (avoids 30 fps
+                        # identical-value signals flooding the Qt event queue).
+                        if emit_val != _last_emit_val:
+                            _last_emit_val = emit_val
+                            self.item_progress.emit(_item.id, emit_val)
+                        _phase_pct = min(100, int(sub_new))
+                        if _phase_pct != _last_phase_pct:
+                            _last_phase_pct = _phase_pct
+                            self.phase_progress.emit(_phase_pct)
+                        # Scan-cursor: derived from the REAL reported-progress target (tgt),
+                        # NOT from new_cur.  new_cur creeps up to creep_cap (tgt + 6 pts)
+                        # before the first phase update arrives — causing the cursor to
+                        # stagnate at ~15 % of the waveform (~45 s in a 5-min file) even
+                        # though the progress bar CSS animation still plays (looks "running").
+                        # Using tgt directly ensures the cursor stays at the audio-start
+                        # (frac=0.0) during the analysis phase and only advances once
+                        # AurikDenker emits real progress callbacks.
+                        _scan_frac = max(0.0, min(1.0, (tgt - 50.0) / 40.0))
+                        # Throttle scan_progress: only emit when fraction changes by ≥ 0.2 %
+                        # (tgt is constant between phase callbacks → same value 30×/s without guard).
+                        _scan_int = int(_scan_frac * 500)
+                        if _scan_int != _last_scan_int:
+                            _last_scan_int = _scan_int
+                            self.scan_progress.emit(_scan_frac)
 
                 _sp_thread = threading.Thread(
                     target=_smooth_progress_emitter, daemon=True, name="aurik-smooth-progress"
@@ -1054,6 +1084,7 @@ class BatchProcessingThread(QThread):
                     "harmonic_restoration": "Obertöne werden ergänzt",
                     "phase_correction": "Kanalausrichtung wird korrigiert",
                     "speed_pitch": "Geschwindigkeit und Tonhöhe werden angepasst",
+                    "transport_bump": "Bandhopser werden repariert",
                     "azimuth_correction": "Bandkopf-Ausrichtung wird korrigiert",
                     "spectral_repair": "Frequenzspektrum wird repariert",
                     "print_through": "Bandübersprechen wird entfernt",
@@ -1089,7 +1120,8 @@ class BatchProcessingThread(QThread):
                     "dropout": ["dropout"],
                     "click_repair": ["clicks", "pops"],
                     "declick": ["clicks", "pops"],
-                    "wow_flutter": ["wow", "flutter"],
+                    "wow_flutter": ["wow", "flutter", "transport_bump"],
+                    "transport_bump": ["transport_bump"],
                     "reverb_reduction": ["reverb_excess"],
                     "frequency_restoration": ["bandwidth_loss"],
                     "vocal": ["sibilance"],
@@ -1107,6 +1139,8 @@ class BatchProcessingThread(QThread):
                     _new_tgt = float(min(90, 50 + int(pct * 0.40)))
                     _item.progress = int(_new_tgt)
                     # Update smooth-emitter target + calibrate phase-timing stats
+                    # MONOTONIC: target darf nie sinken (verhindert Rücksprung bei
+                    # verschachtelten UV3-Aufrufen in ARE multi-pass full-pass)
                     with _sp_lock:
                         _now = time.perf_counter()
                         _inter_s = _now - _sp["last_target_time"]
@@ -1118,7 +1152,9 @@ class BatchProcessingThread(QThread):
                         if _delta > 0.5:
                             _sp["last_jump"] = _delta
                         _sp["last_target_time"] = _now
-                        _sp["target"] = _new_tgt
+                        # Monotonic: nur aufwärts setzen
+                        if _new_tgt > _sp["target"]:
+                            _sp["target"] = _new_tgt
                     # Live ML-Plugin-Erkennung aus progress-Meldung (voller msg incl. [phase_id])
                     _msg_lower = msg.lower()
                     _msg_underscored = _msg_lower.replace(" ", "_")
@@ -1169,48 +1205,71 @@ class BatchProcessingThread(QThread):
                         _display_msg = f"Bestes Ergebnis: {_vranking}"
                         _expl = ""
                     # Sub-Fortschrittsbalken: Phase-Tracking
+                    # On every new phase: hard-reset current to 0 and fill toward 75 so the
+                    # bar visibly sweeps 0→100 within each step instead of sticking at ~20.
                     _is_variant = "variante" in _msg_lower
                     if _is_variant:
                         # variant pct 0–100 mapped via _mp_cb to ARE 42–85; reverse to 0–100
-                        _sub_pct = min(100.0, max(0.0, (pct - 42) / 43.0 * 100.0))
+                        with _sp_lock:
+                            _sp2["target"] = min(100.0, max(0.0, (pct - 42) / 43.0 * 100.0))
                     else:
                         _clean_key = _display_msg[:45]
                         if _clean_key != _last_phase_key[0]:
                             _last_phase_key[0] = _clean_key
-                            _sub_pct = 0.0  # reset sub-bar on new phase
+                            with _sp_lock:
+                                # Only reset sub-bar to 0 in pre-multi-pass stages (pct < 42).
+                                # During ARE multi-pass / full-pass (pct ≥ 42) the bar must
+                                # advance monotonically — a reset on every UV3 sub-phase name
+                                # causes visible "jumping at the end".
+                                if pct < 42:
+                                    _sp2["current"] = 0.0
+                                _sp2["target"] = 75.0
                         else:
-                            _sub_pct = 100.0
-                    with _sp_lock:
-                        _sp2["target"] = _sub_pct
-                    # Defekt-Abbau: Scores für laufende Phase reduzieren (count-down Animation)
+                            with _sp_lock:
+                                _sp2["target"] = 100.0
+                    # Defekt-Abbau: Behobene Defekte sofort auf 0 setzen → verschwinden aus Anzeige
                     _defect_reduced = False
                     for _prk, _dlist in _PHASE_REDUCES.items():
                         if _prk in _msg_lower or _prk in _msg_underscored:
                             for _dk in _dlist:
-                                if isinstance(_current_defect_scores.get(_dk), float):
-                                    _current_defect_scores[_dk] = max(0.0, _current_defect_scores[_dk] * 0.3)
+                                if isinstance(_current_defect_scores.get(_dk), (int, float)):
+                                    _current_defect_scores[_dk] = 0.0  # sofort entfernen
                             _defect_reduced = True
                     if _defect_reduced:
                         self.defect_update.emit({**_current_defect_scores, "status": "correcting"})
-                    # Scan-Cursor: ARE-Fortschritt auf Wellenform mappen
-                    self.scan_progress.emit(float(pct) / 100.0)
+                    # Scan-cursor is now driven by the 30 fps smooth-emitter (see below).
+                    # Only update quality interpolation here.
                     # Live-Qualitätsschätzung: lineare Interpolation 2.5 → 4.2
                     self.quality_update.emit(2.5 + (pct / 100.0) * 1.7)
-                    # Zeitanzeige: ab 2 s elapsed immer sichtbar; ETA nur wenn pct verlässlich
-                    if elapsed_s >= 2.0:
-                        _el = (
-                            f"{int(elapsed_s)}s"
-                            if elapsed_s < 60
-                            else f"{int(elapsed_s // 60)}m{int(elapsed_s % 60):02d}s"
-                        )
-                        if pct >= 5:
-                            _rem = max(0.0, elapsed_s / pct * (100 - pct))
-                            _eta = f"~{int(_rem)}s" if _rem < 60 else f"~{int(_rem // 60)}m{int(_rem % 60)}s"
-                            self.phase_update.emit(f"{_display_msg}{_expl}  ·  {_el} · noch {_eta}")
-                        else:
-                            self.phase_update.emit(f"{_display_msg}{_expl}  ·  {_el}")
+                    # Map denker pct to high-level pipeline step (4–11 of 12).
+                    # Breakpoints derived from _emit() anchors in aurik_denker.py.
+                    if pct < 5:
+                        _d_step = 4  # Tonträger
+                    elif pct < 8:
+                        _d_step = 5  # Kette
+                    elif pct < 11:
+                        _d_step = 6  # Defekte
+                    elif pct < 14:
+                        _d_step = 7  # Globalplan + Strategie
+                    elif pct < 19:
+                        _d_step = 8  # Vorverarbeitung
+                    elif pct < 91:
+                        _d_step = 9  # Hauptrestaurierung (UV3)
+                    elif pct < 95:
+                        _d_step = 10  # Exzellenz-Optimierung
                     else:
-                        self.phase_update.emit(f"{_display_msg}{_expl}")
+                        _d_step = 11  # VERSA + RAM-Management
+                    self.phase_step_update.emit(_d_step, 13)
+                    # Phasennachricht ohne eingebettete Zeit emittieren —
+                    # _tick_heartbeat zählt die Zeit jede 500 ms live herunter.
+                    _base_text = f"{_display_msg}{_expl}"
+                    self._last_phase_state = {
+                        "base": _base_text,
+                        "pct": pct,
+                        "elapsed_s": elapsed_s,
+                        "wall_time": time.perf_counter(),
+                    }
+                    self.phase_update.emit(_base_text)
 
                 # AurikDenker ist der verpflichtende Frontend-Einstiegspunkt.
                 # Singleton (No-Competing-Instances-Protokoll): kein new instance pro Run.
@@ -1229,7 +1288,20 @@ class BatchProcessingThread(QThread):
 
                 # Phase 3: Post-Restore Defekt-Status + ML-Plugin-Anzeige aus RestorationResult
                 _post_scores = result.defect_scores if hasattr(result, "defect_scores") else {}
-                self.defect_update.emit(_result_scores_to_display(_post_scores, status="completed"))
+                if _post_scores:
+                    # Backend provided post-restoration scores: trust them.
+                    # Defects whose score is near-zero have been removed; others remain.
+                    _completed_display = _result_scores_to_display(_post_scores, status="completed")
+                else:
+                    # Backend returned no post-restoration defect data.
+                    # Preserve the animated in-flight state so only defects that were
+                    # explicitly reduced to near-zero by matched phases vanish —
+                    # not everything.  Strip _locations so waveform position-markers
+                    # are cleared (they can't be re-attributed without a re-scan).
+                    _completed_display = {k: v for k, v in _current_defect_scores.items() if k != "_locations"}
+                    _completed_display["_locations"] = {}
+                    _completed_display["status"] = "completed"
+                self.defect_update.emit(_completed_display)
 
                 # ML-Plugin-Status: Live-Ergebnis aus _live_ml_seen (während denke() gesammelt)
                 # + Nachberechnung aus phases_executed für Plugins die keine progress-Meldung gesendet haben
@@ -1260,6 +1332,7 @@ class BatchProcessingThread(QThread):
                 item.restoration_result = result
 
                 # Save: export_guard (NaN/Inf + Clip) + atomares Schreiben (.tmp → os.replace)
+                self.phase_step_update.emit(13, 13)
                 self.phase_update.emit("Ergebnis wird gespeichert …")
                 # Handle RestorationResult object
                 if hasattr(result, "audio"):
@@ -1412,7 +1485,12 @@ class WaveformWidget(QWidget):
 
     def set_scan_pos(self, frac: float) -> None:
         """Set restoration scan-cursor position (0.0–1.0 fraction). Pass -1.0 to hide."""
-        self._scan_pos = float(frac)
+        new_pos = float(frac)
+        # Guard: skip repaint if position effectively unchanged (avoids spurious repaints
+        # when scan_progress signal arrives with the same value multiple times).
+        if abs(new_pos - self._scan_pos) < 0.002:
+            return
+        self._scan_pos = new_pos
         self.update()
 
     # ── Zoom / Pan interactions ───────────────────────────────────────────────
@@ -1933,6 +2011,7 @@ class WaveformWidget(QWidget):
             "riaa_curve_error": "RIAA-Fehler",
             "aliasing": "Frequenz-Aliasing",
             "bias_error": "Vormagnetisierung",
+            "transport_bump": "Bandhopser",
         }
         _SKIP_KEYS = {"status", "_locations"}
 
@@ -1957,6 +2036,7 @@ class WaveformWidget(QWidget):
             "wow": 0.2,
             "flutter": 0.2,
             "rumble": 0.1,
+            "transport_bump": 0.2,
         }
         _DEFAULT_SEVERITY_THRESHOLD = 5.0  # for 0–100 % fields
 
@@ -1974,10 +2054,17 @@ class WaveformWidget(QWidget):
         painter.save()
 
         # ── 1. Vertical timed markers (from _defect_locations) ───────────────
+        # Only render markers for defect types whose current score is still above the
+        # display threshold.  When _PHASE_REDUCES lowers a score to near-zero the
+        # player animation already signals the defect as treated — hiding the marker
+        # here keeps the waveform consistent with the defect-counter badge.
         painter.setPen(Qt.PenStyle.NoPen)
         for defect_key, locations in self._defect_locations.items():
             if not locations:
                 continue
+            _curr_score = self.defects.get(defect_key, 0)
+            if not isinstance(_curr_score, (int, float)) or _curr_score <= 0.01:
+                continue  # defect treated / score below display threshold
             base = _DEFECT_COLORS.get(defect_key, QColor(180, 180, 180))
             for seg in locations:
                 if not (isinstance(seg, (list, tuple)) and len(seg) >= 2):
@@ -2003,13 +2090,22 @@ class WaveformWidget(QWidget):
                 painter.drawLine(px0, int(y), px0, int(y + height))
                 painter.setPen(Qt.PenStyle.NoPen)
 
-        # ── 2. Summary badge "⚠ N Defekte erkannt" in top-left corner ──────────
+        # ── 2. Summary badge — text reflects current processing status ──────────
         n_active = len(active_keys)
         if n_active > 0:
             _suffix = "e" if n_active != 1 else ""
-            _badge = f"⚠ {n_active} Defekt{_suffix} erkannt"
+            _wf_status = self.defects.get("status", "detected")
+            if _wf_status == "correcting":
+                _badge = f"⚠ {n_active} Defekt{_suffix} · wird bearbeitet"
+                _badge_color = QColor(100, 200, 120, 220)  # greenish: in progress
+            elif _wf_status == "completed":
+                _badge = f"⚠ {n_active} Defekt{_suffix} verblieben"
+                _badge_color = QColor(200, 140, 80, 220)  # amber: residual
+            else:
+                _badge = f"⚠ {n_active} Defekt{_suffix} erkannt"
+                _badge_color = QColor(255, 165, 60, 220)  # orange: detected
             painter.setFont(QFont("Segoe UI", 7))
-            painter.setPen(QColor(255, 165, 60, 220))
+            painter.setPen(_badge_color)
             painter.drawText(int(x) + 4, int(y) + 10, _badge)
 
         # ── 3. Legend at bottom of plot area ─────────────────────────────────
@@ -2380,16 +2476,26 @@ class ResourceStatusWidget(QWidget):
     def _update_resources(self):
         """No-op — CPU/RAM are no longer displayed."""
 
-    def update_status(self, cpu=None, memory=None, mode=None, ml_active=None, ml_plugins=None):
+    def update_status(self, cpu=None, memory=None, mode=None, ml_active=None, ml_plugins=None, phase=None):
         """Update the active analysis-mode indicator (CPU/RAM parameters are ignored)."""
         if mode is not None:
             self.quality_mode = mode
         if ml_active is not None:
             self.ml_mode_active = ml_active
+            if ml_active is False:
+                self._phase_override: str | None = None
         if ml_plugins is not None:
             self.active_ml_plugins = ml_plugins
+        if phase is not None:
+            self._phase_override = phase
 
-        if self.ml_mode_active and self.active_ml_plugins:
+        _phase_override = getattr(self, "_phase_override", None)
+        if _phase_override:
+            # Show active restoration phase — overrides KI/DSP label
+            self.label_check_mode.setText(_phase_override)
+            self.label_check_mode.setStyleSheet("color: #E8C060; font-size: 8pt; font-weight: 600;")
+            self.label_ml_status.setVisible(False)
+        elif self.ml_mode_active and self.active_ml_plugins:
             # KI active: show number of active modules (no internal model names shown)
             n = len(self.active_ml_plugins)
             self.label_check_mode.setText(t("ui.resource_check", value=t("ui.resource_check_ml")))
@@ -3937,13 +4043,27 @@ class ModernMainWindow(QMainWindow):
         _dc_vbox.setSpacing(2)
         _dc_vbox.addWidget(_defect_header)
         _dc_vbox.addWidget(self.defect_summary_scroll)
-        layout.addWidget(_defect_container, 3)
+        layout.addWidget(_defect_container, 4)
 
         # Interne Widgets (verborgen, nur für Datenverarbeitung)
         self.defect_counter_widget = DefectCounterWidget()
         self.defect_counter_widget.setVisible(False)
         self.resource_status_widget = ResourceStatusWidget()
-        layout.addWidget(_section("Systemstatus:", self.resource_status_widget), 1)
+        # ResourceStatusWidget kept as data source; no longer shown as panel
+
+        # ── Erkannte Ära & Genre ──────────────────────────────────────
+        self.era_genre_label = QLabel("Noch nicht erkannt")
+        self.era_genre_label.setWordWrap(True)
+        self.era_genre_label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+        self.era_genre_label.setStyleSheet("""
+            color: #B0C4DE; font-size: 8pt; padding: 5px 8px;
+            background: rgba(102, 126, 234, 0.10);
+            border-radius: 8px; border: 1px solid rgba(102, 126, 234, 0.22);
+        """)
+        self.era_genre_label.setToolTip(
+            "<b>Erkannte Ära &amp; Genre</b><br>Wird beim Öffnen der Datei automatisch ermittelt."
+        )
+        layout.addWidget(_section("Erkannte Ära & Genre:", self.era_genre_label), 1)
 
         # ── Musikalische Ziele ────────────────────────────────────────
         quality_frame = QFrame()
@@ -3958,6 +4078,10 @@ class ModernMainWindow(QMainWindow):
         qi.setContentsMargins(6, 6, 6, 6)
         qi.setSpacing(4)
 
+        # Quality Meter VU bar — always visible, above radar/placeholder
+        self.quality_meter_widget = QualityMeterWidget()
+        qi.addWidget(self.quality_meter_widget)
+
         if MusicalGoalsRadarWidget is not None:
             self.radar_widget = MusicalGoalsRadarWidget()
             self.radar_widget.setMinimumHeight(260)
@@ -3970,16 +4094,6 @@ class ModernMainWindow(QMainWindow):
         self.quality_score_label.setWordWrap(True)
         self.quality_score_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.quality_score_label.setStyleSheet("color: #8894A8; font-size: 8pt; padding: 4px; background: transparent;")
-
-        # Quality Meter arc gauge — hidden until first measurement
-        self.quality_meter_widget = QualityMeterWidget()
-        self.quality_meter_widget.setVisible(False)
-        _meter_row = QHBoxLayout()
-        _meter_row.setContentsMargins(0, 0, 0, 0)
-        _meter_row.addStretch()
-        _meter_row.addWidget(self.quality_meter_widget)
-        _meter_row.addStretch()
-        qi.addLayout(_meter_row)
         qi.addWidget(self.quality_score_label)
 
         self.info_banner = QLabel("")
@@ -3990,7 +4104,7 @@ class ModernMainWindow(QMainWindow):
         self.info_banner.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         qi.addWidget(self.info_banner)
 
-        layout.addWidget(_section("Musikalische Ziele:", quality_frame), 2)
+        layout.addWidget(_section("Musikalische Ziele:", quality_frame), 3)
         return panel
 
     # ─────────────────────────────────────────────────────────────────────────
@@ -4562,6 +4676,13 @@ class ModernMainWindow(QMainWindow):
             "x1:0,y1:0,x2:1,y2:0, stop:0 #7080D8, stop:1 #B878D0); border-radius: 2px; }"
         )
         vbox.addWidget(self.phase_progress_bar)
+        # Compact stage counter label: "Stufe X / 12" — shown between sub-bar and status row
+        self._phase_step_label = QLabel("")
+        self._phase_step_label.setStyleSheet(
+            "color: #7A90B0; font-size: 8pt; background: transparent; padding: 0px 2px;"
+        )
+        self._phase_step_label.setVisible(False)
+        vbox.addWidget(self._phase_step_label)
         # Signal verbinden: _load_progress emittiert 0-100, Bar intern 0-10000
         self._load_progress.connect(lambda v: self.progress_bar.setValue(v * 100))
         # Callable-Dispatch-Signal verbinden
@@ -5348,7 +5469,7 @@ class ModernMainWindow(QMainWindow):
                         tip += f"Genre: <b>{genre_label}</b><br>"
                     tip += "<small>Die Ära-Erkennung passt alle Restaurierungs-Parameter historisch korrekt an.</small>"
 
-                    def _upd(_badge=badge, _tip=tip):
+                    def _upd(_badge=badge, _tip=tip, _decade=decade_label, _genre=genre_label):
                         if not hasattr(_self, "detected_medium_label"):
                             return
                         # Badge für _update_carrier_display merken (Race-Condition-Fix)
@@ -5360,6 +5481,16 @@ class ModernMainWindow(QMainWindow):
                         _self.detected_medium_label.setText(f"{_cur_lbl}   {_cur_stars}{_badge}")
                         _self.detected_medium_label.setToolTip(_tip)
                         _self._apply_mode_recommendation_visuals()
+                        # ── Ära & Genre Panel befüllen ────────────────────────
+                        if hasattr(_self, "era_genre_label"):
+                            _parts = []
+                            if _decade:
+                                _parts.append(f"📅  Ära: {_decade}")
+                            if _genre:
+                                _parts.append(f"🎵  Genre: {_genre}")
+                            if _parts:
+                                _self.era_genre_label.setText("\n".join(_parts))
+                                _self.era_genre_label.setToolTip(_tip)
 
                     QTimer.singleShot(0, _upd)
 
@@ -6218,6 +6349,7 @@ class ModernMainWindow(QMainWindow):
         self.batch_thread.scan_progress.connect(self._on_scan_progress)
         if hasattr(self, "quality_meter_widget"):
             self.batch_thread.quality_update.connect(self.quality_meter_widget.set_mos)
+        self.batch_thread.phase_step_update.connect(self._on_phase_step_update)
 
         # RAM-Sicherheitscheck: mindestens 6 GB verfügbarer Arbeitsspeicher erforderlich.
         # Verhindert OOM-Kills, die das gesamte System einfrieren (Swap nur 2 GB).
@@ -6245,9 +6377,11 @@ class ModernMainWindow(QMainWindow):
         if hasattr(self, "phase_progress_bar"):
             self.phase_progress_bar.setValue(0)
             self.phase_progress_bar.setVisible(True)
+        if hasattr(self, "_phase_step_label"):
+            self._phase_step_label.setText("")
+            self._phase_step_label.setVisible(False)
         if hasattr(self, "quality_meter_widget"):
             self.quality_meter_widget.set_mos(2.5)
-            self.quality_meter_widget.setVisible(True)
 
         # Watchdog-Timer: feuert wenn Verarbeitung zu lange hängt (z. B. blockierender ONNX-Call).
         # Budget: Basis 900 s/Datei + 4 s pro Sekunde Audio-Dauer (Multi-Pass + Full-Restore +
@@ -6258,8 +6392,8 @@ class ModernMainWindow(QMainWindow):
         if _ww is not None and getattr(_ww, "audio_data", None) is not None:
             _sr = max(1, getattr(_ww, "sample_rate", 48000))
             _audio_dur_s = _ww.audio_data.shape[0] / _sr
-        _per_file_ms = max(900_000, int(_audio_dur_s * 4_000) + 600_000)
-        _watchdog_ms = max(900_000, stats["pending"] * _per_file_ms)
+        _per_file_ms = max(3_600_000, int(_audio_dur_s * 8_000) + 900_000)
+        _watchdog_ms = max(3_600_000, stats["pending"] * _per_file_ms)
         if not hasattr(self, "_watchdog_timer"):
             self._watchdog_timer = QTimer(self)
             self._watchdog_timer.setSingleShot(True)
@@ -6309,6 +6443,8 @@ class ModernMainWindow(QMainWindow):
 
         Fallback für den Fall, dass item_progress-Signale aus irgendeinem Grund
         nicht zugestellt werden: wir lesen item.progress direkt aus der Queue.
+        Außerdem: Zeitanzeige in status_text live herunterzählen, damit der Nutzer
+        sieht, dass der Prozess läuft — auch wenn kein neuer progress_callback kommt.
         """
         self._heartbeat_dots = (self._heartbeat_dots + 1) % 4
         spinners = ["◐", "◓", "◑", "◒"]
@@ -6330,6 +6466,27 @@ class ModernMainWindow(QMainWindow):
                     self.progress_bar.setValue(polled)
                     self.progress_bar.setVisible(True)
 
+            # Zeitanzeige live herunterzählen — unabhängig vom Backend-Callback-Takt.
+            _state = getattr(self.batch_thread, "_last_phase_state", None)
+            if _state and hasattr(self, "status_text"):
+                _elapsed = _state["elapsed_s"] + (time.perf_counter() - _state["wall_time"])
+                _pct = _state["pct"]
+                _base = _state["base"]
+                if _elapsed >= 2.0:
+                    _el = f"{int(_elapsed)}s" if _elapsed < 60 else f"{int(_elapsed // 60)}m{int(_elapsed % 60):02d}s"
+                    if _pct >= 5:
+                        _rem = max(0.0, _elapsed / _pct * (100 - _pct))
+                        _eta = f"~{int(_rem)}s" if _rem < 60 else f"~{int(_rem // 60)}m{int(_rem % 60)}s"
+                        _full = f"{_base}  ·  {_el} · noch {_eta}"
+                    else:
+                        _full = f"{_base}  ·  {_el}"
+                    self.status_text.setText(f"⚙️ {_full}")
+                    self.status_text.setStyleSheet(
+                        "color: #E8C060; font-size: 11pt; font-weight: 600;"
+                        " background: rgba(200,160,40,0.07); border-radius: 6px;"
+                        " padding: 2px 8px;"
+                    )
+
     def _on_item_started(self, item_id):
         """Handle item processing start"""
         item = self.batch_queue.get_item(item_id)
@@ -6337,14 +6494,19 @@ class ModernMainWindow(QMainWindow):
             self.status_text.setText(t("status.processing_item", file=Path(item.input_file).name))
 
     def _on_item_progress(self, item_id, progress):
-        """Handle item progress update"""
+        """Handle item progress update — obere Bar zeigt GESAMT-Batch-Fortschritt."""
         # setRange sicherstellen: verhindert Marquee-Modus (range 0-0) der
         # QProgressBar, der setValue() wirkungslos macht.
         self.progress_bar.setRange(0, 10000)
-        val = max(100, min(10000, progress * 100))  # mind. 100 (= 1 %) damit Bar sichtbar wird
+        # Gesamtfortschritt: (abgeschlossene Dateien + Anteil der aktuellen Datei) / Gesamt
+        stats = self.batch_queue.get_stats()
+        _total = max(1, stats.get("total", 1))
+        _done = stats.get("completed", 0) + stats.get("failed", 0)
+        _overall_pct = (_done + progress / 100.0) / _total * 100.0
+        val = max(100, min(10000, int(_overall_pct * 100)))
         self.progress_bar.setValue(val)
         self.progress_bar.setVisible(True)
-        logger.debug("[progress] item=%s pct=%d → bar=%d", item_id, progress, val)
+        logger.debug("[progress] item=%s pct=%d overall=%.1f%% → bar=%d", item_id, progress, _overall_pct, val)
 
         # Update list item
         if hasattr(self, "queue_list"):
@@ -6400,12 +6562,25 @@ class ModernMainWindow(QMainWindow):
         # Musical Goals direkt aus AurikErgebnis im Radar anzeigen (kein sf.read nötig)
         if restoration_result is not None:
             _goals = getattr(restoration_result, "musical_goals", None)
+            # Fallback: Scores aus metadata["musical_goals"]["scores"] wenn .musical_goals None
+            if not (isinstance(_goals, dict) and _goals):
+                _meta_mg = (getattr(restoration_result, "metadata", {}) or {}).get("musical_goals") or {}
+                _meta_scores = _meta_mg.get("scores") or {}
+                if isinstance(_meta_scores, dict) and _meta_scores:
+                    _goals = _meta_scores
             if isinstance(_goals, dict) and _goals:
+                _at = getattr(restoration_result, "adaptive_thresholds", None)
+                _adaptive = _at if isinstance(_at, dict) else {}
 
-                def _show_goals(_g=dict(_goals)):
+                def _show_goals(_g=dict(_goals), _ath=dict(_adaptive)):
                     if self.radar_widget is not None:
-                        with contextlib.suppress(Exception):
-                            self.radar_widget.update_scores(scores=_g)
+                        try:
+                            self.radar_widget.update_scores(
+                                scores=_g,
+                                adaptive_thresholds=_ath if _ath else None,
+                            )
+                        except Exception as _rw_exc:
+                            logger.debug("radar_widget.update_scores fehlgeschlagen: %s", _rw_exc)
 
                 QTimer.singleShot(0, _show_goals)
         item = self.batch_queue.get_item(item_id)
@@ -6482,6 +6657,10 @@ class ModernMainWindow(QMainWindow):
         if hasattr(self, "phase_progress_bar"):
             self.phase_progress_bar.setValue(10000)
             self.phase_progress_bar.setVisible(False)
+        if hasattr(self, "_phase_step_label"):
+            self._phase_step_label.setVisible(False)
+        if hasattr(self, "resource_status_widget"):
+            self.resource_status_widget.update_status(phase=None, ml_active=False, ml_plugins=[])
         if hasattr(self, "waveform_widget"):
             self.waveform_widget.set_scan_pos(-1.0)
         if hasattr(self, "btn_process"):
@@ -6611,20 +6790,22 @@ class ModernMainWindow(QMainWindow):
                     if hasattr(r, "pqs_result") and r.pqs_result is not None:
                         if hasattr(r.pqs_result, "mos"):
                             mos_est = float(r.pqs_result.mos)
-                    # Adaptive Thresholds
-                    if hasattr(r, "adaptive_thresholds") and r.adaptive_thresholds is not None:
-                        at = r.adaptive_thresholds
-                        if hasattr(at, "thresholds"):
-                            adaptive_thresholds = at.thresholds or {}
-                        if hasattr(at, "adaptations"):
-                            adaptation_reasons = at.adaptations or {}
-                    # Goal Applicability
-                    if hasattr(r, "goal_applicability") and r.goal_applicability is not None:
-                        ga = r.goal_applicability
-                        if hasattr(ga, "applicable"):
-                            applicable_goals = set(ga.applicable)
-                        if hasattr(ga, "reasons"):
-                            inapplicable_reasons = ga.reasons or {}
+                    # Adaptive Thresholds — RestorationResult.adaptive_thresholds is a plain
+                    # dict[str, float] (the resolved goal thresholds used during processing).
+                    _at = getattr(r, "adaptive_thresholds", None)
+                    if isinstance(_at, dict) and _at:
+                        adaptive_thresholds = _at
+                    elif hasattr(_at, "thresholds"):
+                        adaptive_thresholds = _at.thresholds or {}  # type: ignore[union-attr]
+                    # Goal Applicability — RestorationResult.goal_applicability is a plain
+                    # dict[str, bool] mapping goal_key → is_applicable.
+                    _ga = getattr(r, "goal_applicability", None)
+                    if isinstance(_ga, dict) and _ga:
+                        applicable_goals = {k for k, v in _ga.items() if v}
+                    elif hasattr(_ga, "applicable"):
+                        applicable_goals = set(_ga.applicable)  # type: ignore[union-attr]
+                        if hasattr(_ga, "reasons"):
+                            inapplicable_reasons = _ga.reasons or {}  # type: ignore[union-attr]
                     # Synthesierte Ziele (EraAuthentic ✦)
                     if hasattr(r, "genealogy") and r.genealogy is not None:
                         gen = r.genealogy
@@ -6763,24 +6944,27 @@ class ModernMainWindow(QMainWindow):
                     ).value
 
                 # ── Schritt 3: Synthetische Goal-Schätzung wenn keine echten Daten ──
-                if not musical_goals and self._orig_audio is not None:
-                    # Einfache DSP-Heuristik als Platzhalter (besser als 0)
+                if not musical_goals:
+                    # Bestmögliche Korrelation: falls kein Original geladen (z.B. Batch-Only),
+                    # MOS-basierten Schätzwert verwenden (MOS 5 → corr 1.0, MOS 1 → corr 0.0).
+                    _corr_synth = corr if self._orig_audio is not None else max(0.0, min(1.0, (mos_est - 1.0) / 4.0))
                     musical_goals = {
-                        "brillanz": min(1.0, corr * 0.95 + 0.05),
-                        "waerme": min(1.0, corr * 0.92 + 0.06),
-                        "natuerlichkeit": min(1.0, corr * 0.97 + 0.02),
-                        "authentizitaet": min(1.0, corr * 0.94 + 0.04),
-                        "emotionalitaet": min(1.0, corr * 0.90 + 0.05),
-                        "transparenz": min(1.0, corr * 0.93 + 0.04),
-                        "bass_kraft": min(1.0, corr * 0.91 + 0.05),
-                        "groove": min(1.0, corr * 0.96 + 0.02),
-                        "spatial_depth": min(1.0, corr * 0.88 + 0.07),
-                        "timbre_authentizitaet": min(1.0, corr * 0.93 + 0.04),
-                        "tonal_center": min(1.0, corr * 0.98 + 0.01),
-                        "micro_dynamics": min(1.0, corr * 0.94 + 0.04),
-                        "separation_fidelity": min(1.0, corr * 0.89 + 0.06),
-                        "artikulation": min(1.0, corr * 0.93 + 0.04),
+                        "brillanz": min(1.0, _corr_synth * 0.95 + 0.05),
+                        "waerme": min(1.0, _corr_synth * 0.92 + 0.06),
+                        "natuerlichkeit": min(1.0, _corr_synth * 0.97 + 0.02),
+                        "authentizitaet": min(1.0, _corr_synth * 0.94 + 0.04),
+                        "emotionalitaet": min(1.0, _corr_synth * 0.90 + 0.05),
+                        "transparenz": min(1.0, _corr_synth * 0.93 + 0.04),
+                        "bass_kraft": min(1.0, _corr_synth * 0.91 + 0.05),
+                        "groove": min(1.0, _corr_synth * 0.96 + 0.02),
+                        "spatial_depth": min(1.0, _corr_synth * 0.88 + 0.07),
+                        "timbre_authentizitaet": min(1.0, _corr_synth * 0.93 + 0.04),
+                        "tonal_center": min(1.0, _corr_synth * 0.98 + 0.01),
+                        "micro_dynamics": min(1.0, _corr_synth * 0.94 + 0.04),
+                        "separation_fidelity": min(1.0, _corr_synth * 0.89 + 0.06),
+                        "artikulation": min(1.0, _corr_synth * 0.93 + 0.04),
                     }
+                    synthesized_goals = set(musical_goals.keys())  # alle als geschätzt markieren
 
                 # ── Schritt 4: GUI-Texte zusammenstellen ──
                 stars = "⭐" * max(1, min(5, round(mos_est)))
@@ -6813,6 +6997,22 @@ class ModernMainWindow(QMainWindow):
                     if genre_key:
                         _genre_str += f" · {genre_key}"
                     _score_lines.append(_genre_str)
+
+                # ── Ära & Genre Panel aktualisieren (aus RestorationResult) ──
+                if hasattr(self, "era_genre_label"):
+                    _eg_parts = []
+                    if _era_str:
+                        _conf_str2 = f" ({era_conf * 100:.0f}%" + " Konfidenz)" if era_conf > 0 else ""
+                        _eg_parts.append(f"📅  Ära: {_era_str}{_conf_str2}")
+                    _g_str = genre_label if genre_label and genre_label.lower() not in ("unknown", "") else ""
+                    if _g_str:
+                        _gbpm = f" · {genre_bpm:.0f} BPM" if genre_bpm > 0 else ""
+                        _gkey = f" · {genre_key}" if genre_key else ""
+                        _eg_parts.append(f"🎵  Genre: {_g_str}{_gbpm}{_gkey}")
+                    if genre_is_schlager:
+                        _eg_parts.append("🪗  Schlager: erkannt")
+                    if _eg_parts:
+                        self.era_genre_label.setText("\n".join(_eg_parts))
                 if pipeline_confidence > 0:
                     _score_lines.append(
                         f"Konfidenz: {pipeline_confidence * 100:.0f}%  ·  Datei: {Path(output_path).name}"
@@ -7402,9 +7602,17 @@ class ModernMainWindow(QMainWindow):
                         sev = "leicht"
                     lines.append(f"{icon} {name}  –  {sev}")
                 n = len(active)
-                header = f"⚠ {n} Defekt{'e' if n != 1 else ''} erkannt:"
-                action = "werden entfernt" if defects.get("status") == "detected" else "wurden behandelt"
-                summary = header + "\n" + "\n".join(lines) + f"\n→ {action}"
+                _s = defects.get("status", "detected")
+                if _s == "detected":
+                    header = f"⚠ {n} Defekt{'e' if n != 1 else ''} erkannt:"
+                    action = "→ werden beim Restaurieren entfernt"
+                elif _s == "correcting":
+                    header = f"⚠ {n} Defekt{'e' if n != 1 else ''} werden bearbeitet:"
+                    action = "→ werden gerade korrigiert …"
+                else:  # "completed" — defects that could not be fully removed
+                    header = f"⚠ {n} Defekt{'e' if n != 1 else ''} verblieben:"
+                    action = "→ konnten nicht vollständig behoben werden"
+                summary = header + "\n" + "\n".join(lines) + f"\n{action}"
                 self.defect_summary_label.setText(summary)
                 color = "#B87A7A" if has_severe else "#B8A068"
                 bg = "rgba(148,82,82,0.09)" if has_severe else "rgba(150,130,68,0.09)"
@@ -7470,67 +7678,64 @@ class ModernMainWindow(QMainWindow):
             self.waveform_widget.set_scan_pos(frac)
 
     def _update_phase(self, phase_text):
-        """Update current processing phase in status bar AND as overlay over waveform."""
+        """Update current processing phase in status bar and system status widget."""
         self.status_text.setText(f"⚙️ {phase_text}")
         self.status_text.setStyleSheet(
             "color: #E8C060; font-size: 11pt; font-weight: 600;"
             " background: rgba(200,160,40,0.07); border-radius: 6px;"
             " padding: 2px 8px;"
         )
-        # Fortschrittsbalken: nur Text-Format aktualisieren, KEIN Marquee-Modus.
-        # Der prozentuale Fortschritt wird über _on_item_progress gesetzt —
-        # setRange(0, 0) würde den Balken auf Marquee umschalten und den Prozentwert
-        # unsichtbar machen.
+        if hasattr(self, "resource_status_widget"):
+            self.resource_status_widget.update_status(phase=phase_text)
+        # Fortschrittsbalken: nur sicherstellen dass Range gesetzt ist.
+        # Der prozentuale Fortschritt wird über _on_item_progress (Gesamt) bzw.
+        # phase_progress-Signal (untere Bar) aktualisiert.
         if hasattr(self, "progress_bar"):
             pb = self.progress_bar
             if pb.maximum() == 0:
-                # Nur wenn noch kein prozentualer Bereich gesetzt → Basis setzen
                 pb.setRange(0, 10000)
             pb.setVisible(True)
-        # Kompaktes Overlay-Label über dem Waveform-Tab (bleibt im UI-Thread via QTimer)
-        if hasattr(self, "waveform_widget"):
-            ov = getattr(self, "_phase_overlay_label", None)
-            if ov is None:
-                from PyQt5.QtWidgets import QLabel  # already imported, but safe
+        # Vorhandenes Overlay-Label ausblenden (falls aus früherer Session noch vorhanden)
+        ov = getattr(self, "_phase_overlay_label", None)
+        if ov is not None:
+            ov.setVisible(False)
 
-                ov = QLabel(self.waveform_widget)
-                ov.setAlignment(Qt.AlignmentFlag.AlignCenter)
-                ov.setStyleSheet("""
-                    color: #FFFFFF; font-size: 10pt; font-weight: bold;
-                    background: rgba(30, 34, 60, 0.82);
-                    border-radius: 8px; padding: 6px 18px;
-                    border: 1px solid rgba(102,126,234,0.50);
-                """)
-                ov.setWordWrap(False)
-                self._phase_overlay_label = ov
-            ov.setText(f"⚙️  {phase_text}")
-            ov.adjustSize()
-            # Rechts oben im waveform_widget positionieren
-            pw = self.waveform_widget
-            ov.move(pw.width() - ov.width() - 12, 10)
-            _was_visible = ov.isVisible()
-            ov.setVisible(True)
-            ov.raise_()
-            # Fade-in beim ersten Erscheinen
-            if not _was_visible:
-                try:
-                    from PyQt5.QtWidgets import QGraphicsOpacityEffect
+    def _on_phase_step_update(self, step: int, total: int) -> None:
+        """Show 'Stufe X / Y — Name' counter below the sub-progress bar."""
+        if not hasattr(self, "_phase_step_label"):
+            return
+        _STEP_NAMES: dict[int, str] = {
+            1: "Datei wird geöffnet",
+            2: "Klangqualität wird analysiert",
+            3: "Restaurierung wird vorbereitet",
+            4: "Tonträger wird erkannt",
+            5: "Aufnahmekette wird analysiert",
+            6: "Defekte werden erkannt",
+            7: "Gezielte DSP-Reparaturen",
+            8: "Lücken-Rekonstruktion",
+            9: "Hauptrestaurierung (Pipeline)",
+            10: "Musikalische Exzellenz",
+            11: "Qualitätsprüfung",
+            12: "Export wird vorbereitet",
+            13: "Abschluss",
+        }
+        name = _STEP_NAMES.get(step, "")
+        label = f"Stufe {step} / {total}" + (f"  ·  {name}" if name else "")
+        self._phase_step_label.setText(label)
+        self._phase_step_label.setVisible(True)
 
-                    _eff = getattr(ov, "_opacity_eff", None)
-                    if _eff is None:
-                        _eff = QGraphicsOpacityEffect(ov)
-                        ov.setGraphicsEffect(_eff)
-                        ov._opacity_eff = _eff
-                    _eff.setOpacity(0.0)
-                    _fa = QPropertyAnimation(_eff, b"opacity", ov)
-                    _fa.setDuration(280)
-                    _fa.setStartValue(0.0)
-                    _fa.setEndValue(1.0)
-                    _fa.setEasingCurve(QEasingCurve.Type.OutCubic)
-                    _fa.start(QPropertyAnimation.DeletionPolicy.DeleteWhenStopped)
-                    ov._fade_anim = _fa  # keep reference alive
-                except Exception:
-                    pass
+    def closeEvent(self, event) -> None:
+        """Stop sounddevice playback before closing to avoid PortAudio mutex assertion on Linux."""
+        if _SD_AVAILABLE and _sd is not None:
+            try:
+                _sd.stop()
+            except Exception:
+                pass
+        # Wait briefly for the play thread to finish
+        _play_thread = getattr(self, "_play_thread", None)
+        if _play_thread is not None and _play_thread.is_alive():
+            _play_thread.join(timeout=0.5)
+        super().closeEvent(event)
 
     def _update_mode(self, mode):
         """Update processing mode in resource status widget"""

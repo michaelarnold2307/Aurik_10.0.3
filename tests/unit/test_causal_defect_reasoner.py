@@ -8,15 +8,15 @@ Materialien, Posterior-Summe, soft_saturation→leere Phasen, Singleton, etc.
 
 from __future__ import annotations
 
-import math
+
 import numpy as np
 import pytest
 
 np.random.seed(0)
 
 from backend.core.causal_defect_reasoner import (
-    CAUSES,
     CAUSE_TO_PHASES,
+    CAUSES,
     CausalDefectReasoner,
     RestorationPlan,
     SpectralFeatures,
@@ -58,7 +58,7 @@ class TestImportAndConstants:
         assert CausalDefectReasoner is not None
 
     def test_02_causes_list_length(self):
-        assert len(CAUSES) == 11
+        assert len(CAUSES) == 12
 
     def test_03_causes_contains_soft_saturation(self):
         assert "soft_saturation" in CAUSES
@@ -71,9 +71,19 @@ class TestImportAndConstants:
 
     def test_06_cause_to_phases_covers_all_causes(self):
         # Alle 11 Haupt-Ursachen müssen im CAUSE_TO_PHASES-Mapping vorhanden sein
-        for cause in ["tape_dropout", "tape_hiss", "vinyl_crackle", "vinyl_warp",
-                      "electrical_hum", "head_misalignment", "dc_offset", "digital_clip",
-                      "soft_saturation", "head_wear", "print_through"]:
+        for cause in [
+            "tape_dropout",
+            "tape_hiss",
+            "vinyl_crackle",
+            "vinyl_warp",
+            "electrical_hum",
+            "head_misalignment",
+            "dc_offset",
+            "digital_clip",
+            "soft_saturation",
+            "head_wear",
+            "print_through",
+        ]:
             assert cause in CAUSE_TO_PHASES
 
     def test_07_soft_saturation_phases_empty(self):
@@ -119,7 +129,7 @@ class TestSpectralFeatures:
         audio = np.full(SR, np.nan, dtype=np.float32)
         # Sollte keinen Exception werfen
         try:
-            sf = extract_spectral_features(audio, SR)
+            extract_spectral_features(audio, SR)
         except Exception:
             pass  # Akzeptiert: NaN propagation im Extractor, Crash ist nicht OK
         # Hauptsache kein unbehandelter crash (Test kommt durch)
@@ -219,8 +229,7 @@ class TestReasonerMaterials:
             {"dropout_severity": 0.8, "noise_floor_db": -42.0},
             material="tape",
         )
-        tape_prob = (plan.cause_probabilities.get("tape_dropout", 0.0)
-                     + plan.cause_probabilities.get("tape_hiss", 0.0))
+        tape_prob = plan.cause_probabilities.get("tape_dropout", 0.0) + plan.cause_probabilities.get("tape_hiss", 0.0)
         # Tape-Material → Tape-Ursachen sollten dominant sein
         assert tape_prob > 0.1
 
@@ -273,9 +282,23 @@ class TestReasonerMaterials:
         assert any("56" in p for p in phases)
 
     def test_39_all_materials_run_without_error(self):
-        for mat in ["tape", "vinyl", "shellac", "digital", "unknown",
-                    "mp3_low", "mp3_high", "aac", "cd_digital", "streaming",
-                    "dat", "minidisc", "wax_cylinder", "lacquer_disc", "wire_recording"]:
+        for mat in [
+            "tape",
+            "vinyl",
+            "shellac",
+            "digital",
+            "unknown",
+            "mp3_low",
+            "mp3_high",
+            "aac",
+            "cd_digital",
+            "streaming",
+            "dat",
+            "minidisc",
+            "wax_cylinder",
+            "lacquer_disc",
+            "wire_recording",
+        ]:
             plan = self.r.reason({}, material=mat)
             assert isinstance(plan, RestorationPlan)
 

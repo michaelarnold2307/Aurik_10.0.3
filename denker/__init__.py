@@ -12,7 +12,7 @@ entlang der kanonischen Pipeline (§2.2).
 Domänen:
     TontraegerDenker        – Tonträger-/Material-Erkennung (§2.1)
     DefektDenker            – Defekt-Scan + Kausale Ursachenanalyse (§2.4)
-    StrategieDenker         – 3×RT-Budgetplanung + Performance-Guard (§2.1)
+    StrategieDenker         – 8×RT-Budgetplanung + Performance-Guard (§2.1)
     RestaurierDenker        – Vollständige Pipeline-Ausführung (§2.2)
     ReparaturDenker         – Gezielte DSP-Reparaturen (Click, Hum, Clip)
     RekonstruktionsDenker   – Lückenerkennung + Inpainting (§2.12)

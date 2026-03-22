@@ -106,6 +106,10 @@ class AiClickPopRemover:
 
                 # Modell-Pfad oder bereits geladene Session akzeptieren
                 if isinstance(self.model, str):
+                    from dsp._memory_budget_guard import check_budget
+
+                    if not check_budget("clickpop_remover_onnx", 0.1):
+                        raise RuntimeError("Memory budget exceeded")
                     _sess = _ort.InferenceSession(self.model, providers=["CPUExecutionProvider"])
                 else:
                     _sess = self.model  # bereits InferenceSession

@@ -16,6 +16,8 @@ import os
 
 import numpy as np
 
+from dsp._memory_budget_guard import check_budget
+
 _logger = logging.getLogger(__name__)
 
 
@@ -29,7 +31,10 @@ class SotaDereverberator:
 
             dccrn_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "../models/dccrn/dccrn.onnx"))
             if use_dccrn and os.path.exists(dccrn_path):
-                self.dccrn_session = ort.InferenceSession(dccrn_path)
+                if check_budget("sota_dereverb_dccrn", 0.15):
+                    self.dccrn_session = ort.InferenceSession(dccrn_path)
+                else:
+                    _logger.warning("Memory budget exceeded for dereverberator DCCRN")
         except ImportError:
             pass
         # Conv-TasNet (PyTorch) laden

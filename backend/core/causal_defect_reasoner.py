@@ -33,10 +33,10 @@ Referenzen:
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 import logging
 import math
 import threading
-from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
@@ -60,6 +60,7 @@ CAUSES = [
     "soft_saturation",  # Tube-/Tape-Sättigung — BEWAHREN, P(phases) = leer
     "head_wear",  # Frequenzband-Auslöschung → phase_56_spectral_band_gap_repair
     "print_through",  # Magnetisches Vorecho → Adaptive Temporal Subtraction
+    "transport_bump",  # Impulsartige Mikro-Geschwindigkeitssprünge (Kassette/Tape-Holpern) → phase_12
 ]
 
 # Material-Typen
@@ -77,6 +78,7 @@ MATERIAL_PRIORS: dict[str, dict[str, float]] = {
         "soft_saturation": 0.05,  # Röhrenverstärker-Tape häufig
         "head_wear": 0.04,  # Kopfverschleiß realistisch bei altem Tape
         "print_through": 0.02,  # Magnetisches Übersprechen
+        "transport_bump": 0.12,  # Kassetten-Holpern bei mobiler Wiedergabe häufig
     },
     "vinyl": {
         "tape_dropout": 0.02,
@@ -90,6 +92,7 @@ MATERIAL_PRIORS: dict[str, dict[str, float]] = {
         "soft_saturation": 0.05,  # Röhrenschneidköpfe
         "head_wear": 0.02,
         "print_through": 0.01,
+        "transport_bump": 0.01,  # Vinyl: selten (kein Bandtransport)
     },
     "shellac": {
         "tape_dropout": 0.01,
@@ -103,6 +106,7 @@ MATERIAL_PRIORS: dict[str, dict[str, float]] = {
         "soft_saturation": 0.04,
         "head_wear": 0.02,
         "print_through": 0.01,
+        "transport_bump": 0.01,  # Shellac: selten
     },
     "digital": {
         "tape_dropout": 0.02,
@@ -116,6 +120,7 @@ MATERIAL_PRIORS: dict[str, dict[str, float]] = {
         "soft_saturation": 0.07,  # Soft-Limiting in DAWs
         "head_wear": 0.01,
         "print_through": 0.04,  # Print-Through in digitalen Kopien hist. Tape
+        "transport_bump": 0.01,  # Digital: praktisch ausgeschlossen
     },
     "unknown": {
         "tape_dropout": 0.10,
@@ -129,6 +134,7 @@ MATERIAL_PRIORS: dict[str, dict[str, float]] = {
         "soft_saturation": 0.07,
         "head_wear": 0.05,
         "print_through": 0.03,
+        "transport_bump": 0.04,  # Unknown: moderater Prior
     },
     # ── Digitale / Codec-Quellen (kein Magnetband-Dropout möglich) ──────────
     "mp3_low": {
@@ -143,6 +149,7 @@ MATERIAL_PRIORS: dict[str, dict[str, float]] = {
         "soft_saturation": 0.07,
         "head_wear": 0.01,
         "print_through": 0.25,  # MP3 Print-Through = Pre-Echo-Artefakt
+        "transport_bump": 0.01,
     },
     "mp3_high": {
         "tape_dropout": 0.01,
@@ -156,6 +163,7 @@ MATERIAL_PRIORS: dict[str, dict[str, float]] = {
         "soft_saturation": 0.05,
         "head_wear": 0.01,
         "print_through": 0.39,
+        "transport_bump": 0.01,
     },
     "aac": {
         "tape_dropout": 0.01,
@@ -169,6 +177,7 @@ MATERIAL_PRIORS: dict[str, dict[str, float]] = {
         "soft_saturation": 0.05,
         "head_wear": 0.01,
         "print_through": 0.39,
+        "transport_bump": 0.01,
     },
     "cd_digital": {
         "tape_dropout": 0.01,
@@ -182,6 +191,7 @@ MATERIAL_PRIORS: dict[str, dict[str, float]] = {
         "soft_saturation": 0.06,
         "head_wear": 0.01,
         "print_through": 0.28,
+        "transport_bump": 0.01,
     },
     "streaming": {
         "tape_dropout": 0.01,
@@ -195,6 +205,7 @@ MATERIAL_PRIORS: dict[str, dict[str, float]] = {
         "soft_saturation": 0.05,
         "head_wear": 0.01,
         "print_through": 0.46,
+        "transport_bump": 0.01,
     },
     "dat": {
         "tape_dropout": 0.07,
@@ -208,6 +219,7 @@ MATERIAL_PRIORS: dict[str, dict[str, float]] = {
         "soft_saturation": 0.03,
         "head_wear": 0.05,  # DAT-Köpfe verschleißen stark
         "print_through": 0.35,
+        "transport_bump": 0.03,  # DAT: möglich bei transportablen Geräten
     },
     "minidisc": {
         "tape_dropout": 0.04,
@@ -221,6 +233,7 @@ MATERIAL_PRIORS: dict[str, dict[str, float]] = {
         "soft_saturation": 0.04,
         "head_wear": 0.02,
         "print_through": 0.33,
+        "transport_bump": 0.01,
     },
     # ── Historische Medien ───────────────────────────────────────────────────
     "wax_cylinder": {
@@ -235,6 +248,7 @@ MATERIAL_PRIORS: dict[str, dict[str, float]] = {
         "soft_saturation": 0.02,
         "head_wear": 0.08,  # Phonograph-Nadel-Verschleiß
         "print_through": 0.01,
+        "transport_bump": 0.02,  # Handkurbel-Schwankungen
     },
     "lacquer_disc": {
         "tape_dropout": 0.02,
@@ -248,6 +262,7 @@ MATERIAL_PRIORS: dict[str, dict[str, float]] = {
         "soft_saturation": 0.03,
         "head_wear": 0.09,  # Ritznadel-Ermüdung
         "print_through": 0.02,
+        "transport_bump": 0.01,
     },
     "wire_recording": {
         "tape_dropout": 0.18,
@@ -261,6 +276,7 @@ MATERIAL_PRIORS: dict[str, dict[str, float]] = {
         "soft_saturation": 0.02,
         "head_wear": 0.10,  # Magnetdraht-Kopfverschleiß
         "print_through": 0.03,
+        "transport_bump": 0.08,  # Drahtaufnahme: mechanisch instabil
     },
 }
 
@@ -404,6 +420,12 @@ CAUSE_TO_PHASES: dict[str, list[str]] = {
         "phase_43_ml_deesser",  # ML-gestützter De-Esser
         "phase_42_vocal_enhancement",  # Gesangs-Enhancement (Frikativ-Balance)
     ],
+    # ── Transport-Bump (v9.10.57b — Kassetten-Holpern) ───────────────────────
+    "transport_bump": [
+        "phase_12_wow_flutter_fix",  # Primär: lokale PSOLA-Korrektur der Pitch-Sprünge
+        "phase_24_dropout_repair",  # Fallback: Amplitude-Reparatur bei Signal-Einbruch
+        "phase_31_speed_pitch_correction",  # Zusätzlich: globale Speed-Stabilisierung
+    ],
 }
 
 # Empfohlene Parameter pro Ursache
@@ -450,6 +472,11 @@ CAUSE_PARAMS: dict[str, dict[str, Any]] = {
         "declip_threshold": 0.98,
         "harmonic_boost_db": 1.5,
         "noise_reduction_strength": 0.10,
+    },
+    "transport_bump": {
+        "bump_correction_strength": 0.85,
+        "bump_psola_crossfade_ms": 15.0,
+        "bump_envelope_smooth_ms": 10.0,
     },
 }
 
@@ -804,6 +831,26 @@ def _likelihood_print_through(sf: SpectralFeatures, defect_scores: dict[str, flo
     return float(np.clip(p, 0.0, 1.0))
 
 
+def _likelihood_transport_bump(sf: SpectralFeatures, defect_scores: dict[str, float]) -> float:
+    """P(Merkmale | transport_bump) — Impulsartige Mikro-Geschwindigkeitssprünge (Kassette/Tape).
+
+    Transport bumps manifest as short (50–300 ms) pitch+amplitude excursions,
+    similar to dropout but with preserved signal energy (no silence gap).
+    Proxy: wow/flutter indicators with short transient character.
+    """
+    p = 0.0
+    # Wow/Flutter-like pitch instability
+    p += _sigmoid_score(float(defect_scores.get("wow_severity", 0.0)), k=6, x0=0.3) * 0.30
+    p += _sigmoid_score(float(defect_scores.get("flutter_severity", 0.0)), k=6, x0=0.3) * 0.20
+    # Dropout indicators (bumps can resemble short dropouts)
+    p += _gaussian_score(sf.dropout_density, mu=0.05, sigma=0.10) * 0.25
+    # Tape-like HF profile (transport bumps are tape/cassette artifacts)
+    p += _gaussian_score(sf.hf_energy_ratio, mu=0.25, sigma=0.15) * 0.15
+    # Pitch instability — bumps cause sudden pitch changes
+    p += _sigmoid_score(sf.pitch_instability, k=4, x0=0.4) * 0.10
+    return float(np.clip(p, 0.0, 1.0))
+
+
 LIKELIHOOD_FNS = {
     "tape_dropout": _likelihood_tape_dropout,
     "tape_hiss": _likelihood_tape_hiss,
@@ -816,6 +863,7 @@ LIKELIHOOD_FNS = {
     "soft_saturation": _likelihood_soft_saturation,
     "head_wear": _likelihood_head_wear,
     "print_through": _likelihood_print_through,
+    "transport_bump": _likelihood_transport_bump,
 }
 
 

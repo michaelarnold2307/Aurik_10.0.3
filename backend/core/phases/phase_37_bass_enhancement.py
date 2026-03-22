@@ -39,8 +39,7 @@ Version: 2.0.0 Professional
 """
 
 import logging
-import os
-import sys
+import threading
 import time
 
 import numpy as np
@@ -120,6 +119,7 @@ class BassEnhancement(PhaseInterface):
         super().__init__()
         self.name = "Bass Enhancement v2 Professional"
         self._sos_cache: dict[int, dict[str, np.ndarray]] = {}
+        self._sos_cache_lock = threading.Lock()
 
     def get_metadata(self) -> PhaseMetadata:
         """Return phase metadata."""
@@ -199,12 +199,13 @@ class BassEnhancement(PhaseInterface):
     def _enhance_channel(self, audio: np.ndarray, sample_rate: int, config: dict[str, float]) -> np.ndarray:
         """Enhance bass in a single audio channel."""
         # Use cached filters – avoid repeated butter() design per call
-        if sample_rate not in self._sos_cache:
-            self._sos_cache[sample_rate] = {
-                "bass_band": signal.butter(4, self.BASS_RANGE_HZ, btype="band", fs=sample_rate, output="sos"),
-                "hp": signal.butter(2, 25, btype="high", fs=sample_rate, output="sos"),
-            }
-        cached = self._sos_cache[sample_rate]
+        with self._sos_cache_lock:
+            if sample_rate not in self._sos_cache:
+                self._sos_cache[sample_rate] = {
+                    "bass_band": signal.butter(4, self.BASS_RANGE_HZ, btype="band", fs=sample_rate, output="sos"),
+                    "hp": signal.butter(2, 25, btype="high", fs=sample_rate, output="sos"),
+                }
+            cached = self._sos_cache[sample_rate]
 
         # Extract bass region
         bass = signal.sosfilt(cached["bass_band"], audio)
@@ -285,12 +286,14 @@ class BassEnhancement(PhaseInterface):
             audio = audio[:, 0]  # Use left channel
 
         # Extract bass (use cached filter)
-        if sample_rate not in self._sos_cache:
-            self._sos_cache[sample_rate] = {
-                "bass_band": signal.butter(4, self.BASS_RANGE_HZ, btype="band", fs=sample_rate, output="sos"),
-                "hp": signal.butter(2, 25, btype="high", fs=sample_rate, output="sos"),
-            }
-        bass = signal.sosfilt(self._sos_cache[sample_rate]["bass_band"], audio)
+        with self._sos_cache_lock:
+            if sample_rate not in self._sos_cache:
+                self._sos_cache[sample_rate] = {
+                    "bass_band": signal.butter(4, self.BASS_RANGE_HZ, btype="band", fs=sample_rate, output="sos"),
+                    "hp": signal.butter(2, 25, btype="high", fs=sample_rate, output="sos"),
+                }
+            bass_sos = self._sos_cache[sample_rate]["bass_band"]
+        bass = signal.sosfilt(bass_sos, audio)
 
         # RMS energy
         rms = np.sqrt(np.mean(bass**2))

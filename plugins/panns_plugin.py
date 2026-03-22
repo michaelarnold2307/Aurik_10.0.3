@@ -12,7 +12,7 @@ Modell: models/panns/panns_wavegram_logmel_cnn14.onnx
 Spec-Referenzen:
   §4.4: PANNs CNN14 — Audio-Tagging / Instrument-Erkennung
         Top-K=10 Tags; Konfidenz-Schwellen: Vocals ≥ 0.40, Drums ≥ 0.50,
-        Instruments ≥ 0.60; steuert Phasen-Aktivierungsmatrix
+        Instruments ≥ 0.50; steuert Phasen-Aktivierungsmatrix
   §2.9: Aktivierungsmatrix (PANNs-Tag → Phase)
   §3.2: Singleton + Convenience-Pattern (Double-Checked Locking, thread-sicher)
   §3.1: NaN/Inf-Guard am Ausgang
@@ -24,8 +24,8 @@ from __future__ import annotations
 import hashlib
 import logging
 import math
-import threading
 from pathlib import Path
+import threading
 
 import numpy as np
 
@@ -171,6 +171,7 @@ class PANNsPlugin:
             self._session = None
             try:
                 from backend.core.ml_memory_budget import release as _rel
+
                 _rel("PANNs")
             except Exception:
                 pass
@@ -249,7 +250,7 @@ class PANNsPlugin:
         (unified_restorer_v3.py, _select_phases()). §4.4 Konfidenz-Schwellen:
             - "Singing voice" / "Vocals" / "Speech": threshold ≥ 0.40
             - "Drum" / "Percussion":                 threshold ≥ 0.50
-            - alle Instrument-Tags:                  threshold ≥ 0.60
+            - alle Instrument-Tags:                  threshold ≥ 0.50
 
         Args:
             audio: Audio-Signal als np.ndarray (mono oder stereo), float32/64.

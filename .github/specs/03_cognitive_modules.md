@@ -93,6 +93,7 @@ PARAMETER_SPACE: Dict[str, Tuple[float, float, str]] = {
 ```
 
 **MOO Pareto-Front:**
+
 ```python
 PARETO_OBJECTIVES = [
     "brillanz", "waerme", "natuerlichkeit", "authentizitaet",
@@ -118,6 +119,7 @@ class VoiceGender:
 ```
 
 **Vocal-Restaurierungskette (Reihenfolge zwingend):**
+
 ```
 1. GenderDetector.detect() → VoiceCharacteristics (F₀, Formanten, Breathiness)
 2. FCPEPlugin (f₀) → CrepePlugin → pYIN-Fallback
@@ -140,10 +142,10 @@ class VoiceGender:
 
 | PANNs-Kategorie | Phase | Schwellwert |
 |---|---|---|
-| Guitar / Electric Guitar | `phase_44_guitar_enhancement` | ≥ 0.6 |
-| Brass / Trumpet / Saxophone | `phase_45_brass_enhancement` | ≥ 0.6 |
+| Guitar / Electric Guitar | `phase_44_guitar_enhancement` | ≥ 0.5 |
+| Brass / Trumpet / Saxophone | `phase_45_brass_enhancement` | ≥ 0.5 |
 | Drum / Percussion | `phase_51_drums_enhancement` | ≥ 0.5 |
-| Piano / Keyboard | `phase_52_piano_restoration` | ≥ 0.6 |
+| Piano / Keyboard | `phase_52_piano_restoration` | ≥ 0.5 |
 | Singing voice / Vocals | `phase_19` + `phase_42` + `phase_43` + VocalAIEnhancement | ≥ 0.40 |
 
 ---
@@ -394,6 +396,7 @@ plugins/era_classifier_plugin.py     → EraClassifier (1890–2025)
 ```
 
 **DSP-Fallback PFLICHT für jeden Plugin-Import:**
+
 ```python
 try:
     import onnxruntime as ort

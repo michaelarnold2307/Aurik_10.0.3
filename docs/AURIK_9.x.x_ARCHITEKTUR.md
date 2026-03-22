@@ -92,7 +92,7 @@ assert sample_rate == 48000, f"SR muss 48000 Hz sein, erhalten: {sample_rate}"
 | `RestorabilityEstimator` | < 5 s Vor-Assessment, Score 0–100 | Vor Verarbeitung |
 | `RemasterDetector` | Erkennt bereits gemasterte Quellen | Teil von EraClassifier |
 | `EraAuthenticPerceptualCompletion` | DDSP-Synthese fehlender Partials | Nach phase_55 |
-| `MusikalischerGlobalplanDienst` | Cross-Phase-Globalplan, 13 Ära-Profile, 17 Phase-Adjustments | AurikDenker Stufe 2b |
+| `MusikalischerGlobalplanDienst` | Cross-Phase-Globalplan, 13 Ära-Profile, 17 Phase-Adjustments | AurikDenker Stufe 4 |
 
 ---
 

@@ -2,7 +2,7 @@
 RestaurierDenker — Domäne: Vollrestaurierung via UnifiedRestorerV3.
 
 Kapselt core.unified_restorer_v3.UnifiedRestorerV3 mit strikter
-3×RT-Pflicht (enforce_3x_rt=True darf NIEMALS auf False gesetzt werden).
+8×RT-Pflicht (enforce_3x_rt=True darf NIEMALS auf False gesetzt werden).
 
 Usage::
 
@@ -15,11 +15,11 @@ Usage::
 
 from __future__ import annotations
 
+from dataclasses import dataclass, field
 import logging
 import math
 import threading
 import time
-from dataclasses import dataclass, field
 from typing import Any
 
 import numpy as np
@@ -27,7 +27,7 @@ import numpy as np
 logger = logging.getLogger(__name__)
 
 # A-1: RT-Budget-Konstanten für V3 Post-Pass nach ARE-Erfolg (§9.5)
-_3X_RT_LIMIT: float = 3.0
+_3X_RT_LIMIT: float = 8.0
 _V3_POSTPASS_BUDGET_FRACTION: float = 0.70  # nur wenn ARE < 70 % des RT-Budgets nutzte
 
 # ---------------------------------------------------------------------------
@@ -180,7 +180,12 @@ class _AREAdapter:
             "light": ["phase_denoise"],
         }
         _winning: str = str(getattr(are_result, "winning_variant", "") or "").lower()
-        if not getattr(are_result, "rollback_triggered", False) and _winning not in ("passthrough", "passthrough_error", "passthrough_fallback", ""):
+        if not getattr(are_result, "rollback_triggered", False) and _winning not in (
+            "passthrough",
+            "passthrough_error",
+            "passthrough_fallback",
+            "",
+        ):
             for _vkey, _vphases in _VARIANT_TO_PHASES.items():
                 if _vkey in _winning:
                     for _p in _vphases:
@@ -194,9 +199,7 @@ class _AREAdapter:
                     _phases.append("phase_denoise")
 
         # Add DeepFilterNet whenever noise/hiss/tape reduction ran (always active for reel_tape/vinyl)
-        _mat_val: str = str(
-            getattr(getattr(are_result, "material_type", None), "value", "") or ""
-        ).lower()
+        _mat_val: str = str(getattr(getattr(are_result, "material_type", None), "value", "") or "").lower()
         if any(m in _mat_val for m in ("tape", "vinyl", "shellac", "reel")):
             for _p in ("phase_denoise", "phase_tape_hiss", "phase_deepfilternet"):
                 if _p not in _seen_phases:
@@ -342,13 +345,13 @@ class RestaurierDenker:
                             )
                             adapter.phases_executed = [*list(adapter.phases_executed), "v3_post_pass"]
                             logger.info(
-                                "RestaurierDenker: V3 Post-Pass OK \u2014" " ARE RT-Nutzung: %.1f%% (< %.0f%%)",
+                                "RestaurierDenker: V3 Post-Pass OK \u2014 ARE RT-Nutzung: %.1f%% (< %.0f%%)",
                                 _are_rt / _3X_RT_LIMIT * 100,
                                 _V3_POSTPASS_BUDGET_FRACTION * 100,
                             )
                         except Exception as _v3_exc:
                             logger.debug(
-                                "RestaurierDenker: V3 Post-Pass \u00fcbersprungen (%s)" " \u2014 ARE-Ergebnis bleibt.",
+                                "RestaurierDenker: V3 Post-Pass \u00fcbersprungen (%s) \u2014 ARE-Ergebnis bleibt.",
                                 _v3_exc,
                             )
                 return self._konvertiere(adapter, material=material)

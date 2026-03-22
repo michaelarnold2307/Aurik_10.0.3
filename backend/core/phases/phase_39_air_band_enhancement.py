@@ -35,8 +35,7 @@ Version: 2.0.0 Professional
 """
 
 import logging
-import os
-import sys
+import threading
 import time
 
 import numpy as np
@@ -111,6 +110,7 @@ class AirBandEnhancement(PhaseInterface):
         self.name = "Air Band Enhancement v2 Professional"
         self._sos_air_cache: dict[int, np.ndarray] = {}
         self._shelf_coeffs: dict[tuple, tuple] = {}
+        self._cache_lock = threading.Lock()
 
     def get_metadata(self) -> PhaseMetadata:
         """Return phase metadata."""
@@ -221,29 +221,32 @@ class AirBandEnhancement(PhaseInterface):
     def _apply_high_shelf(self, audio: np.ndarray, sample_rate: int, freq_hz: float, gain_db: float) -> np.ndarray:
         """Apply high-frequency shelving filter (biquad coefficients cached per key)."""
         cache_key = (sample_rate, freq_hz, gain_db)
-        if cache_key not in self._shelf_coeffs:
-            w0 = 2 * np.pi * freq_hz / sample_rate
-            A = 10 ** (gain_db / 40)
-            alpha = np.sin(w0) / 2 * np.sqrt((A + 1 / A) * (1 / 0.707 - 1) + 2)
-            b0 = A * ((A + 1) + (A - 1) * np.cos(w0) + 2 * np.sqrt(A) * alpha)
-            b1 = -2 * A * ((A - 1) + (A + 1) * np.cos(w0))
-            b2 = A * ((A + 1) + (A - 1) * np.cos(w0) - 2 * np.sqrt(A) * alpha)
-            a0 = (A + 1) - (A - 1) * np.cos(w0) + 2 * np.sqrt(A) * alpha
-            a1 = 2 * ((A - 1) - (A + 1) * np.cos(w0))
-            a2 = (A + 1) - (A - 1) * np.cos(w0) - 2 * np.sqrt(A) * alpha
-            b = np.array([b0, b1, b2]) / a0
-            a = np.array([1, a1 / a0, a2 / a0])
-            self._shelf_coeffs[cache_key] = (b, a)
-        b, a = self._shelf_coeffs[cache_key]
+        with self._cache_lock:
+            if cache_key not in self._shelf_coeffs:
+                w0 = 2 * np.pi * freq_hz / sample_rate
+                A = 10 ** (gain_db / 40)
+                alpha = np.sin(w0) / 2 * np.sqrt((A + 1 / A) * (1 / 0.707 - 1) + 2)
+                b0 = A * ((A + 1) + (A - 1) * np.cos(w0) + 2 * np.sqrt(A) * alpha)
+                b1 = -2 * A * ((A - 1) + (A + 1) * np.cos(w0))
+                b2 = A * ((A + 1) + (A - 1) * np.cos(w0) - 2 * np.sqrt(A) * alpha)
+                a0 = (A + 1) - (A - 1) * np.cos(w0) + 2 * np.sqrt(A) * alpha
+                a1 = 2 * ((A - 1) - (A + 1) * np.cos(w0))
+                a2 = (A + 1) - (A - 1) * np.cos(w0) - 2 * np.sqrt(A) * alpha
+                b = np.array([b0, b1, b2]) / a0
+                a = np.array([1, a1 / a0, a2 / a0])
+                self._shelf_coeffs[cache_key] = (b, a)
+            b, a = self._shelf_coeffs[cache_key]
         return signal.lfilter(b, a, audio)
 
     def _apply_exciter(self, audio: np.ndarray, sample_rate: int, mix: float, drive: float) -> np.ndarray:
         """Apply harmonic exciter to HF region (SOS filter cached per sample_rate)."""
-        if sample_rate not in self._sos_air_cache:
-            self._sos_air_cache[sample_rate] = signal.butter(
-                4, self.AIR_BAND_HZ, btype="band", fs=sample_rate, output="sos"
-            )
-        hf = signal.sosfilt(self._sos_air_cache[sample_rate], audio)
+        with self._cache_lock:
+            if sample_rate not in self._sos_air_cache:
+                self._sos_air_cache[sample_rate] = signal.butter(
+                    4, self.AIR_BAND_HZ, btype="band", fs=sample_rate, output="sos"
+                )
+            sos = self._sos_air_cache[sample_rate]
+        hf = signal.sosfilt(sos, audio)
         excited_hf = np.tanh(hf * drive * 2) / (drive + 0.5)
         return audio + excited_hf * mix
 
@@ -251,9 +254,11 @@ class AirBandEnhancement(PhaseInterface):
         """Measure high-frequency energy (12-20 kHz RMS, cached SOS filter)."""
         if audio.ndim == 2:
             audio = audio[:, 0]  # Use left channel
-        if sample_rate not in self._sos_air_cache:
-            self._sos_air_cache[sample_rate] = signal.butter(
-                4, self.AIR_BAND_HZ, btype="band", fs=sample_rate, output="sos"
-            )
-        hf = signal.sosfilt(self._sos_air_cache[sample_rate], audio)
+        with self._cache_lock:
+            if sample_rate not in self._sos_air_cache:
+                self._sos_air_cache[sample_rate] = signal.butter(
+                    4, self.AIR_BAND_HZ, btype="band", fs=sample_rate, output="sos"
+                )
+            sos = self._sos_air_cache[sample_rate]
+        hf = signal.sosfilt(sos, audio)
         return float(np.sqrt(np.mean(hf**2)))

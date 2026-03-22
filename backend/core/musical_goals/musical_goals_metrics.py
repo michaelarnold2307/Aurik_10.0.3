@@ -25,11 +25,11 @@ Autor: AI Team
 Datum: 8. Februar 2026
 """
 
+from dataclasses import dataclass
 import logging
+from pathlib import Path
 import sys
 import threading
-from dataclasses import dataclass
-from pathlib import Path
 
 import librosa
 import librosa.core.constantq  # CQT/VQT-Pfad — von chroma_cqt ausgelöst
@@ -244,6 +244,14 @@ class BassKraftMetric:
         if audio.ndim > 1:
             audio = np.mean(audio, axis=1)
 
+        # Cap audio at 30 s for STFT quality/performance balance.
+        # Bass characteristics are stationary — longer signals provide no
+        # additional accuracy.  Centre-slice to capture representative content.
+        _MAX_BASS_STFT_SAMPLES = int(sr * 30)
+        if len(audio) > _MAX_BASS_STFT_SAMPLES:
+            _stft_start = (len(audio) - _MAX_BASS_STFT_SAMPLES) // 2
+            audio = audio[_stft_start : _stft_start + _MAX_BASS_STFT_SAMPLES]
+
         # Compute STFT
         stft = librosa.stft(audio, n_fft=2048, hop_length=512)
         magnitude = np.abs(stft)
@@ -287,10 +295,10 @@ class BassKraftMetric:
         try:
             crepe = _get_crepe()
             if crepe is not None:
-                # Limit to 10 s — bass characteristics are stationary; avoids
-                # multi-minute ONNX inference on long tracks.  Reduced from 30 s
-                # to stay within per-goal performance budget (< 5 s target).
-                _max_bass_samples = int(sr * 10)
+                # Limit to 3 s — bass characteristics are stationary; avoids
+                # multi-second ONNX inference on long tracks.  Reduced from 10 s
+                # to stay within per-goal performance budget (< 2 s target).
+                _max_bass_samples = int(sr * 3)
                 _bass_seg = audio[:_max_bass_samples] if len(audio) > _max_bass_samples else audio
                 result = crepe.analyze(_bass_seg, sr)
                 # Anteil voiced Frames im Bassbereich 20–120 Hz
@@ -1135,9 +1143,7 @@ class GrooveMetric:
             np.clip(score, 0.0, 1.0)
         )  # v9.11: kein Floor — schlechter Groove-Erhalt muss messbar sein (war: clip(0.88,...) → blind)
 
-    def _measure_with_dtw(
-        self, audio: np.ndarray, reference: np.ndarray, sr: int
-    ) -> float:
+    def _measure_with_dtw(self, audio: np.ndarray, reference: np.ndarray, sr: int) -> float:
         """True DTW groove measurement via dsp.dtw_groove (v9.12 Hybrid).
 
         Uses Sakoe-Chiba conditioned DTW on spectral-flux onsets for
@@ -1324,9 +1330,9 @@ class SpatialDepthMetric:
         sm_drift = abs(res_feats["s_m_ratio"] - ref_feats["s_m_ratio"])
 
         # Each drift mapped to [0, 1] penalty via sigmoid-like scaling
-        iacc_penalty = min(1.0, iacc_drift / 0.15)    # > 0.15 drift = full penalty
-        width_penalty = min(1.0, width_drift / 0.20)   # > 0.20 drift = full penalty
-        sm_penalty = min(1.0, sm_drift / 0.15)         # > 0.15 drift = full penalty
+        iacc_penalty = min(1.0, iacc_drift / 0.15)  # > 0.15 drift = full penalty
+        width_penalty = min(1.0, width_drift / 0.20)  # > 0.20 drift = full penalty
+        sm_penalty = min(1.0, sm_drift / 0.15)  # > 0.15 drift = full penalty
 
         preservation = 1.0 - 0.50 * iacc_penalty - 0.30 * width_penalty - 0.20 * sm_penalty
         preservation = float(np.clip(preservation, 0.0, 1.0))
@@ -2354,7 +2360,19 @@ class MusicalGoalsChecker:
         _t_all_start = _time.perf_counter()
         for goal_name, metric in self.metrics.items():
             _t0 = _time.perf_counter()
-            if goal_name in ("authentizitaet", "timbre_authentizitaet", "groove", "brillanz", "waerme", "artikulation", "spatial_depth") and reference is not None:
+            if (
+                goal_name
+                in (
+                    "authentizitaet",
+                    "timbre_authentizitaet",
+                    "groove",
+                    "brillanz",
+                    "waerme",
+                    "artikulation",
+                    "spatial_depth",
+                )
+                and reference is not None
+            ):
                 scores[goal_name] = metric.measure(audio, sr, reference=reference)
             else:
                 scores[goal_name] = metric.measure(audio, sr)

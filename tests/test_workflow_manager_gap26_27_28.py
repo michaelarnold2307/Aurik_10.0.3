@@ -70,7 +70,6 @@ def test_audio_files(test_dir):
 
 
 class TestBatchProcessor:
-
     def test_initialization(self):
         """Test BatchProcessor initialization."""
         processor = BatchProcessor()
@@ -97,7 +96,7 @@ class TestBatchProcessor:
         output_dir.mkdir()
 
         # Mock restorer
-        mock_restorer = Mock()
+        mock_restorer = Mock(spec=["process"])
         mock_restorer.process = Mock(side_effect=lambda audio, sr, **kwargs: audio * 1.1)
 
         processor = BatchProcessor(restorer_factory=lambda: mock_restorer)
@@ -119,7 +118,7 @@ class TestBatchProcessor:
         output_dir.mkdir()
 
         # Mock restorer
-        mock_restorer = Mock()
+        mock_restorer = Mock(spec=["process"])
         mock_restorer.process = Mock(side_effect=lambda audio, sr, **kwargs: audio * 1.1)
 
         processor = BatchProcessor(restorer_factory=lambda: mock_restorer)
@@ -149,7 +148,7 @@ class TestBatchProcessor:
 
         sf.write(existing_output, create_test_audio(), 16000)
 
-        mock_restorer = Mock()
+        mock_restorer = Mock(spec=["process"])
         mock_restorer.process = Mock(side_effect=lambda audio, sr, **kwargs: audio * 1.1)
 
         processor = BatchProcessor(restorer_factory=lambda: mock_restorer)
@@ -177,7 +176,7 @@ class TestBatchProcessor:
         def on_progress(current, total, filename):
             progress_calls.append((current, total, filename))
 
-        mock_restorer = Mock()
+        mock_restorer = Mock(spec=["process"])
         mock_restorer.process = Mock(side_effect=lambda audio, sr, **kwargs: audio * 1.1)
 
         processor = BatchProcessor(restorer_factory=lambda: mock_restorer)
@@ -206,7 +205,7 @@ class TestBatchProcessor:
         def on_file_complete(input_path, output_path, success, error):
             completed_files.append({"input": input_path, "output": output_path, "success": success})
 
-        mock_restorer = Mock()
+        mock_restorer = Mock(spec=["process"])
         mock_restorer.process = Mock(side_effect=lambda audio, sr, **kwargs: audio * 1.1)
 
         processor = BatchProcessor(restorer_factory=lambda: mock_restorer)
@@ -238,7 +237,7 @@ class TestBatchProcessor:
                 raise ValueError("Simulated processing error")
             return audio * 1.1
 
-        mock_restorer = Mock()
+        mock_restorer = Mock(spec=["process"])
         mock_restorer.process = Mock(side_effect=failing_process)
 
         processor = BatchProcessor(restorer_factory=lambda: mock_restorer)
@@ -270,7 +269,6 @@ class TestBatchProcessor:
 
 
 class TestUndoRedoManager:
-
     def test_initialization(self, test_dir):
         """Test UndoRedoManager initialization."""
         undo_manager = UndoRedoManager(backup_dir=test_dir / "undo")
@@ -439,7 +437,6 @@ class TestUndoRedoManager:
 
 
 class TestWorkflowSessionManager:
-
     def test_initialization(self, test_dir):
         """Test WorkflowSessionManager initialization."""
         session_manager = WorkflowSessionManager(sessions_dir=test_dir / "sessions")
@@ -491,7 +488,6 @@ class TestWorkflowSessionManager:
 
 
 class TestWorkflowManager:
-
     def test_initialization(self, test_dir):
         """Test WorkflowManager initialization."""
         workflow = WorkflowManager(sessions_dir=test_dir / "sessions", backup_dir=test_dir / "undo")
@@ -508,7 +504,7 @@ class TestWorkflowManager:
         workflow.create_session("Test Batch")
 
         # Mock restorer
-        mock_restorer = Mock()
+        mock_restorer = Mock(spec=["process"])
         mock_restorer.process = Mock(side_effect=lambda audio, sr, **kwargs: audio * 1.1)
         workflow.batch_processor.restorer_factory = lambda: mock_restorer
 
@@ -532,7 +528,7 @@ class TestWorkflowManager:
         """Test undo after batch processing."""
         workflow = WorkflowManager(sessions_dir=test_dir / "sessions", backup_dir=test_dir / "undo")
 
-        mock_restorer = Mock()
+        mock_restorer = Mock(spec=["process"])
         mock_restorer.process = Mock(side_effect=lambda audio, sr, **kwargs: audio * 1.1)
         workflow.batch_processor.restorer_factory = lambda: mock_restorer
 
@@ -555,7 +551,7 @@ class TestWorkflowManager:
         """Test complete undo/redo cycle."""
         workflow = WorkflowManager(sessions_dir=test_dir / "sessions", backup_dir=test_dir / "undo")
 
-        mock_restorer = Mock()
+        mock_restorer = Mock(spec=["process"])
         mock_restorer.process = Mock(side_effect=lambda audio, sr, **kwargs: audio * 1.1)
         workflow.batch_processor.restorer_factory = lambda: mock_restorer
 
@@ -589,7 +585,7 @@ class TestWorkflowManager:
         """Test retrieving undo history."""
         workflow = WorkflowManager(sessions_dir=test_dir / "sessions", backup_dir=test_dir / "undo")
 
-        mock_restorer = Mock()
+        mock_restorer = Mock(spec=["process"])
         mock_restorer.process = Mock(side_effect=lambda audio, sr, **kwargs: audio * 1.1)
         workflow.batch_processor.restorer_factory = lambda: mock_restorer
 
@@ -619,13 +615,12 @@ class TestWorkflowManager:
 
 
 class TestQualityGates:
-
     def test_batch_processing_preserves_audio_quality(self, test_audio_files, test_dir):
         """Test that batch processing preserves audio quality."""
         processor = BatchProcessor()
 
         # Mock restorer that passes through audio
-        mock_restorer = Mock()
+        mock_restorer = Mock(spec=["process"])
         mock_restorer.process = Mock(side_effect=lambda audio, sr, **kwargs: audio)
         processor.restorer_factory = lambda: mock_restorer
 

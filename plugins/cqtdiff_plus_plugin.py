@@ -24,10 +24,12 @@ Aktivierung (in CAUSE_TO_PHASES):
 
 from __future__ import annotations
 
-import logging
-import threading
 from dataclasses import dataclass, field
+import logging
+import os
 from pathlib import Path
+import threading
+import time
 
 import numpy as np
 
@@ -110,18 +112,18 @@ class CQTdiffPlusPlugin:
     _WORKSPACE_MODELS: Path = Path(__file__).parent.parent / "models" / "cqtdiff"
     _LEGACY_MODELS: Path = Path.home() / ".aurik" / "models" / "cqtdiff"
     MODELS_DIR: Path = _WORKSPACE_MODELS if _WORKSPACE_MODELS.exists() else _LEGACY_MODELS
-    MIN_GAP_MS: float = 50.0       # Untergrenze für CQTdiff+ (sonst NMF-β)
-    MAX_GAP_MS: float = 999.0      # Obergrenze (über 1 s → Fallback)
-    DIFFUSION_STEPS: int = 3       # EDM-Schritte (CPU-Kompromiss: 3×9s≈27s; full quality: T=35)
-    _CQTDIFF_SR: int = 22050       # Modell-Sample-Rate
-    _AUDIO_LEN: int = 65536        # Feste Fenster-Länge des Modells
-    _SIGMA_MAX: float = 10.0       # EDM σ_max (Maestro-Checkpoint)
-    _SIGMA_MIN: float = 1e-6       # EDM σ_min
-    _SIGMA_DATA: float = 0.057     # EDM σ_data (Maestro-Checkpoint)
-    _RHO: float = 13.0             # EDM Karras-Rho
+    MIN_GAP_MS: float = 50.0  # Untergrenze für CQTdiff+ (sonst NMF-β)
+    MAX_GAP_MS: float = 999.0  # Obergrenze (über 1 s → Fallback)
+    DIFFUSION_STEPS: int = 3  # EDM-Schritte (CPU-Kompromiss: 3×9s≈27s; full quality: T=35)
+    _CQTDIFF_SR: int = 22050  # Modell-Sample-Rate
+    _AUDIO_LEN: int = 65536  # Feste Fenster-Länge des Modells
+    _SIGMA_MAX: float = 10.0  # EDM σ_max (Maestro-Checkpoint)
+    _SIGMA_MIN: float = 1e-6  # EDM σ_min
+    _SIGMA_DATA: float = 0.057  # EDM σ_data (Maestro-Checkpoint)
+    _RHO: float = 13.0  # EDM Karras-Rho
 
     def __init__(self) -> None:
-        self._torch_model = None   # torch.jit.ScriptModule (score network + EDM)
+        self._torch_model = None  # torch.jit.ScriptModule (score network + EDM)
         self._model_loaded: bool = False
         self._fallback_active: bool = False
         self._try_load_model()
@@ -137,8 +139,7 @@ class CQTdiffPlusPlugin:
         Interface:  forward(x_noisy: (1,65536), sigma: (1,1)) → (1,65536)
         """
         try:
-            from backend.core.ml_memory_budget import release as _release
-            from backend.core.ml_memory_budget import try_allocate
+            from backend.core.ml_memory_budget import release as _release, try_allocate
 
             if not try_allocate(self._BUDGET_NAME, size_gb=self._BUDGET_SIZE_GB):
                 logger.info("CQTdiff+: ML-Budget erschöpft — Fallback aktiv.")
@@ -149,17 +150,18 @@ class CQTdiffPlusPlugin:
         try:
             import torch
 
-            torch.set_num_threads(max(1, __import__("os").cpu_count() or 1))
+            # Limit OMP/MKL threads to prevent SIGSEGV from thread-pool oversubscription
+            # when ONNX Runtime is also running (§2.37 CPU-Aware Scheduling)
+            torch.set_num_threads(min(4, os.cpu_count() or 2))
             model_path = self.MODELS_DIR / "score_network.pt"
             if model_path.exists():
-                self._torch_model = torch.jit.load(
-                    str(model_path), map_location="cpu"
-                )
+                self._torch_model = torch.jit.load(str(model_path), map_location="cpu")
                 self._torch_model.eval()
                 self._model_loaded = True
                 logger.info("🔵 CQTdiff: Score-Netzwerk geladen (%s)", model_path)
                 try:
                     from backend.core.plugin_lifecycle_manager import register_plugin as _reg_plm
+
                     _reg_plm(self._BUDGET_NAME, size_gb=self._BUDGET_SIZE_GB, unload_fn=_unload_cqtdiff_plus)
                 except Exception:
                     pass
@@ -174,6 +176,7 @@ class CQTdiffPlusPlugin:
             self._fallback_active = True
             try:
                 from backend.core.ml_memory_budget import release as _release
+
                 _release(self._BUDGET_NAME)
             except Exception:
                 pass
@@ -182,6 +185,7 @@ class CQTdiffPlusPlugin:
             self._fallback_active = True
             try:
                 from backend.core.ml_memory_budget import release as _release
+
                 _release(self._BUDGET_NAME)
             except Exception:
                 pass
@@ -347,13 +351,28 @@ class CQTdiffPlusPlugin:
             sigmas[-1] = 0.0  # finale Step ist 0
 
             # Initialisierung: verrauschte Beobachtung
+            # Wall-clock budget: 15 s/step × T steps, hard cap 2700 s (45 min, then fallback to DiffWave)
+            _MAX_DIFFUSION_WALL_S = min(2700.0, T * 15.0)
+
             with torch.no_grad():
                 noise = torch.randn_like(y_t) * sigmas[0]
                 x = y_t + noise
                 x = torch.where(known_t, y_t, x)  # Bekannte Teile festhalten
 
                 # Sampling-Loop (deterministisch, 1st-Order Euler)
+                _t_loop_start = time.perf_counter()
                 for i in range(T):
+                    # Timeout-Guard: verhindert Einfrieren bei langsamer CPU
+                    if time.perf_counter() - _t_loop_start > _MAX_DIFFUSION_WALL_S:
+                        logger.warning(
+                            "CQTdiff+: Diffusions-Timeout nach %.1fs (Schritt %d/%d) "
+                            "— verwende aktuelles x, DSP-Crossfade folgt",
+                            time.perf_counter() - _t_loop_start,
+                            i,
+                            T,
+                        )
+                        break
+
                     sigma_i = sigmas[i].unsqueeze(0).unsqueeze(0)  # [1, 1]
 
                     # Denoiser D(x, σ) via TorchScript (~9s/Schritt auf CPU)
@@ -544,6 +563,7 @@ def _unload_cqtdiff_plus() -> None:
     _instance = None  # type: ignore[assignment]
     try:
         import gc
+
         gc.collect()
     except Exception:
         pass

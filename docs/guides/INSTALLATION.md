@@ -155,9 +155,9 @@ python -c "from core.unified_restorer_v2 import UnifiedRestorerV2; print('✅ Au
 > Torch-Modelle werden mit `model.to("cpu")` ausgeführt.
 >
 > Leistungserwartung auf Ryzen 7 (8C/16T, 32 GB RAM):
-> - Standard-Modus (Balanced): 3× Echtzeit-Budget
-> - Quality-Modus: 5× Echtzeit-Budget
-> - Maximum-Modus: 8× Echtzeit-Budget
+> - Standard-Modus (Balanced): 8× Echtzeit-Budget
+> - Quality-Modus: 10× Echtzeit-Budget
+> - Maximum-Modus: 15× Echtzeit-Budget
 sudo dpkg -i cuda-keyring_1.1-1_all.deb
 sudo apt-get update
 

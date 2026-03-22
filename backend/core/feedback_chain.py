@@ -1,11 +1,10 @@
 from __future__ import annotations
 
+from collections.abc import Callable
+from dataclasses import dataclass, field
 import logging
 import threading
 import time
-from collections.abc import Callable
-from dataclasses import dataclass, field
-from typing import Optional, Union
 
 import numpy as np
 
@@ -32,6 +31,7 @@ class FeedbackChainResult:
     total_retries: int = 0  # Kompatibilitaet: Alias fuer iterations
     total_time_s: float = 0.0  # Gesamtdauer der Feedback-Schleife in Sekunden
     ceiling_reached: bool = False  # §2.33: True wenn PhysicalCeiling frühzeitig erreicht
+    analytics_overhead_s: float = 0.0  # Time spent in goal-measurement calls (excluded from RT budget)
 
 
 class FeedbackChain:
@@ -189,6 +189,7 @@ class FeedbackChain:
         _gpp = None
         try:
             from backend.core.goal_priority_protocol import GoalPriorityProtocol
+
             _gpp = GoalPriorityProtocol()
         except Exception as gpp_exc:
             logger.debug("FeedbackChain: GoalPriorityProtocol unavailable: %s", gpp_exc)
@@ -197,6 +198,20 @@ class FeedbackChain:
         _goal_priority_log: list[str] = []
         _phase_executions: list[dict] = []
 
+        # Max audio window for goal regression checks — 30 s is sufficient to
+        # detect P1/P2 regressions; measuring the full signal wastes CPU budget.
+        _GOAL_WINDOW_SAMPLES = int(_sr * 30.0)
+
+        def _goal_window(a: np.ndarray) -> np.ndarray:
+            """Return a centre-slice ≤ 30 s for goal measurement."""
+            total = a.shape[-1] if a.ndim == 2 else len(a)
+            if total <= _GOAL_WINDOW_SAMPLES:
+                return a
+            start = (total - _GOAL_WINDOW_SAMPLES) // 2
+            return (
+                a[..., start : start + _GOAL_WINDOW_SAMPLES] if a.ndim == 2 else a[start : start + _GOAL_WINDOW_SAMPLES]
+            )
+
         converged = False
         for i in range(1, self.max_iterations + 1):
             # §Performance-Budget: abort if time budget exceeded
@@ -204,7 +219,9 @@ class FeedbackChain:
             if _elapsed > _time_budget_s:
                 logger.warning(
                     "FeedbackChain: time budget exceeded (%.1fs > %.1fs) — aborting at iteration %d",
-                    _elapsed, _time_budget_s, i,
+                    _elapsed,
+                    _time_budget_s,
+                    i,
                 )
                 break
             candidate = improve_fn(current, _sr)
@@ -219,7 +236,9 @@ class FeedbackChain:
                 try:
                     _cb_abort, _cb_reason = self.goal_priority_callback(current, candidate)
                     if _cb_abort:
-                        _log_entry = f"FeedbackChain Iteration {i} abgebrochen: {_cb_reason or 'goal-priority callback'}"
+                        _log_entry = (
+                            f"FeedbackChain Iteration {i} abgebrochen: {_cb_reason or 'goal-priority callback'}"
+                        )
                         _goal_priority_log.append(_log_entry)
                         logger.warning("⚠ %s", _log_entry)
                         break
@@ -231,9 +250,15 @@ class FeedbackChain:
             # (UV3 provides its own GPP callback that already calls measure_all).
             if _gpp is not None and _prev_goals and not callable(self.goal_priority_callback):
                 try:
+                    import time as _time_fc
+
                     from backend.core.musical_goals.musical_goals_metrics import MusicalGoalsChecker
+
                     _checker = MusicalGoalsChecker()
-                    _curr_goals = _checker.measure_all(candidate, _sr)
+                    _t_goals = _time_fc.perf_counter()
+                    _curr_goals = _checker.measure_all(_goal_window(candidate), _sr)
+                    _analytics_dt = _time_fc.perf_counter() - _t_goals
+                    self._last_analytics_overhead_s = getattr(self, "_last_analytics_overhead_s", 0.0) + _analytics_dt
                     abort_result = _gpp.should_abort_iteration(_prev_goals, _curr_goals)
                     if abort_result.should_abort:
                         _log_entry = f"FeedbackChain Iteration {i} abgebrochen: {abort_result.reason}"
@@ -245,9 +270,15 @@ class FeedbackChain:
                     logger.debug("GoalPriorityProtocol in FeedbackChain nicht verfügbar: %s", _gpp_exc)
             elif _gpp is not None and not _prev_goals and not callable(self.goal_priority_callback):
                 try:
+                    import time as _time_fc
+
                     from backend.core.musical_goals.musical_goals_metrics import MusicalGoalsChecker
+
                     _checker = MusicalGoalsChecker()
-                    _prev_goals = _checker.measure_all(candidate, _sr)
+                    _t_goals = _time_fc.perf_counter()
+                    _prev_goals = _checker.measure_all(_goal_window(candidate), _sr)
+                    _analytics_dt = _time_fc.perf_counter() - _t_goals
+                    self._last_analytics_overhead_s = getattr(self, "_last_analytics_overhead_s", 0.0) + _analytics_dt
                 except Exception as mg_exc:
                     logger.debug("FeedbackChain: initial musical-goals read failed: %s", mg_exc)
 
@@ -298,6 +329,7 @@ class FeedbackChain:
             total_retries=max(0, len(history) - 1),
             total_time_s=float(time.perf_counter() - _t0),
             ceiling_reached=_ceiling_reached,
+            analytics_overhead_s=float(getattr(self, "_last_analytics_overhead_s", 0.0)),
         )
 
 

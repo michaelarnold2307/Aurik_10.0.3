@@ -181,9 +181,9 @@ def _instrument_window(win, win_logger: logging.Logger) -> None:
     )
 
     # 6. Batch-Thread-Start Hook (für Signal-Patching) ───────────────────────
-    _orig_start_batch = getattr(win, "_start_batch_processing", None)
+    _orig_start_batch = getattr(win, "_start_processing", None)
     if _orig_start_batch is None:
-        _orig_start_batch = getattr(win, "_run_batch", None)
+        _orig_start_batch = getattr(win, "_start_batch_processing", None)
     if _orig_start_batch is None:
         _orig_start_batch = getattr(win, "_on_restore_clicked", None)
 
@@ -232,14 +232,14 @@ def _instrument_window(win, win_logger: logging.Logger) -> None:
             win_logger.info("=" * 60)
             win_logger.info("RESTAURIERUNG ABGESCHLOSSEN  all_finished Signal")
 
-            # phase_progress_bar Sichtbarkeit
+            result = _orig(*args, **kwargs)
+
+            # phase_progress_bar Sichtbarkeit — NACH _orig(), da _orig() die Bar versteckt
             ppb2 = getattr(win, "phase_progress_bar", None)
             if ppb2 is not None and not ppb2.isVisible():
                 win_logger.info("[OK] phase_progress_bar versteckt nach Abschluss  §11.4a-1")
             elif ppb2 is not None:
                 win_logger.warning("[WARN] phase_progress_bar noch sichtbar nach all_finished  §11.4a-1")
-
-            result = _orig(*args, **kwargs)
 
             # QualityMeterWidget nach all_finished
             qmw2 = getattr(win, "quality_meter_widget", None)

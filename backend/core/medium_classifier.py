@@ -5,12 +5,12 @@ Automatische Trägermedien-Erkennung (17 Materialtypen).
 
 from __future__ import annotations
 
+from dataclasses import dataclass, field
 import hashlib
 import logging
 import math
 import threading
-from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import numpy as np
 
@@ -212,9 +212,12 @@ class _MaterialScorer:
         scores = {
             "shellac": self._s(nc > 1.8, snr < 15.0, bw < 8000.0),
             "wax_cylinder": self._s(nc > 2.2, snr < 10.0, bw < 5500.0),
-            "vinyl": self._s(cd > 0.0005, nc > 1.2, bw > 8000.0),
-            "tape": self._s(nc > 1.3, wf > 0.5, snr < 35.0, bw < 16000.0),
-            "reel_tape": self._s(nc > 1.1, wf < 0.5, snr < 30.0),
+            # vinyl: has crackle + colored noise + adequate bandwidth + LOW flutter
+            "vinyl": self._s(cd > 0.0005, nc > 1.2, bw > 8000.0, wf < 0.5),
+            # tape (cassette): flutter present, no crackle
+            "tape": self._s(nc > 1.3, wf > 0.5, snr < 35.0, bw < 16000.0, cd < 0.0005),
+            # reel_tape: stable flutter, tape hiss, no crackle
+            "reel_tape": self._s(nc > 1.1, wf < 0.5, snr < 30.0, cd < 0.0005),
             "wire_recording": self._s(wf > 1.5, snr < 20.0),
             "lacquer_disc": self._s(cd > 0.001, snr < 25.0, bw < 12000.0),
             "dat": self._s(bw > 18000.0, ba > 0.05, snr > 40.0),
@@ -224,8 +227,6 @@ class _MaterialScorer:
             "aac": self._s(ba > 0.03, bw > 17000.0, pe < 3.0),
             "minidisc": self._s(ba > 0.1, bw < 16000.0, snr > 35.0),
             "streaming": self._s(ba > 0.02, bw > 16000.0),
-            "quadrophony": self._s(cd > 0.0003, nc > 1.2, wf > 0.3, bw > 10000.0),
-            "ambisonic": self._s(bw > 14000.0, snr > 35.0, wf < 0.4),
             "unknown": 0.10,
         }
 
@@ -260,7 +261,11 @@ class _MaterialScorer:
 
     @staticmethod
     def _s(*conds: bool) -> float:
-        return float(sum(1.0 for c in conds if c))
+        # Normalized fraction so that materials with different condition counts
+        # are compared on equal footing (0.0 = no match, 1.0 = all match).
+        if not conds:
+            return 0.0
+        return float(sum(1.0 for c in conds if c)) / len(conds)
 
     @staticmethod
     def _find_enum(MaterialType: Any, name: str) -> Any:

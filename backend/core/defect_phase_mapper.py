@@ -51,9 +51,9 @@ Date: 2026-02-17
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 import logging
 import threading
-from dataclasses import dataclass
 
 from backend.core.defect_scanner import DefectType
 
@@ -697,8 +697,7 @@ _PHASE_MAP: dict[DefectType, PhaseAssignment] = {
             "phase_25_azimuth_correction",
         ],
         description=(
-            "Repariert spektrale Bandlücken und Höhenausfälle durch Kopfverschleiß "
-            "oder Kontaktprobleme im Bandpfad."
+            "Repariert spektrale Bandlücken und Höhenausfälle durch Kopfverschleiß oder Kontaktprobleme im Bandpfad."
         ),
         config_delta={
             "enable_spectral_repair": True,
@@ -790,10 +789,7 @@ _PHASE_MAP: dict[DefectType, PhaseAssignment] = {
         secondary_phases=[
             "phase_07_harmonic_restoration",
         ],
-        description=(
-            "Korrigiert falsche Entzerrungskurven bei Disc-Transfers "
-            "(RIAA/AES/NAB/FFRR/Columbia)."
-        ),
+        description=("Korrigiert falsche Entzerrungskurven bei Disc-Transfers (RIAA/AES/NAB/FFRR/Columbia)."),
         config_delta={
             "high_freq_boost_db": 2.5,
             "denoise_strength": 0.10,
@@ -871,6 +867,36 @@ _PHASE_MAP: dict[DefectType, PhaseAssignment] = {
             "preserve_analog_character": True,
         },
     ),
+    # ------------------------------------------------------------------
+    # TRANSPORT_BUMP — impulsive Mikro-Geschwindigkeitssprünge (50–300 ms)
+    # durch mechanische Transporterschütterungen (Kassette/Bandaufnahmen)
+    # ------------------------------------------------------------------
+    DefectType.TRANSPORT_BUMP: PhaseAssignment(
+        defect_type=DefectType.TRANSPORT_BUMP,
+        primary_phases=[
+            "phase_12_wow_flutter_fix",  # lokale PSOLA-Pitch-Glättung + Envelope-Morphing
+            "phase_24_dropout_repair",  # Aussetzer-Interpolation an Bump-Stellen
+            "phase_31_speed_pitch_correction",  # Savitzky-Golay Pitch-Korrektur
+        ],
+        secondary_phases=[
+            "phase_08_transient_preservation",  # Schützt Musik-Transienten bei Bump-Reparatur
+            "phase_03_denoise",  # Restgeräusche an Bump-Kanten
+        ],
+        description=(
+            "Repariert impulsive Mikro-Geschwindigkeitssprünge (50–300 ms) durch "
+            "mechanische Transporterschütterungen bei Kassetten- und Bandaufnahmen. "
+            "Unterscheidet sich von kontinuierlichem Wow/Flutter (< 4 Hz) und Dropouts."
+        ),
+        config_delta={
+            "bump_correction_strength": 0.80,
+            "crossfade_ms": 15.0,
+            "envelope_smoothing": 0.70,
+            "denoise_strength": 0.15,
+            "click_removal_sensitivity": 0.2,
+            "declip_strength": 0.0,
+            "preserve_analog_character": True,
+        },
+    ),
 }
 
 
@@ -888,79 +914,79 @@ _PHASE_MAP: dict[DefectType, PhaseAssignment] = {
 _MATERIAL_PHASE_FACTORS: dict[str, dict[str, float]] = {
     # WAX_CYLINDER — extreme noise, very limited BW (≤5 kHz), highest degradation
     "wax_cylinder": {
-        "phase_03_denoise":              0.90,   # aggressive NR ok — extreme noise
-        "phase_09_crackle_removal":      0.85,   # heavy crackle on wax
-        "phase_22_tape_saturation":      0.20,   # protect tube/wax character
-        "phase_20_reverb_reduction":     0.20,   # protect period-correct room
-        "phase_49_advanced_dereverb":    0.20,   # same: vintage reverb is authentic
+        "phase_03_denoise": 0.90,  # aggressive NR ok — extreme noise
+        "phase_09_crackle_removal": 0.85,  # heavy crackle on wax
+        "phase_22_tape_saturation": 0.20,  # protect tube/wax character
+        "phase_20_reverb_reduction": 0.20,  # protect period-correct room
+        "phase_49_advanced_dereverb": 0.20,  # same: vintage reverb is authentic
         "phase_06_frequency_restoration": 0.30,  # BW << 5kHz, don't over-extend
-        "phase_07_harmonic_restoration": 0.35,   # careful harmonic reconstruction
+        "phase_07_harmonic_restoration": 0.35,  # careful harmonic reconstruction
     },
     # SHELLAC — broad noise, BW ≤ 8 kHz, clicks/crackle primary
     "shellac": {
-        "phase_03_denoise":              0.85,   # strong NR for shellac noise floor
-        "phase_09_crackle_removal":      0.85,   # heavy crackle
-        "phase_01_click_removal":        0.85,   # many deep clicks
-        "phase_27_click_pop_removal":    0.80,
-        "phase_22_tape_saturation":      0.25,   # protect tube character
-        "phase_20_reverb_reduction":     0.20,   # vintage room — don't over-dereverberate
-        "phase_49_advanced_dereverb":    0.20,
+        "phase_03_denoise": 0.85,  # strong NR for shellac noise floor
+        "phase_09_crackle_removal": 0.85,  # heavy crackle
+        "phase_01_click_removal": 0.85,  # many deep clicks
+        "phase_27_click_pop_removal": 0.80,
+        "phase_22_tape_saturation": 0.25,  # protect tube character
+        "phase_20_reverb_reduction": 0.20,  # vintage room — don't over-dereverberate
+        "phase_49_advanced_dereverb": 0.20,
         "phase_06_frequency_restoration": 0.40,  # BW limited; careful extension
         "phase_07_harmonic_restoration": 0.45,
     },
     # LACQUER_DISC — similar to shellac, more substrate clicks
     "lacquer_disc": {
-        "phase_03_denoise":              0.80,
-        "phase_01_click_removal":        0.85,
-        "phase_27_click_pop_removal":    0.80,
-        "phase_22_tape_saturation":      0.25,
-        "phase_20_reverb_reduction":     0.20,
-        "phase_49_advanced_dereverb":    0.20,
+        "phase_03_denoise": 0.80,
+        "phase_01_click_removal": 0.85,
+        "phase_27_click_pop_removal": 0.80,
+        "phase_22_tape_saturation": 0.25,
+        "phase_20_reverb_reduction": 0.20,
+        "phase_49_advanced_dereverb": 0.20,
         "phase_06_frequency_restoration": 0.50,
     },
     # WIRE_RECORDING — high noise, jitter, good dynamic range
     "wire_recording": {
-        "phase_03_denoise":              0.85,
-        "phase_12_wow_flutter_fix":      0.90,   # jitter is primary problem
+        "phase_03_denoise": 0.85,
+        "phase_12_wow_flutter_fix": 0.90,  # jitter is primary problem
         "phase_31_speed_pitch_correction": 0.85,
-        "phase_22_tape_saturation":      0.35,
-        "phase_10_compression":          0.40,
+        "phase_22_tape_saturation": 0.35,
+        "phase_10_compression": 0.40,
     },
     # VINYL — crackle priority, moderate NR
     "vinyl": {
-        "phase_09_crackle_removal":      0.85,
-        "phase_01_click_removal":        0.80,
-        "phase_03_denoise":              0.70,   # vinyl NR gentler than shellac
+        "phase_09_crackle_removal": 0.85,
+        "phase_01_click_removal": 0.80,
+        "phase_03_denoise": 0.70,  # vinyl NR gentler than shellac
     },
     # TAPE — hiss priority, preserve tape character (§2.22 Spec)
     "tape": {
-        "phase_29_tape_hiss_reduction":  0.85,
-        "phase_03_denoise":              0.75,
-        "phase_22_tape_saturation":      0.35,   # tape imprint must be preserved
+        "phase_29_tape_hiss_reduction": 0.85,
+        "phase_03_denoise": 0.75,
+        "phase_22_tape_saturation": 0.35,  # tape imprint must be preserved
     },
     # REEL_TAPE — higher quality, print-through focus
     "reel_tape": {
-        "phase_29_tape_hiss_reduction":  0.80,
-        "phase_03_denoise":              0.70,
-        "phase_22_tape_saturation":      0.35,   # tape character preserved
+        "phase_29_tape_hiss_reduction": 0.80,
+        "phase_03_denoise": 0.70,
+        "phase_22_tape_saturation": 0.35,  # tape character preserved
     },
     # MP3_LOW — heavy codec artifacts; careful HF extension
     "mp3_low": {
         "phase_06_frequency_restoration": 0.75,  # codec cuts HF; restore carefully
-        "phase_07_harmonic_restoration":  0.75,
-        "phase_23_spectral_repair":       0.80,
-        "phase_50_spectral_repair":       0.80,
+        "phase_07_harmonic_restoration": 0.75,
+        "phase_23_spectral_repair": 0.80,
+        "phase_50_spectral_repair": 0.80,
     },
     # CD_DIGITAL — high quality input; minimal aggressive processing
     "cd_digital": {
-        "phase_03_denoise":              0.25,   # minimal NR for clean digital
-        "phase_09_crackle_removal":      0.20,
-        "phase_01_click_removal":        0.30,
+        "phase_03_denoise": 0.25,  # minimal NR for clean digital
+        "phase_09_crackle_removal": 0.20,
+        "phase_01_click_removal": 0.30,
     },
     # DAT — near-lossless digital; near-zero NR
     "dat": {
-        "phase_03_denoise":              0.20,
-        "phase_09_crackle_removal":      0.15,
+        "phase_03_denoise": 0.20,
+        "phase_09_crackle_removal": 0.15,
     },
 }
 
@@ -1048,15 +1074,10 @@ class DefectPhaseMapper:
         # Material-Faktor: Mittelwert der primary Phase-Faktoren als config-Skalierung
         mat_factor = 1.0
         if material is not None and assignment.primary_phases:
-            phase_factors = [
-                get_material_initial_strength(material, pid)
-                for pid in assignment.primary_phases
-            ]
+            phase_factors = [get_material_initial_strength(material, pid) for pid in assignment.primary_phases]
             mat_factor = sum(phase_factors) / len(phase_factors)
 
-        assignment.apply_to_config(
-            config, severity=severity, mode_factor=mode_factor, material_factor=mat_factor
-        )
+        assignment.apply_to_config(config, severity=severity, mode_factor=mode_factor, material_factor=mat_factor)
 
         # Sicherheitscheck: denoise_strength nie > 0.9 (Authentizität)
         if hasattr(config, "denoise_strength") and is_restoration_mode:
@@ -1064,7 +1085,7 @@ class DefectPhaseMapper:
 
         variant_name = f"specialist_{defect_type.value.replace('_', '')}"
         logger.info(
-            "Specialist-Config für %s (severity=%.2f, mode_factor=%.1f, mat_factor=%.2f): " "phases=%s",
+            "Specialist-Config für %s (severity=%.2f, mode_factor=%.1f, mat_factor=%.2f): phases=%s",
             defect_type.value,
             severity,
             mode_factor,

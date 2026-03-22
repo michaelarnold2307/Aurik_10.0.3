@@ -67,7 +67,7 @@
   Double-Checked Locking); 13 Ära-Profile (1890–2020); 7 Genre-Modifikatoren; 17 Per-Phase-Adjustments
 - `backend/core/unified_restorer_v3.py`: `RestorationConfig.global_plan`-Feld; `_profiled_phase_call()`
 - `denker/restaurier_denker.py`: `global_plan`-Parameter-Weitergabe
-- `denker/aurik_denker.py`: Stufe 2b (DSP-only Globalplan); `AurikErgebnis.global_plan`-Feld
+- `denker/aurik_denker.py`: Stufe 4 (DSP-only Globalplan); `AurikErgebnis.global_plan`-Feld
 - 60 neue Tests `test_musikalischer_globalplan.py`
 
 ---

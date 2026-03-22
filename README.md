@@ -100,7 +100,7 @@ und produziert das vollständige `AurikErgebnis` (17 Felder, `@dataclass`).
 | `TontraegerDenker` | Trägermedium-Erkennung (Vinyl / Tape / CD / Digital) |
 | `TontraegerketteDenker` | §6.6-Ketten-Erkennung (bindend ab v9.10.45) |
 | `DefektDenker` | Defektanalyse via `CausalDefectReasoner` |
-| `StrategieDenker` | Phasenstrategie + RT-Guard (`_3X_RT_LIMIT = 3.0`) |
+| `StrategieDenker` | Phasenstrategie + RT-Guard (`_3X_RT_LIMIT = 8.0`) |
 | `RestaurierDenker` | Vollrestaurierung via `UnifiedRestorerV3` |
 | `ReparaturDenker` | Self-contained scipy-Direktreparatur |
 | `RekonstruktionsDenker` | Lückenfüllung / Inpainting via `GapReconstructor` |
@@ -297,8 +297,6 @@ TransientDecoupledProcessing → RestorabilityEstimator → EraClassifier
 | `minidisc` | ATRAC-Stufigkeit, HF-Verlust | MOS ≥ 4.0 |
 | `streaming` | Variables Bitrate-Profil | MOS ≥ 4.1 |
 | `unknown` | Konservative Prior, alle Tier-1 Phasen | MOS ≥ 3.8 |
-| `quadrophony` | Kanalübersprechen, Matrix-Phasenfehler (1970–1978), PANNs-Downmix | MOS ≥ 3.9 |
-| `ambisonic` | B-Format Mehrkanal (W/X/Y/Z, ITU-R BS.2076), PANNs-Downmix | MOS ≥ 4.0 |
 
 ### 📊 Die 14 Musikalischen Qualitätsziele
 

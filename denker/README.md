@@ -17,7 +17,7 @@ vor direkten Abhängigkeiten an Core-Internals.
 │     ┌──────────────┐                                    │
 │     │ AurikDenker  │ ← Haupt-Orchestrator               │
 │     └─────┬────────┘                                    │
-│           │koordiniert 8 Domänen-Denker                 │
+│           │koordiniert 10 Stufen                     │
 │   ┌───────┼──────────────────────────────────┐          │
 │   ▼       ▼        ▼        ▼        ▼       ▼          │
 │ Toni   Kette   Defekt   Rep.  Exzell.  Strat.  ...      │
@@ -37,7 +37,7 @@ Verantwortung des `denker/`-Pakets.
 **Vorteile gegenüber direktem Core-Aufruf:**
 
 - Ein einziger Entry-Point (`restauriere()`) statt mehrerer Core-Aufrufe
-- RT-Budget-Überwachung (`_3X_RT_LIMIT = 3.0` s/s, §9.5) an zentraler Stelle
+- RT-Budget-Überwachung (`_3X_RT_LIMIT = 8.0` s/s, §9.5) an zentraler Stelle
 - NaN/Inf-Guard (§3.1) vor Weitergabe an Folge-Module
 - Alle Ergebnisse als `@dataclass` mit `as_dict()` (§3.6)
 
@@ -58,16 +58,18 @@ denker = get_aurik_denker()
 ergebnis = denker.restauriere(audio, sr=48_000)
 ```
 
-Koordiniert alle 8 Domänen-Denker in der richtigen Reihenfolge:
+Koordiniert alle 10 Stufen in der richtigen Reihenfolge:
 
 1. TontraegerDenker → Materialerkennung
 2. TontraegerketteDenker → Kettenerkennung (§6.6)
 3. DefektDenker → Defektanalyse
-4. ReparaturDenker → Direktreparatur
-5. StrategieDenker → Phasenstrategie
-6. RestaurierDenker → Vollrestaurierung (UnifiedRestorerV3)
-7. RekonstruktionsDenker → Lückeninterpolation
-8. ExzellenzDenker → Musical-Goals-Check + Optimierung
+4. MusikalischerGlobalplan → Cross-Phase-Reasoning (§Dach)
+5. StrategieDenker → Phasenstrategie (8×RT-Budget)
+6. ReparaturDenker → Direktreparatur (Preprocessing vor UV3)
+7. RekonstruktionsDenker → Lückeninterpolation (Preprocessing vor UV3)
+8. RestaurierDenker → Vollrestaurierung (UnifiedRestorerV3)
+9. ExzellenzDenker → Musical-Goals-Check + Optimierung
+10. VERSA MOS-Gate → Finales Qualitätsurteil
 
 **`AurikErgebnis` (17 Felder):**
 
@@ -177,7 +179,7 @@ ergebnis = denker.plane(material="tape", defects={"hiss": 0.7}, audio_duration_s
 ```
 
 Wraps: `core.performance_guard.PerformanceGuard`
-Spec: §9.5 Performance-Budget · `_3X_RT_LIMIT = 3.0`
+Spec: §9.5 Performance-Budget · `_3X_RT_LIMIT = 8.0`
 
 ---
 
@@ -355,7 +357,7 @@ Tests ausführen:
 Alle Denker garantieren:
 
 - ✅ **NaN/Inf-frei** (§3.1): `np.nan_to_num()` + `np.clip(-1.0, 1.0)` vor Rückgabe
-- ✅ **RT-Budget** (§9.5): `_3X_RT_LIMIT = 3.0` s/s — kein Timeout, nur Warnung
+- ✅ **RT-Budget** (§9.5): `_3X_RT_LIMIT = 8.0` s/s — kein Timeout, nur Warnung
 - ✅ **Dataclass-Ergebnisse** (§3.6): alle Ergebnisse als `@dataclass` mit `as_dict()`
 - ✅ **Type-Annotations** (§3.7): alle öffentlichen Methoden vollständig annotiert
 - ✅ **Logging** (§3.5): `logger = logging.getLogger(__name__)`, kein `print()`

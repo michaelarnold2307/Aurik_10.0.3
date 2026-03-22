@@ -1,12 +1,12 @@
 """
-StrategieDenker — Domäne: 3×RT-Budgetplanung + Performance-Guard
+StrategieDenker — Domäne: 8×RT-Budgetplanung + Performance-Guard
 =================================================================
 
 Kapselt `core.performance_guard.PerformanceGuard` und plant die
 Verarbeitungs-Strategie anhand des verfügbaren Zeit-Budgets.
 
-Die 3×RT-Grenze (§9.5) ist hart: Verarbeitung darf maximal das
-Dreifache der Audiodauer dauern. Dieser Denker sorgt dafür, dass
+Die 8×RT-Grenze (§9.5) ist hart: Verarbeitung darf maximal das
+Achtfache der Audiodauer dauern. Dieser Denker sorgt dafür, dass
 dieses Limit durchgesetzt und kommuniziert wird.
 
 Singleton-Pattern nach §3.2 (Double-Checked Locking).
@@ -15,19 +15,19 @@ Type-Annotations nach §3.7.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 import logging
 import math
 import threading
 import time
-from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
 
 logger = logging.getLogger(__name__)
 
-# 3×RT-Grenze aus §9.5 / PerformanceGuard.LIMIT_3X_RT
-_3X_RT_LIMIT: float = 3.0
+# 8×RT-Grenze aus §9.5 / PerformanceGuard.LIMIT_3X_RT
+_3X_RT_LIMIT: float = 8.0
 
 
 # ---------------------------------------------------------------------------
@@ -43,13 +43,13 @@ class StrategiePlan:
     """Länge der Quelldatei in Sekunden."""
 
     max_processing_s: float
-    """Maximal erlaubte Verarbeitungszeit in Sekunden (3× Audiodauer)."""
+    """Maximal erlaubte Verarbeitungszeit in Sekunden (8× Audiodauer)."""
 
     quality_mode: str
     """Gewählter Qualitätsmodus: 'quality', 'balanced' oder 'speed'."""
 
     enforce_limit: bool
-    """True = 3×RT-Limit wird hart durchgesetzt."""
+    """True = 8×RT-Limit wird hart durchgesetzt."""
 
     enable_adaptive_skipping: bool
     """True = Nicht-kritische Phasen werden übersprungen wenn Budget knapp."""
@@ -127,7 +127,7 @@ class StrategieErgebnis:
 
 
 class StrategieDenker:
-    """Plant die Verarbeitungs-Strategie und überwacht das 3×RT-Budget.
+    """Plant die Verarbeitungs-Strategie und überwacht das 8×RT-Budget.
 
     Kernaufgabe:
         1. plan()         → StrategiePlan erstellen
@@ -178,7 +178,7 @@ class StrategieDenker:
                 logger.info("StrategieDenker: PerformanceGuard (mode=%s) geladen.", mode)
             except Exception as exc:
                 logger.warning(
-                    "StrategieDenker: PerformanceGuard nicht verfügbar (%s). " "Einfacher Timer-Fallback wird genutzt.",
+                    "StrategieDenker: PerformanceGuard nicht verfügbar (%s). Einfacher Timer-Fallback wird genutzt.",
                     exc,
                 )
                 self._guard = None
@@ -189,12 +189,13 @@ class StrategieDenker:
         """Convert mode string to QualityMode enum value if available."""
         try:
             from backend.core.unified_restorer_v3 import QualityMode
+
             mapping = {
-                "fast":       QualityMode.FAST,
-                "balanced":   QualityMode.BALANCED,
-                "quality":    QualityMode.QUALITY,
+                "fast": QualityMode.FAST,
+                "balanced": QualityMode.BALANCED,
+                "quality": QualityMode.QUALITY,
                 "restoration": QualityMode.QUALITY,
-                "maximum":    QualityMode.MAXIMUM,
+                "maximum": QualityMode.MAXIMUM,
                 "studio_2026": QualityMode.MAXIMUM,
                 # "speed" existiert nicht im QualityMode-Enum → FAST als Fallback
             }
@@ -219,7 +220,7 @@ class StrategieDenker:
 
         Algorithmus:
             1. Audiodauer berechnen
-            2. 3×RT-Budget ableiten  (max_processing_s = 3 × audio_duration_s)
+            2. 8×RT-Budget ableiten  (max_processing_s = 8 × audio_duration_s)
             3. Chunk-Größe gemäß §9.5 adaptiv-defektdichte setzen
             4. PerformanceGuard initialisieren
 
@@ -227,7 +228,7 @@ class StrategieDenker:
             audio:         Eingabe-Audio.
             sr:            Sample-Rate in Hz.
             mode:          Qualitätsmodus ('quality', 'balanced', 'speed').
-            enforce_3x_rt: 3×RT-Limit hart durchsetzen.
+            enforce_3x_rt: 8×RT-Limit hart durchsetzen.
 
         Returns:
             StrategiePlan mit Budget-Angaben.
@@ -246,7 +247,7 @@ class StrategieDenker:
         if audio_dur > 300:
             note = (
                 "Lange Datei erkannt — Verarbeitung erfolgt in Abschnitten "
-                f"(jeweils {int(chunk_s)} s), um das 3×RT-Zeitbudget einzuhalten."
+                f"(jeweils {int(chunk_s)} s), um das 8×RT-Zeitbudget einzuhalten."
             )
         elif audio_dur < 5:
             note = "Sehr kurze Aufnahme — volle Verarbeitungstiefe aktiviert."
@@ -330,7 +331,7 @@ class StrategieDenker:
 
         if should_exit:
             logger.warning(
-                "StrategieDenker: Budget erschöpft! RT-Faktor=%.2f ≥ 3.0 " "(elapsed=%.1fs, budget=%.1fs).",
+                "StrategieDenker: Budget erschöpft! RT-Faktor=%.2f ≥ 3.0 (elapsed=%.1fs, budget=%.1fs).",
                 rt_factor,
                 elapsed,
                 max_proc,
@@ -355,10 +356,22 @@ class StrategieDenker:
 
 
 def _safe_duration(audio: np.ndarray, sr: int) -> float:
-    """Return audio duration in seconds, guarded for NaN and edge cases."""
+    """Return audio duration in seconds, guarded for NaN and edge cases.
+
+    Handles both (channels, samples) and (samples, channels) layouts by
+    using the same heuristic as AurikDenker.denke(): axis with size <= 2
+    is channels, the other axis is samples.
+    """
     if sr < 1 or audio.size == 0:
         return 0.001
-    n_samples = audio.shape[-1] if audio.ndim > 1 else audio.shape[0]
+    if audio.ndim == 1:
+        n_samples = audio.shape[0]
+    elif audio.shape[-1] <= 2:
+        # (N, channels) layout — samples on axis 0
+        n_samples = audio.shape[0]
+    else:
+        # (channels, N) layout — samples on axis -1
+        n_samples = audio.shape[-1]
     dur = n_samples / max(sr, 1)
     return dur if math.isfinite(dur) and dur > 0 else 0.001
 
@@ -376,9 +389,9 @@ def _adaptive_chunk(audio_dur_s: float, defect_severity: float = 0.0) -> float:
     if audio_dur_s <= 2.0:
         return audio_dur_s  # Too short to subdivide
     if defect_severity >= 0.6:
-        chunk = 5.0    # §7.6: Feingranular bei hohem Defektniveau
+        chunk = 5.0  # §7.6: Feingranular bei hohem Defektniveau
     elif defect_severity >= 0.3:
-        chunk = 15.0   # §7.6: Mittel bei moderatem Defektniveau
+        chunk = 15.0  # §7.6: Mittel bei moderatem Defektniveau
     elif audio_dur_s > 300:
         chunk = 120.0  # Long clean files: 120 s for context coherence
     elif audio_dur_s > 60:

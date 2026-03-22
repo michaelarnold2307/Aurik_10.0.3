@@ -17,10 +17,11 @@ Usage::
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from dataclasses import dataclass, field
 import logging
 import math
 import threading
-from dataclasses import dataclass, field
 
 import numpy as np
 
@@ -124,6 +125,7 @@ class ReparaturDenker:
         validate_audio: bool = True,
         material: str = "",
         quality_before: float = 0.0,
+        progress_callback: Callable[[str], None] | None = None,
     ) -> ReparaturErgebnis:
         """Repariert die häufigsten analogen Defekte per DSP.
 
@@ -159,6 +161,8 @@ class ReparaturDenker:
 
         # --- 1. Click-Entfernung ---
         if remove_clicks:
+            if progress_callback is not None:
+                progress_callback("click_repair")
             try:
                 audio, clicks_removed = self._remove_clicks(audio, sr)
                 if clicks_removed > 0:
@@ -169,6 +173,8 @@ class ReparaturDenker:
 
         # --- 2. Netzbrumm ---
         if remove_hum:
+            if progress_callback is not None:
+                progress_callback("hum_removal")
             try:
                 audio, hum_removed = self._remove_hum(audio, sr)
                 if hum_removed:
@@ -179,6 +185,8 @@ class ReparaturDenker:
 
         # --- 3. Clipping-Reparatur ---
         if repair_clipping:
+            if progress_callback is not None:
+                progress_callback("declip")
             try:
                 audio, clipping_repaired, clipping_regions = self._repair_clipping(audio)
                 if clipping_repaired:
@@ -252,6 +260,12 @@ class ReparaturDenker:
 
         # Mono-Referenz für Detektion
         mono = audio.mean(axis=0) if audio.ndim > 1 else audio
+
+        # Guard: kernel must not exceed signal length (medfilt raises UserWarning otherwise)
+        if kernel_samples >= len(mono):
+            kernel_samples = len(mono) if len(mono) % 2 == 1 else max(1, len(mono) - 1)
+        if kernel_samples < 3:
+            return audio, 0  # signal too short for click detection
 
         smoothed = medfilt(mono.astype(np.float64), kernel_size=kernel_samples)
         diff = mono.astype(np.float64) - smoothed

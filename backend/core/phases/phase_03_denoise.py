@@ -244,8 +244,10 @@ class DenoisePhase(PhaseInterface):
                 )
 
         # ML-Hybrid only if resources available and quality mode permits
-        # "quality" (5×RT) and "maximum" (8×RT) both use full ML-Hybrid; "balanced" (3×RT) uses adaptive
-        use_ml_hybrid = ML_HYBRID_AVAILABLE and quality_mode in ["balanced", "quality", "maximum"] and not use_lightweight
+        # "quality" (10×RT) and "maximum" (15×RT) both use full ML-Hybrid; "balanced" (8×RT) uses adaptive
+        use_ml_hybrid = (
+            ML_HYBRID_AVAILABLE and quality_mode in ["balanced", "quality", "maximum"] and not use_lightweight
+        )
 
         if use_ml_hybrid:
             try:
@@ -289,8 +291,7 @@ class DenoisePhase(PhaseInterface):
                     warnings.append("Resemble Enhance unavailable, OMLSA-only result")
                 if ml_result.quality_estimate < 0.7:
                     warnings.append(
-                        f"Low quality estimate: {ml_result.quality_estimate:.2f} "
-                        f"(heavy noise or difficult material)"
+                        f"Low quality estimate: {ml_result.quality_estimate:.2f} (heavy noise or difficult material)"
                     )
 
                 ml_result.audio = np.nan_to_num(ml_result.audio, nan=0.0, posinf=0.0, neginf=0.0)
@@ -324,9 +325,7 @@ class DenoisePhase(PhaseInterface):
                 )
 
             except Exception as e:
-                logger.warning(
-                    f"ML-Hybrid denoising failed: {e}, falling back to DSP. " f"Error type: {type(e).__name__}"
-                )
+                logger.warning(f"ML-Hybrid denoising failed: {e}, falling back to DSP. Error type: {type(e).__name__}")
                 # Fall through to DSP path below
 
         # DSP-Only Path (Fast mode or ML fallback)
@@ -484,7 +483,7 @@ class DenoisePhase(PhaseInterface):
         _e_out = float(np.sum(audio_filtered.astype(np.float64) ** 2))
         if _e_in > 1e-6 and _e_out / _e_in < 0.20:
             _target_ratio = 0.25  # etwas über Schwelle
-            _blend = max(0.0, min(1.0, (_target_ratio * _e_in / max(_e_out, 1e-12)) ** 0.5))
+            max(0.0, min(1.0, (_target_ratio * _e_in / max(_e_out, 1e-12)) ** 0.5))
             # blend = sqrt(target_energy / current_energy) — skaliert Output hoch
             # Aber sicherer: Mischung mit Original
             _alpha = 1.0 - (_e_out / _e_in) / _target_ratio  # 0…1
@@ -811,9 +810,9 @@ if __name__ == "__main__":
     materials = ["tape", "vinyl", "cd_digital"]
 
     for material in materials:
-        logger.debug(f"\n{'-'*80}")
+        logger.debug(f"\n{'-' * 80}")
         logger.debug(f"Testing with material: {material.upper()}")
-        logger.debug(f"{'-'*80}")
+        logger.debug(f"{'-' * 80}")
 
         phase = DenoisePhase(sample_rate=sr)
         result = phase.process(audio_with_noise.copy(), material_type=material)
@@ -832,9 +831,9 @@ if __name__ == "__main__":
         else:
             logger.debug("❌ Processing Failed!")
 
-    logger.debug(f"\n{'='*80}")
+    logger.debug(f"\n{'=' * 80}")
     logger.debug("✅ Professional Denoise v2.0 Test Complete!")
-    logger.debug(f"{'='*80}")
+    logger.debug(f"{'=' * 80}")
     logger.debug(f"Algorithm: {result.metadata['algorithm']}")
     logger.debug(f"Scientific Reference: {result.metadata['scientific_ref']}")
     logger.debug(f"Benchmark: {result.metadata['benchmark']}")

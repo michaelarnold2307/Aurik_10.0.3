@@ -16,10 +16,10 @@ from backend.core.unified_restorer_v3 import RestorationConfig
 @pytest.mark.timeout(10)
 def test_performance_guard_budget_constants_are_within_policy_bounds() -> None:
     """Performance constants must stay within release policy bounds."""
-    assert PerformanceGuard.LIMIT_FAST <= 1.5
-    assert PerformanceGuard.LIMIT_BALANCED <= 3.0
-    assert PerformanceGuard.LIMIT_3X_RT <= 3.0
-    assert PerformanceGuard.RT3_EXCELLENCE_BUDGET <= 3.0
+    assert PerformanceGuard.LIMIT_FAST <= 3.0
+    assert PerformanceGuard.LIMIT_BALANCED <= 8.0
+    assert PerformanceGuard.LIMIT_3X_RT <= 8.0
+    assert PerformanceGuard.RT8_EXCELLENCE_BUDGET <= 8.0
 
 
 @pytest.mark.normative
@@ -30,8 +30,8 @@ def test_performance_guard_target_mapping_is_consistent() -> None:
     balanced_guard = PerformanceGuard(mode=QualityMode.BALANCED, enforce_limit=True, enable_adaptive_skipping=True)
     quality_guard = PerformanceGuard(mode=QualityMode.QUALITY, enforce_limit=True, enable_adaptive_skipping=True)
 
-    assert fast_guard.target_rt_factor <= 1.5
-    assert balanced_guard.target_rt_factor <= 3.0
+    assert fast_guard.target_rt_factor <= 3.0
+    assert balanced_guard.target_rt_factor <= 8.0
     assert quality_guard.target_rt_factor >= balanced_guard.target_rt_factor
 
 

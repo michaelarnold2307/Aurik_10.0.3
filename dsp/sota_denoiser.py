@@ -6,9 +6,9 @@ Dieses Modul implementiert SOTA-orientiertes adaptives Denoising (DeepFilterNet2
 Es ist mit DSPContract, Auditierbarkeit und Rollback-Fähigkeit gemäß Dokumentation ausgestattet.
 """
 
+from dataclasses import asdict, dataclass
 import os
 import tempfile
-from dataclasses import asdict, dataclass
 from typing import Any
 
 import numpy as np
@@ -36,6 +36,8 @@ try:
     ONNX_AVAILABLE = True
 except ImportError:
     ONNX_AVAILABLE = False
+
+from dsp._memory_budget_guard import check_budget
 
 
 # DSPContract für Auditierbarkeit und SOTA-Konformität
@@ -92,7 +94,10 @@ class SotaDenoiser:
         dccrn_path = os.path.join(os.path.dirname(__file__), "../models/dccrn/dccrn.onnx")
         dccrn_path = os.path.abspath(dccrn_path)
         if use_dccrn and ONNX_AVAILABLE and os.path.exists(dccrn_path):
-            self.dccrn_session = ort.InferenceSession(dccrn_path)
+            if not check_budget("sota_denoiser_dccrn", 0.15):
+                _logger.warning("Memory budget exceeded for sota_denoiser DCCRN — using DSP fallback")
+            else:
+                self.dccrn_session = ort.InferenceSession(dccrn_path)
 
     def log_contract(self) -> None:
         """

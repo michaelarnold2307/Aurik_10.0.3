@@ -14,7 +14,7 @@
 |---|---|
 | Tests | **7.747+** — alle grün ✅ |
 | Phasen | **56** (Phase 01–56, Defect-First) |
-| Materialien | **17** auto-erkannte Typen (inkl. wax_cylinder, wire_recording, lacquer_disc, quadrophony, ambisonic) |
+| Materialien | **15** auto-erkannte Typen (inkl. wax_cylinder, wire_recording, lacquer_disc) |
 | Musical Goals | **14** psychoakustisch fundierte Ziele |
 | PQS MOS | **>= 4.0** (Minimum) / **>= 4.5** (Weltklasse) |
 | DefectTypes | **30** erkennbare Defektarten (inkl. WOW/FLUTTER getrennt, AZIMUTH_ERROR, SIBILANCE) |

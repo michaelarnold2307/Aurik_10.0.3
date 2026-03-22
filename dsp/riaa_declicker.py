@@ -17,6 +17,8 @@ except ImportError:
     ort = None
 from scipy.signal import medfilt
 
+from dsp._memory_budget_guard import check_budget
+
 logger = logging.getLogger("aurik.dsp.riaa_declicker")
 logger.setLevel(logging.INFO)
 
@@ -35,11 +37,14 @@ class AiRiaaDeclicker:
         self.backend = None
         if model_path:
             if ort is not None:
-                try:
-                    self.model = ort.InferenceSession(model_path)
-                    self.backend = "onnx"
-                except Exception as e:
-                    warnings.warn(f"ONNX-Modell konnte nicht geladen werden: {e}")
+                if not check_budget("riaa_declicker_onnx", 0.1):
+                    logger.warning("Memory budget exceeded for riaa_declicker ONNX — using DSP fallback")
+                else:
+                    try:
+                        self.model = ort.InferenceSession(model_path)
+                        self.backend = "onnx"
+                    except Exception as e:
+                        warnings.warn(f"ONNX-Modell konnte nicht geladen werden: {e}")
             elif torch is not None:
                 try:
                     self.model = torch.jit.load(model_path)

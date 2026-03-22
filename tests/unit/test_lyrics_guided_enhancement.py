@@ -945,3 +945,55 @@ class TestLGEPhonemeAlignmentIntegration:
         result = lge._transcribe_onnx(mono, SR, dur=1.0)
         assert called["n"] == 1
         assert result is not None
+
+    def test_lge_41_align_phonemes_too_short_returns_words_unchanged(self) -> None:
+        """§2.36 Guard: inputs < 400 samples (25 ms @ 16 kHz) must not reach the
+        wav2vec2 ONNX session — the Conv1d feature extractor raises
+        OrtInvalidArgument 'Invalid input shape: {N}' for N < 400.
+        The guard must return words unchanged (DSP classification preserved).
+        """
+        from backend.core.lyrics_guided_enhancement import LyricsGuidedEnhancement, WordTimestamp
+
+        class _ShouldNotBeCalledSession:
+            def run(self, _outputs, _inputs):
+                raise AssertionError("wav2vec2 ONNX session must not be called for inputs < 400 samples")
+
+        lge = LyricsGuidedEnhancement.__new__(LyricsGuidedEnhancement)
+        lge._aligner_session = _ShouldNotBeCalledSession()
+
+        words = [WordTimestamp("", 0.0, 0.01, 0.5, False, "vowel_unstressed")]
+
+        # 1 sample — absolute minimum edge case (triggers the original bug)
+        mono_1 = np.array([0.1], dtype=np.float32)
+        out_1 = lge._align_phonemes(words, mono_1, 16_000)
+        assert out_1 is words or out_1 == words, "1-sample input must return words unchanged"
+
+        # 399 samples — one below the minimum threshold
+        mono_399 = np.ones(399, dtype=np.float32) * 0.05
+        out_399 = lge._align_phonemes(words, mono_399, 16_000)
+        assert out_399 is words or out_399 == words, "399-sample input must return words unchanged"
+
+        # 400 samples — exactly at the boundary: session IS allowed to be called
+        # (we replace with a no-op to avoid actual ONNX call in unit test)
+        called = {"n": 0}
+
+        class _CountingSession:
+            def run(self, _outputs, _inputs):
+                called["n"] += 1
+                # Return valid logits shape (1, 1, 64)
+                return [np.zeros((1, 1, 64), dtype=np.float32)]
+
+        lge._aligner_session = _CountingSession()
+        mono_400 = np.ones(400, dtype=np.float32) * 0.05
+        lge._align_phonemes(words, mono_400, 16_000)
+        assert called["n"] == 1, "400-sample input must reach the ONNX session"
+
+    def test_lge_42_align_phonemes_boundary_values(self) -> None:
+        """Boundary test: verify _MIN_WAV2VEC2_SAMPLES constant is exactly 400
+        and that the guard is consistent with the documented receptive field.
+        """
+        from backend.core.lyrics_guided_enhancement import LyricsGuidedEnhancement
+
+        assert LyricsGuidedEnhancement._MIN_WAV2VEC2_SAMPLES == 400, (
+            "_MIN_WAV2VEC2_SAMPLES must be 400 (wav2vec2 Conv1d receptive field at 16 kHz)"
+        )

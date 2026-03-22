@@ -65,8 +65,6 @@ Date: February 2026
 """
 
 import logging
-import os
-import sys
 import time
 
 import numpy as np
@@ -285,7 +283,9 @@ class WowFlutterFix(PhaseInterface):
                 "algorithm": (
                     "polyphonic_multi_f0_consensus_v1"
                     if _poly_applied
-                    else "hybrid_ml_pyin_crepe_v3" if use_ml_hybrid else "pyin_phase_vocoder"
+                    else "hybrid_ml_pyin_crepe_v3"
+                    if use_ml_hybrid
+                    else "pyin_phase_vocoder"
                 ),
                 "version": "4.0_polyphonic" if _poly_applied else "3.0_ml_hybrid" if use_ml_hybrid else "3.0_pyin",
                 "ml_hybrid": use_ml_hybrid,
@@ -338,6 +338,23 @@ class WowFlutterFix(PhaseInterface):
         # Step 6: Verify correction (measure residual deviation)
         restored_mono = np.mean(restored, axis=1) if is_stereo else restored
 
+        # Step 6b: Targeted transport bump repair (impulsive micro-speed jumps 50–300 ms)
+        bump_locations = kwargs.get("transport_bump_locations", None)
+        n_bumps_repaired = 0
+        if bump_locations and len(bump_locations) > 0:
+            restored, n_bumps_repaired = self._repair_transport_bumps(
+                restored,
+                sample_rate,
+                bump_locations,
+                strength,
+            )
+            restored_mono = np.mean(restored, axis=1) if is_stereo else restored
+            logger.info(
+                "Phase 12 transport_bump repair: %d/%d bumps repaired",
+                n_bumps_repaired,
+                len(bump_locations),
+            )
+
         residual_pitch, residual_conf = self._estimate_pitch_yin(restored_mono, sample_rate)
         residual_deviation = self._calculate_max_deviation(residual_pitch, residual_conf)
 
@@ -358,7 +375,9 @@ class WowFlutterFix(PhaseInterface):
                     else (
                         "hybrid_ml_pyin_crepe_v3"
                         if use_ml_hybrid
-                        else "pyin_psola" if vocals_conf >= 0.4 else "pyin_phase_vocoder"
+                        else "pyin_psola"
+                        if vocals_conf >= 0.4
+                        else "pyin_phase_vocoder"
                     )
                 )
             ),
@@ -393,6 +412,7 @@ class WowFlutterFix(PhaseInterface):
                 "mean_confidence": float(np.mean(confidence[confidence > 0])),
                 "material": material.value,
                 "quality_mode": quality_mode,
+                "transport_bumps_repaired": n_bumps_repaired,
             },
             execution_time_seconds=processing_time,
             metadata=metadata,
@@ -564,6 +584,278 @@ class WowFlutterFix(PhaseInterface):
         pitch_hz = float(sample_rate) / float(tau_estimate) if tau_estimate > 0 else 0.0
         conf = max(0.0, 1.0 - min_cmnd)
         return pitch_hz, conf
+
+    def _repair_transport_bumps(
+        self,
+        audio: np.ndarray,
+        sample_rate: int,
+        bump_locations: list[tuple[float, float]],
+        strength: float = 0.85,
+    ) -> tuple[np.ndarray, int]:
+        """Repair impulsive transport bumps at known locations via local PSOLA + envelope morphing.
+
+        Each bump is a 50–300 ms region where both pitch and amplitude show an abrupt
+        excursion. The repair strategy is:
+            1. Extract the bump region with margins (±30 ms crossfade)
+            2. Estimate local pitch via pYIN in the bump and surrounding context
+            3. Apply local PSOLA time-warping to flatten the pitch excursion
+            4. Smooth the amplitude envelope via Hanning-weighted morphing
+            5. Crossfade repaired region back into the original signal
+
+        Args:
+            audio:          Audio signal (mono [N] or stereo [N, 2])
+            sample_rate:    Sample rate in Hz (must be 48000)
+            bump_locations: List of (start_s, end_s) time pairs from DefectScanner
+            strength:       Correction strength 0.0–1.0 (material-adaptive)
+
+        Returns:
+            (repaired_audio, n_bumps_repaired)
+        """
+        result = audio.copy()
+        is_stereo = audio.ndim == 2
+        n_samples = audio.shape[0]
+        margin_s = 0.030  # 30 ms crossfade margin
+        margin_samples = int(margin_s * sample_rate)
+        n_repaired = 0
+
+        for bump_start_s, bump_end_s in bump_locations:
+            bump_start = int(bump_start_s * sample_rate)
+            bump_end = int(bump_end_s * sample_rate)
+
+            # Validate bounds
+            if bump_start < 0 or bump_end > n_samples or bump_end <= bump_start:
+                continue
+
+            # Extend region with margins for crossfade
+            region_start = max(0, bump_start - margin_samples)
+            region_end = min(n_samples, bump_end + margin_samples)
+            region_len = region_end - region_start
+
+            if region_len < sample_rate // 100:  # minimum 10 ms
+                continue
+
+            # Get context audio before and after bump for reference pitch
+            ctx_before_start = max(0, region_start - sample_rate // 4)  # 250 ms context
+            ctx_after_end = min(n_samples, region_end + sample_rate // 4)
+
+            if is_stereo:
+                mono_region = np.mean(result[region_start:region_end], axis=1)
+                mono_ctx_before = np.mean(result[ctx_before_start:region_start], axis=1)
+                mono_ctx_after = np.mean(result[region_end:ctx_after_end], axis=1)
+            else:
+                mono_region = result[region_start:region_end]
+                mono_ctx_before = result[ctx_before_start:region_start]
+                mono_ctx_after = result[region_end:ctx_after_end]
+
+            # 1. Estimate reference RMS from surrounding context
+            ctx_audio = np.concatenate([mono_ctx_before, mono_ctx_after])
+            ref_rms = float(np.sqrt(np.mean(ctx_audio**2) + 1e-12)) if len(ctx_audio) > 0 else 1.0
+
+            # 2. Amplitude envelope smoothing — morph bump envelope toward context level
+            if is_stereo:
+                for ch in range(result.shape[1]):
+                    result[region_start:region_end, ch] = self._smooth_bump_envelope(
+                        result[region_start:region_end, ch],
+                        ref_rms,
+                        margin_samples,
+                        strength,
+                    )
+            else:
+                result[region_start:region_end] = self._smooth_bump_envelope(
+                    result[region_start:region_end],
+                    ref_rms,
+                    margin_samples,
+                    strength,
+                )
+
+            # 3. Local pitch correction via short-segment PSOLA
+            #    Only apply if the bump is long enough for meaningful pitch detection
+            bump_len = bump_end - bump_start
+            if bump_len >= sample_rate // 50:  # at least 20 ms
+                if is_stereo:
+                    for ch in range(result.shape[1]):
+                        result[bump_start:bump_end, ch] = self._local_pitch_flatten(
+                            result[bump_start:bump_end, ch],
+                            mono_ctx_before,
+                            mono_ctx_after,
+                            sample_rate,
+                            strength,
+                        )
+                else:
+                    result[bump_start:bump_end] = self._local_pitch_flatten(
+                        result[bump_start:bump_end],
+                        mono_ctx_before,
+                        mono_ctx_after,
+                        sample_rate,
+                        strength,
+                    )
+
+            n_repaired += 1
+
+        # Safety: NaN/Inf guard + clip
+        result = np.nan_to_num(result, nan=0.0, posinf=0.0, neginf=0.0)
+        result = np.clip(result, -1.0, 1.0)
+        return result, n_repaired
+
+    @staticmethod
+    def _smooth_bump_envelope(
+        segment: np.ndarray,
+        ref_rms: float,
+        margin_samples: int,
+        strength: float,
+    ) -> np.ndarray:
+        """Smooth the amplitude envelope of a bump region toward the reference RMS level.
+
+        Uses a Hanning-weighted crossfade at margins and local RMS gain correction
+        in the bump interior to eliminate sudden amplitude jumps.
+        """
+        result = segment.copy()
+        n = len(result)
+        if n < 4 or ref_rms < 1e-10:
+            return result
+
+        # Compute local RMS in short windows (5 ms)
+        win = max(1, min(n, 240))  # ~5 ms at 48 kHz
+        local_rms = np.array(
+            [float(np.sqrt(np.mean(result[i : i + win] ** 2) + 1e-12)) for i in range(0, n - win + 1, max(1, win // 2))]
+        )
+
+        if len(local_rms) == 0:
+            return result
+
+        # Gain correction: target is ref_rms, blend with strength
+        for i, lr in enumerate(local_rms):
+            if lr > 1e-10:
+                gain = 1.0 + strength * (ref_rms / lr - 1.0)
+                gain = np.clip(gain, 0.5, 2.0)  # Safety clamp
+                start_idx = i * max(1, win // 2)
+                end_idx = min(n, start_idx + win)
+                result[start_idx:end_idx] *= gain
+
+        # Apply Hanning crossfade at margins
+        fade_len = min(margin_samples, n // 2)
+        if fade_len > 1:
+            fade_in = np.hanning(fade_len * 2)[:fade_len]
+            fade_out = np.hanning(fade_len * 2)[fade_len:]
+            # Blend: corrected × fade + original × (1 - fade)
+            result[:fade_len] = segment[:fade_len] * (1.0 - fade_in) + result[:fade_len] * fade_in
+            result[-fade_len:] = segment[-fade_len:] * (1.0 - fade_out) + result[-fade_len:] * fade_out
+
+        return np.clip(result, -1.0, 1.0)
+
+    def _local_pitch_flatten(
+        self,
+        bump_audio: np.ndarray,
+        ctx_before: np.ndarray,
+        ctx_after: np.ndarray,
+        sample_rate: int,
+        strength: float,
+    ) -> np.ndarray:
+        """Flatten pitch excursion in a bump region using context-guided resampling.
+
+        Algorithm:
+            1. Estimate reference pitch from context (before + after bump)
+            2. Estimate pitch within the bump
+            3. Compute per-sample resampling ratio to flatten toward reference
+            4. Apply via linear interpolation (fast, no phase vocoder overhead)
+        """
+        n = len(bump_audio)
+        if n < 64:
+            return bump_audio
+
+        # Estimate reference pitch from context
+        ref_pitch_before = self._quick_pitch_estimate(ctx_before, sample_rate) if len(ctx_before) > 256 else 0.0
+        ref_pitch_after = self._quick_pitch_estimate(ctx_after, sample_rate) if len(ctx_after) > 256 else 0.0
+
+        if ref_pitch_before > 0 and ref_pitch_after > 0:
+            ref_pitch = (ref_pitch_before + ref_pitch_after) / 2.0
+        elif ref_pitch_before > 0:
+            ref_pitch = ref_pitch_before
+        elif ref_pitch_after > 0:
+            ref_pitch = ref_pitch_after
+        else:
+            return bump_audio  # Cannot determine reference → skip
+
+        # Estimate pitch in bump
+        bump_pitch = self._quick_pitch_estimate(bump_audio, sample_rate)
+        if bump_pitch <= 0 or ref_pitch <= 0:
+            return bump_audio
+
+        # Compute pitch ratio
+        ratio = ref_pitch / bump_pitch
+        # Only correct if there's a meaningful deviation (> 0.5 %)
+        if abs(ratio - 1.0) < 0.005:
+            return bump_audio
+
+        # Clamp correction to avoid extreme warping
+        correction = 1.0 + strength * (ratio - 1.0)
+        correction = np.clip(correction, 0.9, 1.1)  # max ±10 % correction
+
+        # Resample via linear interpolation
+        new_len = int(n * correction)
+        if new_len < 4 or new_len > n * 3:
+            return bump_audio
+
+        indices = np.linspace(0, n - 1, new_len)
+        resampled = np.interp(indices, np.arange(n), bump_audio).astype(np.float32)
+
+        # Fit back to original length via truncation or zero-pad + crossfade
+        if len(resampled) >= n:
+            result = resampled[:n]
+        else:
+            result = np.zeros(n, dtype=np.float32)
+            result[: len(resampled)] = resampled
+            # Fade out tail
+            fade = max(1, n - len(resampled))
+            result[len(resampled) :] = bump_audio[len(resampled) :] * np.linspace(1.0, 0.0, fade)[: n - len(resampled)]
+
+        return np.clip(result, -1.0, 1.0)
+
+    def _quick_pitch_estimate(self, audio: np.ndarray, sample_rate: int) -> float:
+        """Fast autocorrelation-based pitch estimate for short segments.
+
+        Returns estimated pitch in Hz, or 0.0 if unvoiced/unreliable.
+        """
+        n = len(audio)
+        if n < 128:
+            return 0.0
+
+        # Use center portion
+        center = audio[n // 4 : 3 * n // 4]
+        center = center - np.mean(center)
+        if np.max(np.abs(center)) < 1e-6:
+            return 0.0
+
+        # Autocorrelation via FFT
+        n_fft = 1
+        while n_fft < len(center) * 2:
+            n_fft *= 2
+        fft_x = np.fft.rfft(center, n=n_fft)
+        acf = np.fft.irfft(fft_x * np.conj(fft_x))[: len(center)]
+
+        if acf[0] < 1e-10:
+            return 0.0
+        acf = acf / acf[0]
+
+        # Find first peak after initial decline
+        min_lag = max(2, int(sample_rate / 1000.0))  # 1000 Hz max
+        max_lag = min(len(acf) - 1, int(sample_rate / 50.0))  # 50 Hz min
+
+        if max_lag <= min_lag:
+            return 0.0
+
+        search = acf[min_lag : max_lag + 1]
+        if len(search) < 3:
+            return 0.0
+
+        peak_idx = int(np.argmax(search))
+        peak_val = search[peak_idx]
+
+        if peak_val < 0.3:  # low confidence
+            return 0.0
+
+        lag = min_lag + peak_idx
+        return float(sample_rate) / float(lag) if lag > 0 else 0.0
 
     def _separate_wow_flutter(self, pitch_trajectory: np.ndarray, sample_rate: int) -> tuple[np.ndarray, np.ndarray]:
         """
