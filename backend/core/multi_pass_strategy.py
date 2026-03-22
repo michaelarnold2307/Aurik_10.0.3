@@ -16,10 +16,10 @@ Version: 1.0
 Date: 2026-02-10
 """
 
-import logging
 from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from enum import Enum
+import logging
 from typing import Any
 
 import numpy as np
@@ -522,14 +522,12 @@ class ObjectiveScorer:
             # IAQS gesamt Score direkt aus bereits berechnetem Objekt (kein Doppel-Call)
             score.iaqs_total = float(np.clip(iaqs_stats.overall, 0.0, 1.0))
             score.iaqs_active = True
-            logger.debug(
-                f"IAQS: SNR={score.snr_db:.1f} dB, THD={score.thd_percent:.2f}%, " f"Total={score.iaqs_total:.3f}"
-            )
+            logger.debug(f"IAQS: SNR={score.snr_db:.1f} dB, THD={score.thd_percent:.2f}%, Total={score.iaqs_total:.3f}")
         except Exception as e:
             logger.warning(f"IAQS Signal statistics failed: {e}")
             # Letzter Fallback: EnhancedMetrics Backend
             try:
-                from backend.metrics.enhanced_metrics import EnhancedMetrics
+                from backend.core.enhanced_metrics import EnhancedMetrics
 
                 metrics = EnhancedMetrics()
                 try:
@@ -765,19 +763,37 @@ class MultiPassEngine:
                 # —— Emit variant start — real-time progress
                 _vi = variants.index(variant)
                 _vn = max(len(variants), 1)
+                _vpct = int(100 * _vi / _vn)
+                _cpct = int(100 * (_vi + 1) / _vn)
                 if progress_callback is not None:
                     try:
-                        _vpct = int(100 * _vi / _vn)
                         progress_callback(
                             _vpct,
-                            f"Variante {_vi + 1}/{_vn}: ’{variant.name}‘ wird bewertet …",
+                            f"Variante {_vi + 1}/{_vn}: '{variant.name}' wird bewertet …",
                             0.0,
                         )
                     except Exception:
                         pass
 
+                # Sub-progress: map UV3's 0–100 into this variant's slice of the outer bar
+                def _make_sub_cb(_base: int, _span: int):
+                    def _sub_progress(pct, phase, elapsed=0.0):
+                        if progress_callback is not None:
+                            try:
+                                progress_callback(_base + int(pct * _span / 100), phase, elapsed)
+                            except Exception:
+                                pass
+
+                    return _sub_progress
+
+                _sub_cb = _make_sub_cb(_vpct, max(1, _cpct - _vpct)) if progress_callback is not None else None
+
                 start_time = time.time()
-                processed_audio = process_func(audio, sample_rate, variant.config)
+                try:
+                    processed_audio = process_func(audio, sample_rate, variant.config, progress_callback=_sub_cb)
+                except TypeError:
+                    # Custom process_func without progress_callback support — graceful fallback
+                    processed_audio = process_func(audio, sample_rate, variant.config)
                 proc_time = time.time() - start_time
                 logger.debug(f"[MPASS] Variante '{variant.name}' fertig in {proc_time:.1f}s")
 
@@ -799,10 +815,7 @@ class MultiPassEngine:
                     try:
                         _cpct = int(100 * (_vi + 1) / _vn)
                         _mos_v = getattr(score, "mos", None)
-                        _score_str = (
-                            f"MOS {_mos_v:.2f}" if _mos_v is not None
-                            else f"Score {score.composite_score:.3f}"
-                        )
+                        _score_str = f"MOS {_mos_v:.2f}" if _mos_v is not None else f"Score {score.composite_score:.3f}"
                         progress_callback(
                             _cpct,
                             f"Variante {_vi + 1}/{_vn}: '{variant.name}' → {_score_str} ✓",
@@ -877,7 +890,14 @@ class MultiPassEngine:
         # Default profile: restoration quality path.
         return "restoration"
 
-    def _default_process_func(self, audio: np.ndarray, sample_rate: int, config: ProcessingConfig) -> np.ndarray:
+    def _default_process_func(
+        self,
+        audio: np.ndarray,
+        sample_rate: int,
+        config: ProcessingConfig,
+        *,
+        progress_callback=None,
+    ) -> np.ndarray:
         """
         Default processing function using UnifiedRestorerV3.
         UnifiedRestorerV3 wird einmalig instanziiert und gecacht (ML-Modelle nur 1× laden).
@@ -886,6 +906,7 @@ class MultiPassEngine:
             audio: Input audio
             sample_rate: Sample rate
             config: ProcessingConfig
+            progress_callback: Optional callable(pct, phase, elapsed_s) — forwarded to UV3.
 
         Returns:
             Processed audio (np.ndarray)
@@ -912,6 +933,7 @@ class MultiPassEngine:
                 audio=_eval_audio,
                 sample_rate=sample_rate,
                 mode=_restore_mode,
+                progress_callback=progress_callback,
             )
 
             # V3 gibt RestorationResult zurück — audio-Array extrahieren
@@ -921,6 +943,7 @@ class MultiPassEngine:
 
         except Exception as e:
             import traceback as _tb
+
             logger.error("Default processing failed: %s\n%s", e, _tb.format_exc())
             # Fallback: return original
             return audio

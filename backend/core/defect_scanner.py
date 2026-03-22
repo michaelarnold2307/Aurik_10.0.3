@@ -12,14 +12,14 @@ Version: 9.0.0
 Date: 2026-02-15
 """
 
+from collections.abc import Callable
 import contextlib
+from dataclasses import dataclass, field
+from enum import Enum
 import hashlib
 import logging
 import threading
-from collections.abc import Callable
-from dataclasses import dataclass, field
-from enum import Enum
-from typing import Dict, List, Optional, Tuple
+from typing import Optional
 
 import numpy as np
 import scipy.fft as fft
@@ -27,8 +27,8 @@ import scipy.signal as signal
 
 # §6.3 CLIPPING vs SOFT_SATURATION discrimination via THD analysis (lazy import)
 try:
-    from backend.core.clipping_detection import ClippingType as _ClippingType
-    from backend.core.clipping_detection import classify_clipping as _classify_clipping
+    from backend.core.clipping_detection import ClippingType as _ClippingType, classify_clipping as _classify_clipping
+
     _CLIPPING_DETECTION_AVAILABLE = True
 except ImportError:
     _CLIPPING_DETECTION_AVAILABLE = False
@@ -78,7 +78,7 @@ class DefectType(Enum):
     CLICKS = "clicks"
     CRACKLE = "crackle"
     HUM = "hum"
-    WOW = "wow"     # Tonhöhenschwankung < 0.5 Hz (IEC 60386 — Motorexzentrizität, Plattenteller-Gleichlaufschwankung)
+    WOW = "wow"  # Tonhöhenschwankung < 0.5 Hz (IEC 60386 — Motorexzentrizität, Plattenteller-Gleichlaufschwankung)
     FLUTTER = "flutter"  # Tonhöhenschwankung 0.5–200 Hz (IEC 60386 — mechanische Vibration, Führungsrolle, Bandantrieb)
     STEREO_IMBALANCE = "stereo_imbalance"
     DIGITAL_ARTIFACTS = "digital_artifacts"
@@ -839,8 +839,8 @@ class DefectScanner:
         _prog(16)
         scores[DefectType.HUM] = self._detect_hum(audio_mono)
         _prog(22)
-        scores[DefectType.WOW] = self._detect_wow(audio_mono)              # IEC 60386 < 0.5 Hz
-        scores[DefectType.FLUTTER] = self._detect_flutter(audio_mono)          # IEC 60386 0.5–200 Hz
+        scores[DefectType.WOW] = self._detect_wow(audio_mono)  # IEC 60386 < 0.5 Hz
+        scores[DefectType.FLUTTER] = self._detect_flutter(audio_mono)  # IEC 60386 0.5–200 Hz
         scores[DefectType.AZIMUTH_ERROR] = self._detect_azimuth_error(audio)  # PHD-Slope L/R
         _prog(28)
         scores[DefectType.STEREO_IMBALANCE] = (
@@ -895,7 +895,7 @@ class DefectScanner:
         duration = len(audio_mono) / sr
 
         logger.info(
-            f"DefectScan completed: {analysis_time:.2f}s für {duration:.1f}s Audio ({analysis_time/duration*100:.1f}% overhead)"
+            f"DefectScan completed: {analysis_time:.2f}s für {duration:.1f}s Audio ({analysis_time / duration * 100:.1f}% overhead)"
         )
 
         # Forensische Tonträgerkettenerkennung (MediumDetector, DSP-basiert)
@@ -906,7 +906,7 @@ class DefectScanner:
             # Für lange Dateien: nur erste 30 s analysieren (Geschwindigkeit)
             _max_forensic = sr * 30
             _audio_forensic = audio_mono[:_max_forensic] if len(audio_mono) > _max_forensic else audio_mono
-            logger.debug(f"[SCAN] MediumDetector.detect() → {len(_audio_forensic)/sr:.1f}s Audio …")
+            logger.debug(f"[SCAN] MediumDetector.detect() → {len(_audio_forensic) / sr:.1f}s Audio …")
             _fmd_result = _ForensicMD().detect(_audio_forensic, sr)
             # MediumDetectionResult ist ein Dataclass — getattr statt .get()
             _multi = getattr(_fmd_result, "is_multi_generation", None)
@@ -1024,7 +1024,7 @@ class DefectScanner:
         tape_score += 10.0  # Baseline-Bonus erhöht
 
         logger.debug(
-            f"Mono material scores: " f"shellac={shellac_score:.2f}, vinyl={vinyl_score:.2f}, tape={tape_score:.2f}"
+            f"Mono material scores: shellac={shellac_score:.2f}, vinyl={vinyl_score:.2f}, tape={tape_score:.2f}"
         )
 
         # Select best match (minimum threshold 0.5)
@@ -1224,6 +1224,19 @@ class DefectScanner:
 
     # ========== DEFECT DETECTORS (11 Typen) ==========
 
+    @staticmethod
+    def _sample_locations_evenly(locations: list, max_n: int) -> list:
+        """Return up to max_n locations sampled evenly across the full duration.
+
+        Instead of truncating with [:max_n] (which biases markers to the start of
+        the recording), this method picks representatives at uniform stride so that
+        the returned positions span the entire audio length.
+        """
+        if len(locations) <= max_n:
+            return locations
+        step = len(locations) / max_n
+        return [locations[int(i * step)] for i in range(max_n)]
+
     def _detect_clicks(self, audio: np.ndarray) -> DefectScore:
         """Erkennt Clicks (kurze, impulsive Störungen).
 
@@ -1284,17 +1297,16 @@ class DefectScanner:
 
         if len(verified_groups) == 0:
             return DefectScore(
-                DefectType.CLICKS, 0.0, 0.95,
-                metadata={"click_rate": 0.0, "total_clicks": 0,
-                          "rejected_as_transients": len(click_groups)},
+                DefectType.CLICKS,
+                0.0,
+                0.95,
+                metadata={"click_rate": 0.0, "total_clicks": 0, "rejected_as_transients": len(click_groups)},
             )
 
-        # Convert to timestamps (cap at 50 to keep metadata manageable)
+        # Convert to timestamps — sample evenly across full duration (not just first 50)
         MAX_LOCATIONS = 50
-        locations = [
-            (group[0] / self.sample_rate, group[-1] / self.sample_rate)
-            for group in verified_groups[:MAX_LOCATIONS]
-        ]
+        all_locations = [(group[0] / self.sample_rate, group[-1] / self.sample_rate) for group in verified_groups]
+        locations = self._sample_locations_evenly(all_locations, MAX_LOCATIONS)
 
         # Severity: click-rate per second (uses full count, not capped)
         duration = len(audio) / self.sample_rate
@@ -1382,7 +1394,7 @@ class DefectScanner:
             defect_type=DefectType.CRACKLE,
             severity=severity,
             confidence=confidence,
-            locations=locations[:50],
+            locations=self._sample_locations_evenly(locations, 50),
             metadata={
                 "crackle_percentage": severity_raw * 100,
                 "hp_kurtosis": hp_kurtosis,
@@ -1445,17 +1457,17 @@ class DefectScanner:
         # 500 ms windows, 250 ms hop to track slow speed variations
         win_len = max(1, int(0.5 * self.sample_rate))
         hop = max(1, win_len // 2)
-        rms_series = np.array([
-            float(np.sqrt(np.mean(audio[i : i + win_len] ** 2) + 1e-12))
-            for i in range(0, n - win_len, hop)
-        ], dtype=np.float32)
+        rms_series = np.array(
+            [float(np.sqrt(np.mean(audio[i : i + win_len] ** 2) + 1e-12)) for i in range(0, n - win_len, hop)],
+            dtype=np.float32,
+        )
 
         if len(rms_series) < 4:
             return DefectScore(DefectType.WOW, 0.0, 0.3)
 
         # Normalize and check spectral content below 0.5 Hz
         rms_series = rms_series / (rms_series.mean() + 1e-12)
-        frame_rate = self.sample_rate / hop   # frames per second of rms_series
+        frame_rate = self.sample_rate / hop  # frames per second of rms_series
         fft_rms = np.abs(np.fft.rfft(rms_series - rms_series.mean()))
         freqs_rms = np.fft.rfftfreq(len(rms_series), d=1.0 / frame_rate)
 
@@ -1489,10 +1501,10 @@ class DefectScanner:
         # 50 ms windows, 25 ms hop to track faster mechanical vibrations
         win_len = max(1, int(0.05 * self.sample_rate))
         hop = max(1, win_len // 2)
-        zcr_series = np.array([
-            float(np.sum(np.abs(np.diff(np.signbit(audio[i : i + win_len])))))
-            for i in range(0, n - win_len, hop)
-        ], dtype=np.float32)
+        zcr_series = np.array(
+            [float(np.sum(np.abs(np.diff(np.signbit(audio[i : i + win_len]))))) for i in range(0, n - win_len, hop)],
+            dtype=np.float32,
+        )
 
         if len(zcr_series) < 8:
             return DefectScore(DefectType.FLUTTER, 0.0, 0.3)
@@ -1523,8 +1535,12 @@ class DefectScanner:
         Convenience wrapper combining _detect_wow and _detect_flutter into a
         single DefectScore (worst-case severity) for legacy callers.
         """
-        wow = self._detect_wow(audio if audio.ndim == 1 else audio.mean(axis=1 if audio.shape[1] > audio.shape[0] else 0))
-        flutter = self._detect_flutter(audio if audio.ndim == 1 else audio.mean(axis=1 if audio.shape[1] > audio.shape[0] else 0))
+        wow = self._detect_wow(
+            audio if audio.ndim == 1 else audio.mean(axis=1 if audio.shape[1] > audio.shape[0] else 0)
+        )
+        flutter = self._detect_flutter(
+            audio if audio.ndim == 1 else audio.mean(axis=1 if audio.shape[1] > audio.shape[0] else 0)
+        )
         if wow.severity >= flutter.severity:
             return wow
         return flutter
@@ -1570,7 +1586,7 @@ class DefectScanner:
             L = np.fft.rfft(left[i : i + fft_n] * np.hanning(fft_n))
             R = np.fft.rfft(right[i : i + fft_n] * np.hanning(fft_n))
             cross = L * np.conj(R)
-            phase_diffs.append(np.angle(cross))   # radians, per bin
+            phase_diffs.append(np.angle(cross))  # radians, per bin
 
         if not phase_diffs:
             return DefectScore(DefectType.AZIMUTH_ERROR, 0.0, 0.2)
@@ -1583,7 +1599,7 @@ class DefectScanner:
         if fit_mask.sum() < 4:
             return DefectScore(DefectType.AZIMUTH_ERROR, 0.0, 0.2)
 
-        x = freqs_hz[fit_mask] / 1000.0   # kHz
+        x = freqs_hz[fit_mask] / 1000.0  # kHz
         y = mean_phase_deg[fit_mask]
         # Least-squares slope (°/kHz)
         slope = float(np.polyfit(x, y, 1)[0])
@@ -1756,7 +1772,7 @@ class DefectScanner:
             hf_mask = freqs_stft >= hf_cutoff
             if hf_mask.any():
                 hf_energy = float(np.mean(spectrogram[hf_mask, :] ** 2))
-                total_energy_stft = float(np.mean(spectrogram ** 2)) + 1e-12
+                total_energy_stft = float(np.mean(spectrogram**2)) + 1e-12
                 hf_ratio = hf_energy / total_energy_stft
                 # Full HF present (> 1% of total energy) → likely not lossy-coded
                 if hf_ratio > 0.01:
@@ -1878,7 +1894,7 @@ class DefectScanner:
             defect_type=DefectType.DROPOUTS,
             severity=severity,
             confidence=0.85,
-            locations=locations[:50],
+            locations=self._sample_locations_evenly(locations, 50),
             metadata={"dropout_count": len(locations), "dropout_rate": dropout_rate},
         )
 
@@ -1908,9 +1924,7 @@ class DefectScanner:
                 _clip_type = _classify_clipping(audio, self.sample_rate)
                 if _clip_type == _ClippingType.SOFT_SATURATION:
                     # Tube/tape character — preserve, do NOT repair
-                    logger.debug(
-                        "§6.3 _detect_clipping: SOFT_SATURATION erkannt (even-harmonic profile) — kein Repair"
-                    )
+                    logger.debug("§6.3 _detect_clipping: SOFT_SATURATION erkannt (even-harmonic profile) — kein Repair")
                     return DefectScore(
                         defect_type=DefectType.SOFT_SATURATION,
                         severity=0.0,
@@ -2102,7 +2116,7 @@ class DefectScanner:
                     - Schätzt die dominante Grundfrequenz via Autokorrelation
                     - Vergleicht Grundfrequenz zwischen frühem und spätem Segment
                     - Großer monotoner Drift → hohe Severity; periodisches → WOW/FLUTTER zuständig
-                """
+        """
         min_len = int(5 * self.sample_rate)  # Mindestens 5 Sekunden für sinnvolle Analyse
         if len(audio) < min_len:
             return DefectScore(DefectType.PITCH_DRIFT, 0.0, 0.3)
@@ -2291,7 +2305,7 @@ class DefectScanner:
         echo_delays_ms = [80, 120, 160, 200, 250, 320, 400]
         print_through_events = 0
         total_magnitude = 0.0
-        alpha_pre_list: list = []   # Gemessene Pre-Echo-Amplituden
+        alpha_pre_list: list = []  # Gemessene Pre-Echo-Amplituden
         alpha_post_list: list = []  # Gemessene Post-Echo-Amplituden
         locations: list[tuple[float, float]] = []
 
@@ -2675,8 +2689,8 @@ class DefectScanner:
             um_e = float(np.sum(psd[(freqs >= 6000.0) & (freqs <= 12000.0)]) + 1e-20)
             ratio = um_e / mid_e
 
-            over_bias_sev = float(np.clip((0.3 - ratio) / 0.25, 0.0, 1.0))   # HF cut
-            under_bias_sev = float(np.clip((ratio - 1.0) / 0.5, 0.0, 1.0))   # HF elevated
+            over_bias_sev = float(np.clip((0.3 - ratio) / 0.25, 0.0, 1.0))  # HF cut
+            under_bias_sev = float(np.clip((ratio - 1.0) / 0.5, 0.0, 1.0))  # HF elevated
             severity = float(np.clip(max(over_bias_sev, under_bias_sev), 0.0, 1.0))
 
             threshold = self.thresholds.get(DefectType.BIAS_ERROR, 0.5)
@@ -2772,8 +2786,9 @@ class DefectScanner:
 
         try:
             # High-pass envelope to find transients
-            hp_sos = signal.butter(2, float(np.clip(200.0 / (self.sample_rate / 2.0), 1e-6, 0.999)),
-                                   btype="high", output="sos")
+            hp_sos = signal.butter(
+                2, float(np.clip(200.0 / (self.sample_rate / 2.0), 1e-6, 0.999)), btype="high", output="sos"
+            )
             hp_audio = signal.sosfilt(hp_sos, audio)
             win = max(1, int(0.005 * self.sample_rate))
             envelope = np.convolve(np.abs(hp_audio), np.ones(win) / win, mode="same")
@@ -2849,9 +2864,7 @@ class DefectScanner:
 
             transient_thresh = float(np.percentile(envelope, 80))
             diff_env = np.diff(envelope)
-            transient_idxs = np.where(
-                (envelope[1:] > transient_thresh) & (diff_env > transient_thresh * 0.1)
-            )[0]
+            transient_idxs = np.where((envelope[1:] > transient_thresh) & (diff_env > transient_thresh * 0.1))[0]
 
             if len(transient_idxs) == 0:
                 return DefectScore(DefectType.PRE_ECHO, 0.0, 0.3)
@@ -2968,13 +2981,13 @@ if __name__ == "__main__":
     scanner = DefectScanner(sample_rate=sr)
     result = scanner.scan(audio, material_type=MaterialType.VINYL)
 
-    logger.debug(f"\n{'='*60}")
+    logger.debug(f"\n{'=' * 60}")
     logger.debug("DEFECT SCAN RESULTS")
-    logger.debug(f"{'='*60}")
+    logger.debug(f"{'=' * 60}")
     logger.debug(f"Material: {result.material_type.value}")
     logger.debug(f"Duration: {result.duration_seconds:.1f}s")
     logger.debug(
-        f"Analysis Time: {result.analysis_time_seconds:.3f}s ({result.analysis_time_seconds/result.duration_seconds*100:.1f}% overhead)"
+        f"Analysis Time: {result.analysis_time_seconds:.3f}s ({result.analysis_time_seconds / result.duration_seconds * 100:.1f}% overhead)"
     )
     logger.debug("\nTop 5 Defects:")
     for i, score in enumerate(result.get_top_defects(5), 1):

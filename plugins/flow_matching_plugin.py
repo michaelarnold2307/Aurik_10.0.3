@@ -32,10 +32,10 @@ Datum: 20. Februar 2026
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 import logging
 import math
 import threading
-from dataclasses import dataclass
 
 import numpy as np
 
@@ -184,7 +184,22 @@ def _inpaint_diffwave_onnx(
         # Padding auf 512 Samples
         ctx_padded = np.zeros(512, dtype=np.float32)
         ctx_padded[-min(len(ctx), 512) :] = ctx[-min(len(ctx), 512) :]
-        output = sess.run(None, {"input": ctx_padded[np.newaxis, :, np.newaxis]})
+        # Build correct DiffWave ONNX inputs: audio, step, spectrogram
+        _n_mel = 80
+        _hop = 256
+        _frames = max(1, 512 // _hop)
+        _stft_mag = np.abs(np.fft.rfft(ctx_padded, n=_hop * 4)).astype(np.float32)[:_n_mel]
+        _spec = np.zeros((1, _n_mel, _frames), dtype=np.float32)
+        for _f in range(_frames):
+            _spec[0, : len(_stft_mag), _f] = _stft_mag
+        output = sess.run(
+            None,
+            {
+                "audio": ctx_padded[np.newaxis, :].astype(np.float32),
+                "step": np.array([1], dtype=np.int64),
+                "spectrogram": _spec,
+            },
+        )
         if not output:
             return None
         inpainted_chunk = np.array(output[0]).flatten()[:gap_len]
@@ -349,7 +364,8 @@ class FlowMatchingPlugin:
             from plugins.cqtdiff_plus_plugin import CQTdiffPlusPlugin  # type: ignore[import]
 
             plugin = CQTdiffPlusPlugin()
-            return plugin.inpaint(audio, gap_start, gap_end, sr, conditioning=phrase_context, n_steps=n_steps)
+            result = plugin.inpaint(audio, sr, gap_start, gap_end, context_audio=phrase_context)
+            return result.audio
         except (ImportError, Exception) as e:
             logger.debug("CQTdiff+ nicht verfügbar: %s", e)
             return None

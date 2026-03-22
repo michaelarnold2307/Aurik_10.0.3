@@ -1,9 +1,8 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 import logging
 import threading
-from dataclasses import dataclass
-from typing import Optional
 
 import numpy as np
 
@@ -93,14 +92,8 @@ class GermanSchlagerClassifier:
 
         Returns:
             SchlagerClassificationResult mit allen Schicht-Scores.
-
-        Raises:
-            AssertionError: Falls sr != 48000.
         """
-        assert sr == 48000, (
-            f"GermanSchlagerClassifier.classify(): 48000 Hz erwartet, erhalten: {sr} Hz. "
-            "Bitte Audiodaten vor dem Aufruf auf 48000 Hz resampeln."
-        )
+        # SR-agnostic: analysis modules work at native import SR (Spec §Performance-Budget)
         if not np.isfinite(audio).all():
             audio = np.nan_to_num(audio, nan=0.0, posinf=0.0, neginf=0.0)
 
@@ -533,6 +526,7 @@ class GermanSchlagerClassifier:
         der neutrale Prior 0.35 zurückgegeben (verhindert 30 s Timeout in Tests).
         """
         import os
+
         if not os.environ.get("AURIK_ENABLE_CLAP"):
             return 0.35  # neutraler Prior ohne CLAP-Import
         try:
@@ -570,7 +564,9 @@ class GermanSchlagerClassifier:
                     neg_scores.append(float(v))
             except Exception:
                 neg_scores = []
-            neg_mean = float(np.mean(neg_scores)) if neg_scores else 0.0  # Negativ-Prior via NON_SCHLAGER_NEGATIVE_PROMPTS
+            neg_mean = (
+                float(np.mean(neg_scores)) if neg_scores else 0.0
+            )  # Negativ-Prior via NON_SCHLAGER_NEGATIVE_PROMPTS
             clap_score = float(np.clip(pos_total - 0.5 * neg_mean, 0.0, 1.0))
             return float(np.nan_to_num(clap_score))
 

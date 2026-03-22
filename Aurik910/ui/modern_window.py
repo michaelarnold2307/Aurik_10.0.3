@@ -7,12 +7,12 @@ Mit integrierter Audio-Verarbeitung (Backend V2)
 import logging
 import math
 import os
+from pathlib import Path
 import shutil
 import subprocess
 import sys
 import threading
 import time
-from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
@@ -21,61 +21,27 @@ logger = logging.getLogger(__name__)
 try:
     from backend.api.bridge import (
         cache_defect_result,
-        get_cached_defect_result,
-    )
-    from backend.api.bridge import (
         clear_defect_cache as _bridge_clear_defect_cache,
-    )
-    from backend.api.bridge import (
         export_guard as _export_guard,
-    )
-    from backend.api.bridge import (
         get_audio_exporter_class as _bridge_get_audio_exporter_class,
-    )
-    from backend.api.bridge import (
         get_audio_file_validator as _bridge_get_audio_file_validator,
-    )
-    from backend.api.bridge import (
         get_aurik_denker_class as _bridge_get_aurik_denker_class,
-    )
-    from backend.api.bridge import (
         get_aurik_denker_instance as _bridge_get_aurik_denker_instance,
-    )
-    from backend.api.bridge import (
+        get_cached_defect_result,
         get_carrier_forensics_fn as _bridge_get_carrier_forensics_fn,
-    )
-    from backend.api.bridge import (
         get_cleanup_after_file_fn as _bridge_get_cleanup_after_file_fn,
-    )
-    from backend.api.bridge import (
         get_defect_scanner as _bridge_get_defect_scanner,
-    )
-    from backend.api.bridge import (
         get_defect_type as _bridge_get_defect_type,
-    )
-    from backend.api.bridge import (
         get_era_classifier_fn as _bridge_get_era_classifier_fn,
-    )
-    from backend.api.bridge import (
         get_genre_classifier_fn as _bridge_get_genre_classifier_fn,
-    )
-    from backend.api.bridge import (
         get_lyrics_guided_enhancement_fn as _bridge_get_lyrics_guided_enhancement,
-    )
-    from backend.api.bridge import (
         get_medium_classifier_fn as _bridge_get_medium_classifier_fn,
-    )
-    from backend.api.bridge import (
         get_restorability_estimator_class as _bridge_get_restorability_estimator_class,
+        resolve_pipeline_fail_reason as _bridge_resolve_pipeline_fail_reason,
+        warmup_models_background as _warmup_models_background,
     )
     from backend.api.bridge import (
         normalize_pipeline_health_state as _bridge_normalize_pipeline_health_state,  # type: ignore[assignment]
-    )
-    from backend.api.bridge import (
-        resolve_pipeline_fail_reason as _bridge_resolve_pipeline_fail_reason,
-    )
-    from backend.api.bridge import (
-        warmup_models_background as _warmup_models_background,
     )
 
     _BRIDGE_AVAILABLE = True
@@ -178,8 +144,6 @@ except ImportError:
 
 import contextlib
 
-import numpy as np
-import soundfile as sf
 from PyQt5.QtCore import (
     QEasingCurve,
     QPoint,
@@ -230,6 +194,8 @@ from PyQt5.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+import numpy as np
+import soundfile as sf
 
 from Aurik910.i18n import get_language, set_language, t
 
@@ -267,7 +233,7 @@ class QualityMeterWidget(QWidget):
         self.setFixedSize(88, 80)
         self._mos: float = 0.0
         self._max_mos: float = 5.0
-        self.setToolTip("MOS-Qualitätsmeter (0–5)")
+        self.setToolTip("Klangqualitäts-Anzeige (0–5)")
 
     def set_mos(self, mos: float) -> None:
         """Update meter to *mos* value (0–5), show widget and repaint."""
@@ -295,7 +261,7 @@ class QualityMeterWidget(QWidget):
 
         # Arc parameters: start=-220° (bottom-left) span=220° (clockwise to bottom-right)
         # Qt angles: 0° = 3 o'clock, positive = counter-clockwise (×16 for Qt units)
-        start_angle_deg = -200.0   # bottom-left
+        start_angle_deg = -200.0  # bottom-left
         span_deg = 220.0
 
         # Background track (dark grey)
@@ -326,7 +292,7 @@ class QualityMeterWidget(QWidget):
                 Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter,
                 f"{self._mos:.1f}",
             )
-            # "MOS" subscript label
+            # "Klang" subscript label
             p.setPen(QPen(QColor(130, 148, 168)))
             font2 = p.font()
             font2.setPointSize(6)
@@ -335,7 +301,7 @@ class QualityMeterWidget(QWidget):
             p.drawText(
                 QRect(0, int(h * 0.58), w, int(h * 0.30)),
                 Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter,
-                "MOS",
+                "Klang",
             )
         else:
             p.setPen(QPen(QColor(80, 90, 110)))
@@ -783,8 +749,8 @@ class BatchProcessingThread(QThread):
     mode_update = pyqtSignal(str)  # quality mode (FAST/BALANCED/QUALITY/MAXIMUM)
     ml_status_update = pyqtSignal(bool, list)  # ml_active, active_plugins
     # Enhanced real-time UX feedback (§11.4)
-    phase_progress = pyqtSignal(int)    # sub-phase progress 0–100 within current step
-    scan_progress  = pyqtSignal(float)  # waveform scan-cursor fraction 0.0–1.0
+    phase_progress = pyqtSignal(int)  # sub-phase progress 0–100 within current step
+    scan_progress = pyqtSignal(float)  # waveform scan-cursor fraction 0.0–1.0
     quality_update = pyqtSignal(float)  # live MOS estimate 0.0–5.0
 
     def __init__(self, queue: SimpleBatchQueue):
@@ -840,9 +806,12 @@ class BatchProcessingThread(QThread):
                 audio, sr = _load_audio_robust(item.input_file)
                 if sr != 48_000:
                     from scipy.signal import resample_poly as _rp
+
                     _gcd = math.gcd(sr, 48_000)
                     audio = _rp(
-                        audio, 48_000 // _gcd, sr // _gcd,
+                        audio,
+                        48_000 // _gcd,
+                        sr // _gcd,
                         axis=0 if audio.ndim > 1 else -1,
                     ).astype(np.float32)
                     sr = 48_000
@@ -982,12 +951,14 @@ class BatchProcessingThread(QThread):
                 #   seconds so the bar always moves proportionally to real phase speed.
                 #   avg_phase_dur is a rolling average of actual inter-phase elapsed
                 #   time, self-calibrating after the first two phase transitions.
-                _SP_INTERVAL = 0.033       # ~30 fps
-                _SP_MAX_STEP = 2.5         # fast catch-up
+                _SP_INTERVAL = 0.033  # ~30 fps
+                _SP_MAX_STEP = 2.5  # fast catch-up
                 _sp: dict = {
-                    "current": 50.0, "target": 50.0, "alive": True,
+                    "current": 50.0,
+                    "target": 50.0,
+                    "alive": True,
                     "last_target_time": time.perf_counter(),
-                    "last_jump": 4.0,       # initial estimate (display pts)
+                    "last_jump": 4.0,  # initial estimate (display pts)
                     "avg_phase_dur": 12.0,  # initial estimate (seconds/phase)
                 }
                 # Sub-progress bar state: 0–100 within the current phase step
@@ -1044,94 +1015,92 @@ class BatchProcessingThread(QThread):
                 # Tracks phase label for sub-bar reset on phase transitions
                 _last_phase_key: list[str] = [""]
                 # Live defect scores captured from scan; reduced per phase for count-down animation
-                _current_defect_scores: dict = {
-                    k: v for k, v in defects.items() if k != "status"
-                }
+                _current_defect_scores: dict = {k: v for k, v in defects.items() if k != "status"}
                 # Accumulated variant scores for ranking display
                 _variant_scores: list[tuple[str, str]] = []
                 # Human-readable phase explanation appended to status line
                 _PHASE_EXPL: dict[str, str] = {
-                    "eingabe wird geprüft": "Datei-Validierung",
-                    "eingangsqualität wird analysiert": "PEAQ-Analyse",
-                    "defekte und material werden erkannt": "29-Defekt-Scan",
-                    "kausale defektreihenfolge": "Ursachenkette",
-                    "signalkette wird invertiert": "Aufnahmekette",
-                    "lücken und aussetzer werden erkannt": "Dropout-Erkennung",
-                    "musikalische restaurierungsziele": "14 Goals kalibriert",
-                    "restaurierungs-varianten werden geplant": "Kandidatenstrategien",
-                    "multi-pass": "MOO-Optimierung",
-                    "qualitäts-gate": "Musical Goals + PQS",
-                    "gewinner": "Endverarbeitung",
-                    "ergebnis wird gespeichert": "Export-Gate",
-                    "tape_hiss": "Bandrauschen",
-                    "denoise": "Rauschunterdrückung",
-                    "dropout": "Aussetzer-Reparatur",
-                    "click_repair": "Knackser",
-                    "click_removal": "Knackser-Entfernung",
-                    "click_pop": "Knackser & Pops",
-                    "declick": "Knackser",
-                    "wow_flutter": "Tonhöhenkorrektur",
-                    "reverb_reduction": "Nachhall",
-                    "frequency_restoration": "Frequenz-Rekonstruktion",
-                    "vocal_enhancement": "Gesangs-KI",
-                    "diffusion_inpainting": "Flow-Matching",
-                    "semantic_audio": "Semantik",
-                    "hum_removal": "Brummton-Entfernung",
-                    "crackle_removal": "Knistern-Entfernung",
-                    "rumble_filter": "Tieffrequenz-Filter",
-                    "surface_noise": "Oberflächen-Profiling",
-                    "noise_gate": "Rausch-Gate",
-                    "eq_correction": "EQ-Korrektur",
-                    "harmonic_restoration": "Oberton-Synthese",
-                    "phase_correction": "Phasen-Ausrichtung",
-                    "speed_pitch": "Geschwindigkeit & Tonhöhe",
-                    "azimuth_correction": "Azimut-Korrektur",
-                    "spectral_repair": "Spektral-Reparatur",
-                    "print_through": "Vorecho-Tilgung",
-                    "transient_preservation": "Transienten-Schutz",
-                    "transient_shaper": "Transienten-Formung",
-                    "de_esser": "De-Esser",
-                    "ml_deesser": "ML-De-Esser",
-                    "tape_saturation": "Sättigungs-Emulation",
-                    "compression": "Kompressor",
-                    "loudness_normalization": "LUFS-Normalisierung",
-                    "truepeak_limiter": "TruePeak-Limiter",
-                    "final_eq": "Final-EQ",
-                    "mastering_polish": "Mastering-Feinschliff",
-                    "dc_offset": "DC-Offset-Entfernung",
-                    "advanced_dereverb": "Blind-RIR-Dereverb",
-                    "spectral_band_gap": "Spektral-Lücken-Reparatur",
-                    "spectral_coherence": "Spektral-Kohärenz",
-                    "output_format": "Export-Optimierung",
-                    "declip": "Declipping",
-                    "resampling": "Resampling",
-                    "restaurierbarkeit": "Restaurierbarkeits-Prüfung",
-                    "phasenauswahl": "Phasen-Selektion",
-                    "pipeline startet": "Pipeline-Start",
-                    "initialisierung": "Initialisierung",
-                    "exzellenz": "Exzellenz-Optimierung",
-                    "versa": "VERSA MOS-Bewertung",
-                    "ram-management": "Speicher-Freigabe",
+                    "eingabe wird geprüft": "Datei wird überprüft",
+                    "eingangsqualität wird analysiert": "Klangqualität wird gemessen",
+                    "defekte und material werden erkannt": "Schäden und Aufnahme-Typ werden erkannt",
+                    "kausale defektreihenfolge": "Reihenfolge der Korrekturen wird festgelegt",
+                    "signalkette wird invertiert": "Originale Aufnahmekette wird analysiert",
+                    "lücken und aussetzer werden erkannt": "Stille und Aussetzer werden kartiert",
+                    "musikalische restaurierungsziele": "14 Klangziele werden kalibriert",
+                    "restaurierungs-varianten werden geplant": "Beste Restaurierungsstrategie wird gewählt",
+                    "multi-pass": "Klangqualität wird optimiert",
+                    "qualitäts-gate": "Klangqualität wird geprüft",
+                    "gewinner": "Bestes Ergebnis wird finalisiert",
+                    "ergebnis wird gespeichert": "Endergebnis wird gesichert",
+                    "tape_hiss": "Bandrauschen wird entfernt",
+                    "denoise": "Rauschen wird unterdrückt",
+                    "dropout": "Tonaussetzer werden repariert",
+                    "click_repair": "Knackser werden repariert",
+                    "click_removal": "Knackser werden entfernt",
+                    "click_pop": "Knackser und Impulse werden entfernt",
+                    "declick": "Knackser werden entfernt",
+                    "wow_flutter": "Tonhöhenschwankungen werden korrigiert",
+                    "reverb_reduction": "Nachhall wird reduziert",
+                    "frequency_restoration": "Fehlende Frequenzen werden ergänzt",
+                    "vocal_enhancement": "Gesang wird mit KI verbessert",
+                    "diffusion_inpainting": "Fehlende Audiostellen werden rekonstruiert",
+                    "semantic_audio": "Klangstruktur wird analysiert",
+                    "hum_removal": "Netzbrummen wird entfernt",
+                    "crackle_removal": "Knistern wird entfernt",
+                    "rumble_filter": "Tieffrequenz-Rumpeln wird entfernt",
+                    "surface_noise": "Oberflächengeräusche werden gemessen",
+                    "noise_gate": "Stille-Abschnitte werden bereinigt",
+                    "eq_correction": "Klangbalance wird korrigiert",
+                    "harmonic_restoration": "Obertöne werden ergänzt",
+                    "phase_correction": "Kanalausrichtung wird korrigiert",
+                    "speed_pitch": "Geschwindigkeit und Tonhöhe werden angepasst",
+                    "azimuth_correction": "Bandkopf-Ausrichtung wird korrigiert",
+                    "spectral_repair": "Frequenzspektrum wird repariert",
+                    "print_through": "Bandübersprechen wird entfernt",
+                    "transient_preservation": "Anschläge und Einsätze werden geschützt",
+                    "transient_shaper": "Anschlagsdynamik wird geformt",
+                    "de_esser": "Zischlaute werden gemindert",
+                    "ml_deesser": "Zischlaute werden mit KI gemindert",
+                    "tape_saturation": "Vintage-Charakter wird bewahrt",
+                    "compression": "Lautstärkedynamik wird angeglichen",
+                    "loudness_normalization": "Lautstärke wird normiert",
+                    "truepeak_limiter": "Maximallautstärke wird gesichert",
+                    "final_eq": "Klangfarbe wird abgestimmt",
+                    "mastering_polish": "Klang wird endbearbeitet",
+                    "dc_offset": "Gleichspannung wird entfernt",
+                    "advanced_dereverb": "Raumhall wird rekonstruiert und entfernt",
+                    "spectral_band_gap": "Frequenzlücken werden geschlossen",
+                    "spectral_coherence": "Frequenzstabilität wird gesichert",
+                    "output_format": "Export wird vorbereitet",
+                    "declip": "Übersteuerungen werden repariert",
+                    "resampling": "Abtastrate wird angepasst",
+                    "restaurierbarkeit": "Aufnahme wird auf Bearbeitbarkeit geprüft",
+                    "phasenauswahl": "Passende Korrekturen werden ausgewählt",
+                    "pipeline startet": "Restaurierung wird gestartet",
+                    "initialisierung": "Aurik wird vorbereitet",
+                    "exzellenz": "Klang wird weiter verfeinert",
+                    "versa": "Klangqualität wird bewertet",
+                    "ram-management": "Arbeitsspeicher wird freigegeben",
                 }
                 # Phase keyword → defect keys to reduce (count-down mapping)
                 _PHASE_REDUCES: dict[str, list[str]] = {
-                    "tape_hiss":   ["crackle", "noise_level", "noise"],
-                    "denoise":     ["noise_level", "noise", "hum"],
-                    "dropout":     ["dropout"],
+                    "tape_hiss": ["crackle", "noise_level", "noise"],
+                    "denoise": ["noise_level", "noise", "hum"],
+                    "dropout": ["dropout"],
                     "click_repair": ["clicks", "pops"],
-                    "declick":      ["clicks", "pops"],
+                    "declick": ["clicks", "pops"],
                     "wow_flutter": ["wow", "flutter"],
                     "reverb_reduction": ["reverb_excess"],
                     "frequency_restoration": ["bandwidth_loss"],
-                    "vocal":       ["sibilance"],
+                    "vocal": ["sibilance"],
                     "diffusion_inpainting": ["dropout", "bandwidth_loss"],
                     "hum_removal": ["hum"],
-                    "rumble":      ["rumble"],
-                    "declip":      ["clipping"],
-                    "dc_offset":   ["dc_offset"],
+                    "rumble": ["rumble"],
+                    "declip": ["clipping"],
+                    "dc_offset": ["dc_offset"],
                     "quantization": ["quantization_noise"],
                     "compression_artifact": ["compression_artifacts"],
-                    "transient":   ["transient_smearing"],
+                    "transient": ["transient_smearing"],
                 }
 
                 def _on_batch_progress(pct: int, msg: str, elapsed_s: float = 0.0, _item=item) -> None:
@@ -1165,7 +1134,8 @@ class BatchProcessingThread(QThread):
                         self.ml_status_update.emit(True, list(_live_ml_seen))
                     # [phase_id]-Annotation für Anzeige entfernen
                     import re as _re
-                    _display_msg = _re.sub(r'\s*\[[a-z0-9_]+\]\s*$', '', msg)
+
+                    _display_msg = _re.sub(r"\s*\[[a-z0-9_]+\]\s*$", "", msg)
                     # Aktives ML-Plugin / DSP-Modul im Statustext anzeigen
                     if _current_plugin:
                         _display_msg = f"{_display_msg}  ‹{_current_plugin}›"
@@ -1173,23 +1143,30 @@ class BatchProcessingThread(QThread):
                     _expl = ""
                     for _epk, _epv in _PHASE_EXPL.items():
                         if _epk in _msg_lower and _epv:
-                            _expl = f"  [{_epv}]"
+                            _expl = f"  ·  {_epv}"
                             break
                     # Varianten-Score aus Backend-Meldung erkennen und Rangliste pflegen
-                    _vm = _re.search(
-                        r"'([^']+)'\s*[→>]\s*(mos\s*[\d.]+|score\s*[\d.]+)", _msg_lower
-                    )
+                    _vm = _re.search(r"'([^']+)'\s*[→>]\s*(mos\s*[\d.]+|score\s*[\d.]+)", _msg_lower)
                     if _vm:
                         _vname = _vm.group(1)[:22]
                         _raw = _vm.group(2).upper()
                         _vscore = _raw.replace("MOS ", "").replace("SCORE ", "")
                         _variant_scores[:] = [(n, s) for n, s in _variant_scores if n != _vname]
                         _variant_scores.append((_vname, _vscore))
+
+                        def _mos_to_stars(_mos_raw: str) -> str:
+                            try:
+                                _v = float(_mos_raw)
+                                _f = min(5, max(1, round(_v)))
+                                return "★" * _f + "☆" * (5 - _f)
+                            except Exception:
+                                return "★★★"
+
                         _vranking = "  ›  ".join(
-                            f"★{n} ({s})" if i == 0 else f"{n} ({s})"
+                            f"✓ {n}  {_mos_to_stars(s)}" if i == 0 else f"  {n}  {_mos_to_stars(s)}"
                             for i, (n, s) in enumerate(_variant_scores)
                         )
-                        _display_msg = f"Varianten-Ranking: {_vranking}"
+                        _display_msg = f"Bestes Ergebnis: {_vranking}"
                         _expl = ""
                     # Sub-Fortschrittsbalken: Phase-Tracking
                     _is_variant = "variante" in _msg_lower
@@ -1211,9 +1188,7 @@ class BatchProcessingThread(QThread):
                         if _prk in _msg_lower or _prk in _msg_underscored:
                             for _dk in _dlist:
                                 if isinstance(_current_defect_scores.get(_dk), float):
-                                    _current_defect_scores[_dk] = max(
-                                        0.0, _current_defect_scores[_dk] * 0.3
-                                    )
+                                    _current_defect_scores[_dk] = max(0.0, _current_defect_scores[_dk] * 0.3)
                             _defect_reduced = True
                     if _defect_reduced:
                         self.defect_update.emit({**_current_defect_scores, "status": "correcting"})
@@ -1230,10 +1205,7 @@ class BatchProcessingThread(QThread):
                         )
                         if pct >= 5:
                             _rem = max(0.0, elapsed_s / pct * (100 - pct))
-                            _eta = (
-                                f"~{int(_rem)}s" if _rem < 60
-                                else f"~{int(_rem // 60)}m{int(_rem % 60)}s"
-                            )
+                            _eta = f"~{int(_rem)}s" if _rem < 60 else f"~{int(_rem // 60)}m{int(_rem % 60)}s"
                             self.phase_update.emit(f"{_display_msg}{_expl}  ·  {_el} · noch {_eta}")
                         else:
                             self.phase_update.emit(f"{_display_msg}{_expl}  ·  {_el}")
@@ -1279,9 +1251,7 @@ class BatchProcessingThread(QThread):
                     if not _active_ml_passthrough:
                         _active_ml_passthrough = ["VERSA (Bewertung)"]
                     self.ml_status_update.emit(True, _active_ml_passthrough)
-                    self.phase_update.emit(
-                        "✅ Saubere Quelle erkannt — kein Eingriff nötig, Qualität bestätigt"
-                    )
+                    self.phase_update.emit("✅ Saubere Quelle erkannt — kein Eingriff nötig, Qualität bestätigt")
                 else:
                     self.ml_status_update.emit(bool(_active_ml), _active_ml)
 
@@ -1356,30 +1326,30 @@ class _Theme:
       ALERT   muted brick-red   — errors / failures
     """
 
-    PRIMARY   = "#667eea"
+    PRIMARY = "#667eea"
     SECONDARY = "#5B9FE8"
-    BG_DARK   = "#080a18"
-    BG_CARD   = "rgba(14, 18, 36, 0.75)"
-    TEXT_DIM  = "#8894A8"
-    BORDER    = "rgba(102, 126, 234, 0.22)"
-    FONT_UI   = "Segoe UI"
+    BG_DARK = "#080a18"
+    BG_CARD = "rgba(14, 18, 36, 0.75)"
+    TEXT_DIM = "#8894A8"
+    BORDER = "rgba(102, 126, 234, 0.22)"
+    FONT_UI = "Segoe UI"
     RADIUS_SM = 8
     RADIUS_MD = 10
     RADIUS_LG = 15
 
     # Semantic state — text colours
-    IDLE_TEXT    = "#7B93B8"  # muted steel-blue
+    IDLE_TEXT = "#7B93B8"  # muted steel-blue
     SUCCESS_TEXT = "#82B89A"  # muted sage-green
     CAUTION_TEXT = "#B8A068"  # warm aged amber
-    ALERT_TEXT   = "#B87A7A"  # muted brick-red
+    ALERT_TEXT = "#B87A7A"  # muted brick-red
 
     # Semantic state — background / border
-    SUCCESS_BG  = "rgba(85, 155, 115, 0.10)"
-    SUCCESS_BD  = "rgba(100, 168, 130, 0.26)"
-    CAUTION_BG  = "rgba(150, 130, 68, 0.10)"
-    CAUTION_BD  = "rgba(150, 130, 68, 0.26)"
-    ALERT_BG    = "rgba(148, 82, 82, 0.10)"
-    ALERT_BD    = "rgba(152, 88, 88, 0.26)"
+    SUCCESS_BG = "rgba(85, 155, 115, 0.10)"
+    SUCCESS_BD = "rgba(100, 168, 130, 0.26)"
+    CAUTION_BG = "rgba(150, 130, 68, 0.10)"
+    CAUTION_BD = "rgba(150, 130, 68, 0.26)"
+    ALERT_BG = "rgba(148, 82, 82, 0.10)"
+    ALERT_BD = "rgba(152, 88, 88, 0.26)"
 
 
 class WaveformWidget(QWidget):
@@ -1422,9 +1392,7 @@ class WaveformWidget(QWidget):
         self._scan_pos: float = -1.0
         # Breathing-border animation for empty/idle state (20 fps)
         self._pulse_timer = QTimer(self)
-        self._pulse_timer.timeout.connect(
-            lambda: self.update() if self.audio_data is None else None
-        )
+        self._pulse_timer.timeout.connect(lambda: self.update() if self.audio_data is None else None)
         self._pulse_timer.start(50)
 
     def update_waveform(self, audio, sr):
@@ -1936,35 +1904,35 @@ class WaveformWidget(QWidget):
         }
         _DEFECT_LABELS = {
             "clicks": "Knackser",
-            "crackle": "Knacken",
+            "crackle": "Knistern",
             "pops": "Impulse",
             "clipping": "Übersteuerung",
-            "hum": "Brummen",
+            "hum": "Netzbrummen",
             "noise_level": "Rauschen",
             "noise": "Rauschen",
-            "sibilance": "Zischlaut",
-            "dropout": "Aussetzer",
-            "wow": "Wow",
-            "flutter": "Flutter",
+            "sibilance": "Zischlaute",
+            "dropout": "Tonaussetzer",
+            "wow": "Tonhöhenschw.",
+            "flutter": "Tonhöhenzittern",
             "rumble": "Rumpeln",
-            "dc_offset": "DC-Offset",
-            "digital_artifacts": "Dig.Artefakt",
-            "compression_artifacts": "Codec",
+            "dc_offset": "Gleichspannung",
+            "digital_artifacts": "Digitale Artefakte",
+            "compression_artifacts": "Kompressions-Artefakte",
             "stereo_imbalance": "Stereo-Balance",
-            "phase_issues": "Phase",
-            "bandwidth_loss": "Bandbreite",
-            "pitch_drift": "Tonhöhe",
-            "reverb_excess": "Hall",
-            "print_through": "Bandüberspr.",
-            "quantization_noise": "Quantis.",
-            "jitter_artifacts": "Jitter",
-            "dynamic_compression_excess": "Kompression",
-            "pre_echo": "Pre-Echo",
-            "transient_smearing": "Transient",
-            "head_wear": "Kopf-Fehler",
-            "riaa_curve_error": "RIAA",
-            "aliasing": "Aliasing",
-            "bias_error": "Vormagnet.",
+            "phase_issues": "Phasenfehler",
+            "bandwidth_loss": "Bandbreitenverlust",
+            "pitch_drift": "Tonhöhendrift",
+            "reverb_excess": "Überhall",
+            "print_through": "Bandübersprechen",
+            "quantization_noise": "Quantisierungsrauschen",
+            "jitter_artifacts": "Zeit-Flattern",
+            "dynamic_compression_excess": "Lautstärkekompression",
+            "pre_echo": "Vorecho",
+            "transient_smearing": "Transienten-Vers.",
+            "head_wear": "Tonkopf-Abnutzung",
+            "riaa_curve_error": "RIAA-Fehler",
+            "aliasing": "Frequenz-Aliasing",
+            "bias_error": "Vormagnetisierung",
         }
         _SKIP_KEYS = {"status", "_locations"}
 
@@ -2373,63 +2341,47 @@ class SpectrogramWidget(QWidget):
 
 
 class ResourceStatusWidget(QWidget):
-    """Real-time resource status display (CPU, Memory, ML/DSP indicators)."""
+    """Verarbeitungs-Überprüfungsinstanz: zeigt aktiven DSP- oder KI-Analysemodus."""
 
     def __init__(self):
         super().__init__()
-        self.cpu_usage = 0.0
-        self.memory_usage = 0.0
         self.quality_mode = "BALANCED"
         self.ml_mode_active = False
-        self.active_ml_plugins = []
+        self.active_ml_plugins: list[str] = []
 
-        self.setMinimumHeight(210)
+        self.setMinimumHeight(70)
         self.setStyleSheet("""
             background: rgba(102, 126, 234, 0.10);
             border: 1px solid rgba(102, 126, 234, 0.22);
             border-radius: 8px;
         """)
 
-        # Timer for updating resource stats
-        self.update_timer = QTimer()
-        self.update_timer.timeout.connect(self._update_resources)
-        self.update_timer.start(1000)  # Update every 1 second
-
         self._init_ui()
 
     def _init_ui(self):
-        """Initialize UI layout"""
+        """Initialize UI layout — shows only the active analysis mode, not raw CPU/RAM."""
         layout = QVBoxLayout(self)
         layout.setSpacing(3)
         layout.setContentsMargins(8, 6, 8, 6)
 
-        # Status labels
-        self.label_cpu = QLabel(t("ui.resource_cpu", value=0.0))
-        self.label_memory = QLabel(t("ui.resource_memory", value=0.0))
-        self.label_ml_status = QLabel(t("ui.resource_ml", value=t("ui.resource_dsp_mode")))
+        # Single "Überprüfungsinstanz" label — replaces CPU/RAM indicators
+        self.label_check_mode = QLabel(t("ui.resource_check", value=t("ui.resource_check_dsp")))
+        self.label_check_mode.setStyleSheet("color: #B0C4DE; font-size: 8pt;")
+        self.label_check_mode.setWordWrap(True)
+        layout.addWidget(self.label_check_mode)
 
-        for label in [self.label_cpu, self.label_memory, self.label_ml_status]:
-            label.setStyleSheet("color: #B0C4DE; font-size: 8pt;")
-            label.setWordWrap(True)
-            layout.addWidget(label)
+        # ML-Plugin-Status (separat, nur sichtbar wenn ML aktiv)
+        self.label_ml_status = QLabel("")
+        self.label_ml_status.setStyleSheet("color: #00FF7F; font-size: 8pt;")
+        self.label_ml_status.setWordWrap(True)
+        self.label_ml_status.setVisible(False)
+        layout.addWidget(self.label_ml_status)
 
     def _update_resources(self):
-        """Update resource information periodically"""
-        try:
-            import psutil
-
-            self.cpu_usage = psutil.cpu_percent(interval=None)
-            self.memory_usage = psutil.virtual_memory().percent
-            self.update()
-        except ImportError:
-            pass  # psutil not available
+        """No-op — CPU/RAM are no longer displayed."""
 
     def update_status(self, cpu=None, memory=None, mode=None, ml_active=None, ml_plugins=None):
-        """Update displayed status information"""
-        if cpu is not None:
-            self.cpu_usage = cpu
-        if memory is not None:
-            self.memory_usage = memory
+        """Update the active analysis-mode indicator (CPU/RAM parameters are ignored)."""
         if mode is not None:
             self.quality_mode = mode
         if ml_active is not None:
@@ -2437,29 +2389,32 @@ class ResourceStatusWidget(QWidget):
         if ml_plugins is not None:
             self.active_ml_plugins = ml_plugins
 
-        # Update labels
-        cpu_color = "#00FF7F" if self.cpu_usage < 70 else ("#FFD700" if self.cpu_usage < 90 else "#FF4444")
-        mem_color = "#00FF7F" if self.memory_usage < 70 else ("#FFD700" if self.memory_usage < 90 else "#FF4444")
-
-        self.label_cpu.setText(t("ui.resource_cpu", value=self.cpu_usage))
-        self.label_cpu.setStyleSheet(f"color: {cpu_color}; font-size: 8pt;")
-
-        self.label_memory.setText(t("ui.resource_memory", value=self.memory_usage))
-        self.label_memory.setStyleSheet(f"color: {mem_color}; font-size: 8pt;")
-
         if self.ml_mode_active and self.active_ml_plugins:
-            plugins_str = ", ".join(self.active_ml_plugins[:3])  # Show first 3
-            if len(self.active_ml_plugins) > 3:
-                plugins_str += f" +{len(self.active_ml_plugins) - 3}"
-            self.label_ml_status.setText(t("ui.resource_ml", value=plugins_str))
-            self.label_ml_status.setStyleSheet("color: #00FF7F; font-size: 8pt;")
+            # KI active: show number of active modules (no internal model names shown)
+            n = len(self.active_ml_plugins)
+            self.label_check_mode.setText(t("ui.resource_check", value=t("ui.resource_check_ml")))
+            self.label_check_mode.setStyleSheet("color: #00FF7F; font-size: 8pt;")
+            self.label_ml_status.setText(t("ui.resource_check_ml_detail", count=n, suffix=("e" if n != 1 else "")))
+            self.label_ml_status.setVisible(True)
         else:
-            self.label_ml_status.setText(t("ui.resource_ml", value=t("ui.resource_dsp_mode")))
-            self.label_ml_status.setStyleSheet("color: #B0C4DE; font-size: 8pt;")
+            self.label_check_mode.setText(t("ui.resource_check", value=t("ui.resource_check_dsp")))
+            self.label_check_mode.setStyleSheet("color: #B0C4DE; font-size: 8pt;")
+            self.label_ml_status.setVisible(False)
 
 
 class DefectCounterWidget(QWidget):
     """Animated defect counter display with two-phase animation"""
+
+    @staticmethod
+    def _severity_word(val: float) -> str:
+        """Return layman severity label for a float defect value."""
+        if val >= 0.6:
+            return "Kritisch"
+        if val >= 0.3:
+            return "Stark"
+        if val >= 0.1:
+            return "Mittel"
+        return "Leicht"
 
     def __init__(self):
         super().__init__()
@@ -2659,14 +2614,22 @@ class DefectCounterWidget(QWidget):
         self.label_crackle.setText(t("ui.defect_crackle", value=f"{self.defects['crackle']:,}", status=status_icon))
         self.label_pops.setText(t("ui.defect_pops", value=f"{self.defects['pops']:,}", status=status_icon))
         self.label_clipping.setText(t("ui.defect_clipping", value=f"{self.defects['clipping']:,}", status=status_icon))
-        self.label_hum.setText(t("ui.defect_hum", value=self.defects["hum"], status=status_icon))
-        self.label_noise.setText(t("ui.defect_noise", value=self.defects["noise_level"], status=status_icon))
+        self.label_hum.setText(
+            t("ui.defect_hum", severity=self._severity_word(self.defects["hum"]), status=status_icon)
+        )
+        self.label_noise.setText(
+            t("ui.defect_noise", severity=self._severity_word(self.defects["noise_level"]), status=status_icon)
+        )
         self.label_sibilance.setText(
             t("ui.defect_sibilance", value=f"{self.defects['sibilance']:,}", status=status_icon)
         )
         self.label_dropout.setText(t("ui.defect_dropout", value=f"{self.defects['dropout']:,}", status=status_icon))
-        self.label_wow.setText(t("ui.defect_wow", value=self.defects["wow"], status=status_icon))
-        self.label_flutter.setText(t("ui.defect_flutter", value=self.defects["flutter"], status=status_icon))
+        self.label_wow.setText(
+            t("ui.defect_wow", severity=self._severity_word(self.defects["wow"]), status=status_icon)
+        )
+        self.label_flutter.setText(
+            t("ui.defect_flutter", severity=self._severity_word(self.defects["flutter"]), status=status_icon)
+        )
 
         # Update color based on phase
         for label in [
@@ -3190,16 +3153,16 @@ class ModernProgressBar(QProgressBar):
                 border: 1px solid rgba(102, 126, 234, 0.28);
                 border-radius: 15px;
                 text-align: center;
-                color: #8894A8;
+                color: #FFFFFF;
                 font-weight: bold;
                 font-size: 10pt;
             }
             QProgressBar::chunk {
                 background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-                    stop:0.00 #3a4a92,
-                    stop:0.35 #5570d8,
-                    stop:0.65 #667eea,
-                    stop:1.00 #5068c8);
+                    stop:0.00 #1a8a3a,
+                    stop:0.40 #22c55e,
+                    stop:0.75 #39ff7a,
+                    stop:1.00 #00ff66);
                 border-radius: 13px;
                 margin: 1px;
             }
@@ -3503,10 +3466,16 @@ class ExportConfigDialog(QDialog):
             if shutil.which("zenity"):
                 try:
                     proc = subprocess.run(
-                        ["zenity", "--file-selection", "--directory",
-                         f"--title={t('ui.export_cfg_choose_storage')}",
-                         f"--filename={start.rstrip('/')}/"],
-                        capture_output=True, text=True, check=False,
+                        [
+                            "zenity",
+                            "--file-selection",
+                            "--directory",
+                            f"--title={t('ui.export_cfg_choose_storage')}",
+                            f"--filename={start.rstrip('/')}/",
+                        ],
+                        capture_output=True,
+                        text=True,
+                        check=False,
                     )
                     if proc.returncode == 0 and proc.stdout.strip():
                         d = proc.stdout.strip()
@@ -3515,9 +3484,10 @@ class ExportConfigDialog(QDialog):
             if not d and shutil.which("kdialog"):
                 try:
                     proc = subprocess.run(
-                        ["kdialog", "--getexistingdirectory", start,
-                         "--title", t("ui.export_cfg_choose_storage")],
-                        capture_output=True, text=True, check=False,
+                        ["kdialog", "--getexistingdirectory", start, "--title", t("ui.export_cfg_choose_storage")],
+                        capture_output=True,
+                        text=True,
+                        check=False,
                     )
                     if proc.returncode == 0 and proc.stdout.strip():
                         d = proc.stdout.strip()
@@ -3529,16 +3499,20 @@ class ExportConfigDialog(QDialog):
             try:
                 import tkinter as _tk
                 from tkinter import filedialog as _fd
+
                 _root = _tk.Tk()
                 _root.withdraw()
                 _root.wm_attributes("-topmost", True)
                 try:
-                    d = _fd.askdirectory(
-                        title=t("ui.export_cfg_choose_storage"),
-                        initialdir=start,
-                        mustexist=False,
-                        parent=_root,
-                    ) or ""
+                    d = (
+                        _fd.askdirectory(
+                            title=t("ui.export_cfg_choose_storage"),
+                            initialdir=start,
+                            mustexist=False,
+                            parent=_root,
+                        )
+                        or ""
+                    )
                 finally:
                     with contextlib.suppress(Exception):
                         _root.destroy()
@@ -3669,25 +3643,22 @@ class ModernMainWindow(QMainWindow):
 
         msg = QMessageBox(self)
         msg.setIcon(QMessageBox.Icon.Critical)
-        msg.setWindowTitle("Aurik — Backend nicht geladen")
-        msg.setText("<b>⚠ Aurik-Kernmodul konnte nicht geladen werden.</b>")
+        msg.setWindowTitle("Aurik — Startfehler")
+        msg.setText("<b>⚠ Aurik konnte nicht vollständig starten.</b>")
         msg.setInformativeText(
-            "Das Audio-Restaurierungs-Backend ist nicht verfügbar.\n\n"
-            "Mögliche Ursachen:\n"
-            "  • Fehlende Python-Abhängigkeiten (numpy, scipy, onnxruntime …)\n"
-            "  • Falsche Python-Umgebung oder fehlerhafte Installation\n"
-            "  • Unterbrochener Download der ML-Modelle\n\n"
-            "Lösungsvorschlag: Prüfen Sie die Logdatei auf Details:\n"
-            "  logs/aurik_backend.log\n\n"
-            "Die Benutzeroberfläche ist im eingeschränkten Modus geöffnet —\n"
-            "Restaurierung und Analyse sind nicht möglich."
+            "Die Restaurierungs-Funktion ist nicht verfügbar.\n\n"
+            "Was du jetzt tun kannst:\n"
+            "  • Starte Aurik neu.\n"
+            "  • Falls das Problem bleibt: Installiere Aurik erneut.\n"
+            "  • Wende dich an den Support falls das Problem weiterhin auftritt.\n\n"
+            "Die Klang-Analyse und Restaurierung sind bis zum Neustart deaktiviert."
         )
         msg.setStandardButtons(QMessageBox.StandardButton.Ok)
         msg.exec()
         # Statusanzeige auch im Hauptfenster setzen
         if hasattr(self, "detected_medium_label"):
             self.detected_medium_label.setText(
-                "⚠ Backend nicht verfügbar — Installation prüfen (logs/aurik_backend.log)"
+                "⚠ Aurik konnte nicht vollständig starten.\n→ Starte die Anwendung neu. Bitte erneut installieren falls das Problem anhält."
             )
             self.detected_medium_label.setStyleSheet(
                 "color: #B87A7A; font-size: 8pt; padding: 5px 8px;"
@@ -3744,8 +3715,8 @@ class ModernMainWindow(QMainWindow):
                         _self.waveform_widget.update()
                     if hasattr(_self, "status_text"):
                         n = len(transcription.words) if not transcription.fallback_used else 0
-                        src = "DSP-Fallback" if transcription.fallback_used else "Whisper-Tiny"
-                        _self.status_text.setText(f"🎵 Lyrics-Timeline eingeblendet  ·  {n} Segmente  ·  Quelle: {src}")
+                        src = "Signalanalyse" if transcription.fallback_used else "KI-Spracherkennung"
+                        _self.status_text.setText(f"🎵 Lautanalyse eingeblendet  ·  {n} Abschnitte  ·  via {src}")
 
                 _self._dispatch_to_gui(_apply)
             except Exception as _exc:
@@ -3956,9 +3927,7 @@ class ModernMainWindow(QMainWindow):
         if _defect_sb is not None:
             _defect_sb.rangeChanged.connect(
                 lambda _min, _max: self.defect_summary_scroll.setVerticalScrollBarPolicy(
-                    Qt.ScrollBarPolicy.ScrollBarAsNeeded
-                    if _max > 0
-                    else Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+                    Qt.ScrollBarPolicy.ScrollBarAsNeeded if _max > 0 else Qt.ScrollBarPolicy.ScrollBarAlwaysOff
                 )
             )
 
@@ -4102,9 +4071,7 @@ class ModernMainWindow(QMainWindow):
         _orig_col_layout.setSpacing(4)
         _lbl_orig = QLabel("▶  Original")
         _lbl_orig.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        _lbl_orig.setStyleSheet(
-            "color:rgba(100,150,255,0.9);font-weight:bold;font-size:9pt;padding:2px 0;"
-        )
+        _lbl_orig.setStyleSheet("color:rgba(100,150,255,0.9);font-weight:bold;font-size:9pt;padding:2px 0;")
         self.waveform_widget_orig_ab = WaveformWidget()
         self.waveform_widget_orig_ab.setMinimumHeight(370)
         _orig_col_layout.addWidget(_lbl_orig)
@@ -4116,9 +4083,7 @@ class ModernMainWindow(QMainWindow):
         _rest_col_layout.setSpacing(4)
         _lbl_rest = QLabel("✦  Restauriert")
         _lbl_rest.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        _lbl_rest.setStyleSheet(
-            "color:rgba(80,220,100,0.9);font-weight:bold;font-size:9pt;padding:2px 0;"
-        )
+        _lbl_rest.setStyleSheet("color:rgba(80,220,100,0.9);font-weight:bold;font-size:9pt;padding:2px 0;")
         self.waveform_widget_rest_ab = WaveformWidget()
         self.waveform_widget_rest_ab.setMinimumHeight(370)
         _rest_col_layout.addWidget(_lbl_rest)
@@ -4207,8 +4172,7 @@ class ModernMainWindow(QMainWindow):
         self._playback_time_label = QLabel("– : – –")
         self._playback_time_label.setAlignment(Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignVCenter)
         self._playback_time_label.setStyleSheet(
-            "color: rgba(180, 200, 255, 0.70); font-size: 9pt;"
-            " font-family: 'Courier New', monospace; padding: 0 6px;"
+            "color: rgba(180, 200, 255, 0.70); font-size: 9pt; font-family: 'Courier New', monospace; padding: 0 6px;"
         )
         self._playback_time_label.setMinimumWidth(80)
         ab_row_layout.addWidget(self._playback_time_label)
@@ -4218,6 +4182,10 @@ class ModernMainWindow(QMainWindow):
 
         # ── Magic Buttons ─────────────────────────────────────────────
         layout.addWidget(self._create_magic_buttons_section())
+
+        # ── Audio-Info-Chip-Leiste ─────────────────────────────────────
+        self._audio_info_bar = self._create_audio_info_bar()
+        layout.addWidget(self._audio_info_bar)
 
         # ── Status-Leiste ─────────────────────────────────────────────
         layout.addWidget(self._create_status_bar())
@@ -4484,6 +4452,88 @@ class ModernMainWindow(QMainWindow):
 
         return container
 
+    def _create_audio_info_bar(self) -> QWidget:
+        """Compact horizontal chip strip showing detected audio properties.
+
+        Chips appear one by one as background analysis completes:
+        medium/carrier  |  era decade  |  genre  |  restorability score.
+        Hidden until first chip is populated; reset on new file load.
+        """
+        bar = QWidget()
+        bar.setObjectName("audioInfoBar")
+        bar.setStyleSheet("background: transparent;")
+        bar.setVisible(False)
+
+        _chip_css = (
+            "QLabel {{ "
+            "color: {fg}; background: {bg}; border: 1px solid {border};"
+            " border-radius: 10px; padding: 3px 10px;"
+            " font-size: 9pt; font-weight: 600; "
+            "}}"
+        )
+
+        def _make_chip(fg: str, bg: str, border: str) -> QLabel:
+            lbl = QLabel()
+            lbl.setVisible(False)
+            lbl.setAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft)
+            lbl.setStyleSheet(_chip_css.format(fg=fg, bg=bg, border=border))
+            return lbl
+
+        hbox = QHBoxLayout(bar)
+        hbox.setContentsMargins(6, 4, 6, 4)
+        hbox.setSpacing(8)
+
+        # Chip: Tonträger (blaugrau)
+        self.chip_medium = _make_chip(
+            "#A8C0D8",
+            "rgba(100, 140, 200, 0.12)",
+            "rgba(100, 140, 200, 0.30)",
+        )
+        hbox.addWidget(self.chip_medium)
+
+        # Chip: Ära / Dekade (violett)
+        self.chip_era = _make_chip(
+            "#BBA8D8",
+            "rgba(140, 100, 200, 0.12)",
+            "rgba(140, 100, 200, 0.30)",
+        )
+        hbox.addWidget(self.chip_era)
+
+        # Chip: Genre (orange-gold)
+        self.chip_genre = _make_chip(
+            "#D8B870",
+            "rgba(200, 160, 60, 0.12)",
+            "rgba(200, 160, 60, 0.30)",
+        )
+        hbox.addWidget(self.chip_genre)
+
+        # Chip: Restaurierbarkeit (dynamische Farbe, wird beim Setzen geändert)
+        self.chip_restorability = _make_chip(
+            "#82B89A",
+            "rgba(85, 155, 115, 0.12)",
+            "rgba(85, 155, 115, 0.30)",
+        )
+        hbox.addWidget(self.chip_restorability)
+
+        hbox.addStretch()
+        return bar
+
+    # ── helper: show / update a single chip ───────────────────────────────
+    def _show_chip(self, chip: QLabel, text: str, *, fg: str | None = None) -> None:
+        """Set chip text, optionally change colour, make bar + chip visible."""
+        if fg:
+            current_css = chip.styleSheet()
+            # Replace colour in existing CSS
+            import re as _re_chip
+
+            current_css = _re_chip.sub(r"color:\s*[^;]+;", f"color: {fg};", current_css, count=1)
+            chip.setStyleSheet(current_css)
+        chip.setText(text)
+        chip.setVisible(True)
+        # Make the bar visible when first chip appears
+        if hasattr(self, "_audio_info_bar") and not self._audio_info_bar.isVisible():
+            self._audio_info_bar.setVisible(True)
+
     def _create_status_bar(self):
         """Statusbereich: voller Fortschrittsbalken (oben) + transparente Textzeile (unten)."""
         wrapper = QWidget()
@@ -4525,7 +4575,9 @@ class ModernMainWindow(QMainWindow):
         row_layout.setSpacing(0)
 
         self.status_text = QLabel(t("status.ready"))
-        self.status_text.setStyleSheet("color: #7B93B8; font-size: 10pt; background: transparent;")
+        self.status_text.setStyleSheet(
+            "color: #8AABCC; font-size: 11pt; font-weight: 600; background: transparent; padding: 2px 0px;"
+        )
         self.status_text.setToolTip(
             "<b>Aktueller Systemstatus</b><br>"
             "Zeigt an, was Aurik 9 gerade tut — z.\u202fB. Datei laden, "
@@ -5021,9 +5073,12 @@ class ModernMainWindow(QMainWindow):
             # Resample to 48 kHz — Aurik internal SR (accepts any input SR)
             if sr != 48_000:
                 from scipy.signal import resample_poly as _rp
+
                 _gcd = math.gcd(int(sr), 48_000)
                 audio = _rp(
-                    audio, 48_000 // _gcd, int(sr) // _gcd,
+                    audio,
+                    48_000 // _gcd,
+                    int(sr) // _gcd,
                     axis=0 if audio.ndim > 1 else -1,
                 ).astype(np.float32)
                 sr = 48_000
@@ -5206,7 +5261,6 @@ class ModernMainWindow(QMainWindow):
         carrier_score: int,
     ):
         """Setzt _on_file_loaded nach dem Export-Dialog fort (UI-Block)."""
-        _file_path_for_body = file_path
         try:  # pylint: disable=too-many-statements
             _audio = _normalize_audio(audio)
             _sr = int(sr)
@@ -5251,6 +5305,7 @@ class ModernMainWindow(QMainWindow):
                     if _s != 48000:
                         try:
                             import librosa  # lazy — nur für Resampling
+
                             _a_48 = librosa.resample(_a, orig_sr=_s, target_sr=48000)
                             _s_48 = 48000
                         except Exception as _rs_exc:
@@ -5539,18 +5594,12 @@ class ModernMainWindow(QMainWindow):
             return
         if not _SD_AVAILABLE:
             return
-        _already = (
-            hasattr(self, "_play_thread")
-            and self._play_thread is not None
-            and self._play_thread.is_alive()
-        )
+        _already = hasattr(self, "_play_thread") and self._play_thread is not None and self._play_thread.is_alive()
         if _already:
             return
         _ra = self._rest_audio
         assert _ra is not None  # guarded by check above
-        _preview = np.ascontiguousarray(
-            _ra[: min(len(_ra), 5 * 48000)], dtype=np.float32
-        )
+        _preview = np.ascontiguousarray(_ra[: min(len(_ra), 5 * 48000)], dtype=np.float32)
         if _preview.size > 0:
             self._play_audio(_preview, 48000)
 
@@ -5563,7 +5612,9 @@ class ModernMainWindow(QMainWindow):
         if prepared_audio.size == 0:
             if hasattr(self, "status_text"):
                 self.status_text.setStyleSheet("color: #B87A7A; font-size: 10pt;")
-                self.status_text.setText("⚠ Wiedergabe nicht möglich: Die Audiodatei enthält keine abspielbaren Samples.")
+                self.status_text.setText(
+                    "⚠ Wiedergabe nicht möglich: Die Audiodatei enthält keine abspielbaren Samples."
+                )
             if hasattr(self, "title_bar"):
                 self.title_bar.set_status("Wiedergabe-Fehler", "#B87A7A")
             return
@@ -5621,11 +5672,7 @@ class ModernMainWindow(QMainWindow):
 
     def _update_playhead(self) -> None:
         """50-ms-Timer-Slot: aktualisiert Playhead-Position und Zeitanzeige im Hauptthread."""
-        _thread_alive = (
-            hasattr(self, "_play_thread")
-            and self._play_thread is not None
-            and self._play_thread.is_alive()
-        )
+        _thread_alive = hasattr(self, "_play_thread") and self._play_thread is not None and self._play_thread.is_alive()
         if not _thread_alive:
             # Wiedergabe beendet — alles zurücksetzen
             if hasattr(self, "_playhead_timer"):
@@ -5724,8 +5771,14 @@ class ModernMainWindow(QMainWindow):
                 cmd = ["kdialog", "--getexistingdirectory", start, "--title", title]
             elif multiple:
                 cmd = [
-                    "kdialog", "--getopenfilename", start, _audio_filter,
-                    "--multiple", "--separate-output", "--title", title,
+                    "kdialog",
+                    "--getopenfilename",
+                    start,
+                    _audio_filter,
+                    "--multiple",
+                    "--separate-output",
+                    "--title",
+                    title,
                 ]
             else:
                 cmd = ["kdialog", "--getopenfilename", start, _audio_filter, "--title", title]
@@ -5753,9 +5806,7 @@ class ModernMainWindow(QMainWindow):
             ]
             try:
                 if directory:
-                    path = _fd.askdirectory(
-                        title=title, initialdir=start, mustexist=False, parent=_root
-                    )
+                    path = _fd.askdirectory(title=title, initialdir=start, mustexist=False, parent=_root)
                     return [path] if path else []
                 elif save:
                     path = _fd.asksaveasfilename(
@@ -5767,14 +5818,10 @@ class ModernMainWindow(QMainWindow):
                     )
                     return [path] if path else []
                 elif multiple:
-                    paths = _fd.askopenfilenames(
-                        title=title, initialdir=start, filetypes=_audio_types, parent=_root
-                    )
+                    paths = _fd.askopenfilenames(title=title, initialdir=start, filetypes=_audio_types, parent=_root)
                     return list(paths) if paths else []
                 else:
-                    path = _fd.askopenfilename(
-                        title=title, initialdir=start, filetypes=_audio_types, parent=_root
-                    )
+                    path = _fd.askopenfilename(title=title, initialdir=start, filetypes=_audio_types, parent=_root)
                     return [path] if path else []
             finally:
                 with contextlib.suppress(Exception):
@@ -6167,9 +6214,7 @@ class ModernMainWindow(QMainWindow):
         self.batch_thread.ml_status_update.connect(self._update_ml_status)
         # Enhanced real-time UX feedback signals (§11.4)
         if hasattr(self, "phase_progress_bar"):
-            self.batch_thread.phase_progress.connect(
-                lambda v: self.phase_progress_bar.setValue(v * 100)
-            )
+            self.batch_thread.phase_progress.connect(lambda v: self.phase_progress_bar.setValue(v * 100))
         self.batch_thread.scan_progress.connect(self._on_scan_progress)
         if hasattr(self, "quality_meter_widget"):
             self.batch_thread.quality_update.connect(self.quality_meter_widget.set_mos)
@@ -6220,7 +6265,12 @@ class ModernMainWindow(QMainWindow):
             self._watchdog_timer.setSingleShot(True)
             self._watchdog_timer.timeout.connect(self._on_watchdog_timeout)
         self._watchdog_timer.start(_watchdog_ms)
-        logger.info("Watchdog-Timer gestartet: %.0f s (Audio %.0f s, %d Dateien)", _watchdog_ms / 1000, _audio_dur_s, stats["pending"])
+        logger.info(
+            "Watchdog-Timer gestartet: %.0f s (Audio %.0f s, %d Dateien)",
+            _watchdog_ms / 1000,
+            _audio_dur_s,
+            stats["pending"],
+        )
 
         assert self.batch_thread is not None
         self.batch_thread.start()
@@ -6351,10 +6401,12 @@ class ModernMainWindow(QMainWindow):
         if restoration_result is not None:
             _goals = getattr(restoration_result, "musical_goals", None)
             if isinstance(_goals, dict) and _goals:
+
                 def _show_goals(_g=dict(_goals)):
                     if self.radar_widget is not None:
                         with contextlib.suppress(Exception):
                             self.radar_widget.update_scores(scores=_g)
+
                 QTimer.singleShot(0, _show_goals)
         item = self.batch_queue.get_item(item_id)
         if item and item.output_file and Path(item.output_file).exists():
@@ -6405,6 +6457,7 @@ class ModernMainWindow(QMainWindow):
             if _ov.isVisible():
                 try:
                     from PyQt5.QtWidgets import QGraphicsOpacityEffect
+
                     _eff = getattr(_ov, "_opacity_eff", None)
                     if _eff is None:
                         _eff = QGraphicsOpacityEffect(_ov)
@@ -6930,6 +6983,7 @@ class ModernMainWindow(QMainWindow):
                     # Quality Meter gauge — animated count-up
                     try:
                         import re as _re
+
                         _m = _re.search(r"MOS[:\s]+(\d+(?:[.,]\d+)?)", mos_text)
                         if _m:
                             self._animate_mos_gauge(float(_m.group(1).replace(",", ".")))
@@ -6984,7 +7038,9 @@ class ModernMainWindow(QMainWindow):
                         else:
                             # Normal restoration path
                             if _has_problem:
-                                _sum.append(f"⚠️  Restaurierung mit Einschränkungen\n   {fail_reason or degradation_status}")
+                                _sum.append(
+                                    f"⚠️  Restaurierung mit Einschränkungen\n   {fail_reason or degradation_status}"
+                                )
                             else:
                                 _sum.append("✅  Restaurierung erfolgreich abgeschlossen")
 
@@ -7042,13 +7098,20 @@ class ModernMainWindow(QMainWindow):
                             # Musical-Goals-Verletzungen
                             if musical_violations:
                                 _vmap = {
-                                    "brillanz": "Brillanz", "waerme": "Wärme",
-                                    "natuerlichkeit": "Natürlichkeit", "authentizitaet": "Authentizität",
-                                    "emotionalitaet": "Emotionalität", "transparenz": "Transparenz",
-                                    "bass_kraft": "Bass-Kraft", "groove": "Groove",
-                                    "spatial_depth": "Raumtiefe", "timbre_authentizitaet": "Timbre",
-                                    "tonal_center": "Tonales Zentrum", "micro_dynamics": "Mikro-Dynamik",
-                                    "separation_fidelity": "Separation", "artikulation": "Artikulation",
+                                    "brillanz": "Brillanz",
+                                    "waerme": "Wärme",
+                                    "natuerlichkeit": "Natürlichkeit",
+                                    "authentizitaet": "Authentizität",
+                                    "emotionalitaet": "Emotionalität",
+                                    "transparenz": "Transparenz",
+                                    "bass_kraft": "Bass-Kraft",
+                                    "groove": "Groove",
+                                    "spatial_depth": "Raumtiefe",
+                                    "timbre_authentizitaet": "Timbre",
+                                    "tonal_center": "Tonales Zentrum",
+                                    "micro_dynamics": "Mikro-Dynamik",
+                                    "separation_fidelity": "Separation",
+                                    "artikulation": "Artikulation",
                                 }
                                 _vnames: list[str] = [str(_vmap.get(v, v)) for v in musical_violations]
                                 _sum.append(f"⚠️  Ziele unter Schwellwert: {', '.join(_vnames)}")
@@ -7083,7 +7146,11 @@ class ModernMainWindow(QMainWindow):
                                     )
                                 self.defect_count_live_label.setVisible(True)
 
-                    if hasattr(self, "status_text") and degradation_status in {"blocked", "critical_degraded", "degraded"}:
+                    if hasattr(self, "status_text") and degradation_status in {
+                        "blocked",
+                        "critical_degraded",
+                        "degraded",
+                    }:
                         _status_reason = fail_reason if fail_reason not in ("None", "none", "") else degradation_status
                         _status_code = f" · Code: {primary_error_code}" if primary_error_code else ""
                         self.status_text.setStyleSheet("color: #B8A068; font-size: 10pt;")
@@ -7143,9 +7210,7 @@ class ModernMainWindow(QMainWindow):
             if hasattr(self, "waveform_widget_orig_ab"):
                 _orig = getattr(self, "_orig_audio", None)
                 if _orig is not None:
-                    self.waveform_widget_orig_ab.update_waveform(
-                        _orig, int(getattr(self, "_orig_sr", sr))
-                    )
+                    self.waveform_widget_orig_ab.update_waveform(_orig, int(getattr(self, "_orig_sr", sr)))
             # Automatisch zum A/B-Tab wechseln — aber nur wenn Nutzer aktuell
             # Tab 0 (Waveform) betrachtet, nicht wenn er Spektrogramm sieht
             if hasattr(self, "viz_tabs") and hasattr(self, "waveform_widget_rest_ab"):
@@ -7252,19 +7317,19 @@ class ModernMainWindow(QMainWindow):
                 _medium = getattr(self, "_raw_medium_type", "unknown")
                 # Material-spezifische Defekt-Hinweise auch ohne Scanner-Treffer
                 _MEDIUM_HINTS: dict[str, str] = {
-                    "tape":       "Leises Bandrauschen, mögliche Tonhöhenschwankungen (Wow/Flutter) und Dropout-Spuren.",
-                    "reel_tape":  "Spulenband-typisches Hiss, Print-Through-Echos und Azimuth-Drift möglich.",
-                    "cassette":   "Kassetten-Rauschen, schwache Frequenzbegrenzung (<15 kHz) und Bandsättigung.",
-                    "vinyl":      "Submikroskopische Knackser, subtiles Rumpeln und Pressungsverzerrung.",
-                    "shellac":    "Breitband-Schellackrauschen (>−30 dB) und stark begrenzte Bandbreite (<8 kHz).",
+                    "tape": "Leises Bandrauschen, mögliche Tonhöhenschwankungen (Wow/Flutter) und Dropout-Spuren.",
+                    "reel_tape": "Spulenband-typisches Hiss, Print-Through-Echos und Azimuth-Drift möglich.",
+                    "cassette": "Kassetten-Rauschen, schwache Frequenzbegrenzung (<15 kHz) und Bandsättigung.",
+                    "vinyl": "Submikroskopische Knackser, subtiles Rumpeln und Pressungsverzerrung.",
+                    "shellac": "Breitband-Schellackrauschen (>−30 dB) und stark begrenzte Bandbreite (<8 kHz).",
                     "wax_cylinder": "Extreme Bandbreiten-Limitierung (<5 kHz) und Oberflächenrauschen.",
                     "lacquer_disc": "Lackfoliendegradierung, subtile Klicks und Substrat-Rauschen.",
                     "wire_recording": "Drahtband-Jitter und partielle Frequenzausfälle.",
-                    "mp3_low":    "Codec-Artefakte (Prä-Echo, Hochton-Ringing) und Bandbreitenbeschneidung.",
-                    "mp3_high":   "Subtile Codec-Ringing-Artefakte und leichter Hochtonverlust ab 16 kHz.",
-                    "aac":        "AAC-Preprocessing-Spuren und subtile Transientenverschmierung.",
-                    "streaming":  "Streaming-Codec-Artefakte und variable Bitratenschwankungen.",
-                    "dat":        "DAT-Jitter und mögliche Word-Clock-Fehler bei alten Aufnahmen.",
+                    "mp3_low": "Codec-Artefakte (Prä-Echo, Hochton-Ringing) und Bandbreitenbeschneidung.",
+                    "mp3_high": "Subtile Codec-Ringing-Artefakte und leichter Hochtonverlust ab 16 kHz.",
+                    "aac": "AAC-Preprocessing-Spuren und subtile Transientenverschmierung.",
+                    "streaming": "Streaming-Codec-Artefakte und variable Bitratenschwankungen.",
+                    "dat": "DAT-Jitter und mögliche Word-Clock-Fehler bei alten Aufnahmen.",
                 }
                 _hint = _MEDIUM_HINTS.get(_medium, "")
                 _status = defects.get("status", "detected")
@@ -7294,7 +7359,9 @@ class ModernMainWindow(QMainWindow):
                     if _hint:
                         _lines.append(f"   {_hint}")
                     if _rest_score < 65:
-                        _lines.append(f"   Restaurierbarkeit {_rest_score:.0f}/100 – Aurik wird die Qualität messbar verbessern.")
+                        _lines.append(
+                            f"   Restaurierbarkeit {_rest_score:.0f}/100 – Aurik wird die Qualität messbar verbessern."
+                        )
                     else:
                         _lines.append("   Aurik kann die Aufnahme weiter verfeinern.")
                     _lines.append("→ Defekte werden beim Restaurieren präzise behandelt")
@@ -7405,6 +7472,11 @@ class ModernMainWindow(QMainWindow):
     def _update_phase(self, phase_text):
         """Update current processing phase in status bar AND as overlay over waveform."""
         self.status_text.setText(f"⚙️ {phase_text}")
+        self.status_text.setStyleSheet(
+            "color: #E8C060; font-size: 11pt; font-weight: 600;"
+            " background: rgba(200,160,40,0.07); border-radius: 6px;"
+            " padding: 2px 8px;"
+        )
         # Fortschrittsbalken: nur Text-Format aktualisieren, KEIN Marquee-Modus.
         # Der prozentuale Fortschritt wird über _on_item_progress gesetzt —
         # setRange(0, 0) würde den Balken auf Marquee umschalten und den Prozentwert
@@ -7443,6 +7515,7 @@ class ModernMainWindow(QMainWindow):
             if not _was_visible:
                 try:
                     from PyQt5.QtWidgets import QGraphicsOpacityEffect
+
                     _eff = getattr(ov, "_opacity_eff", None)
                     if _eff is None:
                         _eff = QGraphicsOpacityEffect(ov)
@@ -7524,29 +7597,29 @@ class ModernMainWindow(QMainWindow):
         # Format-Konfig: fmt_key → (real_ext, bit_depth, extra_export_kwargs)
         # Spiegelt ExportConfigDialog's 10 Formate (§11.4 Spec 08).
         _FMT_CONFIGS: dict = {
-            ".flac":    (".flac", 24, {}),
-            ".wav24":   (".wav",  24, {}),
-            ".wav16":   (".wav",  16, {}),
-            ".aiff24":  (".aiff", 24, {}),
-            ".mp3_320": (".mp3",  16, {"mp3_bitrate": 320}),
-            ".mp3_256": (".mp3",  16, {"mp3_bitrate": 256}),
-            ".mp3_192": (".mp3",  16, {"mp3_bitrate": 192}),
-            ".mp3_v0":  (".mp3",  16, {"mp3_vbr_quality": 0}),
-            ".mp3_v2":  (".mp3",  16, {"mp3_vbr_quality": 2}),
-            ".ogg9":    (".ogg",  16, {"ogg_quality": 9}),
+            ".flac": (".flac", 24, {}),
+            ".wav24": (".wav", 24, {}),
+            ".wav16": (".wav", 16, {}),
+            ".aiff24": (".aiff", 24, {}),
+            ".mp3_320": (".mp3", 16, {"mp3_bitrate": 320}),
+            ".mp3_256": (".mp3", 16, {"mp3_bitrate": 256}),
+            ".mp3_192": (".mp3", 16, {"mp3_bitrate": 192}),
+            ".mp3_v0": (".mp3", 16, {"mp3_vbr_quality": 0}),
+            ".mp3_v2": (".mp3", 16, {"mp3_vbr_quality": 2}),
+            ".ogg9": (".ogg", 16, {"ogg_quality": 9}),
         }
         fmt_bg = QButtonGroup(dlg)
         formats = [
-            (".flac",    "FLAC 24-bit     — verlustfrei, Archivqualität  ✅ (empfohlen)"),
-            (".wav24",   "WAV 24-bit      — verlustfrei, DAW-Kompatibel"),
-            (".wav16",   "WAV 16-bit      — CD-Qualität, kleinere Datei"),
-            (".aiff24",  "AIFF 24-bit     — verlustfrei, Apple/ProTools-Kompatibel"),
+            (".flac", "FLAC 24-bit     — verlustfrei, Archivqualität  ✅ (empfohlen)"),
+            (".wav24", "WAV 24-bit      — verlustfrei, DAW-Kompatibel"),
+            (".wav16", "WAV 16-bit      — CD-Qualität, kleinere Datei"),
+            (".aiff24", "AIFF 24-bit     — verlustfrei, Apple/ProTools-Kompatibel"),
             (".mp3_320", "MP3 CBR 320 kbps — maximale Kompatibilität"),
             (".mp3_256", "MP3 CBR 256 kbps — gut ausbalanciert"),
             (".mp3_192", "MP3 CBR 192 kbps — kleine Dateien"),
-            (".mp3_v0",  "MP3 VBR V0       — höchste VBR-Qualität (~245 kbps)"),
-            (".mp3_v2",  "MP3 VBR V2       — empfohlene VBR-Qualität (~190 kbps)"),
-            (".ogg9",    "OGG Vorbis Q9   — Open-Source, streaming-optimiert"),
+            (".mp3_v0", "MP3 VBR V0       — höchste VBR-Qualität (~245 kbps)"),
+            (".mp3_v2", "MP3 VBR V2       — empfohlene VBR-Qualität (~190 kbps)"),
+            (".ogg9", "OGG Vorbis Q9   — Open-Source, streaming-optimiert"),
         ]
         rb_formats = []
         for i, (key, label) in enumerate(formats):
@@ -7593,12 +7666,14 @@ class ModernMainWindow(QMainWindow):
         )
         if not _dir_picked:
             # Qt-Fallback falls kein System-Dialog verfügbar
-            _dir_picked = [QFileDialog.getExistingDirectory(
-                self,
-                t("ui.export_choose_dir"),
-                _last_export_dir,
-                self._dialog_options(directory_only=True),
-            )]
+            _dir_picked = [
+                QFileDialog.getExistingDirectory(
+                    self,
+                    t("ui.export_choose_dir"),
+                    _last_export_dir,
+                    self._dialog_options(directory_only=True),
+                )
+            ]
         output_dir = _dir_picked[0] if _dir_picked and _dir_picked[0] else ""
         if output_dir:
             self._last_export_dir = output_dir

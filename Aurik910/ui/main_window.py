@@ -6,8 +6,6 @@ Professional audio restoration interface
 import math as _math
 from pathlib import Path
 
-import numpy as np
-import soundfile as sf
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
 from PyQt5.QtGui import QColor, QPalette
 from PyQt5.QtWidgets import (
@@ -23,16 +21,29 @@ from PyQt5.QtWidgets import (
     QMessageBox,
     QProgressBar,
     QPushButton,
-    QSlider,
     QSplitter,
     QStatusBar,
     QTabWidget,
     QVBoxLayout,
     QWidget,
 )
+import numpy as np
 from scipy.signal import resample_poly as _resample_poly
+import soundfile as sf
 
-from backend.api.bridge import get_aurik_denker_class, get_aurik_denker_instance
+try:
+    from backend.api.bridge import get_aurik_denker_class, get_aurik_denker_instance
+
+    _BRIDGE_AVAILABLE = True
+except ImportError:
+    _BRIDGE_AVAILABLE = False
+
+    def get_aurik_denker_class():  # type: ignore[misc]
+        return None
+
+    def get_aurik_denker_instance():  # type: ignore[misc]
+        return None
+
 
 _TARGET_SR = 48_000
 
@@ -414,7 +425,9 @@ class MainWindow(QMainWindow):
         goals_group.setLayout(goals_layout)
 
         self.goal_sliders = {}  # §RELEASE_MUST: keine manuellen Slider — automatisch optimiert
-        goals_info = QLabel("✅ 14 Musical Goals werden automatisch optimiert\n(Natürlichkeit, Authentizität, Brillanz, Wärme ...)")
+        goals_info = QLabel(
+            "✅ 14 Musical Goals werden automatisch optimiert\n(Natürlichkeit, Authentizität, Brillanz, Wärme ...)"
+        )
         goals_info.setStyleSheet("color: #888888; font-style: italic; padding: 4px;")
         goals_info.setWordWrap(True)
         goals_layout.addWidget(goals_info)
@@ -476,7 +489,6 @@ class MainWindow(QMainWindow):
     def load_waveform(self):
         """Load and display waveform with progress bar"""
         try:
-
             # Premium-Look für den Ladebalken
             self.progress_bar.setStyleSheet("""
                 QProgressBar {

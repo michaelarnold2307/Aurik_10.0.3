@@ -8,10 +8,8 @@ from __future__ import annotations
 
 import concurrent.futures
 import math
-import threading
 
 import numpy as np
-import pytest
 
 from backend.core.genre_classifier import (
     GENRE_RESTORATION_PROFILES,
@@ -319,11 +317,12 @@ class TestEdgeCases:
         r = self.clf.classify(_white_noise(), sr=48000)
         assert isinstance(r, SchlagerClassificationResult)
 
-    def test_32_wrong_sr_raises_assertion(self):
-        """Falsche Sample-Rate (22050 Hz) → AssertionError (Spec §3.x)."""
+    def test_32_sr_agnostic_native_import_sr(self):
+        """SR-agnostisch: Analyse-Module dürfen kein assert sr == 48000 enthalten (Spec §Performance-Budget)."""
         audio = _white_noise(sr=22050, secs=8.0)
-        with pytest.raises(AssertionError, match="48000 Hz erwartet"):
-            self.clf.classify(audio, sr=22050)
+        # Must NOT raise at 22050 Hz (native import SR is valid)
+        result = self.clf.classify(audio, sr=22050)
+        assert result is not None, "SR-agnostic classify() must return a result at 22050 Hz"
 
 
 # ---------------------------------------------------------------------------

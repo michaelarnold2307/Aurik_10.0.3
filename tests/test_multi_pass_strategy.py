@@ -195,7 +195,9 @@ class TestObjectiveScorer:
         reference = audio.copy()
 
         scorer = ObjectiveScorer(
-            enable_cdpam=False, enable_dnsmos=False, enable_musical_goals=False  # Mock, da CDPAM evtl nicht installiert
+            enable_cdpam=False,
+            enable_dnsmos=False,
+            enable_musical_goals=False,  # Mock, da CDPAM evtl nicht installiert
         )
 
         score = scorer.score(audio=audio, sample_rate=sr, variant_name="test", reference_audio=reference)
@@ -208,11 +210,11 @@ class TestObjectiveScorer:
 
         # Mock score mit bekannten Werten (§10.2: DNSMOS VERBOTEN, dnsmos_score=0.0)
         test_score = ObjectiveScore(
-            cdpam_score=0.2,        # Good (niedrig) — CDPAM als Musik-Wahrnehmungsmetrik (§4.4)
-            dnsmos_score=0.0,       # §10.2: DNSMOS VERBOTEN für Musik — kein Beitrag zum Composite
+            cdpam_score=0.2,  # Good (niedrig) — CDPAM als Musik-Wahrnehmungsmetrik (§4.4)
+            dnsmos_score=0.0,  # §10.2: DNSMOS VERBOTEN für Musik — kein Beitrag zum Composite
             musical_goals_avg=0.8,  # Good (hoch) — 14 Musical Goals (§1.2)
-            snr_db=30.0,            # Good (hoch)
-            thd_percent=0.5,        # Good (niedrig)
+            snr_db=30.0,  # Good (hoch)
+            thd_percent=0.5,  # Good (niedrig)
         )
 
         composite = scorer._calculate_composite(test_score)
@@ -462,7 +464,7 @@ class TestMultiPassEngine:
             def __init__(self) -> None:
                 self.calls: list[str] = []
 
-            def restore(self, audio, sample_rate, mode="restoration"):
+            def restore(self, audio, sample_rate, mode="restoration", **kwargs):
                 self.calls.append(mode)
                 return _FakeResult(audio)
 
@@ -470,10 +472,10 @@ class TestMultiPassEngine:
         engine = MultiPassEngine()
         engine._restorer = _FakeRestorer()
 
-        natural = ProcessingVariant.create_naturalness_first().config   # denoise=0.08 → fast
-        gentle = ProcessingVariant.create_gentle_denoise().config        # denoise=0.15 → balanced
-        balanced_cfg = ProcessingVariant.create_balanced().config        # denoise=0.30 → restoration
-        strong = ProcessingVariant.create_strong_dynamics().config       # comp=6.0    → maximum
+        natural = ProcessingVariant.create_naturalness_first().config  # denoise=0.08 → fast
+        gentle = ProcessingVariant.create_gentle_denoise().config  # denoise=0.15 → balanced
+        balanced_cfg = ProcessingVariant.create_balanced().config  # denoise=0.30 → restoration
+        strong = ProcessingVariant.create_strong_dynamics().config  # comp=6.0    → maximum
 
         _ = engine._default_process_func(audio, sr, natural)
         _ = engine._default_process_func(audio, sr, gentle)
@@ -481,10 +483,10 @@ class TestMultiPassEngine:
         _ = engine._default_process_func(audio, sr, strong)
 
         calls = engine._restorer.calls
-        assert calls[0] == "fast",        f"naturalness_first expected fast, got {calls[0]}"
-        assert calls[1] == "balanced",    f"gentle_denoise expected balanced, got {calls[1]}"
+        assert calls[0] == "fast", f"naturalness_first expected fast, got {calls[0]}"
+        assert calls[1] == "balanced", f"gentle_denoise expected balanced, got {calls[1]}"
         assert calls[2] == "restoration", f"balanced expected restoration, got {calls[2]}"
-        assert calls[3] == "maximum",     f"strong_dynamics expected maximum, got {calls[3]}"
+        assert calls[3] == "maximum", f"strong_dynamics expected maximum, got {calls[3]}"
 
 
 class TestCreateDefaultVariants:

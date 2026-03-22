@@ -7,19 +7,22 @@ Covers:
 - DefectPhaseMapper.build_specialist_config() with material param
 - PMGG PerPhaseMusicalGoalsGate.wrap_phase() with initial_strength
 """
+
 from __future__ import annotations
 
 import types
+
 import numpy as np
 import pytest
-
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 class _FakeConfig:
     """Minimal ProcessingConfig stand-in."""
+
     denoise_strength: float = 0.5
     click_removal_sensitivity: float = 0.5
     declip_strength: float = 0.0
@@ -29,13 +32,22 @@ class _FakeConfig:
 
 
 def _make_fake_phase(strength_recorder: list) -> object:
-    """Creates a minimal phase callable that records strength and returns input audio."""
-    import numpy as np
+    """Creates a minimal phase that records strength and returns input audio.
+
+    CRITICAL: Must define process() not __call__, because PMGG _run_phase
+    calls phase.process() (v9.10.64 fix — PhaseInterface has no __call__).
+    """
 
     class FakePhase:
-        def __call__(self, audio, strength=1.0, **kwargs):
+        def process(self, audio, strength=1.0, **kwargs):
             strength_recorder.append(strength)
-            return audio
+            # Return object with .audio attribute (PhaseResult-like)
+            result = types.SimpleNamespace(audio=audio.copy())
+            return result
+
+        def __call__(self, audio, strength=1.0, **kwargs):
+            # Legacy fallback — not used by current PMGG but kept for compatibility
+            return self.process(audio, strength=strength, **kwargs)
 
         def get_metadata(self):
             meta = types.SimpleNamespace()
@@ -49,54 +61,63 @@ def _make_fake_phase(strength_recorder: list) -> object:
 # 1. get_material_initial_strength
 # ---------------------------------------------------------------------------
 
+
 class TestGetMaterialInitialStrength:
     def test_shellac_denoise_below_one(self):
         from backend.core.defect_phase_mapper import get_material_initial_strength
+
         s = get_material_initial_strength("shellac", "phase_03_denoise")
         assert 0.0 < s < 1.0, f"shellac phase_03_denoise should be < 1.0, got {s}"
 
     def test_shellac_tape_saturation_very_low(self):
         from backend.core.defect_phase_mapper import get_material_initial_strength
+
         s = get_material_initial_strength("shellac", "phase_22_tape_saturation")
         assert s <= 0.30, f"shellac tape_saturation cap should be ≤ 0.30, got {s}"
 
     def test_wax_cylinder_tape_saturation_very_low(self):
         from backend.core.defect_phase_mapper import get_material_initial_strength
+
         s = get_material_initial_strength("wax_cylinder", "phase_22_tape_saturation")
         assert s <= 0.25, f"wax_cylinder tape_saturation should be ≤ 0.25, got {s}"
 
     def test_cd_digital_denoise_low(self):
         from backend.core.defect_phase_mapper import get_material_initial_strength
+
         s = get_material_initial_strength("cd_digital", "phase_03_denoise")
         assert s < 0.5, f"cd_digital denoise should start low, got {s}"
 
     def test_unknown_material_returns_one(self):
         from backend.core.defect_phase_mapper import get_material_initial_strength
+
         s = get_material_initial_strength("unknown_material_xyz", "phase_03_denoise")
         assert s == 1.0
 
     def test_unknown_phase_returns_one(self):
         from backend.core.defect_phase_mapper import get_material_initial_strength
+
         s = get_material_initial_strength("shellac", "phase_99_unknown")
         assert s == 1.0
 
     def test_vinyl_crackle_below_full(self):
         from backend.core.defect_phase_mapper import get_material_initial_strength
+
         s = get_material_initial_strength("vinyl", "phase_09_crackle_removal")
         assert 0.0 < s <= 1.0
 
     def test_tape_saturation_preserved_for_tape(self):
         from backend.core.defect_phase_mapper import get_material_initial_strength
+
         s = get_material_initial_strength("tape", "phase_22_tape_saturation")
         assert s <= 0.40, f"tape phase_22 should be capped, got {s}"
 
     def test_all_factors_in_valid_range(self):
         from backend.core.defect_phase_mapper import _MATERIAL_PHASE_FACTORS
+
         for mat, phases in _MATERIAL_PHASE_FACTORS.items():
             for phase_id, factor in phases.items():
                 assert 0.0 < factor <= 1.0, (
-                    f"_MATERIAL_PHASE_FACTORS[{mat!r}][{phase_id!r}] = {factor} "
-                    f"— must be in (0, 1.0]"
+                    f"_MATERIAL_PHASE_FACTORS[{mat!r}][{phase_id!r}] = {factor} — must be in (0, 1.0]"
                 )
 
 
@@ -104,9 +125,11 @@ class TestGetMaterialInitialStrength:
 # 2. apply_to_config with material_factor
 # ---------------------------------------------------------------------------
 
+
 class TestApplyToConfigMaterialFactor:
     def _get_assignment(self):
-        from backend.core.defect_phase_mapper import DefectType, _PHASE_MAP
+        from backend.core.defect_phase_mapper import _PHASE_MAP, DefectType
+
         return _PHASE_MAP[DefectType.HIGH_FREQ_NOISE]
 
     def test_material_factor_one_is_identity(self):
@@ -146,7 +169,8 @@ class TestApplyToConfigMaterialFactor:
         assert cfg_over.denoise_strength == pytest.approx(cfg_one.denoise_strength, abs=1e-6)
 
     def test_bool_field_set_above_threshold(self):
-        from backend.core.defect_phase_mapper import DefectType, _PHASE_MAP
+        from backend.core.defect_phase_mapper import _PHASE_MAP, DefectType
+
         assignment = _PHASE_MAP[DefectType.DROPOUTS]
         cfg = _FakeConfig()
         # effective = 1.0 * 1.0 * 1.0 = 1.0 ≥ 0.3 → bool True
@@ -154,7 +178,8 @@ class TestApplyToConfigMaterialFactor:
         assert cfg.enable_spectral_repair is True
 
     def test_bool_field_not_set_below_threshold(self):
-        from backend.core.defect_phase_mapper import DefectType, _PHASE_MAP
+        from backend.core.defect_phase_mapper import _PHASE_MAP, DefectType
+
         assignment = _PHASE_MAP[DefectType.DROPOUTS]
         cfg = _FakeConfig()
         # Bool logic: True if effective >= 0.3 else v (v from config_delta).
@@ -167,9 +192,11 @@ class TestApplyToConfigMaterialFactor:
 # 3. build_specialist_config with material
 # ---------------------------------------------------------------------------
 
+
 class TestBuildSpecialistConfigMaterial:
     def test_shellac_lowers_denoise_vs_none(self):
         from backend.core.defect_phase_mapper import DefectPhaseMapper, DefectType
+
         mapper = DefectPhaseMapper()
         cfg_no_mat, _ = mapper.build_specialist_config(
             _FakeConfig(), DefectType.HIGH_FREQ_NOISE, severity=0.8, material=None
@@ -182,10 +209,9 @@ class TestBuildSpecialistConfigMaterial:
 
     def test_cd_digital_lowers_click_sensitivity(self):
         from backend.core.defect_phase_mapper import DefectPhaseMapper, DefectType
+
         mapper = DefectPhaseMapper()
-        cfg_no_mat, _ = mapper.build_specialist_config(
-            _FakeConfig(), DefectType.CLICKS, severity=0.8, material=None
-        )
+        cfg_no_mat, _ = mapper.build_specialist_config(_FakeConfig(), DefectType.CLICKS, severity=0.8, material=None)
         cfg_cd, _ = mapper.build_specialist_config(
             _FakeConfig(), DefectType.CLICKS, severity=0.8, material="cd_digital"
         )
@@ -194,29 +220,24 @@ class TestBuildSpecialistConfigMaterial:
     def test_material_none_same_as_before(self):
         """material=None must behave identically to not passing material."""
         from backend.core.defect_phase_mapper import DefectPhaseMapper, DefectType
+
         mapper = DefectPhaseMapper()
-        cfg_none, v1 = mapper.build_specialist_config(
-            _FakeConfig(), DefectType.CRACKLE, severity=0.7
-        )
-        cfg_none2, v2 = mapper.build_specialist_config(
-            _FakeConfig(), DefectType.CRACKLE, severity=0.7, material=None
-        )
+        cfg_none, v1 = mapper.build_specialist_config(_FakeConfig(), DefectType.CRACKLE, severity=0.7)
+        cfg_none2, v2 = mapper.build_specialist_config(_FakeConfig(), DefectType.CRACKLE, severity=0.7, material=None)
         assert cfg_none.denoise_strength == pytest.approx(cfg_none2.denoise_strength, abs=1e-6)
 
     def test_returns_tuple_of_two(self):
         from backend.core.defect_phase_mapper import DefectPhaseMapper, DefectType
+
         mapper = DefectPhaseMapper()
-        result = mapper.build_specialist_config(
-            _FakeConfig(), DefectType.CLICKS, severity=0.5, material="vinyl"
-        )
+        result = mapper.build_specialist_config(_FakeConfig(), DefectType.CLICKS, severity=0.5, material="vinyl")
         assert isinstance(result, tuple) and len(result) == 2
 
     def test_variant_name_is_string(self):
         from backend.core.defect_phase_mapper import DefectPhaseMapper, DefectType
+
         mapper = DefectPhaseMapper()
-        _, name = mapper.build_specialist_config(
-            _FakeConfig(), DefectType.HUM, severity=0.5, material="tape"
-        )
+        _, name = mapper.build_specialist_config(_FakeConfig(), DefectType.HUM, severity=0.5, material="tape")
         assert isinstance(name, str) and len(name) > 0
 
 
@@ -224,14 +245,28 @@ class TestBuildSpecialistConfigMaterial:
 # 4. PMGG initial_strength
 # ---------------------------------------------------------------------------
 
+
 class TestPMGGInitialStrength:
     def _make_quick_audio(self) -> np.ndarray:
         rng = np.random.default_rng(42)
         return rng.uniform(-0.1, 0.1, 48000 * 2).astype(np.float32)
 
+    @staticmethod
+    def _zero_scores() -> dict:
+        """Returns all FAST_GOALS_SUBSET keys at 0.0.
+
+        Ensures PMGG never detects a regression when testing strength
+        propagation (random noise audio scores ~0.0 on all goals, which
+        equals the baseline — no rollback possible).
+        """
+        from backend.core.per_phase_musical_goals_gate import FAST_GOALS_SUBSET
+
+        return {k: 0.0 for k in FAST_GOALS_SUBSET}
+
     def test_initial_strength_passed_to_phase(self):
         """wrap_phase with initial_strength=0.3 must call phase with strength=0.3."""
         from backend.core.per_phase_musical_goals_gate import get_phase_gate
+
         gate = get_phase_gate()
         gate.reset()
 
@@ -240,8 +275,10 @@ class TestPMGGInitialStrength:
         audio = self._make_quick_audio()
 
         gate.wrap_phase(
-            phase, audio, 48000,
-            scores_before={"natuerlichkeit": 0.9, "authentizitaet": 0.9, "transparenz": 0.9},
+            phase,
+            audio,
+            48000,
+            scores_before=self._zero_scores(),
             initial_strength=0.3,
         )
         assert len(recorded) >= 1
@@ -253,6 +290,7 @@ class TestPMGGInitialStrength:
     def test_initial_strength_default_is_one(self):
         """wrap_phase without initial_strength must pass 1.0 to phase (backward compat)."""
         from backend.core.per_phase_musical_goals_gate import get_phase_gate
+
         gate = get_phase_gate()
         gate.reset()
 
@@ -261,16 +299,17 @@ class TestPMGGInitialStrength:
         audio = self._make_quick_audio()
 
         gate.wrap_phase(
-            phase, audio, 48000,
-            scores_before={"natuerlichkeit": 0.9, "authentizitaet": 0.9, "transparenz": 0.9},
+            phase,
+            audio,
+            48000,
+            scores_before=self._zero_scores(),
         )
-        assert recorded[0] == pytest.approx(1.0, abs=1e-6), (
-            f"Default initial_strength should be 1.0, got {recorded[0]}"
-        )
+        assert recorded[0] == pytest.approx(1.0, abs=1e-6), f"Default initial_strength should be 1.0, got {recorded[0]}"
 
     def test_initial_strength_above_one_clamped(self):
         """initial_strength > 1.0 must be clamped to 1.0."""
         from backend.core.per_phase_musical_goals_gate import get_phase_gate
+
         gate = get_phase_gate()
         gate.reset()
 
@@ -279,8 +318,10 @@ class TestPMGGInitialStrength:
         audio = self._make_quick_audio()
 
         gate.wrap_phase(
-            phase, audio, 48000,
-            scores_before={"natuerlichkeit": 0.9, "authentizitaet": 0.9, "transparenz": 0.9},
+            phase,
+            audio,
+            48000,
+            scores_before=self._zero_scores(),
             initial_strength=1.5,  # over limit
         )
         assert recorded[0] <= 1.0, f"initial_strength=1.5 should be clamped, got {recorded[0]}"
@@ -288,6 +329,7 @@ class TestPMGGInitialStrength:
     def test_initial_strength_zero_point_zero_one_floor(self):
         """initial_strength ≤ 0 must be floored to 0.01 (never zero)."""
         from backend.core.per_phase_musical_goals_gate import get_phase_gate
+
         gate = get_phase_gate()
         gate.reset()
 
@@ -296,14 +338,17 @@ class TestPMGGInitialStrength:
         audio = self._make_quick_audio()
 
         gate.wrap_phase(
-            phase, audio, 48000,
-            scores_before={"natuerlichkeit": 0.9, "authentizitaet": 0.9, "transparenz": 0.9},
+            phase,
+            audio,
+            48000,
+            scores_before=self._zero_scores(),
             initial_strength=0.0,
         )
         assert recorded[0] >= 0.01, f"initial_strength=0 should be floored, got {recorded[0]}"
 
     def test_returns_three_tuple(self):
         from backend.core.per_phase_musical_goals_gate import get_phase_gate
+
         gate = get_phase_gate()
         gate.reset()
 

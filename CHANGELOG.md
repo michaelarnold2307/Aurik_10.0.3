@@ -1,5 +1,30 @@
 # Aurik 9 — Changelog
 
+## Version 9.10.64 — SR-Assertion-Verletzungen in Analyse-Modulen behoben (Mär 2026)
+
+### Zusammenfassung
+
+Drei Analyse-Module enthielten `assert sr == 48000`, was der Spec-Pflicht **VERBOTEN** widerspricht (Analyse-Module müssen bei nativer Import-SR arbeiten — kein Resampling vor Analyse, kein `assert sr == 48000` in EraClassifier, MediumClassifier, DefectScanner, RestorabilityEstimator, GermanSchlagerClassifier).
+
+- **`backend/core/era_classifier.py` (line 495)**: `assert sr == 48000` aus `EraClassifier.classify()` entfernt → SR-agnostisch; alle Frequenz-Bin-Berechnungen nutzten bereits den `sr`-Parameter korrekt
+- **`backend/core/genre_classifier.py` (line 100)**: `assert sr == 48000` aus `GermanSchlagerClassifier.classify()` entfernt → SR-agnostisch; interne Analyse läuft ohnehin auf 22 050 Hz nach `_resample()`
+- **`backend/core/restorability_estimator.py` (line 116)**: `assert sr == 48000` aus `RestorabilityEstimator.assess()` entfernt → SR-agnostisch; alle nachgelagerten Operationen verwenden `sr` dynamisch
+
+### Betroffene Spec-Regel
+
+> **Allgemeiner Grundsatz SR-Agnostik in Analyse-Modulen (Performance-Budget §2.37)**:
+> `VERBOTEN: assert sr == 48000` in EraClassifier, MediumClassifier, DefectScanner, RestorabilityEstimator, GermanSchlagerClassifier.
+> Gilt nur in Verarbeitungs-Phasen (01–56) und Plugins.
+
+### Geänderte Dateien
+
+- `backend/core/era_classifier.py` — `assert sr == 48000` entfernt, Docstring bereinigt
+- `backend/core/genre_classifier.py` — `assert sr == 48000` entfernt, Docstring bereinigt
+- `backend/core/restorability_estimator.py` — `assert sr == 48000` entfernt
+- `CHANGELOG.md`
+
+---
+
 ## Version 9.10.63 — DefectScanner Anti-False-Positive-Härtung (Mär 2026)
 
 ### Zusammenfassung
@@ -3206,7 +3231,7 @@ Zwei neue wissenschaftlich begründete kausale Kanten:
    from core.unified_restorer_v2 import UnifiedRestorerV2
    restorer = UnifiedRestorerV2()
    result = restorer.restore(audio, sr, mode=ProcessingMode.RESTORATION)
-   
+
    # New (9.0)
    from core.unified_restorer_v3 import UnifiedRestorerV3
    from core.restoration_config import RestorationConfig, QualityMode

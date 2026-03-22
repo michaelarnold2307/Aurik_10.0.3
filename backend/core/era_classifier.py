@@ -17,15 +17,14 @@ Datum: 20. Februar 2026
 
 from __future__ import annotations
 
+from dataclasses import asdict, dataclass, field, replace as dc_replace
 import hashlib
 import itertools
 import json
 import logging
 import math
-import threading
-from dataclasses import asdict, dataclass, field
-from dataclasses import replace as dc_replace
 from pathlib import Path
+import threading
 
 import numpy as np
 
@@ -488,14 +487,10 @@ class EraClassifier:
 
         Raises:
             ValueError:    Falls audio leer ist.
-            AssertionError: Falls sr != 48000.
         """
         if audio.size == 0:
             raise ValueError("Audio darf nicht leer sein.")
-        assert sr == 48000, (
-            f"EraClassifier.classify(): 48000 Hz erwartet, erhalten: {sr} Hz. "
-            "Bitte Audiodaten vor dem Aufruf auf 48000 Hz resampeln."
-        )
+        # SR-agnostic: analysis modules work at native import SR (Spec §Performance-Budget)
         audio = np.nan_to_num(audio, nan=0.0, posinf=0.0, neginf=0.0)
         audio = np.clip(audio, -1.0, 1.0)
         audio_mono = np.mean(audio, axis=-1 if audio.shape[-1] <= 2 else 0) if audio.ndim > 1 else audio.copy()
@@ -538,6 +533,7 @@ class EraClassifier:
         # RemasterDetector-Guard (§2.14): verhindert falsche Ära-Zuweisung bei Remasters
         try:
             from backend.core.remaster_detector import get_remaster_detector
+
             _rm = get_remaster_detector().analyse(audio_mono, sr)
             if _rm is not None and _rm.is_remaster:
                 result = dc_replace(result, is_remaster_suspected=True)

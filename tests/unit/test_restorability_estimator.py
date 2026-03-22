@@ -6,7 +6,6 @@ Alle Tests synthetisch, kein ML-Modell-Download erforderlich.
 import math
 
 import numpy as np
-import pytest
 
 SR = 48_000
 np.random.seed(42)
@@ -203,12 +202,16 @@ def test_16_grade_values():
     assert len(r.grade) > 0
 
 
-def test_17_assert_sr():
+def test_17_sr_agnostic_native_import_sr():
+    # Spec §Performance-Budget: analysis modules work at native import SR.
+    # assert sr == 48000 is VERBOTEN in RestorabilityEstimator.
     from backend.core.restorability_estimator import estimate_restorability
 
     audio = _audio(2.0)
-    with pytest.raises((AssertionError, ValueError)):
-        estimate_restorability(audio, 44100)
+    # Must NOT raise at 44100 Hz (native import SR)
+    r = estimate_restorability(audio, 44100)
+    assert r is not None
+    assert math.isfinite(r.restorability_score), "SR-agnostic mode must return valid score at 44100 Hz"
 
 
 def test_18_multiple_materials():

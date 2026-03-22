@@ -12,11 +12,10 @@ Invariante: Kein ML, nur DSP-Schnellanalyse. Laufzeit ≤ 5 s.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 import logging
 import math
 import threading
-from dataclasses import dataclass
-from typing import List, Optional
 
 import numpy as np
 
@@ -113,7 +112,7 @@ class RestorabilityEstimator:
         Returns:
             RestorabilityResult mit Score, MOS-Prognose, Empfehlungen.
         """
-        assert sr == 48000, f"SR muss 48000 Hz sein, erhalten: {sr}"
+        # SR-agnostic: analysis modules work at native import SR (Spec §Performance-Budget)
 
         # Mono-Konvertierung
         mono = np.mean(audio, axis=0).astype(np.float32) if audio.ndim == 2 else audio.astype(np.float32)

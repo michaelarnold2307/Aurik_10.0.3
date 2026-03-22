@@ -4,10 +4,7 @@ Real-time audio playback with before/after comparison
 """
 
 from pathlib import Path
-from typing import Optional
 
-import numpy as np
-import soundfile as sf
 from PyQt5.QtCore import Qt, QThread, QTimer, pyqtSignal
 from PyQt5.QtWidgets import (
     QComboBox,
@@ -19,8 +16,22 @@ from PyQt5.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+import numpy as np
+import soundfile as sf
 
-from backend.api.bridge import get_aurik_denker_class, get_aurik_denker_instance
+try:
+    from backend.api.bridge import get_aurik_denker_class, get_aurik_denker_instance
+
+    _BRIDGE_AVAILABLE = True
+except ImportError:
+    _BRIDGE_AVAILABLE = False
+
+    def get_aurik_denker_class():  # type: ignore[misc]
+        return None
+
+    def get_aurik_denker_instance():  # type: ignore[misc]
+        return None
+
 
 from ..i18n import t
 
@@ -52,6 +63,7 @@ class AudioPreviewThread(QThread):
         """Process preview audio"""
         try:
             import numpy as np
+
             # §2.2 No-Competing-Instances: Singleton-Zugriff statt direkter Instanziierung
             denker = get_aurik_denker_instance()
             if denker is None:
@@ -66,9 +78,9 @@ class AudioPreviewThread(QThread):
                 import math as _math
 
                 from scipy.signal import resample_poly as _rp
+
                 _gcd = _math.gcd(sr, 48_000)
-                audio = _rp(audio, 48_000 // _gcd, sr // _gcd,
-                            axis=0 if audio.ndim > 1 else -1).astype(np.float32)
+                audio = _rp(audio, 48_000 // _gcd, sr // _gcd, axis=0 if audio.ndim > 1 else -1).astype(np.float32)
                 sr = 48_000
             self.progress.emit(30)
 
