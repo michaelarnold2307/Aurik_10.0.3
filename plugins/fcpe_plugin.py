@@ -293,9 +293,20 @@ class FcpePlugin:
             n_frames = mel.shape[0]
 
             # 3) ONNX-Inferenz: mel (1, T, 128) → salience (1, T, 360)
-            mel_inp = mel[None].astype(np.float32)  # (1, T, 128)
-            [sal_out] = self._session.run(["salience"], {"mel": mel_inp})
-            salience = np.nan_to_num(sal_out[0]).astype(np.float32)  # (T, 360)
+            #    OOM-Guard: chunk mel in 3000-frame segments for large files
+            _MAX_CHUNK = 3000
+            if n_frames <= _MAX_CHUNK:
+                mel_inp = mel[None].astype(np.float32)  # (1, T, 128)
+                [sal_out] = self._session.run(["salience"], {"mel": mel_inp})
+                salience = np.nan_to_num(sal_out[0]).astype(np.float32)  # (T, 360)
+            else:
+                _chunks: list[np.ndarray] = []
+                for _i in range(0, n_frames, _MAX_CHUNK):
+                    _chunk = mel[_i : _i + _MAX_CHUNK]
+                    _cinp = _chunk[None].astype(np.float32)
+                    [_cout] = self._session.run(["salience"], {"mel": _cinp})
+                    _chunks.append(np.nan_to_num(_cout[0]).astype(np.float32))
+                salience = np.concatenate(_chunks, axis=0)  # (T, 360)
             salience = np.clip(salience, 0.0, 1.0)
 
             # 4) Local-Argmax-Decoder: salience → [Hz], voiced_prob

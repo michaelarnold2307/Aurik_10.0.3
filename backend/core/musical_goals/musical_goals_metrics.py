@@ -25,11 +25,11 @@ Autor: AI Team
 Datum: 8. Februar 2026
 """
 
-from dataclasses import dataclass
 import logging
-from pathlib import Path
 import sys
 import threading
+from dataclasses import dataclass
+from pathlib import Path
 
 import librosa
 import librosa.core.constantq  # CQT/VQT-Pfad — von chroma_cqt ausgelöst
@@ -2455,22 +2455,26 @@ class MusicalGoalsChecker:
         _t_all_start = _time.perf_counter()
         for goal_name, metric in self.metrics.items():
             _t0 = _time.perf_counter()
-            if (
-                goal_name
-                in (
-                    "authentizitaet",
-                    "timbre_authentizitaet",
-                    "groove",
-                    "brillanz",
-                    "waerme",
-                    "artikulation",
-                    "spatial_depth",
-                )
-                and reference is not None
-            ):
-                scores[goal_name] = metric.measure(audio, sr, reference=reference)
-            else:
-                scores[goal_name] = metric.measure(audio, sr)
+            try:
+                if (
+                    goal_name
+                    in (
+                        "authentizitaet",
+                        "timbre_authentizitaet",
+                        "groove",
+                        "brillanz",
+                        "waerme",
+                        "artikulation",
+                        "spatial_depth",
+                    )
+                    and reference is not None
+                ):
+                    scores[goal_name] = metric.measure(audio, sr, reference=reference)
+                else:
+                    scores[goal_name] = metric.measure(audio, sr)
+            except Exception as _metric_exc:
+                logger.warning("measure_all: goal=%s failed: %s — using 0.0", goal_name, _metric_exc)
+                scores[goal_name] = 0.0
             _dt = _time.perf_counter() - _t0
             if _dt > 5.0:
                 logger.warning("measure_all: goal=%s took %.1f s", goal_name, _dt)

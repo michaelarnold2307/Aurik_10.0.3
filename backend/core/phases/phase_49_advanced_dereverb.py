@@ -52,8 +52,8 @@ import logging
 import time
 
 import numpy as np
-from scipy.ndimage import median_filter
 import scipy.signal as sig
+from scipy.ndimage import median_filter
 
 from .phase_interface import (
     PhaseCategory,
@@ -297,10 +297,16 @@ class AdvancedDereverbPhase(PhaseInterface):
 
     @staticmethod
     def _smooth_power(power: np.ndarray, alpha: float = 0.90) -> np.ndarray:
-        """Exponential Moving Average über Zeitachse (in-place-freie Version)."""
-        smoothed = power.copy()
-        for t in range(1, power.shape[0]):
-            smoothed[t] = alpha * smoothed[t - 1] + (1.0 - alpha) * power[t]
+        """Exponential Moving Average über Zeitachse — vectorized via lfilter."""
+        # EMA: y[t] = alpha * y[t-1] + (1 - alpha) * x[t]
+        # As IIR filter: b = [1 - alpha], a = [1, -alpha]
+        b = np.array([1.0 - alpha])
+        a = np.array([1.0, -alpha])
+        # Apply per frequency bin (power shape: (T, F) or (T,))
+        if power.ndim == 1:
+            smoothed = sig.lfilter(b, a, power)
+        else:
+            smoothed = sig.lfilter(b, a, power, axis=0)
         return smoothed + 1e-12
 
     @staticmethod
@@ -351,10 +357,28 @@ class AdvancedDereverbPhase(PhaseInterface):
         except np.linalg.LinAlgError:
             return np.zeros_like(y)
 
+        # Vectorized reverb prediction: r(t) = Σ_k g_k · y(t-D-k-1)
+        # The inner loop is a FIR filter (convolution) of y with g (reversed)
+        g_rev = g[::-1]  # reverse g for convolution
+        # Convolve y with g_rev: output[t] = Σ_k g_rev[k] * y[t-K+1+k] = Σ_k g[K-1-k] * y[t-K+1+k]
+        # We need: reverb[t] = Σ_k g[k] * y[t-D-k-1] for t >= D+K
+        # Shift: let s = t - D - 1, then reverb[s+D+1] = Σ_k g[k] * y[s-k]
+        # This is: convolve(y, g) at position s, valid for s >= K-1
+        conv_full = np.convolve(y, g_rev, mode="full")  # length T + K - 1
+        # conv_full[s] = Σ_k g_rev[k] * y[s-k] = Σ_k g[K-1-k] * y[s-k]
+        # We want reverb[t] = Σ_k g[k] * y[t-D-k-1]
+        # Let s = t - D - 1: reverb[t] = conv_g[s] where conv_g[s] = Σ_k g[k] * y[s-k]
+        # conv_g = convolve(y, g) — use g directly (not reversed) since numpy convolve already flips
+        conv_result = np.convolve(y, g, mode="full")  # length T + K - 1
+        # conv_result[s] = Σ_k g[k] * y[s-k], valid when s >= K-1
+        # reverb[t] = conv_result[t - D - 1] for t >= D + K (i.e. t-D-1 >= K-1)
         reverb = np.zeros_like(y)
-        for t in range(D + K, T):
-            for k in range(K):
-                reverb[t] += g[k] * y[t - D - k - 1]
+        valid_start = D + K
+        valid_end = min(T, T)  # conv_result has enough entries
+        src_start = valid_start - D - 1  # = K - 1
+        src_end = valid_end - D - 1
+        if src_end > src_start and src_end <= len(conv_result):
+            reverb[valid_start:valid_end] = conv_result[src_start:src_end]
 
         return reverb * strength
 

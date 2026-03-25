@@ -12,13 +12,13 @@ Version: 9.0.0
 Date: 2026-02-15
 """
 
-from collections.abc import Callable
 import contextlib
-from dataclasses import dataclass, field
-from enum import Enum
 import hashlib
 import logging
 import threading
+from collections.abc import Callable
+from dataclasses import dataclass, field
+from enum import Enum
 from typing import Optional
 
 import numpy as np
@@ -27,7 +27,8 @@ import scipy.signal as signal
 
 # §6.3 CLIPPING vs SOFT_SATURATION discrimination via THD analysis (lazy import)
 try:
-    from backend.core.clipping_detection import ClippingType as _ClippingType, classify_clipping as _classify_clipping
+    from backend.core.clipping_detection import ClippingType as _ClippingType
+    from backend.core.clipping_detection import classify_clipping as _classify_clipping
 
     _CLIPPING_DETECTION_AVAILABLE = True
 except ImportError:
@@ -873,7 +874,72 @@ class DefectScanner:
         scores[DefectType.TRANSIENT_SMEARING] = self._detect_transient_smearing(audio_mono)
         scores[DefectType.PRE_ECHO] = self._detect_pre_echo(audio_mono)
         scores[DefectType.ALIASING] = self._detect_aliasing(audio_mono)
-        scores[DefectType.TRANSPORT_BUMP] = self._detect_transport_bump(audio_mono)
+        # §9.1a — TRANSPORT_BUMP is non-stationary (impulsive micro-speed jumps).
+        # MUST run on FULL audio, same as DROPOUTS.
+        scores[DefectType.TRANSPORT_BUMP] = self._detect_transport_bump(_audio_mono_full)
+
+        # ── Full-Audio Location Re-Detection ───────────────────────────────────
+        # The center-crop analysis (60 s) produces locations ONLY in the middle
+        # section of the song.  For event-based defects (clicks, crackle, etc.)
+        # this is misleading — a 4-minute vinyl track shows markers only between
+        # ~90 s and ~150 s while defects actually occur throughout.
+        #
+        # Fix: Re-run the event-based detectors on the FULL mono audio to get
+        # accurate full-range locations.  Severity values from the center-crop
+        # are retained (they are statistically representative).
+        # Semi-stationary defects (print_through, transient_smearing, pre_echo)
+        # have their locations cleared — they show as full-width tints instead.
+        if _location_offset_s > 0.0:
+            # Event-based detectors: re-detect on full audio for locations only
+            _EVENT_DETECTORS: list[tuple] = [
+                (DefectType.CLICKS, self._detect_clicks),
+                (DefectType.CRACKLE, self._detect_crackle),
+                (DefectType.CLIPPING, self._detect_clipping),
+                (DefectType.SIBILANCE, self._detect_sibilance),
+            ]
+            for _edt, _edet_fn in _EVENT_DETECTORS:
+                if _edt not in scores or scores[_edt].severity <= 0.01:
+                    continue
+                try:
+                    _full_result = _edet_fn(_audio_mono_full)
+                    if _full_result.locations:
+                        scores[_edt].locations = _full_result.locations
+                    # If full-audio detection finds no locations, keep severity
+                    # but clear the center-only locations (shown as tint instead)
+                    else:
+                        scores[_edt].locations = []
+                except Exception:
+                    # Fallback: apply offset to center-crop locations
+                    if scores[_edt].locations:
+                        scores[_edt].locations = [
+                            (t0 + _location_offset_s, t1 + _location_offset_s) for t0, t1 in scores[_edt].locations
+                        ]
+
+            # DROPOUTS + TRANSPORT_BUMP already use full audio — no correction needed.
+            # Event detectors re-detected above — no correction needed.
+            _SKIP_OFFSET = {
+                DefectType.DROPOUTS,
+                DefectType.TRANSPORT_BUMP,
+                DefectType.CLICKS,
+                DefectType.CRACKLE,
+                DefectType.CLIPPING,
+                DefectType.SIBILANCE,
+            }
+            if is_stereo:
+                _SKIP_OFFSET.add(DefectType.CLICKS)  # redundant but explicit
+
+            # Semi-stationary defects: clear locations → full-width tint display
+            _CLEAR_LOCATIONS = {DefectType.PRINT_THROUGH, DefectType.TRANSIENT_SMEARING, DefectType.PRE_ECHO}
+            for _cdt in _CLEAR_LOCATIONS:
+                if _cdt in scores and scores[_cdt].locations:
+                    scores[_cdt].locations = []
+
+            # Remaining detectors with locations: apply offset correction
+            for _dt, _ds in scores.items():
+                if _dt in _SKIP_OFFSET or _dt in _CLEAR_LOCATIONS:
+                    continue
+                if _ds.locations:
+                    _ds.locations = [(t0 + _location_offset_s, t1 + _location_offset_s) for t0, t1 in _ds.locations]
 
         # ── §9.1b Intro-Salienz-Gewichtung ──────────────────────────────────────
         # Psychoacoustic research (Zacharov & Koivuniemi 2001, Bech & Zacharov 2006):
@@ -881,6 +947,11 @@ class DefectScanner:
         # Defects in the intro region receive a severity boost so that the pipeline
         # prioritizes their repair.  This is especially critical for tape media
         # where leader artifacts and run-in fluctuations cluster at the beginning.
+        #
+        # IMPORTANT: This MUST run AFTER the full-audio location re-detection and
+        # offset correction above, so that t0 values are in absolute song time.
+        # Running it before would check intro membership against crop-relative
+        # timestamps (center of the song), not the actual intro.
         _INTRO_SECONDS = 5.0
         _INTRO_SEVERITY_BOOST = 1.5  # 50% boost for intro defects
         _total_duration_s = len(_audio_mono_full) / sr
@@ -913,21 +984,6 @@ class DefectScanner:
                             len(_ds.locations),
                             _INTRO_SECONDS,
                         )
-
-        # ── Location-Offset korrigieren ─────────────────────────────────────────
-        # Detektoren, die auf dem 60 s-Mitte-Clip (audio_mono) laufen, erzeugen
-        # Locations relativ zum Clip-Start.  Der Offset muss addiert werden, damit
-        # die Marker an der korrekten Stelle im Gesamt-Audio erscheinen.
-        # _detect_clicks() bei Stereo nutzt das volle Audio → kein Offset nötig.
-        if _location_offset_s > 0.0:
-            _FULL_AUDIO_DETECTORS = {DefectType.DROPOUTS}  # runs on full audio, no offset needed
-            if is_stereo:
-                _FULL_AUDIO_DETECTORS.add(DefectType.CLICKS)
-            for _dt, _ds in scores.items():
-                if _dt in _FULL_AUDIO_DETECTORS:
-                    continue
-                if _ds.locations:
-                    _ds.locations = [(t0 + _location_offset_s, t1 + _location_offset_s) for t0, t1 in _ds.locations]
 
         # ── Per-Channel Location-Tags (L/R) für Stereo ─────────────────────────
         # Alle lokalisierbaren Impuls-/Event-Defekte werden pro Kanal detektiert,
@@ -1138,7 +1194,7 @@ class DefectScanner:
         rumble_energy = np.sum(psd[freqs < 60]) / _psd_total
 
         # Mid-low freq (50-60Hz hum typical for vinyl)
-        _mid_low_energy = np.sum(psd[(freqs >= 50) & (freqs <= 70)]) / _psd_total  # noqa: F841
+        _mid_low_energy = np.sum(psd[(freqs >= 50) & (freqs <= 70)]) / _psd_total
 
         # Crackle detection
         crackle_score = self._detect_crackle(audio).severity

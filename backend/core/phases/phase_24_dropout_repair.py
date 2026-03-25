@@ -255,10 +255,28 @@ class DropoutRepairPhase(PhaseInterface):
         # Get material-specific parameters
         params = self.MATERIAL_PARAMS.get(material_type, self.MATERIAL_PARAMS["unknown"])
 
+        # §11.7a: Bereits von RekonstruktionsDenker reparierte Gap-Regionen filtern
+        _repaired_gaps: list[tuple[int, int]] = kwargs.get("repaired_gap_samples", [])
+
+        def _filter_pre_repaired(dropouts: list[tuple[int, int]]) -> tuple[list[tuple[int, int]], int]:
+            """Filter out dropouts that overlap with already-repaired gaps."""
+            if not _repaired_gaps:
+                return dropouts, 0
+            filtered = []
+            for ds, de in dropouts:
+                overlap = any(rs < de and re > ds for rs, re in _repaired_gaps)
+                if not overlap:
+                    filtered.append((ds, de))
+            return filtered, len(dropouts) - len(filtered)
+
         # Stereo/Mono handling
+        _pre_repaired_skipped = 0
         if audio.ndim == 2:
             dropouts_left = self._detect_dropouts_multimodal(audio[:, 0], params)
             dropouts_right = self._detect_dropouts_multimodal(audio[:, 1], params)
+            dropouts_left, _sk_l = _filter_pre_repaired(dropouts_left)
+            dropouts_right, _sk_r = _filter_pre_repaired(dropouts_right)
+            _pre_repaired_skipped = _sk_l + _sk_r
 
             repaired_left, ml_count_left = self._repair_dropouts_professional(
                 audio[:, 0], dropouts_left, params, use_ml
@@ -272,6 +290,8 @@ class DropoutRepairPhase(PhaseInterface):
             ml_repaired_count = ml_count_left + ml_count_right
         else:
             all_dropouts = self._detect_dropouts_multimodal(audio, params)
+            all_dropouts, _sk = _filter_pre_repaired(all_dropouts)
+            _pre_repaired_skipped += _sk
             repaired_audio, ml_repaired_count = self._repair_dropouts_professional(audio, all_dropouts, params, use_ml)
 
         # Statistics
@@ -317,6 +337,7 @@ class DropoutRepairPhase(PhaseInterface):
                 "repair_strength": params["repair_strength"],
                 "material_type": material_type,
                 "algorithm_version": "2.0_ml_hybrid" if use_ml else "2.0_professional",
+                "pre_repaired_gaps_skipped": _pre_repaired_skipped,
             },
             warnings=warnings,
             metadata={
@@ -914,9 +935,9 @@ if __name__ == "__main__":
     materials = ["shellac", "vinyl", "cd_digital"]
 
     for material in materials:
-        logger.debug(f"\n{'-'*80}")
+        logger.debug(f"\n{'-' * 80}")
         logger.debug(f"Testing with material: {material.upper()}")
-        logger.debug(f"{'-'*80}")
+        logger.debug(f"{'-' * 80}")
 
         phase = DropoutRepairPhase(sample_rate=sr)
         result = phase.process(audio.copy(), material_type=material)
@@ -935,9 +956,9 @@ if __name__ == "__main__":
         else:
             logger.debug("❌ Processing Failed!")
 
-    logger.debug(f"\n{'='*80}")
+    logger.debug(f"\n{'=' * 80}")
     logger.debug("✅ Professional Dropout Repair v2.0 Test Complete!")
-    logger.debug(f"{'='*80}")
+    logger.debug(f"{'=' * 80}")
     logger.debug(f"Algorithm: {result.metadata['algorithm']}")
     logger.debug(f"Scientific Reference: {result.metadata['scientific_ref']}")
     logger.debug(f"Benchmark: {result.metadata['benchmark']}")

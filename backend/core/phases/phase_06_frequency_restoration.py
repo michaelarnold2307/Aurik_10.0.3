@@ -103,7 +103,8 @@ logger = logging.getLogger(__name__)
 # ============================================================
 ML_HYBRID_AVAILABLE = False
 try:
-    from plugins.audiosr_plugin import AudioSRPlugin
+    pass
+
     ML_HYBRID_AVAILABLE = True
 except ImportError:
     ML_HYBRID_AVAILABLE = False
@@ -442,15 +443,11 @@ class FrequencyRestorationPhase(PhaseInterface):
         try:
             from dsp.pghi import pghi_reconstruct_from_stft
 
-            restored = pghi_reconstruct_from_stft(
-                Zxx, sr=self.sample_rate, win_size=n_fft, hop=hop_length
-            )
+            restored = pghi_reconstruct_from_stft(Zxx, sr=self.sample_rate, win_size=n_fft, hop=hop_length)
         except Exception:
             import librosa
 
-            restored = librosa.griffinlim(
-                np.abs(Zxx), n_iter=32, hop_length=hop_length, win_length=n_fft, n_fft=n_fft
-            )
+            restored = librosa.griffinlim(np.abs(Zxx), n_iter=8, hop_length=hop_length, win_length=n_fft, n_fft=n_fft)
 
         # Match length
         if len(restored) > len(channel):
@@ -491,19 +488,19 @@ class FrequencyRestorationPhase(PhaseInterface):
         else:
             pass
 
-        # Copy and transpose source to target
-        for t_idx in range(Zxx.shape[1]):
-            # Extract source band
-            source_spectrum = Zxx[source_start:source_end, t_idx]
+        # Copy and transpose source to target — vectorized over all time frames
+        source_spectrum = Zxx[source_start:source_end, :]  # (source_width, T)
+        source_indices = np.linspace(0, source_width - 1, target_width)
+        frame_indices = np.arange(source_width)
+        # Interpolate source to target width for all frames at once
+        source_abs = np.abs(source_spectrum)  # (source_width, T)
+        source_interp = np.array(
+            [np.interp(source_indices, frame_indices, source_abs[:, t]) for t in range(source_abs.shape[1])]
+        ).T  # (target_width, T)
 
-            # Interpolate to target width (transpose)
-            source_indices = np.linspace(0, len(source_spectrum) - 1, target_width)
-            source_interp = np.interp(source_indices, np.arange(len(source_spectrum)), np.abs(source_spectrum))
-
-            # Apply to target band with strength scaling
-            Zxx[target_start:target_end, t_idx] += (
-                source_interp * sbr_ratio * strength * np.exp(1j * np.angle(Zxx[target_start:target_end, t_idx]))
-            )
+        # Apply to target band with strength scaling
+        target_phase = np.exp(1j * np.angle(Zxx[target_start:target_end, :]))
+        Zxx[target_start:target_end, :] += source_interp * sbr_ratio * strength * target_phase
 
         return Zxx
 
@@ -529,27 +526,25 @@ class FrequencyRestorationPhase(PhaseInterface):
         source_start = max(0, rolloff_bin // 2)
         source_end = rolloff_bin
 
-        for t_idx in range(Zxx.shape[1]):
-            # Extract source spectrum
-            source_spectrum = Zxx[source_start:source_end, t_idx]
+        # Vectorized harmonic extension over all time frames
+        source_spectrum = Zxx[source_start:source_end, :]  # (source_width, T)
 
-            # Generate harmonics at octave intervals
-            # 1st octave: 2× frequency
-            octave_1_start = source_start * 2
-            octave_1_end = source_end * 2
+        # Generate harmonics at octave intervals — 1st octave: 2× frequency
+        octave_1_start = source_start * 2
+        octave_1_end = source_end * 2
 
-            if octave_1_start < len(f) and octave_1_end <= extension_end_bin:
-                # Copy source harmonics to octave (scaled down)
-                target_indices = np.arange(octave_1_start, min(octave_1_end, len(Zxx)))
-                source_indices_interp = np.linspace(0, len(source_spectrum) - 1, len(target_indices))
-                harmonic_spectrum = np.interp(
-                    source_indices_interp, np.arange(len(source_spectrum)), np.abs(source_spectrum)
-                )
+        if octave_1_start < len(f) and octave_1_end <= extension_end_bin:
+            target_indices = np.arange(octave_1_start, min(octave_1_end, len(Zxx)))
+            source_abs = np.abs(source_spectrum)  # (source_width, T)
+            src_idx = np.arange(source_abs.shape[0])
+            tgt_interp = np.linspace(0, source_abs.shape[0] - 1, len(target_indices))
+            # Interpolate all frames at once
+            harmonic_spectra = np.array(
+                [np.interp(tgt_interp, src_idx, source_abs[:, t]) for t in range(source_abs.shape[1])]
+            ).T  # (len(target_indices), T)
 
-                # Apply with scaling (harmonics decay)
-                Zxx[target_indices, t_idx] += (
-                    harmonic_spectrum * strength * 0.5 * np.exp(1j * np.angle(Zxx[target_indices, t_idx]))
-                )
+            target_phase = np.exp(1j * np.angle(Zxx[target_indices, :]))
+            Zxx[target_indices, :] += harmonic_spectra * strength * 0.5 * target_phase
 
         return Zxx
 
@@ -561,11 +556,11 @@ class FrequencyRestorationPhase(PhaseInterface):
 
         Detect transients in existing band, synthesize HF components.
         """
-        # Detect transients via spectral flux
+        # Detect transients via spectral flux — vectorized
+        abs_spec = np.abs(Zxx[:rolloff_bin, :])  # (rolloff_bin, T)
+        diff = abs_spec[:, 1:] - abs_spec[:, :-1]
         flux = np.zeros(Zxx.shape[1])
-        for t_idx in range(1, Zxx.shape[1]):
-            diff = np.abs(Zxx[:rolloff_bin, t_idx]) - np.abs(Zxx[:rolloff_bin, t_idx - 1])
-            flux[t_idx] = np.sum(np.maximum(diff, 0))
+        flux[1:] = np.sum(np.maximum(diff, 0), axis=0)
 
         # Normalize
         flux = flux / (np.max(flux) + 1e-10)
@@ -647,9 +642,9 @@ if __name__ == "__main__":
     materials = ["shellac", "vinyl", "tape", "cd_digital"]
 
     for material in materials:
-        logger.debug(f"\n{'-'*80}")
+        logger.debug(f"\n{'-' * 80}")
         logger.debug(f"Testing with material: {material.upper()}")
-        logger.debug(f"{'-'*80}")
+        logger.debug(f"{'-' * 80}")
 
         phase = FrequencyRestorationPhase(sample_rate=sr)
         result = phase.process(audio_rolled_off.copy(), material_type=material)
@@ -677,9 +672,9 @@ if __name__ == "__main__":
                     f"   Measured Rolloff: {result.metadata['measured_rolloff_db']:.1f} dB at {result.metadata.get('measured_rolloff_freq', 0):.0f} Hz"
                 )
 
-    logger.debug(f"\n{'='*80}")
+    logger.debug(f"\n{'=' * 80}")
     logger.debug("✅ Professional Frequency Restoration v2.0 Test Complete!")
-    logger.debug(f"{'='*80}")
+    logger.debug(f"{'=' * 80}")
     logger.debug(f"Algorithm: {result.metadata.get('algorithm', 'N/A')}")
     logger.debug(f"Scientific Reference: {result.metadata.get('scientific_ref', 'N/A')}")
     logger.debug(f"Benchmark: {result.metadata.get('benchmark', 'N/A')}")

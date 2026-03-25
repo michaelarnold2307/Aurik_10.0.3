@@ -31,10 +31,10 @@ Version: 1.0.0
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 import logging
-from pathlib import Path
 import threading
+from dataclasses import dataclass, field
+from pathlib import Path
 
 import numpy as np
 import scipy.signal as spsig
@@ -593,6 +593,12 @@ class MertPlugin:
         mono = _to_mono(audio)
         resampled = _resample_if_needed(mono, sample_rate, self._target_sr)
         resampled = resampled.astype(np.float32)
+
+        # OOM-Guard: cap inference audio at 30 s center-crop (HF/ONNX/fairseq)
+        _MAX_MERT_SAMPLES = int(30 * self._target_sr)
+        if len(resampled) > _MAX_MERT_SAMPLES:
+            _off = (len(resampled) - _MAX_MERT_SAMPLES) // 2
+            resampled = resampled[_off : _off + _MAX_MERT_SAMPLES]
 
         if self._model_type == "mert_hf":
             return self._analyze_hf(resampled)

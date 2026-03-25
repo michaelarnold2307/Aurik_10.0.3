@@ -25,10 +25,10 @@ Modell-Gewichte: ~/.aurik/models/utmos/ (via ModelDownloader)
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 import logging
-from pathlib import Path
 import threading
+from dataclasses import dataclass, field
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -439,6 +439,13 @@ class UTMOSPlugin:
         try:
             # Resample auf 16 kHz (UTMOS-intern)
             audio_16k = self._resample_to_16k(audio, sr)
+
+            # OOM-Guard: cap at 30 s center-crop to prevent large ONNX tensor
+            _MAX_UTMOS_16K = 30 * 16_000  # 480 000 samples
+            if len(audio_16k) > _MAX_UTMOS_16K:
+                _off = (len(audio_16k) - _MAX_UTMOS_16K) // 2
+                audio_16k = audio_16k[_off : _off + _MAX_UTMOS_16K]
+
             feat = audio_16k[np.newaxis, :].astype(np.float32)  # [1, T]
 
             if self._session is None:
@@ -567,6 +574,13 @@ class UTMOSPlugin:
             import torch
 
             audio_16k = self._resample_to_16k(audio, sr)
+
+            # OOM-Guard: cap at 30 s center-crop (fold models + mel-specs)
+            _MAX_FOLD_16K = 30 * 16_000
+            if len(audio_16k) > _MAX_FOLD_16K:
+                _off = (len(audio_16k) - _MAX_FOLD_16K) // 2
+                audio_16k = audio_16k[_off : _off + _MAX_FOLD_16K]
+
             fold_scores: list[float] = []
 
             for model_or_state, cfg in self._fold_models:

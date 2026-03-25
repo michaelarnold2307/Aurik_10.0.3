@@ -280,6 +280,25 @@ class HybridMLDenoiser:
 
         metadata = {}
 
+        # OOM-Guard: check available RAM before Resemble processing
+        _audio_gb = audio.nbytes / (1024**3)
+        try:
+            import psutil
+
+            _avail_gb = psutil.virtual_memory().available / (1024**3)
+            # Resemble needs ~4× audio size in RAM for internal buffers
+            if _avail_gb < max(4.0, _audio_gb * 4):
+                logger.warning(
+                    "Resemble: insufficient RAM (%.1f GB avail, need ~%.1f GB) — skip",
+                    _avail_gb,
+                    _audio_gb * 4,
+                )
+                metadata["success"] = False
+                metadata["error"] = "OOM guard: insufficient RAM"
+                return audio, metadata
+        except ImportError:
+            pass
+
         # Write to temp file (Resemble needs file I/O)
         with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as input_tmp:
             input_path = input_tmp.name
@@ -390,7 +409,8 @@ def denoise_fast(audio: np.ndarray, sample_rate: int = 48000) -> np.ndarray:
 def denoise_balanced(audio: np.ndarray, sample_rate: int = 48000) -> np.ndarray:
     """Balanced denoising (OMLSA + selective Resemble)."""
     config = DenoiseConfig(
-        strategy=DenoiseStrategy.HYBRID, quality_threshold=0.75  # Skip Resemble if OMLSA achieves >0.75
+        strategy=DenoiseStrategy.HYBRID,
+        quality_threshold=0.75,  # Skip Resemble if OMLSA achieves >0.75
     )
     denoiser = HybridMLDenoiser(config)
     result = denoiser.denoise(audio, sample_rate)

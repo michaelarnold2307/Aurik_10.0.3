@@ -11,7 +11,6 @@ import logging
 import math
 import threading
 from dataclasses import dataclass
-from typing import Dict, FrozenSet, Optional
 
 import numpy as np
 
@@ -158,13 +157,17 @@ class GoalApplicabilityFilter:
         # REGEL: SpatialDepthMetric
         era_mono = era_decade is not None and era_decade <= 1950
         mat_mono = material in _MONO_MATERIALS
-        if era_mono or is_mono_signal or mat_mono:
+        # §GoalApplicability Mono-Fix: Materialien vor 1960 die in _MONO_MATERIALS sind,
+        # werden auch dann als mono behandelt, wenn die Signal-Korrelation < 0.97 liegt
+        # (z. B. Schellack mit Raumambience über Stereo-A/D-Wandler).
+        mat_era_mono = mat_mono and (era_decade is not None and era_decade <= 1960)
+        if era_mono or is_mono_signal or mat_mono or mat_era_mono:
             inapplicable["spatial_depth"] = "Mono-Aufnahme — Raumtiefe nicht messbar."
 
         # REGEL: BrillanzMetric
         if bw_hz < 8000.0 and not audiosr_available:
             inapplicable["brillanz"] = (
-                "Hochfrequenz war nicht aufgezeichnet — " "Brillanz wird nach Bandbreiten-Erweiterung neu bewertet."
+                "Hochfrequenz war nicht aufgezeichnet — Brillanz wird nach Bandbreiten-Erweiterung neu bewertet."
             )
 
         # REGEL: TonalCenterMetric

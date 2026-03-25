@@ -320,16 +320,34 @@ def _try_diffwave_plugin(audio: np.ndarray, start: int, end: int, sample_rate: i
         return None
 
 
-def _process_channel(channel: np.ndarray, sample_rate: int, min_gap_ms: float) -> tuple[np.ndarray, dict]:
+def _process_channel(
+    channel: np.ndarray,
+    sample_rate: int,
+    min_gap_ms: float,
+    repaired_gap_samples: list[tuple[int, int]] | None = None,
+) -> tuple[np.ndarray, dict]:
     """Inpainting für einen Mono-Kanal. Returns (repaired, stats)."""
     result = channel.copy()
     gaps = _detect_gaps(channel, sample_rate, min_gap_ms)
+
+    # §11.7a: Bereits von RekonstruktionsDenker reparierte Gaps filtern
+    if repaired_gap_samples:
+        filtered = []
+        for gs, ge in gaps:
+            overlap = any(rs < ge and re > gs for rs, re in repaired_gap_samples)
+            if not overlap:
+                filtered.append((gs, ge))
+        n_skipped = len(gaps) - len(filtered)
+        gaps = filtered
+    else:
+        n_skipped = 0
 
     stats = {
         "n_gaps": len(gaps),
         "total_gap_ms": 0.0,
         "max_gap_ms": 0.0,
         "plugin_used": False,
+        "pre_repaired_skipped": n_skipped,
     }
 
     for start, end in gaps:
@@ -426,17 +444,22 @@ class DiffusionInpaintingPhase(PhaseInterface):
         assert sample_rate == 48000, f"SR muss 48000 Hz sein, erhalten: {sample_rate}"
         t0 = time.perf_counter()
 
+        # §11.7a: Bereits von RekonstruktionsDenker reparierte Gap-Regionen
+        _repaired_gaps: list[tuple[int, int]] = kwargs.get("repaired_gap_samples", [])
+        _n_repaired_skipped = 0
+
         if audio.ndim == 1:
             # Mono
-            repaired, stats = _process_channel(audio, sample_rate, min_gap_ms)
+            repaired, stats = _process_channel(audio, sample_rate, min_gap_ms, _repaired_gaps)
             gaps = _detect_gaps(audio, sample_rate, min_gap_ms)
             quality = _reconstruction_quality_score(audio, repaired, gaps)
             n_gaps = stats["n_gaps"]
             total_gap_ms = stats["total_gap_ms"]
             max_gap_ms = stats["max_gap_ms"]
             plugin_used = stats["plugin_used"]
+            _n_repaired_skipped = stats.get("pre_repaired_skipped", 0)
         else:
-            # Stereo / Multi-channel
+            # Stereo / Multi-channel — UV3 liefert (N, C) Format
             channels_repaired = []
             n_gaps = 0
             total_gap_ms = 0.0
@@ -444,18 +467,19 @@ class DiffusionInpaintingPhase(PhaseInterface):
             plugin_used = False
             quality_scores = []
 
-            for ch in range(audio.shape[0]):
-                ch_rep, stats = _process_channel(audio[ch], sample_rate, min_gap_ms)
+            for ch in range(audio.shape[1]):
+                ch_rep, stats = _process_channel(audio[:, ch], sample_rate, min_gap_ms, _repaired_gaps)
                 channels_repaired.append(ch_rep)
                 n_gaps = max(n_gaps, stats["n_gaps"])
                 total_gap_ms += stats["total_gap_ms"]
                 max_gap_ms = max(max_gap_ms, stats["max_gap_ms"])
                 plugin_used = plugin_used or stats["plugin_used"]
+                _n_repaired_skipped += stats.get("pre_repaired_skipped", 0)
 
-                gaps = _detect_gaps(audio[ch], sample_rate, min_gap_ms)
-                quality_scores.append(_reconstruction_quality_score(audio[ch], ch_rep, gaps))
+                gaps = _detect_gaps(audio[:, ch], sample_rate, min_gap_ms)
+                quality_scores.append(_reconstruction_quality_score(audio[:, ch], ch_rep, gaps))
 
-            repaired = np.stack(channels_repaired, axis=0)
+            repaired = np.column_stack(channels_repaired)
             quality = float(np.mean(quality_scores)) if quality_scores else 1.0
 
         elapsed = time.perf_counter() - t0
@@ -476,5 +500,6 @@ class DiffusionInpaintingPhase(PhaseInterface):
                 "min_gap_ms": min_gap_ms,
                 "ar_order": _AR_ORDER,
                 "primary_ml": "cqtdiff",
+                "pre_repaired_gaps_skipped": _n_repaired_skipped,
             },
         )

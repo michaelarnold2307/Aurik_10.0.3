@@ -51,7 +51,9 @@ def _make_fake_phase(strength_recorder: list) -> object:
 
         def get_metadata(self):
             meta = types.SimpleNamespace()
-            meta.phase_id = "phase_03_denoise"
+            # Use a DSP (non-ML-deterministic) phase_id so PMGG passes
+            # initial_strength directly to process() instead of Wet/Dry blending.
+            meta.phase_id = "phase_10_click_repair"
             return meta
 
     return FakePhase()
@@ -261,7 +263,7 @@ class TestPMGGInitialStrength:
         """
         from backend.core.per_phase_musical_goals_gate import FAST_GOALS_SUBSET
 
-        return {k: 0.0 for k in FAST_GOALS_SUBSET}
+        return dict.fromkeys(FAST_GOALS_SUBSET, 0.0)
 
     def test_initial_strength_passed_to_phase(self):
         """wrap_phase with initial_strength=0.3 must call phase with strength=0.3."""

@@ -156,8 +156,7 @@ class MusicalGoalsQualityGate:
         self.reports: list[QualityGateReport] = []
 
         logger.info(
-            f"MusicalGoalsQualityGate initialized "
-            f"(strict_mode={strict_mode}, critical_threshold={critical_threshold})"
+            f"MusicalGoalsQualityGate initialized (strict_mode={strict_mode}, critical_threshold={critical_threshold})"
         )
 
     def pre_check(
@@ -253,7 +252,7 @@ class MusicalGoalsQualityGate:
             recommendation=recommendation,
         )
 
-        logger.info(f"Pre-Check complete: passed={passed}, " f"warnings={len(warnings)}, edge_cases={len(edge_cases)}")
+        logger.info(f"Pre-Check complete: passed={passed}, warnings={len(warnings)}, edge_cases={len(edge_cases)}")
 
         return result
 
@@ -342,6 +341,12 @@ class MusicalGoalsQualityGate:
         degradations = {}
         critical_violations = []
 
+        # v9.10.76: Per-goal critical threshold — wenn adaptive_thresholds aktiv
+        # sind (degradiertes Material), darf critical_threshold nicht höher als
+        # der adaptive Schwellwert sein, sonst werden alle material-adaptiven
+        # Relaxationen durch den festen critical_threshold=0.70 zunichte gemacht.
+        _using_adaptive = bool(adaptive_thresholds) or bool(context and context.get("adaptive_thresholds"))
+
         for goal_name, threshold in thresholds.items():
             achieved = float(np.nan_to_num(achieved_scores.get(goal_name, 0.0), nan=0.0))
             baseline = float(np.nan_to_num(baseline_scores.get(goal_name, 0.0), nan=0.0))
@@ -356,16 +361,23 @@ class MusicalGoalsQualityGate:
                     "baseline": baseline,
                 }
 
-                # Critical violation?
-                if achieved < self.critical_threshold:
+                # Critical violation? Per-goal adaptive critical threshold:
+                # With adaptive thresholds, critical = max(0.30, threshold - 0.15)
+                # Without adaptive thresholds: use global critical_threshold (0.70)
+                if _using_adaptive:
+                    _goal_critical = max(0.30, threshold - 0.15)
+                else:
+                    _goal_critical = self.critical_threshold
+
+                if achieved < _goal_critical:
                     critical_violations.append(goal_name)
                     logger.error(
                         f"CRITICAL VIOLATION: {goal_name} = {achieved:.3f} "
-                        f"< {self.critical_threshold} (threshold: {threshold:.3f})"
+                        f"< {_goal_critical:.2f} (threshold: {threshold:.3f})"
                     )
                 else:
                     logger.warning(
-                        f"Violation: {goal_name} = {achieved:.3f} " f"< {threshold:.3f} (baseline: {baseline:.3f})"
+                        f"Violation: {goal_name} = {achieved:.3f} < {threshold:.3f} (baseline: {baseline:.3f})"
                     )
 
             # Track improvements/degradations
@@ -396,7 +408,7 @@ class MusicalGoalsQualityGate:
                 decision = QualityGateDecision.WARNING
                 action = "warn"
                 recommendation = (
-                    f"Non-critical violations in {len(violations)} goals. " f"Consider adjusting processing parameters."
+                    f"Non-critical violations in {len(violations)} goals. Consider adjusting processing parameters."
                 )
                 passed = False
         else:
@@ -506,8 +518,12 @@ class MusicalGoalsQualityGate:
             post_check=post_check,
             processing_steps=processing_steps,
             total_violations=len(post_check.violations),
-            critical_violations=sum(
-                1 for v in post_check.violations.values() if v["achieved"] < self.critical_threshold
+            # v9.10.76: Die post_check-Logik hat critical_violations bereits
+            # korrekt mit per-goal adaptive critical_threshold berechnet und
+            # in die decision kodiert. Wir zählen die Violations, die unter
+            # dem material-adaptiven Floor liegen.
+            critical_violations=(
+                len(post_check.violations) if post_check.decision == QualityGateDecision.ROLLBACK_REQUIRED else 0
             ),
             rollback_occurred=(post_check.decision == QualityGateDecision.ROLLBACK_REQUIRED),
             final_decision=post_check.decision,
@@ -810,7 +826,9 @@ class EnhancedQualityGate:
         self.nisqa_threshold = nisqa_threshold  # Compat-only, nicht aktiv
         self.dnsmos_threshold = dnsmos_threshold  # Compat-only, nicht aktiv
         self.visqol_threshold = visqol_threshold  # ViSQOL v3 --audio mode (§4.4 erlaubt)
-        self.versa_threshold = cdpam_threshold  # §4.4: VERSA-Score-Schwellwert (0-100), Compat-Param heißt cdpam_threshold
+        self.versa_threshold = (
+            cdpam_threshold  # §4.4: VERSA-Score-Schwellwert (0-100), Compat-Param heißt cdpam_threshold
+        )
 
         # Quality plugins (lazy loading)
         # _nisqa_plugin/_dnsmos_plugin: deaktiviert §10.2 (Sprach-Modelle)
@@ -1010,6 +1028,7 @@ class EnhancedQualityGate:
         baseline_musical: dict[str, float] | None = None,
         baseline_perceptual: PerceptualMetrics | None = None,
         context: dict[str, Any] | None = None,
+        adaptive_thresholds: dict[str, float] | None = None,
     ) -> EnhancedPostCheckResult:
         """
         Enhanced post-check: Musical Goals + Perceptual Metrics + Weighted Decision.
@@ -1022,13 +1041,27 @@ class EnhancedQualityGate:
             baseline_musical: Musical Goals baseline
             baseline_perceptual: Perceptual metrics baseline
             context: Optional context
+            adaptive_thresholds: Material-adaptive Schwellwerte (PhysicalCeiling/Era).
+                               Werden an post_check durchgereicht — verhindert
+                               CRITICAL VIOLATIONS bei degradiertem Material.
 
         Returns:
             EnhancedPostCheckResult with multi-metric decision
         """
+        # v9.10.76: adaptive_thresholds auch aus context extrahieren (Rückwärtskompatibilität)
+        _adaptive = adaptive_thresholds
+        if _adaptive is None and context:
+            _adaptive = context.get("adaptive_thresholds")
+
         # Musical Goals validation
         musical_post = self.musical_gate.post_check(
-            original, processed, sr, mode, baseline_scores=baseline_musical, context=context
+            original,
+            processed,
+            sr,
+            mode,
+            baseline_scores=baseline_musical,
+            context=context,
+            adaptive_thresholds=_adaptive,
         )
 
         # Perceptual metrics (Full-Reference with original as reference)
@@ -1234,8 +1267,7 @@ class EnhancedQualityGate:
             and self.enable_auto_reprocessing
             and post_check.decision in [QualityGateDecision.ROLLBACK_REQUIRED, QualityGateDecision.WARNING]
         ):
-
-            logger.info(f"Quality gates failed ({post_check.decision.value}), " f"triggering automatic reprocessing...")
+            logger.info(f"Quality gates failed ({post_check.decision.value}), triggering automatic reprocessing...")
 
             # Define quality validator for reprocessing engine
             def quality_validator(orig, proc, sample_rate):
@@ -1299,8 +1331,7 @@ class EnhancedQualityGate:
             # Mark reprocessing flag
             final_post_check.reprocessing_performed = True
             final_post_check.recommendation = (
-                f"{final_post_check.recommendation} "
-                f"(After {reprocessing_result.total_attempts} reprocessing attempts)"
+                f"{final_post_check.recommendation} (After {reprocessing_result.total_attempts} reprocessing attempts)"
             )
 
             return reprocessing_result.best_audio, final_post_check
@@ -1312,7 +1343,7 @@ class EnhancedQualityGate:
                 return processed, post_check
             else:
                 logger.warning(
-                    f"Quality gates failed but auto-reprocessing disabled. " f"Decision: {post_check.decision.value}"
+                    f"Quality gates failed but auto-reprocessing disabled. Decision: {post_check.decision.value}"
                 )
 
                 # Rollback to original if critical

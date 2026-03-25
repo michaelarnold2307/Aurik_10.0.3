@@ -32,10 +32,10 @@ Datum: 20. Februar 2026
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import logging
 import math
 import threading
+from dataclasses import dataclass
 
 import numpy as np
 
@@ -341,14 +341,47 @@ class FlowMatchingPlugin:
         phrase_context: np.ndarray | None,
     ) -> np.ndarray | None:
         """Versucht Flow Matching Inpainting via FlowAudio-Plugin."""
+        allocated = False
+        try:
+            from backend.core.ml_memory_budget import release as _release
+            from backend.core.ml_memory_budget import try_allocate as _try_alloc
+
+            if not _try_alloc("FlowAudioCFM", size_gb=0.05):
+                logger.info("FlowAudio: ML-Budget nicht verfügbar — DSP-Fallback")
+                return None
+            allocated = True
+        except ImportError:
+            pass
         try:
             from plugins.flow_audio_sota import FlowAudioModel  # type: ignore[import]
 
             model = FlowAudioModel()
-            return model.inpaint(audio, gap_start, gap_end, sr, n_steps=n_steps, conditioning=phrase_context)
-        except (ImportError, Exception) as e:
-            logger.debug("FlowAudio nicht verfügbar: %s", e)
+            result = model.inpaint(audio, gap_start, gap_end, sr, n_steps=n_steps, conditioning=phrase_context)
+            if allocated:
+                try:
+                    _release("FlowAudioCFM")
+                    allocated = False
+                except Exception:
+                    pass
+            # Validate result before returning
+            if result is not None and np.isfinite(result).all() and len(result) > 0:
+                try:
+                    from backend.core.plugin_lifecycle_manager import register_plugin as _reg_plm
+
+                    _reg_plm("FlowAudioCFM", size_gb=0.05, unload_fn=lambda: None)
+                except Exception:
+                    pass
+                return result
             return None
+        except Exception as e:
+            logger.warning("FlowAudio fehlgeschlagen: %s", e)
+            return None
+        finally:
+            if allocated:
+                try:
+                    _release("FlowAudioCFM")
+                except Exception:
+                    pass
 
     def _try_cqtdiff_plus(
         self,
@@ -367,7 +400,7 @@ class FlowMatchingPlugin:
             result = plugin.inpaint(audio, sr, gap_start, gap_end, context_audio=phrase_context)
             return result.audio
         except (ImportError, Exception) as e:
-            logger.debug("CQTdiff+ nicht verfügbar: %s", e)
+            logger.warning("CQTdiff+ nicht verfügbar: %s", e)
             return None
 
     def _compute_kl(

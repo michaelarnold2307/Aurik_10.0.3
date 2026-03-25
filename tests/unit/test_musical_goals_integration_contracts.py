@@ -18,7 +18,6 @@ from backend.core.feedback_chain import FeedbackChain
 from backend.core.performance_guard import QualityMode
 from backend.core.unified_restorer_v3 import RestorationConfig, UnifiedRestorerV3
 
-
 SR = 48_000
 
 
@@ -51,7 +50,8 @@ class TestUnifiedRestorerWiringContracts:
     def test_03_feedback_chain_wiring_uses_max_iterations(self) -> None:
         """UnifiedRestorer muss kompatibel mit FeedbackChain-Signatur bleiben."""
         src = Path("backend/core/unified_restorer_v3.py").read_text(encoding="utf-8")
-        assert "max_iterations=5" in src
+        # v9.10.76: max_iterations ist jetzt material-adaptiv (_fc_max_iter)
+        assert "max_iterations=_fc_max_iter" in src
         assert "max_retries=5" not in src
 
     def test_04_goal_wiring_contains_applicability_and_adaptive_thresholds(self) -> None:
@@ -59,7 +59,7 @@ class TestUnifiedRestorerWiringContracts:
         src = Path("backend/core/unified_restorer_v3.py").read_text(encoding="utf-8")
         assert "_goal_applicability_result = _goal_applicability" in src
         assert "_effective_goal_thresholds" in src
-        assert "adaptive_thresholds=locals().get(\"_effective_goal_thresholds\", {})" in src
+        assert 'adaptive_thresholds=locals().get("_effective_goal_thresholds", {})' in src
         assert "goal_applicability=(" in src
 
 

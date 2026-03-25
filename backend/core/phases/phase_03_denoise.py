@@ -500,9 +500,7 @@ class DenoisePhase(PhaseInterface):
         _e_out = float(np.sum(audio_filtered.astype(np.float64) ** 2))
         if _e_in > 1e-6 and _e_out / _e_in < 0.20:
             _target_ratio = 0.25  # etwas über Schwelle
-            max(0.0, min(1.0, (_target_ratio * _e_in / max(_e_out, 1e-12)) ** 0.5))
-            # blend = sqrt(target_energy / current_energy) — skaliert Output hoch
-            # Aber sicherer: Mischung mit Original
+            # Mischung mit Original um Energie wiederherzustellen
             _alpha = 1.0 - (_e_out / _e_in) / _target_ratio  # 0…1
             audio_filtered = ((1.0 - _alpha) * audio_filtered + _alpha * audio).astype(np.float32)
             audio_filtered = np.clip(audio_filtered, -1.0, 1.0)

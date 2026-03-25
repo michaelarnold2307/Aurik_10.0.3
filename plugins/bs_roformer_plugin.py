@@ -18,11 +18,11 @@ Modell-Gewichte: ~/.aurik/models/bs_roformer/ (via ModelDownloader beim 1. Start
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 import logging
 import math
-from pathlib import Path
 import threading
+from dataclasses import dataclass, field
+from pathlib import Path
 
 import numpy as np
 
@@ -164,7 +164,8 @@ class BSRoFormerPlugin:
         # ── ML-Budget-Check VOR dem Laden (§5.1 OOM-Schutz) ──────────────────
         _allocated = False
         try:
-            from backend.core.ml_memory_budget import release as _release, try_allocate
+            from backend.core.ml_memory_budget import release as _release
+            from backend.core.ml_memory_budget import try_allocate
 
             if not try_allocate("MelBandRoformer", size_gb=0.90):
                 logger.warning("BSRoFormer: ML-Budget erschöpft — Fallback aktiv")
@@ -378,67 +379,89 @@ class BSRoFormerPlugin:
             _g = gcd(_SR, sr)
             audio_44 = _sps.resample_poly(audio_1d, _SR // _g, sr // _g).astype(np.float64)
 
-            # ── 2. STFT ──────────────────────────────────────────────────────
+            # ── 2–6. STFT → Mel-split → ONNX → ISTFT ─────────────────────
             win = np.hanning(_N).astype(np.float64)
+            from scipy.signal import istft as _istft
             from scipy.signal import stft as _stft
 
-            _, _, Z = _stft(
-                audio_44,
-                fs=_SR,
-                window=win,
-                nperseg=_N,
-                noverlap=_N - _H,
-                return_onesided=True,
-            )
-            # Z: [F=3958, T]  complex128
-
-            F, T = Z.shape
-
-            # ── 3. Mel-band-split → [1, T, 60, 384] ─────────────────────────
-            bin_pts = self._mbr_mel_band_boundaries()
-            X = np.zeros((1, T, _B, _FD), dtype=np.float32)
-            for b in range(_B):
-                s = int(bin_pts[b])
-                e = int(max(bin_pts[b + 1], s + 1))
-                e = min(e, F)
-                band = Z[s:e, :]  # [bins, T]
-                ri = np.concatenate([band.real, band.imag], axis=0).T  # [T, 2*bins]
-                fill = min(ri.shape[1], _FD)
-                X[0, :, b, :fill] = ri[:, :fill].astype(np.float32)
-
-            # ── 4. ONNX inference ────────────────────────────────────────────
-            input_name = self._session.get_inputs()[0].name
-            out = self._session.run(None, {input_name: X})[0]
-            # out: expected [1, 1, 3958, T, 2], some exports emit [1, 3958, T, 2]
-
-            if out is None or out.ndim not in (4, 5):
-                logger.warning("MelBandRoformer: Unerwarteter Output-Shape %s → Fallback", getattr(out, "shape", None))
-                return self._separate_fallback(audio, sr, requested_stems)
-
-            if out.ndim == 4:
-                out = out[:, np.newaxis, :, :, :]
-
-            if out.shape[0] < 1 or out.shape[1] < 1 or out.shape[-1] < 2:
-                logger.warning("MelBandRoformer: Ungueltiger Output-Shape %s → Fallback", getattr(out, "shape", None))
-                return self._separate_fallback(audio, sr, requested_stems)
-
-            # ── 5. Reconstruct vocals complex STFT ───────────────────────────
-            Z_voc = out[0, 0, :, :, 0].astype(np.float64) + 1j * out[0, 0, :, :, 1].astype(np.float64)
-            # Z_voc: [F=3958, T]
-
-            # ── 6. ISTFT → vocals @ 44100 Hz ────────────────────────────────
-            from scipy.signal import istft as _istft
-
             n_orig_44 = len(audio_44)
-            _, vocals_44 = _istft(
-                Z_voc,
-                fs=_SR,
-                window=win,
-                nperseg=_N,
-                noverlap=_N - _H,
-                input_onesided=True,
-            )
-            vocals_44 = vocals_44[:n_orig_44].astype(np.float32)
+            bin_pts = self._mbr_mel_band_boundaries()
+            input_name = self._session.get_inputs()[0].name
+
+            # OOM-Guard: chunk audio into ~60 s segments with 1 s crossfade
+            # to prevent multi-GB STFT/mel/ONNX allocations on long files.
+            _CHUNK_S = 60
+            _OVERLAP_S = 1
+            _chunk_samples = _CHUNK_S * _SR
+            _overlap_samples = _OVERLAP_S * _SR
+            _step = _chunk_samples - _overlap_samples
+
+            def _process_segment(seg: np.ndarray) -> np.ndarray | None:
+                """STFT → mel-split → ONNX → ISTFT for one audio segment."""
+                _, _, Z_s = _stft(seg, fs=_SR, window=win, nperseg=_N, noverlap=_N - _H, return_onesided=True)
+                F_s, T_s = Z_s.shape
+                X_s = np.zeros((1, T_s, _B, _FD), dtype=np.float32)
+                for b in range(_B):
+                    s_b = int(bin_pts[b])
+                    e_b = int(max(bin_pts[b + 1], s_b + 1))
+                    e_b = min(e_b, F_s)
+                    band = Z_s[s_b:e_b, :]
+                    ri = np.concatenate([band.real, band.imag], axis=0).T
+                    fill = min(ri.shape[1], _FD)
+                    X_s[0, :, b, :fill] = ri[:, :fill].astype(np.float32)
+                del Z_s
+                out_s = self._session.run(None, {input_name: X_s})[0]
+                del X_s
+                if out_s is None or out_s.ndim not in (4, 5):
+                    return None
+                if out_s.ndim == 4:
+                    out_s = out_s[:, np.newaxis, :, :, :]
+                if out_s.shape[0] < 1 or out_s.shape[1] < 1 or out_s.shape[-1] < 2:
+                    return None
+                Z_voc = out_s[0, 0, :, :, 0].astype(np.float64) + 1j * out_s[0, 0, :, :, 1].astype(np.float64)
+                del out_s
+                _, voc = _istft(Z_voc, fs=_SR, window=win, nperseg=_N, noverlap=_N - _H, input_onesided=True)
+                del Z_voc
+                return voc[: len(seg)].astype(np.float32)
+
+            if n_orig_44 <= _chunk_samples:
+                # Short file — single pass
+                voc_result = _process_segment(audio_44)
+                if voc_result is None:
+                    logger.warning("MelBandRoformer: Unerwarteter Output-Shape → Fallback")
+                    return self._separate_fallback(audio, sr, requested_stems)
+                vocals_44 = voc_result
+            else:
+                # Long file — chunked overlap-add
+                logger.info(
+                    "MelBandRoformer: chunked processing (%d s audio, %d s chunks)",
+                    n_orig_44 // _SR,
+                    _CHUNK_S,
+                )
+                vocals_44 = np.zeros(n_orig_44, dtype=np.float32)
+                _weight = np.zeros(n_orig_44, dtype=np.float32)
+
+                for _cs in range(0, n_orig_44, _step):
+                    _ce = min(_cs + _chunk_samples, n_orig_44)
+                    voc_chunk = _process_segment(audio_44[_cs:_ce])
+                    if voc_chunk is None:
+                        logger.warning("MelBandRoformer chunk: bad output → Fallback")
+                        return self._separate_fallback(audio, sr, requested_stems)
+
+                    # Hanning crossfade window
+                    _wlen = len(voc_chunk)
+                    _win_cf = np.ones(_wlen, dtype=np.float32)
+                    _fade = min(_overlap_samples, _wlen)
+                    if _cs > 0 and _fade > 1:
+                        _win_cf[:_fade] = np.hanning(2 * _fade)[:_fade].astype(np.float32)
+                    if _ce < n_orig_44 and _fade > 1:
+                        _win_cf[-_fade:] = np.hanning(2 * _fade)[_fade:].astype(np.float32)
+
+                    _ae = min(_cs + _wlen, n_orig_44)
+                    vocals_44[_cs:_ae] += voc_chunk[: _ae - _cs] * _win_cf[: _ae - _cs]
+                    _weight[_cs:_ae] += _win_cf[: _ae - _cs]
+
+                vocals_44 /= np.maximum(_weight, 1e-8)
 
             # ── 7. Resample vocals back to 48 kHz ───────────────────────────
             vocals_48 = _sps.resample_poly(vocals_44, sr // _g, _SR // _g).astype(np.float32)

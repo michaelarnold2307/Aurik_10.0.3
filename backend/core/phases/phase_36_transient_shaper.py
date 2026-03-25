@@ -42,8 +42,6 @@ Version: 2.0.0 Professional
 """
 
 import logging
-import os
-import sys
 import time
 from typing import Any
 
@@ -279,22 +277,42 @@ class TransientShaper(PhaseInterface):
         return shaped_band
 
     def _compute_envelope(self, audio: np.ndarray, attack_samples: int, release_samples: int) -> np.ndarray:
-        """Compute envelope with asymmetric attack/release."""
-        envelope = np.zeros_like(audio)
-        envelope[0] = abs(audio[0])
+        """Compute envelope with asymmetric attack/release.
 
-        attack_coeff = 1.0 - np.exp(-1.0 / attack_samples)
-        release_coeff = 1.0 - np.exp(-1.0 / release_samples)
+        Optimized: Downsample by factor 16 for the sequential loop,
+        then upsample back. Preserves asymmetric attack/release behavior
+        while reducing 10.8M iterations to ~675K.
+        """
+        _DS = 16  # Downsample factor — 0.33 ms at 48 kHz, well below attack window
+        abs_audio = np.abs(audio)
 
-        for i in range(1, len(audio)):
-            current_level = abs(audio[i])
+        # Downsample via block-max (preserves transient peaks)
+        n = len(abs_audio)
+        n_trim = (n // _DS) * _DS
+        abs_ds = abs_audio[:n_trim].reshape(-1, _DS).max(axis=1)
+        # Handle remainder
+        if n_trim < n:
+            abs_ds = np.append(abs_ds, abs_audio[n_trim:].max())
 
-            if current_level > envelope[i - 1]:
-                # Attack (fast)
-                envelope[i] = attack_coeff * current_level + (1 - attack_coeff) * envelope[i - 1]
+        # Scale coefficients for downsampled rate
+        att_ds = max(1, attack_samples // _DS)
+        rel_ds = max(1, release_samples // _DS)
+        attack_coeff = 1.0 - np.exp(-1.0 / att_ds)
+        release_coeff = 1.0 - np.exp(-1.0 / rel_ds)
+
+        # Sequential loop on downsampled data (~675K iterations instead of ~10.8M)
+        envelope_ds = np.empty_like(abs_ds)
+        envelope_ds[0] = abs_ds[0]
+        for i in range(1, len(abs_ds)):
+            if abs_ds[i] > envelope_ds[i - 1]:
+                envelope_ds[i] = attack_coeff * abs_ds[i] + (1 - attack_coeff) * envelope_ds[i - 1]
             else:
-                # Release (slow)
-                envelope[i] = release_coeff * current_level + (1 - release_coeff) * envelope[i - 1]
+                envelope_ds[i] = release_coeff * abs_ds[i] + (1 - release_coeff) * envelope_ds[i - 1]
+
+        # Upsample back via linear interpolation
+        x_ds = np.linspace(0, n - 1, len(envelope_ds))
+        x_full = np.arange(n)
+        envelope = np.interp(x_full, x_ds, envelope_ds)
 
         return envelope
 
@@ -324,11 +342,14 @@ class TransientShaper(PhaseInterface):
         # Transient: slope > mean + 2*std
         transient_mask = slope > (local_mean + 2 * local_std)
 
-        # Extend transient mask forward (attack window)
-        extended_mask = np.copy(transient_mask)
-        for i in range(len(transient_mask)):
-            if transient_mask[i]:
-                extended_mask[i : min(i + attack_samples, len(extended_mask))] = True
+        # Extend transient mask forward (attack window) — vectorized via convolution
+        if attack_samples > 1:
+            kernel = np.ones(attack_samples)
+            extended_mask = (
+                np.convolve(transient_mask.astype(np.float32), kernel, mode="full")[: len(transient_mask)] > 0
+            )
+        else:
+            extended_mask = transient_mask
 
         return extended_mask
 

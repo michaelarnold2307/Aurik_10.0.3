@@ -64,7 +64,8 @@ _N_FFT: int = 2048
 _HOP: int = _N_FFT // 4  # 512
 _MAX_FLOW_STEPS: int = 16
 _FADE_MS: float = 10.0  # Hanning crossfade at gap boundaries
-_CTX_SECONDS: float = 2.0  # Context window each side
+_CTX_SECONDS: float = 0.5  # Context window each side (capped for O(N log N) budget)
+_MAX_CTX_SAMPLES: int = 24000  # Hard cap: 0.5 s at 48 kHz — prevents O(N²) in LPC
 _LPC_ORDER: int = 36  # LPC order at 48 kHz (spec: 30-40)
 _PGHI_TOL: float = 1e-6  # PGHI convergence tolerance
 _KL_THRESHOLD: float = 0.15
@@ -140,10 +141,12 @@ def _stft(signal: np.ndarray, n_fft: int, hop_length: int) -> np.ndarray:
     Returns:
         Complex STFT matrix, shape (n_fft//2+1, n_frames).
     """
+    # NaN/Inf guard — prevents FFT crash on corrupted input
+    signal = np.nan_to_num(signal.astype(np.float32), nan=0.0, posinf=0.0, neginf=0.0)
     window = np.hanning(n_fft).astype(np.float32)
-    # Pad signal
+    # Pad signal — use 'constant' mode (always safe, even for very short signals)
     pad_len = n_fft // 2
-    padded = np.pad(signal.astype(np.float32), (pad_len, pad_len), mode="reflect")
+    padded = np.pad(signal, (pad_len, pad_len), mode="constant")
     n_frames = 1 + (len(padded) - n_fft) // hop_length
     frames = np.zeros((n_fft // 2 + 1, n_frames), dtype=np.complex64)
     for i in range(n_frames):
@@ -196,6 +199,9 @@ def _extract_spectral_envelope(signal: np.ndarray, sr: int, order: int) -> np.nd
     Uses autocorrelation method to compute LPC coefficients, then derives
     the spectral envelope from the all-pole model H(z) = 1 / A(z).
 
+    Uses FFT-based autocorrelation O(N log N) instead of np.correlate O(N²)
+    to prevent hangs on long context windows (>24 000 samples).
+
     Args:
         signal:  1D audio signal.
         sr:      Sample rate.
@@ -208,10 +214,19 @@ def _extract_spectral_envelope(signal: np.ndarray, sr: int, order: int) -> np.nd
     if n < order + 1:
         return np.ones(_N_FFT // 2 + 1, dtype=np.float32)
 
-    # Windowed autocorrelation
-    windowed = signal * np.hanning(n)
-    acf = np.correlate(windowed, windowed, mode="full")
-    acf = acf[n - 1 :]  # positive lags only
+    # Limit to _MAX_CTX_SAMPLES to bound compute cost
+    if n > _MAX_CTX_SAMPLES:
+        signal = signal[-_MAX_CTX_SAMPLES:]
+        n = len(signal)
+
+    # Windowed FFT-based autocorrelation — O(N log N) instead of O(N²)
+    windowed = signal.astype(np.float64) * np.hanning(n)
+    fft_size = 1
+    while fft_size < 2 * n:
+        fft_size <<= 1
+    W = np.fft.rfft(windowed, n=fft_size)
+    acf_full = np.fft.irfft(W * np.conj(W), n=fft_size)
+    acf = acf_full[:n]  # positive lags only
 
     # Levinson-Durbin recursion
     r = acf[: order + 1].astype(np.float64)
@@ -461,6 +476,9 @@ def _flow_ode_step(
     # Euler step
     x_next = x_t + dt * velocity
 
+    # NaN/Inf guard before spectral operations (prevents FFT crash)
+    x_next = np.nan_to_num(x_next, nan=0.0, posinf=0.0, neginf=0.0).astype(np.float32)
+
     # Spectral regularization: soft-constrain to context envelope
     if context_envelope is not None and len(x_next) >= _N_FFT:
         stft_x = _stft(x_next, _N_FFT, _HOP)
@@ -471,10 +489,17 @@ def _flow_ode_step(
         blend = min(0.3, t_current * 0.5)
         for frame_idx in range(mag.shape[1]):
             target_mag = context_envelope[: mag.shape[0]]
-            ratio = target_mag / (np.mean(mag[:, frame_idx]) + 1e-10)
+            frame_mean = np.mean(mag[:, frame_idx])
+            if frame_mean < 1e-6:
+                continue  # Skip near-silence frames to prevent ratio explosion
+            ratio = target_mag / (frame_mean + 1e-6)
+            # Clamp ratio to prevent numerical explosion (max ±6 dB nudge)
+            ratio = np.clip(ratio, 0.25, 4.0)
             # Soft constraint: don't force, just nudge
             mag[:, frame_idx] *= 1.0 + blend * (ratio - 1.0) * 0.1
 
+        # Guard magnitudes before iSTFT
+        mag = np.clip(mag, 0.0, 1e6)
         x_next = _istft(mag * np.exp(1j * phase), _HOP, _N_FFT)
         x_next = x_next[: len(x_t)] if len(x_next) >= len(x_t) else np.pad(x_next, (0, len(x_t) - len(x_next)))
 
@@ -672,8 +697,8 @@ class FlowAudioModel:
             n_steps,
         )
 
-        # ── Context extraction ──
-        ctx_samples = int(_CTX_SECONDS * sr)
+        # ── Context extraction (capped to _MAX_CTX_SAMPLES) ──
+        ctx_samples = min(int(_CTX_SECONDS * sr), _MAX_CTX_SAMPLES)
         pre_start = max(0, gap_start - ctx_samples)
         post_end = min(len(audio), gap_end + ctx_samples)
 
@@ -710,10 +735,25 @@ class FlowAudioModel:
         context_envelope = _extract_spectral_envelope(ctx_combined, sr, _LPC_ORDER)
 
         # ── Solve flow ODE ──
-        generated = _solve_flow_ode(x_0, x_1, n_steps, context_envelope)
+        try:
+            generated = _solve_flow_ode(x_0, x_1, n_steps, context_envelope)
+        except Exception as exc:
+            logger.warning("FlowAudio ODE solver failed: %s", exc)
+            return None
 
         # ── PGHI finalization + crossfade ──
-        inpainted = _pghi_finalize(generated, pre_ctx, post_ctx, sr)
+        try:
+            inpainted = _pghi_finalize(generated, pre_ctx, post_ctx, sr)
+        except Exception as exc:
+            logger.warning("FlowAudio PGHI finalization failed: %s", exc)
+            return None
+
+        # Final NaN/Inf/shape guard
+        if inpainted is None or len(inpainted) == 0 or not np.isfinite(inpainted).all():
+            logger.warning(
+                "FlowAudio: inpainted segment invalid (len=%d)", len(inpainted) if inpainted is not None else 0
+            )
+            return None
 
         # ── Insert into audio ──
         result = audio.copy()

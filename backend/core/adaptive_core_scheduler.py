@@ -25,7 +25,7 @@ from collections import defaultdict
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import Enum
-from multiprocessing import Manager, Pool
+from multiprocessing import Pool
 from typing import Any
 
 import numpy as np
@@ -147,11 +147,11 @@ class AdaptiveCoreScheduler:
         """Initialisiert Memory-Pool für reduzierte Heap-Fragmentierung."""
         # Pre-allocate Memory Buffers (wird von Phases wiederverwendet)
         try:
-            # Shared Memory Manager (multiprocessing)
-            self.manager = Manager()
+            # Pre-allocate numpy buffers (no multiprocessing.Manager — OOM risk)
             self.memory_pool = {
                 "audio_buffers": [
-                    np.zeros((60 * 44100 * 2), dtype=np.float32) for _ in range(self.num_cores)  # 60s Stereo max
+                    np.zeros((60 * 44100 * 2), dtype=np.float32)
+                    for _ in range(self.num_cores)  # 60s Stereo max
                 ],
                 "fft_buffers": [np.zeros(2**16, dtype=np.complex128) for _ in range(self.num_cores)],  # 64K FFT
                 "temp_arrays": [np.zeros((10 * 44100), dtype=np.float32) for _ in range(self.num_cores)],  # 10s Temp
@@ -423,7 +423,7 @@ class AdaptiveCoreScheduler:
         logger.info(
             f"Stats: {self.stats.total_phases} phases, "
             f"{self.stats.parallelization_speedup:.2f}× speedup, "
-            f"{self.stats.core_efficiency*100:.1f}% efficiency"
+            f"{self.stats.core_efficiency * 100:.1f}% efficiency"
         )
 
     def _estimate_peak_memory(self) -> int:
@@ -495,9 +495,9 @@ if __name__ == "__main__":
     sr = 44100
     audio = np.random.randn(int(duration * 60 * sr)).astype(np.float32) * 0.01
 
-    logger.debug(f"\n{'='*60}")
+    logger.debug(f"\n{'=' * 60}")
     logger.debug("ADAPTIVE CORE SCHEDULER TEST")
-    logger.debug(f"{'='*60}")
+    logger.debug(f"{'=' * 60}")
     logger.debug(f"Audio: {duration} minutes @ {sr} Hz")
     logger.debug(f"Cores: {mp.cpu_count()} available, using {AdaptiveCoreScheduler.OPTIMAL_CORES} (optimal)\n")
 
@@ -525,13 +525,13 @@ if __name__ == "__main__":
     # Statistiken
     stats = scheduler.get_statistics()
     if stats:
-        logger.debug(f"\n{'='*60}")
+        logger.debug(f"\n{'=' * 60}")
         logger.debug("PERFORMANCE STATISTICS")
-        logger.debug(f"{'='*60}")
+        logger.debug(f"{'=' * 60}")
         logger.debug(f"Total Phases:     {stats.total_phases}")
         logger.debug(f"Sequential/Parallel: {stats.sequential_phases}/{stats.parallel_phases}")
         logger.debug(f"Total Time:       {stats.total_time_seconds:.2f}s")
         logger.debug(f"Speedup:          {stats.parallelization_speedup:.2f}×")
-        logger.debug(f"Core Efficiency:  {stats.core_efficiency*100:.1f}%")
+        logger.debug(f"Core Efficiency:  {stats.core_efficiency * 100:.1f}%")
         logger.debug(f"Peak Memory:      {stats.peak_memory_mb} MB")
         logger.debug(f"\nResult: {len(result_audio)} samples processed ✅")

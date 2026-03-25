@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-from collections.abc import Callable
-from dataclasses import dataclass, field
 import logging
 import threading
 import time
+from collections.abc import Callable
+from dataclasses import dataclass, field
 
 import numpy as np
 
@@ -212,6 +212,10 @@ class FeedbackChain:
                 a[..., start : start + _GOAL_WINDOW_SAMPLES] if a.ndim == 2 else a[start : start + _GOAL_WINDOW_SAMPLES]
             )
 
+        # §9.8 Goal-vector candidate selection — track how many goals pass thresholds
+        _best_goal_pass_count: int = -1  # -1 = not yet measured
+        _curr_goal_pass_count: int = -1
+
         converged = False
         for i in range(1, self.max_iterations + 1):
             # §Performance-Budget: abort if time budget exceeded
@@ -266,6 +270,9 @@ class FeedbackChain:
                         logger.warning("⚠ %s", _log_entry)
                         break  # Rollback auf best (§2.34)
                     _prev_goals = _curr_goals
+                    _curr_goal_pass_count = sum(
+                        1 for g, v in _curr_goals.items() if v >= _checker.thresholds.get(g, 0.85)
+                    )
                 except Exception as _gpp_exc:
                     logger.debug("GoalPriorityProtocol in FeedbackChain nicht verfügbar: %s", _gpp_exc)
             elif _gpp is not None and not _prev_goals and not callable(self.goal_priority_callback):
@@ -279,12 +286,24 @@ class FeedbackChain:
                     _prev_goals = _checker.measure_all(_goal_window(candidate), _sr)
                     _analytics_dt = _time_fc.perf_counter() - _t_goals
                     self._last_analytics_overhead_s = getattr(self, "_last_analytics_overhead_s", 0.0) + _analytics_dt
+                    _curr_goal_pass_count = sum(
+                        1 for g, v in _prev_goals.items() if v >= _checker.thresholds.get(g, 0.85)
+                    )
                 except Exception as mg_exc:
                     logger.debug("FeedbackChain: initial musical-goals read failed: %s", mg_exc)
 
-            if mos > best_mos:
+            # §9.8 Goal-aware candidate selection: prefer candidates passing more goals
+            _candidate_better = mos > best_mos
+            if _curr_goal_pass_count >= 0 and _best_goal_pass_count >= 0:
+                if _curr_goal_pass_count > _best_goal_pass_count:
+                    _candidate_better = True  # more goals passed → accept
+                elif _curr_goal_pass_count < _best_goal_pass_count:
+                    _candidate_better = mos > best_mos + 0.05  # need significant MOS gain
+            if _candidate_better:
                 best_mos = mos
                 best = candidate.copy()
+                if _curr_goal_pass_count >= 0:
+                    _best_goal_pass_count = _curr_goal_pass_count
 
             # §2.33 PhysicalCeilingEstimator: Frühzeitiger Abbruch wenn Ceiling erreicht
             # Tight headroom: allow iterations to push closer to ceiling

@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 import logging
-from pathlib import Path
 import threading
+from dataclasses import dataclass
+from pathlib import Path
 
 import numpy as np
 
@@ -246,6 +246,8 @@ class LyricsGuidedEnhancement:
         try:
             from backend.core.ml_memory_budget import (
                 release as _ml_release,
+            )
+            from backend.core.ml_memory_budget import (
                 try_allocate as _try_alloc,
             )
 
@@ -310,6 +312,8 @@ class LyricsGuidedEnhancement:
         try:
             from backend.core.ml_memory_budget import (
                 release as _ml_release,
+            )
+            from backend.core.ml_memory_budget import (
                 try_allocate as _try_alloc,
             )
 
@@ -427,10 +431,27 @@ class LyricsGuidedEnhancement:
             amax = float(np.abs(audio_input).max()) or 1.0
             audio_input = audio_input / amax
 
+            # OOM-Guard: chunk wav2vec2 into 30 s segments to prevent 34+ GB
+            # intermediate allocation on long files (§2.36 — root cause of OOM).
+            _MAX_W2V_CHUNK = 30 * sr_16k  # 480 000 samples @ 16 kHz
+            if len(audio_input) <= _MAX_W2V_CHUNK:
+                # Short file — single pass
+                outputs = self._aligner_session.run(None, {"input_values": audio_input[np.newaxis, :]})
+                logits = outputs[0]  # (1, T_frames, vocab_size)
+            else:
+                # Chunked inference for long files
+                _logit_parts: list[np.ndarray] = []
+                for _cstart in range(0, len(audio_input), _MAX_W2V_CHUNK):
+                    _cchunk = audio_input[_cstart : _cstart + _MAX_W2V_CHUNK]
+                    if len(_cchunk) < self._MIN_WAV2VEC2_SAMPLES:
+                        break
+                    _cout = self._aligner_session.run(None, {"input_values": _cchunk[np.newaxis, :]})
+                    _logit_parts.append(_cout[0][0])  # (T_chunk, vocab)
+                if not _logit_parts:
+                    return words
+                logits = np.concatenate(_logit_parts, axis=0)[np.newaxis, :]  # (1, T_total, vocab)
+
             # Run encoder: output is (1, T_frames, vocab_size) CTC log-probs
-            inputs = {"input_values": audio_input[np.newaxis, :]}  # (1, T)
-            outputs = self._aligner_session.run(None, inputs)
-            logits = outputs[0]  # (1, T_frames, vocab_size)
             if logits.ndim != 3:
                 return words
             logits = logits[0]  # (T_frames, vocab_size)

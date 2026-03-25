@@ -15,10 +15,10 @@ Usage::
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 import logging
 import math
 import threading
+from dataclasses import dataclass, field
 from typing import Any
 
 import numpy as np
@@ -125,6 +125,7 @@ class RekonstruktionsDenker:
         material: str | None = None,
         material_hint: str | None = None,
         defect_result: Any | None = None,
+        repair_context: Any | None = None,
         validate_audio: bool = True,
     ) -> RekonstruktionsErgebnis:
         """Erkennt und repariert Dropout-Lücken im Audio.
@@ -139,6 +140,10 @@ class RekonstruktionsDenker:
             Optionaler Träger-Hint (z. B. ``"tape"``, ``"vinyl"``).
         defect_result:
             Optional DefectAnalysisResult for context-aware reconstruction.
+        repair_context:
+            Optional ReparaturErgebnis from ReparaturDenker — provides info
+            about which defects were already removed (clicks, hum, clipping)
+            so reconstruction can skip redundant detection and focus on gaps.
         validate_audio:
             Ob Eingabe auf NaN/Inf geprüft werden soll.
 
@@ -147,6 +152,14 @@ class RekonstruktionsDenker:
         :class:`RekonstruktionsErgebnis` mit repariertem Audio und Statistik.
         """
         assert sr == 48000, f"RekonstruktionsDenker.rekonstruiere() erwartet sr=48000 Hz, erhalten: {sr} Hz"
+        # §11.7a: Log repair context for better reconstruction decisions
+        if repair_context is not None:
+            _rep_ops = getattr(repair_context, "operations_applied", [])
+            logger.info(
+                "RekonstruktionsDenker: repair_context vorhanden — %d Vorverarbeitungs-Operationen: %s",
+                len(_rep_ops) if _rep_ops else 0,
+                ", ".join(str(o) for o in _rep_ops[:5]) if _rep_ops else "keine",
+            )
         logger.info(
             "RekonstruktionsDenker.rekonstruiere() gestartet: duration=%.1fs, material_hint=%s",
             len(audio) / max(sr, 1),
