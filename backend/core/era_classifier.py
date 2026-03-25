@@ -338,7 +338,132 @@ def _dsp_hf_rolloff(audio_mono: np.ndarray, sr: int) -> float:
     return rolloff
 
 
-def _dsp_fingerprint_decade(rolloff_hz: float, snr_db: float) -> tuple[int, float]:
+def _detect_stereo_properties(audio: np.ndarray, sr: int) -> tuple[bool, float]:
+    """Detects stereo presence and width via frame-wise inter-channel correlation.
+
+    Stereo became commercially available ~1958. Narrow hard-pan stereo is
+    characteristic of the 1960s (< 0.15 width), while multi-track wide stereo
+    (> 0.15) became standard in the 1970s.
+
+    Returns:
+        (is_stereo, stereo_width):
+            is_stereo:    True if genuine stereo (channels not identical).
+            stereo_width: 0.0 (mono/dual-mono) … ~0.5 (wide stereo).
+    """
+    if audio.ndim < 2 or (audio.ndim == 2 and min(audio.shape) < 2):
+        return False, 0.0
+
+    # Extract L/R channels (shape: (n_samples, n_channels) or (n_channels, n_samples))
+    if audio.shape[-1] <= 2:
+        left, right = audio[:, 0], audio[:, 1]
+    else:
+        left, right = audio[0, :], audio[1, :]
+
+    # Dual-mono check
+    if np.allclose(left, right, atol=1e-6):
+        return False, 0.0
+
+    frame_len = max(1, sr // 10)  # 100 ms frames
+    n_frames = min(len(left) // frame_len, 500)  # cap analysis at 50 s
+    correlations: list[float] = []
+    for i in range(n_frames):
+        start = i * frame_len
+        lf = left[start : start + frame_len]
+        rf = right[start : start + frame_len]
+        if np.std(lf) < 1e-8 or np.std(rf) < 1e-8:
+            continue
+        c = np.corrcoef(lf, rf)[0, 1]
+        if np.isfinite(c):
+            correlations.append(float(abs(c)))
+
+    if not correlations:
+        return False, 0.0
+
+    mean_corr = float(np.mean(correlations))
+    is_stereo = mean_corr < 0.98
+    stereo_width = float(np.clip(1.0 - mean_corr, 0.0, 1.0))
+    return is_stereo, stereo_width
+
+
+def _estimate_spectral_tilt(audio_mono: np.ndarray, sr: int) -> float:
+    """Estimates spectral tilt via linear regression on log-power spectrum.
+
+    Spectral tilt (dB/octave) captures the overall frequency-response shape:
+        1940s–1960s: -5 … -7 (mid-forward, strong HF roll-off)
+        1970s:       -3 … -5 (flatter, improved tape/electronics)
+        1980s+:      -1 … -3 (flat/bright, modern EQ)
+
+    Regression is restricted to 200 Hz – 16 kHz (musically relevant range).
+
+    Returns:
+        Spectral tilt in dB/octave, clamped to [-12, 2].
+    """
+    n_fft = min(4096, len(audio_mono))
+    if n_fft < 256:
+        return -4.0  # conservative neutral
+    hop = n_fft // 2
+    specs: list[np.ndarray] = []
+    for start in range(0, max(1, len(audio_mono) - n_fft), hop):
+        frame = audio_mono[start : start + n_fft] * np.hanning(n_fft)
+        specs.append(np.abs(np.fft.rfft(frame)) ** 2)
+    if not specs:
+        return -4.0
+
+    avg_spec = np.mean(np.array(specs), axis=0)
+    freqs = np.fft.rfftfreq(n_fft, 1.0 / sr)
+    mask = (freqs >= 200.0) & (freqs <= 16000.0) & (avg_spec > 1e-20)
+    if np.sum(mask) < 10:
+        return -4.0
+
+    log_freqs = np.log2(freqs[mask])
+    log_power = 10.0 * np.log10(avg_spec[mask] + 1e-20)
+
+    A = np.vstack([log_freqs, np.ones(len(log_freqs))]).T
+    try:
+        slope = float(np.linalg.lstsq(A, log_power, rcond=None)[0][0])
+        return float(np.clip(slope, -12.0, 2.0))
+    except Exception:
+        return -4.0
+
+
+def _estimate_dynamic_range(audio_mono: np.ndarray, sr: int) -> float:
+    """Estimates dynamic range as P95-P5 frame-energy spread in dB.
+
+    Higher values → wider dynamics (less compression, more modern or
+    higher-quality recording).  Typical ranges:
+        Pre-1960 analog: 15–30 dB
+        1970s tape:      25–40 dB
+        1980s+ digital:  35–55 dB
+
+    Returns:
+        Dynamic range estimate in dB, clamped to [5, 70].
+    """
+    frame_size = max(1, sr // 10)  # 100 ms frames
+    n_frames = len(audio_mono) // frame_size
+    if n_frames < 5:
+        return 25.0  # conservative neutral
+    energies = np.array([np.mean(audio_mono[i * frame_size : (i + 1) * frame_size] ** 2) for i in range(n_frames)])
+    # Remove silence frames (< -60 dBFS RMS equivalent)
+    energies = energies[energies > 1e-6]
+    if len(energies) < 5:
+        return 25.0
+    p95 = float(np.percentile(energies, 95))
+    p5 = float(np.percentile(energies, 5))
+    if p5 < 1e-18:
+        return 40.0
+    dr = 10.0 * math.log10(max(p95 / p5, 1.0))
+    return float(np.clip(dr, 5.0, 70.0))
+
+
+def _dsp_fingerprint_decade(
+    rolloff_hz: float,
+    snr_db: float,
+    *,
+    is_stereo: bool = False,
+    stereo_width: float = 0.0,
+    spectral_tilt: float = -4.0,
+    dynamic_range_db: float = 25.0,
+) -> tuple[int, float]:
     """Mappt Bandbreite + SNR auf Jahrzehnt via kalibrierter Schwellwert-Tabelle.
 
     Erkennungsprinzip:
@@ -383,7 +508,7 @@ def _dsp_fingerprint_decade(rolloff_hz: float, snr_db: float) -> tuple[int, floa
         decade = 1940  # LIMIT  8 kHz → expected rolloff ~7.2 kHz; (7200+9000)/2=8100
     elif bw_khz < 11.5:
         decade = 1950  # LIMIT 10 kHz → expected rolloff ~9.0 kHz; (9000+10800)/2=9900
-    elif bw_khz < 12.8:
+    elif bw_khz < 12.6:
         decade = 1960  # LIMIT 12 kHz → expected rolloff ~10.8 kHz; (10800+14400)/2=12600
     elif bw_khz < 17.0:
         decade = 1970  # LIMIT 16 kHz → expected rolloff ~14.4 kHz; (14400+18000)/2=16200
@@ -415,6 +540,83 @@ def _dsp_fingerprint_decade(rolloff_hz: float, snr_db: float) -> tuple[int, floa
     elif snr_db < 25.0 and bw_khz < 8.0 and decade > 1940:
         decade = min(max(decade, 1920), 1940)  # Ribbon-microphone era
 
+    # SNR-based upward correction for 1950–1970 borderline cases:
+    # A tape recording from 1977 with bandwidth loss (e.g. 13 kHz rolloff)
+    # may land in decade=1960 by BW alone, but its SNR (~48–55 dB) clearly
+    # exceeds the 1960s expectation (44 dB).  If BW is within 1.5 kHz of
+    # the next-decade threshold AND SNR matches the higher decade better,
+    # promote by one decade.
+    if decade in (1950, 1960, 1970) and decade < 1980:
+        next_decade = decade + 10
+        expected_snr_cur = _decade_expected_snr(decade)
+        expected_snr_next = _decade_expected_snr(next_decade)
+        threshold_bw = DECADE_HF_LIMITS.get(next_decade, 20000.0) / 1000.0 * 0.9
+        bw_near_boundary = (threshold_bw - bw_khz) < 1.5  # within 1.5 kHz of next
+        snr_favors_next = abs(snr_db - expected_snr_next) < abs(snr_db - expected_snr_cur)
+        if bw_near_boundary and snr_favors_next:
+            decade = next_decade
+
+    # ------------------------------------------------------------------
+    # Multi-factor corrections: stereo, spectral tilt, dynamic range
+    # ------------------------------------------------------------------
+
+    # (A) Stereo presence — strong era discriminator.
+    # Commercial stereo appeared ~1958; pre-1958 recordings are virtually all mono.
+    if is_stereo and decade < 1960:
+        decade = 1960  # stereo recording cannot predate late 1950s
+
+    # (B) Stereo width — narrows 1960 vs 1970.
+    # 1960s: hard-pan L/R, mono-compatible mixes → narrow width (< 0.12).
+    # 1970s+: multi-track, wider imaging → width ≥ 0.12.
+    if is_stereo and decade in (1960, 1970):
+        if stereo_width >= 0.12 and decade == 1960:
+            # Wide stereo field strongly suggests ≥ 1970s production
+            decade = 1970
+        elif stereo_width < 0.06 and decade == 1970 and bw_khz < 14.0:
+            # Very narrow stereo with limited BW → likely 1960s
+            decade = 1960
+
+    # (C) Spectral tilt — captures recording-chain frequency response.
+    # 1960s: steep roll-off (≤ -5 dB/oct, mid-forward due to equipment).
+    # 1970s: flatter response (> -5 dB/oct, improved electronics/tape).
+    if decade in (1960, 1970):
+        if spectral_tilt > -4.0 and decade == 1960:
+            decade = 1970  # flatter spectrum → favour 1970s
+        elif spectral_tilt < -6.0 and decade == 1970 and bw_khz < 15.0:
+            decade = 1960  # very steep tilt with moderate BW → 1960s
+
+    # (D) Dynamic range — improved electronics yield wider dynamics.
+    # 1960s analog: typically 15–28 dB frame-energy DR.
+    # 1970s tape:   typically 25–40 dB.
+    if decade in (1960, 1970):
+        if dynamic_range_db >= 30.0 and decade == 1960:
+            decade = 1970
+        elif dynamic_range_db < 18.0 and decade == 1970 and bw_khz < 14.0:
+            decade = 1960
+
+    # (E) Consensus vote for borderline 1950–1980 decades:
+    # Count how many secondary features favour "one decade higher".  If ≥ 2
+    # of 3 vote higher AND BW is within 2 kHz of the next-decade threshold,
+    # promote.  Prevents single-feature flukes from dominating.
+    if decade in (1950, 1960, 1970):
+        next_dec = decade + 10
+        thr_bw = DECADE_HF_LIMITS.get(next_dec, 20000.0) / 1000.0 * 0.9
+        if (thr_bw - bw_khz) < 2.0:  # BW still borderline
+            votes_up = 0
+            # Stereo vote
+            if is_stereo and stereo_width >= 0.10:
+                votes_up += 1
+            # Tilt vote
+            _tilt_threshold = {1950: -6.0, 1960: -5.0, 1970: -3.5}
+            if spectral_tilt > _tilt_threshold.get(decade, -5.0):
+                votes_up += 1
+            # DR vote
+            _dr_threshold = {1950: 22.0, 1960: 28.0, 1970: 35.0}
+            if dynamic_range_db >= _dr_threshold.get(decade, 28.0):
+                votes_up += 1
+            if votes_up >= 2:
+                decade = next_dec
+
     # Confidence: combine BW error and SNR deviation for each era class.
     expected_bw = DECADE_HF_LIMITS.get(decade, 20000.0) / 1000.0
     bw_error = abs(bw_khz - expected_bw) / max(expected_bw, 1.0)
@@ -431,8 +633,39 @@ def _dsp_fingerprint_decade(rolloff_hz: float, snr_db: float) -> tuple[int, floa
         # 1950–1980: BW-dominated, SNR secondary
         conf = float(np.clip(1.0 - bw_error * 0.70 - snr_error * 0.15, 0.25, 0.87))
 
+    # Confidence boost when multiple features agree with the selected decade.
+    if decade in (1960, 1970, 1980):
+        agreement_count = 0
+        if is_stereo and decade >= 1960:
+            agreement_count += 1
+        if (
+            (decade == 1960 and spectral_tilt <= -5.0)
+            or (decade == 1970 and -5.0 < spectral_tilt <= -3.0)
+            or (decade == 1980 and spectral_tilt > -3.0)
+        ):
+            agreement_count += 1
+        if (
+            (decade == 1960 and dynamic_range_db < 30.0)
+            or (decade == 1970 and 25.0 <= dynamic_range_db < 42.0)
+            or (decade == 1980 and dynamic_range_db >= 35.0)
+        ):
+            agreement_count += 1
+        conf = min(0.92, conf + agreement_count * 0.04)
+
     if bw_khz >= 18.0 and decade < 1990:
         conf = max(conf, 0.75)  # Full-bandwidth analog clearly ≥ 1980
+
+    logger.debug(
+        "DSP-Fingerprint: bw=%.1fkHz snr=%.1fdB stereo=%s width=%.3f tilt=%.1fdB/oct dr=%.1fdB → decade=%d conf=%.2f",
+        bw_khz,
+        snr_db,
+        is_stereo,
+        stereo_width,
+        spectral_tilt,
+        dynamic_range_db,
+        decade,
+        conf,
+    )
     return decade, conf
 
 
@@ -559,7 +792,7 @@ def _microphone_type_decade(bark_energies: np.ndarray) -> tuple[int, float]:
 # ---------------------------------------------------------------------------
 
 CACHE_DIR = Path.home() / ".aurik" / "era_cache"
-_CACHE_VERSION = "v5"  # v5: recalibrated 1940-1970 BW thresholds to match DECADE_HF_LIMITS (23.03.2026)
+_CACHE_VERSION = "v7"  # v7: multi-factor (stereo/tilt/DR) + consensus vote (25.03.2026)
 
 
 class EraClassifier:
@@ -628,12 +861,25 @@ class EraClassifier:
         rolloff_hz = _dsp_hf_rolloff(audio_mono, sr)
         snr_db = _estimate_snr(audio_mono, sr)
 
+        # Multi-factor features (§2.14 enhanced era discrimination)
+        is_stereo, stereo_width = _detect_stereo_properties(audio, sr)
+        spectral_tilt = _estimate_spectral_tilt(audio_mono, sr)
+        dynamic_range_db = _estimate_dynamic_range(audio_mono, sr)
+
         # Tier-1: CLAP (optional)
         result = self._try_tier1(audio_mono, sr, bark, rolloff_hz, snr_db)
 
-        # Tier-2: DSP-Fingerprint
+        # Tier-2: DSP-Fingerprint (multi-factor)
         if result is None or result.confidence < 0.40:
-            result = self._tier2(bark, rolloff_hz, snr_db)
+            result = self._tier2(
+                bark,
+                rolloff_hz,
+                snr_db,
+                is_stereo=is_stereo,
+                stereo_width=stereo_width,
+                spectral_tilt=spectral_tilt,
+                dynamic_range_db=dynamic_range_db,
+            )
 
         # Tier-3: Mikrofon-Heuristik (letzter Fallback)
         if result.confidence < 0.30:
@@ -744,9 +990,26 @@ class EraClassifier:
             logger.debug("EraClassifier Tier-1 fehlgeschlagen: %s — nutze DSP-Fallback", exc)
             return None
 
-    def _tier2(self, bark: np.ndarray, rolloff_hz: float, snr_db: float) -> EraResult:
-        """Tier-2: DSP-Fingerprint (HF-Rolloff + SNR)."""
-        decade, conf = _dsp_fingerprint_decade(rolloff_hz, snr_db)
+    def _tier2(
+        self,
+        bark: np.ndarray,
+        rolloff_hz: float,
+        snr_db: float,
+        *,
+        is_stereo: bool = False,
+        stereo_width: float = 0.0,
+        spectral_tilt: float = -4.0,
+        dynamic_range_db: float = 25.0,
+    ) -> EraResult:
+        """Tier-2: DSP-Fingerprint (multi-factor: BW + SNR + stereo + tilt + DR)."""
+        decade, conf = _dsp_fingerprint_decade(
+            rolloff_hz,
+            snr_db,
+            is_stereo=is_stereo,
+            stereo_width=stereo_width,
+            spectral_tilt=spectral_tilt,
+            dynamic_range_db=dynamic_range_db,
+        )
         material = DECADE_MATERIAL_PRIOR.get(decade, "unknown")
         return EraResult(
             decade=decade,

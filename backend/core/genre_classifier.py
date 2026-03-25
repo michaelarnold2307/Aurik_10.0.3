@@ -156,7 +156,15 @@ class GermanSchlagerClassifier:
         is_schlager = (n_active >= 3) and (confidence >= self.SCHLAGER_CONFIDENCE_THRESHOLD)
 
         # Genre-Label + Subgenre
-        genre_label = self._determine_genre_label(subgenre, bpm) if is_schlager else "Unbekannt"
+        if is_schlager:
+            genre_label = self._determine_genre_label(subgenre, bpm)
+        else:
+            # Multi-genre fallback: score Rock / Jazz / Klassik
+            alt_genre, alt_conf = self._classify_non_schlager_genre(mono, sr_a, hsi, bpm)
+            genre_label = alt_genre
+            # Use the higher confidence (schlager near-miss vs. alternative genre)
+            if alt_conf > confidence:
+                confidence = alt_conf
 
         # Tonart (einfache Schätzung)
         key = self._estimate_key(mono, sr_a)
@@ -345,27 +353,39 @@ class GermanSchlagerClassifier:
             if bpm <= 0:
                 return 0.35, "unknown", 120.0
 
-            # BPM-Range-Matching
+            # Half/double-tempo robustness: librosa sometimes estimates
+            # double or half the true tempo.  Try original, half, and double
+            # candidates and pick the one with the best sub-genre match.
+            candidates = [bpm]
+            if bpm > 60:
+                candidates.append(bpm / 2.0)
+            if bpm < 200:
+                candidates.append(bpm * 2.0)
+
             best_score = 0.0
             best_subgenre = "unknown"
+            best_bpm = bpm
 
-            for subgenre, (lo, hi) in self.BPM_RANGES.items():
-                if lo <= bpm <= hi:
-                    # Treffer — Stärke des Treffers berechnen
-                    center = (lo + hi) / 2.0
-                    width = (hi - lo) / 2.0
-                    dist = abs(bpm - center) / (width + 1e-8)
-                    score = float(np.clip(1.0 - dist * 0.5, 0.5, 1.0))
-                    if score > best_score:
-                        best_score = score
-                        best_subgenre = subgenre
+            for candidate_bpm in candidates:
+                for subgenre, (lo, hi) in self.BPM_RANGES.items():
+                    if lo <= candidate_bpm <= hi:
+                        center = (lo + hi) / 2.0
+                        width = (hi - lo) / 2.0
+                        dist = abs(candidate_bpm - center) / (width + 1e-8)
+                        score = float(np.clip(1.0 - dist * 0.5, 0.5, 1.0))
+                        # Penalize half/double tempo slightly (prefer original)
+                        if candidate_bpm != bpm:
+                            score *= 0.85
+                        if score > best_score:
+                            best_score = score
+                            best_subgenre = subgenre
+                            best_bpm = candidate_bpm
 
             if best_score == 0.0:
-                # Kein BPM-Treffer — schwacher Score
                 best_score = 0.25
                 best_subgenre = "unknown"
 
-            return float(np.nan_to_num(best_score)), best_subgenre, bpm
+            return float(np.nan_to_num(best_score)), best_subgenre, best_bpm
 
         except Exception as e:
             logger.debug("RhythmPattern Fallback: %s", e)
@@ -515,6 +535,185 @@ class GermanSchlagerClassifier:
         except Exception as e:
             logger.debug("MelodicRepetition Fallback: %s", e)
             return 0.35
+
+    # ---- Multi-Genre Scoring (Rock / Jazz / Klassik / Oper) ----
+
+    @staticmethod
+    def _spectral_centroid_hz(mono: np.ndarray, sr: int) -> float:
+        """Weighted mean frequency of the power spectrum (brightness indicator)."""
+        n_fft = min(4096, len(mono))
+        if n_fft < 256:
+            return 2000.0
+        hop = n_fft // 2
+        centroids: list[float] = []
+        for start in range(0, max(1, len(mono) - n_fft), hop):
+            frame = mono[start : start + n_fft] * np.hanning(n_fft)
+            mag = np.abs(np.fft.rfft(frame))
+            freqs = np.fft.rfftfreq(n_fft, 1.0 / sr)
+            total = float(np.sum(mag)) + 1e-12
+            c = float(np.sum(freqs * mag) / total)
+            centroids.append(c)
+            if len(centroids) >= 200:
+                break
+        return float(np.median(centroids)) if centroids else 2000.0
+
+    @staticmethod
+    def _onset_rate(mono: np.ndarray, sr: int) -> float:
+        """Transient onset density (onsets per second)."""
+        try:
+            import librosa
+
+            if len(mono) < sr:
+                return 2.0
+            onsets = librosa.onset.onset_detect(y=mono, sr=sr, units="time")
+            duration_s = len(mono) / sr
+            return float(len(onsets) / max(duration_s, 1.0))
+        except Exception:
+            return 2.0
+
+    @staticmethod
+    def _dynamic_range_db(mono: np.ndarray, sr: int) -> float:
+        """Frame-energy P95-P5 spread in dB."""
+        import math as _math
+
+        frame_size = max(1, sr // 10)
+        n_frames = len(mono) // frame_size
+        if n_frames < 5:
+            return 25.0
+        energies = np.array([np.mean(mono[i * frame_size : (i + 1) * frame_size] ** 2) for i in range(n_frames)])
+        energies = energies[energies > 1e-6]
+        if len(energies) < 5:
+            return 25.0
+        p95 = float(np.percentile(energies, 95))
+        p5 = float(np.percentile(energies, 5))
+        if p5 < 1e-18:
+            return 40.0
+        return float(np.clip(10.0 * _math.log10(max(p95 / p5, 1.0)), 5.0, 70.0))
+
+    def _score_rock(
+        self,
+        centroid_hz: float,
+        onset_rate: float,
+        hsi: float,
+        bpm: float,
+    ) -> float:
+        """Rock genre score: bright spectrum + dense transients + moderate harmony."""
+        score = 0.0
+        # High spectral centroid → bright/aggressive sound
+        if centroid_hz > 2800:
+            score += 0.30
+        elif centroid_hz > 2200:
+            score += 0.15
+        # High onset density (drum attacks, power chords)
+        if onset_rate > 3.5:
+            score += 0.25
+        elif onset_rate > 2.5:
+            score += 0.12
+        # Moderate harmonic complexity (not simple Schlager, not complex Jazz)
+        if 0.40 <= hsi <= 0.72:
+            score += 0.20
+        # Typical Rock BPM range (90–170)
+        if 90 <= bpm <= 170:
+            score += 0.15
+        return float(np.clip(score, 0.0, 1.0))
+
+    def _score_jazz(
+        self,
+        centroid_hz: float,
+        hsi: float,
+        dr_db: float,
+        bpm: float,
+    ) -> float:
+        """Jazz genre score: complex harmony + wide dynamics + moderate tempo."""
+        score = 0.0
+        # Low HSI = complex harmony (quintessential Jazz feature)
+        if hsi < 0.50:
+            score += 0.40
+        elif hsi < 0.65:
+            score += 0.20
+        # Wide dynamic range (expressive playing)
+        if dr_db > 35:
+            score += 0.20
+        elif dr_db > 25:
+            score += 0.08
+        # Moderate spectral centroid (warm, not aggressive)
+        if 1400 < centroid_hz < 3200:
+            score += 0.15
+        # Jazz BPM range is extremely variable; moderate tempos common
+        if 80 <= bpm <= 200:
+            score += 0.10
+        return float(np.clip(score, 0.0, 1.0))
+
+    def _score_classical(
+        self,
+        centroid_hz: float,
+        onset_rate: float,
+        hsi: float,
+        dr_db: float,
+    ) -> float:
+        """Classical genre score: extreme dynamics + low onset density + diatonic."""
+        score = 0.0
+        # Very high dynamic range (orchestral pianissimo → fortissimo)
+        if dr_db > 42:
+            score += 0.35
+        elif dr_db > 32:
+            score += 0.15
+        # Low onset density (no percussion-heavy rhythm)
+        if onset_rate < 1.5:
+            score += 0.25
+        elif onset_rate < 2.5:
+            score += 0.10
+        # Diatonic but not trivially simple harmony
+        if 0.55 <= hsi <= 0.88:
+            score += 0.15
+        # Lower spectral centroid (rich mids, warm strings)
+        if centroid_hz < 2200:
+            score += 0.15
+        return float(np.clip(score, 0.0, 1.0))
+
+    def _classify_non_schlager_genre(
+        self,
+        mono: np.ndarray,
+        sr: int,
+        hsi: float,
+        bpm: float,
+    ) -> tuple[str, float]:
+        """Multi-genre scoring for non-Schlager tracks.
+
+        Computes Rock/Jazz/Classical scores and returns the best match
+        if it exceeds a minimum confidence threshold.
+
+        Returns:
+            (genre_label, confidence): e.g. ("Rock", 0.65) or ("Unbekannt", 0.0)
+        """
+        centroid = self._spectral_centroid_hz(mono, sr)
+        onset = self._onset_rate(mono, sr)
+        dr_db = self._dynamic_range_db(mono, sr)
+
+        rock_s = self._score_rock(centroid, onset, hsi, bpm)
+        jazz_s = self._score_jazz(centroid, hsi, dr_db, bpm)
+        classical_s = self._score_classical(centroid, onset, hsi, dr_db)
+
+        scores = {"Rock": rock_s, "Jazz": jazz_s, "Klassik": classical_s}
+        best_genre = max(scores, key=scores.get)  # type: ignore[arg-type]
+        best_score = scores[best_genre]
+
+        logger.debug(
+            "Multi-Genre-Scores: Rock=%.2f Jazz=%.2f Klassik=%.2f centroid=%.0fHz onsets=%.1f/s DR=%.1fdB → %s (%.2f)",
+            rock_s,
+            jazz_s,
+            classical_s,
+            centroid,
+            onset,
+            dr_db,
+            best_genre,
+            best_score,
+        )
+
+        # Minimum threshold to assign a non-Schlager genre
+        if best_score >= 0.45:
+            return best_genre, best_score
+        return "Unbekannt", 0.0
 
     # ---- Tier-1: CLAP (optional) ----
 
