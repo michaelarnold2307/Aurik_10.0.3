@@ -58,8 +58,6 @@ Date: February 2026
 """
 
 import logging
-import os
-import sys
 import time
 
 import numpy as np
@@ -179,6 +177,23 @@ class TapeSaturation(PhaseInterface):
         mix_amount = self.SATURATION_MIX.get(material, 0.30)
         tape_speed = self.TAPE_SPEED.get(material, "7.5_ips")
         hysteresis = self.HYSTERESIS_AMOUNT.get(material, 0.10)
+
+        # §5 Vintage Aesthetics + §2.14+ Era-adaptive saturation:
+        # Pre-1960 recordings → preserve tube warmth (more drive, higher mix).
+        # Post-1980 → reduce saturation to avoid coloring clean recordings.
+        decade = kwargs.get("decade")
+        if decade is not None:
+            if decade <= 1950:
+                drive = min(1.0, drive * 1.20)
+                mix_amount = min(0.60, mix_amount * 1.15)
+            elif decade >= 1980:
+                drive = max(0.01, drive * 0.70)
+                mix_amount = max(0.01, mix_amount * 0.70)
+
+        # §2.20 Genre: if soft_saturation_preserve is set (Schlager, Rock),
+        # boost mix to better preserve the original character.
+        if kwargs.get("soft_saturation_preserve", False):
+            mix_amount = min(0.60, mix_amount * 1.15)
 
         if drive < 0.01 or mix_amount < 0.01:
             # Skip processing

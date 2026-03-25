@@ -56,6 +56,8 @@ per-file-ignores =
     aurik_cli.py:T201
     # Plugins: _release-Reimport in try/except-Chains erlaubt
     plugins/*.py:F811
+    # UV3: historisch gewachsene 8000-Zeilen-Datei — vorbestehende Style-Warnungen
+    backend/core/unified_restorer_v3.py:D102,D107,D200,D205,B007,B015,B036,N811,N814,SIM102,SIM113,SIM114,SIM401,SIM901
     # Legacy-Code
     backend/processing_pipeline_v8.py:ALL
 

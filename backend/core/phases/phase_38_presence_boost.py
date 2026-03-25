@@ -37,8 +37,6 @@ Version: 2.0.0 Professional
 """
 
 import logging
-import os
-import sys
 import time
 
 import numpy as np
@@ -147,7 +145,33 @@ class PresenceBoost(PhaseInterface):
         self.validate_input(audio)
 
         is_stereo = audio.ndim == 2
-        config = self.BOOST_CONFIG.get(material, self.BOOST_CONFIG[MaterialType.CD_DIGITAL])
+        config = dict(self.BOOST_CONFIG.get(material, self.BOOST_CONFIG[MaterialType.CD_DIGITAL]))
+
+        # ── Era/Genre-adaptive presence scaling (context injection §2.x) ──
+        _brillanz = kwargs.get("brillanz_target")
+        _decade = kwargs.get("decade")
+        _genre = kwargs.get("genre_label", "")
+        if _brillanz is not None:
+            # brillanz_target 0.85–0.92 → scale 0.85–1.15
+            _b_scale = 0.30 + 0.90 * float(_brillanz)
+            _b_scale = max(0.70, min(1.20, _b_scale))
+            config["lower_gain_db"] *= _b_scale
+            config["upper_gain_db"] *= _b_scale
+            logger.debug("Phase 38: brillanz_target=%.2f → presence scale=%.2f", float(_brillanz), _b_scale)
+        if _decade is not None:
+            _dec = int(_decade)
+            if _dec <= 1950:
+                # Vintage: cap presence boost (don't over-brighten)
+                config["lower_gain_db"] = min(config["lower_gain_db"], 2.5)
+                config["upper_gain_db"] = min(config["upper_gain_db"], 3.0)
+            elif _dec >= 2000:
+                # Modern digital: slightly less presence (already bright)
+                config["lower_gain_db"] *= 0.85
+                config["upper_gain_db"] *= 0.85
+        if str(_genre).lower() in ("klassik", "oper"):
+            # Classical/Opera: reduce presence boost to preserve natural timbre
+            config["lower_gain_db"] *= 0.70
+            config["upper_gain_db"] *= 0.75
 
         # Process each channel
         if is_stereo:

@@ -158,7 +158,30 @@ class BassEnhancement(PhaseInterface):
         assert sample_rate == 48000, f"SR muss 48000 Hz sein, erhalten: {sample_rate}"
 
         is_stereo = audio.ndim == 2
-        config = self.ENHANCEMENT_CONFIG.get(material, self.ENHANCEMENT_CONFIG[MaterialType.CD_DIGITAL])
+        config = dict(self.ENHANCEMENT_CONFIG.get(material, self.ENHANCEMENT_CONFIG[MaterialType.CD_DIGITAL]))
+
+        # ── Era/Genre-adaptive bass scaling (context injection §2.x) ──
+        _waerme = kwargs.get("waerme_target")
+        _decade = kwargs.get("decade")
+        if _waerme is not None:
+            # waerme_target 0.80–0.90 → scale 0.85–1.10
+            _w_scale = 0.50 + 0.667 * float(_waerme)
+            _w_scale = max(0.70, min(1.25, _w_scale))
+            config["harmonic_2_gain"] *= _w_scale
+            config["harmonic_3_gain"] *= _w_scale
+            config["sub_harmonic_gain"] *= _w_scale
+            config["mix"] *= _w_scale
+            logger.debug("Phase 37: waerme_target=%.2f → bass scale=%.2f", float(_waerme), _w_scale)
+        if _decade is not None:
+            _dec = int(_decade)
+            if _dec <= 1940:
+                # Vintage: less sub-bass (speakers couldn't reproduce), more H2
+                config["sub_harmonic_gain"] *= 0.60
+                config["harmonic_2_gain"] *= 1.20
+            elif _dec >= 1990:
+                # Modern: less harmonic coloring, preserve existing bass
+                config["harmonic_2_gain"] *= 0.80
+                config["harmonic_3_gain"] *= 0.80
 
         # Measure initial bass energy
         bass_energy_before = self._measure_bass_energy(audio, sample_rate)

@@ -149,7 +149,36 @@ class AirBandEnhancement(PhaseInterface):
         self.validate_input(audio)
 
         is_stereo = audio.ndim == 2
-        config = self.AIR_CONFIG.get(material, self.AIR_CONFIG[MaterialType.CD_DIGITAL])
+        config = dict(self.AIR_CONFIG.get(material, self.AIR_CONFIG[MaterialType.CD_DIGITAL]))
+
+        # ── Era/Genre-adaptive air band scaling (context injection §2.x) ──
+        _brillanz = kwargs.get("brillanz_target")
+        _decade = kwargs.get("decade")
+        _genre = kwargs.get("genre_label", "")
+        if _brillanz is not None:
+            _b_scale = 0.30 + 0.90 * float(_brillanz)
+            _b_scale = max(0.65, min(1.20, _b_scale))
+            config["shelf_gain_db"] *= _b_scale
+            config["exciter_mix"] *= _b_scale
+            logger.debug("Phase 39: brillanz_target=%.2f → air scale=%.2f", float(_brillanz), _b_scale)
+        if _decade is not None:
+            _dec = int(_decade)
+            if _dec <= 1950:
+                # Vintage: cap air enhancement (Spec §5: Rolloff ≤ 7 kHz not expand)
+                config["shelf_gain_db"] = min(config["shelf_gain_db"], 2.5)
+                config["exciter_mix"] = min(config["exciter_mix"], 0.15)
+                config["shelf_freq_hz"] = max(config["shelf_freq_hz"], 14000)
+            elif _dec <= 1970:
+                # Early stereo era: moderate air
+                config["shelf_gain_db"] *= 0.80
+                config["exciter_mix"] *= 0.80
+            elif _dec >= 2000:
+                # Modern: less exciter (already has HF content)
+                config["exciter_mix"] *= 0.75
+        if str(_genre).lower() in ("klassik", "oper"):
+            # Classical: minimal air exciter to preserve natural overtones
+            config["exciter_mix"] *= 0.50
+            config["saturation_drive"] *= 0.50
 
         # Measure initial HF energy
         hf_energy_before = self._measure_hf_energy(audio, sample_rate)

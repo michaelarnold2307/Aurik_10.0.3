@@ -258,6 +258,24 @@ class DenoisePhase(PhaseInterface):
         effective_strength = kwargs.get("strength", params["strength"])
         effective_strength = max(0.01, min(1.0, float(effective_strength)))
 
+        # §2.14+ Era-adaptive NR: older recordings tolerate stronger denoising,
+        # modern recordings need gentler treatment to preserve fine detail.
+        decade = kwargs.get("decade")
+        if decade is not None and "strength" not in kwargs:
+            if decade <= 1940:
+                effective_strength = min(1.0, effective_strength * 1.15)
+            elif decade >= 1990:
+                effective_strength = max(0.01, effective_strength * 0.80)
+
+        # §2.20 Genre-adaptive NR: classical/opera preserve hall ambience,
+        # rock tolerates aggressive NR without losing character.
+        genre_label = kwargs.get("genre_label", "Unbekannt")
+        if genre_label in ("Klassik", "Oper") and "strength" not in kwargs:
+            effective_strength = max(0.01, effective_strength * 0.75)
+            logger.debug("Phase 03: Genre=%s → NR strength reduced to %.2f", genre_label, effective_strength)
+        elif genre_label == "Rock" and "strength" not in kwargs:
+            effective_strength = min(1.0, effective_strength * 1.10)
+
         # ML-Hybrid Mode Routing (v3.0)
         # quality_mode from UnifiedRestorerV3: 'fast', 'balanced', 'maximum'
         quality_mode = kwargs.get("quality_mode", "balanced")

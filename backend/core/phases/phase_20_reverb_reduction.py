@@ -178,6 +178,22 @@ class ReverbReduction(PhaseInterface):
         strength = self.REDUCTION_STRENGTH.get(material, 0.4)
         damping = self.TAIL_DAMPING.get(material, 0.6)
 
+        # §2.20 Genre-adaptive reverb: classical/opera preserve concert hall ambience;
+        # Schlager profile may define dereverb_strength_cap.
+        genre_label = kwargs.get("genre_label", "Unbekannt")
+        if genre_label in ("Klassik", "Oper"):
+            strength = min(strength, 0.25)
+            logger.debug("Phase 20: Genre=%s → reverb strength capped to %.2f", genre_label, strength)
+        elif genre_label == "Jazz":
+            strength = min(strength, 0.30)
+
+        # §2.14+ Era-adaptive: older recordings (pre-1960) often have room ambience
+        # integral to the character — reduce dereverb strength.
+        decade = kwargs.get("decade")
+        if decade is not None and decade <= 1950:
+            strength = min(strength, 0.30)
+            logger.debug("Phase 20: decade=%d → reverb strength capped to %.2f", decade, strength)
+
         # ML-Hybrid Mode Routing (v3.0)
         quality_mode = kwargs.get("quality_mode", "balanced")
 

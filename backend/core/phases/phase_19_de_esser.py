@@ -75,10 +75,7 @@ Date: 16. Februar 2026
 """
 
 import logging
-import os
-import sys
 import time
-from typing import Optional
 
 import numpy as np
 from scipy import signal
@@ -110,6 +107,7 @@ try:
     from dsp.vocal_dynamics_intelligence import VocalDynamicsIntelligence
     from dsp.vocal_presence_enhancer import VocalPresenceEnhancer
     from dsp.vocal_spectral_inpainting import VocalSpectralInpainting
+
     AURIK_8_AVAILABLE = True
     logger.debug("Aurik 8.0 Enhancement-Module geladen (Formant, Breath, Presence, Inpainting, Dynamics)")
 except ImportError as _aurik8_err:
@@ -242,9 +240,7 @@ class DeEsserPhase(PhaseInterface):
         # ============================================================
         if AURIK_8_AVAILABLE:
             # Stage 2: Breath Intelligence
-            self.breath_intelligence = BreathIntelligence(
-                sensitivity=0.7, aggressive=0.6
-            )
+            self.breath_intelligence = BreathIntelligence(sensitivity=0.7, aggressive=0.6)
 
             # Stage 3: Formant System
             self.formant_system = FormantSystem(
@@ -396,13 +392,14 @@ class DeEsserPhase(PhaseInterface):
         _fft_len = min(len(audio_mono), 4096)
         _spec = np.abs(np.fft.rfft(audio_mono[:_fft_len]))
         _freqs = np.fft.rfftfreq(_fft_len, 1.0 / sample_rate)
-        _total_energy = float(np.sum(_spec ** 2)) + 1e-12
+        _total_energy = float(np.sum(_spec**2)) + 1e-12
         _hf_energy = float(np.sum(_spec[_freqs >= 4000.0] ** 2))
         _hf_ratio = _hf_energy / _total_energy
         _signal_has_sibilant_content = _hf_ratio > 0.05
         logger.debug(
             "Stage 2-6 gate: HF-ratio=%.3f, sibilant_content=%s",
-            _hf_ratio, _signal_has_sibilant_content,
+            _hf_ratio,
+            _signal_has_sibilant_content,
         )
 
         # ==============================================================
@@ -474,6 +471,16 @@ class DeEsserPhase(PhaseInterface):
         gender_max_reduction_db = self.vocal_profile.get("max_depth_db", -3.5)
         max_reduction_db = max(material_max_reduction_db, gender_max_reduction_db)  # Sanftere gewinnt
 
+        # §2.20 Genre-adaptive de-essing cap: genre_profile.deessing_strength_cap
+        # limits how aggressive de-essing can be (e.g. Schlager 0.45, Oper 0.35).
+        _deessing_cap = kwargs.get("deessing_strength_cap")
+        if _deessing_cap is not None:
+            _cap_db = -12.0 * float(_deessing_cap)  # 0.45 → -5.4 dB max
+            max_reduction_db = max(max_reduction_db, _cap_db)
+            logger.debug(
+                "Genre deessing_strength_cap=%.2f → max_red capped to %.1f dB", _deessing_cap, max_reduction_db
+            )
+
         # §4.4 Breathiness-Guard: De-Essing-Stärke dynamisch begrenzen
         # Verhindert Zerstörung natürlicher Vokal-Atemhaftigkeit (Spec §4.4)
         _audio_for_breathiness = audio_mono if audio_mono.ndim == 1 else audio_mono[:, 0]
@@ -484,7 +491,9 @@ class DeEsserPhase(PhaseInterface):
             max_reduction_db = max_reduction_db * _breath_scale
             logger.debug(
                 "§4.4 Breathiness-Guard aktiv: ratio=%.2f → scale=%.2f → max_red=%.1f dB",
-                _breathiness_ratio, _breath_scale, max_reduction_db,
+                _breathiness_ratio,
+                _breath_scale,
+                max_reduction_db,
             )
 
         threshold_ratio = self.SIBILANCE_THRESHOLD_RATIO.get(material, 1.8)
@@ -635,9 +644,7 @@ class DeEsserPhase(PhaseInterface):
                     )
                     if _retry_result.fricative_segments > 0:
                         deessed_audio = _retry_result.audio
-                        _snr_after_chain = measure_fricative_snr(
-                            deessed_audio, sample_rate, _chain_gender
-                        )
+                        _snr_after_chain = measure_fricative_snr(deessed_audio, sample_rate, _chain_gender)
                         _fricative_snr_invariant_met = _snr_after_chain >= _snr_required
                         logger.debug(
                             "Stage 8c Retry: SNR_nach=%.1f dB, required=%.1f dB, met=%s",
@@ -655,8 +662,7 @@ class DeEsserPhase(PhaseInterface):
                         )
                 else:
                     logger.debug(
-                        "Stage 8c: §2.8 Feedback-Invariante erfüllt "
-                        "(SNR_nach=%.1f dB ≥ SNR_ref+3=%.1f dB)",
+                        "Stage 8c: §2.8 Feedback-Invariante erfüllt (SNR_nach=%.1f dB ≥ SNR_ref+3=%.1f dB)",
                         _snr_after_chain,
                         _snr_required,
                     )
@@ -830,7 +836,10 @@ class DeEsserPhase(PhaseInterface):
 
             # Soft-Knee Gain Reduction berechnen
             gain_curve = self._compute_soft_knee_gain(
-                detection_rms, threshold_linear, max_reduction_db * weight, self.SOFT_KNEE_DB  # Band-gewichtet
+                detection_rms,
+                threshold_linear,
+                max_reduction_db * weight,
+                self.SOFT_KNEE_DB,  # Band-gewichtet
             )
 
             # Attack/Release Smoothing
@@ -1088,13 +1097,13 @@ class DeEsserPhase(PhaseInterface):
 
         if s_low > safe_nyquist:
             logger.warning(
-                f"⚠️ Sibilance band lower bound {s_low:.0f} Hz > Nyquist, adjusting to {safe_nyquist*0.7:.0f}-{safe_nyquist:.0f} Hz"
+                f"⚠️ Sibilance band lower bound {s_low:.0f} Hz > Nyquist, adjusting to {safe_nyquist * 0.7:.0f}-{safe_nyquist:.0f} Hz"
             )
             s_low = safe_nyquist * 0.7  # Notfall-Band: 70-95% Nyquist
 
         # Prüfe ob Band breit genug ist (mindestens 500 Hz)
         if (s_high - s_low) < 500:
-            logger.warning(f"⚠️ Sibilance band too narrow ({s_high-s_low:.0f} Hz), expanding")
+            logger.warning(f"⚠️ Sibilance band too narrow ({s_high - s_low:.0f} Hz), expanding")
             s_low = max(3000, s_high - 2000)  # Mindestens 2 kHz Bandbreite
 
         # Passe Bänder an Gender-Profil an (behalte 3-Band-Struktur)
@@ -1159,6 +1168,11 @@ class DeEsserPhase(PhaseInterface):
         """
         if audio.ndim == 2:
             audio = np.mean(audio, axis=1)
+
+        # OOM-Guard: cap to 5 s — full-audio autocorrelation is O(N²) memory
+        max_samples = sample_rate * 5
+        if len(audio) > max_samples:
+            audio = audio[:max_samples]
 
         # Autocorrelation für F0-Schätzung
         n = len(audio)
@@ -1285,9 +1299,9 @@ if __name__ == "__main__":
 
     # Test für alle 3 Gender-Profile
     for gender in [VocalGender.FEMALE, VocalGender.MALE, VocalGender.CHILD]:
-        logger.debug(f"\n{'─'*80}")
+        logger.debug(f"\n{'─' * 80}")
         logger.debug(f"Testing {gender.upper()} Vocal Profile")
-        logger.debug(f"{'─'*80}")
+        logger.debug(f"{'─' * 80}")
         logger.debug(f"Profile Settings: {VOCAL_PROFILES[gender]}")
 
         processor = DeEsserPhase(gender=gender)
@@ -1354,7 +1368,9 @@ if __name__ == "__main__":
                 f"      ✅ Authentizität: {result.metadata.get('formant_preservation', 0.85):.2f} (voice identity preserved)"
             )
             logger.debug("      ✅ Emotionalität: Micro-Compression (syllable-level dynamics)")
-            logger.debug(f"      ✅ Transparenz: {result.metrics.get('musical_goal_transparenz', 0.8):.2f} clarity score")
+            logger.debug(
+                f"      ✅ Transparenz: {result.metrics.get('musical_goal_transparenz', 0.8):.2f} clarity score"
+            )
 
             if gender == VocalGender.MALE:
                 logger.debug("      ✅ Bass-Kraft: Chest resonance (100-250 Hz) protected @ 0.95 blend")
@@ -1371,9 +1387,9 @@ if __name__ == "__main__":
             logger.debug(f"   ❌ Processing failed: {result.warnings}")
 
     # Auto-Detection Test
-    logger.debug(f"\n{'─'*80}")
+    logger.debug(f"\n{'─' * 80}")
     logger.debug("Testing AUTO Gender Detection")
-    logger.debug(f"{'─'*80}")
+    logger.debug(f"{'─' * 80}")
     processor_auto = DeEsserPhase(gender=VocalGender.AUTO)
 
     # Male voice test signal (low F0)
@@ -1390,7 +1406,7 @@ if __name__ == "__main__":
     logger.debug(f"   F0=120Hz → Detected: {detected.upper()} (expected: MALE)")
     logger.debug("   ✅ Auto-detection functional")
 
-    logger.debug(f"\n{'='*80}")
+    logger.debug(f"\n{'=' * 80}")
     logger.debug("🏆 Phase 19 v4.0: Gender-Aware De-Esser - Test Complete!")
     logger.debug("\n📊 Gender Profiles:")
     logger.debug("  🎤 FEMALE: F0~220Hz | Sibilance 7-11kHz | Formants 2-3kHz | Chest 150-300Hz")

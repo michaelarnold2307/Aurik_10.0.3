@@ -25,12 +25,12 @@ Date: 2026-02-15
 """
 
 import dataclasses
-from dataclasses import dataclass, field
 import gc
 import logging
 import math
 import pathlib
 import time
+from dataclasses import dataclass, field
 from typing import Any, Optional
 
 import numpy as np
@@ -48,11 +48,11 @@ try:
     MEMORY_PROFILING_AVAILABLE = True
 except ImportError:
     MEMORY_PROFILING_AVAILABLE = False
-from concurrent.futures import ThreadPoolExecutor, as_completed
 import contextlib
 import importlib
 import os
 import sys
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from backend.core.adaptive_core_scheduler import AdaptiveCoreScheduler
 
@@ -1087,6 +1087,54 @@ class UnifiedRestorerV3:
                 )
             except Exception as _gp_sc_exc:
                 logger.debug("SCHLAGER_RESTORATION_PROFILE nicht geladen: %s", _gp_sc_exc)
+        elif _schlager_result is not None and _schlager_result.genre_label not in ("Unbekannt", "unknown", ""):
+            # Non-Schlager genre detected (Rock, Jazz, Klassik, Oper) — load its profile
+            try:
+                from backend.core.genre_classifier import get_restoration_profile
+
+                _genre_profile = get_restoration_profile(_schlager_result.genre_label)
+                if _genre_profile:
+                    _gp_material_key = str(_genre_profile.get("gp_memory_key", _gp_material_key))
+                    logger.info(
+                        "🪧 GENRE_PROFILE(%s): gp_key=%s groove_dtw_max_ms=%.1f",
+                        _schlager_result.genre_label,
+                        _gp_material_key,
+                        _genre_profile.get("groove_dtw_max_ms", 8.0),
+                    )
+            except Exception as _gp_genre_exc:
+                logger.debug("GENRE_RESTORATION_PROFILE nicht geladen: %s", _gp_genre_exc)
+
+        # §2.14+ Kontextfluss: Ära, Genre, BPM und Genre-Profil auf self speichern,
+        # damit _profiled_phase_call sie zentral in ALLE Phase-kwargs injizieren kann.
+        self._restoration_context = {
+            "decade": getattr(_era_result, "decade", None) if _era_result is not None else None,
+            "era_confidence": getattr(_era_result, "confidence", 0.0) if _era_result is not None else 0.0,
+            "genre_label": (
+                getattr(_schlager_result, "genre_label", "Unbekannt") if _schlager_result is not None else "Unbekannt"
+            ),
+            "is_schlager": getattr(_schlager_result, "is_schlager", False) if _schlager_result is not None else False,
+            "bpm": getattr(_schlager_result, "bpm", 0.0) if _schlager_result is not None else 0.0,
+            "subgenre": getattr(_schlager_result, "subgenre", "unknown") if _schlager_result is not None else "unknown",
+        }
+        if _genre_profile:
+            self._restoration_context.update(
+                {
+                    "brillanz_target": _genre_profile.get("brillanz_target"),
+                    "waerme_target": _genre_profile.get("waerme_target"),
+                    "groove_dtw_max_ms": _genre_profile.get("groove_dtw_max_ms"),
+                    "soft_saturation_preserve": _genre_profile.get("soft_saturation_preserve", False),
+                    "deessing_strength_cap": _genre_profile.get("deessing_strength_cap"),
+                    "compression_ratio_cap": _genre_profile.get("compression_ratio_cap"),
+                    "transient_preservation_strength": _genre_profile.get("transient_preservation_strength"),
+                }
+            )
+        logger.info(
+            "📋 RestorationContext: decade=%s genre=%s bpm=%.0f subgenre=%s",
+            self._restoration_context.get("decade"),
+            self._restoration_context.get("genre_label"),
+            self._restoration_context.get("bpm", 0.0),
+            self._restoration_context.get("subgenre"),
+        )
 
         _cb(11, "Material und Ära klassifiziert …")
 
@@ -1896,6 +1944,8 @@ class UnifiedRestorerV3:
             try:
                 from plugins.matchering_plugin import (
                     is_matchering_available as _mg_avail,
+                )
+                from plugins.matchering_plugin import (
                     match_reference as _match_ref,
                 )
 
@@ -1950,6 +2000,8 @@ class UnifiedRestorerV3:
         try:
             from backend.core.lyrics_guided_enhancement import (
                 get_content_aware_processor as _get_cap,
+            )
+            from backend.core.lyrics_guided_enhancement import (
                 get_lyrics_guided_enhancement as _get_lge,
             )
 
@@ -2164,7 +2216,8 @@ class UnifiedRestorerV3:
             logger.warning("ExcellenceOptimizer nicht verfügbar — DSP-Fallback aktiv: %s", _ex_exc)
             # Guaranteed DSP-Fallback: Presence enhancement + NaN-Guard (§Checkliste §3.x)
             try:
-                from scipy.signal import butter as _butter, lfilter as _lfilter
+                from scipy.signal import butter as _butter
+                from scipy.signal import lfilter as _lfilter
 
                 _ex_rms = float(np.sqrt(np.mean(restored_audio.astype(np.float64) ** 2) + 1e-12))
                 if _ex_rms > 1e-4:  # Nicht auf Stille anwenden
@@ -2274,6 +2327,8 @@ class UnifiedRestorerV3:
         try:
             from backend.core.perceptual_quality_scorer import (
                 score_audio as _score_audio,
+            )
+            from backend.core.perceptual_quality_scorer import (
                 score_audio_absolute as _score_abs,
             )
 
@@ -2994,6 +3049,8 @@ class UnifiedRestorerV3:
             try:
                 from backend.core.artist_signature_store import (
                     VoiceCharacteristics as _VoiceCharacteristics,
+                )
+                from backend.core.artist_signature_store import (
                     get_signature_store as _get_sig_store2,
                 )
 
@@ -3256,9 +3313,17 @@ class UnifiedRestorerV3:
         try:
             from backend.core.authenticity_metrics import (
                 BreathDetector as _BreathDetector,
+            )
+            from backend.core.authenticity_metrics import (
                 PlosiveDetector as _PlosiveDetector,
+            )
+            from backend.core.authenticity_metrics import (
                 RoomToneDetector as _RoomToneDetector,
+            )
+            from backend.core.authenticity_metrics import (
                 SibilanceDetector as _SibilanceDetector,
+            )
+            from backend.core.authenticity_metrics import (
                 TransientDetector as _TransientDetector,
             )
 
@@ -3297,7 +3362,11 @@ class UnifiedRestorerV3:
         try:
             from backend.core.musical_quality_assurance import (
                 MediumType as _MediumType,
+            )
+            from backend.core.musical_quality_assurance import (
                 MusicalQualityAssurance as _MQA,
+            )
+            from backend.core.musical_quality_assurance import (
                 ProcessingMode as _ProcessingMode,
             )
 
@@ -3368,15 +3437,35 @@ class UnifiedRestorerV3:
             from backend.core.aesthetic_judgment import CompositeAestheticScoreCalculator as _CASCalc
             from backend.core.data_models import (
                 AnalysisProfile as _AProfile,
+            )
+            from backend.core.data_models import (
                 DynamicsAnalysis as _DynAnal,
+            )
+            from backend.core.data_models import (
                 FeatureVectors as _FeatVec,
+            )
+            from backend.core.data_models import (
                 FormatInfo as _FormatInfo,
+            )
+            from backend.core.data_models import (
                 Genre as _DataGenre,
+            )
+            from backend.core.data_models import (
                 MaterialChainAnalysis as _MatChain,
+            )
+            from backend.core.data_models import (
                 MediaType as _MediaType,
+            )
+            from backend.core.data_models import (
                 MusicalContext as _MusCtx,
+            )
+            from backend.core.data_models import (
                 SpectralAnalysis as _SpectralAnal,
+            )
+            from backend.core.data_models import (
                 StereoAnalysis as _StereoAnal,
+            )
+            from backend.core.data_models import (
                 VocalAnalysis as _VocalAnal,
             )
 
@@ -3859,7 +3948,11 @@ class UnifiedRestorerV3:
         try:
             from backend.core.processing_modes import (
                 ProcessingMode as _PM22,
+            )
+            from backend.core.processing_modes import (
                 get_processing_config as _get_pcfg,
+            )
+            from backend.core.processing_modes import (
                 list_available_modes as _list_modes,
             )
 
@@ -3981,7 +4074,8 @@ class UnifiedRestorerV3:
         # v9.10.23 — AdaptiveChainRouter: optimale Phasenkette für Material
         _acr_result: dict | None = None
         try:
-            from backend.core.adaptive_chain_router import CHAIN_TEMPLATES as _CHAIN_TPL, AdaptiveChainRouter as _ACR
+            from backend.core.adaptive_chain_router import CHAIN_TEMPLATES as _CHAIN_TPL
+            from backend.core.adaptive_chain_router import AdaptiveChainRouter as _ACR
 
             _acr_material = "UNKNOWN"
             if _era_result and isinstance(_era_result, dict):
@@ -4266,7 +4360,8 @@ class UnifiedRestorerV3:
         # v9.10.27 — adaptive_plugins: VoiceHealthNet + LanguageNet
         _adp_result: dict | None = None
         try:
-            from backend.core.adaptive_plugins import LanguageNet as _LN27, VoiceHealthNet as _VHN27
+            from backend.core.adaptive_plugins import LanguageNet as _LN27
+            from backend.core.adaptive_plugins import VoiceHealthNet as _VHN27
 
             _adp_audio27 = restored_audio if restored_audio.ndim == 1 else np.mean(restored_audio, axis=0)
             _vhn27 = _VHN27().analyze(_adp_audio27, {})
@@ -4321,7 +4416,11 @@ class UnifiedRestorerV3:
         try:
             from backend.core.exotic_media_support import (
                 EXOTIC_DEFECTS as _EDF27,
+            )
+            from backend.core.exotic_media_support import (
                 EXOTIC_MEDIA_TEMPLATES as _EMT27,
+            )
+            from backend.core.exotic_media_support import (
                 ExoticMediaHandler as _EMH27,
             )
 
@@ -4620,7 +4719,11 @@ class UnifiedRestorerV3:
         try:
             from backend.core.dummy_models import (
                 AuthenticityModel as _AuthM31,
+            )
+            from backend.core.dummy_models import (
                 DenoiserModel as _DM31,
+            )
+            from backend.core.dummy_models import (
                 SibilantModel as _SibM31,
             )
 
@@ -5619,6 +5722,8 @@ class UnifiedRestorerV3:
         try:
             from backend.core.ab_compare_manager import (
                 get_ab_manager as _ab_get34,
+            )
+            from backend.core.ab_compare_manager import (
                 store_ab_session as _ab_store34,
             )
 
@@ -6991,6 +7096,14 @@ class UnifiedRestorerV3:
             except Exception:
                 pass  # Globalplan-Fehler stoppen nie eine Phase
 
+        # §2.14+ Kontextfluss: Ära/Genre/BPM/Profil-Daten aus self._restoration_context
+        # in ALLE Phasen injizieren (zentrale Injection statt verteilter kwargs).
+        _rctx = getattr(self, "_restoration_context", None)
+        if _rctx is not None:
+            for _ck, _cv in _rctx.items():
+                if _ck not in kwargs and _cv is not None:
+                    kwargs[_ck] = _cv
+
         # Normalisierung: material_type und material immer als MaterialType-Enum übergeben
         # Phasen haben unterschiedliche Signaturen (material vs. material_type), beide abdecken
         for _mk in ("material_type", "material"):
@@ -7110,7 +7223,7 @@ class UnifiedRestorerV3:
         so the UI can show the sequential channel processing in real time.
         """
 
-        __slots__ = ("_phase", "_audio_update_cb", "_sr")
+        __slots__ = ("_audio_update_cb", "_phase", "_sr")
 
         def __init__(self, phase, audio_update_callback=None, sample_rate: int = 48000):
             object.__setattr__(self, "_phase", phase)
@@ -7674,9 +7787,30 @@ class UnifiedRestorerV3:
                     skipped.append(phase_id)
                 if self.performance_guard:
                     self.performance_guard.end_phase(phase_id, phase_start)
-                # OOM-Guard: periodisches GC alle 5 Phasen um Speicher-Akkumulation zu vermeiden
-                if len(executed) % 5 == 0:
-                    gc.collect()
+                # OOM-Guard: GC nach JEDER Phase — STFT-Matrizen (je ~173 MB)
+                # und PMGG-Retries akkumulieren Speicher schneller als gc.collect
+                # alle 5 Phasen abräumen kann (OOM-Crash bei 225s Tape, 24.03.2026).
+                gc.collect()
+                # RAM-Notbremse: bei < 2 GB verfügbar → Plugin-Eviction erzwingen
+                try:
+                    import psutil as _psutil_phase
+
+                    _avail_gb_phase = _psutil_phase.virtual_memory().available / (1024**3)
+                    if _avail_gb_phase < 2.0:
+                        logger.warning(
+                            "⚠️ OOM-Guard nach %s: nur %.1f GB RAM frei — erzwinge Plugin-Eviction",
+                            phase_id,
+                            _avail_gb_phase,
+                        )
+                        try:
+                            from backend.core.plugin_lifecycle_manager import evict_stale_plugins
+
+                            evict_stale_plugins(required_mb=2048)
+                        except Exception:
+                            pass
+                        gc.collect()
+                except ImportError:
+                    pass
                 # §2.16 TQC mid-pipeline: nach zeitmodifizierenden Phasen auf Kohärenzverlust prüfen
                 if _tqc_snap is not None and phase_id in executed:
                     _tqc_dur_s = (
