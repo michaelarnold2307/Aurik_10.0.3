@@ -57,7 +57,7 @@ def _auto_detect_budget() -> float:
 # Auto-detected from system RAM; override via set_budget() if needed.
 ML_MAX_GB: float = _auto_detect_budget()
 _SYSTEM_MEMORY_MARGIN: float = 1.35
-_MIN_FREE_MB_HARD: float = 1536.0
+_MIN_FREE_MB_HARD: float = 3072.0  # 3 GB — angehoben von 1.5 GB (systemd-oomd-Schutz)
 
 # ---------------------------------------------------------------------------
 # Internal state (thread-safe)
@@ -72,6 +72,35 @@ def _available_memory_mb() -> float:
     if _psutil is None:
         return float("inf")
     return float(_psutil.virtual_memory().available / (1024 * 1024))
+
+
+def is_system_thrashing() -> bool:
+    """Detect swap-thrashing: high swap usage combined with low free RAM.
+
+    Heuristic: swap > 30 % used AND available RAM < 15 % of total.
+    On Linux, systemd-oomd kills at ~50 % memory-pressure for > 20 s.
+    We detect BEFORE that point to allow graceful degradation.
+    """
+    if _psutil is None:
+        return False
+    try:
+        swap = _psutil.swap_memory()
+        vm = _psutil.virtual_memory()
+        swap_used_pct = swap.percent  # 0–100
+        avail_ratio = vm.available / max(vm.total, 1)
+        thrashing = swap_used_pct > 30.0 and avail_ratio < 0.15
+        if thrashing:
+            logger.warning(
+                "🚨 Swap-Thrashing erkannt: Swap %.0f %% belegt (%.1f GB), "
+                "RAM verfügbar %.1f %% (%.1f GB) — ML-Loads werden blockiert",
+                swap_used_pct,
+                swap.used / (1024**3),
+                avail_ratio * 100,
+                vm.available / (1024**3),
+            )
+        return thrashing
+    except Exception:
+        return False
 
 
 def _preflight_system_memory(required_mb: float) -> bool:
@@ -124,6 +153,16 @@ def try_allocate(model_name: str, size_gb: float) -> bool:
         if model_name in _allocated:
             # Already loaded — no additional budget consumed.
             return True
+
+    # Swap-Thrashing-Guard: Wenn system bereits thrashing, alle neuen
+    # ML-Loads blockieren — DSP-Fallback statt Freeze/OOM.
+    if is_system_thrashing():
+        logger.warning(
+            "ML-Budget: '%s' (%.1f GB) blockiert — System-Thrashing erkannt, DSP-Fallback aktiv.",
+            model_name,
+            size_gb,
+        )
+        return False
 
     if not _preflight_system_memory(required_mb=max(size_gb, 0.0) * 1024.0):
         return False

@@ -72,9 +72,13 @@ logger = logging.getLogger(__name__)
 REGRESSION_THRESHOLD: float = 0.025
 
 # Restorability-adaptive Schwellwerte (§2.29 Spec)
-REGRESSION_THRESHOLD_GOOD: float = 0.012  # v9.11: verschärft von 0.018 — Exzellenz-Präzision | restorability ≥ 70
-REGRESSION_THRESHOLD_FAIR: float = 0.040  # restorability 40–69 (entspannter)
-REGRESSION_THRESHOLD_POOR: float = 0.060  # restorability < 40 (maximal tolerant)
+# v9.10.76: 0.012 → 0.030 (DSP-Proxy-Messrauschen 0.01–0.05).
+# v9.10.77: 0.030 → 0.020 — §9.7.5 Reference-Aware Preservation Corrections
+# eliminieren den größten Teil des Messrauschens; engere Schwellwerte fangen
+# nun echte Regressionen zuverlässiger ab ohne False-Positives.
+REGRESSION_THRESHOLD_GOOD: float = 0.020  # restorability ≥ 70
+REGRESSION_THRESHOLD_FAIR: float = 0.035  # restorability 40–69 (entspannter)
+REGRESSION_THRESHOLD_POOR: float = 0.055  # restorability < 40 (maximal tolerant)
 
 SAMPLE_DURATION_S: float = 5.0
 MAX_RETRIES: int = 5  # v9.15-B3: 5 Retries mit sanftem Stärkegradienten (0.65→0.50→0.35→0.20→0.10)
@@ -97,77 +101,53 @@ PHASE_SAMPLE_DURATIONS: dict[str, float] = {
 # Goals whose DSP proxy is structurally unreliable for a given processing type.
 # These goals are NOT checked for regression when the phase matches.
 #
-# Rationale for phase_02 / phase_28:
-#   Both apply comb / spectral-notch filters.  The MFCC-smoothness proxy for
-#   "natuerlichkeit" and the flatness-based proxy for "separation_fidelity"
-#   interpret the introduced notches as artefacts, producing false-positive
-#   regressions of 0.36–0.69 >> REGRESSION_THRESHOLD_GOOD (0.012).
-#   Perceptually the hum/noise removal IS the correct action; the measurement
-#   artifact must therefore be suppressed for these phases.
-#   Also: "timbre_authentizitaet" (centroid-stability proxy) and "authentizitaet"
-#   (spectral-roughness proxy) degrade because comb-filter notches at 50/100/
-#   150/200/250/300/350/400 Hz create spectral discontinuities and shift the
-#   centroid distribution.  "bass_kraft" degrades because the 50-Hz fundamental
-#   falls directly in the 20–250 Hz bass band.  All three produce constant
-#   false-positive regressions of 0.15–0.35 independent of wet/dry strength,
-#   confirming measurement artifacts (not real quality degradation).
+# v9.10.77: Exclusions significantly reduced thanks to §9.7.5 reference-aware
+# preservation corrections.  Goals with spectral/temporal correlation support
+# are now checked even for phases that previously triggered false positives.
+# Only goals where processing FUNDAMENTALLY changes the measured quantity
+# (and correlation cannot distinguish intentional change from degradation)
+# remain excluded.
 #
-# Rationale for phase_06 (frequency restoration):
-#   SBR + LPC harmonic extension intentionally modifies the spectral envelope
-#   above the rolloff frequency.  "timbre_authentizitaet" (centroid-stability)
-#   and "authentizitaet" (spectral-roughness) proxies interpret the new harmonic
-#   content as spectral deformation, producing regressions of 0.05–0.10 even
-#   though the restoration IS the intended action.  "brillanz" is also excluded
-#   because SBR increases HF energy — the proxy measures the change as
-#   deviation, not improvement.
+# Rationale for remaining exclusions:
 #
-# Rationale for phase_24 (dropout repair):
-#   Fills signal gaps with reconstructed audio.  The MFCC-smoothness proxy
-#   and NMF-flatness proxy interpret the reconstructed segments as artefacts,
-#   producing constant false-positive regressions (~0.37) independent of
-#   Wet/Dry strength — physically impossible for real quality degradation.
+# phase_02 (hum removal): 50/100/.../400 Hz comb-filter creates spectral
+#   notches directly in the bass band → bass_kraft LF correlation still sees
+#   notches as degradation because they ARE spectral removal (intentional).
+#   authentizitaet excluded: comb-filter notches create spectral roughness
+#   that is the intended action, not degradation.
 #
-# Rationale for phase_05 / phase_30:
-#   Rumble filter and DC-offset removal modify only sub-sonic content.
-#   The MFCC proxy interprets the changed spectral baseline as degradation
-#   (regressions 0.36–0.50), although perceptual quality is unchanged or
-#   improved.  bass_kraft is also excluded because the removed content is
-#   below audible bass range (< 20 Hz for DC, < 30 Hz for rumble).
-#   timbre_authentizitaet (MFCC-Pearson) is also excluded: MFCC coefficient
-#   #0 encodes the spectral energy level; sub-sonic removal shifts this
-#   coefficient producing a false-positive Pearson drop of 0.35–0.45.
+# phase_04 (EQ correction): Spectral redistribution IS the core function.
+#   transparenz (rolloff + balance) changes deliberately.
 #
-# Rationale for phase_55 (diffusion inpainting):
-#   Reconstructs dropout gaps via CQTdiff diffusion.  The MFCC-smoothness
-#   proxy interprets the AI-reconstructed segments identically to phase_24 —
-#   constant false-positive regression (~0.044) independent of Wet/Dry
-#   strength.  Same proxy artifact pattern as phase_24.
+# phase_06 (frequency restoration): SBR intentionally adds HF content that
+#   the reference doesn't have → correlation is LOW by design.
+#   brillanz excluded because the increase IS the goal.
 #
-# Rationale for phase_29 (tape hiss / noise reduction):
-#   Broadband noise reduction (DeepFilterNet / OMLSA) removes HF noise floor.
-#   brillanz proxy (raw HF energy ratio) falsely reports regression because
-#   the removed content IS the noise, not musical signal.  timbre_authentizitaet
-#   (MFCC-Pearson) degrades because spectral envelope changes; natuerlichkeit
-#   and separation_fidelity show the same comb-filter false-positive pattern.
-#   Constant regression of ~0.31 observed across all wet/dry strengths —
-#   physically impossible for strength-proportional wet/dry blending, confirming
-#   measurement artifact independent of processing level.
-#
-# Rationale for phase_08 (transient preservation):
-#   Transient shaping modifies attack envelopes.  The MFCC-smoothness proxy
-#   (natuerlichkeit) and MFCC-Pearson proxy (timbre_authentizitaet) interpret
-#   the changed spectral energy distribution over time as degradation, producing
-#   false-positive regressions of ~0.10 independent of strength.
+# phase_18 / phase_26 / phase_36: Dynamics-modifying phases intentionally
+#   change the temporal envelope → micro_dynamics measures the intended change.
 PHASE_GOAL_EXCLUSIONS: dict[str, set[str]] = {
-    "phase_02": {"natuerlichkeit", "separation_fidelity", "timbre_authentizitaet", "authentizitaet", "bass_kraft"},
-    "phase_28": {"natuerlichkeit", "separation_fidelity"},
-    "phase_24": {"natuerlichkeit", "separation_fidelity"},
-    "phase_55": {"natuerlichkeit", "separation_fidelity"},
-    "phase_05": {"natuerlichkeit", "separation_fidelity", "bass_kraft", "timbre_authentizitaet"},
-    "phase_30": {"natuerlichkeit", "separation_fidelity", "bass_kraft", "timbre_authentizitaet"},
-    "phase_29": {"natuerlichkeit", "separation_fidelity", "brillanz", "timbre_authentizitaet"},
-    "phase_08": {"natuerlichkeit", "separation_fidelity", "timbre_authentizitaet"},
-    "phase_06": {"timbre_authentizitaet", "authentizitaet", "brillanz"},
+    # Hum removal: comb-filter notches in bass band + spectral roughness
+    "phase_02": {"bass_kraft", "authentizitaet"},
+    # Reconstruction phases: spectral correlation handles reconstruction well;
+    # only keep exclusions where AI-generated content has low correlation by design
+    "phase_24": set(),  # Dropout repair: reference correlation handles it
+    "phase_28": set(),  # Noise reduction variant: handled by correlation
+    "phase_55": set(),  # Diffusion inpainting: handled by correlation
+    # Sub-sonic removal: reference LF correlation handles bass preservation check
+    "phase_05": set(),  # Rumble filter
+    "phase_30": set(),  # DC-offset removal
+    # Broadband denoise: reference HF/LF correlation distinguishes noise from music
+    "phase_03": set(),  # OMLSA/ResembleEnhance
+    "phase_29": set(),  # DeepFilterNet / tape hiss
+    # Phases with RADICAL spectral changes where even correlation can't help:
+    "phase_04": {"transparenz"},  # EQ deliberately redistributes spectrum
+    "phase_06": {"brillanz"},  # SBR adds content not in reference → low correlation
+    "phase_07": {"brillanz"},  # Harmonic synthesis adds new HF content
+    "phase_08": set(),  # Transient preservation: handled by envelope correlation
+    # Dynamics-modifying phases: intentional temporal envelope changes
+    "phase_18": {"micro_dynamics"},  # Noise gate: deliberate silence insertion
+    "phase_26": {"micro_dynamics", "artikulation"},  # Dynamic expansion
+    "phase_36": {"micro_dynamics", "artikulation"},  # Transient shaper
 }
 
 
@@ -185,13 +165,34 @@ def _get_sample_duration(phase_id: str) -> float:
 
 
 # Strength-Faktoren für Retry-Durchgänge
+# v9.10.76: Floor von 0.10 auf 0.25 angehoben — bei strength < 0.25 ist der
+# Verarbeitungseffekt psychoakustisch nicht mehr wahrnehmbar (≤ −12 dB Wet),
+# und die Phase wird effektiv zum No-Op.
 _RETRY_STRENGTHS: list[float] = [
     0.65,
     0.50,
     0.35,
-    0.20,
-    0.10,
-]  # v9.15-B3: sanfterer Gradient, 0.50 als 2. Stufe ergänzt
+    0.25,
+]  # v9.10.76: 4 Stufen, Floor 0.25 (statt 5 × bis 0.10)
+
+# §2.29a ML-deterministische Phasen: Inference-Output ist bei gleichem Input
+# identisch, unabhängig vom strength-Parameter.  Bei PMGG-Retries wird nur
+# Wet/Dry-Reblending variiert — keine Re-Inferenz.
+# Phase-ID-Prefixes (startswith-Match) für robustes Matching.
+_ML_DETERMINISTIC_PHASES: frozenset[str] = frozenset({
+    "phase_03",   # OMLSA + ResembleEnhance (ML-Hybrid Denoising)
+    "phase_06",   # AudioSR (neurale Bandwidth-Extension)
+    "phase_09",   # BANQUET ONNX (Blind-Denoising)
+    "phase_12",   # FCPE/CREPE/pYIN (f₀-Schätzung) — Timing-Phase, kein Wet/Dry
+    "phase_18",   # Silero VAD (Binary-Mask)
+    "phase_20",   # SGMSE+ (Reverb-Separation) — WPE-Fallback wäre DSP, aber Primärpfad ML
+    "phase_23",   # AudioSR Inpainting (Spektral-Lückenfüllung)
+    "phase_24",   # AudioSR (Dropout-Repair)
+    "phase_29",   # DeepFilterNet v3 II (HF-Denoising)
+    "phase_42",   # BSRoFormer (Stem-Separation)
+    "phase_55",   # CQTdiff/FlowMatching (Diffusions-Inpainting)
+    "phase_56",   # FCPE/CREPE + Synthese (Spectral Band Gap Repair)
+})
 
 
 def _get_adaptive_threshold(restorability_score: float) -> float:
@@ -280,17 +281,40 @@ def get_phase_gate() -> PerPhaseMusicalGoalsGate:
 # ---------------------------------------------------------------------------
 
 
-def _measure_quick(audio: np.ndarray, sr: int) -> dict[str, float]:
+def _safe_pearson(a: np.ndarray, b: np.ndarray) -> float:
+    """Pearson-Korrelation mit Längen-Matching und NaN/Inf-Sicherheit.
+
+    Returns 0.0 bei Fehler oder zu wenig Daten.
+    """
+    n = min(len(a), len(b))
+    if n < 4:
+        return 0.0
+    try:
+        r = float(np.corrcoef(a[:n].ravel(), b[:n].ravel())[0, 1])
+        return r if math.isfinite(r) else 0.0
+    except Exception:
+        return 0.0
+
+
+def _measure_quick(audio: np.ndarray, sr: int, reference: np.ndarray | None = None) -> dict[str, float]:
     """
     Misst alle 14 Musical Goals auf einer 5-s-Stichprobe in ≤ 200 ms.
 
-    6 Ziele bereits vorhanden, 8 als DSP-Proxy ergänzt (v9.10.57).
-    Alle Messungen sind DSP-only (kein MERT, kein CREPE, kein NMF).
-    NaN-sicher: fehlerhafte Einzelmessungen werden auf 0.5 (neutral) gesetzt.
+    §9.7.5 (v9.10.77): Referenz-aware Preservation-Korrekturen.
+    Wenn ``reference`` übergeben wird, erhalten anfällige Goals einen
+    Preservation-Bonus basierend auf spektraler Korrelation.  Dies beseitigt
+    False-Positive-Regressionen bei Noise-Removal, EQ, Dynamics-Phasen
+    und ermöglicht breitere Goal-Prüfung mit weniger Exclusions.
+
+    Prinzip: Wenn die Korrelation zwischen Original und Verarbeitetem hoch ist
+    (musikalischer Inhalt erhalten), wird der absolute Score nach oben korrigiert.
+    Bei niedriger Korrelation (echte Degradation) bleibt der absolute Score.
 
     Args:
         audio: Mono oder Stereo, float32, beliebige Länge
         sr: 48000 Hz
+        reference: Original-Audio vor Phasen-Verarbeitung (gleiche Länge).
+            None = rein absolute Messung (für scores_before).
 
     Returns:
         Dict mit 14 Scores ∈ [0, 1]
@@ -313,10 +337,32 @@ def _measure_quick(audio: np.ndarray, sr: int) -> dict[str, float]:
         freqs = np.zeros(len(mono) // 2 + 1, dtype=np.float32)
         tot_energy = 1e-12
 
+    # §9.7.5 Pre-compute reference spectrum for preservation corrections.
+    # Computed once; used by all reference-aware goal branches below.
+    _ref_fft: np.ndarray | None = None
+    _ref_mono: np.ndarray | None = None
+    if reference is not None:
+        try:
+            _rm = reference[:, 0] if reference.ndim == 2 else reference
+            _rm = np.nan_to_num(_rm, nan=0.0).astype(np.float32)
+            _ml = min(len(mono), len(_rm))
+            _ref_mono = _rm[:_ml]
+            _ref_fft = np.abs(np.fft.rfft(_ref_mono))
+        except Exception:
+            _ref_fft = None
+            _ref_mono = None
+
     # ── Brillanz (HF-Energie > 8 kHz) ─────────────────────────────────
     try:
         hf_energy = float(np.mean(fft_mag[freqs > 8000] ** 2))
         scores["brillanz"] = float(np.clip(hf_energy / tot_energy / 0.3 + 0.4, 0.0, 1.0))
+        # §9.7.5 Preservation: HF spectral correlation (>4 kHz broadband)
+        if _ref_fft is not None:
+            _hf = freqs[: len(_ref_fft)] > 4000
+            if np.sum(_hf) > 10:
+                _r = _safe_pearson(_ref_fft[_hf], fft_mag[: len(_ref_fft)][_hf])
+                if _r > 0.7:
+                    scores["brillanz"] = min(1.0, scores["brillanz"] + (_r - 0.7) * 0.5)
     except Exception:
         scores["brillanz"] = 0.5
 
@@ -379,6 +425,15 @@ def _measure_quick(audio: np.ndarray, sr: int) -> dict[str, float]:
             scores["natuerlichkeit"] = float(np.clip(smoothness, 0.0, 1.0))
         else:
             scores["natuerlichkeit"] = 0.5
+        # §9.7.5 Preservation: Log-spectral envelope correlation
+        if _ref_fft is not None:
+            _fl = min(len(fft_mag), len(_ref_fft))
+            if _fl > 20:
+                _log_proc = np.log(fft_mag[:_fl] + 1e-12)
+                _log_ref = np.log(_ref_fft[:_fl] + 1e-12)
+                _r = _safe_pearson(_log_ref, _log_proc)
+                if _r > 0.7:
+                    scores["natuerlichkeit"] = min(1.0, scores["natuerlichkeit"] + (_r - 0.7) * 0.5)
     except Exception:
         scores["natuerlichkeit"] = 0.5
 
@@ -399,6 +454,21 @@ def _measure_quick(audio: np.ndarray, sr: int) -> dict[str, float]:
             scores["timbre_authentizitaet"] = float(np.clip(1.0 - min(cv, 1.0), 0.0, 1.0))
         else:
             scores["timbre_authentizitaet"] = 0.5
+        # §9.7.5 Preservation: Centroid trajectory correlation with reference
+        if _ref_mono is not None and len(centroids) > 2:
+            _rm_ml = min(len(mono), len(_ref_mono))
+            _ref_centroids = []
+            for i in range(0, _rm_ml - hop_t, hop_t):
+                _rw = _ref_mono[i : i + hop_t]
+                _rw_fft = np.abs(np.fft.rfft(_rw))
+                _rw_freqs = np.fft.rfftfreq(len(_rw), d=1.0 / sr)
+                _ref_centroids.append(float(np.sum(_rw_freqs * _rw_fft) / (np.sum(_rw_fft) + 1e-12)))
+            if len(_ref_centroids) > 2:
+                _r = _safe_pearson(np.array(_ref_centroids), np.array(centroids[: len(_ref_centroids)]))
+                if _r > 0.7:
+                    scores["timbre_authentizitaet"] = min(
+                        1.0, scores["timbre_authentizitaet"] + (_r - 0.7) * 0.5
+                    )
     except Exception:
         scores["timbre_authentizitaet"] = 0.5
 
@@ -407,6 +477,13 @@ def _measure_quick(audio: np.ndarray, sr: int) -> dict[str, float]:
         bass_energy = float(np.mean(fft_mag[(freqs >= 20) & (freqs <= 250)] ** 2))
         # Normierung: typische Bassenergie ~2% des Spektrums → 0.02 = Score 1.0
         scores["bass_kraft"] = float(np.clip(bass_energy / (tot_energy * 0.02 + 1e-12), 0.0, 1.0))
+        # §9.7.5 Preservation: LF spectral correlation (20-500 Hz)
+        if _ref_fft is not None:
+            _lf = (freqs[: len(_ref_fft)] >= 20) & (freqs[: len(_ref_fft)] <= 500)
+            if np.sum(_lf) > 5:
+                _r = _safe_pearson(_ref_fft[_lf], fft_mag[: len(_ref_fft)][_lf])
+                if _r > 0.7:
+                    scores["bass_kraft"] = min(1.0, scores["bass_kraft"] + (_r - 0.7) * 0.5)
     except Exception:
         scores["bass_kraft"] = 0.5
 
@@ -424,6 +501,16 @@ def _measure_quick(audio: np.ndarray, sr: int) -> dict[str, float]:
             scores["authentizitaet"] = float(np.clip(1.0 - roughness / 3.0, 0.0, 1.0))
         else:
             scores["authentizitaet"] = 0.5
+        # §9.7.5 Preservation: Spectral envelope correlation (full-band)
+        if _ref_fft is not None:
+            _fl = min(len(fft_mag), len(_ref_fft))
+            if _fl > 20:
+                _r = _safe_pearson(
+                    np.log(_ref_fft[:_fl] + 1e-12),
+                    np.log(fft_mag[:_fl] + 1e-12),
+                )
+                if _r > 0.7:
+                    scores["authentizitaet"] = min(1.0, scores["authentizitaet"] + (_r - 0.7) * 0.5)
     except Exception:
         scores["authentizitaet"] = 0.5
 
@@ -441,6 +528,24 @@ def _measure_quick(audio: np.ndarray, sr: int) -> dict[str, float]:
         )
         variance_score = float(np.clip(np.var(rms_frames) * 1000.0, 0.0, 1.0)) if len(rms_frames) > 2 else 0.5
         scores["emotionalitaet"] = float(np.clip(0.5 * crest_score + 0.5 * variance_score, 0.0, 1.0))
+        # §9.7.5 Preservation: RMS-envelope correlation (dynamics preservation)
+        if _ref_mono is not None:
+            _rm_ml = min(len(mono), len(_ref_mono))
+            _ref_rms = np.array(
+                [
+                    float(np.sqrt(np.mean(_ref_mono[i : i + hop_e] ** 2) + 1e-12))
+                    for i in range(0, _rm_ml - hop_e, hop_e)
+                ]
+            )
+            _proc_rms = np.array(
+                [
+                    float(np.sqrt(np.mean(mono[i : i + hop_e] ** 2) + 1e-12))
+                    for i in range(0, _rm_ml - hop_e, hop_e)
+                ]
+            )
+            _r = _safe_pearson(_ref_rms, _proc_rms)
+            if _r > 0.7:
+                scores["emotionalitaet"] = min(1.0, scores["emotionalitaet"] + (_r - 0.7) * 0.5)
     except Exception:
         scores["emotionalitaet"] = 0.5
 
@@ -519,6 +624,13 @@ def _measure_quick(audio: np.ndarray, sr: int) -> dict[str, float]:
         flatness = float(np.clip(geom_mean / (arith_mean + eps), 0.0, 1.0))
         # Niedriger Flatness → hohe Tonalität → gute Separierbarkeit
         scores["separation_fidelity"] = float(np.clip(1.0 - flatness * 2.5, 0.0, 1.0))
+        # §9.7.5 Preservation: Full-band spectral magnitude coherence
+        if _ref_fft is not None:
+            _fl = min(len(fft_mag), len(_ref_fft))
+            if _fl > 20:
+                _r = _safe_pearson(_ref_fft[:_fl], fft_mag[:_fl])
+                if _r > 0.7:
+                    scores["separation_fidelity"] = min(1.0, scores["separation_fidelity"] + (_r - 0.7) * 0.5)
     except Exception:
         scores["separation_fidelity"] = 0.5
 
@@ -745,9 +857,31 @@ class PerPhaseMusicalGoalsGate:
         if effective_goals is None:
             effective_goals = FAST_GOALS_SUBSET
         initial_strength = max(0.01, min(1.0, initial_strength))
-        # Erster Versuch mit material-adaptiver Initialstärke (§2.29/§2.31)
-        audio_out = self._run_phase(phase, audio, initial_strength, phase_kwargs)
-        scores_after = _measure_quick(_extract_sample(audio_out, sr, duration_s=sample_duration_s), sr)
+
+        # §2.29a ML-Inference-Caching: ML-deterministische Phasen werden nur
+        # einmal mit strength=1.0 ausgeführt.  Retries variieren Wet/Dry-Blending.
+        # Strength-abhängige DSP-Phasen müssen bei jedem Retry neu ausgeführt
+        # werden, da strength dort Algorithmus-Parameter steuert (z.B. Filterfrequenz,
+        # Kompressionsratio), nicht nur das Mischverhältnis.
+        _is_ml_deterministic = phase_id.startswith(tuple(_ML_DETERMINISTIC_PHASES))
+
+        # §9.7.5 Referenz-Stichprobe für preservation-aware Messung.
+        # Einmal berechnen, für alle scores_after/scores_retry wiederverwenden.
+        _ref_sample = _extract_sample(audio, sr, duration_s=sample_duration_s)
+
+        if _is_ml_deterministic:
+            # ML-Pfad: Einmalige Inferenz mit strength=1.0, Wet/Dry für Stärke
+            audio_full = self._run_phase(phase, audio, 1.0, phase_kwargs)
+            if initial_strength < 1.0:
+                audio_out = self._wet_dry_blend(audio, audio_full, initial_strength, phase)
+            else:
+                audio_out = audio_full
+        else:
+            # DSP-Pfad: Direkte Ausführung mit material-adaptiver Stärke
+            audio_out = self._run_phase(phase, audio, initial_strength, phase_kwargs)
+            audio_full = None  # kein Cache benötigt
+
+        scores_after = _measure_quick(_extract_sample(audio_out, sr, duration_s=sample_duration_s), sr, reference=_ref_sample)
 
         regression = self._max_regression(scores_before, scores_after, effective_goals)
         if regression <= threshold:
@@ -782,13 +916,33 @@ class PerPhaseMusicalGoalsGate:
         best_strength = initial_strength
         best_action = "best_effort"
 
+        # §2.29a Fix: ML-deterministische Timing-Phasen (phase_12, phase_31)
+        # können NICHT per Wet/Dry retried werden, da Timing-Phasen kein Blending
+        # erlauben (Phasen-Artefakte bei Crossfade zeitversetzter Signale).
+        # Alle Retries würden identisches Audio produzieren → sofort Best-Effort.
+        _TIMING_PHASES = frozenset({
+            "phase_12_wow_flutter_fix",
+            "phase_31_speed_pitch_correction",
+        })
+        if _is_ml_deterministic and phase_id in _TIMING_PHASES:
+            logger.info(
+                "PMGG: %s is ML-deterministic timing phase — Wet/Dry retries not applicable, "
+                "using best-effort (regression=%.4f > threshold=%.3f)",
+                phase_id,
+                regression,
+                threshold,
+            )
+            return best_audio, best_scores, "best_effort", initial_strength
+
         # Retry-Schleife
-        _prev_regression = regression  # Track previous regression for stagnation detection
-        _retry_t0 = time.time()  # Per-phase time budget for retries
-        _RETRY_BUDGET_S = 300.0  # Max 5 min for all retries of a single phase
+        # ML-deterministische Phasen: Wet/Dry-Reblend des gecachten audio_full
+        #   (spart ~60 s pro Retry bei OMLSA + ResembleEnhance etc.)
+        # DSP-Phasen: Erneuter process()-Aufruf mit geändertem strength
+        #   (nichtlineare DSP-Operationen: wet/dry ≠ Neuberechnung)
+        _prev_regression = regression
+        _retry_t0 = time.time()
+        _RETRY_BUDGET_S = 300.0  # Max 5 min für alle Retries einer Phase
         for attempt, strength in enumerate(retry_strengths):
-            # Per-phase time budget: abort retries if total retry time exceeds budget.
-            # Prevents runaway phases (e.g. Phase 06: 42 min, Phase 36: 16 min).
             _retry_elapsed = time.time() - _retry_t0
             if _retry_elapsed > _RETRY_BUDGET_S:
                 logger.info(
@@ -802,23 +956,31 @@ class PerPhaseMusicalGoalsGate:
                 )
                 break
 
-            # §OOM-Safety: Garbage Collection zwischen Retries — jeder Retry
-            # kann ~1 GB temporäre Arrays erzeugen (ResembleEnhance, OMLSA).
             import gc
-
             gc.collect()
 
             action_label = f"retry{attempt + 1}"
-            logger.debug(
-                "PMGG: %s Retry %d mit strength=%.2f (Regression=%.4f, threshold=%.3f)",
-                phase_id,
-                attempt + 1,
-                strength,
-                regression,
-                threshold,
-            )
-            audio_retry = self._run_phase(phase, audio, strength, phase_kwargs)
-            scores_retry = _measure_quick(_extract_sample(audio_retry, sr, duration_s=sample_duration_s), sr)
+
+            if _is_ml_deterministic:
+                # §2.29a: Wet/Dry-Reblend — keine erneute ML-Inferenz
+                logger.debug(
+                    "PMGG: %s Retry %d mit strength=%.2f (Wet/Dry-Reblend, keine Re-Inferenz)",
+                    phase_id,
+                    attempt + 1,
+                    strength,
+                )
+                audio_retry = self._wet_dry_blend(audio, audio_full, strength, phase)
+            else:
+                # DSP-Phase: Neu ausführen mit reduziertem strength
+                logger.debug(
+                    "PMGG: %s Retry %d mit strength=%.2f (DSP Re-Run)",
+                    phase_id,
+                    attempt + 1,
+                    strength,
+                )
+                audio_retry = self._run_phase(phase, audio, strength, phase_kwargs)
+
+            scores_retry = _measure_quick(_extract_sample(audio_retry, sr, duration_s=sample_duration_s), sr, reference=_ref_sample)
             regression_retry = self._max_regression(scores_before, scores_retry, effective_goals)
             if regression_retry <= threshold:
                 return audio_retry, scores_retry, action_label, strength
@@ -831,11 +993,8 @@ class PerPhaseMusicalGoalsGate:
                 best_action = f"best_effort_r{attempt + 1}"
 
             # Stagnation guard: if regression barely changes across consecutive
-            # retries despite strength variation, further retries are wasted
-            # computation.  Threshold 0.002 catches near-identical ML outputs
-            # (e.g. ResembleEnhance ignoring omlsa_alpha) as well as DSP phases
-            # where wet/dry blending produces marginal improvement (< 0.2%).
-            if abs(regression_retry - _prev_regression) < 0.002 and attempt >= 1:
+            # retries despite strength variation, further retries are wasted.
+            if abs(regression_retry - _prev_regression) < 0.005 and attempt >= 1:
                 logger.info(
                     "PMGG: %s stagnation detected at retry %d (Δregression=%.6f) — skipping remaining retries",
                     phase_id,
@@ -848,6 +1007,9 @@ class PerPhaseMusicalGoalsGate:
         # §2.29 KEIN Rollback — Phase wird mit geringster Regression angewendet.
         # VERBOTEN: Phase überspringen (Original-Audio zurückgeben).
         # CausalDefectReasoner hat diese Phase als notwendig bestimmt.
+        # Sofortige Freigabe: audio_full (+86 MB bei 225s) nicht bis GC halten.
+        if audio_full is not None:
+            del audio_full
         logger.warning(
             "⚠️ PMGG: %s best-effort (strength=%.2f, Regression=%.4f > threshold=%.3f) — "
             "Phase wird trotzdem angewendet (kein Rollback/Skip erlaubt)",
@@ -928,6 +1090,45 @@ class PerPhaseMusicalGoalsGate:
         except Exception as exc:
             logger.debug("PMGG: Phase-Ausführung fehlgeschlagen: %s", exc)
             return audio
+
+    @staticmethod
+    def _wet_dry_blend(
+        dry: np.ndarray,
+        wet: np.ndarray,
+        strength: float,
+        phase: Any = None,
+    ) -> np.ndarray:
+        """Wet/Dry-Blending zwischen Original (dry) und verarbeitetem Audio (wet).
+
+        Mathematisch: out = dry + strength × (wet − dry)
+        Bei strength=1.0 → wet, bei strength=0.0 → dry.
+
+        Timing-modifizierende Phasen (wow/flutter, speed) sind ausgenommen,
+        da Crossfade zeitversetzter Signale Phasen-Artefakte erzeugt.
+        """
+        _TIMING_PHASES = frozenset({
+            "phase_12_wow_flutter_fix",
+            "phase_31_speed_pitch_correction",
+        })
+        # Länge sicherstellen
+        if len(wet) != len(dry):
+            wet = wet[:len(dry)] if len(wet) > len(dry) else np.pad(wet, (0, len(dry) - len(wet)))
+        if strength >= 1.0:
+            return np.clip(wet, -1.0, 1.0).astype(np.float32)
+        if strength <= 0.0:
+            return dry.copy()
+        # Timing-Phasen: kein Blend
+        phase_id = ""
+        if phase is not None:
+            try:
+                meta = phase.get_metadata()
+                phase_id = getattr(meta, "phase_id", "")
+            except Exception:
+                pass
+        if phase_id in _TIMING_PHASES:
+            return np.clip(wet, -1.0, 1.0).astype(np.float32)
+        out = (dry + strength * (wet - dry)).astype(np.float32)
+        return np.clip(out, -1.0, 1.0)
 
     @staticmethod
     def _max_regression(

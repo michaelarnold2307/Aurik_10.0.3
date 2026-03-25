@@ -271,6 +271,8 @@ class RestaurierDenker:
         cached_restorability_result: Any | None = None,
         reconstruction_context: Any | None = None,
         pre_repair_reference: np.ndarray | None = None,
+        input_path: str = "",
+        output_path: str = "",
     ) -> RestaurierErgebnis:
         """Restauriert Audio vollständig mit UnifiedRestorerV3.
 
@@ -362,6 +364,11 @@ class RestaurierDenker:
             # §G1: Pre-Repair-Referenz für referenz-basierte Musical Goals
             if pre_repair_reference is not None:
                 _uv3_kwargs["pre_repair_reference"] = pre_repair_reference
+            # §2.39 OOM-Recovery: Pfade für Checkpoint-Persistierung
+            if input_path:
+                _uv3_kwargs["input_path"] = input_path
+            if output_path:
+                _uv3_kwargs["output_path"] = output_path
             try:
                 raw = restorer.restore(audio, **_uv3_kwargs)
                 return self._konvertiere(raw, material=material)

@@ -803,7 +803,7 @@ class BatchProcessingThread(QThread):
     phase_progress = pyqtSignal(int)  # sub-phase progress 0–100 within current step
     scan_progress = pyqtSignal(float)  # waveform scan-cursor fraction 0.0–1.0
     quality_update = pyqtSignal(float)  # live MOS estimate 0.0–5.0
-    phase_step_update = pyqtSignal(int, int)  # (current_step, total_steps) — Stufe X von Y
+    phase_step_update = pyqtSignal(int, int, str)  # (current_step, total_steps, description) — Stufe X von Y
     # §Live-Waveform: Audio-Daten nach jeder Phase aktualisiert (kein Zoom-Reset)
     waveform_phase_update = pyqtSignal(np.ndarray, int, str)  # audio, sr, phase_id
 
@@ -850,7 +850,7 @@ class BatchProcessingThread(QThread):
                 item.progress = 0
                 self._last_phase_state = None  # reset live-time state for new item
                 self.item_started.emit(item.id)
-                self.phase_step_update.emit(1, 0)
+                self.phase_step_update.emit(1, 0, "Audio wird geladen")
                 self.phase_update.emit(f"Restaurierung startet: {Path(item.input_file).name}")
                 # Sofort 3 % zeigen — noch bevor Audio-Loading beginnt.
                 # Ohne diesen Emit bleibt die Bar bei 0,00 % für die gesamte
@@ -909,7 +909,7 @@ class BatchProcessingThread(QThread):
                 self.item_progress.emit(item.id, 8)
 
                 # Defect analysis phase: Cache-First (kein Doppelscan, §9.4)
-                self.phase_step_update.emit(2, 0)
+                self.phase_step_update.emit(2, 0, "Schadensbewertung (Voranalyse)")
                 self.phase_update.emit("Schadensbewertung wird präzisiert …")
 
                 _cached_scan = get_cached_defect_result(item.input_file)
@@ -937,7 +937,7 @@ class BatchProcessingThread(QThread):
                 self.item_progress.emit(item.id, 12)
 
                 # Process
-                self.phase_step_update.emit(3, 0)
+                self.phase_step_update.emit(3, 0, "Restaurierung startet")
                 self.phase_update.emit("Musik wird restauriert …")
 
                 # Phase 2: Correction starting
@@ -1173,7 +1173,8 @@ class BatchProcessingThread(QThread):
                         # Scan-cursor: derived from the REAL reported-progress target (tgt).
                         # Using tgt directly ensures the cursor stays at the audio-start
                         # (frac=0.0) during analysis and only advances on real callbacks.
-                        _scan_frac = max(0.0, min(1.0, (tgt - 12.0) / 85.0))
+                        # UV3 pipeline phases run at denker pct 20–87.
+                        _scan_frac = max(0.0, min(1.0, (tgt - 20.0) / 74.0))
                         _scan_int = int(_scan_frac * 500)
                         if _scan_int != _last_scan_int:
                             _last_scan_int = _scan_int
@@ -1294,8 +1295,8 @@ class BatchProcessingThread(QThread):
                         except (ValueError, IndexError):
                             pass
                         return  # Keine UI-Aktualisierung für Metadaten-Nachricht
-                    # Track when UV3 ML-phase starts (pct ≥ 35) for sub-segment ETA
-                    if elapsed_s > 0 and pct >= 35 and getattr(self, "_ml_start_elapsed", -1.0) < 0:
+                    # Track when UV3 pipeline starts (pct ≥ 20) for sub-segment ETA
+                    if elapsed_s > 0 and pct >= 20 and getattr(self, "_ml_start_elapsed", -1.0) < 0:
                         self._ml_start_elapsed = elapsed_s
                     # Direct passthrough: denker pct = UI bar target (no double-compression).
                     # Pre-steps set bar to 12; monotonic guard holds until denker pct > 12.
@@ -1419,39 +1420,50 @@ class BatchProcessingThread(QThread):
                     _PRE_STEPS = 8
                     _pid_m = _re.search(r"\[([a-z0-9_]+)\]", msg)
                     _cur_pid = _pid_m.group(1) if _pid_m else ""
+                    # Derive human-readable step description from _PHASE_EXPL match or cleaned display msg
+                    _step_desc = _expl.lstrip(" ·").strip() if _expl else ""
+                    if not _step_desc:
+                        _step_desc = _re.sub(r"\s+‹[^›]+›\s*$", "", _display_msg).strip(" ✓…·").strip()
                     if pct < 4:
                         _d_step = 4  # Tonträger (pct=2)
+                        _step_desc = _step_desc or "Tonträger wird erkannt"
                     elif pct < 6:
                         _d_step = 5  # Kette (pct=4)
+                        _step_desc = _step_desc or "Tonträgerkette wird analysiert"
                     elif pct < 8:
                         _d_step = 6  # Defekte (pct=6)
+                        _step_desc = _step_desc or "Defekte werden bewertet"
+                    elif pct < 10:
+                        _d_step = 7  # Globalplan (pct=8)
+                        _step_desc = _step_desc or "Restaurierungsplan wird erstellt"
                     elif pct < 12:
-                        _d_step = 7  # Globalplan + Strategie (pct=8, 10)
-                    elif pct < 35:
-                        _d_step = 8  # Vorverarbeitung + UV3-Analyse (pct=12–34)
+                        _d_step = 7  # Strategie (pct=10)
+                        _step_desc = _step_desc or "Restaurierungsstrategie wird geplant"
+                    elif pct < 20:
+                        _d_step = 8  # Vorverarbeitung + UV3-Analyse (pct=12–19)
+                        _step_desc = _step_desc or "Vorverarbeitung & Analyse"
                     elif _cur_pid:
                         # Real UV3 phase with [phase_id] — assign sequential step
                         if _cur_pid not in _uv3_seen:
                             _uv3_count[0] += 1
                             _uv3_seen[_cur_pid] = _PRE_STEPS + _uv3_count[0]
-                            _step_lbl = _re.sub(r"\s+‹[^›]+›\s*$", "", _display_msg)
-                            _step_lbl = _step_lbl.lstrip("✓ ").split("  ·")[0].strip()
-                            self._dynamic_step_names[_PRE_STEPS + _uv3_count[0]] = _step_lbl
                         _d_step = _uv3_seen[_cur_pid]
-                    elif pct < 93:
+                    elif pct < 90:
                         _d_step = _PRE_STEPS + max(1, _uv3_count[0])
                     elif pct < 97:
                         _n_uv3 = _uv3_total_known[0] if _uv3_total_known[0] > 0 else _uv3_count[0]
                         _d_step = _PRE_STEPS + _n_uv3 + 1  # Qualitätsprüfung
+                        _step_desc = _step_desc or "Klangqualität wird geprüft"
                     else:
                         _n_uv3 = _uv3_total_known[0] if _uv3_total_known[0] > 0 else _uv3_count[0]
                         _d_step = _PRE_STEPS + _n_uv3 + 2  # Fertigstellung
+                        _step_desc = _step_desc or "Ergebnis wird finalisiert"
                     # Total: 0 (unknown) until UV3 reports phase count, then fixed.
                     if _uv3_total_known[0] > 0:
                         _d_total = _PRE_STEPS + _uv3_total_known[0] + 2
                     else:
                         _d_total = 0  # not yet known → UI shows "Stufe X" without total
-                    self.phase_step_update.emit(_d_step, _d_total)
+                    self.phase_step_update.emit(_d_step, _d_total, _step_desc)
                     # Phasennachricht ohne eingebettete Zeit emittieren —
                     # _tick_heartbeat zählt die Zeit jede 500 ms live herunter.
                     _base_text = f"{_display_msg}{_expl}"
@@ -1463,11 +1475,11 @@ class BatchProcessingThread(QThread):
                     if elapsed_s >= 2.0 and pct >= 5:
                         _exp_total = getattr(self, "_expected_processing_s", None)
                         _ml_start = getattr(self, "_ml_start_elapsed", -1.0)
-                        if pct < 35 and _exp_total and _exp_total > 0:
+                        if pct < 20 and _exp_total and _exp_total > 0:
                             _remaining_s = max(0.0, _exp_total - elapsed_s)
-                        elif pct >= 35 and _ml_start >= 0:
+                        elif pct >= 20 and _ml_start >= 0:
                             _ml_elapsed_cb = max(0.1, elapsed_s - _ml_start)
-                            _ml_frac_cb = max(0.002, (pct - 35) / 59.0)
+                            _ml_frac_cb = max(0.002, (pct - 20) / 74.0)
                             _remaining_s = max(0.0, _ml_elapsed_cb / _ml_frac_cb * (1.0 - _ml_frac_cb) + 25.0)
                         else:
                             _remaining_s = max(0.0, elapsed_s / max(1, pct) * (100 - pct))
@@ -1497,6 +1509,9 @@ class BatchProcessingThread(QThread):
                     "mode": _aurik_mode,
                     "progress_callback": _on_batch_progress,
                     "audio_update_callback": _audio_update_cb,
+                    # §2.39 OOM-Recovery: Pfade für Checkpoint-Persistierung
+                    "input_path": item.input_file,
+                    "output_path": item.output_file,
                 }
                 # DefectScan-Cache: gecachten Scan an AurikDenker weiterreichen
                 # (kein Triple-Scan — §9.4 Cache-First-Invariante)
@@ -1581,7 +1596,7 @@ class BatchProcessingThread(QThread):
                 _final_total = (
                     (8 + _uv3_total_known[0] + 2) if _uv3_total_known[0] > 0 else max(13, 8 + max(_uv3_count[0], 1) + 2)
                 )
-                self.phase_step_update.emit(_final_total, _final_total)
+                self.phase_step_update.emit(_final_total, _final_total, "Ergebnis wird gespeichert")
                 self.phase_update.emit("Ergebnis wird gespeichert …")
                 # Handle RestorationResult object
                 if hasattr(result, "audio"):
@@ -2014,6 +2029,14 @@ class WaveformWidget(QWidget):
         self._pulse_timer = QTimer(self)
         self._pulse_timer.timeout.connect(lambda: self.update() if self.audio_data is None else None)
         self._pulse_timer.start(50)
+        # ── Phase transition morph animation ─────────────────────────────────
+        self._morph_diff: np.ndarray | None = None
+        self._morph_t: float = 1.0
+        self._morph_frame: int = 0
+        self._morph_n_frames: int = 18  # ~750 ms at ~24 fps
+        self._morph_phase_type: str = "generic"
+        self._morph_timer = QTimer(self)
+        self._morph_timer.timeout.connect(self._tick_morph)
 
     def update_waveform(self, audio, sr):
         """Update waveform data and reset view window."""
@@ -2026,15 +2049,39 @@ class WaveformWidget(QWidget):
         self._repair_history.clear()
         self._resolved_locations.clear()
         self._active_tool = ""
+        # Cancel morph animation on new file load
+        if self._morph_timer.isActive():
+            self._morph_timer.stop()
+        self._morph_diff = None
+        self._morph_t = 1.0
         self.update()
 
     def update_audio_live(self, audio, sr):
-        """Update waveform with phase-processed audio WITHOUT resetting zoom/pan.
+        """Animate phase transition showing what changed in the signal.
 
-        Called after each UV3 phase completes to reflect the actual audio changes
-        in real time. Preserves the current view window so the user keeps their
-        zoom/scroll position during processing.
+        Computes the difference between current and new audio and displays a
+        phase-colored ghost overlay that fades out over ~750 ms, giving users
+        a real-time visualization of what each phase actually does.
         """
+        if self._morph_timer.isActive():
+            self._morph_timer.stop()
+        _prev = self.audio_data
+        has_after = audio is not None and audio.size > 0
+
+        if _prev is not None and _prev.size > 0 and has_after and audio.shape == _prev.shape:
+            self._morph_diff = _prev - audio
+            self._morph_frame = 0
+            self._morph_t = 0.0
+            _sl = self._active_stage.lower() if self._active_stage else ""
+            self._morph_phase_type = "generic"
+            for _kw, _eff in self._STAGE_EFFECTS.items():
+                if _kw in _sl:
+                    self._morph_phase_type = _eff
+                    break
+            self._morph_timer.start(42)
+        else:
+            self._morph_diff = None
+
         self.audio_data = audio
         self.sample_rate = sr
         self.update()
@@ -2135,7 +2182,256 @@ class WaveformWidget(QWidget):
         self._stage_progress = 0.0
         self._stage_history.clear()
         self._active_tool = ""
+        if self._morph_timer.isActive():
+            self._morph_timer.stop()
+        self._morph_diff = None
+        self._morph_t = 1.0
         self.update()
+
+    # ── Phase-Transition Animation Engine ─────────────────────────────────
+    # Renders the actual signal difference (what was removed/added by each
+    # phase) as a colored ghost waveform with phase-specific decorations,
+    # fading out over ~750 ms.  This gives users a documentary-style view
+    # of how each restoration step transforms the audio.
+
+    def _tick_morph(self) -> None:
+        """Advance morph animation frame and trigger repaint."""
+        self._morph_frame += 1
+        raw = min(1.0, self._morph_frame / max(1, self._morph_n_frames))
+        self._morph_t = 1.0 - (1.0 - raw) ** 2  # quadratic ease-out
+        self.update()
+        if raw >= 1.0:
+            self._morph_timer.stop()
+            self._morph_diff = None
+
+    def _draw_phase_transition(self, painter, x, y, width, height):
+        """Draw animated overlay visualizing what each phase changed.
+
+        Renders the difference signal (before − after) as a phase-colored
+        ghost waveform with effect-specific decorations:
+        - noise:       dissolving particle cloud drifting upward
+        - repair:      bright flash spots at click/crackle impact positions
+        - spectral:    frequency bars growing from bottom (new content)
+        - reconstruct: gap regions filling with growing waveform segments
+        - vocal:       warm formant emphasis glow in mid-band area
+        - timing:      directional shift indicators (arrows)
+        - dynamics:    envelope change bars around center line
+        """
+        if self._morph_diff is None or self._morph_t >= 1.0:
+            return
+        fade = max(0.0, 1.0 - self._morph_t)
+        if fade < 0.02:
+            return
+
+        painter.save()
+        n_total = self._morph_diff.shape[0]
+        s0 = int(self._view_start * n_total)
+        s1 = max(s0 + 1, int(self._view_end * n_total))
+        is_stereo = self._morph_diff.ndim > 1 and self._morph_diff.shape[1] == 2
+        ch_h = height // 2 - 5 if is_stereo else height
+        r, g, b = self._stage_color if any(self._stage_color) else (255, 152, 0)
+        eff = self._morph_phase_type
+
+        if is_stereo:
+            segs = [
+                (self._morph_diff[s0:s1, 0], y, ch_h),
+                (self._morph_diff[s0:s1, 1], y + ch_h + 10, ch_h),
+            ]
+        else:
+            d = self._morph_diff[s0:s1]
+            segs = [(np.mean(d, axis=1) if d.ndim > 1 else d, y, height)]
+
+        for dseg, sy, sh in segs:
+            if dseg.size < 2:
+                continue
+            self._render_transition_channel(painter, dseg, x, sy, width, sh, r, g, b, fade, eff)
+
+        painter.restore()
+
+    def _render_transition_channel(self, painter, diff, cx, cy, cw, ch, r, g, b, fade, effect):
+        """Render phase-specific transition animation for one audio channel.
+
+        Layer 1 (universal): Ghost waveform polygon of the difference signal —
+                             a colored filled area showing the exact shape of
+                             what was removed or changed, fading out.
+        Layer 2 (per-phase): Decorations adapted to the effect category —
+                             noise particles, repair flashes, spectral bars, etc.
+        """
+        center = cy + ch // 2
+        n = len(diff)
+
+        # Downsample to pixel resolution (capped at 600 for rendering performance)
+        tgt = max(4, min(cw, 600))
+        if n > tgt * 2:
+            ck = n // tgt
+            nc = n // ck
+            rs = diff[: nc * ck].reshape(nc, ck).astype(np.float64)
+            d_hi = np.max(rs, axis=1)
+            d_lo = np.min(rs, axis=1)
+            d_rms = np.sqrt(np.mean(rs ** 2, axis=1) + 1e-12)
+        else:
+            d_hi = diff.astype(np.float64)
+            d_lo = d_hi.copy()
+            d_rms = np.abs(d_hi)
+
+        npx = len(d_hi)
+        pk = max(float(np.max(np.abs(d_hi))), float(np.max(np.abs(d_lo))), 1e-8)
+        if pk < 1e-7:
+            return
+        sc = (ch * 0.44) / pk
+        ps = cw / max(1, npx - 1) if npx > 1 else 1.0
+
+        # ── Layer 1: Ghost waveform polygon (all effects) ────────────────────
+        af = int(85 * fade)
+        ae = int(150 * fade)
+
+        path = QPainterPath()
+        path.moveTo(int(cx), center - int(d_hi[0] * sc))
+        for i in range(1, npx):
+            path.lineTo(int(cx + i * ps), center - int(d_hi[i] * sc))
+        for i in range(npx - 1, -1, -1):
+            path.lineTo(int(cx + i * ps), center - int(d_lo[i] * sc))
+        path.closeSubpath()
+
+        fg = QLinearGradient(cx, cy, cx, cy + ch)
+        fg.setColorAt(0.0, QColor(r, g, b, af))
+        fg.setColorAt(0.5, QColor(r, g, b, int(af * 0.35)))
+        fg.setColorAt(1.0, QColor(r, g, b, af))
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QBrush(fg))
+        painter.drawPath(path)
+
+        # Top edge highlight
+        ep = QPainterPath()
+        ep.moveTo(int(cx), center - int(d_hi[0] * sc))
+        for i in range(1, npx):
+            ep.lineTo(int(cx + i * ps), center - int(d_hi[i] * sc))
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.setPen(QPen(QColor(r, g, b, ae), 1.0))
+        painter.drawPath(ep)
+        painter.setPen(Qt.PenStyle.NoPen)
+
+        # ── Layer 2: Phase-specific decorations ──────────────────────────────
+        if effect == "noise":
+            # Dissolving noise particles drifting upward from the waveform
+            _npt = int(22 * fade)
+            for p in range(_npt):
+                _s = (self._morph_frame * 137 + p * 251) & 0xFFFF
+                pi = _s % max(1, npx)
+                le = float(d_rms[pi]) * sc
+                if le < 2:
+                    continue
+                px = int(cx + pi * ps)
+                dr = -self._morph_t * ch * 0.25 * ((_s % 7 + 1) / 8.0)
+                py = center + dr + ((_s * 31 % 100) / 100.0 - 0.5) * le
+                pa = int(95 * fade * min(1.0, le / max(1, ch * 0.12)))
+                sz = 1.0 + 1.6 * fade * min(1.0, le / max(1, ch * 0.15))
+                painter.setBrush(QBrush(QColor(r, g, b, pa)))
+                painter.drawEllipse(QPointF(px, py), sz, sz)
+                painter.setBrush(QBrush(QColor(r, g, b, pa // 4)))
+                painter.drawEllipse(QPointF(px, py), sz * 2.2, sz * 2.2)
+
+        elif effect == "repair":
+            # Bright flash spots at highest-energy impact positions (clicks)
+            absp = np.abs(d_hi) + np.abs(d_lo)
+            thr = float(np.percentile(absp, 88)) if npx > 5 else pk * 0.3
+            ff = max(0.0, fade) ** 0.5
+            for i in range(npx):
+                if absp[i] < thr:
+                    continue
+                ins = min(1.0, float(absp[i]) / (pk * 2))
+                fa = int(210 * ins * ff)
+                if fa < 8:
+                    continue
+                px = int(cx + i * ps)
+                fz = 2.5 + 5.5 * ins * ff
+                painter.setBrush(QBrush(QColor(255, 255, 255, fa // 3)))
+                painter.drawEllipse(QPointF(px, center), fz * 2, ch * 0.25 * ins)
+                painter.setBrush(QBrush(QColor(r, g, b, fa)))
+                painter.drawEllipse(QPointF(px, center), fz, fz)
+                painter.setBrush(QBrush(QColor(255, 255, 255, int(fa * 0.5))))
+                painter.drawEllipse(QPointF(px, center), fz * 0.3, fz * 0.3)
+
+        elif effect == "spectral":
+            # Frequency content bars growing from bottom of channel
+            nb = min(24, max(4, npx // 8))
+            bw = max(2, cw // (nb * 2))
+            for i in range(nb):
+                idx = min(int(i * npx / nb), npx - 1)
+                val = float(d_rms[idx]) * sc
+                bh = int(val * min(1.0, self._morph_t * 2))
+                if bh < 2:
+                    continue
+                bx = cx + int(i * cw / nb)
+                by = cy + ch - bh
+                ba = int(110 * fade)
+                bg = QLinearGradient(bx, by + bh, bx, by)
+                bg.setColorAt(0.0, QColor(r, g, b, ba // 2))
+                bg.setColorAt(1.0, QColor(min(255, r + 50), min(255, g + 50), min(255, b + 50), ba))
+                painter.setBrush(QBrush(bg))
+                painter.drawRect(bx, by, bw, bh)
+
+        elif effect == "reconstruct":
+            # Gap fill: waveform segments growing from center into empty regions
+            gw = min(1.0, self._morph_t * 1.5)
+            ga = int(120 * fade)
+            stp = max(1, npx // 120)
+            pw = max(1, int(ps * 1.1))
+            painter.setPen(QPen(QColor(r, g, b, ga), pw))
+            for i in range(0, npx, stp):
+                vt = float(d_hi[i]) * sc * gw
+                vb = float(d_lo[i]) * sc * gw
+                if abs(vt) < 1.5 and abs(vb) < 1.5:
+                    continue
+                px = int(cx + i * ps)
+                painter.drawLine(px, int(center - vt), px, int(center - vb))
+            painter.setPen(Qt.PenStyle.NoPen)
+
+        elif effect == "vocal":
+            # Warm formant emphasis glow in mid-band area
+            gw_h = ch // 3
+            gy = center - gw_h // 2
+            ga = int(26 * fade)
+            gg = QLinearGradient(cx, gy, cx, gy + gw_h)
+            gg.setColorAt(0.0, QColor(r, g, b, 0))
+            gg.setColorAt(0.3, QColor(r, g, b, ga))
+            gg.setColorAt(0.7, QColor(r, g, b, ga))
+            gg.setColorAt(1.0, QColor(r, g, b, 0))
+            painter.setBrush(QBrush(gg))
+            painter.drawRect(cx, gy, cw, gw_h)
+
+        elif effect == "timing":
+            # Directional shift indicators showing pitch/timing correction
+            ta = int(90 * fade)
+            painter.setPen(QPen(QColor(r, g, b, ta), 1.2))
+            for i in range(0, npx, max(1, npx // 18)):
+                val = float(d_hi[i]) * sc
+                if abs(val) < 3:
+                    continue
+                px = int(cx + i * ps)
+                al = min(12, int(abs(val)))
+                if val > 0:
+                    painter.drawLine(px, center, px + al, center)
+                    painter.drawLine(px + al, center, px + al - 3, center - 2)
+                    painter.drawLine(px + al, center, px + al - 3, center + 2)
+                else:
+                    painter.drawLine(px, center, px - al, center)
+                    painter.drawLine(px - al, center, px - al + 3, center - 2)
+                    painter.drawLine(px - al, center, px - al + 3, center + 2)
+            painter.setPen(Qt.PenStyle.NoPen)
+
+        elif effect == "dynamics":
+            # Envelope change visualization: bars around center line
+            da = int(45 * fade)
+            pw = max(1, int(ps * 1.1))
+            for i in range(0, npx, max(1, npx // 80)):
+                val = float(d_rms[i]) * sc
+                if val < 2:
+                    continue
+                px = int(cx + i * ps)
+                eh = int(val)
+                painter.setBrush(QBrush(QColor(r, g, b, da)))
+                painter.drawRect(px, center - eh, pw, eh * 2)
 
     def set_view(self, start: float, end: float) -> None:
         """Programmatic zoom/pan: set view window to [start, end] fraction of total audio.
@@ -2218,7 +2514,7 @@ class WaveformWidget(QWidget):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
-        if self.audio_data is None:
+        if self.audio_data is None or self.audio_data.size == 0:
             w, h = self.width(), self.height()
 
             # Lade-Modus: andere Nachricht anzeigen
@@ -2341,6 +2637,9 @@ class WaveformWidget(QWidget):
         # Defekt-Severity-Overlay (farbige Bänder + Badge)
         self._draw_defect_overlay(painter, plot_x, plot_y, plot_width, plot_height)
 
+        # Phasen-Transition-Overlay (animiertes Diff-Signal nach jeder Phase)
+        self._draw_phase_transition(painter, plot_x, plot_y, plot_width, plot_height)
+
         # Stage-Visualization-Overlay (aktive Restaurierungsstufe)
         self._draw_stage_overlay(painter, plot_x, plot_y, plot_width, plot_height)
 
@@ -2422,6 +2721,12 @@ class WaveformWidget(QWidget):
         visual richness similar to professional metering tools.
         """
         center_y = y + height // 2
+
+        # ── Guard: empty / zero-size audio → draw silence ────────────────────
+        if audio is None or audio.size == 0:
+            painter.setPen(QPen(QColor(100, 100, 120, 80), 1, Qt.PenStyle.DashLine))
+            painter.drawLine(x, center_y, x + width, center_y)
+            return
 
         # ── Dynamic auto-scale ───────────────────────────────────────────────
         peak_amplitude = float(np.max(np.abs(audio)))
@@ -5130,6 +5435,9 @@ class ModernMainWindow(QMainWindow):
         if not _BRIDGE_AVAILABLE:
             QTimer.singleShot(300, self._show_bridge_unavailable_warning)
 
+        # §2.39 OOM-Recovery: Beim Start prüfen ob unterbrochene Restaurierungen vorliegen
+        QTimer.singleShot(1500, self._check_oom_recovery_checkpoints)
+
     def _show_bridge_unavailable_warning(self) -> None:
         """Zeigt eine deutliche Fehlermeldung wenn das Aurik-Backend nicht geladen werden konnte.
 
@@ -5162,6 +5470,96 @@ class ModernMainWindow(QMainWindow):
                 "background: rgba(148, 82, 82, 0.10);"
                 "border-radius: 8px; border: 1px solid rgba(152, 88, 88, 0.26);"
             )
+
+    def _check_oom_recovery_checkpoints(self) -> None:
+        """§2.39 OOM-Recovery: Prüfe beim Start ob unterbrochene Restaurierungen vorliegen.
+
+        Wird 1.5 s nach Fensterstart via QTimer aufgerufen — sichert, dass das
+        Fenster vollständig gerendert ist bevor der Dialog erscheint.
+        """
+        try:
+            from backend.core.recovery_checkpoint import (
+                cleanup_expired_checkpoints,
+                find_pending_checkpoints,
+            )
+
+            # Abgelaufene Checkpoints (> 7 Tage) bereinigen
+            cleanup_expired_checkpoints()
+
+            checkpoints = find_pending_checkpoints()
+            if not checkpoints:
+                return
+
+            from PyQt5.QtWidgets import QMessageBox
+
+            cp = checkpoints[0]  # Erster = neuester
+            n_done = len(cp.phases_executed)
+            n_rem = len(cp.phases_remaining)
+            _input_name = os.path.basename(cp.input_path) if cp.input_path else "Unbekannt"
+
+            msg = QMessageBox(self)
+            msg.setIcon(QMessageBox.Icon.Information)
+            msg.setWindowTitle("Aurik — Unterbrochene Restaurierung gefunden")
+            msg.setText(
+                f"<b>Eine unterbrochene Restaurierung wurde gefunden.</b>"
+            )
+            msg.setInformativeText(
+                f"Datei: {_input_name}\n"
+                f"Fortschritt: {n_done} von {n_done + n_rem} Phasen abgeschlossen\n"
+                f"Fehlgeschlagene Phase: {cp.failure_phase}\n"
+                f"Ursache: Speicherüberlauf (OOM)\n\n"
+                f"Möchtest du die Restaurierung fortsetzen?\n"
+                f"Die bisherige Arbeit bleibt erhalten."
+            )
+            msg.setStandardButtons(
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+            )
+            msg.setDefaultButton(QMessageBox.StandardButton.Yes)
+            msg.button(QMessageBox.StandardButton.Yes).setText("Fortsetzen")
+            msg.button(QMessageBox.StandardButton.No).setText("Verwerfen")
+
+            choice = msg.exec()
+            if choice == QMessageBox.StandardButton.Yes:
+                self._resume_from_checkpoint(cp)
+            else:
+                # Checkpoint verwerfen
+                try:
+                    from backend.core.recovery_checkpoint import delete_checkpoint
+                    delete_checkpoint(cp.input_path)
+                except Exception:
+                    pass
+
+        except Exception as _exc:
+            import logging
+            logging.getLogger(__name__).debug("OOM-Recovery-Check fehlgeschlagen: %s", _exc)
+
+    def _resume_from_checkpoint(self, checkpoint) -> None:
+        """§2.39 OOM-Recovery: Starte die Restaurierung ab dem Checkpoint fort."""
+        try:
+            # Input-Datei in die Queue laden
+            if checkpoint.input_path and os.path.isfile(checkpoint.input_path):
+                self._load_file(checkpoint.input_path)
+
+            # Mode setzen
+            _mode = checkpoint.mode
+            _is_studio = _mode in ("maximum", "studio_2026")
+
+            # Batch starten mit Recovery-Flag
+            if hasattr(self, "_start_batch_processing"):
+                # Setze Recovery-Kontext der vom BatchProcessingThread abgefragt wird
+                self._pending_recovery_checkpoint = checkpoint
+                if _is_studio:
+                    self._on_studio26_clicked()
+                else:
+                    self._on_restore_clicked()
+            else:
+                import logging
+                logging.getLogger(__name__).warning(
+                    "OOM-Recovery: _start_batch_processing nicht verfügbar."
+                )
+        except Exception as _exc:
+            import logging
+            logging.getLogger(__name__).error("OOM-Recovery: Wiederaufnahme fehlgeschlagen: %s", _exc)
 
     def _toggle_lyrics_overlay(self) -> None:
         """L-Shortcut: Lyrics-Timeline-Overlay ein-/ausblenden (§11.4 / §2.36 Spec 08).
@@ -9493,26 +9891,17 @@ class ModernMainWindow(QMainWindow):
                 saved = getattr(self, "_inpainting_saved_view", (0.0, 1.0))
                 ww.set_view(saved[0], saved[1])
 
-    def _on_phase_step_update(self, step: int, total: int) -> None:
-        """Show 'Stufe X / Y — Name' counter below the sub-progress bar.
+    def _on_phase_step_update(self, step: int, total: int, description: str = "") -> None:
+        """Show 'Stufe X / Y — Beschreibung' counter below the sub-progress bar.
 
+        The description is passed live from _on_batch_progress so that the
+        step label always matches the current status text.
         total == 0 means the actual total is not yet known (early analysis
-        steps before UV3 reports __total_uv3_phases__).  In that case the
-        label shows 'Stufe X  ·  Name' without '/ Y'.
+        steps before UV3 reports __total_uv3_phases__).
         """
         if not hasattr(self, "_phase_step_label"):
             return
-        _STEP_NAMES: dict[int, str] = {
-            1: "Audio wird geladen",
-            2: "Schadensbewertung (Voranalyse)",
-            3: "Restaurierung startet",
-            4: "Tonträger wird erkannt",
-            5: "Tonträgerkette wird analysiert",
-            6: "Defekte werden bewertet",
-            7: "Restaurierungsplan & Strategie",
-            8: "Vorverarbeitung & Reparatur",
-        }
-        name = _STEP_NAMES.get(step, "") or getattr(self, "_dynamic_step_names", {}).get(step, "")
+        name = description
         if total > 0:
             label = f"Stufe {step} / {total}" + (f"  ·  {name}" if name else "")
         else:

@@ -29,6 +29,7 @@ import gc
 import logging
 import math
 import pathlib
+import threading
 import time
 from dataclasses import dataclass, field
 from typing import Any, Optional
@@ -136,6 +137,9 @@ class RestorationResult:
     deferred_phases: list[str] = field(default_factory=list)  # Phasen für Stufe 2
     refinement_complete: bool = False  # True nach ML-Veredelung
     stufe2_quality_estimate: float | None = None  # quality nach vollst. ML-Pass
+    # --- §8.3 Gänsehaut-Qualität ---
+    goosebumps_score: float | None = None  # Psychoakustische Gänsehaut-Qualität (§8.3)
+    goosebumps_result: Any | None = None  # GoosebumpsResult-Objekt (§8.3)
     # --- §G3 Export-Gate-Felder (Chroma/LUFS) ---
     chroma_correlation: float | None = None  # Chroma Pearson vs. Original (§8.2)
     lufs_delta: float | None = None  # |LUFS(restored) - LUFS(original)| in LU (§8.2)
@@ -177,6 +181,7 @@ class UnifiedRestorerV3:
         # Lazy Phase Registry: Nur Metadaten, keine Instanzen
         self.phase_metadata: dict[str, dict] = self._discover_phase_metadata()
         self._phase_cache: dict[str, PhaseInterface] = {}
+        self._phase_cache_lock = threading.Lock()  # §3.2 Thread-Safety für Lazy-Phase-Cache
         self._warnings: list[str] = []  # §M-2 Schritte_zur_Musikalischen_Exzellenz
         self._quality_estimate_used_fallback: bool = False
         self._quality_estimate_source: str = "unknown"
@@ -403,23 +408,30 @@ class UnifiedRestorerV3:
     }
 
     def _get_phase(self, phase_id: str) -> PhaseInterface | None:
-        """Lädt und instanziiert eine Phase nur bei Bedarf (Lazy Loading)."""
+        """Lädt und instanziiert eine Phase nur bei Bedarf (Lazy Loading).
+
+        Thread-safe via _phase_cache_lock (§3.2 Double-Checked Locking).
+        """
         # Resolve alias before cache lookup so aliased IDs share the same instance.
         phase_id = self._PHASE_ALIASES.get(phase_id, phase_id)
         if phase_id in self._phase_cache:
             return self._phase_cache[phase_id]
-        meta = self.phase_metadata.get(phase_id)
-        if not meta:
-            logger.error(f"Phase {phase_id} nicht gefunden (weder Registry noch Metadaten)")
-            return None
-        try:
-            phase_instance = meta["class"]()
-            self._phase_cache[phase_id] = phase_instance
-            return phase_instance
-        except Exception as exc:
-            self._warnings.append(f"Phase {phase_id} nicht geladen: {type(exc).__name__}: {exc}")
-            logger.warning("Phase %s übersprungen: %s", phase_id, exc)
-            return None
+        with self._phase_cache_lock:
+            # Double-checked locking: re-check after acquiring lock
+            if phase_id in self._phase_cache:
+                return self._phase_cache[phase_id]
+            meta = self.phase_metadata.get(phase_id)
+            if not meta:
+                logger.error(f"Phase {phase_id} nicht gefunden (weder Registry noch Metadaten)")
+                return None
+            try:
+                phase_instance = meta["class"]()
+                self._phase_cache[phase_id] = phase_instance
+                return phase_instance
+            except Exception as exc:
+                self._warnings.append(f"Phase {phase_id} nicht geladen: {type(exc).__name__}: {exc}")
+                logger.warning("Phase %s übersprungen: %s", phase_id, exc)
+                return None
 
     # _register_phases entfällt, Lazy Loading übernimmt die Instanziierung
 
@@ -497,11 +509,13 @@ class UnifiedRestorerV3:
         _cached_medium_kwarg = kwargs.pop("cached_medium_result", None)
         _cached_restorability_kwarg = kwargs.pop("cached_restorability_result", None)
         _audio_update_cb_kwarg = kwargs.pop("audio_update_callback", None)
+        # §11.7a: reconstruction_context von RekonstruktionsDenker — enthält bereits reparierte Gaps
+        _reconstruction_ctx = kwargs.pop("reconstruction_context", None)
         self._active_global_plan = _gp_kwarg if _gp_kwarg is not None else self.config.global_plan
         self._active_chain_info = _chain_kwarg  # TontraegerketteDenker: Ketten-Phasen
         self._active_defekt_hint = _defekt_hint_kwarg  # DefektDenker: heuristische Phasen-Empfehlung
 
-        _cb(2, "Initialisierung…")
+        _cb(1, "Initialisierung…")
         # Robuste Sample-Count-Ermittlung: (N,2) → N, (2,N) → N, (N,) → N
         _n_samples = max(audio.shape) if audio.ndim == 2 else len(audio)
         logger.info("Starting restoration: %.1fs audio @ %d Hz", _n_samples / sample_rate, sample_rate)
@@ -640,7 +654,7 @@ class UnifiedRestorerV3:
         except ImportError:
             pass  # psutil fehlt → Guard degradiert graceful
 
-        _cb(5, "Resampling & Vorverarbeitung…")
+        _cb(3, "Resampling & Vorverarbeitung…")
         # Step 1a: Material-Erkennung via MediumClassifier (vor DefectScanner)
         # Nur wenn kein Material manuell vorgegeben wurde (config.material_type is None)
         # §G1: Pre-Repair-Referenz aus AurikDenker (echtes Original VOR ReparaturDenker)
@@ -653,7 +667,7 @@ class UnifiedRestorerV3:
         else:
             original_audio_for_goals: np.ndarray = audio.copy()
 
-        _cb(8, "Restaurierbarkeit wird geprüft…")
+        _cb(5, "Restaurierbarkeit wird geprüft…")
         # §2.26 RestorabilityEstimator — Vor-Assessment der Restaurierbarkeit (DSP-only, < 5 s)
         # §2.29 Normativ (PMGG Datenfluss-Invariante): _pmgg_restorability_score MUSS aus
         # RestorabilityEstimator.estimate().restorability_score stammen — kein Hard-Code 70.0.
@@ -1136,7 +1150,7 @@ class UnifiedRestorerV3:
             self._restoration_context.get("subgenre"),
         )
 
-        _cb(11, "Material und Ära klassifiziert …")
+        _cb(7, "Material und Ära klassifiziert …")
 
         # §2.32 GoalApplicabilityFilter — Filterung physikalisch nicht-messbarer Musikziele
         _goal_applicability = None
@@ -1263,7 +1277,7 @@ class UnifiedRestorerV3:
             )
         material_type = defect_result.material_type
 
-        _cb(15, "Defekte werden kartiert …")
+        _cb(10, "Defekte werden kartiert …")
         _saliency_map = None
         try:
             from backend.core.perceptual_attention_model import compute_saliency_map
@@ -1303,7 +1317,7 @@ class UnifiedRestorerV3:
         except Exception as _cr_exc:
             logger.debug("CausalDefectReasoner nicht verfügbar: %s", _cr_exc)
 
-        _cb(19, "Kausale Defektanalyse abgeschlossen …")
+        _cb(13, "Kausale Defektanalyse abgeschlossen …")
 
         # UQ: Pipeline-Konfidenzschätzung (§2.15)
         _pipeline_confidence = None
@@ -1468,7 +1482,7 @@ class UnifiedRestorerV3:
                 )
 
         # Step 2: Phase Selection (basierend auf Defekten)
-        _cb(22, "Phasenauswahl…")
+        _cb(16, "Phasenauswahl…")
         logger.info("Step 2/4: Phase Selection...")
         selected_phases = self._select_phases(
             defect_result,
@@ -1636,8 +1650,8 @@ class UnifiedRestorerV3:
         logger.info("Step 3/4: Executing Restoration Pipeline (EnsembleProcessor)...")
         # §11.4 Stufen-Vorab-Meldung: Gesamtzahl der UV3-Phasen ans Frontend melden,
         # damit die Anzeige "Stufe X / Y" von Anfang an korrekt ist (kein Hochzählen).
-        _cb(29, f"__total_uv3_phases__:{len(selected_phases)}")
-        _cb(30, "Pipeline startet…")
+        _cb(19, f"__total_uv3_phases__:{len(selected_phases)}")
+        _cb(20, "Pipeline startet…")
         # §Vintage: Strength-Caps als Instanzvariable setzen (für _profiled_phase_call Zugriff)
         self._vintage_phase_strength_caps = _vintage_phase_strength_caps
         # §2.31 Material-adaptive Phasen-Initialstärken aufbauen (DefectPhaseMapper._MATERIAL_PHASE_FACTORS)
@@ -1673,6 +1687,17 @@ class UnifiedRestorerV3:
         except Exception as _mps_exc:
             logger.debug("Material-Phase-Initialstärken-Aufbau fehlgeschlagen: %s", _mps_exc)
         self._material_phase_initial_strengths = _material_phase_initial_strengths
+        # §2.39 OOM-Recovery: Kontext für Checkpoint-Speicherung bei MemoryError bereitstellen.
+        # _execute_pipeline hat keinen Zugriff auf input_path/output_path/mode — daher hier cachen.
+        _mode_str = self.config.mode.value if hasattr(self.config.mode, "value") else str(self.config.mode)
+        self._recovery_ctx: dict[str, Any] = {
+            "input_path": kwargs.get("input_path", "") or kwargs.get("file_path", ""),
+            "output_path": kwargs.get("output_path", ""),
+            "mode": _mode_str,
+            "era_decade": getattr(_era_result, "decade", None) if _era_result is not None else None,
+            "restorability_score": _pmgg_restorability_score,
+            "defect_result": defect_result,
+        }
         # §Safety: PLM-Eviction während Pipeline sperren — ONNX-Session-Destruktoren
         # dürfen nicht zeitgleich mit laufender Inferenz feuern (double-free-Crash).
         try:
@@ -1694,6 +1719,7 @@ class UnifiedRestorerV3:
                 applicable_goals=_applicable_goals,  # §2.32 normativ
                 material_initial_strengths=_material_phase_initial_strengths,  # §2.31
                 quality_mode_override=_pipeline_quality_mode_override,
+                reconstruction_context=_reconstruction_ctx,  # §11.7a: Bereits reparierte Gaps
             )
         finally:
             try:
@@ -1707,7 +1733,7 @@ class UnifiedRestorerV3:
         # - ML-Modelle sind nicht auf eigenen Output trainiert → Domain Shift
         # - FeedbackChain (unten) bietet zielgerichtete iterative Verbesserung
 
-        _cb(82, "Nachbearbeitung…")
+        _cb(86, "Nachbearbeitung…")
 
         # Speicher-Hygiene: Pipeline-Modelle entladen sobald alle Phasen abgeschlossen.
         # AudioSR (7 GB), LAION-CLAP (2.2 GB) werden nur in der Phase-Pipeline benötigt.
@@ -1785,10 +1811,35 @@ class UnifiedRestorerV3:
                     )
             if _fc_phases_list:
                 _fc_excellence = True  # v9.14-D1: ExcellenceOptimizer für beide Modi aktiv
+                # §2.33 PhysicalCeiling-Gate: wenn keine weitere Optimierung lohnend,
+                # Iterationen auf 1 reduzieren (verhindert Artefaktakkumulation bei
+                # hochwertigem Material, Ephraim & Malah 1984).
+                _fc_max_iter = 5  # v9.15-B3: aligned with PMGG 5-retry strategy
+                if _fc_ceiling_val is not None:
+                    try:
+                        _fc_further_opt = getattr(_fc_pce_result, "further_optimization_worthwhile", True)
+                        if not _fc_further_opt:
+                            _fc_max_iter = 1
+                            logger.info(
+                                "§2.33 FeedbackChain: Iterationen auf 1 reduziert — "
+                                "PhysicalCeiling sagt keine weitere Optimierung lohnend"
+                            )
+                    except Exception:
+                        pass
+                # §Material-adaptive Iterationen: armes Material braucht mehr Durchläufe,
+                # hochwertiges Material braucht weniger (verringert Artefakt-Risiko).
+                _fc_mat_val_iter = material_type.value if material_type else "unknown"
+                if _fc_max_iter > 1:  # nur anpassen wenn PhysicalCeiling nicht schon auf 1 gesetzt
+                    _fc_high_quality_mats = {"cd_digital", "dat", "mp3_high", "aac"}
+                    _fc_poor_mats = {"shellac", "wax_cylinder", "wire_recording"}
+                    if _fc_mat_val_iter in _fc_high_quality_mats:
+                        _fc_max_iter = 3
+                    elif _fc_mat_val_iter in _fc_poor_mats:
+                        _fc_max_iter = 7  # armes Material profitiert von mehr Iterationen
                 _fc_chain = FeedbackChain(
                     sample_rate=sample_rate,
                     target_score=0.78 if getattr(self.config.mode, "value", "") == "studio_2026" else 0.72,  # v9.14-D5
-                    max_iterations=5,  # v9.15-B3: aligned with PMGG 5-retry strategy
+                    max_iterations=_fc_max_iter,
                     excellence_mode=_fc_excellence,
                     material=material_type.value,
                     use_pqs_in_loop=True,
@@ -1859,7 +1910,7 @@ class UnifiedRestorerV3:
         except Exception as _fc_exc:
             logger.debug("FeedbackChain nicht verfügbar: %s", _fc_exc)
 
-        _cb(85, "FeedbackChain abgeschlossen…")
+        _cb(89, "FeedbackChain abgeschlossen…")
 
         # §1.4 Auto Stem Separation for Studio 2026 (Spec §9.5: Stem-Sep → StemRemixBalancer)
         # Separates the fully-processed audio into vocals/instruments so StemRemixBalancer can
@@ -2054,7 +2105,7 @@ class UnifiedRestorerV3:
         except Exception as _iad_exc:
             logger.debug("IntroducedArtifactDetector nicht verfügbar: %s", _iad_exc)
 
-        _cb(88, "Audio-Nachbearbeitung…")
+        _cb(91, "Audio-Nachbearbeitung…")
 
         # --- SegmentAdaptiveProcessor: Segment-individuelle Feinoptimierung (§2.10 Spec) ---
         # Anwendung NACH globalem Pipeline-Lauf: jedes Segment (Stille /
@@ -2203,6 +2254,16 @@ class UnifiedRestorerV3:
         # §8.2 EmotionalArc Rollback-Referenz: Snapshot vor ExcellenceOptimizer
         _pre_excellence_audio: np.ndarray = restored_audio.copy()
 
+        # §8.1 Musical Goals Snapshot vor ExcellenceOptimizer (Regressions-Schutz)
+        _pre_excellence_mg_scores: dict[str, float] = {}
+        try:
+            from backend.core.musical_goals.musical_goals_metrics import MusicalGoalsChecker as _PreExMGChecker
+            _pre_ex_checker = _PreExMGChecker()
+            _pre_ex_ref = original_audio_for_goals if original_audio_for_goals.shape == restored_audio.shape else None
+            _pre_excellence_mg_scores = _pre_ex_checker.measure_all(restored_audio, sample_rate, reference=_pre_ex_ref)
+        except Exception:
+            pass  # Messung optional — Fallback: kein Rollback möglich
+
         # --- ExcellenceOptimizer: DSP-Feinoptimierung nach Phasen-Pipeline (§2.2 Spec) ---
         _excellence_result = None
         try:
@@ -2212,6 +2273,26 @@ class UnifiedRestorerV3:
                 restored_audio, sample_rate, material=material_type.value
             )
             logger.info("🏆 ExcellenceOptimizer: %s", _excellence_result.summary())
+
+            # §8.1 Re-Verifikation: Musical Goals nach ExcellenceOptimizer prüfen
+            if _pre_excellence_mg_scores:
+                try:
+                    _post_ex_scores = _pre_ex_checker.measure_all(restored_audio, sample_rate, reference=_pre_ex_ref)
+                    _ex_regressions = [
+                        g for g in _pre_excellence_mg_scores
+                        if _post_ex_scores.get(g, 0.0) < _pre_excellence_mg_scores[g] - 0.02
+                    ]
+                    if _ex_regressions:
+                        logger.warning(
+                            "⚠️ ExcellenceOptimizer: Rollback — Musical Goals Regression in %s",
+                            ", ".join(_ex_regressions),
+                        )
+                        restored_audio = _pre_excellence_audio.copy()
+                        _excellence_result = None
+                    else:
+                        logger.debug("ExcellenceOptimizer: Musical Goals re-verification passed")
+                except Exception as _ex_rv_exc:
+                    logger.debug("ExcellenceOptimizer re-verification skipped: %s", _ex_rv_exc)
         except Exception as _ex_exc:
             logger.warning("ExcellenceOptimizer nicht verfügbar — DSP-Fallback aktiv: %s", _ex_exc)
             # Guaranteed DSP-Fallback: Presence enhancement + NaN-Guard (§Checkliste §3.x)
@@ -2320,7 +2401,7 @@ class UnifiedRestorerV3:
         except Exception as _hl_exc:
             logger.debug("HarmonicLatticeAnalyzer nicht verfügbar: %s", _hl_exc)
 
-        _cb(91, "Qualitätsprüfung…")
+        _cb(93, "Qualitätsprüfung…")
 
         # --- PerceptualQualityScorer: PQS-MOS Messung (§2.6 Spec) ---
         _pqs_result = None
@@ -2467,6 +2548,64 @@ class UnifiedRestorerV3:
                     len(_musical_goal_scores),
                     ", ".join(_mg_violations),
                 )
+                # §8.1 Structured fail_reason für Musical-Goal-Verletzungen
+                _fail_reasons.append(
+                    {
+                        "component": "MusicalGoalsChecker",
+                        "error_code": "MUSICAL_GOALS_VIOLATION",
+                        "severity": "degraded",
+                        "violated_goals": _mg_violations,
+                        "scores": {k: round(float(_musical_goal_scores.get(k, 0.0)), 4) for k in _mg_violations},
+                        "thresholds": {k: round(float(_effective_goal_thresholds.get(k, 0.85)), 4) for k in _mg_violations},
+                    }
+                )
+
+                # §9.8 End-Gate: P1-Goal Recovery Blend
+                # If critical P1 goals (natuerlichkeit, authentizitaet) are violated,
+                # attempt a protective blend with original audio to recover them.
+                _P1_GOALS = {"natuerlichkeit", "authentizitaet"}
+                _p1_violations = [g for g in _mg_violations if g in _P1_GOALS]
+                if (
+                    _p1_violations
+                    and original_audio_for_goals is not None
+                    and restored_audio.shape == original_audio_for_goals.shape
+                ):
+                    _BLEND_ALPHA = 0.85  # 85 % restored, 15 % original
+                    _blended = np.clip(
+                        _BLEND_ALPHA * restored_audio + (1.0 - _BLEND_ALPHA) * original_audio_for_goals,
+                        -1.0, 1.0,
+                    )
+                    try:
+                        _blend_scores = _mg_checker.measure_all(_blended, sample_rate, reference=_mg_ref)
+                        _p1_resolved = all(
+                            _blend_scores.get(g, 0.0) >= _effective_goal_thresholds.get(g, 0.85)
+                            for g in _p1_violations
+                        )
+                        _no_new_regression = all(
+                            _blend_scores.get(g, 0.0) >= _musical_goal_scores.get(g, 0.0) - 0.02
+                            for g in _musical_goal_scores
+                        )
+                        if _p1_resolved and _no_new_regression:
+                            logger.info(
+                                "🔄 End-Gate: P1 Recovery Blend (alpha=%.2f) — %s wiederhergestellt",
+                                _BLEND_ALPHA,
+                                ", ".join(_p1_violations),
+                            )
+                            restored_audio = _blended
+                            _musical_goal_scores = _blend_scores
+                            _musical_excellence_score = sum(_blend_scores.values()) / max(len(_blend_scores), 1)
+                            _mg_violations = [
+                                k for k in _musical_goal_scores
+                                if k in _applicable_goal_names
+                                and float(_musical_goal_scores.get(k, 0.0)) < _effective_goal_thresholds.get(k, 0.85)
+                            ]
+                        else:
+                            logger.debug(
+                                "End-Gate: P1 Recovery Blend verworfen (resolved=%s, no_regression=%s)",
+                                _p1_resolved, _no_new_regression,
+                            )
+                    except Exception as _blend_exc:
+                        logger.debug("End-Gate: P1 Recovery Blend fehlgeschlagen: %s", _blend_exc)
             else:
                 logger.info(
                     "🎵 Musical Goals: alle %d Ziele erfüllt (Ø %.3f)",
@@ -2485,7 +2624,7 @@ class UnifiedRestorerV3:
                 }
             )
 
-        _cb(95, "Musical Goals geprüft…")
+        _cb(96, "Musical Goals geprüft…")
 
         # §2.34 GoalPriorityProtocol — Iterations-Abbruch-Entscheidung bei Ziel-Regression
         _goal_abort = None
@@ -2548,6 +2687,50 @@ class UnifiedRestorerV3:
                     )
         except Exception as _eap_exc:
             logger.debug("EmotionalArcPreservationMetric nicht verfügbar: %s", _eap_exc)
+
+        # §8.3 GoosebumpsQualityChecker — Holistische psychoakustische Qualitätsprüfung
+        _goosebumps_result = None
+        _goosebumps_score: float | None = None
+        try:
+            from backend.core.goosebumps_quality_checker import measure_goosebumps
+
+            _goosebumps_result = measure_goosebumps(
+                original_audio_for_goals,
+                restored_audio,
+                sample_rate,
+                musical_goal_scores=_musical_goal_scores if _musical_goal_scores else None,
+            )
+            _goosebumps_score = _goosebumps_result.goosebumps_score
+            if _goosebumps_score >= 0.85:
+                logger.info(
+                    "✨ GoosebumpsQualityChecker: EXZELLENT — %s",
+                    _goosebumps_result.summary(),
+                )
+            elif _goosebumps_score >= 0.70:
+                logger.info(
+                    "🎵 GoosebumpsQualityChecker: GUT — %s",
+                    _goosebumps_result.summary(),
+                )
+            else:
+                logger.warning(
+                    "⚠️ GoosebumpsQualityChecker: VERBESSERUNGSWÜRDIG — %s",
+                    _goosebumps_result.summary(),
+                )
+                # §8.3 Gänsehaut-Score im Export-Gate: niedrige Werte als fail_reason erfassen
+                _fail_reasons.append(
+                    {
+                        "component": "GoosebumpsQualityChecker",
+                        "error_code": "GOOSEBUMPS_LOW",
+                        "severity": "degraded",
+                        "goosebumps_score": round(_goosebumps_score, 4),
+                        "transient_integrity": round(_goosebumps_result.transient_integrity, 4),
+                        "micro_dynamics": round(_goosebumps_result.micro_dynamics, 4),
+                        "clarity": round(_goosebumps_result.clarity, 4),
+                        "authenticity": round(_goosebumps_result.authenticity, 4),
+                    }
+                )
+        except Exception as _gb_exc:
+            logger.debug("GoosebumpsQualityChecker nicht verfügbar: %s", _gb_exc)
 
         # --- GP-Lernzyklus: Vorbereitung — PQS-Norm + Pareto-Vorschlag (vor MDEM) (§2.5 Spec) ---
         # GPParameterOptimizer.update() wird erst NACH MDEM aufgerufen (Spec §2.5 normativ).
@@ -3015,6 +3198,18 @@ class UnifiedRestorerV3:
                     else None
                 ),
                 "segment_adaptive": (_sap_result.as_dict() if _sap_result is not None else None),
+                "goosebumps": (
+                    {
+                        "score": _goosebumps_result.goosebumps_score,
+                        "transient_integrity": _goosebumps_result.transient_integrity,
+                        "micro_dynamics": _goosebumps_result.micro_dynamics,
+                        "clarity": _goosebumps_result.clarity,
+                        "authenticity": _goosebumps_result.authenticity,
+                        "artifact_penalty": _goosebumps_result.artifact_penalty,
+                    }
+                    if _goosebumps_result is not None
+                    else None
+                ),
                 **_analytics_meta,
             },
             # --- Spec §2.1/§2.2 Pflichtfelder ---
@@ -3042,6 +3237,8 @@ class UnifiedRestorerV3:
             confidence=(float(_pipeline_confidence.confidence) if _pipeline_confidence is not None else 1.0),
             chroma_correlation=_chroma_corr_for_result,
             lufs_delta=_lufs_delta_for_result,
+            goosebumps_score=_goosebumps_score,
+            goosebumps_result=_goosebumps_result,
         )
 
         # §2.13 Künstler-Signatur nach Restaurierung aktualisieren und speichern
@@ -3155,6 +3352,89 @@ class UnifiedRestorerV3:
             ]
         except Exception:
             result.phase_gate_log = []
+
+        return result
+
+    def restore_from_checkpoint(
+        self,
+        checkpoint: "RecoveryCheckpoint",
+        progress_callback=None,
+        **kwargs,
+    ) -> "RestorationResult":
+        """§2.39 OOM-Recovery: Resume restoration from a persisted checkpoint.
+
+        Loads the intermediate audio from disk, reconstructs cached analysis
+        results, and re-enters ``_execute_pipeline`` with only the remaining
+        phases.  After successful completion the checkpoint is deleted.
+
+        Args:
+            checkpoint: A ``RecoveryCheckpoint`` from ``find_pending_checkpoints()``.
+            progress_callback: Optional progress callback (pct, phase, elapsed_s).
+            **kwargs: Forwarded to ``restore()`` / ``_execute_pipeline()``.
+
+        Returns:
+            Full ``RestorationResult`` — equivalent to a non-interrupted run.
+        """
+        from backend.core.recovery_checkpoint import (
+            delete_checkpoint,
+            load_checkpoint_audio,
+        )
+
+        logger.info(
+            "§2.39 OOM-Recovery: Wiederaufnahme von Checkpoint — %d abgeschlossene, %d verbleibende Phasen. "
+            "Fehlgeschlagene Phase: %s",
+            len(checkpoint.phases_executed),
+            len(checkpoint.phases_remaining),
+            checkpoint.failure_phase,
+        )
+
+        # 1. Load intermediate audio from disk
+        current_audio = load_checkpoint_audio(checkpoint)
+        if current_audio is None:
+            raise RuntimeError(
+                f"OOM-Recovery: Audio-Datei konnte nicht geladen werden: {checkpoint.audio_wav_path}"
+            )
+
+        # soundfile returns (N,2) for stereo — UV3 expects (2,N) channel-first
+        if current_audio.ndim == 2 and current_audio.shape[1] == 2:
+            current_audio = current_audio.T
+
+        sr = checkpoint.sample_rate
+
+        # 2. Restore via normal pipeline with remaining phases
+        #    Pass cached analysis results to avoid re-scanning.
+        _mode_map = {
+            "quality": "restoration",
+            "maximum": "studio_2026",
+        }
+        mode_str = _mode_map.get(checkpoint.mode, checkpoint.mode)
+
+        result = self.restore(
+            current_audio,
+            sample_rate=sr,
+            progress_callback=progress_callback,
+            mode=mode_str,
+            input_path=checkpoint.input_path,
+            output_path=checkpoint.output_path,
+            **kwargs,
+        )
+
+        # 3. Merge executed phases from checkpoint + new run
+        _prev_executed = list(checkpoint.phases_executed)
+        result.phases_executed = _prev_executed + result.phases_executed
+        result.metadata["oom_recovery"] = {
+            "resumed_from_checkpoint": True,
+            "checkpoint_phases_executed": len(_prev_executed),
+            "failure_phase": checkpoint.failure_phase,
+            "checkpoint_timestamp": checkpoint.timestamp,
+        }
+
+        # 4. Cleanup checkpoint after success
+        try:
+            delete_checkpoint(checkpoint.input_path)
+            logger.info("§2.39 OOM-Recovery: Checkpoint gelöscht nach erfolgreicher Wiederaufnahme.")
+        except Exception as _del_exc:
+            logger.warning("OOM-Recovery: Checkpoint-Löschung fehlgeschlagen: %s", _del_exc)
 
         return result
 
@@ -7303,12 +7583,13 @@ class UnifiedRestorerV3:
         selected_phases: list[str],
         progress_callback=None,
         audio_update_callback=None,
-        _phase_progress_start: int = 30,
-        _phase_progress_end: int = 80,
+        _phase_progress_start: int = 20,
+        _phase_progress_end: int = 85,
         restorability_score: float = 70.0,  # §2.29 normativ: aus RestorabilityEstimator.estimate()
         applicable_goals: set[str] | None = None,  # §2.32 normativ: aus GoalApplicabilityFilter
         material_initial_strengths: dict[str, float] | None = None,  # §2.31 material-adaptive Initialstärken
         quality_mode_override: QualityMode | None = None,
+        reconstruction_context=None,  # §11.7a: RekonstruktionsDenker-Ergebnis mit reparierten Gaps
     ) -> tuple[np.ndarray, list[str], list[str]]:
         """
         Führt ausgewählte Phasen parallel (Multi-Core) aus, falls keine Abhängigkeiten bestehen.
@@ -7398,6 +7679,48 @@ class UnifiedRestorerV3:
                 if hasattr(_ds, "severity"):
                     _max_defect_severity = max(_max_defect_severity, float(_ds.severity))
 
+        # §11.7a: Bereits reparierte Gap-Locations aus RekonstruktionsDenker extrahieren.
+        # Phase 24 (dropout_repair) und Phase 55 (diffusion_inpainting) können damit
+        # bereits reparierte Regionen überspringen und vermeiden Triple-Inpainting.
+        _repaired_gap_samples: list[tuple[int, int]] = []
+        if reconstruction_context is not None:
+            _gap_details = getattr(reconstruction_context, "gap_details", [])
+            for _gi in _gap_details:
+                if getattr(_gi, "repaired", False):
+                    _s = getattr(_gi, "start_sample", None)
+                    _e = getattr(_gi, "end_sample", None)
+                    if _s is not None and _e is not None:
+                        _repaired_gap_samples.append((int(_s), int(_e)))
+            if _repaired_gap_samples:
+                logger.info(
+                    "UV3: %d bereits reparierte Gaps aus RekonstruktionsDenker übernommen",
+                    len(_repaired_gap_samples),
+                )
+
+        # §7.6 AdaptiveChunkProcessor: Phasen die von chunk-basierter Verarbeitung
+        # profitieren, wenn Defekt-Severity hoch ist (surgical repair bei schweren Defekten).
+        _ACP_ELIGIBLE_PHASES = frozenset({
+            "phase_03_denoise",
+            "phase_23_spectral_repair",
+            "phase_24_dropout_repair",
+            "phase_28_surface_noise_profiling",
+            "phase_29_tape_hiss_reduction",
+        })
+        _acp_available = False
+        _acp_process_fn = None
+        if _max_defect_severity >= 0.3:  # nur bei mittlerer/hoher Severity lohnend
+            try:
+                from backend.core.adaptive_chunk_processor import process_in_adaptive_chunks as _acp_process
+                _acp_available = True
+                _acp_process_fn = _acp_process
+                logger.debug(
+                    "§7.6 AdaptiveChunkProcessor: verfügbar für %d eligible Phasen (severity=%.2f)",
+                    len(_ACP_ELIGIBLE_PHASES & set(selected_phases)),
+                    _max_defect_severity,
+                )
+            except Exception as _acp_exc:
+                logger.debug("AdaptiveChunkProcessor nicht verfügbar: %s", _acp_exc)
+
         if not has_dependencies and not _has_tier01 and len(selected_phases) > 1:
             # Parallele Ausführung mit Profiling
             results = {}
@@ -7449,6 +7772,7 @@ class UnifiedRestorerV3:
                         defect_locations=_defect_locations,
                         max_defect_severity=_max_defect_severity,
                         quality_mode=_quality_mode_value,  # Pass quality mode for ML routing
+                        repaired_gap_samples=_repaired_gap_samples,  # §11.7a: RekonstruktionsDenker gaps
                     )
                     future_map[future] = (phase_id, phase_start)
                 for future in as_completed(future_map):
@@ -7619,6 +7943,8 @@ class UnifiedRestorerV3:
                                     "defect_locations": _defect_locations,
                                     "max_defect_severity": _max_defect_severity,
                                     "quality_mode": _quality_mode_value,
+                                    "adaptive_chunk_fn": _acp_process_fn if (_acp_available and phase_id in _ACP_ELIGIBLE_PHASES) else None,
+                                    "repaired_gap_samples": _repaired_gap_samples,  # §11.7a
                                 },
                                 restorability_score=_pmgg_restorability_score,  # §2.29 normativ
                                 applicable_goals=applicable_goals,  # §2.32 normativ
@@ -7685,6 +8011,7 @@ class UnifiedRestorerV3:
                                 defect_locations=_defect_locations,
                                 max_defect_severity=_max_defect_severity,
                                 quality_mode=_quality_mode_value,
+                                repaired_gap_samples=_repaired_gap_samples,  # §11.7a
                             )
                             if result.success:
                                 _fa = result.audio
@@ -7782,6 +8109,59 @@ class UnifiedRestorerV3:
                         else:
                             logger.error(f"❌ {phase_id} failed: {result.warnings}")
                             skipped.append(phase_id)
+                except MemoryError:
+                    # OOM-Notfall-Export: Teilergebnis zurückgeben statt Totalverlust.
+                    # current_audio enthält den Stand nach der letzten erfolgreichen Phase.
+                    logger.error(
+                        "❌ OOM in %s — Notfall-Export: %d/%d Phasen abgeschlossen. "
+                        "Teilergebnis wird zurückgegeben.",
+                        phase_id,
+                        len(executed),
+                        len(selected_phases),
+                    )
+                    # Sofort Speicher freigeben für den Export-Pfad
+                    gc.collect()
+                    try:
+                        import ctypes as _ctypes_oom
+
+                        _ctypes_oom.CDLL("libc.so.6").malloc_trim(0)
+                    except Exception:
+                        pass
+                    try:
+                        from backend.core.plugin_lifecycle_manager import evict_stale_plugins
+
+                        evict_stale_plugins(required_mb=4096)
+                    except Exception:
+                        pass
+                    skipped.extend(
+                        p for p in selected_phases if p not in executed and p != phase_id
+                    )
+                    skipped.append(phase_id)
+                    # §2.39 OOM-Recovery-Checkpoint: Pipeline-Stand auf Disk persistieren,
+                    # damit der nächste Aurik-Start die Restaurierung fortsetzen kann.
+                    try:
+                        from backend.core.recovery_checkpoint import save_checkpoint as _save_oom_cp
+
+                        _rc = getattr(self, "_recovery_ctx", {})
+                        _remaining = [p for p in selected_phases if p not in executed]
+                        _save_oom_cp(
+                            input_path=_rc.get("input_path", ""),
+                            output_path=_rc.get("output_path", ""),
+                            current_audio=current_audio,
+                            sample_rate=sample_rate,
+                            phases_executed=list(executed),
+                            phases_remaining=_remaining,
+                            failure_phase=phase_id,
+                            mode=_rc.get("mode", "quality"),
+                            defect_result=_rc.get("defect_result"),
+                            era_decade=_rc.get("era_decade"),
+                            restorability_score=_rc.get("restorability_score"),
+                            quality_estimate=0.0,
+                            musical_goals=dict(_pmgg_scores_curr) if _pmgg_scores_curr else None,
+                        )
+                    except Exception as _cp_exc:
+                        logger.error("OOM-Recovery-Checkpoint fehlgeschlagen: %s", _cp_exc)
+                    break
                 except Exception as e:
                     logger.error(f"❌ {phase_id} exception: {e}")
                     skipped.append(phase_id)
@@ -7791,21 +8171,42 @@ class UnifiedRestorerV3:
                 # und PMGG-Retries akkumulieren Speicher schneller als gc.collect
                 # alle 5 Phasen abräumen kann (OOM-Crash bei 225s Tape, 24.03.2026).
                 gc.collect()
-                # RAM-Notbremse: bei < 2 GB verfügbar → Plugin-Eviction erzwingen
+                # malloc_trim: Gebe freigegebenen Heap-Speicher sofort ans OS zurück.
+                # Ohne trim hält glibc freigegebene Seiten im Prozess-Heap — sichtbar
+                # als hoher RSS obwohl Python-Objekte bereits freigegeben wurden.
+                try:
+                    import ctypes as _ctypes_phase
+
+                    _libc = _ctypes_phase.CDLL("libc.so.6")
+                    _libc.malloc_trim(0)
+                except Exception:
+                    pass
+                # RAM-Notbremse: bei < 4 GB verfügbar ODER > 80% belegt ODER Swap-Thrashing
+                # → Plugin-Eviction erzwingen. systemd-oomd killt bei Memory-Pressure > 50%.
                 try:
                     import psutil as _psutil_phase
 
-                    _avail_gb_phase = _psutil_phase.virtual_memory().available / (1024**3)
-                    if _avail_gb_phase < 2.0:
+                    _vm_phase = _psutil_phase.virtual_memory()
+                    _avail_gb_phase = _vm_phase.available / (1024**3)
+                    _ram_pct_phase = _vm_phase.percent
+                    # Swap-Thrashing-Check: hoher Swap + niedriger RAM = System kurz vor Crash
+                    _swap_thrashing = False
+                    try:
+                        _swap = _psutil_phase.swap_memory()
+                        _swap_thrashing = _swap.percent > 30.0 and (_vm_phase.available / max(_vm_phase.total, 1)) < 0.15
+                    except Exception:
+                        pass
+                    if _avail_gb_phase < 4.0 or _ram_pct_phase > 80.0 or _swap_thrashing:
+                        _reason = "Swap-Thrashing" if _swap_thrashing else f"{_avail_gb_phase:.1f} GB frei / {_ram_pct_phase:.0f} %"
                         logger.warning(
-                            "⚠️ OOM-Guard nach %s: nur %.1f GB RAM frei — erzwinge Plugin-Eviction",
+                            "⚠️ OOM-Guard nach %s: %s — erzwinge Plugin-Eviction + GC",
                             phase_id,
-                            _avail_gb_phase,
+                            _reason,
                         )
                         try:
                             from backend.core.plugin_lifecycle_manager import evict_stale_plugins
 
-                            evict_stale_plugins(required_mb=2048)
+                            evict_stale_plugins(required_mb=4096)
                         except Exception:
                             pass
                         gc.collect()
@@ -7896,8 +8297,27 @@ class UnifiedRestorerV3:
                     pqs_mos = _mos
                     self._quality_estimate_used_fallback = False
                     self._quality_estimate_source = "pqs_absolute"
+                else:
+                    raise ValueError(f"PQS returned invalid MOS={_mos}")
             except Exception as _pqs_exc:
-                logger.debug("_estimate_quality: PQS-Import fehlgeschlagen, Fallback aktiv: %s", _pqs_exc)
+                logger.debug("_estimate_quality: PQS full-audio failed: %s — retrying with 30s sample", _pqs_exc)
+                # §9.8 PQS-Reliability: Retry with shorter centre sample (30 s)
+                # avoids OOM and numerical instabilities on very long audio.
+                try:
+                    from backend.core.perceptual_quality_scorer import score_audio_absolute as _pqs_fn  # type: ignore
+
+                    _total = audio.shape[-1] if audio.ndim == 2 else len(audio)
+                    _max = min(_total, sample_rate * 30)
+                    _start = (_total - _max) // 2
+                    _short = audio[..., _start : _start + _max] if audio.ndim == 2 else audio[_start : _start + _max]
+                    _pqs_r = _pqs_fn(_short, sr=sample_rate)
+                    _mos_r = float(getattr(_pqs_r, "pqs_mos", getattr(_pqs_r, "mos", pqs_mos)))
+                    if math.isfinite(_mos_r) and 1.0 <= _mos_r <= 5.0:
+                        pqs_mos = _mos_r
+                        self._quality_estimate_used_fallback = False
+                        self._quality_estimate_source = "pqs_absolute_30s"
+                except Exception as _pqs_retry_exc:
+                    logger.debug("_estimate_quality: PQS 30s-retry failed, Fallback aktiv: %s", _pqs_retry_exc)
 
         # Spec §8.1.1: Gewichtete Kombination
         quality_estimate = 0.40 * (1.0 - defect_severity) + 0.60 * (pqs_mos - 1.0) / 4.0

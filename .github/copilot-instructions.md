@@ -50,6 +50,7 @@ Gate-zuordnung (aktuell implementierte CI-Guards):
 | Hybrid-Release-Mode (release_mode + all_runtime_ready) | `[RELEASE_MUST]` | `tests/normative/test_hybrid_release_mode.py` — 14 Tests; prüft `release_mode` (primary\|fallback\|blocked) + Fallback-Kaskaden |
 | Kombiniertes ML-Stack-Budget (Lazy + Core ≤ 12 GB) | `[RELEASE_MUST]` | `tests/normative/test_combined_ml_memory_budget.py` — 12 Tests; prüft Budget-Formel, Lazy-Klassifikation, thread-sichere Allokation |
 | §2.36 LyricsGuidedEnhancement aktiv + Modellpfade definiert | `[RELEASE_MUST]` | `tests/normative/test_lyrics_guided_enhancement_gate.py` |
+| §2.39 OOM-Recovery-Checkpoint (Checkpoint-Save + Startup-Resume) | `[RELEASE_MUST]` | `tests/unit/test_recovery_checkpoint.py` |
 | OQS ≥ 88 / Weltklasse-Ziele | `[TARGET_2026]` | Roadmap/Benchmark-Ziel, kein harter Release-Blocker |
 | AMRB-basierter MUSHRA-Hörertest (ITU-R BS.1534-3) | `[TARGET_2026]` | Extern validiert 14 Goal-Schwellwerte; ersetzt „best engineering estimate"-Status; geplant nach OQS ≥ 84.0-Erreichung |
 
@@ -203,6 +204,32 @@ Primär → Fallback1 → DSP-Fallback-Kaskade für alle Anwendungsfälle.
 - Nach 5 gescheiterten Retries: **Best-Effort** — der Versuch mit der **geringsten Musical-Goal-Regression** wird angewendet (`action="best_effort"`).
 - **VERBOTEN**: `return audio, scores_before, "rollback", 0.0` — Rückgabe von unverändertem Original-Audio = Phasen-Skip.
 - Gültige PMGG-Actions: `"passed"` | `"retry1"` … `"retry5"` | `"best_effort"` | `"best_effort_rN"`
+
+**[RELEASE_MUST] §2.29a PMGG Inference-Caching bei Retries (v9.10.75)**:
+ML-Modelle sind deterministisch (gleicher Input → gleicher Output). Bei PMGG-Retries wird die ML-Inferenz **NICHT** wiederholt. Stattdessen: Erster Aufruf mit `strength=1.0` (volle Inferenz) → Cache `audio_full`. Retries variieren ausschließlich Wet/Dry-Blending: `audio_retry = dry + strength × (audio_full − dry)`.
+
+**ML-deterministische Phasen** (gecachte Inferenz, nur Wet/Dry-Reblend bei Retry):
+
+| Phase | ML-Modell | Begründung |
+|---|---|---|
+| `phase_03_denoise` | OMLSA + ResembleEnhance | ML-Hybrid: Inferenz-Output identisch bei gleichem Input |
+| `phase_06_frequency_restoration` | AudioSR | Neurale Bandwidth-Extension deterministisch |
+| `phase_09_crackle_removal` | BANQUET ONNX | Blind-Denoising deterministisch |
+| `phase_12_wow_flutter_fix` | FCPE/CREPE/pYIN | f₀-Schätzung deterministisch (Timing-Phase: kein Wet/Dry) |
+| `phase_18_noise_gate` | Silero VAD | Binary-Mask deterministisch |
+| `phase_20_reverb_reduction` | SGMSE+ (Primärpfad) | Reverb-Speech-Separation deterministisch (WPE-DSP-Fallback: muss re-run) |
+| `phase_23_spectral_repair` | AudioSR Inpainting | Spektral-Lückenfüllung deterministisch |
+| `phase_24_dropout_repair` | AudioSR | Audio-Generierung deterministisch |
+| `phase_29_tape_hiss_reduction` | DeepFilterNet v3 II | HF-Denoising deterministisch (OMLSA-DSP <2 kHz: muss re-run) |
+| `phase_42_vocal_enhancement` | BSRoFormer | Stem-Separation deterministisch |
+| `phase_55_diffusion_inpainting` | CQTdiff/FlowMatching | Diffusions-Inpainting deterministisch |
+| `phase_56_spectral_band_gap` | FCPE/CREPE + Synthese | Noten-Synthese deterministisch |
+
+**Strength-abhängige DSP-Phasen** (MÜSSEN bei jedem Retry neu ausgeführt werden):
+Alle übrigen Phasen, bei denen `strength` Algorithmus-Parameter steuert (z.B. Filterfrequenz, Kompressionsratio, Sättigungsgrad). Beispiele: `phase_01`, `phase_02`, `phase_04`, `phase_10`, `phase_14`, `phase_17`, `phase_19`, `phase_22`, `phase_25`–`phase_28`, `phase_31`–`phase_41`, `phase_43`–`phase_54`.
+
+**Implementierung**: `PerPhaseMusicalGoalsGate._run_with_retry()` führt `_run_phase(phase, audio, 1.0, kwargs)` genau einmal aus. Retries nutzen `_wet_dry_blend(audio, audio_full, strength, phase)`.
+
 **Era-GP-Warmstart §2.14**: decade ≤ 1940 → `noise_reduction_strength ~ N(0.90, 0.05)`; ≤ 1960 → N(0.75, 0.08); ≥ 1970 → N(0.50, 0.10).
 **Material-MOS §6.2**: MOS ≥ 4.5 NUR für `cd_digital/dat/mp3_high/aac`; Shellac ≥ 3.8, Vinyl ≥ 4.0, Tape ≥ 4.2.
 **Chunk-Größe §7.6**: Silence 120 s, Severity ≥ 0.6 → 5 s, ≥ 0.3 → 15 s, sonst 60 s (Min. 2 s / Max. 120 s).
@@ -391,6 +418,35 @@ stufe2_quality_estimate: Optional[float] = None                   # quality nach
 
 **Memory**: `DeferredRefinementJob.audio_original` via `ml_memory_budget.try_allocate("kmv_job", size_gb)` registrieren; nach Stufe-2-Export oder Abbruch `release("kmv_job")`.
 **VERBOTEN**: `LIMIT_BACKGROUND` für `BatchProcessingThread` verwenden.
+
+### [RELEASE_MUST] §2.39 OOM-Recovery-Checkpoint-System — Nahtlose Wiederaufnahme
+
+**Kernprinzip**: systemd-oomd-Kill oder MemoryError führen nie zu Totalverlust. Pipeline-Zwischenstand wird atomar auf Disk persistiert und beim nächsten Start automatisch zur Wiederaufnahme angeboten.
+
+**Checkpoint-Lifecycle**:
+
+| Schritt | Komponente | Aktion |
+|---|---|---|
+| 1 | `_execute_pipeline()` MemoryError-Handler | `save_checkpoint()` → `sessions/<stem>_oom_checkpoint.json` + `_oom_audio.wav` (atomisch: `.tmp` → `os.replace`) |
+| 2 | `ModernMainWindow.__init__` (1,5 s QTimer) | `find_pending_checkpoints()` → Dialog "Restaurierung fortsetzen?" |
+| 3 | Nutzer bestätigt | `_resume_from_checkpoint()` → Originaldatei laden → normale Restaurierung |
+| 4 | Erfolgreicher Abschluss | `delete_checkpoint()` → Cleanup |
+
+**Modul**: `backend/core/recovery_checkpoint.py`
+
+**`RecoveryCheckpoint`-Pflicht-Felder**: `input_path`, `output_path`, `phases_executed`, `phases_remaining`, `mode`, `material_type`, `era_decade`, `defect_scores`, `defect_scores_full`, `restorability_score`, `spectral_fingerprint`, `quality_estimate_at_failure`, `musical_goals_at_failure`, `audio_wav_path`, `sample_rate`, `original_input_path`, `timestamp`, `aurik_version`, `failure_phase`, `failure_reason`
+
+**Pfad-Durchleitung**: `BatchProcessingThread` → `denke(input_path=, output_path=)` → `restauriere()` → `_orchestriere()` → `RestaurierDenker.restauriere()` → UV3 `restore(input_path=, output_path=)` → `self._recovery_ctx` → `_execute_pipeline` MemoryError-Handler → `save_checkpoint()`
+
+**Invarianten**:
+- Checkpoint-Audio als `FLOAT` WAV (verlustfrei, kein Encoding-Verlust)
+- Ablauf: 7 Tage (`_MAX_CHECKPOINT_AGE_S`) — danach automatische Bereinigung
+- Thread-safe: Alle Writes über `.tmp` + `os.replace` (POSIX-atomar)
+- Datenschutz: Lyrics-Text NICHT im Checkpoint (§2.36 Pflicht)
+- Wiederaufnahme nutzt das **Original-Audio** (nicht das Checkpoint-Audio) für volle Qualität
+- Checkpoint-Audio dient als Fallback wenn Original fehlt
+
+**VERBOTEN**: Checkpoint-Audio als Primärquelle für Re-Restaurierung (Doppelverarbeitung degradiert Qualität).
 
 ### [RELEASE_MUST] `ml_memory_budget` — Zentrale OOM-Schutzschicht
 

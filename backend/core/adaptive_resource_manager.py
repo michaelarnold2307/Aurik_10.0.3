@@ -40,7 +40,7 @@ def get_resource_manager() -> AdaptiveResourceManager:
 
 
 class AdaptiveResourceManager:
-    def __init__(self, min_cores: int = 2, max_cores: int | None = None, check_interval: float = 2.0, cpu_threshold: int = 80, memory_threshold: int = 85) -> None:
+    def __init__(self, min_cores: int = 2, max_cores: int | None = None, check_interval: float = 2.0, cpu_threshold: int = 80, memory_threshold: int = 78) -> None:
         self.system_cores = mp.cpu_count()
         self.max_cores = max_cores or self.system_cores
         self.min_cores = min_cores
@@ -164,5 +164,5 @@ class AdaptiveResourceManager:
 # aufgerufen, damit Test-Imports keinen blockierenden Hintergrund-Thread starten.
 # Produktions-Code (UnifiedRestorerV3 etc.) ruft start_monitoring() explizit auf.
 adaptive_resource_manager = AdaptiveResourceManager(
-    min_cores=2, max_cores=mp.cpu_count(), check_interval=2.0, cpu_threshold=80, memory_threshold=85
+    min_cores=2, max_cores=mp.cpu_count(), check_interval=2.0, cpu_threshold=80, memory_threshold=78
 )

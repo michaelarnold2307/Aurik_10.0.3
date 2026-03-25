@@ -31,9 +31,10 @@ except ImportError:
 # ---------------------------------------------------------------------------
 # Konfiguration
 # ---------------------------------------------------------------------------
-_RAM_EVICT_THRESHOLD_PCT: float = 82.0  # RAM% ab der Eviction beginnt
-_RAM_TARGET_PCT: float = 70.0  # RAM% auf die wir evicten wollen
-_MIN_FREE_MB_HARD: float = 1500.0  # immer mind. 1.5 GB frei halten
+_RAM_EVICT_THRESHOLD_PCT: float = 78.0  # RAM% ab der Eviction beginnt
+_RAM_TARGET_PCT: float = 65.0  # RAM% auf die wir evicten wollen
+_MIN_FREE_MB_HARD: float = 3000.0  # immer mind. 3 GB frei halten
+_PIPELINE_EMERGENCY_PCT: float = 82.0  # RAM% ab der auch WÄHREND Pipeline evicted wird
 
 
 # ---------------------------------------------------------------------------
@@ -158,11 +159,19 @@ class PluginLifecycleManager:
         """
         ram_pct = self._ram_percent()
         free_mb = self._free_mb()
-        # §Safety: Während Pipeline-Ausführung keine automatische Eviction —
-        # ONNX-Session-Destruktoren können mit laufender Inferenz kollidieren
-        # (double free / heap corruption). Nur force_evict_all() umgeht dies.
+        # §Safety: Während Pipeline-Ausführung normalerweise keine automatische
+        # Eviction — ONNX-Session-Destruktoren können mit laufender Inferenz
+        # kollidieren. ABER: bei kritischem RAM-Druck (>= 82%) MUSS trotzdem
+        # evicted werden, sonst killt systemd-oomd den gesamten Prozess.
         if self._pipeline_active > 0 and required_mb <= 0:
-            return 0
+            if ram_pct < _PIPELINE_EMERGENCY_PCT and free_mb >= _MIN_FREE_MB_HARD:
+                return 0
+            logger.warning(
+                "PLM: Pipeline aktiv, aber RAM kritisch (%.0f %%, %.0f MB frei) "
+                "— erzwinge Notfall-Eviction inaktiver Plugins",
+                ram_pct,
+                free_mb,
+            )
         needs_evict = (
             ram_pct > _RAM_EVICT_THRESHOLD_PCT
             or free_mb < _MIN_FREE_MB_HARD
@@ -209,6 +218,14 @@ class PluginLifecycleManager:
                 )
                 entry.unload_fn()
                 gc.collect()
+                # malloc_trim: Gebe freigegebenen Heap ans OS zurück (Linux).
+                # Ohne trim behält glibc freigegebene Pages im Prozess-Heap.
+                try:
+                    import ctypes
+
+                    ctypes.CDLL("libc.so.6").malloc_trim(0)
+                except Exception:
+                    pass
                 # Budget-Freigabe
                 try:
                     from backend.core.ml_memory_budget import release as _release

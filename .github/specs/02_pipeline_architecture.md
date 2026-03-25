@@ -340,3 +340,67 @@ class MLRefinementThread(QThread):
 - Single active refinement: Pro Prozess höchstens ein aktiver `MLRefinementThread`
 - Escape-Abbruch: `requestInterruption()` → Stufe-1-Export bleibt unverändert erhalten
 - `DeferredRefinementJob.audio_original` registriert in `ml_memory_budget` (Budget-Guard); freigegeben unmittelbar nach Stufe-2-Export oder Abbruch
+
+## §2.39 OOM-Recovery-Checkpoint-System — [RELEASE_MUST]
+
+**Kernprinzip**: `systemd-oomd`-Kill oder `MemoryError` führen nie zu Totalverlust. Pipeline-Zwischenstand wird atomar auf Disk persistiert und beim nächsten Start automatisch zur Wiederaufnahme angeboten.
+
+### Checkpoint-Lifecycle
+
+| Schritt | Komponente | Aktion |
+|---|---|---|
+| 1 | `_execute_pipeline()` MemoryError-Handler | `save_checkpoint()` → `sessions/<stem>_oom_checkpoint.json` + `_oom_audio.wav` |
+| 2 | `ModernMainWindow.__init__` (1,5 s QTimer) | `find_pending_checkpoints()` → Dialog "Restaurierung fortsetzen?" |
+| 3 | Nutzer bestätigt | `_resume_from_checkpoint()` → Original laden → normale Restaurierung |
+| 4 | Erfolgreicher Abschluss | `delete_checkpoint()` → Cleanup |
+
+### Modul: `backend/core/recovery_checkpoint.py`
+
+```python
+@dataclass
+class RecoveryCheckpoint:
+    input_path: str
+    output_path: str
+    phases_executed: list[str]
+    phases_remaining: list[str]
+    mode: str                              # "restoration" | "studio_2026"
+    material_type: str                     # MaterialType.value
+    era_decade: int | None
+    defect_scores: dict[str, float]        # {defect_type: severity}
+    defect_scores_full: dict[str, dict]    # Full DefectScore with locations
+    restorability_score: float | None
+    spectral_fingerprint: dict[str, float]
+    quality_estimate_at_failure: float
+    musical_goals_at_failure: dict[str, float]
+    audio_wav_path: str                    # FLOAT WAV (verlustfrei)
+    sample_rate: int
+    original_input_path: str
+    timestamp: float
+    aurik_version: str = "9.10.57"
+    failure_phase: str = ""
+    failure_reason: str = "MemoryError"
+```
+
+### Pfad-Durchleitung
+
+```
+BatchProcessingThread
+  → denke(input_path=, output_path=)
+    → restauriere()
+      → _orchestriere()
+        → RestaurierDenker.restauriere()
+          → UV3 restore(input_path=, output_path=)
+            → self._recovery_ctx
+              → _execute_pipeline MemoryError-Handler
+                → save_checkpoint()
+```
+
+### Invarianten
+
+- Checkpoint-Audio als `FLOAT` WAV — verlustfrei, kein Encoding-Verlust
+- Ablauf: 7 Tage (`_MAX_CHECKPOINT_AGE_S`) — danach automatische Bereinigung
+- Thread-safe: Alle Writes über `.tmp` + `os.replace` (POSIX-atomar)
+- Datenschutz: Lyrics-Text NICHT im Checkpoint (§2.36 Pflicht)
+- Wiederaufnahme nutzt das **Original-Audio** (nicht das Checkpoint-Audio) für volle Qualität
+- Checkpoint-Audio dient als Fallback wenn Original fehlt
+- **VERBOTEN**: Checkpoint-Audio als Primärquelle für Re-Restaurierung (Doppelverarbeitung degradiert Qualität)

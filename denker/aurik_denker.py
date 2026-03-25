@@ -222,6 +222,8 @@ class AurikDenker:
         cached_defect_result: Any | None = None,
         cached_medium_result: Any | None = None,
         cached_restorability_result: Any | None = None,
+        input_path: str = "",
+        output_path: str = "",
     ) -> AurikErgebnis:
         """Vollständige Aurik-Restaurierung: 8 Stufen orchestriert.
 
@@ -280,6 +282,8 @@ class AurikDenker:
                 cached_defect_result=cached_defect_result,
                 cached_medium_result=cached_medium_result,
                 cached_restorability_result=cached_restorability_result,
+                input_path=input_path,
+                output_path=output_path,
             )
         except MemoryError as exc:
             elapsed = time.perf_counter() - t_start
@@ -287,7 +291,7 @@ class AurikDenker:
             try:
                 from backend.core.plugin_lifecycle_manager import evict_stale_plugins
 
-                evict_stale_plugins(required_mb=2048.0)
+                evict_stale_plugins(required_mb=4096.0)
             except Exception:
                 pass
             logger.error("AurikDenker: Speicherfehler in Pipeline: %s", exc)
@@ -321,6 +325,9 @@ class AurikDenker:
             cached_defect_result=kwargs.get("cached_defect_result"),
             cached_medium_result=kwargs.get("cached_medium_result"),
             cached_restorability_result=kwargs.get("cached_restorability_result"),
+            # §2.39 OOM-Recovery: Pfade für Checkpoint-Persistierung durchreichen
+            input_path=kwargs.get("input_path", ""),
+            output_path=kwargs.get("output_path", ""),
         )
 
     @staticmethod
@@ -545,6 +552,8 @@ class AurikDenker:
         cached_defect_result: Any | None = None,
         cached_medium_result: Any | None = None,
         cached_restorability_result: Any | None = None,
+        input_path: str = "",
+        output_path: str = "",
     ) -> AurikErgebnis:
         """Führt die 10-stufige Restaurierungs-Pipeline aus.
 
@@ -907,17 +916,27 @@ class AurikDenker:
                             sr,
                             material_hint=material,
                             defect_result=cached_defect_result,
+                            repair_context=rep,  # §11.7a Kontextfluss: ReparaturDenker-Ergebnis weiterreichen
                         )
                         _work_audio = rek.audio
                         _rek_result_box.append(rek)
                         # 4c: RestaurierDenker (UV3-Vollpipeline) auf vorgereinigtem Material
-                        # Scaled inner progress: UV3 0–100 → AurikDenker 15–94
-                        # Weiter Bereich (79 pts) damit UV3-Phasen (pct 30–80)
-                        # auf denker-pct 38–78 → UI direkt 38–78 mappen (40 sichtbare
-                        # Punkte). Kein Double-Compression mehr.
-                        _inner_cb: Any | None = None
-                        if progress_callback is not None:
-                            _inner_cb = lambda pct, msg, elapsed=0.0: _emit(min(94, 15 + int(pct * 0.79)), msg)
+                        # Scaled inner progress: UV3 0–100 → AurikDenker 13–94
+                        # UV3-intern: Analyse pct 1–19, Pipeline pct 20–85, Post pct 86–96.
+                        # Denker-Mapping:
+                        #   UV3 0–19  (Analyse)   → Denker 13–20  (komprimiert: 7 pts)
+                        #   UV3 20–85 (37 Phasen) → Denker 20–87  (Löwenanteil: 67 pts)
+                        #   UV3 86–100 (Post)     → Denker 87–94  (komprimiert: 7 pts)
+
+                        def _inner_cb(pct, msg, elapsed=0.0):
+                            if pct <= 19:
+                                d = 13 + int(pct * 7 / 19) if pct > 0 else 13
+                            elif pct <= 85:
+                                d = 20 + int((pct - 20) * 67 / 65)
+                            else:
+                                d = 87 + int((pct - 86) * 7 / 14)
+                            _emit(min(94, d), msg)
+
                         _result_box.append(
                             get_restaurier_denker().restauriere(
                                 _work_audio,
@@ -927,7 +946,7 @@ class AurikDenker:
                                 global_plan=_globalplan,
                                 chain_info=chain_info or None,
                                 defekt_hint=_defekt_hint,
-                                progress_callback=_inner_cb,
+                                progress_callback=_inner_cb if progress_callback is not None else None,
                                 audio_update_callback=audio_update_callback,
                                 cached_era_result=cached_era_result,
                                 cached_genre_result=cached_genre_result,
@@ -936,6 +955,8 @@ class AurikDenker:
                                 cached_restorability_result=cached_restorability_result,
                                 reconstruction_context=rek,
                                 pre_repair_reference=_pre_repair_reference,
+                                input_path=input_path,
+                                output_path=output_path,
                             )
                         )
                     except Exception as _e:

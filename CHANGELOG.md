@@ -1,5 +1,82 @@
 # Aurik 9 — Changelog
 
+## Version 9.10.76 — OOM-Recovery-Checkpoint-System (Mär 2026)
+
+### Zusammenfassung
+
+**§2.39 OOM-Recovery-Checkpoint-System [RELEASE_MUST]**: systemd-oomd-Kill oder MemoryError führen nie mehr zu Totalverlust.
+
+1. **`backend/core/recovery_checkpoint.py`**: Neues Modul mit `RecoveryCheckpoint`-Dataclass, atomischem Checkpoint-Save (JSON + FLOAT WAV via `.tmp` → `os.replace`), `find_pending_checkpoints()`, `load_checkpoint_audio()`, `delete_checkpoint()`, Ablauf 7 Tage.
+
+2. **UV3 MemoryError-Handler**: Bei OOM in `_execute_pipeline()` wird der Pipeline-Zwischenstand jetzt automatisch als Checkpoint in `sessions/` persistiert. Pfade werden über `self._recovery_ctx` aus `restore()` weitergereicht.
+
+3. **UV3 `restore_from_checkpoint()`**: Neue Methode zur Wiederaufnahme ab Checkpoint. Nutzt das Original-Audio (nicht das Checkpoint-Audio) für volle Qualität, um Doppelverarbeitung zu vermeiden.
+
+4. **Frontend Startup-Recovery**: `ModernMainWindow.__init__` prüft 1.5 s nach Start auf unterbrochene Restaurierungen. Dialog bietet "Fortsetzen" oder "Verwerfen". Abgelaufene Checkpoints werden automatisch bereinigt.
+
+5. **Pfad-Durchleitung**: `input_path`/`output_path` werden durchgängig von `BatchProcessingThread` → `denke()` → `restauriere()` → `_orchestriere()` → `RestaurierDenker.restauriere()` → UV3 `restore()` weitergereicht.
+
+6. **Dokumentation**: §2.39 in `copilot-instructions.md` (Gate-Tabelle + Vollspezifikation) und `specs/02_pipeline_architecture.md` ergänzt.
+
+7. **Tests**: 17 neue Tests in `tests/unit/test_recovery_checkpoint.py` — Save/Load/Delete/Cleanup/Stereo/Edge-Cases.
+
+## Version 9.10.75 — Stabilitäts- und Qualitätsverbesserungen (Mär 2026)
+
+### Zusammenfassung
+
+**9 gezielte Verbesserungen** an Stabilität, Qualität und Pipeline-Intelligence:
+
+1. **Phase-Cache threading.Lock** (§3.2): `_phase_cache` in UV3 mit Double-Checked Locking geschützt — verhindert Race-Condition-Korruption bei Batch-Verarbeitung.
+
+2. **Musical Goals → fail_reasons** (§8.1): Verletzungen der 14 Musical Goals werden jetzt als strukturierte `fail_reasons` in `RestorationResult.metadata` erfasst, mit Scores und Schwellwerten. Beeinflusst `degradation_status`.
+
+3. **PhysicalCeiling → FeedbackChain Gate** (§2.33): Wenn `further_optimization_worthwhile == False`, werden FeedbackChain-Iterationen auf 1 reduziert (verhindert Artefaktakkumulation bei hochwertigem Material).
+
+4. **Goosebumps ins Export-Gate** (§8.3): Gänsehaut-Score < 0.70 erzeugt `GOOSEBUMPS_LOW` fail_reason mit Dimension-Breakdown (Transienten, Mikro-Dynamik, Klarheit, Authentizität).
+
+5. **ExcellenceOptimizer Re-Verifikation** (§8.1): Musical Goals werden vor und nach dem ExcellenceOptimizer gemessen. Regression > 0.02 in _beliebigem_ Ziel → automatischer Rollback auf pre-Excellence-Audio.
+
+6. **AdaptiveChunkProcessor Integration** (§7.6): Severity-adaptive Chunk-Verarbeitung ist jetzt in der Pipeline-Schleife verfügbar. NR-relevante Phasen erhalten `adaptive_chunk_fn` wenn Severity ≥ 0.3. Opt-in.
+
+7. **FeedbackChain material-adaptiv**: Max-Iterationen jetzt material-abhängig: CD/DAT/High-MP3 → 3; Shellac/Wax → 7; Standard → 5. Bessere Iteration/Artefakt-Balance.
+
+8. **Denker-Kontextfluss** (§11.7a): ReparaturDenker-Ergebnis wird als `repair_context` an den RekonstruktionsDenker weitergereicht. Rekonstruktion weiß, welche Defekte bereits beseitigt wurden.
+
+9. **GoalApplicabilityFilter Mono-Fix** (§2.32): SpatialDepthMetric wird auch bei stereo-getaggten Dateien deaktiviert, wenn Material inherent mono UND Dekade ≤ 1960 (z. B. Schellack über Stereo-A/D-Wandler).
+
+### Geänderte Dateien
+
+- **`backend/core/unified_restorer_v3.py`** — Phase-Cache Lock, Musical Goals fail_reasons, Goosebumps Export-Gate, ExcellenceOptimizer Re-Verifikation, FeedbackChain-Adaptivität, PhysicalCeiling Gate, ACP-Integration
+- **`backend/core/goal_applicability_filter.py`** — Mono-Material + Era-Check Erweiterung
+- **`denker/aurik_denker.py`** — `repair_context=rep` an RekonstruktionsDenker
+- **`denker/rekonstruktions_denker.py`** — Neuer `repair_context` Parameter in `rekonstruiere()`
+
+## Version 9.10.74 — §8.3 GoosebumpsQualityChecker (Mär 2026)
+
+### Zusammenfassung
+
+**Holistische psychoakustische Endprüfung**: Neues Modul `GoosebumpsQualityChecker`
+implementiert die bindende §8.3 Gänsehaut-Formel als gewichtetes geometrisches Mittel:
+
+    score = T^0.40 × M^0.25 × K^0.20 × A^0.15 − Artefakte × scale
+
+Fünf Dimensionen: Transient Integrity (40%), Micro-Dynamics (25%), Clarity (20%),
+Authenticity (15%), Artifact Penalty (subtrahiert). Multiplikative Kopplung stellt
+sicher, dass eine einzige schwache Dimension den Gesamtscore nicht-linear herunterzieht.
+
+Integration in UV3-Pipeline nach MusicalGoalsChecker + EmotionalArc, vor GP-Lernzyklus.
+Ergebnis in `RestorationResult.goosebumps_score` und `metadata["goosebumps"]` gespeichert.
+Blending mit 14 Musical Goals für höhere Präzision (60% DSP + 40% Goals).
+
+### Neue Dateien
+
+- **`backend/core/goosebumps_quality_checker.py`** — Singleton + `measure_goosebumps()` + `GoosebumpsResult` @dataclass
+- **`tests/unit/test_goosebumps_quality_checker.py`** — 43 Unit-Tests (Shape, NaN, Bounds, Edge, Mono, Stereo, Singleton)
+
+### Geänderte Dateien
+
+- **`backend/core/unified_restorer_v3.py`** — `RestorationResult` um `goosebumps_score` + `goosebumps_result` erweitert; Checker-Aufruf nach EmotionalArc integriert; Ergebnis in metadata gespeichert
+
 ## Version 9.10.73 — RT-Budget-Erweiterung für längere/schlechte Aufnahmen (Mär 2026)
 
 ### Zusammenfassung
