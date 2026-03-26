@@ -25,10 +25,10 @@ Version: 1.0.0
 Date: 16. Februar 2026
 """
 
-from dataclasses import dataclass
-from enum import Enum
 import logging
 import threading
+from dataclasses import dataclass
+from enum import Enum
 from typing import Any, Optional
 
 import numpy as np
@@ -199,19 +199,61 @@ class HybridDereverb:
         # Stage 2: ML refinement (SGMSE+ / ResembleEnhance, if needed)
         if strategy in [DereverbStrategy.DCCRN_ONLY, DereverbStrategy.HYBRID]:
             if self.dccrn is not None:
-                logger.info("Stage 2: ResembleEnhance ML-Dereverb-Stufe...")
-                audio, dccrn_meta = self._apply_dccrn(audio, sample_rate)
-                dccrn_applied = True
-                ml_applied = True
-                metadata["ml"] = dccrn_meta
+                _ml_name = "SGMSE+" if self._sgmse_active else "ResembleEnhance"
+                logger.info("Stage 2: %s ML-Dereverb-Stufe...", _ml_name)
 
-                # Re-estimate reverb after DCCRN
-                reverb_after_dccrn = self._estimate_reverb_level(audio, sample_rate)
-                metadata["reverb_after_dccrn"] = reverb_after_dccrn
+                # ── RAM guard: < 3 GB → skip ML, keep DSP result ────
+                # Proactive: evict stale plugins first to free RAM for SGMSE+.
+                _skip_ml = False
+                try:
+                    import gc
 
-                logger.info(f"ML dereverb complete: reverb → {reverb_after_dccrn:.3f}")
+                    import psutil
+
+                    _avail_gb = psutil.virtual_memory().available / (1024**3)
+                    if _avail_gb < 6.0:
+                        # Proactive plugin eviction BEFORE ML inference
+                        logger.info(
+                            "Dereverb: %.1f GB frei — proaktive Plugin-Eviction vor ML-Inferenz",
+                            _avail_gb,
+                        )
+                        try:
+                            from backend.core.plugin_lifecycle_manager import evict_stale_plugins
+
+                            evict_stale_plugins(required_mb=3072)
+                        except Exception:
+                            pass
+                        gc.collect()
+                        try:
+                            import ctypes as _ct
+
+                            _ct.CDLL("libc.so.6").malloc_trim(0)
+                        except Exception:
+                            pass
+                        # Re-check after eviction
+                        _avail_gb = psutil.virtual_memory().available / (1024**3)
+                    if _avail_gb < 3.0:
+                        logger.warning(
+                            "Dereverb RAM guard: nur %.1f GB frei nach Eviction — ML-Stufe übersprungen, DSP-Ergebnis behalten",
+                            _avail_gb,
+                        )
+                        _skip_ml = True
+                except Exception:
+                    pass
+
+                if not _skip_ml:
+                    audio, dccrn_meta = self._apply_dccrn(audio, sample_rate)
+                    dccrn_applied = True
+                    ml_applied = True
+                    metadata["ml"] = dccrn_meta
+
+                    # Re-estimate reverb after DCCRN
+                    reverb_after_dccrn = self._estimate_reverb_level(audio, sample_rate)
+                    metadata["reverb_after_dccrn"] = reverb_after_dccrn
+
+                    logger.info(f"ML dereverb complete: reverb → {reverb_after_dccrn:.3f}")
             else:
-                logger.info("ResembleEnhance nicht verfügbar — WPE-DSP-Ergebnis wird verwendet")
+                logger.info("ML-Dereverb nicht verfügbar — WPE-DSP-Ergebnis wird verwendet")
 
         processing_time = time.time() - start_time
         metadata["processing_time"] = processing_time

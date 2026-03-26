@@ -100,7 +100,7 @@ class WowFlutterFix(PhaseInterface):
 
     # Material-adaptive correction strength (0.0-1.0)
     CORRECTION_STRENGTH = {
-        MaterialType.TAPE: 0.90,  # Aggressive (capstan flutter, wow from speed variations)
+        MaterialType.TAPE: 0.65,  # Was 0.90 — reduced: aggressive correction on tape causes tonal center regression
         MaterialType.VINYL: 0.70,  # Moderate (turntable speed variations, belt/motor issues)
         MaterialType.SHELLAC: 0.60,  # Conservative (hand-crank artifacts, worn mechanisms)
         MaterialType.CD_DIGITAL: 0.20,  # Minimal (rare digital artifacts)
@@ -271,6 +271,43 @@ class WowFlutterFix(PhaseInterface):
         # Continue with standard wow/flutter correction pipeline
         # (regardless of detection method)
 
+        # Confidence-Guard: Bei sehr niedriger mittlerer Konfidenz die Phase gar nicht
+        # erst anwenden — Phase-Vocoder-Timestretch auf Basis unzuverlässiger Pitch-Daten
+        # erzeugt Artefakte (0.09 PMGG-Regression im E2E) ohne tatsächlichen Nutzen.
+        # Timing-Phasen haben keine Wet/Dry-Retries, daher frühes Bail-out.
+        _valid_conf = confidence[confidence > 0]
+        _mean_conf = float(np.mean(_valid_conf)) if len(_valid_conf) > 0 else 0.0
+        _MIN_CONFIDENCE_FOR_CORRECTION = 0.40
+        if _mean_conf < _MIN_CONFIDENCE_FOR_CORRECTION:
+            logger.info(
+                "Phase 12: Pitch-Konfidenz zu niedrig (%.3f < %.2f) — keine Korrektur angewandt "
+                "(vermeidet Artefakte bei unsicherer Detection)",
+                _mean_conf,
+                _MIN_CONFIDENCE_FOR_CORRECTION,
+            )
+            audio = np.nan_to_num(audio, nan=0.0, posinf=0.0, neginf=0.0)
+            audio = np.clip(audio, -1.0, 1.0)
+            return PhaseResult(
+                success=True,
+                audio=audio,
+                metrics={
+                    "wow_flutter_detected": False,
+                    "max_deviation_percent": 0.0,
+                    "correction_applied": 0.0,
+                    "material": material.value,
+                    "mean_confidence": _mean_conf,
+                    "quality_mode": quality_mode,
+                    "skipped_reason": "low_confidence",
+                },
+                execution_time_seconds=time.time() - start_time,
+                metadata={
+                    "algorithm": "confidence_guard_skip",
+                    "version": "4.1_confidence_guard",
+                    "ml_hybrid": use_ml_hybrid,
+                    "polyphonic": _poly_applied,
+                },
+            )
+
         # Step 1: Separate wow (<4 Hz) and flutter (4-100 Hz) components
         wow_component, flutter_component = self._separate_wow_flutter(pitch_trajectory, sample_rate)
 
@@ -283,9 +320,7 @@ class WowFlutterFix(PhaseInterface):
                 "algorithm": (
                     "polyphonic_multi_f0_consensus_v1"
                     if _poly_applied
-                    else "hybrid_ml_pyin_crepe_v3"
-                    if use_ml_hybrid
-                    else "pyin_phase_vocoder"
+                    else "hybrid_ml_pyin_crepe_v3" if use_ml_hybrid else "pyin_phase_vocoder"
                 ),
                 "version": "4.0_polyphonic" if _poly_applied else "3.0_ml_hybrid" if use_ml_hybrid else "3.0_pyin",
                 "ml_hybrid": use_ml_hybrid,
@@ -339,7 +374,7 @@ class WowFlutterFix(PhaseInterface):
         restored_mono = np.mean(restored, axis=1) if is_stereo else restored
 
         # Step 6b: Targeted transport bump repair (impulsive micro-speed jumps 50–300 ms)
-        bump_locations = kwargs.get("transport_bump_locations", None)
+        bump_locations = kwargs.get("transport_bump_locations")
         n_bumps_repaired = 0
         if bump_locations and len(bump_locations) > 0:
             restored, n_bumps_repaired = self._repair_transport_bumps(
@@ -358,6 +393,44 @@ class WowFlutterFix(PhaseInterface):
         residual_pitch, residual_conf = self._estimate_pitch_yin(restored_mono, sample_rate)
         residual_deviation = self._calculate_max_deviation(residual_pitch, residual_conf)
 
+        # Chroma Pearson rollback guard: if tonal center drifts, revert to original
+        # (Phase Vocoder / PSOLA can introduce pitch shifts that destroy tonal center)
+        try:
+            _orig_mono = np.mean(audio, axis=1) if is_stereo else audio
+            _n_chroma = min(len(_orig_mono), len(restored_mono))
+            _hop_chroma = 512
+            _n_frames = max(1, _n_chroma // _hop_chroma)
+            _chroma_orig = np.zeros(12, dtype=np.float64)
+            _chroma_rest = np.zeros(12, dtype=np.float64)
+            for _ci in range(min(_n_frames, 200)):  # sample up to 200 frames
+                _s = _ci * _hop_chroma
+                _e = _s + _hop_chroma
+                if _e > _n_chroma:
+                    break
+                _sp_o = np.abs(np.fft.rfft(_orig_mono[_s:_e]))
+                _sp_r = np.abs(np.fft.rfft(restored_mono[_s:_e]))
+                _freqs_c = np.fft.rfftfreq(_hop_chroma, 1.0 / sample_rate)
+                for _b in range(12):
+                    _f_lo = 65.41 * (2 ** (_b / 12.0))
+                    _f_hi = 65.41 * (2 ** ((_b + 1) / 12.0))
+                    _mask_c = (_freqs_c >= _f_lo) & (_freqs_c < _f_hi)
+                    _chroma_orig[_b] += np.sum(_sp_o[_mask_c] ** 2)
+                    _chroma_rest[_b] += np.sum(_sp_r[_mask_c] ** 2)
+            _norm_o = np.sqrt(np.sum(_chroma_orig**2)) + 1e-10
+            _norm_r = np.sqrt(np.sum(_chroma_rest**2)) + 1e-10
+            _chroma_pearson = float(np.dot(_chroma_orig / _norm_o, _chroma_rest / _norm_r))
+        except Exception:
+            _chroma_pearson = 1.0  # fallback: assume OK
+
+        if _chroma_pearson < 0.95:
+            logger.warning(
+                "Phase 12 chroma guard: Pearson %.3f < 0.95 — reverting to original audio "
+                "(wow/flutter correction caused tonal center drift)",
+                _chroma_pearson,
+            )
+            restored = audio.copy()
+            residual_deviation = max_deviation  # unchanged
+
         processing_time = time.time() - start_time
 
         # Calculate wow/flutter statistics
@@ -375,9 +448,7 @@ class WowFlutterFix(PhaseInterface):
                     else (
                         "hybrid_ml_pyin_crepe_v3"
                         if use_ml_hybrid
-                        else "pyin_psola"
-                        if vocals_conf >= 0.4
-                        else "pyin_phase_vocoder"
+                        else "pyin_psola" if vocals_conf >= 0.4 else "pyin_phase_vocoder"
                     )
                 )
             ),
@@ -895,8 +966,8 @@ class WowFlutterFix(PhaseInterface):
         wow_cutoff = 4.0  # Hz
         nyquist = frame_rate / 2
         if wow_cutoff < nyquist:
-            b_wow, a_wow = signal.butter(4, wow_cutoff / nyquist, btype="low")
-            wow_component = signal.filtfilt(b_wow, a_wow, deviation)
+            sos_wow = signal.butter(4, wow_cutoff / nyquist, btype="low", output="sos")
+            wow_component = signal.sosfiltfilt(sos_wow, deviation)
         else:
             wow_component = deviation  # Frame rate too low, treat all as wow
 
@@ -904,8 +975,8 @@ class WowFlutterFix(PhaseInterface):
         flutter_low = 4.0  # Hz
         flutter_high = 100.0  # Hz
         if flutter_high < nyquist:
-            b_flutter, a_flutter = signal.butter(4, [flutter_low / nyquist, flutter_high / nyquist], btype="band")
-            flutter_component = signal.filtfilt(b_flutter, a_flutter, deviation)
+            sos_flutter = signal.butter(4, [flutter_low / nyquist, flutter_high / nyquist], btype="band", output="sos")
+            flutter_component = signal.sosfiltfilt(sos_flutter, deviation)
         else:
             flutter_component = deviation - wow_component
 

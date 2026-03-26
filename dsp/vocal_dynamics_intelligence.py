@@ -18,6 +18,32 @@ import numpy as np
 from scipy.signal import hilbert
 
 logger = logging.getLogger(__name__)
+
+
+def _chunked_hilbert_envelope(audio: np.ndarray, sr: int) -> np.ndarray:
+    """Compute |hilbert(audio)| in 30-s chunks to prevent OOM on long audio."""
+    max_chunk = 30 * sr  # 30 s — ~46 MB complex128 per chunk
+    n = len(audio)
+    if n <= max_chunk:
+        return np.abs(hilbert(audio))
+
+    overlap = int(0.01 * sr)  # 10 ms overlap
+    envelope = np.empty(n, dtype=np.float64)
+    pos = 0
+    while pos < n:
+        end = min(pos + max_chunk, n)
+        chunk_env = np.abs(hilbert(audio[pos:end]))
+        if pos == 0:
+            envelope[pos:end] = chunk_env
+        else:
+            fade = np.linspace(0.0, 1.0, overlap)
+            envelope[pos : pos + overlap] = envelope[pos : pos + overlap] * (1.0 - fade) + chunk_env[:overlap] * fade
+            envelope[pos + overlap : end] = chunk_env[overlap:]
+        pos = end - overlap if end < n else n
+
+    return envelope
+
+
 warnings.filterwarnings("ignore", category=RuntimeWarning)
 
 
@@ -102,10 +128,9 @@ class MicroCompressor:
 
     def _compute_envelope(self, audio: np.ndarray, sr: int) -> np.ndarray:
         """
-        Compute amplitude envelope using Hilbert transform.
+        Compute amplitude envelope using chunked Hilbert transform (OOM-safe).
         """
-        analytic = hilbert(audio)
-        envelope = np.abs(analytic)
+        envelope = _chunked_hilbert_envelope(audio, sr)
 
         # Smooth (10ms window)
         window_samples = int(0.01 * sr)
@@ -122,20 +147,16 @@ class MicroCompressor:
         attack_coeff = np.exp(-1000 / (attack_ms * sr))
         release_coeff = np.exp(-1000 / (release_ms * sr))
 
-        gain_smooth = np.zeros_like(gain_reduction)
+        gain_smooth = np.empty_like(gain_reduction)
         prev = 0.0
 
         for i in range(len(gain_reduction)):
             target = gain_reduction[i]
-
             if target > prev:
-                # Attack (faster)
-                gain_smooth[i] = attack_coeff * prev + (1 - attack_coeff) * target
+                prev = attack_coeff * prev + (1 - attack_coeff) * target
             else:
-                # Release (slower)
-                gain_smooth[i] = release_coeff * prev + (1 - release_coeff) * target
-
-            prev = gain_smooth[i]
+                prev = release_coeff * prev + (1 - release_coeff) * target
+            gain_smooth[i] = prev
 
         return gain_smooth
 
@@ -197,9 +218,8 @@ class ConsonantPunchEnhancer:
         """
         Detect transients using envelope derivative.
         """
-        # Compute envelope
-        analytic = hilbert(audio)
-        envelope = np.abs(analytic)
+        # Compute envelope (chunked Hilbert — OOM-safe)
+        envelope = _chunked_hilbert_envelope(audio, sr)
 
         # Compute derivative
         derivative = np.diff(envelope, prepend=0)
@@ -251,9 +271,8 @@ class BreathAwareGate:
         metrics : Dict
             Gating metrics
         """
-        # Compute envelope
-        analytic = hilbert(audio)
-        envelope = np.abs(analytic)
+        # Compute envelope (chunked Hilbert — OOM-safe)
+        envelope = _chunked_hilbert_envelope(audio, sr)
 
         # Convert to dB
         envelope_db = 20 * np.log10(envelope + 1e-10)
@@ -288,22 +307,24 @@ class BreathAwareGate:
 
     def _apply_hold(self, gate_open: np.ndarray, sr: int, hold_ms: float) -> np.ndarray:
         """
-        Apply hold time to gate.
+        Apply hold time to gate (vectorised).
         """
         hold_samples = int(hold_ms * sr / 1000)
+        if hold_samples <= 0:
+            return gate_open.copy()
 
-        gate_with_hold = gate_open.copy()
-        hold_counter = 0
+        gate_bool = gate_open.astype(bool)
+        if not gate_bool.any():
+            return gate_bool
 
-        for i in range(len(gate_open)):
-            if gate_open[i]:
-                gate_with_hold[i] = True
-                hold_counter = hold_samples
-            elif hold_counter > 0:
-                gate_with_hold[i] = True
-                hold_counter -= 1
-            else:
-                gate_with_hold[i] = False
+        gate_with_hold = gate_bool.copy()
+        # Only process True→False transitions (very few, typically 50-200
+        # for a 225 s file) instead of iterating over all True indices.
+        padded = np.concatenate([gate_bool, [False]])
+        closes = np.where(padded[:-1] & ~padded[1:])[0]
+        for close_idx in closes:
+            end = min(close_idx + 1 + hold_samples, len(gate_with_hold))
+            gate_with_hold[close_idx + 1 : end] = True
 
         return gate_with_hold
 

@@ -13,12 +13,12 @@ Datum: 11. Februar 2026
 """
 
 import json
-from pathlib import Path
 import shutil
 
 # Import golden sample components
 import sys
 import tempfile
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -172,7 +172,6 @@ class TestGoldenSampleBenchmarkRunner:
         assert runner.golden_samples_dir == setup_benchmark_environment
         assert len(runner.metadata["golden_samples"]) == 3
 
-    @pytest.mark.skip(reason="Baseline values need validator update first - tested in integration test")
     def test_run_benchmark_baseline(self, setup_benchmark_environment):
         """Test running benchmark in baseline mode (no processing)."""
         from backend.core.musical_goals.processing_modes import ProcessingMode
@@ -185,7 +184,9 @@ class TestGoldenSampleBenchmarkRunner:
         )
 
         results, summary = runner.run_benchmark(
-            categories=["vocal"], max_samples=2, processing_function=None  # Baseline mode
+            categories=["vocal"],
+            max_samples=2,
+            processing_function=None,  # Baseline mode
         )
 
         assert len(results) == 2

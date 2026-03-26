@@ -15,7 +15,6 @@ with short processEvents() loops — no QPropertyAnimation needed.
 
 import math
 from pathlib import Path
-from typing import Optional
 
 from PyQt5.QtCore import QPointF, QRectF, Qt, QTimer
 from PyQt5.QtGui import (
@@ -34,7 +33,7 @@ from PyQt5.QtWidgets import QApplication, QWidget
 
 _RES = Path(__file__).parent.parent / "resources"
 
-_VERSION = "9.10.57"
+_VERSION = "9.10.76"
 
 
 class AurikSplashScreen(QWidget):
@@ -116,7 +115,7 @@ class AurikSplashScreen(QWidget):
 
     # ── Paint ─────────────────────────────────────────────────────────────────
 
-    def paintEvent(self, _ev) -> None:  # noqa: N802
+    def paintEvent(self, _ev) -> None:
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing)  # type: ignore[attr-defined]
         p.setRenderHint(QPainter.TextAntialiasing)  # type: ignore[attr-defined]

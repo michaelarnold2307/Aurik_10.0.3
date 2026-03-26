@@ -104,10 +104,20 @@ class NoiseGate(PhaseInterface):
             "look_ahead_ms": 10,
         },
         MaterialType.TAPE: {
-            "thresholds_db": [-45, -43, -40, -38],
-            "reductions_db": [-20, -25, -30, -35],
-            "attack_ms": [10, 8, 6, 5],
-            "release_ms": [100, 80, 60, 50],
+            "thresholds_db": [
+                -38,
+                -38,
+                -35,
+                -30,
+            ],  # Band 1+2 angehoben (war -45/-43) — schützt Bass/Grundton bei Tape-Material
+            "reductions_db": [
+                -12,
+                -15,
+                -20,
+                -18,
+            ],  # Band 1+2 sanfter (war -20/-25) — verhindert Low-Freq-Energie­verlust
+            "attack_ms": [10, 8, 8, 6],
+            "release_ms": [120, 100, 100, 80],  # Band 1+2 langsamer (war 100/80) — pumping-frei
             "knee_db": 12,
             "look_ahead_ms": 10,
         },
@@ -221,6 +231,26 @@ class NoiseGate(PhaseInterface):
             gated_audio = np.column_stack((gated_left, gated_right))
         else:
             gated_audio = self._gate_channel(audio, sample_rate, config)
+
+        # Low-frequency energy guard: prevent excessive bass/fundamental removal
+        # especially critical for tape/vinyl where gate can eat musical low end
+        _orig_mono = np.mean(audio, axis=1) if is_stereo else audio
+        _gated_mono = np.mean(gated_audio, axis=1) if is_stereo else gated_audio
+        sos_lf = signal.butter(4, 800, btype="low", fs=sample_rate, output="sos")
+        _lf_orig = np.sqrt(np.mean(signal.sosfilt(sos_lf, _orig_mono) ** 2) + 1e-20)
+        _lf_gated = np.sqrt(np.mean(signal.sosfilt(sos_lf, _gated_mono) ** 2) + 1e-20)
+        _lf_loss_ratio = _lf_gated / _lf_orig
+        if _lf_loss_ratio < 0.60:
+            # >40% low-freq energy lost — blend with original to limit damage
+            _blend = 0.60 / (_lf_loss_ratio + 1e-10)
+            _blend = min(_blend, 3.0)  # safety cap
+            _wet = max(0.30, 1.0 / _blend)  # how much gated signal to keep
+            gated_audio = _wet * gated_audio + (1.0 - _wet) * audio
+            logger.warning(
+                "Phase 18 low-freq guard: LF ratio %.2f < 0.60 — blended wet=%.2f to protect bass",
+                _lf_loss_ratio,
+                _wet,
+            )
 
         # Metrics
         rms_original = np.sqrt(np.mean(audio**2))

@@ -17,14 +17,15 @@ Datum: 20. Februar 2026
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, field, replace as dc_replace
 import hashlib
 import itertools
 import json
 import logging
 import math
-from pathlib import Path
 import threading
+from dataclasses import asdict, dataclass, field
+from dataclasses import replace as dc_replace
+from pathlib import Path
 
 import numpy as np
 
@@ -314,25 +315,38 @@ def _dsp_hf_rolloff(audio_mono: np.ndarray, sr: int) -> float:
     idx = int(np.clip(idx, 0, len(avg_spec) - 1))
     rolloff = float(freqs[idx])
 
-    # Bass-heavy content floor: if the 90th-percentile is below 8 kHz but
-    # > 2 % of the total energy sits above 8 kHz, the recording carries real
-    # high-frequency content.  Raise the floor to 8 kHz to avoid mapping
-    # modern bass-heavy tracks to pre-1900 decades.
+    # ── Spectral-edge detection (complementary to cumulative energy) ──
+    # For bass-heavy music (Schlager, hip-hop, heavily compressed MP3), the
+    # 90th-pctl cumulative energy is dominated by sub-1 kHz content and
+    # gives absurdly low rolloff values (e.g. 800 Hz for a 1977 tape).
+    # Spectral-edge: find the highest frequency where the power spectrum
+    # still exceeds -30 dB relative to the peak in the 200–SR/2 range.
+    # This directly measures where real content ends, regardless of
+    # spectral balance.
+    mask_music = freqs >= 200.0
+    if np.any(mask_music) and np.any(avg_spec[mask_music] > 0):
+        peak_power = float(np.max(avg_spec[mask_music]))
+        if peak_power > 1e-20:
+            edge_threshold = peak_power * 1e-3  # -30 dB below peak
+            above_edge = np.where((avg_spec > edge_threshold) & mask_music)[0]
+            if len(above_edge) > 0:
+                spectral_edge = float(freqs[above_edge[-1]])
+                rolloff = max(rolloff, spectral_edge)
+
+    # Bass-heavy content floor: if the rolloff is still below 8 kHz but
+    # > 0.5 % of the total energy sits above 8 kHz, the recording carries
+    # real high-frequency content.  Raise via 98th-percentile.
+    # Threshold lowered from 2% to 0.5% to catch lossy-encoded recordings
+    # (mp3_low, aac) where HF energy is sparse but present.
     # Butterworth-filtered calibration signals have < 0.05 % energy above
     # their cut-off, so this guard never triggers for them.
     if rolloff < 8000.0:
         hf_mask = freqs >= 8000.0
         hf_fraction = float(np.sum(avg_spec[hf_mask])) / (total_energy + 1e-20)
-        if hf_fraction > 0.02:
-            # Bass-heavy recording with real HF content (e.g. bass-heavy Schlager MP3):
-            # The 90th-percentile is dominated by low-frequency energy, but the
-            # recording has genuine HF content.  Use the 98th-percentile rolloff
-            # to find where energy actually ends rather than capping at exactly
-            # 8 kHz (which would incorrectly map 1970s/80s tracks to decade 1930).
+        if hf_fraction > 0.005:
             idx98 = int(np.searchsorted(cum_energy, 0.98 * total_energy))
             idx98 = int(np.clip(idx98, 0, len(avg_spec) - 1))
             rolloff_98 = float(freqs[idx98])
-            # Ensure at least 8 kHz floor in case 98th-pct is also dominated by bass.
             rolloff = max(rolloff_98, 8000.0)
 
     return rolloff
@@ -579,19 +593,26 @@ def _dsp_fingerprint_decade(
     # (C) Spectral tilt — captures recording-chain frequency response.
     # 1960s: steep roll-off (≤ -5 dB/oct, mid-forward due to equipment).
     # 1970s: flatter response (> -5 dB/oct, improved electronics/tape).
+    # GUARD: When BW is codec-limited (< 10 kHz) AND tilt is extremely
+    # steep (< -8.0 dB/oct), both metrics reflect the lossy codec's
+    # brick-wall LPF (e.g. mp3_low @ 64–128 kbps), not the recording
+    # equipment.  Tilt-based demotion is unreliable in this regime.
+    _codec_limited = bw_khz < 10.0 and spectral_tilt < -8.0
     if decade in (1960, 1970):
         if spectral_tilt > -4.0 and decade == 1960:
             decade = 1970  # flatter spectrum → favour 1970s
-        elif spectral_tilt < -6.0 and decade == 1970 and bw_khz < 15.0:
-            decade = 1960  # very steep tilt with moderate BW → 1960s
+        elif spectral_tilt < -7.5 and decade == 1970 and bw_khz < 15.0 and not _codec_limited:
+            decade = 1960  # steep tilt with moderate BW → 1960s (not codec)
 
     # (D) Dynamic range — improved electronics yield wider dynamics.
     # 1960s analog: typically 15–28 dB frame-energy DR.
     # 1970s tape:   typically 25–40 dB.
+    # GUARD: Codec-limited recordings (mp3_low) compress DR significantly;
+    # demotion from DR alone is unreliable when codec artifacts dominate.
     if decade in (1960, 1970):
         if dynamic_range_db >= 30.0 and decade == 1960:
             decade = 1970
-        elif dynamic_range_db < 18.0 and decade == 1970 and bw_khz < 14.0:
+        elif dynamic_range_db < 18.0 and decade == 1970 and bw_khz < 14.0 and not _codec_limited:
             decade = 1960
 
     # (E) Consensus vote for borderline 1950–1980 decades:

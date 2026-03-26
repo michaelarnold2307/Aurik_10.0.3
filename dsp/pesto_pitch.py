@@ -39,23 +39,21 @@ logger = logging.getLogger(__name__)
 # Constants
 # ---------------------------------------------------------------------------
 
-_SR_TARGET: int = 48_000          # Aurik canonical SR (assert at entry)
-_F0_MIN_HZ: float = 40.0          # C1 ≈ 32.7 Hz — practical floor for music
-_F0_MAX_HZ: float = 2100.0        # C7 ≈ 2093 Hz  — soprano / violin ceiling
-_N_BINS_PER_OCTAVE: int = 48      # 4 bins/semitone → ~25 cent resolution
-_N_OCTAVES: int = 6               # 40 … 2560 Hz (padded above _F0_MAX_HZ)
-_HOP_SAMPLES: int = 512           # 10.67 ms @ 48 kHz (≈ FCPE frame hop)
-_WINDOW_SAMPLES: int = 4096       # 85 ms window for sub-bass energy
-_N_HARMONICS: int = 5             # harmonic summation depth
-_ENERGY_FLOOR: float = 1e-7       # unvoiced frame gate
-_VOICING_RATIO_MIN: float = 2.5   # peak-to-median ratio for voiced decision
+_SR_TARGET: int = 48_000  # Aurik canonical SR (assert at entry)
+_F0_MIN_HZ: float = 40.0  # C1 ≈ 32.7 Hz — practical floor for music
+_F0_MAX_HZ: float = 2100.0  # C7 ≈ 2093 Hz  — soprano / violin ceiling
+_N_BINS_PER_OCTAVE: int = 48  # 4 bins/semitone → ~25 cent resolution
+_N_OCTAVES: int = 6  # 40 … 2560 Hz (padded above _F0_MAX_HZ)
+_HOP_SAMPLES: int = 512  # 10.67 ms @ 48 kHz (≈ FCPE frame hop)
+_WINDOW_SAMPLES: int = 4096  # 85 ms window for sub-bass energy
+_N_HARMONICS: int = 5  # harmonic summation depth
+_ENERGY_FLOOR: float = 1e-7  # unvoiced frame gate
+_VOICING_RATIO_MIN: float = 2.5  # peak-to-median ratio for voiced decision
 
 # Semitone → Hz mapping
 _N_BINS_TOTAL: int = _N_BINS_PER_OCTAVE * _N_OCTAVES
 _F_REF: float = _F0_MIN_HZ
-_BIN_FREQS: np.ndarray = _F_REF * 2.0 ** (
-    np.arange(_N_BINS_TOTAL, dtype=np.float64) / _N_BINS_PER_OCTAVE
-)
+_BIN_FREQS: np.ndarray = _F_REF * 2.0 ** (np.arange(_N_BINS_TOTAL, dtype=np.float64) / _N_BINS_PER_OCTAVE)
 
 # ---------------------------------------------------------------------------
 # Result dataclass
@@ -104,8 +102,7 @@ class PestoPitchEstimator:
     def __init__(self) -> None:
         self._bin_freqs = _BIN_FREQS.copy()
         self._build_fft_mapping()
-        logger.debug("PestoPitchEstimator ready: %d bins, %.0f–%.0f Hz",
-                     _N_BINS_TOTAL, _F_REF, self._bin_freqs[-1])
+        logger.debug("PestoPitchEstimator ready: %d bins, %.0f–%.0f Hz", _N_BINS_TOTAL, _F_REF, self._bin_freqs[-1])
 
     # ------------------------------------------------------------------
     # Private helpers
@@ -157,9 +154,8 @@ class PestoPitchEstimator:
         for harmonic in range(2, _N_HARMONICS + 1):
             shift = round(_N_BINS_PER_OCTAVE * math.log2(harmonic))
             if shift < _N_BINS_TOTAL:
-                harmonic_sal[:_N_BINS_TOTAL - shift] += (
-                    sal[shift:] / float(harmonic)
-                )
+                n = _N_BINS_TOTAL - shift
+                harmonic_sal[:n] += sal[shift : shift + n] * (1.0 / harmonic)
         return harmonic_sal
 
     def _pick_peak(self, harm_sal: np.ndarray) -> tuple[float, float]:
@@ -182,7 +178,7 @@ class PestoPitchEstimator:
         # Parabolic sub-bin interpolation (Brown & Puckette 1993)
         if 0 < peak_idx < _N_BINS_TOTAL - 1:
             alpha = float(harm_sal[peak_idx - 1])
-            beta  = float(harm_sal[peak_idx])
+            beta = float(harm_sal[peak_idx])
             gamma = float(harm_sal[peak_idx + 1])
             denom = alpha - 2.0 * beta + gamma
             sub = (alpha - gamma) / (2.0 * denom) if abs(denom) > 1e-9 else 0.0
@@ -191,8 +187,7 @@ class PestoPitchEstimator:
             sub = 0.0
 
         f0_hz = _F_REF * 2.0 ** ((peak_idx + sub) / _N_BINS_PER_OCTAVE)
-        confidence = float(np.clip((ratio - _VOICING_RATIO_MIN) /
-                                   max(_VOICING_RATIO_MIN * 4.0, 1e-9), 0.0, 1.0))
+        confidence = float(np.clip((ratio - _VOICING_RATIO_MIN) / max(_VOICING_RATIO_MIN * 4.0, 1e-9), 0.0, 1.0))
         return f0_hz, confidence
 
     # ------------------------------------------------------------------

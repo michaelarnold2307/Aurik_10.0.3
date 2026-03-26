@@ -28,7 +28,7 @@
 
 ## §1.5 Studio-2026-Verarbeitungskette (kanonische Reihenfolge nach Defektkorrektur)
 
-```
+```text
 1.  Stem-Separation (MDX23C lokal, Kim_Vocal_2/Kim_Inst)
 2.  Vocals: VocalAIEnhancement (stimmtyp-adaptiv) + ConsonantEnhancement (Frikative adaptiv)
 3.  Sub-Mix-Instrumente: genre-adaptiv (guitar/brass/piano/drums nach PANNs)
@@ -85,7 +85,7 @@ class StemRemixBalancer:
 - TIER 2–4: dürfen parallelisieren; Merge via `np.mean` NUR wenn gleiche Frequenzzone
 - TIER 6: IMMER sequenziell (EQ → Polish → LUFS → TruePeak → Format)
 
-```
+```text
 Audio-Eingang (mono/stereo, beliebige SR)
     ↓
 [DCOffsetPreRemoval]  ← PFLICHT-VORSTUFE vor jeder FFT-Analyse (kein phase_30!)
@@ -233,9 +233,9 @@ unverändertem Original-Audio gleichbedeutend mit Phasen-Skip.
 
 ```python
 # Schwellwerte restorability-adaptiv:
-REGRESSION_THRESHOLD_GOOD: float = 0.012   # restorability ≥ 70
-REGRESSION_THRESHOLD_FAIR: float = 0.040   # restorability 40–69
-REGRESSION_THRESHOLD_POOR: float = 0.060   # restorability < 40
+REGRESSION_THRESHOLD_GOOD: float = 0.020   # restorability ≥ 70 (v9.10.77: §9.7.5 Reference-Aware)
+REGRESSION_THRESHOLD_FAIR: float = 0.035   # restorability 40–69
+REGRESSION_THRESHOLD_POOR: float = 0.055   # restorability < 40
 SAMPLE_DURATION_S: float = 5.0
 MAX_RETRIES: int = 5
 _RETRY_STRENGTHS: list[float] = [0.65, 0.50, 0.35, 0.20, 0.10]
@@ -273,7 +273,7 @@ for phase in selected_phases:
 
 ### Zweistufiger Export-Ablauf
 
-```
+```text
 Stufe 1 (Sofort-Export, RT-limitiert)
     │  Phasen die RT-Limit überschreiten: DSP-Fallback + in deferred_phases eingetragen
     │  Pipeline finalisiert; Qualitäts-Gate bestanden?
@@ -383,7 +383,7 @@ class RecoveryCheckpoint:
 
 ### Pfad-Durchleitung
 
-```
+```text
 BatchProcessingThread
   → denke(input_path=, output_path=)
     → restauriere()

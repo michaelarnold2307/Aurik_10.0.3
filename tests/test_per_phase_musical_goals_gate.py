@@ -189,13 +189,13 @@ class TestConstants:
         assert "groove" in FAST_GOALS_SUBSET
 
     def test_09_retry_strengths_values(self):
-        assert pytest.approx([0.65, 0.50, 0.35, 0.20, 0.10], abs=1e-9) == _RETRY_STRENGTHS  # v9.15-B3
+        assert pytest.approx([0.65, 0.50, 0.35, 0.25], abs=1e-9) == _RETRY_STRENGTHS  # v9.10.76: Floor 0.25
 
     def test_10_sample_duration_positive(self):
         assert SAMPLE_DURATION_S > 0.0
 
     def test_11_retry_strengths_count(self):
-        assert len(_RETRY_STRENGTHS) == 5  # v9.15-B3: 5 Stufen [0.65, 0.50, 0.35, 0.20, 0.10]
+        assert len(_RETRY_STRENGTHS) == 4  # v9.10.76: 4 Stufen, Floor 0.25
 
 
 class TestWrapPhaseReturnType:
@@ -459,9 +459,9 @@ class TestCanonicalKeyAlignment:
         }
         audio_out, scores_after, log_entry = gate.wrap_phase(_pass_phase, audio, SR, applicable_goals=applicable)
         # natuerlichkeit must appear in scores_after — not silently absent
-        assert "natuerlichkeit" in scores_after, (
-            "scores_after must contain 'natuerlichkeit' when it is in applicable_goals"
-        )
+        assert (
+            "natuerlichkeit" in scores_after
+        ), "scores_after must contain 'natuerlichkeit' when it is in applicable_goals"
 
     def test_45_all_14_canonical_goals_in_fast_goals_subset(self):
         """FAST_GOALS_SUBSET must contain exactly the 14 canonical Goal keys."""

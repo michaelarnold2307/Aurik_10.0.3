@@ -2,15 +2,15 @@
 
 > **Systemidentität**: Aurik 9.x.x ist ein *weltweit erstmaliges intelligentes,
 > kontextbewusstes Musik- und Gesangs-Restaurations-, Reparatur- und
-> Rekonstruktions-Denkersystem.* Stand: März 2026 — Version **9.10.57**
+> Rekonstruktions-Denkersystem.* Stand: März 2026 — Version **9.10.76**
 >
-> **instructions_version: 2.9** — komprimiert 24.03.2026
+> **instructions_version: 3.0** — komprimiert 26.03.2026
 >
 > Bump-Regel: neue RELEASE_MUST-Zeile, neues Gate oder §-Änderung → `instructions_version` inkrementieren + `docs/CHANGELOG_HISTORY.md` Eintrag.
 >
-> Aktuelle Testzahl: **~7750+ Pytest-IDs** (inkl. parametrisierter Tests; `def test_`-Funktionen ≈ 7252; alle grün)
+> Aktuelle Testzahl: **~8900+ Pytest-IDs** (inkl. parametrisierter Tests; `def test_`-Funktionen ≈ 7252; alle grün)
 >
-> Stand: 21. März 2026 — Vocos 48 kHz nativ bevorzugt (§2.37); laion_clap ONNX-Format; Hybrid-Release-Mode RELEASE_MUST.
+> Stand: 26. März 2026 — Vocos 48 kHz nativ bevorzugt (§2.37); laion_clap ONNX-Format; Hybrid-Release-Mode RELEASE_MUST.
 >
 > **§2.36 `LyricsGuidedEnhancement`** ist ab Version **9.10.x Pflicht** (bisher v10.0-Label entfernt).
 
@@ -196,7 +196,7 @@ Primär → Fallback1 → DSP-Fallback-Kaskade für alle Anwendungsfälle.
 
 ## Schlecht-Material-Verarbeitungsregeln
 
-**Adaptive Schwellen §2.29**: `REGRESSION_THRESHOLD` restorability-abhängig (GOOD 0.012 / FAIR 0.040 / POOR 0.060), max. 5 Retries.
+**Adaptive Schwellen §2.29**: `REGRESSION_THRESHOLD` restorability-abhängig (GOOD 0.020 / FAIR 0.035 / POOR 0.055), max. 5 Retries.
 
 **[RELEASE_MUST] §2.29 PMGG Phase-Skip-Verbot (v9.10.64)**:
 - PMGG darf Phasen **NIEMALS** überspringen (kein Rollback auf Original-Audio).

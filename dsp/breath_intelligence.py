@@ -173,10 +173,29 @@ class BreathDetector:
     def _compute_envelope(self, audio: np.ndarray, sr: int) -> np.ndarray:
         """
         Compute amplitude envelope using Hilbert transform.
+        Chunked to prevent OOM on long audio (hilbert allocates complex128 FFT).
         """
-        # Hilbert transform
-        analytic_signal = hilbert(audio)
-        envelope = np.abs(analytic_signal)
+        max_chunk = 30 * sr  # 30 s chunks — ~46 MB complex128 per chunk
+        n = len(audio)
+        if n <= max_chunk:
+            envelope = np.abs(hilbert(audio))
+        else:
+            overlap = int(0.01 * sr)  # 10 ms overlap for smooth joins
+            envelope = np.empty(n, dtype=np.float64)
+            pos = 0
+            while pos < n:
+                end = min(pos + max_chunk, n)
+                chunk_env = np.abs(hilbert(audio[pos:end]))
+                if pos == 0:
+                    envelope[pos:end] = chunk_env
+                else:
+                    # Cross-fade overlap region
+                    fade = np.linspace(0.0, 1.0, overlap)
+                    envelope[pos : pos + overlap] = (
+                        envelope[pos : pos + overlap] * (1.0 - fade) + chunk_env[:overlap] * fade
+                    )
+                    envelope[pos + overlap : end] = chunk_env[overlap:]
+                pos = end - overlap if end < n else n
 
         # Smooth envelope
         window_samples = int(0.01 * sr)  # 10ms smoothing
@@ -245,22 +264,15 @@ class BreathDetector:
 
     def _label_regions(self, mask: np.ndarray) -> tuple[np.ndarray, int]:
         """
-        Label connected regions in binary mask.
+        Label connected regions in binary mask (vectorised).
         """
-        labeled = np.zeros_like(mask, dtype=int)
-        region_id = 0
-
-        in_region = False
-        for i in range(len(mask)):
-            if mask[i] and not in_region:
-                region_id += 1
-                in_region = True
-                labeled[i] = region_id
-            elif mask[i] and in_region:
-                labeled[i] = region_id
-            elif not mask[i]:
-                in_region = False
-
+        mask_bool = mask.astype(bool)
+        # Detect region starts: mask[i] is True and either i==0 or mask[i-1] is False
+        starts = mask_bool.copy()
+        starts[1:] &= ~mask_bool[:-1]
+        # Cumulative sum of starts gives region IDs
+        labeled = np.cumsum(starts) * mask_bool
+        region_id = int(labeled.max()) if len(labeled) > 0 else 0
         return labeled, region_id
 
     def _compute_spectral_centroid(self, audio: np.ndarray, sr: int) -> float:

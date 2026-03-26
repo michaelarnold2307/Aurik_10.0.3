@@ -68,7 +68,6 @@ from typing import Any
 
 import numpy as np
 import scipy.signal as signal
-from scipy.fft import rfft, rfftfreq
 
 from .phase_interface import PhaseCategory, PhaseInterface, PhaseMetadata, PhaseResult, create_phase_result
 
@@ -114,7 +113,7 @@ class HumRemovalPhase(PhaseInterface):
             "q_factor": 35,  # Narrow notches (aggressive)
             "max_harmonics": 8,  # Up to 8th harmonic
             "threshold_db": -60,  # Sensitive detection
-            "side_chain_ratio": 0.3,  # Preserve 30% if musical content
+            "side_chain_ratio": 0.5,  # Preserve 50% if musical content (was 0.3 — too aggressive for Schlager/Akkordeon)
             "transient_preserve": 0.9,  # Strong preserve
         },
         "vinyl": {
@@ -291,6 +290,49 @@ class HumRemovalPhase(PhaseInterface):
         result_audio = np.nan_to_num(result_audio, nan=0.0, posinf=0.0, neginf=0.0)
         result_audio = np.clip(result_audio, -1.0, 1.0)
 
+        # Chroma Pearson guard: notch filters removing hum harmonics can also remove
+        # musical content at coincident frequencies (e.g. 150 Hz = 3rd harmonic of 50 Hz
+        # AND 3rd harmonic of vocal fundamental). If chroma correlation drops below 0.95,
+        # blend result with original to limit tonal damage.
+        try:
+            _orig_mono = np.mean(audio, axis=1) if audio.ndim == 2 else audio
+            _res_mono = np.mean(result_audio, axis=1) if result_audio.ndim == 2 else result_audio
+            _n_chroma = min(len(_orig_mono), len(_res_mono))
+            _hop_chroma = 512
+            _chroma_orig = np.zeros(12, dtype=np.float64)
+            _chroma_res = np.zeros(12, dtype=np.float64)
+            for _ci in range(min(200, max(1, _n_chroma // _hop_chroma))):
+                _s = _ci * _hop_chroma
+                _e = _s + _hop_chroma
+                if _e > _n_chroma:
+                    break
+                _sp_o = np.abs(np.fft.rfft(_orig_mono[_s:_e]))
+                _sp_r = np.abs(np.fft.rfft(_res_mono[_s:_e]))
+                _freqs_c = np.fft.rfftfreq(_hop_chroma, 1.0 / sample_rate)
+                for _b in range(12):
+                    _f_lo = 65.41 * (2 ** (_b / 12.0))
+                    _f_hi = 65.41 * (2 ** ((_b + 1) / 12.0))
+                    _mask_c = (_freqs_c >= _f_lo) & (_freqs_c < _f_hi)
+                    _chroma_orig[_b] += np.sum(_sp_o[_mask_c] ** 2)
+                    _chroma_res[_b] += np.sum(_sp_r[_mask_c] ** 2)
+            _norm_o = np.sqrt(np.sum(_chroma_orig**2)) + 1e-10
+            _norm_r = np.sqrt(np.sum(_chroma_res**2)) + 1e-10
+            _chroma_p = float(np.dot(_chroma_orig / _norm_o, _chroma_res / _norm_r))
+        except Exception:
+            _chroma_p = 1.0
+
+        if _chroma_p < 0.95:
+            # Tonal damage detected — blend to limit regression
+            _wet = max(0.40, _chroma_p)  # scale wet amount by damage severity
+            result_audio = _wet * result_audio + (1.0 - _wet) * audio
+            result_audio = np.clip(result_audio, -1.0, 1.0)
+            logger.warning(
+                "Phase 02 chroma guard: Pearson %.3f < 0.95 — blended wet=%.2f to protect tonal center",
+                _chroma_p,
+                _wet,
+            )
+            warnings.append(f"Chroma guard active: blended wet={_wet:.2f} (Pearson={_chroma_p:.3f})")
+
         return create_phase_result(
             audio=result_audio,
             modifications={
@@ -327,8 +369,8 @@ class HumRemovalPhase(PhaseInterface):
 
         # FFT analysis (4 seconds or full audio)
         fft_size = min(len(audio_mono), int(4 * self.sample_rate))
-        freqs = rfftfreq(fft_size, 1 / self.sample_rate)
-        spectrum = np.abs(rfft(audio_mono[:fft_size]))
+        freqs = np.fft.rfftfreq(fft_size, 1 / self.sample_rate)
+        spectrum = np.abs(np.fft.rfft(audio_mono[:fft_size]))
 
         # Normalized spectrum (for threshold comparison)
         total_energy = float(np.sum(spectrum**2))
@@ -385,7 +427,9 @@ class HumRemovalPhase(PhaseInterface):
 
             # Process with DeepFilterNet
             returncode, _stdout, _stderr = plugin.process(
-                input_path, output_path, post_filter=True  # Enable post-filter for artifact smoothing
+                input_path,
+                output_path,
+                post_filter=True,  # Enable post-filter for artifact smoothing
             )
 
             if returncode == 0 and os.path.exists(output_path):
@@ -432,8 +476,8 @@ class HumRemovalPhase(PhaseInterface):
 
         # FFT
         fft_size = min(len(audio_mono), int(4 * self.sample_rate))
-        freqs = rfftfreq(fft_size, 1 / self.sample_rate)
-        spectrum = np.abs(rfft(audio_mono[:fft_size]))
+        freqs = np.fft.rfftfreq(fft_size, 1 / self.sample_rate)
+        spectrum = np.abs(np.fft.rfft(audio_mono[:fft_size]))
 
         total_energy = np.sum(spectrum**2)
         threshold_energy = total_energy * 10 ** (threshold_db / 10)
@@ -561,7 +605,8 @@ class HumRemovalPhase(PhaseInterface):
             return False  # Assume no musical content if filter fails
 
         # Compute envelope
-        envelope = np.abs(signal.hilbert(band_signal))
+        analytic = signal.hilbert(band_signal)
+        envelope = np.abs(np.asarray(analytic))
 
         # Musical content has time-varying envelope (std/mean ratio)
         if len(envelope) > 1000:
@@ -586,8 +631,8 @@ class HumRemovalPhase(PhaseInterface):
         """Measure hum energy at specific frequency (±2 Hz)."""
         # Short FFT
         fft_size = min(len(audio), int(2 * self.sample_rate))
-        freqs = rfftfreq(fft_size, 1 / self.sample_rate)
-        spectrum = np.abs(rfft(audio[:fft_size]))
+        freqs = np.fft.rfftfreq(fft_size, 1 / self.sample_rate)
+        spectrum = np.abs(np.fft.rfft(audio[:fft_size]))
 
         return self._measure_band_energy(spectrum, freqs, freq - 2, freq + 2)
 
@@ -637,11 +682,11 @@ if __name__ == "__main__":
     materials = ["tape", "vinyl", "cd_digital"]
 
     for material in materials:
-        logger.debug(f"\n{'-'*80}")
+        logger.debug(f"\n{'-' * 80}")
         logger.debug(f"Testing with material: {material.upper()}")
-        logger.debug(f"{'-'*80}")
+        logger.debug(f"{'-' * 80}")
 
-        phase = HumRemovalPhase(sample_rate=sr)
+        phase = HumRemovalPhase()
         result = phase.process(audio_with_hum.copy(), material_type=material)
 
         if result.success:
@@ -662,9 +707,9 @@ if __name__ == "__main__":
         else:
             logger.debug("❌ Processing Failed!")
 
-    logger.debug(f"\n{'='*80}")
+    logger.debug(f"\n{'=' * 80}")
     logger.debug("✅ Professional Hum Removal v2.0 Test Complete!")
-    logger.debug(f"{'='*80}")
+    logger.debug(f"{'=' * 80}")
     logger.debug(f"Algorithm: {result.metadata['algorithm']}")
     logger.debug(f"Scientific Reference: {result.metadata['scientific_ref']}")
     logger.debug(f"Benchmark: {result.metadata['benchmark']}")

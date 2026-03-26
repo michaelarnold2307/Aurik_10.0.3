@@ -51,9 +51,9 @@ Date: 2026-02-17
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import logging
 import threading
+from dataclasses import dataclass
 
 from backend.core.defect_scanner import DefectType
 
@@ -912,15 +912,32 @@ _PHASE_MAP: dict[DefectType, PhaseAssignment] = {
 # Kein Eintrag → 1.0 (volle Initialstärke, PMGG-gesteuerter Abbau bei Regression)
 
 _MATERIAL_PHASE_FACTORS: dict[str, dict[str, float]] = {
+    # ===================================================================
+    # ANALOG VINTAGE MATERIALS  (high degradation, character preservation)
+    # ===================================================================
     # WAX_CYLINDER — extreme noise, very limited BW (≤5 kHz), highest degradation
     "wax_cylinder": {
         "phase_03_denoise": 0.90,  # aggressive NR ok — extreme noise
         "phase_09_crackle_removal": 0.85,  # heavy crackle on wax
         "phase_22_tape_saturation": 0.20,  # protect tube/wax character
         "phase_20_reverb_reduction": 0.20,  # protect period-correct room
-        "phase_49_advanced_dereverb": 0.20,  # same: vintage reverb is authentic
+        "phase_49_advanced_dereverb": 0.20,  # vintage reverb is authentic
         "phase_06_frequency_restoration": 0.30,  # BW << 5kHz, don't over-extend
         "phase_07_harmonic_restoration": 0.35,  # careful harmonic reconstruction
+        "phase_04_eq_correction": 0.30,  # extreme rolloff is era-authentic
+        "phase_08_transient_preservation": 0.35,  # wax/needle transients fragile
+        "phase_36_transient_shaper": 0.25,  # no transient shaping on wax
+        "phase_35_multiband_compression": 0.30,  # preserve limited dynamics
+        "phase_10_compression": 0.35,  # don't squash wax dynamics
+        "phase_37_bass_enhancement": 0.25,  # BW too low for bass boost
+        "phase_38_presence_boost": 0.30,  # don't artificially brighten
+        "phase_39_air_band_enhancement": 0.20,  # no air band on wax
+        "phase_16_final_eq": 0.35,  # gentle final EQ
+        "phase_26_dynamic_range_expansion": 0.30,  # limited DR on wax
+        "phase_13_stereo_enhancement": 0.20,  # mono source
+        "phase_02_hum_removal": 0.50,  # wax has motor rumble + AC hum character
+        "phase_18_noise_gate": 0.20,  # gating destroys continuous wax noise character
+        "phase_24_dropout_repair": 0.45,  # careful with wax dropout fill
     },
     # SHELLAC — broad noise, BW ≤ 8 kHz, clicks/crackle primary
     "shellac": {
@@ -933,6 +950,19 @@ _MATERIAL_PHASE_FACTORS: dict[str, dict[str, float]] = {
         "phase_49_advanced_dereverb": 0.20,
         "phase_06_frequency_restoration": 0.40,  # BW limited; careful extension
         "phase_07_harmonic_restoration": 0.45,
+        "phase_04_eq_correction": 0.35,  # shellac rolloff is character
+        "phase_08_transient_preservation": 0.40,  # needle transients fragile
+        "phase_36_transient_shaper": 0.30,  # don't reshape shellac transients
+        "phase_35_multiband_compression": 0.35,  # preserve vintage dynamics
+        "phase_10_compression": 0.40,  # careful compression
+        "phase_37_bass_enhancement": 0.30,  # limited bass on shellac
+        "phase_38_presence_boost": 0.35,  # gentle brightness
+        "phase_39_air_band_enhancement": 0.25,  # no air band on shellac
+        "phase_16_final_eq": 0.40,
+        "phase_13_stereo_enhancement": 0.20,  # mono era
+        "phase_02_hum_removal": 0.45,  # shellac motor rumble is character
+        "phase_18_noise_gate": 0.20,  # gating destroys groove-noise character
+        "phase_24_dropout_repair": 0.50,  # scratch-based dropouts need care
     },
     # LACQUER_DISC — similar to shellac, more substrate clicks
     "lacquer_disc": {
@@ -943,6 +973,16 @@ _MATERIAL_PHASE_FACTORS: dict[str, dict[str, float]] = {
         "phase_20_reverb_reduction": 0.20,
         "phase_49_advanced_dereverb": 0.20,
         "phase_06_frequency_restoration": 0.50,
+        "phase_04_eq_correction": 0.40,  # lacquer has some character rolloff
+        "phase_08_transient_preservation": 0.45,
+        "phase_36_transient_shaper": 0.35,
+        "phase_35_multiband_compression": 0.40,
+        "phase_37_bass_enhancement": 0.35,
+        "phase_38_presence_boost": 0.40,
+        "phase_39_air_band_enhancement": 0.30,
+        "phase_02_hum_removal": 0.45,
+        "phase_18_noise_gate": 0.20,
+        "phase_24_dropout_repair": 0.50,
     },
     # WIRE_RECORDING — high noise, jitter, good dynamic range
     "wire_recording": {
@@ -951,42 +991,224 @@ _MATERIAL_PHASE_FACTORS: dict[str, dict[str, float]] = {
         "phase_31_speed_pitch_correction": 0.85,
         "phase_22_tape_saturation": 0.35,
         "phase_10_compression": 0.40,
+        "phase_04_eq_correction": 0.40,  # wire has characteristic response
+        "phase_06_frequency_restoration": 0.35,  # limited BW on wire
+        "phase_07_harmonic_restoration": 0.40,
+        "phase_08_transient_preservation": 0.45,
+        "phase_36_transient_shaper": 0.35,  # wire transients are metallic
+        "phase_35_multiband_compression": 0.40,
+        "phase_20_reverb_reduction": 0.25,  # vintage room
+        "phase_49_advanced_dereverb": 0.25,
+        "phase_37_bass_enhancement": 0.30,
+        "phase_38_presence_boost": 0.35,
+        "phase_39_air_band_enhancement": 0.25,
+        "phase_13_stereo_enhancement": 0.20,  # mono source
+        "phase_02_hum_removal": 0.50,  # wire motor hum is character
+        "phase_18_noise_gate": 0.25,  # wire has continuous noise
+        "phase_24_dropout_repair": 0.55,
     },
-    # VINYL — crackle priority, moderate NR
+    # ===================================================================
+    # GROOVE-BASED MATERIALS  (crackle/click priority, moderate NR)
+    # ===================================================================
+    # VINYL — crackle priority, moderate NR, warm character
     "vinyl": {
         "phase_09_crackle_removal": 0.85,
         "phase_01_click_removal": 0.80,
+        "phase_27_click_pop_removal": 0.75,
         "phase_03_denoise": 0.70,  # vinyl NR gentler than shellac
+        "phase_04_eq_correction": 0.55,  # RIAA curve is character
+        "phase_06_frequency_restoration": 0.50,  # vinyl has natural rolloff
+        "phase_07_harmonic_restoration": 0.55,
+        "phase_08_transient_preservation": 0.55,  # vinyl transients have warmth
+        "phase_22_tape_saturation": 0.30,  # protect analog warmth
+        "phase_20_reverb_reduction": 0.25,  # vinyl room is character
+        "phase_49_advanced_dereverb": 0.25,
+        "phase_36_transient_shaper": 0.50,  # vinyl transients are character
+        "phase_35_multiband_compression": 0.50,  # preserve vinyl dynamics
+        "phase_10_compression": 0.50,
+        "phase_37_bass_enhancement": 0.55,  # vinyl bass is warm
+        "phase_38_presence_boost": 0.50,  # careful brightness
+        "phase_39_air_band_enhancement": 0.40,  # vinyl air is limited
+        "phase_16_final_eq": 0.55,
+        "phase_26_dynamic_range_expansion": 0.50,
+        "phase_02_hum_removal": 0.40,  # turntable motor rumble + AC hum
+        "phase_18_noise_gate": 0.25,  # vinyl surface noise is continuous — gating = artifacts
+        "phase_24_dropout_repair": 0.60,  # vinyl scratches need careful fill
     },
+    # ===================================================================
+    # TAPE-BASED MATERIALS  (hiss priority, tape character preservation)
+    # ===================================================================
     # TAPE — hiss priority, preserve tape character (§2.22 Spec)
     "tape": {
         "phase_29_tape_hiss_reduction": 0.85,
         "phase_03_denoise": 0.75,
         "phase_22_tape_saturation": 0.35,  # tape imprint must be preserved
+        "phase_04_eq_correction": 0.45,  # tape EQ rolloff is character
+        "phase_06_frequency_restoration": 0.40,  # don't over-extend tape BW
+        "phase_07_harmonic_restoration": 0.50,  # tape harmonics are warm
+        "phase_08_transient_preservation": 0.50,  # tape transients are soft
+        "phase_10_compression": 0.45,  # preserve tape dynamics
+        "phase_20_reverb_reduction": 0.30,  # tape room is authentic
+        "phase_49_advanced_dereverb": 0.30,
+        "phase_36_transient_shaper": 0.40,  # fragile tape transients
+        "phase_35_multiband_compression": 0.45,  # gentle multiband
+        "phase_37_bass_enhancement": 0.50,  # tape bass is warm
+        "phase_38_presence_boost": 0.45,  # don't over-brighten tape
+        "phase_39_air_band_enhancement": 0.35,  # tape HF is limited
+        "phase_16_final_eq": 0.50,
+        "phase_26_dynamic_range_expansion": 0.50,
+        "phase_02_hum_removal": 0.30,  # tape motor hum is character; 49% regression at 0.25 → very gentle
+        "phase_18_noise_gate": 0.20,  # tape hiss is continuous — gating = pumping artifacts
+        "phase_24_dropout_repair": 0.55,  # oxide flaking dropouts need careful fill
+        "phase_12_wow_flutter_fix": 0.75,  # capstan flutter is real but ML phase has no retry
     },
     # REEL_TAPE — higher quality, print-through focus
     "reel_tape": {
         "phase_29_tape_hiss_reduction": 0.80,
         "phase_03_denoise": 0.70,
         "phase_22_tape_saturation": 0.35,  # tape character preserved
+        "phase_04_eq_correction": 0.50,  # reel has better EQ response
+        "phase_06_frequency_restoration": 0.45,  # better BW than cassette
+        "phase_07_harmonic_restoration": 0.55,
+        "phase_08_transient_preservation": 0.55,
+        "phase_10_compression": 0.50,
+        "phase_20_reverb_reduction": 0.35,
+        "phase_49_advanced_dereverb": 0.35,
+        "phase_36_transient_shaper": 0.45,  # reel transients more robust
+        "phase_35_multiband_compression": 0.50,
+        "phase_37_bass_enhancement": 0.55,
+        "phase_38_presence_boost": 0.50,
+        "phase_39_air_band_enhancement": 0.40,
+        "phase_16_final_eq": 0.55,
+        "phase_26_dynamic_range_expansion": 0.55,
+        "phase_02_hum_removal": 0.35,  # reel motor hum + print-through character
+        "phase_18_noise_gate": 0.25,  # continuous hiss → gating artifacts
+        "phase_24_dropout_repair": 0.60,  # reel dropouts less frequent
+        "phase_12_wow_flutter_fix": 0.70,  # reel has more stable transport
     },
+    # ===================================================================
+    # DIGITAL CODEC MATERIALS  (codec artifacts, careful spectral repair)
+    # ===================================================================
     # MP3_LOW — heavy codec artifacts; careful HF extension
     "mp3_low": {
         "phase_06_frequency_restoration": 0.75,  # codec cuts HF; restore carefully
         "phase_07_harmonic_restoration": 0.75,
         "phase_23_spectral_repair": 0.80,
         "phase_50_spectral_repair": 0.80,
+        "phase_03_denoise": 0.40,  # codec noise ≠ analog noise
+        "phase_04_eq_correction": 0.65,  # codec EQ is damage not character
+        "phase_09_crackle_removal": 0.25,  # no crackle in MP3
+        "phase_01_click_removal": 0.25,  # no clicks in MP3
+        "phase_22_tape_saturation": 0.15,  # no tape character to protect
+        "phase_35_multiband_compression": 0.60,  # gentle on compressed audio
+        "phase_36_transient_shaper": 0.55,  # codec smears transients
+        "phase_39_air_band_enhancement": 0.55,  # some air restoration ok
+        "phase_02_hum_removal": 0.55,  # digital hum is fixable
+        "phase_18_noise_gate": 0.40,  # codec noise floor is low enough for gating
+        "phase_24_dropout_repair": 0.65,  # codec dropouts are real defects
     },
+    # MP3_HIGH — moderate codec artifacts; mostly transparent
+    "mp3_high": {
+        "phase_06_frequency_restoration": 0.85,  # mild HF extension
+        "phase_07_harmonic_restoration": 0.85,
+        "phase_23_spectral_repair": 0.70,  # minor spectral holes
+        "phase_50_spectral_repair": 0.70,
+        "phase_03_denoise": 0.30,  # minimal NR needed
+        "phase_09_crackle_removal": 0.20,  # no crackle
+        "phase_01_click_removal": 0.20,  # no clicks
+        "phase_22_tape_saturation": 0.15,  # no tape character
+        "phase_04_eq_correction": 0.70,  # gentle EQ
+        "phase_35_multiband_compression": 0.65,
+        "phase_36_transient_shaper": 0.60,
+        "phase_02_hum_removal": 0.60,
+        "phase_18_noise_gate": 0.45,
+        "phase_24_dropout_repair": 0.65,
+    },
+    # AAC — similar to MP3_HIGH; slightly better HF
+    "aac": {
+        "phase_06_frequency_restoration": 0.80,
+        "phase_07_harmonic_restoration": 0.80,
+        "phase_23_spectral_repair": 0.70,
+        "phase_50_spectral_repair": 0.70,
+        "phase_03_denoise": 0.30,
+        "phase_09_crackle_removal": 0.20,
+        "phase_01_click_removal": 0.20,
+        "phase_22_tape_saturation": 0.15,
+        "phase_04_eq_correction": 0.70,
+        "phase_35_multiband_compression": 0.65,
+        "phase_36_transient_shaper": 0.60,
+        "phase_02_hum_removal": 0.60,
+        "phase_18_noise_gate": 0.45,
+        "phase_24_dropout_repair": 0.65,
+    },
+    # MINIDISC — ATRAC codec; similar to MP3_HIGH but different artifacts
+    "minidisc": {
+        "phase_06_frequency_restoration": 0.80,  # ATRAC cuts some HF
+        "phase_07_harmonic_restoration": 0.80,
+        "phase_23_spectral_repair": 0.75,  # ATRAC spectral holes
+        "phase_50_spectral_repair": 0.75,
+        "phase_03_denoise": 0.30,
+        "phase_09_crackle_removal": 0.20,
+        "phase_01_click_removal": 0.20,
+        "phase_22_tape_saturation": 0.15,
+        "phase_04_eq_correction": 0.65,
+        "phase_35_multiband_compression": 0.60,
+        "phase_36_transient_shaper": 0.55,
+        "phase_02_hum_removal": 0.55,
+        "phase_18_noise_gate": 0.40,
+        "phase_24_dropout_repair": 0.60,
+    },
+    # STREAMING — variable quality; usually well-encoded
+    "streaming": {
+        "phase_03_denoise": 0.30,  # minor background noise possible
+        "phase_06_frequency_restoration": 0.80,
+        "phase_07_harmonic_restoration": 0.80,
+        "phase_23_spectral_repair": 0.65,
+        "phase_50_spectral_repair": 0.65,
+        "phase_09_crackle_removal": 0.20,
+        "phase_01_click_removal": 0.20,
+        "phase_22_tape_saturation": 0.15,
+        "phase_04_eq_correction": 0.70,
+        "phase_35_multiband_compression": 0.65,
+        "phase_36_transient_shaper": 0.65,
+        "phase_02_hum_removal": 0.60,
+        "phase_18_noise_gate": 0.45,
+        "phase_24_dropout_repair": 0.65,
+    },
+    # ===================================================================
+    # HIGH-QUALITY DIGITAL MATERIALS  (minimal processing needed)
+    # ===================================================================
     # CD_DIGITAL — high quality input; minimal aggressive processing
     "cd_digital": {
         "phase_03_denoise": 0.25,  # minimal NR for clean digital
         "phase_09_crackle_removal": 0.20,
         "phase_01_click_removal": 0.30,
+        "phase_22_tape_saturation": 0.15,  # no analog character
+        "phase_04_eq_correction": 0.75,  # mild EQ ok on CD
+        "phase_06_frequency_restoration": 0.85,  # CD has full BW to 22kHz
+        "phase_20_reverb_reduction": 0.70,  # digital reverb ok to reduce
+        "phase_49_advanced_dereverb": 0.70,
+        "phase_35_multiband_compression": 0.70,
+        "phase_36_transient_shaper": 0.70,
+        "phase_02_hum_removal": 0.60,  # digital hum is real problem, ok to fix
+        "phase_18_noise_gate": 0.50,  # digital noise floor very low — gate ok
+        "phase_24_dropout_repair": 0.70,  # digital dropouts are true defects
     },
     # DAT — near-lossless digital; near-zero NR
     "dat": {
         "phase_03_denoise": 0.20,
         "phase_09_crackle_removal": 0.15,
+        "phase_01_click_removal": 0.20,
+        "phase_22_tape_saturation": 0.15,
+        "phase_04_eq_correction": 0.75,
+        "phase_06_frequency_restoration": 0.85,
+        "phase_20_reverb_reduction": 0.70,
+        "phase_49_advanced_dereverb": 0.70,
+        "phase_35_multiband_compression": 0.70,
+        "phase_36_transient_shaper": 0.70,
+        "phase_02_hum_removal": 0.60,
+        "phase_18_noise_gate": 0.50,
+        "phase_24_dropout_repair": 0.65,
     },
 }
 

@@ -53,11 +53,11 @@ Autor: Aurik 9.0 Development Team / v9.15
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 import logging
 import math
 import threading
 import time
+from dataclasses import dataclass, field
 from typing import Any
 
 import numpy as np
@@ -179,20 +179,23 @@ _RETRY_STRENGTHS: list[float] = [
 # identisch, unabhängig vom strength-Parameter.  Bei PMGG-Retries wird nur
 # Wet/Dry-Reblending variiert — keine Re-Inferenz.
 # Phase-ID-Prefixes (startswith-Match) für robustes Matching.
-_ML_DETERMINISTIC_PHASES: frozenset[str] = frozenset({
-    "phase_03",   # OMLSA + ResembleEnhance (ML-Hybrid Denoising)
-    "phase_06",   # AudioSR (neurale Bandwidth-Extension)
-    "phase_09",   # BANQUET ONNX (Blind-Denoising)
-    "phase_12",   # FCPE/CREPE/pYIN (f₀-Schätzung) — Timing-Phase, kein Wet/Dry
-    "phase_18",   # Silero VAD (Binary-Mask)
-    "phase_20",   # SGMSE+ (Reverb-Separation) — WPE-Fallback wäre DSP, aber Primärpfad ML
-    "phase_23",   # AudioSR Inpainting (Spektral-Lückenfüllung)
-    "phase_24",   # AudioSR (Dropout-Repair)
-    "phase_29",   # DeepFilterNet v3 II (HF-Denoising)
-    "phase_42",   # BSRoFormer (Stem-Separation)
-    "phase_55",   # CQTdiff/FlowMatching (Diffusions-Inpainting)
-    "phase_56",   # FCPE/CREPE + Synthese (Spectral Band Gap Repair)
-})
+_ML_DETERMINISTIC_PHASES: frozenset[str] = frozenset(
+    {
+        "phase_03",  # OMLSA + ResembleEnhance (ML-Hybrid Denoising)
+        "phase_06",  # AudioSR (neurale Bandwidth-Extension)
+        "phase_09",  # BANQUET ONNX (Blind-Denoising)
+        "phase_12",  # FCPE/CREPE/pYIN (f₀-Schätzung) — Timing-Phase, kein Wet/Dry
+        "phase_18",  # Silero VAD (Binary-Mask)
+        "phase_19",  # De-Esser+VocalStack: process() ignoriert strength → Wet/Dry reicht
+        "phase_20",  # SGMSE+ (Reverb-Separation) — WPE-Fallback wäre DSP, aber Primärpfad ML
+        "phase_23",  # AudioSR Inpainting (Spektral-Lückenfüllung)
+        "phase_24",  # AudioSR (Dropout-Repair)
+        "phase_29",  # DeepFilterNet v3 II (HF-Denoising)
+        "phase_42",  # BSRoFormer (Stem-Separation)
+        "phase_55",  # CQTdiff/FlowMatching (Diffusions-Inpainting)
+        "phase_56",  # FCPE/CREPE + Synthese (Spectral Band Gap Repair)
+    }
+)
 
 
 def _get_adaptive_threshold(restorability_score: float) -> float:
@@ -466,9 +469,7 @@ def _measure_quick(audio: np.ndarray, sr: int, reference: np.ndarray | None = No
             if len(_ref_centroids) > 2:
                 _r = _safe_pearson(np.array(_ref_centroids), np.array(centroids[: len(_ref_centroids)]))
                 if _r > 0.7:
-                    scores["timbre_authentizitaet"] = min(
-                        1.0, scores["timbre_authentizitaet"] + (_r - 0.7) * 0.5
-                    )
+                    scores["timbre_authentizitaet"] = min(1.0, scores["timbre_authentizitaet"] + (_r - 0.7) * 0.5)
     except Exception:
         scores["timbre_authentizitaet"] = 0.5
 
@@ -538,10 +539,7 @@ def _measure_quick(audio: np.ndarray, sr: int, reference: np.ndarray | None = No
                 ]
             )
             _proc_rms = np.array(
-                [
-                    float(np.sqrt(np.mean(mono[i : i + hop_e] ** 2) + 1e-12))
-                    for i in range(0, _rm_ml - hop_e, hop_e)
-                ]
+                [float(np.sqrt(np.mean(mono[i : i + hop_e] ** 2) + 1e-12)) for i in range(0, _rm_ml - hop_e, hop_e)]
             )
             _r = _safe_pearson(_ref_rms, _proc_rms)
             if _r > 0.7:
@@ -881,7 +879,9 @@ class PerPhaseMusicalGoalsGate:
             audio_out = self._run_phase(phase, audio, initial_strength, phase_kwargs)
             audio_full = None  # kein Cache benötigt
 
-        scores_after = _measure_quick(_extract_sample(audio_out, sr, duration_s=sample_duration_s), sr, reference=_ref_sample)
+        scores_after = _measure_quick(
+            _extract_sample(audio_out, sr, duration_s=sample_duration_s), sr, reference=_ref_sample
+        )
 
         regression = self._max_regression(scores_before, scores_after, effective_goals)
         if regression <= threshold:
@@ -920,10 +920,12 @@ class PerPhaseMusicalGoalsGate:
         # können NICHT per Wet/Dry retried werden, da Timing-Phasen kein Blending
         # erlauben (Phasen-Artefakte bei Crossfade zeitversetzter Signale).
         # Alle Retries würden identisches Audio produzieren → sofort Best-Effort.
-        _TIMING_PHASES = frozenset({
-            "phase_12_wow_flutter_fix",
-            "phase_31_speed_pitch_correction",
-        })
+        _TIMING_PHASES = frozenset(
+            {
+                "phase_12_wow_flutter_fix",
+                "phase_31_speed_pitch_correction",
+            }
+        )
         if _is_ml_deterministic and phase_id in _TIMING_PHASES:
             logger.info(
                 "PMGG: %s is ML-deterministic timing phase — Wet/Dry retries not applicable, "
@@ -957,6 +959,7 @@ class PerPhaseMusicalGoalsGate:
                 break
 
             import gc
+
             gc.collect()
 
             action_label = f"retry{attempt + 1}"
@@ -980,7 +983,9 @@ class PerPhaseMusicalGoalsGate:
                 )
                 audio_retry = self._run_phase(phase, audio, strength, phase_kwargs)
 
-            scores_retry = _measure_quick(_extract_sample(audio_retry, sr, duration_s=sample_duration_s), sr, reference=_ref_sample)
+            scores_retry = _measure_quick(
+                _extract_sample(audio_retry, sr, duration_s=sample_duration_s), sr, reference=_ref_sample
+            )
             regression_retry = self._max_regression(scores_before, scores_retry, effective_goals)
             if regression_retry <= threshold:
                 return audio_retry, scores_retry, action_label, strength
@@ -1106,13 +1111,15 @@ class PerPhaseMusicalGoalsGate:
         Timing-modifizierende Phasen (wow/flutter, speed) sind ausgenommen,
         da Crossfade zeitversetzter Signale Phasen-Artefakte erzeugt.
         """
-        _TIMING_PHASES = frozenset({
-            "phase_12_wow_flutter_fix",
-            "phase_31_speed_pitch_correction",
-        })
+        _TIMING_PHASES = frozenset(
+            {
+                "phase_12_wow_flutter_fix",
+                "phase_31_speed_pitch_correction",
+            }
+        )
         # Länge sicherstellen
         if len(wet) != len(dry):
-            wet = wet[:len(dry)] if len(wet) > len(dry) else np.pad(wet, (0, len(dry) - len(wet)))
+            wet = wet[: len(dry)] if len(wet) > len(dry) else np.pad(wet, (0, len(dry) - len(wet)))
         if strength >= 1.0:
             return np.clip(wet, -1.0, 1.0).astype(np.float32)
         if strength <= 0.0:

@@ -121,6 +121,15 @@ except ImportError as _aurik8_err:
     AURIK_8_AVAILABLE = False
     logger.debug("Aurik 8.0 Enhancement-Module nicht verfügbar: %s", _aurik8_err)
 
+# ── Robuster GenderDetector aus Vocal-Chain (§2.8) ──────────────
+try:
+    from backend.core.vocal_ai_enhancement import GenderDetector as _RobustGenderDetector
+
+    _HAS_ROBUST_GENDER = True
+except ImportError:
+    _RobustGenderDetector = None  # type: ignore
+    _HAS_ROBUST_GENDER = False
+
 
 class VocalGender:
     """Gender-spezifische Vocal-Profile (aus Aurik 8.0)."""
@@ -357,7 +366,7 @@ class DeEsserPhase(PhaseInterface):
 
         # Auto-Detection wenn Gender=AUTO
         if self.gender == VocalGender.AUTO:
-            detected_gender = self._detect_gender_simple(audio, sample_rate)
+            detected_gender = self._detect_gender_robust(audio, sample_rate)
             self.vocal_profile = VOCAL_PROFILES[detected_gender]
             self.stats["gender_profile"] = detected_gender
             logger.info(f"🎤 Auto-detected gender: {detected_gender}")
@@ -379,7 +388,6 @@ class DeEsserPhase(PhaseInterface):
 
         is_stereo = audio.ndim == 2
         enhanced_audio = audio.copy()
-        audio.copy()  # Save original for measurement!
 
         # Mono-Konvertierung für Analysis (aber später stereo processing)
         audio_mono = np.mean(audio, axis=1) if is_stereo else audio
@@ -927,15 +935,17 @@ class DeEsserPhase(PhaseInterface):
         attack_samples = int(sample_rate * attack_ms / 1000)
         release_samples = int(sample_rate * release_ms / 1000)
 
-        smoothed = np.zeros_like(gain_curve)
+        alpha_attack = 1.0 - np.exp(-1.0 / max(attack_samples, 1))
+        alpha_release = 1.0 - np.exp(-1.0 / max(release_samples, 1))
+
+        smoothed = np.empty_like(gain_curve)
         smoothed[0] = gain_curve[0]
 
         for i in range(1, len(gain_curve)):
             if gain_curve[i] < smoothed[i - 1]:  # Gain Reduction steigt (Attack)
-                alpha = 1.0 - np.exp(-1.0 / max(attack_samples, 1))
+                alpha = alpha_attack
             else:  # Gain Reduction sinkt (Release)
-                alpha = 1.0 - np.exp(-1.0 / max(release_samples, 1))
-
+                alpha = alpha_release
             smoothed[i] = alpha * gain_curve[i] + (1.0 - alpha) * smoothed[i - 1]
 
         return smoothed
@@ -1157,6 +1167,33 @@ class DeEsserPhase(PhaseInterface):
 
         return result, gender_adaptive_bands
 
+    def _detect_gender_robust(self, audio: np.ndarray, sample_rate: int) -> str:
+        """
+        Gender-Detection: Robuster Detektor (F0 + Formanten + WORLD) bevorzugt,
+        Fallback auf einfache Autocorrelation.
+        """
+        # ── Primär: Robuster Multi-Feature GenderDetector (§2.8) ──
+        if _HAS_ROBUST_GENDER and _RobustGenderDetector is not None:
+            try:
+                mono = np.mean(audio, axis=1) if audio.ndim == 2 else audio
+                detector = _RobustGenderDetector(sample_rate=sample_rate)
+                chars = detector.detect(mono)
+                gender_str = chars.gender.value  # VoiceGender enum → str
+                confidence = chars.confidence
+                if gender_str in (VocalGender.MALE, VocalGender.FEMALE, VocalGender.CHILD):
+                    logger.info(
+                        "🎤 Robust GenderDetector: %s (confidence=%.2f, F0=%.0f Hz)",
+                        gender_str,
+                        confidence,
+                        chars.fundamental_freq,
+                    )
+                    return gender_str
+            except Exception as e:
+                logger.debug("Robust GenderDetector failed (%s) — simple fallback", e)
+
+        # ── Fallback: Einfache Autocorrelation ──
+        return self._detect_gender_simple(audio, sample_rate)
+
     def _detect_gender_simple(self, audio: np.ndarray, sample_rate: int) -> str:
         """
         Vereinfachte Gender-Detection über Fundamental-Frequenz-Schätzung.
@@ -1164,7 +1201,7 @@ class DeEsserPhase(PhaseInterface):
         Ranges:
         - MALE: 80-180 Hz (F0 ~100 Hz)
         - FEMALE: 160-300 Hz (F0 ~220 Hz)
-        - CHILD: 250-450 Hz (F0 ~300 Hz)
+        - CHILD: 300-450 Hz (F0 ~330 Hz)
         """
         if audio.ndim == 2:
             audio = np.mean(audio, axis=1)
@@ -1199,9 +1236,10 @@ class DeEsserPhase(PhaseInterface):
         f0_estimate = sample_rate / peak_idx
 
         # Klassifiziere basierend auf F0
+        # Schwelle Child 300 Hz (nicht 250): Frauen haben F0 bis 255 Hz (§2.8)
         if f0_estimate < 160:
             return VocalGender.MALE
-        elif f0_estimate < 250:
+        elif f0_estimate < 300:
             return VocalGender.FEMALE
         else:
             return VocalGender.CHILD

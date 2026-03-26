@@ -32,9 +32,12 @@ import pathlib
 import threading
 import time
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 import numpy as np
+
+if TYPE_CHECKING:
+    from backend.core.recovery_checkpoint import RecoveryCheckpoint
 
 try:
     import librosa
@@ -663,7 +666,22 @@ class UnifiedRestorerV3:
         _pre_repair_ref = kwargs.get("pre_repair_reference")
         if _pre_repair_ref is not None and isinstance(_pre_repair_ref, np.ndarray) and _pre_repair_ref.size > 0:
             original_audio_for_goals: np.ndarray = _pre_repair_ref.copy()
-            logger.info("UV3: pre_repair_reference als Goal-Referenz übernommen (shape=%s)", _pre_repair_ref.shape)
+            # §G1-Fix: Stereo-Layout an audio angleichen — AurikDenker liefert (N,2),
+            # aber audio wurde oben bereits auf (2,N) transponiert. Ohne Angleichung
+            # scheitert der Shape-Check bei measure_all() und alle ref-basierten
+            # Musical Goals (Timbre, TonalCenter, Transparenz) fallen auf schwächere
+            # reference-free Proxies zurück.
+            if (
+                original_audio_for_goals.ndim == 2
+                and audio.ndim == 2
+                and original_audio_for_goals.shape != audio.shape
+                and original_audio_for_goals.T.shape == audio.shape
+            ):
+                original_audio_for_goals = original_audio_for_goals.T
+                logger.info("UV3: pre_repair_reference transponiert (N,ch) → (ch,N) für Shape-Match")
+            logger.info(
+                "UV3: pre_repair_reference als Goal-Referenz übernommen (shape=%s)", original_audio_for_goals.shape
+            )
         else:
             original_audio_for_goals: np.ndarray = audio.copy()
 
@@ -2258,6 +2276,7 @@ class UnifiedRestorerV3:
         _pre_excellence_mg_scores: dict[str, float] = {}
         try:
             from backend.core.musical_goals.musical_goals_metrics import MusicalGoalsChecker as _PreExMGChecker
+
             _pre_ex_checker = _PreExMGChecker()
             _pre_ex_ref = original_audio_for_goals if original_audio_for_goals.shape == restored_audio.shape else None
             _pre_excellence_mg_scores = _pre_ex_checker.measure_all(restored_audio, sample_rate, reference=_pre_ex_ref)
@@ -2279,7 +2298,8 @@ class UnifiedRestorerV3:
                 try:
                     _post_ex_scores = _pre_ex_checker.measure_all(restored_audio, sample_rate, reference=_pre_ex_ref)
                     _ex_regressions = [
-                        g for g in _pre_excellence_mg_scores
+                        g
+                        for g in _pre_excellence_mg_scores
                         if _post_ex_scores.get(g, 0.0) < _pre_excellence_mg_scores[g] - 0.02
                     ]
                     if _ex_regressions:
@@ -2556,7 +2576,9 @@ class UnifiedRestorerV3:
                         "severity": "degraded",
                         "violated_goals": _mg_violations,
                         "scores": {k: round(float(_musical_goal_scores.get(k, 0.0)), 4) for k in _mg_violations},
-                        "thresholds": {k: round(float(_effective_goal_thresholds.get(k, 0.85)), 4) for k in _mg_violations},
+                        "thresholds": {
+                            k: round(float(_effective_goal_thresholds.get(k, 0.85)), 4) for k in _mg_violations
+                        },
                     }
                 )
 
@@ -2573,13 +2595,13 @@ class UnifiedRestorerV3:
                     _BLEND_ALPHA = 0.85  # 85 % restored, 15 % original
                     _blended = np.clip(
                         _BLEND_ALPHA * restored_audio + (1.0 - _BLEND_ALPHA) * original_audio_for_goals,
-                        -1.0, 1.0,
+                        -1.0,
+                        1.0,
                     )
                     try:
                         _blend_scores = _mg_checker.measure_all(_blended, sample_rate, reference=_mg_ref)
                         _p1_resolved = all(
-                            _blend_scores.get(g, 0.0) >= _effective_goal_thresholds.get(g, 0.85)
-                            for g in _p1_violations
+                            _blend_scores.get(g, 0.0) >= _effective_goal_thresholds.get(g, 0.85) for g in _p1_violations
                         )
                         _no_new_regression = all(
                             _blend_scores.get(g, 0.0) >= _musical_goal_scores.get(g, 0.0) - 0.02
@@ -2595,14 +2617,16 @@ class UnifiedRestorerV3:
                             _musical_goal_scores = _blend_scores
                             _musical_excellence_score = sum(_blend_scores.values()) / max(len(_blend_scores), 1)
                             _mg_violations = [
-                                k for k in _musical_goal_scores
+                                k
+                                for k in _musical_goal_scores
                                 if k in _applicable_goal_names
                                 and float(_musical_goal_scores.get(k, 0.0)) < _effective_goal_thresholds.get(k, 0.85)
                             ]
                         else:
                             logger.debug(
                                 "End-Gate: P1 Recovery Blend verworfen (resolved=%s, no_regression=%s)",
-                                _p1_resolved, _no_new_regression,
+                                _p1_resolved,
+                                _no_new_regression,
                             )
                     except Exception as _blend_exc:
                         logger.debug("End-Gate: P1 Recovery Blend fehlgeschlagen: %s", _blend_exc)
@@ -3391,9 +3415,7 @@ class UnifiedRestorerV3:
         # 1. Load intermediate audio from disk
         current_audio = load_checkpoint_audio(checkpoint)
         if current_audio is None:
-            raise RuntimeError(
-                f"OOM-Recovery: Audio-Datei konnte nicht geladen werden: {checkpoint.audio_wav_path}"
-            )
+            raise RuntimeError(f"OOM-Recovery: Audio-Datei konnte nicht geladen werden: {checkpoint.audio_wav_path}")
 
         # soundfile returns (N,2) for stereo — UV3 expects (2,N) channel-first
         if current_audio.ndim == 2 and current_audio.shape[1] == 2:
@@ -7699,18 +7721,21 @@ class UnifiedRestorerV3:
 
         # §7.6 AdaptiveChunkProcessor: Phasen die von chunk-basierter Verarbeitung
         # profitieren, wenn Defekt-Severity hoch ist (surgical repair bei schweren Defekten).
-        _ACP_ELIGIBLE_PHASES = frozenset({
-            "phase_03_denoise",
-            "phase_23_spectral_repair",
-            "phase_24_dropout_repair",
-            "phase_28_surface_noise_profiling",
-            "phase_29_tape_hiss_reduction",
-        })
+        _ACP_ELIGIBLE_PHASES = frozenset(
+            {
+                "phase_03_denoise",
+                "phase_23_spectral_repair",
+                "phase_24_dropout_repair",
+                "phase_28_surface_noise_profiling",
+                "phase_29_tape_hiss_reduction",
+            }
+        )
         _acp_available = False
         _acp_process_fn = None
         if _max_defect_severity >= 0.3:  # nur bei mittlerer/hoher Severity lohnend
             try:
                 from backend.core.adaptive_chunk_processor import process_in_adaptive_chunks as _acp_process
+
                 _acp_available = True
                 _acp_process_fn = _acp_process
                 logger.debug(
@@ -7880,6 +7905,56 @@ class UnifiedRestorerV3:
                     deferred.append(phase_id)  # §2.38 KMV: RT-skipped → Stage 2
                     continue
                 phase_start = self.performance_guard.start_phase(phase_id) if self.performance_guard else time.time()
+                # ── §OOM-Prävention: Proaktive RAM-Prüfung + Eviction VOR Phase ──
+                # ML-schwere Phasen brauchen 1–3 GB peak RAM. Bei < 5 GB frei:
+                # zuerst stale Plugins entladen, dann GC + malloc_trim.
+                # Bei < 2 GB nach Eviction → Phase in deferred_phases für KMV Stufe 2.
+                _ML_HEAVY_PHASES = frozenset(
+                    {
+                        "phase_03_denoise",
+                        "phase_06_frequency_restoration",
+                        "phase_09_crackle_removal",
+                        "phase_20_reverb_reduction",
+                        "phase_23_spectral_repair",
+                        "phase_24_dropout_repair",
+                        "phase_29_tape_hiss_reduction",
+                        "phase_42_vocal_enhancement",
+                        "phase_55_diffusion_inpainting",
+                        "phase_56_spectral_band_gap_repair",
+                    }
+                )
+                if phase_id in _ML_HEAVY_PHASES:
+                    try:
+                        import psutil as _ps_pre
+
+                        _avail_pre = _ps_pre.virtual_memory().available / (1024**3)
+                        if _avail_pre < 5.0:
+                            logger.info("⚙ Proaktive RAM-Freigabe vor %s (%.1f GB frei)", phase_id, _avail_pre)
+                            try:
+                                from backend.core.plugin_lifecycle_manager import evict_stale_plugins
+
+                                evict_stale_plugins(required_mb=3072)
+                            except Exception:
+                                pass
+                            gc.collect()
+                            try:
+                                import ctypes as _ct_pre
+
+                                _ct_pre.CDLL("libc.so.6").malloc_trim(0)
+                            except Exception:
+                                pass
+                            _avail_post = _ps_pre.virtual_memory().available / (1024**3)
+                            if _avail_post < 2.0:
+                                logger.warning(
+                                    "⚠️ Nur %.1f GB frei nach Eviction — %s wird deferred (KMV Stufe 2)",
+                                    _avail_post,
+                                    phase_id,
+                                )
+                                skipped.append(phase_id)
+                                deferred.append(phase_id)
+                                continue
+                    except ImportError:
+                        pass
                 logger.info("▶ %s startet (%d/%d)", phase_id, len(executed) + 1, len(selected_phases))
                 # §2.16 TQC mid-pipeline: Snapshot vor zeitmodifizierenden Phasen
                 _tqc_snap: np.ndarray | None = current_audio.copy() if phase_id in _TQC_CRITICAL_PHASES_SEQ else None
@@ -7943,7 +8018,11 @@ class UnifiedRestorerV3:
                                     "defect_locations": _defect_locations,
                                     "max_defect_severity": _max_defect_severity,
                                     "quality_mode": _quality_mode_value,
-                                    "adaptive_chunk_fn": _acp_process_fn if (_acp_available and phase_id in _ACP_ELIGIBLE_PHASES) else None,
+                                    "adaptive_chunk_fn": (
+                                        _acp_process_fn
+                                        if (_acp_available and phase_id in _ACP_ELIGIBLE_PHASES)
+                                        else None
+                                    ),
                                     "repaired_gap_samples": _repaired_gap_samples,  # §11.7a
                                 },
                                 restorability_score=_pmgg_restorability_score,  # §2.29 normativ
@@ -8113,8 +8192,7 @@ class UnifiedRestorerV3:
                     # OOM-Notfall-Export: Teilergebnis zurückgeben statt Totalverlust.
                     # current_audio enthält den Stand nach der letzten erfolgreichen Phase.
                     logger.error(
-                        "❌ OOM in %s — Notfall-Export: %d/%d Phasen abgeschlossen. "
-                        "Teilergebnis wird zurückgegeben.",
+                        "❌ OOM in %s — Notfall-Export: %d/%d Phasen abgeschlossen. Teilergebnis wird zurückgegeben.",
                         phase_id,
                         len(executed),
                         len(selected_phases),
@@ -8133,9 +8211,7 @@ class UnifiedRestorerV3:
                         evict_stale_plugins(required_mb=4096)
                     except Exception:
                         pass
-                    skipped.extend(
-                        p for p in selected_phases if p not in executed and p != phase_id
-                    )
+                    skipped.extend(p for p in selected_phases if p not in executed and p != phase_id)
                     skipped.append(phase_id)
                     # §2.39 OOM-Recovery-Checkpoint: Pipeline-Stand auf Disk persistieren,
                     # damit der nächste Aurik-Start die Restaurierung fortsetzen kann.
@@ -8193,11 +8269,17 @@ class UnifiedRestorerV3:
                     _swap_thrashing = False
                     try:
                         _swap = _psutil_phase.swap_memory()
-                        _swap_thrashing = _swap.percent > 30.0 and (_vm_phase.available / max(_vm_phase.total, 1)) < 0.15
+                        _swap_thrashing = (
+                            _swap.percent > 30.0 and (_vm_phase.available / max(_vm_phase.total, 1)) < 0.15
+                        )
                     except Exception:
                         pass
                     if _avail_gb_phase < 4.0 or _ram_pct_phase > 80.0 or _swap_thrashing:
-                        _reason = "Swap-Thrashing" if _swap_thrashing else f"{_avail_gb_phase:.1f} GB frei / {_ram_pct_phase:.0f} %"
+                        _reason = (
+                            "Swap-Thrashing"
+                            if _swap_thrashing
+                            else f"{_avail_gb_phase:.1f} GB frei / {_ram_pct_phase:.0f} %"
+                        )
                         logger.warning(
                             "⚠️ OOM-Guard nach %s: %s — erzwinge Plugin-Eviction + GC",
                             phase_id,

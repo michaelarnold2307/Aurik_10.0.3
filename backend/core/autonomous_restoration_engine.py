@@ -28,9 +28,9 @@ Date: 2026-02-17
 from __future__ import annotations
 
 import contextlib
-from dataclasses import dataclass, field
 import logging
 import time
+from dataclasses import dataclass, field
 from typing import Any
 
 import numpy as np
@@ -252,11 +252,22 @@ class AutonomousRestorationEngine:
         logger.debug("[ENGINE] Phase 2: Starte DefectScanner.scan() …")
         _p(18, "Defekte und Material werden erkannt …")
         _cached_defect = self._denker_context.get("cached_defect_result")
+        # §9.7.5b: Propagate material hint from Denker context (MediumDetector)
+        # to avoid DefectScanner auto-detecting wrong material (e.g. vinyl for tape).
+        _material_hint: MaterialType | None = None
+        _mat_ctx = self._denker_context.get("material")
+        if isinstance(_mat_ctx, MaterialType):
+            _material_hint = _mat_ctx
+        elif isinstance(_mat_ctx, str) and _mat_ctx:
+            try:
+                _material_hint = MaterialType(_mat_ctx)
+            except (ValueError, KeyError):
+                pass
         if _cached_defect is not None:
             defect_result: DefectAnalysisResult = _cached_defect
             logger.info("[ENGINE] Phase 2: Verwende gecachten DefectScan (kein Triple-Scan).")
         else:
-            defect_result = self._defect_scanner.scan(audio, sample_rate)
+            defect_result = self._defect_scanner.scan(audio, sample_rate, _material_hint)
         logger.debug(f"[ENGINE] Phase 2 fertig: material={defect_result.material_type.value}")
         material = defect_result.material_type
         top_defects = defect_result.get_top_defects(n=5)

@@ -5,9 +5,9 @@ Launch the desktop application for audio restoration
 """
 
 import logging
-from pathlib import Path
 import sys
 import time
+from pathlib import Path
 
 # Add parent directory to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -102,7 +102,7 @@ def main():
     app = QApplication(sys.argv)
     app.setApplicationName("AURIK Professional")
     app.setOrganizationName("AURIK")
-    app.setApplicationVersion("9.10.57")
+    app.setApplicationVersion("9.10.76")
 
     # Application icon (taskbar, dock, alt-tab)
     _icon_path = Path(__file__).parent / "resources" / "icon.png"

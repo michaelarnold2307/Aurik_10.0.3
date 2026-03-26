@@ -17,13 +17,20 @@
         "vibrato_rate": 5.0
       },
       "quality_baseline": {
+        "artikulation": 1.0,
+        "authentizitaet": 0.9914,
         "bass_kraft": 1.0,
-        "brillanz": 0.11107670656452039,
-        "waerme": 1.0,
-        "natuerlichkeit": 0.8829726773394193,
-        "authentizitaet": 0.23071512738623606,
-        "emotionalitaet": 0.6084733255349395,
-        "transparenz": 0.3460308042719653
+        "brillanz": 0.2475,
+        "emotionalitaet": 0.8538,
+        "groove": 0.94,
+        "micro_dynamics": 1.0,
+        "natuerlichkeit": 0.9368,
+        "separation_fidelity": 0.8877,
+        "spatial_depth": 0.75,
+        "timbre_authentizitaet": 0.8361,
+        "tonal_center": 0.9983,
+        "transparenz": 0.4297,
+        "waerme": 1.0
       },
       "metadata": {
         "type": "synthetic",
@@ -48,13 +55,20 @@
         "vibrato_rate": 5.0
       },
       "quality_baseline": {
+        "artikulation": 1.0,
+        "authentizitaet": 0.9914,
         "bass_kraft": 1.0,
-        "brillanz": 0.11107670656452039,
-        "waerme": 1.0,
-        "natuerlichkeit": 0.8829726773394193,
-        "authentizitaet": 0.23071512738623606,
-        "emotionalitaet": 0.6084733255349395,
-        "transparenz": 0.3460308042719653
+        "brillanz": 0.2475,
+        "emotionalitaet": 0.8538,
+        "groove": 0.94,
+        "micro_dynamics": 1.0,
+        "natuerlichkeit": 0.9368,
+        "separation_fidelity": 0.8877,
+        "spatial_depth": 0.75,
+        "timbre_authentizitaet": 0.8361,
+        "tonal_center": 0.9983,
+        "transparenz": 0.4297,
+        "waerme": 1.0
       },
       "metadata": {
         "type": "synthetic",
@@ -79,13 +93,20 @@
         "vibrato_rate": 5.0
       },
       "quality_baseline": {
+        "artikulation": 1.0,
+        "authentizitaet": 0.9914,
         "bass_kraft": 1.0,
-        "brillanz": 0.11107670656452039,
-        "waerme": 1.0,
-        "natuerlichkeit": 0.8829726773394193,
-        "authentizitaet": 0.23071512738623606,
-        "emotionalitaet": 0.6084733255349395,
-        "transparenz": 0.3460308042719653
+        "brillanz": 0.2475,
+        "emotionalitaet": 0.8538,
+        "groove": 0.94,
+        "micro_dynamics": 1.0,
+        "natuerlichkeit": 0.9368,
+        "separation_fidelity": 0.8877,
+        "spatial_depth": 0.75,
+        "timbre_authentizitaet": 0.8361,
+        "tonal_center": 0.9983,
+        "transparenz": 0.4297,
+        "waerme": 1.0
       },
       "metadata": {
         "type": "synthetic",
@@ -110,13 +131,20 @@
         "vibrato_rate": 5.0
       },
       "quality_baseline": {
+        "artikulation": 1.0,
+        "authentizitaet": 0.9914,
         "bass_kraft": 1.0,
-        "brillanz": 0.11107670656452039,
-        "waerme": 1.0,
-        "natuerlichkeit": 0.8829726773394193,
-        "authentizitaet": 0.23071512738623606,
-        "emotionalitaet": 0.6084733255349395,
-        "transparenz": 0.3460308042719653
+        "brillanz": 0.2475,
+        "emotionalitaet": 0.8538,
+        "groove": 0.94,
+        "micro_dynamics": 1.0,
+        "natuerlichkeit": 0.9368,
+        "separation_fidelity": 0.8877,
+        "spatial_depth": 0.75,
+        "timbre_authentizitaet": 0.8361,
+        "tonal_center": 0.9983,
+        "transparenz": 0.4297,
+        "waerme": 1.0
       },
       "metadata": {
         "type": "synthetic",
@@ -141,13 +169,20 @@
         "vibrato_rate": 5.0
       },
       "quality_baseline": {
+        "artikulation": 1.0,
+        "authentizitaet": 0.9914,
         "bass_kraft": 1.0,
-        "brillanz": 0.11107670656452039,
-        "waerme": 1.0,
-        "natuerlichkeit": 0.8829726773394193,
-        "authentizitaet": 0.23071512738623606,
-        "emotionalitaet": 0.6084733255349395,
-        "transparenz": 0.3460308042719653
+        "brillanz": 0.2475,
+        "emotionalitaet": 0.8538,
+        "groove": 0.94,
+        "micro_dynamics": 1.0,
+        "natuerlichkeit": 0.9368,
+        "separation_fidelity": 0.8877,
+        "spatial_depth": 0.75,
+        "timbre_authentizitaet": 0.8361,
+        "tonal_center": 0.9983,
+        "transparenz": 0.4297,
+        "waerme": 1.0
       },
       "metadata": {
         "type": "synthetic",
@@ -172,13 +207,20 @@
         "drum_hits": "kick, snare, hihat"
       },
       "quality_baseline": {
+        "artikulation": 1.0,
+        "authentizitaet": 0.0843,
         "bass_kraft": 1.0,
-        "brillanz": 0.24921205161102758,
-        "waerme": 0.9841380511675127,
-        "natuerlichkeit": 0.46429193665652213,
-        "authentizitaet": 0.2575777619183956,
-        "emotionalitaet": 0.7371826495881075,
-        "transparenz": 0.46817058901523567
+        "brillanz": 0.8607,
+        "emotionalitaet": 1.0,
+        "groove": 0.94,
+        "micro_dynamics": 1.0,
+        "natuerlichkeit": 0.5066,
+        "separation_fidelity": 0.7,
+        "spatial_depth": 0.75,
+        "timbre_authentizitaet": 0.7814,
+        "tonal_center": 0.6368,
+        "transparenz": 0.444,
+        "waerme": 1.0
       },
       "metadata": {
         "type": "synthetic",
@@ -203,13 +245,20 @@
         "drum_hits": "kick, snare, hihat"
       },
       "quality_baseline": {
+        "artikulation": 1.0,
+        "authentizitaet": 0.0831,
         "bass_kraft": 1.0,
-        "brillanz": 0.24957170140817994,
-        "waerme": 0.9837551868850057,
-        "natuerlichkeit": 0.45652696518501723,
-        "authentizitaet": 0.25754163150335063,
-        "emotionalitaet": 0.7371874801376028,
-        "transparenz": 0.46868013719026697
+        "brillanz": 0.8616,
+        "emotionalitaet": 1.0,
+        "groove": 0.94,
+        "micro_dynamics": 1.0,
+        "natuerlichkeit": 0.5,
+        "separation_fidelity": 0.7,
+        "spatial_depth": 0.75,
+        "timbre_authentizitaet": 0.7772,
+        "tonal_center": 0.6389,
+        "transparenz": 0.4447,
+        "waerme": 1.0
       },
       "metadata": {
         "type": "synthetic",
@@ -234,13 +283,20 @@
         "drum_hits": "kick, snare, hihat"
       },
       "quality_baseline": {
+        "artikulation": 1.0,
+        "authentizitaet": 0.082,
         "bass_kraft": 1.0,
-        "brillanz": 0.24954586217363398,
-        "waerme": 0.9838978684442798,
-        "natuerlichkeit": 0.4570300951225497,
-        "authentizitaet": 0.25754189801505,
-        "emotionalitaet": 0.7371861616000963,
-        "transparenz": 0.46902869500129557
+        "brillanz": 0.8624,
+        "emotionalitaet": 1.0,
+        "groove": 0.94,
+        "micro_dynamics": 1.0,
+        "natuerlichkeit": 0.5005,
+        "separation_fidelity": 0.7,
+        "spatial_depth": 0.75,
+        "timbre_authentizitaet": 0.7774,
+        "tonal_center": 0.6333,
+        "transparenz": 0.4458,
+        "waerme": 1.0
       },
       "metadata": {
         "type": "synthetic",
@@ -261,13 +317,20 @@
         "woodwinds": true
       },
       "quality_baseline": {
+        "artikulation": 0.9909,
+        "authentizitaet": 0.9999,
         "bass_kraft": 1.0,
-        "brillanz": 0.11164447573518471,
-        "waerme": 1.0,
-        "natuerlichkeit": 0.8917216199725437,
-        "authentizitaet": 0.6515366924107742,
-        "emotionalitaet": 0.6246916079864537,
-        "transparenz": 0.3692197673337769
+        "brillanz": 0.2477,
+        "emotionalitaet": 0.8906,
+        "groove": 0.94,
+        "micro_dynamics": 1.0,
+        "natuerlichkeit": 0.9356,
+        "separation_fidelity": 0.7072,
+        "spatial_depth": 0.75,
+        "timbre_authentizitaet": 0.9442,
+        "tonal_center": 0.953,
+        "transparenz": 0.4495,
+        "waerme": 1.0
       },
       "metadata": {
         "type": "synthetic",
@@ -288,13 +351,20 @@
         "woodwinds": true
       },
       "quality_baseline": {
+        "artikulation": 0.9909,
+        "authentizitaet": 0.9999,
         "bass_kraft": 1.0,
-        "brillanz": 0.11164447573518471,
-        "waerme": 1.0,
-        "natuerlichkeit": 0.8917216199725437,
-        "authentizitaet": 0.6515366924107742,
-        "emotionalitaet": 0.6246916079864537,
-        "transparenz": 0.3692197673337769
+        "brillanz": 0.2477,
+        "emotionalitaet": 0.8906,
+        "groove": 0.94,
+        "micro_dynamics": 1.0,
+        "natuerlichkeit": 0.9356,
+        "separation_fidelity": 0.7072,
+        "spatial_depth": 0.75,
+        "timbre_authentizitaet": 0.9442,
+        "tonal_center": 0.953,
+        "transparenz": 0.4495,
+        "waerme": 1.0
       },
       "metadata": {
         "type": "synthetic",
@@ -315,13 +385,20 @@
         "saxophone_freq": 440.0
       },
       "quality_baseline": {
+        "artikulation": 1.0,
+        "authentizitaet": 0.9671,
         "bass_kraft": 1.0,
-        "brillanz": 0.13905586040667947,
-        "waerme": 1.0,
-        "natuerlichkeit": 0.7782416719546191,
-        "authentizitaet": 0.23590078831427885,
-        "emotionalitaet": 0.3391457419826597,
-        "transparenz": 0.3930035987736505
+        "brillanz": 0.3111,
+        "emotionalitaet": 0.611,
+        "groove": 0.94,
+        "micro_dynamics": 0.7594,
+        "natuerlichkeit": 0.8105,
+        "separation_fidelity": 0.8304,
+        "spatial_depth": 0.75,
+        "timbre_authentizitaet": 0.2396,
+        "tonal_center": 0.4828,
+        "transparenz": 0.4686,
+        "waerme": 1.0
       },
       "metadata": {
         "type": "synthetic",
@@ -342,13 +419,20 @@
         "saxophone_freq": 440.0
       },
       "quality_baseline": {
+        "artikulation": 1.0,
+        "authentizitaet": 0.9671,
         "bass_kraft": 1.0,
-        "brillanz": 0.13905586040667947,
-        "waerme": 1.0,
-        "natuerlichkeit": 0.7782416719546191,
-        "authentizitaet": 0.23590078831427885,
-        "emotionalitaet": 0.3391457419826597,
-        "transparenz": 0.3930035987736505
+        "brillanz": 0.3111,
+        "emotionalitaet": 0.611,
+        "groove": 0.94,
+        "micro_dynamics": 0.7594,
+        "natuerlichkeit": 0.8105,
+        "separation_fidelity": 0.8304,
+        "spatial_depth": 0.75,
+        "timbre_authentizitaet": 0.2396,
+        "tonal_center": 0.4828,
+        "transparenz": 0.4686,
+        "waerme": 1.0
       },
       "metadata": {
         "type": "synthetic",

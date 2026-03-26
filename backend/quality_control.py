@@ -568,8 +568,9 @@ class QualityGates:
 
         # Noise: estimate from quietest 10% of frames
         frame_size = 2048
-        frames = [audio[i : i + frame_size] for i in range(0, len(audio) - frame_size, frame_size)]
-        frame_rms = [np.sqrt(np.mean(f**2)) for f in frames]
+        n_frames = max(1, (len(audio) - frame_size) // frame_size)
+        trimmed = audio[: n_frames * frame_size].reshape(n_frames, frame_size)
+        frame_rms = np.sqrt(np.mean(trimmed**2, axis=1))
         noise_rms = float(np.percentile(frame_rms, 10))
 
         if noise_rms > 0:

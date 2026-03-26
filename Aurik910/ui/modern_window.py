@@ -7,12 +7,12 @@ Mit integrierter Audio-Verarbeitung (Backend V2)
 import logging
 import math
 import os
-from pathlib import Path
 import shutil
 import subprocess
 import sys
 import threading
 import time
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
@@ -24,32 +24,70 @@ try:
         cache_era_genre_result,
         cache_medium_result,
         cache_restorability_result,
-        clear_defect_cache as _bridge_clear_defect_cache,
-        clear_era_genre_cache as _bridge_clear_era_genre_cache,
-        export_guard as _export_guard,
-        get_audio_exporter_class as _bridge_get_audio_exporter_class,
-        get_audio_file_validator as _bridge_get_audio_file_validator,
-        get_aurik_denker_class as _bridge_get_aurik_denker_class,
-        get_aurik_denker_instance as _bridge_get_aurik_denker_instance,
         get_cached_defect_result,
         get_cached_era_genre_result,
         get_cached_medium_result,
         get_cached_restorability_result,
+    )
+    from backend.api.bridge import (
+        clear_defect_cache as _bridge_clear_defect_cache,
+    )
+    from backend.api.bridge import (
+        clear_era_genre_cache as _bridge_clear_era_genre_cache,
+    )
+    from backend.api.bridge import (
+        export_guard as _export_guard,
+    )
+    from backend.api.bridge import (
+        get_audio_exporter_class as _bridge_get_audio_exporter_class,
+    )
+    from backend.api.bridge import (
+        get_audio_file_validator as _bridge_get_audio_file_validator,
+    )
+    from backend.api.bridge import (
+        get_aurik_denker_class as _bridge_get_aurik_denker_class,
+    )
+    from backend.api.bridge import (
+        get_aurik_denker_instance as _bridge_get_aurik_denker_instance,
+    )
+    from backend.api.bridge import (
         get_carrier_forensics_fn as _bridge_get_carrier_forensics_fn,
+    )
+    from backend.api.bridge import (
         get_cleanup_after_file_fn as _bridge_get_cleanup_after_file_fn,
+    )
+    from backend.api.bridge import (
         get_defect_scanner as _bridge_get_defect_scanner,
+    )
+    from backend.api.bridge import (
         get_defect_type as _bridge_get_defect_type,
+    )
+    from backend.api.bridge import (
         get_era_classifier_fn as _bridge_get_era_classifier_fn,
+    )
+    from backend.api.bridge import (
         get_genre_classifier_fn as _bridge_get_genre_classifier_fn,
+    )
+    from backend.api.bridge import (
         get_lyrics_guided_enhancement_fn as _bridge_get_lyrics_guided_enhancement,
+    )
+    from backend.api.bridge import (
         get_medium_classifier_fn as _bridge_get_medium_classifier_fn,
+    )
+    from backend.api.bridge import (
         get_restorability_estimator_class as _bridge_get_restorability_estimator_class,
-        resolve_pipeline_fail_reason as _bridge_resolve_pipeline_fail_reason,
-        validate_export_quality as _validate_export_quality,
-        warmup_models_background as _warmup_models_background,
     )
     from backend.api.bridge import (
         normalize_pipeline_health_state as _bridge_normalize_pipeline_health_state,  # type: ignore[assignment]
+    )
+    from backend.api.bridge import (
+        resolve_pipeline_fail_reason as _bridge_resolve_pipeline_fail_reason,
+    )
+    from backend.api.bridge import (
+        validate_export_quality as _validate_export_quality,
+    )
+    from backend.api.bridge import (
+        warmup_models_background as _warmup_models_background,
     )
 
     _BRIDGE_AVAILABLE = True
@@ -178,6 +216,8 @@ except ImportError:
 
 import contextlib
 
+import numpy as np
+import soundfile as sf
 from PyQt5.QtCore import (
     QEasingCurve,
     QPoint,
@@ -229,8 +269,6 @@ from PyQt5.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-import numpy as np
-import soundfile as sf
 
 from Aurik910.i18n import get_language, set_language, t
 
@@ -1249,6 +1287,25 @@ class BatchProcessingThread(QThread):
                     "truepeak_limiter": "Maximallautstärke wird gesichert",
                     "final_eq": "Klangfarbe wird abgestimmt",
                     "mastering_polish": "Klang wird endbearbeitet",
+                    "limiting": "Maximalpegel wird begrenzt",
+                    "stereo_enhancement": "Stereo-Klangbild wird verbessert",
+                    "stereo_balance": "Stereo-Balance wird korrigiert",
+                    "exciter": "Obertöne werden angereichert",
+                    "dynamic_range_expansion": "Dynamikumfang wird erweitert",
+                    "mono_to_stereo": "Mono wird zu Stereo erweitert",
+                    "stereo_width_limiter": "Stereo-Breite wird begrenzt",
+                    "mid_side": "M/S-Verarbeitung wird angewendet",
+                    "multiband_compression": "Multiband-Kompression wird angewendet",
+                    "bass_enhancement": "Bass wird verbessert",
+                    "presence_boost": "Präsenz wird angehoben",
+                    "air_band": "Luft-Frequenzen werden angehoben",
+                    "guitar_enhancement": "Gitarrenklang wird verbessert",
+                    "brass_enhancement": "Blechbläser werden verbessert",
+                    "spatial_enhancement": "Räumlichkeit wird verbessert",
+                    "stereo_width_enhancer": "Stereo-Breite wird erweitert",
+                    "drums_enhancement": "Schlagzeugklang wird verbessert",
+                    "piano_restoration": "Klavierklang wird restauriert",
+                    "transparent_dynamics": "Transparente Dynamik wird angewendet",
                     "dc_offset": "Gleichspannung wird entfernt",
                     "advanced_dereverb": "Raumhall wird rekonstruiert und entfernt",
                     "spectral_band_gap": "Frequenzlücken werden geschlossen",
@@ -1784,6 +1841,25 @@ class WaveformWidget(QWidget):
         "loudness_normalization": ((192, 192, 210), "🎚", "Lautstärke-Normierung"),
         "truepeak_limiter": ((192, 192, 210), "🎚", "TruePeak-Limiter"),
         "tape_saturation": ((188, 170, 164), "🎚", "Vintage-Charakter"),
+        "limiting": ((192, 192, 210), "🎚", "Limiter"),
+        "stereo_enhancement": ((100, 180, 220), "🎧", "Stereo-Verbesserung"),
+        "stereo_balance": ((100, 180, 220), "🎧", "Stereo-Balance"),
+        "exciter": ((220, 170, 60), "✨", "Exciter"),
+        "dynamic_range_expansion": ((170, 170, 200), "🎚", "Dynamik-Expansion"),
+        "mono_to_stereo": ((100, 180, 220), "🎧", "Mono→Stereo"),
+        "stereo_width_limiter": ((100, 180, 220), "🎧", "Stereo-Breite"),
+        "mid_side": ((130, 110, 200), "🎛", "M/S-Verarbeitung"),
+        "multiband_compression": ((170, 170, 200), "🎚", "Multiband-Kompression"),
+        "bass_enhancement": ((140, 100, 220), "📶", "Bass-Verbesserung"),
+        "presence_boost": ((180, 140, 255), "📶", "Präsenz-Anhebung"),
+        "air_band": ((200, 180, 255), "📶", "Air-Band-Anhebung"),
+        "guitar_enhancement": ((230, 160, 60), "🎸", "Gitarren-Verbesserung"),
+        "brass_enhancement": ((220, 180, 50), "🎺", "Blechbläser-Verbesserung"),
+        "spatial_enhancement": ((80, 200, 210), "🌐", "Raum-Verbesserung"),
+        "stereo_width_enhancer": ((100, 190, 230), "🎧", "Stereo-Erweiterung"),
+        "drums_enhancement": ((255, 120, 80), "🥁", "Schlagzeug-Verbesserung"),
+        "piano_restoration": ((180, 140, 100), "🎹", "Klavier-Restauration"),
+        "transparent_dynamics": ((180, 180, 200), "🎚", "Transparente Dynamik"),
         # Quality assessment
         "exzellenz": ((80, 200, 120), "✓", "Qualitätsprüfung"),
         "versa": ((80, 200, 120), "✓", "Qualitäts-Bewertung"),
@@ -1847,6 +1923,25 @@ class WaveformWidget(QWidget):
         "loudness_normalization": "dynamics",
         "truepeak_limiter": "dynamics",
         "tape_saturation": "dynamics",
+        "limiting": "dynamics",
+        "stereo_enhancement": "dynamics",
+        "stereo_balance": "dynamics",
+        "exciter": "spectral",
+        "dynamic_range_expansion": "dynamics",
+        "mono_to_stereo": "dynamics",
+        "stereo_width_limiter": "dynamics",
+        "mid_side": "spectral",
+        "multiband_compression": "dynamics",
+        "bass_enhancement": "spectral",
+        "presence_boost": "spectral",
+        "air_band": "spectral",
+        "guitar_enhancement": "spectral",
+        "brass_enhancement": "spectral",
+        "spatial_enhancement": "spectral",
+        "stereo_width_enhancer": "dynamics",
+        "drums_enhancement": "dynamics",
+        "piano_restoration": "spectral",
+        "transparent_dynamics": "dynamics",
         # Quality
         "exzellenz": "quality",
         "versa": "quality",
@@ -1915,6 +2010,25 @@ class WaveformWidget(QWidget):
         "DSP Declip": ((240, 90, 70), "🔧"),  # warm red
         "DSP Spectral-Coherence": ((140, 110, 210), "🌈"),  # soft violet
         "DSP Export-Optimierung": ((170, 200, 180), "💾"),  # sage green
+        "DSP Limiter": ((185, 185, 215), "🎚"),  # soft lavender
+        "DSP Stereo-Enhancer": ((100, 180, 220), "🎧"),  # sky blue
+        "DSP Stereo-Balance": ((110, 175, 215), "🎧"),  # light blue
+        "DSP Exciter": ((220, 170, 60), "✨"),  # warm gold
+        "DSP Range-Expander": ((175, 175, 205), "🎚"),  # muted lavender
+        "DSP Stereo-Synthese": ((105, 185, 225), "🎧"),  # azure
+        "DSP Stereo-Width": ((95, 170, 210), "🎧"),  # blue
+        "DSP M/S-Processor": ((130, 110, 200), "🎛"),  # deep indigo
+        "DSP Multiband-Kompressor": ((165, 165, 195), "🎚"),  # steel lavender
+        "DSP Bass-Enhancer": ((140, 100, 220), "📶"),  # violet
+        "DSP Presence-Boost": ((180, 140, 255), "📶"),  # bright violet
+        "DSP Air-Band": ((200, 180, 255), "📶"),  # light violet
+        "DSP Guitar-Enhancer": ((230, 160, 60), "🎸"),  # amber
+        "DSP Brass-Enhancer": ((220, 180, 50), "🎺"),  # golden
+        "DSP Spatial-Enhancer": ((80, 200, 210), "🌐"),  # cyan
+        "DSP Stereo-Width-Enhancer": ((100, 190, 230), "🎧"),  # sky
+        "DSP Drums-Enhancer": ((255, 120, 80), "🥁"),  # warm orange
+        "DSP Piano-Restorer": ((180, 140, 100), "🎹"),  # warm brown
+        "DSP Transparent-Dynamics": ((180, 180, 200), "🎚"),  # neutral steel
     }
 
     # ── Mapping: phase keyword → tool name (mirrors _ML_PHASE_MARKERS) ────
@@ -1980,6 +2094,26 @@ class WaveformWidget(QWidget):
         "dc_offset": "DSP DC-Offset",
         "declip": "DSP Declip",
         "spectral_coherence": "DSP Spectral-Coherence",
+        "output_format": "DSP Export-Optimierung",
+        "limiting": "DSP Limiter",
+        "stereo_enhancement": "DSP Stereo-Enhancer",
+        "stereo_balance": "DSP Stereo-Balance",
+        "exciter": "DSP Exciter",
+        "dynamic_range_expansion": "DSP Range-Expander",
+        "mono_to_stereo": "DSP Stereo-Synthese",
+        "stereo_width_limiter": "DSP Stereo-Width",
+        "mid_side": "DSP M/S-Processor",
+        "multiband_compression": "DSP Multiband-Kompressor",
+        "bass_enhancement": "DSP Bass-Enhancer",
+        "presence_boost": "DSP Presence-Boost",
+        "air_band": "DSP Air-Band",
+        "guitar_enhancement": "DSP Guitar-Enhancer",
+        "brass_enhancement": "DSP Brass-Enhancer",
+        "spatial_enhancement": "DSP Spatial-Enhancer",
+        "stereo_width_enhancer": "DSP Stereo-Width-Enhancer",
+        "drums_enhancement": "DSP Drums-Enhancer",
+        "piano_restoration": "DSP Piano-Restorer",
+        "transparent_dynamics": "DSP Transparent-Dynamics",
     }
 
     def __init__(self):
@@ -2268,7 +2402,7 @@ class WaveformWidget(QWidget):
             rs = diff[: nc * ck].reshape(nc, ck).astype(np.float64)
             d_hi = np.max(rs, axis=1)
             d_lo = np.min(rs, axis=1)
-            d_rms = np.sqrt(np.mean(rs ** 2, axis=1) + 1e-12)
+            d_rms = np.sqrt(np.mean(rs**2, axis=1) + 1e-12)
         else:
             d_hi = diff.astype(np.float64)
             d_lo = d_hi.copy()
@@ -4489,7 +4623,7 @@ class ModernTitleBar(QWidget):
         layout.addWidget(self.title_label)
 
         # Version Label
-        self.version_label = QLabel("v9.10.57")
+        self.version_label = QLabel("v9.10.76")
         self.version_label.setFont(QFont("Segoe UI", 8))
         self.version_label.setStyleSheet("color: rgba(255,255,255,0.38); padding: 0 2px;")
         layout.addWidget(self.version_label)
@@ -5500,9 +5634,7 @@ class ModernMainWindow(QMainWindow):
             msg = QMessageBox(self)
             msg.setIcon(QMessageBox.Icon.Information)
             msg.setWindowTitle("Aurik — Unterbrochene Restaurierung gefunden")
-            msg.setText(
-                f"<b>Eine unterbrochene Restaurierung wurde gefunden.</b>"
-            )
+            msg.setText("<b>Eine unterbrochene Restaurierung wurde gefunden.</b>")
             msg.setInformativeText(
                 f"Datei: {_input_name}\n"
                 f"Fortschritt: {n_done} von {n_done + n_rem} Phasen abgeschlossen\n"
@@ -5511,9 +5643,7 @@ class ModernMainWindow(QMainWindow):
                 f"Möchtest du die Restaurierung fortsetzen?\n"
                 f"Die bisherige Arbeit bleibt erhalten."
             )
-            msg.setStandardButtons(
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
-            )
+            msg.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
             msg.setDefaultButton(QMessageBox.StandardButton.Yes)
             msg.button(QMessageBox.StandardButton.Yes).setText("Fortsetzen")
             msg.button(QMessageBox.StandardButton.No).setText("Verwerfen")
@@ -5525,12 +5655,14 @@ class ModernMainWindow(QMainWindow):
                 # Checkpoint verwerfen
                 try:
                     from backend.core.recovery_checkpoint import delete_checkpoint
+
                     delete_checkpoint(cp.input_path)
                 except Exception:
                     pass
 
         except Exception as _exc:
             import logging
+
             logging.getLogger(__name__).debug("OOM-Recovery-Check fehlgeschlagen: %s", _exc)
 
     def _resume_from_checkpoint(self, checkpoint) -> None:
@@ -5554,11 +5686,11 @@ class ModernMainWindow(QMainWindow):
                     self._on_restore_clicked()
             else:
                 import logging
-                logging.getLogger(__name__).warning(
-                    "OOM-Recovery: _start_batch_processing nicht verfügbar."
-                )
+
+                logging.getLogger(__name__).warning("OOM-Recovery: _start_batch_processing nicht verfügbar.")
         except Exception as _exc:
             import logging
+
             logging.getLogger(__name__).error("OOM-Recovery: Wiederaufnahme fehlgeschlagen: %s", _exc)
 
     def _toggle_lyrics_overlay(self) -> None:

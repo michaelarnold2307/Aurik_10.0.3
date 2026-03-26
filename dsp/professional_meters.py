@@ -116,13 +116,9 @@ class LUFSMeter:
         if audio.ndim == 1:
             audio = audio[np.newaxis, :]
 
-        # Apply K-weighting filters
-        filtered = np.zeros_like(audio)
-        for ch in range(audio.shape[0]):
-            # Stage 1: Pre-filter
-            stage1 = scipy.signal.lfilter(self.prefilter[0], self.prefilter[1], audio[ch])
-            # Stage 2: RLB filter
-            filtered[ch] = scipy.signal.lfilter(self.rlb_filter[0], self.rlb_filter[1], stage1)
+        # Apply K-weighting filters (sosfilt supports multi-channel along axis)
+        stage1 = scipy.signal.lfilter(self.prefilter[0], self.prefilter[1], audio, axis=1)
+        filtered = scipy.signal.lfilter(self.rlb_filter[0], self.rlb_filter[1], stage1, axis=1)
 
         # Mean square per channel
         ms_per_channel = np.mean(filtered**2, axis=1)
@@ -156,27 +152,30 @@ class LUFSMeter:
         hop_samples = int(0.1 * self.sr)  # 100ms hop
 
         n_blocks = (filtered.shape[1] - block_samples) // hop_samples + 1
-        block_loudness = []
 
-        for i in range(n_blocks):
-            start = i * hop_samples
-            end = start + block_samples
-            block = filtered[:, start:end]
-
-            # Mean square per channel
-            ms_per_channel = np.mean(block**2, axis=1)
-
-            # Weighted sum
-            mean_square = np.sum(ms_per_channel * channel_weights) / np.sum(channel_weights)
-
-            if mean_square > 0:
-                loudness = -0.691 + 10 * np.log10(mean_square)
-                block_loudness.append(loudness)
-
-        if len(block_loudness) == 0:
+        if n_blocks <= 0:
             return -np.inf
 
-        block_loudness = np.array(block_loudness)
+        # Vectorized block extraction via index array
+        starts = np.arange(n_blocks) * hop_samples
+        indices = starts[:, np.newaxis] + np.arange(block_samples)  # (n_blocks, block_samples)
+
+        # Extract all blocks at once: (n_channels, n_blocks, block_samples)
+        blocks = filtered[:, indices]
+
+        # Mean square per channel per block: (n_channels, n_blocks)
+        ms_per_channel = np.mean(blocks**2, axis=2)
+
+        # Weighted sum per block: (n_blocks,)
+        weight_sum = np.sum(channel_weights) + 1e-30
+        mean_square = np.dot(channel_weights, ms_per_channel) / weight_sum
+
+        # Convert to LUFS, filter out silent blocks
+        valid = mean_square > 0
+        if not np.any(valid):
+            return -np.inf
+
+        block_loudness = -0.691 + 10 * np.log10(mean_square[valid])
 
         # Absolute gate: -70 LUFS
         gated_blocks = block_loudness[block_loudness >= -70.0]
@@ -223,15 +222,10 @@ class LUFSMeter:
         if audio.ndim == 1:
             audio = audio[np.newaxis, :]
 
-        # K-Gewichtung anwenden
-        filtered = np.zeros_like(audio, dtype=np.float64)
-        for ch in range(audio.shape[0]):
-            s1 = scipy.signal.lfilter(
-                self.prefilter[0],
-                self.prefilter[1],
-                audio[ch].astype(np.float64),
-            )
-            filtered[ch] = scipy.signal.lfilter(self.rlb_filter[0], self.rlb_filter[1], s1)
+        # K-Gewichtung anwenden (lfilter unterstützt axis=1 für multi-channel)
+        audio_f64 = audio.astype(np.float64)
+        s1 = scipy.signal.lfilter(self.prefilter[0], self.prefilter[1], audio_f64, axis=1)
+        filtered = scipy.signal.lfilter(self.rlb_filter[0], self.rlb_filter[1], s1, axis=1)
 
         # Kanalgewichte
         n_ch = audio.shape[0]
@@ -248,15 +242,20 @@ class LUFSMeter:
         n_total = filtered.shape[1]
         n_blocks = max((n_total - block_samps) // hop_samps + 1, 0)
 
+        if n_blocks <= 0:
+            return np.array([], dtype=np.float64)
+
+        # Vectorized block extraction
+        starts = np.arange(n_blocks) * hop_samps
+        indices = starts[:, np.newaxis] + np.arange(block_samps)  # (n_blocks, block_samps)
+        blocks = filtered[:, indices]  # (n_ch, n_blocks, block_samps)
+        ms = np.mean(blocks**2, axis=2)  # (n_ch, n_blocks)
+        weight_sum = np.sum(ch_weights) + 1e-30
+        weighted = np.dot(ch_weights, ms) / weight_sum  # (n_blocks,)
+
         lufs_blocks = np.full(n_blocks, -np.inf, dtype=np.float64)
-        for i in range(n_blocks):
-            s = i * hop_samps
-            e = s + block_samps
-            blk = filtered[:, s:e]
-            ms = np.mean(blk**2, axis=1)
-            weighted = float(np.dot(ms, ch_weights) / (np.sum(ch_weights) + 1e-30))
-            if weighted > 0:
-                lufs_blocks[i] = -0.691 + 10.0 * np.log10(weighted)
+        valid = weighted > 0
+        lufs_blocks[valid] = -0.691 + 10.0 * np.log10(weighted[valid])
 
         return lufs_blocks
 
