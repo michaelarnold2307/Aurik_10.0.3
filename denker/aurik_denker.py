@@ -224,6 +224,7 @@ class AurikDenker:
         cached_restorability_result: Any | None = None,
         input_path: str = "",
         output_path: str = "",
+        no_rt_limit: bool = False,
     ) -> AurikErgebnis:
         """Vollständige Aurik-Restaurierung: 8 Stufen orchestriert.
 
@@ -284,6 +285,7 @@ class AurikDenker:
                 cached_restorability_result=cached_restorability_result,
                 input_path=input_path,
                 output_path=output_path,
+                no_rt_limit=no_rt_limit,
             )
         except MemoryError as exc:
             elapsed = time.perf_counter() - t_start
@@ -328,6 +330,7 @@ class AurikDenker:
             # §2.39 OOM-Recovery: Pfade für Checkpoint-Persistierung durchreichen
             input_path=kwargs.get("input_path", ""),
             output_path=kwargs.get("output_path", ""),
+            no_rt_limit=bool(kwargs.get("no_rt_limit", False)),
         )
 
     @staticmethod
@@ -554,6 +557,7 @@ class AurikDenker:
         cached_restorability_result: Any | None = None,
         input_path: str = "",
         output_path: str = "",
+        no_rt_limit: bool = False,
     ) -> AurikErgebnis:
         """Führt die 10-stufige Restaurierungs-Pipeline aus.
 
@@ -616,6 +620,8 @@ class AurikDenker:
         defekt: Any = None  # M-1/M-4: hoisted — für Stage-5-Flags
 
         def _budget_ok() -> bool:
+            if no_rt_limit:
+                return True
             # M-2: RT-Primärcheck — mode-abhängig (Spec §9.5):
             #   BALANCED=32× | RESTORATION/QUALITY=32× | MAXIMUM=32×
             # Zusätzlich: absolutes 90-Minuten-Limit — gilt unabhängig vom RT-Faktor.
@@ -835,17 +841,18 @@ class AurikDenker:
                     audio_duration_s * _rt_multiplier - _elapsed_so_far,
                     _COLDSTART_MIN_SECONDS,
                 )
-                # §9.5 Absolutes 30-Minuten-Limit: Thread-Timeout darf nie über die
-                # verbleibende Zeit bis zur Gesamtgrenze hinausgehen. Mindestens 30 s
-                # werden immer einkalkuliert, damit auch beim Cold-Start-Ablauf noch
-                # ein sinnvoller Verarbeitungsversuch möglich ist.
-                _abs_remaining = _MAX_TOTAL_SECONDS - _elapsed_so_far
-                if _abs_remaining <= 0:
-                    raise RuntimeError(
-                        f"30-Minuten-Absolutlimit bereits überschritten "
-                        f"({_elapsed_so_far:.0f}s) — Restaurierung wird nicht gestartet."
-                    )
-                _remaining = min(_remaining, max(30.0, _abs_remaining))
+                if not no_rt_limit:
+                    # §9.5 Absolutes 30-Minuten-Limit: Thread-Timeout darf nie über die
+                    # verbleibende Zeit bis zur Gesamtgrenze hinausgehen. Mindestens 30 s
+                    # werden immer einkalkuliert, damit auch beim Cold-Start-Ablauf noch
+                    # ein sinnvoller Verarbeitungsversuch möglich ist.
+                    _abs_remaining = _MAX_TOTAL_SECONDS - _elapsed_so_far
+                    if _abs_remaining <= 0:
+                        raise RuntimeError(
+                            f"30-Minuten-Absolutlimit bereits überschritten "
+                            f"({_elapsed_so_far:.0f}s) — Restaurierung wird nicht gestartet."
+                        )
+                    _remaining = min(_remaining, max(30.0, _abs_remaining))
                 _result_box: list = []
                 _err_box: list = []
                 _rep_result_box: list = []  # ReparaturDenker Ergebnis (4a)
@@ -957,6 +964,7 @@ class AurikDenker:
                                 pre_repair_reference=_pre_repair_reference,
                                 input_path=input_path,
                                 output_path=output_path,
+                                no_rt_limit=no_rt_limit,
                             )
                         )
                     except Exception as _e:
@@ -971,11 +979,14 @@ class AurikDenker:
 
                 _t = threading.Thread(target=_run_rest, daemon=True)
                 _t.start()
-                _t.join(timeout=_remaining)
-                if _t.is_alive():
-                    raise RuntimeError(
-                        f"RestaurierDenker überschritt RT-Budget ({_remaining:.1f}s für {audio_duration_s:.1f}s Audio)"
-                    )
+                if no_rt_limit:
+                    _t.join()
+                else:
+                    _t.join(timeout=_remaining)
+                    if _t.is_alive():
+                        raise RuntimeError(
+                            f"RestaurierDenker überschritt RT-Budget ({_remaining:.1f}s für {audio_duration_s:.1f}s Audio)"
+                        )
                 if _err_box:
                     raise _err_box[0]  # type: ignore[misc]
                 rest = _result_box[0]
@@ -1149,7 +1160,7 @@ class AurikDenker:
             try:
                 from backend.core.musical_goals.musical_goals_metrics import MusicalGoalsChecker
 
-                _mg_budget = MusicalGoalsChecker()
+                _mg_budget = MusicalGoalsChecker(mode=effective_mode)
                 _budget_goals = _mg_budget.measure_all(aktuelles_audio, sr)
                 if _budget_goals:
                     import math as _math_budget

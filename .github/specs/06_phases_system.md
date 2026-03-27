@@ -136,6 +136,12 @@ CAUSE_TO_PHASES = {
     # Sibilanten (§6.3 v9.10.57):
     "sibilance":                 ["phase_19_de_esser", "phase_43_ml_deesser",
                                   "phase_42_vocal_enhancement"],
+    # Transport-Bump (v9.10.57b — Kassetten-Holpern):
+    "transport_bump":            ["phase_12_wow_flutter_fix", "phase_24_dropout_repair",
+                                  "phase_31_speed_pitch_correction"],
+    # Vocal-Harshness (v9.10.77 — Vokal-Härte/Übersteuerung/Kratzigkeit):
+    "vocal_harshness":           ["phase_42_vocal_enhancement", "phase_19_de_esser",
+                                  "phase_43_ml_deesser", "phase_23_spectral_repair"],
 }
 # PFLICHT: Jede neue Ursache → Eintrag hier UND in allen Material-Prior-Tabellen des DefectScanners.
 ```

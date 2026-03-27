@@ -89,6 +89,20 @@ class TestPhase11Limiting:
             result = self.phase.process(mono, SR, mat)
             _assert_phase_result(result, mono)
 
+    def test_zero_strength_passthrough(self, loud_mono):
+        result = self.phase.process(loud_mono, SR, MaterialType.VINYL, strength=0.0)
+        _assert_phase_result(result, loud_mono)
+        assert np.allclose(result.audio, loud_mono, atol=1e-7)
+        assert result.metadata.get("processing") == "skipped_zero_strength"
+        assert float(result.metadata.get("effective_strength", 1.0)) == 0.0
+
+    def test_locality_reduces_effective_strength(self, loud_mono):
+        result = self.phase.process(loud_mono, SR, MaterialType.VINYL, strength=1.0, phase_locality_factor=0.4)
+        _assert_phase_result(result, loud_mono)
+        eff = float(result.metadata.get("effective_strength", 1.0))
+        assert 0.0 < eff < 1.0
+        assert float(result.metadata.get("phase_locality_factor", 1.0)) <= 0.4 + 1e-6
+
 
 # ===========================================================================
 # Phase 12 – Wow/Flutter-Fix
@@ -110,6 +124,20 @@ class TestPhase12WowFlutterFix:
     def test_tape_material(self, mono):
         result = self.phase.process(mono, SR, MaterialType.TAPE)
         _assert_phase_result(result, mono, check_clipping=False)
+
+    def test_zero_strength_passthrough(self, mono):
+        result = self.phase.process(mono, SR, MaterialType.VINYL, strength=0.0)
+        _assert_phase_result(result, mono, check_clipping=False)
+        assert np.allclose(result.audio, mono, atol=1e-7)
+        assert result.metadata.get("algorithm") == "skipped_zero_strength"
+        assert float(result.metadata.get("effective_strength", 1.0)) == 0.0
+
+    def test_locality_reduces_effective_strength(self, mono):
+        result = self.phase.process(mono, SR, MaterialType.VINYL, strength=1.0, phase_locality_factor=0.4)
+        _assert_phase_result(result, mono, check_clipping=False)
+        eff = float(result.metadata.get("effective_strength", 1.0))
+        assert 0.0 < eff < 1.0
+        assert float(result.metadata.get("phase_locality_factor", 1.0)) <= 0.4 + 1e-6
 
 
 # ===========================================================================
@@ -135,6 +163,20 @@ class TestPhase13StereoEnhancement:
         result = self.phase.process(silent, SR, MaterialType.VINYL)
         _assert_phase_result(result, silent)
 
+    def test_zero_strength_passthrough(self, stereo):
+        result = self.phase.process(stereo, SR, MaterialType.VINYL, strength=0.0)
+        _assert_phase_result(result, stereo, check_clipping=False)
+        assert np.allclose(result.audio, stereo, atol=1e-7)
+        assert result.metadata.get("algorithm") == "skipped_zero_strength"
+        assert float(result.metadata.get("effective_strength", 1.0)) == 0.0
+
+    def test_locality_reduces_effective_strength(self, stereo):
+        result = self.phase.process(stereo, SR, MaterialType.VINYL, strength=1.0, phase_locality_factor=0.4)
+        _assert_phase_result(result, stereo, check_clipping=False)
+        eff = float(result.metadata.get("effective_strength", 1.0))
+        assert 0.0 < eff < 1.0
+        assert float(result.metadata.get("phase_locality_factor", 1.0)) <= 0.4 + 1e-6
+
 
 # ===========================================================================
 # Phase 14 – Phase Correction
@@ -157,6 +199,20 @@ class TestPhase14PhaseCorrection:
         silent = np.zeros((_N, 2), dtype=np.float32)
         result = self.phase.process(silent, SR, MaterialType.VINYL)
         _assert_phase_result(result, silent)
+
+    def test_zero_strength_passthrough(self, stereo):
+        result = self.phase.process(stereo, SR, MaterialType.VINYL, strength=0.0)
+        _assert_phase_result(result, stereo, check_clipping=False)
+        assert np.allclose(result.audio, stereo, atol=1e-7)
+        assert result.metadata.get("algorithm") == "skipped_zero_strength"
+        assert float(result.metadata.get("effective_strength", 1.0)) == 0.0
+
+    def test_locality_reduces_effective_strength(self, stereo):
+        result = self.phase.process(stereo, SR, MaterialType.VINYL, strength=1.0, phase_locality_factor=0.4)
+        _assert_phase_result(result, stereo, check_clipping=False)
+        eff = float(result.metadata.get("effective_strength", 1.0))
+        assert 0.0 < eff < 1.0
+        assert float(result.metadata.get("phase_locality_factor", 1.0)) <= 0.4 + 1e-6
 
 
 # ===========================================================================
@@ -181,6 +237,20 @@ class TestPhase15StereoBalance:
         result = self.phase.process(silent, SR)
         _assert_phase_result(result, silent)
 
+    def test_zero_strength_passthrough(self, stereo):
+        result = self.phase.process(stereo, SR, MaterialType.VINYL, strength=0.0)
+        _assert_phase_result(result, stereo, check_clipping=False)
+        assert np.allclose(result.audio, stereo, atol=1e-7)
+        assert result.metadata.get("algorithm") == "skipped_zero_strength"
+        assert float(result.metadata.get("effective_strength", 1.0)) == 0.0
+
+    def test_locality_reduces_effective_strength(self, stereo):
+        result = self.phase.process(stereo, SR, MaterialType.VINYL, strength=1.0, phase_locality_factor=0.4)
+        _assert_phase_result(result, stereo, check_clipping=False)
+        eff = float(result.metadata.get("effective_strength", 1.0))
+        assert 0.0 < eff < 1.0
+        assert float(result.metadata.get("phase_locality_factor", 1.0)) <= 0.4 + 1e-6
+
 
 # ===========================================================================
 # Phase 16 – Final EQ
@@ -202,6 +272,52 @@ class TestPhase16FinalEQ:
     def test_silent_input(self, silent_mono):
         result = self.phase.process(silent_mono, SR)
         _assert_phase_result(result, silent_mono)
+
+    def test_zero_strength_passthrough(self, mono):
+        result = self.phase.process(mono, SR, MaterialType.VINYL, strength=0.0)
+        _assert_phase_result(result, mono, check_clipping=False)
+        assert np.allclose(result.audio, mono, atol=1e-7)
+        assert result.metadata.get("processing") == "skipped_zero_strength"
+        assert float(result.metadata.get("effective_strength", 1.0)) == 0.0
+
+    def test_locality_reduces_effective_strength(self, mono):
+        result = self.phase.process(mono, SR, MaterialType.VINYL, strength=1.0, phase_locality_factor=0.4)
+        _assert_phase_result(result, mono, check_clipping=False)
+        eff = float(result.metadata.get("effective_strength", 1.0))
+        assert 0.0 < eff < 1.0
+        assert float(result.metadata.get("phase_locality_factor", 1.0)) <= 0.4 + 1e-6
+
+
+# ===========================================================================
+# Phase 17 – Mastering Polish
+# ===========================================================================
+class TestPhase17MasteringPolish:
+    def setup_method(self):
+        from backend.core.phases.phase_17_mastering_polish import MasteringPolishPhase
+
+        self.phase = MasteringPolishPhase()
+
+    def test_mono_returns_phase_result(self, mono):
+        result = self.phase.process(mono, SR, MaterialType.VINYL)
+        _assert_phase_result(result, mono, check_clipping=False)
+
+    def test_silent_input(self, silent_mono):
+        result = self.phase.process(silent_mono, SR, MaterialType.VINYL)
+        _assert_phase_result(result, silent_mono)
+
+    def test_zero_strength_passthrough(self, mono):
+        result = self.phase.process(mono, SR, MaterialType.VINYL, strength=0.0)
+        _assert_phase_result(result, mono, check_clipping=False)
+        assert np.allclose(result.audio, mono, atol=1e-7)
+        assert result.metadata.get("algorithm") == "skipped_zero_strength"
+        assert float(result.metadata.get("effective_strength", 1.0)) == 0.0
+
+    def test_locality_reduces_effective_strength(self, mono):
+        result = self.phase.process(mono, SR, MaterialType.VINYL, strength=1.0, phase_locality_factor=0.4)
+        _assert_phase_result(result, mono, check_clipping=False)
+        eff = float(result.metadata.get("effective_strength", 1.0))
+        assert 0.0 < eff < 1.0
+        assert float(result.metadata.get("phase_locality_factor", 1.0)) <= 0.4 + 1e-6
 
 
 # ===========================================================================
@@ -229,6 +345,20 @@ class TestPhase18NoiseGate:
         # Laut-Signal sollte nicht komplett gedämpft werden
         assert np.max(np.abs(result.audio)) > 0.01
 
+    def test_zero_strength_passthrough(self, mono):
+        result = self.phase.process(mono, SR, MaterialType.VINYL, strength=0.0)
+        _assert_phase_result(result, mono)
+        assert np.allclose(result.audio, mono, atol=1e-7)
+        assert result.metadata.get("processing") == "skipped_zero_strength"
+        assert float(result.metadata.get("effective_strength", 1.0)) == 0.0
+
+    def test_locality_reduces_effective_strength(self, mono):
+        result = self.phase.process(mono, SR, MaterialType.VINYL, strength=1.0, phase_locality_factor=0.4)
+        _assert_phase_result(result, mono)
+        eff = float(result.metadata.get("effective_strength", 1.0))
+        assert 0.0 < eff < 1.0
+        assert float(result.metadata.get("phase_locality_factor", 1.0)) <= 0.4 + 1e-6
+
 
 # ===========================================================================
 # Phase 19 – De-Esser
@@ -254,6 +384,20 @@ class TestPhase19DeEsser:
         result = self.phase.process(silent_mono, SR, MaterialType.VINYL)
         _assert_phase_result(result, silent_mono)
 
+    def test_zero_strength_passthrough(self, mono):
+        result = self.phase.process(mono, SR, MaterialType.VINYL, strength=0.0)
+        _assert_phase_result(result, mono)
+        assert np.allclose(result.audio, mono, atol=1e-7)
+        assert result.metadata.get("algorithm") == "skipped_zero_strength"
+        assert float(result.metadata.get("effective_strength", 1.0)) == 0.0
+
+    def test_locality_reduces_effective_strength(self, mono):
+        result = self.phase.process(mono, SR, MaterialType.VINYL, strength=1.0, phase_locality_factor=0.4)
+        _assert_phase_result(result, mono)
+        eff = float(result.metadata.get("effective_strength", 1.0))
+        assert 0.0 < eff < 1.0
+        assert float(result.metadata.get("phase_locality_factor", 1.0)) <= 0.4 + 1e-6
+
 
 # ===========================================================================
 # Phase 20 – Reverb Reduction
@@ -277,6 +421,20 @@ class TestPhase20ReverbReduction:
             result = self.phase.process(mono, SR, mat)
             _assert_phase_result(result, mono, check_clipping=False)
 
+    def test_zero_strength_passthrough(self, mono):
+        result = self.phase.process(mono, SR, MaterialType.VINYL, strength=0.0)
+        _assert_phase_result(result, mono, check_clipping=False)
+        assert np.allclose(result.audio, mono, atol=1e-7)
+        assert result.metadata.get("algorithm") == "skipped_zero_strength"
+        assert float(result.metadata.get("effective_strength", 1.0)) == 0.0
+
+    def test_locality_reduces_effective_strength(self, mono):
+        result = self.phase.process(mono, SR, MaterialType.VINYL, strength=1.0, phase_locality_factor=0.4)
+        _assert_phase_result(result, mono, check_clipping=False)
+        eff = float(result.metadata.get("effective_strength", 1.0))
+        assert 0.0 < eff < 1.0
+        assert float(result.metadata.get("phase_locality_factor", 1.0)) <= 0.4 + 1e-6
+
 
 # ===========================================================================
 # Phase 21 – Exciter
@@ -298,6 +456,20 @@ class TestPhase21Exciter:
     def test_vinyl_material(self, mono):
         result = self.phase.process(mono, SR, MaterialType.VINYL)
         _assert_phase_result(result, mono, check_clipping=False)
+
+    def test_zero_strength_passthrough(self, mono):
+        result = self.phase.process(mono, SR, MaterialType.VINYL, strength=0.0)
+        _assert_phase_result(result, mono, check_clipping=False)
+        assert np.allclose(result.audio, mono, atol=1e-7)
+        assert result.metadata.get("algorithm") == "skipped_zero_strength"
+        assert float(result.metadata.get("effective_strength", 1.0)) == 0.0
+
+    def test_locality_reduces_effective_strength(self, mono):
+        result = self.phase.process(mono, SR, MaterialType.VINYL, strength=1.0, phase_locality_factor=0.4)
+        _assert_phase_result(result, mono, check_clipping=False)
+        eff = float(result.metadata.get("effective_strength", 1.0))
+        assert 0.0 < eff < 1.0
+        assert float(result.metadata.get("phase_locality_factor", 1.0)) <= 0.4 + 1e-6
 
 
 # ===========================================================================
@@ -321,6 +493,20 @@ class TestPhase22TapeSaturation:
         result = self.phase.process(mono, SR, MaterialType.VINYL)
         _assert_phase_result(result, mono, check_clipping=False)
 
+    def test_zero_strength_passthrough(self, mono):
+        result = self.phase.process(mono, SR, MaterialType.VINYL, strength=0.0)
+        _assert_phase_result(result, mono, check_clipping=False)
+        assert np.allclose(result.audio, mono, atol=1e-7)
+        assert result.metadata.get("algorithm") == "skipped_zero_strength"
+        assert float(result.metadata.get("effective_strength", 1.0)) == 0.0
+
+    def test_locality_reduces_effective_strength(self, mono):
+        result = self.phase.process(mono, SR, MaterialType.VINYL, strength=1.0, phase_locality_factor=0.4)
+        _assert_phase_result(result, mono, check_clipping=False)
+        eff = float(result.modifications.get("effective_strength", 1.0))
+        assert 0.0 < eff < 1.0
+        assert float(result.modifications.get("phase_locality_factor", 1.0)) <= 0.4 + 1e-6
+
 
 # ===========================================================================
 # Phase 23 – Spectral Repair
@@ -342,6 +528,17 @@ class TestPhase23SpectralRepair:
     def test_vinyl_material(self, mono):
         result = self.phase.process(mono, SR, MaterialType.VINYL)
         _assert_phase_result(result, mono, check_clipping=False)
+
+    def test_locality_reduces_repair_strength(self, mono):
+        result_default = self.phase.process(mono, SR, MaterialType.CD_DIGITAL)
+        result_sparse = self.phase.process(mono, SR, MaterialType.CD_DIGITAL, phase_locality_factor=0.4)
+        _assert_phase_result(result_default, mono, check_clipping=False)
+        _assert_phase_result(result_sparse, mono, check_clipping=False)
+
+        s_default = float(result_default.metadata.get("repair_strength", 1.0))
+        s_sparse = float(result_sparse.metadata.get("repair_strength", 1.0))
+        assert s_sparse < s_default
+        assert float(result_sparse.metadata.get("phase_locality_factor", 1.0)) <= 0.4 + 1e-6
 
 
 # ===========================================================================
@@ -367,6 +564,23 @@ class TestPhase24DropoutRepair:
     def test_silent_input(self, silent_mono):
         result = self.phase.process(silent_mono, SR)
         _assert_phase_result(result, silent_mono)
+
+    def test_zero_strength_passthrough(self, mono):
+        result = self.phase.process(mono, SR, strength=0.0)
+        _assert_phase_result(result, mono, check_clipping=False)
+        assert np.allclose(result.audio, mono, atol=1e-7)
+        assert result.metadata.get("algorithm") == "skipped_zero_strength"
+        assert float(result.metadata.get("effective_strength", 1.0)) == 0.0
+
+    def test_locality_reduces_repair_strength(self, mono):
+        result_default = self.phase.process(mono, SR, material_type="vinyl")
+        result_sparse = self.phase.process(mono, SR, material_type="vinyl", strength=1.0, phase_locality_factor=0.4)
+        _assert_phase_result(result_default, mono, check_clipping=False)
+        _assert_phase_result(result_sparse, mono, check_clipping=False)
+        s_default = float(result_default.modifications.get("repair_strength", 1.0))
+        s_sparse = float(result_sparse.modifications.get("repair_strength", 1.0))
+        assert s_sparse < s_default
+        assert float(result_sparse.metadata.get("phase_locality_factor", 1.0)) <= 0.4 + 1e-6
 
 
 # ===========================================================================
@@ -395,6 +609,20 @@ class TestPhase25AzimuthCorrection:
         result = self.phase.process(silent, SR, MaterialType.VINYL)
         _assert_phase_result(result, silent)
 
+    def test_zero_strength_passthrough_tape(self, stereo):
+        result = self.phase.process(stereo, SR, MaterialType.TAPE, strength=0.0)
+        _assert_phase_result(result, stereo, check_clipping=False)
+        assert np.allclose(result.audio, stereo, atol=1e-7)
+        assert result.metadata.get("algorithm") == "skipped_zero_strength"
+        assert float(result.metadata.get("effective_strength", 1.0)) == 0.0
+
+    def test_locality_reduces_effective_strength_tape(self, stereo):
+        result = self.phase.process(stereo, SR, MaterialType.TAPE, strength=1.0, phase_locality_factor=0.4)
+        _assert_phase_result(result, stereo, check_clipping=False)
+        eff = float(result.metadata.get("effective_strength", 1.0))
+        assert 0.0 < eff < 1.0
+        assert float(result.metadata.get("phase_locality_factor", 1.0)) <= 0.4 + 1e-6
+
 
 # ===========================================================================
 # Phase 26 – Dynamic Range Expansion
@@ -416,6 +644,20 @@ class TestPhase26DynamicRangeExpansion:
     def test_vinyl_material(self, mono):
         result = self.phase.process(mono, SR, MaterialType.VINYL)
         _assert_phase_result(result, mono, check_clipping=False)
+
+    def test_zero_strength_passthrough(self, mono):
+        result = self.phase.process(mono, SR, MaterialType.VINYL, strength=0.0)
+        _assert_phase_result(result, mono, check_clipping=False)
+        assert np.allclose(result.audio, mono, atol=1e-7)
+        assert result.metadata.get("processing") == "skipped_zero_strength"
+        assert float(result.metadata.get("effective_strength", 1.0)) == 0.0
+
+    def test_locality_reduces_effective_strength(self, mono):
+        result = self.phase.process(mono, SR, MaterialType.VINYL, strength=1.0, phase_locality_factor=0.4)
+        _assert_phase_result(result, mono, check_clipping=False)
+        eff = float(result.metadata.get("effective_strength", 1.0))
+        assert 0.0 < eff < 1.0
+        assert float(result.metadata.get("phase_locality_factor", 1.0)) <= 0.4 + 1e-6
 
 
 # ===========================================================================
@@ -442,6 +684,20 @@ class TestPhase27ClickPopRemoval:
         result = self.phase.process(silent_mono, SR)
         _assert_phase_result(result, silent_mono)
 
+    def test_zero_strength_passthrough(self, mono):
+        result = self.phase.process(mono, SR, MaterialType.VINYL, strength=0.0)
+        _assert_phase_result(result, mono, check_clipping=False)
+        assert np.allclose(result.audio, mono, atol=1e-7)
+        assert result.metadata.get("processing") == "skipped_zero_strength"
+        assert float(result.metadata.get("effective_strength", 1.0)) == 0.0
+
+    def test_locality_reduces_effective_strength(self, mono):
+        result = self.phase.process(mono, SR, MaterialType.VINYL, strength=1.0, phase_locality_factor=0.4)
+        _assert_phase_result(result, mono, check_clipping=False)
+        eff = float(result.metadata.get("effective_strength", 1.0))
+        assert 0.0 < eff < 1.0
+        assert float(result.metadata.get("phase_locality_factor", 1.0)) <= 0.4 + 1e-6
+
 
 # ===========================================================================
 # Phase 28 – Surface Noise Profiling
@@ -463,6 +719,20 @@ class TestPhase28SurfaceNoiseProfiling:
     def test_shellac_material(self, mono):
         result = self.phase.process(mono, SR, MaterialType.SHELLAC)
         _assert_phase_result(result, mono, check_clipping=False)
+
+    def test_zero_strength_passthrough(self, mono):
+        result = self.phase.process(mono, SR, MaterialType.VINYL, strength=0.0)
+        _assert_phase_result(result, mono, check_clipping=False)
+        assert np.allclose(result.audio, mono, atol=1e-7)
+        assert result.metadata.get("algorithm") == "skipped_zero_strength"
+        assert float(result.metadata.get("effective_strength", 1.0)) == 0.0
+
+    def test_locality_reduces_effective_strength(self, mono):
+        result = self.phase.process(mono, SR, MaterialType.VINYL, strength=1.0, phase_locality_factor=0.4)
+        _assert_phase_result(result, mono, check_clipping=False)
+        eff = float(result.metadata.get("effective_strength", 1.0))
+        assert 0.0 < eff < 1.0
+        assert float(result.metadata.get("phase_locality_factor", 1.0)) <= 0.4 + 1e-6
 
 
 # ===========================================================================
@@ -492,6 +762,22 @@ class TestPhase29TapeHissReduction:
         result = self.phase.process(audio_48, self._SR, MaterialType.TAPE)
         _assert_phase_result(result, audio_48, check_clipping=False)
 
+    def test_zero_strength_passthrough(self, mono):
+        audio_48 = mono[: self._SR // 4]
+        result = self.phase.process(audio_48, self._SR, MaterialType.TAPE, strength=0.0)
+        _assert_phase_result(result, audio_48, check_clipping=False)
+        assert np.allclose(result.audio, audio_48, atol=1e-7)
+        assert result.metadata.get("processing") == "skipped_zero_strength"
+        assert float(result.metadata.get("effective_strength", 1.0)) == 0.0
+
+    def test_locality_reduces_effective_strength(self, mono):
+        audio_48 = mono[: self._SR // 4]
+        result = self.phase.process(audio_48, self._SR, MaterialType.TAPE, strength=1.0, phase_locality_factor=0.4)
+        _assert_phase_result(result, audio_48, check_clipping=False)
+        eff = float(result.metadata.get("effective_strength", 1.0))
+        assert 0.0 < eff < 1.0
+        assert float(result.metadata.get("phase_locality_factor", 1.0)) <= 0.4 + 1e-6
+
 
 # ===========================================================================
 # Phase 30 – DC Offset Removal
@@ -519,6 +805,81 @@ class TestPhase30DCOffsetRemoval:
         result = self.phase.process(silent_mono, SR)
         _assert_phase_result(result, silent_mono)
 
+    def test_zero_strength_passthrough(self, mono):
+        result = self.phase.process(mono, SR, MaterialType.VINYL, strength=0.0)
+        _assert_phase_result(result, mono)
+        assert np.allclose(result.audio, mono, atol=1e-7)
+        assert result.metadata.get("processing") == "skipped_zero_strength"
+        assert float(result.metadata.get("effective_strength", 1.0)) == 0.0
+
+    def test_locality_reduces_effective_strength(self, mono):
+        result = self.phase.process(mono, SR, MaterialType.VINYL, strength=1.0, phase_locality_factor=0.4)
+        _assert_phase_result(result, mono)
+        eff = float(result.metadata.get("effective_strength", 1.0))
+        assert 0.0 < eff < 1.0
+        assert float(result.metadata.get("phase_locality_factor", 1.0)) <= 0.4 + 1e-6
+
+
+# ===========================================================================
+# Phase 31 – Speed/Pitch Correction
+# ===========================================================================
+class TestPhase31SpeedPitchCorrection:
+    def setup_method(self):
+        from backend.core.phases.phase_31_speed_pitch_correction import SpeedPitchCorrectionPhase
+
+        self.phase = SpeedPitchCorrectionPhase()
+
+    def test_mono_returns_phase_result(self, mono):
+        result = self.phase.process(mono, material_type="vinyl", sample_rate=SR)
+        _assert_phase_result(result, mono, check_clipping=False)
+
+    def test_zero_strength_passthrough(self, mono):
+        result = self.phase.process(mono, material_type="vinyl", sample_rate=SR, strength=0.0)
+        _assert_phase_result(result, mono, check_clipping=False)
+        assert np.allclose(result.audio, mono, atol=1e-7)
+        assert float(result.metadata.get("effective_strength", 1.0)) == 0.0
+
+    def test_locality_reduces_effective_strength(self, mono):
+        result = self.phase.process(
+            mono,
+            material_type="vinyl",
+            sample_rate=SR,
+            strength=1.0,
+            phase_locality_factor=0.4,
+        )
+        _assert_phase_result(result, mono, check_clipping=False)
+        eff = float(result.metadata.get("effective_strength", 1.0))
+        assert 0.0 < eff < 1.0
+        assert float(result.metadata.get("phase_locality_factor", 1.0)) <= 0.4 + 1e-6
+
+
+# ===========================================================================
+# Phase 32 – Mono-to-Stereo
+# ===========================================================================
+class TestPhase32MonoToStereo:
+    def setup_method(self):
+        from backend.core.phases.phase_32_mono_to_stereo import MonoToStereoPhaseV2
+
+        self.phase = MonoToStereoPhaseV2()
+
+    def test_stereo_returns_phase_result(self, stereo):
+        result = self.phase.process(stereo, SR, MaterialType.VINYL)
+        _assert_phase_result(result, stereo, check_clipping=False)
+
+    def test_zero_strength_passthrough(self, stereo):
+        result = self.phase.process(stereo, SR, MaterialType.VINYL, strength=0.0)
+        _assert_phase_result(result, stereo, check_clipping=False)
+        assert np.allclose(result.audio, stereo, atol=1e-7)
+        assert result.metadata.get("algorithm") == "skipped_zero_strength"
+        assert float(result.metadata.get("effective_strength", 1.0)) == 0.0
+
+    def test_locality_reduces_effective_strength(self, stereo):
+        result = self.phase.process(stereo, SR, MaterialType.VINYL, strength=1.0, phase_locality_factor=0.4)
+        _assert_phase_result(result, stereo, check_clipping=False)
+        eff = float(result.metadata.get("effective_strength", 1.0))
+        assert 0.0 < eff < 1.0
+        assert float(result.metadata.get("phase_locality_factor", 1.0)) <= 0.4 + 1e-6
+
 
 # ===========================================================================
 # Phase 40 – Loudness Normalization
@@ -545,6 +906,27 @@ class TestPhase40LoudnessNormalization:
     def test_loud_signal_normalized(self, loud_mono):
         result = self.phase.process(loud_mono, SR, MaterialType.VINYL)
         _assert_phase_result(result, loud_mono, check_clipping=False)
+
+    def test_zero_strength_passthrough(self, mono):
+        result = self.phase.process(mono, SR, MaterialType.VINYL, strength=0.0)
+        _assert_phase_result(result, mono, check_clipping=False)
+        assert np.allclose(result.audio, mono, atol=1e-7)
+        assert result.metadata.get("algorithm") == "skipped_zero_strength"
+        assert float(result.metadata.get("effective_strength", 1.0)) == 0.0
+
+    def test_locality_reduces_effective_strength(self, mono):
+        result = self.phase.process(mono, SR, MaterialType.VINYL, strength=1.0, phase_locality_factor=0.4)
+        _assert_phase_result(result, mono, check_clipping=False)
+        eff = float(result.metadata.get("effective_strength", 1.0))
+        assert 0.0 < eff < 1.0
+        assert float(result.metadata.get("phase_locality_factor", 1.0)) <= 0.4 + 1e-6
+
+    def test_quality_mode_emits_guard_metadata(self, stereo):
+        result = self.phase.process(stereo, SR, MaterialType.VINYL, quality_mode="maximum")
+        _assert_phase_result(result, stereo, check_clipping=False)
+        assert "output_guard_enabled" in result.metadata
+        assert "output_guard_fallback" in result.metadata
+        assert "output_guard_reason" in result.metadata
 
 
 # ===========================================================================
@@ -574,6 +956,30 @@ class TestPhase41OutputFormatOptimization:
         assert isinstance(result, PhaseResult)
         assert result.success is True
 
+    def test_zero_strength_passthrough(self, mono):
+        result = self.phase.process(mono, SR, MaterialType.VINYL, strength=0.0)
+        assert isinstance(result, PhaseResult)
+        assert result.success is True
+        assert np.allclose(result.audio, mono, atol=1e-7)
+        assert result.metadata.get("algorithm") == "skipped_zero_strength"
+        assert float(result.metadata.get("effective_strength", 1.0)) == 0.0
+
+    def test_locality_reduces_effective_strength(self, mono):
+        result = self.phase.process(mono, SR, MaterialType.VINYL, strength=1.0, phase_locality_factor=0.4)
+        assert isinstance(result, PhaseResult)
+        assert result.success is True
+        eff = float(result.metadata.get("effective_strength", 1.0))
+        assert 0.0 < eff < 1.0
+        assert float(result.metadata.get("phase_locality_factor", 1.0)) <= 0.4 + 1e-6
+
+    def test_quality_mode_emits_guard_metadata(self, stereo):
+        result = self.phase.process(stereo, SR, MaterialType.VINYL, quality_mode="maximum")
+        assert isinstance(result, PhaseResult)
+        assert result.success is True
+        assert "output_guard_enabled" in result.metadata
+        assert "output_guard_fallback" in result.metadata
+        assert "output_guard_reason" in result.metadata
+
 
 # ===========================================================================
 # Phase 42 – Vocal Enhancement
@@ -599,6 +1005,20 @@ class TestPhase42VocalEnhancement:
         result = self.phase.process(silent_mono, SR)
         _assert_phase_result(result, silent_mono)
 
+    def test_zero_strength_passthrough(self, mono):
+        result = self.phase.process(mono, SR, MaterialType.VINYL, strength=0.0)
+        _assert_phase_result(result, mono, check_clipping=False)
+        assert np.allclose(result.audio, mono, atol=1e-7)
+        assert result.metadata.get("algorithm") == "skipped_zero_strength"
+        assert float(result.metadata.get("effective_strength", 1.0)) == 0.0
+
+    def test_locality_reduces_effective_strength(self, mono):
+        result = self.phase.process(mono, SR, MaterialType.VINYL, strength=1.0, phase_locality_factor=0.4)
+        _assert_phase_result(result, mono, check_clipping=False)
+        eff = float(result.metadata.get("effective_strength", 1.0))
+        assert 0.0 < eff < 1.0
+        assert float(result.metadata.get("phase_locality_factor", 1.0)) <= 0.4 + 1e-6
+
 
 # ===========================================================================
 # Phase 49 – Advanced Deverb
@@ -620,6 +1040,20 @@ class TestPhase49AdvancedDereverb:
     def test_output_shape_preserved(self, mono):
         result = self.phase.process(mono, SR)
         assert result.audio.shape == mono.shape
+
+    def test_zero_strength_passthrough(self, mono):
+        result = self.phase.process(mono, SR, strength=0.0)
+        _assert_phase_result(result, mono)
+        assert np.allclose(result.audio, mono, atol=1e-7)
+        assert result.metadata.get("algorithm") == "skipped_zero_strength"
+        assert float(result.metadata.get("effective_strength", 1.0)) == 0.0
+
+    def test_locality_reduces_effective_strength(self, mono):
+        result = self.phase.process(mono, SR, strength=1.0, phase_locality_factor=0.4)
+        _assert_phase_result(result, mono, check_clipping=False)
+        eff = float(result.metadata.get("effective_strength", 1.0))
+        assert 0.0 < eff < 1.0
+        assert float(result.metadata.get("phase_locality_factor", 1.0)) <= 0.4 + 1e-6
 
 
 # ===========================================================================
@@ -646,6 +1080,34 @@ class TestPhase51DrumsEnhancement:
     def test_loud_percussive_signal(self, loud_mono):
         result = self.phase.process(loud_mono)
         _assert_phase_result(result, loud_mono, check_clipping=False)
+
+    def test_zero_strength_passthrough(self, mono):
+        result = self.phase.process(mono, strength=0.0)
+        _assert_phase_result(result, mono, check_clipping=False)
+        assert np.allclose(result.audio, mono, atol=1e-7)
+        assert result.metadata.get("algorithm") == "skipped_zero_strength"
+        assert float(result.metadata.get("effective_strength", 1.0)) == 0.0
+
+    def test_locality_reduces_effective_strength(self, mono):
+        result = self.phase.process(mono, strength=1.0, phase_locality_factor=0.4)
+        _assert_phase_result(result, mono, check_clipping=False)
+        eff = float(result.metadata.get("effective_strength", 1.0))
+        assert 0.0 < eff < 1.0
+        assert float(result.metadata.get("phase_locality_factor", 1.0)) <= 0.4 + 1e-6
+
+    def test_reduced_strength_stays_closer_to_input(self, mono):
+        full = self.phase.process(mono, strength=1.0)
+        reduced = self.phase.process(mono, strength=0.4)
+        _assert_phase_result(full, mono, check_clipping=False)
+        _assert_phase_result(reduced, mono, check_clipping=False)
+        full_delta = float(np.mean(np.abs(full.audio - mono)))
+        reduced_delta = float(np.mean(np.abs(reduced.audio - mono)))
+        assert reduced_delta <= full_delta + 1e-6
+
+    def test_stereo_shape_preserved(self, stereo):
+        result = self.phase.process(stereo)
+        _assert_phase_result(result, stereo, check_clipping=False)
+        assert result.audio.ndim == 2 and result.audio.shape[1] == 2
 
 
 # ===========================================================================
@@ -676,6 +1138,61 @@ class TestPhase52PianoRestoration:
         result = self.phase.process(silent_mono)
         _assert_phase_result(result, silent_mono)
 
+    def test_zero_strength_passthrough(self, mono):
+        result = self.phase.process(mono, strength=0.0)
+        _assert_phase_result(result, mono)
+        assert np.allclose(result.audio, mono, atol=1e-7)
+        assert result.metadata.get("algorithm") == "skipped_zero_strength"
+        assert float(result.metadata.get("effective_strength", 1.0)) == 0.0
+
+    def test_locality_reduces_effective_strength(self, mono):
+        result = self.phase.process(mono, strength=1.0, phase_locality_factor=0.4)
+        _assert_phase_result(result, mono, check_clipping=False)
+        eff = float(result.metadata.get("effective_strength", 1.0))
+        assert 0.0 < eff < 1.0
+        assert float(result.metadata.get("phase_locality_factor", 1.0)) <= 0.4 + 1e-6
+
+    def test_reduced_strength_stays_closer_to_input(self, mono):
+        full = self.phase.process(mono, strength=1.0)
+        reduced = self.phase.process(mono, strength=0.4)
+        _assert_phase_result(full, mono, check_clipping=False)
+        _assert_phase_result(reduced, mono, check_clipping=False)
+        full_delta = float(np.mean(np.abs(full.audio - mono)))
+        reduced_delta = float(np.mean(np.abs(reduced.audio - mono)))
+        assert reduced_delta <= full_delta + 1e-6
+
+    def test_stereo_preserves_side_information(self):
+        t = np.linspace(0, 0.25, _N, dtype=np.float32)
+        left = (0.5 * np.sin(2 * np.pi * 440.0 * t)).astype(np.float32)
+        right = (0.35 * np.sin(2 * np.pi * 660.0 * t + 0.3)).astype(np.float32)
+        stereo_in = np.column_stack([left, right]).astype(np.float32)
+
+        result = self.phase.process(stereo_in, strength=1.0)
+        _assert_phase_result(result, stereo_in, check_clipping=False)
+
+        side_in = 0.5 * (stereo_in[:, 0] - stereo_in[:, 1])
+        side_out = 0.5 * (result.audio[:, 0] - result.audio[:, 1])
+        side_in_rms = float(np.sqrt(np.mean(side_in**2)) + 1e-12)
+        side_out_rms = float(np.sqrt(np.mean(side_out**2)) + 1e-12)
+
+        assert side_out_rms > 0.2 * side_in_rms
+        assert bool(result.metadata.get("stereo_image_preserved", False)) is True
+
+    def test_panns_low_confidence_skips_processing(self, stereo):
+        panns_tags = {"Piano": 0.30, "Keyboard": 0.20}
+        result = self.phase.process(stereo, panns_tags=panns_tags, strength=1.0)
+        _assert_phase_result(result, stereo, check_clipping=False)
+
+        assert result.metadata.get("algorithm") == "skip_panns_confidence"
+        assert np.allclose(result.audio, stereo, atol=1e-7)
+
+    def test_panns_high_confidence_processes(self, stereo):
+        panns_tags = {"Piano": 0.75}
+        result = self.phase.process(stereo, panns_tags=panns_tags, strength=1.0)
+        _assert_phase_result(result, stereo, check_clipping=False)
+
+        assert result.metadata.get("algorithm") != "skip_panns_confidence"
+
 
 # ===========================================================================
 # Phase 54 – Transparent Dynamics (KEIN sample_rate!)
@@ -701,3 +1218,17 @@ class TestPhase54TransparentDynamics:
     def test_output_shape_preserved(self, loud_mono):
         result = self.phase.process(loud_mono)
         assert result.audio.shape == loud_mono.shape
+
+    def test_zero_strength_passthrough(self, mono):
+        result = self.phase.process(mono, strength=0.0)
+        _assert_phase_result(result, mono, check_clipping=False)
+        assert np.allclose(result.audio, mono, atol=1e-7)
+        assert result.metadata.get("algorithm") == "skipped_zero_strength"
+        assert float(result.metadata.get("effective_strength", 1.0)) == 0.0
+
+    def test_locality_reduces_effective_strength(self, mono):
+        result = self.phase.process(mono, strength=1.0, phase_locality_factor=0.4)
+        _assert_phase_result(result, mono, check_clipping=False)
+        eff = float(result.metadata.get("effective_strength", 1.0))
+        assert 0.0 < eff < 1.0
+        assert float(result.metadata.get("phase_locality_factor", 1.0)) <= 0.4 + 1e-6

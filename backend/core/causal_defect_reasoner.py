@@ -47,236 +47,222 @@ logger = logging.getLogger(__name__)
 # Typ-Definitionen
 # ---------------------------------------------------------------------------
 
-# 11 Kausal-Ursachen (Spec §2.4) — konzeptuell getrennt von den 24 DefectType-Scan-Werten
+# 34 Kausal-Ursachen (Spec §2.4) — alle CAUSE_TO_PHASES-Einträge mit Bayesian-Posterior
 CAUSES = [
+    # ── Analoge Magnetband-Ursachen ──────────────────────────────────────────
     "tape_dropout",
     "tape_hiss",
+    "transport_bump",       # Impulsartige Mikro-Geschwindigkeitssprünge (Kassette/Tape-Holpern) → phase_12
+    "print_through",        # Magnetisches Vorecho → Adaptive Temporal Subtraction
+    "head_wear",            # Frequenzband-Auslöschung → phase_56_spectral_band_gap_repair
+    "head_misalignment",
+    "bias_error",           # Falscher Vormagnetisierungsstrom → phase_04 + phase_29
+    "wow",                  # Tonhöhenschwankung < 0.5 Hz (Motorexzentrizität)
+    "flutter",              # Tonhöhenschwankung 0.5–200 Hz (Bandschwankung)
+    "wow_flutter",          # Kombiniert wow + flutter
+    # ── Vinyl-/Schellack-Ursachen ────────────────────────────────────────────
     "vinyl_crackle",
     "vinyl_warp",
+    "riaa_curve_error",     # Falsche Disc-Entzerrungskurve (AES/NAB/FFRR)
+    "low_freq_rumble",      # Subsonic-Störung (Plattenteller, Motor)
+    # ── Elektrik / Mechanik ──────────────────────────────────────────────────
     "electrical_hum",
-    "head_misalignment",
     "dc_offset",
+    # ── Digital / Codec ──────────────────────────────────────────────────────
     "digital_clip",
-    "soft_saturation",  # Tube-/Tape-Sättigung — BEWAHREN, P(phases) = leer
-    "head_wear",  # Frequenzband-Auslöschung → phase_56_spectral_band_gap_repair
-    "print_through",  # Magnetisches Vorecho → Adaptive Temporal Subtraction
-    "transport_bump",  # Impulsartige Mikro-Geschwindigkeitssprünge (Kassette/Tape-Holpern) → phase_12
+    "clipping",             # Generisches Clipping (analog + digital)
+    "digital_artifacts",    # Breitband-Codec-Artefakte (Quantisierungsreste, Ringmodulation)
+    "compression_artifacts",  # MP3/AAC/OGG Codec-Artefakte (Butterfly-Noise, Birdie)
+    "quantization_noise",   # Bit-Tiefe-bedingtes Rauschen (8-Bit, Resampling)
+    "jitter_artifacts",     # Zeitgitter-Fehler D/A-Wandlung
+    "pre_echo",             # Codec-Pre-Echo vor Transienten (MP3 Long-Window)
+    "aliasing",             # ADC-Spiegelfrequenzen bei fehlendem AA-Filter
+    "dynamic_compression_excess",  # Loudness-War-Artefakte (Over-Limiting)
+    # ── Spektrale Ursachen ───────────────────────────────────────────────────
+    "bandwidth_loss",       # HF-Rolloff / Bandbreitenbegrenzung
+    "high_freq_noise",      # Hochfrequenzrauschen (distinct from tape_hiss)
+    # ── Stereo / Phase ───────────────────────────────────────────────────────
+    "stereo_imbalance",     # L/R-Pegelunterschied
+    "phase_issues",         # Phasenverschiebung zwischen Kanälen
+    # ── Pitch / Dynamik ──────────────────────────────────────────────────────
+    "pitch_drift",          # Konstanter Geschwindigkeitsfehler (Motor/Tape-Stretch)
+    "reverb_excess",        # Übermäßiger Raumhall
+    "transient_smearing",   # Ansatzverschmierung (Comp/Limiter)
+    "sibilance",            # Zischlautüberbetonung > 6 kHz
+    # ── Vintage (Schutz) ────────────────────────────────────────────────────
+    "soft_saturation",      # Tube-/Tape-Sättigung — BEWAHREN, P(phases) = leer
 ]
 
-# Material-Typen
+# Material-Typen — Priors für alle 34 Kausal-Ursachen (v9.10.77b)
+# Priors pro Material nicht zwingend exakt auf 1.0 normiert — _infer() normalisiert Posterioren.
 MATERIAL_PRIORS: dict[str, dict[str, float]] = {
-    # Priors normiert auf 1.0 pro Materialtyp (3 neue Ursachen mit kleinen Priors)
     "tape": {
-        "tape_dropout": 0.27,
-        "tape_hiss": 0.27,
-        "vinyl_crackle": 0.01,
-        "vinyl_warp": 0.01,
-        "electrical_hum": 0.13,
-        "head_misalignment": 0.10,
-        "dc_offset": 0.05,
-        "digital_clip": 0.05,
-        "soft_saturation": 0.05,  # Röhrenverstärker-Tape häufig
-        "head_wear": 0.04,  # Kopfverschleiß realistisch bei altem Tape
-        "print_through": 0.02,  # Magnetisches Übersprechen
-        "transport_bump": 0.12,  # Kassetten-Holpern bei mobiler Wiedergabe häufig
+        "tape_dropout": 0.27, "tape_hiss": 0.27, "vinyl_crackle": 0.01, "vinyl_warp": 0.01,
+        "electrical_hum": 0.13, "head_misalignment": 0.10, "dc_offset": 0.05, "digital_clip": 0.05,
+        "soft_saturation": 0.05, "head_wear": 0.04, "print_through": 0.02, "transport_bump": 0.12,
+        # v9.10.77b: 22 erweiterte Ursachen
+        "bandwidth_loss": 0.06, "high_freq_noise": 0.03, "stereo_imbalance": 0.02, "phase_issues": 0.02,
+        "pitch_drift": 0.03, "reverb_excess": 0.01, "digital_artifacts": 0.01, "compression_artifacts": 0.01,
+        "quantization_noise": 0.01, "jitter_artifacts": 0.01, "dynamic_compression_excess": 0.01,
+        "pre_echo": 0.01, "low_freq_rumble": 0.01, "transient_smearing": 0.01, "clipping": 0.02,
+        "riaa_curve_error": 0.01, "aliasing": 0.01, "bias_error": 0.05, "sibilance": 0.01,
+        "wow": 0.06, "flutter": 0.05, "wow_flutter": 0.08,
     },
     "vinyl": {
-        "tape_dropout": 0.02,
-        "tape_hiss": 0.04,
-        "vinyl_crackle": 0.38,
-        "vinyl_warp": 0.18,
-        "electrical_hum": 0.09,
-        "head_misalignment": 0.03,
-        "dc_offset": 0.05,
-        "digital_clip": 0.13,
-        "soft_saturation": 0.05,  # Röhrenschneidköpfe
-        "head_wear": 0.02,
-        "print_through": 0.01,
-        "transport_bump": 0.01,  # Vinyl: selten (kein Bandtransport)
+        "tape_dropout": 0.02, "tape_hiss": 0.04, "vinyl_crackle": 0.38, "vinyl_warp": 0.18,
+        "electrical_hum": 0.09, "head_misalignment": 0.03, "dc_offset": 0.05, "digital_clip": 0.13,
+        "soft_saturation": 0.05, "head_wear": 0.02, "print_through": 0.01, "transport_bump": 0.01,
+        "bandwidth_loss": 0.04, "high_freq_noise": 0.02, "stereo_imbalance": 0.02, "phase_issues": 0.01,
+        "pitch_drift": 0.02, "reverb_excess": 0.01, "digital_artifacts": 0.01, "compression_artifacts": 0.01,
+        "quantization_noise": 0.01, "jitter_artifacts": 0.01, "dynamic_compression_excess": 0.01,
+        "pre_echo": 0.01, "low_freq_rumble": 0.06, "transient_smearing": 0.01, "clipping": 0.02,
+        "riaa_curve_error": 0.08, "aliasing": 0.01, "bias_error": 0.01, "sibilance": 0.01,
+        "wow": 0.03, "flutter": 0.01, "wow_flutter": 0.03,
     },
     "shellac": {
-        "tape_dropout": 0.01,
-        "tape_hiss": 0.09,
-        "vinyl_crackle": 0.42,
-        "vinyl_warp": 0.14,
-        "electrical_hum": 0.11,
-        "head_misalignment": 0.05,
-        "dc_offset": 0.04,
-        "digital_clip": 0.07,
-        "soft_saturation": 0.04,
-        "head_wear": 0.02,
-        "print_through": 0.01,
-        "transport_bump": 0.01,  # Shellac: selten
+        "tape_dropout": 0.01, "tape_hiss": 0.09, "vinyl_crackle": 0.42, "vinyl_warp": 0.14,
+        "electrical_hum": 0.11, "head_misalignment": 0.05, "dc_offset": 0.04, "digital_clip": 0.07,
+        "soft_saturation": 0.04, "head_wear": 0.02, "print_through": 0.01, "transport_bump": 0.01,
+        "bandwidth_loss": 0.10, "high_freq_noise": 0.03, "stereo_imbalance": 0.01, "phase_issues": 0.01,
+        "pitch_drift": 0.03, "reverb_excess": 0.01, "digital_artifacts": 0.01, "compression_artifacts": 0.01,
+        "quantization_noise": 0.01, "jitter_artifacts": 0.01, "dynamic_compression_excess": 0.01,
+        "pre_echo": 0.01, "low_freq_rumble": 0.04, "transient_smearing": 0.01, "clipping": 0.01,
+        "riaa_curve_error": 0.10, "aliasing": 0.01, "bias_error": 0.01, "sibilance": 0.01,
+        "wow": 0.02, "flutter": 0.01, "wow_flutter": 0.02,
     },
     "digital": {
-        "tape_dropout": 0.02,
-        "tape_hiss": 0.04,
-        "vinyl_crackle": 0.02,
-        "vinyl_warp": 0.01,
-        "electrical_hum": 0.18,
-        "head_misalignment": 0.02,
-        "dc_offset": 0.09,
-        "digital_clip": 0.50,
-        "soft_saturation": 0.07,  # Soft-Limiting in DAWs
-        "head_wear": 0.01,
-        "print_through": 0.04,  # Print-Through in digitalen Kopien hist. Tape
-        "transport_bump": 0.01,  # Digital: praktisch ausgeschlossen
+        "tape_dropout": 0.02, "tape_hiss": 0.04, "vinyl_crackle": 0.02, "vinyl_warp": 0.01,
+        "electrical_hum": 0.18, "head_misalignment": 0.02, "dc_offset": 0.09, "digital_clip": 0.50,
+        "soft_saturation": 0.07, "head_wear": 0.01, "print_through": 0.04, "transport_bump": 0.01,
+        "bandwidth_loss": 0.02, "high_freq_noise": 0.03, "stereo_imbalance": 0.02, "phase_issues": 0.02,
+        "pitch_drift": 0.01, "reverb_excess": 0.02, "digital_artifacts": 0.08, "compression_artifacts": 0.04,
+        "quantization_noise": 0.04, "jitter_artifacts": 0.03, "dynamic_compression_excess": 0.06,
+        "pre_echo": 0.02, "low_freq_rumble": 0.01, "transient_smearing": 0.03, "clipping": 0.10,
+        "riaa_curve_error": 0.01, "aliasing": 0.02, "bias_error": 0.01, "sibilance": 0.02,
+        "wow": 0.01, "flutter": 0.01, "wow_flutter": 0.01,
     },
     "unknown": {
-        "tape_dropout": 0.10,
-        "tape_hiss": 0.10,
-        "vinyl_crackle": 0.10,
-        "vinyl_warp": 0.07,
-        "electrical_hum": 0.13,
-        "head_misalignment": 0.09,
-        "dc_offset": 0.09,
-        "digital_clip": 0.17,
-        "soft_saturation": 0.07,
-        "head_wear": 0.05,
-        "print_through": 0.03,
-        "transport_bump": 0.04,  # Unknown: moderater Prior
+        "tape_dropout": 0.10, "tape_hiss": 0.10, "vinyl_crackle": 0.10, "vinyl_warp": 0.07,
+        "electrical_hum": 0.13, "head_misalignment": 0.09, "dc_offset": 0.09, "digital_clip": 0.17,
+        "soft_saturation": 0.07, "head_wear": 0.05, "print_through": 0.03, "transport_bump": 0.04,
+        "bandwidth_loss": 0.04, "high_freq_noise": 0.03, "stereo_imbalance": 0.02, "phase_issues": 0.02,
+        "pitch_drift": 0.02, "reverb_excess": 0.02, "digital_artifacts": 0.03, "compression_artifacts": 0.03,
+        "quantization_noise": 0.02, "jitter_artifacts": 0.02, "dynamic_compression_excess": 0.03,
+        "pre_echo": 0.02, "low_freq_rumble": 0.02, "transient_smearing": 0.02, "clipping": 0.05,
+        "riaa_curve_error": 0.02, "aliasing": 0.02, "bias_error": 0.02, "sibilance": 0.02,
+        "wow": 0.03, "flutter": 0.02, "wow_flutter": 0.03,
     },
-    # ── Digitale / Codec-Quellen (kein Magnetband-Dropout möglich) ──────────
+    # ── Digitale / Codec-Quellen ─────────────────────────────────────────────
     "mp3_low": {
-        "tape_dropout": 0.01,
-        "tape_hiss": 0.02,
-        "vinyl_crackle": 0.01,
-        "vinyl_warp": 0.01,
-        "electrical_hum": 0.07,
-        "head_misalignment": 0.01,
-        "dc_offset": 0.04,
-        "digital_clip": 0.50,
-        "soft_saturation": 0.07,
-        "head_wear": 0.01,
-        "print_through": 0.25,  # MP3 Print-Through = Pre-Echo-Artefakt
-        "transport_bump": 0.01,
+        "tape_dropout": 0.01, "tape_hiss": 0.02, "vinyl_crackle": 0.01, "vinyl_warp": 0.01,
+        "electrical_hum": 0.07, "head_misalignment": 0.01, "dc_offset": 0.04, "digital_clip": 0.50,
+        "soft_saturation": 0.07, "head_wear": 0.01, "print_through": 0.25, "transport_bump": 0.01,
+        "bandwidth_loss": 0.08, "high_freq_noise": 0.02, "stereo_imbalance": 0.01, "phase_issues": 0.01,
+        "pitch_drift": 0.01, "reverb_excess": 0.01, "digital_artifacts": 0.06, "compression_artifacts": 0.15,
+        "quantization_noise": 0.03, "jitter_artifacts": 0.01, "dynamic_compression_excess": 0.04,
+        "pre_echo": 0.10, "low_freq_rumble": 0.01, "transient_smearing": 0.02, "clipping": 0.05,
+        "riaa_curve_error": 0.01, "aliasing": 0.03, "bias_error": 0.01, "sibilance": 0.02,
+        "wow": 0.01, "flutter": 0.01, "wow_flutter": 0.01,
     },
     "mp3_high": {
-        "tape_dropout": 0.01,
-        "tape_hiss": 0.02,
-        "vinyl_crackle": 0.01,
-        "vinyl_warp": 0.01,
-        "electrical_hum": 0.09,
-        "head_misalignment": 0.01,
-        "dc_offset": 0.04,
-        "digital_clip": 0.36,
-        "soft_saturation": 0.05,
-        "head_wear": 0.01,
-        "print_through": 0.39,
-        "transport_bump": 0.01,
+        "tape_dropout": 0.01, "tape_hiss": 0.02, "vinyl_crackle": 0.01, "vinyl_warp": 0.01,
+        "electrical_hum": 0.09, "head_misalignment": 0.01, "dc_offset": 0.04, "digital_clip": 0.36,
+        "soft_saturation": 0.05, "head_wear": 0.01, "print_through": 0.39, "transport_bump": 0.01,
+        "bandwidth_loss": 0.04, "high_freq_noise": 0.02, "stereo_imbalance": 0.01, "phase_issues": 0.01,
+        "pitch_drift": 0.01, "reverb_excess": 0.01, "digital_artifacts": 0.04, "compression_artifacts": 0.08,
+        "quantization_noise": 0.02, "jitter_artifacts": 0.01, "dynamic_compression_excess": 0.04,
+        "pre_echo": 0.06, "low_freq_rumble": 0.01, "transient_smearing": 0.02, "clipping": 0.04,
+        "riaa_curve_error": 0.01, "aliasing": 0.02, "bias_error": 0.01, "sibilance": 0.02,
+        "wow": 0.01, "flutter": 0.01, "wow_flutter": 0.01,
     },
     "aac": {
-        "tape_dropout": 0.01,
-        "tape_hiss": 0.02,
-        "vinyl_crackle": 0.01,
-        "vinyl_warp": 0.01,
-        "electrical_hum": 0.09,
-        "head_misalignment": 0.01,
-        "dc_offset": 0.04,
-        "digital_clip": 0.36,
-        "soft_saturation": 0.05,
-        "head_wear": 0.01,
-        "print_through": 0.39,
-        "transport_bump": 0.01,
+        "tape_dropout": 0.01, "tape_hiss": 0.02, "vinyl_crackle": 0.01, "vinyl_warp": 0.01,
+        "electrical_hum": 0.09, "head_misalignment": 0.01, "dc_offset": 0.04, "digital_clip": 0.36,
+        "soft_saturation": 0.05, "head_wear": 0.01, "print_through": 0.39, "transport_bump": 0.01,
+        "bandwidth_loss": 0.04, "high_freq_noise": 0.02, "stereo_imbalance": 0.01, "phase_issues": 0.01,
+        "pitch_drift": 0.01, "reverb_excess": 0.01, "digital_artifacts": 0.04, "compression_artifacts": 0.10,
+        "quantization_noise": 0.02, "jitter_artifacts": 0.01, "dynamic_compression_excess": 0.04,
+        "pre_echo": 0.08, "low_freq_rumble": 0.01, "transient_smearing": 0.02, "clipping": 0.04,
+        "riaa_curve_error": 0.01, "aliasing": 0.02, "bias_error": 0.01, "sibilance": 0.02,
+        "wow": 0.01, "flutter": 0.01, "wow_flutter": 0.01,
     },
     "cd_digital": {
-        "tape_dropout": 0.01,
-        "tape_hiss": 0.02,
-        "vinyl_crackle": 0.01,
-        "vinyl_warp": 0.01,
-        "electrical_hum": 0.11,
-        "head_misalignment": 0.01,
-        "dc_offset": 0.07,
-        "digital_clip": 0.41,
-        "soft_saturation": 0.06,
-        "head_wear": 0.01,
-        "print_through": 0.28,
-        "transport_bump": 0.01,
+        "tape_dropout": 0.01, "tape_hiss": 0.02, "vinyl_crackle": 0.01, "vinyl_warp": 0.01,
+        "electrical_hum": 0.11, "head_misalignment": 0.01, "dc_offset": 0.07, "digital_clip": 0.41,
+        "soft_saturation": 0.06, "head_wear": 0.01, "print_through": 0.28, "transport_bump": 0.01,
+        "bandwidth_loss": 0.02, "high_freq_noise": 0.02, "stereo_imbalance": 0.01, "phase_issues": 0.01,
+        "pitch_drift": 0.01, "reverb_excess": 0.01, "digital_artifacts": 0.05, "compression_artifacts": 0.03,
+        "quantization_noise": 0.03, "jitter_artifacts": 0.03, "dynamic_compression_excess": 0.06,
+        "pre_echo": 0.02, "low_freq_rumble": 0.01, "transient_smearing": 0.03, "clipping": 0.08,
+        "riaa_curve_error": 0.01, "aliasing": 0.01, "bias_error": 0.01, "sibilance": 0.02,
+        "wow": 0.01, "flutter": 0.01, "wow_flutter": 0.01,
     },
     "streaming": {
-        "tape_dropout": 0.01,
-        "tape_hiss": 0.02,
-        "vinyl_crackle": 0.01,
-        "vinyl_warp": 0.01,
-        "electrical_hum": 0.07,
-        "head_misalignment": 0.01,
-        "dc_offset": 0.03,
-        "digital_clip": 0.32,
-        "soft_saturation": 0.05,
-        "head_wear": 0.01,
-        "print_through": 0.46,
-        "transport_bump": 0.01,
+        "tape_dropout": 0.01, "tape_hiss": 0.02, "vinyl_crackle": 0.01, "vinyl_warp": 0.01,
+        "electrical_hum": 0.07, "head_misalignment": 0.01, "dc_offset": 0.03, "digital_clip": 0.32,
+        "soft_saturation": 0.05, "head_wear": 0.01, "print_through": 0.46, "transport_bump": 0.01,
+        "bandwidth_loss": 0.06, "high_freq_noise": 0.02, "stereo_imbalance": 0.01, "phase_issues": 0.01,
+        "pitch_drift": 0.01, "reverb_excess": 0.01, "digital_artifacts": 0.05, "compression_artifacts": 0.12,
+        "quantization_noise": 0.02, "jitter_artifacts": 0.02, "dynamic_compression_excess": 0.05,
+        "pre_echo": 0.05, "low_freq_rumble": 0.01, "transient_smearing": 0.02, "clipping": 0.04,
+        "riaa_curve_error": 0.01, "aliasing": 0.02, "bias_error": 0.01, "sibilance": 0.02,
+        "wow": 0.01, "flutter": 0.01, "wow_flutter": 0.01,
     },
     "dat": {
-        "tape_dropout": 0.07,
-        "tape_hiss": 0.04,
-        "vinyl_crackle": 0.01,
-        "vinyl_warp": 0.01,
-        "electrical_hum": 0.11,
-        "head_misalignment": 0.02,
-        "dc_offset": 0.04,
-        "digital_clip": 0.27,
-        "soft_saturation": 0.03,
-        "head_wear": 0.05,  # DAT-Köpfe verschleißen stark
-        "print_through": 0.35,
-        "transport_bump": 0.03,  # DAT: möglich bei transportablen Geräten
+        "tape_dropout": 0.07, "tape_hiss": 0.04, "vinyl_crackle": 0.01, "vinyl_warp": 0.01,
+        "electrical_hum": 0.11, "head_misalignment": 0.02, "dc_offset": 0.04, "digital_clip": 0.27,
+        "soft_saturation": 0.03, "head_wear": 0.05, "print_through": 0.35, "transport_bump": 0.03,
+        "bandwidth_loss": 0.03, "high_freq_noise": 0.02, "stereo_imbalance": 0.01, "phase_issues": 0.01,
+        "pitch_drift": 0.02, "reverb_excess": 0.01, "digital_artifacts": 0.04, "compression_artifacts": 0.02,
+        "quantization_noise": 0.03, "jitter_artifacts": 0.04, "dynamic_compression_excess": 0.03,
+        "pre_echo": 0.01, "low_freq_rumble": 0.01, "transient_smearing": 0.02, "clipping": 0.05,
+        "riaa_curve_error": 0.01, "aliasing": 0.01, "bias_error": 0.01, "sibilance": 0.02,
+        "wow": 0.01, "flutter": 0.01, "wow_flutter": 0.01,
     },
     "minidisc": {
-        "tape_dropout": 0.04,
-        "tape_hiss": 0.03,
-        "vinyl_crackle": 0.01,
-        "vinyl_warp": 0.01,
-        "electrical_hum": 0.07,
-        "head_misalignment": 0.01,
-        "dc_offset": 0.03,
-        "digital_clip": 0.41,
-        "soft_saturation": 0.04,
-        "head_wear": 0.02,
-        "print_through": 0.33,
-        "transport_bump": 0.01,
+        "tape_dropout": 0.04, "tape_hiss": 0.03, "vinyl_crackle": 0.01, "vinyl_warp": 0.01,
+        "electrical_hum": 0.07, "head_misalignment": 0.01, "dc_offset": 0.03, "digital_clip": 0.41,
+        "soft_saturation": 0.04, "head_wear": 0.02, "print_through": 0.33, "transport_bump": 0.01,
+        "bandwidth_loss": 0.05, "high_freq_noise": 0.02, "stereo_imbalance": 0.01, "phase_issues": 0.01,
+        "pitch_drift": 0.01, "reverb_excess": 0.01, "digital_artifacts": 0.05, "compression_artifacts": 0.10,
+        "quantization_noise": 0.02, "jitter_artifacts": 0.02, "dynamic_compression_excess": 0.03,
+        "pre_echo": 0.04, "low_freq_rumble": 0.01, "transient_smearing": 0.02, "clipping": 0.04,
+        "riaa_curve_error": 0.01, "aliasing": 0.02, "bias_error": 0.01, "sibilance": 0.02,
+        "wow": 0.01, "flutter": 0.01, "wow_flutter": 0.01,
     },
     # ── Historische Medien ───────────────────────────────────────────────────
     "wax_cylinder": {
-        "tape_dropout": 0.02,
-        "tape_hiss": 0.23,
-        "vinyl_crackle": 0.37,
-        "vinyl_warp": 0.09,
-        "electrical_hum": 0.07,
-        "head_misalignment": 0.05,
-        "dc_offset": 0.04,
-        "digital_clip": 0.02,
-        "soft_saturation": 0.02,
-        "head_wear": 0.08,  # Phonograph-Nadel-Verschleiß
-        "print_through": 0.01,
-        "transport_bump": 0.02,  # Handkurbel-Schwankungen
+        "tape_dropout": 0.02, "tape_hiss": 0.23, "vinyl_crackle": 0.37, "vinyl_warp": 0.09,
+        "electrical_hum": 0.07, "head_misalignment": 0.05, "dc_offset": 0.04, "digital_clip": 0.02,
+        "soft_saturation": 0.02, "head_wear": 0.08, "print_through": 0.01, "transport_bump": 0.02,
+        "bandwidth_loss": 0.15, "high_freq_noise": 0.04, "stereo_imbalance": 0.01, "phase_issues": 0.01,
+        "pitch_drift": 0.06, "reverb_excess": 0.01, "digital_artifacts": 0.01, "compression_artifacts": 0.01,
+        "quantization_noise": 0.01, "jitter_artifacts": 0.01, "dynamic_compression_excess": 0.01,
+        "pre_echo": 0.01, "low_freq_rumble": 0.04, "transient_smearing": 0.01, "clipping": 0.01,
+        "riaa_curve_error": 0.01, "aliasing": 0.01, "bias_error": 0.01, "sibilance": 0.01,
+        "wow": 0.04, "flutter": 0.02, "wow_flutter": 0.05,
     },
     "lacquer_disc": {
-        "tape_dropout": 0.02,
-        "tape_hiss": 0.13,
-        "vinyl_crackle": 0.41,
-        "vinyl_warp": 0.11,
-        "electrical_hum": 0.09,
-        "head_misalignment": 0.04,
-        "dc_offset": 0.04,
-        "digital_clip": 0.02,
-        "soft_saturation": 0.03,
-        "head_wear": 0.09,  # Ritznadel-Ermüdung
-        "print_through": 0.02,
-        "transport_bump": 0.01,
+        "tape_dropout": 0.02, "tape_hiss": 0.13, "vinyl_crackle": 0.41, "vinyl_warp": 0.11,
+        "electrical_hum": 0.09, "head_misalignment": 0.04, "dc_offset": 0.04, "digital_clip": 0.02,
+        "soft_saturation": 0.03, "head_wear": 0.09, "print_through": 0.02, "transport_bump": 0.01,
+        "bandwidth_loss": 0.10, "high_freq_noise": 0.03, "stereo_imbalance": 0.01, "phase_issues": 0.01,
+        "pitch_drift": 0.04, "reverb_excess": 0.01, "digital_artifacts": 0.01, "compression_artifacts": 0.01,
+        "quantization_noise": 0.01, "jitter_artifacts": 0.01, "dynamic_compression_excess": 0.01,
+        "pre_echo": 0.01, "low_freq_rumble": 0.04, "transient_smearing": 0.01, "clipping": 0.01,
+        "riaa_curve_error": 0.08, "aliasing": 0.01, "bias_error": 0.01, "sibilance": 0.01,
+        "wow": 0.02, "flutter": 0.01, "wow_flutter": 0.02,
     },
     "wire_recording": {
-        "tape_dropout": 0.18,
-        "tape_hiss": 0.22,
-        "vinyl_crackle": 0.04,
-        "vinyl_warp": 0.13,
-        "electrical_hum": 0.13,
-        "head_misalignment": 0.09,
-        "dc_offset": 0.04,
-        "digital_clip": 0.02,
-        "soft_saturation": 0.02,
-        "head_wear": 0.10,  # Magnetdraht-Kopfverschleiß
-        "print_through": 0.03,
-        "transport_bump": 0.08,  # Drahtaufnahme: mechanisch instabil
+        "tape_dropout": 0.18, "tape_hiss": 0.22, "vinyl_crackle": 0.04, "vinyl_warp": 0.13,
+        "electrical_hum": 0.13, "head_misalignment": 0.09, "dc_offset": 0.04, "digital_clip": 0.02,
+        "soft_saturation": 0.02, "head_wear": 0.10, "print_through": 0.03, "transport_bump": 0.08,
+        "bandwidth_loss": 0.08, "high_freq_noise": 0.03, "stereo_imbalance": 0.01, "phase_issues": 0.01,
+        "pitch_drift": 0.04, "reverb_excess": 0.01, "digital_artifacts": 0.01, "compression_artifacts": 0.01,
+        "quantization_noise": 0.01, "jitter_artifacts": 0.01, "dynamic_compression_excess": 0.01,
+        "pre_echo": 0.01, "low_freq_rumble": 0.02, "transient_smearing": 0.02, "clipping": 0.01,
+        "riaa_curve_error": 0.01, "aliasing": 0.01, "bias_error": 0.03, "sibilance": 0.01,
+        "wow": 0.05, "flutter": 0.04, "wow_flutter": 0.07,
     },
 }
 
@@ -426,6 +412,13 @@ CAUSE_TO_PHASES: dict[str, list[str]] = {
         "phase_24_dropout_repair",  # Fallback: Amplitude-Reparatur bei Signal-Einbruch
         "phase_31_speed_pitch_correction",  # Zusätzlich: globale Speed-Stabilisierung
     ],
+    # ── Vocal-Harshness (v9.10.77 — Vokal-Härte/Übersteuerung/Kratzigkeit) ──
+    "vocal_harshness": [
+        "phase_42_vocal_enhancement",  # Primär: Vocal-Enhancement mit Harshness-Absenkung (2–6 kHz)
+        "phase_19_de_esser",  # De-Esser reduziert auch obere Härte-Frequenzen
+        "phase_43_ml_deesser",  # ML-De-Esser (zweiter Pass, Frikativ-Kontrolle)
+        "phase_23_spectral_repair",  # Spektrale Reparatur bei starker Verzerrung
+    ],
 }
 
 # Empfohlene Parameter pro Ursache
@@ -477,6 +470,60 @@ CAUSE_PARAMS: dict[str, dict[str, Any]] = {
         "bump_correction_strength": 0.85,
         "bump_psola_crossfade_ms": 15.0,
         "bump_envelope_smooth_ms": 10.0,
+    },
+    # v9.10.77b: Erweiterte Ursachen-Parameter
+    "bandwidth_loss": {
+        "hf_extension_target_hz": 16000.0,
+        "harmonic_boost_db": 2.0,
+    },
+    "compression_artifacts": {
+        "spectral_repair_strength": 0.60,
+        "noise_reduction_strength": 0.30,
+    },
+    "dynamic_compression_excess": {
+        "expansion_ratio": 1.5,
+        "expansion_threshold_db": -20.0,
+    },
+    "reverb_excess": {
+        "dereverb_strength": 0.70,
+        "dry_level": 0.85,
+    },
+    "low_freq_rumble": {
+        "hpf_cutoff_hz": 30.0,
+        "rumble_filter_order": 4,
+    },
+    "wow": {
+        "wow_flutter_filter_hz": 0.5,
+        "pitch_correction_semitones": 0.3,
+    },
+    "flutter": {
+        "wow_flutter_filter_hz": 8.0,
+        "pitch_correction_semitones": 0.2,
+    },
+    "wow_flutter": {
+        "wow_flutter_filter_hz": 4.0,
+        "pitch_correction_semitones": 0.4,
+        "noise_reduction_strength": 0.20,
+    },
+    "clipping": {
+        "declip_threshold": 0.97,
+        "harmonic_boost_db": 1.0,
+    },
+    "bias_error": {
+        "noise_reduction_strength": 0.50,
+        "eq_high_shelf_hz": 6000.0,
+        "hf_boost_db": 2.0,
+    },
+    "riaa_curve_error": {
+        "eq_correction_strength": 0.80,
+    },
+    "sibilance": {
+        "deesser_threshold_db": -12.0,
+        "deesser_frequency_hz": 6500.0,
+    },
+    "pre_echo": {
+        "spectral_repair_strength": 0.50,
+        "transient_preserve_strength": 0.80,
     },
 }
 
@@ -851,7 +898,288 @@ def _likelihood_transport_bump(sf: SpectralFeatures, defect_scores: dict[str, fl
     return float(np.clip(p, 0.0, 1.0))
 
 
+# ---------------------------------------------------------------------------
+# Likelihood-Funktionen für die 22 erweiterten Ursachen (v9.10.77b)
+# ---------------------------------------------------------------------------
+
+
+def _likelihood_bandwidth_loss(sf: SpectralFeatures, defect_scores: dict[str, float]) -> float:
+    """P(Merkmale | bandwidth_loss) — HF-Rolloff / Bandbreitenbegrenzung."""
+    p = 0.0
+    # Niedriger Spectral Rolloff — Hauptmerkmal
+    rolloff_loss = max(0.0, 1.0 - sf.spectral_rolloff_hz / 12000.0)
+    p += rolloff_loss * 0.40
+    # Wenig HF-Energie
+    p += (1.0 - sf.hf_energy_ratio) * 0.30
+    # DefectScanner bandwidth_loss severity
+    p += _sigmoid_score(float(defect_scores.get("bandwidth_loss", 0.0)), k=8, x0=0.3) * 0.30
+    return float(np.clip(p, 0.0, 1.0))
+
+
+def _likelihood_high_freq_noise(sf: SpectralFeatures, defect_scores: dict[str, float]) -> float:
+    """P(Merkmale | high_freq_noise) — Hochfrequenzrauschen (distinct from tape_hiss)."""
+    p = 0.0
+    # Hoher HF-Anteil (Rauschen im HF-Band)
+    p += _sigmoid_score(sf.hf_energy_ratio, k=8, x0=0.40) * 0.40
+    p += _sigmoid_score(float(defect_scores.get("high_freq_noise", 0.0)), k=8, x0=0.25) * 0.35
+    # Kein Brumm (unterscheidet von electrical_hum)
+    p += (1.0 - sf.hum_score) * 0.15
+    # Kein Clipping
+    p += (1.0 - sf.clip_fraction) * 0.10
+    return float(np.clip(p, 0.0, 1.0))
+
+
+def _likelihood_stereo_imbalance(sf: SpectralFeatures, defect_scores: dict[str, float]) -> float:
+    """P(Merkmale | stereo_imbalance) — L/R-Pegelunterschied."""
+    p = 0.0
+    # Low stereo correlation suggests imbalance
+    p += (1.0 - abs(sf.stereo_correlation)) * 0.45
+    p += _sigmoid_score(float(defect_scores.get("stereo_imbalance", 0.0)), k=8, x0=0.25) * 0.40
+    # Normal clip fraction (not a clipping issue)
+    p += (1.0 - sf.clip_fraction) * 0.15
+    return float(np.clip(p, 0.0, 1.0))
+
+
+def _likelihood_phase_issues(sf: SpectralFeatures, defect_scores: dict[str, float]) -> float:
+    """P(Merkmale | phase_issues) — Phasenverschiebung zwischen Kanälen."""
+    p = 0.0
+    # Anti-phase correlation is the primary indicator
+    anti_phase = max(0.0, -sf.stereo_correlation)
+    p += anti_phase * 0.50
+    p += _sigmoid_score(float(defect_scores.get("phase_issues", 0.0)), k=8, x0=0.25) * 0.35
+    # Low HF energy from cancellation
+    p += (1.0 - sf.hf_energy_ratio) * 0.15
+    return float(np.clip(p, 0.0, 1.0))
+
+
+def _likelihood_pitch_drift(sf: SpectralFeatures, defect_scores: dict[str, float]) -> float:
+    """P(Merkmale | pitch_drift) — Konstanter Geschwindigkeitsfehler."""
+    p = 0.0
+    # Moderate pitch instability (steady drift, not random flutter)
+    p += _gaussian_score(sf.pitch_instability, mu=0.03, sigma=0.02) * 0.40
+    p += _sigmoid_score(float(defect_scores.get("pitch_drift", 0.0)), k=8, x0=0.25) * 0.40
+    # No dropout (distinguishes from tape dropout)
+    p += (1.0 - sf.dropout_density) * 0.20
+    return float(np.clip(p, 0.0, 1.0))
+
+
+def _likelihood_reverb_excess(sf: SpectralFeatures, defect_scores: dict[str, float]) -> float:
+    """P(Merkmale | reverb_excess) — Übermäßiger Raumhall."""
+    p = 0.0
+    # High LF energy ratio (reverb tail energy)
+    p += _gaussian_score(sf.lf_energy_ratio, mu=0.30, sigma=0.12) * 0.30
+    p += _sigmoid_score(float(defect_scores.get("reverb_excess", 0.0)), k=8, x0=0.25) * 0.45
+    # Moderate HF (reverb preserves some HF)
+    p += _gaussian_score(sf.hf_energy_ratio, mu=0.20, sigma=0.10) * 0.15
+    # No clipping
+    p += (1.0 - sf.clip_fraction) * 0.10
+    return float(np.clip(p, 0.0, 1.0))
+
+
+def _likelihood_digital_artifacts(sf: SpectralFeatures, defect_scores: dict[str, float]) -> float:
+    """P(Merkmale | digital_artifacts) — Codec-Artefakte (Quantisierungsreste, Ringmodulation)."""
+    p = 0.0
+    p += _sigmoid_score(float(defect_scores.get("digital_artifacts", 0.0)), k=8, x0=0.25) * 0.45
+    # Moderate clip fraction (digital distortion)
+    p += _sigmoid_score(sf.clip_fraction, k=20, x0=0.005) * 0.25
+    # High crest factor (intermittent artifacts)
+    p += _gaussian_score(sf.crest_factor_db, mu=12.0, sigma=5.0) * 0.20
+    p += (1.0 - sf.hum_score) * 0.10
+    return float(np.clip(p, 0.0, 1.0))
+
+
+def _likelihood_compression_artifacts(sf: SpectralFeatures, defect_scores: dict[str, float]) -> float:
+    """P(Merkmale | compression_artifacts) — MP3/AAC Codec-Artefakte."""
+    p = 0.0
+    p += _sigmoid_score(float(defect_scores.get("compression_artifacts", 0.0)), k=8, x0=0.25) * 0.45
+    # Bandwidth loss above ~16 kHz typical for lossy codecs
+    rolloff_codec = max(0.0, 1.0 - sf.spectral_rolloff_hz / 16000.0)
+    p += rolloff_codec * 0.25
+    # Low HF energy
+    p += (1.0 - sf.hf_energy_ratio) * 0.20
+    p += (1.0 - sf.clip_fraction) * 0.10
+    return float(np.clip(p, 0.0, 1.0))
+
+
+def _likelihood_quantization_noise(sf: SpectralFeatures, defect_scores: dict[str, float]) -> float:
+    """P(Merkmale | quantization_noise) — Bit-Tiefe-bedingtes Rauschen."""
+    p = 0.0
+    p += _sigmoid_score(float(defect_scores.get("quantization_noise", 0.0)), k=8, x0=0.25) * 0.45
+    # Flat spectral noise floor (quantization noise is white-ish)
+    p += _gaussian_score(sf.hf_energy_ratio, mu=0.50, sigma=0.15) * 0.25
+    # No clicks (distinguishes from vinyl)
+    p += (1.0 - min(1.0, sf.click_density / 5.0)) * 0.15
+    p += (1.0 - sf.hum_score) * 0.15
+    return float(np.clip(p, 0.0, 1.0))
+
+
+def _likelihood_jitter_artifacts(sf: SpectralFeatures, defect_scores: dict[str, float]) -> float:
+    """P(Merkmale | jitter_artifacts) — Zeitgitter-Fehler D/A-Wandlung."""
+    p = 0.0
+    p += _sigmoid_score(float(defect_scores.get("jitter_artifacts", 0.0)), k=8, x0=0.25) * 0.50
+    # Slight pitch instability from clock jitter
+    p += _gaussian_score(sf.pitch_instability, mu=0.005, sigma=0.005) * 0.25
+    # HF distortion from sample-hold errors
+    p += _sigmoid_score(sf.hf_energy_ratio, k=5, x0=0.35) * 0.15
+    p += (1.0 - sf.clip_fraction) * 0.10
+    return float(np.clip(p, 0.0, 1.0))
+
+
+def _likelihood_dynamic_compression_excess(sf: SpectralFeatures, defect_scores: dict[str, float]) -> float:
+    """P(Merkmale | dynamic_compression_excess) — Loudness-War Over-Limiting."""
+    p = 0.0
+    p += _sigmoid_score(float(defect_scores.get("dynamic_compression_excess", 0.0)), k=8, x0=0.25) * 0.40
+    # Very low crest factor — hallmark of over-compression
+    low_crest = max(0.0, 1.0 - sf.crest_factor_db / 6.0)
+    p += low_crest * 0.30
+    # High clip fraction from inter-sample peaks
+    p += _sigmoid_score(sf.clip_fraction, k=15, x0=0.01) * 0.20
+    # High RMS (loud master)
+    p += _sigmoid_score(sf.rms, k=8, x0=0.3) * 0.10
+    return float(np.clip(p, 0.0, 1.0))
+
+
+def _likelihood_pre_echo(sf: SpectralFeatures, defect_scores: dict[str, float]) -> float:
+    """P(Merkmale | pre_echo) — Codec-Pre-Echo vor Transienten (MP3 Long-Window)."""
+    p = 0.0
+    p += _sigmoid_score(float(defect_scores.get("pre_echo", 0.0)), k=8, x0=0.25) * 0.50
+    # Moderate click density (pre-echo resembles soft transient artifacts)
+    p += _gaussian_score(sf.click_density, mu=0.5, sigma=0.5) * 0.20
+    # Bandwidth loss from codec
+    rolloff_codec = max(0.0, 1.0 - sf.spectral_rolloff_hz / 16000.0)
+    p += rolloff_codec * 0.20
+    p += (1.0 - sf.clip_fraction) * 0.10
+    return float(np.clip(p, 0.0, 1.0))
+
+
+def _likelihood_low_freq_rumble(sf: SpectralFeatures, defect_scores: dict[str, float]) -> float:
+    """P(Merkmale | low_freq_rumble) — Subsonic-/LF-Störung."""
+    p = 0.0
+    # High LF energy — primary indicator
+    p += _sigmoid_score(sf.lf_energy_ratio, k=8, x0=0.25) * 0.40
+    p += _sigmoid_score(float(defect_scores.get("low_freq_rumble", 0.0)), k=8, x0=0.25) * 0.35
+    # No hum (distinguishes from electrical_hum — rumble is broadband LF)
+    p += (1.0 - sf.hum_score) * 0.15
+    p += (1.0 - sf.clip_fraction) * 0.10
+    return float(np.clip(p, 0.0, 1.0))
+
+
+def _likelihood_transient_smearing(sf: SpectralFeatures, defect_scores: dict[str, float]) -> float:
+    """P(Merkmale | transient_smearing) — Ansatzverschmierung durch Kompression/Limiter."""
+    p = 0.0
+    p += _sigmoid_score(float(defect_scores.get("transient_smearing", 0.0)), k=8, x0=0.25) * 0.45
+    # Low crest factor (compressed dynamics flatten transients)
+    low_crest = max(0.0, 1.0 - sf.crest_factor_db / 8.0)
+    p += low_crest * 0.30
+    # Low click density (transients are smoothed out)
+    p += (1.0 - min(1.0, sf.click_density / 3.0)) * 0.15
+    p += (1.0 - sf.clip_fraction) * 0.10
+    return float(np.clip(p, 0.0, 1.0))
+
+
+def _likelihood_clipping(sf: SpectralFeatures, defect_scores: dict[str, float]) -> float:
+    """P(Merkmale | clipping) — Generisches Clipping (analog + digital)."""
+    p = 0.0
+    p += _sigmoid_score(sf.clip_fraction, k=25, x0=0.02) * 0.45
+    p += _sigmoid_score(float(defect_scores.get("clipping", 0.0)), k=8, x0=0.3) * 0.30
+    # Low crest factor (clipped peaks)
+    low_crest = max(0.0, 1.0 - sf.crest_factor_db / 4.0)
+    p += low_crest * 0.15
+    p += _sigmoid_score(sf.peak, k=10, x0=0.95) * 0.10
+    return float(np.clip(p, 0.0, 1.0))
+
+
+def _likelihood_riaa_curve_error(sf: SpectralFeatures, defect_scores: dict[str, float]) -> float:
+    """P(Merkmale | riaa_curve_error) — Falsche Disc-Entzerrungskurve."""
+    p = 0.0
+    p += _sigmoid_score(float(defect_scores.get("riaa_curve_error", 0.0)), k=8, x0=0.25) * 0.50
+    # Abnormal spectral tilt (either too bright or too dark)
+    spectral_imbalance = abs(sf.hf_energy_ratio - 0.25)
+    p += _sigmoid_score(spectral_imbalance, k=8, x0=0.15) * 0.30
+    # High LF energy (bass boost from wrong curve)
+    p += _sigmoid_score(sf.lf_energy_ratio, k=6, x0=0.30) * 0.20
+    return float(np.clip(p, 0.0, 1.0))
+
+
+def _likelihood_aliasing(sf: SpectralFeatures, defect_scores: dict[str, float]) -> float:
+    """P(Merkmale | aliasing) — ADC-Spiegelfrequenzen bei fehlendem AA-Filter."""
+    p = 0.0
+    p += _sigmoid_score(float(defect_scores.get("aliasing", 0.0)), k=8, x0=0.25) * 0.50
+    # Unusually high HF energy (mirror frequencies fold back)
+    p += _sigmoid_score(sf.hf_energy_ratio, k=6, x0=0.40) * 0.25
+    # No clicks (not vinyl crackle)
+    p += (1.0 - min(1.0, sf.click_density / 5.0)) * 0.15
+    p += (1.0 - sf.hum_score) * 0.10
+    return float(np.clip(p, 0.0, 1.0))
+
+
+def _likelihood_bias_error(sf: SpectralFeatures, defect_scores: dict[str, float]) -> float:
+    """P(Merkmale | bias_error) — Falscher Vormagnetisierungsstrom bei Bandaufnahme."""
+    p = 0.0
+    p += _sigmoid_score(float(defect_scores.get("bias_error", 0.0)), k=8, x0=0.25) * 0.45
+    # Spectral tilt — under-biased: bright+noisy; over-biased: dull+distorted
+    spectral_tilt = abs(sf.hf_energy_ratio - 0.20)
+    p += _sigmoid_score(spectral_tilt, k=6, x0=0.15) * 0.30
+    # Elevated noise floor (bias-related noise)
+    p += _gaussian_score(sf.hf_energy_ratio, mu=0.35, sigma=0.12) * 0.15
+    # Tape context (low clip, no click)
+    p += (1.0 - sf.clip_fraction) * 0.10
+    return float(np.clip(p, 0.0, 1.0))
+
+
+def _likelihood_sibilance(sf: SpectralFeatures, defect_scores: dict[str, float]) -> float:
+    """P(Merkmale | sibilance) — Zischlautüberbetonung > 6 kHz."""
+    p = 0.0
+    p += _sigmoid_score(float(defect_scores.get("sibilance", 0.0)), k=8, x0=0.25) * 0.50
+    # High HF energy (sibilance is HF-dominant)
+    p += _sigmoid_score(sf.hf_energy_ratio, k=6, x0=0.35) * 0.25
+    # High rolloff (energy extends to high frequencies)
+    rolloff_high = min(1.0, sf.spectral_rolloff_hz / 15000.0)
+    p += rolloff_high * 0.15
+    # No clipping
+    p += (1.0 - sf.clip_fraction) * 0.10
+    return float(np.clip(p, 0.0, 1.0))
+
+
+def _likelihood_wow(sf: SpectralFeatures, defect_scores: dict[str, float]) -> float:
+    """P(Merkmale | wow) — Tonhöhenschwankung < 0.5 Hz (Motor-Exzentrizität)."""
+    p = 0.0
+    p += _sigmoid_score(float(defect_scores.get("wow", 0.0)), k=8, x0=0.25) * 0.40
+    # Pitch instability — wow causes slow pitch modulation
+    p += _sigmoid_score(sf.pitch_instability, k=15, x0=0.02) * 0.35
+    # Low dropout density (wow ≠ dropout)
+    p += (1.0 - sf.dropout_density) * 0.15
+    p += (1.0 - sf.clip_fraction) * 0.10
+    return float(np.clip(p, 0.0, 1.0))
+
+
+def _likelihood_flutter(sf: SpectralFeatures, defect_scores: dict[str, float]) -> float:
+    """P(Merkmale | flutter) — Tonhöhenschwankung 0.5–200 Hz (Bandschwankung)."""
+    p = 0.0
+    p += _sigmoid_score(float(defect_scores.get("flutter", 0.0)), k=8, x0=0.25) * 0.40
+    # Higher pitch instability than wow
+    p += _sigmoid_score(sf.pitch_instability, k=10, x0=0.04) * 0.30
+    # Click density from flutter-induced amplitude modulation
+    p += _gaussian_score(sf.click_density, mu=0.3, sigma=0.3) * 0.20
+    p += (1.0 - sf.clip_fraction) * 0.10
+    return float(np.clip(p, 0.0, 1.0))
+
+
+def _likelihood_wow_flutter(sf: SpectralFeatures, defect_scores: dict[str, float]) -> float:
+    """P(Merkmale | wow_flutter) — Kombiniertes Wow+Flutter."""
+    p = 0.0
+    wow_sev = float(defect_scores.get("wow", 0.0))
+    flutter_sev = float(defect_scores.get("flutter", 0.0))
+    combined = max(wow_sev, flutter_sev)
+    p += _sigmoid_score(combined, k=6, x0=0.25) * 0.40
+    p += _sigmoid_score(sf.pitch_instability, k=12, x0=0.03) * 0.35
+    p += _gaussian_score(sf.lf_energy_ratio, mu=0.20, sigma=0.10) * 0.15
+    p += (1.0 - sf.clip_fraction) * 0.10
+    return float(np.clip(p, 0.0, 1.0))
+
+
 LIKELIHOOD_FNS = {
+    # ── Original 12 ──────────────────────────────────────────────────────────
     "tape_dropout": _likelihood_tape_dropout,
     "tape_hiss": _likelihood_tape_hiss,
     "vinyl_crackle": _likelihood_vinyl_crackle,
@@ -864,6 +1192,29 @@ LIKELIHOOD_FNS = {
     "head_wear": _likelihood_head_wear,
     "print_through": _likelihood_print_through,
     "transport_bump": _likelihood_transport_bump,
+    # ── Erweiterte 22 (v9.10.77b) ───────────────────────────────────────────
+    "bandwidth_loss": _likelihood_bandwidth_loss,
+    "high_freq_noise": _likelihood_high_freq_noise,
+    "stereo_imbalance": _likelihood_stereo_imbalance,
+    "phase_issues": _likelihood_phase_issues,
+    "pitch_drift": _likelihood_pitch_drift,
+    "reverb_excess": _likelihood_reverb_excess,
+    "digital_artifacts": _likelihood_digital_artifacts,
+    "compression_artifacts": _likelihood_compression_artifacts,
+    "quantization_noise": _likelihood_quantization_noise,
+    "jitter_artifacts": _likelihood_jitter_artifacts,
+    "dynamic_compression_excess": _likelihood_dynamic_compression_excess,
+    "pre_echo": _likelihood_pre_echo,
+    "low_freq_rumble": _likelihood_low_freq_rumble,
+    "transient_smearing": _likelihood_transient_smearing,
+    "clipping": _likelihood_clipping,
+    "riaa_curve_error": _likelihood_riaa_curve_error,
+    "aliasing": _likelihood_aliasing,
+    "bias_error": _likelihood_bias_error,
+    "sibilance": _likelihood_sibilance,
+    "wow": _likelihood_wow,
+    "flutter": _likelihood_flutter,
+    "wow_flutter": _likelihood_wow_flutter,
 }
 
 
@@ -875,6 +1226,62 @@ def _gaussian_score(x: float, mu: float, sigma: float) -> float:
 def _sigmoid_score(x: float, k: float = 5.0, x0: float = 0.5) -> float:
     """Sigmoidaler Score ∈ (0, 1). Höheres x → höhere Wahrscheinlichkeit."""
     return float(1.0 / (1.0 + math.exp(-k * (x - x0))))
+
+
+def _normalize_defect_scores(defect_scores: dict[str, float]) -> dict[str, float]:
+    """Normalize/alias defect score keys and sanitize values.
+
+    Handles naming drift between legacy reasoner keys (e.g. click_severity)
+    and current DefectScanner keys (e.g. clicks). Values are clamped to [0, 1]
+    where appropriate; non-finite values are mapped to 0.0.
+    """
+    norm: dict[str, float] = {}
+    for k, v in defect_scores.items():
+        try:
+            fv = float(v)
+        except (TypeError, ValueError):
+            continue
+        if not np.isfinite(fv):
+            fv = 0.0
+        # Keep values bounded for severity-like keys.
+        if k.endswith(("severity", "_error")) or k in {
+            "clicks",
+            "dropouts",
+            "clipping",
+            "wow",
+            "flutter",
+            "wow_flutter",
+            "sibilance",
+            "pre_echo",
+            "phase_issues",
+            "stereo_imbalance",
+        }:
+            fv = float(np.clip(fv, 0.0, 1.0))
+        norm[k] = fv
+
+    # Bidirectional aliases for legacy/new score names.
+    aliases = {
+        "clicks": "click_severity",
+        "dropouts": "dropout_severity",
+        "clipping": "clip_severity",
+        "wow": "wow_severity",
+        "flutter": "flutter_severity",
+    }
+    for new_key, legacy_key in aliases.items():
+        if new_key in norm and legacy_key not in norm:
+            norm[legacy_key] = norm[new_key]
+        if legacy_key in norm and new_key not in norm:
+            norm[new_key] = norm[legacy_key]
+
+    # Derive combined wow/flutter if only components are present.
+    if "wow_flutter" not in norm and ("wow" in norm or "flutter" in norm):
+        norm["wow_flutter"] = float(max(norm.get("wow", 0.0), norm.get("flutter", 0.0)))
+
+    # Dropout proxy for silence ratio when not explicitly provided.
+    if "silence_ratio" not in norm and "dropout_severity" in norm:
+        norm["silence_ratio"] = float(np.clip(norm["dropout_severity"] * 0.8, 0.0, 1.0))
+
+    return norm
 
 
 # ---------------------------------------------------------------------------
@@ -944,7 +1351,8 @@ class CausalDefectReasoner:
         else:
             sf = SpectralFeatures()
 
-        return self._infer(defect_scores, sf, material)
+        defect_scores_norm = _normalize_defect_scores(defect_scores)
+        return self._infer(defect_scores_norm, sf, material)
 
     # ------------------------------------------------------------------
     # Bayes-Inferenz

@@ -166,8 +166,35 @@ class SurfaceNoiseProfiling(PhaseInterface):
         start_time = time.time()
         self.validate_input(audio)
 
+        phase_locality_factor = float(kwargs.get("phase_locality_factor", 1.0))
+        phase_locality_factor = float(np.clip(phase_locality_factor, 0.35, 1.0))
+        _pmgg_strength = float(kwargs.get("strength", 1.0))
+        _effective_strength = float(np.clip(_pmgg_strength * phase_locality_factor, 0.0, 1.0))
+
+        if _effective_strength <= 0.0:
+            audio = np.nan_to_num(audio, nan=0.0, posinf=0.0, neginf=0.0)
+            audio = np.clip(audio, -1.0, 1.0)
+            return PhaseResult(
+                success=True,
+                audio=audio.copy(),
+                execution_time_seconds=time.time() - start_time,
+                metadata={
+                    "algorithm": "skipped_zero_strength",
+                    "material": material.name,
+                    "noise_reduction_db": 0.0,
+                    "phase_locality_factor": phase_locality_factor,
+                    "effective_strength": _effective_strength,
+                },
+                warnings=[],
+            )
+
         is_stereo = audio.ndim == 2
-        config = self.NOISE_CONFIG.get(material, self.NOISE_CONFIG[MaterialType.CD_DIGITAL])
+        config = dict(self.NOISE_CONFIG.get(material, self.NOISE_CONFIG[MaterialType.CD_DIGITAL]))
+        config["over_subtraction_alpha"] = float(1.0 + (config["over_subtraction_alpha"] - 1.0) * _effective_strength)
+        config["spectral_floor"] = float(
+            np.clip(1.0 - (1.0 - config["spectral_floor"]) * _effective_strength, 0.03, 1.0)
+        )
+        config["smoothing_frames"] = int(max(3, round(config["smoothing_frames"] + (1.0 - _effective_strength) * 6.0)))
 
         # Process each channel
         if is_stereo:
@@ -177,6 +204,9 @@ class SurfaceNoiseProfiling(PhaseInterface):
             avg_noise_db = (noise_db_left + noise_db_right) / 2
         else:
             denoised_audio, avg_noise_db = self._denoise_channel(audio, sample_rate, config)
+
+        if 0.0 < _effective_strength < 1.0:
+            denoised_audio = audio + _effective_strength * (denoised_audio - audio)
 
         execution_time = time.time() - start_time
         rt_factor = execution_time / (len(audio) / sample_rate)
@@ -192,6 +222,8 @@ class SurfaceNoiseProfiling(PhaseInterface):
                 "noise_reduction_db": float(avg_noise_db),
                 "over_subtraction_alpha": float(config["over_subtraction_alpha"]),
                 "rt_factor": float(rt_factor),
+                "phase_locality_factor": phase_locality_factor,
+                "effective_strength": _effective_strength,
             },
             warnings=[] if rt_factor < 0.30 else [f"Performance sub-optimal: {rt_factor:.2f}× realtime"],
         )

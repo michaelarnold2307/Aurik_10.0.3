@@ -341,7 +341,7 @@ class TestMusicalGoalsChecker14:
     def test_09_micro_dynamics_threshold_092(self):
         from backend.core.musical_goals.musical_goals_metrics import MusicalGoalsChecker
 
-        c = MusicalGoalsChecker()
+        c = MusicalGoalsChecker(mode="studio_2026")
         assert c.thresholds["micro_dynamics"] == 0.92
 
 

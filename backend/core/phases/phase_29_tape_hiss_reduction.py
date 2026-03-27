@@ -130,13 +130,13 @@ class TapeHissReductionPhase(PhaseInterface):
             return self._deepfilternet_plugin
 
         try:
-            from plugins.deepfilternet_v3_ii_plugin import DeepFilterNetV3IIPlugin
+            from plugins.deepfilternet_v3_ii_plugin import get_deepfilternet_plugin
 
-            self._deepfilternet_plugin = DeepFilterNetV3IIPlugin()
+            self._deepfilternet_plugin = get_deepfilternet_plugin()
             logger.info("✅ DeepFilterNet v3 II Plugin loaded for Tape Hiss Reduction")
             return self._deepfilternet_plugin
         except Exception as e:
-            logger.warning(f"⚠️  DeepFilterNet Plugin not available: {e}")
+            logger.warning("⚠️  DeepFilterNet Plugin not available: %s", e)
             logger.info("    Falling back to DSP-only hiss reduction")
             return None
 
@@ -223,6 +223,29 @@ class TapeHissReductionPhase(PhaseInterface):
         )
         hf_low, hf_high = _hf
 
+        # Locality-aware modulation from UV3.
+        # Sparse hiss-related defect coverage -> conservative denoising outside affected regions.
+        phase_locality_factor = float(kwargs.get("phase_locality_factor", 1.0))
+        phase_locality_factor = float(np.clip(phase_locality_factor, 0.35, 1.0))
+        _pmgg_strength = float(kwargs.get("strength", 1.0))
+        _effective_strength = float(np.clip(_pmgg_strength * phase_locality_factor, 0.0, 1.0))
+
+        if _effective_strength <= 0.0:
+            passthrough = np.nan_to_num(audio.copy(), nan=0.0, posinf=0.0, neginf=0.0)
+            passthrough = np.clip(passthrough, -1.0, 1.0)
+            return PhaseResult(
+                success=True,
+                audio=passthrough,
+                execution_time_seconds=time.time() - start_time,
+                metadata={
+                    "material": material.name,
+                    "processing": "skipped_zero_strength",
+                    "phase_locality_factor": phase_locality_factor,
+                    "effective_strength": _effective_strength,
+                },
+                warnings=["Tape hiss reduction skipped due to zero effective strength"],
+            )
+
         # Create frequency bands (logarithmic spacing)
         nyquist = sample_rate / 2
         np.logspace(np.log10(hf_low), np.log10(min(hf_high, nyquist * 0.95)), self.NUM_BANDS + 1)
@@ -237,7 +260,14 @@ class TapeHissReductionPhase(PhaseInterface):
             channel = audio[:, ch] if is_stereo else audio
 
             # STFT-OMLSA-Verarbeitung (HF-selektiv)
-            processed = self._process_channel_omlsa(channel, sample_rate, hf_low, hf_high, material)
+            processed = self._process_channel_omlsa(
+                channel,
+                sample_rate,
+                hf_low,
+                hf_high,
+                material,
+                intensity_scale=_effective_strength,
+            )
 
             if is_stereo:
                 audio_processed[:, ch] = processed
@@ -255,11 +285,15 @@ class TapeHissReductionPhase(PhaseInterface):
 
         # ML Refinement for HF (>2kHz) - if enabled and significant hiss present
         ml_refined = False
-        if use_ml and hf_reduction_db > 3:  # Only refine if significant hiss was removed
+        if use_ml and _effective_strength > 0.0 and hf_reduction_db > 3:  # Only refine if significant hiss was removed
             ml_success = self._refine_hf_with_ml(audio_processed, sample_rate)
             if ml_success:
                 ml_refined = True
                 logger.info("✅ ML HF refinement applied (DeepFilterNet): residual hiss removal >2kHz")
+
+        # Preserve PMGG strength control via wet/dry blending.
+        if 0.0 < _effective_strength < 1.0:
+            audio_processed = audio + _effective_strength * (audio_processed - audio)
 
         execution_time = time.time() - start_time
         rt_factor = execution_time / (len(audio) / sample_rate)
@@ -281,12 +315,20 @@ class TapeHissReductionPhase(PhaseInterface):
                 "algorithm": "IMCRA+OMLSA (Cohen 2002/2003)",
                 "ml_model": "DeepFilterNet v3 II" if ml_refined else None,
                 "rt_factor": float(rt_factor),
+                "phase_locality_factor": phase_locality_factor,
+                "effective_strength": _effective_strength,
             },
             warnings=[] if rt_factor < 0.12 else [f"Performance sub-optimal: {rt_factor:.2f}× realtime"],
         )
 
     def _process_channel_omlsa(
-        self, channel: np.ndarray, sample_rate: int, hf_low: float, hf_high: float, material: "MaterialType"
+        self,
+        channel: np.ndarray,
+        sample_rate: int,
+        hf_low: float,
+        hf_high: float,
+        material: "MaterialType",
+        intensity_scale: float = 1.0,
     ) -> np.ndarray:
         """STFT-OMLSA-Verarbeitung: HF-selektive Rauschunterdrückung (Cohen 2002/2003).
 
@@ -319,6 +361,9 @@ class TapeHissReductionPhase(PhaseInterface):
         }
         mat_name = getattr(material, "name", str(material)).upper()
         G_floor = G_floor_map.get(mat_name, 0.10)
+        intensity_scale = float(np.clip(intensity_scale, 0.0, 1.0))
+        # Raise floor towards 1.0 for conservative locality handling.
+        G_floor = float(np.clip(1.0 - intensity_scale * (1.0 - G_floor), 0.0, 1.0))
         q = 0.5  # Rausch-Präsenz-Prior
 
         # STFT

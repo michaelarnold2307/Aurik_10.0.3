@@ -203,6 +203,31 @@ class SpectralRepair(PhaseInterface):
         thresholds = self.DETECTION_THRESHOLDS.get(material, self.DETECTION_THRESHOLDS[MaterialType.CD_DIGITAL])
         repair_strength = self.REPAIR_STRENGTH.get(material, 0.75)
 
+        # Locality-aware modulation from UV3.
+        # Sparse defect coverage -> lower inpainting intensity to preserve unaffected texture.
+        phase_locality_factor = float(kwargs.get("phase_locality_factor", 1.0))
+        phase_locality_factor = float(np.clip(phase_locality_factor, 0.35, 1.0))
+        repair_strength = float(np.clip(repair_strength * phase_locality_factor, 0.0, 1.0))
+
+        if repair_strength <= 0.0:
+            passthrough = np.nan_to_num(audio.copy(), nan=0.0, posinf=0.0, neginf=0.0)
+            passthrough = np.clip(passthrough, -1.0, 1.0)
+            return PhaseResult(
+                success=True,
+                audio=passthrough,
+                execution_time_seconds=time.time() - start_time,
+                metadata={
+                    "material": material.name,
+                    "defect_reduction_percent": 0.0,
+                    "spectral_coherence": 1.0,
+                    "repair_strength": 0.0,
+                    "phase_locality_factor": phase_locality_factor,
+                    "rt_factor": 0.0,
+                    "nperseg": stft_cfg["nperseg"],
+                },
+                warnings=["Repair skipped due to zero effective strength"],
+            )
+
         # Process each channel
         if is_stereo:
             repaired_left = self._repair_channel(audio[:, 0], sample_rate, stft_cfg, thresholds, repair_strength)
@@ -229,6 +254,7 @@ class SpectralRepair(PhaseInterface):
                 "defect_reduction_percent": float(defect_reduction * 100),
                 "spectral_coherence": float(spectral_coherence),
                 "repair_strength": float(repair_strength),
+                "phase_locality_factor": phase_locality_factor,
                 "rt_factor": float(rt_factor),
                 "nperseg": stft_cfg["nperseg"],
             },

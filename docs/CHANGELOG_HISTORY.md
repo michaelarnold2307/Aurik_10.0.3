@@ -1,13 +1,31 @@
-# Aurik 9 — Spec-Änderungshistorie (v9.7.0 → v9.10.57)
+# Aurik 9 — Spec-Änderungshistorie (historische Entwicklung)
 
 > Diese Datei enthält die vollständige Changelog-Historie der
 > `copilot-instructions.md`-Spezifikation sowie Code-Releases. Sie wird nicht zur
 > Pipeline-Laufzeit gelesen — sie dient der Nachvollziehbarkeit
 > von Architekturentscheidungen für Entwickler und KI-Agenten.
 >
-> Stand: März 2026 — Aurik 9.10.57
+> Historische Versions- und Metrikangaben in dieser Datei sind bewusst als Zeitstände erhalten.
+>
+> Stand: März 2026 — Aurik 9.10.77
 
 ---
+
+## v9.10.77 (26. März 2026) — Mode-differenzierte Musical Goals + Priority-Aware PMGG
+
+- **instructions_version**: 3.0 → **3.1** (§2.29 Priority-Aware Retries, mode-differenzierte Schwellwerte)
+- **Spec 01 §1.2**: Schwellwert-Tabelle jetzt mit Spalten Restoration / Studio 2026 (Pareto-Differenzierung: P3–P5 gesenkt für Restoration)
+- **Spec 01 §2.29** (neu): Priority-Aware PMGG Retry-Budget — P1/P2 volle Kaskade, P3 max 2, P4/P5 kein Retry
+- **Spec 02 §2.29**: `_RETRY_STRENGTHS` 4 Stufen (Floor 0.25), `_PRIORITY_MAX_RETRIES`, `_PRIORITY_THRESHOLD_FACTOR`, Action `passed_p4p5_tolerated`
+- **Code** (`musical_goals_metrics.py`): `MusicalGoalsChecker(mode=)`, `get_mode_thresholds()`, `_THRESHOLDS_RESTORATION`, `_THRESHOLDS_STUDIO_2026`
+- **Code** (`per_phase_musical_goals_gate.py`): `_max_regression_priority_aware()`, Priority-Budget-Konstanten, Emergency nur P1/P2
+- **Code** (`unified_restorer_v3.py`, `aurik_denker.py`): Mode-Parameter an MusicalGoalsChecker durchgereicht
+
+## v9.10.76 (26. März 2026) — OOM-Recovery-Checkpoint-System
+
+- **Spec 02 §2.39** (neu): OOM-Recovery-Checkpoint-System — Checkpoint-Save + Startup-Resume
+- **Neues Modul**: `backend/core/recovery_checkpoint.py`
+- **Code**: UV3 MemoryError-Handler, `restore_from_checkpoint()`, Frontend Startup-Recovery
 
 ## v9.10.74 (25. März 2026) — Perceptual Salience + Denker-Differenzierung
 
@@ -129,7 +147,7 @@
 
 ---
 
-- §2.1: `CausalDefectReasoner` → **27 DefectTypes → 14 Kausal-Ursachen** (war: 24/11)
+- §2.1: `CausalDefectReasoner` → **27 DefectTypes → 14 Ursachen (historischer Zwischenstand)** (war: 24/11)
 - §2.2: DefectScanner-Zeile auf **27 DefectTypes** aktualisiert
 - §2.4: Ursachen-Liste um `riaa_curve_error`, `aliasing`, `bias_error` ergänzt
 - §6.3: DefectType-Vollkatalog auf **27 Defekte** erweitert; neuer Abschnitt

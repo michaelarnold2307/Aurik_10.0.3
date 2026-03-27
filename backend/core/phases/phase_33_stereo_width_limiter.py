@@ -152,6 +152,28 @@ class StereoWidthLimiterPhaseV2(PhaseInterface):
 
         self.validate_input(audio)
 
+        phase_locality_factor = float(kwargs.get("phase_locality_factor", 1.0))
+        phase_locality_factor = float(np.clip(phase_locality_factor, 0.35, 1.0))
+        _pmgg_strength = float(kwargs.get("strength", 1.0))
+        _effective_strength = float(np.clip(_pmgg_strength * phase_locality_factor, 0.0, 1.0))
+
+        if _effective_strength <= 0.0:
+            audio = np.nan_to_num(audio, nan=0.0, posinf=0.0, neginf=0.0)
+            audio = np.clip(audio, -1.0, 1.0)
+            return PhaseResult(
+                success=True,
+                audio=audio.copy(),
+                execution_time_seconds=time.time() - start_time,
+                metadata={
+                    "material": material.name,
+                    "algorithm": "skipped_zero_strength",
+                    "width_limiting_applied": False,
+                    "phase_locality_factor": phase_locality_factor,
+                    "effective_strength": _effective_strength,
+                },
+                metrics={"width_before": 0.0, "width_after": 0.0, "mono_compatibility": 1.0},
+            )
+
         # Check if stereo
         if audio.ndim != 2:
             audio = np.nan_to_num(audio, nan=0.0, posinf=0.0, neginf=0.0)
@@ -160,7 +182,13 @@ class StereoWidthLimiterPhaseV2(PhaseInterface):
                 success=True,
                 audio=audio,
                 execution_time_seconds=time.time() - start_time,
-                metadata={"material": material.name, "width_limiting_applied": False, "reason": "mono_audio"},
+                metadata={
+                    "material": material.name,
+                    "width_limiting_applied": False,
+                    "reason": "mono_audio",
+                    "phase_locality_factor": phase_locality_factor,
+                    "effective_strength": _effective_strength,
+                },
                 warnings=["Width limiting requires stereo audio"],
             )
 
@@ -178,7 +206,7 @@ class StereoWidthLimiterPhaseV2(PhaseInterface):
         transient_mask = self._detect_transients(mid, sample_rate)
 
         # Step 5: Per-band width limiting
-        max_widths = self.MAX_WIDTH_PER_BAND[material]
+        max_widths = [float(v * _effective_strength) for v in self.MAX_WIDTH_PER_BAND[material]]
         side_bands_limited = []
 
         band_metrics = []
@@ -195,6 +223,9 @@ class StereoWidthLimiterPhaseV2(PhaseInterface):
 
         # Step 7: M/S encode
         audio_limited = self._ms_encode(mid_final, side_limited)
+
+        if 0.0 < _effective_strength < 1.0:
+            audio_limited = audio + _effective_strength * (audio_limited - audio)
 
         # Step 8: Measure final width
         width_after = self._measure_overall_width(audio_limited)
@@ -222,6 +253,8 @@ class StereoWidthLimiterPhaseV2(PhaseInterface):
                 "algorithm": "psychoacoustic_multiband_limiting_v2",
                 "num_bands": 4,
                 "band_splits_hz": self.BAND_SPLITS,
+                "phase_locality_factor": phase_locality_factor,
+                "effective_strength": _effective_strength,
             },
             metrics={
                 "width_before": float(width_before),

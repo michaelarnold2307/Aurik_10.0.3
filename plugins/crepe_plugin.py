@@ -177,6 +177,12 @@ class CrepePlugin:
                 pass
         except Exception as exc:
             logger.debug("CREPE-ONNX nicht verfügbar (%s) — pYIN-Fallback aktiv", exc)
+            try:
+                from backend.core.ml_memory_budget import release as _release
+
+                _release("CREPE")
+            except Exception:
+                pass
 
     def analyze(self, audio: np.ndarray, sr: int) -> CrepeResult:
         """Analysiert den Grundton (F0) eines Audio-Signals.

@@ -1438,3 +1438,64 @@ def get_phase_defect_severity(phase_id: str, defect_scores: dict) -> float:
     # Floor at 0.15: even low-severity defects need minimum processing.
     # The phase was selected for a reason — never fully bypass.
     return max(0.15, min(1.0, max_severity))
+
+
+def get_phase_locality_factor(
+    phase_id: str,
+    defect_scores: dict,
+    defect_location_coverage_map: dict[str, float] | None,
+) -> float:
+    """Returns locality factor ∈ [0.35, 1.0] for a given phase.
+
+    Locality reduces global Wet/Dry intensity for sparse, event-like defects,
+    preserving timbre outside affected regions.
+
+    - Enhancement phases (not in reverse map) always return 1.0.
+    - Defect phases without location data default to 1.0.
+    - For event-like defects, per-defect curves are used:
+        factor = floor + (1 - floor) * coverage**gamma
+
+    where coverage is temporal defect coverage in [0, 1].
+    """
+    if not defect_location_coverage_map:
+        return 1.0
+
+    rmap = get_reverse_phase_map()
+    target_defects = rmap.get(phase_id)
+    if not target_defects:
+        return 1.0
+
+    # Per-defect locality curve parameters (floor, gamma).
+    # Lower floor + higher gamma => stronger damping for sparse events.
+    _LOCALITY_CURVES: dict[DefectType, tuple[float, float]] = {
+        DefectType.CLICKS: (0.30, 0.75),
+        DefectType.CRACKLE: (0.35, 0.85),
+        DefectType.DROPOUTS: (0.45, 1.10),
+        DefectType.CLIPPING: (0.35, 0.90),
+        DefectType.SIBILANCE: (0.30, 0.80),
+        DefectType.PRE_ECHO: (0.35, 0.90),
+        DefectType.TRANSIENT_SMEARING: (0.40, 1.00),
+        DefectType.TRANSPORT_BUMP: (0.40, 1.05),
+        DefectType.PRINT_THROUGH: (0.45, 1.00),
+    }
+
+    best_factor = 1.0
+    found_event_target = False
+
+    for dt in target_defects:
+        curve = _LOCALITY_CURVES.get(dt)
+        if curve is None:
+            continue
+        found_event_target = True
+        key = dt.value
+        coverage = float(defect_location_coverage_map.get(key, 1.0))
+        coverage = max(0.0, min(1.0, coverage))
+        floor, gamma = curve
+        fac = float(floor + (1.0 - floor) * (coverage**gamma))
+        best_factor = min(best_factor, fac)
+
+    if not found_event_target:
+        return 1.0
+
+    # Safety clamp.
+    return max(0.35, min(1.0, best_factor))

@@ -124,7 +124,27 @@ class AdvancedDereverbPhase(PhaseInterface):
         self.validate_input(audio)
         t0 = time.time()
 
-        strength: float = float(kwargs.get("strength", 0.7))
+        phase_locality_factor = float(kwargs.get("phase_locality_factor", 1.0))
+        phase_locality_factor = float(np.clip(phase_locality_factor, 0.35, 1.0))
+        effective_strength = float(kwargs.get("strength", 0.7)) * phase_locality_factor
+        effective_strength = float(np.clip(effective_strength, 0.0, 1.0))
+
+        if effective_strength <= 1e-6:
+            dry = np.nan_to_num(audio, nan=0.0, posinf=0.0, neginf=0.0)
+            dry = np.clip(dry, -1.0, 1.0)
+            return PhaseResult(
+                success=True,
+                audio=dry,
+                execution_time_seconds=time.time() - t0,
+                metadata={
+                    "algorithm": "skipped_zero_strength",
+                    "phase_locality_factor": phase_locality_factor,
+                    "effective_strength": 0.0,
+                },
+                metrics={"effective_strength": 0.0},
+            )
+
+        strength = effective_strength
         protect_transients: bool = bool(kwargs.get("protect_transients", True))
 
         is_stereo = audio.ndim == 2
@@ -158,6 +178,8 @@ class AdvancedDereverbPhase(PhaseInterface):
             metadata={
                 "algorithm": "wpe_spectral_dsp_v3_scipy_stft",
                 "strength": strength,
+                "phase_locality_factor": phase_locality_factor,
+                "effective_strength": effective_strength,
                 "wpe_delay": "adaptive_schroeder",
                 "wpe_order": "adaptive_schroeder",
                 "wpe_iterations": self._WPE_ITERATIONS,
@@ -166,7 +188,7 @@ class AdvancedDereverbPhase(PhaseInterface):
                 "rms_change_db": rms_change_db,
                 "protect_transients": protect_transients,
             },
-            metrics={"rms_change_db": rms_change_db, "strength": strength},
+            metrics={"rms_change_db": rms_change_db, "strength": strength, "effective_strength": effective_strength},
         )
 
     # ------------------------------------------------------------------

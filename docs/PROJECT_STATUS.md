@@ -1,23 +1,25 @@
-# 📊 Aurik 9.10.57 — Project Status Report
+# 📊 Aurik 9 — Project Status Report (Snapshot)
 
 **Datum:** März 2026  
-**Version:** 9.10.57  
+**Snapshot-Basis:** März-2026-Stand  
 **Status:** ✅ Produktionsbereit — Weltführendes Musik-Restaurierungssystem
+
+> Hinweis: Diese Datei enthält einen historischen Snapshot. Verbindlicher Ist-Stand ist in `.github/specs/01-08` und `docs/CHANGELOG_HISTORY.md` dokumentiert.
 
 ---
 
 ## Executive Summary
 
-**Aurik 9.10.57 ist das weltweit erste denkende Musik-Restaurierungssystem.**
+**Aurik 9.x.x ist ein denkendes Musik-Restaurierungssystem (historischer Snapshot).**
 
 | Kennzahl | Wert |
 |---|---|
-| Tests | **7.747+** — alle grün ✅ |
+| Tests | Snapshot-Zeitstand (historisch) |
 | Phasen | **56** (Phase 01–56, Defect-First) |
 | Materialien | **15** auto-erkannte Typen (inkl. wax_cylinder, wire_recording, lacquer_disc) |
 | Musical Goals | **14** psychoakustisch fundierte Ziele |
 | PQS MOS | **>= 4.0** (Minimum) / **>= 4.5** (Weltklasse) |
-| DefectTypes | **30** erkennbare Defektarten (inkl. WOW/FLUTTER getrennt, AZIMUTH_ERROR, SIBILANCE) |
+| DefectTypes | **32** erkennbare Defektarten |
 | Hardware | CPU-only, Desktop (Linux AppImage & Windows 10/11) |
 | Netzwerk | Keine Cloud, keine Serverabhängigkeiten — 100 % offline |
 
@@ -33,7 +35,7 @@
 | `PerceptualQualityScorer` | `core/perceptual_quality_scorer.py` | ✅ |
 | `MusicalGoalsChecker` (14 Ziele) | `backend/core/musical_goals/musical_goals_metrics.py` | ✅ |
 | `MediumClassifier` | `core/medium_classifier.py` | ✅ |
-| `DefectScanner` (30 DefectTypes) | `core/defect_scanner.py` | ✅ |
+| `DefectScanner` (32 DefectTypes) | `core/defect_scanner.py` | ✅ |
 | `VocalAIEnhancement` | `core/vocal_ai_enhancement.py` | ✅ |
 | `ExcellenceOptimizer` | `core/excellence_optimizer.py` | ✅ |
 | `FeedbackChain` | `core/feedback_chain.py` | ✅ |
@@ -177,7 +179,7 @@ ConsonantEnhancement: Frikative-SNR >= +3 dB · HF-Anhebung <= +6 dB · Crossfad
 | v9.10.48 | Infrastruktur: SBOM, GP-Backup, i18n-Tests, Export-Roundtrip | 6312 Tests |
 | v9.10.49 | Performance: SHA256-Cache, parallele Eingangs-Analyse, PMGG-Sample-Dauer, Warmup-Thread | 6312 Tests |
 | v9.10.50 | §Dach: MusikalischerGlobalplan, 13 Ära-Profile, Genre-Modifikatoren, 17 Phase-Adjustments | 6312 Tests |
-| v9.10.57 | §SR-Invariante: assert sample_rate==48000 lückenlos an allen API-Einstiegspunkten | 7.747+ Tests |
+| v9.10.x | §SR-Invariante: assert sample_rate==48000 lückenlos an allen API-Einstiegspunkten | historischer Teststand |
 
 ### 🔜 Geplant
 
@@ -245,4 +247,4 @@ Dithering: POW-r Typ 3 bei 24->16-bit; Fallback: TPDF
 
 ---
 
-*Aurik 9.10.57 — März 2026*
+*Aurik 9.x.x — März 2026 (Snapshot)*

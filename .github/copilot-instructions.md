@@ -2,9 +2,9 @@
 
 > **Systemidentität**: Aurik 9.x.x ist ein *weltweit erstmaliges intelligentes,
 > kontextbewusstes Musik- und Gesangs-Restaurations-, Reparatur- und
-> Rekonstruktions-Denkersystem.* Stand: März 2026 — Version **9.10.76**
+> Rekonstruktions-Denkersystem.* Stand: März 2026 — Version **9.10.77**
 >
-> **instructions_version: 3.0** — komprimiert 26.03.2026
+> **instructions_version: 3.1** — komprimiert 26.03.2026
 >
 > Bump-Regel: neue RELEASE_MUST-Zeile, neues Gate oder §-Änderung → `instructions_version` inkrementieren + `docs/CHANGELOG_HISTORY.md` Eintrag.
 >
@@ -63,24 +63,26 @@ Gate-zuordnung (aktuell implementierte CI-Guards):
 - Nur **Mono und Stereo** unterstützt (> 2 Kanäle → PANNs-gewichteter Downmix)
 - **Kein Fremdedit am Original-Audio** — immer neue Ausgabedatei in `output/`
 
-## [RELEASE_MUST] 14 Musical Goals (Pflicht-Schwellwerte)
+## [RELEASE_MUST] 14 Musical Goals (Mode-differenzierte Schwellwerte, v9.10.77)
 
-| Ziel | Klasse | Min. | Studio 2026 |
-|---|---|---|---|
-| Brillanz | `BrillanzMetric` | ≥ 0.85 | ≥ 0.90 |
-| Wärme | `WaermeMetric` | ≥ 0.80 | ≥ 0.80 |
-| Natürlichkeit | `NatuerlichkeitMetric` | ≥ 0.90 | ≥ 0.90 |
-| Authentizität | `AuthentizitaetMetric` | ≥ 0.88 | ≥ 0.88 |
-| Emotionalität | `EmotionalitaetMetric` | ≥ 0.87 | ≥ 0.87 |
-| Transparenz | `TransparenzMetric` | ≥ 0.89 | ≥ 0.89 |
-| Bass-Kraft | `BassKraftMetric` | ≥ 0.85 | ≥ 0.88 |
-| Groove | `GrooveMetric` | ≥ 0.88 | ≥ 0.88 |
-| Raumtiefe | `SpatialDepthMetric` | ≥ 0.75 | ≥ 0.75 |
-| Timbre-Authentizität | `TimbralAuthenticityMetric` | ≥ 0.87 | ≥ 0.87 |
-| Tonales Zentrum | `TonalCenterMetric` | ≥ 0.95 | ≥ 0.97 |
-| Mikro-Dynamik | `MicroDynamicsMetric` | ≥ 0.92 | ≥ 0.92 |
-| Separation-Treue | `SeparationFidelityMetric` | ≥ 0.82 | ≥ 0.82 |
-| Artikulation | `ArticulationMetric` | ≥ 0.85 | ≥ 0.85 |
+| Ziel | Klasse | Prio | Restoration | Studio 2026 |
+|---|---|---|---|---|
+| Natürlichkeit | `NatuerlichkeitMetric` | P1 | ≥ 0.90 | ≥ 0.90 |
+| Authentizität | `AuthentizitaetMetric` | P1 | ≥ 0.88 | ≥ 0.88 |
+| Tonales Zentrum | `TonalCenterMetric` | P2 | ≥ 0.95 | ≥ 0.97 |
+| Timbre-Authentizität | `TimbralAuthenticityMetric` | P2 | ≥ 0.87 | ≥ 0.87 |
+| Artikulation | `ArticulationMetric` | P2 | ≥ 0.85 | ≥ 0.85 |
+| Emotionalität | `EmotionalitaetMetric` | P3 | ≥ 0.82 | ≥ 0.87 |
+| Mikro-Dynamik | `MicroDynamicsMetric` | P3 | ≥ 0.88 | ≥ 0.92 |
+| Groove | `GrooveMetric` | P3 | ≥ 0.83 | ≥ 0.88 |
+| Transparenz | `TransparenzMetric` | P4 | ≥ 0.82 | ≥ 0.89 |
+| Wärme | `WaermeMetric` | P4 | ≥ 0.75 | ≥ 0.80 |
+| Bass-Kraft | `BassKraftMetric` | P4 | ≥ 0.78 | ≥ 0.85 |
+| Separation-Treue | `SeparationFidelityMetric` | P4 | ≥ 0.78 | ≥ 0.82 |
+| Brillanz | `BrillanzMetric` | P5 | ≥ 0.78 | ≥ 0.85 |
+| Raumtiefe | `SpatialDepthMetric` | P5 | ≥ 0.70 | ≥ 0.75 |
+
+> **v9.10.77 Pareto-Differenzierung**: Restoration-Modus senkt P3–P5-Schwellwerte auf physikalisch erreichbare Werte (Pareto-Konflikte: Bass↔Transparenz [0.7], Brillanz↔Wärme [0.6]). P1/P2 bleiben identisch. Studio 2026 behält ambitionierte Ziele.
 
 > **SpatialDepthMetric**: IACC (Blauert 1997), < 0.70 → Phantom-Center-Zusammenbruch. Mono-Ären: via GoalApplicabilityFilter deaktiviert. Alle 14 Schwellwerte AMRB-kalibriert; MUSHRA-Test ausstehend.
 
@@ -92,7 +94,12 @@ Gate-zuordnung (aktuell implementierte CI-Guards):
 - `BassKraftMetric`: enthält Virtual Pitch (Missing Fundamental) via Oberton-Analyse 120–500 Hz
 - `SeparationFidelityMetric`: SDR ≥ 8 dB / SIR ≥ 12 dB nach NMF-Dekomposition
 
-**Invariante**: Jede Restaurierungsoperation darf keines der 14 Ziele verschlechtern. Pflicht-Check: `MusicalGoalsChecker().measure_all(audio, sr)` → `assert all(scores[g] >= t for g, t in checker.thresholds.items())`.
+**Invariante**: Jede Restaurierungsoperation darf keines der 14 Ziele verschlechtern. Pflicht-Check: `MusicalGoalsChecker(mode=mode).measure_all(audio, sr)` → `assert all(scores[g] >= t for g, t in checker.thresholds.items())`.
+
+**PMGG Priority-Aware Retries (§2.29 v9.10.77)**:
+- P1/P2-Regression: Volle Retry-Kaskade (4 Retries + Emergency)
+- P3-Regression: Max 2 Retries, 1.5× Regression-Toleranz
+- P4/P5-Regression: Kein Retry — nur Logging (`passed_p4p5_tolerated`)
 
 ## [RELEASE_MUST] Qualitätsmessung & Metriken-System (§8.1 — PFLICHT)
 
@@ -167,7 +174,7 @@ Kein direktes Aufrufen von `UnifiedRestorerV3.restore()` aus dem Frontend — im
 
 Kontextfluss: `defect_result → ReparaturDenker → RekonstruktionsDenker(+defect_result) → RestaurierDenker(+reconstruction_context) → UV3`
 
-UV3-Kernreihenfolge: DCOffset-Removal → TDP (HPSS) → RestorabilityEstimator → EraClassifier → MediumClassifier → GoalApplicabilityFilter → AdaptiveGoalThresholds → DefectScanner (28 Defekte) → CausalDefectReasoner (14 Ursachen) → GPParameterOptimizer → HarmonicPreservationGuard → Phasen-Ausführung (01–56) → FeedbackChain → PhysicalCeilingEstimator → MusicalGoalsChecker → MicroDynamicsEnvelopeMorphing → RestorationResult
+UV3-Kernreihenfolge: DCOffset-Removal → TDP (HPSS) → RestorabilityEstimator → EraClassifier → MediumClassifier → GoalApplicabilityFilter → AdaptiveGoalThresholds → DefectScanner (32 Defekte) → CausalDefectReasoner (34 Kausal-Ursachen) → GPParameterOptimizer → HarmonicPreservationGuard → Phasen-Ausführung (01–56) → FeedbackChain → PhysicalCeilingEstimator → MusicalGoalsChecker → MicroDynamicsEnvelopeMorphing → RestorationResult
 
 **Parallelisierungs-Invariante**: Tier 0+1 sequenziell; EraClassifier+GermanSchlager+MediumClassifier parallel (`ThreadPoolExecutor max_workers=3`); Tier 6 sequenziell.
 

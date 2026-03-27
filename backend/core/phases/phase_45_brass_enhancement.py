@@ -143,21 +143,69 @@ class BrassEnhancementPhase(PhaseInterface):
         self.validate_input(audio)
         t0 = time.time()
 
+        phase_locality_factor: float = float(kwargs.get("phase_locality_factor", 1.0))
+        phase_locality_factor = float(np.clip(phase_locality_factor, 0.35, 1.0))
+        _pmgg_strength: float = float(kwargs.get("strength", 1.0))
+        _effective_strength: float = float(np.clip(_pmgg_strength * phase_locality_factor, 0.0, 1.0))
+
+        if _effective_strength <= 0.0:
+            audio = np.nan_to_num(audio, nan=0.0, posinf=0.0, neginf=0.0)
+            audio = np.clip(audio, -1.0, 1.0)
+            return PhaseResult(
+                success=True,
+                audio=audio.astype(audio.dtype),
+                execution_time_seconds=time.time() - t0,
+                metadata={
+                    "algorithm": "skipped_zero_strength",
+                    "phase_locality_factor": phase_locality_factor,
+                    "effective_strength": _effective_strength,
+                },
+                metrics={"gain_h2": 0.0, "presence_db": 0.0, "air_db": 0.0},
+            )
+
         gain_h2: float = float(kwargs.get("gain_h2", 0.04))
         presence_db: float = float(kwargs.get("presence_db", 2.5))
         air_db: float = float(kwargs.get("air_db", 1.8))
+        gain_h2 = float(gain_h2 * _effective_strength)
+        presence_db = float(presence_db * _effective_strength)
+        air_db = float(air_db * _effective_strength)
 
         x = audio.astype(np.float64)
 
-        # 1. Harmonic Exciter: Vollwellengleichrichter → H2-Anreicherung
-        #    |x| enthält hauptsächlich 2nd + 4th Oberton.
-        #    Vor Addition: Hochpass (>500 Hz) um LF-Mud zu vermeiden
-        sos_hp = sig.butter(2, 500.0, btype="high", fs=sample_rate, output="sos")
-        if x.ndim == 1:
-            h2 = sig.sosfilt(sos_hp, np.abs(x))
-        else:
-            h2 = np.column_stack([sig.sosfilt(sos_hp, np.abs(x[:, ch])) for ch in range(x.shape[1])])
-        x = x + gain_h2 * h2
+        # 1. Phase-Coherent Harmonic Exciter for Brass H2
+        #    OLD (WRONG): |x| via full-wave rectifier → produces only even harmonics,
+        #      BUT without preserving phase of the fundamental → wrong phase relationship,
+        #      sounds phasey not warm
+        #    NEW (CORRECT): Hilbert-based instantaneous phase → compute H2 with 2× phase
+        #      x(t) = A(t)*cos(φ(t))  →  H2(t) = A(t)*cos(2φ(t))
+        #      This inserts the second harmonic at the correct phase relationship to the fundamental.
+        #    Band-limited to 500–4000 Hz HP-filtered copy to avoid LF mud.
+        try:
+            from scipy.signal import hilbert as _hilbert
+            sos_bp = sig.butter(2, [300.0, 4000.0], btype="band", fs=sample_rate, output="sos")
+            if x.ndim == 1:
+                x_bp = sig.sosfilt(sos_bp, x)
+                analytic = _hilbert(x_bp)
+                amplitude = np.abs(analytic)
+                phase = np.unwrap(np.angle(analytic))
+                h2 = amplitude * np.cos(2.0 * phase)
+            else:
+                channels = []
+                for ch in range(x.shape[1]):
+                    x_bp = sig.sosfilt(sos_bp, x[:, ch])
+                    analytic = _hilbert(x_bp)
+                    h2_ch = np.abs(analytic) * np.cos(2.0 * np.unwrap(np.angle(analytic)))
+                    channels.append(h2_ch)
+                h2 = np.column_stack(channels)
+            x = x + gain_h2 * h2
+        except Exception:
+            # Fallback: classic rectifier if hilbert fails (e.g. very short signal)
+            sos_hp = sig.butter(2, 500.0, btype="high", fs=sample_rate, output="sos")
+            if x.ndim == 1:
+                h2_fb = sig.sosfilt(sos_hp, np.abs(x))
+            else:
+                h2_fb = np.column_stack([sig.sosfilt(sos_hp, np.abs(x[:, ch])) for ch in range(x.shape[1])])
+            x = x + gain_h2 * h2_fb
 
         # 2. Presence-EQ (2.5 kHz, +presence_db dB, Q=2)
         x = _peaking_eq(x, sample_rate, freq=2500.0, gain_db=presence_db, q=2.0)
@@ -233,11 +281,20 @@ class BrassEnhancementPhase(PhaseInterface):
         except Exception as _pr_exc:
             logger.debug("Phase 45 physics resonance skipped: %s", _pr_exc)
 
+        if 0.0 < _effective_strength < 1.0 and processed.shape == audio.shape:
+            processed = audio + _effective_strength * (processed - audio)
+
         return PhaseResult(
             success=True,
             audio=processed,
             execution_time_seconds=time.time() - t0,
-            metadata={"gain_h2": gain_h2, "presence_db": presence_db, "air_db": air_db,
-                      "instrument_formant_frames": igt_frames},
+            metadata={
+                "gain_h2": gain_h2,
+                "presence_db": presence_db,
+                "air_db": air_db,
+                "instrument_formant_frames": igt_frames,
+                "phase_locality_factor": phase_locality_factor,
+                "effective_strength": _effective_strength,
+            },
             metrics={"gain_h2": gain_h2, "presence_db": presence_db, "air_db": air_db},
         )

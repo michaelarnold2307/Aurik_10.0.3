@@ -1,8 +1,8 @@
-# Aurik 9.10.57 — Installation Guide
+# Aurik 9.x.x — Installation Guide
 
-**Version:** 9.10.57  
+**Version:** 9.10.77c  
 **Datum:** März 2026  
-**Status:** ✅ Production Ready (7.747+ Tests grün)
+**Status:** ✅ Production Ready
 
 > **Hinweis**: Aurik 9.x.x ist eine **Desktop-App** für **Linux** (AppImage) und **Windows 10/11** (.exe).
 > Es wird kein Python, kein Terminal und keine Internetverbindung benötigt.

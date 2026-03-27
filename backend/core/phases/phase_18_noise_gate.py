@@ -165,12 +165,12 @@ class NoiseGate(PhaseInterface):
         """Lazy load Silero VAD plugin for ML-based voice activity detection."""
         if self._silero_vad is None:
             try:
-                from plugins.silero_plugin import SileroVADPlugin
+                from plugins.silero_plugin import get_silero_plugin
 
-                self._silero_vad = SileroVADPlugin()
+                self._silero_vad = get_silero_plugin()
                 logger.info("Silero VAD plugin loaded successfully")
             except Exception as e:
-                logger.warning(f"Failed to load Silero VAD plugin: {e}")
+                logger.warning("Failed to load Silero VAD plugin: %s", e)
                 self._silero_vad = False  # Mark as unavailable
 
         return self._silero_vad if self._silero_vad is not False else None
@@ -221,8 +221,32 @@ class NoiseGate(PhaseInterface):
         start_time = time.time()
         self.validate_input(audio)
 
+        phase_locality_factor = float(kwargs.get("phase_locality_factor", 1.0))
+        phase_locality_factor = float(np.clip(phase_locality_factor, 0.35, 1.0))
+        _pmgg_strength = float(kwargs.get("strength", 1.0))
+        _effective_strength = float(np.clip(_pmgg_strength * phase_locality_factor, 0.0, 1.0))
+
         is_stereo = audio.ndim == 2
-        config = self.GATE_CONFIG.get(material, self.GATE_CONFIG[MaterialType.CD_DIGITAL])
+        config = dict(self.GATE_CONFIG.get(material, self.GATE_CONFIG[MaterialType.CD_DIGITAL]))
+        config["reductions_db"] = [float(r * _effective_strength) for r in config["reductions_db"]]
+
+        if _effective_strength <= 0.0:
+            passthrough = np.nan_to_num(audio.copy(), nan=0.0, posinf=0.0, neginf=0.0)
+            passthrough = np.clip(passthrough, -1.0, 1.0)
+            return PhaseResult(
+                success=True,
+                audio=passthrough,
+                execution_time_seconds=time.time() - start_time,
+                metadata={
+                    "material": material.name,
+                    "noise_reduction_db": 0.0,
+                    "bands": len(config["thresholds_db"]),
+                    "phase_locality_factor": phase_locality_factor,
+                    "effective_strength": _effective_strength,
+                    "processing": "skipped_zero_strength",
+                    "rt_factor": 0.0,
+                },
+            )
 
         # Process each channel
         if is_stereo:
@@ -263,6 +287,9 @@ class NoiseGate(PhaseInterface):
 
         gated_audio = np.nan_to_num(gated_audio, nan=0.0, posinf=0.0, neginf=0.0)
         gated_audio = np.clip(gated_audio, -1.0, 1.0)
+        if 0.0 < _effective_strength < 1.0:
+            gated_audio = audio + _effective_strength * (gated_audio - audio)
+            gated_audio = np.clip(gated_audio, -1.0, 1.0)
         return PhaseResult(
             success=True,
             audio=gated_audio,
@@ -271,6 +298,8 @@ class NoiseGate(PhaseInterface):
                 "material": material.name,
                 "noise_reduction_db": float(noise_reduction_db),
                 "bands": len(config["thresholds_db"]),
+                "phase_locality_factor": phase_locality_factor,
+                "effective_strength": _effective_strength,
                 "rt_factor": float(rt_factor),
             },
             warnings=[] if rt_factor < 0.18 else [f"Performance sub-optimal: {rt_factor:.2f}× realtime"],

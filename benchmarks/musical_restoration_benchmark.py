@@ -356,6 +356,9 @@ class BenchmarkReport:
     run_seed: int = 42
     aurik_version: str = _AURIK_VERSION
     report_sha256: str = ""  # computed after serialisation; empty until _sign() called
+    external_validation_dataset: str = ""
+    external_validation_ready: bool = False
+    external_validation_notes: str = "Synthetic-only AMRB run; external dataset validation pending."
 
     def passes_os_leadership_threshold(self) -> bool:
         """Prüft ob das System OS-Führerschaft-Niveau erreicht.
@@ -363,6 +366,14 @@ class BenchmarkReport:
         OS-Führerschaft = overall_score ≥ 84.0 UND n_passed ≥ 8/10.
         """
         return self.overall_score >= 84.0 and self.n_passed >= 8
+
+    def n_external_scenarios(self) -> int:
+        """Return number of externally validated scenarios in this report."""
+        return sum(1 for r in self.scenario_results.values() if str(r.scenario_type).lower() == "external")
+
+    def is_leadership_claim_external_ready(self, min_external_scenarios: int = 3) -> bool:
+        """Return True if leadership claim is backed by external validation evidence."""
+        return self.passes_os_leadership_threshold() and self.n_external_scenarios() >= int(min_external_scenarios)
 
     def as_dict(self) -> dict:
         """Serialisation format for JSON export (excludes report_sha256 for signing)."""
@@ -384,6 +395,13 @@ class BenchmarkReport:
             "best_scenario": self.best_scenario,
             "worst_scenario": self.worst_scenario,
             "os_leadership": self.passes_os_leadership_threshold(),
+            "external_validation": {
+                "dataset": self.external_validation_dataset,
+                "n_external_scenarios": self.n_external_scenarios(),
+                "ready": bool(self.external_validation_ready),
+                "leadership_claim_ready": self.is_leadership_claim_external_ready(),
+                "notes": self.external_validation_notes,
+            },
             "scenarios": {
                 sid: {
                     "description": r.description,

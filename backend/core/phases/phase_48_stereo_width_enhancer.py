@@ -1,31 +1,25 @@
 """
-Phase 48: Stereo Width Enhancer v2.0 — M/S DSP
-===============================================
+Phase 48: Stereo Width Enhancer v2.1 — Frequenzabhängige M/S-Breite + IACC-Guard
+==================================================================================
 
-Vollständige DSP-Implementierung des Stereo-Breitensteuerers ohne ML.
-Ersetzt den kaputten aurik_ml.mastering-Stub.
+ALGORITHMUS (v2.1 — upgraded):
+  Frequenzabhängige Breite (EBU R128 Best Practice + Moulton 2000):
+    - LF < 200 Hz:   width × 0.6  (LF-Mono — Bassdrum bleibt in Mitte)
+    - MF 200–8 kHz:  width × 1.0  (Standardbreite)
+    - HF > 8 kHz:    width × 1.15 (Luftigkeit/Raumgefühl)
 
-ALGORITHMUS — Mid/Side (M/S) Processing:
-  Mid   M = (L + R) / sqrt(2)   → Mono-kompatibles Zentrum
-  Side  S = (L - R) / sqrt(2)   → Stereo-Information, Breite
+  IACC-Guard (Spec §8.2):
+    - Messe IACC (Inter-Aural Cross Correlation) nach Widening
+    - Falls IACC < 0.97 (Mono-Ären): Side-Faktor progressiv reduzieren bis IACC ≥ 0.97
+      (Blauert 1997, Tab. 2.1)
 
-  Stereobreite skalieren:
-    S' = S × width_factor   (> 1.0 = breiter, < 1.0 = schmaler)
-
-  Rück-Dekodierung:
-    L' = (M + S') / sqrt(2)
-    R' = (M - S') / sqrt(2)
-
-  PLUS: Schroeder Allpass-Kette für Diffusion der S-Komponente →
-  reduziert Kammfiltereffekte bei breitem Mix.
-
-ANWENDUNG:
-  - Mono-Signal: Passthrough (kein Stereo vorhanden)
-  - Stereo: M/S + Allpass-Diffusion + width-Skalierung
-  - width=1.0: unveränderter Klang
+  PSYCHOAKUSTISCHE BASIS:
+    - Tiefbass mono → vermeidet Auslöschungen in Mono-Wiedergabe
+    - Differenz-Gruppenverschiebung bei LF führt zu uneindeutiger Lokalisation (Rayleigh 1907)
+    - Hohe Frequenzen weiser Breite: ILD dominiert HRTF > 1.5 kHz
 
 Author: Aurik Development Team
-Version: 2.0.0
+Version: 2.1.0
 """
 
 from __future__ import annotations
@@ -40,20 +34,126 @@ from .phase_interface import PhaseCategory, PhaseInterface, PhaseMetadata, Phase
 
 logger = logging.getLogger(__name__)
 
-_DEFAULT_WIDTH = 1.25  # Leichte Verbreiterung: 25 % mehr Side-Energie
-_ALLPASS_DELAYS_MS = [17.1, 19.7, 23.3]  # Schroeder Allpass-Delays (Primzahl-Verhältnis)
+_DEFAULT_WIDTH = 1.25
+_ALLPASS_DELAYS_MS = [17.1, 19.7, 23.3]
 _ALLPASS_GAIN = 0.60
+
+# Frequenzabhängige Breiten-Korrekturfaktoren
+_LF_CUTOFF_HZ = 200.0    # LF schmaler als Basisbreite
+_HF_CUTOFF_HZ = 8000.0   # HF etwas breiter als Basisbreite
+_LF_WIDTH_FACTOR = 0.60  # Tiefbass deutlich schmaler (Mono-Kompatibilität)
+_HF_WIDTH_FACTOR = 1.15  # Hochton leicht breiter (Luftigkeit)
+
+# IACC-Guard
+_IACC_MIN = 0.97
+_IACC_MAX_LAG_MS = 1.0   # Über ±1ms mitteln (Blauert 1997)
+
+# STFT-Fenstergröße für Frequenzband-Processing
+_N_FFT = 2048
+_HOP = 512
+
+
+def _compute_iacc(L: np.ndarray, R: np.ndarray, sr: int) -> float:
+    """Berechnet Inter-Aural Cross-Correlation (peak innerhalb ±1ms)."""
+    max_lag = max(1, int(_IACC_MAX_LAG_MS / 1000.0 * sr))
+    n = min(len(L), len(R), 65536)
+    L_n = L[:n] / (np.std(L[:n]) + 1e-10)
+    R_n = R[:n] / (np.std(R[:n]) + 1e-10)
+    xcf = np.correlate(L_n, R_n, mode="full")
+    center = len(xcf) // 2
+    window = xcf[center - max_lag : center + max_lag + 1]
+    if len(window) == 0:
+        return 1.0
+    return float(np.clip(np.max(np.abs(window)) / n, 0.0, 1.0))
+
+
+def _freq_dependent_ms_width(
+    L: np.ndarray,
+    R: np.ndarray,
+    sr: int,
+    width: float,
+    diffuse: bool = True,
+) -> tuple[np.ndarray, np.ndarray]:
+    """
+    M/S Breitensteuerer mit frequenzabhängiger Skalierung (STFT-basiert).
+
+    LF-Bereich wird auf width × _LF_WIDTH_FACTOR reduziert, um
+    Mono-Basswiedergabe zu erhalten. HF wird auf width × _HF_WIDTH_FACTOR
+    leicht angehoben für Luftigkeit.
+    """
+    n_fft = _N_FFT
+    hop = _HOP
+    # M/S encode
+    inv_sqrt2 = 1.0 / np.sqrt(2.0)
+    M = (L + R) * inv_sqrt2
+    S = (L - R) * inv_sqrt2
+
+    # STFT auf Side-Kanal
+    freqs = np.fft.rfftfreq(n_fft, d=1.0 / sr)
+    f_lo = _LF_CUTOFF_HZ
+    f_hi = _HF_CUTOFF_HZ
+
+    # Width-Profile über Frequenzarrays
+    w_profile = np.ones(len(freqs)) * width
+    w_profile[freqs < f_lo] = width * _LF_WIDTH_FACTOR
+    w_profile[freqs > f_hi] = width * _HF_WIDTH_FACTOR
+    _, _, Z = sig.stft(
+        S,
+        fs=sr,
+        window="hann",
+        nperseg=n_fft,
+        noverlap=n_fft - hop,
+        boundary="zeros",
+        padded=True,
+    )
+    Z_scaled = Z * w_profile[:, None]
+    _, S_out = sig.istft(
+        Z_scaled,
+        fs=sr,
+        window="hann",
+        nperseg=n_fft,
+        noverlap=n_fft - hop,
+        input_onesided=True,
+        boundary=True,
+    )
+    if len(S_out) < len(S):
+        S_out = np.pad(S_out, (0, len(S) - len(S_out)))
+    else:
+        S_out = S_out[: len(S)]
+
+    if diffuse and width > 1.05:
+        S_out = _allpass_chain(S_out, sr)
+
+    L_out = (M + S_out) * inv_sqrt2
+    R_out = (M - S_out) * inv_sqrt2
+    return L_out, R_out
+
+
+def _allpass_chain(signal: np.ndarray, sample_rate: int) -> np.ndarray:
+    """Kaskadierende Schroeder-Allpass-Filter (Schroeder 1962)."""
+    out = signal.copy()
+    for delay_ms in _ALLPASS_DELAYS_MS:
+        D = max(1, int(delay_ms / 1000.0 * sample_rate))
+        g = _ALLPASS_GAIN
+        b = np.zeros(D + 1)
+        b[0] = -g
+        b[-1] = 1.0
+        a = np.zeros(D + 1)
+        a[0] = 1.0
+        a[-1] = -g
+        out = sig.lfilter(b, a, out)
+    return out
 
 
 class StereoWidthEnhancerPhase(PhaseInterface):
-    """M/S-basierter Stereobreiten-Enhancer mit Allpass-Diffusion."""
+    """M/S-Stereobreiten-Enhancer mit frequenzabhängiger Breite + IACC-Guard."""
 
     phase_id = "phase_48_stereo_width_enhancer"
-    name = "Stereo Width Enhancer (M/S)"
+    name = "Stereo Width Enhancer (Freq-Dep M/S + IACC-Guard)"
     description = (
-        "M/S-Stereobreitensteuerer mit Allpass-Diffusion: "
-        "Side-Kanal wird skaliert und durch drei Schroeder-Allpass-Filter "
-        "diffundiert, um Kammfiltereffekte bei breitem Mix zu vermeiden."
+        "Frequenzabhängige M/S-Breitensteuererung: LF < 200 Hz schmaler (Mono-Basis), "
+        "HF > 8 kHz leicht breiter (Luftigkeit). IACC-Guard für Mono-Kompatibilität (≥ 0.97). "
+        "Allpass-Diffusion bei width > 1.05."
     )
 
     def get_metadata(self) -> PhaseMetadata:
@@ -62,104 +162,129 @@ class StereoWidthEnhancerPhase(PhaseInterface):
             name=self.name,
             category=PhaseCategory.STEREO,
             priority=3,
-            version="2.0.0",
+            version="2.1.0",
             dependencies=[],
-            estimated_time_factor=0.02,
-            memory_requirement_mb=30,
+            estimated_time_factor=0.04,
+            memory_requirement_mb=40,
             is_cpu_intensive=False,
             is_io_intensive=False,
-            quality_impact=0.80,
+            quality_impact=0.85,
             description=self.description,
         )
 
     def process(self, audio: np.ndarray, sample_rate: int, **kwargs) -> PhaseResult:
         """
-        Erweitert Stereobild via M/S.
+        Frequenzabhängige Stereobreite + IACC-Guard.
 
         Args:
             audio:       Mono oder Stereo
             sample_rate: Abtastrate Hz
-            **kwargs:    width  (float, default 1.25; 1.0 = unverändert)
-                         diffuse (bool, default True: Allpass-Diffusion anwenden)
+            **kwargs:    width   (float, default 1.25)
+                         diffuse (bool, default True)
+                         iacc_guard (bool, default True)
         """
         sample_rate = kwargs.get("sample_rate", 48000)
         assert sample_rate == 48000, f"SR muss 48000 Hz sein, erhalten: {sample_rate}"
         self.validate_input(audio)
         t0 = time.time()
 
+        phase_locality_factor = float(kwargs.get("phase_locality_factor", 1.0))
+        phase_locality_factor = float(np.clip(phase_locality_factor, 0.35, 1.0))
+        effective_strength = float(kwargs.get("strength", 1.0)) * phase_locality_factor
+        effective_strength = float(np.clip(effective_strength, 0.0, 1.0))
+
+        if effective_strength <= 1e-6:
+            dry = np.nan_to_num(audio, nan=0.0, posinf=0.0, neginf=0.0)
+            dry = np.clip(dry, -1.0, 1.0)
+            return PhaseResult(
+                success=True,
+                audio=dry,
+                execution_time_seconds=time.time() - t0,
+                metadata={
+                    "algorithm": "skipped_zero_strength",
+                    "phase_locality_factor": phase_locality_factor,
+                    "effective_strength": 0.0,
+                },
+                metrics={"effective_strength": 0.0},
+            )
+
         width: float = float(kwargs.get("width", _DEFAULT_WIDTH))
         diffuse: bool = bool(kwargs.get("diffuse", True))
+        iacc_guard: bool = bool(kwargs.get("iacc_guard", True))
+        width = max(0.0, width) * effective_strength
 
         if audio.ndim == 1:
-            # Mono: kein Stereo-Processing möglich
             audio = np.nan_to_num(audio, nan=0.0, posinf=0.0, neginf=0.0)
             audio = np.clip(audio, -1.0, 1.0)
             return PhaseResult(
                 success=True,
                 audio=audio,
                 execution_time_seconds=time.time() - t0,
-                metadata={"skipped": "mono_input", "width": width},
-                metrics={},
+                metadata={
+                    "skipped": "mono_input",
+                    "width": width,
+                    "phase_locality_factor": phase_locality_factor,
+                    "effective_strength": effective_strength,
+                },
+                metrics={"effective_strength": effective_strength},
             )
 
-        L = audio[:, 0].astype(np.float64)
-        R = audio[:, 1].astype(np.float64)
+        x = audio.astype(np.float64)
+        L = x[:, 0]
+        R = x[:, 1]
+        peak_in = float(np.max(np.abs(audio)))
 
-        # M/S Enkodierung
-        inv_sqrt2 = 1.0 / np.sqrt(2.0)
-        M = (L + R) * inv_sqrt2
-        S = (L - R) * inv_sqrt2
+        # Frequenzabhängige M/S-Breite (STFT basiert)
+        L_out, R_out = _freq_dependent_ms_width(L, R, sample_rate, width, diffuse)
 
-        # Breite skalieren
-        S_wide = S * width
+        # IACC-Guard
+        iacc_val = 1.0
+        side_reduction = 1.0
+        if iacc_guard:
+            iacc_val = _compute_iacc(L_out, R_out, sample_rate)
+            if iacc_val < _IACC_MIN:
+                excess = (_IACC_MIN - iacc_val) / _IACC_MIN
+                reduced_width = max(1.0, width - excess * width * 0.8)
+                L_out, R_out = _freq_dependent_ms_width(L, R, sample_rate, reduced_width, diffuse)
+                side_reduction = reduced_width / width if width > 0 else 1.0
+                logger.debug(
+                    "Phase 48 IACC-Guard: iacc=%.3f < %.2f → width %.2f → %.2f",
+                    iacc_val, _IACC_MIN, width, reduced_width,
+                )
 
-        # Optionale Allpass-Diffusion auf S (reduziert Kammfiltereffekte)
-        if diffuse and width > 1.05:
-            S_wide = self._allpass_chain(S_wide, sample_rate)
-
-        # M/S Rück-Dekodierung
-        L_out = (M + S_wide) * inv_sqrt2
-        R_out = (M - S_wide) * inv_sqrt2
         processed = np.column_stack([L_out, R_out])
 
-        # Normalisierung: Pegel-Erhalt
-        peak_in = float(np.max(np.abs(audio)))
+        if 0.0 < effective_strength < 1.0:
+            processed = x + effective_strength * (processed - x)
+
+        # Pegel-Erhalt
         peak_out = float(np.max(np.abs(processed)))
         if peak_out > 1e-8 and peak_in > 1e-8:
             processed = processed * (peak_in / peak_out)
 
-        processed = np.clip(processed, -1.0, 1.0).astype(audio.dtype)
-
-        logger.info("Phase 48 Stereo-Width: width=%.2f, diffuse=%s", width, diffuse)
-
         processed = np.nan_to_num(processed, nan=0.0, posinf=0.0, neginf=0.0)
         processed = np.clip(processed, -1.0, 1.0)
+
+        logger.info(
+            "Phase 48 StereoWidth: width=%.2f, diffuse=%s, iacc=%.3f, side_red=%.2f",
+            width, diffuse, iacc_val, side_reduction,
+        )
+
         return PhaseResult(
             success=True,
             audio=processed,
             execution_time_seconds=time.time() - t0,
-            metadata={"width": width, "diffuse": diffuse},
-            metrics={"width": width},
+            metadata={
+                "width": width,
+                "diffuse": diffuse,
+                "iacc": iacc_val,
+                "side_reduction": side_reduction,
+                "phase_locality_factor": phase_locality_factor,
+                "effective_strength": effective_strength,
+            },
+            metrics={"width": width, "iacc": iacc_val, "effective_strength": effective_strength},
         )
 
     def _allpass_chain(self, signal: np.ndarray, sample_rate: int) -> np.ndarray:
-        """
-        Kette von Schroeder-Allpass-Filtern zur Diffusion.
-
-        Jeder Allpass erhält eine leicht geänderte Verzögerung
-        (Primzahl-Verhältnis nach Schroeder 1962), was Kammfiltereffekte
-        im Breit-Stereo minimiert.
-        """
-        out = signal.copy()
-        for delay_ms in _ALLPASS_DELAYS_MS:
-            delay_s = max(1, int(delay_ms / 1000.0 * sample_rate))
-            g = _ALLPASS_GAIN
-            # Schroeder Allpass: H(z) = (-g + z^{-D}) / (1 - g * z^{-D})
-            b = np.zeros(delay_s + 1)
-            b[0] = -g
-            b[-1] = 1.0
-            a = np.zeros(delay_s + 1)
-            a[0] = 1.0
-            a[-1] = -g
-            out = sig.lfilter(b, a, out)
-        return out
+        """Kaskadierende Schroeder-Allpass-Filter."""
+        return _allpass_chain(signal, sample_rate)

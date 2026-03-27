@@ -180,17 +180,52 @@ class MultibandCompressionPhase(PhaseInterface):
 
         self.validate_input(audio)
 
+        phase_locality_factor = float(kwargs.get("phase_locality_factor", 1.0))
+        phase_locality_factor = float(np.clip(phase_locality_factor, 0.35, 1.0))
+        _pmgg_strength = float(kwargs.get("strength", 1.0))
+        _effective_strength = float(np.clip(_pmgg_strength * phase_locality_factor, 0.0, 1.0))
+
+        if _effective_strength <= 0.0:
+            audio = np.nan_to_num(audio, nan=0.0, posinf=0.0, neginf=0.0)
+            audio = np.clip(audio, -1.0, 1.0)
+            return PhaseResult(
+                success=True,
+                audio=audio.copy(),
+                execution_time_seconds=time.time() - start_time,
+                metadata={
+                    "material": material.name,
+                    "algorithm": "skipped_zero_strength",
+                    "phase_locality_factor": phase_locality_factor,
+                    "effective_strength": _effective_strength,
+                },
+                metrics={"rms_change_db": 0.0, "peak_before_db": 0.0, "peak_after_db": 0.0},
+                modifications={"algorithm": "skipped_zero_strength", "bands": 4},
+            )
+
         is_stereo = audio.ndim == 2
 
         # Get compression config
-        comp_config = self.COMPRESSION_CONFIG.get(material, self.COMPRESSION_CONFIG[MaterialType.VINYL])
-        upward_config = self.UPWARD_COMPRESSION.get(material, None)
+        comp_config_raw = self.COMPRESSION_CONFIG.get(material, self.COMPRESSION_CONFIG[MaterialType.VINYL])
+        comp_config = {k: list(v) for k, v in comp_config_raw.items()}
+        for band_name in comp_config:
+            comp_config[band_name][0] = float(1.0 + (comp_config[band_name][0] - 1.0) * _effective_strength)
+            comp_config[band_name][5] = float(comp_config[band_name][5] * _effective_strength)
+
+        upward_raw = self.UPWARD_COMPRESSION.get(material, None)
+        upward_config = None
+        if upward_raw is not None:
+            upward_config = {k: list(v) for k, v in upward_raw.items()}
+            for band_name in upward_config:
+                upward_config[band_name][0] = float(1.0 + (upward_config[band_name][0] - 1.0) * _effective_strength)
 
         # Multi-Band Processing
         if is_stereo:
             compressed, band_metrics = self._compress_multiband_stereo(audio, sample_rate, comp_config, upward_config)
         else:
             compressed, band_metrics = self._compress_multiband_mono(audio, sample_rate, comp_config, upward_config)
+
+        if 0.0 < _effective_strength < 1.0:
+            compressed = audio + _effective_strength * (compressed - audio)
 
         # Metriken
         rms_before = np.sqrt(np.mean(audio**2))
@@ -216,6 +251,8 @@ class MultibandCompressionPhase(PhaseInterface):
                 "band_characters": self.BAND_CHARACTERS,
                 "upward_compression_enabled": upward_config is not None,
                 "band_metrics": band_metrics,
+                "phase_locality_factor": phase_locality_factor,
+                "effective_strength": _effective_strength,
             },
             metrics={
                 "rms_change_db": float(rms_change_db),

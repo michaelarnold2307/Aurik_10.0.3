@@ -1,8 +1,10 @@
-# Aurik 9.10.57 — Testing Guide
+# Aurik 9.x.x — Testing Guide
 
-**Version:** 9.10.57  
+**Version:** 9.10.77c  
 **Datum:** März 2026  
 **Status:** ✅ Production Ready
+
+> Hinweis: Verbindlicher Stand der Testinvarianten ist in `.github/specs/07_quality_and_tests.md` dokumentiert.
 
 ---
 
@@ -26,7 +28,7 @@ Aurik verwendet **pytest** als Test-Framework mit umfassender Test-Coverage für
 
 ### Test-Statistik
 
-- **7.747+ Tests** (Stand: März 2026) — alle grün ✅
+- **Umfangreiche Testabdeckung** (Unit, Integration, Normative, Regression)
 - **Coverage:** >80 % (Unit + Integration)
 - **Test-Typen:** Unit, Integration, E2E (Normativ), Performance (AMRB-Benchmark)
 - **Test-Dauer:** Unit-Suite ~5 min (Standard) | vollständige Suite mit ML ~30 min
@@ -75,9 +77,9 @@ tests/
   --timeout=30 --tb=short -q --disable-warnings --no-header
 ```
 
-**Erwartete Ausgabe (7.747+ Tests):**
+**Erwartete Ausgabe (Beispiel):**
 ```
-7747 passed in 312.45s
+6571 passed, 2 skipped, 21 deselected
 ```
 
 > Heavy-Tests (ML-Inferenz, ONNX, Timeout ≥30 s) sind mit `@pytest.mark.ml` / `@pytest.mark.slow` markiert

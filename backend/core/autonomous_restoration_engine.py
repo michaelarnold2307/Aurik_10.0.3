@@ -27,7 +27,6 @@ Date: 2026-02-17
 
 from __future__ import annotations
 
-import contextlib
 import logging
 import time
 from dataclasses import dataclass, field
@@ -209,8 +208,10 @@ class AutonomousRestorationEngine:
         def _p(pct: int, msg: str) -> None:
             """Emit progress to the caller — pct is 0-100 within ARE's own scale."""
             if progress_callback is not None:
-                with contextlib.suppress(Exception):
+                try:
                     progress_callback(pct, msg, time.perf_counter() - start_time)
+                except Exception as _cb_exc:
+                    logger.debug("ARE progress_callback fehlgeschlagen: %s", _cb_exc)
 
         # ----------------------------------------------------------------
         # Phase 0: Validierung & Normalisierung
@@ -768,8 +769,10 @@ class AutonomousRestorationEngine:
             len(variants),
         )
         if progress_callback is not None:
-            with contextlib.suppress(Exception):
+            try:
                 progress_callback(85, "Analyse abgeschlossen — Restaurierung wird vorbereitet …", 0.0)
+            except Exception as _cb_exc:
+                logger.debug("Multi-Pass progress_callback fehlgeschlagen: %s", _cb_exc)
 
         return audio, _variant_name, {}
 

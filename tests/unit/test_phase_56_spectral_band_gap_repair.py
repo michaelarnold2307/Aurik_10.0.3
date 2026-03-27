@@ -117,6 +117,20 @@ class TestPhase56Process:
         assert result.audio.shape == noisy_audio.shape
         assert np.isfinite(result.audio).all()
 
+    def test_zero_strength_passthrough(self, phase, sine_440_2s):
+        result = phase.process(sine_440_2s, sample_rate=SR, strength=0.0)
+        assert result.success is True
+        assert np.allclose(result.audio, sine_440_2s, atol=1e-7)
+        assert result.metadata.get("algorithm") == "skipped_zero_strength"
+        assert float(result.metadata.get("effective_strength", 1.0)) == 0.0
+
+    def test_locality_reduces_effective_strength(self, phase, sine_440_2s):
+        result = phase.process(sine_440_2s, sample_rate=SR, strength=1.0, phase_locality_factor=0.4)
+        assert result.success is True
+        eff = float(result.metadata.get("effective_strength", 1.0))
+        assert 0.0 < eff < 1.0
+        assert float(result.metadata.get("phase_locality_factor", 1.0)) <= 0.4 + 1e-6
+
 
 # ---------------------------------------------------------------------------
 # Tests: Stereo-Eingabe

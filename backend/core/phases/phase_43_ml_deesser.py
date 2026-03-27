@@ -1,8 +1,8 @@
 """
-Phase 43: DSP De-Esser v2.1 — Stimmtyp-adaptiver Sidechain-De-Esser
-=====================================================================
+Phase 43: Hybrid De-Esser v2.2 — Stimmtyp-adaptiver Sidechain-De-Esser
+=======================================================================
 
-Vollständige DSP-Implementierung ohne aurik_ml.
+DSP-Primärpfad mit optionaler ML-Feinveredelung (MP-SENet, streng gegated).
 Stimmtyp-adaptive Frequenzauswahl gemäß §2.8 (Vocal-Restaurierungskette).
 
 ALGORITHMUS — Split-Band De-Esser:
@@ -166,16 +166,53 @@ def _deess_channel(
     return processed.astype(ch.dtype), avg_gr_db
 
 
-class MLDeEsserPhase(PhaseInterface):
-    """Stimmtyp-adaptiver Sidechain-De-Esser (DSP, kein aurik_ml, §2.8)."""
+def _band_rms(audio: np.ndarray, sr: int, low_hz: float, high_hz: float) -> float:
+    """Return RMS in a frequency band (zero-phase when possible)."""
+    if audio.ndim == 2:
+        mono = audio.mean(axis=1)
+    else:
+        mono = audio
+    mono = np.nan_to_num(mono.astype(np.float64), nan=0.0, posinf=0.0, neginf=0.0)
+    nyq = sr / 2.0
+    high_hz = min(high_hz, nyq * 0.98)
+    low_hz = min(max(low_hz, 20.0), high_hz * 0.9)
+    sos = sig.butter(4, [low_hz, high_hz], btype="band", fs=sr, output="sos")
+    try:
+        band = sig.sosfiltfilt(sos, mono)
+    except ValueError:
+        band = sig.sosfilt(sos, mono)
+    return float(np.sqrt(np.mean(band**2) + 1e-12))
+
+
+def _overall_rms(audio: np.ndarray) -> float:
+    """Return overall RMS for mono or stereo."""
+    x = np.nan_to_num(audio.astype(np.float64), nan=0.0, posinf=0.0, neginf=0.0)
+    return float(np.sqrt(np.mean(x**2) + 1e-12))
+
+
+def _try_mp_senet_refine(audio: np.ndarray, sr: int) -> tuple[np.ndarray | None, str]:
+    """Try MP-SENet refinement. Returns (audio_or_none, model_used)."""
+    try:
+        from plugins.mp_senet_plugin import get_mp_senet_plugin
+
+        plugin = get_mp_senet_plugin()
+        result = plugin.enhance(audio, sr)
+        return result.audio, result.model_used
+    except Exception as exc:
+        logger.debug("Phase 43 MP-SENet refinement unavailable: %s", exc)
+        return None, "unavailable"
+
+
+class AdaptiveDeEsserPhase(PhaseInterface):
+    """Stimmtyp-adaptiver Hybrid-De-Esser (DSP primär + optional ML refinement, §2.8)."""
 
     phase_id = "phase_43_ml_deesser"
-    name = "De-Esser (Sidechain DSP, stimmtyp-adaptiv)"
+    name = "Adaptive De-Esser (DSP+ML Hybrid, stimmtyp-adaptiv)"
     description = (
         "Split-Band De-Esser mit Butterworth-Bandpass gender-adaptiver Frequenzauswahl "
         "(§2.8: MALE 5–10 kHz / FEMALE 6–12 kHz / CHILD 7–14 kHz). "
         "RMS-Hüllkurve, Gain-Reduction 1:4, Attack 2 ms / Release 80 ms, Strength-Cap. "
-        "Kein aurik_ml."
+        "Optional: MP-SENet refinement mit Sicherheits-Gate (nur bei nachgewiesener Verbesserung)."
     )
 
     def get_metadata(self) -> PhaseMetadata:
@@ -184,7 +221,7 @@ class MLDeEsserPhase(PhaseInterface):
             name=self.name,
             category=PhaseCategory.ENHANCEMENT,
             priority=6,
-            version="2.1.0",
+            version="2.2.0",
             dependencies=[],
             estimated_time_factor=0.04,
             memory_requirement_mb=50,
@@ -216,14 +253,36 @@ class MLDeEsserPhase(PhaseInterface):
         self.validate_input(audio)
         t0 = time.time()
 
+        phase_locality_factor = float(kwargs.get("phase_locality_factor", 1.0))
+        phase_locality_factor = float(np.clip(phase_locality_factor, 0.35, 1.0))
+        _pmgg_strength = float(kwargs.get("strength", 1.0))
+        _effective_strength = float(np.clip(_pmgg_strength * phase_locality_factor, 0.0, 1.0))
+
+        if _effective_strength <= 0.0:
+            audio = np.nan_to_num(audio, nan=0.0, posinf=0.0, neginf=0.0)
+            audio = np.clip(audio, -1.0, 1.0)
+            return PhaseResult(
+                success=True,
+                audio=audio.astype(audio.dtype),
+                execution_time_seconds=time.time() - t0,
+                metadata={
+                    "algorithm": "skipped_zero_strength",
+                    "phase_locality_factor": phase_locality_factor,
+                    "effective_strength": _effective_strength,
+                },
+                metrics={"avg_gain_reduction_db": 0.0},
+            )
+
         # Parameter
         gender: str = str(kwargs.get("gender", _DEFAULT_GENDER)).lower()
         threshold_db: float = float(kwargs.get("threshold_db", _DEFAULT_THRESHOLD_DB))
         ratio: float = float(kwargs.get("ratio", _DEFAULT_RATIO))
+        ratio = float(1.0 + (ratio - 1.0) * _effective_strength)
         attack_ms: float = float(kwargs.get("attack_ms", _DEFAULT_ATTACK_MS))
         release_ms: float = float(kwargs.get("release_ms", _DEFAULT_RELEASE_MS))
         strength_cap: float = float(kwargs.get("strength_cap", _DEFAULT_STRENGTH_CAP))
         strength_cap = float(np.clip(strength_cap, 0.0, 1.0))
+        strength_cap = float(max(strength_cap, 1.0 - 0.55 * _effective_strength))
 
         # Stimmtyp-adaptive Frequenzauswahl (§2.8); explizite freq_low/freq_high überschreiben
         default_low, default_high = GENDER_FREQ_MAP.get(gender, GENDER_FREQ_MAP["unknown"])
@@ -269,8 +328,50 @@ class MLDeEsserPhase(PhaseInterface):
                 gr_dbs.append(gr_db)
             processed = np.column_stack(channels)
 
+        if 0.0 < _effective_strength < 1.0 and processed.shape == x.shape:
+            processed = x + _effective_strength * (processed - x)
+
         processed = np.clip(processed, -1.0, 1.0).astype(audio.dtype)
         avg_gr = float(np.mean(gr_dbs))
+
+        # Optional ML refinement with strict safety guard:
+        # accept only if sibilance reduces and vocal core band is preserved.
+        ml_refine_applied = False
+        ml_refine_model = "disabled"
+        ml_blend = 0.0
+        if bool(kwargs.get("enable_ml_refine", True)):
+            ml_candidate, ml_refine_model = _try_mp_senet_refine(processed, sample_rate)
+            if ml_candidate is not None and ml_candidate.shape == processed.shape:
+                sibilance_before = _band_rms(processed, sample_rate, freq_low, freq_high)
+                sibilance_after = _band_rms(ml_candidate, sample_rate, freq_low, freq_high)
+                vocal_core_before = _band_rms(processed, sample_rate, 300.0, 3000.0)
+                vocal_core_after = _band_rms(ml_candidate, sample_rate, 300.0, 3000.0)
+
+                rms_before = _overall_rms(processed)
+                rms_after = _overall_rms(ml_candidate)
+                rms_delta_db = float(20.0 * np.log10((rms_after + 1e-12) / (rms_before + 1e-12)))
+
+                sibilance_improvement = float((sibilance_before - sibilance_after) / (sibilance_before + 1e-12))
+                core_ratio = float((vocal_core_after + 1e-12) / (vocal_core_before + 1e-12))
+
+                # Acceptance criteria tuned conservative to avoid musical-goal regressions.
+                # 1) Sibilance must improve by at least 2%
+                # 2) Vocal core band must not lose more than 3%
+                # 3) Overall loudness shift must stay within +-1.0 dB
+                if sibilance_improvement >= 0.02 and core_ratio >= 0.97 and abs(rms_delta_db) <= 1.0:
+                    # Adaptive blend: stronger blend only with stronger measured improvement.
+                    ml_blend = float(np.clip(0.10 + 0.80 * sibilance_improvement, 0.10, 0.35))
+                    ml_blend *= _effective_strength
+                    processed = processed + ml_blend * (ml_candidate - processed)
+                    processed = np.clip(np.nan_to_num(processed, nan=0.0, posinf=0.0, neginf=0.0), -1.0, 1.0)
+                    ml_refine_applied = True
+                else:
+                    logger.debug(
+                        "Phase 43 ML refinement rejected: sib_impr=%.3f core_ratio=%.3f rms_delta_db=%.2f",
+                        sibilance_improvement,
+                        core_ratio,
+                        rms_delta_db,
+                    )
 
         logger.info(
             "Phase 43 DeEsser: gender=%s freq=[%.0f–%.0f Hz] "
@@ -293,6 +394,16 @@ class MLDeEsserPhase(PhaseInterface):
                 "freq_low_hz": freq_low,
                 "freq_high_hz": freq_high,
                 "strength_cap": strength_cap,
+                "ml_refine_enabled": bool(kwargs.get("enable_ml_refine", True)),
+                "ml_refine_applied": ml_refine_applied,
+                "ml_refine_model": ml_refine_model,
+                "ml_refine_blend": ml_blend,
+                "phase_locality_factor": phase_locality_factor,
+                "effective_strength": _effective_strength,
             },
             metrics={"avg_gain_reduction_db": avg_gr},
         )
+
+
+class MLDeEsserPhase(AdaptiveDeEsserPhase):
+    """Backward-compatible alias for older imports/tests."""

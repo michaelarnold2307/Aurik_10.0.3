@@ -4167,23 +4167,29 @@ class SpectrogramWidget(QWidget):
         Dark purple (0) → Red (0.5) → Yellow (0.8) → White (1)
         """
         if not hasattr(SpectrogramWidget, "_inferno_lut_cache"):
-            lut = np.zeros((256, 3), dtype=np.uint8)
-            for i in range(256):
-                v = i / 255.0
-                if v < 0.25:
-                    t = v / 0.25
-                    r, g, b = int(t * 60), int(t * 20), int(100 + t * 80)
-                elif v < 0.5:
-                    t = (v - 0.25) / 0.25
-                    r, g, b = int(60 + t * 150), int(20 + t * 20), int(180 - t * 120)
-                elif v < 0.75:
-                    t = (v - 0.5) / 0.25
-                    r, g, b = int(210 + t * 45), int(40 + t * 150), int(60 - t * 40)
-                else:
-                    t = (v - 0.75) / 0.25
-                    r, g, b = 255, min(255, int(190 + t * 65)), min(255, int(20 + t * 235))
-                lut[i] = [r, g, b]
-            SpectrogramWidget._inferno_lut_cache = lut
+            import threading as _thr
+
+            if not hasattr(SpectrogramWidget, "_inferno_lut_lock"):
+                SpectrogramWidget._inferno_lut_lock = _thr.Lock()
+            with SpectrogramWidget._inferno_lut_lock:
+                if not hasattr(SpectrogramWidget, "_inferno_lut_cache"):
+                    lut = np.zeros((256, 3), dtype=np.uint8)
+                    for i in range(256):
+                        v = i / 255.0
+                        if v < 0.25:
+                            t = v / 0.25
+                            r, g, b = int(t * 60), int(t * 20), int(100 + t * 80)
+                        elif v < 0.5:
+                            t = (v - 0.25) / 0.25
+                            r, g, b = int(60 + t * 150), int(20 + t * 20), int(180 - t * 120)
+                        elif v < 0.75:
+                            t = (v - 0.5) / 0.25
+                            r, g, b = int(210 + t * 45), int(40 + t * 150), int(60 - t * 40)
+                        else:
+                            t = (v - 0.75) / 0.25
+                            r, g, b = 255, min(255, int(190 + t * 65)), min(255, int(20 + t * 235))
+                        lut[i] = [r, g, b]
+                    SpectrogramWidget._inferno_lut_cache = lut
         return SpectrogramWidget._inferno_lut_cache
 
     def _inferno_colormap(self, value: float) -> list[int]:  # type: ignore[override]
@@ -4623,7 +4629,7 @@ class ModernTitleBar(QWidget):
         layout.addWidget(self.title_label)
 
         # Version Label
-        self.version_label = QLabel("v9.10.76")
+        self.version_label = QLabel("v9.10.77")
         self.version_label.setFont(QFont("Segoe UI", 8))
         self.version_label.setStyleSheet("color: rgba(255,255,255,0.38); padding: 0 2px;")
         layout.addWidget(self.version_label)
@@ -5732,9 +5738,7 @@ class ModernMainWindow(QMainWindow):
                 _lge = _bridge_get_lyrics_guided_enhancement()
                 if _lge is None:
                     raise ImportError("LyricsGuidedEnhancement nicht verfügbar")
-                # Mono für Transkription
-                _mono = np.mean(_a, axis=1).astype(np.float32) if _a.ndim > 1 else _a.astype(np.float32)
-                transcription = _lge._transcriber.transcribe(_mono, _s)  # interne Transkription
+                transcription = _lge.transcribe(_a.astype(np.float32), _s)
 
                 def _apply():
                     if hasattr(_self, "waveform_widget"):

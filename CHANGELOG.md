@@ -1,5 +1,69 @@
 # Aurik 9 — Changelog
 
+> Hinweis: Dieses Dokument ist eine Versionshistorie. Ältere Versionsnummern und Kennzahlen sind hier erwartbar und keine veralteten Reststände.
+
+## Version 9.10.77c — Präzisions-Härtung in Loudness, PMGG, LGE und Kernphasen (Mär 2026)
+
+### Zusammenfassung
+
+Mehrere qualitätskritische Stellen wurden auf höhere Mess- und Verarbeitungspräzision angehoben, ohne Regressionen in der Unit-Suite. Fokus: normnähere Loudness-/True-Peak-Pfade, robustere §2.36-Integration, präzisere PMGG-Entscheidungsgrundlagen, sowie verbesserte Rekonstruktionslogik in Phase 06 und zeitvariable Stretch-Korrektur in Phase 12.
+
+- **Phase 41 (`phase_41_output_format_optimization.py`)**: `_normalize_loudness()` verwendet jetzt BS.1770-konforme Messung via `dsp.professional_meters.LUFSMeter` (Fallback bleibt robust); True-Peak-Limiter auf 4×-Oversampling-Messung umgestellt (Inter-Sample-Peaks statt reiner Sample-Peaks).
+
+- **Phase 40 (`phase_40_loudness_normalization.py`)**: 44.1-kHz-Hardcodes in Loudness-Blockbildung entfernt; integrierte Loudness/LRA-Messung jetzt sample-rate-korrekt.
+
+- **§2.36 LyricsGuidedEnhancement (`lyrics_guided_enhancement.py`, `modern_window.py`)**: Öffentliche `transcribe()`-API in `LyricsGuidedEnhancement` ergänzt; interner Placeholder-Transcriber auf Delegation an den echten §2.36-Transkriptionspfad umgestellt; UI-Overlay nutzt nun die öffentliche API statt privatem Attributzugriff.
+
+- **PMGG-Präzisionspfad (`per_phase_musical_goals_gate.py`)**: Selektive Präzisions-Overrides für kritische Goals ergänzt (`natuerlichkeit`, `tonal_center`, `brillanz`, `waerme`, `micro_dynamics`, `artikulation`, `separation_fidelity`, `transparenz`); leichte Laufzeit-Telemetrie für den Präzisionspfad ergänzt (Warnung bei langsamem Override).
+
+- **Phase 06 (`phase_06_frequency_restoration.py`)**: Vereinfachte Oktav-Kopie durch LPC-inspirierte Spektralhüllen-Extrapolation ersetzt; harmonische Zielband-Struktur über dominante Peaks (2./3./4. Harmonische) plus Energiekalibrierung ergänzt.
+
+- **Phase 12 (`phase_12_wow_flutter_fix.py`)**: Vereinfachtes Average-Resampling durch zeitvariables Stretch-Mapping mit geglätteter Faktor-Kurve ersetzt; monotones Source-Position-Mapping plus bandlimitierte Interpolation für stabilere Wow/Flutter-Korrektur bei konstanter Ausgabelänge.
+
+- **KMV-Stufe-2 RT-Bypass-Hook (`aurik_denker.py`, `restaurier_denker.py`, `unified_restorer_v3.py`)**: Neuer `no_rt_limit`-Pfad von `AurikDenker.denke()` bis `UnifiedRestorerV3._execute_pipeline()` verdrahtet; bei `no_rt_limit=True` werden RT-bedingte `PerformanceGuard.should_skip_phase()`-Deferrals übersprungen; AurikDenker-Thread-Timeout wird im `no_rt_limit`-Modus deaktiviert (Join ohne RT-Timeout).
+
+### Test-Status
+
+- Vollständige Unit-Suite weiterhin grün: **6571 passed, 2 skipped, 21 deselected**.
+- Zielgerichtete Validierungen für Phase 06/12, PMGG und §2.36 ebenfalls grün.
+- Neue no-RT-Schutztests grün:
+  - `tests/unit/test_unified_restorer_v3.py -k NoRtLimitPhaseDeferralBypass` → **9 passed**
+  - `tests/unit/test_denker/test_aurik_denker.py -k no_rt_limit` → **1 passed**
+
+## Version 9.10.77b — CausalDefectReasoner-Vollausbau + DefectType-Erweiterung (Mär 2026)
+
+### Zusammenfassung
+
+**CausalDefectReasoner**: Bayesian-Kausaldiagnose von 12 auf **34 Kausal-Ursachen** erweitert. **DefectScanner**: Jetzt **32 DefectTypes** (TRANSPORT_BUMP + VOCAL_HARSHNESS hinzugefügt). Alle 4 Pipeline-Schichten (Detektion → Routing → Kausaldiagnose → Reparatur) vollständig real implementiert — keine Stubs.
+
+1. **`causal_defect_reasoner.py`**: CAUSES-Liste 12→34. 22 neue Likelihood-Funktionen (`_likelihood_transport_bump`, `_likelihood_clipping`, `_likelihood_wow`, `_likelihood_flutter`, etc.). MATERIAL_PRIORS für alle 15 Materialtypen × 34 Ursachen. CAUSE_PARAMS um 10 neue Einträge erweitert. CAUSE_TO_PHASES: `transport_bump`, `vocal_harshness` hinzugefügt.
+
+2. **`defect_scanner.py`**: `TRANSPORT_BUMP` DefectType mit 5-Feature-Multi-Modal-Detektor (207 LOC). `VOCAL_HARSHNESS` DefectType.
+
+3. **`unified_restorer_v3.py`**: TRANSPORT_BUMP sev()-Trigger (>0.08) → phase_12 mit transport_bump-spezifischen Parametern.
+
+4. **`phase_12_wow_flutter_fix.py`**: 4-Stufen Transport-Bump-Reparatur (Envelope-Smoothing → Pitch-Flatten → Spectral-Context-Blend → Crossfade).
+
+5. **Dokumentation**: copilot-instructions.md, Specs 02/03/05/06 auf 32 DefectTypes + 34 Kausal-Ursachen aktualisiert.
+
+6. **Tests**: 104 neue/aktualisierte Tests (test_causal_defect_reasoner.py, test_transport_bump.py) — alle grün.
+
+## Version 9.10.77 — Mode-differenzierte Musical Goals + Priority-Aware PMGG (Mär 2026)
+
+### Zusammenfassung
+
+**Pareto-differenzierte Schwellwerte**: P3–P5 Musical Goals erhalten realistisch erreichbare Schwellwerte für den Restoration-Modus, separate ambitionierte Ziele für Studio 2026. Priority-Aware PMGG eliminiert unnötige Retries für niedrig-priorisierte Ziele.
+
+1. **`musical_goals_metrics.py`**: `MusicalGoalsChecker` akzeptiert `mode`-Parameter. `get_mode_thresholds(mode)` wählt Schwellwerte: P1/P2 identisch, P3–P5 gesenkt für Restoration (z.B. Brillanz 0.78 statt 0.85, Wärme 0.75 statt 0.80).
+
+2. **`per_phase_musical_goals_gate.py`**: Neue Konstanten `_PRIORITY_MAX_RETRIES` (P1/P2: 4, P3: 2, P4/P5: 0) und `_PRIORITY_THRESHOLD_FACTOR` (P3: 1.5×, P4/P5: 99×). Methode `_max_regression_priority_aware()` erkennt Priorität der schlimmsten Regression. P4/P5-Regression → `passed_p4p5_tolerated` (kein Retry). Emergency-Retries nur noch bei P1/P2.
+
+3. **`unified_restorer_v3.py`**: `MusicalGoalsChecker(mode=...)` wird jetzt mit dem aktuellen Qualitätsmodus aufgerufen.
+
+4. **`aurik_denker.py`**: `MusicalGoalsChecker(mode=effective_mode)` im Budget-limitierten Fallback-Pfad.
+
+5. **Dokumentation**: `copilot-instructions.md` v3.1, `specs/01_musical_goals.md` und `specs/02_pipeline_architecture.md` mit mode-differenzierter Tabelle, Priority-Aware Retry-Budget und `passed_p4p5_tolerated`-Action aktualisiert.
+
 ## Version 9.10.76 — OOM-Recovery-Checkpoint-System (Mär 2026)
 
 ### Zusammenfassung
@@ -58,7 +122,9 @@
 **Holistische psychoakustische Endprüfung**: Neues Modul `GoosebumpsQualityChecker`
 implementiert die bindende §8.3 Gänsehaut-Formel als gewichtetes geometrisches Mittel:
 
-    score = T^0.40 × M^0.25 × K^0.20 × A^0.15 − Artefakte × scale
+```text
+score = T^0.40 × M^0.25 × K^0.20 × A^0.15 − Artefakte × scale
+```
 
 Fünf Dimensionen: Transient Integrity (40%), Micro-Dynamics (25%), Clarity (20%),
 Authenticity (15%), Artifact Penalty (subtrahiert). Multiplikative Kopplung stellt
@@ -93,11 +159,13 @@ Code 14.0, Tests prüften noch 10.0; `LIMIT_MAXIMUM` war 20.0, Tests prüften 15
 ### Geänderte Dateien
 
 **`backend/core/performance_guard.py`** — 3 Konstanten:
+
 - `LIMIT_QUALITY`:           14.0 → **16.0** (Restoration: alle DSP + moderate ML-Chain)
 - `LIMIT_MAXIMUM`:           20.0 → **32.0** (Studio 2026: SGMSE+5× + BsRoformer3× + 25 Phasen)
 - `MAX_ABSOLUTE_SECONDS`:  1800.0 → **5400.0** (90 min Stufe-1-Absolutlimit)
 
 **`denker/aurik_denker.py`** — 4 Konstanten:
+
 - `_RT_BUDGET_BY_MODE["quality"]`:    10.0 → **16.0**  (aligned mit PerformanceGuard)
 - `_RT_BUDGET_BY_MODE["restoration"]`:10.0 → **16.0**
 - `_RT_BUDGET_BY_MODE["studio2026"]`: 15.0 → **32.0**
@@ -106,6 +174,7 @@ Code 14.0, Tests prüften noch 10.0; `LIMIT_MAXIMUM` war 20.0, Tests prüften 15
 - `_MAX_TOTAL_SECONDS`:             1800.0 → **5400.0** (aligned mit PerformanceGuard)
 
 **`tests/unit/test_performance_guard_spec_compliance.py`** — 4 Anpassungen:
+
 - `LIMIT_QUALITY == 10.0` → `16.0`
 - `LIMIT_MAXIMUM == 15.0` → `32.0`
 - `target_rt_factor == 10.0` (quality_guard) → `16.0`
@@ -117,6 +186,7 @@ Code 14.0, Tests prüften noch 10.0; `LIMIT_MAXIMUM` war 20.0, Tests prüften 15
 alle `≤10.0×`-Kommentare → `≤16.0×`.
 
 **`.github/copilot-instructions.md`** — Performance-Budget-Tabelle + PerformanceGuard-Abschnitt:
+
 - DefectScanner: ≤ 2 s → ≤ 4 s pro Minute Audio
 - Phase-Pipeline gesamt: ≤ 120 s → ≤ 240 s pro Minute Audio
 - FeedbackChain alle Iter.: ≤ 60 s → ≤ 120 s
@@ -136,6 +206,7 @@ typische 3–5-Minuten-Songs (bis 32× RT = praktisch keine Deferral im Studio-2
 | 5-min Pop, Studio 2026   | ≈ 6× RT möglich    | ≈ 18× RT möglich   |
 
 ### Test-Validierung
+
 - 79/79 Tests grün (test_performance_guard_spec_compliance: 8/8, test_performance_budget_ci_gate: 12/12, test_unified_restorer_v3: 59/59)
 - AMRB-Scores unverändert: 88.4/100, 9/10, OS-Leadership ✅ (`_dsp_restore()` unberührt)
 
@@ -176,6 +247,7 @@ BsRoformer, wenn keine externen Stems übergeben werden.
    sobald Stems vorhanden. `_stems = kwargs.get("stems") or _auto_stems`.
 
 ### Test-Validierung
+
 - 96/96 Tests grün (UV3-Unit: 68/68 + Normative: 28/28)
 - Keine Regression in AMRB-Scores (`_dsp_restore()` unverändert)
 

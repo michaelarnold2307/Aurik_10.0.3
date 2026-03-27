@@ -273,6 +273,7 @@ class RestaurierDenker:
         pre_repair_reference: np.ndarray | None = None,
         input_path: str = "",
         output_path: str = "",
+        no_rt_limit: bool = False,
     ) -> RestaurierErgebnis:
         """Restauriert Audio vollständig mit UnifiedRestorerV3.
 
@@ -369,6 +370,8 @@ class RestaurierDenker:
                 _uv3_kwargs["input_path"] = input_path
             if output_path:
                 _uv3_kwargs["output_path"] = output_path
+            if no_rt_limit:
+                _uv3_kwargs["no_rt_limit"] = True
             try:
                 raw = restorer.restore(audio, **_uv3_kwargs)
                 return self._konvertiere(raw, material=material)
@@ -411,6 +414,8 @@ class RestaurierDenker:
                         _uv3_kwargs2["progress_callback"] = progress_callback
                     if audio_update_callback is not None:
                         _uv3_kwargs2["audio_update_callback"] = audio_update_callback
+                    if no_rt_limit:
+                        _uv3_kwargs2["no_rt_limit"] = True
                     try:
                         raw = restorer.restore(_are_audio, **_uv3_kwargs2)
                         return self._konvertiere(raw, material=material)
@@ -447,6 +452,8 @@ class RestaurierDenker:
                 _restore_kwargs["cached_medium_result"] = cached_medium_result
             if cached_restorability_result is not None:
                 _restore_kwargs["cached_restorability_result"] = cached_restorability_result
+            if no_rt_limit:
+                _restore_kwargs["no_rt_limit"] = True
             raw = restorer.restore(audio, **_restore_kwargs)
         except Exception as exc:
             logger.warning("UnifiedRestorerV3.restore() fehlgeschlagen: %s — Fallback auf Original", exc)

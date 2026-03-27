@@ -64,9 +64,9 @@ ORDERING_CONSTRAINTS: list[tuple[str, str]] = [
     ("phase_57_print_through_reduction", "phase_29_tape_hiss_reduction"),
     ("phase_20_reverb_reduction", "phase_49_advanced_dereverb"),
     ("phase_16_final_eq", "phase_17_mastering_polish"),
-    ("phase_17_mastering_polish", "phase_47_truepeak_limiter"),
-    ("phase_47_truepeak_limiter", "phase_40_loudness_normalization"),
-    ("phase_40_loudness_normalization", "phase_41_output_format_optimization"),
+    ("phase_17_mastering_polish", "phase_40_loudness_normalization"),
+    ("phase_40_loudness_normalization", "phase_47_truepeak_limiter"),
+    ("phase_47_truepeak_limiter", "phase_41_output_format_optimization"),
     # Signal-processing-chain ordering (new)
     ("phase_01_click_removal", "phase_03_denoise"),
     ("phase_01_click_removal", "phase_27_click_pop_removal"),
@@ -212,8 +212,8 @@ def test_tier6_always_at_end():
     tier6 = [
         "phase_16_final_eq",
         "phase_17_mastering_polish",
-        "phase_47_truepeak_limiter",
         "phase_40_loudness_normalization",
+        "phase_47_truepeak_limiter",
         "phase_41_output_format_optimization",
     ]
     # Build a mixed list with tier6 at the front
@@ -282,9 +282,9 @@ def test_full_chain_ordering():
         ("phase_03_denoise", "phase_06_frequency_restoration"),
         ("phase_06_frequency_restoration", "phase_07_harmonic_restoration"),
         ("phase_16_final_eq", "phase_17_mastering_polish"),
-        ("phase_17_mastering_polish", "phase_47_truepeak_limiter"),
-        ("phase_47_truepeak_limiter", "phase_40_loudness_normalization"),
-        ("phase_40_loudness_normalization", "phase_41_output_format_optimization"),
+        ("phase_17_mastering_polish", "phase_40_loudness_normalization"),
+        ("phase_40_loudness_normalization", "phase_47_truepeak_limiter"),
+        ("phase_47_truepeak_limiter", "phase_41_output_format_optimization"),
     ]
     for a, b in expected_order_pairs:
         if a in result and b in result:

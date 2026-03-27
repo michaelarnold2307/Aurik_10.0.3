@@ -1,13 +1,15 @@
-# 🎵 Aurik 9.10.57 — Intelligentes Musik-Restaurierungs- und Rekonstruktionssystem
+# 🎵 Aurik 9.10.77c — Intelligentes Musik-Restaurierungs- und Rekonstruktionssystem
 
-**Version:** 9.10.57 | **Status:** ✅ Produktionsbereit | **Stand:** März 2026
+**Version:** 9.10.77c | **Status:** ✅ Produktionsbereit | **Stand:** März 2026
 
-![Tests](https://img.shields.io/badge/tests-7400%2B%20passing-brightgreen)
+> Normativer Ist-Stand: `.github/specs/01-08` und `docs/CHANGELOG_HISTORY.md`.
+
+![Tests](https://img.shields.io/badge/tests-6571%2B%20passing-brightgreen)
 ![Musical Goals](https://img.shields.io/badge/Musical%20Goals-14%2F14-brightgreen)
 ![Quality MOS](https://img.shields.io/badge/MOS-%E2%89%A54.5%20Weltklasse-brightgreen)
 ![Materials](https://img.shields.io/badge/Materialien-17%20Typen-blue)
 ![Phases](https://img.shields.io/badge/Phasen-56-blue)
-![DefectTypes](https://img.shields.io/badge/DefectTypes-27-blue)
+![DefectTypes](https://img.shields.io/badge/DefectTypes-32-blue)
 ![CPU-only](https://img.shields.io/badge/Hardware-CPU--only-orange)
 ![License](https://img.shields.io/badge/license-Apache%202.0-blue)
 
@@ -23,9 +25,9 @@ Gaussianische Prozess-Optimierung und perceptuelle Qualitätsbewertung zu einer
 kognitiven Restaurierungs-Intelligenz — für Desktop (Linux & Windows 10/11),
 vollständig offline, ohne Cloud- oder Netzwerkabhängigkeiten.
 
-**Aktuelle Ergebnisse (v9.10.57):**
+**Aktuelle Ergebnisse (v9.10.77c):**
 
-- ✅ **7747+ Tests** — alle grün
+- ✅ **6571+ Unit-Tests** — grün (zzgl. weitere Test-Suites)
 - ✅ **56 Phasen** — Defect-First-Pipeline inkl. SpectralBandGapRepair
 - ✅ **17 Materialien** — auto-erkannt (tape, vinyl, shellac, wax_cylinder, wire_recording, lacquer_disc, dat, cd_digital, mp3_low, mp3_high, aac, minidisc, streaming, unknown, …)
 - ✅ **14 Musical Goals** — psychoakustisch fundiert, alle Schwellwerte erreicht
@@ -50,12 +52,12 @@ vollständig offline, ohne Cloud- oder Netzwerkabhängigkeiten.
 | Modul | Zweck |
 | --- | --- |
 | `PerceptualEmbedder` | 256-dim psychoakustischer Einbettungsraum (L2-normalisiert) |
-| `CausalDefectReasoner` | Bayesianische Kausalinferenz, **27 DefectTypes** |
+| `CausalDefectReasoner` | Bayesianische Kausalinferenz, **34 Kausal-Ursachen** |
 | `GPParameterOptimizer` | RBF-GP + UCB + **MOO Pareto-Front** (14 Objectives) |
 | `PerceptualQualityScorer` | Gammatone-NSIM + MCD + LUFS + MOS |
 | `MusicalGoalsChecker` | **14 musikalische Qualitätsziele** |
 | `MediumClassifier` | CLAP-ML + DSP-Fingerprint, 17 Materialtypen |
-| `DefectScanner` | 27 DefectTypes, 17 MaterialType-Priors |
+| `DefectScanner` | 32 DefectTypes, material-adaptive Material-Priors |
 | `TransientDecoupledProcessing` | HPSS-Trennung — Groove-Schutz vor jeder NR |
 | `HarmonicPreservationGuard` | CREPE/pYIN → G_floor 0.85 an Harmonik-Bins |
 | `PerPhaseMusicalGoalsGate` | Rollback bei kumulativer Degradation (56 Phasen) |
@@ -495,4 +497,4 @@ Aurik 9 steht unter der **Apache-2.0-Lizenz** — siehe [LICENSE](LICENSE).
 
 ---
 
-Aurik 9.10.57 — März 2026
+Aurik 9.10.77c — März 2026

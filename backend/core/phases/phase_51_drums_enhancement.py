@@ -47,6 +47,7 @@ import numpy as np
 
 from backend.core.defect_scanner import MaterialType
 
+from .output_guard import evaluate_output_guard
 from .phase_interface import PhaseCategory, PhaseInterface, PhaseMetadata, PhaseResult
 
 # Import Drums Enhancement DSP module
@@ -170,6 +171,28 @@ class DrumsEnhancementV1(PhaseInterface):
         assert sample_rate == 48000, f"SR muss 48000 Hz sein, erhalten: {sample_rate}"
         start_time = time.time()
 
+        phase_locality_factor = float(kwargs.get("phase_locality_factor", 1.0))
+        phase_locality_factor = float(np.clip(phase_locality_factor, 0.35, 1.0))
+        effective_strength = float(kwargs.get("strength", 1.0)) * phase_locality_factor
+        effective_strength = float(np.clip(effective_strength, 0.0, 1.0))
+
+        if effective_strength <= 1e-6:
+            dry = np.nan_to_num(audio, nan=0.0, posinf=0.0, neginf=0.0)
+            dry = np.clip(dry, -1.0, 1.0)
+            return PhaseResult(
+                success=True,
+                audio=dry,
+                metrics={"effective_strength": 0.0},
+                execution_time_seconds=time.time() - start_time,
+                metadata={
+                    "algorithm": "skipped_zero_strength",
+                    "phase_locality_factor": phase_locality_factor,
+                    "effective_strength": 0.0,
+                },
+                warnings=[],
+                modifications={},
+            )
+
         # ── PANNs Drums-Confidence-Check (Spec §2.9: Schwellwert ≥ 0.5) ────
         panns_tags = kwargs.get("panns_tags", {})
         drums_confidence = 0.0
@@ -188,9 +211,17 @@ class DrumsEnhancementV1(PhaseInterface):
             return PhaseResult(
                 success=True,
                 audio=audio,
-                metrics={"skipped": True, "drums_confidence": drums_confidence},
+                metrics={
+                    "skipped": True,
+                    "drums_confidence": drums_confidence,
+                    "effective_strength": effective_strength,
+                },
                 execution_time_seconds=0.0,
-                metadata={"algorithm": "skip_panns_confidence"},
+                metadata={
+                    "algorithm": "skip_panns_confidence",
+                    "phase_locality_factor": phase_locality_factor,
+                    "effective_strength": effective_strength,
+                },
                 warnings=[],
                 modifications={},
             )
@@ -213,6 +244,16 @@ class DrumsEnhancementV1(PhaseInterface):
             config = self.ENHANCEMENT_CONFIG.get(material_type, self.DEFAULT_CONFIG).copy()
             config.update(kwargs)  # Allow override
 
+            quality_mode = str(kwargs.get("quality_mode", "balanced")).lower()
+            if quality_mode in ("quality", "maximum", "studio2026"):
+                hq_scale = 1.12 if quality_mode in ("maximum", "studio2026") else 1.06
+                config["mix"] = float(np.clip(config["mix"] * hq_scale, 0.0, 0.75))
+                config["kick_gain_db"] = float(np.clip(config["kick_gain_db"] * hq_scale, 0.0, 5.5))
+                config["hihat_clarity_db"] = float(np.clip(config["hihat_clarity_db"] * hq_scale, 0.0, 4.0))
+                config["cymbal_shimmer_db"] = float(np.clip(config["cymbal_shimmer_db"] * hq_scale, 0.0, 3.5))
+            else:
+                hq_scale = 1.0
+
             # Lazy init enhancer
             if self.enhancer is None:
                 self.enhancer = DrumsEnhancementSystem(
@@ -226,7 +267,7 @@ class DrumsEnhancementV1(PhaseInterface):
             processed_audio, report = self.enhancer.process(audio, self.sample_rate)
 
             # Mix with original (parallel processing)
-            mix = config["mix"]
+            mix = float(np.clip(config["mix"], 0.0, 1.0)) * effective_strength
             enhanced = audio * (1.0 - mix) + processed_audio * mix
 
             execution_time = time.time() - start_time
@@ -239,12 +280,14 @@ class DrumsEnhancementV1(PhaseInterface):
                 "cymbal_energy_change_db": report.get("cymbal_energy_change_db", 0.0),
                 "transient_enhancement": report.get("transient_enhancement", 0.0),
                 "mix_ratio": mix,
+                "effective_strength": effective_strength,
                 "material_type": material_type.value,
                 "config_applied": config,
             }
 
             enhanced = np.nan_to_num(enhanced, nan=0.0, posinf=0.0, neginf=0.0)
             enhanced = np.clip(enhanced, -1.0, 1.0)
+            enhanced_pre_refine = enhanced.copy()
 
             # Instrument-guided formant enhancement (drums resonance targets: Rossing 1992)
             igt_frames = 0
@@ -253,8 +296,12 @@ class DrumsEnhancementV1(PhaseInterface):
                 if _FormantSystemCls is not None:
                     if _FORMANT_SYSTEM_DRUMS is None:
                         _FORMANT_SYSTEM_DRUMS = _FormantSystemCls(enhance_singers_formant=False)
+                    formant_strength = float(np.clip(0.15 * hq_scale, 0.10, 0.22))
                     enhanced, igt_report = _FORMANT_SYSTEM_DRUMS.instrument_guided_enhance(
-                        enhanced, self.sample_rate, instrument="drums", correction_strength=0.15
+                        enhanced,
+                        self.sample_rate,
+                        instrument="drums",
+                        correction_strength=formant_strength,
                     )
                     igt_frames = igt_report.get("frames_processed", 0)
                     logger.debug("Phase 51 InstrumentFormant: drums frames=%d", igt_frames)
@@ -277,8 +324,9 @@ class DrumsEnhancementV1(PhaseInterface):
             # Sub-Stem-Verarbeitung (Schritt 4)
             try:
                 from backend.core.sub_stem_processor import process_sub_stems
+                sub_stem_strength = float(np.clip(0.30 * hq_scale, 0.25, 0.40))
                 ss_result = process_sub_stems(enhanced, sample_rate, instrument="drums",
-                                              processing_strength=0.30)
+                                              processing_strength=sub_stem_strength)
                 enhanced = ss_result.audio
                 logger.debug("Phase 51 sub-stem: bands=%d strength=%.2f",
                              ss_result.n_bands, ss_result.processing_strength)
@@ -288,19 +336,56 @@ class DrumsEnhancementV1(PhaseInterface):
             # Physics-Resonanz (Schritt 5 — Biquad Body Resonance)
             try:
                 from backend.core.physics_resonance_enhancer import enhance_physics_resonance
+                physics_strength = float(np.clip(0.35 * hq_scale, 0.30, 0.48))
                 pr_result = enhance_physics_resonance(enhanced, sample_rate, instrument="drums",
-                                                      enhancement_strength=0.35)
+                                                      enhancement_strength=physics_strength)
                 enhanced = pr_result.audio
                 logger.debug("Phase 51 physics resonance: peaks=%d strength=%.2f",
                              pr_result.n_peaks, pr_result.enhancement_strength)
             except Exception as _pr_exc:
                 logger.debug("Phase 51 physics resonance skipped: %s", _pr_exc)
 
+            if 0.0 < effective_strength < 1.0:
+                enhanced = audio + effective_strength * (enhanced - audio)
+
+            enhanced = np.nan_to_num(enhanced, nan=0.0, posinf=0.0, neginf=0.0)
+            enhanced = np.clip(enhanced, -1.0, 1.0)
+
+            # Conservative output guard for high quality modes only.
+            output_guard_enabled = quality_mode in ("quality", "maximum", "studio2026")
+            guard = evaluate_output_guard(
+                original=audio,
+                candidate=enhanced,
+                enabled=output_guard_enabled,
+                max_abs_rms_delta_db=1.2,
+                stereo_side_ratio_min=0.55,
+                stereo_side_ratio_max=1.45,
+            )
+
+            if guard.fallback:
+                enhanced = enhanced_pre_refine.copy()
+                if 0.0 < effective_strength < 1.0:
+                    enhanced = audio + effective_strength * (enhanced - audio)
+                enhanced = np.nan_to_num(enhanced, nan=0.0, posinf=0.0, neginf=0.0)
+                enhanced = np.clip(enhanced, -1.0, 1.0)
+
             return PhaseResult(
                 success=True,
                 audio=enhanced,
                 execution_time_seconds=execution_time,
-                metadata={**metrics, "instrument_formant_frames": igt_frames},
+                metadata={
+                    **metrics,
+                    "instrument_formant_frames": igt_frames,
+                    "quality_mode": quality_mode,
+                    "hq_scale": hq_scale,
+                    "output_guard_enabled": output_guard_enabled,
+                    "output_guard_fallback": guard.fallback,
+                    "output_guard_reason": guard.reason,
+                    "rms_delta_db": guard.rms_delta_db,
+                    "stereo_side_ratio": guard.stereo_side_ratio,
+                    "phase_locality_factor": phase_locality_factor,
+                    "effective_strength": effective_strength,
+                },
                 modifications={
                     "drums_enhanced": True,
                     "kick_enhanced": report.get("kick_energy_change_db", 0) > 0.5,

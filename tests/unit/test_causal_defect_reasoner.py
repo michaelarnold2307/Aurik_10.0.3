@@ -57,7 +57,7 @@ class TestImportAndConstants:
         assert CausalDefectReasoner is not None
 
     def test_02_causes_list_length(self):
-        assert len(CAUSES) == 12
+        assert len(CAUSES) == 34
 
     def test_03_causes_contains_soft_saturation(self):
         assert "soft_saturation" in CAUSES
@@ -69,21 +69,22 @@ class TestImportAndConstants:
         assert "print_through" in CAUSES
 
     def test_06_cause_to_phases_covers_all_causes(self):
-        # Alle 11 Haupt-Ursachen müssen im CAUSE_TO_PHASES-Mapping vorhanden sein
-        for cause in [
-            "tape_dropout",
-            "tape_hiss",
-            "vinyl_crackle",
-            "vinyl_warp",
-            "electrical_hum",
-            "head_misalignment",
-            "dc_offset",
-            "digital_clip",
-            "soft_saturation",
-            "head_wear",
-            "print_through",
-        ]:
-            assert cause in CAUSE_TO_PHASES
+        # Alle 34 Ursachen müssen im CAUSE_TO_PHASES-Mapping vorhanden sein
+        for cause in CAUSES:
+            assert cause in CAUSE_TO_PHASES, f"{cause} not in CAUSE_TO_PHASES"
+
+    def test_06b_likelihood_fns_cover_all_causes(self):
+        # Alle 34 Ursachen müssen eine Likelihood-Funktion haben
+        from backend.core.causal_defect_reasoner import LIKELIHOOD_FNS
+        for cause in CAUSES:
+            assert cause in LIKELIHOOD_FNS, f"{cause} not in LIKELIHOOD_FNS"
+
+    def test_06c_material_priors_cover_all_causes(self):
+        # Alle 15 Materialien müssen Priors für alle 34 Ursachen haben
+        from backend.core.causal_defect_reasoner import MATERIAL_PRIORS
+        for material, priors in MATERIAL_PRIORS.items():
+            for cause in CAUSES:
+                assert cause in priors, f"{cause} not in MATERIAL_PRIORS[{material}]"
 
     def test_07_soft_saturation_phases_empty(self):
         # Spec §6.3: soft_saturation → BEWAHREN, leere Phasen-Liste
@@ -359,3 +360,27 @@ class TestConvenienceFunctions:
     def test_48_plan_phase_params_is_dict(self):
         plan = reason_about_defects({"dropout_severity": 0.7}, material="tape")
         assert isinstance(plan.phase_parameters, dict)
+
+    def test_49_new_key_clicks_aliases_to_click_severity(self):
+        plan_legacy = reason_about_defects({"click_severity": 0.9}, material="vinyl")
+        plan_new = reason_about_defects({"clicks": 0.9}, material="vinyl")
+        assert plan_new.primary_cause == plan_legacy.primary_cause
+
+    def test_50_new_key_dropouts_aliases_to_dropout_severity(self):
+        plan_legacy = reason_about_defects({"dropout_severity": 0.8}, material="tape")
+        plan_new = reason_about_defects({"dropouts": 0.8}, material="tape")
+        assert plan_new.primary_cause == plan_legacy.primary_cause
+
+    def test_51_new_key_clipping_aliases_to_clip_severity(self):
+        plan_legacy = reason_about_defects({"clip_severity": 0.95}, material="digital")
+        plan_new = reason_about_defects({"clipping": 0.95}, material="digital")
+        assert plan_new.primary_cause == plan_legacy.primary_cause
+
+    def test_52_wow_flutter_component_aliases_work(self):
+        plan = reason_about_defects({"wow": 0.6, "flutter": 0.5}, material="tape")
+        # Ensure combined cause receives non-zero posterior via derived wow_flutter.
+        assert plan.cause_probabilities.get("wow_flutter", 0.0) > 0.0
+
+    def test_53_non_finite_scores_are_sanitized(self):
+        plan = reason_about_defects({"clicks": float("nan"), "dropouts": float("inf")}, material="tape")
+        assert isinstance(plan, RestorationPlan)

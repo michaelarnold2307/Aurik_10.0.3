@@ -157,8 +157,34 @@ class BassEnhancement(PhaseInterface):
         sample_rate = kwargs.get("sample_rate", 48000)
         assert sample_rate == 48000, f"SR muss 48000 Hz sein, erhalten: {sample_rate}"
 
+        phase_locality_factor = float(kwargs.get("phase_locality_factor", 1.0))
+        phase_locality_factor = float(np.clip(phase_locality_factor, 0.35, 1.0))
+        _pmgg_strength = float(kwargs.get("strength", 1.0))
+        _effective_strength = float(np.clip(_pmgg_strength * phase_locality_factor, 0.0, 1.0))
+
+        if _effective_strength <= 0.0:
+            audio = np.nan_to_num(audio, nan=0.0, posinf=0.0, neginf=0.0)
+            audio = np.clip(audio, -1.0, 1.0)
+            return PhaseResult(
+                success=True,
+                audio=audio.copy(),
+                execution_time_seconds=time.time() - start_time,
+                metadata={
+                    "material": material.name,
+                    "algorithm": "skipped_zero_strength",
+                    "phase_locality_factor": phase_locality_factor,
+                    "effective_strength": _effective_strength,
+                },
+                warnings=[],
+            )
+
         is_stereo = audio.ndim == 2
         config = dict(self.ENHANCEMENT_CONFIG.get(material, self.ENHANCEMENT_CONFIG[MaterialType.CD_DIGITAL]))
+        config["harmonic_2_gain"] = float(config["harmonic_2_gain"] * _effective_strength)
+        config["harmonic_3_gain"] = float(config["harmonic_3_gain"] * _effective_strength)
+        config["sub_harmonic_gain"] = float(config["sub_harmonic_gain"] * _effective_strength)
+        config["saturation_drive"] = float(config["saturation_drive"] * _effective_strength)
+        config["mix"] = float(config["mix"] * _effective_strength)
 
         # ── Era/Genre-adaptive bass scaling (context injection §2.x) ──
         _waerme = kwargs.get("waerme_target")
@@ -194,6 +220,9 @@ class BassEnhancement(PhaseInterface):
         else:
             enhanced_audio = self._enhance_channel(audio, sample_rate, config)
 
+        if 0.0 < _effective_strength < 1.0:
+            enhanced_audio = audio + _effective_strength * (enhanced_audio - audio)
+
         # Measure final bass energy
         bass_energy_after = self._measure_bass_energy(enhanced_audio, sample_rate)
         bass_boost_db = 20 * np.log10((bass_energy_after + 1e-10) / (bass_energy_before + 1e-10))
@@ -215,6 +244,8 @@ class BassEnhancement(PhaseInterface):
                 "sub_harmonic_gain": float(config["sub_harmonic_gain"]),
                 "rt_factor": float(rt_factor),
                 "virtual_pitch_active": True,
+                "phase_locality_factor": phase_locality_factor,
+                "effective_strength": _effective_strength,
             },
             warnings=[],
         )

@@ -131,6 +131,12 @@ class AzimuthCorrectionPhaseV2(PhaseInterface):
 
         self.validate_input(audio)
 
+        # Locality-aware intensity control from UV3.
+        phase_locality_factor = float(kwargs.get("phase_locality_factor", 1.0))
+        phase_locality_factor = float(np.clip(phase_locality_factor, 0.35, 1.0))
+        _pmgg_strength = float(kwargs.get("strength", 1.0))
+        _effective_strength = float(np.clip(_pmgg_strength * phase_locality_factor, 0.0, 1.0))
+
         # Only applicable to TAPE
         if material != MaterialType.TAPE:
             audio = np.nan_to_num(audio, nan=0.0, posinf=0.0, neginf=0.0)
@@ -139,7 +145,13 @@ class AzimuthCorrectionPhaseV2(PhaseInterface):
                 success=True,
                 audio=audio.copy(),
                 execution_time_seconds=time.time() - start_time,
-                metadata={"material": material.name, "azimuth_correction_applied": False, "reason": "not_applicable"},
+                metadata={
+                    "material": material.name,
+                    "azimuth_correction_applied": False,
+                    "reason": "not_applicable",
+                    "phase_locality_factor": phase_locality_factor,
+                    "effective_strength": _effective_strength,
+                },
                 warnings=[f"Azimuth Correction not applicable for {material.name}"],
             )
 
@@ -151,8 +163,37 @@ class AzimuthCorrectionPhaseV2(PhaseInterface):
                 success=True,
                 audio=audio,
                 execution_time_seconds=time.time() - start_time,
-                metadata={"material": material.name, "azimuth_correction_applied": False, "reason": "mono_audio"},
+                metadata={
+                    "material": material.name,
+                    "azimuth_correction_applied": False,
+                    "reason": "mono_audio",
+                    "phase_locality_factor": phase_locality_factor,
+                    "effective_strength": _effective_strength,
+                },
                 warnings=["Azimuth Correction requires stereo audio"],
+            )
+
+        if _effective_strength <= 0.0:
+            passthrough = np.nan_to_num(audio.copy(), nan=0.0, posinf=0.0, neginf=0.0)
+            passthrough = np.clip(passthrough, -1.0, 1.0)
+            return PhaseResult(
+                success=True,
+                audio=passthrough,
+                execution_time_seconds=time.time() - start_time,
+                metadata={
+                    "material": material.name,
+                    "azimuth_correction_applied": False,
+                    "algorithm": "skipped_zero_strength",
+                    "phase_locality_factor": phase_locality_factor,
+                    "effective_strength": _effective_strength,
+                },
+                metrics={
+                    "phase_shift_before_samples": 0.0,
+                    "phase_shift_after_samples": 0.0,
+                    "phase_shift_reduction_samples": 0.0,
+                    "hf_loss_before_db": 0.0,
+                    "hf_loss_after_db": 0.0,
+                },
             )
 
         left = audio[:, 0]
@@ -194,6 +235,8 @@ class AzimuthCorrectionPhaseV2(PhaseInterface):
                     "reason": "below_threshold",
                     "max_phase_shift_samples": float(max_phase_shift),
                     "hf_loss_db": float(hf_loss_db),
+                    "phase_locality_factor": phase_locality_factor,
+                    "effective_strength": _effective_strength,
                 },
                 metrics={
                     "max_phase_shift_samples": float(max_phase_shift),
@@ -239,6 +282,9 @@ class AzimuthCorrectionPhaseV2(PhaseInterface):
 
         corrected_audio = np.nan_to_num(corrected_audio, nan=0.0, posinf=0.0, neginf=0.0)
         corrected_audio = np.clip(corrected_audio, -1.0, 1.0)
+        if 0.0 < _effective_strength < 1.0:
+            corrected_audio = audio + _effective_strength * (corrected_audio - audio)
+            corrected_audio = np.clip(corrected_audio, -1.0, 1.0)
         return PhaseResult(
             success=True,
             audio=corrected_audio,
@@ -249,6 +295,8 @@ class AzimuthCorrectionPhaseV2(PhaseInterface):
                 "algorithm": "multiband_phase_alignment_v2",
                 "num_bands": 3,
                 "band_splits_hz": self.BAND_SPLITS,
+                "phase_locality_factor": phase_locality_factor,
+                "effective_strength": _effective_strength,
             },
             metrics={
                 "phase_shift_before_samples": float(max_phase_shift),

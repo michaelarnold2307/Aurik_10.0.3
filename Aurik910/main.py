@@ -102,7 +102,7 @@ def main():
     app = QApplication(sys.argv)
     app.setApplicationName("AURIK Professional")
     app.setOrganizationName("AURIK")
-    app.setApplicationVersion("9.10.76")
+    app.setApplicationVersion("9.10.77")
 
     # Application icon (taskbar, dock, alt-tab)
     _icon_path = Path(__file__).parent / "resources" / "icon.png"

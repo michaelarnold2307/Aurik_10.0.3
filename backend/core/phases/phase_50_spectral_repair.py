@@ -47,8 +47,24 @@ _THRESHOLD_FACTOR = 4.0  # Bin > FACTOR × Median der Nachbarn → verdächtig
 _INTERP_BINS = 2  # ±K Bins für Interpolation
 
 
-def _repair_channel(channel: np.ndarray, sample_rate: int) -> tuple[np.ndarray, int]:
-    """Spektrale Reparatur eines Mono-Kanals. Gibt (repaired, n_repaired_bins) zurück."""
+def _repair_channel(channel: np.ndarray, sample_rate: int, threshold_factor: float) -> tuple[np.ndarray, int]:
+    """
+    Spektrale Reparatur eines Mono-Kanals: Frequenz-Achse (Spikes) + Zeit-Achse (Scratches).
+
+    Gibt (repaired, n_repaired_bins) zurück.
+
+    v2.1 (upgraded):
+      Pass 1 — Frequency-axis spike detection (unchanged from v2.0):
+        Horizontal spikes: |X[f,t]| > FACTOR × median(|X[f±B, t]|) → interpolate
+
+      Pass 2 — Time-axis damage detection (NEW):
+        Vertical energy drops: frames where mean(|X[:, t]|) < DROP_FACTOR × median_frame_energy
+        → Time-axis linear interpolation from neighbouring frames
+        These correspond to scratches (short-duration broadband damage) and dropouts
+        (complete signal absence in a frame).
+    """
+    from scipy.ndimage import uniform_filter1d  # noqa: PLC0415
+
     _f, _t, Zxx = sig.stft(
         channel,
         fs=sample_rate,
@@ -61,34 +77,53 @@ def _repair_channel(channel: np.ndarray, sample_rate: int) -> tuple[np.ndarray, 
     phase = np.angle(Zxx)
 
     _n_freq, _n_time = mag.shape
-    # --------------------------------------------------------------------------
-    # Vollständig vektorisierte Spike-Detektion + Reparatur (O(n_freq × K), kein
-    # Python-Loop über n_freq × n_time — vormals >5 s, jetzt <0.1 s).
-    # --------------------------------------------------------------------------
-    # Gleitender Median über die Frequenzachse (uniform_filter1d mit Größe 2×B+1)
-    from scipy.ndimage import uniform_filter1d  # lokaler Import für Klarheit
 
-    # Gleitender Mittelwert als Näherung für Median (schnell, hinreichend genau)
-    # uniform_filter1d entspricht einem Box-Filter der Breite (2*_NEIGHBOR_BINS+1)
+    # ── PASS 1: Frequency-axis spike repair ────────────────────────────────────
     _filter_size = 2 * _NEIGHBOR_BINS + 1
     mag_smooth = uniform_filter1d(mag, size=_filter_size, axis=0, mode="nearest")
-
-    # Sicherstellen, dass med_f > 0 (Division durch Null vermeiden)
     safe_smooth = np.where(mag_smooth < 1e-10, 1e-10, mag_smooth)
+    spike_mask = (mag > threshold_factor * safe_smooth) & (mag >= 1e-10)
 
-    # Spike-Maske: mag > FACTOR × lokaler Median UND mag > Epsilon
-    spike_mask = (mag > _THRESHOLD_FACTOR * safe_smooth) & (mag >= 1e-10)
-
-    # Reparatur: linearer Mittelwert aus ±_INTERP_BINS Frequenz-Nachbarn
-    # Rollen des Arrays um +/- _INTERP_BINS und mitteln (Randbehandlung: nearest)
     mag_lo = np.roll(mag, _INTERP_BINS, axis=0)
     mag_hi = np.roll(mag, -_INTERP_BINS, axis=0)
     mag_interp = (mag_lo + mag_hi) * 0.5
-
     mag_rep = np.where(spike_mask, mag_interp, mag)
-    n_repaired = int(np.count_nonzero(spike_mask))
+    n_freq_repaired = int(np.count_nonzero(spike_mask))
 
-    # Phasen beibehalten, neues ISTFT
+    # ── PASS 2: Time-axis damage detection (scratch/dropout frames) ────────────
+    # Measure per-frame mean energy
+    frame_energy = np.mean(mag_rep, axis=0)  # shape: (n_time,)
+    # Robust median via sorted percentile (avoid scipy.ndimage for 1D)
+    median_energy = float(np.median(frame_energy))
+    _DROP_FACTOR = 0.15  # Frame energy < 15% of median → damaged (dropout/scratch)
+
+    damaged_frames = frame_energy < (_DROP_FACTOR * median_energy + 1e-14)
+    n_time_repaired = int(np.sum(damaged_frames))
+
+    if n_time_repaired > 0 and n_time_repaired < _n_time * 0.5:
+        # Only repair if <50% of frames damaged (full silence passes through intact)
+        for t_idx in np.where(damaged_frames)[0]:
+            # Find nearest undamaged neighbours on each side
+            lo = t_idx - 1
+            hi = t_idx + 1
+            while lo >= 0 and damaged_frames[lo]:
+                lo -= 1
+            while hi < _n_time and damaged_frames[hi]:
+                hi += 1
+            if lo >= 0 and hi < _n_time:
+                # Linear interpolation weight based on distance
+                d_total = hi - lo
+                w_hi = (t_idx - lo) / d_total
+                w_lo = (hi - t_idx) / d_total
+                mag_rep[:, t_idx] = w_lo * mag_rep[:, lo] + w_hi * mag_rep[:, hi]
+            elif lo >= 0:
+                mag_rep[:, t_idx] = mag_rep[:, lo]
+            elif hi < _n_time:
+                mag_rep[:, t_idx] = mag_rep[:, hi]
+
+    n_repaired = n_freq_repaired + n_time_repaired
+
+    # ── Reconstruct ────────────────────────────────────────────────────────────
     Zxx_rep = mag_rep * np.exp(1j * phase)
     _, repaired = sig.istft(
         Zxx_rep,
@@ -97,7 +132,6 @@ def _repair_channel(channel: np.ndarray, sample_rate: int) -> tuple[np.ndarray, 
         nperseg=_FFT_SIZE,
         noverlap=_FFT_SIZE - _HOP,
     )
-    # Auf Original-Länge zuschneiden
     out_len = len(channel)
     repaired = repaired[:out_len] if len(repaired) >= out_len else np.pad(repaired, (0, out_len - len(repaired)))
 
@@ -145,22 +179,47 @@ class SpectralRepairPhase(PhaseInterface):
         self.validate_input(audio)
         t0 = time.time()
 
+        phase_locality_factor = float(kwargs.get("phase_locality_factor", 1.0))
+        phase_locality_factor = float(np.clip(phase_locality_factor, 0.35, 1.0))
+        effective_strength = float(kwargs.get("strength", 1.0)) * phase_locality_factor
+        effective_strength = float(np.clip(effective_strength, 0.0, 1.0))
+
+        if effective_strength <= 1e-6:
+            dry = np.nan_to_num(audio, nan=0.0, posinf=0.0, neginf=0.0)
+            dry = np.clip(dry, -1.0, 1.0)
+            return PhaseResult(
+                success=True,
+                audio=dry,
+                execution_time_seconds=time.time() - t0,
+                metadata={
+                    "algorithm": "skipped_zero_strength",
+                    "phase_locality_factor": phase_locality_factor,
+                    "effective_strength": 0.0,
+                },
+                metrics={"effective_strength": 0.0},
+            )
+
         threshold_factor = float(kwargs.get("threshold_factor", _THRESHOLD_FACTOR))
+        # Lower effective strength should make detection more conservative.
+        threshold_factor_eff = threshold_factor / max(effective_strength, 0.1)
 
         n_channels = 1 if audio.ndim == 1 else audio.shape[1]
         total_bins = 0
 
         if audio.ndim == 1:
-            repaired_c, n_rep = _repair_channel(audio.astype(np.float64), sample_rate)
+            repaired_c, n_rep = _repair_channel(audio.astype(np.float64), sample_rate, threshold_factor_eff)
             repaired_audio = repaired_c.astype(audio.dtype)
             total_bins = n_rep
         else:
             channels_out = []
             for ch in range(n_channels):
-                c_rep, n_rep = _repair_channel(audio[:, ch].astype(np.float64), sample_rate)
+                c_rep, n_rep = _repair_channel(audio[:, ch].astype(np.float64), sample_rate, threshold_factor_eff)
                 channels_out.append(c_rep)
                 total_bins += n_rep
             repaired_audio = np.column_stack(channels_out).astype(audio.dtype)
+
+        if 0.0 < effective_strength < 1.0:
+            repaired_audio = audio + effective_strength * (repaired_audio - audio)
 
         total_bins_possible = int((_FFT_SIZE // 2 + 1) * (len(audio) // _HOP + 1) * n_channels)
         repair_ratio = total_bins / max(1, total_bins_possible)
@@ -183,10 +242,17 @@ class SpectralRepairPhase(PhaseInterface):
             success=True,
             audio=repaired_audio,
             execution_time_seconds=time.time() - t0,
-            metadata={"threshold_factor": threshold_factor, "n_channels": n_channels},
+            metadata={
+                "threshold_factor": threshold_factor,
+                "threshold_factor_effective": threshold_factor_eff,
+                "n_channels": n_channels,
+                "phase_locality_factor": phase_locality_factor,
+                "effective_strength": effective_strength,
+            },
             metrics={
                 "n_repaired_bins": total_bins,
                 "repair_ratio": repair_ratio,
                 "snr_improvement_db": max(0.0, snr_before - 30.0),
+                "effective_strength": effective_strength,
             },
         )

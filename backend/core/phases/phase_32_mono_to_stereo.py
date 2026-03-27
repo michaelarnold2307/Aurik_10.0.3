@@ -160,6 +160,28 @@ class MonoToStereoPhaseV2(PhaseInterface):
 
         self.validate_input(audio)
 
+        phase_locality_factor = float(kwargs.get("phase_locality_factor", 1.0))
+        phase_locality_factor = float(np.clip(phase_locality_factor, 0.35, 1.0))
+        _pmgg_strength = float(kwargs.get("strength", 1.0))
+        _effective_strength = float(np.clip(_pmgg_strength * phase_locality_factor, 0.0, 1.0))
+
+        if _effective_strength <= 0.0:
+            audio = np.nan_to_num(audio, nan=0.0, posinf=0.0, neginf=0.0)
+            audio = np.clip(audio, -1.0, 1.0)
+            return PhaseResult(
+                success=True,
+                audio=audio.copy(),
+                execution_time_seconds=time.time() - start_time,
+                metadata={
+                    "material": material.name,
+                    "algorithm": "skipped_zero_strength",
+                    "mono_to_stereo_applied": False,
+                    "phase_locality_factor": phase_locality_factor,
+                    "effective_strength": _effective_strength,
+                },
+                metrics={"mono_compatible": True},
+            )
+
         # Skip for digital sources (already stereo)
         if material in [MaterialType.CD_DIGITAL, MaterialType.STREAMING]:
             audio = np.nan_to_num(audio, nan=0.0, posinf=0.0, neginf=0.0)
@@ -168,7 +190,13 @@ class MonoToStereoPhaseV2(PhaseInterface):
                 success=True,
                 audio=audio.copy(),
                 execution_time_seconds=time.time() - start_time,
-                metadata={"material": material.name, "mono_to_stereo_applied": False, "reason": "digital_source"},
+                metadata={
+                    "material": material.name,
+                    "mono_to_stereo_applied": False,
+                    "reason": "digital_source",
+                    "phase_locality_factor": phase_locality_factor,
+                    "effective_strength": _effective_strength,
+                },
                 warnings=[f"Mono-to-Stereo not applicable for {material.name}"],
             )
 
@@ -180,7 +208,13 @@ class MonoToStereoPhaseV2(PhaseInterface):
                 success=True,
                 audio=audio,
                 execution_time_seconds=time.time() - start_time,
-                metadata={"material": material.name, "mono_to_stereo_applied": False, "reason": "already_mono"},
+                metadata={
+                    "material": material.name,
+                    "mono_to_stereo_applied": False,
+                    "reason": "already_mono",
+                    "phase_locality_factor": phase_locality_factor,
+                    "effective_strength": _effective_strength,
+                },
                 warnings=["Input is already mono (1 channel)"],
             )
 
@@ -203,6 +237,8 @@ class MonoToStereoPhaseV2(PhaseInterface):
                     "mono_to_stereo_applied": False,
                     "reason": "already_stereo",
                     "lr_correlation": float(correlation),
+                    "phase_locality_factor": phase_locality_factor,
+                    "effective_strength": _effective_strength,
                 },
                 metrics={"lr_correlation": float(correlation), "threshold": self.MONO_CORRELATION_THRESHOLD},
             )
@@ -217,8 +253,8 @@ class MonoToStereoPhaseV2(PhaseInterface):
         bands = self._split_multiband(mono, sample_rate)
 
         # Step 3: Per-band pseudo-stereo generation
-        width_factors = self.WIDTH_FACTORS[material]
-        haas_delays = self.HAAS_DELAYS_MS[material]
+        width_factors = [float(w * _effective_strength) for w in self.WIDTH_FACTORS[material]]
+        haas_delays = [int(round(d * _effective_strength)) for d in self.HAAS_DELAYS_MS[material]]
 
         stereo_bands = []
         for i, band_mono in enumerate(bands):
@@ -234,9 +270,12 @@ class MonoToStereoPhaseV2(PhaseInterface):
         pseudo_stereo = self._preserve_transients(mono, pseudo_stereo, sample_rate)
 
         # Step 6: HF enhancement (optional)
-        hf_boost_db = self.HF_ENHANCEMENT_DB[material]
+        hf_boost_db = float(self.HF_ENHANCEMENT_DB[material] * _effective_strength)
         if hf_boost_db > 0:
             pseudo_stereo = self._enhance_hf_content(pseudo_stereo, sample_rate, hf_boost_db)
+
+        if 0.0 < _effective_strength < 1.0:
+            pseudo_stereo = audio + _effective_strength * (pseudo_stereo - audio)
 
         # Step 7: Verify mono compatibility
         mono_compatible = self._check_mono_compatibility(pseudo_stereo)
@@ -264,6 +303,8 @@ class MonoToStereoPhaseV2(PhaseInterface):
                 "algorithm": "lauridsen_pseudo_stereo_v2",
                 "num_bands": 5,
                 "band_splits_hz": self.BAND_SPLITS,
+                "phase_locality_factor": phase_locality_factor,
+                "effective_strength": _effective_strength,
             },
             metrics={
                 "lr_correlation_before": float(correlation),

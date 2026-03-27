@@ -170,6 +170,110 @@ class TestDeploymentModePolicy:
         assert sorted(restorer._blocked_experimental_features) == ["matchering_reference_mastering"]
         assert sum("matchering_reference_mastering" in warning for warning in restorer._warnings) == 1
 
+
+class _AlwaysSkipGuard:
+    def __init__(self) -> None:
+        self.skip_calls = 0
+
+    def should_skip_phase(self, phase_id, estimated_time, remaining):
+        self.skip_calls += 1
+        return True
+
+    def start_phase(self, phase_id):
+        return 0.0
+
+    def end_phase(self, phase_id, phase_start):
+        return None
+
+    def check_early_exit(self, remaining):
+        return False
+
+
+class _DummyPhaseForNoRt:
+    def get_metadata(self):
+        return types.SimpleNamespace(
+            estimated_time_factor=0.1,
+            phase_id="phase_99_dummy",
+            name="Dummy Phase",
+        )
+
+    def process(self, audio, **kwargs):
+        return np.asarray(audio, dtype=np.float32).copy()
+
+
+class TestNoRtLimitPhaseDeferralBypass:
+    def _build_restorer(self) -> UnifiedRestorerV3:
+        cfg = RestorationConfig(
+            enable_phase_gate=False,
+            enable_phase_skipping=False,
+            enable_performance_guard=False,
+        )
+        restorer = UnifiedRestorerV3(cfg)
+        restorer.phase_metadata = {
+            "phase_99_dummy": {
+                "name": "Dummy",
+                "dependencies": [],
+            }
+        }
+        restorer._get_phase = lambda _pid: _DummyPhaseForNoRt()  # type: ignore[method-assign]
+        restorer._profiled_phase_call = (  # type: ignore[method-assign]
+            lambda _phase, _audio, **_kwargs: types.SimpleNamespace(
+                success=True,
+                audio=np.asarray(_audio, dtype=np.float32).copy(),
+                execution_time_seconds=0.001,
+                warnings=[],
+            )
+        )
+        return restorer
+
+    def test_55_rt_guard_defers_phase_without_no_rt_limit(self):
+        restorer = self._build_restorer()
+        guard = _AlwaysSkipGuard()
+        restorer.performance_guard = guard
+
+        audio = _sine(secs=0.3)
+        defect_result = types.SimpleNamespace(scores={})
+        material = list(MaterialType)[0]
+
+        out, executed, skipped, deferred = restorer._execute_pipeline(
+            audio=audio,
+            sample_rate=SR,
+            material_type=material,
+            defect_result=defect_result,
+            selected_phases=["phase_99_dummy"],
+            no_rt_limit=False,
+        )
+
+        assert isinstance(out, np.ndarray)
+        assert "phase_99_dummy" not in executed
+        assert "phase_99_dummy" in skipped
+        assert "phase_99_dummy" in deferred
+        assert guard.skip_calls >= 1
+
+    def test_56_no_rt_limit_executes_phase_despite_guard_skip(self):
+        restorer = self._build_restorer()
+        guard = _AlwaysSkipGuard()
+        restorer.performance_guard = guard
+
+        audio = _sine(secs=0.3)
+        defect_result = types.SimpleNamespace(scores={})
+        material = list(MaterialType)[0]
+
+        out, executed, skipped, deferred = restorer._execute_pipeline(
+            audio=audio,
+            sample_rate=SR,
+            material_type=material,
+            defect_result=defect_result,
+            selected_phases=["phase_99_dummy"],
+            no_rt_limit=True,
+        )
+
+        assert isinstance(out, np.ndarray)
+        assert "phase_99_dummy" in executed
+        assert "phase_99_dummy" not in skipped
+        assert "phase_99_dummy" not in deferred
+        assert guard.skip_calls == 0
+
     def test_12_phases_executed_is_list(self):
         audio = _sine(secs=1.0)
         result = _make_restoration_result(audio)
@@ -316,6 +420,34 @@ class TestSelectPhases:
                 assert isinstance(p, str)
         except Exception:
             pytest.skip("_select_phases benötigt voll initialisiertes DefectResult")
+
+
+class TestPhaseInteractionGuards:
+    """Verifiziert kritische Reihenfolge-Invarianten zwischen interagierenden Phasen."""
+
+    def _opt(self, selected: list[str]) -> list[str]:
+        restorer = UnifiedRestorerV3()
+        return restorer._optimize_phase_plan_intelligence(
+            selected,
+            causal_plan=None,
+            pipeline_confidence=None,
+            restorability_score=70.0,
+        )
+
+    def test_33a_deesser_before_vocal_enhancement(self):
+        phases = ["phase_42_vocal_enhancement", "phase_19_de_esser"]
+        out = self._opt(phases)
+        assert out.index("phase_19_de_esser") < out.index("phase_42_vocal_enhancement")
+
+    def test_33b_deesser_before_ml_deesser(self):
+        phases = ["phase_43_ml_deesser", "phase_19_de_esser"]
+        out = self._opt(phases)
+        assert out.index("phase_19_de_esser") < out.index("phase_43_ml_deesser")
+
+    def test_33c_spatial_before_stereo_width(self):
+        phases = ["phase_48_stereo_width_enhancer", "phase_46_spatial_enhancement"]
+        out = self._opt(phases)
+        assert out.index("phase_46_spatial_enhancement") < out.index("phase_48_stereo_width_enhancer")
 
 
 # ---------------------------------------------------------------------------

@@ -1,7 +1,10 @@
-# Aurik 9.10.57 — Architektur-Überblick
+# Aurik 9.x.x — Architektur-Überblick
 
 **Stand:** März 2026  
-**Status:** ✅ Produktionsbereit — 7.747+ Tests grün
+**Version:** 9.10.77c  
+**Status:** ✅ Produktionsbereit
+
+> Hinweis: Verbindlicher Ist-Stand ist in `.github/specs/01-08` und `docs/CHANGELOG_HISTORY.md` dokumentiert.
 
 ---
 
@@ -10,8 +13,8 @@
 | Komponente | Datei | Zweck |
 |---|---|---|
 | `UnifiedRestorerV3` | `core/unified_restorer_v3.py` | Haupt-Pipeline-Orchestrator |
-| `DefectScanner` | `core/defect_scanner.py` | 30 DefectTypes, 17 Material-Priors |
-| `CausalDefectReasoner` | `core/causal_defect_reasoner.py` | 14 Kausal-Ursachen (Bayes) |
+| `DefectScanner` | `core/defect_scanner.py` | 32 DefectTypes, material-adaptive Priors |
+| `CausalDefectReasoner` | `core/causal_defect_reasoner.py` | 34 Kausal-Ursachen (Bayes) |
 | `GPParameterOptimizer` | `core/gp_parameter_optimizer.py` | RBF-GP + UCB, MOO-Pareto |
 | `MusicalGoalsChecker` | `backend/core/musical_goals/musical_goals_metrics.py` | 14 Ziele |
 | `MediumClassifier` | `core/medium_classifier.py` | 17 Materialtypen |
@@ -78,4 +81,4 @@ class RestorationResult:
 
 ---
 
-*Aurik 9.10.57 — März 2026*
+*Aurik 9.10.77c — März 2026*

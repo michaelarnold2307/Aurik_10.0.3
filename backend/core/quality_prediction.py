@@ -367,17 +367,25 @@ class QualityAnalyzer:
 
     def _measure_naturalness(self, audio: np.ndarray, sr: int) -> float:
         """
-        Measure naturalness (spectral balance).
+        Measure naturalness via spectral smoothness.
+
+        Natural audio has a smooth spectral envelope (no sharp notches or peaks
+        from overprocessing).  The old formula measured "spectral flatness" which
+        penalised the natural 1/f slope of real music — yielding 0.10 for
+        virtually all audio.
+
+        New approach: Compute the log-power spectrum in octave bands, fit a
+        linear tilt (expected 1/f roll-off), then measure the smoothness of
+        the *residual* (deviations from the tilt).  Low residual variance =
+        natural, high = overprocessed / artifact-laden.
         """
         rms = float(np.sqrt(np.mean(np.asarray(audio, dtype=np.float32) ** 2))) if len(audio) > 0 else 0.0
         if len(audio) < 256 or rms < 1e-5:
             return 0.75
 
-        # Natural sound has balanced spectrum
         fft = np.fft.rfft(audio)
         power = np.abs(fft) ** 2
 
-        # Spectral variance (natural = low variance)
         # Divide spectrum into octave bands
         n_bands = 8
         band_powers = []
@@ -389,18 +397,32 @@ class QualityAnalyzer:
             else:
                 band_powers.append(0.0)
 
-        # Normalize
         band_powers = np.array(band_powers)
-        if np.sum(band_powers) > 0:
-            band_powers = band_powers / np.sum(band_powers)
+        if np.sum(band_powers) <= 0:
+            return 0.75
 
-            # Variance (low = natural).
-            # Floor at 0.10 — real audio with a flat noise-like spectrum should
-            # never score exactly 0.0 (that would falsely trigger goal failures).
-            variance = np.var(band_powers)
-            naturalness = max(0.10, 1.0 - min(variance / 0.02, 1.0))
-        else:
-            naturalness = 0.75
+        # Log-domain (safe): natural spectra are roughly linear in log-power
+        log_powers = np.log10(band_powers + 1e-20)
+
+        # Linear fit (1/f tilt removal): residual = deviations from expected slope
+        x = np.arange(n_bands, dtype=np.float64)
+        coeffs = np.polyfit(x, log_powers, 1)  # slope + intercept
+        tilt_line = np.polyval(coeffs, x)
+        residual = log_powers - tilt_line
+
+        # Smoothness: low residual variance = natural spectral envelope
+        # Typical values: natural music residual_var ≈ 0.01–0.08,
+        # heavily processed/artifact-laden ≈ 0.15–0.50
+        residual_var = float(np.var(residual))
+        naturalness = max(0.0, 1.0 - min(residual_var / 0.15, 1.0))
+
+        # Additionally penalise sharp spectral notches (overprocessing indicator):
+        # Large consecutive jumps in residual signal processing artifacts
+        if n_bands > 1:
+            jumps = np.abs(np.diff(residual))
+            max_jump = float(np.max(jumps))
+            jump_penalty = min(max_jump / 1.0, 0.20)  # max 20% penalty
+            naturalness = max(0.0, naturalness - jump_penalty)
 
         if not np.isfinite(naturalness):
             naturalness = 0.75

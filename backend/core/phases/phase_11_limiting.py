@@ -147,9 +147,38 @@ class LimitingPhase(PhaseInterface):
 
         self.validate_input(audio)
 
+        phase_locality_factor = float(kwargs.get("phase_locality_factor", 1.0))
+        phase_locality_factor = float(np.clip(phase_locality_factor, 0.35, 1.0))
+        _pmgg_strength = float(kwargs.get("strength", 1.0))
+        _effective_strength = float(np.clip(_pmgg_strength * phase_locality_factor, 0.0, 1.0))
+
+        if _effective_strength <= 0.0:
+            passthrough = np.nan_to_num(audio.copy(), nan=0.0, posinf=0.0, neginf=0.0)
+            passthrough = np.clip(passthrough, -1.0, 1.0)
+            return PhaseResult(
+                success=True,
+                audio=passthrough,
+                execution_time_seconds=time.time() - start_time,
+                metadata={
+                    "material": material.name,
+                    "limiting_applied": False,
+                    "ceiling_db": 0.0,
+                    "phase_locality_factor": phase_locality_factor,
+                    "effective_strength": _effective_strength,
+                    "processing": "skipped_zero_strength",
+                },
+                metrics={
+                    "true_peak_before_db": 0.0,
+                    "true_peak_after_db": 0.0,
+                    "peak_reduction_db": 0.0,
+                    "rms_change_db": 0.0,
+                },
+            )
+
         is_stereo = audio.ndim == 2
         config = self.CEILING_CONFIG.get(material, self.CEILING_CONFIG[MaterialType.VINYL])
-        ceiling_db = config["ceiling_db"]
+        base_ceiling_db = config["ceiling_db"]
+        ceiling_db = float(base_ceiling_db * _effective_strength)
         oversample_factor = config["oversample"]
         release_ms = self.RELEASE_MS.get(material, self.RELEASE_MS[MaterialType.VINYL])
         soft_clip_knee_db = self.SOFT_CLIP_KNEE_DB.get(material, 0.3)
@@ -172,6 +201,8 @@ class LimitingPhase(PhaseInterface):
                     "limiting_applied": False,
                     "true_peak_db": float(true_peak_db),
                     "ceiling_db": ceiling_db,
+                    "phase_locality_factor": phase_locality_factor,
+                    "effective_strength": _effective_strength,
                 },
                 warnings=[f"Limiting übersprungen (True Peak {true_peak_db:.2f} dB < Ceiling {ceiling_db:.1f} dB)"],
             )
@@ -199,6 +230,9 @@ class LimitingPhase(PhaseInterface):
 
         limited_audio = np.nan_to_num(limited_audio, nan=0.0, posinf=0.0, neginf=0.0)
         limited_audio = np.clip(limited_audio, -1.0, 1.0)
+        if 0.0 < _effective_strength < 1.0:
+            limited_audio = audio + _effective_strength * (limited_audio - audio)
+            limited_audio = np.clip(limited_audio, -1.0, 1.0)
         return PhaseResult(
             success=True,
             audio=limited_audio,
@@ -207,8 +241,11 @@ class LimitingPhase(PhaseInterface):
                 "material": material.name,
                 "limiting_applied": True,
                 "ceiling_db": ceiling_db,
+                "base_ceiling_db": base_ceiling_db,
                 "oversample_factor": oversample_factor,
                 "soft_clip_knee_db": soft_clip_knee_db,
+                "phase_locality_factor": phase_locality_factor,
+                "effective_strength": _effective_strength,
                 "band_metrics": band_metrics,
             },
             metrics={

@@ -212,20 +212,52 @@ class MidSideProcessing(PhaseInterface):
         start_time = time.time()
         self.validate_input(audio)
 
+        phase_locality_factor = float(kwargs.get("phase_locality_factor", 1.0))
+        phase_locality_factor = float(np.clip(phase_locality_factor, 0.35, 1.0))
+        _pmgg_strength = float(kwargs.get("strength", 1.0))
+        _effective_strength = float(np.clip(_pmgg_strength * phase_locality_factor, 0.0, 1.0))
+
+        if _effective_strength <= 0.0:
+            audio = np.nan_to_num(audio, nan=0.0, posinf=0.0, neginf=0.0)
+            audio = np.clip(audio, -1.0, 1.0)
+            return PhaseResult(
+                success=True,
+                audio=audio.astype(audio.dtype),
+                execution_time_seconds=time.time() - start_time,
+                metadata={
+                    "phase": "34_mid_side_processing_v2_professional",
+                    "material": material.value,
+                    "processing": "skipped_zero_strength",
+                    "phase_locality_factor": phase_locality_factor,
+                    "effective_strength": _effective_strength,
+                },
+                metrics={"mid_change_db": 0.0, "side_change_db": 0.0, "mono_compatibility": 1.0},
+            )
+
         metadata = {
             "phase": "34_mid_side_processing_v2_professional",
             "material": material.value,
             "sample_rate": sample_rate,
             "version": "2.0.0",
+            "phase_locality_factor": phase_locality_factor,
+            "effective_strength": _effective_strength,
         }
 
         # Split into bands
         bands = self._split_bands(audio, sample_rate)
 
         # Get material-specific parameters
-        mid_params = self.MID_DYNAMICS[material]
-        side_params = self.SIDE_DYNAMICS[material]
-        crossfeed_params = self.CROSSFEED[material]
+        mid_params = {k: list(v) for k, v in self.MID_DYNAMICS[material].items()}
+        side_params = {k: list(v) for k, v in self.SIDE_DYNAMICS[material].items()}
+        crossfeed_params = {k: list(v) for k, v in self.CROSSFEED[material].items()}
+
+        for band_name in self.band_names:
+            mid_params[band_name][1] = float(1.0 + (mid_params[band_name][1] - 1.0) * _effective_strength)
+            mid_params[band_name][4] = float(mid_params[band_name][4] * _effective_strength)
+            side_params[band_name][1] = float(1.0 + (side_params[band_name][1] - 1.0) * _effective_strength)
+            side_params[band_name][4] = float(side_params[band_name][4] * _effective_strength)
+            crossfeed_params[band_name][0] = float(crossfeed_params[band_name][0] * _effective_strength)
+            crossfeed_params[band_name][1] = float(crossfeed_params[band_name][1] * _effective_strength)
 
         # Detect transients (global, for all bands)
         transient_mask = self._detect_transients(audio)
@@ -271,6 +303,9 @@ class MidSideProcessing(PhaseInterface):
 
         # Combine bands
         audio_processed = self._combine_bands(processed_bands)
+
+        if 0.0 < _effective_strength < 1.0:
+            audio_processed = audio + _effective_strength * (audio_processed - audio)
 
         # Normalize to prevent clipping
         peak = np.max(np.abs(audio_processed))

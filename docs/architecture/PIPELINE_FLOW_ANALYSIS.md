@@ -1,14 +1,17 @@
-# Aurik 9.10.57 — Pipeline Flow Analysis
+# Aurik 9.x.x — Pipeline Flow Analysis
 
 **Stand:** März 2026  
+**Version:** 9.10.77c  
 **Status:** 56-Phasen-Defect-First-Pipeline, vollständig implementiert
+
+> Hinweis: Verbindlicher Ist-Stand liegt in `.github/specs/01-08` und `docs/CHANGELOG_HISTORY.md`.
 
 ---
 
 ## Kernprinzip: Defect-First + Kognitive Steuerung
 
 Im Gegensatz zu früheren Versionen (14-Phasen, fixe Reihenfolge) verarbeitet
-Aurik 9.10.57 Audio über eine kognitive Pipeline: erst verstehen (DefectScanner +
+Aurik 9.x.x Audio über eine kognitive Pipeline: erst verstehen (DefectScanner +
 CausalReasoner), dann optimiert intervenieren (GP-Optimizer), dann verifizieren
 (14 Musical Goals via PMGG).
 
@@ -24,7 +27,7 @@ CausalReasoner), dann optimiert intervenieren (GP-Optimizer), dann verifizieren
 [Restorability 0-100] + [Ära 1890-2025] + [Genre: Schlager?]
     |
     v
-[Material: 17 Typen] + [30 DefectTypes] + [14 Kausal-Ursachen]
+[Material: material-adaptiv] + [32 DefectTypes] + [34 Kausal-Ursachen]
     |
     v
 [GP-Optimizer: 10 Parameter, MOO-Pareto über 14 Ziele]
@@ -106,4 +109,4 @@ CausalReasoner), dann optimiert intervenieren (GP-Optimizer), dann verifizieren
 
 ---
 
-*Aurik 9.10.57 — März 2026*
+*Aurik 9.10.77c — März 2026*

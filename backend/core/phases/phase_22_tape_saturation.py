@@ -173,6 +173,30 @@ class TapeSaturation(PhaseInterface):
         self.validate_input(audio)
         start_time = time.time()
 
+        phase_locality_factor = float(kwargs.get("phase_locality_factor", 1.0))
+        phase_locality_factor = float(np.clip(phase_locality_factor, 0.35, 1.0))
+        _pmgg_strength = float(kwargs.get("strength", 1.0))
+        _effective_strength = float(np.clip(_pmgg_strength * phase_locality_factor, 0.0, 1.0))
+
+        if _effective_strength <= 0.0:
+            audio = np.nan_to_num(audio, nan=0.0, posinf=0.0, neginf=0.0)
+            audio = np.clip(audio, -1.0, 1.0)
+            return PhaseResult(
+                success=True,
+                audio=audio.copy(),
+                metrics={
+                    "saturation_applied": False,
+                    "material": material.value,
+                    "effective_strength": _effective_strength,
+                },
+                execution_time_seconds=time.time() - start_time,
+                metadata={
+                    "algorithm": "skipped_zero_strength",
+                    "phase_locality_factor": phase_locality_factor,
+                    "effective_strength": _effective_strength,
+                },
+            )
+
         drive = self.SATURATION_DRIVE.get(material, 0.25)
         mix_amount = self.SATURATION_MIX.get(material, 0.30)
         tape_speed = self.TAPE_SPEED.get(material, "7.5_ips")
@@ -195,6 +219,9 @@ class TapeSaturation(PhaseInterface):
         if kwargs.get("soft_saturation_preserve", False):
             mix_amount = min(0.60, mix_amount * 1.15)
 
+        drive = float(drive * _effective_strength)
+        mix_amount = float(mix_amount * _effective_strength)
+
         if drive < 0.01 or mix_amount < 0.01:
             # Skip processing
             audio = np.nan_to_num(audio, nan=0.0, posinf=0.0, neginf=0.0)
@@ -202,8 +229,17 @@ class TapeSaturation(PhaseInterface):
             return PhaseResult(
                 success=True,
                 audio=audio.copy(),
-                metrics={"saturation_applied": False, "material": material.value},
+                metrics={
+                    "saturation_applied": False,
+                    "material": material.value,
+                    "effective_strength": _effective_strength,
+                },
                 execution_time_seconds=time.time() - start_time,
+                metadata={
+                    "algorithm": "skipped_low_drive_or_mix",
+                    "phase_locality_factor": phase_locality_factor,
+                    "effective_strength": _effective_strength,
+                },
             )
 
         is_stereo = audio.ndim == 2
@@ -232,6 +268,9 @@ class TapeSaturation(PhaseInterface):
 
         mixed = (1.0 - mix_amount) * audio + mix_amount * saturated
 
+        if 0.0 < _effective_strength < 1.0:
+            mixed = audio + _effective_strength * (mixed - audio)
+
         # Measure THD (Total Harmonic Distortion)
         thd_percent = self._estimate_thd(audio, mixed)
 
@@ -259,6 +298,10 @@ class TapeSaturation(PhaseInterface):
             },
             execution_time_seconds=processing_time,
             metadata={"algorithm": "multi_band_tape_saturation", "version": "2.0", "bands": 3},
+            modifications={
+                "phase_locality_factor": phase_locality_factor,
+                "effective_strength": _effective_strength,
+            },
         )
 
     def _saturate_multi_band(

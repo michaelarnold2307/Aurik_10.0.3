@@ -42,8 +42,13 @@ def _make_bump_audio(
 ) -> np.ndarray:
     """Create audio with a synthetic transport bump at a known position.
 
-    The bump is modeled as an abrupt pitch excursion + amplitude spike,
-    mimicking a cassette transport shock.
+    Models a realistic cassette transport bump with:
+      - Abrupt energy dropout (tape loses head contact -> near-silence)
+      - Low-frequency thump after dropout (mechanical shock)
+      - Pitch excursion (tape speed perturbation)
+      - Spectral centroid disruption
+    The energy dropout zone is kept silent (no LF added) so the
+    mandatory energy feature threshold (rms_ratio < 0.45) is triggered.
     """
     n = int(sr * duration)
     t = np.linspace(0, duration, n, endpoint=False)
@@ -52,14 +57,25 @@ def _make_bump_audio(
     bump_start = int(bump_start_s * sr)
     bump_end = int((bump_start_s + bump_dur_s) * sr)
     bump_end = min(bump_end, n)
+    bump_len = bump_end - bump_start
 
-    # Pitch excursion (simulate via frequency shift in the bump region)
-    bump_t = t[bump_start:bump_end]
+    # 1. Energy dropout zone: near-silence for ~30 ms (tape loses head contact)
+    drop_len = min(bump_len // 3, int(0.030 * sr))
+    if drop_len > 0:
+        audio[bump_start : bump_start + drop_len] *= 0.03  # near-silence, no LF
+
+    # 2. Recovery zone: LF thump + shifted pitch (after dropout)
+    recovery_start = bump_start + drop_len
+    recovery_t = t[recovery_start:bump_end]
+
+    # LF thump (mechanical shock, 30 Hz, strong)
+    lf_thump = (np.sin(2 * np.pi * 30 * recovery_t) * 0.5 * amp_deviation).astype(np.float32)
+
+    # Pitch-shifted signal in recovery zone
     shifted_freq = freq * (1.0 + pitch_deviation)
-    audio[bump_start:bump_end] = (np.sin(2 * np.pi * shifted_freq * bump_t) * 0.3).astype(np.float32)
+    pitched = (np.sin(2 * np.pi * shifted_freq * recovery_t) * 0.3 * (1.0 + amp_deviation)).astype(np.float32)
 
-    # Amplitude perturbation
-    audio[bump_start:bump_end] *= 1.0 + amp_deviation
+    audio[recovery_start:bump_end] = pitched + lf_thump
 
     return np.clip(audio, -1.0, 1.0).astype(np.float32)
 
@@ -110,7 +126,7 @@ class TestDetectTransportBump:
     def _scanner():
         from backend.core.defect_scanner import DefectScanner
 
-        return DefectScanner()
+        return DefectScanner(sample_rate=SR)
 
     def test_05_clean_audio_no_bump(self):
         scanner = self._scanner()
@@ -437,3 +453,144 @@ class TestUIIntegration:
         ui_path = Path(__file__).parent.parent.parent / "Aurik910" / "ui" / "modern_window.py"
         content = ui_path.read_text(encoding="utf-8")
         assert "transport_bump" in content
+
+
+# ---------------------------------------------------------------------------
+# 7. _spectral_context_blend() — spectral repair helper
+# ---------------------------------------------------------------------------
+
+
+class TestSpectralContextBlend:
+    """Phase 12 _spectral_context_blend static method."""
+
+    @staticmethod
+    def _phase():
+        from backend.core.phases.phase_12_wow_flutter_fix import WowFlutterFix
+
+        return WowFlutterFix()
+
+    def test_42_method_exists(self):
+        from backend.core.phases.phase_12_wow_flutter_fix import WowFlutterFix
+
+        assert hasattr(WowFlutterFix, "_spectral_context_blend")
+
+    def test_43_short_bump_passthrough(self):
+        """Bumps shorter than 128 samples should be returned unchanged."""
+        phase = self._phase()
+        bump = _sine(duration=0.002, freq=440.0)  # ~96 samples at 48 kHz
+        ctx = _sine(duration=0.1, freq=440.0)
+        result = phase._spectral_context_blend(bump, ctx, ctx, 0.85)
+        np.testing.assert_array_equal(result, bump)
+
+    def test_44_zero_strength_passthrough(self):
+        phase = self._phase()
+        bump = _sine(duration=0.05, freq=440.0)  # 2400 samples
+        ctx = _sine(duration=0.1, freq=440.0)
+        result = phase._spectral_context_blend(bump, ctx, ctx, 0.0)
+        np.testing.assert_array_equal(result, bump)
+
+    def test_45_output_shape_matches_input(self):
+        phase = self._phase()
+        bump = _sine(duration=0.05, freq=440.0)
+        ctx = _sine(duration=0.1, freq=440.0)
+        result = phase._spectral_context_blend(bump, ctx, ctx, 0.85)
+        assert result.shape == bump.shape
+
+    def test_46_output_finite(self):
+        phase = self._phase()
+        bump = _sine(duration=0.05, freq=440.0)
+        ctx = _sine(duration=0.1, freq=440.0)
+        result = phase._spectral_context_blend(bump, ctx, ctx, 0.85)
+        assert np.isfinite(result).all()
+
+    def test_47_output_clipped(self):
+        phase = self._phase()
+        bump = np.ones(2400, dtype=np.float32) * 0.9
+        ctx = _sine(duration=0.1, freq=440.0)
+        result = phase._spectral_context_blend(bump, ctx, ctx, 1.0)
+        assert np.max(np.abs(result)) <= 1.0
+
+    def test_48_lf_thump_suppressed(self):
+        """A bump with injected LF energy should have that energy reduced."""
+        phase = self._phase()
+        n = 4800  # 100 ms at 48 kHz
+        t = np.linspace(0, 0.1, n, endpoint=False)
+        clean = (np.sin(2 * np.pi * 440 * t) * 0.3).astype(np.float32)
+        # Add LF thump (30 Hz) to bump
+        bump = clean + (np.sin(2 * np.pi * 30 * t) * 0.4).astype(np.float32)
+
+        result = phase._spectral_context_blend(bump, clean, clean, 0.85)
+
+        # LF energy should be reduced in result vs bump
+        # Measure LF energy (0–60 Hz) via FFT
+        def lf_energy(sig: np.ndarray) -> float:
+            fft_mag = np.abs(np.fft.rfft(sig))
+            freqs = np.fft.rfftfreq(len(sig), 1.0 / SR)
+            return float(np.sum(fft_mag[freqs < 60] ** 2))
+
+        assert lf_energy(result) < lf_energy(bump), "LF thump should be reduced"
+
+    def test_49_empty_context_passthrough(self):
+        """If both contexts are too short, bump should be returned unchanged."""
+        phase = self._phase()
+        bump = _sine(duration=0.05, freq=440.0)
+        short = np.zeros(10, dtype=np.float32)
+        result = phase._spectral_context_blend(bump, short, short, 0.85)
+        np.testing.assert_array_equal(result, bump)
+
+    def test_50_single_context_enough(self):
+        """If only one context is valid, method should still work."""
+        phase = self._phase()
+        bump = _sine(duration=0.05, freq=440.0)
+        ctx = _sine(duration=0.1, freq=440.0)
+        short = np.zeros(10, dtype=np.float32)
+        result = phase._spectral_context_blend(bump, ctx, short, 0.85)
+        assert result.shape == bump.shape
+        assert np.isfinite(result).all()
+
+    def test_51_output_dtype_float32(self):
+        phase = self._phase()
+        bump = _sine(duration=0.05, freq=440.0)
+        ctx = _sine(duration=0.1, freq=440.0)
+        result = phase._spectral_context_blend(bump, ctx, ctx, 0.85)
+        assert result.dtype == np.float32
+
+
+# ---------------------------------------------------------------------------
+# 8. UV3 Phase-Selection — TRANSPORT_BUMP → Phase 12
+# ---------------------------------------------------------------------------
+
+
+class TestUV3PhaseSelection:
+    """UV3 activates Phase 12 when TRANSPORT_BUMP severity > 0.08."""
+
+    def test_52_uv3_phase_selection_code_exists(self):
+        """UV3 source must contain TRANSPORT_BUMP phase selection logic."""
+        from pathlib import Path
+
+        uv3_path = Path(__file__).parent.parent.parent / "backend" / "core" / "unified_restorer_v3.py"
+        content = uv3_path.read_text(encoding="utf-8")
+        assert "TRANSPORT_BUMP" in content
+        assert "phase_12" in content
+
+    def test_53_defect_locations_dict_key(self):
+        """DefectType.TRANSPORT_BUMP.value should be a valid dict key."""
+        from backend.core.defect_scanner import DefectType
+
+        key = DefectType.TRANSPORT_BUMP.value
+        assert isinstance(key, str)
+        assert key == "transport_bump"
+
+    def test_54_phase_12_reads_defect_locations(self):
+        """Phase 12 source must fall back to defect_locations dict."""
+        from pathlib import Path
+
+        p12_path = (
+            Path(__file__).parent.parent.parent
+            / "backend"
+            / "core"
+            / "phases"
+            / "phase_12_wow_flutter_fix.py"
+        )
+        content = p12_path.read_text(encoding="utf-8")
+        assert 'defect_locations' in content

@@ -478,7 +478,38 @@ class CrackleRemovalPhase(PhaseInterface):
         start_time = time.time()
 
         # Get material-specific parameters
-        params = self.MATERIAL_PARAMS.get(material_type, self.MATERIAL_PARAMS["unknown"])
+        params = dict(self.MATERIAL_PARAMS.get(material_type, self.MATERIAL_PARAMS["unknown"]))
+
+        # Locality-aware modulation from UV3.
+        # Sparse crackle regions should be treated conservatively to preserve texture.
+        phase_locality_factor = float(kwargs.get("phase_locality_factor", 1.0))
+        phase_locality_factor = float(np.clip(phase_locality_factor, 0.35, 1.0))
+        if phase_locality_factor < 0.999:
+            inv = 1.0 / max(phase_locality_factor, 1e-6)
+            params["transient_threshold"] = float(np.clip(params["transient_threshold"] * inv, 0.005, 1.0))
+            # Higher preserve value => lower global intervention outside defect locations.
+            params["texture_preserve"] = float(
+                np.clip(params.get("texture_preserve", 0.85) + 0.10 * (1.0 - phase_locality_factor), 0.0, 0.99)
+            )
+
+        _pmgg_strength = float(kwargs.get("strength", 1.0))
+        _effective_strength = float(np.clip(_pmgg_strength * phase_locality_factor, 0.0, 1.0))
+
+        if _effective_strength <= 0.0:
+            passthrough = np.nan_to_num(audio.copy(), nan=0.0, posinf=0.0, neginf=0.0)
+            passthrough = np.clip(passthrough, -1.0, 1.0)
+            return PhaseResult(
+                success=True,
+                audio=passthrough,
+                execution_time_seconds=time.time() - start_time,
+                metadata={
+                    "algorithm": "skipped_zero_strength",
+                    "material": material_type,
+                    "phase_locality_factor": phase_locality_factor,
+                    "effective_strength": _effective_strength,
+                },
+                warnings=["Crackle removal skipped due to zero effective strength"],
+            )
 
         # ML-Hybrid Decision: BANQUET for Vinyl only
         use_banquet = QUALITY_MODE_AVAILABLE and material_type == "vinyl" and is_phase_ml_enabled(9)
@@ -494,6 +525,8 @@ class CrackleRemovalPhase(PhaseInterface):
                     log_mode_decision("phase_09", True, "Vinyl: BANQUET ONNX direkt (lokale Inferenz, kein Docker)")
                 _sample_rate = int(kwargs.get("sample_rate", 48000))
                 restored = self._remove_crackle_onnx_direct(audio, _sample_rate, params)
+                if 0.0 < _effective_strength < 1.0:
+                    restored = audio + _effective_strength * (restored - audio)
                 _onnx_ok = True
                 execution_time = time.time() - start_time
                 crackle_reduction_db = self._measure_crackle_reduction(audio, restored)
@@ -529,6 +562,8 @@ class CrackleRemovalPhase(PhaseInterface):
                 if banquet is not None:
                     try:
                         restored = self._remove_crackle_ml(audio, banquet, params)
+                        if 0.0 < _effective_strength < 1.0:
+                            restored = audio + _effective_strength * (restored - audio)
                         execution_time = time.time() - start_time
                         crackle_reduction_db = self._measure_crackle_reduction(audio, restored)
                         restored = np.nan_to_num(restored, nan=0.0, posinf=0.0, neginf=0.0)
@@ -580,6 +615,8 @@ class CrackleRemovalPhase(PhaseInterface):
 
         # Step 4: Spectral Interpolation with Texture Preservation
         restored = self._remove_crackle_spectral(audio, crackle_regions, background_model, params)
+        if 0.0 < _effective_strength < 1.0:
+            restored = audio + _effective_strength * (restored - audio)
 
         execution_time = time.time() - start_time
 
@@ -620,6 +657,8 @@ class CrackleRemovalPhase(PhaseInterface):
                 "benchmark": "iZotope RX De-crackle, Click Repair",
                 "algorithm_version": "2.0_professional",
                 "execution_time_seconds": execution_time,
+                "phase_locality_factor": phase_locality_factor,
+                "effective_strength": _effective_strength,
             },
         )
 

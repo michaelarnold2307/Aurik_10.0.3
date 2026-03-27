@@ -501,10 +501,33 @@ class SpectralBandGapRepairPhase(PhaseInterface):
         """
         sample_rate = kwargs.get("sample_rate", 48000)
         assert sample_rate == 48000, f"SR muss 48000 Hz sein, erhalten: {sample_rate}"
+        phase_locality_factor = float(kwargs.get("phase_locality_factor", 1.0))
+        phase_locality_factor = float(np.clip(phase_locality_factor, 0.35, 1.0))
+        effective_strength = float(kwargs.get("strength", 1.0)) * phase_locality_factor
+        effective_strength = float(np.clip(effective_strength, 0.0, 1.0))
+
+        if effective_strength <= 1e-6:
+            return create_phase_result(
+                audio,
+                modifications={"skipped_zero_strength": True},
+                metadata={
+                    "algorithm": "skipped_zero_strength",
+                    "phase_locality_factor": phase_locality_factor,
+                    "effective_strength": 0.0,
+                },
+            )
+
         confidence: float = float(kwargs.get("confidence", 1.0))
         if confidence < 0.55:
             logger.debug("SpectralBandGapRepair: confidence=%.2f < 0.55, übersprungen", confidence)
-            return create_phase_result(audio, modifications={"skipped": True})
+            return create_phase_result(
+                audio,
+                modifications={"skipped": True},
+                metadata={
+                    "phase_locality_factor": phase_locality_factor,
+                    "effective_strength": effective_strength,
+                },
+            )
 
         instrument_tag: str = kwargs.get("instrument_tag", self.instrument_tag)
         sr = self._sample_rate
@@ -517,6 +540,9 @@ class SpectralBandGapRepairPhase(PhaseInterface):
             out = np.stack([left, right], axis=1)
         else:
             out = self._process_channel(audio, sr, instrument_tag)
+
+        if 0.0 < effective_strength < 1.0:
+            out = audio + effective_strength * (out - audio)
 
         # NaN/Inf-Guard (§3.1)
         out = np.nan_to_num(out, nan=0.0, posinf=0.0, neginf=0.0)
@@ -532,6 +558,10 @@ class SpectralBandGapRepairPhase(PhaseInterface):
         return create_phase_result(
             out,
             modifications={"spectral_band_gaps_repaired": True, "instrument_tag": instrument_tag},
+            metadata={
+                "phase_locality_factor": phase_locality_factor,
+                "effective_strength": effective_strength,
+            },
         )
 
     def _process_channel(self, mono: np.ndarray, sr: int, instrument_tag: str) -> np.ndarray:

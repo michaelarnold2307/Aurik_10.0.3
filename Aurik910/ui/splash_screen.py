@@ -33,7 +33,7 @@ from PyQt5.QtWidgets import QApplication, QWidget
 
 _RES = Path(__file__).parent.parent / "resources"
 
-_VERSION = "9.10.76"
+_VERSION = "9.10.77"
 
 
 class AurikSplashScreen(QWidget):

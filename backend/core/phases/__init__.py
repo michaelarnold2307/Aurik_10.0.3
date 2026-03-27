@@ -64,7 +64,7 @@ from .phase_39_air_band_enhancement import AirBandEnhancement
 from .phase_40_loudness_normalization import LoudnessNormalizationPhase
 from .phase_41_output_format_optimization import OutputFormatOptimization
 from .phase_42_vocal_enhancement import VocalEnhancement
-from .phase_43_ml_deesser import MLDeEsserPhase
+from .phase_43_ml_deesser import AdaptiveDeEsserPhase, MLDeEsserPhase
 from .phase_44_guitar_enhancement import GuitarEnhancementPhase
 from .phase_45_brass_enhancement import BrassEnhancementPhase
 from .phase_46_spatial_enhancement import SpatialEnhancementPhase
@@ -103,6 +103,7 @@ except ImportError as _p56_err:
 __all__ = [
     "AdvancedDereverbPhase",
     "AirBandEnhancement",
+    "AdaptiveDeEsserPhase",
     "AzimuthCorrectionPhaseV2",
     "BassEnhancement",
     "BrassEnhancementPhase",

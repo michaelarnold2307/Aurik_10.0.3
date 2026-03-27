@@ -10,12 +10,12 @@
 | Modul | Datei | Zweck |
 |---|---|---|
 | `PerceptualEmbedder` | `backend/core/perceptual_embedder.py` | 256-dim L2-normalisierter Einbettungsraum |
-| `CausalDefectReasoner` | `backend/core/causal_defect_reasoner.py` | Bayesianisch: 28 DefectTypes → 14 Kausal-Ursachen |
+| `CausalDefectReasoner` | `backend/core/causal_defect_reasoner.py` | Bayesianisch: 32 DefectTypes → 34 Kausal-Ursachen |
 | `GPParameterOptimizer` | `backend/core/gp_parameter_optimizer.py` | RBF-GP + UCB + MOO Pareto-Front |
 | `PerceptualQualityScorer` | `backend/core/perceptual_quality_scorer.py` | Gammatone-NSIM+MCD+LUFS+MOS |
 | `MusicalGoalsChecker` | `backend/core/musical_goals/musical_goals_metrics.py` | 14 Qualitätsziele |
 | `MediumClassifier` | `backend/core/medium_classifier.py` | 15 Materialtypen + 2 Multichannel (CLAP-ML + DSP) |
-| `DefectScanner` | `backend/core/defect_scanner.py` | 28 DefectType-Werte |
+| `DefectScanner` | `backend/core/defect_scanner.py` | 32 DefectType-Werte |
 | `VocalAIEnhancement` | `backend/core/vocal_ai_enhancement.py` | VoiceGender (MALE/FEMALE/CHILD/ANDROGYNOUS) |
 | `FeedbackChain` | `backend/core/feedback_chain.py` | Iterative PQS-Qualitätsschleife |
 | `ExcellenceOptimizer` | `backend/core/excellence_optimizer.py` | GP-Params + MOO |
@@ -56,11 +56,35 @@ sim = embedding.cosine_similarity(other)  # ∈ [-1, 1]
 ## §2.4 CausalDefectReasoner
 
 ```python
-# 14 Kausal-Ursachen (≠ 28 DefectTypes des DefectScanners):
-#   tape_dropout, tape_hiss, vinyl_crackle, vinyl_warp,
-#   electrical_hum, head_misalignment, dc_offset, digital_clip,
-#   soft_saturation, head_wear, print_through,
-#   riaa_curve_error, aliasing, bias_error
+# 34 Kausal-Ursachen (≠ 32 DefectTypes des DefectScanners):
+#
+# ── Analoge Magnetband-Ursachen (10) ─────────────────────────────────────
+#   tape_dropout, tape_hiss, transport_bump, print_through,
+#   head_wear, head_misalignment, bias_error,
+#   wow, flutter, wow_flutter
+#
+# ── Vinyl-/Schellack-Ursachen (4) ────────────────────────────────────────
+#   vinyl_crackle, vinyl_warp, riaa_curve_error, low_freq_rumble
+#
+# ── Elektrik / Mechanik (2) ──────────────────────────────────────────────
+#   electrical_hum, dc_offset
+#
+# ── Digital / Codec (8) ──────────────────────────────────────────────────
+#   digital_clip, clipping, digital_artifacts, compression_artifacts,
+#   quantization_noise, jitter_artifacts, pre_echo, aliasing,
+#   dynamic_compression_excess
+#
+# ── Spektrale Ursachen (2) ───────────────────────────────────────────────
+#   bandwidth_loss, high_freq_noise
+#
+# ── Stereo / Phase (2) ──────────────────────────────────────────────────
+#   stereo_imbalance, phase_issues
+#
+# ── Pitch / Dynamik (4) ─────────────────────────────────────────────────
+#   pitch_drift, reverb_excess, transient_smearing, sibilance
+#
+# ── Vintage (Schutz) (1) ────────────────────────────────────────────────
+#   soft_saturation  (BEWAHREN — P(phases) = leer)
 
 plan = reasoner.reason(defect_scores, material="tape", audio=audio, sr=sr)
 # plan.primary_cause     → str

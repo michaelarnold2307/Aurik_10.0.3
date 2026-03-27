@@ -158,6 +158,33 @@ class CompressionPhase(PhaseInterface):
         assert sample_rate == 48000, f"SR muss 48000 Hz sein, erhalten: {sample_rate}"
         start_time = time.time()
 
+        phase_locality_factor = float(kwargs.get("phase_locality_factor", 1.0))
+        phase_locality_factor = float(np.clip(phase_locality_factor, 0.35, 1.0))
+        _pmgg_strength = float(kwargs.get("strength", 1.0))
+        _effective_strength = float(np.clip(_pmgg_strength * phase_locality_factor, 0.0, 1.0))
+
+        if _effective_strength <= 0.0:
+            passthrough = np.nan_to_num(audio.copy(), nan=0.0, posinf=0.0, neginf=0.0)
+            passthrough = np.clip(passthrough, -1.0, 1.0)
+            return PhaseResult(
+                success=True,
+                audio=passthrough.astype(audio.dtype),
+                execution_time_seconds=time.time() - start_time,
+                metadata={
+                    "phase": "10_compression_v2_professional",
+                    "material": material.value,
+                    "sample_rate": sample_rate,
+                    "version": "2.0.0",
+                    "processing": "skipped_zero_strength",
+                    "phase_locality_factor": phase_locality_factor,
+                    "effective_strength": _effective_strength,
+                },
+                metrics={
+                    "rms_change_db": 0.0,
+                    "dynamic_range_reduction_db": 0.0,
+                },
+            )
+
         metadata = {
             "phase": "10_compression_v2_professional",
             "material": material.value,
@@ -170,7 +197,7 @@ class CompressionPhase(PhaseInterface):
 
         # Get material-specific parameters
         comp_params = self.COMPRESSION_PARAMS[material]
-        parallel_blend = self.PARALLEL_BLEND[material]
+        parallel_blend = float(self.PARALLEL_BLEND[material] * _effective_strength)
         detection_mode = self.DETECTION_MODE[material]
 
         # Process each band
@@ -238,6 +265,8 @@ class CompressionPhase(PhaseInterface):
                 "detection_mode": detection_mode,
                 "rms_change_db": round(float(rms_change_db), 2),
                 "dynamic_range_reduction_db": round(float(dr_reduction_db), 2),
+                "phase_locality_factor": phase_locality_factor,
+                "effective_strength": _effective_strength,
                 "processing_time_s": round(elapsed, 3),
                 "realtime_factor": round(realtime_factor, 2),
                 "quality_impact": 0.94,
@@ -246,6 +275,9 @@ class CompressionPhase(PhaseInterface):
 
         audio_processed = np.nan_to_num(audio_processed, nan=0.0, posinf=0.0, neginf=0.0)
         audio_processed = np.clip(audio_processed, -1.0, 1.0)
+        if 0.0 < _effective_strength < 1.0:
+            audio_processed = audio + _effective_strength * (audio_processed - audio)
+            audio_processed = np.clip(audio_processed, -1.0, 1.0)
         return PhaseResult(
             success=True,
             audio=audio_processed.astype(audio.dtype),

@@ -132,6 +132,11 @@ class StereoBalancePhaseV2(PhaseInterface):
         self.validate_input(audio)
         start_time = time.time()
 
+        phase_locality_factor = float(kwargs.get("phase_locality_factor", 1.0))
+        phase_locality_factor = float(np.clip(phase_locality_factor, 0.35, 1.0))
+        _pmgg_strength = float(kwargs.get("strength", 1.0))
+        _effective_strength = float(np.clip(_pmgg_strength * phase_locality_factor, 0.0, 1.0))
+
         # Check if stereo
         if audio.ndim != 2 or audio.shape[1] != 2:
             audio = np.nan_to_num(audio, nan=0.0, posinf=0.0, neginf=0.0)
@@ -140,12 +145,41 @@ class StereoBalancePhaseV2(PhaseInterface):
                 success=True,
                 audio=audio,
                 execution_time_seconds=time.time() - start_time,
-                metadata={"stereo": False, "material": material.name, "correction_applied": False},
+                metadata={
+                    "stereo": False,
+                    "material": material.name,
+                    "correction_applied": False,
+                    "phase_locality_factor": phase_locality_factor,
+                    "effective_strength": _effective_strength,
+                },
                 warnings=["Stereo Balance skipped (mono audio)"],
             )
 
+        if _effective_strength <= 0.0:
+            passthrough = np.nan_to_num(audio.copy(), nan=0.0, posinf=0.0, neginf=0.0)
+            passthrough = np.clip(passthrough, -1.0, 1.0)
+            return PhaseResult(
+                success=True,
+                audio=passthrough,
+                execution_time_seconds=time.time() - start_time,
+                metadata={
+                    "material": material.name,
+                    "correction_applied": False,
+                    "algorithm": "skipped_zero_strength",
+                    "phase_locality_factor": phase_locality_factor,
+                    "effective_strength": _effective_strength,
+                },
+                metrics={
+                    "stereo": True,
+                    "imbalance_db_before": 0.0,
+                    "imbalance_db_after": 0.0,
+                    "imbalance_reduction_db": 0.0,
+                },
+            )
+
         # Get material-specific parameters
-        strength_per_band = self.CORRECTION_STRENGTH.get(material, self.CORRECTION_STRENGTH[MaterialType.VINYL])
+        strength_per_band = list(self.CORRECTION_STRENGTH.get(material, self.CORRECTION_STRENGTH[MaterialType.VINYL]))
+        strength_per_band = [float(s * _effective_strength) for s in strength_per_band]
         threshold_per_band = self.DETECTION_THRESHOLD.get(material, self.DETECTION_THRESHOLD[MaterialType.VINYL])
 
         # Step 1: Multi-band split
@@ -188,6 +222,9 @@ class StereoBalancePhaseV2(PhaseInterface):
 
         corrected_audio = np.nan_to_num(corrected_audio, nan=0.0, posinf=0.0, neginf=0.0)
         corrected_audio = np.clip(corrected_audio, -1.0, 1.0)
+        if 0.0 < _effective_strength < 1.0:
+            corrected_audio = audio + _effective_strength * (corrected_audio - audio)
+            corrected_audio = np.clip(corrected_audio, -1.0, 1.0)
         return PhaseResult(
             success=True,
             audio=corrected_audio,
@@ -198,6 +235,8 @@ class StereoBalancePhaseV2(PhaseInterface):
                 "algorithm": "multiband_spectral_balance_v2",
                 "num_bands": 3,
                 "band_splits_hz": self.BAND_SPLITS,
+                "phase_locality_factor": phase_locality_factor,
+                "effective_strength": _effective_strength,
             },
             metrics={
                 "stereo": True,

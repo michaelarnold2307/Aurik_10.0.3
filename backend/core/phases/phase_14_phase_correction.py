@@ -133,6 +133,11 @@ class PhaseCorrection(PhaseInterface):
         assert sample_rate == 48000, f"SR muss 48000 Hz sein, erhalten: {sample_rate}"
         start_time = time.time()
 
+        phase_locality_factor = float(kwargs.get("phase_locality_factor", 1.0))
+        phase_locality_factor = float(np.clip(phase_locality_factor, 0.35, 1.0))
+        _pmgg_strength = float(kwargs.get("strength", 1.0))
+        _effective_strength = float(np.clip(_pmgg_strength * phase_locality_factor, 0.0, 1.0))
+
         # Only for stereo
         if audio.ndim != 2:
             audio = np.nan_to_num(audio, nan=0.0, posinf=0.0, neginf=0.0)
@@ -142,10 +147,35 @@ class PhaseCorrection(PhaseInterface):
                 audio=audio,
                 metrics={"skipped": True, "reason": "mono_signal"},
                 execution_time_seconds=time.time() - start_time,
-                metadata={"algorithm": "phase_correction", "version": "2.0"},
+                metadata={
+                    "algorithm": "phase_correction",
+                    "version": "2.0",
+                    "phase_locality_factor": phase_locality_factor,
+                    "effective_strength": _effective_strength,
+                },
             )
 
-        strength = self.CORRECTION_STRENGTH.get(material, 0.7)
+        if _effective_strength <= 0.0:
+            passthrough = np.nan_to_num(audio.copy(), nan=0.0, posinf=0.0, neginf=0.0)
+            passthrough = np.clip(passthrough, -1.0, 1.0)
+            return PhaseResult(
+                success=True,
+                audio=passthrough,
+                metrics={
+                    "correlation_before": 0.0,
+                    "correlation_after": 0.0,
+                    "correlation_improvement": 0.0,
+                },
+                execution_time_seconds=time.time() - start_time,
+                metadata={
+                    "algorithm": "skipped_zero_strength",
+                    "version": "2.0",
+                    "phase_locality_factor": phase_locality_factor,
+                    "effective_strength": _effective_strength,
+                },
+            )
+
+        strength = float(self.CORRECTION_STRENGTH.get(material, 0.7) * _effective_strength)
         threshold = self.CORRELATION_THRESHOLD.get(material, 0.75)
 
         # Extract L/R channels
@@ -203,6 +233,9 @@ class PhaseCorrection(PhaseInterface):
 
         corrected_audio = np.nan_to_num(corrected_audio, nan=0.0, posinf=0.0, neginf=0.0)
         corrected_audio = np.clip(corrected_audio, -1.0, 1.0)
+        if 0.0 < _effective_strength < 1.0:
+            corrected_audio = audio + _effective_strength * (corrected_audio - audio)
+            corrected_audio = np.clip(corrected_audio, -1.0, 1.0)
         return PhaseResult(
             success=True,
             audio=corrected_audio,
@@ -222,6 +255,8 @@ class PhaseCorrection(PhaseInterface):
                 "version": "2.0",
                 "bands": band_names,
                 "crossovers_hz": self.CROSSOVER_FREQS,
+                "phase_locality_factor": phase_locality_factor,
+                "effective_strength": _effective_strength,
             },
         )
 

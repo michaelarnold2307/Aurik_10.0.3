@@ -56,8 +56,29 @@ def _auto_detect_budget() -> float:
 # Maximum total RAM allowed for ALL ML models combined.
 # Auto-detected from system RAM; override via set_budget() if needed.
 ML_MAX_GB: float = _auto_detect_budget()
-_SYSTEM_MEMORY_MARGIN: float = 1.35
+_SYSTEM_MEMORY_MARGIN_BASE: float = 1.35  # Basis-Margin für kleine Modelle (< 1 GB)
+_SYSTEM_MEMORY_MARGIN_MIN: float = 1.10   # Minimale Margin für sehr große Modelle (>= 5 GB)
 _MIN_FREE_MB_HARD: float = 3072.0  # 3 GB — angehoben von 1.5 GB (systemd-oomd-Schutz)
+
+
+def _scaled_margin(size_gb: float) -> float:
+    """Skalierte RAM-Margin: Große Modelle brauchen prozentual weniger Reserve.
+
+    Kleine Modelle (<1 GB): 1.35× (35% Reserve für Overhead, Fragmentierung)
+    Große Modelle (>=5 GB): 1.10× (10% Reserve — Modellgewichte sind kompakt, wenig Overhead)
+    Dazwischen: linear interpoliert.
+
+    Begründung: AudioSR (7 GB) × 1.35 = 9.45 GB — blockiert auf 16-GB-Systemen
+    obwohl 8.8 GB frei sind. Mit skalierter Margin: 7 × 1.10 = 7.7 GB — passt.
+    """
+    if size_gb <= 1.0:
+        return _SYSTEM_MEMORY_MARGIN_BASE
+    if size_gb >= 5.0:
+        return _SYSTEM_MEMORY_MARGIN_MIN
+    # Linear interpolation between 1.0 GB and 5.0 GB
+    t = (size_gb - 1.0) / 4.0
+    return _SYSTEM_MEMORY_MARGIN_BASE + t * (_SYSTEM_MEMORY_MARGIN_MIN - _SYSTEM_MEMORY_MARGIN_BASE)
+
 
 # ---------------------------------------------------------------------------
 # Internal state (thread-safe)
@@ -108,11 +129,16 @@ def _preflight_system_memory(required_mb: float) -> bool:
 
     This complements the logical ML budget with a physical RAM check.
     On pressure, it asks PluginLifecycleManager to evict stale models first.
+
+    Uses scaled margin: large models get proportionally less reserve overhead
+    (see _scaled_margin for rationale).
     """
     if _psutil is None:
         return True
 
-    required_with_margin = max(required_mb * _SYSTEM_MEMORY_MARGIN, _MIN_FREE_MB_HARD)
+    _size_gb = required_mb / 1024.0
+    _margin = _scaled_margin(_size_gb)
+    required_with_margin = max(required_mb * _margin, _MIN_FREE_MB_HARD)
     available_mb = _available_memory_mb()
     if available_mb >= required_with_margin:
         return True

@@ -534,3 +534,38 @@ class TestFFTScopeRobustness:
         for k in FAST_GOALS_SUBSET:
             assert k in scores
             assert math.isfinite(scores[k])
+
+
+class TestPreciseMetricOverrides:
+    """Selected PMGG goals should be refinable via canonical metric overrides."""
+
+    def test_49_measure_quick_applies_precise_metric_overrides(self, monkeypatch):
+        from backend.core import per_phase_musical_goals_gate as ppmgg
+
+        class _FixedMetric:
+            def __init__(self, value: float) -> None:
+                self.value = value
+
+            def measure(self, audio, sr, reference=None):
+                return self.value
+
+        monkeypatch.setattr(
+            ppmgg,
+            "_get_precise_metric_instances",
+            lambda: {
+                "natuerlichkeit": _FixedMetric(0.91),
+                "tonal_center": _FixedMetric(0.96),
+                "micro_dynamics": _FixedMetric(0.88),
+                "artikulation": _FixedMetric(0.87),
+                "separation_fidelity": _FixedMetric(0.84),
+                "transparenz": _FixedMetric(0.83),
+            },
+        )
+
+        scores = ppmgg._measure_quick(_tone(5.0), SR)
+        assert scores["natuerlichkeit"] == pytest.approx(0.91, abs=1e-9)
+        assert scores["tonal_center"] == pytest.approx(0.96, abs=1e-9)
+        assert scores["micro_dynamics"] == pytest.approx(0.88, abs=1e-9)
+        assert scores["artikulation"] == pytest.approx(0.87, abs=1e-9)
+        assert scores["separation_fidelity"] == pytest.approx(0.84, abs=1e-9)
+        assert scores["transparenz"] == pytest.approx(0.83, abs=1e-9)

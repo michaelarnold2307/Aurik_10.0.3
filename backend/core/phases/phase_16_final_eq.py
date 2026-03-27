@@ -166,8 +166,31 @@ class FinalEQ(PhaseInterface):
         start_time = time.time()
         self.validate_input(audio)
 
+        phase_locality_factor = float(kwargs.get("phase_locality_factor", 1.0))
+        phase_locality_factor = float(np.clip(phase_locality_factor, 0.35, 1.0))
+        _pmgg_strength = float(kwargs.get("strength", 1.0))
+        _effective_strength = float(np.clip(_pmgg_strength * phase_locality_factor, 0.0, 1.0))
+
+        if _effective_strength <= 0.0:
+            passthrough = np.nan_to_num(audio.copy(), nan=0.0, posinf=0.0, neginf=0.0)
+            passthrough = np.clip(passthrough, -1.0, 1.0)
+            return PhaseResult(
+                success=True,
+                audio=passthrough,
+                execution_time_seconds=time.time() - start_time,
+                metadata={
+                    "material": material.name,
+                    "eq_applied": False,
+                    "processing": "skipped_zero_strength",
+                    "phase_locality_factor": phase_locality_factor,
+                    "effective_strength": _effective_strength,
+                },
+            )
+
         is_stereo = audio.ndim == 2
-        config = self.EQ_CONFIG.get(material, self.EQ_CONFIG[MaterialType.CD_DIGITAL])
+        config = {k: dict(v) for k, v in self.EQ_CONFIG.get(material, self.EQ_CONFIG[MaterialType.CD_DIGITAL]).items()}
+        for _band in config.values():
+            _band["gain_db"] = float(_band["gain_db"] * _effective_strength)
 
         # Check if EQ is needed
         total_gain = sum(abs(band["gain_db"]) for band in config.values())
@@ -179,7 +202,12 @@ class FinalEQ(PhaseInterface):
                 success=True,
                 audio=audio.copy(),
                 execution_time_seconds=time.time() - start_time,
-                metadata={"material": material.name, "eq_applied": False},
+                metadata={
+                    "material": material.name,
+                    "eq_applied": False,
+                    "phase_locality_factor": phase_locality_factor,
+                    "effective_strength": _effective_strength,
+                },
                 warnings=["Minimal EQ needed - skipped"],
             )
 
@@ -204,6 +232,9 @@ class FinalEQ(PhaseInterface):
 
         eq_audio = np.nan_to_num(eq_audio, nan=0.0, posinf=0.0, neginf=0.0)
         eq_audio = np.clip(eq_audio, -1.0, 1.0)
+        if 0.0 < _effective_strength < 1.0:
+            eq_audio = audio + _effective_strength * (eq_audio - audio)
+            eq_audio = np.clip(eq_audio, -1.0, 1.0)
         return PhaseResult(
             success=True,
             audio=eq_audio,
@@ -213,6 +244,8 @@ class FinalEQ(PhaseInterface):
                 "eq_applied": True,
                 "total_gain_db": float(total_gain),
                 "clipping_prevented": clipping_prevented,
+                "phase_locality_factor": phase_locality_factor,
+                "effective_strength": _effective_strength,
                 "rt_factor": float(rt_factor),
             },
             warnings=[] if rt_factor < 0.20 else [f"Performance sub-optimal: {rt_factor:.2f}× realtime"],

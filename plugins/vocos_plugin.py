@@ -145,8 +145,8 @@ class VocosPlugin:
                 logger.warning("Vocos: ML-Budget erschöpft — Griffin-Lim-Fallback")
                 return
             _allocated = True
-        except ImportError:
-            pass
+        except ImportError as _imp_exc:
+            logger.debug("Vocos: ml_memory_budget nicht verfügbar, Budget-Check übersprungen: %s", _imp_exc)
         try:
             import onnxruntime as ort
 
@@ -196,8 +196,8 @@ class VocosPlugin:
                         pass
 
                 get_plugin_lifecycle_manager().register("Vocos", size_gb=0.12, unload_fn=_vocos_unload)
-            except ImportError:
-                pass
+            except ImportError as _plm_exc:
+                logger.debug("Vocos: PluginLifecycleManager nicht verfügbar, LRU-Tracking deaktiviert: %s", _plm_exc)
         except Exception as exc:
             logger.warning("Vocos ONNX Fehler: %s — Griffin-Lim-Fallback.", exc)
             if _allocated:

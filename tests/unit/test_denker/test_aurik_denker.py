@@ -202,6 +202,23 @@ class TestAurikDenkerSingleton:
         assert callable(denke)
 
 
+class TestAurikDenkerNoRtLimit:
+    def test_13b_denke_forwards_no_rt_limit_to_orchestrator(self):
+        from denker.aurik_denker import AurikDenker
+
+        denker = AurikDenker()
+        captured: dict[str, bool] = {}
+
+        def _fake_orchestriere(*args, **kwargs):
+            captured["no_rt_limit"] = bool(kwargs.get("no_rt_limit", False))
+            return denker._fallback(args[0], rt_factor=0.1, grund="test")
+
+        with patch.object(AurikDenker, "_orchestriere", side_effect=_fake_orchestriere):
+            denker.denke(_sine(), SR, no_rt_limit=True)
+
+        assert captured.get("no_rt_limit") is True
+
+
 # ─── AurikDenker._orchestriere Stage 1b ─────────────────────────────────────
 
 

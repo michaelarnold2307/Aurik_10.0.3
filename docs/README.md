@@ -1,8 +1,10 @@
 # Aurik 9 — Intelligentes Musik-Restaurierungssystem
 
-**Version:** 9.10.57 | **Status:** ✅ Produktionsbereit — Weltführend
+**Version:** 9.10.77c | **Status:** ✅ Produktionsbereit — Weltführend
 
 **Datum:** März 2026
+
+> Hinweis: Verbindliche Detailstände liegen in `.github/specs/01-08` und `docs/CHANGELOG_HISTORY.md`.
 
 ---
 
@@ -29,30 +31,30 @@
 - **[Architecture Overview](architecture/ARCHITECTURE.md)** — Systemarchitektur (4 Schichten)
 - **[Phases Overview](architecture/PHASES_OVERVIEW.md)** — 56-Phasen-Pipeline
 - **[Contributing Guide](development/CONTRIBUTING.md)** — Beitrag leisten
-- **[Testing Guide](development/TESTING.md)** — Teststrategie (7.747+ Tests)
+- **[Testing Guide](development/TESTING.md)** — Teststrategie und Qualitätssicherung
 
 ### Status & Fortschritt
-- **[Project Status Report](PROJECT_STATUS.md)** — Aktueller Entwicklungsstand v9.10.57
+- **[Project Status Report](PROJECT_STATUS.md)** — Projektstatus (Living Document)
 - **[Roadmap](aurik9_roadmap.md)** — Zukunftspläne (Studio 2026+)
 
 📚 **[Vollständiger Dokumentations-Index](INDEX.md)**
 
 ---
 
-## 🎯 Aurik 9.10.57 — Highlights
+## 🎯 Aurik 9.10.77c — Highlights
 
 ### ✅ Produktionsbereit (März 2026)
 
 **Kennzahlen:**
-- ✅ **7.747+ Tests** — alle grün ✅
+- ✅ **Umfangreiche Testabdeckung** — Unit/Normative/Integration grün
 - ✅ **14 Musical Goals** — alle psychoakustisch geprüft
 - ✅ **56 Phasen** (Phase 01–56, Defect-First)
-- ✅ **17 auto-erkannte Materialtypen**
-- ✅ **30 DefectTypes** erkannt und behandelt
+- ✅ **Material-adaptive Verarbeitung** über Medium-/Era-Kontext
+- ✅ **32 DefectTypes** erkannt und behandelt
 - ✅ **CPU-only** (Desktop-Hardware, kein GPU erforderlich)
 - ✅ **100 % offline** nach Installation (keine Cloud)
 
-**Schlüssel-Module (v9.10.57):**
+**Schlüssel-Module (v9.10.77c):**
 
 1. **14 Musical Goals** — Brillanz, Wärme, Natürlichkeit, Authentizität, Emotionalität, Transparenz, Bass-Kraft, Groove, Raumtiefe, Timbre-Authentizität, Tonales Zentrum, Mikro-Dynamik, Separation-Treue, Artikulation
 2. **Transient Decoupled Processing (TDP)** — Transienten separat durch Pipeline führen; GrooveMetric +0.03–0.06

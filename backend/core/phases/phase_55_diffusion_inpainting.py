@@ -444,14 +444,36 @@ class DiffusionInpaintingPhase(PhaseInterface):
         assert sample_rate == 48000, f"SR muss 48000 Hz sein, erhalten: {sample_rate}"
         t0 = time.perf_counter()
 
+        phase_locality_factor = float(kwargs.get("phase_locality_factor", 1.0))
+        phase_locality_factor = float(np.clip(phase_locality_factor, 0.35, 1.0))
+        effective_strength = float(kwargs.get("strength", 1.0)) * phase_locality_factor
+        effective_strength = float(np.clip(effective_strength, 0.0, 1.0))
+
+        if effective_strength <= 1e-6:
+            dry = np.nan_to_num(audio, nan=0.0, posinf=0.0, neginf=0.0)
+            dry = np.clip(dry, -1.0, 1.0)
+            return PhaseResult(
+                success=True,
+                audio=dry,
+                execution_time_seconds=time.perf_counter() - t0,
+                metadata={
+                    "algorithm": "skipped_zero_strength",
+                    "phase_locality_factor": phase_locality_factor,
+                    "effective_strength": 0.0,
+                },
+            )
+
+        min_gap_ms_eff = float(min_gap_ms) / max(effective_strength, 0.1)
+        source_audio = audio
+
         # §11.7a: Bereits von RekonstruktionsDenker reparierte Gap-Regionen
         _repaired_gaps: list[tuple[int, int]] = kwargs.get("repaired_gap_samples", [])
         _n_repaired_skipped = 0
 
         if audio.ndim == 1:
             # Mono
-            repaired, stats = _process_channel(audio, sample_rate, min_gap_ms, _repaired_gaps)
-            gaps = _detect_gaps(audio, sample_rate, min_gap_ms)
+            repaired, stats = _process_channel(audio, sample_rate, min_gap_ms_eff, _repaired_gaps)
+            gaps = _detect_gaps(audio, sample_rate, min_gap_ms_eff)
             quality = _reconstruction_quality_score(audio, repaired, gaps)
             n_gaps = stats["n_gaps"]
             total_gap_ms = stats["total_gap_ms"]
@@ -468,7 +490,7 @@ class DiffusionInpaintingPhase(PhaseInterface):
             quality_scores = []
 
             for ch in range(audio.shape[1]):
-                ch_rep, stats = _process_channel(audio[:, ch], sample_rate, min_gap_ms, _repaired_gaps)
+                ch_rep, stats = _process_channel(audio[:, ch], sample_rate, min_gap_ms_eff, _repaired_gaps)
                 channels_repaired.append(ch_rep)
                 n_gaps = max(n_gaps, stats["n_gaps"])
                 total_gap_ms += stats["total_gap_ms"]
@@ -476,11 +498,14 @@ class DiffusionInpaintingPhase(PhaseInterface):
                 plugin_used = plugin_used or stats["plugin_used"]
                 _n_repaired_skipped += stats.get("pre_repaired_skipped", 0)
 
-                gaps = _detect_gaps(audio[:, ch], sample_rate, min_gap_ms)
+                gaps = _detect_gaps(audio[:, ch], sample_rate, min_gap_ms_eff)
                 quality_scores.append(_reconstruction_quality_score(audio[:, ch], ch_rep, gaps))
 
             repaired = np.column_stack(channels_repaired)
             quality = float(np.mean(quality_scores)) if quality_scores else 1.0
+
+        if 0.0 < effective_strength < 1.0:
+            repaired = source_audio + effective_strength * (repaired - source_audio)
 
         elapsed = time.perf_counter() - t0
 
@@ -498,8 +523,11 @@ class DiffusionInpaintingPhase(PhaseInterface):
                 "reconstruction_quality": round(quality, 4),
                 "diffusion_steps": f"{_DIFFUSION_STEPS}/{_DIFFUSION_STEPS_MED}/{_DIFFUSION_STEPS_LONG} (adaptive)",
                 "min_gap_ms": min_gap_ms,
+                "min_gap_ms_effective": round(min_gap_ms_eff, 2),
                 "ar_order": _AR_ORDER,
                 "primary_ml": "cqtdiff",
                 "pre_repaired_gaps_skipped": _n_repaired_skipped,
+                "phase_locality_factor": phase_locality_factor,
+                "effective_strength": effective_strength,
             },
         )

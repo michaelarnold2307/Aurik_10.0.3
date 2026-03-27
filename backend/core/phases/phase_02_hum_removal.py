@@ -226,7 +226,29 @@ class HumRemovalPhase(PhaseInterface):
                 pass
 
         # Get material-specific parameters
-        params = self.MATERIAL_PARAMS.get(material_type, self.MATERIAL_PARAMS["unknown"])
+        params = dict(self.MATERIAL_PARAMS.get(material_type, self.MATERIAL_PARAMS["unknown"]))
+
+        # Locality-aware intensity control from UV3.
+        phase_locality_factor = float(kwargs.get("phase_locality_factor", 1.0))
+        phase_locality_factor = float(np.clip(phase_locality_factor, 0.35, 1.0))
+        _pmgg_strength = float(kwargs.get("strength", 1.0))
+        _effective_strength = float(np.clip(_pmgg_strength * phase_locality_factor, 0.0, 1.0))
+
+        if _effective_strength <= 0.0:
+            passthrough = np.nan_to_num(audio.copy(), nan=0.0, posinf=0.0, neginf=0.0)
+            passthrough = np.clip(passthrough, -1.0, 1.0)
+            return create_phase_result(
+                audio=passthrough,
+                modifications={"hum_detected": False, "fundamentals": [], "total_harmonics_removed": 0},
+                warnings=["Hum removal skipped due to zero effective strength"],
+                metadata={
+                    "algorithm": "skipped_zero_strength",
+                    "algorithm_version": "2.0_professional",
+                    "phase_locality_factor": phase_locality_factor,
+                    "effective_strength": _effective_strength,
+                    "execution_time_seconds": time.time() - start_time,
+                },
+            )
 
         # Step 1: Multi-fundamental detection
         detected_fundamentals = self._detect_multi_fundamental(audio, params)
@@ -244,6 +266,8 @@ class HumRemovalPhase(PhaseInterface):
                 metadata={
                     "algorithm": "adaptive_comb_filter",
                     "algorithm_version": "2.0_professional",
+                    "phase_locality_factor": phase_locality_factor,
+                    "effective_strength": _effective_strength,
                     "execution_time_seconds": time.time() - start_time,
                 },
             )
@@ -290,6 +314,15 @@ class HumRemovalPhase(PhaseInterface):
         result_audio = np.nan_to_num(result_audio, nan=0.0, posinf=0.0, neginf=0.0)
         result_audio = np.clip(result_audio, -1.0, 1.0)
 
+        # Strength-aware Wet/Dry-Blend (PMGG-Retry-Kompatibilität):
+        # PMGG übergibt strength < 1.0 bei Retries.  Wir wenden den Blend
+        # VOR dem Chroma-Guard an, damit reduzierte Strength tatsächlich
+        # die Verarbeitungsintensität senkt und die Chroma-Korrelation
+        # weniger degradiert wird.
+        if 0.0 < _effective_strength < 1.0:
+            result_audio = (audio + _effective_strength * (result_audio - audio)).astype(audio.dtype)
+            result_audio = np.clip(result_audio, -1.0, 1.0)
+
         # Chroma Pearson guard: notch filters removing hum harmonics can also remove
         # musical content at coincident frequencies (e.g. 150 Hz = 3rd harmonic of 50 Hz
         # AND 3rd harmonic of vocal fundamental). If chroma correlation drops below 0.95,
@@ -323,7 +356,7 @@ class HumRemovalPhase(PhaseInterface):
 
         if _chroma_p < 0.95:
             # Tonal damage detected — blend to limit regression
-            _wet = max(0.40, _chroma_p)  # scale wet amount by damage severity
+            _wet = max(0.15, _chroma_p)  # scale wet amount by damage severity
             result_audio = _wet * result_audio + (1.0 - _wet) * audio
             result_audio = np.clip(result_audio, -1.0, 1.0)
             logger.warning(
@@ -353,6 +386,8 @@ class HumRemovalPhase(PhaseInterface):
                 "side_chain_active": params["side_chain_ratio"] < 0.5,
                 "scientific_ref": "Ferreira (1993), Välimäki & Lehtokangas (1995)",
                 "benchmark": "iZotope RX De-hum (basic)",
+                "phase_locality_factor": phase_locality_factor,
+                "effective_strength": _effective_strength,
                 "execution_time_seconds": execution_time,
             },
         )

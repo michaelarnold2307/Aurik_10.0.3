@@ -98,6 +98,26 @@ class TruePeakLimiterPhase(PhaseInterface):
         self.validate_input(audio)
         t0 = time.time()
 
+        phase_locality_factor = float(kwargs.get("phase_locality_factor", 1.0))
+        phase_locality_factor = float(np.clip(phase_locality_factor, 0.35, 1.0))
+        effective_strength = float(kwargs.get("strength", 1.0)) * phase_locality_factor
+        effective_strength = float(np.clip(effective_strength, 0.0, 1.0))
+
+        if effective_strength <= 1e-6:
+            dry = np.nan_to_num(audio, nan=0.0, posinf=0.0, neginf=0.0)
+            dry = np.clip(dry, -1.0, 1.0)
+            return PhaseResult(
+                success=True,
+                audio=dry.astype(audio.dtype),
+                execution_time_seconds=time.time() - t0,
+                metadata={
+                    "algorithm": "skipped_zero_strength",
+                    "phase_locality_factor": phase_locality_factor,
+                    "effective_strength": 0.0,
+                },
+                metrics={"effective_strength": 0.0},
+            )
+
         ceiling_dbfs: float = float(kwargs.get("ceiling_dbfs", _DEFAULT_CEILING_DBFS))
         ceiling_lin: float = 10 ** (ceiling_dbfs / 20.0)
 
@@ -109,6 +129,9 @@ class TruePeakLimiterPhase(PhaseInterface):
             processed = np.column_stack([left[:n], right[:n]])
         else:
             processed = self._limit_channel(audio, sample_rate, ceiling_lin)
+
+        if 0.0 < effective_strength < 1.0:
+            processed = audio + effective_strength * (processed - audio)
 
         # Notfall-Hard-Clip (sollte nach Limiter nicht nötig sein)
         processed = np.clip(processed, -ceiling_lin, ceiling_lin)
@@ -138,11 +161,14 @@ class TruePeakLimiterPhase(PhaseInterface):
                 "true_peak_after_dbfs": tp_after,
                 "gain_reduction_db": gain_reduction_db,
                 "oversampling": _OVERSAMPLING,
+                "phase_locality_factor": phase_locality_factor,
+                "effective_strength": effective_strength,
             },
             metrics={
                 "true_peak_before_dbfs": tp_before,
                 "true_peak_after_dbfs": tp_after,
                 "gain_reduction_db": gain_reduction_db,
+                "effective_strength": effective_strength,
             },
         )
 

@@ -138,6 +138,19 @@ class TestAMRBAuditability:
                 f"Szenario '{sid}' in as_dict() fehlt: scenario_type"
             )
 
+    def test_p2_1_as_dict_includes_external_validation_block(self):
+        """AMRB-Bericht enthält External-Validation-Readiness-Felder."""
+        report = self._minimal_report()
+        d = report.as_dict()
+        assert "external_validation" in d
+        ext = d["external_validation"]
+        assert "dataset" in ext
+        assert "n_external_scenarios" in ext
+        assert "ready" in ext
+        assert "leadership_claim_ready" in ext
+        assert "notes" in ext
+        assert ext["n_external_scenarios"] == 0
+
 
 # ===========================================================================
 # P2-2: Produkt-/Forschungsmodus — Struktur-Tests (kein ML)

@@ -32,6 +32,7 @@ import pathlib
 import threading
 import time
 from dataclasses import dataclass, field
+from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any, Optional
 
 import numpy as np
@@ -512,6 +513,7 @@ class UnifiedRestorerV3:
         _cached_medium_kwarg = kwargs.pop("cached_medium_result", None)
         _cached_restorability_kwarg = kwargs.pop("cached_restorability_result", None)
         _audio_update_cb_kwarg = kwargs.pop("audio_update_callback", None)
+        _no_rt_limit = bool(kwargs.pop("no_rt_limit", False))
         # §11.7a: reconstruction_context von RekonstruktionsDenker — enthält bereits reparierte Gaps
         _reconstruction_ctx = kwargs.pop("reconstruction_context", None)
         self._active_global_plan = _gp_kwarg if _gp_kwarg is not None else self.config.global_plan
@@ -646,8 +648,8 @@ class UnifiedRestorerV3:
 
                     evict_stale_plugins(required_mb=_needed_mb)
                     gc.collect()
-                except Exception:
-                    pass
+                except Exception as _evict_exc:
+                    logger.debug("PLM-Eviction vor Pipeline fehlgeschlagen: %s", _evict_exc)
                 _avail_after = float(_psutil_guard.virtual_memory().available / (1024 * 1024))
                 if _avail_after < _needed_mb * 0.7:
                     raise MemoryError(
@@ -884,8 +886,8 @@ class UnifiedRestorerV3:
                             _era_result.decade,
                             _era_result.confidence,
                         )
-                    except Exception:
-                        pass  # unbekannter MaterialType-Wert → Auto-Detect bleibt
+                    except Exception as _mt_exc:
+                        logger.debug("EraClassifier MaterialType-Konvertierung fehlgeschlagen: %s — Auto-Detect bleibt", _mt_exc)
 
             # §Dach GlobalPlan-Prior: Chunk-Klassifikation mit Ganzstück-Ergebnis überschreiben.
             # UV3 läuft auf kurzen Chunks — EraClassifier/MediumClassifier auf 10s-Segmenten
@@ -943,8 +945,8 @@ class UnifiedRestorerV3:
                                 _gp_material,
                                 _chunk_mc_conf,
                             )
-                        except Exception:
-                            pass  # MaterialType-Wert unbekannt → Chunk-Ergebnis behalten
+                        except Exception as _gp_mat_exc:
+                            logger.debug("GlobalPlan MaterialType-Override fehlgeschlagen: %s — Chunk-Ergebnis behalten", _gp_mat_exc)
 
             # GermanSchlagerClassifier-Ergebnis übernehmen
             _schlager_result = _schlager_result_par
@@ -987,8 +989,8 @@ class UnifiedRestorerV3:
                             _gp_subgenre,
                             _gp_genre_conf,
                         )
-                    except Exception:
-                        pass
+                    except Exception as _gp_genre_exc:
+                        logger.debug("GlobalPlan Genre→Schlager-Override fehlgeschlagen: %s", _gp_genre_exc)
         else:
             # Material bereits im Config — Ära und Genre trotzdem ermitteln
             if _cached_era_kwarg is not None:
@@ -1040,8 +1042,8 @@ class UnifiedRestorerV3:
                             _gp_mat_e,
                             _gp_era_conf_e,
                         )
-                    except Exception:
-                        pass
+                    except Exception as _gp_else_exc:
+                        logger.debug("GlobalPlan-Prior (else-Pfad) fehlgeschlagen: %s", _gp_else_exc)
 
             if _cached_genre_kwarg is not None:
                 _schlager_result = _cached_genre_kwarg
@@ -1090,8 +1092,8 @@ class UnifiedRestorerV3:
                             _gp_subgenre_e,
                             _gp_genre_conf_e,
                         )
-                    except Exception:
-                        pass
+                    except Exception as _gp_genre_else_exc:
+                        logger.debug("GlobalPlan Genre-Override (else-Pfad) fehlgeschlagen: %s", _gp_genre_else_exc)
 
         # §2.19.3 SCHLAGER_RESTORATION_PROFILE anwenden (GP-Material-Key + Phase-Params)
         _genre_profile: dict = {}
@@ -1392,8 +1394,8 @@ class UnifiedRestorerV3:
                     from backend.core.era_classifier import get_era_classifier as _get_era_clf_pre
 
                     _era_ws_pre = _get_era_clf_pre().get_gp_warmstart(_era_result)
-                except Exception:
-                    pass
+                except Exception as _ws_exc:
+                    logger.debug("GP-Warmstart aus Era-Classifier fehlgeschlagen: %s", _ws_exc)
             _pareto_proposals = _gp_opt_pre.propose_pareto(
                 material=_gp_material_key_pre,
                 era_warmstart=_era_ws_pre,
@@ -1687,8 +1689,8 @@ class UnifiedRestorerV3:
                 from backend.core.defect_phase_mapper import _MATERIAL_PHASE_FACTORS as _mpf
 
                 _all_phase_ids.update(_mpf.get(_mat_val, {}).keys())
-            except Exception:
-                pass
+            except Exception as _mpf_exc:
+                logger.debug("MaterialPhaseFactors-Import fehlgeschlagen: %s", _mpf_exc)
             for _pid in _all_phase_ids:
                 _mat_s = _get_mat_strength(_mat_val, _pid)
                 _era_cap = _vintage_phase_strength_caps.get(_pid, 1.0)
@@ -1722,8 +1724,8 @@ class UnifiedRestorerV3:
             from backend.core.plugin_lifecycle_manager import set_pipeline_active
 
             set_pipeline_active(True)
-        except Exception:
-            pass
+        except Exception as _spa_exc:
+            logger.debug("set_pipeline_active(True) fehlgeschlagen: %s", _spa_exc)
         try:
             restored_audio, executed_phases, skipped_phases, deferred_phases = self._execute_pipeline(
                 audio,
@@ -1737,13 +1739,14 @@ class UnifiedRestorerV3:
                 applicable_goals=_applicable_goals,  # §2.32 normativ
                 material_initial_strengths=_material_phase_initial_strengths,  # §2.31
                 quality_mode_override=_pipeline_quality_mode_override,
+                no_rt_limit=_no_rt_limit,
                 reconstruction_context=_reconstruction_ctx,  # §11.7a: Bereits reparierte Gaps
             )
         finally:
             try:
                 set_pipeline_active(False)
-            except Exception:
-                pass
+            except Exception as _spa_exc:
+                logger.debug("set_pipeline_active(False) fehlgeschlagen: %s", _spa_exc)
         # v9.10.58: EnsembleProcessor-Block entfernt.
         # v9.10.72: ARE Multi-Pass ebenfalls entfernt. UV3 ist der einzige Processing-Pass.
         # Wissenschaftliche Begründung:
@@ -1759,14 +1762,14 @@ class UnifiedRestorerV3:
             from plugins.audiosr_plugin import unload_audiosr
 
             unload_audiosr()
-        except Exception:
-            pass
+        except Exception as _unload_exc:
+            logger.debug("AudioSR-Unload fehlgeschlagen: %s", _unload_exc)
         try:
             from plugins.laion_clap_plugin import unload_laion_clap
 
             unload_laion_clap()
-        except Exception:
-            pass
+        except Exception as _unload_exc:
+            logger.debug("LAION-CLAP-Unload fehlgeschlagen: %s", _unload_exc)
         gc.collect()
 
         # --- §2.33 FeedbackChain-Ceiling: Physikalische Grenze vor FC-Block schätzen ---
@@ -1842,8 +1845,8 @@ class UnifiedRestorerV3:
                                 "§2.33 FeedbackChain: Iterationen auf 1 reduziert — "
                                 "PhysicalCeiling sagt keine weitere Optimierung lohnend"
                             )
-                    except Exception:
-                        pass
+                    except Exception as _pce_exc:
+                        logger.debug("FeedbackChain PhysicalCeiling-Check fehlgeschlagen: %s", _pce_exc)
                 # §Material-adaptive Iterationen: armes Material braucht mehr Durchläufe,
                 # hochwertiges Material braucht weniger (verringert Artefakt-Risiko).
                 _fc_mat_val_iter = material_type.value if material_type else "unknown"
@@ -1911,8 +1914,8 @@ class UnifiedRestorerV3:
                 # Also accumulate GPP-callback analytics overhead (captured via closure)
                 try:
                     _fc_analytics += _gpp_analytics_s[0]
-                except Exception:
-                    pass
+                except Exception as _ana_exc:
+                    logger.debug("GPP-Analytics-Overhead-Zugriff fehlgeschlagen: %s", _ana_exc)
                 if self.performance_guard and _fc_analytics > 0:
                     self.performance_guard.add_analytics_overhead(_fc_analytics)
                 logger.info(
@@ -2280,8 +2283,8 @@ class UnifiedRestorerV3:
             _pre_ex_checker = _PreExMGChecker()
             _pre_ex_ref = original_audio_for_goals if original_audio_for_goals.shape == restored_audio.shape else None
             _pre_excellence_mg_scores = _pre_ex_checker.measure_all(restored_audio, sample_rate, reference=_pre_ex_ref)
-        except Exception:
-            pass  # Messung optional — Fallback: kein Rollback möglich
+        except Exception as _mg_exc:
+            logger.debug("Pre-Excellence Musical-Goals-Messung fehlgeschlagen: %s", _mg_exc)
 
         # --- ExcellenceOptimizer: DSP-Feinoptimierung nach Phasen-Pipeline (§2.2 Spec) ---
         _excellence_result = None
@@ -2512,7 +2515,7 @@ class UnifiedRestorerV3:
         try:
             from backend.core.musical_goals.musical_goals_metrics import MusicalGoalsChecker
 
-            _mg_checker = MusicalGoalsChecker()
+            _mg_checker = MusicalGoalsChecker(mode=getattr(getattr(self.config, "mode", None), "value", "restoration"))
             _effective_goal_thresholds = dict(_mg_checker.thresholds)
             # AdaptiveGoalThresholds: robust über alle bekannten Payload-Formen aufloesen.
             if _adaptive_goals is not None:
@@ -2898,8 +2901,8 @@ class UnifiedRestorerV3:
                 _mode_val = str(self.config.mode.value).lower()
                 if any(_kw in _mode_val for _kw in ("maximum", "studio", "aggressive")):
                     _mdem_mode = "studio2026"
-            except Exception:
-                pass
+            except Exception as _mode_exc:
+                logger.debug("MDEM Modus-Erkennung fehlgeschlagen: %s", _mode_exc)
             restored_audio = _mdem_instance.morph(
                 restored_audio, original_audio_for_goals, sample_rate, mode=_mdem_mode
             )
@@ -3952,14 +3955,14 @@ class UnifiedRestorerV3:
             from plugins.mert_plugin import unload_mert
 
             unload_mert()
-        except Exception:
-            pass
+        except Exception as _unload_exc:
+            logger.debug("MERT-Unload fehlgeschlagen: %s", _unload_exc)
         try:
             from plugins.utmos_plugin import unload_utmos
 
             unload_utmos()
-        except Exception:
-            pass
+        except Exception as _unload_exc:
+            logger.debug("UTMOSv2-Unload fehlgeschlagen: %s", _unload_exc)
         gc.collect()
 
         # §6.4 DeliveryStandards: LUFS-Messung nach EBU R128
@@ -6461,6 +6464,11 @@ class UnifiedRestorerV3:
         if max(sev(DefectType.WOW), sev(DefectType.FLUTTER)) > 0.10:
             selected.append("phase_12_wow_flutter_fix")
 
+        # Transport-Bump (impulsartige Bandholperer — Kassette/Tape)
+        if sev(DefectType.TRANSPORT_BUMP) > 0.08:
+            if "phase_12_wow_flutter_fix" not in selected:
+                selected.append("phase_12_wow_flutter_fix")
+
         # Pitch-Drift (langsame Tonhöhenschwankung)
         if sev(DefectType.PITCH_DRIFT) > 0.15:
             selected.append("phase_31_speed_pitch_correction")
@@ -6576,6 +6584,12 @@ class UnifiedRestorerV3:
         if sev(DefectType.SIBILANCE) > 0.15:
             selected.append("phase_19_de_esser")  # §6.3 — De-Esser (stimmtyp-adaptiv)
             selected.append("phase_43_ml_deesser")  # ML-De-Esser (zweiter Pass)
+
+        # Vocal-Harshness (Übersteuerung/Kratzigkeit/Härte im 2–6 kHz Band)
+        if sev(DefectType.VOCAL_HARSHNESS) > 0.12:
+            selected.append("phase_42_vocal_enhancement")  # Vocal-Enhancement mit Harshness-Absenkung
+            selected.append("phase_19_de_esser")  # De-Esser reduziert obere Härte-Frequenzen
+            selected.append("phase_43_ml_deesser")  # ML-De-Esser (Frikativ-Kontrolle)
 
         # WAX_CYLINDER (Phonographen-Wachswalze 1890–1930): aggressiv — HF ≤ 5 kHz, SNR extrem
         if material == MaterialType.WAX_CYLINDER:
@@ -7016,11 +7030,20 @@ class UnifiedRestorerV3:
             _move_before("phase_57_print_through_reduction", "phase_29_tape_hiss_reduction")
             _move_before("phase_20_reverb_reduction", "phase_49_advanced_dereverb")
             _move_before("phase_16_final_eq", "phase_17_mastering_polish")
-            _move_before("phase_17_mastering_polish", "phase_47_truepeak_limiter")
-            _move_before("phase_47_truepeak_limiter", "phase_40_loudness_normalization")
+            _move_before("phase_17_mastering_polish", "phase_40_loudness_normalization")
+            # EBU R128 §6.1 + Aurik spec §1.5 #10-#11: LUFS normalization MUST precede TruePeak
+            # limiting. LUFS norm is a pure gain shift — applying it after TruePeak limiting
+            # would re-scale all peaks, negating the limiter entirely.
+            _move_before("phase_40_loudness_normalization", "phase_47_truepeak_limiter")
+            _move_before("phase_47_truepeak_limiter", "phase_41_output_format_optimization")
+            # Direct rule so phase_40 precedes phase_41 even when phase_47 is absent.
             _move_before("phase_40_loudness_normalization", "phase_41_output_format_optimization")
 
             # Signal-processing-chain ordering (wissenschaftlich korrekte Reihenfolge)
+            # Reverb reduction before noise gate: reverb tails blur gate thresholds;
+            # after dereverb true silence/noise floor transitions are cleanly exposed
+            # (SGMSE+ 2022, WPE; iZotope RX 11 recommended chain)
+            _move_before("phase_20_reverb_reduction", "phase_18_noise_gate")
             # Impulse noise removal before broadband NR (prevents impulse energy smearing)
             _move_before("phase_01_click_removal", "phase_03_denoise")
             _move_before("phase_01_click_removal", "phase_27_click_pop_removal")
@@ -7038,6 +7061,12 @@ class UnifiedRestorerV3:
             _move_before("phase_08_transient_preservation", "phase_36_transient_shaper")
             # First spectral repair pass before second pass
             _move_before("phase_23_spectral_repair", "phase_50_spectral_repair")
+            # Vocal chain guard: classic de-esser before vocal enhancement
+            _move_before("phase_19_de_esser", "phase_42_vocal_enhancement")
+            # Vocal chain guard: classical de-esser before ML de-esser refinement
+            _move_before("phase_19_de_esser", "phase_43_ml_deesser")
+            # Spatial chain guard: room enhancement before stereo width expansion
+            _move_before("phase_46_spatial_enhancement", "phase_48_stereo_width_enhancer")
 
             if len(_precedence_fixes) == _fixes_before:
                 break  # Converged — no further reordering needed
@@ -7125,16 +7154,16 @@ class UnifiedRestorerV3:
             "phase_35_psychoacoustic_enhancement": (0.55, 0.68, 0.60),
             "phase_36_spatial_enhancement": (0.52, 0.65, 0.70),
             "phase_37_codec_artifact_removal": (0.80, 0.87, 0.55),
-            "phase_38_aliasing_removal": (0.70, 0.80, 0.50),
-            "phase_39_era_authentic_completion": (0.45, 0.60, 0.80),
+            "phase_38_presence_boost": (0.70, 0.80, 0.50),
+            "phase_39_air_band_enhancement": (0.45, 0.60, 0.80),
             "phase_42_spectral_coherence": (0.60, 0.72, 0.60),
             "phase_43_ml_de_esser": (0.55, 0.65, 0.45),
-            "phase_44_transient_shaper": (0.60, 0.70, 0.55),
-            "phase_45_micro_dynamics_morphing": (0.58, 0.68, 0.65),
-            "phase_46_groove_preservation": (0.55, 0.65, 0.60),
-            "phase_48_stem_remix_balance": (0.68, 0.80, 0.80),
+            "phase_44_guitar_enhancement": (0.60, 0.70, 0.55),
+            "phase_45_brass_enhancement": (0.58, 0.68, 0.65),
+            "phase_46_spatial_enhancement": (0.55, 0.65, 0.60),
+            "phase_48_stereo_width_enhancer": (0.68, 0.80, 0.80),
             "phase_49_advanced_dereverb": (0.72, 0.80, 0.85),
-            "phase_50_formant_enhancement": (0.62, 0.74, 0.60),
+            "phase_50_spectral_repair": (0.62, 0.74, 0.60),
             "phase_51_harmonic_guard": (0.65, 0.75, 0.55),
             "phase_52_breathiness_guard": (0.50, 0.60, 0.40),
             "phase_53_emotional_arc_preservation": (0.58, 0.70, 0.70),
@@ -7144,6 +7173,30 @@ class UnifiedRestorerV3:
             "phase_57_print_through_reduction": (0.65, 0.75, 0.50),
             "phase_58_flow_matching_inpainting": (0.72, 0.84, 0.95),
         }
+
+        def _phase_num_prefix(phase_id: str) -> str | None:
+            """Return stable prefix like 'phase_46' for alias matching."""
+            parts = phase_id.split("_", 2)
+            if len(parts) >= 2 and parts[0] == "phase" and parts[1].isdigit():
+                return f"phase_{parts[1]}"
+            return None
+
+        # Alias map for legacy/current naming drift: same phase number shares weight/protection.
+        _phase_num_to_weight: dict[str, tuple[float, float, float]] = {}
+        for _pid, _w in _PHASE_WEIGHTS.items():
+            _pref = _phase_num_prefix(_pid)
+            if _pref is not None and _pref not in _phase_num_to_weight:
+                _phase_num_to_weight[_pref] = _w
+
+        _protected_prefixes: set[str] = {
+            _pref for _pref in (_phase_num_prefix(p) for p in _UTILITY_PROTECTED) if _pref is not None
+        }
+
+        def _is_utility_protected(phase_id: str) -> bool:
+            if phase_id in _UTILITY_PROTECTED:
+                return True
+            _pref = _phase_num_prefix(phase_id)
+            return _pref in _protected_prefixes if _pref is not None else False
 
         _utility_reranked: list[str] = []
         _use_utility = getattr(self.config, "enable_phase_utility_scoring", False)
@@ -7156,14 +7209,18 @@ class UnifiedRestorerV3:
             def _utility(phase_id: str) -> float:
                 w = _PHASE_WEIGHTS.get(phase_id)
                 if w is None:
+                    _pref = _phase_num_prefix(phase_id)
+                    if _pref is not None:
+                        w = _phase_num_to_weight.get(_pref)
+                if w is None:
                     return 0.50  # unknown phase → neutral utility
                 dsev, goal_imp, cost = w
                 effective_dsev = min(1.0, dsev * _severity_scale)
                 return (effective_dsev * goal_imp) / max(0.01, cost)
 
             # Partition into protected, high-utility, and low-utility groups
-            _protected_phases = [p for p in phases if p in _UTILITY_PROTECTED]
-            _eligible_phases = [p for p in phases if p not in _UTILITY_PROTECTED]
+            _protected_phases = [p for p in phases if _is_utility_protected(p)]
+            _eligible_phases = [p for p in phases if not _is_utility_protected(p)]
 
             # Score and split
             _scored = [(p, _utility(p)) for p in _eligible_phases]
@@ -7395,8 +7452,8 @@ class UnifiedRestorerV3:
                 for _pk, _pv in _phase_params.items():
                     if _pk not in kwargs:
                         kwargs[_pk] = _pv
-            except Exception:
-                pass  # Globalplan-Fehler stoppen nie eine Phase
+            except Exception as _gp_exc:
+                logger.debug("GlobalPlan-Parameter für Phase %s fehlgeschlagen: %s", phase_metadata.phase_id, _gp_exc)
 
         # §2.14+ Kontextfluss: Ära/Genre/BPM/Profil-Daten aus self._restoration_context
         # in ALLE Phasen injizieren (zentrale Injection statt verteilter kwargs).
@@ -7415,8 +7472,8 @@ class UnifiedRestorerV3:
                     from backend.core.defect_scanner import MaterialType as _MT
 
                     kwargs[_mk] = _MT(_mv)
-                except Exception:
-                    pass
+                except Exception as _mt_exc:
+                    logger.debug("MaterialType-Konvertierung für '%s'='%s' fehlgeschlagen: %s", _mk, _mv, _mt_exc)
         # Stelle sicher, dass beide Keys vorhanden sind (falls nur einer übergeben wurde)
         if "material_type" in kwargs and "material" not in kwargs:
             kwargs["material"] = kwargs["material_type"]
@@ -7460,6 +7517,39 @@ class UnifiedRestorerV3:
                 _sev_wet_dry = get_phase_defect_severity(phase_metadata.phase_id, _defect_scores_wd)
             except Exception:
                 _sev_wet_dry = 1.0
+        # §Locality-Aware Wet/Dry: for sparse event defects, reduce global processing
+        # intensity to preserve timbre outside affected regions.
+        # Uses per-defect temporal coverage map from _execute_pipeline.
+        _coverage_map = kwargs.get("defect_location_coverage_map")
+        if (
+            isinstance(_coverage_map, dict)
+            and _defect_scores_wd
+            and phase_metadata.phase_id not in _TIMING_PHASES_WD
+        ):
+            try:
+                from backend.core.defect_phase_mapper import get_phase_locality_factor, get_reverse_phase_map
+
+                _locality_factor = get_phase_locality_factor(
+                    phase_metadata.phase_id,
+                    _defect_scores_wd,
+                    _coverage_map,
+                )
+                if _locality_factor < 1.0:
+                    _sev_wet_dry = float(np.clip(_sev_wet_dry * _locality_factor, 0.15, 1.0))
+                    kwargs["phase_locality_factor"] = _locality_factor
+
+                    # Optional diagnostics: max coverage over targeted defects.
+                    _rmap = get_reverse_phase_map()
+                    _targets = _rmap.get(phase_metadata.phase_id, [])
+                    if _targets:
+                        _target_coverages = []
+                        for _dt in _targets:
+                            _dk = _dt.value if hasattr(_dt, "value") else str(_dt)
+                            _target_coverages.append(float(_coverage_map.get(_dk, 1.0)))
+                        if _target_coverages:
+                            kwargs["phase_target_coverage"] = max(_target_coverages)
+            except Exception:
+                pass
 
         # Call phase.process() method (not phase() itself!)
         _audio_before_phase = audio if _sev_wet_dry < 1.0 else None
@@ -7577,11 +7667,11 @@ class UnifiedRestorerV3:
                     _pid = ""
                     try:
                         _pid = phase.get_metadata().phase_id
-                    except Exception:
-                        pass
+                    except Exception as _meta_exc:
+                        logger.debug("Phase-Metadata-Zugriff für Stereo-Callback fehlgeschlagen: %s", _meta_exc)
                     cb(intermediate, sr, f"{_pid}:L")
-                except Exception:
-                    pass
+                except Exception as _cb_exc:
+                    logger.debug("Stereo-Audio-Update-Callback fehlgeschlagen: %s", _cb_exc)
 
             # --- Process right channel independently ---
             result_r = phase.process(right_orig, **kwargs)
@@ -7611,6 +7701,7 @@ class UnifiedRestorerV3:
         applicable_goals: set[str] | None = None,  # §2.32 normativ: aus GoalApplicabilityFilter
         material_initial_strengths: dict[str, float] | None = None,  # §2.31 material-adaptive Initialstärken
         quality_mode_override: QualityMode | None = None,
+        no_rt_limit: bool = False,
         reconstruction_context=None,  # §11.7a: RekonstruktionsDenker-Ergebnis mit reparierten Gaps
     ) -> tuple[np.ndarray, list[str], list[str]]:
         """
@@ -7628,6 +7719,25 @@ class UnifiedRestorerV3:
         executed = []
         skipped = []
         deferred = []  # §2.38 KMV: phases skipped by PerformanceGuard for Stage 2 refinement
+
+        def _normalize_phase_result(_r):
+            """Accept legacy ndarray returns and normalize to PhaseResult-like object."""
+            if hasattr(_r, "success"):
+                return _r
+            if isinstance(_r, np.ndarray):
+                return SimpleNamespace(
+                    success=True,
+                    audio=_r,
+                    execution_time_seconds=0.0,
+                    warnings=[],
+                )
+            return SimpleNamespace(
+                success=False,
+                audio=current_audio,
+                execution_time_seconds=0.0,
+                warnings=[f"invalid_phase_result_type:{type(_r).__name__}"],
+            )
+
         # §Punkt3 Phasen-Regressionsprotokoll: RMS-Delta je Phase (sequentielle Ausführung)
         # Einheit: dBFS-Differenz nach - vor Phase. Positiv = Energie gestiegen, negativ = gesunken.
         self._phase_regression_log: dict[str, float] = {}
@@ -7692,6 +7802,8 @@ class UnifiedRestorerV3:
         # §7.6 / §9.1: Defect-Locations für gezielte Phasenverarbeitung extrahieren
         # + maximale Severity für adaptive Chunk-Größe
         _defect_locations: dict[str, list[tuple[float, float]]] = {}
+        _defect_severity_map: dict[str, float] = {}
+        _defect_location_coverage_map: dict[str, float] = {}
         _max_defect_severity: float = 0.0
         if defect_result is not None and hasattr(defect_result, "scores"):
             for _dt, _ds in defect_result.scores.items():
@@ -7699,7 +7811,25 @@ class UnifiedRestorerV3:
                 if hasattr(_ds, "locations") and _ds.locations:
                     _defect_locations[_dt_key] = list(_ds.locations)
                 if hasattr(_ds, "severity"):
-                    _max_defect_severity = max(_max_defect_severity, float(_ds.severity))
+                    _sev_val = float(_ds.severity)
+                    _defect_severity_map[_dt_key] = _sev_val
+                    _max_defect_severity = max(_max_defect_severity, _sev_val)
+
+        # Locality map: per-defect temporal coverage in [0, 1].
+        # Used to reduce global wet/dry for sparse, event-like defects
+        # (clicks, crackle, clipping, sibilance), preserving timbre elsewhere.
+        _audio_duration_s = max(1e-6, float(audio.shape[-1]) / float(sample_rate))
+        for _dkey, _locs in _defect_locations.items():
+            _acc = 0.0
+            for _t0, _t1 in _locs:
+                try:
+                    _s = max(0.0, min(float(_t0), _audio_duration_s))
+                    _e = max(0.0, min(float(_t1), _audio_duration_s))
+                    if _e > _s:
+                        _acc += (_e - _s)
+                except Exception:
+                    continue
+            _defect_location_coverage_map[_dkey] = float(np.clip(_acc / _audio_duration_s, 0.0, 1.0))
 
         # §11.7a: Bereits reparierte Gap-Locations aus RekonstruktionsDenker extrahieren.
         # Phase 24 (dropout_repair) und Phase 55 (diffusion_inpainting) können damit
@@ -7759,7 +7889,7 @@ class UnifiedRestorerV3:
                         continue
                     metadata = phase.get_metadata()
                     estimated_time = metadata.estimated_time_factor * (audio.shape[-1] / sample_rate)
-                    if self.performance_guard and self.performance_guard.should_skip_phase(
+                    if (not no_rt_limit) and self.performance_guard and self.performance_guard.should_skip_phase(
                         phase_id, estimated_time, len(selected_phases) - 1
                     ):
                         skipped.append(phase_id)
@@ -7795,6 +7925,8 @@ class UnifiedRestorerV3:
                         material=material_type,
                         defect_scores=defect_result.scores,
                         defect_locations=_defect_locations,
+                        defect_severity_map=_defect_severity_map,
+                        defect_location_coverage_map=_defect_location_coverage_map,
                         max_defect_severity=_max_defect_severity,
                         quality_mode=_quality_mode_value,  # Pass quality mode for ML routing
                         repaired_gap_samples=_repaired_gap_samples,  # §11.7a: RekonstruktionsDenker gaps
@@ -7898,66 +8030,49 @@ class UnifiedRestorerV3:
                 metadata = phase.get_metadata()
                 remaining = len(selected_phases) - len(executed) - 1
                 estimated_time = metadata.estimated_time_factor * (audio.shape[-1] / sample_rate)
-                if self.performance_guard and self.performance_guard.should_skip_phase(
+                if (not no_rt_limit) and self.performance_guard and self.performance_guard.should_skip_phase(
                     phase_id, estimated_time, remaining
                 ):
                     skipped.append(phase_id)
                     deferred.append(phase_id)  # §2.38 KMV: RT-skipped → Stage 2
                     continue
                 phase_start = self.performance_guard.start_phase(phase_id) if self.performance_guard else time.time()
-                # ── §OOM-Prävention: Proaktive RAM-Prüfung + Eviction VOR Phase ──
-                # ML-schwere Phasen brauchen 1–3 GB peak RAM. Bei < 5 GB frei:
-                # zuerst stale Plugins entladen, dann GC + malloc_trim.
-                # Bei < 2 GB nach Eviction → Phase in deferred_phases für KMV Stufe 2.
-                _ML_HEAVY_PHASES = frozenset(
-                    {
-                        "phase_03_denoise",
-                        "phase_06_frequency_restoration",
-                        "phase_09_crackle_removal",
-                        "phase_20_reverb_reduction",
-                        "phase_23_spectral_repair",
-                        "phase_24_dropout_repair",
-                        "phase_29_tape_hiss_reduction",
-                        "phase_42_vocal_enhancement",
-                        "phase_55_diffusion_inpainting",
-                        "phase_56_spectral_band_gap_repair",
-                    }
-                )
-                if phase_id in _ML_HEAVY_PHASES:
-                    try:
-                        import psutil as _ps_pre
+                # ── §2.37 Automatische ML-RAM-Verwaltung: Vor jeder Phase ──
+                # Entlade alle ML-Modelle die für die kommende Phase NICHT benötigt
+                # werden. Gewährleistet, dass nur aktiv benötigte Modelle im RAM sind.
+                try:
+                    from backend.core.plugin_lifecycle_manager import evict_for_phase as _evict_for_phase
 
-                        _avail_pre = _ps_pre.virtual_memory().available / (1024**3)
-                        if _avail_pre < 5.0:
-                            logger.info("⚙ Proaktive RAM-Freigabe vor %s (%.1f GB frei)", phase_id, _avail_pre)
-                            try:
-                                from backend.core.plugin_lifecycle_manager import evict_stale_plugins
+                    _evict_for_phase(phase_id)
+                except Exception:
+                    pass
+                # Zusätzlich: Bei < 2 GB frei nach Eviction → Phase deferred (KMV Stufe 2)
+                try:
+                    import psutil as _ps_pre
 
-                                evict_stale_plugins(required_mb=3072)
-                            except Exception:
-                                pass
-                            gc.collect()
-                            try:
-                                import ctypes as _ct_pre
-
-                                _ct_pre.CDLL("libc.so.6").malloc_trim(0)
-                            except Exception:
-                                pass
-                            _avail_post = _ps_pre.virtual_memory().available / (1024**3)
-                            if _avail_post < 2.0:
-                                logger.warning(
-                                    "⚠️ Nur %.1f GB frei nach Eviction — %s wird deferred (KMV Stufe 2)",
-                                    _avail_post,
-                                    phase_id,
-                                )
-                                skipped.append(phase_id)
-                                deferred.append(phase_id)
-                                continue
-                    except ImportError:
-                        pass
+                    _avail_pre = _ps_pre.virtual_memory().available / (1024**3)
+                    if _avail_pre < 2.0:
+                        logger.warning(
+                            "⚠️ Nur %.1f GB frei nach Eviction — %s wird deferred (KMV Stufe 2)",
+                            _avail_pre,
+                            phase_id,
+                        )
+                        skipped.append(phase_id)
+                        deferred.append(phase_id)
+                        continue
+                except ImportError:
+                    pass
                 logger.info("▶ %s startet (%d/%d)", phase_id, len(executed) + 1, len(selected_phases))
-                # §2.16 TQC mid-pipeline: Snapshot vor zeitmodifizierenden Phasen
+                # §2.16 TQC mid-pipeline: Snapshot + Baseline-Messung vor zeitmodifizierenden Phasen
                 _tqc_snap: np.ndarray | None = current_audio.copy() if phase_id in _TQC_CRITICAL_PHASES_SEQ else None
+                _tqc_snap_span: float = -1.0  # Baseline max_span; -1.0 = nicht gemessen
+                if _tqc_snap is not None:
+                    try:
+                        from backend.core.temporal_quality_coherence import measure_temporal_coherence as _tqc_meas
+                        _tqc_baseline = _tqc_meas(_tqc_snap, sample_rate)
+                        _tqc_snap_span = _tqc_baseline.max_span
+                    except Exception:
+                        pass
                 # §Punkt3 Regressionsprotokoll: RMS vor Phase messen (in dBFS)
                 _rms_before = float(np.sqrt(np.mean(current_audio**2) + 1e-12))
                 _rms_before_db = 20.0 * np.log10(_rms_before)
@@ -8016,6 +8131,8 @@ class UnifiedRestorerV3:
                                     "material": material_type,
                                     "defect_scores": defect_result.scores,
                                     "defect_locations": _defect_locations,
+                                    "defect_severity_map": _defect_severity_map,
+                                    "defect_location_coverage_map": _defect_location_coverage_map,
                                     "max_defect_severity": _max_defect_severity,
                                     "quality_mode": _quality_mode_value,
                                     "adaptive_chunk_fn": (
@@ -8032,7 +8149,10 @@ class UnifiedRestorerV3:
                             _pmgg_log_entries.append(_pmgg_entry)
                             # §3.1 NaN-Guard: revert to pre-phase audio if NaN produced
                             if np.any(np.isnan(_pmgg_audio_out)):
-                                pass  # current_audio unchanged
+                                logger.warning(
+                                    "NaN in PMGG-Ausgabe von Phase %s erkannt — Audio-Rollback auf Vor-Phase-Zustand",
+                                    phase_id,
+                                )
                             else:
                                 current_audio = np.clip(_pmgg_audio_out, -1.0, 1.0)
                             # §PROGRESS: Per-Phase Fortschritt (PMGG-Pfad)
@@ -8088,15 +8208,23 @@ class UnifiedRestorerV3:
                                 material=material_type,
                                 defect_scores=defect_result.scores,
                                 defect_locations=_defect_locations,
+                                defect_severity_map=_defect_severity_map,
+                                defect_location_coverage_map=_defect_location_coverage_map,
                                 max_defect_severity=_max_defect_severity,
                                 quality_mode=_quality_mode_value,
                                 repaired_gap_samples=_repaired_gap_samples,  # §11.7a
                             )
+                            result = _normalize_phase_result(result)
                             if result.success:
                                 _fa = result.audio
                                 # §3.1 NaN-Guard: revert to pre-phase audio if NaN produced
                                 if not np.any(np.isnan(_fa)):
                                     current_audio = np.clip(_fa, -1.0, 1.0)
+                                else:
+                                    logger.warning(
+                                        "NaN in PMGG-Fallback-Ausgabe von Phase %s erkannt — Audio-Rollback",
+                                        phase_id,
+                                    )
                                 # §PROGRESS: Per-Phase Fortschritt (PMGG-Fallback)
                                 _n_sel = max(len(selected_phases), 1)
                                 _idx_ex = len(executed)
@@ -8146,11 +8274,17 @@ class UnifiedRestorerV3:
                             defect_scores=defect_result.scores,
                             quality_mode=self.config.mode.value,  # Pass quality mode for ML routing
                         )
+                        result = _normalize_phase_result(result)
                         if result.success:
                             _ra = result.audio
                             # §3.1 NaN-Guard: revert to pre-phase audio if NaN produced
                             if not np.any(np.isnan(_ra)):
                                 current_audio = np.clip(_ra, -1.0, 1.0)
+                            else:
+                                logger.warning(
+                                    "NaN in Ausgabe von Phase %s erkannt — Audio-Rollback auf Vor-Phase-Zustand",
+                                    phase_id,
+                                )
                             # §PROGRESS: Per-Phase Fortschritt (sequenziell)
                             _n_sel = max(len(selected_phases), 1)
                             _idx_ex = len(executed)
@@ -8294,7 +8428,11 @@ class UnifiedRestorerV3:
                         gc.collect()
                 except ImportError:
                     pass
-                # §2.16 TQC mid-pipeline: nach zeitmodifizierenden Phasen auf Kohärenzverlust prüfen
+                # §2.16 TQC mid-pipeline: nach zeitmodifizierenden Phasen auf Kohärenzverlust prüfen.
+                # WICHTIG: Rollback NUR wenn die Phase die TQC-Metrik VERSCHLECHTERT hat
+                # (max_span gestiegen ≥ 15%).  Ein absolutes Scheitern am Threshold genügt
+                # NICHT — Musikdateien mit natürlicher Dynamik überschreiten 0.30 immer;
+                # der Rollback wäre sonst ein blinder No-Op für phase_12/31.
                 if _tqc_snap is not None and phase_id in executed:
                     _tqc_dur_s = (
                         current_audio.shape[-1] / sample_rate
@@ -8306,19 +8444,37 @@ class UnifiedRestorerV3:
                             from backend.core.temporal_quality_coherence import measure_temporal_coherence
 
                             _mid_tqc = measure_temporal_coherence(current_audio, sample_rate)
-                            if not _mid_tqc.passed:
+                            # Rollback-Bedingung: Phase hat TQC um ≥ 15 % verschlechtert
+                            # UND der absolute Wert liegt über dem Hard-Cap von 3.0
+                            # (extrem zerbrochener Rhythmus — kaum natürliche Musik).
+                            _tqc_degraded = (
+                                _tqc_snap_span >= 0.0  # Baseline gemessen
+                                and _mid_tqc.max_span > _tqc_snap_span * 1.15  # ≥15 % Regression
+                                and _mid_tqc.max_span > 0.30  # überhaupt auffällig
+                            )
+                            _tqc_catastrophic = _mid_tqc.max_span > 3.0 and _mid_tqc.sigma > 0.80
+                            if _tqc_degraded or _tqc_catastrophic:
                                 logger.warning(
-                                    "⚠️ TQC mid-pipeline nach %s: max_span=%.3f σ=%.3f → Rollback",
+                                    "⚠️ TQC mid-pipeline nach %s: max_span %.3f→%.3f σ=%.3f → Rollback (Phase hat TQC verschlechtert)",
                                     phase_id,
+                                    _tqc_snap_span,
                                     _mid_tqc.max_span,
                                     _mid_tqc.sigma,
                                 )
                                 current_audio = _tqc_snap  # Rollback auf Audio vor Phase
+                            else:
+                                logger.debug(
+                                    "TQC mid-pipeline nach %s: max_span=%.3f σ=%.3f (baseline=%.3f) — OK, kein Rollback",
+                                    phase_id,
+                                    _mid_tqc.max_span,
+                                    _mid_tqc.sigma,
+                                    _tqc_snap_span,
+                                )
                         except Exception as _mtqc_exc:
                             logger.debug("TQC mid-pipeline nicht verfügbar: %s", _mtqc_exc)
                 # Memory-Hygiene: alle 5 Phasen Garbage Collector aufrufen,
                 # um Zwischenpuffer und abgeschlossene Phase-Objekte freizugeben.
-                if self.performance_guard and self.performance_guard.check_early_exit(remaining):
+                if (not no_rt_limit) and self.performance_guard and self.performance_guard.check_early_exit(remaining):
                     logger.warning(f"⚠️ Early exit triggered, skipping {remaining} remaining phases")
                     skipped.extend(selected_phases[len(executed) :])
                     break

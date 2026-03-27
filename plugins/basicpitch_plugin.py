@@ -117,6 +117,12 @@ class BasicPitchPlugin:
                 pass
         except Exception as exc:
             logger.warning("BasicPitch ONNX-Init fehlgeschlagen (%s) — DSP-Fallback.", exc)
+            try:
+                from backend.core.ml_memory_budget import release as _release
+
+                _release("BasicPitch")
+            except Exception:
+                pass
 
     def analyze(self, audio: np.ndarray, sr: int, max_polyphony: int = _DEFAULT_MAX_POLYPHONY) -> BasicPitchResult:
         """Estimate polyphonic pitches.

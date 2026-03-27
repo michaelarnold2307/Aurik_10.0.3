@@ -178,6 +178,34 @@ class ReverbReduction(PhaseInterface):
         strength = self.REDUCTION_STRENGTH.get(material, 0.4)
         damping = self.TAIL_DAMPING.get(material, 0.6)
 
+        # Locality-aware intensity control from UV3.
+        phase_locality_factor = float(kwargs.get("phase_locality_factor", 1.0))
+        phase_locality_factor = float(np.clip(phase_locality_factor, 0.35, 1.0))
+        _pmgg_strength = float(kwargs.get("strength", 1.0))
+        _effective_strength = float(np.clip(_pmgg_strength * phase_locality_factor, 0.0, 1.0))
+
+        if _effective_strength <= 0.0:
+            passthrough = np.nan_to_num(audio.copy(), nan=0.0, posinf=0.0, neginf=0.0)
+            passthrough = np.clip(passthrough, -1.0, 1.0)
+            return PhaseResult(
+                success=True,
+                audio=passthrough,
+                metrics={
+                    "rms_change_db": 0.0,
+                    "reduction_strength": 0.0,
+                    "tail_damping": damping,
+                    "material": material.value,
+                },
+                execution_time_seconds=time.time() - start_time,
+                metadata={
+                    "algorithm": "skipped_zero_strength",
+                    "phase_locality_factor": phase_locality_factor,
+                    "effective_strength": _effective_strength,
+                },
+            )
+
+        strength = float(np.clip(strength * _effective_strength, 0.0, 1.0))
+
         # §2.20 Genre-adaptive reverb: classical/opera preserve concert hall ambience;
         # Schlager profile may define dereverb_strength_cap.
         genre_label = kwargs.get("genre_label", "Unbekannt")
@@ -258,6 +286,9 @@ class ReverbReduction(PhaseInterface):
 
                 _audio_clean = np.nan_to_num(ml_result.audio, nan=0.0, posinf=0.0, neginf=0.0)
                 _audio_clean = np.clip(_audio_clean, -1.0, 1.0)
+                if 0.0 < _effective_strength < 1.0:
+                    _audio_clean = audio + _effective_strength * (_audio_clean - audio)
+                    _audio_clean = np.clip(_audio_clean, -1.0, 1.0)
                 return PhaseResult(
                     success=True,
                     audio=_audio_clean,
@@ -284,6 +315,8 @@ class ReverbReduction(PhaseInterface):
                         "window_size": self.WINDOW_SIZE,
                         "hop_size": self.HOP_SIZE,
                         "ml_metadata": ml_result.metadata,
+                        "phase_locality_factor": phase_locality_factor,
+                        "effective_strength": _effective_strength,
                     },
                     warnings=warnings,
                     modifications={},
@@ -331,6 +364,9 @@ class ReverbReduction(PhaseInterface):
                 logger.info("Phase 20: WPE-Tier erfolgreich (strength=%.2f)", wpe_strength)
                 reduced = np.nan_to_num(reduced, nan=0.0, posinf=0.0, neginf=0.0)
                 reduced = np.clip(reduced, -1.0, 1.0)
+                if 0.0 < _effective_strength < 1.0:
+                    reduced = audio + _effective_strength * (reduced - audio)
+                    reduced = np.clip(reduced, -1.0, 1.0)
                 return PhaseResult(
                     success=True,
                     audio=reduced,
@@ -345,6 +381,8 @@ class ReverbReduction(PhaseInterface):
                         "algorithm": "wpe_nakatani2010_tier1",
                         "version": "3.0_wpe",
                         "wpe_strength": wpe_strength,
+                        "phase_locality_factor": phase_locality_factor,
+                        "effective_strength": _effective_strength,
                     },
                 )
             except Exception as wpe_err:
@@ -387,6 +425,9 @@ class ReverbReduction(PhaseInterface):
 
         reduced = np.nan_to_num(reduced, nan=0.0, posinf=0.0, neginf=0.0)
         reduced = np.clip(reduced, -1.0, 1.0)
+        if 0.0 < _effective_strength < 1.0:
+            reduced = audio + _effective_strength * (reduced - audio)
+            reduced = np.clip(reduced, -1.0, 1.0)
         return PhaseResult(
             success=True,
             audio=reduced,
@@ -402,6 +443,8 @@ class ReverbReduction(PhaseInterface):
                 "version": "3.0_omlsa",
                 "window_size": self.WINDOW_SIZE,
                 "hop_size": self.HOP_SIZE,
+                "phase_locality_factor": phase_locality_factor,
+                "effective_strength": _effective_strength,
             },
         )
 

@@ -1,6 +1,6 @@
-# Aurik 9.10.57 — 56-Phasen-Pipeline Überblick
+# Aurik 9.x.x — 56-Phasen-Pipeline Überblick
 
-**Version:** 9.10.57  
+**Version:** 9.10.77c  
 **Stand:** März 2026  
 **Status:** ✅ Produktionsbereit
 
@@ -146,4 +146,4 @@ REGRESSION_THRESHOLD ist restorability-adaptiv:
 
 ---
 
-*Aurik 9.10.57 — März 2026*
+*Aurik 9.10.77c — März 2026*

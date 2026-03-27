@@ -102,6 +102,9 @@ def pytest_configure(config) -> None:  # noqa: ANN001
     if os.environ.get("PYTEST_XDIST_WORKER"):
         return
 
+    # Marker-Deklarationen für saubere Selektions-/Filter-UX.
+    config.addinivalue_line("markers", "gui: tests that require Qt GUI runtime / display stack")
+
     # Guard 2: Kein xdist → kein Import-Lock-Risiko → Warm-up überspringen.
     # (Verhindert Numba-JIT-Hang bei pytest -p no:xdist und VS Code Test Explorer)
     numprocs = getattr(getattr(config, "option", None), "numprocesses", 0) or 0
@@ -260,6 +263,12 @@ def pytest_addoption(parser) -> None:  # noqa: ANN001
         default=False,
         help="Run heavy ML/stress tests that are skipped by default for system stability.",
     )
+    parser.addoption(
+        "--run-gui-tests",
+        action="store_true",
+        default=False,
+        help="Run Qt/GUI tests that are deselected by default in headless environments.",
+    )
 
 
 def _is_heavy_test_item(item) -> bool:  # noqa: ANN001
@@ -296,10 +305,16 @@ def pytest_collection_modifyitems(config, items) -> None:  # noqa: ANN001
     This prevents hard machine crashes in default/local selective test runs.
     """
     run_heavy = bool(config.getoption("--run-heavy-tests"))
+    run_gui = bool(config.getoption("--run-gui-tests"))
     deselected: list = []
     kept: list = []
 
     for item in items:
+        # GUI tests are opt-in; default runs stay deterministic in headless CI.
+        if item.get_closest_marker("gui") is not None and not run_gui:
+            deselected.append(item)
+            continue
+
         if not _is_heavy_test_item(item):
             kept.append(item)
             continue

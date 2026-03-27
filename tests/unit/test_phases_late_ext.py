@@ -124,6 +124,20 @@ class TestPhase43MLDeEsser:
         # RMS kann durch GR sinken, sollte aber nicht explodieren
         assert rms_out <= rms_in * 2.0
 
+    def test_zero_strength_passthrough(self, sibilant_mono):
+        result = self.phase.process(sibilant_mono, SR, strength=0.0)
+        _assert_phase_result(result, sibilant_mono)
+        assert np.allclose(result.audio, sibilant_mono, atol=1e-7)
+        assert result.metadata.get("algorithm") == "skipped_zero_strength"
+        assert float(result.metadata.get("effective_strength", 1.0)) == 0.0
+
+    def test_locality_reduces_effective_strength(self, sibilant_mono):
+        result = self.phase.process(sibilant_mono, SR, strength=1.0, phase_locality_factor=0.4)
+        _assert_phase_result(result, sibilant_mono)
+        eff = float(result.metadata.get("effective_strength", 1.0))
+        assert 0.0 < eff < 1.0
+        assert float(result.metadata.get("phase_locality_factor", 1.0)) <= 0.4 + 1e-6
+
 
 # ===========================================================================
 # Phase 44 – Guitar Enhancement
@@ -164,6 +178,20 @@ class TestPhase44GuitarEnhancement:
             result = self.phase.process(mono[:sr], sr)
             _assert_phase_result(result, mono[:sr])
 
+    def test_zero_strength_passthrough(self, mono):
+        result = self.phase.process(mono, SR, strength=0.0)
+        _assert_phase_result(result, mono)
+        assert np.allclose(result.audio, mono, atol=1e-7)
+        assert result.metadata.get("algorithm") == "skipped_zero_strength"
+        assert float(result.metadata.get("effective_strength", 1.0)) == 0.0
+
+    def test_locality_reduces_effective_strength(self, mono):
+        result = self.phase.process(mono, SR, strength=1.0, phase_locality_factor=0.4)
+        _assert_phase_result(result, mono)
+        eff = float(result.metadata.get("effective_strength", 1.0))
+        assert 0.0 < eff < 1.0
+        assert float(result.metadata.get("phase_locality_factor", 1.0)) <= 0.4 + 1e-6
+
 
 # ===========================================================================
 # Phase 45 – Brass Enhancement
@@ -203,6 +231,20 @@ class TestPhase45BrassEnhancement:
         result = self.phase.process(mono, SR, gain_h2=0.0, presence_db=0.0, air_db=0.0)
         _assert_phase_result(result, mono)
 
+    def test_zero_strength_passthrough(self, mono):
+        result = self.phase.process(mono, SR, strength=0.0)
+        _assert_phase_result(result, mono)
+        assert np.allclose(result.audio, mono, atol=1e-7)
+        assert result.metadata.get("algorithm") == "skipped_zero_strength"
+        assert float(result.metadata.get("effective_strength", 1.0)) == 0.0
+
+    def test_locality_reduces_effective_strength(self, mono):
+        result = self.phase.process(mono, SR, strength=1.0, phase_locality_factor=0.4)
+        _assert_phase_result(result, mono)
+        eff = float(result.metadata.get("effective_strength", 1.0))
+        assert 0.0 < eff < 1.0
+        assert float(result.metadata.get("phase_locality_factor", 1.0)) <= 0.4 + 1e-6
+
 
 # ===========================================================================
 # Phase 46 – Spatial Enhancement
@@ -241,6 +283,20 @@ class TestPhase46SpatialEnhancement:
         result = self.phase.process(stereo, SR)
         assert result.audio.ndim == 2
         assert result.audio.shape[1] == 2
+
+    def test_zero_strength_passthrough(self, stereo):
+        result = self.phase.process(stereo, SR, strength=0.0)
+        _assert_phase_result(result, stereo)
+        assert np.allclose(result.audio, stereo, atol=1e-7)
+        assert result.metadata.get("algorithm") == "skipped_zero_strength"
+        assert float(result.metadata.get("effective_strength", 1.0)) == 0.0
+
+    def test_locality_reduces_effective_strength(self, stereo):
+        result = self.phase.process(stereo, SR, strength=1.0, phase_locality_factor=0.4)
+        _assert_phase_result(result, stereo)
+        eff = float(result.metadata.get("effective_strength", 1.0))
+        assert 0.0 < eff < 1.0
+        assert float(result.metadata.get("phase_locality_factor", 1.0)) <= 0.4 + 1e-6
 
 
 # ===========================================================================
@@ -289,6 +345,20 @@ class TestPhase47TruePeakLimiter:
         peak = float(np.max(np.abs(result.audio)))
         assert peak <= ceiling_lin * 1.1
 
+    def test_zero_strength_passthrough(self, mono):
+        result = self.phase.process(mono, SR, strength=0.0)
+        _assert_phase_result(result, mono)
+        assert np.allclose(result.audio, mono, atol=1e-7)
+        assert result.metadata.get("algorithm") == "skipped_zero_strength"
+        assert float(result.metadata.get("effective_strength", 1.0)) == 0.0
+
+    def test_locality_reduces_effective_strength(self, hot_mono):
+        result = self.phase.process(hot_mono, SR, strength=1.0, phase_locality_factor=0.4)
+        _assert_phase_result(result, hot_mono, check_clipping=False)
+        eff = float(result.metadata.get("effective_strength", 1.0))
+        assert 0.0 < eff < 1.0
+        assert float(result.metadata.get("phase_locality_factor", 1.0)) <= 0.4 + 1e-6
+
 
 # ===========================================================================
 # Phase 48 – Stereo Width Enhancer
@@ -332,6 +402,20 @@ class TestPhase48StereoWidthEnhancer:
         result = self.phase.process(stereo, SR)
         assert result.audio.ndim == 2
         assert result.audio.shape[1] == 2
+
+    def test_zero_strength_passthrough(self, stereo):
+        result = self.phase.process(stereo, SR, strength=0.0)
+        _assert_phase_result(result, stereo)
+        assert np.allclose(result.audio, stereo, atol=1e-7)
+        assert result.metadata.get("algorithm") == "skipped_zero_strength"
+        assert float(result.metadata.get("effective_strength", 1.0)) == 0.0
+
+    def test_locality_reduces_effective_strength(self, stereo):
+        result = self.phase.process(stereo, SR, strength=1.0, phase_locality_factor=0.4)
+        _assert_phase_result(result, stereo)
+        eff = float(result.metadata.get("effective_strength", 1.0))
+        assert 0.0 < eff < 1.0
+        assert float(result.metadata.get("phase_locality_factor", 1.0)) <= 0.4 + 1e-6
 
 
 # ===========================================================================
@@ -377,6 +461,20 @@ class TestPhase50SpectralRepair:
         for sr in (44100, 48000):
             result = self.phase.process(mono[:sr], sr)
             _assert_phase_result(result, mono[:sr])
+
+    def test_zero_strength_passthrough(self, mono):
+        result = self.phase.process(mono, SR, strength=0.0)
+        _assert_phase_result(result, mono)
+        assert np.allclose(result.audio, mono, atol=1e-7)
+        assert result.metadata.get("algorithm") == "skipped_zero_strength"
+        assert float(result.metadata.get("effective_strength", 1.0)) == 0.0
+
+    def test_locality_reduces_effective_strength(self, mono):
+        result = self.phase.process(mono, SR, strength=1.0, phase_locality_factor=0.4)
+        _assert_phase_result(result, mono)
+        eff = float(result.metadata.get("effective_strength", 1.0))
+        assert 0.0 < eff < 1.0
+        assert float(result.metadata.get("phase_locality_factor", 1.0)) <= 0.4 + 1e-6
 
 
 # ===========================================================================
@@ -432,3 +530,17 @@ class TestPhase53SemanticAudio:
         result = self.phase.process(audio_48k, 48000)
         assert result.success is True
         assert result.audio.shape == audio_48k.shape
+
+    def test_zero_strength_passthrough(self, mono):
+        result = self.phase.process(mono, SR, strength=0.0)
+        _assert_phase_result(result, mono)
+        assert np.allclose(result.audio, mono, atol=1e-7)
+        assert result.metadata.get("algorithm") == "skipped_zero_strength"
+        assert float(result.metadata.get("effective_strength", 1.0)) == 0.0
+
+    def test_locality_reduces_effective_strength(self, mono):
+        result = self.phase.process(mono, SR, strength=1.0, phase_locality_factor=0.4)
+        _assert_phase_result(result, mono)
+        eff = float(result.metadata.get("effective_strength", 1.0))
+        assert 0.0 < eff < 1.0
+        assert float(result.metadata.get("phase_locality_factor", 1.0)) <= 0.4 + 1e-6

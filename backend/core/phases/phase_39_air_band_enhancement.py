@@ -43,6 +43,7 @@ from scipy import signal
 
 from backend.core.defect_scanner import MaterialType
 
+from .output_guard import evaluate_output_guard
 from .phase_interface import PhaseCategory, PhaseInterface, PhaseMetadata, PhaseResult
 
 logger = logging.getLogger(__name__)
@@ -148,8 +149,42 @@ class AirBandEnhancement(PhaseInterface):
         start_time = time.time()
         self.validate_input(audio)
 
+        phase_locality_factor = float(kwargs.get("phase_locality_factor", 1.0))
+        phase_locality_factor = float(np.clip(phase_locality_factor, 0.35, 1.0))
+        _pmgg_strength = float(kwargs.get("strength", 1.0))
+        _effective_strength = float(np.clip(_pmgg_strength * phase_locality_factor, 0.0, 1.0))
+
+        if _effective_strength <= 0.0:
+            audio = np.nan_to_num(audio, nan=0.0, posinf=0.0, neginf=0.0)
+            audio = np.clip(audio, -1.0, 1.0)
+            return PhaseResult(
+                success=True,
+                audio=audio.copy(),
+                execution_time_seconds=time.time() - start_time,
+                metadata={
+                    "material": material.name,
+                    "algorithm": "skipped_zero_strength",
+                    "phase_locality_factor": phase_locality_factor,
+                    "effective_strength": _effective_strength,
+                },
+                warnings=[],
+            )
+
         is_stereo = audio.ndim == 2
         config = dict(self.AIR_CONFIG.get(material, self.AIR_CONFIG[MaterialType.CD_DIGITAL]))
+
+        quality_mode = str(kwargs.get("quality_mode", "balanced")).lower()
+        if quality_mode in ("quality", "maximum", "studio2026"):
+            hq_scale = 1.12 if quality_mode in ("maximum", "studio2026") else 1.06
+        else:
+            hq_scale = 1.0
+
+        config["shelf_gain_db"] = float(config["shelf_gain_db"] * _effective_strength)
+        config["exciter_mix"] = float(config["exciter_mix"] * _effective_strength)
+        config["saturation_drive"] = float(config["saturation_drive"] * _effective_strength)
+        config["shelf_gain_db"] = float(np.clip(config["shelf_gain_db"] * hq_scale, 0.0, 7.0))
+        config["exciter_mix"] = float(np.clip(config["exciter_mix"] * hq_scale, 0.0, 0.55))
+        config["saturation_drive"] = float(np.clip(config["saturation_drive"] * hq_scale, 0.0, 0.45))
 
         # ── Era/Genre-adaptive air band scaling (context injection §2.x) ──
         _brillanz = kwargs.get("brillanz_target")
@@ -191,6 +226,11 @@ class AirBandEnhancement(PhaseInterface):
         else:
             enhanced_audio = self._enhance_channel(audio, sample_rate, config)
 
+        if 0.0 < _effective_strength < 1.0:
+            enhanced_audio = audio + _effective_strength * (enhanced_audio - audio)
+
+        enhanced_audio_pre_guard = enhanced_audio.copy()
+
         # Measure final HF energy
         hf_energy_after = self._measure_hf_energy(enhanced_audio, sample_rate)
         hf_boost_db = 20 * np.log10((hf_energy_after + 1e-10) / (hf_energy_before + 1e-10))
@@ -219,6 +259,20 @@ class AirBandEnhancement(PhaseInterface):
             enhanced_audio = np.nan_to_num(enhanced_audio, nan=0.0, posinf=0.0, neginf=0.0)
             enhanced_audio = np.clip(enhanced_audio, -1.0, 1.0)
 
+        output_guard_enabled = quality_mode in ("quality", "maximum", "studio2026")
+        guard = evaluate_output_guard(
+            original=audio,
+            candidate=enhanced_audio,
+            enabled=output_guard_enabled,
+            max_abs_rms_delta_db=1.2,
+            stereo_side_ratio_min=0.60,
+            stereo_side_ratio_max=1.40,
+        )
+        if guard.fallback:
+            enhanced_audio = enhanced_audio_pre_guard
+            enhanced_audio = np.nan_to_num(enhanced_audio, nan=0.0, posinf=0.0, neginf=0.0)
+            enhanced_audio = np.clip(enhanced_audio, -1.0, 1.0)
+
         return PhaseResult(
             success=True,
             audio=enhanced_audio,
@@ -230,20 +284,62 @@ class AirBandEnhancement(PhaseInterface):
                 "shelf_freq_hz": float(config["shelf_freq_hz"]),
                 "rt_factor": float(rt_factor),
                 "hf_cumulative_db": float(hf_cumul_db),
+                "quality_mode": quality_mode,
+                "hq_scale": hq_scale,
+                "output_guard_enabled": output_guard_enabled,
+                "output_guard_fallback": guard.fallback,
+                "output_guard_reason": guard.reason,
+                "rms_delta_db": guard.rms_delta_db,
+                "stereo_side_ratio": guard.stereo_side_ratio,
+                "phase_locality_factor": phase_locality_factor,
+                "effective_strength": _effective_strength,
             },
             warnings=[],
         )
 
     def _enhance_channel(self, audio: np.ndarray, sample_rate: int, config: dict[str, float]) -> np.ndarray:
-        """Enhance air band in a single audio channel."""
-        # 1. Shelving EQ
+        """
+        Enhance air band in a single audio channel.
+
+        v2.1 fix: Correct combination formula.
+        - Old (WRONG): shelved * 0.7 + excited * 0.3
+          → Scales down the dry signal, loses energy at non-HF bands
+        - New (CORRECT): shelved + wet_hf * exciter_mix
+          → Keeps the shelf as the primary output; adds only the exciter delta on top
+          → exciter_mix controls how much of the HF exciter blend is added
+
+        Also: Bandwidth guard — only add exciter energy if source has content above 8 kHz
+        (avoids adding artificial HF air above source's actual bandwidth limit).
+        """
+        # 1. Bandwidth guard: measure HF energy [10k–18k Hz] vs broadband
+        if sample_rate >= 22050 and len(audio) > 8:
+            n_fft = 1024
+            segment = audio[: min(len(audio), n_fft * 8)]
+            spec = np.abs(np.fft.rfft(segment)) ** 2
+            freqs = np.fft.rfftfreq(len(segment), d=1.0 / sample_rate)
+            broadband = float(np.sum(spec) + 1e-12)
+            hf_mask = freqs >= 8000.0
+            hf_content = float(np.sum(spec[hf_mask]) + 1e-12)
+            hf_fraction = hf_content / broadband
+            # If source has almost no HF content (bandwidth-limited), reduce exciter
+            if hf_fraction < 0.005:
+                # Very limited bandwidth — don't add synthetic air
+                bw_scale = min(1.0, hf_fraction / 0.005)
+                config = dict(config)  # don't mutate the outer config
+                config["exciter_mix"] = config["exciter_mix"] * bw_scale
+                logger.debug("Phase 39 BW-guard: hf_frac=%.4f → exciter scale=%.2f", hf_fraction, bw_scale)
+
+        # 2. Apply the shelving EQ (primary output)
         shelved = self._apply_high_shelf(audio, sample_rate, config["shelf_freq_hz"], config["shelf_gain_db"])
 
-        # 2. Harmonic excitation
+        # 3. Generate exciter delta (only the HF harmonic component added to dry signal)
         excited = self._apply_exciter(audio, sample_rate, config["exciter_mix"], config["saturation_drive"])
 
-        # Combine (weighted)
-        enhanced = shelved * 0.7 + excited * 0.3
+        # 4. Correct combination: shelved is the base; add additive exciter delta
+        #    exciter_mix is already applied inside _apply_exciter (returns audio + hf_delta*mix)
+        #    So: combine shelf + (excited - audio) * additional blend factor
+        hf_delta = excited - audio  # just the harmonic addition
+        enhanced = shelved + hf_delta  # proper additive combination
 
         return enhanced
 

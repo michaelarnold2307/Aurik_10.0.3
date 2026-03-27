@@ -10,29 +10,31 @@
 Implementiert in `backend/core/musical_goals/musical_goals_metrics.py`,
 aufgerufen via `MusicalGoalsChecker.measure_all(audio, sr)`.
 
-| Ziel (Klasse) | Frequenzbereich / Messgröße | Pflicht-Schwellwert | Priorität |
-|---|---|---|---|
-| **Natürlichkeit** (`NatuerlichkeitMetric`) | Artefaktfreiheit, Rauschen, Klangbild | ≥ **0.90** | **1** |
-| **Authentizität** (`AuthentizitaetMetric`) | Voice Identity, spektraler Fingerabdruck | ≥ **0.88** | **1** |
-| **Tonales Zentrum** (`TonalCenterMetric`) | Chroma-Korrelation Original↔Restauriert, kein Key-Shift > 0 Cent | ≥ **0.95** | **2** |
-| **Timbre-Authentizität** (`TimbralAuthenticityMetric`) | MFCC-Pearson ≥ 0.95, Spectral-Centroid-Korrelation ≥ 0.93, Rolloff-Abw. ≤ 5 % | ≥ **0.87** | **2** |
-| **Artikulation** (`ArticulationMetric`) | Attack-Charakter-Erhalt (Staccato vs. Legato): Transient-Shape-Korrelation ≥ 0.90, Attack-Time-Abweichung ≤ 10 ms | ≥ **0.85** | **2** |
-| **Emotionalität** (`EmotionalitaetMetric`) | Dynamik, Ausdruck, Modulationstiefe | ≥ **0.87** | **3** |
-| **Mikro-Dynamik** (`MicroDynamicsMetric`) | Momentane LUFS-Profil-Korrelation (400 ms-Fenster), Crest-Faktor-Erhalt ≤ 1.5 dB | ≥ **0.92** | **3** |
-| **Groove** (`GrooveMetric`) | Mikro-Timing, Swing, Event-Onset-Präzision (DTW ≤ 8 ms RMS) | ≥ **0.88** | **3** |
-| **Transparenz** (`TransparenzMetric`) | Klarheit, Trennung der Klangelemente | ≥ **0.89** | **4** |
-| **Wärme** (`WaermeMetric`) | Mid-Range-Fülle, 200–2000 Hz | ≥ **0.80** | **4** |
-| **Bass-Kraft** (`BassKraftMetric`) | Bassenergie 20–250 Hz + Virtual Pitch (Missing Fundamental, Obertöne 120–500 Hz) | ≥ **0.85** | **4** |
-| **Separation-Treue** (`SeparationFidelityMetric`) | SDR ≥ 8 dB / SIR ≥ 12 dB nach NMF-Dekomposition | ≥ **0.82** | **4** |
-| **Brillanz** (`BrillanzMetric`) | HF-Klarheit, 8–20 kHz — Sparkle & Air | ≥ **0.85** | **5** |
-| **Raumtiefe** (`SpatialDepthMetric`) | IACC (Interaural Cross-Correlation, Blauert 1997) + Stereobreite + Phantom-Center-Stabilität; IACC < 0.70 → wahrnehmb. Zusammenbruch | ≥ **0.75** | **5** |
+| Ziel (Klasse) | Frequenzbereich / Messgröße | Prio | Restoration | Studio 2026 |
+|---|---|---|---|---|
+| **Natürlichkeit** (`NatuerlichkeitMetric`) | Artefaktfreiheit, Rauschen, Klangbild | **1** | ≥ **0.90** | ≥ **0.90** |
+| **Authentizität** (`AuthentizitaetMetric`) | Voice Identity, spektraler Fingerabdruck | **1** | ≥ **0.88** | ≥ **0.88** |
+| **Tonales Zentrum** (`TonalCenterMetric`) | Chroma-Korrelation Original↔Restauriert, kein Key-Shift > 0 Cent | **2** | ≥ **0.95** | ≥ **0.97** |
+| **Timbre-Authentizität** (`TimbralAuthenticityMetric`) | MFCC-Pearson ≥ 0.95, Spectral-Centroid-Korrelation ≥ 0.93, Rolloff-Abw. ≤ 5 % | **2** | ≥ **0.87** | ≥ **0.87** |
+| **Artikulation** (`ArticulationMetric`) | Attack-Charakter-Erhalt (Staccato vs. Legato): Transient-Shape-Korrelation ≥ 0.90, Attack-Time-Abweichung ≤ 10 ms | **2** | ≥ **0.85** | ≥ **0.85** |
+| **Emotionalität** (`EmotionalitaetMetric`) | Dynamik, Ausdruck, Modulationstiefe | **3** | ≥ **0.82** | ≥ **0.87** |
+| **Mikro-Dynamik** (`MicroDynamicsMetric`) | Momentane LUFS-Profil-Korrelation (400 ms-Fenster), Crest-Faktor-Erhalt ≤ 1.5 dB | **3** | ≥ **0.88** | ≥ **0.92** |
+| **Groove** (`GrooveMetric`) | Mikro-Timing, Swing, Event-Onset-Präzision (DTW ≤ 8 ms RMS) | **3** | ≥ **0.83** | ≥ **0.88** |
+| **Transparenz** (`TransparenzMetric`) | Klarheit, Trennung der Klangelemente | **4** | ≥ **0.82** | ≥ **0.89** |
+| **Wärme** (`WaermeMetric`) | Mid-Range-Fülle, 200–2000 Hz | **4** | ≥ **0.75** | ≥ **0.80** |
+| **Bass-Kraft** (`BassKraftMetric`) | Bassenergie 20–250 Hz + Virtual Pitch (Missing Fundamental, Obertöne 120–500 Hz) | **4** | ≥ **0.78** | ≥ **0.85** |
+| **Separation-Treue** (`SeparationFidelityMetric`) | SDR ≥ 8 dB / SIR ≥ 12 dB nach NMF-Dekomposition | **4** | ≥ **0.78** | ≥ **0.82** |
+| **Brillanz** (`BrillanzMetric`) | HF-Klarheit, 8–20 kHz — Sparkle & Air | **5** | ≥ **0.78** | ≥ **0.85** |
+| **Raumtiefe** (`SpatialDepthMetric`) | IACC (Interaural Cross-Correlation, Blauert 1997) + Stereobreite + Phantom-Center-Stabilität; IACC < 0.70 → wahrnehmb. Zusammenbruch | **5** | ≥ **0.70** | ≥ **0.75** |
+
+> **v9.10.77 Pareto-Differenzierung**: Restoration-Modus senkt P3–P5-Schwellwerte auf physikalisch erreichbare Werte (Pareto-Konflikte: Bass↔Transparenz [0.7], Brillanz↔Wärme [0.6]). P1/P2 bleiben identisch. Studio 2026 behält ambitionierte Ziele.
 
 > **Schwellwert-Validierung**: Die Schwellwerte für alle 14 Ziele wurden algorithmisch aus AMRB-Bench­mark­daten (10 Szenarien, Ø OQS-Kalibrierung) abgeleitet. Ein ITU-R BS.1534-3 MUSHRA-Hörertest steht als externe Validierung aus (geplant). Bis zur Validierung gelten die Werte als „best engineering estimate“. Die Schwellwerte dürfen NUR nach dokumentiertem Hörertest geändert werden.
 
 ```python
 from backend.core.musical_goals.musical_goals_metrics import MusicalGoalsChecker
 
-checker = MusicalGoalsChecker()
+checker = MusicalGoalsChecker(mode="restoration")  # oder "studio_2026"
 scores = checker.measure_all(audio, sr)  # Dict[str, float]
 # Pflicht-Check nach jeder Restaurierung:
 assert all(scores[g] >= t for g, t in checker.thresholds.items()), scores
@@ -65,6 +67,20 @@ PRIORITY_MAP: dict[str, int] = {
 ABORT_PRIORITY_THRESHOLD: int = 2  # Stufe 1+2 verschlechtert → Iteration sofort abbrechen
 REGRESSION_EPSILON: float = 0.001
 ```
+
+**§2.29 Priority-Aware PMGG Retries (v9.10.77)**:
+
+PMGG-Retries werden prioritätsabhängig budgetiert:
+
+| Priorität | Max Retries | Threshold-Faktor | Verhalten |
+|---|---|---|---|
+| P1 | 4 | 1.0× | Volle Retry-Kaskade + Emergency |
+| P2 | 4 | 1.0× | Volle Retry-Kaskade + Emergency |
+| P3 | 2 | 1.5× (mildere Erkennung) | Reduzierte Kaskade, kein Emergency |
+| P4 | 0 | 99.0× (effektiv deaktiviert) | Nur Logging (`passed_p4p5_tolerated`) |
+| P5 | 0 | 99.0× (effektiv deaktiviert) | Nur Logging (`passed_p4p5_tolerated`) |
+
+Implementierung: `per_phase_musical_goals_gate.py` — `_PRIORITY_MAX_RETRIES`, `_PRIORITY_THRESHOLD_FACTOR`, `_max_regression_priority_aware()`.
 
 **Normative Aufrufstellen**:
 

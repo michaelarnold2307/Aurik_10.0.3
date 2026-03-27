@@ -22,6 +22,7 @@ import pytest
 
 from backend.core.defect_phase_mapper import (
     get_phase_defect_severity,
+    get_phase_locality_factor,
     get_reverse_phase_map,
 )
 from backend.core.defect_scanner import DefectScore, DefectType
@@ -157,6 +158,50 @@ class TestDefectSeverityFactor:
         }
         sev = get_phase_defect_severity("phase_01_click_removal", scores)
         assert sev >= 0.15
+
+
+class TestPhaseLocalityFactor:
+    """Tests for get_phase_locality_factor()."""
+
+    def test_enhancement_phase_always_one(self):
+        scores = {
+            DefectType.CLICKS: DefectScore(DefectType.CLICKS, severity=0.8, confidence=0.9),
+        }
+        coverage = {"clicks": 0.05}
+        fac = get_phase_locality_factor("phase_21_exciter", scores, coverage)
+        assert fac == 1.0
+
+    def test_click_phase_low_coverage_damped(self):
+        scores = {
+            DefectType.CLICKS: DefectScore(DefectType.CLICKS, severity=0.8, confidence=0.9),
+        }
+        coverage = {"clicks": 0.02}
+        fac = get_phase_locality_factor("phase_01_click_removal", scores, coverage)
+        assert 0.35 <= fac < 0.60
+
+    def test_click_phase_high_coverage_near_one(self):
+        scores = {
+            DefectType.CLICKS: DefectScore(DefectType.CLICKS, severity=0.8, confidence=0.9),
+        }
+        coverage = {"clicks": 0.95}
+        fac = get_phase_locality_factor("phase_01_click_removal", scores, coverage)
+        assert 0.90 <= fac <= 1.0
+
+    def test_non_event_defect_phase_returns_one(self):
+        # HUM is treated as non-local event in locality curves.
+        scores = {
+            DefectType.HUM: DefectScore(DefectType.HUM, severity=0.8, confidence=0.9),
+        }
+        coverage = {"hum": 0.01}
+        fac = get_phase_locality_factor("phase_02_hum_removal", scores, coverage)
+        assert fac == 1.0
+
+    def test_missing_coverage_defaults_one(self):
+        scores = {
+            DefectType.CLICKS: DefectScore(DefectType.CLICKS, severity=0.8, confidence=0.9),
+        }
+        fac = get_phase_locality_factor("phase_01_click_removal", scores, None)
+        assert fac == 1.0
 
 
 # ---------------------------------------------------------------------------

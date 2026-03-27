@@ -48,19 +48,27 @@ def _assert_no_lyrics_in_log(words: list[WordTimestamp]) -> None:
 
 
 class LyricsTranscriber:
-    """Offline-safe placeholder transcriber with deterministic DSP fallback."""
+    """Delegate transcription to the §2.36 core implementation.
+
+    This keeps a small public transcriber object for callers that expect a
+    ``.transcribe()`` API while routing all real work through
+    ``LyricsGuidedEnhancement._transcribe_internal``.
+    """
+
+    def __init__(self) -> None:
+        self._enhancement: LyricsGuidedEnhancement | None = None
+
+    def bind_enhancement(self, enhancement: LyricsGuidedEnhancement) -> None:
+        self._enhancement = enhancement
 
     def transcribe(self, audio: np.ndarray, sr: int = 48_000) -> LyricsTranscriptionResult:
         arr = np.nan_to_num(np.asarray(audio, dtype=np.float32))
         mono = arr.mean(axis=0) if arr.ndim == 2 else arr
         dur = float(mono.shape[0] / max(1, sr))
-        return LyricsTranscriptionResult(
-            words=[],
-            language="de",
-            overall_confidence=0.0,
-            duration_s=dur,
-            fallback_used=True,
-        )
+        enhancement = self._enhancement
+        if enhancement is None:
+            enhancement = get_lyrics_guided_enhancement()
+        return enhancement._transcribe_internal(mono, sr, dur)
 
 
 class ContentAwareProcessor:
@@ -236,6 +244,8 @@ class LyricsGuidedEnhancement:
         self._aligner_session: object = None  # wav2vec2 forced-alignment ONNX session
         self._try_load_onnx()
         self._try_load_aligner()
+        self._transcriber = get_lyrics_transcriber()
+        self._transcriber.bind_enhancement(self)
 
     # ── ONNX bootstrap ─────────────────────────────────────────────────────
 
@@ -550,6 +560,18 @@ class LyricsGuidedEnhancement:
             1.0,
         )
         return audio_out, transcription
+
+    def transcribe(self, audio: np.ndarray, sr: int) -> LyricsTranscriptionResult:
+        """Return §2.36 transcription without modifying the audio."""
+        assert sr == 48_000, f"SR guard: expected 48000, got {sr}"
+        audio = np.asarray(audio, dtype=np.float32)
+        audio = np.nan_to_num(audio, nan=0.0, posinf=0.0, neginf=0.0)
+
+        mono = audio.mean(axis=1) if audio.ndim == 2 else audio
+        dur = float(len(mono) / max(1, sr))
+        transcription = self._transcribe_internal(mono, sr, dur)
+        _assert_no_lyrics_in_log(transcription.words)
+        return transcription
 
     def get_timeline(self) -> LyricsGuidedTimeline:
         """Return the timeline renderer used by ``_toggle_lyrics_overlay`` in the frontend."""

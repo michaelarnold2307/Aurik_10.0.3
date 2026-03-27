@@ -742,6 +742,12 @@ class TestLGEEnhance:
         assert hasattr(trans, "words")
         assert not hasattr(trans, "segments"), "LyricsTranscriptionResult hat kein .segments — UV3 muss .words nutzen"
 
+    def test_lge_28b_public_transcribe_api_returns_words(self) -> None:
+        lge = _make_lge_no_onnx()
+        trans = lge.transcribe(_make_audio(1.0), SR)
+        assert hasattr(trans, "words")
+        assert isinstance(trans.words, list)
+
 
 class TestLGEBuildSampleSaliency:
     """_build_sample_saliency() — Sample-Level-Gain-Kurve."""

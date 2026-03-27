@@ -119,9 +119,9 @@ Audio-Eingang (mono/stereo, beliebige SR)
     │ 13 Ära-Profile × 7 Genre-Modifikatoren → 17 Per-Phase-Adjustments
     │ Enrichment nach Stufe 8 mit era_decade (→ RestorationConfig.global_plan)
     ↓
-[DefectScanner]  → DefectAnalysisResult (28 DefectTypes)
+[DefectScanner]  → DefectAnalysisResult (32 DefectTypes)
     ↓
-[CausalDefectReasoner]  → RestorationPlan (14 Kausal-Ursachen)
+[CausalDefectReasoner]  → RestorationPlan (34 Kausal-Ursachen)
     ↓
 [UncertaintyQuantifier]  → confidence → GP-Bounds adj.
     ↓
@@ -225,7 +225,7 @@ quality_estimate = 0.40 * (1 - defect_severity) + 0.60 * (pqs_mos - 1) / 4
 
 **[RELEASE_MUST] PMGG darf Phasen NIEMALS überspringen (kein Rollback auf Original-Audio).**
 CausalDefectReasoner hat die Phase als notwendig bestimmt — sie MUSS angewendet
-werden, ggf. mit reduzierter Stärke (best-effort). Nach 5 Retries wird der Versuch
+werden, ggf. mit reduzierter Stärke (best-effort). Nach max. Retries wird der Versuch
 mit der geringsten Musical-Goal-Regression angewendet (action=`best_effort`).
 
 VERBOTEN: `return audio, scores_before, "rollback", 0.0` — Rückgabe von
@@ -237,13 +237,21 @@ REGRESSION_THRESHOLD_GOOD: float = 0.020   # restorability ≥ 70 (v9.10.77: §9
 REGRESSION_THRESHOLD_FAIR: float = 0.035   # restorability 40–69
 REGRESSION_THRESHOLD_POOR: float = 0.055   # restorability < 40
 SAMPLE_DURATION_S: float = 5.0
-MAX_RETRIES: int = 5
-_RETRY_STRENGTHS: list[float] = [0.65, 0.50, 0.35, 0.20, 0.10]
+
+# Priority-Aware Retry-Budget (v9.10.77):
+_RETRY_STRENGTHS: list[float] = [0.65, 0.50, 0.35, 0.25]   # 4 Stufen, Floor 0.25
+_PRIORITY_MAX_RETRIES: dict[int, int] = {1: 4, 2: 4, 3: 2, 4: 0, 5: 0}
+_PRIORITY_THRESHOLD_FACTOR: dict[int, float] = {1: 1.0, 2: 1.0, 3: 1.5, 4: 99.0, 5: 99.0}
+# P1/P2: volle Kaskade (4 Retries + Emergency)
+# P3: max 2 Retries, 1.5× Regression-Toleranz
+# P4/P5: kein Retry — nur Logging (action="passed_p4p5_tolerated")
 
 # Schnell-Ziele (≤ 200 ms Gesamtcheck):
 FAST_GOALS_SUBSET = [
-    "brillanz", "waerme", "groove",
-    "tonal_center", "natuerlichkeit", "timbre_authentizitaet",
+    "natuerlichkeit", "authentizitaet", "tonal_center",
+    "timbre_authentizitaet", "artikulation", "emotionalitaet",
+    "micro_dynamics", "groove", "transparenz", "waerme",
+    "bass_kraft", "separation_fidelity", "brillanz", "spatial_depth",
 ]
 # Phasen-adaptive Sample-Dauer (§9.7.3):
 PHASE_SAMPLE_DURATIONS = {
@@ -260,8 +268,7 @@ for phase in selected_phases:
         restorability_score=re_result.restorability_score,
         applicable_goals=goal_filter.applicable,
     )
-# Nach 5 Retries: best-effort (geringste Regression), KEIN Rollback/Skip.
-# action ∈ {"passed", "retry1"..., "best_effort", "best_effort_rN"}
+# action ∈ {"passed", "retry1"..., "best_effort", "best_effort_rN", "passed_p4p5_tolerated"}
 ```
 
 ---

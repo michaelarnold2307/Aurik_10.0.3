@@ -211,7 +211,23 @@ class ClickRemovalPhase(PhaseInterface):
                 pass
 
         # Get material-specific thresholds
-        thresholds = self.MATERIAL_THRESHOLDS.get(material_type, self.MATERIAL_THRESHOLDS["unknown"])
+        thresholds = dict(self.MATERIAL_THRESHOLDS.get(material_type, self.MATERIAL_THRESHOLDS["unknown"]))
+
+        # Locality-aware intensity control from UV3.
+        # Sparse event defects should be repaired more locally/gently to avoid
+        # global timbre changes outside defect regions.
+        phase_locality_factor = float(kwargs.get("phase_locality_factor", 1.0))
+        phase_locality_factor = float(np.clip(phase_locality_factor, 0.35, 1.0))
+        if phase_locality_factor < 0.999:
+            # Higher thresholds => fewer candidates when locality is sparse.
+            inv = 1.0 / max(phase_locality_factor, 1e-6)
+            thresholds["short"] = float(np.clip(thresholds["short"] * inv, 0.005, 2.0))
+            thresholds["medium"] = float(np.clip(thresholds["medium"] * inv, 0.005, 2.0))
+            thresholds["long"] = float(np.clip(thresholds["long"] * inv, 0.005, 2.0))
+            # Preserve more transients in sparse mode.
+            thresholds["transient_preserve"] = float(
+                np.clip(thresholds["transient_preserve"] + 0.10 * (1.0 - phase_locality_factor), 0.0, 0.99)
+            )
 
         # Process stereo/mono
         is_stereo = audio.ndim == 2
@@ -273,6 +289,15 @@ class ClickRemovalPhase(PhaseInterface):
 
         result_audio = np.clip(result_audio, -1.0, 1.0)
 
+        # Strength-aware Wet/Dry-Blend (PMGG-Retry-Kompatibilität):
+        # PMGG übergibt strength < 1.0 bei Retries.  Blend VOR Return,
+        # damit reduzierte Strength die Verarbeitungsintensität senkt.
+        _pmgg_strength = float(kwargs.get("strength", 1.0))
+        _effective_strength = float(np.clip(_pmgg_strength * phase_locality_factor, 0.0, 1.0))
+        if 0.0 < _effective_strength < 1.0:
+            result_audio = (audio + _effective_strength * (result_audio - audio)).astype(audio.dtype)
+            result_audio = np.clip(result_audio, -1.0, 1.0)
+
         return create_phase_result(
             audio=result_audio,
             modifications={
@@ -297,6 +322,8 @@ class ClickRemovalPhase(PhaseInterface):
                 "scientific_ref": "Godsill & Rayner (1998), Välimäki et al. (2007)",
                 "benchmark": "iZotope RX De-click (basic)",
                 "execution_time_seconds": execution_time,
+                "phase_locality_factor": phase_locality_factor,
+                "effective_strength": _effective_strength,
             },
         )
 

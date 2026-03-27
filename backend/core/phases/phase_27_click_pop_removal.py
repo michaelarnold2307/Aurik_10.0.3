@@ -154,7 +154,34 @@ class ClickPopRemoval(PhaseInterface):
         self.validate_input(audio)
 
         is_stereo = audio.ndim == 2
-        config = self.DETECTION_CONFIG.get(material, self.DETECTION_CONFIG[MaterialType.CD_DIGITAL])
+        config = dict(self.DETECTION_CONFIG.get(material, self.DETECTION_CONFIG[MaterialType.CD_DIGITAL]))
+
+        # Locality-aware intensity control from UV3.
+        # Sparse click/pop coverage should preserve unaffected transients.
+        phase_locality_factor = float(kwargs.get("phase_locality_factor", 1.0))
+        phase_locality_factor = float(np.clip(phase_locality_factor, 0.35, 1.0))
+        _pmgg_strength = float(kwargs.get("strength", 1.0))
+        _effective_strength = float(np.clip(_pmgg_strength * phase_locality_factor, 0.0, 1.0))
+        config["repair_strength"] = float(np.clip(config["repair_strength"] * _effective_strength, 0.0, 1.0))
+
+        if _effective_strength <= 0.0:
+            passthrough = np.nan_to_num(audio.copy(), nan=0.0, posinf=0.0, neginf=0.0)
+            passthrough = np.clip(passthrough, -1.0, 1.0)
+            return PhaseResult(
+                success=True,
+                audio=passthrough,
+                execution_time_seconds=time.time() - start_time,
+                metadata={
+                    "material": material.name,
+                    "clicks_removed": 0,
+                    "clicks_per_second": 0.0,
+                    "rt_factor": 0.0,
+                    "phase_locality_factor": phase_locality_factor,
+                    "effective_strength": _effective_strength,
+                    "processing": "skipped_zero_strength",
+                },
+                warnings=["Click/pop removal skipped due to zero effective strength"],
+            )
 
         # Process each channel
         if is_stereo:
@@ -179,6 +206,8 @@ class ClickPopRemoval(PhaseInterface):
                 "clicks_removed": int(total_clicks),
                 "clicks_per_second": float(total_clicks / (len(audio) / sample_rate)),
                 "rt_factor": float(rt_factor),
+                "phase_locality_factor": phase_locality_factor,
+                "effective_strength": _effective_strength,
             },
             warnings=[] if rt_factor < 0.25 else [f"Performance sub-optimal: {rt_factor:.2f}× realtime"],
         )

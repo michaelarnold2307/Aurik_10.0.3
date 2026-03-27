@@ -158,7 +158,32 @@ class DCOffsetRemoval(PhaseInterface):
         self.validate_input(audio)
 
         is_stereo = audio.ndim == 2
-        config = self.HP_CONFIG.get(material, self.HP_CONFIG[MaterialType.VINYL])
+        config = dict(self.HP_CONFIG.get(material, self.HP_CONFIG[MaterialType.VINYL]))
+
+        # Locality-aware intensity control from UV3.
+        phase_locality_factor = float(kwargs.get("phase_locality_factor", 1.0))
+        phase_locality_factor = float(np.clip(phase_locality_factor, 0.35, 1.0))
+        _pmgg_strength = float(kwargs.get("strength", 1.0))
+        _effective_strength = float(np.clip(_pmgg_strength * phase_locality_factor, 0.0, 1.0))
+
+        if _effective_strength <= 0.0:
+            passthrough = np.nan_to_num(audio.copy(), nan=0.0, posinf=0.0, neginf=0.0)
+            passthrough = np.clip(passthrough, -1.0, 1.0)
+            return PhaseResult(
+                success=True,
+                audio=passthrough,
+                execution_time_seconds=time.time() - start_time,
+                metadata={
+                    "material": material.name,
+                    "hp_cutoff_hz": float(config["cutoff_hz"]),
+                    "filter_type": config["filter_type"],
+                    "filter_order": int(config["filter_order"]),
+                    "phase_locality_factor": phase_locality_factor,
+                    "effective_strength": _effective_strength,
+                    "processing": "skipped_zero_strength",
+                    "rt_factor": 0.0,
+                },
+            )
 
         # Measure DC offset before removal
         dc_offset_before = [float(np.mean(audio[:, ch])) for ch in range(2)] if is_stereo else [float(np.mean(audio))]
@@ -192,6 +217,9 @@ class DCOffsetRemoval(PhaseInterface):
 
         audio_processed = np.nan_to_num(audio_processed, nan=0.0, posinf=0.0, neginf=0.0)
         audio_processed = np.clip(audio_processed, -1.0, 1.0)
+        if 0.0 < _effective_strength < 1.0:
+            audio_processed = audio + _effective_strength * (audio_processed - audio)
+            audio_processed = np.clip(audio_processed, -1.0, 1.0)
         return PhaseResult(
             success=True,
             audio=audio_processed,
@@ -205,6 +233,8 @@ class DCOffsetRemoval(PhaseInterface):
                 "dc_offset_after": [round(v, 6) for v in dc_offset_after],
                 "dc_reduction": [round(v, 6) for v in dc_reduction],
                 "subsonic_reduction_db": float(round(subsonic_reduction_db, 2)),
+                "phase_locality_factor": phase_locality_factor,
+                "effective_strength": _effective_strength,
                 "rt_factor": float(rt_factor),
             },
             warnings=[] if rt_factor < 0.08 else [f"Performance sub-optimal: {rt_factor:.2f}× realtime"],

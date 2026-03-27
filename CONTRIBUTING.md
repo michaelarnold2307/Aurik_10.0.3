@@ -1,4 +1,4 @@
-# Contributing to Aurik 9.10.57
+# Contributing to Aurik 9.10.77c
 
 Thank you for your interest in contributing to Aurik 9! This document provides guidelines and instructions for contributing to this project.
 

@@ -152,6 +152,20 @@ class TestPhase02HumRemoval:
         rms_out = float(np.sqrt(np.mean(result.audio.astype(float) ** 2)))
         assert rms_out <= rms_in * 3.0  # Keine extreme Verstärkung
 
+    def test_zero_strength_passthrough(self, mono):
+        result = self.phase.process(mono, SR, strength=0.0)
+        _assert_phase_result(result, mono)
+        assert np.allclose(result.audio, mono, atol=1e-7)
+        assert result.metadata.get("algorithm") == "skipped_zero_strength"
+        assert float(result.metadata.get("effective_strength", 1.0)) == 0.0
+
+    def test_locality_reduces_effective_strength(self, mono):
+        result = self.phase.process(mono, SR, strength=1.0, phase_locality_factor=0.4)
+        _assert_phase_result(result, mono)
+        eff = float(result.metadata.get("effective_strength", 1.0))
+        assert 0.0 < eff < 1.0
+        assert float(result.metadata.get("phase_locality_factor", 1.0)) <= 0.4 + 1e-6
+
 
 # ---------------------------------------------------------------------------
 # Phase 03: Denoise
@@ -259,6 +273,20 @@ class TestPhase05RumbleFilter:
         _assert_phase_result(result, sine_mono)
         rms_out = float(np.sqrt(np.mean(result.audio.astype(float) ** 2)))
         assert rms_out > 0.05  # Signal muss erhalten bleiben
+
+    def test_zero_strength_passthrough(self, mono):
+        result = self.phase.process(mono, material_type="vinyl", strength=0.0)
+        _assert_phase_result(result, mono)
+        assert np.allclose(result.audio, mono, atol=1e-7)
+        assert result.metadata.get("algorithm") == "skipped_zero_strength"
+        assert float(result.metadata.get("effective_strength", 1.0)) == 0.0
+
+    def test_locality_reduces_effective_strength(self, mono):
+        result = self.phase.process(mono, material_type="vinyl", strength=1.0, phase_locality_factor=0.4)
+        _assert_phase_result(result, mono)
+        eff = float(result.metadata.get("effective_strength", 1.0))
+        assert 0.0 < eff < 1.0
+        assert float(result.metadata.get("phase_locality_factor", 1.0)) <= 0.4 + 1e-6
 
 
 # ---------------------------------------------------------------------------
@@ -384,3 +412,22 @@ class TestPhase09CrackleRemoval:
         for mat in ["shellac", "vinyl", "unknown"]:
             result = self.phase.process(mono, material_type=mat)
             _assert_phase_result(result, mono)
+
+    def test_zero_strength_passthrough(self, mono):
+        result = self.phase.process(mono, strength=0.0)
+        _assert_phase_result(result, mono)
+        assert np.allclose(result.audio, mono, atol=1e-7)
+        assert result.metadata.get("algorithm") == "skipped_zero_strength"
+        assert float(result.metadata.get("effective_strength", 1.0)) == 0.0
+
+    def test_locality_reduces_effective_strength(self, mono):
+        audio = mono.copy()
+        rng = np.random.default_rng(123)
+        crackle_pos = rng.integers(0, N - 1, size=30)
+        audio[crackle_pos] = rng.choice([-0.98, 0.98], size=30).astype(np.float32)
+
+        result = self.phase.process(audio, strength=1.0, phase_locality_factor=0.4)
+        _assert_phase_result(result, audio)
+        eff = float(result.metadata.get("effective_strength", 1.0))
+        assert 0.0 < eff < 1.0
+        assert float(result.metadata.get("phase_locality_factor", 1.0)) <= 0.4 + 1e-6

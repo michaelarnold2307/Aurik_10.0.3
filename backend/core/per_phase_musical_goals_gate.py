@@ -64,6 +64,10 @@ import numpy as np
 
 logger = logging.getLogger(__name__)
 
+_PRECISE_METRICS_LOCK = threading.Lock()
+_PRECISE_METRICS: dict[str, Any] | None = None
+_PRECISE_OVERRIDE_WARN_MS: float = 120.0
+
 
 # ---------------------------------------------------------------------------
 # Konstanten (§2.29) — restorability-adaptive Schwellwerte
@@ -79,6 +83,36 @@ REGRESSION_THRESHOLD: float = 0.025
 REGRESSION_THRESHOLD_GOOD: float = 0.020  # restorability ≥ 70
 REGRESSION_THRESHOLD_FAIR: float = 0.035  # restorability 40–69 (entspannter)
 REGRESSION_THRESHOLD_POOR: float = 0.055  # restorability < 40 (maximal tolerant)
+
+# ---------------------------------------------------------------------------
+# §2.29 v9.10.77: Priority-aware Retry-Budget
+# ---------------------------------------------------------------------------
+# P1/P2 regressions trigger full retry cascade (4 Retries + Emergency).
+# P3 regressions trigger max 2 retries with 1.5× relaxed threshold.
+# P4/P5 regressions never trigger retries — only logged.
+#
+# Begründung (Pareto-Analyse): Hohe P3–P5-Schwellwerte verursachten unnötige
+# PMGG-Retries (CPU-Verschwendung) und Cross-Goal-Damage (Natürlichkeit/
+# Authentizität-Regression durch Over-Optimization nachrangiger Ziele).
+# GoalPriorityProtocol.PRIORITY_MAP ist die Autoritätsquelle.
+# ---------------------------------------------------------------------------
+_PRIORITY_MAX_RETRIES: dict[int, int] = {
+    1: 4,  # P1: Natürlichkeit, Authentizität — volle Retry-Kaskade
+    2: 4,  # P2: TonalCenter, Timbre, Artikulation — volle Retry-Kaskade
+    3: 2,  # P3: Emotionalität, MicroDynamics, Groove — max 2 Retries
+    4: 0,  # P4: Transparenz, Wärme, Bass-Kraft, SepFidelity — kein Retry
+    5: 0,  # P5: Brillanz, SpatialDepth — kein Retry
+}
+
+# Regression-Toleranz-Multiplikator pro Priorität.
+# P3-Ziele haben 1.5× mehr Toleranz als P1/P2, bevor ein Retry ausgelöst wird.
+_PRIORITY_THRESHOLD_FACTOR: dict[int, float] = {
+    1: 1.0,
+    2: 1.0,
+    3: 1.5,
+    4: 99.0,  # Effektiv kein Retry (Threshold × 99 = immer unter)
+    5: 99.0,
+}
 
 SAMPLE_DURATION_S: float = 5.0
 MAX_RETRIES: int = 5  # v9.15-B3: 5 Retries mit sanftem Stärkegradienten (0.65→0.50→0.35→0.20→0.10)
@@ -299,6 +333,82 @@ def _safe_pearson(a: np.ndarray, b: np.ndarray) -> float:
         return 0.0
 
 
+def _get_precise_metric_instances() -> dict[str, Any]:
+    """Lazy-load a small set of production musical-goal metrics for PMGG.
+
+    These are used selectively for the most decision-critical goals where local
+    DSP proxies are materially less precise than the canonical metric.
+    """
+    global _PRECISE_METRICS
+    if _PRECISE_METRICS is None:
+        with _PRECISE_METRICS_LOCK:
+            if _PRECISE_METRICS is None:
+                try:
+                    from backend.core.musical_goals.musical_goals_metrics import ArticulationMetric
+                    from backend.core.musical_goals.musical_goals_metrics import BrillanzMetric
+                    from backend.core.musical_goals.musical_goals_metrics import MicroDynamicsMetric
+                    from backend.core.musical_goals.musical_goals_metrics import NatuerlichkeitMetric
+                    from backend.core.musical_goals.musical_goals_metrics import SeparationFidelityMetric
+                    from backend.core.musical_goals.musical_goals_metrics import TonalCenterMetric
+                    from backend.core.musical_goals.musical_goals_metrics import TransparenzMetric
+                    from backend.core.musical_goals.musical_goals_metrics import WaermeMetric
+
+                    _PRECISE_METRICS = {
+                        "brillanz": BrillanzMetric(),
+                        "waerme": WaermeMetric(),
+                        "natuerlichkeit": NatuerlichkeitMetric(),
+                        "tonal_center": TonalCenterMetric(),
+                        "micro_dynamics": MicroDynamicsMetric(),
+                        "artikulation": ArticulationMetric(),
+                        "separation_fidelity": SeparationFidelityMetric(),
+                        "transparenz": TransparenzMetric(),
+                    }
+                except Exception as exc:
+                    logger.debug("PMGG precise metrics unavailable: %s", exc)
+                    _PRECISE_METRICS = {}
+    return _PRECISE_METRICS
+
+
+def _apply_precise_metric_overrides(
+    scores: dict[str, float],
+    audio: np.ndarray,
+    sr: int,
+    reference: np.ndarray | None = None,
+) -> dict[str, float]:
+    """Refine selected quick scores using canonical metric implementations."""
+    t0 = time.perf_counter()
+    precise_metrics = _get_precise_metric_instances()
+    if not precise_metrics:
+        return scores
+
+    refined = dict(scores)
+    for goal_name, metric in precise_metrics.items():
+        try:
+            if goal_name in {
+                "brillanz",
+                "waerme",
+                "tonal_center",
+                "micro_dynamics",
+                "artikulation",
+                "separation_fidelity",
+                "transparenz",
+            }:
+                refined[goal_name] = float(metric.measure(audio, sr, reference=reference))
+            else:
+                refined[goal_name] = float(metric.measure(audio, sr))
+        except Exception as exc:
+            logger.debug("PMGG precise metric override failed for %s: %s", goal_name, exc)
+
+    elapsed_ms = (time.perf_counter() - t0) * 1000.0
+    if elapsed_ms > _PRECISE_OVERRIDE_WARN_MS:
+        logger.warning(
+            "PMGG precise overrides slow: %.1f ms for %d goals",
+            elapsed_ms,
+            len(precise_metrics),
+        )
+    return refined
+
+
 def _measure_quick(audio: np.ndarray, sr: int, reference: np.ndarray | None = None) -> dict[str, float]:
     """
     Misst alle 14 Musical Goals auf einer 5-s-Stichprobe in ≤ 200 ms.
@@ -413,6 +523,27 @@ def _measure_quick(audio: np.ndarray, sr: int, reference: np.ndarray | None = No
             scores["tonal_center"] = float(np.clip(tonal_score, 0.0, 1.0))
         else:
             scores["tonal_center"] = 0.5
+        # §9.7.5 Preservation: Chroma-Korrelation mit Referenz.
+        # Rauschentfernung erhöht Chroma-Entropie (bisher verborgene Bins
+        # werden sichtbar), aber die Tonart bleibt erhalten.  Chroma-Pearson
+        # ≥ 0.90 = Tonart bewahrt → Preservation-Bonus, damit PMGG keine
+        # False-Positive-Regression für tonal_center meldet.
+        if _ref_mono is not None:
+            try:
+                _ref_chroma = np.zeros(12, dtype=np.float32)
+                _ref_spec = np.abs(np.fft.rfft(_ref_mono, n=n_fft_chroma))
+                for _b2, _f2 in enumerate(spec_freqs):
+                    if _b2 < len(_ref_spec) and 27.5 < _f2 < 4186:
+                        _note2 = round(12.0 * math.log2(_f2 / 440.0 + 1e-12)) % 12
+                        _ref_chroma[_note2] += _ref_spec[_b2]
+                _rcs = float(_ref_chroma.sum())
+                if _rcs > 1e-8:
+                    _ref_chroma /= _rcs
+                    _tc_corr = _safe_pearson(_ref_chroma, chroma)
+                    if _tc_corr > 0.90:
+                        scores["tonal_center"] = min(1.0, scores["tonal_center"] + (_tc_corr - 0.90) * 1.0)
+            except Exception:
+                pass
     except Exception:
         scores["tonal_center"] = 0.5
 
@@ -658,6 +789,12 @@ def _measure_quick(audio: np.ndarray, sr: int, reference: np.ndarray | None = No
         if k not in scores or not math.isfinite(scores[k]):
             scores[k] = 0.5
 
+    scores = _apply_precise_metric_overrides(scores, audio, sr, reference=reference)
+
+    for k in FAST_GOALS_SUBSET:
+        if k not in scores or not math.isfinite(scores[k]):
+            scores[k] = 0.5
+
     return scores
 
 
@@ -887,25 +1024,47 @@ class PerPhaseMusicalGoalsGate:
         if regression <= threshold:
             return audio_out, scores_after, "passed", initial_strength
 
+        # §2.29 v9.10.77: Priority-aware regression check.
+        # Determine worst priority among regressed goals to set retry budget.
+        _reg_pa, _worst_prio = self._max_regression_priority_aware(
+            scores_before, scores_after, effective_goals, threshold
+        )
+
         # Log which goal caused the regression (diagnostics for false-positive detection)
         _worst_goal = max(
             effective_goals,
             key=lambda g: max(0.0, scores_before.get(g, 0.5) - scores_after.get(g, 0.5)),
         )
         logger.debug(
-            "PMGG: %s regression=%.4f > threshold=%.3f — worst goal: %s (before=%.3f after=%.3f)",
+            "PMGG: %s regression=%.4f > threshold=%.3f — worst goal: %s (P%d, before=%.3f after=%.3f)",
             phase_id,
             regression,
             threshold,
             _worst_goal,
+            _worst_prio,
             scores_before.get(_worst_goal, 0.5),
             scores_after.get(_worst_goal, 0.5),
         )
 
+        # §2.29 v9.10.77: If ONLY P4/P5 goals regressed (priority-adjusted threshold
+        # not exceeded), skip retries entirely — these are best-effort goals.
+        if _worst_prio >= 4:
+            logger.info(
+                "PMGG: %s regression only in P%d goals (%s) — no retry (best-effort priority)",
+                phase_id,
+                _worst_prio,
+                _worst_goal,
+            )
+            log_action = "passed_p4p5_tolerated"
+            return audio_out, scores_after, log_action, initial_strength
+
+        # Priority-based max retries (§2.29 v9.10.77):
+        _max_retries_for_prio = _PRIORITY_MAX_RETRIES.get(_worst_prio, 4)
+
         # Retry-Stärken relativ zur Initialstärke skalieren (§2.29):
         # initial_strength=1.0 → normale Retry-Folge [0.65, 0.50, ...]
         # initial_strength<1.0 → proportional nach unten skaliert
-        retry_strengths = [s * initial_strength for s in _RETRY_STRENGTHS]
+        retry_strengths = [s * initial_strength for s in _RETRY_STRENGTHS[:_max_retries_for_prio]]
 
         # §2.29 Best-Effort-Tracking: Speichere den Versuch mit geringster Regression.
         # PMGG darf Phasen NICHT überspringen — CausalDefectReasoner hat die Phase
@@ -1009,6 +1168,43 @@ class PerPhaseMusicalGoalsGate:
                 break
             _prev_regression = regression_retry
 
+        # §2.29 catastrophic-regression safety net (P1/P2 only, v9.10.77):
+        # When best_regression > 0.20 after all regular retries, extend with
+        # ultra-low strengths.  This is NOT a rollback — processing is still
+        # applied, just at near-transparent level.  Spec-compliant.
+        # Only for P1/P2 regressions — P3 at this point already used max 2 retries.
+        _CATASTROPHIC_THRESHOLD = 0.20
+        _EMERGENCY_STRENGTHS = [0.15 * initial_strength, 0.10 * initial_strength]
+        if best_regression > _CATASTROPHIC_THRESHOLD and _worst_prio <= 2:
+            logger.warning(
+                "PMGG: %s catastrophic regression %.4f > %.2f — attempting emergency low-strength retries",
+                phase_id,
+                best_regression,
+                _CATASTROPHIC_THRESHOLD,
+            )
+            for _em_strength in _EMERGENCY_STRENGTHS:
+                _retry_elapsed = time.time() - _retry_t0
+                if _retry_elapsed > _RETRY_BUDGET_S:
+                    break
+                if _is_ml_deterministic:
+                    audio_em = self._wet_dry_blend(audio, audio_full if audio_full is not None else best_audio, _em_strength, phase)
+                else:
+                    audio_em = self._run_phase(phase, audio, _em_strength, phase_kwargs)
+                scores_em = _measure_quick(
+                    _extract_sample(audio_em, sr, duration_s=sample_duration_s), sr, reference=_ref_sample
+                )
+                regression_em = self._max_regression(scores_before, scores_em, effective_goals)
+                if regression_em <= threshold:
+                    if audio_full is not None:
+                        del audio_full
+                    return audio_em, scores_em, f"emergency_s{_em_strength:.2f}", _em_strength
+                if regression_em < best_regression:
+                    best_audio = audio_em
+                    best_scores = scores_em
+                    best_regression = regression_em
+                    best_strength = _em_strength
+                    best_action = f"best_effort_emergency"
+
         # §2.29 KEIN Rollback — Phase wird mit geringster Regression angewendet.
         # VERBOTEN: Phase überspringen (Original-Audio zurückgeben).
         # CausalDefectReasoner hat diese Phase als notwendig bestimmt.
@@ -1085,8 +1281,8 @@ class PerPhaseMusicalGoalsGate:
                 try:
                     meta = phase.get_metadata()
                     phase_id = getattr(meta, "phase_id", "")
-                except Exception:
-                    pass
+                except Exception as _meta_exc:
+                    logger.debug("PMGG: Phase-Metadata-Zugriff fehlgeschlagen: %s", _meta_exc)
                 if phase_id not in _TIMING_PHASES:
                     out = (audio + strength * (out - audio)).astype(np.float32)
                     out = np.clip(out, -1.0, 1.0)
@@ -1130,8 +1326,8 @@ class PerPhaseMusicalGoalsGate:
             try:
                 meta = phase.get_metadata()
                 phase_id = getattr(meta, "phase_id", "")
-            except Exception:
-                pass
+            except Exception as _meta_exc:
+                logger.debug("PMGG: Wet/Dry-Blend Phase-Metadata-Zugriff fehlgeschlagen: %s", _meta_exc)
         if phase_id in _TIMING_PHASES:
             return np.clip(wet, -1.0, 1.0).astype(np.float32)
         out = (dry + strength * (wet - dry)).astype(np.float32)
@@ -1151,6 +1347,46 @@ class PerPhaseMusicalGoalsGate:
             if delta < 0:
                 max_reg = max(max_reg, -delta)
         return max_reg
+
+    @staticmethod
+    def _max_regression_priority_aware(
+        before: dict[str, float],
+        after: dict[str, float],
+        goals: list | None = None,
+        threshold: float = 0.020,
+    ) -> tuple[float, int]:
+        """Priority-aware regression: returns (max_regression, worst_priority).
+
+        Only considers goals whose priority-adjusted threshold is exceeded.
+        Returns the highest priority level (lowest number) among regressed goals.
+
+        Args:
+            before: Scores before phase.
+            after: Scores after phase.
+            goals: Subset of goals to check.
+            threshold: Base regression threshold.
+
+        Returns:
+            (max_regression_value, worst_priority) where worst_priority is 1–5
+            (1 = most critical). Returns (0.0, 99) if no regression detected.
+        """
+        from backend.core.goal_priority_protocol import get_goal_priority_protocol
+
+        gpp = get_goal_priority_protocol()
+        check_goals = goals if goals is not None else FAST_GOALS_SUBSET
+        max_reg = 0.0
+        worst_prio = 99
+        for g in check_goals:
+            delta = after.get(g, 0.5) - before.get(g, 0.5)
+            if delta < 0:
+                reg = -delta
+                prio = gpp.priority_of(g)
+                prio_threshold = threshold * _PRIORITY_THRESHOLD_FACTOR.get(prio, 1.0)
+                if reg > prio_threshold:
+                    if prio < worst_prio:
+                        worst_prio = prio
+                    max_reg = max(max_reg, reg)
+        return max_reg, worst_prio
 
     @staticmethod
     def _get_phase_id(phase: Any) -> str:

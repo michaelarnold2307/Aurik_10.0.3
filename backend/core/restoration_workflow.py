@@ -89,27 +89,9 @@ import threading as _threading
 _restoration_workflow_instance = None
 _restoration_workflow_lock = _threading.Lock()
 
+
 def get_restoration_workflow() -> RestorationWorkflow:
     """Return the process-wide singleton RestorationWorkflow instance."""
-    global _restoration_workflow_instance
-    if _restoration_workflow_instance is None:
-        with _restoration_workflow_lock:
-            if _restoration_workflow_instance is None:
-                _restoration_workflow_instance = RestorationWorkflow()
-    return _restoration_workflow_instance
-
-
-# ---------------------------------------------------------------------------
-# Singleton accessor (thread-safe, double-checked locking)
-# ---------------------------------------------------------------------------
-import threading as _threading
-
-_restoration_workflow_instance = None
-_restoration_workflow_lock = _threading.Lock()
-
-
-def get_restoration_workflow() -> RestorationWorkflow:
-    """Return the process-wide singleton ``RestorationWorkflow`` instance."""
     global _restoration_workflow_instance
     if _restoration_workflow_instance is None:
         with _restoration_workflow_lock:

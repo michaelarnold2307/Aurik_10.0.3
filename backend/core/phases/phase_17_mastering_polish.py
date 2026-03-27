@@ -188,6 +188,36 @@ class MasteringPolishPhase(PhaseInterface):
 
         self.validate_input(audio)
 
+        phase_locality_factor = float(kwargs.get("phase_locality_factor", 1.0))
+        phase_locality_factor = float(np.clip(phase_locality_factor, 0.35, 1.0))
+        _pmgg_strength = float(kwargs.get("strength", 1.0))
+        _effective_strength = float(np.clip(_pmgg_strength * phase_locality_factor, 0.0, 1.0))
+
+        if _effective_strength <= 0.0:
+            audio = np.nan_to_num(audio, nan=0.0, posinf=0.0, neginf=0.0)
+            audio = np.clip(audio, -1.0, 1.0)
+            return PhaseResult(
+                success=True,
+                audio=audio.copy(),
+                execution_time_seconds=time.time() - start_time,
+                metadata={
+                    "algorithm": "skipped_zero_strength",
+                    "material": material.name,
+                    "phase_locality_factor": phase_locality_factor,
+                    "effective_strength": _effective_strength,
+                },
+                metrics={
+                    "rms_change_db": 0.0,
+                    "peak_before_db": float(20 * np.log10(np.max(np.abs(audio)) + 1e-10)),
+                    "peak_after_db": float(20 * np.log10(np.max(np.abs(audio)) + 1e-10)),
+                },
+                modifications={
+                    "algorithm": "skipped_zero_strength",
+                    "bands": 4,
+                    "crossover_freqs_hz": self.CROSSOVER_FREQS,
+                },
+            )
+
         is_stereo = audio.ndim == 2
 
         if not is_stereo:
@@ -196,28 +226,34 @@ class MasteringPolishPhase(PhaseInterface):
 
         mastered = audio.copy()
 
+        # PMGG strength — scales all processing intensities for retry compatibility
+        _strength = _effective_strength
+
         # Pipeline-Metriken sammeln
         pipeline_metrics = {}
 
         # 1. Multi-Band Mastering EQ
-        mastered, eq_metrics = self._apply_mastering_eq(mastered, sample_rate, material)
+        mastered, eq_metrics = self._apply_mastering_eq(mastered, sample_rate, material, _strength)
         pipeline_metrics["eq"] = eq_metrics
 
         # 2. Multi-Band Transient Enhancement
-        mastered, transient_metrics = self._apply_transient_enhancement(mastered, sample_rate, material)
+        mastered, transient_metrics = self._apply_transient_enhancement(mastered, sample_rate, material, _strength)
         pipeline_metrics["transient"] = transient_metrics
 
         # 3. Harmonic Enhancement
-        mastered, harmonic_metrics = self._apply_harmonic_enhancement(mastered, material)
+        mastered, harmonic_metrics = self._apply_harmonic_enhancement(mastered, material, _strength)
         pipeline_metrics["harmonic"] = harmonic_metrics
 
         # 4. Stereo Enhancement
-        mastered, stereo_metrics = self._apply_stereo_enhancement(mastered, material)
+        mastered, stereo_metrics = self._apply_stereo_enhancement(mastered, material, _strength)
         pipeline_metrics["stereo"] = stereo_metrics
 
         # 5. Final Polish
         mastered, polish_metrics = self._apply_final_polish(mastered, sample_rate, material)
         pipeline_metrics["polish"] = polish_metrics
+
+        if 0.0 < _effective_strength < 1.0:
+            mastered = audio + _effective_strength * (mastered - audio)
 
         # Wenn Original Mono war, zurück zu Mono (L+R/2)
         if not is_stereo:
@@ -245,6 +281,8 @@ class MasteringPolishPhase(PhaseInterface):
                 "material": material.name,
                 "pipeline": ["eq", "transient", "harmonic", "stereo", "polish"],
                 "pipeline_metrics": pipeline_metrics,
+                "phase_locality_factor": phase_locality_factor,
+                "effective_strength": _effective_strength,
             },
             metrics={
                 "rms_change_db": float(rms_change_db),
@@ -295,7 +333,7 @@ class MasteringPolishPhase(PhaseInterface):
         return bands
 
     def _apply_mastering_eq(
-        self, audio: np.ndarray, sample_rate: int, material: MaterialType
+        self, audio: np.ndarray, sample_rate: int, material: MaterialType, strength: float = 1.0
     ) -> tuple[np.ndarray, dict]:
         """
         Wendet Multi-Band Parametric EQ an.
@@ -307,6 +345,7 @@ class MasteringPolishPhase(PhaseInterface):
 
         # Für jeden Band: Parametric EQ (Peaking Filter)
         for band_name, (center_freq, gain_db, q) in eq_config.items():
+            gain_db = gain_db * strength  # Scale by PMGG strength
             if abs(gain_db) > 0.1:  # Nur wenn signifikanter Gain
                 # Peaking Filter (Bell EQ)
                 # iirpeak gibt (b, a) zurück, nicht sos
@@ -333,7 +372,7 @@ class MasteringPolishPhase(PhaseInterface):
         return eq_audio, metrics
 
     def _apply_transient_enhancement(
-        self, audio: np.ndarray, sample_rate: int, material: MaterialType
+        self, audio: np.ndarray, sample_rate: int, material: MaterialType, strength: float = 1.0
     ) -> tuple[np.ndarray, dict]:
         """
         Wendet Multi-Band Transient Enhancement an (Attack/Sustain Shaping).
@@ -348,6 +387,9 @@ class MasteringPolishPhase(PhaseInterface):
         enhanced_bands = []
 
         for band, attack_mult, sustain_mult in zip(bands, attack_multipliers, sustain_multipliers):
+            # Scale multipliers towards 1.0 (neutral) by strength
+            attack_mult = 1.0 + (attack_mult - 1.0) * strength
+            sustain_mult = 1.0 + (sustain_mult - 1.0) * strength
             # Envelope Detection (Attack/Sustain)
             envelope = np.abs(band)
 
@@ -384,11 +426,12 @@ class MasteringPolishPhase(PhaseInterface):
 
         return enhanced_audio, metrics
 
-    def _apply_harmonic_enhancement(self, audio: np.ndarray, material: MaterialType) -> tuple[np.ndarray, dict]:
+    def _apply_harmonic_enhancement(self, audio: np.ndarray, material: MaterialType, strength_scale: float = 1.0) -> tuple[np.ndarray, dict]:
         """
         Wendet Harmonic Excitation (Saturation) an.
         """
         strength = self.HARMONIC_ENHANCEMENT.get(material, self.HARMONIC_ENHANCEMENT[MaterialType.VINYL])
+        strength = strength * strength_scale  # Scale by PMGG strength
 
         if strength < 0.01:
             # Kein Enhancement
@@ -414,11 +457,12 @@ class MasteringPolishPhase(PhaseInterface):
 
         return enhanced, metrics
 
-    def _apply_stereo_enhancement(self, audio: np.ndarray, material: MaterialType) -> tuple[np.ndarray, dict]:
+    def _apply_stereo_enhancement(self, audio: np.ndarray, material: MaterialType, strength: float = 1.0) -> tuple[np.ndarray, dict]:
         """
         Wendet Stereo Width Enhancement an (Mid/Side Processing).
         """
         width = self.STEREO_WIDTH.get(material, self.STEREO_WIDTH[MaterialType.VINYL])
+        width = 1.0 + (width - 1.0) * strength  # Scale towards neutral by PMGG strength
 
         if abs(width - 1.0) < 0.01:
             # Keine Änderung

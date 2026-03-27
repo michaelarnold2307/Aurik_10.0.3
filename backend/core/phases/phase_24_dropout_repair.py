@@ -253,7 +253,41 @@ class DropoutRepairPhase(PhaseInterface):
                 pass
 
         # Get material-specific parameters
-        params = self.MATERIAL_PARAMS.get(material_type, self.MATERIAL_PARAMS["unknown"])
+        params = dict(self.MATERIAL_PARAMS.get(material_type, self.MATERIAL_PARAMS["unknown"]))
+
+        # Locality-aware intensity control from UV3.
+        # Sparse dropout coverage should lower reconstruction aggressiveness.
+        phase_locality_factor = float(kwargs.get("phase_locality_factor", 1.0))
+        phase_locality_factor = float(np.clip(phase_locality_factor, 0.35, 1.0))
+        _pmgg_strength = float(kwargs.get("strength", 1.0))
+        _effective_strength = float(np.clip(_pmgg_strength * phase_locality_factor, 0.0, 1.0))
+        params["repair_strength"] = float(np.clip(params["repair_strength"] * _effective_strength, 0.0, 1.0))
+
+        if _effective_strength <= 0.0:
+            passthrough = np.nan_to_num(audio.copy(), nan=0.0, posinf=0.0, neginf=0.0)
+            passthrough = np.clip(passthrough, -1.0, 1.0)
+            return create_phase_result(
+                audio=passthrough,
+                modifications={
+                    "dropouts_repaired": 0,
+                    "avg_dropout_duration_ms": 0.0,
+                    "max_dropout_duration_ms": 0.0,
+                    "total_dropout_duration_ms": 0.0,
+                    "ml_repaired": 0,
+                    "ml_usage_ratio": 0.0,
+                    "repair_strength": 0.0,
+                    "material_type": material_type,
+                    "algorithm_version": "2.0_ml_hybrid" if use_ml else "2.0_professional",
+                    "pre_repaired_gaps_skipped": 0,
+                },
+                warnings=["Dropout repair skipped due to zero effective strength"],
+                metadata={
+                    "algorithm": "skipped_zero_strength",
+                    "phase_locality_factor": phase_locality_factor,
+                    "effective_strength": _effective_strength,
+                    "execution_time_seconds": time.time() - start_time,
+                },
+            )
 
         # §11.7a: Bereits von RekonstruktionsDenker reparierte Gap-Regionen filtern
         _repaired_gaps: list[tuple[int, int]] = kwargs.get("repaired_gap_samples", [])
@@ -349,6 +383,8 @@ class DropoutRepairPhase(PhaseInterface):
                 "scientific_ref": "Adler et al. (2012), Lagrange & Marchand (2007), Etter (1996)",
                 "benchmark": "iZotope RX Spectral Repair, CEDAR Restore",
                 "execution_time_seconds": execution_time,
+                "phase_locality_factor": phase_locality_factor,
+                "effective_strength": _effective_strength,
             },
         )
 

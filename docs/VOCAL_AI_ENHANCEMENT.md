@@ -1,8 +1,8 @@
-# Vocal AI Enhancement — Gender-Aware Processing (Aurik 9.10.57)
+# Vocal AI Enhancement — Gender-Aware Processing (Aurik 9.x.x)
 
 ## Übersicht
 
-Das Aurik 9.10.57 Vocal AI Enhancement System implementiert die **stimmtyp-adaptive Gesangs- und Sibilantenverarbeitung** unter **vollständigem Erhalt von Atem, Emotion und Authentizität** (Phase 19 + Phase 42 + VocalAIEnhancement + ConsonantEnhancement).
+Das Aurik 9.x.x Vocal AI Enhancement System implementiert die **stimmtyp-adaptive Gesangs- und Sibilantenverarbeitung** unter **vollständigem Erhalt von Atem, Emotion und Authentizität** (Phase 19 + Phase 42 + VocalAIEnhancement + ConsonantEnhancement).
 
 ---
 

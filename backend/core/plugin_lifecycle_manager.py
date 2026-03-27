@@ -36,6 +36,29 @@ _RAM_TARGET_PCT: float = 65.0  # RAM% auf die wir evicten wollen
 _MIN_FREE_MB_HARD: float = 3000.0  # immer mind. 3 GB frei halten
 _PIPELINE_EMERGENCY_PCT: float = 82.0  # RAM% ab der auch WÄHREND Pipeline evicted wird
 
+# ---------------------------------------------------------------------------
+# §2.37 Phase-zu-Modell-Mapping: Welche ML-Modelle braucht welche Phase?
+# Nur Phasen mit ML-Modellen sind hier gelistet. DSP-only-Phasen fehlen bewusst.
+# Modellnamen müssen EXAKT mit dem Namen in ml_memory_budget.try_allocate() übereinstimmen.
+# ---------------------------------------------------------------------------
+_PHASE_REQUIRED_MODELS: dict[str, frozenset[str]] = {
+    "phase_01_click_removal": frozenset({"DeepFilterNetV3"}),
+    "phase_02_hum_removal": frozenset({"DeepFilterNetV3"}),
+    "phase_03_denoise": frozenset({"ResembleEnhance", "DeepFilterNetV3"}),
+    "phase_06_frequency_restoration": frozenset({"AudioSR"}),
+    "phase_09_crackle_removal": frozenset({"BanquetVinyl"}),
+    "phase_12_wow_flutter_fix": frozenset({"FCPE", "CREPE"}),
+    "phase_18_noise_gate": frozenset({"SileroVAD"}),
+    "phase_20_reverb_reduction": frozenset({"SGMSE+"}),
+    "phase_23_spectral_repair": frozenset({"AudioSR"}),
+    "phase_24_dropout_repair": frozenset({"AudioSR"}),
+    "phase_29_tape_hiss_reduction": frozenset({"DeepFilterNetV3"}),
+    "phase_31_speed_pitch_correction": frozenset({"BasicPitch"}),
+    "phase_42_vocal_enhancement": frozenset({"MelBandRoformer", "MDX23C"}),
+    "phase_55_diffusion_inpainting": frozenset({"CQTdiff+", "FlowMatching"}),
+    "phase_56_spectral_band_gap_repair": frozenset({"FCPE", "CREPE"}),
+}
+
 
 # ---------------------------------------------------------------------------
 # Registry-Eintrag
@@ -188,6 +211,72 @@ class PluginLifecycleManager:
         """
         return self._do_evict(target_pct=0.0, force_all=True)
 
+    def evict_for_phase(self, phase_id: str) -> int:
+        """Entlädt alle ML-Modelle die für die kommende Phase NICHT benötigt werden.
+
+        §2.37 Automatische RAM-Verwaltung: Vor jeder Phase werden nur die
+        tatsächlich benötigten Modelle im RAM behalten. Alle anderen —
+        auch während aktiver Pipeline — werden entladen.
+
+        Sicher: Nur inaktive (nicht gerade in Inferenz befindliche) Modelle
+        werden entladen. Aktive Modelle (entry.active=True) bleiben geschützt.
+
+        Args:
+            phase_id: Die nächste auszuführende Phase (z. B. "phase_06_frequency_restoration").
+
+        Returns:
+            Anzahl der entladenen Plugins.
+        """
+        needed = _PHASE_REQUIRED_MODELS.get(phase_id, frozenset())
+
+        with self._lock:
+            candidates = [
+                e for e in self._entries.values()
+                if not e.active and e.name not in needed
+            ]
+            # LRU: älteste zuerst
+            candidates.sort(key=lambda e: e.last_used_ts)
+
+        if not candidates:
+            return 0
+
+        evicted = 0
+        for entry in candidates:
+            try:
+                logger.info(
+                    "PLM: Entlade '%s' (%.2f GB) vor %s — nicht benötigt",
+                    entry.name,
+                    entry.size_gb,
+                    phase_id,
+                )
+                entry.unload_fn()
+                gc.collect()
+                try:
+                    import ctypes
+                    ctypes.CDLL("libc.so.6").malloc_trim(0)
+                except Exception:
+                    pass
+                try:
+                    from backend.core.ml_memory_budget import release as _release
+                    _release(entry.name)
+                except ImportError:
+                    pass
+                with self._lock:
+                    self._entries.pop(entry.name, None)
+                evicted += 1
+            except Exception as exc:
+                logger.warning("PLM: Fehler beim Entladen von '%s': %s", entry.name, exc)
+
+        if evicted > 0:
+            logger.info(
+                "PLM: %d Plugin(s) entladen vor %s — RAM nach GC: %.0f %% (%.0f MB frei)",
+                evicted,
+                phase_id,
+                self._ram_percent(),
+                self._free_mb(),
+            )
+        return evicted
+
     def _do_evict(
         self,
         target_pct: float = _RAM_TARGET_PCT,
@@ -323,6 +412,14 @@ def touch_plugin(name: str) -> None:
 def evict_stale_plugins(required_mb: float = 0.0) -> int:
     """Entlädt inaktive Plugins falls RAM-Druck besteht. Gibt Anzahl zurück."""
     return get_plugin_lifecycle_manager().evict_if_needed(required_mb)
+
+
+def evict_for_phase(phase_id: str) -> int:
+    """Entlädt alle ML-Modelle die für ``phase_id`` NICHT benötigt werden.
+
+    §2.37: Vor jeder Phase nur benötigte Modelle im RAM behalten.
+    """
+    return get_plugin_lifecycle_manager().evict_for_phase(phase_id)
 
 
 def set_pipeline_active(active: bool) -> None:

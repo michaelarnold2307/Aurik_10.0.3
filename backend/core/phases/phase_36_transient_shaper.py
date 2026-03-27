@@ -156,8 +156,35 @@ class TransientShaper(PhaseInterface):
         start_time = time.time()
         self.validate_input(audio)
 
+        phase_locality_factor = float(kwargs.get("phase_locality_factor", 1.0))
+        phase_locality_factor = float(np.clip(phase_locality_factor, 0.35, 1.0))
+        _pmgg_strength = float(kwargs.get("strength", 1.0))
+        _effective_strength = float(np.clip(_pmgg_strength * phase_locality_factor, 0.0, 1.0))
+
+        if _effective_strength <= 0.0:
+            audio = np.nan_to_num(audio, nan=0.0, posinf=0.0, neginf=0.0)
+            audio = np.clip(audio, -1.0, 1.0)
+            return PhaseResult(
+                success=True,
+                audio=audio.copy(),
+                execution_time_seconds=time.time() - start_time,
+                metadata={
+                    "material": material.name,
+                    "algorithm": "skipped_zero_strength",
+                    "phase_locality_factor": phase_locality_factor,
+                    "effective_strength": _effective_strength,
+                },
+                warnings=[],
+            )
+
         is_stereo = audio.ndim == 2
-        config = self.SHAPING_CONFIG.get(material, self.SHAPING_CONFIG[MaterialType.CD_DIGITAL])
+        config_raw = self.SHAPING_CONFIG.get(material, self.SHAPING_CONFIG[MaterialType.CD_DIGITAL])
+        config = {
+            "attack_gain_db": [float(v * _effective_strength) for v in config_raw["attack_gain_db"]],
+            "sustain_gain_db": [float(v * _effective_strength) for v in config_raw["sustain_gain_db"]],
+            "attack_window_ms": config_raw["attack_window_ms"],
+            "release_window_ms": config_raw["release_window_ms"],
+        }
 
         # Measure initial transient energy
         transient_energy_before = self._measure_transient_energy(audio, sample_rate)
@@ -169,6 +196,9 @@ class TransientShaper(PhaseInterface):
             shaped_audio = np.column_stack((shaped_left, shaped_right))
         else:
             shaped_audio = self._shape_channel(audio, sample_rate, config)
+
+        if 0.0 < _effective_strength < 1.0:
+            shaped_audio = audio + _effective_strength * (shaped_audio - audio)
 
         # Measure final transient energy
         transient_energy_after = self._measure_transient_energy(shaped_audio, sample_rate)
@@ -194,6 +224,8 @@ class TransientShaper(PhaseInterface):
                 "peak_before": float(np.max(np.abs(audio))),
                 "peak_after": float(np.max(np.abs(shaped_audio))),
                 "rt_factor": float(rt_factor),
+                "phase_locality_factor": phase_locality_factor,
+                "effective_strength": _effective_strength,
             },
             warnings=[] if rt_factor < 0.25 else [f"Performance sub-optimal: {rt_factor:.2f}× realtime"],
         )

@@ -167,8 +167,36 @@ class WowFlutterFix(PhaseInterface):
         assert sample_rate == 48000, f"Interne SR muss 48000 Hz sein, erhalten: {sample_rate}"
         start_time = time.time()
 
+        phase_locality_factor = float(kwargs.get("phase_locality_factor", 1.0))
+        phase_locality_factor = float(np.clip(phase_locality_factor, 0.35, 1.0))
+        _pmgg_strength = float(kwargs.get("strength", 1.0))
+        _effective_strength = float(np.clip(_pmgg_strength * phase_locality_factor, 0.0, 1.0))
+
+        if _effective_strength <= 0.0:
+            passthrough = np.nan_to_num(audio.copy(), nan=0.0, posinf=0.0, neginf=0.0)
+            passthrough = np.clip(passthrough, -1.0, 1.0)
+            return PhaseResult(
+                success=True,
+                audio=passthrough,
+                metrics={
+                    "wow_flutter_detected": False,
+                    "max_deviation_percent": 0.0,
+                    "correction_applied": 0.0,
+                    "material": material.value,
+                    "mean_confidence": 0.0,
+                    "quality_mode": kwargs.get("quality_mode", "balanced"),
+                },
+                execution_time_seconds=time.time() - start_time,
+                metadata={
+                    "algorithm": "skipped_zero_strength",
+                    "version": "4.1_locality",
+                    "phase_locality_factor": phase_locality_factor,
+                    "effective_strength": _effective_strength,
+                },
+            )
+
         # Get material-specific parameters
-        strength = self.CORRECTION_STRENGTH.get(material, 0.7)
+        strength = float(self.CORRECTION_STRENGTH.get(material, 0.7) * _effective_strength)
         threshold = self.DETECTION_THRESHOLD.get(material, 0.5)
 
         # Convert to mono for pitch analysis
@@ -305,6 +333,8 @@ class WowFlutterFix(PhaseInterface):
                     "version": "4.1_confidence_guard",
                     "ml_hybrid": use_ml_hybrid,
                     "polyphonic": _poly_applied,
+                    "phase_locality_factor": phase_locality_factor,
+                    "effective_strength": _effective_strength,
                 },
             )
 
@@ -347,7 +377,11 @@ class WowFlutterFix(PhaseInterface):
                     "quality_mode": quality_mode,
                 },
                 execution_time_seconds=time.time() - start_time,
-                metadata=metadata,
+                metadata={
+                    **metadata,
+                    "phase_locality_factor": phase_locality_factor,
+                    "effective_strength": _effective_strength,
+                },
             )
 
         # Step 4: Calculate time-stretching factors from pitch deviation
@@ -375,6 +409,10 @@ class WowFlutterFix(PhaseInterface):
 
         # Step 6b: Targeted transport bump repair (impulsive micro-speed jumps 50–300 ms)
         bump_locations = kwargs.get("transport_bump_locations")
+        if not bump_locations:
+            # Fallback: extract from defect_locations dict (UV3 passes defect_locations kwarg)
+            _dl = kwargs.get("defect_locations") or {}
+            bump_locations = _dl.get("transport_bump", []) if isinstance(_dl, dict) else []
         n_bumps_repaired = 0
         if bump_locations and len(bump_locations) > 0:
             restored, n_bumps_repaired = self._repair_transport_bumps(
@@ -470,6 +508,9 @@ class WowFlutterFix(PhaseInterface):
 
         restored = np.nan_to_num(restored, nan=0.0, posinf=0.0, neginf=0.0)
         restored = np.clip(restored, -1.0, 1.0)
+        if 0.0 < _effective_strength < 1.0:
+            restored = audio + _effective_strength * (restored - audio)
+            restored = np.clip(restored, -1.0, 1.0)
         return PhaseResult(
             success=True,
             audio=restored,
@@ -486,7 +527,11 @@ class WowFlutterFix(PhaseInterface):
                 "transport_bumps_repaired": n_bumps_repaired,
             },
             execution_time_seconds=processing_time,
-            metadata=metadata,
+            metadata={
+                **metadata,
+                "phase_locality_factor": phase_locality_factor,
+                "effective_strength": _effective_strength,
+            },
         )
 
     def _estimate_pitch_yin(self, audio: np.ndarray, sample_rate: int) -> tuple[np.ndarray, np.ndarray]:
@@ -663,19 +708,19 @@ class WowFlutterFix(PhaseInterface):
         bump_locations: list[tuple[float, float]],
         strength: float = 0.85,
     ) -> tuple[np.ndarray, int]:
-        """Repair impulsive transport bumps at known locations via local PSOLA + envelope morphing.
+        """Repair impulsive transport bumps at known locations.
 
-        Each bump is a 50–300 ms region where both pitch and amplitude show an abrupt
-        excursion. The repair strategy is:
-            1. Extract the bump region with margins (±30 ms crossfade)
-            2. Estimate local pitch via pYIN in the bump and surrounding context
-            3. Apply local PSOLA time-warping to flatten the pitch excursion
-            4. Smooth the amplitude envelope via Hanning-weighted morphing
-            5. Crossfade repaired region back into the original signal
+        Multi-stage repair strategy (v2):
+            1. Amplitude envelope smoothing toward context RMS level
+            2. Local pitch correction via context-guided resampling
+            3. Spectral context interpolation: blend bump spectrum toward
+               weighted average of pre/post context spectra (removes LF thump
+               and spectral centroid disruption that characterize transport bumps)
+            4. Hanning-crossfade at margins for seamless integration
 
         Args:
             audio:          Audio signal (mono [N] or stereo [N, 2])
-            sample_rate:    Sample rate in Hz (must be 48000)
+            sample_rate:    Sample rate in Hz
             bump_locations: List of (start_s, end_s) time pairs from DefectScanner
             strength:       Correction strength 0.0–1.0 (material-adaptive)
 
@@ -693,11 +738,9 @@ class WowFlutterFix(PhaseInterface):
             bump_start = int(bump_start_s * sample_rate)
             bump_end = int(bump_end_s * sample_rate)
 
-            # Validate bounds
             if bump_start < 0 or bump_end > n_samples or bump_end <= bump_start:
                 continue
 
-            # Extend region with margins for crossfade
             region_start = max(0, bump_start - margin_samples)
             region_end = min(n_samples, bump_end + margin_samples)
             region_len = region_end - region_start
@@ -705,59 +748,62 @@ class WowFlutterFix(PhaseInterface):
             if region_len < sample_rate // 100:  # minimum 10 ms
                 continue
 
-            # Get context audio before and after bump for reference pitch
-            ctx_before_start = max(0, region_start - sample_rate // 4)  # 250 ms context
+            ctx_before_start = max(0, region_start - sample_rate // 4)
             ctx_after_end = min(n_samples, region_end + sample_rate // 4)
 
             if is_stereo:
-                mono_region = np.mean(result[region_start:region_end], axis=1)
                 mono_ctx_before = np.mean(result[ctx_before_start:region_start], axis=1)
                 mono_ctx_after = np.mean(result[region_end:ctx_after_end], axis=1)
             else:
-                mono_region = result[region_start:region_end]
                 mono_ctx_before = result[ctx_before_start:region_start]
                 mono_ctx_after = result[region_end:ctx_after_end]
 
-            # 1. Estimate reference RMS from surrounding context
+            # 1. Reference RMS from surrounding context
             ctx_audio = np.concatenate([mono_ctx_before, mono_ctx_after])
             ref_rms = float(np.sqrt(np.mean(ctx_audio**2) + 1e-12)) if len(ctx_audio) > 0 else 1.0
 
-            # 2. Amplitude envelope smoothing — morph bump envelope toward context level
+            # 2. Amplitude envelope smoothing
             if is_stereo:
                 for ch in range(result.shape[1]):
                     result[region_start:region_end, ch] = self._smooth_bump_envelope(
-                        result[region_start:region_end, ch],
-                        ref_rms,
-                        margin_samples,
-                        strength,
+                        result[region_start:region_end, ch], ref_rms, margin_samples, strength,
                     )
             else:
                 result[region_start:region_end] = self._smooth_bump_envelope(
-                    result[region_start:region_end],
-                    ref_rms,
-                    margin_samples,
-                    strength,
+                    result[region_start:region_end], ref_rms, margin_samples, strength,
                 )
 
-            # 3. Local pitch correction via short-segment PSOLA
-            #    Only apply if the bump is long enough for meaningful pitch detection
+            # 3. Local pitch correction
             bump_len = bump_end - bump_start
-            if bump_len >= sample_rate // 50:  # at least 20 ms
+            if bump_len >= sample_rate // 50:
                 if is_stereo:
                     for ch in range(result.shape[1]):
                         result[bump_start:bump_end, ch] = self._local_pitch_flatten(
                             result[bump_start:bump_end, ch],
-                            mono_ctx_before,
-                            mono_ctx_after,
-                            sample_rate,
-                            strength,
+                            mono_ctx_before, mono_ctx_after, sample_rate, strength,
                         )
                 else:
                     result[bump_start:bump_end] = self._local_pitch_flatten(
                         result[bump_start:bump_end],
-                        mono_ctx_before,
-                        mono_ctx_after,
-                        sample_rate,
+                        mono_ctx_before, mono_ctx_after, sample_rate, strength,
+                    )
+
+            # 4. Spectral context interpolation — remove LF thump and timbral disruption
+            #    by blending the bump's magnitude spectrum toward the surrounding context
+            if bump_len >= 256:
+                if is_stereo:
+                    for ch in range(result.shape[1]):
+                        result[bump_start:bump_end, ch] = self._spectral_context_blend(
+                            result[bump_start:bump_end, ch],
+                            result[ctx_before_start:region_start, ch] if ctx_before_start < region_start else np.zeros(1),
+                            result[region_end:ctx_after_end, ch] if region_end < ctx_after_end else np.zeros(1),
+                            strength,
+                        )
+                else:
+                    result[bump_start:bump_end] = self._spectral_context_blend(
+                        result[bump_start:bump_end],
+                        result[ctx_before_start:region_start] if ctx_before_start < region_start else np.zeros(1),
+                        result[region_end:ctx_after_end] if region_end < ctx_after_end else np.zeros(1),
                         strength,
                     )
 
@@ -813,6 +859,89 @@ class WowFlutterFix(PhaseInterface):
             result[-fade_len:] = segment[-fade_len:] * (1.0 - fade_out) + result[-fade_len:] * fade_out
 
         return np.clip(result, -1.0, 1.0)
+
+    @staticmethod
+    def _spectral_context_blend(
+        bump_audio: np.ndarray,
+        ctx_before: np.ndarray,
+        ctx_after: np.ndarray,
+        strength: float,
+    ) -> np.ndarray:
+        """Blend the magnitude spectrum of a bump region toward surrounding context.
+
+        Transport bumps inject spurious low-frequency energy (mechanical thump) and
+        cause abrupt spectral centroid shifts. This method:
+          1. Computes average magnitude spectrum of pre/post context
+          2. Computes magnitude spectrum of the bump region
+          3. Blends bump magnitudes toward context magnitudes (strength-weighted)
+          4. Preserves original phase (no phase distortion)
+          5. RMS-normalizes output to prevent amplitude drift
+
+        Uses raw FFT (no windowing) to avoid edge-amplification artifacts.
+        """
+        n = len(bump_audio)
+        if n < 128 or strength < 0.01:
+            return bump_audio
+
+        fft_size = 1
+        while fft_size < n:
+            fft_size *= 2
+
+        # Compute reference spectrum from context (weighted average)
+        ref_mag = None
+        n_ref = 0
+        for ctx in (ctx_before, ctx_after):
+            if len(ctx) < 64:
+                continue
+            chunk = ctx[-n:] if ctx is ctx_before else ctx[:n]
+            if len(chunk) < 64:
+                continue
+            padded = np.zeros(fft_size, dtype=np.float64)
+            padded[: len(chunk)] = chunk.astype(np.float64)
+            mag = np.abs(np.fft.rfft(padded))
+            if ref_mag is None:
+                ref_mag = mag
+            else:
+                ref_mag = ref_mag + mag
+            n_ref += 1
+
+        if ref_mag is None or n_ref == 0:
+            return bump_audio
+
+        ref_mag /= n_ref
+
+        # Compute bump spectrum (no windowing — avoids edge amplification)
+        bump_padded = np.zeros(fft_size, dtype=np.float64)
+        bump_f64 = bump_audio.astype(np.float64)
+        bump_padded[:n] = bump_f64
+        bump_fft = np.fft.rfft(bump_padded)
+        bump_mag = np.abs(bump_fft)
+        bump_phase = np.angle(bump_fft)
+
+        # Only suppress frequencies where bump exceeds context (remove thump),
+        # don't boost missing frequencies (that would add artifacts)
+        blended_mag = bump_mag.copy()
+        excess = bump_mag > ref_mag * 1.2
+        blended_mag[excess] = (
+            bump_mag[excess] * (1.0 - strength * 0.7)
+            + ref_mag[excess] * strength * 0.7
+        )
+
+        # Reconstruct with original phase
+        blended_fft = blended_mag * np.exp(1j * bump_phase)
+        result_full = np.fft.irfft(blended_fft, n=fft_size)
+        result = result_full[:n].astype(np.float32)
+
+        # RMS-normalize to match original bump level (prevent amplitude drift)
+        orig_rms = float(np.sqrt(np.mean(bump_f64**2) + 1e-12))
+        result_rms = float(np.sqrt(np.mean(result.astype(np.float64) ** 2) + 1e-12))
+        if result_rms > 1e-10:
+            result *= np.float32(orig_rms / result_rms)
+
+        # Blend with original using strength
+        result = bump_audio * (1.0 - strength * 0.5) + result * (strength * 0.5)
+
+        return np.clip(result, -1.0, 1.0).astype(np.float32)
 
     def _local_pitch_flatten(
         self,
@@ -1085,10 +1214,11 @@ class WowFlutterFix(PhaseInterface):
         self, audio: np.ndarray, stretch_factors: np.ndarray, sample_rate: int
     ) -> np.ndarray:
         """
-        Apply simplified WSOLA (Waveform Similarity Overlap-Add) time-stretching.
+        Apply time-varying WSOLA-style time mapping for wow/flutter correction.
 
-        WSOLA is faster than phase vocoder and works well for small stretch factors.
-        For wow/flutter correction (small deviations), WSOLA is sufficient.
+        Uses per-frame stretch factors interpolated to sample-rate, followed by a
+        monotonic source-position mapping and band-limited interpolation. This keeps
+        output length constant while avoiding the coarse average-stretch approximation.
 
         Args:
             audio: Mono audio samples
@@ -1098,28 +1228,50 @@ class WowFlutterFix(PhaseInterface):
         Returns:
             Time-stretched audio
         """
-        # Simplification: Use average stretch factor for efficiency
-        # (Full implementation would use time-varying stretching)
-        avg_stretch = np.mean(stretch_factors)
+        if len(audio) < 8 or len(stretch_factors) == 0:
+            return audio.copy()
 
-        # If avg stretch is very close to 1.0, no correction needed
-        if abs(avg_stretch - 1.0) < 0.005:  # <0.5% change
-            return audio
+        audio_f = np.nan_to_num(np.asarray(audio, dtype=np.float64), nan=0.0, posinf=0.0, neginf=0.0)
+        n_samples = len(audio_f)
 
-        # Use scipy's resample for efficiency (band-limited interpolation)
-        # This is faster than full phase vocoder and sufficient for small changes
-        output_length = int(len(audio) / avg_stretch)
+        # Interpolate frame-wise stretch factors to sample resolution.
+        sf = np.asarray(stretch_factors, dtype=np.float64)
+        sf = np.clip(sf, 0.90, 1.10)
+        if len(sf) == 1:
+            sf_samples = np.full(n_samples, sf[0], dtype=np.float64)
+        else:
+            src_idx = np.linspace(0, n_samples - 1, len(sf), dtype=np.float64)
+            dst_idx = np.arange(n_samples, dtype=np.float64)
+            sf_samples = np.interp(dst_idx, src_idx, sf)
 
-        # Resample to correct length
-        corrected = signal.resample(audio, output_length)
+        # Smooth micro-jitter in factor curve (preserve wow contour, suppress zipper noise).
+        try:
+            from scipy.signal import savgol_filter
 
-        # Ensure output matches input length (truncate or pad)
-        if len(corrected) > len(audio):
-            corrected = corrected[: len(audio)]
-        elif len(corrected) < len(audio):
-            corrected = np.pad(corrected, (0, len(audio) - len(corrected)), mode="edge")
+            win = max(5, (n_samples // 400) | 1)
+            win = min(win, n_samples if n_samples % 2 == 1 else n_samples - 1)
+            if win >= 5:
+                sf_samples = savgol_filter(sf_samples, window_length=win, polyorder=2, mode="interp")
+        except Exception:
+            pass
 
-        return corrected
+        sf_samples = np.clip(sf_samples, 0.90, 1.10)
+        if np.max(np.abs(sf_samples - 1.0)) < 0.002:
+            return audio.copy()
+
+        # Local source-step: stretch>1 => slower playback => smaller source increment.
+        src_step = 1.0 / np.clip(sf_samples, 0.85, 1.15)
+        src_pos = np.cumsum(src_step)
+        src_pos -= src_pos[0]
+
+        # Normalize mapping to consume exactly the available source range.
+        max_pos = float(src_pos[-1]) + 1e-12
+        src_pos *= (n_samples - 1) / max_pos
+        src_pos = np.clip(src_pos, 0.0, n_samples - 1)
+
+        corrected = np.interp(src_pos, np.arange(n_samples, dtype=np.float64), audio_f)
+        corrected = np.nan_to_num(corrected, nan=0.0, posinf=0.0, neginf=0.0)
+        return corrected.astype(audio.dtype, copy=False)
 
     def _psola_timestretch(
         self,

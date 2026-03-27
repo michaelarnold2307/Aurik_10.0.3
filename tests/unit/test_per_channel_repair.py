@@ -296,6 +296,7 @@ class TestExecutePipelineCallback:
 class TestWaveformWidgetLiveUpdate:
     """Verify update_audio_live preserves zoom/pan."""
 
+    @pytest.mark.gui
     def test_update_audio_live_preserves_view(self):
         """update_audio_live must NOT reset _view_start / _view_end."""
         try:
@@ -325,6 +326,7 @@ class TestWaveformWidgetLiveUpdate:
         except Exception:
             pytest.skip("WaveformWidget instantiation failed (no QApplication)")
 
+    @pytest.mark.gui
     def test_update_waveform_resets_view(self):
         """update_waveform (initial load) MUST reset _view_start / _view_end."""
         try:

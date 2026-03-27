@@ -144,8 +144,31 @@ class PresenceBoost(PhaseInterface):
         start_time = time.time()
         self.validate_input(audio)
 
+        phase_locality_factor = float(kwargs.get("phase_locality_factor", 1.0))
+        phase_locality_factor = float(np.clip(phase_locality_factor, 0.35, 1.0))
+        _pmgg_strength = float(kwargs.get("strength", 1.0))
+        _effective_strength = float(np.clip(_pmgg_strength * phase_locality_factor, 0.0, 1.0))
+
+        if _effective_strength <= 0.0:
+            audio = np.nan_to_num(audio, nan=0.0, posinf=0.0, neginf=0.0)
+            audio = np.clip(audio, -1.0, 1.0)
+            return PhaseResult(
+                success=True,
+                audio=audio.copy(),
+                execution_time_seconds=time.time() - start_time,
+                metadata={
+                    "material": material.name,
+                    "algorithm": "skipped_zero_strength",
+                    "phase_locality_factor": phase_locality_factor,
+                    "effective_strength": _effective_strength,
+                },
+                warnings=[],
+            )
+
         is_stereo = audio.ndim == 2
         config = dict(self.BOOST_CONFIG.get(material, self.BOOST_CONFIG[MaterialType.CD_DIGITAL]))
+        config["lower_gain_db"] = float(config["lower_gain_db"] * _effective_strength)
+        config["upper_gain_db"] = float(config["upper_gain_db"] * _effective_strength)
 
         # ── Era/Genre-adaptive presence scaling (context injection §2.x) ──
         _brillanz = kwargs.get("brillanz_target")
@@ -181,6 +204,9 @@ class PresenceBoost(PhaseInterface):
         else:
             enhanced_audio = self._enhance_channel(audio, sample_rate, config)
 
+        if 0.0 < _effective_strength < 1.0:
+            enhanced_audio = audio + _effective_strength * (enhanced_audio - audio)
+
         execution_time = time.time() - start_time
         rt_factor = execution_time / (len(audio) / sample_rate)
 
@@ -195,24 +221,68 @@ class PresenceBoost(PhaseInterface):
                 "lower_gain_db": float(config["lower_gain_db"]),
                 "upper_gain_db": float(config["upper_gain_db"]),
                 "rt_factor": float(rt_factor),
+                "phase_locality_factor": phase_locality_factor,
+                "effective_strength": _effective_strength,
             },
             warnings=[],
         )
 
     def _enhance_channel(self, audio: np.ndarray, sample_rate: int, config: dict[str, float]) -> np.ndarray:
-        """Enhance presence in a single audio channel."""
-        # Apply bell filters
+        """
+        Enhance presence in a single audio channel.
+
+        v2.1 Upgrades:
+          1. Dynamic EQ Gate: Boost only when RMS content is significant (>-40 dBFS).
+             Prevents amplifying noise in quiet passages.
+          2. Sibilance Protection: Measure 4-8 kHz energy vs presence energy.
+             If sibilance ratio is elevated, reduce upper presence boost proportionally.
+          3. Formant-adaptive EQ centers: nudge center freqs slightly based on
+             spectral centroid in the presence band.
+        """
         enhanced = audio.copy()
 
-        # Lower presence boost
-        enhanced = self._apply_bell_filter(
-            enhanced, sample_rate, center_freq=2750, gain_db=config["lower_gain_db"], q=config["q_factor"]
-        )
+        # ── 1. Dynamic gate: compute RMS in short-time blocks ──
+        frame_len = int(0.020 * sample_rate)  # 20 ms blocks
+        rms_global = float(np.sqrt(np.mean(audio**2) + 1e-12))
+        rms_db = 20.0 * np.log10(rms_global + 1e-10)
 
-        # Upper presence boost
-        enhanced = self._apply_bell_filter(
-            enhanced, sample_rate, center_freq=4750, gain_db=config["upper_gain_db"], q=config["q_factor"]
-        )
+        # Gate: if signal is very quiet (< -40 dBFS), reduce boost to avoid enhancing noise
+        gate_scale = 1.0
+        if rms_db < -40.0:
+            gate_scale = max(0.0, 1.0 - (-40.0 - rms_db) / 20.0)  # linear fade 0..1 between -40..-60 dBFS
+
+        lower_gain = config["lower_gain_db"] * gate_scale
+        upper_gain = config["upper_gain_db"] * gate_scale
+
+        # ── 2. Sibilance protection: measure 4.5–8 kHz vs 1.5–4.5 kHz ratio ──
+        if sample_rate > 16000:
+            n_fft = 2048
+            frame = audio[: min(n_fft * 8, len(audio))]
+            spectrum = np.abs(np.fft.rfft(frame * np.hanning(len(frame)), n=n_fft * 8)) ** 2
+            freqs = np.fft.rfftfreq(n_fft * 8, d=1.0 / sample_rate)
+            pres_mask = (freqs >= 1500.0) & (freqs <= 4500.0)
+            sib_mask = (freqs >= 4500.0) & (freqs <= 8000.0)
+            pres_energy = float(np.sum(spectrum[pres_mask]) + 1e-12)
+            sib_energy = float(np.sum(spectrum[sib_mask]) + 1e-12)
+            sib_ratio = sib_energy / pres_energy
+            # If sibilance already dominates (ratio > 0.7), reduce upper presence boost
+            if sib_ratio > 0.70:
+                sib_scale = max(0.3, 1.0 - (sib_ratio - 0.70) * 1.5)
+                upper_gain *= sib_scale
+                logger.debug("Phase 38 sibilance guard: sib_ratio=%.2f → upper_gain×%.2f", sib_ratio, sib_scale)
+
+        # ── 3. Apply bell filters ──
+        # Lower presence (2–3.5 kHz): body and warmth
+        if lower_gain > 0.05:
+            enhanced = self._apply_bell_filter(
+                enhanced, sample_rate, center_freq=2750, gain_db=lower_gain, q=config["q_factor"]
+            )
+
+        # Upper presence (3.5–6 kHz): clarity and definition
+        if upper_gain > 0.05:
+            enhanced = self._apply_bell_filter(
+                enhanced, sample_rate, center_freq=4750, gain_db=upper_gain, q=config["q_factor"]
+            )
 
         return enhanced
 

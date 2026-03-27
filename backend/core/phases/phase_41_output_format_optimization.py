@@ -69,7 +69,15 @@ from scipy import signal
 
 from backend.core.defect_scanner import MaterialType
 
+try:
+    from dsp.professional_meters import LUFSMeter
+
+    PROFESSIONAL_METERS_AVAILABLE = True
+except ImportError:
+    PROFESSIONAL_METERS_AVAILABLE = False
+
 from .phase_interface import PhaseCategory, PhaseInterface, PhaseMetadata, PhaseResult
+from .output_guard import evaluate_output_guard
 
 logger = logging.getLogger(__name__)
 
@@ -161,11 +169,52 @@ class OutputFormatOptimization(PhaseInterface):
         self.validate_input(audio)
         start_time = time.time()
 
+        phase_locality_factor = float(kwargs.get("phase_locality_factor", 1.0))
+        phase_locality_factor = float(np.clip(phase_locality_factor, 0.35, 1.0))
+        _pmgg_strength = float(kwargs.get("strength", 1.0))
+        _effective_strength = float(np.clip(_pmgg_strength * phase_locality_factor, 0.0, 1.0))
+
+        if _effective_strength <= 0.0:
+            audio = np.nan_to_num(audio, nan=0.0, posinf=0.0, neginf=0.0)
+            audio = np.clip(audio, -1.0, 1.0)
+            return PhaseResult(
+                success=True,
+                audio=audio.copy(),
+                metrics={
+                    "resampled": False,
+                    "input_sample_rate": sample_rate,
+                    "output_sample_rate": sample_rate,
+                    "output_bit_depth": 32,
+                    "lufs_before": -70.0,
+                    "lufs_after": -70.0,
+                    "peak_reduction_db": 0.0,
+                    "dithered": False,
+                    "dither_type": "none",
+                    "snr_improvement_db": 0.0,
+                    "material": material.value,
+                },
+                execution_time_seconds=time.time() - start_time,
+                metadata={
+                    "algorithm": "skipped_zero_strength",
+                    "version": "2.0",
+                    "phase_locality_factor": phase_locality_factor,
+                    "effective_strength": _effective_strength,
+                },
+            )
+
         output_sr = self.OUTPUT_SAMPLE_RATE.get(material, 44100)
         output_bit_depth = self.OUTPUT_BIT_DEPTH.get(material, 16)
         lufs_target = self.LUFS_TARGET.get(material, -16.0)
         true_peak_ceiling = self.TRUE_PEAK_CEILING.get(material, -1.0)
         dither_type = self.DITHER_TYPE.get(material, "tpdf")
+
+        quality_mode = str(kwargs.get("quality_mode", "balanced")).lower()
+        if quality_mode in ("quality", "maximum", "studio2026"):
+            hq_scale = 1.10 if quality_mode in ("maximum", "studio2026") else 1.05
+            lufs_target = float(np.clip(lufs_target + 0.5 * (1.0 - hq_scale), -24.0, -12.0))
+            true_peak_ceiling = float(np.clip(true_peak_ceiling - 0.2 * (hq_scale - 1.0), -2.0, -0.1))
+        else:
+            hq_scale = 1.0
 
         # Step 1: High-quality resampling
         resampled = False
@@ -177,6 +226,9 @@ class OutputFormatOptimization(PhaseInterface):
 
         # Step 2: Loudness normalization (LUFS-based)
         audio_normalized, lufs_before, lufs_after = self._normalize_loudness(audio_resampled, output_sr, lufs_target)
+
+        if 0.0 < _effective_strength < 1.0:
+            audio_normalized = audio_resampled + _effective_strength * (audio_normalized - audio_resampled)
 
         # Step 3: True peak limiting
         audio_limited, peak_reduction_db = self._limit_true_peak(audio_normalized, true_peak_ceiling)
@@ -199,10 +251,27 @@ class OutputFormatOptimization(PhaseInterface):
         # Step 5: Quantization
         audio_quantized = self._quantize(audio_dithered, output_bit_depth)
 
+        audio_pre_guard = np.nan_to_num(audio_quantized.copy(), nan=0.0, posinf=0.0, neginf=0.0)
+        audio_pre_guard = np.clip(audio_pre_guard, -1.0, 1.0)
+
         # Measure SNR improvement (dithering benefit)
         snr_before = self._estimate_snr(audio_limited)
         snr_after = self._estimate_snr(audio_quantized)
         snr_improvement_db = snr_after - snr_before
+
+        output_guard_enabled = quality_mode in ("quality", "maximum", "studio2026")
+        guard = evaluate_output_guard(
+            original=audio,
+            candidate=audio_quantized,
+            enabled=output_guard_enabled,
+            max_abs_rms_delta_db=1.5,
+            stereo_side_ratio_min=0.60,
+            stereo_side_ratio_max=1.45,
+        )
+        if guard.fallback:
+            audio_quantized = audio_pre_guard
+            snr_after = self._estimate_snr(audio_quantized)
+            snr_improvement_db = snr_after - snr_before
 
         processing_time = time.time() - start_time
 
@@ -223,9 +292,21 @@ class OutputFormatOptimization(PhaseInterface):
                 "dither_type": dither_type,
                 "snr_improvement_db": float(snr_improvement_db),
                 "material": material.value,
+                "rms_delta_db": float(guard.rms_delta_db),
+                "stereo_side_ratio": float(guard.stereo_side_ratio),
             },
             execution_time_seconds=processing_time,
-            metadata={"algorithm": "high_quality_src_dither_lufs", "version": "2.0"},
+            metadata={
+                "algorithm": "high_quality_src_dither_lufs",
+                "version": "2.0",
+                "quality_mode": quality_mode,
+                "hq_scale": hq_scale,
+                "output_guard_enabled": output_guard_enabled,
+                "output_guard_fallback": guard.fallback,
+                "output_guard_reason": guard.reason,
+                "phase_locality_factor": phase_locality_factor,
+                "effective_strength": _effective_strength,
+            },
         )
 
     def _resample_high_quality(self, audio: np.ndarray, input_sr: int, output_sr: int) -> np.ndarray:
@@ -246,17 +327,9 @@ class OutputFormatOptimization(PhaseInterface):
         """
         LUFS-based loudness normalization.
         """
-        # Simplified LUFS estimation (RMS-based approximation)
-        # True LUFS requires K-weighting filter + gating, simplified here
-
-        if audio.ndim == 2:
-            rms = np.sqrt(np.mean(audio**2, axis=0))
-            rms_avg = np.mean(rms)
-        else:
-            rms_avg = np.sqrt(np.mean(audio**2))
-
-        # Convert RMS to LUFS (approximate)
-        lufs_before = 20 * np.log10(rms_avg + 1e-10) - 23.0  # Rough LUFS estimate
+        lufs_before = self._measure_integrated_lufs(audio, sample_rate)
+        if not np.isfinite(lufs_before):
+            lufs_before = -70.0
 
         # Calculate gain adjustment
         lufs_difference = lufs_target - lufs_before
@@ -267,24 +340,40 @@ class OutputFormatOptimization(PhaseInterface):
         audio_normalized = audio * gain_linear
 
         # Recalculate LUFS
-        if audio_normalized.ndim == 2:
-            rms_after = np.sqrt(np.mean(audio_normalized**2, axis=0))
-            rms_avg_after = np.mean(rms_after)
-        else:
-            rms_avg_after = np.sqrt(np.mean(audio_normalized**2))
-
-        lufs_after = 20 * np.log10(rms_avg_after + 1e-10) - 23.0
+        lufs_after = self._measure_integrated_lufs(audio_normalized, sample_rate)
+        if not np.isfinite(lufs_after):
+            lufs_after = -70.0
 
         return audio_normalized, lufs_before, lufs_after
+
+    def _measure_integrated_lufs(self, audio: np.ndarray, sample_rate: int) -> float:
+        """Measure integrated loudness using ITU-R BS.1770 where available."""
+        audio_arr = np.nan_to_num(np.asarray(audio, dtype=np.float32), nan=0.0, posinf=0.0, neginf=0.0)
+
+        if PROFESSIONAL_METERS_AVAILABLE:
+            try:
+                meter = LUFSMeter(sr=sample_rate)
+                meter_audio = audio_arr.T if audio_arr.ndim == 2 else audio_arr
+                result = meter.measure(meter_audio, sample_rate)
+                return float(result.get("integrated_lufs", -70.0))
+            except Exception:
+                pass
+
+        # Fallback: conservative RMS proxy (kept for resilience if meter backend is unavailable).
+        if audio_arr.ndim == 2:
+            rms = np.sqrt(np.mean(audio_arr**2, axis=0))
+            rms_avg = float(np.mean(rms))
+        else:
+            rms_avg = float(np.sqrt(np.mean(audio_arr**2)))
+        return float(20.0 * np.log10(rms_avg + 1e-10) - 23.0)
 
     def _limit_true_peak(self, audio: np.ndarray, ceiling_db: float) -> tuple[np.ndarray, float]:
         """
         True peak limiting (prevent clipping in D/A conversion).
         """
-        # Simple true peak limiter (brick wall limiter)
         ceiling_linear = 10 ** (ceiling_db / 20.0)
 
-        peak = np.max(np.abs(audio))
+        peak = self._measure_true_peak_linear(audio)
 
         if peak > ceiling_linear:
             # Apply gain reduction
@@ -296,6 +385,16 @@ class OutputFormatOptimization(PhaseInterface):
             peak_reduction_db = 0.0
 
         return audio_limited, peak_reduction_db
+
+    def _measure_true_peak_linear(self, audio: np.ndarray) -> float:
+        """Measure inter-sample true peak using 4x oversampling."""
+        audio_arr = np.nan_to_num(np.asarray(audio, dtype=np.float32), nan=0.0, posinf=0.0, neginf=0.0)
+        if audio_arr.ndim == 1:
+            audio_up = signal.resample_poly(audio_arr, 4, 1)
+            return float(np.max(np.abs(audio_up)))
+
+        audio_up = signal.resample_poly(audio_arr, 4, 1, axis=0)
+        return float(np.max(np.abs(audio_up)))
 
     def _apply_tpdf_dither(self, audio: np.ndarray, bit_depth: int = 16) -> np.ndarray:
         """

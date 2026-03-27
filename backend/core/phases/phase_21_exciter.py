@@ -47,6 +47,7 @@ Author: Aurik Development Team
 Version: 2.0.0 Professional
 """
 
+import copy
 import logging
 import os
 import sys
@@ -165,6 +166,32 @@ class Exciter(PhaseInterface):
         start_time = time.time()
         self.validate_input(audio)
 
+        phase_locality_factor = float(kwargs.get("phase_locality_factor", 1.0))
+        phase_locality_factor = float(np.clip(phase_locality_factor, 0.35, 1.0))
+        _pmgg_strength = float(kwargs.get("strength", 1.0))
+        _effective_strength = float(np.clip(_pmgg_strength * phase_locality_factor, 0.0, 1.0))
+
+        if _effective_strength <= 0.0:
+            audio = np.nan_to_num(audio, nan=0.0, posinf=0.0, neginf=0.0)
+            audio = np.clip(audio, -1.0, 1.0)
+            return PhaseResult(
+                success=True,
+                audio=audio.copy(),
+                metrics={
+                    "skipped": True,
+                    "reason": "skipped_zero_strength",
+                    "hf_boost_db": 0.0,
+                },
+                execution_time_seconds=time.time() - start_time,
+                metadata={
+                    "algorithm": "skipped_zero_strength",
+                    "phase_locality_factor": phase_locality_factor,
+                    "effective_strength": _effective_strength,
+                },
+                warnings=[],
+                modifications={},
+            )
+
         # ── SOFT_SATURATION-Guard (Spec §6.3: Tube-Sättigung BEWAHREN) ──────
         # Spec: SOFT_SATURATION = gerade Obertöne (Röhren-Charakter) → nicht hinzufügen
         defect_scores = kwargs.get("defect_scores", {})
@@ -187,13 +214,20 @@ class Exciter(PhaseInterface):
                 audio=audio,
                 metrics={"skipped": True, "reason": "soft_saturation_preserve"},
                 execution_time_seconds=0.0,
-                metadata={"algorithm": "skip_soft_saturation_guard"},
+                metadata={
+                    "algorithm": "skip_soft_saturation_guard",
+                    "phase_locality_factor": phase_locality_factor,
+                    "effective_strength": _effective_strength,
+                },
                 warnings=["Phase 21 übersprungen: SOFT_SATURATION-Material erkannt — Röhren-Charakter wird bewahrt."],
                 modifications={},
             )
 
         is_stereo = audio.ndim == 2
-        config = self.EXCITER_CONFIG.get(material, self.EXCITER_CONFIG[MaterialType.CD_DIGITAL])
+        config = copy.deepcopy(self.EXCITER_CONFIG.get(material, self.EXCITER_CONFIG[MaterialType.CD_DIGITAL]))
+        for band_name in self.EXCITER_BANDS:
+            config[band_name]["intensity"] = float(config[band_name]["intensity"] * _effective_strength)
+        config["mix"] = float(config["mix"] * _effective_strength)
 
         # Process each channel
         if is_stereo:
@@ -202,6 +236,9 @@ class Exciter(PhaseInterface):
             excited_audio = np.column_stack((excited_left, excited_right))
         else:
             excited_audio = self._excite_channel(audio, sample_rate, config)
+
+        if 0.0 < _effective_strength < 1.0:
+            excited_audio = audio + _effective_strength * (excited_audio - audio)
 
         # Measure HF enhancement
         hf_energy_before = self._measure_hf_energy(audio, sample_rate)
@@ -222,6 +259,8 @@ class Exciter(PhaseInterface):
                 "hf_boost_db": float(hf_boost_db),
                 "mix_amount": float(config["mix"]),
                 "rt_factor": float(rt_factor),
+                "phase_locality_factor": phase_locality_factor,
+                "effective_strength": _effective_strength,
             },
             warnings=[] if rt_factor < 0.15 else [f"Performance sub-optimal: {rt_factor:.2f}× realtime"],
         )

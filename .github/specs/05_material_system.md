@@ -73,10 +73,10 @@ for phase_id in MATERIAL_PRIORITY_PHASES[material]:
 
 ---
 
-## §6.3 DefectType-Vollkatalog (28 Defekte)
+## §6.3 DefectType-Vollkatalog (32 Defekte)
 
 ```python
-# core/defect_scanner.py — DefectType (Enum, 29 Werte)
+# core/defect_scanner.py — DefectType (Enum, 32 Werte)
 
 # Analoge Kerndefekte:
 CLICKS, CRACKLE, HUM, LOW_FREQ_RUMBLE, DROPOUTS
@@ -126,8 +126,12 @@ RIAA_CURVE_ERROR  # Falsche oder historische Disc-Entzerrungskurve → phase_04 
                   # phase_04 wendet Inverse-Kurve der erkannten Variante an
 ALIASING          # Spiegelfrequenzen durch AA-Filter-Fehler → phase_03 + phase_23
 BIAS_ERROR        # Falscher Vormagnetisierungsstrom → phase_04 + phase_03 + phase_29
-# --- Spec §6.3 v9.10.57: Sibilanten-Überbetonung (ergibt 28 DefectTypes) ---
+# --- Spec §6.3 v9.10.57: Sibilanten-Überbetonung ---
 SIBILANCE         # Zischlautüberbetonung (> 6 kHz) — De-Esser-Trigger (phase_19 + phase_43)
+# --- v9.10.57b: Transport-Bump ---
+TRANSPORT_BUMP    # Impulsartige Mikro-Geschwindigkeitssprünge 50–300 ms (Kassette/Tape-Holpern) → phase_12
+# --- v9.10.77: Vocal-Harshness ---
+VOCAL_HARSHNESS   # Vokale Härte/Übersteuerung/Kratzigkeit im 2–6 kHz Band → phase_42 + phase_19
 ```
 
 **CLIPPING vs. SOFT_SATURATION — kritische Unterscheidung:**

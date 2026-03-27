@@ -206,6 +206,25 @@ class TransparentDynamicsV1(PhaseInterface):
         assert sample_rate == 48000, f"SR muss 48000 Hz sein, erhalten: {sample_rate}"
         start_time = time.time()
 
+        phase_locality_factor = float(kwargs.get("phase_locality_factor", 1.0))
+        phase_locality_factor = float(np.clip(phase_locality_factor, 0.35, 1.0))
+        effective_strength = float(kwargs.get("strength", 1.0)) * phase_locality_factor
+        effective_strength = float(np.clip(effective_strength, 0.0, 1.0))
+
+        if effective_strength <= 1e-6:
+            dry = np.nan_to_num(audio, nan=0.0, posinf=0.0, neginf=0.0)
+            dry = np.clip(dry, -1.0, 1.0)
+            return PhaseResult(
+                success=True,
+                audio=dry,
+                execution_time_seconds=time.time() - start_time,
+                metadata={
+                    "algorithm": "skipped_zero_strength",
+                    "phase_locality_factor": phase_locality_factor,
+                    "effective_strength": 0.0,
+                },
+            )
+
         # Determine genre preset
         genre_key = genre or self.genre
         genre_config = self.GENRE_PRESETS.get(genre_key, self.GENRE_PRESETS["default"])
@@ -219,7 +238,7 @@ class TransparentDynamicsV1(PhaseInterface):
         ratio = material_config["ratio"]
         threshold_db = material_config["threshold_db"]
         knee_db = material_config["knee_db"]
-        mix = material_config["mix"]
+        mix = float(np.clip(material_config["mix"], 0.0, 1.0)) * effective_strength
 
         # Convert to mono for analysis (if stereo)
         is_stereo = audio.ndim == 2
@@ -274,6 +293,8 @@ class TransparentDynamicsV1(PhaseInterface):
                 "attack_ms": attack_ms,
                 "release_ms": release_ms,
                 "mix": mix,
+                "phase_locality_factor": phase_locality_factor,
+                "effective_strength": effective_strength,
             },
         )
 

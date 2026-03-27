@@ -352,6 +352,33 @@ class DeEsserPhase(PhaseInterface):
         start_time = time.time()
         self.validate_input(audio)
 
+        phase_locality_factor = float(kwargs.get("phase_locality_factor", 1.0))
+        phase_locality_factor = float(np.clip(phase_locality_factor, 0.35, 1.0))
+        _pmgg_strength = float(kwargs.get("strength", 1.0))
+        _effective_strength = float(np.clip(_pmgg_strength * phase_locality_factor, 0.0, 1.0))
+
+        if _effective_strength <= 0.0:
+            passthrough = np.nan_to_num(audio.copy(), nan=0.0, posinf=0.0, neginf=0.0)
+            passthrough = np.clip(passthrough, -1.0, 1.0)
+            return PhaseResult(
+                success=True,
+                audio=passthrough,
+                execution_time_seconds=time.time() - start_time,
+                metadata={
+                    "material": material.name,
+                    "gender": self.gender,
+                    "de_essing_applied": False,
+                    "algorithm": "skipped_zero_strength",
+                    "phase_locality_factor": phase_locality_factor,
+                    "effective_strength": _effective_strength,
+                },
+                metrics={
+                    "sibilance_reduction_db": 0.0,
+                    "max_gain_reduction_db": 0.0,
+                    "hf_loss_ratio": 0.0,
+                },
+            )
+
         # ==============================================================
         # STAGE 1: DETECTION & ANALYSIS
         # ==============================================================
@@ -478,6 +505,7 @@ class DeEsserPhase(PhaseInterface):
         material_max_reduction_db = self.MAX_REDUCTION_DB.get(material, -6.0)
         gender_max_reduction_db = self.vocal_profile.get("max_depth_db", -3.5)
         max_reduction_db = max(material_max_reduction_db, gender_max_reduction_db)  # Sanftere gewinnt
+        max_reduction_db = float(max_reduction_db * _effective_strength)
 
         # §2.20 Genre-adaptive de-essing cap: genre_profile.deessing_strength_cap
         # limits how aggressive de-essing can be (e.g. Schlager 0.45, Oper 0.35).
@@ -519,6 +547,8 @@ class DeEsserPhase(PhaseInterface):
                     "gender": self.gender,
                     "de_essing_applied": False,
                     "aurik_8_enhancement": AURIK_8_AVAILABLE,
+                    "phase_locality_factor": phase_locality_factor,
+                    "effective_strength": _effective_strength,
                 },
                 warnings=["De-Esser übersprungen (max_reduction <1.0 dB)"],
             )
@@ -698,6 +728,9 @@ class DeEsserPhase(PhaseInterface):
 
         deessed_audio = np.nan_to_num(deessed_audio, nan=0.0, posinf=0.0, neginf=0.0)
         deessed_audio = np.clip(deessed_audio, -1.0, 1.0)
+        if 0.0 < _effective_strength < 1.0:
+            deessed_audio = enhanced_audio + _effective_strength * (deessed_audio - enhanced_audio)
+            deessed_audio = np.clip(deessed_audio, -1.0, 1.0)
         return PhaseResult(
             success=True,
             audio=deessed_audio,
@@ -725,6 +758,8 @@ class DeEsserPhase(PhaseInterface):
                 "fricative_snr_invariant_met": _fricative_snr_invariant_met,
                 "fricative_snr_before_deessing_db": round(_snr_ref, 2),
                 "fricative_snr_after_chain_db": round(_snr_after_chain, 2),
+                "phase_locality_factor": phase_locality_factor,
+                "effective_strength": _effective_strength,
             },
             metrics={
                 "sibilance_reduction_db": float(sibilance_reduction_db),

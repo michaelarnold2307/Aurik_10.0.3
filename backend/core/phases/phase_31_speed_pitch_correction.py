@@ -189,8 +189,30 @@ class SpeedPitchCorrectionPhase(PhaseInterface):
         assert sample_rate == 48000, f"SR muss 48000 Hz sein, erhalten: {sample_rate}"
         start_time = time.time()
 
+        phase_locality_factor = float(kwargs.get("phase_locality_factor", 1.0))
+        phase_locality_factor = float(np.clip(phase_locality_factor, 0.35, 1.0))
+        _pmgg_strength = float(kwargs.get("strength", 1.0))
+        _effective_strength = float(np.clip(_pmgg_strength * phase_locality_factor, 0.0, 1.0))
+
+        if _effective_strength <= 0.0:
+            audio = np.nan_to_num(audio, nan=0.0, posinf=0.0, neginf=0.0)
+            audio = np.clip(audio, -1.0, 1.0)
+            return create_phase_result(
+                audio=audio,
+                modifications={"processing": "skipped", "reason": "skipped_zero_strength"},
+                warnings=[],
+                metadata={
+                    "algorithm": "none",
+                    "material_type": material_type,
+                    "phase_locality_factor": phase_locality_factor,
+                    "effective_strength": _effective_strength,
+                    "execution_time_seconds": time.time() - start_time,
+                },
+            )
+
         # Get material-specific parameters
-        params = self.MATERIAL_PARAMS.get(material_type, self.MATERIAL_PARAMS["unknown"])
+        params = dict(self.MATERIAL_PARAMS.get(material_type, self.MATERIAL_PARAMS["unknown"]))
+        params["correction_strength"] = float(params["correction_strength"] * _effective_strength)
 
         # Skip digital sources
         if params["max_speed_error"] == 0:
@@ -205,6 +227,8 @@ class SpeedPitchCorrectionPhase(PhaseInterface):
                 metadata={
                     "algorithm": "none",
                     "material_type": material_type,
+                    "phase_locality_factor": phase_locality_factor,
+                    "effective_strength": _effective_strength,
                     "execution_time_seconds": time.time() - start_time,
                 },
             )
@@ -247,6 +271,8 @@ class SpeedPitchCorrectionPhase(PhaseInterface):
                     "algorithm": params["algorithm"],
                     "material_type": material_type,
                     "quality_mode": quality_mode,
+                    "phase_locality_factor": phase_locality_factor,
+                    "effective_strength": _effective_strength,
                     **ml_metadata,
                     "execution_time_seconds": time.time() - start_time,
                 },
@@ -273,6 +299,8 @@ class SpeedPitchCorrectionPhase(PhaseInterface):
                     "algorithm": params["algorithm"],
                     "material_type": material_type,
                     "quality_mode": quality_mode,
+                    "phase_locality_factor": phase_locality_factor,
+                    "effective_strength": _effective_strength,
                     **ml_metadata,
                     "execution_time_seconds": time.time() - start_time,
                 },
@@ -301,6 +329,9 @@ class SpeedPitchCorrectionPhase(PhaseInterface):
             else:  # hybrid
                 result_audio = self._correct_hybrid(audio, correction_ratio, params)
 
+            if 0.0 < _effective_strength < 1.0 and result_audio.shape == audio.shape:
+                result_audio = audio + _effective_strength * (result_audio - audio)
+
             execution_time = time.time() - start_time
 
             result_audio = np.nan_to_num(result_audio, nan=0.0, posinf=0.0, neginf=0.0)
@@ -317,6 +348,7 @@ class SpeedPitchCorrectionPhase(PhaseInterface):
                     "speed_ratio_detected": speed_ratio,
                     "speed_error_percent": speed_error_percent,
                     "correction_strength": params["correction_strength"],
+                    "effective_strength": _effective_strength,
                     "correction_ratio": correction_ratio,
                     "samples_before": len(audio),
                     "samples_after": len(result_audio),
@@ -332,6 +364,8 @@ class SpeedPitchCorrectionPhase(PhaseInterface):
                     "scientific_ref": "Mauch & Dixon (2014) pYIN, Moulines & Charpentier (1990) WSOLA",
                     "benchmark": "Rubber Band Library, SoundTouch, iZotope Radius",
                     "material_type": material_type,
+                    "phase_locality_factor": phase_locality_factor,
+                    "effective_strength": _effective_strength,
                     "execution_time_seconds": execution_time,
                 },
             )
@@ -354,6 +388,8 @@ class SpeedPitchCorrectionPhase(PhaseInterface):
                     "algorithm": params["algorithm"],
                     "algorithm_version": "v3.0_ml_hybrid" if use_ml_hybrid else "2.0_professional",
                     "quality_mode": quality_mode,
+                    "phase_locality_factor": phase_locality_factor,
+                    "effective_strength": _effective_strength,
                     **ml_metadata,
                     "material_type": material_type,
                     "execution_time_seconds": time.time() - start_time,

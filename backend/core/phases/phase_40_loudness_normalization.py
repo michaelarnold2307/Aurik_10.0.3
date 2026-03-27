@@ -146,6 +146,40 @@ class LoudnessNormalizationPhase(PhaseInterface):
 
         self.validate_input(audio)
 
+        phase_locality_factor = float(kwargs.get("phase_locality_factor", 1.0))
+        phase_locality_factor = float(np.clip(phase_locality_factor, 0.35, 1.0))
+        _pmgg_strength = float(kwargs.get("strength", 1.0))
+        _effective_strength = float(np.clip(_pmgg_strength * phase_locality_factor, 0.0, 1.0))
+
+        if _effective_strength <= 0.0:
+            audio = np.nan_to_num(audio, nan=0.0, posinf=0.0, neginf=0.0)
+            audio = np.clip(audio, -1.0, 1.0)
+            peak_db = float(20.0 * np.log10(np.max(np.abs(audio)) + 1e-10))
+            return PhaseResult(
+                success=True,
+                audio=audio.copy(),
+                execution_time_seconds=time.time() - start_time,
+                metadata={
+                    "algorithm": "skipped_zero_strength",
+                    "material": material.name,
+                    "phase_locality_factor": phase_locality_factor,
+                    "effective_strength": _effective_strength,
+                },
+                metrics={
+                    "integrated_lufs_before": -70.0,
+                    "integrated_lufs_after": -70.0,
+                    "lra_before": 0.0,
+                    "lra_after": 0.0,
+                    "gain_applied_db": 0.0,
+                    "true_peak_before_db": peak_db,
+                    "true_peak_after_db": peak_db,
+                    "lufs_tolerance": 0.0,
+                    "peak_compliance": True,
+                    "momentary_max_lufs": -70.0,
+                    "short_term_max_lufs": -70.0,
+                },
+                modifications={"algorithm": "skipped_zero_strength"},
+            )
 
         # Get target (platform overrides material)
         if platform and platform in self.PLATFORM_PRESETS:
@@ -158,11 +192,14 @@ class LoudnessNormalizationPhase(PhaseInterface):
             max_true_peak_db = -1.0
             preset_name = None
 
+        quality_mode = str(kwargs.get("quality_mode", "balanced")).lower()
+        output_guard_enabled = quality_mode in ("quality", "maximum", "studio2026")
+
         # Measure current loudness (ITU-R BS.1770-4)
         integrated_lufs, lra, momentary_max, short_term_max = self._measure_loudness_full(audio, sample_rate)
 
         # Calculate gain adjustment
-        gain_db = target_lufs - integrated_lufs
+        gain_db = (target_lufs - integrated_lufs) * _effective_strength
 
         # Dynamic Range Preservation: Limit gain to preserve DR
         if preserve_dynamics:
@@ -198,6 +235,9 @@ class LoudnessNormalizationPhase(PhaseInterface):
             # Apply True Peak Limiter
             normalized = self._true_peak_limit(normalized, sample_rate, max_true_peak_db)
 
+        if 0.0 < _effective_strength < 1.0:
+            normalized = audio + _effective_strength * (normalized - audio)
+
         # Final measurements
         final_lufs, final_lra, _, _ = self._measure_loudness_full(normalized, sample_rate)
         final_true_peak_db = self._measure_true_peak(normalized, sample_rate)
@@ -205,6 +245,24 @@ class LoudnessNormalizationPhase(PhaseInterface):
         # Calculate achieved tolerance
         lufs_tolerance = abs(final_lufs - target_lufs)
         peak_compliance = final_true_peak_db <= max_true_peak_db
+
+        # Quality guard: accept only if target error improves and true-peak is compliant.
+        # Apply this strict gate only in high quality modes.
+        output_guard_fallback = False
+        output_guard_reason = "disabled"
+        before_error = float(abs(integrated_lufs - target_lufs))
+        after_error = float(abs(final_lufs - target_lufs))
+        if output_guard_enabled:
+            output_guard_reason = "ok"
+            if (after_error > before_error + 0.10) or (not peak_compliance):
+                output_guard_fallback = True
+                output_guard_reason = "target_or_peak"
+                normalized = audio.copy()
+                final_lufs = integrated_lufs
+                final_lra = lra
+                final_true_peak_db = self._measure_true_peak(normalized, sample_rate)
+                lufs_tolerance = float(abs(final_lufs - target_lufs))
+                peak_compliance = bool(final_true_peak_db <= max_true_peak_db)
 
         execution_time = time.time() - start_time
 
@@ -220,6 +278,12 @@ class LoudnessNormalizationPhase(PhaseInterface):
                 "target_lufs": target_lufs,
                 "max_true_peak_db": max_true_peak_db,
                 "preserve_dynamics": preserve_dynamics,
+                "quality_mode": quality_mode,
+                "output_guard_enabled": output_guard_enabled,
+                "output_guard_fallback": output_guard_fallback,
+                "output_guard_reason": output_guard_reason,
+                "phase_locality_factor": phase_locality_factor,
+                "effective_strength": _effective_strength,
             },
             metrics={
                 "integrated_lufs_before": float(integrated_lufs),
@@ -252,10 +316,10 @@ class LoudnessNormalizationPhase(PhaseInterface):
         audio_weighted = self._k_weight_full(audio, sample_rate)
 
         # Gated Loudness Measurement
-        integrated_lufs = self._measure_integrated_lufs(audio_weighted)
+        integrated_lufs = self._measure_integrated_lufs(audio_weighted, sample_rate)
 
         # Loudness Range (LRA)
-        lra = self._measure_lra(audio_weighted)
+        lra = self._measure_lra(audio_weighted, sample_rate)
 
         # Momentary Loudness (400ms window)
         momentary_max = self._measure_momentary_max(audio_weighted, sample_rate)
@@ -302,7 +366,7 @@ class LoudnessNormalizationPhase(PhaseInterface):
 
         return audio_weighted
 
-    def _measure_integrated_lufs(self, audio_weighted: np.ndarray) -> float:
+    def _measure_integrated_lufs(self, audio_weighted: np.ndarray, sample_rate: int) -> float:
         """
         Integrated Loudness mit Gating (ITU-R BS.1770-4).
 
@@ -311,13 +375,13 @@ class LoudnessNormalizationPhase(PhaseInterface):
         2. Relative gate: -10 LU below ungated measurement
         """
         # Block size: 400ms (momentary), overlap 75%
-        block_size = int(0.4 * 44100)  # Assume 44.1 kHz
+        block_size = max(1, int(0.4 * sample_rate))
         hop_size = block_size // 4
 
         # Calculate block loudness
         block_loudness = []
 
-        num_blocks = (len(audio_weighted) - block_size) // hop_size + 1
+        num_blocks = max(0, (len(audio_weighted) - block_size) // hop_size + 1)
 
         for i in range(num_blocks):
             start = i * hop_size
@@ -363,19 +427,19 @@ class LoudnessNormalizationPhase(PhaseInterface):
 
         return integrated_lufs
 
-    def _measure_lra(self, audio_weighted: np.ndarray) -> float:
+    def _measure_lra(self, audio_weighted: np.ndarray, sample_rate: int) -> float:
         """
         Loudness Range (LRA) measurement (EBU Tech 3341).
 
         LRA = difference between 95th and 10th percentile of short-term loudness.
         """
         # Short-term blocks (3s, 1s hop)
-        block_size = int(3.0 * 44100)
-        hop_size = int(1.0 * 44100)
+        block_size = max(1, int(3.0 * sample_rate))
+        hop_size = max(1, int(1.0 * sample_rate))
 
         short_term_loudness = []
 
-        num_blocks = (len(audio_weighted) - block_size) // hop_size + 1
+        num_blocks = max(0, (len(audio_weighted) - block_size) // hop_size + 1)
 
         for i in range(num_blocks):
             start = i * hop_size

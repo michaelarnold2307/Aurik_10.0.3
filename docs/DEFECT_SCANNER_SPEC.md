@@ -1,17 +1,19 @@
-# DefectScanner Specification - Aurik 9.10.57
+# DefectScanner Specification - Aurik 9.x.x
 
-**Version:** 9.10.57  
+**Version:** 9.10.77c  
 **Stand:** März 2026  
-**Status:** ✅ Production-Ready (7.747+ Tests grün)  
+**Status:** ✅ Production-Ready  
 **Location:** `core/defect_scanner.py` (~2500 lines)
+
+> Hinweis: Verbindlicher Ist-Stand liegt in `.github/specs/01-08` und `docs/CHANGELOG_HISTORY.md`.
 
 ---
 
 ## 1. Purpose
 
 The **DefectScanner** is the entry point for Aurik 9’s **Defect-First** restoration workflow. It analyzes audio to:
-- Detect **27 different defect types** with severity scores (0.0–1.0) and temporal locations
-- Automatically identify **material type** from **17 supported types** (shellac/vinyl/tape/cd/streaming/wax_cylinder/wire_recording/lacquer_disc …)
+- Detect **32 defect types** with severity scores (0.0–1.0) and temporal locations
+- Automatically identify material context (material-adaptive detection/thresholding)
 - Provide **material-adaptive** thresholds for each defect
 - Execute in **<10% of audio duration** (performance guarantee)
 - Emit **temporal locations** (start/end timestamps) per defect for PMGG and timeline UI
@@ -24,12 +26,12 @@ The **DefectScanner** is the entry point for Aurik 9’s **Defect-First** restor
 ┌─────────────────────────────────────────────────────────────┐
 │                      DefectScanner                          │
 │  ┌───────────────────────────────────────────────────────┐  │
-│  │  Material Auto-Detection (17 Typen: shellac/vinyl/tape…) │  │
+│  │  Material Auto-Detection (material-adaptiv)             │  │
 │  └───────────────┬───────────────────────────────────────┘  │
 │                  │                                           │
 │                  v                                           │
 │  ┌───────────────────────────────────────────────────────┐  │
-│  │  30 Defect Detectors (parallel analysis)              │  │
+│  │  32 Defect Detectors (parallel analysis)              │  │
 │  │  - clicks                - rumble                      │  │
 │  │  - crackle               - high_freq_noise             │  │
 │  │  - hum                   - compression_artifacts       │  │
@@ -54,7 +56,7 @@ The **DefectScanner** is the entry point for Aurik 9’s **Defect-First** restor
 
 ## 3. Defect Types
 
-### 3.1 Enum Definition (30 DefectTypes, Stand v9.10.57)
+### 3.1 Enum Definition (32 DefectTypes, Stand v9.10.77c)
 ```python
 class DefectType(Enum):
     # Analoge Kerndefekte
@@ -86,6 +88,8 @@ class DefectType(Enum):
     RIAA_CURVE_ERROR = "riaa_curve_error"      # Falsche Entzerrungskurve (Shellac/früher Vinyl)
     ALIASING = "aliasing"                      # Anti-Aliasing-Fehler bei Digitalisierung
     BIAS_ERROR = "bias_error"                  # Falscher Vormagnetisierungsstrom (Tape)
+    TRANSPORT_BUMP = "transport_bump"          # Nicht-stationäre Transportstörung
+    VOCAL_HARSHNESS = "vocal_harshness"        # Harshness im Vocal-Präsenzbereich
 ```
 
 **Kritische Unterscheidung CLIPPING vs. SOFT_SATURATION:**

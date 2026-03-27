@@ -68,6 +68,7 @@ from scipy import signal
 
 from backend.core.defect_scanner import MaterialType
 
+from .output_guard import evaluate_output_guard
 from .phase_interface import PhaseCategory, PhaseInterface, PhaseMetadata, PhaseResult
 
 try:
@@ -248,12 +249,80 @@ class PianoRestorationV1(PhaseInterface):
         start_time = time.time()
         assert self.sample_rate == 48000, f"SR muss 48000 Hz sein, erhalten: {self.sample_rate}"
 
-        # Get material-specific config
-        config = self.RESTORATION_CONFIG.get(material_type, self.DEFAULT_CONFIG)
+        phase_locality_factor = float(kwargs.get("phase_locality_factor", 1.0))
+        phase_locality_factor = float(np.clip(phase_locality_factor, 0.35, 1.0))
+        effective_strength = float(kwargs.get("strength", 1.0)) * phase_locality_factor
+        effective_strength = float(np.clip(effective_strength, 0.0, 1.0))
 
-        # Convert to mono for analysis (if stereo)
+        if effective_strength <= 1e-6:
+            dry = np.nan_to_num(audio, nan=0.0, posinf=0.0, neginf=0.0)
+            dry = np.clip(dry, -1.0, 1.0)
+            return PhaseResult(
+                success=True,
+                audio=dry,
+                execution_time_seconds=time.time() - start_time,
+                metadata={
+                    "algorithm": "skipped_zero_strength",
+                    "phase_locality_factor": phase_locality_factor,
+                    "effective_strength": 0.0,
+                },
+            )
+
+        # PANNs piano-confidence gate (Spec §2.9: threshold >= 0.50).
+        panns_tags = kwargs.get("panns_tags", {})
+        piano_confidence = 0.0
+        for tag_name, conf in panns_tags.items():
+            tag_lower = str(tag_name).lower()
+            if any(k in tag_lower for k in ("piano", "keyboard", "keys")):
+                piano_confidence = max(piano_confidence, float(conf))
+
+        if panns_tags and piano_confidence < 0.50:
+            logger.info(
+                "Phase 52: Piano-Confidence %.2f < 0.50 — Phase skipped (Spec §2.9)",
+                piano_confidence,
+            )
+            audio = np.nan_to_num(audio, nan=0.0, posinf=0.0, neginf=0.0)
+            audio = np.clip(audio, -1.0, 1.0)
+            return PhaseResult(
+                success=True,
+                audio=audio,
+                execution_time_seconds=time.time() - start_time,
+                metadata={
+                    "algorithm": "skip_panns_confidence",
+                    "piano_confidence": piano_confidence,
+                    "phase_locality_factor": phase_locality_factor,
+                    "effective_strength": effective_strength,
+                },
+            )
+
+        if piano_confidence > 0.0:
+            logger.info("Phase 52: PANNs Piano-Confidence=%.2f >= 0.50 — processing active", piano_confidence)
+
+        # Get material-specific config
+        config = self.RESTORATION_CONFIG.get(material_type, self.DEFAULT_CONFIG).copy()
+
+        quality_mode = str(kwargs.get("quality_mode", "balanced")).lower()
+        if quality_mode in ("quality", "maximum", "studio2026"):
+            hq_scale = 1.12 if quality_mode in ("maximum", "studio2026") else 1.06
+            config["mix"] = float(np.clip(config["mix"] * hq_scale, 0.0, 0.75))
+            config["hammer_enhancement"] = float(np.clip(config["hammer_enhancement"] * hq_scale, 0.0, 1.0))
+            config["string_resonance"] = float(np.clip(config["string_resonance"] * hq_scale, 0.0, 1.0))
+            config["dynamics_expansion"] = float(np.clip(config["dynamics_expansion"] * (1.0 + 0.5 * (hq_scale - 1.0)), 1.0, 1.35))
+        else:
+            hq_scale = 1.0
+
+        # Preserve stereo image: process Mid, keep original Side, then reconstruct L/R.
         is_stereo = audio.ndim == 2
-        audio_mono = np.mean(audio, axis=1) if is_stereo else audio.copy()
+        if is_stereo:
+            left = audio[:, 0].astype(np.float64)
+            right = audio[:, 1].astype(np.float64)
+            original_mid = 0.5 * (left + right)
+            original_side = 0.5 * (left - right)
+            audio_mono = original_mid.copy()
+        else:
+            original_mid = audio.astype(np.float64)
+            original_side = None
+            audio_mono = original_mid.copy()
 
         logger.info(f"Piano Restoration: {material_type.value}, config={config}")
 
@@ -279,21 +348,28 @@ class PianoRestorationV1(PhaseInterface):
         if config["dynamics_expansion"] > 1.0:
             audio_mono = self._restore_dynamics(audio_mono, expansion_ratio=config["dynamics_expansion"])
 
-        # Dry/wet mix
-        original_mono = np.mean(audio, axis=1) if is_stereo else audio.copy()
+        # Dry/wet mix on Mid channel
+        original_mono = original_mid
 
-        audio_mono = config["mix"] * audio_mono + (1.0 - config["mix"]) * original_mono
+        mix = float(np.clip(config["mix"], 0.0, 1.0)) * effective_strength
+        audio_mono = mix * audio_mono + (1.0 - mix) * original_mono
 
         # Prevent clipping (soft limiter at 0.95)
         peak = np.max(np.abs(audio_mono))
         if peak > 0.95:
             audio_mono = audio_mono * (0.95 / peak)
 
-        # Convert back to stereo if needed
-        audio_out = np.column_stack([audio_mono, audio_mono]) if is_stereo else audio_mono
+        # Reconstruct stereo from processed Mid + original Side.
+        if is_stereo and original_side is not None:
+            out_left = audio_mono + original_side
+            out_right = audio_mono - original_side
+            audio_out = np.column_stack([out_left, out_right])
+        else:
+            audio_out = audio_mono
 
         audio_out = np.nan_to_num(audio_out, nan=0.0, posinf=0.0, neginf=0.0)
         audio_out = np.clip(audio_out, -1.0, 1.0)
+        audio_out_pre_refine = audio_out.copy()
 
         # Instrument-guided formant enhancement (Young 1952 / Weinreich 1977 piano resonances)
         igt_frames = 0
@@ -302,8 +378,12 @@ class PianoRestorationV1(PhaseInterface):
             if _FormantSystemCls is not None:
                 if _FORMANT_SYSTEM_PIANO is None:
                     _FORMANT_SYSTEM_PIANO = _FormantSystemCls(enhance_singers_formant=False)
+                formant_strength = float(np.clip(0.20 * hq_scale, 0.15, 0.28))
                 audio_out, igt_report = _FORMANT_SYSTEM_PIANO.instrument_guided_enhance(
-                    audio_out, self.sample_rate, instrument="keys", correction_strength=0.20
+                    audio_out,
+                    self.sample_rate,
+                    instrument="keys",
+                    correction_strength=formant_strength,
                 )
                 igt_frames = igt_report.get("frames_processed", 0)
                 logger.debug("Phase 52 InstrumentFormant: piano frames=%d", igt_frames)
@@ -326,8 +406,9 @@ class PianoRestorationV1(PhaseInterface):
         # Sub-Stem-Verarbeitung (Schritt 4)
         try:
             from backend.core.sub_stem_processor import process_sub_stems
+            sub_stem_strength = float(np.clip(0.30 * hq_scale, 0.25, 0.42))
             ss_result = process_sub_stems(audio_out, self.sample_rate, instrument="keys",
-                                          processing_strength=0.30)
+                                          processing_strength=sub_stem_strength)
             audio_out = ss_result.audio
             logger.debug("Phase 52 sub-stem: bands=%d strength=%.2f",
                          ss_result.n_bands, ss_result.processing_strength)
@@ -337,13 +418,38 @@ class PianoRestorationV1(PhaseInterface):
         # Physics-Resonanz (Schritt 5 — Biquad Body Resonance)
         try:
             from backend.core.physics_resonance_enhancer import enhance_physics_resonance
+            physics_strength = float(np.clip(0.40 * hq_scale, 0.35, 0.55))
             pr_result = enhance_physics_resonance(audio_out, self.sample_rate, instrument="keys",
-                                                  enhancement_strength=0.40)
+                                                  enhancement_strength=physics_strength)
             audio_out = pr_result.audio
             logger.debug("Phase 52 physics resonance: peaks=%d strength=%.2f",
                          pr_result.n_peaks, pr_result.enhancement_strength)
         except Exception as _pr_exc:
             logger.debug("Phase 52 physics resonance skipped: %s", _pr_exc)
+
+        if 0.0 < effective_strength < 1.0:
+            audio_out = audio + effective_strength * (audio_out - audio)
+
+        audio_out = np.nan_to_num(audio_out, nan=0.0, posinf=0.0, neginf=0.0)
+        audio_out = np.clip(audio_out, -1.0, 1.0)
+
+        # Conservative output guard for high quality modes only.
+        output_guard_enabled = quality_mode in ("quality", "maximum", "studio2026")
+        guard = evaluate_output_guard(
+            original=audio,
+            candidate=audio_out,
+            enabled=output_guard_enabled,
+            max_abs_rms_delta_db=1.0,
+            stereo_side_ratio_min=0.60,
+            stereo_side_ratio_max=1.40,
+        )
+
+        if guard.fallback:
+            audio_out = audio_out_pre_refine.copy()
+            if 0.0 < effective_strength < 1.0:
+                audio_out = audio + effective_strength * (audio_out - audio)
+            audio_out = np.nan_to_num(audio_out, nan=0.0, posinf=0.0, neginf=0.0)
+            audio_out = np.clip(audio_out, -1.0, 1.0)
 
         return PhaseResult(
             success=True,
@@ -355,9 +461,19 @@ class PianoRestorationV1(PhaseInterface):
                 "string_resonance": config["string_resonance"],
                 "pedal_reduction": config["pedal_reduction"],
                 "dynamics_expansion": config["dynamics_expansion"],
-                "mix": config["mix"],
+                "mix": mix,
+                "stereo_image_preserved": bool(is_stereo),
+                "quality_mode": quality_mode,
+                "hq_scale": hq_scale,
+                "output_guard_enabled": output_guard_enabled,
+                "output_guard_fallback": guard.fallback,
+                "output_guard_reason": guard.reason,
+                "rms_delta_db": guard.rms_delta_db,
+                "stereo_side_ratio": guard.stereo_side_ratio,
                 "fletcher_B_available": True,
                 "instrument_formant_frames": igt_frames,
+                "phase_locality_factor": phase_locality_factor,
+                "effective_strength": effective_strength,
             },
         )
 

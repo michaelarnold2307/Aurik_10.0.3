@@ -177,6 +177,26 @@ class SemanticAudioPhase(PhaseInterface):
         self.validate_input(audio)
         t0 = time.time()
 
+        phase_locality_factor = float(kwargs.get("phase_locality_factor", 1.0))
+        phase_locality_factor = float(np.clip(phase_locality_factor, 0.35, 1.0))
+        effective_strength = float(kwargs.get("strength", 1.0)) * phase_locality_factor
+        effective_strength = float(np.clip(effective_strength, 0.0, 1.0))
+
+        if effective_strength <= 1e-6:
+            audio = np.nan_to_num(audio, nan=0.0, posinf=0.0, neginf=0.0)
+            audio = np.clip(audio, -1.0, 1.0)
+            return PhaseResult(
+                success=True,
+                audio=audio,
+                execution_time_seconds=time.time() - t0,
+                metadata={
+                    "algorithm": "skipped_zero_strength",
+                    "phase_locality_factor": phase_locality_factor,
+                    "effective_strength": 0.0,
+                },
+                metrics={"effective_strength": 0.0},
+            )
+
         mono = _mono(audio.astype(np.float64))
 
         bpm = _estimate_bpm(mono, sample_rate)
@@ -209,6 +229,8 @@ class SemanticAudioPhase(PhaseInterface):
             "lufs_approx": round(float(lufs_approx), 1),
             "crest_factor": round(float(crest_factor), 2),
             "spectral_centroid_hz": round(float(centroid), 1),
+            "phase_locality_factor": phase_locality_factor,
+            "effective_strength": effective_strength,
         }
 
         logger.info(
@@ -226,5 +248,5 @@ class SemanticAudioPhase(PhaseInterface):
             audio=audio,  # UNVERÄNDERT — Kategorie METADATA
             execution_time_seconds=time.time() - t0,
             metadata=meta,
-            metrics={"bpm": bpm, "crest_factor": crest_factor},
+            metrics={"bpm": bpm, "crest_factor": crest_factor, "effective_strength": effective_strength},
         )

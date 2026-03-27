@@ -190,7 +190,30 @@ class RumbleFilterPhase(PhaseInterface):
         start_time = time.time()
 
         # Get material-specific parameters
-        params = self.MATERIAL_PARAMS.get(material_type, self.MATERIAL_PARAMS["unknown"])
+        params = dict(self.MATERIAL_PARAMS.get(material_type, self.MATERIAL_PARAMS["unknown"]))
+
+        # Locality-aware intensity control from UV3.
+        phase_locality_factor = float(kwargs.get("phase_locality_factor", 1.0))
+        phase_locality_factor = float(np.clip(phase_locality_factor, 0.35, 1.0))
+        _pmgg_strength = float(kwargs.get("strength", 1.0))
+        _effective_strength = float(np.clip(_pmgg_strength * phase_locality_factor, 0.0, 1.0))
+
+        if _effective_strength <= 0.0:
+            passthrough = np.nan_to_num(audio.copy(), nan=0.0, posinf=0.0, neginf=0.0)
+            passthrough = np.clip(passthrough, -1.0, 1.0)
+            return create_phase_result(
+                audio=passthrough,
+                modifications={"rumble_filtered": False, "reason": "skipped_zero_strength"},
+                warnings=["Rumble filter skipped due to zero effective strength"],
+                metadata={
+                    "algorithm": "skipped_zero_strength",
+                    "rumble_energy_ratio": 0.0,
+                    "material_type": material_type,
+                    "phase_locality_factor": phase_locality_factor,
+                    "effective_strength": _effective_strength,
+                    "execution_time_seconds": time.time() - start_time,
+                },
+            )
 
         # Override phase mode if FIR requested
         if use_fir:
@@ -216,6 +239,8 @@ class RumbleFilterPhase(PhaseInterface):
                     "algorithm": "none",
                     "rumble_energy_ratio": rumble_energy_ratio,
                     "material_type": material_type,
+                    "phase_locality_factor": phase_locality_factor,
+                    "effective_strength": _effective_strength,
                     "execution_time_seconds": time.time() - start_time,
                 },
             )
@@ -253,6 +278,10 @@ class RumbleFilterPhase(PhaseInterface):
         filtered = np.nan_to_num(filtered, nan=0.0, posinf=0.0, neginf=0.0)
         filtered = np.clip(filtered, -1.0, 1.0)
 
+        if 0.0 < _effective_strength < 1.0:
+            filtered = (audio + _effective_strength * (filtered - audio)).astype(audio.dtype)
+            filtered = np.clip(filtered, -1.0, 1.0)
+
         return create_phase_result(
             audio=filtered,
             modifications={
@@ -274,6 +303,8 @@ class RumbleFilterPhase(PhaseInterface):
                 "scientific_ref": "Julius O. Smith III (2007), Zölzer (2011), Välimäki (2016), Bello (2005), Valente (2005)",
                 "benchmark": "iZotope RX De-rumble, Waves X-Rumble, WaveArts MR Hum",
                 "algorithm_version": "2.0_professional",
+                "phase_locality_factor": phase_locality_factor,
+                "effective_strength": _effective_strength,
                 "execution_time_seconds": execution_time,
             },
         )

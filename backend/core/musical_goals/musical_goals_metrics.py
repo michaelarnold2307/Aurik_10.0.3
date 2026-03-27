@@ -2340,6 +2340,79 @@ class ArticulationMetric:
         return score
 
 
+# ---------------------------------------------------------------------------
+# §1.2 v9.10.77: Mode-differenzierte Musical-Goal-Schwellwerte
+# ---------------------------------------------------------------------------
+# Restoration: P1/P2 identisch (Preservation-Pflicht), P3–P5 physikalisch
+#   erreichbar — reduziert PMGG-Retries und Cross-Goal-Damage.
+# Studio 2026: Ambitionierte Schwellwerte (Highend-Studio-Anspruch).
+#
+# Begründung (Pareto-Analyse, v9.10.77):
+#   - Bass-Kraft ↔ Transparenz [Konflikt 0.7]: Restoration 0.78/0.82 vs Studio 0.85/0.89
+#   - Brillanz ↔ Wärme [Konflikt 0.6]: Restoration 0.78/0.75 vs Studio 0.85/0.80
+#   - Brillanz ↔ Natürlichkeit [Konflikt 0.5]: Restoration senkt nur Brillanz (P5)
+#   - Groove ↔ NR-Phasen [systematisch]: Restoration 0.83 toleriert NR-Phase-Jitter
+# ---------------------------------------------------------------------------
+
+_THRESHOLDS_RESTORATION: dict[str, float] = {
+    # P1 — Preservation-Pflicht (unveränderlich)
+    "natuerlichkeit": 0.90,
+    "authentizitaet": 0.88,
+    # P2 — Tonale/Timbre-Integrität (unveränderlich)
+    "tonal_center": 0.95,
+    "timbre_authentizitaet": 0.87,
+    "artikulation": 0.85,
+    # P3 — Best-Effort, erreichbar (gesenkt)
+    "emotionalitaet": 0.82,
+    "micro_dynamics": 0.88,
+    "groove": 0.83,
+    # P4 — Best-Effort, materialabhängig (gesenkt)
+    "transparenz": 0.82,
+    "waerme": 0.75,
+    "bass_kraft": 0.78,
+    "separation_fidelity": 0.78,
+    # P5 — Best-Effort, oft durch Material-Ceiling limitiert (gesenkt)
+    "brillanz": 0.78,
+    "spatial_depth": 0.70,
+}
+
+_THRESHOLDS_STUDIO_2026: dict[str, float] = {
+    # P1
+    "natuerlichkeit": 0.90,
+    "authentizitaet": 0.88,
+    # P2
+    "tonal_center": 0.97,     # Studio 2026: strengere Tonart-Erhaltung
+    "timbre_authentizitaet": 0.87,
+    "artikulation": 0.85,
+    # P3
+    "emotionalitaet": 0.87,
+    "micro_dynamics": 0.92,
+    "groove": 0.88,
+    # P4
+    "transparenz": 0.89,
+    "waerme": 0.80,
+    "bass_kraft": 0.85,
+    "separation_fidelity": 0.82,
+    # P5
+    "brillanz": 0.85,
+    "spatial_depth": 0.75,
+}
+
+
+def get_mode_thresholds(mode: str = "restoration") -> dict[str, float]:
+    """Return Musical Goal thresholds for the given processing mode.
+
+    Args:
+        mode: "restoration" (default) or "studio_2026" / "studio2026" / "maximum".
+
+    Returns:
+        Dict with 14 goal thresholds.
+    """
+    if mode and any(kw in str(mode).lower() for kw in ("studio", "maximum", "aggressive")):
+        return dict(_THRESHOLDS_STUDIO_2026)
+    return dict(_THRESHOLDS_RESTORATION)
+
+
 class MusicalGoalsChecker:
     """Zentraler Checker für alle 14 musikalischen Qualitätsziele (v9.9.9+).
 
@@ -2370,11 +2443,17 @@ class MusicalGoalsChecker:
             logger.debug(f"Verletzungen: {violations}")
     """
 
-    def __init__(self, custom_thresholds: dict[str, float] | None = None) -> None:
+    def __init__(
+        self,
+        custom_thresholds: dict[str, float] | None = None,
+        mode: str = "restoration",
+    ) -> None:
         """Initialisiert alle 14 Metrik-Klassen.
 
         Args:
             custom_thresholds: Optionale Schwellwert-Überschreibungen.
+            mode: "restoration" (Default) oder "studio_2026" — bestimmt die
+                  Basis-Schwellwerte pro Musical Goal (§1.2 v9.10.77).
         """
         # Alle 14 Metriken (kanonische Reihenfolge gem. Aurik-9-Spec §1.2 v9.9.9)
         self.metrics = {
@@ -2394,23 +2473,12 @@ class MusicalGoalsChecker:
             "artikulation": ArticulationMetric(),  # 14. Ziel (v9.9.9)
         }
 
-        # Pflicht-Schwellwerte gem. Aurik-9-Spec §1.2 v9.9.9 (alle 14 Ziele)
-        self.thresholds = {
-            "bass_kraft": 0.85,
-            "brillanz": 0.85,
-            "waerme": 0.80,
-            "natuerlichkeit": 0.90,
-            "authentizitaet": 0.88,
-            "emotionalitaet": 0.87,
-            "transparenz": 0.89,
-            "groove": 0.88,  # DTW ≤ 8 ms RMS
-            "spatial_depth": 0.75,  # Stereo-Räumlichkeit
-            "timbre_authentizitaet": 0.87,  # MFCC-Pearson ≥ 0.95, Centroid-Pearson ≥ 0.93
-            "tonal_center": 0.95,  # Chroma-Korrelation ≥ 0.95, kein Key-Shift
-            "micro_dynamics": 0.92,  # LUFS-Profil-Korrelation 400 ms ≥ 0.92
-            "separation_fidelity": 0.82,  # SDR ≥ 8 dB / SIR ≥ 12 dB (v9.9.9)
-            "artikulation": 0.85,  # Attack-Charakter-Erhalt ≤ 10 ms (v9.9.9)
-        }
+        # §1.2 v9.10.77: Mode-differenzierte Schwellwerte.
+        # Restoration: P1/P2 streng (Preservation), P3–P5 erreichbar (physikalisch realistisch).
+        # Studio 2026:  Alle Ziele auf ambitioniertem Niveau (Highend-Studio-Anspruch).
+        # Begründung: Hohe P3–P5-Schwellwerte im Restoration-Modus verursachten unnötige
+        # PMGG-Retries ohne Export-Gate-Enforcement (CPU-Verschwendung + Cross-Goal-Damage).
+        self.thresholds = get_mode_thresholds(mode)
 
         if custom_thresholds:
             self.thresholds.update(custom_thresholds)

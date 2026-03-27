@@ -147,6 +147,11 @@ class StereoEnhancementPhaseV2(PhaseInterface):
         assert sample_rate == 48000, f"SR muss 48000 Hz sein, erhalten: {sample_rate}"
         start_time = time.time()
 
+        phase_locality_factor = float(kwargs.get("phase_locality_factor", 1.0))
+        phase_locality_factor = float(np.clip(phase_locality_factor, 0.35, 1.0))
+        _pmgg_strength = float(kwargs.get("strength", 1.0))
+        _effective_strength = float(np.clip(_pmgg_strength * phase_locality_factor, 0.0, 1.0))
+
         self.validate_input(audio)
 
         # Only for stereo
@@ -157,12 +162,41 @@ class StereoEnhancementPhaseV2(PhaseInterface):
                 success=True,
                 audio=audio.copy(),
                 execution_time_seconds=time.time() - start_time,
-                metadata={"skipped": True, "reason": "mono_signal"},
+                metadata={
+                    "skipped": True,
+                    "reason": "mono_signal",
+                    "phase_locality_factor": phase_locality_factor,
+                    "effective_strength": _effective_strength,
+                },
                 warnings=["Stereo Enhancement skipped (Mono signal)"],
             )
 
+        if _effective_strength <= 0.0:
+            passthrough = np.nan_to_num(audio.copy(), nan=0.0, posinf=0.0, neginf=0.0)
+            passthrough = np.clip(passthrough, -1.0, 1.0)
+            return PhaseResult(
+                success=True,
+                audio=passthrough,
+                execution_time_seconds=time.time() - start_time,
+                metadata={
+                    "material": material.name,
+                    "enhancement_applied": False,
+                    "algorithm": "skipped_zero_strength",
+                    "phase_locality_factor": phase_locality_factor,
+                    "effective_strength": _effective_strength,
+                },
+                metrics={
+                    "stereo_width_before": 0.0,
+                    "stereo_width_after": 0.0,
+                    "width_increase_percent": 0.0,
+                    "correlation_before": 1.0,
+                    "correlation_after": 1.0,
+                },
+            )
+
         # Get material-specific parameters
-        width_factors = self.WIDTH_FACTORS.get(material, self.WIDTH_FACTORS[MaterialType.VINYL])
+        width_factors = list(self.WIDTH_FACTORS.get(material, self.WIDTH_FACTORS[MaterialType.VINYL]))
+        width_factors = [float(1.0 + (w - 1.0) * _effective_strength) for w in width_factors]
         min_correlations = self.MIN_CORRELATION.get(material, self.MIN_CORRELATION[MaterialType.VINYL])
         haas_delays = self.HAAS_DELAY_MS.get(material, self.HAAS_DELAY_MS[MaterialType.VINYL])
         decorr_orders = self.DECORRELATION_ORDER.get(material, self.DECORRELATION_ORDER[MaterialType.VINYL])
@@ -217,6 +251,9 @@ class StereoEnhancementPhaseV2(PhaseInterface):
 
         enhanced_audio = np.nan_to_num(enhanced_audio, nan=0.0, posinf=0.0, neginf=0.0)
         enhanced_audio = np.clip(enhanced_audio, -1.0, 1.0)
+        if 0.0 < _effective_strength < 1.0:
+            enhanced_audio = audio + _effective_strength * (enhanced_audio - audio)
+            enhanced_audio = np.clip(enhanced_audio, -1.0, 1.0)
         return PhaseResult(
             success=True,
             audio=enhanced_audio,
@@ -227,6 +264,8 @@ class StereoEnhancementPhaseV2(PhaseInterface):
                 "algorithm": "multiband_ms_processing_v2",
                 "num_bands": 4,
                 "band_splits_hz": self.BAND_SPLITS,
+                "phase_locality_factor": phase_locality_factor,
+                "effective_strength": _effective_strength,
             },
             metrics={
                 "stereo_width_before": float(initial_width),

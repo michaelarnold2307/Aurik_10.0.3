@@ -174,7 +174,7 @@ class VocalEnhancement(PhaseInterface):
         self.name = "Vocal Enhancement v2 Professional"
         # LPC-basiertes Formant-Tracking + Singer's Formant Enhancement (2.5–3.5 kHz)
         self._formant_system = None
-        if _FORMANT_SYSTEM_AVAILABLE:
+        if _FORMANT_SYSTEM_AVAILABLE and _FormantSystemCls is not None:
             try:
                 self._formant_system = _FormantSystemCls(
                     n_formants=5, correction_strength=0.5, enhance_singers_formant=True
@@ -226,8 +226,47 @@ class VocalEnhancement(PhaseInterface):
         sample_rate = kwargs.get("sample_rate", 48000)
         assert sample_rate == 48000, f"SR muss 48000 Hz sein, erhalten: {sample_rate}"
 
+        phase_locality_factor = float(kwargs.get("phase_locality_factor", 1.0))
+        phase_locality_factor = float(np.clip(phase_locality_factor, 0.35, 1.0))
+        _pmgg_strength = float(kwargs.get("strength", 1.0))
+        _effective_strength = float(np.clip(_pmgg_strength * phase_locality_factor, 0.0, 1.0))
+
+        if _effective_strength <= 0.0:
+            audio = np.nan_to_num(audio, nan=0.0, posinf=0.0, neginf=0.0)
+            audio = np.clip(audio, -1.0, 1.0)
+            return PhaseResult(
+                success=True,
+                audio=audio.copy(),
+                execution_time_seconds=time.time() - start_time,
+                metadata={
+                    "material": material.name,
+                    "algorithm": "skipped_zero_strength",
+                    "phase_locality_factor": phase_locality_factor,
+                    "effective_strength": _effective_strength,
+                },
+                warnings=[],
+            )
+
         is_stereo = audio.ndim == 2
-        config = self.ENHANCEMENT_CONFIG.get(material, self.ENHANCEMENT_CONFIG[MaterialType.CD_DIGITAL])
+        config = dict(self.ENHANCEMENT_CONFIG.get(material, self.ENHANCEMENT_CONFIG[MaterialType.CD_DIGITAL]))
+        config["deess_reduction_db"] = float(config["deess_reduction_db"] * _effective_strength)
+        config["presence_gain_db"] = float(config["presence_gain_db"] * _effective_strength)
+        config["formant_gain_db"] = float(config["formant_gain_db"] * _effective_strength)
+        config["chest_gain_db"] = float(config["chest_gain_db"] * _effective_strength)
+        config["breath_reduction_db"] = float(config["breath_reduction_db"] * _effective_strength)
+        config["compression_ratio"] = float(1.0 + (config["compression_ratio"] - 1.0) * _effective_strength)
+
+        # --- Vocal Harshness Severity aus DefectScanner-Ergebnis (§v9.10.77) ---
+        # Wenn DefectScanner VOCAL_HARSHNESS erkannt hat, wird die Presence-Boost-Phase
+        # gedämpft und eine Harshness-Absenkung vorgeschaltet.
+        harshness_severity = 0.0
+        defect_scores = kwargs.get("defect_scores", {})
+        if defect_scores:
+            for dt_key, ds_val in defect_scores.items():
+                key_str = dt_key.value if hasattr(dt_key, "value") else str(dt_key)
+                if key_str == "vocal_harshness":
+                    harshness_severity = float(getattr(ds_val, "severity", 0.0) if hasattr(ds_val, "severity") else 0.0)
+                    break
 
         # Detect if audio contains vocals (simple heuristic)
         has_vocals = self._detect_vocals(audio, sample_rate)
@@ -240,7 +279,12 @@ class VocalEnhancement(PhaseInterface):
                 success=True,
                 audio=audio.copy(),
                 execution_time_seconds=time.time() - start_time,
-                metadata={"material": material.name, "vocals_detected": False},
+                metadata={
+                    "material": material.name,
+                    "vocals_detected": False,
+                    "phase_locality_factor": phase_locality_factor,
+                    "effective_strength": _effective_strength,
+                },
                 warnings=["No vocal content detected - enhancement skipped"],
             )
 
@@ -254,11 +298,11 @@ class VocalEnhancement(PhaseInterface):
 
             # Enhance only the vocal stem
             if vocals_stem.ndim == 2:
-                enh_left = self._enhance_channel(vocals_stem[:, 0], sample_rate, config)
-                enh_right = self._enhance_channel(vocals_stem[:, 1], sample_rate, config)
+                enh_left = self._enhance_channel(vocals_stem[:, 0], sample_rate, config, harshness_severity)
+                enh_right = self._enhance_channel(vocals_stem[:, 1], sample_rate, config, harshness_severity)
                 enhanced_vocals = np.column_stack((enh_left, enh_right))
             else:
-                enhanced_vocals = self._enhance_channel(vocals_stem, sample_rate, config)
+                enhanced_vocals = self._enhance_channel(vocals_stem, sample_rate, config, harshness_severity)
 
             # StemRemixBalancer: LUFS-korrekter Re-Mix (§1.4 Spec)
             try:
@@ -275,11 +319,14 @@ class VocalEnhancement(PhaseInterface):
             # Fallback: process full audio without stem separation
             logger.debug("Phase42: Kein Stem-Sep — Vollbild-Verarbeitung")
             if is_stereo:
-                enhanced_left = self._enhance_channel(audio[:, 0], sample_rate, config)
-                enhanced_right = self._enhance_channel(audio[:, 1], sample_rate, config)
+                enhanced_left = self._enhance_channel(audio[:, 0], sample_rate, config, harshness_severity)
+                enhanced_right = self._enhance_channel(audio[:, 1], sample_rate, config, harshness_severity)
                 enhanced_audio = np.column_stack((enhanced_left, enhanced_right))
             else:
-                enhanced_audio = self._enhance_channel(audio, sample_rate, config)
+                enhanced_audio = self._enhance_channel(audio, sample_rate, config, harshness_severity)
+
+        if 0.0 < _effective_strength < 1.0:
+            enhanced_audio = audio + _effective_strength * (enhanced_audio - audio)
 
         execution_time = time.time() - start_time
         rt_factor = execution_time / (len(audio) / sample_rate)
@@ -299,6 +346,10 @@ class VocalEnhancement(PhaseInterface):
                 "rt_factor": float(rt_factor),
                 "vocal_ai_linked": VOCAL_AI_AVAILABLE,
                 "stem_separation_model": stem_model_used,
+                "harshness_severity": float(harshness_severity),
+                "harshness_reduction_applied": harshness_severity > 0.05,
+                "phase_locality_factor": phase_locality_factor,
+                "effective_strength": _effective_strength,
             },
             warnings=[] if rt_factor < 0.35 else [f"Performance sub-optimal: {rt_factor:.2f}× realtime"],
         )
@@ -336,9 +387,9 @@ class VocalEnhancement(PhaseInterface):
 
         # ── 2: MDX23C fallback (Kim_Vocal_2) ─────────────────────────────────
         try:
-            from plugins.mdx23c_plugin import MDX23CPlugin
+            from plugins.mdx23c_plugin import get_mdx23c_plugin
 
-            mdx = MDX23CPlugin()
+            mdx = get_mdx23c_plugin()
             voc_mono = mdx.process(audio_mono, sr, stem="vocals")
             inst_mono = mdx.process(audio_mono, sr, stem="inst")
             n = min(len(audio_mono), len(voc_mono), len(inst_mono))
@@ -374,9 +425,15 @@ class VocalEnhancement(PhaseInterface):
         else:
             return False
 
-    def _enhance_channel(self, audio: np.ndarray, sample_rate: int, config: dict[str, Any]) -> np.ndarray:
+    def _enhance_channel(self, audio: np.ndarray, sample_rate: int, config: dict[str, Any], harshness_severity: float = 0.0) -> np.ndarray:
         """Enhance vocals in a single audio channel."""
         enhanced = audio.copy()
+
+        # Stage 0: Harshness reduction (NEW — §v9.10.77)
+        # When DefectScanner detects VOCAL_HARSHNESS, apply targeted mid-presence
+        # notch/dip BEFORE any enhancement to remove harsh/scratchy character.
+        if harshness_severity > 0.05:
+            enhanced = self._reduce_harshness(enhanced, sample_rate, harshness_severity)
 
         # Stage 1: De-essing (sibilance control)
         enhanced = self._apply_deessing(enhanced, sample_rate, config)
@@ -384,8 +441,19 @@ class VocalEnhancement(PhaseInterface):
         # Stage 2: Formant enhancement (vowel clarity)
         enhanced = self._enhance_formants(enhanced, sample_rate, config)
 
-        # Stage 3: Presence boost (clarity)
-        enhanced = self._boost_presence(enhanced, sample_rate, config)
+        # Stage 3: Presence boost (clarity) — attenuated when harshness detected
+        if harshness_severity > 0.3:
+            # Reduce presence boost proportionally to harshness severity
+            adapted_config = dict(config)
+            reduction = min(harshness_severity * 0.8, 0.9)  # up to 90% reduction
+            adapted_config["presence_gain_db"] = config["presence_gain_db"] * (1.0 - reduction)
+            logger.debug(
+                "Phase42: Harshness %.2f → presence_gain reduced %.1f→%.1f dB",
+                harshness_severity, config["presence_gain_db"], adapted_config["presence_gain_db"],
+            )
+            enhanced = self._boost_presence(enhanced, sample_rate, adapted_config)
+        else:
+            enhanced = self._boost_presence(enhanced, sample_rate, config)
 
         # Stage 4: Chest resonance (warmth)
         enhanced = self._enhance_chest(enhanced, sample_rate, config)
@@ -398,6 +466,99 @@ class VocalEnhancement(PhaseInterface):
 
         return enhanced
 
+    def _reduce_harshness(self, audio: np.ndarray, sample_rate: int, severity: float) -> np.ndarray:
+        """Reduce vocal harshness via dynamic presence-band attenuation (2–6 kHz).
+
+        Algorithm:
+        1. Extract 2–6 kHz presence band via bandpass filter
+        2. Compute RMS envelope of the presence band
+        3. Apply dynamic gain reduction only where presence energy exceeds threshold
+        4. Smooth the gain curve to avoid artifacts
+        5. Re-combine with attenuated presence band
+
+        This is NOT a static notch — it preserves quiet vocal presence while
+        taming harsh peaks (similar to a multiband compressor targeting 2–6 kHz).
+
+        Strength is proportional to DefectScanner severity:
+        - severity 0.1–0.3: gentle 2–4 dB reduction on peaks
+        - severity 0.3–0.6: moderate 4–8 dB reduction
+        - severity 0.6–1.0: aggressive 8–12 dB reduction
+        """
+        n = len(audio)
+        if n < 512:
+            return audio
+
+        # Extract presence band (2–6 kHz)
+        sos_bp = signal.butter(4, [2000.0, 6000.0], btype="band", fs=sample_rate, output="sos")
+        presence = signal.sosfilt(sos_bp, audio)
+
+        # Compute RMS envelope (5 ms smoothing)
+        frame_len = max(1, int(0.005 * sample_rate))
+        envelope = np.sqrt(
+            np.convolve(presence**2, np.ones(frame_len) / frame_len, mode="same") + 1e-12
+        )
+
+        # Dynamic threshold: based on median presence energy (preserves normal levels)
+        median_env = float(np.median(envelope) + 1e-12)
+        # Threshold above which we reduce (1.5× median for gentle, 1.2× for aggressive)
+        threshold_factor = 1.5 - 0.3 * min(severity, 1.0)  # 1.5 → 1.2
+        threshold = median_env * threshold_factor
+
+        # Maximum gain reduction in dB (severity-scaled)
+        max_reduction_db = 2.0 + 10.0 * min(severity, 1.0)  # 2–12 dB range
+
+        # Global broadband harshness: if presence band energy is uniformly high,
+        # apply a baseline attenuation (the dynamic approach alone misses
+        # signals that are uniformly harsh since median ≈ peaks).
+        overall_rms = float(np.sqrt(np.mean(audio**2)) + 1e-12)
+        presence_rms = float(np.sqrt(np.mean(presence**2)) + 1e-12)
+        # If presence is > 35% of total energy, apply global attenuation
+        pres_ratio = presence_rms / overall_rms
+        if pres_ratio > 0.35:
+            # Scale: at ratio=0.35 → 0 dB; at ratio=0.8 → up to max_reduction_db/2
+            global_atten_db = min(severity, 1.0) * (pres_ratio - 0.35) / 0.45 * (max_reduction_db * 0.5)
+            global_atten_db = min(global_atten_db, max_reduction_db * 0.5)
+        else:
+            global_atten_db = 0.0
+
+        # Compute gain curve
+        envelope_db = 20.0 * np.log10(envelope / threshold + 1e-12)
+        # Gain reduction only above threshold (soft-knee)
+        gain_db = np.where(
+            envelope_db > 0.0,
+            -np.minimum(envelope_db * 0.6, max_reduction_db),
+            0.0,
+        )
+        # Apply global attenuation floor
+        if global_atten_db > 0.1:
+            gain_db = np.minimum(gain_db, -global_atten_db)
+
+        # Smooth gain to prevent clicks (2 ms attack, 20 ms release)
+        attack_samples = max(1, int(0.002 * sample_rate))
+        release_samples = max(1, int(0.020 * sample_rate))
+        smoothed = np.zeros_like(gain_db)
+        smoothed[0] = gain_db[0]
+        for i in range(1, len(gain_db)):
+            if gain_db[i] < smoothed[i - 1]:
+                alpha = 1.0 - np.exp(-1.0 / attack_samples)
+            else:
+                alpha = 1.0 - np.exp(-1.0 / release_samples)
+            smoothed[i] = smoothed[i - 1] + alpha * (gain_db[i] - smoothed[i - 1])
+
+        gain_linear = 10.0 ** (smoothed / 20.0)
+
+        # Apply gain only to the presence band and re-combine
+        presence_reduced = presence * gain_linear
+        result = audio + (presence_reduced - presence)
+
+        actual_reduction = float(-np.mean(smoothed[smoothed < -0.1])) if np.any(smoothed < -0.1) else 0.0
+        logger.info(
+            "Phase42 harshness reduction: severity=%.2f max_reduction=%.1fdB actual_mean=%.1fdB",
+            severity, max_reduction_db, actual_reduction,
+        )
+
+        return result
+
     def _apply_deessing(self, audio: np.ndarray, sample_rate: int, config: dict[str, Any]) -> np.ndarray:
         """Apply de-essing to sibilance band."""
         # Extract sibilance band
@@ -405,7 +566,8 @@ class VocalEnhancement(PhaseInterface):
         sibilance = signal.sosfilt(sos, audio)
 
         # Dynamic range compression on sibilance
-        envelope = np.abs(signal.hilbert(sibilance))
+        analytic = np.asarray(signal.hilbert(sibilance))
+        envelope = np.abs(analytic)
         envelope_db = 20 * np.log10(envelope + 1e-10)
 
         # Apply reduction above threshold

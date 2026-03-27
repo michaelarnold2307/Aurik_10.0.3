@@ -1,6 +1,6 @@
 # KI-Agent Integration Guide — AURIK 9.x.x
 
-**Erstellt:** 15. Februar 2026 | **Aktualisiert:** 19. Februar 2026  
+**Erstellt:** 15. Februar 2026 | **Aktualisiert:** 27. März 2026  
 **Version:** 9.x.x  
 **Zielgruppe:** KI-Agenten (GitHub Copilot, Claude, GPT) die an AURIK arbeiten  
 **Status:** 🟢 AKTIV — Verbindlich für alle KI-Agenten
@@ -31,11 +31,11 @@ Dieses Dokument liefert **praktische Ergänzungen** zu den Richtlinien.
 | Modul | Datei | Funktion |
 |---|---|---|
 | `PerceptualEmbedder` | `core/perceptual_embedder.py` | 256-dim L2-normalisierter Einbettungsraum |
-| `CausalDefectReasoner` | `core/causal_defect_reasoner.py` | Bayesianische Kausalinferenz, 14 Kausal-Ursachen |
+| `CausalDefectReasoner` | `core/causal_defect_reasoner.py` | Bayesianische Kausalinferenz, 34 Kausal-Ursachen |
 | `GPParameterOptimizer` | `core/gp_parameter_optimizer.py` | RBF-GP + UCB, lernt dauerhaft pro Material |
 | `PerceptualQualityScorer` | `core/perceptual_quality_scorer.py` | Gammatone-NSIM + MCD + LUFS + MOS |
 | `MusicalGoalsChecker` | `backend/core/musical_goals/musical_goals_metrics.py` | 14 Ziele, `measure_all(audio, sr)` |
-| `DefectScanner` | `core/defect_scanner.py` | 30 DefectTypes, 17 MaterialTypes |
+| `DefectScanner` | `core/defect_scanner.py` | 32 DefectTypes, material-adaptive Klassifikation |
 | `UnifiedRestorerV3` | `core/unified_restorer_v3.py` | 56-Phasen-Pipeline-Orchestrator |
 | `VocalAIEnhancement` | `core/vocal_ai_enhancement.py` | `VoiceGender` (MALE/FEMALE/CHILD/ANDROGYNOUS) |
 | `ExcellenceOptimizer` | `core/excellence_optimizer.py` | `optimize_for_excellence()` |
@@ -48,7 +48,7 @@ Eingang (beliebige SR, mono/stereo)
     │
     ▼ auf 48 kHz resampeln (Lanczos-4)
     │
-    ▼ [DefectScanner.scan()] → DefectAnalysisResult (30 DefectTypes, 17 MaterialTypes)
+    ▼ [DefectScanner.scan()] → DefectAnalysisResult (32 DefectTypes, material-adaptiv)
     │
     ▼ [CausalDefectReasoner.reason_about_defects()] → RestorationPlan
     │   .primary_cause, .recommended_phases, .phase_parameters, .reasoning
@@ -165,13 +165,13 @@ CAUSE_TO_PHASES = {
 
 ## 📦 Material-System (§6.1, §6.3)
 
-**17 Materialien (`MaterialType`):**
+**Materialien (`MaterialType`):**
 ```
 tape · reel_tape · vinyl · shellac · wax_cylinder · wire_recording · lacquer_disc
 dat · cd_digital · mp3_low · mp3_high · aac · minidisc · streaming · unknown
 ```
 
-**30 DefectTypes (vollständig, Stand v9.10.57):**
+**32 DefectTypes (vollständig, Stand v9.10.77c):**
 ```
 CLICKS · CRACKLE · HUM · WOW · FLUTTER · LOW_FREQ_RUMBLE · DROPOUTS
 STEREO_IMBALANCE · PHASE_ISSUES · DIGITAL_ARTIFACTS
@@ -180,7 +180,7 @@ CLIPPING · SOFT_SATURATION · DC_OFFSET · BANDWIDTH_LOSS · PITCH_DRIFT
 REVERB_EXCESS · PRINT_THROUGH · QUANTIZATION_NOISE
 JITTER_ARTIFACTS · DYNAMIC_COMPRESSION_EXCESS
 HEAD_WEAR · AZIMUTH_ERROR · TRANSIENT_SMEARING · PRE_ECHO
-RIAA_CURVE_ERROR · ALIASING · BIAS_ERROR · SIBILANCE
+RIAA_CURVE_ERROR · ALIASING · BIAS_ERROR · SIBILANCE · TRANSPORT_BUMP · VOCAL_HARSHNESS
 ```
 ⚠️ **WOW** und **FLUTTER** sind seit v9.10.x getrennte Defekttypen (IEC 60386-konform, nicht mehr WOW_FLUTTER).
 
@@ -436,10 +436,10 @@ Jede neue DSP-Funktion MUSS auf mindestens einem dieser Prinzipien basieren:
 □ np.clip(audio, -1.0, 1.0) vor jedem Ausgabe-Audio
 □ Kein print() — nur logger.*()
 □ Keine hardcodierten Pfade — pathlib.Path.home() / ".aurik" / ...
-□ Alle bestehenden 7.747+ Tests weiterhin grün
+□ Alle bestehenden Tests weiterhin grün
 ```
 
 ---
 
-*KI-Agent Integration Guide — Aurik 9.10.57 — März 2026*
+*KI-Agent Integration Guide — Aurik 9.10.77c — März 2026*
 *Bindend für: GitHub Copilot, Claude, GPT-Instanzen*

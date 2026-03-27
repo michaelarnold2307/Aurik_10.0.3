@@ -171,8 +171,38 @@ class DynamicRangeExpansion(PhaseInterface):
         start_time = time.time()
         self.validate_input(audio)
 
+        phase_locality_factor = float(kwargs.get("phase_locality_factor", 1.0))
+        phase_locality_factor = float(np.clip(phase_locality_factor, 0.35, 1.0))
+        _pmgg_strength = float(kwargs.get("strength", 1.0))
+        _effective_strength = float(np.clip(_pmgg_strength * phase_locality_factor, 0.0, 1.0))
+
         is_stereo = audio.ndim == 2
-        config = self.EXPANSION_CONFIG.get(material, self.EXPANSION_CONFIG[MaterialType.CD_DIGITAL])
+        config = dict(self.EXPANSION_CONFIG.get(material, self.EXPANSION_CONFIG[MaterialType.CD_DIGITAL]))
+
+        if _effective_strength <= 0.0:
+            passthrough = np.nan_to_num(audio.copy(), nan=0.0, posinf=0.0, neginf=0.0)
+            passthrough = np.clip(passthrough, -1.0, 1.0)
+            return PhaseResult(
+                success=True,
+                audio=passthrough,
+                execution_time_seconds=time.time() - start_time,
+                metadata={
+                    "material": material.name,
+                    "dynamic_range_before_db": 0.0,
+                    "dynamic_range_after_db": 0.0,
+                    "dr_increase_db": 0.0,
+                    "upward_ratio": 1.0,
+                    "downward_ratio": 1.0,
+                    "phase_locality_factor": phase_locality_factor,
+                    "effective_strength": _effective_strength,
+                    "processing": "skipped_zero_strength",
+                    "rt_factor": 0.0,
+                },
+            )
+
+        # Scale expansion aggressiveness toward neutral ratios for sparse locality.
+        config["upward_ratio"] = float(1.0 + (config["upward_ratio"] - 1.0) * _effective_strength)
+        config["downward_ratio"] = float(1.0 + (config["downward_ratio"] - 1.0) * _effective_strength)
 
         # Measure initial dynamic range
         dr_before = self._measure_dynamic_range(audio)
@@ -194,6 +224,9 @@ class DynamicRangeExpansion(PhaseInterface):
 
         expanded_audio = np.nan_to_num(expanded_audio, nan=0.0, posinf=0.0, neginf=0.0)
         expanded_audio = np.clip(expanded_audio, -1.0, 1.0)
+        if 0.0 < _effective_strength < 1.0:
+            expanded_audio = audio + _effective_strength * (expanded_audio - audio)
+            expanded_audio = np.clip(expanded_audio, -1.0, 1.0)
         return PhaseResult(
             success=True,
             audio=expanded_audio,
@@ -205,6 +238,8 @@ class DynamicRangeExpansion(PhaseInterface):
                 "dr_increase_db": float(dr_increase_db),
                 "upward_ratio": float(config["upward_ratio"]),
                 "downward_ratio": float(config["downward_ratio"]),
+                "phase_locality_factor": phase_locality_factor,
+                "effective_strength": _effective_strength,
                 "rt_factor": float(rt_factor),
             },
             warnings=[] if rt_factor < 0.3 else [f"Performance sub-optimal: {rt_factor:.2f}× realtime"],

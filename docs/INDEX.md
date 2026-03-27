@@ -1,12 +1,14 @@
 
 # 📚 Aurik 9.x.x — Projektdokumentation
 
-Offizielle Dokumentation von **Aurik 9.10.57** — dem weltweit ersten intelligenten,
+Offizielle Dokumentation von **Aurik 9.10.77c** — dem weltweit ersten intelligenten,
 kontextbewussten Musik- und Gesangs-Restaurierungs-, Reparatur- und
 Rekonstruktions-Denkersystem. Alle Inhalte sind an die KI-Programmierrichtlinien
 (`.github/copilot-instructions.md`) ausgerichtet.
 
-**Version:** 9.10.57 | **Phasen:** 56 | **Tests:** 7.747+ | **Materialien:** 17 | **Musical Goals:** 14 | **DefectTypes:** 29
+**Version:** 9.10.77c | **Phasen:** 56 | **Musical Goals:** 14 | **DefectTypes:** 32
+
+> Hinweis: Verbindlicher Wahrheitsstand ist die Spezifikation in `.github/specs/01-08` plus `docs/CHANGELOG_HISTORY.md`. Wo Zahlen abweichen, gelten Specs/Changelog.
 
 ---
 
@@ -27,11 +29,11 @@ Rekonstruktions-Denkersystem. Alle Inhalte sind an die KI-Programmierrichtlinien
 - **[Phases Overview](architecture/PHASES_OVERVIEW.md)** – 56-Phasen-Pipeline (Defect-First)
 - **[Pipeline Flow](architecture/PIPELINE_FLOW_ANALYSIS.md)** – Ablauf & Datenfluss
 - **[Contributing Guide](development/CONTRIBUTING.md)** – Beitrag leisten
-- **[Testing Guide](development/TESTING.md)** – Teststrategie & Best Practices (7.747+ Tests)
+- **[Testing Guide](development/TESTING.md)** – Teststrategie & Best Practices
 - **[Performance Guard Spec](PERFORMANCE_GUARD_SPEC.md)** – 3×-Echtzeit-Budgetregeln
 
 ### Status & Fortschritt
-- **[Project Status Report](PROJECT_STATUS.md)** – Aktueller Entwicklungsstand v9.10.57
+- **[Project Status Report](PROJECT_STATUS.md)** – Projektstatus (normativer Stand via Specs/Changelog)
 - **[Musical Excellence Analysis](musical_excellence_next_steps.md)** – Qualitätsanalyse & Roadmap
 - **[Roadmap](aurik9_roadmap.md)** – Zukunftspläne (Studio 2026+)
 
@@ -64,7 +66,7 @@ docs/
 │
 ├── development/                # Entwickler-Dokumentation
 │   ├── CONTRIBUTING.md        # Beitrag leisten
-│   ├── TESTING.md             # Teststrategie (7.747+ Tests)
+│   ├── TESTING.md             # Teststrategie
 │   ├── TESTING_BEST_PRACTICES.md
 │   ├── DECISION_NO_VST3_PLUGIN.md  # Architektur-Entscheidung
 │   └── Packaging_Documentation.md  # AppImage / Windows-Build
@@ -75,9 +77,9 @@ docs/
 ├── INDEX.md                    # ⭐ Diese Datei
 ├── README.md                   # Kurzübersicht → verweist auf INDEX.md
 ├── KI-AGENT-INTEGRATION-GUIDE.md  # ⚠️ Pflichtlektüre für KI-Agenten
-├── PROJECT_STATUS.md          # Aktueller Projektstand v9.10.57
+├── PROJECT_STATUS.md          # Projektstatus (Living Document)
 ├── AURIK_9.x.x_ARCHITEKTUR.md # Kognitive Pipeline-Übersicht (Detail)
-├── DEFECT_SCANNER_SPEC.md     # 29 DefectTypes, 17 MaterialTypes
+├── DEFECT_SCANNER_SPEC.md     # DefectScanner-Spezifikation (aktuelle DefectTypes siehe Specs)
 ├── VOCAL_AI_ENHANCEMENT.md    # Vocal-Pipeline §2.8 (Formanten, Breathiness)
 ├── PERFORMANCE_GUARD_SPEC.md  # 3×-Echtzeit-Budget [RELEASE_MUST]
 ├── RESOURCE_AWARE_FALLBACK.md # PLM / RAM-Budget
@@ -102,11 +104,11 @@ Schlüsselbindungen (Auszug):
 - **CPU-only**: keine GPU/CUDA — `providers=["CPUExecutionProvider"]`
 - **14 Musical Goals**: nach jeder Restaurierung zu prüfen, Regression = Feature ungültig
 - **56 Phasen** (Phase 01–56, Defect-First) in `backend/core/phases/`
-- **17 MaterialTypes** — auto-erkannt durch `MediumClassifier`
-- **29 DefectTypes** — vollständiger Defektkatalog in `core/defect_scanner.py`
+- Material-adaptive Verarbeitung via `MediumClassifier`
+- **32 DefectTypes** — vollständiger Defektkatalog in `core/defect_scanner.py`
 - **Desktop-only (Linux AppImage + Windows 10/11)**: keine Cloud, kein Docker, kein pip für Endnutzer
 - **§2.36 LyricsGuidedEnhancement**: Whisper-Tiny ONNX + wav2vec2 Forced Alignment
-- **try_allocate() Pflicht** vor jedem ML-Modell-Laden (PluginLifecycleManager)
+- **ml_memory_budget.try_allocate() Pflicht** vor jedem ML-Modell-Laden
 - **AMRB-Benchmark**: Aurik ≥ iZotope RX 11 in ≥ 7/10 Szenarien [RELEASE_MUST]
 
 ---
@@ -138,27 +140,18 @@ Schlüsselbindungen (Auszug):
 
 ## 📅 Aktuelle Updates
 
-**März 2026 (v9.8.0):**
-- Über-SOTA DSP-Algorithmen implementiert: OMLSA/IMCRA, pYIN, NMF-β, PGHI
-- Dokumentation vollständig auf v9.8.0 ausgerichtet, 222 Tests grün
+**März 2026 (v9.10.77c):**
+- Mode-differenzierte Musical-Goals-Härtung und Priority-Aware PMGG dokumentiert.
+- OOM-Recovery-Checkpoint-System (§2.39) und KMV (§2.38) als normative Pipeline-Bestandteile konsolidiert.
+- DefectScanner-/Kausalpfad auf aktuellen DefectType- und Ursachenumfang nachgezogen.
 
-**19. Februar 2026 (v9.7.0):**
-- Dokumentation vollständig auf v9.7.0 ausgerichtet
-- README.md, INDEX.md, PROJECT_STATUS.md, KI-AGENT-INTEGRATION-GUIDE.md aktualisiert
-- 55 Phasen (nicht 42), 12 Materialien (nicht 5), 206 Tests (nicht 9)
-- 7 Musical Goals mit Pflicht-Schwellwerten dokumentiert
-- Magic-Button-Implementierung (restoration.png / studio.png) dokumentiert
-
-**17. Februar 2026:**
-- v9.7.0: Kognitive Architektur (PerceptualEmbedder, CausalDefectReasoner,
-  GPParameterOptimizer, PerceptualQualityScorer, MusicalGoalsChecker)
-- 40 neue Tests (Gesamt: 206)
+Historische Detailstände sind in `docs/CHANGELOG_HISTORY.md` aufgeführt.
 
 ---
 
 <div align="center">
 
-**Aurik 9.8.0 Projektdokumentation** | Letzte Aktualisierung: März 2026
+**Aurik 9.10.77c Projektdokumentation** | Letzte Aktualisierung: März 2026
 
 [🏠 Zurück zur README](../README.md)
 

@@ -519,32 +519,79 @@ class FrequencyRestorationPhase(PhaseInterface):
 
         Predict missing harmonics from existing ones.
         """
-        # Simplified harmonic extension (copy + octave transpose)
-        # Full LPC implementation would solve Yule-Walker equations
-
         # Source harmonics (below rolloff)
         source_start = max(0, rolloff_bin // 2)
         source_end = rolloff_bin
+        if source_end - source_start < 8:
+            return Zxx
 
-        # Vectorized harmonic extension over all time frames
+        target_start = max(extension_start_bin, source_end)
+        target_end = min(extension_end_bin, len(f), Zxx.shape[0])
+        if target_end - target_start < 4:
+            return Zxx
+
+        # LPC-inspired spectral envelope extrapolation in log-frequency domain.
         source_spectrum = Zxx[source_start:source_end, :]  # (source_width, T)
+        source_abs = np.abs(source_spectrum) + 1e-12
 
-        # Generate harmonics at octave intervals — 1st octave: 2× frequency
-        octave_1_start = source_start * 2
-        octave_1_end = source_end * 2
+        source_freqs = np.maximum(f[source_start:source_end], 20.0)
+        target_freqs = np.maximum(f[target_start:target_end], source_freqs[-1] + 1.0)
 
-        if octave_1_start < len(f) and octave_1_end <= extension_end_bin:
-            target_indices = np.arange(octave_1_start, min(octave_1_end, len(Zxx)))
-            source_abs = np.abs(source_spectrum)  # (source_width, T)
-            src_idx = np.arange(source_abs.shape[0])
-            tgt_interp = np.linspace(0, source_abs.shape[0] - 1, len(target_indices))
-            # Interpolate all frames at once
-            harmonic_spectra = np.array(
-                [np.interp(tgt_interp, src_idx, source_abs[:, t]) for t in range(source_abs.shape[1])]
-            ).T  # (len(target_indices), T)
+        # Per-frame linear prediction of log-magnitude vs. log-frequency.
+        x = np.log(source_freqs)
+        x_mean = float(np.mean(x))
+        x_centered = x - x_mean
+        x_var = float(np.sum(x_centered**2) + 1e-12)
 
-            target_phase = np.exp(1j * np.angle(Zxx[target_indices, :]))
-            Zxx[target_indices, :] += harmonic_spectra * strength * 0.5 * target_phase
+        log_src = np.log(source_abs)
+        y_mean = np.mean(log_src, axis=0)
+        slopes = np.sum(x_centered[:, None] * (log_src - y_mean[None, :]), axis=0) / x_var
+        slopes = np.clip(slopes, -4.0, 0.5)
+        intercepts = y_mean - slopes * x_mean
+
+        log_target_f = np.log(target_freqs)
+        envelope_pred = np.exp(log_target_f[:, None] * slopes[None, :] + intercepts[None, :])
+
+        # Harmonic template from dominant low-band peaks, mapped into target band.
+        mean_src = np.mean(source_abs, axis=1)
+        prominence = float(np.percentile(mean_src, 60) * 0.05) if mean_src.size > 8 else None
+        peak_distance = max(2, mean_src.size // max(6, lpc_order))
+        peaks, _ = signal.find_peaks(mean_src, distance=peak_distance, prominence=prominence)
+
+        template = np.full(target_end - target_start, 0.35, dtype=np.float32)
+        if peaks.size > 0:
+            max_peaks = min(len(peaks), max(4, lpc_order // 2))
+            src_peak_norm = float(np.max(mean_src) + 1e-12)
+            for peak_idx in peaks[:max_peaks]:
+                f0 = float(source_freqs[peak_idx])
+                peak_amp = float(mean_src[peak_idx] / src_peak_norm)
+                for multiple in (2.0, 3.0, 4.0):
+                    fh = f0 * multiple
+                    if fh < target_freqs[0] or fh > target_freqs[-1]:
+                        continue
+                    center = int(np.argmin(np.abs(target_freqs - fh)))
+                    width = max(1, int((target_end - target_start) / 96 * (1.0 + 0.3 * multiple)))
+                    lo = max(0, center - width)
+                    hi = min(target_end - target_start, center + width + 1)
+                    if hi <= lo:
+                        continue
+                    offsets = np.arange(lo, hi, dtype=np.float32) - float(center)
+                    sigma = max(0.6, width * 0.6)
+                    shape = np.exp(-(offsets**2) / (2.0 * sigma * sigma))
+                    template[lo:hi] += (peak_amp / (multiple**1.2)) * shape
+
+        template = np.clip(template, 0.2, 2.2)
+        harmonic_pred = envelope_pred * template[:, None]
+
+        # Energy calibration to avoid runaway HF boosts in sparse spectra.
+        src_ref = np.percentile(source_abs, 75, axis=0) + 1e-12
+        pred_ref = np.percentile(harmonic_pred, 75, axis=0) + 1e-12
+        gain = np.clip(src_ref / pred_ref, 0.05, 8.0)
+        harmonic_pred *= gain[None, :]
+
+        target_phase = np.exp(1j * np.angle(Zxx[target_start:target_end, :]))
+        blend = np.clip(strength, 0.0, 1.0) * 0.65
+        Zxx[target_start:target_end, :] += harmonic_pred * blend * target_phase
 
         return Zxx
 
