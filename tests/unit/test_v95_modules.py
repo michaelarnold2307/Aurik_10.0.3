@@ -22,6 +22,7 @@ import sys
 import warnings
 
 import numpy as np
+
 np.random.seed(42)  # §5.4 Reproduzierbarkeit
 import pytest
 
@@ -31,8 +32,16 @@ from backend.core.clap_reference_matcher import (
     cosine_similarity,
     spectral_transfer,
 )
+from backend.core.feedback_chain import (
+    FEEDBACK_CRITICAL_PHASES,
+    FeedbackChain,
+    FeedbackChainResult,
+    compute_perceptual_score,
+)
 from backend.core.material_restoration_nets import (
     MaterialRestorationResult as RestorationResult,
+)
+from backend.core.material_restoration_nets import (
     SourceMedium,
     restore_by_medium,
     restore_lacquer,
@@ -41,17 +50,6 @@ from backend.core.material_restoration_nets import (
     restore_vinyl,
 )
 from backend.core.music_quality_scorer import MusicMOS, score_music_mos
-from benchmarks.restoration_benchmark import (
-    REFERENCE_SCORES,
-    BenchmarkReport,
-    RestorationBenchmark,
-)
-from backend.core.feedback_chain import (
-    FEEDBACK_CRITICAL_PHASES,
-    FeedbackChain,
-    FeedbackChainResult,
-    compute_perceptual_score,
-)
 
 # ---------------------------------------------------------------------------
 # Modul-Level-Imports (1× pro Session statt 1× pro Test)
@@ -62,6 +60,11 @@ from backend.core.phases.phase_55_diffusion_inpainting import (
     _burg_ar_predict,
     _detect_gaps,
     _reconstruction_quality_score,
+)
+from benchmarks.restoration_benchmark import (
+    REFERENCE_SCORES,
+    BenchmarkReport,
+    RestorationBenchmark,
 )
 from dsp.cpu_pipeline import CPUPipeline, PipelineStats
 
@@ -110,7 +113,6 @@ def benchmark_report(tmp_path_factory) -> tuple[RestorationBenchmark, BenchmarkR
 
 
 class TestPhase55DiffusionInpainting:
-
     def test_metadata_phase_id(self, phase55):
         assert phase55.metadata.phase_id == "phase_55_diffusion_inpainting"
 
@@ -172,7 +174,6 @@ class TestPhase55DiffusionInpainting:
 
 
 class TestFeedbackChain:
-
     @pytest.fixture(scope="class")
     def chain(self) -> FeedbackChain:
         return FeedbackChain(sample_rate=SR)
@@ -225,7 +226,6 @@ class TestFeedbackChain:
 
 
 class TestMusicMOS:
-
     @pytest.fixture(scope="class")
     def mos(self, mono_audio):
         return score_music_mos(mono_audio, SR)
@@ -254,7 +254,6 @@ class TestMusicMOS:
 
 
 class TestCLAPReferenceMatcher:
-
     @pytest.fixture(scope="class")
     def embedding(self, mono_audio):
         return compute_dsp_embedding(mono_audio, SR)
@@ -312,7 +311,6 @@ _RESTORE_MEDIUMS = {
 
 
 class TestMaterialRestorationNets:
-
     @pytest.mark.parametrize("name", list(_RESTORE_FUNCS))
     def test_direct_func_shape(self, mono_audio, name):
         result = _RESTORE_FUNCS[name](mono_audio, SR)
@@ -338,7 +336,6 @@ class TestMaterialRestorationNets:
 
 
 class TestCPUPipeline:
-
     @pytest.mark.parametrize("channels", [1, 2])
     def test_denoise_shape(self, cpu_pipe, channels, mono_audio, stereo_audio):
         audio = mono_audio if channels == 1 else stereo_audio
@@ -376,7 +373,6 @@ class TestCPUPipeline:
 
 @pytest.mark.slow
 class TestRestorationBenchmark:
-
     def test_reference_scores_keys(self):
         for key in ("iZotope RX 10", "Aurik 9.5 (Ziel)"):
             assert key in REFERENCE_SCORES
@@ -413,7 +409,6 @@ class TestRestorationBenchmark:
 
 
 class TestGPUPipelineStub:
-
     def _reload(self):
         sys.modules.pop("dsp.gpu_pipeline", None)
 
@@ -421,7 +416,6 @@ class TestGPUPipelineStub:
         self._reload()
         with warnings.catch_warnings(record=True) as w:
             warnings.simplefilter("always")
-            import dsp.gpu_pipeline  # noqa: F401
 
             assert any(issubclass(x.category, DeprecationWarning) for x in w)
 
@@ -480,7 +474,6 @@ def ctx_mono(sine_mono) -> ExcellenceContext:
 
 
 class TestAnalyzeContext:
-
     def test_returns_excellence_context(self, ctx_mono):
         assert isinstance(ctx_mono, ExcellenceContext)
 
@@ -514,7 +507,6 @@ class TestAnalyzeContext:
 
 
 class TestExcellenceOptimizerInit:
-
     def test_default_flags_all_true(self):
         opt = ExcellenceOptimizer(_SR)
         assert opt.apply_continuity is True
@@ -532,7 +524,6 @@ class TestExcellenceOptimizerInit:
 
 
 class TestExcellenceOptimizerOptimize:
-
     def test_returns_tuple(self, sine_mono):
         opt = ExcellenceOptimizer(_SR)
         out = opt.optimize(sine_mono)
@@ -611,7 +602,6 @@ class TestExcellenceOptimizerOptimize:
 
 
 class TestOptimizeForExcellenceFunction:
-
     def test_returns_two_tuple(self, sine_mono):
         out, result = optimize_for_excellence(sine_mono, _SR)
         assert isinstance(out, np.ndarray)
@@ -643,7 +633,6 @@ from backend.core.music_quality_scorer import (
 
 
 class TestSpectralFluxContinuity:
-
     def test_returns_float(self):
         frames = _frame_audio(_sine_signal())
         val = _spectral_flux_continuity(frames)
@@ -668,7 +657,6 @@ class TestSpectralFluxContinuity:
 
 
 class TestMicroDynamicVariation:
-
     def test_returns_float(self):
         val = _micro_dynamic_variation(_sine_signal())
         assert isinstance(val, float)
@@ -732,7 +720,6 @@ from backend.core.feedback_chain import (
 
 
 class TestFeedbackChainExcellenceMode:
-
     def test_excellence_target_score_constant(self):
         assert EXCELLENCE_TARGET_SCORE > DEFAULT_TARGET_SCORE
 
@@ -875,8 +862,10 @@ class TestMertPluginInit:
         from mert_plugin import MertPlugin
 
         empty = pathlib.Path(tempfile.mkdtemp())
-        with unittest.mock.patch("mert_plugin._MERT_330M_DIR", empty), \
-             unittest.mock.patch("mert_plugin._MERT_95M_DIR", empty):
+        with (
+            unittest.mock.patch("mert_plugin._MERT_330M_DIR", empty),
+            unittest.mock.patch("mert_plugin._MERT_95M_DIR", empty),
+        ):
             plugin = MertPlugin(model_dir=str(empty))
         assert plugin._model_type == "dsp_fallback"
 
@@ -889,8 +878,10 @@ class TestMertPluginInit:
         from mert_plugin import MertPlugin
 
         empty = pathlib.Path(tempfile.mkdtemp())
-        with unittest.mock.patch("mert_plugin._MERT_330M_DIR", empty), \
-             unittest.mock.patch("mert_plugin._MERT_95M_DIR", empty):
+        with (
+            unittest.mock.patch("mert_plugin._MERT_330M_DIR", empty),
+            unittest.mock.patch("mert_plugin._MERT_95M_DIR", empty),
+        ):
             plugin = MertPlugin(model_dir=str(empty))
         assert plugin.model_available is False
 
@@ -913,8 +904,10 @@ class TestMertPluginInit:
         # Minimalen fairseq-Checkpoint anlegen (kein pytorch_model.bin)
         dummy_state = {"feature_extractor.conv_layers.0.0.weight": torch.zeros(8, 1, 3)}
         torch.save({"model": dummy_state, "cfg": {}}, d / "MERT-v1-95M_fairseq.pt")
-        with unittest.mock.patch("mert_plugin._MERT_330M_DIR", empty_330m), \
-             unittest.mock.patch("mert_plugin._MERT_95M_DIR", d):
+        with (
+            unittest.mock.patch("mert_plugin._MERT_330M_DIR", empty_330m),
+            unittest.mock.patch("mert_plugin._MERT_95M_DIR", d),
+        ):
             plugin = MertPlugin(model_dir=str(d))
         assert plugin._model_type == "mert_fairseq"
         assert plugin.model_available is True
@@ -1066,9 +1059,9 @@ class TestMaterialProfiles:
         broadcast_boost = MATERIAL_PROFILES["broadcast"].harm_boost_db
         for name, p in MATERIAL_PROFILES.items():
             if name != "broadcast":
-                assert (
-                    p.harm_boost_db >= broadcast_boost
-                ), f"{name}.harm_boost_db={p.harm_boost_db} < broadcast={broadcast_boost}"
+                assert p.harm_boost_db >= broadcast_boost, (
+                    f"{name}.harm_boost_db={p.harm_boost_db} < broadcast={broadcast_boost}"
+                )
 
     def test_shellac_longest_ola(self):
         from backend.core.excellence_optimizer import MATERIAL_PROFILES
@@ -1407,7 +1400,7 @@ class TestPhase55Export:
 
     def test_diffusion_inpainting_phase_importable(self):
         """core.phases.DiffusionInpaintingPhase ist verfügbar."""
-        from backend.core.phases import DiffusionInpaintingPhase  # noqa: F401
+        from backend.core.phases import DiffusionInpaintingPhase
 
         assert DiffusionInpaintingPhase is not None
 

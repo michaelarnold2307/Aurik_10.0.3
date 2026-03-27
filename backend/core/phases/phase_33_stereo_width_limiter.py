@@ -72,8 +72,6 @@ Quality Target: 0.89 (Professional-Grade)
 """
 
 import logging
-import os
-import sys
 import time
 from typing import Any
 
@@ -592,7 +590,7 @@ if __name__ == "__main__":
         if result.success:
             logger.debug("✅ Processing Complete!")
             logger.debug(
-                f"   Execution Time: {result.execution_time_seconds:.3f}s ({result.execution_time_seconds/duration:.2f}× realtime)"
+                f"   Execution Time: {result.execution_time_seconds:.3f}s ({result.execution_time_seconds / duration:.2f}× realtime)"
             )
             logger.debug(f"   Width Before: {result.metrics['width_before']:.2f}")
             logger.debug(f"   Width After: {result.metrics['width_after']:.2f}")

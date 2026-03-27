@@ -50,14 +50,13 @@ Autor: Aurik 9.9 — 19. Februar 2026
 
 from __future__ import annotations
 
-from collections.abc import Callable
-from dataclasses import dataclass, field
 import hashlib
 import json
 import logging
 import math
+from collections.abc import Callable
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 
@@ -377,9 +376,10 @@ class BenchmarkReport:
 
     def as_dict(self) -> dict:
         """Serialisation format for JSON export (excludes report_sha256 for signing)."""
+
         def _to_native(v):
             """Convert numpy scalars to native Python types for JSON serialization."""
-            if hasattr(v, 'item'):
+            if hasattr(v, "item"):
                 return v.item()
             return v
 
@@ -465,7 +465,8 @@ class MusicalRestorationBenchmark:
         Returns:
             :class:`BenchmarkReport` mit allen Ergebnissen.
         """
-        from datetime import datetime, timezone as _tz
+        from datetime import datetime
+        from datetime import timezone as _tz
 
         timestamp = datetime.now(_tz.utc).isoformat()
 
@@ -538,8 +539,9 @@ class MusicalRestorationBenchmark:
         # np.random.randint) produce identical results given the same run_seed.
         # Use MD5 of sid bytes for a stable (non-PYTHONHASHSEED-dependent) offset.
         import hashlib as _hl
+
         _sid_offset = int(_hl.md5(sid.encode()).hexdigest()[:8], 16)
-        np.random.seed((self.config.run_seed + _sid_offset) % (2 ** 31))
+        np.random.seed((self.config.run_seed + _sid_offset) % (2**31))
 
         mushra_scores: list[float] = []
         pqs_scores: list[float] = []
@@ -650,12 +652,8 @@ class MusicalRestorationBenchmark:
             cache = self._scenario_audio_cache
             first_sid = next(iter(cache))
             ref_audio, _, sr = cache[first_sid]
-            conditions: dict[str, np.ndarray] = {
-                sid: restored for sid, (_, restored, _) in cache.items()
-            }
-            report = get_mushra_session().run_automated(
-                ref_audio, conditions, sr, seed=self.config.run_seed
-            )
+            conditions: dict[str, np.ndarray] = {sid: restored for sid, (_, restored, _) in cache.items()}
+            report = get_mushra_session().run_automated(ref_audio, conditions, sr, seed=self.config.run_seed)
             logger.info(
                 "📋 Formale MUSHRA-Session: %d Szenarien | %d/%d Hörer valide | Sieger: %s",
                 len(conditions),
@@ -767,14 +765,14 @@ class MusicalRestorationBenchmark:
         print(f"  Schlechtestes:  {report.worst_scenario}")
         print()
         print(f"  {'Szenario':<22} {'MUSHRA':>8} {'MOS':>6} {'Best.'}")
-        print(f"  {'-'*22} {'-'*8} {'-'*6} {'-'*6}")
+        print(f"  {'-' * 22} {'-' * 8} {'-' * 6} {'-' * 6}")
         for sid, r in report.scenario_results.items():
             tick = "✅" if r.passed else "❌"
             print(f"  {sid:<22} {r.mushra_mean:>7.1f} {r.pqs_mos_mean:>6.2f} {tick}")
         print()
         print("  Vergleich mit bekannten Systemen:")
         print(f"  {'System':<35} {'MUSHRA':>8}")
-        print(f"  {'-'*35} {'-'*8}")
+        print(f"  {'-' * 35} {'-' * 8}")
         for sys_name, vals in AMRB_BASELINES.items():
             marker = " ◄" if sys_name == report.system_name else ""
             print(f"  {sys_name:<35} {vals['mushra_overall']:>7.1f}{marker}")

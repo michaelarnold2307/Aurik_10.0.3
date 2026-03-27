@@ -41,8 +41,6 @@ Version: 2.0.0 Professional
 """
 
 import logging
-import os
-import sys
 import time
 
 import numpy as np

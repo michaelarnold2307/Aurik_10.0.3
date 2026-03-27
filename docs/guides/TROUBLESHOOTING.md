@@ -425,7 +425,7 @@ for audio_file in audio_files:
     audio, sr = sf.read(audio_file)
     restored = restorer.restore(audio, sr)
     sf.write(output_file, restored, sr)
-    
+
     # Free Memory
     del audio, restored
     torch.cuda.empty_cache()  # GPU
@@ -895,7 +895,7 @@ Phase 3: ML Noise Reduction... ⏳ (kann länger dauern)
    ```bash
    # Sammle System-Info
    python aurik_system_check.py > system_info.txt
-   
+
    # Attach zu GitHub Issue:
    # - system_info.txt
    # - Input Audio (wenn möglich)

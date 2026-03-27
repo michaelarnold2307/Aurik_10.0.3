@@ -141,7 +141,7 @@ class TruePeakLimiterPhase(PhaseInterface):
         gain_reduction_db = tp_before - tp_after
 
         logger.info(
-            "Phase 47 TruePeak: ceiling=%.1f dBFS, TP %+.2f → %+.2f dBFS, " "GR=%.2f dB, t=%.3fs",
+            "Phase 47 TruePeak: ceiling=%.1f dBFS, TP %+.2f → %+.2f dBFS, GR=%.2f dB, t=%.3fs",
             ceiling_dbfs,
             tp_before,
             tp_after,

@@ -464,6 +464,8 @@ def _make_lge_no_onnx():
     """Erzeugt LyricsGuidedEnhancement-Instanz ohne ONNX-Session (DSP-Fallback)."""
     from backend.core.lyrics_guided_enhancement import (
         ContentAwareProcessor as _InternalCAP,
+    )
+    from backend.core.lyrics_guided_enhancement import (
         LyricsGuidedEnhancement,
         LyricsGuidedTimeline,
     )
@@ -581,6 +583,8 @@ class TestLGEEnergyToWords:
     def test_lge_11_phoneme_types_valid(self) -> None:
         from backend.core.lyrics_guided_enhancement import (
             ContentAwareProcessor as _InternalCAP,
+        )
+        from backend.core.lyrics_guided_enhancement import (
             LyricsGuidedEnhancement,
         )
 
@@ -802,6 +806,8 @@ class TestLGEBuildSampleSaliency:
     def test_lge_33_plosive_boost_correct(self) -> None:
         from backend.core.lyrics_guided_enhancement import (
             ContentAwareProcessor as _ICAP,
+        )
+        from backend.core.lyrics_guided_enhancement import (
             LyricsTranscriptionResult,
             WordTimestamp,
         )
@@ -896,6 +902,8 @@ class TestLGEPhonemeAlignmentIntegration:
     def test_lge_39_transcribe_dsp_calls_align_hook(self, monkeypatch) -> None:
         from backend.core.lyrics_guided_enhancement import (
             ContentAwareProcessor as _InternalCAP,
+        )
+        from backend.core.lyrics_guided_enhancement import (
             LyricsGuidedEnhancement,
             LyricsGuidedTimeline,
         )
@@ -923,6 +931,8 @@ class TestLGEPhonemeAlignmentIntegration:
     def test_lge_40_transcribe_onnx_calls_align_hook(self, monkeypatch) -> None:
         from backend.core.lyrics_guided_enhancement import (
             ContentAwareProcessor as _InternalCAP,
+        )
+        from backend.core.lyrics_guided_enhancement import (
             LyricsGuidedEnhancement,
             LyricsGuidedTimeline,
         )

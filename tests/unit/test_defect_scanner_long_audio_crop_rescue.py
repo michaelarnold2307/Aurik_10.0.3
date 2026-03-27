@@ -8,10 +8,9 @@ for cheap event detectors (clicks, clipping).
 from __future__ import annotations
 
 import numpy as np
+
 import backend.core.defect_scanner as defect_scanner_module
-
 from backend.core.defect_scanner import DefectScanner, DefectType
-
 
 SR = 48_000
 

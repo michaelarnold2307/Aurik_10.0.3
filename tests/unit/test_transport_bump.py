@@ -585,12 +585,6 @@ class TestUV3PhaseSelection:
         """Phase 12 source must fall back to defect_locations dict."""
         from pathlib import Path
 
-        p12_path = (
-            Path(__file__).parent.parent.parent
-            / "backend"
-            / "core"
-            / "phases"
-            / "phase_12_wow_flutter_fix.py"
-        )
+        p12_path = Path(__file__).parent.parent.parent / "backend" / "core" / "phases" / "phase_12_wow_flutter_fix.py"
         content = p12_path.read_text(encoding="utf-8")
-        assert 'defect_locations' in content
+        assert "defect_locations" in content

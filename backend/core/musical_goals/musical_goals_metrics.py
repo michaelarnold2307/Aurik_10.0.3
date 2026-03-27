@@ -2381,7 +2381,7 @@ _THRESHOLDS_STUDIO_2026: dict[str, float] = {
     "natuerlichkeit": 0.90,
     "authentizitaet": 0.88,
     # P2
-    "tonal_center": 0.97,     # Studio 2026: strengere Tonart-Erhaltung
+    "tonal_center": 0.97,  # Studio 2026: strengere Tonart-Erhaltung
     "timbre_authentizitaet": 0.87,
     "artikulation": 0.85,
     # P3

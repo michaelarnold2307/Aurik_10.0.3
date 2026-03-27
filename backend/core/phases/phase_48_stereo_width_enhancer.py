@@ -39,14 +39,14 @@ _ALLPASS_DELAYS_MS = [17.1, 19.7, 23.3]
 _ALLPASS_GAIN = 0.60
 
 # Frequenzabhängige Breiten-Korrekturfaktoren
-_LF_CUTOFF_HZ = 200.0    # LF schmaler als Basisbreite
-_HF_CUTOFF_HZ = 8000.0   # HF etwas breiter als Basisbreite
+_LF_CUTOFF_HZ = 200.0  # LF schmaler als Basisbreite
+_HF_CUTOFF_HZ = 8000.0  # HF etwas breiter als Basisbreite
 _LF_WIDTH_FACTOR = 0.60  # Tiefbass deutlich schmaler (Mono-Kompatibilität)
 _HF_WIDTH_FACTOR = 1.15  # Hochton leicht breiter (Luftigkeit)
 
 # IACC-Guard
 _IACC_MIN = 0.97
-_IACC_MAX_LAG_MS = 1.0   # Über ±1ms mitteln (Blauert 1997)
+_IACC_MAX_LAG_MS = 1.0  # Über ±1ms mitteln (Blauert 1997)
 
 # STFT-Fenstergröße für Frequenzband-Processing
 _N_FFT = 2048
@@ -249,7 +249,10 @@ class StereoWidthEnhancerPhase(PhaseInterface):
                 side_reduction = reduced_width / width if width > 0 else 1.0
                 logger.debug(
                     "Phase 48 IACC-Guard: iacc=%.3f < %.2f → width %.2f → %.2f",
-                    iacc_val, _IACC_MIN, width, reduced_width,
+                    iacc_val,
+                    _IACC_MIN,
+                    width,
+                    reduced_width,
                 )
 
         processed = np.column_stack([L_out, R_out])
@@ -267,7 +270,10 @@ class StereoWidthEnhancerPhase(PhaseInterface):
 
         logger.info(
             "Phase 48 StereoWidth: width=%.2f, diffuse=%s, iacc=%.3f, side_red=%.2f",
-            width, diffuse, iacc_val, side_reduction,
+            width,
+            diffuse,
+            iacc_val,
+            side_reduction,
         )
 
         return PhaseResult(

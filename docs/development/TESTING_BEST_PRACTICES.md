@@ -63,22 +63,22 @@ def test_restore_musical_goals():
     # Generate test audio
     sr = 48000
     audio = generate_harmonic_test_signal(sr, duration=3.0)
-    
+
     # Process
     restorer = UnifiedRestorerV2()
     restored = restorer.restore(audio, sr, mode=ProcessingMode.RESTORATION)
-    
+
     # Measure Musical Goals
     checker = MusicalGoalsChecker()
     goals = checker.measure_all(restored, sr)
-    
+
     # Use Adaptive Thresholds (Material Quality-aware)
     if hasattr(restorer, '_adaptive_thresholds') and restorer._adaptive_thresholds:
         thresholds = restorer._adaptive_thresholds
     else:
         # Fallback: Standard thresholds
         thresholds = checker.thresholds
-    
+
     # Validate
     for goal_name, score in goals.items():
         threshold = thresholds.get(goal_name, 0.0)
@@ -146,36 +146,36 @@ def test_adaptive_thresholds_degraded_material():
     # Generate degraded audio (heavy noise, bandwidth limited)
     sr = 48000
     audio = generate_degraded_signal(sr, noise_level=0.15, bandwidth_limit=0.7)
-    
+
     # Process
     restorer = UnifiedRestorerV2()
     restored = restorer.restore(audio, sr)
-    
+
     # Validate Adaptive Thresholds
     assert hasattr(restorer, '_adaptive_thresholds'), \
         "Adaptive Thresholds should be available"
     assert hasattr(restorer, '_material_quality'), \
         "Material Quality should be assessed"
-    
+
     material = restorer._material_quality
-    
+
     # Material should be identified as degraded
     assert material.quality_level in [
-        MaterialQuality.POOR, 
-        MaterialQuality.VERY_POOR, 
+        MaterialQuality.POOR,
+        MaterialQuality.VERY_POOR,
         MaterialQuality.EXTREME
     ], f"Degraded material not identified: {material.quality_level.value}"
-    
+
     # Thresholds should be relaxed
     adaptive_thresholds = restorer._adaptive_thresholds
     standard_thresholds = MusicalGoalsChecker().thresholds
-    
+
     relaxed_count = 0
     for goal_name, adaptive_threshold in adaptive_thresholds.items():
         standard_threshold = standard_thresholds.get(goal_name, 0.0)
         if adaptive_threshold < standard_threshold:
             relaxed_count += 1
-    
+
     assert relaxed_count > 0, \
         "Adaptive Thresholds should be relaxed for degraded material"
 ```
@@ -191,16 +191,16 @@ def test_adaptive_thresholds_degraded_material():
 def generate_pristine_audio(sr=48000, duration=3.0):
     """Clean studio-quality audio"""
     t = np.linspace(0, duration, int(sr * duration))
-    
+
     # Multi-frequency with harmonics
     audio = 0.3 * np.sin(2 * np.pi * 440 * t)  # Fundamental
     audio += 0.1 * np.sin(2 * np.pi * 880 * t)  # 2nd harmonic
     audio += 0.05 * np.sin(2 * np.pi * 1320 * t)  # 3rd harmonic
-    
+
     # Subtle dynamics
     envelope = 1.0 + 0.1 * np.sin(2 * np.pi * 2.0 * t)
     audio = audio * envelope
-    
+
     return audio
 ```
 
@@ -209,22 +209,22 @@ def generate_pristine_audio(sr=48000, duration=3.0):
 def generate_degraded_audio(sr=48000, duration=3.0):
     """Heavily degraded audio (simulates cassette → MP3 → digital)"""
     t = np.linspace(0, duration, int(sr * duration))
-    
+
     # Base signal
     audio = 0.3 * np.sin(2 * np.pi * 440 * t)
-    
+
     # Heavy noise (poor SNR)
     noise = np.random.randn(len(audio)) * 0.15
     audio += noise
-    
+
     # Artifacts (clicks, dropouts)
     artifact_positions = np.random.choice(len(audio), size=50, replace=False)
     for pos in artifact_positions:
         audio[pos] = 0.7
-    
+
     # Bandwidth limitation would be applied here
     # (spectral filtering to simulate MP3)
-    
+
     return audio
 ```
 
@@ -233,19 +233,19 @@ def generate_degraded_audio(sr=48000, duration=3.0):
 def generate_extreme_degraded_audio(sr=48000, duration=3.0):
     """Extremely degraded (telephone, multi-generation)"""
     t = np.linspace(0, duration, int(sr * duration))
-    
+
     # Severely bandwidth-limited
     audio = 0.2 * np.sin(2 * np.pi * 440 * t)
-    
+
     # Extreme noise
     noise = np.random.randn(len(audio)) * 0.25
     audio += noise
-    
+
     # Heavy artifacts
     artifact_positions = np.random.choice(len(audio), size=200, replace=False)
     for pos in artifact_positions:
         audio[pos] = np.random.randn() * 0.8
-    
+
     return audio
 ```
 
@@ -302,13 +302,13 @@ def pass1_fir_deess(audio, events, profile, sr=48000):
     # FIR Filter design
     taps = firwin(257, [s_band[0]/nyq, s_band[1]/nyq], pass_zero=True)
     filtered = lfilter(taps, 1.0, audio)
-    
+
     # Gain reduction nur bei Sibilant-Events
     gain = 10 ** (profile.max_depth_db / 20)
     out = audio.copy()
     for ev in events:
         out[ev.start:ev.end] -= filtered[ev.start:ev.end] * (1 - gain)
-    
+
     return out
 ```
 
@@ -323,13 +323,13 @@ def pass2_spectral_repair(audio, events, profile, sr=48000):
     - Erhält natürlichen Klang
     """
     stft = librosa.stft(audio, n_fft=4096, hop_length=512)
-    
+
     # Interpoliere Sibilant-Frames
     for ev in events:
         t = ev.start // 512
         if 1 <= t < stft.shape[1] - 1:
             stft[band, t] = 0.5 * (stft[band, t-1] + stft[band, t+1])
-    
+
     return librosa.istft(stft, hop_length=512)
 ```
 
@@ -356,7 +356,7 @@ def pass3_hf_texture_ml(audio, events, profile, model, sr=48000):
 def adaptive_hf_gate(ratio, style="pop"):
     """
     Prüft, ob HF-Energie ausreichend erhalten wurde.
-    
+
     Stil-abhängige Thresholds:
     - pop: ratio >= 0.85
     - classical: ratio >= 0.90
@@ -371,7 +371,7 @@ def adaptive_hf_gate(ratio, style="pop"):
 def adaptive_corr_gate(corr, min_corr=0.98):
     """
     Prüft Voice Identity Preservation.
-    
+
     min_corr = 0.98: SEHR STRIKT!
     Sichert Authentizität (höchstes Musical Goal)
     """
@@ -388,27 +388,27 @@ def adaptive_corr_gate(corr, min_corr=0.98):
 def test_vocal_enhancement_preserves_brillanz(gender):
     """
     Test: Vocal Enhancement preserves Brillanz (HF Clarity 8-20 kHz)
-    
+
     WHY: De-Essing must reduce harsh sibilants WITHOUT destroying HF clarity
-    
+
     Musical Goal: Brillanz >= 0.85 (or adaptive threshold for degraded material)
     """
     sr = 48000
     duration = 3.0
-    
+
     # Generate test audio with harsh sibilants
     audio_degraded = generate_degraded_vocal_signal(sr, duration, gender)
-    
+
     # Process with Vocal Enhancement
     audio_enhanced = process_vocals(audio_degraded, sr, gender=gender)
-    
+
     # Measure Musical Goals
     checker = MusicalGoalsChecker()
     goals_after = checker.measure_all(audio_enhanced, sr)
-    
+
     # Brillanz should be preserved
     brillanz = goals_after.get('brillanz', 0.0)
-    
+
     # CRITICAL: De-Essing should NOT destroy Brillanz
     assert brillanz >= 0.70, \
         f"{gender}: Brillanz too low after de-essing: {brillanz:.3f} < 0.70"
@@ -461,19 +461,19 @@ if gender is None or gender == "auto":
 def generate_vocal_test_signal(sr=48000, duration=3.0, gender="female"):
     """Generate realistic vocal signal with natural sibilants"""
     t = np.linspace(0, duration, int(sr * duration))
-    
+
     # Fundamental frequency (gender-specific)
     f0 = 220 if gender == "female" else 110 if gender == "male" else 330
-    
+
     # Vocal with harmonics
     audio = 0.4 * np.sin(2 * np.pi * f0 * t)
     audio += 0.2 * np.sin(2 * np.pi * 2 * f0 * t)  # 2nd harmonic
     audio += 0.1 * np.sin(2 * np.pi * 3 * f0 * t)  # 3rd harmonic
-    
+
     # Add natural sibilants
     sibilant_freq = 8000 if gender == "female" else 6000 if gender == "male" else 10000
     # ... (add sibilant bursts)
-    
+
     return audio
 ```
 
@@ -482,15 +482,15 @@ def generate_vocal_test_signal(sr=48000, duration=3.0, gender="female"):
 def generate_degraded_vocal_signal(sr=48000, duration=3.0, gender="female"):
     """Generate vocal with harsh sibilants and noise"""
     audio = generate_vocal_test_signal(sr, duration, gender)
-    
+
     # Add harsh sibilants (excessive HF energy)
     harsh_freq = 9000 if gender == "female" else 7000 if gender == "male" else 11000
     # ... (add harsh sibilant bursts)
-    
+
     # Add noise
     noise = np.random.randn(len(audio)) * 0.05
     audio += noise
-    
+
     return audio
 ```
 
@@ -502,17 +502,17 @@ def generate_degraded_vocal_signal(sr=48000, duration=3.0, gender="female"):
 def test_e2e_vocal_enhancement_all_musical_goals():
     """
     Test: E2E Vocal Enhancement validates ALL 14 Musical Goals
-    
+
     Validates: Brillanz, Wärme, Natürlichkeit, Authentizität,
                Emotionalität, Transparenz, Bass-Kraft
     """
     # Process with Vocal Enhancement
     audio_enhanced = process_vocals(audio_degraded, sr, gender="female")
-    
+
     # Measure ALL Musical Goals
     checker = MusicalGoalsChecker()
     goals = checker.measure_all(audio_enhanced, sr)
-    
+
     # Adaptive Thresholds für degradiertes Material
     relaxed_thresholds = {
         'brillanz': 0.70,
@@ -520,7 +520,7 @@ def test_e2e_vocal_enhancement_all_musical_goals():
         'authentizitaet': 0.75,  # Höchster Threshold!
         # ...
     }
-    
+
     # Validate all goals
     for goal_name, score in goals.items():
         threshold = relaxed_thresholds.get(goal_name, 0.70)
@@ -535,18 +535,18 @@ def test_e2e_vocal_enhancement_all_musical_goals():
 def test_e2e_vocal_enhancement_cross_gender_consistency():
     """
     Test: Equivalent quality improvement für alle Geschlechter
-    
+
     POLICY: Keine Diskriminierung basierend auf Geschlecht
     """
     results = {}
-    
+
     for gender in ["female", "male", "child"]:
         audio_enhanced = process_vocals(audio, sr, gender=gender)
-        
+
         # Measure improvements
         improvements = calculate_improvements(audio_before, audio_enhanced)
         results[gender] = improvements
-    
+
     # Improvements sollten konsistent sein
     improvement_std = np.std([r["avg"] for r in results.values()])
     assert improvement_std < 0.15, "Inconsistent results across genders"
@@ -650,10 +650,10 @@ class UnifiedForensicAnalyzer:
     """
     1. Medium Detection (6 Kategorien, 99%+ Ziel-Accuracy)
        → VINYL, TAPE, CASSETTE, CD, DIGITAL, LOSSY
-    
+
     2. Era Detection (8 Epochen, 95%+ Ziel-Accuracy)
        → 1950s, 1960s, 1970s, 1980s, 1990s, 2000s, 2010s, 2020s
-    
+
     3. Defect Detection (5 Typen, 98%+ Recall)
        → Clicks, Crackle, Hum, Wow/Flutter, Bandwidth Limit
     """
@@ -680,15 +680,15 @@ chain = [
 @pytest.mark.musical_goals
 def test_medium_specific_thresholds():
     """Test: VINYL hat andere Thresholds als CD"""
-    
+
     # VINYL: Wärme wichtig
     vinyl_thresholds = MEDIUM_SPECIFIC_THRESHOLDS["VINYL_LP_STEREO"]
     assert vinyl_thresholds["waerme"] == 0.85  # Hoch!
-    
+
     # CD: Transparenz wichtig
     cd_thresholds = MEDIUM_SPECIFIC_THRESHOLDS["CD_STANDARD"]
     assert cd_thresholds["transparenz"] == 0.88  # Hoch!
-    
+
     # VINYL > CD für Wärme
     assert vinyl_thresholds["waerme"] > cd_thresholds["waerme"]
 ```
@@ -836,7 +836,7 @@ def test_restore():
     restored = restorer.restore(audio, sr)
     checker = MusicalGoalsChecker()
     goals = checker.measure_all(restored, sr)
-    
+
     # Fails für degradiertes Material!
     assert goals['brillanz'] >= 0.85
 ```
@@ -847,16 +847,16 @@ def test_restore():
 def test_restore():
     restorer = UnifiedRestorerV2()
     restored = restorer.restore(audio, sr)
-    
+
     # Use Adaptive Thresholds
     if hasattr(restorer, '_adaptive_thresholds'):
         thresholds = restorer._adaptive_thresholds
     else:
         thresholds = MusicalGoalsChecker().thresholds
-    
+
     checker = MusicalGoalsChecker()
     goals = checker.measure_all(restored, sr)
-    
+
     # Passes für alle Material-Qualitäten!
     for goal, score in goals.items():
         assert score >= thresholds.get(goal, 0.0)
@@ -876,7 +876,7 @@ def test_material_quality():
 ```python
 def test_material_quality():
     material = analyze_material(audio, sr)
-    
+
     # Generation-Count hat 40% Gewichtung!
     if material.generation_count >= 2:
         # Multi-Generation → Höhere degradation_score erwartet
@@ -901,16 +901,16 @@ def test_restore():
 def test_restore():
     restorer = UnifiedRestorerV2()
     restored = restorer.restore(audio, sr)
-    
+
     # Technical validation
     assert restored.shape == audio.shape
-    
+
     # Musical Goals validation
     checker = MusicalGoalsChecker()
     goals = checker.measure_all(restored, sr)
-    
+
     thresholds = restorer._adaptive_thresholds if hasattr(restorer, '_adaptive_thresholds') else checker.thresholds
-    
+
     for goal_name, score in goals.items():
         assert score >= thresholds.get(goal_name, 0.0), \
             f"Musical Goal '{goal_name}' violated: {score:.3f} < {thresholds.get(goal_name, 0.0):.2f}"

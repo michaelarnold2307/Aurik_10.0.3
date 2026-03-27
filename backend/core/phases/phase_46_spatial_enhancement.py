@@ -44,7 +44,7 @@ logger = logging.getLogger(__name__)
 
 # Frühe Reflexionen: Delays in ms + Amplituden-Dämpfung in dB
 _EARLY_REFLECTIONS = [
-    (6.1, -8.5),   # Erste Seitenreflexion (Blauert perceptual plane front-left)
+    (6.1, -8.5),  # Erste Seitenreflexion (Blauert perceptual plane front-left)
     (11.3, -11.0),  # Zweite Reflexion (Primzahl-Ratio)
     (17.7, -13.5),  # Dritte Reflexion
     (22.4, -16.0),  # Vierte Reflexion (kurz genug um Echo zu vermeiden)
@@ -52,7 +52,7 @@ _EARLY_REFLECTIONS = [
 
 # Allpass-Diffusion: Delays + Gains
 _ALLPASS_PARAMS = [
-    (5.0, 0.45),   # schnell — kleine Raumgröße
+    (5.0, 0.45),  # schnell — kleine Raumgröße
     (13.3, 0.40),  # mittel
     (23.7, 0.35),  # langsam — Diffusion
 ]
@@ -61,7 +61,9 @@ _ALLPASS_PARAMS = [
 _IACC_MIN = 0.97
 
 
-def _early_reflection_mix(L: np.ndarray, R: np.ndarray, sr: int, dry_wet: float = 0.18) -> tuple[np.ndarray, np.ndarray]:
+def _early_reflection_mix(
+    L: np.ndarray, R: np.ndarray, sr: int, dry_wet: float = 0.18
+) -> tuple[np.ndarray, np.ndarray]:
     """Add psychoacoustically distributed early reflections to extend perceived width."""
     L_out = L.copy()
     R_out = R.copy()
@@ -86,7 +88,7 @@ def _allpass_diffuse(signal_in: np.ndarray, sr: int) -> np.ndarray:
     out = signal_in.copy()
     for delay_ms, g in _ALLPASS_PARAMS:
         D = max(1, int(delay_ms / 1000.0 * sr))
-        if D >= len(out):
+        if len(out) <= D:
             continue
         b = np.zeros(D + 1)
         b[0] = -g
@@ -228,8 +230,7 @@ class SpatialEnhancementPhase(PhaseInterface):
                 L_out = (M + S_red) * inv_sqrt2
                 R_out = (M - S_red) * inv_sqrt2
                 logger.debug(
-                    "Phase 46 IACC-Guard: iacc=%.3f < %.2f → side_reduction=%.2f",
-                    iacc_val, _IACC_MIN, side_reduction
+                    "Phase 46 IACC-Guard: iacc=%.3f < %.2f → side_reduction=%.2f", iacc_val, _IACC_MIN, side_reduction
                 )
 
         processed = np.column_stack([L_out, R_out])
@@ -247,7 +248,10 @@ class SpatialEnhancementPhase(PhaseInterface):
 
         logger.info(
             "Phase 46 SpatialEnhancement: dry_wet=%.2f, diffuse=%s, iacc=%.3f, side_red=%.2f",
-            dry_wet, diffuse, iacc_val, side_reduction,
+            dry_wet,
+            diffuse,
+            iacc_val,
+            side_reduction,
         )
 
         return PhaseResult(

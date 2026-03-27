@@ -29,7 +29,6 @@ Version: 2.0.0 Professional ML-Hybrid
 
 import logging
 import os
-import sys
 import tempfile
 import time
 
@@ -533,7 +532,9 @@ class TapeHissReductionPhase(PhaseInterface):
 
             # Process with DeepFilterNet
             returncode, _stdout, _stderr = plugin.process(
-                input_path, output_path, post_filter=True  # Enable post-filter for smooth HF reduction
+                input_path,
+                output_path,
+                post_filter=True,  # Enable post-filter for smooth HF reduction
             )
 
             if returncode == 0 and os.path.exists(output_path):

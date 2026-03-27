@@ -48,8 +48,6 @@ Date: February 2026
 """
 
 import logging
-import os
-import sys
 import time
 
 import numpy as np
@@ -405,7 +403,7 @@ if __name__ == "__main__":
     test_audio = np.column_stack([left, right])
 
     logger.debug(f"Generated {duration}s test audio @ {sample_rate} Hz")
-    logger.debug(f"Phase error: Right delayed by {delay_bass} samples (~{delay_bass*1000/sample_rate:.2f}ms)")
+    logger.debug(f"Phase error: Right delayed by {delay_bass} samples (~{delay_bass * 1000 / sample_rate:.2f}ms)")
     logger.debug("")
 
     # Test with different materials
@@ -429,8 +427,12 @@ if __name__ == "__main__":
         logger.debug(f"   Correlation After: {result.metrics['correlation_after']:.4f}")
         logger.debug(f"   Improvement: {result.metrics['correlation_improvement']:.4f}")
         logger.debug("")
-        logger.debug(f"   Per-Band Correlation Before: {[f'{c:.3f}' for c in result.metrics['per_band_correlation_before']]}")
-        logger.debug(f"   Per-Band Correlation After:  {[f'{c:.3f}' for c in result.metrics['per_band_correlation_after']]}")
+        logger.debug(
+            f"   Per-Band Correlation Before: {[f'{c:.3f}' for c in result.metrics['per_band_correlation_before']]}"
+        )
+        logger.debug(
+            f"   Per-Band Correlation After:  {[f'{c:.3f}' for c in result.metrics['per_band_correlation_after']]}"
+        )
         logger.debug(f"   Delays Corrected (samples):  {result.metrics['delays_corrected_samples']}")
         logger.debug("")
         logger.debug(

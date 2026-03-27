@@ -13,13 +13,13 @@ Validates:
 from __future__ import annotations
 
 import numpy as np
-import pytest
 
 SR = 48_000
 
 
 def _scanner(sr: int = SR):
     from backend.core.defect_scanner import DefectScanner
+
     return DefectScanner(sample_rate=sr)
 
 
@@ -78,11 +78,13 @@ def _harsh_vocal_sim(duration: float = 3.0, harshness: float = 0.8) -> np.ndarra
 # DefectType existence and integration
 # ============================================================
 
+
 class TestVocalHarshnessDefectType:
     """VOCAL_HARSHNESS must exist and be integrated into the system."""
 
     def test_defect_type_exists(self):
         from backend.core.defect_scanner import DefectType
+
         assert hasattr(DefectType, "VOCAL_HARSHNESS")
         assert DefectType.VOCAL_HARSHNESS.value == "vocal_harshness"
 
@@ -103,6 +105,7 @@ class TestVocalHarshnessDefectType:
     def test_cd_digital_threshold_low(self):
         """CD/Digital should have LOW threshold (0.25) — harsh mastering is common."""
         from backend.core.defect_scanner import DefectScanner, DefectType, MaterialType
+
         val = DefectScanner.MATERIAL_SENSITIVITY[MaterialType.CD_DIGITAL][DefectType.VOCAL_HARSHNESS]
         assert val <= 0.30, f"CD_DIGITAL threshold {val} too high — harshness is common in digital"
 
@@ -110,6 +113,7 @@ class TestVocalHarshnessDefectType:
 # ============================================================
 # Detection — Anti-False-Positive
 # ============================================================
+
 
 class TestVocalHarshnessAntiFP:
     """Clean signals must NOT trigger vocal harshness detection."""
@@ -146,6 +150,7 @@ class TestVocalHarshnessAntiFP:
 # ============================================================
 # Detection — True Positives
 # ============================================================
+
 
 class TestVocalHarshnessDetection:
     """Harsh/distorted signals must trigger vocal harshness detection."""
@@ -198,6 +203,7 @@ class TestVocalHarshnessDetection:
 
     def test_defect_type_correct(self):
         from backend.core.defect_scanner import DefectType
+
         sc = _scanner()
         score = sc._detect_vocal_harshness(_harsh_vocal_sim())
         assert score.defect_type == DefectType.VOCAL_HARSHNESS
@@ -207,25 +213,30 @@ class TestVocalHarshnessDetection:
 # CausalDefectReasoner mapping
 # ============================================================
 
+
 class TestVocalHarshnessReasoning:
     """CausalDefectReasoner must map vocal_harshness to repair phases."""
 
     def test_cause_to_phases_mapping_exists(self):
         from backend.core.causal_defect_reasoner import CAUSE_TO_PHASES
+
         assert "vocal_harshness" in CAUSE_TO_PHASES
 
     def test_mapping_includes_phase_42(self):
         from backend.core.causal_defect_reasoner import CAUSE_TO_PHASES
+
         phases = CAUSE_TO_PHASES["vocal_harshness"]
         assert "phase_42_vocal_enhancement" in phases
 
     def test_mapping_includes_de_esser(self):
         from backend.core.causal_defect_reasoner import CAUSE_TO_PHASES
+
         phases = CAUSE_TO_PHASES["vocal_harshness"]
         assert "phase_19_de_esser" in phases
 
     def test_mapping_includes_spectral_repair(self):
         from backend.core.causal_defect_reasoner import CAUSE_TO_PHASES
+
         phases = CAUSE_TO_PHASES["vocal_harshness"]
         assert "phase_23_spectral_repair" in phases
 
@@ -234,11 +245,13 @@ class TestVocalHarshnessReasoning:
 # Phase 42 — Harshness reduction integration
 # ============================================================
 
+
 class TestPhase42HarshnessReduction:
     """Phase 42 must reduce harshness when VOCAL_HARSHNESS is detected."""
 
     def _make_phase42(self):
         from backend.core.phases.phase_42_vocal_enhancement import VocalEnhancement
+
         return VocalEnhancement()
 
     def test_reduce_harshness_method_exists(self):
@@ -291,13 +304,13 @@ class TestPhase42HarshnessReduction:
         audio = _clean_vocal_sim()
         reduced = p42._reduce_harshness(audio, SR, severity=0.3)
         # Difference should be small for clean audio (median presence not exceeding threshold)
-        diff = float(np.sqrt(np.mean((audio - reduced)**2)))
+        diff = float(np.sqrt(np.mean((audio - reduced) ** 2)))
         assert diff < 0.1, f"Clean audio changed too much: rmsd={diff:.4f}"
 
     def test_enhance_channel_uses_harshness(self):
         """_enhance_channel with harshness > 0 should invoke reduction."""
-        from backend.core.phases.phase_42_vocal_enhancement import VocalEnhancement
         from backend.core.defect_scanner import MaterialType
+        from backend.core.phases.phase_42_vocal_enhancement import VocalEnhancement
 
         p42 = VocalEnhancement()
         config = p42.ENHANCEMENT_CONFIG[MaterialType.CD_DIGITAL]
@@ -310,14 +323,15 @@ class TestPhase42HarshnessReduction:
         result_harsh = p42._enhance_channel(audio.copy(), SR, config, harshness_severity=0.7)
 
         # Results should differ
-        diff = float(np.sqrt(np.mean((result_no_harsh - result_harsh)**2)))
+        diff = float(np.sqrt(np.mean((result_no_harsh - result_harsh) ** 2)))
         assert diff > 0.001, f"Harshness severity had no effect: diff={diff:.6f}"
 
     def test_presence_boost_attenuated_with_high_harshness(self):
         """With harshness > 0.3, presence_gain_db should be reduced."""
-        from backend.core.phases.phase_42_vocal_enhancement import VocalEnhancement
-        from backend.core.defect_scanner import MaterialType
         from scipy import signal as scipy_signal
+
+        from backend.core.defect_scanner import MaterialType
+        from backend.core.phases.phase_42_vocal_enhancement import VocalEnhancement
 
         p42 = VocalEnhancement()
         config = p42.ENHANCEMENT_CONFIG[MaterialType.CD_DIGITAL]
@@ -330,24 +344,24 @@ class TestPhase42HarshnessReduction:
 
         # Measure 3–6 kHz energy (presence boost zone)
         sos = scipy_signal.butter(4, [3000, 6000], btype="band", fs=SR, output="sos")
-        pres_full = float(np.mean(scipy_signal.sosfilt(sos, result_full)**2))
-        pres_att = float(np.mean(scipy_signal.sosfilt(sos, result_att)**2))
+        pres_full = float(np.mean(scipy_signal.sosfilt(sos, result_full) ** 2))
+        pres_att = float(np.mean(scipy_signal.sosfilt(sos, result_att) ** 2))
 
         # Attenuated version should have less presence energy
-        assert pres_att < pres_full, (
-            f"Presence not attenuated: full={pres_full:.6f} att={pres_att:.6f}"
-        )
+        assert pres_att < pres_full, f"Presence not attenuated: full={pres_full:.6f} att={pres_att:.6f}"
 
 
 # ============================================================
 # Full scan integration
 # ============================================================
 
+
 class TestVocalHarshnessScanIntegration:
     """VOCAL_HARSHNESS in full DefectScanner.scan() results."""
 
     def test_scan_includes_vocal_harshness(self):
         from backend.core.defect_scanner import DefectScanner, DefectType, MaterialType
+
         sc = DefectScanner(sample_rate=SR)
         audio = _harsh_vocal_sim(duration=5.0)
         result = sc.scan(audio, material_type=MaterialType.CD_DIGITAL)
@@ -355,6 +369,7 @@ class TestVocalHarshnessScanIntegration:
 
     def test_scan_clean_audio_low_severity(self):
         from backend.core.defect_scanner import DefectScanner, DefectType, MaterialType
+
         sc = DefectScanner(sample_rate=SR)
         audio = _clean_vocal_sim(duration=5.0)
         result = sc.scan(audio, material_type=MaterialType.CD_DIGITAL)
@@ -363,6 +378,7 @@ class TestVocalHarshnessScanIntegration:
 
     def test_scan_stereo_includes_vocal_harshness(self):
         from backend.core.defect_scanner import DefectScanner, DefectType, MaterialType
+
         sc = DefectScanner(sample_rate=SR)
         mono = _harsh_vocal_sim(duration=5.0)
         stereo = np.column_stack([mono, mono])

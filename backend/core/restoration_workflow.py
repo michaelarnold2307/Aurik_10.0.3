@@ -8,7 +8,7 @@ single process() call.
 
 from __future__ import annotations
 
-from typing import Any, Dict
+from typing import Any
 
 import numpy as np
 
@@ -59,8 +59,8 @@ class RestorationWorkflow:
         # 2. Metrics
         orig_np = np.asarray(original, dtype=np.float64)
         proc_np = np.asarray(processed, dtype=np.float64)
-        rms_orig = float(np.sqrt(np.mean(orig_np ** 2))) + 1e-12
-        rms_proc = float(np.sqrt(np.mean(proc_np ** 2))) + 1e-12
+        rms_orig = float(np.sqrt(np.mean(orig_np**2))) + 1e-12
+        rms_proc = float(np.sqrt(np.mean(proc_np**2))) + 1e-12
         spectral_balance = float(rms_proc / rms_orig)
         metrics = {
             "spectral_balance": spectral_balance,

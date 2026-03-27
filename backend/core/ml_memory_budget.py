@@ -26,7 +26,6 @@ from __future__ import annotations
 
 import logging
 import threading
-from typing import Dict
 
 try:
     import psutil as _psutil
@@ -47,7 +46,7 @@ def _auto_detect_budget() -> float:
     intermediate arrays.  On 32 GB → 10 GB; on 16 GB → 5 GB; on 64 GB → 12 GB.
     """
     if _psutil is not None:
-        total_gb = _psutil.virtual_memory().total / (1024 ** 3)
+        total_gb = _psutil.virtual_memory().total / (1024**3)
         budget = max(4.0, min(12.0, total_gb / 3.0))
         return round(budget, 1)
     return 10.0  # conservative default without psutil
@@ -57,7 +56,7 @@ def _auto_detect_budget() -> float:
 # Auto-detected from system RAM; override via set_budget() if needed.
 ML_MAX_GB: float = _auto_detect_budget()
 _SYSTEM_MEMORY_MARGIN_BASE: float = 1.35  # Basis-Margin für kleine Modelle (< 1 GB)
-_SYSTEM_MEMORY_MARGIN_MIN: float = 1.10   # Minimale Margin für sehr große Modelle (>= 5 GB)
+_SYSTEM_MEMORY_MARGIN_MIN: float = 1.10  # Minimale Margin für sehr große Modelle (>= 5 GB)
 _MIN_FREE_MB_HARD: float = 3072.0  # 3 GB — angehoben von 1.5 GB (systemd-oomd-Schutz)
 
 
@@ -84,8 +83,8 @@ def _scaled_margin(size_gb: float) -> float:
 # Internal state (thread-safe)
 # ---------------------------------------------------------------------------
 _lock = threading.Lock()
-_allocated: dict[str, float] = {}   # model_name → GB currently allocated
-_total_gb: float = 0.0              # sum of _allocated.values()
+_allocated: dict[str, float] = {}  # model_name → GB currently allocated
+_total_gb: float = 0.0  # sum of _allocated.values()
 
 
 def _available_memory_mb() -> float:
@@ -167,6 +166,7 @@ def _preflight_system_memory(required_mb: float) -> bool:
 # Public API
 # ---------------------------------------------------------------------------
 
+
 def try_allocate(model_name: str, size_gb: float) -> bool:
     """Reserve ``size_gb`` GB of ML budget for ``model_name``.
 
@@ -199,8 +199,7 @@ def try_allocate(model_name: str, size_gb: float) -> bool:
         remaining = ML_MAX_GB - _total_gb
         if size_gb > remaining:
             logger.warning(
-                "ML-Budget erschöpft: '%s' benötigt %.1f GB, "
-                "aber nur %.1f GB von %.1f GB frei — DSP-Fallback aktiv.",
+                "ML-Budget erschöpft: '%s' benötigt %.1f GB, aber nur %.1f GB von %.1f GB frei — DSP-Fallback aktiv.",
                 model_name,
                 size_gb,
                 remaining,

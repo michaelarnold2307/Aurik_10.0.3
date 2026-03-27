@@ -72,8 +72,6 @@ Quality Target: 0.86 (Professional-Grade)
 """
 
 import logging
-import os
-import sys
 import time
 
 import numpy as np
@@ -603,7 +601,7 @@ if __name__ == "__main__":
         if result.success:
             logger.debug("✅ Processing Complete!")
             logger.debug(
-                f"   Execution Time: {result.execution_time_seconds:.3f}s ({result.execution_time_seconds/duration:.2f}× realtime)"
+                f"   Execution Time: {result.execution_time_seconds:.3f}s ({result.execution_time_seconds / duration:.2f}× realtime)"
             )
             logger.debug(f"   Pseudo-Stereo Applied: {result.metadata['mono_to_stereo_applied']}")
             if result.metadata.get("mono_to_stereo_applied"):

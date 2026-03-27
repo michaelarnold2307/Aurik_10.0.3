@@ -186,12 +186,12 @@ from backend.denoiser import AdaptiveDenoiser
 
 class TestAdaptiveDenoiser:
     """Unit Tests für AdaptiveDenoiser"""
-    
+
     @pytest.fixture
     def denoiser(self):
         """Denoiser Fixture"""
         return AdaptiveDenoiser()
-    
+
     @pytest.fixture
     def audio_with_noise(self):
         """Test Audio mit weißem Rauschen"""
@@ -199,30 +199,30 @@ class TestAdaptiveDenoiser:
         duration = 3.0
         audio = np.random.randn(int(sr * duration)) * 0.1  # Noise
         return audio, sr
-    
+
     def test_denoise_reduces_noise_floor(self, denoiser, audio_with_noise):
         """Test: Denoising reduziert Noise Floor"""
         # Arrange
         audio, sr = audio_with_noise
         noise_floor_before = np.std(audio)
-        
+
         # Act
         denoised = denoiser.process(audio, sr, strength=0.5)
-        
+
         # Assert
         noise_floor_after = np.std(denoised)
         assert noise_floor_after < noise_floor_before
         assert noise_floor_after < 0.05  # < -26 dB
-    
+
     @pytest.mark.parametrize("strength", [0.0, 0.25, 0.5, 0.75, 1.0])
     def test_denoise_strength_parameter(self, denoiser, audio_with_noise, strength):
         """Test: Denoise Strength Parameter"""
         # Arrange
         audio, sr = audio_with_noise
-        
+
         # Act
         denoised = denoiser.process(audio, sr, strength=strength)
-        
+
         # Assert
         assert denoised.shape == audio.shape
         assert not np.isnan(denoised).any()
@@ -247,12 +247,12 @@ from core.unified_restorer_v2 import UnifiedRestorerV2, ProcessingMode
 @pytest.mark.integration
 class TestPipelineFlow:
     """Integration Tests für vollständige Pipeline"""
-    
+
     @pytest.fixture
     def restorer(self):
         """UnifiedRestorerV2 Fixture"""
         return UnifiedRestorerV2()
-    
+
     @pytest.fixture
     def vinyl_audio(self):
         """Vinyl Audio Fixture mit Clicks/Crackle"""
@@ -261,46 +261,46 @@ class TestPipelineFlow:
         # Sine Wave + Clicks + Crackle
         t = np.linspace(0, duration, int(sr * duration))
         audio = 0.5 * np.sin(2 * np.pi * 440 * t)  # 440 Hz
-        
+
         # Add Clicks
         click_positions = [sr // 2, sr, sr * 2]
         for pos in click_positions:
             audio[pos] = 1.0
-        
+
         # Add Crackle
         crackle = np.random.randn(audio.shape[0]) * 0.02
         audio += crackle
-        
+
         return audio, sr
-    
+
     def test_restoration_mode_full_pipeline(self, restorer, vinyl_audio):
         """Test: RESTORATION Mode vollständige Pipeline"""
         # Arrange
         audio, sr = vinyl_audio
-        
+
         # Act
         restored = restorer.restore(
-            audio, sr, 
+            audio, sr,
             mode=ProcessingMode.RESTORATION,
             enable_logging=True
         )
-        
+
         # Assert
         assert restored.shape == audio.shape
         assert restored.dtype == np.float32
         assert not np.isnan(restored).any()
         assert not np.isinf(restored).any()
-        
+
         # Verify Noise Reduction
         noise_floor_before = np.std(audio[-sr:])  # Last second
         noise_floor_after = np.std(restored[-sr:])
         assert noise_floor_after < noise_floor_before
-    
+
     @pytest.mark.slow
     def test_all_modes_produce_valid_output(self, restorer, vinyl_audio):
         """Test: Alle Modi produzieren valides Audio"""
         audio, sr = vinyl_audio
-        
+
         modes = [
             ProcessingMode.RESTORATION,
             ProcessingMode.STUDIO_2026,
@@ -308,11 +308,11 @@ class TestPipelineFlow:
             ProcessingMode.VINTAGE_WARMTH,
             ProcessingMode.ARCHIVAL
         ]
-        
+
         for mode in modes:
             # Act
             restored = restorer.restore(audio, sr, mode=mode)
-            
+
             # Assert
             assert restored.shape == audio.shape
             assert restored.dtype == np.float32
@@ -335,57 +335,57 @@ from core.unified_restorer_v2 import UnifiedRestorerV2, ProcessingMode
 @pytest.mark.e2e
 class TestMagicButtonE2E:
     """E2E Tests für Magic Button (vollständige User-Journey)"""
-    
+
     @pytest.fixture(scope="class")
     def test_audio_dir(self):
         """Test Audio Directory"""
         return Path("test_audio")
-    
+
     @pytest.fixture(scope="class")
     def output_dir(self):
         """Output Directory"""
         output = Path("test_output")
         output.mkdir(exist_ok=True)
         return output
-    
+
     def test_magic_button_restoration_vinyl(self, test_audio_dir, output_dir):
         """Test: Magic Button - Vinyl Restoration (Full E2E)"""
         # Arrange
         input_file = test_audio_dir / "vinyl_sample.wav"
         output_file = output_dir / "vinyl_restored.wav"
-        
+
         if not input_file.exists():
             pytest.skip("Test audio file not found")
-        
+
         audio, sr = sf.read(input_file)
         restorer = UnifiedRestorerV2()
-        
+
         # Act: Magic Button (RESTORATION)
         restored = restorer.restore(
             audio, sr,
             mode=ProcessingMode.RESTORATION,
             enable_logging=True
         )
-        
+
         # Save Output
         sf.write(output_file, restored, sr)
-        
+
         # Assert
         assert output_file.exists()
-        
+
         # Verify File Properties
         restored_audio, restored_sr = sf.read(output_file)
         assert restored_sr == sr
         assert restored_audio.shape == audio.shape
-        
+
         # Verify Audio Quality (automated checks)
         # 1. No Clipping
         assert np.abs(restored_audio).max() <= 1.0
-        
+
         # 2. No Silence (should have signal)
         rms = np.sqrt(np.mean(restored_audio**2))
         assert rms > 0.01  # -40 dB
-        
+
         # 3. No DC Offset
         dc_offset = np.mean(restored_audio)
         assert abs(dc_offset) < 0.01
@@ -411,7 +411,7 @@ markers =
     gpu: Requires GPU (CUDA)
     requires_audio: Requires test audio files
 
-addopts = 
+addopts =
     --strict-markers
     --disable-warnings
     --tb=short
@@ -420,7 +420,7 @@ addopts =
 # Coverage
 [coverage:run]
 source = .
-omit = 
+omit =
     tests/*
     setup.py
     */__pycache__/*
@@ -567,7 +567,7 @@ from core.unified_restorer_v2 import UnifiedRestorerV2, ProcessingMode
 @pytest.mark.benchmark
 class TestProcessingBenchmarks:
     """Performance Benchmarks"""
-    
+
     def test_restoration_processing_time_cpu(self):
         """Benchmark: RESTORATION Mode (CPU-only)"""
         # Arrange
@@ -575,19 +575,19 @@ class TestProcessingBenchmarks:
         duration = 180.0  # 3 minutes
         audio = np.random.randn(int(sr * duration)) * 0.1
         restorer = UnifiedRestorerV2()
-        
+
         # Act (measure time)
         start = time.time()
         restored = restorer.restore(audio, sr, mode=ProcessingMode.RESTORATION)
         elapsed = time.time() - start
-        
+
         # Assert
         realtime_factor = duration / elapsed
         print(f"Processing Time: {elapsed:.2f}s ({realtime_factor:.2f}x realtime)")
-        
+
         # CPU should be >0.3x realtime (i7-10700K: ~3x)
         assert realtime_factor > 0.3
-    
+
     @pytest.mark.gpu
     def test_restoration_processing_time_gpu(self):
         """Benchmark: RESTORATION Mode (GPU)"""
@@ -612,21 +612,21 @@ def test_memory_usage_within_limits():
     """Test: Memory Usage < 2 GB"""
     # Start Memory Tracking
     tracemalloc.start()
-    
+
     # Process Audio
     sr = 48000
     duration = 180.0
     audio = np.random.randn(int(sr * duration))
     restorer = UnifiedRestorerV2()
     restored = restorer.restore(audio, sr)
-    
+
     # Check Memory
     current, peak = tracemalloc.get_traced_memory()
     tracemalloc.stop()
-    
+
     peak_mb = peak / (1024**2)
     print(f"Peak Memory: {peak_mb:.2f} MB")
-    
+
     # Assert < 2 GB
     assert peak_mb < 2048
 ```
@@ -650,25 +650,25 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
-    
+
     steps:
     - uses: actions/checkout@v3
-    
+
     - name: Set up Python 3.11
       uses: actions/setup-python@v4
       with:
         python-version: '3.11'
-    
+
     - name: Install Dependencies
       run: |
         python -m pip install --upgrade pip
         pip install -r requirements.txt
         pip install pytest pytest-cov
-    
+
     - name: Run Tests
       run: |
         pytest --maxfail=1 --disable-warnings --cov=. --cov-report=xml
-    
+
     - name: Upload Coverage
       uses: codecov/codecov-action@v3
       with:
@@ -744,7 +744,7 @@ def test_denoise(denoiser):
 class TestDenoiser:
     def setup_method(self):
         self.denoiser = AdaptiveDenoiser()
-    
+
     def test_denoise(self):
         result = self.denoiser.process(audio, sr)
         assert ...

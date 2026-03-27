@@ -141,15 +141,14 @@ def _get_banquet_onnx_session():
                             )
                         except Exception as _load_exc:
                             _ml_release("BANQUET")
-                            logger.warning(
-                                "BANQUET ONNX-Session Ladefehler: %s — DSP-Fallback aktiv.", _load_exc
-                            )
+                            logger.warning("BANQUET ONNX-Session Ladefehler: %s — DSP-Fallback aktiv.", _load_exc)
                             _BANQUET_ONNX_SESSION = False
                             return None
 
                         _BANQUET_ONNX_SESSION = sess
                         try:
                             from backend.core.plugin_lifecycle_manager import get_plugin_lifecycle_manager
+
                             get_plugin_lifecycle_manager().register(
                                 "BANQUET", size_gb=_BANQUET_SIZE_GB, unload_fn=lambda: None
                             )
@@ -1177,9 +1176,9 @@ if __name__ == "__main__":
     materials = ["shellac", "vinyl", "cd_digital"]
 
     for material in materials:
-        logger.debug(f"\n{'-'*80}")
+        logger.debug(f"\n{'-' * 80}")
         logger.debug(f"Testing with material: {material.upper()}")
-        logger.debug(f"{'-'*80}")
+        logger.debug(f"{'-' * 80}")
 
         phase = CrackleRemovalPhase(sample_rate=sr)
         result = phase.process(audio.copy(), material_type=material)
@@ -1199,9 +1198,9 @@ if __name__ == "__main__":
         else:
             logger.debug("❌ Processing Failed!")
 
-    logger.debug(f"\n{'='*80}")
+    logger.debug(f"\n{'=' * 80}")
     logger.debug("✅ Professional Crackle Removal v2.0 Test Complete!")
-    logger.debug(f"{'='*80}")
+    logger.debug(f"{'=' * 80}")
     logger.debug(f"Algorithm: {result.metadata['algorithm']}")
     logger.debug(f"Scientific Reference: {result.metadata['scientific_ref']}")
     logger.debug(f"Benchmark: {result.metadata['benchmark']}")

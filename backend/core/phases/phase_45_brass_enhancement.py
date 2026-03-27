@@ -43,6 +43,7 @@ from .phase_interface import PhaseCategory, PhaseInterface, PhaseMetadata, Phase
 
 try:
     from dsp.formant_system import FormantSystem as _FormantSystemCls
+
     _FORMANT_SYSTEM_BRASS: _FormantSystemCls | None = None
 except Exception:
     _FormantSystemCls = None  # type: ignore[assignment,misc]
@@ -182,6 +183,7 @@ class BrassEnhancementPhase(PhaseInterface):
         #    Band-limited to 500–4000 Hz HP-filtered copy to avoid LF mud.
         try:
             from scipy.signal import hilbert as _hilbert
+
             sos_bp = sig.butter(2, [300.0, 4000.0], btype="band", fs=sample_rate, output="sos")
             if x.ndim == 1:
                 x_bp = sig.sosfilt(sos_bp, x)
@@ -249,12 +251,15 @@ class BrassEnhancementPhase(PhaseInterface):
         # Formant-Drift-Korrektur via DTW (Schritt 3)
         try:
             from dsp.instrument_formant_corrector import correct_instrument_formant_drift
+
             drift_result = correct_instrument_formant_drift(processed, sample_rate, instrument="brass")
             processed = drift_result.audio
             logger.debug(
                 "Phase 45 drift correction: detected=%s frames=%d/%d drift=%.1fHz",
-                drift_result.drift_detected, drift_result.n_frames_corrected,
-                drift_result.total_frames, drift_result.mean_drift_hz,
+                drift_result.drift_detected,
+                drift_result.n_frames_corrected,
+                drift_result.total_frames,
+                drift_result.mean_drift_hz,
             )
         except Exception as _drift_exc:
             logger.debug("Phase 45 drift correction skipped: %s", _drift_exc)
@@ -262,22 +267,22 @@ class BrassEnhancementPhase(PhaseInterface):
         # Sub-Stem-Verarbeitung (Schritt 4)
         try:
             from backend.core.sub_stem_processor import process_sub_stems
-            ss_result = process_sub_stems(processed, sample_rate, instrument="brass",
-                                          processing_strength=0.30)
+
+            ss_result = process_sub_stems(processed, sample_rate, instrument="brass", processing_strength=0.30)
             processed = ss_result.audio
-            logger.debug("Phase 45 sub-stem: bands=%d strength=%.2f",
-                         ss_result.n_bands, ss_result.processing_strength)
+            logger.debug("Phase 45 sub-stem: bands=%d strength=%.2f", ss_result.n_bands, ss_result.processing_strength)
         except Exception as _ss_exc:
             logger.debug("Phase 45 sub-stem skipped: %s", _ss_exc)
 
         # Physics-Resonanz (Schritt 5 — Biquad Body Resonance)
         try:
             from backend.core.physics_resonance_enhancer import enhance_physics_resonance
-            pr_result = enhance_physics_resonance(processed, sample_rate, instrument="brass",
-                                                  enhancement_strength=0.40)
+
+            pr_result = enhance_physics_resonance(processed, sample_rate, instrument="brass", enhancement_strength=0.40)
             processed = pr_result.audio
-            logger.debug("Phase 45 physics resonance: peaks=%d strength=%.2f",
-                         pr_result.n_peaks, pr_result.enhancement_strength)
+            logger.debug(
+                "Phase 45 physics resonance: peaks=%d strength=%.2f", pr_result.n_peaks, pr_result.enhancement_strength
+            )
         except Exception as _pr_exc:
             logger.debug("Phase 45 physics resonance skipped: %s", _pr_exc)
 

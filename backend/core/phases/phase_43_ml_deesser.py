@@ -55,10 +55,10 @@ logger = logging.getLogger(__name__)
 #  CHILD:   7 –14 kHz  (höchster Grundton, sehr hohe Sibilanz)
 #  unknown: 5 – 9 kHz  (konservativer Fallback)
 GENDER_FREQ_MAP: dict[str, tuple[float, float]] = {
-    "male":    (5_000.0, 10_000.0),
-    "female":  (6_000.0, 12_000.0),
-    "child":   (7_000.0, 14_000.0),
-    "unknown": (5_000.0,  9_000.0),
+    "male": (5_000.0, 10_000.0),
+    "female": (6_000.0, 12_000.0),
+    "child": (7_000.0, 14_000.0),
+    "unknown": (5_000.0, 9_000.0),
 }
 
 _DEFAULT_THRESHOLD_DB = -20.0
@@ -305,15 +305,23 @@ class AdaptiveDeEsserPhase(PhaseInterface):
             strength_cap = max(strength_cap, _breath_cap)
             logger.info(
                 "Phase 43 Breathiness-Guard: breathiness=%.2f → strength_cap angepasst auf %.2f",
-                _breathiness, strength_cap,
+                _breathiness,
+                strength_cap,
             )
 
         gr_dbs: list[float] = []
 
         if x.ndim == 1:
             processed_ch, gr_db = _deess_channel(
-                x, sample_rate, threshold_db, ratio, attack_ms, release_ms,
-                freq_low, freq_high, strength_cap,
+                x,
+                sample_rate,
+                threshold_db,
+                ratio,
+                attack_ms,
+                release_ms,
+                freq_low,
+                freq_high,
+                strength_cap,
             )
             processed = processed_ch
             gr_dbs.append(gr_db)
@@ -321,8 +329,15 @@ class AdaptiveDeEsserPhase(PhaseInterface):
             channels = []
             for ch in range(x.shape[1]):
                 processed_ch, gr_db = _deess_channel(
-                    x[:, ch], sample_rate, threshold_db, ratio, attack_ms, release_ms,
-                    freq_low, freq_high, strength_cap,
+                    x[:, ch],
+                    sample_rate,
+                    threshold_db,
+                    ratio,
+                    attack_ms,
+                    release_ms,
+                    freq_low,
+                    freq_high,
+                    strength_cap,
                 )
                 channels.append(processed_ch)
                 gr_dbs.append(gr_db)
@@ -376,7 +391,13 @@ class AdaptiveDeEsserPhase(PhaseInterface):
         logger.info(
             "Phase 43 DeEsser: gender=%s freq=[%.0f–%.0f Hz] "
             "threshold=%.1f dB ratio=%.1f strength_cap=%.2f avg_GR=%.2f dB",
-            gender, freq_low, freq_high, threshold_db, ratio, strength_cap, avg_gr,
+            gender,
+            freq_low,
+            freq_high,
+            threshold_db,
+            ratio,
+            strength_cap,
+            avg_gr,
         )
 
         processed = np.nan_to_num(processed, nan=0.0, posinf=0.0, neginf=0.0)

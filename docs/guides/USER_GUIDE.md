@@ -215,7 +215,7 @@ AURIK analysiert automatisch:
 #### **6. Wow & Flutter**
 - **Ursache:** Mechanische Instabilität
 - **Erkennung:** Pitch modulation analysis
-- **Behandlung:** 
+- **Behandlung:**
   - Restoration: Moderate Korrektur
   - Modern: Aggressive Korrektur
 - **Algorithmus:** Phase vocoder + time-stretching
@@ -253,14 +253,14 @@ AURIK analysiert automatisch:
 - **Behandlung:**
   - Restoration: Nur extreme Sibilanten (> 12 dB over average)
   - Modern: Alle problematischen Sibilanten (> 6 dB over average)
-- **Algorithmus:** 
+- **Algorithmus:**
   ```python
   - Sibilant detection (4-12 kHz energy)
   - Formant-aware compression
   - Spectral shaping (preserve voice character)
   - Transient preservation
   ```
-- **Best Practice:** 
+- **Best Practice:**
   - Reduction: 3-6 dB (nie mehr!)
   - Frequency: 6-9 kHz (sweet spot)
   - Attack/Release: Ultra-fast (< 1ms)

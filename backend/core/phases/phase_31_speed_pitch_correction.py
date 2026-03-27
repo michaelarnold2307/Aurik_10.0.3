@@ -848,7 +848,7 @@ class SpeedPitchCorrectionPhase(PhaseInterface):
                             "basicpitch_applied": True,
                             "poly_pitch": poly_pitch,
                             "poly_confidence": poly_conf,
-                            "poly_curve_frames": int(len(poly_curve)),
+                            "poly_curve_frames": len(poly_curve),
                         },
                     )
                 # BasicPitch gave no reliable result → fall through to HYBRID

@@ -41,8 +41,6 @@ Version: 2.0.0 Professional
 """
 
 import logging
-import os
-import sys
 import time
 
 import numpy as np
@@ -566,7 +564,7 @@ if __name__ == "__main__":
                 f"Side {metrics['side_reduction_db']:+5.1f} dB"
             )
         logger.debug("")
-        logger.debug(f"  Processing time: {meta['processing_time_s']:.3f}s " f"({meta['realtime_factor']:.2f}× realtime)")
+        logger.debug(f"  Processing time: {meta['processing_time_s']:.3f}s ({meta['realtime_factor']:.2f}× realtime)")
         logger.debug(f"  Quality impact: {meta['quality_impact']:.2f}")
         logger.debug("  ✅")
         logger.debug("")

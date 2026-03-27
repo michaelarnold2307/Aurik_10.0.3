@@ -38,8 +38,6 @@ Version: 3.0.0
 """
 
 import logging
-import os
-import sys
 import time
 
 import numpy as np

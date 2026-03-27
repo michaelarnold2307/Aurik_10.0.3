@@ -232,7 +232,7 @@ class RumbleFilterPhase(PhaseInterface):
                 audio=audio,
                 modifications={
                     "rumble_filtered": False,
-                    "reason": f'no significant rumble detected (threshold: {params["detection_threshold"]:.1%})',
+                    "reason": f"no significant rumble detected (threshold: {params['detection_threshold']:.1%})",
                 },
                 warnings=[],
                 metadata={
@@ -538,9 +538,9 @@ if __name__ == "__main__":
     materials = ["shellac", "vinyl", "tape", "cd_digital"]
 
     for material in materials:
-        logger.debug(f"\n{'-'*80}")
+        logger.debug(f"\n{'-' * 80}")
         logger.debug(f"Testing with material: {material.upper()}")
-        logger.debug(f"{'-'*80}")
+        logger.debug(f"{'-' * 80}")
 
         phase = RumbleFilterPhase(sample_rate=sr)
         result = phase.process(audio.copy(), material_type=material)
@@ -564,9 +564,9 @@ if __name__ == "__main__":
             logger.debug("⏭️  Rumble Filter Skipped")
             logger.debug(f"   Reason: {result.modifications.get('reason', 'unknown')}")
 
-    logger.debug(f"\n{'='*80}")
+    logger.debug(f"\n{'=' * 80}")
     logger.debug("✅ Professional Rumble Filter v2.0 Test Complete!")
-    logger.debug(f"{'='*80}")
+    logger.debug(f"{'=' * 80}")
     logger.debug(f"Algorithm: {result.metadata.get('algorithm', 'N/A')}")
     logger.debug(f"Scientific Reference: {result.metadata.get('scientific_ref', 'N/A')}")
     logger.debug(f"Benchmark: {result.metadata.get('benchmark', 'N/A')}")

@@ -57,8 +57,6 @@ Date: 16. Februar 2026
 """
 
 import logging
-import os
-import sys
 import time
 
 import numpy as np
@@ -346,7 +344,9 @@ class TransparentDynamicsV1(PhaseInterface):
         # Find transient peaks
         threshold = np.mean(envelope) + 2 * np.std(envelope)
         peak_indices, _ = signal.find_peaks(
-            envelope, height=threshold, distance=int(0.02 * self.sample_rate)  # Min 20ms between transients
+            envelope,
+            height=threshold,
+            distance=int(0.02 * self.sample_rate),  # Min 20ms between transients
         )
 
         # Create transient mask (20ms windows around peaks)

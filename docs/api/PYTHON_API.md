@@ -137,7 +137,7 @@ restored = restorer.restore(audio, sr, mode='studio_2026')
 
 # Mit Logging
 restored = restorer.restore(
-    audio, sr, 
+    audio, sr,
     mode=ProcessingMode.RESTORATION,
     input_file='old_recording.wav',
     enable_logging=True
@@ -333,7 +333,7 @@ compression_ratio = 1.5
 **Verwendung:**
 ```python
 restored = restorer.restore(
-    audio, sr, 
+    audio, sr,
     mode=ProcessingMode.FORENSIC,
     enable_logging=True  # Wichtig für Beweisführung
 )
@@ -438,7 +438,7 @@ if hasattr(restorer, 'logger') and restorer.logger:
     print(f"SNR Improvement: {trace.overall_snr_improvement:.1f} dB")
     print(f"THD Reduction: {trace.overall_thd_reduction:.1f}%")
     print(f"Processing Time: {trace.total_processing_time_sec:.1f}s")
-    
+
     # Save Report
     restorer.logger.save_trace('processing_report.json')
 
@@ -494,14 +494,14 @@ files = list(input_dir.glob('*.wav'))
 for file in tqdm(files, desc="Restoring Album"):
     # Load
     audio, sr = sf.read(file)
-    
+
     # Restore
     restored = restorer.restore(audio, sr, mode='restoration')
-    
+
     # Save
     output_path = output_dir / file.name
     sf.write(output_path, restored, 48000)
-    
+
 print(f"✅ {len(files)} Tracks restored!")
 ```
 
@@ -595,28 +595,28 @@ import numpy as np
 def restore_large_file(input_file, output_file, chunk_size_sec=30):
     """Restore large file in chunks (streaming)."""
     restorer = UnifiedRestorerV2()
-    
+
     # Read file info (ohne laden)
     info = sf.info(input_file)
     sr = info.samplerate
-    
+
     # Process in chunks
     with sf.SoundFile(input_file) as f_in:
         with sf.SoundFile(output_file, 'w', sr, f_in.channels) as f_out:
             chunk_size = chunk_size_sec * sr
-            
+
             while True:
                 # Read chunk
                 audio = f_in.read(chunk_size)
                 if len(audio) == 0:
                     break
-                
+
                 # Restore (adapt internal chunking if needed)
                 restored = restorer.restore(audio, sr)
-                
+
                 # Write
                 f_out.write(restored)
-    
+
     print(f"✅ Large file restored: {output_file}")
 ```
 
@@ -681,7 +681,7 @@ def restore_file(file_path, output_dir, restorer):
     """Restore single file (thread-safe)."""
     audio, sr = sf.read(file_path)
     restored = restorer.restore(audio, sr)
-    
+
     output_path = output_dir / file_path.name
     sf.write(output_path, restored, 48000)
     return file_path.name
@@ -693,10 +693,10 @@ output_dir = Path('output')
 
 with ThreadPoolExecutor(max_workers=4) as executor:
     futures = [
-        executor.submit(restore_file, f, output_dir, restorer) 
+        executor.submit(restore_file, f, output_dir, restorer)
         for f in input_files
     ]
-    
+
     for future in futures:
         filename = future.result()
         print(f"✅ {filename}")

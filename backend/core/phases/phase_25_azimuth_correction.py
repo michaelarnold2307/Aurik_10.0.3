@@ -55,8 +55,6 @@ Quality Target: 0.87 (Professional-Grade)
 """
 
 import logging
-import os
-import sys
 import time
 from dataclasses import dataclass
 
@@ -73,6 +71,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class BandAzimuthAnalysis:
     """Result of per-band azimuth cross-correlation analysis."""
+
     band_index: int
     phase_shift_samples: float
     confidence: float
@@ -379,7 +378,9 @@ class AzimuthCorrectionPhaseV2(PhaseInterface):
         mean_corr = np.mean(np.abs(search_window))
         confidence = max_corr / (mean_corr + 1e-10)
 
-        return BandAzimuthAnalysis(band_index=band_index, phase_shift_samples=phase_shift_samples, confidence=float(confidence))
+        return BandAzimuthAnalysis(
+            band_index=band_index, phase_shift_samples=phase_shift_samples, confidence=float(confidence)
+        )
 
     def _correct_band_azimuth(
         self, band_audio: np.ndarray, sample_rate: int, azimuth_error: BandAzimuthAnalysis, band_index: int
@@ -567,7 +568,9 @@ if __name__ == "__main__":
     logger.debug("Multi-frequency content with simulated azimuth error:")
     logger.debug("  Left: 100Hz + 1kHz + 8kHz + 12kHz + noise")
     logger.debug("  Right: Copy of left with time delay")
-    logger.debug(f"  Time delay: {azimuth_error_samples} samples (~{azimuth_error_samples/sample_rate*1000:.2f} ms)")
+    logger.debug(
+        f"  Time delay: {azimuth_error_samples} samples (~{azimuth_error_samples / sample_rate * 1000:.2f} ms)"
+    )
     logger.debug("Simulates: Tape head azimuth misalignment")
     logger.debug("Note: HF loss occurs automatically via phase cancellation")
 
@@ -583,7 +586,7 @@ if __name__ == "__main__":
     if result.success:
         logger.debug("✅ Processing Complete!")
         logger.debug(
-            f"   Execution Time: {result.execution_time_seconds:.3f}s ({result.execution_time_seconds/duration:.2f}× realtime)"
+            f"   Execution Time: {result.execution_time_seconds:.3f}s ({result.execution_time_seconds / duration:.2f}× realtime)"
         )
         logger.debug(f"   Correction Applied: {result.metadata['azimuth_correction_applied']}")
         if result.metadata.get("azimuth_correction_applied"):
@@ -606,7 +609,9 @@ if __name__ == "__main__":
         else:
             logger.debug(f"   Reason: {result.metadata.get('reason', 'unknown')}")
             if "max_phase_shift_samples" in result.metadata:
-                logger.debug(f"   Max Phase Shift: {result.metadata['max_phase_shift_samples']:.1f} samples (below threshold)")
+                logger.debug(
+                    f"   Max Phase Shift: {result.metadata['max_phase_shift_samples']:.1f} samples (below threshold)"
+                )
             if "hf_loss_db" in result.metadata:
                 logger.debug(f"   HF Loss: {result.metadata['hf_loss_db']:.2f} dB")
 

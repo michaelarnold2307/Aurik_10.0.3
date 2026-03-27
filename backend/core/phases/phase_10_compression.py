@@ -41,8 +41,6 @@ Version: 2.0.0 Professional
 """
 
 import logging
-import os
-import sys
 import time
 
 import numpy as np
@@ -481,10 +479,9 @@ if __name__ == "__main__":
         logger.debug("  Multi-band parallel compression:")
         logger.debug(f"    RMS change: {meta['rms_change_db']:+.2f} dB")
         logger.debug(
-            f"    Dynamic range: {dr_in:.1f} dB → {dr_out:.1f} dB "
-            f"(reduced {meta['dynamic_range_reduction_db']:.1f} dB)"
+            f"    Dynamic range: {dr_in:.1f} dB → {dr_out:.1f} dB (reduced {meta['dynamic_range_reduction_db']:.1f} dB)"
         )
-        logger.debug(f"    Parallel blend: {meta['parallel_blend']*100:.0f}% wet")
+        logger.debug(f"    Parallel blend: {meta['parallel_blend'] * 100:.0f}% wet")
         logger.debug(f"    Detection mode: {meta['detection_mode']}")
         logger.debug("")
         logger.debug("  Per-Band Compression:")
@@ -496,7 +493,7 @@ if __name__ == "__main__":
                 f"RMS {metrics['rms_change_db']:+5.2f} dB"
             )
         logger.debug("")
-        logger.debug(f"  Processing time: {meta['processing_time_s']:.3f}s " f"({meta['realtime_factor']:.2f}× realtime)")
+        logger.debug(f"  Processing time: {meta['processing_time_s']:.3f}s ({meta['realtime_factor']:.2f}× realtime)")
         logger.debug(f"  Quality impact: {meta['quality_impact']:.2f}")
         logger.debug("  ✅")
         logger.debug("")

@@ -76,12 +76,14 @@ class TestImportAndConstants:
     def test_06b_likelihood_fns_cover_all_causes(self):
         # Alle 34 Ursachen müssen eine Likelihood-Funktion haben
         from backend.core.causal_defect_reasoner import LIKELIHOOD_FNS
+
         for cause in CAUSES:
             assert cause in LIKELIHOOD_FNS, f"{cause} not in LIKELIHOOD_FNS"
 
     def test_06c_material_priors_cover_all_causes(self):
         # Alle 15 Materialien müssen Priors für alle 34 Ursachen haben
         from backend.core.causal_defect_reasoner import MATERIAL_PRIORS
+
         for material, priors in MATERIAL_PRIORS.items():
             for cause in CAUSES:
                 assert cause in priors, f"{cause} not in MATERIAL_PRIORS[{material}]"

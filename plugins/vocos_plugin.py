@@ -13,12 +13,12 @@ CPU-Only: CPUExecutionProvider — kein CUDA.
 Out-of-the-Box: Kein Download beim ersten Start.
 """
 
-from dataclasses import dataclass, field
 import logging
 import math
-from math import gcd
 import os
 import threading
+from dataclasses import dataclass, field
+from math import gcd
 
 import numpy as np
 from scipy.signal import istft, resample_poly, stft
@@ -139,7 +139,8 @@ class VocosPlugin:
         # ── ML-Budget-Check VOR dem Laden (§5.1 OOM-Schutz) ──────────────────
         _allocated = False
         try:
-            from backend.core.ml_memory_budget import release as _release, try_allocate
+            from backend.core.ml_memory_budget import release as _release
+            from backend.core.ml_memory_budget import try_allocate
 
             if not try_allocate("Vocos", size_gb=0.12):
                 logger.warning("Vocos: ML-Budget erschöpft — Griffin-Lim-Fallback")

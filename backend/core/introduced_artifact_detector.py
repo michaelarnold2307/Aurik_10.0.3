@@ -9,7 +9,6 @@ from __future__ import annotations
 import logging
 import threading
 from dataclasses import dataclass, field
-from typing import Optional
 
 import numpy as np
 
@@ -63,7 +62,9 @@ class IntroducedArtifactDetector:
 
     CLICK_THRESHOLD_DB: float = 12.0
     CLICK_MAX_DURATION_MS: float = 5.0
-    PVOC_SMEAR_THRESHOLD_MS: float = 50.0  # was 10.0; < 1 hop (10.67ms) caused false-positive for every single-frame transient shift
+    PVOC_SMEAR_THRESHOLD_MS: float = (
+        50.0  # was 10.0; < 1 hop (10.67ms) caused false-positive for every single-frame transient shift
+    )
     MUSICAL_NOISE_THRESHOLD_DB: float = 3.0
     SILENCE_THRESHOLD_DBFS: float = -40.0
     HARMONICITY_THRESHOLD: float = 0.70
@@ -197,7 +198,9 @@ class IntroducedArtifactDetector:
         for i in range(1, min(n - 1, len(do))):
             if do[i - 1] > 0.20:  # was 0.1; raised to only flag strong transients, not normal music dynamics
                 bj, bv = i, -1.0
-                for j in range(max(0, i - 6), min(n - 1, i + 6)):  # was ±20 frames; narrowed to prevent false cross-matching with unrelated transients
+                for j in range(
+                    max(0, i - 6), min(n - 1, i + 6)
+                ):  # was ±20 frames; narrowed to prevent false cross-matching with unrelated transients
                     if j < len(dr) and dr[j] > bv:
                         bv = dr[j]
                         bj = j

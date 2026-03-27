@@ -451,7 +451,9 @@ class ClickRemovalPhase(PhaseInterface):
 
             # Process with DeepFilterNet
             returncode, _stdout, _stderr = plugin.process(
-                input_path, output_path, post_filter=True  # Enable post-filter for better quality
+                input_path,
+                output_path,
+                post_filter=True,  # Enable post-filter for better quality
             )
 
             if returncode == 0 and os.path.exists(output_path):
@@ -801,9 +803,9 @@ if __name__ == "__main__":
     materials = ["shellac", "vinyl", "tape", "cd_digital"]
 
     for material in materials:
-        logger.debug(f"\n{'-'*80}")
+        logger.debug(f"\n{'-' * 80}")
         logger.debug(f"Testing with material: {material.upper()}")
-        logger.debug(f"{'-'*80}")
+        logger.debug(f"{'-' * 80}")
 
         phase = ClickRemovalPhase()
         result = phase.process(audio.copy(), material_type=material, preserve_transients=True)
@@ -823,9 +825,9 @@ if __name__ == "__main__":
         else:
             logger.debug("❌ Processing Failed!")
 
-    logger.debug(f"\n{'='*80}")
+    logger.debug(f"\n{'=' * 80}")
     logger.debug("✅ Professional Click Removal v2.0 Test Complete!")
-    logger.debug(f"{'='*80}")
+    logger.debug(f"{'=' * 80}")
     logger.debug(f"Algorithm: {result.metadata['algorithm']}")
     logger.debug(f"Scientific Reference: {result.metadata['scientific_ref']}")
     logger.debug(f"Benchmark: {result.metadata['benchmark']}")

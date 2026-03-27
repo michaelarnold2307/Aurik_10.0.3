@@ -169,7 +169,7 @@ ProcessingConfig(
 **Verwendung:**
 ```python
 restored = restorer.restore(
-    audio, sr, 
+    audio, sr,
     mode=ProcessingMode.FORENSIC,
     enable_logging=True  # Dokumentiere alle Schritte
 )
@@ -271,19 +271,19 @@ from core.processing_modes import ProcessingConfig, ProcessingMode
 config = ProcessingConfig(
     # Basis-Mode
     mode=ProcessingMode.RESTORATION,
-    
+
     # Globale Parameter
     aggressive=0.4,              # 0.0-1.0 (Restaurations-Aggressivität)
     denoise_strength=0.25,       # 0.0-1.0 (Noise Reduction Stärke)
     compression_ratio=2.5,       # 1.0-10.0 (Dynamik-Kompression)
-    
+
     # Feature Toggles
     enable_de_esser=True,                      # Sibilanz-Reduktion
     enable_vocal_enhancement=True,             # Vocal Clarity (Phase 2.2)
     enable_instrumental_enhancement=True,      # Instrument Enhancement (Phase 2.3)
     enable_phase_10_soundstage=False,          # 3D Soundstage Depth
     enable_phase_11_binaural=False,            # Binaural Processing
-    
+
     # Advanced (optional)
     target_lufs=-16.0,           # Mastering Loudness (EBU R128)
     enable_true_peak_limiter=True,  # Broadcast-safe Limiting
@@ -637,7 +637,7 @@ config = ProcessingConfig(
 )
 
 restored = restorer.restore(
-    audio, sr, 
+    audio, sr,
     config=config,
     enable_logging=True  # Dokumentiere alle Schritte für Archiv
 )
@@ -723,7 +723,7 @@ configs = [
 results = []
 for i, config in enumerate(configs):
     restored = restorer.restore(
-        audio, sr, 
+        audio, sr,
         config=config,
         output_file=f'test_{i}.wav',
         enable_logging=True

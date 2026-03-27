@@ -60,8 +60,6 @@ Date: February 2026
 """
 
 import logging
-import os
-import sys
 import time
 
 import numpy as np
@@ -76,8 +74,8 @@ try:
 except ImportError:
     PROFESSIONAL_METERS_AVAILABLE = False
 
-from .phase_interface import PhaseCategory, PhaseInterface, PhaseMetadata, PhaseResult
 from .output_guard import evaluate_output_guard
+from .phase_interface import PhaseCategory, PhaseInterface, PhaseMetadata, PhaseResult
 
 logger = logging.getLogger(__name__)
 

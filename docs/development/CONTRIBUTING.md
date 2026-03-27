@@ -293,13 +293,13 @@ def restore(
 ) -> np.ndarray:
     """
     Restore audio with optional mode and config.
-    
+
     Args:
         audio: Input audio (mono or stereo)
         sr: Sample rate (Hz)
         mode: Processing mode (default: RESTORATION)
         config: Optional custom configuration
-        
+
     Returns:
         Restored audio (48 kHz, float32)
     """
@@ -316,10 +316,10 @@ def restore(
 def process_audio(audio: np.ndarray, sr: int, aggressive: float = 0.5) -> np.ndarray:
     """
     Process audio with adaptive restoration.
-    
+
     This function applies a 14-phase restoration pipeline with automatic
     defect detection and semantic-aware processing.
-    
+
     Args:
         audio: Input audio array (mono or stereo)
         sr: Sample rate in Hz
@@ -327,13 +327,13 @@ def process_audio(audio: np.ndarray, sr: int, aggressive: float = 0.5) -> np.nda
             - 0.0-0.3: Conservative
             - 0.3-0.7: Moderate
             - 0.7-1.0: Aggressive
-            
+
     Returns:
         Restored audio array (48 kHz, float32)
-        
+
     Raises:
         ValueError: If audio is empty or sr is invalid
-        
+
     Example:
         >>> audio, sr = sf.read('input.wav')
         >>> restored = process_audio(audio, sr, aggressive=0.5)
@@ -450,10 +450,10 @@ def test_restore_basic():
     sr = 48000
     audio = np.random.randn(sr * 3).astype(np.float32) * 0.1  # 3s noise
     restorer = UnifiedRestorerV2()
-    
+
     # Act
     restored = restorer.restore(audio, sr)
-    
+
     # Assert
     assert restored is not None
     assert restored.shape[0] > 0
@@ -463,7 +463,7 @@ def test_restore_basic():
 def test_restore_invalid_input():
     """Test error handling for invalid input."""
     restorer = UnifiedRestorerV2()
-    
+
     with pytest.raises(ValueError):
         restorer.restore(None, 48000)  # Should raise ValueError
 ```

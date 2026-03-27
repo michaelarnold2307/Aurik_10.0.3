@@ -344,14 +344,16 @@ def _get_precise_metric_instances() -> dict[str, Any]:
         with _PRECISE_METRICS_LOCK:
             if _PRECISE_METRICS is None:
                 try:
-                    from backend.core.musical_goals.musical_goals_metrics import ArticulationMetric
-                    from backend.core.musical_goals.musical_goals_metrics import BrillanzMetric
-                    from backend.core.musical_goals.musical_goals_metrics import MicroDynamicsMetric
-                    from backend.core.musical_goals.musical_goals_metrics import NatuerlichkeitMetric
-                    from backend.core.musical_goals.musical_goals_metrics import SeparationFidelityMetric
-                    from backend.core.musical_goals.musical_goals_metrics import TonalCenterMetric
-                    from backend.core.musical_goals.musical_goals_metrics import TransparenzMetric
-                    from backend.core.musical_goals.musical_goals_metrics import WaermeMetric
+                    from backend.core.musical_goals.musical_goals_metrics import (
+                        ArticulationMetric,
+                        BrillanzMetric,
+                        MicroDynamicsMetric,
+                        NatuerlichkeitMetric,
+                        SeparationFidelityMetric,
+                        TonalCenterMetric,
+                        TransparenzMetric,
+                        WaermeMetric,
+                    )
 
                     _PRECISE_METRICS = {
                         "brillanz": BrillanzMetric(),
@@ -1187,7 +1189,9 @@ class PerPhaseMusicalGoalsGate:
                 if _retry_elapsed > _RETRY_BUDGET_S:
                     break
                 if _is_ml_deterministic:
-                    audio_em = self._wet_dry_blend(audio, audio_full if audio_full is not None else best_audio, _em_strength, phase)
+                    audio_em = self._wet_dry_blend(
+                        audio, audio_full if audio_full is not None else best_audio, _em_strength, phase
+                    )
                 else:
                     audio_em = self._run_phase(phase, audio, _em_strength, phase_kwargs)
                 scores_em = _measure_quick(
@@ -1203,7 +1207,7 @@ class PerPhaseMusicalGoalsGate:
                     best_scores = scores_em
                     best_regression = regression_em
                     best_strength = _em_strength
-                    best_action = f"best_effort_emergency"
+                    best_action = "best_effort_emergency"
 
         # §2.29 KEIN Rollback — Phase wird mit geringster Regression angewendet.
         # VERBOTEN: Phase überspringen (Original-Audio zurückgeben).

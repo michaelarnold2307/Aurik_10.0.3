@@ -43,12 +43,7 @@ def evaluate_output_guard(
     """Evaluate conservative output guard constraints for phase outputs."""
     rms_delta_db = float(20.0 * np.log10((rms(candidate) + 1e-12) / (rms(original) + 1e-12)))
     side_ratio = 1.0
-    is_stereo = (
-        original.ndim == 2
-        and original.shape[1] == 2
-        and candidate.ndim == 2
-        and candidate.shape[1] == 2
-    )
+    is_stereo = original.ndim == 2 and original.shape[1] == 2 and candidate.ndim == 2 and candidate.shape[1] == 2
     if is_stereo:
         side_ratio = float((side_rms(candidate) + 1e-12) / (side_rms(original) + 1e-12))
 

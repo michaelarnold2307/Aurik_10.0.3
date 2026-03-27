@@ -9,9 +9,9 @@ NaN/Inf-Invariante, Shape-Korrektheit, Bounds und Edge-Cases.
 
 from __future__ import annotations
 
-from dataclasses import fields
 import math
 import types
+from dataclasses import fields
 from unittest.mock import MagicMock, patch
 
 import numpy as np
@@ -549,7 +549,7 @@ class TestPhaseRegressionLog:
             audio=audio,
             config=restorer.config,
             material_type=MaterialType.CD_DIGITAL if hasattr(MaterialType, "CD_DIGITAL") else list(MaterialType)[0],
-            defect_scores={dt: 0.0 for dt in DefectType},
+            defect_scores=dict.fromkeys(DefectType, 0.0),
             phases_executed=[],
             phases_skipped=[],
             total_time_seconds=0.1,

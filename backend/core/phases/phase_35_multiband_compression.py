@@ -61,8 +61,6 @@ Quality Impact: 0.75 → 0.94 (+25%)
 """
 
 import logging
-import os
-import sys
 import time
 
 import numpy as np
@@ -605,8 +603,8 @@ if __name__ == "__main__":
     logger.debug(f"\nGeneriert {duration}s Test-Audio @ {sample_rate} Hz")
     logger.debug("Multi-Frequenz: 100 Hz (Bass, stark), 500 Hz (Low-Mid), 2000 Hz (Mid-High), 8000 Hz (High, leise)")
     logger.debug("Stereo mit leichter Phasenverschiebung")
-    logger.debug(f"RMS vor Compression: {20*np.log10(rms_before):.1f} dBFS")
-    logger.debug(f"Peak vor Compression: {20*np.log10(peak_before):.1f} dBFS")
+    logger.debug(f"RMS vor Compression: {20 * np.log10(rms_before):.1f} dBFS")
+    logger.debug(f"Peak vor Compression: {20 * np.log10(peak_before):.1f} dBFS")
 
     phase = MultibandCompressionPhase()
 
@@ -614,16 +612,18 @@ if __name__ == "__main__":
     test_materials = [MaterialType.SHELLAC, MaterialType.VINYL, MaterialType.STREAMING]
 
     for material in test_materials:
-        logger.debug(f"\n{'─'*80}")
+        logger.debug(f"\n{'─' * 80}")
         logger.debug(f"Material: {material.name}")
-        logger.debug(f"{'─'*80}")
+        logger.debug(f"{'─' * 80}")
 
         result = phase.process(test_audio_stereo, sample_rate, material)
 
         if result.success:
             logger.debug("\n✅ Professional Multiband Compression:")
             logger.debug(f"   RMS Change: {result.metrics['rms_change_db']:+.2f} dB")
-            logger.debug(f"   Peak: {result.metrics['peak_before_db']:.1f} → {result.metrics['peak_after_db']:.1f} dBFS")
+            logger.debug(
+                f"   Peak: {result.metrics['peak_before_db']:.1f} → {result.metrics['peak_after_db']:.1f} dBFS"
+            )
             logger.debug(
                 f"   Upward Compression: {'Enabled' if result.metadata['upward_compression_enabled'] else 'Disabled'}"
             )
@@ -649,6 +649,6 @@ if __name__ == "__main__":
                 f"({result.execution_time_seconds / duration:.2f}× realtime)"
             )
 
-    logger.debug(f"\n{'='*80}")
+    logger.debug(f"\n{'=' * 80}")
     logger.debug("Test abgeschlossen")
-    logger.debug(f"{'='*80}")
+    logger.debug(f"{'=' * 80}")

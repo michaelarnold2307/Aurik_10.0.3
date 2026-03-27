@@ -10,6 +10,7 @@ Phasen 43–53 werden kanonisch in test_phases_late_ext.py getestet.
 """
 
 import numpy as np
+
 np.random.seed(42)  # §5.4 Reproduzierbarkeit
 import pytest
 

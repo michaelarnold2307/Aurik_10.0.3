@@ -350,7 +350,9 @@ class WowFlutterFix(PhaseInterface):
                 "algorithm": (
                     "polyphonic_multi_f0_consensus_v1"
                     if _poly_applied
-                    else "hybrid_ml_pyin_crepe_v3" if use_ml_hybrid else "pyin_phase_vocoder"
+                    else "hybrid_ml_pyin_crepe_v3"
+                    if use_ml_hybrid
+                    else "pyin_phase_vocoder"
                 ),
                 "version": "4.0_polyphonic" if _poly_applied else "3.0_ml_hybrid" if use_ml_hybrid else "3.0_pyin",
                 "ml_hybrid": use_ml_hybrid,
@@ -486,7 +488,9 @@ class WowFlutterFix(PhaseInterface):
                     else (
                         "hybrid_ml_pyin_crepe_v3"
                         if use_ml_hybrid
-                        else "pyin_psola" if vocals_conf >= 0.4 else "pyin_phase_vocoder"
+                        else "pyin_psola"
+                        if vocals_conf >= 0.4
+                        else "pyin_phase_vocoder"
                     )
                 )
             ),
@@ -766,11 +770,17 @@ class WowFlutterFix(PhaseInterface):
             if is_stereo:
                 for ch in range(result.shape[1]):
                     result[region_start:region_end, ch] = self._smooth_bump_envelope(
-                        result[region_start:region_end, ch], ref_rms, margin_samples, strength,
+                        result[region_start:region_end, ch],
+                        ref_rms,
+                        margin_samples,
+                        strength,
                     )
             else:
                 result[region_start:region_end] = self._smooth_bump_envelope(
-                    result[region_start:region_end], ref_rms, margin_samples, strength,
+                    result[region_start:region_end],
+                    ref_rms,
+                    margin_samples,
+                    strength,
                 )
 
             # 3. Local pitch correction
@@ -780,12 +790,18 @@ class WowFlutterFix(PhaseInterface):
                     for ch in range(result.shape[1]):
                         result[bump_start:bump_end, ch] = self._local_pitch_flatten(
                             result[bump_start:bump_end, ch],
-                            mono_ctx_before, mono_ctx_after, sample_rate, strength,
+                            mono_ctx_before,
+                            mono_ctx_after,
+                            sample_rate,
+                            strength,
                         )
                 else:
                     result[bump_start:bump_end] = self._local_pitch_flatten(
                         result[bump_start:bump_end],
-                        mono_ctx_before, mono_ctx_after, sample_rate, strength,
+                        mono_ctx_before,
+                        mono_ctx_after,
+                        sample_rate,
+                        strength,
                     )
 
             # 4. Spectral context interpolation — remove LF thump and timbral disruption
@@ -795,7 +811,11 @@ class WowFlutterFix(PhaseInterface):
                     for ch in range(result.shape[1]):
                         result[bump_start:bump_end, ch] = self._spectral_context_blend(
                             result[bump_start:bump_end, ch],
-                            result[ctx_before_start:region_start, ch] if ctx_before_start < region_start else np.zeros(1),
+                            (
+                                result[ctx_before_start:region_start, ch]
+                                if ctx_before_start < region_start
+                                else np.zeros(1)
+                            ),
                             result[region_end:ctx_after_end, ch] if region_end < ctx_after_end else np.zeros(1),
                             strength,
                         )
@@ -922,10 +942,7 @@ class WowFlutterFix(PhaseInterface):
         # don't boost missing frequencies (that would add artifacts)
         blended_mag = bump_mag.copy()
         excess = bump_mag > ref_mag * 1.2
-        blended_mag[excess] = (
-            bump_mag[excess] * (1.0 - strength * 0.7)
-            + ref_mag[excess] * strength * 0.7
-        )
+        blended_mag[excess] = bump_mag[excess] * (1.0 - strength * 0.7) + ref_mag[excess] * strength * 0.7
 
         # Reconstruct with original phase
         blended_fft = blended_mag * np.exp(1j * bump_phase)

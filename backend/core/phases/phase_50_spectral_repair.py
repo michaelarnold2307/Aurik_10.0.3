@@ -63,7 +63,7 @@ def _repair_channel(channel: np.ndarray, sample_rate: int, threshold_factor: flo
         These correspond to scratches (short-duration broadband damage) and dropouts
         (complete signal absence in a frame).
     """
-    from scipy.ndimage import uniform_filter1d  # noqa: PLC0415
+    from scipy.ndimage import uniform_filter1d
 
     _f, _t, Zxx = sig.stft(
         channel,

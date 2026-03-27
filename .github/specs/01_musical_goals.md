@@ -161,12 +161,14 @@ thresholds, config, quality_assessment = get_adaptive_goals_and_config(audio, sr
 ```
 
 **Invarianten:**
+
 - Adaptierte Schwellwerte NIEMALS höher als Original-Schwellwerte
 - Absolute Untergrenze: adaptive_t ≥ 0.50 (unter 0.50 → Goal deaktivieren)
 - NaN in restorability_score → alle Schwellwerte auf Original-Werte
 
 **Restorability-Skalierungsfaktoren — Formale Ableitung:**
 Die Stufenwerte 1.00 / 0.93 / 0.85 / 0.75 sind aus dem PhysicalCeilingEstimator hergeleitet:
+
 ```python
 # Formale Herleitung (normativ): scale_factor = ceiling(goal) / baseline_threshold
 # Die Stufen approximieren den integralen Ø der Ceiling-Kurven über alle 14 Goals

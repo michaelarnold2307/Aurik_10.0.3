@@ -887,7 +887,9 @@ class UnifiedRestorerV3:
                             _era_result.confidence,
                         )
                     except Exception as _mt_exc:
-                        logger.debug("EraClassifier MaterialType-Konvertierung fehlgeschlagen: %s — Auto-Detect bleibt", _mt_exc)
+                        logger.debug(
+                            "EraClassifier MaterialType-Konvertierung fehlgeschlagen: %s — Auto-Detect bleibt", _mt_exc
+                        )
 
             # §Dach GlobalPlan-Prior: Chunk-Klassifikation mit Ganzstück-Ergebnis überschreiben.
             # UV3 läuft auf kurzen Chunks — EraClassifier/MediumClassifier auf 10s-Segmenten
@@ -946,7 +948,10 @@ class UnifiedRestorerV3:
                                 _chunk_mc_conf,
                             )
                         except Exception as _gp_mat_exc:
-                            logger.debug("GlobalPlan MaterialType-Override fehlgeschlagen: %s — Chunk-Ergebnis behalten", _gp_mat_exc)
+                            logger.debug(
+                                "GlobalPlan MaterialType-Override fehlgeschlagen: %s — Chunk-Ergebnis behalten",
+                                _gp_mat_exc,
+                            )
 
             # GermanSchlagerClassifier-Ergebnis übernehmen
             _schlager_result = _schlager_result_par
@@ -7521,11 +7526,7 @@ class UnifiedRestorerV3:
         # intensity to preserve timbre outside affected regions.
         # Uses per-defect temporal coverage map from _execute_pipeline.
         _coverage_map = kwargs.get("defect_location_coverage_map")
-        if (
-            isinstance(_coverage_map, dict)
-            and _defect_scores_wd
-            and phase_metadata.phase_id not in _TIMING_PHASES_WD
-        ):
+        if isinstance(_coverage_map, dict) and _defect_scores_wd and phase_metadata.phase_id not in _TIMING_PHASES_WD:
             try:
                 from backend.core.defect_phase_mapper import get_phase_locality_factor, get_reverse_phase_map
 
@@ -7826,7 +7827,7 @@ class UnifiedRestorerV3:
                     _s = max(0.0, min(float(_t0), _audio_duration_s))
                     _e = max(0.0, min(float(_t1), _audio_duration_s))
                     if _e > _s:
-                        _acc += (_e - _s)
+                        _acc += _e - _s
                 except Exception:
                     continue
             _defect_location_coverage_map[_dkey] = float(np.clip(_acc / _audio_duration_s, 0.0, 1.0))
@@ -7889,8 +7890,10 @@ class UnifiedRestorerV3:
                         continue
                     metadata = phase.get_metadata()
                     estimated_time = metadata.estimated_time_factor * (audio.shape[-1] / sample_rate)
-                    if (not no_rt_limit) and self.performance_guard and self.performance_guard.should_skip_phase(
-                        phase_id, estimated_time, len(selected_phases) - 1
+                    if (
+                        (not no_rt_limit)
+                        and self.performance_guard
+                        and self.performance_guard.should_skip_phase(phase_id, estimated_time, len(selected_phases) - 1)
                     ):
                         skipped.append(phase_id)
                         deferred.append(phase_id)  # §2.38 KMV: RT-skipped → Stage 2
@@ -8030,8 +8033,10 @@ class UnifiedRestorerV3:
                 metadata = phase.get_metadata()
                 remaining = len(selected_phases) - len(executed) - 1
                 estimated_time = metadata.estimated_time_factor * (audio.shape[-1] / sample_rate)
-                if (not no_rt_limit) and self.performance_guard and self.performance_guard.should_skip_phase(
-                    phase_id, estimated_time, remaining
+                if (
+                    (not no_rt_limit)
+                    and self.performance_guard
+                    and self.performance_guard.should_skip_phase(phase_id, estimated_time, remaining)
                 ):
                     skipped.append(phase_id)
                     deferred.append(phase_id)  # §2.38 KMV: RT-skipped → Stage 2
@@ -8069,6 +8074,7 @@ class UnifiedRestorerV3:
                 if _tqc_snap is not None:
                     try:
                         from backend.core.temporal_quality_coherence import measure_temporal_coherence as _tqc_meas
+
                         _tqc_baseline = _tqc_meas(_tqc_snap, sample_rate)
                         _tqc_snap_span = _tqc_baseline.max_span
                     except Exception:

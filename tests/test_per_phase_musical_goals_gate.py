@@ -459,9 +459,9 @@ class TestCanonicalKeyAlignment:
         }
         audio_out, scores_after, log_entry = gate.wrap_phase(_pass_phase, audio, SR, applicable_goals=applicable)
         # natuerlichkeit must appear in scores_after — not silently absent
-        assert (
-            "natuerlichkeit" in scores_after
-        ), "scores_after must contain 'natuerlichkeit' when it is in applicable_goals"
+        assert "natuerlichkeit" in scores_after, (
+            "scores_after must contain 'natuerlichkeit' when it is in applicable_goals"
+        )
 
     def test_45_all_14_canonical_goals_in_fast_goals_subset(self):
         """FAST_GOALS_SUBSET must contain exactly the 14 canonical Goal keys."""

@@ -16,6 +16,7 @@ Alle Tests auf 0.1-Sekunden-Arrays (4410 Samples @ 44100 Hz).
 """
 
 import numpy as np
+
 np.random.seed(42)  # §5.4 Reproduzierbarkeit
 import pytest
 

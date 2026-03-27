@@ -127,7 +127,7 @@ Beispiel-Auszug (vollständige Tabelle in `core/defect_scanner.py`):
 def _detect_material_type(self, audio: np.ndarray, sr: int) -> Tuple[MaterialType, float]:
     """
     Analyzes audio characteristics to determine source material.
-    
+
     Features Used:
     - High-frequency energy (>12kHz)     → Shellac has severe rolloff
     - Transient density                   → Vinyl/shellac have more clicks
@@ -182,31 +182,31 @@ class DefectScanner:
     def __init__(self, config: Optional[Dict[str, Any]] = None):
         """
         Initialize DefectScanner.
-        
+
         Args:
             config: Optional configuration overrides
                 - performance_mode: 'fast' | 'balanced' | 'thorough'
                 - custom_thresholds: Dict[DefectType, float]
         """
-    
+
     def scan(self, audio: np.ndarray, sample_rate: int) -> DefectAnalysisResult:
         """
         Analyze audio for defects and material type.
-        
+
         Args:
             audio: Audio samples (mono or stereo: [samples] or [samples, channels])
             sample_rate: Sample rate in Hz
-        
+
         Returns:
             DefectAnalysisResult with:
                 - defect_scores: {DefectType: severity_0_to_1}
                 - material_type: MaterialType enum
                 - confidence: Material detection confidence (0.0-1.0)
                 - scan_duration_seconds: Time taken for analysis
-        
+
         Raises:
             ValueError: If audio is empty or sample_rate invalid
-        
+
         Performance:
             Guaranteed <10% of audio duration
         """
@@ -221,10 +221,10 @@ class DefectAnalysisResult:
     material_type: MaterialType                 # Auto-detected material
     confidence: float                           # Material detection confidence
     scan_duration_seconds: float                # Actual scan time
-    
+
     def get_top_defects(self, n: int = 5) -> List[Tuple[DefectType, float]]:
         """Returns top N defects sorted by severity (descending)."""
-    
+
     def get_applicable_phases(self) -> List[str]:
         """Returns phase IDs that should be applied based on defect severities."""
 ```
@@ -279,10 +279,10 @@ def test_defect_scanner_clicks():
     """Inject synthetic clicks and verify detection."""
     audio = generate_sine_wave(duration=10, frequency=440, sr=44100)
     audio = inject_clicks(audio, count=50, amplitude=0.5)
-    
+
     scanner = DefectScanner()
     result = scanner.scan(audio, 44100)
-    
+
     assert result.defect_scores[DefectType.CLICKS] > 0.5
     assert result.scan_duration_seconds < 1.0  # <10% of 10s
 ```
@@ -292,10 +292,10 @@ def test_defect_scanner_clicks():
 def test_material_detection_vinyl():
     """Verify vinyl detection from golden sample."""
     audio, sr = load_audio("golden_samples/beatles_vinyl_excerpt.wav")
-    
+
     scanner = DefectScanner()
     result = scanner.scan(audio, sr)
-    
+
     assert result.material_type == MaterialType.VINYL
     assert result.confidence > 0.7
 ```
@@ -305,12 +305,12 @@ def test_material_detection_vinyl():
 def test_performance_overhead():
     """Verify <10% overhead guarantee."""
     audio = generate_white_noise(duration=300, sr=44100)  # 5 minutes
-    
+
     scanner = DefectScanner()
     start = time.time()
     result = scanner.scan(audio, 44100)
     scan_time = time.time() - start
-    
+
     assert scan_time < 30.0  # <10% of 300s
     assert result.scan_duration_seconds < 30.0
 ```

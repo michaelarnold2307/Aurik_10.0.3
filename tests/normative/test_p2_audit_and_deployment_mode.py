@@ -29,7 +29,7 @@ class TestAMRBAuditability:
     @staticmethod
     def _minimal_report():
         """Erzeugt einen minimalen BenchmarkReport mit Pass-Through-Funktion."""
-        import numpy as np
+
         from benchmarks.musical_restoration_benchmark import BenchmarkConfig, run_benchmark
 
         config = BenchmarkConfig(
@@ -66,7 +66,7 @@ class TestAMRBAuditability:
 
     def test_p2_1_sha256_is_deterministic_for_same_seed(self):
         """Gleicher run_seed → identischer SHA-256 (Reproduzierbarkeit)."""
-        import numpy as np
+
         from benchmarks.musical_restoration_benchmark import BenchmarkConfig, run_benchmark
 
         def make_report():
@@ -90,7 +90,7 @@ class TestAMRBAuditability:
 
     def test_p2_1_sha256_differs_for_different_seed(self):
         """Verschiedener run_seed → unterschiedliche SHA-256 (Seed ist eingebaut)."""
-        import numpy as np
+
         from benchmarks.musical_restoration_benchmark import BenchmarkConfig, run_benchmark
 
         def make_report(seed: int):
@@ -134,9 +134,7 @@ class TestAMRBAuditability:
         report = self._minimal_report()
         d = report.as_dict()
         for sid, scenario_data in d["scenarios"].items():
-            assert "scenario_type" in scenario_data, (
-                f"Szenario '{sid}' in as_dict() fehlt: scenario_type"
-            )
+            assert "scenario_type" in scenario_data, f"Szenario '{sid}' in as_dict() fehlt: scenario_type"
 
     def test_p2_1_as_dict_includes_external_validation_block(self):
         """AMRB-Bericht enthält External-Validation-Readiness-Felder."""
@@ -163,19 +161,22 @@ class TestDeploymentMode:
     def test_p2_2_deployment_mode_enum_exists(self):
         """DeploymentMode muss in performance_guard exportiert werden."""
         from backend.core.performance_guard import DeploymentMode
+
         assert DeploymentMode is not None
 
     def test_p2_2_deployment_mode_has_product_and_research(self):
         """DeploymentMode muss genau PRODUCT und RESEARCH definieren."""
         from backend.core.performance_guard import DeploymentMode
+
         values = {m.value for m in DeploymentMode}
         assert "product" in values, "DeploymentMode fehlt: PRODUCT"
         assert "research" in values, "DeploymentMode fehlt: RESEARCH"
 
     def test_p2_2_restoration_config_default_is_product(self):
         """RestorationConfig() Default muss DeploymentMode.PRODUCT sein (kein RESEARCH-Default)."""
-        from backend.core.unified_restorer_v3 import RestorationConfig
         from backend.core.performance_guard import DeploymentMode
+        from backend.core.unified_restorer_v3 import RestorationConfig
+
         cfg = RestorationConfig()
         assert cfg.deployment_mode == DeploymentMode.PRODUCT, (
             f"RestorationConfig() Default deployment_mode ist '{cfg.deployment_mode}', "
@@ -184,12 +185,14 @@ class TestDeploymentMode:
 
     def test_p2_2_research_mode_can_be_set_explicitly(self):
         """RESEARCH-Modus muss explizit opt-in möglich sein."""
-        from backend.core.unified_restorer_v3 import RestorationConfig
         from backend.core.performance_guard import DeploymentMode
+        from backend.core.unified_restorer_v3 import RestorationConfig
+
         cfg = RestorationConfig(deployment_mode=DeploymentMode.RESEARCH)
         assert cfg.deployment_mode == DeploymentMode.RESEARCH
 
     def test_p2_2_deployment_mode_importable_from_uv3(self):
         """DeploymentMode muss auch über UV3-Importpfad erreichbar sein."""
-        from backend.core.unified_restorer_v3 import DeploymentMode  # noqa: F401
+        from backend.core.unified_restorer_v3 import DeploymentMode
+
         assert DeploymentMode.PRODUCT.value == "product"

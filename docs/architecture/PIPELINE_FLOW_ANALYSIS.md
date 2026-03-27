@@ -18,10 +18,10 @@ CausalReasoner), dann optimiert intervenieren (GP-Optimizer), dann verifizieren
 ## Signal-Fluss
 
 ```
-[Rohes Audio] 
+[Rohes Audio]
     |
     v
-[TDP: HPSS] --> audio_percussive (NUR phase_01+27) 
+[TDP: HPSS] --> audio_percussive (NUR phase_01+27)
     |            audio_harmonic (volle Pipeline)
     v
 [Restorability 0-100] + [Ära 1890-2025] + [Genre: Schlager?]

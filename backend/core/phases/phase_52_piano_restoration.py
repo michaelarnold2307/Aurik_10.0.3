@@ -59,8 +59,6 @@ Date: 16. Februar 2026
 """
 
 import logging
-import os
-import sys
 import time
 
 import numpy as np
@@ -73,6 +71,7 @@ from .phase_interface import PhaseCategory, PhaseInterface, PhaseMetadata, Phase
 
 try:
     from dsp.formant_system import FormantSystem as _FormantSystemCls
+
     _FORMANT_SYSTEM_PIANO: _FormantSystemCls | None = None
 except Exception:
     _FormantSystemCls = None  # type: ignore[assignment,misc]
@@ -307,7 +306,9 @@ class PianoRestorationV1(PhaseInterface):
             config["mix"] = float(np.clip(config["mix"] * hq_scale, 0.0, 0.75))
             config["hammer_enhancement"] = float(np.clip(config["hammer_enhancement"] * hq_scale, 0.0, 1.0))
             config["string_resonance"] = float(np.clip(config["string_resonance"] * hq_scale, 0.0, 1.0))
-            config["dynamics_expansion"] = float(np.clip(config["dynamics_expansion"] * (1.0 + 0.5 * (hq_scale - 1.0)), 1.0, 1.35))
+            config["dynamics_expansion"] = float(
+                np.clip(config["dynamics_expansion"] * (1.0 + 0.5 * (hq_scale - 1.0)), 1.0, 1.35)
+            )
         else:
             hq_scale = 1.0
 
@@ -393,12 +394,15 @@ class PianoRestorationV1(PhaseInterface):
         # Formant-Drift-Korrektur via DTW (Schritt 3)
         try:
             from dsp.instrument_formant_corrector import correct_instrument_formant_drift
+
             drift_result = correct_instrument_formant_drift(audio_out, self.sample_rate, instrument="keys")
             audio_out = drift_result.audio
             logger.debug(
                 "Phase 52 drift correction: detected=%s frames=%d/%d drift=%.1fHz",
-                drift_result.drift_detected, drift_result.n_frames_corrected,
-                drift_result.total_frames, drift_result.mean_drift_hz,
+                drift_result.drift_detected,
+                drift_result.n_frames_corrected,
+                drift_result.total_frames,
+                drift_result.mean_drift_hz,
             )
         except Exception as _drift_exc:
             logger.debug("Phase 52 drift correction skipped: %s", _drift_exc)
@@ -406,24 +410,28 @@ class PianoRestorationV1(PhaseInterface):
         # Sub-Stem-Verarbeitung (Schritt 4)
         try:
             from backend.core.sub_stem_processor import process_sub_stems
+
             sub_stem_strength = float(np.clip(0.30 * hq_scale, 0.25, 0.42))
-            ss_result = process_sub_stems(audio_out, self.sample_rate, instrument="keys",
-                                          processing_strength=sub_stem_strength)
+            ss_result = process_sub_stems(
+                audio_out, self.sample_rate, instrument="keys", processing_strength=sub_stem_strength
+            )
             audio_out = ss_result.audio
-            logger.debug("Phase 52 sub-stem: bands=%d strength=%.2f",
-                         ss_result.n_bands, ss_result.processing_strength)
+            logger.debug("Phase 52 sub-stem: bands=%d strength=%.2f", ss_result.n_bands, ss_result.processing_strength)
         except Exception as _ss_exc:
             logger.debug("Phase 52 sub-stem skipped: %s", _ss_exc)
 
         # Physics-Resonanz (Schritt 5 — Biquad Body Resonance)
         try:
             from backend.core.physics_resonance_enhancer import enhance_physics_resonance
+
             physics_strength = float(np.clip(0.40 * hq_scale, 0.35, 0.55))
-            pr_result = enhance_physics_resonance(audio_out, self.sample_rate, instrument="keys",
-                                                  enhancement_strength=physics_strength)
+            pr_result = enhance_physics_resonance(
+                audio_out, self.sample_rate, instrument="keys", enhancement_strength=physics_strength
+            )
             audio_out = pr_result.audio
-            logger.debug("Phase 52 physics resonance: peaks=%d strength=%.2f",
-                         pr_result.n_peaks, pr_result.enhancement_strength)
+            logger.debug(
+                "Phase 52 physics resonance: peaks=%d strength=%.2f", pr_result.n_peaks, pr_result.enhancement_strength
+            )
         except Exception as _pr_exc:
             logger.debug("Phase 52 physics resonance skipped: %s", _pr_exc)
 
@@ -588,7 +596,9 @@ class PianoRestorationV1(PhaseInterface):
 
         # Create reduction mask (reduce when envelope > threshold)
         reduction_mask = np.where(
-            envelope > threshold_linear, intensity, 0.0  # Reduce by intensity amount  # No reduction
+            envelope > threshold_linear,
+            intensity,
+            0.0,  # Reduce by intensity amount  # No reduction
         )
 
         # Apply reduction to pedal band only

@@ -63,8 +63,6 @@ Quality Impact: 0.80 → 0.96 (+20%)
 """
 
 import logging
-import os
-import sys
 import time
 
 import numpy as np
@@ -631,8 +629,8 @@ if __name__ == "__main__":
     logger.debug(f"\nGeneriert {duration}s Test-Audio @ {sample_rate} Hz")
     logger.debug("Multi-Frequenz: 100 Hz, 1000 Hz, 5000 Hz")
     logger.debug("Stereo (zu leise für Production)")
-    logger.debug(f"RMS: {20*np.log10(rms_before):.1f} dBFS")
-    logger.debug(f"Peak: {20*np.log10(peak_before):.1f} dBFS")
+    logger.debug(f"RMS: {20 * np.log10(rms_before):.1f} dBFS")
+    logger.debug(f"Peak: {20 * np.log10(peak_before):.1f} dBFS")
 
     phase = LoudnessNormalizationPhase()
 
@@ -645,9 +643,9 @@ if __name__ == "__main__":
     ]
 
     for material, platform, description in test_configs:
-        logger.debug(f"\n{'─'*80}")
+        logger.debug(f"\n{'─' * 80}")
         logger.debug(f"{description}")
-        logger.debug(f"{'─'*80}")
+        logger.debug(f"{'─' * 80}")
 
         result = phase.process(test_audio_stereo, sample_rate, material, platform=platform)
 
@@ -682,6 +680,6 @@ if __name__ == "__main__":
                 f"     Time: {result.execution_time_seconds:.3f}s ({result.execution_time_seconds / duration:.2f}× realtime)"
             )
 
-    logger.debug(f"\n{'='*80}")
+    logger.debug(f"\n{'=' * 80}")
     logger.debug("Test abgeschlossen")
-    logger.debug(f"{'='*80}")
+    logger.debug(f"{'=' * 80}")

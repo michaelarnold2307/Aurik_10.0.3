@@ -4,7 +4,6 @@ import numpy as np
 
 from backend.core.defect_scanner import DefectScanner, DefectType
 
-
 SR = 48_000
 
 

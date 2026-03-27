@@ -358,7 +358,7 @@ class DenoisePhase(PhaseInterface):
                     modifications={
                         "noise_reduction_db": noise_reduction_db,
                         "strength": params["strength"],
-                                                "phase_locality_factor": phase_locality_factor,
+                        "phase_locality_factor": phase_locality_factor,
                         "omlsa_applied": ml_result.omlsa_applied,
                         "resemble_applied": ml_result.resemble_applied,
                         "material_type": material_type,
@@ -430,7 +430,7 @@ class DenoisePhase(PhaseInterface):
             modifications={
                 "noise_reduction_db": noise_reduction_db,
                 "strength": effective_strength,
-                                "phase_locality_factor": phase_locality_factor,
+                "phase_locality_factor": phase_locality_factor,
                 "musical_noise_suppression": musical_noise_suppression,
                 "material_type": material_type,
                 "bands": dsp_params["bands"],

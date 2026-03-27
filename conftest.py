@@ -81,7 +81,7 @@ _VSCODE_TEST_COUNTER: int = 0
 _VSCODE_GC_INTERVAL: int = 100
 
 
-def pytest_configure(config) -> None:  # noqa: ANN001
+def pytest_configure(config) -> None:
     """Wird im Haupt-Thread vor allen Tests aufgerufen.
 
     Löst alle librosa-Lazy-Submodule auf, BEVOR xdist-Worker-Prozesse starten.
@@ -128,7 +128,7 @@ def pytest_configure(config) -> None:  # noqa: ANN001
         _librosa.beat.beat_track(y=_d, sr=4000)
         _ = _librosa.util.MAX_MEM_BLOCK
         _ = _librosa.util.frame
-    except Exception:  # noqa: BLE001
+    except Exception:
         pass  # Kein Absturz — ist nur ein Warm-up
 
 
@@ -143,8 +143,8 @@ _HEAVY_PLUGIN_MODULES: tuple = (
     "plugins.panns_plugin",
     "plugins.hifigan_plugin",
     "plugins.uvr_mdxnet_plugin",
-    "plugins.mp_senet_plugin",   # §4.4: MP-SENet 2023 (ersetzt DCCRN + FullSubNet+)
-    "plugins.versa_plugin",       # §4.4: VERSA 2024 MOS (ersetzt CDPAM)
+    "plugins.mp_senet_plugin",  # §4.4: MP-SENet 2023 (ersetzt DCCRN + FullSubNet+)
+    "plugins.versa_plugin",  # §4.4: VERSA 2024 MOS (ersetzt CDPAM)
     "plugins.diffwave_plugin",
     "plugins.bs_roformer_plugin",
     "plugins.mdx23c_plugin",
@@ -165,7 +165,7 @@ def _release_heavy_singletons() -> None:
         if mod is not None and hasattr(mod, "_instance"):
             try:
                 mod._instance = None  # type: ignore[attr-defined]
-            except Exception:  # noqa: BLE001
+            except Exception:
                 pass
 
 
@@ -174,7 +174,7 @@ def _is_vscode_run() -> bool:
     return "TEST_RUN_PIPE" in os.environ or "VSCODE_PID" in os.environ
 
 
-def pytest_collection_finish(session) -> None:  # noqa: ANN001
+def pytest_collection_finish(session) -> None:
     """Nach vollstaendiger Test-Collection: Singletons freigeben + Warnung.
 
     Collection importiert alle Test-Module, was ONNX-Sessions vorzeitig
@@ -197,12 +197,12 @@ def pytest_collection_finish(session) -> None:  # noqa: ANN001
     _gc.collect()
 
 
-def pytest_runtest_teardown(item, nextitem) -> None:  # noqa: ANN001
+def pytest_runtest_teardown(item, nextitem) -> None:
     """GC und Singleton-Freigabe: nach Datei-Wechsel und alle 100 Tests.
 
     Verhindert den VS Code-OOM-Crash bei ~97 % der 5236-Test-Suite.
     """
-    global _VSCODE_LAST_FILE, _VSCODE_TEST_COUNTER  # noqa: PLW0603
+    global _VSCODE_LAST_FILE, _VSCODE_TEST_COUNTER
 
     _VSCODE_TEST_COUNTER += 1
     current_file = str(getattr(item, "fspath", ""))
@@ -223,9 +223,7 @@ collect_ignore.extend(
 )
 
 # Normalize legacy ignore file names for robust early collection filtering.
-_LEGACY_IGNORE_BASENAMES: set[str] = {
-    p.replace("\\", "/").split("/")[-1].lower() for p in collect_ignore
-}
+_LEGACY_IGNORE_BASENAMES: set[str] = {p.replace("\\", "/").split("/")[-1].lower() for p in collect_ignore}
 
 
 _HEAVY_TEST_PATH_HINTS: tuple[str, ...] = (
@@ -252,7 +250,7 @@ _HEAVY_TEST_PATH_HINTS: tuple[str, ...] = (
 )
 
 
-def pytest_addoption(parser) -> None:  # noqa: ANN001
+def pytest_addoption(parser) -> None:
     """Add explicit switch to run heavy tests on demand.
 
     Default behaviour is crash-safe: heavy tests are skipped unless requested.
@@ -271,14 +269,14 @@ def pytest_addoption(parser) -> None:  # noqa: ANN001
     )
 
 
-def _is_heavy_test_item(item) -> bool:  # noqa: ANN001
+def _is_heavy_test_item(item) -> bool:
     """Heuristic for tests that can trigger OOM/host instability.
 
-        Criteria:
-            1) Known heavy file paths.
-            2) Explicit ml/slow markers.
-            3) Explicit timeout markers (>= 30 s).
-            4) e2e marker.
+    Criteria:
+        1) Known heavy file paths.
+        2) Explicit ml/slow markers.
+        3) Explicit timeout markers (>= 30 s).
+        4) e2e marker.
     """
     path = str(getattr(item, "fspath", "")).replace("\\", "/").lower()
     if any(hint in path for hint in _HEAVY_TEST_PATH_HINTS):
@@ -299,7 +297,7 @@ def _is_heavy_test_item(item) -> bool:  # noqa: ANN001
     return item.get_closest_marker("e2e") is not None
 
 
-def pytest_collection_modifyitems(config, items) -> None:  # noqa: ANN001
+def pytest_collection_modifyitems(config, items) -> None:
     """Classify heavy tests and skip them unless explicitly enabled.
 
     This prevents hard machine crashes in default/local selective test runs.
@@ -333,7 +331,7 @@ def pytest_collection_modifyitems(config, items) -> None:  # noqa: ANN001
         items[:] = kept
 
 
-def pytest_ignore_collect(collection_path, config):  # noqa: ANN001
+def pytest_ignore_collect(collection_path, config):
     """Prevent collection/import of heavy test modules unless explicitly enabled.
 
     This hook is intentionally early to avoid side effects from module-level imports

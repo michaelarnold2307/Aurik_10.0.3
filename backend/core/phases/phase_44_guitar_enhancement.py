@@ -40,6 +40,7 @@ from .phase_interface import PhaseCategory, PhaseInterface, PhaseMetadata, Phase
 
 try:
     from dsp.formant_system import FormantSystem as _FormantSystemCls
+
     _FORMANT_SYSTEM_GUITAR: _FormantSystemCls | None = None
 except Exception:
     _FormantSystemCls = None  # type: ignore[assignment,misc]
@@ -201,7 +202,7 @@ class GuitarEnhancementPhase(PhaseInterface):
                 excited = np.tanh(body_band * 2.5) * 0.12 * g
             elif genre == "Jazz":
                 # Subtle even harmonics (warmth, not distortion)
-                excited = (np.abs(body_band) - body_band ** 2 * 0.5) * 0.07 * g
+                excited = (np.abs(body_band) - body_band**2 * 0.5) * 0.07 * g
             else:  # Pop
                 # Mild saturation
                 excited = np.tanh(body_band * 1.5) * 0.09 * g
@@ -260,12 +261,15 @@ class GuitarEnhancementPhase(PhaseInterface):
         # Formant-Drift-Korrektur via DTW (Schritt 3)
         try:
             from dsp.instrument_formant_corrector import correct_instrument_formant_drift
+
             drift_result = correct_instrument_formant_drift(processed, sample_rate, instrument="guitar")
             processed = drift_result.audio
             logger.debug(
                 "Phase 44 drift correction: detected=%s frames=%d/%d drift=%.1fHz",
-                drift_result.drift_detected, drift_result.n_frames_corrected,
-                drift_result.total_frames, drift_result.mean_drift_hz,
+                drift_result.drift_detected,
+                drift_result.n_frames_corrected,
+                drift_result.total_frames,
+                drift_result.mean_drift_hz,
             )
         except Exception as _drift_exc:
             logger.debug("Phase 44 drift correction skipped: %s", _drift_exc)
@@ -273,22 +277,24 @@ class GuitarEnhancementPhase(PhaseInterface):
         # Sub-Stem-Verarbeitung (Schritt 4)
         try:
             from backend.core.sub_stem_processor import process_sub_stems
-            ss_result = process_sub_stems(processed, sample_rate, instrument="guitar",
-                                          processing_strength=0.35)
+
+            ss_result = process_sub_stems(processed, sample_rate, instrument="guitar", processing_strength=0.35)
             processed = ss_result.audio
-            logger.debug("Phase 44 sub-stem: bands=%d strength=%.2f",
-                         ss_result.n_bands, ss_result.processing_strength)
+            logger.debug("Phase 44 sub-stem: bands=%d strength=%.2f", ss_result.n_bands, ss_result.processing_strength)
         except Exception as _ss_exc:
             logger.debug("Phase 44 sub-stem skipped: %s", _ss_exc)
 
         # Physics-Resonanz (Schritt 5 — Biquad Body Resonance)
         try:
             from backend.core.physics_resonance_enhancer import enhance_physics_resonance
-            pr_result = enhance_physics_resonance(processed, sample_rate, instrument="guitar",
-                                                  enhancement_strength=0.40)
+
+            pr_result = enhance_physics_resonance(
+                processed, sample_rate, instrument="guitar", enhancement_strength=0.40
+            )
             processed = pr_result.audio
-            logger.debug("Phase 44 physics resonance: peaks=%d strength=%.2f",
-                         pr_result.n_peaks, pr_result.enhancement_strength)
+            logger.debug(
+                "Phase 44 physics resonance: peaks=%d strength=%.2f", pr_result.n_peaks, pr_result.enhancement_strength
+            )
         except Exception as _pr_exc:
             logger.debug("Phase 44 physics resonance skipped: %s", _pr_exc)
 

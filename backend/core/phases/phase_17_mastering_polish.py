@@ -51,8 +51,6 @@ Quality Impact: 0.65 → 0.92 (+42%)
 """
 
 import logging
-import os
-import sys
 import time
 
 import numpy as np
@@ -426,7 +424,9 @@ class MasteringPolishPhase(PhaseInterface):
 
         return enhanced_audio, metrics
 
-    def _apply_harmonic_enhancement(self, audio: np.ndarray, material: MaterialType, strength_scale: float = 1.0) -> tuple[np.ndarray, dict]:
+    def _apply_harmonic_enhancement(
+        self, audio: np.ndarray, material: MaterialType, strength_scale: float = 1.0
+    ) -> tuple[np.ndarray, dict]:
         """
         Wendet Harmonic Excitation (Saturation) an.
         """
@@ -457,7 +457,9 @@ class MasteringPolishPhase(PhaseInterface):
 
         return enhanced, metrics
 
-    def _apply_stereo_enhancement(self, audio: np.ndarray, material: MaterialType, strength: float = 1.0) -> tuple[np.ndarray, dict]:
+    def _apply_stereo_enhancement(
+        self, audio: np.ndarray, material: MaterialType, strength: float = 1.0
+    ) -> tuple[np.ndarray, dict]:
         """
         Wendet Stereo Width Enhancement an (Mid/Side Processing).
         """
@@ -607,8 +609,8 @@ if __name__ == "__main__":
     logger.debug(f"\nGeneriert {duration}s Pre-Mastered Test-Audio @ {sample_rate} Hz")
     logger.debug("Multi-Frequenz: 100 Hz (Bass), 1000 Hz (Mid), 5000 Hz (High)")
     logger.debug("Stereo mit leichter Phasenverschiebung")
-    logger.debug(f"RMS vor Mastering: {20*np.log10(rms_before):.1f} dBFS")
-    logger.debug(f"Peak vor Mastering: {20*np.log10(peak_before):.1f} dBFS")
+    logger.debug(f"RMS vor Mastering: {20 * np.log10(rms_before):.1f} dBFS")
+    logger.debug(f"Peak vor Mastering: {20 * np.log10(peak_before):.1f} dBFS")
 
     phase = MasteringPolishPhase()
 
@@ -616,16 +618,18 @@ if __name__ == "__main__":
     test_materials = [MaterialType.SHELLAC, MaterialType.VINYL, MaterialType.CD_DIGITAL]
 
     for material in test_materials:
-        logger.debug(f"\n{'─'*80}")
+        logger.debug(f"\n{'─' * 80}")
         logger.debug(f"Material: {material.name}")
-        logger.debug(f"{'─'*80}")
+        logger.debug(f"{'─' * 80}")
 
         result = phase.process(test_audio_stereo, sample_rate, material)
 
         if result.success:
             logger.debug("\n✅ Professional Mastering Chain Complete:")
             logger.debug(f"   RMS Change: {result.metrics['rms_change_db']:+.2f} dB")
-            logger.debug(f"   Peak: {result.metrics['peak_before_db']:.1f} → {result.metrics['peak_after_db']:.1f} dBFS")
+            logger.debug(
+                f"   Peak: {result.metrics['peak_before_db']:.1f} → {result.metrics['peak_after_db']:.1f} dBFS"
+            )
 
             # Pipeline Details
             pm = result.metadata["pipeline_metrics"]
@@ -677,6 +681,6 @@ if __name__ == "__main__":
                 f"({result.execution_time_seconds / duration:.2f}× realtime)"
             )
 
-    logger.debug(f"\n{'='*80}")
+    logger.debug(f"\n{'=' * 80}")
     logger.debug("Test abgeschlossen")
-    logger.debug(f"{'='*80}")
+    logger.debug(f"{'=' * 80}")

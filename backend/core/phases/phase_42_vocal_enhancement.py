@@ -66,7 +66,8 @@ except ImportError:
 
 # FormantSystem: LPC-basiertes Formant-Tracking + Singer's Formant Enhancement (§2.8)
 try:
-    from dsp.formant_system import FormantSystem as _FormantSystemCls, VowelPhonemeFormantTargets as _VowelTargetsCls
+    from dsp.formant_system import FormantSystem as _FormantSystemCls
+    from dsp.formant_system import VowelPhonemeFormantTargets as _VowelTargetsCls
 
     _FORMANT_SYSTEM_AVAILABLE = True
 except ImportError:
@@ -425,7 +426,9 @@ class VocalEnhancement(PhaseInterface):
         else:
             return False
 
-    def _enhance_channel(self, audio: np.ndarray, sample_rate: int, config: dict[str, Any], harshness_severity: float = 0.0) -> np.ndarray:
+    def _enhance_channel(
+        self, audio: np.ndarray, sample_rate: int, config: dict[str, Any], harshness_severity: float = 0.0
+    ) -> np.ndarray:
         """Enhance vocals in a single audio channel."""
         enhanced = audio.copy()
 
@@ -449,7 +452,9 @@ class VocalEnhancement(PhaseInterface):
             adapted_config["presence_gain_db"] = config["presence_gain_db"] * (1.0 - reduction)
             logger.debug(
                 "Phase42: Harshness %.2f → presence_gain reduced %.1f→%.1f dB",
-                harshness_severity, config["presence_gain_db"], adapted_config["presence_gain_db"],
+                harshness_severity,
+                config["presence_gain_db"],
+                adapted_config["presence_gain_db"],
             )
             enhanced = self._boost_presence(enhanced, sample_rate, adapted_config)
         else:
@@ -494,9 +499,7 @@ class VocalEnhancement(PhaseInterface):
 
         # Compute RMS envelope (5 ms smoothing)
         frame_len = max(1, int(0.005 * sample_rate))
-        envelope = np.sqrt(
-            np.convolve(presence**2, np.ones(frame_len) / frame_len, mode="same") + 1e-12
-        )
+        envelope = np.sqrt(np.convolve(presence**2, np.ones(frame_len) / frame_len, mode="same") + 1e-12)
 
         # Dynamic threshold: based on median presence energy (preserves normal levels)
         median_env = float(np.median(envelope) + 1e-12)
@@ -554,7 +557,9 @@ class VocalEnhancement(PhaseInterface):
         actual_reduction = float(-np.mean(smoothed[smoothed < -0.1])) if np.any(smoothed < -0.1) else 0.0
         logger.info(
             "Phase42 harshness reduction: severity=%.2f max_reduction=%.1fdB actual_mean=%.1fdB",
-            severity, max_reduction_db, actual_reduction,
+            severity,
+            max_reduction_db,
+            actual_reduction,
         )
 
         return result

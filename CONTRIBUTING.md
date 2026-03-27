@@ -95,6 +95,7 @@ We welcome various types of contributions:
 - Review the [Roadmap](docs/aurik9_roadmap.md) for planned features
 
 **Browse Issues:**
+
 ```
 is:open is:issue label:"good first issue" no:assignee
 is:open is:issue label:"help wanted" no:assignee
@@ -116,11 +117,13 @@ is:open is:issue label:"priority: high" no:assignee
 Found a bug? Help us fix it by creating a detailed bug report.
 
 **Use the Bug Report Template:**
+
 - Go to [Issues](../../issues/new/choose)
 - Select "🐛 Bug Report"
 - Fill out all required fields
 
 **Include:**
+
 - Clear title: `[Bug]: Crash when processing 32-bit WAV files`
 - Steps to reproduce
 - Expected vs actual behavior
@@ -134,11 +137,13 @@ Found a bug? Help us fix it by creating a detailed bug report.
 Have an idea? We'd love to hear it!
 
 **Use the Feature Request Template:**
+
 - Go to [Issues](../../issues/new/choose)
 - Select "✨ Feature Request"
 - Describe the problem and proposed solution
 
 **Good Feature Requests:**
+
 - Clear problem statement
 - Specific use cases
 - Examples or references
@@ -149,6 +154,7 @@ Have an idea? We'd love to hear it!
 Experiencing slow processing?
 
 **Use the Performance Issue Template:**
+
 - Include RT factor, processing time
 - Audio file specifications
 - System specifications (CPU, RAM, GPU)
@@ -159,11 +165,13 @@ Experiencing slow processing?
 Found unclear or missing documentation?
 
 **Use the Documentation Template:**
+
 - Specify file/page location
 - Describe what's wrong or missing
 - Suggest improvements
 
 **Quick Docs Fixes:**
+
 - Simple typos or grammar fixes can be submitted directly as PRs
 - No need to create an issue first for minor documentation improvements
 
@@ -172,18 +180,21 @@ Found unclear or missing documentation?
 We use labels to organize and prioritize issues:
 
 **Type Labels:**
+
 - `bug` - Something isn't working
 - `enhancement` - New feature request
 - `performance` - Performance optimization
 - `documentation` - Documentation improvement
 
 **Priority Labels:**
+
 - `priority: critical` - Must fix immediately
 - `priority: high` - Should fix soon
 - `priority: medium` - Fix when possible
 - `priority: low` - Nice to have
 
 **Area Labels:**
+
 - `area: dsp` - DSP algorithms
 - `area: ml` - Machine Learning
 - `area: gui` - GUI
@@ -224,12 +235,12 @@ def process_audio(
 ) -> PhaseResult:
     """
     Process audio with material-adaptive restoration.
-    
+
     Args:
         audio: Input audio samples (mono or stereo)
         sample_rate: Sample rate in Hz
         material: Source material type
-    
+
     Returns:
         PhaseResult with processed audio and metadata
     """
@@ -306,10 +317,10 @@ def test_denoise_phase():
     # Arrange
     audio = np.random.randn(48000)  # 1 second at 48kHz
     phase = DenoisePhase()
-    
+
     # Act
     result = phase.process(audio, sample_rate=48000, material_type='vinyl')
-    
+
     # Assert
     assert result.success
     assert result.audio is not None

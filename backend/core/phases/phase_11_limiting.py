@@ -52,8 +52,6 @@ Quality Impact: 0.70 → 0.95 (+36%)
 """
 
 import logging
-import os
-import sys
 import time
 
 import numpy as np
@@ -594,9 +592,9 @@ if __name__ == "__main__":
     test_materials = [MaterialType.SHELLAC, MaterialType.VINYL, MaterialType.CD_DIGITAL]
 
     for material in test_materials:
-        logger.debug(f"\n{'─'*80}")
+        logger.debug(f"\n{'─' * 80}")
         logger.debug(f"Material: {material.name}")
-        logger.debug(f"{'─'*80}")
+        logger.debug(f"{'─' * 80}")
 
         result = phase.process(test_audio_stereo, sample_rate, material)
 
@@ -624,6 +622,6 @@ if __name__ == "__main__":
         else:
             logger.debug("\n⚠️ Limiting übersprungen (unter Ceiling)")
 
-    logger.debug(f"\n{'='*80}")
+    logger.debug(f"\n{'=' * 80}")
     logger.debug("Test abgeschlossen")
-    logger.debug(f"{'='*80}")
+    logger.debug(f"{'=' * 80}")

@@ -15,11 +15,11 @@ Thread-sicher: alle öffentlichen Methoden sind Lock-geschützt.
 
 from __future__ import annotations
 
-from collections.abc import Callable
 import gc
 import logging
 import threading
 import time
+from collections.abc import Callable
 
 logger = logging.getLogger(__name__)
 
@@ -230,10 +230,7 @@ class PluginLifecycleManager:
         needed = _PHASE_REQUIRED_MODELS.get(phase_id, frozenset())
 
         with self._lock:
-            candidates = [
-                e for e in self._entries.values()
-                if not e.active and e.name not in needed
-            ]
+            candidates = [e for e in self._entries.values() if not e.active and e.name not in needed]
             # LRU: älteste zuerst
             candidates.sort(key=lambda e: e.last_used_ts)
 
@@ -253,11 +250,13 @@ class PluginLifecycleManager:
                 gc.collect()
                 try:
                     import ctypes
+
                     ctypes.CDLL("libc.so.6").malloc_trim(0)
                 except Exception:
                     pass
                 try:
                     from backend.core.ml_memory_budget import release as _release
+
                     _release(entry.name)
                 except ImportError:
                     pass

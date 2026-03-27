@@ -74,14 +74,14 @@ Release: 30 ms
 1. **MAXIMUM**: Minimale Eingriffe, maximale Authentizität
    - Ratio × 0.5 (weniger Kompression)
    - Threshold -3 dB (höherer Schwellwert)
-   
+
 2. **BALANCED**: Balance zwischen Technik und Emotion (Standard)
    - Originale Parameter
-   
+
 3. **TECHNICAL**: Optimale technische Qualität
    - Ratio × 1.5 (stärkere Kompression)
    - Threshold +3 dB (niedrigerer Schwellwert)
-   
+
 4. **TRANSPARENT**: Unsichtbare Verarbeitung
    - Adaptive Parameter basierend auf Material
 

@@ -16,9 +16,9 @@ Author: AURIK Team
 Date: 10. Februar 2026
 """
 
+import logging
 from dataclasses import dataclass, field
 from enum import Enum
-import logging
 from typing import Any
 
 import numpy as np
