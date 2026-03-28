@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Pre-commit hook: verify 14 Musical Goals are configured."""
+
 import sys
 
 sys.path.insert(0, ".")

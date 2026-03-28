@@ -10,7 +10,6 @@ Date: 2026
 Version: 9.0.0
 """
 
-
 import numpy as np
 from scipy.signal import butter, filtfilt
 

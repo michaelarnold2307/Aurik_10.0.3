@@ -150,7 +150,6 @@ class RegionDetector:
         hop_length = int(sr * self.hop_length_ms / 1000.0)
         frame_length = hop_length * 2
 
-
         logger.info(f"[librosa] Signal-Länge (Samples): {len(audio)}, dtype: {audio.dtype}, sr: {sr}")
         # 1. Energy (for silence detection)
         energy = librosa.feature.rms(y=audio, frame_length=frame_length, hop_length=hop_length)[0]

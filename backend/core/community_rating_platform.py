@@ -6,7 +6,6 @@ backend/core/community_rating_platform.py — Community rating aggregator
 from __future__ import annotations
 
 
-
 class CommunityRatingPlatform:
     """Collects community ratings and computes per-dimension averages."""
 

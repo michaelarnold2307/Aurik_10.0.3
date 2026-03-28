@@ -24,7 +24,50 @@ import numpy as np
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from backend.core.defect_scanner import MaterialType
-from backend.core.phases import AirBandEnhancement, AzimuthCorrectionPhaseV2, BassEnhancement, ClickPopRemoval, ClickRemovalPhase, CompressionPhase, CrackleRemovalPhase, DCOffsetRemoval, DeEsserPhase, DenoisePhase, DropoutRepairPhase, DynamicRangeExpansion, EQCorrectionPhase, Exciter, FinalEQ, FrequencyRestorationPhase, HarmonicRestorationPhase, HumRemovalPhase, LimitingPhase, LoudnessNormalizationPhase, MasteringPolishPhase, MidSideProcessing, MonoToStereoPhaseV2, MultibandCompressionPhase, NoiseGate, OutputFormatOptimization, PhaseCorrection, PresenceBoost, ReverbReduction, RumbleFilterPhase, SpectralRepair, SpeedPitchCorrectionPhase, StereoBalancePhaseV2, StereoEnhancementPhaseV2, StereoWidthLimiterPhaseV2, SurfaceNoiseProfiling, TapeHissReductionPhase, TapeSaturation, TransientPreservationPhase, TransientShaper, VocalEnhancement, WowFlutterFix
+from backend.core.phases import (
+    AirBandEnhancement,
+    AzimuthCorrectionPhaseV2,
+    BassEnhancement,
+    ClickPopRemoval,
+    ClickRemovalPhase,
+    CompressionPhase,
+    CrackleRemovalPhase,
+    DCOffsetRemoval,
+    DeEsserPhase,
+    DenoisePhase,
+    DropoutRepairPhase,
+    DynamicRangeExpansion,
+    EQCorrectionPhase,
+    Exciter,
+    FinalEQ,
+    FrequencyRestorationPhase,
+    HarmonicRestorationPhase,
+    HumRemovalPhase,
+    LimitingPhase,
+    LoudnessNormalizationPhase,
+    MasteringPolishPhase,
+    MidSideProcessing,
+    MonoToStereoPhaseV2,
+    MultibandCompressionPhase,
+    NoiseGate,
+    OutputFormatOptimization,
+    PhaseCorrection,
+    PresenceBoost,
+    ReverbReduction,
+    RumbleFilterPhase,
+    SpectralRepair,
+    SpeedPitchCorrectionPhase,
+    StereoBalancePhaseV2,
+    StereoEnhancementPhaseV2,
+    StereoWidthLimiterPhaseV2,
+    SurfaceNoiseProfiling,
+    TapeHissReductionPhase,
+    TapeSaturation,
+    TransientPreservationPhase,
+    TransientShaper,
+    VocalEnhancement,
+    WowFlutterFix,
+)
 
 # ==================== Musikalische Ziele ====================
 

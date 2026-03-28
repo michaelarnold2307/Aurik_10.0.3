@@ -6,7 +6,6 @@ backend/core/expert_feedback_system.py — Expert feedback aggregator
 from __future__ import annotations
 
 
-
 class ExpertFeedbackSystem:
     """Collects expert feedback and computes per-dimension averages."""
 
