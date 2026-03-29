@@ -38,9 +38,10 @@ Date: 16. Februar 2026
 import logging
 import os
 import tempfile
+import time
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 
@@ -136,8 +137,6 @@ class HybridMLDenoiser:
         Returns:
             DenoiseResult with cleaned audio and metadata
         """
-        import time
-
         start_time = time.time()
 
         # Determine strategy
@@ -168,7 +167,7 @@ class HybridMLDenoiser:
 
         # Stage 2: Resemble Enhancement (if needed)
         if strategy in [DenoiseStrategy.RESEMBLE_ONLY, DenoiseStrategy.HYBRID]:
-            if self.resemble is not None:
+            if self._has_sufficient_ml_headroom(audio, sample_rate) and self.resemble is not None:
                 logger.info("Stage 2: Applying Resemble Enhance refinement...")
                 audio, resemble_meta = self._apply_resemble(audio, sample_rate)
                 resemble_applied = True
@@ -280,24 +279,10 @@ class HybridMLDenoiser:
 
         metadata = {}
 
-        # OOM-Guard: check available RAM before Resemble processing
-        _audio_gb = audio.nbytes / (1024**3)
-        try:
-            import psutil
-
-            _avail_gb = psutil.virtual_memory().available / (1024**3)
-            # Resemble needs ~4× audio size in RAM for internal buffers
-            if _avail_gb < max(4.0, _audio_gb * 4):
-                logger.warning(
-                    "Resemble: insufficient RAM (%.1f GB avail, need ~%.1f GB) — skip",
-                    _avail_gb,
-                    _audio_gb * 4,
-                )
-                metadata["success"] = False
-                metadata["error"] = "OOM guard: insufficient RAM"
-                return audio, metadata
-        except ImportError:
-            pass
+        if not self._has_sufficient_ml_headroom(audio, sample_rate):
+            metadata["success"] = False
+            metadata["error"] = "OOM guard: insufficient RAM"
+            return audio, metadata
 
         # Write to temp file (Resemble needs file I/O)
         with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as input_tmp:
@@ -343,6 +328,71 @@ class HybridMLDenoiser:
             if os.path.exists(output_path):
                 os.remove(output_path)
 
+    def _has_sufficient_ml_headroom(self, audio: np.ndarray, sample_rate: int) -> bool:
+        """Return True when enough free RAM is available for Resemble denoise.
+
+        The previous guard only compared current free RAM to raw audio size and
+        still allowed plugin loading plus temp-file IO to push the VS Code cgroup
+        into OOM on long stereo files. Use a conservative duration/channel-aware
+        threshold and reclaim memory before entering the ML stage.
+        """
+        try:
+            import gc
+
+            import psutil
+        except Exception:
+            return True
+
+        n_samples = int(
+            audio.shape[-1]
+            if audio.ndim == 2 and audio.shape[0] <= 2 and audio.shape[1] > audio.shape[0]
+            else audio.shape[0]
+        )
+        n_channels = 2 if audio.ndim == 2 else 1
+        duration_s = n_samples / float(max(1, sample_rate))
+
+        required_gb = 4.0
+        if n_channels >= 2:
+            required_gb += 2.0
+        if duration_s >= 180.0:
+            required_gb += 2.0
+        elif duration_s >= 60.0:
+            required_gb += 1.0
+
+        avail_gb = psutil.virtual_memory().available / (1024**3)
+        if avail_gb < required_gb + 1.5:
+            logger.info(
+                "Denoise: %.1f GB frei, Ziel-Headroom %.1f GB — proaktive Plugin-Eviction vor Resemble-Inferenz",
+                avail_gb,
+                required_gb,
+            )
+            try:
+                from backend.core.plugin_lifecycle_manager import evict_stale_plugins
+
+                evict_stale_plugins(required_mb=int(required_gb * 1024))
+            except Exception:
+                pass
+            gc.collect()
+            try:
+                import ctypes as _ct
+
+                _ct.CDLL("libc.so.6").malloc_trim(0)
+            except Exception:
+                pass
+            avail_gb = psutil.virtual_memory().available / (1024**3)
+
+        if avail_gb < required_gb:
+            logger.warning(
+                "Denoise RAM guard: %.1f GB frei, benötigt >= %.1f GB (dauer=%.1fs, kanaele=%d) — Resemble-Stufe übersprungen, OMLSA-Ergebnis behalten",
+                avail_gb,
+                required_gb,
+                duration_s,
+                n_channels,
+            )
+            return False
+
+        return True
+
     def _estimate_noise_level(self, audio: np.ndarray) -> float:
         """Estimate noise level in audio (0-1 scale)."""
         # Simple noise estimation: RMS of high-frequency content
@@ -352,7 +402,7 @@ class HybridMLDenoiser:
         # High-pass filter to isolate noise
         from scipy.signal import butter, filtfilt
 
-        b, a = butter(4, 0.3, btype="high")
+        b, a = cast(tuple[np.ndarray, np.ndarray], butter(4, 0.3, btype="high", output="ba"))
         # filtfilt requires at least padlen+1 = 15+1 samples; fall back to RMS on short clips
         min_len = 3 * max(len(b), len(a)) + 1
         if len(audio) < min_len:

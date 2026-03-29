@@ -1400,6 +1400,7 @@ class TestArtistSignatureStore:
         from backend.core.artist_signature_store import SPECTRAL_ENVELOPE_DIM, VoiceCharacteristics
 
         vc = VoiceCharacteristics()
+        assert vc.spectral_envelope is not None
         assert vc.spectral_envelope.shape == (SPECTRAL_ENVELOPE_DIM,)
 
 

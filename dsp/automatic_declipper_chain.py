@@ -13,17 +13,20 @@ import numpy as np
 
 logger = logging.getLogger(__name__)
 try:
-    from Aurik_Standalone.core.contracts import DSPContract
-except ImportError:
+    from Aurik_Standalone.core.contracts import DSPContract  # type: ignore[import-untyped]
+except (ImportError, ModuleNotFoundError):
+    try:
+        from core.contracts import DSPContract  # type: ignore[import-untyped]
+    except (ImportError, ModuleNotFoundError):
 
-    class DSPContract:
-        def __init__(self, name, version, description):
-            self.name = name
-            self.version = version
-            self.description = description
+        class DSPContract:
+            def __init__(self, name, version, description):
+                self.name = name
+                self.version = version
+                self.description = description
 
-        def log(self):
-            logger.info(f"[Audit] Contract: {self.name} v{self.version} - {self.description}")
+            def log(self):
+                logger.info(f"[Audit] Contract: {self.name} v{self.version} - {self.description}")
 
 
 class AiAutomaticDeclipperChain:

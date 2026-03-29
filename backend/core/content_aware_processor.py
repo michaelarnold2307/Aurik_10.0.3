@@ -39,17 +39,20 @@ import threading
 
 import numpy as np
 
-# Rückwärtskompatible Importe vom lyrics_transcriber_plugin
+# Rückwärtskompatible Importe vom lyrics_transcriber_plugin.
+# Stubs werden nur im innersten except-Block definiert;
+# type: ignore[assignment] auf der from-Zeile deckt den
+# Typ-Konflikt zwischen Plugin-Klasse und Stub-Klasse für den gesamten Block.
 try:
-    from plugins.lyrics_transcriber_plugin import (  # type: ignore[import]
-        LyricsTranscriptionResult,
-        WordTimestamp,
+    from plugins.lyrics_transcriber_plugin import (
+        LyricsTranscriptionResult,  # type: ignore[import, assignment, no-redef]
+        WordTimestamp,  # type: ignore[import, assignment, no-redef]
     )
 except ImportError:
     try:
-        from lyrics_transcriber_plugin import (  # type: ignore[import]
-            LyricsTranscriptionResult,
-            WordTimestamp,
+        from lyrics_transcriber_plugin import (
+            LyricsTranscriptionResult,  # type: ignore[import, assignment, no-redef]
+            WordTimestamp,  # type: ignore[import, assignment, no-redef]
         )
     except ImportError:
         # Minimale Stub-Typen damit das Modul auch ohne Plugin ladbar ist

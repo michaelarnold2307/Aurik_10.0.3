@@ -50,7 +50,8 @@ class AuthenticityMetrics:
         Returns:
             deviation: 0.0 = identisch, > 0.3 = stark verändert
         """
-        assert sr == 48000, f"Sample rate must be 48000 Hz, got {sr}"
+        if sr <= 0:
+            raise ValueError(f"Sample rate must be > 0 Hz, got {sr}")
         audio_original = np.nan_to_num(audio_original, nan=0.0, posinf=0.0, neginf=0.0)
         audio_enhanced = np.nan_to_num(audio_enhanced, nan=0.0, posinf=0.0, neginf=0.0)
 
@@ -108,7 +109,8 @@ class AuthenticityMetrics:
         Returns:
             correlation: 1.0 = perfekt erhalten, < 0.9 = verändert
         """
-        assert sr == 48000, f"Sample rate must be 48000 Hz, got {sr}"
+        if sr <= 0:
+            raise ValueError(f"Sample rate must be > 0 Hz, got {sr}")
         audio_original = np.nan_to_num(audio_original, nan=0.0, posinf=0.0, neginf=0.0)
         audio_enhanced = np.nan_to_num(audio_enhanced, nan=0.0, posinf=0.0, neginf=0.0)
 
@@ -269,7 +271,7 @@ class AuthenticityMetrics:
             metrics["stereo_width_change"] = width_change
 
             if width_change > 0.5:  # 50% change
-                warnings.append(f"⚠️ Stereo Width changed by {width_change*100:.0f}%")
+                warnings.append(f"⚠️ Stereo Width changed by {width_change * 100:.0f}%")
 
         # Overall Verdict
         is_authentic = len(warnings) == 0
@@ -302,9 +304,9 @@ class AuthenticityMetrics:
         """
         _, _, metrics = AuthenticityMetrics.authenticity_check(audio_a, audio_b, sr, verbose=False)
 
-        report = f"\n{'='*60}\n"
+        report = f"\n{'=' * 60}\n"
         report += f"A/B COMPARISON: {labels[0]} vs {labels[1]}\n"
-        report += f"{'='*60}\n\n"
+        report += f"{'=' * 60}\n\n"
 
         report += f"Spectral Deviation:     {metrics['spectral_deviation']:.3f} dB\n"
         report += f"Dynamic Range Change:   {metrics['dynamic_range_change_percent']:.1f}%\n"
@@ -312,7 +314,7 @@ class AuthenticityMetrics:
         report += f"Spectral Tilt Change:   {metrics['spectral_tilt_change_db']:.2f} dB\n"
 
         if "stereo_width_change" in metrics:
-            report += f"Stereo Width Change:    {metrics['stereo_width_change']*100:.0f}%\n"
+            report += f"Stereo Width Change:    {metrics['stereo_width_change'] * 100:.0f}%\n"
 
         # Interpretation
         spec_dev = metrics["spectral_deviation"]
@@ -325,7 +327,7 @@ class AuthenticityMetrics:
         else:
             report += f"\n❌ Character ALTERED (Spectral Deviation {spec_dev:.2f} dB > {AuthenticityMetrics.SPECTRAL_DEVIATION_CRITICAL})\n"
 
-        report += f"{'='*60}\n"
+        report += f"{'=' * 60}\n"
 
         return report
 

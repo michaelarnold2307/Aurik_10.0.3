@@ -420,9 +420,11 @@ class VocosPlugin:
             return np.clip(result, -1.0, 1.0), "hifigan_unavailable", 0.40
 
     def _synthesize_griffin_lim(self, audio: np.ndarray, sr: int, n_iter: int = 32) -> tuple[np.ndarray, str, float]:
-        """Griffin-Lim+ Letzfall-Synthese (§4.4 SOTA-Matrix Stufe 3, ≥ 32 Iterationen).
+        """Phase-coherent iSTFT fallback synthesis (Stufe 3 — last resort).
 
-        Nur aktiv wenn Vocos ONNX UND HiFi-GAN nicht verfügbar sind.
+        Replaces former Griffin-Lim: uses original-phase iSTFT for transparent,
+        deterministic reconstruction (§2.40, §4.5 — griffinlim() als Endschritt verboten).
+        Only active when Vocos ONNX AND HiFi-GAN are both unavailable.
 
         Returns: (audio_out, model_name, confidence)
 
@@ -441,17 +443,15 @@ class VocosPlugin:
             noverlap = max(0, nperseg - _HOP)
             _, _, Z = stft(audio, fs=sr, nperseg=nperseg, noverlap=noverlap, window="hann")
             mag = np.abs(Z)
-            phase = np.exp(1j * np.random.uniform(0, 2 * np.pi, Z.shape).astype(np.float64))
-            for _ in range(n_iter):
-                _, x_rec = istft(mag * phase, fs=sr, nperseg=nperseg, noverlap=noverlap, window="hann")
-                _, _, Z_rec = stft(x_rec, fs=sr, nperseg=nperseg, noverlap=noverlap, window="hann")
-                phase = np.exp(1j * np.angle(Z_rec))
-            _, result = istft(mag * phase, fs=sr, nperseg=nperseg, noverlap=noverlap, window="hann")
+            # Use original phase — no random (§2.40 determinism)
+            orig_phase = np.angle(Z)
+            # iSTFT with original phase as transparent phase-coherent fallback (§4.5: keine Griffin-Lim)
+            _, result = istft(mag * np.exp(1j * orig_phase), fs=sr, nperseg=nperseg, noverlap=noverlap, window="hann")
             result = np.nan_to_num(result.astype(np.float32), nan=0.0, posinf=0.0, neginf=0.0)
             result = self._match_length(result, target_len)
             result = np.clip(result, -1.0, 1.0)
         except Exception as e:
-            logger.warning("Griffin-Lim Fehler: %s", e)
+            logger.warning("Phase-coherent iSTFT Fallback Fehler: %s", e)
             result = np.clip(audio.copy(), -1.0, 1.0)
 
         return result, "griffin_lim_fallback", 0.60
@@ -543,10 +543,12 @@ class VocosPlugin:
             if model_name == "bigvgan_v2_unavailable":
                 # Stufe 2: HiFi-GAN als neuronaler Fallback
                 out_audio, model_name, confidence = self._synthesize_hifigan(audio, sr)
-                # Stufe 3: Griffin-Lim nur wenn alle neuronalen Modelle fehlen
+                # Stufe 3: Phase-coherent iSTFT wenn alle neuronalen Modelle fehlen (§4.5)
                 if model_name == "hifigan_unavailable":
                     out_audio, model_name, confidence = self._synthesize_griffin_lim(audio, sr)
-                    logger.warning("Vocos + BigVGAN v2 + HiFi-GAN nicht verfügbar — Griffin-Lim+ aktiv (Stufe 3).")
+                    logger.warning(
+                        "Vocos + BigVGAN v2 + HiFi-GAN nicht verfügbar — Phase-coherent iSTFT aktiv (Stufe 3, §4.5)."
+                    )
         pqs = self._estimate_pqs_mos(audio, out_audio, sr)
         snr = self._mel_snr(audio, out_audio, sr)
 

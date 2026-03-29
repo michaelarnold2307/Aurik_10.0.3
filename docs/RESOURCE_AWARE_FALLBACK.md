@@ -7,6 +7,7 @@ Das Resource-Aware Fallback System überwacht kontinuierlich CPU- und Speicher-A
 ## Komponenten
 
 ### 1. AdaptiveResourceManager
+
 **Datei:** `core/adaptive_resource_manager.py`
 
 **Funktionen:**
@@ -45,16 +46,19 @@ num_cores = adaptive_resource_manager.get_num_cores()
 Die folgenden Phasen nutzen automatischen Ressourcen-bewussten Fallback:
 
 #### Phase 03: Denoise
+
 - **ML-Hybrid:** OMLSA + Resemble Enhance
 - **Fallback:** DSP-only (Spectral Subtraction + Wiener)
 - **Trigger:** CPU > 80% oder Memory > 85%
 
 #### Phase 12: Wow/Flutter Fix
+
 - **ML-Hybrid:** YIN + CREPE (CNN pitch detection)
 - **Fallback:** DSP-only (YIN Phase Vocoder)
 - **Trigger:** CPU > 80% oder Memory > 85%
 
 #### Phase 20: Reverb Reduction
+
 - **ML-Hybrid:** DSP Spectral Gating + DCCRN
 - **Fallback:** DSP-only (Spectral Gating)
 - **Trigger:** CPU > 80% oder Memory > 85%
@@ -105,8 +109,8 @@ if RESOURCE_MANAGER_AVAILABLE:
 
 # ML-Hybrid only if resources available
 use_ml_hybrid = (
-    ML_HYBRID_AVAILABLE and 
-    quality_mode in ['balanced', 'maximum'] and 
+    ML_HYBRID_AVAILABLE and
+    quality_mode in ['balanced', 'maximum'] and
     not use_lightweight
 )
 
@@ -121,11 +125,13 @@ else:
 ## Performance Impact
 
 ### Normal Operation (CPU < 80%, Memory < 85%)
+
 - Phase 03: OMLSA + Resemble (~1.2-1.5× RT)
 - Phase 12: YIN + CREPE (~0.7-2.0× RT adaptive)
 - Phase 20: DSP + DCCRN (~0.3-2.0× RT adaptive)
 
 ### resource-Constrained (CPU > 80% oder Memory > 85%)
+
 - Phase 03: DSP-only (~0.8× RT) ⚡ **30% faster**
 - Phase 12: YIN-only (~0.4× RT) ⚡ **50% faster**
 - Phase 20: DSP-only (~0.3× RT) ⚡ **85% faster**

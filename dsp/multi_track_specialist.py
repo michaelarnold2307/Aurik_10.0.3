@@ -307,17 +307,21 @@ class PhaseAligner:
             tgt_sample = target
 
         # FFT
-        ref_fft = fft.fft(ref_sample)
-        tgt_fft = fft.fft(tgt_sample)
+        ref_fft = np.asarray(fft.fft(ref_sample), dtype=np.complex128)
+        tgt_fft = np.asarray(fft.fft(tgt_sample), dtype=np.complex128)
 
         # Phase difference
-        phase_diff = np.angle(tgt_fft) - np.angle(ref_fft)
+        phase_tgt = np.arctan2(tgt_fft.imag, tgt_fft.real)
+        phase_ref = np.arctan2(ref_fft.imag, ref_fft.real)
+        phase_diff = phase_tgt - phase_ref
 
         # Wrap to -π to π
         phase_diff = np.arctan2(np.sin(phase_diff), np.cos(phase_diff))
 
         # Weight by magnitude (ignore low-energy bins)
-        magnitudes = np.abs(ref_fft) * np.abs(tgt_fft)
+        mag_ref = np.sqrt(np.square(ref_fft.real) + np.square(ref_fft.imag))
+        mag_tgt = np.sqrt(np.square(tgt_fft.real) + np.square(tgt_fft.imag))
+        magnitudes = mag_ref * mag_tgt
         weights = magnitudes / (np.sum(magnitudes) + 1e-10)
 
         # Weighted average
@@ -971,8 +975,10 @@ class CombFilterRemover:
 
         try:
             # FFT with timeout protection
-            spectrum = fft.fft(audio_sample)
-            magnitude_db = 20 * np.log10(np.abs(spectrum[: len(spectrum) // 2]) + 1e-10)
+            spectrum = np.asarray(fft.fft(audio_sample), dtype=np.complex128)
+            spectrum_half = spectrum[: len(spectrum) // 2]
+            magnitude_half = np.sqrt(np.square(spectrum_half.real) + np.square(spectrum_half.imag))
+            magnitude_db = 20 * np.log10(magnitude_half + 1e-10)
 
             # Smooth magnitude (reduced window size for speed)
             from scipy.ndimage import uniform_filter1d
@@ -1024,7 +1030,7 @@ class CombFilterRemover:
             return audio.copy()
 
         # FFT
-        spectrum = fft.fft(audio)
+        spectrum = np.asarray(fft.fft(audio), dtype=np.complex128)
 
         # Create correction curve
         freqs = fft.fftfreq(len(audio), 1 / sample_rate)
@@ -1046,7 +1052,8 @@ class CombFilterRemover:
         spectrum_corrected = spectrum * correction
 
         # IFFT
-        audio_corrected = np.real(fft.ifft(spectrum_corrected))
+        ifft_out = np.asarray(fft.ifft(spectrum_corrected), dtype=np.complex128)
+        audio_corrected = ifft_out.real
 
         return audio_corrected.astype(audio.dtype)
 
@@ -1357,7 +1364,7 @@ if __name__ == "__main__":
 
     # Get metrics
     metrics = processor.get_metrics()
-    logger.info(f"\n{'='*60}")
+    logger.info(f"\n{'=' * 60}")
     logger.info("METRICS:")
     for module_name, module_metrics in metrics.items():
         logger.info(f"\n{module_name.upper()}:")
@@ -1366,7 +1373,7 @@ if __name__ == "__main__":
                 logger.info(f"  {key}: {value:.2f}")
             else:
                 logger.info(f"  {key}: {value}")
-    logger.info(f"{'='*60}\n")
+    logger.info(f"{'=' * 60}\n")
 
     # Save (transpose back if needed)
     if output.ndim == 2:

@@ -32,8 +32,8 @@ class ConversionConfig:
 
     opset_version: int = 14
     do_constant_folding: bool = True
-    input_names: list = None
-    output_names: list = None
+    input_names: list | None = None
+    output_names: list | None = None
     dynamic_axes: dict[str, dict[int, str]] | None = None
     export_params: bool = True
     keep_initializers_as_inputs: bool = False
@@ -79,9 +79,9 @@ class ONNXConverter:
 
     def convert(
         self,
-        pytorch_model: torch.nn.Module,
+        pytorch_model: Any,
         output_path: str | Path,
-        sample_input: torch.Tensor,
+        sample_input: Any,
         validate: bool = True,
         use_external_data: bool = False,
     ) -> bool:
@@ -110,6 +110,7 @@ class ONNXConverter:
         # Get PyTorch output for validation
         pytorch_output = None
         if validate:
+            assert torch is not None
             with torch.no_grad():
                 pytorch_output = pytorch_model(sample_input)
             logger.info(f"PyTorch output shape: {pytorch_output.shape}")
@@ -118,7 +119,7 @@ class ONNXConverter:
             # Export to ONNX
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
-
+                assert torch is not None
                 torch.onnx.export(
                     pytorch_model,
                     sample_input,
@@ -162,7 +163,7 @@ class ONNXConverter:
             self.conversion_stats["total_conversions"] += 1
             return False
 
-    def _validate_conversion(self, onnx_path: Path, sample_input: torch.Tensor, pytorch_output: torch.Tensor) -> bool:
+    def _validate_conversion(self, onnx_path: Path, sample_input: Any, pytorch_output: Any) -> bool:
         """
         Validate ONNX model produces same output as PyTorch.
 
@@ -240,9 +241,7 @@ class ONNXConverter:
         except Exception as e:
             logger.warning(f"Failed to save external data: {e}")
 
-    def convert_batch(
-        self, models: dict[str, tuple[torch.nn.Module, torch.Tensor, Path]], validate: bool = True
-    ) -> dict[str, bool]:
+    def convert_batch(self, models: dict[str, tuple[Any, Any, Path]], validate: bool = True) -> dict[str, bool]:
         """
         Convert multiple PyTorch models to ONNX.
 
@@ -326,9 +325,7 @@ class ModelSpecificConverter:
         return results
 
     @staticmethod
-    def convert_demucs(
-        model: torch.nn.Module, output_path: Path, converter: ONNXConverter, sample_rate: int = 44100
-    ) -> bool:
+    def convert_demucs(model: Any, output_path: Path, converter: ONNXConverter, sample_rate: int = 44100) -> bool:
         """
         Convert Demucs model (stem separation).
 
@@ -346,6 +343,7 @@ class ModelSpecificConverter:
         logger.info("Converting Demucs (large model, external data required)")
 
         # Create dummy input (2 channels, 10 seconds)
+        assert torch is not None
         dummy_input = torch.randn(1, 2, sample_rate * 10)
 
         success = converter.convert(
@@ -359,9 +357,7 @@ class ModelSpecificConverter:
         return success
 
     @staticmethod
-    def convert_dccrn(
-        model: torch.nn.Module, output_path: Path, converter: ONNXConverter, sample_rate: int = 16000
-    ) -> bool:
+    def convert_dccrn(model: Any, output_path: Path, converter: ONNXConverter, sample_rate: int = 16000) -> bool:
         """
         Convert DCCRN model (speech denoising).
 
@@ -377,6 +373,7 @@ class ModelSpecificConverter:
         logger.info("Converting DCCRN (speech denoising)")
 
         # DCCRN expects mono audio
+        assert torch is not None
         dummy_input = torch.randn(1, 1, sample_rate * 5)
 
         success = converter.convert(

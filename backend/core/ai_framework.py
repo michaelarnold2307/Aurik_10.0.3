@@ -23,11 +23,33 @@ import logging
 import warnings
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
 logger = logging.getLogger(__name__)
+
+if TYPE_CHECKING:
+    from backend.core.defect_scanner import MaterialType as _PhaseMaterialType
+
+
+def _analytic_envelope(signal_in: np.ndarray) -> np.ndarray:
+    """Return amplitude envelope via analytic signal (FFT Hilbert equivalent)."""
+    x = np.asarray(signal_in, dtype=np.float64).reshape(-1)
+    n = x.shape[0]
+    if n == 0:
+        return np.asarray([], dtype=np.float64)
+    spectrum = np.fft.fft(x)
+    h = np.zeros(n, dtype=np.float64)
+    if n % 2 == 0:
+        h[0] = 1.0
+        h[n // 2] = 1.0
+        h[1 : n // 2] = 2.0
+    else:
+        h[0] = 1.0
+        h[1 : (n + 1) // 2] = 2.0
+    return np.abs(np.fft.ifft(spectrum * h))
+
 
 # Import Vocal AI Enhancement
 try:
@@ -264,7 +286,7 @@ class UnifiedDefectDetector:
         # Scale 2: Medium transients (1-5ms) - pops
         # Scale 3: Long transients (5-20ms) - crackle
         # Envelope detection
-        envelope = np.abs(signal.hilbert(audio))
+        envelope = _analytic_envelope(audio)
 
         # Differentiate to find rapid changes
         diff = np.diff(envelope, prepend=envelope[0])
@@ -347,7 +369,7 @@ class UnifiedDefectDetector:
         from scipy import fft
 
         # FFT
-        spectrum = np.abs(fft.rfft(audio))
+        spectrum = np.abs(np.fft.rfft(np.asarray(audio, dtype=np.float64).reshape(-1)))
         freqs = fft.rfftfreq(len(audio), 1 / self.sr)
 
         # Check 50Hz and 60Hz with harmonics
@@ -383,7 +405,7 @@ class UnifiedDefectDetector:
         from scipy import fft
 
         # THD calculation
-        spectrum = np.abs(fft.rfft(audio))
+        spectrum = np.abs(np.fft.rfft(np.asarray(audio, dtype=np.float64).reshape(-1)))
         freqs = fft.rfftfreq(len(audio), 1 / self.sr)
 
         # Find fundamental (assume speech/music range 80-1000 Hz)
@@ -428,10 +450,9 @@ class UnifiedDefectDetector:
 
     def _detect_dropout(self, audio: np.ndarray, return_locs: bool) -> tuple[float, float, list]:
         """Eigenentwicklung: Dropout/silence detection."""
-        from scipy import signal
 
         # Envelope for amplitude tracking
-        envelope = np.abs(signal.hilbert(audio))
+        envelope = _analytic_envelope(audio)
 
         # Smooth envelope
         window_size = int(0.01 * self.sr)  # 10ms
@@ -718,7 +739,7 @@ class UnifiedAudioRestorer:
         audio_mono = np.mean(audio, axis=1) if audio.ndim == 2 else audio
 
         # Find clicks
-        envelope = np.abs(signal.hilbert(audio_mono))
+        envelope = _analytic_envelope(audio_mono)
         diff = np.diff(envelope, prepend=envelope[0])
 
         # Adaptive threshold
@@ -815,12 +836,12 @@ class UnifiedAudioRestorer:
 
     def _fill_dropouts(self, audio: np.ndarray) -> np.ndarray:
         """Eigenentwicklung: Dropout interpolation using surrounding context."""
-        from scipy import interpolate, signal
+        from scipy import interpolate
 
         # Detect dropouts
         audio_mono = np.mean(audio, axis=1) if audio.ndim == 2 else audio
 
-        envelope = np.abs(signal.hilbert(audio_mono))
+        envelope = _analytic_envelope(audio_mono)
         threshold = np.percentile(envelope, 5)
         dropouts = envelope < threshold
 
@@ -1002,10 +1023,9 @@ class UnifiedAudioEnhancer:
 
     def _enhance_detail_mono(self, audio: np.ndarray, amount: float) -> np.ndarray:
         """Mono transient enhancement."""
-        from scipy import signal
 
         # Envelope detection
-        envelope = np.abs(signal.hilbert(audio))
+        envelope = _analytic_envelope(audio)
 
         # Differentiate to find transients
         diff = np.diff(envelope, prepend=envelope[0])
@@ -1124,7 +1144,7 @@ class Studio2026Processor:
         logger.info("Initializing Studio 2026 Processor...")
 
     @staticmethod
-    def _map_material_type(framework_material: _AiMediaType) -> "PhasesMaterialType":
+    def _map_material_type(framework_material: _AiMediaType) -> "_PhaseMaterialType | None":
         """
         Convert _AiMediaType from ai_framework to defect_scanner _AiMediaType (used by phases).
 
@@ -1261,6 +1281,8 @@ class Studio2026Processor:
                 }
 
         # Phase 11: Limiting
+        if self.limiting is None:
+            return audio, report
         limiting_result = self.limiting.process(audio, self.sr, phase_material)
 
         if limiting_result.success:

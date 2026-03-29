@@ -210,7 +210,9 @@ def measure_attack_time(audio: np.ndarray, sr: int) -> float:
         Average attack time in milliseconds
     """
     # Envelope detection
-    envelope = np.abs(signal.hilbert(audio))
+    analytic = signal.hilbert(audio)
+    analytic_arr = np.asarray(analytic, dtype=np.complex128)
+    envelope = np.abs(analytic_arr)
 
     # Find peaks (transient starts)
     from scipy.signal import find_peaks
@@ -313,7 +315,7 @@ class DeClickSafety(BaseSafetyWrapper):
             return PreCheckResult(
                 passed=False,
                 confidence=0.3,
-                reasons=[f"Too few clicks: {click_count} (min {self.min_click_count}). " "Not worth processing risk."],
+                reasons=[f"Too few clicks: {click_count} (min {self.min_click_count}). Not worth processing risk."],
             )
 
         # Classify clicks vs musical transients
@@ -353,7 +355,7 @@ class DeClickSafety(BaseSafetyWrapper):
 
         if avg_attack_ms < 5:
             warnings.append(
-                f"Fast attacks detected: {avg_attack_ms:.1f} ms. " "Likely percussive content. Risk of transient loss."
+                f"Fast attacks detected: {avg_attack_ms:.1f} ms. Likely percussive content. Risk of transient loss."
             )
 
         return PreCheckResult(
@@ -410,7 +412,9 @@ class DeClickSafety(BaseSafetyWrapper):
         # 2. Check transient preservation
         # Extract transient energy
         def get_transient_energy(audio):
-            envelope = np.abs(signal.hilbert(audio.flatten()))
+            analytic = signal.hilbert(audio.flatten())
+            analytic_arr = np.asarray(analytic, dtype=np.complex128)
+            envelope = np.abs(analytic_arr)
             # High-pass to isolate transients
             sos = signal.butter(4, 500, "hp", fs=sr, output="sos")
             transients = signal.sosfilt(sos, envelope)
@@ -428,7 +432,7 @@ class DeClickSafety(BaseSafetyWrapper):
 
         transient_loss = 1.0 - transient_preservation
         if transient_loss > self.max_transient_loss:
-            issues.append(f"Excessive transient loss: {transient_loss:.1%} " f"(max {self.max_transient_loss:.1%})")
+            issues.append(f"Excessive transient loss: {transient_loss:.1%} (max {self.max_transient_loss:.1%})")
 
         # 3. Energy preservation
         energy_ratio = compute_energy_ratio(original, processed)

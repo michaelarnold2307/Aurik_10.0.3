@@ -25,7 +25,6 @@ from enum import Enum
 
 import numpy as np
 import scipy.signal as signal
-from scipy.fft import fft, fftfreq
 
 logger = logging.getLogger(__name__)
 
@@ -615,8 +614,9 @@ class SemanticAudioAnalyzer:
     ) -> tuple[float, float, float]:
         """Analyze energy in bass/mid/high bands."""
         # Compute power spectrum
-        freqs = fftfreq(len(audio), 1 / sr)
-        spectrum = np.abs(fft(audio))
+        audio_arr = np.asarray(audio, dtype=np.float64)
+        freqs = np.fft.fftfreq(len(audio_arr), 1 / sr)
+        spectrum = np.abs(np.fft.fft(audio_arr))
 
         # Positive frequencies only
         pos_mask = freqs > 0
@@ -749,8 +749,7 @@ class SemanticAudioAnalyzer:
             )
         elif content_char in [ContentCharacter.HIGHLY_TRANSIENT, ContentCharacter.TRANSIENT]:
             return (
-                f"TRANSIENT-RICH RESTORATION: Detected {inst_str}. "
-                f"Preserve attacks and dynamics, avoid over-smoothing."
+                f"TRANSIENT-RICH RESTORATION: Detected {inst_str}. Preserve attacks and dynamics, avoid over-smoothing."
             )
         elif content_char == ContentCharacter.HIGHLY_SUSTAINED:
             return (
@@ -759,9 +758,7 @@ class SemanticAudioAnalyzer:
                 f"preserve sustained character."
             )
         else:
-            return (
-                f"BALANCED RESTORATION: Detected {inst_str}. " f"Standard restoration approach with content awareness."
-            )
+            return f"BALANCED RESTORATION: Detected {inst_str}. Standard restoration approach with content awareness."
 
     def _generate_studio_notes(
         self,
@@ -786,16 +783,12 @@ class SemanticAudioAnalyzer:
             )
         elif dominant == InstrumentType.BASS:
             return (
-                f"BASS PRODUCTION: Detected {inst_str}. "
-                f"Tighten low-end, enhance definition, "
-                f"ensure mix compatibility."
+                f"BASS PRODUCTION: Detected {inst_str}. Tighten low-end, enhance definition, ensure mix compatibility."
             )
         elif content_char in [ContentCharacter.HIGHLY_TRANSIENT, ContentCharacter.TRANSIENT]:
-            return (
-                f"TRANSIENT PRODUCTION: Detected {inst_str}. " f"Shape transients for modern punch, maintain clarity."
-            )
+            return f"TRANSIENT PRODUCTION: Detected {inst_str}. Shape transients for modern punch, maintain clarity."
         else:
-            return f"BALANCED PRODUCTION: Detected {inst_str}. " f"Modern processing for streaming/broadcast standards."
+            return f"BALANCED PRODUCTION: Detected {inst_str}. Modern processing for streaming/broadcast standards."
 
 
 # ============================================================================

@@ -342,7 +342,11 @@ class TemperatureScaling(nn.Module):
         return logits / self.temperature
 
     def calibrate(
-        self, model: nn.Module, val_loader, max_iter: int = 50, device: str = "cpu"  # CPU-only Policy (Section 9.5)
+        self,
+        model: nn.Module,
+        val_loader,
+        max_iter: int = 50,
+        device: str = "cpu",  # CPU-only Policy (Section 9.5)
     ):
         """
         Learn optimal temperature on validation set.
@@ -373,14 +377,14 @@ class TemperatureScaling(nn.Module):
         # Optimize temperature
         optimizer = torch.optim.LBFGS([self.temperature], lr=0.01, max_iter=max_iter)
 
-        def eval_loss():
+        def eval_loss() -> float:
             optimizer.zero_grad()
             scaled_logits = self.forward(all_logits)
             loss = F.cross_entropy(scaled_logits, all_labels)
             loss.backward()
-            return loss
+            return float(loss.item())
 
-        optimizer.step(eval_loss)
+        optimizer.step(closure=eval_loss)
 
         logger.info(f"Calibration completed: temperature = {self.temperature.item():.4f}")
 
@@ -405,7 +409,7 @@ class UncertaintyQuantifier:
 
     def __init__(
         self,
-        model: nn.Module,
+        model: nn.Module | list[nn.Module],
         method: str = "mc_dropout",
         n_samples: int = 20,
         device: str = "cpu",  # CPU-only Policy (Section 9.5) — kein CUDA
@@ -414,24 +418,45 @@ class UncertaintyQuantifier:
         Initialize uncertainty quantifier.
 
         Args:
-            model: Base model
+            model: Base model or list of models (for ensemble)
             method: "mc_dropout", "bayesian", or "ensemble"
             n_samples: Number of samples for uncertainty estimation
             device: Device to use
         """
-        self.base_model = model.to(device)
+        if isinstance(model, list):
+            if not model:
+                raise ValueError("Model list for uncertainty quantification must not be empty")
+            self.base_model = model[0].to(device)
+        else:
+            self.base_model = model.to(device)
         self.method = method
         self.n_samples = n_samples
         self.device = device
+        self.uq_model: MCDropoutModel | EnsembleUncertainty | BayesianNN
 
         if method == "mc_dropout":
-            self.uq_model = MCDropoutModel(model, dropout_rate=0.2, n_samples=n_samples)
+            if isinstance(model, list):
+                logger.warning("MC Dropout expects a single model, using first model from list")
+                base_model = model[0]
+            else:
+                base_model = model
+            self.uq_model = MCDropoutModel(base_model, dropout_rate=0.2, n_samples=n_samples)
+        elif method == "bayesian":
+            if isinstance(model, list):
+                logger.warning("Bayesian method expects a single BayesianNN model, using first model from list")
+                base_model = model[0]
+            else:
+                base_model = model
+            if not isinstance(base_model, BayesianNN):
+                raise ValueError("For method='bayesian', model must be an instance of BayesianNN")
+            self.uq_model = base_model.to(device)
         elif method == "ensemble":
-            # For ensemble, model should be a list
-            if not isinstance(model, list):
+            if isinstance(model, list):
+                ensemble_models = model
+            else:
                 logger.warning("Ensemble method requires list of models, using single model")
-                model = [model]
-            self.uq_model = EnsembleUncertainty(model, device=device)
+                ensemble_models = [model]
+            self.uq_model = EnsembleUncertainty(ensemble_models, device=device)
         else:
             raise ValueError(f"Unknown method: {method}")
 
@@ -451,7 +476,10 @@ class UncertaintyQuantifier:
         x = x.to(self.device)
 
         if self.method == "mc_dropout":
-            mean, std, _samples = self.uq_model.predict_with_uncertainty(x)
+            uq_model = self.uq_model
+            if not isinstance(uq_model, MCDropoutModel):
+                raise RuntimeError("Internal model/method mismatch for mc_dropout")
+            mean, std, _samples = uq_model.predict_with_uncertainty(x)
 
             # Confidence based on inverse std
             confidence = 1.0 / (1.0 + std)
@@ -459,14 +487,20 @@ class UncertaintyQuantifier:
             metrics = UncertaintyMetrics(mean=mean, std=std, confidence=confidence)
 
         elif self.method == "ensemble":
-            mean, std, details = self.uq_model.predict_with_uncertainty(x)
+            uq_model = self.uq_model
+            if not isinstance(uq_model, EnsembleUncertainty):
+                raise RuntimeError("Internal model/method mismatch for ensemble")
+            mean, std, details = uq_model.predict_with_uncertainty(x)
 
             metrics = UncertaintyMetrics(
                 mean=mean, std=std, entropy=details["entropy"], mutual_information=details["mutual_information"]
             )
 
         elif self.method == "bayesian":
-            mean, std = self.uq_model.predict_with_uncertainty(x, self.n_samples)
+            uq_model = self.uq_model
+            if not isinstance(uq_model, BayesianNN):
+                raise RuntimeError("Internal model/method mismatch for bayesian")
+            mean, std = uq_model.predict_with_uncertainty(x, self.n_samples)
 
             metrics = UncertaintyMetrics(mean=mean, std=std)
 

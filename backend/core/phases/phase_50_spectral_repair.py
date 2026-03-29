@@ -141,8 +141,8 @@ def _repair_channel(channel: np.ndarray, sample_rate: int, threshold_factor: flo
 class SpectralRepairPhase(PhaseInterface):
     """STFT-basiertes Spectral Inpainting ohne ML-Dependency."""
 
-    phase_id = "phase_50_spectral_repair"
-    name = "Spectral Repair (STFT Inpainting)"
+    _PHASE_ID = "phase_50_spectral_repair"
+    _NAME = "Spectral Repair (STFT Inpainting)"
     description = (
         "Erkennt und repariert isolierte spektrale Bin-Spikes (Artefakte, Kratzer, "
         "Datenfehler) mittels STFT-Analyse und linearer Interpolation aus Nachbar-Bins. "
@@ -151,8 +151,8 @@ class SpectralRepairPhase(PhaseInterface):
 
     def get_metadata(self) -> PhaseMetadata:
         return PhaseMetadata(
-            phase_id=self.phase_id,
-            name=self.name,
+            phase_id=self._PHASE_ID,
+            name=self._NAME,
             category=PhaseCategory.DEFECT_REMOVAL,
             priority=7,
             version="2.0.0",

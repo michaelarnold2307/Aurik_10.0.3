@@ -866,7 +866,7 @@ class AuthentizitaetMetric:
                 return 1.0
 
             if reference.ndim > 1:
-                reference = np.mean(reference, axis=0 if reference.shape[0] <= 2 else 1)
+                reference = np.asarray(np.mean(reference, axis=0 if reference.shape[0] <= 2 else 1))
 
             # §9.7.6 Audio-Cap — chroma characteristics are stationary; 15 s centre segment sufficient.
             _MAX_AUTH_SAMPLES = int(sr * 15)

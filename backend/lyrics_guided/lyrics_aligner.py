@@ -12,6 +12,7 @@ Date: 2026-02-11
 import logging
 import os
 from dataclasses import dataclass
+from importlib import import_module
 
 import numpy as np
 import numpy.typing as npt
@@ -303,7 +304,9 @@ class LyricsAligner:
         from scipy import signal
 
         # Compute envelope
-        envelope = np.abs(signal.hilbert(audio))
+        analytic = signal.hilbert(audio)
+        analytic_arr = np.asarray(analytic, dtype=np.complex128)
+        envelope = np.abs(analytic_arr)
 
         # Smooth
         window_size = int(sr * 0.05)  # 50ms
@@ -461,10 +464,12 @@ class LyricsAligner:
 
     def _parse_textgrid(self, textgrid_path: str, word_segments: list[dict]) -> list[WordAlignment]:
         """Parse MFA TextGrid output to extract phoneme alignments."""
-        import textgrid  # pip install textgrid might be needed
-
         try:
-            tg = textgrid.TextGrid.fromFile(textgrid_path)
+            textgrid_module = import_module("textgrid")
+            tg = textgrid_module.TextGrid.fromFile(textgrid_path)
+        except ImportError:
+            logger.warning("textgrid not available. Falling back to simplified TextGrid parser.")
+            return self._parse_textgrid_simple(textgrid_path, word_segments)
         except Exception as e:
             logger.warning(f"TextGrid parsing failed: {e}. Using simplified parser.")
             return self._parse_textgrid_simple(textgrid_path, word_segments)

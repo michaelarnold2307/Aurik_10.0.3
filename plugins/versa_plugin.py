@@ -208,7 +208,6 @@ class VersaPlugin:
             from backend.core.plugin_lifecycle_manager import register_plugin as _reg_plm
 
             def _unload_singmos() -> None:
-                global _instance
                 if _instance is not None:
                     _instance._predictor_dict = None
                     _instance._predictor_fs = None

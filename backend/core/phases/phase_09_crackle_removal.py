@@ -78,7 +78,6 @@ from typing import Any
 
 import numpy as np
 import scipy.signal as signal
-from scipy.fft import rfft, rfftfreq
 
 from .phase_interface import PhaseCategory, PhaseInterface, PhaseMetadata, PhaseResult, create_phase_result
 
@@ -232,9 +231,9 @@ class CrackleRemovalPhase(PhaseInterface):
         },
     }
 
-    def __init__(self):
+    def __init__(self, sample_rate: int = 48000, **kwargs):
         """Initialize Crackle Removal Phase with ML-Hybrid support."""
-        super().__init__()
+        super().__init__(sample_rate=sample_rate, **kwargs)
         self._banquet_plugin = None  # Lazy loading (vinyl-specific)
 
     def get_metadata(self) -> PhaseMetadata:
@@ -841,11 +840,12 @@ class CrackleRemovalPhase(PhaseInterface):
 
     def _compute_spectral_centroid(self, audio: np.ndarray) -> float:
         """Compute spectral centroid (center of mass of spectrum)."""
-        freqs = rfftfreq(len(audio), 1 / self.sample_rate)
-        spectrum = np.abs(rfft(audio))
+        audio_1d = np.asarray(audio, dtype=np.float64).reshape(-1)
+        freqs = np.fft.rfftfreq(len(audio_1d), 1 / self.sample_rate)
+        spectrum = np.abs(np.fft.rfft(audio_1d))
 
         centroid = np.sum(freqs * spectrum) / (np.sum(spectrum) + 1e-10)
-        return centroid
+        return float(centroid)
 
     def _compute_zero_crossing_rate(self, audio: np.ndarray) -> float:
         """Compute zero-crossing rate."""
@@ -860,8 +860,9 @@ class CrackleRemovalPhase(PhaseInterface):
         Musical content has strong harmonic structure.
         Crackle is broadband (low harmonic ratio).
         """
-        spectrum = np.abs(rfft(audio))
-        freqs = rfftfreq(len(audio), 1 / self.sample_rate)
+        audio_1d = np.asarray(audio, dtype=np.float64).reshape(-1)
+        spectrum = np.abs(np.fft.rfft(audio_1d))
+        freqs = np.fft.rfftfreq(len(audio_1d), 1 / self.sample_rate)
 
         # Find fundamental (strongest peak in 80-800 Hz)
         mask = (freqs >= 80) & (freqs <= 800)
@@ -882,7 +883,7 @@ class CrackleRemovalPhase(PhaseInterface):
         total_energy = np.sum(spectrum**2)
 
         harmonic_ratio = harmonic_energy / (total_energy + 1e-10)
-        return harmonic_ratio
+        return float(harmonic_ratio)
 
     def _merge_regions(self, regions: list[tuple[int, int]]) -> list[tuple[int, int]]:
         """Merge overlapping regions."""

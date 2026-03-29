@@ -41,22 +41,3 @@ def get_community_rating_platform() -> CommunityRatingPlatform:
             if _community_rating_platform_instance is None:
                 _community_rating_platform_instance = CommunityRatingPlatform()
     return _community_rating_platform_instance
-
-
-# ---------------------------------------------------------------------------
-# Singleton accessor (thread-safe, double-checked locking)
-# ---------------------------------------------------------------------------
-import threading as _threading
-
-_community_rating_platform_instance = None
-_community_rating_platform_lock = _threading.Lock()
-
-
-def get_community_rating_platform() -> CommunityRatingPlatform:
-    """Return the process-wide singleton ``CommunityRatingPlatform`` instance."""
-    global _community_rating_platform_instance
-    if _community_rating_platform_instance is None:
-        with _community_rating_platform_lock:
-            if _community_rating_platform_instance is None:
-                _community_rating_platform_instance = CommunityRatingPlatform()
-    return _community_rating_platform_instance

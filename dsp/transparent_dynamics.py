@@ -371,15 +371,17 @@ class TransparentDynamicsProcessor:
         # **FIX**: Timeout protection & early exit for long audio
         if len(audio.shape) > 0 and len(audio if audio.ndim == 1 else audio[:, 0]) > sr * 300:
             logger.info(
-                f"[TransparentDynamics] Warning: Audio too long ({len(audio if audio.ndim == 1 else audio[:, 0])/sr:.1f}s > 300s), bypassing"
+                f"[TransparentDynamics] Warning: Audio too long ({len(audio if audio.ndim == 1 else audio[:, 0]) / sr:.1f}s > 300s), bypassing"
             )
             return audio
 
         # Handle stereo
         if audio.ndim == 2:
+            n_rows = len(audio)
+            n_cols = len(audio[0]) if n_rows > 0 else 0
             # Auto-detect format: (channels, samples) vs (samples, channels)
             # Heuristic: If first dimension is small and < second dimension, likely channels
-            if audio.shape[0] < audio.shape[1] and audio.shape[0] <= 32:
+            if n_rows < n_cols and n_rows <= 32:
                 # Format: (channels, samples)
                 left = self.process(audio[0], sr)
                 right = self.process(audio[1], sr)
@@ -663,7 +665,7 @@ class MicroDynamicsEnhancer:
             crossover_norm = 300 / nyquist
 
             # Design highpass filter (Butterworth, 4th order)
-            b, a = signal.butter(4, crossover_norm, btype="high")
+            b, a = signal.butter(4, crossover_norm, btype="high", output="ba")  # type: ignore[misc]
             audio_high = signal.filtfilt(b, a, audio)
             audio_low = audio - audio_high
 

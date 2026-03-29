@@ -388,6 +388,12 @@ class E2EOptimizationFramework:
 
         logger.info(f"Optimizer configured: AdamW(lr={learning_rate}, wd={weight_decay})")
 
+    def _require_optimizer(self) -> torch.optim.Optimizer:
+        """Return initialized optimizer or raise a clear error."""
+        if self.optimizer is None:
+            raise RuntimeError("Optimizer not initialized. Call setup_optimizer() before training/checkpointing.")
+        return self.optimizer
+
     def forward_pass(
         self, audio: torch.Tensor, enable_eq: bool = True, enable_compressor: bool = True, enable_gate: bool = True
     ) -> torch.Tensor:
@@ -427,7 +433,8 @@ class E2EOptimizationFramework:
         Returns:
             Dictionary with loss values
         """
-        self.optimizer.zero_grad()
+        optimizer = self._require_optimizer()
+        optimizer.zero_grad()
 
         # Forward pass
         output_audio = self.forward_pass(input_audio)
@@ -442,7 +449,7 @@ class E2EOptimizationFramework:
         torch.nn.utils.clip_grad_norm_(self.trainable_modules.parameters(), max_norm=1.0)
 
         # Optimizer step
-        self.optimizer.step()
+        optimizer.step()
 
         return loss_details
 
@@ -516,10 +523,11 @@ class E2EOptimizationFramework:
 
     def save_checkpoint(self, epoch: int, metrics: dict[str, float]):
         """Save training checkpoint."""
+        optimizer = self._require_optimizer()
         checkpoint = {
             "epoch": epoch,
             "model_state_dict": self.trainable_modules.state_dict(),
-            "optimizer_state_dict": self.optimizer.state_dict(),
+            "optimizer_state_dict": optimizer.state_dict(),
             "metrics": metrics,
         }
 

@@ -231,7 +231,7 @@ class BreathAttackPreserver:
         breath_band = sosfilt(sos_breath, audio)
 
         # Detect breath transients
-        envelope = np.abs(hilbert(breath_band))
+        envelope = np.abs(np.asarray(hilbert(breath_band), dtype=np.complex128))
 
         # Find attack phases (steep rises)
         derivative = np.diff(envelope, prepend=envelope[0])
@@ -350,7 +350,7 @@ class ValveClickReducer:
         valve_energy_orig = np.sqrt(np.mean(valve_band**2))
 
         # Detect valve clicks (short, sharp transients)
-        envelope = np.abs(hilbert(valve_band))
+        envelope = np.abs(np.asarray(hilbert(valve_band), dtype=np.complex128))
 
         # Clicks have sharp onsets
         derivative = np.diff(envelope, prepend=envelope[0])

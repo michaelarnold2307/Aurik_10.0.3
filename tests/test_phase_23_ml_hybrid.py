@@ -56,7 +56,7 @@ def create_test_audio(duration: float = 2.0, sample_rate: int = 44100) -> np.nda
     # 2. Codec artifact (spectral hole at 5-6 kHz)
     from scipy.signal import butter, filtfilt
 
-    b, a = butter(4, [4500, 6500], btype="bandstop", fs=sample_rate)
+    b, a = butter(4, [4500, 6500], btype="bandstop", fs=sample_rate, output="ba")  # type: ignore[misc]
     audio = filtfilt(b, a, audio)
 
     # 3. Impulse noise (clicks)
@@ -125,7 +125,7 @@ def test_quality_modes():
             f"⚠️  Quality not improved (may need real AudioSR): FAST {fast_quality:.1f}% vs BALANCED {balanced_quality:.1f}%"
         )
 
-    return results
+    assert isinstance(results, dict)
 
 
 def test_defect_severity_routing():

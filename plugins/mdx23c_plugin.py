@@ -17,6 +17,7 @@ from __future__ import annotations
 import logging
 import threading
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 
@@ -74,7 +75,7 @@ class MDX23CModel:
 
     def __init__(self, stem_key: str) -> None:
         self.stem_key = stem_key
-        self._session = None
+        self._session: Any = None
         self._ok = False
         self._dim_t = MDX_DIM_T
         self._workspace = Path(__file__).parent.parent
@@ -228,7 +229,7 @@ class MDX23CModel:
             inp = np.stack([sl_L.real, sl_L.imag, sl_R.real, sl_R.imag], axis=0)[np.newaxis].astype(np.float32)
 
             mask = self._session.run(None, {self._session.get_inputs()[0].name: inp})[0]
-            mask = np.nan_to_num(mask, nan=0.0, posinf=0.0, neginf=0.0)
+            mask = np.nan_to_num(np.asarray(mask, dtype=np.float32), nan=0.0, posinf=0.0, neginf=0.0)
             mask = np.squeeze(mask)  # [4, dim_f, dim_t] oder [dim_f, dim_t]
 
             if mask.ndim == 3:

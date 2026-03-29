@@ -15,6 +15,7 @@ Nach Analyse der VST3-Lizenzierung (Steinberg) und der damit verbundenen Abhäng
 ## Reasons for Decision
 
 ### 1. Licensing Dependency Risk
+
 ```
 VST3 SDK:
   - Owned by: Steinberg (Yamaha)
@@ -30,6 +31,7 @@ VST3 SDK:
 - AURIK-spezifische Restriktionen auferlegen
 
 ### 2. Independence > Features
+
 ```
 Core Value: Full Control über die Software
   ✅ No external dependencies
@@ -41,6 +43,7 @@ Core Value: Full Control über die Software
 **Principle:** Software-Unabhängigkeit ist wichtiger als Plugin-Integration
 
 ### 3. Desktop App Sufficiency
+
 ```
 Current Status:
   ✅ Professional Desktop Application (2,482+ lines)
@@ -69,6 +72,7 @@ Current Status:
 ## Impact on Roadmap
 
 ### Removed:
+
 - ❌ VST3 Plugin Development (6-8 weeks, +2-3 points)
 - ❌ AU Plugin Development
 - ❌ AAX Plugin Development
@@ -76,6 +80,7 @@ Current Status:
 - ❌ pybind11 Python bridge
 
 ### Kept/Enhanced:
+
 - ✅ Standalone Desktop Application (already complete)
 - ✅ Batch Processing (already implemented)
 - ✅ Professional UI (already complete)
@@ -88,6 +93,7 @@ Current Status:
 ## User Workflow Comparison
 
 ### With Plugin (cancelled):
+
 ```
 DAW (Logic Pro)
   → Add AURIK Plugin to track
@@ -96,6 +102,7 @@ DAW (Logic Pro)
 ```
 
 ### With Desktop App (current):
+
 ```
 AURIK Professional
   → Load audio file(s)
@@ -115,6 +122,7 @@ AURIK Professional
 ## Technical Details
 
 ### VST3 Licensing Terms (Reference)
+
 ```
 Option 1: GPLv3
   - Free for open source projects
@@ -138,16 +146,19 @@ Option 2: Steinberg Proprietary License Agreement
 ## Alternatives Evaluated
 
 ### Option 1: VST3 + AU Plugins ❌
+
 - **Pros:** Professional integration, real-time processing
 - **Cons:** Licensing dependency, approval processes
 - **Decision:** Rejected (independence priority)
 
 ### Option 2: CLAP Plugin ❌
+
 - **Pros:** Open source, no licensing issues
 - **Cons:** Limited DAW support, still external dependency
 - **Decision:** Rejected (unnecessary complexity)
 
 ### Option 3: Standalone Desktop App ✅
+
 - **Pros:** Full control, no dependencies, already complete
 - **Cons:** No in-DAW integration
 - **Decision:** SELECTED (matches project values)
@@ -157,6 +168,7 @@ Option 2: Steinberg Proprietary License Agreement
 ## Documentation Updates
 
 ### Files Modified:
+
 1. `Finalisierungs_Roadmap.md`
    - VST3/Plugin references removed
    - Section 10 marked as "REMOVED FROM ROADMAP"
@@ -171,6 +183,7 @@ Option 2: Steinberg Proprietary License Agreement
    - Rationale and alternatives
 
 ### Desktop App References:
+
 - ✅ `docs/Desktop_App_Final_Status.md` - Complete implementation
 - ✅ `docs/Desktop_App_Plan.md` - Original strategy
 - ✅ `docs/Packaging_Documentation.md` - Executable distribution
@@ -180,6 +193,7 @@ Option 2: Steinberg Proprietary License Agreement
 ## Future Considerations
 
 ### If Conditions Change:
+
 ```
 IF:
   - Fully open-source plugin standard emerges
@@ -194,6 +208,7 @@ THEN:
 **Current Status:** No plans to revisit
 
 ### Enhancement Priorities:
+
 1. **Package Optimization** (7 GB → 1.5 GB)
 2. **ML Models** (MERT, AST, madmom)
 3. **Extended Testing** (A/B vs iZotope RX)

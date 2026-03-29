@@ -67,7 +67,7 @@ class HighpassFilter:
         self.cutoff_hz = cutoff_hz
         self.sr = sr
         self.order = order
-        self.b, self.a = butter(order, cutoff_hz / (0.5 * sr), btype="high")
+        self.b, self.a = butter(order, cutoff_hz / (0.5 * sr), btype="high", output="ba")  # type: ignore[misc]
 
     def process(self, audio: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
         self.log_contract()  # Audit: Contract-Infos loggen (optional)
@@ -96,7 +96,7 @@ class NotchFilter:
         self.freq = freq
         self.Q = Q
         self.sr = sr
-        self.b, self.a = iirnotch(freq / (0.5 * sr), Q)
+        self.b, self.a = iirnotch(freq / (0.5 * sr), Q)  # type: ignore[misc]
 
     def process(self, audio: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
         self.log_contract()  # Audit: Contract-Infos loggen (optional)

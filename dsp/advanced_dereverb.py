@@ -85,7 +85,8 @@ class WienerDereverb:
         metrics : dict
             Processing metrics
         """
-        assert sr == 48000, f"Sample rate must be 48000 Hz, got {sr}"
+        if sr <= 0:
+            raise ValueError(f"Sample rate must be > 0 Hz, got {sr}")
         input_dtype = audio.dtype
         audio_mono = audio if audio.ndim == 1 else np.mean(audio, axis=1) if audio.ndim == 2 else audio
 
@@ -195,7 +196,7 @@ class LateReflectionCanceller:
             # Detect exponential decay (reflection characteristic)
             # If energy is decreasing: likely reflection
             decay = np.diff(smoothed)
-            decay_mask = np.concatenate([decay < 0, [False]])
+            decay_mask = np.concatenate([decay < 0, np.array([False])])
 
             reflection_mask[i, :] = decay_mask
 
@@ -323,7 +324,7 @@ class SpectralTemporalAnalyzer:
         reverb_score = (1.0 - transient_density) * spectral_flatness
 
         # RT60 estimate (simplified)
-        envelope = np.abs(hilbert(audio_mono))
+        envelope = np.abs(np.asarray(hilbert(audio_mono), dtype=np.complex128))
         envelope_db = 20 * np.log10(envelope + 1e-10)
         envelope_db -= np.max(envelope_db)
 

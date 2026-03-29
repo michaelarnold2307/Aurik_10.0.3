@@ -260,8 +260,9 @@ class TestApplyDither:
         """16-bit dither has larger LSB step than 24-bit."""
         np.random.seed(0)
         a = _sine()
-        2.0 / (2**16)
-        2.0 / (2**24)
+        lsb_16 = 2.0 / (2**16)
+        lsb_24 = 2.0 / (2**24)
+        assert lsb_16 > lsb_24
         diff16 = np.mean(np.abs(apply_dither(a, 16) - a))
         diff24 = np.mean(np.abs(apply_dither(a, 24) - a))
         # 16-bit dither must add more noise energy than 24-bit

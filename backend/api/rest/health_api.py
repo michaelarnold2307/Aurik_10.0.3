@@ -63,7 +63,7 @@ def health_check():
 
 # Prometheus-Metriken (optional, für Integration)
 try:
-    from prometheus_fastapi_instrumentator import Instrumentator
+    from prometheus_fastapi_instrumentator import Instrumentator  # type: ignore[import]
 
     Instrumentator().instrument(app).expose(app)
 except ImportError:

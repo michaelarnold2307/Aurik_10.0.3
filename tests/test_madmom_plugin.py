@@ -5,7 +5,7 @@ import pytest
 def test_madmom_plugin_desktop():
     """Testet, ob MadmomPlugin instanziiert werden kann und eine Dummy-Audioverarbeitung durchführt (Desktop-Only)."""
     try:
-        from plugins.madmom_plugin import MadmomPlugin
+        from plugins.madmom_plugin import MadmomPlugin  # type: ignore[import-not-found]
     except ImportError:
         pytest.skip("MadmomPlugin nicht verfügbar oder nicht installiert.")
     plugin = MadmomPlugin()

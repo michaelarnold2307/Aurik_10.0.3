@@ -183,8 +183,8 @@ class PsychoacousticEnhancer:
         Technique: Extract envelope, then synthesize harmonics at 2x and 3x frequency.
         """
         # Envelope detection using Hilbert transform
-        analytic_signal = hilbert(bass_signal)
-        envelope = np.abs(analytic_signal)
+        analytic_signal = np.asarray(hilbert(np.asarray(bass_signal, dtype=np.float64)), dtype=np.complex128)
+        envelope = np.sqrt(np.square(analytic_signal.real) + np.square(analytic_signal.imag))
 
         # Smooth envelope (low-pass filter at 200 Hz)
         nyquist = sr / 2
@@ -194,7 +194,7 @@ class PsychoacousticEnhancer:
 
         # Generate 2nd harmonic (octave up)
         # Use instantaneous phase for phase-coherent synthesis
-        phase = np.unwrap(np.angle(analytic_signal))
+        phase = np.unwrap(np.arctan2(analytic_signal.imag, analytic_signal.real))
         phase_2nd = phase * 2  # Double frequency
         harmonic_2nd = envelope_smooth * np.cos(phase_2nd)
 

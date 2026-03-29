@@ -150,11 +150,11 @@ class GacelaPlugin:
 
     def __init__(self) -> None:
         self._model_ready: bool = False
-        self._generator = None
+        self._generator: Any = None
         self._encoders: list = []
         self._mel_basis: np.ndarray | None = None
-        self._stft = None
-        self._inverter = None
+        self._stft: Any = None
+        self._inverter: Any = None
         self._try_load()
 
     # ── ML-Modell laden ──────────────────────────────────────────────────────
@@ -399,7 +399,7 @@ class GacelaPlugin:
         # Weiche Schaedigung: even-order Harmonics via tanh-Saettigung
         saturation_strength = intensity * (10 ** (self.MAX_BOOST_DB / 20.0) - 1.0)
         enhanced = np.tanh(mono * (1.0 + saturation_strength)) / (1.0 + saturation_strength * 0.5)
-        enhanced = np.nan_to_num(enhanced, 0.0).astype(np.float32)
+        enhanced = np.nan_to_num(enhanced, nan=0.0).astype(np.float32)
 
         if audio.ndim == 2:
             # Stereo: gleiches Enhancement auf beide Kanaele
@@ -413,7 +413,7 @@ class GacelaPlugin:
         a = np.array(audio, dtype=np.float32)
         if a.ndim == 2:
             a = a.mean(axis=0) if a.shape[0] <= 8 else a.mean(axis=1)
-        return np.nan_to_num(a, 0.0)
+        return np.nan_to_num(a, nan=0.0)
 
 
 # ── Singleton (Double-Checked Locking, Spec §3.2) ────────────────────────────

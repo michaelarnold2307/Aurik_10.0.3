@@ -6,6 +6,7 @@ Dieses Modul entfernt grobe Klicks/Knackser von Schellackplatten (Stub).
 
 import logging
 import warnings
+from typing import Any
 
 import numpy as np
 
@@ -84,10 +85,11 @@ class ShellacDeclicker:
                 except Exception as e:
                     logger.warning(f"ONNX-Inferenz fehlgeschlagen: {e}")
                     fallback_used = True
-            elif self.model is not None and self.backend == "torch":
+            elif self.model is not None and self.backend == "torch" and torch is not None:
                 try:
+                    model_torch: Any = self.model
                     inp = torch.from_numpy(audio.astype(np.float32)).unsqueeze(0).unsqueeze(0)
-                    out = self.model(inp).detach().cpu().numpy().squeeze()
+                    out = model_torch(inp).detach().cpu().numpy().squeeze()
                     audio_out = out.astype(audio.dtype)
                 except Exception as e:
                     logger.warning(f"Torch-Inferenz fehlgeschlagen: {e}")

@@ -13,7 +13,8 @@ AURIK v8 provides comprehensive accessibility features for command-line interfac
   - Descriptive text prefixes: `[SUCCESS]`, `[ERROR]`, `[WARNING]`, `[INFO]`
   - Clean table formatting with text markers
   - Example:
-    ```
+
+    ```text
     [SUCCESS] Operation completed
     [TABLE: Name, Age, City]
     Alice | 30 | NYC
@@ -25,7 +26,7 @@ AURIK v8 provides comprehensive accessibility features for command-line interfac
   - Visual icons: ✓ ✗ ⚠ ℹ
   - Progress bars with filled blocks: `█████████░░░`
   - Enhanced tables with color-coded headers
-  
+
 - **High Contrast**
   - Bright colors optimized for dark backgrounds
   - Maximum contrast for low vision users
@@ -34,6 +35,7 @@ AURIK v8 provides comprehensive accessibility features for command-line interfac
 ### ⌨️ Keyboard Navigation
 
 All interactive elements support keyboard-only navigation:
+
 - Single-key selection for menu options
 - Enter/Return to confirm
 - Ctrl+C to cancel
@@ -42,6 +44,7 @@ All interactive elements support keyboard-only navigation:
 ### 🔊 Audio Feedback
 
 Optional audio cues for important events:
+
 - Single beep for success
 - Double beep for errors
 - Customizable via `AURIK_AUDIO_FEEDBACK=1`
@@ -145,30 +148,31 @@ choice = cli.prompt("Select option", valid_choices=['1', '2', '3', 'q'])
 
 ### Global Shortcuts
 
-| Key | Action |
-|-----|--------|
-| `1-9` | Select menu option |
-| `y/n` | Confirm/decline prompts |
-| `Enter` | Confirm current selection |
-| `Ctrl+C` | Cancel operation |
-| `Ctrl+D` | Exit program |
+| Key      | Action                    |
+| -------- | ------------------------- |
+| `1-9`    | Select menu option        |
+| `y/n`    | Confirm/decline prompts   |
+| `Enter`  | Confirm current selection |
+| `Ctrl+C` | Cancel operation          |
+| `Ctrl+D` | Exit program              |
 
 ### Batch Processor Shortcuts
 
-| Key | Action |
-|-----|--------|
-| `1` | Discover files |
-| `2` | Show queue |
-| `3` | Filter queue |
-| `4` | Start processing |
-| `5` | Save report |
-| `0` | Exit |
+| Key | Action             |
+| --- | ------------------ |
+| `1` | Discover files     |
+| `2` | Show queue         |
+| `3` | Filter queue       |
+| `4` | Start processing   |
+| `5` | Save report        |
+| `0` | Exit               |
 
 ## Screen Reader Compatibility
 
 AURIK CLI is compatible with popular screen readers:
 
 ### NVDA (Windows)
+
 ```bash
 # Enable NVDA-friendly mode
 set NO_COLOR=1
@@ -176,6 +180,7 @@ python batch_processor_ui.py
 ```
 
 ### JAWS (Windows)
+
 ```bash
 # Enable JAWS-friendly mode
 set AURIK_NO_COLOR=1
@@ -183,6 +188,7 @@ python batch_processor_ui.py
 ```
 
 ### VoiceOver (macOS)
+
 ```bash
 # Enable VoiceOver-friendly mode
 export NO_COLOR=1
@@ -190,6 +196,7 @@ python batch_processor_ui.py
 ```
 
 ### Orca (Linux)
+
 ```bash
 # Enable Orca-friendly mode
 NO_COLOR=1 python batch_processor_ui.py
@@ -200,12 +207,14 @@ NO_COLOR=1 python batch_processor_ui.py
 ### 1. Always Use AccessibleCLI for Output
 
 **Bad:**
+
 ```python
 print("Processing files...")
 print("✓ Done")
 ```
 
 **Good:**
+
 ```python
 cli = AccessibleCLI()
 cli.info("Processing files...")
@@ -215,12 +224,14 @@ cli.success("Done")
 ### 2. Provide Descriptive Progress Updates
 
 **Bad:**
+
 ```python
 for i in range(100):
     print(f"{i}%")
 ```
 
 **Good:**
+
 ```python
 for i in range(100):
     cli.progress("Converting audio", i+1, 100)
@@ -291,16 +302,17 @@ from usability.cli_accessibility import AccessibleCLI
 def test_accessible_output(capsys):
     """Test CLI output is screen reader friendly"""
     cli = AccessibleCLI(theme='plain')
-    
+
     cli.success("Test message")
     captured = capsys.readouterr()
-    
+
     # Verify descriptive prefix
     assert "[SUCCESS]" in captured.out
     assert "Test message" in captured.out
 ```
 
 Run tests:
+
 ```bash
 pytest tests/test_cli_accessibility.py -v
 ```
@@ -312,7 +324,7 @@ AURIK CLI accessibility features comply with:
 - **WCAG 2.1 Level AA** for terminal interfaces
 - **Section 508** US accessibility standards
 - **EN 301 549** European accessibility requirements
-- **NO_COLOR standard** (https://no-color.org/)
+- **NO_COLOR standard** (<https://no-color.org/>)
 
 ## Troubleshooting
 
@@ -321,6 +333,7 @@ AURIK CLI accessibility features comply with:
 **Problem:** Output is plain text even without `NO_COLOR`
 
 **Solution:** Check if stdout is a TTY:
+
 ```python
 import sys
 print(sys.stdout.isatty())  # Should be True
@@ -330,7 +343,8 @@ print(sys.stdout.isatty())  # Should be True
 
 **Problem:** No beeps on success/error
 
-**Solution:** 
+**Solution:**
+
 1. Enable audio feedback: `export AURIK_AUDIO_FEEDBACK=1`
 2. Check system audio volume
 3. Some terminals may not support `\a` (bell character)
@@ -340,6 +354,7 @@ print(sys.stdout.isatty())  # Should be True
 **Problem:** Screen reader skips information
 
 **Solution:**
+
 1. Use `NO_COLOR=1` for plain mode
 2. Adjust screen reader verbosity settings
 3. Use slower speech rate in screen reader preferences
@@ -349,6 +364,7 @@ print(sys.stdout.isatty())  # Should be True
 **Problem:** Progress bars show `?` instead of blocks
 
 **Solution:**
+
 1. Set terminal encoding to UTF-8: `export LANG=en_US.UTF-8`
 2. Use plain mode: `export NO_COLOR=1`
 3. Update terminal font to one with Unicode support
@@ -366,37 +382,37 @@ from usability.cli_accessibility import AccessibleCLI
 
 def main():
     cli = AccessibleCLI()
-    
+
     # Welcome header
     cli.header("AURIK Batch Processor")
-    
+
     # Discover files
     cli.info("Discovering audio files...")
     files = list(Path('input').glob('*.wav'))
     cli.success(f"Found {len(files)} files")
-    
+
     # Show files in table
-    rows = [[str(i+1), f.name, f"{f.stat().st_size/1e6:.1f} MB"] 
+    rows = [[str(i+1), f.name, f"{f.stat().st_size/1e6:.1f} MB"]
             for i, f in enumerate(files)]
     cli.table(['#', 'Filename', 'Size'], rows, ['right', 'left', 'right'])
-    
+
     # Confirm processing
     if not cli.confirm(f"Process {len(files)} files?", default=True):
         cli.warning("Operation cancelled")
         return
-    
+
     # Process files
     failed = 0
     for i, file in enumerate(files):
         cli.progress("Processing", i, len(files))
-        
+
         try:
             process_audio(file)  # Your processing function
             cli.success(f"✓ {file.name}")
         except Exception as e:
             cli.error(f"✗ {file.name}: {e}")
             failed += 1
-    
+
     # Summary
     cli.header("Processing Complete")
     cli.info(f"Processed: {len(files) - failed}")
@@ -423,6 +439,7 @@ When adding new CLI features to AURIK:
 ## Support
 
 For accessibility issues or feature requests:
+
 - File an issue on GitHub
 - Tag with `accessibility` label
 - Provide terminal/OS information

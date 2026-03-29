@@ -232,10 +232,12 @@ class SpectralBandGapRepair:
         n_fft = 2048
         audio_out = audio.copy().astype(np.float32)
 
-        channels = [audio_out[0], audio_out[1]] if audio_out.ndim == 2 else [audio_out]
+        channels_in = [audio_out[0], audio_out[1]] if audio_out.ndim == 2 else [audio_out]
+        channels_out: list[np.ndarray] = []
 
-        for ch_idx, ch in enumerate(channels):
+        for ch in channels_in:
             if len(ch) < n_fft:
+                channels_out.append(ch)
                 continue
 
             # FFT
@@ -264,10 +266,15 @@ class SpectralBandGapRepair:
                     else:
                         target_energy = max(float(lo_energy), float(hi_energy))
 
-                    # Magnitude auf Ziel setzen (sanfte Füllung)
-                    current_mean = np.mean(mag[gap_mask])
+                    # Magnitude auf Ziel setzen (deterministische Füllung)
+                    gap_indices = np.flatnonzero(gap_mask)
+                    if gap_indices.size == 0:
+                        continue
+
+                    current_mean = float(np.mean(mag[gap_indices]))
                     if current_mean < target_energy * 0.1:
-                        mag[gap_mask] = target_energy * (1.0 + 0.05 * np.random.randn(gap_mask.sum()))
+                        fill_values = np.full(gap_indices.shape, target_energy, dtype=mag.dtype)
+                        mag[gap_indices] = fill_values
 
             # PGHI-Approximation: Phase aus Magnitude rekonstruieren
             fft_repaired = mag * np.exp(1j * phase)
@@ -280,9 +287,9 @@ class SpectralBandGapRepair:
             elif len(ch_repaired) < original_len:
                 ch_repaired = np.pad(ch_repaired, (0, original_len - len(ch_repaired)))
 
-            channels[ch_idx] = ch_repaired
+            channels_out.append(ch_repaired.astype(np.float32, copy=False))
 
-        audio_out = np.stack(channels, axis=0) if audio_out.ndim == 2 else channels[0]
+        audio_out = np.stack(channels_out, axis=0) if audio_out.ndim == 2 else channels_out[0]
 
         return audio_out
 

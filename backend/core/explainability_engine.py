@@ -77,22 +77,3 @@ def get_explainability_engine() -> ExplainabilityEngine:
             if _explainability_engine_instance is None:
                 _explainability_engine_instance = ExplainabilityEngine()
     return _explainability_engine_instance
-
-
-# ---------------------------------------------------------------------------
-# Singleton accessor (thread-safe, double-checked locking)
-# ---------------------------------------------------------------------------
-import threading as _threading
-
-_explainability_engine_instance = None
-_explainability_engine_lock = _threading.Lock()
-
-
-def get_explainability_engine() -> ExplainabilityEngine:
-    """Return the process-wide singleton ``ExplainabilityEngine`` instance."""
-    global _explainability_engine_instance
-    if _explainability_engine_instance is None:
-        with _explainability_engine_lock:
-            if _explainability_engine_instance is None:
-                _explainability_engine_instance = ExplainabilityEngine()
-    return _explainability_engine_instance

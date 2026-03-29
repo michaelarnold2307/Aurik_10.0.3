@@ -225,6 +225,7 @@ class TestFindPendingCheckpoints:
             mode="quality",
             defect_result=_FakeDefectResult(),
         )
+        assert result is not None
         # Backdate checkpoint to 8 days ago
         with open(result) as f:
             data = json.load(f)
@@ -252,6 +253,7 @@ class TestFindPendingCheckpoints:
             mode="quality",
             defect_result=_FakeDefectResult(),
         )
+        assert result is not None
         # Remove audio WAV
         audio_wav = result.replace("_oom_checkpoint.json", "_oom_audio.wav")
         os.remove(audio_wav)
@@ -317,6 +319,7 @@ class TestDeleteCheckpoint:
             mode="quality",
             defect_result=_FakeDefectResult(),
         )
+        assert result is not None
         audio_wav = result.replace("_oom_checkpoint.json", "_oom_audio.wav")
         assert os.path.isfile(result)
         assert os.path.isfile(audio_wav)
@@ -353,6 +356,7 @@ class TestCleanupExpired:
             mode="quality",
             defect_result=_FakeDefectResult(),
         )
+        assert result is not None
         # Backdate to 10 days
         with open(result) as f:
             data = json.load(f)
@@ -418,7 +422,7 @@ class TestRecoveryCheckpointDataclass:
         assert required.issubset(fields), f"Missing fields: {required - fields}"
 
     def test_default_failure_reason(self):
-        from backend.core.recovery_checkpoint import RecoveryCheckpoint
+        from backend.core.recovery_checkpoint import RecoveryCheckpoint, _get_aurik_version
 
         cp = RecoveryCheckpoint(
             input_path="",
@@ -439,7 +443,7 @@ class TestRecoveryCheckpointDataclass:
             original_input_path="",
         )
         assert cp.failure_reason == "MemoryError"
-        assert cp.aurik_version == "9.10.57"
+        assert cp.aurik_version == _get_aurik_version()
 
 
 class TestSaveCheckpointFilenameHandling:

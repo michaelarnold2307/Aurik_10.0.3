@@ -168,6 +168,9 @@ class PolyphonicSpeedCurveEstimator:
 
         from scipy.signal import savgol_filter
 
+        if self._bp is None:
+            return self._pyin_fallback(audio, sr)
+
         mono = np.mean(audio, axis=1).astype(np.float32) if audio.ndim == 2 else audio.astype(np.float32)
         result = self._bp.analyze(mono, sr, max_polyphony=6)
         pitches_hz: np.ndarray = result.pitches_hz  # [T, K]
@@ -492,6 +495,8 @@ class HybridWowFlutter:
 
     def _apply_crepe(self, audio: np.ndarray, sample_rate: int) -> tuple[np.ndarray, np.ndarray]:
         """Apply FCPE/CREPE ML pitch detection (numpy-API, kein Subprocess)."""
+        if self.crepe is None:
+            return self._apply_pyin(audio, sample_rate)
         try:
             result = self.crepe.analyze(audio, sample_rate)
             # CrepeResult.f0_hz / .voiced_prob sind die finalen Arrays
@@ -514,10 +519,12 @@ class HybridWowFlutter:
         - Gewichtetes Mischen in unsicheren Regionen
         """
         if len(pitch_crepe) != len(pitch_pyin):
+            from typing import cast
+
             from scipy import signal as sp_signal
 
-            pitch_crepe = sp_signal.resample(pitch_crepe, len(pitch_pyin))
-            conf_crepe = sp_signal.resample(conf_crepe, len(pitch_pyin))
+            pitch_crepe = cast(np.ndarray, sp_signal.resample(pitch_crepe, len(pitch_pyin)))
+            conf_crepe = cast(np.ndarray, sp_signal.resample(conf_crepe, len(pitch_pyin)))
 
         blended_pitch = np.zeros_like(pitch_pyin)
         blended_conf = np.zeros_like(conf_pyin)

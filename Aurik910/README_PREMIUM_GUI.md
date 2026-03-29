@@ -9,6 +9,7 @@ Frameless Design, Real-Time Visualisierung und ML-Hybrid Processing
 ## ✨ Neue Features in Version 9.x.x
 
 ### 🚀 UnifiedRestorerV3 Integration
+
 - **Defect-First Architecture** - Intelligente Defekt-Erkennung vor der Verarbeitung
 - **Material-Adaptive Processing** - Automatische Erkennung von 14 Material-Typen
 - **Performance-Guaranteed** - 3× RT Limit im Balanced Mode
@@ -16,6 +17,7 @@ Frameless Design, Real-Time Visualisierung und ML-Hybrid Processing
 - **8-Core Parallelization** - Optimale CPU-Auslastung
 
 ### ⚙️ System-Ressourcen-Monitor (NEU!)
+
 - **Echtzeit CPU-Anzeige** - Live-Monitoring der Prozessor-Auslastung
 - **Echtzeit Speicher-Anzeige** - Aktuelle RAM-Nutzung
 - **Verarbeitungs-Modus-Anzeige** - FAST/BALANCED/QUALITY Status
@@ -23,6 +25,7 @@ Frameless Design, Real-Time Visualisierung und ML-Hybrid Processing
 - **DSP-Modus-Indikator** - Unterscheidung zwischen ML-Hybrid und reinem DSP
 
 ### 🎨 Aussehen
+
 - **Ohne Fensterrahmen** - Schlankes, modernes Design
 - **Eigene Titelleiste** - Verschiebbar, mit Minimieren/Maximieren/Schließen
 - **Dunkles Design** - Elegantes dunkles Erscheinungsbild mit Farbverläufen
@@ -32,6 +35,7 @@ Frameless Design, Real-Time Visualisierung und ML-Hybrid Processing
 - **Schatten-Effekte** - Räumliche Tiefe durch Schatten
 
 ### 🔬 Real-Time Visualisierungen
+
 - **Stereo-Wellenform** - Dual-Channel-Anzeige mit Peak/RMS-Envelope
 - **Spektrogramm** - Professional Inferno Colormap (20Hz-20kHz, dB-Skala)
 - **Defekt-Counter** - Animierte Anzeige von 24 Defekt-Typen:
@@ -41,6 +45,7 @@ Frameless Design, Real-Time Visualisierung und ML-Hybrid Processing
 - **Phasen-Status** - Live-Updates der aktuellen Verarbeitungsphase
 
 ### 🚀 Funktionen
+
 - **Keine Internetverbindung nötig** - Läuft komplett offline
 - **Magic Button Interface** - Zwei prominente Verarbeitungs-Modi:
   - 💿 **RESTORATION** - Authentisch & behutsam, erhält Original-Charakter
@@ -53,6 +58,7 @@ Frameless Design, Real-Time Visualisierung und ML-Hybrid Processing
 ## 📦 Installation & Start
 
 ### Voraussetzungen
+
 ```bash
 # Python 3.10+
 python --version
@@ -62,6 +68,7 @@ pip install PyQt5 numpy soundfile psutil
 ```
 
 ### Quick Start
+
 ```bash
 # 1. Repository klonen oder entpacken
 cd Aurik_Standalone
@@ -76,6 +83,7 @@ python start_aurik_90.py
 ```
 
 ### Alternative: Executable erstellen
+
 ```bash
 # PyInstaller installieren
 pip install pyinstaller
@@ -101,10 +109,11 @@ pyinstaller --onefile --windowed \
 AURIK 9.x.x bietet **2 prominente Verarbeitungs-Modi** mit einem Klick:
 
 #### 💿 **RESTORATION Modus** (Balanced Quality)
+
 - **Ziel:** Original-Charakter erhalten, behutsam verbessern
 - **Quality Mode:** BALANCED (~2.4× RT)
 - **Für wen:** Wer den authentischen Klang der Originalaufnahme bewahren möchte
-- **Was passiert:** 
+- **Was passiert:**
   - Respektvolle Bearbeitung des Original-Klangs
   - Vorsichtige Entfernung von Störgeräuschen
   - Erhalt des Vintage-Charakters
@@ -113,10 +122,11 @@ AURIK 9.x.x bietet **2 prominente Verarbeitungs-Modi** mit einem Klick:
 - **Ideal für:** Schallplatten, Kassetten, historische Aufnahmen archivieren
 
 #### 🎯 **STUDIO 2026 Modus** (Maximum Quality)
+
 - **Ziel:** Moderner, klarer Sound für heutige Hörgewohnheiten
 - **Quality Mode:** QUALITY (~9× RT, kein Limit)
 - **Für wen:** Wer alte Aufnahmen modern und hochwertig klingen lassen möchte
-- **Was passiert:** 
+- **Was passiert:**
   - Maximale Klarheit und Brillanz
   - Psychoacoustic Enhancement aktiviert
   - Optimiert für Spotify, YouTube, Streaming
@@ -125,11 +135,13 @@ AURIK 9.x.x bietet **2 prominente Verarbeitungs-Modi** mit einem Klick:
 - **Ideal für:** Digitale Veröffentlichung, modernes Hören, Studio-Produktionen
 
 ### GUI Starten
+
 ```bash
 python start_aurik_90.py
 ```
 
 ### So funktioniert's
+
 1. **Datei öffnen** - Klick auf "📂 Datei öffnen" oder Dateien ins Fenster ziehen
 2. **Live-Visualisierung** - Wellenform, Spektrogramm und Defekt-Analyse in Echtzeit
 3. **Magic Button wählen** - RESTORATION oder STUDIO 2026 anklicken
@@ -141,6 +153,7 @@ python start_aurik_90.py
 ## 🔬 Technische Details
 
 ### UnifiedRestorerV3 Architecture
+
 - **Defect-First Approach** - Intelligente Defekt-Erkennung vor Processing
 - **54 Processing Phases** - Vollständige Pipeline (Click, Hum, Denoise, Reverb, etc.)
 - **Adaptive Phase Skipping** - Nur notwendige Phasen werden ausgeführt (20-40% Speedup)
@@ -149,12 +162,14 @@ python start_aurik_90.py
 - **8-Core Parallelization** - Optimale CPU-Nutzung mit ThreadPoolExecutor
 
 ### ML-Hybrid Plugins (Optional, via Docker)
+
 - **Resemble Enhance** - ML-based Vocal Enhancement
 - **DCCRN** - Deep Complex Convolution Recurrent Network für Dereverb
 - **CREPE** - Pitch Detection für Wow/Flutter Correction
 - **Fallback zu DSP** - Automatisch wenn ML-Plugins nicht verfügbar
 
 ### System-Ressourcen-Monitor
+
 - **CPU-Monitoring** - Live-Anzeige der Prozessor-Auslastung
 - **Memory-Monitoring** - Aktuelle RAM-Nutzung
 - **Mode-Indikator** - Zeigt aktiven Quality Mode (FAST/BALANCED/QUALITY)
@@ -162,13 +177,16 @@ python start_aurik_90.py
 - **Farbcodierung** - Grün (<70%), Gelb (70-90%), Rot (>90%)
 
 ---
-   - **🎯 Studio 2026** - Moderner, klarer Sound für heute
-   - **💿 Restoration** - Original-Charakter bewahren
+
+- **🎯 Studio 2026** - Moderner, klarer Sound für heute
+- **💿 Restoration** - Original-Charakter bewahren
+
 3. **Tonträger auswählen** - AURIK optimiert automatisch basierend auf dem Quellmedium
 4. **Starten** - Klick auf "🎵 Verarbeiten Starten"
 5. **Speichern** - Nach der Bearbeitung mit "💾 Alle exportieren" sichern
 
 **✨ Automatische Optimierung:** AURIK wendet automatisch alle erforderlichen Verbesserungen an:
+
 - **Rauschunterdrückung** - Adaptiv an Ihr Material angepasst
 - **Clipping-Reparatur** - Übersteuerungen werden intelligent rekonstruiert
 - **Click/Crackle Removal** - Knackser und Knistern verschwinden
@@ -177,6 +195,7 @@ python start_aurik_90.py
 Keine manuellen Einstellungen nötig - AURIK wählt stets das Optimum für musikalische Exzellenz!
 
 ### Tastenkombinationen
+
 - **Doppelklick auf Titelleiste** - Vollbild ein/aus
 - **Titelleiste ziehen** - Fenster verschieben
 - **ESC-Taste** - Fenster schließen (optional aktivierbar)
@@ -186,6 +205,7 @@ Keine manuellen Einstellungen nötig - AURIK wählt stets das Optimum für musik
 ### Aufbau der Oberfläche
 
 #### Titelleiste
+
 - Logo/Symbol (links)
 - App-Titel "AURIK 8.0"
 - Status-Anzeige (Mitte)
@@ -193,22 +213,26 @@ Keine manuellen Einstellungen nötig - AURIK wählt stets das Optimum für musik
 - Verschiebbar zum Fenster bewegen
 
 #### Schaltflächen
+
 - Zwei Arten:
   - **Haupt-Schaltflächen:** Mit Farbverlauf (lila-blau)
   - **Neben-Schaltflächen:** Transparent mit Rahmen
 - Reagieren auf Mauszeiger mit sanften Animationen
 
 #### Informations-Karten
+
 - Halbtransparente Kästen mit Glas-Effekt
 - Automatische Schatten für räumliche Tiefe
 - Weiche Unschärfe im Hintergrund
 
 #### Fortschrittsbalken
+
 - Zeigt Bearbeitungsfortschritt in Prozent
 - Animiert mit Farbverlauf
 - Aktualisiert sich während der Verarbeitung
 
 ### Fenster-Aufbau
+
 ```
 ┌──────────────────────────────────────────────────────────────────────────────────┐
 │ 🎵 AURIK 9.x.x - Musik Restauration       [Bereit]   [−][□][×]                    │ ← Titelleiste
@@ -253,21 +277,25 @@ Keine manuellen Einstellungen nötig - AURIK wählt stets das Optimum für musik
 **Legende der animierten Zähler (Zwei-Phasen-Animation):**
 
 **Phase 1: Erkennung (🔍 ERKENNE - blau)**
+
 - Zähler "rattern" **HOCH** von 0 zu den erkannten Werten
 - Beispiel: Knackser [0] → [342] → [789] → [1.247]
 - Status-Icon: 🔍 ERKENNE in blauer Farbe
 
 **Phase 2: Korrektur (⚙️ BEARBEITE - orange)**
+
 - Zähler "rattern" **RUNTER** von erkannten Werten auf 0
 - Beispiel: Knackser [1.247] → [823] → [394] → [0]
 - Status-Icon: ⚙️ BEARBEITE in oranger Farbe
 
 **Phase 3: Abgeschlossen (✓ BEREINIGT - grün)**
+
 - Alle Zähler bleiben bei [0]
 - Status-Icon: ✓ BEREINIGT in grüner Farbe (fett)
 - Signal: Alle Fehler wurden erfolgreich korrigiert
 
 **Erkannte Defekte im Detail:**
+
 - **⚡ Knackser** - Kleine, schnelle Transienten (< 0.2 Amplitude)
 - **🧻 Knistern** - Kontinuierliche Knackser-Dichte (pro 10 Sekunden)
 - **💥 Pops** - Große Transienten (> 0.2 Amplitude), tiefe Kratzer
@@ -281,6 +309,7 @@ Keine manuellen Einstellungen nötig - AURIK wählt stets das Optimum für musik
 ## 🎨 Farben und Design
 
 ### Hintergrund-Farben
+
 ```
 Hauptfenster:
   Dunkelblau → Lila → Dunkelviolett
@@ -292,18 +321,20 @@ Titelleiste:
 ```
 
 ### Schaltflächen-Farben
+
 ```
 Normal:
   Lila → Blau (Farbverlauf)
-  
+
 Bei Mauszeiger darüber:
   Heller lila → Heller blau
-  
+
 Beim Klicken:
   Dunkler lila → Dunkler blau
 ```
 
 ### Text-Farben
+
 ```
 Haupttext:        Weiß
 Nebentext:        Hellgrau
@@ -314,6 +345,7 @@ Fehler:           Rot
 ```
 
 ### Transparenzen
+
 ```
 Karten-Hintergrund:    70% undurchsichtig
 Neben-Schaltflächen:   5% sichtbar
@@ -324,60 +356,76 @@ Mauszeiger-Effekt:     10% Aufhellung
 ## 🔧 Anpassungen
 
 ### Farben ändern
+
 Sie können andere Farben verwenden:
+
 - Grün-Blau statt Lila-Blau
 - Orange-Pink für wärmeres Design
 - Dunkelrot für elegantes Aussehen
 
 ### Ecken-Rundung anpassen
+
 Sie können die Fensterecken mehr oder weniger rund machen.
 
 ### Schatten anpassen
+
 Sie können die Schatten stärker oder schwächer machen.
 
 ## 📱 Fenster-Steuerung
 
 ### Minimieren
+
 Klick auf "-" in der Titelleiste verkleinert das Fenster in die Taskleiste.
 
 ### Maximieren/Verkleinern
+
 Klick auf "□" vergrößert das Fenster auf Vollbild oder verkleinert es wieder.
 
 ### Schließen
+
 Klick auf "×" beendet das Programm.
 
 ### Fenster verschieben
+
 Klicken und ziehen Sie die Titelleiste, um das Fenster zu bewegen.
 
 ## 🐛 Probleme beheben
 
 ### Problem: Programm startet nicht
+
 **Lösung:** Stellen Sie sicher, dass PyQt5 installiert ist:
+
 ```bash
 pip install PyQt5
 ```
 
 ### Problem: Fenster ist durchsichtig/fehlerhaft
+
 **Lösung (nur Linux):** Sie benötigen einen Compositor wie `compton` oder `picom`.
 
 ### Problem: Fenster ist zu klein oder zu groß
+
 **Lösung:** Beim ersten Start wird eine Standardgröße verwendet. Sie können das Fenster mit der Maus vergrößern/verkleinern.
 
 ### Problem: Fenster lässt sich nicht verschieben
+
 **Lösung:** Versuchen Sie, die Titelleiste zu ziehen (nicht die Buttons).
 
 ### Problem: Farben werden nicht richtig angezeigt
+
 **Lösung:** Starten Sie das Programm neu. Bei älteren Computern können manche Effekte fehlen.
 
 ## 📊 Performance
 
 ### Optimierungen
+
 - **Hardware-Beschleunigung** - Qt verwendet GPU wenn verfügbar
 - **Thread-basiert** - Prozessierung läuft in separatem Thread
 - **Lazy Loading** - Widgets werden nur bei Bedarf geladen
 - **Caching** - Styles werden gecacht
 
 ### Speicher
+
 - **Idle:** ~50-80 MB
 - **Mit Queue (10 Files):** ~100-150 MB
 - **Bei Verarbeitung:** +200-500 MB (je nach Datei)
@@ -385,6 +433,7 @@ pip install PyQt5
 ## 🚀 Deployment
 
 ### Standalone Executable
+
 ```bash
 # Windows
 pyinstaller aurik_professional.spec
@@ -397,6 +446,7 @@ pyinstaller --onefile start_aurik_premium.py
 ```
 
 ### Nuitka (schneller)
+
 ```bash
 pip install nuitka
 python -m nuitka --standalone --onefile \
@@ -411,6 +461,7 @@ Siehe [LICENSE](../LICENSE) im Hauptverzeichnis.
 ## 🤝 Support
 
 Bei Fragen oder Problemen:
+
 - Issue erstellen auf GitHub
 - Dokumentation lesen: [docs/](../docs/)
 - Troubleshooting: [TROUBLESHOOTING.md](../docs/guides/TROUBLESHOOTING.md)

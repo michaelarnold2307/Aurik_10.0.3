@@ -111,7 +111,8 @@ class PsychoAcousticMetrics:
             Roughness score (0-1, normalized, lower = better)
         """
         # Hilbert envelope
-        envelope = np.abs(hilbert(audio))
+        analytic: np.ndarray = hilbert(np.asarray(audio, dtype=np.float64))  # type: ignore[call-overload]
+        envelope = np.abs(analytic)
 
         # Envelope modulation (derivative)
         envelope_diff = np.abs(np.diff(envelope))

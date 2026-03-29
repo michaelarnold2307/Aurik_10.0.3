@@ -27,6 +27,7 @@ Der Hauptworkflow für kontinuierliche Integration mit mehreren Jobs.
 ### Jobs
 
 #### 1. **Quality Gate** 🛡️
+
 Führt Code-Quality-Checks durch, bevor Tests laufen.
 
 ```yaml
@@ -40,6 +41,7 @@ Führt Code-Quality-Checks durch, bevor Tests laufen.
 **Zweck:** Stellt sicher, dass Code-Standards eingehalten werden und keine offensichtlichen Sicherheitslücken vorhanden sind.
 
 #### 2. **Test Suite** 🧪
+
 Führt vollständige Testsuite mit Coverage aus.
 
 ```yaml
@@ -56,6 +58,7 @@ Führt vollständige Testsuite mit Coverage aus.
 - Automatische Coverage-Comments auf Pull Requests
 
 #### 3. **Dependency Audit** 🔒
+
 Prüft Dependencies auf Sicherheitslücken.
 
 ```yaml
@@ -67,6 +70,7 @@ Prüft Dependencies auf Sicherheitslücken.
 **Zweck:** Erkennt bekannte Sicherheitslücken in Dependencies frühzeitig.
 
 #### 4. **Docker Build** 🐳
+
 Baut Docker Image und scannt auf Vulnerabilities.
 
 ```yaml
@@ -79,6 +83,7 @@ Baut Docker Image und scannt auf Vulnerabilities.
 **Trigger:** Nur bei Push-Events (nicht bei PRs)
 
 #### 5. **Performance Benchmark** ⚡
+
 Führt Performance-Benchmarks aus.
 
 ```yaml
@@ -89,6 +94,7 @@ Führt Performance-Benchmarks aus.
 **Trigger:** Nur bei Push-Events (nicht bei PRs)
 
 #### 6. **CI Summary** 📊
+
 Fasst alle Ergebnisse zusammen.
 
 ```yaml
@@ -117,6 +123,7 @@ Automatisierte Multi-Platform Builds und Release-Erstellung.
 ### Jobs
 
 #### 1. **Create Release** 📝
+
 ```yaml
 - Generate release notes from commits
 - Extract changelog from CHANGELOG.md
@@ -125,6 +132,7 @@ Automatisierte Multi-Platform Builds und Release-Erstellung.
 ```
 
 #### 2. **Build Windows** 🪟
+
 ```yaml
 - Build with PyInstaller (aurik_90.spec)
 - Create ZIP archive
@@ -133,6 +141,7 @@ Automatisierte Multi-Platform Builds und Release-Erstellung.
 ```
 
 #### 3. **Build Linux** 🐧
+
 ```yaml
 - Install system dependencies
 - Build with PyInstaller
@@ -142,6 +151,7 @@ Automatisierte Multi-Platform Builds und Release-Erstellung.
 ```
 
 #### 4. **Build macOS** 🍎
+
 ```yaml
 - Install portaudio via brew
 - Build with PyInstaller
@@ -151,6 +161,7 @@ Automatisierte Multi-Platform Builds und Release-Erstellung.
 ```
 
 #### 5. **Docker Release** 🐳
+
 ```yaml
 - Build Docker image
 - Tag with semver (latest, major.minor, major)
@@ -326,15 +337,17 @@ env:
 ### Common Issues
 
 #### 1. **Test Failures**
+
 ```
 Problem: Tests fail in CI but pass locally
-Solution: 
+Solution:
 - Check Python version matches (3.10)
 - Verify system dependencies installed
 - Review environment variables
 ```
 
 #### 2. **PyInstaller Build Errors**
+
 ```
 Problem: PyInstaller fails to create executable
 Solution:
@@ -344,6 +357,7 @@ Solution:
 ```
 
 #### 3. **Cache Issues**
+
 ```
 Problem: Stale cache causing inconsistent builds
 Solution:
@@ -352,6 +366,7 @@ Solution:
 ```
 
 #### 4. **Release Upload Failures**
+
 ```
 Problem: Assets fail to upload to release
 Solution:
@@ -379,6 +394,7 @@ ACTIONS_RUNNER_DEBUG = true
 ## 🚦 Best Practices
 
 ### Commit Messages
+
 ```
 ✅ Good: "Fix crash when processing 32-bit audio files"
 ✅ Good: "Add support for FLAC batch processing"
@@ -387,6 +403,7 @@ ACTIONS_RUNNER_DEBUG = true
 ```
 
 ### Pull Request Workflow
+
 1. Create feature branch
 2. Make changes with tests
 3. Push and create PR
@@ -395,6 +412,7 @@ ACTIONS_RUNNER_DEBUG = true
 6. Merge when all checks pass
 
 ### Release Versioning
+
 ```
 Major.Minor.Patch (Semantic Versioning)
 9.0.0 → Major release (breaking changes)
@@ -403,6 +421,7 @@ Major.Minor.Patch (Semantic Versioning)
 ```
 
 ### Pre-Release Testing
+
 ```bash
 # Before creating release tag
 ./run_all_tests.sh
@@ -439,16 +458,19 @@ pytest benchmarks/ --benchmark-only
 ## 🔐 Security
 
 ### Secrets Management
+
 - Never commit secrets to repository
 - Use GitHub Secrets for sensitive data
 - Rotate Docker credentials regularly
 
 ### Dependency Security
+
 - Automated scanning via Safety and pip-audit
 - Review security reports in Artifacts
 - Update vulnerable dependencies promptly
 
 ### Docker Security
+
 - Trivy scans for vulnerabilities
 - SARIF results uploaded to Security tab
 - Base image updates in Dockerfile

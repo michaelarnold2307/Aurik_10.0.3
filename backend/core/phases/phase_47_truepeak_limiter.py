@@ -60,8 +60,8 @@ class TruePeakLimiterPhase(PhaseInterface):
     Kein ML-Import — reine DSP-Implementierung.
     """
 
-    phase_id = "phase_47_truepeak_limiter"
-    name = "TruePeak Limiter (ITU-R BS.1770)"
+    _PHASE_ID = "phase_47_truepeak_limiter"
+    _NAME = "TruePeak Limiter (ITU-R BS.1770)"
     description = (
         "TruePeak Limiter nach ITU-R BS.1770: 4× Oversampling für exakte "
         "Zwischensample-Peak-Detektion, Lookahead Gain Reduction, "
@@ -70,8 +70,8 @@ class TruePeakLimiterPhase(PhaseInterface):
 
     def get_metadata(self) -> PhaseMetadata:
         return PhaseMetadata(
-            phase_id=self.phase_id,
-            name=self.name,
+            phase_id=self._PHASE_ID,
+            name=self._NAME,
             category=PhaseCategory.DYNAMICS,
             priority=9,
             version="2.0.0",

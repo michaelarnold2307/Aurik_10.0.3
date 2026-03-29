@@ -22,6 +22,7 @@ Datum: 8. Februar 2026
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime
+from typing import Any
 
 import numpy as np
 
@@ -120,7 +121,7 @@ class MusicalGoalsMonitor:
         self,
         original_audio: np.ndarray,
         sr: int,
-        processing_config: dict[str, any],
+        processing_config: dict[str, Any],
         thresholds: dict[str, float] | None = None,
     ) -> PreValidationResult:
         """
@@ -219,9 +220,7 @@ class MusicalGoalsMonitor:
         self.checkpoints.append(checkpoint)
 
         if violations:
-            logger.warning(
-                f"Checkpoint '{step_name}': {len(violations)} violations detected - " f"{', '.join(violations)}"
-            )
+            logger.warning(f"Checkpoint '{step_name}': {len(violations)} violations detected - {', '.join(violations)}")
         else:
             logger.info(f"Checkpoint '{step_name}': All goals OK")
 
@@ -274,9 +273,7 @@ class MusicalGoalsMonitor:
             recommendations=recommendations,
         )
 
-        logger.info(
-            f"Monitoring finalized: {len(self.checkpoints)} checkpoints, " f"{len(violations)} final violations"
-        )
+        logger.info(f"Monitoring finalized: {len(self.checkpoints)} checkpoints, {len(violations)} final violations")
 
         return report
 
@@ -286,7 +283,7 @@ class MusicalGoalsMonitor:
         self.checkpoints = []
         self.thresholds = None
 
-    def _predict_impact(self, current_goals: dict[str, float], processing_config: dict[str, any]) -> dict[str, float]:
+    def _predict_impact(self, current_goals: dict[str, float], processing_config: dict[str, Any]) -> dict[str, float]:
         """
         Predict impact of processing on musical goals.
 
@@ -341,7 +338,7 @@ class MusicalGoalsMonitor:
 
         return predicted
 
-    def _estimate_uncertainty(self, current_goals: dict[str, float], processing_config: dict[str, any]) -> float:
+    def _estimate_uncertainty(self, current_goals: dict[str, float], processing_config: dict[str, Any]) -> float:
         """
         Estimate epistemic uncertainty in prediction.
 

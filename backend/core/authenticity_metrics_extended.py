@@ -16,9 +16,7 @@ Date: 8. Februar 2026
 from __future__ import annotations
 
 import logging
-import threading
 import warnings
-from typing import Any, Dict, Optional
 
 import numpy as np
 from scipy import signal
@@ -89,7 +87,7 @@ class FingerNoiseDetector:
         filtered = np.nan_to_num(signal.sosfilt(sos, audio), nan=0.0, posinf=0.0, neginf=0.0)
 
         # Compute envelope
-        envelope = np.abs(signal.hilbert(filtered))
+        envelope = np.abs(signal.hilbert(filtered.astype(np.float64)))  # type: ignore[call-overload]
 
         # Smooth envelope
         window_ms = 10
@@ -281,7 +279,7 @@ class PedalNoiseDetector:
         filtered = np.nan_to_num(signal.sosfilt(sos, audio), nan=0.0, posinf=0.0, neginf=0.0)
 
         # Compute envelope
-        envelope = np.abs(signal.hilbert(filtered))
+        envelope = np.abs(signal.hilbert(filtered.astype(np.float64)))  # type: ignore[call-overload]
 
         # Detect short impulses (onset detection)
         onset_envelope = np.diff(envelope, prepend=envelope[0])
@@ -294,7 +292,9 @@ class PedalNoiseDetector:
         from scipy.signal import find_peaks
 
         peaks, _properties = find_peaks(
-            onset_envelope, height=threshold, distance=int(0.1 * sample_rate)  # Min 100ms between clicks
+            onset_envelope,
+            height=threshold,
+            distance=int(0.1 * sample_rate),  # Min 100ms between clicks
         )
 
         n_events = len(peaks)
@@ -387,7 +387,9 @@ class BrushTextureDetector:
         # Compute runs of active frames (continuous texture)
         from scipy.ndimage import label
 
-        labeled, num_regions = label(active_frames)
+        _label_result = label(active_frames)
+        labeled: np.ndarray = _label_result[0]
+        num_regions: int = int(_label_result[1])
 
         if num_regions > 0:
             region_lengths = [np.sum(labeled == i) for i in range(1, num_regions + 1)]
@@ -472,7 +474,7 @@ class VinylCharacterDetector:
         # Compute spectrum
         N = len(audio)
         fft_audio = fft(audio)
-        fft_audio = np.nan_to_num(fft_audio, nan=0.0, posinf=0.0, neginf=0.0)
+        fft_audio = np.nan_to_num(fft_audio, nan=0.0 + 0j)  # type: ignore[call-overload]
         freqs = fftfreq(N, 1 / sample_rate)
 
         # Analyze only positive frequencies
@@ -650,9 +652,9 @@ if __name__ == "__main__":
         analyzer = AuthenticityMetricsExtended()
         metrics = analyzer.analyze(audio, sr)
 
-        logger.debug(f"\n{'='*60}")
+        logger.debug(f"\n{'=' * 60}")
         logger.debug("GENRE-SPECIFIC AUTHENTICITY METRICS:")
-        logger.debug(f"{'='*60}")
+        logger.debug(f"{'=' * 60}")
         for key, value in metrics.items():
             if key != "detected_elements":
                 logger.debug(f"\n{key.upper()}:")
@@ -661,7 +663,7 @@ if __name__ == "__main__":
                         logger.debug(f"  {k}: {v:.4f}")
                     else:
                         logger.debug(f"  {k}: {v}")
-        logger.debug(f"{'='*60}\n")
+        logger.debug(f"{'=' * 60}\n")
     else:
         # Single detector
         if args.detector == "finger":
@@ -678,12 +680,12 @@ if __name__ == "__main__":
         audio_mono = audio[0] if audio.ndim == 2 else audio
         metrics = detector.detect(audio_mono, sr)
 
-        logger.debug(f"\n{'='*60}")
+        logger.debug(f"\n{'=' * 60}")
         logger.debug(f"{args.detector.upper()} DETECTOR METRICS:")
-        logger.debug(f"{'='*60}")
+        logger.debug(f"{'=' * 60}")
         for k, v in metrics.items():
             if isinstance(v, float):
                 logger.debug(f"{k}: {v:.4f}")
             else:
                 logger.debug(f"{k}: {v}")
-        logger.debug(f"{'='*60}\n")
+        logger.debug(f"{'=' * 60}\n")

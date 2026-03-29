@@ -63,6 +63,11 @@ def _apply_powr3_dither(audio: np.ndarray, bit_depth: int) -> np.ndarray:
     if bit_depth >= 32 or not _SCIPY_AVAILABLE:
         return audio
 
+    # Type narrowing for static analyzers: guarded by _SCIPY_AVAILABLE above.
+    scipy_signal = _scipy_signal
+    if scipy_signal is None:
+        return audio
+
     lsb = 2.0 / (2**bit_depth)
 
     mono_input = audio.ndim == 1
@@ -81,7 +86,7 @@ def _apply_powr3_dither(audio: np.ndarray, bit_depth: int) -> np.ndarray:
     # Shape the dither with the POW-r Type 3 FIR response.
     shaped = np.empty_like(raw_dither)
     for ch in range(n_ch):
-        shaped[:, ch] = _scipy_signal.lfilter(_POWR3_COEFFS, [1.0], raw_dither[:, ch])
+        shaped[:, ch] = scipy_signal.lfilter(_POWR3_COEFFS, [1.0], raw_dither[:, ch])
 
     result = np.clip((a + shaped).astype(np.float32), -1.0, 1.0)
     return result[:, 0] if mono_input else result

@@ -77,8 +77,9 @@ class AiTransientEnhancer:
         Verstärkt Transienten im Audiosignal. Zuerst klassische Envelope/Peak-Detection, dann optional Deep-Learning-Inferenz (wenn Modell geladen).
         """
         self.log_contract()  # Audit: Contract-Infos loggen (optional)
-        analytic = hilbert(audio)
-        envelope = np.abs(analytic)
+        audio_f64 = np.asarray(audio, dtype=np.float64)
+        analytic = np.asarray(hilbert(audio_f64), dtype=np.complex128)
+        envelope = np.sqrt(np.square(analytic.real) + np.square(analytic.imag))
         peaks = envelope > (np.mean(envelope) + 2 * np.std(envelope))
         audio_out = audio.copy()
         audio_out[peaks] *= self.amount
@@ -93,7 +94,7 @@ class AiTransientEnhancer:
                     audio_out = _raw
             except Exception as _onnx_err:
                 logger.warning(
-                    "AiTransientEnhancer: ONNX-Inferenz fehlgeschlagen (%s) " "— Envelope-DSP-Fallback aktiv.",
+                    "AiTransientEnhancer: ONNX-Inferenz fehlgeschlagen (%s) — Envelope-DSP-Fallback aktiv.",
                     _onnx_err,
                 )
         return np.clip(np.nan_to_num(audio_out, nan=0.0), -1.0, 1.0).astype(audio.dtype)

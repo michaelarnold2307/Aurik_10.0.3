@@ -72,11 +72,39 @@ class AdaptiveFormantShifter:
         if not isinstance(audio, np.ndarray) or audio.size == 0 or sr < 8000:
             logger.error("Ungültiges Audio-Array oder Sample-Rate < 8kHz")
             raise ValueError("Ungültiges Audio-Array oder Sample-Rate < 8kHz")
-        if np.isnan(audio).any():
+        if np.isnan(np.asarray(audio, dtype=np.float64)).any():
             logger.error("Audio enthält NaN-Werte")
             raise ValueError("Audio enthält NaN-Werte")
         if np.max(np.abs(audio)) > 1.5:
             logger.warning("Audio möglicherweise nicht normiert (max > 1.5)")
+
+        # Multi-channel guard: process channels independently for all methods.
+        if audio.ndim == 2:
+            transposed = False
+            work = audio
+            if audio.shape[0] == 2 and audio.shape[1] != 2:
+                work = audio.T
+                transposed = True
+            elif audio.shape[1] != 2:
+                logger.error("2D-Audio muss Stereo mit 2 Kanälen sein")
+                raise ValueError("2D-Audio muss Stereo mit 2 Kanälen sein")
+
+            out = np.empty_like(work)
+            for ch in range(work.shape[1]):
+                out_ch = self.formant_shift(
+                    work[:, ch],
+                    sr,
+                    shift_ratio=shift_ratio,
+                    use_deep_learning=use_deep_learning,
+                    audit_log=False,
+                )
+                if len(out_ch) != work.shape[0]:
+                    if len(out_ch) < work.shape[0]:
+                        out_ch = np.pad(out_ch, (0, work.shape[0] - len(out_ch)))
+                    else:
+                        out_ch = out_ch[: work.shape[0]]
+                out[:, ch] = out_ch
+            return out.T if transposed else out
 
         result = None
         fallback_used = False
@@ -320,7 +348,7 @@ class AdaptiveFormantShifter:
             # Spektrale Hüllkurve (Low-Time-Lift): Quefrenz 0..lifter_cutoff behalten
             cep_env = np.zeros_like(cep)
             cep_env[:lifter_cutoff] = cep[:lifter_cutoff]
-            log_env = idct(cep_env, norm="ortho")
+            log_env = np.asarray(idct(cep_env, norm="ortho"), dtype=np.float64)
             env = np.exp(log_env)  # Spektrale Hüllkurve (linear)
 
             # Anreger-Residual
@@ -363,12 +391,18 @@ class AdaptiveFormantShifter:
         von audio und target (falls angegeben). Ohne target bleibt shift_ratio=1.0.
         target: Optionales Zielspektrum oder Referenzsignal
         """
-        mag = np.abs(np.fft.rfft(audio.astype(float)))
-        freqs = np.fft.rfftfreq(len(audio), d=1.0 / sr)
+        src = np.asarray(audio, dtype=np.float64)
+        if src.ndim == 2:
+            src = np.mean(src, axis=0 if src.shape[0] == 2 else 1)
+        mag = np.abs(np.fft.rfft(src.astype(float)))
+        freqs = np.fft.rfftfreq(len(src), d=1.0 / sr)
         centroid_src = float(np.sum(freqs * mag) / (np.sum(mag) + 1e-8))
 
         if target is not None and len(target) > 0:
-            mag_tgt = np.abs(np.fft.rfft(target.astype(float), n=len(audio)))
+            tgt = np.asarray(target, dtype=np.float64)
+            if tgt.ndim == 2:
+                tgt = np.mean(tgt, axis=0 if tgt.shape[0] == 2 else 1)
+            mag_tgt = np.abs(np.fft.rfft(tgt.astype(float), n=len(src)))
             centroid_tgt = float(np.sum(freqs * mag_tgt) / (np.sum(mag_tgt) + 1e-8))
             shift_ratio = float(np.clip(centroid_tgt / (centroid_src + 1e-8), 0.5, 2.0))
         else:

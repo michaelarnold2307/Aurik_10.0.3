@@ -207,7 +207,7 @@ class MicrodynamicsAnalyzer:
             Envelope modulation score: 0.0 = flat, 1.0 = highly modulated
         """
         # Compute envelope via Hilbert transform
-        analytic_signal = signal.hilbert(audio)
+        analytic_signal: np.ndarray = signal.hilbert(audio)  # type: ignore[assignment]
         envelope = np.abs(analytic_signal)
 
         # Smooth envelope (remove very fast fluctuations)

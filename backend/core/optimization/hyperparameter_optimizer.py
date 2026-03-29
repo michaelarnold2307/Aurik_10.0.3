@@ -24,10 +24,16 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
-import optuna
 import yaml
-from optuna.pruners import MedianPruner
-from optuna.samplers import TPESampler
+
+try:
+    import optuna  # type: ignore[reportMissingImports]
+    from optuna.pruners import MedianPruner  # type: ignore[reportMissingImports]
+    from optuna.samplers import TPESampler  # type: ignore[reportMissingImports]
+except ImportError:
+    optuna = None  # type: ignore[assignment]
+    MedianPruner = None  # type: ignore[assignment]
+    TPESampler = None  # type: ignore[assignment]
 
 logger = logging.getLogger(__name__)
 
@@ -120,7 +126,15 @@ class MaterialSpecificOptimizer:
         logger.info(f"  Storage: {self.storage_path}")
         logger.info(f"  Trials: {n_trials}, Jobs: {n_jobs}")
 
-    def define_search_space(self, trial: optuna.Trial) -> HyperparameterConfig:
+    @staticmethod
+    def _ensure_optuna_available() -> None:
+        """Ensure Optuna is available before using optimization features."""
+        if optuna is None or MedianPruner is None or TPESampler is None:
+            raise RuntimeError(
+                "Optuna ist nicht installiert. Bitte 'optuna' installieren, um Hyperparameter-Optimierung zu nutzen."
+            )
+
+    def define_search_space(self, trial: Any) -> HyperparameterConfig:
         """
         Define hyperparameter search space based on material type.
 
@@ -206,7 +220,7 @@ class MaterialSpecificOptimizer:
         return config
 
     def objective_function(
-        self, trial: optuna.Trial, evaluation_dataset: list[tuple[np.ndarray, np.ndarray]], process_function: Callable
+        self, trial: Any, evaluation_dataset: list[tuple[np.ndarray, np.ndarray]], process_function: Callable
     ) -> float:
         """
         Objective function for optimization.
@@ -219,6 +233,13 @@ class MaterialSpecificOptimizer:
         Returns:
             Objective value (lower is better)
         """
+        self._ensure_optuna_available()
+        optuna_mod = optuna
+        if optuna_mod is None:
+            raise RuntimeError(
+                "Optuna ist nicht installiert. Bitte 'optuna' installieren, um Hyperparameter-Optimierung zu nutzen."
+            )
+
         # Get hyperparameter configuration
         config = self.define_search_space(trial)
 
@@ -239,7 +260,7 @@ class MaterialSpecificOptimizer:
 
                 # Check if trial should be pruned
                 if trial.should_prune():
-                    raise optuna.TrialPruned()
+                    raise optuna_mod.TrialPruned()
 
             except Exception as e:
                 logger.warning(f"Trial {trial.number} failed on sample: {e}")
@@ -273,7 +294,7 @@ class MaterialSpecificOptimizer:
             # Import quality metrics (PESQ+SI-SDR entfernt — §4.4+§10.2: Sprach-Metriken verboten)
             # compute_si_sdr entfernt — verboten §4.4+§10.2 (SI-SDR Sprach-/Trennungs-Metrik)
             from backend.core.musical_goals.musical_goals_metrics import MusicalGoalsChecker
-            from backend.core.quality_metrics import compute_visqol
+            from plugins.visqol_plugin import score_audio as compute_visqol
 
             # Compute objective metrics
             visqol_score = compute_visqol(reference_audio, output_audio, sr=48000)
@@ -314,13 +335,22 @@ class MaterialSpecificOptimizer:
         Returns:
             Best hyperparameters and metrics
         """
+        self._ensure_optuna_available()
+        optuna_mod = optuna
+        sampler_cls = TPESampler
+        pruner_cls = MedianPruner
+        if optuna_mod is None or sampler_cls is None or pruner_cls is None:
+            raise RuntimeError(
+                "Optuna ist nicht installiert. Bitte 'optuna' installieren, um Hyperparameter-Optimierung zu nutzen."
+            )
+
         study_name = study_name or f"aurik_8_0_{self.material_type}_{int(time.time())}"
 
         # Create study
-        sampler = TPESampler(seed=42)
-        pruner = MedianPruner(n_startup_trials=10, n_warmup_steps=5)
+        sampler = sampler_cls(seed=42)
+        pruner = pruner_cls(n_startup_trials=10, n_warmup_steps=5)
 
-        self.study = optuna.create_study(
+        self.study = optuna_mod.create_study(
             study_name=study_name,
             direction="minimize",  # Minimize negative quality score
             sampler=sampler,
@@ -386,7 +416,7 @@ class MaterialSpecificOptimizer:
 
         # Add trial history
         for trial in self.study.trials:
-            if trial.state == optuna.trial.TrialState.COMPLETE:
+            if str(trial.state) == "TrialState.COMPLETE":
                 report["optimization_history"].append(
                     {
                         "trial": trial.number,
@@ -405,7 +435,7 @@ class MaterialSpecificOptimizer:
 
         # Generate plots (if optuna visualization is available)
         try:
-            import optuna.visualization as vis
+            import optuna.visualization as vis  # type: ignore[reportMissingImports]
 
             # Optimization history plot
             fig = vis.plot_optimization_history(self.study)

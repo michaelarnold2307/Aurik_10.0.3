@@ -189,13 +189,15 @@ class TestConstants:
         assert "groove" in FAST_GOALS_SUBSET
 
     def test_09_retry_strengths_values(self):
-        assert pytest.approx([0.65, 0.50, 0.35, 0.25], abs=1e-9) == _RETRY_STRENGTHS  # v9.10.76: Floor 0.25
+        assert (
+            pytest.approx([0.65, 0.50, 0.35, 0.25, 0.15], abs=1e-9) == _RETRY_STRENGTHS
+        )  # v9.10.79: 5 Stufen, Floor 0.15
 
     def test_10_sample_duration_positive(self):
         assert SAMPLE_DURATION_S > 0.0
 
     def test_11_retry_strengths_count(self):
-        assert len(_RETRY_STRENGTHS) == 4  # v9.10.76: 4 Stufen, Floor 0.25
+        assert len(_RETRY_STRENGTHS) == 5  # v9.10.79: 5 Stufen, Floor 0.15
 
 
 class TestWrapPhaseReturnType:

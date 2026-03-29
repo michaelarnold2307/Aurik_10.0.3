@@ -22,6 +22,7 @@ Die **Real-World Validation Infrastructure** ist vollständig implementiert und 
 ## 📊 Placeholder-Test Ergebnisse (12 Dateien)
 
 ### Verarbeitete Kategorien
+
 - **Vinyl:** 3 Dateien (je 30s, synthetische Defekte)
 - **Tape:** 3 Dateien (Dropouts, Wow/Flutter)
 - **Digital:** 3 Dateien (Clipping, Quantization)
@@ -68,6 +69,7 @@ Die **negativen SNR-Verbesserungen** sind zu erwarten bei synthetischen Test-Dat
 #### Beschaffungsquellen
 
 **Free Archive Collections:**
+
 1. **Internet Archive (archive.org/details/audio)**
    - 78rpm Shellac-Aufnahmen (1920-1950)
    - Reel-to-Reel Tapes (1960-1980)
@@ -89,6 +91,7 @@ Die **negativen SNR-Verbesserungen** sind zu erwarten bei synthetischen Test-Dat
    - Historische Musik-Sammlungen
 
 **Test-Set Zusammenstellung:**
+
 - 10× Vinyl (verschiedene Genres + Defekt-Schweregrade)
 - 10× Tape (Cassette, Reel-to-Reel, VHS-Audio)
 - 5× Digital (CD-Rips mit Fehlern, MP3-64kbps)
@@ -110,6 +113,7 @@ Die **negativen SNR-Verbesserungen** sind zu erwarten bei synthetischen Test-Dat
 4. **Report Generation:** Detaillierte Metriken pro Kategorie
 
 **Erwartetes Ergebnis:**
+
 - SNR: +12-18 dB improvement (realistisch)
 - THD: +0.3-0.8% (akzeptabel)
 - Spectral Centroid: ±200 Hz (Erhaltung)
@@ -127,6 +131,7 @@ Die **negativen SNR-Verbesserungen** sind zu erwarten bei synthetischen Test-Dat
 4. **Results Collection:** JSON-basierte Antworten
 
 **Success Criteria:**
+>
 - >60% Preference für AURIK
 - >50% vs. Wettbewerber (RX10)
 - Rating >4.0/5.0
@@ -146,10 +151,12 @@ Die **negativen SNR-Verbesserungen** sind zu erwarten bei synthetischen Test-Dat
 ## 📈 Impact-Bewertung
 
 ### Aktuelle Punkte (Infrastructure)
+
 - **+3.0 Punkte** - Real-World Validation Infrastructure KOMPLETT ✅
 - **Gesamt:** 129.5/100 Punkte
 
 ### Ausstehende Punkte (Execution)
+
 - **+2.0 Punkte** - Full Validation with Real Data (Phase 2.1-2.4)
 - **Potenziell:** 131.5/100 Punkte nach Completion
 
@@ -158,16 +165,19 @@ Die **negativen SNR-Verbesserungen** sind zu erwarten bei synthetischen Test-Dat
 ## 🛠️ Technische Details
 
 ### Generierte Files
+
 - **Placeholder-Daten:** 12 WAV-Dateien (2.6 MB je)
 - **AURIK-Processed:** 12 WAV-Dateien (2.6 MB je)
 - **Validation Report:** `validation_report.json` (27 KB)
 
 ### Performance
+
 - **Batch-Processing Time:** 215s für 12 Dateien (~18s/Datei)
 - **Validation Time:** 28s für 12 File-Paare (~2.3s/Paar)
 - **Total Pipeline Time:** ~4 Minuten (Placeholder → AURIK → Validation)
 
 ### Code-Basis
+
 ```
 tests/real_world_validation/
 ├── test_dataset_creator.py     (301 lines) ✅

@@ -20,6 +20,7 @@ from backend.defect_detection.base import (
 
 # Import and register all detectors
 from backend.defect_detection.detectors import (
+    AliasingDetector,
     BroadbandNoiseDetector,
     ClicksDetector,
     ClippingDetector,
@@ -103,6 +104,7 @@ class UnifiedDefectDetector:
             "rumble": self.custom_tolerances.get("rumble", 0.3),
             "distortion": self.custom_tolerances.get("distortion", 0.3),
             "hf_rolloff": self.custom_tolerances.get("hf_rolloff", 0.3),
+            "aliasing": self.custom_tolerances.get("aliasing", 0.3),
         }
         # Policy/Referenz/Audit können Toleranzen überschreiben
         for key in tolerances:
@@ -167,6 +169,7 @@ class UnifiedDefectDetector:
                         or detector.defect_type.value == "rumble"
                         or detector.defect_type.value == "distortion"
                         or detector.defect_type.value == "hf_rolloff"
+                        or detector.defect_type.value == "aliasing"
                     ):
                         tol = 0.3
                     else:
@@ -266,6 +269,7 @@ class UnifiedDefectDetector:
             HFRolloffDetector(),
             StereoImbalanceDetector(),
             DCOffsetDetector(),
+            AliasingDetector(),
         ]
 
         for detector in default_detectors:

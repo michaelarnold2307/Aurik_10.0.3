@@ -27,6 +27,7 @@ Aurik 9 verarbeitet lokale Audio-Dateien auf dem Desktop-PC des Nutzers.
 Folgende Sicherheitsprinzipien sind implementiert:
 
 ### Input-Validierung (OWASP A03 — Injection)
+
 - Alle Eingabedateien werden vor der Verarbeitung validiert (`AudioFileValidator`)
 - Dateigröße-Limit: max. 10 GB
 - Magic-Bytes-Verifikation (keine Extension-Spoofing-Angriffe)
@@ -34,16 +35,19 @@ Folgende Sicherheitsprinzipien sind implementiert:
 - Pfad-Traversal ausgeschlossen: `os.path.realpath()` vor jedem Dateizugriff
 
 ### Keine Netzwerkabhängigkeiten
+
 - Aurik 9 ist vollständig offline-fähig nach der Installation
 - Kein Cloud-Aufruf, kein Telemetrie, keine externe API
 - Alle ML-Modelle sind lokal gebündelt (SHA256-verifiziert)
 
 ### Lokale Datenspeicherung
+
 - GP-Gedächtnis, Artist-Signaturen und Sessions werden ausschließlich lokal
   unter `~/.aurik/` gespeichert — niemals übertragen
 - Genealogie-Logs enthalten keine Audio-Rohdaten
 
 ### Abhängigkeiten
+
 - Regelmäßige `pip-audit`-Checks in der CI-Pipeline
 - Verwendete ML-Modelle sind SHA256-verifiziert (vgl. `models/manifest.json`)
 - CPU-only: kein Treiber-Stack (kein CUDA, kein ROCm)

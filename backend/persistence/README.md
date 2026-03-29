@@ -7,6 +7,7 @@
 ## Zweck
 
 Alle Verarbeitungsschritte werden **permanent** aufgezeichnet für:
+
 - Nachvollziehbarkeit (Transparency)
 - Compliance mit HIPS-6 (Auditierbarkeit)
 - Continuous Learning Datengrundlage
@@ -21,6 +22,7 @@ Alle Verarbeitungsschritte werden **permanent** aufgezeichnet für:
 **PermanentAudio Monitor:** Tracking aller Audio-Transformationen
 
 **Capabilities:**
+
 - **Pre/Post Metriken:** Bark Spectrum (24 Bands), F0, HNR
 - **Spectral Features:** Centroid, Bandwidth, Contrast
 - **Dynamic Features:** RMS, Peak, Crest Factor, Dynamic Range
@@ -29,7 +31,10 @@ Alle Verarbeitungsschritte werden **permanent** aufgezeichnet für:
 - **Per-Module Logs:** Processing Time, Confidence, Quality Gate Status
 - **Export Formats:** JSON, YAML, CSV
 
+---
+
 **Integration:**
+
 ```python
 from backend.persistence.audit_logs.audio_monitor import PermanentAudioMonitor
 
@@ -57,12 +62,14 @@ monitor.export_audit_report(output_dir="./audits", formats=["json", "yaml", "csv
 **Centralized Logging Configuration**
 
 **Features:**
+
 - Rotating File Handler (5MB, 5 Backups)
 - Standardized Format: `[timestamp] LEVEL module: message`
 - Log Location: `../logs/aurik_backend.log`
 - Error Notification Integration
 
 **Usage:**
+
 ```python
 from backend.persistence.audit_logs.logging_config import get_logger
 
@@ -85,6 +92,7 @@ Optional email notifications for critical errors.
 ## Audit Report Structure
 
 **JSON Format:**
+
 ```json
 {
   "file_path": "input.wav",
@@ -124,7 +132,8 @@ Die Audit Logs bilden die **Datengrundlage** für `continuous_learning.py`:
 4. **Application:** Policy Engine Updates
 
 **Workflow:**
-```
+
+```text
 Audio Processing
   → Audio Monitor Tracks
   → Audit Report Exported
@@ -145,6 +154,7 @@ Audio Processing
 > Entscheidungen müssen erklärt werden können.
 
 **Implementierung:**
+
 - ✅ Jede Operation wird geloggt
 - ✅ Pre/Post Metriken für alle Module
 - ✅ Timestamps für Timing Analysis
@@ -158,11 +168,13 @@ Audio Processing
 ## Best Practices
 
 1. **Immer Baseline capturen:**
+
    ```python
    monitor.capture_baseline(audio, sr, file_path="...")
    ```
 
 2. **Jeden Processing-Schritt wrappen:**
+
    ```python
    monitor.start_module("module_name")
    # ... processing ...
@@ -170,16 +182,19 @@ Audio Processing
    ```
 
 3. **Final State capturen:**
+
    ```python
    monitor.capture_final(audio_final, sr)
    ```
 
 4. **Reports exportieren:**
+
    ```python
    monitor.export_audit_report(output_dir="./audits", formats=["json", "yaml"])
    ```
 
 5. **Regelmäßig aggregieren für Learning:**
+
    ```python
    # Nach 1000+ Dateien
    learning = ContinuousLearningSystem(audit_dir="./audits")
@@ -191,6 +206,7 @@ Audio Processing
 ## Status: v8.0 (7. Februar 2026)
 
 **Implementiert:**
+
 - ✅ PermanentAudioMonitor (587 LOC)
 - ✅ Multi-Format Export (JSON, YAML, CSV)
 - ✅ 24-Band Bark Spectrum Analysis
@@ -199,6 +215,7 @@ Audio Processing
 - ✅ Integration mit Pipeline (Phase 4.5)
 
 **Metriken Tracked:**
+
 - ✅ 14 Kategorieen (Spectral, Dynamic, Harmonic, Quality)
 - ✅ Pre/Post für jeden Modul
 - ✅ Total Processing Time
@@ -209,11 +226,13 @@ Audio Processing
 ## Output Location
 
 **Default Pfade:**
+
 - Logs: `logs/aurik_backend.log`
 - Audits: `audits/*.json`, `audits/*.yaml`, `audits/*.csv`
 - Learning Reports: `learning_reports/*.json`
 
 **Customizable:**
+
 ```python
 monitor.export_audit_report(
     output_dir="./custom_audits",

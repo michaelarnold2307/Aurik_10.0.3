@@ -5,7 +5,7 @@ from typing import Any
 
 import numpy as np
 import numpy.typing as npt
-from scipy.signal import butter, lfilter
+from scipy.signal import butter, sosfilt
 
 _logger = logging.getLogger(__name__)
 
@@ -61,11 +61,21 @@ class MultibandGate:
         """
         self.bands = bands
         self.crossovers = crossovers
-        self.thresholds_db = thresholds_db
-        self.knees_db = knees_db
-        self.attack_ms = attack_ms
-        self.release_ms = release_ms
-        self.hold_ms = hold_ms
+
+        # Defensive: normalize parameter arrays to band count.
+        def ensure_len(seq: Sequence[float], n: int, default: float) -> tuple[float, ...]:
+            if len(seq) == n:
+                return tuple(float(v) for v in seq)
+            if len(seq) < n:
+                tail = float(seq[-1]) if len(seq) > 0 else default
+                return tuple(float(v) for v in seq) + tuple([tail] * (n - len(seq)))
+            return tuple(float(v) for v in seq[:n])
+
+        self.thresholds_db = ensure_len(thresholds_db, bands, -40.0)
+        self.knees_db = ensure_len(knees_db, bands, 6.0)
+        self.attack_ms = ensure_len(attack_ms, bands, 10.0)
+        self.release_ms = ensure_len(release_ms, bands, 80.0)
+        self.hold_ms = ensure_len(hold_ms, bands, 30.0)
 
     def log_contract(self):
         _logger.debug("[DSPContract] %s", asdict(multiband_gate_contract))
@@ -83,14 +93,15 @@ class MultibandGate:
             band_signals = self._split_bands(audio, sr)
             processed: list[npt.NDArray[np.float64]] = []
             for i, band in enumerate(band_signals):
+                idx = min(i, len(self.thresholds_db) - 1)
                 gated = self._gate_band(
                     band,
                     sr,
-                    self.thresholds_db[i],
-                    self.knees_db[i],
-                    self.attack_ms[i],
-                    self.release_ms[i],
-                    self.hold_ms[i],
+                    self.thresholds_db[idx],
+                    self.knees_db[idx],
+                    self.attack_ms[idx],
+                    self.release_ms[idx],
+                    self.hold_ms[idx],
                 )
                 processed.append(np.asarray(gated, dtype=np.float64))
             if processed:
@@ -111,23 +122,59 @@ class MultibandGate:
     def _audit_log(self, result: dict[str, Any]):
         _logger.debug("[AuditLog][MultibandGate] Ergebnis: %s", result)
 
+    @staticmethod
+    def _lr4_sos(cutoff: float, sr: float, btype: str) -> npt.NDArray[np.float64]:
+        """Linkwitz-Riley 4th-order filter as SOS (2x Butterworth-2 cascaded).
+
+        LR4_low + LR4_high = 1 (flat amplitude sum, no comb filtering at crossover).
+        """
+        wn = float(np.clip(cutoff / (sr / 2.0), 1e-4, 0.9999))
+        sos = np.asarray(butter(2, wn, btype=btype, output="sos"), dtype=np.float64)
+        stacked = np.empty((sos.shape[0] * 2, sos.shape[1]), dtype=np.float64)
+        stacked[: sos.shape[0], :] = sos
+        stacked[sos.shape[0] :, :] = sos
+        return stacked
+
     def _split_bands(self, audio: npt.NDArray[np.float64], sr: int) -> list[npt.NDArray[np.float64]]:
-        """
-        Teilt das Signal in Frequenzbänder auf.
-        Rückgabe: Liste von Band-Signalen
-        """
-        low, mid = self.crossovers if self.bands == 3 else (self.crossovers[0], self.crossovers[1])
+        """Split signal into frequency bands using Linkwitz-Riley LR4 crossover."""
         bands: list[npt.NDArray[np.float64]] = []
-        # Low
-        b, a = butter(4, low / (sr / 2), btype="low")
-        bands.append(np.asarray(lfilter(b, a, audio), dtype=np.float64))
-        # Mid
-        b, a = butter(4, [low / (sr / 2), mid / (sr / 2)], btype="band")
-        bands.append(np.asarray(lfilter(b, a, audio), dtype=np.float64))
-        # High
-        b, a = butter(4, mid / (sr / 2), btype="high")
-        bands.append(np.asarray(lfilter(b, a, audio), dtype=np.float64))
+        cross = list(self.crossovers)
+        while len(cross) < self.bands - 1:
+            cross.append(cross[-1] if cross else 2000.0)
+        if self.bands == 1:
+            return [audio]
+
+        sos_low = self._lr4_sos(cross[0], sr, "low")
+        bands.append(np.asarray(sosfilt(sos_low, audio), dtype=np.float64))
+
+        for i in range(1, self.bands - 1):
+            fc0, fc1 = cross[i - 1], cross[i]
+            if fc0 >= fc1:
+                bands.append(bands[-1].copy() if bands else np.zeros_like(audio))
+                continue
+            sos_hp = self._lr4_sos(fc0, sr, "high")
+            sos_lp = self._lr4_sos(fc1, sr, "low")
+            mid = sosfilt(sos_hp, audio)
+            mid = sosfilt(sos_lp, mid)
+            bands.append(np.asarray(mid, dtype=np.float64))
+
+        sos_high = self._lr4_sos(cross[self.bands - 2], sr, "high")
+        bands.append(np.asarray(sosfilt(sos_high, audio), dtype=np.float64))
         return bands
+
+    @staticmethod
+    def _moving_rms(audio: npt.NDArray[np.float64], window: int) -> npt.NDArray[np.float64]:
+        window = max(1, int(window))
+        x = np.nan_to_num(np.asarray(audio, dtype=np.float64), nan=0.0, posinf=0.0, neginf=0.0)
+        if x.ndim == 1:
+            sq = np.square(x)
+            left = window // 2
+            right = window - left - 1
+            padded = np.pad(sq, (left, right), mode="edge")
+            csum = np.cumsum(np.concatenate(([0.0], padded)))
+            avg = (csum[window:] - csum[:-window]) / float(window)
+            return np.sqrt(np.maximum(avg, 0.0))
+        return np.apply_along_axis(lambda ch: MultibandGate._moving_rms(ch, window), axis=-1, arr=x)
 
     def _gate_band(
         self,
@@ -143,7 +190,8 @@ class MultibandGate:
         Gated ein einzelnes Frequenzband.
         """
         window = int(sr * 0.01)
-        rms = np.sqrt(np.convolve(audio**2, np.ones(window) / window, mode="same"))
+        rms = self._moving_rms(audio, window)
+        rms = np.nan_to_num(rms, nan=1e-8, posinf=1e-8, neginf=1e-8)
         rms_db = 20 * np.log10(rms + 1e-8)
         under = threshold_db - rms_db
         gain_db = np.zeros_like(rms_db)

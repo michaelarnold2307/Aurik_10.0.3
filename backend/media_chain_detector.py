@@ -223,7 +223,10 @@ class MediaChainDetector:
         # ── 1. RUMBLE: Energie 20–80 Hz / Gesamt-RMS ────────────────────────
         try:
             if scipy_signal is not None:
-                b, a = scipy_signal.butter(4, [20.0 / nyq, 80.0 / nyq], btype="band")
+                coeffs = scipy_signal.butter(4, [20.0 / nyq, 80.0 / nyq], btype="band", output="ba")
+                if not isinstance(coeffs, tuple) or len(coeffs) != 2:
+                    raise ValueError("Unexpected butter coefficient format")
+                b, a = coeffs
                 rumble_sig = scipy_signal.lfilter(b, a, mono)
             else:
                 rumble_sig = self._simple_bandpass_fft(mono, sr, 20.0, 80.0)
@@ -276,7 +279,10 @@ class MediaChainDetector:
             if scipy_signal is not None:
                 lo = 4000.0 / nyq
                 hi = min(8000.0 / nyq, 0.995)
-                b_h, a_h = scipy_signal.butter(4, [lo, hi], btype="band")
+                coeffs_h = scipy_signal.butter(4, [lo, hi], btype="band", output="ba")
+                if not isinstance(coeffs_h, tuple) or len(coeffs_h) != 2:
+                    raise ValueError("Unexpected butter coefficient format")
+                b_h, a_h = coeffs_h
                 hiss_sig = scipy_signal.lfilter(b_h, a_h, mono)
             else:
                 hiss_sig = self._simple_bandpass_fft(mono, sr, 4000.0, 8000.0)
@@ -411,7 +417,9 @@ class MediaChainDetector:
         try:
             from scipy.signal import hilbert as _hilbert
 
-            envelope = np.abs(_hilbert(mono)).astype(np.float32)
+            mono_f64 = np.asarray(mono, dtype=np.float64)
+            analytic = np.asarray(_hilbert(mono_f64), dtype=np.complex128)
+            envelope = np.abs(analytic).astype(np.float32)
             env_n = min(4096, len(envelope))
             env_fft = np.abs(np.fft.rfft(envelope[:env_n], n=env_n)) ** 2
             env_freqs = np.fft.rfftfreq(env_n, d=1.0 / sr)

@@ -2,7 +2,7 @@
 Mehrstufige Qualitätskontrolle, A/B-Vergleiche, psychoakustische Modelle, Nicht-Destruktivität, Warnungen, Testdatenbank
 
 AURIK v8.0 UPDATE:
-- Integration von Quality Metrics Manager (CDPAM, DNSMOS, NISQA, ViSQOL)
+- Integration von Quality Metrics Manager (VERSA, ViSQOL)
 - Docker-basierte objektive Qualitätsmetriken
 - Weltklasse Quality Gates mit echten ML-Modellen
 """
@@ -130,9 +130,7 @@ def enhance_quality_report_with_objective_metrics(
     Enhance QualityReport with additional objective metrics.
 
     Uses Quality Metrics Manager to calculate comprehensive quality scores:
-    - CDPAM: Perceptual audio quality
-    - DNSMOS: Noise suppression quality (4 scores)
-    - NISQA: Broadband audio quality (MOS + 4 dimensions)
+    - VERSA (Compat-Key "cdpam"): Non-reference perceptual quality
     - ViSQOL: Reference-based perceptual quality (wenn reference verfügbar)
 
     Args:
@@ -145,7 +143,7 @@ def enhance_quality_report_with_objective_metrics(
         Enhanced QualityReport with objective metrics
 
     Note:
-        Requires Docker-based quality plugins (CDPAM, DNSMOS, NISQA, ViSQOL).
+        Requires quality plugins (VERSA/ViSQOL where available).
         Falls Plugins nicht verfügbar, werden nur verfügbare Metriken berechnet.
     """
     import soundfile as sf
@@ -176,7 +174,7 @@ def enhance_quality_report_with_objective_metrics(
             if "metrics" in results:
                 metrics = results["metrics"]
 
-                # CDPAM
+                # VERSA über Compat-Key "cdpam"
                 if "cdpam" in metrics and "score" in metrics["cdpam"]:
                     report.cdpam_score = float(metrics["cdpam"]["score"])
 
@@ -202,27 +200,8 @@ def enhance_quality_report_with_objective_metrics(
             Path(before_path).unlink(missing_ok=True)
 
     except ImportError:
-        logger.warning("Quality Metrics Manager nicht verfügbar - verwende SI-SDR Fallback")
-        # Fallback zu SI-SDR (numpy-only, keine externen Abhängigkeiten)
-        # PESQ entfernt – nicht geeignet für Musik (§10.2)
-        try:
-            # SI-SDR: Scale-Invariant Signal-to-Distortion Ratio
-            reference = audio_before - np.mean(audio_before)
-            degraded = audio_after - np.mean(audio_after)
-            # NaN/Inf-Guard (§3.1)
-            reference = np.nan_to_num(reference, nan=0.0, posinf=0.0, neginf=0.0)
-            degraded = np.nan_to_num(degraded, nan=0.0, posinf=0.0, neginf=0.0)
-            dot = np.dot(reference, degraded)
-            ref_energy = np.dot(reference, reference) + 1e-8
-            proj = (dot / ref_energy) * reference
-            noise = degraded - proj
-            si_sdr = 10 * np.log10((np.dot(proj, proj) + 1e-8) / (np.dot(noise, noise) + 1e-8))
-            # NaN/Inf-Guard am Ausgang
-            si_sdr = float(np.nan_to_num(si_sdr, nan=0.0, posinf=100.0, neginf=-100.0))
-            report.si_sdr = float(si_sdr)
-            logger.debug(f"SI-SDR Fallback: {si_sdr:.2f} dB")
-        except Exception as e:
-            logger.warning(f"SI-SDR Fallback calculation failed: {e}")
+        logger.warning("Quality Metrics Manager nicht verfügbar - objective plugin metrics skipped")
+        # §4.4: Kein SI-SDR-Fallback für Musikmetriken.
 
     except Exception as e:
         logger.warning(f"Objective metrics enhancement failed: {e}")
@@ -389,9 +368,9 @@ class QualityGates:
     1. SNR Check: No degradation (≤2dB loss allowed)
     2. THD Check: Distortion control (≤50% increase)
     3. Clipping Check: No digital clipping (peak < 0.99)
-    4. CDPAM Check: Perceptual quality (score ≥ 70/100)
-    5. DNSMOS Check: Noise assessment (MOS ≥ 3.5/5.0)
-    6. NISQA Check: Broadband audio quality (MOS ≥ 3.5/5.0)
+    4. VERSA Compat-Check (über Key "cdpam", optional)
+    5. DNSMOS Compat-Check (deaktiviert)
+    6. NISQA Compat-Check (deaktiviert)
     7. CAS Score Check: Musical excellence (≥ 0.80)
     8. Spectral Fidelity: Frequency response preservation
 
@@ -431,7 +410,7 @@ class QualityGates:
             audio_before: Original audio
             audio_after: Processed audio
             sr: Sample rate
-            require_vocals: If True, enforce stricter NISQA threshold
+            require_vocals: Reserved compatibility flag (currently no NISQA logic)
 
         Returns:
             tuple: (all_passed: bool, results: dict)
@@ -482,7 +461,7 @@ class QualityGates:
                 # Run comprehensive quality assessment
                 self._metrics_manager.assess_quality(audio_temp_path, output_dir=tempfile.mkdtemp())
 
-                # §4.4: CDPAM deaktiviert — verboten als Musikmetrik
+                # Compat-Key cdpam bleibt für Abwärtskompatibilität, aktive Metrik ist VERSA.
                 results["cdpam_score"] = None
                 results["cdpam_check"] = True  # DEAKTIVIERT §4.4
 
@@ -499,7 +478,7 @@ class QualityGates:
                 results["nisqa_check"] = True  # immer bestanden (Metrik deaktiviert)
 
             except Exception as e:
-                logger.warning(f"ML-based quality checks failed: {e}")
+                logger.warning(f"Plugin-based quality checks failed: {e}")
                 # Fallback to approximations
                 results["cdpam_score"] = None
                 results["cdpam_check"] = True
@@ -515,7 +494,7 @@ class QualityGates:
                 Path(audio_temp_path).unlink(missing_ok=True)
 
         else:
-            # Fallback: Use approximations wenn ML-Plugins nicht verfügbar
+            # Fallback: compatibility defaults wenn Plugins nicht verfügbar
             results["cdpam_score"] = None
             results["cdpam_check"] = True
             results["dnsmos_p808"] = None
@@ -620,22 +599,22 @@ class QualityGates:
         """
         snr = self._compute_snr(audio)
 
-        # Map SNR to NISQA-like score (1-5)
+        # Map SNR to MOS-like score (1-5)
         # SNR > 40dB → 5.0
         # SNR 30-40 → 4.0-5.0
         # SNR 20-30 → 3.0-4.0
         # SNR < 20 → < 3.0
 
         if snr >= 40:
-            nisqa = 5.0
+            mos = 5.0
         elif snr >= 30:
-            nisqa = 4.0 + (snr - 30) / 10.0
+            mos = 4.0 + (snr - 30) / 10.0
         elif snr >= 20:
-            nisqa = 3.0 + (snr - 20) / 10.0
+            mos = 3.0 + (snr - 20) / 10.0
         else:
-            nisqa = 1.0 + snr / 20.0
+            mos = 1.0 + snr / 20.0
 
-        return float(np.clip(nisqa, 1.0, 5.0))
+        return float(np.clip(mos, 1.0, 5.0))
 
     def _compute_spectral_fidelity(self, audio_before: np.ndarray, audio_after: np.ndarray, sr: int) -> float:
         """
@@ -694,10 +673,10 @@ class QualityGates:
         logger.info("-" * 80)
 
         if results.get("cdpam_score") is not None:
-            logger.info(f"\n4. CDPAM Check (Perceptual Quality): {'✅ PASS' if results['cdpam_check'] else '❌ FAIL'}")
+            logger.info(f"\n4. VERSA Compat-Check (Key: cdpam): {'✅ PASS' if results['cdpam_check'] else '❌ FAIL'}")
             logger.info(f"   Score: {results['cdpam_score']:.2f}/100")
         else:
-            logger.info("\n4. CDPAM Check: ⏭️  SKIPPED (plugin not available)")
+            logger.info("\n4. VERSA Compat-Check: ⏭️  SKIPPED")
 
         if results.get("dnsmos_ovrl_p835") is not None:
             logger.info(f"\n5. DNSMOS Check (Noise Assessment): {'✅ PASS' if results['dnsmos_check'] else '❌ FAIL'}")
@@ -706,7 +685,7 @@ class QualityGates:
             logger.info(f"   BAK P.835:  {results.get('dnsmos_bak', 0.0):.2f}/5.0 (Background noise)")
             logger.info(f"   MOS P.808:  {results.get('dnsmos_p808', 0.0):.2f}/5.0 (Sprache - Referenz)")
         else:
-            logger.info("\n5. DNSMOS Check: ⏭️  SKIPPED (plugin not available)")
+            logger.info("\n5. DNSMOS Check: ⏭️  SKIPPED (deaktiviert §4.4/§10.2)")
 
         if results.get("nisqa_mos") is not None:
             logger.info(f"\n6. NISQA Check (Broadband Audio): {'✅ PASS' if results['nisqa_check'] else '❌ FAIL'}")
@@ -717,7 +696,7 @@ class QualityGates:
                 logger.info(f"   Discontinuity: {results['nisqa_discontinuity']:.2f}/5.0")
                 logger.info(f"   Loudness:      {results['nisqa_loudness']:.2f}/5.0")
         else:
-            logger.info("\n6. NISQA Check: ⏭️  SKIPPED")
+            logger.info("\n6. NISQA Check: ⏭️  SKIPPED (deaktiviert §4.4/§10.2)")
 
         logger.info("\n" + "-" * 80)
         logger.info("TRADITIONAL QUALITY METRICS")

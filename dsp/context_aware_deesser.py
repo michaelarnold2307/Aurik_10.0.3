@@ -56,7 +56,6 @@ Date: 8. Februar 2026
 """
 
 import logging
-import warnings
 from dataclasses import dataclass
 from enum import Enum
 
@@ -66,19 +65,56 @@ import scipy.signal as signal
 # Phoneme detection imports
 try:
     from backend.ml.phoneme_aware.phoneme_classifier import (
-        PhonemeClassifier,
-        SibilantType,
+        PhonemeClassifier,  # type: ignore[assignment]
+        SibilantType,  # type: ignore[assignment]
     )
     from backend.ml.phoneme_aware.phoneme_detector import (
-        Language,
-        PhonemeDetector,
-        PhonemeSegment,
+        Language,  # type: ignore[assignment]
+        PhonemeDetector,  # type: ignore[assignment]
+        PhonemeSegment,  # type: ignore[assignment]
     )
 
     PHONEME_DETECTION_AVAILABLE = True
-except ImportError:
+except Exception:
+
+    class SibilantType(Enum):  # type: ignore[no-redef]
+        """Fallback sibilant enum for DSP-only mode."""
+
+        S_VOICELESS = "s"
+        Z_VOICED = "z"
+        SH_VOICELESS = "sh"
+        ZH_VOICED = "zh"
+        CH_VOICELESS = "ch"
+        JH_VOICED = "jh"
+
+    class Language(Enum):  # type: ignore[no-redef]
+        """Fallback language enum for DSP-only mode."""
+
+        ENGLISH = "en"
+
+    @dataclass
+    class PhonemeSegment:  # type: ignore[no-redef]
+        """Fallback phoneme segment placeholder."""
+
+        phoneme: str
+        start_time: float
+        end_time: float
+        confidence: float
+        frame_index: int
+
+    class PhonemeDetector:  # type: ignore[no-redef]
+        """Fallback detector placeholder."""
+
+        def __init__(self, *args, **kwargs):
+            raise ImportError("Phoneme detection backend unavailable")
+
+    class PhonemeClassifier:  # type: ignore[no-redef]
+        """Fallback classifier placeholder."""
+
+        def classify(self, phoneme: str):
+            raise ImportError("Phoneme detection backend unavailable")
+
     PHONEME_DETECTION_AVAILABLE = False
-    warnings.warn("Phoneme detection not available. Install dependencies:\n" "  pip install transformers torch librosa")
 
 
 logger = logging.getLogger(__name__)
@@ -233,13 +269,12 @@ class ContextAwareDeEsser:
 
         # Initialize phoneme detector
         if not PHONEME_DETECTION_AVAILABLE:
-            logger.warning("Phoneme detection not available (torch/transformers missing) — " "running in DSP-only mode")
+            logger.warning("Phoneme detection not available (torch/transformers missing) — running in DSP-only mode")
             self.phoneme_detector = None
             self.phoneme_classifier = None
         else:
             logger.info(
-                f"Initializing Context-Aware De-Esser v2.0 "
-                f"(mode={self.config.mode.value}, device={self.config.device})"
+                f"Initializing Context-Aware De-Esser v2.0 (mode={self.config.mode.value}, device={self.config.device})"
             )
             try:
                 # Create detection config
@@ -283,7 +318,7 @@ class ContextAwareDeEsser:
         if audio.size == 0:
             raise ValueError("Audio is empty")
 
-        logger.info(f"Processing {audio.shape} audio at {sr} Hz " f"(mode={self.config.mode.value})")
+        logger.info(f"Processing {audio.shape} audio at {sr} Hz (mode={self.config.mode.value})")
 
         # Handle stereo
         is_stereo = audio.ndim == 2
@@ -323,7 +358,7 @@ class ContextAwareDeEsser:
         # Step 1: Detect phonemes
         logger.debug("Detecting phonemes...")
         try:
-            phonemes = self.phoneme_detector.detect(audio, sr)
+            phonemes = self.phoneme_detector.detect(audio, sr)  # type: ignore[union-attr]
         except Exception as e:
             logger.error(f"Phoneme detection failed: {e}")
             # Fallback: return unprocessed audio
@@ -421,7 +456,7 @@ class ContextAwareDeEsser:
         sibilants = []
 
         for phoneme_seg in phonemes:
-            phoneme_info = self.phoneme_classifier.classify(phoneme_seg.phoneme)
+            phoneme_info = self.phoneme_classifier.classify(phoneme_seg.phoneme)  # type: ignore[union-attr]
 
             # Check if sibilant
             if phoneme_info.is_sibilant and phoneme_info.sibilant_type:

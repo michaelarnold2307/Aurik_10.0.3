@@ -29,6 +29,7 @@ import logging
 import threading
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 
@@ -186,8 +187,8 @@ class LAIONCLAPPlugin:
     EMBEDDING_DIM: int = 512
 
     def __init__(self) -> None:
-        self._audio_session = None  # onnxruntime.InferenceSession (ONNX-Pfad)
-        self._clap_model = None  # laion_clap.CLAP_Module (PyTorch-Pfad)
+        self._audio_session: Any = None  # onnxruntime.InferenceSession (ONNX-Pfad)
+        self._clap_model: Any = None  # laion_clap.CLAP_Module (PyTorch-Pfad)
         self._text_embeddings: np.ndarray | None = None
         self._model_loaded: bool = False
         self._fallback_active: bool = False
@@ -362,7 +363,7 @@ class LAIONCLAPPlugin:
                 logger.debug("LAION-CLAP: torch.library.register_fake Shim installiert (torch %s)", _torch.__version__)
             # ───────────────────────────────────────────────────────────
 
-            import laion_clap
+            import laion_clap  # type: ignore[import-untyped]
 
             ckpt_path = self._LOCAL_CLAP_DIR / self._LOCAL_CLAP_CKPT
             if not ckpt_path.exists():
@@ -429,7 +430,7 @@ class LAIONCLAPPlugin:
             # (position_embeddings [514,768] vs model [512,768]) before loading.
             # Only the audio-branch weights are used for audio embeddings.
             try:
-                from laion_clap.clap_module.factory import load_state_dict as _load_sd
+                from laion_clap.clap_module.factory import load_state_dict as _load_sd  # type: ignore[import-untyped]
 
                 _state = _load_sd(str(ckpt_path), skip_params=True)
                 # Drop keys whose shapes differ from the current model so that

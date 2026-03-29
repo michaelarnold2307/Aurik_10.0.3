@@ -164,7 +164,9 @@ def measure_consonant_clarity(audio: np.ndarray, sr: int) -> float:
     consonant_band = signal.sosfilt(sos, audio)
 
     # Measure transient energy using envelope
-    envelope = np.abs(signal.hilbert(consonant_band))
+    analytic = signal.hilbert(consonant_band)
+    analytic_arr = np.asarray(analytic, dtype=np.complex128)
+    envelope = np.abs(analytic_arr)
 
     # Transient detection: look for sharp attacks
     diff = np.diff(envelope)
@@ -302,7 +304,7 @@ class DeEsserSafety(BaseSafetyWrapper):
             return PreCheckResult(
                 passed=False,
                 confidence=intensity,
-                reasons=[f"Sibilance intensity too low: {intensity:.2f} " f"(min {self.min_sibilance_intensity})"],
+                reasons=[f"Sibilance intensity too low: {intensity:.2f} (min {self.min_sibilance_intensity})"],
             )
 
         # Classify vocal profile
@@ -311,7 +313,7 @@ class DeEsserSafety(BaseSafetyWrapper):
         metadata["profile_confidence"] = profile_conf
 
         if profile_conf < 0.5:
-            warnings.append(f"Uncertain vocal profile classification: {profile} " f"(confidence {profile_conf:.2f})")
+            warnings.append(f"Uncertain vocal profile classification: {profile} (confidence {profile_conf:.2f})")
 
         # Measure initial consonant clarity
         clarity_before = measure_consonant_clarity(audio, sr)
@@ -323,7 +325,7 @@ class DeEsserSafety(BaseSafetyWrapper):
 
         if intelligibility_before < self.min_intelligibility:
             warnings.append(
-                f"Low initial intelligibility: {intelligibility_before:.2f}. " "De-essing may further reduce clarity."
+                f"Low initial intelligibility: {intelligibility_before:.2f}. De-essing may further reduce clarity."
             )
 
         # Validate depth parameter
@@ -335,7 +337,7 @@ class DeEsserSafety(BaseSafetyWrapper):
             )
 
         if depth_db > 20:
-            warnings.append(f"Very aggressive de-essing: {depth_db} dB. " "Risk of over-processing.")
+            warnings.append(f"Very aggressive de-essing: {depth_db} dB. Risk of over-processing.")
 
         return PreCheckResult(passed=True, confidence=intensity, warnings=warnings, metadata=metadata)
 

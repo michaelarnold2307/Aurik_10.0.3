@@ -384,6 +384,7 @@ class AdvancedEnsemble:
             prediction = self.meta_learner(base_predictions)
 
             if return_details:
+                assert details is not None
                 details["base_predictions"] = base_predictions
                 details["n_members"] = len(self.members)
 
@@ -407,6 +408,7 @@ class AdvancedEnsemble:
             prediction = torch.sum(weights * predictions, dim=1)
 
             if return_details:
+                assert details is not None
                 details["weights"] = weights
                 details["predictions"] = predictions
 
@@ -430,6 +432,7 @@ class AdvancedEnsemble:
             prediction = selected_sum / (selected_count + 1e-8)
 
             if return_details:
+                assert details is not None
                 details["selection_mask"] = selection_mask
                 details["selection_scores"] = selection_scores
 
@@ -438,6 +441,7 @@ class AdvancedEnsemble:
             prediction, aux_losses = self.moe(x)
 
             if return_details:
+                assert details is not None
                 details["aux_losses"] = aux_losses
 
         else:

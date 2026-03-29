@@ -51,6 +51,7 @@ Date: 2026-02-17
 
 from __future__ import annotations
 
+import copy
 import logging
 import threading
 from dataclasses import dataclass
@@ -897,6 +898,35 @@ _PHASE_MAP: dict[DefectType, PhaseAssignment] = {
             "preserve_analog_character": True,
         },
     ),
+    # ------------------------------------------------------------------
+    # VOCAL_HARSHNESS — Vokale Härte/Übersteuerung/Kratzigkeit im 2–6 kHz Band
+    # Quellen: Bandsättigung, Loudness-War-Mastering, Röhren-/Transistorverzerrung,
+    #          Trichter-/Tonabnehmer-Resonanz, Codec-Artefakte
+    # ------------------------------------------------------------------
+    DefectType.VOCAL_HARSHNESS: PhaseAssignment(
+        defect_type=DefectType.VOCAL_HARSHNESS,
+        primary_phases=[
+            "phase_42_vocal_enhancement",  # BSRoFormer: Vokal-Stem isolieren, Harshness-Band dämpfen
+            "phase_19_de_esser",  # De-Essing / De-Harshness im 2–6 kHz Band
+        ],
+        secondary_phases=[
+            "phase_43_ml_deesser",  # ML-De-Esser: Phonem-selektive Harshness-Reduktion
+            "phase_03_denoise",  # Restgeräusche nach Vokal-Verarbeitung
+        ],
+        description=(
+            "Reduziert vokale Härte, Übersteuerung und Kratzigkeit im kritischen 2–6 kHz Band "
+            "durch stem-separierte Vokalverarbeitung (BSRoFormer) mit anschließendem "
+            "De-Essing/De-Harshness, ohne Vokal-Präsenz und Konsonantenklarheit zu opfern."
+        ),
+        config_delta={
+            "denoise_strength": 0.10,
+            "declip_strength": 0.15,
+            "click_removal_sensitivity": 0.0,
+            "preserve_analog_character": True,
+            "de_essing_strength": 0.65,
+            "harshness_reduction_band_hz": [2000, 6000],
+        },
+    ),
 }
 
 
@@ -1281,8 +1311,6 @@ class DefectPhaseMapper:
         Returns:
             (konfiguriertes_config, variant_name_string)
         """
-        import copy
-
         config = copy.deepcopy(base_config)
         assignment = _PHASE_MAP.get(defect_type)
 

@@ -372,7 +372,6 @@ class MultibandCompressionPhase(PhaseInterface):
         envelope_db = 20 * np.log10(smoothed_envelope + 1e-10)
 
         # === DOWNWARD COMPRESSION (compress loud parts) ===
-        10 ** (threshold_db / 20)
         knee_linear_lower = 10 ** ((threshold_db - knee_db / 2) / 20)
         knee_linear_upper = 10 ** ((threshold_db + knee_db / 2) / 20)
 

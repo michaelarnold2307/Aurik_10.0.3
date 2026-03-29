@@ -24,11 +24,47 @@ Usage:
 """
 
 import logging
+import os
+from typing import Any
 
-import numexpr as ne
 import numpy as np
 
+try:
+    import importlib
+    import importlib.util
+
+    _numexpr_spec = importlib.util.find_spec("numexpr")
+    if _numexpr_spec is not None:
+        ne: Any = importlib.import_module("numexpr")
+        _NUMEXPR_AVAILABLE = True
+    else:
+        ne = None
+        _NUMEXPR_AVAILABLE = False
+except Exception:
+    ne = None
+    _NUMEXPR_AVAILABLE = False
+
 logger = logging.getLogger(__name__)
+
+
+def _ne_evaluate(expression: str, local_dict: dict[str, Any] | None = None) -> np.ndarray:
+    """Evaluate expression with numexpr when available, else numpy fallback."""
+    if _NUMEXPR_AVAILABLE and ne is not None:
+        return ne.evaluate(expression, local_dict=local_dict)
+    safe_globals = {"__builtins__": {}, "np": np}
+    safe_locals: dict[str, Any] = {}
+    if local_dict:
+        safe_locals.update(local_dict)
+    safe_locals.update(
+        {
+            "where": np.where,
+            "abs": np.abs,
+            "sign": np.sign,
+            "sqrt": np.sqrt,
+            "sum": np.sum,
+        }
+    )
+    return np.asarray(eval(expression, safe_globals, safe_locals))
 
 
 class OptimizedDSP:
@@ -47,9 +83,12 @@ class OptimizedDSP:
             num_threads: Number of threads for NumExpr (default: auto)
         """
         if num_threads is not None:
-            ne.set_num_threads(num_threads)
+            if _NUMEXPR_AVAILABLE and ne is not None:
+                ne.set_num_threads(num_threads)
 
-        self.num_threads = ne.detect_number_of_cores()
+        self.num_threads = (
+            ne.detect_number_of_cores() if _NUMEXPR_AVAILABLE and ne is not None else (os.cpu_count() or 1)
+        )
         logger.info(f"OptimizedDSP initialized with {self.num_threads} threads")
 
     def spectral_gate(self, spectrum: np.ndarray, threshold: float, slope: float = 1.0) -> np.ndarray:
@@ -74,18 +113,20 @@ class OptimizedDSP:
         # NumExpr-optimized gating
         # Before: mask = np.where(magnitude > threshold, 1.0, 0.0)
         # After: 2× faster
-        ne.evaluate("where(magnitude > threshold, 1.0, 0.0)")
+        mask = _ne_evaluate(
+            "where(magnitude > threshold, 1.0, 0.0)", {"magnitude": np.abs(spectrum), "threshold": threshold}
+        )
 
         # Apply slope if soft gate
         if slope != 1.0:
             # Before: mask = mask ** slope
             # After: 2× faster
-            ne.evaluate("mask ** slope")
+            mask = _ne_evaluate("mask ** slope", {"mask": mask, "slope": slope})
 
         # Apply mask
         # Before: gated = spectrum * mask
         # After: 2× faster
-        gated = ne.evaluate("spectrum * mask")
+        gated = _ne_evaluate("spectrum * mask", {"spectrum": spectrum, "mask": mask})
 
         return gated
 
@@ -102,18 +143,21 @@ class OptimizedDSP:
             Gated spectrum
         """
         # Convert dB to linear
-        10 ** (threshold_db / 20.0)
+        threshold_linear = 10 ** (threshold_db / 20.0)
 
         # Compute magnitude
-        np.abs(spectrum)
+        magnitude = np.abs(spectrum)
 
         # NumExpr-optimized gating with dB
-        ne.evaluate("where(magnitude > threshold_linear, 1.0, 0.0)")
+        mask = _ne_evaluate(
+            "where(magnitude > threshold_linear, 1.0, 0.0)",
+            {"magnitude": magnitude, "threshold_linear": threshold_linear},
+        )
 
         if slope != 1.0:
-            ne.evaluate("mask ** slope")
+            mask = _ne_evaluate("mask ** slope", {"mask": mask, "slope": slope})
 
-        gated = ne.evaluate("spectrum * mask")
+        gated = _ne_evaluate("spectrum * mask", {"spectrum": spectrum, "mask": mask})
 
         return gated
 
@@ -139,7 +183,10 @@ class OptimizedDSP:
         # thresholded = sign * np.maximum(magnitude - threshold, 0)
 
         # After: 2× faster
-        thresholded = ne.evaluate("sign(audio) * where(abs(audio) > threshold, abs(audio) - threshold, 0.0)")
+        thresholded = _ne_evaluate(
+            "sign(audio) * where(abs(audio) > threshold, abs(audio) - threshold, 0.0)",
+            {"audio": audio, "threshold": threshold},
+        )
 
         return thresholded
 
@@ -158,7 +205,9 @@ class OptimizedDSP:
         """
         # Before: thresholded = np.where(np.abs(audio) > threshold, audio, 0.0)
         # After: 2× faster
-        thresholded = ne.evaluate("where(abs(audio) > threshold, audio, 0.0)")
+        thresholded = _ne_evaluate(
+            "where(abs(audio) > threshold, audio, 0.0)", {"audio": audio, "threshold": threshold}
+        )
 
         return thresholded
 
@@ -177,11 +226,11 @@ class OptimizedDSP:
         noise_floor = np.percentile(magnitude_spectrum, percentile)
 
         # Create mask for noise-like regions (below median)
-        np.median(magnitude_spectrum)
+        median = np.median(magnitude_spectrum)
 
         # Before: mask = magnitude_spectrum < median
         # After: 2× faster for subsequent operations
-        ne.evaluate("magnitude_spectrum < median")
+        _ = _ne_evaluate("magnitude_spectrum < median", {"magnitude_spectrum": magnitude_spectrum, "median": median})
 
         return float(noise_floor)
 
@@ -205,10 +254,16 @@ class OptimizedDSP:
         # enhanced = np.maximum(subtracted, beta * noisy_spectrum)
 
         # After: 2× faster
-        enhanced = ne.evaluate(
+        enhanced = _ne_evaluate(
             "where(noisy_spectrum - alpha * noise_estimate > beta * noisy_spectrum, "
             "noisy_spectrum - alpha * noise_estimate, "
-            "beta * noisy_spectrum)"
+            "beta * noisy_spectrum)",
+            {
+                "noisy_spectrum": noisy_spectrum,
+                "noise_estimate": noise_estimate,
+                "alpha": alpha,
+                "beta": beta,
+            },
         )
 
         return enhanced
@@ -235,8 +290,8 @@ class OptimizedDSP:
 
             # Before: rms = np.sqrt(np.mean(band ** 2))
             # After: 2× faster
-            rms = ne.evaluate("sqrt(sum(band ** 2) / len_band)", local_dict={"band": band, "len_band": len(band)})
-            rms_values[i] = rms
+            rms = _ne_evaluate("sqrt(sum(band ** 2) / len_band)", {"band": band, "len_band": len(band)})
+            rms_values[i] = float(np.asarray(rms))
 
         return rms_values
 
@@ -268,8 +323,9 @@ class OptimizedDSP:
             # )
 
             # After: 2× faster
-            compressed_mag = ne.evaluate(
-                "where(magnitude > threshold, " "threshold + (magnitude - threshold) / ratio, " "magnitude)"
+            compressed_mag = _ne_evaluate(
+                "where(magnitude > threshold, threshold + (magnitude - threshold) / ratio, magnitude)",
+                {"magnitude": magnitude, "threshold": threshold, "ratio": ratio},
             )
         else:
             # Soft knee (more complex, using NumPy for knee calculation)
@@ -286,21 +342,21 @@ class OptimizedDSP:
             in_knee = ~below_knee & ~above_knee
 
             compressed_mag = magnitude.copy()
-            compressed_mag[above_knee] = ne.evaluate(
+            compressed_mag[above_knee] = _ne_evaluate(
                 "threshold + (magnitude - threshold) / ratio",
-                local_dict={"magnitude": magnitude[above_knee], "threshold": threshold, "ratio": ratio},
+                {"magnitude": magnitude[above_knee], "threshold": threshold, "ratio": ratio},
             )
 
             # Smooth transition in knee (quadratic)
             if np.any(in_knee):
                 knee_ratio = (magnitude[in_knee] - knee_start) / knee_width
-                compressed_mag[in_knee] = ne.evaluate(
+                compressed_mag[in_knee] = _ne_evaluate(
                     "magnitude * (1.0 - knee_ratio / 2.0 + knee_ratio**2 / (2.0 * ratio))",
-                    local_dict={"magnitude": magnitude[in_knee], "knee_ratio": knee_ratio, "ratio": ratio},
+                    {"magnitude": magnitude[in_knee], "knee_ratio": knee_ratio, "ratio": ratio},
                 )
 
         # Reconstruct signal
-        compressed = ne.evaluate("sign * compressed_mag")
+        compressed = _ne_evaluate("sign * compressed_mag", {"sign": np.sign(audio), "compressed_mag": compressed_mag})
 
         return compressed
 
@@ -334,9 +390,15 @@ class OptimizedDSP:
             Dictionary with NumExpr settings
         """
         return {
-            "num_threads": ne.detect_number_of_cores(),
-            "version": ne.__version__,
-            "vml_version": ne.get_vml_version() if hasattr(ne, "get_vml_version") else None,
+            "num_threads": (
+                ne.detect_number_of_cores() if _NUMEXPR_AVAILABLE and ne is not None else (os.cpu_count() or 1)
+            ),
+            "version": ne.__version__ if _NUMEXPR_AVAILABLE and ne is not None else "unavailable",
+            "vml_version": (
+                ne.get_vml_version()
+                if (_NUMEXPR_AVAILABLE and ne is not None and hasattr(ne, "get_vml_version"))
+                else None
+            ),
             "expected_speedup": "2×",
         }
 

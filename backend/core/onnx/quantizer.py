@@ -118,7 +118,6 @@ class ModelQuantizer:
                     weight_type=QuantType.QInt8,
                     per_channel=self.config.per_channel,
                     reduce_range=self.config.reduce_range,
-                    optimize_model=self.config.optimize_model,
                     nodes_to_quantize=self.config.nodes_to_quantize,
                     nodes_to_exclude=self.config.nodes_to_exclude,
                 )
@@ -139,7 +138,7 @@ class ModelQuantizer:
 
                 if not quality_ok:
                     logger.warning(
-                        f"Quality validation failed! " f"Degradation exceeds {self.config.max_quality_loss_percent}%"
+                        f"Quality validation failed! Degradation exceeds {self.config.max_quality_loss_percent}%"
                     )
                     # Note: We don't fail entirely, just warn
 
@@ -258,9 +257,9 @@ class ModelQuantizer:
         results = {}
 
         for name, model_path in models.items():
-            logger.info(f"\n{'='*60}")
+            logger.info(f"\n{'=' * 60}")
             logger.info(f"Quantizing: {name}")
-            logger.info(f"{'='*60}")
+            logger.info(f"{'=' * 60}")
 
             output_path = output_dir / f"{model_path.stem}_quantized.onnx"
 
@@ -270,16 +269,16 @@ class ModelQuantizer:
             logger.info(f"Result: {'✓ SUCCESS' if success else '❌ FAILED'}")
 
         # Summary
-        logger.info(f"\n{'='*60}")
+        logger.info(f"\n{'=' * 60}")
         logger.info("QUANTIZATION SUMMARY")
-        logger.info(f"{'='*60}")
+        logger.info(f"{'=' * 60}")
         successful = sum(1 for v in results.values() if v)
         logger.info(f"Total: {len(results)}")
         logger.info(f"Successful: {successful}")
         logger.info(f"Failed: {len(results) - successful}")
 
         if self.quantization_stats["successful_quantizations"] > 0:
-            logger.info(f"Average size reduction: " f"{self.quantization_stats['average_size_reduction']:.1f}%")
+            logger.info(f"Average size reduction: {self.quantization_stats['average_size_reduction']:.1f}%")
 
         return results
 
@@ -329,8 +328,8 @@ class ModelQuantizer:
             speedup = fp32_time / int8_time
 
             logger.info("Speedup estimation:")
-            logger.info(f"  FP32: {fp32_time/num_runs*1000:.2f} ms/inference")
-            logger.info(f"  INT8: {int8_time/num_runs*1000:.2f} ms/inference")
+            logger.info(f"  FP32: {fp32_time / num_runs * 1000:.2f} ms/inference")
+            logger.info(f"  INT8: {int8_time / num_runs * 1000:.2f} ms/inference")
             logger.info(f"  Speedup: {speedup:.2f}×")
 
             return speedup

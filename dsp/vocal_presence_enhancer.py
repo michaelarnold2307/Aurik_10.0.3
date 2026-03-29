@@ -159,7 +159,7 @@ class HarmonicEnhancer:
         b = np.array([b0, b1, b2]) / a0
         a = np.array([1, a1 / a0, a2 / a0])
 
-        audio = signal.lfilter(b, a, audio)
+        audio = np.asarray(signal.lfilter(b, a, audio), dtype=np.float64)
 
         return audio
 
@@ -256,7 +256,7 @@ class AirBandProcessor:
         b = np.array([b0, b1, b2]) / a0
         a = np.array([1, a1 / a0, a2 / a0])
 
-        audio = signal.lfilter(b, a, audio)
+        audio = np.asarray(signal.lfilter(b, a, audio), dtype=np.float64)
 
         return audio
 
@@ -281,7 +281,7 @@ class AirBandProcessor:
         b = np.array([b0, b1, b2]) / a0
         a = np.array([1, a1 / a0, a2 / a0])
 
-        audio = signal.lfilter(b, a, audio)
+        audio = np.asarray(signal.lfilter(b, a, audio), dtype=np.float64)
 
         return audio
 
@@ -373,7 +373,7 @@ class BroadcastClarityEnhancer:
         b = np.array([b0, b1, b2]) / a0
         a = np.array([1, a1 / a0, a2 / a0])
 
-        audio = signal.lfilter(b, a, audio)
+        audio = np.asarray(signal.lfilter(b, a, audio), dtype=np.float64)
 
         return audio
 

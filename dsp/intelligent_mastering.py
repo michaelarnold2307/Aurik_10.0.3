@@ -477,7 +477,6 @@ class FinalMaximizer:
 
         if np.any(over_mask):
             # Hard limiting with soft knee
-            np.abs(audio[over_mask]) / self.ceiling_linear
             # Soft-knee: gradual transition near threshold
             reduction = self.ceiling_linear / (np.abs(audio[over_mask]) + 1e-10)
             gain[over_mask] = reduction

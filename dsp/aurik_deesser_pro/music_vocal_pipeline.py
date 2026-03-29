@@ -91,9 +91,10 @@ from dsp.artifact_bias_detection import detect_bias, detect_clipping, detect_dc_
 logger = logging.getLogger(__name__)
 
 
-def write_audit_log(event: str, data: dict, log_path: str = "audit/music_vocal_pipeline_log.json"):
+def write_audit_log(data: dict[str, Any], log_path: str = "audit/music_vocal_pipeline_log.json") -> None:
     """Schreibt Audit-Logs für die Pipeline."""
     os.makedirs(os.path.dirname(log_path), exist_ok=True)
+    event = str(data.get("step", "unknown"))
     log_entry = {"event": event, "data": data}
     try:
         if os.path.exists(log_path):
@@ -110,7 +111,7 @@ def write_audit_log(event: str, data: dict, log_path: str = "audit/music_vocal_p
 
 # Optional: Gender Detection Modul (Fallback auf spektrale Analyse)
 try:
-    from gender_detection import GenderDetector
+    from backend.core.forensics.gender_detection import GenderDetector
 
     GENDER_DETECTION_AVAILABLE = True
 except ImportError:
@@ -139,7 +140,6 @@ def analyze_track(audio: npt.NDArray[np.float32], sr: int = 48000, gender: str |
     Fallback: bisherige spektrale Analyse, falls kein gender angegeben.
     """
     if gender in VOCAL_PROFILES:
-
         p = VOCAL_PROFILES[gender]
 
         nyq = sr / 2
@@ -202,7 +202,10 @@ def pass1_fir_deess(
     )
     s_band = tuple(sorted(s_band))
     taps: npt.NDArray[np.float64] = firwin(257, [s_band[0] / nyq, s_band[1] / nyq], pass_zero=True)
-    filtered: npt.NDArray[np.float64] = lfilter(taps, 1.0, audio)
+    filtered_raw = lfilter(taps, 1.0, audio)
+    if isinstance(filtered_raw, tuple):
+        filtered_raw = filtered_raw[0]
+    filtered: npt.NDArray[np.float64] = np.asarray(filtered_raw, dtype=np.float64)
     gain: float = 10 ** (profile.max_depth_db / 20)
     out: npt.NDArray[np.float32] = audio.copy()
     for ev in events:
@@ -228,10 +231,8 @@ def pass2_spectral_repair(
             stft[band, t] = 0.5 * (stft[band, t - 1] + stft[band, t + 1])
     out = librosa.istft(stft, hop_length=512)  # Output-Länge angleichen
     if len(out) < len(audio):
-
         out = np.pad(out, (0, len(audio) - len(out)), mode="constant")
     elif len(out) > len(audio):
-
         out = out[: len(audio)]
     return out
 
@@ -263,10 +264,8 @@ def pass3_hf_texture_ml(
     out = librosa.istft(stft, hop_length=512)
     # Output-Länge angleichen
     if len(out) < len(audio):
-
         out = np.pad(out, (0, len(audio) - len(out)), mode="constant")
     elif len(out) > len(audio):
-
         out = out[: len(audio)]
     return out
 
@@ -467,7 +466,6 @@ def process_vocals(
         )
         return audio1  # Rollback auf Pass 1
     if profile.allow_ml and model_path is not None:
-
         model = HFTextureModel(model_path)
         audio3: npt.NDArray[np.float32] = pass3_hf_texture_ml(audio2, events, profile, model, sr)
         # Artefakt- und Bias-Detektion nach ML-Texturpass

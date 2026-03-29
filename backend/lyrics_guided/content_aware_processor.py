@@ -22,17 +22,12 @@ Date: 8. Februar 2026
 import logging
 from dataclasses import dataclass
 from enum import Enum
+from importlib.util import find_spec
 
 import numpy as np
 
-# Optional Whisper integration
-try:
-    import whisper
-
-    WHISPER_AVAILABLE = True
-except ImportError:
-    WHISPER_AVAILABLE = False
-    whisper = None
+# Optional Whisper integration (availability check without importing module)
+WHISPER_AVAILABLE = find_spec("whisper") is not None
 
 # Integration with Week 7-9 Phoneme Classifier
 try:
@@ -123,7 +118,7 @@ class LyricsGuidedTimeline:
         return ProcessingIntent.NO_PROCESSING
 
     def __repr__(self) -> str:
-        return f"LyricsGuidedTimeline({len(self.segments)} segments, " f"{self.vocal_percentage:.1%} vocal)"
+        return f"LyricsGuidedTimeline({len(self.segments)} segments, {self.vocal_percentage:.1%} vocal)"
 
 
 # ============================================================================
@@ -148,7 +143,7 @@ class LyricsAligner:
         """
         self.use_phoneme_classifier = use_phoneme_classifier and PHONEME_CLASSIFIER_AVAILABLE
 
-        if self.use_phoneme_classifier:
+        if self.use_phoneme_classifier and PhonemeClassifier is not None:
             self.phoneme_classifier = PhonemeClassifier()
             logger.info("LyricsAligner initialized with phoneme classification")
         else:
@@ -185,7 +180,7 @@ class LyricsAligner:
         # Convert to mono
         audio_mono = np.mean(audio, axis=0) if audio.ndim > 1 else audio
 
-        logger.info(f"Aligning lyrics for {len(audio_mono)/sr:.2f}s audio (language={language})")
+        logger.info(f"Aligning lyrics for {len(audio_mono) / sr:.2f}s audio (language={language})")
 
         # Use Whisper for transcription + alignment
         # (In production, use more sophisticated forced alignment)

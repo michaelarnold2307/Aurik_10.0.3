@@ -514,12 +514,12 @@ if __name__ == "__main__":
     logger.debug("-" * 70)
 
     for freq in test_freqs:
-        logger.debug(f"{freq:5.0f} Hz | ", end="")
+        values = []
         for phon in [20, 40, 60, 80, 100]:
             contour = processor.get_contour(phon)
             spl = contour.get_spl_at_frequency(freq)
-            logger.debug(f"{spl:7.1f} | ", end="")
-        logger.debug("")
+            values.append(f"{spl:7.1f}")
+        logger.debug(f"{freq:5.0f} Hz | " + " | ".join(values) + " |")
 
     # Correction curves
     logger.debug("\n\nLoudness Compensation Curves (dB correction):\n")

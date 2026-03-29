@@ -51,7 +51,7 @@ class SOTAUniversalEnhancer:
             # §4.4: MP-SENet 2023 — enhance(audio, sr) → MpSenetResult
             result = self.speech_model.enhance(audio, sr)
             enhanced = np.nan_to_num(
-                result.audio if hasattr(result, "audio") else result,
+                np.asarray(result.audio if hasattr(result, "audio") else result, dtype=np.float32),
                 nan=0.0,
                 posinf=0.0,
                 neginf=0.0,
@@ -66,6 +66,6 @@ class SOTAUniversalEnhancer:
         elif self.fallback_model:
             result = self.fallback_model.enhance(audio, sr)
             out = result.audio if hasattr(result, "audio") else result
-            return np.clip(np.nan_to_num(out, nan=0.0, posinf=0.0, neginf=0.0), -1.0, 1.0)
+            return np.clip(np.nan_to_num(np.asarray(out, dtype=np.float32), nan=0.0, posinf=0.0, neginf=0.0), -1.0, 1.0)
         else:
             raise RuntimeError("Kein passendes SOTA-Modell für diesen Signaltyp verfügbar.")

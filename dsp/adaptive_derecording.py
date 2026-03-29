@@ -102,7 +102,7 @@ class AdaptiveDerecording:
     def _derecord_classic(self, audio: np.ndarray, sr: int, derecord_strength: float) -> np.ndarray:
         from scipy.signal import butter, lfilter
 
-        b, a = butter(2, 100 / (0.5 * sr), btype="high")
+        b, a = butter(2, 100 / (0.5 * sr), btype="high", output="ba")  # type: ignore[misc]
         derecorded = lfilter(b, a, audio)
         # Dry/Wet-Mix
         return np.asarray((1 - derecord_strength) * audio + derecord_strength * derecorded)
@@ -111,7 +111,7 @@ class AdaptiveDerecording:
         # Vereinfachtes Beispiel: Hochpassfilter zur Reduktion von Raumklang/Mikrofonfärbung
         from scipy.signal import butter, lfilter
 
-        b, a = butter(2, 100 / (0.5 * 44100), btype="high")
+        b, a = butter(2, 100 / (0.5 * 44100), btype="high", output="ba")  # type: ignore[misc]
         derecorded = lfilter(b, a, audio)
         # Dry/Wet-Mix
         return np.asarray((1 - derecord_strength) * audio + derecord_strength * derecorded)

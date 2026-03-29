@@ -92,10 +92,12 @@ def test_restore_musical_goals():
 ### Warum Adaptive Thresholds?
 
 **Problem:** Fixe Thresholds (z.B. 0.85 für Brillanz) funktionieren nicht für alle Material-Qualitäten:
+
 - ✅ PRISTINE Studio-Material: 0.85 ist erreichbar
 - ❌ EXTREME degradiertes Material (3+ Generationen): 0.85 ist unrealistisch
 
 **Lösung:** Adaptive Thresholds passen sich der Material-Qualität an:
+
 - PRISTINE (degradation < 0.05): High thresholds (0.85-0.90)
 - GOOD (0.15-0.25): Standard thresholds (0.80-0.85)
 - POOR (0.35-0.50): Relaxed thresholds (0.50-0.65)
@@ -131,6 +133,7 @@ degradation = (
 ```
 
 **Generation-Count Impact:**
+
 - 1 Generation = 0.20 degradation → FAIR
 - 2 Generationen = 0.40 degradation → POOR
 - 3 Generationen = 0.60 degradation → VERY_POOR
@@ -187,6 +190,7 @@ def test_adaptive_thresholds_degraded_material():
 ### Test-Audio für verschiedene Quality Levels
 
 #### PRISTINE Material
+
 ```python
 def generate_pristine_audio(sr=48000, duration=3.0):
     """Clean studio-quality audio"""
@@ -205,6 +209,7 @@ def generate_pristine_audio(sr=48000, duration=3.0):
 ```
 
 #### DEGRADED Material
+
 ```python
 def generate_degraded_audio(sr=48000, duration=3.0):
     """Heavily degraded audio (simulates cassette → MP3 → digital)"""
@@ -229,6 +234,7 @@ def generate_degraded_audio(sr=48000, duration=3.0):
 ```
 
 #### EXTREME Material
+
 ```python
 def generate_extreme_degraded_audio(sr=48000, duration=3.0):
     """Extremely degraded (telephone, multi-generation)"""
@@ -285,6 +291,7 @@ VOCAL_PROFILES = {
 ```
 
 **WHY Gender-Specific Processing?**
+
 - Weibliche Stimmen: Höhere Formanten + höhere Sibilanten-Frequenzen (7-11 kHz)
 - Männliche Stimmen: Tiefere Formanten + niedrigere Sibilanten-Frequenzen (5-9 kHz)
 - Kinder: Höchste Formanten + höchste Sibilanten-Frequenzen (9-13 kHz)
@@ -292,6 +299,7 @@ VOCAL_PROFILES = {
 ### 3-Pass De-Essing System
 
 #### Pass 1: FIR-basiertes De-Essing
+
 ```python
 def pass1_fir_deess(audio, events, profile, sr=48000):
     """
@@ -315,6 +323,7 @@ def pass1_fir_deess(audio, events, profile, sr=48000):
 **Musical Goal:** ✅ Brillanz (HF Clarity) - Keine Überdämpfung!
 
 #### Pass 2: Spectral Repair
+
 ```python
 def pass2_spectral_repair(audio, events, profile, sr=48000):
     """
@@ -336,6 +345,7 @@ def pass2_spectral_repair(audio, events, profile, sr=48000):
 **Musical Goal:** ✅ Natürlichkeit (Natural Sound)
 
 #### Pass 3: ML-based HF Texture (optional)
+
 ```python
 def pass3_hf_texture_ml(audio, events, profile, model, sr=48000):
     """
@@ -352,6 +362,7 @@ def pass3_hf_texture_ml(audio, events, profile, model, sr=48000):
 ### Quality Gates
 
 #### HF Preservation Gate
+
 ```python
 def adaptive_hf_gate(ratio, style="pop"):
     """
@@ -367,6 +378,7 @@ def adaptive_hf_gate(ratio, style="pop"):
 ```
 
 #### Correlation Gate
+
 ```python
 def adaptive_corr_gate(corr, min_corr=0.98):
     """
@@ -457,6 +469,7 @@ if gender is None or gender == "auto":
 ### Test-Audio für Vocal Enhancement
 
 #### Clean Vocal Signal
+
 ```python
 def generate_vocal_test_signal(sr=48000, duration=3.0, gender="female"):
     """Generate realistic vocal signal with natural sibilants"""
@@ -478,6 +491,7 @@ def generate_vocal_test_signal(sr=48000, duration=3.0, gender="female"):
 ```
 
 #### Degraded Vocal Signal
+
 ```python
 def generate_degraded_vocal_signal(sr=48000, duration=3.0, gender="female"):
     """Generate vocal with harsh sibilants and noise"""
@@ -561,6 +575,7 @@ def test_e2e_vocal_enhancement_cross_gender_consistency():
 Aurik 9 unterstützt **30+ analoge und digitale Tonträger** mit **Medium-spezifischen Musical Goals Thresholds** und **Forensischer Analyse**.
 
 **Locations:**
+
 - `forensics/unified_analyzer.py` - ML-basierte Forensic Analysis
 - `forensics/signatures.py` - 30+ MediaType Definitionen
 - `tests/test_comprehensive_media_types_forensics.py` - Comprehensive Tests
@@ -581,11 +596,13 @@ Aurik 9 unterstützt **30+ analoge und digitale Tonträger** mit **Medium-spezif
 **WICHTIG:** Aurik 9 unterstützt ausschließlich **Mono- und Stereo-Formate** für **Processing**.
 
 **❌ NICHT UNTERSTÜTZT (Processing):**
+
 - **Surround/Multichannel:** 5.1, 7.1, Quadraphonic Surround
 - **Immersive 3D Audio:** Dolby Atmos, DTS:X, 360 Reality Audio, Spatial Audio
 - **Multichannel-Formate:** Jegliche Formate mit > 2 Kanälen
 
 **✅ UNTERSTÜTZT (Processing):**
+
 - **Mono:** 1 Kanal (historische Aufnahmen, Telefonie)
 - **Stereo:** 2 Kanäle (Standard für Musik, Radio, Streaming)
 - **Dual Mono:** 2 identische Kanäle
@@ -696,19 +713,23 @@ def test_medium_specific_thresholds():
 ### Fehlende Tonträger (TODOs)
 
 **Moderne Lossless:**
+
 - ❌ FLAC, ALAC, MQA
 
 **Streaming:**
+
 - ❌ Spotify (Ogg Vorbis 320), Apple Music (AAC 256), Tidal (MQA), Amazon Music HD
 
 ### ⛔ OUT OF SCOPE (Nicht unterstützt)
 
 **Surround/Multichannel:**
+
 - 🚫 5.1, 7.1 Surround
 - 🚫 Quadraphonic (4.0)
 - 🚫 Jegliche Multichannel-Formate (> 2 Kanäle)
 
 **Immersive 3D Audio:**
+
 - 🚫 Dolby Atmos
 - 🚫 DTS:X
 - 🚫 360 Reality Audio

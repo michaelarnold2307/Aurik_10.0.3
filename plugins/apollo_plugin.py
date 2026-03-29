@@ -275,6 +275,10 @@ class ApolloPlugin:
             import torch
             import torchaudio
 
+            model = self._torch_model
+            if model is None:
+                raise RuntimeError("Apollo TorchScript-Modell nicht initialisiert")
+
             # 1. Resample 48000 → 44100
             t = torch.from_numpy(audio).float().unsqueeze(0).unsqueeze(0)  # [1,1,T]
             if sr != self._APOLLO_SR:
@@ -282,7 +286,7 @@ class ApolloPlugin:
 
             # 2. Modell-Inferenz
             with torch.no_grad():
-                out = self._torch_model(t)  # [1,1,T']
+                out = model(t)  # [1,1,T']
 
             # 3. Resample 44100 → 48000
             if sr != self._APOLLO_SR:

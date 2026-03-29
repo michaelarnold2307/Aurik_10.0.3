@@ -94,6 +94,7 @@ if __name__ == "__main__":
     )
 else:
     from .phase_interface import PhaseCategory, PhaseInterface, PhaseMetadata, PhaseResult, create_phase_result
+
 import logging
 
 logger = logging.getLogger(__name__)
@@ -108,6 +109,14 @@ try:
 except Exception:
     _get_audiosr_plugin = None
     ML_HYBRID_AVAILABLE = False
+
+try:
+    from dsp.pghi import pghi_reconstruct_from_stft as _pghi_p06
+
+    _PGHI_AVAILABLE_P06 = True
+except ImportError:
+    _PGHI_AVAILABLE_P06 = False
+
 
 
 class FrequencyRestorationPhase(PhaseInterface):
@@ -175,6 +184,16 @@ class FrequencyRestorationPhase(PhaseInterface):
             "max_boost_db": 8.0,
         },
     }
+
+    # MRSA Multi-Resolution Spectral Analysis zones (mandatory, §DSP-Spezialregeln)
+    _MRSA_ZONES: tuple = (
+        ("sub_bass", 65536, 16384, 0, 250),
+        ("mid_low", 16384, 4096, 250, 2500),
+        ("mid", 8192, 2048, 2500, 8000),
+        ("presence", 1024, 256, 8000, 16000),
+        ("air", 128, 32, 16000, 24000),
+    )
+    _MRSA_CROSSFADE_BW_HZ: float = 100.0
 
     def get_metadata(self) -> PhaseMetadata:
         return PhaseMetadata(
@@ -366,16 +385,95 @@ class FrequencyRestorationPhase(PhaseInterface):
         except Exception:
             _plm = None
 
+        # §Phase-06 AudioSR Headroom Guard: Prüfe verfügbaren RAM VOR Modell-Load
+        # Ohne Guard: Direct OOM bei langen Stereo-Dateien (z.B. 10 min × 96 kHz × 2 Kanäle)
+        # Mit Guard: Defer zu KMV Stufe 2 wenn RAM < 2.5 GB
+        _sr_headroom_ok = True
+        _sr_guard_msg = ""
         try:
-            plugin = _get_audiosr_plugin()
-            plugin_in = audio.T if audio.ndim == 2 else audio
-            ml_out = plugin.process(plugin_in, sr=self.sample_rate, target_sr=self.sample_rate)
+            import psutil as _psutil_p06
+
+            _avail_gb = float(_psutil_p06.virtual_memory().available / (1024**3))
+            _is_stereo = audio.ndim == 2 and audio.shape[0] <= 2
+            _duration_s = audio.shape[-1] / float(self.sample_rate)
+            # AudioSR: 7 GB base + stereo overhead + duration overhead
+            _budget_needed_gb = 7.0
+            if _is_stereo and _duration_s > 60:
+                _budget_needed_gb += 3.5  # Extra für Stereo-Processing
+            if _duration_s > 120:
+                _budget_needed_gb += 2.0  # Extra für lange Dateien
+            _headroom_thr = 2.5  # Minimum verfügbar nach Modell-Load
+            _needed_total = _budget_needed_gb + _headroom_thr
+
+            if _avail_gb < _needed_total:
+                _sr_headroom_ok = False
+                _sr_guard_msg = f"RAM {_avail_gb:.1f}GB < {_needed_total:.1f}GB needed — defer to KMV"
+                logger.info(f"§Phase-06: AudioSR Guard triggered ({_sr_guard_msg})")
+        except Exception as _p06_guard_exc:
+            logger.debug(f"Phase-06 Headroom Guard fehlgeschlagen (psutil?): {_p06_guard_exc}")
+
+        # Wenn Headroom nicht OK: DSP-Fallback statt OOM
+        if not _sr_headroom_ok:
+            logger.warning(f"§Phase-06: AudioSR übersprungen — {_sr_guard_msg}")
+            return dsp_restored, {
+                "ml_hybrid_available": False,
+                "quality_mode": quality_mode,
+                "strategy_used": "dsp_only",
+                "ml_reason": f"audiosr_headroom_guard: {_sr_guard_msg}",
+            }
+
+        # Fast sentinel: skip ML thread entirely if a previous load attempt failed.
+        # Without this check the join() timeout (up to 600 s) causes an apparent
+        # freeze whenever AudioSR is unavailable (missing torchaudio / model).
+        try:
+            from plugins.audiosr_plugin import has_audiosr_ml_failed as _has_audiosr_failed
+
+            if _has_audiosr_failed():
+                logger.info("Phase 06: AudioSR ML previously failed (sentinel) — skipping ML thread, using DSP-only")
+                return dsp_restored, {
+                    "ml_hybrid_available": False,
+                    "quality_mode": quality_mode,
+                    "strategy_used": "dsp_only",
+                    "ml_reason": "audiosr_ml_failed_sentinel",
+                }
+        except Exception:
+            pass
+
+        import queue
+        import threading
+
+        ml_result_queue = queue.Queue(maxsize=1)
+        ml_error_queue = queue.Queue(maxsize=1)
+
+        def ml_infer():
+            try:
+                plugin = _get_audiosr_plugin()
+                plugin_in = audio.T if audio.ndim == 2 else audio
+                ml_out = plugin.process(plugin_in, sr=self.sample_rate, target_sr=self.sample_rate)
+                ml_result_queue.put(ml_out)
+            except Exception as exc:
+                ml_error_queue.put(exc)
+
+        ml_thread = threading.Thread(target=ml_infer, daemon=True)
+        ml_thread.start()
+
+        # Adaptives Timeout: 180s + 1s pro Minute Audiolänge, max 600s
+        audio_dur_s = audio.shape[-1] / float(self.sample_rate)
+        timeout_s = min(600, 180 + int(audio_dur_s // 60))
+        ml_thread.join(timeout=timeout_s)
+
+        if not ml_result_queue.empty():
+            ml_out = ml_result_queue.get()
             ml_restored = ml_out.T if (audio.ndim == 2 and ml_out.ndim == 2) else ml_out
             ml_restored = np.asarray(ml_restored, dtype=np.float32)
-
             if ml_restored.shape != audio.shape:
-                raise ValueError(f"AudioSR shape mismatch: expected {audio.shape}, got {ml_restored.shape}")
-
+                logger.warning(f"AudioSR shape mismatch: expected {audio.shape}, got {ml_restored.shape}")
+                return dsp_restored, {
+                    "ml_hybrid_available": True,
+                    "quality_mode": quality_mode,
+                    "strategy_used": "dsp_only",
+                    "ml_error": "shape_mismatch",
+                }
             # Blend only high-frequency delta (around rolloff and above) to keep timbre stable.
             hp_hz = float(max(2000.0, min(params.get("rolloff_hz", 10000.0) * 0.85, self.sample_rate * 0.45)))
             sos = signal.butter(4, hp_hz / (self.sample_rate / 2.0), btype="high", output="sos")
@@ -384,12 +482,10 @@ class FrequencyRestorationPhase(PhaseInterface):
             hybrid = dsp_restored + alpha * (hf_ml - hf_base)
             hybrid = np.nan_to_num(hybrid, nan=0.0, posinf=0.0, neginf=0.0)
             hybrid = np.clip(hybrid, -1.0, 1.0)
-
             try:
                 touch_plugin("AudioSR")
             except Exception:
                 pass
-
             return hybrid, {
                 "ml_hybrid_available": True,
                 "quality_mode": quality_mode,
@@ -398,21 +494,32 @@ class FrequencyRestorationPhase(PhaseInterface):
                 "ml_blend_alpha": alpha,
                 "ml_hf_highpass_hz": hp_hz,
                 "material_type": material_type,
+                "ml_watchdog": f"success_{timeout_s}s",
             }
-        except Exception as exc:
-            logger.warning("Phase 06 ML-Hybrid fehlgeschlagen (%s) — DSP-only aktiv", exc)
+        elif not ml_error_queue.empty():
+            exc = ml_error_queue.get()
+            logger.warning(f"Phase 06 ML-Hybrid fehlgeschlagen ({exc}) — DSP-only aktiv")
             return dsp_restored, {
                 "ml_hybrid_available": True,
                 "quality_mode": quality_mode,
                 "strategy_used": "dsp_only",
                 "ml_error": str(exc),
+                "ml_watchdog": f"error_{timeout_s}s",
             }
-        finally:
-            if _plm is not None:
-                try:
-                    _plm.set_active("AudioSR", False)
-                except Exception:
-                    pass
+        else:
+            logger.warning(f"Phase 06 ML-Hybrid TIMEOUT nach {timeout_s}s — DSP-only aktiv")
+            return dsp_restored, {
+                "ml_hybrid_available": True,
+                "quality_mode": quality_mode,
+                "strategy_used": "dsp_only",
+                "ml_error": "timeout",
+                "ml_watchdog": f"timeout_{timeout_s}s",
+            }
+        if _plm is not None:
+            try:
+                _plm.set_active("AudioSR", False)
+            except Exception:
+                pass
 
     def _detect_rolloff_professional(self, audio: np.ndarray, params: dict[str, Any]) -> tuple[bool, float, float]:
         """
@@ -476,11 +583,147 @@ class FrequencyRestorationPhase(PhaseInterface):
             # Process stereo independently
             restored_left = self._restore_channel(audio[:, 0], params, enable_sbr, hop_length, n_fft)
             restored_right = self._restore_channel(audio[:, 1], params, enable_sbr, hop_length, n_fft)
+            # MRSA post-processing: zone-aware gain refinement + PGHI
+            restored_left = self._mrsa_gain_refinement(audio[:, 0], restored_left, self.sample_rate)
+            restored_right = self._mrsa_gain_refinement(audio[:, 1], restored_right, self.sample_rate)
             restored = np.column_stack([restored_left, restored_right])
         else:
             restored = self._restore_channel(audio, params, enable_sbr, hop_length, n_fft)
+            # MRSA post-processing: zone-aware gain refinement + PGHI
+            restored = self._mrsa_gain_refinement(audio, restored, self.sample_rate)
 
         return restored
+
+    def _mrsa_gain_refinement(self, audio_in: np.ndarray, audio_out: np.ndarray, sr: int) -> np.ndarray:
+        """MRSA post-processing: zone-aware gain refinement + PGHI reconstruction.
+
+        Computes per-zone gain ratio (|audio_out| / |audio_in|) using zone-specific
+        STFTs, blends with Hanning crossfades at zone boundaries, applies the
+        blended gain to the reference STFT of the input, and reconstructs via PGHI.
+
+        This ensures the SBR / harmonic-extension gain is applied at zone-optimal
+        time-frequency resolution (presence win=1024 → 21 ms for 8-16 kHz;
+        air win=128 → 2.7 ms for 16-24 kHz) instead of a single coarse n_fft=4096
+        window, eliminating temporal smearing in HF transients.
+
+        Args:
+            audio_in:  Original channel (before restoration) — 1D float32.
+            audio_out: Restored channel (after SBR/LPC) — 1D float32.
+            sr:        Sample rate (48000).
+
+        Returns:
+            np.ndarray: MRSA-refined audio, same length, clipped to [-1, 1].
+        """
+        n = len(audio_in)
+        nyquist = float(sr // 2)
+
+        REF_WIN = 2048
+        REF_HOP = 512
+        REF_NOVERLAP = REF_WIN - REF_HOP
+
+        f_ref, _, Zxx_in = signal.stft(audio_in, fs=sr, nperseg=REF_WIN, noverlap=REF_NOVERLAP)
+        _, _, Zxx_out = signal.stft(audio_out, fs=sr, nperseg=REF_WIN, noverlap=REF_NOVERLAP)
+        n_bins, n_t = f_ref.shape[0], Zxx_in.shape[1]
+        mag_in_ref = np.abs(Zxx_in)
+        mag_out_ref = np.abs(Zxx_out)
+
+        # Baseline gain ratio at reference resolution
+        G_ref = mag_out_ref / (mag_in_ref + 1e-8)
+
+        G_acc = np.zeros((n_bins, n_t), dtype=np.float64)
+        w_acc = np.zeros(n_bins, dtype=np.float64)
+
+        for zone_name, zone_win, zone_hop, f_low, f_high in self._MRSA_ZONES:
+            try:
+                if n >= zone_win * 2:
+                    zone_noverlap = zone_win - zone_hop
+                    f_z, _, Zxx_in_z = signal.stft(audio_in, fs=sr, nperseg=zone_win, noverlap=zone_noverlap)
+                    _, _, Zxx_out_z = signal.stft(audio_out, fs=sr, nperseg=zone_win, noverlap=zone_noverlap)
+                else:
+                    f_z = f_ref
+                    Zxx_in_z, Zxx_out_z = Zxx_in, Zxx_out
+                    zone_hop = REF_HOP
+
+                mag_in_z = np.abs(Zxx_in_z)
+                mag_out_z = np.abs(Zxx_out_z)
+                G_z = mag_out_z / (mag_in_z + 1e-8)
+                n_z_t = G_z.shape[1]
+
+                zm_z = (f_z >= float(f_low)) & (f_z <= float(f_high))
+                if not np.any(zm_z):
+                    continue
+                f_z_zone = f_z[zm_z]
+                G_zone = G_z[zm_z, :]
+
+                ref_zm = (f_ref >= max(0.0, float(f_low) - self._MRSA_CROSSFADE_BW_HZ)) & (
+                    f_ref <= min(nyquist, float(f_high) + self._MRSA_CROSSFADE_BW_HZ)
+                )
+                if not np.any(ref_zm):
+                    continue
+                f_ref_zone = f_ref[ref_zm]
+                ref_indices = np.where(ref_zm)[0]
+                n_ref_zone = len(ref_indices)
+
+                if n_z_t != n_t and len(f_z_zone) > 0:
+                    t_src = np.linspace(0.0, 1.0, n_z_t)
+                    t_dst = np.linspace(0.0, 1.0, n_t)
+                    G_zone_t = np.empty((len(f_z_zone), n_t), dtype=np.float64)
+                    for k in range(len(f_z_zone)):
+                        G_zone_t[k, :] = np.interp(t_dst, t_src, G_zone[k, :])
+                else:
+                    G_zone_t = G_zone.astype(np.float64)
+
+                G_ref_zone = np.empty((n_ref_zone, n_t), dtype=np.float64)
+                if len(f_z_zone) >= 2:
+                    for ti in range(n_t):
+                        G_ref_zone[:, ti] = np.interp(
+                            f_ref_zone,
+                            f_z_zone,
+                            G_zone_t[:, ti],
+                            left=float(G_zone_t[0, ti]),
+                            right=float(G_zone_t[-1, ti]),
+                        )
+                elif len(f_z_zone) == 1:
+                    G_ref_zone[:, :] = G_zone_t[0:1, :]
+                else:
+                    continue
+
+                if n_ref_zone > 2:
+                    hann_w = np.hanning(n_ref_zone + 2)[1:-1]
+                    hann_w = np.clip(hann_w, 1e-3, 1.0)
+                else:
+                    hann_w = np.ones(n_ref_zone)
+
+                for ki, k in enumerate(ref_indices):
+                    w = float(hann_w[ki])
+                    G_acc[k, :] += w * G_ref_zone[ki, :]
+                    w_acc[k] += w
+
+            except Exception as zone_exc:
+                logger.warning("MRSA Phase 06 zone '%s' failed: %s", zone_name, zone_exc)
+                continue
+
+        # Compose final gain: zone-optimal where available, reference ratio elsewhere
+        valid = w_acc > 0.0
+        G_combined = G_ref.copy()
+        G_combined[valid, :] = (G_acc[valid, :] / w_acc[valid, np.newaxis]).astype(np.float32)
+        G_combined = np.nan_to_num(G_combined, nan=1.0)
+
+        # Apply blended gain to reference input STFT + PGHI
+        Zxx_refined = G_combined * mag_in_ref * np.exp(1j * np.angle(Zxx_in))
+        if _PGHI_AVAILABLE_P06:
+            try:
+                audio_refined = _pghi_p06(Zxx_refined.astype(np.complex64), sr=sr, win_size=REF_WIN, hop=REF_HOP)
+            except Exception:
+                _, audio_refined = signal.istft(Zxx_refined, fs=sr, nperseg=REF_WIN, noverlap=REF_NOVERLAP)
+        else:
+            _, audio_refined = signal.istft(Zxx_refined, fs=sr, nperseg=REF_WIN, noverlap=REF_NOVERLAP)
+
+        audio_refined = np.real(audio_refined)[:n]
+        if len(audio_refined) < n:
+            audio_refined = np.pad(audio_refined, (0, n - len(audio_refined)))
+        audio_refined = np.nan_to_num(audio_refined, nan=0.0, posinf=0.0, neginf=0.0)
+        return np.clip(audio_refined, -1.0, 1.0).astype(np.float32)
 
     def _restore_channel(
         self, channel: np.ndarray, params: dict[str, Any], enable_sbr: bool, hop_length: int, n_fft: int
@@ -570,12 +813,6 @@ class FrequencyRestorationPhase(PhaseInterface):
         target_start = extension_start_bin
         target_end = extension_end_bin
         target_width = target_end - target_start
-
-        # Transpose factor
-        if source_width > 0:
-            target_width / source_width
-        else:
-            pass
 
         # Copy and transpose source to target — vectorized over all time frames
         source_spectrum = Zxx[source_start:source_end, :]  # (source_width, T)

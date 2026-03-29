@@ -37,7 +37,8 @@ class AdaptiveController:
         feedback_loop = self._adaptive_feedback_loop(feedback)
         # KI-gestützte Auswahl und Gewichtung
         ki_decision = self._ki_module_selection(feedback)
-        result = self.policy_manager.update(feedback)
+        updated = self.policy_manager.update(feedback)
+        result: dict[str, object] = updated if isinstance(updated, dict) else {}
         result["explainable_ai"] = {"feature_attribution": attribution, "layer_analysis": layer_analysis}
         result["feedback_loop"] = feedback_loop
         result["ki_module_selection"] = ki_decision
@@ -382,43 +383,23 @@ class PolicyEngine:
                 pad[: len(processed_audio)] = processed_audio
                 processed_audio = pad
         # Quality-Gates: dynamisch, inkl. Klangästhetik
-        quality_results = {}
+        quality_results: dict[str, Any] = {}
         try:
-            from validate_musical_goals import check_quality_gates
+            from backend.core.validate_musical_goals import check_quality_gates
 
-            ok, quality_results = check_quality_gates(
-                original=audio,
-                processed=processed_audio,
-                original_sr=sr,
-                processed_sr=sr,
-                original_formants=None,
-                processed_formants=None,
-                original_mix=None,
-                processed_mix=None,
-                original_pitch=None,
-                processed_pitch=None,
-                original_embedding=None,
-                processed_embedding=None,
-            )
+            quality_ok = check_quality_gates(audio=processed_audio, sr=sr, scores=None)
+            quality_results = {"voice_match": bool(quality_ok)}
         except Exception as e:
             quality_results = {"error": str(e)}
         # Klangästhetik-Optimierung
-        klang_result = {}
+        klang_result: dict[str, Any] = {}
         try:
-            from validate_musical_goals import ArtifactChecker
+            from backend.core.validate_musical_goals import ArtifactChecker
 
-            klang_checker = ArtifactChecker.KlangAesthetikChecker(
-                reference_data={
-                    "brillanz": 0.90,
-                    "wärme": 0.85,
-                    "natürlichkeit": 0.92,
-                    "authentizität": 0.90,
-                    "emotionalität": 0.89,
-                    "transparenz": 0.91,
-                },
-                expert_feedback=expert_feedback or {},
-            )
-            klang_result = klang_checker.check(features)
+            klang_checker = ArtifactChecker.KlangAesthetikChecker(minimum=0.75)
+            klang_input = vocal_scores if isinstance(vocal_scores, dict) else {}
+            klang_ok = klang_checker.check(klang_input) if klang_input else True
+            klang_result = {"ok": bool(klang_ok), "minimum": 0.75}
         except Exception:
             klang_result = {}
         # Experten-Feedback

@@ -29,6 +29,13 @@ import numpy as np
 import numpy.typing as npt
 import scipy.signal
 
+try:
+    from dsp.pghi import pghi_reconstruct_from_stft as _pghi_reconstruct_from_stft
+
+    _PGHI_AVAILABLE = True
+except ImportError:
+    _PGHI_AVAILABLE = False
+
 
 @dataclass
 class SpectralRepairConfig:
@@ -47,6 +54,12 @@ class SpectralRepairConfig:
 
     extrapolation_strength: float = 0.7
     """Strength of harmonic extrapolation (0.0-1.0)."""
+
+    decay_db_per_octave: float = -6.0
+    """Harmonic decay slope for hole repair (dB/octave). Default -6.0 (neutral).
+    Material-adaptive overrides: -9.0 (vocal), -4.0 (bright instrumental),
+    -3.0 (vintage brass). Passed via SpectralRepairConfig at call site.
+    """
 
     # Codec artifact repair
     smooth_bandwidth_hz: float = 100.0
@@ -118,10 +131,19 @@ class SpectralRepair:
         # Smooth codec artifacts
         Zxx_smoothed = self._smooth_codec_artifacts(Zxx_repaired, f, sr)
 
-        # Inverse STFT
-        _, audio_repaired = scipy.signal.istft(
-            Zxx_smoothed, fs=sr, nperseg=self.config.fft_size, noverlap=self.config.fft_size - self.config.hop_size
-        )
+        # Phase-coherent reconstruction: PGHI (Perraudin 2013) preferred over
+        # scipy.signal.istft, which reuses stale phases after spectral modification.
+        if _PGHI_AVAILABLE:
+            audio_repaired = _pghi_reconstruct_from_stft(
+                Zxx_smoothed,
+                sr=sr,
+                win_size=self.config.fft_size,
+                hop=self.config.hop_size,
+            )
+        else:
+            _, audio_repaired = scipy.signal.istft(
+                Zxx_smoothed, fs=sr, nperseg=self.config.fft_size, noverlap=self.config.fft_size - self.config.hop_size
+            )
 
         # Ensure same length as input
         if len(audio_repaired) > len(audio):
@@ -253,7 +275,7 @@ class SpectralRepair:
             if ref_freq_idx < start_idx:
                 # Extrapolate with decay
                 octaves_up = np.log2(freq_hz / f[ref_freq_idx])
-                decay_db = -6.0 * octaves_up  # -6 dB/octave
+                decay_db = self.config.decay_db_per_octave * octaves_up
                 decay_linear = 10 ** (decay_db / 20.0)
 
                 # Apply decay + add noise for naturalness
@@ -287,16 +309,14 @@ class SpectralRepair:
         smooth_bins = int(self.config.smooth_bandwidth_hz / (sr / self.config.fft_size))
         smooth_bins = max(3, smooth_bins)
 
-        kernel = np.ones(smooth_bins) / smooth_bins
+        np.ones(smooth_bins) / smooth_bins
 
-        for t_idx in range(mag.shape[1]):
-            # Only smooth if steady-state
-            if np.any(steady_mask):
-                mag_col = mag[:, t_idx]
-                mag_smoothed_col = np.convolve(mag_col, kernel, mode="same")
+        # Vectorised: uniform_filter1d replaces the per-frame np.convolve loop.
+        # Equivalent to a box kernel along the frequency axis but ~n_frames× faster.
+        from scipy.ndimage import uniform_filter1d as _uf1d
 
-                # Apply only to steady regions
-                mag_smoothed[steady_mask, t_idx] = mag_smoothed_col[steady_mask]
+        smoothed_all = _uf1d(mag, size=smooth_bins, axis=0, mode="reflect")
+        mag_smoothed[steady_mask, :] = smoothed_all[steady_mask, :]
 
         # Count artifacts smoothed
         self._metrics["artifacts_smoothed"] = int(np.sum(steady_mask))
@@ -361,10 +381,13 @@ if __name__ == "__main__":
         signal += 0.5 * np.sin(2 * np.pi * fundamental * h * t) / h
 
     # Simulate MP3 compression: remove content above 16 kHz
-    from scipy.signal import butter, lfilter
+    butter_coeffs = scipy.signal.butter(8, 16000.0 / (sr / 2.0), btype="low", output="ba")
+    if not isinstance(butter_coeffs, tuple) or len(butter_coeffs) != 2:
+        raise RuntimeError("scipy.signal.butter returned unexpected coefficient format")
 
-    b, a = butter(8, 16000 / (sr / 2), btype="low")
-    signal_compressed = lfilter(b, a, signal)
+    b = np.asarray(butter_coeffs[0], dtype=np.float64)
+    a = np.asarray(butter_coeffs[1], dtype=np.float64)
+    signal_compressed = scipy.signal.lfilter(b, a, signal)
 
     logger.info("\nInput:")
     logger.info(f"  - Sample Rate: {sr} Hz")

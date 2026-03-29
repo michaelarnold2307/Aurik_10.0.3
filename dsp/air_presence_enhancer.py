@@ -105,7 +105,8 @@ class AirPresenceEnhancer:
         report : dict
             Processing report
         """
-        assert sr == 48000, f"Sample rate must be 48000 Hz, got {sr}"
+        if sr <= 0:
+            raise ValueError(f"Sample rate must be > 0 Hz, got {sr}")
         audio = np.nan_to_num(audio, nan=0.0, posinf=0.0, neginf=0.0)
 
         # Store original format

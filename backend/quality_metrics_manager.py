@@ -3,7 +3,7 @@ Quality Metrics Manager - Aurik 9.x
 ====================================
 
 Zentrale Integration aller §4.4-konformen Audio-Qualitätsmetriken für Musik:
-- CDPAM: Contrastive Deep Perceptual Audio Metric (Vollband-Musik, 22 050 Hz)
+- VERSA: Non-reference MOS-Metrik für Musik (Compat-Key: cdpam)
 - ViSQOL v3 --audio: Reference-based Perceptual Quality (ITU-Standard, Musik-Modus zwingend)
 - PQS-DSP: Gammatone-NSIM+MCD+LUFS (Aurik-eigener Musik-Scorer, §2.6)
 
@@ -125,7 +125,7 @@ class QualityMetricsManager:
         """Qualitätsbewertung mit musik-spezifischen non-reference Metriken (§4.4, §10.2).
 
         Verwendet ausschließlich für Musik zertifizierte Metriken:
-          - CDPAM (Vollband-Musik-Wahrnehmungsqualität, Vollband 22 050 Hz)
+          - VERSA (referenzfreie MOS-Metrik; Ausgabe unter Compat-Key "cdpam")
           - PQS-DSP (Gammatone-NSIM+MCD+LUFS, aurikeigener Musik-Scorer, §2.6)
 
         DNSMOS, NISQA, PESQ und STOI sind für Musik verboten (§10.2) und werden
@@ -332,7 +332,7 @@ class QualityMetricsManager:
         scores = []
         weights = {}
 
-        # CDPAM (Gewicht: 0.50) — primäre Musik-Wahrnehmungsmetrik (§4.4)
+        # VERSA (Compat-Key "cdpam", Gewicht: 0.50) — primäre Musik-Wahrnehmungsmetrik (§4.4)
         if "cdpam" in metrics and "normalized" in metrics["cdpam"]:
             scores.append(metrics["cdpam"]["normalized"])
             weights["cdpam"] = 0.50
@@ -378,7 +378,7 @@ class QualityMetricsManager:
         }
 
     def _rate_cdpam(self, score: float) -> str:
-        """Rate CDPAM score (0-100)."""
+        """Rate VERSA compat score (0-100, stored under key cdpam)."""
         if score >= 90:
             return "Excellent"
         elif score >= 80:
@@ -439,7 +439,7 @@ class QualityMetricsManager:
 
         if "cdpam" in metrics and "score" in metrics["cdpam"]:
             cdpam = metrics["cdpam"]
-            report_lines.append("\n1. CDPAM (Perceptual Quality)")
+            report_lines.append("\n1. VERSA (Compat-Key: cdpam)")
             report_lines.append(f"   Score: {cdpam['score']:.2f}/100")
             report_lines.append(f"   Rating: {cdpam['rating']}")
 

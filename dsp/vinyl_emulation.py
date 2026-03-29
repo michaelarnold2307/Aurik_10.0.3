@@ -96,13 +96,13 @@ class VinylEmulation:
         # Rumpelfilter: HP bei ~30Hz
         fc_rumble = 30.0 / (sr / 2.0)
         fc_rumble = max(0.001, min(fc_rumble, 0.45))
-        b_hp, a_hp = butter(2, fc_rumble, btype="high")
+        b_hp, a_hp = butter(2, fc_rumble, btype="high", output="ba")  # type: ignore[misc]
 
-        def _color(ch):
-            y = lfilter(b_hf, a_hf, ch.astype(np.float64))
-            return lfilter(b_hp, a_hp, y)
+        def _color(ch: np.ndarray) -> np.ndarray:
+            y = np.asarray(lfilter(b_hf, a_hf, ch.astype(np.float64)), dtype=np.float64)
+            return np.asarray(lfilter(b_hp, a_hp, y), dtype=np.float64)
 
-        out = _color(audio) if audio.ndim == 1 else np.stack([_color(ch) for ch in audio], axis=0)
+        out = np.asarray(_color(audio) if audio.ndim == 1 else np.stack([_color(ch) for ch in audio], axis=0))
         # -- 2. Rauschen (weißes, bandpassgefiltertes Vinyl-Rauschen) --
         if self.noise_level > 0.0:
             rng = np.random.default_rng(seed=42)

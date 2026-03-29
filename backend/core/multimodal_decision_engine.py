@@ -105,22 +105,3 @@ def get_multimodal_decision_engine() -> MultimodalDecisionEngine:
             if _multimodal_decision_engine_instance is None:
                 _multimodal_decision_engine_instance = MultimodalDecisionEngine()
     return _multimodal_decision_engine_instance
-
-
-# ---------------------------------------------------------------------------
-# Singleton accessor (thread-safe, double-checked locking)
-# ---------------------------------------------------------------------------
-import threading as _threading
-
-_multimodal_decision_engine_instance = None
-_multimodal_decision_engine_lock = _threading.Lock()
-
-
-def get_multimodal_decision_engine() -> MultimodalDecisionEngine:
-    """Return the process-wide singleton ``MultimodalDecisionEngine`` instance."""
-    global _multimodal_decision_engine_instance
-    if _multimodal_decision_engine_instance is None:
-        with _multimodal_decision_engine_lock:
-            if _multimodal_decision_engine_instance is None:
-                _multimodal_decision_engine_instance = MultimodalDecisionEngine()
-    return _multimodal_decision_engine_instance

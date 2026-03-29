@@ -96,6 +96,7 @@ class TestProcessingContext:
         # Start module
         context.set_module_state("Module1", ModuleState.IN_PROGRESS)
         module_info = context.get_module_info("Module1")
+        assert module_info is not None
         assert module_info.state == ModuleState.IN_PROGRESS
         assert module_info.start_time is not None
 
@@ -106,6 +107,7 @@ class TestProcessingContext:
         context.complete_module("Module1", confidence=0.95, metrics={"snr": 25.3, "improvement": 0.15})
 
         module_info = context.get_module_info("Module1")
+        assert module_info is not None
         assert module_info.state == ModuleState.COMPLETED
         assert module_info.confidence == 0.95
         assert module_info.metrics["snr"] == 25.3
@@ -124,6 +126,7 @@ class TestProcessingContext:
 
         # Check failure
         module_info = context.get_module_info("FailedModule")
+        assert module_info is not None
         assert module_info.state == ModuleState.FAILED
         assert "Test error message" in module_info.errors
 
@@ -209,6 +212,7 @@ class TestProcessingContext:
 
         # Retrieve analysis
         retrieved = context.get_forensic_analysis()
+        assert retrieved is not None
         assert retrieved == analysis
         assert retrieved["medium_type"] == "VINYL"
 
@@ -224,6 +228,7 @@ class TestProcessingContext:
 
         # Retrieve chain
         retrieved = context.get_processing_chain()
+        assert retrieved is not None
         assert retrieved == chain
         assert len(retrieved["modules"]) == 3
 
@@ -326,7 +331,7 @@ class TestProcessingContext:
 
             # Check module was restored
             module_info = loaded_context.get_module_info("Module1")
-            assert module_info is not None
+            assert module_info is not None  # type: ignore[union-attr]
             assert module_info.state == ModuleState.COMPLETED
             assert module_info.confidence == 0.95
 

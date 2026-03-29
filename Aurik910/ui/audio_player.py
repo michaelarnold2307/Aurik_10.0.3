@@ -4,6 +4,7 @@ Real-time audio playback with before/after comparison
 """
 
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import soundfile as sf
@@ -26,10 +27,10 @@ try:
 except ImportError:
     _BRIDGE_AVAILABLE = False
 
-    def get_aurik_denker_class():  # type: ignore[misc]
+    def get_aurik_denker_class() -> Any:  # type: ignore[misc]
         return None
 
-    def get_aurik_denker_instance():  # type: ignore[misc]
+    def get_aurik_denker_instance() -> Any:  # type: ignore[misc]
         return None
 
 

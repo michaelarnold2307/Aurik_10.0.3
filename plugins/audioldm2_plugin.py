@@ -141,13 +141,17 @@ class AudioLDM2Plugin:
 
     def _run_onnx(self, prompt: str, n_samples: int, guidance: float) -> np.ndarray:
         """Versuche ONNX-Inferenz mit bekannten Eingabe-Formaten."""
+        session = self._session
+        if session is None:
+            raise RuntimeError("ONNX-Session nicht initialisiert")
+
         # Versuch 1: Modell erwartet kein Text-Embedding, nur Länge + Guidance
         if len(self._input_names) == 0:
             raise RuntimeError("Keine Modelleingaben definiert")
 
         # Generische Eingabe-Konstruktion: fille alle fehlenden Eingaben mit Nullen
         feeds: dict[str, np.ndarray] = {}
-        for inp in self._session.get_inputs():
+        for inp in session.get_inputs():
             name = inp.name
             shape = inp.shape
             dtype = inp.type
@@ -166,7 +170,7 @@ class AudioLDM2Plugin:
 
             feeds[name] = np.zeros(resolved, dtype=np_dtype)
 
-        out = self._session.run(None, feeds)
+        out = session.run(None, feeds)
         if out and isinstance(out[0], np.ndarray):
             result = out[0].flatten().astype(np.float32)
             result = np.nan_to_num(result, nan=0.0, posinf=0.0, neginf=0.0)

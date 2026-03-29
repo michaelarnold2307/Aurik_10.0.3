@@ -39,6 +39,9 @@ def get_resource_manager() -> AdaptiveResourceManager:
 
 
 class AdaptiveResourceManager:
+    # Lock-order: Priority 3 (ARM) — see §3.9.8.
+    # evict_stale_plugins() is called OUTSIDE the ARM lock to respect lock hierarchy.
+    # Never call back into PLM or MLMemoryBudget while holding self.lock.
     def __init__(
         self,
         min_cores: int = 2,

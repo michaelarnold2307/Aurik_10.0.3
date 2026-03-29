@@ -98,7 +98,7 @@ class TestFullChainMLHybrid:
         # Process
         start_time = time.time()
         result = restorer.restore(audio, sample_rate=sr)
-        time.time() - start_time
+        processing_time = time.time() - start_time
 
         # Results
         print("\n" + "-" * 80)
@@ -108,6 +108,7 @@ class TestFullChainMLHybrid:
         print(f"  Phases Skipped: {len(result.phases_skipped)}")
         print(f"  Quality Estimate: {result.quality_estimate:.3f}")
         print(f"  Processing Time: {result.total_time_seconds:.2f}s")
+        print(f"  Wall Time: {processing_time:.2f}s")
         print(f"  RT Factor: {result.rt_factor:.2f}×")
         print(f"  Warnings: {len(result.warnings)}")
 

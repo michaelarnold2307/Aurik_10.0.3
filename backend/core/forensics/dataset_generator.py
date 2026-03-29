@@ -33,6 +33,14 @@ from backend.core.forensics.signatures import ERA_SIGNATURES, EraType, MediaType
 logger = logging.getLogger(__name__)
 
 
+def _sosfilt_array(sos: np.ndarray, audio: np.ndarray) -> np.ndarray:
+    """Return only the filtered audio array from scipy.signal.sosfilt."""
+    filtered = scipy_signal.sosfilt(sos, audio)
+    if isinstance(filtered, tuple):
+        return np.asarray(filtered[0])
+    return np.asarray(filtered)
+
+
 @dataclass
 class SyntheticSample:
     """Metadata für synthetisches Sample."""
@@ -300,7 +308,7 @@ class DatasetGenerator:
 
         # 2. High-frequency rolloff
         sos_lpf = scipy_signal.butter(4, 12000, btype="low", fs=sr, output="sos")
-        audio = scipy_signal.sosfilt(sos_lpf, audio)
+        audio = _sosfilt_array(sos_lpf, audio)
 
         # 3. Wow & Flutter (pitch modulation)
         t = np.arange(len(audio)) / sr
@@ -336,7 +344,7 @@ class DatasetGenerator:
         # 1. High-frequency cutoff (bitrate-dependent)
         cutoff_freq = random.choice([14000, 15000, 16000, 18000])
         sos_lpf = scipy_signal.butter(8, cutoff_freq, btype="low", fs=sr, output="sos")
-        audio = scipy_signal.sosfilt(sos_lpf, audio)
+        audio = _sosfilt_array(sos_lpf, audio)
 
         # 2. Pre-echo artifacts
         audio = self._add_pre_echo(audio)
@@ -362,7 +370,7 @@ class DatasetGenerator:
         # High-frequency cutoff (z.B. 16 kHz für 128 kbps MP3)
         cutoff_freq = random.choice([15000, 16000, 18000, 20000])
         sos_lpf = scipy_signal.butter(8, cutoff_freq, btype="low", fs=sr, output="sos")
-        audio = scipy_signal.sosfilt(sos_lpf, audio)
+        audio = _sosfilt_array(sos_lpf, audio)
 
         # Pre-echo artifacts (vereinfacht)
         audio = self._add_pre_echo(audio)
@@ -377,11 +385,11 @@ class DatasetGenerator:
 
         if low_cutoff > 20:
             sos_hp = scipy_signal.butter(2, low_cutoff, btype="high", fs=sr, output="sos")
-            audio = scipy_signal.sosfilt(sos_hp, audio)
+            audio = _sosfilt_array(sos_hp, audio)
 
         if high_cutoff < sr / 2:
             sos_lp = scipy_signal.butter(4, high_cutoff, btype="low", fs=sr, output="sos")
-            audio = scipy_signal.sosfilt(sos_lp, audio)
+            audio = _sosfilt_array(sos_lp, audio)
 
         # 2. Noise floor
         noise_floor_db = random.uniform(*era_sig.noise_floor_db)

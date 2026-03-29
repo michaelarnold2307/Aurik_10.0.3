@@ -9,6 +9,7 @@ from __future__ import annotations
 import logging
 import os
 import threading
+from typing import Any
 
 import numpy as np
 
@@ -25,7 +26,7 @@ _BINS = 841
 
 class ResembleEnhancePlugin:
     def __init__(self, model_path: str | None = None) -> None:
-        self._session = None
+        self._session: Any = None
         self._try_load(model_path or _MODEL)
 
     def _try_load(self, path: str) -> None:
@@ -124,47 +125,54 @@ class ResembleEnhancePlugin:
         Processes in ~30-second chunks (MAX_CHUNK_FRAMES) to prevent OOM on
         long files.  Each chunk is independent; overlap-add at chunk boundaries
         uses a Hanning crossfade of _N samples to avoid clicks.
+
+        §2.38a ML-Headroom-Guard: Falls ONNX-Inferenz fehlschlägt, DSP-Fallback statt Exception.
         """
-        win = np.hanning(_N).astype(np.float32)
-        total_nf = max(1, (len(mono) + _HOP - 1) // _HOP)
+        try:
+            win = np.hanning(_N).astype(np.float32)
+            total_nf = max(1, (len(mono) + _HOP - 1) // _HOP)
 
-        # ~30 s at 44.1 kHz  →  ~3150 STFT frames  →  ~130 MB peak per chunk
-        _MAX_CHUNK_FRAMES = 3150
-        if total_nf <= _MAX_CHUNK_FRAMES:
-            return self._onnx_single(mono, win, total_nf)
+            # ~30 s at 44.1 kHz  →  ~3150 STFT frames  →  ~130 MB peak per chunk
+            _MAX_CHUNK_FRAMES = 3150
+            if total_nf <= _MAX_CHUNK_FRAMES:
+                return self._onnx_single(mono, win, total_nf)
 
-        # ── Chunked processing ──────────────────────────────────────────
-        overlap_samples = _N  # overlap between chunks for crossfade
-        chunk_samples = _MAX_CHUNK_FRAMES * _HOP + _N
-        step_samples = chunk_samples - overlap_samples
-        out_full = np.zeros(len(mono), np.float32)
-        pos = 0
-        chunk_idx = 0
-        while pos < len(mono):
-            end = min(pos + chunk_samples, len(mono))
-            chunk = mono[pos:end]
-            nf_chunk = max(1, (len(chunk) + _HOP - 1) // _HOP)
-            processed = self._onnx_single(chunk, win, nf_chunk)
-            processed = processed[: len(chunk)]
+            # ── Chunked processing ──────────────────────────────────────────
+            overlap_samples = _N  # overlap between chunks for crossfade
+            chunk_samples = _MAX_CHUNK_FRAMES * _HOP + _N
+            step_samples = chunk_samples - overlap_samples
+            out_full = np.zeros(len(mono), np.float32)
+            pos = 0
+            chunk_idx = 0
+            while pos < len(mono):
+                end = min(pos + chunk_samples, len(mono))
+                chunk = mono[pos:end]
+                nf_chunk = max(1, (len(chunk) + _HOP - 1) // _HOP)
+                processed = self._onnx_single(chunk, win, nf_chunk)
+                processed = processed[: len(chunk)]
 
-            if chunk_idx == 0:
-                # First chunk: copy directly
-                out_full[pos : pos + len(processed)] = processed
-            else:
-                # Crossfade in overlap region
-                ol = min(overlap_samples, len(processed), len(out_full) - pos)
-                if ol > 0:
-                    fade_in = np.linspace(0.0, 1.0, ol, dtype=np.float32)
-                    fade_out = 1.0 - fade_in
-                    out_full[pos : pos + ol] = out_full[pos : pos + ol] * fade_out + processed[:ol] * fade_in
-                if ol < len(processed):
-                    out_full[pos + ol : pos + len(processed)] = processed[ol:]
+                if chunk_idx == 0:
+                    # First chunk: copy directly
+                    out_full[pos : pos + len(processed)] = processed
+                else:
+                    # Crossfade in overlap region
+                    ol = min(overlap_samples, len(processed), len(out_full) - pos)
+                    if ol > 0:
+                        fade_in = np.linspace(0.0, 1.0, ol, dtype=np.float32)
+                        fade_out = 1.0 - fade_in
+                        out_full[pos : pos + ol] = out_full[pos : pos + ol] * fade_out + processed[:ol] * fade_in
+                    if ol < len(processed):
+                        out_full[pos + ol : pos + len(processed)] = processed[ol:]
 
-            pos += step_samples
-            chunk_idx += 1
-            # Explicit cleanup between chunks to prevent RAM drift
-            del chunk, processed
-        return out_full
+                pos += step_samples
+                chunk_idx += 1
+                # Explicit cleanup between chunks to prevent RAM drift
+                del chunk, processed
+            return out_full
+        except Exception as _onnx_exc:
+            logger.error("Resemble-Enhance ONNX-Pipeline fehlgeschlagen: %s — DSP-Wiener-Fallback", _onnx_exc)
+            # Fallback: Wiener-Filterung statt ONNX
+            return _wiener(mono, _SR)
 
     def _onnx_single(self, mono: np.ndarray, win: np.ndarray, nf: int) -> np.ndarray:
         """Process a single audio chunk through ONNX (original algorithm)."""

@@ -6,7 +6,7 @@ from typing import Any
 import numpy as np
 import numpy.typing as npt
 import scipy.signal
-from scipy.signal import butter, lfilter
+from scipy.signal import butter, sosfilt
 
 _logger = logging.getLogger(__name__)
 
@@ -126,35 +126,75 @@ class MultibandCompressor:
     def _audit_log(self, result: dict[str, Any]):
         _logger.debug("[AuditLog][MultibandCompressor] Ergebnis: %s", result)
 
-    def _split_bands(self, audio: npt.NDArray[np.float64], sr: int) -> list[npt.NDArray[np.float64]]:
+    @staticmethod
+    def _lr4_sos(cutoff: float, sr: float, btype: str) -> npt.NDArray[np.float64]:
+        """Linkwitz-Riley 4th-order filter as SOS (2x Butterworth-2 cascaded).
+
+        LR4 key property: LR4_low(f) + LR4_high(f) = 1 for all f
+        (flat summed amplitude, no phase cancellation at crossover).
+        Butterworth 4th order alone does NOT have this property.
+
+        Args:
+            cutoff: Crossover frequency in Hz
+            sr:     Sample rate in Hz
+            btype:  'low' or 'high'
+
+        Returns:
+            SOS matrix [2*2, 6] (two 2nd-order sections cascaded)
         """
-        Teilt das Signal in Frequenzbänder auf.
-        Rückgabe: Liste von Band-Signalen
-        Unterstützt beliebige Bandanzahl (>=1).
+        wn = cutoff / (sr / 2.0)
+        wn = float(np.clip(wn, 1e-4, 0.9999))
+        sos = butter(2, wn, btype=btype, output="sos")
+        # Cascade the same filter twice to get LR4
+        sos = np.asarray(sos, dtype=np.float64)
+        stacked = np.empty((sos.shape[0] * 2, sos.shape[1]), dtype=np.float64)
+        stacked[: sos.shape[0], :] = sos
+        stacked[sos.shape[0] :, :] = sos
+        return stacked
+
+    @staticmethod
+    def _butter_ba(
+        order: int, wn: float | list[float], btype: str
+    ) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
+        """Return validated Butterworth (b, a) coefficients with stable typing."""
+        coeffs = butter(order, wn, btype=btype, output="ba")
+        if not isinstance(coeffs, tuple) or len(coeffs) != 2:
+            raise RuntimeError("scipy.signal.butter returned unexpected coefficient format")
+
+        b = np.asarray(coeffs[0], dtype=np.float64)
+        a = np.asarray(coeffs[1], dtype=np.float64)
+        return b, a
+
+    def _split_bands(self, audio: npt.NDArray[np.float64], sr: int) -> list[npt.NDArray[np.float64]]:
+        """Split signal into frequency bands using Linkwitz-Riley LR4 crossover.
+
+        LR4 crossover guarantees flat amplitude sum (no comb filtering).
+        Each crossover is implemented as 2x cascaded Butterworth-2 (24 dB/oct).
         """
         bands: list[npt.NDArray[np.float64]] = []
         cross = list(self.crossovers)
-        # Defensive: crossovers ggf. auffüllen
         while len(cross) < self.bands - 1:
             cross.append(cross[-1] if cross else 2000)
-        # Low
         if self.bands == 1:
             return [audio]
-        b, a = butter(4, cross[0] / (sr / 2), btype="low")
-        bands.append(np.asarray(lfilter(b, a, audio), dtype=np.float64))
-        # Mittlere Bänder
+        # Low band
+        sos_low = self._lr4_sos(cross[0], sr, "low")
+        bands.append(np.asarray(sosfilt(sos_low, audio), dtype=np.float64))
+        # Mid bands
         for i in range(1, self.bands - 1):
-            wn0 = cross[i - 1] / (sr / 2)
-            wn1 = cross[i] / (sr / 2)
-            if wn0 >= wn1:
-                # Ungültige Bandgrenzen, dupliziere vorheriges Band
+            fc0, fc1 = cross[i - 1], cross[i]
+            if fc0 >= fc1:
                 bands.append(bands[-1].copy() if bands else np.zeros_like(audio))
                 continue
-            b, a = butter(4, [wn0, wn1], btype="band")
-            bands.append(np.asarray(lfilter(b, a, audio), dtype=np.float64))
-        # High
-        b, a = butter(4, cross[self.bands - 2] / (sr / 2), btype="high")
-        bands.append(np.asarray(lfilter(b, a, audio), dtype=np.float64))
+            # LR4 band: high-pass @ fc0 then low-pass @ fc1
+            sos_hp = self._lr4_sos(fc0, sr, "high")
+            sos_lp = self._lr4_sos(fc1, sr, "low")
+            mid = sosfilt(sos_hp, audio)
+            mid = sosfilt(sos_lp, mid)
+            bands.append(np.asarray(mid, dtype=np.float64))
+        # High band
+        sos_high = self._lr4_sos(cross[self.bands - 2], sr, "high")
+        bands.append(np.asarray(sosfilt(sos_high, audio), dtype=np.float64))
         return bands
 
     def _compress_band(
@@ -172,7 +212,8 @@ class MultibandCompressor:
         """
         # RMS-Detection
         window = int(sr * 0.01)
-        rms = np.sqrt(np.convolve(audio**2, np.ones(window) / window, mode="same"))
+        rms = self._moving_rms(audio, window)
+        rms = np.nan_to_num(rms, nan=1e-8, posinf=1e-8, neginf=1e-8)
         rms_db = 20 * np.log10(rms + 1e-8)
         over = rms_db - threshold_db
         gain_db = np.zeros_like(rms_db)
@@ -192,6 +233,20 @@ class MultibandCompressor:
                 env[i] = release_coeff * env[i - 1] + (1 - release_coeff) * gain_lin[i]
         out = audio * env
         return np.asarray(out)
+
+    @staticmethod
+    def _moving_rms(audio: npt.NDArray[np.float64], window: int) -> npt.NDArray[np.float64]:
+        window = max(1, int(window))
+        x = np.nan_to_num(np.asarray(audio, dtype=np.float64), nan=0.0, posinf=0.0, neginf=0.0)
+        if x.ndim == 1:
+            sq = np.square(x)
+            left = window // 2
+            right = window - left - 1
+            padded = np.pad(sq, (left, right), mode="edge")
+            csum = np.cumsum(np.concatenate(([0.0], padded)))
+            avg = (csum[window:] - csum[:-window]) / float(window)
+            return np.sqrt(np.maximum(avg, 0.0))
+        return np.apply_along_axis(lambda ch: MultibandCompressor._moving_rms(ch, window), axis=-1, arr=x)
 
 
 class MultibandCompressorStudio:

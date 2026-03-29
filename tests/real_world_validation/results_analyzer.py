@@ -364,8 +364,8 @@ class ResultsAnalyzer:
             print(f"   Overall mean: {rating['overall_mean']}/5.0")
 
             criteria = rating.get("criteria", {})
-            for criterion, stats in criteria.items():
-                print(f"   {criterion}: {stats['mean']} ± {stats['std']}")
+            for criterion, crit_stats in criteria.items():
+                print(f"   {criterion}: {crit_stats['mean']} ± {crit_stats['std']}")
 
         print("\n" + "=" * 60)
 

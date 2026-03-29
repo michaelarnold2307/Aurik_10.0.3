@@ -177,7 +177,8 @@ class MusicalGoalsRadarWidget(QWidget):
             target = self._target_scores[g.key]
             g.score = target if done else start + (target - start) * eased
         if done:
-            self._anim_timer.stop()
+            if self._anim_timer is not None:
+                self._anim_timer.stop()
             self._anim_timer = None
         self.update()
 

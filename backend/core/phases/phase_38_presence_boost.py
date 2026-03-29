@@ -304,8 +304,8 @@ class PresenceBoost(PhaseInterface):
         a2 = 1 - alpha / A
 
         # Normalize
-        b = np.array([b0, b1, b2]) / a0
-        a = np.array([1, a1 / a0, a2 / a0])
+        b = np.array([b0, b1, b2], dtype=np.float64) / a0
+        a = np.array([1.0, a1 / a0, a2 / a0], dtype=np.float64)
 
         # Apply filter
         filtered = signal.lfilter(b, a, audio)

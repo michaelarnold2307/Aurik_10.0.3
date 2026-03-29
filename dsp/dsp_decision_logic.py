@@ -21,7 +21,6 @@ logger = logging.getLogger(__name__)
 
 
 class DSPDecisionLogic:
-
     def analyze_adaptive(self, profile: AnalysisProfile) -> list[dict[str, Any]]:
         """
         SOTA-konforme, adaptive Entscheidungslogik: Verarbeitet ein vollständiges AnalysisProfile-Objekt
@@ -39,9 +38,7 @@ class DSPDecisionLogic:
         # Beispiel: adaptive Maßnahmenkette
         chain = []
         # 1. Medium- und Kettenlogik
-        [getattr(chain_info, "detected_medium", None)]
-        if hasattr(chain_info, "transfer_chain") and chain_info.transfer_chain:
-            chain_info.transfer_chain
+        getattr(chain_info, "detected_medium", None)
         # 2. Defektlogik
         for defect in defects:
             if defect.defect_type == "broadband_noise" and defect.severity > 0.2:

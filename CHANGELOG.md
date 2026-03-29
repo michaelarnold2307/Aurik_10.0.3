@@ -2,6 +2,63 @@
 
 > Hinweis: Dieses Dokument ist eine Versionshistorie. Ältere Versionsnummern und Kennzahlen sind hier erwartbar und keine veralteten Reststände.
 
+## Version 9.10.77g — §3.9 Stabilitäts-Invarianten (Crash/OOM/Deadlock-Härtung) (28. Mär 2026)
+
+### Zusammenfassung
+
+Tiefenanalyse des vollständigen Aurik-Stacks (UV3, ARM, PLM, ml_memory_budget, modern_window, BatchProcessingThread, MLRefinementThread) zur Identifizierung und normativen Absicherung von 9 Stabilitätslücken. Keine Code-Änderungen in dieser Version — nur normative Spec-Ergänzungen als RELEASE_MUST-Gates.
+
+### Identifizierte Lücken und Spec-Kontrakte
+
+- **§3.9.1 Per-Phase-Inference-Timeout**: `concurrent.futures.wait(timeout=300s)` für ONNX/torch-Inferenz. Hängendes Modell → InferenceTimeoutError → DSP-Fallback + `deferred_phases`-Eintrag. BLAS-Deadlock bisher undetectable für 90 Minuten.
+- **§3.9.2 SIGTERM-Handler**: `signal.signal(SIGTERM, _sigterm_handler)` in `main.py` → Emergency-Checkpoint + `QApplication.quit()`. SIGKILL-Limitation explizit dokumentiert (§2.39 nur via MemoryError erreichbar).
+- **§3.9.3 Phase-Output-Guard**: `@phase_output_guard`-Decorator-Kontrakt — `nan_to_num + clip + assert isfinite` strukturell erzwungen statt per Konvention. NaN-Propagation aus ML-Ausgaben ist verboten.
+- **§3.9.4 ThreadPoolExecutor-Lifecycle**: `shutdown(wait=True, cancel_futures=True)` Pflicht in Cleanup-Pfad. `module_coordinator.py`-Executor ohne explizites Shutdown identifiziert.
+- **§3.9.5 ml_memory_budget Startup-Reconciliation**: `_reconcile_on_startup()` in `__init__` — Budget-Reset auf 0.0 GB bei Prozessstart. Verhindert stale Allokation nach SIGKILL.
+- **§3.9.6 Structured Exception Logging**: VERBOTEN: `except Exception: pass`. Pflicht: `fail_reasons`-Eintrag (§2.41) + `logger.error(..., exc_info=True)` in allen Pipeline-kritischen Pfaden.
+- **§3.9.7 Audio-Buffer-RAM-Guard**: `_check_audio_buffer_size(audio, file_path)` nach `soundfile.read()` vor Pipeline. `MAX_AUDIO_BYTES_RAM = 2 GB`. Sehr große Dateien (> 8 h) können 40+ GB numpy-Array verursachen.
+- **§3.9.8 Lock-Acquisition-Order**: Bindende Prioritätsreihenfolge `MLMemoryBudget (P1) → PLM (P2) → ARM (P3)`. ARM-eviction läuft korrekt außerhalb des ARM-Locks — Invariante MUSS beibehalten werden.
+- **§3.9.9 MLRefinementThread Buffer-Release**: `DeferredRefinementJob.release_buffer()` im `finally`-Block garantiert. `audio_original` nach Release auf `None` (GC-freigabe).
+
+### Spec-Dokumentation (normativ)
+
+- `spec 08` §3.9.1–§3.9.9: 9 neue Stabilitäts-Invarianten
+- `spec 02` §2.42: Pipeline-Stabilitäts-Kontrakt (Referenztabelle S-01–S-15)
+- `copilot-instructions.md`: instructions_version 3.4 → **3.5**, §3.9-Kurzbeschreibung, Gate-Tabelle §3.9-Zeile
+- `docs/CHANGELOG_HISTORY.md`: v9.10.81-Eintrag
+
+### Test-Anforderung (Implementierung ausstehend)
+
+- `tests/normative/test_stability_invariants.py` — je §3.9.x-Invariante ≥ 3 Tests (RELEASE_MUST).
+
+---
+
+## Version 9.10.77f — PMGG Stable-Metric-Invariante + Tiefen-Immersions-Prinzip (28. Mär 2026)
+
+### Zusammenfassung
+
+Root-Cause-Fix für falsche P1-Kaskaden in `PerPhaseMusicalGoalsGate`: `NatuerlichkeitMetric` verursachte Pseudo-Regressionen (Δ≈0.15–0.28) durch CREPE Load-State-Gewichtsänderungen (w_crepe 0.0 → 0.18). Ergebnis war phase_03 @ 5.6 % best-effort statt optimalem Strength → Noise Floor −55 dBFS statt −72 dBFS → Mikrodetails verdeckt → Tiefen-Immersion zerstört.
+
+- **`backend/core/per_phase_musical_goals_gate.py`**:
+  - `NatuerlichkeitMetric` aus `_PRECISE_METRICS` entfernt — läuft ausschließlich im Export-Gate (`MusicalGoalsChecker` Schwellwert ≥ 0.90 unverändert)
+  - `_apply_precise_metric_overrides()`: Audio-Cap auf **2.5 s** (verhindert NMF/Onset-Runs auf Langaudio; war: > 2 s/Call auf 60 s-Material)
+  - `PHASE_GOAL_EXCLUSIONS`: `phase_03`, `phase_02`, `phase_24` schließen `natuerlichkeit` aus
+  - `_PRECISE_OVERRIDE_WARN_MS`: 120 ms → **200 ms** (7 DSP-Only-Metriken, alle < 200 ms gesamt)
+
+- **Spec-Dokumentation** (normativ):
+  - `copilot-instructions.md` §2.29b: PMGG Stable-Metric-Invariante (7 Invarianten, CREPE-Kausalkette)
+  - `copilot-instructions.md` §8.3 Ergänzung: Tiefen-Immersions-Prinzip (5-Schichten-Tabelle, Phase_03→Noise-Floor→Immersion-Kausalkette)
+  - `spec 02` §9.7.7 + §9.7.8: PMGG Stable-Metric-Invariante + Precise-Metric Audio-Cap
+  - `spec 07` §8.3.1: Tiefen-Immersions-Prinzip
+  - `spec 08` §9.7 Code-Block: §9.7.5–§9.7.8 ergänzt
+  - `spec 04` §4.2: `griffin_lim()` VERBOTEN als Phasengenerator-Endschritt (IPD-Kollaps)
+
+### Test-Status
+
+- 35 Unit-Tests `tests/unit/test_per_phase_musical_goals_gate.py` — alle grün.
+
+---
+
 ## Version 9.10.77e — Psychoacoustic Masking als Pipeline-Kwarg + AMRB-Baseline (28. Mär 2026)
 
 ### Zusammenfassung

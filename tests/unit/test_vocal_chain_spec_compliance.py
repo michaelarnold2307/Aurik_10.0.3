@@ -313,13 +313,16 @@ class TestVocalChainSpec10Steps:
 
         if mask_presence.sum() > 0 and mask_other.sum() > 0:
             energy_presence_before = np.mean(orig_spec[mask_presence] ** 2)
-            np.mean(orig_spec[mask_other] ** 2)
+            energy_other_before = np.mean(orig_spec[mask_other] ** 2)
 
             energy_presence_after = np.mean(enh_spec[mask_presence] ** 2)
-            np.mean(enh_spec[mask_other] ** 2)
+            energy_other_after = np.mean(enh_spec[mask_other] ** 2)
 
             # Relativ-Delta sollte Presence-Band verstärken
-            (energy_presence_after - energy_presence_before) / (energy_presence_before + 1e-9)
+            presence_relative_delta = (energy_presence_after - energy_presence_before) / (energy_presence_before + 1e-9)
+            assert np.isfinite(energy_other_before)
+            assert np.isfinite(energy_other_after)
+            assert np.isfinite(presence_relative_delta)
             # Kein strikter Assert wegen Spektral-Fluktuationen bei synth. Signal
 
     # ======================================================================

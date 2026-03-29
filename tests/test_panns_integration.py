@@ -67,7 +67,7 @@ if __name__ == "__main__":
         sys.exit(1)
 
     try:
-        profile = test_panns_integration(audio_path)
+        test_panns_integration()
         logger.info("Test completed successfully!")
     except Exception as e:
         logger.error(f"Test failed with error: {e}", exc_info=True)

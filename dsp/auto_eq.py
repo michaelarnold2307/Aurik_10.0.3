@@ -53,18 +53,27 @@ class AutoEQ:
         :return: Equalized Audio (np.ndarray)
         """
         self.log_contract()
+        x = np.nan_to_num(np.asarray(audio, dtype=np.float64), nan=0.0, posinf=0.0, neginf=0.0)
+
         # Low-Shelf (bis 120 Hz)
         sos_low = scipy.signal.iirfilter(2, 120 / (sr / 2), btype="low", ftype="butter", output="sos")
-        low = scipy.signal.sosfilt(sos_low, audio) * 10 ** (self.gains["low"] / 20)
+        low = scipy.signal.sosfilt(sos_low, x) * 10 ** (self.gains["low"] / 20)
+
         # Peaking (1 kHz)
-        sos_mid = scipy.signal.iirpeak(1000 / (sr / 2), Q=1)
-        mid = scipy.signal.lfilter(sos_mid[0], sos_mid[1], audio) * 10 ** (self.gains["mid"] / 20)
+        b_mid, a_mid = scipy.signal.iirpeak(1000 / (sr / 2), Q=1)
+        sos_mid = scipy.signal.tf2sos(b_mid, a_mid)
+        mid = scipy.signal.sosfilt(sos_mid, x) * 10 ** (self.gains["mid"] / 20)
+
         # High-Shelf (ab 8 kHz)
         wn_high = min(8000 / (sr / 2), 0.99) if sr > 0 else 0.99
         if wn_high <= 0 or wn_high >= 1:
             wn_high = 0.99
         sos_high = scipy.signal.iirfilter(2, wn_high, btype="high", ftype="butter", output="sos")
-        high = scipy.signal.sosfilt(sos_high, audio) * 10 ** (self.gains["high"] / 20)
+        high = scipy.signal.sosfilt(sos_high, x) * 10 ** (self.gains["high"] / 20)
+
         # Mischung
         out = 0.3 * low + 0.4 * mid + 0.3 * high
-        return np.asarray(out / np.max(np.abs(out)) if np.max(np.abs(out)) > 0 else out)
+        peak = float(np.max(np.abs(out))) if out.size > 0 else 0.0
+        if peak > 1.0:
+            out = out / peak
+        return np.clip(np.nan_to_num(out, nan=0.0, posinf=0.0, neginf=0.0), -1.0, 1.0)

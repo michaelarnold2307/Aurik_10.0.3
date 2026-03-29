@@ -11,7 +11,7 @@ Implementiert in `backend/core/musical_goals/musical_goals_metrics.py`,
 aufgerufen via `MusicalGoalsChecker.measure_all(audio, sr)`.
 
 | Ziel (Klasse) | Frequenzbereich / Messgröße | Prio | Restoration | Studio 2026 |
-|---|---|---|---|---|
+| --- | --- | --- | --- | --- |
 | **Natürlichkeit** (`NatuerlichkeitMetric`) | Artefaktfreiheit, Rauschen, Klangbild | **1** | ≥ **0.90** | ≥ **0.90** |
 | **Authentizität** (`AuthentizitaetMetric`) | Voice Identity, spektraler Fingerabdruck | **1** | ≥ **0.88** | ≥ **0.88** |
 | **Tonales Zentrum** (`TonalCenterMetric`) | Chroma-Korrelation Original↔Restauriert, kein Key-Shift > 0 Cent | **2** | ≥ **0.95** | ≥ **0.97** |
@@ -28,7 +28,6 @@ aufgerufen via `MusicalGoalsChecker.measure_all(audio, sr)`.
 | **Raumtiefe** (`SpatialDepthMetric`) | IACC (Interaural Cross-Correlation, Blauert 1997) + Stereobreite + Phantom-Center-Stabilität; IACC < 0.70 → wahrnehmb. Zusammenbruch | **5** | ≥ **0.70** | ≥ **0.75** |
 
 > **v9.10.77 Pareto-Differenzierung**: Restoration-Modus senkt P3–P5-Schwellwerte auf physikalisch erreichbare Werte (Pareto-Konflikte: Bass↔Transparenz [0.7], Brillanz↔Wärme [0.6]). P1/P2 bleiben identisch. Studio 2026 behält ambitionierte Ziele.
-
 > **Schwellwert-Validierung**: Die Schwellwerte für alle 14 Ziele wurden algorithmisch aus AMRB-Bench­mark­daten (10 Szenarien, Ø OQS-Kalibrierung) abgeleitet. Ein ITU-R BS.1534-3 MUSHRA-Hörertest steht als externe Validierung aus (geplant). Bis zur Validierung gelten die Werte als „best engineering estimate“. Die Schwellwerte dürfen NUR nach dokumentiertem Hörertest geändert werden.
 
 ```python
@@ -73,7 +72,7 @@ REGRESSION_EPSILON: float = 0.001
 PMGG-Retries werden prioritätsabhängig budgetiert:
 
 | Priorität | Max Retries | Threshold-Faktor | Verhalten |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | P1 | 4 | 1.0× | Volle Retry-Kaskade + Emergency |
 | P2 | 4 | 1.0× | Volle Retry-Kaskade + Emergency |
 | P3 | 2 | 1.5× (mildere Erkennung) | Reduzierte Kaskade, kein Emergency |
@@ -97,6 +96,27 @@ conflict_result = gpp.resolve_conflict(goal_a, goal_b, delta_a, delta_b)
 # conflict_result.winner = priorisiertes Ziel
 ```
 
+## §2.35 Vocal-Exzellenz-Zusatzmetriken (PFLICHT fuer Gesangsmaterial)
+
+Wenn PANNs/Gender/Vocal-Detektoren Gesang erkennen, werden zusaetzlich zu den 14 Musical Goals folgende Vocal-Zielwerte geprueft:
+
+| Ziel | Messgroesse | Mindestwert |
+| --- | --- | --- |
+| Formant-Stabilitaet | mittlere Formant-Drift F1/F2 ueber Vokal-Segmente | <= 35 Hz |
+| Sibilance-Natuerlichkeit | 5-10 kHz-Energieabweichung in Frikativen | <= 1.5 dB |
+| Konsonanten-Klarheit | Plosiv/Frikativ-Onset-Praezision vs. Original | <= 6 ms |
+
+**Invariante:** Vocal-Zusatzmetriken duerfen nie auf Kosten von P1/P2 erzwungen werden.
+
+## §2.36 Pareto-Tie-Break nach Hoerprioritaet
+
+Bei mehreren Pareto-aequivalenten Kandidaten gilt folgende Tie-Break-Reihenfolge:
+
+1. kleinste P1/P2-Regression,
+2. hoechster Vocal-Score (falls Gesang erkannt),
+3. geringste Artefaktwahrscheinlichkeit (musical noise, chirps, metallic tails),
+4. niedrigere Laufzeit nur, wenn Punkte 1-3 gleichwertig sind.
+
 ---
 
 ## §2.32 GoalApplicabilityFilter — Physikalisch irrelevante Ziele deaktivieren
@@ -111,7 +131,7 @@ ALWAYS_APPLICABLE: frozenset[str] = frozenset({
 **Deaktivierungs-Regeln:**
 
 | Ziel | Deaktiviert wenn |
-|---|---|
+| --- | --- |
 | `SpatialDepthMetric` | EraResult.decade ≤ 1950 UND M/S-Korrelation ≥ 0.95 (Mono-Aufnahme) |
 | `BrillanzMetric` | Quell-Bandbreite < 8 kHz UND AudioSR nicht geladen |
 | `TonalCenterMetric` | Original-SNR < −5 dB ODER MaterialType = WAX_CYLINDER |

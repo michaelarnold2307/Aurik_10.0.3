@@ -5,6 +5,7 @@ Hier findest du Best-Practice-Policy-Blueprints für typische Restaurationsaufga
 ## Beispiele
 
 ### standard.yaml
+
 ```yaml
 use_inpainter: true
 remove_hum: true
@@ -12,6 +13,7 @@ vocal_enhance: false
 ```
 
 ### minimal.yaml
+
 ```yaml
 use_inpainter: false
 remove_hum: false
@@ -19,6 +21,7 @@ vocal_enhance: false
 ```
 
 ### vocal_focus.yaml
+
 ```yaml
 use_inpainter: true
 remove_hum: false
@@ -37,6 +40,7 @@ vocal_enhance: true
 Lege eigene YAML-Dateien im Verzeichnis `policy_templates/` ab. Jede Datei entspricht einer Policy-Vorlage und kann beliebig erweitert werden (z.B. für Genre, Instrument, User-Profile).
 
 ## Hinweise
+
 - Alle Änderungen werden im Audit-Log dokumentiert.
 
 ## Automatisierter Review-Workflow & Qualitätsanforderungen
@@ -59,5 +63,6 @@ Führe folgenden Befehl aus, um alle Templates zu validieren und einen Review-Re
 **Nur fehlerfreie Templates werden akzeptiert!**
 
 Weitere Hinweise und Beispiele findest du in den bestehenden YAML-Dateien.
+
 - Templates können als Startpunkt für User-Feedback und Session-Memory dienen.
 - Für Community-Beiträge: Pull-Request mit neuem Template und kurzer Beschreibung.

@@ -548,7 +548,9 @@ if __name__ == "__main__":
 
         # Process
         start = time.time()
-        processed, meta = processor.process(audio, sr, material)
+        result = processor.process(audio, sr, material)
+        processed = result.audio
+        meta = result.metadata or {}
         elapsed = time.time() - start
 
         logger.debug("  Multi-band M/S dynamics:")

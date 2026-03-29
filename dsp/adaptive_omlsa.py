@@ -76,14 +76,19 @@ class AdaptiveOMLSA:
         self.log_contract()  # Audit: Contract-Infos loggen (optional)
         alpha = kwargs.get("alpha", self.alpha)
         noise_floor = kwargs.get("noise_floor", self.noise_floor)
-        # A-priori SNR
-        gamma = (noisy_mag**2) / (noise_mag**2 + noise_floor)
-        xi = alpha * (noisy_mag**2) / (noise_mag**2 + noise_floor) + (1 - alpha) * np.maximum(gamma - 1, 0)
-        # OMLSA Gain (vereinfachte Formel, ähnlich MMSE-LSA)
-        v = xi * gamma / (1 + xi)
-        v = np.maximum(v, 1e-12)  # §3.1 NaN-Guard: expn(1, 0) → ∞, 0*∞ = NaN bei Stille
-        gain = (xi / (1 + xi)) * np.exp(0.5 * expn(1, v))
+        # A-priori SNR — guard against negative noise_mag
+        noise_pow = noise_mag**2 + noise_floor
+        noisy_pow = noisy_mag**2
+        gamma = noisy_pow / noise_pow
+        # Decision-directed a-priori SNR (Ephraim-Malah 1984)
+        xi = alpha * noisy_pow / noise_pow + (1 - alpha) * np.maximum(gamma - 1.0, 0.0)
+        xi = np.maximum(xi, 1e-10)  # xi must be strictly positive for stable v
+        # OMLSA Gain — v := xi*gamma/(1+xi); must be strictly positive for expn(1,.)
+        v = xi * gamma / (1.0 + xi)
+        v = np.maximum(v, 1e-8)  # §3.1 NaN-Guard: expn(1,0)→∞, 0·∞=NaN at silence
+        gain = (xi / (1.0 + xi)) * np.exp(0.5 * expn(1, v))
         gain = np.nan_to_num(gain, nan=0.0, posinf=0.0, neginf=0.0)  # §3.1 NaN/Inf-Guard
+        gain = np.clip(gain, 0.0, 1.0)  # gain must not exceed 1 (no amplification)
         clean_mag = gain * noisy_mag
         return clean_mag
 
@@ -104,6 +109,5 @@ class AdaptiveOMLSA:
         self.noise_floor = float(np.clip(1e-6 / (snr + 1.0), 1e-8, 1e-5))
 
         logger.info(
-            f"adaptive_omlsa.auto_optimize: SNR={snr:.2f} → alpha={self.alpha:.4f}, "
-            f"noise_floor={self.noise_floor:.2e}"
+            f"adaptive_omlsa.auto_optimize: SNR={snr:.2f} → alpha={self.alpha:.4f}, noise_floor={self.noise_floor:.2e}"
         )

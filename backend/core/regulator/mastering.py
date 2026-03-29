@@ -25,12 +25,12 @@ def multiband_compress(
     audio: np.ndarray, sr: int, bands=((20, 250), (250, 4000), (4000, 20000)), ratio=2.0
 ) -> np.ndarray:
     # Einfache Multiband-Kompression (SOTA: für Produktion durch spezialisierte Module ersetzen)
-    from scipy.signal import butter, lfilter
+    from scipy.signal import butter, sosfilt
 
     out = np.zeros_like(audio)
     for low, high in bands:
-        b, a = butter(2, [low / (sr / 2), high / (sr / 2)], btype="band")
-        band = lfilter(b, a, audio)
+        sos = butter(2, [low / (sr / 2), high / (sr / 2)], btype="band", output="sos")
+        band = sosfilt(sos, audio)
         # Soft-Knee Kompression (vereinfachtes Modell)
         threshold = np.percentile(np.abs(band), 90)
         band = np.where(
@@ -153,13 +153,13 @@ def simple_eq(
     treble_gain_db: float = 2.0,
 ) -> np.ndarray:
     """Einfacher EQ: Bass absenken, Höhen anheben (Butterworth-Shelf-Filter)."""
-    from scipy.signal import butter, lfilter
+    from scipy.signal import butter, sosfilt
 
-    b, a = butter(2, 200 / (sr / 2), btype="low")
-    bass = lfilter(b, a, audio)
+    sos_low = butter(2, 200 / (sr / 2), btype="low", output="sos")
+    bass = sosfilt(sos_low, audio)
     audio = audio + (10 ** (bass_gain_db / 20) - 1) * bass
-    b, a = butter(2, 4000 / (sr / 2), btype="high")
-    treble = lfilter(b, a, audio)
+    sos_high = butter(2, 4000 / (sr / 2), btype="high", output="sos")
+    treble = sosfilt(sos_high, audio)
     audio = audio + (10 ** (treble_gain_db / 20) - 1) * treble
     return audio
 

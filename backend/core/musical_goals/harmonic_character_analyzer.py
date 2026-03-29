@@ -43,9 +43,9 @@ Datum: 13. Februar 2026
 import logging
 import warnings
 from dataclasses import dataclass
+from typing import Any
 
 import numpy as np
-from scipy.fft import rfft, rfftfreq
 
 logger = logging.getLogger(__name__)
 
@@ -184,9 +184,9 @@ class HarmonicCharacterAnalyzer:
         """
         # Compute FFT
         n_fft = 8192  # High resolution for accurate harmonic detection
-        fft = rfft(audio, n=n_fft)
+        fft = np.fft.rfft(audio, n=n_fft)
         magnitude = np.abs(fft)
-        freqs = rfftfreq(n_fft, 1 / sr)
+        freqs = np.fft.rfftfreq(n_fft, 1 / sr)
 
         # Find fundamental frequency (dominant frequency in 50-2000 Hz)
         fund_mask = (freqs >= 50) & (freqs <= 2000)
@@ -294,7 +294,7 @@ class HarmonicCharacterAnalyzer:
 
         return passed, improvement, details
 
-    def suggest_enhancement(self, audio: np.ndarray, sr: int) -> dict[str, any]:
+    def suggest_enhancement(self, audio: np.ndarray, sr: int) -> dict[str, Any]:
         """
         Suggest harmonic enhancement strategy based on analysis
 

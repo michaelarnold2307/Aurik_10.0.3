@@ -104,8 +104,8 @@ class DepthEnhancer:
         ambience_energy_orig = np.sqrt(np.mean(ambience_l**2 + ambience_r**2))
 
         # Detect reverb tail (decaying envelope)
-        envelope_l = np.abs(hilbert(ambience_l))
-        envelope_r = np.abs(hilbert(ambience_r))
+        envelope_l = np.abs(np.asarray(hilbert(ambience_l), dtype=np.complex128))
+        envelope_r = np.abs(np.asarray(hilbert(ambience_r), dtype=np.complex128))
         envelope_avg = (envelope_l + envelope_r) / 2.0
 
         # Smooth envelope
@@ -336,7 +336,7 @@ class TexturePreserver:
 
         # Compute correlation
         correlation = np.correlate(left, right, mode="same")
-        correlation / (np.sqrt(np.sum(left**2) * np.sum(right**2)) + 1e-10)
+        _ = correlation / (np.sqrt(np.sum(left**2) * np.sum(right**2)) + 1e-10)
 
         # Uncorrelated content = texture/ambience
         mid = (left + right) / 2.0
@@ -451,8 +451,8 @@ class SpatialLocalizer:
         transient_r = sosfilt(sos_transient, right)
 
         # Detect transients
-        envelope_l = np.abs(hilbert(transient_l))
-        envelope_r = np.abs(hilbert(transient_r))
+        envelope_l = np.abs(np.asarray(hilbert(transient_l), dtype=np.complex128))
+        envelope_r = np.abs(np.asarray(hilbert(transient_r), dtype=np.complex128))
 
         derivative_l = np.diff(envelope_l, prepend=envelope_l[0])
         derivative_r = np.diff(envelope_r, prepend=envelope_r[0])

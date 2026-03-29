@@ -982,7 +982,8 @@ class ModuleCoordinator:
     def shutdown(self) -> None:
         """Shutdown coordinator and cleanup resources."""
         if self._thread_pool:
-            self._thread_pool.shutdown(wait=True)
+            # §3.9.4: cancel pending futures + wait for in-flight work to complete.
+            self._thread_pool.shutdown(wait=True, cancel_futures=True)
             self._thread_pool = None
 
         self._module_instances.clear()
@@ -991,11 +992,7 @@ class ModuleCoordinator:
     def __repr__(self) -> str:
         """String representation."""
         stats = self.get_statistics()
-        return (
-            f"ModuleCoordinator("
-            f"modules={stats['registered_modules']}, "
-            f"success_rate={stats['avg_success_rate']:.2%})"
-        )
+        return f"ModuleCoordinator(modules={stats['registered_modules']}, success_rate={stats['avg_success_rate']:.2%})"
 
 
 # === Convenience Functions ===

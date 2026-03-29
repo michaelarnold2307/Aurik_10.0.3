@@ -390,7 +390,7 @@ def manual_test_era_training():
     print(f"   Detected Era: {result.era}")
     print(f"   Confidence: {result.confidence:.4f}")
     print("   Characteristics:")
-    for key, value in result.era_characteristics.items():
+    for key, value in (result.era_characteristics or {}).items():
         print(f"     - {key}: {value}")
 
     print("\n" + "=" * 70)

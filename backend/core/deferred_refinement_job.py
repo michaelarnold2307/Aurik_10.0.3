@@ -62,3 +62,32 @@ class DeferredRefinementJob:
     @property
     def n_deferred(self) -> int:
         return len(self.deferred_phase_ids)
+
+    # ------------------------------------------------------------------
+    # §3.9.9  Buffer lifecycle
+    # ------------------------------------------------------------------
+
+    def release_buffer(self) -> None:
+        """Release ml_memory_budget allocation and drop audio reference (§3.9.9).
+
+        MUST be called after Stufe-2 export OR on cancellation, regardless of
+        success/failure.  Safe to call multiple times (idempotent).
+
+        Invariants:
+          - Calls ml_memory_budget.release("kmv_job") once per job instance.
+          - Sets audio_original to None so GC can reclaim the array.
+          - VERBOTEN: accessing audio_original after release_buffer().
+        """
+        if getattr(self, "_budget_registered", False):
+            try:
+                from backend.core.ml_memory_budget import release as _release
+
+                _release("kmv_job")
+            except Exception:
+                pass  # best-effort: budget module may not be available in tests
+            object.__setattr__(self, "_budget_registered", False)
+        # Allow GC to reclaim the potentially large audio array
+        try:
+            object.__setattr__(self, "audio_original", None)
+        except Exception:
+            pass

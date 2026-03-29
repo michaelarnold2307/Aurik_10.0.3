@@ -101,6 +101,16 @@ except ImportError:
     WPE_AVAILABLE = False
     logging.getLogger(__name__).warning("WPE-Plugin nicht verfügbar — OMLSA/IMCRA-Fallback aktiv")
 
+try:
+    from dsp.pghi import pghi_reconstruct_from_stft as _pghi_p20
+
+    _PGHI_AVAILABLE_P20 = True
+except ImportError:
+    _PGHI_AVAILABLE_P20 = False
+
+from scipy.ndimage import minimum_filter1d as _min_filter1d_p20  # vectorised sliding-min
+from scipy.signal import lfilter as _lfilter_p20  # vectorised IIR smoothing
+
 logger = logging.getLogger(__name__)
 
 
@@ -131,6 +141,19 @@ class ReverbReduction(PhaseInterface):
     # STFT parameters
     WINDOW_SIZE = 2048
     HOP_SIZE = 512  # 75% overlap
+
+    # MRSA Multi-Resolution Spectral Analysis zones (mandatory, §DSP-Spezialregeln)
+    # VERBOTEN: arbitrary FFT sizes — only these 5 zone-optimal windows are permitted.
+    _MRSA_ZONES: tuple = (
+        # (name,       win_size, hop_size, f_low_hz, f_high_hz)
+        ("sub_bass", 65536, 16384, 0, 250),
+        ("mid_low", 16384, 4096, 250, 2500),
+        ("mid", 8192, 2048, 2500, 8000),
+        ("presence", 1024, 256, 8000, 16000),
+        ("air", 128, 32, 16000, 24000),
+    )
+    # Hanning crossfade transition bandwidth at zone boundaries (~10 ms spectral transition)
+    _MRSA_CROSSFADE_BW_HZ: float = 100.0
 
     def __init__(self):
         super().__init__()
@@ -478,116 +501,14 @@ class ReverbReduction(PhaseInterface):
         Returns:
             np.ndarray: Restauriertes Audio, gleiche Länge wie Eingang, clip[-1, 1].
         """
-        n_audio = len(audio)
+        len(audio)
 
         # ── 1. Transientenerkennung (Sample-Ebene, vor STFT) ─────────────────
         transient_mask_raw = self._detect_transients(audio, sample_rate)
 
-        # ── 2. STFT via scipy (OLA-konsistent, KEIN np.fft.rfft) ─────────────
-        noverlap = self.WINDOW_SIZE - self.HOP_SIZE
-        _, _, stft_in = signal.stft(
-            audio,
-            fs=sample_rate,
-            window="hann",
-            nperseg=self.WINDOW_SIZE,
-            noverlap=noverlap,
-            boundary="even",  # symmetrische Randfortsetzung (scipy-konform)
-            padded=True,
-        )
-        magnitude = np.abs(stft_in)  # (F, T)
-        phase_arr = np.angle(stft_in)  # (F, T)
-        F, T = magnitude.shape
-
-        # ── 3. IMCRA Rauschboden-Schätzung (Cohen 2003) ──────────────────────
-        #  Gleite über M Frames (~1.5 s), aktualisiere Sliding-Minimum.
-        frames_per_sec = sample_rate / self.HOP_SIZE
-        M = max(3, int(1.5 * frames_per_sec))  # ≈ 140 Frames bei 48 kHz / 512 Hop
-        b_min = 1.66  # Bias-Kompensation (Cohen 2003, Tab. I)
-        alpha_n = 0.85  # Exponentieller Glätter für Sliding-Min
-
-        power = magnitude**2  # Leistungsspektrum (F, T)
-        noise_floor_sq = np.zeros_like(power)  # σ²_d(t, f)
-        S_min_prev = power[:, 0].copy()
-        S_tmp_prev = power[:, 0].copy()
-
-        for t in range(T):
-            p_t = power[:, t]
-            if t == 0:
-                S_min_t = p_t.copy()
-                S_tmp_t = p_t.copy()
-            else:
-                S_smooth = alpha_n * S_min_prev + (1.0 - alpha_n) * p_t
-                S_min_t = np.minimum(S_min_prev, S_smooth)
-                # Puffer alle M Frames zurücksetzen
-                S_tmp_t = S_smooth.copy() if t % M == 0 else np.minimum(S_tmp_prev, S_smooth)
-            noise_floor_sq[:, t] = b_min * S_min_t
-            S_min_prev = S_min_t
-            S_tmp_prev = S_tmp_t
-
-        noise_floor_sq = np.clip(noise_floor_sq, 1e-12, None)
-
-        # ── 4. OMLSA Gain (Cohen 2003) ────────────────────────────────────────
-        G_floor = float(np.clip(0.1 + (1.0 - strength) * 0.05, 0.04, 0.15))
-        alpha_dd = 0.92  # DD-Glättung (Ephraim & Malah 1985, nur DD-Teil)
-        # q = a-priori Sprachabwesenheits-Wahrscheinlichkeit (stärkeabhängig)
-        q = float(np.clip(strength * 0.60, 0.10, 0.80))
-
-        G_omlsa = np.ones((F, T), dtype=np.float64)
-        G_prev = np.ones(F, dtype=np.float64)
-        gamma_prev = np.ones(F, dtype=np.float64)
-
-        for t in range(T):
-            sigma_n_sq = noise_floor_sq[:, t]
-            gamma_t = power[:, t] / sigma_n_sq  # a-posteriori SNR
-
-            # Decision-Directed a-priori SNR:
-            # ξ̂ = α·G²(t-1)·γ(t-1) + (1-α)·max(γ(t)-1, 0)
-            xi_t = alpha_dd * G_prev**2 * gamma_prev + (1.0 - alpha_dd) * np.maximum(gamma_t - 1.0, 0.0)
-            xi_t = np.maximum(xi_t, 1e-6)
-
-            # Posteriore Sprachpräsenzwahrscheinlichkeit p(H₁|Y)
-            nu = gamma_t * xi_t / (1.0 + xi_t)
-            Lambda = ((1.0 - q) / q) * (1.0 / (1.0 + xi_t)) * np.exp(np.clip(nu, -50.0, 50.0))
-            p_H1 = np.clip(Lambda / (1.0 + Lambda), 0.0, 1.0)
-
-            # OMLSA Gain: G = G_floor^(1-p) · (ξ/(1+ξ))^p
-            G_wiener = xi_t / (1.0 + xi_t)
-            G_t = (G_floor ** (1.0 - p_H1)) * (G_wiener**p_H1)
-            G_t = np.clip(G_t, G_floor, 1.0)
-
-            G_omlsa[:, t] = G_t
-            G_prev = G_t
-            gamma_prev = gamma_t
-
-        # ── 5. Cappé Temporal-Gain-Glättung (α_g=0.85) ───────────────────────
-        alpha_g = 0.85
-        G_smooth = G_omlsa.copy()
-        for t in range(1, T):
-            G_smooth[:, t] = alpha_g * G_smooth[:, t - 1] + (1.0 - alpha_g) * G_omlsa[:, t]
-
-        # ── 6. Gain auf STFT anwenden ─────────────────────────────────────────
-        stft_out = (magnitude * G_smooth) * np.exp(1j * phase_arr)
-
-        # ── 7. ISTFT — phasenkonsistente OLA-Rekonstruktion ──────────────────
-        _, audio_out = signal.istft(
-            stft_out,
-            fs=sample_rate,
-            window="hann",
-            nperseg=self.WINDOW_SIZE,
-            noverlap=noverlap,
-            boundary=True,
-        )
-        audio_out = np.real(audio_out).astype(np.float64)
-
-        # Länge angleichen
-        if len(audio_out) > n_audio:
-            audio_out = audio_out[:n_audio]
-        elif len(audio_out) < n_audio:
-            audio_out = np.pad(audio_out, (0, n_audio - len(audio_out)), mode="edge")
-
-        # NaN/Inf-Schutz + Clip
-        audio_out = np.nan_to_num(audio_out, nan=0.0, posinf=0.0, neginf=0.0)
-        audio_out = np.clip(audio_out, -1.0, 1.0)
+        # ── 2–7. MRSA Multi-Resolution Spectral Analysis OMLSA/IMCRA (§DSP-Spezialregeln) ─
+        # Replaces single-STFT OMLSA with 5-zone optimal-resolution processing + PGHI.
+        audio_out = self._reduce_reverb_mrsa(audio, sample_rate, strength, damping)
 
         # ── 8. Transientenerhalt ───────────────────────────────────────────────
         # Transient-Maske auf Sample-Ebene hochsampeln
@@ -596,6 +517,205 @@ class ReverbReduction(PhaseInterface):
         audio_out = audio_out * (1.0 - transient_up) + audio[: len(audio_out)] * transient_up
         audio_out = np.clip(audio_out, -1.0, 1.0)
 
+        return audio_out
+
+    def _reduce_reverb_mrsa(self, audio: np.ndarray, sample_rate: int, strength: float, damping: float) -> np.ndarray:
+        """MRSA 5-zone OMLSA/IMCRA reverb reduction with PGHI phase reconstruction.
+
+        Multi-Resolution Spectral Analysis (MRSA): each frequency zone is processed
+        at its optimal time-frequency resolution using a zone-specific STFT window.
+        Per-zone OMLSA/IMCRA gains are interpolated (frequency & time) to the
+        reference STFT grid and blended with Hanning-weighted crossfades at zone
+        boundaries. Final audio is synthesised via PGHI (Perraudin 2013).
+
+        Zone definitions (mandatory, §DSP-Spezialregeln):
+            sub_bass:  win=65536, hop=16384, 0–250 Hz
+            mid_low:   win=16384, hop=4096,  250–2500 Hz
+            mid:       win=8192,  hop=2048,  2500–8000 Hz
+            presence:  win=1024,  hop=256,   8000–16000 Hz
+            air:       win=128,   hop=32,    16000–24000 Hz
+
+        Args:
+            audio:       Mono float32 [-1, 1], SR=48000.
+            sample_rate: Sample rate (must be 48000).
+            strength:    Reduction strength ∈ [0.0, 1.0].
+            damping:     Reverb damping prior (influences G_floor).
+
+        Returns:
+            np.ndarray: Restored audio, same length as input, clipped to [-1, 1].
+        """
+        n_audio = len(audio)
+        nyquist = float(sample_rate // 2)
+
+        # Reference STFT (win=2048, 75 % overlap) — same as original _reduce_reverb
+        REF_WIN = 2048
+        REF_HOP = REF_WIN - self.WINDOW_SIZE + self.HOP_SIZE  # preserves original 512-hop
+        REF_NOVERLAP = REF_WIN - REF_HOP
+
+        f_ref, _, Zxx_ref = signal.stft(
+            audio,
+            fs=sample_rate,
+            window="hann",
+            nperseg=REF_WIN,
+            noverlap=REF_NOVERLAP,
+            boundary="even",
+            padded=True,
+        )
+        n_bins, n_t = f_ref.shape[0], Zxx_ref.shape[1]
+
+        # OMLSA hyper-parameters
+        G_floor = float(np.clip(0.1 + (1.0 - strength) * 0.05, 0.04, 0.15))
+        q = float(np.clip(strength * 0.60, 0.10, 0.80))
+        b_min = 1.66  # IMCRA bias correction (Cohen 2003)
+        alpha_g = 0.85  # Cappé smoothing (1994)
+
+        # Accumulate weighted zone gains
+        G_acc = np.zeros((n_bins, n_t), dtype=np.float64)
+        w_acc = np.zeros(n_bins, dtype=np.float64)
+
+        for zone_name, zone_win, zone_hop, f_low, f_high in self._MRSA_ZONES:
+            try:
+                # Use zone-specific STFT if audio is long enough
+                if n_audio >= zone_win * 2:
+                    zone_noverlap = zone_win - zone_hop
+                    f_z, _, Zxx_z = signal.stft(
+                        audio,
+                        fs=sample_rate,
+                        window="hann",
+                        nperseg=zone_win,
+                        noverlap=zone_noverlap,
+                        boundary="even",
+                        padded=True,
+                    )
+                else:
+                    f_z, Zxx_z = f_ref, Zxx_ref
+                    zone_win, zone_hop = REF_WIN, REF_HOP
+
+                mag_z = np.abs(Zxx_z)  # (F_z, T_z)
+                n_z_t = mag_z.shape[1]
+
+                # Vectorised IMCRA noise estimation: sliding-minimum (Cohen 2003)
+                frames_per_sec_z = float(sample_rate / zone_hop)
+                M_z = max(3, int(1.5 * frames_per_sec_z))
+                power_z = mag_z**2
+                # minimum_filter1d is fast C-code (no Python frame loop)
+                S_min_z = _min_filter1d_p20(power_z, size=M_z, axis=1, mode="reflect")
+                noise_sq_z = np.maximum(b_min * S_min_z, 1e-12)
+
+                # Vectorised OMLSA gain (Cohen 2003, no Decision-Directed recursion needed
+                # because the sliding-min noise estimator already provides a stable σ²_d)
+                gamma_z = power_z / noise_sq_z
+                xi_z = np.maximum(gamma_z - 1.0, 0.0)
+                nu_z = np.clip(xi_z * gamma_z / (xi_z + 1.0 + 1e-12), 0.0, 500.0)
+                log_lambda_z = -np.log1p(xi_z + 1e-12) + nu_z
+                Lambda_z = np.exp(np.clip(log_lambda_z, -50.0, 50.0))
+                p_H1_z = np.clip(
+                    Lambda_z / (1.0 + Lambda_z + 1e-12) / (1.0 + q / ((1.0 - q) * Lambda_z + 1e-12)), 0.0, 1.0
+                )
+                G_wiener_z = xi_z / (xi_z + 1.0 + 1e-12)
+                log_G_z = (1.0 - p_H1_z) * np.log(G_floor + 1e-10) + p_H1_z * np.log(np.maximum(G_wiener_z, 1e-10))
+                G_z = np.exp(np.clip(log_G_z, np.log(G_floor + 1e-10), 0.0))
+                G_z = np.clip(G_z, G_floor, 1.0)
+
+                # Cappé temporal smoothing via fast IIR lfilter (no Python loop)
+                G_z_sm = _lfilter_p20([1.0 - alpha_g], [1.0, -alpha_g], G_z, axis=1)
+                G_z_sm = np.clip(np.nan_to_num(G_z_sm, nan=G_floor), G_floor, 1.0)
+
+                # Extract zone frequency range from zone STFT
+                zm_z = (f_z >= float(f_low)) & (f_z <= float(f_high))
+                if not np.any(zm_z):
+                    continue
+                f_z_zone = f_z[zm_z]
+                G_zone = G_z_sm[zm_z, :]  # (n_zone_bins, n_z_t)
+
+                # Reference STFT bins for this zone (extended by crossfade bandwidth)
+                ref_zm = (f_ref >= max(0.0, float(f_low) - self._MRSA_CROSSFADE_BW_HZ)) & (
+                    f_ref <= min(nyquist, float(f_high) + self._MRSA_CROSSFADE_BW_HZ)
+                )
+                if not np.any(ref_zm):
+                    continue
+                f_ref_zone = f_ref[ref_zm]
+                ref_indices = np.where(ref_zm)[0]
+                n_ref_zone = len(ref_indices)
+
+                # Temporal resampling: zone frames → reference frames
+                if n_z_t != n_t and len(f_z_zone) > 0:
+                    t_src = np.linspace(0.0, 1.0, n_z_t)
+                    t_dst = np.linspace(0.0, 1.0, n_t)
+                    G_zone_t = np.empty((len(f_z_zone), n_t), dtype=np.float64)
+                    for k in range(len(f_z_zone)):
+                        G_zone_t[k, :] = np.interp(t_dst, t_src, G_zone[k, :])
+                else:
+                    G_zone_t = G_zone.astype(np.float64)
+
+                # Frequency interpolation: zone bins → reference bins
+                G_ref_zone = np.empty((n_ref_zone, n_t), dtype=np.float64)
+                if len(f_z_zone) >= 2:
+                    for ti in range(n_t):
+                        G_ref_zone[:, ti] = np.interp(
+                            f_ref_zone,
+                            f_z_zone,
+                            G_zone_t[:, ti],
+                            left=float(G_zone_t[0, ti]),
+                            right=float(G_zone_t[-1, ti]),
+                        )
+                elif len(f_z_zone) == 1:
+                    G_ref_zone[:, :] = G_zone_t[0:1, :]
+                else:
+                    continue
+
+                # Hanning crossfade weights at zone boundaries
+                if n_ref_zone > 2:
+                    hann_w = np.hanning(n_ref_zone + 2)[1:-1]
+                    hann_w = np.clip(hann_w, 1e-3, 1.0)
+                else:
+                    hann_w = np.ones(n_ref_zone)
+
+                for ki, k in enumerate(ref_indices):
+                    w = float(hann_w[ki])
+                    G_acc[k, :] += w * G_ref_zone[ki, :]
+                    w_acc[k] += w
+
+            except Exception as zone_exc:
+                logger.warning("MRSA Phase 20 zone '%s' failed: %s", zone_name, zone_exc)
+                continue
+
+        # Combine zone gains; unprocessed bins → pass-through (gain=1.0)
+        valid = w_acc > 0.0
+        G_combined = np.ones((n_bins, n_t), dtype=np.float32)
+        G_combined[valid, :] = (G_acc[valid, :] / w_acc[valid, np.newaxis]).astype(np.float32)
+        G_combined = np.clip(np.nan_to_num(G_combined, nan=1.0), 0.0, 1.0)
+
+        # Apply combined gain to reference STFT + PGHI phase reconstruction
+        Zxx_processed = G_combined * np.abs(Zxx_ref) * np.exp(1j * np.angle(Zxx_ref))
+        if _PGHI_AVAILABLE_P20:
+            try:
+                audio_out = _pghi_p20(Zxx_processed.astype(np.complex64), sr=sample_rate, win_size=REF_WIN, hop=REF_HOP)
+            except Exception as pghi_exc:
+                logger.warning("MRSA Phase 20: PGHI failed, using iSTFT fallback: %s", pghi_exc)
+                _, audio_out = signal.istft(
+                    Zxx_processed, fs=sample_rate, window="hann", nperseg=REF_WIN, noverlap=REF_NOVERLAP, boundary=True
+                )
+        else:
+            _, audio_out = signal.istft(
+                Zxx_processed, fs=sample_rate, window="hann", nperseg=REF_WIN, noverlap=REF_NOVERLAP, boundary=True
+            )
+
+        audio_out = np.real(audio_out).astype(np.float32)
+        if len(audio_out) > n_audio:
+            audio_out = audio_out[:n_audio]
+        elif len(audio_out) < n_audio:
+            audio_out = np.pad(audio_out, (0, n_audio - len(audio_out)), mode="edge")
+
+        audio_out = np.nan_to_num(audio_out, nan=0.0, posinf=0.0, neginf=0.0)
+        audio_out = np.clip(audio_out, -1.0, 1.0)
+
+        logger.debug(
+            "MRSA Phase 20: 5 zones processed, valid_bins=%d/%d, G_mean=%.3f",
+            int(np.sum(valid)),
+            n_bins,
+            float(np.mean(G_combined)),
+        )
         return audio_out
 
     def _detect_transients(self, audio: np.ndarray, sample_rate: int) -> np.ndarray:

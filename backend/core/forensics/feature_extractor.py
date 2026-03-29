@@ -317,7 +317,10 @@ class FeatureExtractor:
         # Wow & Flutter (pitch instability)
         # Simplified detection via Hilbert transform
         try:
-            analytic_signal = scipy_signal.hilbert(audio[: min(sr * 10, len(audio))])  # First 10s
+            analytic_signal = np.asarray(
+                scipy_signal.hilbert(audio[: min(sr * 10, len(audio))]),
+                dtype=np.complex128,
+            )  # First 10s
             instantaneous_phase = np.unwrap(np.angle(analytic_signal))
             instantaneous_freq = np.diff(instantaneous_phase) / (2.0 * np.pi) * sr
 
@@ -390,7 +393,7 @@ class FeatureExtractor:
 
         for i, audio in enumerate(audio_list):
             if verbose and i % 10 == 0:
-                logger.debug(f"  Processing {i+1}/{len(audio_list)}...")
+                logger.debug(f"  Processing {i + 1}/{len(audio_list)}...")
 
             features = self.extract_all(audio, sr, verbose=False)
             features_list.append(features)

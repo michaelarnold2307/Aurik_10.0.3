@@ -265,21 +265,24 @@ class SoundstageDepthEnhancer:
 
         Transfer Function: H(z) = (g + z^-M) / (1 + g*z^-M)
         """
-        output = np.zeros_like(audio)
-        buffer = np.zeros((delay_samples, audio.shape[1]))
+        if delay_samples <= 0:
+            return np.asarray(audio, dtype=np.float64)
 
-        for i in range(len(audio)):
-            # Read delayed sample
-            delayed = buffer[0]
+        x = np.asarray(audio, dtype=np.float64)
+        b = np.zeros(delay_samples + 1, dtype=np.float64)
+        a = np.zeros(delay_samples + 1, dtype=np.float64)
+        # H(z) = (g + z^-M) / (1 + g z^-M)
+        b[0] = gain
+        b[-1] = 1.0
+        a[0] = 1.0
+        a[-1] = gain
 
-            # Allpass formula
-            output[i] = -gain * audio[i] + delayed + gain * delayed
-
-            # Update buffer (shift + write new value)
-            buffer = np.roll(buffer, -1, axis=0)
-            buffer[-1] = audio[i] + gain * delayed
-
-        return output
+        if x.ndim == 2:
+            y = np.empty_like(x)
+            for ch in range(x.shape[1]):
+                y[:, ch] = signal.lfilter(b, a, x[:, ch])
+            return y
+        return signal.lfilter(b, a, x)
 
     def _comb_filter(self, audio: np.ndarray, delay_samples: int, feedback_gain: float) -> np.ndarray:
         """
@@ -287,21 +290,22 @@ class SoundstageDepthEnhancer:
 
         Transfer Function: H(z) = 1 / (1 - g*z^-M)
         """
-        output = np.zeros_like(audio)
-        buffer = np.zeros((delay_samples, audio.shape[1]))
+        if delay_samples <= 0:
+            return np.asarray(audio, dtype=np.float64)
 
-        for i in range(len(audio)):
-            # Read delayed sample
-            delayed = buffer[0]
+        x = np.asarray(audio, dtype=np.float64)
+        b = np.array([1.0], dtype=np.float64)
+        a = np.zeros(delay_samples + 1, dtype=np.float64)
+        # H(z) = 1 / (1 - g z^-M)
+        a[0] = 1.0
+        a[-1] = -feedback_gain
 
-            # Comb formula
-            output[i] = audio[i] + feedback_gain * delayed
-
-            # Update buffer
-            buffer = np.roll(buffer, -1, axis=0)
-            buffer[-1] = output[i]
-
-        return output
+        if x.ndim == 2:
+            y = np.empty_like(x)
+            for ch in range(x.shape[1]):
+                y[:, ch] = signal.lfilter(b, a, x[:, ch])
+            return y
+        return signal.lfilter(b, a, x)
 
     def _apply_lowpass(self, audio: np.ndarray, cutoff_hz: float, sr: int) -> np.ndarray:
         """
@@ -311,16 +315,16 @@ class SoundstageDepthEnhancer:
         cutoff_norm = cutoff_hz / nyquist
         cutoff_norm = min(cutoff_norm, 0.99)  # Stability
 
-        b, a = signal.butter(2, cutoff_norm, btype="low")
+        sos = np.asarray(signal.butter(2, cutoff_norm, btype="low", output="sos"), dtype=np.float64)
 
         # Apply per channel
         if audio.ndim == 2:
             filtered = np.zeros_like(audio)
             for ch in range(audio.shape[1]):
-                filtered[:, ch] = signal.filtfilt(b, a, audio[:, ch])
+                filtered[:, ch] = signal.sosfiltfilt(sos, audio[:, ch])
             return filtered
         else:
-            return signal.filtfilt(b, a, audio)
+            return signal.sosfiltfilt(sos, audio)
 
     def _measure_depth_score(self, audio: np.ndarray, sr: int) -> float:
         """
@@ -337,7 +341,7 @@ class SoundstageDepthEnhancer:
         # === 1. Reverb Presence (Energy in 50-300ms) ===
         # Autocorrelation für Reverb Detection
         mono = np.mean(audio, axis=1) if audio.ndim == 2 else audio
-        autocorr = np.correlate(mono, mono, mode="full")
+        autocorr = signal.fftconvolve(mono, mono[::-1], mode="full")
         autocorr = autocorr[len(autocorr) // 2 :]
 
         # Energy in 50-300ms range

@@ -16,7 +16,7 @@ Datum: 14. Februar 2026
 import json
 import logging
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any
 
 import numpy as np
 import torch
@@ -156,7 +156,7 @@ class MixedOp(nn.Module):
     def get_best_operation(self) -> str:
         """Get operation with highest weight."""
         weights = F.softmax(self.alpha, dim=0)
-        best_idx = torch.argmax(weights).item()
+        best_idx = int(torch.argmax(weights).item())
         return list(self.operations.keys())[best_idx]
 
 
@@ -377,7 +377,7 @@ class NASTrainer:
         lr_model: float = 0.025,
         lr_arch: float = 3e-4,
         weight_decay: float = 3e-4,
-    ) -> dict[str, Any]:
+    ) -> None:
         self.model = model.to(device)
         self.device = device
 

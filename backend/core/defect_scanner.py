@@ -747,9 +747,11 @@ class DefectScanner:
             )
             # Wow/Flutter-Index (Pitch-Varianz über 100ms-Fenster)
             _wf_hop = max(1, int(sr * 0.1))
-            _wf_frames = [_fp_mono[i : i + _wf_hop] for i in range(0, len(_fp_mono) - _wf_hop, _wf_hop)]
-            if len(_wf_frames) > 2:
-                _wf_rms = np.array([float(np.sqrt(np.mean(f**2) + 1e-12)) for f in _wf_frames])
+            # Vectorized: non-overlapping frames via reshape (replaces list + loop)
+            _n_wf = (len(_fp_mono) - 1) // _wf_hop
+            if _n_wf > 2:
+                _wf_mat = _fp_mono[: _n_wf * _wf_hop].reshape(_n_wf, _wf_hop)
+                _wf_rms = np.sqrt(np.mean(_wf_mat**2, axis=1) + 1e-12)
                 _sf["wow_flutter_index"] = float(np.std(_wf_rms) / (np.mean(_wf_rms) + 1e-12) * sr / 100.0)
             else:
                 _sf["wow_flutter_index"] = 0.0
@@ -1798,7 +1800,8 @@ class DefectScanner:
             seg = audio[start : start + seg_len]
             # Hanning window to reduce spectral leakage
             win = np.hanning(len(seg))
-            spectrum = np.abs(fft.rfft(seg * win))
+            seg_win = np.asarray(seg * win, dtype=np.float64)
+            spectrum = np.abs(np.fft.rfft(seg_win))
             freqs = fft.rfftfreq(len(seg), 1.0 / self.sample_rate)
             total_e = float(np.sum(spectrum**2) + 1e-12)
             bin_width = freqs[1] if len(freqs) > 1 else 1.0
@@ -1958,7 +1961,8 @@ class DefectScanner:
             bp_audio = signal.sosfilt(bp_sos, audio)
             # Hilbert transform for analytic signal
             analytic = signal.hilbert(bp_audio[: min(n, self.sample_rate * 30)])  # cap at 30s
-            inst_phase = np.unwrap(np.angle(analytic))
+            analytic_arr = np.asarray(analytic, dtype=np.complex128)
+            inst_phase = np.unwrap(np.angle(analytic_arr))
             inst_freq = np.diff(inst_phase) * self.sample_rate / (2 * np.pi)
             # Smooth to 50ms windows
             if_win = max(1, int(0.05 * self.sample_rate))
@@ -2654,12 +2658,18 @@ class DefectScanner:
 
         severity = min(1.0, (phase_score + corr_score) * 2)
 
+        polarity_inverted = bool(correlation <= -0.9)
+
         return DefectScore(
             defect_type=DefectType.PHASE_ISSUES,
             severity=severity,
             confidence=0.8,
             locations=[],
-            metadata={"side_ratio": side_ratio, "stereo_correlation": correlation},
+            metadata={
+                "side_ratio": side_ratio,
+                "stereo_correlation": correlation,
+                "polarity_inverted": polarity_inverted,
+            },
         )
 
     def _detect_dropouts(self, audio: np.ndarray) -> DefectScore:
@@ -2717,7 +2727,12 @@ class DefectScanner:
         # Connected-component labelling
         from scipy.ndimage import label
 
-        labeled_array, num_dropouts = label(dropout_mask)
+        label_result = label(dropout_mask)
+        if isinstance(label_result, tuple):
+            labeled_array, num_dropouts = label_result
+        else:
+            labeled_array = label_result
+            num_dropouts = int(np.max(labeled_array))
 
         locations = []
         total_dropout_s = 0.0
@@ -3000,7 +3015,12 @@ class DefectScanner:
             "streaming": 0.09,
             "minidisc": 0.06,
         }
-        mat_name = _mat.value if hasattr(_mat, "value") else str(_mat) if _mat else None
+        if _mat is None:
+            mat_name = ""
+        elif isinstance(_mat, Enum):
+            mat_name = str(_mat.value)
+        else:
+            mat_name = str(_mat)
         reference_hf_ratio = _MATERIAL_HF_REF.get(mat_name, 0.08)
 
         total_energy = float(np.sum(psd) + 1e-12)
@@ -3563,7 +3583,8 @@ class DefectScanner:
             center = max(0, n // 2 - 16384)
             seg = audio[center : center + min(32768, n)]
             analytic = _hilbert(seg)
-            inst_phase = np.unwrap(np.angle(analytic))
+            analytic_arr = np.asarray(analytic, dtype=np.complex128)
+            inst_phase = np.unwrap(np.angle(analytic_arr))
             inst_freq = np.diff(inst_phase) * self.sample_rate / (2 * np.pi)
             # Only consider positive frequencies in plausible range
             valid = (inst_freq > 20) & (inst_freq < self.sample_rate / 2)
@@ -3612,7 +3633,12 @@ class DefectScanner:
         # Material-aware: digital sources more likely to have jitter
         _mat = getattr(self, "material_type", None)
         _DIGITAL_MATS = {"cd_digital", "dat", "mp3_low", "mp3_high", "aac", "streaming", "minidisc"}
-        mat_name = _mat.value if hasattr(_mat, "value") else str(_mat) if _mat else None
+        if _mat is None:
+            mat_name = ""
+        elif isinstance(_mat, Enum):
+            mat_name = str(_mat.value)
+        else:
+            mat_name = str(_mat)
         if mat_name in _DIGITAL_MATS:
             raw_severity *= 1.2  # boost for digital media
 
@@ -4093,6 +4119,17 @@ class DefectScanner:
         check (uncorrelated segment pairs above 6 kHz).
         Literature: Lindsey & Levy 1978, IEC 60094-1, Ampex/Studer bias specs.
         """
+        material_name = str(getattr(self.material_type, "value", self.material_type)).lower()
+        tape_materials = {"tape", "reel_tape", "wire_recording"}
+        if material_name not in tape_materials:
+            return DefectScore(
+                defect_type=DefectType.BIAS_ERROR,
+                severity=0.0,
+                confidence=0.85,
+                locations=[],
+                metadata={"medium_gated": True},
+            )
+
         n = len(audio)
         if n < self.sample_rate:
             return DefectScore(DefectType.BIAS_ERROR, 0.0, 0.3)
@@ -4163,6 +4200,8 @@ class DefectScanner:
                 confidence=confidence,
                 locations=[],
                 metadata={
+                    "bias_direction": bias_mode,
+                    "hf_slope": round(slope_db_per_oct, 2),
                     "slope_db_per_oct": round(slope_db_per_oct, 2),
                     "over_bias_sev": round(over_bias_sev, 3),
                     "under_bias_sev": round(under_bias_sev, 3),
@@ -4180,6 +4219,44 @@ class DefectScanner:
         RIAA not applied → massive bass excess (bass/mid ratio >> 5).
         Double-RIAA or wrong curve applied → extreme bass cut (ratio << 0.1).
         """
+        material_name = str(getattr(self.material_type, "value", self.material_type)).lower()
+        riaa_materials = {"vinyl", "shellac", "lacquer_disc"}
+        if material_name not in riaa_materials:
+            # Preserve raw RIAA evidence for diagnostics even when the defect is
+            # physically impossible for the current medium and therefore gated.
+            _orig_sev = 0.0
+            _ratio = 0.0
+            _riaa_missing = 0.0
+            _riaa_double = 0.0
+            try:
+                n = len(audio)
+                if n >= self.sample_rate:
+                    freqs, psd = signal.welch(audio, self.sample_rate, nperseg=min(4096, n))
+                    bass_e = float(np.sum(psd[freqs < 300.0]) + 1e-20)
+                    mid_e = float(np.sum(psd[(freqs >= 1000.0) & (freqs < 4000.0)]) + 1e-20)
+                    _ratio = bass_e / mid_e
+                    _riaa_missing = float(np.clip((_ratio - 5.0) / 10.0, 0.0, 1.0))
+                    _riaa_double = float(np.clip((0.1 - _ratio) / 0.10, 0.0, 1.0))
+                    _orig_sev = float(np.clip(max(_riaa_missing, _riaa_double), 0.0, 1.0))
+            except Exception:
+                _orig_sev = 0.0
+
+            return DefectScore(
+                defect_type=DefectType.RIAA_CURVE_ERROR,
+                severity=0.0,
+                confidence=0.85,
+                locations=[],
+                metadata={
+                    "medium_gated": True,
+                    "original_severity": _orig_sev,
+                    "bass_mid_ratio": _ratio,
+                    "riaa_missing": _riaa_missing,
+                    "riaa_double": _riaa_double,
+                    "riaa_missing_score": _riaa_missing,
+                    "best_matching_curve": "RIAA",
+                },
+            )
+
         n = len(audio)
         if n < self.sample_rate:
             return DefectScore(DefectType.RIAA_CURVE_ERROR, 0.0, 0.3)
@@ -4203,7 +4280,13 @@ class DefectScanner:
                 severity=severity,
                 confidence=0.58,
                 locations=[],
-                metadata={"bass_mid_ratio": ratio, "riaa_missing": riaa_missing, "riaa_double": riaa_double},
+                metadata={
+                    "bass_mid_ratio": ratio,
+                    "riaa_missing": riaa_missing,
+                    "riaa_double": riaa_double,
+                    "riaa_missing_score": riaa_missing,
+                    "best_matching_curve": "RIAA",
+                },
             )
         except Exception:
             return DefectScore(DefectType.RIAA_CURVE_ERROR, 0.0, 0.3)
@@ -4324,7 +4407,8 @@ class DefectScanner:
 
             # Hilbert envelope + light smoothing (2ms instead of 5ms)
             analytic = _hilbert(hp_audio[: min(n, 480000)])  # limit to 10s at 48kHz
-            envelope = np.abs(analytic)
+            analytic_arr = np.asarray(analytic, dtype=np.complex128)
+            envelope = np.abs(analytic_arr)
             smooth_win = max(1, int(0.002 * self.sample_rate))
             envelope = np.convolve(envelope, np.ones(smooth_win) / smooth_win, mode="same")
             envelope = np.nan_to_num(envelope, nan=0.0)
@@ -4491,7 +4575,12 @@ class DefectScanner:
 
             # Material check for analysis routing
             _mat = getattr(self, "material_type", None)
-            mat_name = _mat.value if hasattr(_mat, "value") else str(_mat) if _mat else None
+            if _mat is None:
+                mat_name = ""
+            elif isinstance(_mat, Enum):
+                mat_name = str(_mat.value)
+            else:
+                mat_name = str(_mat)
             _TAPE_MATS = {"tape", "reel_tape", "cassette"}
             is_tape = mat_name in _TAPE_MATS
 

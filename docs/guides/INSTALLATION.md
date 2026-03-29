@@ -162,6 +162,7 @@ sudo dpkg -i cuda-keyring_1.1-1_all.deb
 sudo apt-get update
 
 # Install CUDA Toolkit 12.8
+
 sudo apt-get install cuda-toolkit-12-8
 ```
 
@@ -173,14 +174,18 @@ sudo apt-get install cuda-toolkit-12-8
 
 ```bash
 # Aktiviere Virtual Environment
+
 source .venv_aurik/bin/activate  # Linux/macOS
 # ODER
+
 .venv_aurik\Scripts\activate     # Windows
 
 # Deinstalliere CPU-Version (falls vorhanden)
+
 pip uninstall torch torchaudio
 
 # Installiere CUDA-Version (CUDA 12.8)
+
 pip install torch==2.10.0 torchaudio==2.10.0 --index-url https://download.pytorch.org/whl/cu128
 ```
 
@@ -210,20 +215,25 @@ GPU: None
 
 ```bash
 # Clone Repository
+
 git clone https://github.com/yourusername/Aurik_Standalone.git
 cd Aurik_Standalone
 
 # Virtual Environment
+
 python3.11 -m venv .venv_aurik
 source .venv_aurik/bin/activate
 
 # Development Dependencies
+
 pip install -r requirements/requirements-dev.txt
 
 # Install Pre-Commit Hooks
+
 pre-commit install
 
 # Run Tests
+
 pytest tests/ --verbose
 ```
 
@@ -252,6 +262,7 @@ python -c "from core.unified_restorer_v2 import UnifiedRestorerV2; print('✅ Im
 
 ```bash
 # Generate 3s test audio (1 kHz sine wave)
+
 python -c "
 import numpy as np
 import soundfile as sf
@@ -265,6 +276,7 @@ print('✅ Test audio created: test_audio.wav')
 "
 
 # Restore with Aurik
+
 python -c "
 from core.unified_restorer_v2 import UnifiedRestorerV2
 import soundfile as sf
@@ -290,9 +302,11 @@ print('✅ Restoration successful: test_audio_restored.wav')
 
 ```bash
 # Run all tests (187 tests)
+
 pytest tests/ -v
 
 # Run E2E tests (magic button tests)
+
 pytest tests/test_e2e_magicbutton.py -v -s
 ```
 
@@ -329,9 +343,11 @@ print(torch.cuda.is_available())  # False
 **1. PyTorch CPU-Version installiert:**
 ```bash
 # Check PyTorch version
+
 pip show torch
 
 # Reinstall CUDA version
+
 pip uninstall torch torchaudio
 pip install torch==2.10.0 torchaudio==2.10.0 --index-url https://download.pytorch.org/whl/cu128
 ```
@@ -339,9 +355,11 @@ pip install torch==2.10.0 torchaudio==2.10.0 --index-url https://download.pytorc
 **2. NVIDIA Driver nicht installiert:**
 ```bash
 # Check driver
+
 nvidia-smi
 
 # If error: Install driver
+
 sudo ubuntu-drivers autoinstall
 sudo reboot
 ```
@@ -349,10 +367,13 @@ sudo reboot
 **3. CUDA Version Mismatch:**
 ```bash
 # Check CUDA version
+
 nvcc --version
 
 # PyTorch requires CUDA 12.x
+
 # Install CUDA Toolkit 12.8 (siehe oben)
+
 ```
 
 ---
@@ -367,12 +388,15 @@ OSError: cannot load library 'libsndfile.so.1'
 **Lösung:**
 ```bash
 # Ubuntu/Debian
+
 sudo apt-get install libsndfile1
 
 # Arch Linux
+
 sudo pacman -S libsndfile
 
 # Fedora
+
 sudo dnf install libsndfile
 ```
 
@@ -390,12 +414,14 @@ RuntimeError: CUDA out of memory
 **1. Reduziere Batch-Size / Chunk-Size:**
 ```python
 # Process in smaller chunks
+
 from core.unified_restorer_v2 import UnifiedRestorerV2
 import soundfile as sf
 
 audio, sr = sf.read('large_file.wav')
 
 # Split in chunks (30s)
+
 chunk_size = 30 * sr
 audio_chunks = [audio[i:i+chunk_size] for i in range(0, len(audio), chunk_size)]
 
@@ -409,6 +435,7 @@ sf.write('output.wav', restored, 48000)
 **2. Verwende CPU-only:**
 ```bash
 # Force CPU processing
+
 export CUDA_VISIBLE_DEVICES=""
 
 python restore_audio.py
@@ -436,6 +463,7 @@ Processing 3min audio takes 15min (5x realtime)
 from core.processing_modes import ProcessingConfig, ProcessingMode
 
 # Use FORENSIC mode (minimal processing)
+
 config = ProcessingConfig(
     mode=ProcessingMode.FORENSIC,
     aggressive=0.2,
@@ -470,15 +498,18 @@ pytest tests/ → 15 failed, 172 passed
 **1. Missing Test Data:**
 ```bash
 # Check test audio files exist
+
 ls audio_examples/  # Should contain test files
 ```
 
 **2. Model Download Failed:**
 ```bash
 # Models are downloaded on first use
+
 # Check internet connection
 
 # Manual download (if needed)
+
 python -c "
 from transformers import AutoModel
 model = AutoModel.from_pretrained('facebook/demucs')
@@ -488,6 +519,7 @@ model = AutoModel.from_pretrained('facebook/demucs')
 **3. Environment Issues:**
 ```bash
 # Clean virtual environment
+
 rm -rf .venv_aurik
 python3.11 -m venv .venv_aurik
 source .venv_aurik/bin/activate
@@ -503,16 +535,20 @@ pytest tests/
 
 ```bash
 # Deactivate virtual environment
+
 deactivate
 
 # Remove virtual environment
+
 rm -rf .venv_aurik
 
 # Remove repository (optional)
+
 cd ..
 rm -rf Aurik_Standalone
 
 # Remove CUDA (optional, Linux)
+
 sudo apt-get remove cuda-toolkit-12-8
 sudo apt-get autoremove
 ```

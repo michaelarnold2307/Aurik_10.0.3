@@ -501,8 +501,6 @@ class ClickRemovalPhase(PhaseInterface):
 
         # Detect sudden spikes (clicks)
         threshold_short = thresholds["short"] + median_diff * 10
-        thresholds["medium"] + median_diff * 8
-        thresholds["long"] + median_diff * 5
 
         # Find click regions
         click_mask = diff > threshold_short

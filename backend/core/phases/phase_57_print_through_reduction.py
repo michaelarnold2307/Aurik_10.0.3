@@ -20,7 +20,6 @@ from __future__ import annotations
 
 import logging
 import math
-from typing import Optional, Tuple
 
 import numpy as np
 import scipy.signal as sps
@@ -311,10 +310,8 @@ class PrintThroughReductionPhase(PhaseInterface):
         _pt_score = float((_defect_scores or {}).get("print_through", 0.0)) if _defect_scores else 0.0
         return PhaseResult(
             audio=result_audio,
-            sample_rate=sample_rate,
-            phase_id="phase_57_print_through_reduction",
             success=True,
-            elapsed_time=elapsed,
+            execution_time_seconds=elapsed,
             metrics={
                 "print_through_score": _pt_score,
                 "strength": strength,

@@ -4,7 +4,7 @@ SOTA-konforme Analyse- und Policy-Module für Musikrestaurierung
 
 import concurrent.futures
 import time
-from typing import Any, Dict, Optional
+from typing import Any, Optional
 
 import numpy as np
 
@@ -639,6 +639,7 @@ class AnalysisEngineAdapter:
             FormatInfo,
             Genre,
             MaterialChainAnalysis,
+            MediaType,
             MusicalContext,
             SpectralAnalysis,
             StereoAnalysis,
@@ -784,17 +785,24 @@ class AnalysisEngineAdapter:
 
         forensic_engine = MediaForensicsEngine()
         forensic_report = forensic_engine.analyze(audio, sr)
-        # Mapping auf Haupttyp für pydantic - forensic_report.primary_media ist bereits ein Haupttyp
-        # Konvertiere Enum-Name zu lowercase String
-        detected_medium_str = forensic_report.primary_media.name.lower()
-        # Validiere gegen erlaubte Werte
-        allowed_values = ["vinyl", "tape", "cassette", "cd", "digital_native", "radio_broadcast", "unknown"]
-        if detected_medium_str not in allowed_values:
-            detected_medium_str = "unknown"
+        raw_medium = getattr(forensic_report, "primary_media", MediaType.UNKNOWN)
+        if isinstance(raw_medium, MediaType):
+            detected_medium = raw_medium
+        else:
+            medium_name = str(getattr(raw_medium, "name", raw_medium)).lower()
+            try:
+                detected_medium = MediaType(medium_name)
+            except ValueError:
+                detected_medium = MediaType.UNKNOWN
+
         material_chain = MaterialChainAnalysis(
-            detected_medium=detected_medium_str,
+            detected_medium=detected_medium,
             medium_confidence=forensic_report.primary_confidence,
+            vinyl_rpm=None,
+            tape_type=None,
+            adc_type=None,
             resampling_artifacts=False,
+            lossy_codec_history=[],
             generation_count=1,
         )
 

@@ -276,7 +276,7 @@ class ZoneAwareContextAnalyzer:
             Context dict with zone classification and musical goals thresholds
         """
         # Get base context from existing analyzer
-        context = self.context_analyzer.analyze(
+        context = self.context_analyzer.analyze_with_medium(
             features, user_profile=user_profile, reference_audio=reference_audio, detected_medium=detected_medium
         )
 

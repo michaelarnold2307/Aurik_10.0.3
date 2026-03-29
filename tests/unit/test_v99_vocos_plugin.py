@@ -530,7 +530,7 @@ class TestVocosPlugin48kHz(unittest.TestCase):
         sess = ort.InferenceSession(_MODEL_48K, providers=["CPUExecutionProvider"])
         T = 40  # kurzer Test-Batch
         mel = np.random.randn(1, 128, T).astype(np.float32) * 0.01 - 8.0
-        audio = sess.run(None, {"mel": mel})[0]
+        audio = np.asarray(sess.run(None, {"mel": mel})[0], dtype=np.float32)
         self.assertEqual(audio.ndim, 2)
         self.assertEqual(audio.shape[0], 1)
         self.assertGreater(audio.shape[1], 0)

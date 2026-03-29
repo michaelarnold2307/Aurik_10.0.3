@@ -54,6 +54,16 @@ try:
 except ImportError:
     QUALITY_MODE_AVAILABLE = False
 
+try:
+    from dsp.pghi import pghi_reconstruct_from_stft as _pghi_p29
+
+    _PGHI_AVAILABLE_P29 = True
+except ImportError:
+    _PGHI_AVAILABLE_P29 = False
+
+from scipy.ndimage import minimum_filter1d as _min_filter1d_p29  # vectorised sliding-min
+from scipy.signal import lfilter as _lfilter_p29  # vectorised IIR smoothing (Cappé 1994)
+
 logger = logging.getLogger(__name__)
 
 
@@ -82,6 +92,17 @@ class TapeHissReductionPhase(PhaseInterface):
 
     # ML frequency band threshold (Hz)
     ML_FREQUENCY_THRESHOLD_HZ = 2000  # <2kHz: DSP, >2kHz: ML optional
+
+    # MRSA Multi-Resolution Spectral Analysis zones (mandatory, §DSP-Spezialregeln)
+    _MRSA_ZONES: tuple = (
+        # (name,       win_size, hop_size, f_low_hz, f_high_hz)
+        ("sub_bass", 65536, 16384, 0, 250),
+        ("mid_low", 16384, 4096, 250, 2500),
+        ("mid", 8192, 2048, 2500, 8000),
+        ("presence", 1024, 256, 8000, 16000),
+        ("air", 128, 32, 16000, 24000),
+    )
+    _MRSA_CROSSFADE_BW_HZ: float = 100.0
 
     # Hiss reduction threshold (dB above noise floor to start gating)
     GATE_THRESHOLD_DB = {
@@ -358,7 +379,6 @@ class TapeHissReductionPhase(PhaseInterface):
         Returns:
             processed: Restauriertes Mono-Audio (gleiche Länge wie channel)
         """
-        eps = 1e-10
         # Material-adaptiver G_floor
         G_floor_map = {
             "SHELLAC": 0.12,
@@ -374,75 +394,8 @@ class TapeHissReductionPhase(PhaseInterface):
         G_floor = float(np.clip(1.0 - intensity_scale * (1.0 - G_floor), 0.0, 1.0))
         q = 0.5  # Rausch-Präsenz-Prior
 
-        # STFT
-        nperseg = 2048
-        noverlap = 1536
-        f_bins, t_arr, stft = signal.stft(channel, fs=sample_rate, nperseg=nperseg, noverlap=noverlap, window="hann")
-
-        magnitude = np.abs(stft)
-        phase_arr = np.angle(stft)
-        F, T = magnitude.shape
-
-        # Frequenz-Bin-Grenzen
-        hf_low_bin = max(1, int(np.searchsorted(f_bins, hf_low)))
-        hf_high_bin = min(F - 1, int(np.searchsorted(f_bins, hf_high)))
-
-        # IMCRA-Rauschschätzung nur im HF-Bereich
-        alpha_n = 0.85
-        b_min = 1.66
-        hop_s = float(t_arr[1] - t_arr[0]) if T > 1 else 0.01
-        M = max(15, round(1.5 / hop_s))
-
-        # Geglättete Leistung (nur HF-Bins)
-        P_hat = magnitude**2
-        for ti in range(1, T):
-            P_hat[hf_low_bin:, ti] = (
-                alpha_n * P_hat[hf_low_bin:, ti - 1] + (1.0 - alpha_n) * magnitude[hf_low_bin:, ti] ** 2
-            )
-        P_hat = np.nan_to_num(P_hat, nan=eps)
-
-        # Gleitendes Minimum -> Rauschleistung
-        noise_power = np.full_like(P_hat, eps)
-        for ti in range(T):
-            s = max(0, ti - M)
-            noise_power[hf_low_bin:, ti] = np.min(P_hat[hf_low_bin:, s : ti + 1], axis=1)
-        noise_mag = np.sqrt(np.maximum(b_min * noise_power, eps))
-        noise_mag = np.nan_to_num(noise_mag, nan=eps)
-
-        # OMLSA-Gain (nur HF-Bins; LF-Bins behalten G=1.0)
-        sigma2_n = np.maximum(noise_mag**2, eps)
-        gamma = np.maximum(magnitude**2 / sigma2_n, 0.0)
-        xi = np.maximum(gamma - 1.0, 0.0)
-        v = np.clip(xi * gamma / (xi + 1.0 + eps), 0.0, 500.0)
-        lam = np.exp(np.clip(-xi + v, -50.0, 50.0))
-        p = 1.0 / (1.0 + q / ((1.0 - q) * lam + eps))
-        G_H1 = xi / (xi + 1.0 + eps)
-
-        log_G = (1.0 - p) * np.log(G_floor) + p * np.log(np.maximum(G_H1, eps))
-        log_G = np.clip(log_G, np.log(G_floor), 0.0)
-        G = np.exp(log_G)
-        G = np.nan_to_num(G, nan=G_floor, posinf=1.0, neginf=G_floor)
-        G = np.clip(G, G_floor, 1.0)
-
-        # LF-Bins: Gain = 1.0 (vollständig erhalten)
-        G[:hf_low_bin, :] = 1.0
-        # Bins über hf_high: sanft zurück auf 1.0 (kein Over-Suppression in Nyquist-Nähe)
-        if hf_high_bin < F:
-            G[hf_high_bin:, :] = 1.0
-
-        # Cappé-Gain-Glättung (alpha_g=0.85)
-        alpha_g = 0.85
-        G_smooth = np.zeros_like(G)
-        G_smooth[:, 0] = G[:, 0]
-        for ti in range(1, T):
-            G_smooth[:, ti] = alpha_g * G_smooth[:, ti - 1] + (1.0 - alpha_g) * G[:, ti]
-        G_smooth = np.clip(np.nan_to_num(G_smooth, nan=G_floor, posinf=1.0, neginf=G_floor), G_floor, 1.0)
-
-        # Spektrum anwenden + ISTFT
-        proc_stft = magnitude * G_smooth * np.exp(1j * phase_arr)
-        _, processed = signal.istft(proc_stft, fs=sample_rate, nperseg=nperseg, noverlap=noverlap, window="hann")
-
-        # Länge + NaN/Clip-Schutz
+        # STFT + OMLSA via MRSA 5-zone processing (§DSP-Spezialregeln)
+        processed = self._process_channel_omlsa_mrsa(channel, sample_rate, hf_low, hf_high, material, intensity_scale)
         processed = processed[: len(channel)]
         if len(processed) < len(channel):
             processed = np.pad(processed, (0, len(channel) - len(processed)))
@@ -472,6 +425,193 @@ class TapeHissReductionPhase(PhaseInterface):
             logger.debug("PsychoacousticMaskingModel nicht verfügbar: %s", _pmm_exc)
 
         return processed
+
+    def _process_channel_omlsa_mrsa(
+        self,
+        channel: np.ndarray,
+        sample_rate: int,
+        hf_low: float,
+        hf_high: float,
+        material: "MaterialType",
+        intensity_scale: float = 1.0,
+    ) -> np.ndarray:
+        """MRSA 5-zone OMLSA/IMCRA tape-hiss reduction with PGHI phase reconstruction.
+
+        Multi-Resolution Spectral Analysis (MRSA): each frequency zone is processed
+        at its optimal time-frequency resolution. Zones below hf_low receive pass-through
+        (gain=1.0), protecting low-frequency content. PGHI replaces plain iSTFT.
+
+        Args:
+            channel:       Mono audio [1D float32].
+            sample_rate:   Must be 48000.
+            hf_low:        Lower HF gate boundary (Hz), e.g. 8000.
+            hf_high:       Upper HF gate boundary (Hz), e.g. 18000.
+            material:      MaterialType for G_floor selection.
+            intensity_scale: Locality factor ∈ [0, 1].
+
+        Returns:
+            Processed mono audio, same length as input.
+        """
+        n = len(channel)
+        nyquist = float(sample_rate // 2)
+        eps = 1e-10
+
+        # Material-adaptive G_floor
+        G_floor_map = {"SHELLAC": 0.12, "VINYL": 0.10, "TAPE": 0.08, "REEL_TAPE": 0.07, "DAT": 0.06}
+        mat_name = getattr(material, "name", str(material)).upper()
+        G_floor = G_floor_map.get(mat_name, 0.10)
+        intensity_scale = float(np.clip(intensity_scale, 0.0, 1.0))
+        G_floor = float(np.clip(1.0 - intensity_scale * (1.0 - G_floor), 0.0, 1.0))
+        q = 0.5
+        b_min = 1.66
+        alpha_g = 0.85
+
+        # Reference STFT (win=2048, 75 % overlap)
+        REF_WIN = 2048
+        REF_HOP = 512
+        REF_NOVERLAP = REF_WIN - REF_HOP
+        f_ref, _, Zxx_ref = signal.stft(channel, fs=sample_rate, nperseg=REF_WIN, noverlap=REF_NOVERLAP, window="hann")
+        n_bins, n_t = f_ref.shape[0], Zxx_ref.shape[1]
+
+        G_acc = np.zeros((n_bins, n_t), dtype=np.float64)
+        w_acc = np.zeros(n_bins, dtype=np.float64)
+
+        for zone_name, zone_win, zone_hop, f_low, f_high in self._MRSA_ZONES:
+            try:
+                if n >= zone_win * 2:
+                    zone_noverlap = zone_win - zone_hop
+                    f_z, _, Zxx_z = signal.stft(
+                        channel, fs=sample_rate, nperseg=zone_win, noverlap=zone_noverlap, window="hann"
+                    )
+                else:
+                    f_z, Zxx_z = f_ref, Zxx_ref
+                    zone_win, zone_hop = REF_WIN, REF_HOP
+
+                mag_z = np.abs(Zxx_z)
+                n_z_t = mag_z.shape[1]
+                frames_per_sec_z = float(sample_rate / zone_hop)
+                M_z = max(3, int(1.5 * frames_per_sec_z))
+
+                # Vectorised IMCRA: sliding minimum as noise estimate (Cohen 2003)
+                power_z = mag_z**2
+                S_min_z = _min_filter1d_p29(power_z, size=M_z, axis=1, mode="reflect")
+                noise_sq_z = np.maximum(b_min * S_min_z, eps)
+
+                # Vectorised OMLSA gain
+                gamma_z = power_z / noise_sq_z
+                xi_z = np.maximum(gamma_z - 1.0, 0.0)
+                nu_z = np.clip(xi_z * gamma_z / (xi_z + 1.0 + eps), 0.0, 500.0)
+                lam_z = np.exp(np.clip(-xi_z + nu_z, -50.0, 50.0))
+                p_z = 1.0 / (1.0 + q / ((1.0 - q) * lam_z + eps))
+                G_H1_z = xi_z / (xi_z + 1.0 + eps)
+                log_G_z = (1.0 - p_z) * np.log(G_floor + eps) + p_z * np.log(np.maximum(G_H1_z, eps))
+                G_z = np.exp(np.clip(log_G_z, np.log(G_floor + eps), 0.0))
+                G_z = np.clip(np.nan_to_num(G_z, nan=G_floor), G_floor, 1.0)
+
+                # Zones below hf_low: pass-through (protect low frequencies)
+                lf_mask_z = f_z < float(hf_low)
+                G_z[lf_mask_z, :] = 1.0
+                # Zones above hf_high (Nyquist region): pass-through
+                if float(hf_high) < nyquist:
+                    hf_mask_z = f_z > float(hf_high)
+                    G_z[hf_mask_z, :] = 1.0
+
+                # Cappé temporal smoothing via fast IIR
+                G_z_sm = _lfilter_p29([1.0 - alpha_g], [1.0, -alpha_g], G_z, axis=1)
+                G_z_sm = np.clip(np.nan_to_num(G_z_sm, nan=G_floor), G_floor, 1.0)
+
+                # Extract zone frequency range
+                zm_z = (f_z >= float(f_low)) & (f_z <= float(f_high))
+                if not np.any(zm_z):
+                    continue
+                f_z_zone = f_z[zm_z]
+                G_zone = G_z_sm[zm_z, :]
+
+                # Reference bins for this zone (with crossfade bandwidth)
+                ref_zm = (f_ref >= max(0.0, float(f_low) - self._MRSA_CROSSFADE_BW_HZ)) & (
+                    f_ref <= min(nyquist, float(f_high) + self._MRSA_CROSSFADE_BW_HZ)
+                )
+                if not np.any(ref_zm):
+                    continue
+                f_ref_zone = f_ref[ref_zm]
+                ref_indices = np.where(ref_zm)[0]
+                n_ref_zone = len(ref_indices)
+
+                # Temporal resampling
+                if n_z_t != n_t and len(f_z_zone) > 0:
+                    t_src = np.linspace(0.0, 1.0, n_z_t)
+                    t_dst = np.linspace(0.0, 1.0, n_t)
+                    G_zone_t = np.empty((len(f_z_zone), n_t), dtype=np.float64)
+                    for k in range(len(f_z_zone)):
+                        G_zone_t[k, :] = np.interp(t_dst, t_src, G_zone[k, :])
+                else:
+                    G_zone_t = G_zone.astype(np.float64)
+
+                # Frequency interpolation
+                G_ref_zone = np.empty((n_ref_zone, n_t), dtype=np.float64)
+                if len(f_z_zone) >= 2:
+                    for ti in range(n_t):
+                        G_ref_zone[:, ti] = np.interp(
+                            f_ref_zone,
+                            f_z_zone,
+                            G_zone_t[:, ti],
+                            left=float(G_zone_t[0, ti]),
+                            right=float(G_zone_t[-1, ti]),
+                        )
+                elif len(f_z_zone) == 1:
+                    G_ref_zone[:, :] = G_zone_t[0:1, :]
+                else:
+                    continue
+
+                # Hanning crossfade weights
+                if n_ref_zone > 2:
+                    hann_w = np.hanning(n_ref_zone + 2)[1:-1]
+                    hann_w = np.clip(hann_w, 1e-3, 1.0)
+                else:
+                    hann_w = np.ones(n_ref_zone)
+
+                for ki, k in enumerate(ref_indices):
+                    w = float(hann_w[ki])
+                    G_acc[k, :] += w * G_ref_zone[ki, :]
+                    w_acc[k] += w
+
+            except Exception as zone_exc:
+                logger.warning("MRSA Phase 29 zone '%s' failed: %s", zone_name, zone_exc)
+                continue
+
+        # Combine zone gains; unprocessed bins → pass-through
+        valid = w_acc > 0.0
+        G_combined = np.ones((n_bins, n_t), dtype=np.float32)
+        G_combined[valid, :] = (G_acc[valid, :] / w_acc[valid, np.newaxis]).astype(np.float32)
+        G_combined = np.clip(np.nan_to_num(G_combined, nan=1.0), 0.0, 1.0)
+
+        # Apply gain + PGHI reconstruction
+        Zxx_proc = G_combined * np.abs(Zxx_ref) * np.exp(1j * np.angle(Zxx_ref))
+        if _PGHI_AVAILABLE_P29:
+            try:
+                audio_out = _pghi_p29(Zxx_proc.astype(np.complex64), sr=sample_rate, win_size=REF_WIN, hop=REF_HOP)
+            except Exception as pghi_exc:
+                logger.warning("MRSA Phase 29: PGHI failed, iSTFT fallback: %s", pghi_exc)
+                _, audio_out = signal.istft(
+                    Zxx_proc, fs=sample_rate, nperseg=REF_WIN, noverlap=REF_NOVERLAP, window="hann"
+                )
+        else:
+            _, audio_out = signal.istft(Zxx_proc, fs=sample_rate, nperseg=REF_WIN, noverlap=REF_NOVERLAP, window="hann")
+
+        audio_out = np.real(audio_out)
+        audio_out = audio_out[:n]
+        if len(audio_out) < n:
+            audio_out = np.pad(audio_out, (0, n - len(audio_out)))
+        audio_out = np.nan_to_num(audio_out, nan=0.0, posinf=0.0, neginf=0.0)
+        audio_out = np.clip(audio_out, -1.0, 1.0).astype(np.float32)
+
+        logger.debug(
+            "MRSA Phase 29: 5 zones processed, valid_bins=%d/%d, G_mean=%.3f",
+            int(np.sum(valid)),
+            n_bins,
+            float(np.mean(G_combined)),
+        )
+        return audio_out
 
     def _extract_band(self, signal_in: np.ndarray, sample_rate: int, low_freq: float, high_freq: float) -> np.ndarray:
         """Bandpass-Filterung f\u00fcr Metrik-Berechnung (Hilfsmethode)."""
@@ -555,7 +695,6 @@ class TapeHissReductionPhase(PhaseInterface):
                 # Blend strategy: Keep <2kHz from original, use ML for >2kHz
                 if refined.shape == audio.shape:
                     # Extract HF bands
-                    sample_rate / 2
                     sos_lp = signal.butter(4, self.ML_FREQUENCY_THRESHOLD_HZ, btype="low", fs=sample_rate, output="sos")
                     sos_hp = signal.butter(
                         4, self.ML_FREQUENCY_THRESHOLD_HZ, btype="high", fs=sample_rate, output="sos"
@@ -710,7 +849,9 @@ if __name__ == "__main__":
 
         # Process
         start = time.time()
-        processed, meta = processor.process(audio, sr, material)
+        result = processor.process(audio, sr, material)
+        processed = result.audio
+        meta = result.metadata or {}
         elapsed = time.time() - start
 
         # Calculate HF noise reduction

@@ -1,11 +1,11 @@
 
-
 # Aurik 6.0 – Policy-Engine & Zielvorgaben
 
 **Hinweis zur Implementierungsqualität:**
 Alle DSP-Module sollen bereits im ersten Durchgang auf maximal möglichem SOTA-Niveau umgesetzt werden. Es werden keine Platzhalter, Dummys oder vereinfachte Algorithmen akzeptiert. Ziel ist es, dass jede DSP-Komponente direkt produktiv und mit bestmöglicher Qualität arbeitet (z. B. durch Nutzung aktueller Deep-Learning-Modelle, adaptiver Filter, spektraler Maskierung, Multiband-Prozessoren etc.).
 
 ## Zielvorgaben (Goals)
+
 Die Policy-Engine steuert die Auswahl und Kombination der DSP-Module adaptiv anhand von Zielvorgaben ("goals").
 
 **Beispiel-Policy:**
@@ -18,6 +18,7 @@ policy = {
 ```
 
 ## DSP-Kettenbildung
+
 Die Policy-Engine wählt je nach Zielvorgabe automatisch die passende DSP-Kette:
 
 - `max_sprachverstaendlichkeit`: ZeroCrossingRate, SpectralCentroid
@@ -25,10 +26,9 @@ Die Policy-Engine wählt je nach Zielvorgabe automatisch die passende DSP-Kette:
 - `max_lautheit`: (z. B. RMSEnergy, weitere Module)
 - Standard: RMSEnergy, ZeroCrossingRate
 
-
 ## Erweiterung (Plug-and-Play)
-Neue Zielvorgaben und DSP-Kombinationen können ohne Codeänderung an der PolicyEngine registriert werden:
 
+Neue Zielvorgaben und DSP-Kombinationen können ohne Codeänderung an der PolicyEngine registriert werden:
 
 ```python
 from aurik6.policy.policy_engine import PolicyEngine

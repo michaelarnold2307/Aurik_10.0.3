@@ -369,6 +369,10 @@ class BSRoFormerPlugin:
         _H = self._MBR_HOP
         _B = self._MBR_BANDS
         _FD = self._MBR_FDIM
+        session = self._session
+        if session is None:
+            logger.warning("MelBandRoformer: ONNX-Session fehlt → Fallback")
+            return self._separate_fallback(audio, sr, requested_stems)
 
         try:
             # ── 1. Resample to model SR ──────────────────────────────────────
@@ -386,7 +390,7 @@ class BSRoFormerPlugin:
 
             n_orig_44 = len(audio_44)
             bin_pts = self._mbr_mel_band_boundaries()
-            input_name = self._session.get_inputs()[0].name
+            input_name = session.get_inputs()[0].name
 
             # OOM-Guard: chunk audio into ~60 s segments with 1 s crossfade
             # to prevent multi-GB STFT/mel/ONNX allocations on long files.
@@ -410,8 +414,11 @@ class BSRoFormerPlugin:
                     fill = min(ri.shape[1], _FD)
                     X_s[0, :, b, :fill] = ri[:, :fill].astype(np.float32)
                 del Z_s
-                out_s = self._session.run(None, {input_name: X_s})[0]
+                out_raw = session.run(None, {input_name: X_s})
                 del X_s
+                if not out_raw:
+                    return None
+                out_s = np.asarray(out_raw[0])
                 if out_s is None or out_s.ndim not in (4, 5):
                     return None
                 if out_s.ndim == 4:

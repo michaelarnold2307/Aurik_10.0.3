@@ -162,7 +162,7 @@ class ExzellenzDenker:
         _VOCAL_MATERIALS = {"gesang", "sprache", "vocal", "singer", "speech", "voice"}
         if material.lower().strip() in _VOCAL_MATERIALS:
             try:
-                if UnifiedVocalAIEnhancer is None:
+                if UnifiedVocalAIEnhancer is None or EmotionPreservationMode is None:
                     raise ImportError("core.vocal_ai_enhancement nicht verfügbar")
                 _vocal_enh = UnifiedVocalAIEnhancer(sample_rate=sr)
                 _vocal_result = _vocal_enh.enhance(

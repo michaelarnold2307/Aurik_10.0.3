@@ -67,7 +67,7 @@ class AudioSnapshot:
     audio: np.ndarray | None = None
     delta: np.ndarray | None = None
     sample_rate: int = 48000
-    shape: tuple[int, ...] = None
+    shape: tuple[int, ...] | None = None
     is_compressed: bool = False
     reference_index: int | None = None
 
@@ -82,6 +82,8 @@ class AudioSnapshot:
             Reconstructed audio array
         """
         if not self.is_compressed:
+            if self.audio is None:
+                raise ValueError("Full snapshot has no audio payload")
             return self.audio.copy()
 
         if reference is None:
@@ -174,12 +176,14 @@ class ProcessingAction(Action):
 
         self.sr = sr
         self.processing_params = processing_params or {}
+        self._reference_audio: np.ndarray | None = None
 
         # Store audio snapshots
         if use_delta and reference_snapshot is not None:
             # Delta compression: store only difference from reference
             reference_audio = reference_snapshot.get_audio()
             self.before_snapshot = AudioSnapshot.create_delta(before_audio, reference_audio, sr, reference_index)
+            self._reference_audio = reference_audio.copy()
         else:
             # Full snapshot
             self.before_snapshot = AudioSnapshot.create_full(before_audio, sr)
@@ -192,17 +196,26 @@ class ProcessingAction(Action):
     def revert(self) -> dict[str, Any]:
         """Revert to before-processing audio."""
         self.current_state = "before"
-        return {"audio": self.before_snapshot.audio, "sr": self.sr, "params": self.processing_params}
+        if self.before_snapshot is None:
+            raise RuntimeError("Before snapshot is not available")
+        return {
+            "audio": self.before_snapshot.get_audio(self._reference_audio),
+            "sr": self.sr,
+            "params": self.processing_params,
+        }
 
     def apply(self) -> dict[str, Any]:
         """Apply processing (go to after-audio)."""
         self.current_state = "after"
-        return {"audio": self.after_snapshot.audio, "sr": self.sr, "params": self.processing_params}
+        if self.after_snapshot is None:
+            raise RuntimeError("After snapshot is not available")
+        return {"audio": self.after_snapshot.get_audio(), "sr": self.sr, "params": self.processing_params}
 
     def cleanup(self):
         """Free audio memory."""
         self.before_snapshot = None
         self.after_snapshot = None
+        self._reference_audio = None
 
     def memory_size(self) -> int:
         """Estimate total memory usage."""
@@ -381,7 +394,7 @@ class UndoManager:
         self._total_memory = 0
 
         logger.info(
-            f"UndoManager initialized (max_levels={max_undo_levels}, " f"delta_compression={enable_delta_compression})"
+            f"UndoManager initialized (max_levels={max_undo_levels}, delta_compression={enable_delta_compression})"
         )
 
     def record_action(self, action: Action):

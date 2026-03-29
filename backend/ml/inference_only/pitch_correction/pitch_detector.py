@@ -78,10 +78,10 @@ class CREPEPitchDetector:
 
         if not CREPE_AVAILABLE:
             logger.warning(
-                "CREPE not available. Install with: pip install crepe-tf2. " "Falling back to basic pitch tracking."
+                "CREPE not available. Install with: pip install crepe-tf2. Falling back to basic pitch tracking."
             )
 
-        logger.info(f"CREPEPitchDetector initialized: sr={sample_rate}, " f"model={model_capacity}, step={step_size}ms")
+        logger.info(f"CREPEPitchDetector initialized: sr={sample_rate}, model={model_capacity}, step={step_size}ms")
 
     def detect(self, audio: np.ndarray, min_confidence: float = 0.85) -> PitchAnalysis:
         """
@@ -217,10 +217,11 @@ class CREPEPitchDetector:
             return False
 
         # FFT to detect periodicity
-        from scipy.fft import rfft, rfftfreq
+        from scipy.fft import rfftfreq
 
-        fft = np.abs(rfft(f0_detrended))
-        freqs = rfftfreq(len(f0_detrended), d=np.mean(np.diff(times_voiced)))
+        f0_detrended_arr = np.asarray(f0_detrended, dtype=np.float64)
+        fft = np.abs(np.fft.rfft(f0_detrended_arr))
+        freqs = rfftfreq(len(f0_detrended_arr), d=np.mean(np.diff(times_voiced)))
 
         # Check for peak in vibrato frequency range
         mask = (freqs >= min_rate) & (freqs <= max_rate)
@@ -272,7 +273,12 @@ class CREPEPitchDetector:
         # Check for sustained regions (> 0.2s)
         from scipy.ndimage import label
 
-        labeled, n_regions = label(high_slope_mask)
+        label_result = label(high_slope_mask)
+        if isinstance(label_result, tuple):
+            labeled, n_regions = label_result
+        else:
+            labeled = label_result
+            n_regions = int(np.max(labeled))
 
         for region_id in range(1, n_regions + 1):
             region_mask = labeled == region_id
@@ -349,7 +355,12 @@ class CREPEPitchDetector:
         # Group contiguous errors
         from scipy.ndimage import label
 
-        labeled, n_errors = label(error_mask)
+        label_result = label(error_mask)
+        if isinstance(label_result, tuple):
+            labeled, n_errors = label_result
+        else:
+            labeled = label_result
+            n_errors = int(np.max(labeled))
 
         for error_id in range(1, n_errors + 1):
             error_region = labeled == error_id

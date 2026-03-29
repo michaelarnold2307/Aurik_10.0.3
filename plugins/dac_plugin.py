@@ -34,6 +34,7 @@ import math
 import threading
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 
@@ -209,8 +210,8 @@ class DacPlugin:
     """
 
     def __init__(self) -> None:
-        self._enc_session = None
-        self._dec_session = None
+        self._enc_session: Any = None
+        self._dec_session: Any = None
         self._enc_loaded: bool = False
         self._dec_loaded: bool = False
         self._try_load()

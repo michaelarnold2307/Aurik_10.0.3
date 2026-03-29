@@ -421,3 +421,120 @@ class TestPMGGAdaptiveSampleDuration:
         assert np.isfinite(out).all()
         for v in scores.values():
             assert math.isfinite(v)
+
+
+# ----------------------------------------------------------------------
+# Tests §2.29b — PHASE_GOAL_EXCLUSIONS (NatuerlichkeitMetric stable-metric
+# invariante + phase-specific false-positive prevention)
+# ----------------------------------------------------------------------
+
+
+class TestPhaseGoalExclusions:
+    """§2.29b: PHASE_GOAL_EXCLUSIONS ensures unreliable metrics are never
+    used for PMGG delta checks in phases where they produce false regressions.
+    """
+
+    def test_36_phase03_excludes_natuerlichkeit(self):
+        """CREPE state-dependency must not trigger P1 regression in phase_03."""
+        from backend.core.per_phase_musical_goals_gate import PHASE_GOAL_EXCLUSIONS
+
+        assert "natuerlichkeit" in PHASE_GOAL_EXCLUSIONS["phase_03"]
+
+    def test_37_phase03_excludes_artikulation(self):
+        """ArticulationMetric(ref=noisy_tape) vs denoised output is reference‑mismatch.
+        Denoising reshapes transients → false P2 catastrophic regression confirmed
+        in debug logs 2026-03-28 (worst_goal=artikulation, Δ=0.54 → best_effort 6 %)."""
+        from backend.core.per_phase_musical_goals_gate import PHASE_GOAL_EXCLUSIONS
+
+        assert "artikulation" in PHASE_GOAL_EXCLUSIONS["phase_03"]
+
+    def test_38_phase03_does_not_exclude_tonal_center(self):
+        """TonalCenter uses librosa.chroma_stft — no ML state dependency; safe."""
+        from backend.core.per_phase_musical_goals_gate import PHASE_GOAL_EXCLUSIONS
+
+        excl = PHASE_GOAL_EXCLUSIONS.get("phase_03", set())
+        assert "tonal_center" not in excl
+
+    def test_39_phase29_excludes_brillanz(self):
+        """DeepFilterNet HF-removal intentionally lowers HF energy → brillanz drops by design."""
+        from backend.core.per_phase_musical_goals_gate import PHASE_GOAL_EXCLUSIONS
+
+        assert "brillanz" in PHASE_GOAL_EXCLUSIONS["phase_29"]
+
+    def test_40_phase29_excludes_artikulation(self):
+        """Same reference-mismatch as phase_03: hissy tape as reference vs denoised output."""
+        from backend.core.per_phase_musical_goals_gate import PHASE_GOAL_EXCLUSIONS
+
+        assert "artikulation" in PHASE_GOAL_EXCLUSIONS["phase_29"]
+
+    def test_41_phase55_excludes_artikulation(self):
+        """Diffusion inpainting synthesises new content — no valid transient reference."""
+        from backend.core.per_phase_musical_goals_gate import PHASE_GOAL_EXCLUSIONS
+
+        assert "artikulation" in PHASE_GOAL_EXCLUSIONS["phase_55"]
+
+    def test_42_phase55_excludes_micro_dynamics(self):
+        """Inpainting inserts content with its own envelope intentionally differing from gap edges."""
+        from backend.core.per_phase_musical_goals_gate import PHASE_GOAL_EXCLUSIONS
+
+        assert "micro_dynamics" in PHASE_GOAL_EXCLUSIONS["phase_55"]
+
+    def test_43_phase02_excludes_natuerlichkeit(self):
+        """Comb-filter notches in hum-removal should not trigger CREPE-based P1 regression."""
+        from backend.core.per_phase_musical_goals_gate import PHASE_GOAL_EXCLUSIONS
+
+        assert "natuerlichkeit" in PHASE_GOAL_EXCLUSIONS["phase_02"]
+
+    def test_44_phase24_excludes_natuerlichkeit(self):
+        """Dropout-repair synthesis produces content without CREPE reference → unreliable."""
+        from backend.core.per_phase_musical_goals_gate import PHASE_GOAL_EXCLUSIONS
+
+        assert "natuerlichkeit" in PHASE_GOAL_EXCLUSIONS["phase_24"]
+
+    def test_45_phase06_excludes_brillanz(self):
+        """SBR adds new HF content not present in reference → brillanz increase is goal."""
+        from backend.core.per_phase_musical_goals_gate import PHASE_GOAL_EXCLUSIONS
+
+        assert "brillanz" in PHASE_GOAL_EXCLUSIONS["phase_06"]
+
+    def test_46_phase18_excludes_micro_dynamics(self):
+        """Noise gate deliberately inserts silence segments → dynamics change is intended."""
+        from backend.core.per_phase_musical_goals_gate import PHASE_GOAL_EXCLUSIONS
+
+        assert "micro_dynamics" in PHASE_GOAL_EXCLUSIONS["phase_18"]
+
+    def test_47_exclusions_dict_nonempty(self):
+        """PHASE_GOAL_EXCLUSIONS must contain at least 10 phase entries."""
+        from backend.core.per_phase_musical_goals_gate import PHASE_GOAL_EXCLUSIONS
+
+        assert len(PHASE_GOAL_EXCLUSIONS) >= 10
+
+    def test_48_exclusions_all_values_are_sets(self):
+        """Every value in PHASE_GOAL_EXCLUSIONS must be a set (never list/tuple)."""
+        from backend.core.per_phase_musical_goals_gate import PHASE_GOAL_EXCLUSIONS
+
+        for phase, excl in PHASE_GOAL_EXCLUSIONS.items():
+            assert isinstance(excl, set), f"{phase}: exclusions should be a set, got {type(excl)}"
+
+    def test_49_exclusions_keys_start_with_phase(self):
+        """All exclusion keys must be phase-ID prefixes starting with 'phase_'."""
+        from backend.core.per_phase_musical_goals_gate import PHASE_GOAL_EXCLUSIONS
+
+        for key in PHASE_GOAL_EXCLUSIONS:
+            assert key.startswith("phase_"), f"Key {key!r} does not start with 'phase_'"
+
+    def test_50_phase36_excludes_artikulation(self):
+        """Transient shaper intentionally alters attack shapes → artikulation delta expected."""
+        from backend.core.per_phase_musical_goals_gate import PHASE_GOAL_EXCLUSIONS
+
+        assert "artikulation" in PHASE_GOAL_EXCLUSIONS["phase_36"]
+
+    def test_51_phase03_exclusion_is_superset_v9_10_79(self):
+        """phase_03 exclusion set must contain at least {natuerlichkeit, artikulation} (§2.29b)."""
+        from backend.core.per_phase_musical_goals_gate import PHASE_GOAL_EXCLUSIONS
+
+        required = {"natuerlichkeit", "artikulation"}
+        assert required.issubset(PHASE_GOAL_EXCLUSIONS["phase_03"]), (
+            f"phase_03 exclusions {PHASE_GOAL_EXCLUSIONS['phase_03']} missing required: "
+            f"{required - PHASE_GOAL_EXCLUSIONS['phase_03']}"
+        )

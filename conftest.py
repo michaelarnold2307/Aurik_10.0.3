@@ -84,20 +84,24 @@ _VSCODE_GC_INTERVAL: int = 100
 def pytest_configure(config) -> None:
     """Wird im Haupt-Thread vor allen Tests aufgerufen.
 
-    Löst alle librosa-Lazy-Submodule auf, BEVOR xdist-Worker-Prozesse starten.
-    Verhindert den Python Import-Lock-Deadlock (zwei Threads importieren
-    librosa.util gleichzeitig via lazy_loader.__getattr__).
-
-    Guard-Logik:
-        1. PYTEST_XDIST_WORKER gesetzt → wir SIND BEREITS ein Worker-Prozess.
-           Worker importieren librosa lazy, kein paralleler Lock-Konflikt mehr.
-           → sofortiger Return, kein Warm-up.
-        2. numprocesses == 0 → kein xdist, kein paralleler Import-Lock möglich.
-           → sofortiger Return, kein Warm-up (verhindert Numba-JIT-Hang bei
-           Einzelprozess-Läufen und beim VS Code Test Explorer).
-        3. numprocesses > 0 → Haupt-Prozess mit xdist-Workern. Warm-up here
-           löst alle Lazy-Submodule auf, bevor fork() Worker-Prozesse erzeugt.
+    Setzt Drittanbieter-Warnungsfilter VOR der Collection.
+    Diese müssen innerhalb von pytest_configure (nicht auf Modul-Ebene) gesetzt
+    werden, damit sie NACH dem internen pytest -W-error-Hook laufen und thus an
+    der vordersten Position in der Filter-Liste landen.
     """
+    # pkg_resources-Deprecation kommt aus der Kette torch→resampy→pkg_resources.
+    # Kein eigener Code betroffen — reine Drittanbieter-Warnung.
+    _warnings.filterwarnings(
+        "ignore",
+        message="pkg_resources is deprecated as an API",
+        category=UserWarning,
+    )
+    _warnings.filterwarnings(
+        "ignore",
+        message="pkg_resources is deprecated as an API",
+        category=DeprecationWarning,
+    )
+
     # Guard 1: Wir sind bereits in einem xdist-Worker → kein Warm-up nötig.
     if os.environ.get("PYTEST_XDIST_WORKER"):
         return

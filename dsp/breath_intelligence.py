@@ -178,7 +178,7 @@ class BreathDetector:
         max_chunk = 30 * sr  # 30 s chunks — ~46 MB complex128 per chunk
         n = len(audio)
         if n <= max_chunk:
-            envelope = np.abs(hilbert(audio))
+            envelope = np.abs(np.asarray(hilbert(audio), dtype=np.complex128))
         else:
             overlap = int(0.01 * sr)  # 10 ms overlap for smooth joins
             envelope = np.empty(n, dtype=np.float64)

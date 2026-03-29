@@ -199,18 +199,29 @@ class DemucsV5Separator:
             import torch
             from demucs.apply import apply_model
 
+            model = self.model
+            if model is None:
+                raise RuntimeError("Demucs model is not loaded")
+
             # Convert to torch tensor — §9.5: ausschließlich CPU
             audio_torch = torch.from_numpy(audio).float()  # kein .cuda() — §9.5
 
             # Add batch dimension
             audio_torch = audio_torch.unsqueeze(0)
 
+            # Demucs controls chunking via model.segment (seconds), not apply_model kwargs.
+            if hasattr(model, "segment"):
+                try:
+                    model.segment = float(self.segment_duration)
+                except Exception:
+                    pass
+
             # Apply model
             with torch.no_grad():
                 sources = apply_model(
-                    self.model,
+                    model,
                     audio_torch,
-                    segment=int(self.segment_duration * self.sample_rate),
+                    split=True,
                     overlap=0.25,
                     device=self.device,
                 )

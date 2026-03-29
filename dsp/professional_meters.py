@@ -248,7 +248,8 @@ class LUFSMeter:
         # Vectorized block extraction
         starts = np.arange(n_blocks) * hop_samps
         indices = starts[:, np.newaxis] + np.arange(block_samps)  # (n_blocks, block_samps)
-        blocks = filtered[:, indices]  # (n_ch, n_blocks, block_samps)
+        # Use np.take for type-safe advanced indexing along sample axis.
+        blocks = np.take(filtered, indices, axis=1)  # (n_ch, n_blocks, block_samps)
         ms = np.mean(blocks**2, axis=2)  # (n_ch, n_blocks)
         weight_sum = np.sum(ch_weights) + 1e-30
         weighted = np.dot(ch_weights, ms) / weight_sum  # (n_blocks,)

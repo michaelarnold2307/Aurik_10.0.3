@@ -11,7 +11,7 @@ Version: 9.0.0
 """
 
 import numpy as np
-from scipy.signal import butter, filtfilt
+from scipy.signal import butter, sosfiltfilt
 
 # ═══════════════════════════════════════════════════════════════════════════
 # MATERIAL QUALITY SPECIFICATIONS
@@ -454,12 +454,14 @@ def generate_medium_specific_audio(
     freq_high = min(spec["freq_high"], sr // 2 - 100)
 
     if freq_low > 20:
-        b, a = butter(4, freq_low / (sr / 2), btype="high")
-        signal = filtfilt(b, a, signal)
+        normalized_low = max(0.001, min(0.999, freq_low / (sr / 2)))
+        sos_high = butter(4, normalized_low, btype="high", output="sos")
+        signal = sosfiltfilt(sos_high, signal)
 
     if freq_high < sr // 2 - 100:
-        b, a = butter(4, freq_high / (sr / 2), btype="low")
-        signal = filtfilt(b, a, signal)
+        normalized_high = max(0.001, min(0.999, freq_high / (sr / 2)))
+        sos_low = butter(4, normalized_high, btype="low", output="sos")
+        signal = sosfiltfilt(sos_low, signal)
 
     # Rauschen entsprechend dem Typ
     snr_min = spec["snr_min"]
@@ -473,9 +475,9 @@ def generate_medium_specific_audio(
         flutter_rate = 3.0 + rng.uniform(0, 2)  # Hz
         flutter_depth = 0.003
         phase_mod = flutter_depth * np.sin(2 * np.pi * flutter_rate * t)
-        # Vereinfachte Zeitstreckung via Winkel-ModiTion (Näherung)
-        t + np.cumsum(phase_mod) / sr
-        signal = np.interp(t, t, signal)  # Stabiler Platzhalter
+        # Vereinfachte Zeitstreckung via Winkel-Modulation (Näherung)
+        t_mod = t + np.cumsum(phase_mod) / sr
+        signal = np.interp(t_mod, t, signal)
 
     # Normalisieren
     peak = np.max(np.abs(signal))

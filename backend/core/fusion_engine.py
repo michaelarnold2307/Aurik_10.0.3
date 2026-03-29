@@ -90,22 +90,3 @@ def get_fusion_engine() -> FusionEngine:
             if _fusion_engine_instance is None:
                 _fusion_engine_instance = FusionEngine()
     return _fusion_engine_instance
-
-
-# ---------------------------------------------------------------------------
-# Singleton accessor (thread-safe, double-checked locking)
-# ---------------------------------------------------------------------------
-import threading as _threading
-
-_fusion_engine_instance = None
-_fusion_engine_lock = _threading.Lock()
-
-
-def get_fusion_engine() -> FusionEngine:
-    """Return the process-wide singleton ``FusionEngine`` instance."""
-    global _fusion_engine_instance
-    if _fusion_engine_instance is None:
-        with _fusion_engine_lock:
-            if _fusion_engine_instance is None:
-                _fusion_engine_instance = FusionEngine()
-    return _fusion_engine_instance

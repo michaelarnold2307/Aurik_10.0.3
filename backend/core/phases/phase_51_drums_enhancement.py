@@ -40,6 +40,7 @@ Date: 16. Februar 2026
 
 import logging
 import time
+from typing import Any
 
 import numpy as np
 
@@ -60,7 +61,7 @@ except ImportError:
 try:
     from dsp.formant_system import FormantSystem as _FormantSystemCls
 
-    _FORMANT_SYSTEM_DRUMS: _FormantSystemCls | None = None
+    _FORMANT_SYSTEM_DRUMS: Any = None
 except Exception:
     _FormantSystemCls = None  # type: ignore[assignment,misc]
     _FORMANT_SYSTEM_DRUMS = None

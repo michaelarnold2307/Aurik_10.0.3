@@ -87,7 +87,10 @@ def test_detection_speed_by_duration(benchmark_audio, duration):
     audio = benchmark_audio[sr][duration]
 
     detector = CREPEPitchDetector(
-        sample_rate=sr, model_capacity="small", step_size=10, viterbi=True  # Fast model for scaling tests
+        sample_rate=sr,
+        model_capacity="small",
+        step_size=10,
+        viterbi=True,  # Fast model for scaling tests
     )
 
     start_time = time.time()
@@ -101,7 +104,7 @@ def test_detection_speed_by_duration(benchmark_audio, duration):
     print(f"  Processing time: {elapsed_time:.2f}s")
     print(f"  Realtime factor: {realtime_factor:.2f}x")
     print(f"  Frames/sec: {frames_per_second:.1f}")
-    print(f"  Scalability: {'Linear' if 0.8 < (elapsed_time/duration) / 0.2 < 1.2 else 'Non-linear'}")
+    print(f"  Scalability: {'Linear' if 0.8 < (elapsed_time / duration) / 0.2 < 1.2 else 'Non-linear'}")
 
     assert elapsed_time > 0
 
@@ -304,11 +307,12 @@ def test_quality_formant_preservation():
 
     if metadata["corrected"]:
         # Measure spectral similarity in formant regions
-        from scipy.fft import rfft, rfftfreq
+        from numpy.fft import rfft as np_rfft
+        from numpy.fft import rfftfreq as np_rfftfreq
 
-        fft_orig = np.abs(rfft(audio))
-        fft_corr = np.abs(rfft(audio_corrected))
-        freqs = rfftfreq(len(audio), 1 / sr)
+        fft_orig = np.abs(np_rfft(np.asarray(audio, dtype=np.float64)))
+        fft_corr = np.abs(np_rfft(np.asarray(audio_corrected, dtype=np.float64)))
+        freqs = np_rfftfreq(len(audio), 1 / sr)
 
         # Check formant regions (±50 Hz around F1 and F2)
         f1_mask = (freqs >= f1 - 50) & (freqs <= f1 + 50)
@@ -353,7 +357,7 @@ def test_quality_energy_preservation():
     print(f"  Original energy: {energy_orig:.2e}")
     print(f"  Corrected energy: {energy_corr:.2e}")
     print(f"  Energy ratio: {energy_ratio:.3f}")
-    print(f"  Energy change: {energy_change*100:.1f}%")
+    print(f"  Energy change: {energy_change * 100:.1f}%")
     print(f"  Corrected: {metadata['corrected']}")
 
     # Energy should be preserved within 15% (HIPS threshold)
@@ -397,7 +401,7 @@ def test_comparison_detection_methods():
         print(f"    Time: {data['time']:.2f}s")
         print(f"    Realtime: {data['realtime_factor']:.2f}x")
         print(f"    F0: {data['mean_f0']:.1f} Hz")
-        print(f"    Accuracy: {data['accuracy']*100:.1f}%")
+        print(f"    Accuracy: {data['accuracy'] * 100:.1f}%")
 
 
 # === Summary Report ===
@@ -425,7 +429,7 @@ def test_generate_benchmark_summary(benchmark_audio):
     print("   Model: CREPE (full)")
     print(f"   Duration: {duration}s")
     print(f"   Processing time: {detection_time:.2f}s")
-    print(f"   Realtime factor: {detection_time/duration:.2f}x")
+    print(f"   Realtime factor: {detection_time / duration:.2f}x")
 
     # Correction benchmark
     corrector = ConservativePitchCorrector(sample_rate=sr, error_threshold_cents=25.0)
@@ -437,14 +441,14 @@ def test_generate_benchmark_summary(benchmark_audio):
     print("\n2. Pitch Correction:")
     print(f"   Duration: {duration}s")
     print(f"   Processing time: {correction_time:.2f}s")
-    print(f"   Realtime factor: {correction_time/duration:.2f}x")
+    print(f"   Realtime factor: {correction_time / duration:.2f}x")
     print(f"   Corrected: {metadata['corrected']}")
 
     # Total
     total_time = detection_time + correction_time
     print("\n3. Total Pipeline:")
     print(f"   Total time: {total_time:.2f}s")
-    print(f"   Realtime factor: {total_time/duration:.2f}x")
+    print(f"   Realtime factor: {total_time / duration:.2f}x")
 
     print("\n" + "=" * 60)
 

@@ -18,8 +18,12 @@ try:
     from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
     from fastapi.responses import HTMLResponse
 except ImportError:
-    # FastAPI optional - für Tests
-    pass
+    # FastAPI optional - keep module importable in test/offline environments.
+    FastAPI = Any
+    HTTPException = Exception
+    WebSocket = Any
+    WebSocketDisconnect = Exception
+    HTMLResponse = Any
 
 logger = logging.getLogger(__name__)
 
@@ -360,7 +364,7 @@ class MusicalGoalsMonitorAPI:
 
         # Log violations
         if violations:
-            logger.warning(f"Session {session_id} step {step_name}: " f"Violations: {', '.join(violations)}")
+            logger.warning(f"Session {session_id} step {step_name}: Violations: {', '.join(violations)}")
 
     def save_history(self, session_id: str):
         """

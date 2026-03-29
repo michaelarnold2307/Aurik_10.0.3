@@ -9,6 +9,7 @@ from __future__ import annotations
 import logging
 import os
 import threading
+from typing import Any
 
 import numpy as np
 
@@ -26,7 +27,7 @@ _OUT_HOP = 2560
 
 class HifiGanPlugin:
     def __init__(self, model_path: str | None = None) -> None:
-        self._session = None
+        self._session: Any = None
         self._try_load(model_path or _MODEL)
 
     def _try_load(self, path: str) -> None:
@@ -96,7 +97,7 @@ class HifiGanPlugin:
             e = min(s + CHUNK, T)
             m = mel[:, s:e][None].astype(np.float32)  # [1,80,chunk]
             try:
-                out = self._session.run(None, {"input": m})[0]  # [1,1,2560*chunk]
+                out = np.asarray(self._session.run(None, {"input": m})[0], dtype=np.float32)  # [1,1,2560*chunk]
                 out = np.nan_to_num(out, nan=0.0, posinf=0.0, neginf=0.0)
                 chunks.append(out[0, 0])
             except Exception as exc:

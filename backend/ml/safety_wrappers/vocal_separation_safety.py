@@ -17,7 +17,7 @@ import json
 import logging
 from datetime import datetime
 from pathlib import Path
-from typing import Dict
+from typing import Any
 
 import numpy as np
 
@@ -70,9 +70,7 @@ class VocalSeparationSafetyWrapper:
 
         self.audit_log_path = audit_log_path
 
-        logger.info(
-            f"VocalSeparationSafetyWrapper initialized: " f"strict_mode={strict_mode}, audit_log={audit_log_path}"
-        )
+        logger.info(f"VocalSeparationSafetyWrapper initialized: strict_mode={strict_mode}, audit_log={audit_log_path}")
 
         self.separation_count = 0
         self.violations_count = 0
@@ -106,7 +104,7 @@ class VocalSeparationSafetyWrapper:
             if self.strict_mode:
                 raise HIPSViolationError(f"Pre-separation HIPS check failed: {pre_check_result['issues']}")
             else:
-                logger.warning(f"[{separation_id}] Pre-separation warnings: " f"{pre_check_result['issues']}")
+                logger.warning(f"[{separation_id}] Pre-separation warnings: {pre_check_result['issues']}")
 
         # STEP 2: Perform separation
         try:
@@ -130,7 +128,7 @@ class VocalSeparationSafetyWrapper:
             if self.strict_mode:
                 raise HIPSViolationError(f"Post-separation HIPS check failed: {post_check_result['issues']}")
             else:
-                logger.warning(f"[{separation_id}] Post-separation warnings: " f"{post_check_result['issues']}")
+                logger.warning(f"[{separation_id}] Post-separation warnings: {post_check_result['issues']}")
 
         # STEP 4: Auditability - Log successful separation
         self._log_success(
@@ -145,7 +143,7 @@ class VocalSeparationSafetyWrapper:
 
         return stems
 
-    def _pre_separation_checks(self, audio: np.ndarray, sr: int) -> dict[str, any]:
+    def _pre_separation_checks(self, audio: np.ndarray, sr: int) -> dict[str, Any]:
         """
         HIPS Pre-Separation Checks:
         1. No clipping
@@ -241,9 +239,7 @@ class VocalSeparationSafetyWrapper:
             "reconstruction_error_db": float(reconstruction_error_db),
         }
         if reconstruction_error > 0.01:
-            issues.append(
-                f"Reconstruction error: {reconstruction_error_db:.1f} dB " "(stems don't perfectly recombine)"
-            )
+            issues.append(f"Reconstruction error: {reconstruction_error_db:.1f} dB (stems don't perfectly recombine)")
 
         # Check 2: Energy conservation
         energy_original = np.sum(original**2)
@@ -356,7 +352,7 @@ class VocalSeparationSafetyWrapper:
         except Exception as e:
             logger.error(f"Failed to write audit log: {e}")
 
-    def get_compliance_report(self) -> dict[str, any]:
+    def get_compliance_report(self) -> dict[str, Any]:
         """
         Get HIPS compliance report
 
@@ -378,7 +374,7 @@ class VocalSeparationSafetyWrapper:
 
 if __name__ == "__main__":
     # Test safety wrapper
-    from .hybrid_separation import HybridVocalSeparator
+    from backend.ml.inference_only.vocal_separation.hybrid_separation import HybridVocalSeparator
 
     separator = HybridVocalSeparator()
     wrapper = VocalSeparationSafetyWrapper(separator, strict_mode=False)

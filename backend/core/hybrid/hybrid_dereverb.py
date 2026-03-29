@@ -27,6 +27,7 @@ Date: 16. Februar 2026
 
 import logging
 import threading
+import time
 from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Optional
@@ -165,8 +166,6 @@ class HybridDereverb:
         Returns:
             DereverbResult with processed audio and metadata
         """
-        import time
-
         start_time = time.time()
 
         # Determine strategy
@@ -202,44 +201,7 @@ class HybridDereverb:
                 _ml_name = "SGMSE+" if self._sgmse_active else "ResembleEnhance"
                 logger.info("Stage 2: %s ML-Dereverb-Stufe...", _ml_name)
 
-                # ── RAM guard: < 3 GB → skip ML, keep DSP result ────
-                # Proactive: evict stale plugins first to free RAM for SGMSE+.
-                _skip_ml = False
-                try:
-                    import gc
-
-                    import psutil
-
-                    _avail_gb = psutil.virtual_memory().available / (1024**3)
-                    if _avail_gb < 6.0:
-                        # Proactive plugin eviction BEFORE ML inference
-                        logger.info(
-                            "Dereverb: %.1f GB frei — proaktive Plugin-Eviction vor ML-Inferenz",
-                            _avail_gb,
-                        )
-                        try:
-                            from backend.core.plugin_lifecycle_manager import evict_stale_plugins
-
-                            evict_stale_plugins(required_mb=3072)
-                        except Exception:
-                            pass
-                        gc.collect()
-                        try:
-                            import ctypes as _ct
-
-                            _ct.CDLL("libc.so.6").malloc_trim(0)
-                        except Exception:
-                            pass
-                        # Re-check after eviction
-                        _avail_gb = psutil.virtual_memory().available / (1024**3)
-                    if _avail_gb < 3.0:
-                        logger.warning(
-                            "Dereverb RAM guard: nur %.1f GB frei nach Eviction — ML-Stufe übersprungen, DSP-Ergebnis behalten",
-                            _avail_gb,
-                        )
-                        _skip_ml = True
-                except Exception:
-                    pass
+                _skip_ml = not self._has_sufficient_ml_headroom(audio)
 
                 if not _skip_ml:
                     audio, dccrn_meta = self._apply_dccrn(audio, sample_rate)
@@ -268,6 +230,78 @@ class HybridDereverb:
             reverb_estimate=reverb_estimate,
             metadata=metadata,
         )
+
+    def _has_sufficient_ml_headroom(self, audio: np.ndarray) -> bool:
+        """Return True when enough free RAM is available for ML dereverb.
+
+        The previous fixed 3 GB guard was too late for long stereo material:
+        SGMSE+ could start with a few GB free and still push the whole VS Code
+        cgroup into an OOM kill. Use a conservative duration/channel-aware
+        threshold before entering ML dereverb.
+        """
+        try:
+            import gc
+
+            import psutil
+        except Exception:
+            return True
+
+        n_samples = int(
+            audio.shape[-1]
+            if audio.ndim == 2 and audio.shape[0] <= 2 and audio.shape[1] > audio.shape[0]
+            else audio.shape[0]
+        )
+        n_channels = 2 if audio.ndim == 2 else 1
+        duration_s = n_samples / 48_000.0
+
+        # Conservative headroom model from observed crash profile:
+        # long stereo SGMSE runs can consume several GB transiently.
+        # Each channel is processed in 30 s chunks; NCSNPP U-Net forward pass
+        # peaks ~1 GB per chunk plus glibc heap fragmentation overhead.
+        # Observed: 225 s stereo on 32 GB system → OOM at chunk 16 despite
+        # 15.9 GB "available" (psutil). Add an extra 3 GB fragmentation buffer.
+        required_gb = 5.0 if self._sgmse_active else 4.0
+        if n_channels >= 2:
+            required_gb += 3.0  # stereo = 2x channel processing; raised from 2.0
+        if duration_s >= 180.0:
+            required_gb += 3.0  # long files accumulate heap; raised from 2.0
+        elif duration_s >= 60.0:
+            required_gb += 1.5  # raised from 1.0
+
+        avail_gb = psutil.virtual_memory().available / (1024**3)
+        if avail_gb < required_gb + 1.5:
+            logger.info(
+                "Dereverb: %.1f GB frei, Ziel-Headroom %.1f GB — proaktive Plugin-Eviction vor ML-Inferenz",
+                avail_gb,
+                required_gb,
+            )
+            try:
+                from backend.core.plugin_lifecycle_manager import evict_stale_plugins
+
+                evict_stale_plugins(required_mb=int(required_gb * 1024))
+            except Exception:
+                pass
+            gc.collect()
+            try:
+                import ctypes as _ct
+
+                _ct.CDLL("libc.so.6").malloc_trim(0)
+            except Exception:
+                pass
+            avail_gb = psutil.virtual_memory().available / (1024**3)
+
+        if avail_gb < required_gb:
+            logger.warning(
+                "Dereverb RAM guard: %.1f GB frei, benötigt >= %.1f GB (dauer=%.1fs, kanaele=%d, ml=%s) — ML-Stufe übersprungen, DSP-Ergebnis behalten",
+                avail_gb,
+                required_gb,
+                duration_s,
+                n_channels,
+                "SGMSE+" if self._sgmse_active else "ResembleEnhance",
+            )
+            return False
+
+        return True
 
     def _determine_strategy(self, audio: np.ndarray, sample_rate: int) -> DereverbStrategy:
         """Determine optimal dereverb strategy."""
@@ -342,6 +376,11 @@ class HybridDereverb:
     def _apply_dccrn(self, audio: np.ndarray, sample_rate: int) -> tuple[np.ndarray, dict[str, Any]]:
         """ML-Dereverb via SGMSE+ (primär §4.4) oder ResembleEnhance (Fallback 1)."""
         metadata: dict[str, Any] = {}
+        dccrn_plugin = self.dccrn
+        if dccrn_plugin is None:
+            metadata["success"] = False
+            metadata["error"] = "ml_plugin_unavailable"
+            return audio, metadata
         try:
             audio_in = audio.astype(np.float32)
             # Detect channel-major (2, N) vs time-major (N, 2) format.
@@ -355,7 +394,7 @@ class HybridDereverb:
 
             if self._sgmse_active:
                 # §4.4 Primär: SGMSE+ — enhance(audio, sr) → SGMSEResult
-                result = self.dccrn.enhance(mono_in, sample_rate)
+                result = dccrn_plugin.enhance(mono_in, sample_rate)
                 enhanced = np.asarray(
                     result.audio if hasattr(result, "audio") else result,
                     dtype=np.float32,
@@ -364,7 +403,7 @@ class HybridDereverb:
                 metadata["model_used"] = getattr(result, "model_used", "sgmse_plus_torchscript")
             else:
                 # §4.4 Fallback 1: ResembleEnhance
-                enhanced = self.dccrn.enhance(mono_in, sample_rate)
+                enhanced = dccrn_plugin.enhance(mono_in, sample_rate)
                 enhanced = np.asarray(enhanced, dtype=np.float32)
                 metadata["model"] = "resemble_enhance"
 

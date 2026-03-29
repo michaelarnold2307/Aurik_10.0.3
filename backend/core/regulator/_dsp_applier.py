@@ -136,7 +136,6 @@ def compressor(audio: np.ndarray, sr: int, params: dict[str, Any]) -> np.ndarray
     makeup_db = float(params.get("makeup_db", 0.0))
     knee_db = max(float(params.get("knee_db", 3.0)), 0.0)
 
-    10 ** (threshold_db / 20.0)
     makeup_lin = 10 ** (makeup_db / 20.0)
     knee_half = knee_db / 2.0
 

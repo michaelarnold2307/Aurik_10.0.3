@@ -17,9 +17,7 @@ Date: 2026-02-08
 from __future__ import annotations
 
 import logging
-import threading
 from dataclasses import dataclass
-from typing import Optional
 
 import numpy as np
 from scipy import signal
@@ -195,9 +193,12 @@ class BreathDetector:
                     # n_fft must not exceed the segment length — librosa warns and pads
                     # internally when n_fft > len(signal), which produces misleading results.
                     _n_fft_breath = min(2048, max(32, int(2 ** np.floor(np.log2(len(breath_segment))))))
-                    stft = np.abs(librosa.stft(breath_segment, n_fft=_n_fft_breath))
-                    spectral_flatness = np.mean(librosa.feature.spectral_flatness(S=stft))
-                    confidence = float(np.clip(spectral_flatness, 0, 1))
+                    if librosa is not None:
+                        _stft = np.abs(librosa.stft(breath_segment, n_fft=_n_fft_breath))
+                        _sf = float(np.mean(librosa.feature.spectral_flatness(S=_stft)))
+                        confidence = float(np.clip(_sf, 0, 1))
+                    else:
+                        confidence = 0.5
 
                     breaths.append(
                         BreathEvent(
@@ -249,6 +250,8 @@ class PlosiveDetector:
         Returns:
             List of detected plosive events
         """
+        if librosa is None:
+            return []
         # Compute onset strength
         onset_env = librosa.onset.onset_strength(y=audio, sr=sr)
 
@@ -269,7 +272,7 @@ class PlosiveDetector:
                 continue
 
             # Compute envelope
-            envelope = np.abs(signal.hilbert(segment))
+            envelope = np.abs(signal.hilbert(segment.astype(np.float64)))  # type: ignore[call-overload]
 
             # Find peak
             peak_idx = np.argmax(envelope)
@@ -344,12 +347,17 @@ class TransientDetector:
         Returns:
             List of detected transient events
         """
+        if librosa is None:
+            return []
         # Compute onset strength (emphasizes transients)
         onset_env = librosa.onset.onset_strength(y=audio, sr=sr, aggregate=np.median)
 
         # Detect onsets with high threshold (transients only)
         onset_frames = librosa.onset.onset_detect(
-            onset_envelope=onset_env, sr=sr, backtrack=False, delta=0.3  # High threshold for transients only
+            onset_envelope=onset_env,
+            sr=sr,
+            backtrack=False,
+            delta=0.3,  # High threshold for transients only
         )
 
         transients = []
@@ -365,7 +373,7 @@ class TransientDetector:
                 continue
 
             # Compute envelope
-            envelope = np.abs(signal.hilbert(segment))
+            envelope = np.abs(signal.hilbert(segment.astype(np.float64)))  # type: ignore[call-overload]
 
             # Find peak
             peak_idx = np.argmax(envelope)
@@ -552,7 +560,7 @@ class RoomToneDetector:
 
         # 3. Reverb tail estimation
         # Compute envelope decay time
-        envelope = np.abs(signal.hilbert(audio_mono))
+        envelope = np.abs(signal.hilbert(audio_mono.astype(np.float64)))  # type: ignore[call-overload]
 
         # Find impulses (sharp peaks)
         impulse_threshold = np.percentile(envelope, 95)

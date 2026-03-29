@@ -303,7 +303,9 @@ class AudioExporter:
                     if sf_code and value:
                         try:
                             # Private libsndfile API – verfügbar in libsndfile >= 1.0
-                            sndfile._file.command(0x10018, sf_code, value.encode("utf-8"), len(value) + 1)
+                            sf_handle = getattr(sndfile, "_file", None)
+                            if sf_handle is not None and hasattr(sf_handle, "command"):
+                                sf_handle.command(0x10018, sf_code, value.encode("utf-8"), len(value) + 1)
                         except Exception:
                             pass
             written_via_sf = True

@@ -422,12 +422,14 @@ class TapeAzimuthCorrector:
         phase_error_deg = np.degrees(phase_error_rad)
 
         # Spectral phase difference (more accurate)
-        # Compute FFT
-        fft_left = fft.rfft(left)
-        fft_right = fft.rfft(right)
+        # Compute FFT and normalize dtypes for static typing robustness.
+        fft_left = np.asarray(fft.rfft(left), dtype=np.complex128)
+        fft_right = np.asarray(fft.rfft(right), dtype=np.complex128)
 
         # Phase difference
-        phase_diff = np.angle(fft_left) - np.angle(fft_right)
+        phase_left = np.angle(fft_left)
+        phase_right = np.angle(fft_right)
+        phase_diff = phase_left - phase_right
 
         # Average phase difference in mid frequencies (500-2000 Hz)
         freqs = fft.rfftfreq(len(left), 1 / sample_rate)
@@ -702,7 +704,12 @@ if __name__ == "__main__":
 
     # Load audio
     logger.info(f"Loading: {args.input}")
-    audio, sr = sf.read(args.input, always_2d=False)
+    read_result = sf.read(args.input, always_2d=False)
+    if not isinstance(read_result, tuple) or len(read_result) != 2:
+        raise RuntimeError("soundfile.read returned unexpected value")
+
+    audio = np.asarray(read_result[0])
+    sr = int(read_result[1])
 
     # Transpose if stereo (soundfile returns (n_samples, n_channels))
     if audio.ndim == 2:

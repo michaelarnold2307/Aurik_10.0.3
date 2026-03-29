@@ -60,6 +60,7 @@ Date: 16. Februar 2026
 
 import logging
 import time
+from typing import Any
 
 import numpy as np
 from scipy import signal
@@ -72,7 +73,7 @@ from .phase_interface import PhaseCategory, PhaseInterface, PhaseMetadata, Phase
 try:
     from dsp.formant_system import FormantSystem as _FormantSystemCls
 
-    _FORMANT_SYSTEM_PIANO: _FormantSystemCls | None = None
+    _FORMANT_SYSTEM_PIANO: Any = None
 except Exception:
     _FormantSystemCls = None  # type: ignore[assignment,misc]
     _FORMANT_SYSTEM_PIANO = None

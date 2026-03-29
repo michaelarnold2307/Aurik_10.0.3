@@ -120,7 +120,7 @@ class PickAttackEnhancer:
         original_energy = np.sqrt(np.mean(transient_band**2))
 
         # Detect transient events (pick attacks)
-        envelope = np.abs(hilbert(transient_band))
+        envelope = np.abs(np.asarray(hilbert(transient_band), dtype=np.complex128))
 
         # Find attack phases (steep rises)
         derivative = np.diff(envelope, prepend=envelope[0])
@@ -403,7 +403,7 @@ class FretNoiseReducer:
         # Preserve slides (longer continuous events)
         if self.preserve_slides:
             # Slides have lower ZCR but sustained energy
-            envelope = np.abs(hilbert(fret_band))
+            envelope = np.abs(np.asarray(hilbert(fret_band), dtype=np.complex128))
             sustained_mask = envelope > np.percentile(envelope, 50)
 
             # Ensure masks have same length
@@ -560,7 +560,7 @@ class AcousticBodyResonance:
         # Natural character preservation (optional)
         if self.natural_character:
             # Avoid over-enhancement: use envelope-based limiting
-            envelope = np.abs(hilbert(body_enhanced))
+            envelope = np.abs(np.asarray(hilbert(body_enhanced), dtype=np.complex128))
 
             # Gentle compression on loud passages
             threshold = np.percentile(envelope, 80)

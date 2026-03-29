@@ -25,14 +25,14 @@ def _chunked_hilbert_envelope(audio: np.ndarray, sr: int) -> np.ndarray:
     max_chunk = 30 * sr  # 30 s — ~46 MB complex128 per chunk
     n = len(audio)
     if n <= max_chunk:
-        return np.abs(hilbert(audio))
+        return np.abs(np.asarray(hilbert(audio), dtype=np.complex128))
 
     overlap = int(0.01 * sr)  # 10 ms overlap
     envelope = np.empty(n, dtype=np.float64)
     pos = 0
     while pos < n:
         end = min(pos + max_chunk, n)
-        chunk_env = np.abs(hilbert(audio[pos:end]))
+        chunk_env = np.abs(np.asarray(hilbert(audio[pos:end]), dtype=np.complex128))
         if pos == 0:
             envelope[pos:end] = chunk_env
         else:
@@ -320,7 +320,7 @@ class BreathAwareGate:
         gate_with_hold = gate_bool.copy()
         # Only process True→False transitions (very few, typically 50-200
         # for a 225 s file) instead of iterating over all True indices.
-        padded = np.concatenate([gate_bool, [False]])
+        padded = np.concatenate([gate_bool, np.array([False], dtype=bool)])
         closes = np.where(padded[:-1] & ~padded[1:])[0]
         for close_idx in closes:
             end = min(close_idx + 1 + hold_samples, len(gate_with_hold))

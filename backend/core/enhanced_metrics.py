@@ -4,7 +4,6 @@ Enhanced Audio Quality Metrics for AURIK
 
 Implements advanced objective quality metrics for audio restoration validation:
 - ViSQOL v3 (--audio, music mode) — MOS 1.0–5.0
-- SI-SDR (Scale-Invariant Signal-to-Distortion Ratio)
 - SI-SNR (Scale-Invariant Signal-to-Noise Ratio)
 - Authenticity Metrics (Breath Retention, Transient Preservation)
 
@@ -146,49 +145,14 @@ class EnhancedMetrics:
         return False
 
     # ============================================================
-    # SI-SDR (Scale-Invariant Signal-to-Distortion Ratio)
+    # SI-SDR (legacy compatibility stub)
     # ============================================================
 
     @staticmethod
-    def compute_si_sdr(reference: np.ndarray, estimate: np.ndarray, epsilon: float = 1e-8) -> float:
-        """
-        Compute Scale-Invariant Signal-to-Distortion Ratio.
-
-        SI-SDR measures separation quality independent of signal scale.
-        Higher is better. Typical range: -10dB to +30dB.
-
-        Args:
-            reference: Clean reference signal
-            estimate: Processed/estimated signal
-            epsilon: Small constant for numerical stability
-
-        Returns:
-            SI-SDR in dB
-
-        Reference:
-            Le Roux et al., "SDR - Half-baked or Well Done?" (2019)
-        """
-        # Ensure same length
-        min_len = min(len(reference), len(estimate))
-        reference = reference[:min_len]
-        estimate = estimate[:min_len]
-
-        # Remove mean
-        reference = reference - np.mean(reference)
-        estimate = estimate - np.mean(estimate)
-
-        # Compute scale-invariant target
-        alpha = np.dot(estimate, reference) / (np.dot(reference, reference) + epsilon)
-        s_target = alpha * reference
-
-        # Compute distortion/noise
-        e_noise = estimate - s_target
-
-        # SI-SDR
-        si_sdr = 10 * np.log10((np.sum(s_target**2) + epsilon) / (np.sum(e_noise**2) + epsilon))
-        # NaN/Inf-Guard (§3.1)
-        si_sdr = np.nan_to_num(si_sdr, nan=0.0, posinf=30.0, neginf=-10.0)
-        return float(si_sdr)
+    def compute_si_sdr(reference: np.ndarray, estimate: np.ndarray, epsilon: float = 1e-8) -> float | None:
+        """Legacy compatibility stub: SI-SDR is forbidden for music quality evaluation (§4.4)."""
+        logger.warning("SI-SDR is forbidden for music quality evaluation (§4.4). Returning None.")
+        return None
 
     @staticmethod
     def compute_si_snr(reference: np.ndarray, estimate: np.ndarray, epsilon: float = 1e-8) -> float:
@@ -372,7 +336,7 @@ class EnhancedMetrics:
         snr_improvement = snr_restored - snr_original
 
         # Enhanced metrics (require reference comparison)
-        si_sdr = self.compute_si_sdr(original, restored)
+        si_sdr = None
         si_snr = self.compute_si_snr(original, restored)
 
         # Perceptual metrics (may be None if libraries unavailable)
@@ -464,15 +428,13 @@ class EnhancedMetrics:
         """
         # Compute metrics for noisy input
         snr_noisy = self.compute_snr(original_noisy, sr)
-        si_sdr_noisy = self.compute_si_sdr(original_clean, original_noisy)
 
         # Compute metrics for restored output
         snr_restored = self.compute_snr(restored, sr)
-        si_sdr_restored = self.compute_si_sdr(original_clean, restored)
 
         # Improvement
         snr_improvement = snr_restored - snr_noisy
-        si_sdr_improvement = si_sdr_restored - si_sdr_noisy
+        si_sdr_improvement = None
 
         # Full metrics with clean reference
         visqol_mos = self.compute_visqol(original_clean, restored, sr=sr)
@@ -521,7 +483,7 @@ class EnhancedMetrics:
             lufs=self.compute_lufs(restored, sr),
             pesq_mos=None,
             visqol_mos=visqol_mos,
-            si_sdr_db=si_sdr_restored,
+            si_sdr_db=None,
             si_snr_db=self.compute_si_snr(original_clean, restored),
             stoi_score=None,
             snr_improvement_db=snr_improvement,

@@ -5,7 +5,9 @@ import pytest
 def test_mert_instrument_detector_plugin_desktop():
     """Testet, ob MERTInstrumentDetectorPlugin instanziiert werden kann und eine Dummy-Audioverarbeitung durchführt (Desktop-Only)."""
     try:
-        from plugins.mert_instrument_detector_plugin import MERTInstrumentDetectorPlugin
+        from plugins.mert_instrument_detector_plugin import (
+            MERTInstrumentDetectorPlugin,  # type: ignore[import-not-found]
+        )
     except ImportError:
         pytest.skip("MERTInstrumentDetectorPlugin nicht verfügbar oder nicht installiert.")
     plugin = MERTInstrumentDetectorPlugin()

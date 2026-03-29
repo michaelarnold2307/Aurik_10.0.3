@@ -14,7 +14,7 @@ HIPS Compliance:
 - Requirement 8: Normative Einkapselung (Unter ConductEnforcer-Kontrolle)
 
 New in v8.1 (Excellence Strategy #2):
-- Multi-Metric Validation: NISQA + DNSMOS + ViSQOL + VERSA (§4.4)
+- Multi-Metric Validation: ViSQOL + VERSA (§4.4)
 - Automatic Reprocessing: Intelligente Fallback-Strategien bei Failures
 - Perceptual Quality Scores: Objective MOS prediction ohne Human Listening Tests
 - Configurable Weights: Flexible metric importance per mode
@@ -27,10 +27,8 @@ Solution Architecture:
 4. Final Decision: Best of {original, processed, reprocessed, hybrid}
 
 Metrics:
-- NISQA: Speech Quality MOS (1-5), trained on ITU-T P.808
-- DNSMOS: P.835 Speech Enhancement (SIG, BAK, OVRL scores)
 - ViSQOL: Virtual Speech Quality Objective Listener (MOS-LQO 1-5)
-- VERSA: Virtual Evaluation for Speech/Audio (§4.4 Nachfolger von CDPAM)
+- VERSA: Virtual Evaluation for Speech/Audio (§4.4)
 - Musical Goals: 7 perceptual dimensions (Brillanz, Wärme, etc.)
 
 Quelle: Excellence Roadmap Strategy #2 - Perceptual Quality Gates
@@ -924,7 +922,7 @@ class EnhancedQualityGate:
             # NISQA und DNSMOS sind VERBOTEN als Musik-Metriken (§10.2, §4.4).
             # NISQA: Deep-CNN für Sprach-Qualitäts-Prediction — keine Musik-Trainingsdaten.
             # DNSMOS P.835: Trainiert auf 16 kHz DNS-Challenge-Sprachkorpus.
-            # Erlaubte Metriken: PEAQ, FAD, CDPAM, PQS-MOS, ViSQOL v3 (--audio), Musical Goals.
+            # Erlaubte Metriken: PEAQ, FAD, VERSA, PQS-MOS, ViSQOL v3 (--audio), Musical Goals.
             nisqa_mos = 0.0  # deaktiviert §10.2
             dnsmos_ovrl = 0.0  # deaktiviert §10.2
             dnsmos_sig = 0.0  # deaktiviert §10.2
@@ -1120,7 +1118,7 @@ class EnhancedQualityGate:
         # Musical Goals average (already 0-1 normalized)
         musical_avg = np.mean(list(musical_scores.values())) if musical_scores else 0.0
 
-        # Perceptual metrics average (normalize MOS 1-5 → 0-1, CDPAM 0-100 → 0-1)
+        # Perceptual metrics average (normalize MOS 1-5 → 0-1, VERSA 0-100 → 0-1)
         if perceptual:
             # nisqa_mos / dnsmos_ovrl entfernt — verboten §4.4+§10.2 (Sprach-Metriken, immer 0.0 → würden Mittelwert auf -0.25 ziehen)
             perceptual_avg = np.mean(

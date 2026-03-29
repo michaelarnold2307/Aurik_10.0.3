@@ -17,20 +17,14 @@ Date: 2026-02-13
 
 import logging
 from dataclasses import dataclass
-from enum import Enum
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
 # Single source of truth: ProcessingMode-Enum kommt aus core.processing_modes.
 # Alle Imports von backend.core.musical_goals.processing_modes.ProcessingMode
 # bleiben gültig, da das Enum hier re-exportiert wird.
-try:
-    from backend.core.processing_modes import ProcessingMode
-except ImportError:
-    # Notfall-Fallback bei isoliertem Backend-Test-Run
-    class ProcessingMode(Enum):  # type: ignore[no-redef]
-        RESTORATION = "restoration"
-        STUDIO_2026 = "studio_2026"
+from backend.core.processing_modes import ProcessingMode
 
 
 @dataclass
@@ -53,7 +47,7 @@ class ProcessingModeConfig:
     description: str
     musical_goals: dict[str, float]
     goal_weights: dict[str, float]
-    processing_params: dict[str, any]
+    processing_params: dict[str, Any]
     quality_thresholds: dict[str, float]
 
     def get_prioritized_goals(self) -> list[tuple[str, float]]:
@@ -215,14 +209,14 @@ class ProcessingModeManager:
         config = self.get_config(mode)
         return config.musical_goals.copy()
 
-    def get_processing_params_for_mode(self, mode: ProcessingMode | None = None) -> dict[str, any]:
+    def get_processing_params_for_mode(self, mode: ProcessingMode | None = None) -> dict[str, Any]:
         """Get processing parameters for specified mode."""
         config = self.get_config(mode)
         return config.processing_params.copy()
 
     def validate_goals_against_mode(
         self, achieved_goals: dict[str, float], mode: ProcessingMode | None = None
-    ) -> dict[str, any]:
+    ) -> dict[str, Any]:
         """
         Validate achieved goal scores against mode thresholds.
 
@@ -281,7 +275,7 @@ class ProcessingModeManager:
             "mode_name": config.name,
         }
 
-    def compare_modes(self, achieved_goals: dict[str, float]) -> list[dict[str, any]]:
+    def compare_modes(self, achieved_goals: dict[str, float]) -> list[dict[str, Any]]:
         """
         Compare achieved goals against all processing modes.
 
@@ -345,7 +339,7 @@ def get_mode_from_string(mode_str: str) -> ProcessingMode:
         if mode.value == mode_str:
             return mode
 
-    raise ValueError(f"Unknown processing mode: '{mode_str}'. " f"Valid modes: {[m.value for m in ProcessingMode]}")
+    raise ValueError(f"Unknown processing mode: '{mode_str}'. Valid modes: {[m.value for m in ProcessingMode]}")
 
 
 def get_recommended_mode_for_medium(medium: str) -> ProcessingMode:

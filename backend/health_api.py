@@ -1,5 +1,6 @@
 import glob
 import importlib
+import importlib.util
 import os
 import time
 from typing import Any
@@ -62,9 +63,9 @@ def health_check():
 
 
 # Prometheus-Metriken (optional, für Integration)
-try:
-    from prometheus_fastapi_instrumentator import Instrumentator
-
-    Instrumentator().instrument(app).expose(app)
-except ImportError:
-    pass
+_instrumentator_spec = importlib.util.find_spec("prometheus_fastapi_instrumentator")
+if _instrumentator_spec is not None:
+    _instrumentator_module = importlib.import_module("prometheus_fastapi_instrumentator")
+    Instrumentator = getattr(_instrumentator_module, "Instrumentator", None)
+    if Instrumentator is not None:
+        Instrumentator().instrument(app).expose(app)

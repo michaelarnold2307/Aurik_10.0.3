@@ -27,7 +27,21 @@ from backend.ml.safety_wrappers.safety_wrapper_template import (
 
 # Import validation utilities from deesser_safety (which has them inline)
 try:
-    from backend.ml.safety_wrappers.deesser_safety import compute_correlation, compute_energy_ratio
+    from backend.ml.safety_wrappers.deesser_safety import (
+        compute_correlation as _compute_correlation_impl,
+    )
+    from backend.ml.safety_wrappers.deesser_safety import (
+        compute_energy_ratio as _compute_energy_ratio_impl,
+    )
+
+    def compute_energy_ratio(before: np.ndarray, after: np.ndarray) -> float:
+        """Compute energy ratio in dB."""
+        return float(_compute_energy_ratio_impl(before, after))
+
+    def compute_correlation(before: np.ndarray, after: np.ndarray) -> float:
+        """Compute correlation between before/after."""
+        return float(_compute_correlation_impl(before, after))
+
 except ImportError:
     # Fallback implementations
     def compute_energy_ratio(before: np.ndarray, after: np.ndarray) -> float:
@@ -95,9 +109,9 @@ def detect_phoneme_based_sibilance(
     # Try phoneme-based detection first
     try:
         from backend.ml.phoneme_aware.phoneme_classifier import PhonemeClassifier
-        from backend.ml.phoneme_aware.phoneme_detector import PhonemeDetector
+        from backend.ml.phoneme_aware.phoneme_detector import DetectionConfig, PhonemeDetector
 
-        detector = PhonemeDetector(device="cpu", min_confidence=0.5)
+        detector = PhonemeDetector(config=DetectionConfig(min_confidence=0.5, use_gpu=False))
         classifier = PhonemeClassifier()
 
         # Detect phonemes
@@ -305,7 +319,7 @@ class ContextAwareDeEsserSafety:
             )
 
         if sibilance_intensity < 0.3:
-            warnings_list.append(f"Low sibilance intensity ({sibilance_intensity:.2f}). " "Consider using GENTLE mode.")
+            warnings_list.append(f"Low sibilance intensity ({sibilance_intensity:.2f}). Consider using GENTLE mode.")
 
         # Measure baseline intelligibility
         baseline_intelligibility = measure_intelligibility(audio_mono, sr)
@@ -313,8 +327,7 @@ class ContextAwareDeEsserSafety:
 
         if baseline_intelligibility < 0.5:
             warnings_list.append(
-                f"Low baseline intelligibility ({baseline_intelligibility:.2f}). "
-                "De-essing may further reduce clarity."
+                f"Low baseline intelligibility ({baseline_intelligibility:.2f}). De-essing may further reduce clarity."
             )
 
         # Check phoneme detection availability
@@ -384,9 +397,9 @@ class ContextAwareDeEsserSafety:
         metrics["correlation"] = correlation
 
         if correlation < self.min_correlation:
-            issues.append(f"Low correlation ({correlation:.3f}). " f"Possible over-processing or artifacts.")
+            issues.append(f"Low correlation ({correlation:.3f}). Possible over-processing or artifacts.")
         elif correlation < 0.92:
-            warnings_list.append(f"Moderate correlation ({correlation:.3f}). " "Check for subtle artifacts.")
+            warnings_list.append(f"Moderate correlation ({correlation:.3f}). Check for subtle artifacts.")
 
         # 3. Check energy change (gain validation)
         energy_ratio_db = compute_energy_ratio(before_mono, after_mono)

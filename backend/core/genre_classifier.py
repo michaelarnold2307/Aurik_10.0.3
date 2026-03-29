@@ -259,7 +259,7 @@ class GermanSchlagerClassifier:
             filtered = sosfilt(sos, mono)
 
             # Hüllkurve via Hilbert
-            analytic = hilbert(filtered)
+            analytic: np.ndarray = hilbert(np.asarray(filtered, dtype=np.float64))  # type: ignore[assignment]
             envelope = np.abs(analytic)
 
             # Subsampling der Hüllkurve auf 100 Hz

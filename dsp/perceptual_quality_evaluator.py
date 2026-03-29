@@ -63,7 +63,7 @@ class AdaptivePerceptualQualityEvaluator:
         # Optionaler CDPAM-Import
         self._cdpam = None
         try:
-            import cdpam
+            import cdpam  # type: ignore[import-untyped]
 
             self._cdpam = cdpam
         except ImportError:
@@ -137,7 +137,7 @@ class AdaptivePerceptualQualityEvaluator:
             return results
         except Exception as e:
             _logger.error("[Fehler] %s", e)
-            results = {"error": str(e)}
+            results = {"pqs_mos": None}
             self._audit_log(results, sr)
             return results
 

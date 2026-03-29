@@ -20,6 +20,7 @@ The **UnifiedRestorerV3** is the **main orchestrator** for Aurik 9.0's audio res
 ## 2. Architecture Migration: v8.0 → v9.0
 
 ### 2.1 Old Architecture (Medium-First)
+
 ```
 v8.0: MEDIUM-FIRST WORKFLOW
 ┌──────────────────────────────────────────────┐
@@ -42,6 +43,7 @@ Problems:
 ```
 
 ### 2.2 New Architecture (Defect-First)
+
 ```
 v9.0: DEFECT-FIRST WORKFLOW
 ┌──────────────────────────────────────────────┐
@@ -122,7 +124,7 @@ class PhasePriority:
 def _select_phases(self, defect_result: DefectAnalysisResult) -> List[PhaseInterface]:
     """
     Select phases based on defect severity thresholds.
-    
+
     Logic:
     - clicks severity > 0.10       → add ClickRemovalPhase
     - crackle severity > 0.15      → add CrackleRemovalPhase
@@ -131,7 +133,7 @@ def _select_phases(self, defect_result: DefectAnalysisResult) -> List[PhaseInter
     - wow_flutter > 0.25           → add WowFlutterFixPhase
     - stereo_imbalance > 0.30      → add StereoBalancePhase
     - ... (11 total defect types)
-    
+
     Returns:
         List of phase instances, sorted by dependency order
     """
@@ -191,7 +193,7 @@ perf_guard.start_monitoring(audio_duration=225.0, mode=QualityMode.BALANCED)
 # During each phase
 with perf_guard.measure_phase(phase_id="phase_02_hum_removal", priority=8) as status:
     restored = phase.process(audio, sample_rate, material=material_type)
-    
+
     if status.should_skip:
         logger.warning(f"Skipping {phase_id} - approaching RT limit")
         continue  # Skip this phase
@@ -203,7 +205,7 @@ with perf_guard.measure_phase(phase_id="phase_02_hum_removal", priority=8) as st
 def should_skip_phase(current_rt_factor: float, priority: int, mode: QualityMode) -> bool:
     """
     Decide if a phase should be skipped based on current performance.
-    
+
     Logic:
     - FAST mode:
         - Skip LOW priority if RT >1.2×
@@ -212,7 +214,7 @@ def should_skip_phase(current_rt_factor: float, priority: int, mode: QualityMode
         - Skip LOW priority if RT >2.0×
     - QUALITY mode:
         - Never skip (no RT limit)
-    
+
     Example:
         current_rt = 1.3×, priority = LOW, mode = FAST → SKIP
         current_rt = 2.1×, priority = MEDIUM, mode = BALANCED → RUN (only skips LOW)
@@ -245,14 +247,14 @@ report = perf_guard.get_report()
 ### 6.1 Technical Quality (TQ) Calculation
 
 ```python
-def _estimate_quality(self, defect_result: DefectAnalysisResult, 
+def _estimate_quality(self, defect_result: DefectAnalysisResult,
                       phases_executed: List[str]) -> float:
     """
     Estimate restoration quality (0-100%).
-    
+
     Formula:
         TQ = BASE_QUALITY - defect_degradation + phase_improvements + psychoacoustic_boost
-    
+
     Where:
         BASE_QUALITY = 50%  (neutral audio starting point)
         defect_degradation = sum(severity × weight for each defect)
@@ -280,7 +282,7 @@ def _estimate_quality(self, defect_result: DefectAnalysisResult,
 **Degradation Calculation:**
 ```python
 degradation = sum(
-    defect_severity * DEFECT_WEIGHTS[defect_type] 
+    defect_severity * DEFECT_WEIGHTS[defect_type]
     for defect_type, defect_severity in defect_scores.items()
 )
 
@@ -327,7 +329,7 @@ PSYCHOACOUSTIC_BOOST = {
 ### 6.5 Final Quality Score
 
 ```python
-quality = min(100, max(0, 
+quality = min(100, max(0,
     BASE_QUALITY - degradation + improvement + psychoacoustic_boost
 ))
 
@@ -350,29 +352,29 @@ class UnifiedRestorerV3:
     def __init__(self, config: Optional[RestorationConfig] = None):
         """
         Initialize UnifiedRestorerV3 orchestrator.
-        
+
         Args:
             config: Optional RestorationConfig
                 - mode: QualityMode (FAST/BALANCED/QUALITY)
                 - custom_thresholds: Override defect→phase thresholds
                 - enable_scheduler: Use AdaptiveCoreScheduler (default: False)
         """
-    
+
     def restore(self, audio: np.ndarray, sample_rate: int) -> RestorationResult:
         """
         Restore audio using Defect-First workflow.
-        
+
         Workflow:
             1. DefectScanner.scan() → defect_result
             2. _select_phases(defect_result) → selected_phases
             3. PerformanceGuard.start_monitoring()
             4. _execute_pipeline(selected_phases) → restored_audio
             5. _estimate_quality() → quality_score
-        
+
         Args:
             audio: Audio samples (mono or stereo)
             sample_rate: Sample rate in Hz
-        
+
         Returns:
             RestorationResult with:
                 - restored_audio: Processed samples
@@ -380,7 +382,7 @@ class UnifiedRestorerV3:
                 - defect_analysis: DefectAnalysisResult from scanner
                 - performance_report: Dict with RT factor, skipped phases
                 - phases_executed: List[str] of phase IDs run
-        
+
         Raises:
             ValueError: Invalid audio or sample_rate
             PerformanceError: If 3× RT limit exceeded (FAST/BALANCED modes)
@@ -395,7 +397,7 @@ class RestorationConfig:
     mode: QualityMode = QualityMode.BALANCED  # Default mode
     custom_thresholds: Optional[Dict[DefectType, float]] = None
     enable_scheduler: bool = False  # Future: multi-core parallel execution
-    
+
     # Advanced options
     force_phases: Optional[List[str]] = None  # Force specific phases regardless of defects
     skip_defect_scan: bool = False            # Skip scanner (use force_phases)
@@ -420,6 +422,7 @@ class RestorationResult:
 ## 8. End-to-End Test Results
 
 ### 8.1 Test Setup
+
 ```python
 # Generated 225s audio with synthetic defects:
 audio = generate_sine_wave(duration=225, frequency=440, sr=44100)
@@ -429,6 +432,7 @@ audio = inject_noise(audio, level=0.05)                    # White noise
 ```
 
 ### 8.2 FAST Mode Results
+
 ```
 Material Detected: shellac (confidence: 0.82)
 Top Defects: crackle=1.00, hum=1.00, wow_flutter=1.00
@@ -446,6 +450,7 @@ Phases Skipped: 0
 ```
 
 ### 8.3 BALANCED Mode Results
+
 ```
 Material Detected: shellac (confidence: 0.82)
 Top Defects: crackle=1.00, hum=1.00, wow_flutter=1.00
@@ -483,6 +488,7 @@ Phases Skipped: 0
 ## 9. Integration Examples
 
 ### 9.1 Basic Usage
+
 ```python
 from core.unified_restorer_v3 import UnifiedRestorerV3, RestorationConfig, QualityMode
 
@@ -503,6 +509,7 @@ print(f"Phases: {', '.join(result.phases_executed)}")
 ```
 
 ### 9.2 Custom Mode
+
 ```python
 # Use FAST mode for quick preview
 config = RestorationConfig(mode=QualityMode.FAST)
@@ -511,6 +518,7 @@ result = restorer.restore(audio, sr)
 ```
 
 ### 9.3 Force Specific Phases
+
 ```python
 # Override defect detection, force specific phases
 config = RestorationConfig(
@@ -522,6 +530,7 @@ result = restorer.restore(audio, sr)
 ```
 
 ### 9.4 Dry Run (Planning)
+
 ```python
 # See what would be done without processing
 config = RestorationConfig(dry_run=True)
@@ -537,6 +546,7 @@ print(f"Estimated time: {result.performance_report['estimated_time']}s")
 ## 10. Migration from v8.0
 
 ### 10.1 API Changes
+
 ```python
 # OLD (v8.0):
 from core.unified_restorer_v2 import UnifiedRestorer
@@ -566,6 +576,7 @@ result = restorer.restore(audio, sr)
 ## 11. Performance Optimization Roadmap
 
 ### 11.1 Current Bottlenecks
+
 1. **DefectScanner:** 8.9% overhead (acceptable, but can optimize to ~5%)
 2. **Sequential Execution:** Phases run one-by-one (not leveraging 4 cores)
 3. **Memory Allocations:** Each phase allocates new arrays

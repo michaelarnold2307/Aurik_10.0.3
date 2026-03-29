@@ -138,6 +138,14 @@ class AdaptiveSTFT:
         self.window = window
         self.center = center
         self.pad_mode = pad_mode
+        self._last_stft_settings: dict[str, Any] = {
+            "n_fft": self.n_fft,
+            "hop_length": self.hop_length,
+            "win_length": self.win_length,
+            "window": self.window,
+            "center": self.center,
+            "pad_mode": self.pad_mode,
+        }
         logger.info(
             f"AdaptiveSTFT initialisiert mit n_fft={self.n_fft}, hop_length={self.hop_length}, win_length={self.win_length}, window={self.window}, center={self.center}, pad_mode={self.pad_mode}"
         )
@@ -160,12 +168,27 @@ class AdaptiveSTFT:
         if y.size == 0:
             logger.error("y ist leer")
             raise ValueError("y ist leer")
-        if np.isnan(y).any():
+        if np.isnan(y.astype(np.float64, copy=False)).any():
             logger.error("y enthält NaN-Werte")
             raise ValueError("y enthält NaN-Werte")
 
         n_fft = kwargs.get("n_fft", self.n_fft)
         n_fft = min(n_fft, max(64, len(y)))
+        hop_length = kwargs.get("hop_length", self.hop_length)
+        win_length = kwargs.get("win_length", self.win_length)
+        window = kwargs.get("window", self.window)
+        center = kwargs.get("center", self.center)
+        pad_mode = kwargs.get("pad_mode", self.pad_mode)
+
+        self._last_stft_settings = {
+            "n_fft": n_fft,
+            "hop_length": hop_length,
+            "win_length": win_length,
+            "window": window,
+            "center": center,
+            "pad_mode": pad_mode,
+        }
+
         output = None
         fallback_used = False
         try:
@@ -173,7 +196,7 @@ class AdaptiveSTFT:
                 if not _TORCH_AVAILABLE:
                     logger.warning("PyTorch nicht verfügbar, fallback auf klassische Methode.")
                     fallback_used = True
-                    output = self._stft_classic(y, n_fft, **kwargs)
+                    output = self._stft_classic(y, n_fft, hop_length, win_length, window, center, pad_mode)
                 else:
                     logger.info("Deep-Learning-Inferenz aktiviert für STFT.")
                     # TorchScript-Modell (Platzhalter)
@@ -181,31 +204,31 @@ class AdaptiveSTFT:
                     # output = model(torch.from_numpy(y).float().unsqueeze(0)).squeeze(0).numpy()
                     logger.warning("TorchScript-Modell nicht implementiert, fallback auf klassische Methode.")
                     fallback_used = True
-                    output = self._stft_classic(y, n_fft, **kwargs)
+                    output = self._stft_classic(y, n_fft, hop_length, win_length, window, center, pad_mode)
             else:
-                output = self._stft_classic(y, n_fft, **kwargs)
+                output = self._stft_classic(y, n_fft, hop_length, win_length, window, center, pad_mode)
         except Exception as e:
             logger.error(f"Fehler bei STFT: {e}", exc_info=True)
             fallback_used = True
-            output = np.zeros((n_fft // 2 + 1, 1))
+            output = np.zeros((n_fft // 2 + 1, 1), dtype=np.complex128)
 
         if audit_log:
-            spectral_resolution = float(n_fft) / (kwargs.get("sr", 22050))
+            spectral_resolution = float(n_fft) / float(sr if sr is not None else 48000)
             logger.info(
                 f"AdaptiveSTFT: spectral_resolution={spectral_resolution:.4f}, fallback_used={fallback_used}, n_fft={n_fft}"
             )
             logger.info(f"[DSPContract] {asdict(adaptive_stft_contract)}")
         return output
 
-    def _stft_classic(self, y, n_fft, **kwargs):
+    def _stft_classic(self, y, n_fft, hop_length, win_length, window, center, pad_mode):
         return librosa.stft(
             y,
             n_fft=n_fft,
-            hop_length=kwargs.get("hop_length", self.hop_length),
-            win_length=kwargs.get("win_length", self.win_length),
-            window=kwargs.get("window", self.window),
-            center=kwargs.get("center", self.center),
-            pad_mode=kwargs.get("pad_mode", self.pad_mode),
+            hop_length=hop_length,
+            win_length=win_length,
+            window=window,
+            center=center,
+            pad_mode=pad_mode,
         )
 
     def istft(self, D, sr=None, audit_log: bool = True, **kwargs):
@@ -225,17 +248,22 @@ class AdaptiveSTFT:
             raise ValueError("D enthält NaN-Werte")
         output = None
         try:
+            hop_length = kwargs.get("hop_length", self._last_stft_settings.get("hop_length", self.hop_length))
+            win_length = kwargs.get("win_length", self._last_stft_settings.get("win_length", self.win_length))
+            window = kwargs.get("window", self._last_stft_settings.get("window", self.window))
+            center = kwargs.get("center", self._last_stft_settings.get("center", self.center))
             output = librosa.istft(
                 D,
-                hop_length=kwargs.get("hop_length", self.hop_length),
-                win_length=kwargs.get("win_length", self.win_length),
-                window=kwargs.get("window", self.window),
-                center=kwargs.get("center", self.center),
+                hop_length=hop_length,
+                win_length=win_length,
+                window=window,
+                center=center,
                 length=kwargs.get("length"),
             )
         except Exception as e:
             logger.error(f"Fehler bei ISTFT: {e}", exc_info=True)
             output = np.zeros(1)
+        output = np.nan_to_num(np.asarray(output), nan=0.0, posinf=0.0, neginf=0.0)
         if audit_log:
             logger.info(f"AdaptiveSTFT: ISTFT ausgeführt, shape={output.shape if output is not None else None}")
             logger.info(f"[DSPContract] {asdict(adaptive_stft_contract)}")
@@ -305,7 +333,7 @@ class AdaptiveMelSpectrogram:
         if y.size == 0:
             logger.error("y ist leer")
             raise ValueError("y ist leer")
-        if np.isnan(y).any():
+        if np.isnan(y.astype(np.float64, copy=False)).any():
             logger.error("y enthält NaN-Werte")
             raise ValueError("y enthält NaN-Werte")
 

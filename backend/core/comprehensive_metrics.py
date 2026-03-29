@@ -27,6 +27,28 @@ from scipy.stats import pearsonr
 
 logger = logging.getLogger(__name__)
 
+
+# ---------------------------------------------------------------------------
+# Type-stable wrappers for scipy functions whose stubs use Dispatchable types
+# that Pylance cannot resolve via overload matching (scipy stub limitation).
+# ---------------------------------------------------------------------------
+
+
+def _rfft(x: np.ndarray, n: int | None = None) -> np.ndarray:
+    """scipy.fft.rfft with explicit ndarray return type for Pylance."""
+    return np.asarray(fft.rfft(x, n=n))  # type: ignore[arg-type]
+
+
+def _irfft(x: np.ndarray, n: int | None = None) -> np.ndarray:
+    """scipy.fft.irfft with explicit ndarray return type for Pylance."""
+    return np.asarray(fft.irfft(x, n))  # type: ignore[arg-type]
+
+
+def _hilbert(x: np.ndarray) -> np.ndarray:
+    """scipy.signal.hilbert with explicit ndarray return type for Pylance."""
+    return np.asarray(signal.hilbert(x))  # type: ignore[arg-type]
+
+
 # Import existing metrics modules
 try:
     from backend.core.enhanced_metrics import EnhancedMetrics
@@ -311,7 +333,7 @@ class ComprehensiveMetricsCalculator:
 
         # Hanning-Fenster reduziert Spectral-Leakage
         window = np.hanning(len(audio))
-        spectrum = np.abs(fft.rfft(audio * window)) ** 2
+        spectrum = np.abs(_rfft(audio * window)) ** 2
 
         n_bins = len(spectrum)
         if n_bins < 4:
@@ -332,7 +354,7 @@ class ComprehensiveMetricsCalculator:
     def _compute_thd(self, audio: np.ndarray) -> float:
         """Total Harmonic Distortion in %."""
         # Use FFT to find fundamental and harmonics
-        spectrum = np.abs(fft.rfft(audio))
+        spectrum = np.abs(_rfft(audio))
         freqs = fft.rfftfreq(len(audio), 1 / self.sr)
 
         # Find fundamental (assume speech/music range 80-1000 Hz)
@@ -470,7 +492,7 @@ class ComprehensiveMetricsCalculator:
     def _compute_sharpness(self, audio: np.ndarray) -> float:
         """Perceptual sharpness (simplified Zwicker model)."""
         # High-frequency energy weighted by critical bands
-        spectrum = np.abs(fft.rfft(audio))
+        spectrum = np.abs(_rfft(audio))
         freqs = fft.rfftfreq(len(audio), 1 / self.sr)
 
         # Weight higher frequencies more
@@ -484,8 +506,8 @@ class ComprehensiveMetricsCalculator:
     def _compute_roughness(self, audio: np.ndarray) -> float:
         """Perceptual roughness (amplitude modulation 15-300 Hz)."""
         # Detect amplitude modulation in roughness range
-        envelope = np.abs(signal.hilbert(audio))
-        envelope_spectrum = np.abs(fft.rfft(envelope))
+        envelope = np.abs(_hilbert(audio))
+        envelope_spectrum = np.abs(_rfft(envelope))
         freqs = fft.rfftfreq(len(envelope), 1 / self.sr)
 
         # Roughness band: 15-300 Hz modulation
@@ -504,8 +526,8 @@ class ComprehensiveMetricsCalculator:
         n = len(audio)
         if n < 64:
             return 0.0
-        X = fft.rfft(audio, n=2 * n)
-        autocorr = fft.irfft(np.abs(X) ** 2)[:n]
+        X = _rfft(audio, n=2 * n)
+        autocorr = _irfft(np.abs(X) ** 2)[:n]
         ac0 = autocorr[0] + 1e-30
         autocorr = autocorr / ac0
 
@@ -518,7 +540,7 @@ class ComprehensiveMetricsCalculator:
     def _detect_pre_echo(self, audio: np.ndarray) -> float:
         """Detect pre-echo artifacts (score: 1=clean, 0=artifacts)."""
         # Detect transients
-        envelope = np.abs(signal.hilbert(audio))
+        envelope = np.abs(_hilbert(audio))
         transients, _ = signal.find_peaks(envelope, height=np.percentile(envelope, 90))
 
         if len(transients) == 0:
@@ -541,11 +563,11 @@ class ComprehensiveMetricsCalculator:
         """Count detected clicks/pops."""
         # High-pass filter to isolate clicks
         sos = signal.butter(4, 2000, "high", fs=self.sr, output="sos")
-        filtered = signal.sosfilt(sos, audio)
+        filtered: np.ndarray = np.asarray(signal.sosfilt(sos, audio))  # type: ignore[arg-type]
 
         # Detect spikes
-        threshold = 5 * np.std(filtered)
-        clicks, _ = signal.find_peaks(np.abs(filtered), height=threshold, distance=int(0.001 * self.sr))
+        threshold = float(5 * np.std(filtered))
+        clicks, _ = signal.find_peaks(np.abs(filtered), height=threshold, distance=int(0.001 * self.sr))  # type: ignore[call-overload]
 
         return len(clicks)
 
@@ -618,7 +640,7 @@ class ComprehensiveMetricsCalculator:
         if n < 64:
             return 0.0
 
-        spectrum = np.abs(fft.rfft(audio)) ** 2  # Leistungsspektrum
+        spectrum = np.abs(_rfft(audio)) ** 2  # Leistungsspektrum
         total_energy = float(np.sum(spectrum)) + 1e-30
 
         # Stärkstes Peak (Fundamental-Kandidat)
@@ -646,8 +668,8 @@ class ComprehensiveMetricsCalculator:
         if n < 64:
             return 0.0
         # Zero-padded FFT für lineare Autokorrelation
-        X = fft.rfft(audio, n=2 * n)
-        autocorr = fft.irfft(np.abs(X) ** 2)[:n]
+        X = _rfft(audio, n=2 * n)
+        autocorr = _irfft(np.abs(X) ** 2)[:n]
         ac0 = autocorr[0] + 1e-30
         autocorr = autocorr / ac0  # Normalisierung auf [0, 1]
 
@@ -679,8 +701,8 @@ class ComprehensiveMetricsCalculator:
             frame = audio[start : start + frame_size]
             n = len(frame)
             # FFT-basierte lineare Autokorrelation
-            X = fft.rfft(frame, n=2 * n)
-            autocorr = fft.irfft(np.abs(X) ** 2)[:n]
+            X = _rfft(frame, n=2 * n)
+            autocorr = _irfft(np.abs(X) ** 2)[:n]
             ac0 = autocorr[0] + 1e-30
             autocorr = autocorr / ac0
 
@@ -738,7 +760,7 @@ class ComprehensiveMetricsCalculator:
 
     def _compute_chromagram(self, audio: np.ndarray) -> np.ndarray:
         """Compute 12-bin chromagram (pitch class profile)."""
-        spectrum = np.abs(fft.rfft(audio))
+        spectrum = np.abs(_rfft(audio))
         freqs = fft.rfftfreq(len(audio), 1 / self.sr)
 
         chroma = np.zeros(12)
@@ -754,7 +776,7 @@ class ComprehensiveMetricsCalculator:
 
     def _compute_consonance(self, audio: np.ndarray) -> float:
         """Harmonic consonance (Helmholtz consonance)."""
-        spectrum = np.abs(fft.rfft(audio))
+        spectrum = np.abs(_rfft(audio))
         freqs = fft.rfftfreq(len(audio), 1 / self.sr)
 
         # Find peaks (partials)
@@ -834,7 +856,7 @@ class ComprehensiveMetricsCalculator:
             return 0.3
 
         # Onset envelope
-        envelope = np.abs(signal.hilbert(audio))
+        envelope = np.abs(_hilbert(audio))
 
         # Downsample to ~100 Hz for beat tracking
         target_rate = 100
@@ -867,7 +889,7 @@ class ComprehensiveMetricsCalculator:
     def _compute_attack_sharpness(self, audio: np.ndarray) -> float:
         """Transient attack sharpness."""
         # Detect transients
-        envelope = np.abs(signal.hilbert(audio))
+        envelope = np.abs(_hilbert(audio))
         transients, _ = signal.find_peaks(envelope, height=np.percentile(envelope, 90), distance=int(0.1 * self.sr))
 
         if len(transients) == 0:
@@ -896,7 +918,7 @@ class ComprehensiveMetricsCalculator:
     def _compute_decay_smoothness(self, audio: np.ndarray) -> float:
         """Decay envelope smoothness."""
         # Envelope
-        envelope = np.abs(signal.hilbert(audio))
+        envelope = np.abs(_hilbert(audio))
 
         # Find peaks (note onsets)
         peaks, _ = signal.find_peaks(envelope, height=np.percentile(envelope, 80), distance=int(0.2 * self.sr))
@@ -950,7 +972,7 @@ class ComprehensiveMetricsCalculator:
 
     def _compute_spectral_complexity(self, audio: np.ndarray) -> float:
         """Harmonic richness (number of significant partials)."""
-        spectrum = np.abs(fft.rfft(audio))
+        spectrum = np.abs(_rfft(audio))
 
         # Find peaks
         threshold = np.percentile(spectrum, 85)
@@ -962,7 +984,7 @@ class ComprehensiveMetricsCalculator:
 
     def _compute_spectral_balance(self, audio: np.ndarray) -> float:
         """Bass/mid/treble balance."""
-        spectrum = np.abs(fft.rfft(audio))
+        spectrum = np.abs(_rfft(audio))
         freqs = fft.rfftfreq(len(audio), 1 / self.sr)
 
         # Define bands
@@ -988,7 +1010,7 @@ class ComprehensiveMetricsCalculator:
 
     def _compute_timbral_qualities(self, audio: np.ndarray) -> tuple[float, float, float]:
         """Compute warmth, brightness, fullness."""
-        spectrum = np.abs(fft.rfft(audio))
+        spectrum = np.abs(_rfft(audio))
         freqs = fft.rfftfreq(len(audio), 1 / self.sr)
 
         # Warmth: low-mid energy (150-500 Hz)
@@ -1065,7 +1087,7 @@ class ComprehensiveMetricsCalculator:
         Arousal: Energy/Activation (tempo, loudness, spectral flux)
         """
         # Valence: based on consonance and harmonic clarity
-        spectrum = np.abs(fft.rfft(audio))
+        spectrum = np.abs(_rfft(audio))
         fft.rfftfreq(len(audio), 1 / self.sr)
 
         # Harmonic content suggests pleasantness
@@ -1109,7 +1131,7 @@ class ComprehensiveMetricsCalculator:
         dyn_range = peak / (rms + 1e-10)
 
         # Spectral spread
-        spectrum = np.abs(fft.rfft(audio))
+        spectrum = np.abs(_rfft(audio))
         spread = np.std(spectrum) / (np.mean(spectrum) + 1e-10)
 
         intensity = np.clip((dyn_range + spread) / 20, 0, 1)
@@ -1130,7 +1152,7 @@ class ComprehensiveMetricsCalculator:
 
     def _compute_power(self, audio: np.ndarray) -> float:
         """Feeling of power/confidence (low-freq presence + loudness)."""
-        spectrum = np.abs(fft.rfft(audio))
+        spectrum = np.abs(_rfft(audio))
         freqs = fft.rfftfreq(len(audio), 1 / self.sr)
 
         # Low-freq energy (50-200 Hz)
@@ -1236,7 +1258,7 @@ class ComprehensiveMetricsCalculator:
         flux_mean = np.mean(flux_values) if flux_values else 0
 
         # Transient density
-        envelope = np.abs(signal.hilbert(audio))
+        envelope = np.abs(_hilbert(audio))
         transients, _ = signal.find_peaks(envelope, height=np.percentile(envelope, 85))
         transient_density = len(transients) / (len(audio) / self.sr)  # per second
 

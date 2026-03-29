@@ -34,7 +34,7 @@ from tqdm import tqdm
 try:
     from backend.core.defect_scanner import MaterialType
 except ImportError:
-    from core.defect_scanner import MaterialType  # Legacy-Pfad Fallback
+    from core.defect_scanner import MaterialType  # type: ignore[import-not-found]  # Legacy-Pfad Fallback
 try:
     from denker.aurik_denker import get_aurik_denker as _get_aurik_denker
 except ImportError:
@@ -144,7 +144,7 @@ class BatchProcessor:
 
             # Process via AurikDenker (Pflicht-Einstiegspunkt §2.2)
             logger.info(f"Processing: {input_file.name}")
-            audio_data, file_sr = sf.read(str(input_file))
+            audio_data, file_sr = sf.read(str(input_file))  # type: ignore[misc]
 
             if _get_aurik_denker is None:
                 raise RuntimeError(

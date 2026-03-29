@@ -48,7 +48,7 @@ class KIHörbarkeitsAnalyzer:
     Extrem störend: > 0.60
     """
 
-    def __init__(self) -> float:
+    def __init__(self) -> None:
         self.logger = logging.getLogger(__name__)
         # Psychoakustische Schwellenwerte (Fletcher-Munson-Kurve inspiriert)
         self.jnd_frequency = 0.003  # Just Noticeable Difference für Pitch (0.3%)
@@ -217,7 +217,7 @@ class KIHörbarkeitsAnalyzer:
             # Envelope Extraction via Hilbert Transform
             from scipy.signal import hilbert
 
-            analytic_signal = hilbert(audio)
+            analytic_signal: np.ndarray = hilbert(audio)  # type: ignore[assignment]
             envelope = np.abs(analytic_signal)
 
             # Smooth envelope (10ms moving average)
@@ -263,7 +263,7 @@ class KIHörbarkeitsAnalyzer:
             # Envelope für Transient-Detektion
             from scipy.signal import hilbert
 
-            analytic_signal = hilbert(audio)
+            analytic_signal: np.ndarray = hilbert(audio)  # type: ignore[assignment]
             envelope = np.abs(analytic_signal)
 
             # Differenz der Envelope (Attack-Rate)

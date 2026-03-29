@@ -21,6 +21,7 @@ import logging
 import tempfile
 import threading
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 
@@ -29,7 +30,7 @@ try:
 
     _MATCHERING_AVAILABLE = True
 except ImportError:
-    _mg = None  # type: ignore[assignment]
+    _mg: Any = None
     _MATCHERING_AVAILABLE = False
 
 logger = logging.getLogger(__name__)
@@ -160,7 +161,7 @@ class MatcheringPlugin:
             g_rms = float(np.clip(rms_r / rms_t, 0.1, 10.0))
             Zout = Zt * ratio[:, np.newaxis] * g_rms
             _, out = istft(Zout, fs=sr, window=win, nperseg=self.N_FFT, noverlap=self.N_FFT - self.HOP)
-            return np.nan_to_num(out[: len(tgt_ch)], 0.0).astype(np.float32)
+            return np.nan_to_num(out[: len(tgt_ch)], nan=0.0).astype(np.float32)
 
         out_mid = _eq_channel(tgt_mid, ref_mid)
         out_side = _eq_channel(tgt_side, ref_side)

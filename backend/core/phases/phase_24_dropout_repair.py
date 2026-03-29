@@ -71,25 +71,14 @@ Date: 15. Februar 2026
 """
 
 import logging
-import os
-import tempfile
 import time
 from typing import Any
 
 import numpy as np
 import scipy.signal as signal
-from scipy.fft import rfft, rfftfreq
 from scipy.interpolate import CubicSpline
 
 from .phase_interface import PhaseCategory, PhaseInterface, PhaseMetadata, PhaseResult, create_phase_result
-
-# ML-Hybrid Support
-try:
-    import soundfile as sf
-
-    SOUNDFILE_AVAILABLE = True
-except ImportError:
-    SOUNDFILE_AVAILABLE = False
 
 try:
     from backend.core.quality_mode import QualityMode, should_use_ml
@@ -97,6 +86,13 @@ try:
     QUALITY_MODE_AVAILABLE = True
 except ImportError:
     QUALITY_MODE_AVAILABLE = False
+
+try:
+    from dsp.pghi import pghi_reconstruct_from_stft as _pghi_p24
+
+    _PGHI_AVAILABLE_P24 = True
+except ImportError:
+    _PGHI_AVAILABLE_P24 = False
 
 logger = logging.getLogger(__name__)
 
@@ -175,10 +171,79 @@ class DropoutRepairPhase(PhaseInterface):
         },
     }
 
+    # MRSA Multi-Resolution Spectral Analysis zones (mandatory, §DSP-Spezialregeln)
+    _MRSA_ZONES: tuple = (
+        ("sub_bass", 65536, 16384, 0, 250),
+        ("mid_low", 16384, 4096, 250, 2500),
+        ("mid", 8192, 2048, 2500, 8000),
+        ("presence", 1024, 256, 8000, 16000),
+        ("air", 128, 32, 16000, 24000),
+    )
+    _MRSA_CROSSFADE_BW_HZ: float = 100.0
+
     def __init__(self):
         """Initialize Phase 24 Dropout Repair."""
         self._audiosr_plugin = None
         self.sample_rate = 48000  # Default, will be updated in process()
+        self._ml_guard_events: list[dict[str, Any]] = []
+
+    def _has_sufficient_ml_headroom(self, audio: np.ndarray, sample_rate: int) -> bool:
+        """Return True when enough physical RAM is available for AudioSR dropout repair."""
+        try:
+            import gc
+
+            import psutil
+        except Exception:
+            return True
+
+        n_samples = len(audio)
+        n_channels = 1
+        duration_s = n_samples / float(max(1, sample_rate))
+
+        required_gb = 6.0
+        if duration_s >= 180.0:
+            required_gb += 2.0
+        elif duration_s >= 60.0:
+            required_gb += 1.0
+
+        available_gb = float(psutil.virtual_memory().available / (1024**3))
+        if available_gb < required_gb + 1.5:
+            try:
+                from backend.core.plugin_lifecycle_manager import evict_stale_plugins
+
+                evict_stale_plugins(required_mb=int(required_gb * 1024))
+            except Exception:
+                pass
+            gc.collect()
+            try:
+                import ctypes as _ct
+
+                _ct.CDLL("libc.so.6").malloc_trim(0)
+            except Exception:
+                pass
+            available_gb = float(psutil.virtual_memory().available / (1024**3))
+
+        if available_gb < required_gb:
+            self._ml_guard_events.append(
+                {
+                    "phase_id": "phase_24_dropout_repair",
+                    "model": "AudioSR",
+                    "reason": "insufficient_physical_ram_headroom",
+                    "required_gb": float(required_gb),
+                    "available_gb": float(available_gb),
+                    "channels": int(n_channels),
+                    "duration_s": float(duration_s),
+                    "fallback": "dsp_dropout_inpainting",
+                }
+            )
+            logger.warning(
+                "DropoutRepair RAM guard triggered: %.1f GB available, %.1f GB required (duration=%.1fs) - using DSP fallback",
+                available_gb,
+                required_gb,
+                duration_s,
+            )
+            return False
+        return True
 
     def _get_audiosr_plugin(self):
         """
@@ -242,6 +307,7 @@ class DropoutRepairPhase(PhaseInterface):
         assert sample_rate == 48000, f"SR muss 48000 Hz sein, erhalten: {sample_rate}"
         start_time = time.time()
         self.sample_rate = sample_rate
+        self._ml_guard_events = []
 
         # Determine if ML should be used
         use_ml = False
@@ -385,6 +451,8 @@ class DropoutRepairPhase(PhaseInterface):
                 "execution_time_seconds": execution_time,
                 "phase_locality_factor": phase_locality_factor,
                 "effective_strength": _effective_strength,
+                "ml_guard_events": list(self._ml_guard_events),
+                "deferred_for_kmv": ["phase_24_dropout_repair"] if self._ml_guard_events else [],
             },
         )
 
@@ -634,8 +702,7 @@ class DropoutRepairPhase(PhaseInterface):
         Returns:
             True if successful, False otherwise
         """
-        if not SOUNDFILE_AVAILABLE:
-            logger.warning("soundfile not available for ML dropout repair")
+        if not self._has_sufficient_ml_headroom(audio, self.sample_rate):
             return False
 
         plugin = self._get_audiosr_plugin()
@@ -643,53 +710,22 @@ class DropoutRepairPhase(PhaseInterface):
             return False
 
         try:
-            # Create temporary files
-            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as input_temp:
-                input_path = input_temp.name
-
-            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as output_temp:
-                output_path = output_temp.name
-
-            # Write audio to temp file
-            sf.write(input_path, audio, self.sample_rate)
-
-            # Process with AudioSR
-            returncode, _stdout, _stderr = plugin.process(
-                input_path,
-                output_path,
-                quality="high",  # High quality for dropout repair
-                target_sample_rate=self.sample_rate,
-            )
-
-            if returncode == 0 and os.path.exists(output_path):
-                # Read repaired audio
-                repaired, _sr_read = sf.read(output_path)
-
-                # Update audio in-place
-                if len(repaired) == len(audio):
-                    audio[:] = repaired
-                    logger.info(f"✅ AudioSR dropout repair successful ({len(dropouts)} long dropouts)")
-                    return True
-                else:
-                    logger.warning(f"Length mismatch: {len(repaired)} vs {len(audio)}")
-                    return False
-            else:
-                logger.warning(f"AudioSR failed (returncode={returncode})")
+            if not self._has_sufficient_ml_headroom(audio, self.sample_rate):
                 return False
+
+            repaired = plugin.process(audio, self.sample_rate, target_sr=self.sample_rate)
+
+            if len(repaired) == len(audio):
+                audio[:] = repaired
+                logger.info("AudioSR dropout repair successful (%d long dropouts)", len(dropouts))
+                return True
+
+            logger.warning("AudioSR output length mismatch: %d vs %d", len(repaired), len(audio))
+            return False
 
         except Exception as e:
             logger.error(f"ML dropout repair error: {e}")
             return False
-
-        finally:
-            # Cleanup temp files
-            try:
-                if os.path.exists(input_path):
-                    os.unlink(input_path)
-                if os.path.exists(output_path):
-                    os.unlink(output_path)
-            except Exception:
-                pass
 
     def _classify_content(self, before: np.ndarray, after: np.ndarray) -> str:
         """
@@ -716,8 +752,9 @@ class DropoutRepairPhase(PhaseInterface):
 
     def _compute_harmonic_ratio(self, audio: np.ndarray) -> float:
         """Compute harmonic-to-total ratio."""
-        spectrum = np.abs(rfft(audio))
-        freqs = rfftfreq(len(audio), 1 / self.sample_rate)
+        audio_1d = np.asarray(audio, dtype=np.float64).reshape(-1)
+        spectrum = np.abs(np.fft.rfft(audio_1d))
+        freqs = np.fft.rfftfreq(len(audio_1d), 1 / self.sample_rate)
 
         mask = (freqs >= 80) & (freqs <= 800)
         if not np.any(mask):
@@ -734,6 +771,125 @@ class DropoutRepairPhase(PhaseInterface):
 
         total_energy = np.sum(spectrum**2)
         return harmonic_energy / (total_energy + 1e-10)
+
+    def _mrsa_tonal_fill_refine(
+        self,
+        audio_fill: np.ndarray,
+        before: np.ndarray,
+        after: np.ndarray,
+        sr: int,
+    ) -> np.ndarray:
+        """MRSA zone-specific refinement for tonal gap fill.
+
+        For each MRSA zone, computes zone-specific spectral interpolation between
+        before/after context at the zone's native resolution. Blends all zones
+        with Hanning crossfades. Reconstructs via PGHI (fallback: iSTFT).
+
+        Used as post-processing step after initial sinusoidal fill estimation.
+
+        Args:
+            audio_fill: Initial fill estimate (result of sinusoidal inpainting).
+            before:     Context audio before the gap (mono, float64).
+            after:      Context audio after the gap (mono, float64).
+            sr:         Sample rate (must be 48000 Hz).
+
+        Returns:
+            Refined fill segment (1D, same length as audio_fill, clipped [-1, 1]).
+        """
+        gap_len = len(audio_fill)
+        if gap_len == 0:
+            return audio_fill
+
+        nyq = sr / 2.0
+        blended = np.zeros(gap_len)
+        weight_sum = np.zeros(gap_len)
+
+        for _zone_name, win, hop, f_lo, f_hi in self._MRSA_ZONES:
+            f_lo_z = min(float(f_lo), nyq)
+            f_hi_z = min(float(f_hi), nyq)
+            if f_lo_z >= nyq:
+                continue
+
+            # Derive context frames from before/after at zone resolution.
+            # Use up to one window of context for spectral estimation.
+            ctx_len = max(win, gap_len + win)
+            ctx_bef = before[-min(ctx_len, len(before)) :]
+            ctx_aft = after[: min(ctx_len, len(after))]
+
+            try:
+                from scipy.signal import stft as _stft_fn
+
+                _, _, Z_bef = _stft_fn(ctx_bef, sr, nperseg=win, noverlap=win - hop)
+                _, _, Z_aft = _stft_fn(ctx_aft, sr, nperseg=win, noverlap=win - hop)
+            except Exception:
+                continue
+
+            n_freq = Z_bef.shape[0]
+            freqs = np.linspace(0.0, nyq, n_freq)
+
+            # Frequency mask for this zone (with crossfade)
+            bw = self._MRSA_CROSSFADE_BW_HZ
+            f_mask = np.zeros(n_freq)
+            for k, fk in enumerate(freqs):
+                if fk <= f_lo_z - bw or fk >= f_hi_z + bw:
+                    f_mask[k] = 0.0
+                elif f_lo_z - bw < fk < f_lo_z + bw:
+                    f_mask[k] = 0.5 * (1.0 + np.cos(np.pi * (f_lo_z - fk) / bw))
+                elif f_hi_z - bw < fk < f_hi_z + bw:
+                    f_mask[k] = 0.5 * (1.0 + np.cos(np.pi * (fk - f_hi_z) / bw))
+                else:
+                    f_mask[k] = 1.0
+
+            # Represent fill signal at zone resolution
+            try:
+                from scipy.signal import istft as _istft_fn
+                from scipy.signal import stft as _stft_fn
+
+                _, _, Zxx_fill = _stft_fn(audio_fill, sr, nperseg=win, noverlap=win - hop)
+            except Exception:
+                continue
+
+            n_fill_frames = Zxx_fill.shape[1]
+            mag_bef_ctx = np.abs(Z_bef[:, -1])  # last before-context frame
+            mag_aft_ctx = np.abs(Z_aft[:, 0])  # first after-context frame
+            phase_cur = np.angle(Z_bef[:, -1])
+
+            # Build refined fill STFT frame-by-frame at zone resolution
+            Zxx_refined = np.zeros_like(Zxx_fill)
+            phase_increment = 2.0 * np.pi * freqs * hop / (sr + 1e-10)
+            for fi in range(n_fill_frames):
+                alpha = float(fi) / max(n_fill_frames - 1, 1)
+                # Interpolate magnitude between before/after context
+                mag_interp = (1.0 - alpha) * mag_bef_ctx + alpha * mag_aft_ctx
+                # Within zone: use interpolated magnitude; outside zone: keep original fill
+                mag_zone = f_mask * mag_interp + (1.0 - f_mask) * np.abs(Zxx_fill[:, fi])
+                Zxx_refined[:, fi] = mag_zone * np.exp(1j * phase_cur)
+                phase_cur += phase_increment
+
+            # Reconstruct zone fill segment
+            try:
+                if _PGHI_AVAILABLE_P24:
+                    seg = _pghi_p24(Zxx_refined, win, hop, sr)
+                else:
+                    _, seg = _istft_fn(Zxx_refined, sr, nperseg=win, noverlap=win - hop)
+            except Exception:
+                continue
+
+            if len(seg) < gap_len:
+                seg = np.pad(seg, (0, gap_len - len(seg)))
+            seg = seg[:gap_len]
+
+            # Accumulate with frequency-zone weight (mean f_mask as scalar weight)
+            w = float(np.mean(f_mask))
+            blended += w * seg
+            weight_sum += w
+
+        # Normalise blended result; fall back to original fill where no zone contributed
+        with np.errstate(invalid="ignore", divide="ignore"):
+            mask_valid = weight_sum > 1e-9
+            result = np.where(mask_valid, blended / np.where(mask_valid, weight_sum, 1.0), audio_fill)
+
+        return np.clip(np.nan_to_num(result), -1.0, 1.0)
 
     def _repair_tonal(self, before: np.ndarray, after: np.ndarray, gap_length: int) -> np.ndarray:
         """Sinusoidales Inpainting für tonalen Inhalt mit PGHI-Phasenkohärenz.
@@ -810,13 +966,16 @@ class DropoutRepairPhase(PhaseInterface):
                 audio_fill[:fade_len] *= fade_in
                 audio_fill[-fade_len:] *= fade_out
 
+            # MRSA refinement: zone-specific spectral interpolation + PGHI
+            audio_fill = self._mrsa_tonal_fill_refine(audio_fill, before, after, self.sample_rate)
+
             return np.clip(np.nan_to_num(audio_fill), -1.0, 1.0)
 
         except Exception as exc:
             logger.debug("Sinusoidal repair fehlgeschlagen: %s, Fallback Spline", exc)
             # Fallback: kubische Spline-Interpolation
-            x = np.array([0, gap_length + 1])
-            y = np.array([before[-1], after[0]])
+            x = np.array([0, gap_length + 1], dtype=np.float64)
+            y = np.array([before[-1], after[0]], dtype=np.float64)
             cs = CubicSpline(x, y, bc_type="natural")
             return cs(np.arange(1, gap_length + 1))
 
@@ -975,8 +1134,8 @@ if __name__ == "__main__":
         logger.debug(f"Testing with material: {material.upper()}")
         logger.debug(f"{'-' * 80}")
 
-        phase = DropoutRepairPhase(sample_rate=sr)
-        result = phase.process(audio.copy(), material_type=material)
+        phase = DropoutRepairPhase()
+        result = phase.process(audio.copy(), sample_rate=sr, material_type=material)
 
         if result.success:
             logger.debug("✅ Processing Complete!")

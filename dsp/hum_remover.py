@@ -38,13 +38,13 @@ class AiHumRemover:
         if self.model is not None:
             try:
                 _in_name = self.model.get_inputs()[0].name
-                _inp = audio_out[np.newaxis, :].astype(np.float32)
+                _inp = np.expand_dims(audio_out, axis=0).astype(np.float32)
                 _raw = self.model.run(None, {_in_name: _inp})[0].squeeze()
                 _raw = np.nan_to_num(_raw.astype(np.float64), nan=0.0, posinf=0.0, neginf=0.0)
                 audio_out = np.clip(_raw, -1.0, 1.0)
             except Exception as _onnx_err:
                 _logger.warning(
-                    "AiHumRemover: ONNX-Inferenz fehlgeschlagen (%s) " "— klassischer Notch-Fallback aktiv.",
+                    "AiHumRemover: ONNX-Inferenz fehlgeschlagen (%s) — klassischer Notch-Fallback aktiv.",
                     _onnx_err,
                 )
         return np.clip(np.nan_to_num(audio_out, nan=0.0), -1.0, 1.0).astype(audio.dtype)

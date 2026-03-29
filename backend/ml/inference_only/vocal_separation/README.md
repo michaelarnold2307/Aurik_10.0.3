@@ -9,18 +9,21 @@ Upgrade vocal source separation to **SOTA-level quality** matching AudioShake an
 ## 📦 Components
 
 ### 1. **MDX-Net Wrapper** (`mdx_net_wrapper.py`)
+
 - **Architecture:** U-Net based spectral-domain separator
 - **Strengths:** High-frequency detail, minimal spectral artifacts
 - **FFT Size:** 4096 for high frequency resolution
 - **HIPS Compliance:** ✅ Full nebenwirkungen tracking
 
 ### 2. **Demucs v5 Wrapper** (`demucs_v5_wrapper.py`)
+
 - **Architecture:** Hybrid Transformer (time + frequency domain)
 - **Strengths:** Global context modeling, superior transient preservation
 - **Stems:** 4-source (vocals, drums, bass, other)
 - **HIPS Compliance:** ✅ Deterministic inference-only
 
 ### 3. **Hybrid Separator** (`hybrid_separation.py`)
+
 - **Strategy:** Ensemble fusion of MDX-Net + Demucs v5
 - **Fusion Modes:**
   - `adaptive`: Frequency-band weighting (low → Demucs, high → MDX)
@@ -29,6 +32,7 @@ Upgrade vocal source separation to **SOTA-level quality** matching AudioShake an
 - **HIPS Compliance:** ✅ Full decision trail logging
 
 ### 4. **Safety Wrapper** (`vocal_separation_safety.py`)
+
 - **Pre-checks:** Clipping, SNR, stereo validity, duration
 - **Post-checks:** Reversibility, energy conservation, phase coherence, stereo width
 - **Modes:** Strict (blocking) or Warning (logging only)
@@ -50,8 +54,8 @@ sr = 44100
 
 # Separate vocals (HIPS-compliant)
 stems = pipeline.separate_vocals_v8(
-    audio, 
-    sr, 
+    audio,
+    sr,
     use_safety_wrapper=True
 )
 

@@ -451,7 +451,19 @@ class MonoToStereoPhaseV2(PhaseInterface):
         Transients (percussive content) benefit from mono (centered energy).
         """
         # Detect transients (amplitude envelope derivative)
-        envelope = np.abs(signal.hilbert(mono))
+        mono_1d = np.asarray(mono, dtype=np.float64).reshape(-1)
+        n = mono_1d.shape[0]
+        spectrum = np.fft.fft(mono_1d)
+        h = np.zeros(n, dtype=np.float64)
+        if n % 2 == 0:
+            h[0] = 1.0
+            h[n // 2] = 1.0
+            h[1 : n // 2] = 2.0
+        else:
+            h[0] = 1.0
+            h[1 : (n + 1) // 2] = 2.0
+        analytic = np.fft.ifft(spectrum * h)
+        envelope = np.abs(analytic)
 
         # Derivative (rate of change)
         derivative = np.diff(envelope, prepend=envelope[0])
@@ -494,16 +506,16 @@ class MonoToStereoPhaseV2(PhaseInterface):
         """
         try:
             # High-shelf filter (boost above 8 kHz)
-            shelf_freq = 8000
+            shelf_freq = 8000.0
             boost_linear = 10 ** (boost_db / 20)
 
-            # Design high-shelf
-            b, a = signal.iirfilter(2, shelf_freq, btype="high", ftype="butter", fs=sample_rate)
+            # Use SOS form to avoid ambiguous scipy return typing.
+            sos_hf = signal.butter(2, shelf_freq, btype="highpass", fs=sample_rate, output="sos")
 
             # Apply to both channels
             enhanced = audio.copy()
             for ch in range(2):
-                hf_signal = signal.lfilter(b, a, enhanced[:, ch])
+                hf_signal = signal.sosfilt(sos_hf, enhanced[:, ch])
                 enhanced[:, ch] = enhanced[:, ch] + hf_signal * (boost_linear - 1.0)
 
             # Peak limiting

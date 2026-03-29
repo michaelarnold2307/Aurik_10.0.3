@@ -4,7 +4,7 @@ from typing import Any
 import numpy as np
 import numpy.typing as npt
 import scipy.signal
-from scipy.signal import butter, lfilter
+from scipy.signal import butter, sosfilt
 
 
 # DSPContract für Auditierbarkeit und SOTA-Konformität
@@ -57,6 +57,12 @@ harmonic_exciter_contract = DSPContract(
 )
 
 
+def _butter_sos(order: int, wn: float | list[float], btype: str) -> npt.NDArray[np.float64]:
+    """Return validated Butterworth coefficients as SOS float64 matrix."""
+    sos = butter(order, wn, btype=btype, output="sos")
+    return np.asarray(sos, dtype=np.float64)
+
+
 class HarmonicExciter:
     """
     SOTA-konformer Harmonic Exciter:
@@ -77,8 +83,8 @@ class HarmonicExciter:
         formant_preserving: Wenn True, wird ein Formant-Preserving-Ansatz genutzt (empfohlen für Vocals)
         """
         self.band = band
-        self.amount = amount
-        self.saturation = saturation
+        self.amount = float(np.clip(amount, 0.0, 1.0))
+        self.saturation = float(np.clip(saturation, 0.0, 1.0))
         self.formant_preserving = formant_preserving
 
     # Audit: Contract-Infos loggen (optional)
@@ -96,30 +102,43 @@ class HarmonicExciter:
         """
         # Audit: Contract-Infos loggen (optional)
         self.log_contract()
+        if sr <= 0:
+            raise ValueError("Ungültige Abtastrate für HarmonicExciter")
+        orig_dtype = audio.dtype
+        x = np.nan_to_num(np.asarray(audio, dtype=np.float64), nan=0.0, posinf=0.0, neginf=0.0)
+
         # Band extrahieren (obere Grenzfrequenz muss < sr/2 sein)
         nyq = sr / 2
         low = self.band[0] / nyq
         high = min(self.band[1], nyq * 0.99) / nyq
         if not (0 < low < 1) or not (0 < high < 1) or not (low < high):
             raise ValueError(f"Ungültiges Band für HarmonicExciter: low={low}, high={high}, sr={sr}")
-        b, a = butter(4, [low, high], btype="band")
-        band_sig = lfilter(b, a, audio)
-        # Sättigung (nichtlinear)
-        excited = np.tanh(band_sig * (1 + self.saturation * 4))
+        sos_band = _butter_sos(4, [low, high], "band")
+        band_sig = sosfilt(sos_band, x)
+
+        # Soft saturation — scale factor 2 (not 4) to avoid near-clipping at
+        # saturation=0.7: tanh(x * (1 + 0.7*2)) = tanh(x * 2.4) vs. tanh(x * 3.8)
+        drive = 1.0 + self.saturation * 2.0
+        excited = np.tanh(band_sig * drive)
+        # Normalise excited to match RMS of band_sig (preserves level intent)
+        rms_band = float(np.sqrt(np.mean(band_sig**2)) + 1e-10)
+        rms_exc = float(np.sqrt(np.mean(excited**2)) + 1e-10)
+        if rms_exc > 1e-10:
+            excited = excited * (rms_band / rms_exc)
         # Formant-Preserving-Option (vereinfachtes Beispiel: Dry/Wet nur auf Obertöne, nicht auf Grundtonbereich)
         if self.formant_preserving:
             # Obertöne extrahieren (vereinfachtes Beispiel: Hochpass ab 2 kHz)
-            bh, ah = butter(2, 2000 / (sr / 2), btype="high")
-            overtones = lfilter(bh, ah, excited - band_sig)
-            out = audio + self.amount * overtones
+            sos_high = _butter_sos(2, 2000 / (sr / 2), "high")
+            overtones = sosfilt(sos_high, excited - band_sig)
+            out = x + self.amount * overtones
         else:
             # Standard: Mischung mit gesamtem Band
-            out = audio + self.amount * (excited - band_sig)
+            out = x + self.amount * (excited - band_sig)
         # Pegel normalisieren
         maxval = np.max(np.abs(out))
         if maxval > 1.0:
             out = out * (0.999 / maxval)
-        return np.asarray(out.astype(audio.dtype))
+        return np.asarray(np.clip(np.nan_to_num(out, nan=0.0, posinf=0.0, neginf=0.0), -1.0, 1.0), dtype=orig_dtype)
 
 
 class HarmonicExciterStudio:
@@ -132,9 +151,15 @@ class HarmonicExciterStudio:
         self.amount = amount
 
     def process(self, audio: np.ndarray, sr: int) -> np.ndarray:
-        # Nichtlinearität: Soft Clipping für Obertöne
-        excited = np.tanh(audio * (1 + self.amount * 5))
+        x = np.nan_to_num(np.asarray(audio, dtype=np.float64), nan=0.0, posinf=0.0, neginf=0.0)
+        # Soft Clipping: drive factor 2 matches class HarmonicExciter; avoids
+        # near-clipping at amount=0.7: tanh(x*2.4) vs. old tanh(x*4.5)
+        excited = np.tanh(x * (1.0 + self.amount * 2.0))
         # Highpass, um nur Höhen zu betonen
         sos = scipy.signal.iirfilter(2, 4000 / (sr / 2), btype="high", ftype="butter", output="sos")
-        highs = scipy.signal.sosfilt(sos, excited - audio)
-        return np.asarray(audio + self.amount * highs)
+        highs = scipy.signal.sosfilt(sos, excited - x)
+        out = x + self.amount * highs
+        peak = float(np.max(np.abs(out))) if out.size > 0 else 0.0
+        if peak > 1.0:
+            out = out / peak
+        return np.clip(np.nan_to_num(out, nan=0.0, posinf=0.0, neginf=0.0), -1.0, 1.0)

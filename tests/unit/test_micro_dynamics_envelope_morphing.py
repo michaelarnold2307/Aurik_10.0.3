@@ -246,8 +246,8 @@ class TestMDEMEdgeCases:
         out = mdem.morph(quieter, audio_5s, SR)
         assert np.isfinite(out).all()
 
-    def test_22_gain_limited_to_max_3lu(self, mdem):
-        """MAX_GAIN_LU ≤ 3 LU: Ausgabe darf gegenüber Referenz nicht um >3 LU ansteigen."""
+    def test_22_gain_limited_to_mode_limits(self, mdem):
+        """Mode-adaptive Gain-Limits: Restoration 4 LU, Studio 2026 bis 6 LU."""
         np.random.seed(42)
         t = np.linspace(0, 5.0, 5 * SR, endpoint=False)
         orig = (np.sin(2 * np.pi * 440 * t) * 0.5).astype(np.float32)

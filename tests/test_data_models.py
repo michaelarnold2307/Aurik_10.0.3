@@ -57,6 +57,7 @@ def test_audio_file_created_at_auto():
         file_hash="hash",
         format="WAV",
         sample_rate=48000,
+        bit_depth=24,
         channels=2,
         duration=60.0,
         file_size=1000,
@@ -75,6 +76,7 @@ def test_audio_file_invalid_sample_rate():
             file_hash="hash",
             format="WAV",
             sample_rate=0,  # Invalid: must be > 0
+            bit_depth=24,
             channels=2,
             duration=60.0,
             file_size=1000,
@@ -89,6 +91,7 @@ def test_audio_file_invalid_channels():
             file_hash="hash",
             format="WAV",
             sample_rate=48000,
+            bit_depth=24,
             channels=0,  # Invalid: must be >= 1
             duration=60.0,
             file_size=1000,
@@ -103,6 +106,7 @@ def test_audio_file_invalid_duration():
             file_hash="hash",
             format="WAV",
             sample_rate=48000,
+            bit_depth=24,
             channels=2,
             duration=-10.0,  # Invalid: must be >= 0
             file_size=1000,
@@ -116,6 +120,7 @@ def test_audio_file_json_serialization():
         file_hash="hash",
         format="WAV",
         sample_rate=48000,
+        bit_depth=24,
         channels=2,
         duration=60.0,
         file_size=1000,

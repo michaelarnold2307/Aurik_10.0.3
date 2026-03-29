@@ -7,6 +7,7 @@ World-class audio defect detection competing with iZotope RX10's "Repair Assista
 ## Overview
 
 The Unified Defect Detection System provides:
+
 - **Comprehensive defect analysis** for 9+ defect types
 - **Severity scoring** (0.0-1.0) with 5-level classification
 - **Confidence scores** for all detections
@@ -17,62 +18,73 @@ The Unified Defect Detection System provides:
 ## Supported Defects
 
 ### 1. **Clipping** (Hard & Soft)
+
 - Detects waveform clipping from overdriven input
 - Identifies both hard (>99%) and soft (95-99%) clipping
 - Reports clipped sample percentage
 - **Treatment:** Declipping (automatic_declipper.py)
 
 ### 2. **Clicks & Pops**
+
 - Detects transient disturbances (vinyl, digital errors)
 - Groups nearby clicks into events
 - Calculates clicks-per-second density
 - **Treatment:** De-click (automatic_declicker.py)
 
 ### 3. **Crackle**
+
 - Detects vinyl crackle noise
 - Continuous low-level click patterns
 - **Treatment:** De-crackle (automatic_decrackler.py)
 
 ### 4. **Broadband Noise**
+
 - Detects background noise using spectral analysis
 - Estimates SNR and noise floor
 - Measures spectral flatness
 - **Treatment:** De-noise (automatic_denoiser.py)
 
 ### 5. **Electrical Hum**
+
 - Detects 50/60 Hz mains hum + harmonics
 - Identifies up to 8 harmonics
 - Calculates hum-to-signal ratio
 - **Treatment:** De-hum (automatic_dehum.py)
 
 ### 6. **Buzz**
+
 - Detects mid-frequency buzz (80-300 Hz)
 - Common in audio equipment
 - **Treatment:** De-buzz (automatic_debuzzer.py)
 
 ### 7. **Harmonic Distortion**
+
 - Measures Total Harmonic Distortion (THD)
 - Analyzes harmonic-to-fundamental ratio
 - **Treatment:** Distortion reduction (harmonic_exciter.py)
 
 ### 8. **Low-Frequency Rumble**
+
 - Detects subsonic rumble (< 40 Hz)
 - Common in vinyl from turntable vibration
 - Calculates rumble energy ratio
 - **Treatment:** Rumble filter (rumble_filter.py)
 
 ### 9. **High-Frequency Roll-off**
+
 - Detects premature HF attenuation
 - Common in MP3, cassette, old recordings
 - Finds -3dB rolloff point
 - **Treatment:** Bandwidth extension (bandwidth_extender.py)
 
 ### 10. **Stereo Imbalance**
+
 - Detects level differences between L/R channels
 - Calculates dB imbalance
 - **Treatment:** Stereo correction (stereo_image_correction.py)
 
 ### 11. **DC Offset**
+
 - Detects non-zero waveform mean
 - Hardware/digitization issue
 - **Treatment:** DC removal (classic_filters.py)
@@ -138,7 +150,7 @@ if result['needs_restoration']:
 ```python
 # Analyze only specific detectors
 report = detector.analyze(
-    audio, 
+    audio,
     sr=48000,
     detector_names=['clipping_detector', 'noise_detector']
 )
@@ -170,11 +182,13 @@ Defects are classified into 5 severity levels:
 ## Treatment Priority
 
 Treatments are prioritized (1=highest, 5=lowest) based on:
+
 - **Defect severity level**
 - **Defect type** (Clipping/DC offset always priority 1)
 - **Impact on downstream processing**
 
 Recommended order:
+
 1. DC Offset → Clipping → Distortion
 2. Hum → Buzz → Rumble
 3. Clicks → Crackle
@@ -184,6 +198,7 @@ Recommended order:
 ## Quality Score Calculation
 
 Overall quality (0.0-1.0) is calculated by:
+
 - Start with perfect (1.0)
 - Subtract weighted severity:
   - Critical: severity × 0.3
@@ -195,6 +210,7 @@ Overall quality (0.0-1.0) is calculated by:
 ## Comparison with Competitors
 
 ### vs. iZotope RX10 "Repair Assistant"
+
 | Feature | AURIK v8.2 | iZotope RX10 |
 |---------|-----------|--------------|
 | Defect Types | 11 | 8 |
@@ -207,6 +223,7 @@ Overall quality (0.0-1.0) is calculated by:
 | Open Source | ✅ Yes | ❌ No |
 
 **AURIK Advantages:**
+
 - More defect types (11 vs. 8)
 - Confidence scores for all detections
 - Side effect warnings
@@ -268,6 +285,7 @@ backend/defect_detection/
 ## Future Enhancements
 
 Planned for v8.3:
+
 - **Dropouts** detector (silence gaps)
 - **Phase issues** detector (L/R phase problems)
 - **Aliasing** detector (sampling artifacts)

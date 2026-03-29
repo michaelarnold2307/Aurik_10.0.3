@@ -24,7 +24,6 @@ Version: 1.0.0
 
 from __future__ import annotations
 
-import warnings
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
@@ -34,8 +33,8 @@ import numpy as np
 
 # Type checking imports (only for mypy/IDEs, not runtime)
 if TYPE_CHECKING:
-    import torch
-    from transformers import Wav2Vec2ForCTC, Wav2Vec2Processor
+    from transformers import Wav2Vec2ForCTC as _Wav2Vec2ForCTC
+    from transformers import Wav2Vec2Processor as _Wav2Vec2Processor
 
 # Conditional imports (will be checked at runtime)
 try:
@@ -43,9 +42,12 @@ try:
     from transformers import Wav2Vec2ForCTC, Wav2Vec2Processor
 
     TRANSFORMERS_AVAILABLE = True
-except (ImportError, OSError):
-    # OSError: libcupti.so.12 undefined symbol — torch-CUDA-Abhängigkeit in venv
+except Exception:
+    # Broken optional torch installs must degrade to the DSP/non-ML path
+    # instead of failing during module import or test collection.
     torch = None  # type: ignore[assignment]
+    Wav2Vec2ForCTC = None  # type: ignore[assignment]
+    Wav2Vec2Processor = None  # type: ignore[assignment]
     TRANSFORMERS_AVAILABLE = False
     # Warning will be shown when actually trying to use phoneme detection
     # (not at import time to avoid cluttering logs)
@@ -54,9 +56,8 @@ try:
     import librosa
 
     LIBROSA_AVAILABLE = True
-except ImportError:
+except Exception:
     LIBROSA_AVAILABLE = False
-    warnings.warn("librosa not available. Install with: pip install librosa")
 
 from backend.ml.phoneme_aware.logging_config import setup_logger
 
@@ -202,7 +203,7 @@ class PhonemeDetector:
         return self._device
 
     @property
-    def model(self) -> Wav2Vec2ForCTC:
+    def model(self) -> _Wav2Vec2ForCTC:
         """Lazy load Wav2Vec2 model."""
         if self._model is None:
             model_name = self._resolved_model_name()
@@ -217,7 +218,7 @@ class PhonemeDetector:
         return self._model
 
     @property
-    def processor(self) -> Wav2Vec2Processor:
+    def processor(self) -> _Wav2Vec2Processor:
         """Lazy load Wav2Vec2 processor."""
         if self._processor is None:
             model_name = self._resolved_model_name()

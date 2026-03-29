@@ -468,7 +468,9 @@ if __name__ == "__main__":
 
         # Process
         start = time.time()
-        processed, meta = processor.process(audio, sr, material)
+        phase_result = processor.process(audio, sr, material)
+        processed = phase_result.audio
+        meta = phase_result.metadata
         elapsed = time.time() - start
 
         # Calculate output dynamic range

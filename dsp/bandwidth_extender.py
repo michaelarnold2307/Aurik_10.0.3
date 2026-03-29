@@ -80,7 +80,7 @@ class AiBandwidthExtender:
         if self.model is not None:
             try:
                 _in_name = self.model.get_inputs()[0].name
-                _inp = audio_out[np.newaxis, :].astype(np.float32)
+                _inp = np.asarray(audio_out, dtype=np.float32)[np.newaxis, :]
                 _raw = self.model.run(None, {_in_name: _inp})[0].squeeze()
                 _raw = np.nan_to_num(_raw.astype(np.float64), nan=0.0, posinf=0.0, neginf=0.0)
                 if _raw.shape == audio_out.shape:
@@ -91,7 +91,7 @@ class AiBandwidthExtender:
                     audio_out[:n] = _raw[:n]
             except Exception as _onnx_err:
                 logger.warning(
-                    "AiBandwidthExtender: ONNX-Inferenz fehlgeschlagen (%s) " "— Resample-DSP-Fallback aktiv.",
+                    "AiBandwidthExtender: ONNX-Inferenz fehlgeschlagen (%s) — Resample-DSP-Fallback aktiv.",
                     _onnx_err,
                 )
         return np.clip(np.nan_to_num(audio_out, nan=0.0), -1.0, 1.0).astype(audio.dtype)

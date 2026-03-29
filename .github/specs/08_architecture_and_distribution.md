@@ -136,6 +136,25 @@ logger.info("📊 PQS-Score: MOS=%.2f NSIM=%.3f MCD=%.1f dB", mos, nsim, mcd)
 # KEIN print() in Produktionscode
 ```
 
+### §3.5a [RELEASE_MUST] Heavy-ML Headroom-Guard-Kontrakt
+
+Heavy-ML-Pfade muessen vor **Load** und vor **Inference** einen phasenlokalen RAM-Headroom-Guard ausfuehren.
+
+```python
+if not has_sufficient_ml_headroom(audio, sr, model_name):
+    # Structured runtime fallback, never skip entire phase
+    metadata.setdefault("ml_guard_events", []).append({...})
+    deferred_phases.append("phase_xx")
+    return run_dsp_fallback(audio, sr)
+```
+
+**Pflichtregeln:**
+
+- `AudioSRPlugin()` / `InferenceSession()` / `torch.load()` nur nach positivem Guard.
+- Bei knappem RAM erst proaktiv aufraeumen (`evict_stale_plugins`, `gc.collect`, `malloc_trim`).
+- Guard-Fallback darf nicht auf Original-Audio zurueckspringen.
+- Log-Meldungen bleiben technisch auf Englisch; Nutzertexte bleiben Deutsch.
+
 ### §3.6 Datenklassen für Ergebnisse
 
 ```python
@@ -180,6 +199,266 @@ def audio_sha256(audio: np.ndarray, sr: int) -> str:
 # - Kein Disk-Cache (nur RAM, Prozess-Leben)
 # - Cache-Keys: Modul-Präfix + SHA256 ("panns:abc123", "scan:def456")
 ```
+
+---
+
+## §3.9 [RELEASE_MUST] Stabilitäts-Invarianten (v9.10.81)
+
+Ergänzende Invarianten zur Absicherung gegen Abstürze, OOM, Deadlocks, Freezes und undefinierte Zustände.  
+Diese Regeln sind orthogonal zu §2.38–§2.41 und fokussieren auf Laufzeit-Systemgrenzen.
+
+### §3.9.1 Per-Phase-Inference-Timeout
+
+**Problem**: `ort.InferenceSession.run()` oder `torch.model()` können bei korruptem Modell oder BLAS-Deadlock unbegrenzt blockieren. `PerformanceGuard` misst nur kumulativen RT-Faktor, nicht wall-clock pro Inferenz.
+
+**Pflicht**: Jede schwere ML-Inferenzphase (≥ 0.5 GB Modell) MUSS in `concurrent.futures.ThreadPoolExecutor.submit()` + `future.result(timeout=PHASE_INFERENCE_TIMEOUT_S)` gewrappt sein.
+
+```python
+# Pflicht-Pattern für schwere Inferenz (ONNX / torch)
+PHASE_INFERENCE_TIMEOUT_S = 300.0  # 5 Minuten; überschreiten = hängendes Modell
+
+import concurrent.futures
+
+def _run_inference_with_timeout(fn, *args, timeout=PHASE_INFERENCE_TIMEOUT_S, **kwargs):
+    """Run ML inference in a daemon thread with wall-clock timeout.
+
+    On timeout: logs error, raises InferenceTimeoutError.
+    Caller MUST catch and fall back to DSP path.
+    """
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1, thread_name_prefix="aurik-inf") as exc:
+        fut = exc.submit(fn, *args, **kwargs)
+        try:
+            return fut.result(timeout=timeout)
+        except concurrent.futures.TimeoutError:
+            logger.error("Inference timeout after %.0f s — phase=%s", timeout, fn.__name__)
+            raise InferenceTimeoutError(f"Inference timeout: {fn.__name__}")
+        except Exception:
+            raise
+```
+
+**Invarianten:**
+
+- `InferenceTimeoutError` → DSP-Fallback der Phase (kein Phase-Skip auf Original-Audio).
+- Betroffene Phase in `deferred_phases` eintragen → KMV Stufe 2 wiederholt ohne Zeitlimit.
+- `metadata["fail_reasons"]` erhält strukturierten Eintrag `reason_code="inference_timeout"`.
+- VERBOTEN: `threading.Thread.join()` ohne `timeout=` auf ML-Inferenz-Threads.
+
+### §3.9.2 SIGTERM-Handler — Checkpoint bei graceful Shutdown
+
+**Problem**: systemd-oomd sendet SIGKILL (nicht fangbar); `systemctl stop` / Prozessmanager senden SIGTERM (fangbar). §2.39 fängt nur Python `MemoryError`.
+
+**Pflicht**: `main.py` setzt nach `QApplication`-Initialisierung einen SIGTERM-Handler:
+
+```python
+import signal, threading
+
+def _sigterm_handler(signum, frame):
+    """SIGTERM → emergency checkpoint + graceful Qt shutdown."""
+    logger.warning("SIGTERM received — initiating emergency checkpoint")
+    # 1. Emergency-Checkpoint versuchen (best-effort, non-blocking)
+    _emergency_checkpoint_if_running()
+    # 2. Qt-Shutdown aus Main-Thread via QTimer (thread-safe)
+    from PyQt5.QtWidgets import QApplication
+    from PyQt5.QtCore import QTimer
+    _app = QApplication.instance()
+    if _app:
+        QTimer.singleShot(0, _app.quit)
+
+signal.signal(signal.SIGTERM, _sigterm_handler)
+```
+
+**`_emergency_checkpoint_if_running()`-Invarianten:**
+
+- Non-blocking: `threading.Event.wait(timeout=0)` — kein Warten auf laufende Phase.
+- Nur aufgerufen wenn `BatchProcessingThread.isRunning() == True`.
+- Schreibt Checkpoint-Datei atomar (`.tmp` → `os.replace`) wenn `audio_original` im Speicher ist.
+- SIGKILL kann NICHT abgefangen werden — §2.39 dokumentiert diese Einschränkung explizit.
+
+### §3.9.3 Phase-Output-Guard — strukturelle NaN/Inf-Absicherung
+
+**Problem**: §3.1 schreibt `np.nan_to_num` + `np.clip` per Konvention vor; keine strukturelle Erzwingung. Ein fehlerhafter ML-Output kann NaN-Audio durch alle nachfolgenden Phasen propagieren.
+
+**Pflicht**: `backend/core/phase_output_guard.py` stellt Decorator bereit:
+
+```python
+def phase_output_guard(fn):
+    """Decorator: wraps phase function and guards output audio array.
+
+    Enforces on every return value:
+      1. np.nan_to_num(audio, nan=0.0, posinf=0.0, neginf=0.0)
+      2. np.clip(audio, -1.0, 1.0)
+      3. assert np.isfinite(audio).all()  — hard fail if guard insufficient
+      4. assert audio.dtype == np.float32
+
+    If assertion fails: logs CRITICAL + raises PhaseOutputError.
+    Caller (PerPhaseMusicalGoalsGate / UV3) catches + DSP-fallback.
+    """
+    ...
+```
+
+**Anwendung**: Alle Phasen-Funktionen (01–56) MÜSSEN mit `@phase_output_guard` dekoriert ODER manuell äquivalent absichern.
+
+**Invariante**: NaN-Propagation aus ML-Ausgaben ist verboten. Stille (Nullen) ist der sichere Fallback bei korruptierter Inferenz.
+
+### §3.9.4 ThreadPoolExecutor-Lifecycle — kein Orphan-Thread
+
+**Problem**: `ThreadPoolExecutor`-Instanzen ohne explizites `shutdown()` können beim Prozessende Worker-Threads als Zombie hinterlassen, die offene Dateien / Sockets / Modell-Handles halten.
+
+**Pflicht**:
+
+```python
+# PFLICHT: Context Manager oder explizites Shutdown in Cleanup
+with ThreadPoolExecutor(max_workers=3) as pool:
+    results = list(pool.map(fn, items))
+# ↑ __exit__ ruft pool.shutdown(wait=True) automatisch
+
+# Falls kein Context Manager möglich: in __del__ oder atexit
+def _cleanup(self):
+    if hasattr(self, "_executor") and self._executor:
+        self._executor.shutdown(wait=False, cancel_futures=True)
+        self._executor = None
+```
+
+**Invarianten:**
+
+- `module_coordinator.py` und alle `ThreadPoolExecutor`-Instanzen in `backend/core/` MÜSSEN `shutdown(wait=True, cancel_futures=True)` in ihrer Cleanup-Methode aufrufen.
+- Alle lang-lebigen Executor-Instanzen als Kontext-Manager oder mit `atexit.register(executor.shutdown)`.
+- VERBOTEN: dauerhaft laufende Executors ohne Shutdown-Kontrakt.
+
+### §3.9.5 ml_memory_budget Startup-Reconciliation
+
+**Problem**: Bei SIGKILL während eines `try_allocate()`-Aufrufs bleibt die Budget-Buchführung inkonsistent. Nächster Start sieht ggf. ein bereits voll ausgelastetes Budget (stale allocation), obwohl kein Modell mehr geladen ist.
+
+**Pflicht**: `ml_memory_budget.py` führt nach Initialisierung eine **Reconciliation** durch:
+
+```python
+def _reconcile_on_startup(self) -> None:
+    """Reset allocated budget to 0 on fresh process start.
+
+    Rationale: All allocations from a previous process are gone after OS cleanup.
+    Each module re-registers via try_allocate() when it actually loads its model.
+    No stale allocation persists across process boundaries.
+    """
+    with self._lock:
+        # Reset to zero: this process has no loaded models yet.
+        self._allocated_gb = 0.0
+        self._allocations.clear()
+    logger.info("ml_memory_budget: startup reconciliation — budget reset to 0.0 GB")
+```
+
+**Invariant**: `_reconcile_on_startup()` wird im `__init__` der `MLMemoryBudget`-Singleton-Klasse aufgerufen — genau einmal pro Prozessstart.
+
+### §3.9.6 Structured Exception Logging — kein stilles `except Exception:`
+
+**Problem**: Breite `except Exception:` ohne Structured-Fail-Reason in `genre_classifier.py`, `musikalischer_globalplan.py`, `lyrics_guided_enhancement.py` u.a. schlucken Fehler lautlos; `metadata["fail_reasons"]` bleibt leer.
+
+**Pflicht**: Jedes `except Exception:` in pipeline-kritischen Pfaden (Phasen, Plugins, Denker-Kette) MUSS:
+
+```python
+except Exception as exc:
+    logger.error("phase=%s error=%s", phase_id, exc, exc_info=True)
+    # §2.41 Structured Fail-Reason Pflicht
+    metadata.setdefault("fail_reasons", []).append({
+        "phase_id": phase_id,
+        "reason_code": "phase_exception",
+        "severity": "error",
+        "action": "fallback",
+        "details": {"exc_type": type(exc).__name__, "exc_msg": str(exc)[:200]},
+    })
+    # Dann: DSP-Fallback oder re-raise (nie silent ignore)
+```
+
+**Invarianten:**
+
+- VERBOTEN: `except Exception: pass` in Phasen-Code.
+- VERBOTEN: `except Exception as e: return None` ohne vorherigen Log + `fail_reasons`-Eintrag.
+- `details.exc_msg` auf 200 Zeichen begrenzen (kein sensitives Log-Overflow).
+
+### §3.9.7 Audio-Buffer-RAM-Guard vor Pipeline-Eintritt
+
+**Problem**: Sehr große Audiodateien (z. B. 8 h / 10 GB WAV) werden von `AudioFileValidator` auf Dateigröße geprüft, aber die `numpy`-Allokation im Speicher kann 4–10× der Dateigröße übersteigen (float32 statt int16 + Stereo-Duplikate).
+
+**Pflicht**: Nach `soundfile.read()` / `pedalboard.read()`, vor Pipeline-Übergabe:
+
+```python
+MAX_AUDIO_BYTES_RAM: int = 2 * 1024**3  # 2 GB absolutes RAM-Limit für einen Audio-Buffer
+
+def _check_audio_buffer_size(audio: np.ndarray, file_path: str) -> None:
+    """Raises AudioTooLargeError if audio array exceeds RAM guard."""
+    nbytes = audio.nbytes
+    if nbytes > MAX_AUDIO_BYTES_RAM:
+        raise AudioTooLargeError(
+            f"Audio-Buffer {nbytes / 1024**3:.1f} GB überschreitet RAM-Limit "
+            f"({MAX_AUDIO_BYTES_RAM / 1024**3:.0f} GB). "
+            f"Bitte kürze '{Path(file_path).name}' oder teile die Datei auf."
+        )
+```
+
+**Invarianten:**
+
+- Prüfung erfolgt nach Laden, VOR `resample_poly` (Resampling vergrößert Buffer weiter).
+- `AudioTooLargeError` → `item_error`-Signal mit verständlicher deutscher Fehlermeldung.
+- `MAX_AUDIO_BYTES_RAM` als Konfigurationskonstante in `backend/core/audio_validator.py`.
+
+### §3.9.8 Lock-Acquisition-Order — Deadlock-Prävention zwischen ARM und PLM
+
+**Problem**: `AdaptiveResourceManager` (ARM) und `PluginLifecycleManager` (PLM) halten eigene Locks. Ein zirkulärer Lock-Erwerb (ARM-Lock → PLM-Lock in einem Thread; PLM-Lock → ARM-Lock in einem anderen) ist ein klassisches Deadlock-Muster.
+
+**Bindende Lock-Ordnung:**
+
+| Priorität | Lock | Besitzer |
+|---|---|---|
+| 1 (zuerst) | `MLMemoryBudget._lock` | `ml_memory_budget.py` |
+| 2 | `PluginLifecycleManager._lock` | `plugin_lifecycle_manager.py` |
+| 3 | `AdaptiveResourceManager._lock` | `adaptive_resource_manager.py` |
+
+**Invarianten:**
+
+- Ein Thread darf NIEMALS Lock der Priorität N zuerst acquiren, wenn er bereits Lock der Priorität M > N hält.
+- `evict_stale_plugins()` (ARM aufgerufen) läuft AUSSERHALB des ARM-Locks — korrekt so, MUSS beibehalten werden.
+- Neue Module: Lock-Dokumentation als Docstring (`# Lock-order: Priority N — see §3.9.8`).
+- VERBOTEN: verschachteltes Locking über Modulgrenzen hinweg ohne Dokumentation der Ordnung.
+
+### §3.9.9 MLRefinementThread — Buffer-Registrierung + Post-Abbruch-Cleanup
+
+**Problem**: `DeferredRefinementJob.audio_original` hält mehrere GB Audio-Daten. Bei `terminate()` (Watchdog-Kill nach wait(3000)) läuft Python-Cleanup (`__del__`) ggf. nicht — `ml_memory_budget` bleibt fehlerhaft belastet.
+
+**Pflicht**:
+
+```python
+class DeferredRefinementJob:
+    def __init__(self, audio_original, ...):
+        self.audio_original = audio_original
+        # §3.9.9: Budget-Registrierung sofort bei Job-Erstellung
+        _size_gb = audio_original.nbytes / 1024**3
+        if not ml_memory_budget.try_allocate("kmv_job", _size_gb):
+            raise MemoryError(f"KMV: Insufficient RAM for job buffer ({_size_gb:.2f} GB)")
+        self._registered_size_gb = _size_gb
+
+    def release_buffer(self) -> None:
+        """Must be called after Stufe-2-Export OR on cancellation."""
+        if getattr(self, "_registered_size_gb", 0) > 0:
+            ml_memory_budget.release("kmv_job")
+            self._registered_size_gb = 0.0
+        self.audio_original = None  # GC-freigabe
+```
+
+**`MLRefinementThread.run()`-Cleanup-Invariante:**
+
+```python
+try:
+    # ... vollständige UV3-Pipeline (Stufe 2) ...
+finally:
+    # §3.9.9: Buffer IMMER freigeben — auch bei Abbruch/Exception
+    if job is not None:
+        job.release_buffer()
+```
+
+**Invarianten:**
+
+- `DeferredRefinementJob.release_buffer()` wird in `finally`-Block aufgerufen, unabhängig von Erfolg/Abbruch.
+- Nach Startup: `_reconcile_on_startup()` (§3.9.5) setzt KMV-Budget automatisch auf 0 zurück — kein manueller Cleanup nötig nach SIGKILL.
+- VERBOTEN: `audio_original` im Job halten, nachdem `release_buffer()` aufgerufen wurde.
 
 ---
 
@@ -506,4 +785,20 @@ PHASE_SAMPLE_DURATIONS = {
 
 # §9.7.4: Modell-Warmup im Hintergrund (2 s Verzögerung nach App-Start)
 threading.Thread(target=_warmup_models_background, daemon=True, name="AurikWarmup").start()
+
+# §9.7.5: Non-stationäre Defekte (DROPOUTS/TRANSPORT_BUMP) — Vollständiges Audio zwingend (kein Center-Crop)
+#          Stationäre Defekte (Hiss, Hum, Flutter) dürfen Center-Crop nutzen (§9.1a)
+
+# §9.7.6: Metrik-spezifische Audio-Cap in MusicalGoals-Metriken (15–20 s je Metrik, Brillanz/Wärme/Chroma)
+#          Implementierung: musical_goals_metrics.py pro Metric-Klasse
+
+# §9.7.7: PMGG Stable-Metric-Invariante — NatuerlichkeitMetric darf NIE in _PRECISE_METRICS stehen
+#          CREPE Load-State ändert Gewichte (w_crepe 0.0 → 0.18) zwischen scores_before/scores_after
+#          → Pseudo-Regression Δ≈0.15–0.28 auf unverändertem Audio → false P1-Kaskade
+#          → phase_03 best-effort @ 5.6 % Wet → Noise Floor −55 dBFS statt −72 dBFS → Immersion zerstört
+#          NatuerlichkeitMetric läuft ausschließlich im Export-Gate (MusicalGoalsChecker ≥ 0.90)
+
+# §9.7.8: _apply_precise_metric_overrides kürzt Eingabe-Audio auf max. 2.5 s
+#          Ausreichend für stationäre Spektral-/Chroma-/Transient-Metriken
+#          Verhindert NMF/Onset-Runs auf Langaudio (> 2 s/Call auf 60 s-Material)
 ```

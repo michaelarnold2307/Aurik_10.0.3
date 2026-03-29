@@ -141,7 +141,10 @@ class RestorationResult:
     deferred_phases: list[str] = field(default_factory=list)  # Phasen für Stufe 2
     refinement_complete: bool = False  # True nach ML-Veredelung
     stufe2_quality_estimate: float | None = None  # quality nach vollst. ML-Pass
-    # --- §8.3 Gänsehaut-Qualität ---
+    # --- §8.2 & §8.3 Emotionale Psychoakustik (Gänsehaut-Qualität) ---
+    emotional_arc_correction_applied: bool = False  # §2.30 Makro-Dynamik-Korrektur aktiv?
+    emotional_arc_delta_arousal: float | None = None  # Arousal-Pearson-Verbesserung nach Korrektur
+    emotional_arc_delta_valence: float | None = None  # Valence-Pearson-Verbesserung nach Korrektur
     goosebumps_score: float | None = None  # Psychoakustische Gänsehaut-Qualität (§8.3)
     goosebumps_result: Any | None = None  # GoosebumpsResult-Objekt (§8.3)
     # --- §G3 Export-Gate-Felder (Chroma/LUFS) ---
@@ -2950,8 +2953,28 @@ class UnifiedRestorerV3:
                     _arc_post_mdem.arousal_pearson,
                     _arc_post_mdem.valence_pearson,
                 )
+                # Adaptive Makro-Korrektur: auf schlechtem Material konservativer,
+                # auf gutem Material voll (bis ±6 dB) für maximale Ausdruckstreue.
+                _arc_max_gain_db = 6.0
+                _arc_damping = 0.70
+                if _pmgg_restorability_score < 40.0:
+                    _arc_max_gain_db = 4.0
+                    _arc_damping = 0.55
+                elif _pmgg_restorability_score < 70.0:
+                    _arc_max_gain_db = 5.0
+                    _arc_damping = 0.65
+                # Mode-aware Feintuning: Studio darf etwas mutiger korrigieren,
+                # Restoration bleibt konservativer zur Originaltreue.
+                if _mdem_mode == "studio2026":
+                    _arc_damping = min(0.80, _arc_damping + 0.05)
+                else:
+                    _arc_damping = max(0.50, _arc_damping - 0.05)
                 restored_audio, _arc_corrected = correct_emotional_arc(
-                    original_audio_for_goals, restored_audio, sample_rate
+                    original_audio_for_goals,
+                    restored_audio,
+                    sample_rate,
+                    max_gain_db=_arc_max_gain_db,
+                    damping=_arc_damping,
                 )
                 restored_audio = np.clip(
                     np.nan_to_num(restored_audio, nan=0.0, posinf=0.0, neginf=0.0),
@@ -3179,6 +3202,7 @@ class UnifiedRestorerV3:
                 "fail_reasons": list(_fail_reasons),
                 "degradation_status": _degradation_status,
                 "fail_reason": _primary_fail_reason,
+                "ml_guard_events": list(getattr(self, "_pipeline_ml_guard_events", [])),
                 "quality_estimate": {
                     "value": float(quality_estimate),
                     "fallback_quality_estimate": bool(self._quality_estimate_used_fallback),
@@ -3428,6 +3452,26 @@ class UnifiedRestorerV3:
 
         # §8.2 / §2.16 / §2.29 — Spec-Felder in RestorationResult schreiben
         result.emotional_arc = _arc_result
+        # §8.2 v9.10.79 Emotionale Psychoakustik: Makro-Dynamik-Korrektur Status speichern
+        if _arc_result is not None:
+            try:
+                _post_mdem = locals().get("_arc_post_mdem", None)
+                _a_final = float(getattr(_arc_result, "arousal_pearson", 0.0))
+                _v_final = float(getattr(_arc_result, "valence_pearson", 0.0))
+                _a_base = (
+                    float(getattr(_post_mdem, "arousal_pearson", _a_final)) if _post_mdem is not None else _a_final
+                )
+                _v_base = (
+                    float(getattr(_post_mdem, "valence_pearson", _v_final)) if _post_mdem is not None else _v_final
+                )
+
+                result.emotional_arc_correction_applied = bool(
+                    _post_mdem is not None and not getattr(_post_mdem, "arc_preserved", True)
+                )
+                result.emotional_arc_delta_arousal = _a_final - _a_base
+                result.emotional_arc_delta_valence = _v_final - _v_base
+            except Exception:
+                pass  # Fields bleiben auf Defaults wenn Extraction fehlschlägt
         result.temporal_coherence = _tqc
         # §2.29 PMGG-Log: Phasen wo best-effort angewendet wurde (reduzierte Stärke, kein Skip)
         try:
@@ -3473,10 +3517,31 @@ class UnifiedRestorerV3:
             checkpoint.failure_phase,
         )
 
+        # Mode mapping: checkpoint mode strings → restore() mode strings
+        _mode_map = {
+            "quality": "restoration",
+            "maximum": "studio_2026",
+        }
+
         # 1. Load intermediate audio from disk
         current_audio = load_checkpoint_audio(checkpoint)
         if current_audio is None:
-            raise RuntimeError(f"OOM-Recovery: Audio-Datei konnte nicht geladen werden: {checkpoint.audio_wav_path}")
+            logger.error(
+                "§2.39 OOM-Recovery: Checkpoint-Audio konnte nicht geladen werden. "
+                "Fallback: Neue Restaurierung starten (Original-Datei)"
+            )
+            # Fallback: Restart restoration from original file instead of aborting
+            # This loses ~10% optimization (prior phase cache) but preserves job
+            result = self.restore(
+                input_path=checkpoint.original_input_path,
+                output_path=checkpoint.output_path,
+                mode=_mode_map.get(checkpoint.mode, checkpoint.mode),
+                progress_callback=progress_callback,
+                **kwargs,
+            )
+            # After successful fallback, delete the corrupted checkpoint
+            delete_checkpoint(checkpoint.input_path)
+            return result
 
         # soundfile returns (N,2) for stereo — UV3 expects (2,N) channel-first
         if current_audio.ndim == 2 and current_audio.shape[1] == 2:
@@ -3486,10 +3551,6 @@ class UnifiedRestorerV3:
 
         # 2. Restore via normal pipeline with remaining phases
         #    Pass cached analysis results to avoid re-scanning.
-        _mode_map = {
-            "quality": "restoration",
-            "maximum": "studio_2026",
-        }
         mode_str = _mode_map.get(checkpoint.mode, checkpoint.mode)
 
         result = self.restore(
@@ -7793,6 +7854,120 @@ class UnifiedRestorerV3:
         executed = []
         skipped = []
         deferred = []  # §2.38 KMV: phases skipped by PerformanceGuard for Stage 2 refinement
+        pipeline_ml_guard_events: list[dict[str, Any]] = []
+        _ml_guard_event_keys: set[tuple[Any, ...]] = set()
+
+        # Persistent OOM forensics: write phase-level RAM snapshots to NDJSON.
+        _oom_forensics_path = pathlib.Path(__file__).resolve().parents[2] / "logs" / "oom_phase_forensics.ndjson"
+
+        def _record_oom_probe(stage: str, phase_id: str, **extra: Any) -> None:
+            """Record best-effort memory telemetry for hard-crash post-mortem."""
+            try:
+                _event: dict[str, Any] = {
+                    "ts": time.time(),
+                    "stage": stage,
+                    "phase_id": phase_id,
+                    "mode": str(_quality_mode_value),
+                    "selected_phases": len(selected_phases),
+                    "executed_phases": len(executed),
+                    "skipped_phases": len(skipped),
+                    "deferred_phases": len(deferred),
+                }
+                _event.update(extra)
+
+                try:
+                    import psutil as _ps_oom
+
+                    _proc = _ps_oom.Process(os.getpid())
+                    _vm = _ps_oom.virtual_memory()
+                    _event.update(
+                        {
+                            "rss_gb": round(_proc.memory_info().rss / (1024**3), 3),
+                            "vms_gb": round(_proc.memory_info().vms / (1024**3), 3),
+                            "ram_available_gb": round(_vm.available / (1024**3), 3),
+                            "ram_percent": float(_vm.percent),
+                        }
+                    )
+                    with contextlib.suppress(Exception):
+                        _swap = _ps_oom.swap_memory()
+                        _event["swap_percent"] = float(_swap.percent)
+                except Exception:
+                    pass
+
+                with contextlib.suppress(Exception):
+                    _oom_forensics_path.parent.mkdir(parents=True, exist_ok=True)
+                    with _oom_forensics_path.open("a", encoding="utf-8") as _fp:
+                        import json as _json
+
+                        _fp.write(_json.dumps(_event, ensure_ascii=True) + "\n")
+                        _fp.flush()
+
+                logger.info(
+                    "OOM_PROBE stage=%s phase=%s rss_gb=%s avail_gb=%s ram_pct=%s",
+                    stage,
+                    phase_id,
+                    _event.get("rss_gb", "n/a"),
+                    _event.get("ram_available_gb", "n/a"),
+                    _event.get("ram_percent", "n/a"),
+                )
+            except Exception:
+                # Never let forensics affect the audio pipeline.
+                pass
+
+        _record_oom_probe("pipeline_start", "__pipeline__")
+
+        def _collect_guard_payload(
+            phase_obj: Any,
+            phase_id: str,
+            result_obj: Any | None = None,
+        ) -> None:
+            """Collect structured ML guard metadata from phase results and phase instance state."""
+            payloads: list[dict[str, Any]] = []
+
+            if result_obj is not None:
+                _res_meta = getattr(result_obj, "metadata", None)
+                if isinstance(_res_meta, dict):
+                    payloads.append(_res_meta)
+
+            # PMGG returns only audio arrays; in that path, read events from phase state.
+            _raw_phase = getattr(phase_obj, "_phase", phase_obj)
+            _phase_events = getattr(_raw_phase, "_ml_guard_events", None)
+            if isinstance(_phase_events, list) and _phase_events:
+                payloads.append(
+                    {
+                        "ml_guard_events": list(_phase_events),
+                        "deferred_for_kmv": [phase_id],
+                    }
+                )
+
+            for payload in payloads:
+                _events = payload.get("ml_guard_events", [])
+                if isinstance(_events, list):
+                    for _event in _events:
+                        if not isinstance(_event, dict):
+                            continue
+                        _event_norm = dict(_event)
+                        _event_norm.setdefault("phase_id", phase_id)
+                        _key = (
+                            str(_event_norm.get("phase_id", "")),
+                            str(_event_norm.get("model", "")),
+                            str(_event_norm.get("reason", "")),
+                            str(_event_norm.get("fallback", "")),
+                            int(float(_event_norm.get("channels", 0) or 0)),
+                            round(float(_event_norm.get("duration_s", 0.0) or 0.0), 3),
+                            round(float(_event_norm.get("required_gb", 0.0) or 0.0), 3),
+                            round(float(_event_norm.get("available_gb", 0.0) or 0.0), 3),
+                        )
+                        if _key in _ml_guard_event_keys:
+                            continue
+                        _ml_guard_event_keys.add(_key)
+                        pipeline_ml_guard_events.append(_event_norm)
+
+                _deferred_hint = payload.get("deferred_for_kmv", [])
+                if isinstance(_deferred_hint, list):
+                    for _pid in _deferred_hint:
+                        if isinstance(_pid, str) and _pid and _pid not in deferred:
+                            deferred.append(_pid)
 
         def _normalize_phase_result(_r):
             """Accept legacy ndarray returns and normalize to PhaseResult-like object."""
@@ -7909,6 +8084,7 @@ class UnifiedRestorerV3:
         # + maximale Severity für adaptive Chunk-Größe
         _defect_locations: dict[str, list[tuple[float, float]]] = {}
         _defect_severity_map: dict[str, float] = {}
+        _defect_saliency_map: dict[str, float] = {}
         _defect_location_coverage_map: dict[str, float] = {}
         _max_defect_severity: float = 0.0
         if defect_result is not None and hasattr(defect_result, "scores"):
@@ -7918,6 +8094,15 @@ class UnifiedRestorerV3:
                     _defect_locations[_dt_key] = list(_ds.locations)
                 if hasattr(_ds, "severity"):
                     _sev_val = float(_ds.severity)
+                    # §9.1c v9.10.79 Psychoakustik: Perceptual-Salience-Gewichtung
+                    # severity_perceptual = severity_raw * (0.3 + 0.7 * mean_salience)
+                    # Maskierte Defekte erhalten reduzierte Effective-Severity
+                    _sal_weight = 1.0  # Fallback: keine Salienz-Info
+                    if hasattr(_ds, "perceptual_salience") and _ds.perceptual_salience is not None:
+                        _sal_val = float(_ds.perceptual_salience)
+                        _sal_weight = 0.3 + 0.7 * min(1.0, max(0.0, _sal_val))  # ∈ [0.3, 1.0]
+                        _defect_saliency_map[_dt_key] = min(1.0, max(0.0, _sal_val))
+                    _sev_val = _sev_val * _sal_weight  # Reduziere Severity maskierter Defekte
                     _defect_severity_map[_dt_key] = _sev_val
                     _max_defect_severity = max(_max_defect_severity, _sev_val)
 
@@ -7992,6 +8177,7 @@ class UnifiedRestorerV3:
                     if not phase:
                         logger.warning(f"Phase {phase_id} konnte nicht lazy-geladen werden, skipping")
                         skipped.append(phase_id)
+                        _record_oom_probe("phase_skip_not_loaded", phase_id)
                         continue
                     metadata = phase.get_metadata()
                     estimated_time = metadata.estimated_time_factor * (audio.shape[-1] / sample_rate)
@@ -8002,7 +8188,13 @@ class UnifiedRestorerV3:
                     ):
                         skipped.append(phase_id)
                         deferred.append(phase_id)  # §2.38 KMV: RT-skipped → Stage 2
+                        _record_oom_probe(
+                            "phase_deferred_rt", phase_id, estimated_time_s=round(float(estimated_time), 3)
+                        )
                         continue
+                    _record_oom_probe(
+                        "phase_start_parallel", phase_id, estimated_time_s=round(float(estimated_time), 3)
+                    )
                     phase_start = (
                         self.performance_guard.start_phase(phase_id) if self.performance_guard else time.time()
                     )
@@ -8034,6 +8226,7 @@ class UnifiedRestorerV3:
                         defect_scores=defect_result.scores,
                         defect_locations=_defect_locations,
                         defect_severity_map=_defect_severity_map,
+                        defect_saliency_map=_defect_saliency_map,
                         defect_location_coverage_map=_defect_location_coverage_map,
                         max_defect_severity=_max_defect_severity,
                         quality_mode=_quality_mode_value,  # Pass quality mode for ML routing
@@ -8042,13 +8235,19 @@ class UnifiedRestorerV3:
                         masking_result_r=_masking_result_r,  # §Psychoacoustic: pre-computed MaskingResult (R channel, None if mono)
                         masking_scalar=_masking_scalar,  # §Psychoacoustic: global audibility scalar ∈ [0.4, 1.0]
                     )
-                    future_map[future] = (phase_id, phase_start)
+                    future_map[future] = (phase_id, phase_start, phase)
                 for future in as_completed(future_map):
-                    phase_id, phase_start = future_map[future]
+                    phase_id, phase_start, phase_obj = future_map[future]
                     try:
                         result = future.result()
+                        _collect_guard_payload(phase_obj, phase_id, result)
                         if result.success:
                             results[phase_id] = result.audio
+                            _record_oom_probe(
+                                "phase_ok_parallel",
+                                phase_id,
+                                execution_time_s=round(float(getattr(result, "execution_time_seconds", 0.0) or 0.0), 3),
+                            )
                             # §PROGRESS: Per-Phase Fortschritt (parallel)
                             _n_sel = max(len(selected_phases), 1)
                             _idx_ex = len(executed)
@@ -8075,6 +8274,7 @@ class UnifiedRestorerV3:
                             executed.append(phase_id)
                             logger.info(f"✅ {phase_id}: {result.execution_time_seconds:.2f}s (parallel)")
                         else:
+                            _record_oom_probe("phase_failed_parallel", phase_id)
                             logger.error(
                                 "Phase %s fehlgeschlagen (Ursache: %s). "
                                 "Lösung: Phase prüfen oder DSP-Fallback aktivieren.",
@@ -8083,6 +8283,7 @@ class UnifiedRestorerV3:
                             )
                             skipped.append(phase_id)
                     except Exception as e:
+                        _record_oom_probe("phase_exception_parallel", phase_id, error=f"{type(e).__name__}:{e}")
                         logger.error(
                             "Phase %s mit Ausnahme abgebrochen (Ursache: %s). "
                             "Lösung: Plugin-/Modellverfügbarkeit und Eingabedaten prüfen.",
@@ -8126,6 +8327,7 @@ class UnifiedRestorerV3:
                 if not phase:
                     logger.warning(f"Phase {phase_id} konnte nicht lazy-geladen werden, skipping")
                     skipped.append(phase_id)
+                    _record_oom_probe("phase_skip_not_loaded", phase_id)
                     continue
                 # §Per-Channel: Defekt-Phasen bei Stereo-Audio kanalweise verarbeiten
                 _use_channel_split = (
@@ -8148,6 +8350,7 @@ class UnifiedRestorerV3:
                 ):
                     skipped.append(phase_id)
                     deferred.append(phase_id)  # §2.38 KMV: RT-skipped → Stage 2
+                    _record_oom_probe("phase_deferred_rt", phase_id, estimated_time_s=round(float(estimated_time), 3))
                     continue
                 phase_start = self.performance_guard.start_phase(phase_id) if self.performance_guard else time.time()
                 # ── §2.37 Automatische ML-RAM-Verwaltung: Vor jeder Phase ──
@@ -8172,10 +8375,12 @@ class UnifiedRestorerV3:
                         )
                         skipped.append(phase_id)
                         deferred.append(phase_id)
+                        _record_oom_probe("phase_deferred_low_ram", phase_id, available_gb=round(float(_avail_pre), 3))
                         continue
                 except ImportError:
                     pass
                 logger.info("▶ %s startet (%d/%d)", phase_id, len(executed) + 1, len(selected_phases))
+                _record_oom_probe("phase_start", phase_id, estimated_time_s=round(float(estimated_time), 3))
                 # §2.16 TQC mid-pipeline: Snapshot + Baseline-Messung vor zeitmodifizierenden Phasen
                 _tqc_snap: np.ndarray | None = current_audio.copy() if phase_id in _TQC_CRITICAL_PHASES_SEQ else None
                 _tqc_snap_span: float = -1.0  # Baseline max_span; -1.0 = nicht gemessen
@@ -8261,6 +8466,7 @@ class UnifiedRestorerV3:
                                     "defect_scores": defect_result.scores,
                                     "defect_locations": _defect_locations,
                                     "defect_severity_map": _defect_severity_map,
+                                    "defect_saliency_map": _defect_saliency_map,
                                     "defect_location_coverage_map": _defect_location_coverage_map,
                                     "max_defect_severity": _max_defect_severity,
                                     "quality_mode": _quality_mode_value,
@@ -8279,6 +8485,7 @@ class UnifiedRestorerV3:
                                 initial_strength=_combined_strength,  # §2.31 + §Harmonisierung
                             )
                             _pmgg_log_entries.append(_pmgg_entry)
+                            _collect_guard_payload(_phase_for_exec, phase_id)
                             # §3.1 NaN-Guard: revert to pre-phase audio if NaN produced
                             if np.any(np.isnan(_pmgg_audio_out)):
                                 logger.warning(
@@ -8322,6 +8529,7 @@ class UnifiedRestorerV3:
                                 f"strength={_pmgg_entry.strength_used:.2f} "
                                 f"rollbacks={_pmgg_gate._rollback_count}"
                             )
+                            _record_oom_probe("phase_ok", phase_id, action=str(_pmgg_entry.action))
                             # §Punkt3 Regressionsprotokoll: RMS nach PMGG-Phase
                             _rms_after_db = 20.0 * np.log10(float(np.sqrt(np.mean(current_audio**2) + 1e-12)))
                             self._phase_regression_log[phase_id] = round(_rms_after_db - _rms_before_db, 3)
@@ -8341,6 +8549,7 @@ class UnifiedRestorerV3:
                                 defect_scores=defect_result.scores,
                                 defect_locations=_defect_locations,
                                 defect_severity_map=_defect_severity_map,
+                                defect_saliency_map=_defect_saliency_map,
                                 defect_location_coverage_map=_defect_location_coverage_map,
                                 max_defect_severity=_max_defect_severity,
                                 quality_mode=_quality_mode_value,
@@ -8350,6 +8559,7 @@ class UnifiedRestorerV3:
                                 masking_scalar=_masking_scalar,  # §Psychoacoustic: global audibility scalar ∈ [0.4, 1.0]
                             )
                             result = _normalize_phase_result(result)
+                            _collect_guard_payload(_phase_for_exec, phase_id, result)
                             if result.success:
                                 _fa = result.audio
                                 # §3.1 NaN-Guard: revert to pre-phase audio if NaN produced
@@ -8399,6 +8609,7 @@ class UnifiedRestorerV3:
                             else:
                                 logger.error(f"❌ {phase_id} failed: {result.warnings}")
                                 skipped.append(phase_id)
+                                _record_oom_probe("phase_failed", phase_id)
                     else:
                         result = self._profiled_phase_call(
                             _phase_for_exec,
@@ -8410,6 +8621,7 @@ class UnifiedRestorerV3:
                             quality_mode=self.config.mode.value,  # Pass quality mode for ML routing
                         )
                         result = _normalize_phase_result(result)
+                        _collect_guard_payload(_phase_for_exec, phase_id, result)
                         if result.success:
                             _ra = result.audio
                             # §3.1 NaN-Guard: revert to pre-phase audio if NaN produced
@@ -8451,12 +8663,18 @@ class UnifiedRestorerV3:
                                 except Exception:
                                     pass
                             logger.info(f"✅ {phase_id}: {result.execution_time_seconds:.2f}s")
+                            _record_oom_probe(
+                                "phase_ok",
+                                phase_id,
+                                execution_time_s=round(float(getattr(result, "execution_time_seconds", 0.0) or 0.0), 3),
+                            )
                             # §Punkt3 Regressionsprotokoll: RMS nach direkter Phase
                             _rms_after_db = 20.0 * np.log10(float(np.sqrt(np.mean(current_audio**2) + 1e-12)))
                             self._phase_regression_log[phase_id] = round(_rms_after_db - _rms_before_db, 3)
                         else:
                             logger.error(f"❌ {phase_id} failed: {result.warnings}")
                             skipped.append(phase_id)
+                            _record_oom_probe("phase_failed", phase_id)
                 except MemoryError:
                     # OOM-Notfall-Export: Teilergebnis zurückgeben statt Totalverlust.
                     # current_audio enthält den Stand nach der letzten erfolgreichen Phase.
@@ -8466,6 +8684,7 @@ class UnifiedRestorerV3:
                         len(executed),
                         len(selected_phases),
                     )
+                    _record_oom_probe("phase_oom", phase_id)
                     # Sofort Speicher freigeben für den Export-Pfad
                     gc.collect()
                     try:
@@ -8510,6 +8729,7 @@ class UnifiedRestorerV3:
                 except Exception as e:
                     logger.error(f"❌ {phase_id} exception: {e}")
                     skipped.append(phase_id)
+                    _record_oom_probe("phase_exception", phase_id, error=f"{type(e).__name__}:{e}")
                 if self.performance_guard:
                     self.performance_guard.end_phase(phase_id, phase_start)
                 # OOM-Guard: GC nach JEDER Phase — STFT-Matrizen (je ~173 MB)
@@ -8548,6 +8768,13 @@ class UnifiedRestorerV3:
                             "Swap-Thrashing"
                             if _swap_thrashing
                             else f"{_avail_gb_phase:.1f} GB frei / {_ram_pct_phase:.0f} %"
+                        )
+                        _record_oom_probe(
+                            "post_phase_pressure",
+                            phase_id,
+                            available_gb=round(float(_avail_gb_phase), 3),
+                            ram_percent=float(_ram_pct_phase),
+                            reason=_reason,
                         )
                         logger.warning(
                             "⚠️ OOM-Guard nach %s: %s — erzwinge Plugin-Eviction + GC",
@@ -8614,6 +8841,7 @@ class UnifiedRestorerV3:
                     skipped.extend(selected_phases[len(executed) :])
                     break
         self._pmgg_log_entries = _pmgg_log_entries
+        self._pipeline_ml_guard_events = list(pipeline_ml_guard_events)
         return current_audio, executed, skipped, deferred
 
     @staticmethod

@@ -32,6 +32,7 @@ Dieser Analyzer erweitert die vorhandene EmotionalitaetMetric mit:
 
 import logging
 from dataclasses import dataclass
+from typing import cast
 
 import librosa
 import numpy as np
@@ -447,9 +448,6 @@ class EmotionalResonanceEnhancer:
         nyquist = sr / 2
         freq_norm = center_freq / nyquist
 
-        # Bandwidth from Q
-        freq_norm / q
-
         # IIR peaking filter
         b, a = signal.iirpeak(freq_norm, Q=q, fs=sr)
 
@@ -501,7 +499,7 @@ class EmotionalResonanceEnhancer:
         # High-shelf with scipy
         # Note: scipy doesn't have direct high-shelf, use custom
         # Simple approximation: High-pass + mix
-        b, a = signal.butter(2, cutoff_norm, btype="high")
+        b, a = cast(tuple[np.ndarray, np.ndarray], signal.butter(2, cutoff_norm, btype="high", output="ba"))
 
         if audio.ndim == 2:
             filtered = np.zeros_like(audio)

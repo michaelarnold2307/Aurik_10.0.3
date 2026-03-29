@@ -22,40 +22,44 @@ import logging
 import os
 import time
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import numpy as np
 
-try:
+if TYPE_CHECKING:
     from PyQt5.QtCore import QThread, pyqtSignal
-except ImportError:  # Headless test environment
+else:
+    try:
+        from PyQt5.QtCore import QThread, pyqtSignal
+    except ImportError:  # Headless test environment
 
-    class QThread:  # type: ignore[no-redef]
-        LowPriority = 1
+        class QThread:  # type: ignore[no-redef]
+            LowPriority = 1
 
-        def __init__(self) -> None:
-            self._interrupt = False
+            def __init__(self) -> None:
+                self._interrupt = False
 
-        def isInterruptionRequested(self) -> bool:
-            return self._interrupt
+            def isInterruptionRequested(self) -> bool:
+                return self._interrupt
 
-        def requestInterruption(self) -> None:
-            self._interrupt = True
+            def requestInterruption(self) -> None:
+                self._interrupt = True
 
-        def setPriority(self, _p) -> None:
-            pass
-
-        def start(self, _p=None) -> None:
-            self.run()
-
-    def pyqtSignal(*args):  # type: ignore[no-redef]
-        class _Sig:
-            def connect(self, _fn):
+            def setPriority(self, _p) -> None:
                 pass
 
-            def emit(self, *a, **kw):
-                pass
+            def start(self, _p=None) -> None:
+                self.run()
 
-        return _Sig()
+        def pyqtSignal(*args):  # type: ignore[no-redef]
+            class _Sig:
+                def connect(self, _fn):
+                    pass
+
+                def emit(self, *a, **kw):
+                    pass
+
+            return _Sig()
 
 
 from backend.core.deferred_refinement_job import DeferredRefinementJob
@@ -266,12 +270,19 @@ class MLRefinementThread(QThread):
             logger.error("KMV Stufe 2: Unerwarteter Fehler: %s", _run_err, exc_info=True)
             self.refinement_cancelled.emit(output_path)
         finally:
-            # ── 6. Always release ml_memory_budget ───────────────────────
+            # §3.9.9: ALWAYS release buffer — success, cancellation, or exception.
+            # DeferredRefinementJob.release_buffer() calls ml_memory_budget.release()
+            # and sets audio_original=None so GC can reclaim the large array.
+            # §2.38a Invariante: Nur release() wenn try_allocate() erfolgreich war
             if _budget_registered:
                 try:
-                    from backend.core.ml_memory_budget import get_ml_memory_budget
-
-                    get_ml_memory_budget().release("kmv_job")
+                    job.release_buffer()
+                except Exception as _rel_err:
+                    logger.debug("KMV buffer release failed (non-fatal): %s", _rel_err)
+            else:
+                # Budget war nie registriert (early return oder Exception), fallback: job-Destruktor
+                try:
+                    job._audio_original = None
                 except Exception:
                     pass
 

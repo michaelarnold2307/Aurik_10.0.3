@@ -19,12 +19,14 @@
 ## 📖 Quick Links
 
 ### Für Anwender
+
 - **[Installations-Guide](guides/INSTALLATION.md)** — AppImage (Linux) / Installer (Windows)
 - **[Benutzerhandbuch](guides/USER_GUIDE.md)** — Vollständige Bedienungsanleitung
 - **[Konfigurations-Guide](guides/CONFIGURATION.md)** — Modi (Restoration / Studio 2026) & Parameter
 - **[Troubleshooting](guides/TROUBLESHOOTING.md)** — Problemlösung
 
 ### Für Entwickler
+
 - **[KI-Agent Integration Guide](KI-AGENT-INTEGRATION-GUIDE.md)** — Regeln für KI-Agenten **(Pflicht!)**
 - **[KI-Programmierrichtlinien](../.github/copilot-instructions.md)** — Bindende Systemregeln **(Pflicht!)**
 - **[Python API Reference](api/PYTHON_API.md)** — API-Dokumentation
@@ -34,6 +36,7 @@
 - **[Testing Guide](development/TESTING.md)** — Teststrategie und Qualitätssicherung
 
 ### Status & Fortschritt
+
 - **[Project Status Report](PROJECT_STATUS.md)** — Projektstatus (Living Document)
 - **[Roadmap](aurik9_roadmap.md)** — Zukunftspläne (Studio 2026+)
 

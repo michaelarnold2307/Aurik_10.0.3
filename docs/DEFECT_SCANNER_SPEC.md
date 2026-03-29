@@ -57,6 +57,7 @@ The **DefectScanner** is the entry point for Aurik 9’s **Defect-First** restor
 ## 3. Defect Types
 
 ### 3.1 Enum Definition (32 DefectTypes, Stand v9.10.77c)
+
 ```python
 class DefectType(Enum):
     # Analoge Kerndefekte
@@ -148,6 +149,7 @@ Compression artifacts >0.15                               → Streaming (MP3/AAC
 ```
 
 ### 4.3 Confidence Score
+
 - **>0.8:** High confidence (clear material characteristics)
 - **0.5-0.8:** Medium confidence (ambiguous characteristics)
 - **<0.5:** Low confidence (defaults to CD for safety)
@@ -157,6 +159,7 @@ Compression artifacts >0.15                               → Streaming (MP3/AAC
 ## 5. Performance Requirements
 
 ### 5.1 Speed Guarantee
+
 ```python
 PERFORMANCE_OVERHEAD_MAX = 0.10  # <10% of audio duration
 ```
@@ -166,6 +169,7 @@ PERFORMANCE_OVERHEAD_MAX = 0.10  # <10% of audio duration
 - **Tested:** 225s audio → 20s scan time = **8.9% overhead ✅**
 
 ### 5.2 Optimization Techniques
+
 1. **Decimation:** Resample to 8kHz for frequency analysis (64× faster FFT)
 2. **Chunked Processing:** Process in 1-second chunks for memory efficiency
 3. **Parallel Analysis:** All 11 detectors run concurrently (future: multi-threaded)
@@ -274,6 +278,7 @@ for phase in phases:
 ## 8. Testing Strategy
 
 ### 8.1 Unit Tests
+
 ```python
 def test_defect_scanner_clicks():
     """Inject synthetic clicks and verify detection."""
@@ -288,6 +293,7 @@ def test_defect_scanner_clicks():
 ```
 
 ### 8.2 Material Detection Tests
+
 ```python
 def test_material_detection_vinyl():
     """Verify vinyl detection from golden sample."""
@@ -301,6 +307,7 @@ def test_material_detection_vinyl():
 ```
 
 ### 8.3 Performance Tests
+
 ```python
 def test_performance_overhead():
     """Verify <10% overhead guarantee."""
@@ -331,6 +338,7 @@ def test_performance_overhead():
 **Average Overhead: 9.0% ✅** (well below 10% target)
 
 ### 9.2 Accuracy Metrics
+
 - Material detection accuracy: **94%** (on 100-sample test set)
 - False positive rate: **<3%** per defect type
 - False negative rate: **<5%** per defect type
@@ -340,6 +348,7 @@ def test_performance_overhead():
 ## 10. Future Enhancements
 
 ### 10.1 Phase 2 Features (Post-Launch)
+
 1. **Multi-threaded Detectors:** Parallelize 11 detectors → ~5× speedup
 2. **ML-based Material Detection:** Train classifier on 10k+ samples
 3. **Confidence Intervals:** Report uncertainty for each defect score
@@ -347,6 +356,7 @@ def test_performance_overhead():
 5. **User Feedback Loop:** Learn from correction history
 
 ### 10.2 Advanced Defect Types
+
 - **Azimuth errors** (tape only)
 - **Print-through** (tape only)
 - **Stylus mistracking** (vinyl only)

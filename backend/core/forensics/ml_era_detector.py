@@ -202,7 +202,9 @@ class EraFeatureExtractor:
         # Look at envelope variations
         from scipy.signal import hilbert
 
-        envelope = np.abs(hilbert(audio_mono[: min(len(audio_mono), sr * 10)]))
+        analysis_window = np.asarray(audio_mono[: min(len(audio_mono), sr * 10)], dtype=np.float64)
+        analytic_signal = np.asarray(hilbert(analysis_window), dtype=np.complex128)
+        envelope = np.abs(analytic_signal)
         envelope_smooth = np.convolve(envelope, np.ones(1000) / 1000, mode="same")
 
         envelope_std = np.std(envelope_smooth)

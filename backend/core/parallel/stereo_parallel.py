@@ -23,7 +23,7 @@ Date: 8. Februar 2026
 import logging
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
 
@@ -49,11 +49,7 @@ class ProcessingResult:
     success: bool
     error: str | None = None
     processing_time: float = 0.0
-    metadata: dict[str, Any] = None
-
-    def __post_init__(self):
-        if self.metadata is None:
-            self.metadata = {}
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 class StereoParallelProcessor:

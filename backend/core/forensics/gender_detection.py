@@ -1,10 +1,21 @@
+from typing import Any
+
 import numpy as np
-from resemblyzer import VoiceEncoder, preprocess_wav
+
+try:
+    from resemblyzer import VoiceEncoder, preprocess_wav  # type: ignore[import]
+
+    _RESEMBLYZER_AVAILABLE = True
+except ImportError:
+    VoiceEncoder = None  # type: ignore[assignment]
+    preprocess_wav = None  # type: ignore[assignment]
+    _RESEMBLYZER_AVAILABLE = False
 
 
 class GenderDetector:
-    def __init__(self, use_auth_token=None) -> str:
-        self.encoder = VoiceEncoder()
+    def __init__(self, use_auth_token: Any = None) -> None:
+        del use_auth_token
+        self.encoder = VoiceEncoder() if _RESEMBLYZER_AVAILABLE and VoiceEncoder is not None else None
 
     def detect_gender(self, audio_file) -> str:
         """
@@ -12,6 +23,8 @@ class GenderDetector:
         Verwendet Resemblyzer für robuste, offlinefähige Stimmtyperkennung.
         """
         try:
+            if not _RESEMBLYZER_AVAILABLE or preprocess_wav is None or self.encoder is None:
+                return "unknown"
             wav = preprocess_wav(audio_file)
             self.encoder.embed_utterance(wav)
             # Placeholder: Nutze die mittlere Fundamental-Frequenz als grobe Gender-Schätzung

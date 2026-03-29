@@ -21,11 +21,8 @@ Safeguards:
 """
 
 import logging
-import os
-import tempfile
 
 import numpy as np
-import soundfile as sf
 
 logger = logging.getLogger(__name__)
 
@@ -69,7 +66,7 @@ class HighFrequencyExtender:
         if spectral_rolloff and spectral_rolloff < 15000:
             return (
                 True,
-                f"Spectral rolloff {spectral_rolloff/1000:.1f}kHz < 15kHz (tape degradation)",
+                f"Spectral rolloff {spectral_rolloff / 1000:.1f}kHz < 15kHz (tape degradation)",
             )
 
         # Regel 3: Genre-spezifisch (Classical/Jazz profitieren)
@@ -112,37 +109,8 @@ class HighFrequencyExtender:
         self._lazy_load_audiosr()
         assert self.audiosr_plugin is not None, "AudioSR Plugin konnte nicht geladen werden"  # Type narrowing für mypy
 
-        # Process via AudioSR
-        with (
-            tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp_in,
-            tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp_out,
-        ):
-            try:
-                # Write input
-                sf.write(tmp_in.name, audio, sr_in)
-
-                # AudioSR processing
-                self.audiosr_plugin.process(
-                    tmp_in.name,
-                    tmp_out.name,
-                    target_sr=sr_target,
-                    guidance_scale=3.5,  # Balance: Authenticity vs. Enhancement
-                    ddim_steps=50,
-                )
-
-                # Read output
-                audio_extended, sr_out = sf.read(tmp_out.name)
-
-                # Verify sample rate
-                if sr_out != sr_target:
-                    logger.warning(f"AudioSR output SR mismatch: {sr_out} != {sr_target}")
-
-            finally:
-                # Cleanup
-                if os.path.exists(tmp_in.name):
-                    os.remove(tmp_in.name)
-                if os.path.exists(tmp_out.name):
-                    os.remove(tmp_out.name)
+        # Process via AudioSR (direkt ndarray — kein Temp-File)
+        audio_extended = self.audiosr_plugin.process(audio, sr_in, target_sr=sr_target)
 
         # Parallel Mix mit Original (Authenticity Safeguard #1)
         # Resample original to match

@@ -148,8 +148,8 @@ def _allpass_chain(signal: np.ndarray, sample_rate: int) -> np.ndarray:
 class StereoWidthEnhancerPhase(PhaseInterface):
     """M/S-Stereobreiten-Enhancer mit frequenzabhängiger Breite + IACC-Guard."""
 
-    phase_id = "phase_48_stereo_width_enhancer"
-    name = "Stereo Width Enhancer (Freq-Dep M/S + IACC-Guard)"
+    _PHASE_ID = "phase_48_stereo_width_enhancer"
+    _NAME = "Stereo Width Enhancer (Freq-Dep M/S + IACC-Guard)"
     description = (
         "Frequenzabhängige M/S-Breitensteuererung: LF < 200 Hz schmaler (Mono-Basis), "
         "HF > 8 kHz leicht breiter (Luftigkeit). IACC-Guard für Mono-Kompatibilität (≥ 0.97). "
@@ -158,8 +158,8 @@ class StereoWidthEnhancerPhase(PhaseInterface):
 
     def get_metadata(self) -> PhaseMetadata:
         return PhaseMetadata(
-            phase_id=self.phase_id,
-            name=self.name,
+            phase_id=self._PHASE_ID,
+            name=self._NAME,
             category=PhaseCategory.STEREO,
             priority=3,
             version="2.1.0",

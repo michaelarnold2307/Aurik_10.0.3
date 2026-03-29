@@ -396,12 +396,20 @@ class QualityReport(BaseModel):
     aesthetic_scores_after: AestheticScores
 
     # Objective metrics (Spec 3.5.1)
-    pesq_score: float | None = Field(None, description="PESQ (>3.5 good, >4.0 excellent)", ge=0.0, le=5.0)
-    visqol_score: float | None = Field(None, description="ViSQOL (>4.0 for music)", ge=0.0, le=5.0)
-    nisqa_score: float | None = Field(None, description="NISQA (>4.0)", ge=0.0, le=5.0)
-    dnsmos_score: float | None = Field(None, description="DNSMOS (>3.5)", ge=0.0, le=5.0)
-    si_sdr_db: float | None = Field(None, description="SI-SDR improvement in dB")
-    cdpam_score: float | None = Field(None, description="CDPAM (<0.3 similar)", ge=0.0)
+    pesq_score: float | None = Field(
+        None, description="Legacy compat field (forbidden for music in runtime)", ge=0.0, le=5.0
+    )
+    visqol_score: float | None = Field(
+        None, description="ViSQOL legacy compat field (use --audio mode when populated)", ge=0.0, le=5.0
+    )
+    nisqa_score: float | None = Field(
+        None, description="Legacy compat field (forbidden for music in runtime)", ge=0.0, le=5.0
+    )
+    dnsmos_score: float | None = Field(
+        None, description="Legacy compat field (forbidden for music in runtime)", ge=0.0, le=5.0
+    )
+    si_sdr_db: float | None = Field(None, description="Legacy compat field (not used for music quality gating)")
+    cdpam_score: float | None = Field(None, description="Legacy compat field (forbidden for music in runtime)", ge=0.0)
 
     # Constraint system results (Spec 3.2.3)
     constraints_satisfied: bool = Field(description="All constraints passed")

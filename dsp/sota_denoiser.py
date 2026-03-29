@@ -6,6 +6,7 @@ Dieses Modul implementiert SOTA-orientiertes adaptives Denoising (DeepFilterNet2
 Es ist mit DSPContract, Auditierbarkeit und Rollback-Fähigkeit gemäß Dokumentation ausgestattet.
 """
 
+import importlib
 import os
 import tempfile
 from dataclasses import asdict, dataclass
@@ -18,14 +19,17 @@ import soundfile as sf
 
 _logger = logging.getLogger(__name__)
 
+df3: Any | None = None
 try:
-    import deepfilter3ii as df3
+    df3 = importlib.import_module("deepfilter3ii")
 
     DEEPFILTER3II_AVAILABLE = True
 except ImportError:
     DEEPFILTER3II_AVAILABLE = False
+
+dfn: Any | None = None
 try:
-    import deepfilternet2 as dfn
+    dfn = importlib.import_module("deepfilternet2")
 
     DEEPFILTERNET_AVAILABLE = True
 except ImportError:
@@ -126,7 +130,7 @@ class SotaDenoiser:
             return audio.copy().astype(audio.dtype)
         try:
             # DeepFilter3II
-            if DEEPFILTER3II_AVAILABLE:
+            if DEEPFILTER3II_AVAILABLE and df3 is not None:
                 model = df3.DeepFilter3II()
                 self._audit_log("success", "DeepFilter3II-Inferenz erfolgreich")
                 return np.asarray(model.denoise(audio, sr))
@@ -249,7 +253,7 @@ class SotaDenoiser:
             except Exception as e:
                 self._audit_log("warn", f"DCCRN Container-Integration fehlgeschlagen: {e}")
             # DeepFilterNet2
-            if DEEPFILTERNET_AVAILABLE:
+            if DEEPFILTERNET_AVAILABLE and dfn is not None:
                 model = dfn.DeepFilterNet2()
                 self._audit_log("success", "DeepFilterNet2-Inferenz erfolgreich")
                 return np.asarray(model.denoise(audio, sr))

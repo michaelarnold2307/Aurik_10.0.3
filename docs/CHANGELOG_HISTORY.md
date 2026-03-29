@@ -11,6 +11,43 @@
 
 ---
 
+## v9.10.81 (28. März 2026) — §3.9 Stabilitäts-Invarianten (Crash/OOM/Deadlock-Härtung)
+
+- **instructions_version**: 3.4 → **3.5**
+- **Tiefenanalyse**: Systematische Analyse aller Absturz-, OOM-, Deadlock- und Freeze-Szenarien im vollständigen Stack (UV3, ARM, PLM, ml_memory_budget, modern_window, BatchProcessingThread, MLRefinementThread)
+- **Neue normative §§**:
+  - `spec 08` **§3.9.1** Per-Phase-Inference-Timeout — `concurrent.futures.wait(timeout=300s)` für schwere ML-Inferenz; Timeout → DSP-Fallback + `deferred_phases`
+  - `spec 08` **§3.9.2** SIGTERM-Handler in `main.py` — Emergency-Checkpoint bei gracefulem OS-Shutdown; SIGKILL-Limitation dokumentiert
+  - `spec 08` **§3.9.3** Phase-Output-Guard — `@phase_output_guard`-Decorator-Kontrakt: `nan_to_num` + `clip` + `assert isfinite` strukturell erzwungen (keine reine Konvention mehr)
+  - `spec 08` **§3.9.4** ThreadPoolExecutor-Lifecycle — `shutdown(wait=True, cancel_futures=True)` Pflicht in allen Cleanup-Pfaden; Kontext-Manager bevorzugt
+  - `spec 08` **§3.9.5** ml_memory_budget Startup-Reconciliation — Budget-Reset auf 0 beim Prozessstart; verhindert stale Allokation nach SIGKILL
+  - `spec 08` **§3.9.6** Structured Exception Logging — VERBOTEN: `except Exception: pass`; Pflicht: `fail_reasons`-Eintrag + `logger.error(..., exc_info=True)`
+  - `spec 08` **§3.9.7** Audio-Buffer-RAM-Guard — `_check_audio_buffer_size(audio)` nach `soundfile.read()` vor Pipeline; `MAX_AUDIO_BYTES_RAM = 2 GB`
+  - `spec 08` **§3.9.8** Lock-Acquisition-Order — Bindende Prioritätsreihenfolge: `MLMemoryBudget (P1) → PLM (P2) → ARM (P3)`; zirkuläres Locking verboten
+  - `spec 08` **§3.9.9** MLRefinementThread Buffer-Release — `DeferredRefinementJob.release_buffer()` im `finally`-Block; `audio_original` nach Release auf `None`
+  - `spec 02` **§2.42** Pipeline-Stabilitäts-Kontrakt — Referenztabelle aller 15 Stabilitäts-Invarianten (S-01 bis S-15); Checkliste für neue Module
+- **Gate-Tabelle**: §3.9-Zeile ergänzt (`tests/normative/test_stability_invariants.py` — je Invariante ≥ 3 Tests)
+- **copilot-instructions.md**: §3.9-Kurzbeschreibung in Präambel ergänzt
+
+---
+
+## v9.10.80 (28. März 2026) — PMGG Stable-Metric-Invariante + Tiefen-Immersions-Prinzip
+
+- **instructions_version**: 3.3 → **3.4**
+- **Root-Cause-Fix**: `NatuerlichkeitMetric` aus `_PRECISE_METRICS` entfernt — CREPE Load-State ändert Gewichte (w_crepe 0.0 → 0.18) zwischen `scores_before`/`scores_after` → Pseudo-Regression Δ≈0.15–0.28 auf unverändertem Audio → false P1-Kaskade → phase_03 best-effort @ 5.6 % Wet → Noise Floor −55 dBFS statt −72 dBFS → Tiefen-Immersion zerstört
+- **Audio-Cap**: `_apply_precise_metric_overrides` kürzt auf max. **2.5 s** (NMF/Onset-Runtime-Schutz auf Langaudio)
+- **`PHASE_GOAL_EXCLUSIONS`**: `phase_03`, `phase_02`, `phase_24` schließen `natuerlichkeit` aus
+- **`_PRECISE_OVERRIDE_WARN_MS`**: 120 ms → **200 ms** (7 DSP-Only-Metriken ohne CREPE)
+- **Neue normative §§**:
+  - `copilot-instructions.md` **§2.29b** PMGG Stable-Metric-Invariante (7 Invarianten, `PHASE_GOAL_EXCLUSIONS`-Dokumentation, CREPE-Kausalkette)
+  - `copilot-instructions.md` **Tiefen-Immersions-Prinzip** §8.3-Ergänzung (5-Schichten-Tabelle, Phase_03→Noise-Floor→Immersion-Kausalkette)
+  - `spec 02` **§9.7.7** PMGG Stable-Metric-Invariante + **§9.7.8** Precise-Metric Audio-Cap
+  - `spec 07` **§8.3.1** Tiefen-Immersions-Prinzip (Kausaldiagramm, Schichtenmodell)
+  - `spec 08` §9.7 Code-Block: §9.7.5–§9.7.8 ergänzt
+  - `spec 04` §4.2: `griffin_lim()` VERBOTEN als Phasengenerator-Endschritt (IPD-Kollaps, Raumtiefe)
+- **Gate-Tabelle**: §2.29b-Zeile ergänzt (`tests/unit/test_per_phase_musical_goals_gate.py`)
+- **Tests**: 35 Unit-Tests `test_per_phase_musical_goals_gate.py` — alle grün
+
 ## v9.10.77 (26. März 2026) — Mode-differenzierte Musical Goals + Priority-Aware PMGG
 
 - **instructions_version**: 3.0 → **3.1** (§2.29 Priority-Aware Retries, mode-differenzierte Schwellwerte)
@@ -20,6 +57,35 @@
 - **Code** (`musical_goals_metrics.py`): `MusicalGoalsChecker(mode=)`, `get_mode_thresholds()`, `_THRESHOLDS_RESTORATION`, `_THRESHOLDS_STUDIO_2026`
 - **Code** (`per_phase_musical_goals_gate.py`): `_max_regression_priority_aware()`, Priority-Budget-Konstanten, Emergency nur P1/P2
 - **Code** (`unified_restorer_v3.py`, `aurik_denker.py`): Mode-Parameter an MusicalGoalsChecker durchgereicht
+
+## v9.10.78 (28. März 2026) — ML-Headroom-Guard + Structured Fallback-Normierung
+
+- **instructions_version**: 3.1 → **3.2**
+- **copilot-instructions.md**: neuer `[RELEASE_MUST]`-Abschnitt **§2.38a ML-Headroom-Guard + Structured Fallback**
+  - Heavy-ML-Load nur nach RAM-Headroom-Check
+  - Pflichtfelder fuer `metadata["ml_guard_events"]`
+  - Guard-Trigger fuehrt zu DSP-Fallback innerhalb derselben Phase (kein Original-Rollback)
+  - Guard-betroffene Phasen muessen in `deferred_phases` fuer KMV Stufe 2 eingetragen werden
+- **Spec 02 §2.38a**: `RestorationResult`-Kontrakt fuer strukturierte ML-Guard-Events ergaenzt
+- **Spec 07 §5.4**: normative Testfaelle fuer Low-RAM-Completion, Guard-Event-Contract, Deferred-Phase-Contract und KMV-Qualitaetsrueckgewinnung ergaenzt
+- **Spec 08 §3.5a**: Architekturkontrakt fuer Headroom-Guard vor Modell-Load/Inferenz inkl. Cleanup-Reihenfolge (`evict_stale_plugins` + `gc.collect` + `malloc_trim`) ergaenzt
+
+## v9.10.79 (28. März 2026) — Maximum-Qualitaets-Gates (Determinismus, Stratified Competition, Mini-MUSHRA)
+
+- **instructions_version**: 3.2 → **3.3**
+- **copilot-instructions.md**:
+  - Gate-Tabelle erweitert um Vollpipeline-Determinismus, stratifiziertes Konkurrenz-Gate und externes Mini-MUSHRA-Artefakt
+  - neue `[RELEASE_MUST]` Abschnitte §2.40 (Determinismus + Stratified Competition) und §8.4 (Mini-MUSHRA-Protokoll)
+- **Spec 01**:
+  - §2.35 Vocal-Exzellenz-Zusatzmetriken (Formant-Stabilitaet, Sibilance-Natuerlichkeit, Konsonanten-Klarheit)
+  - §2.36 Pareto-Tie-Break nach Hoerprioritaet
+- **Spec 02**:
+  - §2.40 Vollpipeline-Determinismus-Vertrag (bitnahe Reproduktion)
+  - §2.41 Structured Fail-Reason Taxonomie (`metadata["fail_reasons"]`)
+- **Spec 07**:
+  - §5.5 Determinismus-Gate
+  - §5.6 Stratifiziertes Konkurrenz-Gate
+  - §5.7 Externes Mini-MUSHRA-Artefakt als Release-Pflicht bei Kern-aenderungen
 
 ## v9.10.76 (26. März 2026) — OOM-Recovery-Checkpoint-System
 

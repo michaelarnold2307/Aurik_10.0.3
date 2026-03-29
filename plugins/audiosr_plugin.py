@@ -18,8 +18,8 @@ Referenz:
 
 from __future__ import annotations
 
+import importlib
 import logging
-import math
 import os
 import sys
 import tempfile
@@ -116,12 +116,18 @@ def _get_ml_model() -> object | None:
             audiosr_pkg = str(_AUDIOSR_ROOT)
             if audiosr_pkg not in sys.path:
                 sys.path.insert(0, audiosr_pkg)
-            from audiosr.pipeline import build_model
+            pipeline_module = importlib.import_module("audiosr.pipeline")
+            build_model = getattr(pipeline_module, "build_model", None)
+            if build_model is None:
+                raise ImportError("audiosr.pipeline.build_model nicht gefunden")
 
             logger.info(
                 "AudioSR: Lade ML-Modell von %s (nur einmalig)...",
                 _MODEL_SAFETENSORS.name,
             )
+            # §2.40 Determinismus-Invariante: AudioSR läuft auf CPU (device="cpu").
+            # Falls audiosr-Internals ONNX-Sub-Sessions nutzen, müssen diese
+            # providers=["CPUExecutionProvider"] setzen (kein CUDA, kein GPU-Dispatch).
             model = build_model(model_name="basic", device="cpu")
             _ml_model = model
             logger.info("AudioSR: ML-Modell bereit (CPU, ddim_steps=50).")
@@ -159,7 +165,11 @@ def _run_audiosr_ml(audio: np.ndarray, sr: int) -> np.ndarray | None:
             return None
 
         import soundfile as sf
-        from audiosr.pipeline import super_resolution
+
+        pipeline_module = importlib.import_module("audiosr.pipeline")
+        super_resolution = getattr(pipeline_module, "super_resolution", None)
+        if super_resolution is None:
+            raise ImportError("audiosr.pipeline.super_resolution nicht gefunden")
 
         # Sicherstellen: float32, 1D oder [samples, ch] fuer soundfile
         audio_f32 = np.nan_to_num(audio.astype(np.float32), nan=0.0, posinf=0.0, neginf=0.0)
@@ -195,6 +205,20 @@ def _run_audiosr_ml(audio: np.ndarray, sr: int) -> np.ndarray | None:
         return None
 
 
+def allow_reset_ml_model_failed() -> None:
+    """§Punkt 2: Reset AudioSR Sentinel zur Erlaubung von Wiederholungsversuchen.
+
+    Normaler Pfad: _ml_model_failed wird nur am Phasen-Ende zurückgesetzt (unload_audiosr).
+    Neu: Diese Funktion ermöglicht per-Phase Retry nach transienten Fehlern.
+    Verwendung: Hinter-PMGG-Retry in Phase mit AudioSR-Nutzung.
+    """
+    global _ml_model_failed
+    with _ml_model_lock:
+        if _ml_model_failed:
+            logger.debug("AudioSR: Sentinel reset für Wiederholungsversuch")
+            _ml_model_failed = False
+
+
 def unload_audiosr() -> None:
     """Entlädt das AudioSR-ML-Modell aus dem RAM und gibt das Budget frei.
 
@@ -226,6 +250,15 @@ def get_audiosr_plugin() -> AudioSRPlugin:
             if _instance is None:
                 _instance = AudioSRPlugin()
     return _instance
+
+
+def has_audiosr_ml_failed() -> bool:
+    """Fast sentinel: True when a previous ML load attempt failed (no I/O, thread-safe).
+
+    Callers can use this to skip ML-thread creation entirely and avoid
+    blocking join() timeouts (up to 600 s) when the model is unavailable.
+    """
+    return bool(_ml_model_failed) and _ml_model is None
 
 
 class AudioSRPlugin:
@@ -355,7 +388,10 @@ class AudioSRPlugin:
         harm2_mag = np.zeros_like(mag)
         if half > 0 and 2 * half < freq_bins:
             harm2_mag[half : 2 * half] = mag[:half] * 0.25  # gedaempft
-        harm2_phase = np.random.uniform(-math.pi, math.pi, phase.shape).astype(np.float32)
+        # Derive harmonic phase from original signal phase — no random (§2.40 determinism)
+        harm2_phase = np.zeros_like(phase)
+        if half > 0 and 2 * half < freq_bins:
+            harm2_phase[half : 2 * half] = phase[:half]  # fold original phase into harmonic range
 
         S_ext = S + harm2_mag * np.exp(1j * harm2_phase)
 
@@ -365,8 +401,29 @@ class AudioSRPlugin:
         shelf[boost_start:] = np.linspace(1.0, 1.4, freq_bins - boost_start)
         S_ext *= shelf[:, np.newaxis]
 
-        # iSTFT (Griffin-Lim, 32 Iterationen)
-        out = self._griffin_lim(S_ext, n_fft, hop, win, n_iter=32, orig_len=len(x))
+        # iSTFT via PGHI (§4.5 Pflicht: kein Griffin-Lim nach Spektralmodifikation)
+        try:
+            from dsp.pghi import pghi_reconstruct_from_stft as _pghi_fn
+
+            out = _pghi_fn(S_ext, n_fft, hop, sr)
+        except Exception:
+            # Fallback: iSTFT mit Originalphase — NIE Griffin-Lim (§4.5)
+            from scipy.signal import istft as _istft_fn
+
+            mag_ext = np.abs(S_ext)
+            phase_ext = np.angle(S_ext)
+            _, out = _istft_fn(
+                mag_ext * np.exp(1j * phase_ext),
+                fs=sr,
+                nperseg=n_fft,
+                noverlap=n_fft - hop,
+                window=win,
+            )
+        out = np.asarray(out, dtype=np.float32)
+        if len(out) > len(x):
+            out = out[: len(x)]
+        elif len(out) < len(x):
+            out = np.pad(out, (0, len(x) - len(out)))
         return np.clip(out, -1.0, 1.0)
 
     @staticmethod

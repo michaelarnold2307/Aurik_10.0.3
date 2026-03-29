@@ -182,12 +182,14 @@ class TestStoreGet:
         m = _fresh_manager()
         sid = m.store(_white(), _sine(), SR, "shellac")
         s = m.get(sid)
+        assert s is not None
         assert s.material == "shellac"
 
     def test_10_session_sample_rate_matches(self):
         m = _fresh_manager()
         sid = m.store(_white(), _sine(), SR, "vinyl")
         s = m.get(sid)
+        assert s is not None
         assert s.sample_rate == SR
 
     def test_11_session_has_sha256(self):
@@ -195,6 +197,7 @@ class TestStoreGet:
         orig = _white()
         sid = m.store(orig, _sine(), SR, "vinyl")
         s = m.get(sid)
+        assert s is not None
         assert len(s.original_sha256) == 16  # 16 Hex-Zeichen
 
     def test_12_different_originals_different_sha256(self):
@@ -204,12 +207,18 @@ class TestStoreGet:
         sid_a = m.store(sig_a, _sine(), SR)
         sid_b = m.store(sig_b, _sine(), SR)
         # Unterschiedliche Zufallssignale → sehr wahrscheinlich unterschiedliche SHA256
-        assert m.get(sid_a).original_sha256 != m.get(sid_b).original_sha256
+        sa = m.get(sid_a)
+        sb = m.get(sid_b)
+        assert sa is not None
+        assert sb is not None
+        assert sa.original_sha256 != sb.original_sha256
 
     def test_13_as_dict_has_human_verdict(self):
         m = _fresh_manager()
         sid = m.store(_white(), _sine(), SR)
-        d = m.get(sid).as_dict()
+        s = m.get(sid)
+        assert s is not None
+        d = s.as_dict()
         assert "human_verdict" in d
         assert isinstance(d["human_verdict"], str)
 
@@ -219,6 +228,7 @@ class TestStoreGet:
         sid = m.store(_white(), _sine(), SR)
         t_after = time.time()
         s = m.get(sid)
+        assert s is not None
         assert t_before <= s.created_at <= t_after
 
 
@@ -245,9 +255,13 @@ class TestCompareAudio:
         m = _fresh_manager()
         orig = _white()
         sid = m.store(orig.copy(), _sine(), SR)
-        o, _ = m.compare_audio(sid)
+        first = m.compare_audio(sid)
+        assert first is not None
+        o, _ = first
         o[:] = 0.0
-        o2, _ = m.compare_audio(sid)
+        second = m.compare_audio(sid)
+        assert second is not None
+        o2, _ = second
         assert not np.allclose(o2, 0.0)
 
     def test_17_unknown_session_returns_none(self):
@@ -266,14 +280,18 @@ class TestDiffCalculations:
     def test_18_identical_audio_high_similarity(self):
         sig = _sine()
         sid = self.M.store(sig.copy(), sig.copy(), SR)
-        diff = self.M.get(sid).diff
+        s = self.M.get(sid)
+        assert s is not None
+        diff = s.diff
         assert diff.spectral_similarity > 0.85
 
     def test_19_completely_different_low_similarity(self):
         sig1 = _sine(440.0)
         sig2 = _white()
         sid = self.M.store(sig1, sig2, SR)
-        diff = self.M.get(sid).diff
+        s = self.M.get(sid)
+        assert s is not None
+        diff = s.diff
         # Sehr unterschiedliche Signale → niedrige Ähnlichkeit
         assert diff.spectral_similarity < 0.90  # lockere Schranke
 
@@ -303,13 +321,17 @@ class TestDiffCalculations:
         n = SR * 3  # 3 Sekunden
         sig = _white(n)
         sid = self.M.store(sig, sig.copy(), SR)
-        diff = self.M.get(sid).diff
+        s = self.M.get(sid)
+        assert s is not None
+        diff = s.diff
         assert abs(diff.duration_seconds - 3.0) < 0.1
 
     def test_25_peak_clipped_to_01(self):
         loud = np.full(SR, 2.0, dtype=np.float32)
         sid = self.M.store(loud, loud.copy(), SR)
-        diff = self.M.get(sid).diff
+        s = self.M.get(sid)
+        assert s is not None
+        diff = s.diff
         assert 0.0 <= diff.peak_original <= 1.0
         assert 0.0 <= diff.peak_restored <= 1.0
 
@@ -328,6 +350,7 @@ class TestNaNInfRobustness:
         sid = self.M.store(orig, rest, SR)
         assert sid is not None
         s = self.M.get(sid)
+        assert s is not None
         assert math.isfinite(s.diff.rms_original_db)
 
     def test_27_inf_restored_handled(self):

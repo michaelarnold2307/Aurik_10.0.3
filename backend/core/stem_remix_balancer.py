@@ -36,8 +36,12 @@ def _k_weighted_lufs(x: np.ndarray, sr: int = 48000) -> float:
         _a2 = (1.0 - _Ks * np.sqrt(2.0) + _Ks**2) / (1.0 + _Ks * np.sqrt(2.0) + _Ks**2)
         arr = _sig.lfilter([_b0, _b1, _b2], [1.0, _a1, _a2], arr)
 
-        # RLB Hochpass 2. Ordnung Butterworth @ 38 Hz
-        _b_rlb, _a_rlb = _sig.butter(2, 38.0 / (sr / 2.0), btype="high")
+        # RLB high-pass: enforce ba output and guard tuple shape for type safety.
+        _butter_res = _sig.butter(2, 38.0 / (sr / 2.0), btype="high", output="ba")
+        if not isinstance(_butter_res, tuple) or len(_butter_res) < 2:
+            raise ValueError("scipy.signal.butter returned invalid coefficients")
+        _b_rlb = np.asarray(_butter_res[0], dtype=np.float64)
+        _a_rlb = np.asarray(_butter_res[1], dtype=np.float64)
         arr = _sig.lfilter(_b_rlb, _a_rlb, arr)
     except Exception:
         pass  # Fallback: Signal ohne Filterung (RMS-Näherung)

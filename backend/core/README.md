@@ -6,7 +6,7 @@
 
 ## Struktur
 
-```
+```text
 backend/core/
 ├─ epistemic_gate/      # Zuständigkeitsprüfung (Ethics Engine)
 ├─ zone_engine/         # A/B/C Klassifizierung
@@ -24,6 +24,7 @@ backend/core/
 **Verantwortlich für:** Zuständigkeitsprüfung vor jeder Verarbeitung
 
 **Kern-Komponenten:**
+
 - `ethics_engine.py` - Implementiert Epistemic Decision Logic
   - `EpistemicDecision` enum: PRESERVE, MODE_A, MODE_B, HARD_STOP
   - `epistemic_gate()` - 8-Branch Decision Tree
@@ -38,15 +39,17 @@ backend/core/
 **Verantwortlich für:** Klassifizierung in Zonen A, B, C
 
 **Kern-Komponenten:**
+
 - `region_analysis.py` - Region-basierte Analyse (non-invasive)
   - Detektiert: Silence, Speech, Music, Noise, Mixed  - Liefert Empfehlungen (nicht bindend!)
   - **WICHTIG:** Keine Verarbeitung, nur Analysis
-  
+
 - `context_analysis.py` - Kontext für Zonierung
   - Genre, Defect Type, Confidence
   - Cultural Significance
 
 **Zonenmodell:**
+
 - **Zone A:** Klar reparierbar (hohe Confidence)
 - **Zone B:** Unsicher (mittlere Confidence)
 - **Zone C:** Bedeutungstragend → Keine Automation!
@@ -58,11 +61,13 @@ backend/core/
 **Verantwortlich für:** Durchsetzung der 9 Conduct-Prinzipien
 
 **Kern-Komponenten:**
+
 - `adaptive_goal.py` - Goal Definition Engine
   - Prüft Ziele gegen Conduct Rules
   - Kann Goals ablehnen wenn zu aggressiv
 
 **Conduct-Prinzipien:**
+
 1. Primum non nocere
 2. Integrität vor Optimierung
 3. Stabilität vor Brillanz
@@ -80,6 +85,7 @@ backend/core/
 **Verantwortlich für:** Zentrale Pipeline-Steuerung
 
 **Kern-Komponenten:**
+
 - `adaptive_pipeline.py` - Haupt-Orchestrator
   - 12-Phasen Pipeline
   - Phase 4.5: Epistemic Gate Integration
@@ -87,7 +93,8 @@ backend/core/
   - Quality Gate Enforcement
 
 **Pipeline-Flow:**
-```
+
+```text
 1. Context Analysis
 2. Goal Definition
 3. Feature Extraction
@@ -110,6 +117,7 @@ backend/core/
 **Verantwortlich für:** Qualitäts-Assessment & Continuous Learning
 
 **Kern-Komponenten:**
+
 - `quality_control.py`
   - **CAS Score Calculator:** Creative Authenticity Score (5 Dimensionen)
     - Brillanz (25%): Spectral Centroid, HF Content
@@ -133,6 +141,7 @@ backend/core/
   - **Learning Cycle:** Offline, Conservative (learning_rate=0.1)
 
 **Qualitäts-Ratings:**
+
 - CAS ≥ 0.96: ⭐⭐⭐⭐⭐ World-Class
 - CAS ≥ 0.92: ⭐⭐⭐⭐ Excellent
 - CAS ≥ 0.80: ⭐⭐⭐ Good (Export-Minimum)
@@ -145,7 +154,8 @@ backend/core/
 ### Verbindliche Regeln (aus Norm):
 
 1. **Keine Abkürzungen:** Jede Verarbeitung läuft durch:
-   ```
+
+   ```text
    Epistemic Gate → Zonen → Conduct → Regulator
    ```
 
@@ -177,7 +187,7 @@ backend/core/
 ```python
 # Epistemic Gate
 from backend.core.epistemic_gate.ethics_engine import (
-    EthicsEngine, 
+    EthicsEngine,
     EpistemicDecision
 )
 
@@ -235,6 +245,7 @@ if cas_score < 0.80:
 ## Status: v8.0 (7. Februar 2026)
 
 **Implementiert:**
+
 - ✅ Ethics Engine (Epistemic Gate)
 - ✅ Region Analysis (Zone Engine Foundation)
 - ✅ Quality Control (CAS + 6 Gates)
@@ -243,10 +254,12 @@ if cas_score < 0.80:
 - ✅ Audio Monitor (Permanent Tracking)
 
 **In Progress:**
+
 - 🔄 Conduct Enforcer (conduct_rules.yaml Integration)
 - 🔄 Full Zone Classification (A/B/C Labeling)
 
 **Geplant:**
+
 - 📋 Regulator Sandbox Integration
 - 📋 ML Safety Wrappers
 - 📋 Audit-Visualisierung

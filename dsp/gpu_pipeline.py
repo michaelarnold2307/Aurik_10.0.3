@@ -16,7 +16,7 @@ from dsp.cpu_pipeline import CPUPipeline, PipelineStats
 warnings.warn(
     "dsp.gpu_pipeline ist deprecated — nutze dsp.cpu_pipeline.CPUPipeline",
     DeprecationWarning,
-    stacklevel=2,
+    stacklevel=1,
 )
 
 GPUPipeline = CPUPipeline

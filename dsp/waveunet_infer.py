@@ -8,17 +8,17 @@ import numpy as np
 import soundfile as sf
 
 sys.path.append("/workspace/Wave-U-Net")
-import Config
+import Config  # type: ignore[import-untyped]
 
 try:
-    from Evaluate import predict as _evaluate_predict
+    from Evaluate import predict as _evaluate_predict  # type: ignore[import-untyped]
 
     class _Evaluate:
         @staticmethod
         def predict(*args, **kwargs):
             return _evaluate_predict(*args, **kwargs)
 
-    Evaluate = _Evaluate
+    Evaluate = _Evaluate  # type: ignore[assignment]
 except ImportError:
 
     class Evaluate:  # type: ignore[no-redef]

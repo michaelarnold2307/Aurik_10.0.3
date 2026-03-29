@@ -34,7 +34,7 @@ import numpy as np
 
 # Handle both module import and direct execution
 try:
-    from .logging_config import get_logger
+    from backend.logging_config import get_logger
 
     logger = get_logger(__name__)
 except ImportError:
@@ -669,7 +669,7 @@ if __name__ == "__main__":
     logging.info("\n📋 REGION RECOMMENDATIONS (for Pipeline):")
     logging.info("-" * 80)
     for region in report["regions"][:5]:  # Show first 5
-        logging.info(f"Region {region['region_id']}: {region['type']:12s} " f"({region['duration_s']:.2f}s)")
+        logging.info(f"Region {region['region_id']}: {region['type']:12s} ({region['duration_s']:.2f}s)")
         logging.info(f"  Recommendation: {region['recommendation']['reasoning']}")
         logging.info(
             f"  Enhancement: {region['recommendation']['enhancement_strength']:.1f}, "

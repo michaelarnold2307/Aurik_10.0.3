@@ -22,7 +22,7 @@ class ArtifactTransientEnhancer:
                 gacela_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "../models/gacela"))
                 if os.path.exists(gacela_path):
                     sys.path.append(gacela_path)
-                    from ganSystem import GANSystem
+                    from ganSystem import GANSystem  # type: ignore[import-untyped]
 
                     self.gacela = GANSystem()
             except Exception:

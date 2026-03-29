@@ -344,7 +344,12 @@ class ProcessingLogger:
             lufs = 20 * np.log10(rms + 1e-10) - 23.0  # Rough approximation
 
         # Spectral Centroid
-        spectral_centroid = float(np.mean(librosa.feature.spectral_centroid(y=audio, sr=sr)))
+        if librosa is not None:
+            spectral_centroid = float(np.mean(librosa.feature.spectral_centroid(y=audio, sr=sr)))
+        else:
+            freqs = np.fft.rfftfreq(len(audio), 1.0 / sr)
+            mag = np.abs(np.fft.rfft(audio))
+            spectral_centroid = float(np.sum(freqs * mag) / (np.sum(mag) + 1e-10))
 
         # Peak and RMS
         peak_db = 20 * np.log10(np.abs(audio).max() + 1e-10)

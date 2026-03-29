@@ -1,13 +1,10 @@
 #!/usr/bin/env python3
 """Quick test of HighpassFilter with stereo audio"""
 
-import sys
 
 import numpy as np
 
-sys.path.insert(0, "dsp")
-
-from classic_filters import HighpassFilter
+from dsp.classic_filters import HighpassFilter
 
 # Create test stereo audio: (2, 1000) format
 audio_stereo = np.random.randn(2, 1000).astype(np.float64)

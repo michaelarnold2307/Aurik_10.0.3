@@ -514,8 +514,8 @@ class MasteringPolishPhase(PhaseInterface):
         # 1. DC-Offset Removal (High-Pass @ 5 Hz)
         nyquist = sample_rate / 2.0
         cutoff = 5.0 / nyquist
-        b, a = signal.butter(1, cutoff, btype="high")
-        polished = signal.filtfilt(b, a, polished, axis=0)
+        sos = signal.butter(1, cutoff, btype="high", output="sos")
+        polished = signal.sosfiltfilt(sos, polished, axis=0)
 
         # 2. True Peak Safety Limiter (nur wenn über Target)
         target_db = self.TARGET_LEVEL_DB.get(material, -0.5)

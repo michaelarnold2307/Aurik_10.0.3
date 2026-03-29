@@ -5,7 +5,8 @@ Real-time audio waveform visualization
 
 import numpy as np
 import soundfile as sf
-from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg, NavigationToolbar2QT
+from matplotlib.backends.backend_qt import NavigationToolbar2QT
+from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
 from matplotlib.figure import Figure
 from PyQt5.QtCore import pyqtSignal
 from PyQt5.QtWidgets import QHBoxLayout, QPushButton, QVBoxLayout, QWidget

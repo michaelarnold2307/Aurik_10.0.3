@@ -159,16 +159,20 @@ class BasicPitchPlugin:
         - Finds a 2D/3D output tensor with pitch-like bins.
         - Converts bin index to MIDI range [21, 108].
         """
+        session = self._session
+        if session is None:
+            raise RuntimeError("BasicPitch ONNX-Session nicht initialisiert")
+
         audio_m = _resample(audio, sr, _MODEL_SR)
-        inp = self._session.get_inputs()[0]
+        inp = session.get_inputs()[0]
         in_name = inp.name
 
         # Normalize input layout to [B, T]
         model_in = audio_m[np.newaxis, :] if audio_m.ndim == 1 else np.asarray(audio_m).reshape(1, -1)
         model_in = model_in.astype(np.float32)
 
-        out_names = [o.name for o in self._session.get_outputs()]
-        out_vals = self._session.run(out_names, {in_name: model_in})
+        out_names = [o.name for o in session.get_outputs()]
+        out_vals = session.run(out_names, {in_name: model_in})
 
         pitch_tensor = _select_pitch_tensor(out_vals)
         if pitch_tensor is None:

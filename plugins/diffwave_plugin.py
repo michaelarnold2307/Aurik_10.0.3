@@ -9,6 +9,7 @@ from __future__ import annotations
 import logging
 import os
 import threading
+from typing import Any
 
 import numpy as np
 
@@ -26,7 +27,7 @@ _N_STEPS = 6  # Wenige Diffusions-Schritte für CPU-Effizienz
 
 class DiffwavePlugin:
     def __init__(self, model_path: str | None = None) -> None:
-        self._session = None
+        self._session: Any = None
         self._try_load(model_path or _MODEL)
 
     def _try_load(self, path: str) -> None:
@@ -110,14 +111,17 @@ class DiffwavePlugin:
             for step in range(_N_STEPS, 0, -1):
                 step_in = np.array([[step]], dtype=np.int64)
                 try:
-                    out = self._session.run(
-                        None,
-                        {
-                            "audio": audio_in,
-                            "step": step_in,
-                            "spectrogram": mel_in,
-                        },
-                    )[0]  # [1,1,16384]
+                    out = np.asarray(
+                        self._session.run(
+                            None,
+                            {
+                                "audio": audio_in,
+                                "step": step_in,
+                                "spectrogram": mel_in,
+                            },
+                        )[0],
+                        dtype=np.float32,
+                    )  # [1,1,16384]
                     out = np.nan_to_num(out, nan=0.0, posinf=0.0, neginf=0.0)
                     audio_in = out[:, 0:1, :] if out.ndim == 3 else out
                 except Exception as exc:

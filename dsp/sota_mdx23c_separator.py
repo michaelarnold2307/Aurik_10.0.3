@@ -1,5 +1,8 @@
 import os
 import sys
+from importlib.util import module_from_spec, spec_from_file_location
+from types import ModuleType
+from typing import Any
 
 import numpy as np
 
@@ -16,8 +19,29 @@ abhaengigkeiten: [numpy, torch, inference]
 ---
 """
 MDX23C_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), "../models/mdx23c"))
-sys.path.append(MDX23C_PATH)
-from inference import EnsembleDemucsMDXMusicSeparationModel
+if MDX23C_PATH not in sys.path:
+    sys.path.append(MDX23C_PATH)
+
+
+def _load_inference_module() -> ModuleType:
+    """Load MDX23C inference module from bundled model path."""
+    inference_path = os.path.join(MDX23C_PATH, "inference.py")
+    spec = spec_from_file_location("mdx23c_inference", inference_path)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"MDX23C inference module not loadable: {inference_path}")
+
+    module = module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _load_mdx23c_model_class() -> type[Any]:
+    """Resolve EnsembleDemucsMDXMusicSeparationModel without static unresolved import."""
+    inference_module = _load_inference_module()
+    model_class = getattr(inference_module, "EnsembleDemucsMDXMusicSeparationModel", None)
+    if model_class is None:
+        raise ImportError("EnsembleDemucsMDXMusicSeparationModel not found in MDX23C inference module")
+    return model_class
 
 
 class SotaMDX23CSeparator:
@@ -29,7 +53,8 @@ class SotaMDX23CSeparator:
             "use_kim_model_1": False,
             "single_onnx": False,
         }
-        self.model = EnsembleDemucsMDXMusicSeparationModel(options)
+        model_class = _load_mdx23c_model_class()
+        self.model = model_class(options)
         self.device = device
 
     def separate(self, audio: np.ndarray, sr: int) -> dict:

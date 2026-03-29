@@ -11,7 +11,6 @@ import logging
 import math
 import threading
 from dataclasses import dataclass
-from typing import Optional
 
 import numpy as np
 
@@ -59,13 +58,13 @@ class MicroDynamicsEnvelopeMorphing:
 
     Algorithmus:
         1. 400-ms-LUFS-Profile beider Signale (hop 200 ms, 50 % Ueberlappung)
-        2. G[k] = L_orig[k] - L_rest[k], geclippt auf ±MAX_GAIN_LU
+        2. G[k] = L_orig[k] - L_rest[k], geclippt auf ±MAX_GAIN_LU (mode-adaptive)
         3. Savitzky-Golay-Glaettung
         4. Frame-weise lineare Gain-Interpolation
-        5. True-Peak 1 dBTP nach Morphing
+        5. True-Peak 1 dBTP nach Morphing kontrollen
     """
 
-    MAX_GAIN_LU: float = 3.0
+    MAX_GAIN_LU: float = 6.0  # Studio 2026 mode; Restoration nutzt 4.0 (siehe morph())
     FRAME_SIZE_SAMPLES: int = 19200  # 400 ms @ 48000 Hz
     HOP_SIZE_SAMPLES: int = 9600  # 200 ms
     PEARSON_TARGET: float = 0.93
@@ -98,9 +97,14 @@ class MicroDynamicsEnvelopeMorphing:
         sr: int = 48000,
         mode: str = "restoration",
     ) -> np.ndarray:
-        """Morphed restauriertes Signal auf Original-Mikrodynamik. NaN/Inf-sicher."""
+        """Morphed restauriertes Signal auf Original-Mikrodynamik. NaN/Inf-sicher.
+
+        §2.30 v9.10.79 Mode-basierte MAX_GAIN_LU-Kalibrierung:
+        - Restoration: 4.0 dB (bewahrt emotionale Spitzen, aber konservativ für degradierte Quellen)
+        - Studio 2026: 6.0 dB (maximale Dynamik-Restauration für hochwertige Eingaben)
+        """
         assert sr == 48000, f"SR muss 48000 Hz sein, erhalten: {sr}"
-        max_gain = 2.0 if mode == "restoration" else self.MAX_GAIN_LU
+        max_gain = 4.0 if mode == "restoration" else 6.0  # §2.30 v9.10.79 Psychoakustische Kalibrierung
 
         res = np.nan_to_num(np.asarray(restored, dtype=np.float32))
         orig = np.nan_to_num(np.asarray(original, dtype=np.float32))

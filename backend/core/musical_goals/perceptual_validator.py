@@ -26,17 +26,35 @@ try:
 except ImportError:
     librosa = None  # type: ignore[assignment]
 
-try:
-    import torch
-    from transformers import AutoFeatureExtractor, AutoModelForAudioClassification
+torch = None  # type: ignore[assignment]
+AutoFeatureExtractor = None  # type: ignore[assignment]
+AutoModelForAudioClassification = None  # type: ignore[assignment]
 
-    _TORCH_AVAILABLE = True
-except (ImportError, OSError):
-    # OSError: libcupti.so.12 undefined symbol — torch-CUDA-Abhängigkeit in venv
-    torch = None  # type: ignore[assignment]
-    AutoFeatureExtractor = None  # type: ignore[assignment]
-    AutoModelForAudioClassification = None  # type: ignore[assignment]
-    _TORCH_AVAILABLE = False
+
+def _load_torch_stack() -> bool:
+    """Load optional torch/transformers dependencies only when needed."""
+    global torch, AutoFeatureExtractor, AutoModelForAudioClassification
+
+    if torch is not None and AutoFeatureExtractor is not None and AutoModelForAudioClassification is not None:
+        return True
+
+    try:
+        import torch as _torch
+        from transformers import (
+            AutoFeatureExtractor as _AutoFeatureExtractor,
+        )
+        from transformers import (
+            AutoModelForAudioClassification as _AutoModelForAudioClassification,
+        )
+
+        torch = _torch  # type: ignore[assignment]
+        AutoFeatureExtractor = _AutoFeatureExtractor  # type: ignore[assignment]
+        AutoModelForAudioClassification = _AutoModelForAudioClassification  # type: ignore[assignment]
+        return True
+    except (ImportError, OSError, Warning):
+        # Warning is included because pytest may escalate third-party deprecation
+        # warnings to exceptions during optional dependency imports.
+        return False
 
 
 logger = logging.getLogger(__name__)
@@ -158,7 +176,7 @@ class PerceptualValidator:
         if self._try_load_onnx_model():
             self.device = None
         else:
-            self.device = torch.device("cpu") if _TORCH_AVAILABLE and torch is not None else None
+            self.device = torch.device("cpu") if _load_torch_stack() and torch is not None else None
             self._try_load_hf_model(model_name)
 
         # Statistics
@@ -222,7 +240,7 @@ class PerceptualValidator:
         import os as _os
 
         try:
-            if not _TORCH_AVAILABLE or torch is None:
+            if not _load_torch_stack() or torch is None:
                 raise ImportError("torch nicht verfügbar — DSP-Fallback aktiviert")
             # Lokales Modell-Verzeichnis prüfen — kein HF-Hub-Download (§13.3)
             if not Path(model_name).is_dir():
@@ -236,6 +254,11 @@ class PerceptualValidator:
                 return
 
             def _load_hf_model() -> tuple:
+                assert (
+                    AutoFeatureExtractor is not None
+                    and AutoModelForAudioClassification is not None
+                    and torch is not None
+                )
                 _prev = _os.environ.get("TRANSFORMERS_OFFLINE", "")
                 _prev_hf = _os.environ.get("HF_HUB_OFFLINE", "")
                 _os.environ["TRANSFORMERS_OFFLINE"] = "1"
@@ -394,11 +417,13 @@ class PerceptualValidator:
             return self._heuristic_psychoacoustic_score(audio, sr, goal_name, metadata)
 
         try:
+            assert librosa is not None and torch is not None
             # Resample to model's expected sample rate (16kHz for AST)
             target_sr = 16000
             audio_resampled = librosa.resample(audio, orig_sr=sr, target_sr=target_sr) if sr != target_sr else audio
 
             # Extract features
+            assert self.feature_extractor is not None
             inputs = self.feature_extractor(audio_resampled, sampling_rate=target_sr, return_tensors="pt")
             inputs = {k: v.to(self.device) for k, v in inputs.items()}
 
@@ -419,9 +444,7 @@ class PerceptualValidator:
             logger.warning(f"Psychoacoustic prediction failed: {e}")
             return self._heuristic_psychoacoustic_score(audio, sr, goal_name, metadata)
 
-    def _map_model_output_to_goal(
-        self, probs: torch.Tensor, goal_name: str, metadata: dict[str, Any]
-    ) -> tuple[float, float]:
+    def _map_model_output_to_goal(self, probs: Any, goal_name: str, metadata: dict[str, Any]) -> tuple[float, float]:
         """
         Map model probabilities zu Goal-specific score.
 
@@ -502,6 +525,7 @@ class PerceptualValidator:
         Returns:
             (psychoacoustic_score, confidence)
         """
+        assert librosa is not None
         # Extract basic features
         rms = librosa.feature.rms(y=audio)[0]
         spectral_centroid = librosa.feature.spectral_centroid(y=audio, sr=sr)[0]

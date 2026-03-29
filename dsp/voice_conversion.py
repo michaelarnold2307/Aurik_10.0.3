@@ -60,7 +60,7 @@ class AiVoiceConversion:
         # Beispiel: PANNS-Tagging
         features = {}
         try:
-            from panns_integration import panns_tag_audio
+            from panns_integration import panns_tag_audio  # type: ignore[import-untyped]
 
             tags = panns_tag_audio(audio, sr)
             features["panns_tags"] = tags

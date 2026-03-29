@@ -21,6 +21,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -35,6 +36,36 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 _SESSIONS_DIR: Path = Path(__file__).resolve().parents[2] / "sessions"
 _MAX_CHECKPOINT_AGE_S: float = 7 * 24 * 3600.0  # 7 days
+
+
+# ---------------------------------------------------------------------------
+# Runtime version helper
+# ---------------------------------------------------------------------------
+
+
+def _get_aurik_version() -> str:
+    """Read Aurik version dynamically at checkpoint creation time.
+
+    Priority:
+    1. importlib.metadata (works when installed as editable package via pip install -e .)
+    2. regex parse of pyproject.toml  (always present in repository root)
+    3. "unknown" as last-resort fallback
+    """
+    try:
+        from importlib.metadata import version as _pkg_version  # Python 3.8+
+
+        return _pkg_version("aurik9")
+    except Exception:
+        pass
+    try:
+        _pyproject = Path(__file__).resolve().parents[2] / "pyproject.toml"
+        content = _pyproject.read_text(encoding="utf-8")
+        m = re.search(r'^version\s*=\s*"([^"]+)"', content, re.MULTILINE)
+        if m:
+            return m.group(1)
+    except Exception:
+        pass
+    return "unknown"
 
 
 # ---------------------------------------------------------------------------
@@ -74,7 +105,7 @@ class RecoveryCheckpoint:
 
     # Metadata
     timestamp: float = field(default_factory=time.time)
-    aurik_version: str = "9.10.57"
+    aurik_version: str = field(default_factory=_get_aurik_version)
     failure_phase: str = ""  # Phase that caused OOM
     failure_reason: str = "MemoryError"
 
@@ -255,10 +286,17 @@ def find_pending_checkpoints() -> list[RecoveryCheckpoint]:
 
 
 def load_checkpoint_audio(checkpoint: RecoveryCheckpoint) -> np.ndarray | None:
-    """Load the checkpoint audio WAV back into memory."""
-    try:
-        import soundfile as sf
+    """§Punkt 5: Load checkpoint audio WAV; fallback to original if checkpoint corrupted.
 
+    Attempts to load intermediate audio from checkpoint file. If checkpoint WAV
+    is missing, corrupted, or unreadable, falls back to the original input file.
+    This ensures recovery is robust even if checkpoint file is damaged.
+    """
+    import soundfile as sf
+
+    exc = None
+    # Try checkpoint audio first
+    try:
         audio, sr = sf.read(checkpoint.audio_wav_path, dtype="float32")
         if sr != checkpoint.sample_rate:
             logger.warning(
@@ -266,11 +304,42 @@ def load_checkpoint_audio(checkpoint: RecoveryCheckpoint) -> np.ndarray | None:
                 checkpoint.sample_rate,
                 sr,
             )
+        logger.info(
+            "§2.39 OOM-Checkpoint-Ausnahme: Checkpoint-Audio wird als Quelle für die Wiederaufnahme verwendet, da das Original nicht verfügbar/lesbar ist. Dies ist ein Notfall gemäß copilot-instructions.md; Qualitätsverluste werden minimiert und im Log dokumentiert."
+        )
         # soundfile returns (N,) for mono, (N, 2) for stereo
         # UV3 expects (N,) mono or (N, 2) stereo — already correct
         return audio
-    except Exception as exc:
-        logger.error("Recovery: Audio-Laden fehlgeschlagen: %s", exc)
+    except Exception as _exc:
+        exc = _exc
+        logger.warning(
+            "Recovery: Checkpoint-Audio konnte nicht geladen werden (%s) — "
+            "Fallback zu Original-Datei: %s (Qualitätsverlust möglich, Notfallausnahme)",
+            type(exc).__name__,
+            checkpoint.original_input_path,
+        )
+
+    # Fallback: load original input file instead
+    try:
+        audio, sr = sf.read(checkpoint.original_input_path, dtype="float32")
+        if sr != checkpoint.sample_rate:
+            logger.warning(
+                "Recovery: SR mismatch in Original — checkpoint %d Hz, Original %d Hz",
+                checkpoint.sample_rate,
+                sr,
+            )
+        logger.info(
+            "Recovery: Original-Datei erfolgreich geladen als Fallback "
+            "(bereits %d Phasen abgeschlossen, werden erneut ausgeführt)",
+            len(checkpoint.phases_executed),
+        )
+        return audio
+    except Exception as orig_exc:
+        logger.error(
+            "Recovery: Weder Checkpoint-Audio noch Original konnte geladen werden: Checkpoint: %s, Original: %s",
+            exc,
+            orig_exc,
+        )
         return None
 
 

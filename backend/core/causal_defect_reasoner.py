@@ -1062,7 +1062,6 @@ def _compute_hum_score(ps: np.ndarray, freqs: np.ndarray) -> float:
 
 def _harmonic_line_score(ps: np.ndarray, freqs: np.ndarray, f0: float, n_harmonics: int = 5) -> float:
     df = freqs[1] - freqs[0] if len(freqs) > 1 else 1.0
-    np.sum(ps) + 1e-12
     score = 0.0
     for k in range(1, n_harmonics + 1):
         fk = k * f0

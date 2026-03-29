@@ -13,7 +13,6 @@ Version: 1.0.0 - INITIAL CONSOLIDATION
 import gc
 import os
 import sys
-from typing import Tuple
 
 import numpy as np
 import pytest
@@ -69,6 +68,7 @@ def musical_goals_checker():
     """Fixture: MusicalGoalsChecker instance"""
     if not AURIK_COMPONENTS_AVAILABLE:
         pytest.skip("Aurik components not available")
+    assert MusicalGoalsChecker is not None
     return MusicalGoalsChecker()
 
 

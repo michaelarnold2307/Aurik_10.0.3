@@ -28,6 +28,7 @@ Date: 8. Februar 2026
 import logging
 from dataclasses import dataclass, field
 from enum import Enum
+from typing import Any, cast
 
 import librosa
 import numpy as np
@@ -86,7 +87,7 @@ class EdgeCaseAssessment:
     prioritized_goals: list[str]
     fallback_strategy: str
     confidence: float
-    details: dict[str, any] = field(default_factory=dict)
+    details: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -393,7 +394,7 @@ class EdgeCaseHandler:
 
         nyquist = sr / 2
         cutoff = min(8000, nyquist - 100)
-        b, a = butter(4, cutoff / nyquist, btype="high")
+        b, a = cast(tuple[np.ndarray, np.ndarray], butter(4, cutoff / nyquist, btype="high", output="ba"))
         filtered = filtfilt(b, a, audio)
 
         # Detect energy spikes (only very large spikes are defects)
@@ -501,7 +502,7 @@ class EdgeCaseHandler:
 
         nyquist = sr / 2
         cutoff = min(50, nyquist - 10)
-        b, a = butter(4, cutoff / nyquist, btype="low")
+        b, a = cast(tuple[np.ndarray, np.ndarray], butter(4, cutoff / nyquist, btype="low", output="ba"))
         rumble = filtfilt(b, a, audio)
 
         rumble_energy = np.mean(rumble**2)
@@ -515,7 +516,7 @@ class EdgeCaseHandler:
 
         nyquist = sr / 2
         cutoff = min(6000, nyquist - 100)
-        b, a = butter(4, cutoff / nyquist, btype="high")
+        b, a = cast(tuple[np.ndarray, np.ndarray], butter(4, cutoff / nyquist, btype="high", output="ba"))
         hiss = filtfilt(b, a, audio)
 
         hiss_energy = np.mean(hiss**2)
@@ -530,7 +531,7 @@ class EdgeCaseHandler:
         from scipy.signal import butter, filtfilt
 
         nyquist = sr / 2
-        b, a = butter(4, 4000 / nyquist, btype="high")
+        b, a = cast(tuple[np.ndarray, np.ndarray], butter(4, 4000 / nyquist, btype="high", output="ba"))
         filtered = filtfilt(b, a, audio)
 
         # Zero crossing rate

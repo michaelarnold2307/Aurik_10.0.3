@@ -31,7 +31,6 @@ import logging
 import math
 import threading
 from dataclasses import dataclass
-from typing import Optional
 
 import numpy as np
 
@@ -122,7 +121,6 @@ class PsolaPitchShifter:
         if audio.ndim > 1:
             audio = np.mean(audio, axis=-1)
         audio = audio.astype(np.float32)
-        len(audio)
 
         # Clamp Halbton-Verschiebung
         semitones = float(np.clip(semitones, self.MIN_SEMITONE_SHIFT, self.MAX_SEMITONE_SHIFT))
@@ -161,7 +159,7 @@ class PsolaPitchShifter:
         formant_ok = self._check_formant_preservation(audio, result_audio)
 
         logger.debug(
-            "PSOLA: %.1f Halbtöne, f0=%.1f Hz, ratio=%.3f, epochs=%d, " "formant_ok=%s, method=%s",
+            "PSOLA: %.1f Halbtöne, f0=%.1f Hz, ratio=%.3f, epochs=%d, formant_ok=%s, method=%s",
             semitones,
             f0_hz,
             ratio,
@@ -207,13 +205,11 @@ class PsolaPitchShifter:
             audio = np.mean(audio, axis=-1)
         audio = audio.astype(np.float32)
         n_samples = len(audio)
-        len(f0_trajectory)
 
         output = np.zeros(n_samples, dtype=np.float64)
         norm = np.zeros(n_samples, dtype=np.float64)
 
         crossfade = min(960, frame_hop_samples)  # Max 20 ms @48 kHz
-        np.hanning(crossfade * 2)
 
         for i, f0_local in enumerate(f0_trajectory):
             start = i * frame_hop_samples
@@ -291,7 +287,6 @@ class PsolaPitchShifter:
         output = np.zeros(n_samples + win_len, dtype=np.float64)
         norm = np.zeros(n_samples + win_len, dtype=np.float64)
 
-        np.hanning(win_len)
         n_epochs = 0
 
         for sm in synthesis_markers:
@@ -303,9 +298,18 @@ class PsolaPitchShifter:
                 frame_idx = min(sm * len(f0_trajectory) // n_samples, len(f0_trajectory) - 1)
                 f0_local = f0_trajectory[frame_idx]
                 if self.MIN_F0_HZ <= f0_local <= self.MAX_F0_HZ:
-                    round(sr / f0_local)
-                    am = min(range(len(analysis_markers)), key=lambda i: abs(analysis_markers[i] - sm))
-                    # Lokaler Analyse-Marker
+                    # Use local T0 to constrain which analysis marker is valid.
+                    # Previously this was computed but discarded (dead expression).
+                    t0_local = max(8, round(sr / f0_local))
+                    candidates = [
+                        (idx, abs(analysis_markers[idx] - sm))
+                        for idx in range(len(analysis_markers))
+                        if abs(analysis_markers[idx] - sm) <= 2 * t0_local
+                    ]
+                    if candidates:
+                        am = min(candidates, key=lambda x: x[1])[0]
+                    else:
+                        am = min(range(len(analysis_markers)), key=lambda i: abs(analysis_markers[i] - sm))
                     am_idx = analysis_markers[am]
                 else:
                     am_idx = sm

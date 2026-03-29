@@ -313,7 +313,7 @@ class BarkScaleProcessor:
             Filtered audio (band-pass filtered)
         """
         if bark_index < 0 or bark_index >= self.num_bands:
-            raise ValueError(f"bark_index must be in range [0, {self.num_bands-1}]")
+            raise ValueError(f"bark_index must be in range [0, {self.num_bands - 1}]")
 
         band = self.bands[bark_index]
         nyquist = sr / 2
@@ -397,7 +397,7 @@ class BarkScaleProcessor:
                 spectrum[mask] = magnitude * np.exp(1j * phase[mask])
             else:
                 # Random phase
-                random_phase = np.random.uniform(0, 2 * np.pi, np.sum(mask))
+                random_phase = np.random.uniform(0, 2 * np.pi, int(np.sum(mask)))
                 spectrum[mask] = magnitude * np.exp(1j * random_phase)
 
         # IFFT

@@ -53,7 +53,7 @@ def create_test_signal(duration: float = 2.0, sample_rate: int = 44100) -> np.nd
     # 1. Spectral hole (for Phase 23)
     from scipy.signal import butter, filtfilt
 
-    b, a = butter(4, [5000, 7000], btype="bandstop", fs=sample_rate)
+    b, a = butter(4, [5000, 7000], btype="bandstop", fs=sample_rate, output="ba")  # type: ignore[misc]
     audio = filtfilt(b, a, audio)
 
     # 2. Noise floor (for Phase 18 gate)

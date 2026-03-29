@@ -114,7 +114,7 @@ def _shellac_bandwidth_limit(audio: np.ndarray, sample_rate: int) -> np.ndarray:
     """Tiefpassfilter auf 8 kHz (typische Shellac-Bandbreite)."""
     nyq = sample_rate / 2
     cutoff = min(8000.0, nyq * 0.95)
-    b, a = sig.butter(4, cutoff / nyq, btype="low")
+    b, a = sig.butter(4, cutoff / nyq, btype="low", output="ba")  # type: ignore[misc]
     if audio.ndim == 1:
         result = sig.filtfilt(b, a, audio)
     else:
@@ -135,7 +135,6 @@ def _adaptive_click_removal(audio: np.ndarray, sample_rate: int, threshold_db: f
     threshold_linear = 10 ** (threshold_db / 20.0)
 
     mono = result.flatten() if result.ndim > 1 else result
-    np.sqrt(np.mean(mono**2)) + 1e-10
 
     window = 5
     for i in range(window, len(mono) - window):
@@ -192,7 +191,7 @@ def restore_shellac(audio: np.ndarray, sample_rate: int, **kwargs) -> MaterialRe
 
     # 4. Rumble-Filter (unter 50 Hz)
     nyq = sample_rate / 2
-    b, a = sig.butter(2, 50 / nyq, btype="high")
+    b, a = sig.butter(2, 50 / nyq, btype="high", output="ba")  # type: ignore[misc]
     out = sig.filtfilt(b, a, out)
     applied.append("rumble_filter_50Hz")
 
@@ -266,7 +265,7 @@ def restore_vinyl(audio: np.ndarray, sample_rate: int, apply_riaa: bool = False,
 
     # 3. Rumpelfilter
     nyq = sample_rate / 2
-    b, a = sig.butter(3, 20 / nyq, btype="high")
+    b, a = sig.butter(3, 20 / nyq, btype="high", output="ba")  # type: ignore[misc]
     if out.ndim == 1:
         out = sig.filtfilt(b, a, out)
     else:
@@ -279,7 +278,7 @@ def restore_vinyl(audio: np.ndarray, sample_rate: int, apply_riaa: bool = False,
         low_cutoff = min(8000 / nyq, 0.98)
         high_cutoff = min(12000 / nyq, 0.99)
         if high_cutoff > low_cutoff:
-            b_s, a_s = sig.butter(2, [low_cutoff, high_cutoff], btype="band")
+            b_s, a_s = sig.butter(2, [low_cutoff, high_cutoff], btype="band", output="ba")  # type: ignore[misc]
             if out.ndim == 1:
                 sib_band = sig.filtfilt(b_s, a_s, out)
                 out = out - 0.15 * sib_band  # Sanfte Dämpfung
@@ -474,7 +473,7 @@ def restore_lacquer(audio: np.ndarray, sample_rate: int, **kwargs) -> MaterialRe
     # Bandbegrenzung auf 12 kHz (Lacquer degradiert stärker als Vinyl)
     nyq = sample_rate / 2
     if nyq > 12000:
-        b, a = sig.butter(4, 12000 / nyq, btype="low")
+        b, a = sig.butter(4, 12000 / nyq, btype="low", output="ba")  # type: ignore[misc]
         if out.ndim == 1:
             out = sig.filtfilt(b, a, out)
         else:
@@ -483,7 +482,7 @@ def restore_lacquer(audio: np.ndarray, sample_rate: int, **kwargs) -> MaterialRe
         applied.append("bandwidth_limit_12kHz")
 
     # Rumble unter 30 Hz
-    b_hp, a_hp = sig.butter(3, 30 / nyq, btype="high")
+    b_hp, a_hp = sig.butter(3, 30 / nyq, btype="high", output="ba")  # type: ignore[misc]
     if out.ndim == 1:
         out = sig.filtfilt(b_hp, a_hp, out)
     else:

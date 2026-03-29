@@ -66,7 +66,7 @@ logger = logging.getLogger(__name__)
 
 _PRECISE_METRICS_LOCK = threading.Lock()
 _PRECISE_METRICS: dict[str, Any] | None = None
-_PRECISE_OVERRIDE_WARN_MS: float = 120.0
+_PRECISE_OVERRIDE_WARN_MS: float = 200.0
 
 
 # ---------------------------------------------------------------------------
@@ -160,19 +160,41 @@ PHASE_SAMPLE_DURATIONS: dict[str, float] = {
 # phase_18 / phase_26 / phase_36: Dynamics-modifying phases intentionally
 #   change the temporal envelope → micro_dynamics measures the intended change.
 PHASE_GOAL_EXCLUSIONS: dict[str, set[str]] = {
-    # Hum removal: comb-filter notches in bass band + spectral roughness
-    "phase_02": {"bass_kraft", "authentizitaet"},
+    # Hum removal: comb-filter notches in bass band + spectral roughness.
+    # natuerlichkeit excluded: CREPE voicing analysis in NatuerlichkeitMetric
+    # flags 50/100 Hz notch-induced spectral-flatness changes as P1 regression.
+    "phase_02": {"bass_kraft", "authentizitaet", "natuerlichkeit"},
     # Reconstruction phases: spectral correlation handles reconstruction well;
     # only keep exclusions where AI-generated content has low correlation by design
-    "phase_24": set(),  # Dropout repair: reference correlation handles it
+    # natuerlichkeit excluded: gap-fill synthesis produces content absent from
+    # reference; CREPE voicing score on synthesised audio is unreliable.
+    "phase_24": {"natuerlichkeit"},  # Dropout repair
     "phase_28": set(),  # Noise reduction variant: handled by correlation
-    "phase_55": set(),  # Diffusion inpainting: handled by correlation
+    # Diffusion inpainting: synthesised content has no transient reference →
+    # ArticulationMetric correlation vs pre-inpainting fragment is meaningless.
+    # micro_dynamics excluded: inpainting inserts new content with its own
+    # envelope that intentionally differs from the surrounding material.
+    "phase_55": {"artikulation", "micro_dynamics"},  # Diffusion inpainting
     # Sub-sonic removal: reference LF correlation handles bass preservation check
     "phase_05": set(),  # Rumble filter
     "phase_30": set(),  # DC-offset removal
     # Broadband denoise: reference HF/LF correlation distinguishes noise from music
-    "phase_03": set(),  # OMLSA/ResembleEnhance
-    "phase_29": set(),  # DeepFilterNet / tape hiss
+    # natuerlichkeit excluded: broadband denoising shifts spectral flatness and
+    # ZCR, causing the CREPE-based NatuerlichkeitMetric to report false P1
+    # regressions (~0.28) even at near-dry wet-mix.  DSP proxy with §9.7.5
+    # reference-aware preservation correctly evaluates naturalness for denoise.
+    # artikulation excluded: ArticulationMetric(reference=noisy_tape) measures
+    # transient-shape correlation between the denoised output and the noisy input.
+    # Denoising IS supposed to reshape transients (ResembleEnhance, OMLSA spectral
+    # weighting) — scores_before(reference-free)≈0.67 vs scores_after(ref-based)≈0.13
+    # produces a false P2 regression of ~0.54 that drives PMGG into best_effort at
+    # strength=0.06 (virtually no denoising applied).  Root cause confirmed in debug
+    # logs (2026-03-28): worst_goal=artikulation, before=0.665, after=0.126.
+    "phase_03": {"natuerlichkeit", "artikulation"},  # OMLSA/ResembleEnhance
+    # DeepFilterNet HF-removal intentionally reduces HF energy → brillanz drops.
+    # artikulation excluded for same reason as phase_03: reference=hissy_tape vs
+    # denoised output gives misleadingly low transient-correlation score.
+    "phase_29": {"brillanz", "artikulation"},  # DeepFilterNet / tape hiss
     # Phases with RADICAL spectral changes where even correlation can't help:
     "phase_04": {"transparenz"},  # EQ deliberately redistributes spectrum
     "phase_06": {"brillanz"},  # SBR adds content not in reference → low correlation
@@ -204,15 +226,16 @@ def _get_sample_duration(phase_id: str) -> float:
 
 
 # Strength-Faktoren für Retry-Durchgänge
-# v9.10.76: Floor von 0.10 auf 0.25 angehoben — bei strength < 0.25 ist der
-# Verarbeitungseffekt psychoakustisch nicht mehr wahrnehmbar (≤ −12 dB Wet),
-# und die Phase wird effektiv zum No-Op.
+# v9.10.79: 5 Stufen für 5 vollständige Retries (0–4). Floor = 0.15 für Last-Resort.
+# Psychoakustik: strength ≥ 0.15 still perceivable (−18 dB Wet bleiben unter Maskierungsschwelle).
+# Nach 5 fehlgeschlagenen Retries: best-effort Anwendung (Spec §2.29 v9.10.64).
 _RETRY_STRENGTHS: list[float] = [
     0.65,
     0.50,
     0.35,
     0.25,
-]  # v9.10.76: 4 Stufen, Floor 0.25 (statt 5 × bis 0.10)
+    0.15,
+]  # v9.10.79: 5 Stufen (Retry-Index 0–4), Floor 0.15 last-resort
 
 # §2.29a ML-deterministische Phasen: Inference-Output ist bei gleichem Input
 # identisch, unabhängig vom strength-Parameter.  Bei PMGG-Retries wird nur
@@ -226,7 +249,8 @@ _ML_DETERMINISTIC_PHASES: frozenset[str] = frozenset(
         "phase_12",  # FCPE/CREPE/pYIN (f₀-Schätzung) — Timing-Phase, kein Wet/Dry
         "phase_18",  # Silero VAD (Binary-Mask)
         "phase_19",  # De-Esser+VocalStack: process() ignoriert strength → Wet/Dry reicht
-        "phase_20",  # SGMSE+ (Reverb-Separation) — WPE-Fallback wäre DSP, aber Primärpfad ML
+        "phase_20",  # SGMSE+ (Reverb-Separation) — nur ML-deterministisch wenn SGMSE+ geladen
+        # WPE-Fallback ist strength-abhängiger DSP → _phase20_is_ml_active() prüft zur Laufzeit
         "phase_23",  # AudioSR Inpainting (Spektral-Lückenfüllung)
         "phase_24",  # AudioSR (Dropout-Repair)
         "phase_29",  # DeepFilterNet v3 II (HF-Denoising)
@@ -235,6 +259,24 @@ _ML_DETERMINISTIC_PHASES: frozenset[str] = frozenset(
         "phase_56",  # FCPE/CREPE + Synthese (Spectral Band Gap Repair)
     }
 )
+
+
+def _phase20_is_ml_active() -> bool:
+    """Return True when SGMSE+ is currently loaded in the ML budget (§2.29a).
+
+    phase_20 is ML-deterministic only when the SGMSE+ model is actually resident
+    in memory.  When SGMSE+ was blocked by ml_memory_budget (OOM pressure) and
+    the WPE-DSP fallback is active instead, wet/dry blending cannot represent the
+    full range of WPE's strength-dependent predictor-order parameter.  In that
+    case phase_20 must be treated as a strength-dependent DSP phase — re-run on
+    every PMGG retry.
+    """
+    try:
+        from backend.core.ml_memory_budget import get_status
+
+        return "SGMSE+" in get_status().get("models", {})
+    except Exception:
+        return False  # Safe default: DSP path — must re-run
 
 
 def _get_adaptive_threshold(restorability_score: float) -> float:
@@ -353,7 +395,6 @@ def _get_precise_metric_instances() -> dict[str, Any]:
                         ArticulationMetric,
                         BrillanzMetric,
                         MicroDynamicsMetric,
-                        NatuerlichkeitMetric,
                         SeparationFidelityMetric,
                         TonalCenterMetric,
                         TransparenzMetric,
@@ -363,7 +404,16 @@ def _get_precise_metric_instances() -> dict[str, Any]:
                     _PRECISE_METRICS = {
                         "brillanz": BrillanzMetric(),
                         "waerme": WaermeMetric(),
-                        "natuerlichkeit": NatuerlichkeitMetric(),
+                        # natuerlichkeit intentionally omitted: NatuerlichkeitMetric uses
+                        # CREPE ML inference (1–4 s/call) with dynamic weight switching
+                        # based on CREPE load state.  Between scores_before (CREPE not
+                        # yet loaded → w_crepe=0.0) and scores_after (CREPE loaded →
+                        # w_crepe=0.18) the absolute score shifts non-deterministically,
+                        # creating systematic false P1 regressions in phase_03/phase_02.
+                        # The DSP proxy in _measure_quick with §9.7.5 reference-aware
+                        # preservation correction is more reliable for PMGG delta checks.
+                        # The canonical NatuerlichkeitMetric still runs in the final
+                        # export quality gate (MusicalGoalsChecker).
                         "tonal_center": TonalCenterMetric(),
                         "micro_dynamics": MicroDynamicsMetric(),
                         "artikulation": ArticulationMetric(),
@@ -387,6 +437,20 @@ def _apply_precise_metric_overrides(
     precise_metrics = _get_precise_metric_instances()
     if not precise_metrics:
         return scores
+
+    # §9.7.7 Audio length cap: 2.5 s is sufficient for all precise metrics and
+    # avoids long NMF/onset-detection runs in SeparationFidelityMetric /
+    # ArticulationMetric on long audio samples.
+    _cap = int(2.5 * sr)
+    if audio.ndim == 1 and len(audio) > _cap:
+        audio = audio[:_cap]
+    elif audio.ndim == 2 and audio.shape[-1] > _cap:
+        audio = audio[..., :_cap]
+    if reference is not None:
+        if reference.ndim == 1 and len(reference) > _cap:
+            reference = reference[:_cap]
+        elif reference.ndim == 2 and reference.shape[-1] > _cap:
+            reference = reference[..., :_cap]
 
     refined = dict(scores)
     for goal_name, metric in precise_metrics.items():
@@ -505,7 +569,11 @@ def _measure_quick(
         env = np.abs(mono)
         # Hüllkurven-Autokorrelation
         hop = sr // 100  # 10 ms
-        rms_env = np.array([float(np.mean(env[i : i + hop] ** 2)) for i in range(0, len(env) - hop, hop)])
+        # Vectorized: non-overlapping frames via reshape (replaces Python list comprehension)
+        _nf_g = (len(env) - 1) // hop
+        rms_env = (
+            np.mean(env[: _nf_g * hop].reshape(_nf_g, hop) ** 2, axis=1) if _nf_g > 0 else np.empty(0, dtype=np.float32)
+        )
         if len(rms_env) > 10:
             autocorr = np.correlate(rms_env, rms_env, mode="full")
             autocorr = autocorr[len(rms_env) - 1 :]
@@ -523,12 +591,14 @@ def _measure_quick(
         n_fft_chroma = 4096
         spec_mag = np.abs(np.fft.rfft(mono, n=n_fft_chroma))
         spec_freqs = np.fft.rfftfreq(n_fft_chroma, d=1.0 / sr)
-        # Chroma-Bins approximieren
+        # Vectorized chroma accumulation (replaces ~355-iteration Python bin loop)
         chroma = np.zeros(12, dtype=np.float32)
-        for b, f in enumerate(spec_freqs):
-            if 27.5 < f < 4186:
-                note = round(12.0 * math.log2(f / 440.0 + 1e-12)) % 12
-                chroma[note] += spec_mag[b]
+        _cbins = np.where((spec_freqs > 27.5) & (spec_freqs < 4186))[0]
+        if len(_cbins) > 0:
+            _cn = np.round(12.0 * np.log2(spec_freqs[_cbins] / 440.0 + 1e-12)).astype(np.int32) % 12
+            np.add.at(chroma, _cn, spec_mag[_cbins])
+        else:
+            _cn = np.empty(0, dtype=np.int32)
         if chroma.sum() > 1e-8:
             chroma /= chroma.sum()
             # Konzentration = 1 − Entropie/log(12)
@@ -546,10 +616,9 @@ def _measure_quick(
             try:
                 _ref_chroma = np.zeros(12, dtype=np.float32)
                 _ref_spec = np.abs(np.fft.rfft(_ref_mono, n=n_fft_chroma))
-                for _b2, _f2 in enumerate(spec_freqs):
-                    if _b2 < len(_ref_spec) and 27.5 < _f2 < 4186:
-                        _note2 = round(12.0 * math.log2(_f2 / 440.0 + 1e-12)) % 12
-                        _ref_chroma[_note2] += _ref_spec[_b2]
+                # Reuse _cbins/_cn from processed chroma (spec_freqs shared)
+                if len(_cbins) > 0:
+                    np.add.at(_ref_chroma, _cn, _ref_spec[_cbins])
                 _rcs = float(_ref_chroma.sum())
                 if _rcs > 1e-8:
                     _ref_chroma /= _rcs
@@ -781,7 +850,13 @@ def _measure_quick(
     try:
         # Proxy: Varianz der Energiehüllkurve-Ableitungen (scharfe Transienten = hohe Varianz)
         hop_a = max(1, sr // 200)  # 5 ms
-        env_a = np.array([float(np.max(np.abs(mono[i : i + hop_a]))) for i in range(0, len(mono) - hop_a, hop_a)])
+        # Vectorized: non-overlapping peak envelope via reshape
+        _nf_a = (len(mono) - 1) // hop_a
+        env_a = (
+            np.max(np.abs(mono[: _nf_a * hop_a].reshape(_nf_a, hop_a)), axis=1)
+            if _nf_a > 0
+            else np.empty(0, dtype=np.float32)
+        )
         if len(env_a) > 4:
             # Erste Ableitung der Hüllkurve
             d_env = np.diff(env_a)
@@ -1014,6 +1089,11 @@ class PerPhaseMusicalGoalsGate:
         # werden, da strength dort Algorithmus-Parameter steuert (z.B. Filterfrequenz,
         # Kompressionsratio), nicht nur das Mischverhältnis.
         _is_ml_deterministic = phase_id.startswith(tuple(_ML_DETERMINISTIC_PHASES))
+        # §2.29a Sonderfall phase_20: SGMSE+ (ML) ist deterministisch, aber WPE-DSP-Fallback
+        # verwendet strength*0.90 als algorithmus-internen Prädiktor-Parameter → must re-run.
+        # Zur Laufzeit: nur wenn SGMSE+ im ML-Budget alloziert ist, ML-Pfad verwenden.
+        if _is_ml_deterministic and phase_id.startswith("phase_20"):
+            _is_ml_deterministic = _phase20_is_ml_active()
 
         # §9.7.5 Referenz-Stichprobe für preservation-aware Messung.
         # Einmal berechnen, für alle scores_after/scores_retry wiederverwenden.

@@ -87,7 +87,5 @@ class AllpassFilter:
             a1 = -2.0 * cos_w0
             a2 = 1.0 - alpha
             sos_sections.append([b0 / a0, b1 / a0, b2 / a0, 1.0, a1 / a0, a2 / a0])
-        import numpy as np
-
         sos_arr = np.array(sos_sections)
         return sosfilt(sos_arr, audio).astype(audio.dtype)

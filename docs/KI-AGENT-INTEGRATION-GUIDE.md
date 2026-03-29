@@ -281,42 +281,52 @@ def meine_convenience_funktion(audio: np.ndarray, sr: int) -> "MeinResult":
 ## 🐛 Häufige Fallstricke
 
 ### Fallstrick #1: Fehlender SR-Assert
+
 ❌ Phase verarbeitet Audio mit falscher SR → subtile Qualitätsfehler
 ✅ `assert sample_rate == 48000, f"SR muss 48000 Hz sein, erhalten: {sample_rate}"`
 
 ### Fallstrick #2: NaN aus numerischen Operationen
+
 ❌ `result = np.fft.rfft(audio)` ohne NaN-Guard
 ✅ `result = np.nan_to_num(result, nan=0.0, posinf=0.0, neginf=0.0)` nach jeder FFT
 
 ### Fallstrick #3: Kein Musical-Goals-Check (14 Ziele, nicht 7!)
+
 ❌ Neue Phase implementiert, Musical Goals nicht geprüft → Bug unbemerkt
 ✅ `MusicalGoalsChecker.measure_all()` nach jeder neuen Verarbeitungsoperation im Test
 
 ### Fallstrick #4: `print()` statt `logger`
+
 ❌ `print(f"Score: {score}")` in Produktionscode
 ✅ `logger.info("Score: %.2f", score)` mit `logger = logging.getLogger(__name__)`
 
 ### Fallstrick #5: dict statt dataclass als Rückgabe
+
 ❌ `return {"mos": 3.5, "nsim": 0.7}` aus öffentlichen Funktionen
 ✅ `return PQSResult(mos=3.5, nsim=0.7)` (immer `@dataclass`)
 
 ### Fallstrick #6: Hardcodierte Pfade
+
 ❌ `open("/home/user/.aurik/gp_memory/vinyl.json")`
 ✅ `pathlib.Path.home() / ".aurik" / "gp_memory" / f"{material}.json"`
 
 ### Fallstrick #7: Singleton ohne Lock (Race Condition bei Batch-Jobs)
+
 ❌ `_cache = {}` ohne `threading.Lock()` in Produktionscode
 ✅ Double-Checked Locking (§3.2) — immer `with _lock:` zweiten Guard
 
 ### Fallstrick #8: Sprach-Metriken für Musik verwenden
+
 ❌ `pesq(ref, deg, 16000, "wb")` oder `dnsmos(audio)` für Musikbewertung
 ✅ `PerceptualQualityScorer.score_audio_absolute(audio, sr)` (PQS-MOS)
 
 ### Fallstrick #9: SOFT_SATURATION reparieren
+
 ❌ phase_23 auf Material mit `SOFT_SATURATION`-Defekt anwenden → Wärme zerstört
 ✅ `classify_clipping()` zuerst — SOFT_SATURATION (gerade Obertöne) = **BEWAHREN**
 
 ### Fallstrick #10: Kein DSP-Fallback für ML-Plugin
+
 ❌ Plugin importiert ML-Modell ohne `try/except ImportError`
 ✅ `try: import onnxruntime ... except (ImportError, FileNotFoundError): dsp_fallback()`
 

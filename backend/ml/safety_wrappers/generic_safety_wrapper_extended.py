@@ -12,7 +12,6 @@ Date: 8. Februar 2026
 """
 
 # Import Musical Goals integration
-import sys
 from collections.abc import Callable
 from typing import Any
 
@@ -93,13 +92,13 @@ class GenericDynamicsSafety(BaseSafetyWrapper):
         # Very limited dynamic range - little to process
         if dynamic_range_db < 10:
             warnings.append(
-                f"Limited dynamic range ({dynamic_range_db:.1f} dB). " "Dynamics processing may have limited effect."
+                f"Limited dynamic range ({dynamic_range_db:.1f} dB). Dynamics processing may have limited effect."
             )
 
         # Extremely high dynamic range - difficult to process safely
         if dynamic_range_db > 60:
             warnings.append(
-                f"Very high dynamic range ({dynamic_range_db:.1f} dB). " "Careful processing needed to avoid artifacts."
+                f"Very high dynamic range ({dynamic_range_db:.1f} dB). Careful processing needed to avoid artifacts."
             )
 
         return PreCheckResult(
@@ -234,7 +233,9 @@ class GenericDynamicsSafety(BaseSafetyWrapper):
         # Compute envelope
         from scipy.signal import hilbert
 
-        envelope = np.abs(hilbert(audio))
+        analytic = hilbert(audio)
+        analytic_arr = np.asarray(analytic, dtype=np.complex128)
+        envelope = np.abs(analytic_arr)
 
         # Smooth envelope
         from scipy.ndimage import gaussian_filter1d
@@ -380,13 +381,12 @@ class GenericSpectralSafety(BaseSafetyWrapper):
         # Very bright signal - EQ boost may cause harshness
         if spectral_centroid > sr / 4:
             warnings.append(
-                f"Very bright signal (centroid={spectral_centroid:.0f} Hz). "
-                "High-frequency boost may cause harshness."
+                f"Very bright signal (centroid={spectral_centroid:.0f} Hz). High-frequency boost may cause harshness."
             )
 
         # Very flat spectrum - may be noise-like
         if spectral_flatness > 0.9:
-            warnings.append(f"Flat spectrum (flatness={spectral_flatness:.2f}). " "Signal may be primarily noise.")
+            warnings.append(f"Flat spectrum (flatness={spectral_flatness:.2f}). Signal may be primarily noise.")
 
         return PreCheckResult(
             passed=True,
@@ -613,12 +613,10 @@ class GenericSpatialSafety(BaseSafetyWrapper):
         warnings = []
 
         if stereo_width < 0.2:
-            warnings.append(f"Nearly mono signal (width={stereo_width:.2f}). " "Widening may sound artificial.")
+            warnings.append(f"Nearly mono signal (width={stereo_width:.2f}). Widening may sound artificial.")
 
         if stereo_width > 0.8:
-            warnings.append(
-                f"Already very wide (width={stereo_width:.2f}). " "Further widening may cause phase issues."
-            )
+            warnings.append(f"Already very wide (width={stereo_width:.2f}). Further widening may cause phase issues.")
 
         return PreCheckResult(
             passed=True,

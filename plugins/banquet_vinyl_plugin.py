@@ -247,7 +247,8 @@ class BanquetVinylPlugin:
                 try:
                     inp_tensor, stft_ctx = self._prepare_input(chunk, channels)
                     raw_out = self._session.run([self._output_name], {self._input_name: inp_tensor})[0]
-                    raw_out = np.nan_to_num(raw_out, nan=0.0, posinf=0.0, neginf=0.0)
+                    raw_out_arr = np.asarray(raw_out, dtype=np.float32)
+                    raw_out = np.nan_to_num(raw_out_arr, nan=0.0, posinf=0.0, neginf=0.0)
                     chunk_out = self._extract_output(raw_out, channels, chunk_len, stft_ctx)
                     self._chunk_failures = 0
                 except Exception as exc:
@@ -316,7 +317,6 @@ class BanquetVinylPlugin:
 
             feat = np.zeros((1, 128, 128, 128), dtype=np.float32)
             for b in range(128):
-                2 * b
                 bin1 = min(2 * b + 1, Zxx.shape[0] - 1)
                 # 4 real features per frame: real/imag of two consecutive bins
                 r0 = stft_ctx[b, :]  # real part of band-centre bin

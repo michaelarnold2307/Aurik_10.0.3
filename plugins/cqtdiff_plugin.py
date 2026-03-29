@@ -258,12 +258,16 @@ class CQTdiffPlusPlugin:
     ) -> np.ndarray:
         """Diffusions-Inpainting via CQT-Score-Netzwerk (ONNX)."""
         try:
+            session = self._session
+            if session is None:
+                raise RuntimeError("CQTdiff ONNX-Session nicht initialisiert")
+
             # Kontext für Konditionierung (Phrasen-Kontext oder lokaler Kontext)
             ctx = context if context is not None else self._extract_local_context(audio, gap_start, gap_end)
             ctx_feat = np.abs(np.fft.rfft(ctx, n=2048)).astype(np.float32)[np.newaxis, np.newaxis, :]
 
-            input_name = self._session.get_inputs()[0].name
-            outputs = self._session.run(None, {input_name: ctx_feat})
+            input_name = session.get_inputs()[0].name
+            outputs = session.run(None, {input_name: ctx_feat})
 
             # Score-Netzwerk-Output → synthetisierter Lücken-Inhalt
             if outputs and outputs[0] is not None:

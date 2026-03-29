@@ -197,6 +197,19 @@ class TestAllMethodsCompare:
         out = afs.formant_shift(audio, SR, shift_ratio=1.2)
         assert not np.isnan(out).any()
 
+    @pytest.mark.parametrize("method", ["simple_lpc", "psola", "world"])
+    def test_stereo_input_supported(self, method):
+        left = _sine(2048, freq=330.0)
+        right = _sine(2048, freq=550.0)
+        stereo = np.stack([left, right], axis=1)
+
+        afs = AdaptiveFormantShifter(method=method)
+        out = afs.formant_shift(stereo, SR, shift_ratio=1.1)
+
+        assert out.shape == stereo.shape
+        assert not np.isnan(out).any()
+        assert not np.isinf(out).any()
+
     def test_unknown_method_falls_back(self):
         """Unbekannte Methode → Fallback auf LPC (kein Absturz, kein NaN)."""
         afs = AdaptiveFormantShifter(method="nonexistent_method_42")

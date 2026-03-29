@@ -29,7 +29,6 @@ from __future__ import annotations
 import logging
 import threading
 from dataclasses import dataclass
-from typing import Optional
 
 import numpy as np
 import scipy.signal
@@ -292,7 +291,7 @@ def _channel_d(mono: np.ndarray) -> np.ndarray:
     feats = []
     for f_mod in _MOD_FREQS_HZ:
         # Breitbandige Hüllkurven via Hilbert-Transform
-        analytic = scipy.signal.hilbert(mono)
+        analytic: np.ndarray = scipy.signal.hilbert(np.asarray(mono, dtype=np.float64))  # type: ignore[call-overload]
         envelope = np.abs(analytic)
 
         # Bandpass um f_mod in der Hüllkurve
@@ -301,7 +300,7 @@ def _channel_d(mono: np.ndarray) -> np.ndarray:
         f_hi = min(f_mod * 1.4, nyq - 1)
         if f_hi > f_lo and f_hi < nyq:
             try:
-                b, a = scipy.signal.butter(2, [f_lo / nyq, f_hi / nyq], btype="bandpass")
+                b, a = scipy.signal.butter(2, [f_lo / nyq, f_hi / nyq], btype="bandpass", output="ba")  # type: ignore[misc]
                 mod_sig = scipy.signal.filtfilt(b, a, envelope)
             except Exception:
                 mod_sig = envelope

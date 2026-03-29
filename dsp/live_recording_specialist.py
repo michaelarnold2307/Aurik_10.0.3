@@ -92,7 +92,8 @@ class CrowdNoiseIsolator:
         crowd_noise_ratio = np.mean(crowd_frames)
 
         # Detect applause (transient bursts in crowd band)
-        envelope = np.abs(hilbert(audio))
+        analytic = np.asarray(hilbert(np.asarray(audio, dtype=np.float64)), dtype=np.complex128)
+        envelope = np.sqrt(np.square(analytic.real) + np.square(analytic.imag))
         envelope_smooth = np.convolve(envelope, np.ones(int(0.05 * sr)) / (0.05 * sr), mode="same")
         transients = np.diff(envelope_smooth) > (np.std(envelope_smooth) * 3)
         applause_detected = np.sum(transients) > (len(audio) / sr) * 2  # >2 bursts/second
@@ -201,7 +202,8 @@ class RoomDeverberator:
         """
         # Use Schroeder integration method
         # 1. Compute squared impulse response (energy decay curve)
-        envelope = np.abs(hilbert(audio))
+        analytic = np.asarray(hilbert(np.asarray(audio, dtype=np.float64)), dtype=np.complex128)
+        envelope = np.sqrt(np.square(analytic.real) + np.square(analytic.imag))
         energy = envelope**2
 
         # 2. Reverse integrate (Schroeder curve)
@@ -403,8 +405,8 @@ class FeedbackCanceller:
         """
         # FFT analysis
         fft_size = 8192  # High resolution for narrow peaks
-        audio_fft = rfft(audio, n=fft_size)
-        magnitude = np.abs(audio_fft)
+        audio_fft = np.asarray(rfft(audio, n=fft_size), dtype=np.complex128)
+        magnitude = np.sqrt(np.square(audio_fft.real) + np.square(audio_fft.imag))
         freqs = np.fft.rfftfreq(fft_size, 1 / sr)
 
         # Focus on feedback range (200-4000 Hz)
@@ -449,7 +451,7 @@ class FeedbackCanceller:
             # Design notch filter (iirnotch)
             b, a = signal.iirnotch(w0, Q, sr)
             sos = signal.tf2sos(b, a)
-            audio = sosfilt(sos, audio)
+            audio = np.asarray(sosfilt(sos, audio), dtype=np.float64)
 
         return audio.astype(input_dtype)
 
@@ -490,8 +492,8 @@ class PAResonanceRemover:
         """
         # FFT analysis
         fft_size = 8192
-        audio_fft = rfft(audio, n=fft_size)
-        magnitude = np.abs(audio_fft)
+        audio_fft = np.asarray(rfft(audio, n=fft_size), dtype=np.complex128)
+        magnitude = np.sqrt(np.square(audio_fft.real) + np.square(audio_fft.imag))
         freqs = np.fft.rfftfreq(fft_size, 1 / sr)
 
         # Convert to dB
@@ -548,7 +550,7 @@ class PAResonanceRemover:
             a = np.array([a0, a1, a2]) / a0
 
             sos = signal.tf2sos(b, a)
-            audio = sosfilt(sos, audio)
+            audio = np.asarray(sosfilt(sos, audio), dtype=np.float64)
 
         return audio.astype(input_dtype)
 
@@ -596,7 +598,8 @@ class HandlingNoiseDetector:
         filtered = sosfilt(sos, audio)
 
         # Compute envelope (absolute value)
-        envelope = np.abs(hilbert(filtered))
+        analytic = np.asarray(hilbert(np.asarray(filtered, dtype=np.float64)), dtype=np.complex128)
+        envelope = np.sqrt(np.square(analytic.real) + np.square(analytic.imag))
 
         # Smooth envelope (10ms window)
         window_size = int(0.01 * sr)
@@ -752,8 +755,8 @@ class RoomModeCorrector:
         """
         # FFT analysis (high resolution for low frequencies)
         fft_size = 16384
-        audio_fft = rfft(audio, n=fft_size)
-        magnitude = np.abs(audio_fft)
+        audio_fft = np.asarray(rfft(audio, n=fft_size), dtype=np.complex128)
+        magnitude = np.sqrt(np.square(audio_fft.real) + np.square(audio_fft.imag))
         freqs = np.fft.rfftfreq(fft_size, 1 / sr)
 
         # Convert to dB
@@ -816,7 +819,7 @@ class RoomModeCorrector:
             a = np.array([a0, a1, a2]) / a0
 
             sos = signal.tf2sos(b, a)
-            audio = sosfilt(sos, audio)
+            audio = np.asarray(sosfilt(sos, audio), dtype=np.float64)
 
         return audio.astype(input_dtype)
 

@@ -17,6 +17,7 @@ import logging
 import math
 import os
 import threading
+from typing import Any
 
 import numpy as np
 
@@ -77,9 +78,9 @@ class DeepFilterNetV3Plugin:
         d = model_dir or _DIR
         if root:
             d = os.path.join(root, "models", "deepfilternet_v3_ii")
-        self._enc: object | None = None
-        self._dec: object | None = None
-        self._erb_dec: object | None = None
+        self._enc: Any = None
+        self._dec: Any = None
+        self._erb_dec: Any = None
         self._try_load(d)
 
     def _try_load(self, d: str) -> None:

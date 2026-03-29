@@ -15,6 +15,7 @@ import logging
 import math
 import os
 import threading
+from typing import Any
 
 import numpy as np
 
@@ -41,7 +42,7 @@ class DemucsV4Plugin:
         p = model_path or _MODEL_PATH
         if root:
             p = os.path.join(root, "models", "demucs", "htdemucs_6s.onnx")
-        self._session = None
+        self._session: Any = None
         self._model_path = p
         self._try_load()
 
@@ -226,7 +227,7 @@ class DemucsV4Plugin:
 
                 if result is not None and result.shape[1] == len(_STEMS):
                     for si, name in enumerate(_STEMS):
-                        seg = result[0, si, :, : end - start].T  # [n, 2]
+                        seg = np.asarray(result)[0, si, :, : end - start].T  # [n, 2]
                         out_stems[name][start:end] += seg[: end - start]
                 else:
                     raise ValueError(f"Unerwartetes Output-Shape: {[o.shape for o in outputs]}")

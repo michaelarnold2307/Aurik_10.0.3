@@ -17,11 +17,11 @@ import argparse
 import json
 import logging
 from pathlib import Path
-from typing import Dict, Optional
 
 import librosa
 import numpy as np
-from scipy.fft import fft, fftfreq
+from numpy.fft import rfft as fft
+from numpy.fft import rfftfreq as fftfreq
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -124,12 +124,8 @@ class ValidationSuite:
 
         # Compute FFT
         n_fft = 8192
-        fft_result = np.abs(fft(audio[:n_fft]))
+        fft_result = np.abs(fft(np.asarray(audio[:n_fft], dtype=np.float64)))
         freqs = fftfreq(n_fft, 1 / sr)
-
-        # Only positive frequencies
-        fft_result = fft_result[: n_fft // 2]
-        freqs = freqs[: n_fft // 2]
 
         # Find harmonics
         fundamental_power = 0
@@ -199,7 +195,6 @@ class ValidationSuite:
         peak_db = 20 * np.log10(peak + 1e-10)
 
         # Crest factor
-        peak / (rms + 1e-10)
         crest_factor_db = peak_db - rms_db
 
         # Dynamic range (90th percentile - 10th percentile)

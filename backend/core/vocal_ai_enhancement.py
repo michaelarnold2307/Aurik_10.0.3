@@ -20,11 +20,11 @@ Version: 1.0.0
 import logging
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 import numpy as np
 from scipy import signal
-from scipy.fft import rfft, rfftfreq
+from scipy.fft import rfftfreq
 
 logger = logging.getLogger(__name__)
 
@@ -261,7 +261,8 @@ class GenderDetector:
             frame_energy = np.dot(windowed, windowed)
             if frame_energy > 0:
                 # Find peaks in magnitude spectrum (simplified formant detector)
-                spectrum = np.abs(rfft(windowed))
+                windowed_arr = np.asarray(windowed, dtype=np.float64)
+                spectrum = np.abs(np.fft.rfft(windowed_arr))
                 freqs = rfftfreq(len(windowed), 1 / self.sr)
 
                 # Find peaks in 200-5000 Hz range
@@ -686,7 +687,9 @@ class BreathPreservingProcessor:
         breath_signal = signal.sosfilt(sos, audio)
 
         # Envelope
-        envelope = np.abs(signal.hilbert(breath_signal))
+        analytic = signal.hilbert(breath_signal)
+        analytic_arr = np.asarray(analytic, dtype=np.complex128)
+        envelope = np.abs(analytic_arr)
 
         # Smooth
         window_size = int(0.05 * self.sr)  # 50ms
@@ -840,7 +843,7 @@ class UnifiedVocalAIEnhancer:
             # Apply same processing to both channels
             # (In production: might want to process L/R independently)
             ratio = processed / (audio_mono + 1e-10)
-            ratio = np.nan_to_num(ratio, 0)
+            ratio = np.nan_to_num(ratio, nan=0.0, posinf=0.0, neginf=0.0)
             result_audio = audio * ratio[:, np.newaxis]
         else:
             result_audio = processed
@@ -978,9 +981,9 @@ if __name__ == "__main__":
         vocal, emotion_mode=EmotionPreservationMode.BALANCED, breath_preservation=0.7, sibilance_reduction=True
     )
 
-    logger.debug(f"\n{'='*70}")
+    logger.debug(f"\n{'=' * 70}")
     logger.debug("RESULTS:")
-    logger.debug(f"{'='*70}")
+    logger.debug(f"{'=' * 70}")
     logger.debug(f"Gender Detected: {result.characteristics.gender.value}")
     if result.characteristics.age_group:
         logger.debug(f"Age Group: {result.characteristics.age_group.value}")
@@ -995,7 +998,7 @@ if __name__ == "__main__":
     for proc in result.processing_applied:
         logger.debug(f"  ✓ {proc}")
 
-    logger.debug(f"\n{'='*70}")
+    logger.debug(f"\n{'=' * 70}")
     logger.debug("✅ Vocal AI Enhancement Test Complete!")
 
 

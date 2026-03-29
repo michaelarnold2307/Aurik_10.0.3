@@ -25,10 +25,11 @@ import logging
 import time
 from dataclasses import dataclass
 from enum import Enum
+from typing import Any
 
 import numpy as np
+import numpy.fft as np_fft
 import scipy.signal as signal
-from scipy.fft import rfft, rfftfreq
 
 logger = logging.getLogger(__name__)
 
@@ -66,6 +67,7 @@ class NVSRResult:
     target_bandwidth_hz: int
     processing_time_sec: float
     skipped_reason: str | None = None
+    metadata: dict[str, Any] | None = None
 
 
 class HybridNVSR:
@@ -91,18 +93,92 @@ class HybridNVSR:
     def __init__(self, config: NVSRConfig | None = None) -> None:
         self.config = config or NVSRConfig()
         self.audiosr_plugin = None
-        self._init_audiosr()
+        self._ml_guard_events: list[dict[str, Any]] = []
 
     def _init_audiosr(self) -> None:
-        """Initialize AudioSR plugin if available"""
+        """Initialize AudioSR plugin lazily when needed."""
         try:
             from plugins.audiosr_plugin import AudioSRPlugin
 
             self.audiosr_plugin = AudioSRPlugin(timeout=300)
             logger.info("AudioSR plugin initialized for NVSR")
         except Exception as e:
-            logger.warning(f"AudioSR plugin not available: {e}")
+            logger.warning("AudioSR plugin not available: %s", e)
             self.audiosr_plugin = None
+
+    def _has_sufficient_ml_headroom(self, audio: np.ndarray, sample_rate: int, phase_id: str) -> bool:
+        """Return True when enough physical RAM is available for AudioSR stage."""
+        try:
+            import gc
+
+            import psutil
+        except Exception:
+            return True
+
+        n_samples = int(
+            audio.shape[-1]
+            if audio.ndim == 2 and audio.shape[0] <= 2 and audio.shape[1] > audio.shape[0]
+            else audio.shape[0]
+        )
+        n_channels = 2 if audio.ndim == 2 else 1
+        duration_s = n_samples / float(max(1, sample_rate))
+
+        required_gb = 6.0
+        if n_channels >= 2:
+            required_gb += 2.0
+        if duration_s >= 180.0:
+            required_gb += 2.0
+        elif duration_s >= 60.0:
+            required_gb += 1.0
+
+        available_gb = float(psutil.virtual_memory().available / (1024**3))
+        if available_gb < required_gb + 1.5:
+            try:
+                from backend.core.plugin_lifecycle_manager import evict_stale_plugins
+
+                evict_stale_plugins(required_mb=int(required_gb * 1024))
+            except Exception:
+                pass
+            gc.collect()
+            try:
+                import ctypes as _ct
+
+                _ct.CDLL("libc.so.6").malloc_trim(0)
+            except Exception:
+                pass
+            available_gb = float(psutil.virtual_memory().available / (1024**3))
+
+        if available_gb < required_gb:
+            self._ml_guard_events.append(
+                {
+                    "phase_id": phase_id,
+                    "model": "AudioSR",
+                    "reason": "insufficient_physical_ram_headroom",
+                    "required_gb": float(required_gb),
+                    "available_gb": float(available_gb),
+                    "channels": int(n_channels),
+                    "duration_s": float(duration_s),
+                    "fallback": "dsp",
+                }
+            )
+            logger.warning(
+                "NVSR RAM guard triggered: %.1f GB available, %.1f GB required (duration=%.1fs channels=%d) - using DSP fallback",
+                available_gb,
+                required_gb,
+                duration_s,
+                n_channels,
+            )
+            return False
+
+        return True
+
+    def _get_audiosr_plugin(self, audio: np.ndarray, sample_rate: int, phase_id: str) -> Any:
+        """Return AudioSR plugin only when guard allows ML stage."""
+        if not self._has_sufficient_ml_headroom(audio, sample_rate, phase_id):
+            return None
+        if self.audiosr_plugin is None:
+            self._init_audiosr()
+        return self.audiosr_plugin
 
     def restore_bandwidth(
         self,
@@ -124,6 +200,7 @@ class HybridNVSR:
             NVSRResult with restored audio and metadata
         """
         start_time = time.time()
+        self._ml_guard_events = []
 
         # Detect current bandwidth
         detected_bandwidth = self._detect_bandwidth(audio, sample_rate)
@@ -147,6 +224,11 @@ class HybridNVSR:
 
         # Update processing time
         result.processing_time_sec = time.time() - start_time
+        if result.metadata is None:
+            result.metadata = {}
+        if self._ml_guard_events:
+            result.metadata["ml_guard_events"] = list(self._ml_guard_events)
+            result.metadata["deferred_for_kmv"] = ["phase_06_frequency_restoration"]
 
         return result
 
@@ -161,11 +243,13 @@ class HybridNVSR:
             audio = np.mean(audio, axis=0)
 
         # Compute FFT
-        fft_data = rfft(audio)
-        freqs = rfftfreq(len(audio), d=1.0 / sample_rate)
+        audio_mono = np.asarray(audio, dtype=np.float64)
+        fft_data = np_fft.rfft(audio_mono)
+        freqs = np_fft.rfftfreq(len(audio), d=1.0 / sample_rate)
 
         # Compute magnitude spectrum in dB
-        magnitude_db = 20 * np.log10(np.abs(fft_data) + 1e-10)
+        magnitude = np.asarray(np.abs(fft_data), dtype=np.float64)
+        magnitude_db = np.asarray(20.0 * np.log10(magnitude + 1e-10), dtype=np.float64)
 
         # Normalize to peak
         magnitude_db -= np.max(magnitude_db)
@@ -193,13 +277,14 @@ class HybridNVSR:
 
     def _apply_audiosr_only(self, audio: np.ndarray, sample_rate: int, detected_bandwidth: float) -> NVSRResult:
         """AudioSR-only path"""
-        if self.audiosr_plugin is None:
+        plugin = self._get_audiosr_plugin(audio, sample_rate, "phase_06_frequency_restoration")
+        if plugin is None:
             logger.warning("AudioSR not available, falling back to DSP")
             return self._apply_dsp_only(audio, sample_rate, detected_bandwidth)
 
         try:
             # Apply AudioSR
-            restored = self._run_audiosr(audio, sample_rate)
+            restored = self._run_audiosr(audio, sample_rate, plugin)
 
             return NVSRResult(
                 restored_audio=restored,
@@ -249,7 +334,8 @@ class HybridNVSR:
             f"Bandwidth {detected_bandwidth:.0f} Hz < {self.config.bandwidth_threshold_hz} Hz, applying AudioSR"
         )
 
-        if self.audiosr_plugin is None:
+        plugin = self._get_audiosr_plugin(audio, sample_rate, "phase_06_frequency_restoration")
+        if plugin is None:
             logger.warning("AudioSR not available, using DSP restoration")
             return NVSRResult(
                 restored_audio=base_audio,
@@ -264,7 +350,7 @@ class HybridNVSR:
 
         try:
             # Apply AudioSR for bandwidth extension
-            restored = self._run_audiosr(audio, sample_rate)
+            restored = self._run_audiosr(audio, sample_rate, plugin)
 
             return NVSRResult(
                 restored_audio=restored,
@@ -301,13 +387,14 @@ class HybridNVSR:
         """
         base_audio = dsp_restored_audio if dsp_restored_audio is not None else audio
 
-        if self.audiosr_plugin is None:
+        plugin = self._get_audiosr_plugin(audio, sample_rate, "phase_06_frequency_restoration")
+        if plugin is None:
             logger.warning("AudioSR not available, falling back to DSP")
             return self._apply_dsp_only(base_audio, sample_rate, detected_bandwidth)
 
         try:
             # Apply AudioSR
-            audiosr_result = self._run_audiosr(audio, sample_rate)
+            audiosr_result = self._run_audiosr(audio, sample_rate, plugin)
 
             # Blend DSP and AudioSR
             # Strategy: DSP for low frequencies (stable), AudioSR for high frequencies (natural)
@@ -329,14 +416,16 @@ class HybridNVSR:
             logger.error(f"Hybrid processing failed: {e}")
             return self._apply_dsp_only(base_audio, sample_rate, detected_bandwidth)
 
-    def _run_audiosr(self, audio: np.ndarray, sample_rate: int) -> np.ndarray:
+    def _run_audiosr(self, audio: np.ndarray, sample_rate: int, plugin: Any) -> np.ndarray:
         """
         Run AudioSR neural super-resolution via array-based plugin API.
 
         AudioSRPlugin.process() accepts [samples] or [channels, samples] and
         handles resampling, NaN-guards and target_sr internally.
         """
-        return self.audiosr_plugin.process(audio, sample_rate, target_sr=self.config.audiosr_target_sr)
+        if not self._has_sufficient_ml_headroom(audio, sample_rate, "phase_06_frequency_restoration"):
+            raise RuntimeError("AudioSR guard triggered before inference")
+        return plugin.process(audio, sample_rate, target_sr=self.config.audiosr_target_sr)
 
     def _blend_audio(
         self, audio_a: np.ndarray, audio_b: np.ndarray, sample_rate: int, crossover_freq: float, blend_ratio: float

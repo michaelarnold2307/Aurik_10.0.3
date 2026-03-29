@@ -17,12 +17,15 @@ Version: 1.0.0
 import numpy as np
 import pytest
 
-# Check if dependencies are available
+# Check if dependencies are available.
+# Use broad except to catch UserWarning-as-error (-W error) from broken optional
+# torch installs that trigger resampy → pkg_resources → DeprecationWarning.
+torch = None
 try:
-    import torch
+    import torch  # type: ignore[assignment]
 
     TRANSFORMERS_AVAILABLE = True
-except ImportError:
+except Exception:
     TRANSFORMERS_AVAILABLE = False
 
 # Try to import PhonemeDetector (may fail without dependencies)
@@ -33,7 +36,7 @@ try:
     from backend.ml.phoneme_aware import PhonemeDetector
 
     DETECTOR_AVAILABLE = True
-except ImportError:
+except Exception:
     DETECTOR_AVAILABLE = False
 
 
@@ -148,6 +151,7 @@ class TestLanguageEnum:
         assert len(languages) == 8
 
 
+@pytest.mark.ml
 @pytest.mark.skipif(not TRANSFORMERS_AVAILABLE, reason="Requires torch/transformers")
 class TestPhonemeDetectorInitialization:
     """Test PhonemeDetector initialization (without loading model)"""
@@ -178,7 +182,7 @@ class TestPhonemeDetectorInitialization:
         detector = PhonemeDetector(config)
 
         device = detector.device
-        assert isinstance(device, torch.device)
+        assert isinstance(device, torch.device)  # type: ignore[union-attr]
         assert device.type == "cpu"
 
     def test_device_property_gpu(self):
@@ -187,10 +191,11 @@ class TestPhonemeDetectorInitialization:
         detector = PhonemeDetector(config)
 
         device = detector.device
-        assert isinstance(device, torch.device)
+        assert isinstance(device, torch.device)  # type: ignore[union-attr]
         assert device.type == "cpu"
 
 
+@pytest.mark.ml
 @pytest.mark.skipif(not TRANSFORMERS_AVAILABLE, reason="Requires torch/transformers")
 class TestPhonemeDetectorPreprocessing:
     """Test audio preprocessing methods"""
@@ -327,6 +332,7 @@ class TestPhonemeDetectorDetection:
         assert len(phonemes_high) <= len(phonemes_low)
 
 
+@pytest.mark.ml
 @pytest.mark.skipif(not TRANSFORMERS_AVAILABLE, reason="Requires torch/transformers")
 class TestPhonemeDetectorTimeline:
     """Test phoneme timeline generation"""
@@ -382,6 +388,7 @@ class TestPhonemeDetectorTimeline:
         assert timeline[2] == "s"
 
 
+@pytest.mark.ml
 @pytest.mark.skipif(not TRANSFORMERS_AVAILABLE, reason="Requires torch/transformers")
 class TestPhonemeDetectorStatistics:
     """Test statistics computation"""
@@ -433,6 +440,7 @@ class TestPhonemeDetectorStatistics:
         assert stats["phoneme_counts"]["a"] == 1
 
 
+@pytest.mark.ml
 @pytest.mark.skipif(not TRANSFORMERS_AVAILABLE, reason="Requires torch/transformers")
 class TestPhonemeDetectorEdgeCases:
     """Test edge cases and error handling"""

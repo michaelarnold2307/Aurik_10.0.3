@@ -34,143 +34,104 @@ for fname in os.listdir(DSP_PATH):
     for match in re.finditer(r"class (\w+)", content):
         cls = match.group(1)
         # Mapping nach Namensähnlichkeit (vereinfachte Heuristik)
-        key = (
-            cls.replace("_", " ")
-            .replace("AI", "Ai")
-            .replace("SOTA", "Sota")
-            .replace("Adaptive", "Adaptive ")
-            .replace("Remover", " Remover")
-            .replace("Enhancer", " Enhancer")
-            .replace("Separator", " Separator")
-            .replace("Exciter", " Exciter")
-            .replace("Limiter", " Limiter")
-            .replace("Compressor", " Compressor")
-            .replace("Gate", " Gate")
-            .replace("Shaper", " Shaper")
-            .replace("Preservation", " Preservation")
-            .replace("Detection", " Detection")
-            .replace("Correction", " Correction")
-            .replace("Matrix", " Matrix")
-            .replace("Widener", " Widener")
-            .replace("Expander", " Expander")
-            .replace("Declipper", " Declipper")
-            .replace("Denoiser", " Denoiser")
-            .replace("Equalizer", " Equalizer")
-            .replace("Analyzer", " Analyzer")
-            .replace("Evaluator", " Evaluator")
-            .replace("Estimator", " Estimator")
-            .replace("Profile", " Profile")
-            .replace("Filter", " Filter")
-            .replace("Synthesizer", " Synthesizer")
-            .replace("Regenerator", " Regenerator")
-            .replace("Filler", " Filler")
-            .replace("Inpainting", " Inpainting")
-            .replace("SuperRes", " SuperRes")
-            .replace("SuperResolution", " SuperResolution")
-            .replace("Normalizer", " Normalizer")
-            .replace("Normalizer", " Normalizer")
-            .replace("Balancer", " Balancer")
-            .replace("Ducker", " Ducker")
-            .replace("Panner", " Panner")
-            .replace("Analyzer", " Analyzer")
-            .replace("Remover", " Remover")
-            .replace("Artifact", " Artifact")
-            .replace("Artifact", " Artifact")
-            .replace("TruePeak", " TruePeak")
-            .replace("Oversampler", " Oversampler")
-            .replace("AGC", " AGC")
-            .replace("Leveler", " Leveler")
-            .replace("Formant", " Formant")
-            .replace("Preserver", " Preserver")
-            .replace("Isolator", " Isolator")
-            .replace("Confidence", " Confidence")
-            .replace("Weighting", " Weighting")
-            .replace("Hole", " Hole")
-            .replace("Segment", " Segment")
-            .replace("Genre", " Genre")
-            .replace("Key", " Key")
-            .replace("Beat", " Beat")
-            .replace("Onset", " Onset")
-            .replace("Sibilance", " Sibilance")
-            .replace("Breath", " Breath")
-            .replace("Dropout", " Dropout")
-            .replace("Crackle", " Crackle")
-            .replace("Bias", " Bias")
-            .replace("NAB", " NAB")
-            .replace("RIAA", " RIAA")
-            .replace("PrintThrough", " PrintThrough")
-            .replace("Azimuth", " Azimuth")
-            .replace("Bark", " Bark")
-            .replace("ISO", " ISO")
-            .replace("BS", " BS")
-            .replace("Loudness", " Loudness")
-            .replace("Range", " Range")
-            .replace("Fade", " Fade")
-            .replace("SampleRate", " Sample Rate")
-            .replace("Dithering", " Dithering")
-            .replace("NoiseShaping", " Noise Shaping")
-            .replace("Intersample", " Intersample")
-            .replace("TruePeak", " True Peak")
-            .replace("LRA", " LRA")
-            .replace("AGC", " AGC")
-            .replace("Leveler", " Leveler")
-            .replace("Multiband", " Multiband")
-            .replace("MCRA", " MCRA")
-            .replace("IMCRA", " IMCRA")
-            .replace("MMSE", " MMSE")
-            .replace("OMLSA", " OMLSA")
-            .replace("PSOLA", " PSOLA")
-            .replace("WSOLA", " WSOLA")
-            .replace("CQT", " CQT")
-            .replace("STFT", " STFT")
-            .replace("ISTFT", " ISTFT")
-            .replace("RMS", " RMS")
-            .replace("SNR", " SNR")
-            .replace("LSD", " LSD")
-            .replace("MOS", " MOS")
-            .replace("SDR", " SDR")
-            .replace("SI", " SI")
-            .replace("DNSMOS", " DNSMOS")
-            .replace("NISQA", " NISQA")
-            .replace("POLQA", " POLQA")
-            .replace("PESQ", " PESQ")
-            .replace("ViSQOL", " ViSQOL")
-            .replace("STOI", " STOI")
-            .replace("LRA", " LRA")
-            .replace("Loudness", " Loudness")
-            .replace("Range", " Range")
-            .replace("Fade", " Fade")
-            .replace("SampleRate", " Sample Rate")
-            .replace("Dithering", " Dithering")
-            .replace("NoiseShaping", " Noise Shaping")
-            .replace("Intersample", " Intersample")
-            .replace("TruePeak", " True Peak")
-            .replace("LRA", " LRA")
-            .replace("AGC", " AGC")
-            .replace("Leveler", " Leveler")
-            .replace("Multiband", " Multiband")
-            .replace("MCRA", " MCRA")
-            .replace("IMCRA", " IMCRA")
-            .replace("MMSE", " MMSE")
-            .replace("OMLSA", " OMLSA")
-            .replace("PSOLA", " PSOLA")
-            .replace("WSOLA", " WSOLA")
-            .replace("CQT", " CQT")
-            .replace("STFT", " STFT")
-            .replace("ISTFT", " ISTFT")
-            .replace("RMS", " RMS")
-            .replace("SNR", " SNR")
-            .replace("LSD", " LSD")
-            .replace("MOS", " MOS")
-            .replace("SDR", " SDR")
-            .replace("SI", " SI")
-            .replace("DNSMOS", " DNSMOS")
-            .replace("NISQA", " NISQA")
-            .replace("POLQA", " POLQA")
-            .replace("PESQ", " PESQ")
-            .replace("ViSQOL", " ViSQOL")
-            .replace("STOI", " STOI")
-        )
+        key = cls.replace("_", " ")
+        replacements = {
+            "AI": "Ai",
+            "SOTA": "Sota",
+            "Adaptive": "Adaptive ",
+            "Remover": " Remover",
+            "Enhancer": " Enhancer",
+            "Separator": " Separator",
+            "Exciter": " Exciter",
+            "Limiter": " Limiter",
+            "Compressor": " Compressor",
+            "Gate": " Gate",
+            "Shaper": " Shaper",
+            "Preservation": " Preservation",
+            "Detection": " Detection",
+            "Correction": " Correction",
+            "Matrix": " Matrix",
+            "Widener": " Widener",
+            "Expander": " Expander",
+            "Declipper": " Declipper",
+            "Denoiser": " Denoiser",
+            "Equalizer": " Equalizer",
+            "Analyzer": " Analyzer",
+            "Evaluator": " Evaluator",
+            "Estimator": " Estimator",
+            "Profile": " Profile",
+            "Filter": " Filter",
+            "Synthesizer": " Synthesizer",
+            "Regenerator": " Regenerator",
+            "Filler": " Filler",
+            "Inpainting": " Inpainting",
+            "SuperRes": " SuperRes",
+            "SuperResolution": " SuperResolution",
+            "Normalizer": " Normalizer",
+            "Balancer": " Balancer",
+            "Ducker": " Ducker",
+            "Panner": " Panner",
+            "Artifact": " Artifact",
+            "TruePeak": " True Peak",
+            "Oversampler": " Oversampler",
+            "AGC": " AGC",
+            "Leveler": " Leveler",
+            "Formant": " Formant",
+            "Preserver": " Preserver",
+            "Isolator": " Isolator",
+            "Confidence": " Confidence",
+            "Weighting": " Weighting",
+            "Hole": " Hole",
+            "Segment": " Segment",
+            "Genre": " Genre",
+            "Key": " Key",
+            "Beat": " Beat",
+            "Onset": " Onset",
+            "Sibilance": " Sibilance",
+            "Breath": " Breath",
+            "Dropout": " Dropout",
+            "Crackle": " Crackle",
+            "Bias": " Bias",
+            "NAB": " NAB",
+            "RIAA": " RIAA",
+            "PrintThrough": " PrintThrough",
+            "Azimuth": " Azimuth",
+            "Bark": " Bark",
+            "ISO": " ISO",
+            "BS": " BS",
+            "Loudness": " Loudness",
+            "Range": " Range",
+            "Fade": " Fade",
+            "SampleRate": " Sample Rate",
+            "Dithering": " Dithering",
+            "NoiseShaping": " Noise Shaping",
+            "Intersample": " Intersample",
+            "LRA": " LRA",
+            "Multiband": " Multiband",
+            "MCRA": " MCRA",
+            "IMCRA": " IMCRA",
+            "MMSE": " MMSE",
+            "OMLSA": " OMLSA",
+            "PSOLA": " PSOLA",
+            "WSOLA": " WSOLA",
+            "CQT": " CQT",
+            "STFT": " STFT",
+            "ISTFT": " ISTFT",
+            "RMS": " RMS",
+            "SNR": " SNR",
+            "LSD": " LSD",
+            "MOS": " MOS",
+            "SDR": " SDR",
+            "SI": " SI",
+            "DNSMOS": " DNSMOS",
+            "NISQA": " NISQA",
+            "POLQA": " POLQA",
+            "PESQ": " PESQ",
+            "ViSQOL": " ViSQOL",
+            "STOI": " STOI",
+        }
+        for old, new in replacements.items():
+            key = key.replace(old, new)
         module_map[key.lower()] = (fname, cls)
 
 # Ergänze YAML-Einträge

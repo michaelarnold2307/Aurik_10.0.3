@@ -6,15 +6,21 @@ Dieses Modul entfernt Klicks/Knackser speziell nach RIAA-Kennlinie (Stub).
 
 import logging
 import warnings
+from typing import Any
 
 import numpy as np
 
+ort: Any | None = None
 try:
     import onnxruntime as ort
+except ImportError:
+    ort = None
+
+torch: Any | None = None
+try:
     import torch
 except ImportError:
     torch = None
-    ort = None
 from scipy.signal import medfilt
 
 from dsp._memory_budget_guard import check_budget
@@ -33,7 +39,9 @@ class AiRiaaDeclicker:
     def __init__(self, model_path: str | None = None, sensitivity: float = 1.0):
         self.model_path = model_path
         self.sensitivity = sensitivity
-        self.model = None
+        self.model = None  # Legacy alias
+        self.onnx_session = None
+        self.torch_model = None
         self.backend = None
         if model_path:
             if ort is not None:
@@ -41,13 +49,15 @@ class AiRiaaDeclicker:
                     logger.warning("Memory budget exceeded for riaa_declicker ONNX — using DSP fallback")
                 else:
                     try:
-                        self.model = ort.InferenceSession(model_path)
+                        self.onnx_session = ort.InferenceSession(model_path)
+                        self.model = self.onnx_session
                         self.backend = "onnx"
                     except Exception as e:
                         warnings.warn(f"ONNX-Modell konnte nicht geladen werden: {e}")
             elif torch is not None:
                 try:
-                    self.model = torch.jit.load(model_path)
+                    self.torch_model = torch.jit.load(model_path)
+                    self.model = self.torch_model
                     self.backend = "torch"
                 except Exception as e:
                     warnings.warn(f"Torch-Modell konnte nicht geladen werden: {e}")
@@ -77,18 +87,18 @@ class AiRiaaDeclicker:
         fallback_used = False
         try:
             # Deep-Learning-Inferenz
-            if self.model is not None and self.backend == "onnx":
+            if self.onnx_session is not None and self.backend == "onnx":
                 inp = audio.astype(np.float32)[None, None, :]
                 try:
-                    out = self.model.run(None, {self.model.get_inputs()[0].name: inp})[0]
+                    out = self.onnx_session.run(None, {self.onnx_session.get_inputs()[0].name: inp})[0]
                     audio_out = out.squeeze().astype(audio.dtype)
                 except Exception as e:
                     logger.warning(f"ONNX-Inferenz fehlgeschlagen: {e}")
                     fallback_used = True
-            elif self.model is not None and self.backend == "torch":
+            elif self.torch_model is not None and self.backend == "torch" and torch is not None:
                 try:
                     inp = torch.from_numpy(audio.astype(np.float32)).unsqueeze(0).unsqueeze(0)
-                    out = self.model(inp).detach().cpu().numpy().squeeze()
+                    out = self.torch_model(inp).detach().cpu().numpy().squeeze()
                     audio_out = out.astype(audio.dtype)
                 except Exception as e:
                     logger.warning(f"Torch-Inferenz fehlgeschlagen: {e}")

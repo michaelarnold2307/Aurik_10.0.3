@@ -345,7 +345,8 @@ def test_analyze_degraded_audio(clean_audio, detector):
 def test_aurik_standard_pass_threshold(clean_audio, detector):
     """Test AURIK standard threshold (<3 artifacts per minute)."""
     audio, sr = clean_audio
-    len(audio) / sr
+    duration_seconds = len(audio) / sr
+    assert duration_seconds > 0
 
     # Create audio with exactly 2 audible artifacts per minute
     audio_with_artifacts = audio.copy()

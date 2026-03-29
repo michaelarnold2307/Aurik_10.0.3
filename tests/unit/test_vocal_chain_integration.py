@@ -66,6 +66,66 @@ class TestPhase42GenderIntegration:
         assert result.success
         assert result.metadata.get("vocal_gender") == "unknown"
 
+    def test_phase42_exposes_saliency_metadata(self):
+        """Saliency context from UV3 must be visible in PhaseResult metadata."""
+        from backend.core.phases.phase_42_vocal_enhancement import VocalEnhancement
+
+        phase = VocalEnhancement()
+        audio = _make_vocal_signal(0.5)
+        result = phase.process(
+            audio,
+            SR,
+            strength=0.5,
+            defect_saliency_map={"sibilance": 0.8, "vocal_harshness": 0.4},
+        )
+        assert result.success
+        assert 0.0 <= float(result.metadata.get("sibilance_saliency", -1.0)) <= 1.0
+        assert 0.0 <= float(result.metadata.get("vocal_harshness_saliency", -1.0)) <= 1.0
+
+    def test_phase42_saliency_metadata_defaults_to_zero(self):
+        """Without saliency context metadata should fall back to 0.0."""
+        from backend.core.phases.phase_42_vocal_enhancement import VocalEnhancement
+
+        phase = VocalEnhancement()
+        audio = _make_vocal_signal(0.5)
+        result = phase.process(audio, SR, strength=0.5)
+        assert result.success
+        assert float(result.metadata.get("sibilance_saliency", -1.0)) == 0.0
+        assert float(result.metadata.get("vocal_harshness_saliency", -1.0)) == 0.0
+
+    def test_phase42_exposes_vocal_intimacy_metadata(self):
+        """Phase 42 must export psychoacoustic vocal-intimacy telemetry."""
+        from backend.core.phases.phase_42_vocal_enhancement import VocalEnhancement
+
+        phase = VocalEnhancement()
+        audio = _make_vocal_signal(0.8)
+        result = phase.process(audio, SR, strength=0.7)
+        assert result.success
+        assert 0.0 <= float(result.metadata.get("vocal_intimacy_pre", -1.0)) <= 1.0
+        assert 0.0 <= float(result.metadata.get("vocal_intimacy_post", -1.0)) <= 1.0
+        assert -1.0 <= float(result.metadata.get("vocal_intimacy_delta", -2.0)) <= 1.0
+        assert isinstance(result.metadata.get("vocal_intimacy_gate_triggered"), bool)
+        assert 0.0 <= float(result.metadata.get("vocal_intimacy_rescue_mix", -1.0)) <= 0.5
+
+    def test_phase42_intimacy_gate_is_material_adaptive(self):
+        """Threshold/cap should adapt to material (shellac > digital tolerance)."""
+        from backend.core.defect_scanner import MaterialType
+        from backend.core.phases.phase_42_vocal_enhancement import VocalEnhancement
+
+        phase = VocalEnhancement()
+        audio = _make_vocal_signal(0.7)
+
+        r_shellac = phase.process(audio, SR, material=MaterialType.SHELLAC, strength=0.8)
+        r_digital = phase.process(audio, SR, material=MaterialType.CD_DIGITAL, strength=0.8)
+
+        assert r_shellac.success and r_digital.success
+        assert float(r_shellac.metadata.get("vocal_intimacy_max_drop", -1.0)) >= float(
+            r_digital.metadata.get("vocal_intimacy_max_drop", 9.9)
+        )
+        assert float(r_shellac.metadata.get("vocal_intimacy_rescue_max", -1.0)) >= float(
+            r_digital.metadata.get("vocal_intimacy_rescue_max", 9.9)
+        )
+
 
 # ---------------------------------------------------------------------------
 # Test: Phase 19 uses external vocal_gender from pipeline context

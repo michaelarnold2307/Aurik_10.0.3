@@ -254,3 +254,61 @@ def set_budget(max_gb: float) -> None:
     with _lock:
         ML_MAX_GB = float(max_gb)
         logger.info("ML-Budget neu gesetzt: %.1f GB Maximum.", ML_MAX_GB)
+
+
+# ---------------------------------------------------------------------------
+# §3.9.5  Startup reconciliation
+# ---------------------------------------------------------------------------
+
+
+def _reconcile_on_startup() -> None:
+    """Reset allocated budget to 0 on fresh process start (§3.9.5).
+
+    Rationale: All allocations from a previous process are gone after OS
+    cleanup (SIGKILL / crash). Each module re-registers via try_allocate()
+    when it actually loads its model. No stale allocation persists across
+    process boundaries.  Called once at module import time.
+    """
+    global _total_gb
+    with _lock:
+        _allocated.clear()
+        _total_gb = 0.0
+    logger.info("ml_memory_budget: startup reconciliation — budget reset to 0.0 GB")
+
+
+# Run reconciliation exactly once at module import (= new process start).
+_reconcile_on_startup()
+
+
+# ---------------------------------------------------------------------------
+# §3.9.5  Thin OO wrapper — returned by get_ml_memory_budget()
+# ---------------------------------------------------------------------------
+
+
+class _MLMemoryBudgetProxy:
+    """Thin proxy so callers can use get_ml_memory_budget().try_allocate().
+
+    All work is delegated to the module-level functions; no additional state.
+    """
+
+    # Lock-order: Priority 1 (MLMemoryBudget) — see §3.9.8
+    def try_allocate(self, model_name: str, size_gb: float) -> bool:
+        return try_allocate(model_name, size_gb)
+
+    def release(self, model_name: str) -> None:
+        release(model_name)
+
+    def get_status(self) -> dict:
+        return get_status()
+
+
+_proxy_instance = _MLMemoryBudgetProxy()
+
+
+def get_ml_memory_budget() -> _MLMemoryBudgetProxy:
+    """Return the global ML-memory-budget proxy (singleton-safe).
+
+    Provides an OO API (.try_allocate / .release) in addition to the
+    module-level functions, so both usage styles work.
+    """
+    return _proxy_instance

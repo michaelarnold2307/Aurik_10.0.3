@@ -124,7 +124,7 @@ class HammerNoiseReducer:
             thump_energy_orig = np.sqrt(np.mean(thump_band**2))
 
             # Detect transients (musical notes have longer sustain)
-            envelope = np.abs(hilbert(thump_band))
+            envelope = np.abs(np.asarray(hilbert(thump_band), dtype=np.complex128))
 
             # Sharp transients are likely hammer noise
             derivative = np.diff(envelope, prepend=envelope[0])
@@ -277,7 +277,7 @@ class PedalNoiseReducer:
         pedal_energy_orig = np.sqrt(np.mean(pedal_band**2))
 
         # Detect pedal events (sharp rises in low-frequency envelope)
-        envelope = np.abs(hilbert(pedal_band))
+        envelope = np.abs(np.asarray(hilbert(pedal_band), dtype=np.complex128))
 
         # Pedal events are sudden transients
         derivative = np.diff(envelope, prepend=envelope[0])
@@ -429,7 +429,7 @@ class KeyClickReducer:
             # Musical transients have energy across wider frequency range
             sos_musical = butter(4, [1000, 4000], btype="band", fs=sr, output="sos")
             musical_band = sosfilt(sos_musical, audio)
-            musical_envelope = np.abs(hilbert(musical_band))
+            musical_envelope = np.abs(np.asarray(hilbert(musical_band), dtype=np.complex128))
 
             # Where musical content is strong, reduce click removal
             musical_threshold = np.percentile(musical_envelope, 70)

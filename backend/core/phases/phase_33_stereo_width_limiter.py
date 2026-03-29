@@ -344,7 +344,19 @@ class StereoWidthLimiterPhaseV2(PhaseInterface):
             Boolean mask (True = transient)
         """
         # Compute envelope derivative (rate of change)
-        envelope = np.abs(signal.hilbert(mid))
+        mid_1d = np.asarray(mid, dtype=np.float64).reshape(-1)
+        n = mid_1d.shape[0]
+        spectrum = np.fft.fft(mid_1d)
+        h = np.zeros(n, dtype=np.float64)
+        if n % 2 == 0:
+            h[0] = 1.0
+            h[n // 2] = 1.0
+            h[1 : n // 2] = 2.0
+        else:
+            h[0] = 1.0
+            h[1 : (n + 1) // 2] = 2.0
+        analytic = np.fft.ifft(spectrum * h)
+        envelope = np.abs(analytic)
         derivative = np.diff(envelope, prepend=envelope[0])
 
         # Smooth derivative

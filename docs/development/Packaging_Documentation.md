@@ -3,6 +3,7 @@
 ## Distribution Package
 
 ### Build Information
+
 - **Build Tool**: PyInstaller 6.18.0
 - **Python**: 3.10.12
 - **Platform**: Linux x86_64
@@ -10,6 +11,7 @@
 - **Package Size**: 7.0 GB
 
 ### Location
+
 ```
 dist/AURIK_Professional/
 ├── AURIK_Professional          # Main executable
@@ -25,6 +27,7 @@ dist/AURIK_Professional/
 ```
 
 ### Execution
+
 ```bash
 ./dist/AURIK_Professional/AURIK_Professional
 ```
@@ -32,6 +35,7 @@ dist/AURIK_Professional/
 ### Known Limitations
 
 #### 1. PortAudio Not Bundled
+
 - **Issue**: Audio playback requires PortAudio shared library
 - **Warning**: "sounddevice not available (PortAudio library not found)"
 - **Impact**: Audio preview playback disabled
@@ -41,6 +45,7 @@ dist/AURIK_Professional/
   ```
 
 #### 2. Large Package Size (7.0 GB)
+
 - **Cause**: PyTorch bundled with all CUDA dependencies
 - **Note**: AURIK doesn't use PyTorch directly, it's pulled in by librosa
 - **Solution**: See "Size Optimization" below
@@ -48,6 +53,7 @@ dist/AURIK_Professional/
 ### Size Optimization (Future)
 
 #### Option 1: Exclude PyTorch
+
 Create custom PyInstaller hook to exclude torch:
 ```python
 # exclude_torch.py hook
@@ -56,6 +62,7 @@ excludes = ['torch', 'nvidia.*']
 ```
 
 #### Option 2: Lightweight Installation
+
 - Strip CUDA libraries (if not using GPU)
 - Use CPU-only PyTorch build
 - Exclude test/debug modules
@@ -65,11 +72,13 @@ Expected size reduction: **7.0 GB → 1.5 GB**
 ### Platform-Specific Builds
 
 #### Linux (Current)
+
 - ✅ Built and tested on Ubuntu/Zorin OS
 - Format: ELF 64-bit executable
 - Dependencies: glibc 2.35+
 
 #### Windows (Future)
+
 ```bash
 pyinstaller aurik_professional.spec --windowed
 ```
@@ -77,6 +86,7 @@ pyinstaller aurik_professional.spec --windowed
 - Requires: Visual C++ Redistributable
 
 #### macOS (Future)
+
 ```bash
 pyinstaller aurik_professional.spec --onedir --windowed
 ```
@@ -86,12 +96,14 @@ pyinstaller aurik_professional.spec --onedir --windowed
 ### Distribution Formats
 
 #### Current: Directory Bundle
+
 - Fast startup
 - Easy debugging
 - Larger disk footprint
 - Users see folder structure
 
 #### Alternative: Single File
+
 ```python
 # In .spec file:
 exe = EXE(
@@ -181,15 +193,18 @@ Build time: ~3 minutes on modern hardware
 ### Troubleshooting
 
 #### "libpython3.10.so not found"
+
 ```bash
 export LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu:$LD_LIBRARY_PATH
 ```
 
 #### "Qt platform plugin not found"
+
 - Included in bundle, should not occur
 - If occurs: Install `libqt5gui5`, `libqt5widgets5`
 
 #### "No module named 'backend'"
+
 - Indicates missing hidden imports
 - Add to `.spec` file `hiddenimports` list
 
@@ -203,4 +218,3 @@ export LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu:$LD_LIBRARY_PATH
 - [ ] Set up CI/CD for automated builds
 - [ ] Add update mechanism
 - [ ] Create desktop integration (.desktop file, icon)
-

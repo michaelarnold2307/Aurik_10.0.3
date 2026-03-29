@@ -11,11 +11,11 @@ Anforderungen aus der Spec (§2.30):
   * Savitzky-Golay-Glättung (window=7, polyorder=2)
   * Stille-Schutz: L_orig[k] < MIN_LEVEL_LUFS → G[k] = 0
   * True-Peak-Prüfung nach Morphing: −1.0 dBTP
-  * mode="restoration" → MAX_GAIN=2.0 LU, "studio2026" → 3.0 LU
+    * mode="restoration" → MAX_GAIN=4.0 LU, "studio2026" → 6.0 LU
   * Alle Ausgaben NaN-frei, float32, geclippt auf ±1.0
 
 Konstanten (Spec §2.30):
-  MAX_GAIN_LU       = 3.0
+    MAX_GAIN_LU       = 6.0
   FRAME_SIZE_SAMPLES = 19200  (400 ms @ 48000 Hz)
   HOP_SIZE_SAMPLES   = 9600   (200 ms, 50 % Hop)
   PEARSON_TARGET     = 0.93
@@ -85,7 +85,7 @@ class TestConstants:
     """Konstanten müssen exakt den Spec-Werten entsprechen (§2.30)."""
 
     def test_03_max_gain_lu(self):
-        assert pytest.approx(3.0, abs=1e-9) == MAX_GAIN_LU
+        assert pytest.approx(6.0, abs=1e-9) == MAX_GAIN_LU
 
     def test_04_min_level_lufs(self):
         assert pytest.approx(-60.0, abs=1e-9) == MIN_LEVEL_LUFS

@@ -206,9 +206,9 @@ def _try_mp_senet_refine(audio: np.ndarray, sr: int) -> tuple[np.ndarray | None,
 class AdaptiveDeEsserPhase(PhaseInterface):
     """Stimmtyp-adaptiver Hybrid-De-Esser (DSP primär + optional ML refinement, §2.8)."""
 
-    phase_id = "phase_43_ml_deesser"
-    name = "Adaptive De-Esser (DSP+ML Hybrid, stimmtyp-adaptiv)"
-    description = (
+    PHASE_ID = "phase_43_ml_deesser"
+    PHASE_NAME = "Adaptive De-Esser (DSP+ML Hybrid, stimmtyp-adaptiv)"
+    PHASE_DESCRIPTION = (
         "Split-Band De-Esser mit Butterworth-Bandpass gender-adaptiver Frequenzauswahl "
         "(§2.8: MALE 5–10 kHz / FEMALE 6–12 kHz / CHILD 7–14 kHz). "
         "RMS-Hüllkurve, Gain-Reduction 1:4, Attack 2 ms / Release 80 ms, Strength-Cap. "
@@ -217,8 +217,8 @@ class AdaptiveDeEsserPhase(PhaseInterface):
 
     def get_metadata(self) -> PhaseMetadata:
         return PhaseMetadata(
-            phase_id=self.phase_id,
-            name=self.name,
+            phase_id=self.PHASE_ID,
+            name=self.PHASE_NAME,
             category=PhaseCategory.ENHANCEMENT,
             priority=6,
             version="2.2.0",
@@ -228,7 +228,7 @@ class AdaptiveDeEsserPhase(PhaseInterface):
             is_cpu_intensive=False,
             is_io_intensive=False,
             quality_impact=0.88,
-            description=self.description,
+            description=self.PHASE_DESCRIPTION,
         )
 
     def process(self, audio: np.ndarray, sample_rate: int, **kwargs) -> PhaseResult:

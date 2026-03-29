@@ -4,7 +4,7 @@
 > **Date:** 9. Februar 2026  
 > **Reason:** Licensing independence preferred over third-party dependencies  
 > **Alternative:** Professional Desktop Application (Phase 2.4) - fully functional  
-> 
+>
 > This document remains for reference purposes only.
 
 ---
@@ -24,6 +24,7 @@
 After analysis of VST3 licensing terms (Steinberg) and dependency risks, the decision was made to **NOT pursue plugin development**. Instead, AURIK remains fully independent as a **standalone desktop application** with comprehensive batch processing capabilities.
 
 ### ~~Key Benefits~~ Cancelled Approach
+
 - ~~✅ Professional Workflow Integration~~
 - ~~✅ Real-time Processing (low latency)~~
 - ~~✅ Preset Management & Recall~~
@@ -31,6 +32,7 @@ After analysis of VST3 licensing terms (Steinberg) and dependency risks, the dec
 - ~~✅ Cross-Platform (macOS, Windows, Linux)~~
 
 ### Actual Implementation: Desktop App ✅
+
 - ✅ **Standalone Application** (no external dependencies)
 - ✅ **Batch Processing** (studio workflow support)
 - ✅ **Complete Independence** (no licensing risks)
@@ -84,21 +86,25 @@ After analysis of VST3 licensing terms (Steinberg) and dependency risks, the dec
 ## 🎯 Implementation Strategy
 
 ### Phase 1: Foundation (Week 1-2)
+
 **Goal:** Basic plugin that loads and processes audio
 
 #### 1.1 JUCE Setup
+
 - [ ] Install JUCE Framework (v7.0+)
 - [ ] Create new Audio Plugin project
 - [ ] Configure VST3 + AU targets
 - [ ] Test basic "hello world" plugin in DAW
 
 #### 1.2 Python Integration
+
 - [ ] Embed Python interpreter (libpython)
 - [ ] Add pybind11 for C++ ↔ Python bridge
 - [ ] Test NumPy array sharing (zero-copy if possible)
 - [ ] Handle Python GIL for thread safety
 
 #### 1.3 Basic Audio Processing
+
 - [ ] Implement `processBlock()` method
 - [ ] Convert JUCE AudioBuffer → NumPy array
 - [ ] Call AURIK's UnifiedRestorerV2
@@ -109,9 +115,11 @@ After analysis of VST3 licensing terms (Steinberg) and dependency risks, the dec
 ---
 
 ### Phase 2: Parameters & UI (Week 2-3)
+
 **Goal:** Full parameter control and professional UI
 
 #### 2.1 Parameter System
+
 - [ ] Define plugin parameters (20-30 key controls)
   - Medium Type (Vinyl, Cassette, DAT, CD, MP3, etc.)
   - Processing Mode (Gentle, Balanced, Aggressive, etc.)
@@ -122,6 +130,7 @@ After analysis of VST3 licensing terms (Steinberg) and dependency risks, the dec
 - [ ] Support DAW automation
 
 #### 2.2 User Interface
+
 - [ ] Design clean, modern UI (inspired by iZotope RX)
 - [ ] Real-time waveform display
 - [ ] Musical Goals radar chart
@@ -139,9 +148,11 @@ After analysis of VST3 licensing terms (Steinberg) and dependency risks, the dec
 ---
 
 ### Phase 3: Optimization & Real-time (Week 3-4)
+
 **Goal:** Low-latency, CPU-efficient processing
 
 #### 3.1 Performance Optimization
+
 - [ ] Implement ring buffer for chunk processing
 - [ ] Multi-threading (separate audio thread)
 - [ ] Minimize Python GIL contention
@@ -149,11 +160,13 @@ After analysis of VST3 licensing terms (Steinberg) and dependency risks, the dec
 - [ ] Profile with Instruments / VTune
 
 #### 3.2 ONNX Integration
+
 - [ ] Replace Python ML models with ONNX Runtime
 - [ ] C++ inference (no Python overhead)
 - [ ] GPU acceleration if available
 
 #### 3.3 Latency Reduction
+
 - [ ] Target: < 10ms latency
 - [ ] Look-ahead buffer management
 - [ ] Report latency to DAW correctly
@@ -163,9 +176,11 @@ After analysis of VST3 licensing terms (Steinberg) and dependency risks, the dec
 ---
 
 ### Phase 4: Presets & Polish (Week 4-5)
+
 **Goal:** Production-ready plugin
 
 #### 4.1 Preset Management
+
 - [ ] Factory presets (10-20 common scenarios)
   - "Vinyl Warmth"
   - "Cassette Rescue"
@@ -176,6 +191,7 @@ After analysis of VST3 licensing terms (Steinberg) and dependency risks, the dec
 - [ ] Import/Export presets
 
 #### 4.2 Testing & QA
+
 - [ ] Test in Logic Pro X
 - [ ] Test in Ableton Live
 - [ ] Test in Pro Tools
@@ -185,6 +201,7 @@ After analysis of VST3 licensing terms (Steinberg) and dependency risks, the dec
 - [ ] Validate AU compliance (auval)
 
 #### 4.3 Documentation
+
 - [ ] User manual
 - [ ] Parameter reference
 - [ ] Tutorial videos
@@ -199,6 +216,7 @@ After analysis of VST3 licensing terms (Steinberg) and dependency risks, the dec
 ### Development Environment
 
 #### macOS (Primary)
+
 ```bash
 # Install Xcode Command Line Tools
 xcode-select --install
@@ -214,6 +232,7 @@ pip install pybind11
 ```
 
 #### Windows (Secondary)
+
 ```powershell
 # Install Visual Studio 2022 (Community)
 # Install JUCE Projucer
@@ -222,6 +241,7 @@ pip install pybind11
 ```
 
 #### Linux (Tertiary)
+
 ```bash
 # Install build essentials
 sudo apt-get install build-essential libfreetype6-dev libx11-dev \
@@ -375,6 +395,7 @@ cmake --build . --config Release
 ## ⚠️ Challenges & Mitigations
 
 ### Challenge 1: Python Embedding Performance
+
 **Risk:** Python GIL causes latency spikes  
 **Mitigation:**
 - Use separate processing thread
@@ -383,6 +404,7 @@ cmake --build . --config Release
 - Batch processing where possible
 
 ### Challenge 2: Memory Management
+
 **Risk:** Memory leaks in Python/C++ bridge  
 **Mitigation:**
 - Use smart pointers (std::unique_ptr)
@@ -391,6 +413,7 @@ cmake --build . --config Release
 - Clear Python references properly
 
 ### Challenge 3: Cross-platform Compatibility
+
 **Risk:** Different Python versions per OS  
 **Mitigation:**
 - Bundle Python runtime with plugin
@@ -399,6 +422,7 @@ cmake --build . --config Release
 - Provide fallback mechanisms
 
 ### Challenge 4: Real-time Constraints
+
 **Risk:** Processing too slow for real-time  
 **Mitigation:**
 - Report latency accurately to DAW
@@ -438,17 +462,20 @@ cmake --build . --config Release
 ## 📚 Resources
 
 ### Documentation
+
 - [JUCE Tutorials](https://juce.com/learn/tutorials)
 - [VST3 SDK Documentation](https://steinbergmedia.github.io/vst3_doc/)
 - [Audio Unit Programming Guide](https://developer.apple.com/library/archive/documentation/MusicAudio/Conceptual/AudioUnitProgrammingGuide/)
 - [pybind11 Documentation](https://pybind11.readthedocs.io/)
 
 ### Example Projects
+
 - [JUCE Audio Plugin Template](https://github.com/McMartin/JUCE-AudioPlugin-Template)
 - [Pamplejuce (Modern JUCE Template)](https://github.com/sudara/pamplejuce)
 - [Python in JUCE Example](https://github.com/jatinchowdhury18/python-juce-example)
 
 ### Tools
+
 - [Pluginval](https://github.com/Tracktion/pluginval) - Plugin validator
 - [auval](https://developer.apple.com/library/archive/technotes/tn2276/) - AU validation (macOS)
 - [VST3 Plugin Test Host](https://steinbergmedia.github.io/vst3_dev_portal/pages/What+is+the+VST+3+SDK/Plug-in+Test+Host.html)

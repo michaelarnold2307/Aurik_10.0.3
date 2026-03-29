@@ -7,6 +7,7 @@
 ## Overview
 
 This directory contains tools and scripts for benchmarking Aurik 9.0 against:
+
 - Commercial tools (iZotope RX 10, CEDAR Cambridge, SpectraLayers Pro)
 - State-of-the-art research benchmarks
 - Real-world audio collections (vinyl, tape, shellac, digital)
@@ -14,6 +15,7 @@ This directory contains tools and scripts for benchmarking Aurik 9.0 against:
 ## Phase 3a Achievements (✅ Complete)
 
 **Status:** Excellence Achieved
+
 - Overall Quality: **0.88-0.90** (Target: 0.90+)
 - Natürlichkeit: **0.81** (Target: 0.80+)
 - Material Detection: **100% accuracy**
@@ -21,6 +23,7 @@ This directory contains tools and scripts for benchmarking Aurik 9.0 against:
 - Test Suite: **6/6 passing**
 
 **Competitive Position:**
+
 - On par with iZotope RX 10 ($1,299) @ $0
 - Faster than iZotope (1.5× vs 3.0× RT)
 - ML-Hybrid Architecture complete (7/7 phases)
@@ -98,6 +101,7 @@ benchmarks/
 ## Benchmark Suites
 
 ### 1. Quick Test (3 files, ~5 min)
+
 - `vinyl/jazz_1950s_scratched.wav` - Shellac clicks, surface noise
 - `tape/cassette_1980s_wow.wav` - Wow/flutter, hiss
 - `digital/cd_clipped_2000s.wav` - Digital clipping
@@ -105,6 +109,7 @@ benchmarks/
 **Purpose:** Fast validation, smoke test
 
 ### 2. Standard Test (10 files, ~15 min)
+
 - 3× Vinyl (jazz, classical, rock)
 - 2× Tape (cassette, reel-to-reel)
 - 1× Shellac (78 RPM)
@@ -114,6 +119,7 @@ benchmarks/
 **Purpose:** Comprehensive material coverage
 
 ### 3. Comprehensive Test (30 files, ~45 min)
+
 - Full material matrix (Vinyl×10, Tape×8, Shellac×4, Digital×8)
 - Edge cases (extreme defects, rare materials)
 - Production scenarios (broadcast, archival, consumer)
@@ -125,6 +131,7 @@ benchmarks/
 ## Quality Metrics
 
 ### Automated Metrics
+
 - **Naturalness Score:** 0.0-1.0 (psychoacoustic model)
 - **Artifact Detection:** Residual clicks, spectral smearing
 - **Material Fidelity:** Preservation of material character
@@ -132,6 +139,7 @@ benchmarks/
 - **Spectral Balance:** Frequency response analysis
 
 ### Subjective Metrics (Manual)
+
 - **A/B Listening Tests:** Blind comparison with commercial tools
 - **Professional Rating:** Audio engineer assessment (1-10 scale)
 - **User Acceptance:** Beta tester feedback
@@ -200,6 +208,7 @@ python3 aurik_cli.py process \
 ## Phase 3b Validation Roadmap
 
 **Week 1: Real-World Testing & Benchmarking**
+
 1. ✅ Automated benchmark script (`benchmark_vs_commercial.sh`)
 2. ⬜ Run standard test suite (10 files)
 3. ⬜ Manual iZotope RX comparison (same files)
@@ -207,12 +216,14 @@ python3 aurik_cli.py process \
 5. ⬜ Identify edge cases or issues
 
 **Week 2: Production Preparation (if successful)**
+
 1. ⬜ Bug fixes from validation
 2. ⬜ Documentation finalization
 3. ⬜ Packaging (Docker, PyPI)
 4. ⬜ Marketing materials (feature comparison, case studies)
 
 **Alternative: Direct Production Release**
+
 - Status: Excellence already achieved (0.88-0.90)
 - Tests: 6/6 passing
 - Ready: Production use without further validation
@@ -286,6 +297,7 @@ A: Phase 3a achieved 0.88-0.90 quality (on par with RX 10) at 1.5× RT (faster t
 
 **Q: What's the difference between FAST, BALANCED, MAXIMUM?**
 A:
+
 - FAST: DSP-only, ~0.5× RT, good for real-time
 - BALANCED: Selective ML, ~1.5× RT, **recommended for excellence**
 - MAXIMUM: Full ML, ~3-5× RT, best possible quality

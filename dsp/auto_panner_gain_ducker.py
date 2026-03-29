@@ -1,5 +1,3 @@
-import logging
-
 """
 auto_panner_gain_ducker.py - Klassische Auto-Panner, Auto-Gain, Auto-Ducker für Aurik 6.0 (SOTA-Maximum)
 
@@ -7,102 +5,11 @@ Dieses Modul stellt klassische, SOTA-konforme Tools für Panning, Gain und Ducki
 Alle Algorithmen sind nachvollziehbar, auditierbar und rollback-fähig.
 """
 
+import logging
 from dataclasses import asdict, dataclass
 from typing import Any
 
 import numpy as np
-
-
-@dataclass(frozen=True)
-class DSPContract:
-    id: str
-    category: str
-    version: str = "1.0.0"
-    io: dict[str, Any] | None = None
-    preconditions: list[dict[str, Any]] | None = None
-    params: dict[str, Any] | None = None
-    budgets: dict[str, Any] | None = None
-    side_effects: list[dict[str, Any]] | None = None
-    reports: dict[str, Any] | None = None
-    rollback: dict[str, Any] | None = None
-
-
-# Instanzen der Contracts
-auto_panner_contract = DSPContract(
-    id="auto_panner",
-    category="spatial",
-    io={
-        "channels": "stereo",
-        "sample_rates": [44100, 48000],
-        "latency_samples": 0,
-        "supports_offline": True,
-    },
-    preconditions=[{"if": "True", "reason": "Immer aktiv"}],
-    params={"defaults": {}, "safe_ranges": {}, "trial_profile": {}},
-    budgets={
-        "artifact_budget": 0.01,
-        "identity_budget": 1.0,
-        "spectral_change_budget": 0.01,
-        "temporal_change_budget": 0.01,
-        "compute_cost": 0.01,
-    },
-    side_effects=[
-        {
-            "risk": "Fehlpositionierung",
-            "expected_when": "AI-Modell fehlerhaft",
-            "severity": 0.1,
-        }
-    ],
-    reports={"self_metrics": ["panning_accuracy"], "confidence": 1.0},
-    rollback={"strategy": "wet_to_zero|snapshot_restore", "supports_partial": True},
-)
-auto_gain_contract = DSPContract(
-    id="auto_gain",
-    category="level",
-    io={
-        "channels": "mono|stereo",
-        "sample_rates": [44100, 48000],
-        "latency_samples": 0,
-        "supports_offline": True,
-    },
-    preconditions=[{"if": "True", "reason": "Immer aktiv"}],
-    params={"defaults": {}, "safe_ranges": {}, "trial_profile": {}},
-    budgets={
-        "artifact_budget": 0.01,
-        "identity_budget": 1.0,
-        "spectral_change_budget": 0.01,
-        "temporal_change_budget": 0.01,
-        "compute_cost": 0.01,
-    },
-    side_effects=[{"risk": "Übersteuerung", "expected_when": "Gain zu hoch", "severity": 0.2}],
-    reports={"self_metrics": ["gain_accuracy"], "confidence": 1.0},
-    rollback={"strategy": "wet_to_zero|snapshot_restore", "supports_partial": True},
-)
-auto_ducker_contract = DSPContract(
-    id="auto_ducker",
-    category="ducking",
-    io={
-        "channels": "mono|stereo",
-        "sample_rates": [44100, 48000],
-        "latency_samples": 0,
-        "supports_offline": True,
-    },
-    preconditions=[{"if": "True", "reason": "Immer aktiv"}],
-    params={"defaults": {}, "safe_ranges": {}, "trial_profile": {}},
-    budgets={
-        "artifact_budget": 0.01,
-        "identity_budget": 1.0,
-        "spectral_change_budget": 0.01,
-        "temporal_change_budget": 0.01,
-        "compute_cost": 0.01,
-    },
-    side_effects=[{"risk": "Pumpen", "expected_when": "Sidechain falsch", "severity": 0.2}],
-    reports={"self_metrics": ["ducking_accuracy"], "confidence": 1.0},
-    rollback={"strategy": "wet_to_zero|snapshot_restore", "supports_partial": True},
-)
-
-from dataclasses import dataclass
-from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -210,19 +117,6 @@ class AutoPanner:
 
     def log_contract(self) -> None:
         logger.debug("[DSPContract] %s", asdict(self.contract))
-
-        def process(self, audio: np.ndarray[Any, Any]) -> np.ndarray[Any, Any]:
-            """
-            Wendet klassisches Panning auf ein Stereo-Signal an.
-            :param audio: Stereo-Audio (np.ndarray, shape [2, N])
-            :return: Gepanntes Stereo-Audio (np.ndarray)
-            """
-            self.log_contract()
-            if audio.shape[0] != 2:
-                return audio
-            left = np.clip(0.5 - self.pan / 2, 0, 1)
-            right = np.clip(0.5 + self.pan / 2, 0, 1)
-            return np.vstack([audio[0] * left, audio[1] * right])
 
     def process(self, audio: np.ndarray, sr: int) -> np.ndarray:
         """

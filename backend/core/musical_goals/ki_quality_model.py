@@ -24,7 +24,7 @@ import warnings
 from typing import Any
 
 import numpy as np
-from scipy import fft, signal
+from scipy import signal
 
 logger = logging.getLogger(__name__)
 
@@ -50,7 +50,7 @@ class KIQualityAnalyzer:
     Problematisch: < 0.60
     """
 
-    def __init__(self) -> float:
+    def __init__(self) -> None:
         self.logger = logging.getLogger(__name__)
         # Frequenzbänder für Spectral Clarity Analyse
         self.freq_bands = {
@@ -246,8 +246,8 @@ class KIQualityAnalyzer:
             # FFT-Analyse mit hoher Auflösung
             n_fft = 8192
             audio_windowed = audio * signal.get_window("hann", len(audio))
-            spectrum = np.abs(fft.fft(audio_windowed, n=n_fft))
-            freqs = fft.fftfreq(n_fft, 1 / sr)
+            spectrum = np.abs(np.fft.fft(audio_windowed, n=n_fft))
+            freqs = np.fft.fftfreq(n_fft, 1 / sr)
 
             # Nur positpve Frequenzen
             pos_mask = freqs > 0
@@ -388,7 +388,7 @@ class KIQualityAnalyzer:
         """
         try:
             # Envelope via Hilbert Transform
-            analytic_signal = signal.hilbert(audio)
+            analytic_signal: np.ndarray = signal.hilbert(audio)  # type: ignore[assignment]
             envelope = np.abs(analytic_signal)
 
             # Finde Transienten via Envelope-Gradient

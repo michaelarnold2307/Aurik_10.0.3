@@ -62,7 +62,7 @@ def damaged_test_audio():
 
     # 2. Noise (20%)
     noise_mask = np.random.random(len(audio)) < 0.20
-    audio[noise_mask] += np.random.normal(0, 0.4, np.sum(noise_mask))
+    audio[noise_mask] += np.random.normal(0, 0.4, int(np.sum(noise_mask)))
 
     return audio, sr
 
@@ -84,7 +84,7 @@ def severely_damaged_test_audio():
 
     # 2. Heavy noise (25%)
     noise_mask = np.random.random(len(audio)) < 0.25
-    audio[noise_mask] = np.random.normal(0, 0.8, np.sum(noise_mask))
+    audio[noise_mask] = np.random.normal(0, 0.8, int(np.sum(noise_mask)))
 
     # 3. Silence (15%)
     silence_mask = np.random.random(len(audio)) < 0.15
@@ -381,7 +381,9 @@ class TestFullE2EWorkflow:
         delivery_manager = DeliveryStandardsManager()
 
         delivered = delivery_manager.process_for_standard(
-            mp_result["best_audio"], sr, DeliveryStandard.EBU_R128  # Broadcast standard
+            mp_result["best_audio"],
+            sr,
+            DeliveryStandard.EBU_R128,  # Broadcast standard
         )
 
         # Should succeed even with moderately damaged input

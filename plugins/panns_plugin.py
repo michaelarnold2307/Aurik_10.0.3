@@ -61,16 +61,16 @@ _TAG_INDEX_MAP: dict[str, list[int]] = {
     "Vocals": [27, 32, 33, 34],
     "Speech": [0, 1, 2, 3],
     # Idx 0=Speech, 1=Male speech, 2=Female speech, 3=Child speech
-    # Saiteninstrumente (§2.9: Threshold ≥ 0.60)
+    # Saiteninstrumente (§2.9: Threshold ≥ 0.50)
     "Guitar": [140, 143, 144, 146],
     # Idx 140=Guitar, 143=Acoustic guitar, 144=Steel guitar, 146=Strum
     "Electric guitar": [141],
     "Bass guitar": [142],
-    # Tasteninstrumente (§2.9: Threshold ≥ 0.60)
+    # Tasteninstrumente (§2.9: Threshold ≥ 0.50)
     "Piano": [153, 154],  # Piano, Electric piano
     "Keyboard (musical)": [152, 155, 157, 158],
     # Idx 152=Keyboard, 155=Organ, 157=Hammond organ, 158=Synthesizer
-    # Blasinstrumente (§2.9: Threshold ≥ 0.60)
+    # Blasinstrumente (§2.9: Threshold ≥ 0.50)
     "Brass instrument": [185, 186, 188],  # Brass, French horn, Trombone
     "Trumpet": [187],
     "Saxophone": [197],

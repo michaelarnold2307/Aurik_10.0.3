@@ -147,8 +147,6 @@ class PhaseRotator:
         - Mid: 500-2000 Hz (maximum rotation)
         - High: 2000-8000 Hz (moderate rotation)
         """
-        sr / 2
-
         # Split into 3 bands
         low_band = self._extract_band(signal, sr, 20, 500)
         mid_band = self._extract_band(signal, sr, 500, 2000)

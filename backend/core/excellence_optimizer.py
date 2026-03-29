@@ -578,7 +578,6 @@ def _reinforce_harmonics(
         frame = mono[t_start:t_end]
 
         # F0-Detektion: stärkste Komponente unter F0_FREQ_MAX
-        frame * np.hanning(len(frame))
         frame_mag = mag[:, t]
         low_mask = freqs < _F0_FREQ_MAX
         if not np.any(low_mask) or frame_mag.max() < 1e-10:

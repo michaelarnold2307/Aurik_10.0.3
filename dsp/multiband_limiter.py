@@ -5,7 +5,7 @@ from typing import Any
 
 import numpy as np
 import numpy.typing as npt
-from scipy.signal import butter, lfilter
+from scipy.signal import butter, sosfilt
 
 _logger = logging.getLogger(__name__)
 
@@ -58,10 +58,19 @@ class MultibandLimiter:
         """
         self.bands = bands
         self.crossovers = crossovers
-        self.ceilings_db = ceilings_db
-        self.knees_db = knees_db
-        self.lookahead_ms = lookahead_ms
-        self.release_ms = release_ms
+
+        def ensure_len(seq: Sequence[float], n: int, default: float) -> tuple[float, ...]:
+            if len(seq) == n:
+                return tuple(float(v) for v in seq)
+            if len(seq) < n:
+                tail = float(seq[-1]) if len(seq) > 0 else default
+                return tuple(float(v) for v in seq) + tuple([tail] * (n - len(seq)))
+            return tuple(float(v) for v in seq[:n])
+
+        self.ceilings_db = ensure_len(ceilings_db, bands, -1.0)
+        self.knees_db = ensure_len(knees_db, bands, 6.0)
+        self.lookahead_ms = ensure_len(lookahead_ms, bands, 2.0)
+        self.release_ms = ensure_len(release_ms, bands, 50.0)
 
     def log_contract(self):
         _logger.debug("[DSPContract] %s", asdict(multiband_limiter_contract))
@@ -79,13 +88,14 @@ class MultibandLimiter:
             band_signals = self._split_bands(audio, sr)
             processed: list[npt.NDArray[np.float64]] = []
             for i, band in enumerate(band_signals):
+                idx = min(i, len(self.ceilings_db) - 1)
                 lim = self._limit_band(
                     band,
                     sr,
-                    self.ceilings_db[i],
-                    self.knees_db[i],
-                    self.lookahead_ms[i],
-                    self.release_ms[i],
+                    self.ceilings_db[idx],
+                    self.knees_db[idx],
+                    self.lookahead_ms[idx],
+                    self.release_ms[idx],
                 )
                 processed.append(np.asarray(lim, dtype=np.float64))
             if processed:
@@ -106,22 +116,43 @@ class MultibandLimiter:
     def _audit_log(self, result: dict[str, Any]):
         _logger.debug("[AuditLog][MultibandLimiter] Ergebnis: %s", result)
 
+    @staticmethod
+    def _lr4_sos(cutoff: float, sr: float, btype: str) -> npt.NDArray[np.float64]:
+        wn = float(np.clip(cutoff / (sr / 2.0), 1e-4, 0.9999))
+        sos = np.asarray(butter(2, wn, btype=btype, output="sos"), dtype=np.float64)
+        stacked = np.empty((sos.shape[0] * 2, sos.shape[1]), dtype=np.float64)
+        stacked[: sos.shape[0], :] = sos
+        stacked[sos.shape[0] :, :] = sos
+        return stacked
+
     def _split_bands(self, audio: npt.NDArray[np.float64], sr: int) -> list[npt.NDArray[np.float64]]:
         """
         Teilt das Signal in Frequenzbänder auf.
         Rückgabe: Liste von Band-Signalen
         """
-        low, mid = self.crossovers if self.bands == 3 else (self.crossovers[0], self.crossovers[1])
         bands: list[npt.NDArray[np.float64]] = []
-        # Low
-        b, a = butter(4, low / (sr / 2), btype="low")
-        bands.append(np.asarray(lfilter(b, a, audio), dtype=np.float64))
-        # Mid
-        b, a = butter(4, [low / (sr / 2), mid / (sr / 2)], btype="band")
-        bands.append(np.asarray(lfilter(b, a, audio), dtype=np.float64))
-        # High
-        b, a = butter(4, mid / (sr / 2), btype="high")
-        bands.append(np.asarray(lfilter(b, a, audio), dtype=np.float64))
+        cross = list(self.crossovers)
+        while len(cross) < self.bands - 1:
+            cross.append(cross[-1] if cross else 2000.0)
+        if self.bands == 1:
+            return [audio]
+
+        sos_low = self._lr4_sos(cross[0], sr, "low")
+        bands.append(np.asarray(sosfilt(sos_low, audio), dtype=np.float64))
+
+        for i in range(1, self.bands - 1):
+            fc0, fc1 = cross[i - 1], cross[i]
+            if fc0 >= fc1:
+                bands.append(bands[-1].copy() if bands else np.zeros_like(audio))
+                continue
+            sos_hp = self._lr4_sos(fc0, sr, "high")
+            sos_lp = self._lr4_sos(fc1, sr, "low")
+            mid = sosfilt(sos_hp, audio)
+            mid = sosfilt(sos_lp, mid)
+            bands.append(np.asarray(mid, dtype=np.float64))
+
+        sos_high = self._lr4_sos(cross[self.bands - 2], sr, "high")
+        bands.append(np.asarray(sosfilt(sos_high, audio), dtype=np.float64))
         return bands
 
     def _limit_band(
@@ -138,7 +169,7 @@ class MultibandLimiter:
         """
         # Lookahead-Buffer
         lookahead = int(sr * lookahead_ms / 1000)
-        padded = np.pad(audio, (lookahead, 0), mode="constant")
+        padded = np.pad(audio, (lookahead, 0), mode="edge")
         shifted = padded[:-lookahead] if lookahead > 0 else audio
         # True-Peak-Detection (Sample-Peak)
         peak = np.abs(shifted)

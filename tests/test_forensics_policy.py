@@ -36,12 +36,12 @@ def test_policy_update_single_failure():
     pm = PolicyManager(policy)
 
     feedback = {"gate1": False}
-    updated = pm.update(feedback)
+    pm.update(feedback)
 
     # Gate should be initialized with fail_count=1
-    assert "gate1" in updated
-    assert updated["gate1"]["fail_count"] == 1
-    assert updated["gate1"]["escalated"] is False
+    assert "gate1" in pm.policy
+    assert pm.policy["gate1"]["fail_count"] == 1
+    assert pm.policy["gate1"]["escalated"] is False
 
 
 def test_policy_escalation_warn_level():

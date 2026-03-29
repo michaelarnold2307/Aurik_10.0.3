@@ -113,6 +113,10 @@ class PluginLifecycleManager:
 
     Registrierte Plugins werden nach LRU (Least-Recently-Used) entladen,
     sobald der Systemspeicher unter den Schwellwert fällt.
+
+    Lock-order: Priority 2 (PLM) — see §3.9.8.
+    Never acquire PLM._lock while already holding MLMemoryBudget._lock (Priority 1).
+    Always acquire PLM._lock BEFORE AdaptiveResourceManager.lock (Priority 3).
     """
 
     def __init__(self) -> None:

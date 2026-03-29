@@ -164,7 +164,7 @@ class KickDrumEnhancer:
         Returns list of sample indices where kicks occur.
         """
         # Calculate envelope
-        envelope = np.abs(hilbert(kick_band))
+        envelope = np.abs(np.asarray(hilbert(kick_band), dtype=np.complex128))
 
         # Smooth envelope
         window_size = int(0.01 * sr)  # 10ms smoothing
@@ -318,7 +318,7 @@ class SnareCrackEnhancer:
 
     def _detect_snare_events(self, detect_band: np.ndarray, sr: int) -> list[int]:
         """Detect snare drum events."""
-        envelope = np.abs(hilbert(detect_band))
+        envelope = np.abs(np.asarray(hilbert(detect_band), dtype=np.complex128))
 
         # Smooth
         window_size = int(0.005 * sr)  # 5ms
@@ -410,7 +410,7 @@ class HiHatClarifier:
         # Transient sharpening
         if self.transient_sharpness > 0:
             # Detect hi-hat hits
-            envelope = np.abs(hilbert(hihat_band))
+            envelope = np.abs(np.asarray(hilbert(hihat_band), dtype=np.complex128))
 
             # Find transients (steep rises in envelope)
             derivative = np.diff(envelope, prepend=envelope[0])
@@ -436,8 +436,8 @@ class HiHatClarifier:
 
             # Gentle reduction of cymbal content in hi-hat band
             # (hi-hats are sharper, cymbals are more sustained)
-            envelope_hihat = np.abs(hilbert(hihat_band))
-            envelope_cymbal = np.abs(hilbert(cymbal_band))
+            envelope_hihat = np.abs(np.asarray(hilbert(hihat_band), dtype=np.complex128))
+            envelope_cymbal = np.abs(np.asarray(hilbert(cymbal_band), dtype=np.complex128))
 
             # Where cymbal is louder, reduce hi-hat enhancement
             cymbal_ratio = envelope_cymbal / (envelope_hihat + 1e-10)
@@ -561,7 +561,7 @@ class CymbalShimmerEnhancer:
         # Decay preservation
         if self.decay_preservation > 0:
             # Calculate envelope
-            envelope = np.abs(hilbert(cymbal_band))
+            envelope = np.abs(np.asarray(hilbert(cymbal_band), dtype=np.complex128))
 
             # Smooth envelope
             window_size = int(0.02 * sr)  # 20ms

@@ -11,6 +11,7 @@ from typing import Any
 
 import numpy as np
 import numpy.typing as npt
+from scipy.ndimage import binary_dilation
 from scipy.signal import istft, stft
 
 logger = logging.getLogger(__name__)
@@ -85,15 +86,17 @@ class SpectralGate:
         threshold_db: float = -40.0,
         hold_frames: int = 5,
         release_frames: int = 10,
+        hysteresis_db: float = 3.0,
     ) -> None:
         """
-        n_fft: FFT-Größe
-        hop_length: Hop-Size
-        threshold_db: Gate-Schwelle (dB)
-        hold_frames: Haltezeit in STFT-Frames
-        release_frames: Releasezeit in STFT-Frames
+        n_fft:           FFT-Größe
+        hop_length:      Hop-Size
+        threshold_db:    Gate-Öffnungsschwelle (dB)
+        hold_frames:     Haltezeit in STFT-Frames nach Unterschreitung
+        release_frames:  Releasezeit in STFT-Frames (Fade-Dauer bis Stille)
+        hysteresis_db:   Hysterese-Gap (dB): Gate schließt bei threshold_db - hysteresis_db.
+                         Verhindert Chatter wenn Signal knapp um Schwelle pendelt.
         """
-        # Sicherstellen, dass n_fft > hop_length
         if n_fft <= hop_length:
             n_fft = hop_length + 1
         self.n_fft = n_fft
@@ -101,6 +104,7 @@ class SpectralGate:
         self.threshold_db = threshold_db
         self.hold_frames = hold_frames
         self.release_frames = release_frames
+        self.hysteresis_db = hysteresis_db
 
     def log_contract(self):
         logger.debug("[DSPContract] %s", asdict(spectral_gate_contract))
@@ -129,23 +133,31 @@ class SpectralGate:
         mag = np.abs(Zxx)
         phase = np.angle(Zxx)
         mag_db = 20 * np.log10(mag + 1e-8)
-        # Gate-Logik
-        mask = np.ones_like(mag)
-        hold_counter = np.zeros(mag.shape[0], dtype=int)
-        for frame in range(mag.shape[1]):
-            below = mag_db[:, frame] < self.threshold_db
-            for bin in range(mag.shape[0]):
-                if below[bin]:
-                    if hold_counter[bin] < self.hold_frames:
-                        hold_counter[bin] += 1
-                        mask[bin, frame] = 1.0
-                    else:
-                        mask[bin, frame] = (
-                            max(0.0, mask[bin, frame - 1] - 1.0 / self.release_frames) if frame > 0 else 0.0
-                        )
-                else:
-                    hold_counter[bin] = 0
-                    mask[bin, frame] = 1.0
+
+        # --- Vectorised gate with hysteresis + hold + release -------------------
+        # Hysteresis: different open/close thresholds prevent chatter
+        close_threshold_db = self.threshold_db - self.hysteresis_db
+        above_open = mag_db >= self.threshold_db  # [bins, frames] bool
+        above_close = mag_db >= close_threshold_db  # stays open above this
+
+        # Hold: dilate the open mask in the time dimension so gate stays open
+        # for hold_frames additional frames after level drops below threshold_open.
+        hold_struct = np.ones((1, self.hold_frames + 1), dtype=bool)
+        held = binary_dilation(above_open, structure=hold_struct)  # [bins, frames]
+
+        # Build gain mask: open bins snap to 1.0, closed bins fade by release_step
+        release_step = 1.0 / max(1, self.release_frames)
+        mask = np.zeros_like(mag, dtype=np.float64)
+        mask[:, 0] = np.where(held[:, 0], 1.0, 0.0)
+        for m in range(1, mag.shape[1]):
+            open_bins = held[:, m] | above_close[:, m]
+            mask[:, m] = np.where(
+                open_bins,
+                1.0,
+                np.maximum(0.0, mask[:, m - 1] - release_step),
+            )
+        # -------------------------------------------------------------------------
+
         mag_gated = mag * mask
         Zxx_gated = mag_gated * np.exp(1j * phase)
         try:

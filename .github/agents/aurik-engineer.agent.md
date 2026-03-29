@@ -7,7 +7,7 @@ tools:
   - search
   - execute
   - todo
-model: "Claude Sonnet 4.5 (copilot)"
+model: "Claude Sonnet 4.6 (copilot)"
 argument-hint: "Beschreibe die Aurik-Aufgabe: Modul, Phase, Feature oder Bugfix"
 ---
 

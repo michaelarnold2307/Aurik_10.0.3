@@ -86,7 +86,7 @@ def make_minimal_profile(medium, tape_type=None):
             valence=None,
             arousal=None,
         ),
-        feature_vectors=FeatureVectors(),
+        feature_vectors=FeatureVectors(),  # type: ignore[call-arg]
         raw_features={},
     )
 

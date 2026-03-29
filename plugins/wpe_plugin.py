@@ -126,21 +126,21 @@ def _wpe_stft(
         Z_wpe = (1.0 - strength) * Z + strength * Z_wpe
 
     _, out = istft(Z_wpe, fs=sr, nperseg=_N_FFT, noverlap=_N_FFT - _HOP, window="hann")
-    out = np.clip(np.nan_to_num(out.astype(np.float32), 0.0), -1.0, 1.0)
+    out = np.clip(np.nan_to_num(out.astype(np.float32), nan=0.0), -1.0, 1.0)
     return out[: len(mono)]
 
 
 def _wpe_nara(mono: np.ndarray, sr: int) -> np.ndarray | None:
     """nara_wpe-Bibliothek als Tier-1 (falls installiert)."""
     try:
-        from nara_wpe.utils import istft as nwpe_istft
+        from nara_wpe.utils import istft as nwpe_istft  # type: ignore[import-untyped]
         from nara_wpe.utils import stft as nwpe_stft
-        from nara_wpe.wpe import wpe
+        from nara_wpe.wpe import wpe  # type: ignore[import-untyped]
 
         Y = nwpe_stft(mono, size=_N_FFT, shift=_HOP)  # [T, K]
         Y_e = wpe(Y.T[..., np.newaxis])  # [K, T, 1]
         out = nwpe_istft(Y_e[:, :, 0].T, size=_N_FFT, shift=_HOP)
-        out = np.clip(np.nan_to_num(out.astype(np.float32), 0.0), -1.0, 1.0)
+        out = np.clip(np.nan_to_num(out.astype(np.float32), nan=0.0), -1.0, 1.0)
         return out[: len(mono)]
     except Exception:
         return None
@@ -162,7 +162,7 @@ def _omlsa_fallback(
     snr = mag / noise
     gain = np.clip(1.0 - strength / (snr + 1e-6), 0.1, 1.0)
     _, out = istft(gain * mag * np.exp(1j * phase), fs=sr, nperseg=1024, noverlap=768, window="hann")
-    out = np.clip(np.nan_to_num(out.astype(np.float32), 0.0), -1.0, 1.0)
+    out = np.clip(np.nan_to_num(out.astype(np.float32), nan=0.0), -1.0, 1.0)
     return out[: len(mono)]
 
 
@@ -182,7 +182,7 @@ class WpePlugin:
     """
 
     def __init__(self) -> None:
-        logger.info("WpePlugin: WPE-Dereverberation initialisiert " "(Nakatani 2010, Kinoshita 2017).")
+        logger.info("WpePlugin: WPE-Dereverberation initialisiert (Nakatani 2010, Kinoshita 2017).")
 
     def enhance(
         self,

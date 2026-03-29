@@ -4,7 +4,7 @@ ConvergenceDetector: Erkennt Konvergenz der musikalischen Ziele.
 
 
 class MusicalGoalsConvergenceDetector:
-    def __init__(self, monitor, tolerance: float = 0.05) -> bool:
+    def __init__(self, monitor, tolerance: float = 0.05) -> None:
         self.monitor = monitor
         self.tolerance = tolerance
         self.last_values = None

@@ -24,19 +24,23 @@ Date: 8. Februar 2026
 import logging
 from dataclasses import dataclass, field
 from enum import Enum
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import scipy.signal as signal
 
+if TYPE_CHECKING:
+    from backend.ml.phoneme_aware.phoneme_detector import PhonemeSegment as _PhonemeSegmentT
+else:
+    _PhonemeSegmentT = Any
+
 # Optional: phoneme detection integration
 try:
     from backend.ml.phoneme_aware.phoneme_classifier import PhonemeCategory, PhonemeClassifier
-    from backend.ml.phoneme_aware.phoneme_detector import PhonemeSegment
 
     PHONEME_DETECTION_AVAILABLE = True
 except ImportError:
     PHONEME_DETECTION_AVAILABLE = False
-    PhonemeSegment = None  # type: ignore
 
 
 logger = logging.getLogger(__name__)
@@ -99,7 +103,7 @@ class IntelligibilityReport:
     metrics: dict[str, float] = field(default_factory=dict)
 
     def __repr__(self) -> str:
-        return f"IntelligibilityReport(overall={self.overall_score:.2f}, " f"quality={self.quality_level.value})"
+        return f"IntelligibilityReport(overall={self.overall_score:.2f}, quality={self.quality_level.value})"
 
 
 # ============================================================================
@@ -153,7 +157,7 @@ class IntelligibilityScorer:
         self,
         audio: np.ndarray,
         sr: int,
-        phonemes: list[PhonemeSegment] | None = None,
+        phonemes: list[_PhonemeSegmentT] | None = None,
         reference: np.ndarray | None = None,
     ) -> IntelligibilityReport:
         """
@@ -171,7 +175,7 @@ class IntelligibilityScorer:
         # Ensure mono
         audio_mono = np.mean(audio, axis=0) if audio.ndim > 1 else audio
 
-        logger.debug(f"Scoring {len(audio_mono)/sr:.2f}s audio at {sr} Hz")
+        logger.debug(f"Scoring {len(audio_mono) / sr:.2f}s audio at {sr} Hz")
 
         # 1. Formant analysis
         formant_data = self._extract_formants(audio_mono, sr)
@@ -384,7 +388,7 @@ class IntelligibilityScorer:
         self,
         audio: np.ndarray,
         sr: int,
-        phonemes: list[PhonemeSegment],
+        phonemes: list[_PhonemeSegmentT],
     ) -> float:
         """
         Compute consonant-to-vowel energy ratio using phoneme detection.
@@ -438,7 +442,7 @@ class IntelligibilityScorer:
         self,
         audio: np.ndarray,
         sr: int,
-        phonemes: list[PhonemeSegment],
+        phonemes: list[_PhonemeSegmentT],
     ) -> float:
         """
         Assess consonant clarity using phoneme detection.
@@ -653,7 +657,8 @@ class IntelligibilityScorer:
         """
         # Compute envelope
         analytic_signal = signal.hilbert(audio)
-        amplitude_envelope = np.abs(analytic_signal)
+        analytic_arr = np.asarray(analytic_signal, dtype=np.complex128)
+        amplitude_envelope = np.abs(analytic_arr)
 
         # Smooth envelope
         window_size = int(0.01 * sr)  # 10ms window
@@ -770,8 +775,7 @@ class IntelligibilityScorer:
         # Formant clarity
         if formant_clarity < 0.6:
             recommendations.append(
-                "Low formant clarity. Consider applying formant enhancement "
-                "or EQ boost in vowel regions (200-2500 Hz)."
+                "Low formant clarity. Consider applying formant enhancement or EQ boost in vowel regions (200-2500 Hz)."
             )
 
         # Consonant clarity
@@ -784,13 +788,13 @@ class IntelligibilityScorer:
         # Spectral balance
         if spectral_balance < 0.6:
             recommendations.append(
-                "Poor spectral balance. Apply adaptive EQ to balance " "low/mid/high frequency content."
+                "Poor spectral balance. Apply adaptive EQ to balance low/mid/high frequency content."
             )
 
         # Temporal clarity
         if temporal_clarity < 0.6:
             recommendations.append(
-                "Low temporal clarity. Reduce excessive compression or " "ensure transient preservation in processing."
+                "Low temporal clarity. Reduce excessive compression or ensure transient preservation in processing."
             )
 
         # C/V ratio
@@ -801,7 +805,7 @@ class IntelligibilityScorer:
             )
         elif cv_ratio > self.optimal_cv_ratio[1]:
             recommendations.append(
-                f"Consonant-to-vowel ratio ({cv_ratio:.2f}) is high. " "Reduce harshness or apply gentle de-essing."
+                f"Consonant-to-vowel ratio ({cv_ratio:.2f}) is high. Reduce harshness or apply gentle de-essing."
             )
 
         if not recommendations:
@@ -855,7 +859,7 @@ class IntelligibilityScorer:
 def assess_intelligibility(
     audio: np.ndarray,
     sr: int,
-    phonemes: list[PhonemeSegment] | None = None,
+    phonemes: list[_PhonemeSegmentT] | None = None,
     reference: np.ndarray | None = None,
 ) -> IntelligibilityReport:
     """

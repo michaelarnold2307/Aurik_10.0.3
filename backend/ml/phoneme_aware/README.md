@@ -1,3 +1,4 @@
+
 # Phoneme-Aware Processing Module
 
 **Status:** 🚧 Week 7 Implementation (Day 1-2 Complete)  
@@ -17,12 +18,14 @@ This module provides phoneme detection and classification for intelligent audio 
 ## Features
 
 ### 1. Phoneme Detection (`PhonemeDetector`)
+
 - **Wav2Vec2-based** IPA phoneme recognition
 - **Frame-level** predictions with confidence scores
 - **Multi-language** support (60+ languages via eSpeak-ng)
 - **Automatic** resampling and preprocessing
 
 ### 2. Phoneme Classification (`PhonemeClassifier`)
+
 - **IPA → Category** mapping (vowels, consonants, sibilants)
 - **Sibilant** sub-classification (/s/, /z/, /ʃ/, /ʒ/, /tʃ/, /dʒ/)
 - **Articulation** place and manner detection
@@ -34,6 +37,7 @@ This module provides phoneme detection and classification for intelligent audio 
 ## Installation
 
 ### Dependencies
+
 ```bash
 # Install Phase 2 dependencies
 pip install transformers torch librosa
@@ -43,7 +47,9 @@ pip install torch --extra-index-url https://download.pytorch.org/whl/cu118
 ```
 
 ### Model Download
+
 The Wav2Vec2 model (~360MB) will be downloaded automatically on first use:
+
 ```python
 from backend.ml.phoneme_aware import PhonemeDetector
 
@@ -55,6 +61,7 @@ detector = PhonemeDetector()  # Downloads model if not cached
 ## Quick Start
 
 ### Basic Phoneme Detection
+
 ```python
 import numpy as np
 import librosa
@@ -73,7 +80,8 @@ for p in phonemes[:10]:
 ```
 
 **Example Output:**
-```
+
+```text
 h: 0.00-0.05s (conf=0.95)
 ɛ: 0.05-0.15s (conf=0.92)
 l: 0.15-0.20s (conf=0.88)
@@ -81,6 +89,7 @@ oʊ: 0.20-0.35s (conf=0.91)
 ```
 
 ### Phoneme Classification
+
 ```python
 from backend.ml.phoneme_aware import PhonemeClassifier
 
@@ -96,6 +105,7 @@ print(f"Frequency: {classifier.get_frequency_center('s')} Hz")  # 8000.0
 ```
 
 ### Complete Workflow
+
 ```python
 from backend.ml.phoneme_aware import PhonemeDetector, PhonemeClassifier
 
@@ -107,7 +117,7 @@ phonemes = detector.detect(audio, sr)
 classifier = PhonemeClassifier()
 for segment in phonemes:
     info = classifier.classify_detailed(segment.phoneme)
-    
+
     if info.is_sibilant:
         print(f"Sibilant '{segment.phoneme}' at {segment.start_time:.2f}s")
         print(f"  Type: {info.sibilant_type}")
@@ -127,14 +137,17 @@ print(f"Avg confidence: {stats['avg_confidence']:.2f}")
 ### PhonemeDetector
 
 #### Constructor
+
 ```python
 PhonemeDetector(config: Optional[DetectionConfig] = None)
 ```
 
 **Parameters:**
+
 - `config`: Detection configuration (optional, uses defaults)
 
 **Configuration Options:**
+
 ```python
 DetectionConfig(
     model_name="facebook/wav2vec2-lv-60-espeak-cv-ft",  # Model to use
@@ -153,6 +166,7 @@ DetectionConfig(
 Detect phonemes in audio.
 
 **Parameters:**
+
 - `audio`: Audio signal (mono or stereo, numpy array)
 - `sr`: Sample rate of input audio
 - `language`: Override language (optional)
@@ -177,6 +191,7 @@ Compute statistics about detected phonemes.
 ### PhonemeClassifier
 
 #### Constructor
+
 ```python
 PhonemeClassifier()
 ```
@@ -226,6 +241,7 @@ Get set of all supported IPA phonemes.
 ## Data Classes
 
 ### PhonemeSegment
+
 ```python
 @dataclass
 class PhonemeSegment:
@@ -234,12 +250,13 @@ class PhonemeSegment:
     end_time: float       # End time (seconds)
     confidence: float     # Detection confidence (0.0-1.0)
     frame_index: int      # Original frame index
-    
+
     @property
     def duration(self) -> float  # Duration in seconds
 ```
 
 ### PhonemeInfo
+
 ```python
 @dataclass
 class PhonemeInfo:
@@ -258,12 +275,14 @@ class PhonemeInfo:
 ## Enums
 
 ### PhonemeCategory
+
 - `VOWEL_CLOSE`, `VOWEL_MID`, `VOWEL_OPEN`
 - `PLOSIVE`, `FRICATIVE`, `NASAL`, `LIQUID`, `GLIDE`, `AFFRICATE`
 - `SIBILANT_ALVEOLAR`, `SIBILANT_POSTALVEOLAR`, `SIBILANT_AFFRICATE`
 - `SILENCE`, `BREATH`, `UNKNOWN`
 
 ### SibilantType
+
 - `S_VOICELESS` (/s/ ~ 8000 Hz)
 - `Z_VOICED` (/z/ ~ 7500 Hz)
 - `SH_VOICELESS` (/ʃ/ ~ 5000 Hz)
@@ -272,6 +291,7 @@ class PhonemeInfo:
 - `JH_VOICED` (/dʒ/ ~ 5500 Hz)
 
 ### Language
+
 - `ENGLISH`, `GERMAN`, `SPANISH`, `FRENCH`, `ITALIAN`, `PORTUGUESE`, `DUTCH`, `POLISH`
 - (60+ languages supported via Wav2Vec2)
 
@@ -280,16 +300,19 @@ class PhonemeInfo:
 ## Performance
 
 ### Speed Benchmarks
+
 - **Phoneme Detection:** ~1s per second of audio (CPU)
 - **GPU Acceleration:** ~10x faster with CUDA GPU
 - **Classification:** Negligible (lookup-based)
 
 ### Accuracy
+
 - **Phoneme Detection:** >80% IPA accuracy on test sets
 - **Sibilant Classification:** >90% precision
 - **Multi-language:** Varies by language (English: ~85%, German: ~80%)
 
 ### Memory
+
 - **Model Size:** ~360MB (Wav2Vec2)
 - **Runtime Memory:** ~2GB (CPU), ~1GB VRAM (GPU)
 
@@ -298,12 +321,14 @@ class PhonemeInfo:
 ## Supported Languages
 
 Primary support (tested):
+
 - 🇬🇧 **English** (en)
 - 🇩🇪 **German** (de)
 - 🇪🇸 **Spanish** (es)
 - 🇫🇷 **French** (fr)
 
 Additional languages (via eSpeak-ng):
+
 - 🇮🇹 Italian, 🇵🇹 Portuguese, 🇳🇱 Dutch, 🇵🇱 Polish, + 50+ more
 
 ---
@@ -311,12 +336,14 @@ Additional languages (via eSpeak-ng):
 ## Limitations
 
 ### Current Limitations
+
 1. **Single Speaker:** Works best with single speaker audio
 2. **Clean Audio:** Performance degrades with heavy noise/reverb
 3. **16kHz Requirement:** Automatic resampling may affect quality
 4. **Language Detection:** Manual language specification required
 
 ### Future Enhancements (Phase 2+)
+
 - Multi-speaker diarization
 - Automatic language detection
 - Real-time streaming support
@@ -328,6 +355,7 @@ Additional languages (via eSpeak-ng):
 ## Integration Examples
 
 ### Example 1: Sibilant Detection for De-Essing
+
 ```python
 from backend.ml.phoneme_aware import PhonemeDetector, PhonemeClassifier
 
@@ -356,6 +384,7 @@ for region in sibilant_regions:
 ```
 
 ### Example 2: Vowel/Consonant Ratio
+
 ```python
 vowel_duration = sum(
     s.duration for s in phonemes if classifier.is_vowel(s.phoneme)
@@ -369,6 +398,7 @@ print(f"Consonant/Vowel Ratio: {cv_ratio:.2f}")
 ```
 
 ### Example 3: Phoneme Timeline Synchronization
+
 ```python
 # Get frame-level phoneme timeline
 timeline = detector.get_phoneme_timeline(
@@ -383,7 +413,7 @@ for i, phoneme_label in enumerate(timeline):
     frame_start = i * frame_size
     frame_end = frame_start + frame_size
     audio_frame = audio[frame_start:frame_end]
-    
+
     # Apply phoneme-specific processing
     if classifier.is_sibilant(phoneme_label):
         # De-ess this frame
@@ -395,6 +425,7 @@ for i, phoneme_label in enumerate(timeline):
 ## Testing
 
 ### Run Tests
+
 ```bash
 # Unit tests
 pytest tests/test_phoneme_detector.py -v
@@ -405,6 +436,7 @@ pytest tests/test_phoneme_integration.py -v
 ```
 
 ### Test Coverage
+
 - Phoneme detection accuracy tests
 - Multi-language support tests
 - Classification correctness tests
@@ -416,6 +448,7 @@ pytest tests/test_phoneme_integration.py -v
 ## Troubleshooting
 
 ### Model Download Issues
+
 ```python
 # Set custom cache directory
 from backend.ml.phoneme_aware import PhonemeDetector, DetectionConfig
@@ -425,6 +458,7 @@ detector = PhonemeDetector(config)
 ```
 
 ### GPU Not Detected
+
 ```python
 import torch
 print(f"CUDA available: {torch.cuda.is_available()}")
@@ -436,6 +470,7 @@ detector = PhonemeDetector(config)
 ```
 
 ### Memory Issues
+
 ```python
 # Process in chunks for long audio
 chunk_duration = 30.0  # 30 seconds
@@ -445,13 +480,13 @@ all_phonemes = []
 for i in range(0, len(audio), chunk_size):
     chunk = audio[i:i+chunk_size]
     phonemes = detector.detect(chunk, sr)
-    
+
     # Adjust timestamps
     time_offset = i / sr
     for p in phonemes:
         p.start_time += time_offset
         p.end_time += time_offset
-    
+
     all_phonemes.extend(phonemes)
 ```
 
@@ -460,6 +495,7 @@ for i in range(0, len(audio), chunk_size):
 ## Development Status
 
 ### Week 7 Progress (Day 1-2)
+
 - ✅ PhonemeDetector implementation (~520 lines)
 - ✅ PhonemeClassifier implementation (~460 lines)
 - ✅ Logging configuration
@@ -467,6 +503,7 @@ for i in range(0, len(audio), chunk_size):
 - ✅ README documentation
 
 ### Next Steps (Day 3-7)
+
 - ⏳ Comprehensive test suite (~400 lines)
 - ⏳ Integration examples
 - ⏳ Performance optimization
@@ -477,14 +514,16 @@ for i in range(0, len(audio), chunk_size):
 ## References
 
 ### Wav2Vec2 Model
+
 - **Paper:** "wav2vec 2.0: A Framework for Self-Supervised Learning of Speech Representations"
 - **Authors:** Baevski et al. (Meta AI)
 - **Model:** facebook/wav2vec2-lv-60-espeak-cv-ft
-- **HuggingFace:** https://huggingface.co/facebook/wav2vec2-lv-60-espeak-cv-ft
+- **HuggingFace:** [facebook/wav2vec2-lv-60-espeak-cv-ft](https://huggingface.co/facebook/wav2vec2-lv-60-espeak-cv-ft)
 
 ### IPA Phonetics
-- **International Phonetic Alphabet:** https://www.internationalphoneticassociation.org/
-- **eSpeak-ng:** https://github.com/espeak-ng/espeak-ng
+
+- **International Phonetic Alphabet:** [internationalphoneticassociation.org](https://www.internationalphoneticassociation.org/)
+- **eSpeak-ng:** [github.com/espeak-ng/espeak-ng](https://github.com/espeak-ng/espeak-ng)
 
 ---
 
@@ -498,6 +537,7 @@ Part of Aurik audio restoration system.
 ## Contact
 
 For questions or issues related to phoneme-aware processing:
+
 - Module: `backend.ml.phoneme_aware`
 - Documentation: This file
 - Tests: `tests/test_phoneme_*.py`

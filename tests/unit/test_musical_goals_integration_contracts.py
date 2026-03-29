@@ -43,7 +43,8 @@ class TestFeedbackChainIntegrationContracts:
         fc.goal_priority_callback = _abort_cb
         res = fc.run(_silence(), lambda a, sr: a)
         assert res.iterations == 1
-        assert any("contract-abort" in s for s in res.metadata.get("goal_priority_log", []))
+        log = res.metadata.get("goal_priority_log", [])
+        assert any("contract-abort" in s for s in list(log) if isinstance(s, str))  # type: ignore[arg-type]
 
 
 class TestUnifiedRestorerWiringContracts:

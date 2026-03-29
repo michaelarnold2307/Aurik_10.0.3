@@ -5,6 +5,7 @@ Professional audio restoration interface
 
 import math as _math
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import soundfile as sf
@@ -38,10 +39,10 @@ try:
 except ImportError:
     _BRIDGE_AVAILABLE = False
 
-    def get_aurik_denker_class():  # type: ignore[misc]
+    def get_aurik_denker_class() -> Any:  # type: ignore[misc]
         return None
 
-    def get_aurik_denker_instance():  # type: ignore[misc]
+    def get_aurik_denker_instance() -> Any:  # type: ignore[misc]
         return None
 
 
@@ -203,6 +204,11 @@ class MainWindow(QMainWindow):
         self.apply_dark_theme()
 
     def init_ui(self):
+        from .modern_window import get_accent_colors
+
+        # Modus bestimmen (Restoration/Studio 2026)
+        mode = "export" if self.mode_combo.currentData() == "Studio 2026" else "import"
+        self._accent = get_accent_colors(self.mode_combo.currentData())
         """Initialize user interface"""
         self.setWindowTitle(t("legacy.main.window_title"))
         self.setGeometry(100, 100, 1600, 900)
@@ -217,6 +223,8 @@ class MainWindow(QMainWindow):
 
         # Left panel: File list and controls
         left_panel = self.create_left_panel()
+        # Dynamisches Styling für linke Seitenleiste
+        left_panel.setStyleSheet(f"background: {self._accent['bg']};")
 
         # Middle panel: Waveform and settings
         middle_panel = self.create_right_panel()
@@ -249,6 +257,11 @@ class MainWindow(QMainWindow):
         self.statusBar.addPermanentWidget(self.progress_bar)
 
     def create_left_panel(self):
+        from .modern_window import get_accent_colors
+
+        # Modus bestimmen (Restoration/Studio 2026)
+        mode = self.mode_combo.currentData() if hasattr(self, "mode_combo") else "Restoration"
+        accent = get_accent_colors(mode)
         """Create left control panel"""
         panel = QWidget()
         layout = QVBoxLayout()
@@ -256,22 +269,35 @@ class MainWindow(QMainWindow):
 
         # Title
         title = QLabel(t("legacy.main.brand_title_html"))
+        title.setStyleSheet(f"color: {accent['accent']}; font-weight: bold; font-size: 18px;")
         layout.addWidget(title)
 
         # File list
         file_group = QGroupBox(t("legacy.main.audio_files"))
+        file_group.setStyleSheet(
+            f"QGroupBox {{ border: 2px solid {accent['group_border']}; border-radius: 8px; margin-top: 8px; color: {accent['accent']}; font-weight: bold; }}"
+        )
         file_layout = QVBoxLayout()
         file_group.setLayout(file_layout)
 
         self.file_list = QListWidget()
+        self.file_list.setStyleSheet(
+            f"QListWidget {{ background: #232526; color: #fff; border: 1px solid {accent['group_border']}; border-radius: 6px; }} QListWidget::item:selected {{ background: {accent['accent']}; color: #222; }}"
+        )
         self.file_list.itemSelectionChanged.connect(self.on_file_selected)
         file_layout.addWidget(self.file_list)
 
         # File buttons
         btn_layout = QHBoxLayout()
         btn_add = QPushButton(t("legacy.main.add_files"))
+        btn_add.setStyleSheet(
+            f"QPushButton {{ background: {accent['accent']}; color: #222; font-weight: bold; border-radius: 5px; padding: 6px 12px; }} QPushButton:hover {{ background: {accent['accent_hover']}; }}"
+        )
         btn_add.clicked.connect(self.add_files)
         btn_clear = QPushButton(t("legacy.main.clear"))
+        btn_clear.setStyleSheet(
+            "QPushButton { background: #444; color: #fff; border-radius: 5px; padding: 6px 12px; } QPushButton:hover { background: #666; }"
+        )
         btn_clear.clicked.connect(self.file_list.clear)
         btn_layout.addWidget(btn_add)
         btn_layout.addWidget(btn_clear)
@@ -281,6 +307,9 @@ class MainWindow(QMainWindow):
 
         # Medium selection — §RELEASE_MUST: auto-detected by MediumClassifier, no manual override
         medium_group = QGroupBox(t("legacy.main.medium_type"))
+        medium_group.setStyleSheet(
+            f"QGroupBox {{ border: 2px solid {accent['group_border']}; border-radius: 8px; margin-top: 8px; color: {accent['accent']}; font-weight: bold; }}"
+        )
         medium_layout = QVBoxLayout()
         medium_group.setLayout(medium_layout)
 
@@ -293,6 +322,9 @@ class MainWindow(QMainWindow):
 
         # Processing mode — §RELEASE_MUST: one-button contract, only Restoration | Studio 2026
         mode_group = QGroupBox(t("legacy.main.processing_mode"))
+        mode_group.setStyleSheet(
+            f"QGroupBox {{ border: 2px solid {accent['group_border']}; border-radius: 8px; margin-top: 8px; color: {accent['accent']}; font-weight: bold; }}"
+        )
         mode_layout = QVBoxLayout()
         mode_group.setLayout(mode_layout)
 
@@ -300,52 +332,28 @@ class MainWindow(QMainWindow):
         self.mode_combo.addItem("Restoration", "Restoration")
         self.mode_combo.addItem("Studio 2026", "Studio 2026")
         self.mode_combo.setCurrentIndex(0)  # Restoration (default)
+        self.mode_combo.setStyleSheet(
+            f"QComboBox {{ background: #232526; color: #fff; border: 1.5px solid {accent['group_border']}; border-radius: 6px; padding: 6px 10px; font-size: 13px; }} QComboBox::drop-down {{ background: {accent['accent']}; }} QComboBox QAbstractItemView::item:selected {{ background: {accent['accent']}; color: #222; }}"
+        )
         mode_layout.addWidget(self.mode_combo)
 
         layout.addWidget(mode_group)
 
         # Process button
         self.btn_process = QPushButton(t("legacy.main.process_now"))
-        self.btn_process.setStyleSheet("""
-            QPushButton {
-                background-color: #0078d4;
-                color: white;
-                font-size: 13px;
-                font-weight: bold;
-                padding: 10px;
-                border-radius: 5px;
-            }
-            QPushButton:hover {
-                background-color: #106ebe;
-            }
-            QPushButton:disabled {
-                background-color: #cccccc;
-                color: #666666;
-            }
-        """)
+        # Magic-Button: Akzentfarbe je nach Modus
+        self.btn_process.setStyleSheet(
+            f"QPushButton {{ background: {accent['accent']}; color: #222; font-size: 15px; font-weight: bold; padding: 12px; border-radius: 7px; box-shadow: 0 0 12px {accent['accent']}55; }} QPushButton:hover {{ background: {accent['accent_hover']}; box-shadow: 0 0 18px {accent['accent_hover']}99; }} QPushButton:disabled {{ background: #cccccc; color: #666666; }}"
+        )
         self.btn_process.clicked.connect(self.process_audio)
         self.btn_process.setEnabled(False)
         layout.addWidget(self.btn_process)
 
         # Add to Queue button
         self.btn_add_queue = QPushButton(t("legacy.main.add_to_queue"))
-        self.btn_add_queue.setStyleSheet("""
-            QPushButton {
-                background-color: #00aa00;
-                color: white;
-                font-size: 13px;
-                font-weight: bold;
-                padding: 10px;
-                border-radius: 5px;
-            }
-            QPushButton:hover {
-                background-color: #00cc00;
-            }
-            QPushButton:disabled {
-                background-color: #cccccc;
-                color: #666666;
-            }
-        """)
+        self.btn_add_queue.setStyleSheet(
+            f"QPushButton {{ background: {accent['accent']}; color: #222; font-size: 13px; font-weight: bold; padding: 10px; border-radius: 5px; }} QPushButton:hover {{ background: {accent['accent_hover']}; }} QPushButton:disabled {{ background: #cccccc; color: #666666; }}"
+        )
         self.btn_add_queue.clicked.connect(self.add_to_queue)
         self.btn_add_queue.setEnabled(False)
         layout.addWidget(self.btn_add_queue)
@@ -465,26 +473,27 @@ class MainWindow(QMainWindow):
 
     def add_files(self):
         """Add audio files to process"""
-        files, _ = QFileDialog.getOpenFileNames(
-            self,
-            t("legacy.main.select_audio_files"),
-            "",
-            t("legacy.main.audio_files_filter"),
+        from .modern_window import _AurikFileDialog
+
+        dlg = _AurikFileDialog(
+            t("legacy.main.select_audio_files"), "", t("legacy.main.audio_files_filter"), None, self, mode="import"
         )
-
-        for file in files:
-            self.file_list.addItem(file)
-
-        if self.file_list.count() > 0:
-            self.btn_process.setEnabled(True)
-            self.btn_add_queue.setEnabled(True)
+        if dlg.exec_() == dlg.Accepted:
+            files = dlg.selectedFiles()
+            for file in files:
+                self.file_list.addItem(file)
+            if self.file_list.count() > 0:
+                self.btn_process.setEnabled(True)
+                self.btn_add_queue.setEnabled(True)
 
     def on_file_selected(self):
         """Handle file selection"""
         items = self.file_list.selectedItems()
-        if items:
-            self.current_file = items[0].text()
-            self.load_waveform()
+        if items and len(items) > 0:
+            _item = items[0]
+            if _item is not None:
+                self.current_file = _item.text()
+                self.load_waveform()
 
     def load_waveform(self):
         """Load and display waveform with progress bar"""
@@ -556,16 +565,24 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, t("legacy.main.no_selection_title"), t("legacy.main.no_selection_body"))
             return
 
-        input_file = items[0].text()
+        _item = items[0]
+        if _item is None:
+            return
+        input_file = _item.text()
 
         # Get output file
-        output_file, _ = QFileDialog.getSaveFileName(
-            self,
-            t("legacy.main.save_processed_audio"),
-            str(Path(input_file).stem) + "_restored.wav",
-            t("legacy.main.wav_filter"),
-        )
+        from .modern_window import _AurikFileDialog
 
+        dlg = _AurikFileDialog(
+            t("legacy.main.save_processed_audio"), "", t("legacy.main.wav_filter"), None, self, mode="export"
+        )
+        # Set default filename
+        dlg._dlg.selectFile(str(Path(input_file).stem) + "_restored.wav")
+        if dlg.exec_() == dlg.Accepted:
+            output_files = dlg.selectedFiles()
+            output_file = output_files[0] if output_files else None
+        else:
+            output_file = None
         if not output_file:
             return
 
@@ -627,9 +644,13 @@ class MainWindow(QMainWindow):
         selected_items = self.file_list.selectedItems()
         if not selected_items:
             # Add all files
-            files = [self.file_list.item(i).text() for i in range(self.file_list.count())]
+            files: list[str] = []
+            for i in range(self.file_list.count()):
+                _item = self.file_list.item(i)
+                if _item is not None:
+                    files.append(_item.text())
         else:
-            files = [item.text() for item in selected_items]
+            files = [item.text() for item in selected_items if item is not None]
 
         if not files:
             QMessageBox.warning(self, t("dialog.no_files_title"), t("legacy.main.no_files_for_queue"))
@@ -642,8 +663,21 @@ class MainWindow(QMainWindow):
         }
 
         # Choose output directory
-        output_dir = QFileDialog.getExistingDirectory(self, t("legacy.main.select_output_dir"), str(Path.home()))
+        from .modern_window import _AurikFileDialog
 
+        dlg = _AurikFileDialog(
+            t("legacy.main.select_output_dir"),
+            str(Path.home()),
+            "",
+            QFileDialog.FileMode.Directory,
+            self,
+            mode="export",
+        )
+        if dlg.exec_() == dlg.Accepted:
+            output_dirs = dlg.selectedFiles()
+            output_dir = output_dirs[0] if output_dirs else None
+        else:
+            output_dir = None
         if not output_dir:
             return
 

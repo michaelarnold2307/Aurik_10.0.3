@@ -89,7 +89,7 @@ class SpeedPitchResult:
     pyin_confidence: float | None = None
     crepe_pitch: float | None = None
     crepe_confidence: float | None = None
-    metadata: dict[str, Any] = None
+    metadata: dict[str, Any] | None = None
 
     @property
     def yin_applied(self) -> bool:
@@ -201,7 +201,7 @@ class HybridSpeedPitch:
             should_apply_crepe = True
         elif strategy == PitchDetectionStrategy.ADAPTIVE:
             # CREPE anwenden wenn pYIN-Konfidenz niedrig
-            if pyin_confidence < self.config.confidence_threshold:
+            if (pyin_confidence or 0.0) < self.config.confidence_threshold:
                 logger.info(
                     f"pYIN confidence {pyin_confidence:.3f} < {self.config.confidence_threshold} → CREPE anwenden"
                 )

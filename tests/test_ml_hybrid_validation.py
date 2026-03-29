@@ -104,17 +104,17 @@ def main():
 
     # Test all phases
     try:
-        test_phase_03_denoise(audio_noisy, sr)
+        test_phase_03_denoise()
     except Exception as e:
         print(f"❌ Phase 03 test failed: {e}")
 
     try:
-        test_phase_12_wow_flutter(audio_wow, sr)
+        test_phase_12_wow_flutter()
     except Exception as e:
         print(f"❌ Phase 12 test failed: {e}")
 
     try:
-        test_phase_20_reverb(audio_reverb, sr)
+        test_phase_20_reverb()
     except Exception as e:
         print(f"❌ Phase 20 test failed: {e}")
 

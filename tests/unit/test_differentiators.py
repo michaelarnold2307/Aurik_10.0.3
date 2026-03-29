@@ -402,6 +402,8 @@ class TestDefectQualityReport:
         for e in entries:
             report.add_entry(e)
 
+        assert report.best_entry is not None
+        assert report.worst_entry is not None
         assert report.best_entry.defect_type == DefectType.HUM
         assert report.worst_entry.defect_type == DefectType.CRACKLE
         assert report.musical_context_preservation_rate == pytest.approx(2 / 3, abs=0.01)

@@ -14,7 +14,8 @@ import logging
 import os
 import pathlib
 from dataclasses import dataclass, field
-from typing import Optional
+
+import numpy as np
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +36,47 @@ class AudioLoadError(Exception):
         self.message_user = message_user
         self.cause = cause
         super().__init__(f"{message_user} | tech: {cause}" if cause else message_user)
+
+
+# ---------------------------------------------------------------------------
+# §3.9.7  Audio-Buffer-RAM-Guard
+# ---------------------------------------------------------------------------
+
+
+class AudioTooLargeError(AudioLoadError):
+    """Raised when the numpy audio array would exceed MAX_AUDIO_BYTES_RAM.
+
+    Typically triggered by very long files (> 8 h) whose float32 representation
+    can be 4–10× larger than the original compressed file on disk.
+    """
+
+
+MAX_AUDIO_BYTES_RAM: int = 2 * 1024**3  # 2 GB absolute RAM limit for one audio buffer
+
+
+def _check_audio_buffer_size(audio: np.ndarray, file_path: str) -> None:
+    """Raise AudioTooLargeError if *audio* array exceeds MAX_AUDIO_BYTES_RAM (§3.9.7).
+
+    MUST be called after soundfile.read() / pedalboard.read() and BEFORE
+    resample_poly — resampling can further increase the buffer size.
+
+    Args:
+        audio:     Loaded audio array.
+        file_path: Original file path (used in the error message only).
+
+    Raises:
+        AudioTooLargeError: Buffer exceeds the 2 GB hard limit.
+    """
+    nbytes = audio.nbytes
+    if nbytes > MAX_AUDIO_BYTES_RAM:
+        import pathlib as _pl
+
+        raise AudioTooLargeError(
+            f"Audio-Buffer {nbytes / 1024**3:.1f} GB überschreitet das RAM-Limit "
+            f"({MAX_AUDIO_BYTES_RAM // 1024**3} GB). "
+            f"Bitte kürze '{_pl.Path(file_path).name}' oder teile die Datei auf.",
+            cause=f"nbytes={nbytes}, limit={MAX_AUDIO_BYTES_RAM}",
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -134,14 +176,14 @@ class AudioFileValidator:
             real_path = pathlib.Path(os.path.realpath(path))
         except (OSError, ValueError) as e:
             raise AudioLoadError(
-                "Diese Datei kann nicht geöffnet werden. " "Möglicherweise ist der Pfad ungültig.",
+                "Diese Datei kann nicht geöffnet werden. Möglicherweise ist der Pfad ungültig.",
                 cause=str(e),
             ) from e
 
         # Schritt 2: Existenz-Prüfung
         if not real_path.exists():
             raise AudioLoadError(
-                "Diese Datei wurde nicht gefunden. " "Bitte prüfen Sie den Dateinamen und Speicherort.",
+                "Diese Datei wurde nicht gefunden. Bitte prüfen Sie den Dateinamen und Speicherort.",
                 cause=f"Datei nicht vorhanden: {real_path}",
             )
         if not real_path.is_file():
@@ -160,8 +202,7 @@ class AudioFileValidator:
         if file_size > self.MAX_FILE_SIZE_BYTES:
             max_gb = self.MAX_FILE_SIZE_BYTES / (1024**3)
             raise AudioLoadError(
-                f"Diese Datei ist zu groß (maximal {max_gb:.0f} GB). "
-                "Bitte teilen Sie sie in kleinere Abschnitte auf.",
+                f"Diese Datei ist zu groß (maximal {max_gb:.0f} GB). Bitte teilen Sie sie in kleinere Abschnitte auf.",
                 cause=f"Dateigröße {file_size} > {self.MAX_FILE_SIZE_BYTES}",
             )
 
@@ -172,7 +213,7 @@ class AudioFileValidator:
 
         if ext not in self.EXT_TO_FORMAT:
             # Unbekannte Extension → Warnung, kein harter Fehler (FFmpeg als Fallback)
-            warnings.append(f"Unbekannte Datei-Erweiterung '{ext}' — das Format wird trotzdem " "versucht zu laden.")
+            warnings.append(f"Unbekannte Datei-Erweiterung '{ext}' — das Format wird trotzdem versucht zu laden.")
             logger.warning("Unbekannte Extension %s für %s", ext, real_path.name)
         else:
             # Schritt 5: Magic-Bytes-Verifikation
@@ -203,7 +244,7 @@ class AudioFileValidator:
                 header = fh.read(32)
         except OSError as e:
             raise AudioLoadError(
-                "Diese Datei kann nicht geöffnet werden. " "Möglicherweise ist sie beschädigt oder gesperrt.",
+                "Diese Datei kann nicht geöffnet werden. Möglicherweise ist sie beschädigt oder gesperrt.",
                 cause=str(e),
             ) from e
 

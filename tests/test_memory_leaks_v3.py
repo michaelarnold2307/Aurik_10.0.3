@@ -94,6 +94,7 @@ def test_single_restoration_memory():
     mem_final = get_memory_mb()
     print(f"   Memory After Cleanup: {mem_final:.2f} MB")
 
+    assert mem_final is not None
     memory_increase = mem_final - mem_start
     print(f"\n   Memory Increase: {memory_increase:.2f} MB")
 
@@ -221,6 +222,7 @@ def test_defect_scanner_memory():
     mem_final = get_memory_mb()
     print(f"\n   Memory After: {mem_final:.2f} MB")
 
+    assert mem_final is not None
     memory_increase = mem_final - mem_start
     print(f"   Memory Increase: {memory_increase:.2f} MB")
 
@@ -277,6 +279,7 @@ def test_large_audio_memory():
     mem_final = get_memory_mb()
     print(f"   Memory After Cleanup: {mem_final:.2f} MB")
 
+    assert mem_final is not None
     memory_increase = mem_final - mem_start
     print(f"\n   Net Memory Increase: {memory_increase:.2f} MB")
 
@@ -334,6 +337,7 @@ def test_phase_cache_memory():
     mem_final = get_memory_mb()
     print(f"   Memory After Cleanup: {mem_final:.2f} MB")
 
+    assert mem_final is not None
     memory_increase = mem_final - mem_start
     print(f"   Memory Increase: {memory_increase:.2f} MB")
 

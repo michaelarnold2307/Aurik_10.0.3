@@ -42,11 +42,16 @@ except ImportError:
     pass
 
 try:
-    from banquet import Banquet
+    from banquet import Banquet  # type: ignore[import-untyped]
 
     BANQUET_AVAILABLE = True
 except ImportError:
-    Banquet = None
+
+    class Banquet:  # type: ignore[no-redef]
+        def __init__(self, *args, **kwargs):
+            raise RuntimeError("Banquet backend not available")
+
+    BANQUET_AVAILABLE = False
 
 
 class SpectralStemSeparator:

@@ -434,8 +434,6 @@ class PacketLossConcealer:
             return audio_concealed
 
         # Interpolate
-        gap_end - gap_start
-
         # Use last/first values + interpolation method
         x_known = np.array([before_start, gap_start - 1, gap_end, after_end - 1])
         y_known = np.array([before_vals[0], before_vals[-1], after_vals[0], after_vals[-1]])
@@ -873,7 +871,7 @@ if __name__ == "__main__":
 
     # Get metrics
     metrics = processor.get_metrics()
-    logger.info(f"\n{'='*60}")
+    logger.info(f"\n{'=' * 60}")
     logger.info("METRICS:")
     for module_name, module_metrics in metrics.items():
         logger.info(f"\n{module_name.upper()}:")
@@ -882,7 +880,7 @@ if __name__ == "__main__":
                 logger.info(f"  {key}: {value:.2f}")
             else:
                 logger.info(f"  {key}: {value}")
-    logger.info(f"{'='*60}\n")
+    logger.info(f"{'=' * 60}\n")
 
     # Save
     if output.ndim == 2:

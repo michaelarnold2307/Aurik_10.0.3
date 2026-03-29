@@ -51,6 +51,9 @@ class _DummyWindow:
     def _update_playhead(self) -> None:
         return
 
+    def _apply_status_text_style(self, style: str) -> None:
+        pass
+
 
 class _ImmediateThread:
     def __init__(self, target=None, daemon: bool | None = None, name: str | None = None, **_: object) -> None:
@@ -103,16 +106,33 @@ def test_normalize_audio_transposes_and_limits_channels() -> None:
 def test_play_audio_normalizes_before_sounddevice(monkeypatch: pytest.MonkeyPatch) -> None:
     captured: dict[str, object] = {}
 
+    class _FakeStream:
+        def __init__(self, **kwargs: object) -> None:
+            self._chunks: list[np.ndarray] = []
+            captured["samplerate"] = kwargs.get("samplerate")
+
+        def start(self) -> None:
+            pass
+
+        def write(self, chunk: np.ndarray) -> None:
+            self._chunks.append(np.array(chunk, copy=True))
+            captured["data"] = np.concatenate(self._chunks, axis=0)
+
+        def stop(self) -> None:
+            pass
+
+        def close(self) -> None:
+            pass
+
     class _FakeSoundDevice:
         def stop(self) -> None:
             captured["stopped"] = True
 
-        def play(self, data: np.ndarray, samplerate: int) -> None:
-            captured["data"] = np.array(data, copy=True)
-            captured["samplerate"] = samplerate
+        def query_devices(self, kind: str | None = None) -> dict:  # type: ignore[override]
+            return {}
 
-        def wait(self) -> None:
-            captured["wait_called"] = True
+        def OutputStream(self, **kwargs: object) -> _FakeStream:
+            return _FakeStream(**kwargs)
 
     monkeypatch.setattr(modern_window, "_SD_AVAILABLE", True)
     monkeypatch.setattr(modern_window, "_sd", _FakeSoundDevice())
@@ -138,5 +158,4 @@ def test_play_audio_normalizes_before_sounddevice(monkeypatch: pytest.MonkeyPatc
     assert np.isfinite(played).all()
     assert np.max(np.abs(played)) <= 1.0
     assert captured.get("samplerate") == 48_000
-    assert captured.get("wait_called") is True
     assert window.btn_stop_playback.enabled is True

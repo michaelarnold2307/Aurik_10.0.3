@@ -146,8 +146,8 @@ class AdaptiveTimeScaleModification:
             return librosa.effects.time_stretch(audio, rate=rate)
         elif self.method == "wsola":
             try:
-                from audiotsm.io.array import ArrayReader, ArrayWriter
-                from audiotsm.wsola import wsola
+                from audiotsm.io.array import ArrayReader, ArrayWriter  # type: ignore[import-untyped]
+                from audiotsm.wsola import wsola  # type: ignore[import-untyped]
 
                 reader = ArrayReader(audio)
                 writer = ArrayWriter()
@@ -159,7 +159,7 @@ class AdaptiveTimeScaleModification:
                 return self._wsola_scipy(audio, rate)
         elif self.method == "rubberband":
             try:
-                import pyrubberband as pyrb
+                import pyrubberband as pyrb  # type: ignore[import-untyped]
 
                 return np.asarray(pyrb.time_stretch(audio, sr, rate))
             except ImportError:
@@ -281,7 +281,7 @@ class AdaptiveTimeScaleModification:
         return output
 
     def _pitch_shift_classic(self, audio: np.ndarray, sr: int, n_steps: float) -> np.ndarray:
-        return librosa.effects.pitch_shift(audio, sr, n_steps)
+        return librosa.effects.pitch_shift(audio, sr=sr, n_steps=n_steps)
 
     def auto_optimize_params(self, audio, sr, target=None):
         self.log_contract()

@@ -267,7 +267,7 @@ class RandAugment:
     Randomly selects N operations with random magnitudes.
     """
 
-    def __init__(self, n_ops: int = 2, magnitude: float = 0.5, material_type: str | None = None) -> np.ndarray:
+    def __init__(self, n_ops: int = 2, magnitude: float = 0.5, material_type: str | None = None) -> None:
         """
         Initialize RandAugment.
 
@@ -312,7 +312,7 @@ class AutoAugment:
     Learns optimal augmentation policies through search.
     """
 
-    def __init__(self, n_policies: int = 5, n_ops_per_policy: int = 2, material_type: str | None = None) -> np.ndarray:
+    def __init__(self, n_policies: int = 5, n_ops_per_policy: int = 2, material_type: str | None = None) -> None:
         """
         Initialize AutoAugment.
 
@@ -326,7 +326,7 @@ class AutoAugment:
         self.material_type = material_type
 
         # Initialize random policies
-        self.policies = self._initialize_policies()
+        self.policies: list = self._initialize_policies() or []
 
         logger.info(f"AutoAugment initialized: {n_policies} policies, {n_ops_per_policy} ops per policy")
 

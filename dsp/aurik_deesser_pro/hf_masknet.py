@@ -5,7 +5,7 @@ from typing import Any
 import numpy as np
 import numpy.typing as npt
 
-AudioArray = npt.NDArray[np.floating]
+AudioArray = npt.NDArray[np.float32]
 
 
 def hf_retention(x: AudioArray, y: AudioArray, sr: int) -> float:
@@ -198,12 +198,9 @@ def build_dataset(audio: AudioArray) -> tuple[np.ndarray, np.ndarray]:
 
 
 class HFTextureDataset(Dataset[torch.Tensor]):
-    inputs: torch.Tensor
-    targets: torch.Tensor
-
     def __init__(self, audio_files: Sequence[str]) -> None:
-        self.inputs: list[np.ndarray[Any, np.floating]] = []
-        self.targets: list[np.ndarray[Any, np.floating]] = []
+        self.inputs: list[npt.NDArray[np.float32]] = []
+        self.targets: list[npt.NDArray[np.float32]] = []
         for path in audio_files:
             audio, _ = librosa.load(path, sr=SR, mono=True)
             x, y = build_dataset(audio)
@@ -283,4 +280,4 @@ def train_hf_masknet(
 # Export (Beispiel)
 def export_scripted(model: nn.Module, path: str = "hf_masknet.pt") -> None:
     scripted = torch.jit.script(model)
-    scripted.save(path)
+    scripted.save(path, _extra_files={})

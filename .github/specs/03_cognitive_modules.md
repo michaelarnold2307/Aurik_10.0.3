@@ -8,7 +8,7 @@
 ## §2.1 Pflicht-Kernmodule
 
 | Modul | Datei | Zweck |
-|---|---|---|
+| --- | --- | --- |
 | `PerceptualEmbedder` | `backend/core/perceptual_embedder.py` | 256-dim L2-normalisierter Einbettungsraum |
 | `CausalDefectReasoner` | `backend/core/causal_defect_reasoner.py` | Bayesianisch: 32 DefectTypes → 34 Kausal-Ursachen |
 | `GPParameterOptimizer` | `backend/core/gp_parameter_optimizer.py` | RBF-GP + UCB + MOO Pareto-Front |
@@ -53,6 +53,47 @@ sim = embedding.cosine_similarity(other)  # ∈ [-1, 1]
 
 ---
 
+## §12 Best-Practice: Umgang mit verbleibenden Deferred-Phases (Recovery, Logging, Qualitätsstrategie)
+
+### 1. Logging und Reporting (Transparenz & Nachvollziehbarkeit)
+
+- Nach Abschluss von Stufe 2 (`MLRefinementThread`) werden alle verbleibenden Phasen in `deferred_phases` mit vollständigem Kontext geloggt.
+- Pflichtfelder pro Phase: `phase_id`, `phase_name`, `reason` (OOM, RT-Limit, Modellfehler, RAM, User-Abbruch), `timestamp`, `material`, `mode`, `ram_status`, `model`, `fallback_status`, `psychoacoustic_relevance`.
+- Im `RestorationResult.metadata` MUSS ein Feld `incomplete_phases` (List[dict]) mit allen Details stehen.
+- Ein Recovery-Report (z.B. .txt im Output) fasst alle betroffenen Phasen, Ursachen und die geschätzte Qualitätsauswirkung für den Nutzer verständlich zusammen.
+- Nutzer erhält eine explizite, verständliche Warnung im UI: „Restaurierung unvollständig: Phase X konnte nicht ausgeführt werden. Grund: ... Mögliche Auswirkung: ...“
+
+### 2. Qualitätsstrategie (Harmonie & Zielerreichung)
+
+- Export ist nur zulässig, wenn alle P1/P2-Ziele erfüllt sind (kein Rollback, kein Phase-Skip, keine Deferred-Phase mit Prio ≤ 2).
+- Für verbleibende Deferred-Phases der Priorität P3–P5 wird der Export als „unvollständig“ markiert (`restoration_complete: False`).
+- Die `quality_estimate` wird nicht pauschal, sondern kontextsensitiv reduziert:
+  - Psychoakustische Relevanz der Phase (z.B. via Perceptual Quality Scorer, Material- und Defekt-Analyse)
+  - −0.10 bis −0.02 pro fehlender P3-Phase (je nach Einfluss)
+  - −0.05 bis −0.01 pro fehlender P4/P5-Phase
+  - Niemals unter 0.55 (E2E-Gate)
+- Nutzer-individuelle Gewichtung: Nutzer kann optional angeben, welche Ziele besonders wichtig sind (z.B. „Bass wichtiger als Brillanz“), um Penalty und Warnungen zu gewichten.
+
+### 3. Recovery & Adaptive Re-Routing (Resilienz & Alternativen)
+
+- Für jede Deferred-Phase wird automatisch geprüft, ob eine ressourcenschonendere DSP-Alternative oder ein Notfall-Fallback möglich ist (adaptive Re-Routing).
+- Wenn keine Alternative möglich ist, wird die Phase als „endgültig deferred“ markiert und im Report hervorgehoben.
+- Optional: Automatischer Retry nach RAM-Freigabe oder Systemneustart, inkl. Nutzer-Reminder im UI.
+
+### 4. Nutzerzentrierte Kommunikation (Verständlichkeit & Motivation)
+
+- Recovery-Report und UI-Warnungen sind so formuliert, dass der Nutzer die Auswirkungen auf den Klang versteht („Phase X fehlt – das kann zu weniger Bass führen“).
+- Nach Systemneustart oder RAM-Upgrade wird der Nutzer aktiv erinnert, Deferred-Phases nachzuholen.
+- Bei systematisch wiederkehrenden Deferred-Phases erhält der Nutzer einen Hinweis auf mögliche Hardware-Limitierungen und Empfehlungen.
+
+### 5. Wissenschaftliche Fundierung & Feedback-Loop (Validierung & Weiterentwicklung)
+
+- Die Penalty- und Export-Strategie wird regelmäßig anhand von AMRB/MUSHRA-Tests und realem Nutzerfeedback validiert und angepasst.
+- Simulationen des Qualitätsverlusts durch gezieltes Weglassen von Phasen an Referenzmaterial werden durchgeführt und dokumentiert.
+- Die gesamte Deferred-Phase-Strategie ist so gestaltet, dass sie im Zusammenspiel mit allen anderen Features (Denker-Architektur, Musical Goals, Recovery, Logging, UI) eine harmonische, nachvollziehbare und für den Nutzer optimale Restaurierung garantiert.
+
+---
+
 ## §2.4 CausalDefectReasoner
 
 ```python
@@ -94,8 +135,6 @@ plan = reasoner.reason(defect_scores, material="tape", audio=audio, sr=sr)
 # plan.reasoning         → str (Begründung)
 # Invariante: sum(cause_probabilities.values()) ≈ 1.0
 ```
-
----
 
 ## §2.5 GPParameterOptimizer
 
@@ -165,12 +204,12 @@ class VoiceGender:
 ## §2.9 Instrument-Phasen-Aktivierungsmatrix
 
 | PANNs-Kategorie | Phase | Schwellwert |
-|---|---|---|
-| Guitar / Electric Guitar | `phase_44_guitar_enhancement` | ≥ 0.5 |
-| Brass / Trumpet / Saxophone | `phase_45_brass_enhancement` | ≥ 0.5 |
-| Drum / Percussion | `phase_51_drums_enhancement` | ≥ 0.5 |
-| Piano / Keyboard | `phase_52_piano_restoration` | ≥ 0.5 |
-| Singing voice / Vocals | `phase_19` + `phase_42` + `phase_43` + VocalAIEnhancement | ≥ 0.40 |
+|------------------------------|-------------------------------|-------|
+| Guitar / Electric Guitar     | `phase_44_guitar_enhancement` | ≥ 0.5 |
+| Brass / Trumpet / Saxophone  | `phase_45_brass_enhancement`  | ≥ 0.5 |
+| Drum / Percussion            | `phase_51_drums_enhancement`  | ≥ 0.5 |
+| Piano / Keyboard             | `phase_52_piano_restoration`  | ≥ 0.5 |
+| Singing voice / Vocals       | `phase_19` + `phase_42` + `phase_43` + VocalAIEnhancement             | ≥ 0.40                                |
 
 ---
 
@@ -368,7 +407,7 @@ COLOR_MAP = {
 
 **Pflicht: Erst diese Liste prüfen, DANN neu schreiben.**
 
-```
+```text
 # ✅ = lokal gebündelt, kein Download, out-of-the-box
 
 # Vocoder & Synthese
@@ -464,7 +503,7 @@ Die drei Ausführungs-Denker (Stufen 6–8 in `AurikDenker._orchestriere()`) hab
 
 **Kontextfluss (Pflicht)**:
 
-```
+```text
 DefektDenker (Stufe 3) → defect_result
     ↓
 ReparaturDenker (Stufe 6) — nutzt defect_result für gezielte Reparaturen

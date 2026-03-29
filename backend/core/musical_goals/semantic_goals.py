@@ -27,10 +27,22 @@ from typing import Any
 
 import numpy as np
 
-try:
-    import torch
-except ImportError:
-    torch = None  # type: ignore
+torch = None  # type: ignore[assignment]
+
+
+def _load_torch() -> bool:
+    """Load optional torch dependency only on ML inference paths."""
+    global torch
+    if torch is not None:
+        return True
+    try:
+        import torch as _torch
+
+        torch = _torch  # type: ignore[assignment]
+        return True
+    except (ImportError, Warning):
+        return False
+
 
 logger = logging.getLogger(__name__)
 
@@ -708,7 +720,7 @@ class SemanticGoalsEngine:
             Model instance or None
         """
         try:
-            import madmom
+            import madmom  # type: ignore[import-untyped]
 
             logger.info("madmom structure analyzer loaded")
             return madmom
@@ -736,10 +748,14 @@ class SemanticGoalsEngine:
         try:
             model, feature_extractor = self.instrument_detector
 
+            if not _load_torch() or torch is None:
+                return self._detect_instruments_fallback(audio, sr)
+
             # Extract features
             inputs = feature_extractor(audio, sampling_rate=sr, return_tensors="pt")
 
             # Get predictions
+            assert torch is not None
             with torch.no_grad():
                 outputs = model(**inputs)
                 logits = outputs.logits
@@ -805,7 +821,7 @@ class SemanticGoalsEngine:
             return self._analyze_structure_fallback(audio, sr)
 
         try:
-            import madmom
+            import madmom  # type: ignore[import-untyped]
 
             # Use madmom's RNNDownBeatProcessor
             proc = madmom.features.downbeats.RNNDownBeatProcessor()

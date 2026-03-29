@@ -26,12 +26,7 @@ try:
 
     _QT_AVAILABLE = True
 except ImportError:
-    try:
-        from PyQt6.QtWidgets import QApplication
-
-        _QT_AVAILABLE = True
-    except ImportError:
-        _QT_AVAILABLE = False
+    _QT_AVAILABLE = False
 
 _HAS_DISPLAY = False
 if _QT_AVAILABLE:

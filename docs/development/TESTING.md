@@ -18,6 +18,7 @@
 - [E2E-Testing](#e2e-testing)
 - [Performance-Testing](#performance-testing)
 - [CI/CD-Integration](#cicd-integration)
+- [CI-Checkliste Optionale Abhängigkeiten](#ci-checkliste-optionale-abhaengigkeiten)
 - [Best Practices](#best-practices)
 
 ---
@@ -67,6 +68,13 @@ tests/
 ---
 
 ## Tests ausführen
+
+## CI-Checkliste Optionale Abhaengigkeiten
+
+Fuer reproduzierbare CI-Laeufe mit minimalen vermeidbaren Skips:
+
+- Siehe [CI_OPTIONAL_DEPENDENCIES_CHECKLIST.md](CI_OPTIONAL_DEPENDENCIES_CHECKLIST.md)
+- Enthalten: Install-Profile pro Jobtyp, Precheck-Skript, Skip-Einstufung und Definition of Done
 
 ### 1. Alle Unit-Tests (Standard — kein ML)
 

@@ -33,7 +33,6 @@ from dataclasses import dataclass
 import librosa
 import numpy as np
 from scipy import signal
-from scipy.fft import rfft, rfftfreq
 
 logger = logging.getLogger(__name__)
 
@@ -327,9 +326,8 @@ class ListeningFatigueAnalyzer:
             Roughness score: 0.0 = very rough, 1.0 = smooth
         """
         # Compute power spectrum
-        fft = rfft(audio)
-        magnitude = np.abs(fft)
-        freqs = rfftfreq(len(audio), 1 / sr)
+        magnitude = np.abs(np.fft.rfft(audio))
+        freqs = np.fft.rfftfreq(len(audio), 1 / sr)
 
         # Focus on audible range (20 Hz - 20 kHz)
         audible_mask = (freqs >= 20) & (freqs <= 20000)
@@ -433,7 +431,7 @@ class ListeningFatigueAnalyzer:
             Temporal masking score: 0.0 = high masking, 1.0 = low masking
         """
         # Compute envelope (instantaneous amplitude)
-        analytic_signal = signal.hilbert(audio)
+        analytic_signal: np.ndarray = signal.hilbert(audio)  # type: ignore[assignment]
         envelope = np.abs(analytic_signal)
 
         # Smooth envelope (10ms window)

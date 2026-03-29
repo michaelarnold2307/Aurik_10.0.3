@@ -45,7 +45,7 @@ class AudioRestorationDataset(Dataset):
 
     def __init__(
         self, data_dir: Path, split: str = "train", sr: int = 48000, duration: float = 2.0, normalize: bool = True
-    ) -> np.ndarray:
+    ) -> None:
         """
         Initialize dataset.
 

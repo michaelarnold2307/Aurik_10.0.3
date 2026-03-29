@@ -35,6 +35,7 @@ import logging
 import math
 import threading
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 
@@ -188,8 +189,8 @@ class FcpePlugin:
     """
 
     def __init__(self) -> None:
-        self._session: object | None = None
-        self._crepe_delegate: object | None = None
+        self._session: Any = None
+        self._crepe_delegate: Any = None
         self._load_model()
 
     def _load_model(self) -> None:

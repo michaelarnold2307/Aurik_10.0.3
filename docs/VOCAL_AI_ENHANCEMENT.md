@@ -44,6 +44,7 @@ Formant-Kreuzvalidierung via DIO/Harvest f₀ + CheapTrick-Spektralkurve (Morise
 **Adaptive Sibilanten-Reduktion** mit geschlechtsspezifischen Parametern:
 
 #### Männer
+
 ```python
 Frequenzbereich: 5.000 - 10.000 Hz
 Threshold: -25 dB
@@ -53,6 +54,7 @@ Release: 50 ms
 ```
 
 #### Frauen
+
 ```python
 Frequenzbereich: 6.000 - 12.000 Hz
 Threshold: -23 dB
@@ -62,6 +64,7 @@ Release: 40 ms
 ```
 
 #### Kinder
+
 ```python
 Frequenzbereich: 7.000 - 14.000 Hz
 Threshold: -20 dB
@@ -92,6 +95,7 @@ Release: 30 ms
 **Intelligente Atemgeräusch-Verarbeitung:**
 
 #### Unterscheidung zwischen:
+
 - **Künstlerischen Atemgeräuschen** (werden erhalten):
   - Pre-Phrase Breaths (vor Gesangsphrasen)
   - Emotionale Atemgeräusche (hohe Intensität)
@@ -103,6 +107,7 @@ Release: 30 ms
   - Übermäßig laute Atemgeräusche
 
 #### Preservation Ratio
+
 ```python
 preservation_ratio = 0.7  # 70% Erhalt (empfohlen)
 
@@ -137,11 +142,13 @@ formant_preservation_score = correlation(original_formants, processed_formants)
 **Emotionale Authentizität wird geschützt:**
 
 #### Emotion Detection:
+
 - **Pitch-Variation**: Std(F0) / Mean(F0)
 - **Dynamic Range**: Max - Min Amplitude
 - **High-Harmonic Energy**: Obertongehalt
 
 #### Emotion Preservation Score:
+
 ```python
 emotion_diff = abs(original_emotion - processed_emotion)
 emotion_preservation_score = 1.0 - emotion_diff
@@ -223,16 +230,19 @@ result = framework.enhance_vocals(
 ## 🔬 Wissenschaftliche Grundlagen
 
 ### Formant Theory
+
 - **Peterson & Barney (1952)**: Formant frequencies for vowels
 - **Fant (1960)**: Acoustic Theory of Speech Production
 - **Hillenbrand et al. (1995)**: Formant frequencies in American English
 
 ### Sibilance Processing
+
 - **ITU-T P.800**: Subjective quality assessment
 - **ANSI/ASA S3.5**: Sibilance detection standards
 - **Psychoacoustic Models**: Bark scale, critical bands
 
 ### Emotion in Voice
+
 - **Scherer (2003)**: Vocal expression of emotion
 - **Juslin & Laukka (2003)**: Communication of emotions in vocal expression
 - **Russell (1980)**: Circumplex model of affect
@@ -242,12 +252,14 @@ result = framework.enhance_vocals(
 ## 🎼 Integration mit bestehenden Phasen
 
 ### Phase 19: Advanced De-Esser
+
 - `processing/adaptive_deesser.py` (1854 Zeilen)
 - Gender/Age-aware Sibilant Processing
 - 24 Perceptual Sub-Bands (Bark-Scale)
 - ML-based Phoneme Classification
 
 ### Phase 42: Vocal Enhancement
+
 - `core/phases/phase_42_vocal_enhancement.py` (1708 Zeilen)
 - 8-Stage Enhancement Pipeline
 - Formant Analysis & Correction
@@ -255,6 +267,7 @@ result = framework.enhance_vocals(
 - Singer's Formant Boost
 
 ### Unified Integration
+
 - `core/vocal_ai_enhancement.py` (NEU, 870 Zeilen)
 - `core/ai_framework.py` (ERWEITERT)
 - Vollständige KI-Integration aller Vocal-Features
@@ -264,27 +277,32 @@ result = framework.enhance_vocals(
 ## ✅ Erfüllung der Anforderungen
 
 ### ✓ Individuelle Verbesserung von Gesang
+
 - Gender-adaptive Parameter für Männer, Frauen, Kinder
 - Altersgruppen-spezifische Anpassungen
 - Adaptive Enhancement basierend auf Stimm-Charakteristika
 
 ### ✓ Sibilanten-Behandlung
+
 - Geschlechtsspezifische Frequenzbereiche
 - Adaptive Threshold und Ratio
 - Emotion-preserving Kompression
 
 ### ✓ Erhalt von Atem
+
 - Intelligente Klassifikation (künstlerisch vs. störend)
 - Konfigurierbare Preservation Ratio
 - Kontext-bewusste Reduktion
 
 ### ✓ Erhalt von Emotion
+
 - Emotion Detection (Pitch-Variation, Dynamics, Harmonics)
 - Emotion Preservation Score Tracking
 - Adaptive Processing basierend auf Emotion Intensity
 - 4 Preservation Modes (Maximum, Balanced, Technical, Transparent)
 
 ### ✓ Erhalt von Authentizität
+
 - Formant-basierte Voice Identity Preservation
 - Spektrale Hüllkurven-Erhaltung
 - Minimal-invasive Processing-Strategien
@@ -320,11 +338,13 @@ pytest tests/test_vocal_ai_enhancement.py -v
 ## 📈 Performance
 
 ### Processing Speed
+
 - **1 Second Audio**: < 1.0s (Realtime-fähig)
 - **10 Second Audio**: < 10s
 - **Memory**: ~50 MB
 
 ### Latency
+
 - **Gender Detection**: ~100-200ms
 - **De-Essing**: ~50-100ms
 - **Breath Processing**: ~50-100ms

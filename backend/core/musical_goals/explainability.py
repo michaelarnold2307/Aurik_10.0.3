@@ -29,6 +29,7 @@ Date: 8. Februar 2026
 import logging
 from dataclasses import dataclass, field
 from enum import Enum
+from typing import Any
 
 import numpy as np
 
@@ -125,7 +126,7 @@ class GoalExplanation:
     step_impacts: list[ProcessingStepImpact]
     summary: str
     recommendations: list[str]
-    details: dict[str, any] = field(default_factory=dict)
+    details: dict[str, Any] = field(default_factory=dict)
 
 
 class GoalExplainer:
@@ -286,7 +287,12 @@ class GoalExplainer:
         if len(self.goal_history) < 2:
             raise RuntimeError("Need at least original + 1 processed step to explain")
 
-        mode_config = PROCESSING_MODE_CONFIGS.get(self.mode, PROCESSING_MODE_CONFIGS[ProcessingMode.RESTORATION])
+        _mode = self.mode or ProcessingMode.RESTORATION
+        mode_config = (
+            PROCESSING_MODE_CONFIGS[_mode]
+            if _mode in PROCESSING_MODE_CONFIGS
+            else PROCESSING_MODE_CONFIGS[ProcessingMode.RESTORATION]
+        )
 
         # Build goal trajectories
         goal_trajectories = self._build_goal_trajectories(mode_config)
@@ -314,7 +320,7 @@ class GoalExplainer:
 
         # Compile details
         details = {
-            "mode": self.mode.value,
+            "mode": (self.mode or ProcessingMode.RESTORATION).value,
             "num_steps": len(self.step_history),
             "initial_scores": self.goal_history[0]["scores"],
             "final_scores": self.goal_history[-1]["scores"],
@@ -407,7 +413,7 @@ class GoalExplainer:
             negative = []
             total_impact = 0.0
 
-            for goal_name in scores_before:
+            for goal_name in scores_before.keys():
                 delta = scores_after[goal_name] - scores_before[goal_name]
                 goal_changes[goal_name] = delta
                 total_impact += abs(delta)
@@ -622,7 +628,11 @@ class GoalExplainer:
         initial_scores = self.checker.measure_all(original, sr)
         final_scores = self.checker.measure_all(processed, sr, reference=original)
 
-        mode_config = PROCESSING_MODE_CONFIGS.get(mode, PROCESSING_MODE_CONFIGS[ProcessingMode.RESTORATION])
+        mode_config = (
+            PROCESSING_MODE_CONFIGS[mode]
+            if mode in PROCESSING_MODE_CONFIGS
+            else PROCESSING_MODE_CONFIGS[ProcessingMode.RESTORATION]
+        )
         targets = mode_config.musical_goals
 
         # Build explanation
@@ -649,10 +659,12 @@ class GoalExplainer:
             else:
                 failed.append(goal_name)
 
-        explanation += f"\nResult: {len(achieved)}/{len(achieved)+len(failed)} goals achieved\n"
+        explanation += f"\nResult: {len(achieved)}/{len(achieved) + len(failed)} goals achieved\n"
 
         if len(failed) > 0:
-            explanation += "\nFailed goals: " + ", ".join([self.goal_display_names.get(g, g.title()) for g in failed])
+            explanation += "\nFailed goals: " + ", ".join(
+                [str(self.goal_display_names.get(g) or g.title()) for g in failed]
+            )
 
         return explanation
 

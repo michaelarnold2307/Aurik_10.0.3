@@ -38,13 +38,13 @@ class AiSpeakerEnhancement:
         """
         audio = np.nan_to_num(audio, nan=0.0, posinf=0.0, neginf=0.0)
         nyq = 0.5 * sr
-        b, a = butter(4, [self.low / nyq, self.high / nyq], btype="band")
+        b, a = butter(4, [self.low / nyq, self.high / nyq], btype="band", output="ba")  # type: ignore[misc]
         audio_bp = lfilter(b, a, audio)
         audio_out = audio + self.gain * audio_bp
         # ML-Inferenz (wenn Modell vorhanden)
         if self.model is not None:
             try:
-                import onnxruntime as ort
+                pass
 
                 x = audio.astype(np.float32)[None, :]
                 ort_inputs = {self.model.get_inputs()[0].name: x}

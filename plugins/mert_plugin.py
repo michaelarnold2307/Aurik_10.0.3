@@ -35,6 +35,7 @@ import logging
 import threading
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import scipy.signal as spsig
@@ -325,8 +326,8 @@ class MertPlugin:
         self._model_dir = Path(model_dir) if model_dir else _MERT_MODEL_DIR
         self._use_onnx = use_onnx
         self._target_sr = target_sr
-        self._model = None
-        self._processor = None
+        self._model: Any = None
+        self._processor: Any = None
         self._model_type: str = "dsp_fallback"
         self._try_load_model()
 

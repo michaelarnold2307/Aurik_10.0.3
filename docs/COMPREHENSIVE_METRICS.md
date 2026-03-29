@@ -9,6 +9,7 @@ Das Aurik 9.x.x Comprehensive Metrics System implementiert eine vollständige Su
 ## Implementierte Module
 
 ### Core-Modul
+
 - **`core/comprehensive_metrics.py`**: Hauptmodul mit allen Metrik-Berechnungen
 - **`tests/test_comprehensive_metrics.py`**: Umfassende Test-Suite (46+ Test-Cases)
 
@@ -19,28 +20,33 @@ Das Aurik 9.x.x Comprehensive Metrics System implementiert eine vollständige Su
 Objektiv messbare, perzeptuell relevante Eigenschaften nach internationalen Standards.
 
 #### Signal-Qualität
+
 - **SNR (Signal-to-Noise Ratio)**: Signal-Rausch-Verhältnis in dB
 - **THD (Total Harmonic Distortion)**: Gesamtklirrfaktor in %
 - **SINAD**: Signal-to-Noise-and-Distortion in dB
 
 #### Lautheit & Dynamik
+
 - **Integrated LUFS**: ITU-R BS.1770-4 konforme Lautheitsmessung
 - **Loudness Range (LU)**: Dynamikbereich
 - **True Peak (dBTP)**: Echter Peak-Pegel (überabgetastet)
 - **Crest Factor**: Peak-zu-RMS-Verhältnis in dB
 
 #### Frequenz-Eigenschaften
+
 - **Frequency Response Flatness**: Frequenzgang-Linearität (0-1)
 - **Spectral Centroid**: Spektraler Schwerpunkt ("Helligkeit") in Hz
 - **Spectral Rolloff**: Hochfrequenz-Cutoff in Hz
 - **Spectral Flux**: Spektrale Änderungsrate
 
 #### Maskierung & Perzeption
+
 - **Perceptual Sharpness**: Schärfe-Empfindung (acum)
 - **Perceptual Roughness**: Rauheit-Empfindung
 - **Tonality**: Tonal vs. Rausch-Inhalt (0-1)
 
 #### Artefakte
+
 - **Pre-Echo Score**: Pre-Echo-Artefakte (1=sauber, 0=Artefakte)
 - **Click Detection**: Anzahl erkannter Clicks/Pops
 - **Clipping %**: Prozentsatz geclippter Samples
@@ -52,26 +58,31 @@ Objektiv messbare, perzeptuell relevante Eigenschaften nach internationalen Stan
 Musikalisch relevante Eigenschaften basierend auf Musiktheorie und Audio-Analyse.
 
 #### Harmonischer Inhalt
+
 - **Harmonic Clarity**: Harmonisch vs. inharmonisch (0-1)
 - **HNR (Harmonic-to-Noise Ratio)**: Harmonik-zu-Rausch-Verhältnis in dB
 - **Fundamental Stability**: Grundton-Stabilität (0-1)
 
 #### Tonale Eigenschaften
+
 - **Key Detection**: Erkannte Tonart (z.B., "C major")
 - **Key Confidence**: Konfidenz der Tonarterkennung (0-1)
 - **Consonance**: Harmonische Konsonanz (0-1)
 
 #### Rhythmus & Timing
+
 - **Tempo (BPM)**: Erkanntes Tempo
 - **Tempo Stability**: Tempo-Konsistenz (0-1)
 - **Rhythmic Regularity**: Beat-Regelmäßigkeit (0-1)
 
 #### Artikulation & Dynamik
+
 - **Attack Sharpness**: Transienten-Schärfe (0-1)
 - **Decay Smoothness**: Abkling-Glätte (0-1)
 - **Dynamic Contrast**: Mikrodynamik (0-1)
 
 #### Klangfarbe & Textur
+
 - **Spectral Complexity**: Harmonischer Reichtum (0-1)
 - **Spectral Balance**: Bass/Mitten/Höhen-Balance (0-1)
 - **Warmth**: Tiefmitten-Reichtum (0-1)
@@ -85,15 +96,18 @@ Musikalisch relevante Eigenschaften basierend auf Musiktheorie und Audio-Analyse
 Affektive Eigenschaften basierend auf Russell's Circumplex Model und Geneva Emotional Music Scale.
 
 #### Kern-Dimensionen (Russell's Circumplex Model)
+
 - **Valence**: Annehmlichkeit (-1=negativ, +1=positiv)
 - **Arousal**: Energie/Aktivierung (-1=ruhig, +1=energetisch)
 
 #### Energie & Intensität
+
 - **Energy**: Gesamtenergie (0-1)
 - **Intensity**: Emotionale Intensität (0-1)
 - **Tension**: Harmonische/rhythmische Spannung (0-1)
 
 #### Emotionale Kategorien (Geneva Emotional Music Scale)
+
 - **Power**: Gefühl von Kraft/Selbstvertrauen (0-1)
 - **Joyful Activation**: Fröhlich, heiter (0-1)
 - **Nostalgia**: Nostalgisch, sentimental (0-1)
@@ -102,6 +116,7 @@ Affektive Eigenschaften basierend auf Russell's Circumplex Model und Geneva Emot
 - **Transcendence**: Spirituell, transzendent (0-1)
 
 #### Wahrgenommener Affekt
+
 - **Perceived Happiness**: Wahrgenommene Fröhlichkeit (0-1)
 - **Perceived Sadness**: Wahrgenommene Traurigkeit (0-1)
 - **Perceived Anger**: Wahrgenommene Wut (0-1)
@@ -113,11 +128,13 @@ Affektive Eigenschaften basierend auf Russell's Circumplex Model und Geneva Emot
 ## Gesamtqualitäts-Scores
 
 ### Aggregierte Bewertungen
+
 - **Overall Technical Quality**: Technische Gesamtqualität (0-1)
 - **Overall Musical Quality**: Musikalische Gesamtqualität (0-1)
 - **Overall Emotional Impact**: Emotionaler Gesamteinfluss (0-1)
 
 ### Aurik Quality Score
+
 - **Aurik Quality Score**: Gewichtete Kombination aller Metriken (0-100)
   - **Weltklasse-Standard**: ≥ 90 Punkte
   - Gewichtung: 40% technisch, 40% musikalisch, 20% emotional
@@ -222,18 +239,21 @@ Emotional Impact:   75.4 / 100
 ## Wissenschaftliche Grundlagen
 
 ### Psychoakustische Metriken
+
 - **ITU-R BS.1770-4**: LUFS/True Peak Metering
 - **EBU R128**: Loudness Normalization
 - **Zwicker Model**: Perceptual Sharpness/Roughness
 - **FFT-basierte Analyse**: Spectral Features
 
 ### Musikalische Metriken
+
 - **Krumhansl-Schmuckler Algorithm**: Key Detection
 - **Helmholtz Consonance Theory**: Consonance Computation
 - **Onset Detection**: Tempo/Rhythm Analysis
 - **Chromagram Analysis**: Pitch Class Profiles
 
 ### Emotionale Metriken
+
 - **Russell's Circumplex Model**: Valence-Arousal Framework
 - **Geneva Emotional Music Scale (GEMS)**: 9 Emotional Categories
 - **Spectro-temporal Features**: Energy/Intensity/Texture Analysis
@@ -253,10 +273,12 @@ Emotional Impact:   75.4 / 100
 Das Metrik-System integriert sich nahtlos in bestehende Aurik-Module:
 
 ### Bestehende Module
+
 - **`core/enhanced_metrics.py`**: PESQ, ViSQOL, SI-SDR, STOI
 - **`metering/professional_meters.py`**: ITU-R BS.1770-4 LUFS Meter
 
 ### Neue Module
+
 - **`core/comprehensive_metrics.py`**: Vollständige Metrik-Suite
 
 ---

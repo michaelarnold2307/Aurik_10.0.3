@@ -81,11 +81,11 @@ def realistic_vocal_audio():
     from scipy.signal import butter, filtfilt
 
     # F1 (700 Hz) - vowel quality
-    b1, a1 = butter(2, [600, 800], btype="band", fs=sr)
+    b1, a1 = butter(2, [600, 800], btype="band", fs=sr, output="ba")  # type: ignore[misc]
     formant1 = filtfilt(b1, a1, audio) * 0.3
 
     # F2 (1220 Hz) - vowel quality
-    b2, a2 = butter(2, [1100, 1340], btype="band", fs=sr)
+    b2, a2 = butter(2, [1100, 1340], btype="band", fs=sr, output="ba")  # type: ignore[misc]
     formant2 = filtfilt(b2, a2, audio) * 0.2
 
     audio = audio + formant1 + formant2
@@ -169,7 +169,7 @@ def dummy_deesser(audio, sr, threshold=-20, ratio=4):
     """Dummy de-esser."""
     from scipy.signal import butter, filtfilt
 
-    b, a = butter(4, 6000 / (sr / 2), btype="high")
+    b, a = butter(4, 6000 / (sr / 2), btype="high", output="ba")  # type: ignore[misc]
     high = filtfilt(b, a, audio)
     return audio - high * 0.3
 
@@ -229,7 +229,7 @@ def dummy_harmonic_exciter(audio, sr, amount=0.5):
     """Dummy harmonic exciter."""
     from scipy.signal import butter, filtfilt
 
-    b, a = butter(4, 500 / (sr / 2), btype="high")
+    b, a = butter(4, 500 / (sr / 2), btype="high", output="ba")  # type: ignore[misc]
     high_freq = filtfilt(b, a, audio)
     harmonics = np.tanh(high_freq * 2) * amount * 0.2
     result = audio + harmonics

@@ -16,6 +16,7 @@ Von 37 Model-Requirements-Dateien wurden:
 ### 1️⃣ **Rollback für kritische Modelle**
 
 #### deepfilternet_v3_ii
+
 ```bash
 ✅ ROLLBACK DURCHGEFÜHRT
 torch:       2.10.0 → 1.11.0 (wiederhergestellt)
@@ -26,6 +27,7 @@ Grund: Rust-Bindings inkompatibel mit torch 2.x
 ```
 
 #### audiosr
+
 ```bash
 ✅ ROLLBACK DURCHGEFÜHRT
 torch:         2.10.0 → 2.1.0  (wiederhergestellt)
@@ -42,6 +44,7 @@ Grund: Breaking Changes in transformers 5.x
 Die folgenden ~30 Modelle haben **sichere Minor-Updates** erhalten:
 
 #### Beispiele (torch 2.x → 2.10.0):
+
 - ✅ **audioldm2**: torch 2.8.0 → 2.10.0
 - ✅ **vampnet**: torch 2.0.1 → 2.10.0
 - ✅ **sgmse_plus**: torch 2.0.1 → 2.10.0
@@ -54,6 +57,7 @@ Die folgenden ~30 Modelle haben **sichere Minor-Updates** erhalten:
 - ... und ~21 weitere
 
 #### Core-Packages (konsistent über alle Modelle):
+
 ```
 torch:        2.10.0
 transformers: 5.1.0  (außer deepfilternet_v3_ii, audiosr)
@@ -68,6 +72,7 @@ soundfile:    0.13.1
 ### 3️⃣ **Main Requirements (vollständig aktualisiert)**
 
 #### requirements/requirements_aurik.txt
+
 ```
 ✅ Alle Pakete auf neueste Versionen
 ✅ System-Dependencies dokumentiert (PortAudio, FFmpeg)
@@ -76,6 +81,7 @@ soundfile:    0.13.1
 ```
 
 #### requirements/requirements_sota.txt
+
 ```
 ✅ Alle Core-ML/Audio-Pakete aktualisiert
 ✅ Neue Sektionen hinzugefügt (Scientific, Web/API, Utilities)
@@ -83,6 +89,7 @@ soundfile:    0.13.1
 ```
 
 #### requirements/requirements_sota_docker.txt
+
 ```
 ✅ Komplett neu strukturiert
 ✅ SOTA-Models Liste dokumentiert
@@ -90,6 +97,7 @@ soundfile:    0.13.1
 ```
 
 #### requirements/requirements_installed.txt
+
 ```
 ✅ Frischer pip freeze snapshot (13.02.2026)
 ✅ 181 Pakete dokumentiert

@@ -189,6 +189,23 @@ class VocalEnhancement(PhaseInterface):
         },
     }
 
+    # §8.3 Vocal-Intimitäts-Gate (material-adaptiv): maximal tolerierbarer
+    # Abfall der Intimitäts-Metrik (fricative/plosive Präsenz) vor Rescue.
+    _INTIMACY_MAX_DROP_BY_MATERIAL: dict[MaterialType, float] = {
+        MaterialType.SHELLAC: 0.06,
+        MaterialType.VINYL: 0.05,
+        MaterialType.TAPE: 0.045,
+        MaterialType.CD_DIGITAL: 0.04,
+        MaterialType.STREAMING: 0.04,
+    }
+    _INTIMACY_RESCUE_MAX_BY_MATERIAL: dict[MaterialType, float] = {
+        MaterialType.SHELLAC: 0.60,
+        MaterialType.VINYL: 0.55,
+        MaterialType.TAPE: 0.50,
+        MaterialType.CD_DIGITAL: 0.45,
+        MaterialType.STREAMING: 0.45,
+    }
+
     def __init__(self):
         super().__init__()
         self.name = "Vocal Enhancement v2 Professional"
@@ -237,6 +254,9 @@ class VocalEnhancement(PhaseInterface):
             audio: Input audio (mono or stereo, 48 000 Hz)
             sample_rate: Sample rate in Hz
             material: Material type for adaptive processing
+                **kwargs: Optional ctx: defect_locations (dict), defect_saliency (dict — §9.1c)
+                    Wenn vorhanden, werden Lyrics-Salienz-Gewichte in De-Esser Aggressivität integriert:
+                    fricative_saliency wird Phase 42 aware → De-Esser spart high-saliency fricatives
 
         Returns:
             PhaseResult with enhanced audio
@@ -276,6 +296,26 @@ class VocalEnhancement(PhaseInterface):
         config["breath_reduction_db"] = float(config["breath_reduction_db"] * _effective_strength)
         config["compression_ratio"] = float(1.0 + (config["compression_ratio"] - 1.0) * _effective_strength)
 
+        # §2.36 + §9.1c: Salience-aware vocal shaping.
+        # Hohe Frikativ-/Sibilanz-Salienz => weniger aggressives De-Essern
+        # (Intimität und Artikulation erhalten). Hohe Harshness-Salienz =>
+        # Presence leicht dämpfen, damit Schärfe nicht verstärkt wird.
+        _defect_saliency_map = kwargs.get("defect_saliency_map", {})
+        _sibilance_saliency = 0.0
+        _harshness_saliency = 0.0
+        if isinstance(_defect_saliency_map, dict):
+            _sibilance_saliency = float(np.clip(_defect_saliency_map.get("sibilance", 0.0), 0.0, 1.0))
+            _harshness_saliency = float(np.clip(_defect_saliency_map.get("vocal_harshness", 0.0), 0.0, 1.0))
+
+            if _sibilance_saliency > 0.0:
+                # Preserve high-saliency consonants: reduce de-ess aggressiveness.
+                config["deess_reduction_db"] = float(config["deess_reduction_db"] * (1.0 - 0.50 * _sibilance_saliency))
+                config["deess_threshold_db"] = float(config["deess_threshold_db"] + 3.0 * _sibilance_saliency)
+
+            if _harshness_saliency > 0.0:
+                # Prevent brittle brightness on harsh material.
+                config["presence_gain_db"] = float(config["presence_gain_db"] * (1.0 - 0.20 * _harshness_saliency))
+
         # --- Vocal Harshness Severity aus DefectScanner-Ergebnis (§v9.10.77) ---
         # Wenn DefectScanner VOCAL_HARSHNESS erkannt hat, wird die Presence-Boost-Phase
         # gedämpft und eine Harshness-Absenkung vorgeschaltet.
@@ -293,6 +333,11 @@ class VocalEnhancement(PhaseInterface):
 
         # Detect if audio contains vocals (simple heuristic)
         has_vocals = self._detect_vocals(audio, sample_rate)
+
+        # Psychoakustische Basislinie: Intimität vor Bearbeitung messen.
+        # Bei Stereo wird auf Mono-Projektion gemessen, um einen robusten
+        # kanalunabhängigen Vergleichswert zu erhalten.
+        _intimacy_pre = self._measure_vocal_intimacy(audio, sample_rate)
 
         if not has_vocals:
             logger.info("No vocal content detected - skipping vocal enhancement")
@@ -435,6 +480,23 @@ class VocalEnhancement(PhaseInterface):
         if 0.0 < _effective_strength < 1.0:
             enhanced_audio = audio + _effective_strength * (enhanced_audio - audio)
 
+        # §8.3 Safety-Gate: wenn Intimität signifikant fällt, konservatives
+        # Rescue-Blending mit Dry-Signal anwenden.
+        _intimacy_post = self._measure_vocal_intimacy(enhanced_audio, sample_rate)
+        _intimacy_delta = float(_intimacy_post - _intimacy_pre)
+        _intimacy_gate_triggered = False
+        _intimacy_rescue_mix = 0.0
+        _intimacy_max_drop = float(self._INTIMACY_MAX_DROP_BY_MATERIAL.get(material, 0.04))
+        _intimacy_rescue_max = float(self._INTIMACY_RESCUE_MAX_BY_MATERIAL.get(material, 0.45))
+        if _intimacy_delta < -_intimacy_max_drop:
+            _intimacy_gate_triggered = True
+            # Mehr Rescue bei größerem Abfall, aber begrenzt um Effekt zu bewahren.
+            _severity = float(min(1.0, max(0.0, (-_intimacy_delta - _intimacy_max_drop) / 0.10)))
+            _intimacy_rescue_mix = float(0.20 + (_intimacy_rescue_max - 0.20) * _severity)
+            enhanced_audio = (1.0 - _intimacy_rescue_mix) * enhanced_audio + _intimacy_rescue_mix * audio
+            _intimacy_post = self._measure_vocal_intimacy(enhanced_audio, sample_rate)
+            _intimacy_delta = float(_intimacy_post - _intimacy_pre)
+
         execution_time = time.time() - start_time
         rt_factor = execution_time / (len(audio) / sample_rate)
 
@@ -459,9 +521,58 @@ class VocalEnhancement(PhaseInterface):
                 "phase_locality_factor": phase_locality_factor,
                 "effective_strength": _effective_strength,
                 "vocal_gender": _vocal_gender,
+                "sibilance_saliency": float(_sibilance_saliency),
+                "vocal_harshness_saliency": float(_harshness_saliency),
+                "vocal_intimacy_pre": float(_intimacy_pre),
+                "vocal_intimacy_post": float(_intimacy_post),
+                "vocal_intimacy_delta": float(_intimacy_delta),
+                "vocal_intimacy_gate_triggered": bool(_intimacy_gate_triggered),
+                "vocal_intimacy_rescue_mix": float(_intimacy_rescue_mix),
+                "vocal_intimacy_max_drop": float(_intimacy_max_drop),
+                "vocal_intimacy_rescue_max": float(_intimacy_rescue_max),
             },
             warnings=[] if rt_factor < 0.35 else [f"Performance sub-optimal: {rt_factor:.2f}× realtime"],
         )
+
+    def _measure_vocal_intimacy(self, audio: np.ndarray, sample_rate: int) -> float:
+        """Estimate vocal intimacy from fricative presence and plosive transients.
+
+        Returns a normalized score in [0, 1]. The metric is intentionally
+        lightweight and deterministic so it can be used as an in-phase safety gate.
+        """
+        try:
+            x = np.asarray(audio, dtype=np.float32)
+            x = np.nan_to_num(x, nan=0.0, posinf=0.0, neginf=0.0)
+            if x.ndim == 2:
+                x = np.mean(x, axis=1)
+            if x.size < 1024:
+                return 0.5
+
+            # Fricative band (4–8 kHz): articulation air/intimacy.
+            sos_fric = signal.butter(4, [4000.0, 8000.0], btype="band", fs=sample_rate, output="sos")
+            fric = signal.sosfilt(sos_fric, x)
+            fric_rms = float(np.sqrt(np.mean(fric**2) + 1e-12))
+
+            # Mid vocal body (300–3500 Hz): reference energy.
+            sos_mid = signal.butter(4, [300.0, 3500.0], btype="band", fs=sample_rate, output="sos")
+            mid = signal.sosfilt(sos_mid, x)
+            mid_rms = float(np.sqrt(np.mean(mid**2) + 1e-12))
+
+            fric_ratio = fric_rms / (mid_rms + 1e-12)
+            fric_score = float(np.clip(fric_ratio / 0.35, 0.0, 1.0))
+
+            # Plosive band (120–350 Hz) + transient derivative.
+            sos_plo = signal.butter(3, [120.0, 350.0], btype="band", fs=sample_rate, output="sos")
+            plo = signal.sosfilt(sos_plo, x)
+            dplo = np.diff(plo, prepend=plo[0])
+            transient = float(np.percentile(np.abs(dplo), 95))
+            ref_std = float(np.std(x) + 1e-9)
+            plosive_score = float(np.clip((transient / ref_std) / 3.0, 0.0, 1.0))
+
+            score = 0.55 * fric_score + 0.45 * plosive_score
+            return float(np.clip(score, 0.0, 1.0))
+        except Exception:
+            return 0.5
 
     def _try_stem_separation(self, audio: np.ndarray, sr: int) -> "tuple[np.ndarray, np.ndarray, float, str] | None":
         """Vocal/Instrument stem separation cascade: bs_roformer → demucs_v4 → None.
@@ -885,7 +996,18 @@ class VocalEnhancement(PhaseInterface):
             sos_f0 = signal.butter(3, [80.0, 400.0], btype="band", fs=sample_rate, output="sos")
             f0_band = signal.sosfilt(sos_f0, audio)
             # Compute amplitude envelope
-            analytic = np.abs(signal.hilbert(f0_band))
+            f0_band_1d = np.asarray(f0_band, dtype=np.float64).reshape(-1)
+            n_f0 = f0_band_1d.shape[0]
+            f0_spectrum = np.fft.fft(f0_band_1d)
+            h = np.zeros(n_f0, dtype=np.float64)
+            if n_f0 % 2 == 0:
+                h[0] = 1.0
+                h[n_f0 // 2] = 1.0
+                h[1 : n_f0 // 2] = 2.0
+            else:
+                h[0] = 1.0
+                h[1 : (n_f0 + 1) // 2] = 2.0
+            analytic = np.abs(np.fft.ifft(f0_spectrum * h))
             # Look for 4-8 Hz modulation (vibrato rate)
             if len(analytic) > sample_rate // 2:
                 # Downsample envelope to ~100 Hz for modulation analysis

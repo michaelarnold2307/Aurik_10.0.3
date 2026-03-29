@@ -9,6 +9,7 @@ from __future__ import annotations
 import logging
 import os
 import threading
+from typing import Any
 
 import numpy as np
 
@@ -23,7 +24,7 @@ _CHUNK = 512  # 32 ms @ 16 kHz
 
 class SileroPlugin:
     def __init__(self, model_path: str | None = None) -> None:
-        self._session = None
+        self._session: Any = None
         self._threshold = 0.5
         self._try_load(model_path or _MODEL)
 
@@ -100,7 +101,7 @@ class SileroPlugin:
         """Run ONNX model once on entire audio and derive per-sample bool mask."""
         inp = mono16[None].astype(np.float32)  # [1, n_samples]
         out = self._session.run(None, {"input": inp})[0]  # [1, frames, 999]
-        out = np.nan_to_num(out, nan=0.0, posinf=0.0, neginf=0.0)
+        out = np.nan_to_num(np.asarray(out, dtype=np.float32), nan=0.0, posinf=0.0, neginf=0.0)
         probs = out[0]  # [frames, 999]
         # Per-frame speech probability: max over non-silence classes
         if probs.shape[-1] > 1:
@@ -133,7 +134,7 @@ class SileroPlugin:
         inp = chunk[None].astype(np.float32)
         try:
             out = self._session.run(None, {"input": inp})[0]  # [1,frames,999]
-            out = np.nan_to_num(out, nan=0.0, posinf=0.0, neginf=0.0)
+            out = np.nan_to_num(np.asarray(out, dtype=np.float32), nan=0.0, posinf=0.0, neginf=0.0)
             probs = out[0]  # [frames, 999]
             speech_prob = float(probs[:, 1:].max(axis=-1).mean()) if probs.shape[-1] > 1 else 0.5
             return min(max(speech_prob, 0.0), 1.0)
@@ -143,7 +144,7 @@ class SileroPlugin:
 
     @staticmethod
     def _energy_vad(chunk: np.ndarray, threshold: float = 0.01) -> float:
-        rms = float(np.sqrt(np.mean(np.nan_to_num(chunk, 0.0) ** 2)))
+        rms = float(np.sqrt(np.mean(np.nan_to_num(chunk, nan=0.0) ** 2)))
         return 1.0 if rms > threshold else 0.0
 
 

@@ -39,6 +39,7 @@ import math
 import threading
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 
@@ -96,8 +97,8 @@ class SGMSEPlusPlugin:
     """
 
     def __init__(self) -> None:
-        self._session = None
-        self._ts_model = None
+        self._session: Any = None
+        self._ts_model: Any = None
         self._model_loaded: bool = False
         self._try_load()
 
@@ -268,14 +269,46 @@ class SGMSEPlusPlugin:
         fade_in = np.hanning(2 * overlap)[:overlap].astype(np.float32)
         fade_out = np.hanning(2 * overlap)[overlap:].astype(np.float32)
 
+        # Minimum RAM headroom required before each chunk.
+        # 30 s chunks peak ~1 GB in U-Net forward pass; add 2.5 GB safety margin
+        # for glibc heap fragmentation and OS memory pressure.
+        # 10 s chunks peak ~300 MB; 1.5 GB safety margin is sufficient.
+        _HEADROOM_LARGE = 3.5  # GB needed before a 30 s chunk
+        _HEADROOM_SMALL = 2.0  # GB needed before a 10 s chunk
+
         pos = 0
         chunk_idx = 0
         while pos < n_total:
             end = min(pos + chunk_len, n_total)
+
+            # ── Pre-chunk RAM guard ───────────────────────────────────
+            # Proactively free pages before allocating the next chunk to
+            # give psutil an accurate picture of truly available RAM.
+            gc.collect()
+            try:
+                import ctypes as _ct_pre
+
+                _ct_pre.CDLL("libc.so.6").malloc_trim(0)
+            except Exception:
+                pass
+            _avail_pre = self._get_available_ram_gb()
+            _headroom_needed = _HEADROOM_LARGE if chunk_len > self._MAX_CHUNK_SAMPLES_SMALL else _HEADROOM_SMALL
+            if _avail_pre < _headroom_needed:
+                logger.warning(
+                    "SGMSE+ pre-chunk %d: %.1f GB frei < %.1f GB Headroom — WPE-Fallback für Rest (%.1f s)",
+                    chunk_idx + 1,
+                    _avail_pre,
+                    _headroom_needed,
+                    (n_total - pos) / _SR,
+                )
+                rest = self._wpe_fallback(mono[pos:], _SR)
+                rest_len = min(len(rest), n_total - pos)
+                out[pos : pos + rest_len] = rest[:rest_len]
+                break
+
             chunk = mono[pos:end]
             enhanced = self._enhance_torchscript(chunk, sigma)
 
-            # Ensure same length
             if len(enhanced) < len(chunk):
                 enhanced = np.pad(enhanced, (0, len(chunk) - len(enhanced)))
             elif len(enhanced) > len(chunk):
@@ -494,6 +527,17 @@ class SGMSEPlusPlugin:
 
             return np.clip(np.nan_to_num(result, nan=0.0), -1.0, 1.0)
         except Exception as exc:
+            # Detect Torch / system OOM and re-raise as Python MemoryError so
+            # UV3's §2.39 OOM-Recovery-Checkpoint handler can fire instead of
+            # silently swallowing the error and calling WPE (which may also OOM).
+            _exc_str = str(exc).lower()
+            _is_oom = any(kw in _exc_str for kw in ("not enough memory", "malloc", "out of memory", "allocat", "oom"))
+            if _is_oom:
+                logger.error(
+                    "SGMSE+ TorchScript OOM erkannt: %s — re-raise als MemoryError für UV3-Checkpoint",
+                    exc,
+                )
+                raise MemoryError(f"SGMSE+ Torch-OOM: {exc}") from exc
             logger.warning("SGMSE+ TorchScript-Inferenzfehler: %s — WPE-Fallback.", exc)
             return self._wpe_fallback(mono, _SR)
 

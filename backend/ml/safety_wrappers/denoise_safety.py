@@ -307,7 +307,9 @@ def check_temporal_continuity(audio: np.ndarray, sr: int) -> float:
         audio = np.mean(audio, axis=0)
 
     # Compute envelope
-    envelope = np.abs(signal.hilbert(audio))
+    analytic = signal.hilbert(audio)
+    analytic_arr = np.asarray(analytic, dtype=np.complex128)
+    envelope = np.abs(analytic_arr)
 
     # Look for sudden drops (gaps)
     frame_length = int(0.01 * sr)  # 10ms
@@ -413,7 +415,7 @@ class DeNoiseSafety(BaseSafetyWrapper):
             )
 
         if snr < self.min_snr_db:
-            warnings.append(f"Very low SNR: {snr:.1f} dB. " "Noise reduction may struggle to preserve signal.")
+            warnings.append(f"Very low SNR: {snr:.1f} dB. Noise reduction may struggle to preserve signal.")
 
         # Classify noise type
         noise_type, noise_conf = classify_noise_type(audio, sr)
@@ -421,7 +423,7 @@ class DeNoiseSafety(BaseSafetyWrapper):
         metadata["noise_classification_confidence"] = noise_conf
 
         if noise_conf < 0.5:
-            warnings.append(f"Uncertain noise classification: {noise_type} " f"(confidence {noise_conf:.2f})")
+            warnings.append(f"Uncertain noise classification: {noise_type} (confidence {noise_conf:.2f})")
 
         # Measure spectral balance
         balance_before = measure_spectral_balance(audio, sr)
@@ -432,13 +434,13 @@ class DeNoiseSafety(BaseSafetyWrapper):
         metadata["temporal_continuity_before"] = continuity
 
         if continuity < 0.8:
-            warnings.append(f"Poor temporal continuity: {continuity:.2f}. " "Audio may have gaps or dropouts.")
+            warnings.append(f"Poor temporal continuity: {continuity:.2f}. Audio may have gaps or dropouts.")
 
         # Validate processing strength
         strength = params.get("strength", 0.5)
 
         if strength > 0.8:
-            warnings.append(f"Very aggressive de-noising: strength {strength:.2f}. " "High risk of artifacts.")
+            warnings.append(f"Very aggressive de-noising: strength {strength:.2f}. High risk of artifacts.")
 
         return PreCheckResult(passed=True, confidence=noise_conf, warnings=warnings, metadata=metadata)
 
@@ -506,7 +508,7 @@ class DeNoiseSafety(BaseSafetyWrapper):
             issues.append(f"Birdie artifacts increased: {severity_before:.2f} -> {severity_after:.2f}")
 
         if severity_after > self.max_birdie_tolerance:
-            issues.append(f"Excessive birdies: {severity_after:.2f} " f"(max {self.max_birdie_tolerance})")
+            issues.append(f"Excessive birdies: {severity_after:.2f} (max {self.max_birdie_tolerance})")
 
         # 3. Spectral balance preservation
         balance_before = measure_spectral_balance(original, sr)
@@ -530,7 +532,7 @@ class DeNoiseSafety(BaseSafetyWrapper):
         metrics["temporal_continuity_after"] = continuity_after
 
         if continuity_after < continuity_before - 0.1:
-            issues.append(f"Temporal continuity degraded: " f"{continuity_before:.2f} -> {continuity_after:.2f}")
+            issues.append(f"Temporal continuity degraded: {continuity_before:.2f} -> {continuity_after:.2f}")
 
         # 5. Energy preservation
         energy_ratio = compute_energy_ratio(original, processed)

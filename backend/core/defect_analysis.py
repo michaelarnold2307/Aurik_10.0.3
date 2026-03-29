@@ -183,22 +183,26 @@ class DefectAnalyzer:
 
     def _detect_clicks(self, audio: np.ndarray, sr: int) -> int:
         """Detect clicks/pops."""
+        if librosa is None:
+            return 0
         # Use onset detection with high threshold
         onset_env = librosa.onset.onset_strength(y=audio, sr=sr)
         onset_frames = librosa.onset.onset_detect(
-            onset_envelope=onset_env, sr=sr, delta=0.5  # High threshold for clicks
+            onset_envelope=onset_env,
+            sr=sr,
+            delta=0.5,  # High threshold for clicks
         )
 
         # Filter for very short, sharp onsets (clicks)
         click_count = 0
         for onset_frame in onset_frames:
-            onset_sample = librosa.frames_to_samples(onset_frame)
+            onset_sample = int(librosa.frames_to_samples(onset_frame))
 
             # Check if onset is very sharp (click characteristic)
             window_samples = int(0.005 * sr)  # 5ms window
             if onset_sample + window_samples < len(audio):
-                segment = audio[onset_sample : onset_sample + window_samples]
-                envelope = np.abs(signal.hilbert(segment))
+                segment = audio[onset_sample : onset_sample + window_samples].astype(float)
+                envelope = np.abs(signal.hilbert(np.asarray(segment, dtype=np.float64)))  # type: ignore[call-overload]
 
                 # Clicks have very rapid attack
                 if len(envelope) > 1:

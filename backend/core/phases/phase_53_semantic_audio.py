@@ -141,9 +141,9 @@ def _estimate_genre_hint(mono: np.ndarray, sr: int) -> str:
 class SemanticAudioPhase(PhaseInterface):
     """Reine Analyse-Phase: DSP Feature Extraction (BPM, Key, Genre, Loudness)."""
 
-    phase_id = "phase_53_semantic_audio"
-    name = "Semantic Audio Analysis"
-    description = (
+    PHASE_ID = "phase_53_semantic_audio"
+    PHASE_NAME = "Semantic Audio Analysis"
+    PHASE_DESCRIPTION = (
         "Analysiert Audio auf BPM, Tonart (Krumhansl-Profile), Genre-Hint "
         "(Spektralzentroid + Crest Factor) und Lautheitsprofil — OHNE die Audio-Daten zu verändern. "
         "Kein aurik_ml benötigt."
@@ -151,8 +151,8 @@ class SemanticAudioPhase(PhaseInterface):
 
     def get_metadata(self) -> PhaseMetadata:
         return PhaseMetadata(
-            phase_id=self.phase_id,
-            name=self.name,
+            phase_id=self.PHASE_ID,
+            name=self.PHASE_NAME,
             category=PhaseCategory.METADATA,
             priority=2,
             version="2.0.0",
@@ -162,7 +162,7 @@ class SemanticAudioPhase(PhaseInterface):
             is_cpu_intensive=True,
             is_io_intensive=False,
             quality_impact=0.75,
-            description=self.description,
+            description=self.PHASE_DESCRIPTION,
         )
 
     def process(self, audio: np.ndarray, sample_rate: int, **kwargs) -> PhaseResult:

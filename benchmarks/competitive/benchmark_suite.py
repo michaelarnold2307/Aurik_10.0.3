@@ -12,7 +12,7 @@ Competitive Benchmarking Suite for AURIK v9 (Legacy Suite — eingeschränkte CI
 
     Zulässige Musik-Metriken:
         MUSHRA (OQS), PQS-MOS, ViSQOL v3 (--audio Mode), PEAQ, FAD,
-        CDPAM, Musical Goals (14 Ziele, §1.2).
+        Musical Goals (14 Ziele, §1.2).
 
     Das Modul enthält noch Methoden calculate_pesq(), calculate_si_sdr()
     etc. — diese sind als LEGACY markiert und dürfen in keiner
@@ -88,68 +88,30 @@ class AudioQualityMetrics:
         return snr
 
     @staticmethod
-    def calculate_si_sdr(reference: np.ndarray, estimate: np.ndarray) -> float:
-        """Calculate Scale-Invariant Signal-to-Distortion Ratio."""
-        # Zero-mean signals
-        reference = reference - np.mean(reference)
-        estimate = estimate - np.mean(estimate)
-
-        # Scale to minimize distortion
-        alpha = np.dot(estimate, reference) / (np.dot(reference, reference) + 1e-10)
-        scaled_reference = alpha * reference
-
-        # Calculate SI-SDR
-        signal_power = np.sum(scaled_reference**2)
-        distortion_power = np.sum((estimate - scaled_reference) ** 2)
-
-        if distortion_power < 1e-10:
-            return np.inf
-
-        si_sdr = 10 * np.log10(signal_power / distortion_power)
-        return si_sdr
+    def calculate_si_sdr(reference: np.ndarray, estimate: np.ndarray) -> float | None:
+        """Legacy stub: SI-SDR is forbidden for music benchmarking (§4.4)."""
+        logger.warning("SI-SDR is forbidden for music benchmarking (§4.4). Returning None.")
+        return None
 
     @staticmethod
-    def calculate_pesq(reference: np.ndarray, degraded: np.ndarray, sr: int = 16000) -> float:
+    def calculate_pesq(reference: np.ndarray, degraded: np.ndarray, sr: int = 16000) -> float | None:
         """
         Calculate PESQ score (requires pesq library).
 
         Note: Install with: pip install pesq
         """
-        try:
-            from pesq import pesq as pesq_fn
-
-            # PESQ requires 8kHz or 16kHz
-            if sr not in [8000, 16000]:
-                logger.warning(f"PESQ requires 8kHz or 16kHz, got {sr}Hz. Using 16kHz mode.")
-                sr = 16000
-
-            score = pesq_fn(sr, reference, degraded, "wb")  # Wideband
-            return score
-        except ImportError:
-            logger.warning("PESQ not available. Install with: pip install pesq")
-            return None
-        except Exception as e:
-            logger.error(f"PESQ calculation failed: {e}")
-            return None
+        logger.warning("PESQ is forbidden for music benchmarking (§4.4). Returning None.")
+        return None
 
     @staticmethod
-    def calculate_stoi(clean: np.ndarray, processed: np.ndarray, sr: int = 16000) -> float:
+    def calculate_stoi(clean: np.ndarray, processed: np.ndarray, sr: int = 16000) -> float | None:
         """
         Calculate STOI (Short-Time Objective Intelligibility).
 
         Note: Install with: pip install pystoi
         """
-        try:
-            from pystoi import stoi
-
-            score = stoi(clean, processed, sr, extended=False)
-            return score
-        except ImportError:
-            logger.warning("STOI not available. Install with: pip install pystoi")
-            return None
-        except Exception as e:
-            logger.error(f"STOI calculation failed: {e}")
-            return None
+        logger.warning("STOI is forbidden for music benchmarking (§4.4). Returning None.")
+        return None
 
     @staticmethod
     def calculate_all_metrics(reference: np.ndarray, processed: np.ndarray, sr: int = 16000) -> dict[str, float]:
@@ -158,16 +120,7 @@ class AudioQualityMetrics:
 
         # Always available
         metrics["snr"] = AudioQualityMetrics.calculate_snr(reference, processed)
-        metrics["si_sdr"] = AudioQualityMetrics.calculate_si_sdr(reference, processed)
-
-        # Optional (require external libs)
-        pesq = AudioQualityMetrics.calculate_pesq(reference, processed, sr)
-        if pesq is not None:
-            metrics["pesq"] = pesq
-
-        stoi = AudioQualityMetrics.calculate_stoi(reference, processed, sr)
-        if stoi is not None:
-            metrics["stoi"] = stoi
+        # Forbidden speech/separation metrics are intentionally not computed (§4.4).
 
         return metrics
 
@@ -195,16 +148,20 @@ class PerformanceMetrics:
         end_cpu = self.process.cpu_percent()
         end_memory = self.process.memory_info().rss / 1024 / 1024  # MB
 
-        processing_time = end_time - self.start_time
+        start_time = self.start_time if self.start_time is not None else end_time
+        start_cpu = self.start_cpu if self.start_cpu is not None else end_cpu
+        start_memory = self.start_memory if self.start_memory is not None else end_memory
+
+        processing_time = end_time - start_time
         real_time_factor = processing_time / audio_duration if audio_duration > 0 else np.inf
 
         return {
             "processing_time": processing_time,
             "audio_duration": audio_duration,
             "real_time_factor": real_time_factor,
-            "cpu_usage": (self.start_cpu + end_cpu) / 2,
+            "cpu_usage": (start_cpu + end_cpu) / 2,
             "memory_usage": end_memory,
-            "memory_delta": end_memory - self.start_memory,
+            "memory_delta": end_memory - start_memory,
         }
 
 
@@ -228,7 +185,8 @@ class CompetitiveBenchmark:
     def benchmark_aurik(self, audio_path: str, reference_path: str) -> dict:
         """Benchmark AURIK v8."""
         import soundfile as sf
-        from orchestrator_and_cli import process_audio_with_musical_goals
+
+        from cli.aurik_cli import process_audio
 
         logger.info(f"Benchmarking AURIK on {audio_path}")
 
@@ -242,7 +200,19 @@ class CompetitiveBenchmark:
 
         # Process audio
         try:
-            processed, _ = process_audio_with_musical_goals(audio_path, policy="balanced")
+            import tempfile
+
+            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp_out:
+                tmp_out_path = tmp_out.name
+
+            try:
+                result = process_audio(audio_path, tmp_out_path, verbose=False, mode="Restoration")
+                processed = np.asarray(result.audio, dtype=np.float32)
+            finally:
+                try:
+                    Path(tmp_out_path).unlink(missing_ok=True)
+                except Exception:
+                    pass
         except Exception as e:
             logger.error(f"AURIK processing failed: {e}")
             return None

@@ -62,6 +62,14 @@ from .phase_interface import (
     create_phase_result,
 )
 
+try:
+    from dsp.pghi import pghi_reconstruct_from_stft as _pghi_p56
+
+    _PGHI_AVAILABLE_P56 = True
+except ImportError:
+    _PGHI_AVAILABLE_P56 = False
+
+
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
@@ -461,6 +469,16 @@ class SpectralBandGapRepairPhase(PhaseInterface):
     Aktivierung: Nur bei HEAD_WEAR-Defekt, confidence ≥ 0.55
     """
 
+    # MRSA Multi-Resolution Spectral Analysis zones (mandatory, §DSP-Spezialregeln)
+    _MRSA_ZONES: tuple = (
+        ("sub_bass", 65536, 16384, 0, 250),
+        ("mid_low", 16384, 4096, 250, 2500),
+        ("mid", 8192, 2048, 2500, 8000),
+        ("presence", 1024, 256, 8000, 16000),
+        ("air", 128, 32, 16000, 24000),
+    )
+    _MRSA_CROSSFADE_BW_HZ: float = 100.0
+
     def __init__(self, sample_rate: int = 48000, **kwargs: Any) -> None:
         self.n_fft: int = kwargs.get("n_fft", 2048)
         self.hop_length: int = kwargs.get("hop_length", 512)
@@ -537,9 +555,14 @@ class SpectralBandGapRepairPhase(PhaseInterface):
         if audio.ndim == 2:
             left = self._process_channel(audio[:, 0], sr, instrument_tag)
             right = self._process_channel(audio[:, 1], sr, instrument_tag)
-            out = np.stack([left, right], axis=1)
+            # MRSA post-processing: zone-specific gain refinement + PGHI
+            left = self._mrsa_gain_refinement(audio[:, 0].astype(np.float64), left.astype(np.float64), sr)
+            right = self._mrsa_gain_refinement(audio[:, 1].astype(np.float64), right.astype(np.float64), sr)
+            out = np.stack([left.astype(np.float32), right.astype(np.float32)], axis=1)
         else:
             out = self._process_channel(audio, sr, instrument_tag)
+            # MRSA post-processing: zone-specific gain refinement + PGHI
+            out = self._mrsa_gain_refinement(audio.astype(np.float64), out.astype(np.float64), sr).astype(np.float32)
 
         if 0.0 < effective_strength < 1.0:
             out = audio + effective_strength * (out - audio)
@@ -563,6 +586,108 @@ class SpectralBandGapRepairPhase(PhaseInterface):
                 "effective_strength": effective_strength,
             },
         )
+
+    def _mrsa_gain_refinement(self, audio_in: np.ndarray, audio_out: np.ndarray, sr: int) -> np.ndarray:
+        """MRSA zone-specific gain refinement with PGHI reconstruction.
+
+        For each MRSA zone, computes the input→output gain ratio at zone-specific
+        resolution, blends zones via Hanning crossfades, and reconstructs via PGHI
+        (fallback: iSTFT).  Post-processing step applied after _process_channel().
+
+        Algorithm mirrors Phase 06 _mrsa_gain_refinement (post-processing pattern):
+            1. Reference STFT of both audio_in and audio_out (win=2048)
+            2. Baseline gain G_ref = |Zxx_out| / (|Zxx_in| + eps)
+            3. For each zone: zone STFT → G_zone = |Zxx_out_z| / (|Zxx_in_z| + eps)
+            4. Blend G_zone into G_ref via Hanning crossfade mask in freq domain
+            5. Apply blended gain to audio_in STFT → PGHI reconstruct
+
+        Args:
+            audio_in:  Original channel audio (mono, float64).
+            audio_out: Channel processed by _process_channel() (mono, float64).
+            sr:        Sample rate (48000 Hz).
+
+        Returns:
+            Refined output audio (mono, float64, same length as audio_in).
+        """
+        from scipy.signal import istft as _istft_fn
+        from scipy.signal import stft as _stft_fn
+
+        REF_WIN = 2048
+        REF_HOP = 512
+        nyq = sr / 2.0
+        n = len(audio_in)
+
+        try:
+            _, _, Zxx_in = _stft_fn(audio_in, sr, nperseg=REF_WIN, noverlap=REF_WIN - REF_HOP)
+            _, _, Zxx_out = _stft_fn(audio_out, sr, nperseg=REF_WIN, noverlap=REF_WIN - REF_HOP)
+        except Exception:
+            return audio_out
+
+        n_freq = Zxx_in.shape[0]
+        freqs_ref = np.linspace(0.0, nyq, n_freq)
+
+        mag_in_ref = np.abs(Zxx_in) + 1e-8
+        mag_out_ref = np.abs(Zxx_out)
+        G_blend = mag_out_ref / mag_in_ref  # start with reference gain
+
+        for _zone_name, win_z, hop_z, f_lo, f_hi in self._MRSA_ZONES:
+            f_lo_z = min(float(f_lo), nyq)
+            f_hi_z = min(float(f_hi), nyq)
+            if f_lo_z >= nyq:
+                continue
+
+            try:
+                _, _, Zxx_in_z = _stft_fn(audio_in, sr, nperseg=win_z, noverlap=win_z - hop_z)
+                _, _, Zxx_out_z = _stft_fn(audio_out, sr, nperseg=win_z, noverlap=win_z - hop_z)
+            except Exception:
+                continue
+
+            n_freq_z = Zxx_in_z.shape[0]
+            n_t_z = Zxx_in_z.shape[1]
+            G_zone_z = np.abs(Zxx_out_z) / (np.abs(Zxx_in_z) + 1e-8)  # [n_freq_z, n_t_z]
+
+            # Resample G_zone to reference STFT grid
+            freqs_z = np.linspace(0.0, nyq, n_freq_z)
+            n_t_ref = G_blend.shape[1]
+            G_zone_ref = np.zeros_like(G_blend)
+            for tf in range(n_t_ref):
+                # Map time frame
+                t_z = min(int(round(tf * n_t_z / max(n_t_ref, 1))), n_t_z - 1)
+                G_zone_ref[:, tf] = np.interp(freqs_ref, freqs_z, G_zone_z[:, t_z])
+
+            # Hanning crossfade frequency mask for this zone
+            bw = self._MRSA_CROSSFADE_BW_HZ
+            f_mask = np.zeros(n_freq)
+            for k, fk in enumerate(freqs_ref):
+                if fk <= f_lo_z - bw or fk >= f_hi_z + bw:
+                    f_mask[k] = 0.0
+                elif f_lo_z - bw < fk < f_lo_z + bw:
+                    f_mask[k] = 0.5 * (1.0 + np.cos(np.pi * (f_lo_z - fk) / bw))
+                elif f_hi_z - bw < fk < f_hi_z + bw:
+                    f_mask[k] = 0.5 * (1.0 + np.cos(np.pi * (fk - f_hi_z) / bw))
+                else:
+                    f_mask[k] = 1.0
+
+            f_mask_2d = f_mask[:, np.newaxis]
+            G_blend = f_mask_2d * G_zone_ref + (1.0 - f_mask_2d) * G_blend
+
+        # Apply blended gain to input STFT → reconstruct
+        G_blend = np.clip(G_blend, 0.0, 50.0)
+        Zxx_refined = Zxx_in * G_blend
+
+        try:
+            if _PGHI_AVAILABLE_P56:
+                result = _pghi_p56(Zxx_refined, REF_WIN, REF_HOP, sr)
+            else:
+                _, result = _istft_fn(Zxx_refined, sr, nperseg=REF_WIN, noverlap=REF_WIN - REF_HOP)
+        except Exception:
+            return audio_out
+
+        if len(result) < n:
+            result = np.pad(result, (0, n - len(result)))
+        result = result[:n]
+
+        return np.clip(np.nan_to_num(result), -1.0, 1.0)
 
     def _process_channel(self, mono: np.ndarray, sr: int, instrument_tag: str) -> np.ndarray:
         """Verarbeitet einen Kanal (Mono-Array)."""

@@ -1,4 +1,5 @@
 # AURIK Phoneme-Aware Processing System
+
 **Documentation v1.0 - 7. Februar 2026**
 
 ---
@@ -129,7 +130,7 @@ result = detector.detect(audio, sr=44100)
 @dataclass
 class PhonemeDetectionResult:
     """Result from phoneme detection."""
-    
+
     phonemes: List[str]                  # IPA phoneme symbols
     confidence_scores: np.ndarray        # Confidence per phoneme (0-1)
     time_ranges: List[Tuple[float, float]]  # (start_time, end_time) in seconds
@@ -199,7 +200,7 @@ features = classifier.get_phonetic_features("a")
 ```python
 class PhonemeCategory(Enum):
     """Phoneme category classifications."""
-    
+
     VOWEL = "vowel"              # a, e, i, o, u, etc.
     CONSONANT = "consonant"      # Generic consonant
     SIBILANT = "sibilant"        # s, z, ʃ, ʒ
@@ -321,38 +322,38 @@ from backend.ml.inference_only.phoneme_detection.phoneme_classifier import Phone
 
 class PhonemeAwareProcessor:
     """Production-ready phoneme-aware audio processor."""
-    
+
     def __init__(self, sample_rate: int = 44100):
         self.sr = sample_rate
         self.detector = PhonemeDetector(sample_rate=16000)  # Model expects 16kHz
         self.classifier = PhonemeClassifier()
-        
+
     def process(self, audio: np.ndarray, sr: int) -> Dict[str, Any]:
         """Process audio with phoneme awareness."""
-        
+
         # 1. Detect phonemes
         phoneme_result = self.detector.detect(audio, sr=sr)
-        
+
         # 2. Build phoneme map
         phoneme_map = self._build_phoneme_map(phoneme_result)
-        
+
         # 3. Apply context-aware processing
         processed_audio = audio.copy()
-        
+
         # Process sibilants
         for start, end in phoneme_map['sibilants']:
             processed_audio = self._process_sibilant(processed_audio, start, end, sr)
-        
+
         # Process vowels
         for start, end in phoneme_map['vowels']:
             processed_audio = self._process_vowel(processed_audio, start, end, sr)
-        
+
         return {
             'audio': processed_audio,
             'phoneme_result': phoneme_result,
             'phoneme_map': phoneme_map
         }
-    
+
     def _build_phoneme_map(self, result) -> Dict[str, list]:
         """Build categorized phoneme map."""
         phoneme_map = {
@@ -362,10 +363,10 @@ class PhonemeAwareProcessor:
             'fricatives': [],
             'nasals': []
         }
-        
+
         for phoneme, (start, end) in zip(result.phonemes, result.time_ranges):
             category = self.classifier.classify_phoneme(phoneme)
-            
+
             if category == PhonemeCategory.VOWEL:
                 phoneme_map['vowels'].append((start, end))
             elif category == PhonemeCategory.SIBILANT:
@@ -376,21 +377,21 @@ class PhonemeAwareProcessor:
                 phoneme_map['fricatives'].append((start, end))
             elif category == PhonemeCategory.NASAL:
                 phoneme_map['nasals'].append((start, end))
-        
+
         return phoneme_map
-    
+
     def _process_sibilant(self, audio: np.ndarray, start: float, end: float, sr: int) -> np.ndarray:
         """Apply sibilant-specific processing."""
         start_sample = int(start * sr)
         end_sample = int(end * sr)
-        
+
         # Example: Reduce high-frequency energy in sibilant region
         from scipy import signal
         sos = signal.butter(4, 8000, 'low', fs=sr, output='sos')
         audio[start_sample:end_sample] = signal.sosfilt(sos, audio[start_sample:end_sample])
-        
+
         return audio
-    
+
     def _process_vowel(self, audio: np.ndarray, start: float, end: float, sr: int) -> np.ndarray:
         """Apply vowel-specific processing."""
         # Example: Preserve formants in vowel regions
@@ -412,24 +413,24 @@ from backend.ml.inference_only.phoneme_detection.phoneme_classifier import Phone
 
 def intelligent_deessing(audio: np.ndarray, sr: int, reduction_db: float = -6.0) -> np.ndarray:
     """Apply de-essing only to detected sibilants."""
-    
+
     detector = PhonemeDetector()
     classifier = PhonemeClassifier()
-    
+
     # Detect phonemes
     result = detector.detect(audio, sr=sr)
-    
+
     # Process only sibilants
     processed = audio.copy()
     for phoneme, (start, end) in zip(result.phonemes, result.time_ranges):
         if classifier.classify_phoneme(phoneme) == PhonemeCategory.SIBILANT:
             start_sample = int(start * sr)
             end_sample = int(end * sr)
-            
+
             # Apply reduction
             gain = 10 ** (reduction_db / 20)
             processed[start_sample:end_sample] *= gain
-    
+
     return processed
 ```
 
@@ -440,25 +441,25 @@ def intelligent_deessing(audio: np.ndarray, sr: int, reduction_db: float = -6.0)
 ```python
 def vowel_aware_pitch_shift(audio: np.ndarray, sr: int, semitones: float) -> np.ndarray:
     """Pitch shift with vowel formant preservation."""
-    
+
     detector = PhonemeDetector()
     classifier = PhonemeClassifier()
-    
+
     # Detect vowels
     result = detector.detect(audio, sr=sr)
     vowel_regions = []
-    
+
     for phoneme, (start, end) in zip(result.phonemes, result.time_ranges):
         if classifier.classify_phoneme(phoneme) == PhonemeCategory.VOWEL:
             vowel_regions.append((start, end))
-    
+
     # Apply pitch shift with formant preservation in vowel regions
     import librosa
     processed = librosa.effects.pitch_shift(audio, sr=sr, n_steps=semitones)
-    
+
     # TODO: Apply formant correction to vowel_regions
     # (Requires formant tracking + shifting implementation)
-    
+
     return processed
 ```
 
@@ -469,33 +470,33 @@ def vowel_aware_pitch_shift(audio: np.ndarray, sr: int, semitones: float) -> np.
 ```python
 def calculate_intelligibility_score(audio: np.ndarray, sr: int) -> float:
     """Calculate phoneme-level intelligibility score (0-1)."""
-    
+
     detector = PhonemeDetector()
     classifier = PhonemeClassifier()
-    
+
     # Detect phonemes
     result = detector.detect(audio, sr=sr)
-    
+
     # Intelligibility factors
     consonant_count = 0
     low_confidence_count = 0
-    
+
     for phoneme, confidence in zip(result.phonemes, result.confidence_scores):
         category = classifier.classify_phoneme(phoneme)
-        
+
         # Consonants are key to intelligibility
-        if category in [PhonemeCategory.CONSONANT, PhonemeCategory.PLOSIVE, 
+        if category in [PhonemeCategory.CONSONANT, PhonemeCategory.PLOSIVE,
                        PhonemeCategory.FRICATIVE, PhonemeCategory.SIBILANT]:
             consonant_count += 1
             if confidence < 0.5:
                 low_confidence_count += 1
-    
+
     # High consonant clarity = high intelligibility
     if consonant_count == 0:
         return 0.0
-    
+
     intelligibility = 1.0 - (low_confidence_count / consonant_count)
-    
+
     return intelligibility
 ```
 
@@ -506,12 +507,12 @@ def calculate_intelligibility_score(audio: np.ndarray, sr: int) -> float:
 ```python
 def genre_adaptive_processing(audio: np.ndarray, sr: int, genre: str) -> np.ndarray:
     """Apply genre-specific phoneme processing."""
-    
+
     detector = PhonemeDetector()
     classifier = PhonemeClassifier()
-    
+
     result = detector.detect(audio, sr=sr)
-    
+
     if genre == "jazz":
         # Jazz: Preserve natural sibilance (vocal presence)
         sibilant_reduction = -2.0  # Very mild
@@ -523,10 +524,10 @@ def genre_adaptive_processing(audio: np.ndarray, sr: int, genre: str) -> np.ndar
         sibilant_reduction = -1.0
     else:
         sibilant_reduction = -4.0  # Default
-    
+
     # Apply genre-specific processing
     # (Implementation details omitted for brevity)
-    
+
     return audio
 ```
 
@@ -588,22 +589,22 @@ detector_default = PhonemeDetector(confidence_threshold=0.3)
 # For long audio files (>10 minutes), process in chunks
 def process_long_audio(audio: np.ndarray, sr: int, chunk_size: int = 30) -> list:
     """Process audio in chunks to manage memory."""
-    
+
     detector = PhonemeDetector()
     chunk_samples = chunk_size * sr
     results = []
-    
+
     for i in range(0, len(audio), chunk_samples):
         chunk = audio[i:i+chunk_samples]
         result = detector.detect(chunk, sr=sr)
-        
+
         # Adjust time ranges for chunk offset
         offset = i / sr
         adjusted_result = result._replace(
             time_ranges=[(s+offset, e+offset) for s, e in result.time_ranges]
         )
         results.append(adjusted_result)
-    
+
     return results
 ```
 
@@ -684,7 +685,7 @@ def process_in_segments(audio, sr, segment_duration=30):
 phoneme = "ɹ"  # American English 'r'
 if phoneme not in classifier.PHONEME_CATEGORIES:
     print(f"Warning: Phoneme '{phoneme}' not recognized")
-    
+
     # Add custom mapping
     classifier.PHONEME_CATEGORIES[phoneme] = PhonemeCategory.LIQUID
 ```

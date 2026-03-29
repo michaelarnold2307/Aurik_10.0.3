@@ -1,8 +1,7 @@
 """
 Integration instructions for Vocal Separation Module into adaptive_pipeline.py
 
-NEW FEATURES (v8.1 - Vocal Excellence Phase):
-==============================================
+## NEW FEATURES (v8.1 - Vocal Excellence Phase)
 
 1. **Advanced Vocal Separation** (CRITICAL Priority)
    - MDX-Net wrapper (spectral domain, U-Net)
@@ -10,11 +9,10 @@ NEW FEATURES (v8.1 - Vocal Excellence Phase):
    - Hybrid ensemble (adaptive fusion)
    - HIPS-compliant safety wrapper
 
-INTEGRATION STEPS:
-==================
+## INTEGRATION STEPS
 
-Step 1: Import new vocal separation modules
--------------------------------------------
+### Step 1: Import new vocal separation modules
+
 Add to imports section (after line 31):
 
 ```python
@@ -30,9 +28,9 @@ from backend.ml.safety_wrappers.vocal_separation_safety import (
 )
 ```
 
-Step 2: Initialize separators in __init__
-------------------------------------------
-Add to __init__ method (after line 105):
+### Step 2: Initialize separators in `__init__`
+
+Add to `__init__` method (after line 105):
 
 ```python
         # v8.1: Advanced Vocal Separation
@@ -45,12 +43,12 @@ Add to __init__ method (after line 105):
             self.vocal_separator_v8,
             strict_mode=False
         )
-        
+
         self.logger.info("v8.1 Vocal Separation initialized (Hybrid: MDX-Net + Demucs v5)")
 ```
 
-Step 3: Add separate_vocals_v8 method
---------------------------------------
+### Step 3: Add separate_vocals_v8 method
+
 Add new method to AdaptiveProcessingPipeline class:
 
 ```python
@@ -62,19 +60,19 @@ Add new method to AdaptiveProcessingPipeline class:
     ) -> Dict[str, np.ndarray]:
         \"\"\"
         v8.1: Advanced vocal separation with HIPS compliance
-        
+
         Uses Hybrid ensemble (MDX-Net + Demucs v5) with adaptive fusion.
-        
+
         Args:
             audio: Audio array (stereo or mono)
             sr: Sample rate  
             use_safety_wrapper: Enable HIPS compliance checking
-        
+
         Returns:
             Dictionary with 'vocals' and 'instrumental' stems
         \"\"\"
         self.logger.info("Starting v8.1 vocal separation (Hybrid)")
-        
+
         if use_safety_wrapper:
             # HIPS-compliant separation with validation
             stems = self.vocal_safety_wrapper.safe_separate(
@@ -89,7 +87,7 @@ Add new method to AdaptiveProcessingPipeline class:
                 sr,
                 return_individual=False
             )
-        
+
         # Log metrics
         metrics = self.vocal_separator_v8.get_metrics()
         self.logger.info(
@@ -97,24 +95,24 @@ Add new method to AdaptiveProcessingPipeline class:
             f"{metrics['total_separations']} total, "
             f"fusion={metrics['fusion_strategy']}"
         )
-        
+
         return stems
 ```
 
-Step 4: Replace old vocal separation calls
--------------------------------------------
+### Step 4: Replace old vocal separation calls
+
 Search for existing vocal separation calls (Demucs v4, Spleeter, etc.) and replace with:
 
 ```python
 # OLD (v7.x):
 # stems = self.demucs.separate_stems(audio, sr)
 
-# NEW (v8.1): 
+# NEW (v8.1):
 stems = self.separate_vocals_v8(audio, sr, use_safety_wrapper=True)
 ```
 
-Step 5: Update policy engine recommendations
----------------------------------------------
+### Step 5: Update policy engine recommendations
+
 Modify policy/ml_policy_engine.py to recommend v8.1 separators:
 
 ```python
@@ -128,8 +126,7 @@ if context.content_type == 'music_vocal':
     })
 ```
 
-TESTING:
-========
+## TESTING
 
 Run integration tests:
 
@@ -138,8 +135,7 @@ pytest tests/vocal_separation/test_integration.py -v
 pytest tests/test_adaptive_pipeline_v8.py::test_vocal_separation_v8 -v
 ```
 
-VALIDATION CRITERIA:
-====================
+## VALIDATION CRITERIA
 
 1. ✅ Stems recombine to original (reconstruction error < -40 dB)
 2. ✅ Phase coherence preserved (> 75%)
@@ -148,10 +144,10 @@ VALIDATION CRITERIA:
 5. ✅ HIPS audit log created
 6. ✅ Processing time < 10s for 3-minute song
 
-NEXT STEPS:
-===========
+## NEXT STEPS
 
 After integration:
+
 1. Benchmark against LALAL.AI, AudioShake on test dataset
 2. Tune fusion strategy weights based on results
 3. Implement Feature #2: Pitch Correction (Conservative)

@@ -55,11 +55,12 @@ class TestSpectralDenoiser:
         processed = denoiser.process(audio, sr)
         assert processed.shape == audio.shape
         signal_power = np.mean(signal**2)
-        10 * np.log10(signal_power / (np.mean(noise**2) + 1e-10))
+        input_snr = 10 * np.log10(signal_power / (np.mean(noise**2) + 1e-10))
         processed_noise = processed - signal
         processed_snr = 10 * np.log10(signal_power / (np.mean(processed_noise**2) + 1e-10))
         # SOTA-tolerant: Denoiser darf SNR verschlechtern, aber nicht ins Negative
         assert processed_snr >= 0
+        assert np.isfinite(input_snr)
 
     def test_denoiser_silent_input(self):
         denoiser = SpectralDenoiser()

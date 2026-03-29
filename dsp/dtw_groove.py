@@ -31,7 +31,6 @@ from __future__ import annotations
 import logging
 import threading
 from dataclasses import dataclass
-from typing import Optional
 
 import numpy as np
 
@@ -299,7 +298,8 @@ class DtwGrooveMeasurer:
         Args:
             sr: Sample-Rate (muss 48000)
         """
-        assert sr == 48000, f"SR muss 48000 Hz sein, erhalten: {sr}"
+        if sr <= 0:
+            raise ValueError(f"SR muss > 0 Hz sein, erhalten: {sr}")
         self.sr = sr
 
     def measure(
@@ -321,7 +321,8 @@ class DtwGrooveMeasurer:
             GrooveMeasurementResult mit groove_score und RMS-Abweichung.
         """
         sr = sr or self.sr
-        assert sr == 48000
+        if sr <= 0:
+            raise ValueError(f"SR muss > 0 Hz sein, erhalten: {sr}")
 
         # Onset-Erkennung
         orig_onsets = detect_onsets(original, sr)
@@ -375,7 +376,7 @@ class DtwGrooveMeasurer:
         passes = dtw_rms <= max_dtw_ms
 
         logger.debug(
-            "Groove-DTW: orig=%d onsets, rest=%d onsets, rms=%.2f ms, " "score=%.3f, passes=%s",
+            "Groove-DTW: orig=%d onsets, rest=%d onsets, rms=%.2f ms, score=%.3f, passes=%s",
             orig_onsets.n_onsets,
             rest_onsets.n_onsets,
             dtw_rms,

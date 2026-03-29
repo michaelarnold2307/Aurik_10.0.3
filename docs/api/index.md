@@ -8,5 +8,6 @@ Hier werden alle öffentlichen Module, Klassen und Funktionen dokumentiert.
 - Methoden: select_pipeline, ...
 
 ## Hinweise
+
 - Jede neue öffentliche Funktion/Modul ist hier zu dokumentieren.
 - Automatisierter Doku-Check prüft Existenz und Mindestinhalte.

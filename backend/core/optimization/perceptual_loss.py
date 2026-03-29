@@ -14,7 +14,6 @@ Datum: 14. Februar 2026
 
 import logging
 
-import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -157,7 +156,7 @@ class PANNsPerceptualLoss(nn.Module):
         feature_layers: list[str] = ["conv_block1", "conv_block2", "conv_block3", "conv_block4"],
         feature_weights: list[float] | None = None,
         distance_metric: str = "l1",
-    ) -> np.ndarray:
+    ) -> None:
         super().__init__()
 
         try:

@@ -69,8 +69,8 @@ _MATERIAL_MOS_TARGETS: dict[str, float] = {
     "dat": 4.5,
     "cd_digital": 4.5,
     "mp3_low": 3.9,
-    "mp3_high": 4.2,
-    "aac": 4.2,
+    "mp3_high": 4.5,  # §6.2: wie cd_digital/dat (digitale Hochqualitäts-Quelle)
+    "aac": 4.5,  # §6.2: wie cd_digital/dat (digitale Hochqualitäts-Quelle)
     "minidisc": 4.0,
     "streaming": 4.0,
     "unknown": 3.8,
@@ -1366,7 +1366,8 @@ class AurikDenker:
             quality_estimate = 0.40 * (1.0 - _defect_sev_final) + 0.60 * _mos_norm
             quality_estimate = float(np.clip(quality_estimate, 0.0, 1.0))
         elif excellence_score > 0.0:
-            # Kein VERSA verfügbar — excellence_score als mos_proxy verwenden
+            # Kein VERSA verfügbar — excellence_score [0..1] auf MOS-Skala [1..5] skalieren
+            # Normative Formel §8.1: 0.60 * (pqs_mos - 1) / 4; excellence_score ≡ (mos-1)/4
             quality_estimate = float(np.clip(0.40 * (1.0 - _defect_sev_final) + 0.60 * excellence_score, 0.0, 1.0))
         else:
             # DSP fallback: normative formula (§8.1) with defect_severity;

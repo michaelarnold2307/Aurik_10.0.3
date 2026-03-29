@@ -4,12 +4,15 @@
 # Mit --import-mode=importlib (pytest) müssen Fallback-Klassen auf Modulebene
 # VOR dem try-Block deklariert werden, damit sie im Modul-Namensraum sichtbar sind.
 # ---------------------------------------------------------------------------
+
 import logging as _logging
+
+import numpy as np
 
 _log = _logging.getLogger(__name__)
 
 
-# Fallback-Stubs auf Modulebene vordeklarieren (werden durch erfolgreiche Imports überschrieben)
+# Fallback-Stub auf Modulebene
 class _PluginStub:
     """Basis-Fallback-Stub für nicht ladbare Plugins."""
 
@@ -26,158 +29,122 @@ class _PluginStub:
         return audio
 
 
-class DeepFilterNetV3IIPlugin(_PluginStub):
-    pass  # type: ignore[no-redef]
-
-
-class ResembleEnhancePlugin(_PluginStub):
-    pass  # type: ignore[no-redef]
-
-
-class DemucsV4Plugin(_PluginStub):
-    pass  # type: ignore[no-redef]
-
-
-class MDX23CPlugin(_PluginStub):
-    pass  # type: ignore[no-redef]
-
-
-class WpePlugin(_PluginStub):
-    pass  # type: ignore[no-redef]
-
-
-class SGMSEPlugin(_PluginStub):
-    pass  # type: ignore[no-redef]
-
-
 # FullSubNetPlusPlugin entfernt — 16 kHz-Sprach-NR (DNS-Challenge), nicht in §11.3
 # SpleeterPlugin entfernt — veraltetes 2019er Modell (Deezer), nicht in §11.3
 # DCCRNPlugin entfernt — §4.4 verboten; MpSenetPlugin ist der Nachfolger
-class MpSenetPlugin(_PluginStub):
-    pass  # type: ignore[no-redef]
-
-
-class UVRMDXNetPlugin(_PluginStub):
-    pass  # type: ignore[no-redef]
-
-
-class BanquetVinylPlugin(_PluginStub):
-    pass  # type: ignore[no-redef]
-
-
-class HiFiGANPlugin(_PluginStub):
-    pass  # type: ignore[no-redef]
-
-
 # ConvTasNetPlugin entfernt — Sprach-Separation (Luo 2019), HPSS-DSP-Stub, nicht in §11.3
-class DiffWavePlugin(_PluginStub):
-    pass  # type: ignore[no-redef]
-
-
 # WaveUNetPlugin entfernt — Sprach-Separation (Stoller 2018), HPSS-DSP-Stub, nicht in §11.3
-class CREPEPlugin(_PluginStub):
-    pass  # type: ignore[no-redef]
-
-
 # SOTAUniversalEnhancer entfernt — orchestriert FullSubNetPlus (Sprach-NR) + np.var()>1.5-Heuristik, nicht §11.3
 # DNSMOSPlugin entfernt — explizit verboten §4.4+§10.2 (16 kHz Sprach-Modell)
 # NISQAPlugin entfernt — explizit verboten §4.4+§10.2 (Sprach-Qualitätsmetrik)
 # PESQPlugin entfernt — explizit verboten §4.4+§10.2 (Telefonband 300–3400 Hz)
 # ViSQOLPlugin: entfernt — explizit verboten §4.4+§10.2 (Sprach-Qualitätsmetrik, kein Musik-Support)
-class AudioLDM2Plugin(_PluginStub):
-    pass  # type: ignore[no-redef]
-
-
-class AudioSRPlugin(_PluginStub):
-    pass  # type: ignore[no-redef]
-
-
 # CDPAMPlugin: entfernt — explizit verboten §4.4+§10.2 (Speech-perceptual metric)
-class GACELAPlugin(_PluginStub):
-    pass  # type: ignore[no-redef]
-
-
-class MatcheringPlugin(_PluginStub):
-    pass  # type: ignore[no-redef]
-
-
-class SileroPlugin(_PluginStub):
-    pass  # type: ignore[no-redef]
-
-
 # VampNetPlugin: VERBOTEN (kein stabiler ONNX-Export, kein gebündeltes Plugin) — §4.4
 # Stub entfernt; flow_matching_plugin ist der Nachfolger für generatives Inpainting.
-
-
-class BSRoFormerPlugin(_PluginStub):
-    pass  # type: ignore[no-redef]
 
 
 # Jetzt die echten Imports versuchen — direkt auf Modulebene, kein globals()-Trick,
 # damit --import-mode=importlib (pytest) keine Namespace-Probleme verursacht.
 # Jeder try/except-Block ist eigenständig: ein Fehler blockiert keine anderen.
 try:
-    from plugins.deepfilternet_v3_ii_plugin import DeepFilterNetV3IIPlugin  # type: ignore[no-redef]
+    from plugins.deepfilternet_v3_ii_plugin import DeepFilterNetV3IIPlugin as _DeepFilterNetV3IIPlugin
 except Exception as _e:
     _log.warning("DeepFilterNetV3IIPlugin nicht verfügbar: %s", _e)
+    _DeepFilterNetV3IIPlugin = _PluginStub
+
+DeepFilterNetV3IIPlugin = _DeepFilterNetV3IIPlugin
 
 try:
-    from plugins.resemble_enhance_plugin import ResembleEnhancePlugin  # type: ignore[no-redef]
+    from plugins.resemble_enhance_plugin import ResembleEnhancePlugin as _ResembleEnhancePlugin
 except Exception as _e:
     _log.warning("ResembleEnhancePlugin nicht verfügbar: %s", _e)
+    _ResembleEnhancePlugin = _PluginStub
+
+ResembleEnhancePlugin = _ResembleEnhancePlugin
 
 try:
-    from plugins.demucs_v4_plugin import DemucsV4Plugin  # type: ignore[no-redef]
+    from plugins.demucs_v4_plugin import DemucsV4Plugin as _DemucsV4Plugin
 except Exception as _e:
     _log.warning("DemucsV4Plugin nicht verfügbar: %s", _e)
+    _DemucsV4Plugin = _PluginStub
+
+DemucsV4Plugin = _DemucsV4Plugin
 
 try:
-    from plugins.mdx23c_plugin import MDX23CPlugin  # type: ignore[no-redef]
+    from plugins.mdx23c_plugin import MDX23CPlugin as _MDX23CPlugin
 except Exception as _e:
     _log.warning("MDX23CPlugin nicht verfügbar: %s", _e)
+    _MDX23CPlugin = _PluginStub
+
+MDX23CPlugin = _MDX23CPlugin
 
 try:
-    from plugins.wpe_plugin import SGMSEPlugin, WpePlugin  # type: ignore[no-redef]
+    from plugins.wpe_plugin import SGMSEPlugin as _SGMSEPlugin
+    from plugins.wpe_plugin import WpePlugin as _WpePlugin
 except Exception as _e:
     _log.warning("wpe_plugin (WpePlugin/SGMSEPlugin) nicht verfügbar: %s", _e)
+    _SGMSEPlugin = _PluginStub
+    _WpePlugin = _PluginStub
+
+SGMSEPlugin = _SGMSEPlugin
+WpePlugin = _WpePlugin
 
 # FullSubNetPlusPlugin: Import entfernt — 16 kHz-Sprach-NR, nicht in §11.3
 # SpleeterPlugin: Import entfernt — veraltetes 2019er Modell, nicht in §11.3
 
 try:
     # §4.4: MP-SENet 2023 ersetzt DCCRN (§4.4 verboten)
-    from plugins.mp_senet_plugin import MpSenetPlugin  # type: ignore[no-redef]
+    from plugins.mp_senet_plugin import MpSenetPlugin as _MpSenetPlugin
 except Exception as _e:
     _log.warning("MpSenetPlugin (DCCRN-Nachfolger) nicht verfügbar: %s", _e)
+    _MpSenetPlugin = _PluginStub
+
+MpSenetPlugin = _MpSenetPlugin
 
 try:
-    from plugins.uvr_mdxnet_plugin import UVRMDXNetPlugin  # type: ignore[no-redef]
+    from plugins.uvr_mdxnet_plugin import UVRMDXNetPlugin as _UVRMDXNetPlugin
 except Exception as _e:
     _log.warning("UVRMDXNetPlugin nicht verfügbar: %s", _e)
+    _UVRMDXNetPlugin = _PluginStub
+
+UVRMDXNetPlugin = _UVRMDXNetPlugin
 
 try:
-    from plugins.banquet_vinyl_plugin import BanquetVinylPlugin  # type: ignore[no-redef]
+    from plugins.banquet_vinyl_plugin import BanquetVinylPlugin as _BanquetVinylPlugin
 except Exception as _e:
     _log.warning("BanquetVinylPlugin nicht verfügbar: %s", _e)
+    _BanquetVinylPlugin = _PluginStub
+
+BanquetVinylPlugin = _BanquetVinylPlugin
 
 try:
-    from plugins.hifigan_plugin import HiFiGANPlugin  # type: ignore[no-redef]
+    from plugins.hifigan_plugin import HiFiGANPlugin as _HiFiGANPlugin
 except Exception as _e:
     _log.warning("HiFiGANPlugin nicht verfügbar: %s", _e)
+    _HiFiGANPlugin = _PluginStub
+
+HiFiGANPlugin = _HiFiGANPlugin
 
 # ConvTasNetPlugin: Import entfernt — Sprach-Separation (Luo 2019), nicht in §11.3
 
 try:
-    from plugins.diffwave_plugin import DiffWavePlugin  # type: ignore[no-redef]
+    from plugins.diffwave_plugin import DiffWavePlugin as _DiffWavePlugin
 except Exception as _e:
     _log.warning("DiffWavePlugin nicht verfügbar: %s", _e)
+    _DiffWavePlugin = _PluginStub
+
+DiffWavePlugin = _DiffWavePlugin
 
 # WaveUNetPlugin: Import entfernt — Sprach-Separation (Stoller 2018), nicht in §11.3
 
 try:
-    from plugins.crepe_plugin import CREPEPlugin  # type: ignore[no-redef]
+    from plugins.crepe_plugin import CREPEPlugin as _CREPEPlugin
 except Exception as _e:
     _log.warning("CREPEPlugin nicht verfügbar: %s", _e)
+    _CREPEPlugin = _PluginStub
+
+CREPEPlugin = _CREPEPlugin
 
 # SOTAUniversalEnhancer: Import entfernt — orchestriert Sprach-NR (FullSubNetPlus), nicht §11.3
 # DNSMOSPlugin: Import entfernt — explizit verboten §4.4+§10.2 (Sprach-MOS)
@@ -187,26 +154,38 @@ except Exception as _e:
 # ViSQOLPlugin: Import entfernt — explizit verboten §4.4+§10.2 (Sprach-Qualitätsmetrik)
 
 try:
-    from plugins.audioldm2_plugin import AudioLDM2Plugin  # type: ignore[no-redef]
+    from plugins.audioldm2_plugin import AudioLDM2Plugin as _AudioLDM2Plugin
 except Exception as _e:
     _log.warning("AudioLDM2Plugin nicht verfügbar: %s", _e)
+    _AudioLDM2Plugin = _PluginStub
+
+AudioLDM2Plugin = _AudioLDM2Plugin
 
 try:
-    from plugins.audiosr_plugin import AudioSRPlugin  # type: ignore[no-redef]
+    from plugins.audiosr_plugin import AudioSRPlugin as _AudioSRPlugin
 except Exception as _e:
     _log.warning("AudioSRPlugin nicht verfügbar: %s", _e)
+    _AudioSRPlugin = _PluginStub
+
+AudioSRPlugin = _AudioSRPlugin
 
 # CDPAMPlugin: Import entfernt — explizit verboten §4.4+§10.2 (Speech-perceptual metric)
 
 try:
-    from plugins.gacela_plugin import GACELAPlugin  # type: ignore[no-redef]
+    from plugins.gacela_plugin import GACELAPlugin as _GACELAPlugin
 except Exception as _e:
     _log.warning("GACELAPlugin nicht verfügbar: %s", _e)
+    _GACELAPlugin = _PluginStub
+
+GACELAPlugin = _GACELAPlugin
 
 try:
-    from plugins.matchering_plugin import MatcheringPlugin  # type: ignore[no-redef]
+    from plugins.matchering_plugin import MatcheringPlugin as _MatcheringPlugin
 except Exception as _e:
     _log.warning("MatcheringPlugin nicht verfügbar: %s", _e)
+    _MatcheringPlugin = _PluginStub
+
+MatcheringPlugin = _MatcheringPlugin
 
 try:
     from plugins.panns_plugin import PANNSPlugin  # type: ignore[no-redef]
@@ -214,14 +193,20 @@ except Exception as _e:
     _log.warning("PANNSPlugin nicht verfügbar: %s", _e)
 
 try:
-    from plugins.silero_plugin import SileroPlugin  # type: ignore[no-redef]
+    from plugins.silero_plugin import SileroPlugin as _SileroPlugin
 except Exception as _e:
     _log.warning("SileroPlugin nicht verfügbar: %s", _e)
+    _SileroPlugin = _PluginStub
+
+SileroPlugin = _SileroPlugin
 
 try:
-    from plugins.bs_roformer_plugin import BSRoFormerPlugin  # type: ignore[no-redef]
+    from plugins.bs_roformer_plugin import BSRoFormerPlugin as _BSRoFormerPlugin
 except Exception as _e:
     _log.warning("BSRoFormerPlugin nicht verfügbar: %s", _e)
+    _BSRoFormerPlugin = _PluginStub
+
+BSRoFormerPlugin = _BSRoFormerPlugin
 
 from .sota_maximum_analyzer import SOTAMaximumAnalyzer
 
@@ -261,18 +246,14 @@ Diese Pipeline steuert alle Bearbeitungsschritte (Restaurierung, Reparatur, Reko
 Sie nutzt Kontextanalyse, Zieldefinition und modulare Verarbeitungsketten. Alle Entscheidungen, Parameter und Ergebnisse werden geloggt.
 """
 
-
-import numpy as np
-
+# Ethics & Monitoring (Phase 4.5, v8.0)
+from backend.core.epistemic_gate.ethics_engine import EpistemicDecision, EthicsEngine
 from backend.core.model_manager import ModelManager
 
 from ._dsp_applier import apply_dsp_chain
 from .adaptive_goal import AdaptiveGoalEngine
 from .audio_monitor import PermanentAudioMonitor
 from .context_analysis import ContextAnalyzer
-
-# Ethics & Monitoring (Phase 4.5, v8.0)
-from .ethics_engine import EpistemicDecision, EthicsEngine
 from .logging_config import get_logger
 from .quality_control import QualityControl
 
@@ -804,10 +785,61 @@ class AdaptiveProcessingPipeline:
         else:
             self.logger.info("\n🔎 Medienkette: Keine eindeutige Erkennung möglich")
         self.log.append({"step": "media_chain_detection", "media_chain": media_chain})
-        # detected_medium aus Medienkette ableiten, falls nicht explizit übergeben
+
+        # --- Materialklassifikations-Konfliktregel nach copilot-instructions.md ---
+        def resolve_material_conflict(era_result, medium_result, defect_results, logger):
+            # 1. Höhere Konfidenz gewinnt
+            era_type = era_result.get("material_type") if era_result else None
+            era_conf = era_result.get("confidence", 0.0) if era_result else 0.0
+            med_type = medium_result.get("material_type") if medium_result else None
+            med_conf = medium_result.get("confidence", 0.0) if medium_result else 0.0
+            if era_type == med_type:
+                logger.info(f"Materialklassifikation eindeutig: {era_type}")
+                return {"type": era_type, "confidence": max(era_conf, med_conf)}
+            if era_type and med_type and era_type != med_type:
+                logger.warning(
+                    f"Materialklassifikations-Konflikt: Era={era_type} ({era_conf:.2f}), Medium={med_type} ({med_conf:.2f})"
+                )
+                if era_conf > med_conf:
+                    logger.info("Konfliktregel: EraClassifier gewinnt (höhere Konfidenz)")
+                    return {"type": era_type, "confidence": era_conf}
+                elif med_conf > era_conf:
+                    logger.info("Konfliktregel: MediumClassifier gewinnt (höhere Konfidenz)")
+                    return {"type": med_type, "confidence": med_conf}
+                # 2. Bei Gleichstand: DefectScanner-Auswertung
+                if defect_results:
+
+                    def get_max_score_for_material(material):
+                        scores = [d.get("severity", 0.0) for d in defect_results if d.get("material_type") == material]
+                        return max(scores) if scores else 0.0
+
+                    era_score = get_max_score_for_material(era_type)
+                    med_score = get_max_score_for_material(med_type)
+                    if era_score > med_score:
+                        logger.info("Konfliktregel: DefectScanner-Score entscheidet für EraClassifier-Material")
+                        return {"type": era_type, "confidence": era_conf}
+                    elif med_score > era_score:
+                        logger.info("Konfliktregel: DefectScanner-Score entscheidet für MediumClassifier-Material")
+                        return {"type": med_type, "confidence": med_conf}
+                # 3. Konservativer Materialtyp (restaurierungsschonender)
+                conservative = era_type if era_type in ("shellac", "tape", "vinyl") else med_type
+                logger.info(f"Konfliktregel: Konservativer Materialtyp gewählt: {conservative}")
+                return {"type": conservative, "confidence": max(era_conf, med_conf)}
+            # Fallback: nur einer vorhanden
+            if era_type:
+                return {"type": era_type, "confidence": era_conf}
+            if med_type:
+                return {"type": med_type, "confidence": med_conf}
+            logger.warning("Materialklassifikation nicht möglich — Default 'unknown'")
+            return {"type": "unknown", "confidence": 0.0}
+
+        # Annahme: era_result, medium_result, defect_results werden im Kontext/Features bereitgestellt
+        era_result = features.get("era_result")
+        medium_result = features.get("medium_result")
+        defect_results = features.get("detected_defects", [])
         detected_medium_final = detected_medium
-        if not detected_medium_final and media_chain:
-            detected_medium_final = {"type": media_chain[0]["medium"], "confidence": media_chain[0]["confidence"]}
+        if not detected_medium_final:
+            detected_medium_final = resolve_material_conflict(era_result, medium_result, defect_results, self.logger)
         # detected_medium in Features übernehmen, damit alle Folge-Analysen darauf zugreifen
         features = dict(features) if features else {}
         if detected_medium_final:
@@ -1096,7 +1128,6 @@ class AdaptiveProcessingPipeline:
         import os
         import tempfile
 
-        import numpy as np
         import soundfile as sf
 
         # Audio-Bytes in numpy-Array
@@ -1618,18 +1649,16 @@ class AdaptiveProcessingPipeline:
     def _remastering(self, audio_bytes, features, goal, context):
         # SOTA-Remastering via Matchering-API-Client mit Fallback
         import io
-        import os
-        import tempfile
 
         import soundfile as sf
 
         from .mastering import mastering_chain
 
         try:
-            from .matchering_api_client import MatcheringAPIClient
+            from plugins.matchering_plugin import MatcheringPlugin
         except ImportError:
-            MatcheringAPIClient = None  # type: ignore[assignment,misc]
-            _log.warning("MatcheringAPIClient nicht verfügbar — Fallback auf mastering_chain")
+            MatcheringPlugin = None  # type: ignore[assignment,misc]
+            _log.warning("MatcheringPlugin nicht verfügbar — Fallback auf mastering_chain")
 
         # NUTZE CONTEXT AUS PHASE 1
         self.logger.info(f"Remastering Pipeline: detected_medium={context.get('detected_medium', 'unknown')}")
@@ -1647,31 +1676,25 @@ class AdaptiveProcessingPipeline:
             "api_url": "http://localhost:8360/api/process",
         }
 
-        # Target-Audio temporär speichern
-        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as target_file:
-            sf.write(target_file, features["audio"], features.get("sr", 44100))
-            target_path = target_file.name
-        # Reference-Audio temporär speichern
-        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as ref_file:
-            sf.write(ref_file, features["reference_audio"], features.get("sr", 44100))
-            ref_path = ref_file.name
-        # Output-Pfad
-        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as out_file:
-            output_path = out_file.name
-
         try:
-            if MatcheringAPIClient is None:
-                raise ImportError("MatcheringAPIClient nicht verfügbar")
-            client = MatcheringAPIClient()
-            client.remaster(target_path, ref_path, output_path)
-            # Remastertes Audio laden
-            with open(output_path, "rb") as f:
-                remastered_bytes = f.read()
+            if MatcheringPlugin is None:
+                raise ImportError("MatcheringPlugin nicht verfügbar")
+
+            sr = int(features.get("sr", 44100))
+            target_audio = features["audio"]
+            reference_audio = features["reference_audio"]
+            client = MatcheringPlugin()
+            remastered_audio = client.process(target_audio, reference_audio, sr)
+
+            with io.BytesIO() as buf:
+                sf.write(buf, remastered_audio, sr, format="WAV")
+                remastered_bytes = buf.getvalue()
+
             self.logger.info("Remastering mit Matchering durchgeführt.")
             self.log.append(
                 {
                     "step": "remastering",
-                    "info": "Matchering-Container verwendet",
+                    "info": "Matchering-Plugin verwendet",
                     "params": goal,
                     "container": container_info,
                     "status": "success",
@@ -1734,10 +1757,6 @@ class AdaptiveProcessingPipeline:
                     "error": str(fallback_e),
                     "container": container_info,
                 }
-        finally:
-            os.remove(target_path)
-            os.remove(ref_path)
-            os.remove(output_path)
 
 
 # ==============================================================================

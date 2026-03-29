@@ -1,4 +1,5 @@
 # Natürlicher Klang - Verbesserungspotential durch ML-DSP-Metriken-Hybrid
+
 **Aurik 9.x.x Advanced Analysis**  
 **Datum:** 15. Februar 2026  
 **Status:** Natürlichkeit 0.55 → Ziel 0.80+ durch weitere Hybrid-Optimierungen
@@ -20,12 +21,13 @@
 ## 1. Noch fehlende ML-Hybrid Phasen (Priority 4-8)
 
 ### 1.1 Phase 1: Click Removal (Score: 0.50 → Ziel: 0.80)
+
 **Problem:** DSP-Median-Filtering erzeugt unnatürliche Übergänge, schneidet Transienten ab
 
 **ML-Lösung:**
 ```python
 # Priority 4: DeepFilterNet v3 II für Click Removal
-Models: 
+Models:
   - DeepFilterNet v3 II (Primary): +0.30 improvement
   - DCCRN (Fallback): +0.25 improvement
 
@@ -46,19 +48,20 @@ def _remove_click_ml(self, audio, click_regions, deepfilternet):
     for start, end in click_regions:
         context_start = max(0, start - 2205)  # ±50ms context
         context_end = min(len(audio), end + 2205)
-        
+
         segment = audio[context_start:context_end]
         restored = deepfilternet.process(segment, sample_rate=44100)
-        
+
         # Blend nur Click-Region, preserve Kontext
         audio[start:end] = restored[start-context_start:end-context_start]
-    
+
     return audio
 ```
 
 ---
 
 ### 1.2 Phase 2: Hum Removal (Score: 0.50 → Ziel: 0.75)
+
 **Problem:** DSP-Notch-Filter zerstört harmonisch verwandte Musik-Inhalte
 
 **ML-Lösung:**
@@ -66,7 +69,7 @@ def _remove_click_ml(self, audio, click_regions, deepfilternet):
 # Priority 5: DeepFilterNet v3 II für Hum Removal
 Models:
   - DeepFilterNet v3 II: +0.25 improvement
-  
+
 Hybrid-Strategie: Dual-Stage
   1. DSP: Grobe Hum-Reduktion (Notch-Filter -15dB)
   2. ML: Feine Restoration der Musik-Harmonics
@@ -84,6 +87,7 @@ Expected Quality: 0.50 → 0.75 (+0.25, +50%)
 ---
 
 ### 1.3 Phase 24: Dropout Repair (Score: 0.50 → Ziel: 0.80)
+
 **Problem:** DSP-Interpolation bei langen Dropouts unrealistisch (>100ms)
 
 **ML-Lösung:**
@@ -115,6 +119,7 @@ else:
 ---
 
 ### 1.4 Phase 29: Tape Hiss Reduction (Score: 0.50 → Ziel: 0.80)
+
 **Problem:** DSP-Spectral-Subtraction entfernt zu viel High-Frequency Detail
 
 **ML-Lösung:**
@@ -141,6 +146,7 @@ Expected Quality: 0.50 → 0.80 (+0.30, +60%)
 ---
 
 ### 1.5 Phase 3: Denoise Enhancement (Score: 0.83 → Ziel: 0.95)
+
 **Problem:** Bereits gut (0.83), aber High-SNR Audio kann noch besser
 
 **ML-Lösung:**
@@ -164,6 +170,7 @@ Expected Quality: 0.83 → 0.95 (+0.12, +14%)
 ## 2. Metriken-basierte Feedback-Loops
 
 ### 2.1 Real-Time Quality Assessment
+
 **Konzept:** Messe Natürlichkeit während Verarbeitung, passe Parameter an
 
 ```python
@@ -172,53 +179,53 @@ Expected Quality: 0.83 → 0.95 (+0.12, +14%)
 class QualityFeedbackLoop:
     """
     Adaptive Quality Control mit Real-Time Metriken.
-    
+
     Flow:
     1. Prozessiere Audio mit Standard-Parametern
     2. Messe Natürlichkeit-Metriken
     3. Falls < Ziel: Passe Parameter an, wiederhole
     4. Max. 2 Iterationen (Performance-Limit)
     """
-    
+
     def __init__(self, target_naturalness: float = 0.80):
         self.target_naturalness = target_naturalness
         self.max_iterations = 2
-    
+
     def process_with_feedback(
-        self, 
+        self,
         phase: PhaseInterface,
         audio: np.ndarray,
         **kwargs
     ) -> PhaseResult:
         """Iterative processing with quality feedback."""
-        
+
         for iteration in range(self.max_iterations):
             result = phase.process(audio, **kwargs)
-            
+
             # Measure naturalness metrics
             naturalness = self._measure_naturalness(result.audio)
-            
+
             if naturalness >= self.target_naturalness:
                 # Target reached!
                 logger.info(f"Quality target reached: {naturalness:.2f}")
                 return result
-            
+
             # Adapt parameters for next iteration
             if iteration < self.max_iterations - 1:
                 kwargs = self._adapt_parameters(
-                    kwargs, 
+                    kwargs,
                     naturalness_deficit=self.target_naturalness - naturalness
                 )
                 audio = result.audio  # Use previous result as input
                 logger.info(f"Iteration {iteration+1}: Naturalness {naturalness:.2f}, adapting...")
-        
+
         # Return best result after max iterations
         return result
-    
+
     def _measure_naturalness(self, audio: np.ndarray) -> float:
         """
         Calculate naturalness score using multiple metrics.
-        
+
         Metrics:
         1. Spectral Flatness (higher = more natural)
         2. Temporal Smoothness (no abrupt transitions)
@@ -226,101 +233,101 @@ class QualityFeedbackLoop:
         4. Noise Floor Consistency
         """
         score = 0.0
-        
+
         # 1. Spectral Flatness (0-1)
         spectral_flatness = self._spectral_flatness(audio)
         score += spectral_flatness * 0.3
-        
+
         # 2. Temporal Smoothness (0-1)
         temporal_smoothness = self._temporal_smoothness(audio)
         score += temporal_smoothness * 0.3
-        
+
         # 3. Harmonic Coherence (0-1)
         harmonic_coherence = self._harmonic_coherence(audio)
         score += harmonic_coherence * 0.25
-        
+
         # 4. Noise Floor Consistency (0-1)
         noise_consistency = self._noise_floor_consistency(audio)
         score += noise_consistency * 0.15
-        
+
         return score
-    
+
     def _spectral_flatness(self, audio: np.ndarray) -> float:
         """Geometric mean / Arithmetic mean of spectrum."""
         from scipy import signal
         f, Pxx = signal.periodogram(audio, fs=44100)
-        
+
         geometric_mean = np.exp(np.mean(np.log(Pxx + 1e-10)))
         arithmetic_mean = np.mean(Pxx)
-        
+
         flatness = geometric_mean / (arithmetic_mean + 1e-10)
         return float(np.clip(flatness, 0, 1))
-    
+
     def _temporal_smoothness(self, audio: np.ndarray) -> float:
         """Measure abrupt changes (clicks, artifacts)."""
         diff = np.abs(np.diff(audio))
-        
+
         # Count high-energy transients
         threshold = np.percentile(diff, 99.5)
         artifacts = np.sum(diff > threshold)
-        
+
         # Normalize: fewer artifacts = higher score
         max_expected_artifacts = len(audio) * 0.001  # 0.1%
         smoothness = 1.0 - min(1.0, artifacts / max_expected_artifacts)
-        
+
         return float(smoothness)
-    
+
     def _harmonic_coherence(self, audio: np.ndarray) -> float:
         """Harmonic structure preservation check."""
         from scipy.signal import stft
-        
+
         f, t, Zxx = stft(audio, fs=44100, nperseg=2048)
         magnitude = np.abs(Zxx)
-        
+
         # Find fundamental and harmonics
         # Higher coherence = harmonics align well
         # Simplified implementation
         spectral_peaks = np.sum(magnitude > np.percentile(magnitude, 95), axis=0)
         coherence = np.std(spectral_peaks) / (np.mean(spectral_peaks) + 1e-10)
-        
+
         # Lower variance = better coherence
         return float(np.clip(1.0 - coherence * 0.1, 0, 1))
-    
+
     def _noise_floor_consistency(self, audio: np.ndarray) -> float:
         """Check if noise floor is consistent (not modulated)."""
         # Measure RMS in quiet passages
         rms = np.sqrt(np.convolve(audio**2, np.ones(2205)/2205, mode='same'))
-        
+
         # Find quiet passages (below -40 dB)
         threshold = 0.01  # -40 dB
         quiet_passages = rms < threshold
-        
+
         if np.sum(quiet_passages) < 100:
             return 0.5  # Not enough quiet passages to judge
-        
+
         quiet_rms = rms[quiet_passages]
-        
+
         # Low variance in quiet RMS = consistent noise floor
         variance = np.std(quiet_rms) / (np.mean(quiet_rms) + 1e-10)
         consistency = 1.0 - min(1.0, variance * 10)
-        
+
         return float(consistency)
-    
+
     def _adapt_parameters(
-        self, 
+        self,
         params: Dict[str, Any],
         naturalness_deficit: float
     ) -> Dict[str, Any]:
         """
         Adapt processing parameters based on quality deficit.
-        
+
         Strategy:
         - Deficit >0.2: Reduce aggressiveness significantly
         - Deficit 0.1-0.2: Fine-tune blend ratios
         - Deficit <0.1: Minimal adjustment
         """
         adapted = params.copy()
-        
+
         if naturalness_deficit > 0.2:
             # Significant deficit: reduce processing intensity
             if 'reduction_db' in adapted:
@@ -329,19 +336,19 @@ class QualityFeedbackLoop:
                 adapted['repair_strength'] *= 0.8
             if 'threshold' in adapted:
                 adapted['threshold'] *= 1.2
-        
+
         elif naturalness_deficit > 0.1:
             # Moderate deficit: fine-tune
             if 'repair_strength' in adapted:
                 adapted['repair_strength'] *= 0.9
             if 'blend_amount' in adapted:
                 adapted['blend_amount'] *= 0.95
-        
+
         else:
             # Small deficit: minimal adjustment
             if 'repair_strength' in adapted:
                 adapted['repair_strength'] *= 0.95
-        
+
         return adapted
 ```
 
@@ -353,6 +360,7 @@ class QualityFeedbackLoop:
 ---
 
 ### 2.2 Multi-Pass Processing mit Qualitäts-Gating
+
 **Konzept:** Prozessiere nur, wenn Verbesserung messbar erwartet wird
 
 ```python
@@ -365,17 +373,17 @@ def should_process_phase(
 ) -> bool:
     """
     Entscheide: Soll Phase prozessiert werden?
-    
+
     Returns:
         True: Phase verbessert Qualität messbar (>5%)
         False: Phase würde verschlechtern oder minimal helfen
     """
     # Quick quality estimate
     current_quality = estimate_quality(audio)
-    
+
     # Predict improvement based on audio characteristics
     predicted_improvement = predict_phase_impact(audio, phase)
-    
+
     # Only process if significant improvement expected
     return predicted_improvement >= target_improvement
 ```
@@ -394,6 +402,7 @@ def should_process_phase(
 ## 3. Multi-Model Ensemble Strategies
 
 ### 3.1 Parallel Model Voting
+
 **Konzept:** Führe mehrere ML-Modelle parallel aus, nutze Mehrheitsentscheidung
 
 ```python
@@ -402,26 +411,26 @@ def should_process_phase(
 class EnsembleProcessor:
     """
     Multi-Model Ensemble für höchste Qualität.
-    
+
     Strategy: Run 2-3 models, select best result based on metrics.
     """
-    
+
     def process_ensemble(
         self,
         audio: np.ndarray,
         models: List[str] = ['audiosr', 'deepfilternet', 'dccrn']
     ) -> np.ndarray:
         """Process with multiple models, return best result."""
-        
+
         results = []
         for model_name in models:
             try:
                 model = self._load_model(model_name)
                 result = model.process(audio)
-                
+
                 # Measure quality
                 quality = self._measure_quality(result)
-                
+
                 results.append({
                     'model': model_name,
                     'audio': result,
@@ -429,11 +438,11 @@ class EnsembleProcessor:
                 })
             except Exception as e:
                 logger.warning(f"Model {model_name} failed: {e}")
-        
+
         # Select best result
         best = max(results, key=lambda x: x['quality'])
         logger.info(f"Ensemble winner: {best['model']} (quality: {best['quality']:.2f})")
-        
+
         return best['audio']
 ```
 
@@ -445,6 +454,7 @@ class EnsembleProcessor:
 ---
 
 ### 3.2 Spectral-Band Model Selection
+
 **Konzept:** Verschiedene Modelle für verschiedene Frequenzbänder
 
 ```python
@@ -471,6 +481,7 @@ for band_name, (f_low, f_high) in bands.items():
 ## 4. Psychoakustische Metrik-Integration
 
 ### 4.1 Objective Quality Metrics
+
 **Implementiere Standard-Metriken für automatische Qualitäts-Bewertung:**
 
 ```python
@@ -480,7 +491,7 @@ class PsychoAcousticMetrics:
     """
     Objective audio quality metrics for validation.
     """
-    
+
     def calculate_pesq(self, reference: np.ndarray, degraded: np.ndarray) -> float:
         """
         PESQ (Perceptual Evaluation of Speech Quality).
@@ -488,7 +499,7 @@ class PsychoAcousticMetrics:
         """
         from pypesq import pesq
         return pesq(reference, degraded, fs=16000)
-    
+
     def calculate_sisdr(self, reference: np.ndarray, estimate: np.ndarray) -> float:
         """
         SI-SDR (Scale-Invariant Signal-to-Distortion Ratio).
@@ -498,30 +509,30 @@ class PsychoAcousticMetrics:
         alpha = np.dot(estimate, reference) / (np.dot(reference, reference) + 1e-10)
         projection = alpha * reference
         noise = estimate - projection
-        
+
         sisdr = 10 * np.log10(
             (np.sum(projection**2) + 1e-10) / (np.sum(noise**2) + 1e-10)
         )
         return float(sisdr)
-    
+
     def calculate_spectral_distortion(self, ref: np.ndarray, deg: np.ndarray) -> float:
         """
         Spectral Distortion in dB.
         Lower = better (less spectral difference).
         """
         from scipy.signal import stft
-        
+
         _, _, ref_stft = stft(ref, fs=44100)
         _, _, deg_stft = stft(deg, fs=44100)
-        
+
         ref_mag = np.abs(ref_stft)
         deg_mag = np.abs(deg_stft)
-        
+
         # Log spectral distance
         lsd = np.sqrt(np.mean((20 * np.log10((ref_mag + 1e-10) / (deg_mag + 1e-10)))**2))
-        
+
         return float(lsd)
-    
+
     def calculate_roughness(self, audio: np.ndarray) -> float:
         """
         Psychoacoustic Roughness (Zwicker).
@@ -529,31 +540,31 @@ class PsychoAcousticMetrics:
         """
         # Simplified roughness based on amplitude modulation
         from scipy.signal import hilbert
-        
+
         envelope = np.abs(hilbert(audio))
         envelope_diff = np.abs(np.diff(envelope))
-        
+
         # Roughness proportional to envelope modulation in 20-200 Hz range
         roughness = np.mean(envelope_diff)
-        
+
         return float(roughness)
-    
+
     def calculate_sharpness(self, audio: np.ndarray) -> float:
         """
         Psychoacoustic Sharpness (Aures).
         Higher = more high-frequency emphasis.
         """
         from scipy.signal import welch
-        
+
         f, psd = welch(audio, fs=44100, nperseg=2048)
-        
+
         # Weight higher frequencies more
         # Sharpness based on weighted spectral centroid
         weights = (f / 1000) ** 1.5  # Aures weighting
         weighted_psd = psd * weights
-        
+
         sharpness = np.sum(weighted_psd) / (np.sum(psd) + 1e-10)
-        
+
         return float(sharpness)
 ```
 
@@ -562,17 +573,17 @@ class PsychoAcousticMetrics:
 def comprehensive_quality_score(audio: np.ndarray, reference: np.ndarray = None) -> Dict[str, float]:
     """Combine multiple metrics for holistic quality assessment."""
     metrics = PsychoAcousticMetrics()
-    
+
     scores = {
         'naturalness': calculate_naturalness(audio),  # Our custom metric
         'roughness': 1.0 - min(1.0, metrics.calculate_roughness(audio) * 10),
         'sharpness': metrics.calculate_sharpness(audio),
     }
-    
+
     if reference is not None:
         scores['sisdr'] = metrics.calculate_sisdr(reference, audio)
         scores['spectral_dist'] = 1.0 / (1.0 + metrics.calculate_spectral_distortion(reference, audio))
-    
+
     # Weighted combination (tuned for "naturalness")
     overall = (
         scores['naturalness'] * 0.4 +
@@ -580,7 +591,7 @@ def comprehensive_quality_score(audio: np.ndarray, reference: np.ndarray = None)
         scores.get('sisdr', 0.5) / 20 * 0.2 +  # Normalize SI-SDR
         scores.get('spectral_dist', 0.5) * 0.1
     )
-    
+
     return {**scores, 'overall': overall}
 ```
 
@@ -594,6 +605,7 @@ def comprehensive_quality_score(audio: np.ndarray, reference: np.ndarray = None)
 ## 5. Material-Specific Model Fine-Tuning
 
 ### 5.1 Training Custom Models
+
 **Konzept:** Fine-tune pre-trained models auf Aurik-spezifische Daten
 
 ```python
@@ -632,6 +644,7 @@ aurik_evaluate_model.py --model audiosr_finetuned --test_set golden_samples/
 ## 6. Implementation Roadmap
 
 ### Phase 1: Kritische ML-Hybrid Implementationen (Woche 1-2)
+
 ```
 ✅ Phase 23 (AudioSR) - DONE
 ✅ Phase 18 (Silero VAD) - DONE
@@ -643,6 +656,7 @@ aurik_evaluate_model.py --model audiosr_finetuned --test_set golden_samples/
 ```
 
 ### Phase 2: Metriken & Feedback (Woche 3)
+
 ```
 ⬜ QualityFeedbackLoop implementation
 ⬜ PsychoAcousticMetrics integration
@@ -651,6 +665,7 @@ aurik_evaluate_model.py --model audiosr_finetuned --test_set golden_samples/
 ```
 
 ### Phase 3: Advanced Strategies (Woche 4)
+
 ```
 ⬜ Multi-Model Ensemble
 ⬜ Spectral-Band Model Selection
@@ -659,6 +674,7 @@ aurik_evaluate_model.py --model audiosr_finetuned --test_set golden_samples/
 ```
 
 ### Phase 4: Validation & Fine-Tuning (Woche 5-6)
+
 ```
 ⬜ Musical Excellence re-validation (target: 0.90)
 ⬜ PESQ/SI-SDR benchmarking
@@ -671,6 +687,7 @@ aurik_evaluate_model.py --model audiosr_finetuned --test_set golden_samples/
 ## 7. Expected Final Results
 
 ### Quantitative Improvements
+
 ```
 Metric                  | Current | After Phase 1-2 | After Phase 3-4 | Gain
 ------------------------|---------|-----------------|-----------------|-------
@@ -685,6 +702,7 @@ Performance (FAST)      | 0.7× RT | 0.7× RT         | 0.7× RT         | No ch
 ```
 
 ### Qualitative Improvements
+
 - ✨ **Transparenz:** Keine hörbaren Artefakte mehr
 - 🎵 **Musikalität:** Harmonische Strukturen perfekt erhalten
 - 🎭 **Authentizität:** Material-Character bleibt bestehen
@@ -695,6 +713,7 @@ Performance (FAST)      | 0.7× RT | 0.7× RT         | 0.7× RT         | No ch
 ## 8. Competitive Positioning
 
 ### Nach vollständiger Implementation:
+
 ```
 Software              | Natürlichkeit | Overall | RT Factor | Preis
 ----------------------|---------------|---------|-----------|-------

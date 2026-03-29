@@ -137,3 +137,12 @@ AppDir/
 *.sarif
 test_output/
 .venv_sgmse_export/
+
+# ── Laufzeit-Artefakte (kein Source-Code) ────────────────────────────────────
+output/
+pip_list.txt
+pip_check.txt
+grep_results.txt
+todo_results.txt
+ausnahmen_results.txt
+reports/

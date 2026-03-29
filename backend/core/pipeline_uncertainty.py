@@ -244,7 +244,7 @@ class PipelineUncertaintyEstimator:
                 UncertaintyQuantifier,
             )
 
-            uq = UncertaintyQuantifier()
+            uq = UncertaintyQuantifier(model=None)  # type: ignore[arg-type]
             details["ml_uq_available"] = True
             details["ml_uq_class"] = type(uq).__name__
         except Exception as e:

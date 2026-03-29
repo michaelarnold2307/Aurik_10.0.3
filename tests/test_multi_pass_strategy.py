@@ -76,7 +76,7 @@ class TestProcessingVariant:
         assert variant.name == "strong_dynamics"
         assert variant.strategy == VariantStrategy.STRONG_DYNAMICS
         assert variant.config.compression_ratio > 4.0  # Strong compression
-        assert variant.config.target_lufs <= -14.0  # Streaming standard
+        assert variant.config.target_lufs <= -14.0  # type: ignore[operator]  # Streaming standard
 
     def test_variant_to_dict(self):
         """Test variant serialization."""
@@ -482,7 +482,7 @@ class TestMultiPassEngine:
         _ = engine._default_process_func(audio, sr, balanced_cfg)
         _ = engine._default_process_func(audio, sr, strong)
 
-        calls = engine._restorer.calls
+        calls = engine._restorer.calls  # type: ignore[union-attr]
         assert calls[0] == "fast", f"naturalness_first expected fast, got {calls[0]}"
         assert calls[1] == "balanced", f"gentle_denoise expected balanced, got {calls[1]}"
         assert calls[2] == "restoration", f"balanced expected restoration, got {calls[2]}"

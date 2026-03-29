@@ -5,6 +5,8 @@ Launch the desktop application for audio restoration
 """
 
 import logging
+import os
+import signal
 import sys
 import time
 from pathlib import Path
@@ -37,6 +39,26 @@ _root_logger.addHandler(_ch)
 
 logger = logging.getLogger(__name__)
 
+
+def _enable_crash_forensics() -> None:
+    """Enable native-crash diagnostics for hard faults (SIGSEGV/SIGABRT)."""
+    try:
+        import faulthandler
+
+        crash_log = _LOG_DIR / "python_faulthandler.log"
+        _fh = open(crash_log, "a", encoding="utf-8")
+        faulthandler.enable(file=_fh, all_threads=True)
+        for _sig in (signal.SIGSEGV, signal.SIGABRT, signal.SIGBUS, signal.SIGFPE):
+            try:
+                faulthandler.register(_sig, file=_fh, all_threads=True)
+            except Exception:
+                # Not all platforms allow explicit registration for every signal.
+                pass
+        logger.info("Crash forensics active (faulthandler): %s", crash_log)
+    except Exception as exc:
+        logger.warning("Faulthandler setup failed (non-fatal): %s", exc)
+
+
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QApplication, QMessageBox
 
@@ -50,7 +72,23 @@ def _run_startup_model_check(app: QApplication) -> None:
     Warnung bei fehlenden Primär-Modellen (DSP-Fallback aktiv).
     """
     try:
+        import time
+
         from backend.api.bridge import get_startup_check_result  # type: ignore[import]
+        from backend.core.model_downloader import get_model_downloader
+
+        def run_self_heal(missing_primary, missing_optional):
+            dl = get_model_downloader()
+            to_repair = [m["name"] for m in (missing_primary + missing_optional)]
+            for i, name in enumerate(to_repair):
+                entry = dl.get_entry(name)
+                if entry is not None:
+                    # Download SOTA-Upgrade falls konfiguriert, sonst bundled
+                    dl.schedule_sota_upgrade(entry)
+                # Fortschritt anzeigen (optional: Splash-Text, hier nur Sleep)
+                time.sleep(0.2)
+            # Warten bis alle Downloads abgeschlossen (vereinfachte Variante)
+            time.sleep(2.0)
 
         result = get_startup_check_result()
         if result is None:
@@ -61,9 +99,28 @@ def _run_startup_model_check(app: QApplication) -> None:
             box.setWindowTitle("AURIK — " + result.user_title_de)
             box.setText(result.user_message_de)
             box.setIcon(icon)
+            # Zusätzlicher Button für Selbstheilung
+            repair_btn = box.addButton("Modelle reparieren", QMessageBox.ActionRole)
             box.setStandardButtons(QMessageBox.StandardButton.Ok)
             box.setDefaultButton(QMessageBox.StandardButton.Ok)
             box.exec_()
+            if box.clickedButton() == repair_btn:
+                # Automatische Selbstheilung starten
+                run_self_heal(result.missing_primary, result.missing_optional)
+                # Nach Abschluss Check wiederholen
+                result2 = get_startup_check_result()
+                if result2.all_ok:
+                    QMessageBox.information(
+                        None,
+                        "AURIK — Modelle repariert",
+                        "Alle ML-Modelle wurden erfolgreich repariert und geladen. Die Restaurierung ist jetzt freigeschaltet.",
+                    )
+                else:
+                    QMessageBox.critical(
+                        None,
+                        "AURIK — Reparatur fehlgeschlagen",
+                        "Einige Modelle konnten nicht repariert werden. Bitte prüfen Sie Ihre Internetverbindung oder wenden Sie sich an den Support.",
+                    )
     except Exception as exc:
         # Startup-Check darf niemals den App-Start blockieren
         logger.warning("Startup-Modell-Check fehlgeschlagen (non-fatal): %s", exc)
@@ -85,6 +142,58 @@ def _warmup_models_background() -> None:
     t.start()
 
 
+# ---------------------------------------------------------------------------
+# §3.9.2  SIGTERM handler — checkpoint + graceful Qt shutdown
+# ---------------------------------------------------------------------------
+
+
+def _emergency_checkpoint_if_running() -> None:
+    """Non-blocking best-effort checkpoint on SIGTERM (§3.9.2).
+
+    Only fires when a BatchProcessingThread is currently running.
+    Uses threading.Event.wait(timeout=0) to avoid blocking the signal handler.
+    Writes checkpoint atomically (.tmp → os.replace) if audio is available.
+    """
+    try:
+        # Import lazily to avoid circular imports at module level
+        from PyQt5.QtWidgets import QApplication
+
+        from Aurik910.ui.modern_window import ModernMainWindow  # type: ignore[import]
+
+        app = QApplication.instance()
+        if app is None:
+            return
+        for widget in app.topLevelWidgets():
+            if isinstance(widget, ModernMainWindow):
+                bt = getattr(widget, "_batch_thread", None)
+                if bt is not None and bt.isRunning():
+                    try:
+                        # best-effort: trigger checkpoint without waiting
+                        save_fn = getattr(bt, "request_emergency_checkpoint", None)
+                        if callable(save_fn):
+                            save_fn()
+                    except Exception as _ce:
+                        logger.debug("Emergency checkpoint failed (non-fatal): %s", _ce)
+                break
+    except Exception as _exc:
+        logger.debug("_emergency_checkpoint_if_running skipped: %s", _exc)
+
+
+def _sigterm_handler(signum: int, frame: object) -> None:
+    """SIGTERM → emergency checkpoint + graceful Qt shutdown (§3.9.2)."""
+    logger.warning("SIGTERM received (signum=%d) — initiating emergency checkpoint", signum)
+    _emergency_checkpoint_if_running()
+    try:
+        from PyQt5.QtCore import QTimer
+        from PyQt5.QtWidgets import QApplication
+
+        _app = QApplication.instance()
+        if _app:
+            QTimer.singleShot(0, _app.quit)
+    except Exception as _exc:
+        logger.debug("Qt-Shutdown nach SIGTERM fehlgeschlagen: %s", _exc)
+
+
 def _process_events_ms(app: "QApplication", ms: int) -> None:
     """Process Qt events for *ms* milliseconds — keeps splash animation alive."""
     deadline = time.monotonic() + ms / 1000.0
@@ -95,14 +204,29 @@ def _process_events_ms(app: "QApplication", ms: int) -> None:
 
 def main():
     """Launch AURIK Professional"""
+    _enable_crash_forensics()
+
+    # Linux hardening: prefer software OpenGL to reduce GPU driver related Qt crashes.
+    # Can be disabled for troubleshooting via: AURIK_FORCE_SOFTWARE_OPENGL=0
+    _force_sw_gl = os.getenv("AURIK_FORCE_SOFTWARE_OPENGL", "1") == "1"
+
     # Enable high DPI scaling (PyQt5-Stubs kennen diese Attribute nicht -> ignore)
     QApplication.setAttribute(Qt.AA_EnableHighDpiScaling, True)  # type: ignore[attr-defined]
     QApplication.setAttribute(Qt.AA_UseHighDpiPixmaps, True)  # type: ignore[attr-defined]
+    if sys.platform.startswith("linux") and _force_sw_gl:
+        QApplication.setAttribute(Qt.AA_UseSoftwareOpenGL, True)  # type: ignore[attr-defined]
+    # Prevent XDG/GTK portal hang on Linux: native file dialogs must not be used
+    # (portal daemon can block the main thread before DontUseNativeDialog takes effect)
+    QApplication.setAttribute(Qt.AA_DontUseNativeDialogs, True)  # type: ignore[attr-defined]
 
     app = QApplication(sys.argv)
     app.setApplicationName("AURIK Professional")
     app.setOrganizationName("AURIK")
     app.setApplicationVersion("9.10.77")
+
+    # §3.9.2: Register SIGTERM handler for graceful shutdown + emergency checkpoint.
+    # Must be installed after QApplication to avoid race with Qt's signal handling.
+    signal.signal(signal.SIGTERM, _sigterm_handler)
 
     # Application icon (taskbar, dock, alt-tab)
     _icon_path = Path(__file__).parent / "resources" / "icon.png"
@@ -113,6 +237,20 @@ def main():
 
     # Set dark theme style
     app.setStyle("Fusion")
+
+    # Capture Qt warnings/errors into Python logs for post-mortem analysis.
+    try:
+        from PyQt5.QtCore import qInstallMessageHandler
+
+        def _qt_msg_handler(mode, context, message):
+            _file = getattr(context, "file", "?") if context is not None else "?"
+            _line = getattr(context, "line", 0) if context is not None else 0
+            logger.warning("QtMessage[%s] %s:%s %s", int(mode), _file, _line, message)
+
+        qInstallMessageHandler(_qt_msg_handler)
+    except Exception as exc:
+        logger.debug("Qt message handler setup skipped: %s", exc)
+
     # Global QToolTip styling — prevents the default black/system-colored tooltip box.
     # Border uses the app's purple accent; background matches the dark UI palette.
     app.setStyleSheet(

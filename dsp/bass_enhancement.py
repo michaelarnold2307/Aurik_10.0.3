@@ -565,18 +565,9 @@ class BassDynamicsController:
             excess_db = envelope_db[above_threshold] - threshold
             gain_reduction_db[above_threshold] = -excess_db * (1 - 1 / ratio)
 
-        # Apply attack/release smoothing (vectorized with sosfilt for performance)
-        # Use 1-pole lowpass filter for attack/release envelope
-        1000.0 / (2.0 * np.pi * self.attack_ms)
-        1000.0 / (2.0 * np.pi * self.release_ms)
-
-        # Simpler approach: use scipy's exponential smoothing via lfilter
+        # Apply attack/release smoothing via scipy lfilter
         from scipy.signal import lfilter
 
-        # Determine if we need attack or release per sample
-        np.diff(gain_reduction_db, prepend=gain_reduction_db[0]) < 0
-
-        # Use attack coefficient for attack, release for release
         attack_coeff = np.exp(-1.0 / (self.attack_ms * sr / 1000.0))
         release_coeff = np.exp(-1.0 / (self.release_ms * sr / 1000.0))
 
@@ -584,7 +575,7 @@ class BassDynamicsController:
         avg_coeff = (attack_coeff + release_coeff) / 2.0
         b = [1.0 - avg_coeff]
         a = [1.0, -avg_coeff]
-        smoothed_gain_db = lfilter(b, a, gain_reduction_db)
+        smoothed_gain_db = np.asarray(lfilter(b, a, gain_reduction_db), dtype=np.float64)
 
         # Convert to linear gain
         gain = 10 ** (smoothed_gain_db / 20.0)

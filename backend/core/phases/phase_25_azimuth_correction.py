@@ -486,16 +486,16 @@ class AzimuthCorrectionPhaseV2(PhaseInterface):
 
         # Apply HF shelf boost (above 5 kHz)
         nyquist = sample_rate / 2.0
-        shelf_freq = 5000 / nyquist
+        5000 / nyquist
 
         try:
-            # High-shelf filter
-            b, a = signal.iirfilter(2, shelf_freq, btype="high", ftype="butter", fs=sample_rate)
+            # Use SOS form to keep scipy typing unambiguous in strict mode.
+            sos_hf = signal.butter(2, 5000.0, btype="highpass", fs=sample_rate, output="sos")
 
             # Apply boost to both channels
             restored = corrected_audio.copy()
             for ch in range(2):
-                hf_signal = signal.lfilter(b, a, restored[:, ch])
+                hf_signal = signal.sosfilt(sos_hf, restored[:, ch])
                 boost_linear = 10 ** (boost_db / 20)
                 restored[:, ch] = restored[:, ch] + hf_signal * (boost_linear - 1.0)
 

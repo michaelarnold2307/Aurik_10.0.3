@@ -222,7 +222,6 @@ def _crescendo_decrescendo(secs: float = 60.0) -> np.ndarray:
 def _flatten_dynamics(audio: np.ndarray, factor: float = 0.4) -> np.ndarray:
     """Simuliert NR-induzierte Dynamik-Abflachung: Amplitude → Mittelwert ziehen."""
     rms = np.sqrt(np.mean(audio**2) + 1e-12)
-    audio - 0.0
     return (audio * (1 - factor) + np.sign(audio) * rms * factor).astype(np.float32)
 
 

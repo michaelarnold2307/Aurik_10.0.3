@@ -22,9 +22,35 @@ from dataclasses import dataclass, field
 
 import numpy as np
 from scipy import signal
-from scipy.fft import rfft, rfftfreq
 
 logger = logging.getLogger(__name__)
+
+
+def _as_real_array(audio: np.ndarray) -> np.ndarray:
+    """Return a contiguous real-valued ndarray for signal processing calls."""
+    return np.asarray(audio, dtype=np.float64).reshape(-1)
+
+
+def _analytic_envelope(audio: np.ndarray) -> np.ndarray:
+    """Return absolute Hilbert envelope as ndarray with explicit typing."""
+    analytic = np.asarray(signal.hilbert(_as_real_array(audio)), dtype=np.complex128)
+    return np.abs(analytic)
+
+
+def _sosfilt_array(sos: np.ndarray, audio: np.ndarray) -> np.ndarray:
+    """Return only filtered audio ndarray from scipy.signal.sosfilt."""
+    filtered = signal.sosfilt(sos, _as_real_array(audio))
+    if isinstance(filtered, tuple):
+        return np.asarray(filtered[0], dtype=np.float64)
+    return np.asarray(filtered, dtype=np.float64)
+
+
+def _rfft_magnitude(audio: np.ndarray, sample_rate: int) -> tuple[np.ndarray, np.ndarray]:
+    """Return typed rFFT magnitudes and frequencies."""
+    audio_array = _as_real_array(audio)
+    fft_vals = np.asarray(np.fft.rfft(audio_array), dtype=np.complex128)
+    freqs = np.asarray(np.fft.rfftfreq(len(audio_array), 1.0 / float(sample_rate)), dtype=np.float64)
+    return np.abs(fft_vals), freqs
 
 
 @dataclass
@@ -239,16 +265,18 @@ class DefectQuantifier:
     def _quantify_clicks(self, audio: np.ndarray) -> ClickMetrics:
         """Quantify clicks and pops."""
         # Detect transients using envelope following
-        np.abs(signal.hilbert(audio))
+        _analytic_envelope(audio)
 
         # High-pass filter for click detection (> 5kHz)
         sos = signal.butter(4, 5000, "hp", fs=self.sample_rate, output="sos")
-        audio_hp = signal.sosfilt(sos, audio)
+        audio_hp = _sosfilt_array(sos, audio)
 
         # Detect sharp peaks
         threshold = np.std(audio_hp) * 5  # 5 sigma threshold
         peaks, properties = signal.find_peaks(
-            np.abs(audio_hp), height=threshold, distance=int(0.01 * self.sample_rate)  # Min 10ms between clicks
+            np.abs(audio_hp),
+            height=threshold,
+            distance=int(0.01 * self.sample_rate),  # Min 10ms between clicks
         )
 
         count = len(peaks)
@@ -299,9 +327,8 @@ class DefectQuantifier:
     def _quantify_hum(self, audio: np.ndarray) -> HumMetrics:
         """Quantify hum (50/60Hz)."""
         # FFT analysis
-        fft_vals = rfft(audio)
-        freqs = rfftfreq(len(audio), 1 / self.sample_rate)
-        magnitudes_db = 20 * np.log10(np.abs(fft_vals) + 1e-10)
+        magnitudes, freqs = _rfft_magnitude(audio, self.sample_rate)
+        magnitudes_db = 20 * np.log10(magnitudes + 1e-10)
 
         # Check 50Hz and 60Hz
         def get_level_at_freq(target_freq: float, bandwidth: float = 2.0) -> float:
@@ -344,7 +371,7 @@ class DefectQuantifier:
         # Modulation detection (amplitude variation)
         # Low-pass filter to get envelope
         sos = signal.butter(2, 20, "lp", fs=self.sample_rate, output="sos")
-        envelope = np.abs(signal.hilbert(signal.sosfilt(sos, audio)))
+        envelope = _analytic_envelope(_sosfilt_array(sos, audio))
         modulation_percent = float((np.std(envelope) / np.mean(envelope)) * 100)
 
         # Severity
@@ -377,9 +404,7 @@ class DefectQuantifier:
         peak_clipping_level = float(np.max(np.abs(audio[clipped]))) if np.any(clipped) else 0.0
 
         # THD estimation using FFT
-        fft_vals = rfft(audio)
-        freqs = rfftfreq(len(audio), 1 / self.sample_rate)
-        magnitudes = np.abs(fft_vals)
+        magnitudes, freqs = _rfft_magnitude(audio, self.sample_rate)
 
         # Find fundamental frequency (strongest component in 50-1000Hz)
         low_idx = np.searchsorted(freqs, 50)
@@ -440,7 +465,7 @@ class DefectQuantifier:
     def _quantify_dropout(self, audio: np.ndarray) -> DropoutMetrics:
         """Quantify dropouts (silence, amplitude drops)."""
         # Envelope detection
-        envelope = np.abs(signal.hilbert(audio))
+        envelope = _analytic_envelope(audio)
 
         # Threshold for dropout (< -40dB relative to RMS)
         rms = np.sqrt(np.mean(audio**2))
@@ -515,15 +540,17 @@ class DefectQuantifier:
         """Quantify noise bursts."""
         # High-pass filter for burst detection
         sos = signal.butter(4, 2000, "hp", fs=self.sample_rate, output="sos")
-        audio_hp = signal.sosfilt(sos, audio)
+        audio_hp = _sosfilt_array(sos, audio)
 
         # Envelope
-        envelope = np.abs(signal.hilbert(audio_hp))
+        envelope = _analytic_envelope(audio_hp)
 
         # Detect bursts (sudden energy increases)
         threshold = np.mean(envelope) + 3 * np.std(envelope)
         peaks, properties = signal.find_peaks(
-            envelope, height=threshold, distance=int(0.05 * self.sample_rate)  # Min 50ms between bursts
+            envelope,
+            height=threshold,
+            distance=int(0.05 * self.sample_rate),  # Min 50ms between bursts
         )
 
         count = len(peaks)
@@ -547,9 +574,7 @@ class DefectQuantifier:
 
             # Spectral content analysis
             # Average FFT of burst regions
-            fft_vals = rfft(audio_hp)
-            freqs = rfftfreq(len(audio_hp), 1 / self.sample_rate)
-            magnitudes = np.abs(fft_vals)
+            magnitudes, freqs = _rfft_magnitude(audio_hp, self.sample_rate)
 
             low_energy = np.sum(magnitudes[freqs < 2000])
             mid_energy = np.sum(magnitudes[(freqs >= 2000) & (freqs < 8000)])

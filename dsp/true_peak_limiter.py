@@ -41,6 +41,11 @@ class TruePeakLimiter:
         Soft knee width in dB (default: 0.0 = hard knee)
     oversample_factor : int
         Oversampling factor for peak detection (default: 4)
+    safety_margin_db : float
+        Additional headroom margin subtracted from ceiling_dbtp before gain
+        reduction (default: 0.5 dB). Guards against oversampling filter
+        transients and inter-sample peaks that survive 4× upsampling.
+        Set to 0.0 for a hard ceiling with no extra guard-band.
     """
 
     def __init__(
@@ -51,11 +56,13 @@ class TruePeakLimiter:
         lookahead_ms: float = 5.0,
         knee_db: float = 0.0,
         oversample_factor: int = 4,
+        safety_margin_db: float = 0.5,
     ):
         self.ceiling_dbtp = ceiling_dbtp
-        # Add safety margin of 0.5 dB to ensure we stay below ceiling
-        # (accounts for inter-sample peaks, filter artifacts, and measurement error)
-        self.ceiling_linear = 10 ** ((ceiling_dbtp - 0.5) / 20.0)
+        self.safety_margin_db = safety_margin_db
+        # Effective ceiling includes an explicit guard-band (default 0.5 dB).
+        # Accounts for oversampling filter transients and residual inter-sample peaks.
+        self.ceiling_linear = 10 ** ((ceiling_dbtp - safety_margin_db) / 20.0)
         self.attack_ms = attack_ms
         self.release_ms = release_ms
         self.lookahead_ms = lookahead_ms

@@ -36,6 +36,18 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
+def _mean_std(values: object) -> tuple[float, float]:
+    """Return mean/std from arbitrary numeric iterables with explicit float typing."""
+    if isinstance(values, dict):
+        numeric_values = list(values.values())
+    else:
+        numeric_values = list(values) if values is not None else []
+    array = np.asarray(numeric_values, dtype=np.float64).reshape(-1)
+    if array.size == 0:
+        return 0.0, 0.0
+    return float(array.mean()), float(array.std())
+
+
 @dataclass
 class TrainingConfig:
     """Configuration for model training."""
@@ -96,10 +108,8 @@ class ForensicsTrainingPipeline:
         self.config.models_dir.mkdir(parents=True, exist_ok=True)
         self.config.reports_dir.mkdir(parents=True, exist_ok=True)
 
-        # Dataset generator
-        self.dataset_gen = DatasetGenerator(
-            sample_rate=self.config.sample_rate, duration_sec=self.config.audio_duration_sec
-        )
+        # Dataset generator (initialize with no args, configure via config members if needed)
+        self.dataset_gen = DatasetGenerator()
 
         # Training reports
         self.reports: list[TrainingReport] = []
@@ -151,12 +161,14 @@ class ForensicsTrainingPipeline:
             detector.save(model_path)
             logger.info(f"Model saved: {model_path}")
 
+        cv_mean, cv_std = _mean_std(cv_scores)
+
         # Create report
         report = TrainingReport(
             model_name="Medium Detector",
             accuracy=test_accuracy,
-            cross_val_mean=np.mean(cv_scores),
-            cross_val_std=np.std(cv_scores),
+            cross_val_mean=cv_mean,
+            cross_val_std=cv_std,
             training_time_sec=training_time,
             samples_used=len(X_train) + len(X_test),
             features_used=X_train.shape[1],
@@ -225,12 +237,14 @@ class ForensicsTrainingPipeline:
             detector.save(model_path)
             logger.info(f"Model saved: {model_path}")
 
+        cv_mean, cv_std = _mean_std(cv_scores)
+
         # Create report
         report = TrainingReport(
             model_name="Era Detector",
             accuracy=test_accuracy,
-            cross_val_mean=np.mean(cv_scores),
-            cross_val_std=np.std(cv_scores),
+            cross_val_mean=cv_mean,
+            cross_val_std=cv_std,
             training_time_sec=training_time,
             samples_used=len(X_train) + len(X_test),
             features_used=X_train.shape[1],
@@ -279,7 +293,6 @@ class ForensicsTrainingPipeline:
         detector = MLDefectDetector(
             n_estimators=self.config.n_estimators,
             max_depth=self.config.max_depth,
-            random_state=self.config.random_state,
         )
 
         # Train
@@ -299,12 +312,14 @@ class ForensicsTrainingPipeline:
             detector.save(model_path)
             logger.info(f"Model saved: {model_path}")
 
+        cv_mean, cv_std = _mean_std(recalls)
+
         # Create report
         report = TrainingReport(
             model_name="Defect Detector",
             accuracy=test_recall,  # Using recall as primary metric
-            cross_val_mean=np.mean(list(recalls.values())),
-            cross_val_std=np.std(list(recalls.values())),
+            cross_val_mean=cv_mean,
+            cross_val_std=cv_std,
             training_time_sec=training_time,
             samples_used=len(X_train) + len(X_test),
             features_used=X_train.shape[1],
@@ -356,7 +371,7 @@ class ForensicsTrainingPipeline:
         logger.info("\n" + "=" * 60)
         logger.info("   Training Pipeline Complete")
         logger.info("=" * 60)
-        logger.info(f"   Total Time: {total_time/60:.1f} minutes")
+        logger.info(f"   Total Time: {total_time / 60:.1f} minutes")
         logger.info("   Models Trained: 3")
         logger.info(f"   Reports Generated: {len(self.reports)}")
 

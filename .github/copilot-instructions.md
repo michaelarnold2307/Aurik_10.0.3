@@ -4,13 +4,13 @@
 > kontextbewusstes Musik- und Gesangs-Restaurations-, Reparatur- und
 > Rekonstruktions-Denkersystem.* Stand: März 2026 — Version **9.10.77**
 >
-> **instructions_version: 3.1** — komprimiert 26.03.2026
+> **instructions_version: 3.5** — komprimiert 28.03.2026
 >
 > Bump-Regel: neue RELEASE_MUST-Zeile, neues Gate oder §-Änderung → `instructions_version` inkrementieren + `docs/CHANGELOG_HISTORY.md` Eintrag.
 >
 > Aktuelle Testzahl: **~8900+ Pytest-IDs** (inkl. parametrisierter Tests; `def test_`-Funktionen ≈ 7252; alle grün)
 >
-> Stand: 26. März 2026 — Vocos 48 kHz nativ bevorzugt (§2.37); laion_clap ONNX-Format; Hybrid-Release-Mode RELEASE_MUST.
+> Stand: 28. März 2026 — Vocos 48 kHz nativ bevorzugt (§2.37); laion_clap ONNX-Format; Hybrid-Release-Mode RELEASE_MUST; §3.9 Stabilitäts-Invarianten (9 neue Gates) ergänzt.
 >
 > **§2.36 `LyricsGuidedEnhancement`** ist ab Version **9.10.x Pflicht** (bisher v10.0-Label entfernt).
 
@@ -51,6 +51,11 @@ Gate-zuordnung (aktuell implementierte CI-Guards):
 | Kombiniertes ML-Stack-Budget (Lazy + Core ≤ 12 GB) | `[RELEASE_MUST]` | `tests/normative/test_combined_ml_memory_budget.py` — 12 Tests; prüft Budget-Formel, Lazy-Klassifikation, thread-sichere Allokation |
 | §2.36 LyricsGuidedEnhancement aktiv + Modellpfade definiert | `[RELEASE_MUST]` | `tests/normative/test_lyrics_guided_enhancement_gate.py` |
 | §2.39 OOM-Recovery-Checkpoint (Checkpoint-Save + Startup-Resume) | `[RELEASE_MUST]` | `tests/unit/test_recovery_checkpoint.py` |
+| Vollpipeline-Determinismus (bitnahe Reproduzierbarkeit) | `[RELEASE_MUST]` | `tests/normative/test_full_pipeline_determinism.py` |
+| Stratifiziertes Konkurrenz-Gate (Material x Defektklasse) | `[RELEASE_MUST]` | `tests/normative/test_competitive_stratified_gate.py` |
+| Externer Mini-MUSHRA bei Kern-aenderungen | `[RELEASE_MUST]` | `tests/normative/test_external_mushra_artifact_contract.py` |
+| §2.29b PMGG Stable-Metric-Invariante (`NatuerlichkeitMetric` nie in `_PRECISE_METRICS`) | `[RELEASE_MUST]` | `tests/unit/test_per_phase_musical_goals_gate.py` (35 Tests — `PHASE_GOAL_EXCLUSIONS` + Audio-Cap 2.5 s) |
+| §3.9 Stabilitäts-Invarianten (9 Punkte: Inference-Timeout, SIGTERM, Phase-Output-Guard, Executor-Lifecycle, Budget-Reconciliation, Exception-Logging, Buffer-RAM-Guard, Lock-Order, KMV-Buffer-Release) | `[RELEASE_MUST]` | `tests/normative/test_stability_invariants.py` — je Invariante mind. 3 Tests |
 | OQS ≥ 88 / Weltklasse-Ziele | `[TARGET_2026]` | Roadmap/Benchmark-Ziel, kein harter Release-Blocker |
 | AMRB-basierter MUSHRA-Hörertest (ITU-R BS.1534-3) | `[TARGET_2026]` | Extern validiert 14 Goal-Schwellwerte; ersetzt „best engineering estimate"-Status; geplant nach OQS ≥ 84.0-Erreichung |
 
@@ -62,6 +67,9 @@ Gate-zuordnung (aktuell implementierte CI-Guards):
 - **100 % offline** nach Installation — alle ML-Modelle lokal gebündelt
 - Nur **Mono und Stereo** unterstützt (> 2 Kanäle → PANNs-gewichteter Downmix)
 - **Kein Fremdedit am Original-Audio** — immer neue Ausgabedatei in `output/`
+
+### [ERGÄNZUNG] OOM-Checkpoint-Ausnahme
+Falls das Original-Audio nach einem OOM-Checkpoint nicht mehr verfügbar oder lesbar ist (z.B. Hardwarefehler), darf ausnahmsweise das im Checkpoint gespeicherte Audio als Quelle für die Wiederaufnahme verwendet werden. Dies ist explizit als Ausnahme zur Regel „kein Phase-Skip auf Original-Audio“ zu verstehen und MUSS im Log als Notfall dokumentiert werden. Qualitätsverluste sind in diesem Fall zulässig, aber zu minimieren.
 
 ## [RELEASE_MUST] 14 Musical Goals (Mode-differenzierte Schwellwerte, v9.10.77)
 
@@ -81,6 +89,9 @@ Gate-zuordnung (aktuell implementierte CI-Guards):
 | Separation-Treue | `SeparationFidelityMetric` | P4 | ≥ 0.78 | ≥ 0.82 |
 | Brillanz | `BrillanzMetric` | P5 | ≥ 0.78 | ≥ 0.85 |
 | Raumtiefe | `SpatialDepthMetric` | P5 | ≥ 0.70 | ≥ 0.75 |
+
+### [ERGÄNZUNG] Materialklassifikations-Konflikte
+Falls EraClassifier und MediumClassifier widersprüchliche Materialtypen liefern (z.B. Tape vs. Vinyl), gilt folgende Konfliktregel: Priorität hat der Klassifikator mit höherer Konfidenz. Bei Gleichstand entscheidet die DefectScanner-Auswertung (höchster Defekt-Score für ein Material). Ist auch dies unklar, wird der konservativere (restaurierungsschonendere) Materialtyp gewählt. Der Entscheidungsweg MUSS im Log dokumentiert werden.
 
 > **v9.10.77 Pareto-Differenzierung**: Restoration-Modus senkt P3–P5-Schwellwerte auf physikalisch erreichbare Werte (Pareto-Konflikte: Bass↔Transparenz [0.7], Brillanz↔Wärme [0.6]). P1/P2 bleiben identisch. Studio 2026 behält ambitionierte Ziele.
 
@@ -136,6 +147,9 @@ Baseline-Key: `iZotope RX 11 (commercial)` (OQS 71.0). RX 10-Key als Legacy-Alia
 - Danach läuft die gesamte Kette ohne manuelle Parameter, ohne Modul-Slider, ohne Nachjustage bis zum Export.
 - Pflicht-Einstieg: `AurikDenker.denke(audio, sr, mode, progress_callback)`; kein UI-Bypass direkt in UV3.
 - Export erfolgt nur nach bestandenem Qualitäts-Gate (Musical Goals + PQS + OQS/AMRB-Kontext + Safety-Invarianten).
+
+### [ERGÄNZUNG] Endlosschleifen-Prävention bei Deferred-Phases
+Falls Deferred-Phases (Stufe 2) auch nach 3 Wiederholungsversuchen wegen RT-Limit oder RAM-Mangel nicht erfolgreich abgeschlossen werden können, wird die Phase endgültig als „nicht nachholbar“ markiert und im RestorationResult protokolliert. Der Nutzer erhält eine Benachrichtigung mit Hinweis auf die betroffene Phase und den Grund. Weitere automatische Versuche unterbleiben, bis ein manueller Neustart erfolgt.
 
 ### Profi-/Studio-Qualitätsprinzipien
 
@@ -193,6 +207,9 @@ Primär → Fallback1 → DSP-Fallback-Kaskade für alle Anwendungsfälle.
 **VERBOTEN** als Musikmetrik: `PESQ`, `DNSMOS`, `NISQA`, `STOI`, `ViSQOL --speech`, `CDPAM`.
 **VERBOTEN** als Enhancement-Plugin: ~~`dccrn_plugin`~~, ~~`fullsubnet_plus_plugin`~~.
 
+### [ERGÄNZUNG] Deferred-Phases-Priorisierung
+Wenn mehrere Deferred-Phases in Stufe 2 nachgeholt werden müssen, erfolgt die Abarbeitung in folgender Reihenfolge: (1) Phasen mit P1/P2-Zielbezug, (2) Phasen mit P3-Zielbezug, (3) alle übrigen. Innerhalb jeder Gruppe entscheidet die Reihenfolge des Auftretens im ursprünglichen Pipeline-Plan. Bei erneutem Ressourcenmangel werden die verbleibenden Deferred-Phases für den nächsten Durchlauf vorgemerkt.
+
 > Vollständige SOTA-Entscheidungsmatrix: `.github/specs/04_dsp_standards.md` §4.4
 
 ### [RELEASE_MUST] Hybrid-Release-Mode für Kernmodelle
@@ -237,6 +254,14 @@ Alle übrigen Phasen, bei denen `strength` Algorithmus-Parameter steuert (z.B. F
 
 **Implementierung**: `PerPhaseMusicalGoalsGate._run_with_retry()` führt `_run_phase(phase, audio, 1.0, kwargs)` genau einmal aus. Retries nutzen `_wet_dry_blend(audio, audio_full, strength, phase)`.
 
+**[RELEASE_MUST] §2.29b PMGG Stable-Metric-Invariante (v9.10.79)**:
+Metriken mit ML-zustandsabhängigem Gewicht **NIEMALS** in `_PRECISE_METRICS` für PMGG-Delta-Checks aufnehmen.
+- **Root-Cause `NatuerlichkeitMetric`**: CREPE-Load-State ändert Gewichte (w_crepe 0.0 → 0.18) zwischen `scores_before` (CREPE nicht geladen) und `scores_after` (CREPE nun geladen) → Pseudo-Regression Δ ≈ 0.15–0.28 auf unverändertem Audio → false P1-Kaskade → Phase_03 best-effort @ 5.6 % Wet → Noise-Floor −55 dBFS statt −72 dBFS → Mikrodetails verdeckt → **Tiefen-Immersion zerstört**.
+- `NatuerlichkeitMetric` läuft **ausschließlich** im Export-Gate (`MusicalGoalsChecker`) — nie in PMGG-Delta-Checks. Schwellwert ≥ 0.90 bleibt dort unverändert normativ.
+- **§9.7.8 Audio-Cap**: `_apply_precise_metric_overrides` kappt auf **2.5 s** — ausreichend für stationäre Spektral-/Chroma-/Transient-Metriken; verhindert NMF/Onset-Runs auf Langaudio (> 2 s/Call auf 60 s-Material).
+- Neue Metriken vor `_PRECISE_METRICS`-Aufnahme: Eigenrauschen ≤ 0.02 auf identischen Audio-Paaren nachweisen.
+- **Aktuelle `PHASE_GOAL_EXCLUSIONS`** (v9.10.79): `phase_03: {"natuerlichkeit", "artikulation"}` — CREPE-Pseudo-Regression + transient-shape mismatch bei Breitband-Denoise; `phase_02: {"bass_kraft", "authentizitaet", "natuerlichkeit"}` — Kammfilter löst CREPE-Voicing-Fehler aus; `phase_24: {"natuerlichkeit"}` — generierter Dropout-Inhalt hat keinen CREPE-Referenzbezug; `phase_29: {"brillanz", "artikulation"}` — HF-Reduktion + transient-shape mismatch bei Hiss-Reduction.
+
 **Era-GP-Warmstart §2.14**: decade ≤ 1940 → `noise_reduction_strength ~ N(0.90, 0.05)`; ≤ 1960 → N(0.75, 0.08); ≥ 1970 → N(0.50, 0.10).
 **Material-MOS §6.2**: MOS ≥ 4.5 NUR für `cd_digital/dat/mp3_high/aac`; Shellac ≥ 3.8, Vinyl ≥ 4.0, Tape ≥ 4.2.
 **Chunk-Größe §7.6**: Silence 120 s, Severity ≥ 0.6 → 5 s, ≥ 0.3 → 15 s, sonst 60 s (Min. 2 s / Max. 120 s).
@@ -268,6 +293,11 @@ Implementierung: `backend/core/adaptive_chunk_processor.py` — `process_in_adap
 
 Reihenfolge: `GenderDetector` → SGMSE+ → FCPE/CREPE/pYIN → FormantTracker (LPC Ord. 30–40 @ 48 kHz) → BreathDetector (±0.05) → De-Esser → `VocalAIEnhancement` → PSOLA (Pitch-Korrektur > ±2 HT).
 **API-Falle**: `enhanced, report = self.breath_intelligence.process(audio, sr)` — kein `events`-Argument!
+
+**[RELEASE_MUST] Vocal-Intimitäts-Gate (Phase 42)**:
+- Vor/nach `phase_42_vocal_enhancement` wird eine Intimitäts-Metrik (Fricative 4–8 kHz + Plosive-Transienten 120–350 Hz) gemessen.
+- Wenn `vocal_intimacy_delta < -0.04`, MUSS ein Safety-Rescue-Blending mit Dry-Signal greifen.
+- Pflicht-Metadaten im `PhaseResult.metadata`: `vocal_intimacy_pre`, `vocal_intimacy_post`, `vocal_intimacy_delta`, `vocal_intimacy_gate_triggered`, `vocal_intimacy_rescue_mix`.
 
 ```python
 # Singleton pattern — thread-safe, double-checked locking (bindend für alle Kernmodule)
@@ -426,6 +456,50 @@ stufe2_quality_estimate: Optional[float] = None                   # quality nach
 **Memory**: `DeferredRefinementJob.audio_original` via `ml_memory_budget.try_allocate("kmv_job", size_gb)` registrieren; nach Stufe-2-Export oder Abbruch `release("kmv_job")`.
 **VERBOTEN**: `LIMIT_BACKGROUND` für `BatchProcessingThread` verwenden.
 
+### [RELEASE_MUST] §2.38a ML-Headroom-Guard + Structured Fallback (v9.10.78)
+
+**Kernprinzip**: Schwere ML-Stufen duerfen nur starten, wenn vor dem Modell-Load und direkt vor der Inferenz ausreichend physischer RAM-Headroom bestaetigt ist. Sonst: kontrollierter DSP-Fallback statt OOM/Hard-Crash.
+
+**Pflicht fuer heavy ML-Pfade** (z. B. SGMSE+, ResembleEnhance, AudioSR, CQTdiff/FlowMatching):
+
+- Vor `AudioSRPlugin()` / `InferenceSession()` / `torch.load()` muss ein lokaler Headroom-Guard laufen.
+- Guard muss dauer- und kanalbewusst sein (mono/stereo, Dateilaenge) und darf bei knappem RAM proaktiv `evict_stale_plugins()` + `gc.collect()` + `malloc_trim(0)` versuchen.
+- Wenn Guard triggert: **kein Phase-Skip auf Original-Audio**, sondern DSP/leichter Fallback innerhalb derselben Phase.
+
+**Structured Fallback-Metadaten (Pflicht)**:
+
+- `RestorationResult.metadata["ml_guard_events"]` als `list[dict]`.
+- Pflichtfelder je Event: `phase_id`, `model`, `reason`, `required_gb`, `available_gb`, `channels`, `duration_s`, `fallback`.
+- `deferred_phases` muss die betroffene Phase enthalten, damit KMV Stufe 2 sie spaeter ohne RT-Limit nachzieht.
+
+**Qualitaetsinvariante**:
+
+- Guard-getriggerter Fallback ist nur als temporaere Laufzeitstrategie zulaessig.
+- Vollqualitaet muss ueber §2.38 Stufe 2 wiederhergestellt werden (Overwrite nur wenn `stufe2_quality_estimate >= stufe1_quality`).
+
+### [RELEASE_MUST] §2.40 Vollpipeline-Determinismus + Konkurrenten-Stratifizierung (v9.10.79)
+
+**Determinismus-Invariante**:
+
+- Gleiche Eingabe + gleiche Umgebung + gleicher Modus => bitnahe Ausgabe.
+- Toleranzen fuer Vergleichstests: `max_abs_err <= 1e-6`, `rms_err <= 1e-7`, identische `phases_executed`.
+- Pflicht: alle stochastischen Komponenten mit dokumentiertem Seed; kein unseeded Zufall in Produktionspfaden.
+
+**Konkurrenz-Gate (stratifiziert)**:
+
+- Aurik muss gegen Referenzsystem pro Material und pro Defektklasse bestehen, nicht nur im Gesamtmittel.
+- Pflicht-Matrix: `tape/vinyl/shellac/digital/vocal` x `hiss/crackle/dropout/reverb/hum/codec`.
+- Release failt bei regressiver Zelle auch dann, wenn der Gesamt-OQS noch besteht.
+
+### [RELEASE_MUST] §8.4 Externes Mini-MUSHRA-Protokoll fuer Kern-aenderungen (v9.10.79)
+
+Bei aenderungen an Kernphasen, PMGG, DefectScanner oder heavy ML-Fallbacks ist ein externer Mini-MUSHRA-Nachweis Pflicht.
+
+- Feste Szenarien: mindestens 6 (darunter 2 Vocal-Szenarien).
+- Feste Panelgroesse: mindestens 8 Hoerer.
+- Pflichtbericht als Artefakt mit Szenario-Scores, Konfidenzen und Delta zur Vorversion.
+- Kein Release ohne gueltiges Bericht-Artefakt.
+
 ### [RELEASE_MUST] §2.39 OOM-Recovery-Checkpoint-System — Nahtlose Wiederaufnahme
 
 **Kernprinzip**: systemd-oomd-Kill oder MemoryError führen nie zu Totalverlust. Pipeline-Zwischenstand wird atomar auf Disk persistiert und beim nächsten Start automatisch zur Wiederaufnahme angeboten.
@@ -520,7 +594,7 @@ Studio 2026: Stem-Sep → Vocal-AI → Instrumente → [Reference Mastering] →
 | **Neurale Synthese** | Vocos 48 kHz (nur Studio 2026, MOS < 4.3) | ~5 % |
 
 **Zwei-Skalen-Dynamik-Schutz** (Pflicht):
-- **Mikro-Ebene (400 ms)**: MDEM — `morph(restored, original, sr)` — LUFS-Profil-Rückgewinnung
+- **Mikro-Ebene (400 ms)**: MDEM — `morph(restored, original, sr)` — LUFS-Profil-Rückgewinnung; mode-adaptives Gain-Limit: Restoration 4.0 dB, Studio 2026 6.0 dB
 - **Makro-Ebene (5 s)**: `correct_emotional_arc(original, restored, sr)` — post-MDEM, wenn Arousal/Valence-Bogen abgeflacht. Algorithmus: RMS-basierte Gain-Hüllkurve, ±6 dB, 70 % Dämpfung, Savitzky-Golay-geglättet. Safety-Revert wenn Korrektur verschlechtert.
 
 **Defect-Locations-Flow** (§9.1 Ergänzung):
@@ -534,6 +608,23 @@ Studio 2026: Stem-Sep → Vocal-AI → Instrumente → [Reference Mastering] →
 - Perceptual Masking (§9.1c): Maskierte Defekte → `severity * (0.3 + 0.7 * salience)`
 - Emotionaler Bogen: Messung + aktive Korrektur (nicht nur Logging)
 - Vintage-Harmonische: H2/H4 bewahren, Soft-Saturation ≠ Clipping
+
+**[RELEASE_MUST] Tiefen-Immersions-Prinzip — „Ohr in die Musik legen" (v9.10.79)**:
+Ziel ist keine technische Sauberkeit, sondern akustische Tiefe: Der Hörer taucht in die Musik ein.
+
+| Tiefenschicht | Frequenzbereich | Enthält | Technische Bedingung |
+|---|---|---|---|
+| Air & Präsenz | 8–20 kHz | Saiten-Obertöne, Gesangs-Luft, Stick-Attack | Noise Floor < −72 dBFS, Phase_06 SBR, Phase_39 Air |
+| Vokal-Intimität | 4–8 kHz | Frikative /s/ /f/, Plosive /p/ /t/, Atem | LyricsGuidedEnhancement segmentspezifisch |
+| Instrument-Körper | 200 Hz–4 kHz | Note-Sustain, Saitenresonanz, Bogen-Kratzen | TDP-Transient + MDEM-Mikrohüllkurve |
+| Fundament | 20–200 Hz | Kick-Punch, Bassresonanz | BassKraftMetric + Virtual-Pitch-Analyse |
+| Raum | Diffus (MS) | Raumluft, Phantom-Center, Tiefenstaffelung | SpatialDepthMetric IACC ≥ 0.70, M/S ≥ 0.97 |
+
+- **PMGG-Stabilitäts-Kausalkette**: Phase_03 @ optimalem `strength` → Noise Floor < −72 dBFS → Air-Layer + Vokal-Intimität-Layer frei → Hörer taucht ein. Phase_03 @ best-effort 5.6 % (false P1-Regression) → −55 dBFS → Mikrodetails verdeckt → Studio-Distanz-Effekt, keine Gänsehaut. **§2.29b ist direkte Voraussetzung für Tiefen-Immersion.**
+- **Vokal-Intimität**: Phonem-Boost-Faktoren (§2.36): `fricative ×1.55`, `plosive ×1.40`, `vowel_stressed ×1.35`, `silence ×0.70`. Kein uniformes Enhancement — Konsonanten-Transient-Integrität erzeugt physische Nähe der Stimme.
+- **Raumtiefe durch Phasenkohärenz**: PGHI nach jeder STFT-Modifikation bewahrt interaurale Phasendifferenzen (IPD) → Blauert Precedence Effect → Hörer lokalisiert Instrumente imaginär im Raum. Griffin-Lim randomisiert Phasen → Raumtiefe kollabiert (VERBOTEN als Endschritt).
+- **Emotionaler Atemzug — Arousal-Bogen**: `arousal_pearson ≥ 0.85` — die Energie-Kurve einer Phrase muss erhalten bleiben. Ein pp vor dem fff, eine Pause vor dem Choreinschluss: diese Spannungsmechanik erzeugt Gänsehaut. Komprimierter Bogen → Musik klingt tot.
+- **Harmonische Vollständigkeit**: Grundton + alle Partialtöne bis Air (> 12 kHz). Abgeschnittene Oberton-Reihen lassen Instrumente „kartonig" klingen. Phase_06 und Phase_39 sind keine optionalen Phasen — sie sind Immersions-Voraussetzung.
 
 ## Sprachkonvention
 

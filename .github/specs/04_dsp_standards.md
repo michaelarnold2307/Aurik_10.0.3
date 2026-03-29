@@ -1,9 +1,8 @@
-# Aurik 9 — Spec 04: DSP-Standards & SOTA-Algorithmen
 
+# Aurik 9 — Spec 04: DSP-Standards & SOTA-Algorithmen
+>
 > Psychoakustische Fundierung, SOTA-Entscheidungsmatrix, Pflicht-Algorithmen.
 > Algorithmen ab 2018 als Minimum. Legacy-Algorithmen als Primärverarbeitung VERBOTEN.
-
----
 
 ## §4.1 Pflicht-Konzepte (mindestens eines pro DSP-Funktion)
 
@@ -27,9 +26,7 @@
 | **ISO 226:2023 Equal-Loudness** | BrillanzMetric/WaermeMetric-Gewichtung | ISO 226:2023 |
 | **LUFS / ITU-R BS.1770-5** | Lautstärkenormalisierung (2023) | ITU-R BS.1770-5 |
 
-> **DDSP-Implementierung**: Aurik nutzt eine leichtgewichtige NumPy/SciPy-Eigenimplementierung
-> (`dsp/ddsp_synth.py`) — **KEIN** Google-`ddsp`-PyPI-Paket (benötigt TensorFlow). Die Eigenimplementierung
-> deckt additive Synthese + Rauschfilter vollständig ab und ist out-of-the-box ohne TF lauffähig.
+> **DDSP-Implementierung**: Aurik nutzt eine leichtgewichtige NumPy/SciPy-Eigenimplementierung (`dsp/ddsp_synth.py`) — **KEIN** Google-`ddsp`-PyPI-Paket (benötigt TensorFlow). Die Eigenimplementierung deckt additive Synthese + Rauschfilter vollständig ab und ist out-of-the-box ohne TF lauffähig.
 
 ---
 
@@ -44,6 +41,7 @@ Medianfilter-Declicker (primitiv)       # → Ersatz: RBME + iterative Konsisten
 YIN Pitch-Tracker                       # → Ersatz: pYIN / CREPE
 LPC Ordnung < 16                        # → Ersatz: High-Order LPC + Burg-Algorithmus
 np.fft.rfft ohne PGHI nach Modifikation  # → PGHI zwingend
+griffin_lim() als Phasengenerator (Endschritt)  # → PGHI / Vocos / HiFi-GAN (Griffin-Lim randomisiert Phasen → IPD-Verlust → Raumtiefe kollabiert, §8.3.1)
 RMS-Normalisierung statt LUFS           # → ITU-R BS.1770-5
 Peak-Normalisierung bei Restaurierung   # → LUFS + True-Peak
 
@@ -65,10 +63,8 @@ BARK_EDGES_HZ = [
     1270, 1480, 1720, 2000, 2320, 2700, 3150, 3700, 4400,
     5300, 6400, 7700, 9500, 12000, 15500
 ]
-
 def hz_to_erb(f_hz: float) -> float:
     return 21.4 * math.log10(1.0 + f_hz / 229.0)
-
 def hz_to_mel(f_hz: float) -> float:
     return 2595.0 * math.log10(1.0 + f_hz / 700.0)
 ```
@@ -111,7 +107,7 @@ def hz_to_mel(f_hz: float) -> float:
 
 ### Rauschunterdrückung (Phase 03, 29)
 
-```
+```text
 Pflicht: OMLSA (Cohen & Berdugo 2002) + IMCRA-Variante (Cohen 2003)
 Gain-Glättung: MMSE-LSA
 G_floor: 0.85 an HPG-protected_bins, 0.10 sonst
@@ -148,7 +144,7 @@ Kritische Architekturnotiz (Stand März 2026):
 
 ### Inpainting (Phase 24, 55)
 
-```
+```text
 Kurze Lücken < 50 ms: NMF mit β-Divergenz (β=1, Itakura-Saito) + PGHI
 Lange Lücken 50–999 ms: CQTdiff+ (Moliner & Välimäki, ICASSP 2023)
     - CQT-Domänen-Diffusion konditioniert auf Phrasen-Kontext ±30 s
@@ -160,7 +156,7 @@ VERBOTEN: VampNet (kein gebündeltes Plugin, kein stabiler ONNX-Export)
 
 ### Codec-Artefakte (Phase 23, 50)
 
-```
+```text
 Pflicht: Apollo (Zhang et al. 2024)
     - Band-Splitting-RNN: Audio → 24 Sub-Bänder
     - Mamba-Backbone-Sequenzmodellierung
@@ -170,7 +166,7 @@ Fallback: Resemble-Enhance ONNX → DSP Spectral Repair + PGHI
 
 ### Print-Through-Reduktion (Phase 29, reel_tape)
 
-```
+```text
 Pflicht: Bidirektionale Adaptive Temporal Subtraction (LMS-basiert, Widrow & Stearns 1985)
 Physikalisches Modell: Print-Through entsteht auf BEIDEN Seiten der Masterwicklung
     (Kopie VOR dem Original = Pre-Echo bei Vorwärtswicklung,
@@ -205,20 +201,22 @@ ZONES = {
 
 ### Neuronale Synthese / Vocoder-Kaskade (wenn PQS-MOS < 4.3)
 
-```
+```text
 4-stufige Fallback-Kaskade (Studio-2026):
     1. Vocos 48 kHz nativ — vocos_mel_spec_24khz.onnx (CPUExecutionProvider)
        Mel-Bins 80; True-Peak −1.0 dBTP nach Synthese
     2. BigVGAN-v2 — bigvgan_v2 (0,4 GB, ONNX/PyTorch, CPU-only)
-       NVIDIA 2024; nur Studio-2026-Modus; Mel-Eingang 80 Bänder
+```
+
     3. HiFi-GAN (3,6 MB ONNX) — Tertiär-Fallback
     4. PGHI-ISTFT — DSP-Endfall-Fallback
 VERBOTEN: Griffin-Lim als Endschritt in Studio-2026
+
 ```
 
 ### Pit-Korrektur (Phase 12, 31)
 
-```
+```text
 Primär: FCPE → CREPE → RMVPE (nur wenn stabil verifiziert) + DTW
 Bei Gesang (PANNs Vocals ≥ 0.4):
     PSOLA (Moulines & Charpentier 1990) — formanterhaltend bei Transposition > ±2 Halbton
@@ -228,7 +226,7 @@ DSP-Fallback: PESTO (Riou et al. ISMIR 2023) → pYIN (Mauch & Dixon 2014)
 
 ### Phasen-Rekonstruktion (nach JEDER Spektral-Modifikation)
 
-```
+```text
 PFLICHT: PGHI (Perraudin et al. 2013)
 Fallback: Griffin-Lim ≥ 32 Iterationen
 ABSOLUT VERBOTEN: Direkte ISTFT auf modifiziertem Betragsspektrum
@@ -236,7 +234,7 @@ ABSOLUT VERBOTEN: Direkte ISTFT auf modifiziertem Betragsspektrum
 
 ### Dithering (24→16 bit Export)
 
-```
+```text
 PRIMÄR: POW-r Typ 3 (Wannamaker et al. 1992) — ~+6 dB effektiver SNR
 FALLBACK: TPDF-Dithering (±1 LSB)
 VERBOTEN: Truncation ohne Dithering

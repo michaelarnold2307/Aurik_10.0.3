@@ -71,6 +71,7 @@ class TestTruePeakLimiter:
         tp_output = limiter.measure_true_peak(audio_limited, sr)
         assert tp_output <= -1.0, f"True Peak exceeds ceiling: {tp_output:.2f} dBTP (expected <= -1.0 dBTP)"
 
+        assert metrics is not None
         print(f"✓ Stereo True Peak Limiter: {metrics['true_peak_output_dbtp']:.2f} dBTP")
 
     def test_no_limiting_needed(self):
@@ -86,6 +87,7 @@ class TestTruePeakLimiter:
         audio_limited, metrics = limiter.process(audio, sr, return_metrics=True)
 
         # Verify no gain reduction applied
+        assert metrics is not None
         assert metrics["gain_reduction_max_db"] < 0.1
         assert metrics["samples_limited"] == 0
 
@@ -187,6 +189,7 @@ class TestStereoWidthEnhancer:
             enhancer = StereoWidthEnhancer(width_factor=width_factor)
             audio_enhanced, metrics = enhancer.process(audio, return_metrics=True)
 
+            assert metrics is not None
             assert metrics["width_applied"] == width_factor
             print(f"✓ Width Factor {width_factor:.1f}x: Phase Corr {metrics['phase_correlation_output']:.3f}")
 

@@ -67,12 +67,14 @@ class MpSenetResult:
         sr:         Sample-Rate (48000)
         model_used: "mp_senet_onnx" | "omlsa_dsp_fallback"
         snr_improvement_db: Geschätzter SNR-Gewinn in dB
+        fail_reason: Optional strukturierte Fehlerursache (§2.38a)
     """
 
     audio: np.ndarray
     sr: int
     model_used: str
     snr_improvement_db: float = 0.0
+    fail_reason: str | None = None  # "mp_senet_shape_error" | "mp_senet_onnx_runtime" | None
 
     def __post_init__(self) -> None:
         self.audio = np.nan_to_num(self.audio, nan=0.0, posinf=0.0, neginf=0.0)
@@ -163,19 +165,28 @@ class MpSenetPlugin:
         audio = np.nan_to_num(audio.astype(np.float32), nan=0.0, posinf=0.0, neginf=0.0)
         stereo = audio.ndim == 2 and audio.shape[1] == 2
 
-        def process_channel(ch: np.ndarray) -> np.ndarray:
+        def process_channel(ch: np.ndarray) -> tuple[np.ndarray, str | None, str]:
             if self._session is not None:
-                return self._enhance_onnx(ch, sr)
-            return self._omlsa_fallback(ch, sr)
+                enhanced, fail_reason = self._enhance_onnx(ch, sr)
+                if fail_reason is not None:
+                    return enhanced, fail_reason, "omlsa_dsp_fallback"
+                return enhanced, None, "mp_senet_onnx"
+            return self._omlsa_fallback(ch, sr), None, "omlsa_dsp_fallback"
 
         if stereo:
-            left = process_channel(audio[:, 0])
-            right = process_channel(audio[:, 1])
+            left, fail_left, used_left = process_channel(audio[:, 0])
+            right, fail_right, used_right = process_channel(audio[:, 1])
             n = min(len(left), len(right), len(audio))
             out = np.stack([left[:n], right[:n]], axis=1)
+            fail_reason = fail_left or fail_right
+            model_used = (
+                "mp_senet_onnx"
+                if used_left == "mp_senet_onnx" and used_right == "mp_senet_onnx"
+                else "omlsa_dsp_fallback"
+            )
         else:
             mono = audio[:, 0] if audio.ndim == 2 else audio
-            out = process_channel(mono)
+            out, fail_reason, model_used = process_channel(mono)
 
         out = np.nan_to_num(out, nan=0.0, posinf=0.0, neginf=0.0)
         out = np.clip(out, -1.0, 1.0)
@@ -188,8 +199,9 @@ class MpSenetPlugin:
         return MpSenetResult(
             audio=out.astype(np.float32),
             sr=sr,
-            model_used="mp_senet_onnx" if self._session is not None else "omlsa_dsp_fallback",
+            model_used=model_used,
             snr_improvement_db=float(np.clip(snr_imp, 0.0, 30.0)),
+            fail_reason=fail_reason,
         )
 
     # ------------------------------------------------------------------
@@ -229,7 +241,35 @@ class MpSenetPlugin:
             x = np.pad(x, (0, n_orig - len(x)))
         return x
 
-    def _enhance_onnx(self, mono: np.ndarray, sr: int) -> np.ndarray:
+    def _validate_and_pad_shapes(self, amp: np.ndarray, pha: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        """§Punkt 4: Shape-Validierung + Padding für ONNX-Kompatibilität.
+
+        Das MP-SENet-Modell erwartet dynamische Zeit-Dimension, aber gewisse
+        Längen triggern Reshape-Fehler im ONNX-Graph. Diese Funktion:
+        1. Validiert Frequency-Dimension (201)
+        2. Paddet Zeit-Dimension (T) zu STFT-konformen Länggen wenn nötig
+        3. Tracked Shape-Mismatches für Diagnostik
+        """
+        _N_BINS = 201
+        if amp.shape[0] != _N_BINS or pha.shape[0] != _N_BINS:
+            raise ValueError(
+                f"Shape-Incompatibilität: erwartet freq={_N_BINS}, got amp freq={amp.shape[0]} pha freq={pha.shape[0]}"
+            )
+
+        # Zeit-Dimension: STFT frame count sollte (audio_len - N_FFT) // HOP + 1 sein
+        # Gewisse Längen können Reshape-Fehler triggern. Padding hilft:
+        n_frames = amp.shape[1]
+        # Round-up zu nächster Potenz von 2 für ONNX-Stabilität (empirisch)
+        min_frames = 16  # Minimum time frames für Modell
+        if n_frames < min_frames:
+            pad_frames = min_frames - n_frames
+            amp = np.pad(amp, ((0, 0), (0, pad_frames)), mode="constant", constant_values=0)
+            pha = np.pad(pha, ((0, 0), (0, pad_frames)), mode="constant", constant_values=0)
+            n_frames = min_frames
+
+        return amp, pha
+
+    def _enhance_onnx(self, mono: np.ndarray, sr: int) -> tuple[np.ndarray, str | None]:
         """MP-SENet ONNX-Inferenz: Magnitude + Phase Enhancement.
 
         The model expects two separate inputs:
@@ -240,6 +280,8 @@ class MpSenetPlugin:
         at 50 Hz/bin when N_FFT=960 @ 48 kHz).  We crop to the first 201
         bins (0–10 kHz), process them, and stitch the denoised lower bins
         back into the full spectrum before iSTFT reconstruction.
+
+        §Punkt 4: Shape-Robustheit gegen Reshape-Fehler implementiert.
         """
         assert self._session is not None
         _N_BINS = 201  # model's fixed frequency-bin count
@@ -249,8 +291,25 @@ class MpSenetPlugin:
             pha_full = np.angle(Z).astype(np.float32)  # [481, T]
 
             # Crop to model's 201-bin input (covers 0–10 kHz @ 50 Hz/bin)
-            amp_in = amp_full[:_N_BINS][np.newaxis]  # [1, 201, T]
-            pha_in = pha_full[:_N_BINS][np.newaxis]  # [1, 201, T]
+            amp_in = amp_full[:_N_BINS]  # [201, T]
+            pha_in = pha_full[:_N_BINS]  # [201, T]
+
+            # §Punkt 4: Shape-Validierung + Padding VOR Batch-Erweiterung
+            try:
+                amp_in, pha_in = self._validate_and_pad_shapes(amp_in, pha_in)
+            except ValueError as shape_exc:
+                logger.error(
+                    "MP-SENet Shape-Validierung fehlgeschlagen: %s (audio_len=%d frames=%d) — OMLSA-DSP-Fallback",
+                    shape_exc,
+                    len(mono),
+                    amp_in.shape[1] if amp_in.ndim > 1 else 0,
+                )
+                fallback_audio = self._omlsa_fallback(mono, sr)
+                return fallback_audio, "mp_senet_shape_error"
+
+            # Batch-Dimension hinzufügen
+            amp_in = amp_in[np.newaxis]  # [1, 201, T]
+            pha_in = pha_in[np.newaxis]  # [1, 201, T]
 
             # Retrieve both required input names from the session
             inp_names = [i.name for i in self._session.get_inputs()]
@@ -264,6 +323,12 @@ class MpSenetPlugin:
             denoised_amp = np.asarray(ort_out[0], dtype=np.float32)[0]  # [201, T]
             denoised_pha = np.asarray(ort_out[1], dtype=np.float32)[0]  # [201, T]
 
+            # Crop zu Original-Länge (falls gepadddet)
+            orig_frames = amp_full.shape[1]
+            if denoised_amp.shape[1] > orig_frames:
+                denoised_amp = denoised_amp[:, :orig_frames]
+                denoised_pha = denoised_pha[:, :orig_frames]
+
             # Stitch denoised lower bins back; keep original upper bins
             amp_out = amp_full.copy()
             pha_out = pha_full.copy()
@@ -274,10 +339,17 @@ class MpSenetPlugin:
             Z_enhanced = np.nan_to_num(Z_enhanced, nan=0.0, posinf=0.0, neginf=0.0)
 
             result = self._istft(Z_enhanced, n_orig)
-            return np.clip(np.nan_to_num(result, nan=0.0), -1.0, 1.0)
+            return np.clip(np.nan_to_num(result, nan=0.0), -1.0, 1.0), None
         except Exception as exc:
-            logger.warning("MP-SENet ONNX-Inferenzfehler: %s — OMLSA-Fallback.", exc)
-            return self._omlsa_fallback(mono, sr)
+            # §Punkt 4: Structured Error Logging mit fail_reason
+            logger.error(
+                "🔴 MP-SENet ONNX-Inferenzfehler: %s (Typ: %s, audio_len=%d) — OMLSA-DSP-Fallback wird angewandt.",
+                exc,
+                type(exc).__name__,
+                len(mono),
+            )
+            fallback_audio = self._omlsa_fallback(mono, sr)
+            return fallback_audio, "mp_senet_onnx_runtime"
 
     # ------------------------------------------------------------------
     # OMLSA DSP Fallback

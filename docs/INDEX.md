@@ -15,6 +15,7 @@ Rekonstruktions-Denkersystem. Alle Inhalte sind an die KI-Programmierrichtlinien
 ## 📖 Quick Navigation
 
 ### Für Anwender
+
 - **[Installation Guide](guides/INSTALLATION.md)** – Systemvoraussetzungen & Installation (Linux / Windows)
 - **[User Guide](guides/USER_GUIDE.md)** – Vollständiges Benutzerhandbuch
 - **[Configuration Guide](guides/CONFIGURATION.md)** – Modi (Restoration / Studio 2026) & Parameter
@@ -22,6 +23,7 @@ Rekonstruktions-Denkersystem. Alle Inhalte sind an die KI-Programmierrichtlinien
 - **[Quickstart Guide](guides/QUICKSTART_SUPPORT.md)** – Schnelleinstieg
 
 ### Für Entwickler
+
 - **[KI-Agent Integration Guide](KI-AGENT-INTEGRATION-GUIDE.md)** – Regeln für KI-Agenten **(Pflicht!)**
 - **[KI-Programmierrichtlinien](../.github/copilot-instructions.md)** – Bindende Systemregeln **(Pflicht!)**
 - **[Python API Reference](api/PYTHON_API.md)** – API-Dokumentation
@@ -33,6 +35,7 @@ Rekonstruktions-Denkersystem. Alle Inhalte sind an die KI-Programmierrichtlinien
 - **[Performance Guard Spec](PERFORMANCE_GUARD_SPEC.md)** – 3×-Echtzeit-Budgetregeln
 
 ### Status & Fortschritt
+
 - **[Project Status Report](PROJECT_STATUS.md)** – Projektstatus (normativer Stand via Specs/Changelog)
 - **[Musical Excellence Analysis](musical_excellence_next_steps.md)** – Qualitätsanalyse & Roadmap
 - **[Roadmap](aurik9_roadmap.md)** – Zukunftspläne (Studio 2026+)
@@ -114,16 +117,19 @@ Schlüsselbindungen (Auszug):
 ---
 
 ### Erste Schritte
+
 1. [Installation Guide](guides/INSTALLATION.md)
 2. [User Guide](guides/USER_GUIDE.md)
 3. [Configuration Guide](guides/CONFIGURATION.md)
 4. [Troubleshooting Guide](guides/TROUBLESHOOTING.md)
 
 ### KI-Agenten (Pflicht)
+
 - [KI-Agent Integration Guide](KI-AGENT-INTEGRATION-GUIDE.md)
 - [KI-Programmierrichtlinien](../.github/copilot-instructions.md)
 
 ### Architektur & Entwicklung
+
 - [Python API Reference](api/PYTHON_API.md)
 - [Contributing Guide](development/CONTRIBUTING.md)
 - [Testing Guide](development/TESTING.md)
@@ -132,6 +138,7 @@ Schlüsselbindungen (Auszug):
 - [Architecture Overview](architecture/ARCHITECTURE.md)
 
 ### Projekt-Status
+
 - [Project Status Report](PROJECT_STATUS.md)
 - [Musical Excellence Analysis](musical_excellence_next_steps.md)
 - [Roadmap](aurik9_roadmap.md)

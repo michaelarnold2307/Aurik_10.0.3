@@ -31,7 +31,7 @@ class AiDehissMultiband:
         nyq = 0.5 * sr
         lowcut = low / nyq
         highcut = high / nyq
-        b, a = butter(4, [lowcut, highcut], btype="band")
+        b, a = butter(4, [lowcut, highcut], btype="band", output="ba")  # type: ignore[misc]
         return lfilter(b, a, audio)
 
     # ------------------------------------------------------------------ #

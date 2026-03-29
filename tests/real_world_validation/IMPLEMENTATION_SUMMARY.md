@@ -33,7 +33,7 @@
    - Statistical significance testing (binomial tests)
    - Combined objective + subjective analysis
 6. ✅ **Documentation** (README.md with complete usage guide)
-7. ✅ **Package Structure** (__init__.py)
+7. ✅ **Package Structure** (**init**.py)
 
 ### ⏳ Pending (1/8 Tasks)
 
@@ -67,6 +67,7 @@ tests/real_world_validation/
 ### 1. Test Dataset Creator
 
 **Features:**
+
 - Placeholder generation for infrastructure testing
 - Realistic defect synthesis:
   - **Vinyl:** Surface noise (pink noise), clicks, pops, rumble
@@ -77,6 +78,7 @@ tests/real_world_validation/
 - Dataset validation
 
 **Usage:**
+
 ```bash
 # Create 3 placeholder files per category
 python test_dataset_creator.py --mode placeholder --count 3
@@ -88,6 +90,7 @@ python test_dataset_creator.py --mode validate
 ### 2. Validation Suite
 
 **Objective Metrics:**
+
 - **SNR** (Signal-to-Noise Ratio): Spectral method, signal vs noise floor
 - **THD** (Total Harmonic Distortion): Fundamental + harmonics analysis
 - **Spectral:** Flatness, Centroid, Rolloff, Bandwidth
@@ -95,11 +98,13 @@ python test_dataset_creator.py --mode validate
 - **Frequency Response:** Octave band analysis (31 Hz - 16 kHz)
 
 **Reference-Based Metrics:**
+
 - Correlation (processed vs reference)
 - Spectral Distance (L2 norm)
 - MSE (Mean Squared Error)
 
 **Usage:**
+
 ```bash
 # Validate test library
 python validation_suite.py --input test_library/ --output validation_report.json
@@ -114,17 +119,20 @@ python validation_suite.py --compare \
 ### 3. Blind Test Generator
 
 **Test Types:**
+
 - **A/B Comparison:** Which sounds better? (preference)
 - **A/B/X Identification:** Does X match A or B? (discrimination)
 - **Rating:** Rate 1-5 on 4 criteria (absolute quality)
 
 **Outputs:**
+
 - Randomized test files (neutral naming)
 - Test protocol JSON (ground truth, keep secret)
 - Evaluator instructions (markdown)
 - Results template JSON (for evaluators)
 
 **Usage:**
+
 ```bash
 # Generate all test types
 python blind_test_generator.py \
@@ -139,17 +147,20 @@ python blind_test_generator.py \
 ### 4. Results Analyzer
 
 **Statistical Analysis:**
+
 - **A/B Tests:** Preference %, confidence correlation, binomial significance
 - **A/B/X Tests:** Accuracy %, better-than-random test (p < 0.05)
 - **Rating Tests:** Mean, std, median, distributions per criterion
 - **Combined:** Objective + Subjective correlation
 
 **Outputs:**
+
 - Analysis report JSON
 - Statistical summaries
 - Human-readable summary
 
 **Usage:**
+
 ```bash
 # Analyze blind test results
 python results_analyzer.py \
@@ -170,6 +181,7 @@ python results_analyzer.py \
 ## 📈 Success Criteria
 
 ### Objective Targets (Validation Suite)
+
 - ✅ **SNR improvement:** +10-20 dB (target: better than iZotope RX10)
 - ✅ **THD increase:** <1% (no audible distortion)
 - ✅ **Spectral preservation:** <0.5 dB centroid deviation
@@ -177,6 +189,7 @@ python results_analyzer.py \
 - ✅ **ViSQOL score:** >4.0 for music
 
 ### Subjective Targets (Blind Tests)
+
 - ✅ **A/B preference:** >60% prefer AURIK over unprocessed
 - ✅ **A/B preference:** >50% prefer AURIK over iZotope RX10
 - ✅ **A/B/X accuracy:** Significantly better than random (50%)
@@ -188,6 +201,7 @@ python results_analyzer.py \
 ## 🚀 Next Steps
 
 ### Phase 1: Dataset Acquisition (3-5 days)
+
 - [ ] Collect real-world archive recordings
   - Vinyl: 10+ files (jazz, rock, classical from 1940s-1970s)
   - Tape: 10+ files (reel-to-reel, cassette, DAT)
@@ -197,6 +211,7 @@ python results_analyzer.py \
 - [ ] Quality control: Verify defects, 30s+ duration, 44.1 kHz
 
 ### Phase 2: Objective Validation (5-7 days)
+
 - [ ] Run validation suite on all files
 - [ ] Process files with AURIK
 - [ ] Compare baseline vs AURIK (SNR, THD, Spectral)
@@ -204,12 +219,14 @@ python results_analyzer.py \
 - [ ] Verify success criteria met
 
 ### Phase 3: Blind Tests (2-3 days)
+
 - [ ] Generate blind test files (A/B, A/B/X, Rating)
 - [ ] Recruit 5-10 evaluators (audio professionals)
 - [ ] Conduct blind listening tests
 - [ ] Collect evaluator results
 
 ### Phase 4: Statistical Analysis (2-3 days)
+
 - [ ] Analyze blind test results
 - [ ] Compute statistical significance
 - [ ] Combine objective + subjective
@@ -217,6 +234,7 @@ python results_analyzer.py \
 - [ ] Document findings
 
 ### Phase 5: Documentation & Roadmap (1 day)
+
 - [ ] Create REAL_WORLD_VALIDATION_COMPLETE.md
 - [ ] Document methodology
 - [ ] Include all results & analysis
@@ -234,6 +252,7 @@ pip install librosa numpy scipy soundfile
 ```
 
 **Already in AURIK:**
+
 - librosa (audio analysis)
 - numpy (numerical computing)
 - scipy (statistical tests)

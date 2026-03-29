@@ -271,7 +271,7 @@ class FormantCorrector:
         """
         if reference_formants is None:
             # Use median as reference
-            reference_formants = np.median(formant_freqs, axis=0)
+            reference_formants = np.asarray(np.median(formant_freqs, axis=0))
 
         # Compute drift per formant
         drift_info = {}
@@ -331,7 +331,7 @@ class FormantCorrector:
 
         if target_formants is None:
             # Use median as target
-            target_formants = np.median(formant_freqs, axis=0)
+            target_formants = np.asarray(np.median(formant_freqs, axis=0))
 
         # For now, use EQ-based approximation
         # (Full formant shifting requires complex vocoder)
@@ -385,7 +385,6 @@ class FormantCorrector:
         """
         Apply notch filter (attenuation).
         """
-        sr / 2
         Q = freq / bandwidth
 
         # Biquad notch filter
@@ -413,7 +412,6 @@ class FormantCorrector:
         """
         Apply peak filter (boost).
         """
-        sr / 2
         Q = freq / bandwidth
         A = 10 ** (gain_db / 40)
 
@@ -431,7 +429,7 @@ class FormantCorrector:
         b = np.array([b0, b1, b2]) / a0
         a = np.array([1, a1 / a0, a2 / a0])
 
-        audio = signal.lfilter(b, a, audio)
+        audio = np.asarray(signal.lfilter(b, a, audio), dtype=np.float64)
 
         return audio
 
@@ -585,7 +583,7 @@ class SingersFormantEnhancer:
         b = np.array([b0, b1, b2]) / a0
         a = np.array([1, a1 / a0, a2 / a0])
 
-        audio = signal.lfilter(b, a, audio)
+        audio = np.asarray(signal.lfilter(b, a, audio), dtype=np.float64)
 
         return audio
 

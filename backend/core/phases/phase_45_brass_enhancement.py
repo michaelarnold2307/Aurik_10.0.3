@@ -35,6 +35,7 @@ from __future__ import annotations
 
 import logging
 import time
+from typing import Any
 
 import numpy as np
 import scipy.signal as sig
@@ -44,7 +45,7 @@ from .phase_interface import PhaseCategory, PhaseInterface, PhaseMetadata, Phase
 try:
     from dsp.formant_system import FormantSystem as _FormantSystemCls
 
-    _FORMANT_SYSTEM_BRASS: _FormantSystemCls | None = None
+    _FORMANT_SYSTEM_BRASS: Any = None
 except Exception:
     _FormantSystemCls = None  # type: ignore[assignment,misc]
     _FORMANT_SYSTEM_BRASS = None
@@ -104,8 +105,8 @@ def _high_shelf(audio: np.ndarray, sr: int, freq: float, gain_db: float) -> np.n
 class BrassEnhancementPhase(PhaseInterface):
     """Harmonischer Exciter + Presence-EQ + Air-EQ für Blechbläser."""
 
-    phase_id = "phase_45_brass_enhancement"
-    name = "Brass Enhancement (Harmonic Exciter + EQ)"
+    _PHASE_ID = "phase_45_brass_enhancement"
+    _NAME = "Brass Enhancement (Harmonic Exciter + EQ)"
     description = (
         "Blechbläser-Optimierung: Subtile 2nd-Harmonic-Anreicherung (Soft-Clip), "
         "Presence-EQ bei 2.5 kHz (+2.5 dB, Q=2) und Air-EQ bei 8 kHz (+1.8 dB). "
@@ -114,8 +115,8 @@ class BrassEnhancementPhase(PhaseInterface):
 
     def get_metadata(self) -> PhaseMetadata:
         return PhaseMetadata(
-            phase_id=self.phase_id,
-            name=self.name,
+            phase_id=self._PHASE_ID,
+            name=self._NAME,
             category=PhaseCategory.ENHANCEMENT,
             priority=4,
             version="2.0.0",
@@ -187,16 +188,16 @@ class BrassEnhancementPhase(PhaseInterface):
             sos_bp = sig.butter(2, [300.0, 4000.0], btype="band", fs=sample_rate, output="sos")
             if x.ndim == 1:
                 x_bp = sig.sosfilt(sos_bp, x)
-                analytic = _hilbert(x_bp)
-                amplitude = np.abs(analytic)
-                phase = np.unwrap(np.angle(analytic))
+                _analytic = np.asarray(_hilbert(x_bp))
+                amplitude = np.sqrt(_analytic.real**2 + _analytic.imag**2)
+                phase = np.unwrap(np.arctan2(_analytic.imag, _analytic.real))
                 h2 = amplitude * np.cos(2.0 * phase)
             else:
                 channels = []
                 for ch in range(x.shape[1]):
                     x_bp = sig.sosfilt(sos_bp, x[:, ch])
-                    analytic = _hilbert(x_bp)
-                    h2_ch = np.abs(analytic) * np.cos(2.0 * np.unwrap(np.angle(analytic)))
+                    _a = np.asarray(_hilbert(x_bp))
+                    h2_ch = np.sqrt(_a.real**2 + _a.imag**2) * np.cos(2.0 * np.unwrap(np.arctan2(_a.imag, _a.real)))
                     channels.append(h2_ch)
                 h2 = np.column_stack(channels)
             x = x + gain_h2 * h2

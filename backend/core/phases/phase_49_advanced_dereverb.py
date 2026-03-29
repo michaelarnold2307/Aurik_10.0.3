@@ -73,8 +73,8 @@ class AdvancedDereverbPhase(PhaseInterface):
     Arbeitet rein mit DSP — kein ML-Import benötigt.
     """
 
-    phase_id = "phase_49_advanced_dereverb"
-    name = "Advanced Dereverb (WPE DSP v3 — scipy.signal.stft)"
+    _PHASE_ID = "phase_49_advanced_dereverb"
+    _NAME = "Advanced Dereverb (WPE DSP v3 — scipy.signal.stft)"
     description = (
         "Weighted Prediction Error Dereverberation v3: scipy.signal.stft/istft "
         "(OLA-konsistent, PGHI-konform) + Consistent-Wiener-Postfilter "
@@ -92,8 +92,8 @@ class AdvancedDereverbPhase(PhaseInterface):
 
     def get_metadata(self) -> PhaseMetadata:
         return PhaseMetadata(
-            phase_id=self.phase_id,
-            name=self.name,
+            phase_id=self._PHASE_ID,
+            name=self._NAME,
             category=PhaseCategory.DEFECT_REMOVAL,
             priority=7,
             version="3.0.0",

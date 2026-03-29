@@ -22,7 +22,6 @@ class RuleBasedGenderDetector:
         Öffentliche API für die Entscheidungslogik auf Basis extrahierter Features.
         Ermöglicht Grid-Search und Schwellenwertoptimierung ohne Zugriff auf protected Methoden.
         """
-        1.0 - voiced_ratio
         # Entscheidungslogik (optimiert, Schwellen empirisch anpassbar)
         if f0 < 170 and f1 < 700 and f2 < 1200:
             gender = "male"

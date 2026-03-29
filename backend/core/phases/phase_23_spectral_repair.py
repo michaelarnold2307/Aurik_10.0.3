@@ -39,6 +39,7 @@ Version: 3.0.0
 
 import logging
 import time
+from typing import Any
 
 import numpy as np
 from scipy import interpolate, ndimage, signal
@@ -143,6 +144,65 @@ class SpectralRepair(PhaseInterface):
         super().__init__()
         self.name = "Spectral Repair v3 IMCRA"
         self._audiosr_plugin = None  # Lazy loading
+        self._ml_guard_events: list[dict[str, Any]] = []
+
+    def _has_sufficient_ml_headroom(self, audio: np.ndarray, sample_rate: int) -> bool:
+        """Return True when enough physical RAM is available for AudioSR stage."""
+        try:
+            import gc
+
+            import psutil
+        except Exception:
+            return True
+
+        n_samples = len(audio)
+        n_channels = 1
+        duration_s = n_samples / float(max(1, sample_rate))
+
+        required_gb = 5.0
+        if duration_s >= 180.0:
+            required_gb += 2.0
+        elif duration_s >= 60.0:
+            required_gb += 1.0
+
+        available_gb = float(psutil.virtual_memory().available / (1024**3))
+        if available_gb < required_gb + 1.5:
+            try:
+                from backend.core.plugin_lifecycle_manager import evict_stale_plugins
+
+                evict_stale_plugins(required_mb=int(required_gb * 1024))
+            except Exception:
+                pass
+            gc.collect()
+            try:
+                import ctypes as _ct
+
+                _ct.CDLL("libc.so.6").malloc_trim(0)
+            except Exception:
+                pass
+            available_gb = float(psutil.virtual_memory().available / (1024**3))
+
+        if available_gb < required_gb:
+            self._ml_guard_events.append(
+                {
+                    "phase_id": "phase_23_spectral_repair",
+                    "model": "AudioSR",
+                    "reason": "insufficient_physical_ram_headroom",
+                    "required_gb": float(required_gb),
+                    "available_gb": float(available_gb),
+                    "channels": int(n_channels),
+                    "duration_s": float(duration_s),
+                    "fallback": "dsp_inpainting",
+                }
+            )
+            logger.warning(
+                "SpectralRepair RAM guard triggered: %.1f GB available, %.1f GB required (duration=%.1fs) - using DSP fallback",
+                available_gb,
+                required_gb,
+                duration_s,
+            )
+            return False
+        return True
 
     def get_metadata(self) -> PhaseMetadata:
         """Return phase metadata."""
@@ -192,6 +252,7 @@ class SpectralRepair(PhaseInterface):
         sample_rate = kwargs.get("sample_rate", 48000)
         assert sample_rate == 48000, f"SR muss 48000 Hz sein, erhalten: {sample_rate}"
         start_time = time.time()
+        self._ml_guard_events = []
         self.validate_input(audio)
 
         is_stereo = audio.ndim == 2
@@ -255,6 +316,8 @@ class SpectralRepair(PhaseInterface):
                 "phase_locality_factor": phase_locality_factor,
                 "rt_factor": float(rt_factor),
                 "nperseg": stft_cfg["nperseg"],
+                "ml_guard_events": list(self._ml_guard_events),
+                "deferred_for_kmv": ["phase_23_spectral_repair"] if self._ml_guard_events else [],
             },
             warnings=[] if rt_factor < 0.6 else [f"Performance sub-optimal: {rt_factor:.2f}× realtime"],
         )
@@ -296,11 +359,14 @@ class SpectralRepair(PhaseInterface):
         use_ml = is_phase_ml_enabled(23) and QualityModeConfig.should_use_ml("phase_23", defect_severity)
 
         if use_ml:
-            audiosr = self._get_audiosr_plugin()
+            if not self._has_sufficient_ml_headroom(audio, sample_rate):
+                audiosr = None
+            else:
+                audiosr = self._get_audiosr_plugin()
             if audiosr is not None:
                 # ML-based repair with AudioSR
                 log_mode_decision("phase_23", True, f"Defect severity: {defect_severity:.2%}")
-                repaired_audio = self._repair_with_audiosr(audio, sample_rate, defect_mask, repair_strength)
+                repaired_audio = self._repair_with_audiosr(audio, sample_rate, defect_mask, repair_strength, audiosr)
                 return repaired_audio
             else:
                 logger.warning("AudioSR unavailable, falling back to DSP")
@@ -387,7 +453,12 @@ class SpectralRepair(PhaseInterface):
         return merge_zones(zone_audios, zone_stfts, sample_rate, len(audio))
 
     def _repair_with_audiosr(
-        self, audio: np.ndarray, sample_rate: int, defect_mask: np.ndarray, repair_strength: float
+        self,
+        audio: np.ndarray,
+        sample_rate: int,
+        defect_mask: np.ndarray,
+        repair_strength: float,
+        audiosr: Any,
     ) -> np.ndarray:
         """
         Repair audio using AudioSR ML model.
@@ -407,11 +478,12 @@ class SpectralRepair(PhaseInterface):
         Returns:
             Repaired audio
         """
-        audiosr = self._get_audiosr_plugin()
         if audiosr is None:
             return audio
 
         try:
+            if not self._has_sufficient_ml_headroom(audio, sample_rate):
+                return audio
             # AudioSR.process() erwartet (audio: np.ndarray, sr: int, target_sr: int)
             # — keine Dateipfade. Das Plugin übernimmt Resampling und DSP-Fallback intern.
             target_sr = 48000

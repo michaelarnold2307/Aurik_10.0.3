@@ -64,12 +64,12 @@ class ModelManager:
         return self.models.get("sibilantnet")
 
     def analyze_voice_health(self, audio: Any, context: dict[str, Any]) -> dict[str, Any]:
-        if hasattr(self, "voicehealthnet"):
+        if self.voicehealthnet is not None:
             return self.voicehealthnet.analyze(audio, context)
         return {"fatigue": False, "hoarseness": False, "recommendation": "unknown"}
 
     def detect_language(self, audio: Any, context: dict[str, Any]) -> dict[str, str]:
-        if hasattr(self, "languagenet"):
+        if self.languagenet is not None:
             return self.languagenet.detect(audio, context)
         return {"language": "unknown", "dialect": "unknown"}
 

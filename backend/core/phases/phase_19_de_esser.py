@@ -247,7 +247,15 @@ class DeEsserPhase(PhaseInterface):
         # ============================================================
         # AURIK 8.0 ENHANCEMENT MODULES (5-Stage Complete Pipeline)
         # ============================================================
-        if AURIK_8_AVAILABLE:
+        if (
+            AURIK_8_AVAILABLE
+            and BreathIntelligence is not None
+            and FormantSystem is not None
+            and FormantTracker is not None
+            and VocalPresenceEnhancer is not None
+            and VocalSpectralInpainting is not None
+            and VocalDynamicsIntelligence is not None
+        ):
             # Stage 2: Breath Intelligence
             self.breath_intelligence = BreathIntelligence(sensitivity=0.7, aggressive=0.6)
 
@@ -449,36 +457,50 @@ class DeEsserPhase(PhaseInterface):
         # STAGE 2-6: AURIK 8.0 ENHANCEMENT STACK
         # ==============================================================
 
-        if AURIK_8_AVAILABLE and self.breath_intelligence is not None and _signal_has_sibilant_content:
+        if (
+            AURIK_8_AVAILABLE
+            and self.breath_intelligence is not None
+            and self.formant_system is not None
+            and self.vocal_presence is not None
+            and self.spectral_inpainting is not None
+            and self.vocal_dynamics is not None
+            and _signal_has_sibilant_content
+        ):
             try:
+                breath_intelligence = self.breath_intelligence
+                formant_system = self.formant_system
+                vocal_presence = self.vocal_presence
+                spectral_inpainting = self.spectral_inpainting
+                vocal_dynamics = self.vocal_dynamics
+
                 # STAGE 2: Breath Intelligence (Artistic Breath Processing)
                 # BreathIntelligence.process() erkennt Atemgeräusche intern und verarbeitet sie.
                 logger.debug("🎵 Stage 2: Breath Intelligence")
-                enhanced_audio, _breath_report = self.breath_intelligence.process(enhanced_audio, sample_rate)
+                enhanced_audio, _breath_report = breath_intelligence.process(enhanced_audio, sample_rate)
                 self.stats["breath_events_detected"] = _breath_report.get("events_detected", 0)
                 logger.debug("  ✅ %d breath events processed", self.stats["breath_events_detected"])
 
                 # STAGE 3: Formant System (Singer's Formant Enhancement)
                 logger.debug("🎵 Stage 3: Formant System")
-                enhanced_audio, formant_report = self.formant_system.process(enhanced_audio, sample_rate)
+                enhanced_audio, formant_report = formant_system.process(enhanced_audio, sample_rate)
                 self.stats["formants_corrected"] = formant_report.get("frames_tracked", 0)
                 logger.debug("  ✅ Formant system applied")
 
                 # STAGE 4: Vocal Presence (Harmonic + Air Band + Broadcast)
                 logger.debug("🎵 Stage 4: Vocal Presence Enhancement")
-                enhanced_audio, _presence_metrics = self.vocal_presence.process(enhanced_audio, sample_rate)
+                enhanced_audio, _presence_metrics = vocal_presence.process(enhanced_audio, sample_rate)
                 logger.debug("  ✅ Harmonics enhanced, air band boosted")
 
                 # STAGE 5: Spectral Inpainting (Codec Artifact Repair)
                 logger.debug("🎵 Stage 5: Spectral Inpainting")
-                enhanced_audio, inpaint_report = self.spectral_inpainting.process(enhanced_audio, sample_rate)
+                enhanced_audio, inpaint_report = spectral_inpainting.process(enhanced_audio, sample_rate)
                 self.stats["spectral_gaps_repaired"] = inpaint_report.get("gaps_repaired", 0)
                 if self.stats["spectral_gaps_repaired"] > 0:
                     logger.debug(f"  ✅ {self.stats['spectral_gaps_repaired']} spectral gaps repaired")
 
                 # STAGE 6: Vocal Dynamics (Micro-Compression)
                 logger.debug("🎵 Stage 6: Vocal Dynamics Intelligence")
-                enhanced_audio, _dynamics_metrics = self.vocal_dynamics.process(enhanced_audio, sample_rate)
+                enhanced_audio, _dynamics_metrics = vocal_dynamics.process(enhanced_audio, sample_rate)
                 logger.debug("  ✅ Micro-compression applied")
 
                 logger.info(
@@ -951,8 +973,6 @@ class DeEsserPhase(PhaseInterface):
         threshold_upper = threshold * (10 ** (knee_db / 40))  # +knee_db/2 in linear
 
         # Below knee: unity
-        envelope < threshold_lower
-
         # In knee: parabolic transition
         in_knee = (envelope >= threshold_lower) & (envelope < threshold_upper)
         if np.any(in_knee):

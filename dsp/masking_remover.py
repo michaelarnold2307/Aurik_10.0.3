@@ -43,10 +43,13 @@ class MaskingRemover:
                 from dsp.pghi import pghi_reconstruct
 
                 audio_out = pghi_reconstruct(mag_enh, sr=sr, win_size=1024, hop=512)
-            except Exception:
-                import librosa
-
-                audio_out = librosa.griffinlim(mag_enh, n_iter=32, hop_length=512, win_length=1024, n_fft=1024)
+            except Exception as pghi_err:
+                _logger.warning(
+                    "PGHI fehlgeschlagen (%s) — iSTFT mit Originalphase (kein Griffin-Lim, §4.5)",
+                    pghi_err,
+                )
+                # Use original phase from Zxx — never Griffin-Lim (§4.5 forbids it)
+                _, audio_out = istft(mag_enh * np.exp(1j * np.angle(Zxx)), fs=sr, nperseg=1024, noverlap=512)
             audio_out = audio_out[: len(audio)]
             # ML-Inferenz via ONNX (wenn Modell geladen)
             if self.model is not None:
@@ -58,7 +61,7 @@ class MaskingRemover:
                     audio_out = np.clip(_raw, -1.0, 1.0)
                 except Exception as _onnx_err:
                     _logger.warning(
-                        "MaskingRemover: ONNX-Inferenz fehlgeschlagen (%s) " "— Spectral-Contrast-DSP-Fallback aktiv.",
+                        "MaskingRemover: ONNX-Inferenz fehlgeschlagen (%s) — Spectral-Contrast-DSP-Fallback aktiv.",
                         _onnx_err,
                     )
             self._audit_log({"shape": audio_out.shape, "success": True})

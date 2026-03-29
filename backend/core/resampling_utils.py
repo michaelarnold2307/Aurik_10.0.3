@@ -2,7 +2,7 @@ import numpy as np
 import soxr
 
 
-def resample_to_48k(audio: np.ndarray, orig_sr: int) -> (np.ndarray, int):
+def resample_to_48k(audio: np.ndarray, orig_sr: int) -> tuple[np.ndarray, int]:
     """
     Resample ein beliebiges Audiosignal auf 48 kHz (Mono oder Stereo) mit soxr.
     Gibt das resampelte Signal und die neue Abtastrate zurück.

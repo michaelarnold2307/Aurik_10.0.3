@@ -28,9 +28,13 @@ from enum import Enum
 
 import numpy as np
 import scipy.signal as signal
-from scipy.fft import fft, fftfreq
 
 logger = logging.getLogger(__name__)
+
+
+def _as_mono_float_array(audio: np.ndarray) -> np.ndarray:
+    """Return audio as a contiguous 1D float64 ndarray for NumPy/SciPy ops."""
+    return np.asarray(audio, dtype=np.float64).reshape(-1)
 
 
 # ============================================================================
@@ -182,7 +186,7 @@ class AudioForensicsAnalyzer:
         # Convert to mono
         audio_mono = np.mean(audio, axis=0) if audio.ndim > 1 else audio
 
-        logger.debug(f"Analyzing {len(audio_mono)/sr:.2f}s audio for authenticity")
+        logger.debug(f"Analyzing {len(audio_mono) / sr:.2f}s audio for authenticity")
 
         # 1. AI-generation detection
         ai_confidence, gan_detected, diffusion_detected = self._detect_ai_generation(audio_mono, sr)
@@ -296,10 +300,12 @@ class AudioForensicsAnalyzer:
 
         Diffusion models leave residual noise patterns.
         """
+        audio_array = _as_mono_float_array(audio)
+
         # High-frequency noise analysis
         # Diffusion models often have characteristic noise floor
-        spectrum = np.abs(fft(audio))
-        freqs = fftfreq(len(audio), 1 / sr)
+        spectrum = np.abs(np.fft.fft(audio_array))
+        freqs = np.fft.fftfreq(len(audio_array), 1 / sr)
 
         # High-frequency region (>10 kHz)
         hf_mask = np.abs(freqs) > 10000
@@ -335,16 +341,17 @@ class AudioForensicsAnalyzer:
         # Voice clones are often too stable
 
         # Compute spectral flux (frame-to-frame change)
+        audio_array = _as_mono_float_array(audio)
         frame_length = int(0.025 * sr)  # 25ms frames
         hop_length = frame_length // 2
 
         flux_values = []
-        for i in range(0, len(audio) - frame_length, hop_length):
-            frame1 = audio[i : i + frame_length]
-            frame2 = audio[i + hop_length : i + hop_length + frame_length]
+        for i in range(0, len(audio_array) - frame_length, hop_length):
+            frame1 = audio_array[i : i + frame_length]
+            frame2 = audio_array[i + hop_length : i + hop_length + frame_length]
 
-            spec1 = np.abs(fft(frame1))[: len(frame1) // 2]
-            spec2 = np.abs(fft(frame2))[: len(frame2) // 2]
+            spec1 = np.abs(np.fft.fft(frame1))[: len(frame1) // 2]
+            spec2 = np.abs(np.fft.fft(frame2))[: len(frame2) // 2]
 
             # Spectral flux
             flux = np.sum(np.abs(spec2 - spec1))
@@ -399,9 +406,10 @@ class AudioForensicsAnalyzer:
     ) -> list[DetectedEdit]:
         """Detect splice points (cuts/pastes)."""
         splices = []
+        audio_array = _as_mono_float_array(audio)
 
         # Phase continuity analysis
-        analytic = signal.hilbert(audio)
+        analytic = np.asarray(signal.hilbert(audio_array), dtype=np.complex128)
         phase = np.angle(analytic)
         phase_diff = np.diff(phase)
 
@@ -475,10 +483,11 @@ class AudioForensicsAnalyzer:
     ) -> list[str]:
         """Detect unusual spectral characteristics."""
         anomalies = []
+        audio_array = _as_mono_float_array(audio)
 
         # Compute spectrum
-        spectrum = np.abs(fft(audio))
-        freqs = fftfreq(len(audio), 1 / sr)
+        spectrum = np.abs(np.fft.fft(audio_array))
+        freqs = np.fft.fftfreq(len(audio_array), 1 / sr)
         freqs = freqs[: len(freqs) // 2]
         spectrum = spectrum[: len(spectrum) // 2]
 

@@ -1,4 +1,5 @@
 # FINAL RELEASE DECISION
+
 ## Aurik 9.10.77 — UAT & Go/No-Go Assessment
 
 **Decision Date:** 28. März 2026  
@@ -48,18 +49,21 @@
 ### Phase 1: Code Inspection ✅ COMPLETE
 
 #### Restoration Criteria (R1–R15)
+
 - **Passed:** 4 ✅ (R1, R3, R4, R9, R13)
 - **Failed:** 0 ❌
 - **Skipped (Functional):** 11 ⊘
 - **Subtotal:** 4/15 passed (27% code inspection baseline)
 
 #### Studio 2026 Criteria (S1–S15)
+
 - **Passed:** 2 ✅ (S1, S15)
 - **Failed:** 0 ❌
 - **Skipped (Functional):** 13 ⊘
 - **Subtotal:** 2/15 passed (13% code inspection baseline)
 
 #### Release Gates (G1–G7)
+
 - **Passed:** 5 ✅ (G2, G3, G4, G5, G7)
 - **Failed:** 0 ❌
 - **K.O. Violations:** 0 CLEAR ✅
@@ -67,6 +71,7 @@
 - **Subtotal:** 5/7 gates (71% pass rate)
 
 #### Regression Status
+
 - **Prior Test Suite:** 51/51 tests passing ✅
 - **New Failures:** 0
 - **New Regressions:** 0

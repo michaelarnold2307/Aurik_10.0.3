@@ -111,13 +111,14 @@ class MergeStemsSOTA:
         ref = stems[0]
         aligned = [ref]
         for s in stems[1:]:
-            shift = np.argmax(np.correlate(ref, s, mode="full")) - len(s) + 1
+            s_arr: np.ndarray = np.asarray(s)
+            shift = int(np.argmax(np.correlate(ref, s_arr, mode="full"))) - len(s_arr) + 1
             if shift > 0:
-                s_aligned = np.pad(s, (shift, 0), mode="constant")[: len(ref)]
+                s_aligned = np.pad(s_arr, (shift, 0), mode="constant")[: len(ref)]
             elif shift < 0:
-                s_aligned = np.pad(s, (0, -shift), mode="constant")[-shift : len(ref) - shift]
+                s_aligned = np.pad(s_arr, (0, -shift), mode="constant")[-shift : len(ref) - shift]
             else:
-                s_aligned = s[: len(ref)]
+                s_aligned = s_arr[: len(ref)]
             aligned.append(s_aligned)
         return aligned
 

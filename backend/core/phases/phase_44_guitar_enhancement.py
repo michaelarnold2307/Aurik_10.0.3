@@ -41,7 +41,7 @@ from .phase_interface import PhaseCategory, PhaseInterface, PhaseMetadata, Phase
 try:
     from dsp.formant_system import FormantSystem as _FormantSystemCls
 
-    _FORMANT_SYSTEM_GUITAR: _FormantSystemCls | None = None
+    _FORMANT_SYSTEM_GUITAR = None
 except Exception:
     _FormantSystemCls = None  # type: ignore[assignment,misc]
     _FORMANT_SYSTEM_GUITAR = None
@@ -79,9 +79,9 @@ def _peaking_eq(x: np.ndarray, sr: int, freq: float, gain_db: float, q: float) -
 class GuitarEnhancementPhase(PhaseInterface):
     """Transient-Boost + genre-adaptiver Harmonic Exciter + Presence-EQ für Gitarre."""
 
-    phase_id = "phase_44_guitar_enhancement"
-    name = "Guitar Enhancement (Transient + Exciter + EQ)"
-    description = (
+    PHASE_ID = "phase_44_guitar_enhancement"
+    PHASE_NAME = "Guitar Enhancement (Transient + Exciter + EQ)"
+    PHASE_DESCRIPTION = (
         "Genre-adaptive Gitarren-Verbesserung: Hilbert-Transient-Boost, "
         "Harmonic Exciter (tanh/sin/abs je nach Genre) und Presence-EQ. "
         "Kein aurik_ml, vollständig DSP."
@@ -89,8 +89,8 @@ class GuitarEnhancementPhase(PhaseInterface):
 
     def get_metadata(self) -> PhaseMetadata:
         return PhaseMetadata(
-            phase_id=self.phase_id,
-            name=self.name,
+            phase_id=self.PHASE_ID,
+            name=self.PHASE_NAME,
             category=PhaseCategory.ENHANCEMENT,
             priority=4,
             version="2.0.0",
@@ -100,7 +100,7 @@ class GuitarEnhancementPhase(PhaseInterface):
             is_cpu_intensive=False,
             is_io_intensive=False,
             quality_impact=0.82,
-            description=self.description,
+            description=self.PHASE_DESCRIPTION,
         )
 
     def process(self, audio: np.ndarray, sample_rate: int, **kwargs) -> PhaseResult:
@@ -250,11 +250,13 @@ class GuitarEnhancementPhase(PhaseInterface):
             if _FormantSystemCls is not None:
                 if _FORMANT_SYSTEM_GUITAR is None:
                     _FORMANT_SYSTEM_GUITAR = _FormantSystemCls(enhance_singers_formant=False)
-                processed, igt_report = _FORMANT_SYSTEM_GUITAR.instrument_guided_enhance(
-                    processed, sample_rate, instrument="guitar", correction_strength=0.20
-                )
-                igt_frames = igt_report.get("frames_processed", 0)
-                logger.debug("Phase 44 InstrumentFormant: guitar frames=%d", igt_frames)
+                formant_system = _FORMANT_SYSTEM_GUITAR
+                if formant_system is not None:
+                    processed, igt_report = formant_system.instrument_guided_enhance(
+                        processed, sample_rate, instrument="guitar", correction_strength=0.20
+                    )
+                    igt_frames = igt_report.get("frames_processed", 0)
+                    logger.debug("Phase 44 InstrumentFormant: guitar frames=%d", igt_frames)
         except Exception as _igt_exc:
             logger.debug("Phase 44 instrument_guided_enhance skipped: %s", _igt_exc)
 

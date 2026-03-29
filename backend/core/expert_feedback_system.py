@@ -41,22 +41,3 @@ def get_expert_feedback_system() -> ExpertFeedbackSystem:
             if _expert_feedback_system_instance is None:
                 _expert_feedback_system_instance = ExpertFeedbackSystem()
     return _expert_feedback_system_instance
-
-
-# ---------------------------------------------------------------------------
-# Singleton accessor (thread-safe, double-checked locking)
-# ---------------------------------------------------------------------------
-import threading as _threading
-
-_expert_feedback_system_instance = None
-_expert_feedback_system_lock = _threading.Lock()
-
-
-def get_expert_feedback_system() -> ExpertFeedbackSystem:
-    """Return the process-wide singleton ``ExpertFeedbackSystem`` instance."""
-    global _expert_feedback_system_instance
-    if _expert_feedback_system_instance is None:
-        with _expert_feedback_system_lock:
-            if _expert_feedback_system_instance is None:
-                _expert_feedback_system_instance = ExpertFeedbackSystem()
-    return _expert_feedback_system_instance

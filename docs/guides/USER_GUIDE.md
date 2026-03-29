@@ -175,6 +175,7 @@ AURIK analysiert automatisch:
 ### Vinyl-spezifisch
 
 #### **1. Clicks (Klicks)**
+
 - **Ursache:** Kratzer, Staub auf Oberfläche
 - **Erkennung:** Transiente Impulse (< 5ms)
 - **Behandlung:**
@@ -183,6 +184,7 @@ AURIK analysiert automatisch:
 - **Algorithmus:** Spectral interpolation + temporal smoothing
 
 #### **2. Crackle (Knistern)**
+
 - **Ursache:** Oberflächenschäden, Verschleiß
 - **Erkennung:** Hochfrequente Impulsdichte
 - **Behandlung:**
@@ -191,6 +193,7 @@ AURIK analysiert automatisch:
 - **Algorithmus:** Statistical noise gate + adaptive filtering
 
 #### **3. Hiss (Rauschen)**
+
 - **Ursache:** Tonband-Rauschen, Vinyl-Eigenrauschen
 - **Erkennung:** Spektrales Noise Floor
 - **Behandlung:**
@@ -199,6 +202,7 @@ AURIK analysiert automatisch:
 - **Algorithmus:** Spectral subtraction + psychoacoustic masking
 
 #### **4. Hum (Brummen)**
+
 - **Ursache:** 50/60 Hz Netzbrummen
 - **Erkennung:** Tonale Komponenten bei 50/60/100/120 Hz
 - **Behandlung:** Beide Modi: Aggressive Entfernung
@@ -207,12 +211,14 @@ AURIK analysiert automatisch:
 ### Tape-spezifisch
 
 #### **5. Dropout (Aussetzer)**
+
 - **Ursache:** Bandschäden, Kopfverschmutzung
 - **Erkennung:** Plötzliche Pegelverluste
 - **Behandlung:** Spectral reconstruction
 - **Algorithmus:** LSTM-based inpainting
 
 #### **6. Wow & Flutter**
+
 - **Ursache:** Mechanische Instabilität
 - **Erkennung:** Pitch modulation analysis
 - **Behandlung:**
@@ -221,6 +227,7 @@ AURIK analysiert automatisch:
 - **Algorithmus:** Phase vocoder + time-stretching
 
 #### **7. Print-Through**
+
 - **Ursache:** Magnetische Überlagerung benachbarter Windungen
 - **Erkennung:** Pre-/Post-Echos
 - **Behandlung:** Temporal de-reverberation
@@ -228,6 +235,7 @@ AURIK analysiert automatisch:
 ### Digital-spezifisch
 
 #### **8. Digital Clipping**
+
 - **Ursache:** Übersteuerung (> 0 dBFS)
 - **Erkennung:** Sample-Werte at ±1.0
 - **Behandlung:**
@@ -236,11 +244,13 @@ AURIK analysiert automatisch:
 - **Algorithmus:** Machine learning declipping (Signal-to-Distortion > 20 dB)
 
 #### **9. Aliasing**
+
 - **Ursache:** Zu niedrige Sample-Rate
 - **Erkennung:** Aliasing artifacts > Nyquist
 - **Behandlung:** Anti-aliasing filtering
 
 #### **10. Quantization Noise**
+
 - **Ursache:** Niedrige Bit-Depth (< 16-bit)
 - **Erkennung:** Dithering noise pattern
 - **Behandlung:** Noise shaping + dithering
@@ -248,6 +258,7 @@ AURIK analysiert automatisch:
 ### Vocal-spezifisch
 
 #### **11. Sibilanten (S-Laute)**
+
 - **Ursache:** Hochfrequenz-Energie bei 4-12 kHz
 - **Erkennung:** Multi-band energy thresholding
 - **Behandlung:**
@@ -266,11 +277,13 @@ AURIK analysiert automatisch:
   - Attack/Release: Ultra-fast (< 1ms)
 
 #### **12. Plosives (P-/B-Laute)**
+
 - **Ursache:** Luftstöße ins Mikrofon
 - **Erkennung:** Low-frequency transients
 - **Behandlung:** High-pass filtering + transient shaping
 
 #### **13. Harshness (Härte)**
+
 - **Ursache:** Überhöhte Mittenfrequenzen
 - **Erkennung:** Spectral tilt analysis
 - **Behandlung:** Multi-band compression + EQ
@@ -282,6 +295,7 @@ AURIK analysiert automatisch:
 ### Wie AURIK Natürlichkeit bewahrt
 
 #### 1. **Formant Preservation**
+
 Formanten sind die charakteristischen Resonanzen der Stimme/Instrumente.
 
 **Problem:** Viele Algorithmen verschieben Formanten → unnatürlich
@@ -294,6 +308,7 @@ Formanten sind die charakteristischen Resonanzen der Stimme/Instrumente.
 ```
 
 #### 2. **Transient Preservation**
+
 Transienten definieren den "Attack" (z.B. Trommel-Schlag, Gitarren-Anschlag).
 
 **Problem:** Smoothing-Algorithmen zerstören Transienten → matschig
@@ -306,6 +321,7 @@ Transienten definieren den "Attack" (z.B. Trommel-Schlag, Gitarren-Anschlag).
 ```
 
 #### 3. **Phase Coherence**
+
 Phase-Beziehungen zwischen Frequenzen sind kritisch für Räumlichkeit.
 
 **Problem:** Spektrale Verarbeitung zerstört Phase → flach
@@ -318,6 +334,7 @@ Phase-Beziehungen zwischen Frequenzen sind kritisch für Räumlichkeit.
 ```
 
 #### 4. **Harmonic Structure**
+
 Natürliche Klänge haben harmonische Obertonreihen.
 
 **Problem:** Noise Reduction entfernt Harmonics → dünn
@@ -330,6 +347,7 @@ Natürliche Klänge haben harmonische Obertonreihen.
 ```
 
 #### 5. **Micro-Dynamics**
+
 Kleinste Lautstärke-Schwankungen = Lebendigkeit.
 
 **Problem:** Compression zerstört Micro-Dynamics → leblos

@@ -1,18 +1,33 @@
-import logging
-
 """
 Minimal-API für die Integration des SOTA-Batch-Workflows in ein Frontend (z.B. Web-UI, Desktop-GUI)
 Bietet REST-Endpunkte für Start, Status, Ergebnis und Audit-Report.
 """
 
+import logging
 import os
 import threading
-from typing import Any, Dict
+from typing import Any
 
 import numpy as np
 import soundfile as sf
-from Aurik_Standalone.dsp.dsp_decision_logic import DSPDecisionLogic
 from flask import Flask, jsonify
+
+try:
+    from backend.core.dsp_decision_logic import DSPDecisionLogic  # type: ignore[import]
+
+    _DSP_DECISION_AVAILABLE = True
+except ImportError:
+    _DSP_DECISION_AVAILABLE = False
+
+    class DSPDecisionLogic:  # type: ignore[no-redef]
+        """Stub for DSPDecisionLogic when module is not available."""
+
+        def __init__(self, config_path: str) -> None:
+            raise RuntimeError("DSPDecisionLogic not available. Install backend.core.dsp_decision_logic.")
+
+        def process(self, audio: np.ndarray, sr: int) -> np.ndarray:
+            return audio
+
 
 logger = logging.getLogger(__name__)
 

@@ -132,12 +132,17 @@ def estimate_thd(audio: np.ndarray, sr: int, fundamental_hz: float | None = None
         else:
             return 0.0  # Can't compute THD without fundamental
 
+    if fundamental_hz is None:
+        return 0.0
+
+    fundamental_hz_val = float(fundamental_hz)
+
     # Find harmonics (up to 10th harmonic)
     fundamental_power = 0.0
     harmonic_power = 0.0
 
     for n in range(1, 11):
-        harmonic_freq = fundamental_hz * n
+        harmonic_freq = fundamental_hz_val * n
 
         # Find nearest frequency bin
         idx = np.argmin(np.abs(freqs - harmonic_freq))
@@ -304,7 +309,7 @@ class VocalDeclippingSafety(BaseSafetyWrapper):
             return PreCheckResult(
                 passed=False,
                 confidence=severity,
-                reasons=[f"Clipping too mild: {severity:.2f} " f"(min {self.min_clipping_severity})"],
+                reasons=[f"Clipping too mild: {severity:.2f} (min {self.min_clipping_severity})"],
             )
 
         # Check for harmonic structure (needed for restoration)
@@ -316,25 +321,25 @@ class VocalDeclippingSafety(BaseSafetyWrapper):
             return PreCheckResult(
                 passed=False,
                 confidence=severity,
-                reasons=["No harmonic structure detected. " "Cannot reliably restore clipped signal."],
+                reasons=["No harmonic structure detected. Cannot reliably restore clipped signal."],
             )
 
         if harmonic_strength < 0.4:
-            warnings.append(f"Weak harmonic structure: {harmonic_strength:.2f}. " "Restoration quality may be limited.")
+            warnings.append(f"Weak harmonic structure: {harmonic_strength:.2f}. Restoration quality may be limited.")
 
         # Compute initial THD
         thd_before = estimate_thd(audio, sr)
         metadata["thd_before"] = thd_before
 
         if thd_before > 0.5:
-            warnings.append(f"High initial THD: {thd_before:.1%}. " "Audio is heavily distorted.")
+            warnings.append(f"High initial THD: {thd_before:.1%}. Audio is heavily distorted.")
 
         # Compute initial crest factor
         crest_before = compute_crest_factor(audio)
         metadata["crest_factor_before"] = crest_before
 
         if crest_before < 6:  # Severely compressed/clipped
-            warnings.append(f"Very low crest factor: {crest_before:.1f} dB. " "Indicates severe dynamic range loss.")
+            warnings.append(f"Very low crest factor: {crest_before:.1f} dB. Indicates severe dynamic range loss.")
 
         return PreCheckResult(
             passed=True, confidence=severity * harmonic_strength, warnings=warnings, metadata=metadata
@@ -409,7 +414,7 @@ class VocalDeclippingSafety(BaseSafetyWrapper):
 
         thd_increase = thd_after - thd_before
         if thd_increase > self.max_thd_increase:
-            issues.append(f"THD increased too much: {thd_increase:+.1%} " f"(max {self.max_thd_increase:.1%})")
+            issues.append(f"THD increased too much: {thd_increase:+.1%} (max {self.max_thd_increase:.1%})")
 
         # 4. Check crest factor improvement
         crest_before = compute_crest_factor(original)
@@ -422,7 +427,7 @@ class VocalDeclippingSafety(BaseSafetyWrapper):
         metrics["crest_improvement_db"] = float(crest_improvement)
 
         if crest_improvement < 0:
-            side_effects.append(f"Crest factor decreased: {crest_improvement:+.1f} dB. " "Dynamics not improved.")
+            side_effects.append(f"Crest factor decreased: {crest_improvement:+.1f} dB. Dynamics not improved.")
         elif crest_improvement < 2:
             side_effects.append(f"Minimal crest factor improvement: {crest_improvement:+.1f} dB")
 
@@ -458,7 +463,7 @@ class VocalDeclippingSafety(BaseSafetyWrapper):
             metrics["high_freq_energy_ratio"] = float(hf_ratio)
 
             if hf_ratio > 2.0:
-                issues.append(f"Excessive high-frequency energy added: {hf_ratio:.1f}x. " "Possible artifacts.")
+                issues.append(f"Excessive high-frequency energy added: {hf_ratio:.1f}x. Possible artifacts.")
 
         passed = len(issues) == 0
 

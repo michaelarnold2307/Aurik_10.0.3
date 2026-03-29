@@ -10,7 +10,7 @@
 ### PQS-Metriken (`core/perceptual_quality_scorer.py`)
 
 | Metrik | Hard-Fail-Minimum | Weltklasse-Ziel |
-|---|---|---|
+| --- | --- | --- |
 | PQS MOS | ≥ 3.8 | ≥ 4.5 |
 | PQS NSIM | ≥ 0.70 | ≥ 0.90 |
 | MCD (dB) | ≤ 8.0 | ≤ 3.0 |
@@ -27,7 +27,7 @@ quality_estimate = 0.40 * (1 - defect_severity) + 0.60 * (pqs_mos - 1) / 4
 
 ### Verbotene Metriken für Musikqualitätsbewertung
 
-```
+```text
 PESQ     # Telefonband 300–3400 Hz — strukturell ungeeignet für Vollband-Musik
 DNSMOS   # 16 kHz DNS-Challenge-Sprachkorpus
 NISQA    # Sprach-CNN, keine Musik-Trainingsdaten
@@ -50,7 +50,7 @@ Erlaubte Musikmetriken: **PEAQ, FAD, PQS-MOS, ViSQOL v3 (`--audio` Mode), Musica
 > Externe Validierung durch subjektiven Hörertest (ITU-R BS.1534-3) steht aus.
 > Änderungen an Schwellwerten erfordern dokumentierten Hörertest als Präzedenz.
 | OQS-Stufe | Score | Pflicht |
-|---|---|---|
+| --- | --- | --- |
 | Excellent (A) | ≥ 91 | — |
 | Good (B) | ≥ 80 | **Pflicht für jede neue Phase / Plugin** |
 | Fair (C) | ≥ 60 | — |
@@ -62,7 +62,7 @@ Studio-2026-Modus-Ziel: OQS ≥ 88.
 ## §8.1.2 AMRB v1.0 — Aurik Musical Restoration Benchmark
 
 | Szenario | Defekt | AMRB-Pflicht-Score |
-|---|---|---|
+| --- | --- | --- |
 | AMRB-01-TAPE | Tape-Hiss + Dropout | OQS ≥ 80 |
 | AMRB-02-VINYL | Vinyl-Crackle + Rumble | OQS ≥ 80 |
 | AMRB-03-SHELLAC | Shellac-Breitrauschen | OQS ≥ 80 |
@@ -87,7 +87,7 @@ assert report.passes_os_leadership_threshold(), f"Score: {report.overall_score}"
 ## §8.2 Universelle Garantien
 
 | Garantie | Messung |
-|---|---|
+| --- | --- |
 | Kein NaN/Inf im Audio-Ausgang | `np.isfinite(audio).all()` |
 | Kein Clipping | `np.max(np.abs(audio)) ≤ 1.0` |
 | Chroma-Korrelation (Tonart) | Pearson ≥ 0.95 |
@@ -125,7 +125,7 @@ assert report.passes_os_leadership_threshold(), f"Score: {report.overall_score}"
 Der DefectScanner verwendet einen 60 s Center-Crop (`_DETECTOR_CAP_S`) für Performance-Optimierung. Nicht-stationäre Defekttypen MÜSSEN jedoch auf dem **vollständigen Audio** analysiert werden:
 
 | Kategorie | Defekttypen | Audio-Scope | Begründung |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | **Nicht-stationär** | `DROPOUTS`, `TRANSPORT_BUMP` | Vollständiges Audio | Treten lokal auf (Intro, Outro, Splice-Punkte, Bandanfang) |
 | **Stationär** | Alle anderen (Rauschen, Brummen, Flutter, …) | 60 s Center-Crop | Statistisch repräsentativ über kurzen Ausschnitt |
 
@@ -187,7 +187,7 @@ Jeder erkannte Defekt wird mit einem **psychoakustischen Salienz-Score** (0.0–
 - Thread-safe Singleton (double-checked locking)
 
 | Schritt | Limit pro Minute Audio |
-|---|---|
+| --- | --- |
 | DefectScanner | ≤ 2 s |
 | Phase-Pipeline gesamt | ≤ 120 s |
 | FeedbackChain (alle Iterationen) | ≤ 60 s |
@@ -209,7 +209,7 @@ CONVERGENCE_DELTA = 0.02
 **Gänsehaut-Formel**: `(TransientIntegrity × MicroDynamik × Klarheit × Authentizität) − Artefakte`
 
 | Komponente | Verantwortliches Modul | Anteil |
-|---|---|---|
+| --- | --- | --- |
 | **Transient-Punch** | TDP (Transient Decoupled Processing) | ~40 % |
 | **Mikro-Dynamik-Erhalt** | MDEM (400 ms LUFS-Morphing) + EmotionalArcCorrection (5 s Makro-Bogen) | ~25 % |
 | **Rauschbefreiung/Klarheit** | SGMSE+ / OMLSA/IMCRA | ~20 % |
@@ -248,12 +248,153 @@ torch.set_num_threads(os.cpu_count())  # alle CPU-Kerne nutzen
 
 ---
 
+### §8.3.1 [RELEASE_MUST] Tiefen-Immersions-Prinzip — „Ohr in die Musik legen" (v9.10.79)
+
+**Konzept**: Das Restaurierungsergebnis muss dem Hörer ermöglichen, in die Musik hineinzutauchen —
+nicht nur zuzuhören, sondern sich von der Aufführung umgeben zu fühlen. Gänsehaut entsteht,
+wenn alle akustischen Tiefenschichten gleichzeitig hörbar sind und die Spannungsdynamik
+einer Aufführung authentisch erlebt wird.
+
+#### Akustische Tiefenschichten (von außen nach innen)
+
+| Schicht | Frequenzbereich | Enthält | Technische Bedingung |
+| --- | --- | --- | --- |
+| **Raumluft / Air** | 8–20 kHz | Saiten-Obertöne, Becken-Shimmer, Gesangs-Luft | Noise Floor < −72 dBFS; Phase_06 SBR; Phase_39 Air |
+| **Vokal-Intimität** | 4–8 kHz | Frikative /s/ /f/ /ʃ/, Plosive /p/ /t/, Atem | LyricsGuidedEnhancement: `fricative ×1.55`, `plosive ×1.40` |
+| **Instrument-Körper** | 200 Hz–4 kHz | Note-Sustain, Saitenresonanz, Bogen-Kratzen | TDP-Transient-Erhalt + MDEM 400 ms LUFS-Morphing |
+| **Fundament** | 20–200 Hz | Kick-Punch, Bassresonanz, Raummode | BassKraftMetric + Virtual-Pitch (Missing Fundamental) |
+| **Raumtiefe** | Diffus (MS) | Raumluft, Phantom-Center, Tiefenstaffelung | SpatialDepthMetric IACC ≥ 0.70, M/S-Korr. ≥ 0.97 |
+
+#### Physikalische Kausalkette: PMGG-Stabilität → Tiefen-Immersion
+
+```text
+Phase_03_denoise bei GP-optimalem strength (§9.7.7 / §2.29b aktiv)
+    → Noise Floor < −72 dBFS
+    → Air-Layer (8–20 kHz) frei: Saitenobertöne, Atemgeräusch, Becken-Shimmer hörbar
+    → Vokal-Intimität-Layer (4–8 kHz) frei: Frikative, Plosive, Atem wahrnehmbar
+    → emotionaler Authentizitäts-Schock: „das klingt wie live im Raum"
+    → Gänsehaut
+
+Phase_03_denoise @ best-effort strength=0.056 (false P1-Regression, §9.7.7 FEHLT)
+    → Noise Floor −55 dBFS (+17 dB über Ziel)
+    → Mikrodetails unter Rauschteppich verdeckt
+    → Studio-Distanz-Effekt; der Hörer bleibt „außen"
+    → kein emotionaler Sog, keine Gänsehaut
+```
+
+**E2E-Pflicht-Assertions** (Tiefen-Immersions-Gate):
+
+```python
+assert noise_floor_silence_dbfs(restored, sr)                 <= -72.0  # Air-Layer frei
+assert pearson_lufs_profile_400ms(original, restored, sr)     >= 0.92   # MDEM Mikro-Dynamik
+assert emotional_arc_arousal_pearson(original, restored, sr)  >= 0.85   # Makro-Bogen
+assert spatial_depth_iacc(restored, sr)                       >= 0.70   # Raumtiefe
+```
+
+#### Vokal-Intimität — Physik der akustischen Nähe
+
+Der Hörer empfindet eine Stimme als „körperlich nah" durch drei physikalische Phänomene:
+
+1. **Konsonanten-Transient** (Plosive /p/ /t/ /k/, Frikative /s/ /f/ /ʃ/): Der kurze Druckstoß
+   simuliert das akustische Nahfeld < 50 cm. Over-Denoising verschleift diese Transienten → Stimme
+   verliert physische Glaubwürdigkeit. LyricsGuidedEnhancement schützt diese Segmente mit den
+   Boost-Faktoren anstatt sie zu dämpfen.
+
+2. **Atemgeräusche** (150–800 Hz + 2–5 kHz): Das Einatmen zwischen Phrasen, das leichte Räuspern,
+   das Öffnen der Lippen — diese unlyrischen Geräusche sind die stärksten Proximitäts-Signale.
+   Standard-NR entfernt sie als „Rauschen". Aurik schützt sie in `silence`-Segmenten mit
+   reduziertem NR-Boost (`×0.70`).
+
+3. **Early Reflections** (1–30 ms): Die ersten Raum-Echos bestimmen die wahrgenommene
+   Quellen-Distanz. Phase_20 (Reverb Reduction) darf nur Spät-Hall (> 80 ms RT60-Anteil)
+   entfernen — Early Reflections müssen erhalten bleiben, sonst kollabiert die wahrgenommene
+   Quellen-Distanz auf „unendlich weit".
+
+#### Spektrale Phasenkohärenz — Tiefenstaffelung durch IPD
+
+Nach **jeder** Spektral-Modifikation: **PGHI-ISTFT** (Phase Gradient Heap Integration, Virtanen 2018).
+
+Das menschliche Gehirn nutzt interaurale Phasendifferenzen (IPD, < 0.7 ms Laufzeitunterschied)
+für horizontale Richtungslokalisierung (Blauert 1997, §3.1 Precedence Effect). Griffin-Lim
+randomisiert die Phase → alle Instrumente erscheinen in derselben Tiefenebene → räumliche
+Staffelung kollabiert → „flaches Stereo-Bild" ohne Tiefe.
+
+Mit PGHI: Phasenlaufzeiten erhalten → Gitarre links-vorne, Klavier rechts-mitte, Gesang mittig-nah.
+**VERBOTEN** als Studio-2026-Endschritt: `griffinlim()`.
+
+#### Emotionaler Atemzug — Spannungsdynamik als Gänsehaut-Mechanismus
+
+Der stärkste Gänsehaut-Auslöser ist nicht die lauteste Stelle einer Aufnahme, sondern der
+Moment **kurz davor**:
+
+- Ein `pp`, das den Hörer in die Stille zieht, bevor das `fff` trifft
+- Eine Fermate, die die Zeit anhält
+- Ein Diminuendo, das den nächsten Akkord unausweichlich macht
+
+Diese Spannungsmechanik setzt voraus:
+
+- `pearson_lufs_400ms ≥ 0.92` (MDEM): Mikro-Energiewellen auf Sub-Phrasen-Ebene erhalten
+- `arousal_pearson_5s ≥ 0.85` (EmotionalArc): Intensitätsbogen über Phrasen-Ebene erhalten
+- Keine künstliche Dynamik-Kompression zwischen piano und forte Stellen
+
+Wenn alle Stellen gleich laut klingen, ist die Spannungs-Mechanik zerstört und Gänsehaut unmöglich.
+
+---
+
 ## §5 Test-Standards
+
+### §5.4 [RELEASE_MUST] ML-Headroom-Guard + KMV-Rueckgewinnung
+
+Folgende Testfaelle sind fuer heavy ML-Phasen verpflichtend (z. B. phase_03, phase_06, phase_20, phase_23, phase_24, phase_55):
+
+1. **Low-RAM Completion Test**: Unter simuliert knappem RAM darf die Restaurierung nicht crashen; Ergebnis muss erfolgreich exportierbar sein.
+2. **Guard Event Contract Test**: Bei Guard-Trigger muss `metadata["ml_guard_events"]` gesetzt sein und alle Pflichtfelder enthalten.
+3. **Deferred-Phase Contract Test**: Guard-betroffene Phase muss in `deferred_phases` eingetragen werden.
+4. **KMV Recovery Test**: Stufe 2 fuehrt die deferred Phase ohne RT-Limit nach; Overwrite nur bei `stufe2_quality_estimate >= stufe1_quality`.
+5. **No-Original-Rollback Test**: Guard-Trigger darf nie zu `action="rollback"` auf Original-Audio fuehren.
+
+**Regression-Fokus:** Diese Tests muessen sowohl mono als auch stereo sowie kurz (<60 s) und lang (>=180 s) abdecken.
+
+### §5.5 [RELEASE_MUST] Vollpipeline-Determinismus-Gate
+
+Bei identischer Eingabe, Umgebung und Konfiguration muessen zwei Vollpipeline-Runs bitnah identisch sein.
+
+Pflichtkriterien:
+
+1. `max_abs_err <= 1e-6`
+2. `rms_err <= 1e-7`
+3. identische `phases_executed`
+4. identische `release_mode`-Entscheidung
+
+### §5.6 [RELEASE_MUST] Stratifiziertes Konkurrenz-Gate
+
+Konkurrenzvergleich wird nicht nur als Gesamtmittel, sondern pro Zelle einer Material-Defekt-Matrix bewertet.
+
+Pflicht-Matrix:
+
+- Materialien: `tape`, `vinyl`, `shellac`, `digital`, `vocal`
+- Defektklassen: `hiss`, `crackle`, `dropout`, `reverb`, `hum`, `codec`
+
+Release-Logik:
+
+- Fail bei regressiver Einzelzelle gegen Referenz, auch wenn Gesamtmittel besteht.
+- Bericht muss Delta pro Zelle enthalten.
+
+### §5.7 [RELEASE_MUST] Externes Mini-MUSHRA-Artefakt
+
+Bei Kern-aenderungen (Kernphasen, PMGG, DefectScanner, heavy ML-Fallbacks) ist ein externer Mini-MUSHRA-Bericht Pflicht.
+
+Pflichtanforderungen:
+
+1. mindestens 6 Szenarien, davon mindestens 2 Vocal-Szenarien
+2. mindestens 8 Hoerer
+3. Szenario-Score, Konfidenzintervall, Delta zur Vorversion
+4. Bericht als Release-Artefakt versioniert abgelegt
 
 ### Mindestanforderungen pro neuem Modul
 
 | Anforderung | Zielwert |
-|---|---|
+| --- | --- |
 | Unit-Tests pro Kernmodul | ≥ 35 |
 | Shape/Dtype-Tests | ✅ Pflicht |
 | NaN/Inf-Tests | ✅ Pflicht |
@@ -265,7 +406,7 @@ torch.set_num_threads(os.cpu_count())  # alle CPU-Kerne nutzen
 
 ### Namenskonvention
 
-```
+```text
 tests/unit/test_v<VERSION>_<feature_name>.py
 # Beispiele:
 tests/unit/test_v97_cognitive_layer.py

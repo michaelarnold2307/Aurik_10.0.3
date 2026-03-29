@@ -96,7 +96,7 @@ class VisqolPlugin:
         a = np.array(audio, dtype=np.float32)
         if a.ndim == 2:
             a = a.mean(axis=0) if a.shape[0] <= 8 else a.mean(axis=1)
-        return np.nan_to_num(a, 0.0)
+        return np.nan_to_num(a, nan=0.0)
 
     def _bark_matrix(self, mono: np.ndarray, sr: int) -> np.ndarray:
         from scipy.signal import stft as _stft

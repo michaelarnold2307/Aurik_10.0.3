@@ -400,7 +400,19 @@ class TransientShaper(PhaseInterface):
         audio_hp = signal.sosfilt(sos, audio)
 
         # Compute envelope
-        envelope = np.abs(signal.hilbert(audio_hp))
+        audio_hp_1d = np.asarray(audio_hp, dtype=np.float64).reshape(-1)
+        n = audio_hp_1d.shape[0]
+        spectrum = np.fft.fft(audio_hp_1d)
+        h = np.zeros(n, dtype=np.float64)
+        if n % 2 == 0:
+            h[0] = 1.0
+            h[n // 2] = 1.0
+            h[1 : n // 2] = 2.0
+        else:
+            h[0] = 1.0
+            h[1 : (n + 1) // 2] = 2.0
+        analytic = np.fft.ifft(spectrum * h)
+        envelope = np.abs(analytic)
 
         # Measure peak envelope energy
         transient_energy = np.max(envelope)

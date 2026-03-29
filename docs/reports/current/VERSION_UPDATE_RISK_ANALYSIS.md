@@ -13,6 +13,7 @@ Von den 5 identifizierten Major Version Changes sind **2 HOCHRISKANT** und erfor
 ### 🔴 **HOHE GEFAHR: deepfilternet_v3_ii**
 
 #### Version Changes:
+
 ```
 torch:       1.11.0  → 2.10.0  (99 Minor-Versionen Sprung!)
 torchaudio:  0.11.0  → 2.5.1   (214 Minor-Versionen Sprung!)
@@ -20,6 +21,7 @@ numpy:       1.26.4  → 2.2.6   (Breaking Changes)
 ```
 
 #### Risiko-Faktoren:
+
 1. **PyTorch 1.11 → 2.10: KRITISCH**
    - DeepFilterNet nutzt Rust-Bindings (libDF, pyDF)
    - Rust-Code wurde gegen torch 1.11 C++ API kompiliert
@@ -37,6 +39,7 @@ numpy:       1.26.4  → 2.2.6   (Breaking Changes)
    - Array creation functions geändert
 
 #### Verwendung im System:
+
 - ✅ **AKTIV IN PRODUKTION**
 - `backend/adaptive_pipeline.py` (Hauptverwendung)
 - `dsp/sota_denoiser.py`
@@ -45,6 +48,7 @@ numpy:       1.26.4  → 2.2.6   (Breaking Changes)
 - Fallback-Chain Position: #3
 
 #### **EMPFEHLUNG: ROLLBACK ERFORDERLICH** ⚠️
+
 ```bash
 cd models/deepfilternet_v3_ii
 cp requirements.txt.backup_20260213 requirements.txt
@@ -55,6 +59,7 @@ cp requirements.txt.backup_20260213 requirements.txt
 ### 🟡 **MITTLERES RISIKO: audiosr**
 
 #### Version Changes:
+
 ```
 torch:         2.1.0  → 2.10.0  (9 Minor-Versionen)
 accelerate:    0.21.0 → 1.12.0  (Major Version Change)
@@ -62,6 +67,7 @@ transformers:  4.30.2 → 5.1.0   (Major Version Change)
 ```
 
 #### Risiko-Faktoren:
+
 1. **Transformers 4.x → 5.x: MITTEL-HOCH**
    - Breaking Changes in AutoModel API
    - Config handling geändert
@@ -78,6 +84,7 @@ transformers:  4.30.2 → 5.1.0   (Major Version Change)
    - Torch 2.x intern bereits stabil
 
 #### Verwendung im System:
+
 - ✅ **AKTIV IN PRODUKTION**
 - `enhancement/hf_extender.py` (HF Extension)
 - `plugins/audiosr_plugin.py`

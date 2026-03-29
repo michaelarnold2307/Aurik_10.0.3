@@ -416,7 +416,9 @@ class TestGPUPipelineStub:
         self._reload()
         with warnings.catch_warnings(record=True) as w:
             warnings.simplefilter("always")
+            import importlib
 
+            importlib.import_module("dsp.gpu_pipeline")  # triggers the DeprecationWarning at module level
             assert any(issubclass(x.category, DeprecationWarning) for x in w)
 
     def test_gpu_is_cpu_alias(self):
@@ -1238,10 +1240,7 @@ class TestExcellenceBenchmark:
 
     @pytest.mark.timeout(120)
     def test_make_test_signals_returns_four(self):
-        import sys
-
-        sys.path.insert(0, str(__file__).replace("tests/unit/test_v95_modules.py", "benchmarks"))
-        from excellence_benchmark import _make_test_signals
+        from benchmarks.excellence_benchmark import _make_test_signals
 
         signals = _make_test_signals()
         assert len(signals) == 4
@@ -1251,10 +1250,7 @@ class TestExcellenceBenchmark:
         assert "overtone_sparse" in signals
 
     def test_signal_shapes_correct(self):
-        import sys
-
-        sys.path.insert(0, str(__file__).replace("tests/unit/test_v95_modules.py", "benchmarks"))
-        from excellence_benchmark import _N, _make_test_signals
+        from benchmarks.excellence_benchmark import _N, _make_test_signals
 
         signals = _make_test_signals()
         for name, sig in signals.items():
@@ -1264,10 +1260,7 @@ class TestExcellenceBenchmark:
 
     @pytest.mark.timeout(120)
     def test_benchmark_run_all_returns_report(self):
-        import sys
-
-        sys.path.insert(0, str(__file__).replace("tests/unit/test_v95_modules.py", "benchmarks"))
-        from excellence_benchmark import ExcellenceBenchmark, ExcellenceBenchmarkReport
+        from benchmarks.excellence_benchmark import ExcellenceBenchmark, ExcellenceBenchmarkReport
 
         bench = ExcellenceBenchmark(_SR)
         rep = bench.run_all(materials=["auto"])
@@ -1275,10 +1268,7 @@ class TestExcellenceBenchmark:
         assert len(rep.results) == 4  # 4 Signale × 1 Material
 
     def test_benchmark_summary_keys(self):
-        import sys
-
-        sys.path.insert(0, str(__file__).replace("tests/unit/test_v95_modules.py", "benchmarks"))
-        from excellence_benchmark import ExcellenceBenchmark
+        from benchmarks.excellence_benchmark import ExcellenceBenchmark
 
         bench = ExcellenceBenchmark(_SR)
         rep = bench.run_all(materials=["auto"])
@@ -1287,10 +1277,7 @@ class TestExcellenceBenchmark:
 
     def test_benchmark_delta_ovr_non_negative(self):
         """Excellence-Pipeline darf nicht verschlechtern."""
-        import sys
-
-        sys.path.insert(0, str(__file__).replace("tests/unit/test_v95_modules.py", "benchmarks"))
-        from excellence_benchmark import ExcellenceBenchmark
+        from benchmarks.excellence_benchmark import ExcellenceBenchmark
 
         bench = ExcellenceBenchmark(_SR)
         rep = bench.run_all(materials=["auto"])
@@ -1298,10 +1285,7 @@ class TestExcellenceBenchmark:
         assert rep.summary["avg_delta_ovr"] >= -0.02, f"Ø ΔOVR={rep.summary['avg_delta_ovr']:.4f} ist zu stark negativ"
 
     def test_benchmark_signal_result_fields(self):
-        import sys
-
-        sys.path.insert(0, str(__file__).replace("tests/unit/test_v95_modules.py", "benchmarks"))
-        from excellence_benchmark import ExcellenceBenchmark, SignalBenchmarkResult
+        from benchmarks.excellence_benchmark import ExcellenceBenchmark, SignalBenchmarkResult
 
         bench = ExcellenceBenchmark(_SR)
         rep = bench.run_all(materials=["tape"])
@@ -1453,12 +1437,8 @@ class TestPhase55DiffWaveBridgeIntegration:
         audio = np.sin(2 * np.pi * 440 * np.arange(sr) / sr).astype(np.float32)
         audio[sr // 2 : sr // 2 + int(0.05 * sr)] = 0.0
         result = phase.process(audio, sample_rate=sr)
-        # PhaseResult-Objekt oder Tuple beider Varianten
-        if hasattr(result, "audio"):
-            out_audio = result.audio
-            meta = result.metadata if hasattr(result, "metadata") else {}
-        else:
-            out_audio, meta = result
+        # Phase 55 liefert typisiert ein PhaseResult.
+        out_audio = result.audio
         assert out_audio.shape[0] == audio.shape[0] or out_audio.shape[-1] == audio.shape[-1]
 
     def test_phase55_mono_output_no_nan(self):

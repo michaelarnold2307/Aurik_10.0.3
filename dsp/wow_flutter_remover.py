@@ -108,27 +108,33 @@ class WowFlutterRemover:
                 return _r.f0_hz.astype(np.float64)
             except Exception:
                 pass
-            # Fallback: Autokorrelation (vereinfachte Schätzung)
-            # OPTIMIZATION: Increased hop size for performance (50ms instead of 10ms)
-            # Wow/Flutter is slow (<10Hz), so 50ms resolution is sufficient
-            frame_size = int(0.04 * self.sr)  # 40ms frame
-            hop = int(0.05 * self.sr)  # 50ms hop (was 10ms) = 5x faster
-            f0 = []
-            for i in range(0, len(audio) - frame_size, hop):
-                frame = audio[i : i + frame_size]
-                ac = np.correlate(frame, frame, mode="full")[frame_size - 1 :]
-                peak = np.argmax(ac[1:]) + 1
-                f0.append(self.sr / peak if peak > 0 else 0)
-            return np.array(f0)
+        # Fallback: Autokorrelation (vereinfachte Schätzung)
+        # Läuft immer wenn CREPE nicht verfügbar ist oder fehlschlägt.
+        # OPTIMIZATION: Increased hop size for performance (50ms instead of 10ms)
+        # Wow/Flutter is slow (<10Hz), so 50ms resolution is sufficient
+        frame_size = int(0.04 * self.sr)  # 40ms frame
+        hop = int(0.05 * self.sr)  # 50ms hop (was 10ms) = 5x faster
+        f0 = []
+        for i in range(0, len(audio) - frame_size, hop):
+            frame = audio[i : i + frame_size]
+            ac = np.correlate(frame, frame, mode="full")[frame_size - 1 :]
+            peak = np.argmax(ac[1:]) + 1
+            f0.append(self.sr / peak if peak > 0 else 0)
+        return np.array(f0)
 
     def _extract_wowflutter_lfo(self, f0_curve: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
         # Nur langsame (<10 Hz) und mittlere (10-100 Hz) Modulationen extrahieren
         lfo = f0_curve - np.median(f0_curve)
         # Tiefpass für Wow (<10 Hz)
-        b, a = butter(2, 10 / (0.5 * self.sr / 100), btype="low")
+        b, a = butter(2, 10 / (0.5 * self.sr / 100), btype="low", output="ba")  # type: ignore[misc]
         wow = lfilter(b, a, lfo)
         # Bandpass für Flutter (10-100 Hz)
-        b2, a2 = butter(2, [10 / (0.5 * self.sr / 100), 100 / (0.5 * self.sr / 100)], btype="band")
+        b2, a2 = butter(  # type: ignore[misc]
+            2,
+            [10 / (0.5 * self.sr / 100), 100 / (0.5 * self.sr / 100)],
+            btype="band",
+            output="ba",
+        )
         flutter = lfilter(b2, a2, lfo)
         return np.asarray(wow + flutter)
 

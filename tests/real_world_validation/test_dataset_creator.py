@@ -16,7 +16,6 @@ import argparse
 import json
 import logging
 from pathlib import Path
-from typing import Dict, List, Tuple
 
 import librosa
 import numpy as np
@@ -53,7 +52,7 @@ class DatasetCreator:
                 audio, sr = self._generate_test_signal(category, i)
 
                 # Save to file
-                filename = f"{category}_test_{i+1:02d}.wav"
+                filename = f"{category}_test_{i + 1:02d}.wav"
                 filepath = category_path / filename
                 sf.write(filepath, audio, sr)
 
@@ -155,7 +154,7 @@ class DatasetCreator:
         hiss = np.random.randn(len(signal))
         from scipy.signal import butter, filtfilt
 
-        b, a = butter(4, 3000 / (sr / 2), btype="high")
+        b, a = butter(4, 3000 / (sr / 2), btype="high", output="ba")  # type: ignore[call-overload]
         hiss = filtfilt(b, a, hiss)
         signal += 0.03 * hiss
 
@@ -187,7 +186,7 @@ class DatasetCreator:
         # Sibilance (6-10 kHz boost)
         from scipy.signal import butter, filtfilt
 
-        b, a = butter(4, [6000 / (sr / 2), 10000 / (sr / 2)], btype="band")
+        b, a = butter(4, [6000 / (sr / 2), 10000 / (sr / 2)], btype="band", output="ba")  # type: ignore[call-overload]
         sibilance_band = filtfilt(b, a, signal)
 
         # Add sibilance bursts
@@ -204,7 +203,7 @@ class DatasetCreator:
             pos = np.random.randint(0, len(signal) - sr // 10)
             duration = sr // 50  # 20ms
             # Low-frequency impulse
-            b, a = butter(4, 200 / (sr / 2), btype="low")
+            b, a = butter(4, 200 / (sr / 2), btype="low", output="ba")  # type: ignore[call-overload]
             plosive = filtfilt(b, a, np.random.randn(duration))
             signal[pos : pos + len(plosive)] += 0.5 * plosive
 
@@ -214,7 +213,7 @@ class DatasetCreator:
             pos = np.random.randint(0, len(signal) - sr)
             duration = sr // 2  # 500ms
             breath = np.random.randn(duration)
-            b, a = butter(4, [500 / (sr / 2), 3000 / (sr / 2)], btype="band")
+            b, a = butter(4, [500 / (sr / 2), 3000 / (sr / 2)], btype="band", output="ba")  # type: ignore[call-overload]
             breath = filtfilt(b, a, breath)
             envelope = np.hanning(duration)
             signal[pos : pos + duration] += 0.1 * envelope * breath

@@ -1,4 +1,5 @@
 # Aurik 9.10.77 — UAT Scorecard
+
 **Generated:** 2026-03-28 07:59:39 UTC
 **Version:** 9.10.77
 
@@ -59,14 +60,17 @@
 ## Summary
 
 ### Acceptance Criteria Results
+
 - **Restoration:** 6/15 passed (0 failed, 9 skipped)
 - **Studio 2026:** 2/15 passed (0 failed, 13 skipped)
 
 ### Release Gate Status
+
 - **Passed:** 6/7
 - **K.O. Violations:** 0
 
 ### Test Suite Health
+
 - **Regression Status:** 0 regressions
 - **Overall Recommendation:** **CONDITIONAL**
 - **Rationale:** No executed criterion failed (8/8 passed), 22 criteria pending functional/heavy validation

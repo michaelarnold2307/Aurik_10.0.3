@@ -99,11 +99,11 @@ class TransientShaper:
         # Audit: Contract-Infos loggen (optional)
         self.log_contract()
         # Band extrahieren
-        b, a = butter(4, [self.band[0] / (sr / 2), self.band[1] / (sr / 2)], btype="band")
+        b, a = butter(4, [self.band[0] / (sr / 2), self.band[1] / (sr / 2)], btype="band", output="ba")  # type: ignore[misc]
         band_sig = lfilter(b, a, audio)
         # Envelope-Detection (z.B. mit abs + Lowpass)
         env = np.abs(band_sig)
-        b_env, a_env = butter(2, 10 / (sr / 2), btype="low")
+        b_env, a_env = butter(2, 10 / (sr / 2), btype="low", output="ba")  # type: ignore[misc]
         env_smooth = lfilter(b_env, a_env, env)
         # Transient/Sustain-Trennung
         trans = np.diff(env_smooth, prepend=env_smooth[0])
@@ -114,7 +114,7 @@ class TransientShaper:
         # Formant-Preserving-Option (vereinfachtes Beispiel: Dry/Wet nur auf Obertöne, nicht auf Grundtonbereich)
         if self.formant_preserving:
             # Obertöne extrahieren (vereinfachtes Beispiel: Hochpass ab 2 kHz)
-            bh, ah = butter(2, 2000 / (sr / 2), btype="high")
+            bh, ah = butter(2, 2000 / (sr / 2), btype="high", output="ba")  # type: ignore[misc]
             overtones = lfilter(bh, ah, shaped - band_sig)
             out = audio + overtones
         else:

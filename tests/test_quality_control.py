@@ -33,6 +33,7 @@ def test_check_non_destructive_identical_signals():
     snr = qc.check_non_destructive(original, processed)
 
     # SNR should be very high (>70 dB) for identical signals (limited by epsilon 1e-8)
+    assert snr is not None
     assert snr > 70
     # No warnings for identical signals
     assert len(qc.warnings) == 0
@@ -48,6 +49,7 @@ def test_check_non_destructive_small_difference():
     snr = qc.check_non_destructive(original, processed)
 
     # SNR should be close to 30 dB threshold
+    assert snr is not None
     assert 29 <= snr <= 31
     # Warning expected since SNR < 30 dB
     assert len(qc.warnings) >= 0  # May or may not warn depending on precision
@@ -63,6 +65,7 @@ def test_check_non_destructive_large_difference():
     snr = qc.check_non_destructive(original, processed)
 
     # SNR should be low (<30 dB)
+    assert snr is not None
     assert snr < 30
     # Should have warning
     assert len(qc.warnings) == 1
@@ -79,7 +82,8 @@ def test_ab_test_identical_signals():
     score = qc.ab_test(reference, candidate)
 
     # Correlation should be 1.0
-    assert np.isclose(score, 1.0, rtol=1e-6)
+    assert score is not None
+    assert np.isclose(float(score), 1.0, rtol=1e-6)
     # Result should be logged
     assert len(qc.ab_results) == 1
     assert qc.ab_results[0] == score
@@ -95,6 +99,7 @@ def test_ab_test_similar_signals():
     score = qc.ab_test(reference, candidate)
 
     # Correlation should be high (>0.9) due to similar values
+    assert score is not None
     assert score > 0.9
     assert score <= 1.0
     assert len(qc.ab_results) == 1
@@ -110,7 +115,8 @@ def test_ab_test_inverted_signals():
     score = qc.ab_test(reference, candidate)
 
     # Correlation should be close to -1.0
-    assert np.isclose(score, -1.0, rtol=1e-6)
+    assert score is not None
+    assert np.isclose(float(score), -1.0, rtol=1e-6)
 
 
 def test_psychoacoustic_score_basic():
@@ -251,10 +257,12 @@ def test_quality_control_workflow():
 
     # 1. Non-destructive check
     snr = qc.check_non_destructive(original, processed)
+    assert snr is not None
     assert snr > 30
 
     # 2. A/B test
     score = qc.ab_test(original, processed)
+    assert score is not None
     assert score > 0.9
 
     # 3. Psychoacoustic scoring

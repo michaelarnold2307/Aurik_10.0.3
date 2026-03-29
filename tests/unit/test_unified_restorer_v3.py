@@ -271,7 +271,7 @@ class TestNoRtLimitPhaseDeferralBypass:
         assert isinstance(out, np.ndarray)
         assert "phase_99_dummy" in executed
         assert "phase_99_dummy" not in skipped
-        assert "phase_99_dummy" not in deferred
+        assert deferred == []
         assert guard.skip_calls == 0
 
     def test_12_phases_executed_is_list(self):
@@ -527,7 +527,7 @@ class TestPhaseRegressionLog:
         defect_mock = _make_mock_defect_result()
 
         # Direkt _execute_pipeline aufrufen, alle Phasen-Listen leer → kein Loop
-        _out, _ex, _sk, _def = restorer._execute_pipeline(
+        _out, _ex, _sk, _deferred = restorer._execute_pipeline(
             audio,
             SR,
             MaterialType.CD_DIGITAL if hasattr(MaterialType, "CD_DIGITAL") else list(MaterialType)[0],
@@ -538,6 +538,7 @@ class TestPhaseRegressionLog:
             "_execute_pipeline muss self._phase_regression_log initialisieren"
         )
         assert isinstance(restorer._phase_regression_log, dict)
+        assert isinstance(_deferred, list)
 
     def test_42_phase_regression_log_is_dict_in_metadata(self):
         """RestorationResult.metadata muss 'phase_regression_log' als dict enthalten."""

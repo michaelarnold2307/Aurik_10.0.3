@@ -53,7 +53,7 @@ class ParameterOptimizer:
         # wenn kein dediziertes Modell geladen ist, nutzen wir den Projekt-GP-Optimizer.
         if self.model is None:
             try:
-                from core.gp_parameter_optimizer import get_optimizer
+                from backend.core.gp_parameter_optimizer import get_optimizer
 
                 material = targets.get("material", "unknown")
                 proposal = get_optimizer().propose(str(material))
@@ -93,7 +93,7 @@ class ParameterOptimizer:
         material = sanitized.get("material", "unknown")
         if isinstance(score, (int, float)) and math.isfinite(float(score)) and isinstance(params, dict):
             try:
-                from core.gp_parameter_optimizer import get_optimizer
+                from backend.core.gp_parameter_optimizer import get_optimizer
 
                 get_optimizer().update(str(material), params, float(score))
                 _log.debug("ParameterOptimizer.feedback: GP-Gedächtnis aktualisiert (score=%.4f).", score)
