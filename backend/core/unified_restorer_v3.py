@@ -3348,6 +3348,10 @@ class UnifiedRestorerV3:
             lufs_delta=_lufs_delta_for_result,
             goosebumps_score=_goosebumps_score,
             goosebumps_result=_goosebumps_result,
+            # §2.2 era_decade: UV3-authoritative result — propagated to frontend via
+            # _on_item_finished_with_result (modern_window.py L11133) to override the
+            # pre-analysis estimate from _detect_era_genre_bg.
+            era_decade=(_era_result.decade if _era_result is not None else None),
         )
 
         # §2.13 Künstler-Signatur nach Restaurierung aktualisieren und speichern

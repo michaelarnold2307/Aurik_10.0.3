@@ -118,7 +118,6 @@ except ImportError:
     _PGHI_AVAILABLE_P06 = False
 
 
-
 class FrequencyRestorationPhase(PhaseInterface):
     """
     Professional Frequency Restoration Phase v2.0
@@ -368,6 +367,11 @@ class FrequencyRestorationPhase(PhaseInterface):
                 "ml_reason": "audiosr_plugin_import_failed",
             }
 
+        # Bind to a local name so Pylance can narrow the type (not None) inside
+        # the ml_infer() closure — the module-level variable could otherwise be
+        # considered potentially None again after the guard above.
+        _audiosr_factory = _get_audiosr_plugin
+
         alpha_by_mode = {
             "balanced": 0.20,
             "quality": 0.30,
@@ -447,7 +451,7 @@ class FrequencyRestorationPhase(PhaseInterface):
 
         def ml_infer():
             try:
-                plugin = _get_audiosr_plugin()
+                plugin = _audiosr_factory()
                 plugin_in = audio.T if audio.ndim == 2 else audio
                 ml_out = plugin.process(plugin_in, sr=self.sample_rate, target_sr=self.sample_rate)
                 ml_result_queue.put(ml_out)
@@ -457,9 +461,12 @@ class FrequencyRestorationPhase(PhaseInterface):
         ml_thread = threading.Thread(target=ml_infer, daemon=True)
         ml_thread.start()
 
-        # Adaptives Timeout: 180s + 1s pro Minute Audiolänge, max 600s
+        # Timeout: 32× RT-Budget (§PerformanceGuard LIMIT_MAXIMUM = 32×).
+        # 3:45 Audio â 225 s × 32 = 7200 s — impractical; use a sane cap instead.
+        # AudioSR typical inference: 2× RT on CPU. Add generous headroom for slow machines.
+        # Absolute cap: 180 s (3 min). Falls back to DSP-only version instead of freezing.
         audio_dur_s = audio.shape[-1] / float(self.sample_rate)
-        timeout_s = min(600, 180 + int(audio_dur_s // 60))
+        timeout_s = min(180, max(30, int(audio_dur_s * 2.5)))
         ml_thread.join(timeout=timeout_s)
 
         if not ml_result_queue.empty():
@@ -575,7 +582,7 @@ class FrequencyRestorationPhase(PhaseInterface):
         - Harmonic extension (LPC-based)
         - Transient synthesis
         """
-        # Work in frequency domain (STFT)
+        # STFT
         hop_length = 512
         n_fft = 4096
 
@@ -733,6 +740,8 @@ class FrequencyRestorationPhase(PhaseInterface):
         """
         # STFT
         f, _t, Zxx = signal.stft(channel, fs=self.sample_rate, nperseg=n_fft, noverlap=n_fft - hop_length)
+        # Store input magnitude for gain-cap in additive processing
+        self._restore_channel_input_mag = np.abs(Zxx).copy()
 
         # Separate into low-band (source) and high-band (target)
         rolloff_freq = params["rolloff_hz"]
@@ -770,6 +779,23 @@ class FrequencyRestorationPhase(PhaseInterface):
         # Transient Synthesis
         if params["transient_synthesis"] > 0:
             Zxx = self._apply_transient_synthesis(Zxx, f, rolloff_bin, extension_end_bin, params["transient_synthesis"])
+
+        # === Gain Cap: prevent amplitude spikes from additive SBR+LPC+transient ===
+        # After all additive operations the STFT magnitude can exceed what was present
+        # in the input — especially in the last chunk where padding creates ringing.
+        # Cap per-bin magnitude to (input_mag + max_boost_db headroom).
+        max_boost_linear = float(10 ** (params["max_boost_db"] / 20.0))
+        floor_mag = np.abs(Zxx) * 0.0  # will be recomputed below
+        # Use the original input channel STFT as reference (re-compute in restore channel scope)
+        # because Zxx has already been modified. Safe fallback: clip total gain ratio.
+        before_mag = getattr(self, "_restore_channel_input_mag", None)
+        if before_mag is not None and before_mag.shape == Zxx.shape:
+            cur_mag = np.abs(Zxx)
+            allowed = before_mag * max_boost_linear
+            overshoot = cur_mag > allowed
+            if np.any(overshoot):
+                scale = np.where(overshoot, allowed / (cur_mag + 1e-12), 1.0)
+                Zxx = Zxx * scale
 
         # PGHI phase reconstruction (§4.5 — ISTFT nach Spektral-Modifikation erfordert PGHI)
         try:

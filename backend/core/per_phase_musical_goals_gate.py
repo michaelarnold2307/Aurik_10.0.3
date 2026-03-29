@@ -168,7 +168,9 @@ PHASE_GOAL_EXCLUSIONS: dict[str, set[str]] = {
     # only keep exclusions where AI-generated content has low correlation by design
     # natuerlichkeit excluded: gap-fill synthesis produces content absent from
     # reference; CREPE voicing score on synthesised audio is unreliable.
-    "phase_24": {"natuerlichkeit"},  # Dropout repair
+    # brillanz excluded: synthesised fill content can have different HF spectral
+    # distribution than the surrounding noisy reference → false brillanz drop.
+    "phase_24": {"natuerlichkeit", "brillanz"},  # Dropout repair: synthesised HF content
     "phase_28": set(),  # Noise reduction variant: handled by correlation
     # Diffusion inpainting: synthesised content has no transient reference →
     # ArticulationMetric correlation vs pre-inpainting fragment is meaningless.
@@ -190,18 +192,26 @@ PHASE_GOAL_EXCLUSIONS: dict[str, set[str]] = {
     # produces a false P2 regression of ~0.54 that drives PMGG into best_effort at
     # strength=0.06 (virtually no denoising applied).  Root cause confirmed in debug
     # logs (2026-03-28): worst_goal=artikulation, before=0.665, after=0.126.
-    "phase_03": {"natuerlichkeit", "artikulation"},  # OMLSA/ResembleEnhance
+    # brillanz excluded: broadband denoising removes HF noise energy → brillanz DSP
+    # proxy drops from ~0.9 (noise-inflated) to ~0.1 (clean) causing catastrophic
+    # false regression ~0.88 that drives PMGG to best_effort at strength=0.06.
+    # Same root cause as phase_29 (HF-removal → brillanz false drop).
+    "phase_03": {"natuerlichkeit", "artikulation", "brillanz"},  # OMLSA/ResembleEnhance
     # DeepFilterNet HF-removal intentionally reduces HF energy → brillanz drops.
     # artikulation excluded for same reason as phase_03: reference=hissy_tape vs
     # denoised output gives misleadingly low transient-correlation score.
     "phase_29": {"brillanz", "artikulation"},  # DeepFilterNet / tape hiss
     # Phases with RADICAL spectral changes where even correlation can't help:
-    "phase_04": {"transparenz"},  # EQ deliberately redistributes spectrum
+    # phase_04 EQ: redistributes the entire spectrum — brillanz (HF cut/boost)
+    # and waerme (mid cut/boost) are intentional outcomes, not regressions.
+    "phase_04": {"transparenz", "brillanz", "waerme"},  # EQ deliberately redistributes spectrum
     "phase_06": {"brillanz"},  # SBR adds content not in reference → low correlation
     "phase_07": {"brillanz"},  # Harmonic synthesis adds new HF content
     "phase_08": set(),  # Transient preservation: handled by envelope correlation
     # Dynamics-modifying phases: intentional temporal envelope changes
-    "phase_18": {"micro_dynamics"},  # Noise gate: deliberate silence insertion
+    # phase_18 noise gate: removes background noise (incl. HF noise) between
+    # musical events → brillanz drops from noise-inflated value → false regression.
+    "phase_18": {"micro_dynamics", "brillanz"},  # Noise gate: deliberate silence insertion + HF noise removal
     "phase_26": {"micro_dynamics", "artikulation"},  # Dynamic expansion
     "phase_36": {"micro_dynamics", "artikulation"},  # Transient shaper
     # Mastering: intentional dynamics compression + spectral shaping
@@ -209,6 +219,10 @@ PHASE_GOAL_EXCLUSIONS: dict[str, set[str]] = {
     # Vocal enhancement: Stages 2-6 intentionally alter spectral shape and dynamics;
     # natuerlichkeit/timbre proxies are unreliable for deliberate vocal-presence boosts.
     "phase_19": {"natuerlichkeit", "timbre_authentizitaet", "micro_dynamics"},
+    # Dereverb: removes room impulse response; reverb contributes diffuse HF energy
+    # and room resonances (warmth). After dereverb brillanz and waerme both drop
+    # legitimately — these are intentional improvements, not regressions.
+    "phase_49": {"brillanz", "waerme"},  # Advanced dereverb: room HF+warmth removal
 }
 
 
@@ -461,9 +475,15 @@ def _apply_precise_metric_overrides(
                 # Reference-based MicroDynamicsMetric gives 0.60+ baseline vs ~0.75×corr
                 # for scores_after, creating systematic false regressions in PMGG.
                 refined[goal_name] = float(metric.measure(audio, sr))
+            elif goal_name == "waerme":
+                # Fast-path: skip MERT refinement in PMGG precise-override context.
+                # WaermeMetric.measure() invokes MERT if already loaded, which adds
+                # ~5 s/call on CPU (3.9 GB model) and causes PMGG overrides to take
+                # 6+ s total. The canonical WaermeMetric incl. MERT runs in the final
+                # export gate (MusicalGoalsChecker); absolute score suffices here.
+                refined[goal_name] = float(metric._measure_absolute(audio, sr))
             elif goal_name in {
                 "brillanz",
-                "waerme",
                 "tonal_center",
                 "artikulation",
                 "separation_fidelity",

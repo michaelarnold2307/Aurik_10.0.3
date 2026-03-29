@@ -2409,21 +2409,39 @@ class WaveformWidget(QWidget):
         Behobene Defektsegmente werden sofort aus den aktiven Locations entfernt,
         damit vertikale Marker unmittelbar verschwinden (Live-Feedback pro Kanal).
         """
+        _prev_active = set(self._defect_locations.keys())
         self.defects = defects or {}
         new_locs = self.defects.get("_locations", {})
         self._channel_locations = self.defects.get("_channel_locations", {})
-        # User-facing behavior: no delayed fade-out queue for active defect markers.
-        self._pending_removal.clear()
-        if self._removal_timer.isActive():
-            self._removal_timer.stop()
+        _status = self.defects.get("status", "") if isinstance(self.defects, dict) else ""
 
-        # Keep only currently active locations; removed segments disappear immediately.
+        # Build new active locations (only where score > 0.01).
         _active_locs: dict = {}
         for dk, segs in new_locs.items() if isinstance(new_locs, dict) else []:
             _score = self.defects.get(dk, 1.0)
             _score_f = float(_score) if isinstance(_score, (int, float)) else 1.0
             if _score_f > 0.01:
                 _active_locs[dk] = segs
+
+        if _status == "correcting":
+            # Defects whose score just fell to 0: queue their location segments
+            # for tick-by-tick removal so waveform markers disappear one by one.
+            _tool = getattr(self, "_active_tool", "")
+            for dk in _prev_active:
+                if dk not in _active_locs:
+                    _segs = self._defect_locations.get(dk, [])
+                    if _segs:
+                        _queued = self._pending_removal.get(dk, [])
+                        _queued.extend((seg, _tool) for seg in _segs)
+                        self._pending_removal[dk] = _queued
+            if self._pending_removal and not self._removal_timer.isActive():
+                self._removal_timer.start()
+        else:
+            # Non-correcting update: stop animation, show final state immediately.
+            self._pending_removal.clear()
+            if self._removal_timer.isActive():
+                self._removal_timer.stop()
+
         self._defect_locations = _active_locs
         self.update()
 
@@ -5987,7 +6005,7 @@ class ExportConfigDialog(QDialog):
                 border: 1px solid rgba(255,255,255,0.18);
                 border-radius: 6px; padding: 6px 10px; font-size: 10pt;
             }
-            QLineEdit:focus { border-color: rgba(118,75,162,0.85); }
+            QLineEdit:focus { border-color: rgba(21,101,192,0.90); }
 
             /* ── ComboBox Hauptfeld ── */
             QComboBox {
@@ -6000,10 +6018,10 @@ class ExportConfigDialog(QDialog):
                 min-height: 28px;
             }
             QComboBox:focus {
-                border-color: rgba(118,75,162,0.85);
+                border-color: rgba(21,101,192,0.90);
             }
             QComboBox:hover {
-                border-color: rgba(180,140,220,0.55);
+                border-color: rgba(100,180,255,0.55);
                 background: #32324A;
             }
             /* Pfeil-Bereich */
@@ -6014,7 +6032,7 @@ class ExportConfigDialog(QDialog):
                 border-left: 1px solid rgba(255,255,255,0.12);
                 border-top-right-radius: 6px;
                 border-bottom-right-radius: 6px;
-                background: rgba(118,75,162,0.30);
+                background: rgba(21,101,192,0.35);
             }
             QComboBox::down-arrow {
                 image: none;
@@ -6027,9 +6045,9 @@ class ExportConfigDialog(QDialog):
             QComboBox QAbstractItemView {
                 background: #111827;
                 color: #F8FAFC;
-                selection-background-color: #7C3AED;
+                selection-background-color: #1565C0;
                 selection-color: #FFFFFF;
-                border: 1px solid #8B5CF6;
+                border: 1px solid #1976D2;
                 border-radius: 6px;
                 padding: 4px 0;
                 outline: none;
@@ -6042,22 +6060,22 @@ class ExportConfigDialog(QDialog):
                 min-height: 26px;
             }
             QComboBox QAbstractItemView::item:hover {
-                background: #4C1D95;
+                background: #0D47A1;
                 color: #FFFFFF;
             }
             QComboBox QAbstractItemView::item:selected {
-                background: #7C3AED;
+                background: #1565C0;
                 color: #FFFFFF;
                 font-weight: 700;
             }
 
             QPushButton {
-                background: rgba(118,75,162,0.75); color: white;
+                background: rgba(21,101,192,0.90); color: white;
                 border-radius: 8px; padding: 8px 16px;
                 font-size: 10pt; font-weight: 600;
             }
-            QPushButton:hover  { background: rgba(138,95,182,0.95); }
-            QPushButton:pressed { background: rgba(90,50,140,0.95); }
+            QPushButton:hover  { background: rgba(25,118,210,0.95); }
+            QPushButton:pressed { background: rgba(13,71,161,0.95); }
         """)
 
     def _build_ui(self, source_path: str):
@@ -6142,9 +6160,9 @@ class ExportConfigDialog(QDialog):
                 QAbstractItemView {
                     background: #0F172A;
                     color: #F8FAFC;
-                    selection-background-color: #6D28D9;
+                    selection-background-color: #1565C0;
                     selection-color: #FFFFFF;
-                    border: 1px solid #8B5CF6;
+                    border: 1px solid #1976D2;
                     outline: none;
                 }
                 QAbstractItemView::item {
@@ -6154,11 +6172,11 @@ class ExportConfigDialog(QDialog):
                     padding: 7px 12px;
                 }
                 QAbstractItemView::item:selected {
-                    background: #6D28D9;
+                    background: #1565C0;
                     color: #FFFFFF;
                 }
                 QAbstractItemView::item:hover {
-                    background: #4C1D95;
+                    background: #0D47A1;
                     color: #FFFFFF;
                 }
             """)
@@ -6360,11 +6378,11 @@ class _AurikFileDialog(QDialog):
     _IMPORT_STYLE = """
         QWidget   { background: #1E1E2E; color: #CCCCCC; font-family: 'Segoe UI'; font-size: 10pt; }
         QFrame    { background: transparent; }
-        QSplitter::handle { background: rgba(255,180,60,0.25); }
+        QSplitter::handle { background: rgba(210,160,30,0.25); }
 
         QTreeView, QListView {
             background: #2A2A3E; color: #FFFFFF;
-            selection-background-color: #FFB300;
+            selection-background-color: #C9940A;
             selection-color: #FFFFFF;
             border: 1px solid rgba(255,255,255,0.18);
             alternate-background-color: #262636;
@@ -6374,10 +6392,10 @@ class _AurikFileDialog(QDialog):
             min-height: 28px; padding: 6px 8px; border-radius: 4px;
         }
         QTreeView::item:hover, QListView::item:hover {
-            background: #FF9800; color: #FFFFFF;
+            background: #B8860B; color: #FFFFFF;
         }
         QTreeView::item:selected, QListView::item:selected {
-            background: #FFB300; color: #FFFFFF;
+            background: #C9940A; color: #FFFFFF;
             font-weight: 700;
         }
         QTreeView::branch { background: transparent; }
@@ -6387,7 +6405,7 @@ class _AurikFileDialog(QDialog):
             border: 1px solid rgba(255,255,255,0.18);
             border-radius: 6px; padding: 6px 10px; font-size: 10pt;
         }
-        QLineEdit:focus { border-color: #FFB300; }
+        QLineEdit:focus { border-color: #C9940A; }
 
         QComboBox {
             background: #2A2A3E; color: #FFFFFF;
@@ -6395,13 +6413,13 @@ class _AurikFileDialog(QDialog):
             border-radius: 6px; padding: 6px 32px 6px 10px;
             font-size: 10pt; min-height: 28px;
         }
-        QComboBox:focus  { border-color: #FFB300; }
-        QComboBox:hover  { border-color: #FF9800; background: #32324A; }
+        QComboBox:focus  { border-color: #C9940A; }
+        QComboBox:hover  { border-color: #B8860B; background: #32324A; }
         QComboBox::drop-down {
             subcontrol-origin: padding; subcontrol-position: top right;
             width: 28px; border-left: 1px solid rgba(255,255,255,0.12);
             border-top-right-radius: 6px; border-bottom-right-radius: 6px;
-            background: rgba(255,180,60,0.30);
+            background: rgba(210,160,30,0.30);
         }
         QComboBox::down-arrow {
             image: none; width: 0; height: 0;
@@ -6411,30 +6429,30 @@ class _AurikFileDialog(QDialog):
         }
         QComboBox QAbstractItemView {
             background: #111827; color: #F8FAFC;
-            selection-background-color: #FFB300; selection-color: #FFFFFF;
-            border: 1px solid #FFB300; border-radius: 6px;
+            selection-background-color: #C9940A; selection-color: #FFFFFF;
+            border: 1px solid #C9940A; border-radius: 6px;
             padding: 4px 0; outline: none; font-size: 10pt;
         }
         QComboBox QAbstractItemView::item {
             background: #111827; color: #F8FAFC;
             padding: 7px 14px; min-height: 26px;
         }
-        QComboBox QAbstractItemView::item:hover   { background: #FF9800; color: #FFFFFF; }
-        QComboBox QAbstractItemView::item:selected { background: #FFB300; color: #FFFFFF; font-weight: 700; }
+        QComboBox QAbstractItemView::item:hover   { background: #B8860B; color: #FFFFFF; }
+        QComboBox QAbstractItemView::item:selected { background: #C9940A; color: #FFFFFF; font-weight: 700; }
 
         QPushButton {
-            background: #FFB300; color: #FFFFFF;
+            background: #C9940A; color: #FFFFFF;
             border: none; border-radius: 8px; padding: 8px 16px;
             font-size: 10pt; font-weight: 600; min-height: 30px;
         }
-        QPushButton:hover   { background: #FF9800; }
-        QPushButton:pressed { background: #FF6F00; }
+        QPushButton:hover   { background: #B8860B; }
+        QPushButton:pressed { background: #9A6C00; }
 
         QToolButton {
             background: transparent; color: #CCCCCC;
             border: none; border-radius: 6px; padding: 2px;
         }
-        QToolButton:hover { background: rgba(255,180,60,0.25); }
+        QToolButton:hover { background: rgba(210,160,30,0.25); }
 
         QHeaderView::section {
             background: #1E1E2E; color: #CCCCCC;
@@ -6443,10 +6461,10 @@ class _AurikFileDialog(QDialog):
 
         QScrollBar:vertical, QScrollBar:horizontal { background: #111827; width: 10px; height: 10px; }
         QScrollBar::handle:vertical, QScrollBar::handle:horizontal {
-            background: #FFB300; border-radius: 5px; min-height: 20px;
+            background: #C9940A; border-radius: 5px; min-height: 20px;
         }
         QScrollBar::handle:vertical:hover, QScrollBar::handle:horizontal:hover {
-            background: #FF9800;
+            background: #B8860B;
         }
         QScrollBar::add-line, QScrollBar::sub-line { background: none; border: none; }
 
@@ -6459,8 +6477,8 @@ class _AurikFileDialog(QDialog):
             border-radius: 4px; background: #2A2A3E;
         }
         QCheckBox::indicator:checked {
-            background: #FFB300;
-            border: 1px solid #FF9800;
+            background: #C9940A;
+            border: 1px solid #B8860B;
         }
     """
 
@@ -6596,13 +6614,13 @@ class _AurikFileDialog(QDialog):
             )
             sep = "background: #00B0FF; border: none; margin: 0;"
         else:
-            accent = "#FFB300"
-            border = "#FFB300"
+            accent = "#C9940A"
+            border = "#C9940A"
             style = self._IMPORT_STYLE
             grad = (
-                "background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #1a1a2e, stop:0.5 #1E1E2E, stop:1 #FF9800);"
+                "background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #1a1a2e, stop:0.5 #1E1E2E, stop:1 #B8860B);"
             )
-            sep = "background: #FFB300; border: none; margin: 0;"
+            sep = "background: #C9940A; border: none; margin: 0;"
 
         # Outer border + layout — matches ExportConfigDialog border style
         self.setStyleSheet(f"""
@@ -7783,16 +7801,14 @@ class ModernMainWindow(QMainWindow):
         _needed_h = max(110, int(math.ceil(_doc.size().height())) + 18)
         _lbl.setMinimumHeight(_needed_h)
 
-        # During active restoration we force no-scroll mode and grow the defect area.
-        if getattr(self, "_left_panel_processing_focus", False):
-            _scr.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        else:
-            _sb = _scr.verticalScrollBar()
-            _scr.setVerticalScrollBarPolicy(
-                Qt.ScrollBarPolicy.ScrollBarAsNeeded
-                if (_sb is not None and _sb.maximum() > 0)
-                else Qt.ScrollBarPolicy.ScrollBarAlwaysOff
-            )
+        # Keep scrollbar available; never force AlwaysOff as that causes the
+        # scroll area to grow to fit content and push Musical Goals out of view.
+        _sb = _scr.verticalScrollBar()
+        _scr.setVerticalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAsNeeded
+            if (_sb is not None and _sb.maximum() > 0)
+            else Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+        )
 
     def _set_left_panel_processing_focus(self, processing: bool) -> None:
         """Compact musical goals and maximize defect list while restoration is running."""
@@ -7808,13 +7824,11 @@ class ModernMainWindow(QMainWindow):
             if self.radar_widget is not None:
                 self.radar_widget.setMinimumHeight(self._sp(72))
                 self.radar_widget.setMaximumHeight(self._sp(96))
-            if _def_box is not None:
-                _def_box.setMinimumHeight(self._sp(420))
             if _layout is not None and _def_box is not None and _goals_box is not None:
-                _layout.setStretchFactor(_def_box, 22)
-                _layout.setStretchFactor(_goals_box, 1)
+                _layout.setStretchFactor(_def_box, 16)
+                _layout.setStretchFactor(_goals_box, 5)
             if hasattr(self, "defect_summary_scroll"):
-                self.defect_summary_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+                self.defect_summary_scroll.setMaximumHeight(self._sp(340))
         else:
             if _goals_box is not None:
                 _goals_box.setMinimumHeight(0)
@@ -7828,6 +7842,7 @@ class ModernMainWindow(QMainWindow):
                 _layout.setStretchFactor(_def_box, 13)
                 _layout.setStretchFactor(_goals_box, 2)
             if hasattr(self, "defect_summary_scroll"):
+                self.defect_summary_scroll.setMaximumHeight(self._sp(340))
                 self.defect_summary_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
 
         self._refresh_defect_summary_height()
@@ -9573,7 +9588,7 @@ class ModernMainWindow(QMainWindow):
                                     _floor_decade = _MEDIUM_DECADE_FLOOR.get(str(_raw_med).strip().lower())
                                 except Exception:
                                     pass
-                            _era_result_obj = er
+                            _era_result_obj = er_raw  # unconstrained for UV3 cache
                             dec = getattr(er, "decade", None) or (er.get("decade") if isinstance(er, dict) else None)
                             if dec:
                                 _dec_i = int(dec)
@@ -9609,6 +9624,9 @@ class ModernMainWindow(QMainWindow):
 
                     # Era/Genre-Ergebnisse im Bridge-Cache speichern, damit UV3 sie
                     # wiederverwenden kann statt ML-Klassifikatoren erneut auszuführen.
+                    # WICHTIG: unkonstrained er_raw cachen (nicht das floor-korrigierte er),
+                    # damit UV3 den Medium-Floor mit seiner eigenen (genaueren) Medium-Analyse
+                    # selbst anwenden kann. Das Frontend-Badge zeigt nur eine Preview.
                     if _file_key and (_era_result_obj is not None or _genre_result_obj is not None):
                         cache_era_genre_result(_file_key, _era_result_obj, _genre_result_obj)
                     badge = ""
@@ -9989,29 +10007,20 @@ class ModernMainWindow(QMainWindow):
         self._play_audio(_src, _src_sr, start_pos_frac=frac)
 
     def _stop_sd_playback_locked(self) -> None:
-        """Stop/close active sounddevice playback resources (lock must be held)."""
-        _stream = getattr(self, "_sd_stream", None)
-        if _stream is not None:
-            try:
-                _stream.stop()
-            except Exception:
-                pass
-            try:
-                _stream.close()
-            except Exception:
-                pass
-            self._sd_stream = None
-        try:
-            if _sd is not None:
-                _sd.stop()
-        except Exception:
-            pass
+        """Stop active sd.play() stream and signal polling thread (lock must be held)."""
+        self._sd_stream = None
         _stop_evt = getattr(self, "_playback_stop_evt", None)
         if _stop_evt is not None:
             try:
                 _stop_evt.set()
             except Exception:
                 pass
+        # sd.stop() terminates the active sd.play() stream immediately
+        try:
+            if _sd is not None:
+                _sd.stop()
+        except Exception:
+            pass
 
     def _play_audio(self, audio: np.ndarray, sr: int, start_pos_frac: float = 0.0):
         """Audiodaten asynchron über sounddevice abspielen (optional ab Startposition)."""
@@ -10071,40 +10080,37 @@ class ModernMainWindow(QMainWindow):
                 except Exception as exc:
                     logger.debug("A/B playback device-rate adaption skipped: %s", exc)
 
-                # Robust stream playback via chunked stream.write().
-                # This avoids Python callback RT jitter that can cause strong stutter
-                # on some Linux stacks under GUI load.
+                # Use sd.play() (callback mode) — avoids ALSA mmap_begin crashes
+                # that occur with OutputStream.write() on PulseAudio/ALSA bridges.
                 if data.ndim == 1:
                     data2 = data.reshape(-1, 1)
                 else:
                     data2 = data
                 data2 = np.ascontiguousarray(data2, dtype=np.float32)
                 n_samples = int(data2.shape[0])
-                n_channels = int(data2.shape[1])
                 _start_frac = max(0.0, min(1.0, float(start_pos_frac)))
                 _start_idx = int(_start_frac * n_samples)
-                cursor = max(0, min(n_samples, _start_idx))
+                data_to_play = data2[_start_idx:]
+
                 finished_evt = threading.Event()
                 self._playback_stop_evt = finished_evt
+                self._sd_stream = None  # no OutputStream reference in callback mode
+
                 with self._sd_lock:
                     if _sd is None:
                         return
-                    self._sd_stream = _sd.OutputStream(
-                        samplerate=play_sr,
-                        channels=n_channels,
-                        dtype="float32",
-                        blocksize=16384,
-                        latency="high",
-                    )
-                    self._sd_stream.start()
-                while cursor < n_samples and not finished_evt.is_set():
-                    _stream = getattr(self, "_sd_stream", None)
-                    if _stream is None:
+                    _sd.play(data_to_play, samplerate=play_sr, blocking=False)
+
+                # Poll until natural end or external stop request
+                while not finished_evt.is_set():
+                    try:
+                        _active = _sd is not None and _sd.get_stream().active
+                    except Exception:
+                        _active = False
+                    if not _active:
                         break
-                    end = min(n_samples, cursor + 65536)
-                    _chunk = data2[cursor:end, :]
-                    _stream.write(_chunk)
-                    cursor = end
+                    time.sleep(0.05)
+
                 finished_evt.set()
             except Exception as exc:
                 _stopped_intentionally = bool(
@@ -10128,17 +10134,12 @@ class ModernMainWindow(QMainWindow):
             finally:
                 try:
                     with self._sd_lock:
-                        _stream = getattr(self, "_sd_stream", None)
-                        if _stream is not None:
+                        if _sd is not None:
                             try:
-                                _stream.stop()
+                                _sd.stop()
                             except Exception:
                                 pass
-                            try:
-                                _stream.close()
-                            except Exception:
-                                pass
-                            self._sd_stream = None
+                        self._sd_stream = None
                 except Exception:
                     pass
                 self._playback_stop_evt = None
@@ -11134,26 +11135,27 @@ class ModernMainWindow(QMainWindow):
             if _final_decade is not None and hasattr(self, "detected_medium_label"):
                 _new_decade_label = f"{_final_decade}er"
                 _old_badge = getattr(self, "_era_genre_badge", "")
-                # Nur aktualisieren wenn sich die Dekade tatsächlich geändert hat
-                if _new_decade_label not in _old_badge:
-                    # Genre-Teil aus bestehendem Badge beibehalten
-                    _genre_part = ""
-                    if _old_badge and "·" in _old_badge:
-                        _genre_part = _old_badge.split("·", 1)[1].strip()
-                    _new_badge = f"  │  ◷ {_new_decade_label}"
-                    if _genre_part:
-                        _new_badge += f" · {_genre_part}"
-                    self._era_genre_badge = _new_badge
-                    # Carrier-Label neu aufbauen
-                    _cur_lbl = getattr(self, "_carrier_bg_label", "")
-                    _cur_sc = getattr(self, "_carrier_bg_score", 0)
-                    _cur_stars = self._render_star_html(_cur_sc)
-                    self.detected_medium_label.setText(f"{_cur_lbl}   {_cur_stars}{_new_badge}")
-                    logger.info(
-                        "Era-Badge aus UV3-Ergebnis aktualisiert: %s → %s",
-                        _old_badge.strip(),
-                        _new_badge.strip(),
-                    )
+                # IMMER aktualisieren: UV3-Ergebnis ist autoritativ.
+                # Die "not in"-Prüfung führte zu falschen Skips weil "1960er" ein
+                # Substring von "ab 1960er" ist → Badge wurde nie bereinigt.
+                # Genre-Teil aus bestehendem Badge beibehalten
+                _genre_part = ""
+                if _old_badge and "·" in _old_badge:
+                    _genre_part = _old_badge.split("·", 1)[1].strip()
+                _new_badge = f"  │  ◷ {_new_decade_label}"
+                if _genre_part:
+                    _new_badge += f" · {_genre_part}"
+                self._era_genre_badge = _new_badge
+                # Carrier-Label neu aufbauen
+                _cur_lbl = getattr(self, "_carrier_bg_label", "")
+                _cur_sc = getattr(self, "_carrier_bg_score", 0)
+                _cur_stars = self._render_star_html(_cur_sc)
+                self.detected_medium_label.setText(f"{_cur_lbl}   {_cur_stars}{_new_badge}")
+                logger.info(
+                    "Era-Badge aus UV3-Ergebnis aktualisiert: %s → %s",
+                    _old_badge.strip(),
+                    _new_badge.strip(),
+                )
         except Exception as _era_upd_exc:
             logger.debug("Era-Badge-Update aus Ergebnis fehlgeschlagen: %s", _era_upd_exc)
         # ──────────────────────────────────────────────────────────────────────
@@ -12319,6 +12321,13 @@ class ModernMainWindow(QMainWindow):
         """Update defect counter display and human-readable summary label"""
         # Count-up animation when scan first completes (status=="detected")
         _status = defects.get("status", "")
+        if _status == "detected":
+            # Preserve original scan scores so chips can animate red → amber → green
+            # during restoration even after individual scores are zeroed per phase.
+            # label_map is defined below; we store all numeric fields and filter there.
+            self._defect_initial_scores = {
+                k: v for k, v in defects.items() if isinstance(v, (int, float)) and k not in ("status", "_no_anim")
+            }
         if _status == "detected" and not defects.get("_no_anim"):
             self._defect_anim_target = dict(defects)
             self._defect_anim_frame = 0
@@ -12341,40 +12350,42 @@ class ModernMainWindow(QMainWindow):
             # Mapping: interne Schlüssel → (Laienname, Schwellwerte [leicht, mittel, schwer])
             label_map = {
                 # Analoge Defekte (skalierte Zählwerte)
+                # Names are kept consistent with _DEFECT_LABELS in WaveformWidget
                 "clicks": ("Knackser", 0.5, 2.0),
                 "crackle": ("Knistern", 0.1, 0.5),
-                "pops": ("Pops", 0.5, 3.0),
+                "pops": ("Impulse", 0.5, 3.0),
                 "clipping": ("Übersteuerung", 0.05, 0.3),
-                "hum": ("Brummen", 0.05, 0.4),
+                "hum": ("Netzbrummen", 0.05, 0.4),
                 "noise_level": ("Rauschen", 0.1, 0.5),
                 "noise": ("Rauschen", 0.1, 0.5),
                 "sibilance": ("Zischlaute", 0.1, 0.5),
                 "dropout": ("Tonaussetzer", 0.5, 3.0),
-                "wow": ("Wow (<0.5 Hz)", 0.2, 0.8),
-                "flutter": ("Flutter (0.5–200 Hz)", 0.2, 0.8),
+                "wow": ("Tonhöhenschwankung", 0.2, 0.8),
+                "flutter": ("Tonhöhenzittern", 0.2, 0.8),
                 "rumble": ("Tieffrequenzrumpeln", 0.1, 0.5),
                 # 0–100 % Skala (alle weiteren Defekttypen)
-                "dc_offset": ("DC-Gleichspannungsversatz", 5.0, 30.0),
+                "dc_offset": ("Gleichspannung", 5.0, 30.0),
                 "digital_artifacts": ("Digitale Artefakte", 5.0, 30.0),
                 "compression_artifacts": ("Codec-Artefakte", 5.0, 30.0),
-                "stereo_imbalance": ("Stereo-Imbalance", 5.0, 30.0),
+                "stereo_imbalance": ("Stereo-Balance", 5.0, 30.0),
                 "phase_issues": ("Phasenfehler", 5.0, 30.0),
                 "bandwidth_loss": ("Bandbreitenverlust", 5.0, 30.0),
                 "pitch_drift": ("Tonhöhendrift", 5.0, 30.0),
-                "reverb_excess": ("Übermäßiger Hall", 5.0, 30.0),
+                "reverb_excess": ("Überhall", 5.0, 30.0),
                 "print_through": ("Bandübersprechen", 5.0, 30.0),
                 "quantization_noise": ("Quantisierungsrauschen", 5.0, 30.0),
-                "jitter_artifacts": ("Jitter-Artefakte", 5.0, 30.0),
-                "dynamic_compression_excess": ("Loudness-Überkompression", 5.0, 30.0),
-                "pre_echo": ("Pre-Echo (Codec)", 5.0, 30.0),
-                "transient_smearing": ("Transienten-Verschmierung", 5.0, 30.0),
-                "soft_saturation": ("Soft-Sättigung (bewahren)", 5.0, 30.0),
-                "head_wear": ("Kopf-/Azimuth-Fehler", 5.0, 30.0),
+                "jitter_artifacts": ("Zeit-Flattern", 5.0, 30.0),
+                "dynamic_compression_excess": ("Lautstärkekompression", 5.0, 30.0),
+                "pre_echo": ("Vorecho", 5.0, 30.0),
+                "transient_smearing": ("Transienten-Unschärfe", 5.0, 30.0),
+                "soft_saturation": ("Bandsättigung (normal)", 5.0, 30.0),
+                "head_wear": ("Tonkopf-Abnutzung", 5.0, 30.0),
                 "azimuth_error": ("Azimuth-Fehler", 5.0, 30.0),
-                "riaa_curve_error": ("RIAA-Kurven-Fehler", 5.0, 30.0),
-                "aliasing": ("Aliasing-Artefakte", 5.0, 30.0),
-                "bias_error": ("Vormagnetisierungs-Fehler", 5.0, 30.0),
-                "vocal_harshness": ("Vocal-Härte", 5.0, 30.0),
+                "riaa_curve_error": ("RIAA-Fehler", 5.0, 30.0),
+                "aliasing": ("Frequenz-Aliasing", 5.0, 30.0),
+                "bias_error": ("Vormagnetisierung", 5.0, 30.0),
+                "transport_bump": ("Bandhopser", 5.0, 30.0),
+                "vocal_harshness": ("Gesangs-Schärfe", 5.0, 30.0),
             }
             # Nur echte Defektfelder auswerten ("status"-Key ausschliessen)
             active = [
@@ -12397,7 +12408,13 @@ class ModernMainWindow(QMainWindow):
                         "color: #82B89A; font-size: 8pt; background: transparent; font-weight: bold; padding: 0 2px;"
                     )
                 self.defect_count_live_label.setVisible(True)
-            if not active:
+            # Show chips when defects are currently active, OR when restoration
+            # is in progress/done and we have stored initial scores (chips stay
+            # visible and transition red → amber → green as defects are resolved).
+            _initial_sc = getattr(self, "_defect_initial_scores", {})
+            _initial_has_defects = any(v > 0.01 for k, v in _initial_sc.items())
+            _show_chips = bool(active) or (_initial_has_defects and _status in ("correcting", "completed"))
+            if not _show_chips:
                 _rest_score = getattr(self, "_restorability_score", 100.0)
                 _medium = getattr(self, "_raw_medium_type", "unknown")
                 # Material-spezifische Defekt-Hinweise auch ohne Scanner-Treffer
@@ -12459,113 +12476,161 @@ class ModernMainWindow(QMainWindow):
                     self._set_info_card_state(self.defect_summary_label, "good", animate=True)
             else:
                 # Defekte als Chips in 2-spaltiger Tabelle (sauber ausgerichtet).
-                # Neue Gruppierung nach Defektkategorie
+                # Gruppierung nach Defektkategorie — Keys müssen den lowercase-Schlüsseln
+                # aus _defect_analysis_to_display() entsprechen.
                 DEFECT_CATEGORIES = [
                     (
                         "Banddefekte",
                         [
-                            "BANDWIDTH_LOSS",
-                            "DROPOUTS",
-                            "PRINT_THROUGH",
-                            "HEAD_WEAR",
-                            "AZIMUTH_ERROR",
-                            "TRANSPORT_BUMP",
-                            "RIAA_CURVE_ERROR",
-                            "BIAS_ERROR",
+                            "bandwidth_loss",
+                            "dropout",
+                            "print_through",
+                            "head_wear",
+                            "azimuth_error",
+                            "riaa_curve_error",
+                            "bias_error",
+                            "transport_bump",
                         ],
                     ),
                     (
                         "Artefakte",
                         [
-                            "CLICKS",
-                            "CRACKLE",
-                            "CLIPPING",
-                            "DIGITAL_ARTIFACTS",
-                            "JITTER_ARTIFACTS",
-                            "QUANTIZATION_NOISE",
-                            "COMPRESSION_ARTIFACTS",
-                            "DYNAMIC_COMPRESSION_EXCESS",
-                            "PRE_ECHO",
+                            "clicks",
+                            "crackle",
+                            "pops",
+                            "clipping",
+                            "digital_artifacts",
+                            "jitter_artifacts",
+                            "quantization_noise",
+                            "compression_artifacts",
+                            "dynamic_compression_excess",
+                            "pre_echo",
                         ],
                     ),
-                    ("Rauschen", ["HIGH_FREQ_NOISE", "LOW_FREQ_RUMBLE", "HUM", "SOFT_SATURATION"]),
-                    ("Tonhöhenfehler", ["WOW", "FLUTTER", "PITCH_DRIFT", "PHASE_ISSUES", "STEREO_IMBALANCE"]),
+                    ("Rauschen", ["noise_level", "noise", "rumble", "hum", "soft_saturation"]),
+                    ("Tonhöhenfehler", ["wow", "flutter", "pitch_drift", "phase_issues", "stereo_imbalance"]),
                     (
                         "",
-                        ["SIBILANCE", "VOCAL_HARSHNESS", "DC_OFFSET", "ALIASING", "TRANSIENT_SMEARING"],
+                        [
+                            "sibilance",
+                            "vocal_harshness",
+                            "dc_offset",
+                            "aliasing",
+                            "transient_smearing",
+                            "reverb_excess",
+                        ],
                     ),  # Keine Überschrift für sonstige
                 ]
-                # Mapping Defekttyp-Name → Kategorie
+                # Mapping Defekttyp-Name → Kategorie (lowercase für sicheren Key-Vergleich)
                 defect_to_category = {}
                 for cat, keys in DEFECT_CATEGORIES:
                     for k in keys:
-                        defect_to_category[k] = cat
+                        defect_to_category[k.lower()] = cat
 
                 # Aktive Defekte nach Kategorie gruppieren
                 from collections import defaultdict
 
+                # During/after restoration: show ALL initially-detected defects
+                # with fix-progress coloring. Before restoration: only active.
+                _initial = getattr(self, "_defect_initial_scores", {})
+                _is_restoring = _status in ("correcting", "completed")
+                if _is_restoring and _initial:
+                    _display_items = sorted(
+                        [
+                            (k, _initial.get(k, 0.0), defects.get(k, 0.0))
+                            for k in label_map
+                            if _initial.get(k, 0.0) > 0.01
+                        ],
+                        key=lambda x: -x[1],
+                    )
+                else:
+                    _display_items = sorted(
+                        [(k, v, v) for k, v in active],
+                        key=lambda x: -x[1],
+                    )
                 grouped = defaultdict(list)
                 has_severe = False
-                for k, v in sorted(active, key=lambda x: -x[1]):
+                for k, v_init, v_cur in _display_items:
                     name, thr_light, thr_heavy = label_map[k]
-                    # Kategorie bestimmen
                     cat = defect_to_category.get(k, "Sonstige")
-                    if v >= thr_heavy:
-                        sev = "schwer"
-                        _sev_color = "#E06060"
+                    # Fix ratio: 0.0 = untouched, 1.0 = fully resolved
+                    if _status == "completed":
+                        fix_ratio = 1.0
+                    elif _is_restoring and v_init > 1e-9:
+                        fix_ratio = 1.0 - max(0.0, min(1.0, v_cur / v_init))
+                    else:
+                        fix_ratio = 0.0
+                    # Bar fill stays proportional to ORIGINAL severity
+                    if v_init >= thr_heavy:
                         _bar = "■■■■■"
-                        has_severe = True
-                    elif v >= thr_light:
-                        sev = "mittel"
-                        _sev_color = "#D4B040"
+                        if fix_ratio < 0.95:
+                            has_severe = True
+                    elif v_init >= thr_light:
                         _bar = "■■■□□"
                     else:
-                        sev = "leicht"
-                        _sev_color = "#6CC090"
                         _bar = "■□□□□"
+                    # Color transitions: red → amber → yellow-green → green
+                    if fix_ratio >= 0.95:
+                        _sev_color = "#4DC878"  # green — fully resolved
+                        _name_style = "color:#7ECC98;"
+                        _prefix = "✓ "
+                    elif fix_ratio >= 0.50:
+                        _sev_color = "#A8C030"  # yellow-green — mostly done
+                        _name_style = "color:#D0D0E0;"
+                        _prefix = ""
+                    elif fix_ratio >= 0.15:
+                        _sev_color = "#D4A030"  # amber — actively being fixed
+                        _name_style = "color:#D0D0E0;"
+                        _prefix = ""
+                    else:
+                        # Not yet addressed — use original severity color
+                        if v_init >= thr_heavy:
+                            _sev_color = "#E06060"
+                        elif v_init >= thr_light:
+                            _sev_color = "#D4B040"
+                        else:
+                            _sev_color = "#6CC090"
+                        _name_style = "color:#D0D0E0;"
+                        _prefix = ""
                     grouped[cat].append(
-                        f'<span style="display:inline-block;margin:2px 4px 2px 0;padding:2px 6px;border-radius:8px;border:1px solid rgba(180,190,220,0.28);background:rgba(22,28,46,0.52);white-space:nowrap;">'
-                        f'<b style="font-size:7.5pt;">{name}</b>'
-                        f' · <span style="color:{_sev_color};font-size:7pt;">{sev}</span>'
-                        f' <span style="color:{_sev_color};">{_bar}</span>'
+                        f'<span style="font-size:7pt;white-space:nowrap;">'
+                        f'<span style="color:{_sev_color};">{_prefix}{_bar}</span>'
+                        f' <span style="{_name_style}">{name}</span>'
                         f"</span>"
                     )
-                # HTML für jede Kategorie bauen
+                # HTML als 2-Spalten-Tabelle je Kategorie aufbauen
                 chips_html = "<div style='text-align:left;'>"
                 for cat, _ in DEFECT_CATEGORIES:
                     chips = grouped.get(cat, [])
                     if not chips:
                         continue
                     if cat:
-                        chips_html += f"<div style='margin-top:2px;margin-bottom:2px;'><b style='color:#B8A068;font-size:8.5pt;'>{cat}:</b> "
-                        chips_html += " ".join(chips)
-                        chips_html += "</div>"
-                    else:
-                        chips_html += "<div style='margin-top:2px;margin-bottom:2px;'>"
-                        chips_html += " ".join(chips)
-                        chips_html += "</div>"
+                        chips_html += (
+                            f"<div style='margin-top:4px;padding-bottom:1px;"
+                            f"border-bottom:1px solid rgba(180,180,120,0.20);'>"
+                            f"<span style='color:#9A8048;font-size:6.5pt;font-weight:bold;"
+                            f"letter-spacing:0.4px;'>{cat.upper()}</span></div>"
+                        )
+                    chips_html += "<table width='100%' cellspacing='0' cellpadding='0'>"
+                    for i in range(0, len(chips), 2):
+                        chips_html += "<tr>"
+                        chips_html += (
+                            f"<td width='50%' style='padding:1px 2px 1px 6px;vertical-align:top;'>{chips[i]}</td>"
+                        )
+                        if i + 1 < len(chips):
+                            chips_html += f"<td width='50%' style='padding:1px 2px 1px 2px;vertical-align:top;'>{chips[i + 1]}</td>"
+                        else:
+                            chips_html += "<td width='50%'></td>"
+                        chips_html += "</tr>"
+                    chips_html += "</table>"
                 chips_html += "</div>"
-                n = len(active)
-                _s = defects.get("status", "detected")
-                if _s == "detected":
-                    header = f"⚠ Defektbehebung: {n} erkannt:"
-                    action = "→ Defektbehebung startet beim Restaurieren"
-                elif _s == "correcting":
-                    header = f"🔧 Defektbehebung: {n} aktiv:"
-                    action = "→ Defektbehebung läuft …"
-                else:
-                    header = f"⚠ Defektbehebung: {n} verblieben:"
-                    action = "→ konnten nicht vollständig behoben werden"
-                summary_html = (
-                    f"<div style='text-align:left;'>{header}</div>"
-                    f"{chips_html}"
-                    f"<div style='text-align:left;'>{action}</div>"
-                )
+                summary_html = chips_html
                 self.defect_summary_label.setTextFormat(Qt.TextFormat.RichText)
                 self.defect_summary_label.setText(summary_html)
+                _card_state = "good" if _status == "completed" else ("critical" if has_severe else "warn")
                 self._set_info_card_state(
                     self.defect_summary_label,
-                    "critical" if has_severe else "warn",
+                    _card_state,
                     animate=True,
                 )
 

@@ -816,11 +816,18 @@ class DropoutRepairPhase(PhaseInterface):
             ctx_bef = before[-min(ctx_len, len(before)) :]
             ctx_aft = after[: min(ctx_len, len(after))]
 
+            # Cap effective window to actual context length to avoid scipy warnings
+            # ("nperseg > input length") when context is shorter than the zone window.
+            eff_win = min(win, len(ctx_bef), len(ctx_aft), len(audio_fill))
+            if eff_win < 4:
+                continue  # Too short for meaningful spectral estimation at this zone
+            eff_hop = max(1, int(hop * eff_win / win))  # Scale hop proportionally
+
             try:
                 from scipy.signal import stft as _stft_fn
 
-                _, _, Z_bef = _stft_fn(ctx_bef, sr, nperseg=win, noverlap=win - hop)
-                _, _, Z_aft = _stft_fn(ctx_aft, sr, nperseg=win, noverlap=win - hop)
+                _, _, Z_bef = _stft_fn(ctx_bef, sr, nperseg=eff_win, noverlap=eff_win - eff_hop)
+                _, _, Z_aft = _stft_fn(ctx_aft, sr, nperseg=eff_win, noverlap=eff_win - eff_hop)
             except Exception:
                 continue
 
@@ -845,7 +852,7 @@ class DropoutRepairPhase(PhaseInterface):
                 from scipy.signal import istft as _istft_fn
                 from scipy.signal import stft as _stft_fn
 
-                _, _, Zxx_fill = _stft_fn(audio_fill, sr, nperseg=win, noverlap=win - hop)
+                _, _, Zxx_fill = _stft_fn(audio_fill, sr, nperseg=eff_win, noverlap=eff_win - eff_hop)
             except Exception:
                 continue
 
@@ -856,7 +863,7 @@ class DropoutRepairPhase(PhaseInterface):
 
             # Build refined fill STFT frame-by-frame at zone resolution
             Zxx_refined = np.zeros_like(Zxx_fill)
-            phase_increment = 2.0 * np.pi * freqs * hop / (sr + 1e-10)
+            phase_increment = 2.0 * np.pi * freqs * eff_hop / (sr + 1e-10)
             for fi in range(n_fill_frames):
                 alpha = float(fi) / max(n_fill_frames - 1, 1)
                 # Interpolate magnitude between before/after context
@@ -869,9 +876,9 @@ class DropoutRepairPhase(PhaseInterface):
             # Reconstruct zone fill segment
             try:
                 if _PGHI_AVAILABLE_P24:
-                    seg = _pghi_p24(Zxx_refined, win, hop, sr)
+                    seg = _pghi_p24(Zxx_refined, eff_win, eff_hop, sr)
                 else:
-                    _, seg = _istft_fn(Zxx_refined, sr, nperseg=win, noverlap=win - hop)
+                    _, seg = _istft_fn(Zxx_refined, sr, nperseg=eff_win, noverlap=eff_win - eff_hop)
             except Exception:
                 continue
 
