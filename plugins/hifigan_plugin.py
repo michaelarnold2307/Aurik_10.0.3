@@ -26,7 +26,10 @@ _OUT_HOP = 2560
 
 
 class HifiGanPlugin:
+    """HiFi-GAN ONNX vocoder plugin for mel-to-waveform synthesis."""
+
     def __init__(self, model_path: str | None = None) -> None:
+        """Initialize HiFi-GAN plugin and attempt model load."""
         self._session: Any = None
         self._try_load(model_path or _MODEL)
 
@@ -53,7 +56,10 @@ class HifiGanPlugin:
             try:
                 from backend.core.plugin_lifecycle_manager import register_plugin as _reg_plm
 
-                _reg_plm("HiFiGAN", size_gb=0.004, unload_fn=lambda s=self: setattr(s, "_session", None))
+                def _unload_hifigan(s: HiFiGANPlugin = self) -> None:
+                    s._session = None
+
+                _reg_plm("HiFiGAN", size_gb=0.004, unload_fn=_unload_hifigan)
             except Exception:
                 pass
         except Exception as exc:
@@ -189,6 +195,7 @@ def _resamp(x, src, dst):
 
 
 def get_hifigan_plugin() -> HifiGanPlugin:
+    """Thread-safe singleton accessor for HiFi-GAN plugin."""
     global _inst
     if _inst is None:
         with _lock:
@@ -210,6 +217,6 @@ import numpy as _np
 
 
 def vocode_audio(audio: _np.ndarray, sr: int = 48000) -> _np.ndarray:
-    """vocode_audio(audio, sr) — konvertiert Audio zu Mel und dann zurück."""
+    """Convert audio to mel spectrogram and back via HiFi-GAN."""
     plugin = get_hifigan_plugin()
     return plugin.reconstruct(audio, sr)

@@ -4214,7 +4214,7 @@ class UnifiedRestorerV3:
         # §8.2 v9.10.79 Emotionale Psychoakustik: Makro-Dynamik-Korrektur Status speichern
         if _arc_result is not None:
             try:
-                _post_mdem = locals().get("_arc_post_mdem", None)
+                _post_mdem = locals().get("_arc_post_mdem")
                 _a_final = float(getattr(_arc_result, "arousal_pearson", 0.0))
                 _v_final = float(getattr(_arc_result, "valence_pearson", 0.0))
                 _a_base = (

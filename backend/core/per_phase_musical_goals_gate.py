@@ -1,6 +1,5 @@
 """
-PerPhaseMusicalGoalsGate (PMGG) — Aurik 9.0 §2.29
-===================================================
+PerPhaseMusicalGoalsGate (PMGG) — Aurik 9.0 §2.29.
 
 Prüft Musical Goals nach JEDER Phase via 5-s-Stichprobe.
 Verhindert kumulative Degradation über 56 Phasen.
@@ -1917,6 +1916,7 @@ class PerPhaseMusicalGoalsGate:
     """
 
     def __init__(self) -> None:
+        """Initialize PMGG with zeroed rollback counters."""
         self._rollback_count: int = 0  # Pro Restaurierungsaufruf
         self._user_warned: bool = False  # Nutzer-Warnung einmalig
 

@@ -84,6 +84,7 @@ class SgmseResult:
     snr_improvement_db: float = 0.0
 
     def __post_init__(self) -> None:
+        """Clamp audio to [-1, 1] and replace NaN/Inf."""
         self.audio = np.nan_to_num(self.audio, nan=0.0, posinf=0.0, neginf=0.0)
         self.audio = np.clip(self.audio, -1.0, 1.0)
 
@@ -101,6 +102,7 @@ class SGMSEPlusPlugin:
     """
 
     def __init__(self) -> None:
+        """Initialize SGMSE+ plugin and attempt model load."""
         self._session: Any = None
         self._ts_model: Any = None
         self._eager_model: Any = None
@@ -129,7 +131,7 @@ class SGMSEPlusPlugin:
             for ckpt_path in _CKPT_CANDIDATES:
                 if not ckpt_path.exists():
                     continue
-                ckpt = torch.load(ckpt_path, map_location="cpu")
+                ckpt = torch.load(ckpt_path, map_location="cpu")  # nosec B614 — trusted local model bundle
                 hyper = ckpt.get("hyper_parameters")
                 if not isinstance(hyper, dict):
                     continue
@@ -170,20 +172,18 @@ class SGMSEPlusPlugin:
                 if _try_alloc is not None and not _try_alloc("SGMSE+", size_gb=0.12):
                     logger.warning("SGMSE+: ML-Budget erschöpft — WPE-DSP-Fallback.")
                 else:
-                    self._ts_model = torch.jit.load(str(_TS_PATH), map_location="cpu")
+                    self._ts_model = torch.jit.load(str(_TS_PATH), map_location="cpu")  # nosec B614
                     self._ts_model.eval()
                     self._model_loaded = True
                     logger.info("✅ SGMSE+ TorchScript geladen (%s)", _TS_PATH.name)
                     try:
                         from backend.core.plugin_lifecycle_manager import register_plugin as _reg_plm
 
-                        _reg_plm(
-                            "SGMSE+",
-                            size_gb=0.12,
-                            unload_fn=lambda s=self: (
-                                setattr(s, "_ts_model", None) or setattr(s, "_model_loaded", False)
-                            ),
-                        )
+                        def _unload_sgmse(s: SGMSEPlusPlugin = self) -> None:
+                            s._ts_model = None
+                            s._model_loaded = False
+
+                        _reg_plm("SGMSE+", size_gb=0.12, unload_fn=_unload_sgmse)
                     except Exception:
                         pass
                     return
@@ -219,7 +219,7 @@ class SGMSEPlusPlugin:
             for ckpt_path in _CKPT_CANDIDATES:
                 if not ckpt_path.exists():
                     continue
-                ckpt = torch.load(ckpt_path, map_location="cpu")
+                ckpt = torch.load(ckpt_path, map_location="cpu")  # nosec B614 — trusted local model bundle
                 hyper = ckpt.get("hyper_parameters")
                 state = ckpt.get("state_dict")
                 if not isinstance(hyper, dict) or not isinstance(state, dict):
@@ -259,7 +259,7 @@ class SGMSEPlusPlugin:
         try:
             import psutil
 
-            return psutil.virtual_memory().available / (1024**3)
+            return float(psutil.virtual_memory().available / (1024**3))
         except Exception:
             return float("inf")
 
