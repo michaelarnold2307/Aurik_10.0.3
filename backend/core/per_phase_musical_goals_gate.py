@@ -182,8 +182,12 @@ PHASE_GOAL_EXCLUSIONS: dict[str, set[str]] = {
     # Even a shallow notch at 50 Hz shifts lower MFCC coefficients, driving the
     # timbre proxy below threshold despite no perceptual timbre degradation.
     "phase_02": {
-        "bass_kraft", "authentizitaet", "natuerlichkeit", "transparenz",
-        "groove", "timbre_authentizitaet",
+        "bass_kraft",
+        "authentizitaet",
+        "natuerlichkeit",
+        "transparenz",
+        "groove",
+        "timbre_authentizitaet",
     },
     # Reconstruction phases: spectral correlation handles reconstruction well;
     # only keep exclusions where AI-generated content has low correlation by design
@@ -203,13 +207,26 @@ PHASE_GOAL_EXCLUSIONS: dict[str, set[str]] = {
     # The flatness-based proxy handles this correctly in practice but the exclusion
     # prevents edge-cases in very short silence segments where the 2.5-s sample
     # window captures mostly dropout.
-    "phase_24": {"natuerlichkeit", "brillanz", "authentizitaet", "artikulation", "timbre_authentizitaet"},  # Dropout repair: synthesised HF content; timbre_authentizitaet: AudioSR synthesis creates new spectral content → MFCC correlation against damaged reference is meaningless
+    "phase_24": {
+        "natuerlichkeit",
+        "brillanz",
+        "authentizitaet",
+        "artikulation",
+        "timbre_authentizitaet",
+    },  # Dropout repair: synthesised HF content; timbre_authentizitaet: AudioSR synthesis creates new spectral content → MFCC correlation against damaged reference is meaningless
     "phase_28": set(),  # Noise reduction variant: handled by correlation
     # Diffusion inpainting: synthesised content has no transient reference →
     # ArticulationMetric correlation vs pre-inpainting fragment is meaningless.
     # micro_dynamics excluded: inpainting inserts new content with its own
     # envelope that intentionally differs from the surrounding material.
-    "phase_55": {"artikulation", "micro_dynamics", "natuerlichkeit", "brillanz", "authentizitaet", "timbre_authentizitaet"},  # Diffusion inpainting: synthesised content → identical root-causes as phase_23/phase_24 (AudioSR); MFCC-smoothness vs. damaged reference meaningless; brillanz crest-proxy scores against absent HF pre-synthesis; authentizitaet flatness-proxy reference-mismatch; timbre_authentizitaet MFCC-Pearson/centroid meaningless for synthesised spectral content
+    "phase_55": {
+        "artikulation",
+        "micro_dynamics",
+        "natuerlichkeit",
+        "brillanz",
+        "authentizitaet",
+        "timbre_authentizitaet",
+    },  # Diffusion inpainting: synthesised content → identical root-causes as phase_23/phase_24 (AudioSR); MFCC-smoothness vs. damaged reference meaningless; brillanz crest-proxy scores against absent HF pre-synthesis; authentizitaet flatness-proxy reference-mismatch; timbre_authentizitaet MFCC-Pearson/centroid meaningless for synthesised spectral content
     # Sub-sonic removal: reference LF correlation handles bass preservation check
     "phase_05": set(),  # Rumble filter
     "phase_30": set(),  # DC-offset removal
@@ -249,7 +266,15 @@ PHASE_GOAL_EXCLUSIONS: dict[str, set[str]] = {
     # catastrophic tonal_center regression Δ=0.1043 on 1930s tape (SNR≈15 dB, 1/f hiss).
     # The musical key did not change; K-S measurement is disturbed by shaped NR.
     # brillanz+transparenz: §9.7.12/13 crest-factor proxies are SNR-robust → kept.
-    "phase_03": {"natuerlichkeit", "artikulation", "authentizitaet", "tonal_center", "timbre_authentizitaet", "groove", "emotionalitaet"},  # OMLSA/ResembleEnhance (§9.7.13: crest-factor brillanz+transparenz SNR-robust; §9.7.11 ext: K-S NOT invariant for shaped NR → tonal_center excluded v9.10.95; timbre_authentizitaet: MFCC-Pearson + centroid-CV proxy disturbed by spectral-envelope change after NR — confirmed in logs 2026-03-30; groove: broadband NR reduces inter-beat LF noise → RMS autocorr[lag_05] drops → false P3 regression; emotionalitaet: NR lowers noise floor in quiet segments → crest-factor ratio shifts → false P3 regression (Δ0.17 observed) — identical mechanism to phase_18 noise gate — confirmed 2026-03-31)
+    "phase_03": {
+        "natuerlichkeit",
+        "artikulation",
+        "authentizitaet",
+        "tonal_center",
+        "timbre_authentizitaet",
+        "groove",
+        "emotionalitaet",
+    },  # OMLSA/ResembleEnhance (§9.7.13: crest-factor brillanz+transparenz SNR-robust; §9.7.11 ext: K-S NOT invariant for shaped NR → tonal_center excluded v9.10.95; timbre_authentizitaet: MFCC-Pearson + centroid-CV proxy disturbed by spectral-envelope change after NR — confirmed in logs 2026-03-30; groove: broadband NR reduces inter-beat LF noise → RMS autocorr[lag_05] drops → false P3 regression; emotionalitaet: NR lowers noise floor in quiet segments → crest-factor ratio shifts → false P3 regression (Δ0.17 observed) — identical mechanism to phase_18 noise gate — confirmed 2026-03-31)
     # DeepFilterNet HF-removal intentionally reduces HF energy → brillanz drops.
     # artikulation excluded for same reason as phase_03: reference=hissy_tape vs
     # denoised output gives misleadingly low transient-correlation score.
@@ -267,7 +292,15 @@ PHASE_GOAL_EXCLUSIONS: dict[str, set[str]] = {
     # (C5-B7) while leaving low-register bins less affected → K-S correlation shifts
     # even though the musical key is unchanged. Real-run stagnation (Δ=0.000311) at
     # strength=0.78 confirms the regression is measurement-driven, not musical.
-    "phase_29": {"artikulation", "authentizitaet", "natuerlichkeit", "tonal_center", "timbre_authentizitaet", "groove", "emotionalitaet"},  # DeepFilterNet (§9.7.13: crest-factor SNR-robust; §9.7.11 ext: K-S NOT invariant for HF-selective NR → tonal_center excluded v9.10.95; timbre_authentizitaet: HF-selective filtering shifts centroid-CV + MFCC envelope — same root-cause as phase_03; groove+emotionalitaet: HF-selective NR same mechanisms as phase_03 broadband NR for LF-crest/crest-factor false P3 regressions — confirmed by analogy 2026-03-31)
+    "phase_29": {
+        "artikulation",
+        "authentizitaet",
+        "natuerlichkeit",
+        "tonal_center",
+        "timbre_authentizitaet",
+        "groove",
+        "emotionalitaet",
+    },  # DeepFilterNet (§9.7.13: crest-factor SNR-robust; §9.7.11 ext: K-S NOT invariant for HF-selective NR → tonal_center excluded v9.10.95; timbre_authentizitaet: HF-selective filtering shifts centroid-CV + MFCC envelope — same root-cause as phase_03; groove+emotionalitaet: HF-selective NR same mechanisms as phase_03 broadband NR for LF-crest/crest-factor false P3 regressions — confirmed by analogy 2026-03-31)
     # Phases with RADICAL spectral changes where even correlation can't help:
     # phase_04 EQ: redistributes the entire spectrum — brillanz (HF cut/boost)
     # and waerme (mid cut/boost) are intentional outcomes, not regressions.
@@ -286,39 +319,64 @@ PHASE_GOAL_EXCLUSIONS: dict[str, set[str]] = {
     # each note → those harmonics land in specific semitone bins → chroma distribution
     # shifts → K-S correlation changes. Not a musical key change.
     "phase_16": {
-        "transparenz", "brillanz", "waerme", "authentizitaet", "natuerlichkeit",
-        "timbre_authentizitaet", "tonal_center",
+        "transparenz",
+        "brillanz",
+        "waerme",
+        "authentizitaet",
+        "natuerlichkeit",
+        "timbre_authentizitaet",
+        "tonal_center",
     },  # Final EQ: same spectral redistribution as phase_04 + K-S chroma-shift (§9.7.11 ext)
-    "phase_04": {"transparenz", "brillanz", "waerme", "authentizitaet", "natuerlichkeit",
-                 "timbre_authentizitaet"},  # EQ deliberately redistributes spectrum (§9.7.11 K-S: tonal_center not yet observed failing here)
+    "phase_04": {
+        "transparenz",
+        "brillanz",
+        "waerme",
+        "authentizitaet",
+        "natuerlichkeit",
+        "timbre_authentizitaet",
+    },  # EQ deliberately redistributes spectrum (§9.7.11 K-S: tonal_center not yet observed failing here)
     "phase_06": set(),  # SBR adds content not in reference → §9.7.12 crest-factor brillanz proxy is reference-free and correctly scores HF synthesis improvement
-    "phase_07": set(),  # Harmonic synthesis adds new HF content → §9.7.12 crest-factor proxy correctly scores HF improvement (reference-free, noise-robust)
+    "phase_07": {
+        "artikulation",
+        "timbre_authentizitaet",
+    },  # Harmonic restoration: H2-H4 waveshaping adds new harmonic partials → onset-sharpness proxy saturates at 1.0 pre-phase (mean_peaks/0.01 clips) then drops after harmonic addition (new spectral energy reshapes attack envelope) → false P2 artikulation catastrophic regression (0.2532 observed, 2026-04-02). timbre_authentizitaet: harmonic synthesis intentionally changes MFCC-Pearson + spectral-centroid-CV.
     # Click removal: replaces impulse artifacts with interpolated audio.
     # artikulation excluded: clicks are high-amplitude transients in the damaged
     # signal — ArticulationMetric sees them as "transients". After removal they're
     # absent → transient-shape correlation drops → false P2 regression despite
     # genuine quality improvement. The proxy compares damage-transients vs. repair.
-    "phase_01": {"artikulation"},  # Click removal: click impulses appear as transients → removal registers as transient-shape regression (same logic as phase_27)
+    "phase_01": {
+        "artikulation"
+    },  # Click removal: click impulses appear as transients → removal registers as transient-shape regression (same logic as phase_27)
     # Click/pop removal: identical mechanism to phase_01 (different algorithm,
     # same false-regression root cause for artikulation proxy).
-    "phase_27": {"artikulation"},  # Click/pop removal: identical to phase_01 — impulse transients removed → ArticulationMetric false P2 regression
+    "phase_27": {
+        "artikulation"
+    },  # Click/pop removal: identical to phase_01 — impulse transients removed → ArticulationMetric false P2 regression
     # Spectral repair (STFT inpainting via bin interpolation):
     # Replaces isolated spike-bins with linear interpolation from ±2 neighbours.
     # This is DSP-only (no ML synthesis), so natuerlichkeit/authentizitaet proxies
     # are unaffected (no spectral envelope synthesis). Only artikulation is at risk:
     # isolated spike-bins can appear as transient onsets to the proxy; after repair
     # those spikes are smoothed → false P2 regression for heavily corrupted sections.
-    "phase_50": {"artikulation"},  # STFT spectral inpainting: isolated spike-bins appear as transients → smoothing causes false ArticulationMetric P2 regression
+    "phase_50": {
+        "artikulation"
+    },  # STFT spectral inpainting: isolated spike-bins appear as transients → smoothing causes false ArticulationMetric P2 regression
     # Harmonic exciter: synthesises H2–H4 harmonics to enhance presence/air.
     # timbre_authentizitaet excluded: adding harmonics intentionally changes
     # MFCC-Pearson (the timbre IS changing) and spectral-centroid-CV
     # (HF partial energy increases) → false P2 regression vs. pre-exciter reference.
-    "phase_21": {"timbre_authentizitaet"},  # Harmonic exciter: H2-H4 synthesis intentionally changes MFCC-Pearson + centroid-CV → false P2 timbre regression
+    "phase_21": {
+        "timbre_authentizitaet"
+    },  # Harmonic exciter: H2-H4 synthesis intentionally changes MFCC-Pearson + centroid-CV → false P2 timbre regression
     # Tape saturation: tanh-waveshaping (soft saturation) + harmonic series modeling.
     # timbre_authentizitaet: harmonics added intentionally → MFCC-Pearson changes.
     # emotionalitaet: tanh reduces peak amplitude relative to RMS (peak compression)
     # → crest-factor ratio drops → false P3 regression despite intended enhancement.
-    "phase_22": {"timbre_authentizitaet", "emotionalitaet"},  # Tape saturation: tanh waveshaping compresses peaks → crest-factor drops (false P3); harmonic synthesis changes MFCC-Pearson (false P2)
+    "phase_22": {
+        "timbre_authentizitaet",
+        "emotionalitaet",
+    },  # Tape saturation: tanh waveshaping compresses peaks → crest-factor drops (false P3); harmonic synthesis changes MFCC-Pearson (false P2)
     # Bass enhancement: low-shelf EQ + sub-harmonic synthesis + soft saturation.
     # tonal_center excluded: sub-harmonic synthesis creates tones an octave below
     # fundamentals — K-S chroma template correlation changes because the pitch-class
@@ -328,17 +386,27 @@ PHASE_GOAL_EXCLUSIONS: dict[str, set[str]] = {
     # band → warmth ratio E(200-800)/E(800-3000) changes → false P4 regression.
     # emotionalitaet: LF boost raises RMS significantly relative to peaks → crest
     # drops → false P3 regression (same mechanism as phase_22 tanh saturation).
-    "phase_37": {"timbre_authentizitaet", "tonal_center", "waerme", "emotionalitaet"},  # Bass enhancement: sub-harmonic synthesis → K-S chroma shift + MFCC change; LF energy boost → warmth-ratio + crest-factor false regressions
+    "phase_37": {
+        "timbre_authentizitaet",
+        "tonal_center",
+        "waerme",
+        "emotionalitaet",
+    },  # Bass enhancement: sub-harmonic synthesis → K-S chroma shift + MFCC change; LF energy boost → warmth-ratio + crest-factor false regressions
     # Presence/mid-range clarity EQ (1–4 kHz dynamic boost + Bell EQ).
     # timbre_authentizitaet: boosting 1-4 kHz changes MFCC c1-c3 (dominant spectral
     # range) + centroid-CV directly → false P2 regression vs. pre-boost reference.
     # waerme excluded: presence boost raises energy in 800–3000 Hz band → warmth
     # ratio E(200-800)/E(800-3000) changes → false P4 regression.
-    "phase_38": {"timbre_authentizitaet", "waerme"},  # Presence EQ: 1-4 kHz boost changes MFCC c1-c3 + warmth ratio E(200-800)/E(800-3000) → false P2/P4 regressions
+    "phase_38": {
+        "timbre_authentizitaet",
+        "waerme",
+    },  # Presence EQ: 1-4 kHz boost changes MFCC c1-c3 + warmth ratio E(200-800)/E(800-3000) → false P2/P4 regressions
     # Air band enhancement: shelving EQ + harmonic synthesis for 12–20 kHz.
     # timbre_authentizitaet: HF centroid-CV increases when 12-20 kHz is boosted
     # (centroid shifts upward) → MFCC higher-order coefficients change → false P2.
-    "phase_39": {"timbre_authentizitaet"},  # Air band HF enhancement: 12-20 kHz boost shifts centroid-CV + MFCC higher-order coefficients → false P2 timbre regression
+    "phase_39": {
+        "timbre_authentizitaet"
+    },  # Air band HF enhancement: 12-20 kHz boost shifts centroid-CV + MFCC higher-order coefficients → false P2 timbre regression
     # De-esser (DSP primary + MP-SENet ML refinement): targets sibilant 4–8 kHz.
     # artikulation excluded: /s/, /f/ fricatives ARE transients — the de-esser
     # specifically attenuates their peaks → ArticulationMetric registers this as
@@ -347,15 +415,23 @@ PHASE_GOAL_EXCLUSIONS: dict[str, set[str]] = {
     # higher-order coefficients → false P2 regression.
     # emotionalitaet: de-essing reduces crest specifically at sibilant peaks
     # → crest-factor ratio drops → false P3 regression.
-    "phase_43": {"timbre_authentizitaet", "artikulation", "emotionalitaet"},  # De-esser: 4-8 kHz sibilant attenuation → artikulation (fricative transients attenuated) + timbre (centroid-CV + MFCC) + emotionalitaet (crest-factor drop) false regressions
+    "phase_43": {
+        "timbre_authentizitaet",
+        "artikulation",
+        "emotionalitaet",
+    },  # De-esser: 4-8 kHz sibilant attenuation → artikulation (fricative transients attenuated) + timbre (centroid-CV + MFCC) + emotionalitaet (crest-factor drop) false regressions
     # Guitar enhancement: spectral shaping for guitar timbre (distortion, presence).
     # timbre_authentizitaet: guitar-specific spectral shaping intentionally changes
     # the MFCC-Pearson + centroid-CV profile → false P2 vs. pre-enhancement.
-    "phase_44": {"timbre_authentizitaet"},  # Guitar enhancement: spectral shaping changes MFCC-Pearson + centroid-CV → false P2 timbre regression
+    "phase_44": {
+        "timbre_authentizitaet"
+    },  # Guitar enhancement: spectral shaping changes MFCC-Pearson + centroid-CV → false P2 timbre regression
     # Brass enhancement: HP-filtered formant enhancement + spectral shaping.
     # timbre_authentizitaet: brass formant enhancement changes spectral envelope
     # deliberately → MFCC-Pearson/centroid-CV proxy registers as P2 regression.
-    "phase_45": {"timbre_authentizitaet"},  # Brass enhancement: formant spectral shaping changes MFCC-Pearson + centroid-CV → false P2 timbre regression
+    "phase_45": {
+        "timbre_authentizitaet"
+    },  # Brass enhancement: formant spectral shaping changes MFCC-Pearson + centroid-CV → false P2 timbre regression
     # Spectral tilt: global broadband EQ tilt (boost LF / cut HF or vice versa).
     # timbre_authentizitaet: global spectral tilt directly changes lower-order MFCC
     # c1-c3 (dominant LF/MF energy) + spectral centroid location → false P2.
@@ -379,7 +455,12 @@ PHASE_GOAL_EXCLUSIONS: dict[str, set[str]] = {
     # authentizitaet: spectral gap has near-zero amplitude → flatness undefined;
     # after repair, tonal content increases → reference-mismatch-driven transition.
     # timbre_authentizitaet: MFCC-Pearson meaningless against damaged gap reference.
-    "phase_56": {"natuerlichkeit", "brillanz", "authentizitaet", "timbre_authentizitaet"},  # HEAD_WEAR band gap repair: harmonic interpolation synthesis → identical reference-mismatch root causes as phase_23/phase_55
+    "phase_56": {
+        "natuerlichkeit",
+        "brillanz",
+        "authentizitaet",
+        "timbre_authentizitaet",
+    },  # HEAD_WEAR band gap repair: harmonic interpolation synthesis → identical reference-mismatch root causes as phase_23/phase_55
     # Print-through reduction (bidirectional LMS, reel_tape only):
     # Removes magnetic pre/post-echo from tape print-through artifact.
     # Mechanistically identical to phase_49 (Advanced Dereverb) for:
@@ -388,7 +469,10 @@ PHASE_GOAL_EXCLUSIONS: dict[str, set[str]] = {
     # emotionalitaet: echo tail adds residual energy to quiet segments between musical
     # events → scores_before crest-factor elevated; after removal, quiet segments
     # become true silence → crest-factor ratio shifts → false P3 regression.
-    "phase_57_print_through_reduction": {"authentizitaet", "emotionalitaet"},  # Print-through reduction: echo-tail/pre-echo removal → authentizitaet (log-spectrum valley mechanism) + emotionalitaet (crest-factor in silence segments) false regressions — identical to phase_49
+    "phase_57_print_through_reduction": {
+        "authentizitaet",
+        "emotionalitaet",
+    },  # Print-through reduction: echo-tail/pre-echo removal → authentizitaet (log-spectrum valley mechanism) + emotionalitaet (crest-factor in silence segments) false regressions — identical to phase_49
     # Lyrics-Guided Enhancement (§2.36 PFLICHT): phoneme-aligned DSP per segment class.
     # timbre_authentizitaet excluded: fricative ramp-gain (4-8 kHz), vowel formant
     # shelving (LPC Burg Ord.30-40), plosive burst boost (100-350 Hz) all intentionally
@@ -400,7 +484,11 @@ PHASE_GOAL_EXCLUSIONS: dict[str, set[str]] = {
     # emotionalitaet excluded: fricative high-frequency ramp-gain raises HF energy
     # selectively at sibilant positions → local crest-factor ratio shifts → false P3
     # regression despite intended timbral improvement.
-    "phase_58_lyrics_guided_enhancement": {"timbre_authentizitaet", "artikulation", "emotionalitaet"},  # LGE §2.36: phoneme-specific spectral ops (fricative ramp, plosive burst, formant shelving) → MFCC-Pearson + transient-shape + local crest false regressions
+    "phase_58_lyrics_guided_enhancement": {
+        "timbre_authentizitaet",
+        "artikulation",
+        "emotionalitaet",
+    },  # LGE §2.36: phoneme-specific spectral ops (fricative ramp, plosive burst, formant shelving) → MFCC-Pearson + transient-shape + local crest false regressions
     # M/S dynamics: compresses BOTH Mid AND Side channels independently per 4 bands.
     # Mid compression (ratio 2.0–3.0) directly affects the mono sum (L+R)/2 = Mid.
     # micro_dynamics excluded: multi-band Mid/Side compression intentionally reshapes
@@ -412,7 +500,12 @@ PHASE_GOAL_EXCLUSIONS: dict[str, set[str]] = {
     # timbre_authentizitaet excluded: multiband Mid+Side spectral shaping with
     # different gain-reduction per band alters the spectral envelope of the
     # mono sum → MFCC c1-c3 + centroid-CV register false P2 regression.
-    "phase_34": {"micro_dynamics", "groove", "emotionalitaet", "timbre_authentizitaet"},  # M/S dynamics: Mid-channel compression (ratio 2-3) affects mono sum → groove+emotionalitaet+micro_dynamics (same as phase_10) + timbre_authentizitaet (per-band spectral shaping)
+    "phase_34": {
+        "micro_dynamics",
+        "groove",
+        "emotionalitaet",
+        "timbre_authentizitaet",
+    },  # M/S dynamics: Mid-channel compression (ratio 2-3) affects mono sum → groove+emotionalitaet+micro_dynamics (same as phase_10) + timbre_authentizitaet (per-band spectral shaping)
     # Loudness normalization (ITU-R BS.1770-4 / EBU R128):
     # Pure LUFS gain scaling is scale-invariant for ALL ratio-based proxies
     # (groove autocorr, crest-factor, tonal K-S, timbre MFCC-Pearson are unchanged
@@ -420,7 +513,9 @@ PHASE_GOAL_EXCLUSIONS: dict[str, set[str]] = {
     # gain adjustment) which is essentially a spectral EQ → timbre risk.
     # timbre_authentizitaet excluded: multi-band frequency-dependent loudness shaping
     # shifts spectral envelope → MFCC c1-c3 + centroid-CV register false P2.
-    "phase_40": {"timbre_authentizitaet"},  # Loudness normalization: pure LUFS gain is scale-invariant; multi-band frequency shaping changes spectral envelope → timbre_authentizitaet false P2 regression
+    "phase_40": {
+        "timbre_authentizitaet"
+    },  # Loudness normalization: pure LUFS gain is scale-invariant; multi-band frequency shaping changes spectral envelope → timbre_authentizitaet false P2 regression
     # + transient enhancement. Three false-regression root causes on degraded material:
     # micro_dynamics excluded: transient enhancement intentionally reshapes the LUFS
     # micro-profile — that change IS the intended TDP effect, not a regression.
@@ -447,35 +542,70 @@ PHASE_GOAL_EXCLUSIONS: dict[str, set[str]] = {
     # observed; best_effort at 0.19 strength = noise gate effectively disabled).
     # Groove proxy measures rhythmic periodicity; VAD-gated silence IS the intended
     # noise-gate effect and cannot be decoupled from the rhythm signal in 2.5 s windows.
-    "phase_18": {"micro_dynamics", "authentizitaet", "emotionalitaet", "groove"},  # Noise gate (§9.7.11 K-S: tonal_center resolved — K-S key-detection is SNR-invariant; §9.7.12/13: brillanz+transparenz crest proxies SNR-robust → removed)
-    "phase_26": {"micro_dynamics", "artikulation", "groove", "emotionalitaet"},  # Dynamic expansion: expander opens transient/decay gap → RMS-env autocorr[lag_05] disrupted + crest-factor shift → false P3 regressions (same mechanisms as phase_18 noise gate)
-    "phase_36": {"micro_dynamics", "artikulation", "groove", "emotionalitaet"},  # Transient shaper: transient-boost raises peaks vs. RMS floor → crest-factor ratio shifts + RMS-peak timing changes → false P3 regressions (same mechanisms as phase_08 + phase_18)
+    "phase_18": {
+        "micro_dynamics",
+        "authentizitaet",
+        "emotionalitaet",
+        "groove",
+    },  # Noise gate (§9.7.11 K-S: tonal_center resolved — K-S key-detection is SNR-invariant; §9.7.12/13: brillanz+transparenz crest proxies SNR-robust → removed)
+    "phase_26": {
+        "micro_dynamics",
+        "artikulation",
+        "groove",
+        "emotionalitaet",
+    },  # Dynamic expansion: expander opens transient/decay gap → RMS-env autocorr[lag_05] disrupted + crest-factor shift → false P3 regressions (same mechanisms as phase_18 noise gate)
+    "phase_36": {
+        "micro_dynamics",
+        "artikulation",
+        "groove",
+        "emotionalitaet",
+    },  # Transient shaper: transient-boost raises peaks vs. RMS floor → crest-factor ratio shifts + RMS-peak timing changes → false P3 regressions (same mechanisms as phase_08 + phase_18)
     # Multiband parallel compression: attack/release envelopes directly modify
     # inter-beat RMS envelope periodicity → autocorr[lag_05] changes → false P3 groove
     # regression (identical mechanism to phase_17 multiband mastering compressor).
     # Crest-factor reduction via compression → false P3 emotionalitaet regression.
     # micro_dynamics excluded: by design compression changes envelope dynamics.
-    "phase_10": {"micro_dynamics", "groove", "emotionalitaet"},  # Multiband parallel compression: envelope modification → groove autocorr[lag_05] disrupted + crest-factor uniformly reduced → false P3 regressions (identical mechanism to phase_17)
+    "phase_10": {
+        "micro_dynamics",
+        "groove",
+        "emotionalitaet",
+    },  # Multiband parallel compression: envelope modification → groove autocorr[lag_05] disrupted + crest-factor uniformly reduced → false P3 regressions (identical mechanism to phase_17)
     # 4-band limiting: brick-wall limiter is an extreme compressor with ∞:1 ratio.
     # Peaks clipped → crest-factor drops → false P3 emotionalitaet regression.
     # Inter-beat periodicity changes when loud transient peaks are attenuated
     # differently per band → groove autocorr[lag_05] disrupted.
-    "phase_11": {"micro_dynamics", "groove", "emotionalitaet"},  # Multi-band limiting: extreme compression (∞:1) → crest-factor drops + RMS-envelope periodicity changes → false P3 regressions (identical mechanism to phase_17 + phase_10)
+    "phase_11": {
+        "micro_dynamics",
+        "groove",
+        "emotionalitaet",
+    },  # Multi-band limiting: extreme compression (∞:1) → crest-factor drops + RMS-envelope periodicity changes → false P3 regressions (identical mechanism to phase_17 + phase_10)
     # TruePeak limiter: clamps sample peaks above a threshold via 4× oversampling.
     # Aggressive application (near 0 dBFS ceiling) extensively clips transient peaks
     # → crest-factor drops significantly → false P3 emotionalitaet regression.
     # Loud transient beats attenuated → inter-beat amplitude contrast reduced →
     # autocorr[lag_05] misreads periodic beat pattern → false P3 groove regression.
-    "phase_47": {"micro_dynamics", "groove", "emotionalitaet"},  # TruePeak limiter: peak-clamping reduces crest-factor + inter-beat peak contrast → false P3 regressions (same mechanism as phase_11)
+    "phase_47": {
+        "micro_dynamics",
+        "groove",
+        "emotionalitaet",
+    },  # TruePeak limiter: peak-clamping reduces crest-factor + inter-beat peak contrast → false P3 regressions (same mechanism as phase_11)
     # 4-band independent compression with upward/downward compander:
     # mechanistically identical to phase_10 (multi-band parallel compression) and
     # phase_17 (mastering compressor). Envelope modification per band.
-    "phase_35": {"micro_dynamics", "groove", "emotionalitaet"},  # 4-band multiband compression: independent band compander → RMS envelope periodicity disrupted + crest-factor reduced → false P3 regressions (identical mechanism to phase_10/phase_17)
+    "phase_35": {
+        "micro_dynamics",
+        "groove",
+        "emotionalitaet",
+    },  # 4-band multiband compression: independent band compander → RMS envelope periodicity disrupted + crest-factor reduced → false P3 regressions (identical mechanism to phase_10/phase_17)
     # Psychoacoustic-aware compression (genre-adaptive, masking-aware):
     # applies RMS-envelope-adaptive threshold and alters dynamics per masked region.
     # Despite perceptual optimisation the proxy mechanisms are identical:
     # crest-factor reduction + inter-beat envelope change → false P3 regressions.
-    "phase_54": {"micro_dynamics", "groove", "emotionalitaet"},  # Psychoacoustic compression: genre-adaptive envelope modification → crest-factor drops + groove autocorr[lag_05] disrupted → false P3 regressions (identical mechanism to phase_17 + phase_35)
+    "phase_54": {
+        "micro_dynamics",
+        "groove",
+        "emotionalitaet",
+    },  # Psychoacoustic compression: genre-adaptive envelope modification → crest-factor drops + groove autocorr[lag_05] disrupted → false P3 regressions (identical mechanism to phase_17 + phase_35)
     # Mastering: intentional dynamics compression + spectral shaping.
     # tonal_center excluded (§9.7.11 ext, v9.10.93): multiband compression +
     # presence/air EQ redistribute chroma energy → K-S detects apparent key shift.
@@ -484,10 +614,23 @@ PHASE_GOAL_EXCLUSIONS: dict[str, set[str]] = {
     # ArticulationMetric's transient-shape correlation measures this change as
     # regression, but the mastering effect IS the intended outcome. Real-run:
     # catastrophic P2 regression Δ=0.2092 (worst_goal=artikulation).
-    "phase_17": {"micro_dynamics", "natuerlichkeit", "tonal_center", "artikulation", "groove", "emotionalitaet"},  # groove: multiband compression changes inter-beat RMS envelope periodicity → false P3 regression (Δ=0.0251 observed); emotionalitaet: compression reduces crest-factor uniformly → false P3 regression (identical mechanism to phase_18) — confirmed 2026-03-31
+    "phase_17": {
+        "micro_dynamics",
+        "natuerlichkeit",
+        "tonal_center",
+        "artikulation",
+        "groove",
+        "emotionalitaet",
+    },  # groove: multiband compression changes inter-beat RMS envelope periodicity → false P3 regression (Δ=0.0251 observed); emotionalitaet: compression reduces crest-factor uniformly → false P3 regression (identical mechanism to phase_18) — confirmed 2026-03-31
     # Vocal enhancement: Stages 2-6 intentionally alter spectral shape and dynamics;
     # natuerlichkeit/timbre proxies are unreliable for deliberate vocal-presence boosts.
-    "phase_19": {"natuerlichkeit", "timbre_authentizitaet", "micro_dynamics", "groove", "emotionalitaet"},  # Vocal enhancement: Stage 6 micro-compression shifts crest-factor + Stage 2 breath-gating changes inter-beat RMS periodicity → false P3 regressions (same mechanisms as phase_17/phase_18)
+    "phase_19": {
+        "natuerlichkeit",
+        "timbre_authentizitaet",
+        "micro_dynamics",
+        "groove",
+        "emotionalitaet",
+    },  # Vocal enhancement: Stage 6 micro-compression shifts crest-factor + Stage 2 breath-gating changes inter-beat RMS periodicity → false P3 regressions (same mechanisms as phase_17/phase_18)
     # BSRoFormer vocal stem separation + vocal enhancement with micro-compression
     # (syllable-level, ratio 1.8–2.5) + envelope shaping + FormantSystem enhancement.
     # Mechanistically similar to phase_19 (compression/breathing) + phase_23 (synthesis).
@@ -501,20 +644,34 @@ PHASE_GOAL_EXCLUSIONS: dict[str, set[str]] = {
     # periodicity → autocorr[lag_05] false regression (same mechanism as phase_19).
     # emotionalitaet excluded: micro-compression reduces crest-factor at syllable level
     # → false P3 regression (identical mechanism to phase_17/phase_19).
-    "phase_42": {"natuerlichkeit", "authentizitaet", "timbre_authentizitaet", "groove", "emotionalitaet"},  # BSRoFormer vocal enhancement: stem separation + micro-compression + formant shaping → false regressions via synthesis/crest/MFCC mechanisms (identical to phase_19 + phase_23)
+    "phase_42": {
+        "natuerlichkeit",
+        "authentizitaet",
+        "timbre_authentizitaet",
+        "groove",
+        "emotionalitaet",
+    },  # BSRoFormer vocal enhancement: stem separation + micro-compression + formant shaping → false regressions via synthesis/crest/MFCC mechanisms (identical to phase_19 + phase_23)
     # Drums/percussion enhancement: transient shaping (attack/sustain) + DrumsEnhancementSystem
     # which includes compression (Dbx-style). Beat-synchronous transient shaping alters
     # the inter-beat RMS contrast → groove autocorr[lag_05] disrupted.
     # Drum spectral enhancement (punch/snap synthesis) changes timbre MFCC proxy.
     # Compression on beats reduces crest-factor at beat positions → false P3 emotionalitaet.
-    "phase_51": {"timbre_authentizitaet", "groove", "emotionalitaet"},  # Drums enhancement: transient shaping + compression → inter-beat RMS changes + crest-factor drops → false P3 regressions; timbre_authentizitaet: punch/snap synthesis changes spectral envelope
+    "phase_51": {
+        "timbre_authentizitaet",
+        "groove",
+        "emotionalitaet",
+    },  # Drums enhancement: transient shaping + compression → inter-beat RMS changes + crest-factor drops → false P3 regressions; timbre_authentizitaet: punch/snap synthesis changes spectral envelope
     # Piano restoration: dynamic range restoration via material-adaptive expansion
     # (velocity curve optimization, expansion ratios 1.2–1.3, compression artifact removal).
     # Expansion is upward dynamic expansion (inverse compression) — increases crest-factor
     # and changes note-to-note RMS envelope periodicity → false P3 groove regression
     # (same root cause as phase_26 dynamic expansion). String resonance modeling and
     # spectral enhancement change timbre MFCC proxy.
-    "phase_52": {"timbre_authentizitaet", "groove", "emotionalitaet"},  # Piano restoration: dynamic expansion (1.2–1.3) + string resonance synthesis → inter-beat RMS periodicity changes + crest-factor shifts → false P3 regressions; timbre_authentizitaet: string resonance modeling changes MFCC-spectral-envelope proxy
+    "phase_52": {
+        "timbre_authentizitaet",
+        "groove",
+        "emotionalitaet",
+    },  # Piano restoration: dynamic expansion (1.2–1.3) + string resonance synthesis → inter-beat RMS periodicity changes + crest-factor shifts → false P3 regressions; timbre_authentizitaet: string resonance modeling changes MFCC-spectral-envelope proxy
     # Dereverb: removes room impulse response; reverb contributes diffuse HF energy
     # and room resonances (warmth). After dereverb brillanz and waerme both drop
     # legitimately — these are intentional improvements, not regressions.
@@ -525,7 +682,10 @@ PHASE_GOAL_EXCLUSIONS: dict[str, set[str]] = {
     # transparenz excluded: reverb-contributed diffuse HF energy inflates spectral
     # rolloff → scores_before elevated; after dereverb rolloff drops → false P4
     # regression triggering unnecessary strength reductions.
-    "phase_49": {"authentizitaet", "emotionalitaet"},  # Advanced dereverb (§9.7.11 K-S: tonal_center resolved; §9.7.12/13/14: brillanz+transparenz crest proxies + warmth-ratio waerme proxy → removed; emotionalitaet: reverb tail adds energy to quiet segments → after removal crest-factor ratio shifts → false P3, identical mechanism to phase_20/phase_03)
+    "phase_49": {
+        "authentizitaet",
+        "emotionalitaet",
+    },  # Advanced dereverb (§9.7.11 K-S: tonal_center resolved; §9.7.12/13/14: brillanz+transparenz crest proxies + warmth-ratio waerme proxy → removed; emotionalitaet: reverb tail adds energy to quiet segments → after removal crest-factor ratio shifts → false P3, identical mechanism to phase_20/phase_03)
     # Reverb reduction (SGMSE+ primary / WPE-DSP fallback): mechanistically identical
     # to phase_49 Advanced Dereverb — both remove room impulse response energy.
     # brillanz excluded: reverb tail contributes diffuse HF energy across the spectrum
@@ -543,7 +703,11 @@ PHASE_GOAL_EXCLUSIONS: dict[str, set[str]] = {
     # harmonic smearing on ambiguous reverb vs. body resonance segments → MFCC
     # smoothness proxy reacts on the 5-s short window even when result is perceptually
     # correct. Same MFCC-smoothness instability as phase_02/phase_03 root causes.
-    "phase_20": {"authentizitaet", "natuerlichkeit", "emotionalitaet"},  # SGMSE+ reverb reduction (§9.7.12/13/14: brillanz+transparenz crest proxies + warmth-ratio waerme proxy are SNR/reverb-robust → removed; emotionalitaet: reverb tail raises energy in quiet segments → scores_before crest-factor elevated; after SGMSE+ quiet segments become true silence → crest-factor ratio shifts → false P3 regression, identical mechanism to phase_03/phase_18/phase_49)
+    "phase_20": {
+        "authentizitaet",
+        "natuerlichkeit",
+        "emotionalitaet",
+    },  # SGMSE+ reverb reduction (§9.7.12/13/14: brillanz+transparenz crest proxies + warmth-ratio waerme proxy are SNR/reverb-robust → removed; emotionalitaet: reverb tail raises energy in quiet segments → scores_before crest-factor elevated; after SGMSE+ quiet segments become true silence → crest-factor ratio shifts → false P3 regression, identical mechanism to phase_03/phase_18/phase_49)
     # Spectral inpainting (AudioSR gap-fill): synthesises new frequency content for
     # spectral holes (codec artefacts, digital clipping reconstruction, missing HF).
     # Identical synthesised-content mechanism to phase_24 (AudioSR dropout repair).
@@ -559,13 +723,23 @@ PHASE_GOAL_EXCLUSIONS: dict[str, set[str]] = {
     # artikulation excluded: inpainting inserts new spectral content in regions where
     # (by definition) the reference has damaged/missing content → transient-shape
     # correlation against the pre-inpainting fragment is meaningless.
-    "phase_23": {"natuerlichkeit", "brillanz", "authentizitaet", "artikulation", "timbre_authentizitaet"},  # AudioSR spectral inpainting / gap-fill; timbre_authentizitaet: synthesised fill content has different spectral envelope than damaged reference
+    "phase_23": {
+        "natuerlichkeit",
+        "brillanz",
+        "authentizitaet",
+        "artikulation",
+        "timbre_authentizitaet",
+    },  # AudioSR spectral inpainting / gap-fill; timbre_authentizitaet: synthesised fill content has different spectral envelope than damaged reference
     # Wow/flutter correction: time-stretching/resampling shifts chroma energy
     # distribution → K-S key correlation changes despite unchanged musical key.
     # Regression variance 0.067→0.833 across runs of same audio PROVES this is
     # pure proxy noise, not a real quality issue.
     # timbre_authentizitaet: speed correction alters spectral centroid trajectory.
-    "phase_12": {"tonal_center", "timbre_authentizitaet", "groove"},  # Wow/flutter fix: K-S volatile after pitch/speed correction + centroid-CV disturbed; groove: time-stretching shifts absolute RMS-peak timing → autocorr[lag_05] changes even with musically correct rhythm (confirmed 2026-03-30)
+    "phase_12": {
+        "tonal_center",
+        "timbre_authentizitaet",
+        "groove",
+    },  # Wow/flutter fix: K-S volatile after pitch/speed correction + centroid-CV disturbed; groove: time-stretching shifts absolute RMS-peak timing → autocorr[lag_05] changes even with musically correct rhythm (confirmed 2026-03-30)
     # Speed/pitch correction: global time-stretch + resampling — mechanistically
     # identical to phase_12 for all proxy false-regression root causes.
     # tonal_center excluded: global pitch-shift moves ALL chroma bins proportionally
@@ -582,7 +756,13 @@ PHASE_GOAL_EXCLUSIONS: dict[str, set[str]] = {
     # artikulation excluded: PSOLA/time-stretch modifies transient shapes by
     # design — that IS the correction. TransientShapeCorrelation vs. pre-correction
     # reference is meaningless (same root cause as phase_08 TDP).
-    "phase_31": {"tonal_center", "timbre_authentizitaet", "groove", "emotionalitaet", "artikulation"},  # Speed/pitch correction: global time-stretch identical mechanisms to phase_12 + emotionalitaet/artikulation via envelope/transient change (2026-03-31)
+    "phase_31": {
+        "tonal_center",
+        "timbre_authentizitaet",
+        "groove",
+        "emotionalitaet",
+        "artikulation",
+    },  # Speed/pitch correction: global time-stretch identical mechanisms to phase_12 + emotionalitaet/artikulation via envelope/transient change (2026-03-31)
     # Stereo enhancement (multi-band M/S + Haas cross-feed delays + Blumlein shuffling):
     # The Haas effect simulation (5–35 ms inter-channel delays) adds delayed copies of
     # one channel to the other → cross-feed creates comb-filtering artifacts in the
@@ -590,7 +770,9 @@ PHASE_GOAL_EXCLUSIONS: dict[str, set[str]] = {
     # register change vs. pre-enhancement reference → false P2 timbre regression.
     # Transient-preserving Side enhancement (attack/decay-aware lateral widening)
     # additionally modifies the L/R spectral content independently of the mono sum.
-    "phase_13": {"timbre_authentizitaet"},  # Stereo enhancement: Haas cross-feed delays (5–35 ms) create comb-filter in mono sum + transient-aware Side shaping → MFCC-Pearson + centroid-CV change vs reference → false P2 timbre regression
+    "phase_13": {
+        "timbre_authentizitaet"
+    },  # Stereo enhancement: Haas cross-feed delays (5–35 ms) create comb-filter in mono sum + transient-aware Side shaping → MFCC-Pearson + centroid-CV change vs reference → false P2 timbre regression
     # Phase correction (multi-band all-pass / fractional-delay alignment):
     # Phase-only operations preserve per-channel spectral magnitude, but correcting
     # inter-channel misalignment changes the constructive/destructive interference
@@ -598,7 +780,9 @@ PHASE_GOAL_EXCLUSIONS: dict[str, set[str]] = {
     # spectral cancellation notches in the M-channel. After correction: channels align
     # → cancellation resolved → M-channel spectral valleys fill in → MFCC-Pearson vs.
     # the misaligned reference detects a spectral-shape change → false P2 regression.
-    "phase_14": {"timbre_authentizitaet"},  # Phase correction: all-pass/fractional-delay alignment resolves mono-sum cancellation notches → spectral shape changes vs. misaligned reference → MFCC-Pearson + centroid-CV false P2 timbre regression
+    "phase_14": {
+        "timbre_authentizitaet"
+    },  # Phase correction: all-pass/fractional-delay alignment resolves mono-sum cancellation notches → spectral shape changes vs. misaligned reference → MFCC-Pearson + centroid-CV false P2 timbre regression
     # Azimuth correction (tape head misalignment: fractional delay + HF restoration):
     # HF restoration via spectral prediction adds energy in the 5–20 kHz range —
     # mechanistically identical to phase_39 (air band HF enhancement). MFCC
@@ -607,14 +791,18 @@ PHASE_GOAL_EXCLUSIONS: dict[str, set[str]] = {
     # The proxy compares against the reference measured BEFORE azimuth correction
     # (with reduced HF due to destructive interference) → false P2 timbre regression
     # despite genuine quality improvement.
-    "phase_25": {"timbre_authentizitaet"},  # Azimuth correction: fractional-delay + HF spectral restoration changes MFCC higher-order coefficients + centroid-CV vs. azimuth-degraded reference → false P2 timbre regression (identical mechanism to phase_39 air band)
+    "phase_25": {
+        "timbre_authentizitaet"
+    },  # Azimuth correction: fractional-delay + HF spectral restoration changes MFCC higher-order coefficients + centroid-CV vs. azimuth-degraded reference → false P2 timbre regression (identical mechanism to phase_39 air band)
     # Mono-to-stereo (Lauridsen pseudo-stereo + HF harmonics + Schroeder decorrelation):
     # Schroeder reverb structures and comb-filter frequency-dependent phase shifts used
     # for decorrelation change the mono sum (L+R)/2 through cross-feed comb patterns
     # → MFCC-Pearson + centroid-CV shift vs. original mono reference. Additionally,
     # optional HF harmonics ("air", tape warmth, vinyl sheen) add spectral energy in
     # the MFCC-sensitive high-register → false P2 timbre regression vs. mono reference.
-    "phase_32": {"timbre_authentizitaet"},  # Mono-to-stereo: Schroeder decorrelation (comb-filter in mono sum) + HF harmonic synthesis → MFCC-Pearson + centroid-CV change vs. mono reference → false P2 timbre regression
+    "phase_32": {
+        "timbre_authentizitaet"
+    },  # Mono-to-stereo: Schroeder decorrelation (comb-filter in mono sum) + HF harmonic synthesis → MFCC-Pearson + centroid-CV change vs. mono reference → false P2 timbre regression
     # Stereo width limiter (M/S soft-knee Side-channel compression):
     # Scales the Side channel (S = (L−R)/2) with a frequency-dependent gain ≤ 1.
     # Reconstructed: L = M + S×gain, R = M − S×gain. The mono sum M = (L+R)/2 is
@@ -622,7 +810,9 @@ PHASE_GOAL_EXCLUSIONS: dict[str, set[str]] = {
     # to the applied Side gain. If the MFCC proxy runs on the LEFT channel (or the
     # first channel of the np.ndarray), spectral content of L shifts vs. the
     # pre-limiting reference → MFCC-Pearson + centroid-CV register change → false P2.
-    "phase_33": {"timbre_authentizitaet"},  # Stereo width limiter: M/S Side soft-knee compression changes L/R channel spectral distribution (mono sum M preserved) → MFCC-Pearson + centroid-CV vs. wide-stereo reference → false P2 timbre regression
+    "phase_33": {
+        "timbre_authentizitaet"
+    },  # Stereo width limiter: M/S Side soft-knee compression changes L/R channel spectral distribution (mono sum M preserved) → MFCC-Pearson + centroid-CV vs. wide-stereo reference → false P2 timbre regression
     # Output format optimization (multi-band loudness shaping + TruePeak + SRC + dither):
     # Pure LUFS gain and lossless SRC are scale-invariant for all ratio-based proxies.
     # However, format-specific multi-band frequency-dependent loudness shaping shifts
@@ -630,7 +820,10 @@ PHASE_GOAL_EXCLUSIONS: dict[str, set[str]] = {
     # root cause to phase_40 (loudness normalization). TruePeak limiting at −1 dBTP
     # is normally very light (prevents intersample overs only) → micro_dynamics, groove,
     # emotionalitaet not excluded unless confirmed in production logs.
-    "phase_41": {"timbre_authentizitaet"},  # Output format optimization: multi-band loudness shaping shifts spectral envelope → MFCC c1-c3 + centroid-CV false P2 (identical root cause to phase_40; TruePeak at -1 dBTP too light to affect crest/groove proxies)
+    "phase_41": {
+        "artikulation",
+        "timbre_authentizitaet",
+    },  # Output format optimization: multi-band loudness shaping + TruePeak limiting shifts spectral envelope → MFCC c1-c3 + centroid-CV false P2 (identical root cause to phase_40). artikulation excluded: loudness normalization + dithering modifies onset-energy peaks → quick proxy saturates at 1.0 pre-phase (mean_peaks/0.01 clips) then drops after processing → false P1 catastrophic regression (0.4803 observed, before=1.000→after=0.520, 2026-04-02).
     # Spatial enhancement (cross-feed early reflections + Schroeder all-pass diffusion):
     # 4 early reflections (6–22 ms, −8 to −16 dB, dry_wet=0.18) are cross-fed:
     # L_out += gain × dry_wet × delayed_R (and vice versa). This DOES change the mono
@@ -642,7 +835,11 @@ PHASE_GOAL_EXCLUSIONS: dict[str, set[str]] = {
     # waerme excluded: early reflections add diffuse energy across the spectrum
     # including the 200–800 Hz warmth band → warmth ratio E(200-800)/E(800-3000)
     # shifts → false P4 regression.
-    "phase_46": {"timbre_authentizitaet", "emotionalitaet", "waerme"},  # Spatial enhancement: cross-feed early reflections modify mono sum (comb-filter in M) + add post-transient tail energy (crest-factor drop) + mid-band reflection energy (warmth ratio change) → false P2/P3/P4 regressions
+    "phase_46": {
+        "timbre_authentizitaet",
+        "emotionalitaet",
+        "waerme",
+    },  # Spatial enhancement: cross-feed early reflections modify mono sum (comb-filter in M) + add post-transient tail energy (crest-factor drop) + mid-band reflection energy (warmth ratio change) → false P2/P3/P4 regressions
     # Stereo width enhancer (STFT-based frequency-dependent M/S width:
     # LF×0.6 / MF×1.0 / HF×1.15, plus allpass decorrelation delays 17.1/19.7/23.3 ms):
     # STFT-based frequency-dependent Side scaling changes the spectral distribution of
@@ -650,7 +847,9 @@ PHASE_GOAL_EXCLUSIONS: dict[str, set[str]] = {
     # 8 kHz) raises HF energy in the stereo image → centroid-CV shifts upward in L and
     # R → MFCC higher-order coefficients change vs. the unwidened reference → false P2
     # timbre regression (identical mechanism to phase_39 air band, phase_21/phase_25).
-    "phase_48": {"timbre_authentizitaet"},  # Stereo width enhancer: STFT frequency-dependent M/S Side scaling (HF ×1.15) changes L/R spectral distribution → MFCC higher-order coefficients + centroid-CV shift → false P2 timbre regression (identical mechanism to phase_39 air band)
+    "phase_48": {
+        "timbre_authentizitaet"
+    },  # Stereo width enhancer: STFT frequency-dependent M/S Side scaling (HF ×1.15) changes L/R spectral distribution → MFCC higher-order coefficients + centroid-CV shift → false P2 timbre regression (identical mechanism to phase_39 air band)
 }
 
 
@@ -715,26 +914,73 @@ _RESTORATIVE_PHASES: frozenset[str] = frozenset(
     }
 )
 
-# Normative Restoration-Modus Mindest-Schwellwerte (§14 Musical Goals).
+# Normative Mindest-Schwellwerte (§14 Musical Goals, §9.10.77 Pareto-Differenzierung).
 # Werden als Baseline-Deckel für restorative Phasen genutzt.
 # Scores_before über diesem Wert werden auf diesen Wert gedeckelt,
 # da höhere Werte nur durch Defekt-Inflation entstehen können.
-_CANONICAL_THRESHOLDS: dict[str, float] = {
-    "natuerlichkeit":       0.90,
-    "authentizitaet":       0.88,
-    "tonal_center":         0.95,
+#
+# P1/P2: identisch für beide Modi.
+# P3–P5: Restoration senkt auf physikalisch erreichbare Werte (Pareto-Konflikte);
+#         Studio 2026 behält ambitionierte Ziele.
+_CANONICAL_THRESHOLDS_RESTORATION: dict[str, float] = {
+    # P1
+    "natuerlichkeit": 0.90,
+    "authentizitaet": 0.88,
+    # P2
+    "tonal_center": 0.95,
     "timbre_authentizitaet": 0.87,
-    "artikulation":         0.85,
-    "emotionalitaet":       0.82,
-    "micro_dynamics":       0.88,
-    "groove":               0.83,
-    "transparenz":          0.82,
-    "waerme":               0.75,
-    "bass_kraft":           0.78,
-    "separation_fidelity":  0.78,
-    "brillanz":             0.78,
-    "spatial_depth":        0.70,
+    "artikulation": 0.85,
+    # P3
+    "emotionalitaet": 0.82,
+    "micro_dynamics": 0.88,
+    "groove": 0.83,
+    # P4
+    "transparenz": 0.82,
+    "waerme": 0.75,
+    "bass_kraft": 0.78,
+    "separation_fidelity": 0.78,
+    # P5
+    "brillanz": 0.78,
+    "spatial_depth": 0.70,
 }
+
+_CANONICAL_THRESHOLDS_STUDIO2026: dict[str, float] = {
+    # P1 — identical
+    "natuerlichkeit": 0.90,
+    "authentizitaet": 0.88,
+    # P2 — identical
+    "tonal_center": 0.97,
+    "timbre_authentizitaet": 0.87,
+    "artikulation": 0.85,
+    # P3 — Studio 2026: higher targets
+    "emotionalitaet": 0.87,
+    "micro_dynamics": 0.92,
+    "groove": 0.88,
+    # P4 — Studio 2026: higher targets
+    "transparenz": 0.89,
+    "waerme": 0.80,
+    "bass_kraft": 0.85,
+    "separation_fidelity": 0.82,
+    # P5 — Studio 2026: higher targets
+    "brillanz": 0.85,
+    "spatial_depth": 0.75,
+}
+
+# Default alias for backward compatibility (Restoration-Modus)
+_CANONICAL_THRESHOLDS: dict[str, float] = _CANONICAL_THRESHOLDS_RESTORATION
+
+
+def _get_canonical_thresholds(is_studio_2026: bool = False) -> dict[str, float]:
+    """Return mode-appropriate canonical thresholds (§9.10.77 Pareto-Differenzierung).
+
+    P1/P2 are identical for both modes.
+    P3–P5 are higher in Studio 2026 (ambitious targets), lower in Restoration
+    (Pareto-conflict-aware, physically achievable).
+    """
+    if is_studio_2026:
+        return _CANONICAL_THRESHOLDS_STUDIO2026
+    return _CANONICAL_THRESHOLDS_RESTORATION
+
 
 # Strength-Faktoren für Retry-Durchgänge
 # v9.10.79: 5 Stufen für 5 vollständige Retries (0–4). Floor = 0.15 für Last-Resort.
@@ -1260,9 +1506,9 @@ def _measure_quick(
             r_maj = float(np.dot(chroma_k, maj_rot))
             r_min = float(np.dot(chroma_k, min_rot))
             if r_maj > best_score:
-                best_score, best_key = r_maj, root          # major: 0–11
+                best_score, best_key = r_maj, root  # major: 0–11
             if r_min > best_score:
-                best_score, best_key = r_min, root + 12     # minor: 12–23
+                best_score, best_key = r_min, root + 12  # minor: 12–23
         return best_key
 
     try:
@@ -1281,7 +1527,7 @@ def _measure_quick(
                 _root_proc = _key_proc % 12
                 _root_ref = _key_ref % 12
                 _d = abs(_root_proc - _root_ref)
-                _d = min(_d, 12 - _d)          # circular distance ∈ [0, 6]
+                _d = min(_d, 12 - _d)  # circular distance ∈ [0, 6]
                 # Mode mismatch (major ↔ minor): add 1 semitone equivalent penalty
                 _mode_penalty = 0 if (_key_proc // 12 == _key_ref // 12) else 1
                 _d = min(6, _d + _mode_penalty)
@@ -1304,10 +1550,12 @@ def _measure_quick(
                 _std2 = _chroma_abs.std()
                 if _std2 > 1e-12:
                     _chroma_abs /= _std2
-                    _best_r = float(max(
-                        max(float(np.dot(_chroma_abs, np.roll(_ks_maj_n, r))) for r in range(12)),
-                        max(float(np.dot(_chroma_abs, np.roll(_ks_min_n, r))) for r in range(12)),
-                    ))
+                    _best_r = float(
+                        max(
+                            max(float(np.dot(_chroma_abs, np.roll(_ks_maj_n, r))) for r in range(12)),
+                            max(float(np.dot(_chroma_abs, np.roll(_ks_min_n, r))) for r in range(12)),
+                        )
+                    )
                     # K-S scores range roughly ‑1…+1; clamp to [0, 1]
                     scores["tonal_center"] = float(np.clip((_best_r + 1.0) / 2.0, 0.0, 1.0))
                 else:
@@ -1598,9 +1846,13 @@ def _measure_quick(
     return scores
 
 
-def _extract_sample(audio: np.ndarray, sr: int, duration_s: float = SAMPLE_DURATION_S,
-                    defect_locations: "dict[str, list[tuple[float, float]]] | None" = None,
-                    phase_id: str = "") -> np.ndarray:
+def _extract_sample(
+    audio: np.ndarray,
+    sr: int,
+    duration_s: float = SAMPLE_DURATION_S,
+    defect_locations: dict[str, list[tuple[float, float]]] | None = None,
+    phase_id: str = "",
+) -> np.ndarray:
     """Extrahiert repräsentative Stichprobe aus dem Audio.
 
     For dropout/transport-bump phases (§9.1a), the sample is centred on the
@@ -1609,18 +1861,22 @@ def _extract_sample(audio: np.ndarray, sr: int, duration_s: float = SAMPLE_DURAT
 
     For all other phases, the classic centre-crop is used.
     """
-    n = len(audio) if audio.ndim == 1 else len(audio)
+    n = len(audio)
     sample_len = min(int(duration_s * sr), n)
     if n <= sample_len:
         return audio
 
     # §9.1a Non-stationary defect targeting: centre the sample on the first
     # defect location for phases that repair sparse, localised defects.
-    _SPARSE_DEFECT_PHASES = frozenset({
-        "phase_24", "phase_27", "phase_55",  # dropout_repair, diffusion_inpainting
-        "phase_09",  # crackle_removal (event-based)
-        "phase_01",  # click_removal (event-based)
-    })
+    _SPARSE_DEFECT_PHASES = frozenset(
+        {
+            "phase_24",
+            "phase_27",
+            "phase_55",  # dropout_repair, diffusion_inpainting
+            "phase_09",  # crackle_removal (event-based)
+            "phase_01",  # click_removal (event-based)
+        }
+    )
     if defect_locations and any(phase_id.startswith(p) for p in _SPARSE_DEFECT_PHASES):
         # Find the first defect location relevant to this phase
         _PHASE_DEFECT_KEYS = {
@@ -1630,10 +1886,7 @@ def _extract_sample(audio: np.ndarray, sr: int, duration_s: float = SAMPLE_DURAT
             "phase_09": ("CRACKLE", "crackle", "CLICKS", "clicks"),
             "phase_01": ("CLICKS", "clicks", "CLICK", "click"),
         }
-        _keys = _PHASE_DEFECT_KEYS.get(
-            next((p for p in _SPARSE_DEFECT_PHASES if phase_id.startswith(p)), ""),
-            ()
-        )
+        _keys = _PHASE_DEFECT_KEYS.get(next((p for p in _SPARSE_DEFECT_PHASES if phase_id.startswith(p)), ""), ())
         _best_start_s = None
         for _dk in _keys:
             locs = defect_locations.get(_dk, [])
@@ -1644,11 +1897,11 @@ def _extract_sample(audio: np.ndarray, sr: int, duration_s: float = SAMPLE_DURAT
             # Centre the sample window on the defect location
             _defect_sample = int(_best_start_s * sr)
             start = max(0, min(_defect_sample - sample_len // 2, n - sample_len))
-            return audio[start : start + sample_len] if audio.ndim == 1 else audio[start : start + sample_len]
+            return audio[start : start + sample_len]
 
     # Default: centre-crop
     start = (n - sample_len) // 2
-    return audio[start : start + sample_len] if audio.ndim == 1 else audio[start : start + sample_len]
+    return audio[start : start + sample_len]
 
 
 # ---------------------------------------------------------------------------
@@ -1682,6 +1935,7 @@ class PerPhaseMusicalGoalsGate:
         restorability_score: float = 70.0,
         applicable_goals: set[str] | None = None,
         initial_strength: float = 1.0,
+        is_studio_2026: bool = False,
     ) -> tuple[np.ndarray, dict[str, float], PhaseGateLogEntry]:
         """
         Führt eine Phase aus und prüft Musical-Goals-Regression.
@@ -1702,6 +1956,8 @@ class PerPhaseMusicalGoalsGate:
                               _MATERIAL_PHASE_FACTORS schützen Vintage-Charakter
                               (z.B. 0.25 für phase_22_tape_saturation bei shellac).
                               Retry-Stärken skalieren relativ zur Initialstärke.
+            is_studio_2026: True if Studio 2026 mode (§9.10.77 Pareto-Differenzierung).
+                            Selects higher P3–P5 thresholds. Default: Restoration.
 
         Returns:
             (audio_out, scores_after, log_entry)
@@ -1739,8 +1995,9 @@ class PerPhaseMusicalGoalsGate:
         _defect_locs = (phase_kwargs or {}).get("defect_locations")
 
         # Vor-Scores messen (wenn nicht übergeben) — gleiche duration wie after-Messung
-        sample_before = _extract_sample(audio, sr, duration_s=_sample_dur,
-                                        defect_locations=_defect_locs, phase_id=phase_id)
+        sample_before = _extract_sample(
+            audio, sr, duration_s=_sample_dur, defect_locations=_defect_locs, phase_id=phase_id
+        )
         if scores_before is None:
             scores_before = _measure_quick(sample_before, sr)
 
@@ -1806,6 +2063,7 @@ class PerPhaseMusicalGoalsGate:
             sample_duration_s=_sample_dur,
             initial_strength=max(0.0, min(1.0, initial_strength)),
             defect_locations=_defect_locs,
+            is_studio_2026=is_studio_2026,
         )
 
         # Best-Effort-Zähler (Phase wurde mit reduzierter Stärke angewendet, nicht übersprungen)
@@ -1881,10 +2139,14 @@ class PerPhaseMusicalGoalsGate:
         if "waerme" in effective_goals:
             _w_before = scores_before.get("waerme", float("nan"))
             _w_after = scores_after.get("waerme", float("nan"))
-            _w_delta = _w_after - _w_before if (
-                not (isinstance(_w_before, float) and _w_before != _w_before)
-                and not (isinstance(_w_after, float) and _w_after != _w_after)
-            ) else float("nan")
+            _w_delta = (
+                _w_after - _w_before
+                if (
+                    not (isinstance(_w_before, float) and _w_before != _w_before)
+                    and not (isinstance(_w_after, float) and _w_after != _w_after)
+                )
+                else float("nan")
+            )
             logger.info(
                 "PMGG waerme §9.7.14  phase=%s  before=%.4f  after=%.4f  delta=%+.4f  action=%s  strength=%.2f",
                 phase_id,
@@ -1915,6 +2177,7 @@ class PerPhaseMusicalGoalsGate:
         sample_duration_s: float = SAMPLE_DURATION_S,  # §9.7.3 phasen-adaptiv
         initial_strength: float = 1.0,
         defect_locations: dict[str, list[tuple[float, float]]] | None = None,
+        is_studio_2026: bool = False,
     ) -> tuple[np.ndarray, dict[str, float], str, float]:
         """
         Führt Phase aus, ggf. mit Retry bei Regression.
@@ -1944,14 +2207,11 @@ class PerPhaseMusicalGoalsGate:
         # Lösung: Baseline kann nie höher sein als das normative Qualitätsziel.
         # Echter Schaden (Score nach Phase UNTER Schwelle) wird weiterhin erkannt.
         _is_restorative = any(phase_id.startswith(p) for p in _RESTORATIVE_PHASES)
+        _thresholds = _get_canonical_thresholds(is_studio_2026)
         if _is_restorative:
-            effective_scores_before = {
-                g: min(v, _CANONICAL_THRESHOLDS.get(g, v))
-                for g, v in scores_before.items()
-            }
+            effective_scores_before = {g: min(v, _thresholds.get(g, v)) for g, v in scores_before.items()}
             _capped_goals = [
-                g for g in scores_before
-                if scores_before[g] > _CANONICAL_THRESHOLDS.get(g, scores_before[g]) + 0.001
+                g for g in scores_before if scores_before[g] > _thresholds.get(g, scores_before[g]) + 0.001
             ]
             if _capped_goals:
                 logger.debug(
@@ -1978,8 +2238,9 @@ class PerPhaseMusicalGoalsGate:
         # §9.7.5 Referenz-Stichprobe für preservation-aware Messung.
         # Einmal berechnen, für alle scores_after/scores_retry wiederverwenden.
         _defect_locs = defect_locations
-        _ref_sample = _extract_sample(audio, sr, duration_s=sample_duration_s,
-                                      defect_locations=_defect_locs, phase_id=phase_id)
+        _ref_sample = _extract_sample(
+            audio, sr, duration_s=sample_duration_s, defect_locations=_defect_locs, phase_id=phase_id
+        )
 
         if _is_ml_deterministic:
             # ML-Pfad: Einmalige Inferenz mit strength=1.0, Wet/Dry für Stärke
@@ -1994,8 +2255,11 @@ class PerPhaseMusicalGoalsGate:
             audio_full = None  # kein Cache benötigt
 
         scores_after = _measure_quick(
-            _extract_sample(audio_out, sr, duration_s=sample_duration_s,
-                           defect_locations=_defect_locs, phase_id=phase_id), sr, reference=_ref_sample
+            _extract_sample(
+                audio_out, sr, duration_s=sample_duration_s, defect_locations=_defect_locs, phase_id=phase_id
+            ),
+            sr,
+            reference=_ref_sample,
         )
 
         regression = self._max_regression(effective_scores_before, scores_after, effective_goals)
@@ -2142,8 +2406,11 @@ class PerPhaseMusicalGoalsGate:
                 audio_retry = self._run_phase(phase, audio, strength, phase_kwargs)
 
             _retry_sample = _extract_sample(
-                audio_retry, sr, duration_s=sample_duration_s,
-                defect_locations=_defect_locs, phase_id=phase_id,
+                audio_retry,
+                sr,
+                duration_s=sample_duration_s,
+                defect_locations=_defect_locs,
+                phase_id=phase_id,
             )
             scores_retry = _measure_quick(_retry_sample, sr, reference=_ref_sample, precise_override=False)
             regression_retry = self._max_regression(effective_scores_before, scores_retry, effective_goals)
@@ -2202,8 +2469,11 @@ class PerPhaseMusicalGoalsGate:
                 else:
                     audio_em = self._run_phase(phase, audio, _em_strength, phase_kwargs)
                 _em_sample = _extract_sample(
-                    audio_em, sr, duration_s=sample_duration_s,
-                    defect_locations=_defect_locs, phase_id=phase_id,
+                    audio_em,
+                    sr,
+                    duration_s=sample_duration_s,
+                    defect_locations=_defect_locs,
+                    phase_id=phase_id,
                 )
                 scores_em = _measure_quick(_em_sample, sr, reference=_ref_sample, precise_override=False)
                 regression_em = self._max_regression(effective_scores_before, scores_em, effective_goals)
@@ -2227,8 +2497,11 @@ class PerPhaseMusicalGoalsGate:
             del audio_full
         # Apply precise overrides once for accurate score propagation to next phase
         _best_sample = _extract_sample(
-            best_audio, sr, duration_s=sample_duration_s,
-            defect_locations=_defect_locs, phase_id=phase_id,
+            best_audio,
+            sr,
+            duration_s=sample_duration_s,
+            defect_locations=_defect_locs,
+            phase_id=phase_id,
         )
         best_scores = _apply_precise_metric_overrides(best_scores, _best_sample, sr, reference=_ref_sample)
         logger.warning(
@@ -2430,6 +2703,7 @@ def wrap_phase(
     scores_before: dict[str, float] | None = None,
     restorability_score: float = 70.0,
     applicable_goals: set[str] | None = None,
+    is_studio_2026: bool = False,
 ) -> tuple[np.ndarray, dict[str, float], PhaseGateLogEntry]:
     """
     Convenience-Wrapper: Führt eine Phase aus mit Musical-Goals-Schutz.
@@ -2442,6 +2716,7 @@ def wrap_phase(
         restorability_score: RestorabilityEstimator-Score ∈ [0, 100], bestimmt
                              adaptiven REGRESSION_THRESHOLD (§2.29).
         applicable_goals: Aus GoalApplicabilityFilter — nur diese Ziele geprüft.
+        is_studio_2026: True for Studio 2026 mode (higher P3–P5 thresholds).
 
     Returns:
         (audio_out, scores_after, log_entry)
@@ -2453,4 +2728,5 @@ def wrap_phase(
         scores_before,
         restorability_score=restorability_score,
         applicable_goals=applicable_goals,
+        is_studio_2026=is_studio_2026,
     )

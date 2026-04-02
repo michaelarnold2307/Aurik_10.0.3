@@ -529,7 +529,7 @@ class SGMSEPlusPlugin:
             if T_pad > 0:
                 out_arr = out_arr[:, :, :, :T_orig]
 
-            out_real = out_arr[0, 0] if out_arr.shape[1] >= 2 else out_arr[0, 0]
+            out_real = out_arr[0, 0]
             out_imag = out_arr[0, 1] if out_arr.shape[1] >= 2 else np.zeros_like(out_real)
 
             Z_enhanced = (out_real + 1j * out_imag).astype(np.complex64)
@@ -601,6 +601,10 @@ class SGMSEPlusPlugin:
                             out_t = torch.stack([out_complex.real, out_complex.imag], dim=1)
 
                     out_seg = out_t.detach().cpu().numpy().astype(np.float32)
+                    # SGMSE+ TorchScript wrapper may return [B,2,1,F,T] (5D)
+                    # instead of [B,2,F,T] (4D) — squeeze extra dim if present.
+                    while out_seg.ndim > 4:
+                        out_seg = out_seg.squeeze(2)
                     out_seg = out_seg[:, :, :F_orig, :seg_len]
                     if seg_len > 1:
                         w = np.hanning(seg_len).astype(np.float32)
