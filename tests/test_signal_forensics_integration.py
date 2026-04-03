@@ -203,7 +203,7 @@ class TestMaterialSpecificPipelines:
         chain = chain_builder.build_chain(analysis, verbose=False)
 
         # Validate chain is appropriate
-        assert chain.material_type in chain_builder.CHAIN_TEMPLATES.keys()
+        assert chain.material_type in chain_builder.CHAIN_TEMPLATES
         assert len(chain.modules) > 0
 
 

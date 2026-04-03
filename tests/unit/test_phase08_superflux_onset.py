@@ -23,6 +23,7 @@ SR = 48_000
 @pytest.fixture()
 def phase():
     from backend.core.phases.phase_08_transient_preservation import TransientPreservationPhase
+
     p = TransientPreservationPhase()
     p.sample_rate = SR
     return p
@@ -56,6 +57,7 @@ def _impulse_train(n_impulses: int, dur: float, amp: float = 0.8) -> np.ndarray:
 # ──────────────────────────────────────────────────────────────────────────────
 # 1.  Return-type contracts
 # ──────────────────────────────────────────────────────────────────────────────
+
 
 class TestSuperfluxReturnContract:
     def test_returns_two_arrays(self, phase):
@@ -98,6 +100,7 @@ class TestSuperfluxReturnContract:
 # 2.  Vibrato suppression — core Superflux property
 # ──────────────────────────────────────────────────────────────────────────────
 
+
 class TestVibratoSuppression:
     """
     Superflux invariant (Böck & Widmer 2013):
@@ -110,6 +113,7 @@ class TestVibratoSuppression:
     def _naive_flux_count(audio: np.ndarray, sensitivity: float) -> int:
         """Reference: classic frame-difference flux (no max-filter)."""
         import scipy.signal as ss
+
         hop, n_fft = 512, 2048
         _, _, Zxx = ss.stft(audio, fs=SR, nperseg=n_fft, noverlap=n_fft - hop)
         mag = np.abs(Zxx)
@@ -160,6 +164,7 @@ class TestVibratoSuppression:
 # 3.  Hard-onset detection — genuine transients must survive
 # ──────────────────────────────────────────────────────────────────────────────
 
+
 class TestHardOnsetDetection:
     def test_impulse_train_detects_onsets(self, phase):
         """4 clear impulse onsets should each be detected."""
@@ -179,7 +184,7 @@ class TestHardOnsetDetection:
         """Sudden level jump from silence to loud tone must be detected."""
         n = int(SR * 1.0)
         audio = np.zeros(n, dtype=np.float32)
-        audio[n // 2:] = 0.7 * np.sin(2.0 * np.pi * 440.0 * np.arange(n // 2) / SR)
+        audio[n // 2 :] = 0.7 * np.sin(2.0 * np.pi * 440.0 * np.arange(n // 2) / SR)
         times, _ = phase._detect_onsets_spectral_flux(audio, sensitivity=0.5)
         assert len(times) >= 1, "Amplitude step onset not detected"
 
@@ -187,6 +192,7 @@ class TestHardOnsetDetection:
 # ──────────────────────────────────────────────────────────────────────────────
 # 4.  Edge-case robustness
 # ──────────────────────────────────────────────────────────────────────────────
+
 
 class TestEdgeCases:
     def test_silence_no_crash(self, phase):
@@ -240,9 +246,11 @@ class TestEdgeCases:
 # 5.  Process() integration (phase-level smoke tests)
 # ──────────────────────────────────────────────────────────────────────────────
 
+
 class TestProcessIntegration:
     def test_process_returns_phase_result(self, phase):
         from backend.core.phases.phase_interface import PhaseResult
+
         audio = _sine(440.0, 0.5)
         result = phase.process(audio, material_type="tape", sample_rate=SR)
         assert isinstance(result, PhaseResult)

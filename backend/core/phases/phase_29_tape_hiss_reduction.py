@@ -209,8 +209,8 @@ class TapeHissReductionPhase(PhaseInterface):
             try:
                 qm = QualityMode[quality_mode.upper()]
                 use_ml = should_use_ml(29, qm)  # Phase 29
-            except Exception:
-                pass
+            except Exception as _exc:
+                logger.debug("Operation failed (non-critical): %s", _exc)
 
         # Skip for digital sources
         if material in [MaterialType.CD_DIGITAL, MaterialType.STREAMING]:
@@ -392,7 +392,6 @@ class TapeHissReductionPhase(PhaseInterface):
         intensity_scale = float(np.clip(intensity_scale, 0.0, 1.0))
         # Raise floor towards 1.0 for conservative locality handling.
         G_floor = float(np.clip(1.0 - intensity_scale * (1.0 - G_floor), 0.0, 1.0))
-        q = 0.5  # Rausch-Präsenz-Prior
 
         # STFT + OMLSA via MRSA 5-zone processing (§DSP-Spezialregeln)
         processed = self._process_channel_omlsa_mrsa(channel, sample_rate, hf_low, hf_high, material, intensity_scale)
@@ -736,8 +735,8 @@ class TapeHissReductionPhase(PhaseInterface):
                     os.unlink(input_path)
                 if os.path.exists(output_path):
                     os.unlink(output_path)
-            except Exception:
-                pass
+            except Exception as _exc:
+                logger.debug("Operation failed (non-critical): %s", _exc)
 
     def _apply_adaptive_gate(
         self, band_signal: np.ndarray, noise_floor_db: float, threshold_db: float, reduction_db: float, sample_rate: int

@@ -206,8 +206,8 @@ class FcpePlugin:
                     if not _try_alloc("FCPE", size_gb=0.07):
                         logger.warning("FCPE: ML-Budget erschöpft — CREPE-Fallback.")
                         return
-                except Exception:
-                    pass
+                except Exception as _exc:
+                    logger.debug("Operation failed (non-critical): %s", _exc)
 
                 opts = ort.SessionOptions()
                 opts.inter_op_num_threads = 1
@@ -223,8 +223,8 @@ class FcpePlugin:
                     from backend.core.plugin_lifecycle_manager import register_plugin as _reg_plm
 
                     _reg_plm("FCPE", size_gb=0.07, unload_fn=lambda s=self: setattr(s, "_session", None))
-                except Exception:
-                    pass
+                except Exception as _exc:
+                    logger.debug("Operation failed (non-critical): %s", _exc)
                 return
             logger.debug(
                 "FCPE ONNX nicht gefunden (%s) — CREPE ONNX-Fallback aktiv",
@@ -399,15 +399,15 @@ def unload_fcpe() -> None:
             try:
                 _instance._session = None
                 _instance._crepe_delegate = None
-            except Exception:
-                pass
+            except Exception as _exc:
+                logger.debug("Operation failed (non-critical): %s", _exc)
             _instance = None
     try:
         from backend.core.ml_memory_budget import release as _release
 
         _release("FCPE")
-    except Exception:
-        pass
+    except Exception as _exc:
+        logger.debug("Operation failed (non-critical): %s", _exc)
 
 
 def analyze_pitch(audio: np.ndarray, sr: int) -> CrepeResult:

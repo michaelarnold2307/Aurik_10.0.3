@@ -327,9 +327,9 @@ class TestOptimizedONNXModel:
 
         with caplog.at_level(logging.WARNING):
             model.process(audio, sr=44100)
-        assert any(
-            "Sample rate mismatch" in m for m in caplog.text.splitlines()
-        ), "Sample rate mismatch warning not logged"
+        assert any("Sample rate mismatch" in m for m in caplog.text.splitlines()), (
+            "Sample rate mismatch warning not logged"
+        )
 
 
 class TestModelInfo:

@@ -56,10 +56,10 @@ class ClassificationResult:
     block_artifact: float = 0.0
     pre_echo_ms: float = 0.0
     classifier_source: str = "dsp"
-    rotation_hz: float = 0.0         # dominant turntable rotation frequency [Hz]; 0.0 = none
-    rotation_strength: float = 0.0   # normalized peak SNR of rotation signal [0, 1]
-    infrasonic_rms: float = 0.0      # sub-20 Hz normalised RMS (vinyl rumble indicator)
-    codec_type: str = ""             # 'mp3' | 'aac' | 'lossy' | 'clean' | '' (unknown)
+    rotation_hz: float = 0.0  # dominant turntable rotation frequency [Hz]; 0.0 = none
+    rotation_strength: float = 0.0  # normalized peak SNR of rotation signal [0, 1]
+    infrasonic_rms: float = 0.0  # sub-20 Hz normalised RMS (vinyl rumble indicator)
+    codec_type: str = ""  # 'mp3' | 'aac' | 'lossy' | 'clean' | '' (unknown)
 
     @property
     def material_type(self) -> str:
@@ -335,9 +335,7 @@ class _SpectralFingerprinter:
                     pre_echo_score = max(pre_echo_score, float(np.clip((ratio_pe - 1.8) / 3.5, 0.0, 1.0)))
 
         # --- Combined score: cutoff dominates (most reliable) ---
-        artifact_score = float(np.clip(
-            0.50 * cutoff_score + 0.30 * sfm_score + 0.20 * pre_echo_score, 0.0, 1.0
-        ))
+        artifact_score = float(np.clip(0.50 * cutoff_score + 0.30 * sfm_score + 0.20 * pre_echo_score, 0.0, 1.0))
 
         # --- Codec type hint (encoded as float) ---
         if artifact_score < 0.10:
@@ -697,9 +695,16 @@ class _MaterialScorer:
 
     # Feature keys in canonical order — must match _MATERIAL_MODELS keys
     _FEATURE_KEYS: list[str] = [
-        "bandwidth_hz", "snr_db", "noise_color", "crackle_density",
-        "wow_depth", "block_artifact", "pre_echo_ms",
-        "rotation_strength", "infrasonic_rms", "codec_type_code",
+        "bandwidth_hz",
+        "snr_db",
+        "noise_color",
+        "crackle_density",
+        "wow_depth",
+        "block_artifact",
+        "pre_echo_ms",
+        "rotation_strength",
+        "infrasonic_rms",
+        "codec_type_code",
     ]
 
     def score(self, features: dict[str, float], MaterialType: Any) -> ClassificationResult:
@@ -717,10 +722,16 @@ class _MaterialScorer:
         codec_code = features.get("codec_type_code", 0.0)
 
         obs = {
-            "bandwidth_hz": bw, "snr_db": snr, "noise_color": nc,
-            "crackle_density": cd, "wow_depth": wf, "block_artifact": ba,
-            "pre_echo_ms": pe, "rotation_strength": rot_str,
-            "infrasonic_rms": infra, "codec_type_code": codec_code,
+            "bandwidth_hz": bw,
+            "snr_db": snr,
+            "noise_color": nc,
+            "crackle_density": cd,
+            "wow_depth": wf,
+            "block_artifact": ba,
+            "pre_echo_ms": pe,
+            "rotation_strength": rot_str,
+            "infrasonic_rms": infra,
+            "codec_type_code": codec_code,
         }
 
         # Compute log-likelihood for each material
@@ -760,12 +771,14 @@ class _MaterialScorer:
                     matched.append(fk)
                 elif z > 2.5:
                     against.append(fk)
-            evidence.append(MaterialEvidence(
-                material=self._find_enum(MaterialType, mat_name),
-                confidence=float(np.clip(post, 0.0, 1.0)),
-                features_matched=matched,
-                features_against=against,
-            ))
+            evidence.append(
+                MaterialEvidence(
+                    material=self._find_enum(MaterialType, mat_name),
+                    confidence=float(np.clip(post, 0.0, 1.0)),
+                    features_matched=matched,
+                    features_against=against,
+                )
+            )
 
         # Decode codec_type string from code
         _codec_map = {0.0: "clean", 1.0: "mp3", 2.0: "aac", 3.0: "lossy"}
@@ -847,8 +860,8 @@ class MediumClassifier:
             if r is not None and r.confidence >= 0.35:
                 r.classifier_source = "clap_ml"
                 return r
-        except Exception:
-            pass
+        except Exception as _exc:
+            logger.debug("Operation failed (non-critical): %s", _exc)
         return None
 
     @staticmethod

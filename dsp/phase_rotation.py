@@ -118,49 +118,40 @@ class PhaseRotator:
         Apply phase rotation using all-pass filters.
 
         Strategy:
-        - Apply 90° all-pass filter to right channel
-        - Adjust strength based on correlation target
+        - Rotate right channel forward (all-pass cascade)
+        - Rotate left channel slightly backward (inverse coefficient)
+        - This preserves stereo width while improving correlation
         """
-        # Create all-pass filter for phase shift
-        # First-order all-pass: H(z) = (z^-1 - a) / (1 - a*z^-1)
-        # At center frequency: phase shift = -90°
+        # Right channel: full forward rotation
+        right_rotated = self._apply_allpass_cascade(right, sr, forward=True)
 
-        # Apply frequency-dependent phase rotation
-        # Low frequencies: minimal rotation
-        # Mid frequencies: maximum rotation
-        # High frequencies: moderate rotation
-
-        right_rotated = self._apply_allpass_cascade(right, sr)
-
-        # Optional: slight rotation on left channel in opposite direction
-        # for better stereo width preservation
-        left_rotated = left.copy()  # No rotation on left for simplicity
+        # Left channel: slight counter-rotation for stereo width preservation
+        # Use 30% of the rotation strength in opposite direction
+        left_rotated = self._apply_allpass_cascade(left, sr, forward=False)
+        left_rotated = left * 0.7 + left_rotated * 0.3
 
         return left_rotated, right_rotated
 
-    def _apply_allpass_cascade(self, signal: np.ndarray, sr: int) -> np.ndarray:
+    def _apply_allpass_cascade(self, signal_in: np.ndarray, sr: int, forward: bool = True) -> np.ndarray:
         """
         Apply cascade of all-pass filters for phase rotation.
 
-        3-band approach:
-        - Low: 100-500 Hz (minimal rotation)
-        - Mid: 500-2000 Hz (maximum rotation)
-        - High: 2000-8000 Hz (moderate rotation)
+        3-band approach with frequency-dependent rotation strength.
         """
         # Split into 3 bands
-        low_band = self._extract_band(signal, sr, 20, 500)
-        mid_band = self._extract_band(signal, sr, 500, 2000)
-        high_band = self._extract_band(signal, sr, 2000, 20000)
+        low_band = self._extract_band(signal_in, sr, 20, 500)
+        mid_band = self._extract_band(signal_in, sr, 500, 2000)
+        high_band = self._extract_band(signal_in, sr, 2000, min(20000, sr // 2 - 1))
 
-        # Apply phase shifts
-        low_shifted = self._allpass_filter(low_band, sr, center_freq=250, strength=0.3)
-        mid_shifted = self._allpass_filter(mid_band, sr, center_freq=1000, strength=1.0)
-        high_shifted = self._allpass_filter(high_band, sr, center_freq=4000, strength=0.6)
+        # Direction factor
+        direction = 1.0 if forward else -1.0
 
-        # Recombine
-        result = low_shifted + mid_shifted + high_shifted
+        # Apply phase shifts — mid frequencies get maximum rotation
+        low_shifted = self._allpass_filter(low_band, sr, center_freq=250, strength=0.3 * direction)
+        mid_shifted = self._allpass_filter(mid_band, sr, center_freq=1000, strength=1.0 * direction)
+        high_shifted = self._allpass_filter(high_band, sr, center_freq=4000, strength=0.6 * direction)
 
-        return result
+        return low_shifted + mid_shifted + high_shifted
 
     def _extract_band(self, signal: np.ndarray, sr: int, low_freq: float, high_freq: float) -> np.ndarray:
         """Extract frequency band using bandpass filter."""

@@ -95,18 +95,18 @@ CAUSES = [
     "tape_start_instability",  # Cassette head engagement + motor startup (first 20 s)
     "tape_head_contact_instability",  # Gradual level dips from head-tape pressure variation / capstan irregularity
     # ── v9.10.98: 12 neue Kausal-Ursachen ────────────────────────────────────
-    "modulation_noise",            # Signal-dependent noise modulation (tape media)
-    "inner_groove_distortion",     # IGD: THD increasing with groove radius (vinyl/shellac)
-    "groove_echo",                 # Pre-echo from adjacent groove deformation (~1.8 s @ 33⅓)
-    "crosstalk",                   # Channel separation degradation in early stereo
+    "modulation_noise",  # Signal-dependent noise modulation (tape media)
+    "inner_groove_distortion",  # IGD: THD increasing with groove radius (vinyl/shellac)
+    "groove_echo",  # Pre-echo from adjacent groove deformation (~1.8 s @ 33⅓)
+    "crosstalk",  # Channel separation degradation in early stereo
     "intermodulation_distortion",  # Nonlinear sum/difference products (amplifier chain)
-    "tape_splice_artifact",        # Click + level jump + phase discontinuity at splices
-    "hf_remanence_loss",           # Magnetic particle demagnetization over decades
-    "stylus_damage",               # Asymmetric distortion from worn/damaged stylus
-    "sticky_shed_residue",         # Post-baking tape degradation: level dips + noise bursts
-    "multiband_wow_flutter",       # Frequency-dependent speed fluctuations (head gap)
-    "generation_loss",             # Cumulative degradation from tape dubbing/transcoding
-    "motor_interference",          # Motor harmonics 80–300 Hz from DC/sync motors
+    "tape_splice_artifact",  # Click + level jump + phase discontinuity at splices
+    "hf_remanence_loss",  # Magnetic particle demagnetization over decades
+    "stylus_damage",  # Asymmetric distortion from worn/damaged stylus
+    "sticky_shed_residue",  # Post-baking tape degradation: level dips + noise bursts
+    "multiband_wow_flutter",  # Frequency-dependent speed fluctuations (head gap)
+    "generation_loss",  # Cumulative degradation from tape dubbing/transcoding
+    "motor_interference",  # Motor harmonics 80–300 Hz from DC/sync motors
 ]
 
 # Material-Typen — Priors für alle 34 Kausal-Ursachen (v9.10.77b)
@@ -151,18 +151,18 @@ MATERIAL_PRIORS: dict[str, dict[str, float]] = {
         "flutter": 0.05,
         "wow_flutter": 0.08,
         # v9.10.98: 12 neue Ursachen
-        "modulation_noise": 0.18,               # very common on tape
-        "inner_groove_distortion": 0.01,         # N/A for tape
-        "groove_echo": 0.01,                    # N/A for tape
-        "crosstalk": 0.04,                      # early stereo tape
-        "intermodulation_distortion": 0.03,      # tube amp chains
-        "tape_splice_artifact": 0.12,            # common on reel/cassette
-        "hf_remanence_loss": 0.15,               # primary tape issue
-        "stylus_damage": 0.01,                  # N/A for tape
-        "sticky_shed_residue": 0.14,            # polyester tape degradation
-        "multiband_wow_flutter": 0.08,           # head geometry artifact
-        "generation_loss": 0.10,                 # common in tape dubbing
-        "motor_interference": 0.06,              # capstan motor
+        "modulation_noise": 0.18,  # very common on tape
+        "inner_groove_distortion": 0.01,  # N/A for tape
+        "groove_echo": 0.01,  # N/A for tape
+        "crosstalk": 0.04,  # early stereo tape
+        "intermodulation_distortion": 0.03,  # tube amp chains
+        "tape_splice_artifact": 0.12,  # common on reel/cassette
+        "hf_remanence_loss": 0.15,  # primary tape issue
+        "stylus_damage": 0.01,  # N/A for tape
+        "sticky_shed_residue": 0.14,  # polyester tape degradation
+        "multiband_wow_flutter": 0.08,  # head geometry artifact
+        "generation_loss": 0.10,  # common in tape dubbing
+        "motor_interference": 0.06,  # capstan motor
     },
     "vinyl": {
         "tape_dropout": 0.02,
@@ -199,8 +199,8 @@ MATERIAL_PRIORS: dict[str, dict[str, float]] = {
         "wow": 0.03,
         "flutter": 0.01,
         "wow_flutter": 0.03,
-        "tape_start_instability": 1.0,  # N/A: no tape transport mechanism
-        "tape_head_contact_instability": 1.0,  # N/A: no tape head contact
+        "tape_start_instability": 0.001,  # N/A: no tape transport mechanism
+        "tape_head_contact_instability": 0.001,  # N/A: no tape head contact
         # v9.10.98: 12 neue Ursachen
         "modulation_noise": 0.01,
         "inner_groove_distortion": 0.18,
@@ -250,8 +250,8 @@ MATERIAL_PRIORS: dict[str, dict[str, float]] = {
         "wow": 0.02,
         "flutter": 0.01,
         "wow_flutter": 0.02,
-        "tape_start_instability": 1.0,  # N/A: no tape transport mechanism
-        "tape_head_contact_instability": 1.0,  # N/A: no tape head contact
+        "tape_start_instability": 0.001,  # N/A: no tape transport mechanism
+        "tape_head_contact_instability": 0.001,  # N/A: no tape head contact
         # v9.10.98: 12 neue Ursachen
         "modulation_noise": 0.01,
         "inner_groove_distortion": 0.2,
@@ -301,8 +301,8 @@ MATERIAL_PRIORS: dict[str, dict[str, float]] = {
         "wow": 0.01,
         "flutter": 0.01,
         "wow_flutter": 0.01,
-        "tape_start_instability": 1.0,  # N/A: no tape transport mechanism
-        "tape_head_contact_instability": 1.0,  # N/A: no tape head contact
+        "tape_start_instability": 0.001,  # N/A: no tape transport mechanism
+        "tape_head_contact_instability": 0.001,  # N/A: no tape head contact
         # v9.10.98: 12 neue Ursachen
         "modulation_noise": 0.01,
         "inner_groove_distortion": 0.01,
@@ -352,8 +352,8 @@ MATERIAL_PRIORS: dict[str, dict[str, float]] = {
         "wow": 0.03,
         "flutter": 0.02,
         "wow_flutter": 0.03,
-        "tape_start_instability": 1.0,  # N/A: no tape transport mechanism
-        "tape_head_contact_instability": 1.0,  # N/A: no tape head contact
+        "tape_start_instability": 0.001,  # N/A: no tape transport mechanism
+        "tape_head_contact_instability": 0.001,  # N/A: no tape head contact
         # v9.10.98: 12 neue Ursachen
         "modulation_noise": 0.05,
         "inner_groove_distortion": 0.05,
@@ -404,8 +404,8 @@ MATERIAL_PRIORS: dict[str, dict[str, float]] = {
         "wow": 0.01,
         "flutter": 0.01,
         "wow_flutter": 0.01,
-        "tape_start_instability": 1.0,  # N/A: no tape transport mechanism
-        "tape_head_contact_instability": 1.0,  # N/A: no tape head contact
+        "tape_start_instability": 0.001,  # N/A: no tape transport mechanism
+        "tape_head_contact_instability": 0.001,  # N/A: no tape head contact
         # v9.10.98: 12 neue Ursachen
         "modulation_noise": 0.01,
         "inner_groove_distortion": 0.01,
@@ -455,8 +455,8 @@ MATERIAL_PRIORS: dict[str, dict[str, float]] = {
         "wow": 0.01,
         "flutter": 0.01,
         "wow_flutter": 0.01,
-        "tape_start_instability": 1.0,  # N/A: no tape transport mechanism
-        "tape_head_contact_instability": 1.0,  # N/A: no tape head contact
+        "tape_start_instability": 0.001,  # N/A: no tape transport mechanism
+        "tape_head_contact_instability": 0.001,  # N/A: no tape head contact
         # v9.10.98: 12 neue Ursachen
         "modulation_noise": 0.01,
         "inner_groove_distortion": 0.01,
@@ -506,8 +506,8 @@ MATERIAL_PRIORS: dict[str, dict[str, float]] = {
         "wow": 0.01,
         "flutter": 0.01,
         "wow_flutter": 0.01,
-        "tape_start_instability": 1.0,  # N/A: no tape transport mechanism
-        "tape_head_contact_instability": 1.0,  # N/A: no tape head contact
+        "tape_start_instability": 0.001,  # N/A: no tape transport mechanism
+        "tape_head_contact_instability": 0.001,  # N/A: no tape head contact
         # v9.10.98: 12 neue Ursachen
         "modulation_noise": 0.01,
         "inner_groove_distortion": 0.01,
@@ -557,8 +557,8 @@ MATERIAL_PRIORS: dict[str, dict[str, float]] = {
         "wow": 0.01,
         "flutter": 0.01,
         "wow_flutter": 0.01,
-        "tape_start_instability": 1.0,  # N/A: no tape transport mechanism
-        "tape_head_contact_instability": 1.0,  # N/A: no tape head contact
+        "tape_start_instability": 0.001,  # N/A: no tape transport mechanism
+        "tape_head_contact_instability": 0.001,  # N/A: no tape head contact
         # v9.10.98: 12 neue Ursachen
         "modulation_noise": 0.01,
         "inner_groove_distortion": 0.01,
@@ -608,8 +608,8 @@ MATERIAL_PRIORS: dict[str, dict[str, float]] = {
         "wow": 0.01,
         "flutter": 0.01,
         "wow_flutter": 0.01,
-        "tape_start_instability": 1.0,  # N/A: no tape transport mechanism
-        "tape_head_contact_instability": 1.0,  # N/A: no tape head contact
+        "tape_start_instability": 0.001,  # N/A: no tape transport mechanism
+        "tape_head_contact_instability": 0.001,  # N/A: no tape head contact
         # v9.10.98: 12 neue Ursachen
         "modulation_noise": 0.01,
         "inner_groove_distortion": 0.01,
@@ -659,8 +659,8 @@ MATERIAL_PRIORS: dict[str, dict[str, float]] = {
         "wow": 0.01,
         "flutter": 0.01,
         "wow_flutter": 0.01,
-        "tape_start_instability": 1.0,  # N/A: no tape transport mechanism
-        "tape_head_contact_instability": 1.0,  # N/A: no tape head contact
+        "tape_start_instability": 0.001,  # N/A: no tape transport mechanism
+        "tape_head_contact_instability": 0.001,  # N/A: no tape head contact
         # v9.10.98: 12 neue Ursachen
         "modulation_noise": 0.03,
         "inner_groove_distortion": 0.01,
@@ -710,8 +710,8 @@ MATERIAL_PRIORS: dict[str, dict[str, float]] = {
         "wow": 0.01,
         "flutter": 0.01,
         "wow_flutter": 0.01,
-        "tape_start_instability": 1.0,  # N/A: no tape transport mechanism
-        "tape_head_contact_instability": 1.0,  # N/A: no tape head contact
+        "tape_start_instability": 0.001,  # N/A: no tape transport mechanism
+        "tape_head_contact_instability": 0.001,  # N/A: no tape head contact
         # v9.10.98: 12 neue Ursachen
         "modulation_noise": 0.01,
         "inner_groove_distortion": 0.01,
@@ -762,8 +762,8 @@ MATERIAL_PRIORS: dict[str, dict[str, float]] = {
         "wow": 0.04,
         "flutter": 0.02,
         "wow_flutter": 0.05,
-        "tape_start_instability": 1.0,  # N/A: no magnetic tape head
-        "tape_head_contact_instability": 1.0,  # N/A: no magnetic tape head
+        "tape_start_instability": 0.001,  # N/A: no magnetic tape head
+        "tape_head_contact_instability": 0.001,  # N/A: no magnetic tape head
         # v9.10.98: 12 neue Ursachen
         "modulation_noise": 0.01,
         "inner_groove_distortion": 0.15,
@@ -813,8 +813,8 @@ MATERIAL_PRIORS: dict[str, dict[str, float]] = {
         "wow": 0.02,
         "flutter": 0.01,
         "wow_flutter": 0.02,
-        "tape_start_instability": 1.0,  # N/A: no magnetic tape
-        "tape_head_contact_instability": 1.0,  # N/A: no magnetic tape
+        "tape_start_instability": 0.001,  # N/A: no magnetic tape
+        "tape_head_contact_instability": 0.001,  # N/A: no magnetic tape
         # v9.10.98: 12 neue Ursachen
         "modulation_noise": 0.01,
         "inner_groove_distortion": 0.16,
@@ -962,8 +962,8 @@ CAUSE_TO_PHASES: dict[str, list[str]] = {
     # ── Digital / Codec ──────────────────────────────────────────────────────
     "digital_artifacts": ["phase_23_spectral_repair", "phase_50_spectral_repair", "phase_06_frequency_restoration"],
     "compression_artifacts": [
-        "phase_23_spectral_repair",
-        "phase_50_spectral_repair",  # §7.2 Apollo primär
+        "phase_23_spectral_repair",  # Apollo pre-proc + IMCRA inpainting (primary codec path)
+        "phase_50_spectral_repair",  # STFT spike interpolation DSP (no Apollo — fallback/complement)
         "phase_26_dynamic_range_expansion",
         "phase_06_frequency_restoration",
         "phase_54_transparent_dynamics",
@@ -1035,11 +1035,11 @@ CAUSE_TO_PHASES: dict[str, list[str]] = {
     # Scientific basis: Camras (1988) Ch. 7 "Transport Mechanisms — Start Transients";
     # McKnight (1969) AES Convention 36 — measured cassette start-up characteristics.
     "tape_start_instability": [
-        "phase_12_wow_flutter_fix",      # Motor speed ramp → wow/flutter in intro
-        "phase_25_azimuth_correction",   # Head engagement → time-varying azimuth drift
+        "phase_12_wow_flutter_fix",  # Motor speed ramp → wow/flutter in intro
+        "phase_25_azimuth_correction",  # Head engagement → time-varying azimuth drift
         "phase_31_speed_pitch_correction",  # Constant speed offset after motor stabilization
-        "phase_14_phase_correction",     # Residual L/R phase misalignment
-        "phase_24_dropout_repair",       # Tape-slack can cause momentary signal loss
+        "phase_14_phase_correction",  # Residual L/R phase misalignment
+        "phase_24_dropout_repair",  # Tape-slack can cause momentary signal loss
     ],
     # ── Tape Head Contact Instability (level dips from pressure variation) ──
     # Gradual envelope dips (60-100 ms onset, 100-400 ms total, 10-25 dB deep)
@@ -1048,8 +1048,8 @@ CAUSE_TO_PHASES: dict[str, list[str]] = {
     # Stabilizer (Step 6c) that detects and compensates these dips.
     # Scientific basis: Camras (1988) Ch.7 — head-tape spacing modulates output.
     "tape_head_contact_instability": [
-        "phase_12_wow_flutter_fix",      # Primary: Tape Level Stabilizer (Step 6c)
-        "phase_24_dropout_repair",       # Deep dips that cross dropout threshold
+        "phase_12_wow_flutter_fix",  # Primary: Tape Level Stabilizer (Step 6c)
+        "phase_24_dropout_repair",  # Deep dips that cross dropout threshold
         "phase_26_dynamic_range_expansion",  # Restore micro-dynamics after leveling
     ],
     # ── Vocal-Harshness (v9.10.77 — Vokal-Härte/Übersteuerung/Kratzigkeit) ──
@@ -1959,6 +1959,7 @@ def _likelihood_tape_head_contact(sf: SpectralFeatures, defect_scores: dict[str,
 
 
 # ── v9.10.98: 12 neue Likelihood-Funktionen ─────────────────────────────────
+
 
 def _likelihood_modulation_noise(sf: SpectralFeatures, defect_scores: dict[str, float]) -> float:
     """P(features | modulation_noise) — signal-dependent noise modulation."""

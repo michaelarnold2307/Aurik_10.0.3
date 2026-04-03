@@ -267,7 +267,6 @@ class PolicyEngine:
         """
         Aurik entfesselt: Kombiniert alle SOTA-DSP-Module, experimentelle Ketten, adaptive Policy, Experten-Feedback, Klangästhetik, Audit und robuste Tonträgererkennung.
         """
-        policy_override if policy_override is not None else self.policy
         features: FeaturesDict = self.feature_extractor.extract(audio, sr, reference, self.policy_manager)  # type: ignore
         # Zusätzliche Parameter in Features integrieren
         if user_score is not None:

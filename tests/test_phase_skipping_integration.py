@@ -57,7 +57,7 @@ def test_clean_digital_skipping():
     audio = generate_test_audio(duration=3.0, sr=48000, noise_level=0.0)
     sr = 48000
 
-    print(f"Input: {len(audio)/sr:.1f}s @ {sr} Hz (clean digital)")
+    print(f"Input: {len(audio) / sr:.1f}s @ {sr} Hz (clean digital)")
 
     # Create restorer with phase skipping enabled
     config = RestorationConfig(
@@ -105,7 +105,7 @@ def test_noisy_vinyl_no_critical_skip():
     audio = generate_test_audio(duration=3.0, sr=48000, noise_level=0.05)
     sr = 48000
 
-    print(f"Input: {len(audio)/sr:.1f}s @ {sr} Hz (noisy vinyl simulation)")
+    print(f"Input: {len(audio) / sr:.1f}s @ {sr} Hz (noisy vinyl simulation)")
 
     # Create restorer with phase skipping enabled
     # Use QUALITY mode to avoid PerformanceGuard interfering with test
@@ -133,7 +133,7 @@ def test_noisy_vinyl_no_critical_skip():
     print(f"✅ Quality estimate: {result.quality_estimate:.3f}")
 
     # Validation: Should execute denoise for noisy input
-    executed_phase_ids = [p for p in result.phases_executed]
+    executed_phase_ids = list(result.phases_executed)
     print(f"\n✅ Executed phases sample: {executed_phase_ids[:5]}")
 
     # Should have executed reasonable number of phases
@@ -152,7 +152,7 @@ def test_conservative_mode():
     audio = generate_test_audio(duration=3.0, sr=48000, noise_level=0.01)
     sr = 48000
 
-    print(f"Input: {len(audio)/sr:.1f}s @ {sr} Hz")
+    print(f"Input: {len(audio) / sr:.1f}s @ {sr} Hz")
 
     # Test with conservative=False
     config_aggressive = RestorationConfig(
@@ -179,9 +179,9 @@ def test_conservative_mode():
     print(f"   Phases skipped: {len(result_conservative.phases_skipped)}")
 
     # Validation: Conservative should skip fewer phases
-    assert len(result_conservative.phases_skipped) <= len(
-        result_aggressive.phases_skipped
-    ), "Conservative mode should skip fewer phases"
+    assert len(result_conservative.phases_skipped) <= len(result_aggressive.phases_skipped), (
+        "Conservative mode should skip fewer phases"
+    )
 
     print("\n✅ Test 3 PASSED")
 
@@ -195,7 +195,7 @@ def test_performance_improvement():
     audio = generate_test_audio(duration=5.0, sr=48000, noise_level=0.0)
     sr = 48000
 
-    print(f"Input: {len(audio)/sr:.1f}s @ {sr} Hz (clean digital)")
+    print(f"Input: {len(audio) / sr:.1f}s @ {sr} Hz (clean digital)")
 
     # Test WITHOUT phase skipping
     config_no_skip = RestorationConfig(

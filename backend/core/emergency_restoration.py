@@ -32,7 +32,7 @@ import logging
 import threading
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Optional
+from typing import Any
 
 import numpy as np
 
@@ -328,14 +328,12 @@ class DamageAnalyzer:
         recommendations = []
 
         if severity == DamageSeverity.CRITICAL:
-            recommendations.append(
-                "⚠ CRITICAL DAMAGE: Material is >90% corrupted. " "Only partial restoration possible."
-            )
+            recommendations.append("⚠ CRITICAL DAMAGE: Material is >90% corrupted. Only partial restoration possible.")
             recommendations.append("Consider: Frequency band triage to save intact regions.")
 
         elif severity == DamageSeverity.SEVERE:
             recommendations.append(
-                "⚠ SEVERE DAMAGE: Significant corruption detected. " "Emergency restoration recommended."
+                "⚠ SEVERE DAMAGE: Significant corruption detected. Emergency restoration recommended."
             )
 
         if salvageable_bands < total_bands / 2:
@@ -346,7 +344,7 @@ class DamageAnalyzer:
 
         if corruption > 95:
             recommendations.append(
-                "Material may be beyond salvage. Recommend archiving original " "and marking as 'severely degraded'."
+                "Material may be beyond salvage. Recommend archiving original and marking as 'severely degraded'."
             )
 
         return recommendations
@@ -532,8 +530,8 @@ class EmergencyRestorationEngine:
                     audio[abnormal_mask] = reconstructed[abnormal_mask]
 
                     logger.debug(f"    Reconstructed {np.sum(abnormal_mask)} samples")
-                except Exception:
-                    pass
+                except Exception as _exc:
+                    logger.debug("Operation failed (non-critical): %s", _exc)
 
         return audio
 

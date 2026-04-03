@@ -1032,8 +1032,8 @@ class VocalEnhancement(PhaseInterface):
                                 vibrato_ratio,
                                 vibrato_attenuation,
                             )
-        except Exception:
-            pass  # Vibrato detection failure is non-critical
+        except Exception as _exc:
+            logger.debug("Operation failed (non-critical): %s", _exc)  # Vibrato detection failure is non-critical
 
         final_gain_db = adapted_gain_db * vibrato_attenuation
         if abs(final_gain_db) < 0.01:

@@ -209,7 +209,7 @@ class PsolaPitchShifter:
         output = np.zeros(n_samples, dtype=np.float64)
         norm = np.zeros(n_samples, dtype=np.float64)
 
-        crossfade = min(960, frame_hop_samples)  # Max 20 ms @48 kHz
+        min(960, frame_hop_samples)  # Max 20 ms @48 kHz
 
         for i, f0_local in enumerate(f0_trajectory):
             start = i * frame_hop_samples

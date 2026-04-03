@@ -15,7 +15,6 @@ from backend.core.forensics.analysis_and_modules import FeatureExtractor, Policy
 
 
 class TestPolicyManager:
-
     def test_policy_manager_init(self):
         """Test PolicyManager initialization"""
         policy = {"threshold": 0.5}

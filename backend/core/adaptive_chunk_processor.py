@@ -30,12 +30,16 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 CHUNK_SILENCE_S: float = 120.0
-CHUNK_HIGH_SEV_S: float = 5.0  # severity ≥ 0.6
-CHUNK_MED_SEV_S: float = 15.0  # severity ≥ 0.3
+CHUNK_HIGH_SEV_S: float = 5.0  # severity >= 0.6
+CHUNK_MED_SEV_S: float = 15.0  # severity >= 0.3
 CHUNK_LOW_SEV_S: float = 60.0  # default
 CHUNK_MIN_S: float = 2.0
 CHUNK_MAX_S: float = 120.0
 CROSSFADE_S: float = 0.010  # 10 ms Hanning crossfade
+
+# Maximum tolerance for beat-snapping chunk boundaries (opt-in feature).
+# A boundary is only moved if the nearest beat is within this tolerance.
+_BEAT_SNAP_TOL_S: float = 0.50  # ±500 ms
 
 
 def compute_chunk_size_s(max_severity: float, is_silence: bool = False) -> float:
@@ -65,6 +69,75 @@ def _is_near_silence(audio: np.ndarray, threshold_db: float = -55.0) -> bool:
     return db < threshold_db
 
 
+def _estimate_beat_times(audio_mono: np.ndarray, sr: int) -> list[float]:
+    """Estimate beat positions in seconds using madmom RNNBeatProcessor.
+
+    Uses the RNNBeatProcessor + DBNBeatTrackingProcessor pipeline from madmom
+    (Böck et al. 2016 — canonically referenced in Spec §4.1).
+    Falls back to librosa beat tracking when madmom is unavailable.
+    Returns empty list on failure (caller falls back to regular boundaries).
+
+    Args:
+        audio_mono: 1-D float32 audio at *sr* Hz.
+        sr:         Sample rate.
+
+    Returns:
+        Sorted list of beat timestamps in seconds.
+    """
+    try:
+        from madmom.features.beats import DBNBeatTrackingProcessor, RNNBeatProcessor  # type: ignore[import]
+
+        _proc = RNNBeatProcessor()(audio_mono)
+        _beats = DBNBeatTrackingProcessor(fps=100)(_proc)
+        return sorted(float(b) for b in _beats)
+    except Exception as _exc:
+        logger.debug("Operation failed (non-critical): %s", _exc)
+
+    try:
+        import librosa
+
+        _, beat_frames = librosa.beat.beat_track(y=audio_mono, sr=sr, units="time")
+        return sorted(float(b) for b in beat_frames)
+    except Exception as _exc:
+        logger.debug("Operation failed (non-critical): %s", _exc)
+
+    return []
+
+
+def _snap_to_beat(
+    pos_samples: int,
+    sr: int,
+    beat_times_s: list[float],
+    tol_s: float = _BEAT_SNAP_TOL_S,
+    min_samples: int = 0,
+    max_samples: int | None = None,
+) -> int:
+    """Snap a sample-domain position to the nearest beat within *tol_s*.
+
+    Args:
+        pos_samples:  Original boundary position (samples).
+        sr:           Sample rate.
+        beat_times_s: Sorted beat timestamps in seconds.
+        tol_s:        Maximum allowed deviation (default 0.5 s).
+        min_samples:  Lower bound on returned position.
+        max_samples:  Upper bound on returned position (or None).
+
+    Returns:
+        Snapped position in samples, or *pos_samples* when no beat is close.
+    """
+    if not beat_times_s:
+        return pos_samples
+    pos_s = pos_samples / sr
+    best_beat_s = min(beat_times_s, key=lambda b: abs(b - pos_s))
+    if abs(best_beat_s - pos_s) > tol_s:
+        return pos_samples  # no beat within tolerance
+    snapped = int(best_beat_s * sr)
+    snapped = max(snapped, min_samples)
+    if max_samples is not None:
+        snapped = min(snapped, max_samples)
+    return snapped
+
+
 # ---------------------------------------------------------------------------
 # Dataclass
 # ---------------------------------------------------------------------------
@@ -92,6 +165,7 @@ def process_in_adaptive_chunks(
     *,
     phase_kwargs: dict | None = None,
     crossfade_s: float = CROSSFADE_S,
+    beat_sync_chunks: bool = False,
 ) -> ChunkProcessingResult:
     """Run *phase_fn* on severity-adaptive chunks with overlap-add crossfade.
 
@@ -100,12 +174,16 @@ def process_in_adaptive_chunks(
     their main loop here.
 
     Args:
-        phase_fn:      Callable(audio_chunk, **phase_kwargs) → np.ndarray
-        audio:         Full audio array (1D or 2D [channels, samples]).
-        sr:            Sample rate (must be 48000 for processing phases).
-        max_severity:  Highest relevant defect severity (0.0–1.0).
-        phase_kwargs:  Extra keyword arguments forwarded to *phase_fn*.
-        crossfade_s:   Crossfade duration in seconds (default 10 ms).
+        phase_fn:          Callable(audio_chunk, **phase_kwargs) → np.ndarray
+        audio:             Full audio array (1D or 2D [channels, samples]).
+        sr:                Sample rate (must be 48000 for processing phases).
+        max_severity:      Highest relevant defect severity (0.0–1.0).
+        phase_kwargs:      Extra keyword arguments forwarded to *phase_fn*.
+        crossfade_s:       Crossfade duration in seconds (default 10 ms).
+        beat_sync_chunks:  If True, snap chunk boundaries to detected beat
+                           positions (±500 ms tolerance). Uses madmom
+                           RNNBeatProcessor (Böck et al. 2016) with librosa
+                           fallback. Default False (backward-compatible).
 
     Returns:
         ChunkProcessingResult with stitched audio.
@@ -119,6 +197,21 @@ def process_in_adaptive_chunks(
 
     is_silence = _is_near_silence(audio)
     chunk_s = compute_chunk_size_s(max_severity, is_silence=is_silence)
+
+    # Beat detection for boundary snapping (opt-in, only for full tracks > 10 s)
+    beat_times_s: list[float] = []
+    if beat_sync_chunks and duration_s >= 10.0 and not is_silence:
+        audio_mono = audio.mean(axis=0).astype(np.float32) if is_stereo else audio.astype(np.float32)
+        beat_times_s = _estimate_beat_times(audio_mono, sr)
+        if beat_times_s:
+            logger.debug(
+                "AdaptiveChunk: beat-sync enabled, %d beats detected (%.1f–%.1f s)",
+                len(beat_times_s),
+                beat_times_s[0],
+                beat_times_s[-1],
+            )
+        else:
+            logger.debug("AdaptiveChunk: beat-sync requested but no beats detected — using fixed boundaries")
 
     # If audio fits in a single chunk, skip chunking overhead
     if duration_s <= chunk_s + crossfade_s:
@@ -178,7 +271,19 @@ def process_in_adaptive_chunks(
         weight[pos : pos + chunk_len] += w
 
         n_chunks += 1
-        pos += hop_samples
+        next_pos = pos + hop_samples
+        if beat_times_s:
+            # Snap next boundary to nearest beat within tolerance.
+            # min_samples ensures we always advance by at least 1 sample.
+            next_pos = _snap_to_beat(
+                next_pos,
+                sr,
+                beat_times_s,
+                tol_s=_BEAT_SNAP_TOL_S,
+                min_samples=pos + 1,
+                max_samples=n_samples,
+            )
+        pos = next_pos
 
     # Normalize by accumulated weight (avoid division by zero)
     weight = np.maximum(weight, 1e-8)

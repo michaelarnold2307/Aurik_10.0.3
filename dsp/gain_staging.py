@@ -67,8 +67,13 @@ class GainStaging:
         logging.info("[DSPContract] %s", asdict(gain_staging_contract))
 
     def process(self, audio: npt.NDArray[np.float64], measured_lufs: float) -> npt.NDArray[np.float64]:
+        audio = np.nan_to_num(np.asarray(audio, dtype=np.float64))
         gain_db = self.target_lufs - measured_lufs
-        gain = 10 ** (gain_db / 20)
-        # Audit: Contract-Infos loggen (optional)
+        # Safety: limit gain to ±24 dB to prevent extreme amplification
+        gain_db = float(np.clip(gain_db, -24.0, 24.0))
+        gain = 10.0 ** (gain_db / 20.0)
         self.log_contract()
-        return audio * gain
+        out = audio * gain
+        out = np.nan_to_num(out, nan=0.0, posinf=0.0, neginf=0.0)
+        out = np.clip(out, -1.0, 1.0)
+        return out

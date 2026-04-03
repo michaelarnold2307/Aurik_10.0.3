@@ -229,8 +229,10 @@ class LAIONCLAPPlugin:
                     if not _try_alloc_onnx("LaionCLAP_ONNX", 0.30):
                         logger.warning("LAION-CLAP: ML-Budget erschöpft (ONNX) — überspringe ONNX-Pfad")
                         _onnx_budget_ok = False
-                except ImportError:
-                    pass  # Budget-Modul optional — weiter
+                except ImportError as _exc:
+                    logger.debug(
+                        "Optional import not available (non-critical): %s", _exc
+                    )  # Budget-Modul optional — weiter
 
                 if not _onnx_budget_ok:
                     raise MemoryError("LaionCLAP_ONNX: Budget erschöpft")
@@ -256,14 +258,15 @@ class LAIONCLAPPlugin:
                         get_plugin_lifecycle_manager as _get_plm_onnx,
                     )
 
-                    self._audio_session
+                    # Ensure audio session is available before registering
+                    _ = self._audio_session
                     _get_plm_onnx().register(
                         "LaionCLAP_ONNX",
                         size_gb=0.30,
                         unload_fn=lambda: setattr(self, "_audio_session", None),
                     )
-                except Exception:
-                    pass
+                except Exception as _exc:
+                    logger.debug("Plugin operation failed (non-critical): %s", _exc)
                 return
         except Exception as exc:
             logger.debug("LAION-CLAP ONNX-Pfad nicht verfügbar: %s", exc)
@@ -376,8 +379,10 @@ class LAIONCLAPPlugin:
 
                 if not _try_alloc("LAION-CLAP", 2.2):
                     return False  # Budget erschöpft → PANNs-DSP-Fallback
-            except Exception:
-                pass  # Budget-Modul nicht verfügbar — weiter
+            except Exception as _exc:
+                logger.debug(
+                    "Plugin operation failed (non-critical): %s", _exc
+                )  # Budget-Modul nicht verfügbar — weiter
 
             # CLAP_Module laden:
             # music_audioset_epoch_15_esc_90.14.pt → HTSAT-base, embed_dim=128,
@@ -461,8 +466,8 @@ class LAIONCLAPPlugin:
                 _unload_fn = globals().get("unload_laion_clap")
                 if _unload_fn is not None:
                     _reg_plm("LAION-CLAP", size_gb=2.2, unload_fn=_unload_fn)
-            except Exception:
-                pass
+            except Exception as _exc:
+                logger.debug("Plugin operation failed (non-critical): %s", _exc)
             return True
 
         except ImportError as ie:
@@ -510,9 +515,11 @@ class LAIONCLAPPlugin:
         # Path 2: PyTorch laion_clap
         elif self._model_loaded and self._clap_model is not None:
             import torch
+
             with torch.no_grad():
                 emb = self._clap_model.get_audio_embedding_from_data(
-                    x=[audio_f32], use_tensor=False,
+                    x=[audio_f32],
+                    use_tensor=False,
                 )
                 if isinstance(emb, np.ndarray) and emb.ndim == 2:
                     emb = emb[0]
@@ -842,8 +849,8 @@ def unload_laion_clap() -> None:
             from backend.core.ml_memory_budget import release as _rel
 
             _rel("LAION-CLAP")
-        except Exception:
-            pass
+        except Exception as _exc:
+            logger.debug("Plugin operation failed (non-critical): %s", _exc)
         logger.info("LAION-CLAP: Modell entladen, ~2.2 GB RAM freigegeben.")
 
 

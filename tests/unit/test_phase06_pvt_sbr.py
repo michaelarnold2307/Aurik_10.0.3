@@ -15,8 +15,8 @@ Scientific basis:
 """
 
 import numpy as np
-import scipy.signal as ss
 import pytest
+import scipy.signal as ss
 
 SR = 48_000
 HOP = 512
@@ -27,9 +27,11 @@ N_FFT = 4096
 # Helpers
 # ──────────────────────────────────────────────────────────────────────────────
 
+
 @pytest.fixture()
 def phase():
     from backend.core.phases.phase_06_frequency_restoration import FrequencyRestorationPhase
+
     return FrequencyRestorationPhase(sample_rate=SR)
 
 
@@ -48,16 +50,32 @@ def _make_rolloff_audio(dur: float = 0.5, lp_hz: float = 4200.0) -> np.ndarray:
     return ss.sosfiltfilt(sos, src).astype(np.float32)
 
 
+def _make_broadband_rolloff_audio(dur: float = 1.0, lp_hz: float = 4200.0) -> np.ndarray:
+    """Broadband LP-filtered audio — reliable rolloff detection for
+    spectral-mean-based detectors (Welch PSD)."""
+    n = int(dur * SR)
+    t = np.arange(n, dtype=np.float32) / SR
+    rng = np.random.RandomState(42)
+    src = (
+        0.40 * np.sin(2 * np.pi * 220 * t)
+        + 0.30 * np.sin(2 * np.pi * 880 * t)
+        + 0.20 * np.sin(2 * np.pi * 2200 * t)
+        + 0.15 * np.sin(2 * np.pi * 4000 * t)
+        + 0.15 * rng.randn(n)
+    ).astype(np.float32)
+    sos = ss.butter(8, lp_hz / (SR / 2), btype="low", output="sos")
+    return ss.sosfiltfilt(sos, src).astype(np.float32)
+
+
 def _make_zxx(n_src: int = 12, n_frames: int = 60, seed: int = 0) -> np.ndarray:
     rng = np.random.RandomState(seed)
-    return (
-        rng.standard_normal((n_src, n_frames)) + 1j * rng.standard_normal((n_src, n_frames))
-    ).astype(np.complex64)
+    return (rng.standard_normal((n_src, n_frames)) + 1j * rng.standard_normal((n_src, n_frames))).astype(np.complex64)
 
 
 # ──────────────────────────────────────────────────────────────────────────────
 # 1.  _sbr_phase_vocoder_transposition — API contracts
 # ──────────────────────────────────────────────────────────────────────────────
+
 
 class TestSbrPvtApi:
     def test_output_shape(self, phase):
@@ -66,7 +84,8 @@ class TestSbrPvtApi:
             _make_zxx(n_src, n_frames),
             np.linspace(2000.0, 5000.0, n_src),
             np.linspace(10000.0, 18000.0, n_tgt),
-            hop=HOP, sr=SR,
+            hop=HOP,
+            sr=SR,
         )
         assert pvt.shape == (n_tgt, n_frames)
 
@@ -75,7 +94,8 @@ class TestSbrPvtApi:
             _make_zxx(8, 30),
             np.linspace(1000.0, 4000.0, 8),
             np.linspace(8000.0, 14000.0, 15),
-            hop=HOP, sr=SR,
+            hop=HOP,
+            sr=SR,
         )
         assert pvt.dtype == np.complex64
 
@@ -85,7 +105,8 @@ class TestSbrPvtApi:
             _make_zxx(12, 60),
             np.linspace(2000.0, 5000.0, 12),
             np.linspace(10000.0, 18000.0, 25),
-            hop=HOP, sr=SR,
+            hop=HOP,
+            sr=SR,
         )
         np.testing.assert_allclose(np.abs(pvt), 1.0, atol=1e-5)
 
@@ -94,7 +115,8 @@ class TestSbrPvtApi:
             _make_zxx(10, 40),
             np.linspace(3000.0, 6000.0, 10),
             np.linspace(12000.0, 20000.0, 18),
-            hop=HOP, sr=SR,
+            hop=HOP,
+            sr=SR,
         )
         assert np.all(np.isfinite(pvt))
 
@@ -104,7 +126,8 @@ class TestSbrPvtApi:
             _make_zxx(8, 1),
             np.linspace(2000.0, 4000.0, 8),
             np.linspace(8000.0, 12000.0, 16),
-            hop=HOP, sr=SR,
+            hop=HOP,
+            sr=SR,
         )
         assert pvt.shape == (16, 1)
         assert np.all(np.isfinite(pvt))
@@ -115,7 +138,8 @@ class TestSbrPvtApi:
             _make_zxx(1, 20),
             np.array([2000.0]),
             np.linspace(8000.0, 12000.0, 10),
-            hop=HOP, sr=SR,
+            hop=HOP,
+            sr=SR,
         )
         assert pvt.shape == (10, 20)
         np.testing.assert_allclose(np.abs(pvt), 1.0, atol=1e-5)
@@ -126,7 +150,8 @@ class TestSbrPvtApi:
             np.zeros((6, 0), dtype=np.complex64),
             np.linspace(2000.0, 4000.0, 6),
             np.linspace(8000.0, 12000.0, 12),
-            hop=HOP, sr=SR,
+            hop=HOP,
+            sr=SR,
         )
         assert pvt.shape == (12, 0)
 
@@ -136,7 +161,8 @@ class TestSbrPvtApi:
             _make_zxx(8, 40, seed=7),
             np.linspace(1000.0, 2000.0, 8),
             np.linspace(8000.0, 16000.0, 16),
-            hop=HOP, sr=SR,
+            hop=HOP,
+            sr=SR,
         )
         assert pvt.shape == (16, 40)
         assert np.all(np.isfinite(pvt))
@@ -178,6 +204,7 @@ class TestSbrPvtApi:
 # 2.  _apply_sbr: uses PVT (phase consistency property)
 # ──────────────────────────────────────────────────────────────────────────────
 
+
 class TestApplySbrPvt:
     """
     Verify that _apply_sbr produces output with smoother inter-frame phase
@@ -194,8 +221,7 @@ class TestApplySbrPvt:
         rolloff_bin = int(np.argmin(np.abs(f - 4500)))
         ext_start = int(np.argmin(np.abs(f - 4500)))
         ext_end = int(np.argmin(np.abs(f - 10000)))
-        Zxx_out = phase._apply_sbr(Zxx.copy(), f, rolloff_bin, ext_start, ext_end,
-                                   sbr_ratio=0.6, strength=0.9, hop=HOP)
+        Zxx_out = phase._apply_sbr(Zxx.copy(), f, rolloff_bin, ext_start, ext_end, sbr_ratio=0.6, strength=0.9, hop=HOP)
         assert np.all(np.isfinite(Zxx_out))
 
     def test_apply_sbr_shape_unchanged(self, phase):
@@ -204,8 +230,7 @@ class TestApplySbrPvt:
         rolloff_bin = int(np.argmin(np.abs(f - 4500)))
         ext_start = int(np.argmin(np.abs(f - 4500)))
         ext_end = int(np.argmin(np.abs(f - 10000)))
-        Zxx_out = phase._apply_sbr(Zxx.copy(), f, rolloff_bin, ext_start, ext_end,
-                                   sbr_ratio=0.6, strength=0.9, hop=HOP)
+        Zxx_out = phase._apply_sbr(Zxx.copy(), f, rolloff_bin, ext_start, ext_end, sbr_ratio=0.6, strength=0.9, hop=HOP)
         assert Zxx_out.shape == Zxx.shape
 
     def test_apply_sbr_adds_hf_energy(self, phase):
@@ -216,8 +241,7 @@ class TestApplySbrPvt:
         ext_start = int(np.argmin(np.abs(f - 5000)))
         ext_end = int(np.argmin(np.abs(f - 9000)))
         energy_before = np.sum(np.abs(Zxx[ext_start:ext_end, :]) ** 2)
-        Zxx_out = phase._apply_sbr(Zxx.copy(), f, rolloff_bin, ext_start, ext_end,
-                                   sbr_ratio=0.6, strength=0.9, hop=HOP)
+        Zxx_out = phase._apply_sbr(Zxx.copy(), f, rolloff_bin, ext_start, ext_end, sbr_ratio=0.6, strength=0.9, hop=HOP)
         energy_after = np.sum(np.abs(Zxx_out[ext_start:ext_end, :]) ** 2)
         assert energy_after > energy_before, "SBR must add HF energy"
 
@@ -239,7 +263,7 @@ class TestApplySbrPvt:
         f_s = 1500.0
         n_bins = 8
         # src_f[4] = 1300 + 4*50 = 1500 Hz exactly → src_idx[4] = 4.0
-        src_f = np.array([1300., 1350., 1400., 1450., 1500., 1550., 1600., 1650.])
+        src_f = np.array([1300.0, 1350.0, 1400.0, 1450.0, 1500.0, 1550.0, 1600.0, 1650.0])
         tgt_f = src_f * 1.5  # ratio 1.5; tgt_f[4] = 2250 Hz
         n_frames = 80
         omega = 2.0 * np.pi * f_s / SR
@@ -248,8 +272,7 @@ class TestApplySbrPvt:
         Zxx_src[4, :] = 0.8 * np.exp(1j * phi).astype(np.complex64)  # tone at bin 4
         # Tiny background noise on other bins
         Zxx_src += 0.01 * (
-            rng.standard_normal((n_bins, n_frames))
-            + 1j * rng.standard_normal((n_bins, n_frames))
+            rng.standard_normal((n_bins, n_frames)) + 1j * rng.standard_normal((n_bins, n_frames))
         ).astype(np.complex64)
 
         pvt = phase._sbr_phase_vocoder_transposition(Zxx_src, src_f, tgt_f, hop=HOP, sr=SR)
@@ -263,14 +286,13 @@ class TestApplySbrPvt:
         var_rand = float(np.var(d_phi_rand))
 
         # PVT must be dramatically smoother: var < 25 % of random
-        assert var_pvt < var_rand * 0.25, (
-            f"PVT var {var_pvt:.4f} should be < 25 % of random var {var_rand:.4f}"
-        )
+        assert var_pvt < var_rand * 0.25, f"PVT var {var_pvt:.4f} should be < 25 % of random var {var_rand:.4f}"
 
 
 # ──────────────────────────────────────────────────────────────────────────────
 # 3.  Full process() integration
 # ──────────────────────────────────────────────────────────────────────────────
+
 
 class TestProcessIntegration:
     def test_no_nan_shellac(self, phase):
@@ -307,7 +329,9 @@ class TestProcessIntegration:
         sos = ss.butter(6, 11000 / (SR / 2), btype="low", output="sos")
         n = SR
         t = np.arange(n) / SR
-        audio = ss.sosfiltfilt(sos, 0.4 * np.sin(2 * np.pi * 440 * t) + 0.3 * np.sin(2 * np.pi * 2000 * t)).astype(np.float32)
+        audio = ss.sosfiltfilt(sos, 0.4 * np.sin(2 * np.pi * 440 * t) + 0.3 * np.sin(2 * np.pi * 2000 * t)).astype(
+            np.float32
+        )
         r = phase.process(audio, material_type="vinyl", sample_rate=SR)
         assert r.success
         assert np.all(np.isfinite(r.audio))
@@ -320,15 +344,13 @@ class TestProcessIntegration:
 
     def test_stereo_rolloff_extends_hf(self, phase):
         """Restored stereo must have more HF energy than rolled-off input."""
-        mono = _make_rolloff_audio(dur=1.0)
+        mono = _make_broadband_rolloff_audio(dur=1.0)
         stereo = np.column_stack([mono, mono * 0.98])
-        r = phase.process(stereo, material_type="shellac", sample_rate=SR)
-        if not r.modifications.get("frequency_restored", False):
-            pytest.skip("Rolloff not detected for this stereo input — skip HF energy check")
+        # quality_mode="fast" → DSP-only path (no ML timeout in unit tests)
+        r = phase.process(stereo, material_type="shellac", sample_rate=SR, quality_mode="fast")
+        assert r.modifications.get("frequency_restored", False), "Rolloff should be detected for broadband stereo input"
         rolloff_hz = 4500.0
         sos = ss.butter(4, rolloff_hz / (SR / 2), btype="high", output="sos")
         hf_before = float(np.sqrt(np.mean(ss.sosfiltfilt(sos, stereo[:, 0]) ** 2)))
         hf_after = float(np.sqrt(np.mean(ss.sosfiltfilt(sos, r.audio[:, 0]) ** 2)))
-        assert hf_after >= hf_before * 0.98, (
-            f"HF energy after {hf_after:.6f} < before {hf_before:.6f}"
-        )
+        assert hf_after >= hf_before * 0.98, f"HF energy after {hf_after:.6f} < before {hf_before:.6f}"

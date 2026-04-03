@@ -1046,9 +1046,14 @@ class TestMidPipelineCalibrationStep:
     def test_74_returns_none_when_no_adjustment_needed(self):
         # All goals well above thresholds → no adjustment
         scores = {
-            "brillanz": 0.90, "micro_dynamics": 0.92, "tonal_center": 0.97,
-            "groove": 0.89, "separation_fidelity": 0.85, "raumtiefe": 0.75,
-            "artikulation": 0.90, "bass_kraft": 0.85,
+            "brillanz": 0.90,
+            "micro_dynamics": 0.92,
+            "tonal_center": 0.97,
+            "groove": 0.89,
+            "separation_fidelity": 0.85,
+            "raumtiefe": 0.75,
+            "artikulation": 0.90,
+            "bass_kraft": 0.85,
         }
         result = self._FN(scores, self._base_profile(), "33pct", 5, 15)
         assert result is None

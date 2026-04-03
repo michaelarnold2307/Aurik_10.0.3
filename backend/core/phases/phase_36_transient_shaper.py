@@ -339,7 +339,7 @@ class TransientShaper(PhaseInterface):
             Envelope as non-negative linear-domain float64 array, same length as
             ``audio``.
         """
-        _DS = 16        # Downsample factor — 0.33 ms at 48 kHz, well below attack window
+        _DS = 16  # Downsample factor — 0.33 ms at 48 kHz, well below attack window
         _FLOOR_DB = -120.0  # dBFS floor: prevents log(0) and pins silence to a finite value
 
         abs_audio = np.abs(audio)

@@ -171,7 +171,7 @@ def main() -> int:
             f"{'yes' if r['primary'] else 'no':<8} "
             f"{'yes' if r['fallback'] else 'no':<9} "
             f"{source_ckpt_col:<12} "
-            f"{str(r.get('release_mode', 'n/a')):<13} "
+            f"{r.get('release_mode', 'n/a')!s:<13} "
             f"{'yes' if r['runtime_ready'] else 'no':<13} "
             f"{r['resolved_by']}"
         )

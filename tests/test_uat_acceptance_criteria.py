@@ -511,7 +511,7 @@ def test_restoration_criteria(criterion: dict[str, Any]):
     except AssertionError as e:
         result["result"] = "FAIL"
         result["evidence"] = str(e)
-        pytest.fail(f"{criterion['id']}: {str(e)}")
+        pytest.fail(f"{criterion['id']}: {e!s}")
     except Exception as e:
         result["result"] = "ERROR"
         result["evidence"] = str(e)
@@ -609,7 +609,7 @@ def test_studio_2026_criteria(criterion: dict[str, Any]):
     except AssertionError as e:
         result["result"] = "FAIL"
         result["evidence"] = str(e)
-        pytest.fail(f"{criterion['id']}: {str(e)}")
+        pytest.fail(f"{criterion['id']}: {e!s}")
     except Exception as e:
         result["result"] = "ERROR"
         result["evidence"] = str(e)

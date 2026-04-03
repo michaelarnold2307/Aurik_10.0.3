@@ -132,8 +132,8 @@ class MDX23CModel:
                         size_gb=0.55,
                         unload_fn=lambda s=self: setattr(s, "_session", None) or setattr(s, "_ok", False),
                     )
-                except Exception:
-                    pass
+                except Exception as _exc:
+                    logger.debug("Operation failed (non-critical): %s", _exc)
                 return
             except Exception as exc:
                 logger.debug("MDX23C [%s] Ladefehler (%s): %s", self.stem_key, path.name, exc)
@@ -141,8 +141,8 @@ class MDX23CModel:
                     from backend.core.ml_memory_budget import release as _release
 
                     _release(f"MDX23C_{self.stem_key}")
-                except Exception:
-                    pass
+                except Exception as _exc:
+                    logger.debug("Operation failed (non-critical): %s", _exc)
 
         logger.warning("MDX23C [%s]: Kein ONNX-Modell gefunden — HPSS-Fallback aktiv", self.stem_key)
 

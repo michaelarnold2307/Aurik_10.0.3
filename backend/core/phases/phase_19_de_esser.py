@@ -622,6 +622,23 @@ class DeEsserPhase(PhaseInterface):
 
         logger.debug(f"🎤 Stage 7: Gender-Aware De-Essing ({self.gender})")
 
+        # §2.36a PhonemeTimeline: language-specific sibilant band overrides gender-prof s_band
+        _ptl_19 = kwargs.get("phoneme_timeline")
+        self.vocal_profile.get("s_band")
+        if _ptl_19 is not None:
+            try:
+                _ptl_low, _ptl_high = _ptl_19.sibilant_band_hz()
+                self.vocal_profile = dict(self.vocal_profile)  # shallow copy to avoid mutating shared profile
+                self.vocal_profile["s_band"] = (float(_ptl_low), float(_ptl_high))
+                logger.debug(
+                    "Phase 19: sibilant_band_hz override → %.0f–%.0f Hz (language=%s)",
+                    _ptl_low,
+                    _ptl_high,
+                    getattr(_ptl_19, "language", "?"),
+                )
+            except Exception as _ptl_exc:
+                logger.debug("Phase 19: sibilant_band_hz fallback: %s", _ptl_exc)
+
         # Multi-Band De-Essing anwenden (mit Gender-Profil)
         gender_bands_used = None
         if is_stereo:
@@ -792,6 +809,38 @@ class DeEsserPhase(PhaseInterface):
 
         deessed_audio = np.nan_to_num(deessed_audio, nan=0.0, posinf=0.0, neginf=0.0)
         deessed_audio = np.clip(deessed_audio, -1.0, 1.0)
+
+        # §2.36a Segment-selective gate: revert to enhanced_audio outside sibilant windows.
+        # Prevents de-essing of non-sibilant regions (iZotope RX-class time-domain gating).
+        if _ptl_19 is not None:
+            _sib_segs19 = _ptl_19.sibilant_segments()
+            if _sib_segs19:
+                _n19 = deessed_audio.shape[0]
+                _gate19 = np.zeros(_n19, dtype=np.float32)
+                _fade19 = max(2, int(sample_rate * 0.005))  # 5 ms cosine fade
+                for _seg19 in _sib_segs19:
+                    _s19 = max(0, int(_seg19.start_s * sample_rate))
+                    _e19 = min(_n19, int(_seg19.end_s * sample_rate))
+                    if _e19 <= _s19:
+                        continue
+                    _gate19[_s19:_e19] = 1.0
+                    _fi19 = min(_fade19, _e19 - _s19)
+                    _gate19[_s19 : _s19 + _fi19] = np.sin(np.linspace(0.0, np.pi / 2.0, _fi19)) ** 2
+                    _fo19 = min(_fade19, _e19 - _s19)
+                    _gate19[_e19 - _fo19 : _e19] = np.cos(np.linspace(0.0, np.pi / 2.0, _fo19)) ** 2
+                _ref19 = enhanced_audio.astype(np.float32)
+                _deessed19 = deessed_audio.astype(np.float32)
+                if deessed_audio.ndim == 2:
+                    _gate19_2d = _gate19[:, np.newaxis]
+                    deessed_audio = (_gate19_2d * _deessed19 + (1.0 - _gate19_2d) * _ref19).astype(deessed_audio.dtype)
+                else:
+                    deessed_audio = (_gate19 * _deessed19 + (1.0 - _gate19) * _ref19).astype(deessed_audio.dtype)
+                logger.debug(
+                    "Phase 19 segment-gate: %d sibilant windows, %.1f%% gated",
+                    len(_sib_segs19),
+                    100.0 * float(np.mean(_gate19)),
+                )
+
         if 0.0 < _effective_strength < 1.0:
             deessed_audio = enhanced_audio + _effective_strength * (deessed_audio - enhanced_audio)
             deessed_audio = np.clip(deessed_audio, -1.0, 1.0)
@@ -1063,7 +1112,7 @@ class DeEsserPhase(PhaseInterface):
 
         # STFT parameters: ~4 ms hop, 75 % overlap (good sibilant time resolution)
         hop = max(64, sample_rate // 250)  # ~4 ms
-        nperseg = hop * 4                  # ~16 ms window
+        nperseg = hop * 4  # ~16 ms window
 
         _, t_stft, S = _stft_fn(
             band_audio.astype(np.float64),
@@ -1080,9 +1129,9 @@ class DeEsserPhase(PhaseInterface):
 
         # Map time-domain gain_curve → per-frame scalar via linear interpolation
         frame_positions = np.clip(t_stft * sample_rate, 0.0, float(n - 1))
-        gain_frames = np.interp(
-            frame_positions, np.arange(n, dtype=np.float64), gain_curve
-        ).astype(np.float32)  # (n_frames,)
+        gain_frames = np.interp(frame_positions, np.arange(n, dtype=np.float64), gain_curve).astype(
+            np.float32
+        )  # (n_frames,)
 
         # Sibilance bin indices (already the dominant energy since band is
         # bandpass-filtered; extra mask handles edge-case SR variations)
@@ -1095,14 +1144,14 @@ class DeEsserPhase(PhaseInterface):
 
         if len(sib_indices) > 0 and n_frames > 0:
             mag2 = (np.abs(S[sib_indices, :]) ** 2).astype(np.float32)  # (n_sib, n_frames)
-            mean_pow = np.mean(mag2, axis=0, keepdims=True) + 1e-20      # (1, n_frames)
-            bin_ratio = mag2 / mean_pow                                   # (n_sib, n_frames)
+            mean_pow = np.mean(mag2, axis=0, keepdims=True) + 1e-20  # (1, n_frames)
+            bin_ratio = mag2 / mean_pow  # (n_sib, n_frames)
 
             # crest_hi = 10^(6/10) ≈ 3.98: bins 6 dB above mean → crest_weight = 1.0
             _CREST_HI = 10.0 ** (6.0 / 10.0)
-            crest_weight = np.clip(
-                (bin_ratio - 1.0) / (_CREST_HI - 1.0), 0.0, 1.0
-            ).astype(np.float32)  # (n_sib, n_frames)
+            crest_weight = np.clip((bin_ratio - 1.0) / (_CREST_HI - 1.0), 0.0, 1.0).astype(
+                np.float32
+            )  # (n_sib, n_frames)
 
             # Modulate per-bin gain:
             #   High-crest bins: gain = g_frame (full reduction)

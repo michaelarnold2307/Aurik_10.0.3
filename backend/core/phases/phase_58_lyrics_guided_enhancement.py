@@ -78,7 +78,7 @@ class Phase58LyricsGuidedEnhancement(PhaseInterface):
 
         # §2.36 Pre-computed transcription from original audio (passed by UV3 via phase_kwargs).
         # If available and not a fallback, use saliency path instead of full re-transcription.
-        pre_transcription: Any = kwargs.get("pre_transcription", None)
+        pre_transcription: Any = kwargs.get("pre_transcription")
 
         # ── Vocal-gate (§2.9) ────────────────────────────────────────────────
         vocal_prob: float = float(kwargs.get("vocal_probability", 1.0))
@@ -107,8 +107,9 @@ class Phase58LyricsGuidedEnhancement(PhaseInterface):
             from backend.core.lyrics_guided_enhancement import (
                 get_lyrics_guided_enhancement,
             )
+
             lge = get_lyrics_guided_enhancement()
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             logger.warning(
                 "phase_58_lyrics_guided_enhancement: LGE unavailable (%s) — DSP passthrough",
                 type(exc).__name__,
@@ -128,6 +129,7 @@ class Phase58LyricsGuidedEnhancement(PhaseInterface):
             if pre_transcription is not None and not getattr(pre_transcription, "fallback_used", True):
                 # Fast path: use pre-computed transcription from original audio (§2.36 Phase-Gate).
                 from backend.core.lyrics_guided_enhancement import get_content_aware_processor
+
                 cap = get_content_aware_processor()
                 n_smp = audio.shape[-1] if audio.ndim == 2 else len(audio)
                 base_sal = np.ones(n_smp, dtype=np.float32)
@@ -138,7 +140,9 @@ class Phase58LyricsGuidedEnhancement(PhaseInterface):
                     audio_out = audio * saliency[:, np.newaxis]
                 else:
                     audio_out = audio * saliency
-                audio_out = np.clip(np.nan_to_num(audio_out, nan=0.0, posinf=0.0, neginf=0.0), -1.0, 1.0).astype(np.float32)
+                audio_out = np.clip(np.nan_to_num(audio_out, nan=0.0, posinf=0.0, neginf=0.0), -1.0, 1.0).astype(
+                    np.float32
+                )
                 transcription = pre_transcription
                 logger.info(
                     "phase_58_lyrics_guided_enhancement: saliency path (pre-transcription) — %d segments",
@@ -146,7 +150,7 @@ class Phase58LyricsGuidedEnhancement(PhaseInterface):
                 )
             else:
                 audio_out, transcription = lge.enhance(audio, sample_rate)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             logger.warning(
                 "phase_58_lyrics_guided_enhancement: enhance() failed (%s) — passthrough",
                 type(exc).__name__,
@@ -171,9 +175,7 @@ class Phase58LyricsGuidedEnhancement(PhaseInterface):
                 latency_budget_s,
                 dur_s,
             )
-            warnings.append(
-                f"LGE latency {elapsed:.1f}s exceeds 8 s/min budget ({latency_budget_s:.1f}s)"
-            )
+            warnings.append(f"LGE latency {elapsed:.1f}s exceeds 8 s/min budget ({latency_budget_s:.1f}s)")
 
         # ── NaN/Inf guard + clip (redundant — enhance() already does this) ───
         audio_out = np.clip(

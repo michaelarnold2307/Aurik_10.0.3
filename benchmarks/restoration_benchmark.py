@@ -8,19 +8,20 @@ Vergleicht Aurik gegen Referenzwerte von iZotope RX, CEDAR, SpectraLayers Pro.
 BENCHMARK-DIMENSIONEN:
   1. **MUSIC_OVR** (Music-MOS Overall, 1–5): Subjektive Gesamt-Qualität
   2. **MUSIC_NAT** (Naturalness, 1–5): Klingt es nach echter Musik?
-  3. **SI-SDR** (dB): Signal-to-Distortion, höher=besser
-  4. **NOISE_FLOOR** (dBFS): Hintergrund-Rauschpegel, niedriger=besser
-  5. **CLICK_DENSITY** (ppm): Klick-/Tick-Dichte, niedriger=besser
-  6. **RT_FACTOR** (×): Verarbeitungszeit relativ zur Audio-Dauer, niedriger=besser
+  3. **NOISE_FLOOR** (dBFS): Hintergrund-Rauschpegel, niedriger=besser
+  4. **CLICK_DENSITY** (ppm): Klick-/Tick-Dichte, niedriger=besser
+  5. **RT_FACTOR** (×): Verarbeitungszeit relativ zur Audio-Dauer, niedriger=besser
+
+  HINWEIS: SI-SDR ist gemäß §4.4 VERBOTEN als Musikmetrik (kein Musik-Training).
 
 REFERENZ-SCORES (aus Literatur + eigenen Messungen):
-  | System           | OVR  | NAT  | SI-SDR | RF    |
-  |-----------------|------|------|--------|-------|
-  | iZotope RX 10   | 4.0  | 3.8  | 18.0   | 3.0× |
-  | CEDAR Cambridge | 4.5  | 4.2  | 22.0   | 4.5× |
-  | SpectraLayers   | 3.8  | 3.5  | 15.0   | 2.5× |
-  | Aurik 9.0 (Ziel)| 4.0  | 3.8  | 20.0   | 1.0× |
-  | Aurik 9.5 (Ziel)| 4.3  | 4.0  | 22.0   | 0.5× |
+  | System           | OVR  | NAT  | RF    |
+  |-----------------|------|------|-------|
+  | iZotope RX 10   | 4.0  | 3.8  | 3.0× |
+  | CEDAR Cambridge | 4.5  | 4.2  | 4.5× |
+  | SpectraLayers   | 3.8  | 3.5  | 2.5× |
+  | Aurik 9.0 (Ziel)| 4.0  | 3.8  | 1.0× |
+  | Aurik 9.5 (Ziel)| 4.3  | 4.0  | 0.5× |
 
 TESTMATERIAL-KATEGORIEN:
   - shellac_heavy: Starkes Oberflächenrauschen, Klicks, Mono
@@ -57,7 +58,6 @@ REFERENCE_SCORES: dict[str, dict[str, float]] = {
     "iZotope RX 10": {
         "MUSIC_OVR": 4.0,
         "MUSIC_NAT": 3.8,
-        "SI_SDR_dB": 18.0,
         "NOISE_FLOOR_dBFS": -55.0,
         "CLICK_DENSITY_ppm": 5.0,
         "RT_FACTOR": 3.0,
@@ -65,7 +65,6 @@ REFERENCE_SCORES: dict[str, dict[str, float]] = {
     "CEDAR Cambridge": {
         "MUSIC_OVR": 4.5,
         "MUSIC_NAT": 4.2,
-        "SI_SDR_dB": 22.0,
         "NOISE_FLOOR_dBFS": -62.0,
         "CLICK_DENSITY_ppm": 2.0,
         "RT_FACTOR": 4.5,
@@ -73,7 +72,6 @@ REFERENCE_SCORES: dict[str, dict[str, float]] = {
     "SpectraLayers Pro 10": {
         "MUSIC_OVR": 3.8,
         "MUSIC_NAT": 3.5,
-        "SI_SDR_dB": 15.0,
         "NOISE_FLOOR_dBFS": -50.0,
         "CLICK_DENSITY_ppm": 8.0,
         "RT_FACTOR": 2.5,
@@ -81,7 +79,6 @@ REFERENCE_SCORES: dict[str, dict[str, float]] = {
     "Aurik 9.5 (Ziel)": {
         "MUSIC_OVR": 4.3,
         "MUSIC_NAT": 4.0,
-        "SI_SDR_dB": 22.0,
         "NOISE_FLOOR_dBFS": -60.0,
         "CLICK_DENSITY_ppm": 3.0,
         "RT_FACTOR": 0.5,
@@ -158,18 +155,6 @@ def _generate_test_signal(
 # ─── Metrik-Berechnung ───────────────────────────────────────────────────
 
 
-def _compute_si_sdr(reference: np.ndarray, estimate: np.ndarray) -> float:
-    """SI-SDR in dB (höher = besser)."""
-    ref = reference.flatten()
-    est = estimate.flatten()
-    min_len = min(len(ref), len(est))
-    ref, est = ref[:min_len], est[:min_len]
-    scaling = np.dot(ref, est) / (np.dot(ref, ref) + 1e-10)
-    target = scaling * ref
-    noise = est - target
-    return float(10 * np.log10(np.dot(target, target) / (np.dot(noise, noise) + 1e-10)))
-
-
 def _compute_noise_floor(audio: np.ndarray) -> float:
     """Rauschpegel in dBFS (10. Perzentil der Frame-Energien)."""
     frame_size = 512
@@ -202,7 +187,6 @@ class TestCaseResult:
     category: str
     MUSIC_OVR: float
     MUSIC_NAT: float
-    SI_SDR_dB: float
     NOISE_FLOOR_dBFS: float
     CLICK_DENSITY_ppm: float
     RT_FACTOR: float
@@ -270,7 +254,6 @@ class RestorationBenchmark:
             from backend.core.music_quality_scorer import score_music_mos
 
             mos = score_music_mos(restored, self.SAMPLE_RATE)
-            si_sdr = _compute_si_sdr(clean_ref, restored)
             noise_floor = _compute_noise_floor(restored)
             click_density = _compute_click_density_ppm(restored)
             rt_factor = elapsed / self.DURATION_S
@@ -279,7 +262,6 @@ class RestorationBenchmark:
                 category=category,
                 MUSIC_OVR=mos.MUSIC_OVR,
                 MUSIC_NAT=mos.MUSIC_NAT,
-                SI_SDR_dB=round(si_sdr, 2),
                 NOISE_FLOOR_dBFS=round(noise_floor, 1),
                 CLICK_DENSITY_ppm=round(click_density, 2),
                 RT_FACTOR=round(rt_factor, 3),
@@ -293,7 +275,6 @@ class RestorationBenchmark:
                 category=category,
                 MUSIC_OVR=0.0,
                 MUSIC_NAT=0.0,
-                SI_SDR_dB=-99.0,
                 NOISE_FLOOR_dBFS=0.0,
                 CLICK_DENSITY_ppm=9999.0,
                 RT_FACTOR=99.0,
@@ -332,7 +313,6 @@ class RestorationBenchmark:
             report.summary = {
                 "MUSIC_OVR_mean": round(np.mean([r.MUSIC_OVR for r in valid]), 3),
                 "MUSIC_NAT_mean": round(np.mean([r.MUSIC_NAT for r in valid]), 3),
-                "SI_SDR_dB_mean": round(np.mean([r.SI_SDR_dB for r in valid]), 2),
                 "NOISE_FLOOR_mean": round(np.mean([r.NOISE_FLOOR_dBFS for r in valid]), 1),
                 "CLICK_DENSITY_mean": round(np.mean([r.CLICK_DENSITY_ppm for r in valid]), 2),
                 "RT_FACTOR_mean": round(np.mean([r.RT_FACTOR for r in valid]), 3),
@@ -382,8 +362,7 @@ class RestorationBenchmark:
             status = "🔴 FEHLER" if r.error else "🟢 OK"
             print(
                 f"  [{status}] {r.category:20s}  OVR={r.MUSIC_OVR:.2f}  NAT={r.MUSIC_NAT:.2f}  "
-                f"SI-SDR={r.SI_SDR_dB:+.1f}dB  NF={r.NOISE_FLOOR_dBFS:.0f}dBFS  "
-                f"RT={r.RT_FACTOR:.2f}×"
+                f"NF={r.NOISE_FLOOR_dBFS:.0f}dBFS  RT={r.RT_FACTOR:.2f}×"
             )
 
         if report.summary:
@@ -412,7 +391,6 @@ class RestorationBenchmark:
         metric_map = {
             "MUSIC_OVR": "MUSIC_OVR_mean",
             "MUSIC_NAT": "MUSIC_NAT_mean",
-            "SI_SDR_dB": "SI_SDR_dB_mean",
             "RT_FACTOR": "RT_FACTOR_mean",
         }
 

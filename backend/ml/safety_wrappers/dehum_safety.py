@@ -359,7 +359,7 @@ class DeHumSafety(BaseSafetyWrapper):
             return PreCheckResult(
                 passed=False,
                 confidence=severity,
-                reasons=[f"Hum too weak: {severity:.2f} (min {self.min_hum_severity}). " "Not worth processing risk."],
+                reasons=[f"Hum too weak: {severity:.2f} (min {self.min_hum_severity}). Not worth processing risk."],
             )
 
         # Check for bass content
@@ -368,9 +368,7 @@ class DeHumSafety(BaseSafetyWrapper):
         metadata["bass_energy_ratio"] = bass_ratio
 
         if has_bass:
-            warnings.append(
-                f"Significant bass content detected: {bass_ratio:.1%}. " "Risk of damaging musical low end."
-            )
+            warnings.append(f"Significant bass content detected: {bass_ratio:.1%}. Risk of damaging musical low end.")
 
         # Check harmonic series
         harmonic_strength = measure_harmonic_series_strength(audio, sr)
@@ -378,7 +376,7 @@ class DeHumSafety(BaseSafetyWrapper):
 
         if harmonic_strength > 0.7:
             warnings.append(
-                f"Strong harmonic series: {harmonic_strength:.2f}. " "Audio likely contains musical bass instruments."
+                f"Strong harmonic series: {harmonic_strength:.2f}. Audio likely contains musical bass instruments."
             )
 
         # Check phase coherence (if stereo)
@@ -386,7 +384,7 @@ class DeHumSafety(BaseSafetyWrapper):
         metadata["phase_coherence_before"] = phase_coherence
 
         if phase_coherence < 0.7:
-            warnings.append(f"Low phase coherence: {phase_coherence:.2f}. " "Stereo image may be fragile.")
+            warnings.append(f"Low phase coherence: {phase_coherence:.2f}. Stereo image may be fragile.")
 
         return PreCheckResult(passed=True, confidence=severity, warnings=warnings, metadata=metadata)
 
@@ -446,7 +444,7 @@ class DeHumSafety(BaseSafetyWrapper):
             metrics["bass_loss_percent"] = float(bass_loss * 100)
 
             if bass_loss > self.max_bass_loss:
-                issues.append(f"Excessive bass loss: {bass_loss:.1%} " f"(max {self.max_bass_loss:.1%})")
+                issues.append(f"Excessive bass loss: {bass_loss:.1%} (max {self.max_bass_loss:.1%})")
 
         # 3. Check for comb filtering
         has_combing_before, combing_before = detect_comb_filtering(original, sr)

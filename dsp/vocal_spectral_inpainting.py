@@ -420,7 +420,7 @@ if __name__ == "__main__":
     if report["gaps_detected"] > 0:
         logger.info("\nGap Ranges:")
         for i, (low, high) in enumerate(report["gap_ranges_hz"], 1):
-            logger.info(f"  Gap {i}: {low:.0f} - {high:.0f} Hz ({high-low:.0f} Hz wide)")
+            logger.info(f"  Gap {i}: {low:.0f} - {high:.0f} Hz ({high - low:.0f} Hz wide)")
 
     if report["harmonic_awareness"]:
         logger.info("\nHarmonic Awareness: Enabled")

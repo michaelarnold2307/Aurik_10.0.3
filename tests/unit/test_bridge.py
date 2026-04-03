@@ -505,7 +505,7 @@ class TestAnalysisLruCache:
         c.put("x", 1)
         c.put("y", 2)
         c.put("x", 99)  # update — should promote x to MRU
-        c.put("z", 3)   # evicts y (LRU), not x
+        c.put("z", 3)  # evicts y (LRU), not x
         assert c.get("x") == 99
         assert c.get("y") is None
         assert c.get("z") == 3
@@ -592,13 +592,13 @@ class TestContentCacheKey:
     def test_different_content_different_key(self, tmp_path, bridge):
         f1 = tmp_path / "a.wav"
         f2 = tmp_path / "b.wav"
-        f1.write_bytes(b"\xAA" * 100)
-        f2.write_bytes(b"\xBB" * 100)
+        f1.write_bytes(b"\xaa" * 100)
+        f2.write_bytes(b"\xbb" * 100)
         assert bridge.content_cache_key(str(f1)) != bridge.content_cache_key(str(f2))
 
     def test_same_content_different_path_same_key(self, tmp_path, bridge):
         """Selber Inhalt unter verschiedenem Pfad → gleicher Key (Content-Addressing)."""
-        data = b"\xFF\x00\x1A" * 512
+        data = b"\xff\x00\x1a" * 512
         f1 = tmp_path / "original.wav"
         f2 = tmp_path / "renamed.wav"
         f1.write_bytes(data)
@@ -639,7 +639,7 @@ class TestDefectCacheLruIntegration:
 
     def test_same_content_different_path_hits_cache(self, tmp_path, bridge):
         """Selber Dateiinhalt unter zwei Pfaden → zweiter Aufruf trifft Cache."""
-        data = b"\xDE\xAD\xBE\xEF" * 2048
+        data = b"\xde\xad\xbe\xef" * 2048
         p1 = tmp_path / "original.wav"
         p2 = tmp_path / "copy.wav"
         p1.write_bytes(data)

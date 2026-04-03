@@ -10,23 +10,26 @@ Scientific reference:
     A Tutorial and Analysis", JAES 60(6), pp. 399–408.
     Zölzer (2011) DAFX §6.1.
 """
+
 from __future__ import annotations
 
 import numpy as np
 import pytest
 
 SR = 48000
-ATT_MS = 10.0   # ms
-REL_MS = 80.0   # ms
+ATT_MS = 10.0  # ms
+REL_MS = 80.0  # ms
 
 
 # ---------------------------------------------------------------------------
 # Fixture
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture(scope="module")
 def shaper():
     from backend.core.phases.phase_36_transient_shaper import TransientShaper
+
     return TransientShaper()
 
 
@@ -41,6 +44,7 @@ def _rel_samp(ms: float = REL_MS) -> int:
 # ---------------------------------------------------------------------------
 # 1. API / contract tests
 # ---------------------------------------------------------------------------
+
 
 class TestEnvelopeApi:
     def test_output_shape_matches_input(self, shaper):
@@ -91,8 +95,8 @@ class TestEnvelopeApi:
         n = SR  # 1 second
         half = n // 2
         x = np.zeros(n)
-        x[:half] = 0.05   # low level
-        x[half:] = 0.8    # high level (attack)
+        x[:half] = 0.05  # low level
+        x[half:] = 0.8  # high level (attack)
         env_up = shaper._compute_envelope(x, _att_samp(5), _rel_samp(200))
 
         x2 = x[::-1].copy()  # reverse: high level first, then low (release)
@@ -110,9 +114,11 @@ class TestEnvelopeApi:
 # 2. Log-domain perceptual-uniformity tests
 # ---------------------------------------------------------------------------
 
+
 class TestLogDomainBallistics:
-    def _make_burst(self, base_amp: float, burst_amp: float, n: int = 4800,
-                    burst_start: int = 480, burst_dur: int = 200) -> np.ndarray:
+    def _make_burst(
+        self, base_amp: float, burst_amp: float, n: int = 4800, burst_start: int = 480, burst_dur: int = 200
+    ) -> np.ndarray:
         """Constant base + a rectangular burst transient at burst_start."""
         x = np.full(n, base_amp)
         x[burst_start : burst_start + burst_dur] = burst_amp
@@ -161,18 +167,18 @@ class TestLogDomainBallistics:
         rel = _rel_samp(50)
         burst_start, burst_dur = 480, 200
 
-        x_loud = self._make_burst(0.50, 1.00,  burst_start=burst_start, burst_dur=burst_dur)
+        x_loud = self._make_burst(0.50, 1.00, burst_start=burst_start, burst_dur=burst_dur)
         x_quiet = self._make_burst(0.005, 0.01, burst_start=burst_start, burst_dur=burst_dur)
 
-        env_loud  = shaper._compute_envelope(x_loud,  att, rel)
+        env_loud = shaper._compute_envelope(x_loud, att, rel)
         env_quiet = shaper._compute_envelope(x_quiet, att, rel)
 
         def db_rise(env):
             before = env[burst_start - 10 : burst_start].mean()
-            peak   = env[burst_start : burst_start + burst_dur].max()
+            peak = env[burst_start : burst_start + burst_dur].max()
             return 20.0 * np.log10(max(peak, 1e-6)) - 20.0 * np.log10(max(before, 1e-6))
 
-        rise_loud  = db_rise(env_loud)
+        rise_loud = db_rise(env_loud)
         rise_quiet = db_rise(env_quiet)
         diff = abs(rise_loud - rise_quiet)
         assert diff < 3.0, (
@@ -183,7 +189,7 @@ class TestLogDomainBallistics:
 
     def test_floor_no_nan(self, shaper):
         """Near-zero signal (just above -120 dBFS floor) must not produce NaN."""
-        x = np.full(4800, 1e-7)   # ~ -140 dBFS → clamped to -120 dBFS
+        x = np.full(4800, 1e-7)  # ~ -140 dBFS → clamped to -120 dBFS
         env = shaper._compute_envelope(x, _att_samp(), _rel_samp())
         assert np.all(np.isfinite(env)), "Near-floor signal produced NaN/Inf"
 
@@ -203,8 +209,8 @@ class TestLogDomainBallistics:
         48 kHz = ≥ 3 DS blocks with DS=16) on a non-zero background gives the
         attack-coeff chain enough steps to exceed 0.1 linear within the burst.
         """
-        x = np.full(4800, 0.01)   # small background: -40 dBFS → finite start state
-        x[1000:1100] = 0.9        # 100-sample (~2 ms) burst
+        x = np.full(4800, 0.01)  # small background: -40 dBFS → finite start state
+        x[1000:1100] = 0.9  # 100-sample (~2 ms) burst
         env = shaper._compute_envelope(x, _att_samp(1), _rel_samp(20))
         # After ≥ 3 DS blocks of attack from -40 dBFS toward -0.9 dBFS the
         # envelope should exceed 0.1 linear (≈ -20 dBFS)
@@ -214,6 +220,7 @@ class TestLogDomainBallistics:
 # ---------------------------------------------------------------------------
 # 3. _shape_band integration tests
 # ---------------------------------------------------------------------------
+
 
 class TestShapeBand:
     def test_output_shape_mono(self, shaper):
@@ -238,13 +245,12 @@ class TestShapeBand:
         x = np.zeros(4800)
         # Sprinkle transients
         for pos in range(500, 4800, 500):
-            x[pos:pos + 50] = rng.uniform(0.5, 0.8, 50)
-        energy_before = float(np.mean(x ** 2))
+            x[pos : pos + 50] = rng.uniform(0.5, 0.8, 50)
+        energy_before = float(np.mean(x**2))
         out = shaper._shape_band(x, SR, 6.0, -3.0, ATT_MS, REL_MS)
-        energy_after = float(np.mean(out ** 2))
+        energy_after = float(np.mean(out**2))
         assert energy_after >= energy_before * 0.8, (
-            f"Positive attack gain should not drastically reduce energy: "
-            f"{energy_before:.6f} → {energy_after:.6f}"
+            f"Positive attack gain should not drastically reduce energy: {energy_before:.6f} → {energy_after:.6f}"
         )
 
 

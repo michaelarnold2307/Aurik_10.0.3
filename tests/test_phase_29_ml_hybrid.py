@@ -55,9 +55,9 @@ print("  Tape hiss: HF noise >8kHz (typical tape hiss)")
 test_modes = ["FAST", "BALANCED"]
 
 for mode in test_modes:
-    print(f"\n{'-'*80}")
+    print(f"\n{'-' * 80}")
     print(f"Testing Quality Mode: {mode}")
-    print(f"{'-'*80}")
+    print(f"{'-' * 80}")
 
     result = phase.process(audio.copy(), sample_rate=sr, material=MaterialType.TAPE, quality_mode=mode)
 
@@ -90,9 +90,9 @@ for mode in test_modes:
     else:
         print("❌ Processing failed!")
 
-print(f"\n{'='*80}")
+print(f"\n{'=' * 80}")
 print("✅ Phase 29 ML-Hybrid Integration Test Complete!")
-print(f"{'='*80}")
+print(f"{'=' * 80}")
 print("\nStrategy: Band-Specific Processing")
 print("  - Stage 1: DSP multi-band adaptive gates (all frequencies)")
 print("  - Stage 2: ML DeepFilterNet HF refinement (>2kHz only)")

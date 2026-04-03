@@ -164,8 +164,15 @@ class AdaptiveFormantShifter:
         except Exception:
             return audio.copy()
 
+        # Guard: degenerate LPC → LAPACK DLASCL failure
+        if not np.all(np.isfinite(a)):
+            return audio.copy()
+
         # Extract poles (roots of A polynomial)
-        poles = np.roots(a)
+        try:
+            poles = np.roots(a)
+        except (np.linalg.LinAlgError, ValueError):
+            return audio.copy()
 
         # Warp pole angles by shift_ratio (formant frequency shift in z-domain)
         angles = np.angle(poles)

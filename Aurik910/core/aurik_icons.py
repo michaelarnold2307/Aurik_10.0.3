@@ -4,10 +4,9 @@ Uses QSvgRenderer to render vector icons into QPixmap at any requested size.
 Thread-safe singleton cache keyed by (icon_name, size).
 """
 
-import os
 import logging
+import os
 import threading
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -63,21 +62,21 @@ EMOJI_TO_SVG: dict[str, str] = {
     "✓": "quality_check",
     "💾": "export",
     # Status icons (referenced by name, not emoji)
-    "status_fixed":  "status_fixed",
-    "status_high":   "status_high",
+    "status_fixed": "status_fixed",
+    "status_high": "status_high",
     "status_medium": "status_medium",
-    "status_low":    "status_low",
-    "status_clean":  "status_clean",
+    "status_low": "status_low",
+    "status_clean": "status_clean",
     # Explicit SVG-stem keys (used by differentiated _STAGE_VISUALS entries)
-    "reverb":        "reverb",
-    "transient":     "transient",
-    "tape_vintage":  "tape_vintage",
-    "mastering":     "mastering",
-    "lufs":          "lufs",
-    "bass":          "bass",
-    "air":           "air",
-    "harmonic":      "harmonic",
-    "declip":        "declip",
+    "reverb": "reverb",
+    "transient": "transient",
+    "tape_vintage": "tape_vintage",
+    "mastering": "mastering",
+    "lufs": "lufs",
+    "bass": "bass",
+    "air": "air",
+    "harmonic": "harmonic",
+    "declip": "declip",
 }
 
 
@@ -87,9 +86,9 @@ def _make_pixmap(svg_path: str, size: int) -> object:
     Returns a fallback 1x1 transparent pixmap if the file is missing or QSvgRenderer unavailable.
     """
     try:
+        from PyQt5.QtCore import QRectF, Qt
+        from PyQt5.QtGui import QPainter, QPixmap
         from PyQt5.QtSvg import QSvgRenderer
-        from PyQt5.QtGui import QPixmap, QPainter
-        from PyQt5.QtCore import Qt, QRectF
 
         if not os.path.isfile(svg_path):
             logger.warning("aurik_icons: SVG file not found: %s", svg_path)
@@ -110,8 +109,9 @@ def _make_pixmap(svg_path: str, size: int) -> object:
     except ImportError:
         logger.debug("aurik_icons: PyQt5.QtSvg not available — returning fallback pixmap")
         try:
-            from PyQt5.QtGui import QPixmap
             from PyQt5.QtCore import Qt
+            from PyQt5.QtGui import QPixmap
+
             px = QPixmap(size, size)
             px.fill(Qt.transparent)
             return px
@@ -119,7 +119,7 @@ def _make_pixmap(svg_path: str, size: int) -> object:
             return None
 
 
-def get_icon(key: str, size: int = 24) -> Optional[object]:
+def get_icon(key: str, size: int = 24) -> object | None:
     """
     Return a QPixmap for the given icon key (emoji or SVG name) at the requested size.
     Result is cached per (key, size). Returns None if PyQt5 is unavailable.
@@ -147,7 +147,7 @@ def get_icon(key: str, size: int = 24) -> Optional[object]:
         return px
 
 
-def get_carrier_icon(key: str, size: int = 22) -> Optional[object]:
+def get_carrier_icon(key: str, size: int = 22) -> object | None:
     """
     Return a QPixmap for the given carrier/medium type key at the requested size.
     SVG files live in resources/carrier_icons/. Result is cached per (key, size).
@@ -174,7 +174,7 @@ def get_carrier_icon(key: str, size: int = 22) -> Optional[object]:
         return px
 
 
-def get_defect_icon(key: str, size: int = 16) -> Optional[object]:
+def get_defect_icon(key: str, size: int = 16) -> object | None:
     """
     Return a QPixmap for the given defect type key at the requested size.
     SVG files live in resources/defect_icons/. Falls back to .png if no .svg exists.

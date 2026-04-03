@@ -15,13 +15,11 @@ Testet:
 """
 
 import numpy as np
-import pytest
 import scipy.signal
 
 from forensics.medium_detector import (
     MediumDetectionResult,
     MediumDetector,
-    SpectralFingerprint,
     detect_medium_chain,
     get_medium_detector,
 )

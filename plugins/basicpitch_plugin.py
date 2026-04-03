@@ -91,8 +91,8 @@ class BasicPitchPlugin:
                 if not _try_alloc("BasicPitch", size_gb=0.12):
                     logger.warning("BasicPitch: ML-Budget erschöpft — DSP-Fallback aktiv.")
                     return
-            except Exception:
-                pass
+            except Exception as _exc:
+                logger.debug("Plugin operation failed (non-critical): %s", _exc)
 
             opts = ort.SessionOptions()
             opts.intra_op_num_threads = 4
@@ -113,16 +113,16 @@ class BasicPitchPlugin:
                     size_gb=0.12,
                     unload_fn=lambda s=self: setattr(s, "_session", None) or setattr(s, "_model_loaded", False),
                 )
-            except Exception:
-                pass
+            except Exception as _exc:
+                logger.debug("Plugin operation failed (non-critical): %s", _exc)
         except Exception as exc:
             logger.warning("BasicPitch ONNX-Init fehlgeschlagen (%s) — DSP-Fallback.", exc)
             try:
                 from backend.core.ml_memory_budget import release as _release
 
                 _release("BasicPitch")
-            except Exception:
-                pass
+            except Exception as _exc:
+                logger.debug("Plugin operation failed (non-critical): %s", _exc)
 
     def analyze(self, audio: np.ndarray, sr: int, max_polyphony: int = _DEFAULT_MAX_POLYPHONY) -> BasicPitchResult:
         """Estimate polyphonic pitches.
@@ -167,9 +167,14 @@ class BasicPitchPlugin:
         inp = session.get_inputs()[0]
         in_name = inp.name
 
-        # Normalize input layout to [B, T]
+        # Normalize input layout — model variant may expect [B, T] or [B, T, 1]
         model_in = audio_m[np.newaxis, :] if audio_m.ndim == 1 else np.asarray(audio_m).reshape(1, -1)
         model_in = model_in.astype(np.float32)
+
+        # Some BasicPitch ONNX exports expect rank-3 input [B, T, 1]
+        expected_rank = len(inp.shape) if inp.shape else 0
+        if expected_rank == 3 and model_in.ndim == 2:
+            model_in = model_in[:, :, np.newaxis]
 
         out_names = [o.name for o in session.get_outputs()]
         out_vals = session.run(out_names, {in_name: model_in})
@@ -360,15 +365,15 @@ def unload_basicpitch() -> None:
             try:
                 _instance._session = None
                 _instance._model_loaded = False
-            except Exception:
-                pass
+            except Exception as _exc:
+                logger.debug("Plugin operation failed (non-critical): %s", _exc)
             _instance = None
     try:
         from backend.core.ml_memory_budget import release as _release
 
         _release("BasicPitch")
-    except Exception:
-        pass
+    except Exception as _exc:
+        logger.debug("Plugin operation failed (non-critical): %s", _exc)
 
 
 def analyze_polyphonic_pitch(

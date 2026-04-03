@@ -43,8 +43,8 @@ class DiffwavePlugin:
                 if not _try_alloc("DiffWave", size_gb=0.012):
                     logger.warning("DiffWave: ML-Budget erschöpft — DSP-Fallback.")
                     return
-            except Exception:
-                pass
+            except Exception as _exc:
+                logger.debug("Operation failed (non-critical): %s", _exc)
 
             opts = ort.SessionOptions()
             opts.inter_op_num_threads = 2
@@ -54,16 +54,16 @@ class DiffwavePlugin:
                 from backend.core.plugin_lifecycle_manager import register_plugin as _reg_plm
 
                 _reg_plm("DiffWave", size_gb=0.012, unload_fn=lambda s=self: setattr(s, "_session", None))
-            except Exception:
-                pass
+            except Exception as _exc:
+                logger.debug("Operation failed (non-critical): %s", _exc)
         except Exception as exc:
             logger.warning("DiffWave Ladefehler: %s — DSP-Fallback.", exc)
             try:
                 from backend.core.ml_memory_budget import release as _rel
 
                 _rel("DiffWave")
-            except Exception:
-                pass
+            except Exception as _exc:
+                logger.debug("Operation failed (non-critical): %s", _exc)
 
     def inpaint(self, audio: np.ndarray, sr: int, mask: np.ndarray | None = None, n_steps: int = 50) -> np.ndarray:
         """Lücken-Inpainting via NMF-\u03b2 (DSP) oder DiffWave ONNX.

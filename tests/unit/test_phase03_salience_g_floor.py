@@ -5,11 +5,11 @@ Scientific basis:
     Loud frames: lower G_floor (residual noise masked by music energy).
     Quiet frames: higher G_floor (signal fragile; protect from over-suppression).
 """
+
 from __future__ import annotations
 
 import numpy as np
 import pytest
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -38,12 +38,14 @@ def _make_uniform_audio(sr: int = SR, duration_s: float = 2.0, amplitude: float 
 # _compute_salience_g_floor tests
 # ---------------------------------------------------------------------------
 
+
 class TestComputeSalienceGFloor:
     """Unit tests for the static helper method."""
 
     @pytest.fixture
     def phase(self):
         from backend.core.phases.phase_03_denoise import DenoisePhase
+
         return DenoisePhase()
 
     def test_returns_1d_array_of_correct_length(self, phase):
@@ -84,11 +86,10 @@ class TestComputeSalienceGFloor:
         half = n_t // 2
         # Allow a 10-frame grace window around the boundary (500 ms smoothing)
         grace = 10
-        mean_loud = float(np.mean(vec[:half - grace]))
+        mean_loud = float(np.mean(vec[: half - grace]))
         mean_quiet = float(np.mean(vec[half + grace :]))
         assert mean_loud < mean_quiet, (
-            f"Loud section (G_floor={mean_loud:.4f}) must be lower than "
-            f"quiet section (G_floor={mean_quiet:.4f})"
+            f"Loud section (G_floor={mean_loud:.4f}) must be lower than quiet section (G_floor={mean_quiet:.4f})"
         )
 
     def test_shellac_base_respected(self, phase):
@@ -127,12 +128,14 @@ class TestComputeSalienceGFloor:
 # _compute_omlsa_gain with g_floor_vec tests
 # ---------------------------------------------------------------------------
 
+
 class TestOmlsaGainWithVector:
     """Tests for the vector g_floor_vec path in _compute_omlsa_gain."""
 
     @pytest.fixture
     def phase(self):
         from backend.core.phases.phase_03_denoise import DenoisePhase
+
         return DenoisePhase()
 
     @pytest.fixture
@@ -177,7 +180,7 @@ class TestOmlsaGainWithVector:
         noise_mag = magnitude * 0.95  # SNR ≈ 1 dB → heavy suppression expected
         params = {"g_floor": 0.1, "strength": 1.0}
 
-        g_vec_low = np.full(n_t, 0.05, dtype=np.float32)   # aggressive first half
+        g_vec_low = np.full(n_t, 0.05, dtype=np.float32)  # aggressive first half
         g_vec_high = np.full(n_t, 0.30, dtype=np.float32)  # conservative second half
 
         G_low, _ = phase._compute_omlsa_gain(magnitude, noise_mag, params, g_floor_vec=g_vec_low)
@@ -209,6 +212,7 @@ class TestOmlsaGainWithVector:
 # § C: PGHI Gain-Gradient Phase Correction (Prusa & Holighaus 2017 §3.4)
 # ---------------------------------------------------------------------------
 
+
 class TestGainGradientPhaseCorrection:
     """_apply_gain_gradient_phase_correction() tests.
 
@@ -221,6 +225,7 @@ class TestGainGradientPhaseCorrection:
     @pytest.fixture
     def phase(self):
         from backend.core.phases.phase_03_denoise import DenoisePhase
+
         return DenoisePhase()
 
     # -----------------------------------------------------------------------
@@ -233,8 +238,7 @@ class TestGainGradientPhaseCorrection:
         phase = rng.uniform(-np.pi, np.pi, (n_bins, n_t)).astype(np.float32)
         return (mag * np.exp(1j * phase)).astype(np.complex64)
 
-    def _make_gain(self, n_bins: int = 513, n_t: int = 80,
-                   mode: str = "flat") -> np.ndarray:
+    def _make_gain(self, n_bins: int = 513, n_t: int = 80, mode: str = "flat") -> np.ndarray:
         if mode == "flat":
             return np.full((n_bins, n_t), 0.6, dtype=np.float32)
         if mode == "ramp":
@@ -276,7 +280,9 @@ class TestGainGradientPhaseCorrection:
         out = phase._apply_gain_gradient_phase_correction(Zxx, G, hop=512, sr=SR)
         expected_mag = (G * np.abs(Zxx)).astype(np.float32)
         np.testing.assert_allclose(
-            np.abs(out).astype(np.float32), expected_mag, rtol=1e-4,
+            np.abs(out).astype(np.float32),
+            expected_mag,
+            rtol=1e-4,
             err_msg="output magnitude must equal G * |Zxx_in|",
         )
 
@@ -304,7 +310,9 @@ class TestGainGradientPhaseCorrection:
         G = self._make_gain(513, 60, mode="identity")
         out = phase._apply_gain_gradient_phase_correction(Zxx, G, hop=512, sr=SR)
         np.testing.assert_allclose(
-            np.abs(out), np.abs(Zxx).astype(np.float64), rtol=1e-4,
+            np.abs(out),
+            np.abs(Zxx).astype(np.float64),
+            rtol=1e-4,
         )
         phase_err = np.abs(np.angle(np.exp(1j * (np.angle(out) - np.angle(Zxx)))))
         assert float(np.max(phase_err)) < 1e-3
@@ -316,7 +324,7 @@ class TestGainGradientPhaseCorrection:
     def test_ramp_gain_introduces_phase_offset(self, phase):
         """Rising G ramp must produce a negative cumulative Δφ (as per eq. 3.4)."""
         Zxx = self._make_stft(513, 80, seed=1)
-        G = self._make_gain(513, 80, mode="ramp")   # 0.2 → 0.9 (positive dlogG)
+        G = self._make_gain(513, 80, mode="ramp")  # 0.2 → 0.9 (positive dlogG)
         out = phase._apply_gain_gradient_phase_correction(Zxx, G, hop=512, sr=SR)
         # For a rising ramp dlogG/dt > 0, so Δφ = -∫dlogG < 0 towards the end.
         # Mean phase correction at last 10 frames must differ from first 10 frames.
@@ -359,6 +367,7 @@ class TestGainGradientPhaseCorrection:
 # § E: Stationarity-adaptive α in IMCRA (Loizou 2013 §7.3)
 # ---------------------------------------------------------------------------
 
+
 class TestImcraAdaptiveAlpha:
     """_estimate_noise_imcra() tests for stationarity-adaptive smoothing.
 
@@ -371,19 +380,21 @@ class TestImcraAdaptiveAlpha:
     @pytest.fixture
     def phase(self):
         from backend.core.phases.phase_03_denoise import DenoisePhase
+
         return DenoisePhase()
 
     # -----------------------------------------------------------------------
     # Helpers
     # -----------------------------------------------------------------------
 
-    def _make_stft_mag(self, n_freq: int = 257, n_t: int = 80, seed: int = 0,
-                       onset_at: int | None = None) -> tuple[np.ndarray, np.ndarray]:
+    def _make_stft_mag(
+        self, n_freq: int = 257, n_t: int = 80, seed: int = 0, onset_at: int | None = None
+    ) -> tuple[np.ndarray, np.ndarray]:
         """Returns (magnitude, times).  Optional onset_at injects an energy spike."""
         rng = np.random.default_rng(seed)
         mag = rng.uniform(0.01, 0.05, (n_freq, n_t)).astype(np.float32)
         if onset_at is not None and 0 <= onset_at < n_t:
-            mag[:, onset_at] *= 20.0   # sharp transient
+            mag[:, onset_at] *= 20.0  # sharp transient
         dt = 0.01
         times = np.arange(n_t, dtype=np.float32) * dt
         return mag, times
@@ -455,17 +466,15 @@ class TestImcraAdaptiveAlpha:
         """
         n_freq, n_t = 1, 60
         mag = np.full((n_freq, n_t), 0.01, dtype=np.float32)
-        mag[:, 20] = 1.0   # sharp spike at t=20
+        mag[:, 20] = 1.0  # sharp spike at t=20
 
         times = np.arange(n_t, dtype=np.float32) * 0.01
 
         # Adaptive run (onset at frame 20)
-        out_adaptive = phase._estimate_noise_imcra(
-            mag, times, onset_frames=np.array([20])
-        )
+        out_adaptive = phase._estimate_noise_imcra(mag, times, onset_frames=np.array([20]))
 
         # Manual fixed-alpha reference (α=0.85 at every frame, no adaptation)
-        pow_spec = mag ** 2
+        pow_spec = mag**2
         M = max(3, int(1.5 / 0.01))
         sigma2 = np.zeros_like(pow_spec)
         window_buf = np.full((n_freq, M), np.inf)
@@ -477,7 +486,7 @@ class TestImcraAdaptiveAlpha:
         smoothed_fixed = np.zeros_like(sigma2)
         smoothed_fixed[:, 0] = sigma2[:, 0]
         for t in range(1, n_t):
-            smoothed_fixed[:, t] = 0.85 * smoothed_fixed[:, t-1] + 0.15 * sigma2[:, t]
+            smoothed_fixed[:, t] = 0.85 * smoothed_fixed[:, t - 1] + 0.15 * sigma2[:, t]
         ref_fixed = np.sqrt(np.maximum(smoothed_fixed, 1e-10))
 
         # 5 frames after the onset spike (t=25): adaptive should have converged
@@ -496,6 +505,7 @@ class TestImcraAdaptiveAlpha:
 # § B: ERB-rate IMCRA grouping (Glasberg & Moore 1990)
 # ---------------------------------------------------------------------------
 
+
 class TestErbRateImcra:
     """_compute_erb_bands() and ERB-grouped _estimate_noise_imcra() tests.
 
@@ -510,6 +520,7 @@ class TestErbRateImcra:
     @pytest.fixture
     def phase(self):
         from backend.core.phases.phase_03_denoise import DenoisePhase
+
         return DenoisePhase()
 
     # -----------------------------------------------------------------------
@@ -595,14 +606,14 @@ class TestErbRateImcra:
         neighbour_mean = float(np.mean(out_with_erb[295:300, :]))
         bin300_mean = float(np.mean(out_with_erb[300, :]))
         assert bin300_mean >= neighbour_mean * 0.3, (
-            f"ERB grouping must raise outlier-bin estimate: bin300={bin300_mean:.5f}, "
-            f"neighbours={neighbour_mean:.5f}"
+            f"ERB grouping must raise outlier-bin estimate: bin300={bin300_mean:.5f}, neighbours={neighbour_mean:.5f}"
         )
 
 
 # ---------------------------------------------------------------------------
 # § D: Musical-Noise-Postfilter via psychoakustische Maskierungsschwelle
 # ---------------------------------------------------------------------------
+
 
 class TestMaskingGate:
     """_apply_masking_gate() tests.
@@ -616,10 +627,12 @@ class TestMaskingGate:
     @pytest.fixture
     def phase(self):
         from backend.core.phases.phase_03_denoise import DenoisePhase
+
         return DenoisePhase()
 
-    def _make_uniform(self, n_freq: int = 513, n_t: int = 60,
-                      gain_val: float = 0.6, mag_val: float = 0.1) -> tuple[np.ndarray, np.ndarray]:
+    def _make_uniform(
+        self, n_freq: int = 513, n_t: int = 60, gain_val: float = 0.6, mag_val: float = 0.1
+    ) -> tuple[np.ndarray, np.ndarray]:
         return (
             np.full((n_freq, n_t), gain_val, dtype=np.float32),
             np.full((n_freq, n_t), mag_val, dtype=np.float32),
@@ -657,11 +670,9 @@ class TestMaskingGate:
         # Single silent bin: output_power ≈ 0, M based on neighbours → gate → 0
         # But floor must keep gate ≥ 0.1
         M = np.full((n_freq, n_t), 0.5, dtype=np.float32)
-        M[200, :] = 1e-8   # near-silent bin
+        M[200, :] = 1e-8  # near-silent bin
         out = phase._apply_masking_gate(G, M)
-        assert float(np.min(out)) >= 0.1 - 1e-5, (
-            f"Floor violated: min={float(np.min(out)):.5f}"
-        )
+        assert float(np.min(out)) >= 0.1 - 1e-5, f"Floor violated: min={float(np.min(out)):.5f}"
 
     # -----------------------------------------------------------------------
     # Uniform spectrum — all bins equal → all gates ≈ 1
@@ -672,8 +683,9 @@ class TestMaskingGate:
         G, M = self._make_uniform(gain_val=0.7, mag_val=0.15)
         out = phase._apply_masking_gate(G, M)
         # Uniform: E_out / M_threshold ≥ 1 for most bins → gate = 1 → pass-through
-        np.testing.assert_allclose(out, G, rtol=1e-3,
-            err_msg="Uniform spectrum: _apply_masking_gate must be near-passthrough")
+        np.testing.assert_allclose(
+            out, G, rtol=1e-3, err_msg="Uniform spectrum: _apply_masking_gate must be near-passthrough"
+        )
 
     # -----------------------------------------------------------------------
     # Isolated chirp attenuation
@@ -700,8 +712,7 @@ class TestMaskingGate:
         G = np.full((n_freq, n_t), 0.8, dtype=np.float32)
         M = np.full((n_freq, n_t), 2.0, dtype=np.float32)  # very loud signal
         out = phase._apply_masking_gate(G, M)
-        np.testing.assert_allclose(out, G, rtol=1e-3,
-            err_msg="Loud bins must be preserved (gate ≈ 1.0)")
+        np.testing.assert_allclose(out, G, rtol=1e-3, err_msg="Loud bins must be preserved (gate ≈ 1.0)")
 
     # -----------------------------------------------------------------------
     # Edge cases

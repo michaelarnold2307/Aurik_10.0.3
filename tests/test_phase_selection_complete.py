@@ -36,9 +36,9 @@ def test_all_material_types():
     print()
 
     for material in materials:
-        print(f"\n{'='*80}")
+        print(f"\n{'=' * 80}")
         print(f"Material: {material.value.upper()}")
-        print(f"{'='*80}")
+        print(f"{'=' * 80}")
 
         # Defect Scan
         t0 = time.perf_counter()
@@ -55,7 +55,7 @@ def test_all_material_types():
         print(f"Scan Time: {scan_time:.3f}s")
         print(f"Detected: {material.value}")
         print(f"Selected Phases: {len(selected)}")
-        print(f"Professional Level: {len(prof_phases)}/{len(selected)} ({len(prof_phases)*100//len(selected)}%)")
+        print(f"Professional Level: {len(prof_phases)}/{len(selected)} ({len(prof_phases) * 100 // len(selected)}%)")
         print(f"All phases exist: {'✅ YES' if len(missing) == 0 else '❌ NO'}")
 
         if missing:

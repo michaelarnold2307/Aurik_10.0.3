@@ -99,7 +99,9 @@ class TestGoalProfile:
     def test_apply_clamps_to_valid_range(self):
         """Test that adjustments are clamped to [0.7, 1.0]"""
         profile = GoalProfile(
-            name="Test", goals={"bass-kraft": 1.10}, priorities={"bass-kraft": 1.0}  # Would exceed 1.0
+            name="Test",
+            goals={"bass-kraft": 1.10},
+            priorities={"bass-kraft": 1.0},  # Would exceed 1.0
         )
 
         base_goals = {"bass-kraft": 0.60}  # Below 0.7

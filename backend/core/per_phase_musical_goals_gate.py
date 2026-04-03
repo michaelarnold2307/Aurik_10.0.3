@@ -212,7 +212,8 @@ PHASE_GOAL_EXCLUSIONS: dict[str, set[str]] = {
         "authentizitaet",
         "artikulation",
         "timbre_authentizitaet",
-    },  # Dropout repair: synthesised HF content; timbre_authentizitaet: AudioSR synthesis creates new spectral content → MFCC correlation against damaged reference is meaningless
+        "emotionalitaet",
+    },  # Dropout repair: synthesised HF content; timbre_authentizitaet: AudioSR synthesis creates new spectral content → MFCC correlation against damaged reference is meaningless; emotionalitaet: AudioSR fills silent dropout gaps → RMS/arousal envelope intentionally differs from damaged reference → false P3 regression
     "phase_28": set(),  # Noise reduction variant: handled by correlation
     # Diffusion inpainting: synthesised content has no transient reference →
     # ArticulationMetric correlation vs pre-inpainting fragment is meaningless.

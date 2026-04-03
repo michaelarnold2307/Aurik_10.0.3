@@ -57,15 +57,15 @@ class ArtifactDetectionPlugin:
                     size_gb=self._BUDGET_SIZE_GB,
                     unload_fn=lambda s=_self: setattr(s, "model", None),
                 )
-            except Exception:
-                pass
+            except Exception as _exc:
+                logger.debug("Operation failed (non-critical): %s", _exc)
         elif _TORCH_AVAILABLE:
             try:
                 from backend.core.ml_memory_budget import release as _release
 
                 _release(self._BUDGET_NAME)
-            except Exception:
-                pass
+            except Exception as _exc:
+                logger.debug("Operation failed (non-critical): %s", _exc)
 
     def _load_model(self, path: str):
         """TorchScript-Modell laden — nur wenn torch verfügbar."""

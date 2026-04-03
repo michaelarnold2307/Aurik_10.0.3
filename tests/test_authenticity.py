@@ -233,7 +233,9 @@ class TestTransientDetector:
         """Test detecting a synthetic transient."""
         audio, sr = transient_audio
         detector = TransientDetector(
-            min_attack_time_ms=1.0, max_attack_time_ms=20.0, energy_threshold_db=-30.0  # More sensitive
+            min_attack_time_ms=1.0,
+            max_attack_time_ms=20.0,
+            energy_threshold_db=-30.0,  # More sensitive
         )
 
         transients = detector.detect(audio, sr)

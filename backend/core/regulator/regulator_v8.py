@@ -170,7 +170,7 @@ class RegulatorV8:
                 violations.append(goal_name)
                 violation_severities[goal_name] = threshold - predicted_score
                 logger.warning(
-                    f"Violation: {goal_name} predicted score {predicted_score:.3f} " f"< threshold {threshold:.2f}"
+                    f"Violation: {goal_name} predicted score {predicted_score:.3f} < threshold {threshold:.2f}"
                 )
 
         # Determine violation type
@@ -276,7 +276,7 @@ class RegulatorV8:
                 allowed=True,
                 parameter_adjustments={},
                 reasoning=(
-                    f"Post-validation passed. " f"{len(violations)} minor violations (acceptable)."
+                    f"Post-validation passed. {len(violations)} minor violations (acceptable)."
                     if violations
                     else "Post-validation passed. All goals preserved."
                 ),

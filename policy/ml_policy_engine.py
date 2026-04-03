@@ -286,7 +286,7 @@ class MLModelPolicyEngine:
             base = ["versa"]
             if has_vocals:
                 base.append("utmos")
-            models = base + ["visqol", "peaq"]
+            models = [*base, "visqol", "peaq"]
 
         self.logger.info(f"Quality Assessment (Musik-Metriken §4.4) → {models}")
         return models

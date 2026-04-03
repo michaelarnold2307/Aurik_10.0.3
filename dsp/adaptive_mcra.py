@@ -37,17 +37,32 @@ class AdaptiveMCRA:
         self.noise_floor = noise_floor
 
     def estimate_noise(self, power_spectrogram: np.ndarray) -> np.ndarray:
-        """Schätzt das Noise-Power-Spektrum adaptiv mit MCRA."""
-        n_frames, n_bins = power_spectrogram.shape
-        noise_psd = np.zeros_like(power_spectrogram)
-        smoothed_psd = np.zeros(n_bins)
-        min_buffer = np.full((self.win_length, n_bins), np.inf)
+        """Estimate noise PSD adaptively with MCRA (Cohen 2002).
+
+        Uses smoothed power tracking + minimum statistics with SNR-adaptive
+        beta parameter for more conservative tracking in noisy environments.
+        """
+        power = np.nan_to_num(np.asarray(power_spectrogram, dtype=np.float64))
+        n_frames, n_bins = power.shape
+        noise_psd = np.zeros_like(power)
+        smoothed_psd = np.zeros(n_bins, dtype=np.float64)
+        min_buffer = np.full((self.win_length, n_bins), np.inf, dtype=np.float64)
+
         for t in range(n_frames):
-            smoothed_psd = self.alpha * smoothed_psd + (1 - self.alpha) * power_spectrogram[t]
+            smoothed_psd = self.alpha * smoothed_psd + (1 - self.alpha) * power[t]
             min_buffer[t % self.win_length] = smoothed_psd
             min_psd = np.min(min_buffer, axis=0)
-            noise_psd[t] = self.beta * (noise_psd[t - 1] if t > 0 else smoothed_psd) + (1 - self.beta) * min_psd
+
+            prev_noise = noise_psd[t - 1] if t > 0 else smoothed_psd
+
+            # SNR-adaptive beta: increase beta when signal >> noise (more conservative)
+            local_snr = smoothed_psd / np.maximum(min_psd, self.noise_floor)
+            adaptive_beta = np.where(local_snr > 3.0, self.beta, self.beta * 0.9)
+
+            noise_psd[t] = adaptive_beta * prev_noise + (1 - adaptive_beta) * min_psd
             noise_psd[t] = np.maximum(noise_psd[t], self.noise_floor)
+
+        noise_psd = np.nan_to_num(noise_psd, nan=self.noise_floor, posinf=self.noise_floor, neginf=self.noise_floor)
         return noise_psd
 
     def auto_optimize(self, power_spectrogram: np.ndarray) -> dict[str, float]:

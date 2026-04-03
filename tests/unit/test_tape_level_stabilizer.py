@@ -214,9 +214,7 @@ class TestPhase12IntegrationTapeLevelStabilizer:
 
     def test_tape_material_triggers_stabilizer(self, phase):
         """process() with MaterialType.TAPE should run the stabilizer."""
-        audio = _make_tone_with_dips(
-            duration_s=3.0, dip_depth_db=12.0, dip_positions_s=[1.0]
-        )
+        audio = _make_tone_with_dips(duration_s=3.0, dip_depth_db=12.0, dip_positions_s=[1.0])
         result = phase.process(audio, SR, material=MaterialType.TAPE)
 
         assert result.success
@@ -225,9 +223,7 @@ class TestPhase12IntegrationTapeLevelStabilizer:
 
     def test_vinyl_does_not_trigger_stabilizer(self, phase):
         """process() with MaterialType.VINYL should NOT run the tape stabilizer."""
-        audio = _make_tone_with_dips(
-            duration_s=3.0, dip_depth_db=12.0, dip_positions_s=[1.0]
-        )
+        audio = _make_tone_with_dips(duration_s=3.0, dip_depth_db=12.0, dip_positions_s=[1.0])
         result = phase.process(audio, SR, material=MaterialType.VINYL)
 
         assert result.success
@@ -236,9 +232,7 @@ class TestPhase12IntegrationTapeLevelStabilizer:
 
     def test_cd_digital_does_not_trigger_stabilizer(self, phase):
         """process() with MaterialType.CD_DIGITAL should NOT run the tape stabilizer."""
-        audio = _make_tone_with_dips(
-            duration_s=3.0, dip_depth_db=12.0, dip_positions_s=[1.0]
-        )
+        audio = _make_tone_with_dips(duration_s=3.0, dip_depth_db=12.0, dip_positions_s=[1.0])
         result = phase.process(audio, SR, material=MaterialType.CD_DIGITAL)
 
         assert result.success

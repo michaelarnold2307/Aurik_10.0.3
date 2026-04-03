@@ -398,7 +398,7 @@ class RegionAnalyzer:
             try:
                 tempo, _ = librosa.beat.beat_track(y=region_audio, sr=sr)
                 # NaN/Inf-Guard (§3.1)
-                tempo = float(np.nan_to_num(tempo, nan=120.0, posinf=300.0, neginf=30.0))
+                tempo = float(np.nan_to_num(np.asarray(tempo).flat[0], nan=120.0, posinf=300.0, neginf=30.0))
                 analysis["tempo_bpm"] = tempo
             except Exception as e:
                 logger.warning(f"Tempo analysis failed: {e}")

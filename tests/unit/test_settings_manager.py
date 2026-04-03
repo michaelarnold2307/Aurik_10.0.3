@@ -2,10 +2,6 @@
 
 from __future__ import annotations
 
-import sys
-from pathlib import Path
-from unittest.mock import MagicMock, patch
-
 import pytest
 
 
@@ -34,6 +30,7 @@ def settings(tmp_path):
 
 # ── Singleton ────────────────────────────────────────────────────────────
 
+
 def test_singleton_returns_same_instance():
     from Aurik910.core.settings_manager import get_settings_manager
 
@@ -44,6 +41,7 @@ def test_singleton_returns_same_instance():
 
 def test_singleton_thread_safe():
     import threading
+
     from Aurik910.core.settings_manager import get_settings_manager
 
     instances = []
@@ -56,10 +54,11 @@ def test_singleton_thread_safe():
         th.start()
     for th in threads:
         th.join()
-    assert len(set(id(i) for i in instances)) == 1
+    assert len({id(i) for i in instances}) == 1
 
 
 # ── Window Geometry ──────────────────────────────────────────────────────
+
 
 def test_window_geometry_roundtrip(settings):
     from PyQt5.QtCore import QByteArray
@@ -85,6 +84,7 @@ def test_window_maximized_roundtrip(settings):
 
 
 # ── Recent Files ─────────────────────────────────────────────────────────
+
 
 def test_recent_files_empty_initially(settings):
     assert settings.recent_files() == []
@@ -140,6 +140,7 @@ def test_clear_recent_files(settings, tmp_path):
 
 # ── Language ─────────────────────────────────────────────────────────────
 
+
 def test_language_default_de(settings):
     assert settings.language() == "de"
 
@@ -150,6 +151,7 @@ def test_language_roundtrip(settings):
 
 
 # ── Export Format ────────────────────────────────────────────────────────
+
 
 def test_default_export_format(settings):
     assert settings.default_export_format() == "flac_24"
@@ -162,6 +164,7 @@ def test_export_format_roundtrip(settings):
 
 # ── Processing Mode ──────────────────────────────────────────────────────
 
+
 def test_default_processing_mode(settings):
     assert settings.default_processing_mode() == "RESTORATION"
 
@@ -172,6 +175,7 @@ def test_processing_mode_roundtrip(settings):
 
 
 # ── Last Directories ─────────────────────────────────────────────────────
+
 
 def test_last_open_dir_empty_default(settings):
     assert settings.last_open_dir() == ""
@@ -194,17 +198,27 @@ def test_last_export_dir_roundtrip(settings, tmp_path):
 
 # ── i18n Keys ────────────────────────────────────────────────────────────
 
+
 def test_i18n_keys_exist():
     """Verify that the new i18n keys for recent files, help, and tray are present."""
-    from Aurik910.i18n import t, set_language
+    from Aurik910.i18n import set_language, t
 
     set_language("de")
     expected_keys = [
-        "recent.title", "recent.empty", "recent.clear",
-        "help.shortcuts", "help.user_guide", "help.troubleshooting",
-        "help.configuration", "help.about",
-        "tray.batch_done", "tray.batch_ok", "tray.batch_mixed",
-        "tray.batch_failed", "tray.show_window", "tray.quit",
+        "recent.title",
+        "recent.empty",
+        "recent.clear",
+        "help.shortcuts",
+        "help.user_guide",
+        "help.troubleshooting",
+        "help.configuration",
+        "help.about",
+        "tray.batch_done",
+        "tray.batch_ok",
+        "tray.batch_mixed",
+        "tray.batch_failed",
+        "tray.show_window",
+        "tray.quit",
     ]
     for key in expected_keys:
         val = t(key)
@@ -217,7 +231,7 @@ def test_i18n_keys_exist():
 
 
 def test_i18n_tray_batch_ok_format():
-    from Aurik910.i18n import t, set_language
+    from Aurik910.i18n import set_language, t
 
     set_language("de")
     result = t("tray.batch_ok", count=5)
@@ -225,7 +239,7 @@ def test_i18n_tray_batch_ok_format():
 
 
 def test_i18n_tray_batch_mixed_format():
-    from Aurik910.i18n import t, set_language
+    from Aurik910.i18n import set_language, t
 
     set_language("de")
     result = t("tray.batch_mixed", ok=3, failed=2)

@@ -108,8 +108,8 @@ def _get_ml_model() -> object | None:
 
             if not _try_alloc("AudioSR", _AUDIOSR_BUDGET_GB):
                 return None  # Budget erschöpft → DSP-Fallback
-        except Exception:
-            pass  # Budget-Modul nicht verfügbar — weiter
+        except Exception as _exc:
+            logger.debug("Operation failed (non-critical): %s", _exc)  # Budget-Modul nicht verfügbar — weiter
         try:
             # CUDA_VISIBLE_DEVICES="" wurde bereits am Modulstart gesetzt (§9.5)
             # AudioSR-Paket liegt lokal in models/audiosr/ (kein pip install noetig)
@@ -136,8 +136,8 @@ def _get_ml_model() -> object | None:
                 from backend.core.plugin_lifecycle_manager import register_plugin as _reg_plm
 
                 _reg_plm("AudioSR", size_gb=_AUDIOSR_BUDGET_GB, unload_fn=unload_audiosr)
-            except Exception:
-                pass
+            except Exception as _exc:
+                logger.debug("Operation failed (non-critical): %s", _exc)
             return _ml_model
         except Exception as exc:
             _ml_model_failed = True  # Sentinel setzen -- kein Retry (§3.2)
@@ -146,8 +146,8 @@ def _get_ml_model() -> object | None:
                 from backend.core.ml_memory_budget import release as _release
 
                 _release("AudioSR")
-            except Exception:
-                pass
+            except Exception as _exc:
+                logger.debug("Operation failed (non-critical): %s", _exc)
             logger.info("AudioSR: ML-Modell-Load fehlgeschlagen (%s) -- DSP-Fallback aktiv.", exc)
             return None
 
@@ -237,8 +237,8 @@ def unload_audiosr() -> None:
                 from backend.core.ml_memory_budget import release as _release
 
                 _release("AudioSR")
-            except Exception:
-                pass
+            except Exception as _exc:
+                logger.debug("Operation failed (non-critical): %s", _exc)
             logger.info("AudioSR: Modell entladen, ~7 GB RAM freigegeben.")
 
 

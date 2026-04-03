@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 import threading
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import numpy as np
 
@@ -27,6 +27,12 @@ class SchlagerClassificationResult:
     vocal_german_prior: float = 0.0
     melodic_repetition: float = 0.0
     vocal_language_score: float = 0.5  # 1.0 = klar Deutsch, 0.0 = klar Englisch
+    dsp_language_score: float = 0.5
+    lyrics_language_hint: float = 0.0
+    genre_family: str = "unknown"
+    genre_family_confidence: float = 0.0
+    top_genres: list[tuple[str, float]] = field(default_factory=list)
+    open_set_unknown: bool = False
     key: str = ""
     reasoning: str = ""
 
@@ -86,6 +92,9 @@ class GermanSchlagerClassifier:
 
     # Individuelle Tier-Schwellwerte für Voting
     _TIER_THRESHOLDS: list[float] = [0.50, 0.75, 0.55, 0.50, 0.42]
+    _NON_SCHLAGER_MIN_SCORE: float = 0.35
+    _OPEN_SET_MIN_SCORE: float = 0.38
+    _OPEN_SET_MARGIN: float = 0.08
 
     def classify(self, audio: np.ndarray, sr: int) -> SchlagerClassificationResult:
         """Klassifiziert Audio als Schlager oder Non-Schlager.
@@ -146,6 +155,11 @@ class GermanSchlagerClassifier:
 
         # Tier-7: Vokalsprach-Erkennung (Deutsch vs. Englisch)
         lang_de_score = self._detect_vocal_language(mono, sr_a)
+        dsp_lang_score = float(lang_de_score)
+        lyrics_lang_hint = self._compute_lyrics_language_hint(audio, sr)
+        if lyrics_lang_hint > 0.0:
+            # Fuse DSP language cue with §2.36 lyrics-guided cue.
+            lang_de_score = float(np.clip(max(lang_de_score, lyrics_lang_hint), 0.0, 1.0))
 
         # Ensemble-Voting
         tier_scores = [accordion_score, hsi, rhythm_score, vocal_prior, melodic_rep]
@@ -165,17 +179,54 @@ class GermanSchlagerClassifier:
             confidence = float(np.clip(confidence * 0.85, 0.0, 1.0))
 
         is_schlager = (n_active >= 3) and (confidence >= self.SCHLAGER_CONFIDENCE_THRESHOLD)
+        if not is_schlager and self._is_schlager_near_miss(
+            n_active=n_active,
+            confidence=confidence,
+            hsi=hsi,
+            rhythm_score=rhythm_score,
+            vocal_prior=vocal_prior,
+            melodic_rep=melodic_rep,
+            lang_de_score=lang_de_score,
+        ):
+            # Prevent non-Schlager fallback mislabels (e.g. "Jazz") for German
+            # Schlager tracks that narrowly miss the strict threshold gate.
+            is_schlager = True
+            confidence = float(max(confidence, self.SCHLAGER_CONFIDENCE_THRESHOLD))
+
+        centroid = self._spectral_centroid_hz(mono, sr_a)
+        onset = self._onset_rate(mono, sr_a)
+        dr_db = self._dynamic_range_db(mono, sr_a)
+        non_schlager_scores = self._compute_non_schlager_scores(centroid, onset, hsi, dr_db, bpm)
+        alt_genre, alt_conf = self._pick_non_schlager_genre(non_schlager_scores)
 
         # Genre-Label + Subgenre
         if is_schlager:
             genre_label = self._determine_genre_label(subgenre, bpm, lang_de_score)
         else:
-            # Multi-genre fallback: score Rock / Jazz / Klassik
-            alt_genre, alt_conf = self._classify_non_schlager_genre(mono, sr_a, hsi, bpm)
             genre_label = alt_genre
             # Use the higher confidence (schlager near-miss vs. alternative genre)
             if alt_conf > confidence:
                 confidence = alt_conf
+
+        schlager_family_score = float(
+            np.clip(
+                0.30 * rhythm_score + 0.30 * hsi + 0.25 * vocal_prior + 0.15 * lang_de_score,
+                0.0,
+                1.0,
+            )
+        )
+        family_label, family_confidence = self._infer_genre_family(non_schlager_scores, schlager_family_score)
+
+        top_genres = self._build_top_genres(
+            is_schlager=is_schlager,
+            primary_label=genre_label,
+            primary_confidence=confidence,
+            non_schlager_scores=non_schlager_scores,
+        )
+        open_set_unknown = self._is_open_set_unknown(top_genres)
+        if not is_schlager and open_set_unknown:
+            genre_label = "Unbekannt"
+            confidence = 0.0
 
         # Tonart (einfache Schätzung)
         key = self._estimate_key(mono, sr_a)
@@ -216,11 +267,71 @@ class GermanSchlagerClassifier:
             vocal_german_prior=float(np.clip(vocal_prior, 0.0, 1.0)),
             melodic_repetition=float(np.clip(melodic_rep, 0.0, 1.0)),
             vocal_language_score=float(np.clip(lang_de_score, 0.0, 1.0)),
+            dsp_language_score=float(np.clip(dsp_lang_score, 0.0, 1.0)),
+            lyrics_language_hint=float(np.clip(lyrics_lang_hint, 0.0, 1.0)),
+            genre_family=family_label,
+            genre_family_confidence=float(np.clip(family_confidence, 0.0, 1.0)),
+            top_genres=top_genres,
+            open_set_unknown=open_set_unknown,
             subgenre=subgenre,
             bpm=float(bpm),
             key=key,
             reasoning=reasoning,
         )
+
+    def _compute_lyrics_language_hint(self, audio: np.ndarray, sr: int) -> float:
+        """Derive a German-language hint from §2.36 lyrics-guided transcription.
+
+        This is only used as an additive cue for borderline genre decisions.
+        It must never log or persist lyric text.
+        """
+        if sr != 48_000:
+            return 0.0
+        if audio.size < sr * 8:
+            return 0.0
+
+        try:
+            from backend.core.lyrics_guided_enhancement import get_lyrics_guided_enhancement
+
+            lge = get_lyrics_guided_enhancement()
+            transcription = lge.transcribe(audio, sr)
+        except Exception as exc:
+            logger.debug("Lyrics hint unavailable for genre classification: %s", exc)
+            return 0.0
+
+        words = getattr(transcription, "words", []) or []
+        lang = str(getattr(transcription, "language", "") or "").lower()
+        if not words:
+            return 0.0
+
+        # Start from neutral and then lift for confident German language cues.
+        score = 0.5
+        if lang.startswith("de"):
+            score += 0.20
+        elif lang.startswith("en"):
+            score -= 0.12
+
+        # German diction often carries clear fricative/plosive articulation.
+        n_words = max(1, len(words))
+        fric_plosive = 0
+        stressed = 0
+        conf_sum = 0.0
+        for w in words:
+            ptype = str(getattr(w, "phoneme_type", "") or "")
+            if "fricative" in ptype or ptype == "plosive":
+                fric_plosive += 1
+            if "stressed" in ptype:
+                stressed += 1
+            conf_sum += float(getattr(w, "confidence", 0.0) or 0.0)
+
+        fp_ratio = fric_plosive / n_words
+        stress_ratio = stressed / n_words
+        avg_conf = conf_sum / n_words
+        score += 0.10 * min(1.0, fp_ratio / 0.30)
+        score += 0.08 * min(1.0, stress_ratio / 0.40)
+        score += 0.08 * min(1.0, avg_conf / 0.60)
+
+        return float(np.clip(score, 0.0, 1.0))
 
     # ---- Tier-2: Akkordeon-Reed-Beating-Fingerprint ----
 
@@ -364,7 +475,7 @@ class GermanSchlagerClassifier:
                 return 0.35, "unknown", 120.0
 
             tempo, _beats = librosa.beat.beat_track(y=audio, sr=sr)
-            bpm = float(tempo)
+            bpm = float(np.asarray(tempo).flat[0])
             if bpm <= 0:
                 return 0.35, "unknown", 120.0
 
@@ -427,7 +538,7 @@ class GermanSchlagerClassifier:
 
             for frame in frames[:200]:  # max 200 Frames
                 rms = float(np.sqrt(np.mean(frame**2)))
-                if rms < 0.01:
+                if not np.isfinite(rms) or rms < 0.01:
                     continue  # Stille
 
                 # Einfaches LPC-Formant-Tracking via Autokorrelations-Methode
@@ -438,9 +549,13 @@ class GermanSchlagerClassifier:
                     # Autokorrelations-LPC
                     r = np.correlate(frame, frame, mode="full")
                     r = r[len(r) // 2 :]
+                    if not np.isfinite(r).all() or r[0] < 1e-12:
+                        continue
                     R = np.array([r[abs(i - j)] for i in range(order) for j in range(order)]).reshape(order, order)
                     rhs = r[1 : order + 1]
                     lpc_coefs = np.linalg.lstsq(R, rhs, rcond=None)[0]
+                    if not np.isfinite(lpc_coefs).all():
+                        continue
 
                     # Wurzeln des LPC-Polynoms
                     poly = np.concatenate([[1.0], -lpc_coefs])
@@ -538,16 +653,20 @@ class GermanSchlagerClassifier:
 
             for frame in frames[:300]:
                 rms = float(np.sqrt(np.mean(frame**2)))
-                if rms < 0.01:
+                if not np.isfinite(rms) or rms < 0.01:
                     continue
                 if len(frame) <= order:
                     continue
                 try:
                     r = np.correlate(frame, frame, mode="full")
                     r = r[len(r) // 2 :]
+                    if not np.isfinite(r).all() or r[0] < 1e-12:
+                        continue
                     R = np.array([r[abs(i - j)] for i in range(order) for j in range(order)]).reshape(order, order)
                     rhs = r[1 : order + 1]
                     lpc_coefs = np.linalg.lstsq(R, rhs, rcond=None)[0]
+                    if not np.isfinite(lpc_coefs).all():
+                        continue
                     poly = np.concatenate([[1.0], -lpc_coefs])
                     roots = np.roots(poly)
                     formants: list[float] = []
@@ -595,16 +714,22 @@ class GermanSchlagerClassifier:
                 ratio = e_ch / (e_hf + 1e-12)
                 # Ratio > 1.2 → eher Deutsch; < 0.8 → eher Englisch
                 ch_score = float(np.clip((ratio - 0.8) / 0.8, 0.0, 1.0))
-            except Exception:
-                pass
+            except Exception as _exc:
+                logger.debug("Operation failed (non-critical): %s", _exc)
 
-            lang_de_score = float(np.clip(
-                0.50 * umlaut_score + 0.30 * f2_bimodal_score + 0.20 * ch_score,
-                0.0, 1.0,
-            ))
+            lang_de_score = float(
+                np.clip(
+                    0.50 * umlaut_score + 0.30 * f2_bimodal_score + 0.20 * ch_score,
+                    0.0,
+                    1.0,
+                )
+            )
             logger.debug(
                 "VocalLanguage: umlaut=%.2f f2_bimodal=%.2f ch_ratio=%.2f → lang_de=%.2f",
-                umlaut_score, f2_bimodal_score, ch_score, lang_de_score,
+                umlaut_score,
+                f2_bimodal_score,
+                ch_score,
+                lang_de_score,
             )
             return float(np.nan_to_num(lang_de_score, nan=0.5))
 
@@ -806,49 +931,147 @@ class GermanSchlagerClassifier:
             score += 0.15
         return float(np.clip(score, 0.0, 1.0))
 
-    def _classify_non_schlager_genre(
+    def _is_schlager_near_miss(
         self,
-        mono: np.ndarray,
-        sr: int,
+        *,
+        n_active: int,
+        confidence: float,
         hsi: float,
-        bpm: float,
-    ) -> tuple[str, float]:
-        """Multi-genre scoring for non-Schlager tracks.
+        rhythm_score: float,
+        vocal_prior: float,
+        melodic_rep: float,
+        lang_de_score: float,
+    ) -> bool:
+        """Identify German Schlager near-miss cases to avoid wrong fallback labels.
 
-        Computes Rock/Jazz/Classical scores and returns the best match
-        if it exceeds a minimum confidence threshold.
-
-        Returns:
-            (genre_label, confidence): e.g. ("Rock", 0.65) or ("Unbekannt", 0.0)
+        This guard is intentionally strict and only triggers when core Schlager
+        cues are present but the hard gate is narrowly missed.
         """
-        centroid = self._spectral_centroid_hz(mono, sr)
-        onset = self._onset_rate(mono, sr)
-        dr_db = self._dynamic_range_db(mono, sr)
+        if n_active < 2:
+            return False
+        if confidence < (self.SCHLAGER_CONFIDENCE_THRESHOLD - 0.08):
+            return False
+        if hsi < 0.68 or rhythm_score < 0.55:
+            return False
+        if vocal_prior < 0.52 or lang_de_score < 0.58:
+            return False
+        if melodic_rep < 0.36:
+            return False
+        return True
 
-        rock_s = self._score_rock(centroid, onset, hsi, bpm)
-        jazz_s = self._score_jazz(centroid, hsi, dr_db, bpm)
-        classical_s = self._score_classical(centroid, onset, hsi, dr_db)
+    def _score_oper(
+        self,
+        centroid_hz: float,
+        onset_rate: float,
+        hsi: float,
+        dr_db: float,
+    ) -> float:
+        """Opera genre score: extreme dynamics + vocal-range centroid + diatonic harmony.
 
-        scores = {"Rock": rock_s, "Jazz": jazz_s, "Klassik": classical_s}
+        Key differentiators from Klassik (pure orchestral):
+        - Singer's formant (2–3 kHz) raises spectral centroid above purely orchestral material.
+        - Very wide DR (singer piano/forte contrasts exceed orchestral range).
+        - Moderate onset density: vocal consonants + orchestra, but less than rock.
+        """
+        score = 0.0
+        # Very high dynamic range — even wider than Klassik (singer's piano/forte extremes)
+        if dr_db > 48:
+            score += 0.35
+        elif dr_db > 38:
+            score += 0.15
+        # Vocal-range spectral centroid: singer's formant (2–3 kHz) elevates centroid
+        # above purely orchestral material (Klassik: centroid < 2200 Hz)
+        if 1800 < centroid_hz < 3200:
+            score += 0.25
+        elif 1400 < centroid_hz <= 1800:
+            score += 0.10
+        # Moderate onset density — vocal consonants + orchestra; less than rock
+        if 0.8 < onset_rate < 2.8:
+            score += 0.15
+        # Diatonic harmony (tonal, like Klassik)
+        if 0.55 <= hsi <= 0.88:
+            score += 0.15
+        return float(np.clip(score, 0.0, 1.0))
+
+    def _compute_non_schlager_scores(
+        self,
+        centroid_hz: float,
+        onset_rate: float,
+        hsi: float,
+        dr_db: float,
+        bpm: float,
+    ) -> dict[str, float]:
+        rock_s = self._score_rock(centroid_hz, onset_rate, hsi, bpm)
+        jazz_s = self._score_jazz(centroid_hz, hsi, dr_db, bpm)
+        classical_s = self._score_classical(centroid_hz, onset_rate, hsi, dr_db)
+        oper_s = self._score_oper(centroid_hz, onset_rate, hsi, dr_db)
+        return {
+            "Rock": float(np.clip(rock_s, 0.0, 1.0)),
+            "Jazz": float(np.clip(jazz_s, 0.0, 1.0)),
+            "Klassik": float(np.clip(classical_s, 0.0, 1.0)),
+            "Oper": float(np.clip(oper_s, 0.0, 1.0)),
+        }
+
+    def _pick_non_schlager_genre(self, scores: dict[str, float]) -> tuple[str, float]:
+        if not scores:
+            return "Unbekannt", 0.0
         best_genre = max(scores, key=scores.get)  # type: ignore[arg-type]
-        best_score = scores[best_genre]
-
-        logger.debug(
-            "Multi-Genre-Scores: Rock=%.2f Jazz=%.2f Klassik=%.2f centroid=%.0fHz onsets=%.1f/s DR=%.1fdB → %s (%.2f)",
-            rock_s,
-            jazz_s,
-            classical_s,
-            centroid,
-            onset,
-            dr_db,
-            best_genre,
-            best_score,
-        )
-
-        # Minimum threshold to assign a non-Schlager genre
-        if best_score >= 0.45:
+        best_score = float(scores[best_genre])
+        if best_score >= self._NON_SCHLAGER_MIN_SCORE:
             return best_genre, best_score
         return "Unbekannt", 0.0
+
+    def _infer_genre_family(
+        self,
+        non_schlager_scores: dict[str, float],
+        schlager_family_score: float,
+    ) -> tuple[str, float]:
+        family_scores = {
+            "schlager_folk": float(np.clip(schlager_family_score, 0.0, 1.0)),
+            "rock": float(np.clip(non_schlager_scores.get("Rock", 0.0), 0.0, 1.0)),
+            "jazz": float(np.clip(non_schlager_scores.get("Jazz", 0.0), 0.0, 1.0)),
+            "klassik": float(np.clip(non_schlager_scores.get("Klassik", 0.0), 0.0, 1.0)),
+            "oper": float(np.clip(non_schlager_scores.get("Oper", 0.0), 0.0, 1.0)),
+        }
+        label = max(family_scores, key=family_scores.get)  # type: ignore[arg-type]
+        score = float(family_scores[label])
+        if score < self._OPEN_SET_MIN_SCORE:
+            return "unknown", 0.0
+        return label, score
+
+    def _build_top_genres(
+        self,
+        *,
+        is_schlager: bool,
+        primary_label: str,
+        primary_confidence: float,
+        non_schlager_scores: dict[str, float],
+    ) -> list[tuple[str, float]]:
+        top: list[tuple[str, float]] = []
+        if primary_label and primary_label.lower() not in ("unknown", "unbekannt"):
+            top.append((str(primary_label), float(np.clip(primary_confidence, 0.0, 1.0))))
+        ranked = sorted(non_schlager_scores.items(), key=lambda x: x[1], reverse=True)
+        for label, score in ranked:
+            if score < self._NON_SCHLAGER_MIN_SCORE:
+                continue
+            if any(lbl.lower() == label.lower() for lbl, _ in top):
+                continue
+            top.append((label, float(np.clip(score, 0.0, 1.0))))
+            if len(top) >= 3:
+                break
+        if not top and is_schlager:
+            top.append(("Schlager", float(np.clip(primary_confidence, 0.0, 1.0))))
+        return top
+
+    def _is_open_set_unknown(self, top_genres: list[tuple[str, float]]) -> bool:
+        if not top_genres:
+            return True
+        scores = sorted((float(score) for _, score in top_genres), reverse=True)
+        best = scores[0]
+        if best < self._OPEN_SET_MIN_SCORE:
+            return True
+        second = scores[1] if len(scores) > 1 else 0.0
+        return (best - second) < self._OPEN_SET_MARGIN
 
     # ---- Tier-1: CLAP (optional) ----
 

@@ -39,8 +39,6 @@ except Exception:
 logger = logging.getLogger(__name__)
 
 try:
-    from scipy.signal import butter, sosfilt  # type: ignore
-
     _SCIPY_OK = True
 except Exception:
     _SCIPY_OK = False
@@ -151,7 +149,7 @@ def _extract_features(audio: np.ndarray, sr: int) -> dict[str, float]:
     if _LIBROSA_OK:
         try:
             tempo_arr, _ = librosa.beat.beat_track(y=audio, sr=sr)
-            features["tempo"] = float(float(tempo_arr))
+            features["tempo"] = float(np.asarray(tempo_arr).flat[0])
         except Exception:
             features["tempo"] = _estimate_tempo_acf(audio, sr)
     else:

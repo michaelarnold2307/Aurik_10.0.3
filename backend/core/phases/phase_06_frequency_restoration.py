@@ -173,6 +173,55 @@ class FrequencyRestorationPhase(PhaseInterface):
             "lpc_order": 0,
             "max_boost_db": 0.0,
         },
+        # --- Lossy codec materials (MDCT/transform-based) ---
+        # Rolloff values derived from LAME/AAC/ATRAC codec behaviour at typical bitrates.
+        # SBR dominates (SBR = HE-AAC standard — codec originally used a psychoacoustic
+        # model to discard these bands; SBR reconstructs them from lower-band harmonics).
+        "mp3_low": {
+            "rolloff_hz": 11000,  # ≤96 kbps: scale-factor band cutoff ~11 kHz
+            "extension_range_hz": [11000, 18000],
+            "restoration_strength": 0.85,  # Aggressive — strong HF loss at low bitrate
+            "sbr_ratio": 0.75,  # SBR dominant (codec used psychoacoustic mask)
+            "transient_synthesis": 0.45,  # Moderate — MDCT pre-echo distorts envelopes
+            "lpc_order": 18,  # Higher-order LPC for MDCT spectral floor
+            "max_boost_db": 9.0,
+        },
+        "mp3_high": {
+            "rolloff_hz": 16000,  # ≥128 kbps: LAME standard ~16 kHz
+            "extension_range_hz": [16000, 20000],
+            "restoration_strength": 0.65,
+            "sbr_ratio": 0.70,
+            "transient_synthesis": 0.40,
+            "lpc_order": 16,
+            "max_boost_db": 6.0,
+        },
+        "aac": {
+            "rolloff_hz": 18000,  # AAC 128 kbps+: much better psycho model than MP3
+            "extension_range_hz": [18000, 21000],
+            "restoration_strength": 0.40,  # Light — AAC preserves HF well
+            "sbr_ratio": 0.80,  # HE-AAC uses SBR natively — natural fit
+            "transient_synthesis": 0.35,
+            "lpc_order": 14,
+            "max_boost_db": 4.0,
+        },
+        "minidisc": {
+            "rolloff_hz": 17000,  # ATRAC (MiniDisc) @ 292 kbps
+            "extension_range_hz": [17000, 20000],
+            "restoration_strength": 0.50,
+            "sbr_ratio": 0.68,
+            "transient_synthesis": 0.50,  # ATRAC has notable pre-echo transient artifacts
+            "lpc_order": 16,
+            "max_boost_db": 5.0,
+        },
+        "streaming": {
+            "rolloff_hz": 16000,  # Spotify 320 kbps OGG, YouTube AAC 256 kbps
+            "extension_range_hz": [16000, 20000],
+            "restoration_strength": 0.55,
+            "sbr_ratio": 0.72,
+            "transient_synthesis": 0.40,
+            "lpc_order": 16,
+            "max_boost_db": 5.5,
+        },
         "unknown": {
             "rolloff_hz": 10000,
             "extension_range_hz": [10000, 16000],
@@ -440,8 +489,8 @@ class FrequencyRestorationPhase(PhaseInterface):
                     "strategy_used": "dsp_only",
                     "ml_reason": "audiosr_ml_failed_sentinel",
                 }
-        except Exception:
-            pass
+        except Exception as _exc:
+            logger.debug("Operation failed (non-critical): %s", _exc)
 
         import queue
         import threading
@@ -491,8 +540,8 @@ class FrequencyRestorationPhase(PhaseInterface):
             hybrid = np.clip(hybrid, -1.0, 1.0)
             try:
                 touch_plugin("AudioSR")
-            except Exception:
-                pass
+            except Exception as _exc:
+                logger.debug("Operation failed (non-critical): %s", _exc)
             return hybrid, {
                 "ml_hybrid_available": True,
                 "quality_mode": quality_mode,
@@ -525,8 +574,8 @@ class FrequencyRestorationPhase(PhaseInterface):
         if _plm is not None:
             try:
                 _plm.set_active("AudioSR", False)
-            except Exception:
-                pass
+            except Exception as _exc:
+                logger.debug("Operation failed (non-critical): %s", _exc)
 
     def _detect_rolloff_professional(self, audio: np.ndarray, params: dict[str, Any]) -> tuple[bool, float, float]:
         """
@@ -786,7 +835,7 @@ class FrequencyRestorationPhase(PhaseInterface):
         # in the input — especially in the last chunk where padding creates ringing.
         # Cap per-bin magnitude to (input_mag + max_boost_db headroom).
         max_boost_linear = float(10 ** (params["max_boost_db"] / 20.0))
-        floor_mag = np.abs(Zxx) * 0.0  # will be recomputed below
+        np.abs(Zxx) * 0.0  # will be recomputed below
         # Use the original input channel STFT as reference (re-compute in restore channel scope)
         # because Zxx has already been modified. Safe fallback: clip total gain ratio.
         before_mag = getattr(self, "_restore_channel_input_mag", None)
@@ -798,15 +847,15 @@ class FrequencyRestorationPhase(PhaseInterface):
                 scale = np.where(overshoot, allowed / (cur_mag + 1e-12), 1.0)
                 Zxx = Zxx * scale
 
-        # PGHI phase reconstruction (§4.5 — ISTFT nach Spektral-Modifikation erfordert PGHI)
+        # PGHI phase reconstruction (§4.5 — Griffin-Lim als Fallback verboten: zerstört Phasenkohärenz)
         try:
             from dsp.pghi import pghi_reconstruct_from_stft
 
             restored = pghi_reconstruct_from_stft(Zxx, sr=self.sample_rate, win_size=n_fft, hop=hop_length)
         except Exception:
-            import librosa
-
-            restored = librosa.griffinlim(np.abs(Zxx), n_iter=8, hop_length=hop_length, win_length=n_fft, n_fft=n_fft)
+            # Phase-preserving iSTFT fallback — Zxx enthält bereits Phasen aus signal.stft(channel)
+            _, restored = signal.istft(Zxx, fs=self.sample_rate, nperseg=n_fft, noverlap=n_fft - hop_length)
+            restored = np.real(restored).astype(np.float32)
 
         # Match length
         if len(restored) > len(channel):
@@ -1014,9 +1063,8 @@ class FrequencyRestorationPhase(PhaseInterface):
         frac = (src_idx - floor_idx).astype(np.float64)  # (n_tgt,)
 
         # Transposition ratio: f_target / f_source_mapped.
-        src_f_interp = (
-            (1.0 - frac) * source_freqs[floor_idx].astype(np.float64)
-            + frac * source_freqs[ceil_idx].astype(np.float64)
+        src_f_interp = (1.0 - frac) * source_freqs[floor_idx].astype(np.float64) + frac * source_freqs[ceil_idx].astype(
+            np.float64
         )
         ratio = target_freqs.astype(np.float64) / np.maximum(src_f_interp, 1.0)  # (n_tgt,)
 
@@ -1034,18 +1082,14 @@ class FrequencyRestorationPhase(PhaseInterface):
         IF_s = (expected_inc[:, None] + dphi) / float(hop)  # (n_src, n_frames)
 
         # --- Interpolate IF to target frequency grid (no Python loop) ---
-        IF_target = (
-            (1.0 - frac[:, None]) * IF_s[floor_idx, :]
-            + frac[:, None] * IF_s[ceil_idx, :]
-        ) * ratio[:, None]  # (n_tgt, n_frames)
+        IF_target = ((1.0 - frac[:, None]) * IF_s[floor_idx, :] + frac[:, None] * IF_s[ceil_idx, :]) * ratio[
+            :, None
+        ]  # (n_tgt, n_frames)
 
         # --- Integrate IF → phase ---
         phi_raw = np.cumsum(IF_target * float(hop), axis=1)  # (n_tgt, n_frames)
         # Seed phase at frame 0: transpose source initial phase by ratio
-        phi0_src = (
-            (1.0 - frac) * phi_s[floor_idx, 0]
-            + frac * phi_s[ceil_idx, 0]
-        )  # (n_tgt,)
+        phi0_src = (1.0 - frac) * phi_s[floor_idx, 0] + frac * phi_s[ceil_idx, 0]  # (n_tgt,)
         phi0_target = phi0_src * ratio  # (n_tgt,)
         phi_target = phi_raw - phi_raw[:, :1] + phi0_target[:, None]
 

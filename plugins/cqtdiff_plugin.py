@@ -137,8 +137,8 @@ class CQTdiffPlusPlugin:
                         logger.warning("CQTdiff+: ML-Budget erschöpft — Fallback aktiv.")
                         self._fallback_active = True
                         return
-                except Exception:
-                    pass
+                except Exception as _exc:
+                    logger.debug("Operation failed (non-critical): %s", _exc)
 
                 self._session = ort.InferenceSession(
                     str(model_path),
@@ -154,8 +154,8 @@ class CQTdiffPlusPlugin:
                         size_gb=0.19,
                         unload_fn=lambda s=self: setattr(s, "_session", None) or setattr(s, "_model_loaded", False),
                     )
-                except Exception:
-                    pass
+                except Exception as _exc:
+                    logger.debug("Operation failed (non-critical): %s", _exc)
             else:
                 logger.info(
                     "CQTdiff: ONNX-Modell nicht gefunden (%s) — Fallback aktiv",
@@ -172,8 +172,8 @@ class CQTdiffPlusPlugin:
                 from backend.core.ml_memory_budget import release as _rel
 
                 _rel("CQTdiff+")
-            except Exception:
-                pass
+            except Exception as _exc:
+                logger.debug("Operation failed (non-critical): %s", _exc)
 
     # ------------------------------------------------------------------
     # Öffentliche API

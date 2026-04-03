@@ -326,7 +326,10 @@ class OutputFormatOptimization(PhaseInterface):
 
         g = gcd(input_sr, output_sr)
         up, down = output_sr // g, input_sr // g
-        return signal.resample_poly(audio, up, down, axis=0)
+        # axis=-1 = time axis for channels-first (2,N) and samples-first (N,) alike.
+        # axis=0 was resampling the 2-element channel dimension, producing polyphase
+        # garbage that silenced the second half of the audio. §ph41-axis fix.
+        return signal.resample_poly(audio, up, down, axis=-1)
 
     def _normalize_loudness(
         self, audio: np.ndarray, sample_rate: int, lufs_target: float
@@ -363,8 +366,8 @@ class OutputFormatOptimization(PhaseInterface):
                 meter_audio = audio_arr.T if audio_arr.ndim == 2 else audio_arr
                 result = meter.measure(meter_audio, sample_rate)
                 return float(result.get("integrated_lufs", -70.0))
-            except Exception:
-                pass
+            except Exception as _exc:
+                logger.debug("Operation failed (non-critical): %s", _exc)
 
         # Fallback: conservative RMS proxy (kept for resilience if meter backend is unavailable).
         if audio_arr.ndim == 2:

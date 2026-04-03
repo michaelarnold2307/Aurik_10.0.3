@@ -172,8 +172,8 @@ class BSRoFormerPlugin:
                 self._fallback_active = True
                 return
             _allocated = True
-        except ImportError:
-            pass  # budget-Modul optional
+        except ImportError as _exc:
+            logger.debug("Optional import not available (non-critical): %s", _exc)  # budget-Modul optional
         try:
             import onnxruntime as ort
 
@@ -202,8 +202,8 @@ class BSRoFormerPlugin:
                                 from backend.core.ml_memory_budget import release as _release
 
                                 _release("MelBandRoformer")
-                            except ImportError:
-                                pass
+                            except ImportError as _exc:
+                                logger.debug("Optional import not available (non-critical): %s", _exc)
                         return
                     self._session = session
                     self._model_loaded = True
@@ -216,8 +216,8 @@ class BSRoFormerPlugin:
                             size_gb=0.90,
                             unload_fn=lambda s=self: setattr(s, "_session", None) or setattr(s, "_model_loaded", False),
                         )
-                    except Exception:
-                        pass
+                    except Exception as _exc:
+                        logger.debug("Plugin operation failed (non-critical): %s", _exc)
                     return
             logger.info("MelBandRoformer: Kein ONNX-Modell gefunden — Fallback aktiv")
             self._fallback_active = True
@@ -226,8 +226,8 @@ class BSRoFormerPlugin:
                     from backend.core.ml_memory_budget import release as _release
 
                     _release("MelBandRoformer")
-                except ImportError:
-                    pass
+                except ImportError as _exc:
+                    logger.debug("Optional import not available (non-critical): %s", _exc)
         except ImportError:
             logger.debug("onnxruntime nicht verfügbar — MelBandRoformer Fallback aktiv")
             self._fallback_active = True
@@ -236,8 +236,8 @@ class BSRoFormerPlugin:
                     from backend.core.ml_memory_budget import release as _release
 
                     _release("MelBandRoformer")
-                except ImportError:
-                    pass
+                except ImportError as _exc:
+                    logger.debug("Optional import not available (non-critical): %s", _exc)
         except Exception as exc:
             logger.warning("MelBandRoformer Modell-Lade-Fehler: %s — Fallback aktiv", exc)
             self._fallback_active = True
@@ -246,8 +246,8 @@ class BSRoFormerPlugin:
                     from backend.core.ml_memory_budget import release as _release
 
                     _release("MelBandRoformer")
-                except ImportError:
-                    pass
+                except ImportError as _exc:
+                    logger.debug("Optional import not available (non-critical): %s", _exc)
 
     # ------------------------------------------------------------------
     # Öffentliche API
@@ -524,8 +524,8 @@ class BSRoFormerPlugin:
                 from backend.core.ml_memory_budget import release as _release
 
                 _release("MelBandRoformer")
-            except Exception:
-                pass
+            except Exception as _exc:
+                logger.debug("Plugin operation failed (non-critical): %s", _exc)
             return self._separate_fallback(audio, sr, requested_stems)
 
     # ------------------------------------------------------------------

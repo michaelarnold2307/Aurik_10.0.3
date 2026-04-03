@@ -287,7 +287,6 @@ def test_deferred_job_sr_is_48000(minimal_job):
 
 def test_interruption_early_exit(tmp_path):
     """run() must emit refinement_cancelled if interrupted before denke()."""
-    from unittest.mock import PropertyMock
 
     from Aurik910.ui.ml_refinement_thread import MLRefinementThread
     from backend.core.deferred_refinement_job import DeferredRefinementJob
@@ -382,16 +381,19 @@ def test_quality_gate_blocks_inferior_stufe2(tmp_path):
     mock_denker = MagicMock()
     mock_denker.denke.return_value = mock_result
 
-    with patch("backend.api.bridge.get_aurik_denker_instance", return_value=mock_denker), \
-         patch("backend.api.bridge.get_ml_memory_budget") as mock_get_budget:
+    with (
+        patch("backend.api.bridge.get_aurik_denker_instance", return_value=mock_denker),
+        patch("backend.api.bridge.get_ml_memory_budget") as mock_get_budget,
+    ):
         mock_budget = MagicMock()
         mock_budget.try_allocate.return_value = True
         mock_get_budget.return_value = mock_budget
         thread.run()
 
     # Quality gate must prevent overwrite
-    assert len(cancelled_paths) >= 1 or len(complete_paths) == 0, \
+    assert len(cancelled_paths) >= 1 or len(complete_paths) == 0, (
         "Inferior Stufe-2 quality must trigger cancellation, not completion"
+    )
 
 
 def test_cache_passthrough_to_denker(tmp_path):
@@ -428,8 +430,10 @@ def test_cache_passthrough_to_denker(tmp_path):
     mock_denker = MagicMock()
     mock_denker.denke.return_value = mock_result
 
-    with patch("backend.api.bridge.get_aurik_denker_instance", return_value=mock_denker), \
-         patch("backend.api.bridge.get_ml_memory_budget") as mock_get_budget:
+    with (
+        patch("backend.api.bridge.get_aurik_denker_instance", return_value=mock_denker),
+        patch("backend.api.bridge.get_ml_memory_budget") as mock_get_budget,
+    ):
         mock_budget = MagicMock()
         mock_budget.try_allocate.return_value = True
         mock_get_budget.return_value = mock_budget
@@ -507,6 +511,7 @@ def test_should_start_single_instance_guard():
     )
     # First call should be True (mocking RAM check)
     import psutil
+
     mock_vm = MagicMock()
     mock_vm.available = int(8.0 * 1024**3)
     with patch.object(psutil, "virtual_memory", return_value=mock_vm):

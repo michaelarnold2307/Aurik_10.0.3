@@ -77,9 +77,7 @@ class PitchCorrectionSafetyWrapper:
 
         self.audit_log_path = audit_log_path
 
-        logger.info(
-            f"PitchCorrectionSafetyWrapper initialized: " f"strict_mode={strict_mode}, audit_log={audit_log_path}"
-        )
+        logger.info(f"PitchCorrectionSafetyWrapper initialized: strict_mode={strict_mode}, audit_log={audit_log_path}")
 
         self.correction_count = 0
         self.violations_count = 0
@@ -113,7 +111,7 @@ class PitchCorrectionSafetyWrapper:
             if self.strict_mode:
                 raise HIPSViolationError(f"Pre-correction HIPS check failed: {pre_check_result['issues']}")
             else:
-                logger.warning(f"[{correction_id}] Pre-correction warnings: " f"{pre_check_result['issues']}")
+                logger.warning(f"[{correction_id}] Pre-correction warnings: {pre_check_result['issues']}")
 
         # STEP 2: Perform correction
         try:
@@ -125,7 +123,7 @@ class PitchCorrectionSafetyWrapper:
 
         # STEP 3: Check if correction was rejected by epistemic/conduct gates
         if not correction_metadata.get("corrected", False):
-            logger.info(f"[{correction_id}] Correction rejected: " f"{correction_metadata.get('reason', 'unknown')}")
+            logger.info(f"[{correction_id}] Correction rejected: {correction_metadata.get('reason', 'unknown')}")
             self._log_rejection(correction_id, correction_metadata, audio_shape=audio.shape)
             return audio_corrected, correction_metadata
 
@@ -140,7 +138,7 @@ class PitchCorrectionSafetyWrapper:
             if self.strict_mode:
                 raise HIPSViolationError(f"Post-correction HIPS check failed: {post_check_result['issues']}")
             else:
-                logger.warning(f"[{correction_id}] Post-correction warnings: " f"{post_check_result['issues']}")
+                logger.warning(f"[{correction_id}] Post-correction warnings: {post_check_result['issues']}")
 
         # STEP 5: Auditability - Log successful correction
         self._log_success(
@@ -199,7 +197,7 @@ class PitchCorrectionSafetyWrapper:
             }
 
             if vocal_ratio < 0.1:
-                issues.append(f"Low vocal content ({vocal_ratio*100:.1f}% in 80-4000 Hz range)")
+                issues.append(f"Low vocal content ({vocal_ratio * 100:.1f}% in 80-4000 Hz range)")
         except Exception as e:
             checks["vocal_content"] = {"status": "error", "error": str(e)}
             issues.append(f"Vocal content analysis failed: {e}")
@@ -258,7 +256,7 @@ class PitchCorrectionSafetyWrapper:
 
         if abs(energy_loss) >= self.MAX_ACCEPTABLE_TRANSIENT_LOSS:
             issues.append(
-                f"Energy loss too high: {energy_loss*100:.1f}% " f"(max {self.MAX_ACCEPTABLE_TRANSIENT_LOSS*100:.0f}%)"
+                f"Energy loss too high: {energy_loss * 100:.1f}% (max {self.MAX_ACCEPTABLE_TRANSIENT_LOSS * 100:.0f}%)"
             )
 
         # Check 2: Spectral similarity
@@ -315,9 +313,7 @@ class PitchCorrectionSafetyWrapper:
         }
 
         if epistemic_conf < self.MIN_EPISTEMIC_CONFIDENCE:
-            issues.append(
-                f"Low epistemic confidence: {epistemic_conf:.2f} " f"(min {self.MIN_EPISTEMIC_CONFIDENCE:.2f})"
-            )
+            issues.append(f"Low epistemic confidence: {epistemic_conf:.2f} (min {self.MIN_EPISTEMIC_CONFIDENCE:.2f})")
 
         # Overall status
         has_failures = any(c.get("status") == "fail" for c in checks.values())
@@ -340,9 +336,7 @@ class PitchCorrectionSafetyWrapper:
 
         self._append_audit_log(log_entry)
 
-        logger.warning(
-            f"[{correction_id}] HIPS violation #{self.violations_count}: " f"{check_result.get('issues', [])}"
-        )
+        logger.warning(f"[{correction_id}] HIPS violation #{self.violations_count}: {check_result.get('issues', [])}")
 
     def _log_failure(self, correction_id: str, error_msg: str, **metadata):
         """Log correction failure"""

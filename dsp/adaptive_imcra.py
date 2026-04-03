@@ -79,6 +79,7 @@ class AdaptiveIMCRA:
                 else:
                     noise_psd[t] = self.beta * (noise_psd[t - 1] if t > 0 else smoothed_psd) + (1 - self.beta) * min_psd
                 noise_psd[t] = np.maximum(noise_psd[t], self.noise_floor)
+            noise_psd = np.nan_to_num(noise_psd, nan=self.noise_floor, posinf=self.noise_floor, neginf=self.noise_floor)
             self._audit_log("success", "IMCRA Noise-Schätzung erfolgreich")
             return noise_psd
         except Exception as e:

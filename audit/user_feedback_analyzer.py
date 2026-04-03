@@ -7,7 +7,6 @@ Aurik User-Feedback-Analyse und Community-Bewertung
 
 import json
 from pathlib import Path
-from typing import Dict, List
 
 
 def load_feedback(feedback_path="audit/user_feedback.json"):

@@ -55,7 +55,7 @@ class ProcessingMode(Enum):
         for m in cls:
             if m.value == mode_lower:
                 return m
-        raise ValueError(f"Invalid processing mode: {mode}. " f"Valid modes: {[m.value for m in cls]}")
+        raise ValueError(f"Invalid processing mode: {mode}. Valid modes: {[m.value for m in cls]}")
 
 
 @dataclass
@@ -196,32 +196,32 @@ class ProcessingConfig:
 
         # Validate compression ratio
         if not 1.0 <= self.compression_ratio <= 10.0:
-            raise ValueError(f"compression_ratio must be in [1.0, 10.0], " f"got {self.compression_ratio}")
+            raise ValueError(f"compression_ratio must be in [1.0, 10.0], got {self.compression_ratio}")
 
         # Validate LUFS range
         if self.target_lufs is not None and not -30.0 <= self.target_lufs <= -5.0:
-            raise ValueError(f"target_lufs must be in [-30.0, -5.0], " f"got {self.target_lufs}")
+            raise ValueError(f"target_lufs must be in [-30.0, -5.0], got {self.target_lufs}")
 
         # Validate high freq boost
         if not -6.0 <= self.high_freq_boost_db <= 6.0:
-            raise ValueError(f"high_freq_boost_db must be in [-6.0, 6.0], " f"got {self.high_freq_boost_db}")
+            raise ValueError(f"high_freq_boost_db must be in [-6.0, 6.0], got {self.high_freq_boost_db}")
 
         # Validate dereverb strength
         if not 0.0 <= self.dereverb_strength <= 1.0:
-            raise ValueError(f"dereverb_strength must be in [0.0, 1.0], " f"got {self.dereverb_strength}")
+            raise ValueError(f"dereverb_strength must be in [0.0, 1.0], got {self.dereverb_strength}")
 
         # Validate stereo width factor
         if not 0.0 <= self.stereo_width_factor <= 3.0:
-            raise ValueError(f"stereo_width_factor must be in [0.0, 3.0], " f"got {self.stereo_width_factor}")
+            raise ValueError(f"stereo_width_factor must be in [0.0, 3.0], got {self.stereo_width_factor}")
 
         # Validate true peak ceiling
         if not -6.0 <= self.true_peak_ceiling_dbtp <= 0.0:
-            raise ValueError(f"true_peak_ceiling_dbtp must be in [-6.0, 0.0], " f"got {self.true_peak_ceiling_dbtp}")
+            raise ValueError(f"true_peak_ceiling_dbtp must be in [-6.0, 0.0], got {self.true_peak_ceiling_dbtp}")
 
         # Validate multiband compression parameters
         if self.enable_multiband_compression:
             if not 2 <= self.multiband_bands <= 5:
-                raise ValueError(f"multiband_bands must be in [2, 5], " f"got {self.multiband_bands}")
+                raise ValueError(f"multiband_bands must be in [2, 5], got {self.multiband_bands}")
 
             if len(self.multiband_crossovers) != self.multiband_bands - 1:
                 raise ValueError(
@@ -237,15 +237,13 @@ class ProcessingConfig:
 
             if len(self.multiband_ratios) != self.multiband_bands:
                 raise ValueError(
-                    f"multiband_ratios length must be {self.multiband_bands}, " f"got {len(self.multiband_ratios)}"
+                    f"multiband_ratios length must be {self.multiband_bands}, got {len(self.multiband_ratios)}"
                 )
 
         # Validate spectral repair parameters
         if self.enable_spectral_repair:
             if not 0.0 <= self.spectral_repair_strength <= 1.0:
-                raise ValueError(
-                    f"spectral_repair_strength must be in [0.0, 1.0], " f"got {self.spectral_repair_strength}"
-                )
+                raise ValueError(f"spectral_repair_strength must be in [0.0, 1.0], got {self.spectral_repair_strength}")
 
             if not -80.0 <= self.spectral_repair_hole_threshold_db <= -40.0:
                 raise ValueError(
@@ -353,9 +351,7 @@ def get_processing_config(mode: ProcessingMode) -> ProcessingConfig:
         ValueError: If mode is invalid
     """
     if mode not in PROCESSING_CONFIGS:
-        raise ValueError(
-            f"No configuration for mode {mode}. " f"Available modes: {[m.value for m in PROCESSING_CONFIGS]}"
-        )
+        raise ValueError(f"No configuration for mode {mode}. Available modes: {[m.value for m in PROCESSING_CONFIGS]}")
 
     return PROCESSING_CONFIGS[mode]
 

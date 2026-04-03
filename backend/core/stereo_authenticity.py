@@ -20,7 +20,7 @@ Referenz: §2.18 Aurik-9-Spec (v9.9.5)
 import warnings as _warnings
 
 _warnings.warn(
-    "core.stereo_authenticity ist veraltet. " "Verwende stattdessen core.stereo_authenticity_invariant.",
+    "core.stereo_authenticity ist veraltet. Verwende stattdessen core.stereo_authenticity_invariant.",
     DeprecationWarning,
     stacklevel=2,
 )

@@ -46,34 +46,51 @@ class AutoEQ:
         logging.info(asdict(self.contract))
 
     def process(self, audio: np.ndarray, sr: int) -> np.ndarray:
-        """
-        Wendet einen klassischen Multiband-Parametric-EQ (SOTA) an.
-        :param audio: Audiodaten (np.ndarray)
-        :param sr: Samplingrate (int)
-        :return: Equalized Audio (np.ndarray)
+        """Apply 3-band parametric EQ with Linkwitz-Riley LR4 crossovers.
+
+        Uses proper LR4 crossover filters for flat-summing band splitting
+        (no comb-filtering artifacts from naive band mixing).
+
+        Args:
+            audio: Audio data (1D mono or 2D stereo)
+            sr: Sample rate
+        Returns:
+            Equalized audio
         """
         self.log_contract()
         x = np.nan_to_num(np.asarray(audio, dtype=np.float64), nan=0.0, posinf=0.0, neginf=0.0)
 
-        # Low-Shelf (bis 120 Hz)
-        sos_low = scipy.signal.iirfilter(2, 120 / (sr / 2), btype="low", ftype="butter", output="sos")
-        low = scipy.signal.sosfilt(sos_low, x) * 10 ** (self.gains["low"] / 20)
+        # Crossover frequencies
+        xover_low = min(200.0, sr * 0.4)  # Low/Mid crossover at 200 Hz
+        xover_high = min(6000.0, sr * 0.4)  # Mid/High crossover at 6 kHz
 
-        # Peaking (1 kHz)
-        b_mid, a_mid = scipy.signal.iirpeak(1000 / (sr / 2), Q=1)
-        sos_mid = scipy.signal.tf2sos(b_mid, a_mid)
-        mid = scipy.signal.sosfilt(sos_mid, x) * 10 ** (self.gains["mid"] / 20)
+        # LR4 = cascaded 2nd-order Butterworth (flat phase summing)
+        wn_low = xover_low / (sr / 2)
+        wn_high = xover_high / (sr / 2)
+        wn_low = np.clip(wn_low, 0.001, 0.99)
+        wn_high = np.clip(wn_high, 0.001, 0.99)
 
-        # High-Shelf (ab 8 kHz)
-        wn_high = min(8000 / (sr / 2), 0.99) if sr > 0 else 0.99
-        if wn_high <= 0 or wn_high >= 1:
-            wn_high = 0.99
-        sos_high = scipy.signal.iirfilter(2, wn_high, btype="high", ftype="butter", output="sos")
-        high = scipy.signal.sosfilt(sos_high, x) * 10 ** (self.gains["high"] / 20)
+        # Low band: LR4 lowpass at xover_low
+        sos_lp = scipy.signal.iirfilter(4, wn_low, btype="low", ftype="butter", output="sos")
+        low = scipy.signal.sosfilt(sos_lp, x)
 
-        # Mischung
-        out = 0.3 * low + 0.4 * mid + 0.3 * high
+        # High band: LR4 highpass at xover_high
+        sos_hp = scipy.signal.iirfilter(4, wn_high, btype="high", ftype="butter", output="sos")
+        high = scipy.signal.sosfilt(sos_hp, x)
+
+        # Mid band: residual (ensures perfect reconstruction)
+        mid = x - low - high
+
+        # Apply gains
+        low_gain = 10.0 ** (self.gains["low"] / 20.0)
+        mid_gain = 10.0 ** (self.gains["mid"] / 20.0)
+        high_gain = 10.0 ** (self.gains["high"] / 20.0)
+
+        out = low * low_gain + mid * mid_gain + high * high_gain
+
+        # Safety: NaN/Inf guard + peak normalization
+        out = np.nan_to_num(out, nan=0.0, posinf=0.0, neginf=0.0)
         peak = float(np.max(np.abs(out))) if out.size > 0 else 0.0
         if peak > 1.0:
             out = out / peak
-        return np.clip(np.nan_to_num(out, nan=0.0, posinf=0.0, neginf=0.0), -1.0, 1.0)
+        return np.clip(out, -1.0, 1.0)

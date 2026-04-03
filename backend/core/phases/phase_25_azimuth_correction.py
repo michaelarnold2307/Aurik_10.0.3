@@ -252,7 +252,10 @@ class AzimuthCorrectionPhaseV2(PhaseInterface):
         corrected_bands = []
         for i, (band_audio, azimuth_error) in enumerate(zip(bands, band_azimuth_errors)):
             corrected_band = self._correct_band_azimuth_timevarying(
-                band_audio, sample_rate, azimuth_error, band_index=i,
+                band_audio,
+                sample_rate,
+                azimuth_error,
+                band_index=i,
             )
             corrected_bands.append(corrected_band)
 
@@ -473,8 +476,8 @@ class AzimuthCorrectionPhaseV2(PhaseInterface):
         n_samples = len(left)
 
         # ── Step 1: Sliding cross-correlation ──────────────────────────────
-        win_s = 1.0   # 1 s analysis window
-        hop_s = 0.5   # 0.5 s hop
+        win_s = 1.0  # 1 s analysis window
+        hop_s = 0.5  # 0.5 s hop
         win_n = int(win_s * sample_rate)
         hop_n = int(hop_s * sample_rate)
         search = min(self.MAX_AZIMUTH_ERROR_SAMPLES, win_n // 2)
@@ -485,12 +488,12 @@ class AzimuthCorrectionPhaseV2(PhaseInterface):
 
         pos = 0
         while pos + win_n <= n_samples:
-            lw = left[pos: pos + win_n]
-            rw = right[pos: pos + win_n]
+            lw = left[pos : pos + win_n]
+            rw = right[pos : pos + win_n]
             corr = np.correlate(lw, rw, mode="full")
             mid = len(corr) // 2
             sr_range = min(search, mid)
-            sw = corr[mid - sr_range: mid + sr_range + 1]
+            sw = corr[mid - sr_range : mid + sr_range + 1]
             peak_idx = int(np.argmax(np.abs(sw)))
             shift_val = float(peak_idx - sr_range)
             peak_corr = float(np.abs(sw[peak_idx]))
@@ -562,8 +565,7 @@ class AzimuthCorrectionPhaseV2(PhaseInterface):
         corrected[:, 1] = corrected_right
 
         logger.debug(
-            "Time-varying azimuth band %d: shift range [%.2f, %.2f] samples, "
-            "%d windows, mean_conf=%.2f",
+            "Time-varying azimuth band %d: shift range [%.2f, %.2f] samples, %d windows, mean_conf=%.2f",
             band_index,
             float(np.min(effective_shifts)),
             float(np.max(effective_shifts)),

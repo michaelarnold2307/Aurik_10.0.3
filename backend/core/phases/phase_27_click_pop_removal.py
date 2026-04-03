@@ -270,7 +270,9 @@ class ClickPopRemoval(PhaseInterface):
                 # Levinson-Durbin AR-Koeffizienten via librosa.lpc (Autocorrelation-Methode)
                 # Gibt [1, a1, ..., a_p] zurück — Analyse-Filter A(z)
                 a_coeff = librosa.lpc(audio.astype(np.float32), order=order)
-
+                # Guard: degenerate LPC coefficients (NaN/Inf) trigger LAPACK DLASCL warning
+                if not np.isfinite(a_coeff).all():
+                    continue
                 # Vorhersagefehler (AR-Residual) — Clicks = große Ausreißer
                 # lfilter([1], a_coeff, ...) implementiert Analysis-Filter A(z)
                 residual = lfilter(a_coeff, [1.0], audio)

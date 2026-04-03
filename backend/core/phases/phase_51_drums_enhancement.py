@@ -414,7 +414,7 @@ class DrumsEnhancementV1(PhaseInterface):
                 success=False,
                 audio=audio,  # Return original audio
                 execution_time_seconds=time.time() - start_time,
-                warnings=[f"Drums enhancement failed: {str(e)}"],
+                warnings=[f"Drums enhancement failed: {e!s}"],
             )
 
     def get_metadata(self) -> PhaseMetadata:

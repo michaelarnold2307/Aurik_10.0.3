@@ -20,9 +20,11 @@ SR = 48_000
 # Helpers
 # ──────────────────────────────────────────────────────────────────────────────
 
+
 @pytest.fixture()
 def phase():
     from backend.core.phases.phase_22_tape_saturation import TapeSaturation
+
     return TapeSaturation()
 
 
@@ -45,6 +47,7 @@ def _loud_quiet(loud_amp: float = 0.8, quiet_amp: float = 0.1, dur: float = 1.0)
 # ──────────────────────────────────────────────────────────────────────────────
 # 1.  _peak_envelope contracts
 # ──────────────────────────────────────────────────────────────────────────────
+
 
 class TestPeakEnvelope:
     def test_shape_preserved(self, phase):
@@ -94,9 +97,7 @@ class TestPeakEnvelope:
         quarter = n // 4
         env_loud = np.mean(env[quarter // 2 : quarter])
         env_quiet = np.mean(env[3 * quarter :])
-        assert env_loud > env_quiet * 2.0, (
-            f"Loud envelope {env_loud:.4f} should be > 2× quiet {env_quiet:.4f}"
-        )
+        assert env_loud > env_quiet * 2.0, f"Loud envelope {env_loud:.4f} should be > 2× quiet {env_quiet:.4f}"
 
     def test_release_slower_than_attack(self, phase):
         """
@@ -117,16 +118,14 @@ class TestPeakEnvelope:
         env = phase._peak_envelope(audio, attack_ms=1.0, release_ms=200.0, sr=SR)
         idx_100ms = burst_end + int(0.1 * SR)
         # Envelope should retain at least exp(-0.5)≈60% of burst peak → clearly > 0.3
-        assert env[idx_100ms] > 0.30, (
-            f"Envelope decayed too fast: {env[idx_100ms]:.4f} at 100 ms after burst"
-        )
+        assert env[idx_100ms] > 0.30, f"Envelope decayed too fast: {env[idx_100ms]:.4f} at 100 ms after burst"
 
     def test_dc_signal_constant_envelope(self, phase):
         """Constant DC signal → envelope should converge to DC amplitude."""
         audio = np.full(SR, 0.5)
         env = phase._peak_envelope(audio, attack_ms=1.0, release_ms=50.0, sr=SR)
         # Last 10 % should have converged to 0.5
-        tail = env[int(SR * 0.9):]
+        tail = env[int(SR * 0.9) :]
         np.testing.assert_allclose(tail, 0.5, atol=0.01)
 
     def test_single_sample(self, phase):
@@ -140,6 +139,7 @@ class TestPeakEnvelope:
 # 2.  Dynamic drive property: loud section → more saturation
 # ──────────────────────────────────────────────────────────────────────────────
 
+
 class TestDynamicDriveProperty:
     """
     McNally (1984) invariant: with envelope-following drive, loud passages
@@ -148,13 +148,13 @@ class TestDynamicDriveProperty:
 
     def _thd_segment(self, audio_seg: np.ndarray, phase, material) -> float:
         """Estimate THD for a mono segment via TapeSaturation."""
-        from backend.core.defect_scanner import MaterialType
+
         result = phase.process(audio_seg, sample_rate=SR, material=material)
         orig = audio_seg
         proc = result.audio[: len(orig)]
         diff = proc - orig
-        rms_diff = float(np.sqrt(np.mean(diff ** 2)))
-        rms_orig = float(np.sqrt(np.mean(orig ** 2)))
+        rms_diff = float(np.sqrt(np.mean(diff**2)))
+        rms_orig = float(np.sqrt(np.mean(orig**2)))
         return rms_diff / rms_orig if rms_orig > 1e-8 else 0.0
 
     def test_envelope_drives_loud_more_than_quiet_within_signal(self, phase):
@@ -169,14 +169,12 @@ class TestDynamicDriveProperty:
         reference, not their own amplitudes.
         """
         audio = _loud_quiet(loud_amp=0.85, quiet_amp=0.08, dur=1.0)
-        env = phase._peak_envelope(
-            audio.astype(np.float64), attack_ms=3.0, release_ms=80.0, sr=SR
-        )
+        env = phase._peak_envelope(audio.astype(np.float64), attack_ms=3.0, release_ms=80.0, sr=SR)
         n = len(audio)
         half = n // 2
         # Mid 20 % of each section — avoids fade transition
         tenth = n // 10
-        env_loud = np.mean(env[tenth : 2 * tenth])         # stable loud region
+        env_loud = np.mean(env[tenth : 2 * tenth])  # stable loud region
         env_quiet = np.mean(env[half + tenth : half + 2 * tenth])  # stable quiet region
         assert env_loud > env_quiet * 3.0, (
             f"Envelope in loud zone {env_loud:.4f} should be > 3× quiet zone {env_quiet:.4f}"
@@ -185,12 +183,13 @@ class TestDynamicDriveProperty:
     def test_drive_vec_scales_with_level(self, phase):
         """_saturate_multi_band must produce output that scales with input level."""
         from backend.core.defect_scanner import MaterialType
+
         loud = _sine(440.0, amp=0.8)
         quiet = _sine(440.0, amp=0.1)
         r_loud = phase.process(loud, sample_rate=SR, material=MaterialType.TAPE)
         r_quiet = phase.process(quiet, sample_rate=SR, material=MaterialType.TAPE)
-        rms_loud = float(np.sqrt(np.mean(r_loud.audio ** 2)))
-        rms_quiet = float(np.sqrt(np.mean(r_quiet.audio ** 2)))
+        rms_loud = float(np.sqrt(np.mean(r_loud.audio**2)))
+        rms_quiet = float(np.sqrt(np.mean(r_quiet.audio**2)))
         # Output must reflect input level ordering (loud stays louder than quiet)
         assert rms_loud > rms_quiet
 
@@ -199,12 +198,12 @@ class TestDynamicDriveProperty:
 # 3.  _saturate_band with vector drive
 # ──────────────────────────────────────────────────────────────────────────────
 
+
 class TestSaturateBandVectorDrive:
     def test_scalar_drive_unchanged(self, phase):
         """Scalar drive must still work (backward compatible)."""
         audio = _sine(440.0, amp=0.5)
-        out = phase._saturate_band(audio, drive=0.3, hysteresis=0.15,
-                                   harmonic_weights=[0.6, 0.3, 0.1])
+        out = phase._saturate_band(audio, drive=0.3, hysteresis=0.15, harmonic_weights=[0.6, 0.3, 0.1])
         assert out.shape == audio.shape
         assert np.all(np.isfinite(out))
 
@@ -212,22 +211,19 @@ class TestSaturateBandVectorDrive:
         """Vector drive must produce output of same shape as audio."""
         audio = _sine(440.0, amp=0.5)
         drive_vec = np.linspace(0.1, 0.5, len(audio)).astype(np.float32)
-        out = phase._saturate_band(audio, drive=drive_vec, hysteresis=0.15,
-                                   harmonic_weights=[0.6, 0.3, 0.1])
+        out = phase._saturate_band(audio, drive=drive_vec, hysteresis=0.15, harmonic_weights=[0.6, 0.3, 0.1])
         assert out.shape == audio.shape
 
     def test_vector_drive_no_nan(self, phase):
         audio = _sine(440.0, amp=0.8)
         drive_vec = np.full(len(audio), 0.4, dtype=np.float32)
-        out = phase._saturate_band(audio, drive=drive_vec, hysteresis=0.20,
-                                   harmonic_weights=[0.5, 0.4, 0.1])
+        out = phase._saturate_band(audio, drive=drive_vec, hysteresis=0.20, harmonic_weights=[0.5, 0.4, 0.1])
         assert np.all(np.isfinite(out))
 
     def test_zero_vector_drive_minimal_output(self, phase):
         audio = _sine(440.0, amp=0.5)
         drive_vec = np.zeros(len(audio), dtype=np.float32)
-        out = phase._saturate_band(audio, drive=drive_vec, hysteresis=0.0,
-                                   harmonic_weights=[0.5, 0.4, 0.1])
+        out = phase._saturate_band(audio, drive=drive_vec, hysteresis=0.0, harmonic_weights=[0.5, 0.4, 0.1])
         assert np.all(np.isfinite(out))
 
 
@@ -235,27 +231,32 @@ class TestSaturateBandVectorDrive:
 # 4.  Full process() integration — existing API must be unchanged
 # ──────────────────────────────────────────────────────────────────────────────
 
+
 class TestProcessIntegration:
     def test_no_nan_inf_tape(self, phase):
         from backend.core.defect_scanner import MaterialType
+
         audio = _sine(440.0, amp=0.8)
         result = phase.process(audio, sample_rate=SR, material=MaterialType.TAPE)
         assert np.all(np.isfinite(result.audio))
 
     def test_no_clipping_tape(self, phase):
         from backend.core.defect_scanner import MaterialType
+
         audio = _sine(440.0, amp=0.8)
         result = phase.process(audio, sample_rate=SR, material=MaterialType.TAPE)
         assert np.max(np.abs(result.audio)) <= 1.0 + 1e-6
 
     def test_shape_mono(self, phase):
         from backend.core.defect_scanner import MaterialType
+
         audio = _sine(440.0)
         result = phase.process(audio, sample_rate=SR, material=MaterialType.VINYL)
         assert result.audio.shape == audio.shape
 
     def test_shape_stereo(self, phase):
         from backend.core.defect_scanner import MaterialType
+
         mono = _sine(440.0)
         stereo = np.column_stack([mono, mono * 0.95])
         result = phase.process(stereo, sample_rate=SR, material=MaterialType.TAPE)
@@ -263,6 +264,7 @@ class TestProcessIntegration:
 
     def test_loud_quiet_signal_no_crash(self, phase):
         from backend.core.defect_scanner import MaterialType
+
         audio = _loud_quiet()
         result = phase.process(audio, sample_rate=SR, material=MaterialType.TAPE)
         assert result.success
@@ -270,6 +272,7 @@ class TestProcessIntegration:
 
     def test_shellac_skipped(self, phase):
         from backend.core.defect_scanner import MaterialType
+
         audio = _sine(440.0)
         result = phase.process(audio, sample_rate=SR, material=MaterialType.SHELLAC)
         assert result.success
@@ -277,6 +280,7 @@ class TestProcessIntegration:
 
     def test_silence_passthrough(self, phase):
         from backend.core.defect_scanner import MaterialType
+
         audio = np.zeros(SR // 2, dtype=np.float32)
         result = phase.process(audio, sample_rate=SR, material=MaterialType.TAPE)
         assert result.success
@@ -284,6 +288,7 @@ class TestProcessIntegration:
 
     def test_metrics_present(self, phase):
         from backend.core.defect_scanner import MaterialType
+
         audio = _sine(440.0)
         result = phase.process(audio, sample_rate=SR, material=MaterialType.TAPE)
         assert "thd_percent" in result.metrics

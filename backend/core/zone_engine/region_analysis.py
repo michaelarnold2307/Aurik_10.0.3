@@ -372,7 +372,7 @@ class RegionAnalyzer:
             # Tempo for music
             try:
                 tempo, _ = librosa.beat.beat_track(y=region_audio, sr=sr)
-                analysis["tempo_bpm"] = float(tempo)
+                analysis["tempo_bpm"] = float(np.asarray(tempo).flat[0])
             except Exception as e:
                 logger.warning(f"Tempo analysis failed: {e}")
 

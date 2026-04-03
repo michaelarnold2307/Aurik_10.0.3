@@ -160,7 +160,7 @@ def export_audio(
         RuntimeError: If export fails
     """
     if format not in SUPPORTED_FORMATS:
-        raise ValueError(f"Format '{format}' not supported. " f"Supported: {', '.join(SUPPORTED_FORMATS.keys())}")
+        raise ValueError(f"Format '{format}' not supported. Supported: {', '.join(SUPPORTED_FORMATS.keys())}")
 
     gate_passed, gate_fail_reason, gate_degradation_status, gate_fail_reasons = _evaluate_export_quality_gate(
         quality_gate
@@ -200,7 +200,7 @@ def export_audio(
         return export_path
 
     except Exception as e:
-        raise RuntimeError(f"Export failed for '{format}': {e}")
+        raise RuntimeError(f"Export failed for '{format}': {e}") from e
 
 
 def export_multi_version(
@@ -331,8 +331,8 @@ def export_stems(
     """
     try:
         from dsp.stem_separator import StemSeparator
-    except ImportError:
-        raise RuntimeError("Stem separator not available. " "Make sure dsp/ module is in your Python path.")
+    except ImportError as e:
+        raise RuntimeError("Stem separator not available. Make sure dsp/ module is in your Python path.") from e
 
     logger.debug(f"Separating stems (backend: {backend})...")
 

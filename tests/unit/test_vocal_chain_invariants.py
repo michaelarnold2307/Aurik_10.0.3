@@ -88,7 +88,7 @@ class TestVocalChainInvariants:
         audio: np.ndarray = result if isinstance(result, np.ndarray) else result.audio
 
         assert np.isfinite(audio).all(), (
-            f"NaN/Inf im VocalAIEnhancement-Output — " f"NaN-Anteil: {np.isnan(audio).mean():.1%}"
+            f"NaN/Inf im VocalAIEnhancement-Output — NaN-Anteil: {np.isnan(audio).mean():.1%}"
         )
 
     # ------------------------------------------------------------------
@@ -142,9 +142,9 @@ class TestVocalChainInvariants:
         audio: np.ndarray = result if isinstance(result, np.ndarray) else result.audio
 
         assert np.isfinite(audio).all(), "NaN im Stille-Output"
-        assert (
-            np.max(np.abs(audio)) <= 1e-3
-        ), f"Stille-Signal erzeugt Ausgabe mit Peak {np.max(np.abs(audio)):.6f} > 1e-3"
+        assert np.max(np.abs(audio)) <= 1e-3, (
+            f"Stille-Signal erzeugt Ausgabe mit Peak {np.max(np.abs(audio)):.6f} > 1e-3"
+        )
 
     # ------------------------------------------------------------------
     # Test 06 — VocalEnhancementResult.audio-Attribut
@@ -162,9 +162,9 @@ class TestVocalChainInvariants:
         # Entweder ist result direkt ein Array oder ein Objekt mit .audio
         if not isinstance(result, np.ndarray):
             assert hasattr(result, "audio"), f"Rückgabetyp {type(result).__name__} hat kein .audio-Attribut"
-            assert isinstance(
-                result.audio, np.ndarray
-            ), f".audio ist kein np.ndarray sondern {type(result.audio).__name__}"
+            assert isinstance(result.audio, np.ndarray), (
+                f".audio ist kein np.ndarray sondern {type(result.audio).__name__}"
+            )
 
     # ------------------------------------------------------------------
     # Test 07 — Singleton / Alias-Check
@@ -176,9 +176,9 @@ class TestVocalChainInvariants:
         except ImportError as exc:
             pytest.xfail(f"Import fehlgeschlagen: {exc}")
 
-        assert (
-            VocalAIEnhancement is UnifiedVocalAIEnhancer
-        ), "VocalAIEnhancement ist NICHT der Alias auf UnifiedVocalAIEnhancer"
+        assert VocalAIEnhancement is UnifiedVocalAIEnhancer, (
+            "VocalAIEnhancement ist NICHT der Alias auf UnifiedVocalAIEnhancer"
+        )
 
     # ------------------------------------------------------------------
     # Test 08 — float32-Ausgang
@@ -258,9 +258,9 @@ class TestVocalChainInvariants:
         if isinstance(result, np.ndarray):
             pytest.skip("Enhancer gibt rohes Array zurück — kein Metadaten-Container")
 
-        assert hasattr(
-            result, "breath_preserved_ratio"
-        ), "VocalEnhancementResult hat kein Attribut breath_preserved_ratio"
+        assert hasattr(result, "breath_preserved_ratio"), (
+            "VocalEnhancementResult hat kein Attribut breath_preserved_ratio"
+        )
         ratio = float(result.breath_preserved_ratio)
         assert math.isfinite(ratio), f"breath_preserved_ratio ist NaN/Inf: {ratio}"
         assert 0.0 <= ratio <= 1.0, f"breath_preserved_ratio {ratio} außerhalb [0, 1]"

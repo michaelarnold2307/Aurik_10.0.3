@@ -183,7 +183,7 @@ class IntegratedVocalProcessor:
         duration = len(audio_mono) / sr
 
         logger.info(
-            f"Creating integrated vocal timeline " f"(mode={aurik_mode}, duration={duration:.2f}s, language={language})"
+            f"Creating integrated vocal timeline (mode={aurik_mode}, duration={duration:.2f}s, language={language})"
         )
 
         # 1. Lyrics alignment (with phonemes)

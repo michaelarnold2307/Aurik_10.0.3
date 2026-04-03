@@ -45,6 +45,7 @@ logger = logging.getLogger(__name__)
 # ERB auditory filter model (Glasberg & Moore 1990)
 # ---------------------------------------------------------------------------
 
+
 def erb_hz(f_hz: float) -> float:
     """Equivalent Rectangular Bandwidth at frequency *f_hz*.
 
@@ -69,6 +70,7 @@ def erb_rate_to_hz(n_cams: float) -> float:
 # ---------------------------------------------------------------------------
 # Excitation spreading function
 # ---------------------------------------------------------------------------
+
 
 def _spreading_function_db(
     fc_masker: float,
@@ -100,6 +102,7 @@ def _spreading_function_db(
 # ---------------------------------------------------------------------------
 # Temporal masking decay
 # ---------------------------------------------------------------------------
+
 
 def _forward_masking_decay_db(dt_ms: float) -> float:
     """Forward masking decay in dB as a function of time after masker offset.
@@ -135,6 +138,7 @@ def _backward_masking_decay_db(dt_ms: float) -> float:
 # Result dataclass
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class ERBMaskingThreshold:
     """Masking threshold at a specific frequency band and time."""
@@ -160,6 +164,7 @@ class ERBMaskingResult:
 # ---------------------------------------------------------------------------
 # Core estimator
 # ---------------------------------------------------------------------------
+
 
 class ERBAuditoryMaskingModel:
     """Frequency-dependent masking model using ERB critical-band filters.
@@ -220,7 +225,11 @@ class ERBAuditoryMaskingModel:
 
         # Compute short-time power spectrum around defect and context
         defect_power = self._band_power_at_time(
-            mono, sr, centres, defect_start_s, defect_end_s,
+            mono,
+            sr,
+            centres,
+            defect_start_s,
+            defect_end_s,
         )
 
         # Context: ±400 ms around defect (excluding defect itself)
@@ -228,10 +237,18 @@ class ERBAuditoryMaskingModel:
         ctx_after_end = min(duration_s, defect_end_s + self._CONTEXT_WINDOW_S)
 
         ctx_power_before = self._band_power_at_time(
-            mono, sr, centres, ctx_before_start, defect_start_s,
+            mono,
+            sr,
+            centres,
+            ctx_before_start,
+            defect_start_s,
         )
         ctx_power_after = self._band_power_at_time(
-            mono, sr, centres, defect_end_s, ctx_after_end,
+            mono,
+            sr,
+            centres,
+            defect_end_s,
+            ctx_after_end,
         )
 
         # Temporal distances for masking decay
@@ -294,13 +311,15 @@ class ERBAuditoryMaskingModel:
                 max_masking_db = threshold_db
                 dominant_type = m_type
 
-            band_thresholds.append(ERBMaskingThreshold(
-                centre_freq_hz=float(fc),
-                erb_width_hz=float(ew),
-                threshold_db=float(np.nan_to_num(threshold_db, nan=-100.0)),
-                masking_type=m_type,
-                informational_bonus_db=float(info_bonus),
-            ))
+            band_thresholds.append(
+                ERBMaskingThreshold(
+                    centre_freq_hz=float(fc),
+                    erb_width_hz=float(ew),
+                    threshold_db=float(np.nan_to_num(threshold_db, nan=-100.0)),
+                    masking_type=m_type,
+                    informational_bonus_db=float(info_bonus),
+                )
+            )
 
         if not band_thresholds:
             return ERBMaskingResult(salience=1.0, dominant_masking_type="none")
@@ -322,10 +341,13 @@ class ERBAuditoryMaskingModel:
             # How much defect exceeds masking threshold on average
             excess = np.mean(defect_levels)
             # Map excess to salience: <0 dB → masked, >SMR → fully salient
-            salience = float(np.clip(
-                (excess + self._SMR_ABSOLUTE_DB) / (2.0 * self._SMR_ABSOLUTE_DB),
-                0.0, 1.0,
-            ))
+            salience = float(
+                np.clip(
+                    (excess + self._SMR_ABSOLUTE_DB) / (2.0 * self._SMR_ABSOLUTE_DB),
+                    0.0,
+                    1.0,
+                )
+            )
         else:
             salience = 1.0
 
@@ -340,8 +362,7 @@ class ERBAuditoryMaskingModel:
         )
 
         logger.debug(
-            "ERB masking: %.0f–%.0f Hz, %d bands, mean_thresh=%.1f dB, "
-            "salience=%.3f, dominant=%s, tonality=%.2f",
+            "ERB masking: %.0f–%.0f Hz, %d bands, mean_thresh=%.1f dB, salience=%.3f, dominant=%s, tonality=%.2f",
             centres[0] if len(centres) > 0 else 0,
             centres[-1] if len(centres) > 0 else 0,
             len(band_thresholds),
@@ -369,7 +390,10 @@ class ERBAuditoryMaskingModel:
         Convenience wrapper around compute_masking_threshold.
         """
         result = self.compute_masking_threshold(
-            audio, sr, defect_start_s, defect_end_s,
+            audio,
+            sr,
+            defect_start_s,
+            defect_end_s,
         )
         return result.salience
 

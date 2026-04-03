@@ -181,7 +181,9 @@ class TestConflictResolution:
         deltas = {k: target_scores[k] - sample_scores[k] for k in sample_scores}
 
         conflicts = resolver.detect_conflicts(
-            sample_scores, deltas, context={"medium_type": "shellac"}  # Authenticity important
+            sample_scores,
+            deltas,
+            context={"medium_type": "shellac"},  # Authenticity important
         )
 
         strategy = resolver.resolve_conflicts(

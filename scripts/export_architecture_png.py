@@ -150,12 +150,12 @@ def arrow(ax, x0, y0, x1, y1, color="#64748b", lw=0.7, style="->"):
         "",
         xy=(x1, y1),
         xytext=(x0, y0),
-        arrowprops=dict(
-            arrowstyle=style,
-            color=color,
-            lw=lw,
-            connectionstyle="arc3,rad=0.0",
-        ),
+        arrowprops={
+            "arrowstyle": style,
+            "color": color,
+            "lw": lw,
+            "connectionstyle": "arc3,rad=0.0",
+        },
         zorder=5,
     )
 
@@ -165,12 +165,12 @@ def curved_arrow(ax, x0, y0, x1, y1, color="#64748b", lw=0.6, rad=0.2):
         "",
         xy=(x1, y1),
         xytext=(x0, y0),
-        arrowprops=dict(
-            arrowstyle="->",
-            color=color,
-            lw=lw,
-            connectionstyle=f"arc3,rad={rad}",
-        ),
+        arrowprops={
+            "arrowstyle": "->",
+            "color": color,
+            "lw": lw,
+            "connectionstyle": f"arc3,rad={rad}",
+        },
         zorder=5,
     )
 

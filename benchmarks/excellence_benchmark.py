@@ -70,7 +70,7 @@ def _sine_sum(freqs: list[float], amps: list[float] | None = None, n: int = _N, 
 
 def _make_test_signals() -> dict[str, np.ndarray]:
     """Erzeugt alle vier Testsignal-Klassen."""
-    t = np.linspace(0, _N / _SR, _N, dtype=np.float32)
+    np.linspace(0, _N / _SR, _N, dtype=np.float32)
     rng = np.random.default_rng(seed=17)
 
     # 1. Sauberer Ton (Baseline)

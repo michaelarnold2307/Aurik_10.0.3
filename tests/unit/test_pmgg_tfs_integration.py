@@ -23,6 +23,7 @@ SR = 48000
 # Mock Phase helpers — PhaseInterface-compliant (process() + get_metadata())
 # ---------------------------------------------------------------------------
 
+
 class _MockPhase:
     """Configurable mock phase with PhaseInterface contract.
 
@@ -82,9 +83,11 @@ def _phase_scramble(audio, strength=1.0):
 # Fixtures
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture(scope="module")
 def gate():
     from backend.core.per_phase_musical_goals_gate import PerPhaseMusicalGoalsGate
+
     return PerPhaseMusicalGoalsGate()
 
 
@@ -134,6 +137,7 @@ NON_TFS_PHASE_IDS = [
 # Test class: TFS metadata present for TFS-sensitive phases
 # ===========================================================================
 
+
 class TestTFSMetadataPresence:
     """Verify TFS coherence metadata in PhaseGateLogEntry for TFS-sensitive phases."""
 
@@ -143,9 +147,7 @@ class TestTFSMetadataPresence:
         phase = _MockPhase(phase_id, transform=_identity)
         _, _, log_entry = gate.wrap_phase(phase, audio_1s, SR)
 
-        assert "tfs_coherence" in log_entry.metadata, (
-            f"Expected tfs_coherence in metadata for {phase_id}"
-        )
+        assert "tfs_coherence" in log_entry.metadata, f"Expected tfs_coherence in metadata for {phase_id}"
         assert "tfs_min_coherence" in log_entry.metadata
         assert "tfs_n_bands" in log_entry.metadata
         assert "tfs_passes" in log_entry.metadata
@@ -311,6 +313,7 @@ class TestTFSWithRetries:
 
     def test_tfs_measured_after_retry(self, gate, audio_2s):
         """When PMGG retries due to Musical Goals regression, TFS is still measured."""
+
         # Use a transform that causes minor regression → triggers retry → final result has TFS
         def _mild_distort(audio, strength=1.0):
             """Mild distortion that may trigger retry but TFS is still measurable."""

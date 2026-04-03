@@ -201,7 +201,7 @@ class MusicalGoalsQualityGate:
                 passed=False,
                 measurable=False,
                 baseline_scores={},
-                warnings=[f"Measurement failed: {str(e)}"],
+                warnings=[f"Measurement failed: {e!s}"],
                 recommendation="Check audio format and sample rate",
             )
 

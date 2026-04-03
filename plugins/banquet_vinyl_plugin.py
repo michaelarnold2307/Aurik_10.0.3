@@ -98,8 +98,8 @@ class BanquetVinylPlugin:
                 if not _try_alloc("BanquetVinyl", size_gb=0.80):
                     logger.warning("BanquetVinyl: ML-Budget erschöpft — DSP-Fallback.")
                     return
-            except Exception:
-                pass
+            except Exception as _exc:
+                logger.debug("Plugin operation failed (non-critical): %s", _exc)
 
             opts = ort.SessionOptions()
             opts.inter_op_num_threads = 1
@@ -129,8 +129,8 @@ class BanquetVinylPlugin:
                     size_gb=0.80,
                     unload_fn=lambda s=self: setattr(s, "_session", None) or setattr(s, "_model_ok", False),
                 )
-            except Exception:
-                pass
+            except Exception as _exc:
+                logger.debug("Plugin operation failed (non-critical): %s", _exc)
         except Exception as exc:
             logger.warning("BANQUET ONNX Ladefehler: %s — DSP-Fallback", exc)
             self._session = None
@@ -139,8 +139,8 @@ class BanquetVinylPlugin:
                 from backend.core.ml_memory_budget import release as _rel
 
                 _rel("BanquetVinyl")
-            except Exception:
-                pass
+            except Exception as _exc:
+                logger.debug("Plugin operation failed (non-critical): %s", _exc)
 
     @staticmethod
     def _patch_onnx(src: Path, dst: Path) -> Path:
@@ -267,8 +267,8 @@ class BanquetVinylPlugin:
                             from backend.core.ml_memory_budget import release as _rel
 
                             _rel("BanquetVinyl")
-                        except Exception:
-                            pass
+                        except Exception as _exc:
+                            logger.debug("Plugin operation failed (non-critical): %s", _exc)
                     chunk_out = self._process_dsp(chunk, self.TARGET_SR, strength)
 
             actual = end - pos
@@ -374,8 +374,8 @@ class BanquetVinylPlugin:
                 else:
                     audio_out = np.pad(audio_out, (0, chunk_len - len(audio_out)))
                 return np.tile(audio_out[np.newaxis, :], (channels, 1))
-        except Exception:
-            pass
+        except Exception as _exc:
+            logger.debug("Plugin operation failed (non-critical): %s", _exc)
         # Shape fallback — return silence (chunk exception handler will use DSP)
         return np.zeros((channels, chunk_len), dtype=np.float32)
 
@@ -401,8 +401,8 @@ class BanquetVinylPlugin:
             try:
                 sos = butter(4, max(20.0, 1.0) / (sr / 2), btype="high", output="sos")
                 x = sosfilt(sos, x).astype(np.float32)
-            except Exception:
-                pass
+            except Exception as _exc:
+                logger.debug("Plugin operation failed (non-critical): %s", _exc)
 
             # Median-Declicker
             win = max(3, int(sr * 0.001) | 1)  # ~1 ms, odd
@@ -412,8 +412,8 @@ class BanquetVinylPlugin:
                 thresh = 3.0 * float(np.median(diff)) * strength
                 mask = diff > thresh
                 x[mask] = smooth[mask]
-            except Exception:
-                pass
+            except Exception as _exc:
+                logger.debug("Plugin operation failed (non-critical): %s", _exc)
 
             out[c] = strength * x + (1.0 - strength) * audio[c]
 

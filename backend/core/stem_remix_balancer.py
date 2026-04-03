@@ -43,8 +43,8 @@ def _k_weighted_lufs(x: np.ndarray, sr: int = 48000) -> float:
         _b_rlb = np.asarray(_butter_res[0], dtype=np.float64)
         _a_rlb = np.asarray(_butter_res[1], dtype=np.float64)
         arr = _sig.lfilter(_b_rlb, _a_rlb, arr)
-    except Exception:
-        pass  # Fallback: Signal ohne Filterung (RMS-Näherung)
+    except Exception as _exc:
+        logger.debug("Operation failed (non-critical): %s", _exc)  # Fallback: Signal ohne Filterung (RMS-Näherung)
 
     mean_sq = float(np.mean(arr**2))
     if mean_sq <= 0.0:

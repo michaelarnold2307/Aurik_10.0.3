@@ -10,7 +10,7 @@ from __future__ import annotations
 import contextlib
 import threading
 from collections.abc import Callable
-from typing import Any, List
+from typing import Any
 
 
 class ModuleCommunicationBus:

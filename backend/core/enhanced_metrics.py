@@ -7,8 +7,8 @@ Implements advanced objective quality metrics for audio restoration validation:
 - SI-SNR (Scale-Invariant Signal-to-Noise Ratio)
 - Authenticity Metrics (Breath Retention, Transient Preservation)
 
-VERBOTENE Metriken (§10.2, ungeeignet für Musik):
-  PESQ, DNSMOS, NISQA, STOI, ViSQOL --speech
+VERBOTENE Metriken (§4.4, §10.2, ungeeignet für Musik):
+  PESQ, DNSMOS, NISQA, STOI, ViSQOL --speech, SI-SDR, CDPAM
 
 Author: AURIK Team
 Date: 8. Februar 2026 | Bereinigt: 14. März 2026
@@ -43,15 +43,12 @@ class QualityMetricsResult:
     lufs: float
 
     # Enhanced metrics (Phase 2D.2)
-    pesq_mos: float | None = None  # Mean Opinion Score [1.0-4.5]
-    visqol_mos: float | None = None  # MOS [1.0-5.0]
-    si_sdr_db: float | None = None  # Scale-Invariant SDR
+    visqol_mos: float | None = None  # MOS [1.0-5.0] — ViSQOL --audio (music mode)
     si_snr_db: float | None = None  # Scale-Invariant SNR
-    stoi_score: float | None = None  # Intelligibility [0.0-1.0]
+    # NOTE: pesq_mos, si_sdr_db, stoi_score removed — forbidden for music (§4.4)
 
     # Improvement metrics (before → after)
     snr_improvement_db: float | None = None
-    si_sdr_improvement_db: float | None = None
 
     # Authenticity metrics (Phase 2D.2.1 Task 3)
     breath_retention: float | None = None  # 0.0-1.0 (Target: >0.98)
@@ -66,8 +63,7 @@ class QualityMetricsResult:
 
         Success Metrics (Phase 2D.2.1):
         - SNR Improvement: >15dB (for high-noise inputs)
-        - ViSQOL MOS: >4.0 (Excellent)  [PESQ/STOI verboten — §10.2]
-        - SI-SDR: >15dB (clean separation)
+        - ViSQOL MOS: >4.0 (Excellent)  [PESQ/STOI/SI-SDR verboten — §4.4/§10.2]
         - Breath Retention: >98% (authenticity preservation)
         - Transient Preservation: >95% (dynamic integrity)
         - Sibilance Retention: >95% (not over-deessed)
@@ -86,10 +82,6 @@ class QualityMetricsResult:
         # Perceptual standards
         if self.visqol_mos is not None:
             checks.append(self.visqol_mos > 4.0)
-
-        # Distortion standards
-        if self.si_sdr_db is not None:
-            checks.append(self.si_sdr_db > 15.0)
 
         # Authenticity standards (Phase 2D.2.1 Task 3)
         if self.breath_retention is not None:
@@ -143,16 +135,6 @@ class EnhancedMetrics:
         # ViSQOL is complex - requires C++ binary or API
         # For now, we'll implement a simplified version
         return False
-
-    # ============================================================
-    # SI-SDR (legacy compatibility stub)
-    # ============================================================
-
-    @staticmethod
-    def compute_si_sdr(reference: np.ndarray, estimate: np.ndarray, epsilon: float = 1e-8) -> float | None:
-        """Legacy compatibility stub: SI-SDR is forbidden for music quality evaluation (§4.4)."""
-        logger.warning("SI-SDR is forbidden for music quality evaluation (§4.4). Returning None.")
-        return None
 
     @staticmethod
     def compute_si_snr(reference: np.ndarray, estimate: np.ndarray, epsilon: float = 1e-8) -> float:
@@ -336,7 +318,6 @@ class EnhancedMetrics:
         snr_improvement = snr_restored - snr_original
 
         # Enhanced metrics (require reference comparison)
-        si_sdr = None
         si_snr = self.compute_si_snr(original, restored)
 
         # Perceptual metrics (may be None if libraries unavailable)
@@ -393,13 +374,9 @@ class EnhancedMetrics:
             snr_db=snr_restored,
             thd=thd_restored,
             lufs=lufs_restored,
-            pesq_mos=None,
             visqol_mos=visqol_mos,
-            si_sdr_db=si_sdr,
             si_snr_db=si_snr,
-            stoi_score=None,
             snr_improvement_db=snr_improvement,
-            si_sdr_improvement_db=None,  # Would need original SI-SDR
             breath_retention=breath_retention,
             transient_preservation=transient_preservation,
             plosive_retention=plosive_retention,
@@ -434,7 +411,6 @@ class EnhancedMetrics:
 
         # Improvement
         snr_improvement = snr_restored - snr_noisy
-        si_sdr_improvement = None
 
         # Full metrics with clean reference
         visqol_mos = self.compute_visqol(original_clean, restored, sr=sr)
@@ -450,44 +426,40 @@ class EnhancedMetrics:
             try:
                 breath_ret, _, _ = self.authenticity.compute_breath_retention(original_clean, restored, sr)
                 breath_retention = breath_ret
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("Breath retention (improvement) failed: %s", e)
 
             try:
                 trans_pres, _, _ = self.authenticity.compute_transient_preservation(original_clean, restored, sr)
                 transient_preservation = trans_pres
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("Transient preservation (improvement) failed: %s", e)
 
             try:
                 plos_ret, _, _ = self.authenticity.compute_plosive_retention(original_clean, restored, sr)
                 plosive_retention = plos_ret
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("Plosive retention (improvement) failed: %s", e)
 
             try:
                 sib_ret, _, _ = self.authenticity.compute_sibilance_retention(original_clean, restored, sr)
                 sibilance_retention = sib_ret
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("Sibilance retention (improvement) failed: %s", e)
 
             try:
                 room_ret, _, _ = self.authenticity.compute_room_tone_retention(original_clean, restored, sr)
                 room_tone_retention = room_ret
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("Room tone retention (improvement) failed: %s", e)
 
         return QualityMetricsResult(
             snr_db=snr_restored,
             thd=self.compute_thd(restored, sr),
             lufs=self.compute_lufs(restored, sr),
-            pesq_mos=None,
             visqol_mos=visqol_mos,
-            si_sdr_db=None,
             si_snr_db=self.compute_si_snr(original_clean, restored),
-            stoi_score=None,
             snr_improvement_db=snr_improvement,
-            si_sdr_improvement_db=si_sdr_improvement,
             breath_retention=breath_retention,
             transient_preservation=transient_preservation,
             plosive_retention=plosive_retention,
@@ -547,14 +519,11 @@ def generate_metrics_report(result: QualityMetricsResult, filename: str = "metri
     lines.append("")
 
     # Enhanced metrics
-    if any([result.visqol_mos, result.si_sdr_db]):
+    if result.visqol_mos is not None or result.si_snr_db is not None:
         lines.append("Enhanced Metrics:")
 
         if result.visqol_mos is not None:
             lines.append(f"  ViSQOL MOS: {result.visqol_mos:.2f} / 5.0")
-
-        if result.si_sdr_db is not None:
-            lines.append(f"  SI-SDR:     {result.si_sdr_db:.2f} dB")
 
         if result.si_snr_db is not None:
             lines.append(f"  SI-SNR:     {result.si_snr_db:.2f} dB")
@@ -562,15 +531,9 @@ def generate_metrics_report(result: QualityMetricsResult, filename: str = "metri
         lines.append("")
 
     # Improvement metrics
-    if result.snr_improvement_db is not None or result.si_sdr_improvement_db is not None:
+    if result.snr_improvement_db is not None:
         lines.append("Improvement Metrics:")
-
-        if result.snr_improvement_db is not None:
-            lines.append(f"  SNR Improvement:    {result.snr_improvement_db:+.2f} dB")
-
-        if result.si_sdr_improvement_db is not None:
-            lines.append(f"  SI-SDR Improvement: {result.si_sdr_improvement_db:+.2f} dB")
-
+        lines.append(f"  SNR Improvement: {result.snr_improvement_db:+.2f} dB")
         lines.append("")
 
     # Pass/Fail

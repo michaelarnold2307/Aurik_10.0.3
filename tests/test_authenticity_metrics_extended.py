@@ -172,7 +172,7 @@ class TestFingerNoiseDetector:
 
         assert detector.sensitivity == 0.7
         assert detector.freq_range == (2000.0, 6000.0)
-        assert isinstance(detector.metrics, dict)
+        assert detector.metrics is not None  # metrics is a typed dataclass result
 
     def test_initialization_with_params(self):
         """Test initialization with custom parameters"""
@@ -221,7 +221,7 @@ class TestBowNoiseDetector:
 
         assert detector.sensitivity == 0.6
         assert detector.freq_range == (1000.0, 8000.0)
-        assert isinstance(detector.metrics, dict)
+        assert detector.metrics is not None  # metrics is a typed dataclass result
 
     def test_initialization_with_params(self):
         """Test initialization with custom parameters"""
@@ -264,7 +264,7 @@ class TestPedalNoiseDetector:
 
         assert detector.sensitivity == 0.7
         assert detector.freq_range == (80.0, 400.0)
-        assert isinstance(detector.metrics, dict)
+        assert detector.metrics is not None  # metrics is a typed dataclass result
 
     def test_initialization_with_params(self):
         """Test initialization with custom parameters"""
@@ -307,7 +307,7 @@ class TestBrushTextureDetector:
 
         assert detector.sensitivity == 0.65
         assert detector.freq_range == (3000.0, 10000.0)
-        assert isinstance(detector.metrics, dict)
+        assert detector.metrics is not None  # metrics is a typed dataclass result
 
     def test_initialization_with_params(self):
         """Test initialization with custom parameters"""
@@ -350,7 +350,7 @@ class TestVinylCharacterDetector:
 
         assert detector.sensitivity == 0.75
         assert detector.thd_threshold == 0.05
-        assert isinstance(detector.metrics, dict)
+        assert detector.metrics is not None  # metrics is a typed dataclass result
 
     def test_initialization_with_params(self):
         """Test initialization with custom parameters"""

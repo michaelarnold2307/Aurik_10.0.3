@@ -31,7 +31,6 @@ import logging
 import math
 import threading
 from dataclasses import dataclass
-from typing import List, Optional, Tuple
 
 import numpy as np
 
@@ -229,7 +228,7 @@ class MusicalPhraseContextExtractor:
         phrase_beats = [b - p_start for b in beat_samples if p_start <= b < p_end]
 
         logger.info(
-            "🎵 PhraseContext: Phrase [%.2f–%.2f s] | Gap [%.3f–%.3f s] | " "BPM=%.1f | Beats=%d",
+            "🎵 PhraseContext: Phrase [%.2f–%.2f s] | Gap [%.3f–%.3f s] | BPM=%.1f | Beats=%d",
             p_start / sr,
             p_end / sr,
             gap_start / sr,
@@ -309,8 +308,8 @@ class MusicalPhraseContextExtractor:
                 bpm = float(tempos[0][0])
                 if 40.0 <= bpm <= 240.0:
                     return bpm
-        except Exception:
-            pass
+        except Exception as _exc:
+            logger.debug("Operation failed (non-critical): %s", _exc)
 
         # DSP-Fallback: Onset-Autokorrelation
         frame_len = 512
@@ -355,8 +354,8 @@ class MusicalPhraseContextExtractor:
             act = madmom.features.beats.RNNBeatProcessor()(audio.astype(np.float32))
             beat_secs = proc(act)
             return [int(b * sr) for b in beat_secs if 0 <= int(b * sr) < len(audio)]
-        except Exception:
-            pass
+        except Exception as _exc:
+            logger.debug("Operation failed (non-critical): %s", _exc)
 
         # Fallback: Gleichabstand
         beat_period = 60.0 / max(tempo_bpm, 1.0) * sr

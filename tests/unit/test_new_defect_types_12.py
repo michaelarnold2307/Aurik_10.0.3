@@ -7,6 +7,7 @@ and the 6 new repair phases (59–64).
 
 ≥ 35 tests across enum, detection, causal reasoning, and phase modules.
 """
+
 from __future__ import annotations
 
 import importlib
@@ -15,7 +16,7 @@ import os
 import numpy as np
 import pytest
 
-from backend.core.defect_scanner import DefectScanner, DefectType, MaterialType
+from backend.core.defect_scanner import DefectScanner, DefectType
 
 SR = 48_000
 
@@ -220,9 +221,21 @@ class TestCausalReasoner:
     @pytest.mark.parametrize(
         "material",
         [
-            "tape", "vinyl", "shellac", "digital", "unknown",
-            "mp3_low", "mp3_high", "aac", "cd_digital", "streaming",
-            "dat", "minidisc", "wax_cylinder", "lacquer_disc", "wire_recording",
+            "tape",
+            "vinyl",
+            "shellac",
+            "digital",
+            "unknown",
+            "mp3_low",
+            "mp3_high",
+            "aac",
+            "cd_digital",
+            "streaming",
+            "dat",
+            "minidisc",
+            "wax_cylinder",
+            "lacquer_disc",
+            "wire_recording",
         ],
     )
     def test_material_priors_have_all_new_causes(self, material: str) -> None:
@@ -240,11 +253,31 @@ class TestCausalReasoner:
 # ══════════════════════════════════════════════════════════════════════════════
 
 NEW_PHASE_MODULES = [
-    ("backend.core.phases.phase_59_modulation_noise_reduction", "ModulationNoiseReductionPhase", "phase_59_modulation_noise_reduction"),
-    ("backend.core.phases.phase_60_inner_groove_distortion_repair", "InnerGrooveDistortionRepairPhase", "phase_60_inner_groove_distortion_repair"),
-    ("backend.core.phases.phase_61_groove_echo_cancellation", "GrooveEchoCancellationPhase", "phase_61_groove_echo_cancellation"),
-    ("backend.core.phases.phase_62_crosstalk_cancellation", "CrosstalkCancellationPhase", "phase_62_crosstalk_cancellation"),
-    ("backend.core.phases.phase_63_intermodulation_reduction", "IntermodulationReductionPhase", "phase_63_intermodulation_reduction"),
+    (
+        "backend.core.phases.phase_59_modulation_noise_reduction",
+        "ModulationNoiseReductionPhase",
+        "phase_59_modulation_noise_reduction",
+    ),
+    (
+        "backend.core.phases.phase_60_inner_groove_distortion_repair",
+        "InnerGrooveDistortionRepairPhase",
+        "phase_60_inner_groove_distortion_repair",
+    ),
+    (
+        "backend.core.phases.phase_61_groove_echo_cancellation",
+        "GrooveEchoCancellationPhase",
+        "phase_61_groove_echo_cancellation",
+    ),
+    (
+        "backend.core.phases.phase_62_crosstalk_cancellation",
+        "CrosstalkCancellationPhase",
+        "phase_62_crosstalk_cancellation",
+    ),
+    (
+        "backend.core.phases.phase_63_intermodulation_reduction",
+        "IntermodulationReductionPhase",
+        "phase_63_intermodulation_reduction",
+    ),
     ("backend.core.phases.phase_64_tape_splice_repair", "TapeSpliceRepairPhase", "phase_64_tape_splice_repair"),
 ]
 
@@ -309,11 +342,11 @@ class TestNewPhases:
             audio = _test_audio(0.5)
 
         result = instance.process(audio=audio, sr=SR, strength=0.0)
-        np.testing.assert_allclose(result.audio, audio, atol=1e-5,
-                                   err_msg=f"{phase_id}: strength=0 not passthrough")
+        np.testing.assert_allclose(result.audio, audio, atol=1e-5, err_msg=f"{phase_id}: strength=0 not passthrough")
 
     def test_phase_59_apply_function(self) -> None:
         from backend.core.phases.phase_59_modulation_noise_reduction import apply
+
         audio = _test_audio(0.5)
         out = apply(audio, SR, strength=0.5)
         assert out.shape == audio.shape
@@ -321,6 +354,7 @@ class TestNewPhases:
 
     def test_phase_60_apply_function(self) -> None:
         from backend.core.phases.phase_60_inner_groove_distortion_repair import apply
+
         audio = _test_audio(0.5)
         out = apply(audio, SR, strength=0.5)
         assert out.shape == audio.shape
@@ -329,6 +363,7 @@ class TestNewPhases:
     def test_phase_62_mono_passthrough(self) -> None:
         """Crosstalk phase with mono input should pass through."""
         from backend.core.phases.phase_62_crosstalk_cancellation import CrosstalkCancellationPhase
+
         phase = CrosstalkCancellationPhase()
         mono = _test_audio(0.5)
         result = phase.process(audio=mono, sr=SR, strength=0.5)
@@ -345,11 +380,9 @@ class TestUV3PhaseSelection:
 
     def test_phase_selection_code_contains_new_phases(self) -> None:
         """Grep UV3 source for new phase references."""
-        uv3_path = os.path.join(
-            os.path.dirname(__file__), "..", "..", "backend", "core", "unified_restorer_v3.py"
-        )
+        uv3_path = os.path.join(os.path.dirname(__file__), "..", "..", "backend", "core", "unified_restorer_v3.py")
         uv3_path = os.path.normpath(uv3_path)
-        with open(uv3_path, "r", encoding="utf-8") as f:
+        with open(uv3_path, encoding="utf-8") as f:
             source = f.read()
 
         new_phase_ids = [
@@ -365,11 +398,9 @@ class TestUV3PhaseSelection:
 
     def test_phase_weights_contain_new_phases(self) -> None:
         """Verify _PHASE_WEIGHTS includes entries for phases 59–64."""
-        uv3_path = os.path.join(
-            os.path.dirname(__file__), "..", "..", "backend", "core", "unified_restorer_v3.py"
-        )
+        uv3_path = os.path.join(os.path.dirname(__file__), "..", "..", "backend", "core", "unified_restorer_v3.py")
         uv3_path = os.path.normpath(uv3_path)
-        with open(uv3_path, "r", encoding="utf-8") as f:
+        with open(uv3_path, encoding="utf-8") as f:
             source = f.read()
 
         for i in range(59, 65):
@@ -377,11 +408,9 @@ class TestUV3PhaseSelection:
 
     def test_defect_type_references_in_uv3(self) -> None:
         """UV3 source must reference all 12 new DefectTypes."""
-        uv3_path = os.path.join(
-            os.path.dirname(__file__), "..", "..", "backend", "core", "unified_restorer_v3.py"
-        )
+        uv3_path = os.path.join(os.path.dirname(__file__), "..", "..", "backend", "core", "unified_restorer_v3.py")
         uv3_path = os.path.normpath(uv3_path)
-        with open(uv3_path, "r", encoding="utf-8") as f:
+        with open(uv3_path, encoding="utf-8") as f:
             source = f.read()
 
         for name in NEW_DEFECT_TYPES:

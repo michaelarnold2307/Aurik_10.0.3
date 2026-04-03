@@ -1053,6 +1053,149 @@ class TestEmotionalitaetMetricV913Calibration:
         assert score >= 0.35, f"Signal with crest≈{crest_db:.1f}dB should score ≥ 0.35, got {score:.4f}"
 
 
+class TestEmotionalitaetMetricMERTBlend:
+    """Tests für EmotionalitaetMetric MERT-Blend (v9.10.98).
+
+    MERT naturalness_score wird als 15 %-Blend eingemischt, wenn MERT ML-Modell
+    geladen ist.  DSP-only-Pfad (dsp_fallback) bleibt unverändert.
+    """
+
+    SR = 48000
+
+    def _dynamic_audio(self) -> np.ndarray:
+        np.random.default_rng(7)
+        n = self.SR * 4
+        t = np.linspace(0, 4, n, endpoint=False)
+        env = 0.5 + 0.5 * np.sin(2 * np.pi * 0.5 * t)
+        sig = env * np.sin(2 * np.pi * 440 * t)
+        return (sig / (np.max(np.abs(sig)) + 1e-10)).astype(np.float32)
+
+    def _mock_mert(self, model_type: str, naturalness: float):
+        """Returns (mock_mert, mock_analysis) pair with configured attributes.
+
+        Sets both naturalness_score (EmotionalitaetMetric) and harmonicity
+        (WaermeMetric) to the same value for unified test parametrization.
+        """
+        from unittest.mock import MagicMock
+
+        mock_analysis = MagicMock()
+        mock_analysis.naturalness_score = naturalness
+        mock_analysis.harmonicity = naturalness  # WaermeMetric uses harmonicity
+        mock_mert = MagicMock()
+        mock_mert._model_type = model_type
+        mock_mert.analyze.return_value = mock_analysis
+        return mock_mert, mock_analysis
+
+    def test_dsp_fallback_blend_skipped(self):
+        """DSP-only-Pfad (_model_type=='dsp_fallback'): analyze() must not be called."""
+        from unittest.mock import patch
+
+        audio = self._dynamic_audio()
+        mock_mert, mock_analysis = self._mock_mert("dsp_fallback", 1.0)
+
+        with patch("plugins.mert_plugin.get_mert_plugin", return_value=mock_mert):
+            EmotionalitaetMetric().measure(audio, self.SR)
+
+        mock_mert.analyze.assert_not_called()
+
+    def test_mert_ml_blend_applied(self):
+        """MERT ML model loaded: one-directional blend raises low scores.
+
+        Both calls use mocked get_mert_plugin to decouple from real MERT availability.
+        One-directional blend: MERT only raises score when naturalness > DSP score.
+        """
+        from unittest.mock import patch
+
+        audio = self._dynamic_audio()
+
+        # Get DSP-only baseline (dsp_fallback → no blend)
+        mock_fallback, _ = self._mock_mert("dsp_fallback", 0.0)
+        with patch("plugins.mert_plugin.get_mert_plugin", return_value=mock_fallback):
+            dsp_baseline = EmotionalitaetMetric().measure(audio, self.SR)
+
+        # With naturalness > dsp_baseline: blend raises score
+        mock_high, _ = self._mock_mert("mert_hf", 1.0)  # maximum naturalness
+        with patch("plugins.mert_plugin.get_mert_plugin", return_value=mock_high):
+            score_high = EmotionalitaetMetric().measure(audio, self.SR)
+
+        # With naturalness < dsp_baseline: one-directional → score unchanged
+        mock_low, _ = self._mock_mert("mert_hf", 0.0)  # minimum naturalness
+        with patch("plugins.mert_plugin.get_mert_plugin", return_value=mock_low):
+            score_low = EmotionalitaetMetric().measure(audio, self.SR)
+
+        # High naturalness must lift score above DSP baseline
+        assert score_high >= dsp_baseline, (
+            f"MERT naturalness=1.0 should lift score: high={score_high:.4f} >= baseline={dsp_baseline:.4f}"
+        )
+        # Low naturalness must NOT reduce DSP baseline (one-directional)
+        assert abs(score_low - dsp_baseline) < 1e-9, (
+            f"MERT naturalness=0.0 must not reduce DSP score: low={score_low:.6f}, baseline={dsp_baseline:.6f}"
+        )
+
+    def test_mert_blend_score_range(self):
+        """Blended score must stay in [0, 1] regardless of naturalness_score."""
+        from unittest.mock import patch
+
+        for naturalness in [0.0, 0.5, 1.0]:
+            mock_mert, _ = self._mock_mert("mert_hf", naturalness)
+            with patch("plugins.mert_plugin.get_mert_plugin", return_value=mock_mert):
+                score = EmotionalitaetMetric().measure(self._dynamic_audio(), self.SR)
+            assert 0.0 <= score <= 1.0, f"Score {score} out of range for naturalness={naturalness}"
+
+    def test_mert_exception_graceful_fallback(self):
+        """MERT exception must not change score vs dsp_fallback path."""
+        from unittest.mock import patch
+
+        audio = self._dynamic_audio()
+
+        # Reference: dsp_fallback (blend skipped)
+        mock_fallback, _ = self._mock_mert("dsp_fallback", 0.99)
+        with patch("plugins.mert_plugin.get_mert_plugin", return_value=mock_fallback):
+            score_ref = EmotionalitaetMetric().measure(audio, self.SR)
+
+        # Exception path: MERT crashes → except catches → same DSP-only score
+        with patch("plugins.mert_plugin.get_mert_plugin", side_effect=RuntimeError("MERT crash")):
+            score_exc = EmotionalitaetMetric().measure(audio, self.SR)
+
+        assert abs(score_exc - score_ref) < 1e-9, (
+            f"MERT exception must yield same score as dsp_fallback: exc={score_exc:.6f}, ref={score_ref:.6f}"
+        )
+
+    def test_waerme_mert_guard_uses_model_type(self):
+        """Regression: WaermeMetric guard must use _model_type (not _session).
+
+        Before v9.10.98, the guard was `hasattr(mert, '_session') and mert._session is not None`.
+        MertPlugin has no _session attribute → blend was never executed (dead code).
+        Fixed guard: `mert._model_type != 'dsp_fallback'`.
+        Note: WaermeMetric MERT blend runs only in the reference-aware path (not when
+        reference=None), so a reference audio must be passed to exercise the guard.
+        """
+        from unittest.mock import patch
+
+        audio = self._dynamic_audio()
+        reference = self._dynamic_audio() * 0.95  # slightly different reference
+
+        # nat=0.0 → harmonicity pulled down; nat=1.0 → harmonicity pulled up
+        mock_nat0, _ = self._mock_mert("mert_hf", 0.0)
+        with patch("plugins.mert_plugin.get_mert_plugin", return_value=mock_nat0):
+            score_nat0 = WaermeMetric().measure(audio, self.SR, reference=reference)
+
+        mock_nat1, _ = self._mock_mert("mert_hf", 1.0)
+        with patch("plugins.mert_plugin.get_mert_plugin", return_value=mock_nat1):
+            score_nat1 = WaermeMetric().measure(audio, self.SR, reference=reference)
+
+        # Guard fixed → both calls invoke analyze()
+        with patch("plugins.mert_plugin.get_mert_plugin", return_value=mock_nat1):
+            WaermeMetric().measure(audio, self.SR, reference=reference)
+        mock_nat1.analyze.assert_called()
+
+        # 10% blend → delta = 0.10 * (1.0 - 0.0) = 0.10
+        assert score_nat1 > score_nat0, "WaermeMetric MERT blend: nat1 should be higher than nat0"
+        assert abs((score_nat1 - score_nat0) - 0.10) < 0.001, (
+            f"WaermeMetric blend delta should be 0.10, got {score_nat1 - score_nat0:.4f}"
+        )
+
+
 class TestTransparenzMetricV913Calibration:
     """Regression-Tests für TransparenzMetric contrast_score-Kalibrierung v9.13.
 

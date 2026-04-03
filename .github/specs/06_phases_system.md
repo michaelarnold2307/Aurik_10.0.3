@@ -1,6 +1,6 @@
 # Aurik 9 — Spec 06: Phasen-System
 
-> Vollständige Phase-Liste (Phase 01–56), CAUSE_TO_PHASES-Mapping,
+> Vollständige Phase-Liste (Phase 01–64), CAUSE_TO_PHASES-Mapping,
 > PhaseInterface-Pattern, Namenskonvention für neue Phasen.
 
 ---
@@ -65,11 +65,33 @@ phase_54_transparent_dynamics.py    Transparente Dynamik-Verarbeitung
 phase_55_diffusion_inpainting.py    DiffWave / CQTdiff+ / FlowMatching Inpainting
 phase_56_spectral_band_gap_repair.py HEAD_WEAR: Frequenzband-Lücken-Reparatur
                                     (SpectralBandGapRepair — nur bei conf ≥ 0.55)
-phase_57_lyrics_guided_enhancement.py Lyrics-gestütztes Enhancement
+phase_57_print_through_reduction.py  Print-Through-Reduktion
+                                    (bidirektionale LMS: Pre-/Post-Echo getrennt)
+phase_58_lyrics_guided_enhancement.py Lyrics-gestütztes Enhancement
                                     (Whisper-Tiny ONNX → wav2vec2-Phonem-Alignment →
                                      ContentAwareProcessor; Latenz ≤ 8 s/min;
+                                     produktiver Pfad ausschließlich über
+                                     backend/core/lyrics_guided_enhancement.py;
                                      aktiviert wenn Vocals erkannt; §2.36 PFLICHT)
+phase_59_modulation_noise_reduction.py Modulationsrauschen-Reduktion
+                                    (signalabhängige Rauschminderung bei Bandaufnahmen)
+phase_60_inner_groove_distortion_repair.py Inner-Groove-Distortion-Reparatur
+                                    (positionsadaptive THD/Asymmetrie-Korrektur)
+phase_61_groove_echo_cancellation.py Groove-Echo-Kompensation
+                                    (template-basierte Vinyl-Vorecho-Unterdrückung)
+phase_62_crosstalk_cancellation.py   Crosstalk-Kompensation
+                                    (BSS-basierte Kanalentflechtung)
+phase_63_intermodulation_reduction.py Intermodulations-Reduktion
+                                    (Volterra-basierte IMD-Tilgung)
+phase_64_tape_splice_repair.py       Tape-Splice-Reparatur
+                                    (Klick-, Pegel- und Phasendiskontinuität an Klebestellen)
 ```
+
+**Phase-58-Datenvertrag (bindend ab v9.10.100):**
+
+- Persistiert oder geloggt werden dürfen nur Segmentzeiten, `phoneme_type`, Konfidenzen, Fallback-Flags und aggregierte Zähler.
+- Verboten sind Worttext, Transkript, Voll-Lyrics und Roh-Alignment-Tokens in `RestorationResult.metadata`, Checkpoints, Logger-Ausgaben und Debug-UI.
+- Legacy-/Forschungsimplementierungen unter `backend/lyrics_guided/` sind nicht Teil des produktiven Phase-58-Vertrags.
 
 ---
 
@@ -105,8 +127,8 @@ CAUSE_TO_PHASES = {
     "phase_issues":              ["phase_14_phase_correction", "phase_25_azimuth_correction"],
     "pitch_drift":               ["phase_31_speed_pitch_correction", "phase_12_wow_flutter_fix"],
     "reverb_excess":             ["phase_20_reverb_reduction", "phase_49_advanced_dereverb"],
-    "print_through":             ["phase_29_tape_hiss_reduction", "phase_24_dropout_repair",
-                                  "phase_03_denoise", "phase_23_spectral_repair"],
+    "print_through":             ["phase_57_print_through_reduction", "phase_29_tape_hiss_reduction",
+                                  "phase_24_dropout_repair", "phase_03_denoise", "phase_23_spectral_repair"],
     "digital_artifacts":         ["phase_23_spectral_repair", "phase_50_spectral_repair",
                                   "phase_06_frequency_restoration"],
     "compression_artifacts":     ["phase_23_spectral_repair", "phase_50_spectral_repair",
@@ -146,6 +168,36 @@ CAUSE_TO_PHASES = {
     # Vocal-Harshness (v9.10.77 — Vokal-Härte/Übersteuerung/Kratzigkeit):
     "vocal_harshness":           ["phase_42_vocal_enhancement", "phase_19_de_esser",
                                   "phase_43_ml_deesser", "phase_23_spectral_repair"],
+    # Neu v9.10.97/98:
+    "tape_start_instability":    ["phase_12_wow_flutter_fix", "phase_25_azimuth_correction",
+                                  "phase_31_speed_pitch_correction", "phase_14_phase_correction",
+                                  "phase_24_dropout_repair"],
+    "tape_head_contact_instability": ["phase_12_wow_flutter_fix", "phase_24_dropout_repair",
+                                  "phase_26_dynamic_range_expansion"],
+    "modulation_noise":          ["phase_59_modulation_noise_reduction", "phase_03_denoise",
+                                  "phase_29_tape_hiss_reduction"],
+    "inner_groove_distortion":   ["phase_60_inner_groove_distortion_repair", "phase_23_spectral_repair",
+                                  "phase_04_eq_correction"],
+    "groove_echo":               ["phase_61_groove_echo_cancellation", "phase_20_reverb_reduction",
+                                  "phase_03_denoise"],
+    "crosstalk":                 ["phase_62_crosstalk_cancellation", "phase_14_phase_correction",
+                                  "phase_34_mid_side_processing"],
+    "intermodulation_distortion": ["phase_63_intermodulation_reduction", "phase_23_spectral_repair",
+                                  "phase_04_eq_correction"],
+    "tape_splice_artifact":      ["phase_64_tape_splice_repair", "phase_01_click_removal",
+                                  "phase_24_dropout_repair"],
+    "hf_remanence_loss":         ["phase_06_frequency_restoration", "phase_23_spectral_repair",
+                                  "phase_04_eq_correction"],
+    "stylus_damage":             ["phase_09_crackle_removal", "phase_23_spectral_repair",
+                                  "phase_60_inner_groove_distortion_repair"],
+    "sticky_shed_residue":       ["phase_24_dropout_repair", "phase_29_tape_hiss_reduction",
+                                  "phase_03_denoise"],
+    "multiband_wow_flutter":     ["phase_12_wow_flutter_fix", "phase_31_speed_pitch_correction",
+                                  "phase_08_transient_preservation"],
+    "generation_loss":           ["phase_06_frequency_restoration", "phase_03_denoise",
+                                  "phase_23_spectral_repair", "phase_04_eq_correction"],
+    "motor_interference":        ["phase_02_hum_removal", "phase_03_denoise",
+                                  "phase_29_tape_hiss_reduction", "phase_04_eq_correction"],
 }
 # PFLICHT: Jede neue Ursache → Eintrag hier UND in allen Material-Prior-Tabellen des DefectScanners.
 ```
@@ -271,4 +323,4 @@ audio_full = _run_phase(phase, audio, strength=1.0, kwargs)  # einmal
 audio_retry = _wet_dry_blend(audio, audio_full, retry_strength)
 ```
 
-> **Invariante**: `phase_57_lyrics_guided_enhancement` ist NICHT ML-deterministisch im PMGG-Sinne — sie operiert als Post-Processing-Modul nach der PMGG-Kette und unterliegt eigenen Retry-Regeln (§2.36).
+> **Invariante**: `phase_58_lyrics_guided_enhancement` ist NICHT ML-deterministisch im PMGG-Sinne — sie operiert als Post-Processing-Modul nach der PMGG-Kette und unterliegt eigenen Retry-Regeln (§2.36).

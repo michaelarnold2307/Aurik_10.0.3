@@ -13,7 +13,6 @@ import logging
 import math
 import threading
 from dataclasses import dataclass, field
-from typing import List, Optional
 
 import numpy as np
 

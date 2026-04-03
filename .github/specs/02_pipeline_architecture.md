@@ -83,7 +83,7 @@ class StemRemixBalancer:
 ### §2.2.0 Sample-Rate-Vertrag (Dual-SR, [RELEASE_MUST])
 
 - `analysis_sr = import_sr` (native): DefectScanner, RestorabilityEstimator, EraClassifier, MediumClassifier, classify_clipping/analyse_clipping.
-- `processing_sr = 48000`: alle Verarbeitungsphasen (01–57), PMGG, ML-Plugins, Export-Gates.
+- `processing_sr = 48000`: alle Verarbeitungsphasen (01–64), PMGG, ML-Plugins, Export-Gates.
 - Es müssen zwei getrennte Datenpfade geführt werden: `analysis_audio` (native SR) und `processing_audio` (48 kHz).
 - Wenn die Normierung `import_sr -> 48000` fehlschlägt, MUSS die Verarbeitung fail-fast abbrechen; ein Weiterlauf der Phasen auf Nicht-48k ist unzulässig.
 - Resampling darf nur `processing_audio` betreffen; `analysis_audio` bleibt unverändert in nativer SR.

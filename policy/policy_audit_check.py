@@ -22,8 +22,8 @@ for policy in policies:
     sota_required = policy["compliance"].get("sota_required", False)
 
     # Suche nach Audit-Reports für diese Medienart (YAML und JSON, inkl. Kombis/Härtefälle)
-    audit_files_yaml = [f for f in glob(os.path.join(AUDIT_DIR, f"*{media}*.yaml"))]
-    audit_files_json = [f for f in glob(os.path.join(AUDIT_DIR, f"*{media}*.json"))]
+    audit_files_yaml = list(glob(os.path.join(AUDIT_DIR, f"*{media}*.yaml")))
+    audit_files_json = list(glob(os.path.join(AUDIT_DIR, f"*{media}*.json")))
     audit_files = audit_files_yaml + audit_files_json
     audits_ok = len(audit_files) > 0 if audit_required else True
     failed_audits = []

@@ -207,7 +207,7 @@ class MainWindow(QMainWindow):
         from .modern_window import get_accent_colors
 
         # Modus bestimmen (Restoration/Studio 2026)
-        mode = "export" if self.mode_combo.currentData() == "Studio 2026" else "import"
+        "export" if self.mode_combo.currentData() == "Studio 2026" else "import"
         self._accent = get_accent_colors(self.mode_combo.currentData())
         """Initialize user interface"""
         self.setWindowTitle(t("legacy.main.window_title"))

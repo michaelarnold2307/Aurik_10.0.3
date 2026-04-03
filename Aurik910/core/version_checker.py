@@ -7,9 +7,8 @@ this module never transmits user data; it only fetches a single JSON endpoint.
 import json
 import logging
 import threading
-from typing import Optional, Tuple
-from urllib.request import Request, urlopen
 from urllib.error import URLError
+from urllib.request import Request, urlopen
 
 logger = logging.getLogger(__name__)
 
@@ -25,7 +24,7 @@ _lock = threading.Lock()
 class VersionCheckResult:
     """Immutable result of a version check."""
 
-    __slots__ = ("available", "latest_version", "current_version", "download_url", "release_notes", "error")
+    __slots__ = ("available", "current_version", "download_url", "error", "latest_version", "release_notes")
 
     def __init__(
         self,
@@ -44,7 +43,7 @@ class VersionCheckResult:
         self.error = error
 
 
-def _parse_version(v: str) -> Tuple[int, ...]:
+def _parse_version(v: str) -> tuple[int, ...]:
     """Parse 'v9.10.77' or '9.10.77' into comparable tuple."""
     v = v.lstrip("vV").strip()
     parts = []
@@ -56,7 +55,7 @@ def _parse_version(v: str) -> Tuple[int, ...]:
     return tuple(parts)
 
 
-def check_for_update(current_version: Optional[str] = None) -> VersionCheckResult:
+def check_for_update(current_version: str | None = None) -> VersionCheckResult:
     """Synchronous update check. Call from a background thread.
 
     Returns VersionCheckResult with .available=True if a newer version exists.
@@ -109,6 +108,7 @@ def check_for_update_async(callback) -> None:
         callback: Called with VersionCheckResult on the calling thread's context.
                   For Qt, wrap with QTimer.singleShot(0, ...) in the callback.
     """
+
     def _worker():
         result = check_for_update()
         if callback:

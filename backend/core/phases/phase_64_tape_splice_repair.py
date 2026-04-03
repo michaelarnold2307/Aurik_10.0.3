@@ -21,7 +21,6 @@ import logging
 import time as _time
 
 import numpy as np
-import scipy.signal as sps
 
 logger = logging.getLogger(__name__)
 
@@ -64,10 +63,11 @@ def apply(
         return np.clip(audio, -1.0, 1.0).astype(np.float32)
 
     frames = np.lib.stride_tricks.as_strided(
-        x, shape=(n_frames, frame_len),
+        x,
+        shape=(n_frames, frame_len),
         strides=(x.strides[0] * hop, x.strides[0]),
     ).copy()
-    rms_env = np.sqrt(np.mean(frames ** 2, axis=1) + 1e-12)
+    rms_env = np.sqrt(np.mean(frames**2, axis=1) + 1e-12)
     rms_db = 20.0 * np.log10(rms_env + 1e-12)
 
     # Level jumps > 6 dB
@@ -83,19 +83,19 @@ def apply(
             continue
 
         # Check for impulsive energy at boundary
-        boundary = x[sample_idx - 32: sample_idx + 32]
+        boundary = x[sample_idx - 32 : sample_idx + 32]
         if len(boundary) < 64:
             continue
         hf_spec = np.abs(np.fft.rfft(boundary))
-        hf_energy = float(np.sum(hf_spec[len(hf_spec) // 2:] ** 2))
-        total_energy = float(np.sum(hf_spec ** 2)) + 1e-12
+        hf_energy = float(np.sum(hf_spec[len(hf_spec) // 2 :] ** 2))
+        total_energy = float(np.sum(hf_spec**2)) + 1e-12
         hf_ratio = hf_energy / total_energy
 
         # Check persistence (level change lasts > 50 ms)
         persist_frames = min(5, n_frames - ji - 1)
         if persist_frames > 2:
-            post = rms_db[ji + 1: ji + 1 + persist_frames]
-            pre = rms_db[max(0, ji - persist_frames): ji]
+            post = rms_db[ji + 1 : ji + 1 + persist_frames]
+            pre = rms_db[max(0, ji - persist_frames) : ji]
             if len(post) > 0 and len(pre) > 0:
                 level_persist = abs(float(np.mean(post)) - float(np.mean(pre)))
                 if hf_ratio > 0.15 and level_persist > 3.0:
@@ -132,7 +132,7 @@ def apply(
             if fade_len > 0:
                 fade = np.linspace(gain_ratio, 1.0, fade_len)
                 blend = float(np.clip(strength * 0.5, 0.0, 0.5))
-                out[sp: sp + fade_len] *= (1.0 - blend) + blend * fade
+                out[sp : sp + fade_len] *= (1.0 - blend) + blend * fade
 
     result = np.nan_to_num(out, nan=0.0, posinf=0.0, neginf=0.0)
     return np.clip(result, -1.0, 1.0).astype(np.float32)
@@ -185,6 +185,8 @@ class TapeSpliceRepairPhase(PhaseInterface):
             audio=result_audio,
             success=True,
             execution_time_seconds=elapsed,
-            metrics={"splice_score": float((_defect_scores or {}).get("tape_splice_artifact", 0.0)),
-                     "strength": strength},
+            metrics={
+                "splice_score": float((_defect_scores or {}).get("tape_splice_artifact", 0.0)),
+                "strength": strength,
+            },
         )

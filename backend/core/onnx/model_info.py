@@ -41,14 +41,13 @@ class ModelInfo:
 
         if self.model_type not in ["denoising", "separation", "enhancement", "analysis"]:
             raise ValueError(
-                f"Invalid model_type: {self.model_type}. "
-                "Must be one of: denoising, separation, enhancement, analysis"
+                f"Invalid model_type: {self.model_type}. Must be one of: denoising, separation, enhancement, analysis"
             )
 
         if self.sample_rate not in [16000, 22050, 32000, 44100, 48000, 96000]:
             import warnings
 
-            warnings.warn(f"Unusual sample rate: {self.sample_rate} Hz. " f"Typical rates: 16k, 44.1k, 48k")
+            warnings.warn(f"Unusual sample rate: {self.sample_rate} Hz. Typical rates: 16k, 44.1k, 48k")
 
 
 class ONNXModelStatus(Enum):

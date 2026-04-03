@@ -62,7 +62,6 @@ def _stereo(dur: float = 2.0) -> np.ndarray:
 # Testklasse §2.27
 # ---------------------------------------------------------------------------
 class TestTransientDecoupledProcessor:
-
     # --- Singleton -----------------------------------------------------------
 
     def test_01_singleton_returns_same_instance(self):

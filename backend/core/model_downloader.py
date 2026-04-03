@@ -408,8 +408,8 @@ class ModelDownloader:
             try:
                 with open(_SOTA_MANIFEST, encoding="utf-8") as fh:
                     data = json.load(fh)
-            except (json.JSONDecodeError, OSError):
-                pass
+            except (json.JSONDecodeError, OSError) as _exc:
+                logger.debug("Operation failed (non-critical): %s", _exc)
         data.setdefault(model_name, {})["sha256"] = sha256
         try:
             with open(_SOTA_MANIFEST, "w", encoding="utf-8") as fh:

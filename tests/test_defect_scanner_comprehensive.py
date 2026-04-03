@@ -265,7 +265,7 @@ def test_top_defects_ranking(defect_scanner, audio_with_clicks, sample_rate):
 
     print("   Top 3 Defects:")
     for i, defect in enumerate(top_defects):
-        print(f"      {i+1}. {defect.defect_type.value:20s}: {defect.severity:.3f}")
+        print(f"      {i + 1}. {defect.defect_type.value:20s}: {defect.severity:.3f}")
 
     assert len(top_defects) == 3
     # Should be sorted by severity

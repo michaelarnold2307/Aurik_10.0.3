@@ -19,7 +19,6 @@ import threading
 import numpy as np
 import pytest
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -56,9 +55,7 @@ def complex_tone(sr):
     """1 s complex tone (200 + 400 + 800 Hz) at 48 kHz."""
     t = np.linspace(0, 1.0, sr, endpoint=False)
     return (
-        0.5 * np.sin(2 * np.pi * 200.0 * t)
-        + 0.3 * np.sin(2 * np.pi * 400.0 * t)
-        + 0.2 * np.sin(2 * np.pi * 800.0 * t)
+        0.5 * np.sin(2 * np.pi * 200.0 * t) + 0.3 * np.sin(2 * np.pi * 400.0 * t) + 0.2 * np.sin(2 * np.pi * 800.0 * t)
     ).astype(np.float64)
 
 
@@ -317,15 +314,9 @@ class TestTFSKnownBehaviour:
         """Degrading only 200 Hz band should lower coherence for that band
         but not for 1 kHz band."""
         t = np.linspace(0, 1.0, sr, endpoint=False)
-        orig = (
-            0.5 * np.sin(2 * np.pi * 200.0 * t)
-            + 0.5 * np.sin(2 * np.pi * 1000.0 * t)
-        )
+        orig = 0.5 * np.sin(2 * np.pi * 200.0 * t) + 0.5 * np.sin(2 * np.pi * 1000.0 * t)
         # Replace 200 Hz component with shifted version
-        degraded = (
-            0.5 * np.sin(2 * np.pi * 200.0 * t + np.pi / 3)
-            + 0.5 * np.sin(2 * np.pi * 1000.0 * t)
-        )
+        degraded = 0.5 * np.sin(2 * np.pi * 200.0 * t + np.pi / 3) + 0.5 * np.sin(2 * np.pi * 1000.0 * t)
         result = guard.measure(orig, degraded, sr)
         # Should have some degradation but not total
         assert 0.2 < result.mean_coherence < 0.99
@@ -346,7 +337,7 @@ class TestTFSKnownBehaviour:
         """
         t = np.linspace(0, 1.0, sr, endpoint=False)
         # Chirp sweeping 200 → 1200 Hz
-        phase = 2 * np.pi * (200.0 * t + 0.5 * (1200.0 - 200.0) * t ** 2)
+        phase = 2 * np.pi * (200.0 * t + 0.5 * (1200.0 - 200.0) * t**2)
         orig = np.sin(phase)
         reversed_sig = orig[::-1].copy()
         result = guard.measure(orig, reversed_sig, sr)

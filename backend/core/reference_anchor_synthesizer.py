@@ -20,7 +20,6 @@ import logging
 import threading
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
 
 import numpy as np
 

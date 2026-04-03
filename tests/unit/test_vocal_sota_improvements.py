@@ -30,13 +30,13 @@ SR = 48_000
 
 # ─── helpers ──────────────────────────────────────────────────────────────────
 
+
 def _sine(freq_hz: float, n: int = SR, amp: float = 0.4) -> np.ndarray:
     t = np.arange(n, dtype=np.float64) / SR
     return (amp * np.sin(2.0 * np.pi * freq_hz * t)).astype(np.float32)
 
 
-def _harmonic_voice(f0: float = 200.0, n_harmonics: int = 8,
-                    n: int = SR, amp: float = 0.4) -> np.ndarray:
+def _harmonic_voice(f0: float = 200.0, n_harmonics: int = 8, n: int = SR, amp: float = 0.4) -> np.ndarray:
     """Synthesise a harmonic-only voice (low AP = modal phonation)."""
     t = np.arange(n, dtype=np.float64) / SR
     sig = np.zeros(n)
@@ -45,9 +45,9 @@ def _harmonic_voice(f0: float = 200.0, n_harmonics: int = 8,
     return sig.astype(np.float32)
 
 
-def _breathy_voice(f0: float = 200.0, n: int = SR,
-                   harmonic_amp: float = 0.2, noise_amp: float = 0.3,
-                   seed: int = 42) -> np.ndarray:
+def _breathy_voice(
+    f0: float = 200.0, n: int = SR, harmonic_amp: float = 0.2, noise_amp: float = 0.3, seed: int = 42
+) -> np.ndarray:
     """Synthesise voice with high aperiodicity (breathy)."""
     rng = np.random.default_rng(seed)
     harmonic = _harmonic_voice(f0, n=n, amp=harmonic_amp).astype(np.float64)
@@ -58,19 +58,20 @@ def _breathy_voice(f0: float = 200.0, n: int = SR,
 def _formant_freqs_with_cluster(has_cluster: bool, n_frames: int = 50) -> np.ndarray:
     """Return (n_frames, 5) array with or without F4/F5 clustering at 2800-3200 Hz."""
     ff = np.zeros((n_frames, 5))
-    ff[:, 0] = 500.0   # F1
+    ff[:, 0] = 500.0  # F1
     ff[:, 1] = 1500.0  # F2
     ff[:, 2] = 2100.0  # F3
     if has_cluster:
-        ff[:, 3] = 2900.0   # F4 — Singer's formant cluster
-        ff[:, 4] = 3100.0   # F5 — Singer's formant cluster
+        ff[:, 3] = 2900.0  # F4 — Singer's formant cluster
+        ff[:, 4] = 3100.0  # F5 — Singer's formant cluster
     else:
-        ff[:, 3] = 3800.0   # F4 — outside range
-        ff[:, 4] = 4500.0   # F5 — outside range
+        ff[:, 3] = 3800.0  # F4 — outside range
+        ff[:, 4] = 4500.0  # F5 — outside range
     return ff
 
 
 # ─── 1. WORLD formant correction ─────────────────────────────────────────────
+
 
 class TestWorldFormantCorrection:
     """12 tests for _warp_sp_frame and WORLD correct() branch."""
@@ -78,6 +79,7 @@ class TestWorldFormantCorrection:
     @pytest.fixture
     def corrector(self):
         from dsp.formant_system import FormantCorrector
+
         return FormantCorrector(max_drift_hz=50.0, correction_strength=0.7)
 
     def test_warp_sp_frame_zero_shift_identity(self, corrector):
@@ -123,9 +125,7 @@ class TestWorldFormantCorrection:
         out = corrector._warp_sp_frame(sp, freq_axis, src, tgt)
         # After upward shift: energy near tgt_f should be elevated vs. flat baseline
         tgt_bin = int(600.0 / (SR / 2.0) * (n_bins - 1))
-        assert out[tgt_bin] > out[peak_bin], (
-            "Warped SP should show elevated energy near target frequency"
-        )
+        assert out[tgt_bin] > out[peak_bin], "Warped SP should show elevated energy near target frequency"
 
     def test_warp_sp_frame_zero_formant_noop(self, corrector):
         """src or tgt = 0 → that formant pair is skipped (no change)."""
@@ -174,6 +174,7 @@ class TestWorldFormantCorrection:
     def test_correct_strength_zero_passthrough(self, corrector):
         """correction_strength=0 → output == input."""
         from dsp.formant_system import FormantCorrector
+
         zero_corrector = FormantCorrector(max_drift_hz=50.0, correction_strength=0.0)
         n = SR // 4
         audio = _harmonic_voice(n=n).astype(np.float64)
@@ -201,12 +202,14 @@ class TestWorldFormantCorrection:
 
 # ─── 2. WORLD HNR breathiness ────────────────────────────────────────────────
 
+
 class TestWorldHnrBreathiness:
     """10 tests for _detect_breathiness WORLD-HNR vs DSP fallback."""
 
     @pytest.fixture
     def detector(self):
         from backend.core.vocal_ai_enhancement import GenderDetector
+
         return GenderDetector(sample_rate=SR)
 
     def test_output_in_range_modal(self, detector):
@@ -245,9 +248,7 @@ class TestWorldHnrBreathiness:
         breathy = _breathy_voice(f0=200.0, n=SR, harmonic_amp=0.1, noise_amp=0.4)
         score_modal = detector._detect_breathiness(modal)
         score_breathy = detector._detect_breathiness(breathy)
-        assert score_breathy > score_modal, (
-            f"Breathy {score_breathy:.3f} should exceed modal {score_modal:.3f}"
-        )
+        assert score_breathy > score_modal, f"Breathy {score_breathy:.3f} should exceed modal {score_modal:.3f}"
 
     def test_white_noise_high_breathiness(self, detector):
         """Pure white noise = fully aperiodic → breathiness near 1."""
@@ -273,12 +274,14 @@ class TestWorldHnrBreathiness:
 
 # ─── 3. Singer's Formant narrowing ───────────────────────────────────────────
 
+
 class TestSingersFormantNarrowing:
     """10 tests for bandwidth=250 Hz and conditional enhancement."""
 
     @pytest.fixture
     def enhancer(self):
         from dsp.formant_system import SingersFormantEnhancer
+
         return SingersFormantEnhancer()
 
     def test_default_bandwidth_250(self, enhancer):

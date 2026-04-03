@@ -3,6 +3,9 @@ ConfidenceEngine: Berechnet Confidence-Werte für jedes Processing-Modul.
 """
 
 import contextlib
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class ConfidenceEngine:
@@ -38,8 +41,8 @@ class ConfidenceEngine:
 
                     snr_norm = 1.0 / (1.0 + math.exp(-0.1 * (float(snr) - 20.0)))
                     conf *= 0.4 + 0.6 * snr_norm
-                except (TypeError, ValueError):
-                    pass
+                except (TypeError, ValueError) as _exc:
+                    logger.debug("Operation failed (non-critical): %s", _exc)
             # Artefakt-Penalty
             artifact = out.get("artifact_score", None)
             if artifact is not None:

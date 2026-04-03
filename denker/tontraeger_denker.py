@@ -183,6 +183,7 @@ class TontraegerDenker:
             return self._fallback_result()
 
         import os as _os
+
         _file_ext = _os.path.splitext(file_path)[1] if file_path else ""
 
         try:

@@ -428,7 +428,7 @@ def _nmf_beta_refine(
         W_context_T = W_context.T  # [n_context_bins × n_frames]
         model.fit(W_context_T)
         H = model.components_  # [n_components × n_frames]
-        model.components_.mean(axis=1, keepdims=True).T  # Fallback
+        # Fallback: model.components_.mean(axis=1, keepdims=True).T
 
         # Rekonstruktion für Lücken-Bins
         mag_out = stft_mag.copy()
@@ -549,6 +549,8 @@ class SpectralBandGapRepairPhase(PhaseInterface):
 
         instrument_tag: str = kwargs.get("instrument_tag", self.instrument_tag)
         sr = self._sample_rate
+        # §2.36a: PhonemeTimeline formant-target for vowel-dominant segments
+        self._current_phoneme_timeline = kwargs.get("phoneme_timeline")
         t_start = __import__("time").time()
 
         # Stereo-Support: Kanäle getrennt verarbeiten
@@ -737,6 +739,24 @@ class SpectralBandGapRepairPhase(PhaseInterface):
 
             # Harmonische Interpolation
             stft_mag, stft_phase = _harmonic_interpolate_gap(stft_mag, stft_phase, gap, f0, sr, n_fft, instrument_tag)
+
+            # §2.36a Formant-Boost: wenn vowel_stressed-Segment dominant, hebe F1/F2-Partials ×1.15
+            _ptl_56 = getattr(self, "_current_phoneme_timeline", None)
+            if _ptl_56 is not None:
+                try:
+                    _dur_s = mono.shape[-1] / sr
+                    _f_target = _ptl_56.formant_target_for_range(0.0, _dur_s)
+                    if _f_target is not None:
+                        _freq_per_bin = sr / n_fft
+                        for _f_hz in _f_target:
+                            _b_center = round(float(_f_hz) / _freq_per_bin)
+                            for _db in range(-2, 3):
+                                _b = _b_center + _db
+                                if gap_low <= _b < gap_high and 0 <= _b < stft_mag.shape[0]:
+                                    _gauss = math.exp(-0.5 * (_db / 1.5) ** 2)
+                                    stft_mag[_b] = stft_mag[_b] * (1.0 + 0.15 * _gauss)
+                except Exception:
+                    pass
 
             # Spectral Flatness prüfen
             gap_region = stft_mag[gap_low:gap_high, :]

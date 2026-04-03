@@ -219,16 +219,16 @@ def validate_export_quality(result: Any) -> tuple[bool, list[str]]:
     meta = getattr(result, "metadata", {}) or {}
     goals_meta = meta.get("musical_goals", {})
     goal_scores: dict = goals_meta.get("scores", {})
-    goal_thresholds: dict = goals_meta.get("thresholds", {})
+    goals_meta.get("thresholds", {})
     violations: list = goals_meta.get("violations", [])
 
     # P1/P2 goals with hard minimum thresholds (below these the result is unacceptable)
     _P1P2_HARD_MINIMUMS = {
-        "natuerlichkeit": 0.82,     # P1: absolute Untergrenze (8% unter Zielwert 0.90)
-        "authentizitaet": 0.80,     # P1: absolute Untergrenze (8% unter Zielwert 0.88)
-        "tonal_center": 0.88,      # P2: absolute Untergrenze (7% unter Zielwert 0.95)
+        "natuerlichkeit": 0.82,  # P1: absolute Untergrenze (8% unter Zielwert 0.90)
+        "authentizitaet": 0.80,  # P1: absolute Untergrenze (8% unter Zielwert 0.88)
+        "tonal_center": 0.88,  # P2: absolute Untergrenze (7% unter Zielwert 0.95)
         "timbre_authentizitaet": 0.79,  # P2: absolute Untergrenze (8% unter Zielwert 0.87)
-        "artikulation": 0.77,      # P2: absolute Untergrenze (8% unter Zielwert 0.85)
+        "artikulation": 0.77,  # P2: absolute Untergrenze (8% unter Zielwert 0.85)
     }
     for goal_name, hard_min in _P1P2_HARD_MINIMUMS.items():
         score = goal_scores.get(goal_name)
@@ -292,7 +292,7 @@ def export_audio(
         audio, sr = sf.read(io.BytesIO(audio_bytes), always_2d=False)
     except Exception as e:
         logger.error("Export: Audiodaten konnten nicht gelesen werden: %s", e)
-        raise RuntimeError(f"Fehler beim Lesen der Audiodaten: {e}")
+        raise RuntimeError(f"Fehler beim Lesen der Audiodaten: {e}") from e
 
     logger.info(
         "Export gestartet: path=%s, format=%s, bit_depth=%d, sr=%d, shape=%s, duration=%.1fs",
@@ -334,9 +334,9 @@ def export_audio(
             logger.error("Export fehlgeschlagen (%s): %s", format, e)
             try:
                 os.remove(tmp_path)
-            except OSError:
-                pass
-            raise RuntimeError(f"Fehler beim Export als {format}: {e}")
+            except OSError as _exc:
+                logger.debug("Operation failed (non-critical): %s", _exc)
+            raise RuntimeError(f"Fehler beim Export als {format}: {e}") from e
     # MP3, AAC, M4A, OPUS nur mit ffmpeg
     elif format.lower() in ["mp3", "aac", "m4a", "opus"]:
         if ffmpeg is None:
@@ -365,15 +365,15 @@ def export_audio(
             for _p in (tmp_out,):
                 try:
                     os.remove(_p)
-                except OSError:
-                    pass
-            raise RuntimeError(f"Fehler beim {format.upper()}-Export: {e}")
+                except OSError as _exc:
+                    logger.debug("Operation failed (non-critical): %s", _exc)
+            raise RuntimeError(f"Fehler beim {format.upper()}-Export: {e}") from e
         finally:
             # Always clean up the intermediate WAV temp file
             if tmp_wav:
                 try:
                     os.remove(tmp_wav)
-                except OSError:
-                    pass
+                except OSError as _exc:
+                    logger.debug("Operation failed (non-critical): %s", _exc)
     else:
         raise ValueError(f"Nicht unterstütztes Exportformat: {format}")

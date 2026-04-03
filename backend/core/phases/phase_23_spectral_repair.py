@@ -37,8 +37,8 @@ Author: Aurik Development Team
 Version: 3.0.0
 """
 
-import logging
 import importlib
+import logging
 import time
 from typing import Any
 
@@ -170,10 +170,18 @@ class SpectralRepair(PhaseInterface):
         # Material lädt AudioSR trotzdem → OOM. Allowlist verlangt positive Analog-Evidenz.
         # AudioSR trainiert auf Analog-Bandbreitenverlust (Shellac ≤7 kHz, Tape ≤12 kHz).
         # Für "unknown", cd_digital, dat, mp3*, aac, streaming: DSP-Inpainting überlegen.
-        _ANALOG_ALLOW_AUDIOSR: frozenset[str] = frozenset({
-            "vinyl", "shellac", "tape", "reel_tape", "wax_cylinder",
-            "cassette", "lacquer_disc", "wire_recording",
-        })
+        _ANALOG_ALLOW_AUDIOSR: frozenset[str] = frozenset(
+            {
+                "vinyl",
+                "shellac",
+                "tape",
+                "reel_tape",
+                "wax_cylinder",
+                "cassette",
+                "lacquer_disc",
+                "wire_recording",
+            }
+        )
         _mat = getattr(self, "_current_material", None)
         if _mat not in _ANALOG_ALLOW_AUDIOSR:
             self._ml_guard_events.append(
@@ -217,15 +225,15 @@ class SpectralRepair(PhaseInterface):
                 from backend.core.plugin_lifecycle_manager import evict_stale_plugins
 
                 evict_stale_plugins(required_mb=int(required_gb * 1024))
-            except Exception:
-                pass
+            except Exception as _exc:
+                logger.debug("Operation failed (non-critical): %s", _exc)
             gc.collect()
             try:
                 import ctypes as _ct
 
                 _ct.CDLL("libc.so.6").malloc_trim(0)
-            except Exception:
-                pass
+            except Exception as _exc:
+                logger.debug("Operation failed (non-critical): %s", _exc)
             available_gb = float(psutil.virtual_memory().available / (1024**3))
 
         if available_gb < required_gb:
@@ -337,12 +345,45 @@ class SpectralRepair(PhaseInterface):
                 warnings=["Repair skipped due to zero effective strength"],
             )
 
+        # --- Apollo pre-processing for lossy-codec materials ---
+        # Apollo TorchScript handles MDCT-specific artefacts (pre-echo, spectral staircase,
+        # psychoacoustic masking) better than generic STFT inpainting.  When the Apollo
+        # model is loaded the output is fed into the standard STFT inpainting below as a
+        # pre-cleaned signal.  Only activates when Apollo model is actually loaded
+        # (no fallback call here — Apollo DSP-fallback runs inside repair() if model absent).
+        _APOLLO_CODEC_MATERIALS = frozenset({"mp3_low", "mp3_high", "aac", "minidisc", "streaming"})
+        _apollo_preproc_applied = False
+        _apollo_hf_gain_db: float | None = None
+        if self._current_material in _APOLLO_CODEC_MATERIALS:
+            try:
+                from plugins.apollo_plugin import get_apollo as _get_apollo
+
+                _apollo_inst = _get_apollo()
+                if _apollo_inst._model_loaded and _apollo_inst._torch_model is not None:
+                    if is_stereo:
+                        _ap_l = _apollo_inst.repair(audio[:, 0], sample_rate, material=self._current_material)
+                        _ap_r = _apollo_inst.repair(audio[:, 1], sample_rate, material=self._current_material)
+                        audio = np.column_stack((_ap_l.audio, _ap_r.audio))
+                        _apollo_hf_gain_db = float((_ap_l.hf_gain_db + _ap_r.hf_gain_db) / 2.0)
+                    else:
+                        _ap_res = _apollo_inst.repair(audio, sample_rate, material=self._current_material)
+                        audio = _ap_res.audio
+                        _apollo_hf_gain_db = float(_ap_res.hf_gain_db)
+                    _apollo_preproc_applied = True
+                    logger.info(
+                        "phase_23: Apollo pre-processing applied (material=%s, hf_gain=+%.1f dB)",
+                        self._current_material,
+                        _apollo_hf_gain_db,
+                    )
+            except Exception as _apollo_exc:
+                logger.debug("Apollo pre-processing skipped (non-critical): %s", _apollo_exc)
+
         # --- ADMM Declipping path (spec §4.5a) ---
         # Detect hard clipping and route to sparse-recovery solver instead of
         # standard inpainting.  SOFT_SATURATION → no ADMM (per §5 vintage rules).
         _use_admm = False
         _clip_level = 0.98
-        _defect_type_kwarg = kwargs.get("defect_type", None)
+        _defect_type_kwarg = kwargs.get("defect_type")
         if _defect_type_kwarg is not None and hasattr(_defect_type_kwarg, "name"):
             if _defect_type_kwarg.name in ("CLIPPING", "HARMONIC_DISTORTION"):
                 _use_admm = True
@@ -398,6 +439,8 @@ class SpectralRepair(PhaseInterface):
                 "phase_locality_factor": phase_locality_factor,
                 "rt_factor": float(rt_factor),
                 "nperseg": stft_cfg["nperseg"],
+                "apollo_preproc_applied": _apollo_preproc_applied,
+                "apollo_preproc_hf_gain_db": _apollo_hf_gain_db,
                 "ml_guard_events": list(self._ml_guard_events),
                 "deferred_for_kmv": ["phase_23_spectral_repair"] if self._ml_guard_events else [],
             },
@@ -462,7 +505,7 @@ class SpectralRepair(PhaseInterface):
         try:
             hop = 64
             n_frames = max(1, (n - hop) // hop)
-            frame_energy = np.array([np.sum(y[i * hop: i * hop + hop] ** 2) for i in range(n_frames)])
+            frame_energy = np.array([np.sum(y[i * hop : i * hop + hop] ** 2) for i in range(n_frames)])
             diff = np.diff(frame_energy, prepend=frame_energy[0])
             mu, sigma = float(np.mean(diff)), float(np.std(diff)) + 1e-10
             onset_frames = np.where(diff > mu + 2.0 * sigma)[0]
@@ -470,8 +513,8 @@ class SpectralRepair(PhaseInterface):
                 s = max(0, of * hop - onset_win)
                 e = min(n, of * hop + onset_win)
                 onset_guard[s:e] = True
-        except Exception:
-            pass  # No transient guard on error — safe fallback
+        except Exception as _exc:
+            logger.debug("Operation failed (non-critical): %s", _exc)  # No transient guard on error — safe fallback
 
         # --- Wavelet parameters: db4 Level-5 ---
         wavelet = "db4"

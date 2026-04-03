@@ -19,7 +19,7 @@ Referenz: §2.12 Aurik-9-Spec (v9.9.5)
 import warnings as _warnings
 
 _warnings.warn(
-    "core.musical_phrase_context_extractor ist veraltet. " "Verwende stattdessen core.musical_phrase_context.",
+    "core.musical_phrase_context_extractor ist veraltet. Verwende stattdessen core.musical_phrase_context.",
     DeprecationWarning,
     stacklevel=2,
 )

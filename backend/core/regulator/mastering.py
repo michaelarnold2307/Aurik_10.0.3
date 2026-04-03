@@ -12,8 +12,8 @@ import numpy as np
 def lufs_normalize(audio: np.ndarray, sr: int, target_lufs: float = -14.0) -> np.ndarray:
     try:
         import pyloudnorm as pyln
-    except ImportError:
-        raise RuntimeError("pyloudnorm muss installiert sein für LUFS-Normalisierung.")
+    except ImportError as e:
+        raise RuntimeError("pyloudnorm muss installiert sein für LUFS-Normalisierung.") from e
     meter = pyln.Meter(sr)
     loudness = meter.integrated_loudness(audio)
     gain = target_lufs - loudness
@@ -52,15 +52,16 @@ def adaptive_eq(audio: np.ndarray, sr: int) -> np.ndarray:
     target = np.median(mean_spectrum)
     gain = target / (mean_spectrum + 1e-6)
     S_eq = S_orig * gain[:, None]
-    # PGHI phase reconstruction — VERBOTEN: istft(S*exp(j*angle(stft(audio)))) direkt
+    # PGHI phase reconstruction (§4.5 — Griffin-Lim als Fallback verboten: zerstört Phasenkohärenz)
     try:
         from dsp.pghi import reconstruct_phase  # type: ignore[import]
 
         result = reconstruct_phase(S_eq, window_size=n_fft, hop_size=hop, sr=sr)
         audio_eq = result.audio
     except Exception:
-        # Fallback: Griffin-Lim via librosa (≥ 32 Iterationen, §4.5)
-        audio_eq = librosa.griffinlim(S_eq, n_iter=32, hop_length=hop, win_length=n_fft, n_fft=n_fft)
+        # Phase-preserving iSTFT fallback — original phases aus stft_full beibehalten
+        Zxx_eq = S_eq * np.exp(1j * np.angle(stft_full))
+        audio_eq = librosa.istft(Zxx_eq, hop_length=hop, win_length=n_fft)
     return librosa.util.fix_length(audio_eq, size=len(audio))
 
 

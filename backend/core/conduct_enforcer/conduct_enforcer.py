@@ -418,12 +418,9 @@ class ConductEnforcer:
         # Explicit zone override
         if "zone" in context:
             zone_str = context["zone"]
-            if zone_str == "A":
-                return Zone.A
-            elif zone_str == "B":
-                return Zone.B
-            elif zone_str == "C":
-                return Zone.C
+            _zone_map = {"A": Zone.A, "B": Zone.B, "C": Zone.C}
+            if zone_str in _zone_map:
+                return _zone_map[zone_str]
 
         # Confidence-based zone
         if confidence >= 0.90:

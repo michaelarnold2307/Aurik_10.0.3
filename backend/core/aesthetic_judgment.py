@@ -271,6 +271,7 @@ class AestheticProxyCalculator:
         # Higher contrast across frequency bands → less inter-source masking → higher transparency
         try:
             import librosa as _lr
+
             audio_mono = audio.flatten()
             S = np.abs(_lr.stft(audio_mono, n_fft=2048, hop_length=512))
             contrast = _lr.feature.spectral_contrast(S=S, sr=sr, n_bands=6, fmin=200.0)

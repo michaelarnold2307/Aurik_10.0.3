@@ -507,7 +507,7 @@ if __name__ == "__main__":
     logger.debug(f"  Time Range: {profile.times[0]:.3f} - {profile.times[-1]:.3f} s")
 
     masked_ratio = profile.get_masked_components_ratio()
-    logger.debug(f"\n  Masked Components: {masked_ratio*100:.1f}%")
+    logger.debug(f"\n  Masked Components: {masked_ratio * 100:.1f}%")
 
     avg_smr = analyzer.compute_smr(audio, sr)
     logger.debug(f"  Average SMR: {avg_smr:.1f} dB")

@@ -48,7 +48,7 @@ def test_phase12_ml_routing():
     audio_mono += 0.02 * np.random.randn(len(audio_mono))
 
     print(f"\n✓ Test audio created: {duration}s, {sample_rate} Hz")
-    print(f"  Base frequency: {base_freq} Hz with {wow_amount*100:.1f}% wow at {wow_freq} Hz")
+    print(f"  Base frequency: {base_freq} Hz with {wow_amount * 100:.1f}% wow at {wow_freq} Hz")
 
     # Initialize phase
     phase = WowFlutterFix()

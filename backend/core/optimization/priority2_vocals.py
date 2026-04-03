@@ -8,7 +8,6 @@ bands while leaving non-vocal regions untouched.
 
 from __future__ import annotations
 
-
 import numpy as np
 
 

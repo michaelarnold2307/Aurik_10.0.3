@@ -186,6 +186,6 @@ class MaskingAwareDynamicEQ:
             try:
                 eq_audio = sosfilt(sos, eq_audio)
             except Exception:
-                pass  # Im Fehlerfall: Band überspringen
+                logger.warning("EQ band %d skipped (filter unstable)", i)
 
         return eq_audio

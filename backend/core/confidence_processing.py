@@ -7,7 +7,6 @@ from __future__ import annotations
 import logging
 import threading
 from collections.abc import Callable
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 

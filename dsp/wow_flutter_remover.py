@@ -1,5 +1,8 @@
+import logging
 from dataclasses import dataclass
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 
 # DSPContract für Auditierbarkeit und SOTA-Konformität
@@ -94,10 +97,12 @@ class WowFlutterRemover:
         # Apply to FULL audio using detected LFO pattern
         corrected = self._adaptive_time_warp(audio, wowflutter_lfo)
 
-        # 4. Quality-Gates: TEMPORÄR DEAKTIVIERT für Testing
-        # if not self._passes_quality_gates(audio, corrected):
-        #     return audio  # Falls Korrektur zu invasiv, Original belassen
-
+        # 4. Quality-Gates: Centroid + RMS + SNR
+        if not self._passes_quality_gates(audio, corrected):
+            # Soft fallback: blend 50% corrected instead of full rollback
+            corrected = 0.5 * corrected + 0.5 * audio
+            if not self._passes_quality_gates(audio, corrected):
+                return audio  # Final rollback
         return corrected
 
     def _track_f0(self, audio: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
@@ -107,7 +112,7 @@ class WowFlutterRemover:
                 _r = _get_fcpe_plugin().analyze(audio.astype(np.float32), self.sr)
                 return _r.f0_hz.astype(np.float64)
             except Exception:
-                pass
+                logger.warning("FCPE pitch tracking failed, falling back to autocorrelation", exc_info=True)
         # Fallback: Autokorrelation (vereinfachte Schätzung)
         # Läuft immer wenn CREPE nicht verfügbar ist oder fehlschlägt.
         # OPTIMIZATION: Increased hop size for performance (50ms instead of 10ms)

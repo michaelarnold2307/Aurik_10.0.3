@@ -447,7 +447,7 @@ if __name__ == "__main__":
 
     logger.debug(f"  Original RMS: {np.sqrt(np.mean(audio**2)):.4f}")
     logger.debug(f"  After masking removal: {np.sqrt(np.mean(audio_unmasked**2)):.4f}")
-    logger.debug(f"  Energy reduction: {(1 - np.mean(audio_unmasked**2) / np.mean(audio**2))*100:.1f}%")
+    logger.debug(f"  Energy reduction: {(1 - np.mean(audio_unmasked**2) / np.mean(audio**2)) * 100:.1f}%")
 
     # Test perceptual EQ
     logger.debug("\nGenerating Perceptual EQ Curve...")
@@ -463,7 +463,7 @@ if __name__ == "__main__":
 
     logger.debug("\n  Target Balance:")
     for band, energy in target_balance.items():
-        logger.debug(f"    {band.capitalize()}: {energy*100:.1f}%")
+        logger.debug(f"    {band.capitalize()}: {energy * 100:.1f}%")
 
     logger.debug("\n  Sample EQ Points:")
     for i in [0, 10, 20, 30, 40]:

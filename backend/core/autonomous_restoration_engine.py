@@ -262,8 +262,8 @@ class AutonomousRestorationEngine:
         elif isinstance(_mat_ctx, str) and _mat_ctx:
             try:
                 _material_hint = MaterialType(_mat_ctx)
-            except (ValueError, KeyError):
-                pass
+            except (ValueError, KeyError) as _exc:
+                logger.debug("Operation failed (non-critical): %s", _exc)
         if _cached_defect is not None:
             defect_result: DefectAnalysisResult = _cached_defect
             logger.info("[ENGINE] Phase 2: Verwende gecachten DefectScan (kein Triple-Scan).")

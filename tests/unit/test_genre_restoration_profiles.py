@@ -11,9 +11,6 @@ Testet:
 - Korrekte Parameter-Werte
 """
 
-import numpy as np
-import pytest
-
 from backend.core.genre_classifier import (
     GENRE_RESTORATION_PROFILES,
     JAZZ_RESTORATION_PROFILE,

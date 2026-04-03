@@ -343,16 +343,14 @@ class StereoWidenerSafety(BaseSafetyWrapper):
         metadata["mono_loss_db_before"] = loss_db
 
         if compatibility < 0.7:
-            warnings.append(
-                f"Poor initial mono compatibility: {compatibility:.2f}. " f"Mono sum loses {loss_db:.1f} dB."
-            )
+            warnings.append(f"Poor initial mono compatibility: {compatibility:.2f}. Mono sum loses {loss_db:.1f} dB.")
 
         # Measure initial width
         width_before = measure_stereo_width(audio)
         metadata["width_before"] = width_before
 
         if width_before > 1.5:
-            warnings.append(f"Already very wide: {width_before:.2f}. " "Further widening may cause artifacts.")
+            warnings.append(f"Already very wide: {width_before:.2f}. Further widening may cause artifacts.")
 
         # Detect center content
         center_info = detect_center_content(audio, sr)
@@ -370,7 +368,7 @@ class StereoWidenerSafety(BaseSafetyWrapper):
 
         if phase_corr < 0:
             warnings.append(
-                f"Negative phase correlation: {phase_corr:.2f}. " "Signals are out of phase - widening may worsen this."
+                f"Negative phase correlation: {phase_corr:.2f}. Signals are out of phase - widening may worsen this."
             )
 
         # Spatial balance
@@ -381,7 +379,7 @@ class StereoWidenerSafety(BaseSafetyWrapper):
         width_amount = params.get("width_amount", 0.5)
 
         if width_amount > 0.8:
-            warnings.append(f"Very aggressive widening: {width_amount:.2f}. " "High risk of mono incompatibility.")
+            warnings.append(f"Very aggressive widening: {width_amount:.2f}. High risk of mono incompatibility.")
 
         return PreCheckResult(passed=True, confidence=compatibility, warnings=warnings, metadata=metadata)
 
@@ -436,7 +434,7 @@ class StereoWidenerSafety(BaseSafetyWrapper):
 
         compatibility_degradation = compatibility_before - compatibility_after
         if compatibility_degradation > 0.15:
-            issues.append(f"Mono compatibility degraded: " f"{compatibility_before:.2f} -> {compatibility_after:.2f}")
+            issues.append(f"Mono compatibility degraded: {compatibility_before:.2f} -> {compatibility_after:.2f}")
 
         # 2. Check width increase
         width_before = measure_stereo_width(original)

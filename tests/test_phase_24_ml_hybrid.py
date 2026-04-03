@@ -57,9 +57,9 @@ print("    - Long: 150ms (ML AudioSR expected in BALANCED)")
 test_modes = ["FAST", "BALANCED"]
 
 for mode in test_modes:
-    print(f"\n{'-'*80}")
+    print(f"\n{'-' * 80}")
     print(f"Testing Quality Mode: {mode}")
-    print(f"{'-'*80}")
+    print(f"{'-' * 80}")
 
     result = phase.process(audio.copy(), sample_rate=sr, material_type="tape", quality_mode=mode)
 
@@ -73,7 +73,7 @@ for mode in test_modes:
         print(f"   Max dropout: {result.modifications['max_dropout_duration_ms']:.1f}ms")
         print(f"   Total duration: {result.modifications['total_dropout_duration_ms']:.1f}ms")
         print(
-            f"   Execution time: {result.metadata['execution_time_seconds']:.3f}s ({result.metadata['execution_time_seconds']/duration:.2f}× RT)"
+            f"   Execution time: {result.metadata['execution_time_seconds']:.3f}s ({result.metadata['execution_time_seconds'] / duration:.2f}× RT)"
         )
 
         # Expectations
@@ -92,9 +92,9 @@ for mode in test_modes:
     else:
         print("❌ Processing failed!")
 
-print(f"\n{'='*80}")
+print(f"\n{'=' * 80}")
 print("✅ Phase 24 ML-Hybrid Integration Test Complete!")
-print(f"{'='*80}")
+print(f"{'=' * 80}")
 print("\nStrategy: Length-Based Routing")
 print("  - <20ms: DSP linear interpolation")
 print("  - 20-100ms: DSP spectral inpainting")

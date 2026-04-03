@@ -209,7 +209,13 @@ def _stabilize_ar(coeffs: np.ndarray) -> np.ndarray:
     # --- Exakte Pol-Projektion für kleine Ordnungen (p ≤ 64, schnell) ---
     # Charakteristisches Polynom: 1 + a1*z^{-1} + ...
     poly = np.concatenate([[1.0], coeffs])
-    roots = np.roots(poly)
+    # Guard: degenerate coefficients → LAPACK DLASCL failure
+    if not np.all(np.isfinite(poly)):
+        return coeffs.copy()
+    try:
+        roots = np.roots(poly)
+    except (np.linalg.LinAlgError, ValueError):
+        return coeffs.copy()
     mags = np.abs(roots)
     mask = mags >= 1.0
     if mask.any():

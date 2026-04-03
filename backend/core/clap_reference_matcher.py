@@ -279,8 +279,8 @@ class CLAPReferenceMatcher:
             clap = importlib.import_module("clap_plugin")
             if hasattr(clap, "embed"):
                 return clap.embed(audio, sample_rate)
-        except Exception:
-            pass
+        except Exception as _exc:
+            logger.debug("Operation failed (non-critical): %s", _exc)
         return None
 
     def load_reference(self, audio: np.ndarray, sample_rate: int) -> None:

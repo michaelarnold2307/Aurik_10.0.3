@@ -108,9 +108,9 @@ class TestDetectMasking:
         val_sine = self.det._detect_masking(_sine(freq=1000.0, n=SR * 4), SR)
         val_noise = self.det._detect_masking(_white_noise(n=SR * 4), SR)
         # Rauschen hat niedrigere Dominanz pro Band als Sinus
-        assert (
-            val_noise <= val_sine + 0.15
-        ), f"Rauschen ({val_noise:.3f}) hat höheres Masking als Sinus ({val_sine:.3f})"
+        assert val_noise <= val_sine + 0.15, (
+            f"Rauschen ({val_noise:.3f}) hat höheres Masking als Sinus ({val_sine:.3f})"
+        )
 
     def test_silence_returns_valid(self):
         val = self.det._detect_masking(_silence(), SR)

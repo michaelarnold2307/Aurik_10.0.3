@@ -116,6 +116,9 @@ class LUFSMeter:
         if audio.ndim == 1:
             audio = audio[np.newaxis, :]
 
+        # Guard: NaN/Inf audio → LAPACK DLASCL failure in cascaded filters
+        audio = np.nan_to_num(audio, nan=0.0, posinf=1.0, neginf=-1.0)
+
         # Apply K-weighting filters (sosfilt supports multi-channel along axis)
         stage1 = scipy.signal.lfilter(self.prefilter[0], self.prefilter[1], audio, axis=1)
         filtered = scipy.signal.lfilter(self.rlb_filter[0], self.rlb_filter[1], stage1, axis=1)

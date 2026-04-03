@@ -233,12 +233,12 @@ class PianoRestorationV1(PhaseInterface):
         Stiff Piano String"; Conklin (1999) string inharmonicity tables.
         """
         if f0_hz < 65.0:
-            return 0.00015   # MIDI 21–35: long wound contrabass strings
+            return 0.00015  # MIDI 21–35: long wound contrabass strings
         if f0_hz < 247.0:
-            return 0.00065   # MIDI 36–47: bass / tenor register
+            return 0.00065  # MIDI 36–47: bass / tenor register
         if f0_hz < 987.0:
-            return 0.002     # MIDI 48–71: mid / alto register
-        return 0.005         # MIDI 72–108: short stiff treble strings
+            return 0.002  # MIDI 48–71: mid / alto register
+        return 0.005  # MIDI 72–108: short stiff treble strings
 
     def process(
         self, audio: np.ndarray, material_type: MaterialType = MaterialType.CD_DIGITAL, **kwargs

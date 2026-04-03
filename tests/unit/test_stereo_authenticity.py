@@ -14,7 +14,6 @@ from __future__ import annotations
 import math
 import threading
 import types
-from typing import List
 
 import numpy as np
 
@@ -77,7 +76,6 @@ def _mono_1d(duration_s: float = 3.0) -> np.ndarray:
 # Klasse 1: StereoAuthResult-Felder
 # ---------------------------------------------------------------------------
 class TestStereoAuthResultFields:
-
     def test_01_check_returns_result_instance(self) -> None:
         """check() gibt ein StereoAuthResult-Objekt zurück."""
         inv = get_stereo_authenticity_invariant()
@@ -149,7 +147,6 @@ class TestStereoAuthResultFields:
 # Klasse 2: Mono-Ära-Prüfung (decade ≤ 1950)
 # ---------------------------------------------------------------------------
 class TestMonoEraRule:
-
     def test_10_mono_1920_passes(self) -> None:
         """Mono-Signal in 1920er-Era → passed (Mono-Ära-Regel erfüllt)."""
         inv = get_stereo_authenticity_invariant()
@@ -184,7 +181,6 @@ class TestMonoEraRule:
 # Klasse 3: Modernes Material (decade ≥ 1970)
 # ---------------------------------------------------------------------------
 class TestModernEraRule:
-
     def test_13_wide_stereo_modern_era_passes(self) -> None:
         """Breites Stereo in moderner Era (2000er) → passed=True (volle Erlaubnis)."""
         inv = get_stereo_authenticity_invariant()
@@ -205,7 +201,6 @@ class TestModernEraRule:
 # Klasse 4: enforce() Tests
 # ---------------------------------------------------------------------------
 class TestEnforce:
-
     def test_15_enforce_returns_ndarray(self) -> None:
         """enforce() gibt ein np.ndarray zurück."""
         inv = get_stereo_authenticity_invariant()
@@ -248,7 +243,6 @@ class TestEnforce:
 # Klasse 5: Singleton & Convenience-Wrapper
 # ---------------------------------------------------------------------------
 class TestSingletonAndWrapper:
-
     def test_19_singleton_same_object(self) -> None:
         """get_stereo_authenticity_invariant() gibt stets dasselbe Objekt zurück."""
         a = get_stereo_authenticity_invariant()

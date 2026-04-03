@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import concurrent.futures
 import math
+import sys
+from types import SimpleNamespace
 
 import numpy as np
 
@@ -421,7 +423,7 @@ def _german_umlaut_signal(sr: int = 22050, secs: float = 5.0) -> np.ndarray:
     # Grundton 150 Hz (männliche Stimme) + Resonanzen bei F1=320, F2=1900 Hz
     sig = (
         np.sin(2 * np.pi * 150 * t) * 1.0
-        + np.sin(2 * np.pi * 320 * t) * 0.6   # F1 (ü-typisch)
+        + np.sin(2 * np.pi * 320 * t) * 0.6  # F1 (ü-typisch)
         + np.sin(2 * np.pi * 1900 * t) * 0.4  # F2 (ü-typisch, hohes F2)
     ).astype(np.float32)
     sig /= np.max(np.abs(sig) + 1e-8)
@@ -434,7 +436,7 @@ def _english_vowel_signal(sr: int = 22050, secs: float = 5.0) -> np.ndarray:
     # Grundton 150 Hz + Resonanzen bei F1=700, F2=1100 Hz (eng. /ʌ/, kein Umlaut)
     sig = (
         np.sin(2 * np.pi * 150 * t) * 1.0
-        + np.sin(2 * np.pi * 700 * t) * 0.6   # F1 (englisch-typisch)
+        + np.sin(2 * np.pi * 700 * t) * 0.6  # F1 (englisch-typisch)
         + np.sin(2 * np.pi * 1100 * t) * 0.4  # F2 (englisch-typisch, niedriges F2)
     ).astype(np.float32)
     sig /= np.max(np.abs(sig) + 1e-8)
@@ -457,9 +459,7 @@ class TestVocalLanguageDetection:
         """vocal_language_score ∈ [0.0, 1.0] für alle Eingaben."""
         for audio in [_sine(), _white_noise(), _silence(), _am_signal()]:
             r = self.clf.classify(audio, sr=48000)
-            assert 0.0 <= r.vocal_language_score <= 1.0, (
-                f"vocal_language_score={r.vocal_language_score} out of [0,1]"
-            )
+            assert 0.0 <= r.vocal_language_score <= 1.0, f"vocal_language_score={r.vocal_language_score} out of [0,1]"
 
     def test_51_vocal_language_score_finite_on_silence(self):
         """Stille → Fallback 0.5, kein NaN."""
@@ -470,9 +470,7 @@ class TestVocalLanguageDetection:
         """Dt. Umlaut-Signal (F2-F1=1580 Hz) hat höheren lang_de_score als engl. Signal."""
         r_de = self.clf._detect_vocal_language(_german_umlaut_signal(), sr=22050)
         r_en = self.clf._detect_vocal_language(_english_vowel_signal(), sr=22050)
-        assert r_de >= r_en, (
-            f"Umlaut-Signal sollte höheren lang_de_score haben: de={r_de:.3f} en={r_en:.3f}"
-        )
+        assert r_de >= r_en, f"Umlaut-Signal sollte höheren lang_de_score haben: de={r_de:.3f} en={r_en:.3f}"
 
     def test_53_german_umlaut_score_above_neutral(self):
         """Dt. Umlaut-Signal (F2-F1 > 1400) → lang_de_score ≥ 0.40."""
@@ -526,4 +524,119 @@ class TestVocalLanguageDetection:
             vocal_language_score=0.80,
         )
         assert r.vocal_language_score == 0.80
+        assert isinstance(r.top_genres, list)
+        assert isinstance(r.open_set_unknown, bool)
         assert r.is_schlager is True
+
+    def test_61_lyrics_hint_fuses_into_language_score(self, monkeypatch):
+        """§2.36-Hinweis hebt lang_de_score an und verhindert Non-Schlager-Fehlrouting."""
+        clf = get_genre_classifier()
+
+        monkeypatch.setattr(clf, "_is_music_like", lambda _a: True)
+        monkeypatch.setattr(clf, "_compute_clap_score", lambda _a, _sr: 0.35)
+        monkeypatch.setattr(clf, "_compute_accordion_score", lambda _a, _sr: 0.60)
+        monkeypatch.setattr(clf, "_compute_harmonic_simplicity", lambda _a, _sr: 0.78)
+        monkeypatch.setattr(clf, "_classify_rhythm_pattern", lambda _a, _sr: (0.82, "schunkel", 128.0))
+        monkeypatch.setattr(clf, "_compute_german_vocal_prior", lambda _a, _sr: 0.66)
+        monkeypatch.setattr(clf, "_compute_melodic_repetition", lambda _a, _sr: 0.48)
+        monkeypatch.setattr(clf, "_detect_vocal_language", lambda _a, _sr: 0.22)
+        monkeypatch.setattr(clf, "_compute_lyrics_language_hint", lambda _a, _sr: 0.86)
+        monkeypatch.setattr(clf, "_estimate_key", lambda _a, _sr: "C-Dur")
+
+        audio = _sine(freq=220.0, secs=10.0)
+        r = clf.classify(audio, sr=48000)
+
+        assert r.vocal_language_score >= 0.85
+        assert r.is_schlager is True
+        assert r.genre_label == "Deutscher Schlager"
+
+    def test_62_lyrics_hint_reads_mocked_lge(self, monkeypatch):
+        """_compute_lyrics_language_hint nutzt §2.36-Transkriptionsdaten ohne Lyrics-Text."""
+        clf = get_genre_classifier()
+
+        fake_words = [
+            SimpleNamespace(word="", phoneme_type="fricative_stressed", confidence=0.8),
+            SimpleNamespace(word="", phoneme_type="plosive", confidence=0.7),
+            SimpleNamespace(word="", phoneme_type="vowel_stressed", confidence=0.9),
+        ]
+        fake_transcription = SimpleNamespace(language="de", words=fake_words)
+        fake_lge = SimpleNamespace(transcribe=lambda _a, _sr: fake_transcription)
+        fake_module = SimpleNamespace(get_lyrics_guided_enhancement=lambda: fake_lge)
+
+        monkeypatch.setitem(sys.modules, "backend.core.lyrics_guided_enhancement", fake_module)
+
+        score = clf._compute_lyrics_language_hint(_sine(freq=330.0, secs=10.0), 48000)
+        assert 0.70 <= score <= 1.0
+
+    def test_63_family_and_topk_present_for_schlager(self, monkeypatch):
+        """Klassifikation liefert Family-Stage und Top-k-Genres im Ergebnis."""
+        clf = get_genre_classifier()
+
+        monkeypatch.setattr(clf, "_is_music_like", lambda _a: True)
+        monkeypatch.setattr(clf, "_compute_clap_score", lambda _a, _sr: 0.35)
+        monkeypatch.setattr(clf, "_compute_accordion_score", lambda _a, _sr: 0.64)
+        monkeypatch.setattr(clf, "_compute_harmonic_simplicity", lambda _a, _sr: 0.80)
+        monkeypatch.setattr(clf, "_classify_rhythm_pattern", lambda _a, _sr: (0.82, "schunkel", 126.0))
+        monkeypatch.setattr(clf, "_compute_german_vocal_prior", lambda _a, _sr: 0.70)
+        monkeypatch.setattr(clf, "_compute_melodic_repetition", lambda _a, _sr: 0.50)
+        monkeypatch.setattr(clf, "_detect_vocal_language", lambda _a, _sr: 0.74)
+        monkeypatch.setattr(clf, "_compute_lyrics_language_hint", lambda _a, _sr: 0.0)
+        monkeypatch.setattr(clf, "_estimate_key", lambda _a, _sr: "C-Dur")
+        monkeypatch.setattr(clf, "_spectral_centroid_hz", lambda _a, _sr: 2600.0)
+        monkeypatch.setattr(clf, "_onset_rate", lambda _a, _sr: 2.8)
+        monkeypatch.setattr(clf, "_dynamic_range_db", lambda _a, _sr: 24.0)
+
+        r = clf.classify(_sine(freq=220.0, secs=10.0), sr=48000)
+
+        assert r.is_schlager
+        assert r.genre_family == "schlager_folk"
+        assert r.genre_family_confidence >= 0.50
+        assert len(r.top_genres) >= 1
+        assert r.top_genres[0][0].lower().find("schlager") >= 0
+
+    def test_64_open_set_unknown_for_ambiguous_non_schlager(self, monkeypatch):
+        """Bei engem Score-Margin wird Open-Set Unknown für Non-Schlager gesetzt."""
+        clf = get_genre_classifier()
+
+        monkeypatch.setattr(clf, "_is_music_like", lambda _a: True)
+        monkeypatch.setattr(clf, "_compute_clap_score", lambda _a, _sr: 0.10)
+        monkeypatch.setattr(clf, "_compute_accordion_score", lambda _a, _sr: 0.10)
+        monkeypatch.setattr(clf, "_compute_harmonic_simplicity", lambda _a, _sr: 0.60)
+        monkeypatch.setattr(clf, "_classify_rhythm_pattern", lambda _a, _sr: (0.20, "unknown", 120.0))
+        monkeypatch.setattr(clf, "_compute_german_vocal_prior", lambda _a, _sr: 0.20)
+        monkeypatch.setattr(clf, "_compute_melodic_repetition", lambda _a, _sr: 0.20)
+        monkeypatch.setattr(clf, "_detect_vocal_language", lambda _a, _sr: 0.20)
+        monkeypatch.setattr(clf, "_compute_lyrics_language_hint", lambda _a, _sr: 0.0)
+        monkeypatch.setattr(clf, "_estimate_key", lambda _a, _sr: "C-Dur")
+        monkeypatch.setattr(clf, "_score_rock", lambda *_args, **_kwargs: 0.42)
+        monkeypatch.setattr(clf, "_score_jazz", lambda *_args, **_kwargs: 0.41)
+        monkeypatch.setattr(clf, "_score_classical", lambda *_args, **_kwargs: 0.22)
+
+        r = clf.classify(_sine(freq=220.0, secs=10.0), sr=48000)
+
+        assert r.is_schlager is False
+        assert r.open_set_unknown is True
+        assert r.genre_label == "Unbekannt"
+
+    def test_65_open_set_false_for_clear_non_schlager(self, monkeypatch):
+        """Bei klarem Top-Genre bleibt Open-Set deaktiviert."""
+        clf = get_genre_classifier()
+
+        monkeypatch.setattr(clf, "_is_music_like", lambda _a: True)
+        monkeypatch.setattr(clf, "_compute_clap_score", lambda _a, _sr: 0.10)
+        monkeypatch.setattr(clf, "_compute_accordion_score", lambda _a, _sr: 0.10)
+        monkeypatch.setattr(clf, "_compute_harmonic_simplicity", lambda _a, _sr: 0.55)
+        monkeypatch.setattr(clf, "_classify_rhythm_pattern", lambda _a, _sr: (0.22, "unknown", 122.0))
+        monkeypatch.setattr(clf, "_compute_german_vocal_prior", lambda _a, _sr: 0.18)
+        monkeypatch.setattr(clf, "_compute_melodic_repetition", lambda _a, _sr: 0.20)
+        monkeypatch.setattr(clf, "_detect_vocal_language", lambda _a, _sr: 0.18)
+        monkeypatch.setattr(clf, "_compute_lyrics_language_hint", lambda _a, _sr: 0.0)
+        monkeypatch.setattr(clf, "_estimate_key", lambda _a, _sr: "C-Dur")
+        monkeypatch.setattr(clf, "_score_rock", lambda *_args, **_kwargs: 0.62)
+        monkeypatch.setattr(clf, "_score_jazz", lambda *_args, **_kwargs: 0.41)
+        monkeypatch.setattr(clf, "_score_classical", lambda *_args, **_kwargs: 0.20)
+
+        r = clf.classify(_sine(freq=220.0, secs=10.0), sr=48000)
+
+        assert r.open_set_unknown is False
+        assert r.genre_label in ("Rock", "Jazz", "Klassik", "Unbekannt")

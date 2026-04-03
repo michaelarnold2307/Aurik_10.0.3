@@ -180,7 +180,6 @@ class TestPghiReconstructor:
 
     def test_14_sr_assertion(self):
         """SR != 48000 wirft AssertionError."""
-        from dsp.pghi import get_pghi_reconstructor
 
         with pytest.raises((AssertionError, ValueError)):
             from dsp.pghi import PghiReconstructor
@@ -206,7 +205,7 @@ class TestPsolaPitchShifter:
 
     def test_01_import(self):
         """psola-Modul ist importierbar."""
-        from dsp.psola import get_psola_shifter, psola_shift
+        from dsp.psola import get_psola_shifter
 
         assert get_psola_shifter() is not None
 
@@ -392,7 +391,7 @@ class TestDtwGrooveMeasurer:
 
     def test_01_import(self):
         """dtw_groove-Modul ist importierbar."""
-        from dsp.dtw_groove import get_groove_measurer, measure_groove
+        from dsp.dtw_groove import get_groove_measurer
 
         assert get_groove_measurer() is not None
 

@@ -26,9 +26,15 @@ class TestBayesianMaterialScorer:
     def test_score_returns_dict(self):
         scorer = _MaterialScorer()
         features = {
-            "bandwidth_hz": 14000.0, "snr_db": 50.0, "noise_color": 0.5,
-            "crackle_density": 0.0, "wow_depth": 0.0, "block_artifact": 0.0,
-            "pre_echo_ms": 0.0, "rotation_strength": 0.0, "infrasonic_rms": 0.0,
+            "bandwidth_hz": 14000.0,
+            "snr_db": 50.0,
+            "noise_color": 0.5,
+            "crackle_density": 0.0,
+            "wow_depth": 0.0,
+            "block_artifact": 0.0,
+            "pre_echo_ms": 0.0,
+            "rotation_strength": 0.0,
+            "infrasonic_rms": 0.0,
             "codec_type_code": 0.0,
         }
         result = scorer.score(features, None)
@@ -39,9 +45,15 @@ class TestBayesianMaterialScorer:
     def test_score_confidence_range(self):
         scorer = _MaterialScorer()
         features = {
-            "bandwidth_hz": 4000.0, "snr_db": 15.0, "noise_color": 0.8,
-            "crackle_density": 0.02, "wow_depth": 0.0, "block_artifact": 0.0,
-            "pre_echo_ms": 0.0, "rotation_strength": 0.0, "infrasonic_rms": 0.0,
+            "bandwidth_hz": 4000.0,
+            "snr_db": 15.0,
+            "noise_color": 0.8,
+            "crackle_density": 0.02,
+            "wow_depth": 0.0,
+            "block_artifact": 0.0,
+            "pre_echo_ms": 0.0,
+            "rotation_strength": 0.0,
+            "infrasonic_rms": 0.0,
             "codec_type_code": 0.0,
         }
         result = scorer.score(features, None)
@@ -50,9 +62,15 @@ class TestBayesianMaterialScorer:
     def test_narrow_bandwidth_low_snr_selects_shellac_or_wax(self):
         scorer = _MaterialScorer()
         features = {
-            "bandwidth_hz": 4000.0, "snr_db": 12.0, "noise_color": 0.75,
-            "crackle_density": 0.05, "wow_depth": 0.0, "block_artifact": 0.0,
-            "pre_echo_ms": 0.0, "rotation_strength": 0.0, "infrasonic_rms": 0.0,
+            "bandwidth_hz": 4000.0,
+            "snr_db": 12.0,
+            "noise_color": 0.75,
+            "crackle_density": 0.05,
+            "wow_depth": 0.0,
+            "block_artifact": 0.0,
+            "pre_echo_ms": 0.0,
+            "rotation_strength": 0.0,
+            "infrasonic_rms": 0.0,
             "codec_type_code": 0.0,
         }
         result = scorer.score(features, None)
@@ -61,9 +79,15 @@ class TestBayesianMaterialScorer:
     def test_wideband_high_snr_selects_digital(self):
         scorer = _MaterialScorer()
         features = {
-            "bandwidth_hz": 20000.0, "snr_db": 75.0, "noise_color": 0.0,
-            "crackle_density": 0.0, "wow_depth": 0.0, "block_artifact": 0.0,
-            "pre_echo_ms": 0.0, "rotation_strength": 0.0, "infrasonic_rms": 0.0,
+            "bandwidth_hz": 20000.0,
+            "snr_db": 75.0,
+            "noise_color": 0.0,
+            "crackle_density": 0.0,
+            "wow_depth": 0.0,
+            "block_artifact": 0.0,
+            "pre_echo_ms": 0.0,
+            "rotation_strength": 0.0,
+            "infrasonic_rms": 0.0,
             "codec_type_code": 0.0,
         }
         result = scorer.score(features, None)
@@ -72,9 +96,15 @@ class TestBayesianMaterialScorer:
     def test_moderate_bandwidth_with_crackle_selects_vinyl(self):
         scorer = _MaterialScorer()
         features = {
-            "bandwidth_hz": 14000.0, "snr_db": 35.0, "noise_color": 1.5,
-            "crackle_density": 0.004, "wow_depth": 0.15, "block_artifact": 0.0,
-            "pre_echo_ms": 0.0, "rotation_strength": 0.30, "infrasonic_rms": 0.06,
+            "bandwidth_hz": 14000.0,
+            "snr_db": 35.0,
+            "noise_color": 1.5,
+            "crackle_density": 0.004,
+            "wow_depth": 0.15,
+            "block_artifact": 0.0,
+            "pre_echo_ms": 0.0,
+            "rotation_strength": 0.30,
+            "infrasonic_rms": 0.06,
             "codec_type_code": 0.0,
         }
         result = scorer.score(features, None)
@@ -83,9 +113,15 @@ class TestBayesianMaterialScorer:
     def test_tape_characteristics(self):
         scorer = _MaterialScorer()
         features = {
-            "bandwidth_hz": 12000.0, "snr_db": 28.0, "noise_color": 1.6,
-            "crackle_density": 0.0, "wow_depth": 1.0, "block_artifact": 0.0,
-            "pre_echo_ms": 2.5, "rotation_strength": 0.0, "infrasonic_rms": 0.0,
+            "bandwidth_hz": 12000.0,
+            "snr_db": 28.0,
+            "noise_color": 1.6,
+            "crackle_density": 0.0,
+            "wow_depth": 1.0,
+            "block_artifact": 0.0,
+            "pre_echo_ms": 2.5,
+            "rotation_strength": 0.0,
+            "infrasonic_rms": 0.0,
             "codec_type_code": 0.0,
         }
         result = scorer.score(features, None)
@@ -94,9 +130,15 @@ class TestBayesianMaterialScorer:
     def test_evidence_field_present(self):
         scorer = _MaterialScorer()
         features = {
-            "bandwidth_hz": 10000.0, "snr_db": 35.0, "noise_color": 0.4,
-            "crackle_density": 0.01, "wow_depth": 0.0, "block_artifact": 0.0,
-            "pre_echo_ms": 0.0, "rotation_strength": 0.0, "infrasonic_rms": 0.0,
+            "bandwidth_hz": 10000.0,
+            "snr_db": 35.0,
+            "noise_color": 0.4,
+            "crackle_density": 0.01,
+            "wow_depth": 0.0,
+            "block_artifact": 0.0,
+            "pre_echo_ms": 0.0,
+            "rotation_strength": 0.0,
+            "infrasonic_rms": 0.0,
             "codec_type_code": 0.0,
         }
         result = scorer.score(features, None)
@@ -106,9 +148,15 @@ class TestBayesianMaterialScorer:
     def test_posteriors_sum_to_one(self):
         scorer = _MaterialScorer()
         features = {
-            "bandwidth_hz": 12000.0, "snr_db": 40.0, "noise_color": 0.5,
-            "crackle_density": 0.0, "wow_depth": 0.0, "block_artifact": 0.0,
-            "pre_echo_ms": 0.0, "rotation_strength": 0.0, "infrasonic_rms": 0.0,
+            "bandwidth_hz": 12000.0,
+            "snr_db": 40.0,
+            "noise_color": 0.5,
+            "crackle_density": 0.0,
+            "wow_depth": 0.0,
+            "block_artifact": 0.0,
+            "pre_echo_ms": 0.0,
+            "rotation_strength": 0.0,
+            "infrasonic_rms": 0.0,
             "codec_type_code": 0.0,
         }
         result = scorer.score(features, None)
@@ -198,7 +246,7 @@ class TestEraAdaptiveFusion:
         decades = [_dsp_fingerprint_decade(20000.0, snr)[0] for snr in snrs]
         for i in range(len(decades) - 1):
             assert decades[i] <= decades[i + 1], (
-                f"Monotonie: SNR {snrs[i]} → {decades[i]}, SNR {snrs[i+1]} → {decades[i+1]}"
+                f"Monotonie: SNR {snrs[i]} → {decades[i]}, SNR {snrs[i + 1]} → {decades[i + 1]}"
             )
 
     def test_post1990_gaussian_smooth_transition(self):
@@ -213,13 +261,27 @@ class TestEraAdaptiveFusion:
     def test_outlier_robust_fusion_no_crash(self):
         """IQR-based outlier rejection should not crash with edge inputs."""
         from backend.core.era_classifier import EraClassifier
+
         clf = EraClassifier()
         np.random.seed(42)
         audio = (np.random.randn(SR * 3) * 0.1).astype(np.float32)
         result = clf.classify(audio, SR)
         assert result.decade in {
-            1890, 1900, 1910, 1920, 1930, 1940, 1950,
-            1960, 1970, 1980, 1990, 2000, 2010, 2020, 2025,
+            1890,
+            1900,
+            1910,
+            1920,
+            1930,
+            1940,
+            1950,
+            1960,
+            1970,
+            1980,
+            1990,
+            2000,
+            2010,
+            2020,
+            2025,
         }
 
 
@@ -237,9 +299,18 @@ class TestDenoiseProfiles:
         """All expected materials should have an entry in MATERIAL_PARAMS."""
         phase = DenoisePhase()
         required = {
-            "tape", "reel_tape", "cassette", "vinyl", "shellac",
-            "wax_cylinder", "cd_digital", "dat", "mp3_low", "mp3_high",
-            "aac", "unknown",
+            "tape",
+            "reel_tape",
+            "cassette",
+            "vinyl",
+            "shellac",
+            "wax_cylinder",
+            "cd_digital",
+            "dat",
+            "mp3_low",
+            "mp3_high",
+            "aac",
+            "unknown",
         }
         actual = set(phase.MATERIAL_PARAMS.keys())
         assert required.issubset(actual), f"Fehlend: {required - actual}"
@@ -301,13 +372,20 @@ class TestDenoiseProfiles:
         """Decade strength multipliers should vary smoothly (no jumps)."""
         # This tests the interpolation table indirectly
         _era_knots = [
-            (1890, 1.15), (1930, 1.15), (1940, 1.10), (1950, 1.05),
-            (1960, 1.00), (1970, 0.95), (1980, 0.90), (1990, 0.80), (2025, 0.80),
+            (1890, 1.15),
+            (1930, 1.15),
+            (1940, 1.10),
+            (1950, 1.05),
+            (1960, 1.00),
+            (1970, 0.95),
+            (1980, 0.90),
+            (1990, 0.80),
+            (2025, 0.80),
         ]
         decades = [k[0] for k in _era_knots]
         mults = [k[1] for k in _era_knots]
         # Check monotonically non-increasing from earliest to latest
         for i in range(len(mults) - 1):
             assert mults[i] >= mults[i + 1] - 0.001, (
-                f"Decade {decades[i]}: {mults[i]} > {decades[i+1]}: {mults[i+1]}"
+                f"Decade {decades[i]}: {mults[i]} > {decades[i + 1]}: {mults[i + 1]}"
             )

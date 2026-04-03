@@ -401,6 +401,7 @@ class TontraegerketteDenker:
 
         # Detektion durchführen
         import os as _os
+
         _file_ext = _os.path.splitext(file_path)[1] if file_path else ""
         raw = self._erkennen(audio, sr, file_ext=_file_ext)
         return self._aufbereiten(raw)
@@ -602,10 +603,8 @@ class TontraegerketteDenker:
         else:
             labels = [_LABEL.get(m, m) for m in chain]
             chain_str = " → ".join(labels)
-            parts.append(f"Es wurde eine {len(chain)}-stufige Übertragungskette erkannt: " f"{chain_str}.")
-            parts.append(
-                "Jede Übertragungsstufe hat typische Klangspuren hinterlassen, " "die separat behandelt werden."
-            )
+            parts.append(f"Es wurde eine {len(chain)}-stufige Übertragungskette erkannt: {chain_str}.")
+            parts.append("Jede Übertragungsstufe hat typische Klangspuren hinterlassen, die separat behandelt werden.")
 
         # Degradationsbeschreibungen
         for glied in glieder:
@@ -618,7 +617,7 @@ class TontraegerketteDenker:
                 "stufenweise Restaurierung ist erforderlich."
             )
         elif chain_complexity >= 0.60:
-            parts.append("Die Kettenkomplexi­tät ist moderat — mehrere Restaurierungs-Phasen " "werden benötigt.")
+            parts.append("Die Kettenkomplexi­tät ist moderat — mehrere Restaurierungs-Phasen werden benötigt.")
         else:
             parts.append("Die Kettenkomplexi­tät ist gering — gezielte Korrekturen genügen.")
 

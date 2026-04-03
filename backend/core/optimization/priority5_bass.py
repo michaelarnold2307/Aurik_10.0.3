@@ -8,7 +8,6 @@ character of the source material.
 
 from __future__ import annotations
 
-
 import numpy as np
 from scipy.signal import firwin, lfilter
 

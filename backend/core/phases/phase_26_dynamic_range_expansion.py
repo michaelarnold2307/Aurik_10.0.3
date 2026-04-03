@@ -316,9 +316,7 @@ class DynamicRangeExpansion(PhaseInterface):
         mask_up_full = envelope_db > (upward_thresh + half_knee)
         mask_up_knee = ~mask_up_full & (envelope_db > (upward_thresh - half_knee))
         mask_dn_full = ~mask_up_full & ~mask_up_knee & (envelope_db < (downward_thresh - half_knee))
-        mask_dn_knee = (
-            ~mask_up_full & ~mask_up_knee & ~mask_dn_full & (envelope_db < (downward_thresh + half_knee))
-        )
+        mask_dn_knee = ~mask_up_full & ~mask_up_knee & ~mask_dn_full & (envelope_db < (downward_thresh + half_knee))
 
         gain_db = np.zeros_like(envelope_db)
 
@@ -334,7 +332,7 @@ class DynamicRangeExpansion(PhaseInterface):
 
         # Downward expansion: in knee (soft transition)
         deficit_k = (downward_thresh + half_knee) - envelope_db[mask_dn_knee]
-        gain_db[mask_dn_knee] = -(deficit_k / knee) ** 2 * (downward_ratio - 1.0) * knee
+        gain_db[mask_dn_knee] = -((deficit_k / knee) ** 2) * (downward_ratio - 1.0) * knee
 
         # Limit expansion
         gain_db = np.clip(gain_db, -self.MAX_EXPANSION_DB, self.MAX_EXPANSION_DB)

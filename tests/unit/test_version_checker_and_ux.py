@@ -2,9 +2,7 @@
 
 import json
 import threading
-from unittest.mock import patch, MagicMock
-
-import pytest
+from unittest.mock import MagicMock, patch
 
 from Aurik910.core.version_checker import (
     VersionCheckResult,
@@ -13,8 +11,8 @@ from Aurik910.core.version_checker import (
     check_for_update_async,
 )
 
-
 # ── _parse_version ─────────────────────────────────────────────────────────
+
 
 def test_parse_version_simple():
     assert _parse_version("9.10.77") == (9, 10, 77)
@@ -41,6 +39,7 @@ def test_parse_version_comparison():
 
 # ── VersionCheckResult ─────────────────────────────────────────────────────
 
+
 def test_result_defaults():
     r = VersionCheckResult()
     assert r.available is False
@@ -56,6 +55,7 @@ def test_result_available():
 
 
 # ── check_for_update (mocked) ─────────────────────────────────────────────
+
 
 def _mock_release(tag: str, assets=None, body="Release notes"):
     """Build a GitHub API-like release dict."""
@@ -108,9 +108,7 @@ def test_check_older_than_current(mock_urlopen):
 
 @patch("Aurik910.core.version_checker.urlopen")
 def test_check_with_appimage_asset(mock_urlopen):
-    assets = [
-        {"name": "aurik-9.11.0.AppImage", "browser_download_url": "https://dl.example.com/aurik.AppImage"}
-    ]
+    assets = [{"name": "aurik-9.11.0.AppImage", "browser_download_url": "https://dl.example.com/aurik.AppImage"}]
     resp = MagicMock()
     resp.read.return_value = _mock_release("v9.11.0", assets=assets)
     resp.__enter__ = MagicMock(return_value=resp)
@@ -125,6 +123,7 @@ def test_check_with_appimage_asset(mock_urlopen):
 @patch("Aurik910.core.version_checker.urlopen")
 def test_check_network_error(mock_urlopen):
     from urllib.error import URLError
+
     mock_urlopen.side_effect = URLError("offline")
 
     result = check_for_update("9.10.77")
@@ -146,6 +145,7 @@ def test_check_no_tag(mock_urlopen):
 
 
 # ── check_for_update_async ─────────────────────────────────────────────────
+
 
 @patch("Aurik910.core.version_checker.urlopen")
 def test_async_check_calls_callback(mock_urlopen):
@@ -170,9 +170,11 @@ def test_async_check_calls_callback(mock_urlopen):
 
 # ── Batch-Retry / TitleBar Settings (integration-style, no Qt needed) ──────
 
+
 def test_simple_batch_item_retry_reset():
     """Verify SimpleBatchItem fields can be reset for retry."""
     import sys
+
     sys.path.insert(0, ".")
     # Minimal duck-type test — no Qt import needed
 
@@ -198,7 +200,7 @@ def test_simple_batch_item_retry_reset():
 
 def test_i18n_keys_exist():
     """All new i18n keys resolve to non-empty strings."""
-    from Aurik910.i18n import t, set_language
+    from Aurik910.i18n import set_language, t
 
     keys = [
         "batch.retry_tooltip",

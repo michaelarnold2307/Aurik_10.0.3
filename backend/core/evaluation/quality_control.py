@@ -15,7 +15,7 @@ from __future__ import annotations
 import warnings
 
 warnings.warn(
-    "backend.core.evaluation.quality_control ist veraltet. " "Importiere direkt aus backend.quality_control.",
+    "backend.core.evaluation.quality_control ist veraltet. Importiere direkt aus backend.quality_control.",
     DeprecationWarning,
     stacklevel=2,
 )

@@ -290,15 +290,15 @@ class HybridDereverb:
                 from backend.core.plugin_lifecycle_manager import evict_stale_plugins
 
                 evict_stale_plugins(required_mb=int(required_gb * 1024))
-            except Exception:
-                pass
+            except Exception as _exc:
+                logger.debug("Operation failed (non-critical): %s", _exc)
             gc.collect()
             try:
                 import ctypes as _ct
 
                 _ct.CDLL("libc.so.6").malloc_trim(0)
-            except Exception:
-                pass
+            except Exception as _exc:
+                logger.debug("Operation failed (non-critical): %s", _exc)
             avail_gb = psutil.virtual_memory().available / (1024**3)
 
         if avail_gb < required_gb:

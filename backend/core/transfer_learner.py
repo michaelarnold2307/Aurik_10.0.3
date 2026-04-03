@@ -59,6 +59,10 @@ class TransferLearner:
         # Add bias column
         X_aug = np.column_stack([X_norm, np.ones(len(X_norm))])
         # OLS: w = pinv(X^T X) X^T y
+        # Guard: degenerate input → LAPACK DLASCL failure
+        if not np.all(np.isfinite(X_aug)) or not np.all(np.isfinite(y)):
+            self._weights = np.zeros(X_aug.shape[1])
+            return self
         self._weights = np.linalg.lstsq(X_aug, y, rcond=None)[0]
 
         return self

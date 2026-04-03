@@ -131,9 +131,7 @@ class AutoReprocessingEngine:
         self.enable_forensic_guidance = enable_forensic_guidance
 
         logger.info(
-            f"AutoReprocessingEngine initialized: "
-            f"max_attempts={max_attempts}, "
-            f"min_improvement={min_improvement}"
+            f"AutoReprocessingEngine initialized: max_attempts={max_attempts}, min_improvement={min_improvement}"
         )
 
     def reprocess_on_failure(
@@ -208,7 +206,7 @@ class AutoReprocessingEngine:
             else:
                 strategy = strategies[attempt_num - 1]
 
-            logger.info(f"Attempt {attempt_num}/{self.max_attempts}: " f"Strategy={strategy.value}")
+            logger.info(f"Attempt {attempt_num}/{self.max_attempts}: Strategy={strategy.value}")
 
             # Execute strategy
             try:
@@ -226,7 +224,7 @@ class AutoReprocessingEngine:
                         improvements={},
                         violations={},
                         success=False,
-                        notes=f"Exception: {str(e)}",
+                        notes=f"Exception: {e!s}",
                     )
                 )
                 continue
@@ -429,7 +427,7 @@ class AutoReprocessingEngine:
 
         params = {"processed_weight": proc_weight, "original_weight": orig_weight}
 
-        logger.info(f"Hybrid blend: {proc_weight:.0%} processed + " f"{orig_weight:.0%} original")
+        logger.info(f"Hybrid blend: {proc_weight:.0%} processed + {orig_weight:.0%} original")
 
         return blended, params
 

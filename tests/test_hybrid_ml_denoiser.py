@@ -205,19 +205,19 @@ def test_convenience_functions():
     start = time.time()
     denoise_fast(noisy, sr)
     fast_time = time.time() - start
-    print(f"✅ denoise_fast(): {fast_time:.2f}s ({fast_time/2.0:.2f}× RT)")
+    print(f"✅ denoise_fast(): {fast_time:.2f}s ({fast_time / 2.0:.2f}× RT)")
 
     print("\nTesting denoise_balanced()...")
     start = time.time()
     denoise_balanced(noisy, sr)
     balanced_time = time.time() - start
-    print(f"✅ denoise_balanced(): {balanced_time:.2f}s ({balanced_time/2.0:.2f}× RT)")
+    print(f"✅ denoise_balanced(): {balanced_time:.2f}s ({balanced_time / 2.0:.2f}× RT)")
 
     print("\nTesting denoise_maximum()...")
     start = time.time()
     denoise_maximum(noisy, sr)
     maximum_time = time.time() - start
-    print(f"✅ denoise_maximum(): {maximum_time:.2f}s ({maximum_time/2.0:.2f}× RT)")
+    print(f"✅ denoise_maximum(): {maximum_time:.2f}s ({maximum_time / 2.0:.2f}× RT)")
 
     print("\n✅ Test 4 PASSED")
 

@@ -99,7 +99,6 @@ def generate_test_signal(sr: int, duration: float = 1.0, freq: float = 440.0) ->
 
 
 class TestWienerDereverb:
-
     def test_initialization(self):
         """Test WienerDereverb initialization."""
         wiener = WienerDereverb(reverb_time_estimate=0.5, strength=0.7)
@@ -174,7 +173,6 @@ class TestWienerDereverb:
 
 
 class TestLateReflectionCanceller:
-
     def test_initialization(self):
         """Test LateReflectionCanceller initialization."""
         canceller = LateReflectionCanceller(threshold_lag_ms=50.0, suppression_db=12.0)
@@ -247,7 +245,6 @@ class TestLateReflectionCanceller:
 
 
 class TestSpectralTemporalAnalyzer:
-
     def test_initialization(self):
         """Test SpectralTemporalAnalyzer initialization."""
         analyzer = SpectralTemporalAnalyzer(direct_threshold=0.7)
@@ -315,7 +312,6 @@ class TestSpectralTemporalAnalyzer:
 
 
 class TestMultibandDereverb:
-
     def test_initialization(self):
         """Test MultibandDereverb initialization."""
         multiband = MultibandDereverb(low_strength=0.5, mid_strength=0.7, high_strength=0.6)
@@ -390,7 +386,6 @@ class TestMultibandDereverb:
 
 
 class TestAdvancedDereverb:
-
     def test_initialization_mild_mode(self):
         """Test initialization with mild mode."""
         dereverb = AdvancedDereverb(mode="mild")
@@ -524,7 +519,6 @@ class TestAdvancedDereverb:
 
 
 class TestQualityGates:
-
     def test_no_extreme_clipping(self):
         """Test that processing doesn't introduce extreme clipping."""
         sr = 48000
@@ -610,7 +604,6 @@ class TestQualityGates:
 
 
 class TestIntegration:
-
     def test_full_workflow(self):
         """Test complete de-reverb workflow."""
         sr = 48000

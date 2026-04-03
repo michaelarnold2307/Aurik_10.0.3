@@ -291,8 +291,10 @@ class CompetitiveBenchmark:
             "note": "Requires Waves Clarity license",
         }
 
-    def run_full_benchmark(self, competitors: list[str] = ["aurik"]) -> dict:
+    def run_full_benchmark(self, competitors: list[str] | None = None) -> dict:
         """Run benchmark on all test files."""
+        if competitors is None:
+            competitors = ["aurik"]
         test_files = list(self.test_audio_dir.glob("*.wav"))
 
         if len(test_files) == 0:

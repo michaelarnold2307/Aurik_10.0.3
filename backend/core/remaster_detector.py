@@ -21,7 +21,6 @@ import logging
 import math
 import threading
 from dataclasses import dataclass, field
-from typing import List, Optional
 
 import numpy as np
 
@@ -163,12 +162,12 @@ class RemasterDetector:
             )
 
         if is_remaster:
-            evidence.append(f"Remaster erkannt: beide Kriterien erfüllt " f"(Konfidenz {confidence:.2f}).")
+            evidence.append(f"Remaster erkannt: beide Kriterien erfüllt (Konfidenz {confidence:.2f}).")
         else:
             evidence.append("Kein Remaster erkannt — mindestens ein Kriterium nicht erfüllt.")
 
         logger.debug(
-            "RemasterDetector: floor=%.1f dBFS  hf_rolloff=%.1f kHz  " "is_remaster=%s  conf=%.2f",
+            "RemasterDetector: floor=%.1f dBFS  hf_rolloff=%.1f kHz  is_remaster=%s  conf=%.2f",
             noise_floor_db,
             hf_rolloff_khz,
             is_remaster,

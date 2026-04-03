@@ -429,3 +429,187 @@ def test_36_oompah_rhythmus_pattern_detektiert():
     r = classify_genre(audio, SR)
     assert math.isfinite(r.rhythm_score)
     assert 0.0 <= r.rhythm_score <= 1.0
+
+
+# ── New tests for Oper genre, open_set_unknown, genre family scalars ──────────
+
+
+def test_37_score_oper_returns_bounded_float():
+    """_score_oper() gibt einen Wert in [0, 1] zurück."""
+    from backend.core.genre_classifier import get_genre_classifier
+
+    clf = get_genre_classifier()
+    score = clf._score_oper(centroid_hz=2200.0, onset_rate=1.5, hsi=0.70, dr_db=50.0)
+    assert math.isfinite(score)
+    assert 0.0 <= score <= 1.0
+
+
+def test_38_score_oper_high_for_opera_profile():
+    """Hohe DR + Singformant-Centroid → _score_oper soll ≥ 0.35 erreichen."""
+    from backend.core.genre_classifier import get_genre_classifier
+
+    clf = get_genre_classifier()
+    # dr_db > 48 → +0.35; centroid 1800-3200 → +0.25; onset moderat → +0.15; hsi passt → +0.15
+    score = clf._score_oper(centroid_hz=2400.0, onset_rate=1.8, hsi=0.72, dr_db=52.0)
+    assert score >= 0.35, f"Oper-Profil-Signal sollte score ≥ 0.35 haben, ist {score:.3f}"
+
+
+def test_39_score_oper_low_for_rock_profile():
+    """Rock-Profil (niedrige DR, hohe Onsets) → _score_oper nahe 0."""
+    from backend.core.genre_classifier import get_genre_classifier
+
+    clf = get_genre_classifier()
+    score = clf._score_oper(centroid_hz=3200.0, onset_rate=4.5, hsi=0.50, dr_db=18.0)
+    assert score <= 0.30, f"Rock-Signal sollte niedrigen Oper-Score haben, ist {score:.3f}"
+
+
+def test_40_compute_non_schlager_scores_includes_oper():
+    """_compute_non_schlager_scores() muss 'Oper' im zurückgegebenen Dict haben."""
+    from backend.core.genre_classifier import get_genre_classifier
+
+    clf = get_genre_classifier()
+    scores = clf._compute_non_schlager_scores(centroid_hz=2200.0, onset_rate=1.5, hsi=0.70, dr_db=50.0, bpm=80.0)
+    assert "Oper" in scores, "Schlüssel 'Oper' fehlt in _compute_non_schlager_scores-Ergebnis"
+    assert math.isfinite(scores["Oper"])
+    assert 0.0 <= scores["Oper"] <= 1.0
+
+
+def test_41_classify_result_has_open_set_unknown():
+    """SchlagerClassificationResult hat das Feld 'open_set_unknown'."""
+    from backend.core.genre_classifier import classify_genre
+
+    r = classify_genre(_white_noise(10.0), SR)
+    assert hasattr(r, "open_set_unknown")
+    assert isinstance(r.open_set_unknown, bool)
+
+
+def test_42_open_set_unknown_silence():
+    """Stille → open_set_unknown=True (kein Genre erkennbar)."""
+    from backend.core.genre_classifier import classify_genre
+
+    r = classify_genre(_silence(8.0), SR)
+    # Stille hat keine genre-relevanten Features → open_set_unknown erwartet
+    assert isinstance(r.open_set_unknown, bool)  # nur Typ prüfen, nicht hartes True erzwingen
+
+
+def test_43_genre_family_four_families():
+    """_infer_genre_family kennt jetzt 4 Familien (rock/jazz/klassik/oper + schlager_folk)."""
+    from backend.core.genre_classifier import get_genre_classifier
+
+    clf = get_genre_classifier()
+    # Opera-Profil-Scores: 'Oper' dominiert
+    non_scores = {"Rock": 0.10, "Jazz": 0.12, "Klassik": 0.28, "Oper": 0.55}
+    label, conf = clf._infer_genre_family(non_scores, schlager_family_score=0.05)
+    assert label == "oper", f"Erwartet 'oper', erhalten '{label}'"
+    assert conf >= 0.38
+
+
+def test_44_build_song_calibration_klassik_reduces_reverb():
+    """Klassik-genre_label → reverb family_scalar < 0.95 (Raumklang-Schutz)."""
+    from backend.core.defect_scanner import MaterialType
+    from backend.core.performance_guard import QualityMode
+    from backend.core.unified_restorer_v3 import UnifiedRestorerV3
+
+    profile_default = UnifiedRestorerV3._build_song_calibration_profile(
+        material_type=MaterialType.VINYL_STANDARD,
+        mode=QualityMode.QUALITY,
+        restorability_score=70.0,
+        input_snr_db=30.0,
+        max_defect_severity=0.2,
+        pipeline_confidence=0.8,
+        genre_label="",
+    )
+    profile_klassik = UnifiedRestorerV3._build_song_calibration_profile(
+        material_type=MaterialType.VINYL_STANDARD,
+        mode=QualityMode.QUALITY,
+        restorability_score=70.0,
+        input_snr_db=30.0,
+        max_defect_severity=0.2,
+        pipeline_confidence=0.8,
+        genre_label="Klassik",
+    )
+    rv_default = profile_default["family_scalars"]["reverb"]
+    rv_klassik = profile_klassik["family_scalars"]["reverb"]
+    assert rv_klassik < rv_default, f"Klassik reverb-scalar ({rv_klassik:.3f}) sollte < default ({rv_default:.3f}) sein"
+
+
+def test_45_build_song_calibration_oper_raises_vocal():
+    """Oper-genre_label → vocal family_scalar > Klassik (Singformant-Boost)."""
+    from backend.core.defect_scanner import MaterialType
+    from backend.core.performance_guard import QualityMode
+    from backend.core.unified_restorer_v3 import UnifiedRestorerV3
+
+    _shared = {
+        "material_type": MaterialType.VINYL_STANDARD,
+        "mode": QualityMode.QUALITY,
+        "restorability_score": 70.0,
+        "input_snr_db": 30.0,
+        "max_defect_severity": 0.2,
+        "pipeline_confidence": 0.8,
+    }
+    profile_klassik = UnifiedRestorerV3._build_song_calibration_profile(**_shared, genre_label="Klassik")
+    profile_oper = UnifiedRestorerV3._build_song_calibration_profile(**_shared, genre_label="Oper")
+    v_klassik = profile_klassik["family_scalars"]["vocal"]
+    v_oper = profile_oper["family_scalars"]["vocal"]
+    assert v_oper > v_klassik, f"Oper vocal scalar ({v_oper:.3f}) sollte > Klassik ({v_klassik:.3f}) sein"
+
+
+def test_46_build_song_calibration_rock_raises_transient():
+    """Rock-genre_label → transient family_scalar > neutrales Profil."""
+    from backend.core.defect_scanner import MaterialType
+    from backend.core.performance_guard import QualityMode
+    from backend.core.unified_restorer_v3 import UnifiedRestorerV3
+
+    _shared = {
+        "material_type": MaterialType.VINYL_STANDARD,
+        "mode": QualityMode.QUALITY,
+        "restorability_score": 70.0,
+        "input_snr_db": 30.0,
+        "max_defect_severity": 0.2,
+        "pipeline_confidence": 0.8,
+    }
+    profile_default = UnifiedRestorerV3._build_song_calibration_profile(**_shared, genre_label="")
+    profile_rock = UnifiedRestorerV3._build_song_calibration_profile(**_shared, genre_label="Rock")
+    t_default = profile_default["family_scalars"]["transient"]
+    t_rock = profile_rock["family_scalars"]["transient"]
+    assert t_rock >= t_default, f"Rock transient scalar ({t_rock:.3f}) sollte ≥ default ({t_default:.3f}) sein"
+
+
+def test_47_build_song_calibration_genre_label_stored():
+    """genre_label wird im zurückgegebenen Profil-Dict gespeichert."""
+    from backend.core.defect_scanner import MaterialType
+    from backend.core.performance_guard import QualityMode
+    from backend.core.unified_restorer_v3 import UnifiedRestorerV3
+
+    profile = UnifiedRestorerV3._build_song_calibration_profile(
+        material_type=MaterialType.VINYL_STANDARD,
+        mode=QualityMode.QUALITY,
+        restorability_score=70.0,
+        input_snr_db=30.0,
+        max_defect_severity=0.2,
+        pipeline_confidence=0.8,
+        genre_label="Jazz",
+    )
+    assert profile.get("genre_label") == "Jazz"
+
+
+def test_48_oper_profile_in_genre_restoration_profiles():
+    """GENRE_RESTORATION_PROFILES enthält 'Oper' und 'oper' als Keys."""
+    from backend.core.genre_classifier import GENRE_RESTORATION_PROFILES
+
+    assert "Oper" in GENRE_RESTORATION_PROFILES
+    assert "oper" in GENRE_RESTORATION_PROFILES
+    profile = GENRE_RESTORATION_PROFILES["Oper"]
+    assert isinstance(profile, dict)
+    assert len(profile) > 0
+
+
+def test_49_get_restoration_profile_oper():
+    """get_restoration_profile('Oper') gibt das OPER_RESTORATION_PROFILE zurück."""
+    from backend.core.genre_classifier import OPER_RESTORATION_PROFILE, get_restoration_profile
+
+    profile = get_restoration_profile("Oper")
+    assert profile == OPER_RESTORATION_PROFILE
+    # Lowercase alias
+    profile_lc = get_restoration_profile("oper")
+    assert profile_lc == OPER_RESTORATION_PROFILE

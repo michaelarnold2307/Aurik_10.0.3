@@ -299,7 +299,7 @@ def phase_output_guard(fn):
     ...
 ```
 
-**Anwendung**: Alle Phasen-Funktionen (01–56) MÜSSEN mit `@phase_output_guard` dekoriert ODER manuell äquivalent absichern.
+**Anwendung**: Alle Phasen-Funktionen (01–64) MÜSSEN mit `@phase_output_guard` dekoriert ODER manuell äquivalent absichern.
 
 **Invariante**: NaN-Propagation aus ML-Ausgaben ist verboten. Stille (Nullen) ist der sichere Fallback bei korruptierter Inferenz.
 

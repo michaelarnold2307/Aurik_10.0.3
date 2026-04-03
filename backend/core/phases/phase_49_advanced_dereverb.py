@@ -185,9 +185,7 @@ class AdvancedDereverbPhase(PhaseInterface):
 
         if delta_c80 < -2.0:
             # C80 degraded — full rollback to original dry signal
-            logger.warning(
-                "Phase 49 C80-guard: ΔC80=%.2f dB below −2 dB → rollback to dry", delta_c80
-            )
+            logger.warning("Phase 49 C80-guard: ΔC80=%.2f dB below −2 dB → rollback to dry", delta_c80)
             processed = audio.copy()
             wet_mix = 0.0
             c80_guard_triggered = True
@@ -217,9 +215,7 @@ class AdvancedDereverbPhase(PhaseInterface):
                 _e = min(_early_win, len(_proc64))
                 _proc64[:_e] = (1.0 - _alpha) * _proc64[:_e] + _alpha * _orig64[:_e]
             processed = _proc64.astype(np.float32)
-            logger.info(
-                "Phase 49 C80-guard: ΔC80=%.2f dB — early-reflection blend 35 %% applied (50 ms)", delta_c80
-            )
+            logger.info("Phase 49 C80-guard: ΔC80=%.2f dB — early-reflection blend 35 %% applied (50 ms)", delta_c80)
 
         if wet_mix < 1.0:
             processed = audio + wet_mix * (processed - audio)
@@ -494,7 +490,7 @@ class AdvancedDereverbPhase(PhaseInterface):
         # We need: reverb[t] = Σ_k g[k] * y[t-D-k-1] for t >= D+K
         # Shift: let s = t - D - 1, then reverb[s+D+1] = Σ_k g[k] * y[s-k]
         # This is: convolve(y, g) at position s, valid for s >= K-1
-        conv_full = np.convolve(y, g_rev, mode="full")  # length T + K - 1
+        np.convolve(y, g_rev, mode="full")  # length T + K - 1
         # conv_full[s] = Σ_k g_rev[k] * y[s-k] = Σ_k g[K-1-k] * y[s-k]
         # We want reverb[t] = Σ_k g[k] * y[t-D-k-1]
         # Let s = t - D - 1: reverb[t] = conv_g[s] where conv_g[s] = Σ_k g[k] * y[s-k]

@@ -128,7 +128,7 @@ class RollbackManager:
             removed = self.snapshots.pop(0)  # Remove oldest
             logger.info(f"Removed oldest snapshot '{removed.name}' (max limit reached)")
 
-        logger.info(f"Created snapshot '{name}': " f"{len(self.snapshots)}/{self.max_snapshots} snapshots")
+        logger.info(f"Created snapshot '{name}': {len(self.snapshots)}/{self.max_snapshots} snapshots")
 
     def get_snapshot(self, name: str) -> AudioSnapshot | None:
         """
@@ -165,9 +165,7 @@ class RollbackManager:
 
         if snapshot is None:
             available = [s.name for s in self.snapshots]
-            raise ValueError(
-                f"Snapshot '{name}' not found. " f"Available: {', '.join(available) if available else 'none'}"
-            )
+            raise ValueError(f"Snapshot '{name}' not found. Available: {', '.join(available) if available else 'none'}")
 
         # Record rollback decision
         current_name = self.snapshots[-1].name if self.snapshots else None
@@ -220,8 +218,8 @@ class RollbackManager:
         try:
             snapshot = self.snapshots[index]
             return self.rollback_to_snapshot(snapshot.name, reason=reason)
-        except IndexError:
-            raise IndexError(f"Snapshot index {index} out of range " f"(available: 0 to {len(self.snapshots) - 1})")
+        except IndexError as e:
+            raise IndexError(f"Snapshot index {index} out of range (available: 0 to {len(self.snapshots) - 1})") from e
 
     def list_snapshots(self) -> list[dict]:
         """

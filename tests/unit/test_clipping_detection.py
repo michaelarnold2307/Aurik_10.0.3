@@ -23,17 +23,13 @@
 
 from __future__ import annotations
 
-import math
 import threading
 import time
 
 import numpy as np
-import pytest
 
 from backend.core.clipping_detection import (
-    FLAT_TOPS_CLIP_BOUNDARY,
     FLAT_TOPS_THRESHOLD_PCT,
-    THD_ODD_DOMINANCE_FACTOR,
     ClippingAnalysisResult,
     ClippingClassifier,
     ClippingType,

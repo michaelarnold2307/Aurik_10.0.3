@@ -15,8 +15,10 @@ Date: 8. Februar 2026
 
 from __future__ import annotations
 
+import dataclasses
 import logging
 import warnings
+from dataclasses import dataclass
 
 import numpy as np
 from scipy import signal
@@ -25,6 +27,99 @@ from scipy.fft import fft, fftfreq
 logger = logging.getLogger(__name__)
 
 warnings.filterwarnings("ignore", category=RuntimeWarning)
+
+
+# ─── Dict-compatibility mixin ─────────────────────────────────────────────────
+
+
+class _DictAccess:
+    """Mixin: makes dataclass instances behave like dicts for backward compatibility.
+
+    Enables both typed attribute access (``result.warmth_detected``) and legacy
+    dict-style access (``result["warmth_detected"]``, ``"key" in result``).
+    """
+
+    def __getitem__(self, key: str):  # type: ignore[override]
+        try:
+            return getattr(self, key)
+        except AttributeError:
+            raise KeyError(key) from None
+
+    def __contains__(self, key: object) -> bool:
+        return isinstance(key, str) and hasattr(self, key)
+
+    def get(self, key: str, default=None):
+        return getattr(self, key, default)
+
+    def items(self):
+        return dataclasses.asdict(self).items()  # type: ignore[arg-type]
+
+    def keys(self):
+        return dataclasses.asdict(self).keys()  # type: ignore[arg-type]
+
+    def values(self):
+        return dataclasses.asdict(self).values()  # type: ignore[arg-type]
+
+
+# ─── Result dataclasses ───────────────────────────────────────────────────────
+
+
+@dataclass
+class FingerNoiseResult(_DictAccess):
+    finger_noise_detected: bool
+    num_events: int
+    total_duration_ms: float
+    avg_duration_ms: float
+    energy_ratio: float
+    retention_target: float
+
+
+@dataclass
+class BowNoiseResult(_DictAccess):
+    bow_noise_detected: bool
+    bow_noise_ratio: float
+    energy_ratio: float
+    spectral_flatness_mean: float
+    retention_target: float
+
+
+@dataclass
+class PedalNoiseResult(_DictAccess):
+    pedal_noise_detected: bool
+    num_events: int
+    energy_ratio: float
+    retention_target: float
+
+
+@dataclass
+class BrushTextureResult(_DictAccess):
+    brush_texture_detected: bool
+    num_regions: int
+    avg_region_length_ms: float
+    total_active_ms: float
+    energy_ratio: float
+    retention_target: float
+
+
+@dataclass
+class VinylCharacterResult(_DictAccess):
+    vinyl_character_detected: bool
+    warmth_detected: bool
+    defects_detected: bool
+    thd: float
+    noise_ratio: float
+    warmth_retention_target: float
+    defects_removal_target: float
+
+
+@dataclass
+class AuthenticityMetricsResult(_DictAccess):
+    finger_noise: FingerNoiseResult
+    bow_noise: BowNoiseResult
+    pedal_noise: PedalNoiseResult
+    brush_texture: BrushTextureResult
+    vinyl_character: VinylCharacterResult
+    detected_elements: list[str]
 
 
 # =============================================================================
@@ -64,7 +159,7 @@ class FingerNoiseDetector:
 
         self.metrics = {}
 
-    def detect(self, audio: np.ndarray, sample_rate: int) -> dict:
+    def detect(self, audio: np.ndarray, sample_rate: int) -> FingerNoiseResult:
         """
         Detect finger noise events in audio.
 
@@ -77,7 +172,7 @@ class FingerNoiseDetector:
 
         Returns
         -------
-        metrics : dict
+        FingerNoiseResult
             Detection metrics
         """
         assert sample_rate == 48000, f"SR muss 48000 Hz sein, erhalten: {sample_rate}"
@@ -117,15 +212,14 @@ class FingerNoiseDetector:
         total_energy = np.sum(audio**2)
         energy_ratio = finger_noise_energy / (total_energy + 1e-8)
 
-        self.metrics = {
-            "finger_noise_detected": n_events > 0,
-            "num_events": n_events,
-            "total_duration_ms": total_duration_ms,
-            "avg_duration_ms": avg_duration_ms,
-            "energy_ratio": energy_ratio,
-            "retention_target": 0.85,
-        }
-
+        self.metrics = FingerNoiseResult(
+            finger_noise_detected=n_events > 0,
+            num_events=n_events,
+            total_duration_ms=total_duration_ms,
+            avg_duration_ms=avg_duration_ms,
+            energy_ratio=energy_ratio,
+            retention_target=0.85,
+        )
         return self.metrics
 
 
@@ -166,7 +260,7 @@ class BowNoiseDetector:
 
         self.metrics = {}
 
-    def detect(self, audio: np.ndarray, sample_rate: int) -> dict:
+    def detect(self, audio: np.ndarray, sample_rate: int) -> BowNoiseResult:
         """
         Detect bow noise in audio.
 
@@ -179,7 +273,7 @@ class BowNoiseDetector:
 
         Returns
         -------
-        metrics : dict
+        BowNoiseResult
             Detection metrics
         """
         assert sample_rate == 48000, f"SR muss 48000 Hz sein, erhalten: {sample_rate}"
@@ -208,14 +302,13 @@ class BowNoiseDetector:
         total_energy = np.sum(audio**2)
         energy_ratio = bow_noise_energy / (total_energy + 1e-8)
 
-        self.metrics = {
-            "bow_noise_detected": bow_noise_ratio > 0.1,
-            "bow_noise_ratio": float(bow_noise_ratio),
-            "energy_ratio": float(energy_ratio),
-            "spectral_flatness_mean": float(np.mean(spectral_flatness)),
-            "retention_target": 0.80,
-        }
-
+        self.metrics = BowNoiseResult(
+            bow_noise_detected=bool(bow_noise_ratio > 0.1),
+            bow_noise_ratio=float(bow_noise_ratio),
+            energy_ratio=float(energy_ratio),
+            spectral_flatness_mean=float(np.mean(spectral_flatness)),
+            retention_target=0.80,
+        )
         return self.metrics
 
 
@@ -256,7 +349,7 @@ class PedalNoiseDetector:
 
         self.metrics = {}
 
-    def detect(self, audio: np.ndarray, sample_rate: int) -> dict:
+    def detect(self, audio: np.ndarray, sample_rate: int) -> PedalNoiseResult:
         """
         Detect pedal noise events in audio.
 
@@ -269,7 +362,7 @@ class PedalNoiseDetector:
 
         Returns
         -------
-        metrics : dict
+        PedalNoiseResult
             Detection metrics
         """
         assert sample_rate == 48000, f"SR muss 48000 Hz sein, erhalten: {sample_rate}"
@@ -304,13 +397,12 @@ class PedalNoiseDetector:
         total_energy = np.sum(audio**2)
         energy_ratio = pedal_energy / (total_energy + 1e-8)
 
-        self.metrics = {
-            "pedal_noise_detected": n_events > 0,
-            "num_events": n_events,
-            "energy_ratio": float(energy_ratio),
-            "retention_target": 0.80,
-        }
-
+        self.metrics = PedalNoiseResult(
+            pedal_noise_detected=n_events > 0,
+            num_events=n_events,
+            energy_ratio=float(energy_ratio),
+            retention_target=0.80,
+        )
         return self.metrics
 
 
@@ -351,7 +443,7 @@ class BrushTextureDetector:
 
         self.metrics = {}
 
-    def detect(self, audio: np.ndarray, sample_rate: int) -> dict:
+    def detect(self, audio: np.ndarray, sample_rate: int) -> BrushTextureResult:
         """
         Detect brush texture in audio.
 
@@ -364,7 +456,7 @@ class BrushTextureDetector:
 
         Returns
         -------
-        metrics : dict
+        BrushTextureResult
             Detection metrics
         """
         assert sample_rate == 48000, f"SR muss 48000 Hz sein, erhalten: {sample_rate}"
@@ -404,15 +496,14 @@ class BrushTextureDetector:
         total_energy = np.sum(audio**2)
         energy_ratio = brush_energy / (total_energy + 1e-8)
 
-        self.metrics = {
-            "brush_texture_detected": num_regions > 0 and avg_region_length_ms > 100,
-            "num_regions": num_regions,
-            "avg_region_length_ms": float(avg_region_length_ms),
-            "total_active_ms": float(total_active_ms),
-            "energy_ratio": float(energy_ratio),
-            "retention_target": 0.85,
-        }
-
+        self.metrics = BrushTextureResult(
+            brush_texture_detected=bool(num_regions > 0 and avg_region_length_ms > 100),
+            num_regions=num_regions,
+            avg_region_length_ms=float(avg_region_length_ms),
+            total_active_ms=float(total_active_ms),
+            energy_ratio=float(energy_ratio),
+            retention_target=0.85,
+        )
         return self.metrics
 
 
@@ -453,7 +544,7 @@ class VinylCharacterDetector:
 
         self.metrics = {}
 
-    def detect(self, audio: np.ndarray, sample_rate: int) -> dict:
+    def detect(self, audio: np.ndarray, sample_rate: int) -> VinylCharacterResult:
         """
         Detect vinyl character (warmth vs defects) in audio.
 
@@ -466,15 +557,15 @@ class VinylCharacterDetector:
 
         Returns
         -------
-        metrics : dict
+        VinylCharacterResult
             Detection metrics
         """
         assert sample_rate == 48000, f"SR muss 48000 Hz sein, erhalten: {sample_rate}"
         audio = np.nan_to_num(audio, nan=0.0, posinf=0.0, neginf=0.0)
         # Compute spectrum
         N = len(audio)
-        fft_audio = fft(audio)
-        fft_audio = np.nan_to_num(fft_audio, nan=0.0 + 0j)  # type: ignore[call-overload]
+        fft_audio = fft(audio.astype(np.float64))
+        fft_audio = np.nan_to_num(fft_audio, nan=0.0, posinf=0.0, neginf=0.0)
         freqs = fftfreq(N, 1 / sample_rate)
 
         # Analyze only positive frequencies
@@ -523,16 +614,15 @@ class VinylCharacterDetector:
         has_warmth = 0.01 < thd < self.thd_threshold  # Warmth: 1-5% THD
         has_defects = noise_ratio > 0.02  # Defects: >2% HF noise
 
-        self.metrics = {
-            "vinyl_character_detected": has_warmth or has_defects,
-            "warmth_detected": has_warmth,
-            "defects_detected": has_defects,
-            "thd": float(thd),
-            "noise_ratio": float(noise_ratio),
-            "warmth_retention_target": 0.90,
-            "defects_removal_target": 0.90,
-        }
-
+        self.metrics = VinylCharacterResult(
+            vinyl_character_detected=bool(has_warmth or has_defects),
+            warmth_detected=bool(has_warmth),
+            defects_detected=bool(has_defects),
+            thd=float(thd),
+            noise_ratio=float(noise_ratio),
+            warmth_retention_target=0.90,
+            defects_removal_target=0.90,
+        )
         return self.metrics
 
 
@@ -561,7 +651,7 @@ class AuthenticityMetricsExtended:
         self.brush_texture_detector = BrushTextureDetector()
         self.vinyl_character_detector = VinylCharacterDetector()
 
-    def analyze(self, audio: np.ndarray, sample_rate: int) -> dict:
+    def analyze(self, audio: np.ndarray, sample_rate: int) -> AuthenticityMetricsResult:
         """
         Analyze audio for all genre-specific authenticity metrics.
 
@@ -574,7 +664,7 @@ class AuthenticityMetricsExtended:
 
         Returns
         -------
-        metrics : dict
+        AuthenticityMetricsResult
             Combined metrics from all detectors
         """
         assert sample_rate == 48000, f"SR muss 48000 Hz sein, erhalten: {sample_rate}"
@@ -594,17 +684,17 @@ class AuthenticityMetricsExtended:
 
         # Summary
         detected_elements = []
-        if finger_noise["finger_noise_detected"]:
+        if finger_noise.finger_noise_detected:
             detected_elements.append("Finger Noise (Guitar)")
-        if bow_noise["bow_noise_detected"]:
+        if bow_noise.bow_noise_detected:
             detected_elements.append("Bow Noise (Strings)")
-        if pedal_noise["pedal_noise_detected"]:
+        if pedal_noise.pedal_noise_detected:
             detected_elements.append("Pedal Noise (Piano)")
-        if brush_texture["brush_texture_detected"]:
+        if brush_texture.brush_texture_detected:
             detected_elements.append("Brush Texture (Jazz Drums)")
-        if vinyl_character["warmth_detected"]:
+        if vinyl_character.warmth_detected:
             detected_elements.append("Vinyl Warmth")
-        if vinyl_character["defects_detected"]:
+        if vinyl_character.defects_detected:
             detected_elements.append("Vinyl Defects")
 
         logger.debug(
@@ -612,14 +702,14 @@ class AuthenticityMetricsExtended:
             ", ".join(detected_elements) if detected_elements else "Keine",
         )
 
-        return {
-            "finger_noise": finger_noise,
-            "bow_noise": bow_noise,
-            "pedal_noise": pedal_noise,
-            "brush_texture": brush_texture,
-            "vinyl_character": vinyl_character,
-            "detected_elements": detected_elements,
-        }
+        return AuthenticityMetricsResult(
+            finger_noise=finger_noise,
+            bow_noise=bow_noise,
+            pedal_noise=pedal_noise,
+            brush_texture=brush_texture,
+            vinyl_character=vinyl_character,
+            detected_elements=detected_elements,
+        )
 
 
 # =============================================================================

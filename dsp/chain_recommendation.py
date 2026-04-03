@@ -174,7 +174,7 @@ class AiChainRecommendation:
                     chain = ml_chain + [c for c in chain if c not in ml_chain]
             except Exception as _onnx_err:
                 logger.warning(
-                    "AiChainRecommendation: ONNX fehlgeschlagen (%s) " "— heuristische Kette aktiv.",
+                    "AiChainRecommendation: ONNX fehlgeschlagen (%s) — heuristische Kette aktiv.",
                     _onnx_err,
                 )
 

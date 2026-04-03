@@ -79,10 +79,10 @@ def test_dehum_basic():
                 best_quality = quality
                 best_x = x_pass
 
-            print(f"   Pass {pass_num+1}: Quality: {quality:.3f} (Residual: {residual_ratio:.4%})")
+            print(f"   Pass {pass_num + 1}: Quality: {quality:.3f} (Residual: {residual_ratio:.4%})")
 
         except Exception as e:
-            print(f"   Pass {pass_num+1} fehlgeschlagen: {e}")
+            print(f"   Pass {pass_num + 1} fehlgeschlagen: {e}")
             return False
 
     if best_x is not None:

@@ -5,13 +5,14 @@ Displays material, era/genre, restorability score, detected defects,
 phase prognosis and an overall 'Chancen-Score' before restoration starts.
 Updated asynchronously as background analysis threads complete.
 """
+
 from __future__ import annotations
 
 import logging
 from typing import Any
 
 import numpy as np
-from PyQt5.QtCore import Qt, QTimer
+from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QColor, QFont, QPainter, QPen
 from PyQt5.QtWidgets import (
     QFrame,
@@ -19,12 +20,9 @@ from PyQt5.QtWidgets import (
     QLabel,
     QProgressBar,
     QScrollArea,
-    QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
-
-from ..i18n import t
 
 logger = logging.getLogger(__name__)
 
@@ -47,18 +45,15 @@ _C_TEXT_DIM = "#8898BB"
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _card_style(border_color: str = _C_BORDER) -> str:
-    return (
-        f"background:{_C_CARD}; border:1px solid {border_color};"
-        " border-radius:10px; padding:10px 14px;"
-    )
+    return f"background:{_C_CARD}; border:1px solid {border_color}; border-radius:10px; padding:10px 14px;"
 
 
 def _section_label(text: str) -> QLabel:
     lbl = QLabel(text)
     lbl.setStyleSheet(
-        f"color:{_C_TEXT_DIM}; font-size:8pt; font-weight:600;"
-        " letter-spacing:0.8px; background:transparent; padding:0;"
+        f"color:{_C_TEXT_DIM}; font-size:8pt; font-weight:600; letter-spacing:0.8px; background:transparent; padding:0;"
     )
     return lbl
 
@@ -164,49 +159,50 @@ def _defect_label(key: str) -> str:
 # ---------------------------------------------------------------------------
 _GRADE_PHASES: dict[str, tuple[int, int, str]] = {
     "excellent": (22, 28, "Leichte Behandlung"),
-    "good":      (28, 34, "Standard-Restaurierung"),
-    "fair":      (34, 40, "Intensive Restaurierung"),
-    "poor":      (38, 45, "Tiefgreifende Restaurierung"),
-    "critical":  (40, 50, "Vollständige Rekonstruktion"),
-    "unknown":   (28, 38, "Analyse läuft …"),
+    "good": (28, 34, "Standard-Restaurierung"),
+    "fair": (34, 40, "Intensive Restaurierung"),
+    "poor": (38, 45, "Tiefgreifende Restaurierung"),
+    "critical": (40, 50, "Vollständige Rekonstruktion"),
+    "unknown": (28, 38, "Analyse läuft …"),
 }
 
 _GRADE_LABELS_DE: dict[str, tuple[str, str, str]] = {
-    "excellent": (_C_GREEN,  "Exzellent",  "▶  Sehr gut restaurierbar"),
-    "good":      (_C_GREEN,  "Gut",        "▶  Gut restaurierbar"),
-    "fair":      (_C_AMBER,  "Mäßig",      "▶  Mäßig restaurierbar"),
-    "poor":      (_C_RED,    "Schwierig",  "▶  Schwierig restaurierbar"),
-    "critical":  (_C_RED,    "Kritisch",   "▶  Sehr stark beschädigt"),
-    "unknown":   (_C_MUTED,  "—",          "— wird analysiert …"),
+    "excellent": (_C_GREEN, "Exzellent", "▶  Sehr gut restaurierbar"),
+    "good": (_C_GREEN, "Gut", "▶  Gut restaurierbar"),
+    "fair": (_C_AMBER, "Mäßig", "▶  Mäßig restaurierbar"),
+    "poor": (_C_RED, "Schwierig", "▶  Schwierig restaurierbar"),
+    "critical": (_C_RED, "Kritisch", "▶  Sehr stark beschädigt"),
+    "unknown": (_C_MUTED, "—", "— wird analysiert …"),
 }
 
 # Material human-readable names
 _MATERIAL_NAMES: dict[str, str] = {
-    "wax_cylinder":    "Wachswalze",
-    "lacquer_disc":    "Lackfolie",
-    "shellac":         "Schellack",
-    "vinyl":           "Vinyl",
-    "wire_recording":  "Drahtband",
-    "reel_tape":       "Spulenband",
-    "tape":            "Magnetband",
-    "cassette":        "Kassette",
-    "dat":             "DAT",
-    "cd_digital":      "CD / Digital",
-    "cd":              "CD",
-    "digital":         "Digital",
-    "minidisc":        "MiniDisc",
-    "mp3_low":         "MP3 (niedrige Bitrate)",
-    "mp3_high":        "MP3",
-    "damaged_mp3":     "MP3 (beschädigt)",
-    "aac":             "AAC",
-    "streaming":       "Streaming-Format",
-    "unknown":         "Unbekannt",
+    "wax_cylinder": "Wachswalze",
+    "lacquer_disc": "Lackfolie",
+    "shellac": "Schellack",
+    "vinyl": "Vinyl",
+    "wire_recording": "Drahtband",
+    "reel_tape": "Spulenband",
+    "tape": "Magnetband",
+    "cassette": "Kassette",
+    "dat": "DAT",
+    "cd_digital": "CD / Digital",
+    "cd": "CD",
+    "digital": "Digital",
+    "minidisc": "MiniDisc",
+    "mp3_low": "MP3 (niedrige Bitrate)",
+    "mp3_high": "MP3",
+    "damaged_mp3": "MP3 (beschädigt)",
+    "aac": "AAC",
+    "streaming": "Streaming-Format",
+    "unknown": "Unbekannt",
 }
 
 
 # ---------------------------------------------------------------------------
 # SongPrognoseWidget
 # ---------------------------------------------------------------------------
+
 
 class SongPrognoseWidget(QWidget):
     """
@@ -258,15 +254,11 @@ class SongPrognoseWidget(QWidget):
         hdr_row = QHBoxLayout()
         hdr_row.setSpacing(8)
         self._header_lbl = QLabel("🔍  Song-Analyse")
-        self._header_lbl.setStyleSheet(
-            f"color:{_C_TEXT}; font-size:12pt; font-weight:bold; background:transparent;"
-        )
+        self._header_lbl.setStyleSheet(f"color:{_C_TEXT}; font-size:12pt; font-weight:bold; background:transparent;")
         hdr_row.addWidget(self._header_lbl)
         hdr_row.addStretch()
         self._status_lbl = QLabel("Datei öffnen, um die Analyse zu starten")
-        self._status_lbl.setStyleSheet(
-            f"color:{_C_MUTED}; font-size:9pt; background:transparent;"
-        )
+        self._status_lbl.setStyleSheet(f"color:{_C_MUTED}; font-size:9pt; background:transparent;")
         hdr_row.addWidget(self._status_lbl)
         main_layout.addLayout(hdr_row)
 
@@ -286,13 +278,9 @@ class SongPrognoseWidget(QWidget):
         dial_row.addWidget(self._dial)
         dial_label_col = QVBoxLayout()
         self._grade_lbl = QLabel("—")
-        self._grade_lbl.setStyleSheet(
-            f"color:{_C_MUTED}; font-size:10pt; font-weight:bold; background:transparent;"
-        )
+        self._grade_lbl.setStyleSheet(f"color:{_C_MUTED}; font-size:10pt; font-weight:bold; background:transparent;")
         self._grade_sub_lbl = QLabel("— wird analysiert …")
-        self._grade_sub_lbl.setStyleSheet(
-            f"color:{_C_MUTED}; font-size:8pt; background:transparent;"
-        )
+        self._grade_sub_lbl.setStyleSheet(f"color:{_C_MUTED}; font-size:8pt; background:transparent;")
         self._grade_sub_lbl.setWordWrap(True)
         dial_label_col.addWidget(self._grade_lbl)
         dial_label_col.addWidget(self._grade_sub_lbl)
@@ -312,20 +300,18 @@ class SongPrognoseWidget(QWidget):
 
         self._meta_rows: dict[str, QLabel] = {}
         for key, placeholder in [
-            ("material",   "— wird erkannt …"),
-            ("era",        "— wird erkannt …"),
-            ("genre",      "— wird erkannt …"),
-            ("snr",        "— wird gemessen …"),
-            ("bandwidth",  "— wird gemessen …"),
+            ("material", "— wird erkannt …"),
+            ("era", "— wird erkannt …"),
+            ("genre", "— wird erkannt …"),
+            ("snr", "— wird gemessen …"),
+            ("bandwidth", "— wird gemessen …"),
         ]:
             row_w = QHBoxLayout()
             row_w.setSpacing(6)
             row_key = _section_label(key.upper())
             row_key.setFixedWidth(80)
             row_val = QLabel(placeholder)
-            row_val.setStyleSheet(
-                f"color:{_C_TEXT}; font-size:9pt; background:transparent;"
-            )
+            row_val.setStyleSheet(f"color:{_C_TEXT}; font-size:9pt; background:transparent;")
             self._meta_rows[key] = row_val
             row_w.addWidget(row_key)
             row_w.addWidget(row_val)
@@ -356,9 +342,7 @@ class SongPrognoseWidget(QWidget):
             f"QProgressBar::chunk {{ background:{_C_BLUE}; border-radius:7px; }}"
         )
         self._mos_val_lbl = QLabel("—")
-        self._mos_val_lbl.setStyleSheet(
-            f"color:{_C_TEXT}; font-size:10pt; font-weight:bold; background:transparent;"
-        )
+        self._mos_val_lbl.setStyleSheet(f"color:{_C_TEXT}; font-size:10pt; font-weight:bold; background:transparent;")
         self._mos_val_lbl.setFixedWidth(60)
         _lbl_lo = QLabel("1,0")
         _lbl_lo.setStyleSheet(f"color:{_C_MUTED}; font-size:8pt; background:transparent;")
@@ -371,9 +355,7 @@ class SongPrognoseWidget(QWidget):
         mos_inner.addLayout(mos_bar_row)
 
         self._mos_range_lbl = QLabel("")
-        self._mos_range_lbl.setStyleSheet(
-            f"color:{_C_MUTED}; font-size:8pt; background:transparent;"
-        )
+        self._mos_range_lbl.setStyleSheet(f"color:{_C_MUTED}; font-size:8pt; background:transparent;")
         mos_inner.addWidget(self._mos_range_lbl)
         main_layout.addWidget(mos_card)
 
@@ -389,16 +371,12 @@ class SongPrognoseWidget(QWidget):
         self._defect_pills_row.setSpacing(6)
         self._defect_pills_row.setAlignment(Qt.AlignmentFlag.AlignLeft)
         self._defect_placeholder = QLabel("— Scan läuft nach dem Start …")
-        self._defect_placeholder.setStyleSheet(
-            f"color:{_C_MUTED}; font-size:9pt; background:transparent;"
-        )
+        self._defect_placeholder.setStyleSheet(f"color:{_C_MUTED}; font-size:9pt; background:transparent;")
         self._defect_pills_row.addWidget(self._defect_placeholder)
         defect_inner.addLayout(self._defect_pills_row)
 
         self._defect_recs_lbl = QLabel("")
-        self._defect_recs_lbl.setStyleSheet(
-            f"color:{_C_TEXT_DIM}; font-size:8pt; background:transparent;"
-        )
+        self._defect_recs_lbl.setStyleSheet(f"color:{_C_TEXT_DIM}; font-size:8pt; background:transparent;")
         self._defect_recs_lbl.setWordWrap(True)
         defect_inner.addWidget(self._defect_recs_lbl)
         main_layout.addWidget(defect_card)
@@ -419,15 +397,11 @@ class SongPrognoseWidget(QWidget):
         )
         phase_row.addWidget(self._phase_count_lbl)
         self._phase_desc_lbl = QLabel("—")
-        self._phase_desc_lbl.setStyleSheet(
-            f"color:{_C_TEXT_DIM}; font-size:9pt; background:transparent;"
-        )
+        self._phase_desc_lbl.setStyleSheet(f"color:{_C_TEXT_DIM}; font-size:9pt; background:transparent;")
         phase_row.addWidget(self._phase_desc_lbl)
         phase_row.addStretch()
         self._mode_rec_lbl = QLabel("")
-        self._mode_rec_lbl.setStyleSheet(
-            f"color:{_C_BLUE}; font-size:9pt; font-weight:bold; background:transparent;"
-        )
+        self._mode_rec_lbl.setStyleSheet(f"color:{_C_BLUE}; font-size:9pt; font-weight:bold; background:transparent;")
         phase_row.addWidget(self._mode_rec_lbl)
         phase_inner.addLayout(phase_row)
         main_layout.addWidget(phase_card)
@@ -441,9 +415,7 @@ class SongPrognoseWidget(QWidget):
         rec_inner.addWidget(_section_label("EMPFEHLUNGEN"))
         self._rec_lbl = QLabel("— Analyse läuft …")
         self._rec_lbl.setWordWrap(True)
-        self._rec_lbl.setStyleSheet(
-            f"color:{_C_TEXT}; font-size:9pt; background:transparent; line-height:160%;"
-        )
+        self._rec_lbl.setStyleSheet(f"color:{_C_TEXT}; font-size:9pt; background:transparent; line-height:160%;")
         rec_inner.addWidget(self._rec_lbl)
         main_layout.addWidget(rec_card)
 
@@ -465,9 +437,7 @@ class SongPrognoseWidget(QWidget):
         self._result_obj = None
 
         self._dial.set_score(0.0, _C_MUTED)
-        self._grade_lbl.setStyleSheet(
-            f"color:{_C_MUTED}; font-size:10pt; font-weight:bold; background:transparent;"
-        )
+        self._grade_lbl.setStyleSheet(f"color:{_C_MUTED}; font-size:10pt; font-weight:bold; background:transparent;")
         self._grade_lbl.setText("—")
         self._grade_sub_lbl.setText("— wird analysiert …")
         self._status_lbl.setText("Analyse läuft …")
@@ -528,16 +498,12 @@ class SongPrognoseWidget(QWidget):
         self._grade = grade
         self._score100 = score100
 
-        color, grade_name, grade_line = _GRADE_LABELS_DE.get(
-            grade, (_C_MUTED, grade, grade)
-        )
+        color, grade_name, grade_line = _GRADE_LABELS_DE.get(grade, (_C_MUTED, grade, grade))
 
         # Dial
         self._dial.set_score(score100, color)
         self._grade_lbl.setText(grade_name)
-        self._grade_lbl.setStyleSheet(
-            f"color:{color}; font-size:10pt; font-weight:bold; background:transparent;"
-        )
+        self._grade_lbl.setStyleSheet(f"color:{color}; font-size:10pt; font-weight:bold; background:transparent;")
         self._grade_sub_lbl.setText(grade_line)
         self._status_lbl.setText("Analyse abgeschlossen")
 
@@ -549,19 +515,14 @@ class SongPrognoseWidget(QWidget):
             f"QProgressBar::chunk {{ background:{bar_color}; border-radius:7px; }}"
         )
         self._mos_val_lbl.setText(f"{predicted_mos:.1f} / 5")
-        self._mos_val_lbl.setStyleSheet(
-            f"color:{bar_color}; font-size:10pt; font-weight:bold; background:transparent;"
-        )
+        self._mos_val_lbl.setStyleSheet(f"color:{bar_color}; font-size:10pt; font-weight:bold; background:transparent;")
         lo = float(mos_range[0]) if mos_range else predicted_mos - 0.3
         hi = float(mos_range[1]) if len(mos_range) >= 2 else predicted_mos + 0.3  # type: ignore[arg-type]
-        self._mos_range_lbl.setText(
-            f"90\u202f%-Konfidenzintervall: {lo:.1f} – {hi:.1f}"
-        )
+        self._mos_range_lbl.setText(f"90\u202f%-Konfidenzintervall: {lo:.1f} – {hi:.1f}")
 
         # SNR
         self._meta_rows["snr"].setText(
-            f"{snr_db:.1f}\u202fdB"
-            + ("  ✓" if snr_db >= 20 else ("  △" if snr_db >= 5 else "  ✗"))
+            f"{snr_db:.1f}\u202fdB" + ("  ✓" if snr_db >= 20 else ("  △" if snr_db >= 5 else "  ✗"))
         )
 
         # Defect pills from limiting_defects
@@ -569,10 +530,7 @@ class SongPrognoseWidget(QWidget):
             self._clear_defect_pills()
             self._defect_placeholder.setVisible(False)
             for d in limiting[:6]:
-                sev = (
-                    "high" if any(s in str(d) for s in ("stark", "extrem", "critical"))
-                    else "medium"
-                )
+                sev = "high" if any(s in str(d) for s in ("stark", "extrem", "critical")) else "medium"
                 pill = _DefectPill(_defect_label(str(d)), sev)
                 self._defect_pills_row.addWidget(pill)
 
@@ -679,22 +637,22 @@ class SongPrognoseWidget(QWidget):
 # ---------------------------------------------------------------------------
 
 _ANSI_RESET = "\033[0m"
-_ANSI_BOLD  = "\033[1m"
+_ANSI_BOLD = "\033[1m"
 _ANSI_GREEN = "\033[32m"
 _ANSI_AMBER = "\033[33m"
-_ANSI_RED   = "\033[31m"
-_ANSI_BLUE  = "\033[34;1m"
-_ANSI_CYAN  = "\033[36m"
-_ANSI_DIM   = "\033[2m"
+_ANSI_RED = "\033[31m"
+_ANSI_BLUE = "\033[34;1m"
+_ANSI_CYAN = "\033[36m"
+_ANSI_DIM = "\033[2m"
 
 
 def _color_grade(grade: str, text: str) -> str:
     c = {
         "excellent": _ANSI_GREEN,
-        "good":      _ANSI_GREEN,
-        "fair":      _ANSI_AMBER,
-        "poor":      _ANSI_RED,
-        "critical":  _ANSI_RED,
+        "good": _ANSI_GREEN,
+        "fair": _ANSI_AMBER,
+        "poor": _ANSI_RED,
+        "critical": _ANSI_RED,
     }.get(grade, "")
     return f"{c}{_ANSI_BOLD}{text}{_ANSI_RESET}" if c else text
 
@@ -714,8 +672,11 @@ def _print_prognose_terminal(
 ) -> None:
     """Print a colored prognosis report to the logger (INFO level)."""
     grade_de = {
-        "excellent": "Exzellent", "good": "Gut", "fair": "Mäßig",
-        "poor": "Schwierig", "critical": "Kritisch"
+        "excellent": "Exzellent",
+        "good": "Gut",
+        "fair": "Mäßig",
+        "poor": "Schwierig",
+        "critical": "Kritisch",
     }.get(grade, grade)
     mat_name = _MATERIAL_NAMES.get(material, material)
     lo, hi, _ = _GRADE_PHASES.get(grade, _GRADE_PHASES["unknown"])
@@ -748,14 +709,13 @@ def _print_prognose_terminal(
             lines.append(f"    • {r}")
         lines.append("")
 
-    lines.append(
-        f"{_ANSI_DIM}  ─────────────────────────────────────────────────────{_ANSI_RESET}"
-    )
+    lines.append(f"{_ANSI_DIM}  ─────────────────────────────────────────────────────{_ANSI_RESET}")
 
     report = "\n".join(lines)
     logger.info("PROGNOSE_REPORT:\n%s", report)
 
     # Also print directly for CLI usage (sys.stdout not redirected in normal runs)
     import sys
+
     if sys.stdout.isatty():
         print(report)

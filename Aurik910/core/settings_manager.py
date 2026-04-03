@@ -12,19 +12,18 @@ from __future__ import annotations
 import logging
 import threading
 from pathlib import Path
-from typing import Optional
 
 from PyQt5.QtCore import QByteArray, QSettings
 
 logger = logging.getLogger(__name__)
 
-_instance: Optional["SettingsManager"] = None
+_instance: SettingsManager | None = None
 _lock = threading.Lock()
 
 _MAX_RECENT_FILES = 10
 
 
-def get_settings_manager() -> "SettingsManager":
+def get_settings_manager() -> SettingsManager:
     """Thread-safe singleton access (double-checked locking)."""
     global _instance
     if _instance is None:
@@ -46,11 +45,11 @@ class SettingsManager:
         self._qs.setValue("window/geometry", geometry)
         self._qs.setValue("window/state", state)
 
-    def window_geometry(self) -> Optional[QByteArray]:
+    def window_geometry(self) -> QByteArray | None:
         val = self._qs.value("window/geometry")
         return val if isinstance(val, QByteArray) else None
 
-    def window_state(self) -> Optional[QByteArray]:
+    def window_state(self) -> QByteArray | None:
         val = self._qs.value("window/state")
         return val if isinstance(val, QByteArray) else None
 

@@ -24,9 +24,11 @@ SR = 48_000
 # Fixtures
 # ──────────────────────────────────────────────────────────────────────────────
 
+
 @pytest.fixture()
 def phase():
     from backend.core.phases.phase_07_harmonic_restoration import HarmonicRestorationPhase
+
     return HarmonicRestorationPhase(sample_rate=SR)
 
 
@@ -57,6 +59,7 @@ def _chord(freqs, dur: float = 0.5) -> np.ndarray:
 # 1.  _compute_harmonic_salience
 # ──────────────────────────────────────────────────────────────────────────────
 
+
 class TestComputeHarmonicSalience:
     def _make_magnitude_spectrum(self, f0_list: list[float], dur: float = 0.5):
         """Build a magnitude spectrum for a sum of harmonic tones."""
@@ -69,6 +72,7 @@ class TestComputeHarmonicSalience:
                 if f0 * k < SR / 2:
                     audio += 0.4 / k * np.sin(2.0 * np.pi * f0 * k * t)
         import scipy.signal as ss
+
         window = ss.get_window("hann", n)
         mag = np.abs(np.fft.rfft(audio * window))
         freqs = np.fft.rfftfreq(n, d=1.0 / SR)
@@ -107,9 +111,7 @@ class TestComputeHarmonicSalience:
         f0_cands = np.arange(60.0, 2001.0, 1.0)
         sal = phase._compute_harmonic_salience(mag, freqs, f0_cands)
         f0_detected = float(f0_cands[np.argmax(sal)])
-        assert abs(f0_detected - f0_true) <= 5.0, (
-            f"Salience peak {f0_detected:.1f} Hz, expected near {f0_true:.1f} Hz"
-        )
+        assert abs(f0_detected - f0_true) <= 5.0, f"Salience peak {f0_detected:.1f} Hz, expected near {f0_true:.1f} Hz"
 
     def test_two_f0s_have_higher_salience_than_background(self, phase):
         """Salience at known f0s must be well above median background."""
@@ -124,6 +126,7 @@ class TestComputeHarmonicSalience:
 # ──────────────────────────────────────────────────────────────────────────────
 # 2.  _detect_multi_pitch_f0s_with_analysis
 # ──────────────────────────────────────────────────────────────────────────────
+
 
 class TestDetectMultiPitch:
     def test_returns_list(self, phase):
@@ -151,9 +154,7 @@ class TestDetectMultiPitch:
         result = phase._detect_multi_pitch_f0s_with_analysis(audio)
         assert len(result) >= 1
         f0s = [r[0] for r in result]
-        assert any(abs(f - f0_true) <= 5.0 for f in f0s), (
-            f"Expected f0 near 440 Hz, got {f0s}"
-        )
+        assert any(abs(f - f0_true) <= 5.0 for f in f0s), f"Expected f0 near 440 Hz, got {f0s}"
 
     def test_detects_chord_two_pitches(self, phase):
         """C major interval (C4=261 Hz, E4=330 Hz) → both within ±10 Hz."""
@@ -198,9 +199,9 @@ class TestDetectMultiPitch:
 
     def test_n_max_respected(self, phase):
         """Result list must never exceed n_max entries."""
-        audio = _chord(
-            [(261.0, 0.3), (330.0, 0.3), (392.0, 0.3), (523.0, 0.25), (660.0, 0.2)], dur=0.5
-        ).astype(np.float64)
+        audio = _chord([(261.0, 0.3), (330.0, 0.3), (392.0, 0.3), (523.0, 0.25), (660.0, 0.2)], dur=0.5).astype(
+            np.float64
+        )
         result = phase._detect_multi_pitch_f0s_with_analysis(audio, n_max=3)
         assert len(result) <= 3
 
@@ -208,6 +209,7 @@ class TestDetectMultiPitch:
 # ──────────────────────────────────────────────────────────────────────────────
 # 3.  _synthesize_missing_overtones
 # ──────────────────────────────────────────────────────────────────────────────
+
 
 class TestSynthesizeMissingOvertones:
     def _params(self, strength: float = 0.5):
@@ -272,14 +274,15 @@ class TestSynthesizeMissingOvertones:
         f0_info_multi = [(261.0, 1.0, [2, 3]), (330.0, 0.8, [2, 3])]
         out_single = phase._synthesize_missing_overtones(mono, f0_info_single, self._params())
         out_multi = phase._synthesize_missing_overtones(mono, f0_info_multi, self._params())
-        rms_single = float(np.sqrt(np.mean(out_single ** 2)))
-        rms_multi = float(np.sqrt(np.mean(out_multi ** 2)))
+        rms_single = float(np.sqrt(np.mean(out_single**2)))
+        rms_multi = float(np.sqrt(np.mean(out_multi**2)))
         assert rms_multi >= rms_single
 
 
 # ──────────────────────────────────────────────────────────────────────────────
 # 4.  Full process() integration
 # ──────────────────────────────────────────────────────────────────────────────
+
 
 class TestProcessIntegration:
     def test_no_nan_inf_vinyl(self, phase):

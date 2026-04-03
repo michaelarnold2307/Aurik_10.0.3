@@ -470,7 +470,7 @@ def _dsp_hf_rolloff(audio_mono: np.ndarray, sr: int) -> float:
     if edge_30db is not None and e90 < 1500.0 and edge_30db > 5000.0:
         # Compute gap fraction (already accepted by the 0.15 guard above)
         mask_music_loc = freqs >= 200.0
-        _peak = float(np.max(avg_spec[mask_music_loc])) if np.any(mask_music_loc) else 1e-20
+        float(np.max(avg_spec[mask_music_loc])) if np.any(mask_music_loc) else 1e-20
         _edge_cand = edge_30db
         _tail = float(np.sum(avg_spec[idx90:])) + 1e-30
         _gap = float(np.sum(avg_spec[(freqs > e90) & (freqs <= _edge_cand)]))
@@ -570,6 +570,8 @@ def _estimate_spectral_tilt(audio_mono: np.ndarray, sr: int) -> float:
 
     log_freqs = np.log2(freqs[mask])
     log_power = 10.0 * np.log10(avg_spec[mask] + 1e-20)
+    # Guard: -inf from near-zero power bins → LAPACK DLASCL failure
+    log_power = np.nan_to_num(log_power, nan=0.0, posinf=0.0, neginf=-120.0)
 
     A = np.vstack([log_freqs, np.ones(len(log_freqs))]).T
     try:
@@ -1174,7 +1176,7 @@ class EraClassifier:
         self._clap_plugin: object | None = None
         self._clap_loaded: bool = False
         self._clap_lock = threading.Lock()
-        self._ram_cache: dict[str, "EraResult"] = {}
+        self._ram_cache: dict[str, EraResult] = {}
         self._ram_cache_lock = threading.Lock()
 
     # ------------------------------------------------------------------
@@ -1274,8 +1276,8 @@ class EraClassifier:
                     _rm.confidence,
                     getattr(_rm, "hf_rolloff_khz", 0.0),
                 )
-        except Exception:
-            pass
+        except Exception as _exc:
+            logger.debug("Operation failed (non-critical): %s", _exc)
 
         with self._ram_cache_lock:
             self._ram_cache[sha] = result
@@ -1473,9 +1475,14 @@ def classify_era(audio: np.ndarray, sr: int) -> EraResult:
 # Codec containers are encoding formats, not physical source media.
 # A 1977 vinyl digitized as mp3 is still from 1977 — the codec does not date
 # the content.  These are excluded from era-floor constraints.
-_CODEC_CONTAINERS: frozenset[str] = frozenset({
-    "mp3_low", "mp3_high", "aac", "streaming",
-})
+_CODEC_CONTAINERS: frozenset[str] = frozenset(
+    {
+        "mp3_low",
+        "mp3_high",
+        "aac",
+        "streaming",
+    }
+)
 
 
 def constrain_era_to_medium(era_result: EraResult, medium: str) -> EraResult:

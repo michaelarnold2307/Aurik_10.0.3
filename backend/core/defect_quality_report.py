@@ -193,9 +193,7 @@ class DefectQualityReport:
                 f"ΔSNR={e.snr_improvement_db:+.1f}dB "
                 f"Kontext={status}"
             )
-            lines.append(
-                f"       Methode: {e.repair_method}  |  " f"Phase {e.phase_id}  |  {e.processing_time_ms:.1f}ms"
-            )
+            lines.append(f"       Methode: {e.repair_method}  |  Phase {e.phase_id}  |  {e.processing_time_ms:.1f}ms")
             if e.context_note:
                 lines.append(f"       ℹ {e.context_note}")
             if e.notes:
@@ -323,4 +321,4 @@ class DefectQualityReporter:
         elif correlation > 0.75:
             return True, f"Akzeptabel: Korrelation={correlation:.2f}, spektr. Δ={spec_diff_db:.1f}dB"
         else:
-            return False, (f"Kontextverlust: Korrelation={correlation:.2f} < 0.75, " f"spektr. Δ={spec_diff_db:.1f}dB")
+            return False, (f"Kontextverlust: Korrelation={correlation:.2f} < 0.75, spektr. Δ={spec_diff_db:.1f}dB")

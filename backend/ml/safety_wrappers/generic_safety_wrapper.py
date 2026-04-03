@@ -19,7 +19,6 @@ Date: 8. Februar 2026
 """
 
 # Import Musical Goals integration
-import sys
 from collections.abc import Callable
 from typing import Any
 
@@ -106,11 +105,11 @@ class GenericNoiseReductionSafety(BaseSafetyWrapper):
 
         # Very clean signal (SNR > 40 dB) - little to gain
         if snr_db > 40:
-            warnings.append(f"Signal very clean (SNR={snr_db:.1f} dB). " "Noise reduction may not improve quality.")
+            warnings.append(f"Signal very clean (SNR={snr_db:.1f} dB). Noise reduction may not improve quality.")
 
         # Very noisy signal (SNR < 10 dB) - difficult to process safely
         if snr_db < 10:
-            warnings.append(f"Signal very noisy (SNR={snr_db:.1f} dB). " "Aggressive reduction may damage content.")
+            warnings.append(f"Signal very noisy (SNR={snr_db:.1f} dB). Aggressive reduction may damage content.")
 
         return PreCheckResult(
             passed=True,
@@ -402,13 +401,11 @@ class GenericRestorationSafety(BaseSafetyWrapper):
         warnings = []
 
         if defect_score < 0.1:
-            warnings.append(
-                f"Very few defects detected (score={defect_score:.2f}). " "Restoration may not be necessary."
-            )
+            warnings.append(f"Very few defects detected (score={defect_score:.2f}). Restoration may not be necessary.")
 
         if defect_score > 0.7:
             warnings.append(
-                f"Severe degradation detected (score={defect_score:.2f}). " "Restoration may introduce artifacts."
+                f"Severe degradation detected (score={defect_score:.2f}). Restoration may introduce artifacts."
             )
 
         return PreCheckResult(

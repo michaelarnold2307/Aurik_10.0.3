@@ -159,7 +159,9 @@ class TestPerformanceProfiler:
     def test_memory_warning(self):
         """Test memory threshold warning"""
         profiler = PerformanceProfiler(
-            enabled=True, sample_interval=0.05, memory_threshold=0.01  # Very low threshold to trigger warning
+            enabled=True,
+            sample_interval=0.05,
+            memory_threshold=0.01,  # Very low threshold to trigger warning
         )
         profiler.start()
 

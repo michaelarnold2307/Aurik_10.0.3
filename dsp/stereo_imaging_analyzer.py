@@ -566,7 +566,7 @@ if __name__ == "__main__":
     logger.info(f"  Phase Correlation (min): {metrics_before['phase_correlation_min']:.3f}")
     logger.info(f"  Stereo Width: {metrics_before['stereo_width']:.3f}")
     logger.info(f"  Balance: {metrics_before['balance_db']:.2f} dB")
-    logger.info(f"  Problematic Frames: {metrics_before['problematic_frames_ratio']*100:.1f}%")
+    logger.info(f"  Problematic Frames: {metrics_before['problematic_frames_ratio'] * 100:.1f}%")
 
     # Fix
     fixer = StereoImagingFixer(target_width=1.0, target_phase_correlation_min=-0.3)
@@ -581,4 +581,4 @@ if __name__ == "__main__":
     logger.info(f"  Phase Correlation (min): {metrics['after']['phase_correlation_min']:.3f}")
     logger.info(f"  Stereo Width: {metrics['after']['stereo_width']:.3f}")
     logger.info(f"  Balance: {metrics['after']['balance_db']:.2f} dB")
-    logger.info(f"  Problematic Frames: {metrics['after']['problematic_frames_ratio']*100:.1f}%")
+    logger.info(f"  Problematic Frames: {metrics['after']['problematic_frames_ratio'] * 100:.1f}%")

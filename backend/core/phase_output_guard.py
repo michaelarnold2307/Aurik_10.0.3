@@ -18,8 +18,8 @@ from __future__ import annotations
 import concurrent.futures
 import functools
 import logging
-from typing import Any
 from collections.abc import Callable
+from typing import Any
 
 import numpy as np
 
@@ -99,7 +99,9 @@ def _run_inference_with_timeout(
             timeout,
             getattr(fn, "__qualname__", repr(fn)),
         )
-        raise InferenceTimeoutError(f"Inference timeout ({timeout:.0f} s): {getattr(fn, '__qualname__', repr(fn))}")
+        raise InferenceTimeoutError(
+            f"Inference timeout ({timeout:.0f} s): {getattr(fn, '__qualname__', repr(fn))}"
+        ) from None
     except Exception:
         raise
     finally:

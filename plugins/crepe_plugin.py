@@ -140,8 +140,8 @@ class CrepePlugin:
                 if not _try_alloc("CREPE", size_gb=0.10):
                     logger.warning("CREPE: ML-Budget erschöpft — pYIN-Fallback.")
                     return
-            except Exception:
-                pass
+            except Exception as _exc:
+                logger.debug("Plugin operation failed (non-critical): %s", _exc)
 
             opts = ort.SessionOptions()
             opts.inter_op_num_threads = 1
@@ -163,8 +163,8 @@ class CrepePlugin:
                 _dummy = np.zeros((1, _FRAME_LENGTH), dtype=np.float32)
                 self._session.run(["classifier"], {"input": _dummy})
                 logger.debug("CREPE ONNX warmup inference completed")
-            except Exception:
-                pass
+            except Exception as _exc:
+                logger.debug("Plugin operation failed (non-critical): %s", _exc)
             try:
                 from backend.core.plugin_lifecycle_manager import register_plugin as _reg_plm
 
@@ -173,16 +173,16 @@ class CrepePlugin:
                     size_gb=0.10,
                     unload_fn=lambda s=self: setattr(s, "_session", None) or setattr(s, "_model_used", "pyin"),
                 )
-            except Exception:
-                pass
+            except Exception as _exc:
+                logger.debug("Plugin operation failed (non-critical): %s", _exc)
         except Exception as exc:
             logger.debug("CREPE-ONNX nicht verfügbar (%s) — pYIN-Fallback aktiv", exc)
             try:
                 from backend.core.ml_memory_budget import release as _release
 
                 _release("CREPE")
-            except Exception:
-                pass
+            except Exception as _exc:
+                logger.debug("Plugin operation failed (non-critical): %s", _exc)
 
     def analyze(self, audio: np.ndarray, sr: int) -> CrepeResult:
         """Analysiert den Grundton (F0) eines Audio-Signals.
@@ -393,15 +393,15 @@ def unload_crepe() -> None:
                 _instance._session = None
                 with _instance._cache_lock:
                     _instance._result_cache.clear()
-            except Exception:
-                pass
+            except Exception as _exc:
+                logger.debug("Plugin operation failed (non-critical): %s", _exc)
             _instance = None
     try:
         from backend.core.ml_memory_budget import release as _release
 
         _release("CREPE")
-    except Exception:
-        pass
+    except Exception as _exc:
+        logger.debug("Plugin operation failed (non-critical): %s", _exc)
 
 
 # ---------------------------------------------------------------------------

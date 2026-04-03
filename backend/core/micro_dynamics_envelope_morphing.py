@@ -96,15 +96,32 @@ class MicroDynamicsEnvelopeMorphing:
         original: np.ndarray,
         sr: int = 48000,
         mode: str = "restoration",
+        phoneme_timeline=None,
     ) -> np.ndarray:
         """Morphed restauriertes Signal auf Original-Mikrodynamik. NaN/Inf-sicher.
 
         §2.30 v9.10.79 Mode-basierte MAX_GAIN_LU-Kalibrierung:
         - Restoration: 4.0 dB (bewahrt emotionale Spitzen, aber konservativ für degradierte Quellen)
         - Studio 2026: 6.0 dB (maximale Dynamik-Restauration für hochwertige Eingaben)
+
+        §2.36a phoneme_timeline: stressed vowel frames erhalten +0.5 dB extra max_gain
+        (bis zum Klassen-Maximum MAX_GAIN_LU), um Vokal-Intensität zu bewahren.
         """
         assert sr == 48000, f"SR muss 48000 Hz sein, erhalten: {sr}"
         max_gain = 4.0 if mode == "restoration" else 6.0  # §2.30 v9.10.79 Psychoakustische Kalibrierung
+
+        # §2.36a: Vorberechnung stressed-vowel frame mask (frame index → extra gain headroom)
+        _stressed_frames: set[int] = set()
+        if phoneme_timeline is not None:
+            try:
+                _sv_segs = phoneme_timeline.stressed_vowel_segments()
+                for _sv_seg in _sv_segs:
+                    _f_start = int(_sv_seg.start_s * sr / self.HOP_SIZE_SAMPLES)
+                    _f_end = int(_sv_seg.end_s * sr / self.HOP_SIZE_SAMPLES) + 1
+                    for _fi in range(max(0, _f_start), _f_end):
+                        _stressed_frames.add(_fi)
+            except Exception as _sv_exc:
+                logger.debug("MDEM stressed_vowel_segments failed: %s", _sv_exc)
 
         res = np.nan_to_num(np.asarray(restored, dtype=np.float32))
         orig = np.nan_to_num(np.asarray(original, dtype=np.float32))
@@ -126,6 +143,8 @@ class MicroDynamicsEnvelopeMorphing:
         for k in range(n_frames):
             lo = L_orig[k]
             lr = L_rest[k]
+            # §2.36a: +0.5 dB headroom for stressed-vowel frames (capped at MAX_GAIN_LU)
+            _frame_max = min(max_gain + 0.5, self.MAX_GAIN_LU) if k in _stressed_frames else max_gain
             if not (math.isfinite(lo) and math.isfinite(lr)):
                 G[k] = 0.0
                 continue
@@ -137,9 +156,9 @@ class MicroDynamicsEnvelopeMorphing:
                 # Never apply positive boost here — that would re-amplify the
                 # cleaned noise floor, inflate integrated LUFS and force
                 # phase_40 to attenuate the musical content (regression).
-                G[k] = float(np.clip(lo - lr, -max_gain, 0.0))
+                G[k] = float(np.clip(lo - lr, -_frame_max, 0.0))
                 continue
-            G[k] = np.clip(lo - lr, -max_gain, max_gain)
+            G[k] = np.clip(lo - lr, -_frame_max, _frame_max)
 
         # Glaettung
         G_smooth = _savgol_smooth(G)

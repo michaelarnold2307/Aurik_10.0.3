@@ -27,7 +27,6 @@ import numpy as np
 import pytest
 
 from backend.core.defect_scanner import MaterialType
-from backend.core.phases.phase_interface import PhaseResult
 
 # MaterialType-Instanz für Phasen, die material als Pflicht-Arg benötigen
 _MAT = MaterialType.CD_DIGITAL
@@ -142,8 +141,7 @@ def _assert_phase_result(
     # was isinstance() trotz identischer Klasse fail lässt (§11.1 copilot-instructions.md).
     result_cls_name = type(result).__name__
     assert result_cls_name == "PhaseResult", (
-        f"[{phase_id}] Kein PhaseResult: {type(result)} "
-        f"(Hinweis: importlib-Mode kann Doppelregistrierung verursachen)"
+        f"[{phase_id}] Kein PhaseResult: {type(result)} (Hinweis: importlib-Mode kann Doppelregistrierung verursachen)"
     )
     assert result.success is True, f"[{phase_id}] success=False — {result}"
     assert isinstance(result.audio, np.ndarray), f"[{phase_id}] result.audio ist kein ndarray"
@@ -156,9 +154,9 @@ def _assert_phase_result(
     peak = float(np.max(np.abs(result.audio)))
     assert peak <= 2.0, f"[{phase_id}] Hard-Clipping: max|audio|={peak:.4f} > 2.0"
     if not skip_shape_check:
-        assert (
-            result.audio.shape == orig_audio.shape
-        ), f"[{phase_id}] Shape verändert: {orig_audio.shape} → {result.audio.shape}"
+        assert result.audio.shape == orig_audio.shape, (
+            f"[{phase_id}] Shape verändert: {orig_audio.shape} → {result.audio.shape}"
+        )
     assert isinstance(result.metadata, dict), f"[{phase_id}] metadata kein dict"
 
 

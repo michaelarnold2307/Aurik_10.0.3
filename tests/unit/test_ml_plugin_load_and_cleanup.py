@@ -221,11 +221,15 @@ class TestSgmsePlusPlugin:
 
         p = SGMSEPlusPlugin()
         audio = _signal(2.0)
+        # SGMSE+ TorchScript CPU inference for 2 s audio can take 40–60 s
+        # on desktop hardware (SDE solver is compute-heavy).
         result = p.enhance(audio, SR)
         out = result.audio if hasattr(result, "audio") else np.asarray(result, dtype=np.float32)
         _assert_finite(out, "SGMSEPlusPlugin.enhance")
         assert np.max(np.abs(out)) <= 1.0
         _cleanup(["SGMSE+"], "plugins.sgmse_plugin")
+
+    test_02_enhance_finite = pytest.mark.timeout(90)(test_02_enhance_finite)
 
     def test_03_budget_zero_after_cleanup(self):
         _reset_budget()

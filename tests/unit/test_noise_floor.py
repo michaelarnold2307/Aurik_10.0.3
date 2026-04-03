@@ -192,9 +192,9 @@ class TestAWeighting:
         audio = _silence(duration_s=2.0)
         a_weighted = _a_weight_filter(audio, SR)
         rms_db = _rms_dbfs(a_weighted)
-        assert (
-            rms_db < A_WEIGHTED_DBFS_LIMIT
-        ), f"A-gewichtete Stille {rms_db:.1f} dB(A) ≥ Grenze {A_WEIGHTED_DBFS_LIMIT}"
+        assert rms_db < A_WEIGHTED_DBFS_LIMIT, (
+            f"A-gewichtete Stille {rms_db:.1f} dB(A) ≥ Grenze {A_WEIGHTED_DBFS_LIMIT}"
+        )
 
     def test_07_a_weighted_is_finite(self):
         """A-Weighting-Ergebnis enthält keine NaN/Inf."""
@@ -286,9 +286,9 @@ class TestPipelineNoiseFloor:
         result = phase.process(audio, sample_rate=SR, material=_material)
         rms_after = _rms_dbfs(result.audio)
         # Selbst wenn Normalisierung auf −14 LUFS → Stille bleibt Stille
-        assert (
-            rms_after < SILENCE_THRESHOLD_DBFS + 30.0
-        ), f"Phase 40 amplifies Stille auf {rms_after:.1f} dBFS (zu hoch)"
+        assert rms_after < SILENCE_THRESHOLD_DBFS + 30.0, (
+            f"Phase 40 amplifies Stille auf {rms_after:.1f} dBFS (zu hoch)"
+        )
 
     def test_15_phase47_does_not_add_noise_to_silence(self):
         """Phase 47 (truepeak_limiter) fügt keinen Rauschboden zur Stille hinzu."""
@@ -361,6 +361,6 @@ class TestNoiseMeasurementInvariants:
         """Quantisierungsrauschen bei 24-bit erfüllt −72 dBFS Archiv-Standard."""
         audio = _quantization_noise(bit_depth=24, duration_s=2.0)
         rms_db = _rms_dbfs(audio)
-        assert (
-            rms_db < NOISE_FLOOR_DBFS_LIMIT
-        ), f"24-bit Rauschen {rms_db:.1f} dBFS ≥ −72 dBFS — Archivstandard verletzt"
+        assert rms_db < NOISE_FLOOR_DBFS_LIMIT, (
+            f"24-bit Rauschen {rms_db:.1f} dBFS ≥ −72 dBFS — Archivstandard verletzt"
+        )

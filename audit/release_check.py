@@ -9,9 +9,10 @@ from __future__ import annotations
 
 import argparse
 import json
+from collections.abc import Iterator
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any
 
 SCORE_MAX: float = 10.0
 RELEASE_READY_THRESHOLD: float = 9.5

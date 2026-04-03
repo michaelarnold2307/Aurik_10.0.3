@@ -146,7 +146,8 @@ class Action(ABC):
             State dict with new values
         """
 
-    def cleanup(self):
+    @abstractmethod
+    def cleanup(self) -> None:
         """Free memory when action is removed from history."""
 
     def __repr__(self) -> str:
@@ -251,6 +252,9 @@ class ParameterChangeAction(Action):
         """Apply new parameter value."""
         self.current_value = self.new_value
         return {"parameter": self.parameter_name, "value": self.new_value}
+
+    def cleanup(self) -> None:
+        """No resources to free for parameter actions."""
 
 
 class ModeChangeAction(Action):

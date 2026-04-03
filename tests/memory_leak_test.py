@@ -127,7 +127,7 @@ def test_memory_leak(duration_seconds=60, num_iterations=10):
         memory_delta = current_memory - baseline_memory
 
         print(
-            f"Iteration {i+1:2d}/{num_iterations}: "
+            f"Iteration {i + 1:2d}/{num_iterations}: "
             f"{iteration_time:5.2f}s, "
             f"Memory: {current_memory:7.1f} MB "
             f"(Δ {memory_delta:+6.1f} MB)"
@@ -141,7 +141,7 @@ def test_memory_leak(duration_seconds=60, num_iterations=10):
     avg_leak_per_iteration = total_leak / num_iterations if num_iterations > 0 else 0
     avg_iteration_time = np.mean(iteration_times)
 
-    print(f"\n{'='*70}")
+    print(f"\n{'=' * 70}")
     print("ANALYSIS")
     print("=" * 70)
     print(f"Baseline Memory:    {baseline_memory:.1f} MB")

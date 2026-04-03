@@ -120,7 +120,11 @@ class DropoutRepairPhase(PhaseInterface):
     # ML routing thresholds (milliseconds)
     ML_SHORT_THRESHOLD_MS = 20  # <20ms: DSP linear
     ML_MEDIUM_THRESHOLD_MS = 100  # 20-100ms: DSP spectral
-    # >100ms: ML AudioSR
+    # GACELA tier: 50–750ms musical inpainting GAN (§4.4: 50–999ms)
+    GACELA_MIN_MS: float = 50.0  # below: DSP spectral is sufficient
+    GACELA_MAX_MS: float = 750.0  # above: AudioSR territory
+    AUDIOLDM2_MIN_MS: float = 3000.0  # above: AudioLDM2 generative synthesis (§4.4 Tier 3)
+    # Cascade: DSP → GACELA → AudioSR → AudioLDM2
 
     # Material-adaptive Parameters (Professional-tuned)
     MATERIAL_PARAMS = {
@@ -184,9 +188,12 @@ class DropoutRepairPhase(PhaseInterface):
     def __init__(self):
         """Initialize Phase 24 Dropout Repair."""
         self._audiosr_plugin = None
+        self._gacela_plugin = None  # lazy-loaded on first GACELA repair attempt
+        self._audioldm2_plugin = None  # lazy-loaded on first AudioLDM2 repair attempt
         self.sample_rate = 48000  # Default, will be updated in process()
         self._ml_guard_events: list[dict[str, Any]] = []
         self._current_material: str = "unknown"  # updated per process() call
+        self._current_panns_tags: dict[str, float] = {}  # updated per process() call from kwargs
 
     def _has_sufficient_ml_headroom(self, audio: np.ndarray, sample_rate: int) -> bool:
         """Return True when enough physical RAM is available for AudioSR dropout repair.
@@ -207,10 +214,18 @@ class DropoutRepairPhase(PhaseInterface):
         # Guard 1: AudioSR nur für bekannte Analog-Quellen erlaubt (Allowlist-Prinzip).
         # Bug-16b-Fix: Blocklist schließt "unknown" nicht aus → AudioSR auf unbekanntem
         # Material → OOM. Allowlist verlangt positive Analog-Evidenz.
-        _ANALOG_ALLOW_AUDIOSR: frozenset[str] = frozenset({
-            "vinyl", "shellac", "tape", "reel_tape", "wax_cylinder",
-            "cassette", "lacquer_disc", "wire_recording",
-        })
+        _ANALOG_ALLOW_AUDIOSR: frozenset[str] = frozenset(
+            {
+                "vinyl",
+                "shellac",
+                "tape",
+                "reel_tape",
+                "wax_cylinder",
+                "cassette",
+                "lacquer_disc",
+                "wire_recording",
+            }
+        )
         _mat = getattr(self, "_current_material", None)
         if _mat not in _ANALOG_ALLOW_AUDIOSR:
             self._ml_guard_events.append(
@@ -254,15 +269,15 @@ class DropoutRepairPhase(PhaseInterface):
                 from backend.core.plugin_lifecycle_manager import evict_stale_plugins
 
                 evict_stale_plugins(required_mb=int(required_gb * 1024))
-            except Exception:
-                pass
+            except Exception as _exc:
+                logger.debug("Operation failed (non-critical): %s", _exc)
             gc.collect()
             try:
                 import ctypes as _ct
 
                 _ct.CDLL("libc.so.6").malloc_trim(0)
-            except Exception:
-                pass
+            except Exception as _exc:
+                logger.debug("Operation failed (non-critical): %s", _exc)
             available_gb = float(psutil.virtual_memory().available / (1024**3))
 
         if available_gb < required_gb:
@@ -310,6 +325,324 @@ class DropoutRepairPhase(PhaseInterface):
             logger.info("    Falling back to DSP-only dropout repair")
             return None
 
+    def _get_gacela_plugin(self):
+        """Lazy-load GACELA inpainting plugin (GAN, ~0.25 GB, §4.4 50–999 ms tier).
+
+        Returns:
+            GacelaPlugin with _model_ready==True, or None if unavailable.
+        """
+        if self._gacela_plugin is not None:
+            return self._gacela_plugin if self._gacela_plugin._model_ready else None
+        try:
+            from plugins.gacela_plugin import get_gacela_plugin
+
+            plugin = get_gacela_plugin()
+            self._gacela_plugin = plugin
+            if plugin._model_ready:
+                logger.info("GACELA plugin loaded for musical inpainting (50–750 ms).")
+            else:
+                logger.debug("GACELA: model not ready, DSP fallback will be used.")
+            return plugin if plugin._model_ready else None
+        except Exception as exc:
+            logger.debug("GACELA plugin unavailable: %s", exc)
+            return None
+
+    def _get_audioldm2_plugin(self):
+        """Lazy-load AudioLDM2 text-conditioned generative plugin (~1.3 GB, §4.4 Tier 3 > 3 s).
+
+        Returns:
+            AudioLDM2Plugin with _ok==True, or None if unavailable / budget exceeded.
+        """
+        if self._audioldm2_plugin is not None:
+            return self._audioldm2_plugin if self._audioldm2_plugin._ok else None
+        try:
+            from plugins.audioldm2_plugin import get_audioldm2_plugin
+
+            plugin = get_audioldm2_plugin()
+            self._audioldm2_plugin = plugin
+            if plugin._ok:
+                logger.info("AudioLDM2 plugin loaded for very-long dropout synthesis (> 3 s).")
+            else:
+                logger.debug("AudioLDM2: model not ready, AudioSR/DSP fallback will be used.")
+            return plugin if plugin._ok else None
+        except Exception as exc:
+            logger.debug("AudioLDM2 plugin unavailable: %s", exc)
+            return None
+
+    @staticmethod
+    def _build_audioldm2_prompt(
+        context_audio: np.ndarray,
+        sr: int,
+        material: str,
+        panns_tags: dict[str, float] | None = None,
+    ) -> str:
+        """Build a descriptive text prompt for AudioLDM2 from context audio.
+
+        Priority order for content classification:
+        1. PANNs tags (if provided) — most reliable, model-derived
+        2. Spectral heuristic — fallback when PANNs not available
+
+        Uses spectral heuristics to classify content as vocal or instrumental,
+        then combines with material hint to produce a short prompt string that
+        guides the generative model towards plausible in-fill content.
+
+        Args:
+            context_audio: Mono float32 context window (left side of dropout).
+            sr:            Sample rate of context audio.
+            material:      Material string (e.g. 'tape', 'vinyl').
+            panns_tags:    Optional PANNs probability dict (from UV3 kwargs).
+
+        Returns:
+            Short English prompt string, e.g. "vintage tape recording, vocal music, warm tone".
+        """
+        # Material → era/texture hint
+        material_hints: dict[str, str] = {
+            "shellac": "vintage shellac 78 rpm recording, acoustic instrument, lo-fi surface noise",
+            "vinyl": "vinyl record, warm analog tone",
+            "tape": "tape recording, warm magnetic saturation",
+            "cd_digital": "clear digital recording, studio quality",
+            "reel_tape": "reel-to-reel tape, warm analog saturation",
+            "cassette": "cassette tape, slightly muffled warm tone",
+        }
+        material_hint = material_hints.get(material, "analog recording, vintage warmth")
+
+        # Spectral heuristics: vocal vs instrumental
+        # Voiced-speech / singing energy is concentrated in 300–3 400 Hz (ITU-T G.711)
+        # Instrumental music often has broader spectral spread
+        content_label = "music"
+
+        # Priority 1: PANNs tags — most reliable (model-derived probabilities)
+        if panns_tags:
+            _vocal_prob = max(
+                panns_tags.get("Singing voice", 0.0),
+                panns_tags.get("Vocals", 0.0),
+                panns_tags.get("Speech", 0.0),
+                panns_tags.get("Male singing", 0.0),
+                panns_tags.get("Female singing", 0.0),
+            )
+            _inst_prob = max(
+                panns_tags.get("Guitar", 0.0),
+                panns_tags.get("Electric guitar", 0.0),
+                panns_tags.get("Piano", 0.0),
+                panns_tags.get("Keyboard (musical)", 0.0),
+                panns_tags.get("Brass instrument", 0.0),
+                panns_tags.get("Drum", 0.0),
+                panns_tags.get("Percussion", 0.0),
+            )
+            if _vocal_prob >= 0.35:
+                content_label = "vocal music, singing"
+            elif _inst_prob >= 0.35 and _vocal_prob < 0.10:
+                content_label = "instrumental music"
+            # else: keep "music" (mixed or uncertain)
+        elif len(context_audio) >= 512:
+            # Priority 2: Spectral heuristic fallback
+            fft = np.abs(np.fft.rfft(context_audio[: min(len(context_audio), sr)], n=sr))
+            freqs = np.fft.rfftfreq(sr, d=1.0 / sr)
+            mid_mask = (freqs >= 300) & (freqs <= 3400)
+            full_mask = freqs > 0
+            if full_mask.any() and mid_mask.any():
+                mid_energy = float(np.mean(fft[mid_mask] ** 2))
+                full_energy = float(np.mean(fft[full_mask] ** 2)) + 1e-12
+                if mid_energy / full_energy > 0.55:
+                    content_label = "vocal music, singing"
+                else:
+                    content_label = "instrumental music"
+
+        return f"{material_hint}, {content_label}, natural musical continuation"
+
+    def _repair_with_audioldm2(
+        self,
+        audio: np.ndarray,
+        dropouts: list[tuple[int, int]],
+    ) -> list[tuple[int, int]]:
+        """Repair very-long dropouts (> 3 s) via AudioLDM2 text-conditioned generative synthesis.
+
+        AudioLDM2 generates plausible audio content from a text prompt derived from
+        the context audio.  The generated audio is resampled from 16 kHz to 48 kHz,
+        RMS-matched to the surrounding context, and blended in with short cosine
+        crossfades.
+
+        This is Tier 3 of the 4-tier dropout cascade (§4.4):
+          DSP → GACELA → AudioSR → AudioLDM2
+
+        Args:
+            audio:    Mono float32 audio array, modified in-place on success.
+            dropouts: List of (start, end) sample-index tuples (all must be > 3 s).
+
+        Returns:
+            List of (start, end) tuples that could NOT be repaired; caller
+            falls back to AudioSR and then DSP for these.
+        """
+        from scipy.signal import resample as _scipy_resample
+
+        plugin = self._get_audioldm2_plugin()
+        if plugin is None:
+            return dropouts
+
+        _TARGET_SR = plugin.TARGET_SR  # 16 000 Hz
+        _CROSSFADE_S = 0.010  # 10 ms cosine crossfade
+        _CTX_S = 2.0  # 2 s context window for prompt + RMS matching
+        _GUIDANCE = 3.5
+
+        failed: list[tuple[int, int]] = []
+
+        for start, end in dropouts:
+            gap_samples = end - start
+            gap_duration_s = gap_samples / self.sample_rate
+
+            try:
+                # Build prompt from left context
+                ctx_samples = int(min(_CTX_S * self.sample_rate, start))
+                left_ctx = audio[max(0, start - ctx_samples) : start].astype(np.float32)
+                prompt = self._build_audioldm2_prompt(
+                    left_ctx, self.sample_rate, self._current_material, self._current_panns_tags
+                )
+                logger.debug(
+                    "AudioLDM2: generating %.1f s fill for dropout [%d, %d], prompt='%s'",
+                    gap_duration_s,
+                    start,
+                    end,
+                    prompt,
+                )
+
+                # Generate at 16 kHz
+                gen_16k = plugin.generate_array(prompt, duration=gap_duration_s, guidance=_GUIDANCE)
+                gen_16k = np.nan_to_num(gen_16k, nan=0.0, posinf=0.0, neginf=0.0)
+
+                # Resample 16 kHz → 48 kHz
+                target_samples = gap_samples
+                n_resampled = int(len(gen_16k) * self.sample_rate / _TARGET_SR)
+                gen_48k = _scipy_resample(gen_16k, n_resampled).astype(np.float32)
+
+                # Trim or zero-pad to exact gap length
+                if len(gen_48k) >= target_samples:
+                    gen_48k = gen_48k[:target_samples]
+                else:
+                    gen_48k = np.pad(gen_48k, (0, target_samples - len(gen_48k)))
+
+                # RMS-match to left context
+                rms_ctx = float(np.sqrt(np.mean(left_ctx[-min(400, len(left_ctx)) :] ** 2) + 1e-12))
+                rms_gen = float(np.sqrt(np.mean(gen_48k**2) + 1e-12))
+                if rms_gen > 1e-6:
+                    gen_48k = gen_48k * (rms_ctx / rms_gen)
+                gen_48k = np.clip(gen_48k, -1.0, 1.0)
+
+                # Apply cosine crossfades
+                fade_n = max(2, int(self.sample_rate * _CROSSFADE_S))
+                if fade_n * 2 < target_samples:
+                    t = np.linspace(0.0, np.pi / 2, fade_n, dtype=np.float32)
+                    fade_in = np.sin(t)
+                    fade_out = np.cos(t)
+                    # Entry crossfade
+                    gen_48k[:fade_n] = gen_48k[:fade_n] * fade_in + audio[start : start + fade_n] * fade_out
+                    # Exit crossfade
+                    gen_48k[-fade_n:] = gen_48k[-fade_n:] * fade_out + audio[end - fade_n : end] * fade_in
+
+                audio[start:end] = gen_48k
+                logger.info(
+                    "AudioLDM2: dropout [%.2f s, %.2f s] (%.1f s) filled via text synthesis.",
+                    start / self.sample_rate,
+                    end / self.sample_rate,
+                    gap_duration_s,
+                )
+
+            except Exception as exc:
+                logger.warning(
+                    "AudioLDM2: repair failed for dropout [%d, %d]: %s — routing to AudioSR fallback.",
+                    start,
+                    end,
+                    exc,
+                )
+                failed.append((start, end))
+
+        return failed
+
+    def _repair_with_gacela(
+        self,
+        audio: np.ndarray,
+        dropouts: list[tuple[int, int]],
+    ) -> list[tuple[int, int]]:
+        """Repair 50–750 ms dropouts via GACELA musical inpainting GAN (§4.4).
+
+        GACELA fills gaps by conditioning on left and right context audio and
+        synthesising plausible musical content using a trained GAN.
+
+        Args:
+            audio:    Mono audio array (float32), modified in-place on success.
+            dropouts: List of (start, end) sample-index tuples to repair.
+
+        Returns:
+            List of (start, end) tuples that could NOT be repaired; caller
+            falls back to DSP for these.
+        """
+        plugin = self._get_gacela_plugin()
+        if plugin is None:
+            return dropouts  # all fall back to DSP
+
+        # Generous context window so GACELA's BorderEncoder gets rich borders.
+        # Cap at 3 s for speed.
+        _ctx_samps: int = min(int(self.sample_rate * 3.0), len(audio) // 4)
+        _fade: int = max(2, int(self.sample_rate * 0.003))  # 3 ms cosine crossfade
+
+        failed: list[tuple[int, int]] = []
+
+        for start, end in dropouts:
+            gap_len = end - start
+            try:
+                left_ctx = audio[max(0, start - _ctx_samps) : start]
+                right_ctx = audio[end : min(len(audio), end + _ctx_samps)]
+
+                gap_fill = plugin.inpaint(left_ctx, right_ctx, self.sample_rate)
+
+                if gap_fill is None or len(gap_fill) == 0:
+                    failed.append((start, end))
+                    continue
+
+                # Trim or zero-pad to exact gap length
+                if len(gap_fill) >= gap_len:
+                    gap_fill = gap_fill[:gap_len]
+                else:
+                    gap_fill = np.pad(gap_fill.astype(np.float32), (0, gap_len - len(gap_fill)))
+
+                # RMS-match gap fill to surrounding context level
+                _ctx_win = audio[max(0, start - 400) : start]
+                _ctx_rms = float(np.sqrt(np.mean(_ctx_win**2) + 1e-12))
+                _fill_rms = float(np.sqrt(np.mean(gap_fill**2) + 1e-12))
+                if _fill_rms > 1e-8 and _ctx_rms > 1e-8:
+                    gap_fill = np.clip(gap_fill * (_ctx_rms / _fill_rms), -1.0, 1.0)
+
+                # Cosine crossfade at entry boundary
+                if _fade < gap_len and start >= _fade:
+                    _ramp = np.linspace(0.0, 1.0, _fade, dtype=np.float32)
+                    audio[start : start + _fade] = gap_fill[:_fade] * _ramp + audio[start : start + _fade] * (
+                        1.0 - _ramp
+                    )
+                    audio[start + _fade : end] = gap_fill[_fade:]
+                else:
+                    audio[start:end] = gap_fill
+
+                # Cosine crossfade at exit boundary
+                if _fade < gap_len and end + _fade <= len(audio):
+                    _ramp_out = np.linspace(1.0, 0.0, _fade, dtype=np.float32)
+                    audio[end - _fade : end] = gap_fill[-_fade:] * _ramp_out + audio[end - _fade : end] * (
+                        1.0 - _ramp_out
+                    )
+
+                logger.info(
+                    "GACELA: repaired dropout (start=%.2fs, gap=%.0fms)",
+                    start / self.sample_rate,
+                    gap_len * 1000.0 / self.sample_rate,
+                )
+
+            except Exception as exc:
+                logger.debug("GACELA inpaint failed at %.2fs: %s", start / self.sample_rate, exc)
+                failed.append((start, end))
+
+        repaired_n = len(dropouts) - len(failed)
+        if repaired_n:
+            logger.info("GACELA: %d/%d dropout(s) repaired.", repaired_n, len(dropouts))
+        return failed
+
     def get_metadata(self) -> PhaseMetadata:
         return PhaseMetadata(
             phase_id="phase_24_dropout_repair",
@@ -353,7 +686,12 @@ class DropoutRepairPhase(PhaseInterface):
         self.sample_rate = sample_rate
         # Store material as lowercase string value for guard comparison (handles both str and MaterialType enum)
         self._current_material = str(getattr(material_type, "value", material_type) or "unknown").lower()
+        self._current_panns_tags = {
+            k: float(v) for k, v in kwargs.get("panns_tags", {}).items() if isinstance(v, (int, float, str))
+        }
         self._ml_guard_events = []
+        # §2.36a: PhonemeTimeline for phoneme-class-aware content-type hint in DSP repair
+        self._current_phoneme_timeline = kwargs.get("phoneme_timeline")
 
         # Determine if ML should be used
         use_ml = False
@@ -361,8 +699,8 @@ class DropoutRepairPhase(PhaseInterface):
             try:
                 qm = QualityMode[quality_mode.upper()]
                 use_ml = should_use_ml(24, qm)  # Phase 24
-            except Exception:
-                pass
+            except Exception as _exc:
+                logger.debug("Operation failed (non-critical): %s", _exc)
 
         # Get material-specific parameters
         params = dict(self.MATERIAL_PARAMS.get(material_type, self.MATERIAL_PARAMS["unknown"]))
@@ -665,31 +1003,59 @@ class DropoutRepairPhase(PhaseInterface):
         repaired = audio.copy()
         ml_repaired_count = 0
 
-        # Separate dropouts by length for ML routing
-        long_dropouts = []  # >100ms, use ML if available
-        normal_dropouts = []  # <=100ms, use DSP
+        # 4-tier ML routing (§4.4):
+        #   < GACELA_MIN_MS (50 ms)              : DSP linear/spectral
+        #   50 ms .. GACELA_MAX_MS (750 ms)      : GACELA musical inpainting GAN
+        #   750 ms .. AUDIOLDM2_MIN_MS (3 000 ms): AudioSR bandwidth-extension repair
+        #   > AUDIOLDM2_MIN_MS (3 000 ms)        : AudioLDM2 generative text-conditioned synthesis
+        ldm2_dropouts: list[tuple[int, int]] = []  # > 3 000 ms → AudioLDM2
+        long_dropouts: list[tuple[int, int]] = []  # 750–3 000 ms → AudioSR
+        gacela_dropouts: list[tuple[int, int]] = []  # 50–750 ms → GACELA
+        normal_dropouts: list[tuple[int, int]] = []  # < 50 ms → DSP
 
         for start, end in dropouts:
-            duration_ms = (end - start) * 1000 / self.sample_rate
-
-            if use_ml and duration_ms > self.ML_MEDIUM_THRESHOLD_MS:
+            duration_ms = (end - start) * 1000.0 / self.sample_rate
+            if use_ml and duration_ms > self.AUDIOLDM2_MIN_MS:
+                ldm2_dropouts.append((start, end))
+            elif use_ml and duration_ms > self.GACELA_MAX_MS:
                 long_dropouts.append((start, end))
+            elif use_ml and duration_ms >= self.GACELA_MIN_MS:
+                gacela_dropouts.append((start, end))
             else:
                 normal_dropouts.append((start, end))
 
-        # Process long dropouts with ML (if enabled and available)
+        # Tier 1: GACELA musical inpainting (50–750 ms) — §4.4 50–999 ms ML tier
+        if gacela_dropouts and use_ml:
+            gacela_failed = self._repair_with_gacela(repaired, gacela_dropouts)
+            ml_repaired_count += len(gacela_dropouts) - len(gacela_failed)
+            normal_dropouts.extend(gacela_failed)  # unrepaired → DSP fallback
+
+        # Tier 2: AudioSR bandwidth-extension repair (750 ms–3 000 ms)
         if long_dropouts and use_ml:
             ml_success = self._repair_with_audiosr(repaired, long_dropouts)
             if ml_success:
-                ml_repaired_count = len(long_dropouts)
-                logger.info(f"✅ ML dropout repair: {ml_repaired_count} long dropouts (AudioSR)")
+                ml_repaired_count += len(long_dropouts)
+                logger.info("%d long dropout(s) repaired via AudioSR.", len(long_dropouts))
             else:
-                # ML failed, add back to normal for DSP fallback
-                logger.warning("ML dropout repair failed, falling back to DSP")
+                logger.warning("AudioSR dropout repair failed, falling back to DSP")
                 normal_dropouts.extend(long_dropouts)
         else:
-            # No ML, process all with DSP
             normal_dropouts.extend(long_dropouts)
+
+        # Tier 3: AudioLDM2 text-conditioned generative synthesis (> 3 000 ms)
+        if ldm2_dropouts and use_ml:
+            ldm2_failed = self._repair_with_audioldm2(repaired, ldm2_dropouts)
+            ml_repaired_count += len(ldm2_dropouts) - len(ldm2_failed)
+            # AudioLDM2 failures: try AudioSR first, then DSP
+            if ldm2_failed:
+                sr_success = self._repair_with_audiosr(repaired, ldm2_failed)
+                if sr_success:
+                    ml_repaired_count += len(ldm2_failed)
+                    logger.info("%d AudioLDM2-failed dropout(s) recovered via AudioSR.", len(ldm2_failed))
+                else:
+                    normal_dropouts.extend(ldm2_failed)
+        else:
+            normal_dropouts.extend(ldm2_dropouts)
 
         # Process normal dropouts with DSP
         for start, end in normal_dropouts:
@@ -704,8 +1070,23 @@ class DropoutRepairPhase(PhaseInterface):
             before = audio[max(0, start - context_samples) : start]
             after = audio[end : min(len(audio), end + context_samples)]
 
-            # Classify content
+            # Classify content — §2.36a: override with phoneme-class hint if available
             content_type = self._classify_content(before, after)
+            _ptl_24 = getattr(self, "_current_phoneme_timeline", None)
+            if _ptl_24 is not None:
+                try:
+                    _t_start_s = start / self.sample_rate
+                    _t_end_s = end / self.sample_rate
+                    _segs = _ptl_24.segments_in_range(_t_start_s, _t_end_s)
+                    if _segs:
+                        _dom = max(_segs, key=lambda _s: getattr(_s, "confidence", 0.0))
+                        _pclass = getattr(_dom, "phoneme_class", "")
+                        if _pclass in ("fricative_stressed", "sibilant", "plosive"):
+                            content_type = "atonal"  # HF-noise/burst: sinusoidal would smear
+                        elif _pclass in ("vowel_stressed", "vowel_unstressed"):
+                            content_type = "tonal"  # harmonic, sinusoidal repair preferred
+                except Exception:
+                    pass
 
             # Repair based on content type
             if content_type == "tonal":
@@ -764,8 +1145,8 @@ class DropoutRepairPhase(PhaseInterface):
             return False
 
         # Context window constants
-        _CTX_SECS: float = 0.5       # 500 ms context on each side
-        _MAX_WINDOW_S: float = 5.0   # hard cap: skip to DSP if window > 5 s
+        _CTX_SECS: float = 0.5  # 500 ms context on each side
+        _MAX_WINDOW_S: float = 5.0  # hard cap: skip to DSP if window > 5 s
         _ctx_samps: int = int(self.sample_rate * _CTX_SECS)
         _max_samps: int = int(self.sample_rate * _MAX_WINDOW_S)
         _fade_samps: int = max(2, int(self.sample_rate * 0.003))  # 3 ms crossfade
@@ -777,7 +1158,9 @@ class DropoutRepairPhase(PhaseInterface):
 
             gap_len = end - start
             if not self._has_sufficient_ml_headroom(audio, self.sample_rate):
-                logger.warning("AudioSR: insufficient headroom after dropout %d/%d — stopping", drop_idx + 1, len(dropouts))
+                logger.warning(
+                    "AudioSR: insufficient headroom after dropout %d/%d — stopping", drop_idx + 1, len(dropouts)
+                )
                 break
 
             # Build context window
@@ -807,7 +1190,10 @@ class DropoutRepairPhase(PhaseInterface):
             if len(repaired_window) != window_len:
                 logger.warning(
                     "AudioSR: output length mismatch for dropout %d/%d (%d vs %d)",
-                    drop_idx + 1, len(dropouts), len(repaired_window), window_len,
+                    drop_idx + 1,
+                    len(dropouts),
+                    len(repaired_window),
+                    window_len,
                 )
                 continue
 

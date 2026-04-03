@@ -52,8 +52,8 @@ class UVRMDXNetPlugin:
                 if not _try_alloc("UVR_MDXNet", size_gb=1.20):
                     logger.warning("UVR MDX-Net: ML-Budget erschöpft — DSP-Fallback.")
                     return
-            except Exception:
-                pass
+            except Exception as _exc:
+                logger.debug("Operation failed (non-critical): %s", _exc)
 
             opts = ort.SessionOptions()
             opts.inter_op_num_threads = 2
@@ -69,23 +69,23 @@ class UVRMDXNetPlugin:
                     from backend.core.ml_memory_budget import release as _release
 
                     _release("UVR_MDXNet")
-                except Exception:
-                    pass
+                except Exception as _exc:
+                    logger.debug("Operation failed (non-critical): %s", _exc)
             else:
                 try:
                     from backend.core.plugin_lifecycle_manager import register_plugin as _reg_plm
 
                     _reg_plm("UVR_MDXNet", size_gb=1.20, unload_fn=lambda s=self: setattr(s, "_sessions", []))
-                except Exception:
-                    pass
+                except Exception as _exc:
+                    logger.debug("Operation failed (non-critical): %s", _exc)
         except Exception as exc:
             logger.warning("UVR ONNX-Ladefehler: %s — DSP-Fallback.", exc)
             try:
                 from backend.core.ml_memory_budget import release as _release
 
                 _release("UVR_MDXNet")
-            except Exception:
-                pass
+            except Exception as _exc:
+                logger.debug("Operation failed (non-critical): %s", _exc)
 
     # ── Public ──────────────────────────────────────────────────────────────
 

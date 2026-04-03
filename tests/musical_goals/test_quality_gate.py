@@ -572,7 +572,7 @@ def test_integration_with_processing_modes(quality_gate, sample_audio):
         # Should use mode-specific thresholds
         from backend.core.musical_goals.processing_modes import PROCESSING_MODE_CONFIGS
 
-        PROCESSING_MODE_CONFIGS[mode].musical_goals
+        _ = PROCESSING_MODE_CONFIGS[mode].musical_goals
 
         # Verify mode was used
         assert result.decision in QualityGateDecision

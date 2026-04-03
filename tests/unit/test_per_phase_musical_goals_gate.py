@@ -144,7 +144,7 @@ class TestPMGGSingleton:
 class TestPMGGReset:
     def test_03_reset_clears_rollback_count(self, gate):
         try:
-            gate._rollback_count
+            _ = gate._rollback_count
         except AttributeError:
             pass  # Attribut nicht vorhanden → kein Test nötig
         gate.reset()
@@ -630,13 +630,15 @@ class TestPhaseGoalExclusions:
         from backend.core.per_phase_musical_goals_gate import PHASE_GOAL_EXCLUSIONS
 
         required = {
-            "bass_kraft", "authentizitaet", "natuerlichkeit", "transparenz",
-            "groove", "timbre_authentizitaet",
+            "bass_kraft",
+            "authentizitaet",
+            "natuerlichkeit",
+            "transparenz",
+            "groove",
+            "timbre_authentizitaet",
         }
         excl = PHASE_GOAL_EXCLUSIONS.get("phase_02", set())
-        assert required.issubset(excl), (
-            f"phase_02 exclusions missing: {required - excl}"
-        )
+        assert required.issubset(excl), f"phase_02 exclusions missing: {required - excl}"
 
     # ── phase_20 (SGMSE+ Reverb-Reduction) ──────────────────────────────────
 
@@ -744,12 +746,13 @@ class TestPhaseGoalExclusions:
         to phase_29 exclusions at runtime — same HF-removal → centroid-CV disturbance
         mechanism as phase_03 (extended 2026-03-30 to phase_29)."""
         import types
+        from unittest.mock import patch
+
         import numpy as np
-        from unittest.mock import MagicMock, patch
 
         from backend.core.per_phase_musical_goals_gate import (
-            PerPhaseMusicalGoalsGate,
             FAST_GOALS_SUBSET,
+            PerPhaseMusicalGoalsGate,
         )
 
         gate = PerPhaseMusicalGoalsGate()
@@ -766,15 +769,17 @@ class TestPhaseGoalExclusions:
                 return m
 
         checked_goals: list[list[str]] = []
-        _orig_run = PerPhaseMusicalGoalsGate._run_with_retry
+        _ = PerPhaseMusicalGoalsGate._run_with_retry
 
         def _capture(*args, **kwargs):
             checked_goals.append(list(kwargs.get("effective_goals", [])))
-            return audio.copy(), {g: 0.85 for g in FAST_GOALS_SUBSET}, "passed", 1.0
+            return audio.copy(), dict.fromkeys(FAST_GOALS_SUBSET, 0.85), "passed", 1.0
 
         with patch.object(PerPhaseMusicalGoalsGate, "_run_with_retry", side_effect=_capture):
             gate.wrap_phase(
-                _PassPhase(), audio, 48000,
+                _PassPhase(),
+                audio,
+                48000,
                 phase_kwargs={"material_type": "tape"},
             )
 
@@ -1023,6 +1028,7 @@ class TestPMGGSongCalIntegration:
     def test_69_material_adaptive_stable_goals_are_subset(self):
         """Stable exclusions {natuerlichkeit,artikulation} must be subset of phase_03/29 sets."""
         from backend.core.per_phase_musical_goals_gate import PHASE_GOAL_EXCLUSIONS
+
         stable = {"natuerlichkeit", "artikulation"}
         assert stable.issubset(PHASE_GOAL_EXCLUSIONS["phase_03"])
         assert stable.issubset(PHASE_GOAL_EXCLUSIONS["phase_29"])
@@ -1054,8 +1060,16 @@ class TestPMGGSongCalIntegration:
         NR lowers noise floor in quiet segments → crest-factor shift → false P3
         regression, identical mechanism to phase_18 noise gate)."""
         from backend.core.per_phase_musical_goals_gate import PHASE_GOAL_EXCLUSIONS
-        expected = {"natuerlichkeit", "artikulation", "authentizitaet", "tonal_center",
-                    "timbre_authentizitaet", "groove", "emotionalitaet"}
+
+        expected = {
+            "natuerlichkeit",
+            "artikulation",
+            "authentizitaet",
+            "tonal_center",
+            "timbre_authentizitaet",
+            "groove",
+            "emotionalitaet",
+        }
         assert PHASE_GOAL_EXCLUSIONS["phase_03"] == expected, (
             f"phase_03 exclusions: {PHASE_GOAL_EXCLUSIONS['phase_03']} != {expected}"
         )
@@ -1064,8 +1078,16 @@ class TestPMGGSongCalIntegration:
         """phase_29 must exclude exactly 7 goals (groove+emotionalitaet added 2026-03-31:
         HF-selective NR same LF-crest/crest-factor false P3 mechanisms as phase_03)."""
         from backend.core.per_phase_musical_goals_gate import PHASE_GOAL_EXCLUSIONS
-        expected = {"artikulation", "authentizitaet", "natuerlichkeit", "tonal_center",
-                    "timbre_authentizitaet", "groove", "emotionalitaet"}
+
+        expected = {
+            "artikulation",
+            "authentizitaet",
+            "natuerlichkeit",
+            "tonal_center",
+            "timbre_authentizitaet",
+            "groove",
+            "emotionalitaet",
+        }
         assert PHASE_GOAL_EXCLUSIONS["phase_29"] == expected, (
             f"phase_29 exclusions: {PHASE_GOAL_EXCLUSIONS['phase_29']} != {expected}"
         )
@@ -1083,6 +1105,7 @@ class TestGrooveProxyLFRobustness:
     @pytest.fixture
     def _gate(self):
         from backend.core.per_phase_musical_goals_gate import PerPhaseMusicalGoalsGate
+
         g = PerPhaseMusicalGoalsGate()
         g.reset()
         return g
@@ -1090,6 +1113,7 @@ class TestGrooveProxyLFRobustness:
     def _measure_groove(self, audio: "np.ndarray", sr: int) -> float:
         """Ruft _measure_quick auf und extrahiert den groove-Score."""
         from backend.core.per_phase_musical_goals_gate import _measure_quick
+
         scores = _measure_quick(audio, sr)
         return scores["groove"]
 
@@ -1097,6 +1121,7 @@ class TestGrooveProxyLFRobustness:
         """Groove-Score auf reinem Rhythmus-Signal bleibt nahezu identisch unabhängig
         von zugemischtem 50 Hz Hum (§9.7.9 Strukturfix)."""
         import numpy as np
+
         sr = 48000
         t = np.linspace(0, 2.0, int(sr * 2.0), endpoint=False, dtype=np.float32)
 
@@ -1108,6 +1133,7 @@ class TestGrooveProxyLFRobustness:
                 clicks[idx] = 1.0
         # Leichtes Decay nach jedem Click (Impuls-Antwort simulieren)
         from scipy.signal import lfilter
+
         clicks = lfilter([1.0], [1.0, -0.85], clicks).astype(np.float32)
         # Normalisieren
         clicks /= np.max(np.abs(clicks)) + 1e-9
@@ -1132,6 +1158,7 @@ class TestGrooveProxyLFRobustness:
         Autokorrelation bei allen Lags). Der Proxy misst Energie-Regelmäßigkeit."""
         import numpy as np
         from scipy.signal import lfilter
+
         sr = 48000
 
         # Periodisch: Clicks exakt alle 500 ms (120 BPM)
@@ -1163,6 +1190,7 @@ class TestGrooveProxyLFRobustness:
     def test_76_groove_not_nan_on_short_audio(self):
         """Groove-Proxy darf kein NaN/Inf auf kurzen Clips zurückgeben (< 0.2 s)."""
         import numpy as np
+
         sr = 48000
         # Nur 0.12 s — rms_env hat ≈ 12 Frames → Glättung mit min(5, 3)=3
         short = np.random.default_rng(99).uniform(-0.5, 0.5, int(sr * 0.12)).astype(np.float32)
@@ -1173,6 +1201,7 @@ class TestGrooveProxyLFRobustness:
     def test_77_groove_bounded_zero_to_one_various_signals(self):
         """Groove-Score muss für 8 verschiedene Testsignale in [0, 1] liegen."""
         import numpy as np
+
         sr = 48000
         rng = np.random.default_rng(7)
         signals = [
@@ -1204,17 +1233,20 @@ class TestKrumhanslSchmucklerTonalCenter:
     def _measure_tonal(self, audio: "np.ndarray", sr: int) -> float:
         """Ruft _measure_quick auf und extrahiert den tonal_center-Score."""
         from backend.core.per_phase_musical_goals_gate import _measure_quick
+
         return _measure_quick(audio, sr)["tonal_center"]
 
     def _measure(self, audio: "np.ndarray", sr: int) -> "dict[str, float]":
         """Returns all 14 quick-proxy scores for the given signal."""
         from backend.core.per_phase_musical_goals_gate import _measure_quick
+
         return _measure_quick(audio, sr)
 
     def test_78_tonal_center_stable_with_white_noise(self):
         """K-S proxy must stay stable (\u0394 \u2264 0.05) when white noise is added to a tonal signal.
         This directly validates SNR-invariance (the root cause of all former false P2 regressions)."""
         import numpy as np
+
         sr = 48000
         rng = np.random.default_rng(42)
         # C-major scale sine waves (C4, E4, G4) \u2014 clearly tonal
@@ -1239,6 +1271,7 @@ class TestKrumhanslSchmucklerTonalCenter:
     def test_79_tonal_center_bounded_zero_to_one(self):
         """tonal_center score must always lie in [0.0, 1.0] for 8 diverse signals."""
         import numpy as np
+
         sr = 48000
         rng = np.random.default_rng(7)
         t = np.linspace(0, 2.0, sr * 2, endpoint=False, dtype=np.float32)
@@ -1262,13 +1295,13 @@ class TestKrumhanslSchmucklerTonalCenter:
         EQ redistribution of spectral energy should not flip the key argmax."""
         import numpy as np
         from scipy.signal import butter, sosfilt
+
         sr = 48000
         t = np.linspace(0, 2.0, sr * 2, endpoint=False, dtype=np.float32)
         # C-major triad with harmonics
         tonal = sum(
             a * np.sin(2 * np.pi * f * t)
-            for f, a in [(261.63, 0.4), (329.63, 0.3), (392.00, 0.2),
-                         (523.25, 0.1), (659.26, 0.08), (784.00, 0.06)]
+            for f, a in [(261.63, 0.4), (329.63, 0.3), (392.00, 0.2), (523.25, 0.1), (659.26, 0.08), (784.00, 0.06)]
         ).astype(np.float32)
 
         # High-shelf cut: -8 dB above 2 kHz (emulate HF EQ correction)
@@ -1287,6 +1320,7 @@ class TestKrumhanslSchmucklerTonalCenter:
     def test_81_tonal_center_silent_signal_returns_midpoint(self):
         """Silent audio (all zeros) must return 0.5 without crash."""
         import numpy as np
+
         sr = 48000
         silent = np.zeros(sr * 2, dtype=np.float32)
         score = self._measure_tonal(silent, sr)
@@ -1303,16 +1337,14 @@ class TestKrumhanslSchmucklerTonalCenter:
         for phase in ["phase_03", "phase_29"]:
             excl = PHASE_GOAL_EXCLUSIONS.get(phase, set())
             assert "tonal_center" in excl, (
-                f"{phase}: tonal_center MUST be excluded - K-S not invariant to shaped NR "
-                f"(v9.10.95). Current: {excl}"
+                f"{phase}: tonal_center MUST be excluded - K-S not invariant to shaped NR (v9.10.95). Current: {excl}"
             )
 
         # K-S stable phases -> tonal_center not excluded
         for phase in ["phase_08", "phase_18", "phase_49"]:
             excl = PHASE_GOAL_EXCLUSIONS.get(phase, set())
             assert "tonal_center" not in excl, (
-                f"{phase}: tonal_center must NOT be excluded (K-S stable, v9.10.93). "
-                f"Current: {excl}"
+                f"{phase}: tonal_center must NOT be excluded (K-S stable, v9.10.93). Current: {excl}"
             )
 
     def test_83_brillanz_improves_after_denoising(self):
@@ -1320,6 +1352,7 @@ class TestKrumhanslSchmucklerTonalCenter:
         Noise floor inflates p50 in HF band \u2192 low crest before; after denoising
         noise floor drops \u2192 p50 falls \u2192 crest increases \u2192 score improves."""
         import numpy as np
+
         sr = 48000
         rng = np.random.default_rng(42)
         t = np.linspace(0, 2.0, sr * 2, endpoint=False, dtype=np.float32)
@@ -1357,6 +1390,7 @@ class TestKrumhanslSchmucklerTonalCenter:
     def test_85_brillanz_bounded_and_finite(self):
         """brillanz proxy must return \u2208 [0, 1] and non-NaN for 8 diverse signals."""
         import numpy as np
+
         sr = 48000
         rng = np.random.default_rng(9)
         t = np.linspace(0, 2.0, sr * 2, endpoint=False, dtype=np.float32)
@@ -1382,13 +1416,13 @@ class TestKrumhanslSchmucklerTonalCenter:
         Noise fills each octave band\u2019s floor \u2192 low per-band crest before;
         after denoising floor drops \u2192 crest rises in every band \u2192 score improves."""
         import numpy as np
+
         sr = 48000
         rng = np.random.default_rng(7)
         t = np.linspace(0, 2.0, sr * 2, endpoint=False, dtype=np.float32)
         # Tonal music spanning all 5 measured octave bands (250-8k Hz)
         music = sum(
-            a * np.sin(2 * np.pi * f * t)
-            for f, a in [(350, 0.4), (700, 0.3), (1400, 0.2), (2800, 0.15), (5600, 0.10)]
+            a * np.sin(2 * np.pi * f * t) for f, a in [(350, 0.4), (700, 0.3), (1400, 0.2), (2800, 0.15), (5600, 0.10)]
         ).astype(np.float32)
         noise = rng.standard_normal(len(music)).astype(np.float32) * 0.4
 
@@ -1419,6 +1453,7 @@ class TestKrumhanslSchmucklerTonalCenter:
     def test_88_transparenz_bounded_and_finite(self):
         """transparenz proxy must return \u2208 [0, 1] and non-NaN for 8 diverse signals."""
         import numpy as np
+
         sr = 48000
         rng = np.random.default_rng(13)
         t = np.linspace(0, 2.0, sr * 2, endpoint=False, dtype=np.float32)
@@ -1444,19 +1479,19 @@ class TestKrumhanslSchmucklerTonalCenter:
         Reverb adds energy proportionally across both 200-800 Hz and 800-3000 Hz
         sub-bands \u2192 warmth ratio is reverb-invariant \u2192 no false regression."""
         import numpy as np
+
         sr = 48000
         t = np.linspace(0, 3.0, sr * 3, endpoint=False, dtype=np.float32)
         # Warm vocal-like signal: energy in 200\u20132000 Hz
         dry = sum(
-            a * np.sin(2 * np.pi * f * t)
-            for f, a in [(300, 0.5), (500, 0.4), (800, 0.3), (1200, 0.2), (2000, 0.15)]
+            a * np.sin(2 * np.pi * f * t) for f, a in [(300, 0.5), (500, 0.4), (800, 0.3), (1200, 0.2), (2000, 0.15)]
         ).astype(np.float32)
         # Simulate reverb: convolve with short exponential decay IR
         ir_len = int(sr * 0.4)  # 400 ms reverb
         t_ir = np.arange(ir_len, dtype=np.float32) / sr
         ir = np.exp(-8.0 * t_ir).astype(np.float32)
         ir /= ir.sum()
-        reverberant = np.convolve(dry, ir)[:len(dry)].astype(np.float32)
+        reverberant = np.convolve(dry, ir)[: len(dry)].astype(np.float32)
 
         score_dry = self._measure(dry, sr)["waerme"]
         score_reverb = self._measure(reverberant, sr)["waerme"]
@@ -1483,6 +1518,7 @@ class TestKrumhanslSchmucklerTonalCenter:
     def test_91_waerme_bounded_and_finite(self):
         """waerme proxy must return \u2208 [0, 1] and non-NaN for 8 diverse signals."""
         import numpy as np
+
         sr = 48000
         rng = np.random.default_rng(21)
         t = np.linspace(0, 2.0, sr * 2, endpoint=False, dtype=np.float32)
@@ -1508,8 +1544,16 @@ class TestKrumhanslSchmucklerTonalCenter:
         NR lowers noise floor in quiet segments → crest-factor shift → false P3
         regression, identical mechanism to phase_18 noise gate)."""
         from backend.core.per_phase_musical_goals_gate import PHASE_GOAL_EXCLUSIONS
-        expected = {"natuerlichkeit", "artikulation", "authentizitaet", "tonal_center",
-                    "timbre_authentizitaet", "groove", "emotionalitaet"}
+
+        expected = {
+            "natuerlichkeit",
+            "artikulation",
+            "authentizitaet",
+            "tonal_center",
+            "timbre_authentizitaet",
+            "groove",
+            "emotionalitaet",
+        }
         excl = PHASE_GOAL_EXCLUSIONS.get("phase_03", set())
         assert excl == expected, f"phase_03: {excl} != {expected}"
 
@@ -1517,8 +1561,16 @@ class TestKrumhanslSchmucklerTonalCenter:
         """phase_29 must exclude exactly 7 goals (groove+emotionalitaet added 2026-03-31:
         HF-selective NR same LF-crest/crest-factor false P3 mechanisms as phase_03)."""
         from backend.core.per_phase_musical_goals_gate import PHASE_GOAL_EXCLUSIONS
-        expected = {"artikulation", "authentizitaet", "natuerlichkeit", "tonal_center",
-                    "timbre_authentizitaet", "groove", "emotionalitaet"}
+
+        expected = {
+            "artikulation",
+            "authentizitaet",
+            "natuerlichkeit",
+            "tonal_center",
+            "timbre_authentizitaet",
+            "groove",
+            "emotionalitaet",
+        }
         excl = PHASE_GOAL_EXCLUSIONS.get("phase_29", set())
         assert excl == expected, f"phase_29: {excl} != {expected}"
 
@@ -1528,6 +1580,7 @@ class TestKrumhanslSchmucklerTonalCenter:
         emotionalitaet added 2026-03-31: reverb tail adds energy to quiet segments
         \u2192 crest-factor ratio shifts after removal \u2192 false P3, identical to phase_20/phase_03)."""
         from backend.core.per_phase_musical_goals_gate import PHASE_GOAL_EXCLUSIONS
+
         expected = {"authentizitaet", "emotionalitaet"}
         excl = PHASE_GOAL_EXCLUSIONS.get("phase_49", set())
         assert excl == expected, f"phase_49: {excl} != {expected}"
@@ -1536,6 +1589,7 @@ class TestKrumhanslSchmucklerTonalCenter:
         """phase_18: brillanz and transparenz must NOT be excluded after \u00a79.7.12/13.
         Silence gating lowers HF noise floor \u2192 crest improves or stays neutral."""
         from backend.core.per_phase_musical_goals_gate import PHASE_GOAL_EXCLUSIONS
+
         excl = PHASE_GOAL_EXCLUSIONS.get("phase_18", set())
         assert "brillanz" not in excl, "brillanz must not be in phase_18 exclusions after \u00a79.7.12"
         assert "transparenz" not in excl, "transparenz must not be in phase_18 exclusions after \u00a79.7.13"
@@ -1546,6 +1600,7 @@ class TestKrumhanslSchmucklerTonalCenter:
         Their canonical metrics (ISO-226 energy ratios) would produce false regressions
         on denoising/dereverb phases even via precise override (\u00a79.7.12/13/14)."""
         from backend.core.per_phase_musical_goals_gate import _get_precise_metric_instances
+
         precise = _get_precise_metric_instances()
         for goal in ("brillanz", "waerme", "transparenz"):
             assert goal not in precise, (
@@ -1560,6 +1615,7 @@ class TestKrumhanslSchmucklerTonalCenter:
         Removing a narrow peak LOWERS p95 in that band without changing p50 —
         the opposite of broadband denoising.  transparenz must remain in phase_02."""
         import numpy as np
+
         from backend.core.per_phase_musical_goals_gate import PHASE_GOAL_EXCLUSIONS, _measure_quick
 
         assert "transparenz" in PHASE_GOAL_EXCLUSIONS.get("phase_02", set()), (
@@ -1591,8 +1647,7 @@ class TestKrumhanslSchmucklerTonalCenter:
         score_after = _measure_quick(music_after_notch, sr)["transparenz"]
         # Notch removes peaks → crest drops → score_after < score_before
         assert score_after < score_before + 0.20, (
-            f"Notch removal did not demonstrate crest reduction: "
-            f"before={score_before:.4f} after={score_after:.4f}"
+            f"Notch removal did not demonstrate crest reduction: before={score_before:.4f} after={score_after:.4f}"
         )
 
     def test_98_waerme_stable_double_dereverb_chain(self):
@@ -1601,27 +1656,28 @@ class TestKrumhanslSchmucklerTonalCenter:
         Validates that two consecutive reverb-reduction operations on the same
         audio do not produce cumulative waerme drift."""
         import numpy as np
+
         sr = 48000
         t = np.linspace(0, 3.0, sr * 3, endpoint=False, dtype=np.float32)
         dry = sum(
-            a * np.sin(2 * np.pi * f * t)
-            for f, a in [(300, 0.5), (500, 0.4), (800, 0.3), (1200, 0.2), (2000, 0.15)]
+            a * np.sin(2 * np.pi * f * t) for f, a in [(300, 0.5), (500, 0.4), (800, 0.3), (1200, 0.2), (2000, 0.15)]
         ).astype(np.float32)
         # First reverb stage (longer, phase_20 input)
         ir1_len = int(sr * 0.5)
         ir1 = np.exp(-6.0 * np.arange(ir1_len, dtype=np.float32) / sr)
         ir1 /= ir1.sum()
-        reverb1 = np.convolve(dry, ir1)[:len(dry)].astype(np.float32)
+        reverb1 = np.convolve(dry, ir1)[: len(dry)].astype(np.float32)
         # Partial dereverb (phases typically don\u2019t achieve 100% removal)
         after_phase20 = 0.3 * reverb1 + 0.7 * dry  # 70% dry recovered
         # Second reverb stage residual (shorter tail, phase_49 input)
         ir2_len = int(sr * 0.2)
         ir2 = np.exp(-15.0 * np.arange(ir2_len, dtype=np.float32) / sr)
         ir2 /= ir2.sum()
-        reverb2 = np.convolve(after_phase20, ir2)[:len(after_phase20)].astype(np.float32)
+        reverb2 = np.convolve(after_phase20, ir2)[: len(after_phase20)].astype(np.float32)
         after_phase49 = 0.2 * reverb2 + 0.8 * after_phase20  # further 80% dry
 
         from backend.core.per_phase_musical_goals_gate import _measure_quick
+
         w_dry = _measure_quick(dry, sr)["waerme"]
         w_after20 = _measure_quick(after_phase20, sr)["waerme"]
         w_after49 = _measure_quick(after_phase49, sr)["waerme"]
@@ -1650,6 +1706,7 @@ class TestKrumhanslSchmucklerTonalCenter:
           stays stable \u2192 no false regression in practice.
         """
         import numpy as np
+
         from backend.core.per_phase_musical_goals_gate import (
             PHASE_GOAL_EXCLUSIONS,
             _measure_quick,
@@ -1659,8 +1716,7 @@ class TestKrumhanslSchmucklerTonalCenter:
         rng = np.random.default_rng(55)
         t = np.linspace(0, 3.0, sr * 3, endpoint=False, dtype=np.float32)
         music = sum(
-            a * np.sin(2 * np.pi * f * t)
-            for f, a in [(350, 0.4), (700, 0.3), (1400, 0.2), (2800, 0.15), (440, 0.3)]
+            a * np.sin(2 * np.pi * f * t) for f, a in [(350, 0.4), (700, 0.3), (1400, 0.2), (2800, 0.15), (440, 0.3)]
         ).astype(np.float32)
         score_clean = _measure_quick(music, sr)["timbre_authentizitaet"]
 
@@ -1699,22 +1755,18 @@ class TestKrumhanslSchmucklerTonalCenter:
         """phase_16 (final/mastering EQ) must exclude tonal_center
         (v9.10.93: EQ shifts chroma energy — K-S not immune to EQ)."""
         from backend.core.per_phase_musical_goals_gate import PHASE_GOAL_EXCLUSIONS
+
         excl = PHASE_GOAL_EXCLUSIONS.get("phase_16", set())
-        assert "tonal_center" in excl, (
-            f"tonal_center must be in phase_16 PHASE_GOAL_EXCLUSIONS, got: {excl}"
-        )
+        assert "tonal_center" in excl, f"tonal_center must be in phase_16 PHASE_GOAL_EXCLUSIONS, got: {excl}"
 
     def test_101_phase17_tonal_center_and_artikulation_excluded(self):
         """phase_17 (mastering compression) must exclude tonal_center + artikulation
         (v9.10.93: MB-compression changes attack envelopes + chroma distribution)."""
         from backend.core.per_phase_musical_goals_gate import PHASE_GOAL_EXCLUSIONS
+
         excl = PHASE_GOAL_EXCLUSIONS.get("phase_17", set())
-        assert "tonal_center" in excl, (
-            f"tonal_center must be in phase_17 PHASE_GOAL_EXCLUSIONS, got: {excl}"
-        )
-        assert "artikulation" in excl, (
-            f"artikulation must be in phase_17 PHASE_GOAL_EXCLUSIONS, got: {excl}"
-        )
+        assert "tonal_center" in excl, f"tonal_center must be in phase_17 PHASE_GOAL_EXCLUSIONS, got: {excl}"
+        assert "artikulation" in excl, f"artikulation must be in phase_17 PHASE_GOAL_EXCLUSIONS, got: {excl}"
 
     def test_106_phase57_print_through_exclusions(self):
         """phase_57_print_through_reduction must exclude {authentizitaet, emotionalitaet}.
@@ -1726,11 +1778,10 @@ class TestKrumhanslSchmucklerTonalCenter:
           crest-factor elevated; after removal crest-factor shifts → false P3.
         """
         from backend.core.per_phase_musical_goals_gate import PHASE_GOAL_EXCLUSIONS
+
         excl = PHASE_GOAL_EXCLUSIONS.get("phase_57_print_through_reduction", set())
         for goal in ("authentizitaet", "emotionalitaet"):
-            assert goal in excl, (
-                f"{goal} must be in phase_57_print_through_reduction exclusions, got: {excl}"
-            )
+            assert goal in excl, f"{goal} must be in phase_57_print_through_reduction exclusions, got: {excl}"
 
     def test_107_phase53_semantic_audio_empty_exclusions(self):
         """phase_53_semantic_audio must have NO exclusions (set()).
@@ -1740,21 +1791,23 @@ class TestKrumhanslSchmucklerTonalCenter:
         no PMGG regression is structurally possible → exclusion set must be empty.
         """
         from backend.core.per_phase_musical_goals_gate import PHASE_GOAL_EXCLUSIONS
-        excl = PHASE_GOAL_EXCLUSIONS.get("phase_53", set())
-        assert excl == set(), (
-            f"phase_53 (SemanticAudioPhase is metadata-only) must have empty exclusions, got: {excl}"
-        )
 
-    @pytest.mark.parametrize("phase_id", [
-        "phase_13",  # Stereo enhancement: Haas cross-feed (5-35 ms) comb-filter in mono sum
-        "phase_14",  # Phase correction: all-pass/fractional-delay shifts mono-sum spectral valleys
-        "phase_25",  # Azimuth correction: HF spectral restoration changes centroid-CV
-        "phase_32",  # Mono-to-stereo: Schroeder decorrelation + HF harmonic synthesis
-        "phase_33",  # Stereo width limiter: M/S Side compression changes L/R spectral distribution
-        "phase_41",  # Output format optimization: multi-band loudness shaping (same as phase_40)
-        "phase_46",  # Spatial enhancement: cross-feed early reflections + Schroeder diffusion
-        "phase_48",  # Stereo width enhancer: STFT HF Side scaling (x1.15 > 8 kHz)
-    ])
+        excl = PHASE_GOAL_EXCLUSIONS.get("phase_53", set())
+        assert excl == set(), f"phase_53 (SemanticAudioPhase is metadata-only) must have empty exclusions, got: {excl}"
+
+    @pytest.mark.parametrize(
+        "phase_id",
+        [
+            "phase_13",  # Stereo enhancement: Haas cross-feed (5-35 ms) comb-filter in mono sum
+            "phase_14",  # Phase correction: all-pass/fractional-delay shifts mono-sum spectral valleys
+            "phase_25",  # Azimuth correction: HF spectral restoration changes centroid-CV
+            "phase_32",  # Mono-to-stereo: Schroeder decorrelation + HF harmonic synthesis
+            "phase_33",  # Stereo width limiter: M/S Side compression changes L/R spectral distribution
+            "phase_41",  # Output format optimization: multi-band loudness shaping (same as phase_40)
+            "phase_46",  # Spatial enhancement: cross-feed early reflections + Schroeder diffusion
+            "phase_48",  # Stereo width enhancer: STFT HF Side scaling (x1.15 > 8 kHz)
+        ],
+    )
     def test_102_stereo_phases_timbre_excluded(self, phase_id):
         """All 8 stereo-processing phases must exclude timbre_authentizitaet.
 
@@ -1763,6 +1816,7 @@ class TestKrumhanslSchmucklerTonalCenter:
         vs. the pre-processing reference → false P2 timbre regression.
         """
         from backend.core.per_phase_musical_goals_gate import PHASE_GOAL_EXCLUSIONS
+
         excl = PHASE_GOAL_EXCLUSIONS.get(phase_id, set())
         assert "timbre_authentizitaet" in excl, (
             f"timbre_authentizitaet must be in {phase_id} PHASE_GOAL_EXCLUSIONS, got: {excl}"
@@ -1778,11 +1832,10 @@ class TestKrumhanslSchmucklerTonalCenter:
           shifts → false P4 waerme regression.
         """
         from backend.core.per_phase_musical_goals_gate import PHASE_GOAL_EXCLUSIONS
+
         excl = PHASE_GOAL_EXCLUSIONS.get("phase_46", set())
         for goal in ("timbre_authentizitaet", "emotionalitaet", "waerme"):
-            assert goal in excl, (
-                f"{goal} must be in phase_46 PHASE_GOAL_EXCLUSIONS, got: {excl}"
-            )
+            assert goal in excl, f"{goal} must be in phase_46 PHASE_GOAL_EXCLUSIONS, got: {excl}"
 
     def test_104_phase46_not_over_excluded(self):
         """phase_46 should not exclude more goals than its 3 documented ones.
@@ -1794,11 +1847,10 @@ class TestKrumhanslSchmucklerTonalCenter:
         the Schroeder diffusion (Side-only, no onset modification).
         """
         from backend.core.per_phase_musical_goals_gate import PHASE_GOAL_EXCLUSIONS
+
         excl = PHASE_GOAL_EXCLUSIONS.get("phase_46", set())
         expected = {"timbre_authentizitaet", "emotionalitaet", "waerme"}
-        assert excl == expected, (
-            f"phase_46 PHASE_GOAL_EXCLUSIONS must be exactly {expected}, got: {excl}"
-        )
+        assert excl == expected, f"phase_46 PHASE_GOAL_EXCLUSIONS must be exactly {expected}, got: {excl}"
 
     def test_105_phase41_not_over_excluded(self):
         """phase_41 (output format optimization) must exclude only timbre_authentizitaet.
@@ -1808,10 +1860,9 @@ class TestKrumhanslSchmucklerTonalCenter:
         Only multi-band frequency shaping risks MFCC-Pearson (same root cause as phase_40).
         """
         from backend.core.per_phase_musical_goals_gate import PHASE_GOAL_EXCLUSIONS
+
         excl = PHASE_GOAL_EXCLUSIONS.get("phase_41", set())
-        assert "timbre_authentizitaet" in excl, (
-            f"timbre_authentizitaet must be in phase_41 exclusions, got: {excl}"
-        )
+        assert "timbre_authentizitaet" in excl, f"timbre_authentizitaet must be in phase_41 exclusions, got: {excl}"
         for goal in ("groove", "emotionalitaet", "micro_dynamics", "natuerlichkeit"):
             assert goal not in excl, (
                 f"{goal} must NOT be in phase_41 exclusions (TruePeak -1 dBTP too light), got: {excl}"

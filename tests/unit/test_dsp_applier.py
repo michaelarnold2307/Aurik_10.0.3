@@ -93,9 +93,9 @@ class TestEQ:
         band_mask = (freqs >= 800) & (freqs <= 1200)
         energy_in = fft_in[band_mask].sum()
         energy_out = fft_out[band_mask].sum()
-        assert (
-            energy_out >= energy_in * 1.5
-        ), f"1-kHz-Boost hat Bandenergie nicht erhöht: {energy_out:.1f} < {energy_in * 1.5:.1f}"
+        assert energy_out >= energy_in * 1.5, (
+            f"1-kHz-Boost hat Bandenergie nicht erhöht: {energy_out:.1f} < {energy_in * 1.5:.1f}"
+        )
 
     def test_cut_reduces_energy(self):
         """Ein Cut soll die Spektralenergie im entsprechenden Band reduzieren."""
@@ -107,9 +107,9 @@ class TestEQ:
         band_mask = (freqs >= 800) & (freqs <= 1200)
         energy_in = fft_in[band_mask].sum()
         energy_out = fft_out[band_mask].sum()
-        assert (
-            energy_out <= energy_in * 0.8
-        ), f"Cut hat Bandenergie nicht reduziert: {energy_out:.1f} > {energy_in * 0.8:.1f}"
+        assert energy_out <= energy_in * 0.8, (
+            f"Cut hat Bandenergie nicht reduziert: {energy_out:.1f} > {energy_in * 0.8:.1f}"
+        )
 
     def test_invalid_freq_ignored(self):
         """Frequenzen außerhalb [0, nyq] sollen ignoriert werden."""
@@ -203,9 +203,9 @@ class TestLimiter:
         ceiling_db = -6.0
         ceiling_lin = 10 ** (ceiling_db / 20.0)
         out = self._run(audio, ceiling_db=ceiling_db)
-        assert (
-            np.max(np.abs(out)) <= ceiling_lin + 1e-4
-        ), f"Ceiling verletzt: max={np.max(np.abs(out)):.4f} > {ceiling_lin:.4f}"
+        assert np.max(np.abs(out)) <= ceiling_lin + 1e-4, (
+            f"Ceiling verletzt: max={np.max(np.abs(out)):.4f} > {ceiling_lin:.4f}"
+        )
 
     def test_output_in_range(self):
         audio = _white_noise(amplitude=1.0)

@@ -67,9 +67,11 @@ if TYPE_CHECKING:
 else:
     try:
         from backend.api.bridge import get_deferred_refinement_job_class as _get_drj_class
+
         DeferredRefinementJob = _get_drj_class()
     except Exception:
-        from backend.core.deferred_refinement_job import DeferredRefinementJob
+        # Bridge unavailable — MLRefinementThread remains non-functional (no direct core bypass).
+        DeferredRefinementJob = None  # type: ignore[assignment,misc]
 
 logger = logging.getLogger(__name__)
 

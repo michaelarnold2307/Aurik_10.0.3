@@ -10,7 +10,6 @@ All checkers follow a consistent .check() → bool interface.
 
 from __future__ import annotations
 
-
 import numpy as np
 
 # ---------------------------------------------------------------------------

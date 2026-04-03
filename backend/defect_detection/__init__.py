@@ -1,9 +1,4 @@
-import logging
-
-"""
-logger = logging.getLogger(__name__)
-AURIK Unified Defect Detection System v8.2
-==========================================
+"""AURIK Unified Defect Detection System v8.2.
 
 Systematische Audio-Defekt-Erkennung mit Severity Scoring & Treatment Recommendations.
 Konkurriert mit iZotope RX10's "Repair Assistant".
@@ -25,10 +20,6 @@ Usage:
 
     detector = UnifiedDefectDetector()
     report = detector.analyze(audio, sr)
-
-    for defect in report.defects:
-        logger.info(f"{defect.type}: Severity={defect.severity:.2f}, Confidence={defect.confidence:.2f}")
-        logger.info(f"Recommended: {defect.treatment.method} with {defect.treatment.params}")
 """
 
 from backend.defect_detection.base import (

@@ -1,5 +1,3 @@
-import logging
-
 """
 ai_transient_enhancer.py - SOTA-Transienten-Enhancer für Aurik 6.0
 
@@ -8,6 +6,7 @@ Kombiniert klassische Transientenverstärkung (Envelope/Peaks) und Deep-Learning
 Jetzt mit DSPContract für Auditierbarkeit und SOTA-Konformität.
 """
 
+import logging
 from dataclasses import asdict, dataclass
 from typing import Any
 
@@ -80,9 +79,29 @@ class AiTransientEnhancer:
         audio_f64 = np.asarray(audio, dtype=np.float64)
         analytic = np.asarray(hilbert(audio_f64), dtype=np.complex128)
         envelope = np.sqrt(np.square(analytic.real) + np.square(analytic.imag))
-        peaks = envelope > (np.mean(envelope) + 2 * np.std(envelope))
-        audio_out = audio.copy()
-        audio_out[peaks] *= self.amount
+
+        # Transient detection: adaptive threshold using percentile
+        env_median = np.median(envelope)
+        env_std = np.std(envelope)
+        threshold = env_median + 2.0 * env_std
+
+        # Gradual gain curve instead of binary peak/no-peak
+        # Soft gain: scales linearly from 1.0 at threshold to self.amount at 2x threshold
+        gain_curve = np.ones_like(envelope)
+        above = envelope > threshold
+        if np.any(above):
+            overshoot = (envelope[above] - threshold) / (env_std + 1e-10)
+            # Gradual gain: sigmoid-like scaling capped at self.amount
+            transient_gain = 1.0 + (self.amount - 1.0) * np.clip(overshoot / 2.0, 0.0, 1.0)
+            gain_curve[above] = transient_gain
+
+        # Smooth the gain curve to avoid clicks (1ms smoothing)
+        smooth_len = max(1, int(sr * 0.001))
+        if smooth_len > 1:
+            kernel = np.ones(smooth_len) / smooth_len
+            gain_curve = np.convolve(gain_curve, kernel, mode="same")
+
+        audio_out = audio_f64 * gain_curve
         # ML-Inferenz via ONNX (wenn Modell geladen)
         if self.model is not None:
             try:

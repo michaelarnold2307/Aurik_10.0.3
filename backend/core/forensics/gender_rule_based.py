@@ -87,7 +87,13 @@ class RuleBasedGenderDetector:
         for i in range(0, min(len(audio) - frame_size, 10 * hop_size), hop_size):
             frame = audio[i : i + frame_size] * hamming(frame_size)
             A = self._lpc(frame, n_coeff)
-            roots = np.roots(A)
+            # Guard: degenerate LPC → LAPACK DLASCL failure
+            if not np.all(np.isfinite(A)):
+                continue
+            try:
+                roots = np.roots(A)
+            except (np.linalg.LinAlgError, ValueError):
+                continue
             roots = [r for r in roots if np.imag(r) >= 0.01]
             angz = np.arctan2(np.imag(roots), np.real(roots))
             formants = sorted(angz * (sr / (2 * np.pi)))

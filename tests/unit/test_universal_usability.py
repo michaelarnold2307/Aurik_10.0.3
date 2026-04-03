@@ -12,14 +12,11 @@ Covers:
 
 from __future__ import annotations
 
-import sys
 import types
 from dataclasses import dataclass, field
 from typing import Any
-from unittest.mock import MagicMock, patch
 
 import numpy as np
-import pytest
 
 
 # ── Stubs to avoid importing heavy modules ──────────────────────────────
@@ -50,10 +47,21 @@ class _MaterialEnum:
 
 class _MaterialTypeNS:
     """Fake MaterialType enum with needed values."""
+
     def __init__(self):
         for name in [
-            "VINYL", "TAPE", "SHELLAC", "CD_DIGITAL", "MP3_LOW", "MP3_HIGH",
-            "AAC", "STREAMING", "DAT", "CASSETTE", "REEL_TAPE", "WAX_CYLINDER",
+            "VINYL",
+            "TAPE",
+            "SHELLAC",
+            "CD_DIGITAL",
+            "MP3_LOW",
+            "MP3_HIGH",
+            "AAC",
+            "STREAMING",
+            "DAT",
+            "CASSETTE",
+            "REEL_TAPE",
+            "WAX_CYLINDER",
             "UNKNOWN",
         ]:
             setattr(self, name, _MaterialEnum(name))
@@ -66,12 +74,27 @@ def _make_defect_type():
     """Create a fake DefectType enum with needed values."""
     dt = types.SimpleNamespace()
     names = [
-        "HARMONIC_DISTORTION", "NOISE_BROADBAND", "NOISE_TONAL", "CLIPPING",
-        "HUM_BUZZ", "CLICKS_POPS", "CRACKLE", "WOW_FLUTTER", "DROPOUT",
-        "SIBILANCE", "DYNAMIC_COMPRESSION_EXCESS", "COMPRESSION_ARTIFACTS",
-        "DIGITAL_ARTIFACTS", "VOCAL_HARSHNESS", "HIGH_FREQUENCY_LOSS",
-        "PITCH_DRIFT", "TAPE_HEAD_LEVEL_DIP", "HEAD_WEAR", "AZIMUTH_ERROR",
-        "TRANSIENT_SMEARING", "PRE_ECHO",
+        "HARMONIC_DISTORTION",
+        "NOISE_BROADBAND",
+        "NOISE_TONAL",
+        "CLIPPING",
+        "HUM_BUZZ",
+        "CLICKS_POPS",
+        "CRACKLE",
+        "WOW_FLUTTER",
+        "DROPOUT",
+        "SIBILANCE",
+        "DYNAMIC_COMPRESSION_EXCESS",
+        "COMPRESSION_ARTIFACTS",
+        "DIGITAL_ARTIFACTS",
+        "VOCAL_HARSHNESS",
+        "HIGH_FREQUENCY_LOSS",
+        "PITCH_DRIFT",
+        "TAPE_HEAD_LEVEL_DIP",
+        "HEAD_WEAR",
+        "AZIMUTH_ERROR",
+        "TRANSIENT_SMEARING",
+        "PRE_ECHO",
     ]
     for name in names:
         setattr(dt, name, types.SimpleNamespace(value=name.lower()))
@@ -128,7 +151,7 @@ def _make_rubato_signal(sr: int = 48000, dur: float = 4.0) -> np.ndarray:
     rng = np.random.RandomState(42)
     for _ in range(5):
         pos = rng.randint(0, n - int(0.01 * sr))
-        audio[pos:pos + int(0.005 * sr)] = 0.6
+        audio[pos : pos + int(0.005 * sr)] = 0.6
     return audio
 
 
@@ -151,7 +174,7 @@ class TestBeatReliability:
         _prev_mag = np.zeros(_br_win // 2 + 1, dtype=np.float32)
         for _bi in range(_br_n_frames):
             _bstart = _bi * _br_hop
-            _bframe = _br_mono[_bstart:_bstart + _br_win]
+            _bframe = _br_mono[_bstart : _bstart + _br_win]
             if len(_bframe) < _br_win:
                 break
             _bmag = np.abs(np.fft.rfft(_bframe * np.hanning(_br_win)))
@@ -162,7 +185,7 @@ class TestBeatReliability:
         if _max_lag <= _min_lag + 5:
             return 1.0
         _br_ac = np.correlate(_br_flux[:_br_n_frames], _br_flux[:_br_n_frames], mode="full")
-        _br_ac = _br_ac[_br_n_frames - 1:]
+        _br_ac = _br_ac[_br_n_frames - 1 :]
         _br_ac_norm = _br_ac / (_br_ac[0] + 1e-12)
         _br_region = _br_ac_norm[_min_lag:_max_lag]
         if len(_br_region) > 0:
@@ -214,16 +237,18 @@ class TestBeatReliability:
 class TestLoudnessWarGuard:
     """Test loudness-war detection and dynamics phase blocking."""
 
-    def _is_loudness_war_victim(
-        self, comp_sev: float, era_decade: int | None, material: Any
-    ) -> bool:
+    def _is_loudness_war_victim(self, comp_sev: float, era_decade: int | None, material: Any) -> bool:
         """Replicate _loudness_war_victim logic."""
         if comp_sev <= 0.25:
             return False
         _is_modern_era = era_decade is not None and era_decade >= 2000
         _is_digital = material in {
-            MaterialType.CD_DIGITAL, MaterialType.MP3_LOW, MaterialType.MP3_HIGH,
-            MaterialType.AAC, MaterialType.STREAMING, MaterialType.DAT,
+            MaterialType.CD_DIGITAL,
+            MaterialType.MP3_LOW,
+            MaterialType.MP3_HIGH,
+            MaterialType.AAC,
+            MaterialType.STREAMING,
+            MaterialType.DAT,
         }
         return _is_modern_era or _is_digital
 
@@ -278,7 +303,7 @@ class TestOperaticVibratoDetector:
         _f0_series = np.zeros(_vib_n, dtype=np.float32)
         for _vi in range(_vib_n):
             _vs = _vi * _vib_hop
-            _vframe = _vib_mono[_vs:_vs + 256]
+            _vframe = _vib_mono[_vs : _vs + 256]
             _zcr = float(np.sum(np.abs(np.diff(np.sign(_vframe))) > 0))
             _f0_series[_vi] = _zcr * sr / (2.0 * 256)
         _f0_detrend = _f0_series - np.convolve(_f0_series, np.ones(20) / 20, mode="same")
@@ -430,23 +455,41 @@ class TestLeichtpfad:
     """Test lightweight path for high-restorability material."""
 
     _LEICHTPFAD_KEEP = {
-        "phase_30_dc_offset_removal", "phase_08_transient_preservation",
-        "phase_01_declipping", "phase_02_dehum", "phase_03_denoise",
-        "phase_04_eq_correction", "phase_05_rumble_removal",
-        "phase_09_crackle_removal", "phase_10_compression_repair",
-        "phase_11_limiting_repair", "phase_12_wow_flutter_fix",
-        "phase_13_azimuth_correction", "phase_14_stereo_repair",
-        "phase_15_channel_balance", "phase_17_distortion_reduction",
-        "phase_18_noise_gate", "phase_19_de_esser",
-        "phase_20_reverb_reduction", "phase_22_speed_correction",
-        "phase_24_dropout_repair", "phase_25_declick",
-        "phase_27_sibilance_control", "phase_29_tape_hiss_reduction",
-        "phase_31_pitch_drift", "phase_43_ml_deesser",
-        "phase_49_advanced_dereverb", "phase_50_spectral_repair",
-        "phase_55_diffusion_inpainting", "phase_56_spectral_band_gap",
-        "phase_59_modulation_noise", "phase_60_inner_groove_distortion",
-        "phase_61_groove_echo", "phase_62_crosstalk_bleed",
-        "phase_63_intermodulation_distortion", "phase_64_tape_splice",
+        "phase_30_dc_offset_removal",
+        "phase_08_transient_preservation",
+        "phase_01_declipping",
+        "phase_02_dehum",
+        "phase_03_denoise",
+        "phase_04_eq_correction",
+        "phase_05_rumble_removal",
+        "phase_09_crackle_removal",
+        "phase_10_compression_repair",
+        "phase_11_limiting_repair",
+        "phase_12_wow_flutter_fix",
+        "phase_13_azimuth_correction",
+        "phase_14_stereo_repair",
+        "phase_15_channel_balance",
+        "phase_17_distortion_reduction",
+        "phase_18_noise_gate",
+        "phase_19_de_esser",
+        "phase_20_reverb_reduction",
+        "phase_22_speed_correction",
+        "phase_24_dropout_repair",
+        "phase_25_declick",
+        "phase_27_sibilance_control",
+        "phase_29_tape_hiss_reduction",
+        "phase_31_pitch_drift",
+        "phase_43_ml_deesser",
+        "phase_49_advanced_dereverb",
+        "phase_50_spectral_repair",
+        "phase_55_diffusion_inpainting",
+        "phase_56_spectral_band_gap",
+        "phase_59_modulation_noise",
+        "phase_60_inner_groove_distortion",
+        "phase_61_groove_echo",
+        "phase_62_crosstalk_bleed",
+        "phase_63_intermodulation_distortion",
+        "phase_64_tape_splice",
         "phase_40_loudness_normalization",
         "phase_41_output_format_optimization",
         "phase_47_truepeak_limiter",
@@ -522,9 +565,13 @@ class TestLeichtpfad:
     def test_all_defect_phases_kept(self):
         """All defect-correction phases survive leichtpfad."""
         defect_phases = [
-            "phase_01_declipping", "phase_02_dehum", "phase_03_denoise",
-            "phase_09_crackle_removal", "phase_24_dropout_repair",
-            "phase_25_declick", "phase_29_tape_hiss_reduction",
+            "phase_01_declipping",
+            "phase_02_dehum",
+            "phase_03_denoise",
+            "phase_09_crackle_removal",
+            "phase_24_dropout_repair",
+            "phase_25_declick",
+            "phase_29_tape_hiss_reduction",
         ]
         result = self._apply_leichtpfad(defect_phases, 90.0, 0.15)
         assert result == defect_phases

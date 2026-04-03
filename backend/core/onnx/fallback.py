@@ -39,7 +39,7 @@ class FallbackEvent:
 
     def __str__(self) -> str:
         status = "✓ RECOVERED" if self.recovered else "❌ ACTIVE"
-        return f"[{self.timestamp.strftime('%Y-%m-%d %H:%M:%S')}] " f"{self.model_name}: {self.reason.value} - {status}"
+        return f"[{self.timestamp.strftime('%Y-%m-%d %H:%M:%S')}] {self.model_name}: {self.reason.value} - {status}"
 
 
 @dataclass
@@ -130,7 +130,7 @@ class FallbackManager:
 
         # Log event
         if self.log_fallbacks:
-            logger.warning(f"Fallback triggered: {model_name} " f"({reason.value}) - {error_message}")
+            logger.warning(f"Fallback triggered: {model_name} ({reason.value}) - {error_message}")
             logger.info(f"Falling back to PyTorch for {model_name}")
 
     def record_recovery(self, model_name: str) -> None:

@@ -169,15 +169,27 @@ class HybridMLDenoiser:
         if strategy in [DenoiseStrategy.RESEMBLE_ONLY, DenoiseStrategy.HYBRID]:
             if self._has_sufficient_ml_headroom(audio, sample_rate) and self.resemble is not None:
                 logger.info("Stage 2: Applying Resemble Enhance refinement...")
-                audio, resemble_meta = self._apply_resemble(audio, sample_rate)
-                resemble_applied = True
-                metadata["resemble"] = resemble_meta
+                # Protect ResembleEnhance from PLM eviction during inference
+                try:
+                    from backend.core.plugin_lifecycle_manager import get_plugin_lifecycle_manager
 
-                # Re-estimate quality after Resemble
-                quality_estimate = self._estimate_quality(audio, sample_rate)
-                metadata["quality_after_resemble"] = quality_estimate
+                    _plm = get_plugin_lifecycle_manager()
+                    _plm.set_active("ResembleEnhance", True)
+                except Exception:
+                    _plm = None
+                try:
+                    audio, resemble_meta = self._apply_resemble(audio, sample_rate)
+                    resemble_applied = True
+                    metadata["resemble"] = resemble_meta
 
-                logger.info(f"Resemble complete: quality={quality_estimate:.3f}")
+                    # Re-estimate quality after Resemble
+                    quality_estimate = self._estimate_quality(audio, sample_rate)
+                    metadata["quality_after_resemble"] = quality_estimate
+
+                    logger.info(f"Resemble complete: quality={quality_estimate:.3f}")
+                finally:
+                    if _plm is not None:
+                        _plm.set_active("ResembleEnhance", False)
             else:
                 logger.warning("Resemble not available, using OMLSA result")
 
@@ -370,15 +382,15 @@ class HybridMLDenoiser:
                 from backend.core.plugin_lifecycle_manager import evict_stale_plugins
 
                 evict_stale_plugins(required_mb=int(required_gb * 1024))
-            except Exception:
-                pass
+            except Exception as _exc:
+                logger.debug("Operation failed (non-critical): %s", _exc)
             gc.collect()
             try:
                 import ctypes as _ct
 
                 _ct.CDLL("libc.so.6").malloc_trim(0)
-            except Exception:
-                pass
+            except Exception as _exc:
+                logger.debug("Operation failed (non-critical): %s", _exc)
             avail_gb = psutil.virtual_memory().available / (1024**3)
 
         if avail_gb < required_gb:

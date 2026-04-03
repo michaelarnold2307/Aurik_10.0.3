@@ -167,8 +167,8 @@ class BigVGANv2Plugin:
                         size_gb=self._BUDGET_SIZE_GB,
                         unload_fn=lambda: setattr(self, "_torch_gen", None),
                     )
-                except Exception:
-                    pass
+                except Exception as _exc:
+                    logger.debug("Operation failed (non-critical): %s", _exc)
                 return
         except ImportError:
             logger.debug("torch nicht verfügbar für BigVGAN-v2")
@@ -178,8 +178,8 @@ class BigVGANv2Plugin:
                 from backend.core.ml_memory_budget import release as _release
 
                 _release(self._BUDGET_NAME)
-            except Exception:
-                pass
+            except Exception as _exc:
+                logger.debug("Operation failed (non-critical): %s", _exc)
 
         # Kein Modell gefunden
         logger.info(

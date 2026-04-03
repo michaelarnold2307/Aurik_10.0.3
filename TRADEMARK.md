@@ -18,7 +18,7 @@
 
 ## Anfragen
 
-Für Lizenzanfragen: michael.arnold2307@gmail.com (oder Issue mit Label `trademark`)
+Für Lizenzanfragen: [michael.arnold2307@gmail.com](mailto:michael.arnold2307@gmail.com) (oder Issue mit Label `trademark`)
 
 ## Warum diese Richtlinie?
 

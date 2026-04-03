@@ -1,11 +1,11 @@
 # === Validierungs- und Auto-Abbruch-Logik (SOTA, produktiv) ===
 import logging
-from typing import Any
+from typing import Any, TypeAlias
 
 import numpy as np
 import numpy.typing as npt
 
-AudioArray = npt.NDArray[np.float32]
+AudioArray: TypeAlias = npt.NDArray[np.float32]
 
 
 def hf_retention(x: AudioArray, y: AudioArray, sr: int) -> float:
@@ -123,7 +123,7 @@ def should_use_ml(
         return False
     if not dsp_at_limit(before, after, sr):
         return False
-    return low_formant_overlap(stft, band_bins, t)
+    return bool(low_formant_overlap(stft, band_bins, t))
 
 
 from collections.abc import Sequence
@@ -177,7 +177,7 @@ def add_sibilance(hf_patch: AudioArray) -> AudioArray:
     noise = np.random.randn(*hf.shape) * np.random.uniform(0.05, 0.15)
     hf += noise
     hf = np.tanh(hf * np.random.uniform(1.2, 1.4))
-    return hf
+    return np.asarray(hf, dtype=np.float32)
 
 
 def make_target(hf_clean: AudioArray) -> AudioArray:
@@ -197,18 +197,18 @@ def build_dataset(audio: AudioArray) -> tuple[np.ndarray, np.ndarray]:
     return noisy_patches, targets
 
 
-class HFTextureDataset(Dataset[torch.Tensor]):
+class HFTextureDataset(Dataset[tuple[torch.Tensor, torch.Tensor]]):
     def __init__(self, audio_files: Sequence[str]) -> None:
-        self.inputs: list[npt.NDArray[np.float32]] = []
-        self.targets: list[npt.NDArray[np.float32]] = []
+        inputs_list: list[npt.NDArray[np.float32]] = []
+        targets_list: list[npt.NDArray[np.float32]] = []
         for path in audio_files:
             audio, _ = librosa.load(path, sr=SR, mono=True)
             x, y = build_dataset(audio)
             if len(x) > 0:
-                self.inputs.append(x)
-                self.targets.append(y)
-        self.inputs = torch.tensor(np.concatenate(self.inputs)).unsqueeze(1)
-        self.targets = torch.tensor(np.concatenate(self.targets)).unsqueeze(1)
+                inputs_list.append(x)
+                targets_list.append(y)
+        self.inputs: torch.Tensor = torch.tensor(np.concatenate(inputs_list)).unsqueeze(1)
+        self.targets: torch.Tensor = torch.tensor(np.concatenate(targets_list)).unsqueeze(1)
 
     def __len__(self) -> int:
         return self.inputs.shape[0]

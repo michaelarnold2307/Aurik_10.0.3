@@ -6,14 +6,12 @@ Tests: ≥ 35 — Abdeckung: measure, morph, envelope, scales, edge-cases, mono,
 import threading
 
 import numpy as np
-import pytest
 
 from backend.core.micro_temporal_envelope_fidelity import (
     MTEFResult,
-    MicroTemporalEnvelopeFidelity,
+    _frame_pearson,
     _hilbert_envelope,
     _smooth_envelope,
-    _frame_pearson,
     get_mtef,
     measure,
     morph,
@@ -44,8 +42,12 @@ def _make_am_signal(dur_s: float = 1.0, carrier: float = 440.0, mod_rate: float 
 
 def test_mtef_result_fields():
     r = MTEFResult(
-        pearson_attack=0.95, pearson_syllable=0.93, pearson_note=0.91,
-        fidelity_score=0.93, max_gain_applied_db=0.0, corrected=False,
+        pearson_attack=0.95,
+        pearson_syllable=0.93,
+        pearson_note=0.91,
+        fidelity_score=0.93,
+        max_gain_applied_db=0.0,
+        corrected=False,
     )
     assert r.pearson_attack == 0.95
     assert r.fidelity_score == 0.93
@@ -371,6 +373,7 @@ def test_attack_scale_more_sensitive_than_note():
 def test_fidelity_weight_sum():
     """Scale weights must sum to 1.0 (fidelity is a proper weighted average)."""
     from backend.core.micro_temporal_envelope_fidelity import _SCALES
+
     total = sum(w for _, _, w in _SCALES)
     assert abs(total - 1.0) < 1e-6
 

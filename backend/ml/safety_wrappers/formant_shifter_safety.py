@@ -327,7 +327,7 @@ class FormantShifterSafety(BaseSafetyWrapper):
 
         if has_sf:
             warnings.append(
-                f"Singer's Formant detected (strength: {sf_strength:.2f}). " "Will be protected during processing."
+                f"Singer's Formant detected (strength: {sf_strength:.2f}). Will be protected during processing."
             )
 
         return PreCheckResult(passed=True, confidence=voice_conf, warnings=warnings, metadata=metadata)

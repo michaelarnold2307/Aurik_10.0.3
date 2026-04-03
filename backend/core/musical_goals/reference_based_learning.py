@@ -349,7 +349,7 @@ class ReferenceLearner:
         # Update profile with reference
         self._update_from_reference(reference)
 
-        logger.info(f"Analyzed reference track: {len(analyzed_goals)} goals, " f"confidence={analysis_confidence:.2f}")
+        logger.info(f"Analyzed reference track: {len(analyzed_goals)} goals, confidence={analysis_confidence:.2f}")
 
         return reference
 
@@ -498,7 +498,7 @@ class ReferenceLearner:
 
             adapted[goal_name] = float(np.clip(adapted_value, 0.7, 1.0))
 
-        logger.debug(f"Adapted goals: strength={effective_strength:.2f}, " f"confidence={self.profile.confidence:.2f}")
+        logger.debug(f"Adapted goals: strength={effective_strength:.2f}, confidence={self.profile.confidence:.2f}")
 
         return adapted
 

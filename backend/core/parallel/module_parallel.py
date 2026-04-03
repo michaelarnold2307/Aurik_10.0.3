@@ -171,14 +171,12 @@ class ModuleParallelProcessor:
             if phase_results:
                 current_audio = phase_results[-1].audio
 
-            logger.debug(f"Phase {phase_idx} complete: {len(phase_modules)} modules, " f"{phase_time:.3f}s")
+            logger.debug(f"Phase {phase_idx} complete: {len(phase_modules)} modules, {phase_time:.3f}s")
 
         processing_time = time.time() - start_time
         self._processing_stats["total_processed"] += 1
 
-        logger.debug(
-            f"Module pipeline complete: {processing_time:.3f}s, " f"{len(phases)} phases, {len(modules)} modules"
-        )
+        logger.debug(f"Module pipeline complete: {processing_time:.3f}s, {len(phases)} phases, {len(modules)} modules")
 
         return current_audio
 
@@ -323,9 +321,7 @@ class ModuleParallelProcessor:
                 raise ValueError(f"Module {module.name} returned None")
 
             if processed.shape[0] != audio.shape[0]:
-                raise ValueError(
-                    f"Module {module.name} changed audio length: " f"{audio.shape[0]} -> {processed.shape[0]}"
-                )
+                raise ValueError(f"Module {module.name} changed audio length: {audio.shape[0]} -> {processed.shape[0]}")
 
             processing_time = time.time() - start_time
 

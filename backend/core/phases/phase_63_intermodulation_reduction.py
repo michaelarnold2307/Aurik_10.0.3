@@ -62,7 +62,7 @@ def apply(
     freq_res = float(freqs[1] - freqs[0]) if len(freqs) > 1 else 1.0
 
     # Global spectral analysis to find tonal peaks
-    global_spec = np.abs(np.fft.rfft(x[:min(n, n_fft)])) ** 2
+    global_spec = np.abs(np.fft.rfft(x[: min(n, n_fft)])) ** 2
     global_db = 10.0 * np.log10(global_spec + 1e-20)
     noise_floor = float(np.percentile(global_db, 20))
 
@@ -139,7 +139,7 @@ def apply(
         spec *= gain_mask
         frame_out = np.fft.irfft(spec, n=n_fft) * window
         out[start:end] += frame_out
-        win_sum[start:end] += window ** 2
+        win_sum[start:end] += window**2
 
     win_sum = np.maximum(win_sum, 1e-8)
     out /= win_sum
@@ -195,6 +195,8 @@ class IntermodulationReductionPhase(PhaseInterface):
             audio=result_audio,
             success=True,
             execution_time_seconds=elapsed,
-            metrics={"imd_score": float((_defect_scores or {}).get("intermodulation_distortion", 0.0)),
-                     "strength": strength},
+            metrics={
+                "imd_score": float((_defect_scores or {}).get("intermodulation_distortion", 0.0)),
+                "strength": strength,
+            },
         )

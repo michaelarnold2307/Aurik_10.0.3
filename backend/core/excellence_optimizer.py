@@ -391,8 +391,8 @@ def analyze_context(audio: np.ndarray, sample_rate: int) -> ExcellenceContext:
                 flux = np.mean(np.abs(np.diff(mag, axis=1)), axis=0) if mag.shape[1] > 1 else np.array([0.0])
                 thresh = np.percentile(flux, _TRANSIENT_THRESH_PERCENTILE)
                 transient_density = float(np.mean(flux >= thresh))
-            except Exception:
-                pass
+            except Exception as _exc:
+                logger.debug("Operation failed (non-critical): %s", _exc)
 
     # Spectral Centroid
     spectral_centroid_mean = 1500.0
@@ -575,7 +575,7 @@ def _reinforce_harmonics(
         t_end = t_start + _WIN_LEN
         if t_end > len(mono):
             break
-        frame = mono[t_start:t_end]
+        mono[t_start:t_end]
 
         # F0-Detektion: stärkste Komponente unter F0_FREQ_MAX
         frame_mag = mag[:, t]

@@ -25,8 +25,8 @@ Denormalisierung (kritisch, ganSystem.py Z. 222-224):
     gap_linear = np.exp(25 * (generator_output - 1))
 
 Spektrogramm-Inversion:
-    Griffin-Lim (32 Iterationen, librosa) — GaussTruncTF.invert_spectrogram()
-    ist lokaler Dummy-Stub und nicht für Produktion geeignet.
+    PGHI (Perraudin et al. 2013) via dsp/pghi.py — heap-basierte Phasenpropagation
+    mit Zeit- und Frequenzgradient. DSP-Fallback: vereinfachte PGHI-Näherung.
 """
 
 from __future__ import annotations
@@ -155,6 +155,7 @@ class GacelaPlugin:
         self._mel_basis: np.ndarray | None = None
         self._stft: Any = None
         self._inverter: Any = None
+        self._pghi_rec: Any = None  # dsp.pghi.PghiReconstructor, loaded in _try_load
         self._try_load()
 
     # ── ML-Modell laden ──────────────────────────────────────────────────────
@@ -220,8 +221,20 @@ class GacelaPlugin:
             mel_fb = librosa.filters.mel(sr=MODEL_SR, n_fft=FFT_LENGTH, n_mels=MEL_BINS)
             # mel_fb Form [80, FFT_LENGTH//2 + 1] = [80, 513]; nur erste 512 Bins
             self._mel_basis = mel_fb[:, : FFT_LENGTH // 2].astype(np.float32)
-            # SpectrogramInverter nur als Typ-Referenz; iSTFT via librosa.griffinlim
+            # SpectrogramInverter als Typ-Referenz (nicht für Inversion genutzt)
             self._inverter = SpectrogramInverter(FFT_LENGTH, FFT_HOP_SIZE)
+
+            # Canonical PGHI reconstructor (dsp/pghi.py, Perraudin et al. 2013).
+            # sr=48000 satisfies the assert; PGHI algorithm is SR-agnostic — only
+            # win_size and hop matter for phase propagation.
+            try:
+                from dsp.pghi import PghiReconstructor
+
+                self._pghi_rec = PghiReconstructor(sr=48000)
+                logger.debug("GACELA: canonical PGHI reconstructor loaded.")
+            except Exception as _pghi_exc:
+                logger.debug("GACELA: dsp.pghi unavailable, using inline fallback: %s", _pghi_exc)
+                self._pghi_rec = None
 
             self._model_ready = True
             logger.info("GACELA: ML-Modell bereit (MODEL_SR=%d Hz).", MODEL_SR)
@@ -229,8 +242,8 @@ class GacelaPlugin:
                 from backend.core.plugin_lifecycle_manager import register_plugin as _reg_plm
 
                 _reg_plm(self._BUDGET_NAME, size_gb=self._BUDGET_SIZE_GB, unload_fn=_unload_gacela)
-            except Exception:
-                pass
+            except Exception as _exc:
+                logger.debug("Operation failed (non-critical): %s", _exc)
 
         except Exception as exc:
             logger.warning(
@@ -242,8 +255,8 @@ class GacelaPlugin:
                 from backend.core.ml_memory_budget import release as _release
 
                 _release(self._BUDGET_NAME)
-            except Exception:
-                pass
+            except Exception as _exc:
+                logger.debug("Operation failed (non-critical): %s", _exc)
 
     # ── ML-Inpainting (primärer Pfad) ────────────────────────────────────────
 
@@ -326,7 +339,7 @@ class GacelaPlugin:
             gap_log = 25.0 * (gap_np - 1.0)  # Log-Spektrogramm
             gap_linear = np.exp(np.clip(gap_log, -80.0, 20.0))  # numerisch stabil
 
-            # Spektrogramm-Inversion via PGHI-ISTFT (§4.4: Griffin-Lim VERBOTEN)
+            # Spektrogramm-Inversion via kanonischem PGHI (dsp/pghi.py, §4.4)
             # Referenz: Perraudin et al. (2013) — Phase Gradient Heap Integration
             # gap_linear Form: [256, 256] = [n_bins, n_frames]
             # Bei n_fft=512 erwartet ISTFT [1 + 512//2, n_frames] = [257, n_frames]
@@ -337,23 +350,37 @@ class GacelaPlugin:
                     np.zeros((1, gap_linear.shape[1]), dtype=np.float32),
                 ]
             )  # [257, 256]
-            # PGHI: nicht-iterative Phasenschätzung aus log|S|-Zeitgradient
-            import scipy.signal as _ss_pghi
 
-            _n_fft_pg = FFT_LENGTH // 2  # 512
+            _n_fft_pg = FFT_LENGTH // 2  # 512 → n_bins = 257
             _hop_pg = FFT_HOP_SIZE  # 256
-            _log_m = np.log1p(spec_padded.astype(np.float32))
-            _grad_t = np.diff(_log_m, axis=1, prepend=_log_m[:, :1])
-            _hop_ph = (2.0 * np.pi * np.arange(spec_padded.shape[0]) * _hop_pg / _n_fft_pg).astype(np.float32)
-            _phase = np.cumsum(_hop_ph[:, None] + _grad_t * 0.2, axis=1)
-            _, gap_audio = _ss_pghi.istft(
-                spec_padded.astype(np.complex64) * np.exp(1j * _phase),
-                fs=MODEL_SR,
-                nperseg=_n_fft_pg,
-                noverlap=_n_fft_pg - _hop_pg,
-                window="hann",
-            )
-            gap_audio = gap_audio.astype(np.float32)
+
+            if self._pghi_rec is not None:
+                # Canonical PGHI: heap-propagation with time + frequency gradients
+                # (Perraudin et al. 2013). Win_size=512, hop=256 match GACELA params.
+                _pghi_result = self._pghi_rec.reconstruct(
+                    spec_padded.astype(np.float64),
+                    win_size=_n_fft_pg,
+                    hop=_hop_pg,
+                )
+                gap_audio = _pghi_result.audio
+                logger.debug("GACELA: invert via %s", _pghi_result.method_used)
+            else:
+                # Inline fallback: simplified PGHI approximation (time-gradient only).
+                # Used when dsp/pghi.py is unavailable (should not happen in production).
+                import scipy.signal as _ss_pghi
+
+                _log_m = np.log1p(spec_padded.astype(np.float32))
+                _grad_t = np.diff(_log_m, axis=1, prepend=_log_m[:, :1])
+                _hop_ph = (2.0 * np.pi * np.arange(spec_padded.shape[0]) * _hop_pg / _n_fft_pg).astype(np.float32)
+                _phase = np.cumsum(_hop_ph[:, None] + _grad_t * 0.2, axis=1)
+                _, gap_audio = _ss_pghi.istft(
+                    spec_padded.astype(np.complex64) * np.exp(1j * _phase),
+                    fs=MODEL_SR,
+                    nperseg=_n_fft_pg,
+                    noverlap=_n_fft_pg - _hop_pg,
+                    window="hann",
+                )
+                gap_audio = gap_audio.astype(np.float32)
 
             gap_audio = np.nan_to_num(gap_audio, nan=0.0, posinf=0.0, neginf=0.0)
             # Normalisierung: Peak-Normierung auf max. 0.9 (kein Clipping)
@@ -427,8 +454,8 @@ def _unload_gacela() -> None:
         import gc
 
         gc.collect()
-    except Exception:
-        pass
+    except Exception as _exc:
+        logger.debug("Operation failed (non-critical): %s", _exc)
 
 
 _lock = threading.Lock()

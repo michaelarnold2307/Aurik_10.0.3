@@ -175,7 +175,7 @@ class EthicsEngine:
             return EthicsReport(
                 decision=EpistemicDecision.PRESERVE,
                 mode=None,
-                reasoning="Forensic Mode: Absolute Integrität erforderlich. " "Kein DSP-Eingriff erlaubt.",
+                reasoning="Forensic Mode: Absolute Integrität erforderlich. Kein DSP-Eingriff erlaubt.",
                 constraints_passed=True,
                 violated_constraints=[],
                 confidence_score=confidence,
@@ -187,7 +187,7 @@ class EthicsEngine:
             return EthicsReport(
                 decision=EpistemicDecision.PRESERVE,
                 mode=None,
-                reasoning="Kulturell bedeutsames Material + Archival Mode: " "Konservative Bewahrung hat Vorrang.",
+                reasoning="Kulturell bedeutsames Material + Archival Mode: Konservative Bewahrung hat Vorrang.",
                 constraints_passed=True,
                 violated_constraints=[],
                 confidence_score=confidence,
@@ -199,8 +199,7 @@ class EthicsEngine:
             return EthicsReport(
                 decision=EpistemicDecision.MODE_A,
                 mode=ProcessingMode.REPAIR,
-                reasoning=f"Klarer Defekt erkannt: {defect_type}. "
-                "Reparatur ethisch vertretbar und technisch machbar.",
+                reasoning=f"Klarer Defekt erkannt: {defect_type}. Reparatur ethisch vertretbar und technisch machbar.",
                 constraints_passed=True,
                 violated_constraints=[],
                 confidence_score=confidence,
@@ -287,7 +286,7 @@ class EthicsEngine:
         # 1. Check: Original Ratio (≥70% Original)
         strength = processing_plan.get("enhancement_strength", 0.3)
         if strength > 0.7:
-            violations.append(f"Enhancement Strength {strength:.2f} > 0.7 " f"(verletzt 70% Original Minimum)")
+            violations.append(f"Enhancement Strength {strength:.2f} > 0.7 (verletzt 70% Original Minimum)")
 
         # 2. Check: Voice Identity (≥95%)
         voice_id = processing_plan.get("planned_voice_identity_score", 1.0)
@@ -298,26 +297,22 @@ class EthicsEngine:
         mix_drift = processing_plan.get("planned_mix_balance_drift_db", 0.0)
         if mix_drift > self.constraints.max_mix_balance_drift_db:
             violations.append(
-                f"Mix Balance Drift {mix_drift:.2f}dB > " f"{self.constraints.max_mix_balance_drift_db:.2f}dB"
+                f"Mix Balance Drift {mix_drift:.2f}dB > {self.constraints.max_mix_balance_drift_db:.2f}dB"
             )
 
         # 4. Check: Spectral Fingerprint (≥95%)
         spectral = processing_plan.get("planned_spectral_match", 1.0)
         if spectral < self.constraints.min_spectral_fingerprint_match:
-            violations.append(
-                f"Spectral Match {spectral:.2%} < " f"{self.constraints.min_spectral_fingerprint_match:.2%}"
-            )
+            violations.append(f"Spectral Match {spectral:.2%} < {self.constraints.min_spectral_fingerprint_match:.2%}")
 
         # 5. Check: Formant Drift (<10Hz)
         formant_drift = processing_plan.get("planned_formant_drift_hz", 0.0)
         if formant_drift > self.constraints.max_formant_drift_hz:
-            violations.append(
-                f"Formant Drift {formant_drift:.1f}Hz > " f"{self.constraints.max_formant_drift_hz:.1f}Hz"
-            )
+            violations.append(f"Formant Drift {formant_drift:.1f}Hz > {self.constraints.max_formant_drift_hz:.1f}Hz")
 
         # 6. Special: Cultural Significance → Extra Conservative
         if context.get("has_cultural_significance", False) and strength > 0.5:
-            violations.append("Kulturell bedeutsames Material: Max Enhancement 0.5 " f"(aktuell: {strength:.2f})")
+            violations.append(f"Kulturell bedeutsames Material: Max Enhancement 0.5 (aktuell: {strength:.2f})")
 
         # FINAL DECISION
         approved = len(violations) == 0
@@ -325,7 +320,7 @@ class EthicsEngine:
         if approved:
             self.logger.info("Conduct Regulator: Plan APPROVED ✅")
         else:
-            self.logger.warning(f"Conduct Regulator: Plan REJECTED ❌ " f"({len(violations)} violations)")
+            self.logger.warning(f"Conduct Regulator: Plan REJECTED ❌ ({len(violations)} violations)")
             for violation in violations:
                 self.logger.warning(f"  - {violation}")
 

@@ -341,7 +341,7 @@ class ProvenanceAudit:
             "-" * 72,
         ]
         for i, e in enumerate(self._entries, 1):
-            lines.append(f"  {i:3d}. [{e.step:<40s}] " f"conf={e.confidence:.0%} " f"{'↺' if e.reversible else '✗'}")
+            lines.append(f"  {i:3d}. [{e.step:<40s}] conf={e.confidence:.0%} {'↺' if e.reversible else '✗'}")
             if e.decision_rationale and e.decision_rationale != "decision_only":
                 rationale_short = e.decision_rationale[:80]
                 if len(e.decision_rationale) > 80:

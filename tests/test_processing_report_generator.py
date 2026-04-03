@@ -528,7 +528,10 @@ class TestIntegrationScenarios:
 
         generator = ProcessingReportGenerator()
         report = generator.create_report(
-            input_audio=audio, output_audio=audio, sample_rate=sr, processing_history=history  # Unchanged
+            input_audio=audio,
+            output_audio=audio,
+            sample_rate=sr,
+            processing_history=history,  # Unchanged
         )
 
         # Should still have basic sections
@@ -551,7 +554,10 @@ class TestEdgeCases:
 
         generator = ProcessingReportGenerator()
         report = generator.create_report(
-            input_audio=audio, output_audio=audio, sample_rate=sr, processing_history=None  # No history
+            input_audio=audio,
+            output_audio=audio,
+            sample_rate=sr,
+            processing_history=None,  # No history
         )
 
         # Should still create basic report

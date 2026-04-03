@@ -21,6 +21,7 @@ SR = 48_000
 # Helpers
 # ──────────────────────────────────────────────────────────────────────────────
 
+
 def _sine(freq: float, dur: float = 0.5, amp: float = 0.5) -> np.ndarray:
     t = np.arange(int(dur * SR)) / SR
     return (amp * np.sin(2.0 * np.pi * freq * t)).astype(np.float32)
@@ -37,18 +38,21 @@ def _alias_energy(audio: np.ndarray, alias_floor_hz: float = 20_000.0) -> float:
 @pytest.fixture()
 def phase07():
     from backend.core.phases.phase_07_harmonic_restoration import HarmonicRestorationPhase
+
     return HarmonicRestorationPhase()
 
 
 @pytest.fixture()
 def phase22():
     from backend.core.phases.phase_22_tape_saturation import TapeSaturation
+
     return TapeSaturation()
 
 
 # ──────────────────────────────────────────────────────────────────────────────
 # 1.  _tanh_adaa core contracts  (phase_07 & phase_22 share identical logic)
 # ──────────────────────────────────────────────────────────────────────────────
+
 
 class TestTanhAdaa07:
     """Tests for HarmonicRestorationPhase._tanh_adaa."""
@@ -125,6 +129,7 @@ class TestTanhAdaa22:
 # 2.  Aliasing suppression property
 # ──────────────────────────────────────────────────────────────────────────────
 
+
 class TestAliasingSuppressionPhase07:
     """
     ADAA correctness tests (Parker et al. 2019).
@@ -175,6 +180,7 @@ class TestAliasingSuppressionPhase07:
 # ──────────────────────────────────────────────────────────────────────────────
 # 3.  Phase 07 saturation method contracts
 # ──────────────────────────────────────────────────────────────────────────────
+
 
 class TestPhase07SaturationMethods:
     def test_tube_saturation_shape(self, phase07):
@@ -234,6 +240,7 @@ class TestPhase07SaturationMethods:
 # 4.  Phase 22 _saturate_band contracts
 # ──────────────────────────────────────────────────────────────────────────────
 
+
 class TestPhase22SaturateBand:
     def test_shape_preserved(self, phase22):
         audio = _sine(440.0)
@@ -276,9 +283,11 @@ class TestPhase22SaturateBand:
 # 5.  Full process() integration
 # ──────────────────────────────────────────────────────────────────────────────
 
+
 class TestProcessPhase07:
     def test_returns_phase_result(self, phase07):
         from backend.core.phases.phase_interface import PhaseResult
+
         audio = _sine(440.0)
         result = phase07.process(audio, material_type="tape", sample_rate=SR)
         assert isinstance(result, PhaseResult)
@@ -313,32 +322,37 @@ class TestProcessPhase07:
 
 class TestProcessPhase22:
     def test_returns_phase_result(self, phase22):
-        from backend.core.phases.phase_interface import PhaseResult
         from backend.core.defect_scanner import MaterialType
+        from backend.core.phases.phase_interface import PhaseResult
+
         audio = _sine(440.0)
         result = phase22.process(audio, sample_rate=SR, material=MaterialType.TAPE)
         assert isinstance(result, PhaseResult)
 
     def test_output_shape_preserved(self, phase22):
         from backend.core.defect_scanner import MaterialType
+
         audio = _sine(440.0)
         result = phase22.process(audio, sample_rate=SR, material=MaterialType.VINYL)
         assert result.audio.shape == audio.shape
 
     def test_no_nan_inf(self, phase22):
         from backend.core.defect_scanner import MaterialType
+
         audio = _sine(440.0, amp=0.8)
         result = phase22.process(audio, sample_rate=SR, material=MaterialType.TAPE)
         assert np.all(np.isfinite(result.audio))
 
     def test_no_clipping(self, phase22):
         from backend.core.defect_scanner import MaterialType
+
         audio = _sine(440.0, amp=0.8)
         result = phase22.process(audio, sample_rate=SR, material=MaterialType.TAPE)
         assert np.max(np.abs(result.audio)) <= 1.0 + 1e-6
 
     def test_stereo_no_crash(self, phase22):
         from backend.core.defect_scanner import MaterialType
+
         mono = _sine(440.0)
         stereo = np.column_stack([mono, mono * 0.95])
         result = phase22.process(stereo, sample_rate=SR, material=MaterialType.VINYL)
@@ -347,6 +361,7 @@ class TestProcessPhase22:
     def test_shellac_skipped(self, phase22):
         """Shellac has drive=0 → saturation_applied must be False."""
         from backend.core.defect_scanner import MaterialType
+
         audio = _sine(440.0)
         result = phase22.process(audio, sample_rate=SR, material=MaterialType.SHELLAC)
         assert result.success

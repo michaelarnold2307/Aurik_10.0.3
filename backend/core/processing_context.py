@@ -337,8 +337,7 @@ class ProcessingContext:
             )
 
             self.logger.debug(
-                f"Module completed: {module_name} "
-                f"(confidence: {confidence:.2f}, duration: {module.duration_ms:.1f}ms)"
+                f"Module completed: {module_name} (confidence: {confidence:.2f}, duration: {module.duration_ms:.1f}ms)"
                 if confidence and module.duration_ms
                 else f"Module completed: {module_name}"
             )
@@ -722,7 +721,7 @@ class ProcessingContext:
             else:
                 headroom = threshold - proposed_total
                 recommendation = (
-                    f"Safe: {module_type.value} {proposed_total:.2f}/{threshold:.2f}. " f"Headroom: {headroom:.2f}."
+                    f"Safe: {module_type.value} {proposed_total:.2f}/{threshold:.2f}. Headroom: {headroom:.2f}."
                 )
 
             return {
@@ -764,11 +763,11 @@ class ProcessingContext:
             if confidence < 0.7:
                 reduction = 0.3
                 recommended *= 1 - reduction
-                adjustments.append(f"Low confidence ({confidence:.2f}): -{reduction*100:.0f}%")
+                adjustments.append(f"Low confidence ({confidence:.2f}): -{reduction * 100:.0f}%")
             elif confidence > 0.9:
                 boost = 0.1
                 recommended *= 1 + boost
-                adjustments.append(f"High confidence ({confidence:.2f}): +{boost*100:.0f}%")
+                adjustments.append(f"High confidence ({confidence:.2f}): +{boost * 100:.0f}%")
 
             # Material-aware adjustments
             if material_type:
@@ -813,7 +812,7 @@ class ProcessingContext:
 
             reasoning = (
                 f"Base: {base_strength:.2f} → Recommended: {recommended:.2f} "
-                f"({((recommended/base_strength - 1)*100):+.1f}%)"
+                f"({((recommended / base_strength - 1) * 100):+.1f}%)"
             )
 
             return {

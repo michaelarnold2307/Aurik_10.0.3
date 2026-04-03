@@ -2,7 +2,7 @@
 # FastAPI, Batch & Echtzeit
 
 import soundfile as sf
-from fastapi import FastAPI, File, UploadFile
+from fastapi import FastAPI, UploadFile
 
 from plugins.artifact_detection_plugin import ArtifactDetectionPlugin
 
@@ -11,7 +11,7 @@ plugin = ArtifactDetectionPlugin("models/artifact_detector.pt")
 
 
 @app.post("/detect-artifacts")
-def detect_artifacts(file: UploadFile = File(...)):
+def detect_artifacts(file: UploadFile):
     data, sr = sf.read(file.file)
     result = plugin.detect_artifacts(data, sr)
     return result

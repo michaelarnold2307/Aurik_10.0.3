@@ -42,7 +42,7 @@ exclude =
 # D401 — Imperativstil im Docstring: wird in UI/DSP-Code nicht erzwungen
 # D403 — Kapitalisierung erster Wort: wird in Qt-Methodennamen akzeptiert
 # D415 — Satzzeichen am Ende des Docstrings
-ignore = E203,W503,W504,E501,E731,E741,E402,W505,C901,E128,E712,E722,F401,F405,F541,F841,E241,E221,E201,E222,E226,N802,N806,N803,SIM105,B008,D400,D401,D403,D415
+ignore = E203,W503,W504,E501,E731,E741,E402,W505,C901,E128,E712,E722,F401,F405,F541,F841,E241,E221,E201,E222,E226,N802,N806,N803,N812,N813,N814,SIM105,SIM115,B008,D400,D401,D403,D415,D100,D101,D102,D103,D105,D107,D200,D202,D205,D209,SIM102,B028,B007,D402,SIM114,SIM401,SIM901,SIM113,D301,B014,SIM910,SIM909,SIM904,SIM117
 
 # Pro-Datei-Ausnahmen
 per-file-ignores =
@@ -58,6 +58,10 @@ per-file-ignores =
     plugins/*.py:F811
     # UV3: historisch gewachsene 8000-Zeilen-Datei — vorbestehende Style-Warnungen
     backend/core/unified_restorer_v3.py:D102,D107,D200,D205,B007,B015,B036,N811,N814,SIM102,SIM113,SIM114,SIM401,SIM901
+    # modern_window: intentionale Loop-Closures (Qt-Signal-Lambdas)
+    Aurik910/ui/modern_window.py:B023
+    # defect_scanner: intentionale Loop-Closures
+    backend/core/defect_scanner.py:B023
     # Legacy-Code
     backend/processing_pipeline_v8.py:ALL
 

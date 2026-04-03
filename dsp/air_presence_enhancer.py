@@ -1,7 +1,3 @@
-import logging
-
-logger = logging.getLogger(__name__)
-
 """
 ==============================
 
@@ -37,6 +33,10 @@ Wissenschaftliche Grundlagen:
 Autor: AURIK Phase 2.0 - Psychoakustische Exzellenz
 Datum: 13. Februar 2026
 """
+
+import logging
+
+logger = logging.getLogger(__name__)
 
 import warnings
 
@@ -197,26 +197,26 @@ class AirPresenceEnhancer:
         # Convert gain to linear
         gain_linear = 10 ** (gain_db / 20)
 
-        # Design high-shelf filter (using peaking + highpass combination)
-        # For simplicity, use Butterworth High-Pass + Gain
-        nyquist = sr / 2
-        normalized_freq = freq / nyquist
+        # Robert Bristow-Johnson Audio EQ Cookbook: High-Shelf biquad
+        A = gain_linear
+        w0 = 2.0 * np.pi * freq / sr
+        if w0 >= np.pi:
+            return audio * gain_linear  # freq too high
+        alpha = np.sin(w0) / (2.0 * q)
+        cos_w0 = np.cos(w0)
+        sqrt_A = np.sqrt(max(A, 1e-10))
 
-        # Ensure freq is valid
-        if normalized_freq >= 1.0:
-            # Frequency too high, apply simple gain to all
-            return audio * gain_linear
+        b0 = A * ((A + 1) + (A - 1) * cos_w0 + 2 * sqrt_A * alpha)
+        b1 = -2 * A * ((A - 1) + (A + 1) * cos_w0)
+        b2 = A * ((A + 1) + (A - 1) * cos_w0 - 2 * sqrt_A * alpha)
+        a0 = (A + 1) - (A - 1) * cos_w0 + 2 * sqrt_A * alpha
+        a1 = 2 * ((A - 1) - (A + 1) * cos_w0)
+        a2 = (A + 1) - (A - 1) * cos_w0 - 2 * sqrt_A * alpha
 
-        # Design filter (2nd order Butterworth)
-        sos = signal.butter(2, normalized_freq, btype="high", output="sos")
-
-        # Apply filter
-        filtered_highs = signal.sosfilt(sos, audio)
-
-        # Mix: (1-gain)*original + gain*filtered
-        # This creates a shelf effect
-        filtered = audio + (gain_linear - 1.0) * filtered_highs
-
+        # Normalize by a0
+        sos = np.array([[b0 / a0, b1 / a0, b2 / a0, 1.0, a1 / a0, a2 / a0]])
+        filtered = signal.sosfilt(sos, audio)
+        filtered = np.nan_to_num(filtered, nan=0.0, posinf=0.0, neginf=0.0)
         return filtered
 
     def _apply_bell(self, audio: np.ndarray, sr: int, freq: float, gain_db: float, q: float) -> np.ndarray:
@@ -241,30 +241,24 @@ class AirPresenceEnhancer:
         filtered : np.ndarray
             Filtered audio
         """
-        # Convert to linear
-        gain_linear = 10 ** (gain_db / 20)
+        # Robert Bristow-Johnson Audio EQ Cookbook: Peaking (Bell) biquad
+        A = 10.0 ** (gain_db / 40.0)  # sqrt of linear gain
+        w0 = 2.0 * np.pi * freq / sr
+        if w0 >= np.pi:
+            return audio  # freq too high for this sample rate
+        alpha = np.sin(w0) / (2.0 * q)
+        cos_w0 = np.cos(w0)
 
-        # Design bandpass filter centered at freq
-        nyquist = sr / 2
-        normalized_freq = freq / nyquist
+        b0 = 1.0 + alpha * A
+        b1 = -2.0 * cos_w0
+        b2 = 1.0 - alpha * A
+        a0 = 1.0 + alpha / A
+        a1 = -2.0 * cos_w0
+        a2 = 1.0 - alpha / A
 
-        if normalized_freq >= 1.0:
-            return audio  # Invalid frequency
-
-        # Bandwidth from Q
-        bandwidth = normalized_freq / q
-
-        # Design bandpass
-        sos = signal.butter(
-            2, [normalized_freq - bandwidth / 2, normalized_freq + bandwidth / 2], btype="band", output="sos"
-        )
-
-        # Apply filter
-        filtered_band = signal.sosfilt(sos, audio)
-
-        # Add boosted band to original
-        filtered = audio + (gain_linear - 1.0) * filtered_band
-
+        sos = np.array([[b0 / a0, b1 / a0, b2 / a0, 1.0, a1 / a0, a2 / a0]])
+        filtered = signal.sosfilt(sos, audio)
+        filtered = np.nan_to_num(filtered, nan=0.0, posinf=0.0, neginf=0.0)
         return filtered
 
     def _apply_micro_reverb(self, audio: np.ndarray, sr: int, mix: float) -> np.ndarray:

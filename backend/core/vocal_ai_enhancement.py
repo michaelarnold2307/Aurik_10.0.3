@@ -136,13 +136,13 @@ class GenderDetector:
                 "f3": (1690, 3010),
             },
             VoiceGender.FEMALE: {
-                "f0": (165, 700),   # singing range: alto 165 Hz – soprano 700 Hz
+                "f0": (165, 700),  # singing range: alto 165 Hz – soprano 700 Hz
                 "f1": (310, 860),
                 "f2": (920, 2790),
                 "f3": (1890, 3310),
             },
             VoiceGender.CHILD: {
-                "f0": (250, 600),   # children speak reliably above 250 Hz
+                "f0": (250, 600),  # children speak reliably above 250 Hz
                 "f1": (370, 1030),
                 "f2": (1170, 3330),
                 "f3": (2590, 4990),
@@ -442,8 +442,8 @@ class GenderDetector:
                         # sqrt-aperiodicity: 0=harmonic, 1=breathy; ×2 to use [0,1] output range
                         breathiness = float(np.mean(np.sqrt(np.maximum(ap_band, 0.0))))
                         return min(1.0, breathiness * 2.0)
-            except Exception:
-                pass
+            except Exception as _exc:
+                logger.debug("Operation failed (non-critical): %s", _exc)
         # DSP fallback: HF energy ratio (breathy voices have more noise above 3 kHz)
         sos = signal.butter(4, 3000, "high", fs=self.sr, output="sos")
         hf_signal = signal.sosfilt(sos, audio)

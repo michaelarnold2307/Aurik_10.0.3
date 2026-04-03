@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import math
 import threading
-from typing import List
 
 import numpy as np
 
@@ -47,7 +46,6 @@ def _silence(duration_s: float = 35.0, sr: int = SR) -> np.ndarray:
 # Klasse 1: Rückgabetyp und Felder
 # ---------------------------------------------------------------------------
 class TestTemporalCoherenceResultFields:
-
     def test_01_returns_result_instance(self) -> None:
         """measure() gibt ein TemporalCoherenceResult-Objekt zurück."""
         metric = get_temporal_quality_coherence()
@@ -121,7 +119,6 @@ class TestTemporalCoherenceResultFields:
 # Klasse 2: Prüflogik (passed-Kriterium §2.16)
 # ---------------------------------------------------------------------------
 class TestPassedCriterion:
-
     def test_12_uniform_signal_passes(self) -> None:
         """Uniform-Sinus-Signal (gleichmäßige Qualität) soll passed=True liefern."""
         metric = get_temporal_quality_coherence()
@@ -154,7 +151,6 @@ class TestPassedCriterion:
 # Klasse 3: Edge Cases
 # ---------------------------------------------------------------------------
 class TestEdgeCases:
-
     def test_16_short_audio_no_crash(self) -> None:
         """Kurzes Audio (< 25 s / < 3 Segmente) → kein Absturz."""
         metric = get_temporal_quality_coherence()
@@ -208,7 +204,6 @@ class TestEdgeCases:
 # Klasse 4: Singleton & Convenience-Wrapper
 # ---------------------------------------------------------------------------
 class TestSingletonAndWrapper:
-
     def test_22_singleton_same_object(self) -> None:
         """get_temporal_quality_coherence() gibt stets dasselbe Objekt zurück."""
         a = get_temporal_quality_coherence()

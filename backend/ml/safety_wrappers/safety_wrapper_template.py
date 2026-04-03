@@ -204,7 +204,7 @@ class BaseSafetyWrapper:
         # Decide processing strategy based on confidence
         if confidence < self.confidence_threshold:
             self.logger.warning(
-                f"Low confidence ({confidence:.2f} < {self.confidence_threshold}). " f"Aborting processing."
+                f"Low confidence ({confidence:.2f} < {self.confidence_threshold}). Aborting processing."
             )
             pre_check.warnings.append(f"Insufficient epistemic confidence: {confidence:.2f}")
             self.aborted_calls += 1
@@ -232,7 +232,7 @@ class BaseSafetyWrapper:
             self.logger.error(f"Processing failed: {e}")
             self.aborted_calls += 1
             pre_check.passed = False
-            pre_check.reasons.append(f"Processing exception: {str(e)}")
+            pre_check.reasons.append(f"Processing exception: {e!s}")
             return self._create_abort_response(audio, input_metadata, pre_check, start_time)
 
         # =================================================================
@@ -253,8 +253,7 @@ class BaseSafetyWrapper:
 
         if quality_score < self.quality_threshold:
             self.logger.warning(
-                f"Quality score ({quality_score:.2f}) below threshold "
-                f"({self.quality_threshold}). Returning original."
+                f"Quality score ({quality_score:.2f}) below threshold ({self.quality_threshold}). Returning original."
             )
             self.aborted_calls += 1
             return self._create_abort_response(
@@ -382,7 +381,7 @@ class BaseSafetyWrapper:
         proc_rms = float(np.sqrt(np.mean(processed**2))) + 1e-12
         energy_ratio = proc_rms / orig_rms
         if energy_ratio < 0.05 or energy_ratio > 20.0:
-            issues.append(f"Energy ratio out of bounds: {energy_ratio:.3f} " f"(expected 0.05..20.0)")
+            issues.append(f"Energy ratio out of bounds: {energy_ratio:.3f} (expected 0.05..20.0)")
         passed = len(issues) == 0
         quality_score = float(np.clip(1.0 - abs(1.0 - energy_ratio) * 0.5, 0.0, 1.0))
         return PostCheckResult(

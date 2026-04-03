@@ -184,8 +184,8 @@ class SGMSEPlusPlugin:
                             s._model_loaded = False
 
                         _reg_plm("SGMSE+", size_gb=0.12, unload_fn=_unload_sgmse)
-                    except Exception:
-                        pass
+                    except Exception as _exc:
+                        logger.debug("Plugin operation failed (non-critical): %s", _exc)
                     return
             except Exception as exc:
                 logger.warning("SGMSE+ TorchScript nicht ladbar: %s — WPE-DSP-Fallback aktiv.", exc)
@@ -193,8 +193,8 @@ class SGMSEPlusPlugin:
                     from backend.core.ml_memory_budget import release as _rel
 
                     _rel("SGMSE+")
-                except Exception:
-                    pass
+                except Exception as _exc:
+                    logger.debug("Plugin operation failed (non-critical): %s", _exc)
 
         # Recovery path: keep ML available via checkpoint-backed eager model.
         if self._try_load_from_checkpoint():
@@ -381,8 +381,8 @@ class SGMSEPlusPlugin:
                 import ctypes as _ct_pre
 
                 _ct_pre.CDLL("libc.so.6").malloc_trim(0)
-            except Exception:
-                pass
+            except Exception as _exc:
+                logger.debug("Plugin operation failed (non-critical): %s", _exc)
             _avail_pre = self._get_available_ram_gb()
             _headroom_needed = _HEADROOM_LARGE if chunk_len > self._MAX_CHUNK_SAMPLES_SMALL else _HEADROOM_SMALL
             if _avail_pre < _headroom_needed:
@@ -433,8 +433,8 @@ class SGMSEPlusPlugin:
                 import ctypes as _ct
 
                 _ct.CDLL("libc.so.6").malloc_trim(0)
-            except Exception:
-                pass
+            except Exception as _exc:
+                logger.debug("Plugin operation failed (non-critical): %s", _exc)
 
             # RAM check between chunks — adaptive: shrink or bail out
             _avail_now = self._get_available_ram_gb()
@@ -635,8 +635,8 @@ class SGMSEPlusPlugin:
                 import ctypes as _ct
 
                 _ct.CDLL("libc.so.6").malloc_trim(0)
-            except Exception:
-                pass
+            except Exception as _exc:
+                logger.debug("Plugin operation failed (non-critical): %s", _exc)
 
             return np.clip(np.nan_to_num(result, nan=0.0), -1.0, 1.0)
         except Exception as exc:

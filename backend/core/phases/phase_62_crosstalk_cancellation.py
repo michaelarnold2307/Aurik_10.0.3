@@ -62,7 +62,6 @@ def apply(
         right = audio[1].astype(np.float64)
         was_transposed = False
 
-    sr = sample_rate
     n = len(left)
     n_fft = 4096
     hop = n_fft // 4
@@ -118,7 +117,7 @@ def apply(
 
         left_out[start:end] += frame_l_out
         right_out[start:end] += frame_r_out
-        win_sum[start:end] += window ** 2
+        win_sum[start:end] += window**2
 
     win_sum = np.maximum(win_sum, 1e-8)
     left_out /= win_sum
@@ -186,6 +185,5 @@ class CrosstalkCancellationPhase(PhaseInterface):
             audio=result_audio,
             success=True,
             execution_time_seconds=elapsed,
-            metrics={"crosstalk_score": float((_defect_scores or {}).get("crosstalk", 0.0)),
-                     "strength": strength},
+            metrics={"crosstalk_score": float((_defect_scores or {}).get("crosstalk", 0.0)), "strength": strength},
         )

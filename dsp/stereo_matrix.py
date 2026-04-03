@@ -62,13 +62,23 @@ class StereoMatrix:
         self.balance = balance
 
     def process(self, audio: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
+        logger.debug("[DSPContract] %s", asdict(stereo_matrix_contract))
         if audio.ndim != 2 or audio.shape[1] != 2:
             return audio
-        mid = (audio[:, 0] + audio[:, 1]) / 2
-        side = (audio[:, 0] - audio[:, 1]) / 2 * self.width
-        left = mid + side + self.balance
-        right = mid - side - self.balance
-        return np.stack([left, right], axis=1)
-
-        # Audit: Contract-Infos loggen (optional)
-        logger.debug("[DSPContract] %s", asdict(stereo_matrix_contract))
+        audio = np.nan_to_num(audio, nan=0.0, posinf=0.0, neginf=0.0)
+        mid = (audio[:, 0] + audio[:, 1]) / 2.0
+        side = (audio[:, 0] - audio[:, 1]) / 2.0 * self.width
+        # Level compensation to preserve energy at different widths
+        compensation = 1.0 / max(1e-9, np.sqrt(0.5 * (1.0 + self.width**2)))
+        left = (mid + side) * compensation
+        right = (mid - side) * compensation
+        # Balance as L/R gain offset (not additive to signal)
+        if abs(self.balance) > 1e-6:
+            bal_gain_l = np.clip(1.0 - self.balance, 0.0, 2.0)
+            bal_gain_r = np.clip(1.0 + self.balance, 0.0, 2.0)
+            left = left * bal_gain_l
+            right = right * bal_gain_r
+        out = np.stack([left, right], axis=1)
+        out = np.nan_to_num(out, nan=0.0, posinf=0.0, neginf=0.0)
+        out = np.clip(out, -1.0, 1.0)
+        return out

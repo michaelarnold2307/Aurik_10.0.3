@@ -13,14 +13,30 @@ logger = logging.getLogger(__name__)
 
 
 class AdaptiveMMSELSA:
-    def __init__(self, alpha=0.98, noise_floor=1e-8):
+    """MMSE Log-Spectral Amplitude estimator (Ephraim & Malah 1985)
+    with psychoacoustic frequency weighting and spectral floor.
+    """
+
+    def __init__(self, alpha: float = 0.98, noise_floor: float = 1e-8, spectral_floor: float = 0.015):
         self.alpha = alpha
         self.noise_floor = noise_floor
+        self.spectral_floor = spectral_floor
 
-    def mmse_lsa(self, noisy_mag, noise_mag, **kwargs):
-        """Berechnet das MMSE-LSA Gain für Magnitude-Spektren (Ephraim & Malah 1985)."""
+    def mmse_lsa(self, noisy_mag, noise_mag, *, sr: int = 48000, **kwargs):
+        """Compute MMSE-LSA gain for magnitude spectra (Ephraim & Malah 1985).
+
+        Args:
+            noisy_mag: Noisy magnitude spectrum
+            noise_mag: Noise magnitude estimate
+            sr: Sample rate for psychoacoustic weighting
+        """
         alpha = kwargs.get("alpha", self.alpha)
         noise_floor = kwargs.get("noise_floor", self.noise_floor)
+        psychoacoustic = kwargs.get("psychoacoustic", True)
+
+        noisy_mag = np.nan_to_num(np.asarray(noisy_mag, dtype=np.float64))
+        noise_mag = np.nan_to_num(np.asarray(noise_mag, dtype=np.float64))
+
         # A-priori SNR — guard against zero/negative noise
         noise_pow = noise_mag**2 + noise_floor
         noisy_pow = noisy_mag**2
@@ -32,6 +48,17 @@ class AdaptiveMMSELSA:
         v = xi * gamma / (1.0 + xi)
         v = np.maximum(v, 1e-8)  # Guard: expn(1, 0) → ∞, 0·∞ = NaN at silence
         gain = (xi / (1.0 + xi)) * np.exp(0.5 * expn(1, v))
+
+        # Psychoacoustic frequency weighting — gentler in sensitive bands (2-5 kHz)
+        if psychoacoustic and noisy_mag.ndim >= 1:
+            n_bins = noisy_mag.shape[-1] if noisy_mag.ndim >= 2 else noisy_mag.shape[0]
+            freqs = np.linspace(0, sr / 2, n_bins)
+            sensitivity = np.exp(-0.5 * ((np.log2(np.maximum(freqs, 20.0) / 3500.0)) ** 2) / 1.5**2)
+            psy_floor = self.spectral_floor + 0.03 * sensitivity
+            if noisy_mag.ndim == 2:
+                psy_floor = psy_floor[np.newaxis, :]
+            gain = np.maximum(gain, psy_floor)
+
         gain = np.nan_to_num(gain, nan=0.0, posinf=0.0, neginf=0.0)
         gain = np.clip(gain, 0.0, 1.0)  # no spectral amplification
         clean_mag = gain * noisy_mag

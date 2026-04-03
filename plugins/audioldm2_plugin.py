@@ -12,6 +12,7 @@ Modell-Quelle: Liu et al. (2023) "AudioLDM 2: Learning Holistic Audio Generation
 from __future__ import annotations
 
 import logging
+import math
 import threading
 from pathlib import Path
 
@@ -61,8 +62,8 @@ class AudioLDM2Plugin:
             if not _try_alloc("AudioLDM2", 1.3):
                 logger.warning("AudioLDM2: ML-Budget erschöpft — Modell nicht geladen.")
                 return
-        except Exception:
-            pass  # Budget-Modul nicht verfügbar — weiter
+        except Exception as _exc:
+            logger.debug("Operation failed (non-critical): %s", _exc)  # Budget-Modul nicht verfügbar — weiter
         for sub in self.DEFAULT_MODEL_SUBPATHS:
             path = self._workspace / sub
             if not path.exists():
@@ -92,8 +93,8 @@ class AudioLDM2Plugin:
                         size_gb=1.3,
                         unload_fn=lambda s=self: setattr(s, "_session", None) or setattr(s, "_ok", False),
                     )
-                except Exception:
-                    pass
+                except Exception as _exc:
+                    logger.debug("Operation failed (non-critical): %s", _exc)
                 return
             except Exception as exc:
                 logger.debug("AudioLDM2 Ladefehler (%s): %s", path.name, exc)
@@ -103,8 +104,8 @@ class AudioLDM2Plugin:
             from backend.core.ml_memory_budget import release as _rel
 
             _rel("AudioLDM2")
-        except Exception:
-            pass
+        except Exception as _exc:
+            logger.debug("Operation failed (non-critical): %s", _exc)
 
     # ------------------------------------------------------------------
     def generate_array(
@@ -242,7 +243,6 @@ def generate_audio(
 # CLI
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":
-    import math
     import sys
 
     logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")

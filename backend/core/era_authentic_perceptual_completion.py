@@ -10,7 +10,6 @@ from __future__ import annotations
 import logging
 import threading
 from dataclasses import dataclass, field
-from typing import Dict, Optional
 
 import numpy as np
 
@@ -289,7 +288,7 @@ __all__ = [
 
 # Spec-konforme Alias-Namen (§2.35, §3.2)
 get_era_authentic_perceptual_completion = get_era_completion
-"""Alias für get_era_completion() — Spec-konformer Name (§2.35)."""
+# Alias für get_era_completion() — Spec-konformer Name (§2.35).
 
 apply_era_authentic_completion = complete_era_authentic
-"""Alias für complete_era_authentic() — Spec-konformer Name (§2.35)."""
+# Alias für complete_era_authentic() — Spec-konformer Name (§2.35).

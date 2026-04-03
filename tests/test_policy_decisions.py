@@ -222,7 +222,7 @@ def main():
         logger.info(f"{status}: {test_name}")
 
     logger.info("\n" + "=" * 60)
-    logger.info(f"TOTAL: {total_pass}/{total_tests} tests passed ({total_pass/total_tests*100:.0f}%)")
+    logger.info(f"TOTAL: {total_pass}/{total_tests} tests passed ({total_pass / total_tests * 100:.0f}%)")
     logger.info("=" * 60)
 
     if total_pass == total_tests:

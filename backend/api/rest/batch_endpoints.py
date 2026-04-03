@@ -9,7 +9,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, BackgroundTasks, File, HTTPException, UploadFile
+from fastapi import APIRouter, BackgroundTasks, HTTPException, UploadFile
 
 # Setup Router
 router = APIRouter(prefix="/batch", tags=["batch"])
@@ -102,7 +102,7 @@ def batch_worker(batch_id: str, input_files: list[str]):
 
 
 @router.post("/start")
-async def start_batch(background_tasks: BackgroundTasks, files: list[UploadFile] = File(None)):
+async def start_batch(background_tasks: BackgroundTasks, files: list[UploadFile] | None = None):
     """
     Startet einen neuen Batch-Job
 
@@ -171,7 +171,7 @@ async def start_batch(background_tasks: BackgroundTasks, files: list[UploadFile]
         raise
     except Exception as e:
         logger.exception("Error starting batch")
-        raise HTTPException(status_code=500, detail=f"Batch-Start fehlgeschlagen: {e}")
+        raise HTTPException(status_code=500, detail=f"Batch-Start fehlgeschlagen: {e}") from e
 
 
 @router.get("/status/{batch_id}")

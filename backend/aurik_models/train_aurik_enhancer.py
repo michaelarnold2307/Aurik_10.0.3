@@ -55,7 +55,7 @@ def main() -> None:
             # Loss wird schon oben berechnet
             loss.backward()
             optimizer.step()
-        logger.info(f"Epoch {epoch+1}: Loss={loss:.4f}")
+        logger.info(f"Epoch {epoch + 1}: Loss={loss:.4f}")
     logger.info("Training abgeschlossen (Demo)")
 
 

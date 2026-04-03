@@ -207,8 +207,8 @@ class QualityGate:
                             limit,
                         )
                         return False
-                except (TypeError, ValueError):
-                    pass
+                except (TypeError, ValueError) as _exc:
+                    logger.debug("Operation failed (non-critical): %s", _exc)
 
             return self._check_musical_goals(ml_result, "ML")
         except Exception:

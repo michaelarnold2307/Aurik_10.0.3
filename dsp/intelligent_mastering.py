@@ -148,7 +148,7 @@ class LUFSNormalizer:
             Metrics (input_lufs, output_lufs, gain_db, true_peak_db)
         """
         audio = np.nan_to_num(audio, nan=0.0, posinf=0.0, neginf=0.0)
-        audio.dtype
+        # audio.dtype intentionally not used here
         # Measure input LUFS
         input_lufs = self._compute_lufs(audio, sr)
 

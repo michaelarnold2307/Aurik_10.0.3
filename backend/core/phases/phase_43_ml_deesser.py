@@ -112,7 +112,7 @@ def _smooth_gain(gain_lin: np.ndarray, sr: int, attack_ms: float, release_ms: fl
     a_rel = np.array([1.0, -rel])
 
     _BLOCK = 512  # ≈ 10.7 ms at 48 kHz
-    state = 1.0   # initial smoothed value (= smoothed[0], matching np.ones_like)
+    state = 1.0  # initial smoothed value (= smoothed[0], matching np.ones_like)
     x = gain_lin.astype(np.float64)
 
     for start in range(1, n, _BLOCK):
@@ -324,6 +324,21 @@ class AdaptiveDeEsserPhase(PhaseInterface):
 
         # Stimmtyp-adaptive Frequenzauswahl (§2.8); explizite freq_low/freq_high überschreiben
         default_low, default_high = GENDER_FREQ_MAP.get(gender, GENDER_FREQ_MAP["unknown"])
+        # §2.36a PhonemeTimeline: language-specific sibilant band overrides gender-freq defaults
+        _ptl_43 = kwargs.get("phoneme_timeline")
+        if _ptl_43 is not None:
+            try:
+                _ptl_low, _ptl_high = _ptl_43.sibilant_band_hz()
+                default_low = float(_ptl_low)
+                default_high = float(_ptl_high)
+                logger.debug(
+                    "Phase 43: sibilant_band_hz override → %.0f–%.0f Hz (language=%s)",
+                    default_low,
+                    default_high,
+                    getattr(_ptl_43, "language", "?"),
+                )
+            except Exception as _ptl_exc:
+                logger.debug("Phase 43: sibilant_band_hz fallback to gender-based: %s", _ptl_exc)
         freq_low: float = float(kwargs.get("freq_low", default_low))
         freq_high: float = float(kwargs.get("freq_high", default_high))
 
@@ -386,6 +401,38 @@ class AdaptiveDeEsserPhase(PhaseInterface):
 
         processed = np.clip(processed, -1.0, 1.0).astype(audio.dtype)
         avg_gr = float(np.mean(gr_dbs))
+
+        # §2.36a Segment-selective gate: apply de-essing only within sibilant_segments() windows.
+        # Non-sibilant regions revert to the original signal so harmonic vowel and instrumental
+        # passages are not inadvertently de-essed (iZotope RX-class time-domain gating).
+        _ptl_gate43 = kwargs.get("phoneme_timeline")
+        if _ptl_gate43 is not None:
+            _sib_segs43 = _ptl_gate43.sibilant_segments()
+            if _sib_segs43:
+                _n43 = x.shape[0] if x.ndim >= 1 else len(x)
+                _gate43 = np.zeros(_n43, dtype=np.float32)
+                _fade43 = max(2, int(sample_rate * 0.005))  # 5 ms cosine fade
+                for _seg43 in _sib_segs43:
+                    _s43 = max(0, int(_seg43.start_s * sample_rate))
+                    _e43 = min(_n43, int(_seg43.end_s * sample_rate))
+                    if _e43 <= _s43:
+                        continue
+                    _gate43[_s43:_e43] = 1.0
+                    _fi43 = min(_fade43, _e43 - _s43)
+                    _gate43[_s43 : _s43 + _fi43] = np.sin(np.linspace(0.0, np.pi / 2.0, _fi43)) ** 2
+                    _fo43 = min(_fade43, _e43 - _s43)
+                    _gate43[_e43 - _fo43 : _e43] = np.cos(np.linspace(0.0, np.pi / 2.0, _fo43)) ** 2
+                _x_ref43 = x.astype(processed.dtype)
+                if processed.ndim == 2:
+                    _mask43_2d = _gate43[:, np.newaxis]
+                    processed = (_mask43_2d * processed + (1.0 - _mask43_2d) * _x_ref43).astype(audio.dtype)
+                else:
+                    processed = (_gate43 * processed + (1.0 - _gate43) * _x_ref43).astype(audio.dtype)
+                logger.debug(
+                    "Phase 43 segment-gate: %d sibilant windows, %.1f%% gated",
+                    len(_sib_segs43),
+                    100.0 * float(np.mean(_gate43)),
+                )
 
         # Optional ML refinement with strict safety guard:
         # accept only if sibilance reduces and vocal core band is preserved.

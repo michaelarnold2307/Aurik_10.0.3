@@ -14,9 +14,7 @@ Run from workspace root:
     python3 scripts/transform_svgs_mystical.py
 """
 
-import os
 import re
-import shutil
 from pathlib import Path
 
 RESOURCES = Path("/media/michael/Software 4TB/Aurik_Standalone/Aurik910/resources")
@@ -121,8 +119,10 @@ MYSTICAL_OVERLAY_32 = """\
 # Filter enhancement: amplify existing feGaussianBlur stdDeviations
 # ──────────────────────────────────────────────────────────────────────────────
 
+
 def boost_existing_glows(content: str, factor: float = 1.65, cap: float = 4.0, floor: float = 1.0) -> str:
     """Multiply all feGaussianBlur stdDeviation values (except mystical filters already added)."""
+
     def replace_std(m: re.Match) -> str:
         # Skip mystical filters we just added (id=m_glow, m_spark)
         raw = m.group(1)
@@ -140,17 +140,18 @@ def boost_existing_glows(content: str, factor: float = 1.65, cap: float = 4.0, f
 # Insert mystical content into <defs> block
 # ──────────────────────────────────────────────────────────────────────────────
 
+
 def inject_into_defs(content: str, mystical_defs: str) -> str:
     """Append mystical defs INSIDE the existing <defs>...</defs> block.
     If no <defs> block exists, create one.
     """
     # Match closing </defs> tag
-    close_defs = re.search(r'(</defs>)', content)
+    close_defs = re.search(r"(</defs>)", content)
     if close_defs:
         pos = close_defs.start()
         return content[:pos] + mystical_defs + "\n" + content[pos:]
     # No <defs>: inject after <svg ...> opening tag
-    svg_open = re.search(r'(<svg[^>]*>)', content)
+    svg_open = re.search(r"(<svg[^>]*>)", content)
     if svg_open:
         pos = svg_open.end()
         return content[:pos] + "\n<defs>\n" + mystical_defs + "\n</defs>" + content[pos:]
@@ -161,15 +162,16 @@ def inject_into_defs(content: str, mystical_defs: str) -> str:
 # Insert mystical background immediately after <defs>...</defs> (or <svg>)
 # ──────────────────────────────────────────────────────────────────────────────
 
+
 def inject_bg_after_defs(content: str, bg_snippet: str) -> str:
     """Insert mystical background element right after the </defs> tag."""
-    close_defs = re.search(r'</defs>', content)
+    close_defs = re.search(r"</defs>", content)
     if close_defs:
         pos = close_defs.end()
         # Skip any whitespace/newline after </defs>
         return content[:pos] + "\n" + bg_snippet + content[pos:]
     # Fallback: after SVG opening
-    svg_open = re.search(r'(<svg[^>]*>)', content)
+    svg_open = re.search(r"(<svg[^>]*>)", content)
     if svg_open:
         pos = svg_open.end()
         return content[:pos] + "\n" + bg_snippet + content[pos:]
@@ -180,9 +182,10 @@ def inject_bg_after_defs(content: str, bg_snippet: str) -> str:
 # Append mystical overlay just before </svg>
 # ──────────────────────────────────────────────────────────────────────────────
 
+
 def append_overlay(content: str, overlay: str) -> str:
     """Insert mystical overlay elements right before the closing </svg> tag."""
-    pos = content.rfind('</svg>')
+    pos = content.rfind("</svg>")
     if pos != -1:
         return content[:pos] + overlay + "\n" + content[pos:]
     return content + "\n" + overlay
@@ -200,8 +203,7 @@ BG_RECTS_48 = [
 ]
 # Also handle with HTML comment prefix (star icons)
 BG_COMMENT_48 = re.compile(
-    r'<!-- dark backing -->\s*\n?'
-    r'<rect width="48" height="48" rx="[56]" fill="#[0-9A-Fa-f]{6}"/>',
+    r"<!-- dark backing -->\s*\n?" r'<rect width="48" height="48" rx="[56]" fill="#[0-9A-Fa-f]{6}"/>',
     re.IGNORECASE,
 )
 
@@ -209,9 +211,9 @@ BG_COMMENT_48 = re.compile(
 def transform_48(content: str, filename: str) -> str:
     """Transform a 48×48 SVG icon to mystical transparent style."""
     # 1. Remove background rects (with and without comment)
-    content = BG_COMMENT_48.sub('', content)
+    content = BG_COMMENT_48.sub("", content)
     for pattern in BG_RECTS_48:
-        content = content.replace(pattern, '')
+        content = content.replace(pattern, "")
 
     # 2. Amplify existing glow filters
     content = boost_existing_glows(content, factor=1.65, cap=4.0, floor=1.0)
@@ -231,6 +233,7 @@ def transform_48(content: str, filename: str) -> str:
 # ──────────────────────────────────────────────────────────────────────────────
 # 32x32 icon transformation (phase_icons – already no solid background)
 # ──────────────────────────────────────────────────────────────────────────────
+
 
 def transform_32(content: str, filename: str) -> str:
     """Transform a 32×32 SVG phase icon to mystical transparent style."""
@@ -253,6 +256,7 @@ def transform_32(content: str, filename: str) -> str:
 # ──────────────────────────────────────────────────────────────────────────────
 # Main processing loop
 # ──────────────────────────────────────────────────────────────────────────────
+
 
 def detect_viewbox_size(content: str) -> int:
     """Return 48 or 32 based on the SVG viewBox."""
@@ -297,6 +301,7 @@ def process_all_svgs(dry_run: bool = False) -> None:
 
 if __name__ == "__main__":
     import sys
+
     dry = "--dry-run" in sys.argv
     if dry:
         print("DRY RUN — no files will be written.\n")

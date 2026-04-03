@@ -22,8 +22,7 @@ from __future__ import annotations
 import warnings as _warnings
 
 _warnings.warn(
-    "backend.ethics_engine ist veraltet. "
-    "Bitte 'from backend.core.epistemic_gate.ethics_engine import ...' verwenden.",
+    "backend.ethics_engine ist veraltet. Bitte 'from backend.core.epistemic_gate.ethics_engine import ...' verwenden.",
     DeprecationWarning,
     stacklevel=2,
 )

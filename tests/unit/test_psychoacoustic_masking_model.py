@@ -6,10 +6,7 @@ Spec §4.5: ISO 11172-3 Masking-Modell als Restaurierungs-Regler.
 
 from __future__ import annotations
 
-import math
-
 import numpy as np
-import pytest
 
 from backend.core.psychoacoustic_masking_model import (
     MaskingResult,

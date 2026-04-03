@@ -334,7 +334,7 @@ class PhaseSkipper:
         report.append("AURIK PHASE SKIPPING ANALYSIS")
         report.append("=" * 70)
         report.append(f"\nDefect Analysis: {defect_analysis}")
-        report.append(f"\nEstimated Speedup: {speedup:.1f}x ({(speedup-1)*100:.0f}% faster)")
+        report.append(f"\nEstimated Speedup: {speedup:.1f}x ({(speedup - 1) * 100:.0f}% faster)")
         report.append("\n" + "=" * 70)
         report.append("PHASE DECISIONS:")
         report.append("=" * 70)

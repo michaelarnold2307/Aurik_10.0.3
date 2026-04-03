@@ -301,14 +301,27 @@ class NoiseBurstRemover:
         """
         burst_length = end - start
 
-        # Strategy 1: For very short bursts (<100 samples), use simple interpolation
+        # Strategy 1: For very short bursts (<100 samples), use cubic spline
         if burst_length < 100:
             if start > 0 and end < len(audio):
-                audio[start:end] = np.interp(
-                    np.arange(start, end),
-                    [start - 1, end],
-                    [audio[start - 1], audio[end]],
-                )
+                try:
+                    from scipy.interpolate import CubicSpline
+
+                    # Use surrounding context for smooth interpolation
+                    ctx = min(20, start, len(audio) - end)
+                    x_ctx = list(range(start - ctx, start)) + list(range(end, end + ctx))
+                    y_ctx = list(audio[start - ctx : start]) + list(audio[end : end + ctx])
+                    if len(x_ctx) >= 4:
+                        cs = CubicSpline(x_ctx, y_ctx)
+                        audio[start:end] = cs(np.arange(start, end))
+                    else:
+                        audio[start:end] = np.interp(
+                            np.arange(start, end), [start - 1, end], [audio[start - 1], audio[end]]
+                        )
+                except Exception:
+                    audio[start:end] = np.interp(
+                        np.arange(start, end), [start - 1, end], [audio[start - 1], audio[end]]
+                    )
             reduction_db = 20.0  # Estimate
             return audio, reduction_db
 

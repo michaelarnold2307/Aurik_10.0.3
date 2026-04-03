@@ -101,7 +101,10 @@ class RestorationArtifactDetector:
     """
 
     def __init__(
-        self, sensitivity: float = 0.5, frame_size: int = 2048, hop_size: int = 512  # [0, 1], higher = more sensitive
+        self,
+        sensitivity: float = 0.5,
+        frame_size: int = 2048,
+        hop_size: int = 512,  # [0, 1], higher = more sensitive
     ):
         self.sensitivity = sensitivity
         self.frame_size = frame_size
@@ -204,7 +207,7 @@ class RestorationArtifactDetector:
                             start_time=pre_window_start / sr,
                             duration=(idx - pre_window_start) / sr,
                             confidence=min(1.0, (pre_energy / transient_energy) / 0.5),
-                            description=f"Pre-ringing detected before transient at {idx/sr:.3f}s",
+                            description=f"Pre-ringing detected before transient at {idx / sr:.3f}s",
                             metadata={"transient_idx": idx, "ratio": pre_energy / transient_energy},
                         )
                     )
@@ -229,7 +232,7 @@ class RestorationArtifactDetector:
                             start_time=idx / sr,
                             duration=(post_window_end - idx) / sr,
                             confidence=min(1.0, (decay / transient_energy) / 0.5),
-                            description=f"Post-ringing detected after transient at {idx/sr:.3f}s",
+                            description=f"Post-ringing detected after transient at {idx / sr:.3f}s",
                             metadata={"transient_idx": idx, "decay_ratio": decay / transient_energy},
                         )
                     )
@@ -660,7 +663,9 @@ class RestorationArtifactDetector:
         return groups
 
     def _classify_severity(
-        self, value: float, thresholds: list[float]  # [mild, moderate, severe, critical]
+        self,
+        value: float,
+        thresholds: list[float],  # [mild, moderate, severe, critical]
     ) -> ArtifactSeverity:
         """Classify severity based on value and thresholds."""
         if value < thresholds[0]:

@@ -25,7 +25,6 @@ import math
 import pathlib
 import threading
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -236,8 +235,8 @@ class BatchSessionLearner:
                     obs = data.get("observations", [])
                     if obs:
                         existing_best = max(o.get("score", 0.0) for o in obs if math.isfinite(o.get("score", 0.0)))
-                except Exception:
-                    pass
+                except Exception as _exc:
+                    logger.debug("Operation failed (non-critical): %s", _exc)
 
             # Nur übernehmen wenn Session besser
             if state.best_score > existing_best:

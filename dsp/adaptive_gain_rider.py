@@ -128,18 +128,29 @@ class AdaptiveGainRider:
         return out
 
     def _process_classic(self, audio: np.ndarray, sr: int) -> np.ndarray:
-        window = int(self.window_sec * sr)
-        if window < 1:
-            window = 1
-        out = np.zeros_like(audio)
-        for i in range(0, len(audio), window):
-            segment = audio[i : i + window]
-            rms = np.sqrt(np.mean(segment**2) + 1e-8)
-            target_linear = 10 ** (self.target_rms / 20)
-            gain = min(
-                self.max_gain_db,
-                max(-self.max_gain_db, 20 * np.log10(target_linear / (rms + 1e-8))),
-            )
-            gain_lin = 10 ** (gain / 20)
-            out[i : i + window] = segment * gain_lin
+        window = max(1, int(self.window_sec * sr))
+        hop = max(1, window // 2)  # 50% overlap for smooth transitions
+        target_linear = 10.0 ** (self.target_rms / 20.0)
+        max_gain_lin = 10.0 ** (self.max_gain_db / 20.0)
+        min_gain_lin = 10.0 ** (-self.max_gain_db / 20.0)
+
+        # Compute per-window gains
+        n_windows = max(1, (len(audio) - window) // hop + 1)
+        centers = np.arange(n_windows) * hop + window // 2
+        gains = np.ones(n_windows)
+
+        for i in range(n_windows):
+            start = i * hop
+            end = min(start + window, len(audio))
+            segment = audio[start:end]
+            rms = np.sqrt(np.mean(segment**2) + 1e-12)
+            if rms > 1e-8:
+                desired_gain = target_linear / rms
+                gains[i] = np.clip(desired_gain, min_gain_lin, max_gain_lin)
+
+        # Interpolate gains smoothly across all samples
+        sample_indices = np.arange(len(audio))
+        gain_curve = np.interp(sample_indices, centers, gains)
+
+        out = audio * gain_curve
         return out

@@ -6,7 +6,6 @@ Automatisches Reprocessing und Multi-Pass-Optimierung.
 
 import logging
 from collections.abc import Callable
-from typing import Dict
 
 import numpy as np
 

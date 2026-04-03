@@ -64,22 +64,69 @@ class BroadbandDynamicsStabilizer:
         logger.debug("[DSPContract] %s", asdict(broadband_dynamics_stabilizer_contract))
 
     def process(self, audio: np.ndarray, sr: int) -> np.ndarray:
-        """
-        SOTA-Maximum: RMS-Tracking, Gain-Riding, Quality-Gate gegen Pumpen
+        """LUFS-based dynamics stabilization with soft pump prevention.
+
+        Replaces RMS with K-weighted LUFS-inspired measurement and uses
+        soft gain reduction instead of hard rollback when pumping is detected.
+
+        Args:
+            audio: Audio signal (mono)
+            sr: Sample rate
+        Returns:
+            Stabilized audio
         """
         self.log_contract()
-        window = int(self.window_ms * sr / 1000)
-        if window < 1:
-            window = 1
-        # RMS pro Fenster
-        rms = np.sqrt(np.convolve(audio**2, np.ones(window) / window, mode="same"))
-        target_lin = 10 ** (self.target_rms / 20)
-        gain = np.where(rms > 0, target_lin / (rms + 1e-8), 1.0)
-        # Sanftes Gain-Riding
-        smoothed_gain = np.convolve(gain, np.ones(window) // window, mode="same")
+        audio = np.nan_to_num(np.asarray(audio, dtype=np.float64))
+
+        window = max(1, int(self.window_ms * sr / 1000.0))
+        target_lin = 10.0 ** (self.target_rms / 20.0)
+
+        # K-weighting approximation (BS.1770 inspired):
+        # High-shelf boost at 1681 Hz + high-pass at 38 Hz
+        try:
+            from scipy.signal import butter, sosfilt
+
+            # High-shelf approximation (2nd order Butterworth high-boost at 1.5 kHz)
+            wn_k = np.clip(1500.0 / (sr / 2.0), 0.001, 0.99)
+            sos_k = butter(2, wn_k, btype="high", output="sos")
+            k_weighted = sosfilt(sos_k, audio) * 1.3 + audio * 0.7  # blend
+        except Exception:
+            k_weighted = audio
+
+        # RMS envelope on K-weighted signal
+        rms_kernel = np.ones(window) / window
+        rms = np.sqrt(np.convolve(k_weighted**2, rms_kernel, mode="same") + 1e-12)
+
+        # Compute gain
+        gain = np.where(rms > 1e-8, target_lin / rms, 1.0)
+
+        # Limit gain range (max ±12 dB)
+        max_gain = 10.0 ** (12.0 / 20.0)
+        min_gain = 10.0 ** (-12.0 / 20.0)
+        gain = np.clip(gain, min_gain, max_gain)
+
+        # Smooth gain with adaptive smoothing
+        smooth_kernel = np.ones(window) / window
+        smoothed_gain = np.convolve(gain, smooth_kernel, mode="same")
+
+        # Soft pump prevention: if gain variance > threshold,
+        # progressively blend toward unity gain (not hard rollback)
+        gain_std = float(np.std(smoothed_gain))
+        if gain_std > 0.5:
+            # Severe pumping — reduce gain riding intensity proportionally
+            blend = np.clip(0.5 / (gain_std + 0.01), 0.1, 0.9)
+            smoothed_gain = blend * smoothed_gain + (1.0 - blend) * 1.0
+            logger.warning(
+                "[BroadbandDynamicsStabilizer] Pump detected (std=%.3f), blending to %.0f%% gain riding",
+                gain_std,
+                blend * 100,
+            )
+        elif gain_std > 0.3:
+            # Mild pumping — slight blend
+            blend = 0.7
+            smoothed_gain = blend * smoothed_gain + (1.0 - blend) * 1.0
+
         out = audio * smoothed_gain
-        # Quality-Gate: Kein Pumpen (Varianz der Gain-Kurve)
-        if np.std(smoothed_gain) > 0.5:
-            logger.warning("[QualityGate] Warnung: Pumpen erkannt, Rollback aktiviert.")
-            return audio
+        out = np.nan_to_num(out, nan=0.0, posinf=0.0, neginf=0.0)
+        out = np.clip(out, -1.0, 1.0)
         return out

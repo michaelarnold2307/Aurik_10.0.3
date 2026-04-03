@@ -10,10 +10,13 @@ Spec §2.38: All mandatory fields.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from typing import Any
 
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -83,11 +86,13 @@ class DeferredRefinementJob:
                 from backend.core.ml_memory_budget import release as _release
 
                 _release("kmv_job")
-            except Exception:
-                pass  # best-effort: budget module may not be available in tests
+            except Exception as _exc:
+                logger.debug(
+                    "Operation failed (non-critical): %s", _exc
+                )  # best-effort: budget module may not be available in tests
             object.__setattr__(self, "_budget_registered", False)
         # Allow GC to reclaim the potentially large audio array
         try:
             object.__setattr__(self, "audio_original", None)
-        except Exception:
-            pass
+        except Exception as _exc:
+            logger.debug("Operation failed (non-critical): %s", _exc)

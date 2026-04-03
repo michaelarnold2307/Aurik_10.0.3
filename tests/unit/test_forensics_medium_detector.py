@@ -12,16 +12,13 @@ Testet:
 """
 
 import threading
-from typing import Optional
 
 import numpy as np
-import pytest
 
 from forensics.medium_detector import (
     MediumDetectionResult,
     MediumDetector,
     SpectralFingerprint,
-    TransferChain,
     detect_medium_chain,
     get_medium_detector,
 )
@@ -298,9 +295,16 @@ class TestMediumDetector:
 
         # Benign codec guard: no analog material in chain
         for mat in result.transfer_chain:
-            assert mat not in ("vinyl", "shellac", "tape", "reel_tape", "cassette",
-                               "wax_cylinder", "wire_recording", "lacquer_disc"), \
-                f"Analog material {mat} should not appear in benign codec chain"
+            assert mat not in (
+                "vinyl",
+                "shellac",
+                "tape",
+                "reel_tape",
+                "cassette",
+                "wax_cylinder",
+                "wire_recording",
+                "lacquer_disc",
+            ), f"Analog material {mat} should not appear in benign codec chain"
 
     def test_26_tape_mp3_chain_requires_analog_evidence(self, monkeypatch):
         """Tape→mp3_low chain must remain possible for genuine analog evidence."""
@@ -320,8 +324,11 @@ class TestMediumDetector:
         result = detector.detect(audio, sr=48000)
 
         # Bayesian model may pick tape or cassette — both are tape-family
-        assert result.primary_material in ("tape", "cassette", "reel_tape"), \
-            f"Expected tape-family, got {result.primary_material}"
+        assert result.primary_material in (
+            "tape",
+            "cassette",
+            "reel_tape",
+        ), f"Expected tape-family, got {result.primary_material}"
         assert len(result.transfer_chain) >= 1
         assert result.transfer_chain[0] in ("tape", "cassette", "reel_tape")
 

@@ -32,7 +32,7 @@ class TestMultiModelEnsemble(unittest.TestCase):
 
         processor = EnsembleProcessor(Context(), fusion_engine)
         result, results, chain = processor.process(audio)
-        assert isinstance(result, np.ndarray) or isinstance(result, float)
+        assert isinstance(result, (np.ndarray, float))
 
     def test_process_digital_context(self):
         audio = np.random.randn(16000).astype(np.float32)
@@ -52,7 +52,7 @@ class TestMultiModelEnsemble(unittest.TestCase):
 
         processor = EnsembleProcessor(Context(), fusion_engine)
         result, results, chain = processor.process(audio)
-        assert isinstance(result, np.ndarray) or isinstance(result, float)
+        assert isinstance(result, (np.ndarray, float))
 
     def test_process_broadcast_context(self):
         audio = np.random.randn(16000).astype(np.float32)
@@ -72,7 +72,7 @@ class TestMultiModelEnsemble(unittest.TestCase):
 
         processor = EnsembleProcessor(Context(), fusion_engine)
         result, results, chain = processor.process(audio)
-        assert isinstance(result, np.ndarray) or isinstance(result, float)
+        assert isinstance(result, (np.ndarray, float))
 
     def test_process_equal_weights(self):
         audio = np.random.randn(16000).astype(np.float32)
@@ -92,7 +92,7 @@ class TestMultiModelEnsemble(unittest.TestCase):
 
         processor = EnsembleProcessor(Context(), fusion_engine)
         result, results, chain = processor.process(audio)
-        assert isinstance(result, np.ndarray) or isinstance(result, float)
+        assert isinstance(result, (np.ndarray, float))
 
     def test_process_vinyl_context(self):
         audio = np.random.randn(16000).astype(np.float32)
@@ -112,7 +112,7 @@ class TestMultiModelEnsemble(unittest.TestCase):
 
         processor = EnsembleProcessor(Context(), fusion_engine)
         result, results, chain = processor.process(audio)
-        assert isinstance(result, np.ndarray) or isinstance(result, float)
+        assert isinstance(result, (np.ndarray, float))
 
 
 if __name__ == "__main__":

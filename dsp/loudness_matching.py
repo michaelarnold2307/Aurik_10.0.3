@@ -9,7 +9,11 @@ Implementierung ohne externe Abhängigkeiten:
 Fallback: pyloudnorm wenn installiert.
 """
 
+import logging
+
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 
 class AiLoudnessMatching:
@@ -78,7 +82,7 @@ class AiLoudnessMatching:
                 return float(meter.integrated_loudness(audio))
             return float(meter.integrated_loudness(audio.T))
         except ImportError:
-            pass
+            logger.debug("pyloudnorm not available, using built-in K-weighting")
         weighted = self._k_weight(audio, sr)
         if weighted.ndim == 1:
             mean_sq = float(np.mean(weighted**2))
@@ -107,4 +111,7 @@ class AiLoudnessMatching:
         gain_db = self.target_loudness - measured
         # Sicherheitsbegrenzung: max +20 / -40 dB
         gain_db = float(np.clip(gain_db, -40.0, 20.0))
-        return (audio * 10.0 ** (gain_db / 20.0)).astype(audio.dtype)
+        out = audio * 10.0 ** (gain_db / 20.0)
+        out = np.nan_to_num(out, nan=0.0, posinf=0.0, neginf=0.0)
+        out = np.clip(out, -1.0, 1.0)
+        return out.astype(audio.dtype)

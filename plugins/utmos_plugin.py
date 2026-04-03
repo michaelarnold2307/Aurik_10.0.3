@@ -166,8 +166,8 @@ class UTMOSPlugin:
                         raise RuntimeError("Budget exceeded")
                 except RuntimeError:
                     raise
-                except Exception:
-                    pass  # psutil not available — proceed
+                except Exception as _exc:
+                    logger.debug("Operation failed (non-critical): %s", _exc)  # psutil not available — proceed
                 self._session = ort.InferenceSession(
                     str(model_path),
                     providers=["CPUExecutionProvider"],
@@ -205,8 +205,8 @@ class UTMOSPlugin:
             if not _try_alloc("UTMOSv2", 0.8 * self._N_FOLDS):
                 logger.warning("UTMOSv2: ML-Budget erschöpft — PQS-DSP-Fallback aktiv.")
                 return False
-        except Exception:
-            pass  # Budget-Modul nicht verfügbar — weiter
+        except Exception as _exc:
+            logger.debug("Operation failed (non-critical): %s", _exc)  # Budget-Modul nicht verfügbar — weiter
         try:
             import os as _os
             import sys as _sys
@@ -348,8 +348,8 @@ class UTMOSPlugin:
                     _unload_fn = globals().get("unload_utmos")
                     if _unload_fn is not None:
                         _reg_plm("UTMOSv2", size_gb=0.8 * self._N_FOLDS, unload_fn=_unload_fn)
-                except Exception:
-                    pass
+                except Exception as _exc:
+                    logger.debug("Operation failed (non-critical): %s", _exc)
                 return True
             return False
 
@@ -775,8 +775,8 @@ def unload_utmos() -> None:
             from backend.core.ml_memory_budget import release as _rel
 
             _rel("UTMOSv2")
-        except Exception:
-            pass
+        except Exception as _exc:
+            logger.debug("Operation failed (non-critical): %s", _exc)
         logger.info("UTMOSv2: Modell entladen, RAM freigegeben.")
 
 

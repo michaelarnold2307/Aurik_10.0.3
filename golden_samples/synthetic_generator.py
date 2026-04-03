@@ -358,7 +358,7 @@ class SyntheticGoldenSampleGenerator:
         # Saxophone melody (improvisation-like)
         sax_freq = 440.0  # A4
         melody_pattern = np.sin(2 * np.pi * 0.5 * t)  # Melodic contour
-        sax_signal = np.sin(2 * np.pi * sax_freq * (1 + 0.2 * melody_pattern) * t)
+        np.sin(2 * np.pi * sax_freq * (1 + 0.2 * melody_pattern) * t)
 
         # Add saxophone harmonics
         for harmonic in [1, 2, 3]:

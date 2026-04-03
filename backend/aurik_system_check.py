@@ -1,5 +1,3 @@
-import logging
-
 """
 Aurik 6.0 – SOTA-System- und Plugin-Check
 
@@ -9,9 +7,9 @@ Alle Ausgaben und Begriffe sind an die aktuelle Architektur angepasst.
 
 import glob
 import importlib
+import logging
 import os
 import sys
-from typing import List
 
 import requests
 
@@ -21,22 +19,16 @@ logger.info("Aurik 6.0 – SOTA System- und Plugin-Check")
 
 # Kernabhängigkeiten
 try:
-    import soundfile
-
     logger.info("Check: soundfile OK")
 except Exception as e:
     logger.error(f"ERROR: soundfile: {e}")
     sys.exit(1)
 try:
-    import numpy as np
-
     logger.info("Check: numpy OK")
 except Exception as e:
     logger.error(f"ERROR: numpy: {e}")
     sys.exit(1)
 try:
-    import onnxruntime
-
     logger.info("Check: onnxruntime OK")
 except Exception as e:
     logger.error(f"ERROR: onnxruntime: {e}")

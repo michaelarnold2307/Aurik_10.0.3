@@ -121,14 +121,18 @@ class DefectType(Enum):
     # --- v9.10.77: Vocal-Harshness (ergibt 30 DefectTypes) ---
     VOCAL_HARSHNESS = "vocal_harshness"  # Vokale Härte/Übersteuerung/Kratzigkeit im 2–6 kHz Band → phase_42 + phase_19
     # --- v9.10.x: Dolby NR Mismatch (ergibt 31 DefectTypes) ---
-    DOLBY_NR_MISMATCH = "dolby_nr_mismatch"  # Dolby B/C/S encode ohne passende Dekodierung → +6–20 dB HF-Anhebung → phase_04 + phase_14
+    DOLBY_NR_MISMATCH = (
+        "dolby_nr_mismatch"  # Dolby B/C/S encode ohne passende Dekodierung → +6–20 dB HF-Anhebung → phase_04 + phase_14
+    )
     # --- v9.10.x: Tape Head Level Dip (ergibt 32 DefectTypes) ---
     TAPE_HEAD_LEVEL_DIP = "tape_head_level_dip"  # Graduelle Pegeleinbrüche durch Bandkopf-Kontaktdruckvariation / Capstan-Unregelmäßigkeit → phase_12
     # --- v9.10.98: 12 neue DefectTypes → 44 Gesamtanzahl (SOTA-Erweiterung) ---
     # Echte Lücken (6 neue Defekttypen):
     MODULATION_NOISE = "modulation_noise"  # Signal-abhängiges Rauschen bei Bandaufnahmen (moduliert mit Signalpegel) → phase_59 — Esquef & Biscainho 2006
     INNER_GROOVE_DISTORTION = "inner_groove_distortion"  # Vinyl-IGD: Abtastverzerrung nimmt zum Platteninneren zu (geringere Rillengeschwindigkeit) → phase_60
-    GROOVE_ECHO = "groove_echo"  # Vinyl-Rillen-Pre-Echo durch Deformation benachbarter Rillen (~1.8 s Vorecho) → phase_61
+    GROOVE_ECHO = (
+        "groove_echo"  # Vinyl-Rillen-Pre-Echo durch Deformation benachbarter Rillen (~1.8 s Vorecho) → phase_61
+    )
     CROSSTALK = "crosstalk"  # Kanalübersprechen in frühen Stereo-Aufnahmen (Kanaltrennung < 20 dB) → phase_62
     INTERMODULATION_DISTORTION = "intermodulation_distortion"  # IMD: Summen-/Differenzfrequenzen durch nichtlineare Verstärkerketten (Volterra) → phase_63
     TAPE_SPLICE_ARTIFACT = "tape_splice_artifact"  # Bandschnitt-Artefakte: Klick + Pegelsprung + Phasendiskontinuität an Klebestellen → phase_64
@@ -137,7 +141,9 @@ class DefectType(Enum):
     STYLUS_DAMAGE = "stylus_damage"  # Nadelbeschädigung/-abnutzung: asymmetrische Abtastverzerrung (anders als generisches Crackle) → phase_09 + phase_23
     STICKY_SHED_RESIDUE = "sticky_shed_residue"  # Binder-Hydrolyse-Residuen: moduliertes Rauschen + Pegeleinbrüche nach Backen → phase_24 + phase_29
     MULTIBAND_WOW_FLUTTER = "multiband_wow_flutter"  # Frequenzabhängiger Wow/Flutter (Kopfspalt-Geometrie) — Czyzewski 2023 → phase_12 (multi-band)
-    GENERATION_LOSS = "generation_loss"  # Kumulativer Generationsverlust durch Tape-Dubbing → ganzheitliches Degradationsmodell
+    GENERATION_LOSS = (
+        "generation_loss"  # Kumulativer Generationsverlust durch Tape-Dubbing → ganzheitliches Degradationsmodell
+    )
     MOTOR_INTERFERENCE = "motor_interference"  # Plattenspieler-Motorinterferenz: harmonische Obertöne 80–300 Hz (nicht nur Rumble) → phase_02 + phase_05
 
 
@@ -1192,17 +1198,17 @@ class DefectScanner:
         # §9.4a — Digital-only materials have no mechanical transport mechanism.
         # Their MATERIAL_SENSITIVITY threshold is 1.0 (never triggers). Skip the
         # expensive full-audio frame analysis entirely to save ~15–40 s on long files.
-        _DIGITAL_NO_BUMP: frozenset[MaterialType] = frozenset({
-            MaterialType.CD_DIGITAL,
-            MaterialType.MP3_LOW,
-            MaterialType.MP3_HIGH,
-            MaterialType.AAC,
-            MaterialType.STREAMING,
-        })
+        _DIGITAL_NO_BUMP: frozenset[MaterialType] = frozenset(
+            {
+                MaterialType.CD_DIGITAL,
+                MaterialType.MP3_LOW,
+                MaterialType.MP3_HIGH,
+                MaterialType.AAC,
+                MaterialType.STREAMING,
+            }
+        )
         if material_type in _DIGITAL_NO_BUMP:
-            scores[DefectType.TRANSPORT_BUMP] = DefectScore(
-                DefectType.TRANSPORT_BUMP, 0.0, 0.95
-            )
+            scores[DefectType.TRANSPORT_BUMP] = DefectScore(DefectType.TRANSPORT_BUMP, 0.0, 0.95)
             logger.info(
                 "DefectScanner: TRANSPORT_BUMP skipped (digital material=%s, §9.4a)",
                 material_type,
@@ -1213,17 +1219,17 @@ class DefectScanner:
         # §9.1a — TAPE_HEAD_LEVEL_DIP is non-stationary (gradual level dips from
         # head-contact pressure variation).  MUST run on FULL audio.
         # Only relevant for tape-based materials with magnetic head mechanism.
-        _TAPE_HEAD_DIP_MATERIALS: frozenset[MaterialType] = frozenset({
-            MaterialType.TAPE,
-            MaterialType.REEL_TAPE,
-            MaterialType.WIRE_RECORDING,
-        })
+        _TAPE_HEAD_DIP_MATERIALS: frozenset[MaterialType] = frozenset(
+            {
+                MaterialType.TAPE,
+                MaterialType.REEL_TAPE,
+                MaterialType.WIRE_RECORDING,
+            }
+        )
         if material_type in _TAPE_HEAD_DIP_MATERIALS:
             scores[DefectType.TAPE_HEAD_LEVEL_DIP] = self._detect_tape_head_level_dips(_audio_mono_full)
         else:
-            scores[DefectType.TAPE_HEAD_LEVEL_DIP] = DefectScore(
-                DefectType.TAPE_HEAD_LEVEL_DIP, 0.0, 0.95
-            )
+            scores[DefectType.TAPE_HEAD_LEVEL_DIP] = DefectScore(DefectType.TAPE_HEAD_LEVEL_DIP, 0.0, 0.95)
 
         # ── Full-Audio Location Re-Detection ───────────────────────────────────
         # The center-crop analysis (60 s) produces locations ONLY in the middle
@@ -1318,9 +1324,9 @@ class DefectScanner:
                     if _merged_sev > (_prev_sev + 0.02):
                         scores[_sdt].metadata["outside_center_crop_detected"] = True
                         scores[_sdt].metadata["outside_center_crop_recheck"] = "full_audio_severity"
-                except Exception:
+                except Exception as _exc:
+                    logger.debug("Non-stationary recheck failed for %s: %s", _sdt, _exc)
                     # Keep center-crop value on recheck errors.
-                    pass
 
             # DROPOUTS + TRANSPORT_BUMP + TAPE_HEAD_LEVEL_DIP already use full audio — no correction needed.
             # Event detectors re-detected above — no correction needed.
@@ -1373,10 +1379,15 @@ class DefectScanner:
         _INTRO_SEVERITY_BOOST = 1.5  # 50% boost for intro defects
         _TAPE_EXTENDED_INTRO_S = 20.0  # extended intro region for tape head settling
         _TAPE_EXTENDED_BOOST = 1.25  # 25% boost for tape extended intro (5–20 s)
-        _is_tape_material = self.material_type in (
-            MaterialType.TAPE,
-            MaterialType.REEL_TAPE,
-        ) if self.material_type is not None else False
+        _is_tape_material = (
+            self.material_type
+            in (
+                MaterialType.TAPE,
+                MaterialType.REEL_TAPE,
+            )
+            if self.material_type is not None
+            else False
+        )
         _total_duration_s = len(_audio_mono_full) / sr
         if _total_duration_s > _INTRO_SECONDS * 2:  # only for non-trivial audio
             for _dt, _ds in scores.items():
@@ -1387,8 +1398,7 @@ class DefectScanner:
                 _ext_intro_events = []
                 if _is_tape_material:
                     _ext_intro_events = [
-                        (t0, t1) for t0, t1 in _ds.locations
-                        if _INTRO_SECONDS <= t0 < _TAPE_EXTENDED_INTRO_S
+                        (t0, t1) for t0, t1 in _ds.locations if _INTRO_SECONDS <= t0 < _TAPE_EXTENDED_INTRO_S
                     ]
                 if (_intro_events or _ext_intro_events) and _ds.severity > 0.0:
                     _n_total = max(len(_ds.locations), 1)
@@ -1456,22 +1466,21 @@ class DefectScanner:
                     _ch_crackle = self._detect_crackle(_ch_audio)
                     if _ch_crackle.locations:
                         _per_channel_locs.setdefault("crackle", {})[_ch_label] = list(_ch_crackle.locations)
-                except Exception:
-                    pass
-                # Clipping per channel
+                except Exception as _exc:
+                    logger.debug("Per-channel crackle detection failed (%s): %s", _ch_label, _exc)
                 try:
                     _ch_clip = self._detect_clipping(_ch_audio)
                     if _ch_clip.locations:
                         _per_channel_locs.setdefault("clipping", {})[_ch_label] = list(_ch_clip.locations)
-                except Exception:
-                    pass
+                except Exception as _exc:
+                    logger.debug("Per-channel clipping detection failed (%s): %s", _ch_label, _exc)
                 # Sibilance per channel
                 try:
                     _ch_sib = self._detect_sibilance(_ch_audio)
                     if _ch_sib.locations:
                         _per_channel_locs.setdefault("sibilance", {})[_ch_label] = list(_ch_sib.locations)
-                except Exception:
-                    pass
+                except Exception as _exc:
+                    logger.debug("Per-channel sibilance detection failed (%s): %s", _ch_label, _exc)
                 # Transport bumps per channel — skip for pure digital material
                 # (no tape/disc transport mechanism, §9.4a — same guard as main call)
                 if material_type not in _DIGITAL_NO_BUMP:
@@ -1479,15 +1488,15 @@ class DefectScanner:
                         _ch_bump = self._detect_transport_bump(_ch_audio)
                         if _ch_bump.locations:
                             _per_channel_locs.setdefault("transport_bump", {})[_ch_label] = list(_ch_bump.locations)
-                    except Exception:
-                        pass
+                    except Exception as _exc:
+                        logger.debug("Per-channel transport_bump detection failed (%s): %s", _ch_label, _exc)
                 # Vocal harshness per channel
                 try:
                     _ch_harsh = self._detect_vocal_harshness(_ch_audio)
                     if _ch_harsh.locations:
                         _per_channel_locs.setdefault("vocal_harshness", {})[_ch_label] = list(_ch_harsh.locations)
-                except Exception:
-                    pass
+                except Exception as _exc:
+                    logger.debug("Per-channel vocal_harshness detection failed (%s): %s", _ch_label, _exc)
             # Store per-channel info as metadata on the combined scores
             for _dk, _ch_dict in _per_channel_locs.items():
                 _dt_key = {v: k for k, v in _DT_TO_KEY.items()}.get(_dk)
@@ -1739,7 +1748,7 @@ class DefectScanner:
         # Vinyl (1950s scratched): HF=0.035, rumble=0.0002, crackle=1.0, clicks=48
         vinyl_score = 0.0
         vinyl_score += high_freq_energy * 150.0  # Höhere HF als Tape (Hauptmerkmal!)
-        vinyl_score += crackle_score * 3.0  # Starkes Crackle typisch
+        vinyl_score += crackle_score * 2.0  # Crackle typisch, aber nicht exklusiv (§3 Material-Mismatch-Fix)
         vinyl_score += click_rate * 0.3  # Moderate Clicks
         vinyl_score += wow_flutter_score * 2.0  # Speed-Variation
         vinyl_score -= rumble_energy * 1500.0  # SEHR wenig Rumble - stark gewichtet!
@@ -1817,7 +1826,7 @@ class DefectScanner:
 
         # VINYL Score
         vinyl_score = 0.0
-        vinyl_score += crackle_score * 3.0  # Crackle ist SEHR typisch für Vinyl
+        vinyl_score += crackle_score * 2.0  # Crackle typisch für Vinyl, aber nicht exklusiv (§3 Material-Mismatch-Fix)
         vinyl_score += rumble_energy * 10.0  # Rumble ist Vinyl-spezifisch
         vinyl_score += wow_flutter_score * 1.5  # Analog-Medium
         vinyl_score += click_score * 1.0  # Moderate Clicks
@@ -1830,7 +1839,7 @@ class DefectScanner:
         tape_score += hf_noise_score * 4.0  # Tape hiss sehr charakteristisch
         tape_score += wow_flutter_score * 2.0  # Noch typischer für Tape
         tape_score += click_score * 0.5  # Wenige Clicks
-        tape_score -= crackle_score * 2.0  # Tape hat kein Crackle
+        tape_score -= crackle_score * 0.5  # Gealtertes Tape kann Crackle haben (Oxidflaking) — leichte Penalty
         tape_score -= rumble_energy * 5.0  # Tape hat keinen Rumble
         tape_score -= compression_score * 2.0  # Tape analog
         scores[MaterialType.TAPE] = max(0, tape_score)
@@ -2230,8 +2239,8 @@ class DefectScanner:
                 _hum_band_e = best_ratio * (float(np.mean(audio[: min(len(audio), 4 * self.sample_rate)] ** 2)) + 1e-20)
                 if _sub40_e > _hum_band_e * 3.0 and best_sharpness < 3.0:
                     best_ratio *= 0.25  # Sub-40 Hz dominates → likely rumble, not hum
-            except Exception:
-                pass
+            except Exception as _exc:
+                logger.debug("Hum sub-40 Hz rumble guard failed: %s", _exc)
 
         # --- Anti-FP: Harmonic decay validation ---
         # Real hum has monotonically decaying harmonics. Random bass doesn't.
@@ -2468,13 +2477,12 @@ class DefectScanner:
         lf_baseline = _medfilt(lf_ratio, size=ctx)
         sc_baseline = _medfilt(sc_env, size=ctx)
         flux_baseline = _medfilt(flux_env, size=min(ctx, len(flux_env)))
-        zcr_baseline = _medfilt(zcr_env, size=ctx)
+        _medfilt(zcr_env, size=ctx)
 
         # Numerical stability: clamp rms_baseline to avoid rms_ratio blowing up
         # during silent passages (fade-ins, intros, near-silence frames).
         # Without this guard, rms_baseline ≈ 0 → rms_ratio ≈ 307× → false positives.
-        _rms_floor = max(float(np.percentile(rms_env[rms_env > 0], 5)) * 0.1
-                         if np.any(rms_env > 0) else 1e-5, 1e-5)
+        _rms_floor = max(float(np.percentile(rms_env[rms_env > 0], 5)) * 0.1 if np.any(rms_env > 0) else 1e-5, 1e-5)
         rms_baseline = np.maximum(rms_baseline, _rms_floor)
 
         # --- Feature 1 (MANDATORY): Energy anomaly ---
@@ -3963,8 +3971,8 @@ class DefectScanner:
                 if median_if > 50:
                     if_std = float(np.std(inst_freq[valid]))
                     if_variance = float(np.clip(if_std / median_if - 0.05, 0.0, 1.0))
-        except (ImportError, ValueError):
-            pass
+        except (ImportError, ValueError) as _exc:
+            logger.debug("Instantaneous frequency variance failed: %s", _exc)
 
         # --- 3. HF spectral variance across segments ---
         seg_len = min(8192, n // 4)
@@ -4629,16 +4637,20 @@ class DefectScanner:
                 mask = (freqs >= lo) & (freqs < hi)
                 return float(np.sum(psd[mask]) + 1e-20)
 
-            e_mid = _band_energy(300.0, 2000.0)       # Mid: speech fundamentals
+            e_mid = _band_energy(300.0, 2000.0)  # Mid: speech fundamentals
             e_presence = _band_energy(2000.0, 8000.0)  # Presence: Dolby-NR pre-emphasis zone
-            e_air = _band_energy(8000.0, 16000.0)      # Air: upper Dolby-B/C zone
+            e_air = _band_energy(8000.0, 16000.0)  # Air: upper Dolby-B/C zone
 
             hf_to_mid = (e_presence + e_air) / e_mid
 
             # --- Shelf-flatness check: Dolby pre-emp is a shelf, not a peak ---
             # Divide presence into 4 sub-bands; Dolby-NR raises all uniformly.
-            presence_bands = [_band_energy(2000.0, 3000.0), _band_energy(3000.0, 4500.0),
-                              _band_energy(4500.0, 6500.0), _band_energy(6500.0, 8000.0)]
+            presence_bands = [
+                _band_energy(2000.0, 3000.0),
+                _band_energy(3000.0, 4500.0),
+                _band_energy(4500.0, 6500.0),
+                _band_energy(6500.0, 8000.0),
+            ]
             pb_norm = np.array(presence_bands) / (np.max(presence_bands) + 1e-20)
             # Shelf: all sub-bands elevated uniformly → low variance, all > 0.3
             shelf_uniformity = float(1.0 - np.std(pb_norm))  # 0..1; high = shelf-like
@@ -4720,8 +4732,7 @@ class DefectScanner:
 
             # Vectorized RMS computation
             rms_env = np.array(
-                [np.sqrt(np.mean(audio[i * env_hop: i * env_hop + env_win] ** 2) + 1e-15)
-                 for i in range(n_frames)],
+                [np.sqrt(np.mean(audio[i * env_hop : i * env_hop + env_win] ** 2) + 1e-15) for i in range(n_frames)],
                 dtype=np.float64,
             )
             rms_db = 20.0 * np.log10(rms_env + 1e-15)
@@ -4731,6 +4742,7 @@ class DefectScanner:
             if ref_frames % 2 == 0:
                 ref_frames += 1
             from scipy.ndimage import percentile_filter
+
             ref_db = percentile_filter(rms_db, percentile=75, size=ref_frames, mode="reflect")
 
             # Dip mask
@@ -4738,6 +4750,7 @@ class DefectScanner:
 
             # Connected-component labelling
             from scipy.ndimage import label as nd_label
+
             _label_result: tuple[np.ndarray, int] = nd_label(dip_mask)  # type: ignore[assignment]
             labeled, n_dips_raw = _label_result
 
@@ -4759,8 +4772,11 @@ class DefectScanner:
             n_dips = len(locations)
             if n_dips == 0:
                 return DefectScore(
-                    DefectType.TAPE_HEAD_LEVEL_DIP, 0.0, 0.85,
-                    locations=[], metadata={"dip_count": 0},
+                    DefectType.TAPE_HEAD_LEVEL_DIP,
+                    0.0,
+                    0.85,
+                    locations=[],
+                    metadata={"dip_count": 0},
                 )
 
             duration_s = n / sr
@@ -5333,10 +5349,11 @@ class DefectScanner:
                 return DefectScore(DefectType.MODULATION_NOISE, 0.0, 0.3)
 
             frames = np.lib.stride_tricks.as_strided(
-                audio, shape=(n_frames, frame_len),
+                audio,
+                shape=(n_frames, frame_len),
                 strides=(audio.strides[0] * hop, audio.strides[0]),
             ).copy()
-            rms_env = np.sqrt(np.mean(frames ** 2, axis=1) + 1e-12)
+            rms_env = np.sqrt(np.mean(frames**2, axis=1) + 1e-12)
 
             # Noise estimate: difference between adjacent frames (stationarity assumption)
             noise_var = np.abs(np.diff(rms_env))
@@ -5368,7 +5385,9 @@ class DefectScanner:
                 return DefectScore(DefectType.MODULATION_NOISE, 0.0, 0.5)
             confidence = float(np.clip(0.5 + corr * 0.3, 0.3, 0.95))
             return DefectScore(
-                DefectType.MODULATION_NOISE, float(np.clip(raw_sev, 0.0, 1.0)), confidence,
+                DefectType.MODULATION_NOISE,
+                float(np.clip(raw_sev, 0.0, 1.0)),
+                confidence,
                 metadata={"correlation": round(corr, 4), "noise_signal_ratio": round(ratio, 6)},
             )
         except Exception:
@@ -5425,7 +5444,9 @@ class DefectScanner:
                 return DefectScore(DefectType.INNER_GROOVE_DISTORTION, 0.0, 0.5)
             confidence = float(np.clip(0.4 + 0.15 * n_increasing, 0.3, 0.90))
             return DefectScore(
-                DefectType.INNER_GROOVE_DISTORTION, float(np.clip(raw_sev, 0.0, 1.0)), confidence,
+                DefectType.INNER_GROOVE_DISTORTION,
+                float(np.clip(raw_sev, 0.0, 1.0)),
+                confidence,
                 metadata={"thd_per_quarter": [round(v, 6) for v in thd_values], "slope": round(slope, 4)},
             )
         except Exception:
@@ -5507,9 +5528,14 @@ class DefectScanner:
                 return DefectScore(DefectType.GROOVE_ECHO, 0.0, 0.5)
             confidence = float(np.clip(0.4 + mean_corr * 0.3, 0.3, 0.90))
             return DefectScore(
-                DefectType.GROOVE_ECHO, float(np.clip(raw_sev, 0.0, 1.0)), confidence,
-                metadata={"mean_ratio": round(mean_ratio, 4), "spectral_corr": round(mean_corr, 4),
-                          "n_echoes": len(best_ratios)},
+                DefectType.GROOVE_ECHO,
+                float(np.clip(raw_sev, 0.0, 1.0)),
+                confidence,
+                metadata={
+                    "mean_ratio": round(mean_ratio, 4),
+                    "spectral_corr": round(mean_corr, 4),
+                    "n_echoes": len(best_ratios),
+                },
             )
         except Exception:
             return DefectScore(DefectType.GROOVE_ECHO, 0.0, 0.3)
@@ -5572,7 +5598,9 @@ class DefectScanner:
                 return DefectScore(DefectType.CROSSTALK, 0.0, 0.5)
             confidence = float(np.clip(0.4 + mean_coherence * 0.3, 0.3, 0.90))
             return DefectScore(
-                DefectType.CROSSTALK, float(np.clip(raw_sev, 0.0, 1.0)), confidence,
+                DefectType.CROSSTALK,
+                float(np.clip(raw_sev, 0.0, 1.0)),
+                confidence,
                 metadata={"mean_coherence": round(mean_coherence, 4), "delay_ratio": round(delay_ratio, 4)},
             )
         except Exception:
@@ -5660,7 +5688,9 @@ class DefectScanner:
                 return DefectScore(DefectType.INTERMODULATION_DISTORTION, 0.0, 0.5)
             confidence = float(np.clip(0.4 + len(imd_evidence) * 0.05, 0.3, 0.90))
             return DefectScore(
-                DefectType.INTERMODULATION_DISTORTION, float(np.clip(raw_sev, 0.0, 1.0)), confidence,
+                DefectType.INTERMODULATION_DISTORTION,
+                float(np.clip(raw_sev, 0.0, 1.0)),
+                confidence,
                 metadata={"n_imd_products": len(imd_evidence), "mean_imd_level_db": round(mean_imd, 2)},
             )
         except Exception:
@@ -5690,10 +5720,11 @@ class DefectScanner:
                 return DefectScore(DefectType.TAPE_SPLICE_ARTIFACT, 0.0, 0.3)
 
             frames = np.lib.stride_tricks.as_strided(
-                audio, shape=(n_frames, frame_len),
+                audio,
+                shape=(n_frames, frame_len),
                 strides=(audio.strides[0] * hop, audio.strides[0]),
             ).copy()
-            rms_env = np.sqrt(np.mean(frames ** 2, axis=1) + 1e-12)
+            rms_env = np.sqrt(np.mean(frames**2, axis=1) + 1e-12)
 
             # Level jumps: sudden RMS change > 6 dB in one frame
             rms_db = 20.0 * np.log10(rms_env + 1e-12)
@@ -5715,7 +5746,7 @@ class DefectScanner:
                 junction = audio[sample_idx - 32 : sample_idx + 32]
                 hf_spec = np.abs(np.fft.rfft(junction))
                 hf_energy = float(np.sum(hf_spec[len(hf_spec) // 2 :] ** 2))
-                total_energy = float(np.sum(hf_spec ** 2)) + 1e-12
+                total_energy = float(np.sum(hf_spec**2)) + 1e-12
                 hf_ratio = hf_energy / total_energy
 
                 # Check level persistence (must persist > 50 ms after jump)
@@ -5743,7 +5774,9 @@ class DefectScanner:
                 return DefectScore(DefectType.TAPE_SPLICE_ARTIFACT, 0.0, 0.5)
             confidence = float(np.clip(0.5 + len(splice_events) * 0.05, 0.3, 0.90))
             return DefectScore(
-                DefectType.TAPE_SPLICE_ARTIFACT, float(np.clip(raw_sev, 0.0, 1.0)), confidence,
+                DefectType.TAPE_SPLICE_ARTIFACT,
+                float(np.clip(raw_sev, 0.0, 1.0)),
+                confidence,
                 locations=locations[:20],
                 metadata={"n_splices": len(splice_events), "mean_jump_db": round(mean_jump, 2)},
             )
@@ -5784,7 +5817,7 @@ class DefectScanner:
 
             hf_freqs = freqs[hf_mask]
             hf_db = spec_db[hf_mask]
-            noise_floor = float(np.percentile(spec_db, 5))
+            float(np.percentile(spec_db, 5))
 
             # Linear regression for roll-off slope (dB/octave)
             log_freqs = np.log2(hf_freqs + 1.0)
@@ -5811,7 +5844,9 @@ class DefectScanner:
                 return DefectScore(DefectType.HF_REMANENCE_LOSS, 0.0, 0.5)
             confidence = float(np.clip(0.4 + 0.1 * min(n_ghost, 5), 0.3, 0.90))
             return DefectScore(
-                DefectType.HF_REMANENCE_LOSS, float(np.clip(raw_sev, 0.0, 1.0)), confidence,
+                DefectType.HF_REMANENCE_LOSS,
+                float(np.clip(raw_sev, 0.0, 1.0)),
+                confidence,
                 metadata={"slope_db_octave": round(slope_db_per_octave, 2), "n_ghost_harmonics": n_ghost},
             )
         except Exception:
@@ -5881,7 +5916,9 @@ class DefectScanner:
                 return DefectScore(DefectType.STYLUS_DAMAGE, 0.0, 0.5)
             confidence = float(np.clip(0.4 + odd_ratio * 0.3, 0.3, 0.90))
             return DefectScore(
-                DefectType.STYLUS_DAMAGE, float(np.clip(raw_sev, 0.0, 1.0)), confidence,
+                DefectType.STYLUS_DAMAGE,
+                float(np.clip(raw_sev, 0.0, 1.0)),
+                confidence,
                 metadata={"odd_ratio": round(odd_ratio, 4), "waveform_asymmetry": round(asym, 4)},
             )
         except Exception:
@@ -5914,10 +5951,11 @@ class DefectScanner:
                 return DefectScore(DefectType.STICKY_SHED_RESIDUE, 0.0, 0.3)
 
             frames = np.lib.stride_tricks.as_strided(
-                audio, shape=(n_frames, frame_len),
+                audio,
+                shape=(n_frames, frame_len),
                 strides=(audio.strides[0] * hop, audio.strides[0]),
             ).copy()
-            rms_env = np.sqrt(np.mean(frames ** 2, axis=1) + 1e-12)
+            rms_env = np.sqrt(np.mean(frames**2, axis=1) + 1e-12)
             rms_db = 20.0 * np.log10(rms_env + 1e-12)
 
             # Detect short dips (10–100 ms duration, >4 dB depth)
@@ -5954,10 +5992,16 @@ class DefectScanner:
             locations = [(d[0] * hop / sr, d[1] * hop / sr) for d in dip_events[:20]]
             confidence = float(np.clip(0.4 + event_rate * 0.1, 0.3, 0.90))
             return DefectScore(
-                DefectType.STICKY_SHED_RESIDUE, float(np.clip(raw_sev, 0.0, 1.0)), confidence,
+                DefectType.STICKY_SHED_RESIDUE,
+                float(np.clip(raw_sev, 0.0, 1.0)),
+                confidence,
                 locations=locations,
-                metadata={"n_events": len(dip_events), "mean_depth_db": round(mean_depth, 2),
-                          "mean_duration_ms": round(mean_duration, 1), "events_per_second": round(event_rate, 3)},
+                metadata={
+                    "n_events": len(dip_events),
+                    "mean_depth_db": round(mean_depth, 2),
+                    "mean_duration_ms": round(mean_duration, 1),
+                    "events_per_second": round(event_rate, 3),
+                },
             )
         except Exception:
             return DefectScore(DefectType.STICKY_SHED_RESIDUE, 0.0, 0.3)
@@ -6023,9 +6067,13 @@ class DefectScanner:
                 return DefectScore(DefectType.MULTIBAND_WOW_FLUTTER, 0.0, 0.5)
             confidence = float(np.clip(0.4 + cv * 0.2, 0.3, 0.90))
             return DefectScore(
-                DefectType.MULTIBAND_WOW_FLUTTER, float(np.clip(raw_sev, 0.0, 1.0)), confidence,
-                metadata={"band_instabilities": [round(b, 4) for b in band_instabilities],
-                          "cv_across_bands": round(cv, 4)},
+                DefectType.MULTIBAND_WOW_FLUTTER,
+                float(np.clip(raw_sev, 0.0, 1.0)),
+                confidence,
+                metadata={
+                    "band_instabilities": [round(b, 4) for b in band_instabilities],
+                    "cv_across_bands": round(cv, 4),
+                },
             )
         except Exception:
             return DefectScore(DefectType.MULTIBAND_WOW_FLUTTER, 0.0, 0.3)
@@ -6070,9 +6118,7 @@ class DefectScanner:
                 effective_bw = float(freqs[-1])
 
             # 3. Phase coherence (spectral flatness as proxy)
-            spectral_flatness = float(
-                np.exp(np.mean(np.log(spec + 1e-20))) / (np.mean(spec) + 1e-20)
-            )
+            spectral_flatness = float(np.exp(np.mean(np.log(spec + 1e-20))) / (np.mean(spec) + 1e-20))
 
             # Severity model: high noise floor + narrow bandwidth + phase degradation
             noise_sev = float(np.clip((noise_floor_db + 40.0) / 30.0, 0.0, 0.4))
@@ -6086,9 +6132,15 @@ class DefectScanner:
                 return DefectScore(DefectType.GENERATION_LOSS, 0.0, 0.5)
             confidence = float(np.clip(0.35 + raw_sev * 0.3, 0.3, 0.85))
             return DefectScore(
-                DefectType.GENERATION_LOSS, float(np.clip(raw_sev, 0.0, 1.0)), confidence,
-                metadata={"noise_floor_db": round(noise_floor_db, 2), "effective_bw_hz": round(effective_bw, 0),
-                          "spectral_flatness": round(spectral_flatness, 4), "floor_uniformity": round(floor_uniforms, 2)},
+                DefectType.GENERATION_LOSS,
+                float(np.clip(raw_sev, 0.0, 1.0)),
+                confidence,
+                metadata={
+                    "noise_floor_db": round(noise_floor_db, 2),
+                    "effective_bw_hz": round(effective_bw, 0),
+                    "spectral_flatness": round(spectral_flatness, 4),
+                    "floor_uniformity": round(floor_uniforms, 2),
+                },
             )
         except Exception:
             return DefectScore(DefectType.GENERATION_LOSS, 0.0, 0.3)
@@ -6115,7 +6167,7 @@ class DefectScanner:
             freqs = np.fft.rfftfreq(n_fft, 1.0 / sr)
             spec = np.abs(np.fft.rfft(audio[:n_fft])) ** 2
             spec_db = 10.0 * np.log10(spec + 1e-20)
-            noise_floor = float(np.percentile(spec_db, 20))
+            float(np.percentile(spec_db, 20))
             freq_res = float(freqs[1] - freqs[0]) if len(freqs) > 1 else 1.0
 
             # Motor frequencies: 33⅓ rpm = 0.556 Hz, 45 rpm = 0.75 Hz, 78 rpm = 1.3 Hz
@@ -6129,7 +6181,7 @@ class DefectScanner:
 
             # Combine with generic motor harmonic series
             motor_freqs.extend([80, 100, 120, 133, 150, 160, 180, 200, 240, 250, 267, 300])
-            motor_freqs = sorted(set(int(f) for f in motor_freqs if 60 < f < 350))
+            motor_freqs = sorted({int(f) for f in motor_freqs if 60 < f < 350})
 
             # Check for peaks at motor frequencies (broad peaks, not sharp peaks like hum)
             motor_peaks = []
@@ -6158,7 +6210,9 @@ class DefectScanner:
                 return DefectScore(DefectType.MOTOR_INTERFERENCE, 0.0, 0.5)
             confidence = float(np.clip(0.4 + len(motor_peaks) * 0.03, 0.3, 0.90))
             return DefectScore(
-                DefectType.MOTOR_INTERFERENCE, float(np.clip(raw_sev, 0.0, 1.0)), confidence,
+                DefectType.MOTOR_INTERFERENCE,
+                float(np.clip(raw_sev, 0.0, 1.0)),
+                confidence,
                 metadata={"n_motor_peaks": len(motor_peaks), "mean_prominence_db": round(mean_prominence, 2)},
             )
         except Exception:

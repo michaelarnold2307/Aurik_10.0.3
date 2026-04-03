@@ -47,7 +47,7 @@ class ShellacEqualizer:
                 "78rpm": (500, +18.0, 8000, -18.0),  # Generische 78rpm / RIAA-Vorgänger
                 "Columbia": (250, +16.0, 9000, -18.0),  # Columbia Records (pre-1948)
                 "Decca": (375, +17.0, 7000, -16.0),  # Decca FFRR
-                "HMV": (500, +18.0, 3500, -18.0),  # HMV / EMI
+                "HMV": (500, +18.0, 5500, -18.0),  # HMV / EMI (corrected: 5.5 kHz, not 3.5 kHz)
             }
             if self.curve not in curve_params:
                 logger.warning(f"Unbekannte Entzerrungskurve: {self.curve}, Fallback auf 78rpm")

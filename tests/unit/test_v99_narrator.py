@@ -45,20 +45,20 @@ def _make_narrator() -> RestorationNarrator:
 
 def _base_narrate(**overrides):
     """Basisaufruf mit sicheren Standardwerten + optionalen Überschreibungen."""
-    defaults = dict(
-        quality_estimate=0.70,
-        material="vinyl",
-        confidence=0.65,
-        confidence_tier="medium",
-        musical_goal_scores={"brillanz": 0.88, "waerme": 0.82, "natuerlichkeit": 0.91},
-        musical_goals_passed={"brillanz": True, "waerme": True, "natuerlichkeit": True},
-        top_defects=[("crackle", 0.75), ("hum", 0.40)],
-        executed_phases=12,
-        era_decade=1963,
-        era_label="1960er Jahren",
-        pqs_mos=4.2,
-        gp_observations=5,
-    )
+    defaults = {
+        "quality_estimate": 0.70,
+        "material": "vinyl",
+        "confidence": 0.65,
+        "confidence_tier": "medium",
+        "musical_goal_scores": {"brillanz": 0.88, "waerme": 0.82, "natuerlichkeit": 0.91},
+        "musical_goals_passed": {"brillanz": True, "waerme": True, "natuerlichkeit": True},
+        "top_defects": [("crackle", 0.75), ("hum", 0.40)],
+        "executed_phases": 12,
+        "era_decade": 1963,
+        "era_label": "1960er Jahren",
+        "pqs_mos": 4.2,
+        "gp_observations": 5,
+    }
     defaults.update(overrides)
     return narrate_restoration(**defaults)
 
@@ -525,12 +525,12 @@ class TestSingleton:
 class TestConsistency:
     def test_69_deterministic_same_input(self):
         """Gleiche Eingabe → gleiche Ausgabe (deterministisch)."""
-        kwargs = dict(
-            quality_estimate=0.72,
-            material="vinyl",
-            confidence=0.65,
-            gp_observations=7,
-        )
+        kwargs = {
+            "quality_estimate": 0.72,
+            "material": "vinyl",
+            "confidence": 0.65,
+            "gp_observations": 7,
+        }
         r1 = narrate_restoration(**kwargs)
         r2 = narrate_restoration(**kwargs)
         assert r1.verdict == r2.verdict

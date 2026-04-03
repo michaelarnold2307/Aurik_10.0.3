@@ -17,10 +17,8 @@ import pytest
 
 from backend.core.medium_classifier import (
     ClassificationResult,
-    MediumClassifier,
     _SpectralFingerprinter,
 )
-
 
 SR = 48_000
 _fp = _SpectralFingerprinter()
@@ -29,6 +27,7 @@ _fp = _SpectralFingerprinter()
 # ---------------------------------------------------------------------------
 # Helper generators
 # ---------------------------------------------------------------------------
+
 
 def _make_lp_modulated(duration_s: float = 8.0, sr: int = SR) -> np.ndarray:
     """White noise with amplitude modulation at LP rotation (0.556 Hz)."""
@@ -176,9 +175,7 @@ class TestRotationPeriodicityDetector:
         unmodulated = _make_unmodulated(duration_s=8.0)
         _, str_mod = _fp._rotation_periodicity(modulated, SR)
         _, str_flat = _fp._rotation_periodicity(unmodulated, SR)
-        assert str_mod >= str_flat, (
-            f"LP modulated ({str_mod:.3f}) should be >= unmodulated ({str_flat:.3f})"
-        )
+        assert str_mod >= str_flat, f"LP modulated ({str_mod:.3f}) should be >= unmodulated ({str_flat:.3f})"
 
 
 # ============================================================================
@@ -277,9 +274,7 @@ class TestCodecArtifactScore:
         clean_audio = _make_digital_clean()
         mp3_score, _ = _fp._codec_artifact_score(mp3_audio, SR)
         clean_score, _ = _fp._codec_artifact_score(clean_audio, SR)
-        assert mp3_score >= clean_score, (
-            f"MP3 score ({mp3_score:.3f}) should be >= clean ({clean_score:.3f})"
-        )
+        assert mp3_score >= clean_score, f"MP3 score ({mp3_score:.3f}) should be >= clean ({clean_score:.3f})"
 
     def test_short_audio_returns_zero(self):
         """Audio shorter than 4 × n_fft must return (0.0, 0.0)."""
@@ -334,9 +329,7 @@ class TestCodecArtifactScore:
 
         score_cut, _ = _fp._codec_artifact_score(cutoff_audio, SR)
         score_full, _ = _fp._codec_artifact_score(full_audio, SR)
-        assert score_cut >= score_full, (
-            f"Hard-cutoff ({score_cut:.3f}) should be >= full-BW ({score_full:.3f})"
-        )
+        assert score_cut >= score_full, f"Hard-cutoff ({score_cut:.3f}) should be >= full-BW ({score_full:.3f})"
 
 
 # ============================================================================
@@ -363,9 +356,7 @@ class TestInfrasonicRms:
         """Vinyl-with-infrasonic must have higher rumble than clean digital audio."""
         vinyl_val = _fp._infrasonic_rms(_make_vinyl_with_infrasonic(), SR)
         digital_val = _fp._infrasonic_rms(_make_digital_clean(), SR)
-        assert vinyl_val >= digital_val, (
-            f"Vinyl infrasonic ({vinyl_val:.4f}) should be >= digital ({digital_val:.4f})"
-        )
+        assert vinyl_val >= digital_val, f"Vinyl infrasonic ({vinyl_val:.4f}) should be >= digital ({digital_val:.4f})"
 
     def test_short_audio_returns_zero(self):
         """Audio shorter than 1 s must return 0.0."""
@@ -437,8 +428,7 @@ class TestExtractNewKeys:
     def test_all_new_keys_present(self):
         audio = _make_unmodulated(duration_s=5.0)
         f = _fp.extract(audio, SR)
-        for key in ("rotation_hz", "rotation_strength", "infrasonic_rms",
-                    "wow_depth", "codec_type_code"):
+        for key in ("rotation_hz", "rotation_strength", "infrasonic_rms", "wow_depth", "codec_type_code"):
             assert key in f, f"Key '{key}' missing from extract() output"
 
     def test_all_values_finite(self):
@@ -465,6 +455,7 @@ class TestMaterialScorerIntegration:
 
     def _score(self, features: dict) -> ClassificationResult:
         from backend.core.medium_classifier import _MaterialScorer
+
         return _MaterialScorer().score(features, None)
 
     def _base_vinyl_features(self) -> dict:
@@ -485,27 +476,33 @@ class TestMaterialScorerIntegration:
 
     def test_lp_rotation_boosts_vinyl(self):
         """Adding LP rotation signal must increase vinyl score relative to baseline."""
-        base = self._score(self._base_vinyl_features())
+        self._score(self._base_vinyl_features())
         enhanced = self._base_vinyl_features()
         enhanced["rotation_hz"] = 0.556
         enhanced["rotation_strength"] = 0.35
         enhanced["infrasonic_rms"] = 0.06
-        result = self._score(enhanced)
+        self._score(enhanced)
         # With rotation features, vinyl posterior should increase or remain dominant
         from backend.core.medium_classifier import _MaterialScorer
+
         scorer = _MaterialScorer()
         r_base = scorer.score(self._base_vinyl_features(), None)
         r_enh = scorer.score(enhanced, None)
         # Enhanced features must produce vinyl-family material
         assert r_enh.material_type in ("vinyl", "lacquer_disc", "shellac")
         # Vinyl evidence confidence should not decrease with rotation
-        vinyl_conf_base = next((e.confidence for e in r_base.evidence if str(getattr(e.material, 'value', e.material)) == 'vinyl'), 0.0)
-        vinyl_conf_enh = next((e.confidence for e in r_enh.evidence if str(getattr(e.material, 'value', e.material)) == 'vinyl'), 0.0)
+        vinyl_conf_base = next(
+            (e.confidence for e in r_base.evidence if str(getattr(e.material, "value", e.material)) == "vinyl"), 0.0
+        )
+        vinyl_conf_enh = next(
+            (e.confidence for e in r_enh.evidence if str(getattr(e.material, "value", e.material)) == "vinyl"), 0.0
+        )
         assert vinyl_conf_enh >= vinyl_conf_base * 0.9
 
     def test_shellac_rotation_boosts_shellac(self):
         """Shellac rotation (1.3 Hz) in scorer must add confidence to shellac."""
         from backend.core.medium_classifier import _MaterialScorer
+
         scorer = _MaterialScorer()
         features_shellac = {
             "bandwidth_hz": 7_000.0,
@@ -530,12 +527,21 @@ class TestMaterialScorerIntegration:
     def test_mp3_codec_code_boosts_mp3_low(self):
         """codec_type_code == 1.0 (mp3) must increase mp3_low/mp3_high scores."""
         from backend.core.medium_classifier import _MaterialScorer
+
         scorer = _MaterialScorer()
         base = {
-            "bandwidth_hz": 14_000.0, "snr_db": 35.0, "noise_color": 1.2,
-            "crackle_density": 0.0, "wow_flutter_hz": 0.0, "wow_depth": 0.0,
-            "block_artifact": 0.25, "codec_type_code": 0.0, "pre_echo_ms": 6.0,
-            "rotation_hz": 0.0, "rotation_strength": 0.0, "infrasonic_rms": 0.0,
+            "bandwidth_hz": 14_000.0,
+            "snr_db": 35.0,
+            "noise_color": 1.2,
+            "crackle_density": 0.0,
+            "wow_flutter_hz": 0.0,
+            "wow_depth": 0.0,
+            "block_artifact": 0.25,
+            "codec_type_code": 0.0,
+            "pre_echo_ms": 6.0,
+            "rotation_hz": 0.0,
+            "rotation_strength": 0.0,
+            "infrasonic_rms": 0.0,
         }
         result_base = scorer.score(base, None)
         mp3_features = {**base, "codec_type_code": 1.0}
@@ -546,20 +552,33 @@ class TestMaterialScorerIntegration:
     def test_tape_penalised_when_rotation_present(self):
         """Tape material must receive rotation penalty when rotation detected."""
         from backend.core.medium_classifier import _MaterialScorer
+
         scorer = _MaterialScorer()
         features_no_rot = {
-            "bandwidth_hz": 14_000.0, "snr_db": 28.0, "noise_color": 1.4,
-            "crackle_density": 0.0, "wow_flutter_hz": 0.8, "wow_depth": 0.8,
-            "block_artifact": 0.0, "codec_type_code": 0.0, "pre_echo_ms": 0.0,
-            "rotation_hz": 0.0, "rotation_strength": 0.0, "infrasonic_rms": 0.0,
+            "bandwidth_hz": 14_000.0,
+            "snr_db": 28.0,
+            "noise_color": 1.4,
+            "crackle_density": 0.0,
+            "wow_flutter_hz": 0.8,
+            "wow_depth": 0.8,
+            "block_artifact": 0.0,
+            "codec_type_code": 0.0,
+            "pre_echo_ms": 0.0,
+            "rotation_hz": 0.0,
+            "rotation_strength": 0.0,
+            "infrasonic_rms": 0.0,
         }
         features_with_rot = {**features_no_rot, "rotation_hz": 0.556, "rotation_strength": 0.35}
         # With rotation present, vinyl/shellac posterior should rise relative to tape
         r_no_rot = scorer.score(features_no_rot, None)
         r_with_rot = scorer.score(features_with_rot, None)
+
         # Extract tape posterior from evidence
         def _tape_post(r):
-            return next((e.confidence for e in r.evidence if str(getattr(e.material, 'value', e.material)) == 'tape'), 0.0)
+            return next(
+                (e.confidence for e in r.evidence if str(getattr(e.material, "value", e.material)) == "tape"), 0.0
+            )
+
         # Tape confidence should decrease (or not increase) when rotation is present
         # because rotation is a disc-family feature, not a tape feature
         assert _tape_post(r_with_rot) <= _tape_post(r_no_rot) + 0.01
@@ -567,12 +586,21 @@ class TestMaterialScorerIntegration:
     def test_score_all_positive_no_negative(self):
         """All material scores must be ≥ 0 (penalty clipping applied)."""
         from backend.core.medium_classifier import _MaterialScorer
+
         scorer = _MaterialScorer()
         features = {
-            "bandwidth_hz": 10_000.0, "snr_db": 20.0, "noise_color": 1.5,
-            "crackle_density": 0.001, "wow_flutter_hz": 0.5, "wow_depth": 0.5,
-            "block_artifact": 0.1, "codec_type_code": 1.0, "pre_echo_ms": 4.0,
-            "rotation_hz": 0.556, "rotation_strength": 0.30, "infrasonic_rms": 0.04,
+            "bandwidth_hz": 10_000.0,
+            "snr_db": 20.0,
+            "noise_color": 1.5,
+            "crackle_density": 0.001,
+            "wow_flutter_hz": 0.5,
+            "wow_depth": 0.5,
+            "block_artifact": 0.1,
+            "codec_type_code": 1.0,
+            "pre_echo_ms": 4.0,
+            "rotation_hz": 0.556,
+            "rotation_strength": 0.30,
+            "infrasonic_rms": 0.04,
         }
         result = scorer.score(features, None)
         assert result.confidence >= 0.0
@@ -584,16 +612,22 @@ class TestMaterialScorerIntegration:
         """ClassificationResult.codec_type must be a non-empty readable string
         when codec_type_code > 0."""
         from backend.core.medium_classifier import _MaterialScorer
+
         scorer = _MaterialScorer()
         for code, expected in [(0.0, "clean"), (1.0, "mp3"), (2.0, "aac"), (3.0, "lossy")]:
             f = {
-                "bandwidth_hz": 20_000.0, "snr_db": 60.0, "noise_color": 1.0,
-                "crackle_density": 0.0, "wow_flutter_hz": 0.0, "wow_depth": 0.0,
+                "bandwidth_hz": 20_000.0,
+                "snr_db": 60.0,
+                "noise_color": 1.0,
+                "crackle_density": 0.0,
+                "wow_flutter_hz": 0.0,
+                "wow_depth": 0.0,
                 "block_artifact": 0.0 if code == 0.0 else 0.3,
-                "codec_type_code": code, "pre_echo_ms": 0.0,
-                "rotation_hz": 0.0, "rotation_strength": 0.0, "infrasonic_rms": 0.0,
+                "codec_type_code": code,
+                "pre_echo_ms": 0.0,
+                "rotation_hz": 0.0,
+                "rotation_strength": 0.0,
+                "infrasonic_rms": 0.0,
             }
             result = scorer.score(f, None)
-            assert result.codec_type == expected, (
-                f"codec_code={code}: expected '{expected}', got '{result.codec_type}'"
-            )
+            assert result.codec_type == expected, f"codec_code={code}: expected '{expected}', got '{result.codec_type}'"

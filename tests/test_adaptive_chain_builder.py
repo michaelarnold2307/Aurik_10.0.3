@@ -102,7 +102,7 @@ class TestAdaptiveChainBuilder:
 
         assert isinstance(chain, ProcessingChain)
         assert len(chain.modules) > 0
-        assert chain.material_type in builder.CHAIN_TEMPLATES.keys()
+        assert chain.material_type in builder.CHAIN_TEMPLATES
         assert chain.era != ""
         assert 0 <= chain.confidence <= 1
         assert chain.description != ""

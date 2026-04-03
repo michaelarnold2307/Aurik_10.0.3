@@ -424,9 +424,7 @@ class RestorationNarrator:
 
         if eff_quality >= _GOOD_QUALITY:
             if n_fixed >= 2:
-                return (
-                    f"Ja — {n_fixed} Klangfehler wurden behoben, " "das Ergebnis ist deutlich besser als das Original."
-                )
+                return f"Ja — {n_fixed} Klangfehler wurden behoben, das Ergebnis ist deutlich besser als das Original."
             if n_fixed == 1:
                 return (
                     f"Ja — {defects_fixed[0].capitalize()} wurde erfolgreich entfernt, "
@@ -435,7 +433,7 @@ class RestorationNarrator:
             return "Ja — die Aufnahme klingt deutlich besser als zuvor."
 
         if eff_quality >= _FAIR_QUALITY:
-            return "Ja, mit gutem Ergebnis — die auffälligsten Klangfehler " "wurden spürbar reduziert."
+            return "Ja, mit gutem Ergebnis — die auffälligsten Klangfehler wurden spürbar reduziert."
 
         if eff_quality >= _POOR_QUALITY:
             return (
@@ -490,7 +488,7 @@ class RestorationNarrator:
                     "wesentlich angenehmer. Die wichtigsten Störungen wurden beseitigt."
                 )
             else:
-                core = "wurde spürbar verbessert — die störendsten Klangfehler " "sind nicht mehr hörbar."
+                core = "wurde spürbar verbessert — die störendsten Klangfehler sind nicht mehr hörbar."
         elif quality_stars == 2:
             core = (
                 "war eine echte Herausforderung. Das Ausgangsmaterial war stark beschädigt, "
@@ -645,9 +643,7 @@ class RestorationNarrator:
                 "was stört, und bewahrt, was Charakter verleiht."
             )
         if era_decade <= 2010:
-            return (
-                f"Eine digitale Aufnahme aus {label}. " "Aurik hat Kompressionsartefakte und digitale Fehler beseitigt."
-            )
+            return f"Eine digitale Aufnahme aus {label}. Aurik hat Kompressionsartefakte und digitale Fehler beseitigt."
         return (
             f"Eine moderne Aufnahme aus {label}. "
             "Aurik hat verborgene Klangfehler behoben und die Klangqualität verfeinert."

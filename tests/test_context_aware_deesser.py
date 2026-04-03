@@ -14,8 +14,6 @@ Version: 2.0.0
 Date: 8. Februar 2026
 """
 
-from typing import Tuple
-
 import numpy as np
 import pytest
 
@@ -300,7 +298,7 @@ def test_safety_post_check(sample_audio):
 
     # Should have correlation metric
     assert "correlation" in post_result.metrics
-    assert "intelligibility_preservation" in post_result.metrics or True  # May not be computed if no baseline
+    assert "intelligibility_preservation" in post_result.metrics or True  # noqa: SIM222  # May not be computed if no baseline
 
 
 @pytest.mark.skipif(not CONTEXT_AWARE_DEESSER_AVAILABLE, reason="Context-Aware De-Esser not available")

@@ -22,7 +22,6 @@ import math
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import List, Optional
 
 import numpy as np
 
@@ -290,8 +289,10 @@ class ProgressiveQualityMode:
                 )
             else:
                 audio = _omlsa_stage1_nr(audio)
-        except Exception:
-            pass  # Fallback: Pass-Through (NR nicht kritisch in Stage-1-Vorschau)
+        except Exception as _exc:
+            logger.debug(
+                "Operation failed (non-critical): %s", _exc
+            )  # Fallback: Pass-Through (NR nicht kritisch in Stage-1-Vorschau)
 
         audio = np.nan_to_num(audio, nan=0.0, posinf=0.0, neginf=0.0)
         return np.clip(audio, -1.0, 1.0)
@@ -340,8 +341,8 @@ class ProgressiveQualityMode:
                         }
                         defect_name = str(defect.name if hasattr(defect, "name") else defect)
                         labels.append(label_map.get(defect_name, defect_name))
-        except Exception:
-            pass
+        except Exception as _exc:
+            logger.debug("Operation failed (non-critical): %s", _exc)
         return labels[:5]  # Max 5
 
     def _quick_defect_heuristic(self, audio: np.ndarray, sr: int) -> list[str]:

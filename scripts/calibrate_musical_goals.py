@@ -27,7 +27,6 @@ Usage:
 import argparse
 import logging
 from pathlib import Path
-from typing import Dict, List, Tuple
 
 import numpy as np
 import soundfile as sf
@@ -83,7 +82,7 @@ def load_golden_samples(directory: Path, medium_filter: str = None) -> list[tupl
                     audio = np.mean(audio, axis=1)
 
                 samples.append((audio, sr, audio_file.name, medium))
-                logger.info(f"  Loaded: {audio_file.name} ({len(audio)/sr:.2f}s)")
+                logger.info(f"  Loaded: {audio_file.name} ({len(audio) / sr:.2f}s)")
 
             except Exception as e:
                 logger.error(f"  Failed to load {audio_file.name}: {e}")
@@ -278,7 +277,7 @@ def generate_calibration_report(calibrated_thresholds: dict, results: list[dict]
     print(f"Method: {report['calibration_info']['method']}")
     print("\nCALIBRATED THRESHOLDS (Overall):")
     for goal_name, values in calibrated_thresholds["overall"].items():
-        print(f"  {goal_name:20s}: {values['threshold']:.3f} " f"(mean={values['mean']:.3f}, std={values['std']:.3f})")
+        print(f"  {goal_name:20s}: {values['threshold']:.3f} (mean={values['mean']:.3f}, std={values['std']:.3f})")
     print("=" * 70)
     print(f"\nFull report saved to: {output_file}")
 

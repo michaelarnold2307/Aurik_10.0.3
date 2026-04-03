@@ -65,8 +65,8 @@ class DemucsV4Plugin:
                         "ONNX-Session nicht geladen, DSP-Fallback aktiv."
                     )
                     return  # self._session bleibt None → automatisch HPSS-Fallback
-        except Exception:
-            pass  # Manifest nicht lesbar → normaler Load
+        except Exception as _exc:
+            logger.debug("Operation failed (non-critical): %s", _exc)  # Manifest nicht lesbar → normaler Load
         try:
             import onnxruntime as ort
 
@@ -76,8 +76,8 @@ class DemucsV4Plugin:
                 if not _try_alloc("DemucsV4", size_gb=0.12):
                     logger.warning("DemucsV4: ML-Budget erschöpft — HPSS-Fallback.")
                     return
-            except Exception:
-                pass
+            except Exception as _exc:
+                logger.debug("Operation failed (non-critical): %s", _exc)
 
             opts = ort.SessionOptions()
             opts.inter_op_num_threads = 2
@@ -89,16 +89,16 @@ class DemucsV4Plugin:
                 from backend.core.plugin_lifecycle_manager import register_plugin as _reg_plm
 
                 _reg_plm("DemucsV4", size_gb=0.12, unload_fn=lambda s=self: setattr(s, "_session", None))
-            except Exception:
-                pass
+            except Exception as _exc:
+                logger.debug("Operation failed (non-critical): %s", _exc)
         except Exception as exc:
             logger.warning("Demucs ONNX-Ladefehler: %s — DSP-Fallback aktiv.", exc)
             try:
                 from backend.core.ml_memory_budget import release as _rel
 
                 _rel("DemucsV4")
-            except Exception:
-                pass
+            except Exception as _exc:
+                logger.debug("Operation failed (non-critical): %s", _exc)
 
     # ── Public API ───────────────────────────────────────────────────────────
 

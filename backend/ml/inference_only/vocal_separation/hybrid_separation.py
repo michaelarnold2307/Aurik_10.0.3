@@ -1,5 +1,3 @@
-import logging
-
 """
 Hybrid Vocal Separator - Combines MDX-Net + Demucs v5
 
@@ -17,8 +15,9 @@ HIPS Compliance:
 - Bedeutungsagnostik: ✅ Signal-level fusion only
 """
 
+import logging
 import time
-from typing import Dict, List, Literal, Tuple
+from typing import Literal
 
 import numpy as np
 
@@ -70,7 +69,7 @@ class HybridVocalSeparator:
         self.demucs_weight = demucs_weight
         self.sample_rate = sample_rate
 
-        logger.info(f"HybridVocalSeparator initialized: " f"strategy={fusion_strategy}, device={device}")
+        logger.info(f"HybridVocalSeparator initialized: strategy={fusion_strategy}, device={device}")
 
         # Initialize both models
         self.mdx_net = MDXNetSeparator(sample_rate=sample_rate, device=device)
@@ -114,7 +113,7 @@ class HybridVocalSeparator:
         self.separation_count += 1
         start_time = time.time()
 
-        logger.info(f"Hybrid separation #{self.separation_count}: " f"strategy={self.fusion_strategy}")
+        logger.info(f"Hybrid separation #{self.separation_count}: strategy={self.fusion_strategy}")
 
         # Run both models in parallel (conceptually)
         logger.info("  Running MDX-Net...")
@@ -149,9 +148,7 @@ class HybridVocalSeparator:
         }
         self.fusion_decisions_log.append(fusion_decision)
 
-        logger.info(
-            f"  Hybrid separation complete: {total_time:.2f}s " f"(MDX={mdx_time:.2f}s, Demucs={demucs_time:.2f}s)"
-        )
+        logger.info(f"  Hybrid separation complete: {total_time:.2f}s (MDX={mdx_time:.2f}s, Demucs={demucs_time:.2f}s)")
 
         # NaN/Inf-Guard für Ausgabe
         vocals_fused = np.nan_to_num(vocals_fused, nan=0.0, posinf=0.0, neginf=0.0)

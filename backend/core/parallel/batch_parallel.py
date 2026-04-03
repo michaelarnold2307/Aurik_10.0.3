@@ -206,9 +206,7 @@ class BatchParallelProcessor:
                         if result.status == ProcessingStatus.COMPLETED:
                             completed_count += 1
                             if self.show_progress:
-                                logger.info(
-                                    f"✓ Completed: {result.input_path.name} " f"({result.processing_time:.2f}s)"
-                                )
+                                logger.info(f"✓ Completed: {result.input_path.name} ({result.processing_time:.2f}s)")
                         elif result.status == ProcessingStatus.FAILED:
                             failed_count += 1
                             if self.show_progress:
@@ -255,7 +253,7 @@ class BatchParallelProcessor:
         self._processing_stats["total_successes"] += completed_count
         self._processing_stats["total_failures"] += failed_count
 
-        logger.info(f"Batch complete: {completed_count} succeeded, {failed_count} failed, " f"{total_time:.2f}s total")
+        logger.info(f"Batch complete: {completed_count} succeeded, {failed_count} failed, {total_time:.2f}s total")
 
         # Sort results by task_id
         results.sort(key=lambda r: r.task_id)

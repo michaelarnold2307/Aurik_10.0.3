@@ -303,8 +303,15 @@ class IntelligibilityScorer:
             except np.linalg.LinAlgError:
                 return None
 
+            # Guard: degenerate LPC → LAPACK DLASCL failure
+            if not np.all(np.isfinite(a)):
+                return None
+
             # Find roots of LPC polynomial
-            roots = np.roots(np.r_[1, -a])
+            try:
+                roots = np.roots(np.r_[1, -a])
+            except (np.linalg.LinAlgError, ValueError):
+                return None
 
             # Convert complex roots to frequencies
             # IMPORTANT: use effective_sr (after downsampling), not original sr
@@ -664,6 +671,10 @@ class IntelligibilityScorer:
         window_size = int(0.01 * sr)  # 10ms window
         if window_size % 2 == 0:
             window_size += 1
+        # Guard: kernel_size must not exceed signal length
+        window_size = min(window_size, len(amplitude_envelope))
+        if window_size % 2 == 0:
+            window_size = max(1, window_size - 1)
         envelope_smooth = signal.medfilt(amplitude_envelope, window_size)
 
         # Detect transients using first derivative

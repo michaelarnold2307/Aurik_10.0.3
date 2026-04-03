@@ -40,8 +40,8 @@ class ResembleEnhancePlugin:
             if not _try_alloc("ResembleEnhance", size_gb=0.72):
                 logger.warning("Resemble-Enhance: ML-Budget erschöpft — DSP-Fallback.")
                 return
-        except Exception:
-            pass
+        except Exception as _exc:
+            logger.debug("Operation failed (non-critical): %s", _exc)
         try:
             import onnxruntime as ort
 
@@ -53,16 +53,16 @@ class ResembleEnhancePlugin:
                 from backend.core.plugin_lifecycle_manager import register_plugin as _reg_plm
 
                 _reg_plm("ResembleEnhance", size_gb=0.72, unload_fn=lambda s=self: setattr(s, "_session", None))
-            except Exception:
-                pass
+            except Exception as _exc:
+                logger.debug("Operation failed (non-critical): %s", _exc)
         except Exception as exc:
             logger.warning("Resemble-Enhance Ladefehler: %s — DSP-Fallback.", exc)
             try:
                 from backend.core.ml_memory_budget import release as _release
 
                 _release("ResembleEnhance")
-            except Exception:
-                pass
+            except Exception as _exc:
+                logger.debug("Operation failed (non-critical): %s", _exc)
 
     def enhance(self, audio: np.ndarray, sr: int) -> np.ndarray:
         assert sr == 48000, f"SR muss 48000 Hz sein, erhalten: {sr}"
@@ -176,6 +176,10 @@ class ResembleEnhancePlugin:
 
     def _onnx_single(self, mono: np.ndarray, win: np.ndarray, nf: int) -> np.ndarray:
         """Process a single audio chunk through ONNX (original algorithm)."""
+        # Capture session reference locally to avoid race condition with PLM eviction
+        session = self._session
+        if session is None:
+            return _wiener(mono, _SR)
         buf = np.zeros(nf * _HOP + _N, np.float32)
         buf[: len(mono)] = mono
         frames = [np.fft.rfft(buf[i * _HOP : i * _HOP + _N] * win)[:_BINS] for i in range(nf)]
@@ -185,7 +189,7 @@ class ResembleEnhancePlugin:
         sin_v = spec.imag / (mag + 1e-8)
         inp = lambda a: a[None].astype(np.float32)  # [1,841,F]
         try:
-            outs = self._session.run(None, {"mag": inp(mag), "cos": inp(cos), "sin": inp(sin_v)})
+            outs = session.run(None, {"mag": inp(mag), "cos": inp(cos), "sin": inp(sin_v)})
             om, oc, os_ = outs[0][0], outs[1][0], outs[2][0]
             om = np.nan_to_num(om, nan=0.0, posinf=0.0, neginf=0.0)
             oc = np.nan_to_num(oc, nan=0.0, posinf=0.0, neginf=0.0)

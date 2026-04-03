@@ -146,8 +146,8 @@ class PANNsPlugin:
                 if not _try_alloc("PANNs", size_gb=0.66):
                     logger.warning("PANNs: ML-Budget erschöpft — Spektral-Fallback.")
                     return
-            except Exception:
-                pass
+            except Exception as _exc:
+                logger.debug("Operation failed (non-critical): %s", _exc)
 
             self._session = ort.InferenceSession(
                 str(self._ONNX_PATH),
@@ -161,8 +161,8 @@ class PANNsPlugin:
                 from backend.core.plugin_lifecycle_manager import register_plugin as _reg_plm
 
                 _reg_plm("PANNs", size_gb=0.66, unload_fn=lambda s=self: setattr(s, "_session", None))
-            except Exception:
-                pass
+            except Exception as _exc:
+                logger.debug("Operation failed (non-critical): %s", _exc)
         except Exception as exc:
             logger.warning(
                 "PANNs ONNX nicht verfügbar — Instrument-Gate inaktiv (alle Phasen sind aktiv): %s",
@@ -173,8 +173,8 @@ class PANNsPlugin:
                 from backend.core.ml_memory_budget import release as _rel
 
                 _rel("PANNs")
-            except Exception:
-                pass
+            except Exception as _exc:
+                logger.debug("Operation failed (non-critical): %s", _exc)
 
     # ------------------------------------------------------------------
     # Audio-Aufbereitung

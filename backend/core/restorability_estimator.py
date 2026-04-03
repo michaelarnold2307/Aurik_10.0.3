@@ -102,13 +102,13 @@ class RestorabilityEstimator:
     # clipping destroys peaks irreversibly → high penalty.
     # Calibrated from Aurik AMRB test corpus (2024–2026).
     _DEFECT_WEIGHTS = {
-        "noise": 0.80,       # broadband noise — largely repairable but leaves residual
-        "clipping": 0.55,    # peak destruction — partially repairable via waveform inference
-        "crackle": 0.92,     # impulsive — highly repairable via transient detection
-        "bandwidth": 0.70,   # spectral loss — partially repairable via AudioSR
-        "hum": 0.95,         # tonal interference — near-fully repairable via comb filter
+        "noise": 0.80,  # broadband noise — largely repairable but leaves residual
+        "clipping": 0.55,  # peak destruction — partially repairable via waveform inference
+        "crackle": 0.92,  # impulsive — highly repairable via transient detection
+        "bandwidth": 0.70,  # spectral loss — partially repairable via AudioSR
+        "hum": 0.95,  # tonal interference — near-fully repairable via comb filter
         "wow_flutter": 0.85,  # pitch modulation — correctable via FCPE/CREPE tracking
-        "dropout": 0.60,     # signal loss — partially inferable from context
+        "dropout": 0.60,  # signal loss — partially inferable from context
     }
 
     # Material-specific caps — now with restorability-aware ranges instead of

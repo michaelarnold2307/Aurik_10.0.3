@@ -105,7 +105,7 @@ class AudioPreviewThread(QThread):
             self.progress.emit(100)
 
         except Exception as e:
-            self.error.emit(f"Error: {str(e)}")
+            self.error.emit(f"Error: {e!s}")
 
 
 class AudioPlayer(QWidget):

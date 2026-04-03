@@ -151,6 +151,8 @@ __all__ = [
     "get_micro_dynamics_em",
     "get_goal_applicability_filter",
     "get_perceptual_salience_estimator",
+    # Startup-/Self-Heal
+    "get_startup_check_result",
     # Content-Addressed LRU Cache — Utility
     "content_cache_key",
 ]
@@ -199,9 +201,7 @@ class _AnalysisLruCache:
             while len(self._data) > self._maxsize:
                 evicted_key, _ = self._data.popitem(last=False)
                 # Clean up alias mapping for evicted key
-                self._path_to_key = {
-                    p: k for p, k in self._path_to_key.items() if k != evicted_key
-                }
+                self._path_to_key = {p: k for p, k in self._path_to_key.items() if k != evicted_key}
 
     def get(self, key: str) -> Any | None:
         """Return cached value for *key* and promote to MRU, or ``None``."""
@@ -227,9 +227,7 @@ class _AnalysisLruCache:
             key = self._path_to_key.pop(key_or_path, key_or_path)
             self._data.pop(key, None)
             # Also remove any alias pointing to same key
-            self._path_to_key = {
-                p: k for p, k in self._path_to_key.items() if k != key
-            }
+            self._path_to_key = {p: k for p, k in self._path_to_key.items() if k != key}
 
     def clear(self) -> None:
         """Remove all entries."""

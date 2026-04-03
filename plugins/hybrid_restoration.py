@@ -94,7 +94,7 @@ class HybridRestorationPlugin:
             except (ImportError, Exception) as exc:
                 self._dfn_available = False
                 logger.debug(
-                    "HybridRestorationPlugin: DeepFilterNet nicht verfügbar (%s), " "nutze OMLSA-DSP-Fallback",
+                    "HybridRestorationPlugin: DeepFilterNet nicht verfügbar (%s), nutze OMLSA-DSP-Fallback",
                     exc,
                 )
             self._initialized = True
@@ -161,8 +161,13 @@ class HybridRestorationPlugin:
         sr: int,
     ) -> npt.NDArray[np.float32]:
         """Wendet DeepFilterNet v3 an (energy_bias = -4 dB für Musik, §4.4)."""
-        init_df, enhance = self._dfn_model  # type: ignore[misc]
         import torch
+        from typing import Any
+
+        _dfn: Any = self._dfn_model
+        init_df: Any
+        enhance: Any
+        init_df, enhance = _dfn
 
         model, df_state, _ = init_df()
         # For music: reduce energy_bias to preserve harmonics (§4.4 DeepFilterNet row)
@@ -172,10 +177,10 @@ class HybridRestorationPlugin:
         mono = audio if audio.ndim == 1 else audio.mean(axis=-1)
         tensor_in = torch.from_numpy(mono[None]).float()
         enhanced = enhance(model, df_state, tensor_in)
-        out_mono = enhanced.squeeze().numpy()
+        out_mono: npt.NDArray[np.float32] = np.asarray(enhanced.squeeze().numpy(), dtype=np.float32)
 
         if audio.ndim == 1:
-            return out_mono.astype(np.float32)
+            return out_mono
         # Stereo: apply same NR gain to both channels via the mono mask
         gain = np.where(
             np.abs(mono) > 1e-8,
@@ -183,7 +188,7 @@ class HybridRestorationPlugin:
             1.0,
         )
         stereo = audio * gain[:, None] if audio.ndim > 1 else audio * gain
-        return stereo.astype(np.float32)
+        return np.asarray(stereo, dtype=np.float32)
 
     # ------------------------------------------------------------------
     # Private: Spectral subtraction (OMLSA-inspired DSP fallback)

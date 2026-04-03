@@ -255,9 +255,9 @@ class MultibandCompressorStudio:
     - 3 Bänder (Low, Mid, High), jeweils mit eigenem Kompressor
     """
 
-    def __init__(self, thresholds=[-30, -24, -18], ratios=[2, 3, 4]):
-        self.thresholds = thresholds
-        self.ratios = ratios
+    def __init__(self, thresholds: list | None = None, ratios: list | None = None):
+        self.thresholds = thresholds if thresholds is not None else [-30, -24, -18]
+        self.ratios = ratios if ratios is not None else [2, 3, 4]
 
     def process(self, audio: np.ndarray, sr: int) -> np.ndarray:
         """

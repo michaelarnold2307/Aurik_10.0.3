@@ -167,9 +167,9 @@ class TestRLSDeconvolution:
         dom_freq_in = freqs[np.argmax(fft_audio)]
         # Größter Spektralanteil im RLS-Output (muss in ±20% des Originals liegen)
         dom_freq_out = freqs[np.argmax(fft_out)]
-        assert (
-            abs(dom_freq_out - dom_freq_in) <= 0.2 * dom_freq_in + 50
-        ), f"Dominante Frequenz verschoben: {dom_freq_out:.0f}Hz ≠ {dom_freq_in:.0f}Hz"
+        assert abs(dom_freq_out - dom_freq_in) <= 0.2 * dom_freq_in + 50, (
+            f"Dominante Frequenz verschoben: {dom_freq_out:.0f}Hz ≠ {dom_freq_in:.0f}Hz"
+        )
 
     # --- Robustheit --------------------------------------------------------
     def test_very_short_ir(self):

@@ -190,7 +190,10 @@ class PerceptualSalienceEstimator:
 
                 for ann in salience_result.annotations:
                     erb_result = erb_model.compute_masking_threshold(
-                        mono, sr, ann.location[0], ann.location[1],
+                        mono,
+                        sr,
+                        ann.location[0],
+                        ann.location[1],
                     )
                     # Blend: 70% ERB model (frequency-aware) + 30% broadband (robust)
                     blended = 0.7 * erb_result.salience + 0.3 * ann.salience

@@ -56,7 +56,8 @@ def apply(
         if mn_score < _MIN_MODULATION_NOISE_SCORE:
             logger.debug(
                 "Phase 59: modulation_noise score %.3f < %.3f — skipped",
-                mn_score, _MIN_MODULATION_NOISE_SCORE,
+                mn_score,
+                _MIN_MODULATION_NOISE_SCORE,
             )
             return np.clip(audio, -1.0, 1.0)
 
@@ -68,7 +69,6 @@ def apply(
 
     x = audio.astype(np.float64)
     n = len(x)
-    sr = sample_rate
 
     # STFT parameters
     n_fft = 2048
@@ -90,12 +90,12 @@ def apply(
     phase = np.angle(stft)
 
     # Signal envelope (per-frame RMS)
-    frame_rms = np.sqrt(np.mean(mag ** 2, axis=0) + 1e-12)
+    frame_rms = np.sqrt(np.mean(mag**2, axis=0) + 1e-12)
 
     # Estimate noise model: noise_level(f) = alpha * signal_level
     # Use low-energy frames to calibrate the noise/signal ratio
     noise_floor = np.percentile(mag, 10, axis=1, keepdims=True)
-    signal_median = np.median(mag, axis=1, keepdims=True) + 1e-12
+    np.median(mag, axis=1, keepdims=True) + 1e-12
 
     # Signal-dependent noise estimate per frame
     alpha = float(np.clip(strength * 0.8, 0.1, 0.9))
@@ -119,7 +119,7 @@ def apply(
             break
         frame = np.fft.irfft(stft_clean[:, i], n=n_fft) * window
         out[start:end] += frame
-        win_sum[start:end] += window ** 2
+        win_sum[start:end] += window**2
 
     win_sum = np.maximum(win_sum, 1e-8)
     out /= win_sum
@@ -177,6 +177,8 @@ class ModulationNoiseReductionPhase(PhaseInterface):
             audio=result_audio,
             success=True,
             execution_time_seconds=elapsed,
-            metrics={"modulation_noise_score": float((_defect_scores or {}).get("modulation_noise", 0.0)),
-                     "strength": strength},
+            metrics={
+                "modulation_noise_score": float((_defect_scores or {}).get("modulation_noise", 0.0)),
+                "strength": strength,
+            },
         )

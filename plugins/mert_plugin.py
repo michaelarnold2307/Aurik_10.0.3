@@ -377,8 +377,8 @@ class MertPlugin:
                 _unload_fn = globals().get("unload_mert")
                 if _unload_fn is not None:
                     _reg_plm("MERT", size_gb=3.7, unload_fn=_unload_fn)
-            except Exception:
-                pass
+            except Exception as _exc:
+                logger.debug("Plugin operation failed (non-critical): %s", _exc)
 
     def _try_load_hf_330m(self) -> None:
         """Lädt MERT-v1-330M aus models/mert-v1-330m/ via HuggingFace transformers.
@@ -397,8 +397,8 @@ class MertPlugin:
 
             if not _try_alloc("MERT-330M-HF", 1.2):
                 return  # Budget erschöpft → nächste Priorität
-        except Exception:
-            pass
+        except Exception as _exc:
+            logger.debug("Plugin operation failed (non-critical): %s", _exc)
         try:
             from transformers import AutoModel, Wav2Vec2FeatureExtractor  # type: ignore[import]
 
@@ -415,8 +415,8 @@ class MertPlugin:
                 from backend.core.ml_memory_budget import release as _rel
 
                 _rel("MERT-330M-HF")
-            except Exception:
-                pass
+            except Exception as _exc:
+                logger.debug("Plugin operation failed (non-critical): %s", _exc)
 
     def _try_load_fairseq_330m(self) -> None:
         """Lädt MERT-v1-330M als fairseq-Checkpoint.
@@ -442,8 +442,8 @@ class MertPlugin:
 
             if not _try_alloc("MERT-330M-fairseq", 3.7):
                 return  # Budget erschöpft → weiter mit nächster Priorität
-        except Exception:
-            pass
+        except Exception as _exc:
+            logger.debug("Plugin operation failed (non-critical): %s", _exc)
         try:
             import os as _os
 
@@ -462,8 +462,8 @@ class MertPlugin:
                 from backend.core.ml_memory_budget import release as _rel
 
                 _rel("MERT-330M-fairseq")
-            except Exception:
-                pass
+            except Exception as _exc:
+                logger.debug("Plugin operation failed (non-critical): %s", _exc)
 
     def _try_load_hf(self) -> None:
         """Lädt MERT-v1-95M aus models/mert-95m/ via HuggingFace transformers.
@@ -510,8 +510,8 @@ class MertPlugin:
             if not _try_alloc_fs("MERT-95M-fairseq", 0.40):
                 logger.warning("MERT fairseq: ML-Budget erschöpft — DSP-Fallback")
                 return
-        except Exception:
-            pass
+        except Exception as _exc:
+            logger.debug("Plugin operation failed (non-critical): %s", _exc)
         try:
             import os as _os
 
@@ -529,8 +529,8 @@ class MertPlugin:
                 from backend.core.ml_memory_budget import release as _rel_fs
 
                 _rel_fs("MERT-95M-fairseq")
-            except Exception:
-                pass
+            except Exception as _exc:
+                logger.debug("Plugin operation failed (non-critical): %s", _exc)
             logger.debug("MERT fairseq Ladefehler: %s → weiter", e)
 
     def _try_load_onnx(self) -> None:
@@ -544,8 +544,8 @@ class MertPlugin:
             if not _try_alloc("MERT-ONNX", size_gb=0.18):
                 logger.warning("MERT ONNX: ML-Budget erschöpft — DSP-Fallback")
                 return
-        except Exception:
-            pass
+        except Exception as _exc:
+            logger.debug("Plugin operation failed (non-critical): %s", _exc)
         try:
             import onnxruntime as ort
 
@@ -560,16 +560,16 @@ class MertPlugin:
                     size_gb=0.18,
                     unload_fn=lambda s=self: setattr(s, "_model", None) or setattr(s, "_model_type", "dsp"),
                 )
-            except Exception:
-                pass
+            except Exception as _exc:
+                logger.debug("Plugin operation failed (non-critical): %s", _exc)
         except Exception as e:
             logger.debug("MERT ONNX Ladefehler: %s → DSP-Fallback", e)
             try:
                 from backend.core.ml_memory_budget import release as _rel
 
                 _rel("MERT-ONNX")
-            except Exception:
-                pass
+            except Exception as _exc:
+                logger.debug("Plugin operation failed (non-critical): %s", _exc)
 
     def _try_load_local_dsp(self) -> None:
         """Lokaler DSP-Fallback — kein Netzwerkzugriff, kein Modell-Download."""
@@ -800,6 +800,6 @@ def unload_mert() -> None:
 
             for key in ("MERT-330M-HF", "MERT-330M-fairseq", "MERT-95M-HF"):
                 _rel(key)
-        except Exception:
-            pass
+        except Exception as _exc:
+            logger.debug("Plugin operation failed (non-critical): %s", _exc)
         logger.info("MERT: Modell entladen (%s), RAM freigegeben.", model_type)

@@ -435,7 +435,7 @@ class TestScheduleSotaUpgrade:
         dl = self._dl(tmp_path)
         started: list = []
 
-        threading.Thread.start
+        _ = threading.Thread.start
 
         def fake_start(self_t):
             started.append(self_t.daemon)

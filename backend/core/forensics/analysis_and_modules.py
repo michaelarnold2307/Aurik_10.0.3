@@ -141,7 +141,7 @@ class FeatureExtractor:
                         "chroma_mean": float(np.mean(chroma)),
                         "chroma_std": float(np.std(chroma)),
                         "key_chroma_cqt_mean": float(np.mean(key)),
-                        "tempo_bpm": float(tempo),
+                        "tempo_bpm": float(np.asarray(tempo).flat[0]),
                         "beat_count": len(beats),
                         "mfcc_mean": float(np.mean(melody)),
                         "mfcc_std": float(np.std(melody)),
@@ -225,7 +225,7 @@ class FeatureExtractor:
                 features["key_chroma_cqt_mean"] = float(np.mean(key))
                 # Beat/Rhythmus
                 tempo, beats = librosa.beat.beat_track(y=y, sr=sr)
-                features["tempo_bpm"] = float(tempo)
+                features["tempo_bpm"] = float(np.asarray(tempo).flat[0])
                 features["beat_count"] = len(beats)
                 # Melodie-Contour
                 melody = librosa.feature.mfcc(y=y, sr=sr, n_fft=min(2048, len(y)))
@@ -779,9 +779,7 @@ class AnalysisEngineAdapter:
         else:
             _est_bits = 16
         # Float32 input from soundfile → likely 24 or 32 bit source
-        if audio.dtype == np.float32:
-            _est_bits = max(_est_bits, 24)
-        elif audio.dtype == np.float64:
+        if audio.dtype == np.float32 or audio.dtype == np.float64:
             _est_bits = max(_est_bits, 24)
 
         format_info = FormatInfo(
@@ -824,6 +822,7 @@ class AnalysisEngineAdapter:
         # Spectral Flux — frame-to-frame spectral change (STFT L2-norm of diff)
         try:
             import librosa as _lr
+
             _audio_flat = audio.flatten() if audio.ndim > 1 else audio
             _S = np.abs(_lr.stft(_audio_flat, n_fft=2048, hop_length=512))
             _flux = np.sqrt(np.sum(np.diff(_S, axis=1) ** 2, axis=0))
@@ -849,7 +848,9 @@ class AnalysisEngineAdapter:
             crest_factor_db=features.get("crest_factor", 12.0),
             true_peak_dbfs=20 * np.log10(np.max(np.abs(audio)) + 1e-10),
             rms_db=20 * np.log10(features.get("rms", 0.1) + 1e-10),
-            loudness_range_lu=features.get("loudness_range_lu", max(1.0, float(features.get("crest_factor", 12.0)) * 0.6)),
+            loudness_range_lu=features.get(
+                "loudness_range_lu", max(1.0, float(features.get("crest_factor", 12.0)) * 0.6)
+            ),
         )
 
         # 5. Stereo Analysis (Spec 3.1.2)
@@ -930,7 +931,9 @@ class AnalysisEngineAdapter:
         _snr_score = min(1.0, features.get("snr", 20.0) / 40.0)
         _dr_score = min(1.0, dynamics.dynamic_range_db / 20.0) if dynamics.dynamic_range_db > 0 else 0.5
         _defect_penalty = min(0.3, len(detected_defects) * 0.05)
-        overall_quality = float(np.clip(0.50 * _snr_score + 0.30 * _dr_score + 0.20 * (1.0 - _defect_penalty), 0.0, 1.0))
+        overall_quality = float(
+            np.clip(0.50 * _snr_score + 0.30 * _dr_score + 0.20 * (1.0 - _defect_penalty), 0.0, 1.0)
+        )
 
         # Create AnalysisProfile
         profile = AnalysisProfile(

@@ -334,8 +334,7 @@ class HarmonicExciterSafety(BaseSafetyWrapper):
 
         if is_harsh:
             warnings.append(
-                f"Audio already harsh: severity {harshness_severity:.2f}. "
-                "Harmonic excitement may increase harshness."
+                f"Audio already harsh: severity {harshness_severity:.2f}. Harmonic excitement may increase harshness."
             )
 
         # Measure brightness
@@ -344,7 +343,7 @@ class HarmonicExciterSafety(BaseSafetyWrapper):
 
         if brightness > 0.7:
             warnings.append(
-                f"Already very bright: {brightness:.2f}. " "Additional harmonics may create excessive sibilance."
+                f"Already very bright: {brightness:.2f}. Additional harmonics may create excessive sibilance."
             )
 
         # Check IMD
@@ -355,7 +354,7 @@ class HarmonicExciterSafety(BaseSafetyWrapper):
         amount = params.get("amount", 0.5)
 
         if amount > 0.8:
-            warnings.append(f"Very high exciter amount: {amount:.2f}. " "Risk of harsh, unnatural sound.")
+            warnings.append(f"Very high exciter amount: {amount:.2f}. Risk of harsh, unnatural sound.")
 
         return PreCheckResult(
             passed=True,
@@ -425,7 +424,7 @@ class HarmonicExciterSafety(BaseSafetyWrapper):
         metrics["harshness_after"] = harshness_after
 
         if harshness_after > self.max_harshness:
-            issues.append(f"Excessive harshness: {harshness_after:.2f} " f"(max {self.max_harshness})")
+            issues.append(f"Excessive harshness: {harshness_after:.2f} (max {self.max_harshness})")
 
         harshness_increase = harshness_after - harshness_before
         if harshness_increase > 0.3:

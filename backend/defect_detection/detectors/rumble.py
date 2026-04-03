@@ -51,7 +51,7 @@ class RumbleDetector(DefectDetector):
             "peak_frequency": float(peak_freq),
             "cutoff_hz": float(self.rumble_cutoff),
         }
-        description = f"Low-frequency rumble: {rumble_ratio*100:.1f}% of signal energy, peak at {peak_freq:.1f} Hz"
+        description = f"Low-frequency rumble: {rumble_ratio * 100:.1f}% of signal energy, peak at {peak_freq:.1f} Hz"
         return [
             self._create_instance(
                 severity=severity,

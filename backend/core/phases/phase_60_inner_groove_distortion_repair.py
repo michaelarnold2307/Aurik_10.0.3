@@ -97,7 +97,7 @@ def apply(
             spec_clean = (mag * gain) * np.exp(1j * phase)
             frame_out = np.fft.irfft(spec_clean, n=n_fft) * window
             seg_out[fs:fe] += frame_out
-            win_sum[fs:fe] += window ** 2
+            win_sum[fs:fe] += window**2
 
         win_sum = np.maximum(win_sum, 1e-8)
         seg_out /= win_sum
@@ -155,6 +155,8 @@ class InnerGrooveDistortionRepairPhase(PhaseInterface):
             audio=result_audio,
             success=True,
             execution_time_seconds=elapsed,
-            metrics={"igd_score": float((_defect_scores or {}).get("inner_groove_distortion", 0.0)),
-                     "strength": strength},
+            metrics={
+                "igd_score": float((_defect_scores or {}).get("inner_groove_distortion", 0.0)),
+                "strength": strength,
+            },
         )

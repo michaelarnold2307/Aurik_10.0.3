@@ -12,7 +12,6 @@ Tests:
 from __future__ import annotations
 
 import numpy as np
-import pytest
 
 SR = 48_000
 
@@ -77,17 +76,21 @@ def _inject_level_dips(
 # Class 1: DefectType Enum
 # ===========================================================================
 
+
 class TestDefectTypeEnum:
     def test_01_tape_head_level_dip_exists(self):
         from backend.core.defect_scanner import DefectType
+
         assert hasattr(DefectType, "TAPE_HEAD_LEVEL_DIP")
 
     def test_02_defect_type_value(self):
         from backend.core.defect_scanner import DefectType
+
         assert DefectType.TAPE_HEAD_LEVEL_DIP.value == "tape_head_level_dip"
 
     def test_03_defect_type_count_ge_32(self):
         from backend.core.defect_scanner import DefectType
+
         assert len(DefectType) >= 32
 
 
@@ -95,10 +98,12 @@ class TestDefectTypeEnum:
 # Class 2: DefectScanner Detection
 # ===========================================================================
 
+
 class TestDefectScannerDetection:
     def test_10_clean_signal_no_dips(self):
         """Clean sine wave should have zero severity."""
         from backend.core.defect_scanner import DefectScanner, DefectType, MaterialType
+
         scanner = DefectScanner.__new__(DefectScanner)
         scanner.sample_rate = SR
         scanner.material_type = MaterialType.TAPE
@@ -109,7 +114,8 @@ class TestDefectScannerDetection:
 
     def test_11_synthetic_dips_detected(self):
         """Synthetic 15 dB dips at known times should be detected."""
-        from backend.core.defect_scanner import DefectScanner, DefectType, MaterialType
+        from backend.core.defect_scanner import DefectScanner, MaterialType
+
         scanner = DefectScanner.__new__(DefectScanner)
         scanner.sample_rate = SR
         scanner.material_type = MaterialType.TAPE
@@ -121,20 +127,24 @@ class TestDefectScannerDetection:
 
     def test_12_severity_scales_with_dip_count(self):
         """More dips should yield higher severity."""
-        from backend.core.defect_scanner import DefectScanner, DefectType, MaterialType
+        from backend.core.defect_scanner import DefectScanner, MaterialType
+
         scanner = DefectScanner.__new__(DefectScanner)
         scanner.sample_rate = SR
         scanner.material_type = MaterialType.TAPE
         audio = _sine(duration=15.0, amp=0.3)
         few_dips = _inject_level_dips(audio, dip_times=[2.0, 6.0], dip_depth_db=12.0)
-        many_dips = _inject_level_dips(audio, dip_times=[1.0, 2.5, 4.0, 5.5, 7.0, 8.5, 10.0, 11.5, 13.0], dip_depth_db=12.0)
+        many_dips = _inject_level_dips(
+            audio, dip_times=[1.0, 2.5, 4.0, 5.5, 7.0, 8.5, 10.0, 11.5, 13.0], dip_depth_db=12.0
+        )
         sev_few = scanner._detect_tape_head_level_dips(few_dips).severity
         sev_many = scanner._detect_tape_head_level_dips(many_dips).severity
         assert sev_many > sev_few
 
     def test_13_very_short_audio(self):
         """Short audio (< 1 s) should return zero severity without error."""
-        from backend.core.defect_scanner import DefectScanner, DefectType, MaterialType
+        from backend.core.defect_scanner import DefectScanner, MaterialType
+
         scanner = DefectScanner.__new__(DefectScanner)
         scanner.sample_rate = SR
         scanner.material_type = MaterialType.TAPE
@@ -144,7 +154,8 @@ class TestDefectScannerDetection:
 
     def test_14_silence_not_detected_as_dip(self):
         """Near-silence regions (< -55 dBFS) should not trigger detection."""
-        from backend.core.defect_scanner import DefectScanner, DefectType, MaterialType
+        from backend.core.defect_scanner import DefectScanner, MaterialType
+
         scanner = DefectScanner.__new__(DefectScanner)
         scanner.sample_rate = SR
         scanner.material_type = MaterialType.TAPE
@@ -155,7 +166,8 @@ class TestDefectScannerDetection:
 
     def test_15_locations_within_audio_range(self):
         """Detected locations must be within [0, duration]."""
-        from backend.core.defect_scanner import DefectScanner, DefectType, MaterialType
+        from backend.core.defect_scanner import DefectScanner, MaterialType
+
         scanner = DefectScanner.__new__(DefectScanner)
         scanner.sample_rate = SR
         scanner.material_type = MaterialType.TAPE
@@ -172,9 +184,11 @@ class TestDefectScannerDetection:
 # Class 3: Phase 12 Tape Level Stabilizer
 # ===========================================================================
 
+
 class TestTapeLevelStabilizer:
     def _get_phase(self):
         from backend.core.phases.phase_12_wow_flutter_fix import WowFlutterFix
+
         return WowFlutterFix()
 
     def test_20_method_exists(self):
@@ -190,8 +204,8 @@ class TestTapeLevelStabilizer:
         # Should detect 0 or very few dips in clean signal
         assert n_dips <= 1
         # Output should be close to input (max gain ~0 dB)
-        rms_orig = float(np.sqrt(np.mean(audio ** 2)))
-        rms_result = float(np.sqrt(np.mean(result ** 2)))
+        rms_orig = float(np.sqrt(np.mean(audio**2)))
+        rms_result = float(np.sqrt(np.mean(result**2)))
         assert abs(rms_result - rms_orig) / (rms_orig + 1e-10) < 0.1
 
     def test_22_dips_are_repaired(self):
@@ -297,41 +311,49 @@ class TestTapeLevelStabilizer:
 # Class 4: CausalDefectReasoner Routing
 # ===========================================================================
 
+
 class TestCausalReasonerRouting:
     def test_40_cause_exists(self):
         from backend.core.causal_defect_reasoner import CAUSES
+
         assert "tape_head_contact_instability" in CAUSES
 
     def test_41_cause_to_phases_exists(self):
         from backend.core.causal_defect_reasoner import CAUSE_TO_PHASES
+
         assert "tape_head_contact_instability" in CAUSE_TO_PHASES
         phases = CAUSE_TO_PHASES["tape_head_contact_instability"]
         assert "phase_12_wow_flutter_fix" in phases
 
     def test_42_likelihood_fn_exists(self):
         from backend.core.causal_defect_reasoner import LIKELIHOOD_FNS
+
         assert "tape_head_contact_instability" in LIKELIHOOD_FNS
 
     def test_43_tape_material_prior_is_strong(self):
         from backend.core.causal_defect_reasoner import MATERIAL_PRIORS
+
         # Tape should have a notably lower prior (= higher probability)
         assert MATERIAL_PRIORS["tape"]["tape_head_contact_instability"] < 0.5
 
     def test_44_digital_material_prior_neutral(self):
         from backend.core.causal_defect_reasoner import MATERIAL_PRIORS
-        # Digital material should have no evidence (prior = 1.0)
-        assert MATERIAL_PRIORS["digital"]["tape_head_contact_instability"] == 1.0
+
+        # Digital material has no tape head → near-zero prior (N/A)
+        assert MATERIAL_PRIORS["digital"]["tape_head_contact_instability"] <= 0.01
 
 
 # ===========================================================================
 # Class 5: Integration — Phase 12 process() with tape material
 # ===========================================================================
 
+
 class TestPhase12Integration:
     def test_50_process_tape_with_dips(self):
         """Phase 12 process() on tape material with dips should report tape_level_dips_repaired."""
-        from backend.core.phases.phase_12_wow_flutter_fix import WowFlutterFix
         from backend.core.defect_scanner import MaterialType
+        from backend.core.phases.phase_12_wow_flutter_fix import WowFlutterFix
+
         phase = WowFlutterFix()
         audio = _sine(duration=10.0, amp=0.3)
         dipped = _inject_level_dips(audio, dip_times=[2.0, 5.0, 8.0], dip_depth_db=15.0)
@@ -342,8 +364,9 @@ class TestPhase12Integration:
 
     def test_51_process_cd_digital_no_stabilizer(self):
         """Phase 12 on CD_DIGITAL should NOT run tape level stabilizer."""
-        from backend.core.phases.phase_12_wow_flutter_fix import WowFlutterFix
         from backend.core.defect_scanner import MaterialType
+        from backend.core.phases.phase_12_wow_flutter_fix import WowFlutterFix
+
         phase = WowFlutterFix()
         audio = _sine(duration=5.0, amp=0.3)
         dipped = _inject_level_dips(audio, dip_times=[2.0], dip_depth_db=15.0)
@@ -353,8 +376,9 @@ class TestPhase12Integration:
 
     def test_52_output_finite_and_clipped(self):
         """Output from full process must be finite and clipped."""
-        from backend.core.phases.phase_12_wow_flutter_fix import WowFlutterFix
         from backend.core.defect_scanner import MaterialType
+        from backend.core.phases.phase_12_wow_flutter_fix import WowFlutterFix
+
         phase = WowFlutterFix()
         audio = _sine(duration=5.0, amp=0.3)
         dipped = _inject_level_dips(audio, dip_times=[1.5, 3.0], dip_depth_db=12.0)

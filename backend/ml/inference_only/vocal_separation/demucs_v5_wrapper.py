@@ -1,5 +1,3 @@
-import logging
-
 """
 Demucs v5 (Hybrid Transformer) Vocal Separator - HIPS Compliant Wrapper
 
@@ -17,6 +15,7 @@ HIPS Compliance:
 - Bedeutungsagnostik: ✅ Pure signal processing
 """
 
+import logging
 from pathlib import Path
 
 import librosa
@@ -213,8 +212,8 @@ class DemucsV5Separator:
             if hasattr(model, "segment"):
                 try:
                     model.segment = float(self.segment_duration)
-                except Exception:
-                    pass
+                except Exception as _exc:
+                    logger.debug("Operation failed (non-critical): %s", _exc)
 
             # Apply model
             with torch.no_grad():

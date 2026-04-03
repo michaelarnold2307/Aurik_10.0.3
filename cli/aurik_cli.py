@@ -46,7 +46,7 @@ def _resample_to_48k(audio: np.ndarray, sr: int) -> np.ndarray:
     try:
         import scipy.signal as _sig
 
-        n_out = int(round(audio.shape[0] * _TARGET_SR / sr))
+        int(round(audio.shape[0] * _TARGET_SR / sr))
         return _sig.resample_poly(audio, _TARGET_SR, sr, axis=0).astype(np.float32)
     except Exception as exc:
         raise RuntimeError(

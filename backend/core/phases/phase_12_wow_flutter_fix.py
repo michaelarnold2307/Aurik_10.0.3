@@ -333,9 +333,7 @@ class WowFlutterFix(PhaseInterface):
             _TAPE_LEVEL_MATERIALS = {MaterialType.TAPE, MaterialType.REEL_TAPE}
             _mat_enum = material if isinstance(material, MaterialType) else None
             if _mat_enum in _TAPE_LEVEL_MATERIALS and _effective_strength > 0.0:
-                audio, n_level_dips_repaired = self._stabilize_tape_level(
-                    audio, sample_rate, _effective_strength
-                )
+                audio, n_level_dips_repaired = self._stabilize_tape_level(audio, sample_rate, _effective_strength)
                 if n_level_dips_repaired > 0:
                     logger.info(
                         "Phase 12 tape level stabilizer (low confidence path): %d dips repaired",
@@ -399,9 +397,7 @@ class WowFlutterFix(PhaseInterface):
             _TAPE_LEVEL_MATERIALS = {MaterialType.TAPE, MaterialType.REEL_TAPE}
             _mat_enum = material if isinstance(material, MaterialType) else None
             if _mat_enum in _TAPE_LEVEL_MATERIALS and _effective_strength > 0.0:
-                audio, n_level_dips_repaired = self._stabilize_tape_level(
-                    audio, sample_rate, _effective_strength
-                )
+                audio, n_level_dips_repaired = self._stabilize_tape_level(audio, sample_rate, _effective_strength)
                 if n_level_dips_repaired > 0:
                     logger.info(
                         "Phase 12 tape level stabilizer (no wow/flutter): %d dips repaired",
@@ -483,9 +479,7 @@ class WowFlutterFix(PhaseInterface):
         _TAPE_LEVEL_MATERIALS = {MaterialType.TAPE, MaterialType.REEL_TAPE}
         _mat_enum = material if isinstance(material, MaterialType) else None
         if _mat_enum in _TAPE_LEVEL_MATERIALS and _effective_strength > 0.0:
-            restored, n_level_dips_repaired = self._stabilize_tape_level(
-                restored, sample_rate, _effective_strength
-            )
+            restored, n_level_dips_repaired = self._stabilize_tape_level(restored, sample_rate, _effective_strength)
             if n_level_dips_repaired > 0:
                 restored_mono = np.mean(restored, axis=1) if is_stereo else restored
                 logger.info(
@@ -633,8 +627,8 @@ class WowFlutterFix(PhaseInterface):
             hop_samples = max(1, int(self.PITCH_WINDOW_MS * sample_rate / 1000) // self.PITCH_HOP_FACTOR)
             f0, voiced_flag, voiced_prob = librosa.pyin(
                 audio.astype(np.float32),
-                fmin=float(librosa.note_to_hz("C2")),   # ~65 Hz
-                fmax=float(librosa.note_to_hz("C7")),   # ~2093 Hz
+                fmin=float(librosa.note_to_hz("C2")),  # ~65 Hz
+                fmax=float(librosa.note_to_hz("C7")),  # ~2093 Hz
                 sr=sample_rate,
                 hop_length=hop_samples,
                 fill_na=0.0,
@@ -664,8 +658,10 @@ class WowFlutterFix(PhaseInterface):
         if len(audio) > _cap_samples:
             _mid = len(audio) // 2
             _half = _cap_samples // 2
-            audio_pyin = audio[_mid - _half: _mid + _half]
-            logger.debug("pYIN Python fallback: %.0f s audio capped to %d s centre", len(audio) / sample_rate, _PYIN_CAP_S)
+            audio_pyin = audio[_mid - _half : _mid + _half]
+            logger.debug(
+                "pYIN Python fallback: %.0f s audio capped to %d s centre", len(audio) / sample_rate, _PYIN_CAP_S
+            )
         else:
             audio_pyin = audio
 
@@ -673,7 +669,7 @@ class WowFlutterFix(PhaseInterface):
         hop_samples = window_samples // self.PITCH_HOP_FACTOR
 
         min_period = int(sample_rate / 1000)  # max 1000 Hz
-        max_period = int(sample_rate / 50)    # min 50 Hz
+        max_period = int(sample_rate / 50)  # min 50 Hz
         max_period = min(max_period, window_samples // 2)
 
         num_windows = max(1, (len(audio_pyin) - window_samples) // hop_samples + 1)
@@ -696,7 +692,7 @@ class WowFlutterFix(PhaseInterface):
 
             # CMND function (YIN)
             autocorr = np.correlate(window, window, mode="full")
-            autocorr = autocorr[len(autocorr) // 2:]
+            autocorr = autocorr[len(autocorr) // 2 :]
             diff = 2.0 * (autocorr[0] - autocorr[:max_period])
             cmnd = np.ones(max_period)
             cumsum = np.cumsum(diff[1:])
@@ -1150,6 +1146,7 @@ class WowFlutterFix(PhaseInterface):
             ref_frames += 1
 
         from scipy.ndimage import percentile_filter
+
         ref_db = percentile_filter(rms_db, percentile=75, size=ref_frames, mode="reflect")
 
         # --- Step 3: Detect dips (envelope < reference - threshold) ---
@@ -1157,6 +1154,7 @@ class WowFlutterFix(PhaseInterface):
 
         # Connected-component labelling to find dip regions
         from scipy.ndimage import label as nd_label
+
         labeled, n_dips = nd_label(dip_mask)
 
         if n_dips == 0:
@@ -1199,8 +1197,8 @@ class WowFlutterFix(PhaseInterface):
         if sg_win <= n_frames:
             try:
                 gain_db = signal.savgol_filter(gain_db, sg_win, 2)
-            except Exception:
-                pass  # keep unsmoothed gain if savgol fails
+            except Exception as _exc:
+                logger.debug("Operation failed (non-critical): %s", _exc)  # keep unsmoothed gain if savgol fails
 
         # Ensure no negative gain
         gain_db = np.clip(gain_db, 0.0, max_gain_db)
@@ -1225,8 +1223,7 @@ class WowFlutterFix(PhaseInterface):
         result = np.clip(result, -1.0, 1.0)
 
         logger.debug(
-            "Tape level stabilizer: %d dips detected, max gain %.1f dB, "
-            "mean gain %.2f dB (strength=%.2f)",
+            "Tape level stabilizer: %d dips detected, max gain %.1f dB, mean gain %.2f dB (strength=%.2f)",
             n_repaired,
             float(np.max(gain_db)),
             float(np.mean(gain_db[gain_db > 0.0])) if np.any(gain_db > 0.0) else 0.0,
@@ -1544,8 +1541,8 @@ class WowFlutterFix(PhaseInterface):
             win = min(win, n_samples if n_samples % 2 == 1 else n_samples - 1)
             if win >= 5:
                 sf_samples = savgol_filter(sf_samples, window_length=win, polyorder=2, mode="interp")
-        except Exception:
-            pass
+        except Exception as _exc:
+            logger.debug("Operation failed (non-critical): %s", _exc)
 
         sf_samples = np.clip(sf_samples, 0.90, 1.10)
         if np.max(np.abs(sf_samples - 1.0)) < 0.002:

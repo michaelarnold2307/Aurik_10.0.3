@@ -112,9 +112,7 @@ def _smooth_envelope(env: np.ndarray, sr: int, window_s: float) -> np.ndarray:
     return np.convolve(env, kernel, mode="same").astype(np.float32)
 
 
-def _frame_pearson(
-    env_orig: np.ndarray, env_rest: np.ndarray, sr: int, window_s: float
-) -> float:
+def _frame_pearson(env_orig: np.ndarray, env_rest: np.ndarray, sr: int, window_s: float) -> float:
     """Compute Pearson correlation between two envelopes at a given scale."""
     # Smooth both envelopes at the target scale
     s_orig = _smooth_envelope(env_orig, sr, window_s)
@@ -174,9 +172,7 @@ def measure(
         correlations[name] = _frame_pearson(env_orig, env_rest, sr, window_s)
 
     # Weighted fidelity score
-    fidelity = sum(
-        correlations[name] * weight for name, _ws, weight in _SCALES
-    )
+    fidelity = sum(correlations[name] * weight for name, _ws, weight in _SCALES)
     fidelity = max(0.0, min(1.0, fidelity))
 
     return MTEFResult(
@@ -255,7 +251,7 @@ def morph(
         ratio_softened = 1.0 + blend * (ratio - 1.0)
 
         # Apply weighted contribution
-        gain *= ratio_softened ** weight
+        gain *= ratio_softened**weight
 
     # Safety clamp gain
     gain = np.clip(gain, min_gain, max_gain)
@@ -295,12 +291,11 @@ def morph(
 
 # ── Singleton Pattern ─────────────────────────────────────────────────────────
 
+
 class MicroTemporalEnvelopeFidelity:
     """Singleton wrapper for MTEF measure/morph operations."""
 
-    def measure(
-        self, original: np.ndarray, restored: np.ndarray, sr: int = 48000
-    ) -> MTEFResult:
+    def measure(self, original: np.ndarray, restored: np.ndarray, sr: int = 48000) -> MTEFResult:
         return measure(original, restored, sr)
 
     def morph(

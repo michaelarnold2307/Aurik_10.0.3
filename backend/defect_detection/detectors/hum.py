@@ -18,9 +18,9 @@ class HumDetector(DefectDetector):
     Checks for 50 Hz and 60 Hz fundamental + harmonics up to 500 Hz.
     """
 
-    def __init__(self, hum_freqs: list[float] = [50.0, 60.0]):
+    def __init__(self, hum_freqs: list[float] | None = None):
         super().__init__(name="hum_detector", defect_type=DefectType.HUM)
-        self.hum_freqs = hum_freqs
+        self.hum_freqs = hum_freqs if hum_freqs is not None else [50.0, 60.0]
         self.max_harmonics = 8
 
     def detect(self, audio: np.ndarray, sr: int, tolerance: float = 0.5, **kwargs) -> list[DefectInstance]:
@@ -116,7 +116,7 @@ class HumDetector(DefectDetector):
         }
 
         description = (
-            f"Electrical hum at {hum_freq} Hz ({num_significant_harmonics} harmonics, {hum_ratio*100:.2f}% of signal)"
+            f"Electrical hum at {hum_freq} Hz ({num_significant_harmonics} harmonics, {hum_ratio * 100:.2f}% of signal)"
         )
 
         return {

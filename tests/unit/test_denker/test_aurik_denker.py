@@ -847,7 +847,7 @@ class TestAurikDenkerAutopilotMode:
         assert mode == "restoration"
         assert "Restoration empfohlen" in note
 
-    def test_explicit_studio2026_falls_back_to_restoration_on_risk(self):
+    def test_explicit_studio2026_respects_user_choice_on_risk(self):
         audio = _sine()
 
         toni_m = _make_toni_mock("tape")
@@ -927,9 +927,11 @@ class TestAurikDenkerAutopilotMode:
 
             result = AurikDenker().denke(audio, SR, mode="studio2026")
 
-        assert rest_m.restauriere.call_args.kwargs["mode"] == "restoration"
-        assert "zurückgesetzt" in result.stage_notes.get("autopilot", "")
-        assert any("Autopilot-Sicherheitsfallback" in warning for warning in result.warnings)
+        # §Bindend: Nutzerwahl wird respektiert — Studio 2026 bleibt erhalten.
+        # Schutzmaßnahmen (SongCal, PMGG, FeedbackChain) greifen intern.
+        assert rest_m.restauriere.call_args.kwargs["mode"] == "studio2026"
+        assert "beibehalten" in result.stage_notes.get("autopilot", "")
+        assert "Schutzmaßnahmen" in result.stage_notes.get("autopilot", "")
 
 
 # ─── AurikErgebnis Audio-Invarianten ─────────────────────────────────────────

@@ -93,8 +93,7 @@ class QualityFeedbackLoop:
                 naturalness = naturalness_scores["naturalness_overall"]
 
                 logger.info(
-                    f"Iteration {iteration + 1}: Naturalness {naturalness:.3f} "
-                    f"(target: {self.target_naturalness:.3f})"
+                    f"Iteration {iteration + 1}: Naturalness {naturalness:.3f} (target: {self.target_naturalness:.3f})"
                 )
 
                 # Store if best so far

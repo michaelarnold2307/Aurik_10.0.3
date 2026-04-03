@@ -17,7 +17,7 @@ Features:
 
 import logging
 from dataclasses import dataclass
-from typing import Any, Dict
+from typing import Any
 
 import numpy as np
 

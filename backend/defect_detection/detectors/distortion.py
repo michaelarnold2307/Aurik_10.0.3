@@ -45,7 +45,7 @@ class DistortionDetector(DefectDetector):
             "fundamental_energy_db": float(10 * np.log10(fundamental_energy + 1e-10)),
             "num_harmonics": len(harmonic_energies),
         }
-        description = f"Harmonic distortion: THD={thd*100:.2f}% at {fundamental_freq:.1f} Hz"
+        description = f"Harmonic distortion: THD={thd * 100:.2f}% at {fundamental_freq:.1f} Hz"
         return [
             self._create_instance(
                 severity=severity,

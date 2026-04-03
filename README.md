@@ -121,7 +121,7 @@ und produziert das vollständige `AurikErgebnis` (17 Felder, `@dataclass`).
 > **Kein Python, kein Terminal notwendig.** Aurik läuft direkt auf Ihrem Desktop.
 
 | Schritt | Aktion | Was passiert |
-|---------|--------|--------------|
+| --- | --- | --- |
 | **1** | **Datei öffnen** — Doppelklick auf `AURIK910.AppImage` (Linux) oder `AURIK910.exe` (Windows) | Das Programm startet. Alle KI-Modelle sind bereits enthalten — keine Internetverbindung nötig. |
 | **2** | **Aufnahme laden** — Klick auf **📂 Datei öffnen** oder die Audiodatei ins Fenster ziehen | Aurik erkennt automatisch den Tonträger (Vinyl, Kassette, Shellac …) und analysiert alle Defekte. |
 | **3** | **Restaurieren** — Klick auf **📀 Restoration** | Die restaurierte Datei wird im Ordner `output/` neben der Originaldatei gespeichert. |

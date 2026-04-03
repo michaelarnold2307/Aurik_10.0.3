@@ -175,8 +175,8 @@ class VersaPlugin:
             if not _try_alloc("VersaSingMOS", size_gb=self._BUDGET_GB):
                 logger.warning("VERSA SingMOS Pro: ML-Budget erschöpft (%.2f GB) — PQS-Fallback.", self._BUDGET_GB)
                 return
-        except Exception:
-            pass
+        except Exception as _exc:
+            logger.debug("Operation failed (non-critical): %s", _exc)
 
         try:
             import importlib.util

@@ -35,7 +35,6 @@ import threading
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, List, Optional
 
 import numpy as np
 
@@ -373,7 +372,7 @@ class ArtistSignatureStore:
         self._cache[artist_id] = existing
 
         logger.info(
-            "🎙️ Künstler-Signatur aktualisiert: artist_id=%s | n=%d | " "confidence=%.2f | gender=%s",
+            "🎙️ Künstler-Signatur aktualisiert: artist_id=%s | n=%d | confidence=%.2f | gender=%s",
             artist_id,
             n_new,
             existing.confidence,

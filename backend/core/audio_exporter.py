@@ -266,7 +266,7 @@ class AudioExporter:
             return output_path
 
         except Exception as e:
-            raise RuntimeError(f"Export failed: {e}")
+            raise RuntimeError(f"Export failed: {e}") from e
 
     def _write_metadata(self, file_path: Path, metadata: dict[str, str]) -> None:
         """
@@ -306,11 +306,11 @@ class AudioExporter:
                             sf_handle = getattr(sndfile, "_file", None)
                             if sf_handle is not None and hasattr(sf_handle, "command"):
                                 sf_handle.command(0x10018, sf_code, value.encode("utf-8"), len(value) + 1)
-                        except Exception:
-                            pass
+                        except Exception as _exc:
+                            logger.debug("Operation failed (non-critical): %s", _exc)
             written_via_sf = True
-        except Exception:
-            pass
+        except Exception as _exc:
+            logger.debug("Operation failed (non-critical): %s", _exc)
 
         if not written_via_sf:
             # JSON-Sidecar als Fallback

@@ -213,6 +213,24 @@ def _iso226_weights(freqs: np.ndarray) -> np.ndarray:
     return np.nan_to_num(weights, nan=1.0, posinf=1.0, neginf=0.0).astype(np.float32)
 
 
+def _safe_centre_crop(audio: np.ndarray, max_samples: int) -> np.ndarray:
+    """Return a centre crop of *audio* capped at *max_samples* samples.
+
+    Falls back to the beginning of the track when the geometrical centre is
+    silent (RMS < 1e-6), which can happen if a pipeline bug produces zeros in
+    the second half of the file.  This prevents spectral metrics from returning
+    a misleading 0.0 just because the crop landed in a dead zone.
+    """
+    if len(audio) <= max_samples:
+        return audio
+    start = (len(audio) - max_samples) // 2
+    segment = audio[start : start + max_samples]
+    if float(np.sqrt(np.mean(segment**2))) < 1e-6:
+        # Centre is silent — try the beginning instead
+        return audio[:max_samples]
+    return segment
+
+
 class BassKraftMetric:
     """
     Bass-Kraft: Kraftvolle Basswiedergabe (20-250 Hz)
@@ -477,10 +495,9 @@ class BrillanzMetric:
             audio = np.mean(audio, axis=0 if audio.shape[0] <= 2 else 1)
 
         # §9.7.6 Audio-Cap — brillanz is spectrally stationary; 15 s centre segment sufficient.
+        # _safe_centre_crop falls back to track start if centre is silent (pipeline bug guard).
         _MAX_BRILLANZ_SAMPLES = int(sr * 15)
-        if len(audio) > _MAX_BRILLANZ_SAMPLES:
-            _b_start = (len(audio) - _MAX_BRILLANZ_SAMPLES) // 2
-            audio = audio[_b_start : _b_start + _MAX_BRILLANZ_SAMPLES]
+        audio = _safe_centre_crop(audio, _MAX_BRILLANZ_SAMPLES)
 
         # STFT
         stft = librosa.stft(audio, n_fft=2048, hop_length=512)
@@ -578,7 +595,7 @@ class WaermeMetric:
         """
         score = self._measure_absolute(audio, sr)
         if reference is None:
-            return score
+            return float(np.clip(score, 0.0, 1.0))
 
         # --- Hybrid v9.12: Reference-aware warmth preservation ---
         ref_score = self._measure_absolute(reference, sr)
@@ -587,13 +604,14 @@ class WaermeMetric:
             pres_factor = float(np.clip(preservation, 0.5, 1.1))
             score = 0.80 * score + 0.20 * (score * pres_factor)
 
-        # --- Optional MERT harmonicity refinement (v9.12 hybrid) ---
-        # If MERT plugin is already loaded, use its harmonicity for H2/H4 validation
+        # --- Optional MERT harmonicity refinement (v9.12 hybrid, guard fixed v9.10.98) ---
+        # Runs only in the reference-aware path where harmonic context is most meaningful.
+        # Guard: _model_type != "dsp_fallback" — never triggers lazy MERT load.
         try:
             from plugins.mert_plugin import get_mert_plugin
 
             mert = get_mert_plugin()
-            if mert is not None and hasattr(mert, "_session") and mert._session is not None:
+            if mert._model_type != "dsp_fallback":
                 analysis = mert.analyze(audio, sr)
                 # MERT harmonicity refines warmth: weight 10% (gentle blend)
                 mert_warmth = float(np.clip(analysis.harmonicity, 0.0, 1.0))
@@ -603,8 +621,8 @@ class WaermeMetric:
                     analysis.harmonicity,
                     score,
                 )
-        except Exception:
-            pass  # MERT not loaded or unavailable — DSP-only path
+        except Exception as _exc:
+            logger.debug("Operation failed (non-critical): %s", _exc)  # MERT not loaded or unavailable — DSP-only path
 
         return float(np.clip(score, 0.0, 1.0))
 
@@ -614,10 +632,9 @@ class WaermeMetric:
             audio = np.mean(audio, axis=0 if audio.shape[0] <= 2 else 1)
 
         # §9.7.6 Audio-Cap — wärme is spectrally stationary; 15 s centre segment sufficient.
+        # _safe_centre_crop falls back to track start if centre is silent (pipeline bug guard).
         _MAX_WAERME_SAMPLES = int(sr * 15)
-        if len(audio) > _MAX_WAERME_SAMPLES:
-            _w_start = (len(audio) - _MAX_WAERME_SAMPLES) // 2
-            audio = audio[_w_start : _w_start + _MAX_WAERME_SAMPLES]
+        audio = _safe_centre_crop(audio, _MAX_WAERME_SAMPLES)
 
         # STFT
         stft = librosa.stft(audio, n_fft=2048, hop_length=512)
@@ -813,8 +830,8 @@ class NatuerlichkeitMetric:
                         voiced_clear,
                         unvoiced_clear,
                     )
-        except Exception:
-            pass
+        except Exception as _exc:
+            logger.debug("Operation failed (non-critical): %s", _exc)
 
         # Final score — adaptiv gewichtet (CREPE nur bei klarer Stimmcharakteristik)
         # FIXED v9.10: onset_smoothness (w_onset) jetzt in Formel einbezogen
@@ -929,8 +946,8 @@ class AuthentizitaetMetric:
                         res.mos,
                         versa_similarity,
                     )
-            except Exception:
-                pass
+            except Exception as _exc:
+                logger.debug("Operation failed (non-critical): %s", _exc)
 
             # Final score: VERSA 40 %, Chroma 35 %, Formant 25 %
             score = 0.40 * versa_similarity + 0.35 * fingerprint_match + 0.25 * formant_stability
@@ -947,9 +964,9 @@ class AuthentizitaetMetric:
                 _rf_start = (len(audio) - _MAX_AUTH_SAMPLES_RF) // 2
                 audio = audio[_rf_start : _rf_start + _MAX_AUTH_SAMPLES_RF]
             try:
-                chroma = librosa.feature.chroma_cqt(y=audio, sr=sr)
+                librosa.feature.chroma_cqt(y=audio, sr=sr)
             except Exception:
-                chroma = librosa.feature.chroma_stft(y=audio, sr=sr)
+                librosa.feature.chroma_stft(y=audio, sr=sr)
             # Fix v9.13: chroma_std penalises harmonically rich music (high chroma_std
             # = many active pitch classes = good), which is the opposite of authenticity.
             # Replace with spectral flatness: tonal / instrument audio → near-zero
@@ -992,50 +1009,84 @@ class EmotionalitaetMetric:
         self.threshold = threshold
 
     def measure(self, audio: np.ndarray, sr: int) -> float:
-        """Measure emotionalität score (0.0 - 1.0)."""
+        """Measure emotionalität score (0.0 - 1.0).
+
+        Multi-window strategy (v9.10.x):
+        Emotional dynamics are non-stationary — a single centre crop underestimates
+        expression across intro/verse/chorus/outro.  For tracks > 30 s we sample
+        three 10-second windows at 20 / 50 / 80 % of the track and return the
+        median score.  Tracks ≤ 30 s are scored in full.
+        """
         if audio.ndim > 1:
             audio = np.mean(audio, axis=0 if audio.shape[0] <= 2 else 1)
 
-        # §9.7.6 Audio-Cap — dynamics characteristics are stationary; 15 s centre segment sufficient.
-        _MAX_EMOT_SAMPLES = int(sr * 15)
-        if len(audio) > _MAX_EMOT_SAMPLES:
-            _e_start = (len(audio) - _MAX_EMOT_SAMPLES) // 2
-            audio = audio[_e_start : _e_start + _MAX_EMOT_SAMPLES]
+        # Inner helper — scores exactly one segment (no cropping).
+        def _score_window(seg: np.ndarray) -> float:
+            # Crest Factor — higher = more dynamics
+            # FIXED v9.10: dB domain normalization (linear 2–20 scale was too low for music)
+            # Fix v9.13: denominator 12 → 9 — restored audio (@-14 LUFS) crest 8-11 dB;
+            # calibration: 11 dB → 1.0  (8 dB → 0.67, 10 dB → 0.89).
+            _rms = np.sqrt(np.mean(seg**2))
+            _peak = np.max(np.abs(seg))
+            _crest_db = 20.0 * float(np.log10(_peak / (_rms + 1e-10) + 1e-10))
+            _crest_score = min(1.0, max(0.0, (_crest_db - 2.0) / 9.0))
 
-        # Crest Factor (peak / RMS) - higher = more dynamics
-        rms = np.sqrt(np.mean(audio**2))
-        peak = np.max(np.abs(audio))
-        crest_factor = peak / (rms + 1e-10)
-        # FIXED v9.10: dB domain normalization (was: linear 2–20 scale → too low for music)
-        # Fix v9.13: denominator 12 → 9 — restored audio (loudness-normalised to -14 LUFS)
-        # typically has crest 8-11 dB; old formula scored 8 dB as 0.50, 10 dB as 0.67.
-        # New calibration: 11 dB → 1.0  (8 dB → 0.67, 10 dB → 0.89).
-        crest_db = 20.0 * float(np.log10(crest_factor + 1e-10))
-        crest_score = min(1.0, max(0.0, (crest_db - 2.0) / 9.0))
+            _rms_frames = librosa.feature.rms(y=seg, frame_length=2048, hop_length=512)[0]
+            # RMS Energy Variance — higher = more expression
+            _variance_score = min(1.0, float(np.var(_rms_frames)) * 1000)
+            # Micro-Dynamics — frame-to-frame RMS changes
+            _micro_score = min(1.0, float(np.mean(np.abs(np.diff(_rms_frames)))) * 100)
+            # Dynamic Range — p90 − p10 of RMS frames
+            _p10, _p90 = np.percentile(_rms_frames, [10, 90])
+            _range_score = min(1.0, (_p90 - _p10) * 10)
 
-        # RMS Energy Variance (expression variations)
-        rms_frames = librosa.feature.rms(y=audio, frame_length=2048, hop_length=512)[0]
-        rms_variance = np.var(rms_frames)
-        # Higher variance = more expression
-        variance_score = min(1.0, rms_variance * 1000)
+            return 0.30 * _crest_score + 0.30 * _variance_score + 0.20 * _micro_score + 0.20 * _range_score
 
-        # Micro-Dynamics (frame-to-frame RMS changes)
-        rms_diff = np.abs(np.diff(rms_frames))
-        micro_dynamics = np.mean(rms_diff)
-        micro_score = min(1.0, micro_dynamics * 100)
+        _WINDOW_SAMPLES = int(sr * 10)  # 10 s — long enough to capture a phrase arc
+        _FULL_CAP = int(sr * 30)  # tracks ≤ 30 s: score in full
 
-        # Dynamic Range (difference between loud and soft passages)
-        loudness_percentiles = np.percentile(rms_frames, [10, 90])
-        dynamic_range = loudness_percentiles[1] - loudness_percentiles[0]
-        range_score = min(1.0, dynamic_range * 10)
+        n = len(audio)
+        if n <= _FULL_CAP:
+            score = _score_window(audio)
+        else:
+            # Sample at 20 / 50 / 80 % of the track; skip silent windows
+            _anchors = [int(n * 0.20), int(n * 0.50), int(n * 0.80)]
+            _window_scores: list[float] = []
+            for _anchor in _anchors:
+                _ws = max(0, min(_anchor - _WINDOW_SAMPLES // 2, n - _WINDOW_SAMPLES))
+                _seg = audio[_ws : _ws + _WINDOW_SAMPLES]
+                if float(np.sqrt(np.mean(_seg**2))) >= 1e-6:
+                    _window_scores.append(_score_window(_seg))
+            score = float(np.median(_window_scores)) if _window_scores else 0.0
 
-        # Final score
-        score = 0.30 * crest_score + 0.30 * variance_score + 0.20 * micro_score + 0.20 * range_score
+        # v9.11: no floor — flat / expressionless audio must produce a visible low score
+        score = float(min(1.0, max(0.0, score)))
 
-        score = min(
-            1.0, max(0.0, score)
-        )  # v9.11: kein Floor — flaches, ausdrucksloses Audio muss sichtbar sein (war: max(0.87,...) → blind)
-        return score
+        # --- Optional MERT naturalness refinement (MERT-Blend v9.10.98) ---
+        # EmotionalExpressiveness correlates with MERT naturalness_score (harmonic +
+        # tonal + flux coherence). Only runs when MERT ML model is already loaded —
+        # never triggers a lazy MERT load.  One-directional: MERT can only raise the
+        # score (never reduce a high-dynamic DSP score for synthetic audio).
+        try:
+            from plugins.mert_plugin import get_mert_plugin
+
+            mert = get_mert_plugin()
+            if mert._model_type != "dsp_fallback":
+                analysis = mert.analyze(audio, sr)
+                # naturalness_score captures harmonic + tonal expressiveness
+                mert_emotion = float(np.clip(analysis.naturalness_score, 0.0, 1.0))
+                # One-directional: blend only applies when MERT sees MORE emotion than DSP
+                blended = 0.85 * score + 0.15 * mert_emotion
+                score = max(score, blended)
+                logger.debug(
+                    "EmotionalitaetMetric MERT-hybrid: naturalness=%.3f, blended_score=%.3f",
+                    analysis.naturalness_score,
+                    score,
+                )
+        except Exception as _exc:
+            logger.debug("Operation failed (non-critical): %s", _exc)  # MERT not loaded — DSP-only path
+
+        return float(np.clip(score, 0.0, 1.0))
 
 
 class TransparenzMetric:
@@ -1803,8 +1854,8 @@ class TonalCenterMetric:
             import librosa  # type: ignore[import]
 
             return librosa.feature.chroma_stft(y=audio_mono, sr=sr, hop_length=2048, n_chroma=12).astype(np.float32)
-        except Exception:
-            pass
+        except Exception as _exc:
+            logger.debug("Operation failed (non-critical): %s", _exc)
         # DSP-Fallback
         n_fft = min(4096, len(audio_mono))
         hop = 2048

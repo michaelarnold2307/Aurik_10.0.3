@@ -27,14 +27,17 @@ import logging
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
+from typing import Any
 
 import soundfile as sf
 from tqdm import tqdm
 
 try:
-    from backend.core.defect_scanner import MaterialType
-except ImportError:
-    from core.defect_scanner import MaterialType  # type: ignore[import-not-found]  # Legacy-Pfad Fallback
+    from backend.api.bridge import get_medium_type_enum as _get_medium_type_enum
+
+    MaterialType = _get_medium_type_enum()
+except Exception:
+    MaterialType = None  # type: ignore[assignment,misc]
 try:
     from denker.aurik_denker import get_aurik_denker as _get_aurik_denker
 except ImportError:
@@ -124,7 +127,7 @@ class BatchProcessor:
         logger.info(f"Found {len(files)} audio files to process")
         return files
 
-    def process_file(self, input_file: Path, material: MaterialType, config: dict | None = None) -> dict:
+    def process_file(self, input_file: Path, material: Any, config: dict | None = None) -> dict:
         """
         Process a single audio file.
 
@@ -155,7 +158,10 @@ class BatchProcessor:
             denker = _get_aurik_denker()
             mode = (config or {}).pop("mode", "restoration")
             denker_result = denker.denke(
-                audio_data, file_sr, mode=mode, no_rt_limit=True,
+                audio_data,
+                file_sr,
+                mode=mode,
+                no_rt_limit=True,
                 input_path=str(input_file),
             )
             restorer_result = denker_result
@@ -183,7 +189,7 @@ class BatchProcessor:
 
             return {"file": str(input_file), "success": False, "error": str(e), "elapsed": elapsed}
 
-    def process_batch(self, input_files: list[Path], material: MaterialType, config: dict | None = None) -> list[dict]:
+    def process_batch(self, input_files: list[Path], material: Any, config: dict | None = None) -> list[dict]:
         """
         Process multiple audio files in parallel.
 
@@ -261,6 +267,10 @@ def main():
     args = parser.parse_args()
 
     # Material mapping
+    if MaterialType is None:
+        logger.error("MaterialType not available - backend module not imported")
+        return
+
     material_map = {
         "shellac": MaterialType.SHELLAC,
         "vinyl": MaterialType.VINYL,

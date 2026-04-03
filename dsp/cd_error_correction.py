@@ -1,11 +1,10 @@
-import logging
-
 """
 cd_error_correction.py - CD-Error-Correction für Aurik 6.0
 
 SOTA-konforme CD-Error-Correction mit DSPContract und Auditierbarkeit.
 """
 
+import logging
 from dataclasses import asdict, dataclass
 from typing import Any
 
@@ -120,6 +119,11 @@ class CDErrorCorrection:
                     r = np.correlate(ctx, ctx, mode="full")[len(ctx) - 1 : len(ctx) + p]
                     rhs = r[1 : p + 1]
                     row = r[:p]
+                    # Guard: degenerate autocorrelation triggers LAPACK DLASCL parameter error
+                    if not np.isfinite(row).all() or not np.isfinite(rhs).all() or row[0] < 1e-12:
+                        if gs > 0 and ge < n:
+                            y[gs:ge] = np.linspace(y[gs - 1], y[ge], ge - gs + 2)[1:-1]
+                        continue
                     ar = solve_toeplitz(row, rhs)
                     # Vorwärts-Prädiktion
                     buf = list(y[ctx_start:gs])

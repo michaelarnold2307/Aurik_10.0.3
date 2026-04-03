@@ -133,8 +133,8 @@ class BeatsPlugin:
                 if not _try_alloc("BEATs", size_gb=0.09):
                     logger.warning("BEATs: ML-Budget erschöpft — PANNs-Fallback.")
                     return
-            except Exception:
-                pass
+            except Exception as _exc:
+                logger.debug("Operation failed (non-critical): %s", _exc)
 
             opts = ort.SessionOptions()
             opts.inter_op_num_threads = 2
@@ -153,16 +153,16 @@ class BeatsPlugin:
                     size_gb=0.09,
                     unload_fn=lambda s=self: setattr(s, "_session", None) or setattr(s, "_model_loaded", False),
                 )
-            except Exception:
-                pass
+            except Exception as _exc:
+                logger.debug("Operation failed (non-critical): %s", _exc)
         except Exception as exc:
             logger.warning("BEATs ONNX nicht ladbar: %s — PANNs-Fallback aktiv.", exc)
             try:
                 from backend.core.ml_memory_budget import release as _rel
 
                 _rel("BEATs")
-            except Exception:
-                pass
+            except Exception as _exc:
+                logger.debug("Operation failed (non-critical): %s", _exc)
 
     def _to_model_input(self, audio: np.ndarray, sr: int) -> np.ndarray:
         """Resampelt Audio auf 16 kHz, kürzt/paddet auf max. 10 s.

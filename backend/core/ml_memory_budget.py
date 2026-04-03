@@ -146,8 +146,8 @@ def _preflight_system_memory(required_mb: float) -> bool:
         from backend.core.plugin_lifecycle_manager import evict_stale_plugins
 
         evict_stale_plugins(required_mb=required_with_margin)
-    except Exception:
-        pass
+    except Exception as _exc:
+        logger.debug("Operation failed (non-critical): %s", _exc)
 
     available_after_evict_mb = _available_memory_mb()
     if available_after_evict_mb >= required_with_margin:

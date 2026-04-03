@@ -2,9 +2,9 @@
 
 ## Unterstützte Versionen
 
-| Version | Status |
-|---------|--------|
-| 9.10.x  | ✅ Unterstützt (aktiv) |
+| Version | Status                       |
+|---------|------------------------------|
+| 9.10.x  | ✅ Unterstützt (aktiv)       |
 | < 9.10  | ❌ Keine Sicherheits-Updates |
 
 ## Sicherheitslücken melden

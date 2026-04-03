@@ -184,7 +184,7 @@ def gen_tape() -> Image.Image:
 
 def gen_cassette() -> Image.Image:
     img, draw = _new()
-    cx, cy = HALF, HALF
+    _cx, _cy = HALF, HALF
     _rounded_rect(draw, [12, 28, 116, 100], fill=(60, 58, 65), radius=8)
     _rounded_rect(draw, [16, 32, 112, 96], fill=(75, 73, 80), radius=6)
     # Tape windows
@@ -251,7 +251,7 @@ def gen_cd_digital() -> Image.Image:
 
 def gen_dat() -> Image.Image:
     img, draw = _new()
-    cx, cy = HALF, HALF
+    cx, _cy = HALF, HALF
     _rounded_rect(draw, [18, 30, 110, 98], fill=(35, 35, 42), radius=6)
     _rounded_rect(draw, [22, 34, 106, 94], fill=(50, 48, 58), radius=4)
     _rounded_rect(draw, [32, 58, 96, 80], fill=(20, 20, 25), radius=3)
@@ -328,7 +328,7 @@ def gen_aac() -> Image.Image:
 
 def gen_streaming() -> Image.Image:
     img, draw = _new()
-    cx, cy = HALF, HALF
+    cx, _cy = HALF, HALF
     # Cloud
     draw.ellipse([28, 40, 72, 78], fill=(80, 130, 190))
     draw.ellipse([52, 35, 100, 75], fill=(80, 130, 190))

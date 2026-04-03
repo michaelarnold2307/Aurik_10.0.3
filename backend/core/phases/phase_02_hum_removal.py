@@ -222,8 +222,8 @@ class HumRemovalPhase(PhaseInterface):
             try:
                 qm = QualityMode[quality_mode.upper()]
                 use_ml = should_use_ml(2, qm)  # Phase 2
-            except Exception:
-                pass
+            except Exception as _exc:
+                logger.debug("Operation failed (non-critical): %s", _exc)
 
         # Get material-specific parameters
         params = dict(self.MATERIAL_PARAMS.get(material_type, self.MATERIAL_PARAMS["unknown"]))
@@ -494,8 +494,8 @@ class HumRemovalPhase(PhaseInterface):
                     os.unlink(input_path)
                 if os.path.exists(output_path):
                     os.unlink(output_path)
-            except Exception:
-                pass
+            except Exception as _exc:
+                logger.debug("Operation failed (non-critical): %s", _exc)
 
     def _track_harmonics(
         self, audio: np.ndarray, fundamental: int, max_harmonics: int, threshold_db: float

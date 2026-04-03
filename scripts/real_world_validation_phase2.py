@@ -177,7 +177,7 @@ def process_file(file_path, restorer):
         print(f"      Detected instrument type: {instrument_type.name}")
 
         # Create semantic profile (immer SemanticProfile-Objekt, nie dict)
-        semantic_profile = SemanticProfile(
+        SemanticProfile(
             detected_instruments=[
                 InstrumentPresence(
                     instrument=instrument_type,
@@ -273,7 +273,7 @@ def process_file(file_path, restorer):
 
             result["enhancement_applied"] = True
         except Exception as e:
-            print(f"      ✗ Enhancement failed: {str(e)}")
+            print(f"      ✗ Enhancement failed: {e!s}")
             import traceback
 
             traceback.print_exc()
@@ -322,7 +322,7 @@ def process_file(file_path, restorer):
     except Exception as e:
         result["error"] = str(e)
         result["traceback"] = traceback.format_exc()
-        print(f"\n  ✗ ERROR: {str(e)}")
+        print(f"\n  ✗ ERROR: {e!s}")
         print(f"  Traceback:\n{traceback.format_exc()}")
 
     return result
@@ -495,7 +495,7 @@ def main():
         restorer = UnifiedRestorerV3()
         print("  ✓ Restorer initialized successfully\n")
     except Exception as e:
-        print(f"  ✗ Failed to initialize restorer: {str(e)}")
+        print(f"  ✗ Failed to initialize restorer: {e!s}")
         traceback.print_exc()
         return 1
 

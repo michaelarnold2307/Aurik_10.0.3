@@ -171,21 +171,26 @@ class PsychoacousticMaskingModel:
 
         frame = max(256, sr // 100)  # 480 samples @ 48 kHz
         hop = frame // 2
+
+        # Cap at 60 s for masking-scalar statistics (median over time is
+        # representative; avoiding 86–173 MB float64 allocations on long files
+        # which can cause segfaults in numpy C extensions under memory pressure).
+        _max_samples = sr * 60  # 2 880 000 @ 48 kHz
+        if mono.size > _max_samples:
+            # Centre crop: most musically representative region
+            _start = (mono.size - _max_samples) // 2
+            mono = mono[_start : _start + _max_samples]
+
         n_frames = max(1, (mono.size - frame) // hop + 1)
 
         # ── Batch-FFT: alle Frames auf einmal (eliminiert Python-Loop) ──
-        # Erstelle (n_frames, frame) Matrix aller Segmente via stride_tricks
-        mono_safe = np.clip(np.nan_to_num(mono), -1.0, 1.0)
-        # Pad to ensure last frame is full
-        pad_len = max(0, (n_frames - 1) * hop + frame - mono_safe.size)
-        if pad_len > 0:
-            mono_safe = np.concatenate([mono_safe, np.zeros(pad_len, dtype=np.float32)])
-
-        # Strided view: (n_frames, frame) without copying
-        strides = (mono_safe.strides[0] * hop, mono_safe.strides[0])
-        segments = np.lib.stride_tricks.as_strided(
-            mono_safe, shape=(n_frames, frame), strides=strides
-        ).copy()  # copy for rfft safety
+        # Use sliding_window_view (numpy ≥ 1.20) — safe alternative to
+        # as_strided; avoids manual stride arithmetic that can segfault.
+        mono_safe = np.ascontiguousarray(np.clip(np.nan_to_num(mono), -1.0, 1.0), dtype=np.float32)
+        # sliding_window_view returns a read-only view (n_samples-frame+1, frame);
+        # index by [::hop] to get exactly n_frames rows, then copy for rfft safety.
+        segments = np.lib.stride_tricks.sliding_window_view(mono_safe, window_shape=frame)[::hop].copy()
+        n_frames = segments.shape[0]  # recalculate after crop + window
 
         # RMS per frame (vectorized)
         rms_sq = np.mean(segments.astype(np.float64) ** 2, axis=1) + 1e-12
@@ -215,9 +220,7 @@ class PsychoacousticMaskingModel:
         band_energy = spec_sq @ band_mask.T  # (n_frames, n_bins) @ (n_bins, N_BARK)
 
         # Masking threshold: ISO 11172-3 — slope attenuation per band
-        slope_atten = np.array(
-            [10.0 ** (-s / 10.0) for s in _MASKING_SLOPE_DB], dtype=np.float32
-        )  # (N_BARK,)
+        slope_atten = np.array([10.0 ** (-s / 10.0) for s in _MASKING_SLOPE_DB], dtype=np.float32)  # (N_BARK,)
         mask_thr = np.maximum(0.0, band_energy * slope_atten[np.newaxis, :])
 
         # Gain modifier: relative band energy → gain

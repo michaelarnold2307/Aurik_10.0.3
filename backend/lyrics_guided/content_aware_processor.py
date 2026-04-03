@@ -208,6 +208,7 @@ class LyricsAligner:
             # Whisper expects float32 audio at 16 kHz
             if sr != 16000:
                 import librosa
+
                 audio_16k = librosa.resample(audio.astype(np.float32), orig_sr=sr, target_sr=16000)
             else:
                 audio_16k = audio.astype(np.float32)
@@ -261,19 +262,14 @@ class LyricsAligner:
         logger.info("Aligned %d vocal segments", len(segments))
         return segments
 
-    def _energy_based_segmentation(
-        self, audio: np.ndarray, sr: int
-    ) -> list[LyricsSegment]:
+    def _energy_based_segmentation(self, audio: np.ndarray, sr: int) -> list[LyricsSegment]:
         """Fallback: RMS-based vocal activity segmentation when Whisper unavailable."""
         segments = []
         frame_size = int(0.05 * sr)  # 50 ms
         hop = frame_size // 2
         n_frames = max(1, (len(audio) - frame_size) // hop)
 
-        rms_values = np.array([
-            np.sqrt(np.mean(audio[i * hop: i * hop + frame_size] ** 2))
-            for i in range(n_frames)
-        ])
+        rms_values = np.array([np.sqrt(np.mean(audio[i * hop : i * hop + frame_size] ** 2)) for i in range(n_frames)])
         threshold = max(0.01, float(np.percentile(rms_values, 30)))
 
         in_segment = False
@@ -285,20 +281,24 @@ class LyricsAligner:
                 in_segment = True
             elif rms <= threshold and in_segment:
                 if t - seg_start > 0.1:  # minimum 100 ms
-                    segments.append(LyricsSegment(
-                        text="[vocal]",
-                        start_time=seg_start,
-                        end_time=t,
-                        confidence=0.6,
-                    ))
+                    segments.append(
+                        LyricsSegment(
+                            text="[vocal]",
+                            start_time=seg_start,
+                            end_time=t,
+                            confidence=0.6,
+                        )
+                    )
                 in_segment = False
         if in_segment:
-            segments.append(LyricsSegment(
-                text="[vocal]",
-                start_time=seg_start,
-                end_time=len(audio) / sr,
-                confidence=0.6,
-            ))
+            segments.append(
+                LyricsSegment(
+                    text="[vocal]",
+                    start_time=seg_start,
+                    end_time=len(audio) / sr,
+                    confidence=0.6,
+                )
+            )
         return segments
 
     def _add_phoneme_information(

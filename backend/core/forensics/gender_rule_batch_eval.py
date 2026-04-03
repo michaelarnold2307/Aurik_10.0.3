@@ -31,8 +31,8 @@ def batch_evaluate(audio_dir, label_csv, out_csv, sr=16000) -> None:
             audio, sr2 = detector._load_audio(path)
             f0, voiced_ratio = detector._estimate_pitch(audio, sr2)
             f1, f2 = detector._estimate_formants(audio, sr2)
-        except Exception:
-            pass
+        except Exception as _exc:
+            logger.debug("Operation failed (non-critical): %s", _exc)
         gender = detector.detect_gender(path)
         true_label = labels.get(fname, "unknown")
         results.append(
@@ -86,7 +86,7 @@ def batch_evaluate(audio_dir, label_csv, out_csv, sr=16000) -> None:
         plt.legend()
         plt.tight_layout()
         plt.savefig(out_csv.replace(".csv", "_f0f1.png"))
-        logger.debug(f"Scatterplot gespeichert: {out_csv.replace('.csv','_f0f1.png')}")
+        logger.debug(f"Scatterplot gespeichert: {out_csv.replace('.csv', '_f0f1.png')}")
     except Exception as e:
         logger.debug(f"[Warnung] Scatterplot nicht erzeugt: {e}")
 

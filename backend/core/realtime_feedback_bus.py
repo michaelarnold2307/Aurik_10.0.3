@@ -12,7 +12,7 @@ import logging
 import threading
 import time
 from collections.abc import Callable
-from typing import Any, List
+from typing import Any
 
 _logger = logging.getLogger(__name__)
 

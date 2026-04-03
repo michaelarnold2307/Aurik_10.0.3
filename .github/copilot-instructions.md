@@ -25,7 +25,7 @@ Die vollständige normative Spezifikation ist in 8 Spec-Dateien aufgeteilt:
 | 3 | `.github/specs/03_cognitive_modules.md` | Kernmodule §2.1, Singleton-Pattern §3.x, Logging, Cache |
 | 4 | `.github/specs/04_dsp_standards.md` | SOTA-Entscheidungsmatrix §4.4, DSP-Mindeststandards §4.5 |
 | 5 | `.github/specs/05_material_system.md` | Materialien §6.x, DefectTypes §6.3, GP-Gedächtnis |
-| 6 | `.github/specs/06_phases_system.md` | Phase 01–56 §7.x, CAUSE_TO_PHASES-Mapping |
+| 6 | `.github/specs/06_phases_system.md` | Phase 01–64 §7.x, CAUSE_TO_PHASES-Mapping |
 | 7 | `.github/specs/07_quality_and_tests.md` | Qualitätsziele §8.x, Test-Standards §5.x, E2E §14 |
 | 8 | `.github/specs/08_architecture_and_distribution.md` | Schichten §11.x, Distribution §13.x, Out-of-the-Box |
 
@@ -191,7 +191,7 @@ Kein direktes Aufrufen von `UnifiedRestorerV3.restore()` aus dem Frontend — im
 
 Kontextfluss: `defect_result → ReparaturDenker → RekonstruktionsDenker(+defect_result) → RestaurierDenker(+reconstruction_context) → UV3`
 
-UV3-Kernreihenfolge: DCOffset-Removal → TDP (HPSS) → RestorabilityEstimator → SongCalibrationProfile → EraClassifier → GermanSchlagerClassifier → MediumClassifier → GoalApplicabilityFilter → AdaptiveGoalThresholds → DefectScanner (32 Defekte) → CausalDefectReasoner (35 Kausal-Ursachen) → GPParameterOptimizer → HarmonicPreservationGuard → Phasen-Ausführung (01–57) → FeedbackChain → PhysicalCeilingEstimator → MusicalGoalsChecker → MicroDynamicsEnvelopeMorphing → RestorationResult
+UV3-Kernreihenfolge: DCOffset-Removal → TDP (HPSS) → RestorabilityEstimator → SongCalibrationProfile → EraClassifier → GermanSchlagerClassifier → MediumClassifier → GoalApplicabilityFilter → AdaptiveGoalThresholds → DefectScanner (32 Defekte) → CausalDefectReasoner (material- und defektadaptive Kausal-Ursachen) → GPParameterOptimizer → HarmonicPreservationGuard → Phasen-Ausführung (01–64) → FeedbackChain → PhysicalCeilingEstimator → MusicalGoalsChecker → MicroDynamicsEnvelopeMorphing → RestorationResult
 
 **Parallelisierungs-Invariante**: Tier 0+1 sequenziell; EraClassifier+GermanSchlager+MediumClassifier parallel (`ThreadPoolExecutor max_workers=3`); Tier 6 sequenziell.
 
@@ -322,7 +322,7 @@ Implementierung: `backend/core/adaptive_chunk_processor.py` — `process_in_adap
 `classify_clipping()`: flat_tops > 0.1 % UND THD_odd > THD_even×1.5 → CLIPPING; sonst → SOFT_SATURATION → phase_23 überspringen.
 
 > **Allgemeiner Grundsatz SR-Agnostik in Analyse-Modulen** (autoritativ: Performance-Budget §2.37):
-> Alle Analyse-/Scan-/Klassifikations-Module (DefectScanner, `classify_clipping`, `analyse_clipping`, RestorabilityEstimator, EraClassifier, MediumClassifier) arbeiten bei **nativer Import-SR**. THD-Berechnungen nutzen `sr` nur für Frequenz-Bin-Zuordnung — die Mathematik ist SR-agnostisch. **VERBOTEN**: `assert sr == 48000` in diesen Modulen. `assert sr == 48000` gilt **ausschließlich** für Verarbeitungs-Phasen (01–56) und Plugins.
+> Alle Analyse-/Scan-/Klassifikations-Module (DefectScanner, `classify_clipping`, `analyse_clipping`, RestorabilityEstimator, EraClassifier, MediumClassifier) arbeiten bei **nativer Import-SR**. THD-Berechnungen nutzen `sr` nur für Frequenz-Bin-Zuordnung — die Mathematik ist SR-agnostisch. **VERBOTEN**: `assert sr == 48000` in diesen Modulen. `assert sr == 48000` gilt **ausschließlich** für Verarbeitungs-Phasen (01–64) und Plugins.
 
 1920–1940: Rolloff ≤ 7 kHz nicht erweitern, H2/H4 bewahren. 1940–1975: `phase_22` nur emulieren, nie eliminieren.
 
@@ -437,7 +437,7 @@ logger.info("phase=%s score=%.2f", phase, score)  # kein print(); Logs auf Engli
 | ExcellenceOptimizer | ≤ 60 s |
 | RestorabilityEstimator | ≤ 5 s |
 
-- Interne Verarbeitungs-SR (Phasen 01–56, Plugins): stets **48 000 Hz**
+- Interne Verarbeitungs-SR (Phasen 01–64, Plugins): stets **48 000 Hz**
 - **Analyse-Module** (DefectScanner, classify_clipping, RestorabilityEstimator, EraClassifier, MediumClassifier): arbeiten bei **nativer Import-SR** — kein Resampling vor Analyse, kein `assert sr == 48000`
 - **Dual-SR-Routing (Pflicht)**: Zwei getrennte Pfade führen — `analysis_audio/analysis_sr` (native Import-SR) für Analyse/Klassifikation, `processing_audio/processing_sr=48000` für alle Verarbeitungsphasen/Plugins.
 - **Fail-fast bei 48-kHz-Normierung (Pflicht)**: Wenn `processing_sr != 48000` und Resampling nicht möglich ist, MUSS der Lauf mit strukturierter Fehlermeldung abbrechen; ein Weiterlauf der Phasen auf Nicht-48k ist verboten.
@@ -735,12 +735,25 @@ Fehlermeldungen immer mit **Ursache** + **Lösungsvorschlag** auf Deutsch.
 ### Async-Analyse-Kette nach Datei-Öffnen
 4 Daemon-Threads: `_bg_load` (3-stufige Audio-Kaskade) → `_carrier_bg` → `_detect_era_genre_bg` → `_estimate_restorability_bg`. Alle via `_dispatch_to_gui` oder `QTimer.singleShot(0, ...)`. DefectScan erst in `BatchProcessingThread`.
 
+**`_carrier_bg` Pflicht-Invarianten (v9.10.97)**:
+- MUSS `get_medium_detector().detect(audio, sr, file_ext=Path(file_path).suffix)` nutzen — **NICHT** `medium_classifier.classify_medium()` (kein file_ext-Kontext → gibt bei codec-enkodiertem Analog-Material "unknown" zurück).
+- `MediumDetectionResult.transfer_chain` → HTML-Label mit `&nbsp;→&nbsp;` als Trennzeichen für `detected_medium_label`.
+- `chip_era` Widget: **NIEMALS** `_show_chip(self.chip_era, ...)` aufrufen — die Ära steht bereits im `detected_medium_label` als `◷ 1970er` HTML-Segment. `chip_era` bleibt dauerhaft unsichtbar.
+- In `_detect_era_genre_bg` und `_on_item_finished_with_result`: kein `_show_chip(self.chip_era, ...)`.
+
 ### Bridge-Funktionen (vollständige Liste)
 `export_guard` | `get_audio_file_validator` | `get_defect_scanner` | `get_defect_type` | `get_quality_mode` | `get_restorer_classes` | `get_medium_classifier_fn` | `get_era_classifier_fn` | `get_genre_classifier_fn` | `get_restorability_estimator_class` | `get_carrier_forensics_fn` | `get_audio_exporter_class` | `cache_defect_result` | `get_cached_defect_result` | `clear_defect_cache` | `warmup_models_background`
 
 ## §2.36 LyricsGuidedEnhancement (ab 9.10.x — PFLICHT)
 
 Whisper-Tiny ONNX (39 MB) → Phonem-Alignment via wav2vec2_forced_alignment.onnx (125 MB) → Timeline-Segmentierung (vowel_stressed / fricative / plosive / silence) → ContentAwareProcessor (Salienz-Boosts pro Phonemklasse, Stille → aggressivere NR). Latenz ≤ 8 s/min Audio. Shortcut L (Overlay). **Datenschutz-Pflicht**: Lyrics-Text niemals in Logs oder `RestorationResult.metadata`.
+
+**Produktionspfad (v9.10.100, bindend):**
+- Autoritatives Produktionsmodul ist ausschließlich `backend/core/lyrics_guided_enhancement.py`.
+- Legacy-/Forschungs-Module unter `backend/lyrics_guided/` sind keine normative Referenz für Produktionsänderungen, Bugfixes oder Agenten-Implementierungen, solange sie nicht explizit per Spec/CHANGELOG freigegeben wurden.
+- Verboten als Produktionsreferenz: Docker-/MFA-/Python-Whisper-Altpfade aus `backend/lyrics_guided/lyrics_aligner.py` und `backend/lyrics_guided/content_aware_processor.py`.
+- Zulässige Persistenz aus Phase 57: Segmentgrenzen, `phoneme_type`, aggregierte Counts, Konfidenzen, Fallback-Flags. Unzulässig: Worttext, Transkript, vollständige Lyrics, Roh-Alignment in Logs, `RestorationResult.metadata`, Checkpoints oder UI-Debug-Strings.
+- Datenschutz-Guard ist vor jedem Logging lyrics-bezogener Segmentobjekte verpflichtend; geloggt werden dürfen nur phonemische Klassen und aggregierte Statistik, niemals `word.word`.
 
 **§2.36a Phonem-spezifische DSP-Algorithmen ([RELEASE_MUST], v9.10.90):**
 Einheitlicher Gain-Boost reicht nicht — jede Phonemklasse erfordert separate Spektral-Behandlung:

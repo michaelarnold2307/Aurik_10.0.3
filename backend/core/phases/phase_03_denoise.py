@@ -369,8 +369,15 @@ class DenoisePhase(PhaseInterface):
             #   1980:      ×0.90 (digital transition)
             #   1990+:     ×0.80 (clean digital sources)
             _era_knots = [
-                (1890, 1.15), (1930, 1.15), (1940, 1.10), (1950, 1.05),
-                (1960, 1.00), (1970, 0.95), (1980, 0.90), (1990, 0.80), (2025, 0.80),
+                (1890, 1.15),
+                (1930, 1.15),
+                (1940, 1.10),
+                (1950, 1.05),
+                (1960, 1.00),
+                (1970, 0.95),
+                (1980, 0.90),
+                (1990, 0.80),
+                (2025, 0.80),
             ]
             _dec = float(max(1890, min(2025, decade)))
             _era_decades = [k[0] for k in _era_knots]
@@ -931,9 +938,9 @@ class DenoisePhase(PhaseInterface):
 
         # Stationarity-adaptive α: fast tracking at onsets, slow elsewhere.
         # Loizou (2013) §7.3 + Ephraim & Malah (1984): optimal α ∝ 1/|∂²P/∂t²|.
-        ALPHA_STAT  = 0.85  # standard stationary noise tracking
+        ALPHA_STAT = 0.85  # standard stationary noise tracking
         ALPHA_ONSET = 0.50  # fast update: transient onsets need fresh estimate
-        ONSET_RADIUS = 2    # frames around each onset to apply fast α
+        ONSET_RADIUS = 2  # frames around each onset to apply fast α
 
         if onset_frames is None:
             # Auto-detect onsets from positive spectral-flux sum (frame energy increase).
@@ -1006,7 +1013,7 @@ class DenoisePhase(PhaseInterface):
             and g_floor_vec.ndim == 1
             and g_floor_vec.shape[0] == magnitude.shape[1]
         ):
-            G_FLOOR: "np.ndarray | float" = g_floor_vec[np.newaxis, :].astype(np.float64)  # (1, n_t)
+            G_FLOOR: np.ndarray | float = g_floor_vec[np.newaxis, :].astype(np.float64)  # (1, n_t)
         else:
             G_FLOOR = G_FLOOR_BASE  # scalar fallback
 
@@ -1093,8 +1100,8 @@ class DenoisePhase(PhaseInterface):
         Returns:
             g_floor_vec: np.ndarray shape (n_t,), dtype float32.
         """
-        WIN_S = 0.4   # ITU-R BS.1770-5 momentary loudness window (400 ms)
-        HOP_S = 0.1   # 100 ms hop
+        WIN_S = 0.4  # ITU-R BS.1770-5 momentary loudness window (400 ms)
+        HOP_S = 0.1  # 100 ms hop
         win_n = max(1, int(WIN_S * sr))
         hop_n = max(1, int(HOP_S * sr))
         n = audio.shape[-1] if audio.ndim > 1 else len(audio)
@@ -1106,12 +1113,12 @@ class DenoisePhase(PhaseInterface):
         for i in range(n_lufs_frames):
             start = i * hop_n
             frame = mono[start : start + win_n]
-            rms = float(np.sqrt(np.mean(frame ** 2) + 1e-20))
+            rms = float(np.sqrt(np.mean(frame**2) + 1e-20))
             lufs_db[i] = float(np.clip(20.0 * np.log10(rms + 1e-10), -80.0, 0.0))
 
         # G_floor bounds: loud → aggressive (0.5×), quiet → conservative (3× capped at 0.40)
         g_lo = float(np.clip(0.50 * g_floor_base, 0.03, 0.10))
-        g_hi = float(np.clip(3.0  * g_floor_base, g_floor_base + 1e-6, 0.40))
+        g_hi = float(np.clip(3.0 * g_floor_base, g_floor_base + 1e-6, 0.40))
         # np.interp: x < xp[0] → fp[0], x > xp[-1] → fp[-1] (automatic clamping)
         g_floor_lufs = np.interp(lufs_db.astype(np.float64), [-30.0, -12.0], [g_hi, g_lo]).astype(np.float32)
 
@@ -1163,9 +1170,9 @@ class DenoisePhase(PhaseInterface):
         """
         log_G = np.log(np.maximum(G_combined.astype(np.float64), 1e-8))  # (n_bins, n_t)
         # ∂log(G)/∂t — forward difference; prepend first col to preserve shape
-        dlogG_dt = np.diff(log_G, axis=1, prepend=log_G[:, :1])           # (n_bins, n_t)
+        dlogG_dt = np.diff(log_G, axis=1, prepend=log_G[:, :1])  # (n_bins, n_t)
         # Cumulative phase offset: Δφ = -(hop/sr) × ∫ ∂logG/∂τ dτ
-        delta_phi = -np.cumsum(dlogG_dt, axis=1) * (hop / float(sr))      # (n_bins, n_t)
+        delta_phi = -np.cumsum(dlogG_dt, axis=1) * (hop / float(sr))  # (n_bins, n_t)
         mag_out = G_combined.astype(np.float64) * np.abs(Zxx_ref)
         phase_out = np.angle(Zxx_ref) + delta_phi
         Zxx_corrected = mag_out * np.exp(1j * phase_out)
@@ -1199,9 +1206,7 @@ class DenoisePhase(PhaseInterface):
         e_min = float(_hz_to_cam(np.array([100.0]))[0])
         e_max = float(_hz_to_cam(np.array([float(sr) / 2.0]))[0])
         erb_edges = np.linspace(e_min, e_max, N_ERB + 1)
-        band_idx = np.clip(
-            np.searchsorted(erb_edges[1:], _hz_to_cam(freqs)), 0, N_ERB - 1
-        ).astype(np.int32)
+        band_idx = np.clip(np.searchsorted(erb_edges[1:], _hz_to_cam(freqs)), 0, N_ERB - 1).astype(np.int32)
         return band_idx
 
     def _estimate_noise_profile_adaptive(
@@ -1303,15 +1308,13 @@ class DenoisePhase(PhaseInterface):
 
         # α = 10^(-16/10) ≈ 0.025  — simultaneous masking offset (Fastl & Zwicker 2007 §4.2)
         ALPHA = 10.0 ** (-16.0 / 10.0)
-        masking_threshold = ALPHA * frame_p75   # broadcast (1, n_t) → (n_freq, n_t)
+        masking_threshold = ALPHA * frame_p75  # broadcast (1, n_t) → (n_freq, n_t)
 
         # Soft-knee gate: √(min(1, E_out / M)) preserves loud bins, attenuates chirps.
         gate = np.sqrt(np.minimum(1.0, output_power / (masking_threshold + 1e-20)))
-        gate = np.clip(gate, 0.1, 1.0)          # floor -20 dB, never mute
+        gate = np.clip(gate, 0.1, 1.0)  # floor -20 dB, never mute
 
-        return np.clip(
-            gain.astype(np.float64) * gate, 0.1, 1.0
-        ).astype(np.float32)
+        return np.clip(gain.astype(np.float64) * gate, 0.1, 1.0).astype(np.float32)
 
     def _suppress_musical_noise(
         self, gain: np.ndarray, suppression_strength: float, smoothing_time: int, smoothing_freq: int

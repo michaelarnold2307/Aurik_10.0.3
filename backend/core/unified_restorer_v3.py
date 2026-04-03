@@ -158,6 +158,35 @@ class RestorationResult:
     lufs_delta: float | None = None  # |LUFS(restored) - LUFS(original)| in LU (§8.2)
 
 
+# §Spec Material-Konfliktregel: Restaurierungsaggressivität je Material-Typ.
+# Höherer Wert = mehr Restaurierungsbedarf (konservativerer Typ hat Vorrang bei Gleichstand).
+_MATERIAL_CONSERVATIVENESS_RANK: dict[str, int] = {
+    "edison_cylinder": 11,
+    "shellac": 10,
+    "lacquer_disc": 9,
+    "acetate": 9,
+    "78rpm": 9,
+    "reel_tape": 8,
+    "tape": 8,
+    "vinyl": 7,
+    "cassette": 6,
+    "mp3_low": 5,
+    "mp3_high": 4,
+    "aac": 4,
+    "streaming": 4,
+    "cd_digital": 3,
+    "dat": 3,
+    "unknown": 0,
+}
+
+
+def _pick_more_conservative_material(a: "MaterialType", b: "MaterialType") -> "MaterialType":
+    """Return the material type with higher conservativeness rank (§Spec Konfliktregel Fallback)."""
+    rank_a = _MATERIAL_CONSERVATIVENESS_RANK.get(getattr(a, "value", str(a)), 0)
+    rank_b = _MATERIAL_CONSERVATIVENESS_RANK.get(getattr(b, "value", str(b)), 0)
+    return a if rank_a >= rank_b else b
+
+
 def _fc_compute_target_score(
     mode_value: str,
     cal_profile: "dict | None",
@@ -442,6 +471,7 @@ class UnifiedRestorerV3:
         panns_tags: dict[str, float] | None = None,
         spectral_fingerprint: dict[str, float] | None = None,
         is_schlager: bool = False,
+        genre_label: str = "",
     ) -> dict[str, Any]:
         """Build a song-level calibration profile for phase-family adaptation.
 
@@ -451,6 +481,9 @@ class UnifiedRestorerV3:
         Args:
             era_decade: Recording decade (e.g. 1940, 1960, 1980). Used for
                 era-GP-warmstart scaling per §2.14. None → neutral era factor.
+            genre_label: Detected genre label (e.g. 'Rock', 'Jazz', 'Klassik',
+                'Oper', 'Schlager'). Used for genre-adaptive family scalar overrides.
+                Empty string → no genre-based adjustment.
         """
         _rest = float(np.clip(restorability_score / 100.0, 0.0, 1.0))
         _snr = float(np.clip((input_snr_db - 10.0) / 40.0, 0.0, 1.0))
@@ -630,6 +663,38 @@ class UnifiedRestorerV3:
             _schlager_transient = 1.05
             _schlager_dynamics = 1.05
             _schlager_recon_factor = 0.95  # less aggressive reconstruction on intact vocal recordings
+
+        # §Genre-Profil: Jazz/Klassik/Oper/Rock-spezifische family_scalars (±15% max).
+        # Korrekturen sind konservativ und ergänzen die Schlager-Faktoren statt sie zu ersetzen.
+        _genre_reverb_factor = 1.0
+        _genre_dynamics_factor = 1.0
+        _genre_transient_factor = 1.0
+        _genre_vocal_factor = 1.0
+        _genre_denoise_factor = 1.0
+        _genre_label_l = genre_label.strip().lower() if genre_label else ""
+        if _genre_label_l in ("klassik", "oper"):
+            # Klassik/Oper: Raumklang ist Teil der Authentizität → Dereverb-Druck dämpfen.
+            _genre_reverb_factor = 0.80
+            # Orchesterdynamik bewahren → Kompression/EQ minimal.
+            _genre_dynamics_factor = 0.85
+            # Pizzicato-, Forte-Anschläge: Transient-Integrität wichtig.
+            _genre_transient_factor = 1.05
+            # Gemäßigte Rauschreduzierung (Rauschanteile tragen Raumgefühl).
+            _genre_denoise_factor = 0.92
+            if _genre_label_l == "oper":
+                # Oper: Vokalprominenz zusätzlich stärken (Formanten, Vibrato, Singformant).
+                _genre_vocal_factor = 1.08
+        elif _genre_label_l == "jazz":
+            # Jazz: Club-Raumatmosphäre + Swing-Dynamik bewahren.
+            _genre_reverb_factor = 0.85
+            _genre_dynamics_factor = 0.88
+            # Bass/Bläser/Schlagzeug-Transienten stärken.
+            _genre_transient_factor = 1.02
+        elif _genre_label_l == "rock":
+            # Rock: Schlagzeug-Punch + Power-Chord-Transienten.
+            _genre_transient_factor = 1.05
+            # Rock hat oft gewollte Sättigung → denoise konservativer.
+            _genre_denoise_factor = 0.95
         _global = 1.0
         _global *= 0.90 + 0.20 * _def
         _global *= 0.88 + 0.24 * _rest
@@ -646,12 +711,13 @@ class UnifiedRestorerV3:
                     * _era_denoise_scale
                     * (0.92 + 0.10 * (1.0 - _snr))
                     * _sf_denoise_boost
-                    * _soft_sat_guard,
+                    * _soft_sat_guard
+                    * _genre_denoise_factor,
                     0.60,
                     1.12,
                 )
             ),
-            "reverb": float(np.clip(_global * _mat_reverb * (0.90 + 0.14 * _def), 0.60, 1.12)),
+            "reverb": float(np.clip(_global * _mat_reverb * (0.90 + 0.14 * _def) * _genre_reverb_factor, 0.60, 1.12)),
             "reconstruction": float(
                 np.clip(
                     _global
@@ -665,7 +731,14 @@ class UnifiedRestorerV3:
             ),
             "dynamics_eq": float(
                 np.clip(
-                    _global * _mat_dynamics * (0.92 + 0.10 * _rest) * _sf_dynq_boost * _schlager_dynamics, 0.65, 1.08
+                    _global
+                    * _mat_dynamics
+                    * (0.92 + 0.10 * _rest)
+                    * _sf_dynq_boost
+                    * _schlager_dynamics
+                    * _genre_dynamics_factor,
+                    0.65,
+                    1.08,
                 )
             ),
             "transient": float(
@@ -674,14 +747,20 @@ class UnifiedRestorerV3:
                     * (0.95 + 0.06 * _conf)
                     * _dsev_transient_boost
                     * _soft_sat_transient_guard
-                    * _schlager_transient,
+                    * _schlager_transient
+                    * _genre_transient_factor,
                     0.75,
                     1.10,
                 )
             ),
             "vocal": float(
                 np.clip(
-                    _global * _mat_vocal * (0.92 + 0.08 * _rest) * _panns_vocal_boost * _schlager_vocal_boost,
+                    _global
+                    * _mat_vocal
+                    * (0.92 + 0.08 * _rest)
+                    * _panns_vocal_boost
+                    * _schlager_vocal_boost
+                    * _genre_vocal_factor,
                     0.55,
                     1.12,
                 )
@@ -716,6 +795,7 @@ class UnifiedRestorerV3:
             "pipeline_confidence": _conf,
             "era_decade": era_decade,
             "is_schlager": is_schlager,
+            "genre_label": genre_label,
             "global_scalar": _global,
             "family_scalars": _family,
         }
@@ -1190,7 +1270,7 @@ class UnifiedRestorerV3:
                         f"~{_needed_mb:.0f} MB benötigt. Bitte andere Anwendungen schließen."
                     )
         except ImportError:
-            pass  # psutil fehlt → Guard degradiert graceful
+            logger.debug("psutil not available — RAM guard degraded graceful")
 
         _cb(3, "Resampling & Vorverarbeitung…")
         # Step 1a: Material-Erkennung via MediumClassifier (vor DefectScanner)
@@ -1419,6 +1499,52 @@ class UnifiedRestorerV3:
                     _era_result = _era_constrain(_era_result, str(_classified_material.value))
                 except Exception as _floor_exc:
                     logger.debug("Medium-Floor-Constraint fehlgeschlagen: %s", _floor_exc)
+
+            # §Spec Material-Konfliktregel: Priorität hat der Klassifikator mit höherer
+            # Konfidenz. Bei Gleichstand (Δ ≤ 0.10) gewinnt der konservativere Materialtyp.
+            # Anwendung nur wenn BEIDE Klassifikatoren ein Material gemeldet haben UND
+            # diese voneinander abweichen (echter Konflikt).
+            _mc_conf_val = float(getattr(_mc_result, "confidence", 0.0)) if _mc_result is not None else 0.0
+            _era_prior_str = str(getattr(_era_result, "material_prior", "") or "") if _era_result is not None else ""
+            _era_conf_val = float(getattr(_era_result, "confidence", 0.0)) if _era_result is not None else 0.0
+            _era_conflict_mat: MaterialType | None = None
+            if _era_prior_str and _era_prior_str not in ("unknown", "digital", ""):
+                try:
+                    _era_conflict_mat = MaterialType(_era_prior_str.lower())
+                except ValueError as _exc:
+                    logger.debug("Era-prior material parse failed ('%s'): %s", _era_prior_str, _exc)
+            if (
+                _classified_material is not None
+                and _era_conflict_mat is not None
+                and _classified_material != _era_conflict_mat
+            ):
+                if _era_conf_val > _mc_conf_val + 0.10:
+                    # EraClassifier deutlich konfidenter → Era-Material-Prior gewinnt
+                    logger.info(
+                        "Material-Konfliktregel (§Spec): EraClassifier dominiert MC"
+                        " (era_conf=%.2f > mc_conf=%.2f + 0.10)"
+                        " → Material %s → %s",
+                        _era_conf_val,
+                        _mc_conf_val,
+                        _classified_material.value,
+                        _era_conflict_mat.value,
+                    )
+                    _classified_material = _era_conflict_mat
+                elif abs(_era_conf_val - _mc_conf_val) <= 0.10:
+                    # Gleichstand → konservativerer (restaurierungsschonenderer) Typ
+                    _conservative_mat = _pick_more_conservative_material(_classified_material, _era_conflict_mat)
+                    logger.info(
+                        "Material-Konfliktregel (§Spec): Gleichstand"
+                        " (era_conf=%.2f ≈ mc_conf=%.2f)"
+                        " → konservativer Typ=%s (MC=%s Era=%s)",
+                        _era_conf_val,
+                        _mc_conf_val,
+                        _conservative_mat.value,
+                        _classified_material.value,
+                        _era_conflict_mat.value,
+                    )
+                    _classified_material = _conservative_mat
+                # else: MC hat höhere Konfidenz → bleibt wie bisher
 
             # §9.7.7 Fallback: wenn MediumClassifier-Konfidenz zu niedrig, nutze
             # EraClassifier material_prior als Material-Prior bevor DefectScanner
@@ -1678,8 +1804,13 @@ class UnifiedRestorerV3:
                 )
             except Exception as _gp_sc_exc:
                 logger.debug("SCHLAGER_RESTORATION_PROFILE nicht geladen: %s", _gp_sc_exc)
-        elif _schlager_result is not None and _schlager_result.genre_label not in ("Unbekannt", "unknown", ""):
-            # Non-Schlager genre detected (Rock, Jazz, Klassik, Oper) — load its profile
+        elif (
+            _schlager_result is not None
+            and _schlager_result.genre_label not in ("Unbekannt", "unknown", "")
+            and not getattr(_schlager_result, "open_set_unknown", False)
+        ):
+            # Non-Schlager genre detected (Rock, Jazz, Klassik, Oper) — load its profile.
+            # open_set_unknown=True means no genre had sufficient confidence margin → skip profile.
             try:
                 from backend.core.genre_classifier import get_restoration_profile
 
@@ -2080,6 +2211,9 @@ class UnifiedRestorerV3:
         _cal_is_schlager = (
             bool(getattr(_schlager_result, "is_schlager", False)) if _schlager_result is not None else False
         )
+        _cal_genre_label = (
+            str(getattr(_schlager_result, "genre_label", "") or "") if _schlager_result is not None else ""
+        )
         self._song_calibration_profile = self._build_song_calibration_profile(
             material_type=material_type,
             mode=self.config.mode,
@@ -2092,6 +2226,7 @@ class UnifiedRestorerV3:
             panns_tags=_panns_conf,  # from defect_result.metadata (already extracted above)
             spectral_fingerprint=_cal_sf if _cal_sf else None,
             is_schlager=_cal_is_schlager,
+            genre_label=_cal_genre_label,
         )
         if isinstance(getattr(self, "_restoration_context", None), dict):
             self._restoration_context.update(
@@ -2380,6 +2515,35 @@ class UnifiedRestorerV3:
         except Exception as _lge_p_exc:
             logger.debug("LGE Pre-Phase-Transkription nicht verfügbar: %s", _lge_p_exc)
 
+        # §2.36a PhonemeTimeline: aus Pre-Phase-Transkription für Phase-Consumer aufbauen.
+        # Phasen 19, 24, 43, 56 und MDEM konsumieren diese für phoneme-targeted Verarbeitung.
+        _phoneme_timeline: Any = None
+        try:
+            from backend.core.phoneme_timeline import PhonemeTimeline as _PTL
+
+            if _lge_trans_pre is not None:
+                _phoneme_timeline = _PTL.build_from_transcription(
+                    _lge_trans_pre,
+                    getattr(_lge_trans_pre, "language", "unknown"),
+                )
+            else:
+                _n_samp_ptl = (
+                    original_audio_for_goals.shape[-1]
+                    if original_audio_for_goals.ndim == 2
+                    else len(original_audio_for_goals)
+                )
+                _dur_ptl = float(_n_samp_ptl) / max(1, sample_rate)
+                _phoneme_timeline = _PTL.build_empty(duration_s=_dur_ptl)
+            logger.info(
+                "§2.36a PhonemeTimeline: language=%s conf=%.2f segments=%d",
+                getattr(_phoneme_timeline, "language", "?"),
+                getattr(_phoneme_timeline, "language_confidence", 0.0),
+                len(getattr(_phoneme_timeline, "segments", [])),
+            )
+        except Exception as _ptl_exc:
+            _phoneme_timeline = None
+            logger.debug("PhonemeTimeline nicht verfügbar: %s", _ptl_exc)
+
         # Step 4: Execute Phases — mit EnsembleProcessor-Konsens (§2.21)
         logger.info("Step 3/4: Executing Restoration Pipeline (EnsembleProcessor)...")
         # §11.4 Stufen-Vorab-Meldung: Gesamtzahl der UV3-Phasen ans Frontend melden,
@@ -2455,6 +2619,7 @@ class UnifiedRestorerV3:
                 quality_mode_override=_pipeline_quality_mode_override,
                 no_rt_limit=_no_rt_limit,
                 reconstruction_context=_reconstruction_ctx,  # §11.7a: Bereits reparierte Gaps
+                phoneme_timeline=_phoneme_timeline,  # §2.36a: PhonemeTimeline für Phasen 19/24/43/56
             )
         finally:
             try:
@@ -3681,7 +3846,11 @@ class UnifiedRestorerV3:
             except Exception as _mode_exc:
                 logger.debug("MDEM Modus-Erkennung fehlgeschlagen: %s", _mode_exc)
             restored_audio = _mdem_instance.morph(
-                restored_audio, original_audio_for_goals, sample_rate, mode=_mdem_mode
+                restored_audio,
+                original_audio_for_goals,
+                sample_rate,
+                mode=_mdem_mode,
+                phoneme_timeline=_phoneme_timeline,  # §2.36a: stressed-vowel frame headroom
             )
             restored_audio = np.clip(np.nan_to_num(restored_audio, nan=0.0, posinf=0.0, neginf=0.0), -1.0, 1.0)
             logger.info("§2.30 MDEM: Mikro-Dynamik-Morphing abgeschlossen (mode=%s)", _mdem_mode)
@@ -4229,8 +4398,8 @@ class UnifiedRestorerV3:
                 )
                 result.emotional_arc_delta_arousal = _a_final - _a_base
                 result.emotional_arc_delta_valence = _v_final - _v_base
-            except Exception:
-                pass  # Fields bleiben auf Defaults wenn Extraction fehlschlägt
+            except Exception as _exc:
+                logger.debug("Emotional arc field extraction failed: %s", _exc)
         result.temporal_coherence = _tqc
         # §2.29 PMGG-Log: Phasen wo best-effort angewendet wurde (reduzierte Stärke, kein Skip)
         try:
@@ -4477,12 +4646,12 @@ class UnifiedRestorerV3:
             _ame_result = _AME().analyze(restored_audio, sample_rate)
             # Nur gefundene Elemente und KV-Scores ins Reporting — kein internes Rohdaten-Dump
             _authenticity_extended = {
-                "detected_elements": _ame_result.get("detected_elements", []),
-                "vinyl_warmth": bool(_ame_result.get("vinyl_character", {}).get("warmth_detected", False)),
-                "vinyl_defects": bool(_ame_result.get("vinyl_character", {}).get("defects_detected", False)),
-                "finger_noise": bool(_ame_result.get("finger_noise", {}).get("finger_noise_detected", False)),
-                "bow_noise": bool(_ame_result.get("bow_noise", {}).get("bow_noise_detected", False)),
-                "brush_texture": bool(_ame_result.get("brush_texture", {}).get("brush_texture_detected", False)),
+                "detected_elements": _ame_result.detected_elements,
+                "vinyl_warmth": _ame_result.vinyl_character.warmth_detected,
+                "vinyl_defects": _ame_result.vinyl_character.defects_detected,
+                "finger_noise": _ame_result.finger_noise.finger_noise_detected,
+                "bow_noise": _ame_result.bow_noise.bow_noise_detected,
+                "brush_texture": _ame_result.brush_texture.brush_texture_detected,
             }
             logger.debug(
                 "🎺 AuthenticityMetricsExtended: Elemente=%s",
@@ -6939,8 +7108,8 @@ class UnifiedRestorerV3:
                 from backend.core.gp_parameter_optimizer import _load_memory as _gp_load33
 
                 _gp_obs33 = len(_gp_load33(material_type.value))
-            except BaseException:
-                pass
+            except BaseException as _exc:
+                logger.debug("GP observation count load failed: %s", _exc)
             _narrator_result = _narr33(
                 quality_estimate=quality_estimate,
                 material=material_type.value,
@@ -8805,8 +8974,8 @@ class UnifiedRestorerV3:
                             _target_coverages.append(float(_coverage_map.get(_dk, 1.0)))
                         if _target_coverages:
                             kwargs["phase_target_coverage"] = max(_target_coverages)
-            except Exception:
-                pass
+            except Exception as _exc:
+                logger.debug("Phase target coverage computation failed: %s", _exc)
 
         # Song-level self-calibration across phase families (not just single phases).
         # Keeps behavior track-adaptive while bounded for cross-song robustness.
@@ -8977,6 +9146,7 @@ class UnifiedRestorerV3:
         quality_mode_override: QualityMode | None = None,
         no_rt_limit: bool = False,
         reconstruction_context=None,  # §11.7a: RekonstruktionsDenker-Ergebnis mit reparierten Gaps
+        phoneme_timeline=None,  # §2.36a: PhonemeTimeline für phoneme-targeted Processing
     ) -> tuple[np.ndarray, list[str], list[str], list[str]]:
         """
         Führt ausgewählte Phasen parallel (Multi-Core) aus, falls keine Abhängigkeiten bestehen.
@@ -9030,8 +9200,8 @@ class UnifiedRestorerV3:
                     with contextlib.suppress(Exception):
                         _swap = _ps_oom.swap_memory()
                         _event["swap_percent"] = float(_swap.percent)
-                except Exception:
-                    pass
+                except Exception as _exc:
+                    logger.debug("OOM probe psutil collection failed: %s", _exc)
 
                 with contextlib.suppress(Exception):
                     _oom_forensics_path.parent.mkdir(parents=True, exist_ok=True)
@@ -9049,9 +9219,9 @@ class UnifiedRestorerV3:
                     _event.get("ram_available_gb", "n/a"),
                     _event.get("ram_percent", "n/a"),
                 )
-            except Exception:
+            except Exception as _exc:
+                logger.debug("OOM forensics write failed (non-critical): %s", _exc)
                 # Never let forensics affect the audio pipeline.
-                pass
 
         _record_oom_probe("pipeline_start", "__pipeline__")
 
@@ -9354,8 +9524,8 @@ class UnifiedRestorerV3:
                                 f"{_lbl_p} [{phase_id}]",
                                 0.0,
                             )
-                        except Exception:
-                            pass
+                        except Exception as _exc:
+                            logger.debug("Progress callback (parallel pre) failed: %s", _exc)
                     future = executor.submit(
                         self._profiled_phase_call,
                         phase,
@@ -9374,6 +9544,7 @@ class UnifiedRestorerV3:
                         masking_result=_masking_result,  # §Psychoacoustic: pre-computed MaskingResult (L/mono), opt-in
                         masking_result_r=_masking_result_r,  # §Psychoacoustic: pre-computed MaskingResult (R channel, None if mono)
                         masking_scalar=_masking_scalar,  # §Psychoacoustic: global audibility scalar ∈ [0.4, 1.0]
+                        phoneme_timeline=phoneme_timeline,  # §2.36a: PhonemeTimeline for targeted processing
                     )
                     future_map[future] = (phase_id, phase_start, phase)
                 for future in as_completed(future_map):
@@ -9451,8 +9622,8 @@ class UnifiedRestorerV3:
                         if audio_update_callback is not None:
                             try:
                                 audio_update_callback(current_audio, sample_rate, "parallel_merge")
-                            except Exception:
-                                pass
+                            except Exception as _exc:
+                                logger.debug("audio_update_callback (parallel_merge) failed: %s", _exc)
         else:
             # Sequentielle Ausführung (Abhängigkeiten vorhanden oder nur eine Phase)
             # §2.16 TQC: Zeitmodifizierende Phasen können Kohärenz brechen — Rollback bei Versagen
@@ -9503,8 +9674,8 @@ class UnifiedRestorerV3:
                     from backend.core.plugin_lifecycle_manager import evict_for_phase as _evict_for_phase
 
                     _evict_for_phase(phase_id)
-                except Exception:
-                    pass
+                except Exception as _exc:
+                    logger.debug("evict_for_phase(%s) failed: %s", phase_id, _exc)
                 # Zusätzlich: Bei < 2 GB frei nach Eviction → Phase deferred (KMV Stufe 2)
                 try:
                     import psutil as _ps_pre
@@ -9521,7 +9692,7 @@ class UnifiedRestorerV3:
                         _record_oom_probe("phase_deferred_low_ram", phase_id, available_gb=round(float(_avail_pre), 3))
                         continue
                 except ImportError:
-                    pass
+                    logger.debug("psutil not available — pre-phase RAM check skipped")
                 logger.info("▶ %s startet (%d/%d)", phase_id, len(executed) + 1, len(selected_phases))
                 _record_oom_probe("phase_start", phase_id, estimated_time_s=round(float(estimated_time), 3))
                 # §2.16 TQC mid-pipeline: Snapshot + Baseline-Messung vor zeitmodifizierenden Phasen
@@ -9533,8 +9704,8 @@ class UnifiedRestorerV3:
 
                         _tqc_baseline = _tqc_meas(_tqc_snap, sample_rate)
                         _tqc_snap_span = _tqc_baseline.max_span
-                    except Exception:
-                        pass
+                    except Exception as _exc:
+                        logger.debug("TQC baseline measurement failed for %s: %s", phase_id, _exc)
                 # §Punkt3 Regressionsprotokoll: RMS vor Phase messen (in dBFS)
                 _rms_before = float(np.sqrt(np.mean(current_audio**2) + 1e-12))
                 _rms_before_db = 20.0 * np.log10(_rms_before)
@@ -9554,8 +9725,8 @@ class UnifiedRestorerV3:
                             f"{_lbl_pre} [{phase_id}]",
                             0.0,
                         )
-                    except Exception:
-                        pass
+                    except Exception as _exc:
+                        logger.debug("Progress callback (seq pre) failed: %s", _exc)
                 try:
                     if _pmgg_gate is not None:
                         # §2.29 PMGG: Musical-Goal-geschützte Phasenausführung
@@ -9644,6 +9815,7 @@ class UnifiedRestorerV3:
                                         if getattr(self, "_song_calibration_profile", None)
                                         else {}
                                     ),  # §2.31a SongCalibration opt-in
+                                    "phoneme_timeline": phoneme_timeline,  # §2.36a: PhonemeTimeline opt-in
                                 },
                                 restorability_score=_pmgg_restorability_score,  # §2.29 normativ
                                 applicable_goals=applicable_goals,  # §2.32 normativ
@@ -9688,8 +9860,8 @@ class UnifiedRestorerV3:
                             if audio_update_callback is not None:
                                 try:
                                     audio_update_callback(current_audio, sample_rate, phase_id)
-                                except Exception:
-                                    pass
+                                except Exception as _exc:
+                                    logger.debug("audio_update_callback (PMGG success) failed: %s", _exc)
                             logger.info(
                                 f"✅ {phase_id}: PMGG action={_pmgg_entry.action} "
                                 f"strength={_pmgg_entry.strength_used:.2f} "
@@ -9723,6 +9895,7 @@ class UnifiedRestorerV3:
                                 masking_result=_masking_result,  # §Psychoacoustic: pre-computed MaskingResult (L/mono), opt-in
                                 masking_result_r=_masking_result_r,  # §Psychoacoustic: pre-computed MaskingResult (R channel, None if mono)
                                 masking_scalar=_masking_scalar,  # §Psychoacoustic: global audibility scalar ∈ [0.4, 1.0]
+                                phoneme_timeline=phoneme_timeline,  # §2.36a: PhonemeTimeline opt-in
                             )
                             result = _normalize_phase_result(result)
                             _collect_guard_payload(_phase_for_exec, phase_id, result)
@@ -9766,8 +9939,8 @@ class UnifiedRestorerV3:
                                 if audio_update_callback is not None:
                                     try:
                                         audio_update_callback(current_audio, sample_rate, phase_id)
-                                    except Exception:
-                                        pass
+                                    except Exception as _exc:
+                                        logger.debug("audio_update_callback (PMGG fallback) failed: %s", _exc)
                                 logger.info(f"✅ {phase_id} (fallback): {result.execution_time_seconds:.2f}s")
                                 # §Punkt3 Regressionsprotokoll: RMS nach PMGG-Fallback-Phase
                                 _rms_after_db = 20.0 * np.log10(float(np.sqrt(np.mean(current_audio**2) + 1e-12)))
@@ -9826,8 +9999,8 @@ class UnifiedRestorerV3:
                             if audio_update_callback is not None:
                                 try:
                                     audio_update_callback(current_audio, sample_rate, phase_id)
-                                except Exception:
-                                    pass
+                                except Exception as _exc:
+                                    logger.debug("audio_update_callback (direct phase) failed: %s", _exc)
                             logger.info(f"✅ {phase_id}: {result.execution_time_seconds:.2f}s")
                             _record_oom_probe(
                                 "phase_ok",
@@ -9857,14 +10030,8 @@ class UnifiedRestorerV3:
                         import ctypes as _ctypes_oom
 
                         _ctypes_oom.CDLL("libc.so.6").malloc_trim(0)
-                    except Exception:
-                        pass
-                    try:
-                        from backend.core.plugin_lifecycle_manager import evict_stale_plugins
-
-                        evict_stale_plugins(required_mb=4096)
-                    except Exception:
-                        pass
+                    except Exception as _exc:
+                        logger.debug("malloc_trim (OOM handler) failed: %s", _exc)
                     skipped.extend(p for p in selected_phases if p not in executed and p != phase_id)
                     skipped.append(phase_id)
                     # §2.39 OOM-Recovery-Checkpoint: Pipeline-Stand auf Disk persistieren,
@@ -9910,8 +10077,8 @@ class UnifiedRestorerV3:
 
                     _libc = _ctypes_phase.CDLL("libc.so.6")
                     _libc.malloc_trim(0)
-                except Exception:
-                    pass
+                except Exception as _exc:
+                    logger.debug("malloc_trim (post-phase GC) failed: %s", _exc)
                 # RAM-Notbremse: bei < 4 GB verfügbar ODER > 80% belegt ODER Swap-Thrashing
                 # → Plugin-Eviction erzwingen. systemd-oomd killt bei Memory-Pressure > 50%.
                 try:
@@ -9927,8 +10094,8 @@ class UnifiedRestorerV3:
                         _swap_thrashing = (
                             _swap.percent > 30.0 and (_vm_phase.available / max(_vm_phase.total, 1)) < 0.15
                         )
-                    except Exception:
-                        pass
+                    except Exception as _exc:
+                        logger.debug("psutil swap_memory (post-phase) failed: %s", _exc)
                     if _avail_gb_phase < 4.0 or _ram_pct_phase > 80.0 or _swap_thrashing:
                         _reason = (
                             "Swap-Thrashing"
@@ -9951,11 +10118,11 @@ class UnifiedRestorerV3:
                             from backend.core.plugin_lifecycle_manager import evict_stale_plugins
 
                             evict_stale_plugins(required_mb=4096)
-                        except Exception:
-                            pass
+                        except Exception as _exc:
+                            logger.warning("evict_stale_plugins (post-phase pressure) failed: %s", _exc)
                         gc.collect()
                 except ImportError:
-                    pass
+                    logger.debug("psutil not available — post-phase RAM guard skipped")
                 # §2.16 TQC mid-pipeline: nach zeitmodifizierenden Phasen auf Kohärenzverlust prüfen.
                 # WICHTIG: Rollback NUR wenn die Phase die TQC-Metrik VERSCHLECHTERT hat
                 # (max_span gestiegen ≥ 15%).  Ein absolutes Scheitern am Threshold genügt

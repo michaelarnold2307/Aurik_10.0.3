@@ -23,6 +23,7 @@ Spec §2.1, §2.2, §9.5 — v9.10.45
 from __future__ import annotations
 
 import logging
+import os
 import threading
 import time
 from dataclasses import dataclass, field
@@ -294,8 +295,8 @@ class AurikDenker:
                 from backend.core.plugin_lifecycle_manager import evict_stale_plugins
 
                 evict_stale_plugins(required_mb=4096.0)
-            except Exception:
-                pass
+            except Exception as _exc:
+                logger.debug("Operation failed (non-critical): %s", _exc)
             logger.error("AurikDenker: Speicherfehler in Pipeline: %s", exc)
             return self._fallback(
                 audio,
@@ -530,7 +531,24 @@ class AurikDenker:
 
         if requested in {"restoration", "studio2026", "maximum", "fast", "balanced"}:
             if requested == "studio2026" and recommended != "studio2026":
-                return "restoration", (f"Studio 2026 defensiv auf Restoration zurückgesetzt. {reason}")
+                # §Bindend: Nutzerwahl respektieren — Studio 2026 wird NICHT überschrieben.
+                # Autopilot-Empfehlung ist ein Hinweis, kein Veto. Der Nutzer hat genau
+                # eine bewusste Entscheidung (§Autonomer Magic-Button-Vertrag).
+                # Konservative Schutzmaßnahmen greifen INNERHALB Studio 2026:
+                # — SongCalibration reduziert Strength bei starken Defekten
+                # — PMGG erzwingt Musical-Goals-Einhaltung pro Phase
+                # — FeedbackChain rollt bei Regression zurück
+                logger.warning(
+                    "Studio 2026 auf nicht-idealem Material beibehalten (Nutzerwahl): material=%s, severity=%.2f — %s",
+                    resolved_material,
+                    severity,
+                    reason,
+                )
+                return "studio2026", (
+                    f"Studio 2026 beibehalten (Nutzer-Entscheidung). "
+                    f"Hinweis: {reason} "
+                    f"Interne Schutzmaßnahmen (SongCal, PMGG, FeedbackChain) sind aktiv."
+                )
             return requested, f"Expliziter Modus '{requested}' beibehalten. {reason}"
 
         if requested == "quality":
@@ -695,6 +713,7 @@ class AurikDenker:
                 material=material,
                 progress_callback=_defekt_scan_cb,
                 cached_defect_result=cached_defect_result,
+                file_ext=os.path.splitext(input_path)[1].lower() if input_path else "",
             )
             defekt_primär = getattr(defekt, "primary_defect", None) or getattr(defekt, "primary_cause", "unknown")
             stage_notes["defekt"] = f"Hauptdefekt: {defekt_primär} (Schwere: {defekt.overall_severity:.2f})"
@@ -810,6 +829,15 @@ class AurikDenker:
         stage_notes["autopilot"] = autopilot_note
         if self._normalize_mode_name(mode) == "studio2026" and effective_mode == "restoration":
             warnings.append("Autopilot-Sicherheitsfallback: Studio 2026 wurde auf Restoration zurückgesetzt.")
+        elif (
+            self._normalize_mode_name(mode) == "studio2026"
+            and effective_mode == "studio2026"
+            and "Hinweis:" in autopilot_note
+        ):
+            warnings.append(
+                "Studio 2026 auf nicht-idealem Material: Interne Schutzmaßnahmen "
+                "(SongCal, PMGG, FeedbackChain) sind aktiv."
+            )
 
         # ── ARE-Metadaten-Träger (A-2/A-5/B-1) ────────────────────────────────
         _rest_confidence: float = 0.85
@@ -888,8 +916,8 @@ class AurikDenker:
                         from backend.core.plugin_lifecycle_manager import set_pipeline_active
 
                         set_pipeline_active(True)
-                    except Exception:
-                        pass
+                    except Exception as _exc:
+                        logger.debug("Operation failed (non-critical): %s", _exc)
                     try:
                         _work_audio = aktuelles_audio.copy()
                         # §G1: Pre-Repair-Referenz sichern — echtes Original VOR
@@ -1003,8 +1031,8 @@ class AurikDenker:
                             from backend.core.plugin_lifecycle_manager import set_pipeline_active
 
                             set_pipeline_active(False)
-                        except Exception:
-                            pass
+                        except Exception as _exc:
+                            logger.debug("Operation failed (non-critical): %s", _exc)
 
                 _t = threading.Thread(target=_run_rest, daemon=True)
                 _t.start()
@@ -1040,8 +1068,8 @@ class AurikDenker:
                             _globalplan.reasoning_trace.append(
                                 f"Enriched with pipeline era_decade={_era_from_pipeline} (UV3 ML)"
                             )
-                        except Exception:
-                            pass
+                        except Exception as _exc:
+                            logger.debug("Operation failed (non-critical): %s", _exc)
                 # [6/10] ReparaturDenker-Ergebnis (Preprocessing-Schritt)
                 if _rep_result_box:
                     _rep = _rep_result_box[0]

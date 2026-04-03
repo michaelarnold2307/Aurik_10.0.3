@@ -146,8 +146,8 @@ class CQTdiffPlusPlugin:
                 logger.info("CQTdiff+: ML-Budget erschöpft — Fallback aktiv.")
                 self._fallback_active = True
                 return
-        except ImportError:
-            pass
+        except ImportError as _exc:
+            logger.debug("Optional import not available (non-critical): %s", _exc)
         try:
             import torch
 
@@ -164,8 +164,8 @@ class CQTdiffPlusPlugin:
                     from backend.core.plugin_lifecycle_manager import register_plugin as _reg_plm
 
                     _reg_plm(self._BUDGET_NAME, size_gb=self._BUDGET_SIZE_GB, unload_fn=_unload_cqtdiff_plus)
-                except Exception:
-                    pass
+                except Exception as _exc:
+                    logger.debug("Plugin operation failed (non-critical): %s", _exc)
             else:
                 logger.info(
                     "CQTdiff: TorchScript-Modell nicht gefunden (%s) — Fallback aktiv",
@@ -179,8 +179,8 @@ class CQTdiffPlusPlugin:
                 from backend.core.ml_memory_budget import release as _release
 
                 _release(self._BUDGET_NAME)
-            except Exception:
-                pass
+            except Exception as _exc:
+                logger.debug("Plugin operation failed (non-critical): %s", _exc)
         except Exception as exc:
             logger.warning("CQTdiff+ Modell-Lade-Fehler: %s — Fallback aktiv", exc)
             self._fallback_active = True
@@ -188,8 +188,8 @@ class CQTdiffPlusPlugin:
                 from backend.core.ml_memory_budget import release as _release
 
                 _release(self._BUDGET_NAME)
-            except Exception:
-                pass
+            except Exception as _exc:
+                logger.debug("Plugin operation failed (non-critical): %s", _exc)
 
     # ------------------------------------------------------------------
     # Öffentliche API
@@ -590,8 +590,8 @@ def _unload_cqtdiff_plus() -> None:
         import gc
 
         gc.collect()
-    except Exception:
-        pass
+    except Exception as _exc:
+        logger.debug("Plugin operation failed (non-critical): %s", _exc)
 
 
 def get_cqtdiff_plus() -> CQTdiffPlusPlugin:

@@ -33,8 +33,10 @@ class AiStereoEnhancer:
         mid = (audio[0] + audio[1]) / 2
         side = (audio[0] - audio[1]) / 2
         side *= self.target_width
-        left = mid + side
-        right = mid - side
+        # Level compensation to preserve energy at different widths
+        compensation = 1.0 / max(1e-9, np.sqrt(0.5 * (1.0 + self.target_width**2)))
+        left = (mid + side) * compensation
+        right = (mid - side) * compensation
         audio_out = np.vstack([left, right])
         # ML-Inferenz via ONNX (wenn Modell geladen)
         if self.model is not None:
@@ -47,7 +49,7 @@ class AiStereoEnhancer:
                     audio_out = _raw
             except Exception as _onnx_err:
                 _logger.warning(
-                    "AiStereoEnhancer: ONNX-Inferenz fehlgeschlagen (%s) " "— M/S-DSP-Fallback aktiv.",
+                    "AiStereoEnhancer: ONNX-Inferenz fehlgeschlagen (%s) — M/S-DSP-Fallback aktiv.",
                     _onnx_err,
                 )
         return np.clip(audio_out, -1.0, 1.0).astype(audio.dtype)

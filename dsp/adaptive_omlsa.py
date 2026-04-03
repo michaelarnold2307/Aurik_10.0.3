@@ -68,14 +68,29 @@ class AdaptiveOMLSA:
     def __init__(self, alpha=0.98, noise_floor=1e-8):
         self.alpha = alpha
         self.noise_floor = noise_floor
+        self._contract_logged = False
 
     def log_contract(self):
-        logger.debug("[DSPContract] %s", asdict(adaptive_omlsa_contract))
+        if not self._contract_logged:
+            logger.debug("[DSPContract] %s", asdict(adaptive_omlsa_contract))
+            self._contract_logged = True
 
-    def omlsa(self, noisy_mag, noise_mag, **kwargs):
-        self.log_contract()  # Audit: Contract-Infos loggen (optional)
+    def omlsa(self, noisy_mag, noise_mag, *, sr: int = 48000, **kwargs):
+        """OMLSA gain with optional psychoacoustic frequency weighting.
+
+        Args:
+            noisy_mag: Noisy magnitude spectrum
+            noise_mag: Noise magnitude estimate
+            sr: Sample rate for psychoacoustic weighting
+        """
+        self.log_contract()
         alpha = kwargs.get("alpha", self.alpha)
         noise_floor = kwargs.get("noise_floor", self.noise_floor)
+        psychoacoustic = kwargs.get("psychoacoustic", True)
+
+        noisy_mag = np.nan_to_num(np.asarray(noisy_mag, dtype=np.float64))
+        noise_mag = np.nan_to_num(np.asarray(noise_mag, dtype=np.float64))
+
         # A-priori SNR — guard against negative noise_mag
         noise_pow = noise_mag**2 + noise_floor
         noisy_pow = noisy_mag**2
@@ -87,6 +102,17 @@ class AdaptiveOMLSA:
         v = xi * gamma / (1.0 + xi)
         v = np.maximum(v, 1e-8)  # §3.1 NaN-Guard: expn(1,0)→∞, 0·∞=NaN at silence
         gain = (xi / (1.0 + xi)) * np.exp(0.5 * expn(1, v))
+
+        # Psychoacoustic frequency weighting: gentler in sensitive bands (2-5 kHz)
+        if psychoacoustic and noisy_mag.ndim >= 1:
+            n_bins = noisy_mag.shape[-1] if noisy_mag.ndim >= 2 else noisy_mag.shape[0]
+            freqs = np.linspace(0, sr / 2, n_bins)
+            sensitivity = np.exp(-0.5 * ((np.log2(np.maximum(freqs, 20.0) / 3500.0)) ** 2) / 1.5**2)
+            psy_floor = 0.01 + 0.04 * sensitivity  # higher floor in sensitive bands
+            if noisy_mag.ndim == 2:
+                psy_floor = psy_floor[np.newaxis, :]
+            gain = np.maximum(gain, psy_floor)
+
         gain = np.nan_to_num(gain, nan=0.0, posinf=0.0, neginf=0.0)  # §3.1 NaN/Inf-Guard
         gain = np.clip(gain, 0.0, 1.0)  # gain must not exceed 1 (no amplification)
         clean_mag = gain * noisy_mag

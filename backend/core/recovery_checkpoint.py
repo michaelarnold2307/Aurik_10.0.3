@@ -55,16 +55,16 @@ def _get_aurik_version() -> str:
         from importlib.metadata import version as _pkg_version  # Python 3.8+
 
         return _pkg_version("aurik9")
-    except Exception:
-        pass
+    except Exception as _exc:
+        logger.debug("Operation failed (non-critical): %s", _exc)
     try:
         _pyproject = Path(__file__).resolve().parents[2] / "pyproject.toml"
         content = _pyproject.read_text(encoding="utf-8")
         m = re.search(r'^version\s*=\s*"([^"]+)"', content, re.MULTILINE)
         if m:
             return m.group(1)
-    except Exception:
-        pass
+    except Exception as _exc:
+        logger.debug("Operation failed (non-critical): %s", _exc)
     return "unknown"
 
 
@@ -383,7 +383,7 @@ def _cleanup_checkpoint_files(json_path: Path) -> None:
         for path in [str(json_path), audio_path, audio_path + ".tmp", str(json_path) + ".tmp"]:
             try:
                 os.remove(path)
-            except OSError:
-                pass
-    except Exception:
-        pass
+            except OSError as _exc:
+                logger.debug("Operation failed (non-critical): %s", _exc)
+    except Exception as _exc:
+        logger.debug("Operation failed (non-critical): %s", _exc)

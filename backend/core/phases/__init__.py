@@ -13,6 +13,8 @@ Version: 9.0.0
 Date: 2026-02-15
 """
 
+import logging as _logging
+
 # Phase 01-09: Defect Removal & Basic Restoration
 from .phase_01_click_removal import ClickRemovalPhase
 from .phase_02_hum_removal import HumRemovalPhase
@@ -87,7 +89,6 @@ from .phase_interface import (
     PhaseResult,
 )
 
-import logging as _logging
 _logger = _logging.getLogger(__name__)
 
 # Phase 53: Semantic Audio Analysis — Metadata-only (BPM, Key, Genre-Hint)

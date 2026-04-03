@@ -88,6 +88,8 @@ class AudioFile(BaseModel):
     created_at: datetime = Field(default_factory=datetime.now)
 
     class Config:
+        """Pydantic model configuration with JSON schema examples."""
+
         json_schema_extra = {
             "example": {
                 "file_path": "/archive/originals/abc123/input.wav",
@@ -512,6 +514,8 @@ class ResturationJob(BaseModel):
     error_message: str | None = Field(None, description="Error message if failed")
 
     class Config:
+        """Pydantic model configuration with JSON schema examples."""
+
         json_schema_extra = {
             "example": {
                 "job_id": "123e4567-e89b-12d3-a456-426614174000",

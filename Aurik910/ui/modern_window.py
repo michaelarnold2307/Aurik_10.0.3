@@ -99,7 +99,13 @@ try:
         get_defect_type as _bridge_get_defect_type,
     )
     from backend.api.bridge import (
+        get_deferred_refinement_job_class as _bridge_get_deferred_refinement_job_class,
+    )
+    from backend.api.bridge import (
         get_era_classifier_fn as _bridge_get_era_classifier_fn,
+    )
+    from backend.api.bridge import (
+        get_era_medium_constraint as _bridge_get_era_medium_constraint,
     )
     from backend.api.bridge import (
         get_genre_classifier_fn as _bridge_get_genre_classifier_fn,
@@ -109,6 +115,9 @@ try:
     )
     from backend.api.bridge import (
         get_medium_classifier_fn as _bridge_get_medium_classifier_fn,
+    )
+    from backend.api.bridge import (
+        get_recovery_checkpoint_fns as _bridge_get_recovery_checkpoint_fns,
     )
     from backend.api.bridge import (
         get_restorability_estimator_class as _bridge_get_restorability_estimator_class,
@@ -124,15 +133,6 @@ try:
     )
     from backend.api.bridge import (
         warmup_models_background as _warmup_models_background,
-    )
-    from backend.api.bridge import (
-        get_deferred_refinement_job_class as _bridge_get_deferred_refinement_job_class,
-    )
-    from backend.api.bridge import (
-        get_era_medium_constraint as _bridge_get_era_medium_constraint,
-    )
-    from backend.api.bridge import (
-        get_recovery_checkpoint_fns as _bridge_get_recovery_checkpoint_fns,
     )
 
     _BRIDGE_AVAILABLE = True
@@ -335,6 +335,7 @@ from Aurik910.i18n import get_language, set_language, t
 # SVG-Phasen-Icons (2.5D mystisch-profi)
 try:
     from Aurik910.core.aurik_icons import get_icon as _get_stage_icon
+
     _SVG_ICONS_AVAILABLE = True
 except ImportError:
     _get_stage_icon = None  # type: ignore[assignment]
@@ -1235,7 +1236,7 @@ class BatchProcessingThread(QThread):
 
                     Throttle: only emit signals when integer value actually changes.
                     """
-                    _last_emit_val: int = -1   # 0–10000 scale
+                    _last_emit_val: int = -1  # 0–10000 scale
                     _last_phase_bp: int = -1
                     _last_scan_int: int = -1  # int(frac * 500) for ~0.2 % granularity
                     while True:
@@ -1318,8 +1319,8 @@ class BatchProcessingThread(QThread):
                                 _sp2["target"] = 0.0
                                 _sp2["phase_start"] = time.perf_counter()
                                 _reset_now = True
-                            sub_cur = _sp2["current"]   # refresh after potential reset
-                            sub_tgt = _sp2["target"]    # refresh after potential reset
+                            sub_cur = _sp2["current"]  # refresh after potential reset
+                            sub_tgt = _sp2["target"]  # refresh after potential reset
                             sub_phase_start = _sp2["phase_start"]  # refresh after potential reset
                         if _reset_now:
                             # New phase started: push an immediate UI reset so the
@@ -1524,7 +1525,7 @@ class BatchProcessingThread(QThread):
                     Prevents the bar from rushing to 98% while post-processing still runs.
                     """
                     if uv3_pct <= 19:
-                        return 3.0 + (uv3_pct - 1) / 18.0 * 6.0   # 3 → 9
+                        return 3.0 + (uv3_pct - 1) / 18.0 * 6.0  # 3 → 9
                     elif uv3_pct <= 85:
                         return 10.0 + (uv3_pct - 20) / 65.0 * 73.0  # 10 → 83
                     else:
@@ -3550,7 +3551,6 @@ class WaveformWidget(QWidget):
             "transport_bump": "Bandhopser",
             "vocal_harshness": "Vocal-Härte",
         }
-        BAND_H = 5  # Spec §11.4: each defect type uses a 5 px overlay band
         _SKIP_KEYS = {"status", "_locations", "_channel_locations", "_no_anim"}
 
         n_total = self.audio_data.shape[0]
@@ -3989,7 +3989,7 @@ class WaveformWidget(QWidget):
         rows: list[list[tuple]] = []
         _cur_row: list[tuple] = []
         _cur_row_w = 0
-        for (item, iw) in zip(items, item_widths):
+        for item, iw in zip(items, item_widths):
             _need = iw + (item_gap if _cur_row else 0)
             if _cur_row and _cur_row_w + _need > _max_legend_w:
                 rows.append(_cur_row)
@@ -4008,13 +4008,17 @@ class WaveformWidget(QWidget):
         bg_padding = 4
         _first_row_w = sum(swatch_s + swatch_gap + _fm.horizontalAdvance(lbl) for _, lbl, _ in rows[0])
         _first_row_w += item_gap * max(0, len(rows[0]) - 1)
-        _bg_w = max(
-            _first_row_w,
+        _bg_w = (
             max(
-                sum(swatch_s + swatch_gap + _fm.horizontalAdvance(lbl) for _, lbl, _ in r) + item_gap * max(0, len(r) - 1)
-                for r in rows
-            ),
-        ) + bg_padding * 2
+                _first_row_w,
+                max(
+                    sum(swatch_s + swatch_gap + _fm.horizontalAdvance(lbl) for _, lbl, _ in r)
+                    + item_gap * max(0, len(r) - 1)
+                    for r in rows
+                ),
+            )
+            + bg_padding * 2
+        )
         _bg_x = int(x + max(0, (width - _bg_w + bg_padding * 2) // 2)) - bg_padding
         _bg_y = legend_y - (n_rows - 1) * (legend_h + 3) - bg_padding
         _bg_h = total_legend_h + bg_padding * 2
@@ -5432,16 +5436,11 @@ class DefectStoryWidget(QFrame):
         # not found in this recording.
         # Exception: in "completed" state, explicitly provided keys at sev=0
         # are shown as "behoben" (fixed) to give the user positive feedback.
-        _explicit_keys = {
-            k for k in defects
-            if k not in ("status", "_locations", "_channel_locations")
-        }
+        _explicit_keys = {k for k in defects if k not in ("status", "_locations", "_channel_locations")}
         compact_limit = 12
         hidden_count = 0
         display_entries = [
-            e for e in entries
-            if int(e["sev_pct"]) >= 1
-            or (status == "completed" and e["key"] in _explicit_keys)
+            e for e in entries if int(e["sev_pct"]) >= 1 or (status == "completed" and e["key"] in _explicit_keys)
         ]
         if len(display_entries) > compact_limit and status in ("detected", "correcting"):
             hidden_count = len(display_entries) - compact_limit
@@ -5460,8 +5459,7 @@ class DefectStoryWidget(QFrame):
             )
 
         summary = (
-            f"<b>Erkannte Defekte ({n_active}):</b> {n_active} · "
-            "WAS/WO/WIE/WANN/WESHALB in Echtzeit · Prio + Impact"
+            f"<b>Erkannte Defekte ({n_active}):</b> {n_active} · WAS/WO/WIE/WANN/WESHALB in Echtzeit · Prio + Impact"
         )
         if hidden_count > 0:
             summary += (
@@ -7069,6 +7067,7 @@ class ModernMainWindow(QMainWindow):
         # ── Persistent settings (QSettings) ─────────────────────────────
         try:
             from Aurik910.core.settings_manager import get_settings_manager
+
             self._settings = get_settings_manager()
         except Exception:
             self._settings = None
@@ -9246,6 +9245,7 @@ class ModernMainWindow(QMainWindow):
         self.status_text.setText(t("update.checking"))
         try:
             from Aurik910.core.version_checker import check_for_update_async
+
             check_for_update_async(lambda r: QTimer.singleShot(0, lambda: self._on_update_check_result(r, manual=True)))
         except ImportError:
             self.status_text.setText(t("update.unavailable"))
@@ -9254,7 +9254,10 @@ class ModernMainWindow(QMainWindow):
         """Silent background update check on app startup."""
         try:
             from Aurik910.core.version_checker import check_for_update_async
-            check_for_update_async(lambda r: QTimer.singleShot(0, lambda: self._on_update_check_result(r, manual=False)))
+
+            check_for_update_async(
+                lambda r: QTimer.singleShot(0, lambda: self._on_update_check_result(r, manual=False))
+            )
         except ImportError:
             pass
 
@@ -9320,6 +9323,7 @@ class ModernMainWindow(QMainWindow):
     def _open_update_url(self, url: str) -> None:
         """Open the download URL in the default browser."""
         import subprocess
+
         try:
             if sys.platform.startswith("linux"):
                 subprocess.Popen(["xdg-open", url])
@@ -9445,6 +9449,7 @@ class ModernMainWindow(QMainWindow):
                 self._heartbeat_timer.stop()
             # GIL-Switch-Intervall auf Normalwert zurücksetzen
             import sys as _sys
+
             _prev = getattr(self, "_prev_switchinterval", 0.005)
             _sys.setswitchinterval(_prev)
             self._set_left_panel_processing_focus(False)
@@ -9921,29 +9926,73 @@ class ModernMainWindow(QMainWindow):
                 _raw_medium = "unknown"
                 _score = 0
                 _mc_result_obj = None
+                _chain_keys: list[str] = []
+                # ── MediumDetector: forensische Ketten-Erkennung (§6.7) ──────
+                # Ohne file_ext → Forensik-Modus: erkennt analogen Ursprungsträger
+                # auch wenn die Datei bereits digital ist (z.B. Wachswalze → MP3).
+                # medium_classifier.classify_medium liefert für ambivalente Quellen
+                # häufig "unknown" da der Bayesian-Scorer ohne Kettenkontext arbeitet.
                 try:
-                    _classify_medium = _bridge_get_medium_classifier_fn()
-                    if callable(_classify_medium):
-                        _mono = np.mean(_a, axis=1) if _a.ndim > 1 else _a
-                        _res = _classify_medium(_mono, _s)
-                        _mc_result_obj = _res
-                        _raw_medium = _res.material_type
-                        _score = round(_res.confidence * 5)
-                except Exception:
-                    pass
-                # MediumClassifier-Ergebnis im Bridge-Cache speichern, damit UV3
-                # es wiederverwenden kann statt ML-Klassifikator erneut auszuführen.
+                    from forensics.medium_detector import get_medium_detector as _get_md  # type: ignore[import]
+
+                    # file_ext übergeben: Bayesian zeroes digital-only aber physikalische
+                    # Analog-Inferenz (_infer_analog_source_from_fingerprint) erkennt
+                    # Vinyl/Kassette/Tape-Kette aus Rumble/Flutter/Crackle-Features.
+                    _md = _get_md().detect(_a, _s, file_ext=Path(file_path).suffix)
+                    _raw_medium = _md.primary_material or "unknown"
+                    _score = round(float(_md.confidence) * 5)
+                    _chain_keys = list(_md.transfer_chain or [])
+                    _mc_result_obj = _md.classification_result  # ClassificationResult-Passthrough für Cache
+                except Exception as _md_exc:
+                    # MediumDetector import or detect() failed — log explicitly so
+                    # this silent fallback does not hide sys.path / runtime issues.
+                    logger.warning(
+                        "_carrier_bg: MediumDetector fehlgeschlagen (%s: %s) — "
+                        "Fallback auf medium_classifier (keine transfer_chain verfügbar).",
+                        type(_md_exc).__name__,
+                        _md_exc,
+                    )
+                    # Fallback: medium_classifier (kein Kettenkontext)
+                    try:
+                        _classify_medium = _bridge_get_medium_classifier_fn()
+                        if callable(_classify_medium):
+                            _mono = np.mean(_a, axis=1) if _a.ndim > 1 else _a
+                            _res = _classify_medium(_mono, _s)
+                            _mc_result_obj = _res
+                            _raw_medium = _res.material_type
+                            _score = round(_res.confidence * 5)
+                    except Exception as _fb_exc:
+                        logger.warning(
+                            "_carrier_bg: Fallback medium_classifier ebenfalls fehlgeschlagen (%s: %s).",
+                            type(_fb_exc).__name__,
+                            _fb_exc,
+                        )
+                # MediumDetector-Ergebnis im Bridge-Cache speichern, damit UV3
+                # es wiederverwenden kann statt Klassifikator erneut auszuführen.
                 if _mc_result_obj is not None:
                     cache_medium_result(file_path, _mc_result_obj)
                 # HTML-Icon für Ursprungsträger
                 _orig_html = _html(*_MEDIUM_DATA.get(_raw_medium, ("unknown", _raw_medium)))
-                # Kettenanzeige: analoger Ursprungsträger → Container-Icon
-                _ext = Path(file_path).suffix.lower()
-                _ext_entry = _EXT_DATA.get(_ext)
-                if _ext_entry and _raw_medium in _ANALOG_MEDIA:
-                    _lbl = f"{_orig_html}&nbsp;&nbsp;→&nbsp;&nbsp;{_html(*_ext_entry)}"
+                # Kettenanzeige: direkt aus transfer_chain (MediumDetector-Kette) oder
+                # Ext-Fallback wenn keine Kette verfügbar.
+                if _chain_keys and len(_chain_keys) > 1:
+                    _lbl = "&nbsp;&nbsp;→&nbsp;&nbsp;".join(
+                        _html(*_MEDIUM_DATA.get(k, ("unknown", k))) for k in _chain_keys
+                    )
                 else:
-                    _lbl = _orig_html
+                    _ext = Path(file_path).suffix.lower()
+                    _ext_entry = _EXT_DATA.get(_ext)
+                    if _ext_entry and _raw_medium in _ANALOG_MEDIA:
+                        _lbl = f"{_orig_html}&nbsp;&nbsp;→&nbsp;&nbsp;{_html(*_ext_entry)}"
+                    else:
+                        _lbl = _orig_html
+                # Zusätzlicher Fallback: wenn _chain_keys leer aber Primärträger analog
+                # → ergänze Dateiendung auch wenn nicht explizit in transfer_chain
+                if not _chain_keys and _raw_medium in _ANALOG_MEDIA:
+                    _ext = Path(file_path).suffix.lower()
+                    _ext_entry = _EXT_DATA.get(_ext)
+                    if _ext_entry:
+                        _lbl = f"{_orig_html}&nbsp;&nbsp;→&nbsp;&nbsp;{_html(*_ext_entry)}"
                 if getattr(self, "_file_load_token", 0) != _load_token:
                     return
                 if str(getattr(self, "current_file_path", "") or "") != str(file_path):
@@ -10153,6 +10202,14 @@ class ModernMainWindow(QMainWindow):
                 ):
                     decade_label = ""
                     genre_label = ""
+                    genre_confidence: float | None = None
+                    genre_lang_score: float | None = None
+                    genre_lang_dsp: float | None = None
+                    genre_lang_lyrics: float | None = None
+                    genre_family_label: str = ""
+                    genre_family_confidence: float | None = None
+                    genre_topk: list[tuple[str, float]] = []
+                    genre_open_set_unknown: bool | None = None
                     _era_result_obj = None
                     _genre_result_obj = None
                     _raw_decade: int | None = None
@@ -10201,14 +10258,57 @@ class ModernMainWindow(QMainWindow):
                             "Ära wird nach Restaurierung aus Ergebnis geladen.",
                             _era_exc,
                         )
-                    logger.info(
-                        "_detect_era_genre_bg: era done — decade_label=%r", decade_label
-                    )
+                    logger.info("_detect_era_genre_bg: era done — decade_label=%r", decade_label)
                     try:
                         _classify_genre = _bridge_get_genre_classifier_fn()
                         if callable(_classify_genre):
                             gr = _classify_genre(_a_native, _s_native)
                             _genre_result_obj = gr
+                            _g_conf = getattr(gr, "confidence", None)
+                            if _g_conf is None and isinstance(gr, dict):
+                                _g_conf = gr.get("confidence")
+                            if isinstance(_g_conf, (int, float)):
+                                genre_confidence = float(_g_conf)
+                            _g_lang = getattr(gr, "vocal_language_score", None)
+                            if _g_lang is None and isinstance(gr, dict):
+                                _g_lang = gr.get("vocal_language_score")
+                            if isinstance(_g_lang, (int, float)):
+                                genre_lang_score = float(_g_lang)
+                            _g_lang_dsp = getattr(gr, "dsp_language_score", None)
+                            if _g_lang_dsp is None and isinstance(gr, dict):
+                                _g_lang_dsp = gr.get("dsp_language_score")
+                            if isinstance(_g_lang_dsp, (int, float)):
+                                genre_lang_dsp = float(_g_lang_dsp)
+                            _g_lang_lyrics = getattr(gr, "lyrics_language_hint", None)
+                            if _g_lang_lyrics is None and isinstance(gr, dict):
+                                _g_lang_lyrics = gr.get("lyrics_language_hint")
+                            if isinstance(_g_lang_lyrics, (int, float)):
+                                genre_lang_lyrics = float(_g_lang_lyrics)
+                            _g_family = getattr(gr, "genre_family", None)
+                            if _g_family is None and isinstance(gr, dict):
+                                _g_family = gr.get("genre_family")
+                            if isinstance(_g_family, str):
+                                genre_family_label = _g_family
+                            _g_family_conf = getattr(gr, "genre_family_confidence", None)
+                            if _g_family_conf is None and isinstance(gr, dict):
+                                _g_family_conf = gr.get("genre_family_confidence")
+                            if isinstance(_g_family_conf, (int, float)):
+                                genre_family_confidence = float(_g_family_conf)
+                            _g_top = getattr(gr, "top_genres", None)
+                            if _g_top is None and isinstance(gr, dict):
+                                _g_top = gr.get("top_genres")
+                            if isinstance(_g_top, (list, tuple)):
+                                for item in _g_top:
+                                    if isinstance(item, (list, tuple)) and len(item) == 2:
+                                        lbl = str(item[0])
+                                        sc = item[1]
+                                        if isinstance(sc, (int, float)):
+                                            genre_topk.append((lbl, float(sc)))
+                            _g_open = getattr(gr, "open_set_unknown", None)
+                            if _g_open is None and isinstance(gr, dict):
+                                _g_open = gr.get("open_set_unknown")
+                            if isinstance(_g_open, bool):
+                                genre_open_set_unknown = _g_open
                             gl = getattr(gr, "genre_label", None) or (
                                 gr.get("genre_label") if isinstance(gr, dict) else None
                             )
@@ -10220,9 +10320,7 @@ class ModernMainWindow(QMainWindow):
                             "Genre wird nach Restaurierung aus Ergebnis geladen.",
                             _genre_exc,
                         )
-                    logger.info(
-                        "_detect_era_genre_bg: genre done — genre_label=%r", genre_label
-                    )
+                    logger.info("_detect_era_genre_bg: genre done — genre_label=%r", genre_label)
 
                     # Era/Genre-Ergebnisse im Bridge-Cache speichern, damit UV3 sie
                     # wiederverwenden kann statt ML-Klassifikatoren erneut auszuführen.
@@ -10237,12 +10335,25 @@ class ModernMainWindow(QMainWindow):
                     if decade_label or genre_label:
                         _era_segments = []
                         if decade_label:
-                            _era_segments.append(
-                                '<span style="color:#9FB6CE;">◷ ' + decade_label + "</span>"
-                            )
+                            _era_segments.append('<span style="color:#9FB6CE;">◷ ' + decade_label + "</span>")
                         if genre_label:
+                            _g_conf = float(genre_confidence) if isinstance(genre_confidence, (int, float)) else None
+                            if _g_conf is None:
+                                _ampel_color = "#8A9AA9"
+                            elif _g_conf >= 0.70:
+                                _ampel_color = "#3ECF8E"
+                            elif _g_conf >= 0.50:
+                                _ampel_color = "#F6C453"
+                            else:
+                                _ampel_color = "#FF6B6B"
+                            _g_conf_txt = f" ({_g_conf:.2f})" if _g_conf is not None else ""
                             _era_segments.append(
-                                '<span style="color:#C8B483;">' + genre_label + "</span>"
+                                '<span style="color:#C8B483;">Genre: '
+                                + genre_label
+                                + _g_conf_txt
+                                + '&nbsp;<span style="color:'
+                                + _ampel_color
+                                + ';">&#9679;</span></span>'
                             )
                         _era_sep = '<span style="color:#6E839D;">&nbsp;·&nbsp;</span>'
                         _era_str = _era_sep.join(_era_segments)
@@ -10269,6 +10380,28 @@ class ModernMainWindow(QMainWindow):
                         )
                     if genre_label:
                         tip += f"Genre: <b>{genre_label}</b><br>"
+                    if genre_family_label:
+                        _fam_conf_txt = (
+                            f" ({genre_family_confidence:.2f})"
+                            if isinstance(genre_family_confidence, (int, float))
+                            else ""
+                        )
+                        tip += f"Genre-Familie: <b>{genre_family_label}</b>{_fam_conf_txt}<br>"
+                    if genre_topk:
+                        _topk_txt = " · ".join(f"{lbl} {score:.2f}" for lbl, score in genre_topk[:3])
+                        tip += f"Top-Genres: <b>{_topk_txt}</b><br>"
+                    if isinstance(genre_open_set_unknown, bool):
+                        tip += (
+                            "Open-Set: <b>unknown</b><br>" if genre_open_set_unknown else "Open-Set: <b>known</b><br>"
+                        )
+                    if genre_confidence is not None:
+                        tip += f"Genre-Konfidenz: <b>{genre_confidence:.2f}</b><br>"
+                    if genre_lang_score is not None:
+                        tip += f"DE-Sprachscore (gesamt): <b>{genre_lang_score:.2f}</b><br>"
+                    if genre_lang_dsp is not None or genre_lang_lyrics is not None:
+                        _dsp_txt = f"{genre_lang_dsp:.2f}" if genre_lang_dsp is not None else "—"
+                        _lyr_txt = f"{genre_lang_lyrics:.2f}" if genre_lang_lyrics is not None else "—"
+                        tip += f"Sprachanteile: DSP <b>{_dsp_txt}</b> · Lyrics <b>{_lyr_txt}</b><br>"
                     tip += "<small>Die Ära-Erkennung passt alle Restaurierungs-Parameter historisch korrekt an.</small>"
 
                     def _upd(_badge=badge, _tip=tip, _decade=decade_label, _genre=genre_label):
@@ -10284,9 +10417,7 @@ class ModernMainWindow(QMainWindow):
                                 _file_key,
                             )
                             return
-                        logger.info(
-                            "_upd: era/genre wird gesetzt — decade=%s genre=%s", _decade or "—", _genre or "—"
-                        )
+                        logger.info("_upd: era/genre wird gesetzt — decade=%s genre=%s", _decade or "—", _genre or "—")
                         # Badge und Klartext-Genre merken (Klartext verhindert HTML-Korruption
                         # beim späteren Neuaufbau in _on_item_finished_with_result).
                         _self._era_genre_badge = _badge
@@ -10303,8 +10434,7 @@ class ModernMainWindow(QMainWindow):
                             _dec_int = int(_decade) if isinstance(_decade, (int, float)) else None
                             _self.prognose_widget.update_era_genre(_dec_int, _genre or None)  # type: ignore[union-attr]
                         # ── Audio-Info-Bar Chips befüllen ────────────────────
-                        if _decade and hasattr(_self, "chip_era"):
-                            _self._show_chip(_self.chip_era, f"▷ {_decade}")
+                        # chip_era wird NICHT gesetzt — Ära steht bereits im detected_medium_label
                         if _genre and hasattr(_self, "chip_genre"):
                             _self._show_chip(_self.chip_genre, _genre)
 
@@ -10575,7 +10705,10 @@ class ModernMainWindow(QMainWindow):
 
                             QTimer.singleShot(1500, _reset_progress_if_idle)
                         if hasattr(_self, "status_text"):
-                            _self.status_text.setText(t("status.ready_to_restore"))
+                            # Deliberately do NOT overwrite status_text here:
+                            # the "loaded_and_analyzing" message already shows the
+                            # filename and is more informative than the generic
+                            # "ready_to_restore" string.  Just update the colour.
                             _self._apply_status_text_style("success")
                         # ✔️ Defektanalyse fertig → Magic Buttons aktivieren
                         _self._set_magic_buttons_enabled(True)
@@ -11148,10 +11281,14 @@ class ModernMainWindow(QMainWindow):
         # Restore persisted directory, then fallback to Music folder
         _sm = getattr(self, "_settings", None)
         _persisted_dir = _sm.last_open_dir() if _sm else ""
-        _start_dir = getattr(self, "_last_open_dir", None) or _persisted_dir or str(
-            next(
-                (p for p in (Path.home() / "Music", Path.home() / "Musik", Path.home()) if p.exists()),
-                Path.home(),
+        _start_dir = (
+            getattr(self, "_last_open_dir", None)
+            or _persisted_dir
+            or str(
+                next(
+                    (p for p in (Path.home() / "Music", Path.home() / "Musik", Path.home()) if p.exists()),
+                    Path.home(),
+                )
             )
         )
         dlg = _AurikFileDialog(
@@ -11446,6 +11583,7 @@ class ModernMainWindow(QMainWindow):
         # Mit 1 ms bekommt der Qt-Hauptthread häufiger GIL → X11 _NET_WM_PING
         # wird rechtzeitig beantwortet → kein "Nicht reagierend"-Dialog.
         import sys as _sys
+
         self._prev_switchinterval = _sys.getswitchinterval()
         _sys.setswitchinterval(0.001)
 
@@ -11604,6 +11742,7 @@ class ModernMainWindow(QMainWindow):
         # max 5 ms Zeitbudget → kein Reentrancy-Risiko).
         try:
             from PyQt5.QtCore import QEventLoop
+
             QApplication.processEvents(QEventLoop.ExcludeUserInputEvents, 5)
         except Exception:
             pass
@@ -11755,7 +11894,7 @@ class ModernMainWindow(QMainWindow):
                 _at = getattr(restoration_result, "adaptive_thresholds", None)
                 _adaptive = _at if isinstance(_at, dict) else {}
 
-                def _show_goals(_g=dict(_goals), _ath=dict(_adaptive)):
+                def _show_goals(_g=dict(_goals), _ath=dict(_adaptive)):  # noqa: B006
                     if self.radar_widget is not None:
                         try:
                             self.radar_widget.update_scores(
@@ -11825,19 +11964,21 @@ class ModernMainWindow(QMainWindow):
                     # Split aus dem HTML-Badge (_era_genre_badge enthält <span>-Tags;
                     # HTML-Split würde Tags als Genre-Text in das Label schreiben).
                     _genre_part = str(getattr(self, "_era_genre_cached", "") or "")
+                    if not _genre_part and restoration_result is not None:
+                        _meta = getattr(restoration_result, "metadata", {}) or {}
+                        _genre_meta = _meta.get("genre") if isinstance(_meta, dict) else None
+                        if isinstance(_genre_meta, dict):
+                            _genre_part = str(_genre_meta.get("genre_label", "") or "")
+                            if _genre_part and _genre_part.lower() not in ("unbekannt", "unknown", ""):
+                                self._era_genre_cached = _genre_part
                     # HTML-Badge analog zur Voranalyse aufbauen (einheitliches Format).
-                    _era_segments = [
-                        '<span style="color:#9FB6CE;">◷ ' + _new_decade_label + "</span>"
-                    ]
+                    _era_segments = ['<span style="color:#9FB6CE;">◷ ' + _new_decade_label + "</span>"]
                     if _genre_part and _genre_part.lower() not in ("unbekannt", "unknown", ""):
-                        _era_segments.append(
-                            '<span style="color:#C8B483;">' + _genre_part + "</span>"
-                        )
+                        _era_segments.append('<span style="color:#C8B483;">Genre: ' + _genre_part + "</span>")
                     _era_sep = '<span style="color:#6E839D;">&nbsp;·&nbsp;</span>'
                     _era_str = _era_sep.join(_era_segments)
                     _new_badge = (
-                        f'<br><span style="font-size:9pt;font-weight:600;letter-spacing:0.1px;">'
-                        f"{_era_str}</span>"
+                        f'<br><span style="font-size:9pt;font-weight:600;letter-spacing:0.1px;">{_era_str}</span>'
                     )
                     self._era_genre_badge = _new_badge
                     # Carrier-Label neu aufbauen (gleicher Aufbau wie Voranalyse)
@@ -11845,10 +11986,12 @@ class ModernMainWindow(QMainWindow):
                     _cur_sc = getattr(self, "_carrier_bg_score", 0)
                     _cur_stars = self._render_star_html(_cur_sc)
                     self.detected_medium_label.setText(f"{_cur_lbl}   {_cur_stars}{_new_badge}")
-                    # Audio-Info-Bar chip_era mit autorisativem Dekaden-Wert aus UV3 aktualisieren
-                    if hasattr(self, "chip_era"):
-                        self._show_chip(self.chip_era, f"▷ {_new_decade_label}")
-                    if _genre_part and _genre_part.lower() not in ("unbekannt", "unknown", "") and hasattr(self, "chip_genre"):
+                    # chip_era wird NICHT gesetzt — Ära steht bereits im detected_medium_label
+                    if (
+                        _genre_part
+                        and _genre_part.lower() not in ("unbekannt", "unknown", "")
+                        and hasattr(self, "chip_genre")
+                    ):
                         self._show_chip(self.chip_genre, _genre_part)
                     logger.info(
                         "Era-Badge aus UV3-Ergebnis aktualisiert: decade=%s genre=%s",
@@ -11915,6 +12058,7 @@ class ModernMainWindow(QMainWindow):
             self._heartbeat_timer.stop()
         # GIL-Switch-Intervall auf Normalwert zurücksetzen
         import sys as _sys
+
         _prev = getattr(self, "_prev_switchinterval", 0.005)
         _sys.setswitchinterval(_prev)
         self._set_left_panel_processing_focus(False)
@@ -12028,7 +12172,9 @@ class ModernMainWindow(QMainWindow):
                     _dir_short = str(Path(_last_out).parent)
                     if len(_dir_short) > 55:
                         _dir_short = "…" + _dir_short[-52:]
-                    self._result_path_label.setText(f"<b>{_fname}</b>  ·  <span style='color:#7ABBA8;'>{_dir_short}</span>")
+                    self._result_path_label.setText(
+                        f"<b>{_fname}</b>  ·  <span style='color:#7ABBA8;'>{_dir_short}</span>"
+                    )
                     if hasattr(self, "_btn_ab_compare"):
                         _has_restored = getattr(self, "_rest_audio", None) is not None
                         self._btn_ab_compare.setEnabled(_has_restored)
@@ -12087,6 +12233,7 @@ class ModernMainWindow(QMainWindow):
         except ImportError:
             try:
                 from Aurik910.ui.ml_refinement_thread import MLRefinementThread
+
                 DeferredRefinementJob = _bridge_get_deferred_refinement_job_class()
                 if DeferredRefinementJob is None:
                     return
@@ -13168,11 +13315,7 @@ class ModernMainWindow(QMainWindow):
             # Use the preserved original scores for the chip panel so that
             # detected defects (including compression_artifacts / vocal_harshness)
             # are always visible immediately after the scan completes.
-            _disp_scores = (
-                getattr(self, "_defect_initial_scores", defects)
-                if _status == "detected"
-                else defects
-            )
+            _disp_scores = getattr(self, "_defect_initial_scores", defects) if _status == "detected" else defects
             active = [
                 (k, v)
                 for k, v in _disp_scores.items()
@@ -13403,11 +13546,12 @@ class ModernMainWindow(QMainWindow):
                     _ic = _svg_p if os.path.isfile(_svg_p) else (_png_p if os.path.isfile(_png_p) else "")
                     _icon_html = (
                         f'<img src="file:///{_ic}" width="14" height="14" style="vertical-align:middle;">&nbsp;'
-                        if _ic else ""
+                        if _ic
+                        else ""
                     )
                     grouped[cat].append(
                         f'<span style="font-size:7pt;white-space:nowrap;">'
-                        f'{_icon_html}'
+                        f"{_icon_html}"
                         f'<span style="color:{_sev_color};">{_prefix}{_bar}</span>'
                         f' <span style="{_name_style}">{name}</span>'
                         f"</span>"
@@ -13534,6 +13678,7 @@ class ModernMainWindow(QMainWindow):
         # the Qt signal queue — both emitted together in _on_batch_progress).
         if hasattr(self, "_phase_step_label") and self._phase_step_label.isVisible():
             import re as _re_upd
+
             _cur_lbl = self._phase_step_label.text()
             _step_pfx = _re_upd.match(r"^(Stufe\s+\d+(?:\s*/\s*\d+)?)", _cur_lbl)
             if _step_pfx:
@@ -13737,6 +13882,7 @@ class ModernMainWindow(QMainWindow):
         if not hasattr(self, "_phase_step_label"):
             return
         import re as _re
+
         # Monotonic step counter: never go back to a smaller step number.
         _prev_step = getattr(self, "_last_phase_step_val", 0)
         _eff_step = max(step, _prev_step)

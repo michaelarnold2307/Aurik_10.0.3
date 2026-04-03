@@ -151,8 +151,8 @@ class FormantTracker:
                 if not _try_alloc("DeepFormants", size_gb=0.05):
                     logger.warning("DeepFormants: ML-Budget erschöpft — LPC-Fallback.")
                     return
-            except Exception:
-                pass
+            except Exception as _exc:
+                logger.debug("Operation failed (non-critical): %s", _exc)
 
             opts = ort.SessionOptions()
             opts.inter_op_num_threads = 1
@@ -173,16 +173,16 @@ class FormantTracker:
                         setattr(s, "_deepformants_session", None) or setattr(s, "_deepformants_loaded", False)
                     ),
                 )
-            except Exception:
-                pass
+            except Exception as _exc:
+                logger.debug("Operation failed (non-critical): %s", _exc)
         except Exception as exc:
             logger.debug("DeepFormants ONNX nicht ladbar: %s — LPC-Burg-Fallback.", exc)
             try:
                 from backend.core.ml_memory_budget import release as _rel
 
                 _rel("DeepFormants")
-            except Exception:
-                pass
+            except Exception as _exc:
+                logger.debug("Operation failed (non-critical): %s", _exc)
 
     # ------------------------------------------------------------------
     # Public API

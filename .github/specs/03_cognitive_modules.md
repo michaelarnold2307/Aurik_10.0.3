@@ -40,6 +40,14 @@
 | `CrepePlugin` | `plugins/crepe_plugin.py` | Pitch-Tracking f₀, CNN-basiert |
 | `FormantTracker` | `plugins/formant_tracker.py` | LPC-Formanten F1–F4 |
 
+### §2.36b Lyrics-Produktivpfad und Datenschutzvertrag (bindend ab v9.10.100)
+
+- Autoritatives Kernmodul für Lyrics-gestützte Verarbeitung ist ausschließlich `backend/core/lyrics_guided_enhancement.py`.
+- `backend/lyrics_guided/` ist Legacy-/Forschungsbestand. Diese Module dürfen ohne explizite Freigabe nicht als Produktionspfad, nicht als Referenzimplementierung und nicht als normative Architekturquelle behandelt werden.
+- Erlaubte strukturierte Ausgaben aus dem Lyrics-Pfad: `phoneme_type`, Start-/Endzeit, Konfidenz, `fallback_used`, aggregierte Segment-Counts, modellbezogene Statusflags.
+- Verbotene Datenflüsse: Lyrics-Worttext, Volltranskript, Roh-Alignment, wortscharfe Tokens in Logs, `RestorationResult.metadata`, Checkpoints, Crash-Dumps oder UI-Debug-Anzeigen.
+- Privacy-Invariante: Logging darf ausschließlich phonemische Klassen oder aggregierte Statistiken enthalten. Jede Codeänderung am Lyrics-Pfad muss diese Invariante explizit erhalten.
+
 ---
 
 ## §2.3 PerceptualEmbedder

@@ -105,8 +105,8 @@ def write_audit_log(data: dict[str, Any], log_path: str = "audit/music_vocal_pip
         logs.append(log_entry)
         with open(log_path, "w") as f:
             json.dump(logs, f, indent=2)
-    except Exception:
-        pass  # Fail silently to not interrupt processing
+    except Exception as _exc:
+        logger.debug("Operation failed (non-critical): %s", _exc)  # Fail silently to not interrupt processing
 
 
 # Optional: Gender Detection Modul (Fallback auf spektrale Analyse)
@@ -417,7 +417,6 @@ def process_vocals(
 
     # Explainable-AI: Feature-basierte Begründung
     def hf_ratio(x):
-
         spec = np.abs(np.fft.rfft(x))
 
         freqs = np.fft.rfftfreq(len(x), 1 / sr)

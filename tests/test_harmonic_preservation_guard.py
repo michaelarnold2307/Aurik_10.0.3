@@ -63,7 +63,6 @@ def _stereo(dur: float = 1.0) -> np.ndarray:
 # Testklasse §2.28
 # ---------------------------------------------------------------------------
 class TestHarmonicPreservationGuard:
-
     # --- Singleton -----------------------------------------------------------
 
     def test_01_singleton_returns_same_instance(self):

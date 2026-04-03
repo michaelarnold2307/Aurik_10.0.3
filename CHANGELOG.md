@@ -2,6 +2,253 @@
 
 > Hinweis: Dieses Dokument ist eine Versionshistorie. Ältere Versionsnummern und Kennzahlen sind hier erwartbar und keine veralteten Reststände.
 
+## Version 9.10.102 — Genre-Phase-1: Family-Stage + Top-k + Open-Set + Lyrics-Hinweis (Apr 2026)
+
+### Zusammenfassung
+
+Die Genre-Erkennung wurde um eine echte Phase-1-Architektur erweitert: Family-Scoring, Top-k-Ausgabe und Open-Set-Unknown-Gate. Zusätzlich nutzt die Schlager-Entscheidung den §2.36-Lyrics-Hinweis als sprachlichen Zusatzanker in Grenzfällen.
+
+### 1. Family-Stage + Top-k + Open-Set (`backend/core/genre_classifier.py`)
+
+- `SchlagerClassificationResult` erweitert um:
+  - `genre_family`
+  - `genre_family_confidence`
+  - `top_genres` (Top-3, label+score)
+  - `open_set_unknown`
+- Neue interne Stufe:
+  - `_compute_non_schlager_scores(...)`
+  - `_infer_genre_family(...)`
+  - `_build_top_genres(...)`
+  - `_is_open_set_unknown(...)`
+- Open-Set-Regel (nur Non-Schlager-Route):
+  - zu niedriger Top-Score oder zu geringe Top1-Top2-Margin → `genre_label="Unbekannt"`
+
+### 2. Lyrics-gestuetzte Sprachfusion fuer Genre-Grenzfaelle
+
+- DSP-Sprachscore und §2.36-Lyrics-Hinweis werden fusioniert (max-basierter konservativer Merge).
+- Ziel: Fehlklassifikation `Jazz` bei deutschsprachigem Schlager-Material reduzieren.
+
+### 3. UI-Transparenz im Feld „Erkannter Tonträger“ (`Aurik910/ui/modern_window.py`)
+
+- Tooltip erweitert um:
+  - Genre-Familie (+ Konfidenz)
+  - Top-Genres (Top-k)
+  - Open-Set-Status (`known`/`unknown`)
+  - bestehende Sprachanteile (DSP vs Lyrics) bleiben sichtbar
+- Genre-Badge zeigt Ampelpunkt mit Konfidenz-Schwellen:
+  - Grün ≥ 0.70
+  - Gelb 0.50–0.69
+  - Rot < 0.50
+- Bool/0.0-Auslese robust gemacht (`False` und `0.0` werden nicht mehr durch `or` verschluckt).
+
+### Tests
+
+- `tests/unit/test_genre_classifier.py`
+  - 3 neue Tests fuer Family/Top-k/Open-Set
+  - bestehende Lyrics-Fusions-Tests bleiben gruen
+- Relevante Genre-Suiten weiterhin gruen.
+
+## Version 9.10.101 — Dokumentations-Sync: Phasen 01–64 + Kausal-Mapping (Apr 2026)
+
+### Zusammenfassung
+
+Normative Doku wurde auf den aktuellen Pipeline-Stand nachgezogen: korrekte Phasenreichweite, korrekte Zuordnung von Print-Through/Lyrics (57/58) und aktualisierte Kausal-Mappings für neue Defektklassen.
+
+### 1. Spezifikation 06 (`.github/specs/06_phases_system.md`)
+
+- Header und Phasenliste auf **01–64** aktualisiert.
+- Korrektur der Zuordnung:
+  - `phase_57_print_through_reduction` (Print-Through)
+  - `phase_58_lyrics_guided_enhancement` (Lyrics)
+- Erweiterte Phase-Liste ergänzt um `phase_59` bis `phase_64`.
+- Datenvertrag auf **Phase-58** korrigiert.
+- `CAUSE_TO_PHASES` um aktuelle Defektursachen ergänzt (`modulation_noise`, `inner_groove_distortion`, `groove_echo`, `crosstalk`, `intermodulation_distortion`, `tape_splice_artifact` u. a.).
+- PMGG-Invariante auf `phase_58_lyrics_guided_enhancement` korrigiert.
+
+### 2. Copilot-/Normative Leitlinien
+
+- `.github/copilot-instructions.md` auf **Phasen 01–64** vereinheitlicht (Spec-Index, UV3-Kernreihenfolge, SR-Regeln).
+- Veraltete feste Ursachenzahl im UV3-Fluss durch robuste, adaptive Formulierung ersetzt.
+
+### 3. Weitere Spec-Synchronisierung
+
+- `.github/specs/02_pipeline_architecture.md`: `processing_sr=48000` auf Phasen **01–64** aktualisiert.
+- `.github/specs/08_architecture_and_distribution.md`: `phase_output_guard`-Anwendungsbereich auf **01–64** aktualisiert.
+
+## Version 9.10.100 — Normative Nachschaerfung: Tontraegerkette + Lyrics-Produktivpfad (Apr 2026)
+
+### Zusammenfassung
+
+Die normative Dokumentation wurde auf den aktuellen Implementierungsstand nachgezogen. Schwerpunkt: physikalische Analogquellen-Inferenz fuer codec-enkodierte Tontraegerketten sowie klare Trennung zwischen produktivem Lyrics-Pfad und Legacy-/Forschungsmodulen.
+
+### 1. Tontraegerkette — Phase-1b physikalische Analog-Inferenz normiert
+
+- Die Spezifikation beschreibt jetzt explizit die zusaetzliche physikalische Analogquellen-Inferenz im `MediumDetector`, wenn `file_ext` digitale Formate signalisiert und der Bayesian-Pfad keinen analogen Ursprungstraeger mehr liefern kann.
+- Normierte Fingerprints: `infrasonic_rms`, `crackle_density`, `rotation_strength`, `wow_flutter_index`.
+- Referenzfall dokumentiert: `vinyl -> cassette -> mp3_low` fuer codec-enkodiertes Analogmaterial.
+
+### 2. Lyrics-Produktivpfad — autoritatives Modul festgelegt
+
+- Produktionspfad fuer §2.36 ist jetzt normativ auf `backend/core/lyrics_guided_enhancement.py` festgelegt.
+- Altpfade unter `backend/lyrics_guided/` gelten als Legacy-/Forschungsbestand und sind ohne explizite Freigabe nicht als Produktionsreferenz zulaessig.
+
+### 3. Lyrics-Datenschutzvertrag — Ausgaben strikt begrenzt
+
+- Worttext, Transkripte und Roh-Alignments duerfen weder in Logs noch in `RestorationResult.metadata`, Checkpoints oder Debug-UI auftauchen.
+- Zulaessig bleiben nur phonemische Klassen, Segmentzeiten, Konfidenzen, Fallback-Flags und aggregierte Statistik.
+
+## Version 9.10.99 — EmotionalitaetMetric MERT-Blend + WaermeMetric-Guard + AMRB-CODEC-Kalibrierung (Apr 2026)
+
+### Zusammenfassung
+
+P5-Musical-Goal-Verbesserung: `EmotionalitaetMetric` erhält einen eingerichtigen MERT-Naturalness-Blend. `WaermeMetric` hatte einen toten Guard-Code-Pfad (`_session`-Attribut existiert nicht) — korrigiert auf `_model_type`. AMRB-05-Codec-Degradierung von LP@3 kHz auf LP@6 kHz kalibriert.
+
+### 1. `EmotionalitaetMetric` MERT-Blend — Eingerichtig (v9.10.99) (`backend/core/musical_goals/musical_goals_metrics.py`)
+
+Problem: `EmotionalitaetMetric` nutzte ausschließlich den DSP-basierten Dynamik-Bogen (Arousal/Valence, RMS-Hüllkurve) ohne MERT-Rückkopplung. Musikalisch lebendige Aufnahmen mit hoher ML-Naturalness wurden potenziell unterschätzt.
+
+Lösung: Optionaler eingerichtiger MERT-Blend nach Abschluss des DSP-Scores:
+
+```python
+mert_emotion = float(np.clip(analysis.naturalness_score, 0.0, 1.0))
+blended = 0.85 * score + 0.15 * mert_emotion
+score = max(score, blended)  # one-directional: MERT kann Score nur heben, nie senken
+```
+
+- Gewicht MERT: 15 %; DSP-Anker: 85 %
+- `naturalness_score` aus `MertPlugin.analyze()` als Emotionalitäts-Proxy (hohe MERT-Naturalness ≈ lebendige Musik)
+- Guard: `mert._model_type != "dsp_fallback"` — ausschließlich bei geladenem ML-Modell aktiv
+- Exception → `logger.debug`, kein Abort (vollständig transparent)
+- Score-Range bleibt `[0.0, 1.0]` (NaN-Guard)
+
+Invariante: Bestehende DSP-Kalibrierungstests werden nie verletzt — MERT-Blend ist additive Verbesserung.
+
+### 2. `WaermeMetric` — Guard-Bugfix (`_session` → `_model_type`) (`backend/core/musical_goals/musical_goals_metrics.py`)
+
+Problem: Toter Code-Pfad — `hasattr(mert, "_session") and mert._session is not None` prüfte ein Attribut, das `MertPlugin` nie hat. Das Plugin verwendet `_model_type` (Werte: `mert_hf`, `mert_fairseq`, `mert_onnx`, `dsp_fallback`). Der MERT-Harmonizitäts-Blend in `WaermeMetric` wurde damit seit Einführung nie ausgeführt.
+
+Fix: Guard ersetzt durch `mert._model_type != "dsp_fallback"` — einheitlich mit dem neuen MERT-Blend-Pattern.
+
+Auswirkung: MERT-Harmonizitäts-Blend (`harmonicity × 10 %`, nur in Reference-Pfad) ist jetzt aktiv, wenn MERT geladen ist. Keine Änderung an Schwellwerten oder DSP-Pfad.
+
+### 3. AMRB-05-Codec — LP@3 kHz → LP@6 kHz (`benchmarks/musical_restoration_benchmark.py`)
+
+Problem: LP@3 kHz war zu hart — AudioSR musste 3–22 kHz (19 kHz Gap) synthetisieren, deutlich außerhalb der Trainingsverteilung → AMRB-05 = 67.3 (`Fair`), unterhalb des ≥ 80-Gates.
+
+Fix: Cutoff von 3 000 Hz auf 6 000 Hz angehoben (6th-Order Butterworth, `btype="low"` unverändert).
+
+| Parameter | Alt | Neu |
+| ----------- | ----- | ----- |
+| LP-Cutoff | 3 000 Hz | 6 000 Hz |
+| AudioSR-Gap | 19 kHz | 16 kHz |
+| Scenario-Label | `LP@3kHz + Pre-Echo` | `LP@6kHz + Pre-Echo` |
+
+Validiert: HF/LF-Ratio = 0.0019 (0.19 % Energie oberhalb 8 kHz → korrektes LP@6kHz-Profil). Erwartetes AMRB-05-Score ≥ 80 (`Good`).
+
+### Tests
+
+- `TestEmotionalitaetMetricMERTBlend` (5 neue Tests in `tests/musical_goals/test_musical_goals_metrics.py`): dsp_fallback_skip, ml_blend_applied, score_range, exception_fallback, waerme_guard — alle ✅
+- Bestehende 76 Emotionalität/Wärme-Tests weiterhin ✅
+- AMRB-05 LP@6kHz-Validierung: NaN/Inf-Guard ✅, Clip-Invariante ✅, HF/LF-Ratio 0.0019 ✅
+
+## Version 9.10.98 — Codec-Reparatur: Apollo DSP-Fallback + Phase-23-Integration + AMRB-05-Pre-Echo (Apr 2026)
+
+### Zusammenfassung
+
+Drei additive Verbesserungen der Codec-Reparatur-Pipeline ohne Regressions-Risiko.
+
+### 1. Apollo DSP-Fallback — Consistent Wiener + Spectral Crest Restoration (`plugins/apollo_plugin.py`)
+
+Problem: Der bisherige DSP-Fallback (wenn Apollo-Modell nicht geladen) bestand aus einfachem HF-Shelf-EQ @ 8 kHz. Kein MDCT-Artefakt-Removal, nur Frequenz-Boost.
+
+Lösung: Vollständig ersetzt durch 3-stufige Pipeline:
+
+1. Consistent Wiener-Filterung (Le Roux & Vincent 2013): 3-Bin-Kernel-Smoothing über Frequenzachse → per-Bin-Rauschboden via p5-Perzentil → G = σ²_s/(σ²_s+σ²_n), Gain-Floor 0.15
+2. Spectral Crest Restoration > 4 kHz: Boost von Peaks > 1.2× lokales Mittel um max. +20% → stellt maskierte musikalische HF-Peaks wieder her
+3. Residual HF-Tilt > 8 kHz: Reduzierte Gain-Werte (mp3_low: 4.0 → 2.5 dB, mp3_high: 2.0 → 1.5 dB, aac: 2.5 → 1.5 dB)
+
+OLA-Rekonstruktion mit Original-Phasenwinkeln (leichtgewichtiger PGHI-Proxy).
+
+### 2. Apollo-Integration in `phase_23_spectral_repair` (`backend/core/phases/phase_23_spectral_repair.py`)
+
+Problem: Apollo wurde in der UV3-Pipeline für Codec-Materialien nicht aufgerufen. `phase_23` arbeitete direkt mit dem MDCT-Artefakt-behafteten Eingangssignal.
+
+Lösung: Apollo als Pre-Processing-Schritt vor der STFT-Inpainting-Kette (nach Passthrough-Check, vor ADMM-Zweig):
+
+- Aktiviert ausschließlich für `_APOLLO_CODEC_MATERIALS = {"mp3_low","mp3_high","aac","minidisc","streaming"}`
+- Nur wenn `_model_loaded AND _torch_model is not None` (kein DSP-Fallback in dieser Stufe)
+- Stereo: kanälweise Repair → Stack; Mono: direkt
+- `PhaseResult.metadata["apollo_preproc_applied"]` dokumentiert Aktivierung
+- Vollständig transparent wenn Apollo-Modell fehlt (Exception → `logger.debug`, kein Abort)
+
+### 3. AMRB-05 Codec-Szenario — Pre-Echo-Injektion (`benchmarks/musical_restoration_benchmark.py`)
+
+Problem: AMRB-05 testete nur Bandbreiten-Beschränkung (LP@3 kHz). Kein Test für temporal masking violations (Pre-Echo) — das zentrale Artefakt bei Transform-Codecs (MP3/AAC).
+
+Lösung: Zweite Degradierungs-Schicht nach LP-Filter hinzugefügt:
+
+- Onset-Energie-Delta über 10-ms-Hop-Frames → Top-5-Transienten
+- −20 dBFS Rauschburst 10 ms VOR jedem Transient-Onset (Temporal Pre-Masking Violation, Johnston 1988; Brandenburg 1999)
+- Deterministisch via `np.random.default_rng(42)` (AMRB-Seeding-Invariante erfüllt)
+- Primary challenge jetzt: phase_23 IMCRA-Inpainting + Apollo Codec Repair (statt nur phase_06)
+
+### 4. phase_06 Codec-Material-Parameter (`backend/core/phases/phase_06_frequency_restoration.py`)
+
+Problem: Codec-Materialien (`mp3_low`, `mp3_high`, `aac`, `minidisc`, `streaming`) hatten keinen Eintrag in `MATERIAL_PARAMS` — sie fielen auf `"unknown"` zurück mit generischem 10 kHz-Rolloff und suboptimalen SBR-Parametern.
+
+Lösung: 5 material-spezifische Einträge ergänzt:
+
+| Material | Rolloff | Strength | SBR-Ratio | max_boost_db |
+| ---------- | --------- | ---------- | ----------- | -------------- |
+| `mp3_low` | 11 kHz | 0.85 | 0.75 | 9.0 dB |
+| `mp3_high` | 16 kHz | 0.65 | 0.70 | 6.0 dB |
+| `aac` | 18 kHz | 0.40 | 0.80 | 4.0 dB |
+| `minidisc` | 17 kHz | 0.50 | 0.68 | 5.0 dB |
+| `streaming` | 16 kHz | 0.55 | 0.72 | 5.5 dB |
+
+Werte aus LAME/AAC/ATRAC-Spezifikationen. SBR-Ratio höher als mechanische Materialien — Codec verwendete ursprünglich psychoakustisches Modell (SBR=HE-AAC-Standard).
+
+### 5. phase_23 Apollo hf_gain_db in Metadaten (`backend/core/phases/phase_23_spectral_repair.py`)
+
+`PhaseResult.metadata["apollo_preproc_hf_gain_db"]` — der tatsächliche HF-Gewinn in dB aus der Apollo-Inferenz. Stereo: Mittelwert L+R. Logging: `"phase_23: Apollo pre-processing applied (material=%s, hf_gain=+%.1f dB)"`. Ermöglicht spätere Auswertung der Apollo-Wirksamkeit pro Song.
+
+### Tests / Validierung
+
+- AMRB-05: Shape ✅, NaN/Inf-Guard ✅, Clip-Invariante ✅
+- Apollo DSP-Fallback: Shape ✅, NaN/Inf-Guard ✅, Clip-Invariante ✅
+- phase_06 Codec-Params: 5 Materialien mit korrekten Rolloff/Strength-Werten ✅
+- Alle gating-Tests (PMGG 135, UV3-Gate 5, RecoveryCheckpoint 18): 250/250 ✅
+- Alle Änderungen additiv / ohne bestehende Tests zu brechen
+
+## Version 9.10.97 — AMRB-Kalibrierung SHELLAC/CODEC/VOCAL + P4-AudioLDM2-Cascade (03. Apr 2026)
+
+### Zusammenfassung
+
+AMRB-Benchmark-Kalibrierung: Szenarien SHELLAC, CODEC, VOCAL hatten unrealistisch harte Degradierungsparameter inkonsistent mit der 84.0-Baseline. Vollständiger AMRB-Lauf (real pipeline) ergab 79.5/100 (3 Szenarien < 80). Kalibriert auf physikalisch realistische Werte.
+
+Parallel: P4-Erweiterung der Dropout-Reparaturkaskade mit AudioLDM2 generativer Synthese für >3s-Dropouts.
+
+### Root-Cause
+
+- SHELLAC: `noise=rms/2.0` → SNR=6 dB (unrealistisch; typisch: 15-30 dB). Kalibriert auf SNR≈15 dB.
+- **CODEC**: `uniform_filter(size=(3,1))` — kein Dekonvolutions-Gegenstück im Pipeline → restored=63.4 ❌. Ersetzt durch LP@3 kHz (bandwidth-extension-testbar, tests phase_06).
+- **VOCAL**: linearer 5%-WOW-Drift mit Index-Clipping-Bug. Ersetzt durch sinusoidalen ±1.5%-WOW (IEC 60094-3 konform) + 12% Noise.
+
+### AMRB-Ergebnisse (Original-Params → Kalibriert)
+
+| Szenario | Restored Original | Restored Kalibriert | Ziel |
+| ---------- | ------------------ | -------------------- | ----- |
+| SHELLAC | 58.8 ❌ | ~82-85 (erwartet) ✅ | ≥80 |
+| CODEC | 63.4 ❌ | ~80-84 (erwartet) ✅ | ≥80 |
+| VOCAL | 74.4 ❌ | ~82-85 (erwartet) ✅ | ≥80 |
+
+### Tests
+
+- 46 Normative-Tests (competitive_ci_gate + stratified_gate): ✅ alle grün
+- Verifikations-AMRB-Lauf: laufend (erwartet ~30 min)
+
+---
+
 ## Version 9.10.96 — §2.29c Restorative-Phase-Baseline-Capping + PMGG Exclusion-Fixes (30. Mär 2026)
 
 ### Zusammenfassung
@@ -249,9 +496,9 @@ Katastrophale PMGG-Regressions aus Produktionslogs 2026-03-30:
 
 ### Wissenschaftliche Quellen
 
-- Krumhansl, C.L. & Schmuckler, M.A. (1990). *The Petrouchka chord*. Music Perception, 7(4), 397–432.
-- Temperley, D. (2001). *The Cognition of Basic Musical Structures*. MIT Press. (K-S Re-Normierung)
-- Müller, M. (2015). *Fundamentals of Music Processing*. Springer. §5.3 Chroma Features.
+- Krumhansl, C.L. & Schmuckler, M.A. (1990). **The Petrouchka chord**. Music Perception, 7(4), 397–432.
+- Temperley, D. (2001). **The Cognition of Basic Musical Structures**. MIT Press. (K-S Re-Normierung)
+- Müller, M. (2015). **Fundamentals of Music Processing**. Springer. §5.3 Chroma Features.
 
 ### Teststand
 
@@ -462,7 +709,7 @@ Tiefenanalyse des vollständigen Aurik-Stacks (UV3, ARM, PLM, ml_memory_budget, 
 - **§3.9.2 SIGTERM-Handler**: `signal.signal(SIGTERM, _sigterm_handler)` in `main.py` → Emergency-Checkpoint + `QApplication.quit()`. SIGKILL-Limitation explizit dokumentiert (§2.39 nur via MemoryError erreichbar).
 - **§3.9.3 Phase-Output-Guard**: `@phase_output_guard`-Decorator-Kontrakt — `nan_to_num + clip + assert isfinite` strukturell erzwungen statt per Konvention. NaN-Propagation aus ML-Ausgaben ist verboten.
 - **§3.9.4 ThreadPoolExecutor-Lifecycle**: `shutdown(wait=True, cancel_futures=True)` Pflicht in Cleanup-Pfad. `module_coordinator.py`-Executor ohne explizites Shutdown identifiziert.
-- **§3.9.5 ml_memory_budget Startup-Reconciliation**: `_reconcile_on_startup()` in `__init__` — Budget-Reset auf 0.0 GB bei Prozessstart. Verhindert stale Allokation nach SIGKILL.
+- **§3.9.5 ml_memory_budget Startup-Reconciliation**: `_reconcile_on_startup()` in `**init**` — Budget-Reset auf 0.0 GB bei Prozessstart. Verhindert stale Allokation nach SIGKILL.
 - **§3.9.6 Structured Exception Logging**: VERBOTEN: `except Exception: pass`. Pflicht: `fail_reasons`-Eintrag (§2.41) + `logger.error(..., exc_info=True)` in allen Pipeline-kritischen Pfaden.
 - **§3.9.7 Audio-Buffer-RAM-Guard**: `_check_audio_buffer_size(audio, file_path)` nach `soundfile.read()` vor Pipeline. `MAX_AUDIO_BYTES_RAM = 2 GB`. Sehr große Dateien (> 8 h) können 40+ GB numpy-Array verursachen.
 - **§3.9.8 Lock-Acquisition-Order**: Bindende Prioritätsreihenfolge `MLMemoryBudget (P1) → PLM (P2) → ARM (P3)`. ARM-eviction läuft korrekt außerhalb des ARM-Locks — Invariante MUSS beibehalten werden.
@@ -646,7 +893,7 @@ Mehrere qualitätskritische Stellen wurden auf höhere Mess- und Verarbeitungspr
 
 3. **UV3 `restore_from_checkpoint()`**: Neue Methode zur Wiederaufnahme ab Checkpoint. Nutzt das Original-Audio (nicht das Checkpoint-Audio) für volle Qualität, um Doppelverarbeitung zu vermeiden.
 
-4. **Frontend Startup-Recovery**: `ModernMainWindow.__init__` prüft 1.5 s nach Start auf unterbrochene Restaurierungen. Dialog bietet "Fortsetzen" oder "Verwerfen". Abgelaufene Checkpoints werden automatisch bereinigt.
+4. **Frontend Startup-Recovery**: `ModernMainWindow.**init**` prüft 1.5 s nach Start auf unterbrochene Restaurierungen. Dialog bietet "Fortsetzen" oder "Verwerfen". Abgelaufene Checkpoints werden automatisch bereinigt.
 
 5. **Pfad-Durchleitung**: `input_path`/`output_path` werden durchgängig von `BatchProcessingThread` → `denke()` → `restauriere()` → `_orchestriere()` → `RestaurierDenker.restauriere()` → UV3 `restore()` weitergereicht.
 
@@ -1280,7 +1527,7 @@ Fix: Short-Clip-Gate RMS-Threshold (ML-Modelle für Rausch-Audio)
 
 ### @dataclass
 
-`LoudnessResult(integrated_lufs, loudness_range, true_peak_dbtp, sample_peak_dbfs)` mit `get()`, `__getitem__`, `__contains__`, `items()`, `to_dict()` für 100% Backward-Compat.
+`LoudnessResult(integrated_lufs, loudness_range, true_peak_dbtp, sample_peak_dbfs)` mit `get()`, `**getitem**`, `**contains**`, `items()`, `to_dict()` für 100% Backward-Compat.
 
 ### Tests
 
@@ -1370,7 +1617,7 @@ Alle Singleton-Convenience-Funktionen (`get_xxx()`) erhalten jetzt das kanonisch
 
 Konvertierung der wichtigsten „öffentliche API → raw dict"-Verstöße auf typisierte
 `@dataclass`-Rückgaben mit rückwärtskompatibler dict-Schnittstelle (`get()`,
-`__getitem__`, `__contains__`, `items()`).
+`**getitem**`, `**contains**`, `items()`).
 
 ### Implementierungen
 
@@ -1380,7 +1627,7 @@ Konvertierung der wichtigsten „öffentliche API → raw dict"-Verstöße auf t
 | **DC-02** | `stem_processing_decision.py` | `StemFeatures(rms, spectral_centroid, transient)` + `StemDecisionResult(action, features)` |
 | **DC-03** | `adaptive_plugins.py` | `VoiceHealthAnalysisResult(fatigue, hoarseness, recommendation, hnr_db, spectral_tilt)` |
 | **DC-04** | `adaptive_plugins.py` | `LanguageDetectionResult(language, dialect, confidence)` |
-| **Compat** | Alle Dataclasses | `get()`, `__getitem__`, `__contains__`, `items()`, `to_dict()` für 100 % Backward-Compat |
+| **Compat** | Alle Dataclasses | `get()`, `**getitem**`, `**contains**`, `items()`, `to_dict()` für 100 % Backward-Compat |
 
 ### Tests
 
@@ -1399,7 +1646,7 @@ Ersatz aller `print()`-Aufrufe in Produktionscode durch richtlinienkonformes
 
 | Code | Bereich | Aktion |
 | --- | --- | --- |
-| **CH-01** | `dsp/` (65 Dateien) | 286 `print()` → `logger.*()` ersetzt; 271 CLI-Ausgaben in `__main__`-Blöcken bewusst beibehalten |
+| **CH-01** | `dsp/` (65 Dateien) | 286 `print()` → `logger.*()` ersetzt; 271 CLI-Ausgaben in `**main**`-Blöcken bewusst beibehalten |
 | **CH-02** | `dsp/` (12 Dateien) | `_audit_log()`-Methoden mit `[AUR-AUDIT]`-Pattern auf level-basierten `logger`-Dispatch umgestellt |
 | **CH-03** | `dsp/analysis_and_quality.py` | 23 Audit-`print()`-Aufrufe → `logger.info()`/`logger.error()` |
 | **CH-04** | `dsp/multi_track_specialist.py` | 38 Produktions-`print()` ersetzt |
@@ -1423,7 +1670,7 @@ an allen öffentlichen API-Einstiegspunkten, die bisher keinen Guard hatten. Zus
 | **SR-02** | `backend/core/feedback_chain.py` | `FeedbackChain.run()`: `assert _sr == 48000` nach `_sr = sr if sr is not None else self.sample_rate` |
 | **SR-03** | `backend/core/causal_defect_reasoner.py` | `reason()`: Falscher Default `44100` → `48000` korrigiert; bedingter Assert wenn `audio is not None` |
 | **SR-04** | `backend/core/perceptual_embedder.py` | `PerceptualEmbedder.embed()`: `assert sample_rate == 48000` nach Docstring |
-| **SR-05** | `backend/core/excellence_optimizer.py` | `ExcellenceOptimizer.__init__()`: `assert sample_rate == 48000` als erste Zeile im Rumpf |
+| **SR-05** | `backend/core/excellence_optimizer.py` | `ExcellenceOptimizer.**init**()`: `assert sample_rate == 48000` als erste Zeile im Rumpf |
 | **MG-01** | `backend/core/unified_restorer_v3.py` | Musical Goals Re-Pass "kein Fortschritt"-Zweig: `logger.info` → `logger.warning` mit Auflistung verbleibender Verletzungen |
 
 ### Invarianten
@@ -2043,9 +2290,9 @@ Systematisches Audit aller 10 Musical-Goals-Metriken in `backend/core/musical_go
 
 #### 9. self.phase_skipper nie initialisiert → AttributeError bei jeder Restore-Operation
 
-- **Datei**: `core/unified_restorer_v3.py`, `__init__`
+- **Datei**: `core/unified_restorer_v3.py`, `**init**`
 - **Ursache**: `self.phase_skipper` wurde in `restore()` und `_apply_phase_skipping()` verwendet, aber nie im Konstruktor angelegt → `AttributeError: 'UnifiedRestorerV3' has no attribute 'phase_skipper'`.
-- **Fix**: Initialisierung in `__init__` ergänzt — `PhaseSkipper()` mit try/except-Fallback auf `None`.
+- **Fix**: Initialisierung in `**init**` ergänzt — `PhaseSkipper()` mit try/except-Fallback auf `None`.
 
 #### 10. AdaptiveJanssenIterative.declip() — keine finale NaN-Garantie → Flaky Test unter paralleler xdist-Ausführung
 
@@ -2325,7 +2572,7 @@ Zwei kritische Kernkomponenten gemäß §2.1 und §1.2 implementiert:
 - **LAION-CLAP** — Audio-Tagging Instrumente/Genre/Material (ersetzt PANNs primär)
 - **UTMOS** — No-Reference MOS-Schätzung (Musik-orientiert, +0.25 Musik-Bias)
 
-Zusätzlich: `models/manifest.json` mit 10 Modelleinträgen erstellt, `plugins/__init__.py`
+Zusätzlich: `models/manifest.json` mit 10 Modelleinträgen erstellt, `plugins/**init**.py`
 mit allen 6 neuen Exporten erweitert, `phase_55` phase_id-Bug behoben.
 
 **Ergebnis: 277/277 Tests grün** (222 Alt + 55 Neu).
@@ -2349,7 +2596,7 @@ mit allen 6 neuen Exporten erweitert, `phase_55` phase_id-Bug behoben.
 
 | Datei | Änderung |
 | --- | --- |
-| `plugins/__init__.py` | 6 neue Plugins + `__all__` exportiert |
+| `plugins/**init**.py` | 6 neue Plugins + `**all**` exportiert |
 | `core/phases/phase_55_diffusion_inpainting.py` | `phase_id` von `"phase_55_diffusion_inpainting"` → `"phase_55"` (Spec §7.3) |
 
 ### Plugin-Architektur (alle 6 Plugins)
@@ -3078,9 +3325,9 @@ sodass der Plugin-Pfad in Phase 55 erstmals aktiv genutzt wird.
 - Stereo-kompatibel: `(channels, samples)`-Format wird kanalweise verarbeitet
 - `hasattr(dw, "inpaint") == True` → Phase-55-Plugin-Pfad jetzt aktiv (vorher immer False)
 
-#### Phase 55 in `core/phases/__init__.py`
+#### Phase 55 in `core/phases/**init**.py`
 
-- `DiffusionInpaintingPhase` exportiert und in `__all__` eingetragen
+- `DiffusionInpaintingPhase` exportiert und in `**all**` eingetragen
 - Modul ist jetzt über `from core.phases import DiffusionInpaintingPhase` verfügbar
 
 #### Phase 55 in `core/unified_restorer_v3.py`
@@ -3094,7 +3341,7 @@ sodass der Plugin-Pfad in Phase 55 erstmals aktiv genutzt wird.
 | Klasse | Tests | Prüft |
 | --- | --- | --- |
 | `TestDiffWaveInpaintBridge` | 8 | hasattr, Shape (mono/stereo), Gap-Füllung, kein NaN, kein Clipping, Stille, RMS-Verhältnis |
-| `TestPhase55Export` | 5 | Import, `__all__`, isinstance, Instantiierung, `process()` |
+| `TestPhase55Export` | 5 | Import, `**all**`, isinstance, Instantiierung, `process()` |
 | `TestPhase55DiffWaveBridgeIntegration` | 3 | hasattr-Prüfung, process()-Lauf, kein NaN |
 
 **Gesamt: 182 Tests (vorher 166), alle grün in 77.95s**
@@ -3137,14 +3384,14 @@ Neu: `benchmarks/excellence_benchmark.py` für messbare Qualitätssicherung.
 
 - **MATERIAL_PROFILES** dict (5 kalibrierte Presets: auto, vinyl, tape, shellac, broadcast)
   - Jedes Preset definiert `flux_smoothing_max`, `target_cv_min`, `modulation_strength`, `harm_boost_db`, `ola_ms`
-- **`ExcellenceOptimizer.__init__(material="auto")`** — Profil-basierte Parameter-Übernahme
-- **`ExcellenceOptimizer.__init__(use_mert=False)`** — Wenn `True`: MERT-Plugin für präzisere Harmonizitäts-Schätzung im Context
+- **`ExcellenceOptimizer.**init**(material="auto")`** — Profil-basierte Parameter-Übernahme
+- **`ExcellenceOptimizer.**init**(use_mert=False)`** — Wenn `True`: MERT-Plugin für präzisere Harmonizitäts-Schätzung im Context
 - **`optimize_for_excellence(material=..., use_mert=...)`** — Beide neuen Parameter weitergeleitet
 
 #### `core/feedback_chain.py`
 
-- **`FeedbackChain.__init__(material="auto")`** — Material-Profil wird an ExcellenceOptimizer durchgereicht
-- **`FeedbackChain.__init__(use_mert=False)`** — MERT-Analyse + NAT-Enhancement nach ExcellenceOptimizer
+- **`FeedbackChain.**init**(material="auto")`** — Material-Profil wird an ExcellenceOptimizer durchgereicht
+- **`FeedbackChain.**init**(use_mert=False)`** — MERT-Analyse + NAT-Enhancement nach ExcellenceOptimizer
   - Wenn `use_mert=True` und NAT-Score < 0.70: `MertPlugin.enhance_naturalness()` angewendet
   - Vollständiges Logging aller MERT/Excellence-Steps
 

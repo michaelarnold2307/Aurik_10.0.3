@@ -1,11 +1,10 @@
-import logging
-
 """
 balance.py - SOTA-konforme Balance-Korrektur für Aurik 6.0
 
 SOTA-konforme Balance-Korrektur mit DSPContract und Auditierbarkeit.
 """
 
+import logging
 from dataclasses import asdict, dataclass
 from typing import Any
 
@@ -61,9 +60,17 @@ class Balance:
         logger.debug("[DSPContract] %s", asdict(self.contract))
 
     def process(self, audio: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
-        self.log_contract()  # Audit: Contract-Infos loggen (optional)
+        self.log_contract()
         if audio.ndim != 2 or audio.shape[1] != 2:
             return audio
-        left = audio[:, 0] + self.balance
-        right = audio[:, 1] - self.balance
-        return np.stack([left, right], axis=1)
+        audio = np.nan_to_num(audio, nan=0.0, posinf=0.0, neginf=0.0)
+        # Balance as L/R gain (not additive offset which shifts DC)
+        bal = float(np.clip(self.balance, -1.0, 1.0))
+        gain_l = np.clip(1.0 - bal, 0.0, 2.0)
+        gain_r = np.clip(1.0 + bal, 0.0, 2.0)
+        left = audio[:, 0] * gain_l
+        right = audio[:, 1] * gain_r
+        out = np.stack([left, right], axis=1)
+        out = np.nan_to_num(out, nan=0.0, posinf=0.0, neginf=0.0)
+        out = np.clip(out, -1.0, 1.0)
+        return out

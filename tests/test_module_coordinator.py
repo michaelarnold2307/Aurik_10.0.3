@@ -483,7 +483,7 @@ class TestEdgeCases:
         """Test large dependency graph (10+ modules)."""
         # Create a 10-module chain
         for i in range(10):
-            deps = [f"Module{i-1}"] if i > 0 else []
+            deps = [f"Module{i - 1}"] if i > 0 else []
             coordinator.register_module(f"Module{i}", MockTapeSpecialist, ModulePriority.NORMAL, deps)
 
         plan = coordinator.build_execution_plan()

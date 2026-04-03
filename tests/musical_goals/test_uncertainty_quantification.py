@@ -62,7 +62,10 @@ def noisy_calculator():
 def quantifier():
     """Create uncertainty quantifier"""
     return UncertaintyQuantifier(
-        n_bootstrap=50, confidence_level=0.95, min_confidence=0.70, random_seed=42  # Fewer samples for faster tests
+        n_bootstrap=50,
+        confidence_level=0.95,
+        min_confidence=0.70,
+        random_seed=42,  # Fewer samples for faster tests
     )
 
 
@@ -428,7 +431,10 @@ class TestConvenienceFunctions:
     def test_quick_confidence_check(self, test_audio, stable_calculator):
         """Test quick confidence check"""
         mean, confidence, reliable = quick_confidence_check(
-            test_audio, stable_calculator, "test-goal", n_bootstrap=30  # Fast check
+            test_audio,
+            stable_calculator,
+            "test-goal",
+            n_bootstrap=30,  # Fast check
         )
 
         assert 0.0 <= mean <= 1.0

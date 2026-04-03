@@ -10,11 +10,11 @@ Scientific references:
     Delay Filter Design", IEEE Signal Processing Magazine 13(1), pp. 30–60.
     Smith (2011) "Spectral Audio Signal Processing" §3.4.
 """
+
 from __future__ import annotations
 
 import numpy as np
 import pytest
-from scipy import signal as scipy_signal
 
 SR = 48000
 
@@ -23,9 +23,11 @@ SR = 48000
 # Fixture
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture(scope="module")
 def phase():
     from backend.core.phases.phase_14_phase_correction import PhaseCorrection
+
     return PhaseCorrection()
 
 
@@ -33,8 +35,8 @@ def phase():
 # Helper
 # ---------------------------------------------------------------------------
 
-def _stereo_with_delay(delay_samples: float, freq: float = 1000.0,
-                       dur: float = 0.5, sr: int = SR) -> np.ndarray:
+
+def _stereo_with_delay(delay_samples: float, freq: float = 1000.0, dur: float = 0.5, sr: int = SR) -> np.ndarray:
     """Stereo signal where right channel is delayed by ``delay_samples`` (float)."""
     n = int(dur * sr)
     t = np.arange(n) / sr
@@ -55,6 +57,7 @@ def _stereo_with_delay(delay_samples: float, freq: float = 1000.0,
 # ---------------------------------------------------------------------------
 # 1. _lagrange_ffd tests
 # ---------------------------------------------------------------------------
+
 
 class TestLagrangeFfd:
     def test_shape(self, phase):
@@ -106,9 +109,7 @@ class TestLagrangeFfd:
         # Parabolic peak
         peak_idx = int(np.argmax(np.abs(xcf[center - 5 : center + 6])))
         # Peak should be within ±1 sample of the expected fractional shift
-        assert abs(peak_idx - 5) <= 1, (
-            f"Lagrange FIR frac={frac}: peak offset {peak_idx - 5}, expected ~0"
-        )
+        assert abs(peak_idx - 5) <= 1, f"Lagrange FIR frac={frac}: peak offset {peak_idx - 5}, expected ~0"
 
     def test_half_sample_delay(self, phase):
         """frac=0.5 → symmetric taps (h[k] = h[N-k] since this is max-flat midpoint)."""
@@ -125,6 +126,7 @@ class TestLagrangeFfd:
 # ---------------------------------------------------------------------------
 # 2. _analyze_phase sub-sample tests
 # ---------------------------------------------------------------------------
+
 
 class TestAnalyzePhase:
     def test_returns_float_delay(self, phase):
@@ -147,9 +149,7 @@ class TestAnalyzePhase:
         R = np.roll(L, d_true)
         R[:d_true] = 0.0
         corr, delay = phase._analyze_phase(L, R, max_delay=30)
-        assert abs(delay - d_true) < 0.5, (
-            f"Detected delay {delay:.3f} ≠ true {d_true}"
-        )
+        assert abs(delay - d_true) < 0.5, f"Detected delay {delay:.3f} ≠ true {d_true}"
 
     def test_fractional_delay_more_accurate_than_integer(self, phase):
         """Sub-sample estimation is closer to truth than rounding to nearest int."""
@@ -167,11 +167,9 @@ class TestAnalyzePhase:
 
         _, delay_float = phase._analyze_phase(L, R, max_delay=20)
         err_float = abs(delay_float - d_true)
-        err_int   = abs(round(delay_float) - d_true)
+        err_int = abs(round(delay_float) - d_true)
 
-        assert err_float <= err_int + 0.01, (
-            f"Float err {err_float:.3f} should be ≤ int err {err_int:.3f}"
-        )
+        assert err_float <= err_int + 0.01, f"Float err {err_float:.3f} should be ≤ int err {err_int:.3f}"
 
     def test_zero_delay_signal(self, phase):
         """Identical L and R → delay ≈ 0.0."""
@@ -194,6 +192,7 @@ class TestAnalyzePhase:
 # 3. _correct_band_phase tests
 # ---------------------------------------------------------------------------
 
+
 class TestCorrectBandPhase:
     def test_output_shape_preserved(self, phase):
         n = SR // 2
@@ -215,7 +214,7 @@ class TestCorrectBandPhase:
         # After correction L and R should be more correlated than before
         with np.errstate(invalid="ignore"):
             corr_before = float(np.corrcoef(L[d:], R[d:])[0, 1])
-            corr_after  = float(np.corrcoef(out_L[d:], out_R[d:])[0, 1])
+            corr_after = float(np.corrcoef(out_L[d:], out_R[d:])[0, 1])
         assert corr_after >= corr_before - 0.05
 
     def test_zero_delay_passthrough(self, phase):
@@ -255,7 +254,7 @@ class TestCorrectBandPhase:
         trim = 20
         with np.errstate(invalid="ignore"):
             corr_before = float(np.corrcoef(L[trim:], R[trim:])[0, 1])
-            corr_after  = float(np.corrcoef(out_L[trim:], out_R[trim:])[0, 1])
+            corr_after = float(np.corrcoef(out_L[trim:], out_R[trim:])[0, 1])
         assert corr_after >= corr_before, (
             f"Fractional FIR should not worsen correlation: {corr_before:.4f} → {corr_after:.4f}"
         )
@@ -265,10 +264,12 @@ class TestCorrectBandPhase:
 # 4. Full process() integration tests
 # ---------------------------------------------------------------------------
 
+
 class TestProcessIntegration:
     def test_mono_passthrough(self, phase):
         """Mono input is returned unchanged."""
         from backend.core.defect_scanner import MaterialType
+
         mono = np.random.default_rng(42).standard_normal(SR // 2).astype(np.float32)
         r = phase.process(mono, SR, material=MaterialType.TAPE)
         assert r.success
@@ -276,18 +277,21 @@ class TestProcessIntegration:
 
     def test_stereo_no_nan(self, phase):
         from backend.core.defect_scanner import MaterialType
+
         audio = _stereo_with_delay(8.0, freq=500.0)
         r = phase.process(audio.astype(np.float32), SR, material=MaterialType.TAPE)
         assert np.all(np.isfinite(r.audio))
 
     def test_stereo_no_clipping(self, phase):
         from backend.core.defect_scanner import MaterialType
+
         audio = _stereo_with_delay(5.0, freq=1000.0)
         r = phase.process(audio.astype(np.float32), SR, material=MaterialType.TAPE)
         assert np.max(np.abs(r.audio)) <= 1.0 + 1e-6
 
     def test_shape_preserved(self, phase):
         from backend.core.defect_scanner import MaterialType
+
         audio = _stereo_with_delay(3.0).astype(np.float32)
         r = phase.process(audio, SR, material=MaterialType.VINYL)
         assert r.audio.shape == audio.shape
@@ -295,6 +299,7 @@ class TestProcessIntegration:
     def test_correlation_improves_for_tape(self, phase):
         """Known 12-sample delay → correlation should improve after correction."""
         from backend.core.defect_scanner import MaterialType
+
         audio = _stereo_with_delay(12.0, freq=440.0)
         r = phase.process(audio.astype(np.float32), SR, material=MaterialType.TAPE)
         assert r.metrics["correlation_after"] >= r.metrics["correlation_before"] - 0.05
@@ -302,6 +307,7 @@ class TestProcessIntegration:
     def test_algorithm_field_fractional(self, phase):
         """metadata.algorithm should reference fractional correction (v2.1)."""
         from backend.core.defect_scanner import MaterialType
+
         audio = _stereo_with_delay(5.0).astype(np.float32)
         r = phase.process(audio, SR, material=MaterialType.TAPE)
         assert "fractional" in r.metadata.get("algorithm", "")
@@ -314,6 +320,7 @@ class TestProcessIntegration:
     def test_delays_corrected_are_floats(self, phase):
         """delays_corrected_samples should contain float values (sub-sample precision)."""
         from backend.core.defect_scanner import MaterialType
+
         audio = _stereo_with_delay(7.0).astype(np.float32)
         r = phase.process(audio, SR, material=MaterialType.TAPE)
         for d in r.metrics.get("delays_corrected_samples", []):

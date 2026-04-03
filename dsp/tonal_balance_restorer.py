@@ -333,7 +333,7 @@ class AdaptiveTonalBalanceRestorer:
         audio_corrected = np.nan_to_num(audio_corrected, nan=0.0, posinf=0.0, neginf=0.0)
         audio_corrected = np.clip(audio_corrected, -1.0, 1.0)
 
-        logger.info(f"[AdaptiveTonalBalance] Applied {correction_amount*100:.1f}% brightness correction")
+        logger.info(f"[AdaptiveTonalBalance] Applied {correction_amount * 100:.1f}% brightness correction")
 
         return audio_corrected
 

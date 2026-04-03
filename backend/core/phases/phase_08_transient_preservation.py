@@ -538,9 +538,9 @@ if __name__ == "__main__":
     materials = ["shellac", "vinyl", "tape", "cd_digital"]
 
     for material in materials:
-        logger.debug(f"\n{'-'*80}")
+        logger.debug(f"\n{'-' * 80}")
         logger.debug(f"Testing with material: {material.upper()}")
-        logger.debug(f"{'-'*80}")
+        logger.debug(f"{'-' * 80}")
 
         phase = TransientPreservationPhase(sample_rate=sr)
         result = phase.process(audio.copy(), material_type=material)
@@ -561,9 +561,9 @@ if __name__ == "__main__":
             logger.debug("⏭️  Transient Preservation Skipped")
             logger.debug(f"   Reason: {result.modifications.get('reason', 'unknown')}")
 
-    logger.debug(f"\n{'='*80}")
+    logger.debug(f"\n{'=' * 80}")
     logger.debug("✅ Professional Transient Preservation v2.0 Test Complete!")
-    logger.debug(f"{'='*80}")
+    logger.debug(f"{'=' * 80}")
     logger.debug(f"Algorithm: {result.metadata.get('algorithm', 'N/A')}")
     logger.debug(f"Scientific Reference: {result.metadata.get('scientific_ref', 'N/A')}")
     logger.debug(f"Benchmark: {result.metadata.get('benchmark', 'N/A')}")

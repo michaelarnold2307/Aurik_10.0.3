@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 Phase 38: Presence Boost v2.0 - Professional
 Mid-range clarity and vocal/instrument presence enhancement.
@@ -242,7 +241,7 @@ class PresenceBoost(PhaseInterface):
         enhanced = audio.copy()
 
         # ── 1. Dynamic gate: compute RMS in short-time blocks ──
-        frame_len = int(0.020 * sample_rate)  # 20 ms blocks
+        int(0.020 * sample_rate)  # 20 ms blocks
         rms_global = float(np.sqrt(np.mean(audio**2) + 1e-12))
         rms_db = 20.0 * np.log10(rms_global + 1e-10)
 

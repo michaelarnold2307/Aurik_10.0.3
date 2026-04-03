@@ -208,28 +208,55 @@ class MediumDetector:
     _SECONDARY_ANALOG_MIN: float = 0.12  # Mindest-Posterior für 2. Analog-Stufe
 
     # Analog-Materialtypen — können als Primärquelle in Ketten vorkommen
-    _ANALOG_MATERIALS: frozenset[str] = frozenset({
-        "shellac", "wax_cylinder", "vinyl", "wire_recording", "lacquer_disc",
-        "tape", "reel_tape", "cassette",
-    })
+    _ANALOG_MATERIALS: frozenset[str] = frozenset(
+        {
+            "shellac",
+            "wax_cylinder",
+            "vinyl",
+            "wire_recording",
+            "lacquer_disc",
+            "tape",
+            "reel_tape",
+            "cassette",
+        }
+    )
 
     # Digitale Container-Formate — niemals Primärquelle
-    _CODEC_MATERIALS: frozenset[str] = frozenset({
-        "mp3_low", "mp3_high", "aac", "streaming", "minidisc",
-    })
+    _CODEC_MATERIALS: frozenset[str] = frozenset(
+        {
+            "mp3_low",
+            "mp3_high",
+            "aac",
+            "streaming",
+            "minidisc",
+        }
+    )
 
     # Digitale verlustfreie Formate
-    _DIGITAL_LOSSLESS: frozenset[str] = frozenset({
-        "cd_digital", "dat",
-    })
+    _DIGITAL_LOSSLESS: frozenset[str] = frozenset(
+        {
+            "cd_digital",
+            "dat",
+        }
+    )
 
     # Zeitliche Ordnung für Kettensortierung (niedrig = früher)
     _MEDIUM_ORDER: dict[str, int] = {
-        "wax_cylinder": 0, "lacquer_disc": 0, "shellac": 0, "vinyl": 0,
+        "wax_cylinder": 0,
+        "lacquer_disc": 0,
+        "shellac": 0,
+        "vinyl": 0,
         "wire_recording": 0,
-        "reel_tape": 1, "tape": 1, "cassette": 1,
-        "dat": 2, "cd_digital": 2,
-        "mp3_low": 3, "mp3_high": 3, "aac": 3, "streaming": 3, "minidisc": 3,
+        "reel_tape": 1,
+        "tape": 1,
+        "cassette": 1,
+        "dat": 2,
+        "cd_digital": 2,
+        "mp3_low": 3,
+        "mp3_high": 3,
+        "aac": 3,
+        "streaming": 3,
+        "minidisc": 3,
     }
 
     # ── Bayesian Material-Modelle (Gaussian μ, σ) ────────────────────
@@ -239,124 +266,279 @@ class MediumDetector:
     #           rotation_strength, infrasonic_rms, codec_type_code
     _MATERIAL_MODELS: dict[str, dict[str, tuple[float, float]]] = {
         "shellac": {
-            "bandwidth_hz": (5500.0, 1500.0), "snr_db": (10.0, 5.0),
-            "noise_color": (2.2, 0.5), "crackle_density": (0.02, 0.02),
-            "wow_depth": (0.3, 0.3), "block_artifact": (0.0, 0.05),
-            "pre_echo_ms": (0.0, 2.0), "rotation_strength": (0.40, 0.20),
-            "infrasonic_rms": (0.06, 0.04), "codec_type_code": (0.0, 0.3),
+            "bandwidth_hz": (5500.0, 1500.0),
+            "snr_db": (10.0, 5.0),
+            "noise_color": (2.2, 0.5),
+            "crackle_density": (0.02, 0.02),
+            "wow_depth": (0.3, 0.3),
+            "block_artifact": (0.0, 0.05),
+            "pre_echo_ms": (0.0, 2.0),
+            "rotation_strength": (0.40, 0.20),
+            "infrasonic_rms": (0.06, 0.04),
+            "codec_type_code": (0.0, 0.3),
         },
         "wax_cylinder": {
-            "bandwidth_hz": (3500.0, 1200.0), "snr_db": (6.0, 4.0),
-            "noise_color": (2.8, 0.6), "crackle_density": (0.04, 0.03),
-            "wow_depth": (1.0, 0.8), "block_artifact": (0.0, 0.05),
-            "pre_echo_ms": (0.0, 2.0), "rotation_strength": (0.0, 0.10),
-            "infrasonic_rms": (0.02, 0.03), "codec_type_code": (0.0, 0.3),
+            "bandwidth_hz": (3500.0, 1200.0),
+            "snr_db": (6.0, 4.0),
+            "noise_color": (2.8, 0.6),
+            "crackle_density": (0.04, 0.03),
+            "wow_depth": (1.0, 0.8),
+            "block_artifact": (0.0, 0.05),
+            "pre_echo_ms": (0.0, 2.0),
+            "rotation_strength": (0.0, 0.10),
+            "infrasonic_rms": (0.02, 0.03),
+            "codec_type_code": (0.0, 0.3),
         },
         "vinyl": {
-            "bandwidth_hz": (14000.0, 4000.0), "snr_db": (30.0, 10.0),
-            "noise_color": (1.5, 0.4), "crackle_density": (0.004, 0.005),
-            "wow_depth": (0.15, 0.15), "block_artifact": (0.0, 0.05),
-            "pre_echo_ms": (0.0, 2.0), "rotation_strength": (0.45, 0.20),
-            "infrasonic_rms": (0.08, 0.05), "codec_type_code": (0.0, 0.3),
+            "bandwidth_hz": (14000.0, 4000.0),
+            "snr_db": (30.0, 10.0),
+            "noise_color": (1.5, 0.4),
+            "crackle_density": (0.004, 0.005),
+            "wow_depth": (0.15, 0.15),
+            "block_artifact": (0.0, 0.05),
+            "pre_echo_ms": (0.0, 2.0),
+            "rotation_strength": (0.45, 0.20),
+            "infrasonic_rms": (0.08, 0.05),
+            "codec_type_code": (0.0, 0.3),
         },
         "tape": {
-            "bandwidth_hz": (12000.0, 3000.0), "snr_db": (25.0, 8.0),
-            "noise_color": (1.6, 0.4), "crackle_density": (0.0, 0.001),
-            "wow_depth": (1.2, 0.8), "block_artifact": (0.0, 0.05),
-            "pre_echo_ms": (0.0, 2.0), "rotation_strength": (0.0, 0.08),
-            "infrasonic_rms": (0.01, 0.02), "codec_type_code": (0.0, 0.3),
+            "bandwidth_hz": (12000.0, 3000.0),
+            "snr_db": (25.0, 8.0),
+            "noise_color": (1.6, 0.4),
+            "crackle_density": (0.0, 0.001),
+            "wow_depth": (1.2, 0.8),
+            "block_artifact": (0.0, 0.05),
+            "pre_echo_ms": (0.0, 2.0),
+            "rotation_strength": (0.0, 0.08),
+            "infrasonic_rms": (0.01, 0.02),
+            "codec_type_code": (0.0, 0.3),
         },
         "reel_tape": {
-            "bandwidth_hz": (15000.0, 3000.0), "snr_db": (28.0, 7.0),
-            "noise_color": (1.3, 0.3), "crackle_density": (0.0, 0.001),
-            "wow_depth": (0.3, 0.3), "block_artifact": (0.0, 0.05),
-            "pre_echo_ms": (0.0, 2.0), "rotation_strength": (0.0, 0.08),
-            "infrasonic_rms": (0.01, 0.02), "codec_type_code": (0.0, 0.3),
+            "bandwidth_hz": (15000.0, 3000.0),
+            "snr_db": (28.0, 7.0),
+            "noise_color": (1.3, 0.3),
+            "crackle_density": (0.0, 0.001),
+            "wow_depth": (0.3, 0.3),
+            "block_artifact": (0.0, 0.05),
+            "pre_echo_ms": (0.0, 2.0),
+            "rotation_strength": (0.0, 0.08),
+            "infrasonic_rms": (0.01, 0.02),
+            "codec_type_code": (0.0, 0.3),
         },
         "wire_recording": {
-            "bandwidth_hz": (5000.0, 1500.0), "snr_db": (12.0, 5.0),
-            "noise_color": (2.0, 0.5), "crackle_density": (0.0001, 0.0002),
-            "wow_depth": (3.0, 1.5), "block_artifact": (0.0, 0.05),
-            "pre_echo_ms": (0.0, 2.0), "rotation_strength": (0.0, 0.10),
-            "infrasonic_rms": (0.01, 0.02), "codec_type_code": (0.0, 0.3),
+            "bandwidth_hz": (5000.0, 1500.0),
+            "snr_db": (12.0, 5.0),
+            "noise_color": (2.0, 0.5),
+            "crackle_density": (0.0001, 0.0002),
+            "wow_depth": (3.0, 1.5),
+            "block_artifact": (0.0, 0.05),
+            "pre_echo_ms": (0.0, 2.0),
+            "rotation_strength": (0.0, 0.10),
+            "infrasonic_rms": (0.01, 0.02),
+            "codec_type_code": (0.0, 0.3),
         },
         "lacquer_disc": {
-            "bandwidth_hz": (9000.0, 2500.0), "snr_db": (18.0, 6.0),
-            "noise_color": (1.7, 0.4), "crackle_density": (0.008, 0.008),
-            "wow_depth": (0.2, 0.2), "block_artifact": (0.0, 0.05),
-            "pre_echo_ms": (0.0, 2.0), "rotation_strength": (0.30, 0.20),
-            "infrasonic_rms": (0.04, 0.04), "codec_type_code": (0.0, 0.3),
+            "bandwidth_hz": (9000.0, 2500.0),
+            "snr_db": (18.0, 6.0),
+            "noise_color": (1.7, 0.4),
+            "crackle_density": (0.008, 0.008),
+            "wow_depth": (0.2, 0.2),
+            "block_artifact": (0.0, 0.05),
+            "pre_echo_ms": (0.0, 2.0),
+            "rotation_strength": (0.30, 0.20),
+            "infrasonic_rms": (0.04, 0.04),
+            "codec_type_code": (0.0, 0.3),
         },
         "cassette": {
-            "bandwidth_hz": (10000.0, 3000.0), "snr_db": (22.0, 7.0),
-            "noise_color": (1.5, 0.4), "crackle_density": (0.0, 0.001),
-            "wow_depth": (1.5, 1.0), "block_artifact": (0.0, 0.05),
-            "pre_echo_ms": (0.0, 2.0), "rotation_strength": (0.0, 0.08),
-            "infrasonic_rms": (0.01, 0.02), "codec_type_code": (0.0, 0.3),
+            "bandwidth_hz": (10000.0, 3000.0),
+            "snr_db": (22.0, 7.0),
+            "noise_color": (1.5, 0.4),
+            "crackle_density": (0.0, 0.001),
+            "wow_depth": (1.5, 1.0),
+            "block_artifact": (0.0, 0.05),
+            "pre_echo_ms": (0.0, 2.0),
+            "rotation_strength": (0.0, 0.08),
+            "infrasonic_rms": (0.01, 0.02),
+            "codec_type_code": (0.0, 0.3),
         },
         "dat": {
-            "bandwidth_hz": (20000.0, 2000.0), "snr_db": (50.0, 8.0),
-            "noise_color": (0.3, 0.3), "crackle_density": (0.0, 0.001),
-            "wow_depth": (0.0, 0.1), "block_artifact": (0.08, 0.06),
-            "pre_echo_ms": (0.0, 2.0), "rotation_strength": (0.0, 0.05),
-            "infrasonic_rms": (0.0, 0.01), "codec_type_code": (0.0, 0.5),
+            "bandwidth_hz": (20000.0, 2000.0),
+            "snr_db": (50.0, 8.0),
+            "noise_color": (0.3, 0.3),
+            "crackle_density": (0.0, 0.001),
+            "wow_depth": (0.0, 0.1),
+            "block_artifact": (0.08, 0.06),
+            "pre_echo_ms": (0.0, 2.0),
+            "rotation_strength": (0.0, 0.05),
+            "infrasonic_rms": (0.0, 0.01),
+            "codec_type_code": (0.0, 0.5),
         },
         "cd_digital": {
-            "bandwidth_hz": (21000.0, 1500.0), "snr_db": (60.0, 8.0),
-            "noise_color": (0.2, 0.3), "crackle_density": (0.0, 0.001),
-            "wow_depth": (0.0, 0.05), "block_artifact": (0.0, 0.03),
-            "pre_echo_ms": (0.0, 1.0), "rotation_strength": (0.0, 0.05),
-            "infrasonic_rms": (0.0, 0.01), "codec_type_code": (0.0, 0.3),
+            "bandwidth_hz": (21000.0, 1500.0),
+            "snr_db": (60.0, 8.0),
+            "noise_color": (0.2, 0.3),
+            "crackle_density": (0.0, 0.001),
+            "wow_depth": (0.0, 0.05),
+            "block_artifact": (0.0, 0.03),
+            "pre_echo_ms": (0.0, 1.0),
+            "rotation_strength": (0.0, 0.05),
+            "infrasonic_rms": (0.0, 0.01),
+            "codec_type_code": (0.0, 0.3),
         },
         "mp3_low": {
-            "bandwidth_hz": (11000.0, 2500.0), "snr_db": (35.0, 8.0),
-            "noise_color": (0.5, 0.4), "crackle_density": (0.0, 0.001),
-            "wow_depth": (0.0, 0.1), "block_artifact": (0.40, 0.15),
-            "pre_echo_ms": (12.0, 6.0), "rotation_strength": (0.0, 0.05),
-            "infrasonic_rms": (0.0, 0.01), "codec_type_code": (1.0, 0.3),
+            "bandwidth_hz": (11000.0, 2500.0),
+            "snr_db": (35.0, 8.0),
+            "noise_color": (0.5, 0.4),
+            "crackle_density": (0.0, 0.001),
+            "wow_depth": (0.0, 0.1),
+            "block_artifact": (0.40, 0.15),
+            "pre_echo_ms": (12.0, 6.0),
+            "rotation_strength": (0.0, 0.05),
+            "infrasonic_rms": (0.0, 0.01),
+            "codec_type_code": (1.0, 0.3),
         },
         "mp3_high": {
-            "bandwidth_hz": (17000.0, 2000.0), "snr_db": (42.0, 7.0),
-            "noise_color": (0.4, 0.3), "crackle_density": (0.0, 0.001),
-            "wow_depth": (0.0, 0.1), "block_artifact": (0.15, 0.10),
-            "pre_echo_ms": (6.0, 4.0), "rotation_strength": (0.0, 0.05),
-            "infrasonic_rms": (0.0, 0.01), "codec_type_code": (1.0, 0.3),
+            "bandwidth_hz": (17000.0, 2000.0),
+            "snr_db": (42.0, 7.0),
+            "noise_color": (0.4, 0.3),
+            "crackle_density": (0.0, 0.001),
+            "wow_depth": (0.0, 0.1),
+            "block_artifact": (0.15, 0.10),
+            "pre_echo_ms": (6.0, 4.0),
+            "rotation_strength": (0.0, 0.05),
+            "infrasonic_rms": (0.0, 0.01),
+            "codec_type_code": (1.0, 0.3),
         },
         "aac": {
-            "bandwidth_hz": (19000.0, 1500.0), "snr_db": (48.0, 7.0),
-            "noise_color": (0.3, 0.3), "crackle_density": (0.0, 0.001),
-            "wow_depth": (0.0, 0.1), "block_artifact": (0.10, 0.08),
-            "pre_echo_ms": (1.5, 1.5), "rotation_strength": (0.0, 0.05),
-            "infrasonic_rms": (0.0, 0.01), "codec_type_code": (2.0, 0.3),
+            "bandwidth_hz": (19000.0, 1500.0),
+            "snr_db": (48.0, 7.0),
+            "noise_color": (0.3, 0.3),
+            "crackle_density": (0.0, 0.001),
+            "wow_depth": (0.0, 0.1),
+            "block_artifact": (0.10, 0.08),
+            "pre_echo_ms": (1.5, 1.5),
+            "rotation_strength": (0.0, 0.05),
+            "infrasonic_rms": (0.0, 0.01),
+            "codec_type_code": (2.0, 0.3),
         },
         "minidisc": {
-            "bandwidth_hz": (14000.0, 2000.0), "snr_db": (40.0, 6.0),
-            "noise_color": (0.4, 0.3), "crackle_density": (0.0, 0.001),
-            "wow_depth": (0.0, 0.1), "block_artifact": (0.18, 0.10),
-            "pre_echo_ms": (3.0, 3.0), "rotation_strength": (0.0, 0.05),
-            "infrasonic_rms": (0.0, 0.01), "codec_type_code": (3.0, 0.5),
+            "bandwidth_hz": (14000.0, 2000.0),
+            "snr_db": (40.0, 6.0),
+            "noise_color": (0.4, 0.3),
+            "crackle_density": (0.0, 0.001),
+            "wow_depth": (0.0, 0.1),
+            "block_artifact": (0.18, 0.10),
+            "pre_echo_ms": (3.0, 3.0),
+            "rotation_strength": (0.0, 0.05),
+            "infrasonic_rms": (0.0, 0.01),
+            "codec_type_code": (3.0, 0.5),
         },
         "streaming": {
-            "bandwidth_hz": (18000.0, 2000.0), "snr_db": (45.0, 8.0),
-            "noise_color": (0.3, 0.3), "crackle_density": (0.0, 0.001),
-            "wow_depth": (0.0, 0.1), "block_artifact": (0.06, 0.05),
-            "pre_echo_ms": (2.0, 2.0), "rotation_strength": (0.0, 0.05),
-            "infrasonic_rms": (0.0, 0.01), "codec_type_code": (1.5, 0.8),
+            "bandwidth_hz": (18000.0, 2000.0),
+            "snr_db": (45.0, 8.0),
+            "noise_color": (0.3, 0.3),
+            "crackle_density": (0.0, 0.001),
+            "wow_depth": (0.0, 0.1),
+            "block_artifact": (0.06, 0.05),
+            "pre_echo_ms": (2.0, 2.0),
+            "rotation_strength": (0.0, 0.05),
+            "infrasonic_rms": (0.0, 0.01),
+            "codec_type_code": (1.5, 0.8),
         },
         "unknown": {
-            "bandwidth_hz": (12000.0, 8000.0), "snr_db": (25.0, 15.0),
-            "noise_color": (1.0, 1.0), "crackle_density": (0.005, 0.01),
-            "wow_depth": (0.5, 1.0), "block_artifact": (0.05, 0.10),
-            "pre_echo_ms": (2.0, 5.0), "rotation_strength": (0.05, 0.15),
-            "infrasonic_rms": (0.02, 0.05), "codec_type_code": (1.0, 1.5),
+            "bandwidth_hz": (12000.0, 8000.0),
+            "snr_db": (25.0, 15.0),
+            "noise_color": (1.0, 1.0),
+            "crackle_density": (0.005, 0.01),
+            "wow_depth": (0.5, 1.0),
+            "block_artifact": (0.05, 0.10),
+            "pre_echo_ms": (2.0, 5.0),
+            "rotation_strength": (0.05, 0.15),
+            "infrasonic_rms": (0.02, 0.05),
+            "codec_type_code": (1.0, 1.5),
         },
     }
 
     _FEATURE_KEYS: list[str] = [
-        "bandwidth_hz", "snr_db", "noise_color", "crackle_density",
-        "wow_depth", "block_artifact", "pre_echo_ms",
-        "rotation_strength", "infrasonic_rms", "codec_type_code",
+        "bandwidth_hz",
+        "snr_db",
+        "noise_color",
+        "crackle_density",
+        "wow_depth",
+        "block_artifact",
+        "pre_echo_ms",
+        "rotation_strength",
+        "infrasonic_rms",
+        "codec_type_code",
     ]
+
+    def _infer_analog_source_from_fingerprint(self, fp: SpectralFingerprint) -> list[tuple[str, float]]:
+        """Infer analog source materials from physical fingerprint features.
+
+        Called when file_ext zeroes Bayesian posteriors so that the Bayesian
+        scorer alone cannot identify the original analog source.  Physical cues
+        (vinyl rumble, cassette/tape transport flutter, shellac crackle) survive
+        recording chain transfers and remain detectable even through codec encoding.
+
+        Detection thresholds calibrated from MediumClassifier Gaussian models and
+        empirical test corpus (see §6.7, Pohlmann 2010, IEC 60386).
+
+        Returns:
+            List of (material_key, confidence) sorted by MEDIUM_ORDER
+            (original source first).
+        """
+        sources: list[tuple[str, float]] = []
+
+        # ── Vinyl ─────────────────────────────────────────────────────
+        # Physical evidence: infrasonic platter-bearing rumble + groove crackle
+        # + optional turntable rotation periodicity.
+        # Rumble: infrasonic_rms > 0.030 (vinyl model μ=0.08, σ=0.05)
+        # Crackle: crackle_density > 0.004 (vinyl model μ=0.004, σ=0.005)
+        vinyl_conf = 0.0
+        if fp.infrasonic_rms > 0.030:
+            vinyl_conf = max(vinyl_conf, float(min((fp.infrasonic_rms - 0.030) / 0.080, 1.0)))
+        if fp.crackle_density > 0.004:
+            vinyl_conf = max(vinyl_conf, float(min((fp.crackle_density - 0.004) / 0.025, 1.0)))
+        if fp.rotation_strength > 0.08:
+            vinyl_conf = max(vinyl_conf, float(fp.rotation_strength))
+        if vinyl_conf >= 0.20:
+            sources.append(("vinyl", float(np.clip(vinyl_conf, 0.20, 0.85))))
+
+        # ── Shellac ───────────────────────────────────────────────────
+        # Heavy crackle + strong infrasonic → beats vinyl classification.
+        shellac_conf = 0.0
+        if fp.crackle_density > 0.015 and fp.infrasonic_rms > 0.040:
+            shellac_conf = float(min(fp.crackle_density / 0.040, 1.0))
+        if shellac_conf >= 0.35:
+            sources = [(m, c) for m, c in sources if m != "vinyl"]
+            sources.append(("shellac", float(np.clip(shellac_conf, 0.35, 0.85))))
+
+        # ── Cassette ─────────────────────────────────────────────────
+        # Capstan/pinch-roller transport flutter: wow_flutter_index 0.30–2.5
+        # Calibration from Bayesian model: cassette μ=1.5, σ=1.0.
+        # Vinyl itself has wow_depth μ=0.15, σ=0.15 → max vinyl flutter ≈ 0.30.
+        # Threshold > 0.30 prevents vinyl-own flutter from false-triggering cassette.
+        has_disc = any(m in ("vinyl", "shellac", "lacquer_disc") for m, _ in sources)
+        cassette_conf = 0.0
+        if fp.wow_flutter_index > 0.30:
+            cassette_conf = float(min((fp.wow_flutter_index - 0.30) / 1.20, 1.0))
+        # With disc already in chain: lower minimum (vinyl adds flutter; combined
+        # vinyl+cassette shows wow_flutter > 0.40 even for high-quality cassettes).
+        _cassette_min = 0.15 if has_disc else 0.25
+        if cassette_conf >= _cassette_min:
+            sources.append(("cassette", float(np.clip(cassette_conf, _cassette_min, 0.85))))
+
+        # ── Reel tape ────────────────────────────────────────────────
+        # Direct reel-tape recording (no disc source): moderate flutter, no rotation.
+        # Reel-tape Bayesian model: wow_depth μ=0.3, σ=0.3 (lower than cassette).
+        if not has_disc and fp.wow_flutter_index > 0.20 and fp.rotation_strength < 0.05:
+            tape_conf = float(min((fp.wow_flutter_index - 0.20) / 1.00, 1.0))
+            if tape_conf >= 0.20:
+                sources.append(("reel_tape", float(np.clip(tape_conf, 0.20, 0.85))))
+
+        # Sort by signal-chain order: disc (0) before tape (1) before codec (2).
+        sources.sort(key=lambda x: self._MEDIUM_ORDER.get(x[0], 5))
+        return sources
 
     @staticmethod
     def _is_benign_codec_source(audio: np.ndarray, sr: int, fp: SpectralFingerprint) -> bool:
@@ -400,7 +582,7 @@ class MediumDetector:
             and flatness_median <= 1e-2
             and fp.noise_floor_db <= -38.0
             and fp.wow_flutter_index < 0.02
-            and fp.effective_bandwidth_hz >= 12_000.0
+            and fp.effective_bandwidth_hz >= 8_000.0
         )
 
     def _compute_fingerprint(self, audio: np.ndarray, sr: int) -> SpectralFingerprint:
@@ -489,10 +671,7 @@ class MediumDetector:
             # Select 5 segments distributed across the audio; prefer energy-rich sections
             rms_win = max(1, int(sr * 0.5))  # 0.5 s RMS windows for energy ranking
             n_rms = max(1, n // rms_win)
-            rms_vals = np.array([
-                float(np.mean(mono[i * rms_win: (i + 1) * rms_win] ** 2))
-                for i in range(n_rms)
-            ])
+            rms_vals = np.array([float(np.mean(mono[i * rms_win : (i + 1) * rms_win] ** 2)) for i in range(n_rms)])
             # Pick 5 energy-ranked segments; fallback to equally spaced if audio short
             if n >= seg_len * 2:
                 # Sort by energy descending; pick top-5 diverse segments (≥2 s apart)
@@ -517,7 +696,7 @@ class MediumDetector:
 
             bw_candidates: list[float] = []
             for ss in chosen_starts:
-                seg = mono[ss: ss + seg_len]
+                seg = mono[ss : ss + seg_len]
                 if len(seg) < seg_len:
                     seg = np.pad(seg, (0, seg_len - len(seg)))
                 spec_seg = np.abs(np.fft.rfft(seg.astype(np.float64), n=n_fft_bw))
@@ -614,10 +793,7 @@ class MediumDetector:
         n_frames = n // win_samples
         if n_frames < 20:
             return 0.0, 0.0
-        rms = np.sqrt(
-            np.mean(mono[: n_frames * win_samples].reshape(n_frames, win_samples) ** 2, axis=1)
-            + 1e-12
-        )
+        rms = np.sqrt(np.mean(mono[: n_frames * win_samples].reshape(n_frames, win_samples) ** 2, axis=1) + 1e-12)
         env_sr = sr / win_samples
 
         # Downsample envelope to ~20 Hz
@@ -696,10 +872,7 @@ class MediumDetector:
         frame_n = max(1, int(sr * frame_ms / 1000))
         n_frames_pe = n // frame_n
         if n_frames_pe > 20:
-            frame_e = np.sqrt(
-                np.mean(mono[: n_frames_pe * frame_n].reshape(n_frames_pe, frame_n) ** 2, axis=1)
-                + 1e-12
-            )
+            frame_e = np.sqrt(np.mean(mono[: n_frames_pe * frame_n].reshape(n_frames_pe, frame_n) ** 2, axis=1) + 1e-12)
             diff_e = np.diff(frame_e)
             jumps = np.where(diff_e > np.std(diff_e) * 2.0)[0]
             if len(jumps) > 2:
@@ -871,27 +1044,44 @@ class MediumDetector:
         # analog physical media.  A .mp3 file was encoded digitally at capture time —
         # any analog artefacts are from the recording chain, not mechanical transport.
         # Zero out all analog material posteriors and renormalise before chain inference.
-        _DIGITAL_FILE_EXTS: frozenset[str] = frozenset({
-            ".mp3", ".mp2", ".aac", ".m4a", ".ogg", ".opus",
-            ".flac", ".wav", ".aiff", ".aif", ".wv", ".mpc", ".wma",
-        })
+        _DIGITAL_FILE_EXTS: frozenset[str] = frozenset(
+            {
+                ".mp3",
+                ".mp2",
+                ".aac",
+                ".m4a",
+                ".ogg",
+                ".opus",
+                ".flac",
+                ".wav",
+                ".aiff",
+                ".aif",
+                ".wv",
+                ".mpc",
+                ".wma",
+            }
+        )
         _ext_lower = file_ext.lower()
         if _ext_lower in _DIGITAL_FILE_EXTS:
             _adjusted: dict[str, float] = {
-                mat: (0.0 if mat in self._ANALOG_MATERIALS else score)
-                for mat, score in posteriors.items()
+                mat: (0.0 if mat in self._ANALOG_MATERIALS else score) for mat, score in posteriors.items()
             }
             _total = sum(_adjusted.values()) + 1e-12
-            posteriors = dict(sorted(
-                {k: v / _total for k, v in _adjusted.items()}.items(),
-                key=lambda x: x[1], reverse=True,
-            ))
+            posteriors = dict(
+                sorted(
+                    {k: v / _total for k, v in _adjusted.items()}.items(),
+                    key=lambda x: x[1],
+                    reverse=True,
+                )
+            )
             logger.info(
-                "MediumDetector: file_ext=%s → analog posteriors zeroed; "
-                "top-3 adjusted: %s",
+                "MediumDetector: file_ext=%s → analog posteriors zeroed; top-3 adjusted: %s",
                 _ext_lower,
                 ", ".join(f"{m}={s:.3f}" for m, s in list(posteriors.items())[:3]),
             )
+
+        # Flag: analog Bayesian posteriors wurden durch file_ext genullt
+        _analog_zeroed: bool = _ext_lower in _DIGITAL_FILE_EXTS
 
         chain: list[str] = []
         evidence: list[str] = []
@@ -908,6 +1098,31 @@ class MediumDetector:
                 best_analog = mat
                 best_analog_score = score
                 break
+
+        # ── Phase 1b: Physical-feature analog inference ───────────────
+        # Wenn file_ext die Bayesian-Analog-Posteriors genullt hat (z. B. *.mp3),
+        # kann der Bayesian-Scorer keinen analogen Ursprungsträger mehr erkennen.
+        # Physikalische Merkmale (Vinyl-Rumble, Kassetten-Wow/Flutter, Schellack-
+        # Krackeln) überleben die gesamte Aufnahmekette und sind auch in Codec-
+        # Dateien noch nachweisbar.  Diese Features werden genutzt, um den analogen
+        # Ursprungsträger unabhängig vom Bayesian-Scoring zu rekonstruieren.
+        _physical_analog_sources: list[tuple[str, float]] = []
+        if _analog_zeroed and best_analog is None:
+            _physical_analog_sources = self._infer_analog_source_from_fingerprint(fp)
+            if _physical_analog_sources:
+                best_analog, best_analog_score = _physical_analog_sources[0]
+                logger.info(
+                    "MediumDetector: physical-feature analog inference — "
+                    "primary=%s (conf=%.3f) chain=%s "
+                    "[crackle=%.4f infrasonic=%.4f rotation=%.3f wow_flutter=%.3f]",
+                    best_analog,
+                    best_analog_score,
+                    [m for m, _ in _physical_analog_sources],
+                    fp.crackle_density,
+                    fp.infrasonic_rms,
+                    fp.rotation_strength,
+                    fp.wow_flutter_index,
+                )
 
         # Best digital lossless
         best_digital: str | None = None
@@ -930,6 +1145,26 @@ class MediumDetector:
         # Guard: check if source is clean digital (no analog chain)
         benign_codec = self._is_benign_codec_source(audio, sr, fp)
 
+        # ── Codec-Hard-Gate: suppress implausible analog materials ────
+        # If codec_type_code is clearly digital (≥ 0.5) AND no physical
+        # rotation signature AND low crackle → analog classification is
+        # implausible.  Override to benign_codec path.
+        if (
+            not benign_codec
+            and fp.codec_type_code >= 0.5
+            and fp.rotation_strength < 0.05
+            and fp.crackle_density < 0.005
+            and fp.wow_flutter_index < 0.02
+        ):
+            logger.info(
+                "MediumDetector: codec_hard_gate override — codec=%.2f, "
+                "rotation=%.3f, crackle=%.4f → treating as digital source",
+                fp.codec_type_code,
+                fp.rotation_strength,
+                fp.crackle_density,
+            )
+            benign_codec = True
+
         # ── Phase 2: Kette aufbauen ───────────────────────────────────
         has_codec_artifacts = fp.codec_artifact_score > self._CODEC_ARTIFACT_THRESHOLD
 
@@ -937,17 +1172,11 @@ class MediumDetector:
             if best_digital and best_digital_score > best_codec_score:
                 chain.append(best_digital)
                 chain_confidences.append(best_digital_score)
-                evidence.append(
-                    f"Digitaler Träger: {best_digital} "
-                    f"(posterior={best_digital_score:.3f})"
-                )
+                evidence.append(f"Digitaler Träger: {best_digital} (posterior={best_digital_score:.3f})")
             elif best_codec:
                 chain.append(best_codec)
                 chain_confidences.append(best_codec_score)
-                evidence.append(
-                    f"Codec-Quelle: {best_codec} "
-                    f"(posterior={best_codec_score:.3f})"
-                )
+                evidence.append(f"Codec-Quelle: {best_codec} (posterior={best_codec_score:.3f})")
             else:
                 chain.append("cd_digital")
                 chain_confidences.append(0.50)
@@ -965,6 +1194,8 @@ class MediumDetector:
                 )
 
                 # Secondary analog layer? (e.g. vinyl → tape dubbing)
+                # Zuerst: Bayesian-Posteriors (nicht genullt)
+                _secondary_added = False
                 for mat2, score2 in top_materials:
                     if (
                         mat2 != best_analog
@@ -974,16 +1205,27 @@ class MediumDetector:
                     ):
                         chain.append(mat2)
                         chain_confidences.append(score2)
-                        evidence.append(
-                            f"Sekundäre Analog-Stufe: {mat2} "
-                            f"(posterior={score2:.3f})"
-                        )
+                        evidence.append(f"Sekundäre Analog-Stufe: {mat2} (posterior={score2:.3f})")
+                        _secondary_added = True
                         break
+                # Fallback: Physical-inference secondary layer (wenn Posteriors genullt)
+                if not _secondary_added and len(_physical_analog_sources) > 1:
+                    for phys_mat, phys_conf in _physical_analog_sources[1:]:
+                        if phys_mat != best_analog and self._MEDIUM_ORDER.get(phys_mat, 0) > self._MEDIUM_ORDER.get(
+                            best_analog, 0
+                        ):
+                            chain.append(phys_mat)
+                            chain_confidences.append(phys_conf)
+                            evidence.append(
+                                f"Sekundäre Analog-Stufe (physical): {phys_mat} "
+                                f"(wow_flutter={fp.wow_flutter_index:.3f}, "
+                                f"crackle={fp.crackle_density:.4f})"
+                            )
+                            break
 
             # ── Codec-Layer anhängen ──────────────────────────────────
             if has_codec_artifacts or (
-                fp.hf_energy_above_16k < self.HF_ENERGY_THRESHOLD_FRACTION
-                and fp.effective_bandwidth_hz < 17_500
+                fp.hf_energy_above_16k < self.HF_ENERGY_THRESHOLD_FRACTION and fp.effective_bandwidth_hz < 17_500
             ):
                 if best_codec:
                     codec_name = best_codec
@@ -1012,17 +1254,19 @@ class MediumDetector:
             else:
                 chain = [top_mat]
                 chain_confidences = [top_score]
-                evidence.append(
-                    f"Bayesian-Fallback: {top_mat} (posterior={top_score:.3f})"
-                )
+                evidence.append(f"Bayesian-Fallback: {top_mat} (posterior={top_score:.3f})")
 
         primary = chain[0]
         is_multi = len(chain) > 1
-        confidence = float(np.clip(sum(chain_confidences), 0.0, 1.0))
+        # Weakest-link principle: a transfer chain is only as confident as its
+        # least certain component.  Using sum() caused multi-link chains (e.g.
+        # vinyl → mp3_low with 0.65 + 0.40 = 1.05) to always clip at 1.0 → 5 stars.
+        confidence = float(np.clip(min(chain_confidences) if chain_confidences else 0.0, 0.0, 1.0))
 
         # ── ClassificationResult für Passthrough bauen ───────────────
         try:
             from backend.core.medium_classifier import ClassificationResult
+
             classification_result = ClassificationResult(
                 material=primary,
                 confidence=confidence,
@@ -1042,8 +1286,7 @@ class MediumDetector:
             classification_result = None
 
         logger.info(
-            "MediumDetector: Kette=%s, primär=%s, multi=%s, Konfidenz=%.2f, "
-            "Top-3 Bayesian: %s",
+            "MediumDetector: Kette=%s, primär=%s, multi=%s, Konfidenz=%.2f, Top-3 Bayesian: %s",
             " → ".join(chain),
             primary,
             is_multi,

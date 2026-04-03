@@ -141,8 +141,8 @@ class LyricsTranscriber:
                 if not _try_alloc("WhisperTiny", size_gb=0.41):
                     logger.warning("WhisperTiny: ML-Budget erschöpft — DSP-Fallback.")
                     return
-            except Exception:
-                pass
+            except Exception as _exc:
+                logger.debug("Operation failed (non-critical): %s", _exc)
 
             self._session = ort.InferenceSession(
                 str(model_path),
@@ -158,8 +158,8 @@ class LyricsTranscriber:
                     size_gb=0.41,
                     unload_fn=lambda s=self: setattr(s, "_session", None) or setattr(s, "_session_loaded", False),
                 )
-            except Exception:
-                pass
+            except Exception as _exc:
+                logger.debug("Operation failed (non-critical): %s", _exc)
 
         except Exception as exc:
             logger.info("Whisper-ONNX nicht verfügbar — DSP-Energie-Fallback aktiv: %s", exc)
@@ -167,8 +167,8 @@ class LyricsTranscriber:
                 from backend.core.ml_memory_budget import release as _rel
 
                 _rel("WhisperTiny")
-            except Exception:
-                pass
+            except Exception as _exc:
+                logger.debug("Operation failed (non-critical): %s", _exc)
 
     def transcribe(
         self,
@@ -196,7 +196,7 @@ class LyricsTranscriber:
         if mono.size == 0:
             return LyricsTranscriptionResult(
                 words=[],
-                language="de",
+                language="unknown",
                 overall_confidence=0.0,
                 duration_s=0.0,
                 fallback_used=not (self._session_loaded and self._session is not None),
@@ -248,10 +248,11 @@ class LyricsTranscriber:
         words = self._segment_with_encoder(audio_16k, encoder_out, duration_s)
         overall_conf = float(np.mean([w.confidence for w in words])) if words else 0.0
         overall_conf = max(0.0, min(1.0, overall_conf))
+        _detected_lang, _lang_conf = self._detect_language_from_mono(audio_16k, self.WHISPER_SR)
 
         return LyricsTranscriptionResult(
             words=words,
-            language="de",
+            language=_detected_lang,
             overall_confidence=overall_conf,
             duration_s=duration_s,
             fallback_used=False,
@@ -485,9 +486,10 @@ class LyricsTranscriber:
                     )
                 )
 
+        _detected_lang, _lang_conf = self._detect_language_from_mono(mono, sr)
         return LyricsTranscriptionResult(
             words=words,
-            language="de",
+            language=_detected_lang,
             overall_confidence=0.0,
             duration_s=duration_s,
             fallback_used=True,
@@ -561,6 +563,27 @@ class LyricsTranscriber:
         rms = float(np.sqrt(np.mean(audio_seg.astype(np.float32) ** 2)))
         median_rms = float(np.median(energy_context)) if len(energy_context) > 0 else rms
         return rms > self._STRESS_RMS_FACTOR * max(median_rms, 1e-10)
+
+    def _detect_language_from_mono(self, mono: np.ndarray, sr: int) -> tuple[str, float]:
+        """Detect spoken language from audio via LPC formant analysis (SR-agnostic).
+
+        Delegates to backend.core.phoneme_timeline._detect_language.
+        Falls back to ("unknown", 0.0) on import error or any exception.
+
+        Args:
+            mono: 1-D float32 audio at any sample rate.
+            sr:   Sample rate in Hz.
+
+        Returns:
+            (language_code, confidence) tuple.
+        """
+        try:
+            from backend.core.phoneme_timeline import _detect_language as _ptl_detect
+
+            return _ptl_detect(mono, sr)
+        except Exception as exc:
+            logger.debug("LyricsTranscriber._detect_language_from_mono failed: %s", exc)
+            return ("unknown", 0.0)
 
 
 # ---------------------------------------------------------------------------

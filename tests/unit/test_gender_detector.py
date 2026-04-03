@@ -6,13 +6,12 @@ Bugs fixed (see CHANGELOG.md):
   - FEMALE f0 range was (165,255) — speech-only; singing range is (165,700)
   - No tie-breaking rule for FEMALE vs CHILD when f0 < 350 Hz
 """
+
 from __future__ import annotations
 
 import numpy as np
-import pytest
 
 from backend.core.vocal_ai_enhancement import GenderDetector, VoiceGender
-
 
 SR = 48_000
 
@@ -45,6 +44,7 @@ def _add_noise(sig: np.ndarray, snr_db: float = 20.0) -> np.ndarray:
 # ---------------------------------------------------------------------------
 # _detect_f0 — strongest peak, not first peak
 # ---------------------------------------------------------------------------
+
 
 class TestDetectF0:
     """_detect_f0 must return fundamental, not an octave-up harmonic."""
@@ -96,18 +96,21 @@ class TestDetectF0:
 # formant_ranges — FEMALE singing range extended (165–700 Hz)
 # ---------------------------------------------------------------------------
 
+
 class TestFemaleF0Range:
     """FEMALE f0 range must cover singing (up to 700 Hz), not just speech (255 Hz)."""
 
     def test_female_range_upper_bound_geq_700(self):
         gd = GenderDetector(sample_rate=SR)
-        assert gd.formant_ranges[VoiceGender.FEMALE]["f0"][1] >= 700, \
+        assert gd.formant_ranges[VoiceGender.FEMALE]["f0"][1] >= 700, (
             "FEMALE f0 upper bound must be >= 700 Hz to cover soprano/mezzo singing"
+        )
 
     def test_female_range_lower_bound_leq_170(self):
         gd = GenderDetector(sample_rate=SR)
-        assert gd.formant_ranges[VoiceGender.FEMALE]["f0"][0] <= 170, \
+        assert gd.formant_ranges[VoiceGender.FEMALE]["f0"][0] <= 170, (
             "FEMALE f0 lower bound must be <= 170 Hz (contralto)"
+        )
 
     def test_child_lower_bound_geq_250(self):
         """CHILD f0 lower bound must be >= 250 Hz so singing mezzo f0 < 250 Hz maps to FEMALE."""
@@ -118,6 +121,7 @@ class TestFemaleF0Range:
 # ---------------------------------------------------------------------------
 # _classify_gender — tie-breaking: f0 < 350 Hz → prefer FEMALE over CHILD
 # ---------------------------------------------------------------------------
+
 
 class TestClassifyGenderTieBreak:
     """When scores are close and f0 < 350 Hz, FEMALE must win over CHILD."""
@@ -131,29 +135,25 @@ class TestClassifyGenderTieBreak:
         gd = GenderDetector(sample_rate=SR)
         # Adult female formants: F1~600, F2~1800, F3~2700 Hz
         gender, conf = self._score_manual(gd, 300.0, [600.0, 1800.0, 2700.0])
-        assert gender == VoiceGender.FEMALE, \
-            f"Expected FEMALE for f0=300 Hz + adult formants, got {gender}"
+        assert gender == VoiceGender.FEMALE, f"Expected FEMALE for f0=300 Hz + adult formants, got {gender}"
 
     def test_f0_250hz_returns_female(self):
         """f0=250 Hz (mezzo singing) must be FEMALE."""
         gd = GenderDetector(sample_rate=SR)
         gender, conf = self._score_manual(gd, 250.0, [550.0, 1700.0, 2600.0])
-        assert gender == VoiceGender.FEMALE, \
-            f"Expected FEMALE for f0=250 Hz, got {gender}"
+        assert gender == VoiceGender.FEMALE, f"Expected FEMALE for f0=250 Hz, got {gender}"
 
     def test_f0_200hz_returns_female(self):
         """f0=200 Hz (alto singing) must be FEMALE."""
         gd = GenderDetector(sample_rate=SR)
         gender, conf = self._score_manual(gd, 200.0, [500.0, 1600.0, 2500.0])
-        assert gender == VoiceGender.FEMALE, \
-            f"Expected FEMALE for f0=200 Hz, got {gender}"
+        assert gender == VoiceGender.FEMALE, f"Expected FEMALE for f0=200 Hz, got {gender}"
 
     def test_f0_120hz_returns_male(self):
         """f0=120 Hz must remain MALE."""
         gd = GenderDetector(sample_rate=SR)
         gender, _ = self._score_manual(gd, 120.0, [400.0, 1200.0, 2200.0])
-        assert gender == VoiceGender.MALE, \
-            f"Expected MALE for f0=120 Hz, got {gender}"
+        assert gender == VoiceGender.MALE, f"Expected MALE for f0=120 Hz, got {gender}"
 
     def test_f0_400hz_high_child_formants_returns_child(self):
         """f0=400 Hz + clearly child-sized formants (F2 > 3000) → CHILD."""
@@ -161,21 +161,20 @@ class TestClassifyGenderTieBreak:
         # Very high formants typical of young child (tiny vocal tract)
         gender, conf = self._score_manual(gd, 400.0, [900.0, 3200.0, 4800.0])
         # With proper formant evidence, CHILD must still be classifiable
-        assert gender in (VoiceGender.CHILD, VoiceGender.FEMALE), \
-            f"Unexpected gender for child-like formants: {gender}"
+        assert gender in (VoiceGender.CHILD, VoiceGender.FEMALE), f"Unexpected gender for child-like formants: {gender}"
 
     def test_no_unknown_for_valid_female_signal(self):
         """detect() on a plausible female singing signal must not return UNKNOWN."""
         gd = GenderDetector(sample_rate=SR)
         sig = _harmonic(230, dur=0.5)  # Mezzo-soprano pitch
         result = gd.detect(sig)
-        assert result.gender != VoiceGender.UNKNOWN, \
-            "Expected valid gender classification, got UNKNOWN"
+        assert result.gender != VoiceGender.UNKNOWN, "Expected valid gender classification, got UNKNOWN"
 
 
 # ---------------------------------------------------------------------------
 # End-to-end detect() — integration
 # ---------------------------------------------------------------------------
+
 
 class TestDetectIntegration:
     """detect() on synthetic signals must produce plausible results."""
@@ -197,23 +196,24 @@ class TestDetectIntegration:
         """
         gd = GenderDetector(sample_rate=SR)
         result = gd.detect(_harmonic(220, dur=0.6))
-        assert result.gender == VoiceGender.FEMALE, \
+        assert result.gender == VoiceGender.FEMALE, (
             f"Expected FEMALE for alto f0=220 Hz, got {result.gender} (f0={result.fundamental_freq:.1f})"
+        )
 
     def test_detect_noisy_vintage_female_signal(self):
         """Harmonic at 220 Hz + 15 dB tape noise → must not return CHILD."""
         gd = GenderDetector(sample_rate=SR)
         sig = _add_noise(_harmonic(220, n_harmonics=6), snr_db=15)
         result = gd.detect(sig)
-        assert result.gender != VoiceGender.CHILD, \
+        assert result.gender != VoiceGender.CHILD, (
             f"False CHILD classification on noisy female signal (f0={result.fundamental_freq:.1f})"
+        )
 
     def test_detect_baritone_signal_male(self):
         """Harmonic at 130 Hz (baritone) → MALE."""
         gd = GenderDetector(sample_rate=SR)
         result = gd.detect(_harmonic(130, dur=0.6))
-        assert result.gender == VoiceGender.MALE, \
-            f"Expected MALE for f0=130 Hz, got {result.gender}"
+        assert result.gender == VoiceGender.MALE, f"Expected MALE for f0=130 Hz, got {result.gender}"
 
     def test_detect_stereo_input_handled(self):
         """Stereo input must be converted to mono without error."""
@@ -229,5 +229,6 @@ class TestDetectIntegration:
         sig = _harmonic(250, dur=0.5)
         result = gd.detect(sig)
         # Should be within ±20 Hz of true f0
-        assert abs(result.fundamental_freq - 250) <= 20, \
+        assert abs(result.fundamental_freq - 250) <= 20, (
             f"fundamental_freq={result.fundamental_freq:.1f} too far from 250 Hz"
+        )

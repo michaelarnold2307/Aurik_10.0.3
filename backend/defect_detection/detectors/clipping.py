@@ -74,9 +74,9 @@ class ClippingDetector(DefectDetector):
             start_time = None
             end_time = None
 
-        description = f"Clipping detected: {total_clip_ratio*100:.2f}% of samples"
+        description = f"Clipping detected: {total_clip_ratio * 100:.2f}% of samples"
         if hard_clip_ratio > 0:
-            description += f" ({hard_clip_ratio*100:.2f}% hard clipping)"
+            description += f" ({hard_clip_ratio * 100:.2f}% hard clipping)"
 
         return [
             self._create_instance(

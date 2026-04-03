@@ -145,8 +145,8 @@ class RmvpePlugin:
                 if not _try_alloc("RMVPE", size_gb=0.03):
                     logger.warning("RMVPE: ML-Budget erschöpft — pYIN-Fallback.")
                     return
-            except Exception:
-                pass
+            except Exception as _exc:
+                logger.debug("Operation failed (non-critical): %s", _exc)
 
             opts = ort.SessionOptions()
             opts.inter_op_num_threads = 2
@@ -165,16 +165,16 @@ class RmvpePlugin:
                     size_gb=0.03,
                     unload_fn=lambda s=self: setattr(s, "_session", None) or setattr(s, "_model_loaded", False),
                 )
-            except Exception:
-                pass
+            except Exception as _exc:
+                logger.debug("Operation failed (non-critical): %s", _exc)
         except Exception as exc:
             logger.warning("RMVPE ONNX Ladefehler: %s — pYIN-Fallback aktiv.", exc)
             try:
                 from backend.core.ml_memory_budget import release as _rel
 
                 _rel("RMVPE")
-            except Exception:
-                pass
+            except Exception as _exc:
+                logger.debug("Operation failed (non-critical): %s", _exc)
 
     # ------------------------------------------------------------------
     # Public API

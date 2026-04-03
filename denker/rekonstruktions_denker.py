@@ -176,15 +176,23 @@ class RekonstruktionsDenker:
         # (AudioSR). Running GapReconstructor on digital material at −70 dB /
         # 0.5 ms yields thousands of false-positive "gaps" (e.g. 479 for a 3:45
         # MP3) and corrupt natural musical dynamics.
-        _DIGITAL_MATERIAL_TYPES: frozenset[str] = frozenset({
-            "mp3_low", "mp3_high", "mp3", "aac", "cd_digital",
-            "streaming", "wax_cylinder",  # wax_cylinder = misclassified digital
-        })
+        _DIGITAL_MATERIAL_TYPES: frozenset[str] = frozenset(
+            {
+                "mp3_low",
+                "mp3_high",
+                "mp3",
+                "aac",
+                "cd_digital",
+                "streaming",
+                "wax_cylinder",  # wax_cylinder = misclassified digital
+            }
+        )
         _hint = (material_hint or material or "").lower()
         if _hint in _DIGITAL_MATERIAL_TYPES:
             logger.info(
                 "RekonstruktionsDenker: GapReconstructor übersprungen für digitales Material '%s' "
-                "— phase_24 übernimmt Codec-Dropout-Reparatur.", _hint
+                "— phase_24 übernimmt Codec-Dropout-Reparatur.",
+                _hint,
             )
             _no_op = RekonstruktionsErgebnis(
                 audio=np.clip(audio, -1.0, 1.0),

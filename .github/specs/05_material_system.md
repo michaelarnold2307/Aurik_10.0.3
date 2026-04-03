@@ -270,41 +270,73 @@ assert sample_rate == 48000, f"SR muss 48000 Hz sein, erhalten: {sample_rate}"
 
 ---
 
-## §6.6 Tonträgerketten-Erkennung (bindend ab v9.10.45)
+## §6.6 Tonträgerketten-Erkennung (bindend ab v9.10.97)
 
-**Pflicht-Spektralfingerabdruck bei jedem Import (vor allen Klassifikatoren):**
+**Modul**: `forensics/medium_detector.py` — `MediumDetector.detect(audio, sr, file_ext=...)` — einziges autoritatives System ab v9.10.97.
 
-| Merkmal | Messmethode | Schwellwerte |
+**Architektur**: Zweistufige Fusion aus Bayesian-Gaussian-Scoring + physikalischer Inferenz.
+
+### Phase 1: Bayesian Gaussian-Likelihood-Scoring
+
+16 Materialmodelle (vinyl, shellac, cassette, reel_tape, reel_wire, lacquer_disc, wax_cylinder, cd_digital, dat, minidisc, mp3_low, mp3_high, aac, cassette_digital, vhs_audio, composite) mit je 7 Feature-Dimensionen:
+
+| Feature | Dimension |
+| --- | --- |
+| `bandwidth_hz` | Effektive Bandbreite (−60 dBFS HF-Rolloff) |
+| `snr_db` | Spektrales SNR (Median-PSD vs. Rauschboden P5) |
+| `noise_color` | Rauschfarbe-Exponent (pink=2.0, weiß=0.0) |
+| `crackle_density` | Anteil Samples > 4σ (Vinyl-Knackser, events/s) |
+| `wow_flutter_index` | Pitch-Varianz [Amplituden-Std] über 100-ms-Fenster |
+| `infrasonic_rms` | Sub-20 Hz normierter RMS (Vinyl-Rumble, Plattentellerlagerlärm) |
+| `codec_type_code` | Codec-Fingerabdruck (0.0=analog, 1.0=digital) |
+
+Log-Likelihood: `log P(m|features) = Σ log N(f; μ_m, σ_m)` → Softmax-Posterior.
+
+**file_ext Prior-Zeroing**: Bei digitalen Dateiendungen (`.mp3`, `.aac`, `.ogg`, `.wma`, `.opus` u. a.) werden Analog-Posteriors auf 0 gezwungen — der Bayesian-Scorer kann keine analoge Primärquelle ausgeben.
+
+### Phase 1b: Physikalische Analogquellen-Inferenz (NEU v9.10.97)
+
+Greift wenn `file_ext ∈ DIGITAL_FILE_EXTS` und Bayesian kein `best_analog` findet. Physikalische Merkmale überleben bei Kassetten/Vinyl auch nach Codec-Encoding:
+
+| Material | Erkennungsbedingung | Kalibrierung |
 | --- | --- | --- |
-| Rolloff 95 % | `librosa.feature.spectral_rolloff(roll_percent=0.95)` Median | < 4 kHz → Shellac/Wachswalze; < 8 kHz → Kassette |
-| WOW-Index | pYIN-Pitch-Varianz über 500 ms-Fenster (IEC 60386) | > 1.0 Hz → Kassette WOW; ≤ 0.1 Hz → digital |
-| FLUTTER-Index | pYIN-Pitch-Varianz über 50 ms-Fenster (IEC 60386) | > 0.5 Hz → Bandantrieb-FLUTTER; Drahtband: stochastischer Verlauf (σ > 1.2 Hz) |
-| Azimuth-Drift | L/R-Phasendifferenz-Slope STFT (20°/kHz) | > 20°/kHz → AZIMUTH_ERROR |
-| RIAA-Slope-Abw. | Spektral-Slope 250–8000 Hz vs. RIAA-Ideal | > ±3 dB → RIAA_CURVE_ERROR + curve_type |
-| HF-Energie > 16 kHz | Spektralsumme (STFT), Anteil Gesamtenergie | 0 % → MP3-Kette oder Kassette |
-| Rauschpegel (P5 PSD) | 10. Perzentil mittlere PSD | > −30 dBFS² → schweres Bandrauschen |
-| Effektive Bandbreite | HF-Rolloff −60 dBFS | < 8 kHz → Material-BW-Limit |
+| Vinyl | `infrasonic_rms > 0.030` (Plattentellerlagerlärm) ODER `crackle_density > 0.004 events/s` ODER `rotation_strength > 0.08` | μ_vinyl(infrasonic)=0.08, Schwelle = μ − 1σ |
+| Shellac | `crackle_density > 0.015 AND infrasonic_rms > 0.040` (schlägt Vinyl-Erkennung) | |
+| Kassette | `wow_flutter_index > 0.30` (Capstan/Pinch-Roller-Transport-Flutter) | Kassette: μ=1.5, σ=1.0; Vinyl-Eigenflutter max ≈ 0.15; Schwelle 0.30 = vinyl-sicher |
+| Reel-Tape | `wow_flutter_index > 0.20 AND rotation_strength < 0.05` (kein Disc-Source) | μ_tape_wow=0.3, σ=0.3 |
+
+Rückgabe: sortierte Liste `[(material_key, confidence)]` nach Signalketten-Reihenfolge (Disc vor Band vor Codec). Konfidenzen: [0.20, 0.85].
+
+### Phase 2: Transferketten-Aufbau
+
+Primärquelle + Codec-Layer (z. B. `mp3_low`/`mp3_high` aus Bayesian-Digital-Scoring) → `MediumDetectionResult.transfer_chain: list[str]`. Bei leerem Bayesian-Sekundärpfad: `_physical_analog_sources[1:]` als Fallback.
 
 ```python
+# Pflicht-Aufruf in allen Analyse-Kontexten:
+from forensics.medium_detector import MediumDetector, get_medium_detector
+result = get_medium_detector().detect(audio, sr, file_ext=Path(file_path).suffix)
+
 # Kettenerkennung → MaterialType-Ableitung:
-if result.is_multi_generation:
-    primary_material = result.transfer_chain[0]    # z. B. MaterialType.TAPE
-    secondary_chain  = result.transfer_chain[1:]   # z. B. [MediaType.MP3_LOW]
+if result.transfer_chain:
+    primary_material = result.transfer_chain[0]    # z. B. "vinyl"
+    secondary_chain  = result.transfer_chain[1:]   # z. B. ["cassette", "mp3_low"]
     # → aktiviert kombinierte Phasen beider Materialien
 
-# Kettenergebnis in RestorationResult.genealogy als:
+# Kettenergebnis in RestorationResult.genealogy:
 # SampleOperation(operation_type="chain_detection")
 ```
+
+**VERBOTEN**: `MediumClassifier.classify_medium()` für Tonträgerketten-Erkennung. `MediumClassifier` kennt keinen Dateiendungs-Kontext und kann bei codec-enkodiertem Material "unknown" zurückgeben.
 
 **Referenz-Fingerabdruck (Elke, Feb 2026):**
 
 | Merkmal | Messwert | Diagnose |
 | --- | --- | --- |
-| Rolloff 95 % | 1 486 Hz | Kassettenköpfe verschlissen |
-| Wow/Flutter | 2,38 Hz | Schwere Pitch-Instabilität → Kassette |
-| HF > 16 kHz | 0 % | Kassette + MP3-Kette |
-| Rauschen P5 | −31 dBFS² | Schweres Bandrauschen |
-| Tonträgerkette | `cassette_tape → mp3_low` | Zwei-stufige Degradation |
+| infrasonic_rms | 0.065 | Vinyl-Rumble detektiert (> 0.030) |
+| wow_flutter_index | 0.82 | Kassette-Flutter detektiert (> 0.30) |
+| crackle_density | 0.006 events/s | Vinyl-Knackser detektiert (> 0.004) |
+| file_ext | `.mp3` | Digital → Phase 1b physikalische Inferenz |
+| Tonträgerkette | `vinyl → cassette → mp3_low` | Drei-stufige Degradation |
 
 ---
 

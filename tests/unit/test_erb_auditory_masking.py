@@ -21,14 +21,15 @@ import threading
 import numpy as np
 import pytest
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture
 def model():
     from backend.core.erb_auditory_masking import ERBAuditoryMaskingModel
+
     return ERBAuditoryMaskingModel()
 
 
@@ -72,21 +73,25 @@ def silence_with_click(sr):
 class TestERBFormulas:
     def test_erb_hz_at_1khz(self):
         from backend.core.erb_auditory_masking import erb_hz
+
         # ERB(1000) = 24.7 * (4.37 + 1) = 24.7 * 5.37 ≈ 132.6
         result = erb_hz(1000.0)
         assert abs(result - 132.6) < 1.0
 
     def test_erb_hz_increases_with_frequency(self):
         from backend.core.erb_auditory_masking import erb_hz
+
         assert erb_hz(100.0) < erb_hz(500.0) < erb_hz(2000.0) < erb_hz(8000.0)
 
     def test_erb_hz_at_zero(self):
         from backend.core.erb_auditory_masking import erb_hz
+
         # ERB(0) = 24.7 * 1 = 24.7
         assert abs(erb_hz(0.0) - 24.7) < 0.01
 
     def test_erb_rate_monotonic(self):
         from backend.core.erb_auditory_masking import erb_rate
+
         freqs = [100, 200, 500, 1000, 2000, 4000, 8000]
         rates = [erb_rate(f) for f in freqs]
         for i in range(1, len(rates)):
@@ -94,6 +99,7 @@ class TestERBFormulas:
 
     def test_erb_rate_roundtrip(self):
         from backend.core.erb_auditory_masking import erb_rate, erb_rate_to_hz
+
         for f in [100.0, 500.0, 1000.0, 4000.0, 10000.0]:
             n = erb_rate(f)
             f_back = erb_rate_to_hz(n)
@@ -108,12 +114,14 @@ class TestERBFormulas:
 class TestSpreadingFunction:
     def test_same_band_full_masking(self):
         from backend.core.erb_auditory_masking import _spreading_function_db
+
         assert _spreading_function_db(1000.0, 1000.0) == 0.0
 
     def test_upward_masking_stronger(self):
         """Masking from low to high should be weaker attenuation (more masking)
         than from high to low — upward masking is asymmetric."""
         from backend.core.erb_auditory_masking import _spreading_function_db
+
         # Masker at 500 Hz, signal at 1000 Hz (upward — lower skirt -10 dB/ERB)
         upward = _spreading_function_db(500.0, 1000.0)
         # Masker at 1000 Hz, signal at 500 Hz (downward — upper skirt -24 dB/ERB)
@@ -123,6 +131,7 @@ class TestSpreadingFunction:
 
     def test_distant_bands_weak_masking(self):
         from backend.core.erb_auditory_masking import _spreading_function_db
+
         # Very distant bands — nearly no masking
         spread = _spreading_function_db(200.0, 8000.0)
         assert spread < -50.0  # very weak
@@ -136,10 +145,12 @@ class TestSpreadingFunction:
 class TestTemporalMasking:
     def test_forward_decay_at_zero(self):
         from backend.core.erb_auditory_masking import _forward_masking_decay_db
+
         assert _forward_masking_decay_db(0.0) == 0.0
 
     def test_forward_decay_increases_with_time(self):
         from backend.core.erb_auditory_masking import _forward_masking_decay_db
+
         d10 = _forward_masking_decay_db(10.0)
         d50 = _forward_masking_decay_db(50.0)
         d100 = _forward_masking_decay_db(100.0)
@@ -147,10 +158,12 @@ class TestTemporalMasking:
 
     def test_forward_decay_beyond_200ms(self):
         from backend.core.erb_auditory_masking import _forward_masking_decay_db
+
         assert _forward_masking_decay_db(201.0) == -100.0
 
     def test_backward_decay_at_zero(self):
         from backend.core.erb_auditory_masking import _backward_masking_decay_db
+
         assert _backward_masking_decay_db(0.0) == 0.0
 
     def test_backward_shorter_than_forward(self):
@@ -159,6 +172,7 @@ class TestTemporalMasking:
             _backward_masking_decay_db,
             _forward_masking_decay_db,
         )
+
         # At 15 ms: backward still active, forward very strong
         fwd_15 = _forward_masking_decay_db(15.0)
         bwd_15 = _backward_masking_decay_db(15.0)
@@ -167,6 +181,7 @@ class TestTemporalMasking:
 
     def test_backward_beyond_20ms(self):
         from backend.core.erb_auditory_masking import _backward_masking_decay_db
+
         assert _backward_masking_decay_db(21.0) == -100.0
 
 
@@ -179,20 +194,29 @@ class TestMaskingThresholds:
     def test_loud_context_high_threshold(self, model, loud_sine, sr):
         """Defect during loud sine should have high masking threshold → low salience."""
         result = model.compute_masking_threshold(
-            loud_sine, sr, defect_start_s=0.8, defect_end_s=0.82,
+            loud_sine,
+            sr,
+            defect_start_s=0.8,
+            defect_end_s=0.82,
         )
         assert result.salience < 0.8
 
     def test_silent_context_low_threshold(self, model, silence_with_click, sr):
         """Defect in silence should have low masking threshold → high salience."""
         result = model.compute_masking_threshold(
-            silence_with_click, sr, defect_start_s=0.95, defect_end_s=1.05,
+            silence_with_click,
+            sr,
+            defect_start_s=0.95,
+            defect_end_s=1.05,
         )
         assert result.salience > 0.3
 
     def test_band_thresholds_populated(self, model, loud_sine, sr):
         result = model.compute_masking_threshold(
-            loud_sine, sr, defect_start_s=0.5, defect_end_s=0.52,
+            loud_sine,
+            sr,
+            defect_start_s=0.5,
+            defect_end_s=0.52,
         )
         assert len(result.band_thresholds) > 0
         for bt in result.band_thresholds:
@@ -203,19 +227,33 @@ class TestMaskingThresholds:
     def test_frequency_range_filter(self, model, loud_sine, sr):
         """Providing defect_freq_range should limit bands evaluated."""
         result_all = model.compute_masking_threshold(
-            loud_sine, sr, 0.5, 0.52,
+            loud_sine,
+            sr,
+            0.5,
+            0.52,
         )
         result_narrow = model.compute_masking_threshold(
-            loud_sine, sr, 0.5, 0.52, defect_freq_range=(200.0, 400.0),
+            loud_sine,
+            sr,
+            0.5,
+            0.52,
+            defect_freq_range=(200.0, 400.0),
         )
         assert len(result_narrow.band_thresholds) <= len(result_all.band_thresholds)
 
     def test_dominant_masking_type(self, model, loud_sine, sr):
         result = model.compute_masking_threshold(
-            loud_sine, sr, 0.5, 0.52,
+            loud_sine,
+            sr,
+            0.5,
+            0.52,
         )
         assert result.dominant_masking_type in {
-            "simultaneous", "temporal_forward", "temporal_backward", "combined", "none",
+            "simultaneous",
+            "temporal_forward",
+            "temporal_backward",
+            "combined",
+            "none",
         }
 
 
@@ -230,7 +268,10 @@ class TestTonalityMasking:
         t = np.linspace(0, 2.0, sr * 2, endpoint=False)
         tonal = 0.8 * np.sin(2 * np.pi * 500.0 * t)
         result = model.compute_masking_threshold(
-            tonal, sr, 0.8, 0.82,
+            tonal,
+            sr,
+            0.8,
+            0.82,
         )
         # Should have some informational bonus
         bonuses = [bt.informational_bonus_db for bt in result.band_thresholds]
@@ -241,7 +282,10 @@ class TestTonalityMasking:
         rng = np.random.default_rng(42)
         noise = rng.standard_normal(sr * 2) * 0.3
         result = model.compute_masking_threshold(
-            noise, sr, 0.8, 0.82,
+            noise,
+            sr,
+            0.8,
+            0.82,
         )
         bonuses = [bt.informational_bonus_db for bt in result.band_thresholds]
         # Noise has low tonality → minimal bonus
@@ -278,7 +322,10 @@ class TestERBShapeHandling:
         mono = 0.5 * np.sin(2 * np.pi * 800.0 * t)
         stereo = np.stack([mono, mono * 0.9], axis=0)
         result = model.compute_masking_threshold(
-            stereo, sr, 0.5, 0.52,
+            stereo,
+            sr,
+            0.5,
+            0.52,
         )
         assert len(result.band_thresholds) > 0
 
@@ -287,7 +334,10 @@ class TestERBShapeHandling:
         mono = 0.5 * np.sin(2 * np.pi * 800.0 * t)
         stereo = np.stack([mono, mono * 0.9], axis=1)
         result = model.compute_masking_threshold(
-            stereo, sr, 0.5, 0.52,
+            stereo,
+            sr,
+            0.5,
+            0.52,
         )
         assert len(result.band_thresholds) > 0
 
@@ -370,12 +420,14 @@ class TestERBEdgeCases:
 class TestERBSingleton:
     def test_singleton_same_instance(self):
         from backend.core.erb_auditory_masking import get_erb_auditory_masking_model
+
         m1 = get_erb_auditory_masking_model()
         m2 = get_erb_auditory_masking_model()
         assert m1 is m2
 
     def test_singleton_thread_safe(self):
         from backend.core.erb_auditory_masking import get_erb_auditory_masking_model
+
         instances = []
 
         def worker():

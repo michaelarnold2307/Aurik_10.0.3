@@ -532,8 +532,8 @@ class GPParameterOptimizer:
                         if _era_k in self._space and math.isfinite(_era_v_f):
                             _lo, _hi, _mode = self._space[_era_k]
                             params[_era_k] = float(np.clip(_era_v_f, _lo, _hi))
-                    except (TypeError, ValueError):
-                        pass
+                    except (TypeError, ValueError) as _exc:
+                        logger.debug("Operation failed (non-critical): %s", _exc)
             self._iterations[material] = it + 1
             return ParameterProposal(
                 parameters=params,

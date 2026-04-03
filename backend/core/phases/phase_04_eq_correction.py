@@ -176,26 +176,26 @@ class EQCorrectionPhase(PhaseInterface):
     # Reference: Copeland (2008); Galo (2003); IEC 60098:1987; Robertson (2011).
     # ---------------------------------------------------------------------------
     PRE_RIAA_EQ_CURVES: dict[str, tuple[int, int, int]] = {
-        "riaa":               (3180, 318,  75),   # RIAA 1954 — reference
-        "nab":                (3180, 318,  50),   # NAB until 1953
-        "columbia":           (1590, 318,   0),   # Columbia 78 rpm until 1948
-        "aes":                (3180, 500,   0),   # AES 1951–1954
-        "capitol":            (1590, 400,   0),   # Capitol until 1953
-        "london":             (3180, 318, 100),   # London/Decca UK until 1954
-        "ccir":               (3180, 318, 120),   # CCIR for tape/lacquers
-        "unknown_prestandard": (1590, 318,   0),   # Conservative fallback ≈ Columbia
+        "riaa": (3180, 318, 75),  # RIAA 1954 — reference
+        "nab": (3180, 318, 50),  # NAB until 1953
+        "columbia": (1590, 318, 0),  # Columbia 78 rpm until 1948
+        "aes": (3180, 500, 0),  # AES 1951–1954
+        "capitol": (1590, 400, 0),  # Capitol until 1953
+        "london": (3180, 318, 100),  # London/Decca UK until 1954
+        "ccir": (3180, 318, 120),  # CCIR for tape/lacquers
+        "unknown_prestandard": (1590, 318, 0),  # Conservative fallback ≈ Columbia
     }
 
     # Mapping from RIAA_CURVE_ERROR subtype (from DefectScanner/MediumClassifier)
     # to HISTORICAL_CURVES key for inverse-EQ application.
     RIAA_ERROR_TO_CURVE: dict[str, str] = {
-        "riaa":               "riaa_1954",
-        "nab":                "nab_1952",
-        "columbia":           "columbia_1938",
-        "aes":                "aes_1951",
-        "capitol":            "capitol_1951",
-        "london":             "london_decca_1953",
-        "ccir":               "ccir_1950",
+        "riaa": "riaa_1954",
+        "nab": "nab_1952",
+        "columbia": "columbia_1938",
+        "aes": "aes_1951",
+        "capitol": "capitol_1951",
+        "london": "london_decca_1953",
+        "ccir": "ccir_1950",
         "unknown_prestandard": "columbia_1938",
     }
 
@@ -620,7 +620,7 @@ class EQCorrectionPhase(PhaseInterface):
         """
         if freq_hz <= 0.0:
             return 0.0
-        omega = 2.0 * np.pi * freq_hz
+        2.0 * np.pi * freq_hz
         # Each τ in seconds
         t1 = tau_bass_us * 1e-6
         t2 = tau_mid_us * 1e-6

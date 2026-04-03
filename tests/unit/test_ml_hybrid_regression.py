@@ -137,7 +137,10 @@ _HYBRID_PHASES = [
     ("phase_19_de_esser", "DeEsserPhase", AUDIO_SINE, {"material": _M}),
     ("phase_20_reverb_reduction", "ReverbReduction", AUDIO_SINE, {}),
     pytest.param(
-        "phase_23_spectral_repair", "SpectralRepair", AUDIO_NOISY, {},
+        "phase_23_spectral_repair",
+        "SpectralRepair",
+        AUDIO_NOISY,
+        {},
         marks=pytest.mark.ml,  # AudioSR (5.9 GB) — Heavy-ML; nur mit --run-heavy-tests
     ),
     ("phase_24_dropout_repair", "DropoutRepairPhase", AUDIO_DROPOUT, {}),
@@ -145,8 +148,7 @@ _HYBRID_PHASES = [
 ]
 
 _PHASE_IDS = [
-    (t.id if hasattr(t, "id") and t.id else t.values[0]) if hasattr(t, "values") else t[0]
-    for t in _HYBRID_PHASES
+    (t.id if hasattr(t, "id") and t.id else t.values[0]) if hasattr(t, "values") else t[0] for t in _HYBRID_PHASES
 ]
 
 

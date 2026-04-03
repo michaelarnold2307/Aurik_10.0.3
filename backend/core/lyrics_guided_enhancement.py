@@ -73,12 +73,12 @@ class LyricsTranscriber:
 
 class ContentAwareProcessor:
     SALIENCY_BOOST: dict[str, float] = {
-        "fricative_stressed": 1.55,    # §8.3 Tiefen-Immersion: fricative ×1.55
+        "fricative_stressed": 1.55,  # §8.3 Tiefen-Immersion: fricative ×1.55
         "fricative_unstressed": 1.55,  # §8.3 Tiefen-Immersion: fricative ×1.55
-        "vowel_stressed": 1.35,        # §8.3 Tiefen-Immersion: vowel_stressed ×1.35
+        "vowel_stressed": 1.35,  # §8.3 Tiefen-Immersion: vowel_stressed ×1.35
         "vowel_unstressed": 1.0,
-        "plosive": 1.40,               # §8.3 Tiefen-Immersion: plosive ×1.40
-        "silence": 0.70,               # §8.3 Tiefen-Immersion: silence ×0.70
+        "plosive": 1.40,  # §8.3 Tiefen-Immersion: plosive ×1.40
+        "silence": 0.70,  # §8.3 Tiefen-Immersion: silence ×0.70
         "mixed": 1.0,
     }
 
@@ -179,11 +179,17 @@ class ContentAwareProcessor:
 
                 order = min(36, n // 4)  # Ord 30–40 preferred; cap for short segments
                 A = lpc(seg - np.mean(seg), order)
+                # Guard: degenerate LPC polynomial triggers LAPACK DLASCL via np.roots companion matrix
+                if not np.isfinite(A).all():
+                    raise ValueError("Degenerate LPC polynomial — passthrough")
                 roots = np.roots(A)
                 roots = roots[(np.abs(roots) < 1.0) & (np.imag(roots) > 0)]
                 formant_freqs: list[float] = sorted(
-                    [float(np.angle(r) * sr / (2.0 * np.pi)) for r in roots
-                     if 80.0 < float(np.angle(r) * sr / (2.0 * np.pi)) < 8_000.0]
+                    [
+                        float(np.angle(r) * sr / (2.0 * np.pi))
+                        for r in roots
+                        if 80.0 < float(np.angle(r) * sr / (2.0 * np.pi)) < 8_000.0
+                    ]
                 )[:4]  # F1–F4 only
                 seg_out = seg.copy()
                 for ff in formant_freqs:
@@ -219,9 +225,7 @@ class ContentAwareProcessor:
                 G_eff = G * energy_bias * strength + (1.0 - strength)
                 G_eff = np.clip(G_eff, G_floor, 1.0)
                 Zxx_out = magnitude * G_eff * np.exp(1j * phase)
-                _, seg_out = _sig.istft(
-                    Zxx_out, fs=sr, window="hann", nperseg=nperseg, noverlap=noverlap
-                )
+                _, seg_out = _sig.istft(Zxx_out, fs=sr, window="hann", nperseg=nperseg, noverlap=noverlap)
                 seg_out = seg_out[:n]
             except Exception:
                 seg_out = seg.copy()
@@ -274,11 +278,11 @@ class ContentAwareProcessor:
                 for ch in range(out.shape[1]):
                     seg_out = self._apply_phoneme_dsp(out[i0:i1, ch], word.phoneme_type, sr, strength)
                     seg_len = min(len(seg_out), i1 - i0)
-                    out[i0: i0 + seg_len, ch] = seg_out[:seg_len]
+                    out[i0 : i0 + seg_len, ch] = seg_out[:seg_len]
             else:
                 seg_out = self._apply_phoneme_dsp(out[i0:i1], word.phoneme_type, sr, strength)
                 seg_len = min(len(seg_out), i1 - i0)
-                out[i0: i0 + seg_len] = seg_out[:seg_len]
+                out[i0 : i0 + seg_len] = seg_out[:seg_len]
 
         return np.clip(np.nan_to_num(out, nan=0.0, posinf=0.0, neginf=0.0), -1.0, 1.0)
 
@@ -492,8 +496,8 @@ class LyricsGuidedEnhancement:
                         size_gb=0.04,
                         unload_fn=lambda: setattr(self, "_ort_session", None),
                     )
-                except Exception:
-                    pass
+                except Exception as _exc:
+                    logger.debug("Operation failed (non-critical): %s", _exc)
             else:
                 logger.debug(
                     "LyricsGuidedEnhancement: whisper_tiny.onnx not found at %s — DSP fallback active",
@@ -508,8 +512,8 @@ class LyricsGuidedEnhancement:
             if not _loaded and _release_on_fail is not None:
                 try:
                     _release_on_fail()  # type: ignore[call-arg]
-                except Exception:
-                    pass
+                except Exception as _exc:
+                    logger.debug("Operation failed (non-critical): %s", _exc)
 
     def _try_load_aligner(self) -> None:
         """Load wav2vec2_forced_alignment.onnx (§2.36 PFLICHT: Phonem-Alignment).
@@ -558,8 +562,8 @@ class LyricsGuidedEnhancement:
                         size_gb=0.13,
                         unload_fn=lambda: setattr(self, "_aligner_session", None),
                     )
-                except Exception:
-                    pass
+                except Exception as _exc:
+                    logger.debug("Operation failed (non-critical): %s", _exc)
             else:
                 logger.debug(
                     "LyricsGuidedEnhancement: wav2vec2_forced_alignment.onnx not found at %s"
@@ -575,8 +579,8 @@ class LyricsGuidedEnhancement:
             if not _loaded and _release_on_fail is not None:
                 try:
                     _release_on_fail()  # type: ignore[call-arg]
-                except Exception:
-                    pass
+                except Exception as _exc:
+                    logger.debug("Operation failed (non-critical): %s", _exc)
 
     # Minimum samples required by wav2vec2 feature extractor (7 Conv1d layers,
     # cumulative receptive field: kernels [10,3,3,3,3,2,2], strides [5,2,2,2,2,2,2]
@@ -818,9 +822,10 @@ class LyricsGuidedEnhancement:
         # §2.36 Pflicht: phoneme-level refinement via wav2vec2 forced alignment.
         # Falls aligner nicht verfügbar ist, gibt _align_phonemes die Original-Liste zurück.
         words = self._align_phonemes(words, mono_16k, self._WAV2VEC2_SR)
+        _detected_lang, _lang_conf = self._detect_language_from_mono(mono_16k, self._ONNX_SR)
         return LyricsTranscriptionResult(
             words=words,
-            language="de",
+            language=_detected_lang,
             overall_confidence=0.65,
             duration_s=dur,
             fallback_used=False,
@@ -835,7 +840,7 @@ class LyricsGuidedEnhancement:
             for i in range(0, max(1, len(mono) - frame_size), hop)
         ]
         if not energies:
-            return LyricsTranscriptionResult([], "de", 0.0, dur, fallback_used=True)
+            return LyricsTranscriptionResult([], "unknown", 0.0, dur, fallback_used=True)
         arr = np.array(energies, dtype=np.float32)
         e_max = float(arr.max()) or 1.0
         arr /= e_max
@@ -844,13 +849,37 @@ class LyricsGuidedEnhancement:
         # mit wav2vec2 nachklassifizieren; ansonsten unverändert belassen.
         mono_16k = self._resample(mono, sr, self._WAV2VEC2_SR)
         words = self._align_phonemes(words, mono_16k, self._WAV2VEC2_SR)
+        _detected_lang, _lang_conf = self._detect_language_from_mono(mono_16k, self._WAV2VEC2_SR)
         return LyricsTranscriptionResult(
             words=words,
-            language="de",
+            language=_detected_lang,
             overall_confidence=0.3,
             duration_s=dur,
             fallback_used=True,
         )
+
+    # ── Language detection ─────────────────────────────────────────────────
+
+    def _detect_language_from_mono(self, mono: np.ndarray, sr: int) -> tuple[str, float]:
+        """Detect spoken language from audio via LPC formant analysis (SR-agnostic).
+
+        Delegates to backend.core.phoneme_timeline._detect_language.
+        Falls back to ("unknown", 0.0) on import error or any exception.
+
+        Args:
+            mono: 1-D float32 audio at any sample rate.
+            sr:   Sample rate in Hz.
+
+        Returns:
+            (language_code, confidence) tuple.
+        """
+        try:
+            from backend.core.phoneme_timeline import _detect_language as _ptl_detect
+
+            return _ptl_detect(mono, sr)
+        except Exception as exc:
+            logger.debug("LyricsGuidedEnhancement._detect_language_from_mono failed: %s", exc)
+            return ("unknown", 0.0)
 
     # ── DSP helpers ────────────────────────────────────────────────────────
 
@@ -901,8 +930,10 @@ class LyricsGuidedEnhancement:
                 # High centroid + high flatness → noise-like → fricative
                 if centroid > 4000.0 and flatness > 0.05:
                     return "fricative_stressed" if is_stressed else "fricative_unstressed"
-            except Exception:
-                pass  # DSP failed → fall through to vowel classification
+            except Exception as _exc:
+                logger.debug(
+                    "Operation failed (non-critical): %s", _exc
+                )  # DSP failed → fall through to vowel classification
 
         return "vowel_stressed" if is_stressed else "vowel_unstressed"
 

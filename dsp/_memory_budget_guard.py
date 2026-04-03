@@ -25,4 +25,4 @@ def release_budget(name: str) -> None:
 
         release(name)
     except Exception:
-        pass
+        _logger.debug("ml_memory_budget.release(%s) failed", name, exc_info=True)

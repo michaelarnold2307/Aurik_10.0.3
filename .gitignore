@@ -58,6 +58,10 @@ logs/
 *.ndjson
 nohup.out
 
+# ── AMRB-Benchmark-Ergebnisse (Laufzeit-Artefakte) ───────────────────────────
+benchmarks/amrb_baseline_log.jsonl
+benchmarks/amrb_baseline_restoration_*.json
+
 # ── Daten & Trainingsdaten ───────────────────────────────────────────────────
 datasets/
 data/

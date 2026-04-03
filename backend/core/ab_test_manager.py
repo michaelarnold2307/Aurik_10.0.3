@@ -24,13 +24,6 @@ import warnings
 from collections.abc import Callable
 
 # Re-export kanonische Symbole für Backward-Compatibility
-from backend.core.ab_compare_manager import (
-    ABCompareManager,
-    ABDiff,
-    ABSession,
-    get_ab_manager,
-    store_ab_session,
-)
 
 logger = logging.getLogger(__name__)
 

@@ -41,8 +41,8 @@ class SileroPlugin:
                 if not _try_alloc("SileroVAD", size_gb=0.11):
                     logger.warning("SileroVAD: ML-Budget erschöpft — Energie-Fallback.")
                     return
-            except Exception:
-                pass
+            except Exception as _exc:
+                logger.debug("Operation failed (non-critical): %s", _exc)
 
             opts = ort.SessionOptions()
             opts.inter_op_num_threads = 2
@@ -52,16 +52,16 @@ class SileroPlugin:
                 from backend.core.plugin_lifecycle_manager import register_plugin as _reg_plm
 
                 _reg_plm("SileroVAD", size_gb=0.11, unload_fn=lambda s=self: setattr(s, "_session", None))
-            except Exception:
-                pass
+            except Exception as _exc:
+                logger.debug("Operation failed (non-critical): %s", _exc)
         except Exception as exc:
             logger.warning("Silero Ladefehler: %s -- Energie-Fallback.", exc)
             try:
                 from backend.core.ml_memory_budget import release as _rel
 
                 _rel("SileroVAD")
-            except Exception:
-                pass
+            except Exception as _exc:
+                logger.debug("Operation failed (non-critical): %s", _exc)
 
     def is_speech(self, audio: np.ndarray, sr: int) -> float:
         """Gibt Sprach-Wahrscheinlichkeit [0,1] zurueck."""

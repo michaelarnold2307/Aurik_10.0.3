@@ -356,7 +356,6 @@ class AccessibleCLI:
         Returns:
             True if user confirms, False otherwise
         """
-        "Y/n" if default else "y/N"
         response = self.prompt(message, default="y" if default else "n", valid_choices=["y", "n"])
         return response.lower() == "y"
 

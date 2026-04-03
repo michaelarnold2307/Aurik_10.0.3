@@ -22,9 +22,6 @@ Spec-Referenzen:
 from __future__ import annotations
 
 import math
-import os
-import sys
-from typing import Any
 
 import numpy as np
 import pytest
@@ -34,6 +31,7 @@ _INT_TIMEOUT = 60
 
 
 # ── Shared Fixtures ─────────────────────────────────────────────────────
+
 
 @pytest.fixture(scope="module")
 def audio_48k_stereo() -> tuple[np.ndarray, int]:
@@ -101,8 +99,7 @@ class TestDefectScannerToReasoner:
 
         # Convert to reasoner input format
         defect_scores = {
-            dt.value if hasattr(dt, "value") else str(dt): float(ds.severity)
-            for dt, ds in result.scores.items()
+            dt.value if hasattr(dt, "value") else str(dt): float(ds.severity) for dt, ds in result.scores.items()
         }
 
         from backend.core.causal_defect_reasoner import CausalDefectReasoner
@@ -256,7 +253,9 @@ class TestClassifierIntegration:
         from backend.core.medium_classifier import classify_medium
 
         medium_result = classify_medium(audio, sr, use_ml=False)
-        mat_str = medium_result.material.value if hasattr(medium_result.material, "value") else str(medium_result.material)
+        mat_str = (
+            medium_result.material.value if hasattr(medium_result.material, "value") else str(medium_result.material)
+        )
 
         # MaterialType conversion should not crash
         try:
@@ -410,12 +409,16 @@ class TestSongCalibrationIntegration:
         assert "family_scalars" in profile
         fs = profile["family_scalars"]
         required_families = {
-            "denoise", "reverb", "reconstruction", "dynamics_eq",
-            "transient", "vocal", "instrument", "general",
+            "denoise",
+            "reverb",
+            "reconstruction",
+            "dynamics_eq",
+            "transient",
+            "vocal",
+            "instrument",
+            "general",
         }
-        assert required_families.issubset(set(fs.keys())), (
-            f"Missing families: {required_families - set(fs.keys())}"
-        )
+        assert required_families.issubset(set(fs.keys())), f"Missing families: {required_families - set(fs.keys())}"
 
     @pytest.mark.timeout(_INT_TIMEOUT)
     def test_calibration_scalars_bounded(self):
@@ -444,23 +447,21 @@ class TestSongCalibrationIntegration:
         from backend.core.quality_mode import QualityMode
         from backend.core.unified_restorer_v3 import UnifiedRestorerV3
 
-        kwargs = dict(
-            material_type=None,
-            mode=QualityMode.BALANCED,
-            restorability_score=65.0,
-            input_snr_db=20.0,
-            max_defect_severity=0.4,
-            pipeline_confidence=0.85,
-            era_decade=1975,
-        )
+        kwargs = {
+            "material_type": None,
+            "mode": QualityMode.BALANCED,
+            "restorability_score": 65.0,
+            "input_snr_db": 20.0,
+            "max_defect_severity": 0.4,
+            "pipeline_confidence": 0.85,
+            "era_decade": 1975,
+        }
         p1 = UnifiedRestorerV3._build_song_calibration_profile(**kwargs)
         p2 = UnifiedRestorerV3._build_song_calibration_profile(**kwargs)
 
         assert p1["global_scalar"] == p2["global_scalar"]
         for fam in p1["family_scalars"]:
-            assert p1["family_scalars"][fam] == p2["family_scalars"][fam], (
-                f"Non-deterministic: {fam} differs"
-            )
+            assert p1["family_scalars"][fam] == p2["family_scalars"][fam], f"Non-deterministic: {fam} differs"
 
     @pytest.mark.timeout(_INT_TIMEOUT)
     def test_calibration_differs_by_material(self):
@@ -469,18 +470,20 @@ class TestSongCalibrationIntegration:
         from backend.core.quality_mode import QualityMode
         from backend.core.unified_restorer_v3 import UnifiedRestorerV3
 
-        base = dict(
-            mode=QualityMode.BALANCED,
-            restorability_score=60.0,
-            input_snr_db=18.0,
-            max_defect_severity=0.5,
-            pipeline_confidence=0.8,
-        )
+        base = {
+            "mode": QualityMode.BALANCED,
+            "restorability_score": 60.0,
+            "input_snr_db": 18.0,
+            "max_defect_severity": 0.5,
+            "pipeline_confidence": 0.8,
+        }
         p_shellac = UnifiedRestorerV3._build_song_calibration_profile(
-            material_type=MaterialType.SHELLAC, **base,
+            material_type=MaterialType.SHELLAC,
+            **base,
         )
         p_cd = UnifiedRestorerV3._build_song_calibration_profile(
-            material_type=MaterialType.CD_DIGITAL, **base,
+            material_type=MaterialType.CD_DIGITAL,
+            **base,
         )
 
         # Different materials should produce different scalars
@@ -496,10 +499,20 @@ class TestMusicalGoalsCheckerIntegration:
     """Test MusicalGoalsChecker measures all 14 goals on real audio."""
 
     _EXPECTED_GOALS = {
-        "bass_kraft", "brillanz", "waerme", "natuerlichkeit",
-        "authentizitaet", "emotionalitaet", "transparenz", "groove",
-        "spatial_depth", "timbre_authentizitaet", "tonal_center",
-        "micro_dynamics", "separation_fidelity", "artikulation",
+        "bass_kraft",
+        "brillanz",
+        "waerme",
+        "natuerlichkeit",
+        "authentizitaet",
+        "emotionalitaet",
+        "transparenz",
+        "groove",
+        "spatial_depth",
+        "timbre_authentizitaet",
+        "tonal_center",
+        "micro_dynamics",
+        "separation_fidelity",
+        "artikulation",
     }
 
     @pytest.mark.timeout(_INT_TIMEOUT)
@@ -552,7 +565,7 @@ class TestMusicalGoalsCheckerIntegration:
         from backend.core.musical_goals.musical_goals_metrics import MusicalGoalsChecker
 
         checker = MusicalGoalsChecker(mode="restoration")
-        scores_no_ref = checker.measure_all(audio, sr)
+        checker.measure_all(audio, sr)
         scores_with_ref = checker.measure_all(audio, sr, reference=audio)
 
         # Self-reference should yield high authenticity
@@ -633,7 +646,6 @@ class TestBridgeAPIIntegration:
     def test_bridge_cache_roundtrip(self, audio_48k_mono):
         """Cache functions: cache → get → roundtrip consistency."""
         from backend.api.bridge import (
-            cache_defect_result,
             clear_defect_cache,
             get_cached_defect_result,
         )
@@ -682,14 +694,17 @@ class TestPhaseInterfaceContract:
         return None
 
     @pytest.mark.timeout(_INT_TIMEOUT)
-    @pytest.mark.parametrize("phase_name", [
-        "phase_01_click_removal",
-        "phase_02_hum_removal",
-        "phase_03_denoise",
-        "phase_05_rumble_filter",
-        "phase_27_click_pop_removal",
-        "phase_30_dc_offset_removal",
-    ])
+    @pytest.mark.parametrize(
+        "phase_name",
+        [
+            "phase_01_click_removal",
+            "phase_02_hum_removal",
+            "phase_03_denoise",
+            "phase_05_rumble_filter",
+            "phase_27_click_pop_removal",
+            "phase_30_dc_offset_removal",
+        ],
+    )
     def test_phase_has_metadata(self, phase_name):
         """Phase class implements get_metadata() returning PhaseMetadata."""
         cls = self._load_phase(phase_name)
@@ -705,10 +720,13 @@ class TestPhaseInterfaceContract:
         assert meta.phase_id.startswith("phase_")
 
     @pytest.mark.timeout(_INT_TIMEOUT)
-    @pytest.mark.parametrize("phase_name", [
-        "phase_30_dc_offset_removal",
-        "phase_05_rumble_filter",
-    ])
+    @pytest.mark.parametrize(
+        "phase_name",
+        [
+            "phase_30_dc_offset_removal",
+            "phase_05_rumble_filter",
+        ],
+    )
     def test_phase_process_returns_phase_result(self, phase_name, audio_48k_mono):
         """Phase.process() returns PhaseResult with required fields."""
         audio, sr = audio_48k_mono
@@ -774,9 +792,9 @@ class TestDenkerChainIntegration:
 
         denker = AurikDenker()
         # Verify the denker has references to sub-denkers
-        has_rep = hasattr(denker, "_reparatur_denker") or hasattr(denker, "reparatur_denker")
-        has_rek = hasattr(denker, "_rekonstruktions_denker") or hasattr(denker, "rekonstruktions_denker")
-        has_rest = hasattr(denker, "_restaurier_denker") or hasattr(denker, "restaurier_denker")
+        hasattr(denker, "_reparatur_denker") or hasattr(denker, "reparatur_denker")
+        hasattr(denker, "_rekonstruktions_denker") or hasattr(denker, "rekonstruktions_denker")
+        hasattr(denker, "_restaurier_denker") or hasattr(denker, "restaurier_denker")
 
         # At minimum, AurikDenker must orchestrate the chain
         assert hasattr(denker, "denke"), "AurikDenker must have denke() method"
@@ -821,9 +839,7 @@ class TestCrossModuleDataFlow:
             (ds.severity for ds in defect_result.scores.values()),
             default=0.0,
         )
-        defect_scores_dict = {
-            dt.value: ds.severity for dt, ds in defect_result.scores.items()
-        }
+        defect_scores_dict = {dt.value: ds.severity for dt, ds in defect_result.scores.items()}
         sf = defect_result.spectral_fingerprint if hasattr(defect_result, "spectral_fingerprint") else {}
 
         profile = UnifiedRestorerV3._build_song_calibration_profile(

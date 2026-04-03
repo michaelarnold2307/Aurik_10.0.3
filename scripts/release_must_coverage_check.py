@@ -9,9 +9,9 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import Iterable
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from collections.abc import Iterable
 
 ROOT = Path(__file__).resolve().parent.parent
 SPEC_PATH = ROOT / ".github" / "copilot-instructions.md"

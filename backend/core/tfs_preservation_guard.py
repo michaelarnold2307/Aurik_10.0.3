@@ -44,6 +44,7 @@ logger = logging.getLogger(__name__)
 # ERB centre-frequency grid (Moore & Glasberg 1990)
 # ---------------------------------------------------------------------------
 
+
 def _erb_hz(f_hz: float) -> float:
     """Equivalent Rectangular Bandwidth at frequency *f_hz* (Glasberg & Moore 1990).
 
@@ -72,6 +73,7 @@ def _erb_centre_frequencies(
 # Result dataclass
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class TFSBandResult:
     """TFS coherence result for a single ERB band."""
@@ -96,6 +98,7 @@ class TFSResult:
 # ---------------------------------------------------------------------------
 # Core guard
 # ---------------------------------------------------------------------------
+
 
 class TFSPreservationGuard:
     """Measures temporal fine structure fidelity between original and processed audio.
@@ -152,8 +155,11 @@ class TFSPreservationGuard:
         if min_len < self._FRAME_SAMPLES * 2:
             logger.debug("TFS: audio too short (%d samples), returning perfect coherence", min_len)
             return TFSResult(
-                band_results=[], mean_coherence=1.0, min_coherence=1.0,
-                n_bands=0, passes_threshold=True,
+                band_results=[],
+                mean_coherence=1.0,
+                min_coherence=1.0,
+                n_bands=0,
+                passes_threshold=True,
             )
         orig_m = orig_m[:min_len]
         rest_m = rest_m[:min_len]
@@ -219,17 +225,22 @@ class TFSPreservationGuard:
             coherence = float(np.abs(np.mean(np.exp(1j * all_diffs))))
             coherence = float(np.nan_to_num(np.clip(coherence, 0.0, 1.0), nan=1.0))
 
-            band_results.append(TFSBandResult(
-                centre_freq_hz=float(fc),
-                erb_width_hz=float(erb_w),
-                tfs_coherence=coherence,
-                n_voiced_frames=n_voiced,
-            ))
+            band_results.append(
+                TFSBandResult(
+                    centre_freq_hz=float(fc),
+                    erb_width_hz=float(erb_w),
+                    tfs_coherence=coherence,
+                    n_voiced_frames=n_voiced,
+                )
+            )
 
         if not band_results:
             return TFSResult(
-                band_results=[], mean_coherence=1.0, min_coherence=1.0,
-                n_bands=0, passes_threshold=True,
+                band_results=[],
+                mean_coherence=1.0,
+                min_coherence=1.0,
+                n_bands=0,
+                passes_threshold=True,
             )
 
         coherences = [br.tfs_coherence for br in band_results]

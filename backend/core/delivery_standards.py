@@ -22,9 +22,7 @@ Version: 1.0
 Date: 2026-02-10
 """
 
-import json
 import logging
-import os
 import threading
 from dataclasses import asdict, dataclass
 from datetime import datetime
@@ -572,7 +570,7 @@ class BWFMetadataWriter:
                     new_raw = new_raw[:4] + struct.pack("<I", new_riff_size) + new_raw[8:]
                     with open(audio_file_path, "wb") as fh:
                         fh.write(new_raw)
-                    logger.info(f"BWF/BEXT-Chunk geschrieben: {audio_file_path} " f"({len(bext_content)} Bytes)")
+                    logger.info(f"BWF/BEXT-Chunk geschrieben: {audio_file_path} ({len(bext_content)} Bytes)")
                     return True
 
             # Fallback: Nur Logging

@@ -32,7 +32,7 @@ class MultiResolutionSTFTLoss(nn.Module):
 
     def __init__(
         self,
-        fft_sizes: list[int] = [2048, 1024, 512, 256, 128],
+        fft_sizes: list[int] | None = None,
         hop_sizes: list[int] | None = None,
         win_lengths: list[int] | None = None,
         window: str = "hann",
@@ -41,6 +41,8 @@ class MultiResolutionSTFTLoss(nn.Module):
         epsilon: float = 1e-8,
     ):
         super().__init__()
+        if fft_sizes is None:
+            fft_sizes = [2048, 1024, 512, 256, 128]
 
         self.fft_sizes = fft_sizes
         self.hop_sizes = hop_sizes or [f // 4 for f in fft_sizes]
@@ -153,11 +155,13 @@ class PANNsPerceptualLoss(nn.Module):
     def __init__(
         self,
         panns_model_path: str | None = None,
-        feature_layers: list[str] = ["conv_block1", "conv_block2", "conv_block3", "conv_block4"],
+        feature_layers: list[str] | None = None,
         feature_weights: list[float] | None = None,
         distance_metric: str = "l1",
     ) -> None:
         super().__init__()
+        if feature_layers is None:
+            feature_layers = ["conv_block1", "conv_block2", "conv_block3", "conv_block4"]
 
         try:
             # Lazy import für PANNs

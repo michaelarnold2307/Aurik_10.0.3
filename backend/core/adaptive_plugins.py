@@ -437,8 +437,8 @@ class LanguageNet:
             try:
                 mfcc = librosa.feature.mfcc(y=mono.astype(np.float32), sr=sr, n_mfcc=n_mfcc)
                 return np.mean(mfcc, axis=1)
-            except Exception:
-                pass
+            except Exception as _exc:
+                logger.debug("Operation failed (non-critical): %s", _exc)
         # DCT fallback on log Mel power spectrum
         try:
             n_fft = min(2048, len(mono))

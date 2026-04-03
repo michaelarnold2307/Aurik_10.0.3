@@ -703,11 +703,11 @@ class SemanticAudioAnalyzer:
             return True
 
         # Enhance if vocals are present
-        for inst in instruments:
-            if inst.instrument in [InstrumentType.VOCALS, InstrumentType.SPEECH] and inst.confidence > 0.4:
-                return True
-
-        return False
+        return any(
+            inst.instrument in [InstrumentType.VOCALS, InstrumentType.SPEECH]
+            and inst.confidence > 0.4
+            for inst in instruments
+        )
 
     def _should_reduce_harshness(
         self,

@@ -60,6 +60,8 @@ class AudioSuperResolution:
                 upsample_factor = self.target_sr / sr
                 n_samples = int(len(audio) * upsample_factor)
                 audio_up = resample(audio, n_samples)
+                audio_up = np.nan_to_num(audio_up, nan=0.0, posinf=0.0, neginf=0.0)
+                audio_up = np.clip(audio_up, -1.0, 1.0)
                 logger.info(f"Fallback: Spline-Upsampling auf {self.target_sr} Hz.")
                 fallback_used = True
             else:

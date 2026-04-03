@@ -236,8 +236,8 @@ class DacPlugin:
                 if not _try_alloc("DacEncoder", size_gb=_ENCODER_GB):
                     logger.warning("DacPlugin: RAM-Budget erschöpft — Encoder nicht geladen.")
                     return
-            except Exception:
-                pass
+            except Exception as _exc:
+                logger.debug("Plugin operation failed (non-critical): %s", _exc)
 
             opts = _make_session_options()
             kwargs: dict = {"providers": ["CPUExecutionProvider"]}
@@ -251,8 +251,8 @@ class DacPlugin:
                 from backend.core.plugin_lifecycle_manager import register_plugin as _reg_plm
 
                 _reg_plm("DacEncoder", size_gb=_ENCODER_GB, unload_fn=lambda: self._unload_encoder())
-            except Exception:
-                pass
+            except Exception as _exc:
+                logger.debug("Plugin operation failed (non-critical): %s", _exc)
 
             # Decoder is optional (larger, only needed for full round-trip)
             if _DECODER_PATH.exists():
@@ -262,8 +262,8 @@ class DacPlugin:
                     if not _try_alloc2("DacDecoder", size_gb=_DECODER_GB):
                         logger.info("DacPlugin: RAM-Budget erschöpft — Decoder nicht geladen (Encoder aktiv).")
                         return
-                except Exception:
-                    pass
+                except Exception as _exc:
+                    logger.debug("Plugin operation failed (non-critical): %s", _exc)
 
                 self._dec_session = ort.InferenceSession(str(_DECODER_PATH), **kwargs)
                 self._dec_loaded = True
@@ -272,8 +272,8 @@ class DacPlugin:
                     from backend.core.plugin_lifecycle_manager import register_plugin as _reg_plm
 
                     _reg_plm("DacDecoder", size_gb=_DECODER_GB, unload_fn=lambda: self._unload_decoder())
-                except Exception:
-                    pass
+                except Exception as _exc:
+                    logger.debug("Plugin operation failed (non-critical): %s", _exc)
 
         except Exception as exc:
             logger.warning("DAC ONNX nicht ladbar: %s — Plugin deaktiviert.", exc)
@@ -283,8 +283,8 @@ class DacPlugin:
                 if self._enc_loaded:
                     _release("DacEncoder")
                 _release("DacDecoder")
-            except Exception:
-                pass
+            except Exception as _exc:
+                logger.debug("Plugin operation failed (non-critical): %s", _exc)
 
     # ------------------------------------------------------------------
     # Public API

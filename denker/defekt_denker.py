@@ -197,6 +197,7 @@ class DefektDenker:
         validate_audio: bool = True,
         progress_callback: Callable[[int, str], None] | None = None,
         cached_defect_result: Any | None = None,
+        file_ext: str = "",
     ) -> DefektErgebnis:
         """Erkennt und klassifiziert Defekte im Audio-Signal.
 
@@ -211,6 +212,7 @@ class DefektDenker:
             sr:             Sample-Rate in Hz.
             material:       Materialtyp als String (z. B. 'vinyl', 'tape').
             validate_audio: NaN/Inf-Bereinigung durchführen.
+            file_ext:       Dateiendung (z. B. '.mp3') für MediumDetector-Prior.
 
         Returns:
             DefektErgebnis (Kompatibilitäts-Alias) mit Defekten, Ursachen und
@@ -238,6 +240,7 @@ class DefektDenker:
                 if material and material != "unknown":
                     try:
                         from backend.core.defect_scanner import MaterialType as _MaterialType
+
                         # MediumDetector returns "cassette" which has no enum value;
                         # cassette tape maps to MaterialType.TAPE ("tape") in this codebase.
                         _mat_str = "tape" if material == "cassette" else material
@@ -254,6 +257,7 @@ class DefektDenker:
                     sample_rate=sr,
                     material_type=_mat_type_arg,
                     progress_callback=progress_callback,
+                    file_ext=file_ext,
                 )
                 defect_scores = self._extract_scores(scan_result)
             except Exception as exc:

@@ -772,8 +772,8 @@ class MultiPassEngine:
                             f"Variante {_vi + 1}/{_vn}: '{variant.name}' wird bewertet …",
                             0.0,
                         )
-                    except Exception:
-                        pass
+                    except Exception as _exc:
+                        logger.debug("Operation failed (non-critical): %s", _exc)
 
                 # Sub-progress: map UV3's 0–100 into this variant's slice of the outer bar
                 def _make_sub_cb(_base: int, _span: int):
@@ -781,8 +781,8 @@ class MultiPassEngine:
                         if progress_callback is not None:
                             try:
                                 progress_callback(_base + int(pct * _span / 100), phase, elapsed)
-                            except Exception:
-                                pass
+                            except Exception as _exc:
+                                logger.debug("Operation failed (non-critical): %s", _exc)
 
                     return _sub_progress
 
@@ -821,8 +821,8 @@ class MultiPassEngine:
                             f"Variante {_vi + 1}/{_vn}: '{variant.name}' → {_score_str} ✓",
                             proc_time,
                         )
-                    except Exception:
-                        pass
+                    except Exception as _exc:
+                        logger.debug("Operation failed (non-critical): %s", _exc)
 
                 logger.info(f"    → {score}")
 

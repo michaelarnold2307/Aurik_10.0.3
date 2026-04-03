@@ -151,8 +151,8 @@ def _get_banquet_onnx_session():
                             get_plugin_lifecycle_manager().register(
                                 "BANQUET", size_gb=_BANQUET_SIZE_GB, unload_fn=lambda: None
                             )
-                        except Exception:
-                            pass
+                        except Exception as _exc:
+                            logger.debug("Operation failed (non-critical): %s", _exc)
                         logger.info(
                             "BANQUET ONNX-Session geladen (direkter Zugriff, kein Docker): %s",
                             _model_path,

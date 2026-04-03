@@ -1,7 +1,3 @@
-import logging
-
-logger = logging.getLogger(__name__)
-
 """
 
 Professional formant tracking, correction, and enhancement:
@@ -15,6 +11,10 @@ Version: 1.0.0
 Date: 9. Februar 2026
 """
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 import warnings
 
 import numpy as np
@@ -23,6 +23,7 @@ from scipy.signal import lfilter
 
 try:
     import pyworld as _pw  # type: ignore[import-untyped]
+
     _HAS_PYWORLD: bool = True
 except ImportError:
     _pw = None  # type: ignore[assignment]
@@ -135,8 +136,15 @@ class FormantTracker:
         # Compute LPC coefficients
         lpc_coeffs = self._compute_lpc(frame, lpc_order)
 
+        # Guard: degenerate LPC coefficients → LAPACK DLASCL failure
+        if not np.all(np.isfinite(lpc_coeffs)):
+            return np.zeros(self.n_formants), np.full(self.n_formants, 500.0)
+
         # Find poles (roots of LPC polynomial)
-        roots = np.roots(lpc_coeffs)
+        try:
+            roots = np.roots(lpc_coeffs)
+        except (np.linalg.LinAlgError, ValueError):
+            return np.zeros(self.n_formants), np.full(self.n_formants, 500.0)
 
         # Convert to frequencies and bandwidths
         freqs, bws = self._roots_to_formants(roots, sr)
@@ -166,6 +174,10 @@ class FormantTracker:
         r = np.correlate(frame, frame, mode="full")
         r = r[len(r) // 2 :]
         r = r[: order + 1]
+
+        # Guard: degenerate autocorrelation (NaN/Inf/near-zero) triggers LAPACK DLASCL failure
+        if not np.isfinite(r).all() or r[0] < 1e-12:
+            return np.array([1.0] + [0.0] * order)  # neutral LPC polynomial (passthrough)
 
         # Levinson-Durbin recursion
         lpc_coeffs = self._levinson_durbin(r, order)
@@ -342,37 +354,30 @@ class FormantCorrector:
 
         # Median detected formants for this correction pass
         n_correct = min(3, len(target_formants))
-        current_formants = np.array([
-            float(np.median(formant_freqs[:, i])) if formant_freqs.shape[1] > i else 0.0
-            for i in range(n_correct)
-        ])
+        current_formants = np.array(
+            [float(np.median(formant_freqs[:, i])) if formant_freqs.shape[1] > i else 0.0 for i in range(n_correct)]
+        )
 
         # Primary: WORLD spectral-envelope warp (Morise et al. 2016) — phase-transparent.
         # Fallback: biquad EQ approximation when pyworld is unavailable.
         audio_full = audio.copy()
         if _HAS_PYWORLD and _pw is not None:
             try:
-                audio_full = self._correct_with_world(
-                    audio, sr, current_formants, target_formants[:n_correct]
-                )
+                audio_full = self._correct_with_world(audio, sr, current_formants, target_formants[:n_correct])
             except Exception:
                 for i in range(n_correct):
                     if target_formants[i] == 0 or current_formants[i] == 0:
                         continue
                     shift_hz = target_formants[i] - current_formants[i]
                     if np.abs(shift_hz) > self.max_drift_hz:
-                        audio_full = self._apply_formant_shift_eq(
-                            audio_full, sr, current_formants[i], shift_hz
-                        )
+                        audio_full = self._apply_formant_shift_eq(audio_full, sr, current_formants[i], shift_hz)
         else:
             for i in range(n_correct):
                 if target_formants[i] == 0 or current_formants[i] == 0:
                     continue
                 shift_hz = target_formants[i] - current_formants[i]
                 if np.abs(shift_hz) > self.max_drift_hz:
-                    audio_full = self._apply_formant_shift_eq(
-                        audio_full, sr, current_formants[i], shift_hz
-                    )
+                    audio_full = self._apply_formant_shift_eq(audio_full, sr, current_formants[i], shift_hz)
 
         # Blend with original
         audio_corrected = self.correction_strength * audio_full + (1 - self.correction_strength) * audio
@@ -490,15 +495,13 @@ class FormantCorrector:
 
         f0, timeaxis = _pw.harvest(audio_f64, sr_f64)
         f0_sm = _pw.stonemask(audio_f64, f0, timeaxis, sr_f64)
-        sp = _pw.cheaptrick(audio_f64, f0_sm, timeaxis, sr_f64)   # (n_frames, bins)
+        sp = _pw.cheaptrick(audio_f64, f0_sm, timeaxis, sr_f64)  # (n_frames, bins)
         ap = _pw.d4c(audio_f64, f0_sm, timeaxis, sr_f64)
 
         freq_axis = np.linspace(0.0, sr_f64 / 2.0, sp.shape[1])
         sp_warped = np.empty_like(sp)
         for fi in range(sp.shape[0]):
-            sp_warped[fi] = self._warp_sp_frame(
-                sp[fi], freq_axis, current_formants, target_formants
-            )
+            sp_warped[fi] = self._warp_sp_frame(sp[fi], freq_axis, current_formants, target_formants)
 
         out = _pw.synthesize(f0_sm, sp_warped, ap, sr_f64)
         out = np.nan_to_num(out, nan=0.0, posinf=0.0, neginf=0.0)
@@ -664,10 +667,12 @@ class SingersFormantEnhancer:
         if has_formant and formant_freqs is not None and formant_freqs.shape[1] >= 4:
             f4 = formant_freqs[:, 3] if formant_freqs.shape[1] > 3 else np.zeros(len(formant_freqs))
             f5 = formant_freqs[:, 4] if formant_freqs.shape[1] > 4 else np.zeros(len(formant_freqs))
-            cluster_vals = np.concatenate([
-                f4[(f4 >= 2500.0) & (f4 <= 3500.0)],
-                f5[(f5 >= 2500.0) & (f5 <= 3500.0)],
-            ])
+            cluster_vals = np.concatenate(
+                [
+                    f4[(f4 >= 2500.0) & (f4 <= 3500.0)],
+                    f5[(f5 >= 2500.0) & (f5 <= 3500.0)],
+                ]
+            )
             if len(cluster_vals) > 0:
                 cluster_center = float(np.median(cluster_vals))
 
@@ -679,9 +684,7 @@ class SingersFormantEnhancer:
         else:
             # Scale gain by clustering strength; boost at the actual cluster center
             adaptive_gain = self.gain_db * (1.0 - strength * 0.5)
-            audio_enhanced = self._apply_peak_eq(
-                audio, sr, cluster_center, self.bandwidth_hz, adaptive_gain
-            )
+            audio_enhanced = self._apply_peak_eq(audio, sr, cluster_center, self.bandwidth_hz, adaptive_gain)
 
         # NaN/Inf-Guard and clipping
         audio_enhanced = np.nan_to_num(audio_enhanced, nan=0.0, posinf=0.0, neginf=0.0)

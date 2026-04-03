@@ -22,7 +22,6 @@ import logging
 import time as _time
 
 import numpy as np
-import scipy.signal as sps
 
 logger = logging.getLogger(__name__)
 
@@ -109,10 +108,10 @@ def apply(
                 continue
             best_offset = int(np.argmax(np.abs(corr)))
             best_corr = float(np.abs(corr[best_offset]))
-            template_energy = float(np.sum(template ** 2))
+            template_energy = float(np.sum(template**2))
             if template_energy < 1e-12:
                 continue
-            norm_corr = best_corr / (np.sqrt(template_energy * np.sum(ghost_region ** 2)) + 1e-12)
+            norm_corr = best_corr / (np.sqrt(template_energy * np.sum(ghost_region**2)) + 1e-12)
 
             if norm_corr < 0.15:  # Low correlation = no echo
                 continue
@@ -149,7 +148,7 @@ def apply(
             spec_clean = mag_clean * np.exp(1j * np.angle(spec_ghost))
 
             cleaned = np.fft.irfft(spec_clean, n=n_fft)
-            out[ghost_start: ghost_start + n_fft] = cleaned
+            out[ghost_start : ghost_start + n_fft] = cleaned
 
     result = np.nan_to_num(out, nan=0.0, posinf=0.0, neginf=0.0)
     return np.clip(result, -1.0, 1.0).astype(np.float32)
@@ -202,6 +201,5 @@ class GrooveEchoCancellationPhase(PhaseInterface):
             audio=result_audio,
             success=True,
             execution_time_seconds=elapsed,
-            metrics={"groove_echo_score": float((_defect_scores or {}).get("groove_echo", 0.0)),
-                     "strength": strength},
+            metrics={"groove_echo_score": float((_defect_scores or {}).get("groove_echo", 0.0)), "strength": strength},
         )

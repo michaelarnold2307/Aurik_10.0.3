@@ -297,10 +297,10 @@ class PresetBrowserWidget(QWidget):
 <b>{self.current_preset.name}</b><br>
 <i>{self.current_preset.description}</i><br>
 <br>
-<b>{t('legacy.preset.medium')}:</b> {self.current_preset.medium_type}<br>
-<b>{t('legacy.preset.mode')}:</b> {self.current_preset.processing_mode}<br>
-<b>{t('legacy.preset.category')}:</b> {self.current_preset.category.value.title()}<br>
-<b>{t('legacy.preset.author')}:</b> {self.current_preset.author}
+<b>{t("legacy.preset.medium")}:</b> {self.current_preset.medium_type}<br>
+<b>{t("legacy.preset.mode")}:</b> {self.current_preset.processing_mode}<br>
+<b>{t("legacy.preset.category")}:</b> {self.current_preset.category.value.title()}<br>
+<b>{t("legacy.preset.author")}:</b> {self.current_preset.author}
             """
             self.details_text.setHtml(details)
 

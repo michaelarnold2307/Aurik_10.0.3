@@ -1,5 +1,7 @@
 {
   "exclude": [
+    "**/node_modules",
+    "**/.*",
     ".venv_aurik",
     ".venv_sota",
     ".venv_dsp",

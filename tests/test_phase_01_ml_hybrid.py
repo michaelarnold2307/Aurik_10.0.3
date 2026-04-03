@@ -54,9 +54,9 @@ print(f"  Normal clicks: {normal_click_count} (expected to use DSP)")
 test_modes = ["FAST", "BALANCED"]
 
 for mode in test_modes:
-    print(f"\n{'-'*80}")
+    print(f"\n{'-' * 80}")
     print(f"Testing Quality Mode: {mode}")
-    print(f"{'-'*80}")
+    print(f"{'-' * 80}")
 
     result = phase.process(
         audio.copy(), sample_rate=sr, material_type="vinyl", preserve_transients=True, quality_mode=mode
@@ -73,7 +73,7 @@ for mode in test_modes:
         print(f"   - Long: {result.modifications['long_clicks']}")
         print(f"   Transients preserved: {result.modifications['transients_preserved']}")
         print(
-            f"   Execution time: {result.metadata['execution_time_seconds']:.3f}s ({result.metadata['execution_time_seconds']/duration:.2f}× RT)"
+            f"   Execution time: {result.metadata['execution_time_seconds']:.3f}s ({result.metadata['execution_time_seconds'] / duration:.2f}× RT)"
         )
 
         # Expectations
@@ -91,9 +91,9 @@ for mode in test_modes:
     else:
         print("❌ Processing failed!")
 
-print(f"\n{'='*80}")
+print(f"\n{'=' * 80}")
 print("✅ Phase 1 ML-Hybrid Integration Test Complete!")
-print(f"{'='*80}")
+print(f"{'=' * 80}")
 print("\nStrategy: DSP-Detection + ML-Inpainting")
 print("  - DSP detects clicks (multi-scale analysis)")
 print("  - Severity calculated: amplitude × 0.5 + duration × 0.5")

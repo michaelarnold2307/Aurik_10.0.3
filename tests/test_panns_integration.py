@@ -41,7 +41,7 @@ def test_panns_integration():
     genre_conf = profile.musical_context.genre_confidence
     # Vocals
     has_vocals = profile.vocal_analysis.has_vocals
-    profile.vocal_analysis.vocal_confidence
+    _ = profile.vocal_analysis.vocal_confidence
     # Instruments
     instruments = profile.musical_context.dominant_instruments
     # Assertions für pytest

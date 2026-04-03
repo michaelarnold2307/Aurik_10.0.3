@@ -67,20 +67,24 @@ class DynamicSpectralTilt:
 
     def process(self, audio: np.ndarray, sr: int) -> np.ndarray:
         """
-        SOTA-Maximum: Tilt-Filter mit adaptiver Verstärkung pro Oktave
+        SOTA: Tilt-Filter with clamped gain curve and NaN guards.
+        Phase is preserved (real-valued gain multiplication).
         """
         self.log_contract()
-        # 1. Frequenzachse bestimmen
+        audio = np.nan_to_num(np.asarray(audio, dtype=np.float64))
         n = len(audio)
-        freqs = np.fft.rfftfreq(n, 1 / sr)
+        freqs = np.fft.rfftfreq(n, 1.0 / sr)
         spectrum = np.fft.rfft(audio)
-        # 2. Tilt-Kurve berechnen
-        tilt_curve = 10 ** (self.tilt_db_per_oct * np.log2(freqs / 1000 + 1e-8) / 20)
-        # 3. Anwenden
+
+        # Tilt curve: dB/oct relative to 1 kHz, clamped to ±12 dB
+        ratio = np.where(freqs > 0, freqs / 1000.0, 1.0)
+        tilt_db = self.tilt_db_per_oct * np.log2(np.maximum(ratio, 1e-6))
+        tilt_db = np.clip(tilt_db, -12.0, 12.0)
+        tilt_curve = 10.0 ** (tilt_db / 20.0)
+        tilt_curve[0] = 1.0  # DC unverändert
+
         spectrum_tilted = spectrum * tilt_curve
         audio_tilted = np.fft.irfft(spectrum_tilted, n=n)
-        # 4. Quality-Gate: Keine Übersteuerung
-        if np.max(np.abs(audio_tilted)) > 2.0:
-            logger.warning("[QualityGate] Warnung: Übersteuerung durch Tilt, Rollback aktiviert.")
-            return audio
+        audio_tilted = np.nan_to_num(audio_tilted, nan=0.0, posinf=0.0, neginf=0.0)
+        audio_tilted = np.clip(audio_tilted, -1.0, 1.0)
         return audio_tilted

@@ -10,7 +10,6 @@ Testkonventionen:
 from __future__ import annotations
 
 import threading
-from typing import List
 
 import numpy as np
 
@@ -55,7 +54,6 @@ def _make_gap(audio_len: int, gap_s: float = 0.2, sr: int = SR) -> tuple[int, in
 # Testklasse: Grundlegende Korrektheit
 # ---------------------------------------------------------------------------
 class TestPhraseContextBasic:
-
     def test_01_returns_phrase_context(self) -> None:
         """extract_context gibt eine PhraseContext-Instanz zurück."""
         np.random.seed(42)
@@ -156,7 +154,6 @@ class TestPhraseContextBasic:
 # Testklasse: Edge Cases
 # ---------------------------------------------------------------------------
 class TestPhraseContextEdgeCases:
-
     def test_12_short_audio_no_crash(self) -> None:
         """Kurzes Audio (< 8 s) → kein Absturz, is_fallback=True erwartet."""
         extractor = get_phrase_extractor()
@@ -234,7 +231,6 @@ class TestPhraseContextEdgeCases:
 # Testklasse: Singleton & condition_inpainting
 # ---------------------------------------------------------------------------
 class TestPhraseContextSingleton:
-
     def test_20_singleton_same_object(self) -> None:
         """get_phrase_extractor() gibt stets dasselbe Objekt zurück."""
         a = get_phrase_extractor()
@@ -300,7 +296,6 @@ class TestPhraseContextSingleton:
 # Testklasse: PhraseContext und PhraseBoundary Datenklassen
 # ---------------------------------------------------------------------------
 class TestDataclasses:
-
     def test_25_phrase_context_as_dict(self) -> None:
         """PhraseContext.as_dict() liefert das erwartete Dictionary."""
         ctx = PhraseContext(

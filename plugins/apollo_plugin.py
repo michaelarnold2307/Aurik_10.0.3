@@ -138,8 +138,10 @@ class ApolloPlugin:
                 logger.info("Apollo: ML-Budget erschöpft — DSP-Fallback aktiv.")
                 self._fallback_active = True
                 return
-        except ImportError:
-            pass  # Budget-Modul fehlt → load trotzdem versuchen
+        except ImportError as _exc:
+            logger.debug(
+                "Optional import not available (non-critical): %s", _exc
+            )  # Budget-Modul fehlt → load trotzdem versuchen
         try:
             import os as _os
 
@@ -156,8 +158,8 @@ class ApolloPlugin:
                     from backend.core.plugin_lifecycle_manager import register_plugin as _reg_plm
 
                     _reg_plm(self._BUDGET_NAME, size_gb=self._BUDGET_SIZE_GB, unload_fn=_unload_apollo)
-                except Exception:
-                    pass
+                except Exception as _exc:
+                    logger.debug("Plugin operation failed (non-critical): %s", _exc)
             else:
                 logger.info(
                     "Apollo: TorchScript nicht gefunden (%s) — DSP-Fallback",
@@ -171,8 +173,8 @@ class ApolloPlugin:
                 from backend.core.ml_memory_budget import release as _release
 
                 _release(self._BUDGET_NAME)
-            except Exception:
-                pass
+            except Exception as _exc:
+                logger.debug("Plugin operation failed (non-critical): %s", _exc)
         except Exception as exc:
             logger.warning("Apollo Modell-Lade-Fehler: %s — DSP-Fallback", exc)
             self._fallback_active = True
@@ -180,8 +182,8 @@ class ApolloPlugin:
                 from backend.core.ml_memory_budget import release as _release
 
                 _release(self._BUDGET_NAME)
-            except Exception:
-                pass
+            except Exception as _exc:
+                logger.debug("Plugin operation failed (non-critical): %s", _exc)
 
     # ------------------------------------------------------------------
     # Öffentliche API
@@ -305,7 +307,7 @@ class ApolloPlugin:
             return self._repair_dsp_fallback(audio, sr, material)
 
     # ------------------------------------------------------------------
-    # DSP-Fallback (Spectral Repair + Adaptive HF-Tilt)
+    # DSP-Fallback (Consistent Wiener + Spectral Crest Restoration + HF-Tilt)
     # ------------------------------------------------------------------
 
     def _repair_dsp_fallback(
@@ -314,23 +316,104 @@ class ApolloPlugin:
         sr: int,
         material: str,
     ) -> np.ndarray:
-        """DSP-Fallback: Adaptive Spectral Tilt + Consistent Wiener Smoothing.
+        """DSP-Fallback: Consistent Wiener + Spectral Crest Restoration + residual HF-Tilt.
 
-        Referenz: Le Roux & Vincent (2013) Consistent Wiener; §4.5 Adaptive HF-Tilt.
+        Replaces simple HF-shelving with a 3-step pipeline targeting actual MDCT
+        quantization artefacts (staircase inter-bin roughness, masked spectral peaks):
+
+        1. Consistent Wiener per-bin smoothing (Le Roux & Vincent 2013):
+           Estimates noise variance from 5th-percentile magnitude floor; Wiener gain
+           G = σ_s² / (σ_s² + σ_n²), floor 0.15 to avoid musical-noise.
+           Kernel width k=3 bins → matches typical MP3 scale-factor-band granularity.
+
+        2. Spectral crest restoration above 4 kHz (Fastl & Zwicker 2007 §8.3):
+           MP3/AAC psychoacoustic masking flattens spectral peaks; restore crest factor
+           by boosting bins that exceed 1.2× local mean by up to +20 %.
+
+        3. Residual HF shelving above 8 kHz (reduced gain vs. old approach).
+
+        4. OLA reconstruction preserving original phase angles (lightweight PGHI proxy).
         """
-        # Adaptive HF-Anhebung je nach Material-Typ
-        boost_db = {
-            "mp3_low": 4.0,  # starke Codec-Artefakte → mehr Boost
-            "mp3_high": 2.0,
-            "aac": 2.5,
-            "minidisc": 3.0,  # ATRAC-Artefakte, 90er-Stufigkeit
-            "streaming": 1.5,
-        }.get(material, 2.0)
+        n_fft = 2048
+        hop = n_fft // 4
+        window = np.hanning(n_fft).astype(np.float64)
+        audio_f64 = audio.astype(np.float64)
+        n = len(audio_f64)
 
-        result = self._apply_hf_shelving(audio, sr, cutoff_hz=8000.0, gain_db=boost_db)
-        result = np.nan_to_num(result, nan=0.0)
+        # Reduced HF shelf gain — steps 1-2 now handle the bulk of codec damage
+        boost_db = {
+            "mp3_low": 2.5,
+            "mp3_high": 1.5,
+            "aac": 1.5,
+            "minidisc": 2.0,
+            "streaming": 1.0,
+        }.get(material, 1.5)
+        gain_lin = 10.0 ** (boost_db / 20.0)
+
+        freqs = np.fft.rfftfreq(n_fft, d=1.0 / sr)
+        n_bins = len(freqs)
+        hf4k_bin = int(np.searchsorted(freqs, 4000.0))
+        hf8k_bin = int(np.searchsorted(freqs, 8000.0))
+
+        # Collect STFT frames
+        frame_starts = list(range(0, n - n_fft + 1, hop))
+        if not frame_starts:
+            return audio.copy().astype(np.float32)
+
+        mags = np.zeros((len(frame_starts), n_bins), dtype=np.float64)
+        phases = np.zeros((len(frame_starts), n_bins), dtype=np.float64)
+        for i, start in enumerate(frame_starts):
+            frame = audio_f64[start : start + n_fft] * window
+            spec = np.fft.rfft(frame, n=n_fft)
+            mags[i] = np.abs(spec)
+            phases[i] = np.angle(spec)
+
+        # Step 1: Consistent Wiener noise reduction over frequency axis
+        # 3-bin moving average → smooths MDCT scale-factor-band quantization roughness
+        k = 3
+        kernel = np.ones(k, dtype=np.float64) / k
+        mag_smooth = np.apply_along_axis(lambda x: np.convolve(x, kernel, mode="same"), 1, mags)
+        mag_smooth = np.maximum(mag_smooth, 0.0)
+
+        noise_floor = np.percentile(mags, 5, axis=0)  # per-bin minimum statistics
+        noise_var = noise_floor**2
+        signal_var = np.maximum(mag_smooth**2 - noise_var[np.newaxis, :], 0.0)
+        wiener_g = signal_var / (signal_var + noise_var[np.newaxis, :] + 1e-15)
+        wiener_g = np.clip(wiener_g, 0.15, 1.0)  # spectral floor 0.15 (Le Roux & Vincent 2013)
+        mag_out = mags * wiener_g
+
+        # Step 2: Spectral crest restoration above 4 kHz
+        # Boost spectral peaks (> 1.2× local mean) by up to +20 %
+        if hf4k_bin < n_bins:
+            hf_mag = mag_out[:, hf4k_bin:]
+            local_kernel = np.ones(11, dtype=np.float64) / 11
+            local_mean = np.apply_along_axis(lambda x: np.convolve(x, local_kernel, mode="same"), 1, hf_mag)
+            local_mean = np.maximum(local_mean, 1e-15)
+            crest_boost = 1.0 + 0.20 * np.clip(hf_mag / local_mean - 1.2, 0.0, 1.0)
+            mag_out[:, hf4k_bin:] = hf_mag * crest_boost
+
+        # Step 3: Residual HF shelving above 8 kHz
+        if hf8k_bin < n_bins:
+            mag_out[:, hf8k_bin:] *= gain_lin
+
+        # Step 4: OLA reconstruction (original phases preserved — lightweight PGHI proxy)
+        spec_out = mag_out * np.exp(1j * phases)
+        result = np.zeros(n, dtype=np.float64)
+        norm_w = np.zeros(n, dtype=np.float64)
+        for i, start in enumerate(frame_starts):
+            frame_out = np.fft.irfft(spec_out[i], n=n_fft).astype(np.float64) * window
+            result[start : start + n_fft] += frame_out
+            norm_w[start : start + n_fft] += window**2
+
+        norm_w = np.where(norm_w > 1e-10, norm_w, 1.0)
+        result /= norm_w
+        result = np.nan_to_num(result, nan=0.0, posinf=0.0, neginf=0.0)
         result = np.clip(result, -1.0, 1.0).astype(np.float32)
-        logger.info("🟡 Apollo DSP-Fallback: HF-Shelving +%.1f dB @ 8 kHz (%s)", boost_db, material)
+        logger.info(
+            "🟡 Apollo DSP-Fallback: Wiener+CrestEnh+HF+%.1fdB (%s)",
+            boost_db,
+            material,
+        )
         return result
 
     @staticmethod
@@ -422,8 +505,8 @@ def _unload_apollo() -> None:
         import gc
 
         gc.collect()
-    except Exception:
-        pass
+    except Exception as _exc:
+        logger.debug("Plugin operation failed (non-critical): %s", _exc)
 
 
 def get_apollo() -> ApolloPlugin:

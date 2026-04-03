@@ -239,12 +239,10 @@ except ImportError as e:
     _log.warning("v8.2 Defect Detection unavailable: %s", e)
     DEFECT_DETECTION_V8_AVAILABLE = False
 
-"""
-Adaptive Processing Pipeline für Magic Button
-------------------------------------------------
-Diese Pipeline steuert alle Bearbeitungsschritte (Restaurierung, Reparatur, Rekonstruktion, Remastering) adaptiv und nachvollziehbar.
-Sie nutzt Kontextanalyse, Zieldefinition und modulare Verarbeitungsketten. Alle Entscheidungen, Parameter und Ergebnisse werden geloggt.
-"""
+# Adaptive Processing Pipeline für Magic Button
+# ------------------------------------------------
+# Diese Pipeline steuert alle Bearbeitungsschritte (Restaurierung, Reparatur, Rekonstruktion, Remastering) adaptiv und nachvollziehbar.
+# Sie nutzt Kontextanalyse, Zieldefinition und modulare Verarbeitungsketten. Alle Entscheidungen, Parameter und Ergebnisse werden geloggt.
 
 # Ethics & Monitoring (Phase 4.5, v8.0)
 from backend.core.epistemic_gate.ethics_engine import EpistemicDecision, EthicsEngine
@@ -390,8 +388,8 @@ class AdaptiveProcessingPipeline:
             chosen.add(self.policy_engine.select_mastering_model(context, goal))
             chosen.add(self.policy_engine.select_generative_model(context, goal))
             chosen.add(self.policy_engine.select_pitch_detection_model(context, goal))
-        except Exception:
-            pass
+        except Exception as _exc:
+            self.logger.debug("Operation failed (non-critical): %s", _exc)
 
         self.logger.info("\n┌─ ML-PLUGINS (alle importiert/verfügbar) ─────────────────────────────────────────────┐")
         for name in all_plugins:
@@ -482,10 +480,8 @@ class AdaptiveProcessingPipeline:
         Strukturierter Status-Report aller Komponenten beim Pipeline-Start.
         Zeigt transparent welche Plugins/Module verfügbar sind.
         """
-        try:
-            from Aurik910 import __version__ as _aurik_version
-        except ImportError:
-            _aurik_version = "9.10.41"
+        # Version from backend-internal constant — avoids forbidden UI import (§11 VERBOTEN).
+        _aurik_version = "9.10.99"
         self.logger.info("\n" + "═" * 80)
         self.logger.info(f"  AURIK {_aurik_version} — SYSTEM-KOMPONENTEN STATUS")
         self.logger.info("═" * 80 + "\n")
@@ -508,8 +504,8 @@ class AdaptiveProcessingPipeline:
 
         for plugin_name, description in plugin_info:
             status = "✓" if plugin_name in self.available_plugins else "⚠️"
-            "geladen" if plugin_name in self.available_plugins else "nicht verfügbar"
-            self.logger.info(f"│  {status} {plugin_name:20s} {description:35s} │")
+            avail = "geladen" if plugin_name in self.available_plugins else "nicht verfügbar"
+            self.logger.info(f"│  {status} {plugin_name:20s} {description:35s} {avail} │")
 
         available_count = len(self.available_plugins)
         self.logger.info(

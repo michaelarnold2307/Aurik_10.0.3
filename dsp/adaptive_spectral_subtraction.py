@@ -167,9 +167,19 @@ class AdaptiveSpectralSubtraction:
 
     def _subtract_classic(self, noisy_mag, noise_mag, oversubtract, floor):
         """
-        Klassische Spectral Subtraction (SOTA, keine ML/AI).
+        MMSE-inspired parametric Wiener gain (replaces raw subtraction).
+
+        Instead of clip(mag - noise, floor):
+            gain = max(1 - oversubtract * noise_pow / noisy_pow, floor)
+        This reduces musical noise artifacts significantly.
         """
-        clean_mag = np.maximum(noisy_mag - oversubtract * noise_mag, floor * noise_mag)
+        noise_pow = noise_mag**2 + 1e-10
+        noisy_pow = noisy_mag**2 + 1e-10
+        gain = 1.0 - oversubtract * (noise_pow / noisy_pow)
+        gain = np.maximum(gain, floor)
+        gain = np.minimum(gain, 1.0)
+        gain = np.nan_to_num(gain, nan=floor, posinf=floor, neginf=floor)
+        clean_mag = gain * noisy_mag
         return clean_mag
 
     def auto_optimize(self, noisy_mag, noise_mag):

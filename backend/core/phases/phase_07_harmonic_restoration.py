@@ -233,9 +233,9 @@ class HarmonicRestorationPhase(PhaseInterface):
         # psychoacoustic decay weights w(k) = 0.84^(k-1) per harmonic order.
         _mono = np.mean(audio, axis=1) if audio.ndim == 2 else audio
         f0_info = self._detect_multi_pitch_f0s_with_analysis(_mono)
-        missing_harmonics: dict[str, list[int]] = {
-            f"{f0:.0f}Hz": orders for f0, _sal, orders in f0_info
-        } if f0_info else {}
+        missing_harmonics: dict[str, list[int]] = (
+            {f"{f0:.0f}Hz": orders for f0, _sal, orders in f0_info} if f0_info else {}
+        )
 
         # Step 2: Apply multi-mode saturation
         saturated = self._apply_saturation_professional(audio, params)
@@ -387,9 +387,7 @@ class HarmonicRestorationPhase(PhaseInterface):
         # harmonic_freqs: (n_f0, n_harm)
         harmonic_freqs = f0_candidates[:, None] * ks[None, :]
         # Bin indices clipped to valid FFT range
-        bin_indices = np.clip(
-            np.round(harmonic_freqs / freq_res).astype(int), 0, len(magnitude) - 1
-        )
+        bin_indices = np.clip(np.round(harmonic_freqs / freq_res).astype(int), 0, len(magnitude) - 1)
         # Zero out harmonics beyond the FFT grid
         valid = (harmonic_freqs <= freqs[-1]).astype(np.float64)
         mag_at_harmonics = magnitude[bin_indices] * valid  # (n_f0, n_harm)
@@ -779,9 +777,9 @@ if __name__ == "__main__":
     materials = ["shellac", "vinyl", "tape", "cd_digital"]
 
     for material in materials:
-        logger.debug(f"\n{'-'*80}")
+        logger.debug(f"\n{'-' * 80}")
         logger.debug(f"Testing with material: {material.upper()}")
-        logger.debug(f"{'-'*80}")
+        logger.debug(f"{'-' * 80}")
 
         phase = HarmonicRestorationPhase(sample_rate=sr)
         result = phase.process(audio.copy(), material_type=material)
@@ -806,9 +804,9 @@ if __name__ == "__main__":
             logger.debug("⏭️  Harmonic Restoration Skipped")
             logger.debug(f"   Reason: {result.modifications.get('reason', 'unknown')}")
 
-    logger.debug(f"\n{'='*80}")
+    logger.debug(f"\n{'=' * 80}")
     logger.debug("✅ Professional Harmonic Restoration v2.0 Test Complete!")
-    logger.debug(f"{'='*80}")
+    logger.debug(f"{'=' * 80}")
     logger.debug(f"Algorithm: {result.metadata.get('algorithm', 'N/A')}")
     logger.debug(f"Scientific Reference: {result.metadata.get('scientific_ref', 'N/A')}")
     logger.debug(f"Benchmark: {result.metadata.get('benchmark', 'N/A')}")

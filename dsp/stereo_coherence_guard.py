@@ -59,18 +59,38 @@ class StereoCoherenceGuard:
     def log_contract(self):
         logger.debug("[DSPContract] %s", asdict(stereo_coherence_guard_contract))
 
-    def process(self, audio: np.ndarray, sr: int) -> bool:
+    def process(self, audio: np.ndarray, sr: int) -> dict[str, Any]:
         """
-        SOTA-Maximum: Prüft die Stereokorrelation (Cross-Correlation)
+        Measure stereo coherence (cross-correlation).
+        Returns metadata dict with correlation value and warning status.
         """
         self.log_contract()
         if audio.ndim != 2 or audio.shape[0] != 2:
-            logger.info("[QualityGate] Kein Stereosignal erkannt.")
-            return False
-        left = audio[0]
-        right = audio[1]
-        corr = np.corrcoef(left, right)[0, 1]
-        if corr < self.min_corr:
-            logger.warning(f"[QualityGate] Warnung: Niedrige Stereokohärenz (corr={corr:.2f}), Monoprobleme möglich.")
-            return True
-        return False
+            logger.info("[StereoCoherenceGuard] Not stereo — skipped.")
+            return {
+                "stereo": False,
+                "correlation": float("nan"),
+                "mono_problem": False,
+            }
+        left = np.nan_to_num(audio[0])
+        right = np.nan_to_num(audio[1])
+        # Avoid division by zero for silence
+        if np.sum(left**2) < 1e-12 or np.sum(right**2) < 1e-12:
+            corr = 1.0
+        else:
+            corr = float(np.corrcoef(left, right)[0, 1])
+            if np.isnan(corr):
+                corr = 1.0
+        mono_problem = corr < self.min_corr
+        if mono_problem:
+            logger.warning(
+                "[StereoCoherenceGuard] Low coherence (corr=%.3f < %.3f), mono issues possible.",
+                corr,
+                self.min_corr,
+            )
+        return {
+            "stereo": True,
+            "correlation": corr,
+            "mono_problem": mono_problem,
+            "min_corr_threshold": self.min_corr,
+        }

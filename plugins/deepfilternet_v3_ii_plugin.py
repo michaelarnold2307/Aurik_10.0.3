@@ -122,8 +122,8 @@ class DeepFilterNetV3Plugin:
                         setattr(s, "_enc", None) or setattr(s, "_dec", None) or setattr(s, "_erb_dec", None)
                     ),
                 )
-            except Exception:
-                pass
+            except Exception as _exc:
+                logger.debug("Operation failed (non-critical): %s", _exc)
         except Exception as exc:
             logger.warning("DeepFilterNet ONNX-Ladefehler: %s — DSP-Fallback aktiv.", exc)
             self._enc = self._dec = self._erb_dec = None

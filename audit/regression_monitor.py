@@ -7,7 +7,7 @@ Aurik Regressionstest und Langzeit-Monitoring
 
 import json
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any
 
 
 def load_audit_log(audit_path="audit/audit_trail.json"):

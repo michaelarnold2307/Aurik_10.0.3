@@ -582,7 +582,7 @@ class QualityRecoverySystem:
                 best_score = candidate_score
                 best_gate_passed = True
                 logger.info(
-                    f"    Iteration {i+1}: Quality {candidate_score:.1f} (intensity {intensity:.2f}) ✓ GATE PASSED"
+                    f"    Iteration {i + 1}: Quality {candidate_score:.1f} (intensity {intensity:.2f}) ✓ GATE PASSED"
                 )
             elif not best_gate_passed and candidate_score > best_score:
                 # Still better than what we had, and we haven't found a gate-passing solution yet
@@ -604,7 +604,7 @@ class QualityRecoverySystem:
         # Less processed = more original
         blended = (1 - intensity_factor) * original + intensity_factor * processed
 
-        logger.info(f"  → Blending: {(1-intensity_factor):.1%} original + {intensity_factor:.1%} processed")
+        logger.info(f"  → Blending: {(1 - intensity_factor):.1%} original + {intensity_factor:.1%} processed")
 
         return blended.astype(np.float32)
 

@@ -131,7 +131,7 @@ class TestPhase03PassThrough:
         e_out = _measure_energy(result.audio)
         if e_in > 1e-6:
             ratio = e_out / e_in
-            assert ratio >= 0.20, f"Phase 03 erzeugt Fast-Stille (Energieerhalt {ratio*100:.1f}% < 20 %)"
+            assert ratio >= 0.20, f"Phase 03 erzeugt Fast-Stille (Energieerhalt {ratio * 100:.1f}% < 20 %)"
 
 
 class TestPhase01PassThrough:

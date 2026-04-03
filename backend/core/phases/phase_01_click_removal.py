@@ -207,8 +207,8 @@ class ClickRemovalPhase(PhaseInterface):
             try:
                 qm = QualityMode[quality_mode.upper()]
                 use_ml = should_use_ml(1, qm)  # Phase 1
-            except Exception:
-                pass
+            except Exception as _exc:
+                logger.debug("Operation failed (non-critical): %s", _exc)
 
         # Get material-specific thresholds
         thresholds = dict(self.MATERIAL_THRESHOLDS.get(material_type, self.MATERIAL_THRESHOLDS["unknown"]))
@@ -483,8 +483,8 @@ class ClickRemovalPhase(PhaseInterface):
                     os.unlink(input_path)
                 if os.path.exists(output_path):
                     os.unlink(output_path)
-            except Exception:
-                pass
+            except Exception as _exc:
+                logger.debug("Operation failed (non-critical): %s", _exc)
 
     def _detect_clicks_multiscale(self, audio: np.ndarray, thresholds: dict[str, float]) -> list[tuple[int, int]]:
         """
@@ -531,13 +531,13 @@ class ClickRemovalPhase(PhaseInterface):
         # Material-adaptive multiplier k (base from threshold config)
         # Lower threshold → more sensitive → lower k
         base_thresh = thresholds["short"]
-        if base_thresh <= 0.06:       # shellac: very sensitive
+        if base_thresh <= 0.06:  # shellac: very sensitive
             k = 3.5
-        elif base_thresh <= 0.12:     # vinyl: moderate
+        elif base_thresh <= 0.12:  # vinyl: moderate
             k = 4.0
-        elif base_thresh <= 0.20:     # tape: gentle
+        elif base_thresh <= 0.20:  # tape: gentle
             k = 5.0
-        else:                         # digital: conservative
+        else:  # digital: conservative
             k = 6.0
 
         # Per-sample adaptive threshold
@@ -747,7 +747,11 @@ class ClickRemovalPhase(PhaseInterface):
         try:
             # Levinson-Durbin via librosa.lpc (scipy ≥ 1.15 hat kein lpc mehr)
             a_fwd = _librosa_lpc.lpc(before.astype(np.float32), order=order).astype(np.float64)
+            if not np.isfinite(a_fwd).all():
+                return self._interpolate_cubic(audio, start, end)
             a_bwd = _librosa_lpc.lpc(after[::-1].astype(np.float32), order=order).astype(np.float64)
+            if not np.isfinite(a_bwd).all():
+                return self._interpolate_cubic(audio, start, end)
 
             # Vorwärtsvorhersage in die Lücke
             zi_fwd = before[-order:].copy()
