@@ -109,8 +109,29 @@ class AdaptiveOMLSA:
             freqs = np.linspace(0, sr / 2, n_bins)
             sensitivity = np.exp(-0.5 * ((np.log2(np.maximum(freqs, 20.0) / 3500.0)) ** 2) / 1.5**2)
             psy_floor = 0.01 + 0.04 * sensitivity  # higher floor in sensitive bands
+
+            # §9.10.118 Silence-Adaptive G_floor: In quiet regions (silence
+            # between phrases), the perceptual floor can be reduced because
+            # there is no signal to mask musical noise artefacts — twinkling
+            # remnants in silence are audibly conspicuous.  Scientific basis:
+            # Fastl & Zwicker 2007 §8.3 — masking threshold vanishes in
+            # absence of primary stimulus.
+            frame_energy_db = -60.0  # default: non-silence
+            _silence_threshold_db = kwargs.get("silence_threshold_db", -55.0)
             if noisy_mag.ndim == 2:
-                psy_floor = psy_floor[np.newaxis, :]
+                # 2-D spectrogram: per-frame energy along freq axis
+                _frame_pow = np.mean(noisy_mag ** 2, axis=-1, keepdims=True)
+                _frame_db = 10.0 * np.log10(_frame_pow + 1e-12)
+                # Scale floor per frame: silent frames get ×0.5 (more suppression)
+                _silence_mask = (_frame_db < _silence_threshold_db).astype(np.float32)
+                _floor_scale = 1.0 - 0.5 * _silence_mask  # 1.0 normal, 0.5 silence
+                psy_floor = psy_floor[np.newaxis, :] * _floor_scale
+            else:
+                # 1-D spectrum: single-frame energy check
+                frame_energy_db = float(10.0 * np.log10(np.mean(noisy_mag ** 2) + 1e-12))
+                if frame_energy_db < _silence_threshold_db:
+                    psy_floor = psy_floor * 0.5
+
             gain = np.maximum(gain, psy_floor)
 
         gain = np.nan_to_num(gain, nan=0.0, posinf=0.0, neginf=0.0)  # §3.1 NaN/Inf-Guard

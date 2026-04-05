@@ -104,6 +104,7 @@ matplotlib>=3.8.0
 
 # --- Visualisierung / Reporting ---
 Jinja2==3.1.6
+mutagen>=1.47.0              # Audio metadata preservation (ID3/Vorbis/FLAC tags)
 rich>=14.0.0
 
 # --- Utilities ---

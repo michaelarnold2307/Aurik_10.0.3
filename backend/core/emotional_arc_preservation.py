@@ -150,8 +150,30 @@ class EmotionalArcPreservationMetric:
         seg_len = int(self.SEGMENT_S * sr)
         hop_len = int(self.HOP_S * sr)
 
-        arousal_orig, valence_orig = self._compute_features(orig_mono, sr, seg_len, hop_len)
-        arousal_rest, valence_rest = self._compute_features(rest_mono, sr, seg_len, hop_len)
+        arousal_orig, valence_orig, _centroids_orig = self._compute_features(orig_mono, sr, seg_len, hop_len)
+        arousal_rest, valence_rest, _centroids_rest = self._compute_features(rest_mono, sr, seg_len, hop_len)
+
+        # §9.10.119: Re-normalize arousal centroid component per-song.
+        # After denoising, the noise floor drops → centroid shifts upward
+        # globally → false arousal increase that flattens apparent dynamics.
+        # Fix: scale restored centroid median to match original median.
+        if len(_centroids_orig) >= 3 and len(_centroids_rest) >= 3:
+            _med_orig = float(np.median(_centroids_orig))
+            _med_rest = float(np.median(_centroids_rest))
+            if _med_rest > 1e-3 and abs(_med_rest - _med_orig) / max(_med_orig, 1.0) > 0.05:
+                _centroid_correction = _med_orig / _med_rest
+                # Re-compute arousal_rest with corrected centroid weight
+                _arousal_corr = []
+                for i, start in enumerate(range(0, len(rest_mono) - seg_len + 1, hop_len)):
+                    if i >= len(arousal_rest):
+                        break
+                    seg = rest_mono[start:start + seg_len]
+                    rms = float(np.sqrt(np.mean(seg**2) + 1e-12))
+                    _c_hz = _centroids_rest[i] * _centroid_correction if i < len(_centroids_rest) else 0.0
+                    _c_norm = float(np.clip(_c_hz / max(sr / 2.0, 1.0), 0.0, 1.0))
+                    _arousal_corr.append(rms * 0.55 + _c_norm * 0.45)
+                if _arousal_corr:
+                    arousal_rest = np.array(_arousal_corr[:len(arousal_rest)], dtype=np.float32)
 
         n_segs = min(len(arousal_orig), len(arousal_rest))
         if n_segs < 3:
@@ -260,6 +282,7 @@ class EmotionalArcPreservationMetric:
         """Berechnet Arousal- und Valence-Proxy-Profile als Arrays."""
         arousal_list = []
         valence_list = []
+        _centroid_hz_list: list[float] = []  # §9.10.119: collect for post-normalization
 
         positions = list(range(0, len(mono) - seg_len + 1, hop_len))
         for start in positions:
@@ -267,10 +290,22 @@ class EmotionalArcPreservationMetric:
             if not np.isfinite(seg).all():
                 continue
 
-            # Arousal: 0.6 · RMS_norm + 0.4 · ZCR_norm
+            # Arousal: 0.55·RMS + 0.45·spectral_centroid_norm (v9.10.114)
+            # §9.10.119: Centroid normalized relative to per-song median instead
+            # of Nyquist.  After denoising, the noise floor drops → centroid
+            # shifts upward → false arousal increase → flattened dynamic arc.
+            # Per-song normalization makes the proxy robust to global spectral
+            # shifts caused by NR (Blanchini 2011; empirical correction).
             rms = float(np.sqrt(np.mean(seg**2) + 1e-12))
-            zcr = float(np.mean(np.abs(np.diff(np.sign(seg + 1e-12))) / 2.0))
-            arousal_list.append(rms * 0.6 + zcr * 0.4)
+            _n_fft_a = min(1024, len(seg))
+            _spec_a = np.abs(np.fft.rfft(seg[:_n_fft_a], n=_n_fft_a)) + 1e-9
+            _freqs_a = np.fft.rfftfreq(_n_fft_a, 1.0 / sr)
+            _spec_sum = float(np.sum(_spec_a))
+            _centroid_hz = float(np.sum(_freqs_a * _spec_a) / max(_spec_sum, 1e-12))
+            _centroid_hz_list.append(_centroid_hz)
+            # Normalize centroid to [0,1] by Nyquist (sr/2) — deferred below
+            _centroid_norm = float(np.clip(_centroid_hz / max(sr / 2.0, 1.0), 0.0, 1.0))
+            arousal_list.append(rms * 0.55 + _centroid_norm * 0.45)
 
             # Valence: Harmonizitäts-Proxy via Spektral-Flachheit-Inverse
             # (hohe Spektral-Flachheit = viel Rauschen = geringe Harmonizität)
@@ -288,6 +323,7 @@ class EmotionalArcPreservationMetric:
         return (
             np.array(arousal_list, dtype=np.float32),
             np.array(valence_list, dtype=np.float32),
+            _centroid_hz_list,
         )
 
     @staticmethod

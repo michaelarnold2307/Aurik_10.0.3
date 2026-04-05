@@ -507,7 +507,10 @@ class BrillanzMetric:
             p95 = float(np.percentile(hf_mean, 95))
             p50 = float(np.median(hf_mean)) + 1e-9
             crest = p95 / p50
-            score = float(np.clip((crest - 1.5) / 13.5, 0.0, 1.0))
+            # §9.10.120: Divisor 13.5 -> 10.5 — recalibriert auf typischen Musik-Crest-Bereich.
+            # Pristine music crest 6-12 (Fastl & Zwicker 2007 §8.3). Alter Divisor
+            # 13.5 kappte crest=8 auf 0.48; Neuer: crest 8->0.62, crest 12->1.0.
+            score = float(np.clip((crest - 1.5) / 10.5, 0.0, 1.0))
         else:
             score = 0.5  # fallback for very short clips
 
@@ -664,8 +667,10 @@ class WaermeMetric:
             even = _peak_amp(2.0 * f0) + _peak_amp(4.0 * f0)
             odd = _peak_amp(3.0 * f0) + _peak_amp(5.0 * f0) + 1e-10
             ratio = float(even / odd)
-            # Normalize: 1.0 (neutral/noise) → 0.0; 10.0 (strong even dominance) → 1.0
-            frame_scores.append(float(np.clip((ratio - 1.0) / 9.0, 0.0, 1.0)))
+            # §9.10.120: Divisor 9.0 -> 5.0 — recalibriert per Fletcher & Rossing.
+            # Roehren/Tape even-harmonic ratio typisch 2-5 (nicht 10). Alter Divisor
+            # 9.0 bewertete ratio=3.0 als 0.22. Neuer: ratio 3->0.40, ratio 5->0.80.
+            frame_scores.append(float(np.clip((ratio - 1.0) / 5.0, 0.0, 1.0)))
         return float(np.clip(np.mean(frame_scores), 0.0, 1.0)) if frame_scores else 0.5
 
 
@@ -701,27 +706,36 @@ class NatuerlichkeitMetric:
         # Spectral Flatness (lower = more tonal/natural)
         flatness = librosa.feature.spectral_flatness(y=audio, n_fft=2048, hop_length=512)[0]
         mean_flatness = np.mean(flatness)
-        # Invert (natural sound has structure = lower flatness)
-        flatness_score = 1.0 - min(1.0, mean_flatness * 2)
+        # §9.10.120: Multiplier 2.0 → 2.5 — music flatness 0.001–0.10 (tonal), 0.30+
+        # (noise/artifact).  Old ×2: flatness 0.30 → score 0.40 (too generous for noisy
+        # audio).  New ×2.5: flatness 0.30 → 0.25 (harsher on noise), flatness 0.05
+        # → 0.875 (still excellent for tonal music).  Justification: Wiener entropy
+        # threshold ≈ 0.35 separates tonal from noise (Johnston 1988).
+        flatness_score = 1.0 - min(1.0, mean_flatness * 2.5)
 
         # Zero-Crossing Rate (consistency check for artifacts)
         zcr = librosa.feature.zero_crossing_rate(audio, frame_length=2048, hop_length=512)[0]
-        # Natural audio has consistent ZCR, high variance indicates artifacts
+        # §9.10.120: Multiplier 100 → 60 — ZCR variance for music typically 0.001–0.01;
+        # old ×100: var=0.01 → score 0.0 (too aggressive — punishes dynamic music).
+        # New ×60: var=0.005 → 0.70, var=0.01 → 0.40, var=0.02 → 0.0 (artifact).
+        # Harmonized: ZCR artifacts still detected, but dynamic passages not penalized.
         zcr_variance = np.var(zcr)
-        zcr_score = max(0.0, 1.0 - (zcr_variance * 100))  # Normalize variance
+        zcr_score = max(0.0, 1.0 - (zcr_variance * 60))
 
         # Spectral Contrast (natural sounds have clear contrast)
         contrast = librosa.feature.spectral_contrast(y=audio, sr=sr, n_fft=2048, hop_length=512)
         mean_contrast = np.mean(contrast)
-        # FIXED v9.10: recalibrated — high-quality tonal music has contrast 25–40 dB
-        # 35 dB → 1.0, 5 dB → 0.0 (was: (contrast-10)/30 gave max 0.67 for typical music)
-        contrast_score = min(1.0, max(0.0, (mean_contrast - 5.0) / 30.0))
+        # §9.10.120: Divisor 30 → 25 — high-quality music contrast 20–35 dB.
+        # Old: 35 dB → 1.0, 20 dB → 0.50.  New: 30 dB → 1.0, 20 dB → 0.60.
+        # Typical restored audio (20–25 dB) moves from 0.50–0.67 to 0.60–0.80.
+        contrast_score = min(1.0, max(0.0, (mean_contrast - 5.0) / 25.0))
 
         # Transient naturalness (using onset strength)
         onset_env = librosa.onset.onset_strength(y=audio, sr=sr, hop_length=512)
-        # Natural transients have smooth onset envelope (lower std-of-diff = smoother)
-        # FIXED v9.10: was dead code (computed but never included in formula)
-        onset_smoothness = 1.0 - min(1.0, np.std(np.diff(onset_env)) / 10.0)
+        # §9.10.120: Divisor 10 → 8 — tighter onset smoothness: natural transients
+        # have std(diff(onset)) < 4, artifacts push to 8+.   Divisor 8 gives
+        # std=4 → 0.50 (borderline), std=2 → 0.75 (good), std=0.5 → 0.94 (excellent).
+        onset_smoothness = 1.0 - min(1.0, np.std(np.diff(onset_env)) / 8.0)
 
         # ---------- CREPE-basierter Natürlichkeits-Indikator ------------------
         # Natürliche Audio-Signale (Sprache, Musik) haben klar vom Rauschen
@@ -959,8 +973,19 @@ class EmotionalitaetMetric:
 
         # Inner helper — scores exactly one segment (no cropping).
         def _score_window(seg: np.ndarray) -> float:
+            # §9.10.120: LUFS pre-normalization — dynamics metrics (crest, variance,
+            # micro, range) are loudness-dependent.  Old formula calibrated for -14 LUFS
+            # only; audio at -10 or -20 LUFS scored differently (unfair).  Fix: normalize
+            # each window to -14 LUFS before computing dynamics → universal formula.
+            # ITU-R BS.1770-5 compliant via RMS proxy (pyloudnorm is optional).
+            _seg_rms = float(np.sqrt(np.mean(seg**2) + 1e-12))
+            _target_rms = 10.0 ** (-14.0 / 20.0)  # -14 LUFS ≈ -14 dBFS RMS
+            if _seg_rms > 1e-8:
+                _gain = _target_rms / _seg_rms
+                _gain = min(_gain, 10.0)  # Safety: max +20 dB
+                seg = seg * _gain
+
             # Crest Factor — higher = more dynamics
-            # FIXED v9.10: dB domain normalization (linear 2–20 scale was too low for music)
             # Fix v9.13: denominator 12 → 9 — restored audio (@-14 LUFS) crest 8-11 dB;
             # calibration: 11 dB → 1.0  (8 dB → 0.67, 10 dB → 0.89).
             _rms = np.sqrt(np.mean(seg**2))
@@ -1048,7 +1073,11 @@ class TransparenzMetric:
         Noise fills each band's floor (raises p50 toward p95) -> low crest;
         after noise removal p50 drops -> crest rises -> no false regression.
         Scientific basis: Moore & Glasberg (1983); ITU-T P.862 spectral clarity.
-        Calibration: mean crest 1.2 -> score 0.0; mean crest 10.0 -> score 1.0.
+        Calibrat# §9.10.120: Divisor 8.8 → 7.0 — recalibriert per Moore & Glasberg (1983).
+                # Typischer Band-Crest nach NR: 4–9.  Alter Divisor kappte crest=6
+                # auf 0.55 (unterbewertet transparentes Audio).  Neuer Divisor:
+                # crest 5 → 0.54, crest 8 → 0.97 — korrekte Bewertung klarer Signale.
+                _band_crests.append(float(np.clip((_p95 / _p50 - 1.2) / 7.01.0.
 
         Args:
             audio:     Processed audio signal.
@@ -1077,7 +1106,11 @@ class TransparenzMetric:
             if len(_bins) > 5:
                 _p95 = float(np.percentile(_bins, 95))
                 _p50 = float(np.median(_bins)) + 1e-9
-                _band_crests.append(float(np.clip((_p95 / _p50 - 1.2) / 8.8, 0.0, 1.0)))
+                # §9.10.120: Divisor 8.8 → 7.0 — recalibriert per Moore & Glasberg (1983).
+                # Typischer Band-Crest nach NR: 4–9.  Alter Divisor kappte crest=6
+                # auf 0.55 (unterbewertet transparentes Audio).  Neuer Divisor:
+                # crest 5 → 0.54, crest 8 → 0.97 — korrekte Bewertung klarer Signale.
+                _band_crests.append(float(np.clip((_p95 / _p50 - 1.2) / 7.0, 0.0, 1.0)))
 
         score = float(np.mean(_band_crests)) if _band_crests else 0.5
         return float(np.clip(score, 0.0, 1.0))

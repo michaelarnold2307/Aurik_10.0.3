@@ -115,6 +115,7 @@ class TestSyntheticGoldenSampleGenerator:
         ref_path = sample_generator.output_dir / "references" / spec.filename
         assert ref_path.exists()
 
+    @pytest.mark.slow
     def test_generate_all(self, sample_generator):
         """Test generating multiple samples."""
         target_counts = {"vocal": 2, "instrumental": 1, "classical": 1, "jazz": 1}

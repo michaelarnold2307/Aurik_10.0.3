@@ -79,39 +79,39 @@ class BassEnhancement(PhaseInterface):
     # Enhancement parameters (material-adaptive)
     ENHANCEMENT_CONFIG = {
         MaterialType.SHELLAC: {
-            "harmonic_2_gain": 0.50,  # Strong (restore missing bass)
-            "harmonic_3_gain": 0.30,
-            "sub_harmonic_gain": 0.20,
+            "harmonic_2_gain": 0.55,  # Strong (restore missing bass) — v9.10.114: ↑0.50→0.55
+            "harmonic_3_gain": 0.35,
+            "sub_harmonic_gain": 0.25,
             "saturation_drive": 0.40,
-            "mix": 0.50,
+            "mix": 0.65,  # v9.10.114: ↑0.50→0.65 — Shellac-Bass deutlich stärken
         },
         MaterialType.VINYL: {
-            "harmonic_2_gain": 0.40,
-            "harmonic_3_gain": 0.25,
-            "sub_harmonic_gain": 0.30,
+            "harmonic_2_gain": 0.45,
+            "harmonic_3_gain": 0.28,
+            "sub_harmonic_gain": 0.32,
             "saturation_drive": 0.35,
-            "mix": 0.45,
+            "mix": 0.60,  # v9.10.114: ↑0.45→0.60
         },
         MaterialType.TAPE: {
-            "harmonic_2_gain": 0.30,
-            "harmonic_3_gain": 0.20,
-            "sub_harmonic_gain": 0.15,
-            "saturation_drive": 0.25,
-            "mix": 0.35,
+            "harmonic_2_gain": 0.35,  # v9.10.114: ↑0.30→0.35
+            "harmonic_3_gain": 0.22,
+            "sub_harmonic_gain": 0.18,
+            "saturation_drive": 0.28,
+            "mix": 0.50,  # v9.10.114: ↑0.35→0.50
         },
         MaterialType.CD_DIGITAL: {
-            "harmonic_2_gain": 0.45,  # Restore life from over-limiting
-            "harmonic_3_gain": 0.30,
-            "sub_harmonic_gain": 0.25,
+            "harmonic_2_gain": 0.50,  # Restore life from over-limiting  v9.10.114: ↑0.45→0.50
+            "harmonic_3_gain": 0.32,
+            "sub_harmonic_gain": 0.28,
             "saturation_drive": 0.45,
-            "mix": 0.50,
+            "mix": 0.65,  # v9.10.114: ↑0.50→0.65
         },
         MaterialType.STREAMING: {
-            "harmonic_2_gain": 0.40,
-            "harmonic_3_gain": 0.25,
-            "sub_harmonic_gain": 0.20,
+            "harmonic_2_gain": 0.42,
+            "harmonic_3_gain": 0.28,
+            "sub_harmonic_gain": 0.22,
             "saturation_drive": 0.40,
-            "mix": 0.45,
+            "mix": 0.58,  # v9.10.114: ↑0.45→0.58
         },
     }
 

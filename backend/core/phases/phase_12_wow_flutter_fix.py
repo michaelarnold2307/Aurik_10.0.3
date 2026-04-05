@@ -119,14 +119,20 @@ class WowFlutterFix(PhaseInterface):
         MaterialType.STREAMING: 3.0,  # 3.0% pitch deviation (rarely triggered)
     }
 
-    # YIN algorithm parameters (optimized for performance)
+    # YIN algorithm parameters
     YIN_THRESHOLD = 0.15  # Confidence threshold for pitch detection
     PITCH_WINDOW_MS = 100  # Larger window for stability (was 50ms)
-    PITCH_HOP_FACTOR = 2  # Less overlap (was 4 = 75% overlap, now 2 = 50% overlap)
+    # v9.10.111: Restored to 75 % overlap (factor=4, was 2=50 %) for 4× better
+    # temporal resolution in pYIN flutter detection. At 48 kHz and 100 ms window:
+    #   factor=2 → hop=50 ms — insufficient for 4–20 Hz flutter (20–250 ms periods)
+    #   factor=4 → hop=25 ms — 2+ samples per flutter cycle (Nyquist-safe)
+    # librosa.pyin fast-path ≪ 200 ms even for 20-min files. §9.10.80
+    # Quality-first: no RT sacrifice in main path.
+    PITCH_HOP_FACTOR = 4  # 75 % overlap — restored from 2 (v9.10.111)
 
-    # Phase Vocoder parameters (optimized)
-    STFT_WINDOW_SIZE = 1024  # Smaller FFT (was 2048)
-    STFT_HOP_SIZE = 256  # Smaller hop (was 512)
+    # Phase Vocoder / STFT parameters
+    STFT_WINDOW_SIZE = 2048  # 23 Hz/bin @ 48 kHz — restored from 1024 (v9.10.111)
+    STFT_HOP_SIZE = 512  # 75 % overlap with 2048 window — restored from 256
 
     # Formant preservation (prevent "chipmunk" effect)
     PRESERVE_FORMANTS = True

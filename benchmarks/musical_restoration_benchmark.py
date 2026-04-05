@@ -637,6 +637,9 @@ class MusicalRestorationBenchmark:
             mushra_r = self._mushra_score(ref_t, res_t, sr)
             mushra_scores.append(mushra_r)
 
+            # MERT-MUSHRA-Proxy (embedding-based fidelity estimate)
+            proxy_r = self._mushra_proxy_score(ref_t, res_t, sr)
+
             # PQS-MOS (abgekürzt)
             pqs_r = self._quick_pqs(ref_t, res_t, sr)
             pqs_scores.append(pqs_r)
@@ -649,6 +652,9 @@ class MusicalRestorationBenchmark:
             items.append(
                 {
                     "mushra": mushra_r,
+                    "mushra_proxy": proxy_r.proxy_score,
+                    "mushra_proxy_confidence": proxy_r.confidence,
+                    "mushra_proxy_mert_cosine": proxy_r.as_dict().get("mert_cosine"),
                     "pqs_mos": pqs_r,
                     **{f"mg_{k}": v for k, v in goals.items()},
                 }
@@ -735,6 +741,22 @@ class MusicalRestorationBenchmark:
                 return float(np.clip(50.0 * (1.0 + corr), 0.0, 100.0))
             except Exception:
                 return 50.0
+
+    def _mushra_proxy_score(self, ref: np.ndarray, test: np.ndarray, sr: int):
+        """MERT-based MUSHRA proxy evaluation for embedding-level fidelity."""
+        try:
+            from backend.core.mert_mushra_proxy import estimate_mushra_proxy
+
+            return estimate_mushra_proxy(ref, test, sr)
+        except Exception as exc:
+            logger.debug("MUSHRA-Proxy Fehler: %s", exc)
+            from backend.core.mert_mushra_proxy import MushraProxyResult
+
+            return MushraProxyResult(
+                proxy_score=0.0, grade="Bad", confidence=0.0,
+                mert_cosine=float("nan"), nsim=0.0, mcd_db=999.0,
+                chroma_corr=0.0, lufs_diff_lu=0.0,
+            )
 
     def _quick_pqs(self, ref: np.ndarray, test: np.ndarray, sr: int) -> float:
         """Schnelle PQS-MOS-Schätzung (ohne Gammatone-Filterbank)."""

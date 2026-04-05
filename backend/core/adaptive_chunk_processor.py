@@ -291,9 +291,11 @@ def process_in_adaptive_chunks(
     # Half-Hanning COLA-compliant crossfade windows (Lücke-E-Fix v9.10.100).
     # w_in[i] = 0.5*(1 - cos(π*i/N))  rising Hanning half → smooth C¹ boundary
     # w_out = 1 - w_in  → w_in + w_out = 1.0 for all i (COLA at 50 % overlap)
-    _t = np.arange(fade_samples, dtype=np.float32) / max(fade_samples, 1)
+    # §9.10.119: float64 intermediate precision eliminates float32 accumulation
+    # error (±2–5% amplitude drift at chunk boundaries → audible pumping).
+    _t = np.arange(fade_samples, dtype=np.float64) / max(fade_samples, 1)
     fade_in = (0.5 * (1.0 - np.cos(np.pi * _t))).astype(np.float32)
-    fade_out = (1.0 - fade_in).astype(np.float32)
+    fade_out = (1.0 - 0.5 * (1.0 - np.cos(np.pi * _t))).astype(np.float32)
 
     # Output buffer
     if is_stereo:

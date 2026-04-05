@@ -768,6 +768,58 @@ class ReverbReduction(PhaseInterface):
         G_combined[valid, :] = (G_acc[valid, :] / w_acc[valid, np.newaxis]).astype(np.float32)
         G_combined = np.clip(np.nan_to_num(G_combined, nan=1.0), 0.0, 1.0)
 
+        # Late-reverb temporal decay suppression (v9.10.112):
+        # Room reverberation produces exponentially decaying tails after transients;
+        # OMLSA alone treats all time-frames equally and cannot separate the
+        # reverberant tail from the direct sound.  We add a time-varying secondary
+        # gain that suppresses frames identified as part of a reverberant decay.
+        # Ref: Noh & Hwang 2014; Braun & Haardt 2016 — spectral late-reverb model.
+        if strength > 0.15 and n_t > 8:
+            try:
+                # Per-frame mean energy from reference STFT (linear scale)
+                E_frame = np.mean(np.abs(Zxx_ref) ** 2, axis=0)  # shape (n_t,)
+                E_frame = np.maximum(E_frame, 1e-15)
+                E_log_db = 10.0 * np.log10(E_frame)   # dB per frame
+
+                # Frame-to-frame delta energy (positive = rising, negative = decaying)
+                dE = np.diff(E_log_db, prepend=E_log_db[0])   # shape (n_t,)
+
+                # Smooth dE to suppress single-sample noise spikes
+                _sm = max(3, min(7, n_t // 20))
+                _kern = np.ones(_sm, dtype=np.float32) / _sm
+                dE_smooth = np.convolve(dE.astype(np.float32), _kern, mode="same")
+
+                # Decay mask: frames where energy is steadily dropping > 0.5 dB/hop
+                decay_mask = (dE_smooth < -0.5).astype(np.float32)  # shape (n_t,)
+
+                # Direct-sound protection window (~40 ms after each onset):
+                # onset frames and the immediately following window are exempted
+                # so direct attack transients are never suppressed.
+                _prot = max(1, int(0.040 * sample_rate / REF_HOP))
+                _onset_indices = np.where(dE > 2.0)[0]  # onset = energy rise > 2 dB
+                for _oi in _onset_indices:
+                    _end = min(n_t, int(_oi) + _prot)
+                    decay_mask[int(_oi):_end] = 0.0
+
+                # Extra gain reduction in decay frames; strength-scaled.
+                # Maximum penalty 35 % at full strength → never below -4.4 dB (G_lr ≥ 0.60).
+                _penalty = float(np.clip(strength * 0.35, 0.0, 0.35))
+                G_lr = np.clip(1.0 - _penalty * decay_mask, 0.60, 1.0).astype(np.float32)
+
+                # Broadcast: (n_bins, n_t) × (n_t,) → shape-safe
+                G_combined = np.clip(G_combined * G_lr[np.newaxis, :], 0.0, 1.0)
+
+                logger.debug(
+                    "MRSA Phase 20 late-reverb suppression: penalty=%.2f, "
+                    "decay_frames=%d/%d, onset_protected=%d",
+                    _penalty,
+                    int(np.sum(decay_mask > 0)),
+                    n_t,
+                    len(_onset_indices),
+                )
+            except Exception as _lr_exc:
+                logger.debug("MRSA Phase 20 late-reverb suppression skipped: %s", _lr_exc)
+
         # Apply combined gain to reference STFT + PGHI phase reconstruction
         Zxx_processed = G_combined * np.abs(Zxx_ref) * np.exp(1j * np.angle(Zxx_ref))
         if _PGHI_AVAILABLE_P20:

@@ -87,22 +87,22 @@ class AirBandEnhancement(PhaseInterface):
             "saturation_drive": 0.20,
         },
         MaterialType.TAPE: {
-            "shelf_gain_db": 3.0,
+            "shelf_gain_db": 5.0,  # v9.10.114: ↑3.0→5.0 — Tape-HF nach Rauschreduktion sicher erweiterbar
             "shelf_freq_hz": 13000,
-            "exciter_mix": 0.20,
-            "saturation_drive": 0.15,
+            "exciter_mix": 0.28,  # v9.10.114: ↑0.20→0.28
+            "saturation_drive": 0.20,  # v9.10.114: ↑0.15→0.20
         },
         MaterialType.CD_DIGITAL: {
-            "shelf_gain_db": 3.5,
+            "shelf_gain_db": 5.0,  # v9.10.114: ↑3.5→5.0 — CD hat klare HF-Basis
             "shelf_freq_hz": 12000,
-            "exciter_mix": 0.25,
+            "exciter_mix": 0.30,  # v9.10.114: ↑0.25→0.30
             "saturation_drive": 0.25,
         },
         MaterialType.STREAMING: {
-            "shelf_gain_db": 4.0,
+            "shelf_gain_db": 4.5,  # v9.10.114: ↑4.0→4.5
             "shelf_freq_hz": 11000,
-            "exciter_mix": 0.30,
-            "saturation_drive": 0.20,
+            "exciter_mix": 0.32,  # v9.10.114: ↑0.30→0.32
+            "saturation_drive": 0.22,  # v9.10.114: ↑0.20→0.22
         },
     }
 
@@ -214,6 +214,38 @@ class AirBandEnhancement(PhaseInterface):
             # Classical: minimal air exciter to preserve natural overtones
             config["exciter_mix"] *= 0.50
             config["saturation_drive"] *= 0.50
+
+        # §2.41 (v9.10.116) SOTA: Ära-bewusste Air-Band-Deckelung aus SourceFidelityTarget.
+        # Physikalische Invariante (Klangtreue §2.41): Luft-Anhebung nie ÜBER der ären-
+        # typischen Original-Bandbreite — was das Original nicht enthalten konnte,
+        # darf nicht synthetisiert werden (falsche Helligkeit).
+        # Aber: akkumulierter HF-Verlust (Generationsverlust) soll KOMPENSIERT werden.
+        _sfr_cal_39 = kwargs.get("song_calibration_profile", {})
+        _sfr_bw_39 = float(_sfr_cal_39.get("source_fidelity_bandwidth_target_hz", 0.0))
+        _sfr_hf_loss_39 = float(_sfr_cal_39.get("source_fidelity_hf_loss_db", 0.0))
+        _sfr_conf_39 = float(_sfr_cal_39.get("source_fidelity_confidence", 0.5))
+        if _sfr_bw_39 > 0.0 and _sfr_conf_39 >= 0.30:
+            # Shelf-Frequenz-Deckelung: nie höher als 85% der Original-Bandbreite
+            _air_bw_ceil = float(np.clip(_sfr_bw_39 * 0.85, 6000.0, 20000.0))
+            if _air_bw_ceil < config["shelf_freq_hz"]:
+                config["shelf_freq_hz"] = _air_bw_ceil
+                logger.debug(
+                    "Phase 39: era bw_target=%.0f → shelf_freq capped at %.0f Hz (conf=%.2f)",
+                    _sfr_bw_39,
+                    _air_bw_ceil,
+                    _sfr_conf_39,
+                )
+            # HF-Verlust-Kompensation: mehr Generationen verloren → exciter-Boost
+            # (kompensiert nur was real verloren ging, nicht over-synthesis)
+            if _sfr_hf_loss_39 > 0.5:
+                _loss_scale = float(np.clip(1.0 + _sfr_hf_loss_39 / 18.0 * _sfr_conf_39, 1.0, 1.35))
+                config["exciter_mix"] = float(np.clip(config["exciter_mix"] * _loss_scale, 0.0, 0.55))
+                logger.debug(
+                    "Phase 39: hf_loss=%.1f dB → exciter_mix×%.2f (scale=%.2f)",
+                    _sfr_hf_loss_39,
+                    config["exciter_mix"],
+                    _loss_scale,
+                )
 
         # Measure initial HF energy
         hf_energy_before = self._measure_hf_energy(audio, sample_rate)

@@ -104,15 +104,111 @@ class ReparaturDenker:
     - Singleton via :func:`get_reparatur_denker` (Double-Checked Locking).
     """
 
-    # Schwellwerte
+    # Schwellwerte (Defaults — werden material-adaptiv überschrieben in repariere())
     _CLICK_IQR_MULTIPLIER: float = 6.0  # IQR-Multiplikator für Click-Detektion
     _CLICK_KERNEL_MS: float = 1.5  # Medianfilter-Halbfenster in ms
     _CLIP_THRESHOLD: float = 0.995  # Amplitude ≥ threshold gilt als Clipping
     _HUM_DETECT_DB: float = -50.0  # Energieschwelle für Brumm-Erkennung (dBFS)
 
+    # Material-adaptive Schwellwertprofile (§2.41 Klangtreue v9.10.117)
+    # Quellen: Copeland 2008 (Manual of Analogue Sound Restoration),
+    #          Katz 2007 (Mastering Audio)
+    # Shellac/Wax = hoher Grundrausch + viele Clicks → aggressivere Detektion.
+    # CD/Digital = sauberes Signal → konservativere Detektion (weniger False Positives).
+    _MATERIAL_PROFILES: dict[str, dict[str, float]] = {
+        "shellac": {
+            "click_iqr": 4.0,       # Shellac: viele Klicks, niedrigere Schwelle
+            "click_kernel_ms": 1.0,  # Schmalerer Kernel für kurze Impulse
+            "clip_threshold": 0.990,
+            "hum_detect_db": -45.0,  # Grammophon-Motoren erzeugen hörbaren Brumm
+        },
+        "wax_cylinder": {
+            "click_iqr": 3.5,        # Wachszylinder: extremer Verschleiß
+            "click_kernel_ms": 1.0,
+            "clip_threshold": 0.985,
+            "hum_detect_db": -42.0,
+        },
+        "wire_recording": {
+            "click_iqr": 4.5,
+            "click_kernel_ms": 1.2,
+            "clip_threshold": 0.990,
+            "hum_detect_db": -45.0,
+        },
+        "vinyl": {
+            "click_iqr": 5.0,        # Vinyl: moderater Verschleiß, weniger Clicks als Shellac
+            "click_kernel_ms": 1.5,
+            "clip_threshold": 0.993,
+            "hum_detect_db": -48.0,
+        },
+        "tape": {
+            "click_iqr": 7.0,        # Tape: wenig Clicks, hauptsächlich Hiss/Flutter
+            "click_kernel_ms": 2.0,
+            "clip_threshold": 0.992,  # Tape-Sättigung beginnt sanfter
+            "hum_detect_db": -50.0,
+        },
+        "cassette": {
+            "click_iqr": 7.0,
+            "click_kernel_ms": 2.0,
+            "clip_threshold": 0.992,
+            "hum_detect_db": -50.0,
+        },
+        "reel_tape": {
+            "click_iqr": 8.0,        # Pro-Tape: fast keine Clicks, hauptsächlich Print-Through
+            "click_kernel_ms": 2.0,
+            "clip_threshold": 0.995,
+            "hum_detect_db": -52.0,
+        },
+        "cd_digital": {
+            "click_iqr": 9.0,        # CD: fast keine Clicks, nur Encoding-Artefakte
+            "click_kernel_ms": 2.0,
+            "clip_threshold": 0.998,
+            "hum_detect_db": -55.0,   # Digitaler Brumm nur bei sehr hohem Pegel erkennbar
+        },
+        "dat": {
+            "click_iqr": 9.0,
+            "click_kernel_ms": 2.0,
+            "clip_threshold": 0.998,
+            "hum_detect_db": -55.0,
+        },
+        "mp3_low": {
+            "click_iqr": 8.5,
+            "click_kernel_ms": 2.0,
+            "clip_threshold": 0.997,
+            "hum_detect_db": -55.0,
+        },
+        "mp3_high": {
+            "click_iqr": 9.0,
+            "click_kernel_ms": 2.0,
+            "clip_threshold": 0.998,
+            "hum_detect_db": -55.0,
+        },
+    }
+
     # ------------------------------------------------------------------
     # Öffentliche API
     # ------------------------------------------------------------------
+
+    def _apply_material_profile(self, material: str) -> None:
+        """Apply material-adaptive threshold profile (§2.41 v9.10.117).
+
+        Falls material im ``_MATERIAL_PROFILES``-Dict enthalten ist,
+        werden die 4 Schwellwerte überschrieben. Sonst bleiben Defaults.
+        """
+        mat_key = (material or "").lower().strip()
+        profile = self._MATERIAL_PROFILES.get(mat_key)
+        if profile:
+            self._CLICK_IQR_MULTIPLIER = profile["click_iqr"]
+            self._CLICK_KERNEL_MS = profile["click_kernel_ms"]
+            self._CLIP_THRESHOLD = profile["clip_threshold"]
+            self._HUM_DETECT_DB = profile["hum_detect_db"]
+            logger.debug("ReparaturDenker: material-profile '%s' applied: iqr=%.1f, hum_db=%.0f",
+                         mat_key, self._CLICK_IQR_MULTIPLIER, self._HUM_DETECT_DB)
+        else:
+            # Reset to defaults for unknown materials
+            self._CLICK_IQR_MULTIPLIER = 6.0
+            self._CLICK_KERNEL_MS = 1.5
+            self._CLIP_THRESHOLD = 0.995
+            self._HUM_DETECT_DB = -50.0
 
     def repariere(
         self,
@@ -126,6 +222,9 @@ class ReparaturDenker:
         material: str = "",
         quality_before: float = 0.0,
         progress_callback: Callable[[str], None] | None = None,
+        defect_scores: dict[str, float] | None = None,
+        defect_locations: dict[str, list[tuple[float, float]]] | None = None,
+        era_decade: int | None = None,
     ) -> ReparaturErgebnis:
         """Repariert die häufigsten analogen Defekte per DSP.
 
@@ -141,18 +240,46 @@ class ReparaturDenker:
             Ob Netzbrumm (50/60 Hz) unterdrückt werden soll.
         repair_clipping:
             Ob Clipping-Regionen interpoliert werden sollen.
+        defect_scores:
+            DefectScanner-Scores je Defekttyp (optional).
+            Ermöglicht severity-proportionale Reparaturstärke.
+        defect_locations:
+            Zeiträume je Defekttyp als ``(start_s, end_s)`` (optional).
+            Enables targeted surgical repair on known defect locations.
+        era_decade:
+            Dekade der Aufnahme (z. B. 1940, 1960).
+            Ältere Aufnahmen → sensiblere Hum-Erkennung.
 
         Rückgabe
         --------
         :class:`ReparaturErgebnis` mit repariertem Audio und Statistik.
         """
         assert sr == 48000, f"ReparaturDenker.repariere() erwartet sr=48000 Hz, erhalten: {sr} Hz"
+
+        # §2.41: Material-adaptive Schwellwerte anwenden
+        self._apply_material_profile(material)
+
+        # §2.41: Era-adaptive Hum-Sensitivität — ältere Aufnahmen haben
+        # typischerweise stärkeren Netzbrumm durch ungefilterte Netzteile.
+        # Höherer dB-Wert = sensitiver (näher an 0 dB).
+        if era_decade is not None:
+            if era_decade <= 1940:
+                self._HUM_DETECT_DB = max(self._HUM_DETECT_DB, -42.0)
+            elif era_decade <= 1960:
+                self._HUM_DETECT_DB = max(self._HUM_DETECT_DB, -47.0)
+            # Post-1980: kein Override nötig, moderne Netzteile
+
         logger.info(
-            "ReparaturDenker.repariere() gestartet: clicks=%s, hum=%s, clipping=%s, duration=%.1fs",
+            "ReparaturDenker.repariere() gestartet: clicks=%s, hum=%s, clipping=%s, "
+            "material=%s, era=%s, duration=%.1fs, iqr=%.1f, hum_db=%.0f",
             remove_clicks,
             remove_hum,
             repair_clipping,
+            material or "unknown",
+            era_decade or "?",
             len(audio) / max(sr, 1),
+            self._CLICK_IQR_MULTIPLIER,
+            self._HUM_DETECT_DB,
         )
         if validate_audio:
             audio = np.nan_to_num(audio.astype(np.float32), nan=0.0, posinf=0.0, neginf=0.0)
@@ -171,7 +298,13 @@ class ReparaturDenker:
             if progress_callback is not None:
                 progress_callback("click_repair")
             try:
-                audio, clicks_removed = self._remove_clicks(audio, sr)
+                # §2.41: chirurgische Click-Entfernung mit DefectScanner-Locations
+                _click_locs = (defect_locations or {}).get("click", [])
+                _crackle_locs = (defect_locations or {}).get("crackle", [])
+                _all_click_locs = _click_locs + _crackle_locs
+                audio, clicks_removed = self._remove_clicks(
+                    audio, sr, click_locations=_all_click_locs if _all_click_locs else None
+                )
                 if clicks_removed > 0:
                     notes.append(f"{clicks_removed} Klicken entfernt")
             except Exception as exc:
@@ -246,7 +379,12 @@ class ReparaturDenker:
     # 1. Click-Entfernung
     # ------------------------------------------------------------------
 
-    def _remove_clicks(self, audio: np.ndarray, sr: int) -> tuple[np.ndarray, int]:
+    def _remove_clicks(
+        self,
+        audio: np.ndarray,
+        sr: int,
+        click_locations: list[tuple[float, float]] | None = None,
+    ) -> tuple[np.ndarray, int]:
         """Medianfilter-basierte Click-Entfernung.
 
         Algorithmus:
@@ -255,6 +393,11 @@ class ReparaturDenker:
             3. IQR-basierte Schwelle: ``threshold = IQR(d) × _CLICK_IQR_MULTIPLIER``.
             4. Clicks-Maske: ``|d| > threshold``.
             5. Clicks durch Medianfilter-Version ersetzen.
+
+        Wenn ``click_locations`` vorhanden sind (aus DefectScanner), wird die
+        IQR-Maske auf diese Zeitregionen eingeschränkt (chirurgische Reparatur).
+        Dadurch werden keine musikalischen Transienten außerhalb der
+        Defekt-Positionen fälschlich entfernt.
 
         Rückgabe: (bereinigtes Audio, Anzahl erkannter Clicks)
         """
@@ -284,6 +427,16 @@ class ReparaturDenker:
 
         threshold = iqr * self._CLICK_IQR_MULTIPLIER
         mask = np.abs(diff) > threshold
+
+        # §2.41: Chirurgische Einschränkung — nur in bekannten Defekt-Regionen reparieren
+        if click_locations:
+            location_mask = np.zeros_like(mask)
+            for start_s, end_s in click_locations:
+                s_idx = max(0, int(start_s * sr))
+                e_idx = min(len(mono), int(end_s * sr))
+                location_mask[s_idx:e_idx] = True
+            # Nur Clicks innerhalb der DefectScanner-Locations bearbeiten
+            mask = mask & location_mask
 
         # Clicks zählen (verbundene Regionen)
         clicks = int(np.sum(np.diff(mask.astype(np.int8)) > 0))

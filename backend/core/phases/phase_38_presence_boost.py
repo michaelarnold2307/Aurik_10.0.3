@@ -77,28 +77,28 @@ class PresenceBoost(PhaseInterface):
     # Enhancement parameters (material-adaptive)
     BOOST_CONFIG = {
         MaterialType.SHELLAC: {
-            "lower_gain_db": 3.0,
-            "upper_gain_db": 4.0,
+            "lower_gain_db": 4.5,  # v9.10.114: ↑3.0→4.5
+            "upper_gain_db": 5.5,  # v9.10.114: ↑4.0→5.5
             "q_factor": 1.5,
         },
         MaterialType.VINYL: {
-            "lower_gain_db": 2.5,
-            "upper_gain_db": 3.5,
+            "lower_gain_db": 3.5,  # v9.10.114: ↑2.5→3.5
+            "upper_gain_db": 4.5,  # v9.10.114: ↑3.5→4.5
             "q_factor": 1.8,
         },
         MaterialType.TAPE: {
-            "lower_gain_db": 2.0,
-            "upper_gain_db": 3.0,
+            "lower_gain_db": 3.0,  # v9.10.114: ↑2.0→3.0
+            "upper_gain_db": 4.0,  # v9.10.114: ↑3.0→4.0
             "q_factor": 2.0,
         },
         MaterialType.CD_DIGITAL: {
-            "lower_gain_db": 3.5,
-            "upper_gain_db": 4.5,
+            "lower_gain_db": 4.5,  # v9.10.114: ↑3.5→4.5
+            "upper_gain_db": 5.5,  # v9.10.114: ↑4.5→5.5
             "q_factor": 1.2,
         },
         MaterialType.STREAMING: {
-            "lower_gain_db": 3.0,
-            "upper_gain_db": 4.0,
+            "lower_gain_db": 4.0,  # v9.10.114: ↑3.0→4.0
+            "upper_gain_db": 5.0,  # v9.10.114: ↑4.0→5.0
             "q_factor": 1.5,
         },
     }
@@ -183,9 +183,9 @@ class PresenceBoost(PhaseInterface):
         if _decade is not None:
             _dec = int(_decade)
             if _dec <= 1950:
-                # Vintage: cap presence boost (don't over-brighten)
-                config["lower_gain_db"] = min(config["lower_gain_db"], 2.5)
-                config["upper_gain_db"] = min(config["upper_gain_db"], 3.0)
+                # Vintage: cap presence boost (don't over-brighten) — v9.10.114: ↑2.5/3.0→3.5/4.0
+                config["lower_gain_db"] = min(config["lower_gain_db"], 3.5)
+                config["upper_gain_db"] = min(config["upper_gain_db"], 4.0)
             elif _dec >= 2000:
                 # Modern digital: slightly less presence (already bright)
                 config["lower_gain_db"] *= 0.85
@@ -194,6 +194,32 @@ class PresenceBoost(PhaseInterface):
             # Classical/Opera: reduce presence boost to preserve natural timbre
             config["lower_gain_db"] *= 0.70
             config["upper_gain_db"] *= 0.75
+
+        # §2.41 (v9.10.116) SOTA: Ära-bewusste Presence-Center aus SourceFidelityTarget.
+        # Verschiedene Mikrofon-Ären haben unterschiedliche Hotspot-Frequenzen:
+        #   Acoustic/Carbon (1920s): 2000–4000 Hz (Horn-Resonanz + Carbon-Peak)
+        #   Ribbon (1930s): 2800–4300 Hz (Ribbon-Wärme-Zone)
+        #   Condenser_early (1950s): 3200–5500 Hz (U47 Presence-Peak 5–8 kHz)
+        #   condenser_modern (1970s+): 4000–6500 Hz (Moderner Standard)
+        _sfr_cal = kwargs.get("song_calibration_profile", {})
+        _sfr_presence_lower = float(_sfr_cal.get("source_fidelity_presence_hz_lower", 0.0))
+        _sfr_presence_upper = float(_sfr_cal.get("source_fidelity_presence_hz_upper", 0.0))
+        if _sfr_presence_lower > 0.0 and _sfr_presence_upper > 0.0:
+            config["lower_center_hz"] = _sfr_presence_lower
+            config["upper_center_hz"] = _sfr_presence_upper
+            logger.debug(
+                "Phase 38: era-aware presence center lower=%.0f upper=%.0f Hz (mic=%s)",
+                _sfr_presence_lower,
+                _sfr_presence_upper,
+                str(_sfr_cal.get("source_fidelity_era_mic_type", "?")),
+            )
+        # Harmonic-Density-Skalierung: frühe Ären haben dünsere Obertöne → mehr Presence.
+        _harm_density = float(_sfr_cal.get("source_fidelity_harmonic_density", 1.0))
+        if _harm_density < 0.85 and _harm_density > 0.0:
+            _hd_boost = float(np.clip(0.85 / _harm_density, 1.0, 1.25))
+            config["lower_gain_db"] = float(np.clip(config["lower_gain_db"] * _hd_boost, 0.0, 10.0))
+            config["upper_gain_db"] = float(np.clip(config["upper_gain_db"] * _hd_boost, 0.0, 10.0))
+            logger.debug("Phase 38: harm_density=%.2f → presence_boost×%.2f", _harm_density, _hd_boost)
 
         # Process each channel
         if is_stereo:
@@ -271,16 +297,20 @@ class PresenceBoost(PhaseInterface):
                 logger.debug("Phase 38 sibilance guard: sib_ratio=%.2f → upper_gain×%.2f", sib_ratio, sib_scale)
 
         # ── 3. Apply bell filters ──
-        # Lower presence (2–3.5 kHz): body and warmth
+        # Lower presence: era-aware center (default 2750 Hz for modern material)
+        lower_center = float(config.get("lower_center_hz", 2750.0))
+        # Upper presence: era-aware center (default 4750 Hz for modern material)
+        upper_center = float(config.get("upper_center_hz", 4750.0))
+
         if lower_gain > 0.05:
             enhanced = self._apply_bell_filter(
-                enhanced, sample_rate, center_freq=2750, gain_db=lower_gain, q=config["q_factor"]
+                enhanced, sample_rate, center_freq=lower_center, gain_db=lower_gain, q=config["q_factor"]
             )
 
-        # Upper presence (3.5–6 kHz): clarity and definition
+        # Upper presence (3.5–6 kHz by default): clarity and definition
         if upper_gain > 0.05:
             enhanced = self._apply_bell_filter(
-                enhanced, sample_rate, center_freq=4750, gain_db=upper_gain, q=config["q_factor"]
+                enhanced, sample_rate, center_freq=upper_center, gain_db=upper_gain, q=config["q_factor"]
             )
 
         return enhanced

@@ -18,6 +18,11 @@ from dataclasses import dataclass
 import numpy as np
 
 try:
+    import librosa  # §9.10.120: needed for true MCD (mel filters + STFT)
+except ImportError:
+    librosa = None  # type: ignore[assignment]
+
+try:
     SCIPY_AVAILABLE = True
 except ImportError:
     SCIPY_AVAILABLE = False
@@ -101,13 +106,51 @@ class PerceptualQualityScorer:
         ref = np.nan_to_num(reference[:min_len], nan=0.0, posinf=0.0, neginf=0.0)
         deg = np.nan_to_num(degraded[:min_len], nan=0.0, posinf=0.0, neginf=0.0)
 
-        # NSIM via einfache Korrelation (Fallback wenn scipy fehlt)
-        nsim = float(np.corrcoef(ref, deg)[0, 1])
-        nsim = np.clip(nsim, 0, 1)
+        # §9.10.120: Gammatone-weighted NSIM — perceptual frequency weighting
+        # instead of flat Pearson correlation.  Gammatone approximates human
+        # auditory filter bandwidth (Patterson et al. 1992).  Weights derived
+        # from ERB scale: more weight on 300–4000 Hz (speech/music fundamentals),
+        # less on sub-bass and extreme HF.
+        _n_fft_pqs = min(2048, len(ref))
+        _ref_mag = np.abs(np.fft.rfft(ref[:_n_fft_pqs], n=_n_fft_pqs))
+        _deg_mag = np.abs(np.fft.rfft(deg[:_n_fft_pqs], n=_n_fft_pqs))
+        _freqs_pqs = np.fft.rfftfreq(_n_fft_pqs, d=1.0 / sr)
+        # ERB-weighted: W(f) = 1 / (1 + (f/1500)^2) × (f/200)^0.5
+        # Peaks at ~800–2000 Hz, rolls off gently above 4 kHz and below 200 Hz
+        _erb_w = 1.0 / (1.0 + (_freqs_pqs / 1500.0) ** 2) * np.sqrt(np.clip(_freqs_pqs / 200.0, 0.01, 10.0))
+        _erb_w /= np.sum(_erb_w) + 1e-12  # normalize
+        _ref_weighted = _ref_mag * _erb_w
+        _deg_weighted = _deg_mag * _erb_w
+        _rw_mean = np.mean(_ref_weighted)
+        _dw_mean = np.mean(_deg_weighted)
+        _cov = np.mean((_ref_weighted - _rw_mean) * (_deg_weighted - _dw_mean))
+        _std_r = np.std(_ref_weighted) + 1e-12
+        _std_d = np.std(_deg_weighted) + 1e-12
+        nsim = float(np.clip(_cov / (_std_r * _std_d), 0.0, 1.0))
 
-        # MCD: vereinfacht als RMS-Differenz (ohne echte Mel-Cepstrum)
-        mcd_db = 10.0 * np.log10(np.mean((ref - deg) ** 2) + 1e-12)
-        mcd_db = np.clip(mcd_db, 0, 50)
+        # §9.10.120: True Mel-Cepstral Distortion (MCD) — replaces naive RMS diff.
+        # Standard MCD: mean Euclidean distance of MFCC vectors (Kubichek 1993).
+        # Uses 13 MFCCs from DCT of log-mel spectrogram.
+        try:
+            if librosa is None:
+                raise ImportError("librosa not available")
+            _n_mels = 40
+            _mel_basis = librosa.filters.mel(sr=sr, n_fft=_n_fft_pqs, n_mels=_n_mels)
+            _ref_stft = np.abs(librosa.stft(ref.astype(np.float32), n_fft=_n_fft_pqs, hop_length=512))
+            _deg_stft = np.abs(librosa.stft(deg.astype(np.float32), n_fft=_n_fft_pqs, hop_length=512))
+            _ref_mel = np.dot(_mel_basis, _ref_stft) + 1e-10
+            _deg_mel = np.dot(_mel_basis, _deg_stft) + 1e-10
+            from scipy.fft import dct
+            _ref_mfcc = dct(np.log(_ref_mel), type=2, axis=0, norm='ortho')[:13, :]
+            _deg_mfcc = dct(np.log(_deg_mel), type=2, axis=0, norm='ortho')[:13, :]
+            _min_t = min(_ref_mfcc.shape[1], _deg_mfcc.shape[1])
+            _mcd_frames = np.sqrt(np.sum((_ref_mfcc[:, :_min_t] - _deg_mfcc[:, :_min_t]) ** 2, axis=0))
+            # MCD in dB: (10/ln10) × sqrt(2) × mean_euclidean ≈ 6.14 × mean
+            mcd_db = float(np.mean(_mcd_frames) * (10.0 / np.log(10.0)) * np.sqrt(2.0))
+        except Exception:
+            # Fallback: simplified RMS-based pseudo-MCD
+            mcd_db = 10.0 * np.log10(np.mean((ref - deg) ** 2) + 1e-12)
+        mcd_db = float(np.clip(mcd_db, 0.0, 50.0))
 
         # Spectral Coherence: Korrelation im Frequenzbereich
         ref_fft = np.abs(np.fft.rfft(ref))

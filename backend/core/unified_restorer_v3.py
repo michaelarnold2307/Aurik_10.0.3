@@ -792,6 +792,59 @@ class UnifiedRestorerV3:
         else:
             _tier = "good"
 
+        # §2.41 SourceFidelityReconstructor — Klangtreue zum Aufnahmetag (v9.10.115)
+        # Schätzt die Signallücke zwischen aktuellem Träger und dem Original am
+        # Aufnahmetag. Modelliert äraspezifische Original-Bandbreite + akkumulierte
+        # Überspielgenerations-Verluste. Ergebnis: reconstruction-Familie gezielt
+        # boosten, Zielbandbreite für Phase 06 bereistellen.
+        _sfr_bw_target = 20000.0
+        _sfr_recon_strength = 0.0
+        _sfr_confidence = 0.5
+        _sfr_gen_count = 1
+        _sfr_hf_loss = 0.0
+        _sfr_harm_density = 1.0
+        _sfr_era_mic_type = "condenser_modern"
+        _sfr_presence_lower = 4000.0
+        _sfr_presence_upper = 6500.0
+        try:
+            from backend.core.source_fidelity_reconstructor import get_source_fidelity_reconstructor
+
+            _sfr = get_source_fidelity_reconstructor()
+            _sfr_target = _sfr.estimate(
+                era_decade=era_decade,
+                material_key=_mat_val,
+                spectral_fingerprint=spectral_fingerprint,
+                mode=_mode_str,
+            )
+            _sfr_bw_target = _sfr_target.bandwidth_extension_target_hz
+            _sfr_recon_strength = _sfr_target.reconstruction_strength
+            _sfr_confidence = _sfr_target.confidence
+            _sfr_gen_count = _sfr_target.transfer_generation_count
+            _sfr_hf_loss = _sfr_target.cumulative_hf_loss_db
+            _sfr_harm_density = _sfr_target.era_harmonic_density
+            _sfr_era_mic_type = _sfr_target.era_mic_type
+            _sfr_presence_lower = _sfr_target.presence_center_hz_lower
+            _sfr_presence_upper = _sfr_target.presence_center_hz_upper
+            # Reconstruction-Familie boosten: confidence-gewichteter Boost [0.0%, +20%].
+            # Digitale Quellen (confidence<0.4, gen_count=1) → nahezu kein Boost.
+            # Altes Shellac/Vinyl mit vielen Generationen → signifikanter Boost.
+            _sfr_recon_boost = float(np.clip(_sfr_recon_strength * _sfr_confidence * 0.20, 0.0, 0.20))
+            if _sfr_recon_boost >= 0.01:
+                _family["reconstruction"] = float(
+                    np.clip(_family["reconstruction"] * (1.0 + _sfr_recon_boost), 0.30, 1.80)
+                )
+            logger.debug(
+                "SourceFidelity: recon_boost=+%.2f bw_gap=%.0fHz gen=%d hf_loss=%.1fdB conf=%.2f mic=%s",
+                _sfr_recon_boost,
+                _sfr_target.bandwidth_gap_hz,
+                _sfr_gen_count,
+                _sfr_hf_loss,
+                _sfr_confidence,
+                _sfr_era_mic_type,
+            )
+        except Exception as _sfr_exc:
+            logger.debug("SourceFidelityReconstructor nicht verfügbar: %s", _sfr_exc)
+
         return {
             "material": _mat_val,
             "mode": getattr(mode, "value", str(mode)),
@@ -805,6 +858,17 @@ class UnifiedRestorerV3:
             "genre_label": genre_label,
             "global_scalar": _global,
             "family_scalars": _family,
+            # §2.41 Source-Fidelity-Felder für Phase 06 und ExcellenceOptimizer:
+            "source_fidelity_bandwidth_target_hz": _sfr_bw_target,
+            "source_fidelity_reconstruction_strength": _sfr_recon_strength,
+            "source_fidelity_confidence": _sfr_confidence,
+            "source_fidelity_generation_count": _sfr_gen_count,
+            "source_fidelity_hf_loss_db": _sfr_hf_loss,
+            "source_fidelity_harmonic_density": _sfr_harm_density,
+            # §2.41 (v9.10.116) SOTA: Ära-Mikrofon-Typ + Presence-Center für Phase 38:
+            "source_fidelity_era_mic_type": _sfr_era_mic_type,
+            "source_fidelity_presence_hz_lower": _sfr_presence_lower,
+            "source_fidelity_presence_hz_upper": _sfr_presence_upper,
         }
 
     @staticmethod
@@ -8681,6 +8745,12 @@ class UnifiedRestorerV3:
 
             # Safety ordering constraints (quality-preserving orchestration invariants)
             _move_before("phase_24_dropout_repair", "phase_55_diffusion_inpainting")
+            # Spectral-Band-Gap repair must run AFTER Diffusion-Inpainting:
+            # phase_55 fills temporal gaps (dropouts, analog voids) first;
+            # phase_56 then patches frequency-domain gaps on the already-repaired
+            # signal.  Reversed order would attempt band-gap repair on unfilled holes,
+            # producing artefacting around dropout boundaries.
+            _move_before("phase_55_diffusion_inpainting", "phase_56_spectral_band_gap_repair")
             _move_before("phase_57_print_through_reduction", "phase_29_tape_hiss_reduction")
             _move_before("phase_20_reverb_reduction", "phase_49_advanced_dereverb")
             _move_before("phase_16_final_eq", "phase_17_mastering_polish")
@@ -10022,6 +10092,24 @@ class UnifiedRestorerV3:
                                         phase_id,
                                         _song_cal_scalar,
                                         _combined_strength,
+                                    )
+
+                            # §9.10.118 Diminishing-Returns-Moderation:
+                            # Each STFT round-trip (STFT→modify→ISTFT) introduces
+                            # cumulative spectral smearing.  After the 20th executed
+                            # phase, attenuate strength proportionally to reduce
+                            # unnecessary degradation while keeping all phases active
+                            # (§2.29 Phase-Skip-Verbot bleibt gewahrt).
+                            _n_exec = len(executed)
+                            if _n_exec > 20 and phase_id not in _MASK_TIMING:
+                                _diminish = max(0.30, 1.0 - 0.015 * (_n_exec - 20))
+                                _combined_strength = float(
+                                    np.clip(_combined_strength * _diminish, 0.05, 1.0)
+                                )
+                                if _diminish < 0.95:
+                                    logger.debug(
+                                        "§9.10.118 DiminishingReturns %s: exec#%d → factor=%.3f strength=%.3f",
+                                        phase_id, _n_exec, _diminish, _combined_strength,
                                     )
 
                             _pmgg_audio_out, _pmgg_scores_curr, _pmgg_entry = _pmgg_gate.wrap_phase(

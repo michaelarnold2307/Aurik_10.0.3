@@ -52,6 +52,15 @@ from dataclasses import dataclass, field
 import numpy as np
 import scipy.signal as spsig
 
+# §9.10.119 PGHI for phase-consistent ISTFT after magnitude modification
+try:
+    from dsp.pghi import pghi_reconstruct_from_stft as _pghi_excellence
+
+    _PGHI_AVAILABLE_EX = True
+except ImportError:
+    _pghi_excellence = None  # type: ignore
+    _PGHI_AVAILABLE_EX = False
+
 logger = logging.getLogger(__name__)
 
 # ─── Algorithmus-Konstanten ──────────────────────────────────────────────────
@@ -67,11 +76,11 @@ _TRANSIENT_THRESH_PERCENTILE = 75  # Frames über diesem Flux-Perzentil = Transi
 _TARGET_CV_MIN = 0.05  # Mindest-Variationskoeffizient (natural music)
 _TARGET_CV_MAX = 0.20  # Maximal-Variationskoeffizient (noise threshold)
 _MODULATION_STRENGTH = (
-    0.25  # Stärke der re-injizierten Modulation [0–1] (v9.10.58: ↑0.15→0.25 für über-denoisete Signale)
+    0.42  # Stärke der re-injizierten Modulation [0–1] (v9.10.114: ↑0.25→0.42 — zu konservativ für über-denoisete Signale)
 )
 
 # Harmonic Reinforcement
-_HARM_BOOST_DB = 1.0  # Max Anhebung der Obertöne in dB (v9.11: erhöht von 0.7 — Oberton-Brillanz)
+_HARM_BOOST_DB = 2.5  # Max Anhebung der Obertöne in dB (v9.10.114: ↑1.0→2.5 — Oberton-Brillanz zu konservativ gegen iZotope RX11)
 _HARM_MAX_ORDER = 8  # Bis zum 8. Oberton
 _F0_FREQ_MAX = 2000  # Grundfrequenz-Suche nur bis 2000 Hz
 
@@ -116,8 +125,8 @@ MATERIAL_PROFILES: dict[str, MaterialProfile] = {
         name="vinyl",
         flux_smoothing_max=0.55,
         target_cv_min=0.07,
-        modulation_strength=0.20,
-        harm_boost_db=0.8,
+        modulation_strength=0.30,  # v9.10.114: ↑0.20→0.30
+        harm_boost_db=1.8,  # v9.10.114: ↑0.8→1.8 — Vinyl-Obertöne zu schwach
         ola_ms=25.0,
         description="Vinyl-Schallplatte: Wow/Flutter-Micro-Dynamics, Oberton-Boost",
     ),
@@ -125,8 +134,8 @@ MATERIAL_PROFILES: dict[str, MaterialProfile] = {
         name="tape",
         flux_smoothing_max=0.65,
         target_cv_min=0.04,
-        modulation_strength=0.14,
-        harm_boost_db=0.6,
+        modulation_strength=0.24,  # v9.10.114: ↑0.14→0.24
+        harm_boost_db=1.5,  # v9.10.114: ↑0.6→1.5 — Tape-Sättigung stärker betonen
         ola_ms=15.0,
         description="Magnetband: Dropout-Robustheit, moderater Harmonic-Boost, Kompression-Aware",
     ),
@@ -134,8 +143,8 @@ MATERIAL_PROFILES: dict[str, MaterialProfile] = {
         name="shellac",
         flux_smoothing_max=0.60,
         target_cv_min=0.06,
-        modulation_strength=0.22,
-        harm_boost_db=1.2,
+        modulation_strength=0.38,  # v9.10.114: ↑0.22→0.38 — Shellac braucht starke Modulation
+        harm_boost_db=2.8,  # v9.10.114: ↑1.2→2.8 — Shellac-Obertöne stark restaurieren
         ola_ms=30.0,
         description="Schellack/78rpm: Bandbreitenbegrenzte Anhebung, starke Harmonics, lange Crossfades",
     ),
@@ -477,6 +486,14 @@ def _enhance_spectral_continuity(
         mag_smooth = mag.copy()
 
     Zxx_new = mag_smooth * np.exp(1j * phase)
+    # §9.10.119: PGHI phase reconstruction after magnitude modification
+    # (Perraudin et al. 2013 — magnitude-only ISTFT with original phase
+    # introduces phase inconsistency; PGHI corrects this).
+    if _PGHI_AVAILABLE_EX:
+        try:
+            Zxx_new = _pghi_excellence(Zxx_new, hop_length=_HOP)
+        except Exception:
+            pass  # fallback: use original-phase reconstruction
     smoothed = _istft(Zxx_new, len(_audio_proc))
 
     # Wenn nur ein Segment bearbeitet wurde, Original-Audio zusammensetzen
@@ -601,6 +618,12 @@ def _reinforce_harmonics(
         mag[:, t] = np.where(boost_mask, mag[:, t] * (1 + boost_linear), mag[:, t])
 
     Zxx_new = mag * np.exp(1j * phase)
+    # §9.10.119: PGHI after harmonic boost magnitude changes
+    if _PGHI_AVAILABLE_EX:
+        try:
+            Zxx_new = _pghi_excellence(Zxx_new, hop_length=_HOP)
+        except Exception:
+            pass
     boosted = _istft(Zxx_new, len(_audio_proc))
 
     # Wenn nur ein Segment bearbeitet wurde, Original-Audio zusammensetzen

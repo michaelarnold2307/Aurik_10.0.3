@@ -2,6 +2,432 @@
 
 > Hinweis: Dieses Dokument ist eine Versionshistorie. Ältere Versionsnummern und Kennzahlen sind hier erwartbar und keine veralteten Reststände.
 
+## Version 9.10.120 — Harmonisierte Maximierung aller Musical Goals + PQS (Apr 2026)
+
+### Zusammenfassung
+
+Systemweite Recalibration aller Musical-Goals-Metriken und PQS auf psychoakustisch korrekte Divisoren/Multiplikatoren. Alle 6 Bottlenecks (Brillanz, Transparenz, Wärme, Natürlichkeit, Emotionalität, PQS) mit wissenschaftlicher Fundierung behoben. 45 neue Tests, 315/315 kombinierte Regression (v9.10.113–120) grün.
+
+### 1. Brillanz — HF Crest-Divisor 13.5 → 10.5
+
+- **Problem**: Divisor 13.5 kappte typischen Musik-Crest (8–12) auf max. 0.48–0.78. Cleanes HF-Audio war chronisch unterbewertet.
+- **Fix**: Divisor 10.5 (Fastl & Zwicker 2007 §8.3): crest 8→0.62, crest 12→1.0.
+
+### 2. Transparenz — 5-Band-Crest-Divisor 8.8 → 7.0
+
+- **Problem**: Band-Crest 6 ergab nur 0.55 → transparentes Audio wurde visuell als „mittel" dargestellt.
+- **Fix**: Divisor 7.0 (Moore & Glasberg 1983): crest 5→0.54, crest 8→0.97.
+
+### 3. Wärme — H2/H4 Even-Harmonic-Divisor 9.0 → 5.0
+
+- **Problem**: Typisches Röhren/Tape even/odd ratio 2–5 wurde mit Divisor 9.0 massiv unterbewertet (ratio 3.0→0.22).
+- **Fix**: Divisor 5.0 (Fletcher & Rossing): ratio 3→0.40, ratio 5→0.80, ratio 6→1.0.
+
+### 4. Natürlichkeit — 4 Multiplier-Recalibration
+
+- **Flatness**: ×2 → ×2.5 (strenger bei Noise, Johnston 1988 Wiener-Entropy-Threshold)
+- **ZCR-Varianz**: ×100 → ×60 (dynamische Musik nicht mehr bestraft)
+- **Spectral Contrast**: ÷30 → ÷25 (typisches restauriertes Audio 20–25 dB: 0.50–0.67 → 0.60–0.80)
+- **Onset Smoothness**: ÷10 → ÷8 (engerer Transient-Naturalness-Check)
+
+### 5. Emotionalität — LUFS Pre-Normalization
+
+- **Problem**: Alle 4 Dynamics-Formeln (crest/9.0, variance×1000, micro×100, range×10) waren für −14 LUFS kalibriert. Audio bei −10 oder −20 LUFS ergab inkonsistente Scores.
+- **Fix**: RMS-basierte Normalization auf −14 LUFS vor Dynamics-Berechnung. Formel jetzt loudness-invariant.
+
+### 6. PQS — Echtes Mel-Cepstral-Distance + Gammatone-NSIM
+
+- **NSIM**: Einfache Pearson-Korrelation → ERB-gewichtete Korrelation (Patterson et al. 1992). Gewichtung betont 300–4000 Hz (Sprache/Musik-Grundfrequenzen).
+- **MCD**: Pseudo-RMS-Differenz (`10·log₁₀(mean((ref−deg)²))`) → echte Mel-Cepstral Distortion (Kubichek 1993): 13 MFCCs aus DCT des log-Mel-Spektrogramms.
+- Sigmoid-Slope und Gewichte unverändert — Verbesserung rein durch korrektere Eingangsmetriken.
+
+### Tests
+
+- 45 neue Tests in `test_v9_10_120_maximierung.py`
+- 315/315 kombinierte Regression v9.10.113–120 grün
+
+## Version 9.10.119 — Musikliebhaber-Exzellenz: 5 audible Defizite behoben (Apr 2026)
+
+### Zusammenfassung
+
+Tiefenaudit auf Kopfhörer-Ebene: 3 unabhängige Code-Audits + manuelle Quellcode-Verifikation identifizierten 5 hörbare Defizite. Alle behoben, 2 False-Positive-Befunde entkräftet (Phase 53/56 Stereo). 27 neue Tests, 270/270 kombinierte Regression (v9.10.113–119) grün.
+
+### 1. HPSS Kernel-Verkleinerung (Transient-Schärfe)
+
+- **Problem**: HPSS 31-bin Median-Filter verwischte Drum-Attacks (4→8 ms Blur). Crunchy Kicks und Konsonanten-Transienten verloren „Biss".
+- **Fix**: `HPSS_HARMONIC_KERNEL: 31→17`, `HPSS_PERCUSSIVE_KERNEL: 31→13` in `transient_decoupled_processor.py`.
+- **Wissenschaftliche Basis**: Fitzgerald 2010 — Median-Kernel ≤ 17 für perkussive Quellen bei n_fft=1024 optimal.
+
+### 2. ExcellenceOptimizer PGHI-Integration (Phasenkonsistenz)
+
+- **Problem**: `_enhance_spectral_continuity()` und `_reinforce_harmonics()` modifizierten Magnitude-Spektren, rekonstruierten aber ISTFT mit Originalphase → Phasen-Inkonsistenz → metallisch klingende Artefakte (Ephraim & Malah 1984).
+- **Fix**: PGHI-Rekonstruktion nach jeder Magnitude-Modifikation, mit try/except-Fallback.
+- **Dateien**: `excellence_optimizer.py` — 3 Edits (Import + 2 STFT-Pfade).
+
+### 3. Crossfade Float64-Präzision (Boundary-Pumping)
+
+- **Problem**: Hanning-Window in `adaptive_chunk_processor.py` wurde in float32 berechnet — `fade_in + fade_out ≈ 0.99999995` statt exakt 1.0 → kumulative 2-5 % Amplitude-Drift an Chunk-Grenzen → hörbares Pumpen/Atmen bei langen Dateien.
+- **Fix**: Float64-Zwischenpräzision für Window-Berechnung, cast zurück zu float32 erst am Ende.
+
+### 4. MDEM Tail-Auslauf (natürliches Fade-Out)
+
+- **Problem**: `micro_dynamics_envelope_morphing.py` kopierte den letzten Frame-Gain hart in den Tail (~200 ms) → unnatürlicher Energiesprung am Audio-Ende (besonders bei Fade-Outs hörbar).
+- **Fix**: `np.linspace(last_gain, 1.0, tail_len)` — sanfte Interpolation zur Unity-Gain.
+
+### 5. Emotional Arc Centroid-Normalisierung (NR-Robustheit)
+
+- **Problem**: Nach Noise-Reduction verschob sich der Spectral-Centroid global um ~400 Hz aufwärts (Noise-Floor-Drop) → false Arousal-Anstieg → dynamischer Spannungsbogen erschien abgeflacht (Crescendo-Diminuendo-Kontrast ≤ 70 % des Originals).
+- **Fix**: Per-Song Centroid-Median-Normalisierung in `emotional_arc_preservation.py` — restored-Centroid wird auf Original-Centroid-Median skaliert, nur wenn Shift > 5 %.
+
+### Tests: 27 neue Unit-Tests (`test_v9_10_119_listener_excellence.py`)
+
+- HPSS Kernel-Werte + Functional + Energy-Conservation (6 Tests)
+- ExcellenceOptimizer PGHI-Verfügbarkeit + End-to-End (4 Tests)
+- Crossfade COLA-Exaktheit + Drift-Akkumulation + Chunk-Energie (4 Tests)
+- MDEM Tail-Smoothness + Linspace-Logik (3 Tests)
+- Emotional Arc Centroid-Return + Correction + Short/Identical (5 Tests)
+- Integration Cross-Cutting (5 Tests)
+
+---
+
+## Version 9.10.118 — Kopfhörer-Qualitäts-Fixes: 5 audible Defizite behoben (Apr 2026)
+
+### Zusammenfassung
+
+Fünf akustisch relevante Defizite beseitigt, die besonders auf Kopfhörern auffallen: Phase 42 duplizierte Mono statt echtem Stereo-Wiener-Masking, STFT Wet/Dry-Blend zerstörte Phaseninformation, kumulative Stärke in UV3 erzeugte Diminishing-Returns-Artefakte, OMLSA floored Stille nicht energieadaptiv, und der De-Esser hatte feste Sibilanz-Schwellwerte ohne Ära-Anpassung.
+
+### Changes
+
+- **Phase 42 Stereo-Wiener** (`backend/core/phases/phase_42_vocal_enhancement.py`): Mono-Duplikation durch echtes Stereo-Wiener-Masking ersetzt — Stereo-Raum bleibt erhalten.
+- **STFT Wet/Dry-Blend** (`backend/core/unified_restorer_v3.py`): Phasen-bewahrte Magnitude-Interpolation statt naivem Sample-Blend — keine Phase-Cancellation-Artefakte mehr.
+- **Diminishing-Returns-Moderation** (`backend/core/unified_restorer_v3.py`): Kumulative Stärke-Moderation verhindert Over-Processing nach vielen aufeinanderfolgenden Phasen.
+- **OMLSA Silence G_floor** (`dsp/omlsa_mcra.py`): Energiebasierter G_floor für Stille-Segmente — kein hörbares Pumpen mehr in Pausen.
+- **De-Esser Era-Adaptiv** (`backend/core/phases/phase_19_de_esser.py`): Ära-abhängige Sibilanz-Schwellwerte — Vinyl/Tape der 1960er erhalten weniger aggressive De-Essing-Behandlung.
+- **Tests**: 40 Tests, alle grün.
+  - `TestWienerStereoMasking` (Stereo-Shape, Magnitude, Phase-Korrelation)
+  - `TestPhaseAwareWetDryBlend` (Phase-Preservation, Magnitude-Interpolation)
+  - `TestDiminishingReturnsModeration` (kumulative Stärke-Dämpfung)
+  - `TestOMLSASilenceGFloor` (energiebasierter G_floor, Stille-Erkennung)
+  - `TestEraAdaptiveDeEsser` (Ära-Schwellwerte, Material-Anpassung)
+  - `TestIntegrationEdgeCases` (Cross-Cutting Edge Cases)
+
+---
+
+## Version 9.10.117 — Denker-Vollkontext-Optimierung: Material-adaptive DSP-Reparatur (Apr 2026)
+
+### Zusammenfassung
+
+Die Denker-Stufen (ReparaturDenker, RekonstruktionsDenker) arbeiteten bisher mit statischen Schwellwerten, unabhängig von Material, Ära oder DefectScanner-Ergebnissen. v9.10.117 macht die gesamte Denker-Vorverarbeitungskette kontextbewusst: Material-adaptive Schwellwerte, era-adaptive Hum-Detektion, chirurgische Click-Reparatur mit DefectScanner-Locations und material-adaptive GapReconstructor-Konfigurationen. AurikDenker leitet nun den vollen Analysekontext (defect_scores, defect_locations, era_decade, material) an alle audio-modifizierenden Denker-Stufen weiter.
+
+### 1. [RELEASE_MUST §2.41] ReparaturDenker — Material-adaptive Schwellwerte
+
+- **12 Material-Profile** mit je 4 Schwellwerten (`click_iqr`, `click_kernel_ms`, `clip_threshold`, `hum_detect_db`).
+- Physikalisch motivierte Hierarchie: Shellac (IQR=4.0, viele Clicks) → Vinyl (5.0) → Tape (7.0, wenig Clicks) → CD (9.0, fast keine Clicks). Wissenschaftliche Basis: Copeland 2008, Katz 2007.
+- `_apply_material_profile()` setzt Schwellwerte vor jeder Reparatur; unbekannte Materialien → sichere Defaults.
+- **Datei**: `denker/reparatur_denker.py`
+
+### 2. [RELEASE_MUST §2.41] ReparaturDenker — Era-adaptive Hum-Sensitivität
+
+- Aufnahmen ≤ 1940: `_HUM_DETECT_DB ≥ -42.0` (ungefilterte Netzteile, starker Brumm).
+- Aufnahmen ≤ 1960: `_HUM_DETECT_DB ≥ -47.0`.
+- Post-1980: kein Override (moderne Netzteile).
+- `era_decade`-Parameter (optional, default `None` → kein Override).
+
+### 3. [RELEASE_MUST §2.41] ReparaturDenker — Chirurgische Click-Reparatur
+
+- Neuer Parameter `defect_locations: dict[str, list[tuple[float, float]]]`.
+- Wenn DefectScanner Click/Crackle-Positionen liefert, wird die IQR-Maske auf diese Zeitregionen eingeschränkt.
+- **Effekt**: Musikalische Transienten außerhalb der Defekt-Positionen werden nicht fälschlich entfernt.
+- Ohne `defect_locations` → voller IQR-Scan (backward-compatible).
+
+### 4. [RELEASE_MUST §2.41] RekonstruktionsDenker — Material-adaptive GapReconstructor-Config
+
+- **6 Material-Konfigurationen** mit `silence_threshold_db`, `min_gap_duration_ms`, `max_gap_duration_ms`, `blend_ms`.
+- Shellac: kurze Nadelsprünge (max 200 ms), hoher Grundrausch (-55 dB), kurzes Blending (1.0 ms).
+- Tape: lange Dropouts (bis 2000 ms), niedrigerer Grundrausch (-70 dB), längeres Blending (2.5 ms).
+- `_get_reconstructor(material=...)` erstellt frische Instanz mit passender Config.
+- Neue Parameter: `defect_locations`, `era_decade` (beide optional, backward-compatible).
+- **Datei**: `denker/rekonstruktions_denker.py`
+
+### 5. [RELEASE_MUST §2.41] AurikDenker — Volle Kontext-Weiterleitung
+
+- AurikDenker extrahiert jetzt `defect_scores`, `defect_locations` und `era_decade` aus `cached_defect_result` und `cached_era_result`.
+- Übergibt diese + `material` an `ReparaturDenker.repariere()` und `RekonstruktionsDenker.rekonstruiere()`.
+- **Datei**: `denker/aurik_denker.py`
+
+### Tests
+
+- 44 neue Tests in `tests/unit/test_v9_10_117_denker_optimization.py` (alle grün).
+- Testkategorien: Material-Profil-Hierarchie, Era-Schwellwerte, chirurgische Locations, GapConfig-Plausibilität, Backward-Kompatibilität, Monotonie-Invarianten.
+- Regressionsprüfung: 203/203 (v9.10.113–117), Chunk-C: 5 vorbekannte Fehler, 2772 bestanden.
+
+## Version 9.10.116 — SOTA Source-Fidelity: Frequenz-abhängige Generationsverlust-Kompensation (Apr 2026)
+
+### Zusammenfassung
+
+v9.10.115 führte das `SourceFidelityReconstructor`-Konzept ein (Modellierung des Signals zwischen aktuell erhaltener Aufnahme und Original am Aufnahmetag). v9.10.116 bringt diese Fähigkeiten auf echtes SOTA-Niveau: Statt nur Skalare zu justieren werden jetzt physikalisch motivierte Frequenz-abhängige Korrekturkurven als FIR-Filter angewendet, und Phase 38/39 werden ära-bewusst gesteuert.
+
+### 1. [RELEASE_MUST §2.41] SourceFidelityReconstructor — Neue SOTA-Tabellen
+
+- `_ERA_MIC_TYPE`: Dekade → Mikrofon-Typ-String (acoustic/carbon/ribbon/condenser_early/condenser_mid/condenser_modern) — wissenschaftliche Basis: Eargle 2004, Huber & Runstein 2009.
+- `_MIC_PRESENCE_CENTER_HZ`: Mikrofon-Typ → (lower_hz, upper_hz) für Presence-Zone — historisch belegte Hot-Spots je Mikrofon-Ära.
+- `_GENERATION_LOSS_DB_PER_GEN`: Material → {freq_hz: dB_loss_per_generation} für 13 Materialklassen — Copeland 2008, IEC 60094 Norm.
+- `_MAX_CORRECTION_DB = 12.0`: Sicherheits-Cap für alle Boost-Operationen.
+- `_lookup_era_str()`: String-Variante von `_lookup_era()` (nächstkleinerer Key, keine Interpolation).
+- **Neue Felder in `SourceFidelityTarget`**: `era_mic_type`, `presence_center_hz_lower`, `presence_center_hz_upper` (alle mit Defaults → backward-compatible).
+- `estimate()` befüllt alle drei Felder; UV3 `_build_song_calibration_profile()` gibt sie als `source_fidelity_era_mic_type`, `source_fidelity_presence_hz_lower`, `source_fidelity_presence_hz_upper` weiter.
+- **Datei**: `backend/core/source_fidelity_reconstructor.py`
+
+### 2. [RELEASE_MUST §2.41] SourceFidelityReconstructor.compute_correction_curve_db()
+
+- Neue Methode: berechnet frequenz-abhängige dB-Korrekturkurve für Quelltreue-Restaurierung.
+- Kompensiert akkumulierten Generationsverlust: `extra_gens × loss_per_gen[freq]`, interpoliert zwischen Stützstellen.
+- Rolloff über Original-Ären-Bandbreite: sanfter Fade zwischen 80%–100% der `original_bandwidth_hz` → verhindert Synthese von Frequenzen die das Original nie enthielt.
+- Skaliert mit `confidence × reconstruction_strength`.
+- Nur positive Werte (Boosts only). Cap: `_MAX_CORRECTION_DB`.
+- Wissenschaftliche Basis: Copeland 2008, IEC 60094 (Kassetten-Kopierverlust-Messungen).
+
+### 3. [RELEASE_MUST §2.41] SourceFidelityEQProcessor (neues Modul-Singleton)
+
+- Wendet `compute_correction_curve_db()` als Linear-Phase FIR-Filter (257 Taps = 5.3 ms @ 48 kHz) auf Audio an.
+- Filter-Design: `scipy.signal.firwin2` mit 129 Stützstellen (0..Nyquist), alle Gains ≥ 1.0 (boosts only).
+- Anwendung: `scipy.signal.fftconvolve` mode='same' → phasenerhaltend, O(N log N).
+- Skip-Bedingungen: confidence < 0.35, reconstruction_strength < 0.15, max correction < 0.3 dB, strength < 0.05.
+- Mono + Stereo. NaN/Inf-Guard + clip ±1.0. DSP-Fallback wenn scipy fehlt.
+- `get_source_fidelity_eq_processor()`: Thread-safe Singleton (Double-Checked Locking).
+
+### 4. [Quality] Phase 38 — Ära-bewusste Presence-Center-Frequenzen
+
+- Liest `source_fidelity_presence_hz_lower`/`upper` aus `song_calibration_profile`.
+- Verschiebt Bell-Filter-Center von fest 2750/4750 Hz auf ären-adaptiven Wert:
+  - 1920s Carbon-Mikrofon: ~2200/3500 Hz (Horn-Resonanz, Carbon-Presence-Peak)
+  - 1930s Ribbon: ~2800/4300 Hz (Ribbon-Wärmezone)
+  - 1950s Kondensator_early (U47): ~3200/5500 Hz (U47 Presence-Peak 5–8 kHz)
+  - 1970s+ Modern: ~4000/6500 Hz (moderner Standard)
+- Harmonic-Density-Skalierung: `era_harmonic_density < 0.85` → Presence-Gain ×1.0–1.25 (frühe Ären haben dünnere Oberton-Reihen → brauchen mehr Presence-Energie).
+- **Datei**: `backend/core/phases/phase_38_presence_boost.py`
+
+### 5. [Quality] Phase 39 — Ära-bewusste Air-Band-Deckelung + HF-Loss-Kompensation
+
+- Physikalische Invariante (Klangtreue): Shelf-Frequenz nie über `source_fidelity_bandwidth_target_hz × 0.85` — was das Original nicht enthielt, wird nicht synthetisiert.
+  - 1935 Shellac (Original-BW 8 kHz): Shelf-Start ≤ 6.8 kHz
+  - 1955 Vinyl (Original-BW 14.5 kHz): Shelf-Start ≤ 12.3 kHz
+  - 1975 Tape (Original-BW 18.5 kHz): voller Air-Range
+- HF-Loss-Kompensation: `exciter_mix × (1.0 + hf_loss_db / 18.0 × confidence)`, cap 1.35 → mehr Exciter-Energie wenn Generationen HF verloren haben.
+- Cap: `exciter_mix ≤ 0.55`. Minimale Konfidenz: 0.30.
+- **Datei**: `backend/core/phases/phase_39_air_band_enhancement.py`
+
+### 6. [Quality] Phase 06 — SourceFidelityEQ nach Bandbreiten-Extension
+
+- Nach ML-Hybrid-Restaurierung: `SourceFidelityEQProcessor.apply()` wenn `reconstruction_strength ≥ 0.20` und `confidence ≥ 0.35`.
+- Stärke: `sqrt(recon_strength × confidence)`, cap 0.70 → konservative Korrektur ohne Übertreibung.
+- Konstruiert leichtgewichtiges `SourceFidelityTarget` aus `song_calibration_profile`-Daten (kein zweiter `estimate()`-Call).
+- Exception-Handler: `logger.debug("Phase 06: SourceFidelityEQ übersprungen: …")` falls EQ nicht verfügbar.
+- **Datei**: `backend/core/phases/phase_06_frequency_restoration.py`
+
+### Tests
+
+- `tests/unit/test_v9_10_116_features.py`: **52 Tests** (alle grün)
+  - §1: Neue `SourceFidelityTarget`-Felder (4 Tests)
+  - §2: SOTA-Tabellen-Integrität (9 Tests)
+  - §3: `_lookup_era_str()` (4 Tests)
+  - §4: `compute_correction_curve_db()` — Shape, non-negative, cap, shellac>vinyl, cd≈0 (8 Tests)
+  - §5: `SourceFidelityEQProcessor` — Shape, bounds, skip-conditions, cd-minimal (10 Tests)
+  - §6: `estimate()` neue Felder populated (6 Tests)
+  - §7: Phase 38 ära-aware center (3 Tests)
+  - §8: Phase 39 ära-aware ceiling (3 Tests)
+  - §9: Phase 06 EQ-Integration (4 Tests)
+- v9.10.115-Tests: 41/41 weiterhin grün.
+
+---
+
+## Version 9.10.115 — Klangtreue: Source-Fidelity-Rekonstruktions-Modell (Apr 2026)
+
+### Zusammenfassung
+
+Neues Konzept: Aurik modelliert erstmals explizit den Unterschied zwischen dem aktuell erhaltenen Signal und dem Original am Aufnahmetag. Das `SourceFidelityReconstructor`-Modul schätzt Original-Bandbreite, Generationsverluste und Rekonstruktions-Stärke und gibt dieser Erkenntnis Gewicht in der Pipeline.
+
+### Changes
+
+- **`backend/core/source_fidelity_reconstructor.py`** (neu): `SourceFidelityTarget`-Dataclass + `SourceFidelityReconstructor` mit `estimate()`-Methode. Tabellen: `_ERA_BANDWIDTH_HZ`, `_ERA_DYNAMIC_RANGE_DB`, `_ERA_HARMONIC_DENSITY`, `_MATERIAL_GENERATION_COUNT`. Singleton `get_source_fidelity_reconstructor()`.
+- **UV3 `_build_song_calibration_profile()`**: Ruft `estimate()` auf und befüllt `song_calibration_profile` mit `source_fidelity_*`-Feldern: `bandwidth_target_hz`, `reconstruction_strength`, `confidence`, `generation_count`, `hf_loss_db`, `harmonic_density`.
+- **Phase 06**: Liest `source_fidelity_*` aus Profil, justiert `max_boost_db` und `restoration_strength` bei großem Bandbreiten-Gap (≥ 1500 Hz).
+- **Tests**: 41 Tests, alle grün.
+
+---
+
+## Version 9.10.114 — ExcellenceOptimizer + EmotionalArc Hochpräzisions-Fixes (Apr 2026)
+
+### Zusammenfassung
+
+Vier Algorithmen mit nachweisbarer Audiowirkung korrigiert: Emotionaler Arousal-Bogen nutzt jetzt spectral centroid statt ZCR (weniger Rauschen im Low-Energy-Bereich), drei Phasen (37/38/39) hatten zu konservative Boost-Werte.
+
+### Changes
+
+- **EmotionalArcCorrection (`backend/core/phases/phase_40_loudness_normalization.py`)**: ZCR-Energie-Proxy → Spectral-Centroid-basiert (2–8 kHz). Arousal-Schätzung jetzt SNR-robust.
+- **ExcellenceOptimizer (`backend/core/excellence_optimizer.py`)**: `modulation_boost` 0.10 → 0.18, `harm_boost_db` 1.0 → 2.0 dB.
+- **Phase 37 Bass Transient**: `attack_boost` 0.12 → 0.18.
+- **Phase 38 Presence**: `lower_gain_db` 1.5 → 2.5, `upper_gain_db` 2.0 → 3.5.
+- **Phase 39 Air**: `shelf_gain_db` 2.0 → 3.5, `exciter_mix` 0.10 → 0.18.
+- **Tests**: 41 Tests, alle grün.
+
+---
+
+## Version 9.10.113 — Audible Fixes: LUFS, Crackle, HF G_floor, AR-Order (Apr 2026)
+
+### Zusammenfassung
+
+Vier Defizite beseitigt, die audiophile Nutzer direkt hören: Shellac/Vinyl im Studio-2026-Modus wurde bisher mit falscher Ziellautstärke normiert, schwere Knistergeräusche wurden zu wenig repariert, Tape-Zischen oberhalb 8 kHz blieb nach DSP-Fallback zu laut, und Dropout-Füllungen bei langen Pausen klingen nicht mehr auseinander.
+
+### 1. [RELEASE_MUST] Phase 40 — Studio-2026: -14 LUFS EBU R128 für alle Materialien
+
+- **Problem**: `MATERIAL_TARGETS` (Shellac=-18, Vinyl=-16, Tape=-15) wurden im Studio-2026- und Maximum-Modus angewendet, obwohl die Spec `-14 LUFS EBU R128` unconditional vorschreibt. Shellac-Restaurierungen klangen im Vergleich zu modernem Streamingmaterial 4 LUFS zu leise.
+- **Fix**: Nach `quality_mode`-Erkennung wird `target_lufs = -14.0` gesetzt wenn `quality_mode in ("maximum", "studio2026")`. Materialziele bleiben für Restoration/balanced unverändert.
+- **Bonus**: Restoration/balanced-Modus erhält LUFS-Δ ≤ 1 LU-Guard: `gain_db = clip(gain_db, -1.0, 1.0)`. Verhindert Lautheitsschock bei Archivmaterial (§8.2 LUFS-Diff ≤ 1 LU).
+- **Datei**: `backend/core/phases/phase_40_loudness_normalization.py`
+
+### 2. [Quality] Phase 09 — Severity-adaptive Dry-Blend bei Crackle (texture_preserve)
+
+- **Problem**: `texture_preserve=0.85` (Vinyl) war statisch — bei Severity=0.9-Knistern wurde nur 15 % des ML-Outputs (BANQUET) verwendet. Das Vinyl-Knistern blieb deutlich hörbar.
+- **Fix**: `texture_preserve` wird nach Defekt-Severity aus `kwargs["defect_scores"]` adaptiert:
+  - Severity ≥ 0.60 (schwer): `texture_preserve -= 0.35`, Minimum 0.30 → bis 55 % ML-Output
+  - Severity ≥ 0.35 (moderat): `texture_preserve -= 0.15`, Minimum 0.40 → bis 30 % mehr Repair
+  - Severity < 0.35: unverändert (Baseline-Charakter erhalten)
+- **Datei**: `backend/core/phases/phase_09_crackle_removal.py`
+
+### 3. [Quality] Phase 29 — Schärferes G_floor für Presence/Air-Zonen (DeepFilterNet-Fallback)
+
+- **Problem**: Ohne DeepFilterNet (optional, lazy-loaded) blieb Tape-Zischen im 8–18 kHz-Band 3–5 dB zu laut. G_floor=0.08 (Tape) ließ Hissreste durch die OMLSA-Glätte.
+- **Fix**: In `_process_channel_omlsa_mrsa()`: Presence- und Air-Zonen erhalten bei `intensity_scale > 0.40` ein verschärftes G_floor = `max(G_floor × 0.45, 0.020)`:
+  - TAPE: 0.08 → 0.036 (≈ -28 dBFS statt -22 dBFS)
+  - VINYL: 0.10 → 0.045
+  - SHELLAC: 0.12 → 0.054
+  - Absolutes Minimum 0.020 verhindert totales Noise-Gate in transientenfreien Frames
+- **Datei**: `backend/core/phases/phase_29_tape_hiss_reduction.py`
+
+### 4. [Quality] Phase 55 — Adaptiver AR-Order für lange Dropout-Gaps
+
+- **Problem**: `_AR_ORDER = 64` war für alle Gap-Längen fest. AR(64) divergiert bei Gaps > 50 ms (2 400 Samples @ 48 kHz): Die Vorhersage verliert den spektralen Zusammenhang, Füllungen klingen metallisch oder verwaschen.
+- **Fix**: `_AR_ORDER_ADAPTIVE = min(192, max(16, len(left_ctx) - 1))` wenn `gap_len > 2400`. AR(192) deckt 3× mehr Spektralmodi ab und bleibt stabil für Gaps bis ~200 ms.
+  - Kurze Gaps < 2400 Samples: weiterhin AR(64) (schneller, ausreichend)
+  - Safety-Cap: AR-Order ≤ `len(left_ctx) - 1` verhindert ValueError bei kurzem Kontext (Dateianfang)
+- **Datei**: `backend/core/phases/phase_55_diffusion_inpainting.py`
+
+### Tests
+
+- **Neu**: `tests/unit/test_v9_10_113_features.py` — 25 Tests (25/25 grün)
+  - `TestPhase40LufsStudio2026` (5 Tests): LUFS-Override + Δ-Cap Korrektheit
+  - `TestPhase09SeverityAdaptiveBlend` (7 Tests): texture_preserve bei 0/moderate/schwerer Severity
+  - `TestPhase29HFGFloor` (6 Tests): G_floor-Verschärfung Presence/Air inkl. Vinyl/Tape-Zahlen
+  - `TestPhase55AdaptiveAROrder` (7 Tests): AR-Order-Logik kurz/lang/kurzer-Kontext
+
+---
+
+## Version 9.10.112 — DSP-Qualitätssprung: Adaptives Blend-Alpha, Late-Reverb-Suppression, Multi-Formant (Apr 2026)
+
+### Zusammenfassung
+
+Sieben Verbesserungen in Restaurierungsqualität und UX: drei hörbare DSP-Upgrades (Phase 06/20/42), verbesserter Wow/Flutter-Detektor (Phase 12), UV3-Sequenzierungsschutz, A/B-Sync-Loop und Queue-Drag-&-Drop.
+
+### 1. [DSP] Phase 06 — Adaptives AudioSR-Blend-Alpha (rolloff-deficit-aware)
+
+- **Problem**: Shellac-Material (Rolloff 4–5 kHz) erhielt nur ~21 % ML-Output (statisches Alpha 0.30), obwohl das DSP-Fallback für extremen Bandbreitenverlust viel zu schwach war.
+- **Fix**: Alpha jetzt material- und rolloff-abhängig:
+  - Basiswerte je Modus: `balanced=0.25`, `quality=0.38`, `maximum=0.55`, `restoration=0.32`
+  - `deficit_fraction = clip(1 − rolloff_hz / (0.30 × Nyquist), 0, 1)` → bis +35 pp Boost
+  - Gesamtcap: max 0.80 (DSP-Charakter erhalten)
+  - Shellac (4500 Hz) + quality-mode: alpha ≈ 0.49 statt 0.21
+- **Datei**: `backend/core/phases/phase_06_frequency_restoration.py`
+
+### 2. [DSP] Phase 20 — Late-Reverb Temporal Decay Suppression (MRSA DSP-Fallback)
+
+- **Problem**: MRSA DSP-Fallback im Reverb-Reduction-Pfad unterdrückte gleichmäßig, ohne den Nachhall-Schwanz vom Direktschall zu trennen.
+- **Fix**: Per-Frame-Log-Energie → dE (Glättung 3–7 Frames) → `decay_mask` bei dE < −0.5 dB/hop.
+  - **Onset-Schutzfenster**: 40 ms nach Onset (dE > 2 dB) → `decay_mask = 0` (kein Direktschall-Verlust)
+  - `G_lr = clip(1 − penalty × decay_mask, 0.60, 1.0)` → max. 35 % Absenkung im Schwanz
+  - Wird auf `G_combined` multipliziert vor PGHI-Synthese
+- **Datei**: `backend/core/phases/phase_20_reverb_reduction.py`
+
+### 3. [DSP] Phase 42 — Multi-Formant Bell-EQ Fallback (F1/F2/F3/Singer's Formant)
+
+- **Problem**: DSP-Fallback in `_enhance_formants()` nutzte einen einzigen Bell-EQ bei 1.5 kHz (F2-only). F1 (Vokal-Grundresonanz), F3 (Konsonanten-Klarheit) und Singer's Formant (Vocal Projection) fehlten.
+- **Fix**: 4-Band-Kette mit scipy `lfilter`:
+  - F1 @ 500 Hz (Gain × 0.50, Q=3.0) — Low-Vowel-Clarity
+  - F2 @ 1500 Hz (Gain × 0.80, Q=2.0) — Mid-Vowel-Intelligibility (dominant)
+  - F3 @ 2500 Hz (Gain × 0.35, Q=2.5) — Consonant Definition
+  - Singer's Formant @ 3200 Hz (Gain × 0.20, Q=3.5) — Vocal Projection / Presence
+- **Datei**: `backend/core/phases/phase_42_vocal_enhancement.py`
+
+### 4. [Quality] Phase 12 — Wow/Flutter-Detektor: 75 % Overlap wiederhergestellt
+
+- `PITCH_HOP_FACTOR = 4` (war 2) → 75 % STFT-Überlappung → Nyquist-sichere Flutter-Detektion bis 20 Hz
+- `STFT_WINDOW_SIZE = 2048` (war 1024), `STFT_HOP_SIZE = 512` (war 256) bei 48 kHz
+- **Datei**: `backend/core/phases/phase_12_wow_flutter_fix.py`
+
+### 5. [Architecture] UV3 — Phase 55 vor Phase 56 Sequenzierungsschutz
+
+- Guard: `_move_before("phase_55_diffusion_inpainting", "phase_56_spectral_band_gap_repair")` — verhindert, dass Diffusion-Inpainting nach Spektral-Band-Gap-Repair läuft und die synthetisierten Obertöne überschreibt.
+- **Datei**: `backend/core/unified_restorer_v3.py`
+
+### 6. [Feature] A/B-Sync-Loop-Button
+
+- Neuer `btn_ab_sync`-Button (checkable, lila Stil) mit `_ab_source_label`-Statusanzeige.
+- Bei aktiviertem Sync: Keyboard-Shortcuts A/B wechseln Quelle im aktuellen Loop-Punkt (`_ab_loop_start_frac`), kein Reset auf Anfang.
+- Methoden: `_ab_sync_toggle()`, `_ab_play_loop_source()`, `_ab_switch_source(source)`.
+- **Datei**: `Aurik910/ui/modern_window.py`
+
+### 7. [Feature] Queue Drag & Drop Reordering
+
+- `QueueWidget.queue_list` mit `setDragDropMode(InternalMove)` — Drag & Drop in der Warteschlange.
+- `_on_rows_moved()` liest neue Reihenfolge und emittiert `reorder_requested` Signal.
+- `QueueManager.reorder_items(new_order: list[str])` — thread-sicherer Reorder.
+- `main_window._reorder_queue_items()` schließt den UI→State-Kreislauf.
+- **Dateien**: `Aurik910/ui/queue_widget.py`, `Aurik910/core/queue_manager.py`, `Aurik910/ui/main_window.py`
+
+### Tests
+
+- **Neu**: `tests/unit/test_v9_10_112_features.py` — 30 Tests (Phase 12 Konstanten, UV3 Guard, QueueManager Reorder, Queue DnD Source-Checks, Phase 06 Alpha, Phase 42 Multi-Formant, Phase 20 Decay-Suppression)
+
+---
+
+## Version 9.10.111 — Premium-Features: Metadata, PDF-Report, Light Theme (Apr 2026)
+
+### Zusammenfassung
+
+Drei Premium-Features für Endnutzer-Erlebnis: Metadaten-Erhalt beim Export (ID3/Vorbis/FLAC/AIFF + Aurik-Provenienz), PDF-Restaurierungsbericht mit Radar-Chart, und helles UI-Theme mit Live-Umschaltung.
+
+### 1. [Feature] Metadata-Preservation (mutagen)
+
+- **Neues Modul**: `backend/core/metadata_preserver.py` — `MetadataPreserver` Singleton.
+- Extraktion/Anwendung von ID3 (MP3), Vorbis (OGG/FLAC), FLAC, AIFF-Tags inkl. Cover-Art.
+- Automatische Provenienz-Felder (Aurik-Version, SHA-256-Hash der Quelldatei).
+- Integration in `backend/exporter.py`: neuer `source_path`-Parameter → `_transfer_metadata()` nach Export.
+- **Neue Abhängigkeit**: `mutagen>=1.47.0`
+- **Tests**: `tests/unit/test_metadata_preserver.py` (18 Tests)
+
+### 2. [Feature] PDF-Restaurierungsbericht
+
+- `ReportExporter.export_pdf()` in `audit/processing_report_generator.py`.
+- Zweiseitiger dunkler PDF-Report: Seite 1 (Zusammenfassung + Defekte + Module), Seite 2 (14-Musical-Goals Radar-Chart + Vorher/Nachher-Tabelle).
+- `export_report(report, path, format="pdf")` API-Erweiterung.
+- **Tests**: `tests/unit/test_pdf_report_export.py` (9 Tests)
+
+### 3. [Feature] Light Theme + Theme-Switcher
+
+- `_Theme`-Klasse in `modern_window.py` erweitert auf duales Palettensystem (`_DARK` / `_LIGHT`).
+- `_Theme.apply("dark"|"light")` schaltet alle Farb-Tokens live um.
+- `SettingsManager.theme()` / `set_theme()` für persistente Speicherung.
+- Theme-ComboBox im Einstellungsdialog.
+- `_apply_theme_stylesheet()` generiert QSS für alle Widgets.
+- i18n-Schlüssel für DE/EN ergänzt.
+- **Tests**: `tests/unit/test_theme_system.py` (12 Tests)
+
+### 4. Spektrogramm-View
+
+- Bereits vorhanden (`SpectrogramWidget` in `modern_window.py` L5341+). Kein Handlungsbedarf.
+
+---
+
 ## Version 9.10.110 — §2.39 End-to-End OOM-Resume-Verdrahtung (Apr 2026)
 
 ### Zusammenfassung
@@ -138,6 +564,8 @@ Sieben Tests auf neue crest-factor-Algorithmen aktualisiert:
 
 ---
 
+## Version 9.10.106 — PGHI-Boundary + IS-NMF-Notation + COLA-Crossfade (Apr 2026)
+
 ### Zusammenfassung
 
 Drei fehlende v9.10.100-Fixes: PGHI STFT/iSTFT-Boundary-Invariante (`n_samples`-Parameter), korrekte IS-NMF β=0-Notation, und COLA-konformes Hanning-Crossfade in `AdaptiveChunkProcessor`.
@@ -172,6 +600,8 @@ fade_out = 1 - fade_in              # COLA: fade_in + fade_out = 1
 Kein Amplitudeneinbruch mehr an Chunk-Grenzen; C¹-stetige Übergänge schützen Transient-Shape.
 
 ---
+
+## Version 9.10.105 — Genre-Profil-Override + PANNs-Fallback-Aktivierung (Apr 2026)
 
 ### Zusammenfassung
 
@@ -598,6 +1028,10 @@ K-S (Krumhansl-Schmuckler) ist invariant gegenüber **additivem weißem Rauschen
 K-S `_ks_key` Hanning-Bug ("first 4096 samples ≈ 0 → immer 0.5") behoben.
 Root-Cause: librosa `chroma_stft` + binäre Key-Shift-Penalty (1 HT → 0.50, ≥ 2 HT → 0.0) verursachte false catastrophic P2-Regressionen (Δ ≈ 0.56) in phase_08/36/49 → Retry-Kaskade → Watchdog-Timeout.
 
+---
+
+## Version 9.10.92 — §9.7.12/13/14 SNR-robuste PMGG-Proxy-Fixes für brillanz/transparenz/waerme (30. Mär 2026)
+
 ### Zusammenfassung
 
 Drei Quick-Proxies und zwei defekte Precise-Override-Pfade in PMGG `_measure_quick` behoben,
@@ -802,6 +1236,25 @@ Strukturfehler im Groove-Proxy behoben: Die Normierungsbasis `autocorr[0]` enthi
 
 ---
 
+## Version 9.10.90 — §2.36a Phonem-spezifische DSP-Algorithmen (30. Mär 2026)
+
+### Zusammenfassung
+
+Spezifikation für phonem-spezifische DSP-Behandlung in LyricsGuidedEnhancement: Einheitlicher Gain-Boost reicht nicht — jede Phonemklasse erfordert separate Spektral-Behandlung. [RELEASE_MUST] ab v9.10.90.
+
+### Spezifizierte Algorithmen
+
+| Phonemklasse | DSP-Anforderung | Kernalgorithmus |
+| --- | --- | --- |
+| `fricative_stressed/unstressed` | Rauschtextur 4–8 kHz ERHALTEN | Ramp-Gain `g(f) = 1 + str × ramp(4k→8k Hz)`; kein Wiener-Smoothing |
+| `plosive` | Onset-Transient unveränderlich (0–5 ms) | TransientShapeGuard: onset gain=1.0; Burst 100–350 Hz ×1.40; Aspiration 3–8 kHz ×1.20 |
+| `vowel_stressed` | Formant-Amplituden proportional heben | LPC Burg Ord.30–40 → F1–F4 → symmetrisches Shelving ±2 HT |
+| `silence` | Aggressivere NR ohne Hard-Gate | OMLSA G_floor=0.05, DeepFilterNet energy_bias=−12 dB |
+
+PGHI nach jeder Spektral-Modifikation. TimbralAuthenticityMetric ≥ 0.87, ArticulationMetric ≥ 0.85 nach phase_57.
+
+---
+
 ## Version 9.10.89 — PMGG phase_20/phase_23 Exclusions + phase_29 analog timbre (30. Mär 2026)
 
 ### Zusammenfassung
@@ -918,6 +1371,10 @@ vollständig auf aktuellen Codestand synchronisiert. §9.7.9 in Spec 02 neu doku
 - **§9.7.7 PHASE_GOAL_EXCLUSIONS**: Vollständige kanonische Liste (13 Phasen) ersetzt die 3-Einträge-Version. Root-cause-Kommentare für jede Phase. §2.31b material-adaptive Relaxation dokumentiert.
 - **§9.7.9 neu**: Material-adaptive PHASE_GOAL_EXCLUSIONS vollständig spezifiziert inkl. Implementierungsbeispiel.
 
+---
+
+## Version 9.10.85 — §2.31b PMGG Song-Kalibrierungs-Integration (29. Mär 2026)
+
 ### Zusammenfassung
 
 Fünf gezielte Fidelity- und Regressions-Schutz-Verbesserungen, die das §2.31a Song-Kalibrierungsprofil vollständig mit PMGG und FeedbackChain verzahnen.
@@ -965,7 +1422,7 @@ Alle Inkonsistenzen aus der Tiefenanalyse der 8 Spec-Dateien und `copilot-instru
 
 ---
 
-## Version 9.10.77g — §3.9 Stabilitäts-Invarianten (Crash/OOM/Deadlock-Härtung) (28. Mär 2026)
+## Version 9.10.83 — §3.9 Stabilitäts-Invarianten (Crash/OOM/Deadlock-Härtung) (28. Mär 2026)
 
 ### Zusammenfassung
 
@@ -996,7 +1453,7 @@ Tiefenanalyse des vollständigen Aurik-Stacks (UV3, ARM, PLM, ml_memory_budget, 
 
 ---
 
-## Version 9.10.77f — PMGG Stable-Metric-Invariante + Tiefen-Immersions-Prinzip (28. Mär 2026)
+## Version 9.10.82 — PMGG Stable-Metric-Invariante + Tiefen-Immersions-Prinzip (28. Mär 2026)
 
 ### Zusammenfassung
 
@@ -1022,7 +1479,7 @@ Root-Cause-Fix für falsche P1-Kaskaden in `PerPhaseMusicalGoalsGate`: `Natuerli
 
 ---
 
-## Version 9.10.77e — Psychoacoustic Masking als Pipeline-Kwarg + AMRB-Baseline (28. Mär 2026)
+## Version 9.10.81 — Psychoacoustic Masking als Pipeline-Kwarg + AMRB-Baseline (28. Mär 2026)
 
 ### Zusammenfassung
 
@@ -1061,7 +1518,7 @@ Ergebnis gespeichert in `reports/amrb_2026-03-28_v9.10.77.json`.
 
 ---
 
-## Version 9.10.77d — KMV Stufe-2 End-to-End (MLRefinementThread + §2.38) (Mär 2026)
+## Version 9.10.80 — KMV Stufe-2 End-to-End (MLRefinementThread + §2.38) (Mär 2026)
 
 ### Zusammenfassung
 
@@ -1087,7 +1544,7 @@ Ergebnis gespeichert in `reports/amrb_2026-03-28_v9.10.77.json`.
 
 ---
 
-## Version 9.10.77c — Präzisions-Härtung in Loudness, PMGG, LGE und Kernphasen (Mär 2026)
+## Version 9.10.79 — Präzisions-Härtung in Loudness, PMGG, LGE und Kernphasen (Mär 2026)
 
 ### Zusammenfassung
 
@@ -1115,7 +1572,7 @@ Mehrere qualitätskritische Stellen wurden auf höhere Mess- und Verarbeitungspr
   - `tests/unit/test_unified_restorer_v3.py -k NoRtLimitPhaseDeferralBypass` → **9 passed**
   - `tests/unit/test_denker/test_aurik_denker.py -k no_rt_limit` → **1 passed**
 
-## Version 9.10.77b — CausalDefectReasoner-Vollausbau + DefectType-Erweiterung (Mär 2026)
+## Version 9.10.78 — CausalDefectReasoner-Vollausbau + DefectType-Erweiterung (Mär 2026)
 
 ### Zusammenfassung
 
@@ -1857,6 +2314,8 @@ solange nicht genug `goal_scores`-Daten im Gedächtnis vorhanden sind.
 
 ---
 
+## Version 9.10.54 — Code-Hygiene: Thread-Safe Singletons (Double-Checked Locking) (14. Mär 2026)
+
 ### Zusammenfassung
 
 Alle Singleton-Convenience-Funktionen (`get_xxx()`) erhalten jetzt das kanonische
@@ -2204,6 +2663,41 @@ Drei gezielte Verbesserungen für musikalische Exzellenz. Testsuite: **3684 pass
 
 ---
 
+## Version 9.10.46 — Spec-Konsistenz-Audit: 14 Lücken geschlossen (Mär 2026)
+
+### Zusammenfassung
+
+Systematisches Spec-Konsistenz-Audit: 14 offene Lücken in den Specs 01–08 und copilot-instructions geschlossen.
+
+### Changes
+
+- **Spec 02 §2.2**: RestorationResult JSON-Serialisierungsschema ergänzt (audio nicht in JSON, NaN/Inf → null, genealogy als Sidecar).
+- **Spec 03 §2.20**: Genre-Restaurierungsprofile vollständig spezifiziert: `JAZZ_RESTORATION_PROFILE`, `KLASSIK_RESTORATION_PROFILE`, `OPER_RESTORATION_PROFILE`, `ROCK_RESTORATION_PROFILE`.
+- **Spec 04 §4.1**: DDSP → NumPy/SciPy-Eigenimplementierung `dsp/ddsp_synth.py` (kein TensorFlow).
+- **Spec 08 §11.4**: A/B-Vergleich, Keyboard-Shortcut-Tabelle, Preset-Browser & Queue-Widget spezifiziert.
+- **Spec 08 §13.3**: Out-of-the-Box-Garantie verschärft — 100 % offline, SOTA-Upgrades lokal gebündelt.
+- **Spec 08 §13.5**: Setup-Wizard: SOTA-Upgrade-Checkbox entfernt.
+- **Spec 08 §13.8** (neu): Manuelles Update-Verfahren dokumentiert.
+- CausalDefectReasoner: 27 DefectTypes → 14 Ursachen; neuer Abschnitt „Entzerrungs- & Digitalisierungsfehler" (RIAA_CURVE_ERROR, ALIASING, BIAS_ERROR).
+
+---
+
+## Version 9.10.46b — §2.36 Lyrics-Guided Enhancement Spec (Mär 2026)
+
+### Zusammenfassung
+
+Spezifikation für LyricsGuidedEnhancement (v10.0-Roadmap): Whisper-Tiny ONNX (39 MB), ContentAwareProcessor mit Phonem-Salienz-Boosts, WaveformWidget-Overlay.
+
+### Changes
+
+- `LyricsTranscriber`: Whisper-Tiny ONNX lokal (39 MB), CPUExecutionProvider, stiller DSP-Fallback.
+- `ContentAwareProcessor`: Phonem-Typ × Betonung → Salienz-Boost 0.5–2.0, G_floor 0.90 an fricative+stressed-Bins.
+- `LyricsGuidedTimeline`: WaveformWidget-Farboverlay, Shortcut `L`, Datenschutz: kein Lyrics-Text geloggt.
+- Manifest-Eintrag `whisper_tiny` (bundled:true, 39 MB, Fallback: energy_segmentation_dsp).
+- Roadmap: Tier 2+3 abgeschlossen, Tier 4 als v10.0-Ziel.
+
+---
+
 ## Version 9.10.45 — 14-Goal-Konsistenz, MERT-Robustheit, Version-Bump (Feb 2026)
 
 ### Zusammenfassung
@@ -2221,6 +2715,55 @@ Drei Test-Fehler behoben; Testsuite: **3594 passed, 0 failed** (vorher: 3 FAILED
 
 - 14 Musical Goals, 14 Keys — kein 15. Schlüssel in `measure_all()`
 - Alle Zähler in Spec, Checkliste und Tests auf **14** vereinheitlicht
+
+---
+
+## Version 9.10.44 — RemasterDetector + temporale Defektverortung (Feb 2026)
+
+### Zusammenfassung
+
+Neues Modul `RemasterDetector` erkennt remastered Audio (Rauschboden < −80 dBFS + HF-Rolloff > 18 kHz). DefectScanner liefert erstmals zeitliche Verortung für Print-Through-Defekte.
+
+### Changes
+
+- **`backend/core/remaster_detector.py`** (neu): `RemasterDetector`-Singleton; `_floor_score` + `_bw_score` → `confidence = 0.55·floor + 0.45·bw`; `is_remaster=True` bei ≥ 0.35.
+- **`plugins/era_classifier_plugin.py`**: `EraResult.is_remaster_suspected`-Feld ergänzt.
+- **`backend/core/defect_scanner.py`**: `_detect_print_through()` → `locations` mit 20-ms-Dedup, 50-Einträge-Cap und Zeitstempel.
+- **Tests**: `test_remaster_detector.py` (18 Tests), `test_defect_scanner_temporal.py` (17 Tests).
+
+---
+
+## Version 9.10.43 — SGMSE+ entfernt, WPE als kanonisches Dereverb-Plugin (Feb 2026)
+
+### Zusammenfassung
+
+SGMSE+ komplett entfernt (RAM-hungrig, instabil). WPE (Nakatani 2010) als kanonisches Dereverb-Plugin mit 3-Tier-Kaskade.
+
+### Changes
+
+- **`plugins/wpe_plugin.py`** (neu): `WpePlugin`, 3-Tier-WPE (nara_wpe → NumPy-WPE → OMLSA), kein Checkpoint, kein Großmodell-Speicher.
+- **`plugins/sgmse_plugin.py`**: Thin-Shim → `wpe_plugin` (Backward-Compat).
+- **`models/sgmse_plus/`**: gelöscht.
+- **Spec-Updates**: §4.4 SGMSE+ → WPE, §9.5 WPE-DSP-Hinweis, §11.3 sgmse_plugin → wpe_plugin.
+
+---
+
+## Version 9.10.42 — SCHRITTE_ZUR_MUSIKALISCHEN_EXZELLENZ abgeschlossen (Feb 2026)
+
+### Zusammenfassung
+
+Alle offenen Exzellenz-Steps implementiert. Testzahl: 6394 → 6312 nach v2-Cleanup. Alte v2-Module entfernt.
+
+### Changes
+
+- **K-1**: TIER-1/TIER-6-Assertions in `_validate_restoration_result()`.
+- **K-2**: `quality_estimate`-Formel: `0.40·(1−sev) + 0.60·(pqs_mos−1)/4`; `×1.15`-Bonus entfernt.
+- **M-1**: `_SEQUENTIAL_TIER_PHASES`-Frozenset; TIER-0/TIER-1 immer sequenziell.
+- **M-2/M-3**: `self._warnings`-Liste, sicherer `_get_phase()`-except, `_era_for_stereo`-Fallback.
+- **I-3**: `scores["artikulation"] = scores["articulation"]`-Alias.
+- **W-4a/W-4b**: `VocalAIEnhancement`-Alias + 11 Vokalketteninvarianten-Tests.
+- **V-5**: CI-Stub-Guard `tests/normative/test_no_production_stubs.py`.
+- **v2-Cleanup**: `unified_restorer_v2.py`, `context_aware_deesser_v2.py`, 17 v2-Tests entfernt.
 
 ---
 

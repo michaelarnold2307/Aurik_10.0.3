@@ -180,11 +180,18 @@ class MicroDynamicsEnvelopeMorphing:
                 ramp = np.linspace(linear_gain, nxt_gain, ce - start, dtype=np.float32)
                 gain_envelope[start:ce] = ramp
 
-        # §2.30 tail-gap fix: Samples nach dem letzten Frame-Ende erhalten den
-        # abschliessenden Gain-Wert des letzten Frames (bis zu hop-1 = ~200 ms).
+        # §2.30 tail-gap fix (§9.10.119 improved): Samples nach dem letzten
+        # Frame-Ende erhalten eine sanfte Rückkehr zu Unity-Gain statt eines
+        # harten Wert-Kopierens.  Harter Übergang erzeugte unnatürliche
+        # Fade-Out-Dynamik (abrupter Energiesprung in den letzten ~200 ms).
         _last_covered = min((n_frames - 1) * hop + fsize, n)
         if _last_covered < n and _last_covered > 0:
-            gain_envelope[_last_covered:] = gain_envelope[_last_covered - 1]
+            _tail_len = n - _last_covered
+            _last_gain = gain_envelope[_last_covered - 1]
+            # Smooth interpolation to 1.0 (unity gain = no modification)
+            gain_envelope[_last_covered:] = np.linspace(
+                _last_gain, 1.0, _tail_len, dtype=np.float32
+            )
 
         # Auf Stereo/Mono anwenden
         if is_stereo:

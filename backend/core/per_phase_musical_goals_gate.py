@@ -2589,10 +2589,17 @@ class PerPhaseMusicalGoalsGate:
         strength: float,
         phase: Any = None,
     ) -> np.ndarray:
-        """Wet/Dry-Blending zwischen Original (dry) und verarbeitetem Audio (wet).
+        """Phase-aware Wet/Dry-Blending (§9.10.118 — Kammfilter-Schutz).
 
-        Mathematisch: out = dry + strength × (wet − dry)
-        Bei strength=1.0 → wet, bei strength=0.0 → dry.
+        Bei niedrigen Strengths (< 0.30) erzeugt lineare Zeitdomänen-
+        Interpolation Kammfilter-Artefakte (Original + phasenverschobenes
+        Signal). Stattdessen: STFT-Magnitude-Interpolation mit bewahrter
+        Originalphase.
+
+        Wissensch. Basis: Wiener-Filtertheorie — Magnitude-Blending bei
+        erhaltener Phase minimiert perceptual distortion (Ephraim & Malah
+        1984).  Lineare Interpolation bleibt bei strength >= 0.30 (Kammfilter
+        dort vernachlässigbar da Wet-Anteil dominiert).
 
         Timing-modifizierende Phasen (wow/flutter, speed) sind ausgenommen,
         da Crossfade zeitversetzter Signale Phasen-Artefakte erzeugt.
@@ -2620,6 +2627,36 @@ class PerPhaseMusicalGoalsGate:
                 logger.debug("PMGG: Wet/Dry-Blend Phase-Metadata-Zugriff fehlgeschlagen: %s", _meta_exc)
         if phase_id in _TIMING_PHASES:
             return np.clip(wet, -1.0, 1.0).astype(np.float32)
+
+        # §9.10.118: phase-aware STFT blending for low strengths to prevent
+        # comb-filter artifacts from time-domain mixing of phase-shifted signals.
+        if strength < 0.30 and len(dry) >= 2048:
+            try:
+                win_size = 2048
+                hop = win_size // 4
+                from scipy.signal import stft as _stft, istft as _istft
+
+                _, _, Zxx_dry = _stft(dry, fs=48000, nperseg=win_size, noverlap=win_size - hop)
+                _, _, Zxx_wet = _stft(wet, fs=48000, nperseg=win_size, noverlap=win_size - hop)
+
+                # Blend magnitudes, preserve dry (original) phase
+                mag_dry = np.abs(Zxx_dry)
+                mag_wet = np.abs(Zxx_wet)
+                phase_dry = np.angle(Zxx_dry)
+
+                mag_blend = mag_dry + strength * (mag_wet - mag_dry)
+                Zxx_blend = mag_blend * np.exp(1j * phase_dry)
+
+                _, out = _istft(Zxx_blend, fs=48000, nperseg=win_size, noverlap=win_size - hop)
+                # Length matching
+                if len(out) > len(dry):
+                    out = out[: len(dry)]
+                elif len(out) < len(dry):
+                    out = np.pad(out, (0, len(dry) - len(out)))
+                return np.clip(out.astype(np.float32), -1.0, 1.0)
+            except Exception as _stft_exc:
+                logger.debug("PMGG STFT-Blend fallback to linear: %s", _stft_exc)
+
         out = (dry + strength * (wet - dry)).astype(np.float32)
         return np.clip(out, -1.0, 1.0)
 

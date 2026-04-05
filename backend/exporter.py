@@ -21,6 +21,19 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
+
+def _transfer_metadata(source_path: str, target_path: str) -> None:
+    """Best-effort metadata transfer from source to target audio file."""
+    if not source_path:
+        return
+    try:
+        from backend.core.metadata_preserver import get_metadata_preserver
+
+        get_metadata_preserver().transfer(source_path, target_path, aurik_version="9.10")
+    except Exception as exc:
+        logger.debug("metadata transfer skipped: %s", exc)
+
+
 # True-Peak threshold: > -0.5 dBTP triggers a warning, > 0 dBTP triggers clipping guard
 _TRUE_PEAK_WARN_DBTP = -0.5
 _TRUE_PEAK_LIMIT = 1.0
@@ -258,6 +271,8 @@ def export_audio(
     export_path: str,
     format: str = "wav",
     bit_depth: int = 24,
+    *,
+    source_path: str = "",
 ) -> bool:
     """Export audio bytes to a file on disk.
 
@@ -267,6 +282,7 @@ def export_audio(
        (``bit_depth < 32``).  Spec §DSP-Spezialregeln: *VERBOTEN: Truncation
        ohne Dithering.*
     3. Atomic write via ``.tmp → os.replace``.
+    4. Metadata preservation (ID3/Vorbis/FLAC tags + Aurik provenance).
 
     Parameters
     ----------
@@ -279,6 +295,8 @@ def export_audio(
     bit_depth : int
         Target integer bit depth for lossless formats (16 or 24).
         Use 32 to write float32 without dithering.  Default: 24.
+    source_path : str
+        Path to the original input file for metadata transfer (optional).
 
     Returns
     -------
@@ -324,6 +342,7 @@ def export_audio(
                 write_kwargs["subtype"] = subtype
             sf.write(tmp_path, audio, sr, **write_kwargs)
             os.replace(tmp_path, export_path)
+            _transfer_metadata(source_path, export_path)
             _size_mb = os.path.getsize(export_path) / (1024 * 1024)
             logger.info(
                 "Export abgeschlossen: %s (%.1f MB, %s %d-bit)", export_path, _size_mb, format.upper(), bit_depth
@@ -358,6 +377,7 @@ def export_audio(
                 out_args["q:a"] = "0"
             (ffmpeg.input(tmp_wav).output(tmp_out, **out_args).run(overwrite_output=True, quiet=True))
             os.replace(tmp_out, export_path)
+            _transfer_metadata(source_path, export_path)
             _size_mb = os.path.getsize(export_path) / (1024 * 1024)
             logger.info("Export abgeschlossen: %s (%.1f MB, %s)", export_path, _size_mb, format.upper())
             return True

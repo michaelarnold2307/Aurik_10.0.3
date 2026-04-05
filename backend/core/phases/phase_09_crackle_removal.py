@@ -493,6 +493,22 @@ class CrackleRemovalPhase(PhaseInterface):
         _pmgg_strength = float(kwargs.get("strength", 1.0))
         _effective_strength = float(np.clip(_pmgg_strength * phase_locality_factor, 0.0, 1.0))
 
+        # §v9.10.113: Severity-adaptive dry-blend — heavy crackle needs more ML repair (less dry mix).
+        # Static texture_preserve=0.85 means only 15% repair even for severity=0.9 crackle.
+        _defect_scores_p09 = kwargs.get("defect_scores", {})
+        _crackle_sev_p09 = 0.0
+        try:
+            from backend.core.defect_scanner import DefectType as _DT9
+            _ds_cr = _defect_scores_p09.get(_DT9.CRACKLE)
+            if _ds_cr is not None:
+                _crackle_sev_p09 = float(getattr(_ds_cr, "severity", 0.0))
+        except Exception:
+            pass
+        if _crackle_sev_p09 >= 0.60:   # heavy crackle → +35 % more ML output, min preserve 0.30
+            params["texture_preserve"] = float(np.clip(params["texture_preserve"] - 0.35, 0.30, 1.0))
+        elif _crackle_sev_p09 >= 0.35:  # moderate crackle → +15 % more ML output, min preserve 0.40
+            params["texture_preserve"] = float(np.clip(params["texture_preserve"] - 0.15, 0.40, 1.0))
+
         if _effective_strength <= 0.0:
             passthrough = np.nan_to_num(audio.copy(), nan=0.0, posinf=0.0, neginf=0.0)
             passthrough = np.clip(passthrough, -1.0, 1.0)

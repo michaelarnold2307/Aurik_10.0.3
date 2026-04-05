@@ -508,8 +508,13 @@ class WorkflowSessionManager:
         """
         if self.backend_manager:
             session = self.backend_manager.create_session(name, description)
-            self.current_session_id = session.session_id
-            return session.session_id
+            # backend may return a plain session_id string or an object with .session_id
+            if isinstance(session, str):
+                session_id = session
+            else:
+                session_id = session.session_id
+            self.current_session_id = session_id
+            return session_id
         return "stub_session"
 
     def load_session(self, session_id: str) -> bool:

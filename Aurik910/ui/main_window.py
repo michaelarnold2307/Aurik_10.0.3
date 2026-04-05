@@ -658,6 +658,7 @@ class MainWindow(QMainWindow):
         self.queue_widget.process_queue_requested.connect(self.process_queue)
         self.queue_widget.clear_queue_requested.connect(self.clear_queue)
         self.queue_widget.remove_item_requested.connect(self.remove_queue_item)
+        self.queue_widget.reorder_requested.connect(self._reorder_queue_items)
         layout.addWidget(self.queue_widget)
 
         return panel
@@ -787,6 +788,10 @@ class MainWindow(QMainWindow):
             self.statusBar.showMessage(t("legacy.main.removed_from_queue"), 2000)
         else:
             QMessageBox.warning(self, t("legacy.main.cannot_remove_title"), t("legacy.main.cannot_remove_body"))
+
+    def _reorder_queue_items(self, new_order: list) -> None:
+        """Reorder queue items after drag-and-drop (v9.10.111)."""
+        self.queue_manager.reorder_items(new_order)
 
     def apply_preset(self, preset: Preset):
         """Apply preset to UI settings"""

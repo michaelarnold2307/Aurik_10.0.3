@@ -193,11 +193,20 @@ class LoudnessNormalizationPhase(PhaseInterface):
         quality_mode = str(kwargs.get("quality_mode", "balanced")).lower()
         output_guard_enabled = quality_mode in ("quality", "maximum", "studio2026")
 
+        # §v9.10.113: Studio 2026 → -14 LUFS EBU R128 unconditional (all materials, §Spec Studio 2026)
+        # Shellac/Vinyl/Tape material targets are archive-mode only; Studio 2026 always → -14 LUFS.
+        if quality_mode in ("maximum", "studio2026"):
+            target_lufs = -14.0
+
         # Measure current loudness (ITU-R BS.1770-4)
         integrated_lufs, lra, momentary_max, short_term_max = self._measure_loudness_full(audio, sample_rate)
 
         # Calculate gain adjustment
         gain_db = (target_lufs - integrated_lufs) * _effective_strength
+
+        # §v9.10.113: §8.2 Restoration/balanced — LUFS-Δ ≤ 1 LU (archive material retains original loudness)
+        if quality_mode in ("restoration", "balanced"):
+            gain_db = float(np.clip(gain_db, -1.0, 1.0))
 
         # Dynamic Range Preservation: Limit gain to preserve DR
         if preserve_dynamics:

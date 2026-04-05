@@ -5393,6 +5393,21 @@ class DefectScanner:
         Anti-aliasing filter failure during digitization → elevated spectral floor
         in the 85–97 % Nyquist region that exceeds the expected HF rolloff.
         """
+        # Digital sources (cd_digital, dat, mp3_*, aac, streaming, minidisc) have proper
+        # anti-aliasing filters by design — aliasing is not physically possible.
+        _DIGITAL_MATS = {"cd_digital", "dat", "mp3_low", "mp3_high", "aac", "streaming", "minidisc"}
+        _mat = getattr(self, "material_type", None)
+        if _mat is not None:
+            _mat_name = str(_mat.value) if isinstance(_mat, Enum) else str(_mat)
+            if _mat_name in _DIGITAL_MATS:
+                return DefectScore(
+                    defect_type=DefectType.ALIASING,
+                    severity=0.0,
+                    confidence=0.9,
+                    locations=[],
+                    metadata={"medium_gated": True},
+                )
+
         n = len(audio)
         if n < self.sample_rate:
             return DefectScore(DefectType.ALIASING, 0.0, 0.3)

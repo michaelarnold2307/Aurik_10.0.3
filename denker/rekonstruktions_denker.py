@@ -127,6 +127,8 @@ class RekonstruktionsDenker:
         defect_result: Any | None = None,
         repair_context: Any | None = None,
         validate_audio: bool = True,
+        defect_locations: dict[str, list[tuple[float, float]]] | None = None,
+        era_decade: int | None = None,
     ) -> RekonstruktionsErgebnis:
         """Erkennt und repariert Dropout-Lücken im Audio.
 
@@ -229,7 +231,8 @@ class RekonstruktionsDenker:
             except Exception as _bw_exc:
                 logger.debug("Bandwidth extraction failed: %s", _bw_exc)
 
-        reconstructor = self._get_reconstructor()
+        # §2.41: Material-adaptive GapReconstructor-Instanz
+        reconstructor = self._get_reconstructor(material=material_hint or material)
 
         if reconstructor is None:
             result = self._dsp_fallback(audio, sr)
@@ -267,27 +270,90 @@ class RekonstruktionsDenker:
     # Interne Hilfsmethoden
     # ------------------------------------------------------------------
 
-    def _get_reconstructor(self) -> Any | None:
-        """Lädt GapReconstructor lazy (Double-Checked Locking)."""
+    # Material-adaptive GapReconstructor-Konfigurationen (§2.41 v9.10.117)
+    # Copeland 2008: Shellac-Dropouts kürzer (0.3 ms) und lauter als Tape-Dropouts.
+    # Tape-Dropouts sind typischerweise länger (bis 2 s) und gradueller.
+    _MATERIAL_GAP_CONFIGS: dict[str, dict[str, float]] = {
+        "shellac": {
+            "silence_threshold_db": -55.0,   # Shellac: höherer Grundrausch → höhere Schwelle
+            "min_gap_duration_ms": 0.3,      # Sehr kurze Nadelsprünge
+            "max_gap_duration_ms": 200.0,    # Physische Nadelsprünge selten > 200 ms
+            "blend_ms": 1.0,                 # Kurzes Blending, da scharfe Kanten
+        },
+        "wax_cylinder": {
+            "silence_threshold_db": -50.0,
+            "min_gap_duration_ms": 0.3,
+            "max_gap_duration_ms": 300.0,
+            "blend_ms": 1.0,
+        },
+        "vinyl": {
+            "silence_threshold_db": -65.0,   # Vinyl: mittlerer Grundrausch
+            "min_gap_duration_ms": 0.5,
+            "max_gap_duration_ms": 400.0,
+            "blend_ms": 1.5,
+        },
+        "tape": {
+            "silence_threshold_db": -70.0,   # Tape: niedrigerer Grundrausch
+            "min_gap_duration_ms": 1.0,      # Tape-Dropouts sind gradueller
+            "max_gap_duration_ms": 2000.0,   # Tape-Dropouts können bis 2 s dauern
+            "blend_ms": 2.5,                 # Längeres Blending für natürlicheren Übergang
+        },
+        "reel_tape": {
+            "silence_threshold_db": -72.0,   # Pro-Tape: sehr niedrig
+            "min_gap_duration_ms": 1.0,
+            "max_gap_duration_ms": 2000.0,
+            "blend_ms": 2.5,
+        },
+        "cassette": {
+            "silence_threshold_db": -65.0,
+            "min_gap_duration_ms": 0.5,
+            "max_gap_duration_ms": 1000.0,   # Kassette: Band-Dropouts bis 1 s
+            "blend_ms": 2.0,
+        },
+    }
+
+    def _get_reconstructor(self, material: str | None = None) -> Any | None:
+        """Lädt GapReconstructor lazy mit material-adaptiver Config."""
+        # Material-adaptive Config: immer frische Instanz mit passenden Schwellwerten
+        if material and material.lower() in self._MATERIAL_GAP_CONFIGS:
+            return self._build_reconstructor(material=material)
         if self._reconstructor is None:
             with self._init_lock:
                 if self._reconstructor is None:
                     self._reconstructor = self._build_reconstructor()
         return self._reconstructor
 
-    def _build_reconstructor(self) -> Any | None:
-        """Instantiiert GapReconstructor mit Standard-Config."""
+    def _build_reconstructor(self, *, material: str | None = None) -> Any | None:
+        """Instantiiert GapReconstructor mit material-adaptiver Config (§2.41)."""
         try:
             from backend.core.gap_reconstructor import GapReconstructor, GapReconstructorConfig
 
-            cfg = GapReconstructorConfig(
-                silence_threshold_db=-70.0,
-                min_gap_duration_ms=0.5,
-                max_gap_duration_ms=500.0,
-                ar_stabilize=True,
-                blend_ms=1.5,
-            )
-            logger.info("🧩 RekonstruktionsDenker: GapReconstructor geladen")
+            # Material-adaptive Schwellwerte
+            mat_key = (material or "").lower().strip()
+            mat_cfg = self._MATERIAL_GAP_CONFIGS.get(mat_key)
+            if mat_cfg:
+                cfg = GapReconstructorConfig(
+                    silence_threshold_db=mat_cfg["silence_threshold_db"],
+                    min_gap_duration_ms=mat_cfg["min_gap_duration_ms"],
+                    max_gap_duration_ms=mat_cfg["max_gap_duration_ms"],
+                    ar_stabilize=True,
+                    blend_ms=mat_cfg["blend_ms"],
+                )
+                logger.info(
+                    "RekonstruktionsDenker: material-adaptive GapConfig '%s' — "
+                    "silence=%.0f dB, min_gap=%.1f ms, max_gap=%.0f ms, blend=%.1f ms",
+                    mat_key, cfg.silence_threshold_db, cfg.min_gap_duration_ms,
+                    cfg.max_gap_duration_ms, cfg.blend_ms,
+                )
+            else:
+                # Default-Config (bisheriges Verhalten)
+                cfg = GapReconstructorConfig(
+                    silence_threshold_db=-70.0,
+                    min_gap_duration_ms=0.5,
+                    max_gap_duration_ms=500.0,
+                    ar_stabilize=True,
+                    blend_ms=1.5,
+                )
             return GapReconstructor(config=cfg)
         except Exception as exc:
             logger.warning("GapReconstructor konnte nicht geladen werden: %s — DSP-Fallback aktiv", exc)

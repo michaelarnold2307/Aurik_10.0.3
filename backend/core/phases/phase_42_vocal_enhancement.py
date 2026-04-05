@@ -296,6 +296,37 @@ class VocalEnhancement(PhaseInterface):
         config["breath_reduction_db"] = float(config["breath_reduction_db"] * _effective_strength)
         config["compression_ratio"] = float(1.0 + (config["compression_ratio"] - 1.0) * _effective_strength)
 
+        # §9.10.118 Era-Adaptive De-Esser Thresholds:
+        # Vintage microphones (pre-1960) have inherently softer sibilants due
+        # to limited HF response — aggressive de-essing removes already-scarce
+        # presence detail.  Modern recordings (post-2000) may contain harsher
+        # sibilance from condenser mics + digital clipping → need lower trigger.
+        # Scientific basis: Eargle (2005) — "Handbook of Recording Engineering".
+        _song_cal = kwargs.get("song_calibration_profile") or {}
+        _era_decade = None
+        if isinstance(_song_cal, dict):
+            _era_decade = _song_cal.get("era_decade")
+        if _era_decade is not None:
+            try:
+                _era_int = int(_era_decade)
+                if _era_int <= 1940:
+                    # Pre-war: ribbon/carbon mic, very soft HF — barely de-ess
+                    config["deess_threshold_db"] = float(config["deess_threshold_db"] + 6.0)
+                    config["deess_reduction_db"] = float(config["deess_reduction_db"] * 0.5)
+                elif _era_int <= 1960:
+                    # Early condenser era: softer sibilants than modern
+                    config["deess_threshold_db"] = float(config["deess_threshold_db"] + 3.0)
+                    config["deess_reduction_db"] = float(config["deess_reduction_db"] * 0.7)
+                elif _era_int >= 2000:
+                    # Modern digital: potentially harsh sibilance
+                    config["deess_threshold_db"] = float(config["deess_threshold_db"] - 2.0)
+                logger.debug(
+                    "Phase42 era-adaptive de-esser: era=%d → threshold=%.1f dB, reduction=%.1f dB",
+                    _era_int, config["deess_threshold_db"], config["deess_reduction_db"],
+                )
+            except (TypeError, ValueError):
+                pass
+
         # §2.36 + §9.1c: Salience-aware vocal shaping.
         # Hohe Frikativ-/Sibilanz-Salienz => weniger aggressives De-Essern
         # (Intimität und Artikulation erhalten). Hohe Harshness-Salienz =>
@@ -574,11 +605,101 @@ class VocalEnhancement(PhaseInterface):
         except Exception:
             return 0.5
 
+    @staticmethod
+    def _wiener_stereo_from_mono(
+        audio_stereo: np.ndarray, voc_mono: np.ndarray, sr: int,
+    ) -> "tuple[np.ndarray, np.ndarray]":
+        """Apply Wiener-style soft masking to preserve stereo field (§9.10.118).
+
+        Instead of duplicating mono stems to L/R (destroying interaural phase
+        differences → stereo collapse), compute a time-frequency mask from the
+        mono separation and apply it to each original stereo channel.
+
+        Algorithm:
+            mask(t,f) = |V_mono(t,f)|^2 / (|V_mono(t,f)|^2 + |I_mono(t,f)|^2 + eps)
+            V_L = mask * X_L,  V_R = mask * X_R  (preserves L/R phase)
+            I_L = (1-mask) * X_L,  I_R = (1-mask) * X_R
+
+        Scientific basis: Liutkus et al. (2014) — "Kernel Additive Models for
+        Source Separation"; Wiener optimal gain minimises MSE while preserving
+        original phase.
+        """
+        n = min(audio_stereo.shape[0], len(voc_mono))
+        audio_st = audio_stereo[:n]
+        voc_m = voc_mono[:n]
+        inst_m = np.clip(audio_st.mean(axis=1).astype(np.float32) - voc_m, -1.0, 1.0)
+
+        # STFT parameters matching MRSA reference window
+        win_size = 2048
+        hop = win_size // 4
+        window = np.hanning(win_size).astype(np.float32)
+
+        # Compute magnitude masks from mono separation
+        V_stft = np.fft.rfft(
+            np.lib.stride_tricks.sliding_window_view(np.pad(voc_m, (0, win_size)), win_size)[::hop] * window
+        )
+        I_stft = np.fft.rfft(
+            np.lib.stride_tricks.sliding_window_view(np.pad(inst_m, (0, win_size)), win_size)[::hop] * window
+        )
+
+        V_pow = np.abs(V_stft) ** 2
+        I_pow = np.abs(I_stft) ** 2
+        eps = 1e-10
+        mask = V_pow / (V_pow + I_pow + eps)  # Wiener gain ∈ [0, 1]
+
+        # Smooth mask temporally (3 frames ≈ 32 ms) to reduce musical noise
+        kernel = np.ones(3) / 3.0
+        for f_idx in range(mask.shape[1]):
+            mask[:, f_idx] = np.convolve(mask[:, f_idx], kernel, mode="same")
+        mask = np.clip(mask, 0.0, 1.0)
+
+        # Apply mask to each stereo channel in STFT domain
+        vocals_out = np.zeros_like(audio_st)
+        instr_out = np.zeros_like(audio_st)
+        for ch in range(2):
+            ch_data = audio_st[:, ch].astype(np.float32)
+            ch_padded = np.pad(ch_data, (0, win_size))
+            frames = np.lib.stride_tricks.sliding_window_view(ch_padded, win_size)[::hop]
+            X_ch = np.fft.rfft(frames * window)
+
+            V_ch = X_ch * mask
+            I_ch = X_ch * (1.0 - mask)
+
+            # Overlap-add reconstruction
+            v_out = np.zeros(n + win_size, dtype=np.float32)
+            i_out = np.zeros(n + win_size, dtype=np.float32)
+            for t_idx in range(min(V_ch.shape[0], frames.shape[0])):
+                pos = t_idx * hop
+                v_frame = np.fft.irfft(V_ch[t_idx], n=win_size).real.astype(np.float32)
+                i_frame = np.fft.irfft(I_ch[t_idx], n=win_size).real.astype(np.float32)
+                end = min(pos + win_size, len(v_out))
+                seg = end - pos
+                v_out[pos:end] += v_frame[:seg] * window[:seg]
+                i_out[pos:end] += i_frame[:seg] * window[:seg]
+
+            # Normalise OLA (Hann window 75% overlap → sum(w²) = constant)
+            norm = np.zeros(n + win_size, dtype=np.float32)
+            for t_idx in range(min(V_ch.shape[0], frames.shape[0])):
+                pos = t_idx * hop
+                end = min(pos + win_size, len(norm))
+                seg = end - pos
+                norm[pos:end] += window[:seg] ** 2
+            norm = np.maximum(norm, 1e-8)
+
+            vocals_out[:, ch] = np.clip(v_out[:n] / norm[:n], -1.0, 1.0)
+            instr_out[:, ch] = np.clip(i_out[:n] / norm[:n], -1.0, 1.0)
+
+        return vocals_out.astype(np.float32), instr_out.astype(np.float32)
+
     def _try_stem_separation(self, audio: np.ndarray, sr: int) -> "tuple[np.ndarray, np.ndarray, float, str] | None":
         """Vocal/Instrument stem separation cascade: bs_roformer → demucs_v4 → None.
 
         Returns (vocals, instruments, vocal_weight, model_name) or None on total failure.
         Both stems match the input shape (mono [n] or stereo [n, 2]).
+
+        §9.10.118 Stereo Preservation: For stereo input, mono separation is used
+        to compute a Wiener soft mask, which is then applied to each L/R channel
+        individually — preserving interaural phase differences (stereo imaging).
         """
         # Convert for mono-based models; keep original shape for result
         audio_mono = audio.mean(axis=1).astype(np.float32) if audio.ndim == 2 else audio.astype(np.float32)
@@ -594,13 +715,15 @@ class VocalEnhancement(PhaseInterface):
                 n = min(len(audio_mono), len(voc_mono))
                 inst_mono = np.clip(audio_mono[:n] - voc_mono[:n], -1.0, 1.0)
                 if audio.ndim == 2:
-                    vocals_out = np.column_stack([voc_mono[:n], voc_mono[:n]])
-                    instr_out = np.column_stack([inst_mono, inst_mono])
+                    # §9.10.118: Wiener stereo masking preserves L/R phase
+                    vocals_out, instr_out = self._wiener_stereo_from_mono(
+                        audio[:n], voc_mono[:n], sr
+                    )
                 else:
                     vocals_out = voc_mono[:n]
                     instr_out = inst_mono
                 confidence = float(getattr(sep, "confidence", 0.5))
-                logger.debug("Phase42 Stem-Sep: bs_roformer confidence=%.2f model=%s", confidence, sep.model_used)
+                logger.debug("Phase42 Stem-Sep: bs_roformer confidence=%.2f model=%s (stereo=%s)", confidence, sep.model_used, audio.ndim == 2)
                 return vocals_out, instr_out, confidence, sep.model_used
         except Exception as exc:
             logger.debug("Phase42 bs_roformer fehlgeschlagen: %s", exc)
@@ -614,8 +737,10 @@ class VocalEnhancement(PhaseInterface):
             inst_mono = mdx.process(audio_mono, sr, stem="inst")
             n = min(len(audio_mono), len(voc_mono), len(inst_mono))
             if audio.ndim == 2:
-                vocals_out = np.column_stack([voc_mono[:n], voc_mono[:n]])
-                instr_out = np.column_stack([inst_mono[:n], inst_mono[:n]])
+                # §9.10.118: Wiener stereo masking preserves L/R phase
+                vocals_out, instr_out = self._wiener_stereo_from_mono(
+                    audio[:n], voc_mono[:n], sr
+                )
             else:
                 vocals_out = voc_mono[:n]
                 instr_out = inst_mono[:n]
@@ -942,25 +1067,44 @@ class VocalEnhancement(PhaseInterface):
             except Exception as _fs_err:
                 logger.debug("FormantSystem fehlgeschlagen, Bell-EQ-Fallback: %s", _fs_err)
 
-        # DSP-Fallback: Bell-EQ @ 1.5 kHz (Formant Region)
+        # DSP-Fallback: Multi-Formant Bell-EQ chain (v9.10.112)
+        # Replaces single 1.5 kHz bell with 4-band formant chain derived from
+        # Peterson & Barney 1952 (F1–F3) + Sundberg 1974 (Singer's Formant).
+        # Each band lifts its formant region proportionally to gain_db:
+        #   F1  500 Hz  — low vowel clarity (open/mid vowels)
+        #   F2 1500 Hz  — mid vowel intelligibility (front/back vowel contrast)
+        #   F3 2500 Hz  — consonant definition, speech clarity
+        #   SF 3200 Hz  — Singer's Formant (vocal projection, presence)
         gain_db = config["formant_gain_db"]
-        w0 = 2 * np.pi * 1500 / sample_rate
-        q = 2.0
-        alpha = np.sin(w0) / (2 * q)
-        A = 10 ** (gain_db / 40)
-
-        b0 = 1 + alpha * A
-        b1 = -2 * np.cos(w0)
-        b2 = 1 - alpha * A
-        a0 = 1 + alpha / A
-        a1 = -2 * np.cos(w0)
-        a2 = 1 - alpha / A
-
-        b = np.array([b0, b1, b2]) / a0
-        a = np.array([1, a1 / a0, a2 / a0])
-
-        enhanced = signal.lfilter(b, a, audio)
-        return enhanced
+        _FORMANT_BANDS = [
+            # (center_hz, gain_fraction, Q)
+            (500,  0.50, 3.0),   # F1
+            (1500, 0.80, 2.0),   # F2 — dominant mid-vowel formant
+            (2500, 0.35, 2.5),   # F3 — speech clarity
+            (3200, 0.20, 3.5),   # Singer's Formant — vocal projection
+        ]
+        enhanced = audio.copy()
+        for _f0_hz, _gain_frac, _q in _FORMANT_BANDS:
+            _gain_band = gain_db * _gain_frac
+            if abs(_gain_band) < 0.15:
+                continue
+            _w0 = 2.0 * np.pi * _f0_hz / sample_rate
+            _sin_w0 = np.sin(_w0)
+            _cos_w0 = np.cos(_w0)
+            _alpha_f = _sin_w0 / (2.0 * _q)
+            _A = 10.0 ** (_gain_band / 40.0)
+            _b0 = 1.0 + _alpha_f * _A
+            _b1 = -2.0 * _cos_w0
+            _b2 = 1.0 - _alpha_f * _A
+            _a0 = 1.0 + _alpha_f / _A
+            _a1 = -2.0 * _cos_w0
+            _a2 = 1.0 - _alpha_f / _A
+            _b = np.array([_b0, _b1, _b2]) / _a0
+            _a = np.array([1.0, _a1 / _a0, _a2 / _a0])
+            enhanced = signal.lfilter(_b, _a, enhanced)
+        enhanced = np.nan_to_num(enhanced, nan=0.0, posinf=0.0, neginf=0.0)
+        enhanced = np.clip(enhanced, -1.0, 1.0)
+        return enhanced.astype(audio.dtype)
 
     def _boost_presence(self, audio: np.ndarray, sample_rate: int, config: dict[str, Any]) -> np.ndarray:
         """Boost presence region with ISO 226 loudness compensation.

@@ -119,3 +119,12 @@ class SettingsManager:
 
     def set_last_export_dir(self, path: str) -> None:
         self._qs.setValue("dirs/last_export", str(path))
+
+    # ── Theme ─────────────────────────────────────────────────────────────
+
+    def theme(self) -> str:
+        """Return current theme name: 'dark' (default) or 'light'."""
+        return str(self._qs.value("app/theme", "dark"))
+
+    def set_theme(self, theme: str) -> None:
+        self._qs.setValue("app/theme", theme)

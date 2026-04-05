@@ -1016,13 +1016,35 @@ class AurikDenker:
                             _label = _dsp_op_names.get(op_key, op_key)
                             _emit(13, f"DSP-Reparatur — {op_key}: {_label}")
 
+                        # §2.41 v9.10.117: Defect-Locations + Scores aus cached_defect_result extrahieren,
+                        # damit ReparaturDenker chirurgische (lokalisierte) Reparaturen durchführen kann.
+                        _repair_defect_scores: dict[str, float] = {}
+                        _repair_defect_locations: dict[str, list[tuple[float, float]]] = {}
+                        _repair_era_decade: int | None = None
+                        if cached_defect_result is not None and hasattr(cached_defect_result, "scores"):
+                            for _rdt, _rds in cached_defect_result.scores.items():
+                                _rdt_key = getattr(_rdt, "value", str(_rdt))
+                                if hasattr(_rds, "severity"):
+                                    _repair_defect_scores[_rdt_key] = float(_rds.severity)
+                                if hasattr(_rds, "locations") and _rds.locations:
+                                    _repair_defect_locations[_rdt_key] = list(_rds.locations)
+                        elif defekt is not None:
+                            _repair_defect_scores = dict(getattr(defekt, "defect_scores", {}) or {})
+                        # Era-Dekade aus cached Era-Ergebnis
+                        if cached_era_result is not None:
+                            _repair_era_decade = int(getattr(cached_era_result, "decade", 0) or 0) or None
+
                         rep = get_reparatur_denker().repariere(
                             _work_audio,
                             sr,
                             remove_clicks=_remove_clicks,
                             remove_hum=_remove_hum,
                             repair_clipping=_repair_clipping,
+                            material=material or "",
                             progress_callback=_repair_cb,
+                            defect_scores=_repair_defect_scores or None,
+                            defect_locations=_repair_defect_locations or None,
+                            era_decade=_repair_era_decade,
                         )
                         _work_audio = rep.audio
                         _rep_result_box.append(rep)
@@ -1034,6 +1056,8 @@ class AurikDenker:
                             material_hint=material,
                             defect_result=cached_defect_result,
                             repair_context=rep,  # §11.7a Kontextfluss: ReparaturDenker-Ergebnis weiterreichen
+                            defect_locations=_repair_defect_locations or None,
+                            era_decade=_repair_era_decade,
                         )
                         _work_audio = rek.audio
                         _rek_result_box.append(rek)

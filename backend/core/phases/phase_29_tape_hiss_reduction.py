@@ -511,6 +511,13 @@ class TapeHissReductionPhase(PhaseInterface):
                 G_z = np.exp(np.clip(log_G_z, np.log(G_floor + eps), 0.0))
                 G_z = np.clip(np.nan_to_num(G_z, nan=G_floor), G_floor, 1.0)
 
+                # §v9.10.113: Stronger HF suppression in presence/air zones when DeepFilterNet absent.
+                # DeepFilterNet removes residual hiss 2–16 kHz; without it, G_floor must be lower.
+                # TAPE: 0.08 → 0.036, VINYL: 0.10 → 0.045, SHELLAC: 0.12 → 0.054 in these zones.
+                if zone_name in ("presence", "air") and intensity_scale > 0.40:
+                    _hf_floor = float(np.clip(G_floor * 0.45, 0.020, G_floor))
+                    G_z = np.clip(G_z, _hf_floor, 1.0)
+
                 # Zones below hf_low: pass-through (protect low frequencies)
                 lf_mask_z = f_z < float(hf_low)
                 G_z[lf_mask_z, :] = 1.0

@@ -415,6 +415,235 @@ class ReportExporter:
             logger.error(f"JSON export failed: {e}")
             return False
 
+    @staticmethod
+    def export_pdf(report: ProcessingReport, output_path: Path) -> bool:
+        """Export report as a multi-page PDF with tables and Musical Goals radar chart.
+
+        Uses matplotlib (already in requirements) — no extra dependencies.
+
+        Parameters
+        ----------
+        report : ProcessingReport
+            The report to render.
+        output_path : Path
+            Destination ``.pdf`` file.
+
+        Returns
+        -------
+        bool
+            True if successful.
+        """
+        try:
+            import matplotlib
+
+            matplotlib.use("Agg")
+            import matplotlib.pyplot as plt
+            from matplotlib.backends.backend_pdf import PdfPages
+        except ImportError:
+            logger.error("matplotlib not installed — PDF export unavailable")
+            return False
+
+        try:
+            with PdfPages(str(output_path)) as pdf:
+                # ── Page 1: Header + Summary + Detected Issues + Modules ──
+                fig, axes = plt.subplots(
+                    3, 1, figsize=(8.27, 11.69),
+                    gridspec_kw={"height_ratios": [1.2, 1.8, 2.0]},
+                )
+                fig.patch.set_facecolor("#0d1117")
+                plt.subplots_adjust(top=0.92, bottom=0.04, left=0.06, right=0.94, hspace=0.35)
+
+                fig.text(
+                    0.5, 0.96,
+                    "AURIK — Audio-Restaurierungsbericht",
+                    ha="center", va="top", fontsize=16, fontweight="bold", color="#c9d1d9",
+                )
+                fig.text(
+                    0.5, 0.935,
+                    f"Version {report.aurik_version}  ·  {report.timestamp[:19]}  ·  "
+                    f"Verarbeitung: {report.processing_time_sec:.1f} s",
+                    ha="center", va="top", fontsize=8, color="#8b949e",
+                )
+
+                # Summary table
+                ax0 = axes[0]
+                ax0.axis("off")
+                summary_data = [
+                    ["Eingabedatei", report.input_file or "—"],
+                    ["Ausgabedatei", report.output_file or "—"],
+                    ["Konfidenz", f"{report.overall_confidence:.0%}"],
+                ]
+                if report.overall_summary:
+                    summary_data.append(["Zusammenfassung", report.overall_summary[:80]])
+                tbl0 = ax0.table(
+                    cellText=summary_data,
+                    colLabels=["Eigenschaft", "Wert"],
+                    loc="center", cellLoc="left",
+                )
+                _style_pdf_table(tbl0)
+
+                # Detected Issues
+                ax1 = axes[1]
+                ax1.axis("off")
+                issues_sec = report.get_section(ReportSectionType.DETECTED_ISSUES)
+                if issues_sec:
+                    issues = issues_sec.content.get("issues", [])
+                    if issues:
+                        issue_rows = []
+                        for iss in issues[:12]:
+                            if isinstance(iss, str):
+                                issue_rows.append([iss, "—", "—"])
+                            else:
+                                issue_rows.append([
+                                    str(iss.get("type", "?")),
+                                    str(iss.get("severity", "?")),
+                                    f"{iss.get('confidence', 0):.0%}"
+                                    if isinstance(iss.get("confidence"), (int, float))
+                                    else "—",
+                                ])
+                        tbl1 = ax1.table(
+                            cellText=issue_rows,
+                            colLabels=["Defekt", "Schwere", "Konfidenz"],
+                            loc="center", cellLoc="left",
+                        )
+                        _style_pdf_table(tbl1)
+                    else:
+                        ax1.text(0.5, 0.5, "Keine signifikanten Defekte erkannt ✓",
+                                 ha="center", va="center", fontsize=10, color="#82B89A")
+                else:
+                    ax1.text(0.5, 0.5, "Defektanalyse nicht verfügbar",
+                             ha="center", va="center", fontsize=10, color="#8b949e")
+
+                # Applied Modules
+                ax2 = axes[2]
+                ax2.axis("off")
+                modules_sec = report.get_section(ReportSectionType.APPLIED_MODULES)
+                if modules_sec:
+                    mods = modules_sec.content.get("modules", [])
+                    if mods:
+                        mod_rows = []
+                        for m in mods[:15]:
+                            if isinstance(m, dict):
+                                mod_rows.append([
+                                    str(m.get("name", "?")),
+                                    str(m.get("reason", ""))[:50],
+                                    f"{m.get('strength', 0):.0%}"
+                                    if isinstance(m.get("strength"), (int, float))
+                                    else "—",
+                                ])
+                            else:
+                                mod_rows.append([str(m), "", "—"])
+                        tbl2 = ax2.table(
+                            cellText=mod_rows,
+                            colLabels=["Modul", "Grund", "Stärke"],
+                            loc="center", cellLoc="left",
+                        )
+                        _style_pdf_table(tbl2)
+
+                pdf.savefig(fig, facecolor=fig.get_facecolor())
+                plt.close(fig)
+
+                # ── Page 2: Musical Goals Radar + Before/After Metrics ────
+                goals_sec = report.get_section(ReportSectionType.MUSICAL_GOALS)
+                metrics_sec = report.get_section(ReportSectionType.BEFORE_AFTER_METRICS)
+
+                fig2 = plt.figure(figsize=(11.69, 8.27))
+                fig2.patch.set_facecolor("#0d1117")
+                fig2.text(
+                    0.5, 0.97, "Musical Goals & Metriken",
+                    ha="center", va="top", fontsize=14, fontweight="bold", color="#c9d1d9",
+                )
+
+                # Radar chart for Musical Goals
+                ax_radar = fig2.add_subplot(121, projection="polar")
+                ax_radar.set_facecolor("#161b22")
+
+                if goals_sec:
+                    goals = goals_sec.content.get("goals", {})
+                    if goals:
+                        labels = list(goals.keys())
+                        values = [float(v) for v in goals.values()]
+                        n = len(labels)
+                        import math as _math
+
+                        angles = [i / n * 2 * _math.pi for i in range(n)]
+                        angles.append(angles[0])
+                        values.append(values[0])
+
+                        ax_radar.plot(angles, values, "o-", linewidth=1.5, color="#667eea", markersize=4)
+                        ax_radar.fill(angles, values, alpha=0.15, color="#667eea")
+                        ax_radar.set_xticks(angles[:-1])
+                        ax_radar.set_xticklabels(
+                            [la.replace("_", "\n") for la in labels],
+                            fontsize=6, color="#c9d1d9",
+                        )
+                        ax_radar.set_ylim(0, 1.0)
+                        ax_radar.set_yticks([0.2, 0.4, 0.6, 0.8, 1.0])
+                        ax_radar.set_yticklabels(
+                            ["0.2", "0.4", "0.6", "0.8", "1.0"], fontsize=6, color="#8b949e",
+                        )
+                        ax_radar.spines["polar"].set_color("#30363d")
+                        ax_radar.grid(color="#30363d", linewidth=0.5)
+                        ax_radar.set_title("Musical Goals", fontsize=10, color="#c9d1d9", pad=12)
+
+                # Before/After metrics table
+                ax_metrics = fig2.add_subplot(122)
+                ax_metrics.axis("off")
+                ax_metrics.set_facecolor("#0d1117")
+
+                if metrics_sec:
+                    before = metrics_sec.content.get("before", {})
+                    after = metrics_sec.content.get("after", {})
+                    improvement = metrics_sec.content.get("improvement", {})
+                    if before:
+                        met_rows = []
+                        for metric in sorted(before.keys()):
+                            b = before.get(metric, 0.0)
+                            a = after.get(metric, 0.0)
+                            imp = improvement.get(metric, 0.0)
+                            imp_str = f"+{imp:.2f}" if imp > 0 else f"{imp:.2f}"
+                            met_rows.append([metric, f"{b:.2f}", f"{a:.2f}", imp_str])
+                        tbl_m = ax_metrics.table(
+                            cellText=met_rows,
+                            colLabels=["Metrik", "Vorher", "Nachher", "Δ"],
+                            loc="center", cellLoc="left",
+                        )
+                        _style_pdf_table(tbl_m)
+                        ax_metrics.set_title(
+                            "Vorher / Nachher", fontsize=10, color="#c9d1d9", pad=10,
+                        )
+                else:
+                    ax_metrics.text(
+                        0.5, 0.5, "Keine Metriken verfügbar",
+                        ha="center", va="center", fontsize=10, color="#8b949e",
+                    )
+
+                plt.tight_layout(rect=[0.02, 0.02, 0.98, 0.94])
+                pdf.savefig(fig2, facecolor=fig2.get_facecolor())
+                plt.close(fig2)
+
+            logger.info("PDF report exported: %s", output_path)
+            return True
+
+        except Exception as e:
+            logger.error("PDF export failed: %s", e)
+            return False
+
+
+def _style_pdf_table(tbl) -> None:
+    """Apply dark-theme styling to a matplotlib table for PDF rendering."""
+    tbl.auto_set_font_size(False)
+    tbl.set_fontsize(7.5)
+    tbl.scale(1.0, 1.4)
+    for (row, col), cell in tbl.get_celld().items():
+        cell.set_edgecolor("#30363d")
+        if row == 0:
+            cell.set_facecolor("#21262d")
+            cell.set_text_props(color="#c9d1d9", fontweight="bold")
+        else:
+            cell.set_facecolor("#0d1117")
+            cell.set_text_props(color="#c9d1d9")
+
 
 class ProcessingReportGenerator:
     """
@@ -697,7 +926,7 @@ class ProcessingReportGenerator:
         Args:
             report: ProcessingReport
             output_path: Output file path
-            format: "markdown" or "json"
+            format: "markdown", "json", or "pdf"
 
         Returns:
             True if successful
@@ -708,6 +937,8 @@ class ProcessingReportGenerator:
             return ReportExporter.export_markdown(report, output_path)
         elif format.lower() == "json":
             return ReportExporter.export_json(report, output_path)
+        elif format.lower() == "pdf":
+            return ReportExporter.export_pdf(report, output_path)
         else:
             logger.error(f"Unknown export format: {format}")
             return False

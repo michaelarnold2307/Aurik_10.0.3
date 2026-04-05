@@ -5,6 +5,7 @@ Visual queue management interface
 
 from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtWidgets import (
+    QAbstractItemView,
     QHBoxLayout,
     QLabel,
     QListWidget,
@@ -96,12 +97,13 @@ class QueueItemWidget(QWidget):
 
 
 class QueueWidget(QWidget):
-    """Queue management widget"""
+    """Queue management widget with drag-and-drop reordering."""
 
     # Signals
     process_queue_requested = pyqtSignal()
     clear_queue_requested = pyqtSignal()
     remove_item_requested = pyqtSignal(str)  # item_id
+    reorder_requested = pyqtSignal(list)     # list[str] — new ID order (v9.10.111)
 
     def __init__(self, queue_manager: QueueManager, parent=None):
         super().__init__(parent)
@@ -127,8 +129,11 @@ class QueueWidget(QWidget):
 
         layout.addLayout(title_layout)
 
-        # Queue list
+        # Queue list — drag-and-drop reordering (v9.10.111)
         self.queue_list = QListWidget()
+        self.queue_list.setDragDropMode(QAbstractItemView.InternalMove)
+        self.queue_list.setDefaultDropAction(Qt.MoveAction)
+        self.queue_list.model().rowsMoved.connect(self._on_rows_moved)
         self.queue_list.setStyleSheet("""
             QListWidget {
                 background-color: #1e1e1e;
@@ -237,6 +242,8 @@ class QueueWidget(QWidget):
         """Add item to display"""
         # Create list item
         list_item = QListWidgetItem()
+        # Store item ID in UserRole so drag-and-drop reordering can read it (v9.10.111)
+        list_item.setData(Qt.UserRole, item.id)
         self.queue_list.addItem(list_item)
 
         # Create widget
@@ -276,6 +283,24 @@ class QueueWidget(QWidget):
         self.queue_list.clear()
         self.item_widgets.clear()
         self.update_ui()
+
+    def _on_rows_moved(self) -> None:
+        """Slot: Wird nach jeder Drag-&-Drop-Umsortierung aufgerufen (v9.10.111).
+
+        Liest die aktuelle Reihenfolge der ListWidget-Items aus und emittiert
+        ``reorder_requested`` mit der neuen ID-Liste. Der Aufrufer (z. B.
+        ``ModernMainWindow``) leitet die Liste an ``QueueManager.reorder_items``
+        weiter.
+        """
+        new_order: list[str] = []
+        for row in range(self.queue_list.count()):
+            item = self.queue_list.item(row)
+            if item is not None:
+                item_id = item.data(Qt.UserRole)
+                if item_id:
+                    new_order.append(item_id)
+        if new_order:
+            self.reorder_requested.emit(new_order)
 
     def refresh_display(self):
         """Refresh entire display from queue manager"""

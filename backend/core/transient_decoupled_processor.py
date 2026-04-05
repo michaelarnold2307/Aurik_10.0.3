@@ -25,8 +25,8 @@ class GrooveViolationError(Exception):
         super().__init__(f"Groove DTW {dtw_ms:.2f} ms > 8 ms threshold")
 
 
-HPSS_HARMONIC_KERNEL: int = 31
-HPSS_PERCUSSIVE_KERNEL: int = 31
+HPSS_HARMONIC_KERNEL: int = 17
+HPSS_PERCUSSIVE_KERNEL: int = 13
 CROSSFADE_MS: float = 10.0
 PERCUSSIVE_ONLY_PHASES: list[str] = [
     "phase_01_click_removal",

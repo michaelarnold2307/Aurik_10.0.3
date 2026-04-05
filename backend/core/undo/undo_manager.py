@@ -282,6 +282,9 @@ class ModeChangeAction(Action):
         self.current_mode = self.new_mode
         return {"mode": self.new_mode, "config": self.mode_config}
 
+    def cleanup(self) -> None:
+        """No resources to release for mode change actions."""
+
 
 class FileOperationAction(Action):
     """
@@ -310,6 +313,9 @@ class FileOperationAction(Action):
     def apply(self) -> dict[str, Any]:
         """Apply file operation."""
         return {"operation": self.operation, "file_path": self.file_path, "metadata": self.metadata}
+
+    def cleanup(self) -> None:
+        """No resources to release for file operation actions."""
 
 
 class CompositeAction(Action):

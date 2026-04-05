@@ -278,8 +278,30 @@ class FrequencyRestorationPhase(PhaseInterface):
         assert sample_rate == 48000, f"SR muss 48000 Hz sein, erhalten: {sample_rate}"
         start_time = time.time()
 
-        # Get material-specific parameters
-        params = self.MATERIAL_PARAMS.get(material_type, self.MATERIAL_PARAMS["unknown"])
+        # Get material-specific parameters (mutable copy for source-fidelity overrides)
+        params = dict(self.MATERIAL_PARAMS.get(material_type, self.MATERIAL_PARAMS["unknown"]))
+
+        # §2.41 Source-Fidelity: Zielbandbreite aus SongCalibrationProfile nutzen.
+        # Wenn das Original eine höhere Bandbreite hatte als der Träger normalerweise
+        # liefert, max_boost_db konservativ anheben (max. +4 dB extra, skaliert mit
+        # source_fidelity_confidence).
+        _sfr_cal = kwargs.get("song_calibration_profile", {})
+        _sfr_bw_target = float(_sfr_cal.get("source_fidelity_bandwidth_target_hz", 0.0))
+        _sfr_conf = float(_sfr_cal.get("source_fidelity_confidence", 0.5))
+        _sfr_gen = int(_sfr_cal.get("source_fidelity_generation_count", 1))
+        if _sfr_bw_target > 0.0 and params.get("rolloff_hz", 20000.0) > 0.0:
+            _rolloff_ref = float(params["rolloff_hz"])
+            _bw_gap = max(0.0, _sfr_bw_target - _rolloff_ref)
+            if _bw_gap >= 1500.0:
+                # Scale extra boost by confidence × gap fraction (max +4 dB)
+                _gap_frac = float(min(_bw_gap / 8000.0, 1.0))
+                _extra_boost = float(min(_gap_frac * _sfr_conf * 4.0, 4.0))
+                params["max_boost_db"] = float(params.get("max_boost_db", 8.0)) + _extra_boost
+                # Also increase extension range proportional to generation count
+                if _sfr_gen >= 3:
+                    params["restoration_strength"] = float(
+                        min(params.get("restoration_strength", 0.5) * 1.10, 0.95)
+                    )
 
         # Check if restoration needed
         if params["restoration_strength"] == 0.0:
@@ -366,6 +388,36 @@ class FrequencyRestorationPhase(PhaseInterface):
         restored = np.nan_to_num(restored, nan=0.0, posinf=0.0, neginf=0.0)
         restored = np.clip(restored, -1.0, 1.0)
 
+        # §2.41 (v9.10.116) SOTA: SourceFidelityEQ — Generationsverlust-Kompensation.
+        # Wendet frequenz-abhängige Korrekturkurve an (firwin2 FIR, nur Boosts ≥ 1.0).
+        # Kompensiert akkumulierten HF-Verlust aus Überspielgenerationen.
+        # Nur aktiv wenn reconstruction_strength ≥ 0.20 und confidence ≥ 0.35.
+        _sfr_cal_06 = kwargs.get("song_calibration_profile", {})
+        _sfr_recon_strength_06 = float(_sfr_cal_06.get("source_fidelity_reconstruction_strength", 0.0))
+        _sfr_conf_06 = float(_sfr_cal_06.get("source_fidelity_confidence", 0.0))
+        if _sfr_recon_strength_06 >= 0.20 and _sfr_conf_06 >= 0.35:
+            try:
+                from backend.core.source_fidelity_reconstructor import (
+                    SourceFidelityTarget,
+                    get_source_fidelity_eq_processor,
+                )
+
+                _sfr_target_06 = SourceFidelityTarget(
+                    era_decade=int(_sfr_cal_06.get("era_decade") or 1970),
+                    material_key=str(_sfr_cal_06.get("material", "unknown")),
+                    reconstruction_strength=_sfr_recon_strength_06,
+                    confidence=_sfr_conf_06,
+                    transfer_generation_count=int(_sfr_cal_06.get("source_fidelity_generation_count", 1)),
+                    original_bandwidth_hz=float(_sfr_cal_06.get("source_fidelity_bandwidth_target_hz", 20000.0)),
+                    cumulative_hf_loss_db=float(_sfr_cal_06.get("source_fidelity_hf_loss_db", 0.0)),
+                )
+                _eq_proc = get_source_fidelity_eq_processor()
+                # Strength skaliert mit sqrt(recon × conf) → konservative Stärke ≤ 70%
+                _eq_str = float(min((_sfr_recon_strength_06 * _sfr_conf_06) ** 0.5, 0.70))
+                restored = _eq_proc.apply(restored, sample_rate, target=_sfr_target_06, strength=_eq_str)
+            except Exception as _sfr_exc:
+                logger.debug("Phase 06: SourceFidelityEQ übersprungen: %s", _sfr_exc)
+
         return create_phase_result(
             audio=restored,
             modifications={
@@ -422,13 +474,25 @@ class FrequencyRestorationPhase(PhaseInterface):
         _audiosr_factory = _get_audiosr_plugin
 
         alpha_by_mode = {
-            "balanced": 0.20,
-            "quality": 0.30,
-            "maximum": 0.40,
-            "restoration": 0.25,
+            "balanced": 0.25,
+            "quality": 0.38,
+            "maximum": 0.55,
+            "restoration": 0.32,
         }
-        alpha = alpha_by_mode.get(quality_mode, 0.20) * float(params.get("restoration_strength", 0.7))
-        alpha = float(np.clip(alpha, 0.0, 0.45))
+        _alpha_base = alpha_by_mode.get(quality_mode, 0.25)
+        # Bandwidth-deficit adaptive boost (v9.10.112): when rolloff is far below
+        # Nyquist most of the HF content is synthesised by AudioSR — use a higher
+        # blend ratio so the ML output is not washed out by the DSP baseline.
+        # Formula: deficit_fraction = clamp(1 − rolloff_hz / (0.60 × Nyquist), 0, 1)
+        #   shellac rolloff=4500, Nyquist=24000: deficit=0.69 → +0.24 pp
+        #   vinyl   rolloff=11000:               deficit=0.24 → +0.08 pp
+        #   tape    rolloff=14000:               deficit=0.03 → +0.01 pp
+        _rolloff_hz = float(params.get("rolloff_hz", float(self.sample_rate) * 0.90))
+        _deficit_threshold_hz = float(self.sample_rate) * 0.30  # 60 % of Nyquist
+        _deficit_fraction = float(np.clip(1.0 - _rolloff_hz / _deficit_threshold_hz, 0.0, 1.0))
+        _deficit_boost = _deficit_fraction * 0.35  # up to +35 pp for severe bandwidth loss
+        alpha = (_alpha_base + _deficit_boost) * float(params.get("restoration_strength", 0.7))
+        alpha = float(np.clip(alpha, 0.0, 0.80))  # cap at 0.80 — preserve DSP harmonic character
 
         try:
             from backend.core.plugin_lifecycle_manager import get_plugin_lifecycle_manager, touch_plugin

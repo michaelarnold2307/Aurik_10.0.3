@@ -188,9 +188,15 @@ def _inpaint_gap_dsp(
     right_ctx = audio[end : min(len(audio), end + context_samples)].copy()
     right_ctx_rev = right_ctx[::-1]
 
+    # §v9.10.113: Adaptive AR order — order 64 diverges for gaps > 50 ms (2 400 samples).
+    # AR(192) covers 3× more spectral modes; safe as long as context length > order.
+    _AR_ORDER_ADAPTIVE = (
+        min(192, max(16, len(left_ctx) - 1)) if gap_len > 2400 else _AR_ORDER
+    )
+
     # AR-Vorhersage von links und von rechts (gespiegelt)
-    ar_left = _burg_ar_predict(left_ctx, _AR_ORDER, gap_len)
-    ar_right = _burg_ar_predict(right_ctx_rev, _AR_ORDER, gap_len)[::-1]
+    ar_left = _burg_ar_predict(left_ctx, _AR_ORDER_ADAPTIVE, gap_len)
+    ar_right = _burg_ar_predict(right_ctx_rev, _AR_ORDER_ADAPTIVE, gap_len)[::-1]
 
     # Cosine-Gewichtung: links → rechts
     t_vec = np.linspace(0, np.pi / 2, gap_len)

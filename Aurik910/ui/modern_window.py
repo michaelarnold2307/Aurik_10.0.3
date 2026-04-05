@@ -2133,32 +2133,91 @@ class _Theme:
       SUCCESS muted sage-green  — successful result
       CAUTION warm amber        — warnings / in-progress
       ALERT   muted brick-red   — errors / failures
+
+    Supports two modes: 'dark' (default) and 'light'.
+    Call ``_Theme.apply('light')`` / ``_Theme.apply('dark')`` to switch.
     """
 
-    PRIMARY = "#667eea"
-    SECONDARY = "#5B9FE8"
-    BG_DARK = "#080a18"
-    BG_CARD = "rgba(14, 18, 36, 0.75)"
-    TEXT_DIM = "#8894A8"
-    BORDER = "rgba(102, 126, 234, 0.22)"
+    # ── Dark palette (default) ────────────────────────────────────────────
+    _DARK = {
+        "PRIMARY": "#667eea",
+        "SECONDARY": "#5B9FE8",
+        "BG_DARK": "#080a18",
+        "BG_CARD": "rgba(14, 18, 36, 0.75)",
+        "TEXT_DIM": "#8894A8",
+        "BORDER": "rgba(102, 126, 234, 0.22)",
+        "IDLE_TEXT": "#7B93B8",
+        "SUCCESS_TEXT": "#82B89A",
+        "CAUTION_TEXT": "#B8A068",
+        "ALERT_TEXT": "#B87A7A",
+        "SUCCESS_BG": "rgba(85, 155, 115, 0.10)",
+        "SUCCESS_BD": "rgba(100, 168, 130, 0.26)",
+        "CAUTION_BG": "rgba(150, 130, 68, 0.10)",
+        "CAUTION_BD": "rgba(150, 130, 68, 0.26)",
+        "ALERT_BG": "rgba(148, 82, 82, 0.10)",
+        "ALERT_BD": "rgba(152, 88, 88, 0.26)",
+    }
+
+    # ── Light palette ─────────────────────────────────────────────────────
+    _LIGHT = {
+        "PRIMARY": "#4361cc",
+        "SECONDARY": "#3578C4",
+        "BG_DARK": "#f5f6fa",
+        "BG_CARD": "rgba(255, 255, 255, 0.85)",
+        "TEXT_DIM": "#5a6478",
+        "BORDER": "rgba(67, 97, 204, 0.18)",
+        "IDLE_TEXT": "#4a5d80",
+        "SUCCESS_TEXT": "#2d7a50",
+        "CAUTION_TEXT": "#8a7030",
+        "ALERT_TEXT": "#a04040",
+        "SUCCESS_BG": "rgba(45, 122, 80, 0.08)",
+        "SUCCESS_BD": "rgba(45, 122, 80, 0.22)",
+        "CAUTION_BG": "rgba(138, 112, 48, 0.08)",
+        "CAUTION_BD": "rgba(138, 112, 48, 0.22)",
+        "ALERT_BG": "rgba(160, 64, 64, 0.08)",
+        "ALERT_BD": "rgba(160, 64, 64, 0.22)",
+    }
+
+    # Current values (initialised to dark)
+    PRIMARY = _DARK["PRIMARY"]
+    SECONDARY = _DARK["SECONDARY"]
+    BG_DARK = _DARK["BG_DARK"]
+    BG_CARD = _DARK["BG_CARD"]
+    TEXT_DIM = _DARK["TEXT_DIM"]
+    BORDER = _DARK["BORDER"]
     FONT_UI = "Segoe UI"
     RADIUS_SM = 8
     RADIUS_MD = 10
     RADIUS_LG = 15
 
     # Semantic state — text colours
-    IDLE_TEXT = "#7B93B8"  # muted steel-blue
-    SUCCESS_TEXT = "#82B89A"  # muted sage-green
-    CAUTION_TEXT = "#B8A068"  # warm aged amber
-    ALERT_TEXT = "#B87A7A"  # muted brick-red
+    IDLE_TEXT = _DARK["IDLE_TEXT"]
+    SUCCESS_TEXT = _DARK["SUCCESS_TEXT"]
+    CAUTION_TEXT = _DARK["CAUTION_TEXT"]
+    ALERT_TEXT = _DARK["ALERT_TEXT"]
 
     # Semantic state — background / border
-    SUCCESS_BG = "rgba(85, 155, 115, 0.10)"
-    SUCCESS_BD = "rgba(100, 168, 130, 0.26)"
-    CAUTION_BG = "rgba(150, 130, 68, 0.10)"
-    CAUTION_BD = "rgba(150, 130, 68, 0.26)"
-    ALERT_BG = "rgba(148, 82, 82, 0.10)"
-    ALERT_BD = "rgba(152, 88, 88, 0.26)"
+    SUCCESS_BG = _DARK["SUCCESS_BG"]
+    SUCCESS_BD = _DARK["SUCCESS_BD"]
+    CAUTION_BG = _DARK["CAUTION_BG"]
+    CAUTION_BD = _DARK["CAUTION_BD"]
+    ALERT_BG = _DARK["ALERT_BG"]
+    ALERT_BD = _DARK["ALERT_BD"]
+
+    # Active theme name
+    _active = "dark"
+
+    @classmethod
+    def apply(cls, theme_name: str = "dark") -> None:
+        """Switch all class-level colour tokens to *theme_name* ('dark' | 'light')."""
+        palette = cls._LIGHT if theme_name == "light" else cls._DARK
+        cls._active = theme_name
+        for key, value in palette.items():
+            setattr(cls, key, value)
+
+    @classmethod
+    def is_light(cls) -> bool:
+        return cls._active == "light"
 
 
 class WaveformWidget(QWidget):
@@ -8037,6 +8096,12 @@ class ModernMainWindow(QMainWindow):
         except Exception:
             self._settings = None
 
+        # Apply persisted theme before any widget creation
+        if self._settings is not None:
+            _saved_theme = self._settings.theme()
+            if _saved_theme in ("dark", "light"):
+                _Theme.apply(_saved_theme)
+
         # Restore window geometry from last session (or center if first launch)
         _geometry_restored = False
         if self._settings is not None:
@@ -9288,6 +9353,42 @@ class ModernMainWindow(QMainWindow):
         )
         ab_row_layout.addWidget(self.btn_play_restored)
 
+        # ── A/B Sync-Loop: gleiche Position, nahtloser Quellwechsel (v9.10.111) ──
+        _ab_style_sync = (
+            "QPushButton{background:qlineargradient(x1:0,y1:0,x2:1,y2:0,"
+            "stop:0 #4a3a7a,stop:1 #2e2060);border:none;border-radius:7px;"
+            "color:#d8c8ff;font-size:9pt;font-weight:bold;padding:7px 10px;}"
+            "QPushButton:hover{background:qlineargradient(x1:0,y1:0,x2:1,y2:0,"
+            "stop:0 #6a50a8,stop:1 #3a2a80);}"
+            "QPushButton:checked{background:qlineargradient(x1:0,y1:0,x2:1,y2:0,"
+            "stop:0 #7c5bcc,stop:1 #4a36a0);border:1px solid #a890ff;}"
+            "QPushButton:disabled{background:rgba(80,80,80,0.30);color:#555;}"
+        )
+        self.btn_ab_sync = ModernButton("⟳  A/B-Sync-Loop")
+        self.btn_ab_sync.setEnabled(False)
+        self.btn_ab_sync.setFixedHeight(self._sp(38))
+        self.btn_ab_sync.setCheckable(True)
+        self.btn_ab_sync.setStyleSheet(_ab_style_sync)
+        self.btn_ab_sync.setToolTip(
+            "Startet einen synchronisierten Loop.\n"
+            "A und B spielen ab derselben Position — schnell wechseln mit Tasten A / B."
+        )
+        self.btn_ab_sync.clicked.connect(self._ab_sync_toggle)
+        ab_row_layout.addWidget(self.btn_ab_sync)
+
+        # Source-Indikator: zeigt "Quelle: Original" / "Quelle: Restauriert"
+        self._ab_source_label = QLabel("")
+        self._ab_source_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._ab_source_label.setStyleSheet(
+            f"color: rgba(200,185,255,0.70); font-size: {self._pt(8.5):.1f}pt; padding: 0 4px;"
+        )
+        self._ab_source_label.setVisible(False)
+        ab_row_layout.addWidget(self._ab_source_label)
+
+        # A/B-Sync-State (nicht-persistent)
+        self._ab_loop_source: str = "original"   # "original" | "restored"
+        self._ab_loop_start_frac: float = 0.0    # relative Startposition [0,1]
+
         self.btn_stop_playback = ModernButton("⏹  Song stoppen")
         self.btn_stop_playback.setFixedHeight(self._sp(38))
         self.btn_stop_playback.setStyleSheet(_ab_style_stop)
@@ -10117,11 +10218,19 @@ class ModernMainWindow(QMainWindow):
         _bind_shortcut(Qt.Key.Key_Space, self._toggle_playback)
         _bind_shortcut(
             Qt.Key.Key_A,
-            lambda: self._play_audio(self._orig_audio, self._orig_sr) if self._orig_audio is not None else None,
+            lambda: (
+                self._ab_switch_source("original")
+                if getattr(getattr(self, "btn_ab_sync", None), "isChecked", lambda: False)()
+                else (self._play_audio(self._orig_audio, self._orig_sr) if self._orig_audio is not None else None)
+            ),
         )
         _bind_shortcut(
             Qt.Key.Key_B,
-            lambda: self._play_audio(self._rest_audio, self._rest_sr) if self._rest_audio is not None else None,
+            lambda: (
+                self._ab_switch_source("restored")
+                if getattr(getattr(self, "btn_ab_sync", None), "isChecked", lambda: False)()
+                else (self._play_audio(self._rest_audio, self._rest_sr) if self._rest_audio is not None else None)
+            ),
         )
         _bind_shortcut(QKeySequence.StandardKey.Open, self._open_file)
         _bind_shortcut(QKeySequence.StandardKey.Save, self._export_all)
@@ -12055,10 +12164,82 @@ class ModernMainWindow(QMainWindow):
             self.btn_play_original.setEnabled(self._orig_audio is not None)
         if hasattr(self, "btn_play_restored"):
             self.btn_play_restored.setEnabled(self._rest_audio is not None)
+        # A/B-Sync-Loop erfordert beide Versionen
+        if hasattr(self, "btn_ab_sync"):
+            _both = self._orig_audio is not None and self._rest_audio is not None
+            self.btn_ab_sync.setEnabled(_both)
+            if not _both and getattr(self.btn_ab_sync, "isChecked", lambda: False)():
+                self.btn_ab_sync.setChecked(False)
+                if hasattr(self, "_ab_source_label"):
+                    self._ab_source_label.setVisible(False)
         # Stop-Button nur aktivierbar wenn Wiedergabe läuft — Grundzustand: deaktiviert
         if hasattr(self, "btn_stop_playback"):
             _playing = hasattr(self, "_play_thread") and self._play_thread is not None and self._play_thread.is_alive()
             self.btn_stop_playback.setEnabled(_playing)
+
+    def _ab_sync_toggle(self) -> None:
+        """A/B-Sync-Loop starten oder stoppen (v9.10.111).
+
+        Beim Start: aktuelle Playhead-Position (oder 0.0) als Loop-Startpunkt
+        speichern, Original abspielen. Beim Stopp: Wiedergabe beenden, State
+        zurücksetzen. Während des Loops wechseln A/B-Shortcuts die Quelle bei
+        gleicher Startposition.
+        """
+        if not getattr(self.btn_ab_sync, "isChecked", lambda: False)():
+            # Loop deaktiviert — Wiedergabe stoppen, State zurücksetzen
+            self._stop_song_playback_only()
+            if hasattr(self, "_ab_source_label"):
+                self._ab_source_label.setVisible(False)
+            return
+
+        # Loop aktiviert — Startposition bestimmen (aktueller Playhead oder 0)
+        _pos = float(getattr(self, "_last_playhead_pos", -1.0))
+        if _pos < 0.0 or _pos >= 1.0:
+            _pos = 0.0
+        self._ab_loop_start_frac = _pos
+        self._ab_loop_source = "original"
+        self._ab_play_loop_source()
+
+    def _ab_play_loop_source(self) -> None:
+        """Interne Hilfsmethode: spielt die aktive A/B-Loop-Quelle ab Startposition."""
+        _loop_active = hasattr(self, "btn_ab_sync") and getattr(self.btn_ab_sync, "isChecked", lambda: False)()
+        if not _loop_active:
+            return
+        _src = getattr(self, "_ab_loop_source", "original")
+        _frac = float(getattr(self, "_ab_loop_start_frac", 0.0))
+        if _src == "restored" and self._rest_audio is not None:
+            self._play_audio(self._rest_audio, self._rest_sr, start_pos_frac=_frac)
+            _lbl = "Quelle: ✦ Restauriert"
+            _col = "rgba(80,220,100,0.85)"
+        else:
+            if self._orig_audio is not None:
+                self._play_audio(self._orig_audio, self._orig_sr, start_pos_frac=_frac)
+            _lbl = "Quelle: ▶ Original"
+            _col = "rgba(100,150,255,0.85)"
+        if hasattr(self, "_ab_source_label"):
+            self._ab_source_label.setText(_lbl)
+            self._ab_source_label.setStyleSheet(
+                f"color: {_col}; font-size: {self._pt(8.5):.1f}pt; "
+                "font-weight: bold; padding: 0 4px;"
+            )
+            self._ab_source_label.setVisible(True)
+
+    def _ab_switch_source(self, source: str) -> None:
+        """Wechselt die A/B-Loop-Quelle bei laufendem Loop (v9.10.111).
+
+        Speichert die aktuelle Playhead-Position als neuen Startpunkt, stoppt
+        die Wiedergabe und startet die andere Quelle von derselben Position.
+        Nur aktiv wenn A/B-Sync-Loop läuft.
+        """
+        _loop_active = hasattr(self, "btn_ab_sync") and getattr(self.btn_ab_sync, "isChecked", lambda: False)()
+        if not _loop_active:
+            return
+        # Aktuelle Playhead-Position als neuen Loop-Startpunkt übernehmen
+        _current_pos = float(getattr(self, "_last_playhead_pos", -1.0))
+        if 0.0 <= _current_pos < 1.0:
+            self._ab_loop_start_frac = _current_pos
+        self._ab_loop_source = source
+        self._ab_play_loop_source()
 
     def _dialog_options(self, *, directory_only: bool = False) -> QFileDialog.Options:
         """Build QFileDialog options for the Qt fallback path.
@@ -15591,6 +15772,15 @@ class ModernMainWindow(QMainWindow):
         idx = max(0, lang_combo.findData(current_lang))
         lang_combo.setCurrentIndex(idx)
         form.addRow(t("settings.language"), lang_combo)
+
+        # Erscheinungsbild (Theme)
+        theme_combo = QComboBox()
+        theme_combo.addItem(t("settings.theme_dark"), "dark")
+        theme_combo.addItem(t("settings.theme_light"), "light")
+        _cur_theme = _Theme._active
+        theme_combo.setCurrentIndex(max(0, theme_combo.findData(_cur_theme)))
+        form.addRow(t("settings.theme"), theme_combo)
+
         layout.addLayout(form)
 
         buttons = QDialogButtonBox(parent=dlg)
@@ -15605,8 +15795,78 @@ class ModernMainWindow(QMainWindow):
                     self._default_export_fmt = rb.property("fmt_ext")
             self._default_mode = "RESTORATION" if rb_rest.isChecked() else "STUDIO_2026"
             set_language(str(lang_combo.currentData()))
+            # Theme switch
+            _new_theme = str(theme_combo.currentData() or "dark")
+            if _new_theme != _Theme._active:
+                _Theme.apply(_new_theme)
+                if self._settings is not None:
+                    self._settings.set_theme(_new_theme)
+                self._apply_theme_stylesheet()
             self._apply_i18n_texts()
             self.title_bar.set_status(t("status.settings_saved"), "#82B89A")
+
+    def _apply_theme_stylesheet(self) -> None:
+        """Reapply top-level QSS after a theme switch (dark ↔ light)."""
+        _bg = _Theme.BG_DARK
+        _text = "#c9d1d9" if not _Theme.is_light() else "#24292f"
+        _card = _Theme.BG_CARD
+        _border = _Theme.BORDER
+        _primary = _Theme.PRIMARY
+        _qss = f"""
+            QWidget {{
+                background-color: {_bg};
+                color: {_text};
+                font-family: '{_Theme.FONT_UI}', 'Inter', sans-serif;
+            }}
+            QLabel {{
+                background: transparent;
+                color: {_text};
+            }}
+            QProgressBar {{
+                background: {_card};
+                border: 1px solid {_border};
+                border-radius: 4px;
+            }}
+            QProgressBar::chunk {{
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                    stop:0 {_primary}, stop:1 {_Theme.SECONDARY});
+                border-radius: 3px;
+            }}
+            QPushButton {{
+                background: {_card};
+                color: {_text};
+                border: 1px solid {_border};
+                border-radius: {_Theme.RADIUS_SM}px;
+                padding: 6px 16px;
+            }}
+            QPushButton:hover {{
+                border-color: {_primary};
+            }}
+            QComboBox, QSpinBox, QLineEdit {{
+                background: {_card};
+                color: {_text};
+                border: 1px solid {_border};
+                border-radius: 4px;
+                padding: 4px 8px;
+            }}
+            QTabWidget::pane {{
+                border: 1px solid {_border};
+                background: {_bg};
+            }}
+            QTabBar::tab {{
+                background: {_card};
+                color: {_Theme.TEXT_DIM};
+                padding: 6px 14px;
+                border-top-left-radius: 6px;
+                border-top-right-radius: 6px;
+            }}
+            QTabBar::tab:selected {{
+                color: {_text};
+                border-bottom: 2px solid {_primary};
+            }}
+        """
+        self.setStyleSheet(_qss)
+        logger.debug("theme stylesheet applied: %s", _Theme._active)
 
     def _apply_i18n_texts(self) -> None:
         """Refresh visible UI texts after language changes."""

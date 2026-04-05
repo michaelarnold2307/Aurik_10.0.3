@@ -163,6 +163,28 @@ class QueueManager:
         with self._lock:
             return [item for item in self._items.values() if item.status == QueueStatus.PENDING]
 
+    def reorder_items(self, new_order: list[str]) -> bool:
+        """Ordnet die Queue-Einträge entsprechend der übergebenen ID-Reihenfolge um.
+
+        Unbekannte IDs werden ignoriert; fehlende IDs bleiben am Ende erhalten.
+        Thread-sicher (Lock).
+
+        Args:
+            new_order: Liste von Item-IDs in gewünschter neuer Reihenfolge.
+
+        Returns:
+            True wenn mindestens ein Eintrag die Position gewechselt hat.
+        """
+        with self._lock:
+            # Build reordered dict: known IDs first, remaining IDs appended.
+            known = {iid: self._items[iid] for iid in new_order if iid in self._items}
+            rest = {iid: item for iid, item in self._items.items() if iid not in known}
+            new_dict = {**known, **rest}
+            if list(new_dict.keys()) == list(self._items.keys()):
+                return False  # no change
+            self._items = new_dict
+            return True
+
     def __len__(self) -> int:
         with self._lock:
             return len(self._items)
