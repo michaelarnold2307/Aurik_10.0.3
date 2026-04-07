@@ -95,20 +95,20 @@ class ModelQuantizer:
         output_path = Path(output_path)
 
         if not model_path.exists():
-            logger.error(f"Model not found: {model_path}")
+            logger.error("Model not found: %s", model_path)
             return False
 
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
-        logger.info(f"Quantizing model: {model_path.name}")
-        logger.info(f"Type: {self.config.quantization_type.value}")
+        logger.info("Quantizing model: %s", model_path.name)
+        logger.info("Type: %s", self.config.quantization_type.value)
 
         try:
             from onnxruntime.quantization import QuantType, quantize_dynamic
 
             # Original model size
             original_size = model_path.stat().st_size / (1024 * 1024)  # MB
-            logger.info(f"Original size: {original_size:.2f} MB")
+            logger.info("Original size: %.2f MB", original_size)
 
             # Perform quantization
             if self.config.quantization_type == QuantizationType.DYNAMIC:
@@ -122,15 +122,15 @@ class ModelQuantizer:
                     nodes_to_exclude=self.config.nodes_to_exclude,
                 )
             else:
-                logger.error(f"Quantization type {self.config.quantization_type} not implemented")
+                logger.error("Quantization type %s not implemented", self.config.quantization_type)
                 return False
 
             # Quantized model size
             quantized_size = output_path.stat().st_size / (1024 * 1024)  # MB
             size_reduction = (1 - quantized_size / original_size) * 100
 
-            logger.info(f"Quantized size: {quantized_size:.2f} MB")
-            logger.info(f"Size reduction: {size_reduction:.1f}%")
+            logger.info("Quantized size: %.2f MB", quantized_size)
+            logger.info("Size reduction: %.1f%%", size_reduction)
 
             # Quality validation
             if validate_quality:
@@ -154,11 +154,11 @@ class ModelQuantizer:
             return True
 
         except ImportError as e:
-            logger.error(f"onnxruntime.quantization not available: {e}")
+            logger.error("onnxruntime.quantization not available: %s", e)
             logger.error("Install with: pip install onnxruntime")
             return False
         except Exception as e:
-            logger.error(f"Quantization failed: {e}")
+            logger.error("Quantization failed: %s", e)
             self.quantization_stats["failed_quantizations"] += 1
             self.quantization_stats["total_quantizations"] += 1
             return False
@@ -219,9 +219,9 @@ class ModelQuantizer:
             quality_loss_percent = (avg_diff / 1.0) * 100
 
             logger.info("Quality validation:")
-            logger.info(f"  Average difference: {avg_diff:.6f}")
-            logger.info(f"  Max difference: {max_diff:.6f}")
-            logger.info(f"  Quality loss: {quality_loss_percent:.3f}%")
+            logger.info("  Average difference: %.6f", avg_diff)
+            logger.info("  Max difference: %.6f", max_diff)
+            logger.info("  Quality loss: %.3f%%", quality_loss_percent)
 
             if quality_loss_percent > self.config.max_quality_loss_percent:
                 logger.warning(
@@ -234,7 +234,7 @@ class ModelQuantizer:
             return True
 
         except Exception as e:
-            logger.warning(f"Quality validation failed: {e}")
+            logger.warning("Quality validation failed: %s", e)
             return True  # Don't fail quantization due to validation issues
 
     def quantize_batch(
@@ -257,28 +257,28 @@ class ModelQuantizer:
         results = {}
 
         for name, model_path in models.items():
-            logger.info(f"\n{'=' * 60}")
-            logger.info(f"Quantizing: {name}")
-            logger.info(f"{'=' * 60}")
+            logger.info("\n%s", '=' * 60)
+            logger.info("Quantizing: %s", name)
+            logger.info("%s", '=' * 60)
 
             output_path = output_dir / f"{model_path.stem}_quantized.onnx"
 
             success = self.quantize(model_path=model_path, output_path=output_path, validate_quality=validate_quality)
 
             results[name] = success
-            logger.info(f"Result: {'✓ SUCCESS' if success else '❌ FAILED'}")
+            logger.info("Result: %s", '✓ SUCCESS' if success else '❌ FAILED')
 
         # Summary
-        logger.info(f"\n{'=' * 60}")
+        logger.info("\n%s", '=' * 60)
         logger.info("QUANTIZATION SUMMARY")
-        logger.info(f"{'=' * 60}")
+        logger.info("%s", '=' * 60)
         successful = sum(1 for v in results.values() if v)
-        logger.info(f"Total: {len(results)}")
-        logger.info(f"Successful: {successful}")
-        logger.info(f"Failed: {len(results) - successful}")
+        logger.info("Total: %s", len(results))
+        logger.info("Successful: %s", successful)
+        logger.info("Failed: %s", len(results) - successful)
 
         if self.quantization_stats["successful_quantizations"] > 0:
-            logger.info(f"Average size reduction: {self.quantization_stats['average_size_reduction']:.1f}%")
+            logger.info("Average size reduction: %.1f%%", self.quantization_stats['average_size_reduction'])
 
         return results
 
@@ -328,14 +328,14 @@ class ModelQuantizer:
             speedup = fp32_time / int8_time
 
             logger.info("Speedup estimation:")
-            logger.info(f"  FP32: {fp32_time / num_runs * 1000:.2f} ms/inference")
-            logger.info(f"  INT8: {int8_time / num_runs * 1000:.2f} ms/inference")
-            logger.info(f"  Speedup: {speedup:.2f}×")
+            logger.info("  FP32: %.2f ms/inference", fp32_time / num_runs * 1000)
+            logger.info("  INT8: %.2f ms/inference", int8_time / num_runs * 1000)
+            logger.info("  Speedup: %.2f×", speedup)
 
             return speedup
 
         except Exception as e:
-            logger.error(f"Speedup estimation failed: {e}")
+            logger.error("Speedup estimation failed: %s", e)
             return 1.0
 
     def get_stats(self) -> dict[str, Any]:

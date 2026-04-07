@@ -67,13 +67,13 @@ class AdaptiveStereoWidener:
             audio_stereo = audio_stereo.T
 
         if audio_stereo.shape[0] != 2:
-            logger.error(f"Invalid stereo shape: {audio_stereo.shape}")
+            logger.error("Invalid stereo shape: %s", audio_stereo.shape)
             return audio_stereo
 
         # Genre-adaptive Width Limits (Safeguard #3)
         width = self._adjust_width_for_genre(width, genre)
 
-        logger.info(f"Stereo Widening: width={width:.2f}, genre={genre}")
+        logger.info("Stereo Widening: width=%.2f, genre=%s", width, genre)
 
         # Mid-Side Decomposition
         L = audio_stereo[0]
@@ -89,11 +89,8 @@ class AdaptiveStereoWidener:
         L_wide = mid + side_widened
         R_wide = mid - side_widened
 
-        # Ensure no clipping
+        # Safety only: avoid loudness-changing peak rescale, clamp at output.
         stereo_wide = np.array([L_wide, R_wide])
-        max_val = np.max(np.abs(stereo_wide))
-        if max_val > 1.0:
-            stereo_wide = stereo_wide / max_val * 0.99
 
         # NaN/Inf-Guard + Clipping
         stereo_wide = np.nan_to_num(stereo_wide, nan=0.0, posinf=0.0, neginf=0.0)
@@ -195,7 +192,7 @@ class AdaptiveStereoWidener:
         adjusted = min(base_width, max_width)
 
         if adjusted < base_width:
-            logger.info(f"Stereo width limited for genre '{genre}': {base_width:.2f} → {adjusted:.2f}")
+            logger.info("Stereo width limited for genre '%s': %.2f → %.2f", genre, base_width, adjusted)
 
         return adjusted
 
@@ -219,7 +216,7 @@ class AdaptiveStereoWidener:
         is_compatible = correlation > 0.3
 
         if not is_compatible:
-            logger.warning(f"Mono-compatibility issue: correlation {correlation:.2f} < 0.3")
+            logger.warning("Mono-compatibility issue: correlation %.2f < 0.3", correlation)
 
         return is_compatible, correlation
 
@@ -260,7 +257,7 @@ def select_stereo_widening_strategy(context: dict, goal: dict) -> dict:
 
     params = {"width": width, "genre": context.get("genre", "unknown")}
 
-    logger.info(f"Stereo Widening SELECTED: width={width:.2f}, genre={params['genre']}")
+    logger.info("Stereo Widening SELECTED: width=%.2f, genre=%s", width, params['genre'])
 
     return params
 
@@ -322,28 +319,28 @@ if __name__ == "__main__":
 
     # Test 1: Classical (minimal)
     audio_wide_classical = widener.widen(audio_stereo, sr, width=1.3, genre="classical")
-    logger.info(f"Test 1 (Classical): Width limited to {1.1:.2f}")
+    logger.info("Test 1 (Classical): Width limited to %.2f", 1.1)
 
     # Test 2: Pop (moderate)
     audio_wide_pop = widener.widen(audio_stereo, sr, width=1.5, genre="pop")
-    logger.info(f"Test 2 (Pop): Width {1.5:.2f}")
+    logger.info("Test 2 (Pop): Width %.2f", 1.5)
 
     # Test 3: Mono-Compatibility Check
     is_compat, corr = widener.check_mono_compatibility(audio_wide_pop)
-    logger.info(f"Test 3 (Mono-Compat): Compatible = {is_compat}, Correlation = {corr:.2f}")
+    logger.info("Test 3 (Mono-Compat): Compatible = %s, Correlation = %.2f", is_compat, corr)
 
     # Test 4: Policy Decision
     context = {"genre": "jazz", "channels": 2}
     goal = {"quality_level": "maximal"}
 
     params = select_stereo_widening_strategy(context, goal)
-    logger.info(f"\nTest 4 (Policy): {params}")
+    logger.info("\nTest 4 (Policy): %s", params)
     assert params is not None, "Should select widening for jazz"
 
     # Test 5: Speech (should NOT widen)
     context_speech = {"genre": "speech", "channels": 2}
     params_speech = select_stereo_widening_strategy(context_speech, goal)
-    logger.info(f"Test 5 (Speech): {params_speech}")
+    logger.info("Test 5 (Speech): %s", params_speech)
     assert params_speech is None, "Should NOT widen speech"
 
     logger.info("\n✓ All tests passed")

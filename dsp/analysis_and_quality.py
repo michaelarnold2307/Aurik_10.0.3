@@ -32,12 +32,12 @@ class SpectralCentroid:
             self._audit_log(result, sr)
             return result
         except Exception as e:
-            logger.error(f"[SpectralCentroid][Fehler] {e}")
+            logger.error("[SpectralCentroid][Fehler] %s", e)
             self._audit_log(np.array([-1.0]), sr)
             return np.array([-1.0])
 
     def _audit_log(self, result, sr):
-        logger.info(f"[AuditLog][SpectralCentroid] Ergebnis: {result} | SR: {sr}")
+        logger.info("[AuditLog][SpectralCentroid] Ergebnis: %s | SR: %s", result, sr)
 
 
 class SpectralRolloff:
@@ -57,12 +57,12 @@ class SpectralRolloff:
             self._audit_log(result, sr)
             return result
         except Exception as e:
-            logger.error(f"[SpectralRolloff][Fehler] {e}")
+            logger.error("[SpectralRolloff][Fehler] %s", e)
             self._audit_log(np.array([-1.0]), sr)
             return np.array([-1.0])
 
     def _audit_log(self, result, sr):
-        logger.info(f"[AuditLog][SpectralRolloff] Ergebnis: {result} | SR: {sr}")
+        logger.info("[AuditLog][SpectralRolloff] Ergebnis: %s | SR: %s", result, sr)
 
 
 class RMSEnergy:
@@ -76,12 +76,12 @@ class RMSEnergy:
             self._audit_log(result, sr)
             return result
         except Exception as e:
-            logger.error(f"[RMSEnergy][Fehler] {e}")
+            logger.error("[RMSEnergy][Fehler] %s", e)
             self._audit_log(np.array([-1.0]), sr)
             return np.array([-1.0])
 
     def _audit_log(self, result, sr):
-        logger.info(f"[AuditLog][RMSEnergy] Ergebnis: {result} | SR: {sr}")
+        logger.info("[AuditLog][RMSEnergy] Ergebnis: %s | SR: %s", result, sr)
 
 
 class ZeroCrossingRate:
@@ -96,12 +96,12 @@ class ZeroCrossingRate:
             self._audit_log(result, sr)
             return result
         except Exception as e:
-            logger.error(f"[ZeroCrossingRate][Fehler] {e}")
+            logger.error("[ZeroCrossingRate][Fehler] %s", e)
             self._audit_log(np.array([-1.0]), sr)
             return np.array([-1.0])
 
     def _audit_log(self, result, sr):
-        logger.info(f"[AuditLog][ZeroCrossingRate] Ergebnis: {result} | SR: {sr}")
+        logger.info("[AuditLog][ZeroCrossingRate] Ergebnis: %s | SR: %s", result, sr)
 
 
 class SpectralFlatness:
@@ -119,12 +119,12 @@ class SpectralFlatness:
             self._audit_log(result, sr)
             return result
         except Exception as e:
-            logger.error(f"[SpectralFlatness][Fehler] {e}")
+            logger.error("[SpectralFlatness][Fehler] %s", e)
             self._audit_log(np.array([-1.0]), sr)
             return np.array([-1.0])
 
     def _audit_log(self, result, sr):
-        logger.info(f"[AuditLog][SpectralFlatness] Ergebnis: {result} | SR: {sr}")
+        logger.info("[AuditLog][SpectralFlatness] Ergebnis: %s | SR: %s", result, sr)
 
 
 class SpectralContrast:
@@ -141,12 +141,12 @@ class SpectralContrast:
             self._audit_log(result, sr)
             return result
         except Exception as e:
-            logger.error(f"[SpectralContrast][Fehler] {e}")
+            logger.error("[SpectralContrast][Fehler] %s", e)
             self._audit_log(np.array([-1.0]), sr)
             return np.array([-1.0])
 
     def _audit_log(self, result, sr):
-        logger.info(f"[AuditLog][SpectralContrast] Ergebnis: {result} | SR: {sr}")
+        logger.info("[AuditLog][SpectralContrast] Ergebnis: %s | SR: %s", result, sr)
 
 
 class CrestFactor:
@@ -163,12 +163,12 @@ class CrestFactor:
             self._audit_log(result, sr)
             return result
         except Exception as e:
-            logger.error(f"[CrestFactor][Fehler] {e}")
+            logger.error("[CrestFactor][Fehler] %s", e)
             self._audit_log(np.array([-1.0]), sr)
             return np.array([-1.0])
 
     def _audit_log(self, result, sr):
-        logger.info(f"[AuditLog][CrestFactor] Ergebnis: {result} | SR: {sr}")
+        logger.info("[AuditLog][CrestFactor] Ergebnis: %s | SR: %s", result, sr)
 
 
 class LoudnessLUFS:
@@ -185,12 +185,12 @@ class LoudnessLUFS:
             self._audit_log(result, sr)
             return result
         except Exception as e:
-            logger.error(f"[LoudnessLUFS][Fehler] {e}")
+            logger.error("[LoudnessLUFS][Fehler] %s", e)
             self._audit_log(np.array([-1.0]), sr)
             return np.array([-1.0])
 
     def _audit_log(self, result, sr):
-        logger.info(f"[AuditLog][LoudnessLUFS] Ergebnis: {result} | SR: {sr}")
+        logger.info("[AuditLog][LoudnessLUFS] Ergebnis: %s | SR: %s", result, sr)
 
 
 class SNR:
@@ -211,12 +211,12 @@ class SNR:
             self._audit_log(result)
             return result
         except Exception as e:
-            logger.error(f"[SNR][Fehler] {e}")
+            logger.error("[SNR][Fehler] %s", e)
             self._audit_log(np.array([-1.0]))
             return np.array([-1.0])
 
     def _audit_log(self, result):
-        logger.info(f"[AuditLog][SNR] Ergebnis: {result}")
+        logger.info("[AuditLog][SNR] Ergebnis: %s", result)
 
 
 class SISDR:
@@ -231,7 +231,7 @@ class SISDR:
         return np.array([0.0])  # type: ignore[return-value]
 
     def _audit_log(self, result):
-        logger.info(f"[AuditLog][SISDR] §10.2-Stub — Ergebnis: {result}")
+        logger.info("[AuditLog][SISDR] §10.2-Stub — Ergebnis: %s", result)
 
 
 class PESQStub:
@@ -243,7 +243,7 @@ class PESQStub:
         return np.array([-1.0])
 
     def _audit_log(self, result, sr):
-        logger.info(f"[AuditLog][PESQStub] Ergebnis: {result} | SR: {sr}")
+        logger.info("[AuditLog][PESQStub] Ergebnis: %s | SR: %s", result, sr)
 
 
 class MOSStub:
@@ -255,7 +255,7 @@ class MOSStub:
         return np.array([-1.0])
 
     def _audit_log(self, result):
-        logger.info(f"[AuditLog][MOSStub] Ergebnis: {result}")
+        logger.info("[AuditLog][MOSStub] Ergebnis: %s", result)
 
 
 MODEL_PATH_P808 = "../../models/dnsmos/dnsmos_p808.onnx"

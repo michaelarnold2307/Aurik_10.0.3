@@ -279,7 +279,7 @@ class AuthenticityMetrics:
         if verbose and not is_authentic:
             logger.warning("Authenticity Check WARNINGS:")
             for warning in warnings:
-                logger.warning(f"  {warning}")
+                logger.warning("  %s", warning)
 
         return is_authentic, warnings, metrics
 
@@ -349,18 +349,18 @@ if __name__ == "__main__":
     # Test 1: No change
     audio_identical = audio_original.copy()
     is_auth, warns, metrics = AuthenticityMetrics.authenticity_check(audio_original, audio_identical, sr)
-    logger.warning(f"Test 1 (Identical): Authentic = {is_auth}, Warnings = {len(warns)}")
+    logger.warning("Test 1 (Identical): Authentic = %s, Warnings = %s", is_auth, len(warns))
     assert is_auth, "Identical audio should be authentic"
 
     # Test 2: Minor change (authentic)
     audio_minor = audio_original * 1.05  # 5% level change
     is_auth, warns, metrics = AuthenticityMetrics.authenticity_check(audio_original, audio_minor, sr)
-    logger.info(f"Test 2 (Minor Change): Authentic = {is_auth}, Spectral Dev = {metrics['spectral_deviation']:.3f}")
+    logger.info("Test 2 (Minor Change): Authentic = %s, Spectral Dev = %.3f", is_auth, metrics['spectral_deviation'])
 
     # Test 3: Major change (not authentic)
     audio_major = audio_original + np.random.randn(samples) * 0.5
     is_auth, warns, metrics = AuthenticityMetrics.authenticity_check(audio_original, audio_major, sr)
-    logger.warning(f"Test 3 (Major Change): Authentic = {is_auth}, Warnings = {len(warns)}")
+    logger.warning("Test 3 (Major Change): Authentic = %s, Warnings = %s", is_auth, len(warns))
 
     # A/B Comparison Report
     report = AuthenticityMetrics.compare_ab(audio_original, audio_minor, sr, labels=("Original", "Minor Change"))

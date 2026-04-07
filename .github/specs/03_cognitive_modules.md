@@ -1,6 +1,6 @@
 # Aurik 9 — Spec 03: Kognitive Module
 
-> Alle Modul-Specs §2.1–§2.36 + Plugin-Richtlinie.
+> Alle Modul-Specs §2.1–§2.43 + Plugin-Richtlinie.
 > Verzeichnis-Konvention: `core/` = physisch `backend/core/`.
 
 ---
@@ -33,6 +33,9 @@
 | `IntroducedArtifactDetector` | `backend/core/introduced_artifact_detector.py` | Post-Restaurierungs-Artefakte |
 | `MicroDynamicsEnvelopeMorphing` | `backend/core/micro_dynamics_envelope_morphing.py` | Letzter Schritt vor Export |
 | `MertPlugin` | `plugins/mert_plugin.py` | Music Understanding + Naturalness |
+| `SourceFidelityReconstructor` | `backend/core/source_fidelity_reconstructor.py` | §2.42: Generationsverlust-Kompensation, Ära-BW, FIR-EQ |
+| `PerceptualSalienceEstimator` | `backend/core/perceptual_salience.py` | §9.1c: Psychoakustische Salienz-Annotation, Maskierungs-Scoring |
+| `MediumDetector` | `forensics/medium_detector.py` | §6.7: Zweiphasige Bayesianische Tonträger-Ketten-Erkennung |
 | `DiffWavePlugin` | `plugins/diffwave_plugin.py` | AR-Inpainting für Dropout-Lücken |
 | `CrepePlugin` | `plugins/crepe_plugin.py` | Pitch-Tracking f₀, CNN-basiert |
 | `FormantTracker` | `plugins/formant_tracker.py` | LPC-Formanten F1–F4 |
@@ -182,7 +185,7 @@ class VoiceGender:
 | Brass / Trumpet / Saxophone | `phase_45_brass_enhancement` | ≥ 0.5 |
 | Drum / Percussion | `phase_51_drums_enhancement` | ≥ 0.5 |
 | Piano / Keyboard | `phase_52_piano_restoration` | ≥ 0.5 |
-| Singing voice / Vocals / Speech | `phase_19` + `phase_42` + `phase_43` + VocalAIEnhancement | Vocals/Singing ≥ **0.40** / Speech ≥ **0.35** (konservativere Aktivierung für Sprach-Audio) |
+| Singing voice / Vocals | `phase_19` + `phase_42` + `phase_43` + VocalAIEnhancement | Singing ≥ **0.40** (Soft 0.35–0.40: 50 % Strength) |
 
 **[RELEASE_MUST] §2.9a PANNs Soft-Activation-Regel (v9.10.100+):**
 Vokale PANNs-Konfidenz im Bereich **0.35–0.40** führt zu 50 % Vocal-Enhancement-Strength
@@ -395,6 +398,25 @@ Jedes Genre-Profil wird NUR aktiviert wenn die zugehörige PANNs-Kategorie den S
 
 **Kein-Profil-Fallback:** Kein PANNs-Score über Schwellwert → `DEFAULT_RESTORATION_PROFILE` (alle Felder auf Standardwerte).
 
+```python
+DEFAULT_RESTORATION_PROFILE = {
+    # Neutrale Werte — keine genre-spezifischen Einschränkungen
+    "groove_dtw_max_ms": 8.0,          # Allgemein-tolerant (§8.2 Standard)
+    "tonal_center_threshold": 0.95,    # Standard-PMGG
+    "harmonic_exciter_enabled": True,  # Kein Genre-Override
+    "dereverb_strength_cap": 0.70,     # Standard — nicht genre-eingeschränkt
+    "compression_ratio_cap": 3.0,      # Großzügig
+    "soft_saturation_preserve": False, # Kein pauschal geschütztes Sättigungs-Profil
+    "gp_memory_key": "default",        # Allgemeiner GP-Speicher
+    # Erkennt die 12 nicht-profilierten Genres (Pop, Blues, Soul/R&B, Country,
+    # Folk, Funk, Electronic, Hip-Hop, Metal, Latin, Gospel, Reggae) und
+    # nutzt deren gp_memory_key für genre-spezifische GP-Konvergenz —
+    # aber ohne harte Restaurierungs-Restriktionen.
+}
+```
+
+**Hinweis zu den 12 Genres ohne eigenes Profil**: Pop, Blues, Soul/R&B, Country, Folk, Funk, Electronic, Hip-Hop, Metal, Latin, Gospel und Reggae werden zwar klassifiziert (17-Genre-System §2.19.2) und erhalten eigene `gp_memory_key`-Einträge (→ GP lernt genre-spezifisch), verwenden aber `DEFAULT_RESTORATION_PROFILE` als Basis. Das ist **absichtlich konservativ**: ohne validierte akustische Constraints riskiert ein zu spezifisches Profil Artefakte. Sobald > 50 GP-Beobachtungen pro Genre vorliegen, können genre-spezifische Profile nachgerüstet werden.
+
 ### [RELEASE_MUST] Genre-Profil-Override-Invariante gegenüber CausalDefectReasoner (v9.10.102)
 
 **Problem:** CausalDefectReasoner aktiviert `phase_20`/`phase_49` bei erkanntem `REVERB_EXCESS`.
@@ -475,8 +497,8 @@ OPER_RESTORATION_PROFILE = {
 ## §2.27 TransientDecoupledProcessing (TDP)
 
 ```python
-HPSS_HARMONIC_KERNEL: int = 31    # Frames (Frequenzachse)
-HPSS_PERCUSSIVE_KERNEL: int = 31  # Frames (Zeitachse)
+HPSS_HARMONIC_KERNEL: int = 17    # Frames (Frequenzachse) — v9.10.119, Fitzgerald 2010
+HPSS_PERCUSSIVE_KERNEL: int = 13  # Frames (Zeitachse) — v9.10.119, perkussive Schärfe
 PERCUSSIVE_ONLY_PHASES: list[str] = [
     "phase_01_click_removal", "phase_27_click_pop_removal",
 ]
@@ -658,7 +680,7 @@ plugins/bs_roformer_plugin.py        → ✅ BS-RoFormer + Mel-RoFormer (SOTA)
 # Rauschunterdrückung & Dereverb
 plugins/deepfilternet_v3_ii_plugin.py → ✅ PRIMÄR NR (37 MB: enc+dec+erb_dec)
 plugins/sgmse_plugin.py              → ✅ Dereverb/Enhancement PRIMÄR (sgmse_plus.ts, 251 MB) — SGMSE+ 2022
-plugins/mp_senet_plugin.py           → ✅ Speech/Music Enhancement (mp_senet.onnx, 35 MB) — MP-SENet 2023
+plugins/mp_senet_plugin.py           → ✅ Music/Vocal Enhancement (mp_senet.onnx, 35 MB) — MP-SENet 2023
 plugins/wpe_plugin.py                → ✅ WPE Dereverb (rein DSP, kein Checkpoint)
 # VERBOTEN: dccrn_plugin (deprecated — ersetzt durch mp_senet_plugin §4.4)
 

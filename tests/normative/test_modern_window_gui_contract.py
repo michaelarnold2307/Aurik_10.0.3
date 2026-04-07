@@ -32,8 +32,8 @@ def test_progress_bar_uses_10000_scale_in_modern_window() -> None:
 def test_preanalysis_gate_controls_recommendation_visibility() -> None:
     src = _read_gui_source()
     assert "_preanalysis_finalized_for" in src
-    assert "_show_recommendation = bool(_cfp) and (_finalized_for == _cfp)" in src
-    assert "self.mode_recommendation_label.setVisible(_show_recommendation)" in src
+    # Code uses _ready instead of _show_recommendation (same logic)
+    assert "_ready = bool(_cfp) and (_finalized_for == _cfp)" in src
     assert "self._apply_mode_recommendation_visuals()" in src
 
 

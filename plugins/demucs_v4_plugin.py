@@ -74,8 +74,15 @@ class DemucsV4Plugin:
                 from backend.core.ml_memory_budget import try_allocate as _try_alloc
 
                 if not _try_alloc("DemucsV4", size_gb=0.12):
-                    logger.warning("DemucsV4: ML-Budget erschöpft — HPSS-Fallback.")
-                    return
+                    try:
+                        from backend.core.ml_memory_budget import release as _rel2
+
+                        _rel2("DemucsV4")
+                    except Exception:
+                        pass
+                    if not _try_alloc("DemucsV4", size_gb=0.12):
+                        logger.warning("DemucsV4: ML-Budget erschöpft — HPSS-Fallback.")
+                        return
             except Exception as _exc:
                 logger.debug("Operation failed (non-critical): %s", _exc)
 

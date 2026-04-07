@@ -82,12 +82,12 @@ class AdaptiveFundamentalDetection:
             else:
                 freq = self._detect_classic(x)
         except Exception as e:
-            logger.error(f"Fehler bei Grundtonerkennung: {e}")
+            logger.error("Fehler bei Grundtonerkennung: %s", e)
             fallback_used = True
             freq = 0.0
 
         if audit_log:
-            logger.info(f"AdaptiveFundamentalDetection: freq={freq:.2f} Hz, fallback_used={fallback_used}")
+            logger.info("AdaptiveFundamentalDetection: freq=%.2f Hz, fallback_used=%s", freq, fallback_used)
         return freq
 
     def _detect_classic(self, x: np.ndarray) -> float:
@@ -117,4 +117,4 @@ class AdaptiveFundamentalDetection:
             self.sr = 22050  # Mittlerer Bereich
         else:
             self.sr = 16000  # Sprache / schmalbandiges Signal
-        logger.info(f"auto_optimize (FundamentalDetection): HF-Ratio={hf_ratio:.3f} → sr={self.sr}")
+        logger.info("auto_optimize (FundamentalDetection): HF-Ratio=%.3f → sr=%s", hf_ratio, self.sr)

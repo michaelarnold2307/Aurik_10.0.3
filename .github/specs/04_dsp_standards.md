@@ -82,8 +82,8 @@ def hz_to_mel(f_hz: float) -> float:
 
 | Anwendungsfall | Primär (SOTA) | DSP-Fallback (Post-2018) | VERBOTEN |
 | --- | --- | --- | --- |
-| Breitrauschen (Gesang/Vokal) | ML: **DeepFilterNet v3.II** (DNS4-Speech; geeignet weil Gesang sprachnähnlich) | OMLSA/IMCRA | ~~Wiener 1984~~ |
-| Breitrauschen (rein instrumental, PANNs Vocals < 0.4) | DSP: **OMLSA/IMCRA** (kein Speech-Prior, musik-neutral) | DeepFilterNet v3.II + energy_bias=−6 dB | ~~Wiener 1984~~ |
+| Breitrauschen (Gesang/Vokal) | ML: **DeepFilterNet v3.II** (Formant-/F0-Struktur nutzt Gesangs-Harmonik; energy_bias=−6 dB Pflicht) | OMLSA/IMCRA | ~~Wiener 1984~~ |
+| Breitrauschen (rein instrumental, PANNs Vocals < 0.4) | DSP: **OMLSA/IMCRA** (kein Vocal-Prior, musik-neutral) | DeepFilterNet v3.II + energy_bias=−9 dB | ~~Wiener 1984~~ |
 | Nicht-stationäres Rauschen | ML: **DeepFilterNet v3.II** | MMSE-LSA + IMCRA | ~~Spectral Subtraction~~ |
 | Diffuses Raumrauschen / Dereverb | ML: **SGMSE+** (ONNX) | WPE (nara_wpe) → NumPy-WPE → OMLSA | ~~einfacher Bandpass~~ |
 | Stem-Separation Vocals | ML: **MelBandRoformer** (`bs_roformer_plugin`, 860 MB ONNX) | NMF-β | — |
@@ -101,7 +101,7 @@ def hz_to_mel(f_hz: float) -> float:
 | Audio-Tagging | ML: **BEATs** (iter3) → PANNs CNN14 | DSP Spectral Fingerprint | — |
 | MOS (ohne Referenz) | ML: **VERSA** → SingMOS (Gesang, PANNs Vocals ≥ 0.3–0.7, Blend-Zone) | PQS-Gammatone-DSP | ~~PESQ/DNSMOS/CDPAM~~ |
 | MOS-Verifikation Gesang | ML: **UTMOS** (`utmos_plugin`, ≥18 MB PyTorch) → SingMOS | VERSA → PQS-Gammatone | ~~PESQ/NISQA~~ |
-| Speech/Music Enhancement | ML: **MP-SENet 2023** ONNX | SGMSE+ ONNX → OMLSA DSP | ~~DCCRN/FullSubNet+~~ |
+| Music/Vocal Enhancement | ML: **MP-SENet 2023** ONNX | SGMSE+ ONNX → OMLSA DSP | ~~DCCRN/FullSubNet+~~ |
 | MOS (mit Referenz) | ML: **ViSQOL v3** (**`--audio` PFLICHT**) | PQS-DSP | ~~--speech Mode~~ |
 | Phasen-Rekonstruktion | DSP: **PGHI** | Griffin-Lim ≥ 32 Iter. | ~~Direkte ISTFT~~ |
 | Decrackle | DSP: **RBME + iterative Konsistenz** | Sparse Bayes | ~~Medianfilter~~ |
@@ -132,28 +132,30 @@ Stem-bewusstes NR-Routing (PANNs-konditioniert, nach TDP-Trennung):
      → KEIN NR, KEIN DeepFilterNet — nur phase_01 + phase_27 (Klick/Pop)
      Begründung: Transienten-Angriffe werden durch NR-Latenz vernichtet
 
-  B) Harmonischer Stem MIT Gesang (PANNs Vocals ≥ 0.4):
-     PRIMÄR: DeepFilterNet v3.II (DNS4-Speech-Training hier geeignet —
-              Gesang ist strukturell sprachnähnlich: F0-Harmonics, Formanten)
+  B) Harmonischer Stem MIT Gesang (PANNs Singing ≥ 0.4):
+     PRIMÄR: DeepFilterNet v3.II (Formant-/F0-Struktur von Gesang nutzt
+              die Harmonik-Modellierung des Netzes; NICHT weil Gesang = Sprache)
      Musik-Konfiguration:
-         energy_bias = −6.0 dB (reduziert aggressive NR in Harmonik-Regionen)
+         energy_bias = −6.0 dB (Pflicht — reduziert aggressive NR in Harmonik-Regionen)
          G_floor via HarmonicPreservationGuard (0.85 an Partial-Bins)
      FALLBACK: OMLSA/IMCRA + MMSE-LSA
 
-  C) Harmonischer Stem REIN INSTRUMENTAL (PANNs Vocals < 0.4):
-     PRIMÄR: OMLSA/IMCRA (kein Speech-Prior — müsik-neutral, adaptiv)
+  C) Harmonischer Stem REIN INSTRUMENTAL (PANNs Singing < 0.4):
+     PRIMÄR: OMLSA/IMCRA (kein Vocal-Prior — musik-neutral, adaptiv)
      Begründung: DeepFilterNet würde harmonische Obertonstrukturen
-                  (Streicher, Bläser, Chords) nach DNS4-Sprachprior
+                  (Streicher, Bläser, Chords) nach Vocal-Prior
                   systematisch als Rauschen fehlbewerten
      SEKUNDÄR: DeepFilterNet v3.II mit vergrößertem energy_bias = −9.0 dB
                (nur wenn OMLSA SNR-Schätzung unsicher: IMCRA-SNR < 5 dB)
 
-Kritische Architekturnotiz (Stand März 2026):
-    Es existiert kein öffentlich verfügbares, auf Musikdaten trainiertes
-    neuronales Denoise-Modell in DeepFilterNet-Qualitätsstufe.
+Kritische Architekturnotiz (Stand April 2026):
+    Es existiert kein öffentlich verfügbares, auf Musikdaten (Gesang + Instrumente)
+    trainiertes neuronales Denoise-Modell in DeepFilterNet-Qualitätsstufe.
     OMLSA/IMCRA ist daher für rein instrumentales Material de-facto co-primär,
-    nicht nur Fallback. Diese Einschätzung ist bis zum Erscheinen eines
-    musik-spezifischen ML-Denoiser-Modells verbindlich.
+    nicht nur Fallback. DeepFilterNet wird NUR bei erkanntem Gesang (PANNs Singing
+    ≥ 0.4) als Primär eingesetzt — NICHT für gesprochene Sprache (Aurik restauriert
+    Musik, keine Podcasts/Hörbücher). Diese Einschätzung ist bis zum Erscheinen
+    eines musik-spezifischen ML-Denoiser-Modells verbindlich.
 ```
 
 ### Inpainting (Phase 24, 55)
@@ -321,7 +323,7 @@ Pflicht-Algorithmus (SGMSE+ und WPE):
        ML-RT60-Schätzer (DPRNN-Head in SGMSE+ oder spectral-based RT60)
     2. Early-Reflection-Guard: C80 und D50 VOR und NACH Dereverb messen
            C80 = 10 · log10(∫₀⁸⁰ₘₛ h²(t)dt / ∫₈₀ₘₛ^∞ h²(t)dt)   [Klarheitsmaß, Musik]
-           D50 = ∫₀⁵⁰ₘₛ h²(t)dt / ∫₀^∞ h²(t)dt                    [Deutlichkeitsmaß, Sprache]
+           D50 = ∫₀⁵⁰ₘₛ h²(t)dt / ∫₀^∞ h²(t)dt                    [Deutlichkeitsmaß — sekundär; C80 hat Vorrang für Musik]
     3. Wet-Mix-Begrenzung: Dereverb-Intensität MUSS begrenzt werden, wenn:
            ΔC80 = C80_post − C80_pre > 6 dB  → Wet weiter reduzieren
            ΔD50 > 0.12                         → Wet weiter reduzieren
@@ -386,6 +388,54 @@ VERBOTEN: Truncation ohne Dithering
 PRIMÄR: LAME VBR V0 via FFmpeg (q:a=0) — adaptiv bis 320 kbps, ≈245 kbps Ø
 VERBOTEN: CBR für Restaurierungsausgaben — CBR erzeugt Pre-Echo auf restaurierten
           Transienten (TDP §7.x, MDEM §8.3)
+```
+
+### Head-Bump Kompensation (Phase 04, Tape-Material) v9.10.128
+
+Tape-Transport-Köpfe erzeugen eine LF-Resonanz, deren Mittenfrequenz umgekehrt proportional zur Aufnahmegeschwindigkeit ist (physik: Wellenlänge = Spaltlänge · 2 bei Resonanzfrequenz).
+
+```text
+KOMPENSATION: Parametrische Kerbfilter (IIR-Peaking, gain_db negativ) pro Bandgeschwindigkeit:
+  1.875 ips (Kassette):  f_bump = 70 Hz,  cut = −2.5 dB, Q = 1.2
+  3.75  ips:             f_bump = 90 Hz,  cut = −2.5 dB, Q = 1.2
+  7.5   ips (Standard-Reel):  f_bump = 130 Hz, cut = −2.0 dB, Q = 1.3
+  15    ips (Semi-Pro):  f_bump = 180 Hz, cut = −1.5 dB, Q = 1.4
+  30    ips (Master):    f_bump = 250 Hz, cut = −1.0 dB, Q = 1.5
+
+QUELLEN: Zar (1989) "Magnetic Recording Handbook"; Jorgensen (1996) "The Complete Handbook
+         of Magnetic Recording"; White (2000) "The Recording Studio Handbook".
+AKTIVIERUNG: Via kwargs["tape_speed_ips"] in phase_04.process() — optional, nur wenn Bandgeschwindigkeit bekannt.
+FALLBACK: Keine Kompensation (kein crash); unbekannte Geschwindigkeit (>150% Abweichung) = bypass.
+```
+
+### Intermodulation Distortion — Bispektrum-Analyse (Phase 63) v9.10.128
+
+Bispektrum-Kohärenz bestätigt IMD-Produkte kausal (Wishart 2013; Kim & Powers 1979):
+
+```text
+B(f1, f2) = E[X(f1) · X(f2) · conj(X(f1+f2))]
+
+Normierte Bispektrum-Kohärenz:
+  b_coherence = |B(f1,f2)| / (P(f1) · P(f2) · P(f1+f2))^(1/3)
+
+Schwellwert: b_coherence > 0.15 → IMD-Produkt bestätigt (vs. Rauschen/Harmonik)
+
+§2.51 STEREO-COMPLIANCE: Notch-Maske wird aus dem Mid-Signal berechnet und
+symmetrisch auf Mid (100%) und Side (30%) angewendet. Kein unabhängiges L/R-Processing.
+```
+
+### Tonträgerketten-Charakteristika — BW-Grenzen (Phase 55) v9.10.128
+
+```text
+MATERIAL-SPEZIFISCHE INPAINTING-BANDBREITENBEGRENZUNG (§0 Primum non nocere):
+
+  wax_cylinder  : ≤ 5000 Hz   (akustische Aufnahme, Horn-Resonator)
+  wire_recording: ≤ 6000 Hz   (Stahldrähte 1940–1955, mechanische BW-Begrenzung)
+  lacquer_disc  : ≤ 8000 Hz   (Schnitt-Spezifikation frühe Direktschnittplatten)
+
+IMPLEMENTATION: Butterworth 4th-Order Tiefpass (sosfiltfilt, zero-phase) nach
+  jedem Gap-Fill in _process_channel() — verhindert AR/Diffusion-Halluzination
+  von HF-Inhalt, der im Quellmaterial nie vorhanden war.
 ```
 
 ---

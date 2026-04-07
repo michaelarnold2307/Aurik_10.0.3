@@ -291,3 +291,56 @@ class TestReparaturDenkerRepariere:
             assert np.isfinite(result.audio).all()
         # kein Absturz = Test bestanden
         assert True
+
+    def test_21_samples_first_stereo_shape_preserved(self):
+        """(N, ch) Stereo-Eingabe: Ausgabe hat dieselbe Form (N, ch)."""
+        try:
+            from denker.reparatur_denker import get_reparatur_denker
+            instance = get_reparatur_denker()
+            mono = _sine(1.0)
+            # (N, ch) = samples-first format as sent by BatchProcessingThread
+            audio_n_ch = np.stack([mono, mono], axis=1)  # shape (N, 2)
+            assert audio_n_ch.shape == (len(mono), 2)
+            result = instance.repariere(audio_n_ch, sr=SR)
+            assert result.audio.shape == audio_n_ch.shape, (
+                f"Audio-Shape verändert: {audio_n_ch.shape} → {result.audio.shape}"
+            )
+            assert np.isfinite(result.audio).all()
+        except ImportError:
+            pytest.skip("denker.reparatur_denker nicht importierbar")
+
+    def test_22_samples_first_detection_works(self):
+        """(N, ch) Format: Klicks werden korrekt erkannt (kein 2-Sample-Mono-Fehler)."""
+        try:
+            from denker.reparatur_denker import get_reparatur_denker
+            instance = get_reparatur_denker()
+            mono = _sine(1.0)
+            # Inject obvious clicks at known positions
+            mono_with_clicks = mono.copy()
+            click_positions = [SR // 4, SR // 2, 3 * SR // 4]
+            for pos in click_positions:
+                mono_with_clicks[pos] = 0.99
+            audio_n_ch = np.stack([mono_with_clicks, mono_with_clicks], axis=1)
+            result = instance.repariere(audio_n_ch, sr=SR, remove_clicks=True,
+                                         remove_hum=False, repair_clipping=False)
+            assert result.audio.shape == audio_n_ch.shape
+            assert np.isfinite(result.audio).all()
+        except ImportError:
+            pytest.skip("denker.reparatur_denker nicht importierbar")
+
+    def test_23_channels_first_stereo_shape_preserved(self):
+        """(ch, N) Stereo-Eingabe behält Form (ch, N) — Rückwärtskompatibilität."""
+        try:
+            from denker.reparatur_denker import get_reparatur_denker
+            instance = get_reparatur_denker()
+            mono = _sine(1.0)
+            # (ch, N) = channels-first format (legacy internal format)
+            audio_ch_n = np.stack([mono, mono], axis=0)  # shape (2, N)
+            assert audio_ch_n.shape == (2, len(mono))
+            result = instance.repariere(audio_ch_n, sr=SR)
+            assert result.audio.shape == audio_ch_n.shape, (
+                f"Audio-Shape verändert: {audio_ch_n.shape} → {result.audio.shape}"
+            )
+            assert np.isfinite(result.audio).all()
+        except ImportError:
+            pytest.skip("denker.reparatur_denker nicht importierbar")

@@ -590,18 +590,18 @@ class BreathIntelligence:
         """
         # Handle stereo
         if audio.ndim == 2:
-            logger.info(f"DEBUG [BreathIntelligence.process]: Input audio shape: {audio.shape}")
+            logger.debug("BreathIntelligence.process: input shape %s", audio.shape)
             # Auto-detect format: (channels, samples) vs (samples, channels)
             # Heuristic: If first dimension is small and < second dimension, likely channels
             if audio.shape[0] < audio.shape[1] and audio.shape[0] <= 32:
                 # Format: (channels, samples) - average over channels (axis 0)
-                logger.info("DEBUG [BreathIntelligence.process]: Detected format (channels, samples), using axis=0")
+                logger.debug("BreathIntelligence: format (channels, samples), axis=0")
                 audio_mono = np.mean(audio, axis=0)
             else:
                 # Format: (samples, channels) - average over channels (axis 1)
-                logger.info("DEBUG [BreathIntelligence.process]: Detected format (samples, channels), using axis=1")
+                logger.debug("BreathIntelligence: format (samples, channels), axis=1")
                 audio_mono = np.mean(audio, axis=1)
-            logger.info(f"DEBUG [BreathIntelligence.process]: Mono audio shape: {audio_mono.shape}")
+            logger.debug("BreathIntelligence: mono shape %s", audio_mono.shape)
         else:
             audio_mono = audio
 
@@ -640,7 +640,9 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     # Load audio
-    audio, sr = sf.read(args.input)
+    from backend.file_import import load_audio_file
+    _res = load_audio_file(args.input)
+    audio, sr = _res["audio"], int(_res["sr"])
 
     # Process
     breath_intel = BreathIntelligence(
@@ -653,15 +655,15 @@ if __name__ == "__main__":
     logger.info(str("\n" + "=" * 70))
     logger.info("BREATH INTELLIGENCE REPORT")
     logger.info(str("=" * 70))
-    logger.info(f"Events Detected:     {report['events_detected']}")
-    logger.info(f"Events Processed:    {report['events_processed']}")
-    logger.info(f"Average Reduction:   {report['average_reduction_db']:.1f} dB")
-    logger.info(f"Genre:               {report['genre']}")
-    logger.info(f"Era:                 {report['era']}")
-    logger.info(f"Aggressiveness:      {report['aggressive']:.2f}")
+    logger.info("Events Detected:     %s", report['events_detected'])
+    logger.info("Events Processed:    %s", report['events_processed'])
+    logger.info("Average Reduction:   %.1f dB", report['average_reduction_db'])
+    logger.info("Genre:               %s", report['genre'])
+    logger.info("Era:                 %s", report['era'])
+    logger.info("Aggressiveness:      %.2f", report['aggressive'])
     logger.info(str("=" * 70))
 
     # Save
     if args.output:
         sf.write(args.output, audio_processed, sr)
-        logger.info(f"\n✅ Saved to: {args.output}")
+        logger.info("\n✅ Saved to: %s", args.output)

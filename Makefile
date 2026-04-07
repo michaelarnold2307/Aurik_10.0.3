@@ -23,7 +23,7 @@ YELLOW := \033[0;33m
 RED := \033[0;31m
 RESET := \033[0m
 
-.PHONY: help fmt lint typecheck quality test clean pre-commit-install \
+.PHONY: help fmt lint typecheck quality compliance compliance-full test clean pre-commit-install \
         black isort autoflake ruff flake8 pylint mypy bandit
 
 # ---------------------------------------------------------------------------
@@ -40,6 +40,8 @@ help:
 	@echo "  $(YELLOW)make test-all$(RESET)         — Alle Tests inkl. Integration"
 	@echo "  $(YELLOW)make clean$(RESET)            — Temporäre Dateien löschen"
 	@echo "  $(YELLOW)make pre-commit-install$(RESET) — Pre-commit-Hooks installieren"
+	@echo "  $(YELLOW)make compliance$(RESET)       — VERBOTEN-Regeln prüfen (errors only)"
+	@echo "  $(YELLOW)make compliance-full$(RESET)  — VERBOTEN + Warnings (vollständiger Scan)"
 	@echo ""
 
 # ---------------------------------------------------------------------------
@@ -133,11 +135,24 @@ security:
 # ---------------------------------------------------------------------------
 # VOLLSTÄNDIGER QUALITÄTS-CHECK
 # ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# VERBOTEN-REGELN COMPLIANCE CHECK
+# ---------------------------------------------------------------------------
+compliance:
+	@echo "$(YELLOW)⚙ Aurik Compliance-Check (VERBOTEN-Regeln)...$(RESET)"
+	$(PYTHON) scripts/compliance_check.py --errors-only
+	@echo "$(GREEN)✅ Compliance-Check bestanden$(RESET)"
+
+compliance-full:
+	@echo "$(YELLOW)⚙ Aurik Compliance-Check (inkl. Warnings + f-strings)...$(RESET)"
+	$(PYTHON) scripts/compliance_check.py --fix-fstrings
+
 quality:
 	@mkdir -p reports
 	@echo "$(GREEN)═══════════════════════════════════════$(RESET)"
 	@echo "$(GREEN) Aurik 9 — Code-Qualitäts-Prüfung$(RESET)"
 	@echo "$(GREEN)═══════════════════════════════════════$(RESET)"
+	@$(MAKE) compliance
 	@$(MAKE) fmt
 	@$(MAKE) lint
 	@$(MAKE) typecheck

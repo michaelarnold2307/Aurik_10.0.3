@@ -5,6 +5,18 @@ backend/core/community_rating_platform.py — Community rating aggregator
 
 from __future__ import annotations
 
+from dataclasses import dataclass, field
+
+
+@dataclass(frozen=True)
+class CommunityAggregate:
+    """Typed aggregate payload for community rating scores."""
+
+    scores: dict[str, float] = field(default_factory=dict)
+
+    def get(self, key: str, default: float = 0.0) -> float:
+        return float(self.scores.get(key, default))
+
 
 class CommunityRatingPlatform:
     """Collects community ratings and computes per-dimension averages."""
@@ -16,12 +28,14 @@ class CommunityRatingPlatform:
         """Add *scores* from community *user*."""
         self._ratings.append(dict(scores))
 
-    def aggregate(self) -> dict[str, float]:
+    def aggregate(self) -> CommunityAggregate:
         """Return the mean score per dimension across all ratings."""
         if not self._ratings:
-            return {}
+            return CommunityAggregate()
         keys = self._ratings[0].keys()
-        return {k: sum(r.get(k, 0.0) for r in self._ratings) / len(self._ratings) for k in keys}
+        return CommunityAggregate(
+            {k: sum(r.get(k, 0.0) for r in self._ratings) / len(self._ratings) for k in keys}
+        )
 
 
 # ---------------------------------------------------------------------------

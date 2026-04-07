@@ -137,7 +137,7 @@ class HarmonicExciter:
         # Pegel normalisieren
         maxval = np.max(np.abs(out))
         if maxval > 1.0:
-            out = out * (0.999 / maxval)
+            out = np.clip(out, -1.0, 1.0)
         return np.asarray(np.clip(np.nan_to_num(out, nan=0.0, posinf=0.0, neginf=0.0), -1.0, 1.0), dtype=orig_dtype)
 
 
@@ -161,5 +161,5 @@ class HarmonicExciterStudio:
         out = x + self.amount * highs
         peak = float(np.max(np.abs(out))) if out.size > 0 else 0.0
         if peak > 1.0:
-            out = out / peak
+            out = np.clip(out, -1.0, 1.0)
         return np.clip(np.nan_to_num(out, nan=0.0, posinf=0.0, neginf=0.0), -1.0, 1.0)

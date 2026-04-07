@@ -107,9 +107,12 @@ class ResembleEnhancePlugin:
         """
         import numpy as np
         import soundfile as sf
+        from backend.file_import import load_audio_file
 
         try:
-            audio, sr = sf.read(input_path)
+            _res = load_audio_file(input_path)
+            audio = np.asarray(_res["audio"], dtype=np.float32)
+            sr = int(_res["sr"])
             audio_mono = audio.mean(axis=1) if audio.ndim == 2 else audio
             result = self.enhance(audio_mono.astype(np.float32), sr)
             # Ergebnis zurück in Stereo konvertieren wenn nötig

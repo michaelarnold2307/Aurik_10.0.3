@@ -51,11 +51,11 @@ Erlaubte Musikmetriken: **PEAQ, FAD, PQS-MOS, ViSQOL v3 (`--audio` Mode), Musica
 > Änderungen an Schwellwerten erfordern dokumentierten Hörertest als Präzedenz.
 | OQS-Stufe | Score | Pflicht |
 | --- | --- | --- |
-| Excellent (A) | ≥ 91 | — |
-| Good (B) | ≥ 80 | **Pflicht für jede neue Phase / Plugin** |
+| Excellent (A) | ≥ 91 | Exzellenz-Label — kein harter Gate-Wert |
+| Good (B) | ≥ 80 | **[RELEASE_MUST] Pflicht für jede neue Phase / Plugin** |
 | Fair (C) | ≥ 60 | — |
 
-Studio-2026-Modus-Ziel: OQS ≥ 88.
+**[TARGET_2026]** Studio-2026-Modus-Ziel: OQS ≥ **88** (zwischen Good und Excellent). Kein Release-Blocker, aber Roadmap-Zielvorgabe für 2026.
 
 ---
 

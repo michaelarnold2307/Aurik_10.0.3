@@ -325,7 +325,7 @@ class AudioNASNetwork(nn.Module):
             nn.Linear(128, 1),  # Enhancement factor
         )
 
-        logger.info(f"AudioNASNetwork initialized: {n_cells} cells, {n_nodes} nodes per cell")
+        logger.info("AudioNASNetwork initialized: %s cells, %s nodes per cell", n_cells, n_nodes)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Forward pass through NAS network."""
@@ -355,7 +355,7 @@ class AudioNASNetwork(nn.Module):
         # Build discrete network based on genotype
         # This would be used for final training after NAS
         logger.info("Deriving discrete architecture from NAS...")
-        logger.info(f"Genotype: {genotype}")
+        logger.info("Genotype: %s", genotype)
 
         # For now, return self (in practice, create DiscreteAudioNetwork)
         return self
@@ -394,7 +394,7 @@ class NASTrainer:
 
         self.optimizer_arch = torch.optim.Adam(arch_params, lr=lr_arch, betas=(0.5, 0.999), weight_decay=1e-3)
 
-        logger.info(f"NASTrainer initialized on {device}")
+        logger.info("NASTrainer initialized on %s", device)
 
     def train_step(
         self, train_data: torch.Tensor, train_target: torch.Tensor, val_data: torch.Tensor, val_target: torch.Tensor
@@ -433,7 +433,7 @@ class NASTrainer:
             val_loader: Validation data loader
             epochs: Number of search epochs
         """
-        logger.info(f"Starting NAS for {epochs} epochs...")
+        logger.info("Starting NAS for %s epochs...", epochs)
 
         for epoch in range(epochs):
             epoch_losses = []
@@ -451,13 +451,13 @@ class NASTrainer:
             avg_val_loss = np.mean([l["val_loss"] for l in epoch_losses])
 
             if epoch % 10 == 0:
-                logger.info(f"Epoch {epoch}: Train Loss = {avg_train_loss:.4f}, Val Loss = {avg_val_loss:.4f}")
+                logger.info("Epoch %s: Train Loss = %.4f, Val Loss = %.4f", epoch, avg_train_loss, avg_val_loss)
 
         # Extract final architecture
         genotype = self.model.get_genotype()
 
         logger.info("NAS completed!")
-        logger.info(f"Final architecture: {genotype}")
+        logger.info("Final architecture: %s", genotype)
 
         return {"genotype": genotype, "final_train_loss": avg_train_loss, "final_val_loss": avg_val_loss}
 
@@ -468,14 +468,14 @@ class NASTrainer:
         with open(path, "w") as f:
             json.dump(genotype, f, indent=2)
 
-        logger.info(f"Architecture saved to {path}")
+        logger.info("Architecture saved to %s", path)
 
     def load_architecture(self, path: Path) -> dict[str, Any]:
         """Load architecture from file."""
         with open(path) as f:
             genotype = json.load(f)
 
-        logger.info(f"Architecture loaded from {path}")
+        logger.info("Architecture loaded from %s", path)
         return genotype
 
 
@@ -495,8 +495,8 @@ if __name__ == "__main__":
 
     # Single training step
     losses = trainer.train_step(train_data, train_target, val_data, val_target)
-    logger.debug(f"Losses: {losses}")
+    logger.debug("Losses: %s", losses)
 
     # Get architecture
     genotype = model.get_genotype()
-    logger.debug(f"Genotype: {genotype}")
+    logger.debug("Genotype: %s", genotype)

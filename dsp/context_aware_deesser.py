@@ -290,7 +290,7 @@ class ContextAwareDeEsser:
                 self.phoneme_classifier = PhonemeClassifier()
                 logger.info("Phoneme detection initialized successfully")
             except Exception as e:
-                logger.error(f"Failed to initialize phoneme detection: {e}")
+                logger.error("Failed to initialize phoneme detection: %s", e)
                 logger.warning("Falling back to DSP-only mode")
                 self.phoneme_detector = None
                 self.phoneme_classifier = None
@@ -318,7 +318,7 @@ class ContextAwareDeEsser:
         if audio.size == 0:
             raise ValueError("Audio is empty")
 
-        logger.info(f"Processing {audio.shape} audio at {sr} Hz (mode={self.config.mode.value})")
+        logger.info("Processing %s audio at %s Hz (mode=%s)", audio.shape, sr, self.config.mode.value)
 
         # Handle stereo
         is_stereo = audio.ndim == 2
@@ -360,7 +360,7 @@ class ContextAwareDeEsser:
         try:
             phonemes = self.phoneme_detector.detect(audio, sr)  # type: ignore[union-attr]
         except Exception as e:
-            logger.error(f"Phoneme detection failed: {e}")
+            logger.error("Phoneme detection failed: %s", e)
             # Fallback: return unprocessed audio
             report = ProcessingReport(
                 total_duration_sec=duration_sec,
@@ -373,11 +373,11 @@ class ContextAwareDeEsser:
             )
             return audio.copy(), report
 
-        logger.debug(f"Detected {len(phonemes)} phonemes")
+        logger.debug("Detected %s phonemes", len(phonemes))
 
         # Step 2: Filter sibilants
         sibilants = self._filter_sibilants(phonemes)
-        logger.debug(f"Found {len(sibilants)} sibilant phonemes")
+        logger.debug("Found %s sibilant phonemes", len(sibilants))
 
         if len(sibilants) == 0:
             # No sibilants detected - return unprocessed

@@ -34,7 +34,7 @@ def get_adaptive_chain_router(templates: dict[str, list[str]] | None = None) -> 
 class AdaptiveChainRouter:
     def __init__(self, templates: dict[str, list[str]]) -> None:
         self.templates = templates
-        logger.info(f"AdaptiveChainRouter initialized with {len(templates)} templates")
+        logger.info("AdaptiveChainRouter initialized with %s templates", len(templates))
 
     def select_chain(self, forensic_report: dict[str, str], confidence: float) -> list[str]:
         material = forensic_report.get("medium_type", "GENERIC").upper()

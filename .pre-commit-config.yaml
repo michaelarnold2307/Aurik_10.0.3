@@ -224,3 +224,10 @@ repos:
         language: system
         pass_filenames: false
         files: ^backend/core/musical_goals/
+
+      - id: aurik-compliance
+        name: "🚫 Aurik VERBOTEN-Regeln (copilot-instructions §VERBOTEN)"
+        entry: .venv_aurik/bin/python scripts/compliance_check.py --errors-only
+        language: system
+        pass_filenames: false
+        files: ^(backend|core|dsp|plugins|denker|Aurik910)/.*\.py$

@@ -190,11 +190,11 @@ class HybridDereverb:
             reverb_after_dsp = self._estimate_reverb_level(audio, sample_rate)
             metadata["reverb_after_dsp"] = reverb_after_dsp
 
-            logger.info(f"DSP complete: reverb {reverb_estimate:.3f} → {reverb_after_dsp:.3f}")
+            logger.info("DSP complete: reverb %.3f → %.3f", reverb_estimate, reverb_after_dsp)
 
             # Skip DCCRN if reverb already low enough
             if reverb_after_dsp < self.config.reverb_threshold and strategy == DereverbStrategy.HYBRID:
-                logger.info(f"Reverb sufficient ({reverb_after_dsp:.3f}), skipping ML refinement")
+                logger.info("Reverb sufficient (%.3f), skipping ML refinement", reverb_after_dsp)
                 strategy = DereverbStrategy.DSP_ONLY
 
         # Stage 2: ML refinement (SGMSE+ / ResembleEnhance, if needed)
@@ -224,7 +224,7 @@ class HybridDereverb:
                     reverb_after_dccrn = self._estimate_reverb_level(audio, sample_rate)
                     metadata["reverb_after_dccrn"] = reverb_after_dccrn
 
-                    logger.info(f"ML dereverb complete: reverb → {reverb_after_dccrn:.3f}")
+                    logger.info("ML dereverb complete: reverb → %.3f", reverb_after_dccrn)
             else:
                 logger.info("ML-Dereverb nicht verfügbar — WPE-DSP-Ergebnis wird verwendet")
 
@@ -324,15 +324,15 @@ class HybridDereverb:
 
         if reverb_level < 0.2:
             # Light reverb - DSP sufficient
-            logger.info(f"Light reverb ({reverb_level:.3f}), DSP only")
+            logger.info("Light reverb (%.3f), DSP only", reverb_level)
             return DereverbStrategy.DSP_ONLY
         elif reverb_level < 0.5:
             # Moderate reverb - Hybrid recommended
-            logger.info(f"Moderate reverb ({reverb_level:.3f}), Hybrid mode")
+            logger.info("Moderate reverb (%.3f), Hybrid mode", reverb_level)
             return DereverbStrategy.HYBRID
         else:
             # Heavy reverb - Full ML dereverb
-            logger.info(f"Heavy reverb ({reverb_level:.3f}), ML-only")
+            logger.info("Heavy reverb (%.3f), ML-only", reverb_level)
             return DereverbStrategy.DCCRN_ONLY if self.dccrn else DereverbStrategy.HYBRID
 
     def _apply_dsp_dereverb(self, audio: np.ndarray, sample_rate: int) -> tuple[np.ndarray, dict[str, Any]]:
@@ -565,7 +565,7 @@ if __name__ == "__main__":
     reverb_tail = sp_signal.lfilter([1], [1, -0.7], dry)
     reverbed = dry + 0.5 * reverb_tail
 
-    logger.debug(f"Generated {duration}s test audio @ {sample_rate} Hz")
+    logger.debug("Generated %ss test audio @ %s Hz", duration, sample_rate)
     logger.debug("")
 
     # Test strategies
@@ -576,7 +576,7 @@ if __name__ == "__main__":
 
     for strategy, name in strategies:
         logger.debug("-" * 80)
-        logger.debug(f"Strategy: {name}")
+        logger.debug("Strategy: %s", name)
         logger.debug("-" * 80)
 
         config = DereverbConfig(strategy=strategy)
@@ -584,11 +584,11 @@ if __name__ == "__main__":
 
         result = dereverb.dereverb(reverbed, sample_rate)
 
-        logger.debug(f"✅ Strategy used: {result.strategy_used.value}")
-        logger.debug(f"   DSP applied: {result.dsp_applied}")
-        logger.debug(f"   DCCRN applied: {result.dccrn_applied}")
-        logger.debug(f"   Reverb estimate: {result.reverb_estimate:.3f}")
-        logger.debug(f"   Processing time: {result.processing_time:.2f}s")
+        logger.debug("✅ Strategy used: %s", result.strategy_used.value)
+        logger.debug("   DSP applied: %s", result.dsp_applied)
+        logger.debug("   DCCRN applied: %s", result.dccrn_applied)
+        logger.debug("   Reverb estimate: %.3f", result.reverb_estimate)
+        logger.debug("   Processing time: %.2fs", result.processing_time)
         logger.debug("")
 
     logger.debug("=" * 80)

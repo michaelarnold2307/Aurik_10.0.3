@@ -212,6 +212,7 @@ class ArtistSignatureStore:
     def __init__(self) -> None:
         SIGNATURES_DIR.mkdir(parents=True, exist_ok=True)
         self._cache: dict[str, ArtistSignature] = {}
+        self._cache_lock = threading.Lock()
         logger.debug("ArtistSignatureStore initialisiert (Pfad: %s)", SIGNATURES_DIR)
 
     # ------------------------------------------------------------------
@@ -245,8 +246,9 @@ class ArtistSignatureStore:
         Returns:
             ArtistSignature oder None falls nicht vorhanden
         """
-        if artist_id in self._cache:
-            return self._cache[artist_id]
+        with self._cache_lock:
+            if artist_id in self._cache:
+                return self._cache[artist_id]
 
         path = SIGNATURES_DIR / f"{artist_id}.json"
         if not path.exists():
@@ -255,7 +257,8 @@ class ArtistSignatureStore:
         try:
             data = json.loads(path.read_text(encoding="utf-8"))
             sig = ArtistSignature.from_dict(data)
-            self._cache[artist_id] = sig
+            with self._cache_lock:
+                self._cache[artist_id] = sig
             logger.debug(
                 "Signatur geladen: artist_id=%s, confidence=%.2f, n_files=%d",
                 artist_id,
@@ -276,7 +279,8 @@ class ArtistSignatureStore:
             sig: ArtistSignature (wird in <artist_id>.json gespeichert)
         """
         sig.last_updated = datetime.now(timezone.utc).isoformat()
-        self._cache[sig.artist_id] = sig
+        with self._cache_lock:
+            self._cache[sig.artist_id] = sig
         path = SIGNATURES_DIR / f"{sig.artist_id}.json"
         try:
             path.write_text(
@@ -369,7 +373,8 @@ class ArtistSignatureStore:
         existing.confidence = _confidence_from_n(n_new)
 
         # Cache aktualisieren (wichtig für aufeinanderfolgende Aufrufe ohne save())
-        self._cache[artist_id] = existing
+        with self._cache_lock:
+            self._cache[artist_id] = existing
 
         logger.info(
             "🎙️ Künstler-Signatur aktualisiert: artist_id=%s | n=%d | confidence=%.2f | gender=%s",
@@ -386,7 +391,8 @@ class ArtistSignatureStore:
         Returns:
             True falls Datei erfolgreich gelöscht, False wenn nicht vorhanden.
         """
-        self._cache.pop(artist_id, None)
+        with self._cache_lock:
+            self._cache.pop(artist_id, None)
         path = SIGNATURES_DIR / f"{artist_id}.json"
         if path.exists():
             try:

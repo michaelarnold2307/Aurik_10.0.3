@@ -1,6 +1,7 @@
 import numpy as np
 import scipy.signal as signal
-import soundfile as sf
+
+logger = __import__("logging").getLogger(__name__)
 
 
 def analyze_defects_features(audio, sr):
@@ -47,7 +48,12 @@ def analyze_defects_features(audio, sr):
 
 
 def detect_media_chain_and_defects(file_path):
-    audio, sr = sf.read(file_path)
+    from backend.file_import import load_audio_file
+    result = load_audio_file(file_path)
+    if result is None or result.get("error") or result["audio"] is None:
+        logger.error("detect_media_chain_and_defects: Audio-Import fehlgeschlagen: %s", file_path)
+        return [], set()
+    audio, sr = result["audio"], result["sr"]
     defects = analyze_defects_features(audio, sr)
     chain = []
     # Mapping von Defekten auf Medienkette

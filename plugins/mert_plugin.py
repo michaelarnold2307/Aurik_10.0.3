@@ -505,11 +505,17 @@ class MertPlugin:
             return
         # ML-Budget-Guard: ~0.38 GB for MERT-v1-95M fairseq (§RELEASE_MUST OOM-Schutz)
         try:
+            from backend.core.ml_memory_budget import release as _rel_fs
             from backend.core.ml_memory_budget import try_allocate as _try_alloc_fs
 
             if not _try_alloc_fs("MERT-95M-fairseq", 0.40):
-                logger.warning("MERT fairseq: ML-Budget erschöpft — DSP-Fallback")
-                return
+                try:
+                    _rel_fs("MERT-95M-fairseq")
+                except Exception:
+                    pass
+                if not _try_alloc_fs("MERT-95M-fairseq", 0.40):
+                    logger.warning("MERT fairseq: ML-Budget erschöpft — DSP-Fallback")
+                    return
         except Exception as _exc:
             logger.debug("Plugin operation failed (non-critical): %s", _exc)
         try:
@@ -539,11 +545,17 @@ class MertPlugin:
             logger.debug("MERT ONNX nicht gefunden (%s) → DSP-Fallback", onnx_path)
             return
         try:
+            from backend.core.ml_memory_budget import release as _rel
             from backend.core.ml_memory_budget import try_allocate as _try_alloc
 
             if not _try_alloc("MERT-ONNX", size_gb=0.18):
-                logger.warning("MERT ONNX: ML-Budget erschöpft — DSP-Fallback")
-                return
+                try:
+                    _rel("MERT-ONNX")
+                except Exception:
+                    pass
+                if not _try_alloc("MERT-ONNX", size_gb=0.18):
+                    logger.warning("MERT ONNX: ML-Budget erschöpft — DSP-Fallback")
+                    return
         except Exception as _exc:
             logger.debug("Plugin operation failed (non-critical): %s", _exc)
         try:
@@ -595,6 +607,12 @@ class MertPlugin:
         resampled = _resample_if_needed(mono, sample_rate, self._target_sr)
         resampled = resampled.astype(np.float32)
 
+        # HF/Fairseq require a minimum temporal context. Pad short inputs so the
+        # primary ML path remains active instead of degrading by default.
+        _MIN_MODEL_SAMPLES = self._target_sr  # 1 s @ target SR
+        if self._model_type in ("mert_hf", "mert_fairseq") and len(resampled) < _MIN_MODEL_SAMPLES:
+            resampled = np.pad(resampled, (0, _MIN_MODEL_SAMPLES - len(resampled)))
+
         # OOM-Guard: cap inference audio at 30 s center-crop (HF/ONNX/fairseq)
         _MAX_MERT_SAMPLES = int(30 * self._target_sr)
         if len(resampled) > _MAX_MERT_SAMPLES:
@@ -629,7 +647,11 @@ class MertPlugin:
             dsp.model_used = "mert_hf"
             return dsp
         except Exception as e:
-            logger.warning("MERT HF Inferenz fehlgeschlagen: %s → DSP-Fallback", e)
+            _msg = str(e)
+            if "Kernel size can't be greater than actual input size" in _msg:
+                logger.warning("MERT HF Kontext zu kurz trotz Padding (%s) → DSP-Fallback", _msg)
+            else:
+                logger.warning("MERT HF Inferenz fehlgeschlagen: %s → DSP-Fallback", e)
             return _dsp_analyze(audio, self._target_sr)
 
     def _analyze_fairseq(self, audio: np.ndarray) -> MertAnalysis:

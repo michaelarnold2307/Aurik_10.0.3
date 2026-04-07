@@ -292,12 +292,9 @@ class PluginLifecycleManager:
             # pro-Plugin-Aufruf blockierte den Qt-Hauptthread kumulativ.
             gc.collect()
             time.sleep(0)  # GIL explizit freigeben → Qt-Event-Loop kann X11-Pings beantworten
-            try:
-                import ctypes
-
-                ctypes.CDLL("libc.so.6").malloc_trim(0)
-            except Exception as _exc:
-                logger.debug("Operation failed (non-critical): %s", _exc)
+            # NOTE: malloc_trim(0) entfernt — kann SIGABRT verursachen wenn
+            # sbrk() aus diesem Thread gleichzeitig mit numpy-Allokationen
+            # im Restaurierungs-Thread läuft (gleiche Root-Cause wie _do_evict).
             logger.info(
                 "PLM: %d Plugin(s) entladen vor %s — RAM nach GC: %.0f %% (%.0f MB frei)",
                 evicted,
@@ -356,12 +353,10 @@ class PluginLifecycleManager:
             # pro-Plugin-Aufruf blockierte den Qt-Hauptthread kumulativ.
             gc.collect()
             time.sleep(0)  # GIL explizit freigeben → Qt-Event-Loop kann X11-Pings beantworten
-            try:
-                import ctypes
-
-                ctypes.CDLL("libc.so.6").malloc_trim(0)
-            except Exception as _exc:
-                logger.debug("Operation failed (non-critical): %s", _exc)
+            # NOTE: malloc_trim(0) wurde entfernt. Es kann SIGABRT verursachen wenn
+            # sbrk() im PLM-Thread gleichzeitig mit numpy-Allokationen (z.B.
+            # sliding_window_view.copy()) im Restaurierungs-Thread läuft.
+            # gc.collect() ist für die RAM-Freigabe ausreichend.
             logger.info("PLM: %d Plugin(s) entladen — RAM nach GC: %.0f %%", evicted, self._ram_percent())
         return evicted
 

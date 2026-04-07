@@ -41,20 +41,30 @@ SCALE_FACTORS: dict[str, float] = {
     "50–69": 0.93,  # FAIR     — ceiling_avg = 0.90
     "30–49": 0.85,  # POOR     — ceiling_avg = 0.82
     "< 30": 0.75,  # VERY_POOR — ceiling_avg = 0.73
+    # §2.47: Shellac + Restorability < 20 special case
+    "shellac_<20": 0.65,  # Extreme degradation on shellac medium
 }
 
 
-def get_restorability_scale_factor(restorability_score: float) -> float:
+def get_restorability_scale_factor(
+    restorability_score: float,
+    is_shellac: bool = False,
+) -> float:
     """Map RestorabilityEstimator score (0–100) to a threshold scale factor.
 
     Uses the normative SCALE_FACTORS table (§2.31, AMRB-calibrated).
+    Special case per §2.47: Shellac + Restorability < 20 → Scale 0.65.
 
     Args:
         restorability_score: Float 0–100 from RestorabilityEstimator.estimate().
+        is_shellac: True if the source medium is shellac (78 rpm).
 
     Returns:
-        Scale factor ∈ [0.75, 1.00].
+        Scale factor ∈ [0.65, 1.00].
     """
+    # §2.47: shellac + very low restorability → separate floor (spec-normative)
+    if is_shellac and restorability_score < 20.0:
+        return SCALE_FACTORS["shellac_<20"]
     if restorability_score >= 70.0:
         return SCALE_FACTORS["≥ 70"]
     if restorability_score >= 50.0:
@@ -557,7 +567,9 @@ class AdaptiveGoalsCalculator:
         relaxation_factor = quality.degradation_score
 
         # §2.31: restorability-adaptive scale factor (normative SCALE_FACTORS table)
-        scale = get_restorability_scale_factor(float(restorability_score)) if restorability_score is not None else 1.0
+        # §2.47: pass shellac flag for special-case handling (restorability < 20 + shellac → 0.65)
+        _is_shellac = "shellac" in (quality.medium_chain or [])
+        scale = get_restorability_scale_factor(float(restorability_score), is_shellac=_is_shellac) if restorability_score is not None else 1.0
 
         # Apply relaxation to each threshold
         thresholds = {}

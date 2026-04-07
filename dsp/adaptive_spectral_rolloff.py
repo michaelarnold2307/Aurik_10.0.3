@@ -97,10 +97,10 @@ class AdaptiveSpectralRolloff:
         :param center: Padding für zentrierte Frames
         """
         if not (256 <= n_fft <= 8192):
-            logger.error(f"Ungültiges n_fft: {n_fft}. Muss zwischen 256 und 8192 liegen.")
+            logger.error("Ungültiges n_fft: %s. Muss zwischen 256 und 8192 liegen.", n_fft)
             raise ValueError("n_fft muss zwischen 256 und 8192 liegen.")
         if not (0.5 <= roll_percent <= 0.99):
-            logger.error(f"Ungültiges roll_percent: {roll_percent}. Muss zwischen 0.5 und 0.99 liegen.")
+            logger.error("Ungültiges roll_percent: %s. Muss zwischen 0.5 und 0.99 liegen.", roll_percent)
             raise ValueError("roll_percent muss zwischen 0.5 und 0.99 liegen.")
         self.sr = sr
         self.n_fft = n_fft
@@ -116,7 +116,7 @@ class AdaptiveSpectralRolloff:
         Gibt den DSPContract für Auditierbarkeit aus (Log + Print).
         """
         contract_dict = asdict(adaptive_spectral_rolloff_contract)
-        logger.info(f"[DSPContract] {contract_dict}")
+        logger.info("[DSPContract] %s", contract_dict)
 
     def spectral_rolloff(
         self, y: np.ndarray[Any, Any], use_deep_learning: bool = False, audit_log: bool = True, **kwargs: Any
@@ -166,7 +166,7 @@ class AdaptiveSpectralRolloff:
             else:
                 output = self._spectral_rolloff_classic(y, sr, n_fft, hop_length, roll_percent, center)
         except Exception as e:
-            logger.error(f"Fehler bei Spectral Rolloff: {e}", exc_info=True)
+            logger.error("Fehler bei Spectral Rolloff: %s", e, exc_info=True)
             fallback_used = True
             output = np.zeros(1)
 
@@ -175,7 +175,7 @@ class AdaptiveSpectralRolloff:
             logger.info(
                 f"AdaptiveSpectralRolloff: rolloff_mean={rolloff_mean:.2f}, fallback_used={fallback_used}, n_fft={n_fft}, roll_percent={roll_percent}"
             )
-            logger.info(f"[DSPContract] {asdict(adaptive_spectral_rolloff_contract)}")
+            logger.info("[DSPContract] %s", asdict(adaptive_spectral_rolloff_contract))
         return output
 
     def _spectral_rolloff_classic(
@@ -215,4 +215,4 @@ class AdaptiveSpectralRolloff:
         else:
             self.n_fft = 2048
             self.hop_length = 512
-        logger.info(f"FFT-Parameter auto-optimiert: n_fft={self.n_fft}, hop_length={self.hop_length}")
+        logger.info("FFT-Parameter auto-optimiert: n_fft=%s, hop_length=%s", self.n_fft, self.hop_length)

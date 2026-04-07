@@ -150,21 +150,21 @@ class RegionDetector:
         hop_length = int(sr * self.hop_length_ms / 1000.0)
         frame_length = hop_length * 2
 
-        logger.info(f"[librosa] Signal-Länge (Samples): {len(audio)}, dtype: {audio.dtype}, sr: {sr}")
+        logger.info("[librosa] Signal-Länge (Samples): %s, dtype: %s, sr: %s", len(audio), audio.dtype, sr)
         # 1. Energy (for silence detection)
         energy = librosa.feature.rms(y=audio, frame_length=frame_length, hop_length=hop_length)[0]
         energy_db = librosa.power_to_db(energy**2, ref=np.max)
 
-        logger.info(f"[librosa] Signal-Länge (Samples): {len(audio)}, dtype: {audio.dtype}, sr: {sr}")
+        logger.info("[librosa] Signal-Länge (Samples): %s, dtype: %s, sr: %s", len(audio), audio.dtype, sr)
         # 2. Spectral features (for music vs speech)
         spectral_centroid = librosa.feature.spectral_centroid(y=audio, sr=sr, hop_length=hop_length)[0]
         spectral_rolloff = librosa.feature.spectral_rolloff(y=audio, sr=sr, hop_length=hop_length)[0]
 
-        logger.info(f"[librosa] Signal-Länge (Samples): {len(audio)}, dtype: {audio.dtype}, sr: {sr}")
+        logger.info("[librosa] Signal-Länge (Samples): %s, dtype: %s, sr: %s", len(audio), audio.dtype, sr)
         # 3. Zero-crossing rate (for noise vs tonal)
         zcr = librosa.feature.zero_crossing_rate(y=audio, frame_length=frame_length, hop_length=hop_length)[0]
 
-        logger.info(f"[librosa] Signal-Länge (Samples): {len(audio)}, dtype: {audio.dtype}, sr: {sr}")
+        logger.info("[librosa] Signal-Länge (Samples): %s, dtype: %s, sr: %s", len(audio), audio.dtype, sr)
         # 4. Harmonic-percussive separation
         harmonic, percussive = librosa.effects.hpss(audio, margin=2.0)
         harmonic_ratio = self._compute_harmonic_ratio_per_frame(harmonic, percussive, hop_length)
@@ -188,7 +188,7 @@ class RegionDetector:
         min_samples = int(sr * self.min_region_duration_ms / 1000.0)
         regions = [r for r in regions if r.duration_samples >= min_samples]
 
-        logger.info(f"Detected {len(regions)} regions in audio")
+        logger.info("Detected %s regions in audio", len(regions))
         return regions
 
     def _classify_frame(
@@ -354,7 +354,7 @@ class RegionAnalyzer:
                 }
             )
         except Exception as e:
-            logger.warning(f"Spectral analysis failed: {e}")
+            logger.warning("Spectral analysis failed: %s", e)
 
         # Dynamic analysis
         rms = np.sqrt(np.mean(region_audio**2))
@@ -391,7 +391,7 @@ class RegionAnalyzer:
                     analysis["f0_std"] = f0_std
                     analysis["voiced_ratio"] = voiced_ratio
             except Exception as e:
-                logger.warning(f"F0 analysis failed: {e}")
+                logger.warning("F0 analysis failed: %s", e)
 
         elif region.region_type == RegionType.MUSIC:
             # Tempo for music
@@ -401,7 +401,7 @@ class RegionAnalyzer:
                 tempo = float(np.nan_to_num(np.asarray(tempo).flat[0], nan=120.0, posinf=300.0, neginf=30.0))
                 analysis["tempo_bpm"] = tempo
             except Exception as e:
-                logger.warning(f"Tempo analysis failed: {e}")
+                logger.warning("Tempo analysis failed: %s", e)
 
         return analysis
 
@@ -574,7 +574,7 @@ class RegionAnalysisSystem:
 
         # 1. Detect regions
         regions = self.detector.detect_regions(audio, sr)
-        self.logger.info(f"  ├─ Detected {len(regions)} regions")
+        logger.info("  ├─ Detected %s regions", len(regions))
 
         # 2. Analyze each region
         region_data = []
@@ -603,7 +603,7 @@ class RegionAnalysisSystem:
                 }
             )
 
-        self.logger.info(f"  ├─ Analyzed {len(region_data)} regions")
+        logger.info("  ├─ Analyzed %s regions", len(region_data))
 
         # 3. Generate summary report
         report = {
@@ -615,7 +615,7 @@ class RegionAnalysisSystem:
             "metadata": {"analysis_only": True, "no_audio_modification": True, "normative_compliance": True},
         }
 
-        self.logger.info(f"  └─ Region analysis complete: {len(regions)} regions identified")
+        logger.info("  └─ Region analysis complete: %s regions identified", len(regions))
 
         return report
 
@@ -632,7 +632,7 @@ class RegionAnalysisSystem:
         with open(output_path, "w") as f:
             json.dump(report, f, indent=2)
 
-        self.logger.info(f"Region analysis exported to {output_path}")
+        logger.info("Region analysis exported to %s", output_path)
 
 
 # ==============================================================================
@@ -685,19 +685,19 @@ if __name__ == "__main__":
     logger.info("\n📊 REGION BREAKDOWN:")
     logger.info(str("-" * 80))
     for region_type, count in report["region_breakdown"].items():
-        logger.info(f"  {region_type:12s}: {count} region(s)")
+        logger.info("  %s: %s region(s)", region_type, count)
 
     logger.info("\n✅ NORMATIVE COMPLIANCE:")
     logger.info(str("-" * 80))
-    logger.info(f"  Analysis only: {report['metadata']['analysis_only']}")
-    logger.info(f"  No audio modification: {report['metadata']['no_audio_modification']}")
-    logger.info(f"  Audio unchanged: {np.array_equal(audio, audio_original)}")
+    logger.info("  Analysis only: %s", report['metadata']['analysis_only'])
+    logger.info("  No audio modification: %s", report['metadata']['no_audio_modification'])
+    logger.info("  Audio unchanged: %s", np.array_equal(audio, audio_original))
 
     logger.info("\n📋 REGION RECOMMENDATIONS (for Pipeline):")
     logger.info(str("-" * 80))
     for region in report["regions"][:5]:  # Show first 5
-        logger.info(f"Region {region['region_id']}: {region['type']:12s} ({region['duration_s']:.2f}s)")
-        logger.info(f"  Recommendation: {region['recommendation']['reasoning']}")
+        logger.info("Region %s: %s (%.2fs)", region['region_id'], region['type'], region['duration_s'])
+        logger.info("  Recommendation: %s", region['recommendation']['reasoning'])
         logger.info(
             "  Enhancement: %.1f, Noise Reduction: %.1f",
             region["recommendation"]["enhancement_strength"],

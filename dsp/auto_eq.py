@@ -88,9 +88,6 @@ class AutoEQ:
 
         out = low * low_gain + mid * mid_gain + high * high_gain
 
-        # Safety: NaN/Inf guard + peak normalization
+        # Safety: NaN/Inf guard + clamp
         out = np.nan_to_num(out, nan=0.0, posinf=0.0, neginf=0.0)
-        peak = float(np.max(np.abs(out))) if out.size > 0 else 0.0
-        if peak > 1.0:
-            out = out / peak
         return np.clip(out, -1.0, 1.0)

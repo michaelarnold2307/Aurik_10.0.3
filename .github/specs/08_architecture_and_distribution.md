@@ -522,6 +522,8 @@ class AudioFileValidator:
 
 ## §11.3 Plugin-Policy — bestehende Plugins nutzen, nicht neu schreiben
 
+> **Aktuelle Plugin-Anzahl**: 51 Plugin-Dateien unter `plugins/` (Stand v9.10.121).
+
 ```text
 ✅ = lokal gebündelt, out-of-the-box, kein Download
 
@@ -537,7 +539,7 @@ plugins/bs_roformer_plugin.py         ✅ BS-RoFormer / Mel-RoFormer (+0.4–0.8
 # Rauschunterdrückung & Dereverb
 plugins/deepfilternet_v3_ii_plugin.py ✅ DeepFilterNet v3.II (37 MB, 3 ONNX) — PRIMÄR NR
 plugins/sgmse_plugin.py               ✅ SGMSE+ (251 MB TorchScript) — PRIMÄR Dereverb/Enhancement
-plugins/mp_senet_plugin.py            ✅ MP-SENet 2023 (ONNX) — Speech/Music Enhancement
+plugins/mp_senet_plugin.py            ✅ MP-SENet 2023 (ONNX) — Music/Vocal Enhancement
                                       Laufzeitvertrag: segmentierte Inferenz in 32-Frame-Chunks
 plugins/wpe_plugin.py                 ✅ WPE Dereverb (3-Tier: nara_wpe→NumPy→OMLSA)
 # VERBOTEN: dccrn_plugin (deprecated — ersetzt durch mp_senet_plugin)
@@ -606,6 +608,9 @@ self.btn_magic_restoration.setStyleSheet(f"""
 | `Ctrl+R` | Restaurierung (RESTORATION) |
 | `Ctrl+Shift+R` | Restaurierung (STUDIO 2026) |
 | `Escape` | Verarbeitung abbrechen |
+| `Ctrl+Z` | Pfad-Clipboard |
+
+**A/B-Sync-Loop** (v9.10.112): Checkable `btn_ab_sync`-Button — bei aktiviertem Sync wechseln A/B die Quelle im aktuellen Loop-Punkt, kein Reset auf Anfang. Queue-Drag-&-Drop-Reordering für Batch-Liste.
 
 ---
 
@@ -663,6 +668,28 @@ _PHASE_REDUCES = {
     "transient": ["transient_smearing"],
 }
 ```
+
+---
+
+## §11.4b Schadensmarker-Lebenszyklus (ab 9.10.123 — bindend)
+
+Schadensmarker in der Wellenformvisualisierung haben einen klar definierten Lebenszyklus.
+Das visuelle Feedback teilt sich auf zwei Anzeigebereiche auf:
+
+| Status | Wellenform-Marker | Defekt-Chip im Panel |
+| --- | --- | --- |
+| `detected` | Farbiger Band-Marker je Defekttyp erscheint per Count-up-Animation | Severity-Chip mit Fortschrittsbalken (rot / amber je Schwere) |
+| `correcting` (Schaden aktiv) | Marker bleibt sichtbar; pulsiert nicht | `🔧 Defektname` Chip mit orange Hintergrund |
+| **Schaden behoben** (score ≤ 0.01) | **Marker verschwindet vollständig** — `_tick_defect_removal()` entfernt 1–2 Instanzen/75 ms. Kein grünes Overlay, kein Residual-Rechteck. | Fortschrittsbalken **entfällt**; Chip wird zu **`✓ Defektname`** (grüner Haken-Chip, Rand `rgba(77,200,120,0.45)`) |
+| `completed` | Alle bearbeiteten Marker verschwunden; dezente grüne Gesamtton-Tinte (alpha 14) über die volle Breite | Alle behobenen Defekte als grüne Haken-Chips |
+
+### Normative Implementierungsregeln §11.4b
+
+- `_show_resolved_markers = False` in `_draw_defect_overlay` — keine grünen Overlay-Rechtecke für gelöste Defekte in der Wellenform
+- `_tick_defect_removal()` (75 ms QTimer): pro Tick 1–2 Segmente aus `_pending_removal` → `_resolved_locations` verschieben, `_recently_resolved_ts[dk]` setzen
+- **Grüner Haken-Chip**: `fix_ratio >= 0.95` (correcting) / `>= 0.75` (completed) → Chip ohne `_bar`, nur `&#10003; name` mit `background:rgba(77,200,120,0.13);border:1px solid rgba(77,200,120,0.45);border-radius:4px`
+- **Fortschrittsbalken** (`■■■■■`, `■■■□□`, `■□□□□`) nur bei nicht-aufgelösten Chips sichtbar
+- Aktiver Repair-Chip (`_is_active_chip`): oranger Highlight mit `🔧`-Prefix bleibt bis `fix_ratio < _green_threshold`
 
 ---
 

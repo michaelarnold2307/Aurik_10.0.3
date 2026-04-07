@@ -711,8 +711,10 @@ def main():
     args = parser.parse_args()
 
     # Load audio
-    logger.info(f"Loading: {args.input}")
-    audio, sr = sf.read(args.input, always_2d=True)
+    logger.info("Loading: %s", args.input)
+    from backend.file_import import load_audio_file
+    _res = load_audio_file(args.input)
+    audio, sr = _res["audio"], int(_res["sr"])
 
     # Make mono for processing
     audio_mono = np.mean(audio, axis=1) if audio.shape[1] == 2 else audio[:, 0]
@@ -735,24 +737,24 @@ def main():
     # Print report
     logger.info("\n📊 Processing Report:")
     logger.info("-" * 60)
-    logger.info(f"Kick Drum: {report['kick']['kick_energy_change_db']:+.1f} dB")
-    logger.info(f"  Events detected: {report['kick']['kick_events_detected']}")
+    logger.info("Kick Drum: %.1f dB", report['kick']['kick_energy_change_db'])
+    logger.info("  Events detected: %s", report['kick']['kick_events_detected'])
 
-    logger.info(f"\nSnare Crack: {report['snare']['snare_crack_energy_change_db']:+.1f} dB")
-    logger.info(f"  Body: {report['snare']['snare_body_energy_change_db']:+.1f} dB")
-    logger.info(f"  Events detected: {report['snare']['snare_events_detected']}")
+    logger.info("\nSnare Crack: %.1f dB", report['snare']['snare_crack_energy_change_db'])
+    logger.info("  Body: %.1f dB", report['snare']['snare_body_energy_change_db'])
+    logger.info("  Events detected: %s", report['snare']['snare_events_detected'])
 
-    logger.info(f"\nHi-Hat: {report['hihat']['hihat_energy_change_db']:+.1f} dB")
-    logger.info(f"  Transient sharpening: {'Yes' if report['hihat']['transient_sharpening_applied'] else 'No'}")
+    logger.info("\nHi-Hat: %.1f dB", report['hihat']['hihat_energy_change_db'])
+    logger.info("  Transient sharpening: %s", 'Yes' if report['hihat']['transient_sharpening_applied'] else 'No')
 
-    logger.info(f"\nCymbal: {report['cymbal']['cymbal_energy_change_db']:+.1f} dB")
-    logger.info(f"  Air enhancement: {'Yes' if report['cymbal']['air_enhancement_applied'] else 'No'}")
+    logger.info("\nCymbal: %.1f dB", report['cymbal']['cymbal_energy_change_db'])
+    logger.info("  Air enhancement: %s", 'Yes' if report['cymbal']['air_enhancement_applied'] else 'No')
 
-    logger.info(f"\nTransient Enhancement: {report['transient_energy_change_db']:+.1f} dB")
-    logger.info(f"Stages applied: {report['stages_applied']}")
+    logger.info("\nTransient Enhancement: %.1f dB", report['transient_energy_change_db'])
+    logger.info("Stages applied: %s", report['stages_applied'])
 
     # Save
-    logger.info(f"\nSaving: {args.output}")
+    logger.info("\nSaving: %s", args.output)
     sf.write(args.output, processed, sr)
     logger.info("✓ Done!")
 

@@ -278,6 +278,21 @@ class DenoisePhase(PhaseInterface):
         },
     }
 
+    _MAX_RMS_DROP_DB = {
+        "tape": 2.0,
+        "reel_tape": 1.8,
+        "cassette": 2.2,
+        "vinyl": 1.5,
+        "shellac": 1.2,
+        "wax_cylinder": 1.0,
+        "mp3_low": 1.4,
+        "mp3_high": 1.4,
+        "aac": 1.4,
+        "cd_digital": 1.2,
+        "dat": 1.0,
+        "unknown": 1.5,
+    }
+
     # Frequency band boundaries
     BAND_BOUNDARIES = {
         "low": (20, 500),  # Bass/Low-Mid
@@ -468,6 +483,12 @@ class DenoisePhase(PhaseInterface):
 
                 ml_result.audio = np.nan_to_num(ml_result.audio, nan=0.0, posinf=0.0, neginf=0.0)
                 ml_result.audio = np.clip(ml_result.audio, -1.0, 1.0)
+                ml_result.audio, loudness_stats = self._apply_material_loudness_preservation(
+                    audio,
+                    ml_result.audio,
+                    material_type,
+                    quality_mode,
+                )
 
                 return create_phase_result(
                     audio=ml_result.audio,
@@ -480,6 +501,8 @@ class DenoisePhase(PhaseInterface):
                         "material_type": material_type,
                         "strategy": str(ml_result.strategy_used),
                         "quality_mode": quality_mode,
+                        "rms_drop_db": loudness_stats["rms_drop_db"],
+                        "loudness_makeup_db": loudness_stats["makeup_gain_db"],
                     },
                     warnings=warnings,
                     metadata={
@@ -540,6 +563,12 @@ class DenoisePhase(PhaseInterface):
         result_audio = np.nan_to_num(result_audio, nan=0.0, posinf=0.0, neginf=0.0)
 
         result_audio = np.clip(result_audio, -1.0, 1.0)
+        result_audio, loudness_stats = self._apply_material_loudness_preservation(
+            audio,
+            result_audio,
+            material_type,
+            quality_mode,
+        )
 
         return create_phase_result(
             audio=result_audio,
@@ -550,6 +579,8 @@ class DenoisePhase(PhaseInterface):
                 "musical_noise_suppression": musical_noise_suppression,
                 "material_type": material_type,
                 "bands": dsp_params["bands"],
+                "rms_drop_db": loudness_stats["rms_drop_db"],
+                "loudness_makeup_db": loudness_stats["makeup_gain_db"],
             },
             warnings=warnings,
             metadata={
@@ -562,6 +593,51 @@ class DenoisePhase(PhaseInterface):
                 "execution_time_seconds": execution_time,
             },
         )
+
+    def _apply_material_loudness_preservation(
+        self,
+        original_audio: np.ndarray,
+        processed_audio: np.ndarray,
+        material_type: str,
+        quality_mode: str,
+    ) -> tuple[np.ndarray, dict[str, float]]:
+        """Keep restoration denoise effective while preventing audible loudness collapse."""
+        material_key = str(material_type or "unknown").lower()
+        max_rms_drop_db = float(self._MAX_RMS_DROP_DB.get(material_key, self._MAX_RMS_DROP_DB["unknown"]))
+        if str(quality_mode).lower() in ("maximum", "studio2026"):
+            max_rms_drop_db += 0.5
+
+        rms_in = float(np.sqrt(np.mean(np.asarray(original_audio, dtype=np.float64) ** 2) + 1e-12))
+        rms_out = float(np.sqrt(np.mean(np.asarray(processed_audio, dtype=np.float64) ** 2) + 1e-12))
+        rms_drop_db = 20.0 * np.log10(max(rms_out / rms_in, 1e-30)) if rms_in > 1e-8 else 0.0
+        makeup_gain_db = 0.0
+
+        if rms_in > 1e-8 and rms_drop_db < -max_rms_drop_db:
+            target_rms_drop_db = -max_rms_drop_db
+            required_gain_db = target_rms_drop_db - rms_drop_db
+            current_peak = float(np.percentile(np.abs(processed_audio), 99.9) + 1e-12)
+            max_safe_gain_db = max(0.0, -1.5 - 20.0 * np.log10(current_peak))
+            makeup_gain_db = float(np.clip(required_gain_db, 0.0, max_safe_gain_db))
+            if makeup_gain_db > 0.0:
+                processed_audio = np.clip(
+                    processed_audio * (10.0 ** (makeup_gain_db / 20.0)),
+                    -1.0,
+                    1.0,
+                ).astype(np.float32)
+                rms_out = float(np.sqrt(np.mean(np.asarray(processed_audio, dtype=np.float64) ** 2) + 1e-12))
+                rms_drop_db = 20.0 * np.log10(max(rms_out / rms_in, 1e-30))
+                logger.info(
+                    "Phase 03 loudness-preservation: material=%s rms_drop=%.2f dB → %.2f dB via makeup %.2f dB",
+                    material_key,
+                    target_rms_drop_db - required_gain_db,
+                    rms_drop_db,
+                    makeup_gain_db,
+                )
+
+        return processed_audio, {
+            "rms_drop_db": round(float(rms_drop_db), 3),
+            "makeup_gain_db": round(float(makeup_gain_db), 3),
+        }
 
     def _denoise_mono_professional(
         self, audio: np.ndarray, params: dict[str, Any], noise_start: float | None, noise_end: float | None

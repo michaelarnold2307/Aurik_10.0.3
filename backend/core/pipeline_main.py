@@ -139,37 +139,3 @@ class AurikAutonomousPipeline:
             logger.warning("Audit-Log konnte nicht geschrieben werden: %s", exc)
 
 
-# ---------------------------------------------------------------------------
-# LEGACY PIPELINE (Aurik 6.0 / 8.0 — rückwärtskompatibel)
-# ---------------------------------------------------------------------------
-
-
-class AurikMainPipeline:
-    """
-    Legacy-Pipeline (Aurik 6.0/8.0).
-
-    Für neue Projekte bitte AurikAutonomousPipeline verwenden.
-    """
-
-    def __init__(self, policy_template=None, config=None):
-        from backend.core.import_pipeline import ImportPipeline
-        from backend.core.unified_restorer_v3 import UnifiedRestorerV3
-
-        self.importer = ImportPipeline(policy_template=policy_template)
-        self.restorer = UnifiedRestorerV3()
-        self.config = config or {}
-        self.audit_log = []
-
-    def process(self, audio: np.ndarray, sr: int, reference: np.ndarray = None):
-        features, policy = self.importer.import_audio(audio, sr, reference)
-        self.audit_log.append({"step": "import", "features": features, "policy": policy})
-        log_message(f"MainPipeline: Import abgeschlossen {features}")
-        result = self.restorer.restore(audio, sample_rate=sr, mode="restoration")
-        restored = result.audio if hasattr(result, "audio") and result.audio is not None else audio
-        self.audit_log.append({"step": "restoration", "policy": policy})
-        log_message("MainPipeline: Restaurierung abgeschlossen")
-        os.makedirs("logs", exist_ok=True)
-        with open(_AUDIT_LOG_PATH, "a", encoding="utf-8") as f:
-            for entry in self.audit_log:
-                f.write(json.dumps(entry, default=str, ensure_ascii=False) + "\n")
-        return restored, self.audit_log

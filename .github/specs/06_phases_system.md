@@ -13,7 +13,7 @@ phase_02_hum_removal.py             Brumm 50/60 Hz + Obertöne (Kammfilter)
 phase_03_denoise.py                 Breitrauschen (OMLSA + DeepFilterNet)
 phase_04_eq_correction.py           Frequenzgang-Korrektur (parametrisch)
 phase_05_rumble_filter.py           Tieffrequenzrumpeln (< 20 Hz Hochpass)
-phase_06_frequency_restoration.py   Bandbreitenerweiterung / Shelving-EQ
+phase_06_frequency_restoration.py   Bandbreitenerweiterung / Shelving-EQ + SourceFidelityEQ (§2.42)
 phase_07_harmonic_restoration.py    Oberton-Rekonstruktion
 phase_08_transient_preservation.py  Transientenerhalt (Attack-Schutz)
 phase_09_crackle_removal.py         Vinyl-Crackle (Impulsanteil)
@@ -45,8 +45,8 @@ phase_34_mid_side_processing.py     Mid/Side-Verarbeitung
 phase_35_multiband_compression.py   Multibandkompression (transparent)
 phase_36_transient_shaper.py        Transient-Shaper
 phase_37_bass_enhancement.py        Bass-Fundament-Anhebung
-phase_38_presence_boost.py          Präsenz-Boost (2–6 kHz)
-phase_39_air_band_enhancement.py    Air-Band-Enhancement (> 12 kHz)
+phase_38_presence_boost.py          Präsenz-Boost (Ära-bewusst: 2–6 kHz, SourceFidelity Mic-Center §2.42)
+phase_39_air_band_enhancement.py    Air-Band-Enhancement (Ära-bewusst, BW-Cap §2.42, > 12 kHz)
 phase_40_loudness_normalization.py  LUFS-Normierung (ITU-R BS.1770-5, −14 LUFS)
 phase_41_output_format_optimization.py  Ausgabe-Format-Optimierung
 phase_42_vocal_enhancement.py       Gesangs-Enhancement
@@ -63,6 +63,7 @@ phase_52_piano_restoration.py       Klavier-Restaurierung
 phase_53_semantic_audio.py          Semantische Audio-Analyse
 phase_54_transparent_dynamics.py    Transparente Dynamik-Verarbeitung
 phase_55_diffusion_inpainting.py    DiffWave / CQTdiff+ / FlowMatching Inpainting
+                                    (adaptiver AR-Order: AR(64) < 50 ms, AR(192) ≥ 50 ms)
 phase_56_spectral_band_gap_repair.py HEAD_WEAR: Frequenzband-Lücken-Reparatur
                                     (SpectralBandGapRepair — nur bei conf ≥ 0.55)
 phase_57_print_through_reduction.py  Print-Through-Reduktion
@@ -92,6 +93,53 @@ phase_64_tape_splice_repair.py       Tape-Splice-Reparatur
 - Persistiert oder geloggt werden dürfen nur Segmentzeiten, `phoneme_type`, Konfidenzen, Fallback-Flags und aggregierte Zähler.
 - Verboten sind Worttext, Transkript, Voll-Lyrics und Roh-Alignment-Tokens in `RestorationResult.metadata`, Checkpoints, Logger-Ausgaben und Debug-UI.
 - Legacy-/Forschungsimplementierungen unter `backend/lyrics_guided/` sind nicht Teil des produktiven Phase-58-Vertrags.
+
+---
+
+## §7.1a [RELEASE_MUST] Stereo-Kohärenz-Pflicht für Phasen (v9.10.127)
+
+Phasen, die auf Stereo-Audio operieren, dürfen L und R **nicht unabhängig** mit signal-modifizierendem DSP verarbeiten (separates Gate, separater Kompressor, separate Spektralreparatur). Dies erzeugt anti-phasige Transient-Artefakte in 2–3 Frame-Grenzen, die §2.49 korrekt als Phase-Cancellation flaggt und zurückrollt — mit direkter OQS-Auswirkung.
+
+**Verbindliche Implementierungsstrategie pro Phase** (detailliert in §2.51 Spec 02):
+
+| Phase | Pflicht-Strategie | Verbot |
+| --- | --- | --- |
+| `phase_07_harmonic_restoration` | **M/S-Domain**: Harmonics nur auf Mid, Side unverändert | Separate Oberton-Synthese für L und R |
+| `phase_18_noise_gate` | **Linked Stereo**: Gate öffnet wenn `max(L_rms, R_rms) > threshold` | Unabhängige Gate-Entscheidung pro Kanal |
+| `phase_23_spectral_repair` | **M/S-Domain**: Spektralreparatur auf Mid; Side minimal/nicht bearbeiten | Separate Lückenfüllung für L und R |
+| `phase_24_dropout_repair` | **Linked Stereo**: Dropout-Grenze erkannt wenn BEIDE Kanäle unterfallen; Füllung kohärent | Unabhängige L/R-Dropout-Erkennung |
+| `phase_35_multiband_compression` | **Linked Stereo**: Gain auf `√(L²+R²)/√2`; gleicher Gain für L und R | Separate GR-Berechnung pro Kanal |
+
+**Code-Pattern für M/S-Domain** (Referenz-Implementierung):
+
+```python
+def _process_ms_domain(audio: np.ndarray, process_fn, side_strength: float = 0.0) -> np.ndarray:
+    """Process stereo audio in M/S domain. process_fn anwenden auf Mid;
+    Side mit side_strength skaliert (0.0 = unverändert, 1.0 = voll verarbeitet)."""
+    assert audio.shape[0] == 2  # channel-first (2, N)
+    mid = (audio[0] + audio[1]) / 2.0
+    side = (audio[0] - audio[1]) / 2.0
+    mid_processed = process_fn(mid)
+    if side_strength > 0.0:
+        side_processed = process_fn(side) * side_strength + side * (1.0 - side_strength)
+    else:
+        side_processed = side
+    l = np.clip(mid_processed + side_processed, -1.0, 1.0)
+    r = np.clip(mid_processed - side_processed, -1.0, 1.0)
+    return np.stack([l, r], axis=0)
+```
+
+**Code-Pattern für Linked Stereo** (Referenz-Implementierung):
+
+```python
+def _compute_linked_gain(l_audio, r_audio, gain_fn) -> np.ndarray:
+    """Gain-Kurve auf kombiniertem RMS berechnen; identisch auf L und R anwenden."""
+    combined_rms = np.sqrt((l_audio ** 2 + r_audio ** 2) / 2.0 + 1e-12)
+    gain_curve = gain_fn(combined_rms)  # z.B. Gate-Öffnen, Kompressor-GR
+    l_out = np.clip(l_audio * gain_curve, -1.0, 1.0)
+    r_out = np.clip(r_audio * gain_curve, -1.0, 1.0)
+    return np.stack([l_out, r_out], axis=0)
+```
 
 ---
 
@@ -231,7 +279,7 @@ CAUSE_TO_PHASES = {
 | Brass / Trumpet / Saxophone | `phase_45_brass_enhancement` | ≥ 0.50 |
 | Drum / Percussion | `phase_51_drums_enhancement` | ≥ 0.50 |
 | Piano / Keyboard | `phase_52_piano_restoration` | ≥ 0.50 |
-| Singing / Vocals / Speech | `phase_19_de_esser` + `phase_42_vocal_enhancement` + `phase_43_ml_deesser` + VocalAIEnhancement | ≥ 0.40 (Soft 0.35–0.40: 50 % Strength; Speech: ≥ 0.35) |
+| Singing / Vocals | `phase_19_de_esser` + `phase_42_vocal_enhancement` + `phase_43_ml_deesser` + VocalAIEnhancement | ≥ 0.40 (Soft 0.35–0.40: 50 % Strength) |
 
 > **Invariante** (v9.10.83): Instrument-Schwelle ist einheitlich **0.50** für alle Instrumente. Höherer Wert (z.B. 0.60) blockiert Enhancement bei Ensemble-Aufnahmen mit mehreren gleichzeitigen Instrumenten. Änderungen hier → immer auch `backend/core/unified_restorer_v3.py` L≈5822 + `plugins/panns_plugin.py` Docstring anpassen.
 
@@ -259,6 +307,9 @@ Jede neue Phase **muss**:
 # □ Export in __init__.py
 # □ Eintrag in CAUSE_TO_PHASES (wenn neuer Defekt-Typ)
 # □ ≥ 3 Unit-Tests (Erkennung, False-Positive-Rate, Material-Prior)
+# □ Stereo-Kohärenz (§2.51 Spec 02 / §7.1a Spec 06):
+#     Wenn Stereo-Audio verarbeitet wird: M/S-Domain ODER Linked-Stereo —
+#     KEIN unabhängiges L/R-Processing mit gain- oder zeitvarianter Operation
 ```
 
 ---

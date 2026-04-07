@@ -115,10 +115,8 @@ class SpectralSubtractor:
             pad[: len(out)] = out
             out = pad
 
-        # Safety: NaN/Inf guard + peak normalization
+        # Safety: NaN/Inf guard + clamp
         out = np.nan_to_num(out, nan=0.0, posinf=0.0, neginf=0.0)
-        maxval = float(np.max(np.abs(out)))
-        if maxval > 1.0:
-            out = out * (0.999 / maxval)
+        out = np.clip(out, -1.0, 1.0)
 
         return np.asarray(out.astype(audio.dtype))

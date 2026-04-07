@@ -63,14 +63,14 @@ class VocalSeparationSafetyWrapper:
 
         # Audit log
         if audit_log_path is None:
-            base_path = Path(__file__).parent.parent.parent.parent.parent
+            base_path = Path(__file__).parent.parent.parent.parent
             log_dir = base_path / "logs" / "vocal_separation"
             log_dir.mkdir(parents=True, exist_ok=True)
             audit_log_path = log_dir / "hips_audit.jsonl"
 
         self.audit_log_path = audit_log_path
 
-        logger.info(f"VocalSeparationSafetyWrapper initialized: strict_mode={strict_mode}, audit_log={audit_log_path}")
+        logger.info("VocalSeparationSafetyWrapper initialized: strict_mode=%s, audit_log=%s", strict_mode, audit_log_path)
 
         self.separation_count = 0
         self.violations_count = 0
@@ -93,7 +93,7 @@ class VocalSeparationSafetyWrapper:
         self.separation_count += 1
         separation_id = f"sep_{self.separation_count}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
 
-        logger.info(f"[{separation_id}] Starting HIPS-compliant separation")
+        logger.info("[%s] Starting HIPS-compliant separation", separation_id)
 
         # STEP 1: Pre-separation validation
         pre_check_result = self._pre_separation_checks(audio, sr)
@@ -104,13 +104,13 @@ class VocalSeparationSafetyWrapper:
             if self.strict_mode:
                 raise HIPSViolationError(f"Pre-separation HIPS check failed: {pre_check_result['issues']}")
             else:
-                logger.warning(f"[{separation_id}] Pre-separation warnings: {pre_check_result['issues']}")
+                logger.warning("[%s] Pre-separation warnings: %s", separation_id, pre_check_result['issues'])
 
         # STEP 2: Perform separation
         try:
             stems = self.separator.separate(audio, sr=sr, **kwargs)
         except Exception as e:
-            logger.error(f"[{separation_id}] Separation failed: {e}")
+            logger.error("[%s] Separation failed: %s", separation_id, e)
             self._log_failure(separation_id, str(e), audio_shape=audio.shape)
             raise
 
@@ -128,7 +128,7 @@ class VocalSeparationSafetyWrapper:
             if self.strict_mode:
                 raise HIPSViolationError(f"Post-separation HIPS check failed: {post_check_result['issues']}")
             else:
-                logger.warning(f"[{separation_id}] Post-separation warnings: {post_check_result['issues']}")
+                logger.warning("[%s] Post-separation warnings: %s", separation_id, post_check_result['issues'])
 
         # STEP 4: Auditability - Log successful separation
         self._log_success(
@@ -139,7 +139,7 @@ class VocalSeparationSafetyWrapper:
             stems_info={k: v.shape for k, v in stems.items()},
         )
 
-        logger.info(f"[{separation_id}] HIPS-compliant separation complete")
+        logger.info("[%s] HIPS-compliant separation complete", separation_id)
 
         return stems
 
@@ -350,7 +350,7 @@ class VocalSeparationSafetyWrapper:
             with open(self.audit_log_path, "a") as f:
                 f.write(json.dumps(entry) + "\n")
         except Exception as e:
-            logger.error(f"Failed to write audit log: {e}")
+            logger.error("Failed to write audit log: %s", e)
 
     def get_compliance_report(self) -> dict[str, Any]:
         """
@@ -391,4 +391,4 @@ if __name__ == "__main__":
     stems = wrapper.safe_separate(audio, sr=sr)
 
     logger.info("✓ Safety wrapper test passed")
-    logger.info(f"  Compliance report: {wrapper.get_compliance_report()}")
+    logger.info("  Compliance report: %s", wrapper.get_compliance_report())

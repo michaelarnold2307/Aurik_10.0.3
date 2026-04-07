@@ -178,5 +178,5 @@ class SpectralGate:
             out = pad
         maxval = np.max(np.abs(out))
         if maxval > 1.0:
-            out = out * (0.999 / maxval)
+            out = np.clip(out, -1.0, 1.0)
         return np.asarray(out.astype(audio.dtype))

@@ -199,7 +199,11 @@ class _DummyPhaseForNoRt:
         )
 
     def process(self, audio, **kwargs):
-        return np.asarray(audio, dtype=np.float32).copy()
+        # §2.45: Apply a tiny spectral change so perceptual_delta > 0 in the direct path.
+        # Without this, the dummy returns audio unchanged → delta == 0 → §2.45 skips the phase.
+        out = np.asarray(audio, dtype=np.float32).copy()
+        out = np.clip(out * 1.001, -1.0, 1.0)
+        return out
 
 
 class TestNoRtLimitPhaseDeferralBypass:
@@ -220,7 +224,8 @@ class TestNoRtLimitPhaseDeferralBypass:
         restorer._profiled_phase_call = (  # type: ignore[method-assign]
             lambda _phase, _audio, **_kwargs: types.SimpleNamespace(
                 success=True,
-                audio=np.asarray(_audio, dtype=np.float32).copy(),
+                # §2.45: tiny spectral change so perceptual_delta > 0 in the direct path.
+                audio=np.clip(np.asarray(_audio, dtype=np.float32) * 1.001, -1.0, 1.0),
                 execution_time_seconds=0.001,
                 warnings=[],
             )
@@ -588,6 +593,56 @@ class TestRestoreMocked:
                 )
 
         assert calls["sr"] == 44100
+
+    def test_40d_pre_analysis_medium_handoff_reaches_scanner(self):
+        """UV3.restore() must forward pre_analysis_result.medium to scanner as forensic_medium_result."""
+        restorer = UnifiedRestorerV3()
+        audio = np.zeros(9600, dtype=np.float32)  # 0.2 s @ 48 kHz (> min-length guard)
+
+        calls: dict[str, object] = {}
+
+        def _scan_capture(a: np.ndarray, sr: int, _mat: object, **kwargs) -> object:
+            calls["sr"] = int(sr)
+            calls["file_ext"] = kwargs.get("file_ext")
+            calls["forensic_medium_result"] = kwargs.get("forensic_medium_result")
+            raise RuntimeError("stop_after_scan")
+
+        restorer.defect_scanner.scan = _scan_capture  # type: ignore[method-assign]
+
+        pre_medium = types.SimpleNamespace(
+            transfer_chain=["vinyl", "mp3_low"],
+            primary_material="vinyl",
+            confidence=0.97,
+        )
+        pre = types.SimpleNamespace(
+            medium=pre_medium,
+            era=types.SimpleNamespace(decade=1970, material_prior="vinyl", confidence=0.9),
+            genre=types.SimpleNamespace(
+                is_schlager=False,
+                confidence=0.0,
+                genre_label="unknown",
+                bpm=0.0,
+                subgenre="unknown",
+            ),
+            defects=None,
+            restorability=types.SimpleNamespace(restorability_score=70.0, grade="FAIR", predicted_mos=(3.5, 4.1)),
+        )
+
+        with patch(
+            "forensics.medium_detector.get_medium_detector",
+            side_effect=AssertionError("get_medium_detector must not be called on cached-medium path"),
+        ):
+            with pytest.raises(RuntimeError, match="stop_after_scan"):
+                restorer.restore(
+                    audio,
+                    48000,
+                    pre_analysis_result=pre,
+                    file_path="/tmp/unit_medium_handoff.mp3",
+                )
+
+        assert calls["sr"] == 48000
+        assert calls["file_ext"] == ".mp3"
+        assert calls["forensic_medium_result"] is pre_medium
 
 
 # ---------------------------------------------------------------------------

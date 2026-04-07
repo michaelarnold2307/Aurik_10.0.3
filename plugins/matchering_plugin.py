@@ -100,13 +100,18 @@ class MatcheringPlugin:
             sf.write(str(ref_path), ref_interleaved, sr, subtype="FLOAT")
 
             try:
+                from backend.file_import import load_audio_file
+
                 _mg.process(
                     target=str(tgt_path),
                     reference=str(ref_path),
                     results=[_mg.pcm16(str(out_path))],
                 )
-                out_data, _ = sf.read(str(out_path), dtype="float32", always_2d=True)
-                # sf.read returns (samples, channels); convert to (channels, samples)
+                _res = load_audio_file(str(out_path), do_carrier_analysis=False)
+                out_data = np.asarray(_res["audio"], dtype=np.float32)
+                if out_data.ndim == 1:
+                    out_data = out_data[:, np.newaxis]
+                # load_audio_file returns (samples, channels); convert to (channels, samples)
                 out_stereo = out_data.T
             except Exception as exc:
                 logger.warning("Matchering 2.0 fehlgeschlagen, DSP-Fallback aktiv: %s", exc)

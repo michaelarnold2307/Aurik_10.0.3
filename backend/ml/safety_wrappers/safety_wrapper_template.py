@@ -218,7 +218,7 @@ class BaseSafetyWrapper:
             decision = ProcessingDecision.REDUCE_STRENGTH
             adjusted_params = self._adjust_params_for_confidence(processing_params, confidence)
             self.reduced_strength_calls += 1
-            self.logger.info(f"Medium confidence ({confidence:.2f}). Reducing processing strength.")
+            logger.info("Medium confidence (%.2f). Reducing processing strength.", confidence)
 
         # =================================================================
         # PHASE 3: PROCESSING
@@ -229,7 +229,7 @@ class BaseSafetyWrapper:
         try:
             processed_audio = self.processor_func(audio, sr, **adjusted_params)
         except Exception as e:
-            self.logger.error(f"Processing failed: {e}")
+            logger.error("Processing failed: %s", e)
             self.aborted_calls += 1
             pre_check.passed = False
             pre_check.reasons.append(f"Processing exception: {e!s}")
@@ -241,7 +241,7 @@ class BaseSafetyWrapper:
         post_check = self._validate_post_conditions(original=audio, processed=processed_audio, sr=sr, **adjusted_params)
 
         if not post_check.passed:
-            self.logger.warning(f"Post-check failed. Issues: {post_check.issues}")
+            logger.warning("Post-check failed. Issues: %s", post_check.issues)
             # Apply fallback or return original
             processed_audio = self._apply_fallback_processing(audio, sr, post_check, **adjusted_params)
             post_check.side_effects.append("Fallback processing applied")
@@ -529,7 +529,7 @@ class BaseSafetyWrapper:
             processing_time_ms=processing_time_ms,
         )
 
-        self.logger.warning(f"Processing aborted: {reason}")
+        logger.warning("Processing aborted: %s", reason)
 
         if self.enable_logging:
             self._log_audit_trail(report)

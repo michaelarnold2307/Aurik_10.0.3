@@ -18,7 +18,7 @@ def detect_clipping(audio, threshold=0.99):
         _audit_log({"clipping": bool(result), "threshold": threshold})
         return result
     except Exception as e:
-        logger.error(f"[detect_clipping][Fehler] {e}")
+        logger.error("[detect_clipping][Fehler] %s", e)
         _audit_log({"clipping": False, "error": str(e)})
         return False
 
@@ -31,7 +31,7 @@ def detect_dc_offset(audio, tolerance=0.01):
         _audit_log({"dc_offset": bool(result), "tolerance": tolerance})
         return result
     except Exception as e:
-        logger.error(f"[detect_dc_offset][Fehler] {e}")
+        logger.error("[detect_dc_offset][Fehler] %s", e)
         _audit_log({"dc_offset": False, "error": str(e)})
         return False
 
@@ -51,13 +51,13 @@ def detect_bias(audio, sr):
         _audit_log({"bias": False})
         return False, None
     except Exception as e:
-        logger.error(f"[detect_bias][Fehler] {e}")
+        logger.error("[detect_bias][Fehler] %s", e)
         _audit_log({"bias": False, "error": str(e)})
         return False, None
 
 
 def _audit_log(result):
-    logger.info(f"[AuditLog][artifact_bias_detection] Ergebnis: {result}")
+    logger.info("[AuditLog][artifact_bias_detection] Ergebnis: %s", result)
 
 
 # Integration in Pipeline: Nach jedem Verarbeitungsschritt aufrufen und ins Audit-Log schreiben!

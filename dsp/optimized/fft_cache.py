@@ -73,7 +73,7 @@ class CachedFFT:
         if enable_wisdom and wisdom_file:
             self._load_wisdom(wisdom_file)
 
-        logger.info(f"CachedFFT initialized with {num_threads} threads")
+        logger.info("CachedFFT initialized with %s threads", num_threads)
 
     def rfft(self, x: np.ndarray, n: int | None = None, axis: int = -1) -> np.ndarray:
         """
@@ -283,9 +283,9 @@ class CachedFFT:
                 with open(wisdom_path, "rb") as f:
                     wisdom = f.read()
                     pyfftw.import_wisdom(wisdom)
-                logger.info(f"Loaded FFTW wisdom from {wisdom_file}")
+                logger.info("Loaded FFTW wisdom from %s", wisdom_file)
             except Exception as e:
-                logger.warning(f"Failed to load wisdom: {e}")
+                logger.warning("Failed to load wisdom: %s", e)
 
     def save_wisdom(self, wisdom_file: str | None = None):
         """Save FFTW wisdom to file."""
@@ -302,9 +302,9 @@ class CachedFFT:
             wisdom = pyfftw.export_wisdom()
             with open(wisdom_path, "wb") as f:
                 f.write(wisdom)
-            logger.info(f"Saved FFTW wisdom to {wisdom_file}")
+            logger.info("Saved FFTW wisdom to %s", wisdom_file)
         except Exception as e:
-            logger.error(f"Failed to save wisdom: {e}")
+            logger.error("Failed to save wisdom: %s", e)
 
     def clear_cache(self):
         """Clear FFT plan cache."""

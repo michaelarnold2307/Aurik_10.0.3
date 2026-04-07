@@ -240,11 +240,17 @@ class DacPlugin:
                 logger.debug("Plugin operation failed (non-critical): %s", _exc)
 
             opts = _make_session_options()
-            kwargs: dict = {"providers": ["CPUExecutionProvider"]}
             if opts is not None:
-                kwargs["sess_options"] = opts
-
-            self._enc_session = ort.InferenceSession(str(_ENCODER_PATH), **kwargs)
+                self._enc_session = ort.InferenceSession(
+                    str(_ENCODER_PATH),
+                    sess_options=opts,
+                    providers=["CPUExecutionProvider"],
+                )
+            else:
+                self._enc_session = ort.InferenceSession(
+                    str(_ENCODER_PATH),
+                    providers=["CPUExecutionProvider"],
+                )
             self._enc_loaded = True
             logger.info("✅ DAC encoder ONNX geladen (%s)", _ENCODER_PATH.name)
             try:
@@ -265,7 +271,17 @@ class DacPlugin:
                 except Exception as _exc:
                     logger.debug("Plugin operation failed (non-critical): %s", _exc)
 
-                self._dec_session = ort.InferenceSession(str(_DECODER_PATH), **kwargs)
+                if opts is not None:
+                    self._dec_session = ort.InferenceSession(
+                        str(_DECODER_PATH),
+                        sess_options=opts,
+                        providers=["CPUExecutionProvider"],
+                    )
+                else:
+                    self._dec_session = ort.InferenceSession(
+                        str(_DECODER_PATH),
+                        providers=["CPUExecutionProvider"],
+                    )
                 self._dec_loaded = True
                 logger.info("✅ DAC decoder ONNX geladen (%s)", _DECODER_PATH.name)
                 try:

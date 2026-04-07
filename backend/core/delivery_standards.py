@@ -399,7 +399,7 @@ class LoudnessAnalyzer:
             return np.array(loudness_values)
 
         except Exception as e:
-            logger.warning(f"Short-term loudness calculation failed: {e}")
+            logger.warning("Short-term loudness calculation failed: %s", e)
             return np.array([])
 
 
@@ -455,7 +455,7 @@ class TruePeakLimiter:
             return result.astype(audio.dtype)
 
         except Exception as e:
-            logger.warning(f"True Peak limiting failed: {e}, using simple clipper")
+            logger.warning("True Peak limiting failed: %s, using simple clipper", e)
             # Fallback: Simple hard clip
             return np.clip(audio, -self.threshold_linear, self.threshold_linear)
 
@@ -570,17 +570,17 @@ class BWFMetadataWriter:
                     new_raw = new_raw[:4] + struct.pack("<I", new_riff_size) + new_raw[8:]
                     with open(audio_file_path, "wb") as fh:
                         fh.write(new_raw)
-                    logger.info(f"BWF/BEXT-Chunk geschrieben: {audio_file_path} ({len(bext_content)} Bytes)")
+                    logger.info("BWF/BEXT-Chunk geschrieben: %s (%s Bytes)", audio_file_path, len(bext_content))
                     return True
 
             # Fallback: Nur Logging
-            logger.info(f"BWF Metadata (nur Log, kein BEXT möglich für {audio_file_path}):")
-            logger.info(f"  Description: {description[:256]}")
-            logger.info(f"  Originator: {originator[:32]}")
+            logger.info("BWF Metadata (nur Log, kein BEXT möglich für %s):", audio_file_path)
+            logger.info("  Description: %s", description)
+            logger.info("  Originator: %s", originator)
             return True
 
         except Exception as e:
-            logger.error(f"BWF metadata writing failed: {e}")
+            logger.error("BWF metadata writing failed: %s", e)
             return False
 
 
@@ -649,7 +649,7 @@ class DeliveryStandardsManager:
         if config is None:
             raise ValueError(f"Unknown standard: {standard}")
 
-        logger.info(f"🎯 Processing for standard: {config.name}")
+        logger.info("🎯 Processing for standard: %s", config.name)
 
         # === 1. Analyze Initial Loudness ===
         initial_metrics = self.loudness_analyzer.analyze(audio, sample_rate)
@@ -657,7 +657,7 @@ class DeliveryStandardsManager:
         initial_tp = initial_metrics["true_peak_dbtp"]
         initial_lra = initial_metrics["loudness_range"]
 
-        logger.info(f"  Initial: {initial_lufs:.1f} LUFS, TP {initial_tp:.1f} dBTP, LRA {initial_lra:.1f} LU")
+        logger.info("  Initial: %.1f LUFS, TP %.1f dBTP, LRA %.1f LU", initial_lufs, initial_tp, initial_lra)
 
         # === 2. Loudness Normalization ===
         if config.enable_loudness_normalization:
@@ -666,7 +666,7 @@ class DeliveryStandardsManager:
 
             audio_normalized = audio * gain_linear
 
-            logger.info(f"  Loudness Gain: {gain_db:+.1f} dB → Target {config.target_lufs:.1f} LUFS")
+            logger.info("  Loudness Gain: %+.1f dB → Target %.1f LUFS", gain_db, config.target_lufs)
         else:
             audio_normalized = audio.copy()
             gain_db = 0.0
@@ -679,13 +679,13 @@ class DeliveryStandardsManager:
                 ratio=config.drc_ratio,
                 threshold_lufs=config.target_lufs - 6.0,  # Attack 6 LU below target
             )
-            logger.info(f"  DRC applied (ratio {config.drc_ratio}:1)")
+            logger.info("  DRC applied (ratio %s:1)", config.drc_ratio)
 
         # === 4. True Peak Limiting ===
         if config.enable_true_peak_limiting:
             limiter = TruePeakLimiter(threshold_dbtp=config.true_peak_max_dbtp, lookahead_ms=5.0, release_ms=100.0)
             audio_limited = limiter.limit(audio_normalized, sample_rate)
-            logger.info(f"  True Peak limited to {config.true_peak_max_dbtp:.1f} dBTP")
+            logger.info("  True Peak limited to %.1f dBTP", config.true_peak_max_dbtp)
         else:
             audio_limited = audio_normalized
 
@@ -695,16 +695,16 @@ class DeliveryStandardsManager:
         final_tp = final_metrics["true_peak_dbtp"]
         final_lra = final_metrics["loudness_range"]
 
-        logger.info(f"  Final: {final_lufs:.1f} LUFS, TP {final_tp:.1f} dBTP, LRA {final_lra:.1f} LU")
+        logger.info("  Final: %.1f LUFS, TP %.1f dBTP, LRA %.1f LU", final_lufs, final_tp, final_lra)
 
         # === 6. Compliance Check ===
         lufs_deviation = abs(final_lufs - config.target_lufs)
         compliant = lufs_deviation <= config.lufs_tolerance and final_tp <= config.true_peak_max_dbtp
 
         if compliant:
-            logger.info(f"  ✅ COMPLIANT with {config.name}")
+            logger.info("  ✅ COMPLIANT with %s", config.name)
         else:
-            logger.warning(f"  ⚠ NOT FULLY COMPLIANT (deviation: {lufs_deviation:.2f} LU)")
+            logger.warning("  ⚠ NOT FULLY COMPLIANT (deviation: %.2f LU)", lufs_deviation)
 
         # === 7. BWF Metadata (wenn erforderlich) ===
         metadata = {}
@@ -789,7 +789,7 @@ class DeliveryStandardsManager:
             return audio * gain_smooth
 
         except Exception as e:
-            logger.warning(f"DRC failed: {e}, returning original")
+            logger.warning("DRC failed: %s, returning original", e)
             return audio
 
 
@@ -809,8 +809,11 @@ def list_available_standards() -> dict[str, str]:
 if __name__ == "__main__":
     import soundfile as sf
 
+    from backend.file_import import load_audio_file
+
     # Load test audio
-    audio, sr = sf.read("test_audio/test_input.wav")
+    _res = load_audio_file("test_audio/test_input.wav")
+    audio, sr = np.asarray(_res["audio"], dtype=np.float32), int(_res["sr"])
 
     # Process for EBU R128
     manager = DeliveryStandardsManager()
@@ -825,9 +828,9 @@ if __name__ == "__main__":
     # Save result
     sf.write("test_output/ebu_r128_compliant.wav", result["audio"], sr)
 
-    logger.debug(f"\n✅ {result['standard_name']} Processing Complete")
-    logger.debug(f"   Initial Loudness: {result['initial_loudness']:.1f} LUFS")
-    logger.debug(f"   Final Loudness: {result['final_loudness']:.1f} LUFS")
-    logger.debug(f"   Gain Applied: {result['gain_applied_db']:+.1f} dB")
-    logger.debug(f"   True Peak: {result['true_peak_dbtp']:.1f} dBTP")
-    logger.debug(f"   Compliant: {result['compliant']}")
+    logger.debug("\n✅ %s Processing Complete", result['standard_name'])
+    logger.debug("   Initial Loudness: %.1f LUFS", result['initial_loudness'])
+    logger.debug("   Final Loudness: %.1f LUFS", result['final_loudness'])
+    logger.debug("   Gain Applied: %.1f dB", result['gain_applied_db'])
+    logger.debug("   True Peak: %.1f dBTP", result['true_peak_dbtp'])
+    logger.debug("   Compliant: %s", result['compliant'])

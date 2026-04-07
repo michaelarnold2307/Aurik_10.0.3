@@ -21,11 +21,11 @@ aufgerufen via `MusicalGoalsChecker.measure_all(audio, sr)`.
 | **Mikro-Dynamik** (`MicroDynamicsMetric`) | Momentane LUFS-Profil-Korrelation (400 ms-Fenster), Crest-Faktor-Erhalt ≤ 1.5 dB | **3** | ≥ **0.88** | ≥ **0.92** |
 | **Groove** (`GrooveMetric`) | Mikro-Timing, Swing, Event-Onset-Präzision (DTW ≤ 8 ms RMS) | **3** | ≥ **0.83** | ≥ **0.88** |
 | **Transparenz** (`TransparenzMetric`) | Klarheit, Trennung der Klangelemente | **4** | ≥ **0.82** | ≥ **0.89** |
-| **Wärme** (`WaermeMetric`) | Warmth Ratio E(200–800 Hz) E(800–3000 Hz) — reverb-invariantes Sub-Band-Verhältnis (§9.7.14); **nicht** 200–2000 Hz Einband-Messung (veraltet, SNR-sensitiv) | **4** | ≥ **0.75** | ≥ **0.80** |
-| **Bass-Kraft** (`BassKraftMetric`) | Bassenergie 20–250 Hz + Virtual Pitch (Missing Fundamental, Obertöne 120–500 Hz) | **4** | ≥ **0.78** | ≥ **0.85** |
-| **Separation-Treue** (`SeparationFidelityMetric`) | SDR ≥ 8 dB / SIR ≥ 12 dB nach NMF-Dekomposition | **4** | ≥ **0.78** | ≥ **0.82** |
-| **Brillanz** (`BrillanzMetric`) | HF-Klarheit, 8–20 kHz — Sparkle & Air | **5** | ≥ **0.78** | ≥ **0.85** |
-| **Raumtiefe** (`SpatialDepthMetric`) | IACC (Interaural Cross-Correlation, Blauert 1997) + Stereobreite + Phantom-Center-Stabilität; IACC < 0.70 → wahrnehmb. Zusammenbruch | **5** | ≥ **0.70** | ≥ **0.75** |
+| **Wärme** (`WaermeMetric`) | Primär: Even-Harmonic-Ratio (H2/H4 THD_even/THD_total, ISO 226:2023 gewichtet) — misst wahrgenommene Röhren-/Band-Wärme; Sekundär: Warmth Ratio E(200–800)/E(800–3000) als Spektral-Tilt-Proxy (§9.7.14) | **4** | ≥ **0.75** | ≥ **0.80** |
+| **Bass-Kraft** (`BassKraftMetric`) | Bassenergie 20–250 Hz + Virtual Pitch (Missing Fundamental, Obertöne 120–500 Hz) | **4** | ≥ **0.78** | ≥ **0.88** |
+| **Separation-Treue** (`SeparationFidelityMetric`) | SDR ≥ 8 dB / SIR ≥ 12 dB nach NMF-Dekomposition | **4** | ≥ **0.78** | ≥ **0.85** |
+| **Brillanz** (`BrillanzMetric`) | HF-Klarheit, 8–20 kHz — Sparkle & Air | **5** | ≥ **0.78** | ≥ **0.90** |
+| **Raumtiefe** (`SpatialDepthMetric`) | IACC (Interaural Cross-Correlation, Blauert 1997) + Stereobreite + Phantom-Center-Stabilität; IACC < 0.70 → wahrnehmb. Zusammenbruch | **5** | ≥ **0.70** | ≥ **0.78** |
 
 > **v9.10.77 Pareto-Differenzierung**: Restoration-Modus senkt P3–P5-Schwellwerte auf physikalisch erreichbare Werte (Pareto-Konflikte: Bass↔Transparenz [0.7], Brillanz↔Wärme [0.6]). P1/P2 bleiben identisch. Studio 2026 behält ambitionierte Ziele.
 > **Schwellwert-Validierung**: Die Schwellwerte für alle 14 Ziele wurden algorithmisch aus AMRB-Bench­mark­daten (10 Szenarien, Ø OQS-Kalibrierung) abgeleitet. Ein ITU-R BS.1534-3 MUSHRA-Hörertest steht als externe Validierung aus (geplant). Bis zur Validierung gelten die Werte als „best engineering estimate“. Die Schwellwerte dürfen NUR nach dokumentiertem Hörertest geändert werden.
@@ -186,6 +186,27 @@ thresholds, config, quality_assessment = get_adaptive_goals_and_config(audio, sr
 - Absolute Untergrenze: adaptive_t ≥ 0.50 (unter 0.50 → Goal deaktivieren)
 - NaN in restorability_score → alle Schwellwerte auf Original-Werte
 
+### §2.31d Kombinierte Extrembedingungen (v9.10.123)
+
+Wenn **mehrere** erschwerende Faktoren gleichzeitig vorliegen, kaskadieren die Adaptionen:
+
+| Kombination | Zusätzliche Anpassung |
+| --- | --- |
+| restorability < 20 **+** Material ∈ {SHELLAC, WAX_CYLINDER} | scale_factor = 0.65 statt 0.75; alle P3–P5 Goals → Untergrenze 0.50; Pipeline-Ziel = „Hörbar machen" |
+| restorability < 30 **+** Era ≤ 1940 | Vintage-Aesthetics-Schutz verstärken: H2/H4-Preservation-Guard → G_FLOOR_HARMONIC = 0.92; kein Brillanz-Enhancement |
+| Material = SHELLAC **+** Era ≤ 1930 **+** BW < 5 kHz | Brillanz-Goal deaktivieren (physikalisch unmöglich); Wärme-Goal als nicht-bindend markieren |
+| Dateilänge < 10 s | GrooveMetric + MicroDynamicsMetric + EmotionalArcPreservation deaktivieren; FeedbackChain max 2 Iterationen |
+| Dateilänge > 60 min | SegmentAdaptiveProcessor aktivieren; DefectScanner auf 3×60-s-Segmente (Anfang/Mitte/Ende) |
+
+### §2.31e Prior-Konflikt-Auflösung (v9.10.123)
+
+Wenn Ära-Prior und Material-Prior widersprüchliche Anpassungen ergeben:
+
+- **Physikalische Grenzen** (BW, Noise-Floor, Frequenzgang): **Material-Prior hat Vorrang** — das tatsächliche physikalische Medium bestimmt, was maximal erreichbar ist
+- **Ästhetische Entscheidungen** (Vintage-Wärme, Raumhall, Soft-Saturation): **Ära-Prior hat Vorrang** — der Zeitgeist der Aufnahme bestimmt, welcher Klangcharakter bewahrt wird
+- **Defekt-Schwellen** (Click-Sensitivity, Hum-Threshold): **Material-Prior hat Vorrang** — analoge Medien haben andere Artefakt-Signaturen als digitale
+- **Genre-Profil vs. alle anderen Priors**: Genre-Profil-`*_enabled: False`-Keys sind absolute Overrides (§2.20 Spec 03)
+
 **Restorability-Skalierungsfaktoren — Formale Ableitung:**
 Die Stufenwerte 1.00 / 0.93 / 0.85 / 0.75 sind aus dem PhysicalCeilingEstimator hergeleitet:
 
@@ -241,7 +262,10 @@ Nutzer-Meldung wenn Decke erreicht (Deutsch):
 5. **Tonale Stabilität**: Chroma-Pearson ≥ 0.95
 6. **Groove**: Event-Onset-DTW ≤ 8 ms RMS — kein Begradigen von Swing/Rubato
 7. **Pass-Through-Invariante** (SNR > 40 dB): PQS-MOS-Verlust ≤ 0.05, alle 14 Goals ±0.02, LUFS ≤ 0.3 LU, Chroma ≥ 0.99
-8. **Rauschboden**: Residual ≤ −72 dBFS, A-gew. ≤ −75 dB(A), 0 Musical-Noise-Events in Stille
+8. **Rauschboden** (modus-differenziert):
+   - **Restoration**: Material-adaptiv — Rauschboden des originalen Aufnahmemediums anstreben. Ein Studio-Tape von 1965 hatte ≈ −60 dBFS; erzwungene −72 dBFS entfernt Studio-Ambience und zerstört Raumklang. Richtgrößen: Shellac ≤ −45 dBFS, Vinyl ≤ −55 dBFS, Tape ≤ −60 dBFS, Digital ≤ −72 dBFS.
+   - **Studio 2026**: ≤ −72 dBFS, A-gew. ≤ −75 dB(A), 0 Musical-Noise-Events in Stille
+   - **Beide Modi**: 0 Musical-Noise-Events in Stille-Segmenten (Musical Noise ist immer ein Artefakt)
 9. **Mikro-Dynamik**: Pearson des 400 ms LUFS-Profils ≥ 0.92, Crest-Faktor ≤ 1.5 dB
 10. **Vintage Aesthetics** (automatisch via EraClassifier):
     - 1920–1940: Rolloff ≤ 7 kHz nicht künstlich erweitern

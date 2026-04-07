@@ -251,7 +251,7 @@ class MusicalQualityAssurance:
         )
 
         if not gate_ok:
-            logger.warning(f"Quality gate failed: {reason}")
+            logger.warning("Quality gate failed: %s", reason)
             # Rollback or stop
 
         # After processing
@@ -261,7 +261,7 @@ class MusicalQualityAssurance:
         )
 
         if not report.quality_guaranteed:
-            logger.error(f"Quality not guaranteed: {report.verdict}")
+            logger.error("Quality not guaranteed: %s", report.verdict)
     """
 
     VERSION = "1.0.0"
@@ -574,7 +574,7 @@ class MusicalQualityAssurance:
     def __init__(self):
         """Initialize Musical Quality Assurance System."""
         self.analyzer = QualityAnalyzer()
-        logger.info(f"Musical Quality Assurance System initialized (v{self.VERSION})")
+        logger.info("Musical Quality Assurance System initialized (v%s)", self.VERSION)
 
     def establish_baseline(
         self, audio: np.ndarray, sample_rate: int, medium_type: MediumType, processing_mode: ProcessingMode
@@ -593,10 +593,10 @@ class MusicalQualityAssurance:
         """
         baseline = self.analyzer.analyze_quality(audio, sample_rate)
 
-        logger.info(f"Quality Baseline: {baseline.overall_score:.1f}/100 ({baseline.quality_level.value})")
-        logger.info(f"  Medium: {medium_type.value}, Mode: {processing_mode.value}")
-        logger.info(f"  SNR: {baseline.snr_db:.1f} dB, Clarity: {baseline.clarity:.2f}, Warmth: {baseline.warmth:.2f}")
-        logger.info(f"  Authenticity: {baseline.authenticity:.2f}, Naturalness: {baseline.naturalness:.2f}")
+        logger.info("Quality Baseline: %.1f/100 (%s)", baseline.overall_score, baseline.quality_level.value)
+        logger.info("  Medium: %s, Mode: %s", medium_type.value, processing_mode.value)
+        logger.info("  SNR: %.1f dB, Clarity: %.2f, Warmth: %.2f", baseline.snr_db, baseline.clarity, baseline.warmth)
+        logger.info("  Authenticity: %.2f, Naturalness: %.2f", baseline.authenticity, baseline.naturalness)
 
         return baseline
 
@@ -630,7 +630,7 @@ class MusicalQualityAssurance:
         mode_standards = self.MODE_STANDARDS.get(processing_mode)
 
         if not medium_gates or not mode_standards:
-            logger.warning(f"No gates defined for {medium_type.value}/{processing_mode.value}")
+            logger.warning("No gates defined for %s/%s", medium_type.value, processing_mode.value)
             return True, "No gates defined"
 
         # Check medium-specific gates
@@ -871,14 +871,14 @@ class MusicalQualityAssurance:
 
         # Log results
         if passed:
-            logger.info(f"✓ Musical integrity check PASSED (integrity: {overall_integrity:.2%})")
+            logger.info("✓ Musical integrity check PASSED (integrity: %.1f%%)", overall_integrity * 100)
             logger.info(
                 f"  Character preserved: {character_preservation:.2%}, Naturalness change: {naturalness_change:+.2f}"
             )
         else:
-            logger.warning(f"⚠ Musical integrity check FAILED ({len(violations)} violations)")
+            logger.warning("⚠ Musical integrity check FAILED (%s violations)", len(violations))
             for violation in violations:
-                logger.warning(f"  - {violation.value}: {violation_details[violation]}")
+                logger.warning("  - %s: %s", violation.value, violation_details[violation])
             if should_rollback:
                 logger.warning("  → OPTIMIZATION RECOMMENDED: Try reduced intensity")
             if should_stop_processing:
@@ -1021,26 +1021,26 @@ class MusicalQualityAssurance:
         )
 
         # Log report
-        logger.info(f"Input Quality:  {input_quality.overall_score:.1f}/100 ({input_quality.quality_level.value})")
-        logger.info(f"Output Quality: {output_quality.overall_score:.1f}/100 ({output_quality.quality_level.value})")
-        logger.info(f"Musical Improvement: {musical_improvement:+.1%}")
-        logger.info(f"Processing Intensity: {processing_intensity:.1%} ({len(modules_applied)} modules)")
-        logger.info(f"Authenticity Preserved: {authenticity_preserved}")
-        logger.info(f"Character Preserved: {character_preserved} ({integrity_result.character_preservation:.1%})")
-        logger.info(f"Natural Sound: {natural_sound} (naturalness: {output_quality.naturalness:.2f})")
-        logger.info(f"Musical Integrity: {integrity_result.overall_integrity:.1%}")
+        logger.info("Input Quality:  %.1f/100 (%s)", input_quality.overall_score, input_quality.quality_level.value)
+        logger.info("Output Quality: %.1f/100 (%s)", output_quality.overall_score, output_quality.quality_level.value)
+        logger.info("Musical Improvement: %+.1f%%", musical_improvement * 100)
+        logger.info("Processing Intensity: %.1f%% (%s modules)", processing_intensity * 100, len(modules_applied))
+        logger.info("Authenticity Preserved: %s", authenticity_preserved)
+        logger.info("Character Preserved: %s (%.1f%%)", character_preserved, integrity_result.character_preservation * 100)
+        logger.info("Natural Sound: %s (naturalness: %.2f)", natural_sound, output_quality.naturalness)
+        logger.info("Musical Integrity: %.1f%%", integrity_result.overall_integrity * 100)
         logger.info("")
-        logger.info(f"VERDICT: {verdict}")
+        logger.info("VERDICT: %s", verdict)
 
         if warnings:
             logger.warning("WARNINGS:")
             for warning in warnings:
-                logger.warning(f"  ⚠ {warning}")
+                logger.warning("  ⚠ %s", warning)
 
         if recommendations:
             logger.info("RECOMMENDATIONS:")
             for rec in recommendations:
-                logger.info(f"  → {rec}")
+                logger.info("  → %s", rec)
 
         logger.info("=" * 60)
 
@@ -1194,9 +1194,13 @@ if __name__ == "__main__":
     # Example: Validate VINYL restoration
     import soundfile as sf
 
+    from backend.file_import import load_audio_file
+
     # Load audio
-    original, sr = sf.read("input/vinyl_recording.wav")
-    processed, _ = sf.read("output/vinyl_restored.wav")
+    _res1 = load_audio_file("input/vinyl_recording.wav")
+    original, sr = np.asarray(_res1["audio"], dtype=np.float32), int(_res1["sr"])
+    _res2 = load_audio_file("output/vinyl_restored.wav")
+    processed = np.asarray(_res2["audio"], dtype=np.float32)
 
     # Create MQA system
     mqa = MusicalQualityAssurance()
@@ -1214,6 +1218,6 @@ if __name__ == "__main__":
     if report.quality_guaranteed:
         logger.debug("✓ Quality guaranteed - ready for delivery")
     else:
-        logger.debug(f"❌ Quality issues: {report.verdict}")
+        logger.debug("❌ Quality issues: %s", report.verdict)
         for warning in report.warnings:
-            logger.debug(f"  - {warning}")
+            logger.debug("  - %s", warning)

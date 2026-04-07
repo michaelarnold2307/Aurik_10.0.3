@@ -150,7 +150,7 @@ class DSPDecisionLogic:
             audit_path = base + "_audit.json"
             with open(audit_path, "w") as f:
                 json.dump(report, f, indent=2)
-            logger.info(f"[Audit] SOTA-Qualitätsreport gespeichert: {audit_path}")
+            logger.info("[Audit] SOTA-Qualitätsreport gespeichert: %s", audit_path)
         else:
             logger.info("[Audit] SOTA-Qualitätsreport:", report)
         return passed, report
@@ -203,7 +203,7 @@ class DSPDecisionLogic:
             if "policy" in config:
                 self.policy.update(config["policy"])
         except Exception as e:
-            logger.error(f"[DecisionLogic] Fehler beim Laden der YAML-Konfiguration: {e}")
+            logger.error("[DecisionLogic] Fehler beim Laden der YAML-Konfiguration: %s", e)
 
     def analyze_context(self, audio, sr: int) -> list[str]:
         """
@@ -313,9 +313,9 @@ class DSPDecisionLogic:
                 elif hasattr(mod, "dereverberate"):
                     out = mod.dereverberate(out, sr)
                 else:
-                    logger.info(f"[DecisionLogic] Modul {mod_name} hat keine bekannte Verarbeitungsmethode.")
+                    logger.info("[DecisionLogic] Modul %s hat keine bekannte Verarbeitungsmethode.", mod_name)
             except Exception as e:
-                logger.error(f"[DecisionLogic] Fehler bei {mod_name}: {e}")
+                logger.error("[DecisionLogic] Fehler bei %s: %s", mod_name, e)
         # Qualitätsprüfung: Dumpfheit, Transparenz, musikalische Präsenz
         # SOTA-Maximum-Qualitätskontrolle nach der Kette
         out_path = None

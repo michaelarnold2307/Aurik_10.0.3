@@ -146,11 +146,11 @@ class PhysicalMediumChainModel:
         else:
             logger.debug("Kein Kettenmodell für %s — keine Korrektur angewendet.", material.value)
 
-        # Pegel-Erhalt (Peak-Normalisierung nach Kettenentzerrung)
+        # Safety only: avoid loudness-changing peak rescale.
         peak = np.max(np.abs(audio_out))
-        if peak > 0.99:
-            audio_out = audio_out * (0.98 / peak)
-            corrections.append("peak_normalization")
+        if peak > 1.0:
+            audio_out = np.clip(audio_out, -1.0, 1.0)
+            corrections.append("safety_clamp")
 
         # Spektrale Änderung berechnen (für Audit)
         spectral_change = self._measure_spectral_change(audio, audio_out, sample_rate)
@@ -236,9 +236,9 @@ class PhysicalMediumChainModel:
             spectral_changes.append(step_result.spectral_change_db)
 
         peak = np.max(np.abs(audio_out))
-        if peak > 0.99:
-            audio_out = audio_out * (0.98 / peak)
-            all_corrections.append("chain_sequence_peak_normalization")
+        if peak > 1.0:
+            audio_out = np.clip(audio_out, -1.0, 1.0)
+            all_corrections.append("chain_sequence_safety_clamp")
 
         primary_material_str = detected_media[0][0] if detected_media else "digital"
         primary_material = _FORENSIC_TO_MATERIAL.get(primary_material_str, MaterialType.UNKNOWN)

@@ -215,7 +215,9 @@ class UnifiedRestorerV3:
     Unified Restorer V3 - Defect-First Audio Restoration Engine.
 
     Usage:
-        restorer = UnifiedRestorerV3(mode=QualityMode.QUALITY)
+        restorer = UnifiedRestorerV3()  # default QUALITY mode
+        # or with explicit config:
+        restorer = UnifiedRestorerV3(RestorationConfig(mode=QualityMode.FAST))
         result = restorer.restore(audio, sample_rate=44100)
         restored_audio = result.audio
     """
@@ -261,12 +263,6 @@ class UnifiedRestorerV3:
                 self.phase_skipper = None
         else:
             self.phase_skipper = None
-
-        logger.info(
-            f"UnifiedRestorerV3 initialized: Mode={self.config.mode.value}, "
-            f"Cores={self.config.num_cores}, RT Limit={self.config.enforce_3x_rt}, "
-            f"Phase Skipping={self.config.enable_phase_skipping}"
-        )
 
     def is_studio_mode(self) -> bool:
         """Return True if running in Studio 2026 mode.
@@ -470,6 +466,7 @@ class UnifiedRestorerV3:
         defect_scores: dict[str, float] | None = None,
         panns_tags: dict[str, float] | None = None,
         spectral_fingerprint: dict[str, float] | None = None,
+        transfer_chain: list[str] | None = None,
         is_schlager: bool = False,
         genre_label: str = "",
     ) -> dict[str, Any]:
@@ -814,6 +811,7 @@ class UnifiedRestorerV3:
                 era_decade=era_decade,
                 material_key=_mat_val,
                 spectral_fingerprint=spectral_fingerprint,
+                transfer_chain=transfer_chain,
                 mode=_mode_str,
             )
             _sfr_bw_target = _sfr_target.bandwidth_extension_target_hz
@@ -865,11 +863,37 @@ class UnifiedRestorerV3:
             "source_fidelity_generation_count": _sfr_gen_count,
             "source_fidelity_hf_loss_db": _sfr_hf_loss,
             "source_fidelity_harmonic_density": _sfr_harm_density,
+            "source_fidelity_transfer_chain": list(transfer_chain) if transfer_chain else [],
             # §2.41 (v9.10.116) SOTA: Ära-Mikrofon-Typ + Presence-Center für Phase 38:
             "source_fidelity_era_mic_type": _sfr_era_mic_type,
             "source_fidelity_presence_hz_lower": _sfr_presence_lower,
             "source_fidelity_presence_hz_upper": _sfr_presence_upper,
         }
+
+    @staticmethod
+    def _extract_transfer_chain_from_forensics(raw_chain: Any) -> list[str] | None:
+        """Extract normalized transfer chain from forensic/raw chain containers."""
+        if raw_chain is None:
+            return None
+
+        chain_src: Any = None
+        if isinstance(raw_chain, dict):
+            chain_src = raw_chain.get("transfer_chain") or raw_chain.get("chain")
+        else:
+            chain_src = getattr(raw_chain, "transfer_chain", None) or getattr(raw_chain, "chain", None)
+
+        if chain_src is None:
+            return None
+
+        if isinstance(chain_src, str):
+            _tokens = [p.strip().lower() for p in chain_src.replace("→", ">").split(">") if p.strip()]
+            return _tokens or None
+
+        if isinstance(chain_src, (list, tuple)):
+            _out = [str(v).strip().lower() for v in chain_src if str(v).strip()]
+            return _out or None
+
+        return None
 
     @staticmethod
     def _get_phase_calibration_scalar(phase_id: str, profile: dict[str, Any] | None) -> float:
@@ -1065,7 +1089,7 @@ class UnifiedRestorerV3:
                         }
                         break  # Only one PhaseInterface subclass per module file
             except Exception as e:
-                logger.warning(f"Phase-Modul {modulename} konnte nicht geladen werden: {e}")
+                logger.warning("Phase-Modul %s konnte nicht geladen werden: %s", modulename, e)
         return metadata
 
     # Phase aliases: maps non-existent phase IDs to their canonical replacements.
@@ -1090,7 +1114,7 @@ class UnifiedRestorerV3:
                 return self._phase_cache[phase_id]
             meta = self.phase_metadata.get(phase_id)
             if not meta:
-                logger.error(f"Phase {phase_id} nicht gefunden (weder Registry noch Metadaten)")
+                logger.error("Phase %s nicht gefunden (weder Registry noch Metadaten)", phase_id)
                 return None
             try:
                 phase_instance = meta["class"]()
@@ -1216,6 +1240,22 @@ class UnifiedRestorerV3:
         # Robuste Sample-Count-Ermittlung: (N,2) → N, (2,N) → N, (N,) → N
         _n_samples = max(audio.shape) if audio.ndim == 2 else len(audio)
         logger.info("Starting restoration: %.1fs audio @ %d Hz", _n_samples / sample_rate, sample_rate)
+        # §2.31d Edge-Case flags — computed once, used throughout restore().
+        _audio_duration_s: float = float(_n_samples) / float(sample_rate)
+        _is_very_short: bool = _audio_duration_s < 10.0   # Groove/MicroDyn/EmotionalArc off
+        _is_very_long: bool = _audio_duration_s > 3600.0  # DefectScanner 3×60s-Segmente
+        if _is_very_short:
+            logger.info(
+                "§2.31d Edge-Case: Audio %.1fs < 10s — "
+                "Groove + MicroDyn + EmotionalArc werden deaktiviert, FeedbackChain max 2 Iter",
+                _audio_duration_s,
+            )
+        if _is_very_long:
+            logger.info(
+                "§2.31d Edge-Case: Audio %.0fs > 60 min — "
+                "DefectScanner auf 3×60-s-Segmente (Anfang/Mitte/Ende)",
+                _audio_duration_s,
+            )
 
         # ── Early-Exit Guard: Minimum Signal Length ───────────────────────────
         # Signals shorter than 100 ms (4800 samples @ 48 kHz) cannot be meaningfully
@@ -1259,6 +1299,7 @@ class UnifiedRestorerV3:
         # Early initialization of variables used before their main definition (avoids F821)
         _is_studio_26 = self.is_studio_mode()
         _goal_applicability_result = None
+        _emotional_arc_result: Any = None
         # Structured error accumulator — persists into RestorationResult.metadata["fail_reasons"]
         # Each entry: {"component": str, "error_code": str, "exc_type": str, "exc_msg": str}
         _fail_reasons: list[dict[str, Any]] = []
@@ -1278,7 +1319,7 @@ class UnifiedRestorerV3:
         # Resample to 48 kHz if necessary
         if sample_rate != target_sample_rate:
             if LIBROSA_AVAILABLE:
-                logger.info(f"Resampling {sample_rate} Hz → {target_sample_rate} Hz for standardized processing")
+                logger.info("Resampling %s Hz → %s Hz for standardized processing", sample_rate, target_sample_rate)
                 if audio.ndim == 2:
                     # Stereo: resample each channel — handle both (N,2) and (2,N) layouts
                     if audio.shape[0] > audio.shape[1]:
@@ -2193,8 +2234,27 @@ class UnifiedRestorerV3:
             defect_result = _cached_defect_kwarg
             logger.info("Step 1/4: Verwende gecachten DefectScan (kein Mehrfach-Scan).")
         else:
+            # §2.31d: > 60 min → DefectScanner auf 3×60-s-Segmente (Anfang/Mitte/Ende).
+            # Verhindert OOM bei sehr langen Dateien; 3 repr. Segmente reichen für
+            # robuste Defekt-Klassifikation (Spec §2.31d, §2.47).
+            _defect_scan_audio = analysis_audio
+            if _is_very_long:
+                _seg_sr = analysis_sample_rate
+                _seg_len = min(60 * _seg_sr, analysis_audio.shape[-1] // 4 if analysis_audio.ndim > 1 else len(analysis_audio) // 4)
+                _n_full = analysis_audio.shape[-1] if analysis_audio.ndim > 1 else len(analysis_audio)
+                if _n_full >= 3 * _seg_len:
+                    _mid_start = _n_full // 2 - _seg_len // 2
+                    _s = analysis_audio[..., :_seg_len]
+                    _m = analysis_audio[..., _mid_start : _mid_start + _seg_len]
+                    _e = analysis_audio[..., -_seg_len:]
+                    _defect_scan_audio = np.concatenate([_s, _m, _e], axis=-1)
+                    logger.info(
+                        "§2.31d DefectScanner: 3×%.0fs-Segmente statt %.0fs Voll-Audio",
+                        _seg_len / _seg_sr,
+                        _n_full / _seg_sr,
+                    )
             defect_result = self.defect_scanner.scan(
-                analysis_audio,
+                _defect_scan_audio,
                 analysis_sample_rate,
                 _classified_material,
                 file_ext=_file_ext_for_scan,
@@ -2370,6 +2430,17 @@ class UnifiedRestorerV3:
         except Exception as _gaf_exc:
             logger.debug("GoalApplicabilityFilter nicht verfügbar: %s", _gaf_exc)
 
+        # §2.31d Edge-Case: < 10 s → Groove + MicroDyn nicht messbar (zu wenig Kontext)
+        if _is_very_short:
+            if _applicable_goals is None:
+                _applicable_goals = set()
+            _applicable_goals.discard("groove")
+            _applicable_goals.discard("micro_dynamics")
+            logger.info(
+                "§2.31d: %.1fs < 10s → groove + micro_dynamics aus applicable_goals entfernt",
+                _audio_duration_s,
+            )
+
         # §8.2 Pass-Through-Invariante: Sauberes Material schonend behandeln
         # (SNR > 40 dB + max_defect_severity < 0.15 → Schonmodus)
         _rms_signal = float(np.sqrt(np.mean(audio**2)) + 1e-9)
@@ -2430,6 +2501,9 @@ class UnifiedRestorerV3:
         _cal_sf: dict[str, float] = {}
         if hasattr(defect_result, "spectral_fingerprint") and isinstance(defect_result.spectral_fingerprint, dict):
             _cal_sf = defect_result.spectral_fingerprint
+        _cal_transfer_chain = self._extract_transfer_chain_from_forensics(
+            getattr(defect_result, "transfer_chain_raw", None)
+        )
         _cal_is_schlager = (
             bool(getattr(_schlager_result, "is_schlager", False)) if _schlager_result is not None else False
         )
@@ -2447,6 +2521,7 @@ class UnifiedRestorerV3:
             defect_scores=_cal_defect_sev if _cal_defect_sev else None,
             panns_tags=_panns_conf,  # from defect_result.metadata (already extracted above)
             spectral_fingerprint=_cal_sf if _cal_sf else None,
+            transfer_chain=_cal_transfer_chain,
             is_schlager=_cal_is_schlager,
             genre_label=_cal_genre_label,
         )
@@ -2523,7 +2598,51 @@ class UnifiedRestorerV3:
             pipeline_confidence=_pipeline_confidence,
             restorability_score=_pmgg_restorability_score,
         )
-        logger.info(f"Selected {len(selected_phases)} phases based on defects")
+        logger.info("Selected %s phases based on defects", len(selected_phases))
+
+        # §2.50 Material-Adaptive Gate Baseline: Stereo-Feldanalyse vor Pipeline.
+        # Erkennt pre-existing Trägerkettenprobleme im Quellmaterial und injiziert
+        # Remediation-Phasen (phase_14/phase_15) wenn nötig, bevor Phase-Skipping greift.
+        _src_baseline = None
+        try:
+            from backend.core.artifact_freedom_gate import get_artifact_freedom_gate as _get_afg_250
+
+            _afg_250 = _get_afg_250()
+            _mat_str_250 = str(getattr(material_type, "value", material_type)).lower() if material_type else "digital"
+            _src_baseline = _afg_250.measure_source_baseline(
+                audio, sample_rate, _mat_str_250
+            )
+            if _src_baseline.has_critical_stereo_issue:
+                _stereo_remedy_phases = [
+                    "phase_14_phase_correction",
+                    "phase_15_stereo_balance",
+                ]
+                _sel_set_250 = set(selected_phases)
+                _injected_250: list[str] = []
+                for _sp250 in _stereo_remedy_phases:
+                    if _sp250 not in _sel_set_250:
+                        selected_phases.append(_sp250)
+                        _sel_set_250.add(_sp250)
+                        _injected_250.append(_sp250)
+                if _injected_250:
+                    logger.warning(
+                        "§2.50 Stereo-Notfall-Remediation: ratio=%.2f, "
+                        "mean_compat=%.3f → injiziert: %s",
+                        _src_baseline.phase_cancellation_ratio,
+                        _src_baseline.stereo_mono_compat_mean,
+                        _injected_250,
+                    )
+            elif _src_baseline.has_anti_phase_region:
+                # Teilweise Anti-Phasigkeit: nur phase_14 (Phase-Korrektur)
+                if "phase_14_phase_correction" not in set(selected_phases):
+                    selected_phases.append("phase_14_phase_correction")
+                    logger.info(
+                        "§2.50 Anti-Phasen-Region erkannt → phase_14_phase_correction aktiviert"
+                    )
+        except Exception as _sb250_exc:
+            logger.debug("§2.50 Source-Baseline-Messung fehlgeschlagen: %s", _sb250_exc)
+        # Baseline für Pipeline speichern (Übergabe an _execute_pipeline via self)
+        self._source_material_baseline = _src_baseline
 
         # §2.8 Vocal-Chain: vocal_gender in RestorationContext injizieren
         # → wird automatisch via _profiled_phase_call in ALLE Phase-kwargs aufgenommen
@@ -2556,7 +2675,7 @@ class UnifiedRestorerV3:
                     f"({skipped_count / original_count * 100:.0f}% speedup potential)"
                 )
                 for phase_id, reason in skip_reasons.items():
-                    logger.debug(f"  Skipped {phase_id}: {reason}")
+                    logger.debug("  Skipped %s: %s", phase_id, reason)
 
         # §8.2 Pass-Through: nur minimale Phasen (LUFS-Norm + TruePeak) für sauberes Material
         if _pass_through_mode:
@@ -2876,6 +2995,7 @@ class UnifiedRestorerV3:
                 no_rt_limit=_no_rt_limit,
                 reconstruction_context=_reconstruction_ctx,  # §11.7a: Bereits reparierte Gaps
                 phoneme_timeline=_phoneme_timeline,  # §2.36a: PhonemeTimeline für Phasen 19/24/43/56
+                pre_transcription=_lge_trans_pre,  # §2.36: LGE pre-computed transcription for phase_58
             )
         finally:
             try:
@@ -2973,6 +3093,10 @@ class UnifiedRestorerV3:
                 # Iterationen auf 1 reduzieren (verhindert Artefaktakkumulation bei
                 # hochwertigem Material, Ephraim & Malah 1984).
                 _fc_max_iter = 5  # v9.15-B3: aligned with PMGG 5-retry strategy
+                # §2.31d: < 10 s → FeedbackChain max 2 Iterationen (zu kurz für FC-Konvergenz)
+                if _is_very_short:
+                    _fc_max_iter = min(_fc_max_iter, 2)
+                    logger.info("§2.31d: Audio < 10s → FeedbackChain max_iter auf 2 begrenzt")
                 if _fc_ceiling_val is not None:
                     try:
                         _fc_further_opt = getattr(_fc_pce_result, "further_optimization_worthwhile", True)
@@ -3900,46 +4024,77 @@ class UnifiedRestorerV3:
             logger.debug("GoalPriorityProtocol nicht verfügbar: %s", _gpp_exc)
 
         # §8.2 EmotionalArcPreservationMetric — Emotionaler Dynamik-Bogen-Erhalt (Punkt 12)
+        # §2.31d: < 10 s → EmotionalArcPreservation deaktivieren (kein repr. Arousal/Valence-Verlauf)
         _arc_result = None
-        try:
-            from backend.core.emotional_arc_preservation import measure_emotional_arc
+        if _is_very_short:
+            logger.info("§2.31d: Audio < 10s → EmotionalArcPreservationMetric deaktiviert")
+        else:
+            try:
+                from backend.core.emotional_arc_preservation import measure_emotional_arc
 
-            _arc_result = measure_emotional_arc(original_audio_for_goals, restored_audio, sample_rate)
-            if _arc_result.skipped:
-                logger.debug("EmotionalArc: übersprungen (Datei zu kurz, < 30 s)")
-            elif _arc_result.arc_preserved:
-                logger.info(
-                    "✅ EmotionalArc: Bogen erhalten — arousal_pearson=%.3f valence_pearson=%.3f",
-                    _arc_result.arousal_pearson,
-                    _arc_result.valence_pearson,
-                )
-            else:
-                logger.warning(
-                    "⚠️ EmotionalArc: Bogen nicht erfüllt — %s",
-                    _arc_result.reason,
-                )
-                # §8.2 Spec: bindende Rollback-Garantie → Pre-Excellence-Audio wiederherstellen
-                _are_p = getattr(_arc_result, "arousal_pearson", 0.0)
-                _val_p = getattr(_arc_result, "valence_pearson", 0.0)
-                if not (_are_p >= 0.85 and _val_p >= 0.80):
-                    restored_audio = _pre_excellence_audio.copy()
-                    _fail_reasons.append(
-                        {
-                            "component": "EmotionalArcPreservationMetric",
-                            "error_code": "ARC_REGRESSION_ROLLBACK",
-                            "severity": "critical",
-                            "arousal_pearson": round(_are_p, 4),
-                            "valence_pearson": round(_val_p, 4),
-                        }
-                    )
+                _arc_result = measure_emotional_arc(original_audio_for_goals, restored_audio, sample_rate)
+                if _arc_result.skipped:
+                    logger.debug("EmotionalArc: übersprungen (Datei zu kurz, < 30 s)")
+                elif _arc_result.arc_preserved:
                     logger.info(
-                        "↩️ EmotionalArc: Rollback auf Pre-Excellence-Audio "
-                        "(arousal=%.3f < 0.85 oder valence=%.3f < 0.80)",
-                        _are_p,
-                        _val_p,
+                        "✅ EmotionalArc: Bogen erhalten — arousal_pearson=%.3f valence_pearson=%.3f",
+                        _arc_result.arousal_pearson,
+                        _arc_result.valence_pearson,
                     )
-        except Exception as _eap_exc:
-            logger.debug("EmotionalArcPreservationMetric nicht verfügbar: %s", _eap_exc)
+                else:
+                    logger.warning(
+                        "⚠️ EmotionalArc: Bogen nicht erfüllt — %s",
+                        _arc_result.reason,
+                    )
+                    # §8.2 Spec: bindende Rollback-Garantie → Pre-Excellence-Audio wiederherstellen
+                    _are_p = getattr(_arc_result, "arousal_pearson", 0.0)
+                    _val_p = getattr(_arc_result, "valence_pearson", 0.0)
+
+                    # §2.47 Adaptive-Intelligence: Wow/Flutter-Korrektur verändert
+                    # die spektrale Flachheit legitim → Valence-Proxy fällt auf tape/vinyl.
+                    # Material-adaptive Schwelle: tape/vinyl + wow/flutter > 0.5 → 0.55.
+                    _wow_flutter_sev = float(
+                        max(
+                            defect_result.scores.get("wow", 0.0),
+                            defect_result.scores.get("flutter", 0.0),
+                        )
+                        if defect_result is not None and hasattr(defect_result, "scores")
+                        else 0.0
+                    )
+                    _mat = str(getattr(self, "_material_type", material_type or "digital")).lower()
+                    _valence_threshold = (
+                        0.55
+                        if _mat in ("tape", "reel_tape", "vinyl") and _wow_flutter_sev >= 0.5
+                        else 0.80
+                    )
+                    if _valence_threshold < 0.80:
+                        logger.info(
+                            "§2.47 EmotionalArc: material-adaptive Valence-Schwelle %.2f "
+                            "(material=%s wow/flutter=%.2f)",
+                            _valence_threshold, _mat, _wow_flutter_sev,
+                        )
+
+                    if not (_are_p >= 0.85 and _val_p >= _valence_threshold):
+                        restored_audio = _pre_excellence_audio.copy()
+                        _fail_reasons.append(
+                            {
+                                "component": "EmotionalArcPreservationMetric",
+                                "error_code": "ARC_REGRESSION_ROLLBACK",
+                                "severity": "critical",
+                                "arousal_pearson": round(_are_p, 4),
+                                "valence_pearson": round(_val_p, 4),
+                                "valence_threshold_used": _valence_threshold,
+                            }
+                        )
+                        logger.info(
+                            "↩️ EmotionalArc: Rollback auf Pre-Excellence-Audio "
+                            "(arousal=%.3f < 0.85 oder valence=%.3f < %.2f)",
+                            _are_p,
+                            _val_p,
+                            _valence_threshold,
+                        )
+            except Exception as _eap_exc:
+                logger.debug("EmotionalArcPreservationMetric nicht verfügbar: %s", _eap_exc)
 
         # §8.3 GoosebumpsQualityChecker — Holistische psychoakustische Qualitätsprüfung
         _goosebumps_result = None
@@ -4392,6 +4547,136 @@ class UnifiedRestorerV3:
                 _post_scan_exc,
             )
 
+        # §2.44 [RELEASE_MUST] HolisticPerceptualGate — HPI as final export gate
+        _hpi_result = None
+        _artifact_freedom_for_hpi = getattr(self, "_artifact_freedom_score", 1.0)
+        _emotional_arc_for_hpi = (
+            float(getattr(_emotional_arc_result, "preservation_score", 1.0))
+            if _emotional_arc_result is not None
+            else 1.0
+        )
+        try:
+            from backend.core.holistic_perceptual_gate import get_holistic_gate as _get_hg
+
+            _hg = _get_hg()
+            if self.is_studio_mode():
+                # Fallback 0.1: PQS-Modul nicht verfügbar → konservative Annahme leichter
+                # Verbesserung, damit kein False-Rollback durch HPI=0 ausgelöst wird (§2.44).
+                _pqs_impr = (_pqs_result.pqs_mos - 2.5) / 2.5 if _pqs_result is not None else 0.1
+                _hpi_result = _hg.evaluate_studio(
+                    original_audio_for_goals, restored_audio, sample_rate,
+                    pqs_improvement=_pqs_impr,
+                    artifact_freedom=_artifact_freedom_for_hpi,
+                    emotional_arc_score=_emotional_arc_for_hpi,
+                )
+            else:
+                _hpi_result = _hg.evaluate_restoration(
+                    original_audio_for_goals, restored_audio, sample_rate,
+                    artifact_freedom=_artifact_freedom_for_hpi,
+                    emotional_arc_score=_emotional_arc_for_hpi,
+                    restorability_score=float(getattr(self, "_restorability_score", 70.0)),
+                )
+            if not _hpi_result.passed:
+                _fail_reasons.append({
+                    "component": "HolisticPerceptualGate",
+                    "error_code": "HPI_FAIL",
+                    "severity": "failed",
+                    "hpi": _hpi_result.hpi,
+                    "artifact_freedom": _hpi_result.artifact_freedom,
+                })
+                # §2.44 [RELEASE_MUST] HPI ≤ 0 → Rollback auf weniger aggressive Variante.
+                # Rollback-Kaskade:
+                #   1. _hpi_best_rollback_audio — letzter artefaktfreier Pipeline-Stand (§2.49)
+                #   2. original_audio_for_goals — Eingabe vor Pipeline (Primum non nocere)
+                _rollback_target = getattr(self, "_hpi_best_rollback_audio", None)
+                if _rollback_target is None:
+                    try:
+                        _rollback_target = original_audio_for_goals
+                    except NameError:
+                        _rollback_target = None
+                # Bug C fix: Verify rollback target has healthy stereo balance before using it.
+                # If checkpoint has L/R imbalance > 20 dB (channel destroyed by stereo phases)
+                # while original was balanced, fall back to original_audio_for_goals instead.
+                if _rollback_target is not None and _rollback_target.ndim == 2 and _rollback_target.shape[0] == 2:
+                    _rb_l = float(np.sqrt(np.mean(_rollback_target[0] ** 2)) + 1e-12)
+                    _rb_r = float(np.sqrt(np.mean(_rollback_target[1] ** 2)) + 1e-12)
+                    if _rb_l > 1e-4 and _rb_r < _rb_l * 0.1:  # R > 20 dB below L
+                        _imb_db = 20.0 * np.log10(_rb_l / (_rb_r + 1e-12))
+                        logger.warning(
+                            "§2.44 HPI-Rollback-Checkpoint hat silent R-Kanal (%.1f dB Imbalance) "
+                            "— Fallback auf original_audio_for_goals (Primum non nocere)",
+                            _imb_db,
+                        )
+                        try:
+                            _rollback_target = original_audio_for_goals
+                        except NameError:
+                            _rollback_target = None
+                if _rollback_target is not None and _rollback_target.shape == restored_audio.shape:
+                    logger.warning(
+                        "§2.44 HPI-Rollback ausgelöst (HPI=%.4f ≤ 0) — "
+                        "restored_audio auf besten Rollback-Checkpoint zurückgesetzt",
+                        _hpi_result.hpi,
+                    )
+                    restored_audio = np.clip(
+                        np.nan_to_num(_rollback_target, nan=0.0, posinf=0.0, neginf=0.0),
+                        -1.0, 1.0,
+                    )
+                else:
+                    logger.warning(
+                        "§2.44 HPI-Rollback: kein kompatibler Checkpoint verfügbar "
+                        "(HPI=%.4f) — Export mit Pipeline-Ausgang (Fallback)",
+                        _hpi_result.hpi,
+                    )
+        except Exception as _hpi_exc:
+            logger.debug("§2.44 HolisticPerceptualGate nicht verfügbar: %s", _hpi_exc)
+
+        # §2.49 Export-Gate: artifact_freedom < 0.95 → rollback + fail_reason
+        # [RELEASE_MUST] "Kein Artefakt-behafteter Export" (§2.49 Invariante).
+        # Rollback-Kaskade (identisch §2.44):
+        #   1. _hpi_best_rollback_audio — letzter artefaktfreier Pipeline-Stand
+        #   2. original_audio_for_goals — Eingabe vor Pipeline (Primum non nocere)
+        if _artifact_freedom_for_hpi < 0.95:
+            _fail_reasons.append({
+                "component": "ArtifactFreedomGate",
+                "error_code": "ARTIFACT_FREEDOM_VETO",
+                "severity": "failed",
+                "artifact_freedom": _artifact_freedom_for_hpi,
+                "detail": getattr(self, "_artifact_freedom_detail", {}),
+            })
+            _afg_rollback_target = getattr(self, "_hpi_best_rollback_audio", None)
+            if _afg_rollback_target is None:
+                try:
+                    _afg_rollback_target = original_audio_for_goals
+                except NameError:
+                    _afg_rollback_target = None
+            if _afg_rollback_target is not None and _afg_rollback_target.shape == restored_audio.shape:
+                logger.warning(
+                    "§2.49 Export-Gate: artifact_freedom=%.3f < 0.95 — "
+                    "restored_audio auf besten artefaktfreien Checkpoint zurückgesetzt",
+                    _artifact_freedom_for_hpi,
+                )
+                restored_audio = np.clip(
+                    np.nan_to_num(_afg_rollback_target, nan=0.0, posinf=0.0, neginf=0.0),
+                    -1.0, 1.0,
+                )
+            else:
+                logger.warning(
+                    "§2.49 Export-Gate: artifact_freedom=%.3f < 0.95 — "
+                    "kein kompatibler Rollback-Checkpoint (Primum non nocere: Export trotzdem)",
+                    _artifact_freedom_for_hpi,
+                )
+
+        # Recompute degradation status after HPI/artifact gates
+        try:
+            from backend.core.pipeline_health_state import (
+                pipeline_health_from_fail_reasons as _phfr_2,
+                primary_fail_reason_from_fail_reasons as _prfr_2,
+            )
+            _degradation_status = _phfr_2(_fail_reasons).value
+            _primary_fail_reason = _prfr_2(_fail_reasons)
+        except Exception:
+            pass
+
         result = RestorationResult(
             audio=restored_audio,
             config=self.config,
@@ -4409,6 +4694,7 @@ class UnifiedRestorerV3:
                 "degradation_status": _degradation_status,
                 "fail_reason": _primary_fail_reason,
                 "ml_guard_events": list(getattr(self, "_pipeline_ml_guard_events", [])),
+                "ml_fallbacks_used": list(getattr(self, "_ml_fallbacks_used", [])),  # §2.47 [RELEASE_MUST]
                 "quality_estimate": {
                     "value": float(quality_estimate),
                     "fallback_quality_estimate": bool(self._quality_estimate_used_fallback),
@@ -4488,6 +4774,14 @@ class UnifiedRestorerV3:
                 # Negativ = Energie reduziert (z.B. Denoise). Positiv = Energie gestiegen.
                 # Nur sequentielle Phasen; parallele Phasen sind nicht kausal einzeln messbar.
                 "phase_regression_log": dict(getattr(self, "_phase_regression_log", {})),
+                "phase_regression_top_drops": sorted(
+                    [
+                        {"phase_id": _pid, "rms_delta_db": float(_delta)}
+                        for _pid, _delta in dict(getattr(self, "_phase_regression_log", {})).items()
+                        if float(_delta) < -0.5
+                    ],
+                    key=lambda x: x["rms_delta_db"],
+                )[:10],
                 "phase_plan_intelligence": dict(getattr(self, "_phase_plan_intelligence", {})),
                 "excellence_optimizer": (
                     {
@@ -4527,6 +4821,51 @@ class UnifiedRestorerV3:
                     if _goosebumps_result is not None
                     else None
                 ),
+                # §2.49 Artifact Freedom Gate
+                "artifact_freedom": {
+                    "score": getattr(self, "_artifact_freedom_score", 1.0),
+                    "detail": getattr(self, "_artifact_freedom_detail", {}),
+                    "passed": getattr(self, "_artifact_freedom_score", 1.0) >= 0.95,
+                },
+                # §2.50 Source Material Baseline
+                "source_material_baseline": {
+                    "phase_cancellation_ratio": getattr(
+                        getattr(self, "_source_material_baseline", None),
+                        "phase_cancellation_ratio", None
+                    ),
+                    "stereo_mono_compat_mean": getattr(
+                        getattr(self, "_source_material_baseline", None),
+                        "stereo_mono_compat_mean", None
+                    ),
+                    "has_critical_stereo_issue": getattr(
+                        getattr(self, "_source_material_baseline", None),
+                        "has_critical_stereo_issue", None
+                    ),
+                    "has_anti_phase_region": getattr(
+                        getattr(self, "_source_material_baseline", None),
+                        "has_anti_phase_region", None
+                    ),
+                    "hf_loss_db": getattr(
+                        getattr(self, "_source_material_baseline", None),
+                        "hf_loss_db", None
+                    ),
+                },
+                # §2.44 Holistic Perceptual Gate
+                "holistic_perceptual_gate": (
+                    {
+                        "hpi": _hpi_result.hpi,
+                        "passed": _hpi_result.passed,
+                        "mert_similarity": _hpi_result.mert_similarity,
+                        "timbral_fidelity": _hpi_result.timbral_fidelity,
+                        "artifact_freedom": _hpi_result.artifact_freedom,
+                        "emotional_arc_preservation": _hpi_result.emotional_arc_preservation,
+                        "is_studio_mode": _hpi_result.is_studio_mode,
+                    }
+                    if _hpi_result is not None
+                    else None
+                ),
+                # §2.48 Interaction Guard
+                "interaction_guard": getattr(self, "_interaction_guard_metadata", {}),
                 **_analytics_meta,
             },
             # --- Spec §2.1/§2.2 Pflichtfelder ---
@@ -5357,10 +5696,13 @@ class UnifiedRestorerV3:
         # v9.10.19 — PsychoacousticMaskingModel
         _pmm_result: dict | None = None
         try:
-            from backend.core.psychoacoustic_masking_model import PsychoacousticMaskingModel as _PMM
+            from backend.core.psychoacoustic_masking_model import get_masking_model as _get_mm
 
-            _pmm_audio = restored_audio.mean(axis=0) if restored_audio.ndim == 2 else restored_audio
-            _pmm_r = _PMM().compute_threshold(_pmm_audio.astype(np.float32), sr=sample_rate)
+            _pmm_audio = np.ascontiguousarray(
+                restored_audio.mean(axis=0) if restored_audio.ndim == 2 else restored_audio,
+                dtype=np.float32,
+            )
+            _pmm_r = _get_mm().compute_threshold(_pmm_audio, sr=sample_rate)
             _pmm_result = _pmm_r.as_dict()
             logger.debug("🎭 PsychoacousticMaskingModel: %s", _pmm_result)
         except Exception as _pmm_exc:
@@ -6374,7 +6716,7 @@ class UnifiedRestorerV3:
             import importlib as _il_dsp32
             import pathlib as _pathlib_dsp32
 
-            _dsp_dir32 = _pathlib_dsp32.Path(__file__).parent.parent / "dsp"
+            _dsp_dir32 = _pathlib_dsp32.Path(__file__).parent.parent.parent / "dsp"
             _dsp_available32: list = []
             _dsp_failed32: list = []
             _dsp_contracts32: dict = {}
@@ -6423,7 +6765,7 @@ class UnifiedRestorerV3:
             import importlib as _il_pl32
             import pathlib as _pathlib_pl32
 
-            _pl_dir32 = _pathlib_pl32.Path(__file__).parent.parent / "plugins"
+            _pl_dir32 = _pathlib_pl32.Path(__file__).parent.parent.parent / "plugins"
             _pl_available32: list = []
             _pl_failed32: list = []
             _pl_meta32: dict = {}
@@ -6464,7 +6806,7 @@ class UnifiedRestorerV3:
             import importlib as _il_be32
             import pathlib as _pathlib_be32
 
-            _be_dir32 = _pathlib_be32.Path(__file__).parent.parent / "backend"
+            _be_dir32 = _pathlib_be32.Path(__file__).parent.parent.parent / "backend"
             _be_available32: list = []
             _be_failed32: list = []
             _be_meta32: dict = {}
@@ -6499,7 +6841,8 @@ class UnifiedRestorerV3:
         # Optional: Resample back to original sample rate
         # (Currently disabled - output is 48 kHz for consistency)
         # if original_sample_rate != sample_rate and LIBROSA_AVAILABLE:
-        #     logger.info(f"Resampling output: {sample_rate} Hz → {original_sample_rate} Hz")
+        _orig_sr_for_log = int(locals().get("original_sample_rate", sample_rate))
+        logger.info("Resampling output: %s Hz → %s Hz", sample_rate, _orig_sr_for_log)
         #     if restored_audio.ndim == 2:
         #         restored_audio = np.column_stack([
         #             librosa.resample(restored_audio[:, 0], orig_sr=sample_rate, target_sr=original_sample_rate),
@@ -8290,6 +8633,7 @@ class UnifiedRestorerV3:
             "tape": [
                 "phase_24_dropout_repair",
                 "phase_29_tape_hiss_reduction",
+                "phase_06_frequency_restoration",
                 "phase_12_wow_flutter_fix",
                 "phase_59_modulation_noise_reduction",
                 "phase_64_tape_splice_repair",
@@ -8581,6 +8925,13 @@ class UnifiedRestorerV3:
         # Semantische Audio-Analyse (PANNs-Kontext-Verstehen)
         selected.append("phase_53_semantic_audio")
 
+        # §2.36 LyricsGuidedEnhancement (RELEASE_MUST ab 9.10.x)
+        # Phoneme-class saliency boosts (fricative/plosive/vowel) für Vokal-Intimität.
+        # Aktivierung nur bei erkannten Vocals — Phase hat zusätzlichen internen
+        # vocal_probability-Gate (< 0.30 → passthrough).
+        if vocals_detected:
+            selected.append("phase_58_lyrics_guided_enhancement")
+
         # ════════════════════════════════════════════════════════════════════
         # TIER 5 — Dynamik & Mastering
         # ════════════════════════════════════════════════════════════════════
@@ -8789,8 +9140,38 @@ class UnifiedRestorerV3:
             _move_before("phase_19_de_esser", "phase_42_vocal_enhancement")
             # Vocal chain guard: classical de-esser before ML de-esser refinement
             _move_before("phase_19_de_esser", "phase_43_ml_deesser")
+            # §2.36 LGE after vocal enhancement chain (de-esser → vocal_enhancement → ML de-esser → LGE)
+            _move_before("phase_42_vocal_enhancement", "phase_58_lyrics_guided_enhancement")
+            _move_before("phase_43_ml_deesser", "phase_58_lyrics_guided_enhancement")
             # Spatial chain guard: room enhancement before stereo width expansion
             _move_before("phase_46_spatial_enhancement", "phase_48_stereo_width_enhancer")
+
+            # §2.46 [RELEASE_MUST] Carrier-Chain-Inversion ordering (v9.10.123)
+            # Tier order (invers zur Aufnahmekette):
+            #   Tier 1 ADC (DC, Quantisierung)  →  Tier 2 Playback (RIAA, Azimuth, Wow/Flutter)
+            #   →  Tier 3 Aging (Crackle, Dropout)  →  Tier 4 Carrier Encoding (Tape Hiss, Surface Noise)
+            #   →  Tier 5 Mixer/Preamp PRESERVE  →  Tier 6 Studio Room PRESERVE
+            #
+            # Tier 1 → Tier 2: DC-Offset (ADC) vor Azimuth/Wow+Flutter (Playback)
+            _move_before("phase_30_dc_offset_removal", "phase_25_azimuth_correction")
+            _move_before("phase_30_dc_offset_removal", "phase_12_wow_flutter_fix")
+            # Tier 2 → Tier 3: Playback-Verzerrungen vor Alterungsschäden
+            _move_before("phase_25_azimuth_correction", "phase_09_crackle_removal")
+            _move_before("phase_25_azimuth_correction", "phase_24_dropout_repair")
+            _move_before("phase_12_wow_flutter_fix", "phase_09_crackle_removal")
+            _move_before("phase_12_wow_flutter_fix", "phase_24_dropout_repair")
+            # Tier 3 → Tier 4: Alterungsschäden (Crackle, Dropout) vor Trägermedium-Rauschen
+            _move_before("phase_09_crackle_removal", "phase_29_tape_hiss_reduction")
+            _move_before("phase_24_dropout_repair", "phase_29_tape_hiss_reduction")
+            # §2.46 Subtraktiv-vor-Additiv-Invariante: alle NR/De-Reverb-Phasen (Stufe 4 subtraktiv)
+            # müssen vor Harmonik-/Frequenzrekonstruktion (Stufe 5 additiv) laufen.
+            # Sonst werden frisch rekonstruierte Obertöne sofort wieder weggefiltert.
+            # Ohne diese Regeln kann bei Tape+Vinyl-Material (phase_29 + phase_07 aktiv,
+            # aber phase_03 inaktiv) die Reihenfolge unkontrolliert verletzt werden.
+            _move_before("phase_29_tape_hiss_reduction", "phase_07_harmonic_restoration")
+            _move_before("phase_29_tape_hiss_reduction", "phase_06_frequency_restoration")
+            _move_before("phase_49_advanced_dereverb", "phase_07_harmonic_restoration")
+            _move_before("phase_20_reverb_reduction", "phase_07_harmonic_restoration")
 
             if len(_precedence_fixes) == _fixes_before:
                 break  # Converged — no further reordering needed
@@ -9160,7 +9541,7 @@ class UnifiedRestorerV3:
 
             if should_skip:
                 skip_reasons[phase_id] = skip_reason
-                logger.debug(f"Skipping {phase_id}: {skip_reason}")
+                logger.debug("Skipping %s: %s", phase_id, skip_reason)
             else:
                 filtered_phases.append(phase_id)
 
@@ -9454,6 +9835,7 @@ class UnifiedRestorerV3:
         no_rt_limit: bool = False,
         reconstruction_context=None,  # §11.7a: RekonstruktionsDenker-Ergebnis mit reparierten Gaps
         phoneme_timeline=None,  # §2.36a: PhonemeTimeline für phoneme-targeted Processing
+        pre_transcription=None,  # §2.36: LGE pre-computed transcription for phase_58
     ) -> tuple[np.ndarray, list[str], list[str], list[str]]:
         """
         Führt ausgewählte Phasen parallel (Multi-Core) aus, falls keine Abhängigkeiten bestehen.
@@ -9474,6 +9856,40 @@ class UnifiedRestorerV3:
         deferred = []  # §2.38 KMV: phases skipped by PerformanceGuard for Stage 2 refinement
         pipeline_ml_guard_events: list[dict[str, Any]] = []
         _ml_guard_event_keys: set[tuple[Any, ...]] = set()
+
+        # §2.45 [RELEASE_MUST] perceptual_delta helper — fast spectral quality proxy.
+        # Used in non-PMGG fallback paths to detect phases that degrade audio quality.
+        # PMGG-main-path is covered by PMGG rollback mechanism; this is a safety net only.
+        def _spectral_quality_score(a: np.ndarray, sr_: int) -> float:
+            """
+            Fast spectral quality proxy (pure numpy, no heavy ML).
+            Higher value = cleaner/better perceptual quality.
+            Based on: tonal clarity (90th vs 10th percentile log-magnitude ratio).
+            Executes in approx. 1–3 ms on 5 s of audio.
+            """
+            try:
+                mono = a[0] if a.ndim == 2 else a
+                max_n = int(5.0 * sr_)  # max 5 s
+                if len(mono) > max_n:
+                    start = (len(mono) - max_n) // 2
+                    mono = mono[start: start + max_n]
+                n_fft = 2048
+                hop = n_fft // 4
+                n_frames = max(1, (len(mono) - n_fft) // hop)
+                win = np.hanning(n_fft)
+                mag_acc = np.zeros(n_fft // 2 + 1)
+                for k in range(min(n_frames, 30)):
+                    seg = mono[k * hop: k * hop + n_fft]
+                    if len(seg) < n_fft:
+                        break
+                    mag_acc += np.abs(np.fft.rfft(seg * win))
+                mag_acc /= min(n_frames, 30)
+                log_mag = np.log1p(mag_acc)
+                p10, p90 = np.percentile(log_mag, [10, 90])
+                tonal_ratio = float(p90 / (p10 + 1e-12))
+                return float(np.clip(tonal_ratio / 6.0, 0.0, 1.0))
+            except Exception:
+                return 0.5  # fail-open
 
         # Persistent OOM forensics: write phase-level RAM snapshots to NDJSON.
         _oom_forensics_path = pathlib.Path(__file__).resolve().parents[2] / "logs" / "oom_phase_forensics.ndjson"
@@ -9631,6 +10047,31 @@ class UnifiedRestorerV3:
         else:
             logger.debug("§2.29 PMGG: Deaktiviert (enable_phase_gate=False via --no-phase-gate)")
         self._pmgg_log_entries = []
+        # §2.48 [RELEASE_MUST] Kumulative-Phasen-Interaktions-Guard
+        _interaction_guard = None
+        _interaction_guard_state = None
+        try:
+            from backend.core.cumulative_interaction_guard import get_interaction_guard as _get_ig
+
+            _interaction_guard = _get_ig()
+            _interaction_guard_state = _interaction_guard.reset()
+            logger.debug("§2.48 InteractionGuard: Initialisiert für %d Phasen", len(selected_phases))
+        except Exception as _ig_init_exc:
+            logger.debug("§2.48 InteractionGuard nicht verfügbar: %s", _ig_init_exc)
+
+        # §2.49 [RELEASE_MUST] Artefakt-Freiheits-Gate
+        _artifact_gate = None
+        try:
+            from backend.core.artifact_freedom_gate import get_artifact_freedom_gate as _get_afg
+
+            _artifact_gate = _get_afg()
+            logger.debug("§2.49 ArtifactFreedomGate: Initialisiert")
+        except Exception as _afg_init_exc:
+            logger.debug("§2.49 ArtifactFreedomGate nicht verfügbar: %s", _afg_init_exc)
+
+        # §2.48/§2.49: Material type string for gates
+        _mat_str = str(getattr(material_type, "value", material_type)).lower()
+
         # M-1 §2.2.1 Parallelisierungs-Invariante: TIER 0 und TIER 1 IMMER sequenziell
         # Kausale Abhängigkeiten: Defektkorrektur muss kausal verkettet sein (Output → nächster Input).
         # np.mean-Merge über Tier-0/1-Phasen würde Defektkorrekturen gegenseitig aufheben.
@@ -9680,13 +10121,18 @@ class UnifiedRestorerV3:
         try:
             from backend.core.psychoacoustic_masking_model import compute_masking_threshold as _cmt
 
-            # Internal format is channel-first (2, N) — use audio[0] for left channel
-            _ma = audio if audio.ndim == 1 else audio[0]
-            _masking_result = _cmt(_ma.astype(np.float32), sample_rate)
+            # Internal format is channel-first (2, N) — use audio[0] for left channel.
+            # ascontiguousarray: ensures owned, aligned buffer for BLAS ops.
+            _ma = np.ascontiguousarray(
+                audio if audio.ndim == 1 else audio[0], dtype=np.float32
+            )
+            _masking_result = _cmt(_ma, sample_rate)
             # Right channel: only for stereo, computed independently — avoids cross-channel
             # masking error for asymmetric recordings (e.g. violin hard-left, cello hard-right).
             if audio.ndim == 2 and audio.shape[0] >= 2:
-                _masking_result_r = _cmt(audio[1].astype(np.float32), sample_rate)
+                _masking_result_r = _cmt(
+                    np.ascontiguousarray(audio[1], dtype=np.float32), sample_rate
+                )
             _gm_median = float(np.median(_masking_result.gain_modifier))
             _masking_scalar = float(np.clip(0.4 + _gm_median * 0.6, 0.4, 1.0))
             logger.debug(
@@ -9794,7 +10240,7 @@ class UnifiedRestorerV3:
                 for phase_id in selected_phases:
                     phase = self._get_phase(phase_id)
                     if not phase:
-                        logger.warning(f"Phase {phase_id} konnte nicht lazy-geladen werden, skipping")
+                        logger.warning("Phase %s konnte nicht lazy-geladen werden, skipping", phase_id)
                         skipped.append(phase_id)
                         _record_oom_probe("phase_skip_not_loaded", phase_id)
                         continue
@@ -9892,7 +10338,7 @@ class UnifiedRestorerV3:
                                         _cb_exc,
                                     )
                             executed.append(phase_id)
-                            logger.info(f"✅ {phase_id}: {result.execution_time_seconds:.2f}s (parallel)")
+                            logger.info("✅ %s: %.2fs (parallel)", phase_id, result.execution_time_seconds)
                         else:
                             _record_oom_probe("phase_failed_parallel", phase_id)
                             logger.error(
@@ -9945,10 +10391,33 @@ class UnifiedRestorerV3:
             # §2.31a Mid-pipeline calibration: checkpoint flags for ~33 % and ~66 % progress
             _mid_cal_33pct_done: bool = False
             _mid_cal_66pct_done: bool = False
+
+            # §2.48 InteractionGuard: Set pre-pipeline P1/P2 baseline
+            if _interaction_guard is not None and _interaction_guard_state is not None:
+                try:
+                    from backend.core.musical_goals.musical_goals_metrics import get_checker as _get_mg_checker_248
+
+                    _mg_checker_248 = _get_mg_checker_248()
+                    _baseline_goals_248 = _mg_checker_248.measure_all(current_audio, sample_rate)
+                    _interaction_guard.set_pre_pipeline_baseline(
+                        _interaction_guard_state, current_audio, _baseline_goals_248,
+                    )
+                except Exception as _ig_baseline_exc:
+                    logger.debug("§2.48 InteractionGuard baseline failed: %s", _ig_baseline_exc)
+                    _interaction_guard = None
+                    _interaction_guard_state = None
+
+            # §2.49 ArtifactFreedomGate: store pre-pipeline audio snapshot for per-phase checks
+            _afg_pre_pipeline_audio = current_audio.copy() if _artifact_gate is not None else None
+            _afg_best_clean_checkpoint = current_audio.copy() if _artifact_gate is not None else None
+            _afg_best_clean_phase: str = "__pre_pipeline__"
+            # §2.49 Track minimum per-phase artifact_freedom (replaces final full-pipeline comparison)
+            _min_per_phase_afg_score: float = 1.0
+
             for phase_id in selected_phases:
                 phase = self._get_phase(phase_id)
                 if not phase:
-                    logger.warning(f"Phase {phase_id} konnte nicht lazy-geladen werden, skipping")
+                    logger.warning("Phase %s konnte nicht lazy-geladen werden, skipping", phase_id)
                     skipped.append(phase_id)
                     _record_oom_probe("phase_skip_not_loaded", phase_id)
                     continue
@@ -10018,6 +10487,11 @@ class UnifiedRestorerV3:
                 # §Punkt3 Regressionsprotokoll: RMS vor Phase messen (in dBFS)
                 _rms_before = float(np.sqrt(np.mean(current_audio**2) + 1e-12))
                 _rms_before_db = 20.0 * np.log10(_rms_before)
+                # §2.49 AFG: per-phase snapshot — compare only THIS phase's delta, not cumulative pipeline drift.
+                # Cumulative comparison falsely flags intentional enhancement changes (bass boost, saturation,
+                # harmonic enhancement) as musical-noise artifacts because the accumulated residual after N
+                # restoration phases overwhelms the artifact detector thresholds.
+                _afg_phase_input: np.ndarray | None = current_audio.copy() if _artifact_gate is not None else None
                 # §PROGRESS: Emit BEFORE phase execution — real-time ML plugin detection
                 if progress_callback is not None:
                     try:
@@ -10116,7 +10590,7 @@ class UnifiedRestorerV3:
                                 _phase_for_exec,
                                 current_audio,
                                 sample_rate,
-                                _pmgg_scores_curr,
+                                scores_before=_pmgg_scores_curr,
                                 phase_kwargs={
                                     "sample_rate": sample_rate,
                                     "material_type": material_type,
@@ -10143,6 +10617,8 @@ class UnifiedRestorerV3:
                                         else {}
                                     ),  # §2.31a SongCalibration opt-in
                                     "phoneme_timeline": phoneme_timeline,  # §2.36a: PhonemeTimeline opt-in
+                                    "pre_transcription": pre_transcription,  # §2.36: LGE pre-computed transcription for phase_58
+                                    "vocal_probability": float(getattr(self, '_restoration_context', {}).get('panns_vocals_confidence', 1.0)),  # §2.36: PANNs vocal prob for phase_58
                                 },
                                 restorability_score=_pmgg_restorability_score,  # §2.29 normativ
                                 applicable_goals=applicable_goals,  # §2.32 normativ
@@ -10223,57 +10699,76 @@ class UnifiedRestorerV3:
                                 masking_result_r=_masking_result_r,  # §Psychoacoustic: pre-computed MaskingResult (R channel, None if mono)
                                 masking_scalar=_masking_scalar,  # §Psychoacoustic: global audibility scalar ∈ [0.4, 1.0]
                                 phoneme_timeline=phoneme_timeline,  # §2.36a: PhonemeTimeline opt-in
+                                pre_transcription=pre_transcription,  # §2.36: LGE pre-computed transcription for phase_58
+                                vocal_probability=float(getattr(self, '_restoration_context', {}).get('panns_vocals_confidence', 1.0)),  # §2.36: PANNs vocal prob for phase_58
                             )
                             result = _normalize_phase_result(result)
                             _collect_guard_payload(_phase_for_exec, phase_id, result)
                             if result.success:
                                 _fa = result.audio
+                                _245_skipped_fb = False
                                 # §3.1 NaN-Guard: revert to pre-phase audio if NaN produced
                                 if not np.any(np.isnan(_fa)):
-                                    current_audio = np.clip(_fa, -1.0, 1.0)
+                                    # §2.45 [RELEASE_MUST] Minimal-Intervention: perceptual_delta > 0 Pflicht.
+                                    # PMGG failed so no goal-based guard active — use fast spectral proxy.
+                                    _pdelta_245 = (
+                                        _spectral_quality_score(_fa, sample_rate)
+                                        - _spectral_quality_score(current_audio, sample_rate)
+                                    )
+                                    if _pdelta_245 > 0.0:
+                                        current_audio = np.clip(_fa, -1.0, 1.0)
+                                    else:
+                                        logger.debug(
+                                            "§2.45 PMGG-Fallback: %s übersprungen "
+                                            "(perceptual_delta=%.4f <= 0.0)",
+                                            phase_id, _pdelta_245,
+                                        )
+                                        skipped.append(phase_id)
+                                        _245_skipped_fb = True
                                 else:
                                     logger.warning(
                                         "NaN in PMGG-Fallback-Ausgabe von Phase %s erkannt — Audio-Rollback",
                                         phase_id,
                                     )
-                                # §PROGRESS: Per-Phase Fortschritt (PMGG-Fallback)
-                                _n_sel = max(len(selected_phases), 1)
-                                _idx_ex = len(executed)
-                                _phase_pct = _phase_progress_start + int(
-                                    (_phase_progress_end - _phase_progress_start) * _idx_ex / _n_sel
-                                )
-                                if progress_callback is not None:
-                                    try:
-                                        _phase_label = (self.phase_metadata.get(phase_id) or {}).get(
-                                            "name"
-                                        ) or phase_id.replace("phase_", "").replace("_", " ").title().lstrip(
-                                            "0123456789 "
-                                        )
-                                        progress_callback(
-                                            _phase_pct,
-                                            f"{_phase_label} [{phase_id}]",
-                                            0.0,
-                                        )
-                                    except Exception as _cb_exc:
-                                        logger.debug(
-                                            "Progress-Update übersprungen in %s (Ursache: %s). "
-                                            "Lösung: Callback-Signatur prüfen.",
-                                            phase_id,
-                                            _cb_exc,
-                                        )
-                                executed.append(phase_id)
-                                # §Live-Waveform: Emit updated audio after PMGG-fallback phase
-                                if audio_update_callback is not None:
-                                    try:
-                                        audio_update_callback(current_audio, sample_rate, phase_id)
-                                    except Exception as _exc:
-                                        logger.debug("audio_update_callback (PMGG fallback) failed: %s", _exc)
-                                logger.info(f"✅ {phase_id} (fallback): {result.execution_time_seconds:.2f}s")
-                                # §Punkt3 Regressionsprotokoll: RMS nach PMGG-Fallback-Phase
-                                _rms_after_db = 20.0 * np.log10(float(np.sqrt(np.mean(current_audio**2) + 1e-12)))
-                                self._phase_regression_log[phase_id] = round(_rms_after_db - _rms_before_db, 3)
+                                if not _245_skipped_fb:
+                                    # §PROGRESS: Per-Phase Fortschritt (PMGG-Fallback)
+                                    _n_sel = max(len(selected_phases), 1)
+                                    _idx_ex = len(executed)
+                                    _phase_pct = _phase_progress_start + int(
+                                        (_phase_progress_end - _phase_progress_start) * _idx_ex / _n_sel
+                                    )
+                                    if progress_callback is not None:
+                                        try:
+                                            _phase_label = (self.phase_metadata.get(phase_id) or {}).get(
+                                                "name"
+                                            ) or phase_id.replace("phase_", "").replace("_", " ").title().lstrip(
+                                                "0123456789 "
+                                            )
+                                            progress_callback(
+                                                _phase_pct,
+                                                f"{_phase_label} [{phase_id}]",
+                                                0.0,
+                                            )
+                                        except Exception as _cb_exc:
+                                            logger.debug(
+                                                "Progress-Update übersprungen in %s (Ursache: %s). "
+                                                "Lösung: Callback-Signatur prüfen.",
+                                                phase_id,
+                                                _cb_exc,
+                                            )
+                                    executed.append(phase_id)
+                                    # §Live-Waveform: Emit updated audio after PMGG-fallback phase
+                                    if audio_update_callback is not None:
+                                        try:
+                                            audio_update_callback(current_audio, sample_rate, phase_id)
+                                        except Exception as _exc:
+                                            logger.debug("audio_update_callback (PMGG fallback) failed: %s", _exc)
+                                    logger.info("✅ %s (fallback): %.2fs", phase_id, result.execution_time_seconds)
+                                    # §Punkt3 Regressionsprotokoll: RMS nach PMGG-Fallback-Phase
+                                    _rms_after_db = 20.0 * np.log10(float(np.sqrt(np.mean(current_audio**2) + 1e-12)))
+                                    self._phase_regression_log[phase_id] = round(_rms_after_db - _rms_before_db, 3)
                             else:
-                                logger.error(f"❌ {phase_id} failed: {result.warnings}")
+                                logger.error("❌ %s failed: %s", phase_id, result.warnings)
                                 skipped.append(phase_id)
                                 _record_oom_probe("phase_failed", phase_id)
                     else:
@@ -10290,55 +10785,76 @@ class UnifiedRestorerV3:
                         _collect_guard_payload(_phase_for_exec, phase_id, result)
                         if result.success:
                             _ra = result.audio
+                            _245_skipped_dr = False
                             # §3.1 NaN-Guard: revert to pre-phase audio if NaN produced
                             if not np.any(np.isnan(_ra)):
-                                current_audio = np.clip(_ra, -1.0, 1.0)
+                                # §2.45 [RELEASE_MUST] Minimal-Intervention: perceptual_delta > 0 Pflicht.
+                                # Direct path (no PMGG) — gate via fast spectral quality proxy.
+                                # Exception: no_rt_limit=True = force-execute semantics → §2.45 skip.
+                                if no_rt_limit:
+                                    current_audio = np.clip(_ra, -1.0, 1.0)
+                                else:
+                                    _pdelta_245_direct = (
+                                        _spectral_quality_score(_ra, sample_rate)
+                                        - _spectral_quality_score(current_audio, sample_rate)
+                                    )
+                                    if _pdelta_245_direct > 0.0:
+                                        current_audio = np.clip(_ra, -1.0, 1.0)
+                                    else:
+                                        logger.debug(
+                                            "§2.45 Direkt-Pfad: %s übersprungen "
+                                            "(perceptual_delta=%.4f <= 0.0)",
+                                            phase_id, _pdelta_245_direct,
+                                        )
+                                        skipped.append(phase_id)
+                                        _245_skipped_dr = True
                             else:
                                 logger.warning(
                                     "NaN in Ausgabe von Phase %s erkannt — Audio-Rollback auf Vor-Phase-Zustand",
                                     phase_id,
                                 )
-                            # §PROGRESS: Per-Phase Fortschritt (sequenziell)
-                            _n_sel = max(len(selected_phases), 1)
-                            _idx_ex = len(executed)
-                            _phase_pct = _phase_progress_start + int(
-                                (_phase_progress_end - _phase_progress_start) * _idx_ex / _n_sel
-                            )
-                            if progress_callback is not None:
-                                try:
-                                    _phase_label = (self.phase_metadata.get(phase_id) or {}).get(
-                                        "name"
-                                    ) or phase_id.replace("phase_", "").replace("_", " ").title().lstrip("0123456789 ")
-                                    progress_callback(
-                                        _phase_pct,
-                                        f"{_phase_label} [{phase_id}]",
-                                        0.0,
-                                    )
-                                except Exception as _cb_exc:
-                                    logger.debug(
-                                        "Progress-Update übersprungen in %s (Ursache: %s). "
-                                        "Lösung: Callback-Signatur prüfen.",
-                                        phase_id,
-                                        _cb_exc,
-                                    )
-                            executed.append(phase_id)
-                            # §Live-Waveform: Emit updated audio after direct phase
-                            if audio_update_callback is not None:
-                                try:
-                                    audio_update_callback(current_audio, sample_rate, phase_id)
-                                except Exception as _exc:
-                                    logger.debug("audio_update_callback (direct phase) failed: %s", _exc)
-                            logger.info(f"✅ {phase_id}: {result.execution_time_seconds:.2f}s")
-                            _record_oom_probe(
-                                "phase_ok",
-                                phase_id,
-                                execution_time_s=round(float(getattr(result, "execution_time_seconds", 0.0) or 0.0), 3),
-                            )
-                            # §Punkt3 Regressionsprotokoll: RMS nach direkter Phase
-                            _rms_after_db = 20.0 * np.log10(float(np.sqrt(np.mean(current_audio**2) + 1e-12)))
-                            self._phase_regression_log[phase_id] = round(_rms_after_db - _rms_before_db, 3)
+                            if not _245_skipped_dr:
+                                # §PROGRESS: Per-Phase Fortschritt (sequenziell)
+                                _n_sel = max(len(selected_phases), 1)
+                                _idx_ex = len(executed)
+                                _phase_pct = _phase_progress_start + int(
+                                    (_phase_progress_end - _phase_progress_start) * _idx_ex / _n_sel
+                                )
+                                if progress_callback is not None:
+                                    try:
+                                        _phase_label = (self.phase_metadata.get(phase_id) or {}).get(
+                                            "name"
+                                        ) or phase_id.replace("phase_", "").replace("_", " ").title().lstrip("0123456789 ")
+                                        progress_callback(
+                                            _phase_pct,
+                                            f"{_phase_label} [{phase_id}]",
+                                            0.0,
+                                        )
+                                    except Exception as _cb_exc:
+                                        logger.debug(
+                                            "Progress-Update übersprungen in %s (Ursache: %s). "
+                                            "Lösung: Callback-Signatur prüfen.",
+                                            phase_id,
+                                            _cb_exc,
+                                        )
+                                executed.append(phase_id)
+                                # §Live-Waveform: Emit updated audio after direct phase
+                                if audio_update_callback is not None:
+                                    try:
+                                        audio_update_callback(current_audio, sample_rate, phase_id)
+                                    except Exception as _exc:
+                                        logger.debug("audio_update_callback (direct phase) failed: %s", _exc)
+                                logger.info("✅ %s: %.2fs", phase_id, result.execution_time_seconds)
+                                _record_oom_probe(
+                                    "phase_ok",
+                                    phase_id,
+                                    execution_time_s=round(float(getattr(result, "execution_time_seconds", 0.0) or 0.0), 3),
+                                )
+                                # §Punkt3 Regressionsprotokoll: RMS nach direkter Phase
+                                _rms_after_db = 20.0 * np.log10(float(np.sqrt(np.mean(current_audio**2) + 1e-12)))
+                                self._phase_regression_log[phase_id] = round(_rms_after_db - _rms_before_db, 3)
                         else:
-                            logger.error(f"❌ {phase_id} failed: {result.warnings}")
+                            logger.error("❌ %s failed: %s", phase_id, result.warnings)
                             skipped.append(phase_id)
                             _record_oom_probe("phase_failed", phase_id)
                 except MemoryError:
@@ -10387,7 +10903,7 @@ class UnifiedRestorerV3:
                         logger.error("OOM-Recovery-Checkpoint fehlgeschlagen: %s", _cp_exc)
                     break
                 except Exception as e:
-                    logger.error(f"❌ {phase_id} exception: {e}")
+                    logger.error("❌ %s exception: %s", phase_id, e)
                     skipped.append(phase_id)
                     _record_oom_probe("phase_exception", phase_id, error=f"{type(e).__name__}:{e}")
                 if self.performance_guard:
@@ -10494,6 +11010,77 @@ class UnifiedRestorerV3:
                                 )
                         except Exception as _mtqc_exc:
                             logger.debug("TQC mid-pipeline nicht verfügbar: %s", _mtqc_exc)
+                # §2.48 [RELEASE_MUST] Kumulative-Phasen-Interaktions-Guard — after each phase
+                if (
+                    _interaction_guard is not None
+                    and _interaction_guard_state is not None
+                    and phase_id in executed
+                    and _pmgg_scores_curr is not None
+                ):
+                    try:
+                        _ig_audio, _ig_rolled_back = _interaction_guard.check_after_phase(
+                            _interaction_guard_state,
+                            phase_id,
+                            current_audio,
+                            _pmgg_scores_curr,
+                            sample_rate,
+                        )
+                        if _ig_rolled_back:
+                            current_audio = np.clip(_ig_audio, -1.0, 1.0)
+                            logger.warning("§2.48 Rollback applied after %s", phase_id)
+                        if _interaction_guard_state.should_stop:
+                            logger.warning("§2.48 Pipeline stop — exporting best checkpoint")
+                            skipped.extend(p for p in selected_phases if p not in executed)
+                            break
+                    except Exception as _ig_exc:
+                        logger.debug("§2.48 InteractionGuard check failed: %s", _ig_exc)
+
+                # §2.49 [RELEASE_MUST] Artefakt-Freiheits-Gate — per-phase artifact check
+                # Uses _afg_phase_input (audio before THIS phase) not _afg_pre_pipeline_audio (pipeline start),
+                # so only the delta introduced by this single phase is measured. This prevents false rollbacks
+                # on enhancement phases whose intentional signal changes would exceed cumulative thresholds.
+                if (
+                    _artifact_gate is not None
+                    and _afg_phase_input is not None
+                    and phase_id in executed
+                ):
+                    try:
+                        _afg_result = _artifact_gate.evaluate(
+                            _afg_phase_input, current_audio, sample_rate, _mat_str, phase_id,
+                        )
+                        if _afg_result.artifact_freedom < 0.95:
+                            _dr = _afg_result.detail_report
+                            logger.warning(
+                                "§2.49 artifact_freedom=%.3f < 0.95 after %s (%d artifacts) "
+                                "[PE:%d PC:%d MN:%d SH:%d wsum=%.3f] → rollback",
+                                _afg_result.artifact_freedom,
+                                phase_id,
+                                len(_afg_result.detected_artifacts),
+                                _dr.get("n_pre_echo", 0),
+                                _dr.get("n_phase_cancellation", 0),
+                                _dr.get("n_musical_noise", 0),
+                                _dr.get("n_spectral_holes", 0),
+                                _dr.get("weighted_artifact_sum", 0.0),
+                            )
+                            # Roll back to audio state just before this phase ran
+                            current_audio = np.clip(_afg_phase_input.copy(), -1.0, 1.0)
+                        else:
+                            # Update best artifact-free checkpoint
+                            _afg_best_clean_checkpoint = current_audio.copy()
+                            _afg_best_clean_phase = phase_id
+                            # Track minimum for final _artifact_freedom_score (Bug A fix)
+                            _min_per_phase_afg_score = min(_min_per_phase_afg_score, _afg_result.artifact_freedom)
+                        # Noise texture > 6 dB/oct deviation → rollback (§2.49)
+                        if _afg_result.noise_texture_deviation_db_oct > 6.0:
+                            logger.warning(
+                                "§2.49 Noise texture deviation %.1f dB/oct > 6.0 after %s → rollback",
+                                _afg_result.noise_texture_deviation_db_oct,
+                                phase_id,
+                            )
+                            current_audio = np.clip(_afg_phase_input.copy(), -1.0, 1.0)
+                    except Exception as _afg_exc:
+                        logger.debug("§2.49 ArtifactFreedomGate check failed: %s", _afg_exc)
+
                 # §2.31a Mid-pipeline calibration: refine family_scalars at ~33 % and ~66 %
                 # progress using already-computed PMGG scores (zero additional DSP cost).
                 if _pmgg_gate is not None and _pmgg_scores_curr and getattr(self, "_song_calibration_profile", None):
@@ -10526,11 +11113,100 @@ class UnifiedRestorerV3:
                 # Memory-Hygiene: alle 5 Phasen Garbage Collector aufrufen,
                 # um Zwischenpuffer und abgeschlossene Phase-Objekte freizugeben.
                 if (not no_rt_limit) and self.performance_guard and self.performance_guard.check_early_exit(remaining):
-                    logger.warning(f"⚠️ Early exit triggered, skipping {remaining} remaining phases")
+                    logger.warning("⚠️ Early exit triggered, skipping %s remaining phases", remaining)
                     skipped.extend(selected_phases[len(executed) :])
                     break
+        # §2.49b [RELEASE_MUST] Post-Pipeline cumulative stereo-collapse guard (Fix D).
+        # Per-phase δ-guards catch single-phase collapses but miss gradual drift where each
+        # individual phase contributes < 0.05 correlation degradation (e.g. phases 34→13→46→48
+        # cumulatively destroying the R-channel to -111 dBFS while each passing individually).
+        # Compares pipeline output against pre-pipeline audio — the only reliable baseline.
+        if (
+            current_audio.ndim == 2
+            and current_audio.shape[0] == 2
+            and _afg_pre_pipeline_audio is not None
+            and _afg_pre_pipeline_audio.ndim == 2
+            and _afg_pre_pipeline_audio.shape[0] == 2
+        ):
+            _pp2_l = float(np.sqrt(np.mean(_afg_pre_pipeline_audio[0] ** 2)) + 1e-12)
+            _pp2_r = float(np.sqrt(np.mean(_afg_pre_pipeline_audio[1] ** 2)) + 1e-12)
+            _cu2_l = float(np.sqrt(np.mean(current_audio[0] ** 2)) + 1e-12)
+            _cu2_r = float(np.sqrt(np.mean(current_audio[1] ** 2)) + 1e-12)
+            _pp2_imb = abs(20.0 * np.log10((_pp2_l + 1e-12) / (_pp2_r + 1e-12)))
+            _cu2_imb = abs(20.0 * np.log10((_cu2_l + 1e-12) / (_cu2_r + 1e-12)))
+            if _cu2_imb > 20.0 and _pp2_imb < 6.0:
+                logger.error(
+                    "§2.49b POST-PIPELINE cumulative stereo collapse: L/R imbalance %.1f dB "
+                    "(pipeline input was %.1f dB) — rollback to best artifact-free checkpoint",
+                    _cu2_imb,
+                    _pp2_imb,
+                )
+                # Kaskade: 1. bester artefaktfreier Checkpoint, 2. Pre-Pipeline-Audio
+                _d_recovery = (
+                    _afg_best_clean_checkpoint.copy()
+                    if _afg_best_clean_checkpoint is not None
+                    else _afg_pre_pipeline_audio.copy()
+                )
+                # Checkpoint selbst auf Kollaps prüfen
+                if _d_recovery.ndim == 2 and _d_recovery.shape[0] == 2:
+                    _rc2_l = float(np.sqrt(np.mean(_d_recovery[0] ** 2)) + 1e-12)
+                    _rc2_r = float(np.sqrt(np.mean(_d_recovery[1] ** 2)) + 1e-12)
+                    _rc2_imb = abs(20.0 * np.log10((_rc2_l + 1e-12) / (_rc2_r + 1e-12)))
+                    if _rc2_imb > 20.0:
+                        logger.warning(
+                            "§2.49b best_clean_checkpoint selbst kollabiert (%.1f dB) — "
+                            "Fallback auf pre-pipeline audio (Primum non nocere)",
+                            _rc2_imb,
+                        )
+                        _d_recovery = _afg_pre_pipeline_audio.copy()
+                current_audio = np.clip(
+                    np.nan_to_num(_d_recovery, nan=0.0, posinf=0.0, neginf=0.0),
+                    -1.0, 1.0,
+                )
+
         self._pmgg_log_entries = _pmgg_log_entries
         self._pipeline_ml_guard_events = list(pipeline_ml_guard_events)
+
+        # §2.47 [RELEASE_MUST] ml_fallbacks_used: aggregate from ML-guard events (OOM-triggered fallbacks)
+        _ml_fallbacks_used: list[dict[str, str]] = []
+        for _ev in pipeline_ml_guard_events:
+            _fb = str(_ev.get("fallback", "")).strip()
+            if _fb:
+                _ml_fallbacks_used.append({
+                    "phase": str(_ev.get("phase_id", "")),
+                    "model": str(_ev.get("model", "")),
+                    "fallback": _fb,
+                    "reason": str(_ev.get("reason", "oom")),
+                })
+        self._ml_fallbacks_used = _ml_fallbacks_used
+
+        # §2.48 Store interaction guard metadata for RestorationResult
+        if _interaction_guard is not None and _interaction_guard_state is not None:
+            self._interaction_guard_metadata = _interaction_guard.get_rollback_metadata(_interaction_guard_state)
+        else:
+            self._interaction_guard_metadata = {}
+
+        # §2.49 Final artifact freedom score for export gate / HPI
+        # BUG-FIX: Comparing _afg_pre_pipeline_audio (degraded raw input) to current_audio
+        # (fully processed output) always returns 0.000 for any real restoration — intentional
+        # signal changes look like artifacts. Use per-phase minimum instead.
+        self._artifact_freedom_score = _min_per_phase_afg_score
+        self._artifact_freedom_detail = {}
+        logger.info(
+            "§2.49 Final artifact_freedom=%.3f (per-phase-min across %d accepted phases)",
+            self._artifact_freedom_score,
+            len(executed),
+        )
+
+        # §2.44 HPI-Rollback-Checkpoint: speichere besten artefaktfreien Stand für
+        # den Export-Gate-Rollback in restore() (§2.44: HPI ≤ 0 → Rollback auf best_checkpoint).
+        # Primärquelle: _afg_best_clean_checkpoint (letzter artefaktfreier Stand).
+        # Fallback: current_audio (Pipeline-Ausgang).
+        self._hpi_best_rollback_audio: np.ndarray | None = (
+            _afg_best_clean_checkpoint.copy()
+            if _afg_best_clean_checkpoint is not None
+            else None
+        )
 
         # §Längen-Guard: Phasen-akkumulierten Längen-Drift korrigieren (Trim oder Zero-Pad).
         # Schützt vor PGHI/padded=False-bedingtem Längen-Drift über viele Phasen.
@@ -10696,9 +11372,9 @@ if __name__ == "__main__":
     # Setup Logging
     logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 
-    logger.debug(f"\n{'=' * 70}")
+    logger.debug("\n%s", '=' * 70)
     logger.debug("UNIFIED RESTORER V3 TEST - Aurik 9.0")
-    logger.debug(f"{'=' * 70}\n")
+    logger.debug("%s\n", '=' * 70)
 
     # Generate test audio (3:45 = 225 seconds)
     sr = 44100
@@ -10720,14 +11396,14 @@ if __name__ == "__main__":
     # 3. White Noise (Tape Hiss)
     audio += 0.02 * np.random.randn(len(audio))
 
-    logger.debug(f"Test Audio: {duration}s @ {sr} Hz")
+    logger.debug("Test Audio: %ss @ %s Hz", duration, sr)
     logger.debug("Defects: ~100 clicks, 60Hz hum, tape hiss\n")
 
     # Test alle Modi
     for mode in [QualityMode.FAST, QualityMode.BALANCED]:
-        logger.debug(f"\n{'─' * 70}")
-        logger.debug(f"Testing {mode.value.upper()} Mode")
-        logger.debug(f"{'─' * 70}\n")
+        logger.debug("\n%s", '─' * 70)
+        logger.debug("Testing %s Mode", mode.value.upper())
+        logger.debug("%s\n", '─' * 70)
 
         config = RestorationConfig(mode=mode, num_cores=4, enforce_3x_rt=True, enable_adaptive_skipping=True)
 
@@ -10737,22 +11413,22 @@ if __name__ == "__main__":
         result = restorer.restore(audio, sample_rate=sr)
 
         # Report
-        logger.debug(f"\n{'=' * 70}")
-        logger.debug(f"RESULT SUMMARY - {mode.value.upper()}")
-        logger.debug(f"{'=' * 70}")
-        logger.debug(f"Material: {result.material_type.value}")
-        logger.debug(f"Total Time: {result.total_time_seconds:.1f}s")
-        logger.debug(f"RT Factor: {result.rt_factor:.2f}× ({'✅ PASS' if result.rt_factor <= 3.0 else '❌ FAIL'})")
-        logger.debug(f"Quality Estimate: {result.quality_estimate * 100:.1f}%")
-        logger.debug(f"Phases Executed: {len(result.phases_executed)}")
-        logger.debug(f"Phases Skipped: {len(result.phases_skipped)}")
+        logger.debug("\n%s", '=' * 70)
+        logger.debug("RESULT SUMMARY - %s", mode.value.upper())
+        logger.debug("%s", '=' * 70)
+        logger.debug("Material: %s", result.material_type.value)
+        logger.debug("Total Time: %.1fs", result.total_time_seconds)
+        logger.debug("RT Factor: %.2f× (%s)", result.rt_factor, '✅ PASS' if result.rt_factor <= 3.0 else '❌ FAIL')
+        logger.debug("Quality Estimate: %.1f%%", result.quality_estimate * 100)
+        logger.debug("Phases Executed: %s", len(result.phases_executed))
+        logger.debug("Phases Skipped: %s", len(result.phases_skipped))
         if result.warnings:
-            logger.debug(f"Warnings: {len(result.warnings)}")
+            logger.debug("Warnings: %s", len(result.warnings))
             for w in result.warnings[:3]:
-                logger.debug(f"  - {w}")
+                logger.debug("  - %s", w)
         logger.debug("\nTop Defects (Before):")
         for i, defect in enumerate(result.metadata["defect_analysis"]["top_defects"][:3], 1):
-            logger.debug(f"  {i}. {defect['type']}: {defect['severity']:.2f}")
-        logger.debug(f"{'=' * 70}\n")
+            logger.debug("  %s. %s: %.2f", i, defect['type'], defect['severity'])
+        logger.debug("%s\n", '=' * 70)
 
     logger.debug("\n✅ UnifiedRestorerV3 Test Complete!")

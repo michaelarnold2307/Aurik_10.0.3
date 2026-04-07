@@ -84,7 +84,7 @@ class QualityFeedbackLoop:
             result = phase.process(audio, sample_rate, **kwargs)
 
             if not result.success:
-                logger.warning(f"Phase {phase.get_metadata().name} failed in iteration {iteration}")
+                logger.warning("Phase %s failed in iteration %s", phase.get_metadata().name, iteration)
                 break
 
             # Measure naturalness
@@ -108,12 +108,12 @@ class QualityFeedbackLoop:
 
                 # Check if target reached
                 if naturalness >= self.target_naturalness:
-                    logger.info(f"✅ Quality target reached: {naturalness:.3f}")
+                    logger.info("✅ Quality target reached: %.3f", naturalness)
                     break
 
                 # Check if improvement is too small to continue
                 if iteration > 0 and (naturalness - best_naturalness) < self.min_improvement:
-                    logger.info(f"⚠️  Improvement too small ({naturalness - best_naturalness:.3f}), stopping")
+                    logger.info("⚠️  Improvement too small (%.3f), stopping", naturalness - best_naturalness)
                     break
 
                 # Adapt parameters for next iteration
@@ -121,10 +121,10 @@ class QualityFeedbackLoop:
                     naturalness_deficit = self.target_naturalness - naturalness
                     kwargs = self._adapt_parameters(kwargs, naturalness_deficit, naturalness_scores)
                     audio = result.audio  # Use previous result as input
-                    logger.info(f"🔧 Adapting parameters for iteration {iteration + 2}...")
+                    logger.info("🔧 Adapting parameters for iteration %s...", iteration + 2)
 
             except Exception as e:
-                logger.error(f"Quality measurement failed: {e}")
+                logger.error("Quality measurement failed: %s", e)
                 if best_result is None:
                     best_result = result
                 break
@@ -167,20 +167,20 @@ class QualityFeedbackLoop:
 
         # Major deficit: reduce processing intensity
         if naturalness_deficit > 0.2:
-            logger.debug(f"Major deficit ({naturalness_deficit:.2f}), reducing aggressiveness")
+            logger.debug("Major deficit (%.2f), reducing aggressiveness", naturalness_deficit)
 
             # Reduce reduction amounts
             if "reduction_db" in adapted:
                 adapted["reduction_db"] = adapted["reduction_db"] * 0.7
-                logger.debug(f"  reduction_db: {params.get('reduction_db')} → {adapted['reduction_db']}")
+                logger.debug("  reduction_db: %s → %s", params.get('reduction_db'), adapted['reduction_db'])
 
             if "repair_strength" in adapted:
                 adapted["repair_strength"] = adapted["repair_strength"] * 0.8
-                logger.debug(f"  repair_strength: {params.get('repair_strength')} → {adapted['repair_strength']}")
+                logger.debug("  repair_strength: %s → %s", params.get('repair_strength'), adapted['repair_strength'])
 
             if "threshold" in adapted:
                 adapted["threshold"] = adapted["threshold"] * 1.2
-                logger.debug(f"  threshold: {params.get('threshold')} → {adapted['threshold']}")
+                logger.debug("  threshold: %s → %s", params.get('threshold'), adapted['threshold'])
 
             # If temporal smoothness is low, reduce attack speed
             if temporal_smoothness < 0.6 and "attack_ms" in adapted:
@@ -189,7 +189,7 @@ class QualityFeedbackLoop:
 
         # Moderate deficit: fine-tune
         elif naturalness_deficit > 0.1:
-            logger.debug(f"Moderate deficit ({naturalness_deficit:.2f}), fine-tuning")
+            logger.debug("Moderate deficit (%.2f), fine-tuning", naturalness_deficit)
 
             if "repair_strength" in adapted:
                 adapted["repair_strength"] = adapted["repair_strength"] * 0.9
@@ -204,7 +204,7 @@ class QualityFeedbackLoop:
 
         # Small deficit: minimal adjustment
         else:
-            logger.debug(f"Small deficit ({naturalness_deficit:.2f}), minimal tuning")
+            logger.debug("Small deficit (%.2f), minimal tuning", naturalness_deficit)
 
             if "repair_strength" in adapted:
                 adapted["repair_strength"] = adapted["repair_strength"] * 0.95
@@ -264,7 +264,7 @@ class QualityFeedbackLoop:
 
         # If temporal smoothness is low, defects likely present
         if initial_quality["temporal_smoothness"] < 0.7:
-            logger.debug(f"Defects detected (smoothness: {initial_quality['temporal_smoothness']:.2f}), using feedback")
+            logger.debug("Defects detected (smoothness: %.2f), using feedback", initial_quality['temporal_smoothness'])
             return True
 
         return False
@@ -323,7 +323,7 @@ class QualityGating:
                 # Estimate SNR from noise floor
                 noise_floor = quality.get("noise_floor_consistency", 0.5)
                 if noise_floor > 0.85:
-                    logger.info(f"⏭️  Skipping {metadata.name}: Audio already clean (noise floor: {noise_floor:.2f})")
+                    logger.info("⏭️  Skipping %s: Audio already clean (noise floor: %.2f)", metadata.name, noise_floor)
                     return False
 
             # Crackle removal: Skip if no vinyl/shellac characteristics
@@ -339,18 +339,18 @@ class QualityGating:
             if "tape" in phase_id or "hiss" in phase_id:
                 material = kwargs.get("material", "unknown")
                 if "tape" not in str(material).lower():
-                    logger.info(f"⏭️  Skipping {metadata.name}: Not tape material ({material})")
+                    logger.info("⏭️  Skipping %s: Not tape material (%s)", metadata.name, material)
                     return False
 
             # General: Skip if quality already excellent
             if naturalness > 0.90:
-                logger.info(f"⏭️  Skipping {metadata.name}: Quality already excellent ({naturalness:.2f})")
+                logger.info("⏭️  Skipping %s: Quality already excellent (%.2f)", metadata.name, naturalness)
                 return False
 
             return True
 
         except Exception as e:
-            logger.warning(f"Quality gating check failed: {e}, processing anyway")
+            logger.warning("Quality gating check failed: %s, processing anyway", e)
             return True
 
 
@@ -379,7 +379,7 @@ if __name__ == "__main__":
 
     logger.debug("\nInitial Audio Quality:")
     for key, val in initial_quality.items():
-        logger.debug(f"  {key}: {val:.3f}")
+        logger.debug("  %s: %.3f", key, val)
 
     # Test quality gating
     logger.debug("\n" + "=" * 70)
@@ -413,7 +413,7 @@ if __name__ == "__main__":
 
     mock_phase = MockPhase()
     should_process = gating.should_process_phase(mock_phase, audio, sr)
-    logger.debug(f"\nShould process phase: {should_process}")
+    logger.debug("\nShould process phase: %s", should_process)
 
     logger.debug("\n" + "=" * 70)
     logger.debug("✅ Quality Feedback Loop Module operational")

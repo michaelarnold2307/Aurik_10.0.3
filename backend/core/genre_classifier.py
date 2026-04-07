@@ -202,17 +202,17 @@ class GermanSchlagerClassifier:
         non_schlager_scores = self._compute_non_schlager_scores(centroid, onset, hsi, dr_db, bpm)
         alt_genre, alt_conf = self._pick_non_schlager_genre(non_schlager_scores)
 
-        # Post-classification veto: insufficient harmonic complexity + German vocal → not Jazz.
-        # hsi >= 0.50: already outside Jazz harmonic range (Jazz requires genuinely complex chords).
-        # lang_de_score >= 0.30: any detectable German vocal presence rules out Jazz.
-        # Either condition alone is sufficient for degraded analogue-chain sources
-        # (Vinyl→Kassette→MP3) where DSP cues are noisy and language scores are suppressed.
-        # Guard: n_active >= 1 required — veto is only for Schlager tracks that *narrowly miss*
-        # the gate, not for audio with zero Schlager evidence (e.g. German choral, Kunstlied).
+        # Post-classification veto: Schlager features + German vocal override misleading
+        # alternative labels.  Jazz, Soul/R&B, and Gospel share DSP feature overlap with
+        # Deutscher Schlager (moderate HSI, warm centroid, analog dynamics, BPM 90–130).
+        # When at least 1 Schlager tier is active AND either German vocal OR Schlager-typical
+        # harmonics are detected, these genres are wrong labels for a German Schlager track.
+        # Guard: n_active >= 1 — veto only when *some* Schlager evidence exists; prevents
+        # misclassifying genuine (English) Soul/R&B or Jazz as Schlager.
         if (
             not is_schlager
             and n_active >= 1
-            and alt_genre == "Jazz"
+            and alt_genre in {"Jazz", "Soul/R&B", "Gospel"}
             and (hsi >= 0.50 or lang_de_score >= 0.30)
         ):
             is_schlager = True
@@ -320,8 +320,26 @@ class GermanSchlagerClassifier:
                 return 0.0
 
         try:
-            from backend.core.lyrics_guided_enhancement import get_lyrics_guided_enhancement
+            import sys as _sys
+            _lge_mod = _sys.modules.get("backend.core.lyrics_guided_enhancement")
 
+            # Skip LGE load during pre-analysis / file-open scanning.
+            # Whisper + wav2vec2 (~390 MB) must not be loaded on-demand here;
+            # only use LGE if the singleton is already initialised from a
+            # previous processing run.
+            # Guard logic:
+            #   - Module not imported yet → return 0.0 (won't trigger lazy load)
+            #   - Module imported AND has is_lyrics_guided_loaded → honour its result
+            #   - Module imported BUT no is_lyrics_guided_loaded (e.g. test mock) → proceed
+            if _lge_mod is None:
+                logger.debug("Lyrics hint skipped — LGE module not imported (pre-analysis guard)")
+                return 0.0
+            _is_loaded_fn = getattr(_lge_mod, "is_lyrics_guided_loaded", None)
+            if _is_loaded_fn is not None and not _is_loaded_fn():
+                logger.debug("Lyrics hint skipped — LGE not yet loaded (pre-analysis guard)")
+                return 0.0
+
+            from backend.core.lyrics_guided_enhancement import get_lyrics_guided_enhancement
             lge = get_lyrics_guided_enhancement()
             transcription = lge.transcribe(audio_48k, sr_48k)
         except Exception as exc:
@@ -1789,6 +1807,10 @@ class GermanSchlagerClassifier:
         try:
             import librosa
 
+            # chroma_cqt → vqt → pitch_tuning: needs >= 4096 samples to avoid
+            # "Trying to estimate tuning from empty frequency set" UserWarning.
+            if len(audio) < 4096:
+                return "Unbekannt"
             chroma = librosa.feature.chroma_cqt(y=audio, sr=sr)
             chroma_mean = np.nan_to_num(chroma.mean(axis=1))
             key_idx = int(np.argmax(chroma_mean))

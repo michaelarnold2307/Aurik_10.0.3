@@ -1,6 +1,6 @@
 # Aurik 9 — Intelligentes Musik-Restaurierungssystem
 
-**Version:** 9.10.102 | **Status:** ✅ Produktionsbereit — Weltführend
+**Version:** 9.10.124 | **Status:** ✅ Produktionsbereit — Weltführend
 
 **Datum:** April 2026
 
@@ -8,8 +8,8 @@
 
 ---
 
-> Aurik 9.x.x ist ein *weltweit erstmaliges intelligentes, kontextbewusstes
-> Musik- und Gesangs-Restaurierungs-, Reparatur- und Rekonstruktions-Denkersystem*.
+> Aurik 9.x.x ist ein _weltweit erstmaliges intelligentes, kontextbewusstes
+> Musik- und Gesangs-Restaurierungs-, Reparatur- und Rekonstruktions-Denkersystem_.
 > Es kombiniert psychoakustisch fundierte DSP, Bayesianische Kausalinferenz,
 > Gaussianische Prozess-Optimierung und perceptuelle Qualitätsbewertung zu einer
 > kognitiven Restaurierungs-Intelligenz.
@@ -44,11 +44,12 @@
 
 ---
 
-## 🎯 Aurik 9.10.102 — Highlights
+## 🎯 Aurik 9.10.124 — Highlights
 
 ### ✅ Produktionsbereit (April 2026)
 
 **Kennzahlen:**
+
 - ✅ **~11.023 Tests** — Unit/Normative/Integration grün
 - ✅ **14 Musical Goals** — alle psychoakustisch geprüft, mode-differenziert (Restoration/Studio 2026)
 - ✅ **64 Phasen** (Phase 01–64, Defect-First)
@@ -57,7 +58,7 @@
 - ✅ **CPU-only** (Desktop-Hardware, kein GPU erforderlich)
 - ✅ **100 % offline** nach Installation (keine Cloud)
 
-**Schlüssel-Module (v9.10.102):**
+**Schlüssel-Module (v9.10.124):**
 
 1. **14 Musical Goals** — Brillanz, Wärme, Natürlichkeit, Authentizität, Emotionalität, Transparenz, Bass-Kraft, Groove, Raumtiefe, Timbre-Authentizität, Tonales Zentrum, Mikro-Dynamik, Separation-Treue, Artikulation
 2. **Transient Decoupled Processing (TDP)** — Transienten separat durch Pipeline führen; GrooveMetric +0.03–0.06
@@ -94,7 +95,7 @@ sf.write("output_restored.flac", ergebnis.audio, 48_000)
 ## 🎛️ Zwei Restaurierungs-Modi
 
 | Modus | Ziel | Strength |
-|---|---|---|
+| --- | --- | --- |
 | **Restoration** | Originalgetreu, minimal-invasiv, historisch authentisch | Konservativ |
 | **Studio 2026** | Modern, klar, kraeftig — heutiger Referenzstandard | Aggressiv |
 
@@ -105,7 +106,7 @@ Beide Modi via Magic Buttons in der GUI erreichbar.
 ## 📦 Distribution
 
 | Plattform | Format | Status |
-|---|---|---|
+| --- | --- | --- |
 | **Linux** | AppImage (`.AppImage`) | ✅ |
 | **Windows 10/11** | NSIS-Installer (`.exe`) | ✅ |
 

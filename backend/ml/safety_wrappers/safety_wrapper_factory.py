@@ -283,7 +283,7 @@ class SafetyWrapperFactory:
                     processing_mode=self.processing_mode,
                 )
             except Exception as e:
-                logger.warning(f"Warning: Could not load custom wrapper for {module_name}: {e}")
+                logger.warning("Warning: Could not load custom wrapper for %s: %s", module_name, e)
                 # Fall through to generic wrapper
 
         # Create generic wrapper
@@ -360,7 +360,7 @@ class SafetyWrapperFactory:
                 wrapper = self.create_wrapper_for_module(module_name)
                 wrapped[module_name] = wrapper
             except Exception as e:
-                logger.warning(f"Warning: Could not wrap module {module_name}: {e}")
+                logger.warning("Warning: Could not wrap module %s: %s", module_name, e)
 
         self.wrapped_modules = wrapped
         return wrapped
@@ -387,16 +387,16 @@ class SafetyWrapperFactory:
         logger.info(str("=" * 70))
         logger.info("HIPS SAFETY WRAPPER DEPLOYMENT REPORT")
         logger.info(str("=" * 70))
-        logger.info(f"Total Modules Wrapped: {stats['total_wrapped']}")
+        logger.info("Total Modules Wrapped: %s", stats['total_wrapped'])
         logger.info("")
         logger.info("Coverage by Type:")
         for wrapper_type, coverage in stats["coverage"].items():
-            logger.info(f"  {wrapper_type:20s}: {coverage}")
+            logger.info("  %s: %s", wrapper_type, coverage)
         logger.info("")
         logger.info("Wrapper Type Distribution:")
         for wrapper_type, count in stats["by_type"].items():
             pct = 100 * count / max(1, stats["total_wrapped"])
-            logger.info(f"  {wrapper_type:20s}: {count:3d} ({pct:5.1f}%)")
+            logger.info("  %s: %3d (%5.1f%%)", wrapper_type, count, pct)
         logger.info(str("=" * 70))
 
 
@@ -454,7 +454,7 @@ if __name__ == "__main__":
 
     wrapped_modules = wrap_all_modules(ProcessingMode.RESTORATION)
 
-    logger.info(f"\nSuccessfully wrapped {len(wrapped_modules)} modules!")
+    logger.info("\nSuccessfully wrapped %s modules!", len(wrapped_modules))
     logger.info("\nExample usage:")
     logger.info("  from backend.ml.safety_wrappers.safety_wrapper_factory import wrap_module")
     logger.info("  ")

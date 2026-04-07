@@ -199,10 +199,13 @@ def build_dataset(audio: AudioArray) -> tuple[np.ndarray, np.ndarray]:
 
 class HFTextureDataset(Dataset[tuple[torch.Tensor, torch.Tensor]]):
     def __init__(self, audio_files: Sequence[str]) -> None:
+        from backend.file_import import load_audio_file
+
         inputs_list: list[npt.NDArray[np.float32]] = []
         targets_list: list[npt.NDArray[np.float32]] = []
         for path in audio_files:
-            audio, _ = librosa.load(path, sr=SR, mono=True)
+            _res = load_audio_file(path, target_sr=SR, mono=True)
+            audio = np.asarray(_res["audio"], dtype=np.float32)
             x, y = build_dataset(audio)
             if len(x) > 0:
                 inputs_list.append(x)

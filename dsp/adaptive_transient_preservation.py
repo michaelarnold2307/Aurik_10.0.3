@@ -73,18 +73,18 @@ class AdaptiveTransientPreservation:
 
     def __init__(self, threshold=2.0, gain=1.2):
         if not (0.5 <= threshold <= 10.0):
-            logger.error(f"Ungültiger threshold: {threshold}. Muss zwischen 0.5 und 10.0 liegen.")
+            logger.error("Ungültiger threshold: %s. Muss zwischen 0.5 und 10.0 liegen.", threshold)
             raise ValueError("threshold muss zwischen 0.5 und 10.0 liegen.")
         if not (1.0 <= gain <= 2.0):
-            logger.error(f"Ungültiger gain: {gain}. Muss zwischen 1.0 und 2.0 liegen.")
+            logger.error("Ungültiger gain: %s. Muss zwischen 1.0 und 2.0 liegen.", gain)
             raise ValueError("gain muss zwischen 1.0 und 2.0 liegen.")
         self.threshold = threshold
         self.gain = gain
-        logger.info(f"AdaptiveTransientPreservation initialisiert mit threshold={self.threshold}, gain={self.gain}")
+        logger.info("AdaptiveTransientPreservation initialisiert mit threshold=%s, gain=%s", self.threshold, self.gain)
 
     def log_contract(self):
         contract_dict = asdict(adaptive_transient_preservation_contract)
-        logger.info(f"[DSPContract] {contract_dict}")
+        logger.info("[DSPContract] %s", contract_dict)
 
     def preserve(self, signal, envelope=None, use_deep_learning: bool = False, audit_log: bool = True, **kwargs):
         """
@@ -136,7 +136,7 @@ class AdaptiveTransientPreservation:
             else:
                 output = self._preserve_classic(signal, envelope, threshold, gain)
         except Exception as e:
-            logger.error(f"Fehler bei Transienten-Preservation: {e}", exc_info=True)
+            logger.error("Fehler bei Transienten-Preservation: %s", e, exc_info=True)
             fallback_used = True
             output = signal.copy()
 
@@ -145,7 +145,7 @@ class AdaptiveTransientPreservation:
             logger.info(
                 f"AdaptiveTransientPreservation: transient_enhancement={enhancement:.6f}, fallback_used={fallback_used}, threshold={threshold}, gain={gain}"
             )
-            logger.info(f"[DSPContract] {asdict(adaptive_transient_preservation_contract)}")
+            logger.info("[DSPContract] %s", asdict(adaptive_transient_preservation_contract))
         return output
 
     def _preserve_classic(self, signal, envelope, threshold, gain):
@@ -170,4 +170,4 @@ class AdaptiveTransientPreservation:
         else:
             self.threshold = 3.0
             self.gain = 1.1
-        logger.info(f"Parameter auto-optimiert: threshold={self.threshold}, gain={self.gain}")
+        logger.info("Parameter auto-optimiert: threshold=%s, gain=%s", self.threshold, self.gain)

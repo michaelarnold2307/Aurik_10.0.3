@@ -340,7 +340,7 @@ class GoalConflictResolver:
                 f"adjusted {loser} target by {adjustment_factor:.1%}"
             )
 
-            logger.info(f"Resolved conflict: {conflict} - Winner: {winner}")
+            logger.info("Resolved conflict: %s - Winner: %s", conflict, winner)
 
         reasoning = "; ".join(reasoning_parts) if reasoning_parts else "No conflicts to resolve"
 

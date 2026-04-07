@@ -59,7 +59,7 @@
 ## Release Gate Validation (G1–G7)
 
 | ID | Gate | K.O. | Result | Notes |
-|----|----|------|--------|-------|
+| --- | --- | --- | --- | --- |
 | G1 | Kein Docker in Production-Pfaden | 🔴 | ✅ PASSED |  |
 | G2 | KMV batch audio aus Originaludio | 🔴 | ✅ PASSED |  |
 | G3 | Keine silent refinement cancellations | 🔴 | ✅ PASSED |  |

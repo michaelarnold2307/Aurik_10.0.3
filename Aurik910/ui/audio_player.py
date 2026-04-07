@@ -7,7 +7,6 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
-import soundfile as sf
 from PyQt5.QtCore import Qt, QThread, QTimer, pyqtSignal
 from PyQt5.QtWidgets import (
     QComboBox,
@@ -36,6 +35,12 @@ except ImportError:
 
     def _bridge_get_load_audio_fn() -> Any:  # type: ignore[misc]
         return None
+
+# Direct fallback import for when bridge is unavailable
+try:
+    from backend.file_import import load_audio_file as _direct_load_audio_file
+except ImportError:
+    _direct_load_audio_file = None  # type: ignore[assignment]
 
 
 from ..i18n import t
@@ -80,22 +85,21 @@ class AudioPreviewThread(QThread):
             # VERBOTEN: sf.read() direkt (§Architektur-RELEASE_MUST)
             _load_fn = _bridge_get_load_audio_fn()
             if _load_fn is not None:
-                _loaded = _load_fn(self.input_file, target_sr=48_000)
+                _loaded = _load_fn(self.input_file, target_sr=48_000, do_carrier_analysis=False)
                 if _loaded is None:
                     raise RuntimeError(f"Audio-Datei konnte nicht geladen werden: {self.input_file}")
                 audio = np.asarray(_loaded["audio"], dtype=np.float32)
                 sr = int(_loaded["sr"])
             else:
-                # Bridge nicht verfügbar — sf.read als Notfall-Fallback
-                audio, sr = sf.read(self.input_file)
-                audio = np.asarray(audio, dtype=np.float32)
-                if sr != 48_000:
-                    import math as _math
-                    from scipy.signal import resample_poly as _rp
-                    _gcd = _math.gcd(sr, 48_000)
-                    audio = _rp(audio, 48_000 // _gcd, sr // _gcd,
-                                axis=0 if audio.ndim > 1 else -1).astype(np.float32)
-                    sr = 48_000
+                # Bridge nicht verfügbar — load_audio_file direkt
+                if _direct_load_audio_file is not None:
+                    _loaded = _direct_load_audio_file(self.input_file, target_sr=48_000, do_carrier_analysis=False)
+                    if _loaded is None or _loaded.get("error"):
+                        raise RuntimeError(f"Audio-Datei konnte nicht geladen werden: {self.input_file}")
+                    audio = np.asarray(_loaded["audio"], dtype=np.float32)
+                    sr = int(_loaded["sr"])
+                else:
+                    raise RuntimeError("Kein Audio-Loader verfügbar (Bridge und file_import fehlen)")
             self.progress.emit(30)
 
             self.progress.emit(50)
@@ -118,7 +122,7 @@ class AudioPreviewThread(QThread):
             self.progress.emit(100)
 
         except Exception as e:
-            self.error.emit(f"Error: {e!s}")
+            self.error.emit(t("legacy.audio.load_error", error=str(e)))
 
 
 class AudioPlayer(QWidget):
@@ -370,13 +374,21 @@ class AudioPlayer(QWidget):
             # Load via bridge cascade (soundfile → pedalboard/FFmpeg → pydub)
             _load_fn = _bridge_get_load_audio_fn()
             if _load_fn is not None:
-                _loaded = _load_fn(filepath)
+                _loaded = _load_fn(filepath, do_carrier_analysis=False)
                 if _loaded is None:
                     raise RuntimeError(f"Audio-Datei konnte nicht geladen werden: {filepath}")
                 audio = np.asarray(_loaded["audio"], dtype=np.float32)
                 sr = int(_loaded["sr"])
             else:
-                audio, sr = sf.read(filepath)
+                # Bridge nicht verfügbar — load_audio_file direkt
+                if _direct_load_audio_file is not None:
+                    _loaded = _direct_load_audio_file(filepath, do_carrier_analysis=False)
+                    if _loaded is None or _loaded.get("error"):
+                        raise RuntimeError(f"Audio-Datei konnte nicht geladen werden: {filepath}")
+                    audio = np.asarray(_loaded["audio"], dtype=np.float32)
+                    sr = int(_loaded["sr"])
+                else:
+                    raise RuntimeError("Kein Audio-Loader verfügbar (Bridge und file_import fehlen)")
             self.audio_before = audio
             self.sr = sr
             self.audio_after = None

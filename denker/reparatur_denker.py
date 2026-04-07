@@ -286,6 +286,13 @@ class ReparaturDenker:
         else:
             audio = audio.astype(np.float32)
 
+        # Normalize to channels-first (ch, N) for internal processing.
+        # BatchProcessingThread delivers audio as (N, ch); all channel loops and
+        # axis=0 mono reductions below assume (ch, N) format.
+        _samples_first = audio.ndim == 2 and audio.shape[0] > audio.shape[1]
+        if _samples_first:
+            audio = np.ascontiguousarray(audio.T)  # (N, ch) → (ch, N)
+
         clicks_removed = 0
         hum_removed = False
         clipping_repaired = False
@@ -335,7 +342,9 @@ class ReparaturDenker:
                 logger.debug("Clipping-Reparatur fehlgeschlagen: %s", exc)
                 warnings.append(f"Clipping-Reparatur übersprungen: {exc}")
 
-        # Ausgabe sichern
+        # Ausgabe sichern — transpose back to original format before returning.
+        if _samples_first:
+            audio = np.ascontiguousarray(audio.T)  # (ch, N) → (N, ch)
         audio = np.clip(
             np.nan_to_num(audio, nan=0.0, posinf=0.0, neginf=0.0),
             -1.0,
@@ -533,7 +542,6 @@ class ReparaturDenker:
 
             repaired = ch_data.copy()
             n = len(ch_data)
-            np.arange(n)
 
             # Verbundene Regionen
             in_region = False

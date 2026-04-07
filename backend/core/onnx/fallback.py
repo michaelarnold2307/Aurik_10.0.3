@@ -130,8 +130,8 @@ class FallbackManager:
 
         # Log event
         if self.log_fallbacks:
-            logger.warning(f"Fallback triggered: {model_name} ({reason.value}) - {error_message}")
-            logger.info(f"Falling back to PyTorch for {model_name}")
+            logger.warning("Fallback triggered: %s (%s) - %s", model_name, reason.value, error_message)
+            logger.info("Falling back to PyTorch for %s", model_name)
 
     def record_recovery(self, model_name: str) -> None:
         """
@@ -149,7 +149,7 @@ class FallbackManager:
             self.stats.active_fallbacks = len(self.active_fallbacks)
 
             if self.log_fallbacks:
-                logger.info(f"✓ Recovery: {model_name} back to ONNX")
+                logger.info("✓ Recovery: %s back to ONNX", model_name)
 
     def is_fallback_active(self, model_name: str) -> bool:
         """
@@ -201,7 +201,7 @@ class FallbackManager:
             return True
 
         except Exception as e:
-            logger.warning(f"Health check failed for {model_name}: {e}")
+            logger.warning("Health check failed for %s: %s", model_name, e)
 
             # Record fallback if not already active
             if model_name not in self.active_fallbacks:
@@ -246,24 +246,24 @@ class FallbackManager:
         logger.debug("FALLBACK MANAGER SUMMARY")
         logger.debug("=" * 60)
 
-        logger.debug(f"Total Fallbacks: {self.stats.total_fallbacks}")
-        logger.debug(f"Active Fallbacks: {self.stats.active_fallbacks}")
-        logger.debug(f"Recovered: {self.stats.recovered_fallbacks}")
+        logger.debug("Total Fallbacks: %s", self.stats.total_fallbacks)
+        logger.debug("Active Fallbacks: %s", self.stats.active_fallbacks)
+        logger.debug("Recovered: %s", self.stats.recovered_fallbacks)
 
         if self.stats.fallback_by_reason:
             logger.debug("\nFallbacks by Reason:")
             for reason, count in self.stats.fallback_by_reason.items():
-                logger.debug(f"  {reason.value}: {count}")
+                logger.debug("  %s: %s", reason.value, count)
 
         if self.stats.fallback_by_model:
             logger.debug("\nFallbacks by Model:")
             for model, count in self.stats.fallback_by_model.items():
-                logger.debug(f"  {model}: {count}")
+                logger.debug("  %s: %s", model, count)
 
         if self.active_fallbacks:
             logger.debug("\nActive Fallbacks:")
             for event in self.active_fallbacks.values():
-                logger.debug(f"  {event}")
+                logger.debug("  %s", event)
 
         logger.debug("=" * 60)
 
@@ -348,7 +348,7 @@ class ONNXModelWithFallback:
 
         except Exception as e:
             # Fallback to PyTorch
-            logger.warning(f"ONNX inference failed for {self.name}: {e}")
+            logger.warning("ONNX inference failed for %s: %s", self.name, e)
             self.fallback_manager.record_fallback(
                 model_name=self.name, reason=FallbackReason.INFERENCE_ERROR, error_message=str(e)
             )

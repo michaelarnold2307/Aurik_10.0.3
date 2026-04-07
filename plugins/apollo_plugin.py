@@ -531,7 +531,7 @@ def repair_codec_artifacts(
     Beispiel::
 
         result = repair_codec_artifacts(audio, sr=48000, material="mp3_low")
-        logger.debug(f"HF-Gewinn: +{result.hf_gain_db:.1f} dB | Brillanz: {result.brillanz_score:.2f}")
+        logger.debug("HF-Gewinn: +%.1f dB | Brillanz: %.2f", result.hf_gain_db, result.brillanz_score)
 
     Args:
         audio:        Audio-Signal (1D float32, 48000 Hz)

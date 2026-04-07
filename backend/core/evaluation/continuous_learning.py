@@ -105,7 +105,7 @@ class SuccessPatternAnalyzer:
             int: Number of files loaded
         """
         if not self.audit_dir.exists():
-            logger.warning(f"Audit directory not found: {self.audit_dir}")
+            logger.warning("Audit directory not found: %s", self.audit_dir)
             return 0
 
         # Load JSON files
@@ -121,9 +121,9 @@ class SuccessPatternAnalyzer:
                     self.raw_data.append(data)
                     loaded += 1
             except Exception as e:
-                logger.warning(f"Failed to load {json_file}: {e}")
+                logger.warning("Failed to load %s: %s", json_file, e)
 
-        logger.info(f"Loaded {loaded} audit reports from {self.audit_dir}")
+        logger.info("Loaded %s audit reports from %s", loaded, self.audit_dir)
         return loaded
 
     def analyze_patterns(self) -> dict[str, ProcessingStrategy]:
@@ -181,7 +181,7 @@ class SuccessPatternAnalyzer:
             )
 
         self.strategies = strategies
-        logger.info(f"Analyzed {len(strategies)} distinct strategies")
+        logger.info("Analyzed %s distinct strategies", len(strategies))
         return strategies
 
     def identify_top_performers(self, top_n: int = 5) -> list[ProcessingStrategy]:
@@ -328,7 +328,7 @@ class ConfidenceCalibrator:
                 success = strategy.quality_gate_pass_rate > 0.8
                 self.calibration_data.append((conf, success))
 
-        logger.info(f"Collected {len(self.calibration_data)} calibration data points")
+        logger.info("Collected %s calibration data points", len(self.calibration_data))
 
     def analyze_calibration(self) -> dict[str, Any]:
         """
@@ -526,7 +526,7 @@ class ContinuousLearningSystem:
         loaded = self.analyzer.load_audit_reports(max_files)
 
         if loaded < min_files:
-            logger.warning(f"Insufficient data: {loaded} files (need {min_files}). Skipping.")
+            logger.warning("Insufficient data: %s files (need %s). Skipping.", loaded, min_files)
             return LearningReport(
                 total_files_analyzed=loaded,
                 analysis_date=datetime.now().isoformat(),
@@ -538,30 +538,30 @@ class ContinuousLearningSystem:
         top_performers = self.analyzer.identify_top_performers(top_n=5)
         underperformers = self.analyzer.identify_underperformers(threshold=0.5)
 
-        logger.info(f"✓ Analyzed {len(strategies)} strategies")
-        logger.info(f"  └─ Top performers: {len(top_performers)}")
-        logger.info(f"  └─ Underperformers: {len(underperformers)}")
+        logger.info("✓ Analyzed %s strategies", len(strategies))
+        logger.info("  └─ Top performers: %s", len(top_performers))
+        logger.info("  └─ Underperformers: %s", len(underperformers))
 
         # 3. Optimize strategy weights
         optimal_weights = self.optimizer.compute_optimal_weights(strategies)
         current_weights = dict.fromkeys(strategies.keys(), 0.5)  # Placeholder
         weight_recommendations = self.optimizer.generate_weight_recommendations(current_weights, optimal_weights)
 
-        logger.info(f"✓ Generated {len(weight_recommendations)} weight recommendations")
+        logger.info("✓ Generated %s weight recommendations", len(weight_recommendations))
 
         # 4. Calibrate confidence predictions
         self.calibrator.collect_calibration_data(strategies)
         calibration_analysis = self.calibrator.analyze_calibration()
         calibration_recommendations = self.calibrator.generate_calibration_recommendations(calibration_analysis)
 
-        logger.info(f"✓ Confidence calibration: {calibration_analysis.get('status', 'unknown')}")
+        logger.info("✓ Confidence calibration: %s", calibration_analysis.get('status', 'unknown'))
 
         # 5. Aggregate performance metrics
         self.aggregator.aggregate_from_reports(self.analyzer.raw_data)
         trends = self.aggregator.compute_trends()
         trend_recommendations = self.aggregator.identify_optimization_opportunities(trends)
 
-        logger.info(f"✓ Identified {len(trends)} performance trends")
+        logger.info("✓ Identified %s performance trends", len(trends))
 
         # 6. Compile report
         all_recommendations = weight_recommendations + calibration_recommendations + trend_recommendations
@@ -655,7 +655,7 @@ class ContinuousLearningSystem:
             }
             json.dump(report_dict, f, indent=2)
 
-        logger.info(f"✓ Exported learning report: {json_path}")
+        logger.info("✓ Exported learning report: %s", json_path)
 
         # Print summary to console
         logger.debug("\n" + "=" * 80)

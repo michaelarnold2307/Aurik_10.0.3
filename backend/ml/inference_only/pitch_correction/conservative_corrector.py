@@ -180,7 +180,7 @@ class ConservativePitchCorrector:
             }
 
         if not correction_plan.should_correct:
-            logger.info(f"Pitch correction REJECTED: {correction_plan.reason}")
+            logger.info("Pitch correction REJECTED: %s", correction_plan.reason)
             return audio, {"corrected": False, "reason": correction_plan.reason, "plan": correction_plan}
 
         # Step 7: Apply correction
@@ -366,7 +366,7 @@ class ConservativePitchCorrector:
             return audio_final
 
         except Exception as e:
-            logger.error(f"Pitch correction failed: {e}")
+            logger.error("Pitch correction failed: %s", e)
             return audio
 
     def can_correct_safely(self, audio: np.ndarray) -> dict:

@@ -1,6 +1,6 @@
 import numpy as np
 
-from backend.core.core_utils import normalize_audio
+from backend.core.core_utils import audio_stats
 
 
 # Golden Sample: Referenzsignal (z.B. Sinus)
@@ -9,12 +9,9 @@ def golden_sample():
     return 0.5 * np.sin(2 * np.pi * 440 * t)
 
 
-def test_normalize_audio_golden():
+def test_audio_stats_golden():
     ref = golden_sample()
-    norm = normalize_audio(ref)
-    # Erwartung: Maximalwert exakt 0.999 oder sehr nahe dran
-    assert np.isclose(np.max(np.abs(norm)), 0.999, atol=1e-6)
-    # Form und Länge müssen erhalten bleiben
-    assert norm.shape == ref.shape
-    # Signal darf nicht NaN oder Inf enthalten
-    assert np.all(np.isfinite(norm))
+    stats = audio_stats(ref)
+    assert np.isclose(stats["peak"], 0.5, atol=1e-3)
+    assert np.isfinite(stats["rms"])
+    assert np.isfinite(stats["loudness"])

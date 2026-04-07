@@ -82,4 +82,5 @@ class AutomaticDeclipperUltraLowLatency:
         from dsp._declip_core import ar_declip
 
         audio = np.asarray(audio, dtype=np.float64)
-        return ar_declip(audio, sr, threshold=0.95, order=8, n_iter=2)
+        # §VERBOTEN: LPC order < 16 — minimum 16 at 48kHz (spec: order 30-40)
+        return ar_declip(audio, sr, threshold=0.95, order=16, n_iter=2)

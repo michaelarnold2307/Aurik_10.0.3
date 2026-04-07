@@ -1427,7 +1427,7 @@ class EraClassifier:
 
         Wenn keine vorberechneten Anker vorhanden sind, gibt unbekannte Ära zurück.
         """
-        anchors_path = Path(__file__).parent.parent / "models" / "era_classifier" / "era_anchors.npy"
+        anchors_path = Path(__file__).parent.parent.parent / "models" / "era_classifier" / "era_anchors.npy"
         if not anchors_path.exists():
             return 1960, 0.20
         try:

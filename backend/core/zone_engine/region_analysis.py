@@ -183,7 +183,7 @@ class RegionDetector:
         min_samples = int(sr * self.min_region_duration_ms / 1000.0)
         regions = [r for r in regions if r.duration_samples >= min_samples]
 
-        logger.info(f"Detected {len(regions)} regions in audio")
+        logger.info("Detected %s regions in audio", len(regions))
         return regions
 
     def _classify_frame(
@@ -340,7 +340,7 @@ class RegionAnalyzer:
                 }
             )
         except Exception as e:
-            logger.warning(f"Spectral analysis failed: {e}")
+            logger.warning("Spectral analysis failed: %s", e)
 
         # Dynamic analysis
         rms = np.sqrt(np.mean(region_audio**2))
@@ -366,7 +366,7 @@ class RegionAnalyzer:
                     analysis["f0_std"] = float(np.nanstd(voiced_f0))
                     analysis["voiced_ratio"] = float(np.sum(voiced_flag) / len(voiced_flag))
             except Exception as e:
-                logger.warning(f"F0 analysis failed: {e}")
+                logger.warning("F0 analysis failed: %s", e)
 
         elif region.region_type == RegionType.MUSIC:
             # Tempo for music
@@ -374,7 +374,7 @@ class RegionAnalyzer:
                 tempo, _ = librosa.beat.beat_track(y=region_audio, sr=sr)
                 analysis["tempo_bpm"] = float(np.asarray(tempo).flat[0])
             except Exception as e:
-                logger.warning(f"Tempo analysis failed: {e}")
+                logger.warning("Tempo analysis failed: %s", e)
 
         return analysis
 
@@ -547,7 +547,7 @@ class RegionAnalysisSystem:
 
         # 1. Detect regions
         regions = self.detector.detect_regions(audio, sr)
-        self.logger.info(f"  ├─ Detected {len(regions)} regions")
+        logger.info("  ├─ Detected %s regions", len(regions))
 
         # 2. Analyze each region
         region_data = []
@@ -576,7 +576,7 @@ class RegionAnalysisSystem:
                 }
             )
 
-        self.logger.info(f"  ├─ Analyzed {len(region_data)} regions")
+        logger.info("  ├─ Analyzed %s regions", len(region_data))
 
         # 3. Generate summary report
         report = {
@@ -588,7 +588,7 @@ class RegionAnalysisSystem:
             "metadata": {"analysis_only": True, "no_audio_modification": True, "normative_compliance": True},
         }
 
-        self.logger.info(f"  └─ Region analysis complete: {len(regions)} regions identified")
+        logger.info("  └─ Region analysis complete: %s regions identified", len(regions))
 
         return report
 
@@ -605,7 +605,7 @@ class RegionAnalysisSystem:
         with open(output_path, "w") as f:
             json.dump(report, f, indent=2)
 
-        self.logger.info(f"Region analysis exported to {output_path}")
+        logger.info("Region analysis exported to %s", output_path)
 
 
 # ==============================================================================

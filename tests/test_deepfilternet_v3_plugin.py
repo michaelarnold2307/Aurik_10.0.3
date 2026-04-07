@@ -90,3 +90,35 @@ def test_enhance_stereo_omlsa_fallback():
     assert out.ndim == 2 and out.shape[1] == 2
     assert np.all(np.isfinite(out))
     assert np.max(np.abs(out)) <= 1.0
+
+
+def test_omlsa_fallback_uses_dry_signal_when_secondary_snr_is_high(monkeypatch):
+    def _raise_primary(_mono, _sr):
+        raise RuntimeError("omlsa failed")
+
+    monkeypatch.setattr(DeepFilterNetV3IIPlugin, "_omlsa_primary_fallback", _raise_primary)
+    monkeypatch.setattr(DeepFilterNetV3IIPlugin, "_estimate_input_snr_db", lambda _mono: 40.0)
+
+    audio = (0.2 * np.sin(2 * np.pi * 440 * np.linspace(0, 1, 48_000, endpoint=False))).astype(np.float32)
+    out = DeepFilterNetV3IIPlugin._omlsa_fallback(audio, 48_000)
+
+    np.testing.assert_allclose(out, audio, atol=1e-6)
+
+
+def test_omlsa_fallback_uses_spectral_gating_when_secondary_snr_is_low(monkeypatch):
+    def _raise_primary(_mono, _sr):
+        raise RuntimeError("omlsa failed")
+
+    monkeypatch.setattr(DeepFilterNetV3IIPlugin, "_omlsa_primary_fallback", _raise_primary)
+    monkeypatch.setattr(DeepFilterNetV3IIPlugin, "_estimate_input_snr_db", lambda _mono: 10.0)
+    monkeypatch.setattr(
+        DeepFilterNetV3IIPlugin,
+        "_spectral_gating_fallback",
+        lambda mono, _sr: np.zeros_like(mono, dtype=np.float32),
+    )
+
+    audio = np.random.randn(48_000).astype(np.float32) * 0.25
+    out = DeepFilterNetV3IIPlugin._omlsa_fallback(audio, 48_000)
+
+    assert out.shape == audio.shape
+    assert np.all(out == 0.0)

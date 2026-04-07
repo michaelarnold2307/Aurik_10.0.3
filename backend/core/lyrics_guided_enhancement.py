@@ -494,6 +494,16 @@ _lge_instance: LyricsGuidedEnhancement | None = None
 _lge_lock = threading.Lock()
 
 
+def is_lyrics_guided_loaded() -> bool:
+    """Return True only if the LGE singleton is already initialised (models loaded).
+
+    Use this guard before calling get_lyrics_guided_enhancement() in
+    latency-sensitive paths (e.g. pre-analysis, genre classification during
+    file opening) to avoid loading Whisper + wav2vec2 unexpectedly.
+    """
+    return _lge_instance is not None
+
+
 def get_lyrics_transcriber() -> LyricsTranscriber:
     global _transcriber
     if _transcriber is None:
@@ -1213,4 +1223,5 @@ __all__ = [
     "get_lyrics_guided_enhancement",
     "get_lyrics_guided_timeline",
     "get_lyrics_transcriber",
+    "is_lyrics_guided_loaded",
 ]

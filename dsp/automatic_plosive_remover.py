@@ -251,8 +251,11 @@ class AutomaticPlosiveRemover:
 if __name__ == "__main__":
     import soundfile as sf
 
+    from backend.file_import import load_audio_file
+
     # Load test audio (speech/podcast with plosives)
-    audio, sr = sf.read("test_speech_plosives.wav")
+    _res = load_audio_file("test_speech_plosives.wav")
+    audio, sr = np.asarray(_res["audio"], dtype=np.float32), int(_res["sr"])
 
     # Convert to mono if stereo
     if audio.ndim > 1:

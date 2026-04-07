@@ -1,4 +1,4 @@
-"""Phase 57 — Lyrics-Guided Enhancement (§2.36 PFLICHT).
+"""Phase 58 — Lyrics-Guided Enhancement (§2.36 PFLICHT).
 
 Whisper-Tiny ONNX → wav2vec2 phoneme alignment → ContentAwareProcessor.
 Runs as post-processing module AFTER the PMGG chain (§7.7 invariant).

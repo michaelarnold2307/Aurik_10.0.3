@@ -91,12 +91,12 @@ class AdaptiveDerecording:
             else:
                 result = self._derecord_classic(audio, sr, derecord_strength)
         except Exception as e:
-            logger.error(f"Fehler bei Derecording: {e}")
+            logger.error("Fehler bei Derecording: %s", e)
             fallback_used = True
             result = audio.copy()
 
         if audit_log:
-            logger.info(f"AdaptiveDerecording: derecord_strength={derecord_strength}, fallback_used={fallback_used}")
+            logger.info("AdaptiveDerecording: derecord_strength=%s, fallback_used=%s", derecord_strength, fallback_used)
         return result
 
     def _derecord_classic(self, audio: np.ndarray, sr: int, derecord_strength: float) -> np.ndarray:
@@ -133,5 +133,5 @@ class AdaptiveDerecording:
         strength = float(np.clip(1.0 / (snr * 0.1 + 1.0), 0.1, 0.9))
 
         self.last_params = {"method": self.method, "derecord_strength": strength, "snr": snr}
-        logger.info(f"auto_optimize_params (Derecording): SNR={snr:.2f}, strength={strength:.3f}")
+        logger.info("auto_optimize_params (Derecording): SNR=%.2f, strength=%.3f", snr, strength)
         return self.last_params

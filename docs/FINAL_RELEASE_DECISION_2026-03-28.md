@@ -93,7 +93,7 @@
 ### Restoration Mode (R1–R15)
 
 | ID | Criterion | Category | Severity | Status | Evidence | Notes |
-|----|-----------|----|----------|--------|----------|-------|
+| --- | --- | --- | --- | --- | --- | --- |
 | **R1** | Einstiegs-Nachricht klar | UI/UX | MUST | ✅ PASS | Mode strings present | "Restoration gewählt" confirmed in code |
 | **R2** | Defekt-Scanning transparent | UI/UX | MUST | 🔄 PHASE 2 | scan_progress signal | Requires live processing test |
 | **R3** | Zweistufige Progress Bars | UI/UX | MUST | ✅ PASS | phase_progress_bar + main bar | setRange(0, 10000) confirmed |
@@ -117,7 +117,7 @@
 ### Studio 2026 Mode (S1–S15)
 
 | ID | Criterion | Category | Severity | Status | Evidence | Notes |
-|----|-----------|----|----------|--------|----------|-------|
+| --- | --- | --- | --- | --- | --- | --- |
 | **S1** | Studio 2026 Modusmeldung | UI/UX | MUST | ✅ PASS | Mode string present | "Studio 2026 gewählt" confirmed |
 | **S2** | Stem-Separation aktiv | Audio | MUST | 🔄 PHASE 2 | BsRoFormer execution | Vocal/instrument split test |
 | **S3** | Vocal-Enhancement aktiv | Audio | MUST | 🔄 PHASE 2 | phase_43 invocation | PANNs > 0.35 + vocal enhancement |

@@ -697,11 +697,11 @@ def test_studio_2026_criteria(criterion: dict[str, Any]):
             assert_code_contract(
                 "S12 Artifact Detection",
                 [
-                    ("backend/artifact_detection_api.py", [r"detect-artifacts|detect_artifacts", r"ArtifactDetectionPlugin"]),
+                    ("plugins/artifact_detection_plugin.py", [r"detect_artifacts", r"ArtifactDetectionPlugin"]),
                     ("backend/core/introduced_artifact_detector.py", [r"class\s+IntroducedArtifactDetector|def\s+get_iad"]),
                 ],
             )
-            result["evidence"] = "Artefakt-Detektion über API + Core-Detector vorhanden"
+            result["evidence"] = "Artefakt-Detektion über Plugin + Core-Detector vorhanden"
 
         elif criterion["id"] == "S13":
             assert_code_contract(

@@ -437,17 +437,17 @@ if __name__ == "__main__":
     compensated_quiet = core.apply_loudness_compensation(audio, sr, listening_level="quiet")
     compensated_normal = core.apply_loudness_compensation(audio, sr, listening_level="normal")
 
-    logger.debug(f"  Original RMS: {np.sqrt(np.mean(audio**2)):.4f}")
-    logger.debug(f"  Quiet (40 phon) RMS: {np.sqrt(np.mean(compensated_quiet**2)):.4f}")
-    logger.debug(f"  Normal (60 phon) RMS: {np.sqrt(np.mean(compensated_normal**2)):.4f}")
+    logger.debug("  Original RMS: %.4f", np.sqrt(np.mean(audio**2)))
+    logger.debug("  Quiet (40 phon) RMS: %.4f", np.sqrt(np.mean(compensated_quiet**2)))
+    logger.debug("  Normal (60 phon) RMS: %.4f", np.sqrt(np.mean(compensated_normal**2)))
 
     # Test masked component removal
     logger.debug("\nRemoving masked (inaudible) components...")
     audio_unmasked = core.remove_masked_components(audio, sr)
 
-    logger.debug(f"  Original RMS: {np.sqrt(np.mean(audio**2)):.4f}")
-    logger.debug(f"  After masking removal: {np.sqrt(np.mean(audio_unmasked**2)):.4f}")
-    logger.debug(f"  Energy reduction: {(1 - np.mean(audio_unmasked**2) / np.mean(audio**2)) * 100:.1f}%")
+    logger.debug("  Original RMS: %.4f", np.sqrt(np.mean(audio**2)))
+    logger.debug("  After masking removal: %.4f", np.sqrt(np.mean(audio_unmasked**2)))
+    logger.debug("  Energy reduction: %.1f%%", (1 - np.mean(audio_unmasked**2) / np.mean(audio**2)) * 100)
 
     # Test perceptual EQ
     logger.debug("\nGenerating Perceptual EQ Curve...")
@@ -463,12 +463,12 @@ if __name__ == "__main__":
 
     logger.debug("\n  Target Balance:")
     for band, energy in target_balance.items():
-        logger.debug(f"    {band.capitalize()}: {energy * 100:.1f}%")
+        logger.debug("    %s: %.1f%%", band.capitalize(), energy * 100)
 
     logger.debug("\n  Sample EQ Points:")
     for i in [0, 10, 20, 30, 40]:
         if i < len(freqs):
-            logger.debug(f"    {freqs[i]:6.0f} Hz: {eq_curve[i]:+.2f} dB")
+            logger.debug("    %6.0f Hz: %+.2f dB", freqs[i], eq_curve[i])
 
     logger.debug("\n" + "=" * 70)
     logger.debug("Demo complete!")

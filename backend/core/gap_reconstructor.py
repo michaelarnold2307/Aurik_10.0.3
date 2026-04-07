@@ -20,7 +20,7 @@ Verwendung:
     recon = GapReconstructor()
     result = recon.reconstruct(audio, sample_rate)
     audio_fixed = result.audio
-    logger.debug(f"{result.gaps_found} Lücken → {result.gaps_repaired} repariert")
+    logger.debug("%s Lücken → %s repariert", result.gaps_found, result.gaps_repaired)
 """
 
 from __future__ import annotations
@@ -561,7 +561,7 @@ class GapReconstructor:
         Kombiniert Vorwärts- und Rückwärtsprädiktion mit linearem Blend,
         um Transient-Artefakte an beiden Rändern zu vermeiden.
         """
-        order = min(512, max(4, int(cfg.ar_order_factor * (n_gap + 1))))
+        order = min(512, max(16, int(cfg.ar_order_factor * (n_gap + 1))))  # §VERBOTEN: LPC < 16
         ctx = min(len(pre), max(order * 3, 128))
         context_pre = pre[-ctx:].astype(np.float64)
         context_post = post[:ctx].astype(np.float64)

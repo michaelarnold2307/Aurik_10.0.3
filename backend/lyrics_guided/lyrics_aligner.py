@@ -203,7 +203,7 @@ class LyricsAligner:
             else:
                 logger.warning("⚠️ Lyrics Aligner: MFA not found")
         except Exception as e:
-            logger.warning(f"MFA check failed: {e}")
+            logger.warning("MFA check failed: %s", e)
 
     def _check_mfa_models(self) -> None:
         """Check which MFA acoustic models are installed."""
@@ -220,7 +220,7 @@ class LyricsAligner:
                     model_name = models["acoustic"].lower()
                     if model_name in output:
                         self._mfa_models_available.add(lang_code)
-                        logger.info(f"  ✅ MFA model for {models['name']}: {models['acoustic']}")
+                        logger.info("  ✅ MFA model for %s: %s", models['name'], models['acoustic'])
 
                 if not self._mfa_models_available:
                     logger.warning("  ⚠️ No MFA acoustic models found. Install with:")
@@ -228,7 +228,7 @@ class LyricsAligner:
                     logger.warning("     mfa model download acoustic german_mfa")
 
         except Exception as e:
-            logger.warning(f"Could not check MFA models: {e}")
+            logger.warning("Could not check MFA models: %s", e)
 
     def align(
         self, audio: npt.NDArray[np.float32], sr: int, lyrics: str | None = None, language: str | None = None
@@ -255,14 +255,14 @@ class LyricsAligner:
 
         # 1. Transcribe with Whisper (if no lyrics provided)
         if lyrics is None:
-            logger.info(f"🎤 Transcribing with Whisper (language: {lang})...")
+            logger.info("🎤 Transcribing with Whisper (language: %s)...", lang)
             transcript, detected_lang, word_segments = self._whisper_transcribe(audio, sr)
             # Use detected language if auto-detection was used
             if not language and not self.language:
                 lang = detected_lang if detected_lang != "unknown" else "en"
-                logger.info(f"   Detected language: {lang}")
+                logger.info("   Detected language: %s", lang)
         else:
-            logger.info(f"🎤 Using provided lyrics (language: {lang})...")
+            logger.info("🎤 Using provided lyrics (language: %s)...", lang)
             transcript = lyrics
             word_segments = []  # Will need forced alignment
 
@@ -272,7 +272,7 @@ class LyricsAligner:
 
         # 3. Phoneme-level alignment (if MFA available)
         if self._mfa_available and len(word_segments) > 0:
-            logger.info(f"🔤 Phoneme-level alignment with MFA ({lang})...")
+            logger.info("🔤 Phoneme-level alignment with MFA (%s)...", lang)
             words = self._mfa_align(audio, sr, word_segments, lang)
         else:
             logger.info("🔤 Using word-level alignment only...")
@@ -401,7 +401,7 @@ class LyricsAligner:
         try:
             return self._mfa_alignment_process(audio, sr, word_segments, language)
         except Exception as e:
-            logger.warning(f"MFA alignment failed: {e}. Using word-level only.")
+            logger.warning("MFA alignment failed: %s. Using word-level only.", e)
             return self._word_level_only(word_segments)
 
     def _mfa_alignment_process(
@@ -418,7 +418,7 @@ class LyricsAligner:
             raise ValueError(f"Language '{language}' not supported for MFA. Supported: {list(self.MFA_MODELS.keys())}")
 
         models = self.MFA_MODELS[language]
-        logger.info(f"Running MFA phoneme-level alignment for {models['name']}...")
+        logger.info("Running MFA phoneme-level alignment for %s...", models['name'])
 
         # Create temporary directory for MFA
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -458,7 +458,7 @@ class LyricsAligner:
             # Parse TextGrid to extract phoneme alignments
             words = self._parse_textgrid(textgrid_path, word_segments)
 
-            logger.info(f"✅ MFA aligned: {len(words)} words with phonemes")
+            logger.info("✅ MFA aligned: %s words with phonemes", len(words))
 
             return words
 
@@ -471,7 +471,7 @@ class LyricsAligner:
             logger.warning("textgrid not available. Falling back to simplified TextGrid parser.")
             return self._parse_textgrid_simple(textgrid_path, word_segments)
         except Exception as e:
-            logger.warning(f"TextGrid parsing failed: {e}. Using simplified parser.")
+            logger.warning("TextGrid parsing failed: %s. Using simplified parser.", e)
             return self._parse_textgrid_simple(textgrid_path, word_segments)
 
         words = []
@@ -662,22 +662,22 @@ if __name__ == "__main__":
     aligner = LyricsAligner(use_whisper=False, use_mfa=False)
     result = aligner.align(audio, sr, lyrics="Hello world testing")
 
-    logger.info(f'\n📝 Transcript: "{result.text}"')
-    logger.info(f"🌍 Language: {result.language}")
-    logger.info(f"🎵 Has vocals: {result.has_vocals}")
+    logger.info('\n📝 Transcript: "%s"', result.text)
+    logger.info("🌍 Language: %s", result.language)
+    logger.info("🎵 Has vocals: %s", result.has_vocals)
 
-    logger.info(f"\n🎤 Vocal segments ({len(result.vocal_segments)}):")
+    logger.info("\n🎤 Vocal segments (%s):", len(result.vocal_segments))
     for start, end in result.vocal_segments:
-        logger.info(f"   {start:.2f}s - {end:.2f}s ({end - start:.2f}s)")
+        logger.info("   %.2fs - %.2fs (%.2fs)", start, end, end - start)
 
-    logger.info(f"\n🎸 Instrumental segments ({len(result.instrumental_segments)}):")
+    logger.info("\n🎸 Instrumental segments (%s):", len(result.instrumental_segments))
     for start, end in result.instrumental_segments:
-        logger.info(f"   {start:.2f}s - {end:.2f}s ({end - start:.2f}s)")
+        logger.info("   %.2fs - %.2fs (%.2fs)", start, end, end - start)
 
-    logger.info(f"\n📖 Words ({len(result.words)}):")
+    logger.info("\n📖 Words (%s):", len(result.words))
     for word in result.words:
-        logger.info(f'   [{word.start_time:.2f}s - {word.end_time:.2f}s] "{word.word}" (conf: {word.confidence:.1%})')
-        logger.info(f"      Phonemes: {len(word.phonemes)}")
+        logger.info('   [%.2fs - %.2fs] "%s" (conf: %.1%)', word.start_time, word.end_time, word.word, word.confidence)
+        logger.info("      Phonemes: %s", len(word.phonemes))
         for phoneme in word.phonemes[:3]:  # Show first 3
             logger.info(
                 "        \u2022 %s (%s): %.2fs - %.2fs",
@@ -687,7 +687,7 @@ if __name__ == "__main__":
                 phoneme.end_time,
             )
         if len(word.phonemes) > 3:
-            logger.info(f"        ... and {len(word.phonemes) - 3} more")
+            logger.info("        ... and %s more", len(word.phonemes) - 3)
 
     logger.info(str("\n" + "=" * 80))
     logger.info("✅ Lyrics Aligner Demo Complete")

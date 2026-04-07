@@ -3,9 +3,10 @@ import argparse
 import os
 import sys
 
-import librosa
 import numpy as np
 import soundfile as sf
+
+from backend.file_import import load_audio_file
 
 sys.path.append("/workspace/Wave-U-Net")
 import Config  # type: ignore[import-untyped]
@@ -43,17 +44,19 @@ def main():
         model_path = os.path.join("/workspace/Wave-U-Net/checkpoints", "full_44KHz", "full_44KHz-236118")
 
     # Audio laden
-    audio, sr = librosa.load(args.input, sr=None, mono=False)
+    _res = load_audio_file(args.input)
+    audio = np.asarray(_res["audio"], dtype=np.float32)
+    sr = int(_res["sr"])
 
     # Für Evaluate.predict wird ein Track-Objekt mit .audio und .rate benötigt
     class SimpleTrack:
         pass
 
     track = SimpleTrack()
-    # librosa gibt (channels, samples), wir brauchen (samples, channels)
+    # load_audio_file gibt mono als (samples,) und stereo als (samples, channels)
     if audio.ndim == 1:
-        audio = np.expand_dims(audio, axis=0)
-    track.audio = audio.T  # (samples, channels)
+        audio = np.expand_dims(audio, axis=1)
+    track.audio = audio  # (samples, channels)
     track.rate = sr
 
     # Inferenz

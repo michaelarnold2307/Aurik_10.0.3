@@ -62,8 +62,15 @@ class MLDeEsser:
         :param output_path: Pfad zur Ausgabedatei
         :return: output_path
         """
-        audio, sr = sf.read(audio_path, always_2d=True)
-        audio = audio.T.astype(np.float64)
+        from backend.file_import import load_audio_file
+        import numpy as np
+        _res = load_audio_file(audio_path)
+        audio = np.asarray(_res["audio"], dtype=np.float64)
+        sr = int(_res["sr"])
+        if audio.ndim == 1:
+            audio = audio[np.newaxis, :]  # (1, samples) for always_2d compat
+        else:
+            audio = audio.T  # (channels, samples)
         out = self.process(audio, sr)
         sf.write(output_path, out.T, sr)
         return output_path

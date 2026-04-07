@@ -7,9 +7,185 @@
 >
 > Historische Versions- und Metrikangaben in dieser Datei sind bewusst als Zeitstände erhalten.
 >
-> Stand: April 2026 — Aurik 9.10.102
+> Stand: April 2026 — Aurik 9.10.124
 
 ---
+
+## v9.10.124 (7. April 2026) — Deep-Transfer-Chain-Nachschärfung (3+/4+)
+
+- **[RELEASE_MUST] §2.46a Deep-Transfer-Chain-Pflicht — NEU** in Slim Core:
+  Importsongs mit 3+ Tonträgerstufen müssen vollständig modelliert werden; keine
+  Verkürzung auf Primärträger + eine Sekundärstufe.
+- **Zwischenstufen-Pflicht**: Digitale Zwischenstufen (`cd_digital`, `dat`) sind bei
+  Evidenz verpflichtend zu führen, bevor ein lossy Codec-Layer (`mp3_low`, `aac`, ...)
+  angehängt wird.
+- **Kausalitäts-Invariante**: Kettenreihenfolge bleibt gemäß `_MEDIUM_ORDER` monoton;
+  keine Rückwärtssprünge in der Transferkette.
+- **Normalisierungs-Invariante**: Nach Material-Key-Normalisierung müssen Duplikate
+  konsolidiert werden (Konfidenz = `max`), um künstlich erhöhte
+  `source_fidelity_generation_count` zu vermeiden.
+- **Testpflicht bindend erweitert**: Mindestens ein Unit-Test für 4-stufige Kette mit
+  digitaler Zwischenstufe und ein Unit-Test für `file_ext=.mp3` mit physikalischer
+  Inferenz + 4-stufigem Ergebnis; zusätzlich Integrationstest für unveränderte
+  Durchreichung bis `metadata["song_calibration"]`.
+- **Spec 05 §6.7 aktualisiert**: Phase-2-Transferkettenaufbau beschreibt jetzt
+  explizit Deep-Chains (3+/4+/5+), Zwischenstufen-Regeln und Testpflichten.
+- **Betroffene Dateien**: `.github/copilot-instructions.md`,
+  `.github/specs/05_material_system.md`.
+
+### v9.10.124 Nachtrag — Teststabilisierung Audit-Trail (7. April 2026)
+
+- Integrationstest für Source-Fidelity-Audit-Trail auf deterministischen,
+  zeitsicheren Datenfluss fokusiert (heavy Runtime-Pfade im Testkontext gestubbt),
+  ohne normative Export-Anforderungen zu lockern.
+- Ziel: Verlässliche CI-Aussage für die Pflichtfelder
+  `source_fidelity_transfer_chain`, `source_fidelity_generation_count`,
+  `source_fidelity_hf_loss_db`.
+
+## v9.10.123 — instructions_version 6.2 (7. April 2026) — Klangwahrheits-Tiefenrevision
+
+- **instructions_version**: 6.1 → **6.2** — Klangwahrheits-Tiefenrevision
+- **§0 Oberstes Prinzip — reformuliert**: „Originale Performance hören" statt „besser klingen
+  als der Input." Für Restoration ist das Ziel Ununterscheidbarkeit vom Studio-Original,
+  nicht bloße Verbesserung.
+- **§0a Modus-Differenzierung — erweitert**: Neue Zeilen Rauschboden (Restoration: material-adaptiv;
+  Studio 2026: ≤ −72 dBFS), Qualitätsmaß (Restoration: Nähe zum Original; Studio 2026: PQS-Improvement),
+  Authentizität (akustisch nicht unterscheidbar vs. musikalische Intention modernisieren).
+  Klangziel Restoration: „Tonträgerkette invertieren".
+- **§2.44 HPI-Gate — Restoration-Formel korrigiert**: `PQS_improvement` ersetzt durch
+  `timbral_fidelity(input, output)` — misst akustische Nähe zum Original statt „Verbesserung."
+  timbral_fidelity = MFCC-Distanz + Spectral-Envelope-Korrelation + Crest-Factor-Erhalt.
+- **§2.46 Carrier-Chain-Inversion — NEU**: Explizites Prinzip für Restoration — nicht Einzel-Defekte
+  reparieren, sondern die **gesamte Tonträgerkette invertieren** (ADC-Artefakte → Playback →
+  Alterung → Carrier-Encoding, dabei Mixer/Preamp-Charakter + Studio-Raumklang bewahren).
+  Studio 2026: + Enhancement-Kette, Mixer/Preamp darf modernisiert werden.
+- **Rauschboden — modus-differenziert**: Restoration: material-adaptiv (Shellac ≤ −45, Vinyl ≤ −55,
+  Tape ≤ −60, Digital ≤ −72 dBFS) — kein aggressiveres Denoising als das Original-Aufnahmemedium.
+  Studio 2026: ≤ −72 dBFS (unverändert). Aktualisiert in: Spec 01 §8.2, Spec 02 §1.4, fix-metric,
+  quality-benchmark.
+- **WärmeMetric §9.7.14 — reformuliert**: Primär-Proxy: Even-Harmonic-Ratio (H2/H4 THD_even/THD_total,
+  ISO 226:2023 gewichtet) — misst wahrgenommene Wärme von Röhren-/Bandsignalketten. Sekundär:
+  Spektral-Band-Ratio E(200–800)/E(800–3000) als Tilt-Proxy.
+- **Studio-2026-Schwellwerte synchronisiert**: Brillanz ≥ 0.90, Bass-Kraft ≥ 0.88, Raumtiefe ≥ 0.78,
+  Separation ≥ 0.85 — konsistent zwischen Spec 01, Spec 02 und fix-metric SKILL.
+- **Spec 02 ergänzt**: §2.44/§2.45/§2.46 als vollständige Abschnitte, §1.4 Modi mit Rauschboden-
+  und HPI-Gate-Referenzen.
+- **Betroffene Dateien**: copilot-instructions.md (Slim Core), Spec 01, Spec 02, fix-metric SKILL,
+  pipeline-debug SKILL, quality-benchmark SKILL.
+- Keine Code-Änderungen. Alle Tests unverändert.
+
+### v9.10.123 Nachtrag 2 — Referenz-Paradoxon, Interaktions-Guard, Artefakt-Gate (6. April 2026)
+
+- **§0a Rauschboden**: Nicht nur *Niveau* sondern auch *Textur* des Restrauschens muss dem
+  originalen Trägerprofil entsprechen. „Kein weißes Rauschen nach Vinyl-Denoising."
+- **§2.44 HPI-Gate — Referenz-Paradoxon explizit gelöst**: `timbral_fidelity` misst jetzt
+  **strukturelle Klangkohärenz** (Spectral-Envelope-Kontinuität, Crest-Factor-Konsistenz,
+  MFCC-Stabilität), nicht bloße Ähnlichkeit zum degradierten Input. Restorability-abhängiger
+  Referenz-Anker: > 70 → Input-Referenz; ≤ 50 → MERT-Referenz-Vektor aus GP-Memory
+  (genre × material × ära). `artifact_freedom` (§2.49) als neuer Multiplikator in beiden
+  HPI-Formeln.
+- **§2.44 MERT-Referenz-Embedding-Aufbau**: 36 Bootstrap-Prototypen (12 Genres × 3 Ära-Bins)
+  im Bundle; inkrementell verfeinert per EMA (α = 0.15) nach jeder erfolgreichen Restaurierung
+  (HPI > 0.5 + artifact_freedom ≥ 0.95). 5-stufige Fallback-Kaskade bis hin zu rein gegen Input.
+  Qualitäts-Gate: nur Outputs mit HPI > 0.5 fließen in Referenz-Aufbau ein.
+- **§2.44 emotional_arc_preservation erweitert**: Jetzt Arousal/Valence-Bogen + **Makrodynamik**
+  (Vers-/Refrain-/Bridge-Pegelrelationen) + **Lyrics-Salienz** (§2.36 Phonem-Boost-Konsistenz).
+- **§2.48 Kumulative-Phasen-Interaktions-Guard — NEU** (Slim Core + Spec 02 + pipeline-debug):
+  Kumulative P1/P2-Drift-Messung nach jeder Phase. Drift < −0.05 → Rollback auf best_checkpoint.
+  5 kritische Interaktions-Paare definiert. **Kumulative STFT-Phasenkohärenz**: Nach ≥ 3
+  STFT-Phasen: Gruppenlaufzeit-Deviation ≤ 2 ms, sonst Rollback.
+- **§2.49 Artefakt-Freiheits-Gate — NEU** (Slim Core + Spec 02 + pipeline-debug + new-phase):
+  5 Artefakttypen + **Rauschtextur-Kohärenz** (Spectral-Tilt-Differenz: ≤ 3 dB/Oktave OK,
+  > 6 dB/Oktave Rollback). **Material-adaptive Schwellwerte**: Shellac toleranter
+  (Musical Noise > 22 dB), Digital streng (> 12 dB). Selbstkalibrierung nach 3 Verarbeitungen.
+- **Material-Ähnlichkeitsmatrix** (Spec 02 §2.47): Explizite 9×9-Matrix für GP-Cross-Material-
+  Transfer. Transferierbarkeits-Regeln mit Lengthscale/Varianz-Skalierung, Mindest-Ähnlichkeit 0.3.
+- **Betroffene Dateien**: copilot-instructions.md, Spec 02, fix-metric SKILL, pipeline-debug
+  SKILL, new-phase SKILL.
+- Keine Code-Änderungen. Alle Tests unverändert.
+
+### v9.10.123 Nachtrag — Adaptive-Intelligence-Erweiterung (6. April 2026)
+
+- **§2.47 Adaptive-Intelligence-Prinzip — NEU** (Slim Core + Spec 02): Übergeordnetes Prinzip,
+  das die Einzelmechanismen (Material-Erkennung, Ära, Genre, Restorability, Defektanalyse,
+  Song-Kalibrierung, GPOptimizer) als kohärente Adaptions-Kaskade definiert. Dieselbe Pipeline
+  verarbeitet Schellack 1928 fundamental anders als CD 2005 — ohne manuellen Eingriff.
+- **§2.31d Kombinierte Extrembedingungen** (Spec 01): Kaskadierung bei gleichzeitigen
+  Extremfaktoren (Restorability < 20 + Shellac, Era ≤ 1940 + BW < 5 kHz, Dateilänge < 10 s
+  oder > 60 min). Scale-Factor 0.65 für schwerstbeschädigtes Material.
+- **§2.31e Prior-Konflikt-Auflösung** (Spec 01): Material-Prior = Vorrang bei physikalischen
+  Grenzen; Ära-Prior = Vorrang bei ästhetischen Entscheidungen.
+- **ML-Failure-Degradations-Kaskade** (Spec 02 §2.47 + ml-plugin SKILL): Vollständige
+  Fallback-Tabelle (9 ML-Kaskaden: DeepFilterNet→OMLSA→Spectral-Gating, MDX23C→NMF→Bypass,
+  AudioSR→NVSR→SBR, CREPE→pYIN→YIN, MERT→MFCC→Bypass etc.). Invariante: Kein ML-Failure
+  darf die Pipeline abbrechen.
+- **GP-Wissenstransfer** (Spec 02 §2.47): Cross-Material-Generalisierung bei < 10 Beobachtungen;
+  Batch-Konvergenz bei sequenzieller Verarbeitung gleichen Materials.
+- **DEFAULT_RESTORATION_PROFILE** (Spec 03): Explizites neutrales Profil für 12 Genres ohne
+  eigenes Restaurierungsprofil (Pop, Blues, Soul, Country, Folk, Funk, Electronic, Hip-Hop,
+  Metal, Latin, Gospel, Reggae). GP-Memory pro Genre aktiv → lernt genre-spezifisch.
+- **Edge-Cases** (Slim Core + Spec 01): Dateilänge < 10 s → Goal-Deaktivierung + FeedbackChain
+  max 2 Iter; > 60 min → Segment-Verarbeitung; Restorability < 20 + Shellac/Wax → „Hörbar
+  machen" statt „Originalgetreu restaurieren".
+- **Betroffene Dateien**: copilot-instructions.md, Spec 01, Spec 02, Spec 03, pipeline-debug
+  SKILL, ml-plugin SKILL.
+- Keine Code-Änderungen. Alle Tests unverändert.
+
+## v9.10.122 — instructions_version 6.1 (6. April 2026) — Klangprinzipien-Revision
+
+- **instructions_version**: 6.0 → **6.1** — Klangprinzipien-Revision
+- **§0 Oberstes Prinzip — Klangwahrheit**: Neu in Slim Core. Drei hierarchische Leitprinzipien
+  (Primum non nocere > Minimal-Intervention > Perceptuelle Verbesserung). §0 ist normativ
+  übergeordnet — Klang schlägt Metrik. §0a Modus-Differenzierung: Restoration (Original-Charakter)
+  vs. Studio 2026 (Weltklasse-Studio-Klang, maximal-zielgerichtete Intervention).
+- **§2.29d Differenziertes Regressions-Regime**: P1/P2 bleiben hart (keine Regression erlaubt).
+  P3–P5 neu: Pipeline-Netto-Budget — Einzelphasen dürfen vorübergehend verschlechtern, wenn am
+  Kettenende alle Goals ≥ Schwellwert. Verhindert übervorsichtiges Wet/Dry bei De-Hiss/EQ.
+- **§2.44 Holistic Perceptual Gate (HPI)**: Neues letztes Gate vor Export. Misst Gesamt-Hörverbesserung
+  statt nur Einzel-Goals. Modus-differenziert: Restoration (MERT-dominant), Studio 2026 (PQS-dominant +
+  studio_quality_gain).
+- **§2.45 Minimal-Intervention-Prinzip**: Phasen ohne perceptual_delta > 0 werden übersprungen.
+  Modus-differenziert: Restoration (minimal), Studio 2026 (volle Kette, aber jede Phase muss Klanggewinn nachweisen).
+- **§9.7.16 NatuerlichkeitMetric-Reform [TARGET_2026]**: Modus-differenzierte Reformulierung.
+  Restoration: MERT-Distanz zum Input. Studio 2026: MERT-Distanz zu Studio-Referenzen.
+  Signal-Statistiken (Flatness, ZCR) durch Wahrnehmungs-Features ersetzen.
+- Skills aktualisiert: `new-phase`, `fix-metric`, `pipeline-debug`, `quality-benchmark` — alle
+  mit Modus-Differenzierung für Restoration vs. Studio 2026.
+- Keine Code-Änderungen. Alle Tests unverändert.
+
+## v9.10.121 — instructions_version 6.0 (6. April 2026) — Skills-Architektur
+
+- **instructions_version**: 5.0 → **6.0** — Skills-Architektur
+- **copilot-instructions.md**: Monolithische 890-Zeilen-Datei → **171-Zeilen Slim Core**.
+  Detailwissen ausgelagert in 9 aufgabenspezifische Skills unter `.github/skills/*/SKILL.md`:
+  - `new-phase` — Phasen-Interface, PMGG-Exclusions, Vocal-Kette, LyricsGuided §2.36
+  - `fix-metric` — 14 Musical Goals, Sub-Metriken, Recalibration §9.7.15, Stable-Metric §2.29b
+  - `aurik-dsp-decision` — SOTA-Matrix, DSP-Pflichtregeln, MRSA-Zonen, Vintage, Dithering
+  - `ml-plugin` — Memory-Budget, Headroom-Guard, Fallback-Kaskaden, ONNX/Torch-Config
+  - `pipeline-debug` — Denker, UV3-Reihenfolge, SongCalibration, KMV §2.38, OOM §2.39, Determinismus §2.40
+  - `ui-feature` — Thread-Safety, Signale, Progress, Shortcuts, Bridge, Preanalysis-Gate
+  - `test-writing` — Marker, Heavy-Isolation, CI-Gates, Test-Pattern, Task-Runner
+  - `quality-benchmark` — OQS/AMRB, PQS-MOS, quality_estimate, MUSHRA §8.4, Modi
+  - `aurik-architecture-diagram` — Mermaid-Diagramme (bereits vorhanden)
+- **Motivation**: ~80 % der always-loaded Instructions waren für jede einzelne Aufgabe irrelevant.
+  Skills-Architektur reduziert auf ~600 Tokens always-loaded + ~2000 Tokens task-relevant.
+- **Backup**: `copilot-instructions-v5-full.md` enthält die vollständige v5.0-Version.
+- Keine Code-Änderungen. Alle 8 Specs unverändert. Tests unverändert.
+
+## v9.10.121 (6. April 2026) — Spec-Sync: instructions_version 4.2 → 5.0
+
+- **instructions_version**: 4.2 → **5.0**
+- **copilot-instructions.md**: Header auf v9.10.121 aktualisiert. Neue §-Nummern:
+  - §2.41 Denker-Vollkontext — Material-adaptive DSP-Reparatur (v9.10.117)
+  - §2.42 SourceFidelityReconstructor — Generationsverlust-Kompensation (v9.10.115–116)
+  - §2.43 Phase-Preserved Wet/Dry-Blend (v9.10.118)
+  - §9.7.15 Musical-Goals-Metriken-Recalibration (v9.10.120)
+  - Weitere Fixes v9.10.113–121 (Phase 09/29/40/42/55, HPSS, ExcellenceOptimizer, MDEM, EmotionalArc, OMLSA, De-Esser, Phase 12, load_audio_file)
+- **Spec 03**: `SourceFidelityReconstructor`, `PerceptualSalienceEstimator`, `MediumDetector` in §2.1 Pflicht-Kernmodule aufgenommen. HPSS Kernel 31→17/13 aktualisiert.
+- **Spec 06**: Phase 06/38/39 mit SourceFidelity-Integration, Phase 55 adaptiver AR-Order.
+- **Spec 08**: A/B-Sync-Loop + Queue-Drag-&-Drop, Plugin-Anzahl 51. Keyboard-Shortcuts erweitert.
+- **pyproject.toml**: Version 9.10.103 → 9.10.121 synchronisiert.
+- Testzahl: ~9990+ `def test_`-Funktionen in 375 Testdateien.
 
 ## v9.10.104 (4. April 2026) — Defect-Locations-Completeness (Core uncapped)
 

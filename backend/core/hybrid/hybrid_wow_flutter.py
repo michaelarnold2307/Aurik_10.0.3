@@ -400,10 +400,10 @@ class HybridWowFlutter:
             }
 
             mean_confidence = float(np.mean(valid_pyin)) if len(valid_pyin) > 0 else 0.0
-            logger.info(f"pYIN abgeschlossen: mean confidence={mean_confidence:.3f}")
+            logger.info("pYIN abgeschlossen: mean confidence=%.3f", mean_confidence)
 
             if mean_confidence >= self.config.confidence_threshold and strategy == PitchDetectionStrategy.HYBRID:
-                logger.info(f"pYIN-Konfidenz ausreichend ({mean_confidence:.3f}), CREPE überspringen")
+                logger.info("pYIN-Konfidenz ausreichend (%.3f), CREPE überspringen", mean_confidence)
                 strategy = PitchDetectionStrategy.PYIN_ONLY
 
         # Stufe 2: CREPE ML-Verfeinerung (falls nötig)
@@ -420,7 +420,7 @@ class HybridWowFlutter:
                 }
 
                 mean_confidence_crepe = float(np.mean(valid_crepe)) if len(valid_crepe) > 0 else 0.0
-                logger.info(f"CREPE abgeschlossen: mean confidence={mean_confidence_crepe:.3f}")
+                logger.info("CREPE abgeschlossen: mean confidence=%.3f", mean_confidence_crepe)
 
                 pitch_trajectory = pitch_crepe
                 confidence = confidence_crepe
@@ -571,8 +571,8 @@ if __name__ == "__main__":
     phase = np.cumsum(2 * np.pi * base_freq * pitch_variation / sample_rate)
     audio = 0.5 * np.sin(phase)
 
-    logger.debug(f"Generated {duration}s test audio @ {sample_rate} Hz")
-    logger.debug(f"Base frequency: {base_freq} Hz with {wow_amount * 100:.1f}% wow at {wow_freq} Hz")
+    logger.debug("Generated %ss test audio @ %s Hz", duration, sample_rate)
+    logger.debug("Base frequency: %s Hz with %.1f%% wow at %s Hz", base_freq, wow_amount * 100, wow_freq)
     logger.debug("")
 
     # Test strategies
@@ -583,7 +583,7 @@ if __name__ == "__main__":
 
     for strategy, name in strategies:
         logger.debug("-" * 80)
-        logger.debug(f"Strategy: {name}")
+        logger.debug("Strategy: %s", name)
         logger.debug("-" * 80)
 
         config = WowFlutterConfig(strategy=strategy)
@@ -591,12 +591,12 @@ if __name__ == "__main__":
 
         result = detector.detect_pitch(audio, sample_rate)
 
-        logger.debug(f"✅ Strategy used: {result.strategy_used.value}")
-        logger.debug(f"   pYIN applied: {result.pyin_applied}")
-        logger.debug(f"   CREPE applied: {result.crepe_applied}")
-        logger.debug(f"   Mean confidence: {result.mean_confidence:.3f}")
-        logger.debug(f"   Pitch estimates: {len(result.pitch_trajectory[result.pitch_trajectory > 0])}")
-        logger.debug(f"   Processing time: {result.processing_time:.2f}s")
+        logger.debug("✅ Strategy used: %s", result.strategy_used.value)
+        logger.debug("   pYIN applied: %s", result.pyin_applied)
+        logger.debug("   CREPE applied: %s", result.crepe_applied)
+        logger.debug("   Mean confidence: %.3f", result.mean_confidence)
+        logger.debug("   Pitch estimates: %s", len(result.pitch_trajectory[result.pitch_trajectory > 0]))
+        logger.debug("   Processing time: %.2fs", result.processing_time)
         logger.debug("")
 
     logger.debug("=" * 80)

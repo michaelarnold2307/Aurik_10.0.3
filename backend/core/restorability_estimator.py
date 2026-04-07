@@ -15,6 +15,7 @@ from __future__ import annotations
 import logging
 import math
 import threading
+import time
 from dataclasses import dataclass
 
 import numpy as np
@@ -146,6 +147,9 @@ class RestorabilityEstimator:
         mono = np.mean(audio, axis=0).astype(np.float32) if audio.ndim == 2 else audio.astype(np.float32)
         mono = np.nan_to_num(mono, nan=0.0, posinf=0.0, neginf=0.0)
 
+        # §2.26 Performance-Guard: Laufzeit ≤ 5 s (Spec-Invariante)
+        _t0 = time.perf_counter()
+
         limiting_defects: list[str] = []
         # Start at 100 and apply multiplicative defect-type-weighted penalties.
         score = 100.0
@@ -254,6 +258,15 @@ class RestorabilityEstimator:
 
         # Nur Top-3 Defekte
         limiting_defects = limiting_defects[:3]
+
+        _elapsed = time.perf_counter() - _t0
+        if _elapsed > 5.0:
+            logger.warning(
+                "RestorabilityEstimator: time budget exceeded (%.2fs > 5.0s) "
+                "— result may be partial. material=%s",
+                _elapsed,
+                material,
+            )
 
         return RestorabilityResult(
             restorability_score=round(score, 1),

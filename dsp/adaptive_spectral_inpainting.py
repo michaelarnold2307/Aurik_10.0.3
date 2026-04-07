@@ -84,17 +84,17 @@ class AdaptiveSpectralInpainting:
         """
         allowed_methods = ["linear", "nearest", "cubic"]
         if method not in allowed_methods:
-            logger.error(f"Ungültige Methode '{method}' für AdaptiveSpectralInpainting. Erlaubt: {allowed_methods}")
+            logger.error("Ungültige Methode '%s' für AdaptiveSpectralInpainting. Erlaubt: %s", method, allowed_methods)
             raise ValueError(f"Ungültige Methode '{method}' für AdaptiveSpectralInpainting. Erlaubt: {allowed_methods}")
         self.method = method
-        logger.info(f"AdaptiveSpectralInpainting initialisiert mit Methode: {self.method}")
+        logger.info("AdaptiveSpectralInpainting initialisiert mit Methode: %s", self.method)
 
     def log_contract(self) -> None:
         """
         Gibt den DSPContract für Auditierbarkeit aus (Log + Print).
         """
         contract_dict = asdict(adaptive_spectral_inpainting_contract)
-        logger.info(f"[DSPContract] {contract_dict}")
+        logger.info("[DSPContract] %s", contract_dict)
 
     def inpaint(
         self, spectrogram: np.ndarray, mask: np.ndarray, use_deep_learning: bool = False, audit_log: bool = True
@@ -119,7 +119,7 @@ class AdaptiveSpectralInpainting:
             logger.error("Spektrogramm oder Maske ist leer")
             raise ValueError("Spektrogramm oder Maske ist leer")
         if spectrogram.shape != mask.shape:
-            logger.error(f"Shape mismatch: spectrogram {spectrogram.shape}, mask {mask.shape}")
+            logger.error("Shape mismatch: spectrogram %s, mask %s", spectrogram.shape, mask.shape)
             raise ValueError(f"Shape mismatch: spectrogram {spectrogram.shape}, mask {mask.shape}")
         if np.isnan(spectrogram).any() or np.isnan(mask).any():
             logger.error("Spektrogramm oder Maske enthält NaN-Werte")
@@ -146,7 +146,7 @@ class AdaptiveSpectralInpainting:
             else:
                 output = self._inpaint_classic(spectrogram, mask)
         except Exception as e:
-            logger.error(f"Fehler bei Spectral Inpainting: {e}", exc_info=True)
+            logger.error("Fehler bei Spectral Inpainting: %s", e, exc_info=True)
             fallback_used = True
             output = spectrogram.copy()
 
@@ -155,7 +155,7 @@ class AdaptiveSpectralInpainting:
             logger.info(
                 f"AdaptiveSpectralInpainting: inpainting_error={inpainting_error:.6f}, fallback_used={fallback_used}, method={self.method}"
             )
-            logger.info(f"[DSPContract] {asdict(adaptive_spectral_inpainting_contract)}")
+            logger.info("[DSPContract] %s", asdict(adaptive_spectral_inpainting_contract))
         return output
 
     def _inpaint_classic(self, spectrogram: np.ndarray, mask: np.ndarray) -> np.ndarray:
@@ -203,4 +203,4 @@ class AdaptiveSpectralInpainting:
             self.method = "cubic"
         else:
             self.method = "nearest"
-        logger.info(f"auto_optimize (SpectralInpainting): mask_density={mask_density:.3f} → method='{self.method}'")
+        logger.info("auto_optimize (SpectralInpainting): mask_density=%.3f → method='%s'", mask_density, self.method)

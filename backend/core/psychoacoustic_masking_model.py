@@ -8,11 +8,25 @@ SR-Invariante: assert sr == 48000 in compute_threshold().
 
 from __future__ import annotations
 
+import logging
 import threading
 from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
+
+logger = logging.getLogger(__name__)
+
+# threadpoolctl: available in all Aurik venv builds; used to limit BLAS to
+# 1 thread inside compute_threshold to prevent OpenBLAS worker-thread
+# segfaults under concurrent numpy load (documented 2026-04-05 crash).
+try:
+    from threadpoolctl import threadpool_limits as _threadpool_limits
+
+    _THREADPOOL_AVAILABLE = True
+except ImportError:  # pragma: no cover
+    _THREADPOOL_AVAILABLE = False
+    _threadpool_limits = None  # type: ignore[assignment]
 
 # ---------------------------------------------------------------------------
 # Öffentliche Konstanten (§4.5, §8.2)
@@ -133,6 +147,12 @@ class PsychoacousticMaskingModel:
                 mask[b, sel] = 1.0 / cnt
         return mask
 
+    # Lock ensures only one thread runs compute_threshold at a time.
+    # Prevents concurrent OpenBLAS worker threads (spawned by @, np.mean,
+    # np.fft.rfft) from racing against each other → eliminates SIGSEGV
+    # documented 2026-04-05 (crash at line 193 via _wrapreduction thread).
+    _compute_lock: threading.Lock = threading.Lock()
+
     # ------------------------------------------------------------------
     def compute_threshold(self, audio: np.ndarray, sr: int) -> MaskingResult:
         """Berechnet Masking-Schwelle und Gain-Modifier (vektorisiert).
@@ -147,17 +167,23 @@ class PsychoacousticMaskingModel:
         """
         assert sr == 48000, f"SR muss 48000 Hz sein, erhalten: {sr}"
 
-        arr = np.nan_to_num(np.asarray(audio, dtype=np.float32))
+        # Make a contiguous float32 copy immediately so all subsequent numpy
+        # operations work on owned, aligned memory — never on a non-contiguous
+        # view whose underlying buffer could be concurrently modified.
+        arr = np.ascontiguousarray(
+            np.nan_to_num(np.asarray(audio, dtype=np.float32)),
+            dtype=np.float32,
+        )
         # Stereo → Mono: axis-korrekt für beide Konventionen (N,2) und (2,N)
         if arr.ndim == 2:
             if arr.shape[0] <= arr.shape[1]:
                 # channel-first (2, N) → mean over axis=0 → (N,)
-                mono = arr.mean(axis=0)
+                mono = np.ascontiguousarray(arr.mean(axis=0), dtype=np.float32)
             else:
                 # channel-last (N, 2) → mean over axis=1 → (N,)
-                mono = arr.mean(axis=1)
+                mono = np.ascontiguousarray(arr.mean(axis=1), dtype=np.float32)
         else:
-            mono = arr
+            mono = arr  # already contiguous copy from above
 
         if mono.size == 0:
             empty = np.zeros((1, N_BARK), dtype=np.float32)
@@ -172,79 +198,102 @@ class PsychoacousticMaskingModel:
         frame = max(256, sr // 100)  # 480 samples @ 48 kHz
         hop = frame // 2
 
-        # Cap at 60 s for masking-scalar statistics (median over time is
-        # representative; avoiding 86–173 MB float64 allocations on long files
-        # which can cause segfaults in numpy C extensions under memory pressure).
-        _max_samples = sr * 60  # 2 880 000 @ 48 kHz
+        # Cap at 10 s: greatly reduces BLAS allocation footprint, preventing
+        # OpenBLAS worker-thread malloc failures under concurrent numpy load.
+        # 10 s is still sufficient for stable masking-scalar estimation.
+        _max_samples = sr * 10  # 480 000 samples @ 48 kHz
         if mono.size > _max_samples:
-            # Centre crop: most musically representative region
             _start = (mono.size - _max_samples) // 2
-            mono = mono[_start : _start + _max_samples]
+            mono = np.ascontiguousarray(
+                mono[_start : _start + _max_samples], dtype=np.float32
+            )
 
         n_frames = max(1, (mono.size - frame) // hop + 1)
 
-        # ── Batch-FFT: alle Frames auf einmal (eliminiert Python-Loop) ──
-        # Use sliding_window_view (numpy ≥ 1.20) — safe alternative to
-        # as_strided; avoids manual stride arithmetic that can segfault.
+        # ── Frame extraction via advanced indexing ───────────────────────────
+        # SAFETY: fancy indexing always produces a fresh copy, never a strided
+        # view — prevents SIGSEGV when numpy C malloc returns NULL.
         mono_safe = np.ascontiguousarray(np.clip(np.nan_to_num(mono), -1.0, 1.0), dtype=np.float32)
-        # sliding_window_view returns a read-only view (n_samples-frame+1, frame);
-        # index by [::hop] to get exactly n_frames rows, then copy for rfft safety.
-        segments = np.lib.stride_tricks.sliding_window_view(mono_safe, window_shape=frame)[::hop].copy()
-        n_frames = segments.shape[0]  # recalculate after crop + window
+        _starts = np.arange(n_frames, dtype=np.int32) * hop
+        _fi = _starts[:, np.newaxis] + np.arange(frame, dtype=np.int32)
+        _fi = np.clip(_fi, 0, mono_safe.size - 1)
+        segments = mono_safe[_fi]  # (n_frames, frame) — always a safe copy
 
-        # RMS per frame (vectorized)
-        rms_sq = np.mean(segments.astype(np.float64) ** 2, axis=1) + 1e-12
-        rms_db = 10.0 * np.log10(rms_sq)  # 20*log10(sqrt(x)) = 10*log10(x)
+        # ── All BLAS-intensive ops run single-threaded + behind instance lock ─
+        # Prevents OpenBLAS worker threads from racing → eliminates SIGSEGV
+        # (crash at _wrapreduction documented 2026-04-05).
+        with self._compute_lock:
+            _ctx = (
+                _threadpool_limits(limits=1, user_api="blas")
+                if _THREADPOOL_AVAILABLE
+                else None
+            )
+            try:
+                if _ctx is not None:
+                    _ctx.__enter__()
 
-        sil_frms = rms_db <= SILENCE_DB
+                # RMS per frame via einsum (no BLAS multi-thread spawn)
+                seg_f64 = segments.astype(np.float64)
+                rms_sq = np.einsum("ij,ij->i", seg_f64, seg_f64) / frame + 1e-12
+                del seg_f64  # free before FFT allocation
+                rms_db = 10.0 * np.log10(rms_sq)
 
-        # Temporal post-masking (sequential — unavoidable due to state dependency)
-        post_mask_frames_count = max(1, int(POST_MASK_MS * 1e-3 * sr / hop))
-        post_frms = np.zeros(n_frames, dtype=bool)
-        prev_loud = -999
-        for i in range(n_frames):
-            if not sil_frms[i]:
-                prev_loud = i
-            elif prev_loud >= 0 and (i - prev_loud) <= post_mask_frames_count:
-                post_frms[i] = True
+                sil_frms = rms_db <= SILENCE_DB
 
-        # Batch FFT → power spectrum (n_frames, n_bins)
-        spec_sq = np.abs(np.fft.rfft(segments, n=frame, axis=1)).astype(np.float32) ** 2
+                # Temporal post-masking (sequential — state dependency)
+                post_mask_frames_count = max(1, int(POST_MASK_MS * 1e-3 * sr / hop))
+                post_frms = np.zeros(n_frames, dtype=bool)
+                prev_loud = -999
+                for i in range(n_frames):
+                    if not sil_frms[i]:
+                        prev_loud = i
+                    elif prev_loud >= 0 and (i - prev_loud) <= post_mask_frames_count:
+                        post_frms[i] = True
 
-        # Pre-computed bark-band mean-weight matrix [N_BARK × n_bins]
-        bark_edges = self._build_bark_bins(sr)
-        fft_freqs = np.fft.rfftfreq(frame, d=1.0 / sr).astype(np.float32)
-        band_mask = self._build_bark_band_mask(fft_freqs, bark_edges)
+                # Batch FFT → power spectrum (n_frames, n_bins)
+                spec_sq = np.abs(np.fft.rfft(segments, n=frame, axis=1)).astype(np.float32) ** 2
 
-        # Band energies: (n_frames, N_BARK) via matrix multiply
-        band_energy = spec_sq @ band_mask.T  # (n_frames, n_bins) @ (n_bins, N_BARK)
+                # Pre-computed bark-band mean-weight matrix [N_BARK × n_bins]
+                bark_edges = self._build_bark_bins(sr)
+                fft_freqs = np.fft.rfftfreq(frame, d=1.0 / sr).astype(np.float32)
+                band_mask = self._build_bark_band_mask(fft_freqs, bark_edges)
 
-        # Masking threshold: ISO 11172-3 — slope attenuation per band
-        slope_atten = np.array([10.0 ** (-s / 10.0) for s in _MASKING_SLOPE_DB], dtype=np.float32)  # (N_BARK,)
-        mask_thr = np.maximum(0.0, band_energy * slope_atten[np.newaxis, :])
+                # Band energies via einsum (avoids multi-threaded @ operator)
+                # (n_frames, n_bins) · (N_BARK, n_bins)ᵀ → (n_frames, N_BARK)
+                band_energy = np.einsum("ij,kj->ik", spec_sq, band_mask, optimize=False)
 
-        # Gain modifier: relative band energy → gain
-        total_e = np.sum(band_energy, axis=1, keepdims=True) + 1e-12  # (n_frames, 1)
-        rel = band_energy / total_e * N_BARK  # (n_frames, N_BARK)
+                # Masking threshold: ISO 11172-3 — slope attenuation per band
+                slope_atten = np.array(
+                    [10.0 ** (-s / 10.0) for s in _MASKING_SLOPE_DB], dtype=np.float32
+                )
+                mask_thr = np.maximum(0.0, band_energy * slope_atten[np.newaxis, :])
 
-        # Default: normal masking (g = 0.3 + 0.7 * rel)
-        gain_mod = np.clip(0.3 + 0.7 * rel, self.g_floor, 1.0).astype(np.float32)
+                # Gain modifier: relative band energy → gain
+                total_e = np.sum(band_energy, axis=1, keepdims=True) + 1e-12
+                rel = band_energy / total_e * N_BARK
 
-        # Silence frames: gain capped at SILENCE_GAIN_MAX
-        if sil_frms.any():
-            g_sil = np.clip(SILENCE_GAIN_MAX * rel[sil_frms], self.g_floor, SILENCE_GAIN_MAX)
-            gain_mod[sil_frms] = g_sil.astype(np.float32)
+                gain_mod = np.clip(0.3 + 0.7 * rel, self.g_floor, 1.0).astype(np.float32)
 
-        # Post-masking frames: wider gain range
-        pm_only = post_frms & ~sil_frms  # post-masking but not already silence
-        if pm_only.any():
-            g_pm = np.clip(0.5 + 0.5 * rel[pm_only], self.g_floor, 1.0)
-            gain_mod[pm_only] = g_pm.astype(np.float32)
+                if sil_frms.any():
+                    g_sil = np.clip(SILENCE_GAIN_MAX * rel[sil_frms], self.g_floor, SILENCE_GAIN_MAX)
+                    gain_mod[sil_frms] = g_sil.astype(np.float32)
 
-        gain_mod = np.nan_to_num(gain_mod)
-        mask_thr = np.nan_to_num(mask_thr)
-        np.clip(gain_mod, self.g_floor, 1.0, out=gain_mod)
-        np.clip(mask_thr, 0.0, None, out=mask_thr)
+                pm_only = post_frms & ~sil_frms
+                if pm_only.any():
+                    g_pm = np.clip(0.5 + 0.5 * rel[pm_only], self.g_floor, 1.0)
+                    gain_mod[pm_only] = g_pm.astype(np.float32)
+
+                gain_mod = np.nan_to_num(gain_mod)
+                mask_thr = np.nan_to_num(mask_thr)
+                np.clip(gain_mod, self.g_floor, 1.0, out=gain_mod)
+                np.clip(mask_thr, 0.0, None, out=mask_thr)
+
+            finally:
+                if _ctx is not None:
+                    try:
+                        _ctx.__exit__(None, None, None)
+                    except Exception as _ctx_exc:
+                        logger.debug("Context manager exit failed in masking model: %s", _ctx_exc)
 
         return MaskingResult(
             gain_modifier=gain_mod,

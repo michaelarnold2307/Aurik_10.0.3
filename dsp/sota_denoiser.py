@@ -101,7 +101,9 @@ class SotaDenoiser:
             if not check_budget("sota_denoiser_dccrn", 0.15):
                 _logger.warning("Memory budget exceeded for sota_denoiser DCCRN — using DSP fallback")
             else:
-                self.dccrn_session = ort.InferenceSession(dccrn_path)
+                self.dccrn_session = ort.InferenceSession(
+                    dccrn_path, providers=["CPUExecutionProvider"]
+                )
 
     def log_contract(self) -> None:
         """
@@ -152,7 +154,10 @@ class SotaDenoiser:
                         wav_bytes = binascii.unhexlify(r.json()["result_wav"])
                         with open(output_path, "wb") as f:
                             f.write(wav_bytes)
-                        result, _ = sf.read(output_path)
+                        from backend.file_import import load_audio_file
+
+                        _res = load_audio_file(output_path, do_carrier_analysis=False)
+                        result = np.asarray(_res["audio"], dtype=np.float32)
                         self._audit_log("success", "DeepFilterNet3II REST-API-Inferenz erfolgreich")
                         return np.asarray(result.astype(audio.dtype))
                 except Exception as e:
@@ -178,7 +183,10 @@ class SotaDenoiser:
                         ],
                         check=True,
                     )
-                    result, _ = sf.read(output_path)
+                    from backend.file_import import load_audio_file
+
+                    _res = load_audio_file(output_path, do_carrier_analysis=False)
+                    result = np.asarray(_res["audio"], dtype=np.float32)
                     self._audit_log("success", "DeepFilterNet3II CLI-Inferenz erfolgreich")
                     return np.asarray(result.astype(audio.dtype))
                 except Exception as e:
@@ -219,7 +227,10 @@ class SotaDenoiser:
                         wav_bytes = binascii.unhexlify(r.json()["result_wav"])
                         with open(output_path, "wb") as f:
                             f.write(wav_bytes)
-                        result, _ = sf.read(output_path)
+                        from backend.file_import import load_audio_file
+
+                        _res = load_audio_file(output_path, do_carrier_analysis=False)
+                        result = np.asarray(_res["audio"], dtype=np.float32)
                         self._audit_log("success", "DCCRN REST-API-Inferenz erfolgreich")
                         return np.asarray(result.astype(audio.dtype))
                 except Exception as e:
@@ -245,7 +256,10 @@ class SotaDenoiser:
                         ],
                         check=True,
                     )
-                    result, _ = sf.read(output_path)
+                    from backend.file_import import load_audio_file
+
+                    _res = load_audio_file(output_path, do_carrier_analysis=False)
+                    result = np.asarray(_res["audio"], dtype=np.float32)
                     self._audit_log("success", "DCCRN CLI-Inferenz erfolgreich")
                     return np.asarray(result.astype(audio.dtype))
                 except Exception as e:

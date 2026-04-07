@@ -241,13 +241,14 @@ class PianoRestorationV1(PhaseInterface):
         return 0.005  # MIDI 72–108: short stiff treble strings
 
     def process(
-        self, audio: np.ndarray, material_type: MaterialType = MaterialType.CD_DIGITAL, **kwargs
+        self, audio: np.ndarray, sample_rate: int = 48000, material_type: MaterialType = MaterialType.CD_DIGITAL, **kwargs
     ) -> PhaseResult:
         """
         Restore piano recordings with material-adaptive processing.
 
         Args:
             audio: Input audio (mono or stereo)
+            sample_rate: Sample rate in Hz (must be 48000)
             material_type: Source material type
             **kwargs: Additional parameters
 
@@ -255,7 +256,7 @@ class PianoRestorationV1(PhaseInterface):
             PhaseResult with restored piano audio
         """
         start_time = time.time()
-        assert self.sample_rate == 48000, f"SR muss 48000 Hz sein, erhalten: {self.sample_rate}"
+        assert sample_rate == 48000, f"SR muss 48000 Hz sein, erhalten: {sample_rate}"
 
         phase_locality_factor = float(kwargs.get("phase_locality_factor", 1.0))
         phase_locality_factor = float(np.clip(phase_locality_factor, 0.35, 1.0))

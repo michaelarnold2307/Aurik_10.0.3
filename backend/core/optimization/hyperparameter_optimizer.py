@@ -122,9 +122,9 @@ class MaterialSpecificOptimizer:
         # Best parameters
         self.best_params = None
 
-        logger.info(f"MaterialSpecificOptimizer initialized for {material_type}")
-        logger.info(f"  Storage: {self.storage_path}")
-        logger.info(f"  Trials: {n_trials}, Jobs: {n_jobs}")
+        logger.info("MaterialSpecificOptimizer initialized for %s", material_type)
+        logger.info("  Storage: %s", self.storage_path)
+        logger.info("  Trials: %s, Jobs: %s", n_trials, n_jobs)
 
     @staticmethod
     def _ensure_optuna_available() -> None:
@@ -263,7 +263,7 @@ class MaterialSpecificOptimizer:
                     raise optuna_mod.TrialPruned()
 
             except Exception as e:
-                logger.warning(f"Trial {trial.number} failed on sample: {e}")
+                logger.warning("Trial %s failed on sample: %s", trial.number, e)
                 # Return high penalty for failed trials
                 return 1e6
 
@@ -315,7 +315,7 @@ class MaterialSpecificOptimizer:
             return float(np.clip(quality_score, 0.0, 1.0))
 
         except Exception as e:
-            logger.error(f"Failed to compute quality score: {e}")
+            logger.error("Failed to compute quality score: %s", e)
             return 0.0
 
     def optimize(
@@ -359,9 +359,9 @@ class MaterialSpecificOptimizer:
             load_if_exists=True,
         )
 
-        logger.info(f"Starting optimization: {study_name}")
-        logger.info(f"  Dataset size: {len(evaluation_dataset)}")
-        logger.info(f"  Trials: {self.n_trials}")
+        logger.info("Starting optimization: %s", study_name)
+        logger.info("  Dataset size: %s", len(evaluation_dataset))
+        logger.info("  Trials: %s", self.n_trials)
 
         # Optimize
         self.study.optimize(
@@ -376,8 +376,8 @@ class MaterialSpecificOptimizer:
         best_value = -self.study.best_value  # Negate back to get quality score
 
         logger.info("Optimization completed!")
-        logger.info(f"  Best quality score: {best_value:.4f}")
-        logger.info(f"  Best parameters: {self.best_params}")
+        logger.info("  Best quality score: %.4f", best_value)
+        logger.info("  Best parameters: %s", self.best_params)
 
         # Save results
         self.save_best_parameters()
@@ -397,7 +397,7 @@ class MaterialSpecificOptimizer:
         with open(output_path, "w") as f:
             yaml.dump(self.best_params, f, default_flow_style=False, sort_keys=True)
 
-        logger.info(f"Best parameters saved: {output_path}")
+        logger.info("Best parameters saved: %s", output_path)
 
     def save_optimization_report(self) -> None:
         """Save detailed optimization report."""
@@ -431,7 +431,7 @@ class MaterialSpecificOptimizer:
         with open(output_path, "w") as f:
             json.dump(report, f, indent=2)
 
-        logger.info(f"Optimization report saved: {output_path}")
+        logger.info("Optimization report saved: %s", output_path)
 
         # Generate plots (if optuna visualization is available)
         try:
@@ -459,13 +459,13 @@ class MaterialSpecificOptimizer:
         params_path = self.storage_path / f"best_params_{self.material_type}.yaml"
 
         if not params_path.exists():
-            logger.warning(f"No saved parameters found: {params_path}")
+            logger.warning("No saved parameters found: %s", params_path)
             return None
 
         with open(params_path) as f:
             params = yaml.safe_load(f)
 
-        logger.info(f"Best parameters loaded: {params_path}")
+        logger.info("Best parameters loaded: %s", params_path)
 
         return params
 
@@ -488,7 +488,7 @@ class MultiMaterialOptimizer:
             for material in self.material_types
         }
 
-        logger.info(f"MultiMaterialOptimizer initialized for {len(self.material_types)} materials")
+        logger.info("MultiMaterialOptimizer initialized for %s materials", len(self.material_types))
 
     def optimize_all(
         self, datasets: dict[str, list[tuple[np.ndarray, np.ndarray]]], process_functions: dict[str, Callable]
@@ -506,16 +506,16 @@ class MultiMaterialOptimizer:
         results = {}
 
         for material in self.material_types:
-            logger.info(f"\n{'=' * 80}")
-            logger.info(f"Optimizing {material}")
-            logger.info(f"{'=' * 80}\n")
+            logger.info("\n%s", '=' * 80)
+            logger.info("Optimizing %s", material)
+            logger.info("%s\n", '=' * 80)
 
             optimizer = self.optimizers[material]
             dataset = datasets.get(material, [])
             process_func = process_functions.get(material)
 
             if not dataset or process_func is None:
-                logger.warning(f"Skipping {material}: no dataset or process function")
+                logger.warning("Skipping %s: no dataset or process function", material)
                 continue
 
             result = optimizer.optimize(evaluation_dataset=dataset, process_function=process_func)
@@ -545,9 +545,9 @@ class MultiMaterialOptimizer:
         with open(output_path, "w") as f:
             json.dump(summary, f, indent=2)
 
-        logger.info(f"\nOptimization summary saved: {output_path}")
-        logger.info(f"Average quality score: {summary['overall_stats']['avg_quality_score']:.4f}")
-        logger.info(f"Best material: {summary['overall_stats']['best_material']}")
+        logger.info("\nOptimization summary saved: %s", output_path)
+        logger.info("Average quality score: %.4f", summary['overall_stats']['avg_quality_score'])
+        logger.info("Best material: %s", summary['overall_stats']['best_material'])
 
 
 # Example usage
@@ -567,5 +567,5 @@ if __name__ == "__main__":
     results = optimizer.optimize(evaluation_dataset=dummy_dataset, process_function=dummy_process)
 
     logger.debug("\nOptimization completed!")
-    logger.debug(f"Best score: {results['best_score']:.4f}")
-    logger.debug(f"Best params: {results['best_params']}")
+    logger.debug("Best score: %.4f", results['best_score'])
+    logger.debug("Best params: %s", results['best_params'])

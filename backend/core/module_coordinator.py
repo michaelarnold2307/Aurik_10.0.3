@@ -283,7 +283,7 @@ class ModuleCoordinator:
             for dep in descriptor.dependencies:
                 self._reverse_graph.setdefault(dep, set()).add(name)
 
-            logger.info(f"Registered module: {name} (priority={priority.value}, deps={descriptor.dependencies})")
+            logger.info("Registered module: %s (priority=%s, deps=%s)", name, priority.value, descriptor.dependencies)
 
     def unregister_module(self, name: str) -> None:
         """Unregister a module."""
@@ -301,7 +301,7 @@ class ModuleCoordinator:
                         self._dependency_graph[dependent].discard(name)
                     del self._reverse_graph[name]
 
-                logger.info(f"Unregistered module: {name}")
+                logger.info("Unregistered module: %s", name)
 
     def get_registered_modules(self) -> list[str]:
         """Get list of registered module names."""
@@ -356,7 +356,7 @@ class ModuleCoordinator:
                 critical_path_modules=critical_path,
             )
 
-            logger.info(f"Execution plan: {len(stages)} stages, {plan.parallel_opportunities} parallel opportunities")
+            logger.info("Execution plan: %s stages, %s parallel opportunities", len(stages), plan.parallel_opportunities)
 
             return plan
 
@@ -404,7 +404,7 @@ class ModuleCoordinator:
         # Check for cycles
         if in_degree:
             remaining = list(in_degree.keys())
-            logger.warning(f"Dependency cycle detected involving: {remaining}")
+            logger.warning("Dependency cycle detected involving: %s", remaining)
             # Add remaining as final stage
             stages.append(remaining)
 
@@ -512,7 +512,7 @@ class ModuleCoordinator:
                 if "enhancement" in categories or "general" in categories:
                     filtered.append(mod_name)
 
-        logger.info(f"Forensic filtering: {len(modules)} → {len(filtered)} modules")
+        logger.info("Forensic filtering: %s → %s modules", len(modules), len(filtered))
         return filtered
 
     # === Execution ===
@@ -545,7 +545,7 @@ class ModuleCoordinator:
         # Build execution plan
         plan = self.build_execution_plan(selected_modules, forensic_analysis)
 
-        logger.info(f"Executing {len(plan.stages)} stages with {plan.parallel_opportunities} parallel opportunities")
+        logger.info("Executing %s stages with %s parallel opportunities", len(plan.stages), plan.parallel_opportunities)
 
         # === MUSICAL QUALITY ASSURANCE: Establish Baseline ===
         quality_mode = self._map_processing_mode(processing_mode)
@@ -558,7 +558,7 @@ class ModuleCoordinator:
             self._quality_baseline = self._mqa_system.establish_baseline(
                 audio, sample_rate, detected_medium, quality_mode
             )
-            logger.info(f"✓ Quality baseline established: {self._quality_baseline.overall_score:.1f}/100")
+            logger.info("✓ Quality baseline established: %.1f/100", self._quality_baseline.overall_score)
 
         # Initialize execution state
         current_audio = audio.copy()
@@ -569,7 +569,7 @@ class ModuleCoordinator:
 
         # Execute stages
         for stage_idx, stage in enumerate(plan.stages):
-            logger.info(f"Stage {stage_idx + 1}/{len(plan.stages)}: {[m.name for m in stage]}")
+            logger.info("Stage %s/%s: %s", stage_idx + 1, len(plan.stages), [m.name for m in stage])
 
             if strategy == ExecutionStrategy.PARALLEL and len(stage) > 1:
                 # Parallel execution within stage
@@ -600,7 +600,7 @@ class ModuleCoordinator:
                         )
 
                         if not gate_passed:
-                            logger.warning(f"⚠ Quality gate FAILED after {result.module_name}: {reason}")
+                            logger.warning("⚠ Quality gate FAILED after %s: %s", result.module_name, reason)
 
                             # === ADAPTIVE MUSICAL EXCELLENCE: Findet IMMER die beste Lösung! ===
                             if self._recovery_system:
@@ -632,8 +632,8 @@ class ModuleCoordinator:
                                     logger.info(
                                         f"✓ MUSIKALISCHE EXZELLENZ erreicht: {recovery_result.improvement:+.1f} points"
                                     )
-                                    logger.info(f"  Strategie: {recovery_result.strategy_used.value}")
-                                    logger.info(f"  Maßnahmen: {', '.join(recovery_result.actions_taken)}")
+                                    logger.info("  Strategie: %s", recovery_result.strategy_used.value)
+                                    logger.info("  Maßnahmen: %s", ', '.join(recovery_result.actions_taken))
 
                                     current_audio = recovery_result.recovered_audio
                                     self._recovery_attempts += 1
@@ -694,9 +694,9 @@ class ModuleCoordinator:
             quality_guaranteed = mqa_report.quality_guaranteed
 
             if not quality_guaranteed:
-                logger.warning(f"⚠ QUALITY NOT GUARANTEED: {mqa_report.verdict}")
+                logger.warning("⚠ QUALITY NOT GUARANTEED: %s", mqa_report.verdict)
                 for warning in mqa_report.warnings:
-                    logger.warning(f"  - {warning}")
+                    logger.warning("  - %s", warning)
 
                 # If completely failed, consider rollback to best checkpoint
                 if mqa_report.integrity_result.should_rollback:
@@ -704,10 +704,10 @@ class ModuleCoordinator:
                     # Find best checkpoint
                     if len(self._audio_checkpoints) >= 2:
                         best_checkpoint = self._audio_checkpoints[-2]  # Second to last
-                        logger.info(f"  → Rolling back to: {best_checkpoint[0]}")
+                        logger.info("  → Rolling back to: %s", best_checkpoint[0])
                         current_audio = best_checkpoint[1]
             else:
-                logger.info(f"✓ QUALITY GUARANTEED: {mqa_report.verdict}")
+                logger.info("✓ QUALITY GUARANTEED: %s", mqa_report.verdict)
 
         # Generate report
         report = {
@@ -734,7 +734,7 @@ class ModuleCoordinator:
             f"Execution complete: {report['successful_modules']}/{report['num_modules_executed']} modules successful in {total_time:.2f}s"
         )
         if quality_guaranteed:
-            logger.info(f"✓ Quality Guaranteed: {mqa_report.musical_improvement:+.1%} improvement")
+            logger.info("✓ Quality Guaranteed: %+.1% improvement", mqa_report.musical_improvement)
 
         return report
 
@@ -862,14 +862,14 @@ class ModuleCoordinator:
                 output_audio=output_audio,
             )
 
-            logger.info(f"✓ {descriptor.name} completed in {execution_time:.3f}s (confidence={confidence:.2f})")
+            logger.info("✓ %s completed in %.3fs (confidence=%.2f)", descriptor.name, execution_time, confidence)
 
             return result
 
         except Exception as e:
             execution_time = time.time() - start_time
 
-            logger.error(f"❌ {descriptor.name} failed: {e}")
+            logger.error("❌ %s failed: %s", descriptor.name, e)
 
             # Update context
             self.context.fail_module(descriptor.name, str(e))
@@ -904,7 +904,7 @@ class ModuleCoordinator:
             }
             try:
                 inferred = self._ml_param_inference_engine.infer_parameters(features)
-                logger.info(f"  → ML Parameter Inference für {descriptor.name}: {inferred}")
+                logger.info("  → ML Parameter Inference für %s: %s", descriptor.name, inferred)
                 if hasattr(inferred, "params") and isinstance(inferred.params, dict):
                     return dict(inferred.params)
                 if isinstance(inferred, dict):
@@ -919,7 +919,7 @@ class ModuleCoordinator:
                 )
                 return {}
             except Exception as e:
-                logger.warning(f"ML Parameter Inference Engine Fehler: {e}")
+                logger.warning("ML Parameter Inference Engine Fehler: %s", e)
                 # Fallback auf Heuristik
         # Heuristische Optimierung (wie bisher)
         optimized = {}

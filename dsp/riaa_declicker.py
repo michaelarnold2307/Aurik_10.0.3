@@ -49,20 +49,20 @@ class AiRiaaDeclicker:
                     logger.warning("Memory budget exceeded for riaa_declicker ONNX — using DSP fallback")
                 else:
                     try:
-                        self.onnx_session = ort.InferenceSession(model_path)
+                        self.onnx_session = ort.InferenceSession(model_path, providers=["CPUExecutionProvider"])
                         self.model = self.onnx_session
                         self.backend = "onnx"
                     except Exception as e:
-                        warnings.warn(f"ONNX-Modell konnte nicht geladen werden: {e}")
+                        logger.warning("ONNX-Modell konnte nicht geladen werden: %s", e)
             elif torch is not None:
                 try:
                     self.torch_model = torch.jit.load(model_path)
                     self.model = self.torch_model
                     self.backend = "torch"
                 except Exception as e:
-                    warnings.warn(f"Torch-Modell konnte nicht geladen werden: {e}")
+                    logger.warning("Torch-Modell konnte nicht geladen werden: %s", e)
             else:
-                warnings.warn("Weder ONNX noch Torch verfügbar. Nur klassische Pulsdetektion nutzbar.")
+                logger.warning("Weder ONNX noch Torch verfügbar. Nur klassische Pulsdetektion nutzbar.")
 
     def declick_riaa(self, audio: np.ndarray, sr: int, audit_log: bool = True) -> np.ndarray:
         """
@@ -93,7 +93,7 @@ class AiRiaaDeclicker:
                     out = self.onnx_session.run(None, {self.onnx_session.get_inputs()[0].name: inp})[0]
                     audio_out = out.squeeze().astype(audio.dtype)
                 except Exception as e:
-                    logger.warning(f"ONNX-Inferenz fehlgeschlagen: {e}")
+                    logger.warning("ONNX-Inferenz fehlgeschlagen: %s", e)
                     fallback_used = True
             elif self.torch_model is not None and self.backend == "torch" and torch is not None:
                 try:
@@ -101,7 +101,7 @@ class AiRiaaDeclicker:
                     out = self.torch_model(inp).detach().cpu().numpy().squeeze()
                     audio_out = out.astype(audio.dtype)
                 except Exception as e:
-                    logger.warning(f"Torch-Inferenz fehlgeschlagen: {e}")
+                    logger.warning("Torch-Inferenz fehlgeschlagen: %s", e)
                     fallback_used = True
             if audio_out is None:
                 # Fallback: Klassische Pulsdetektion
@@ -116,11 +116,11 @@ class AiRiaaDeclicker:
                         audio_out[i] = np.median(audio_out[left : right + 1])
                 fallback_used = True
         except Exception as e:
-            logger.error(f"Fehler beim RIAA-Declicking: {e}")
+            logger.error("Fehler beim RIAA-Declicking: %s", e)
             audio_out = audio.copy()
             fallback_used = True
 
         if audit_log:
             declicking_error = float(np.mean(np.abs(audio - audio_out)))
-            logger.info(f"AiRiaaDeclicker: declicking_error={declicking_error:.4f}, fallback_used={fallback_used}")
+            logger.info("AiRiaaDeclicker: declicking_error=%.4f, fallback_used=%s", declicking_error, fallback_used)
         return audio_out.astype(audio.dtype)

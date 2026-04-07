@@ -26,7 +26,7 @@ def run_test_count(test_file) -> int:
                 return int(line.split()[0])
         return 0
     except Exception as e:
-        logger.debug(f"Error counting tests in {test_file}: {e}")
+        logger.debug("Error counting tests in %s: %s", test_file, e)
         return 0
 
 
@@ -52,10 +52,10 @@ def main() -> None:
     for name, test_file in test_files:
         count = run_test_count(test_file)
         total_tests += count
-        logger.debug(f"  {name:.<50} {count:>3} tests")
+        logger.debug("  %s %s tests", name, count)
 
     logger.debug("-" * 70)
-    logger.debug(f"  {'TOTAL':.<50} {total_tests:>3} tests")
+    logger.debug("  %s %s tests", 'TOTAL', total_tests)
     logger.debug("=" * 70)
 
     logger.debug("\nBased on previous test runs:")

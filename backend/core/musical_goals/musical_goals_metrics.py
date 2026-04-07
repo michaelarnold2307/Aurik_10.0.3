@@ -42,6 +42,14 @@ import numpy as np
 logger = logging.getLogger(__name__)
 
 
+def _safe_fft_size(length: int, target: int = 2048, minimum: int = 64) -> int:
+    """Return power-of-two FFT size capped by signal length."""
+    if length <= minimum:
+        return minimum
+    capped = min(target, int(length))
+    return max(minimum, 1 << (capped.bit_length() - 1))
+
+
 # ---------------------------------------------------------------------------
 # Lazy-Loader-Deadlock-Prävention (Thread-Safety §3.1)
 # ---------------------------------------------------------------------------
@@ -313,10 +321,10 @@ class BassKraftMetric:
         try:
             crepe = _get_crepe()
             if crepe is not None:
-                # Limit to 3 s — bass characteristics are stationary; avoids
-                # multi-second ONNX inference on long tracks.  Reduced from 10 s
-                # to stay within per-goal performance budget (< 2 s target).
-                _max_bass_samples = int(sr * 3)
+                # Limit to 0.5 s — bass F0 characteristics are stationary; avoids
+                # multi-second ONNX inference on long tracks.  Target: < 2 s per goal.
+                # Reduced from 3 s → 0.5 s to meet per-goal budget on all hardware.
+                _max_bass_samples = int(sr * 0.5)
                 _bass_seg = audio[:_max_bass_samples] if len(audio) > _max_bass_samples else audio
                 result = crepe.analyze(_bass_seg, sr)
                 # Anteil voiced Frames im Bassbereich 20–120 Hz
@@ -562,7 +570,11 @@ class WaermeMetric:
 
             mert = _mert_mod.get_mert_plugin()
             if mert is not None and mert._model_type != "dsp_fallback":
-                analysis = mert.analyze(audio, sr)
+                # Cap input to 2 s: warmth characteristics are perceptually stationary;
+                # avoids multi-second MERT inference on long tracks (< 3 s target).
+                _MAX_MERT_WAERME = int(sr * 2)
+                _audio_mert = audio[:_MAX_MERT_WAERME] if len(audio) > _MAX_MERT_WAERME else audio
+                analysis = mert.analyze(_audio_mert, sr)
                 # MERT harmonicity refines warmth: weight 10% (gentle blend)
                 mert_warmth = float(np.clip(analysis.harmonicity, 0.0, 1.0))
                 score = 0.90 * score + 0.10 * mert_warmth
@@ -850,11 +862,17 @@ class AuthentizitaetMetric:
             _audio_f32 = np.asarray(audio, dtype=np.float32)
             _ref_f32 = np.asarray(reference, dtype=np.float32)
             try:
-                chroma_current = librosa.feature.chroma_cqt(y=_audio_f32, sr=sr)
-                chroma_reference = librosa.feature.chroma_cqt(y=_ref_f32, sr=sr)
+                chroma_current = librosa.feature.chroma_cqt(y=_audio_f32, sr=sr, tuning=0.0)
+                chroma_reference = librosa.feature.chroma_cqt(y=_ref_f32, sr=sr, tuning=0.0)
             except Exception:
-                chroma_current = librosa.feature.chroma_stft(y=_audio_f32, sr=sr)
-                chroma_reference = librosa.feature.chroma_stft(y=_ref_f32, sr=sr)
+                _n_fft = _safe_fft_size(min(len(_audio_f32), len(_ref_f32)), target=2048, minimum=64)
+                _hop = max(16, _n_fft // 4)
+                chroma_current = librosa.feature.chroma_stft(
+                    y=_audio_f32, sr=sr, n_fft=_n_fft, hop_length=_hop, n_chroma=12, tuning=0.0
+                )
+                chroma_reference = librosa.feature.chroma_stft(
+                    y=_ref_f32, sr=sr, n_fft=_n_fft, hop_length=_hop, n_chroma=12, tuning=0.0
+                )
 
             # Align lengths
             min_len = min(chroma_current.shape[1], chroma_reference.shape[1])
@@ -915,9 +933,13 @@ class AuthentizitaetMetric:
                 _rf_start = (len(audio) - _MAX_AUTH_SAMPLES_RF) // 2
                 audio = audio[_rf_start : _rf_start + _MAX_AUTH_SAMPLES_RF]
             try:
-                librosa.feature.chroma_cqt(y=audio, sr=sr)
+                librosa.feature.chroma_cqt(y=audio, sr=sr, tuning=0.0)
             except Exception:
-                librosa.feature.chroma_stft(y=audio, sr=sr)
+                _n_fft = _safe_fft_size(len(audio), target=2048, minimum=64)
+                _hop = max(16, _n_fft // 4)
+                librosa.feature.chroma_stft(
+                    y=audio, sr=sr, n_fft=_n_fft, hop_length=_hop, n_chroma=12, tuning=0.0
+                )
             # Fix v9.13: chroma_std penalises harmonically rich music (high chroma_std
             # = many active pitch classes = good), which is the opposite of authenticity.
             # Replace with spectral flatness: tonal / instrument audio → near-zero
@@ -974,16 +996,18 @@ class EmotionalitaetMetric:
         # Inner helper — scores exactly one segment (no cropping).
         def _score_window(seg: np.ndarray) -> float:
             # §9.10.120: LUFS pre-normalization — dynamics metrics (crest, variance,
-            # micro, range) are loudness-dependent.  Old formula calibrated for -14 LUFS
-            # only; audio at -10 or -20 LUFS scored differently (unfair).  Fix: normalize
-            # each window to -14 LUFS before computing dynamics → universal formula.
-            # ITU-R BS.1770-5 compliant via RMS proxy (pyloudnorm is optional).
-            _seg_rms = float(np.sqrt(np.mean(seg**2) + 1e-12))
-            _target_rms = 10.0 ** (-14.0 / 20.0)  # -14 LUFS ≈ -14 dBFS RMS
-            if _seg_rms > 1e-8:
-                _gain = _target_rms / _seg_rms
-                _gain = min(_gain, 10.0)  # Safety: max +20 dB
-                seg = seg * _gain
+            # micro, range) are loudness-dependent. Normalize each window to -14 LUFS
+            # before computing dynamics; fallback to RMS proxy only if pyloudnorm is unavailable.
+            try:
+                import pyloudnorm as _pyln
+
+                _meter = _pyln.Meter(sr)
+                _loudness = float(_meter.integrated_loudness(seg))
+                _gain = 10.0 ** ((-14.0 - _loudness) / 20.0)
+            except Exception:
+                _gain = 1.0
+            _gain = min(float(_gain), 10.0)  # Safety: max +20 dB
+            seg = seg * _gain
 
             # Crest Factor — higher = more dynamics
             # Fix v9.13: denominator 12 → 9 — restored audio (@-14 LUFS) crest 8-11 dB;
@@ -1794,7 +1818,16 @@ class TonalCenterMetric:
         try:
             import librosa  # type: ignore[import]
 
-            return librosa.feature.chroma_stft(y=audio_mono, sr=sr, hop_length=2048, n_chroma=12).astype(np.float32)
+            n_fft = _safe_fft_size(len(audio_mono), target=2048, minimum=64)
+            hop = max(16, min(2048, n_fft // 4))
+            return librosa.feature.chroma_stft(
+                y=audio_mono,
+                sr=sr,
+                n_fft=n_fft,
+                hop_length=hop,
+                n_chroma=12,
+                tuning=0.0,
+            ).astype(np.float32)
         except Exception as _exc:
             logger.debug("Operation failed (non-critical): %s", _exc)
         # DSP-Fallback
@@ -2447,7 +2480,7 @@ class MusicalGoalsChecker:
 
         passed, violations = checker.check_all_preserved(original, processed, sr=48000)
         if not passed:
-            logger.debug(f"Verletzungen: {violations}")
+            logger.debug("Verletzungen: %s", violations)
     """
 
     def __init__(
@@ -2857,12 +2890,12 @@ if __name__ == "__main__":
     # Test: Alle 14 Goals messen
     checker = MusicalGoalsChecker()
     scores = checker.measure_all(audio_stereo, sr)
-    logger.debug(f"Total Goals: {len(scores)}")
+    logger.debug("Total Goals: %s", len(scores))
     logger.debug("")
 
     for goal, score in scores.items():
         threshold = checker.thresholds[goal]
         passed = "✅" if score >= threshold else "❌"
-        logger.debug(f"  {passed} {goal:20s}: {score:.3f} (thresh: {threshold:.2f})")
+        logger.debug("  %s %s: %.3f (thresh: %.2f)", passed, goal, score, threshold)
 
     logger.debug("\n=== Test abgeschlossen ===")

@@ -133,6 +133,18 @@ class SurfaceNoiseProfiling(PhaseInterface):
         },
     }
 
+    _MAX_RMS_DROP_DB = {
+        "tape": 2.0,
+        "reel_tape": 1.8,
+        "cassette": 2.2,
+        "vinyl": 1.5,
+        "shellac": 1.2,
+        "wax_cylinder": 1.0,
+        "cd_digital": 1.2,
+        "streaming": 1.2,
+        "unknown": 1.5,
+    }
+
     def __init__(self):
         super().__init__()
         self.name = "Surface Noise Profiling v2 Professional"
@@ -215,6 +227,12 @@ class SurfaceNoiseProfiling(PhaseInterface):
         if 0.0 < _effective_strength < 1.0:
             denoised_audio = audio + _effective_strength * (denoised_audio - audio)
 
+        denoised_audio, loudness_stats = self._apply_material_loudness_preservation(
+            audio,
+            denoised_audio,
+            material,
+        )
+
         execution_time = time.time() - start_time
         rt_factor = execution_time / (len(audio) / sample_rate)
 
@@ -231,9 +249,51 @@ class SurfaceNoiseProfiling(PhaseInterface):
                 "rt_factor": float(rt_factor),
                 "phase_locality_factor": phase_locality_factor,
                 "effective_strength": _effective_strength,
+                "rms_drop_db": loudness_stats["rms_drop_db"],
+                "loudness_makeup_db": loudness_stats["makeup_gain_db"],
             },
             warnings=[] if rt_factor < 0.30 else [f"Performance sub-optimal: {rt_factor:.2f}× realtime"],
         )
+
+    def _apply_material_loudness_preservation(
+        self,
+        original_audio: np.ndarray,
+        processed_audio: np.ndarray,
+        material: MaterialType,
+    ) -> tuple[np.ndarray, dict[str, float]]:
+        material_key = getattr(material, "name", str(material)).lower()
+        max_rms_drop_db = float(self._MAX_RMS_DROP_DB.get(material_key, self._MAX_RMS_DROP_DB["unknown"]))
+
+        rms_in = float(np.sqrt(np.mean(np.asarray(original_audio, dtype=np.float64) ** 2) + 1e-12))
+        rms_out = float(np.sqrt(np.mean(np.asarray(processed_audio, dtype=np.float64) ** 2) + 1e-12))
+        rms_drop_db = 20.0 * np.log10(max(rms_out / rms_in, 1e-30)) if rms_in > 1e-8 else 0.0
+        makeup_gain_db = 0.0
+
+        if rms_in > 1e-8 and rms_drop_db < -max_rms_drop_db:
+            target_rms_drop_db = -max_rms_drop_db
+            required_gain_db = target_rms_drop_db - rms_drop_db
+            current_peak = float(np.percentile(np.abs(processed_audio), 99.9) + 1e-12)
+            max_safe_gain_db = max(0.0, -1.5 - 20.0 * np.log10(current_peak))
+            makeup_gain_db = float(np.clip(required_gain_db, 0.0, max_safe_gain_db))
+            if makeup_gain_db > 0.0:
+                processed_audio = np.clip(
+                    processed_audio * (10.0 ** (makeup_gain_db / 20.0)),
+                    -1.0,
+                    1.0,
+                ).astype(np.float32)
+                rms_out = float(np.sqrt(np.mean(np.asarray(processed_audio, dtype=np.float64) ** 2) + 1e-12))
+                rms_drop_db = 20.0 * np.log10(max(rms_out / rms_in, 1e-30))
+                logger.info(
+                    "Phase 28 loudness-preservation: material=%s rms_drop=%.2f dB via makeup %.2f dB",
+                    material_key,
+                    rms_drop_db,
+                    makeup_gain_db,
+                )
+
+        return processed_audio, {
+            "rms_drop_db": round(float(rms_drop_db), 3),
+            "makeup_gain_db": round(float(makeup_gain_db), 3),
+        }
 
     def _denoise_channel(self, audio: np.ndarray, sample_rate: int, config: dict[str, Any]) -> tuple[np.ndarray, float]:
         """Entfernt Oberflächenrauschen via IMCRA-Rauschschätzung + OMLSA-Gain.

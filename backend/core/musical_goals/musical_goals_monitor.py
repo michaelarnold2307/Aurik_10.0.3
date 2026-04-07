@@ -85,7 +85,7 @@ class MusicalGoalsMonitor:
         ...     processing_config={'algorithm': 'DeepFilterNet', 'strength': 0.8}
         ... )
         >>> logger.debug(f"Predicted brillanz: {pre_result.predicted_goals['brillanz']:.3f}")
-        >>> logger.debug(f"Confidence: {pre_result.confidence:.3f}")
+        logger.debug("Confidence: %.3f", pre_result.confidence)
         >>>
         >>> # Monitoring checkpoint during processing
         >>> monitor.add_checkpoint(
@@ -97,7 +97,7 @@ class MusicalGoalsMonitor:
         >>> # Final validation
         >>> final_goals = checker.measure_all(processed_audio, sr=48000)
         >>> report = monitor.finalize(final_goals)
-        >>> logger.debug(f"Violations: {report.violations}")
+        logger.debug("Violations: %s", report.violations)
     """
 
     def __init__(self) -> None:
@@ -220,9 +220,9 @@ class MusicalGoalsMonitor:
         self.checkpoints.append(checkpoint)
 
         if violations:
-            logger.warning(f"Checkpoint '{step_name}': {len(violations)} violations detected - {', '.join(violations)}")
+            logger.warning("Checkpoint '%s': %s violations detected - %s", step_name, len(violations), ', '.join(violations))
         else:
-            logger.info(f"Checkpoint '{step_name}': All goals OK")
+            logger.info("Checkpoint '%s': All goals OK", step_name)
 
     def finalize(self, final_goals: dict[str, float]) -> MonitoringReport:
         """
@@ -273,7 +273,7 @@ class MusicalGoalsMonitor:
             recommendations=recommendations,
         )
 
-        logger.info(f"Monitoring finalized: {len(self.checkpoints)} checkpoints, {len(violations)} final violations")
+        logger.info("Monitoring finalized: %s checkpoints, %s final violations", len(self.checkpoints), len(violations))
 
         return report
 
@@ -393,14 +393,14 @@ if __name__ == "__main__":
     pre_result = monitor.pre_validate(
         original_audio=audio, sr=sr, processing_config={"algorithm": "DeepFilterNet", "strength": 0.8}
     )
-    logger.debug(f"   Confidence: {pre_result.confidence:.3f}")
-    logger.debug(f"   Uncertainty: {pre_result.epistemic_uncertainty:.3f}")
+    logger.debug("   Confidence: %.3f", pre_result.confidence)
+    logger.debug("   Uncertainty: %.3f", pre_result.epistemic_uncertainty)
     logger.debug("   Predicted goals:")
     for goal, score in pre_result.predicted_goals.items():
-        logger.debug(f"      {goal:20s}: {score:.3f}")
+        logger.debug("      %s: %.3f", goal, score)
     logger.debug("   Recommendations:")
     for rec in pre_result.recommendations:
-        logger.debug(f"      - {rec}")
+        logger.debug("      - %s", rec)
 
     # Checkpoint 1
     logger.debug("\n2. Checkpoint 1 (Noise Reduction):")
@@ -416,10 +416,10 @@ if __name__ == "__main__":
     final_goals = checker.measure_all(audio, sr)
     report = monitor.finalize(final_goals)
 
-    logger.debug(f"   Checkpoints: {len(report.checkpoints)}")
-    logger.debug(f"   Violations: {report.violations if report.violations else 'None'}")
+    logger.debug("   Checkpoints: %s", len(report.checkpoints))
+    logger.debug("   Violations: %s", report.violations if report.violations else 'None')
     logger.debug("   Recommendations:")
     for rec in report.recommendations:
-        logger.debug(f"      - {rec}")
+        logger.debug("      - %s", rec)
 
     logger.debug("\n=== Test complete ===")

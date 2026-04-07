@@ -168,9 +168,9 @@ class AdaptiveChainBuilder:
             logger.info("=" * 60)
             logger.info("   Adaptive Chain Builder")
             logger.info("=" * 60)
-            logger.info(f"   Material: {forensic_analysis.medium_type}")
-            logger.info(f"   Era: {forensic_analysis.era}")
-            logger.info(f"   Restoration Priority: {forensic_analysis.restoration_priority}")
+            logger.info("   Material: %s", forensic_analysis.medium_type)
+            logger.info("   Era: %s", forensic_analysis.era)
+            logger.info("   Restoration Priority: %s", forensic_analysis.restoration_priority)
 
         modules = []
         defects_addressed = []
@@ -179,7 +179,7 @@ class AdaptiveChainBuilder:
         material_type = forensic_analysis.medium_type
         if material_type not in self.CHAIN_TEMPLATES:
             # Fallback to DIGITAL for unknown types
-            logger.warning(f"   Unknown material type {material_type}, using DIGITAL template")
+            logger.warning("   Unknown material type %s, using DIGITAL template", material_type)
             material_type = "DIGITAL"
 
         template = self.CHAIN_TEMPLATES[material_type]
@@ -192,7 +192,7 @@ class AdaptiveChainBuilder:
             module = self._create_module(module_name, forensic_analysis, reason=f"Base module for {material_type}")
             modules.append(module)
             if verbose:
-                logger.info(f"         + {module_name}")
+                logger.info("         + %s", module_name)
 
         # 3. Add defect-specific modules
         if verbose:
@@ -224,7 +224,7 @@ class AdaptiveChainBuilder:
                     defects_addressed.append(defect_type)
 
                     if verbose:
-                        logger.info(f"         + {module_name} (for {defect_type}, {severity})")
+                        logger.info("         + %s (for %s, %s)", module_name, defect_type, severity)
 
         # 4. Add enhancement module
         if verbose:
@@ -234,7 +234,7 @@ class AdaptiveChainBuilder:
         module = self._create_module(enhancement_module, forensic_analysis, reason="Final enhancement")
         modules.append(module)
         if verbose:
-            logger.info(f"         + {enhancement_module}")
+            logger.info("         + %s", enhancement_module)
 
         # 5. Optimize chain
         if verbose:
@@ -256,8 +256,8 @@ class AdaptiveChainBuilder:
         )
 
         if verbose:
-            logger.info(f"\n   Chain created: {len(chain.modules)} modules")
-            logger.info(f"   Confidence: {chain.confidence:.1%}")
+            logger.info("\n   Chain created: %s modules", len(chain.modules))
+            logger.info("   Confidence: %.1%", chain.confidence)
             logger.info("=" * 60)
 
         self.last_chain = chain
@@ -483,7 +483,7 @@ class AdaptiveChainBuilder:
         with open(filepath, "w") as f:
             json.dump(data, f, indent=2)
 
-        logger.info(f"Chain exported to {filepath}")
+        logger.info("Chain exported to %s", filepath)
 
     def load_chain(self, filepath: str) -> ProcessingChain:
         """
@@ -521,5 +521,5 @@ class AdaptiveChainBuilder:
             description=data["description"],
         )
 
-        logger.info(f"Chain loaded from {filepath}")
+        logger.info("Chain loaded from %s", filepath)
         return chain

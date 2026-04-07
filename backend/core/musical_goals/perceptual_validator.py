@@ -441,7 +441,7 @@ class PerceptualValidator:
             return psychoacoustic_score, confidence
 
         except Exception as e:
-            logger.warning(f"Psychoacoustic prediction failed: {e}")
+            logger.warning("Psychoacoustic prediction failed: %s", e)
             return self._heuristic_psychoacoustic_score(audio, sr, goal_name, metadata)
 
     def _map_model_output_to_goal(self, probs: Any, goal_name: str, metadata: dict[str, Any]) -> tuple[float, float]:
@@ -667,7 +667,7 @@ class PerceptualValidator:
         )
 
         self.listening_test_requests.append(request)
-        logger.info(f"Created listening test request (priority={priority}): {reason}")
+        logger.info("Created listening test request (priority=%s): %s", priority, reason)
 
     def _collect_ab_test_sample(
         self,
@@ -723,7 +723,7 @@ class PerceptualValidator:
                 indent=2,
             )
 
-        logger.debug(f"Collected A/B test sample: {sample_id}")
+        logger.debug("Collected A/B test sample: %s", sample_id)
 
     def get_listening_test_queue(self, priority: str | None = None, limit: int = 10) -> list[ListeningTestRequest]:
         """
@@ -762,7 +762,7 @@ class PerceptualValidator:
         request = next((r for r in self.listening_test_requests if r.session_id == session_id), None)
 
         if not request:
-            logger.warning(f"No listening test request found for session {session_id}")
+            logger.warning("No listening test request found for session %s", session_id)
             return
 
         # Store result
@@ -784,7 +784,7 @@ class PerceptualValidator:
 
         # Remove from queue
         self.listening_test_requests.remove(request)
-        logger.info(f"Listening test result submitted for session {session_id}")
+        logger.info("Listening test result submitted for session %s", session_id)
 
     def get_statistics(self) -> dict[str, Any]:
         """Get validation statistics."""

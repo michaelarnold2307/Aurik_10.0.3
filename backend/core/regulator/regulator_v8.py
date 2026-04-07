@@ -81,11 +81,11 @@ class RegulatorV8:
         ... )
         >>>
         >>> if decision.decision == DecisionType.HARD_STOP:
-        ...     logger.debug(f"Processing rejected: {decision.reasoning}")
+        logger.debug("Processing rejected: %s", decision.reasoning)
         >>> elif decision.decision == DecisionType.ADJUST_DOWN:
         ...     # Apply parameter adjustments
         ...     adjusted_params = decision.parameter_adjustments
-        ...     logger.debug(f"Reducing aggressiveness: {adjusted_params}")
+        logger.debug("Reducing aggressiveness: %s", adjusted_params)
     """
 
     # Hard stop thresholds (from conduct_rules.yaml)
@@ -150,7 +150,7 @@ class RegulatorV8:
 
         for goal_name, predicted_score in predicted_goals.items():
             if goal_name not in thresholds:
-                logger.warning(f"No threshold for goal '{goal_name}', skipping")
+                logger.warning("No threshold for goal '%s', skipping", goal_name)
                 continue
 
             threshold = thresholds[goal_name]
@@ -405,9 +405,9 @@ if __name__ == "__main__":
         "transparenz": 0.98,
     }
     decision1 = regulator.pre_validate(predicted_goals_ok, thresholds)
-    logger.debug(f"   Decision: {decision1.decision.value}")
-    logger.debug(f"   Allowed: {decision1.allowed}")
-    logger.debug(f"   Reasoning: {decision1.reasoning}\n")
+    logger.debug("   Decision: %s", decision1.decision.value)
+    logger.debug("   Allowed: %s", decision1.allowed)
+    logger.debug("   Reasoning: %s\n", decision1.reasoning)
 
     # Test Case 2: Minor violation → ADJUST_DOWN
     logger.debug("Test 2: Minor violation (brillanz slightly below)")
@@ -418,34 +418,34 @@ if __name__ == "__main__":
         thresholds,
         current_parameters={"strength": 1.0, "aggressiveness": 0.8},
     )
-    logger.debug(f"   Decision: {decision2.decision.value}")
-    logger.debug(f"   Allowed: {decision2.allowed}")
-    logger.debug(f"   Adjustments: {decision2.parameter_adjustments}")
-    logger.debug(f"   Reasoning: {decision2.reasoning}\n")
+    logger.debug("   Decision: %s", decision2.decision.value)
+    logger.debug("   Allowed: %s", decision2.allowed)
+    logger.debug("   Adjustments: %s", decision2.parameter_adjustments)
+    logger.debug("   Reasoning: %s\n", decision2.reasoning)
 
     # Test Case 3: Critical violation → HARD_STOP
     logger.debug("Test 3: Critical violation (natuerlichkeit below hard stop)")
     predicted_goals_critical = predicted_goals_ok.copy()
     predicted_goals_critical["natuerlichkeit"] = 0.72  # Below 0.75 hard stop
     decision3 = regulator.pre_validate(predicted_goals_critical, thresholds)
-    logger.debug(f"   Decision: {decision3.decision.value}")
-    logger.debug(f"   Allowed: {decision3.allowed}")
-    logger.debug(f"   Reasoning: {decision3.reasoning}\n")
+    logger.debug("   Decision: %s", decision3.decision.value)
+    logger.debug("   Allowed: %s", decision3.allowed)
+    logger.debug("   Reasoning: %s\n", decision3.reasoning)
 
     # Test Case 4: Post-validation (all ok)
     logger.debug("Test 4: Post-validation (all goals preserved)")
     original_goals = predicted_goals_ok
     processed_goals = predicted_goals_ok.copy()
     decision4 = regulator.post_validate(original_goals, processed_goals, thresholds)
-    logger.debug(f"   Decision: {decision4.decision.value}")
-    logger.debug(f"   Allowed: {decision4.allowed}")
-    logger.debug(f"   Reasoning: {decision4.reasoning}\n")
+    logger.debug("   Decision: %s", decision4.decision.value)
+    logger.debug("   Allowed: %s", decision4.allowed)
+    logger.debug("   Reasoning: %s\n", decision4.reasoning)
 
     # Statistics
     logger.debug("Statistics:")
     stats = regulator.get_statistics()
-    logger.debug(f"   Allow: {stats['allow_count']}")
-    logger.debug(f"   Adjust Down: {stats['adjust_down_count']}")
-    logger.debug(f"   Hard Stop: {stats['hard_stop_count']}")
+    logger.debug("   Allow: %s", stats['allow_count'])
+    logger.debug("   Adjust Down: %s", stats['adjust_down_count'])
+    logger.debug("   Hard Stop: %s", stats['hard_stop_count'])
 
     logger.debug("\n=== Test complete ===")

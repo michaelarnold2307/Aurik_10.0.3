@@ -314,11 +314,7 @@ class StereoImagingFixer:
         # Decode back to L/R
         left_out, right_out = self.decode_mid_side(mid, side_adjusted)
 
-        # Prevent clipping: normalize if necessary
-        max_val = max(np.max(np.abs(left_out)), np.max(np.abs(right_out)))
-        if max_val > 1.0:
-            left_out /= max_val
-            right_out /= max_val
+        # Safety only: no peak rescale, final clamp below.
 
         # NaN/Inf-Guard + Clipping
         left_out = np.nan_to_num(left_out, nan=0.0, posinf=0.0, neginf=0.0)
@@ -368,11 +364,7 @@ class StereoImagingFixer:
         left_out = left * gain_left
         right_out = right * gain_right
 
-        # Prevent clipping
-        max_val = max(np.max(np.abs(left_out)), np.max(np.abs(right_out)))
-        if max_val > 1.0:
-            left_out /= max_val
-            right_out /= max_val
+        # Safety only: no peak rescale, final clamp below.
 
         # NaN/Inf-Guard + Clipping
         left_out = np.nan_to_num(left_out, nan=0.0, posinf=0.0, neginf=0.0)
@@ -562,11 +554,11 @@ if __name__ == "__main__":
     metrics_before = analyzer.analyze(audio, sr)
 
     logger.info("\nAnalysis BEFORE correction:")
-    logger.info(f"  Phase Correlation (mean): {metrics_before['phase_correlation_mean']:.3f}")
-    logger.info(f"  Phase Correlation (min): {metrics_before['phase_correlation_min']:.3f}")
-    logger.info(f"  Stereo Width: {metrics_before['stereo_width']:.3f}")
-    logger.info(f"  Balance: {metrics_before['balance_db']:.2f} dB")
-    logger.info(f"  Problematic Frames: {metrics_before['problematic_frames_ratio'] * 100:.1f}%")
+    logger.info("  Phase Correlation (mean): %.3f", metrics_before['phase_correlation_mean'])
+    logger.info("  Phase Correlation (min): %.3f", metrics_before['phase_correlation_min'])
+    logger.info("  Stereo Width: %.3f", metrics_before['stereo_width'])
+    logger.info("  Balance: %.2f dB", metrics_before['balance_db'])
+    logger.info("  Problematic Frames: %.1f%%", metrics_before['problematic_frames_ratio'] * 100)
 
     # Fix
     fixer = StereoImagingFixer(target_width=1.0, target_phase_correlation_min=-0.3)
@@ -574,11 +566,11 @@ if __name__ == "__main__":
 
     logger.info("\nApplied Corrections:")
     for correction in metrics["applied_corrections"]:
-        logger.info(f"  - {correction}")
+        logger.info("  - %s", correction)
 
     logger.info("\nAnalysis AFTER correction:")
-    logger.info(f"  Phase Correlation (mean): {metrics['after']['phase_correlation_mean']:.3f}")
-    logger.info(f"  Phase Correlation (min): {metrics['after']['phase_correlation_min']:.3f}")
-    logger.info(f"  Stereo Width: {metrics['after']['stereo_width']:.3f}")
-    logger.info(f"  Balance: {metrics['after']['balance_db']:.2f} dB")
-    logger.info(f"  Problematic Frames: {metrics['after']['problematic_frames_ratio'] * 100:.1f}%")
+    logger.info("  Phase Correlation (mean): %.3f", metrics['after']['phase_correlation_mean'])
+    logger.info("  Phase Correlation (min): %.3f", metrics['after']['phase_correlation_min'])
+    logger.info("  Stereo Width: %.3f", metrics['after']['stereo_width'])
+    logger.info("  Balance: %.2f dB", metrics['after']['balance_db'])
+    logger.info("  Problematic Frames: %.1f%%", metrics['after']['problematic_frames_ratio'] * 100)

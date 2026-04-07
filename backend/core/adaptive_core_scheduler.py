@@ -104,7 +104,7 @@ class AdaptiveCoreScheduler:
         if num_cores is None:
             # Auto: Nutze OPTIMAL_CORES, aber nie mehr als System hat
             self.num_cores = min(self.OPTIMAL_CORES, system_cores, self.MAX_CORES)
-            logger.info(f"Auto-detected {system_cores} cores, using {self.num_cores} (optimal)")
+            logger.info("Auto-detected %s cores, using %s (optimal)", system_cores, self.num_cores)
         else:
             # User override, aber warnen wenn suboptimal
             self.num_cores = min(num_cores, self.MAX_CORES)
@@ -114,7 +114,7 @@ class AdaptiveCoreScheduler:
                     f"Optimal is {self.OPTIMAL_CORES} for Aurik workload!"
                 )
             elif num_cores < self.OPTIMAL_CORES:
-                logger.info(f"Using {self.num_cores} cores (suboptimal, {self.OPTIMAL_CORES} recommended)")
+                logger.info("Using %s cores (suboptimal, %s recommended)", self.num_cores, self.OPTIMAL_CORES)
 
         self.enable_memory_pool = enable_memory_pool
         self.enable_monitoring = enable_monitoring
@@ -156,9 +156,9 @@ class AdaptiveCoreScheduler:
                 "fft_buffers": [np.zeros(2**16, dtype=np.complex128) for _ in range(self.num_cores)],  # 64K FFT
                 "temp_arrays": [np.zeros((10 * 44100), dtype=np.float32) for _ in range(self.num_cores)],  # 10s Temp
             }
-            logger.info(f"Memory Pool initialized: {self.MEMORY_POOL_SIZE_MB} MB pre-allocated")
+            logger.info("Memory Pool initialized: %s MB pre-allocated", self.MEMORY_POOL_SIZE_MB)
         except Exception as e:
-            logger.warning(f"Memory Pool initialization failed: {e}, continuing without pool")
+            logger.warning("Memory Pool initialization failed: %s, continuing without pool", e)
             self.memory_pool = None
 
     def register_phase(
@@ -196,7 +196,7 @@ class AdaptiveCoreScheduler:
         for dep in dependencies:
             self.dependency_graph[dep].append(phase_id)
 
-        logger.debug(f"Registered phase: {phase_id}, deps={dependencies}, est_time={estimated_time:.1f}s")
+        logger.debug("Registered phase: %s, deps=%s, est_time=%.1fs", phase_id, dependencies, estimated_time)
 
     def get_ready_phases(self) -> list[str]:
         """Gibt Liste von Phasen zurück, die jetzt ausgeführt werden können."""
@@ -222,19 +222,19 @@ class AdaptiveCoreScheduler:
 
         try:
             phase = self.phases[phase_id]
-            logger.debug(f"Executing {phase_id}...")
+            logger.debug("Executing %s...", phase_id)
 
             # Rufe Phase-Funktion auf
             result_audio = phase.function(audio, **kwargs)
 
             execution_time = time.time() - start_time
-            logger.debug(f"✅ {phase_id} completed in {execution_time:.2f}s")
+            logger.debug("✅ %s completed in %.2fs", phase_id, execution_time)
 
             return result_audio, execution_time
 
         except Exception as e:
             execution_time = time.time() - start_time
-            logger.error(f"❌ {phase_id} failed after {execution_time:.2f}s: {e}")
+            logger.error("❌ %s failed after %.2fs: %s", phase_id, execution_time, e)
             raise
 
     def execute_all(self, audio: np.ndarray, **kwargs) -> np.ndarray:
@@ -250,7 +250,7 @@ class AdaptiveCoreScheduler:
         """
         start_time = time.time()
 
-        logger.info(f"Starting execution of {len(self.phases)} phases on {self.num_cores} cores")
+        logger.info("Starting execution of %s phases on %s cores", len(self.phases), self.num_cores)
 
         # Reset State
         self.completed_phases.clear()
@@ -313,7 +313,7 @@ class AdaptiveCoreScheduler:
                     # In Realität: Aurik-Phasen sind meist sequentiell!
                     # Aber: Einige Sub-Tasks innerhalb Phasen parallelisierbar
                     # → Hier vereinfacht: Sequential mit besserem Logging
-                    logger.info(f"Processing batch of {len(parallel_batch)} phases sequentially")
+                    logger.info("Processing batch of %s phases sequentially", len(parallel_batch))
                     for phase_id in parallel_batch:
                         phase = self.phases[phase_id]
                         phase.status = PhaseStatus.RUNNING
@@ -338,7 +338,7 @@ class AdaptiveCoreScheduler:
         total_time = time.time() - start_time
         self._compute_statistics(total_time)
 
-        logger.info(f"✅ Pipeline completed in {total_time:.2f}s")
+        logger.info("✅ Pipeline completed in %.2fs", total_time)
 
         return current_audio
 
@@ -495,11 +495,11 @@ if __name__ == "__main__":
     sr = 44100
     audio = np.random.randn(int(duration * 60 * sr)).astype(np.float32) * 0.01
 
-    logger.debug(f"\n{'=' * 60}")
+    logger.debug("\n%s", '=' * 60)
     logger.debug("ADAPTIVE CORE SCHEDULER TEST")
-    logger.debug(f"{'=' * 60}")
-    logger.debug(f"Audio: {duration} minutes @ {sr} Hz")
-    logger.debug(f"Cores: {mp.cpu_count()} available, using {AdaptiveCoreScheduler.OPTIMAL_CORES} (optimal)\n")
+    logger.debug("%s", '=' * 60)
+    logger.debug("Audio: %s minutes @ %s Hz", duration, sr)
+    logger.debug("Cores: %s available, using %s (optimal)\n", mp.cpu_count(), AdaptiveCoreScheduler.OPTIMAL_CORES)
 
     # Initialisiere Scheduler
     scheduler = AdaptiveCoreScheduler(num_cores=4)
@@ -525,13 +525,13 @@ if __name__ == "__main__":
     # Statistiken
     stats = scheduler.get_statistics()
     if stats:
-        logger.debug(f"\n{'=' * 60}")
+        logger.debug("\n%s", '=' * 60)
         logger.debug("PERFORMANCE STATISTICS")
-        logger.debug(f"{'=' * 60}")
-        logger.debug(f"Total Phases:     {stats.total_phases}")
-        logger.debug(f"Sequential/Parallel: {stats.sequential_phases}/{stats.parallel_phases}")
-        logger.debug(f"Total Time:       {stats.total_time_seconds:.2f}s")
-        logger.debug(f"Speedup:          {stats.parallelization_speedup:.2f}×")
-        logger.debug(f"Core Efficiency:  {stats.core_efficiency * 100:.1f}%")
-        logger.debug(f"Peak Memory:      {stats.peak_memory_mb} MB")
-        logger.debug(f"\nResult: {len(result_audio)} samples processed ✅")
+        logger.debug("%s", '=' * 60)
+        logger.debug("Total Phases:     %s", stats.total_phases)
+        logger.debug("Sequential/Parallel: %s/%s", stats.sequential_phases, stats.parallel_phases)
+        logger.debug("Total Time:       %.2fs", stats.total_time_seconds)
+        logger.debug("Speedup:          %.2f×", stats.parallelization_speedup)
+        logger.debug("Core Efficiency:  %.1f%%", stats.core_efficiency * 100)
+        logger.debug("Peak Memory:      %s MB", stats.peak_memory_mb)
+        logger.debug("\nResult: %s samples processed ✅", len(result_audio))

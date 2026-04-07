@@ -182,7 +182,7 @@ class AutoReprocessingEngine:
         context = context or {}
         attempts: list[ReprocessingAttempt] = []
 
-        logger.info(f"Reprocessing started: {len(initial_violations)} violations detected")
+        logger.info("Reprocessing started: %s violations detected", len(initial_violations))
 
         # Track best result so far
         best_audio = failed_processed
@@ -192,7 +192,7 @@ class AutoReprocessingEngine:
         # Analyze failure mode to select strategies
         strategies = self._select_strategies(initial_violations, baseline_scores, context)
 
-        logger.info(f"Selected strategies: {[s.value for s in strategies]}")
+        logger.info("Selected strategies: %s", [s.value for s in strategies])
 
         # Try strategies sequentially
         for attempt_num in range(1, self.max_attempts + 1):
@@ -201,12 +201,12 @@ class AutoReprocessingEngine:
                 if self.enable_hybrid_fallback and attempt_num == self.max_attempts:
                     strategy = ReprocessingStrategy.HYBRID_BLEND
                 else:
-                    logger.warning(f"Out of strategies at attempt {attempt_num}")
+                    logger.warning("Out of strategies at attempt %s", attempt_num)
                     break
             else:
                 strategy = strategies[attempt_num - 1]
 
-            logger.info(f"Attempt {attempt_num}/{self.max_attempts}: Strategy={strategy.value}")
+            logger.info("Attempt %s/%s: Strategy=%s", attempt_num, self.max_attempts, strategy.value)
 
             # Execute strategy
             try:
@@ -214,7 +214,7 @@ class AutoReprocessingEngine:
                     strategy, original, failed_processed, sr, processing_function, attempt_num, context
                 )
             except Exception as e:
-                logger.error(f"Strategy {strategy.value} failed: {e}")
+                logger.error("Strategy %s failed: %s", strategy.value, e)
                 attempts.append(
                     ReprocessingAttempt(
                         attempt_number=attempt_num,
@@ -263,7 +263,7 @@ class AutoReprocessingEngine:
 
             # Success? Stop retrying
             if passed:
-                logger.info(f"✓ Reprocessing succeeded at attempt {attempt_num}")
+                logger.info("✓ Reprocessing succeeded at attempt %s", attempt_num)
                 return ReprocessingResult(
                     success=True,
                     best_audio=reprocessed,
@@ -398,7 +398,7 @@ class AutoReprocessingEngine:
         params = {**context, "intensity": intensity}
         reprocessed = processing_function(original, sr, params)
 
-        logger.info(f"Parameter reduction: intensity={intensity:.2f}")
+        logger.info("Parameter reduction: intensity=%.2f", intensity)
 
         return reprocessed, params
 
@@ -427,7 +427,7 @@ class AutoReprocessingEngine:
 
         params = {"processed_weight": proc_weight, "original_weight": orig_weight}
 
-        logger.info(f"Hybrid blend: {proc_weight:.0%} processed + {orig_weight:.0%} original")
+        logger.info("Hybrid blend: %.0% processed + %.0% original", proc_weight, orig_weight)
 
         return blended, params
 
@@ -471,7 +471,7 @@ class AutoReprocessingEngine:
 
         reprocessed = processing_function(original, sr, params)
 
-        logger.info(f"Forensic-guided: {params}")
+        logger.info("Forensic-guided: %s", params)
 
         return reprocessed, params
 
@@ -517,4 +517,4 @@ def create_reprocessing_report(result: ReprocessingResult, output_path: Path) ->
     with open(output_path, "w") as f:
         json.dump(report, f, indent=2)
 
-    logger.info(f"Reprocessing report exported to {output_path}")
+    logger.info("Reprocessing report exported to %s", output_path)

@@ -69,7 +69,7 @@ class HybridVocalSeparator:
         self.demucs_weight = demucs_weight
         self.sample_rate = sample_rate
 
-        logger.info(f"HybridVocalSeparator initialized: strategy={fusion_strategy}, device={device}")
+        logger.info("HybridVocalSeparator initialized: strategy=%s, device=%s", fusion_strategy, device)
 
         # Initialize both models
         self.mdx_net = MDXNetSeparator(sample_rate=sample_rate, device=device)
@@ -113,7 +113,7 @@ class HybridVocalSeparator:
         self.separation_count += 1
         start_time = time.time()
 
-        logger.info(f"Hybrid separation #{self.separation_count}: strategy={self.fusion_strategy}")
+        logger.info("Hybrid separation #%s: strategy=%s", self.separation_count, self.fusion_strategy)
 
         # Run both models in parallel (conceptually)
         logger.info("  Running MDX-Net...")
@@ -127,7 +127,7 @@ class HybridVocalSeparator:
         demucs_time = time.time() - demucs_time_start
 
         # Fusion
-        logger.info(f"  Fusing with '{self.fusion_strategy}' strategy...")
+        logger.info("  Fusing with '%s' strategy...", self.fusion_strategy)
         vocals_fused, instrumental_fused, fusion_metadata = self._fuse_stems(
             mdx_vocals=mdx_stems["vocals"],
             mdx_instrumental=mdx_stems["instrumental"],
@@ -148,7 +148,7 @@ class HybridVocalSeparator:
         }
         self.fusion_decisions_log.append(fusion_decision)
 
-        logger.info(f"  Hybrid separation complete: {total_time:.2f}s (MDX={mdx_time:.2f}s, Demucs={demucs_time:.2f}s)")
+        logger.info("  Hybrid separation complete: %.2fs (MDX=%.2fs, Demucs=%.2fs)", total_time, mdx_time, demucs_time)
 
         # NaN/Inf-Guard für Ausgabe
         vocals_fused = np.nan_to_num(vocals_fused, nan=0.0, posinf=0.0, neginf=0.0)
@@ -299,7 +299,7 @@ class HybridVocalSeparator:
         mdx_score = self._compute_separation_quality(mdx_vocals, mdx_instrumental)
         demucs_score = self._compute_separation_quality(demucs_vocals, demucs_instrumental)
 
-        logger.info(f"    Quality scores: MDX={mdx_score:.3f}, Demucs={demucs_score:.3f}")
+        logger.info("    Quality scores: MDX=%.3f, Demucs=%.3f", mdx_score, demucs_score)
 
         if demucs_score > mdx_score:
             vocals_fused = demucs_vocals
@@ -381,6 +381,6 @@ if __name__ == "__main__":
     stems = separator.separate(audio, sr=sr, return_individual=True)
 
     logger.info("✓ Hybrid separation test passed")
-    logger.info(f"  Vocals shape: {stems['vocals'].shape}")
-    logger.info(f"  Instrumental shape: {stems['instrumental'].shape}")
-    logger.info(f"  Metrics: {separator.get_metrics()}")
+    logger.info("  Vocals shape: %s", stems['vocals'].shape)
+    logger.info("  Instrumental shape: %s", stems['instrumental'].shape)
+    logger.info("  Metrics: %s", separator.get_metrics())

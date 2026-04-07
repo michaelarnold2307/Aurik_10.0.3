@@ -128,7 +128,10 @@ class HarmonicRestorationPhase(PhaseInterface):
             "odd_harmonic_ratio": 0.7,
             "target_range_hz": [8000, 16000],
             "drive": 1.8,  # Moderate drive
-            "blend": 0.70,
+            # blend=0.55 (was 0.70): lower saturation-harmonic blend for tape to
+            # preserve original timbral character and avoid Naturalness regression.
+            # fill_gain = blend*0.40 remains conservative; additive synthesis unchanged.
+            "blend": 0.55,
         },
         "vinyl": {
             "saturation_mode": "transformer",

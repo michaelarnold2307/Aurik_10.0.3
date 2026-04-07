@@ -1,6 +1,6 @@
 """
 Test suite for core/core_utils.py
-Tests basic utility functions: normalize_audio, compute_rms, compute_loudness, audio_stats
+Tests basic utility functions: compute_rms, compute_loudness, audio_stats
 """
 
 import os
@@ -11,17 +11,7 @@ import numpy as np
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from backend.core.core_utils import audio_stats, compute_loudness, compute_rms, log_message, normalize_audio
-
-
-def test_normalize_audio_basic():
-    """Test basic audio normalization"""
-    audio = np.array([0.5, -0.25, 0.1, -0.05])
-    normalized = normalize_audio(audio, peak=0.999)
-
-    # Check peak is approximately 0.999
-    assert np.max(np.abs(normalized)) <= 0.999
-    assert np.max(np.abs(normalized)) >= 0.998
+from backend.core.core_utils import audio_stats, compute_loudness, compute_rms, log_message
 
 
 def test_compute_rms_simple():
@@ -54,33 +44,6 @@ def test_audio_stats_comprehensive():
     # Check values are reasonable
     assert stats["peak"] >= 0  # Peak can exceed 1.0 for non-normalized audio
     assert stats["rms"] >= 0
-
-
-def test_normalize_audio_zero_signal():
-    """Test normalization of zero signal (edge case)"""
-    audio = np.zeros(100)
-    normalized = normalize_audio(audio, peak=0.999)
-    # Should return zeros without error
-    assert np.all(normalized == 0)
-    assert normalized.shape == audio.shape
-
-
-def test_normalize_audio_negative_peak():
-    """Test normalization where max is negative"""
-    audio = np.array([-0.8, -0.5, -0.1, -0.05])
-    normalized = normalize_audio(audio, peak=0.999)
-    # Peak should be at 0.999
-    assert np.max(np.abs(normalized)) <= 0.999
-    assert np.max(np.abs(normalized)) >= 0.998
-
-
-def test_normalize_audio_custom_peak():
-    """Test normalization with custom peak value"""
-    audio = np.array([0.5, -0.25, 0.1])
-    normalized = normalize_audio(audio, peak=0.5)
-    # Peak should be ~0.5
-    assert np.max(np.abs(normalized)) <= 0.5
-    assert np.max(np.abs(normalized)) >= 0.499
 
 
 def test_compute_rms_zero_signal():

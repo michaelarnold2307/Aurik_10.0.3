@@ -49,7 +49,6 @@ ACCEPTED_STUBS: frozenset[tuple[str, str]] = frozenset(
         ("backend/core/undo/undo_manager.py", "apply"),
         ("backend/core/undo/undo_manager.py", "cleanup"),
         ("backend/core/undo/undo_manager.py", "revert"),
-        ("backend/media_chain_detector.py", "__init__"),
         ("dsp/auto_bypass_order.py", "__init__"),
         # P3-Logging-Contract-Hooks
         ("dsp/classic_filters.py", "log_contract"),

@@ -52,7 +52,7 @@ class MDXNetSeparator:
         # Device selection — §9.5 Aurik 9 nutzt ausschließlich CPU. Kein CUDA.
         self.device = "cpu"
 
-        logger.info(f"MDXNetSeparator initialized on {self.device}")
+        logger.info("MDXNetSeparator initialized on %s", self.device)
 
         # Model loading (placeholder - requires actual MDX-Net model)
         self.model_path = model_path or self._get_default_model_path()
@@ -94,10 +94,10 @@ class MDXNetSeparator:
             # Placeholder for actual model loading
             # import onnxruntime as ort
             # session = ort.InferenceSession(str(self.model_path))
-            logger.info(f"MDX-Net model loaded from {self.model_path}")
+            logger.info("MDX-Net model loaded from %s", self.model_path)
             return None  # Placeholder
         except Exception as e:
-            logger.error(f"Failed to load MDX-Net model: {e}")
+            logger.error("Failed to load MDX-Net model: %s", e)
             return None
 
     def separate(self, audio: np.ndarray, sr: int | None = None, return_stems: bool = True) -> dict[str, np.ndarray]:
@@ -121,7 +121,7 @@ class MDXNetSeparator:
         assert sr == 48000 or sr is None or sr == self.sample_rate, f"SR muss 48000 Hz sein, erhalten: {sr}"
         # Resample if needed
         if sr is not None and sr != self.sample_rate:
-            logger.info(f"Resampling from {sr}Hz to {self.sample_rate}Hz")
+            logger.info("Resampling from %sHz to %sHz", sr, self.sample_rate)
             audio = librosa.resample(audio, orig_sr=sr, target_sr=self.sample_rate)
         # NaN/Inf-Guard
         audio = np.nan_to_num(audio, nan=0.0, posinf=0.0, neginf=0.0)
@@ -134,7 +134,7 @@ class MDXNetSeparator:
 
         # HIPS: Log separation attempt
         self.separation_count += 1
-        logger.info(f"MDX-Net separation #{self.separation_count}: shape={audio.shape}, sr={self.sample_rate}")
+        logger.info("MDX-Net separation #%s: shape=%s, sr=%s", self.separation_count, audio.shape, self.sample_rate)
 
         # Actual separation (placeholder)
         if self.model is None:
@@ -322,6 +322,6 @@ if __name__ == "__main__":
     stems = separator.separate(audio, sr=sr)
 
     logger.info("✓ MDX-Net separation test passed")
-    logger.info(f"  Vocals shape: {stems['vocals'].shape}")
-    logger.info(f"  Instrumental shape: {stems['instrumental'].shape}")
-    logger.info(f"  Metrics: {separator.get_separation_metrics()}")
+    logger.info("  Vocals shape: %s", stems['vocals'].shape)
+    logger.info("  Instrumental shape: %s", stems['instrumental'].shape)
+    logger.info("  Metrics: %s", separator.get_separation_metrics())

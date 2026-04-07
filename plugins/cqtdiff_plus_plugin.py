@@ -617,7 +617,7 @@ def inpaint_gap(
     Beispiel::
 
         result = inpaint_gap(audio, sr=48000, gap_start_sample=96000, gap_end_sample=100800)
-        logger.debug(f"KL: {result.kl_divergence:.3f}, Chroma-Corr: {result.chroma_corr:.3f}")
+        logger.debug("KL: %.3f, Chroma-Corr: %.3f", result.kl_divergence, result.chroma_corr)
 
     Args:
         audio:              Audio-Signal (1D float32, 48000 Hz)

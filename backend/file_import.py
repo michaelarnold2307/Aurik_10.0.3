@@ -105,7 +105,12 @@ def is_supported_audio_file(filename: str) -> bool:
     )
 
 
-def load_audio_file(filepath: str, target_sr: int | None = None, mono: bool = False) -> dict[str, Any] | None:
+def load_audio_file(
+    filepath: str,
+    target_sr: int | None = None,
+    mono: bool = False,
+    do_carrier_analysis: bool = True,
+) -> dict[str, Any] | None:
     """Lädt Audiodatei robust und gibt Dict mit allen Metadaten zurück.
 
     Args:
@@ -179,6 +184,8 @@ def load_audio_file(filepath: str, target_sr: int | None = None, mono: bool = Fa
                     _read = 0
                     while _read < _frames:
                         _block = _f.read(min(_chunk, _frames - _read))
+                        if _block.shape[-1] == 0:
+                            break  # EOF — pedalboard.frames can overcount for VBR MP3
                         _parts.append(_block)
                         _read += _block.shape[-1]
                 _raw = np.concatenate(_parts, axis=1) if len(_parts) > 1 else _parts[0]
@@ -216,7 +223,37 @@ def load_audio_file(filepath: str, target_sr: int | None = None, mono: bool = Fa
             sr = target_sr
         if mono and audio.ndim > 1:
             audio = audio.mean(axis=-1)
-        # NaN/Inf-Guard (§3.1)
+        # Spec §2.47: nur Mono und Stereo unterstützt. > 2 Kanäle → gewichteter Downmix.
+        # PANNs-Plugin noch nicht im Import-Pfad verfügbar → einfacher Energie-Downmix.
+        # Der Downmix ergibt Stereo (L=avg(L+odd), R=avg(R+even)) für 4-Kanal-Material
+        # und Mono für alle anderen Kanalzahlen (> 2).
+        if audio.ndim == 2 and audio.shape[-1] > 2:
+            n_ch = audio.shape[-1]
+            logger.warning(
+                "load_audio_file: %d Kanäle erkannt (nur Mono/Stereo unterstützt) — "
+                "Downmix auf Stereo L/R (Energie-gewichtet).",
+                n_ch,
+            )
+            # Energie-gewichteter Downmix: höhere Energie → höherer Beitrag pro Kanal.
+            _ch_rms = np.sqrt(np.mean(audio ** 2, axis=0)) + 1e-9  # (n_ch,)
+            _weights = _ch_rms / _ch_rms.sum()
+            if n_ch >= 4:
+                # L = Summe ungerade Kanäle, R = Summe gerade Kanäle (häufiges LRLS-RS-Schema)
+                _l_idx = list(range(0, n_ch, 2))
+                _r_idx = list(range(1, n_ch, 2))
+                ch_l = float(np.sum(_weights[_l_idx])) + 1e-9
+                ch_r = float(np.sum(_weights[_r_idx])) + 1e-9
+                _l = np.average(audio[:, _l_idx], axis=1, weights=_weights[_l_idx] / ch_l)
+                _r = np.average(audio[:, _r_idx], axis=1, weights=_weights[_r_idx] / ch_r)
+                audio = np.stack([_l, _r], axis=-1).astype(np.float32)
+            else:
+                # 3 o.ä. → Mono-Downmix
+                audio = np.average(audio, axis=-1, weights=_weights).astype(np.float32)
+            logger.info(
+                "load_audio_file: Downmix %d→%d-Kanal abgeschlossen.",
+                n_ch,
+                1 if audio.ndim == 1 else audio.shape[-1],
+            )
         audio = np.nan_to_num(audio, nan=0.0, posinf=0.0, neginf=0.0)
         audio = np.clip(audio, -1.0, 1.0)
         result["audio"] = audio
@@ -224,28 +261,31 @@ def load_audio_file(filepath: str, target_sr: int | None = None, mono: bool = Fa
         result["channels"] = 1 if audio.ndim == 1 else audio.shape[-1]
         result["format"] = result["format"] or _ext[1:].upper()
         result["duration"] = result["duration"] or (len(audio) / sr)
-        # Carrier detection (heuristic)
-        result["carrier_heuristic"] = detect_carrier(filepath, result["meta"])
-        # Forensic carrier detection
-        try:
-            forensic = analyze_carrier_forensics(audio, sr)
-            result["carrier_forensic"] = forensic["carrier_forensic"]
-            result["carrier_forensic_score"] = forensic["score"]
-            result["carrier_forensic_features"] = forensic["features"]
-            # ML-based carrier classification
-            ml = classify_carrier_ml(forensic["features"])
-            result["carrier_ml"] = ml.get("carrier_ml", "Unbekannt")
-            result["carrier_ml_confidence"] = ml.get("confidence", 0.0)
-            result["carrier_ml_probas"] = ml.get("probas", {})
-            result["carrier_ml_explain"] = ml.get("explain", "")
-        except Exception as _e_carrier:
-            result["carrier_forensic"] = "Unbekannt"
-            result["carrier_forensic_score"] = 0
-            result["carrier_forensic_features"] = {}
-            result["carrier_ml"] = "Unbekannt"
-            result["carrier_ml_confidence"] = 0.0
-            result["carrier_ml_probas"] = {}
-            result["carrier_ml_explain"] = str(_e_carrier)
+        # Carrier detection (heuristic + forensics)
+        # Skipped when do_carrier_analysis=False (e.g. BatchProcessingThread, AudioPlayer,
+        # RecoveryCheckpoint) — carrier analysis is done once in _carrier_bg and cached.
+        # Running MediumClassifier on a full 225 s audio blocks the load-ticker for 6+ min.
+        result["carrier_heuristic"] = detect_carrier(filepath, result["meta"]) if do_carrier_analysis else "unknown"
+        if do_carrier_analysis:
+            try:
+                forensic = analyze_carrier_forensics(audio, sr)
+                result["carrier_forensic"] = forensic["carrier_forensic"]
+                result["carrier_forensic_score"] = forensic["score"]
+                result["carrier_forensic_features"] = forensic["features"]
+                # ML-based carrier classification
+                ml = classify_carrier_ml(forensic["features"])
+                result["carrier_ml"] = ml.get("carrier_ml", "Unbekannt")
+                result["carrier_ml_confidence"] = ml.get("confidence", 0.0)
+                result["carrier_ml_probas"] = ml.get("probas", {})
+                result["carrier_ml_explain"] = ml.get("explain", "")
+            except Exception as _e_carrier:
+                result["carrier_forensic"] = "Unbekannt"
+                result["carrier_forensic_score"] = 0
+                result["carrier_forensic_features"] = {}
+                result["carrier_ml"] = "Unbekannt"
+                result["carrier_ml_confidence"] = 0.0
+                result["carrier_ml_probas"] = {}
+                result["carrier_ml_explain"] = str(_e_carrier)
     except Exception as e:
         result["error"] = f"Unknown error: {e}"
     return result

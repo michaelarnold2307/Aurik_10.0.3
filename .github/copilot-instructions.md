@@ -189,6 +189,18 @@ Letztes Gate vor Export. Misst **Gesamt-Hörverbesserung** statt nur Einzel-Goal
 **Restoration**: `perceptual_delta > 0` Pflicht für jede Phase; ≤ 0 → Skip. So wenige Phasen wie nötig.
 **Studio 2026**: Volle Enhancement-Kette, aber `perceptual_delta > 0` bleibt Pflicht — kein Over-Processing.
 
+### [RELEASE_MUST] §2.45a Mid-Pipeline-Loudness-Drift-Guard (v9.10.128)
+
+Frühe subtraktive Phasen dürfen den wahrgenommenen Musikpegel nicht kollabieren lassen.
+
+- Betroffene Phasenklasse: breitbandig/subtraktiv (z. B. Denoise, Noise-Gate, Dereverb, Surface/Hiss-Reduction)
+- Invariante: material-adaptiver per-Phase-RMS-Drift-Guard muss aktiv sein
+- Guard-Reaktion: **nicht** Phase wirkungslos machen; stattdessen begrenzte Dry/Wet-Rescue oder sichere Makeup-Gain-Kompensation
+- Peak-Guard Pflicht: Gain-Limits mit `np.percentile(np.abs(audio), 99.9)` (kein `np.max()`)
+- Telemetriepflicht: pro Phase `rms_drop_db` und `loudness_makeup_db` in Phase-Metadata; Pipeline-Metadaten führen Top-Drops
+
+**Normativer Zweck**: Defektentfernung bleibt wirksam, ohne musikalische Substanz oder Natürlichkeit bereits in der Phase-Kette hörbar zu verlieren (§0, §2.45, P1/P2-Hartregeln).
+
 > Pipeline-Details: Spec 02 §2.45 + Skill `pipeline-debug`
 
 ## 14 Musical Goals (Kurzreferenz)
@@ -280,7 +292,9 @@ Pre-Analyseergebnisse (Medium, Era, Genre, Defect, Restorability) werden **EINMA
 - `run_pre_analysis()` läuft **GENAU 1x** nach Import (native SR, alle 5 Analysen parallel)
 - Frontend speichert komplette `PreAnalysisResult` in `_latest_pre_analysis_result`
 - Mode-Click → Queue-Item trägt `PreAnalysisResult` in `queue_settings` (nicht nur Cache-Keys)
+- Falls `PreAnalysisResult.defects` vorhanden ist, trägt das Queue-Item zusätzlich `cached_defect_result` als direkte Defect-Referenz
 - `BatchProcessingThread` prioritiert direktes Result **vor** Bridge-Cache-Lookup
+- `BatchProcessingThread` reicht das konkret verwendete Defect-Result **immer** als `cached_defect_result` an `AurikDenker.denke()` weiter, auch wenn `PreAnalysisResult` unvollständig ist
 - `AurikDenker.denke()` empfängt `pre_analysis_result` kwarg oder unpacked `cached_*` kwargs
 - Auf **neuem File-Import** wird vorheriger Cache **HARD gelöscht** (verhindert Staleness)
 - **Invariante: `MediumDetector.detect()` wird GENAU 1x aufgerufen**, nie 2–3x
@@ -290,7 +304,9 @@ Pre-Analyseergebnisse (Medium, Era, Genre, Defect, Restorability) werden **EINMA
 **Implementierungs-Checkliste**:
 - [✅] UI speichert `PreAnalysisResult` nach erfolgreicher `_pre_analysis_bg()`
 - [✅] Mode-Click injiziert `pre_analysis_result` in Queue-Item Settings
+- [✅] Mode-Click injiziert bei vorhandenem Scan zusätzlich `cached_defect_result` in Queue-Item Settings
 - [✅] BatchProcessingThread prüft Queue-Settings first
+- [✅] BatchProcessingThread ergänzt `PreAnalysisResult.defects` aus `cached_defect_result`, falls nötig
 - [✅] AurikDenker.denke() erhält `pre_analysis_result` kwarg
 - [✅] Test: `tests/unit/test_pre_analysis_handover_no_double_detect.py` (2/2 passing)
 

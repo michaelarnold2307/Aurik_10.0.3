@@ -390,7 +390,7 @@ if __name__ == "__main__":
     signal_compressed = scipy.signal.lfilter(b, a, signal)
 
     logger.info("\nInput:")
-    logger.info(f"  - Sample Rate: {sr} Hz")
+    logger.info("  - Sample Rate: %s Hz", sr)
     logger.info("  - Duration: 1.0 seconds")
     logger.info("  - Content: Multi-harmonic signal (440 Hz fundamental, 10 harmonics)")
     logger.info("  - Simulated Damage: MP3-style lowpass (cutoff 16 kHz)")
@@ -402,12 +402,12 @@ if __name__ == "__main__":
     metrics = processor.get_metrics()
 
     logger.info("\nSpectral Repair Results:")
-    logger.info(f"  - Holes Detected: {metrics['holes_detected']}")
-    logger.info(f"  - Holes Repaired: {metrics['holes_repaired']}")
+    logger.info("  - Holes Detected: %s", metrics['holes_detected'])
+    logger.info("  - Holes Repaired: %s", metrics['holes_repaired'])
     if metrics["frequency_ranges"]:
         logger.info("  - Frequency Ranges:")
         for start_hz, end_hz in metrics["frequency_ranges"]:
-            logger.info(f"    * {start_hz:.0f} - {end_hz:.0f} Hz")
-    logger.info(f"  - Artifacts Smoothed: {metrics['artifacts_smoothed']} bins")
+            logger.info("    * %.0f - %.0f Hz", start_hz, end_hz)
+    logger.info("  - Artifacts Smoothed: %s bins", metrics['artifacts_smoothed'])
 
     logger.info("\n✅ Spectral Repair Demo Complete")

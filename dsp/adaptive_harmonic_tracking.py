@@ -70,12 +70,12 @@ class AdaptiveHarmonicTracking:
             else:
                 peaks = self._track_classic(spectrum)
         except Exception as e:
-            logger.error(f"Fehler bei Harmonische-Tracking: {e}")
+            logger.error("Fehler bei Harmonische-Tracking: %s", e)
             fallback_used = True
             peaks = np.array([])
 
         if audit_log:
-            logger.info(f"AdaptiveHarmonicTracking: peaks={peaks.tolist()}, fallback_used={fallback_used}")
+            logger.info("AdaptiveHarmonicTracking: peaks=%s, fallback_used=%s", peaks.tolist(), fallback_used)
         return peaks
 
     def _track_classic(self, spectrum: np.ndarray) -> np.ndarray:
@@ -101,4 +101,4 @@ class AdaptiveHarmonicTracking:
             self.threshold = 0.3  # Mittleres SNR
         else:
             self.threshold = 0.5  # Niedriges SNR: konservativ
-        logger.info(f"auto_optimize (HarmonicTracking): SNR={snr:.1f} → threshold={self.threshold}")
+        logger.info("auto_optimize (HarmonicTracking): SNR=%.1f → threshold=%s", snr, self.threshold)

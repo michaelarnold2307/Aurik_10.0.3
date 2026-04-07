@@ -133,9 +133,9 @@ class ForensicsTrainingPipeline:
         logger.info("Generating training data...")
         X_train, y_train, X_test, y_test = self._generate_medium_dataset()
 
-        logger.info(f"  Training samples: {len(X_train)}")
-        logger.info(f"  Test samples: {len(X_test)}")
-        logger.info(f"  Features: {X_train.shape[1]}")
+        logger.info("  Training samples: %s", len(X_train))
+        logger.info("  Test samples: %s", len(X_test))
+        logger.info("  Features: %s", X_train.shape[1])
 
         # Initialize detector
         detector = MLMediumDetector(
@@ -159,7 +159,7 @@ class ForensicsTrainingPipeline:
         if save_model:
             model_path = str(self.config.models_dir / f"medium_detector_v{detector.VERSION}.pkl")
             detector.save(model_path)
-            logger.info(f"Model saved: {model_path}")
+            logger.info("Model saved: %s", model_path)
 
         cv_mean, cv_std = _mean_std(cv_scores)
 
@@ -179,14 +179,14 @@ class ForensicsTrainingPipeline:
         self.reports.append(report)
 
         logger.info("\n✅ Medium Detector Training Complete")
-        logger.info(f"   Test Accuracy: {test_accuracy:.1%}")
-        logger.info(f"   CV Mean: {report.cross_val_mean:.1%} ± {report.cross_val_std:.1%}")
-        logger.info(f"   Training Time: {training_time:.1f}s")
+        logger.info("   Test Accuracy: %.1%", test_accuracy)
+        logger.info("   CV Mean: %.1% ± %.1%", report.cross_val_mean, report.cross_val_std)
+        logger.info("   Training Time: %.1fs", training_time)
 
         if test_accuracy >= 0.99:
-            logger.info(f"   🎯 TARGET REACHED: {test_accuracy:.1%} >= 99%")
+            logger.info("   🎯 TARGET REACHED: %.1% >= 99%%", test_accuracy)
         else:
-            logger.warning(f"   ⚠ Below target: {test_accuracy:.1%} < 99%")
+            logger.warning("   ⚠ Below target: %.1% < 99%%", test_accuracy)
 
         return detector, report
 
@@ -209,9 +209,9 @@ class ForensicsTrainingPipeline:
         logger.info("Generating training data...")
         X_train, y_train, X_test, y_test = self._generate_era_dataset()
 
-        logger.info(f"  Training samples: {len(X_train)}")
-        logger.info(f"  Test samples: {len(X_test)}")
-        logger.info(f"  Features: {X_train.shape[1]}")
+        logger.info("  Training samples: %s", len(X_train))
+        logger.info("  Test samples: %s", len(X_test))
+        logger.info("  Features: %s", X_train.shape[1])
 
         # Initialize detector
         detector = MLEraDetector(
@@ -235,7 +235,7 @@ class ForensicsTrainingPipeline:
         if save_model:
             model_path = str(self.config.models_dir / f"era_detector_v{detector.VERSION}.pkl")
             detector.save(model_path)
-            logger.info(f"Model saved: {model_path}")
+            logger.info("Model saved: %s", model_path)
 
         cv_mean, cv_std = _mean_std(cv_scores)
 
@@ -255,14 +255,14 @@ class ForensicsTrainingPipeline:
         self.reports.append(report)
 
         logger.info("\n✅ Era Detector Training Complete")
-        logger.info(f"   Test Accuracy: {test_accuracy:.1%}")
-        logger.info(f"   CV Mean: {report.cross_val_mean:.1%} ± {report.cross_val_std:.1%}")
-        logger.info(f"   Training Time: {training_time:.1f}s")
+        logger.info("   Test Accuracy: %.1%", test_accuracy)
+        logger.info("   CV Mean: %.1% ± %.1%", report.cross_val_mean, report.cross_val_std)
+        logger.info("   Training Time: %.1fs", training_time)
 
         if test_accuracy >= 0.95:
-            logger.info(f"   🎯 TARGET REACHED: {test_accuracy:.1%} >= 95%")
+            logger.info("   🎯 TARGET REACHED: %.1% >= 95%%", test_accuracy)
         else:
-            logger.warning(f"   ⚠ Below target: {test_accuracy:.1%} < 95%")
+            logger.warning("   ⚠ Below target: %.1% < 95%%", test_accuracy)
 
         return detector, report
 
@@ -285,9 +285,9 @@ class ForensicsTrainingPipeline:
         logger.info("Generating training data...")
         X_train, y_train, X_test, y_test = self._generate_defect_dataset()
 
-        logger.info(f"  Training samples: {len(X_train)}")
-        logger.info(f"  Test samples: {len(X_test)}")
-        logger.info(f"  Features: {X_train.shape[1]}")
+        logger.info("  Training samples: %s", len(X_train))
+        logger.info("  Test samples: %s", len(X_test))
+        logger.info("  Features: %s", X_train.shape[1])
 
         # Initialize detector
         detector = MLDefectDetector(
@@ -310,7 +310,7 @@ class ForensicsTrainingPipeline:
         if save_model:
             model_path = str(self.config.models_dir / f"defect_detector_v{detector.VERSION}.pkl")
             detector.save(model_path)
-            logger.info(f"Model saved: {model_path}")
+            logger.info("Model saved: %s", model_path)
 
         cv_mean, cv_std = _mean_std(recalls)
 
@@ -330,14 +330,14 @@ class ForensicsTrainingPipeline:
         self.reports.append(report)
 
         logger.info("\n✅ Defect Detector Training Complete")
-        logger.info(f"   Mean Recall: {test_recall:.1%}")
-        logger.info(f"   CV Mean Recall: {report.cross_val_mean:.1%} ± {report.cross_val_std:.1%}")
-        logger.info(f"   Training Time: {training_time:.1f}s")
+        logger.info("   Mean Recall: %.1%", test_recall)
+        logger.info("   CV Mean Recall: %.1% ± %.1%", report.cross_val_mean, report.cross_val_std)
+        logger.info("   Training Time: %.1fs", training_time)
 
         if test_recall >= 0.98:
-            logger.info(f"   🎯 TARGET REACHED: {test_recall:.1%} >= 98%")
+            logger.info("   🎯 TARGET REACHED: %.1% >= 98%%", test_recall)
         else:
-            logger.warning(f"   ⚠ Below target: {test_recall:.1%} < 98%")
+            logger.warning("   ⚠ Below target: %.1% < 98%%", test_recall)
 
         return detector, report
 
@@ -371,9 +371,9 @@ class ForensicsTrainingPipeline:
         logger.info("\n" + "=" * 60)
         logger.info("   Training Pipeline Complete")
         logger.info("=" * 60)
-        logger.info(f"   Total Time: {total_time / 60:.1f} minutes")
+        logger.info("   Total Time: %.1f minutes", total_time / 60)
         logger.info("   Models Trained: 3")
-        logger.info(f"   Reports Generated: {len(self.reports)}")
+        logger.info("   Reports Generated: %s", len(self.reports))
 
         return {
             "medium_detector": medium_detector,
@@ -482,7 +482,7 @@ class ForensicsTrainingPipeline:
         with open(report_path, "w") as f:
             json.dump(summary, f, indent=2)
 
-        logger.info(f"\nSummary report saved: {report_path}")
+        logger.info("\nSummary report saved: %s", report_path)
 
 
 def main() -> None:
@@ -496,9 +496,9 @@ def main() -> None:
     results = pipeline.train_all_models(save_models=True)
 
     logger.info("\n✅ All models trained successfully!")
-    logger.info(f"   Medium Detector: {results['reports'][0].accuracy:.1%}")
-    logger.info(f"   Era Detector: {results['reports'][1].accuracy:.1%}")
-    logger.info(f"   Defect Detector: {results['reports'][2].accuracy:.1%}")
+    logger.info("   Medium Detector: %s", format(results['reports'][0].accuracy, '.1%'))
+    logger.info("   Era Detector: %s", format(results['reports'][1].accuracy, '.1%'))
+    logger.info("   Defect Detector: %s", format(results['reports'][2].accuracy, '.1%'))
 
 
 if __name__ == "__main__":

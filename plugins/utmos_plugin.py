@@ -789,7 +789,7 @@ def estimate_mos(audio: np.ndarray, sr: int) -> MOSResult:
     Beispiel::
 
         result = estimate_mos(audio, sr=48000)
-        logger.debug(f"MOS: {result.mos:.2f} ({result.grade}) via {result.model_used}")
+        logger.debug("MOS: %.2f (%s) via %s", result.mos, result.grade, result.model_used)
         if result.mos < 4.0:
             trigger_feedback_chain()
 

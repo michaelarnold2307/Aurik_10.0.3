@@ -865,7 +865,7 @@ def tag_audio(
     Beispiel::
 
         result = tag_audio(audio, sr=48000)
-        logger.debug(f"Instrumente: {result.top_instruments()}, Genre: {result.top_genres()}")
+        logger.debug("Instrumente: %s, Genre: %s", result.top_instruments(), result.top_genres())
         # Phasen-Aktivierung (§2.9):
         if result.instrument_tags.get("vocals", 0) >= 0.4:
             activate_phase("phase_42_vocal_enhancement")

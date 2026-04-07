@@ -9,7 +9,18 @@ The test asserts exactalgorithmically:
 
 from __future__ import annotations
 
+from dataclasses import dataclass, field
 from typing import Any
+
+
+@dataclass(frozen=True)
+class IntegratedFeedback:
+    """Typed integrated feedback payload."""
+
+    scores: dict[str, float] = field(default_factory=dict)
+
+    def get(self, key: str, default: float = 0.0) -> float:
+        return float(self.scores.get(key, default))
 
 
 class FeedbackIntegrator:
@@ -35,18 +46,18 @@ class FeedbackIntegrator:
         self.community_platform = community_platform
         self.expert_weight = expert_weight
 
-    def integrate(self) -> dict[str, float]:
+    def integrate(self) -> IntegratedFeedback:
         """Return a weighted blend of expert and community aggregates."""
         expert_agg = self.expert_system.aggregate()
         community_agg = self.community_platform.aggregate()
 
-        all_keys = set(expert_agg) | set(community_agg)
+        all_keys = set(expert_agg.scores) | set(community_agg.scores)
         result: dict[str, float] = {}
         for k in all_keys:
             e = expert_agg.get(k, 0.0)
             c = community_agg.get(k, 0.0)
             result[k] = self.expert_weight * e + (1.0 - self.expert_weight) * c
-        return result
+        return IntegratedFeedback(result)
 
 
 # ---------------------------------------------------------------------------

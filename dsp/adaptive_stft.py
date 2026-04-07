@@ -130,7 +130,7 @@ class AdaptiveSTFT:
         pad_mode="reflect",
     ):
         if not (256 <= n_fft <= 8192):
-            logger.error(f"Ungültiges n_fft: {n_fft}. Muss zwischen 256 und 8192 liegen.")
+            logger.error("Ungültiges n_fft: %s. Muss zwischen 256 und 8192 liegen.", n_fft)
             raise ValueError("n_fft muss zwischen 256 und 8192 liegen.")
         self.n_fft = n_fft
         self.hop_length = hop_length or n_fft // 4
@@ -152,7 +152,7 @@ class AdaptiveSTFT:
 
     def log_contract(self):
         contract_dict = asdict(adaptive_stft_contract)
-        logger.info(f"[DSPContract] {contract_dict}")
+        logger.info("[DSPContract] %s", contract_dict)
 
     def stft(self, y, sr=None, use_deep_learning: bool = False, audit_log: bool = True, **kwargs):
         """
@@ -208,7 +208,7 @@ class AdaptiveSTFT:
             else:
                 output = self._stft_classic(y, n_fft, hop_length, win_length, window, center, pad_mode)
         except Exception as e:
-            logger.error(f"Fehler bei STFT: {e}", exc_info=True)
+            logger.error("Fehler bei STFT: %s", e, exc_info=True)
             fallback_used = True
             output = np.zeros((n_fft // 2 + 1, 1), dtype=np.complex128)
 
@@ -217,7 +217,7 @@ class AdaptiveSTFT:
             logger.info(
                 f"AdaptiveSTFT: spectral_resolution={spectral_resolution:.4f}, fallback_used={fallback_used}, n_fft={n_fft}"
             )
-            logger.info(f"[DSPContract] {asdict(adaptive_stft_contract)}")
+            logger.info("[DSPContract] %s", asdict(adaptive_stft_contract))
         return output
 
     def _stft_classic(self, y, n_fft, hop_length, win_length, window, center, pad_mode):
@@ -261,12 +261,12 @@ class AdaptiveSTFT:
                 length=kwargs.get("length"),
             )
         except Exception as e:
-            logger.error(f"Fehler bei ISTFT: {e}", exc_info=True)
+            logger.error("Fehler bei ISTFT: %s", e, exc_info=True)
             output = np.zeros(1)
         output = np.nan_to_num(np.asarray(output), nan=0.0, posinf=0.0, neginf=0.0)
         if audit_log:
-            logger.info(f"AdaptiveSTFT: ISTFT ausgeführt, shape={output.shape if output is not None else None}")
-            logger.info(f"[DSPContract] {asdict(adaptive_stft_contract)}")
+            logger.info("AdaptiveSTFT: ISTFT ausgeführt, shape=%s", output.shape if output is not None else None)
+            logger.info("[DSPContract] %s", asdict(adaptive_stft_contract))
         return output
 
     def auto_optimize(self, y, sr):
@@ -280,7 +280,7 @@ class AdaptiveSTFT:
         else:
             self.n_fft = 2048
             self.hop_length = 512
-        logger.info(f"STFT-Parameter auto-optimiert: n_fft={self.n_fft}, hop_length={self.hop_length}")
+        logger.info("STFT-Parameter auto-optimiert: n_fft=%s, hop_length=%s", self.n_fft, self.hop_length)
 
 
 class AdaptiveMelSpectrogram:
@@ -299,10 +299,10 @@ class AdaptiveMelSpectrogram:
         power=2.0,
     ):
         if not (256 <= n_fft <= 8192):
-            logger.error(f"Ungültiges n_fft: {n_fft}. Muss zwischen 256 und 8192 liegen.")
+            logger.error("Ungültiges n_fft: %s. Muss zwischen 256 und 8192 liegen.", n_fft)
             raise ValueError("n_fft muss zwischen 256 und 8192 liegen.")
         if not (16 <= n_mels <= 512):
-            logger.error(f"Ungültiges n_mels: {n_mels}. Muss zwischen 16 und 512 liegen.")
+            logger.error("Ungültiges n_mels: %s. Muss zwischen 16 und 512 liegen.", n_mels)
             raise ValueError("n_mels muss zwischen 16 und 512 liegen.")
         self.n_fft = n_fft
         self.hop_length = hop_length or n_fft // 4
@@ -317,7 +317,7 @@ class AdaptiveMelSpectrogram:
 
     def log_contract(self):
         contract_dict = asdict(adaptive_mel_contract)
-        logger.info(f"[DSPContract] {contract_dict}")
+        logger.info("[DSPContract] %s", contract_dict)
 
     def mel_spectrogram(self, y, sr=None, use_deep_learning: bool = False, audit_log: bool = True, **kwargs):
         """
@@ -358,7 +358,7 @@ class AdaptiveMelSpectrogram:
             else:
                 output = self._mel_spectrogram_classic(y, sr, n_fft, n_mels, **kwargs)
         except Exception as e:
-            logger.error(f"Fehler bei MelSpectrogram: {e}", exc_info=True)
+            logger.error("Fehler bei MelSpectrogram: %s", e, exc_info=True)
             fallback_used = True
             output = np.zeros((n_mels, 1))
 
@@ -367,7 +367,7 @@ class AdaptiveMelSpectrogram:
             logger.info(
                 f"AdaptiveMelSpectrogram: mel_resolution={mel_resolution:.2f}, fallback_used={fallback_used}, n_fft={n_fft}, n_mels={n_mels}"
             )
-            logger.info(f"[DSPContract] {asdict(adaptive_mel_contract)}")
+            logger.info("[DSPContract] %s", asdict(adaptive_mel_contract))
         return output
 
     def _mel_spectrogram_classic(self, y, sr, n_fft, n_mels, **kwargs):
@@ -390,4 +390,4 @@ class AdaptiveMelSpectrogram:
             self.n_mels = 128
         else:
             self.n_mels = 256
-        logger.info(f"Mel-Parameter auto-optimiert: n_mels={self.n_mels}")
+        logger.info("Mel-Parameter auto-optimiert: n_mels=%s", self.n_mels)

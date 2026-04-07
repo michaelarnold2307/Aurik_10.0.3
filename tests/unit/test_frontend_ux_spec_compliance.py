@@ -175,9 +175,9 @@ class TestDefectCounterLiveLabel:
         )
 
     def test_defect_count_text_format_n_defekte(self):
-        """_update_defects zeigt '⚠ N Defekt(e)' oder übersetzten Schlüssel."""
-        assert _src_contains("Defekt{suffix}") or _src_contains("defect_count"), (
-            "Defektzähler-Text '⚠ N Defekte' oder t('status.defect_count') fehlt"
+        """_update_defects zeigt '⚠ N Schäden' oder übersetzten Schlüssel."""
+        assert _src_contains("Schäden") or _src_contains("Schaden") or _src_contains("defect_count"), (
+            "Schadenzähler-Text '⚠ N Schäden' oder t('status.defect_count') fehlt"
         )
 
     def test_clean_text_present(self):
@@ -233,6 +233,29 @@ class TestDefectOverlayBands:
 
     def test_alpha_proportional_to_severity(self):
         """Alpha skaliert mit Severity (leicht→gedämpft, schwer→saturiert)."""
+
+
+class TestDefectResolutionVisualContract:
+    """§11.4b contract: repaired defects vanish in waveform and become green check chips."""
+
+    def test_waveform_does_not_draw_resolved_markers(self):
+        """Resolved markers must not be rendered in waveform overlay."""
+        assert _src_contains("_show_resolved_markers = False"), (
+            "Waveform-Contract verletzt: _show_resolved_markers muss False sein, "
+            "damit behobene Marker vollständig verschwinden"
+        )
+
+    def test_resolved_chip_uses_green_checkmark_without_bar(self):
+        """Resolved chips use ✓ and no severity bar string in the resolved branch."""
+        assert _src_contains("_is_resolved = fix_ratio >= _green_threshold"), (
+            "Resolved-Branch fehlt: _is_resolved-Guard in Defekt-Chip-Rendering nicht gefunden"
+        )
+        assert _src_contains("&#10003;") or _src_contains("✓"), (
+            "Grüner Haken fehlt: erwartetes Checkmark-Symbol in Resolved-Chip-Rendering nicht gefunden"
+        )
+        assert _src_contains("No progress bar") or _src_contains("kein Fortschrittsbalken"), (
+            "Resolved-Chip-Contract unklar: expliziter Hinweis auf Entfernen des Fortschrittsbalkens fehlt"
+        )
 
 
 class TestStructuredFailReasonBanner:

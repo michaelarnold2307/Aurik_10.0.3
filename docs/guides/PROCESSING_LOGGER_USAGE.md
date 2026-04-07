@@ -305,7 +305,7 @@ Nach `logger.end_session()` werden folgende Dateien erstellt:
 ## Processing Steps
 
 | Step | Phase | Module | SNR Δ | THD Δ | Time |
-|------|-------|--------|-------|-------|------|
+| --- | --- | --- | --- | --- | --- |
 | phase_1f_declipping | Phase 1F: Declipping | AutomaticDeclipperVoice | +1.8 dB | -0.70% | 450 ms |
 | phase_2a_declick | Phase 2A: Click Removal | AdvancedClickRemoval | +7.4 dB | -0.80% | 121 ms |
 ```

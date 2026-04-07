@@ -99,9 +99,9 @@ class ReverbAmountEstimator:
                 logger.warning("[QualityGate] Warnung: Unplausible RT60-Schätzung, Rollback aktiviert.")
                 rt60 = 0.0
         except Exception as e:
-            logger.error(f"Fehler bei RT60-Schätzung: {e}")
+            logger.error("Fehler bei RT60-Schätzung: %s", e)
             rt60 = 0.0
 
         if audit_log:
-            logger.info(f"ReverbAmountEstimator: rt60={rt60:.3f}")
+            logger.info("ReverbAmountEstimator: rt60=%.3f", rt60)
         return rt60

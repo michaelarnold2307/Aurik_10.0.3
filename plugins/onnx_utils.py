@@ -17,10 +17,10 @@ def check_onnx_model(model_dir: Path, model_name: str) -> Path | None:
     """
     onnx_path = model_dir / model_name
     if onnx_path.exists():
-        logger.info(f"ONNX-Modell gefunden: {onnx_path}")
+        logger.info("ONNX-Modell gefunden: %s", onnx_path)
         return onnx_path
     else:
-        logger.warning(f"ONNX-Modell nicht gefunden: {onnx_path}")
+        logger.warning("ONNX-Modell nicht gefunden: %s", onnx_path)
         return None
 
 
@@ -40,11 +40,11 @@ def quantize_onnx_model(onnx_path: Path, quantized_path: Path) -> bool:
             calibration_data_reader=None,  # Für echte Kalibrierung anpassen
             quant_format=QuantType.QOperator,
         )
-        logger.info(f"ONNX-Modell quantisiert: {quantized_path}")
+        logger.info("ONNX-Modell quantisiert: %s", quantized_path)
         return True
     except ImportError:
         logger.error("onnxruntime nicht installiert. Quantisierung nicht möglich.")
         return False
     except Exception as e:
-        logger.error(f"Quantisierung fehlgeschlagen: {e}")
+        logger.error("Quantisierung fehlgeschlagen: %s", e)
         return False

@@ -89,9 +89,9 @@ class MLParameterInferenceEngine:
             try:
                 self.model = joblib.load(model_path)
                 self.is_trained = True
-                logger.info(f"Model loaded from {model_path}")
+                logger.info("Model loaded from %s", model_path)
             except Exception as e:
-                logger.warning(f"Failed to load model from {model_path}: {e}")
+                logger.warning("Failed to load model from %s: %s", model_path, e)
                 self.model = None
                 self.is_trained = False
         logger.info("MLParameterInferenceEngine initialized")

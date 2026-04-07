@@ -19,6 +19,7 @@ from __future__ import annotations
 import math
 import threading
 from unittest.mock import MagicMock
+from unittest.mock import patch
 
 import numpy as np
 import pytest
@@ -260,3 +261,43 @@ class TestTontraegerketteDenkerAnalysiere:
             assert isinstance(result.combined_phases, list)
             assert math.isfinite(float(result.chain_complexity))
         assert True  # Absturz wäre eine Fehlermeldung
+
+    def test_21_cached_medium_result_skips_detector_call(self):
+        """Mit cached_medium_result wird _erkennen() nicht aufgerufen (§2.47a)."""
+        from denker.tontraegerkette_denker import TontraegerketteDenker
+
+        denker = TontraegerketteDenker()
+        audio = _sine(1.0)
+
+        cached = MagicMock()
+        cached.primary_material = "vinyl"
+        cached.material_type = None
+        cached.material = None
+        cached.confidence = 0.8
+        cached.transfer_chain = ["vinyl", "reel_tape", "mp3_low"]
+        cached.medium_confidences = [0.8, 0.7, 0.9]
+
+        with patch.object(denker, "_erkennen") as mock_erkennen:
+            result = denker.analysiere(audio, SR, file_path="/tmp/demo.mp3", cached_medium_result=cached)
+
+        mock_erkennen.assert_not_called()
+        assert result.chain == ["vinyl", "reel_tape", "mp3_low"]
+        assert result.generation_count == 3
+
+    def test_22_without_cached_medium_result_calls_detector(self):
+        """Ohne cached_medium_result bleibt der _erkennen()-Pfad aktiv."""
+        from denker.tontraegerkette_denker import TontraegerketteDenker
+
+        denker = TontraegerketteDenker()
+        audio = _sine(1.0)
+
+        fake_raw = {
+            "confidence": 0.5,
+            "detected_media": [("mono_digital", 0.5)],
+            "is_multi_generation": False,
+        }
+        with patch.object(denker, "_erkennen", return_value=fake_raw) as mock_erkennen:
+            result = denker.analysiere(audio, SR, file_path="/tmp/demo.wav")
+
+        mock_erkennen.assert_called_once()
+        assert result.generation_count >= 1

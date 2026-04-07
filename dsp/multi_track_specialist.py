@@ -206,7 +206,7 @@ class TimeAligner:
 
         # Check if alignment is needed
         if abs(correlation) < self.correlation_threshold:
-            logger.info(f"[TimeAlign] Low correlation ({correlation:.3f}), skipping alignment")
+            logger.info("[TimeAlign] Low correlation (%.3f), skipping alignment", correlation)
             self.metrics["alignment_applied"] = False
             return audio_stereo
 
@@ -411,13 +411,13 @@ class PhaseAligner:
 
         # Check if correction is needed
         if abs(phase_diff) < self.phase_threshold_degrees:
-            logger.info(f"[PhaseAlign] Phase difference ({phase_diff:.1f}°) below threshold, skipping")
+            logger.info("[PhaseAlign] Phase difference (%.1f°) below threshold, skipping", phase_diff)
             self.metrics["correction_applied"] = False
             self.metrics["polarity_inverted"] = False
             return audio_stereo
 
         # Correct phase
-        logger.info(f"[PhaseAlign] Correcting phase: {phase_diff:.1f}°")
+        logger.info("[PhaseAlign] Correcting phase: %.1f°", phase_diff)
         corrected_target = self.correct_phase(target, phase_diff)
 
         self.metrics["correction_applied"] = True
@@ -572,12 +572,12 @@ class PhaseCancellationCorrector:
 
         # Check if correction is needed
         if not cancellation_detected:
-            logger.info(f"[PhaseCancellation] No cancellation detected (M/S ratio: {ms_ratio_db:.1f} dB)")
+            logger.info("[PhaseCancellation] No cancellation detected (M/S ratio: %.1f dB)", ms_ratio_db)
             self.metrics["correction_applied"] = False
             return audio_stereo
 
         # Correct cancellation
-        logger.info(f"[PhaseCancellation] Cancellation detected (M/S ratio: {ms_ratio_db:.1f} dB), correcting...")
+        logger.info("[PhaseCancellation] Cancellation detected (M/S ratio: %.1f dB), correcting...", ms_ratio_db)
         left_corrected, right_corrected = self.correct_cancellation(left, right)
 
         self.metrics["correction_applied"] = True
@@ -739,13 +739,13 @@ class StereoBalanceCorrector:
 
         # Check if correction is needed
         if abs(imbalance_db) < self.imbalance_threshold_db:
-            logger.info(f"[StereoBalance] Imbalance ({abs(imbalance_db):.2f} dB) below threshold, skipping")
+            logger.info("[StereoBalance] Imbalance (%.2f dB) below threshold, skipping", abs(imbalance_db))
             self.metrics["correction_applied"] = False
             return audio_stereo
 
         # Correct balance
         channel_names = ["Left", "Right"]
-        logger.info(f"[StereoBalance] {channel_names[louder_channel]} {abs(imbalance_db):.2f} dB louder, correcting...")
+        logger.info("[StereoBalance] %s %.2f dB louder, correcting...", channel_names[louder_channel], abs(imbalance_db))
         left_corrected, right_corrected = self.correct_balance(left, right, imbalance_db)
 
         self.metrics["correction_applied"] = True
@@ -1005,7 +1005,7 @@ class CombFilterRemover:
             return notch_frequencies
 
         except Exception as e:
-            logger.error(f"[CombFilter] ⚠️  Detection failed: {e}, returning empty")
+            logger.error("[CombFilter] ⚠️  Detection failed: %s, returning empty", e)
             return []
 
     def correct_comb(self, audio: np.ndarray, notch_frequencies: list[float], sample_rate: int) -> np.ndarray:
@@ -1102,7 +1102,7 @@ class CombFilterRemover:
                 return audio
 
             # Correct
-            logger.info(f"[CombFilter] {len(notch_frequencies)} notches detected, correcting...")
+            logger.info("[CombFilter] %s notches detected, correcting...", len(notch_frequencies))
             audio_corrected = self.correct_comb(audio, notch_frequencies, sample_rate)
 
             self.metrics["correction_applied"] = True
@@ -1111,7 +1111,7 @@ class CombFilterRemover:
             return audio_corrected
 
         except Exception as e:
-            logger.error(f"[CombFilter] ⚠️  Error during processing: {e}")
+            logger.error("[CombFilter] ⚠️  Error during processing: %s", e)
             logger.info("[CombFilter] Returning unprocessed audio")
             self.metrics["correction_applied"] = False
             self.metrics["error"] = str(e)
@@ -1234,47 +1234,47 @@ class MultiTrackSpecialist:
                 try:
                     output = self.time_aligner.process(output, sample_rate)
                 except Exception as e:
-                    logger.error(f"[MultiTrack] ⚠️  Time Alignment failed: {e}")
+                    logger.error("[MultiTrack] ⚠️  Time Alignment failed: %s", e)
             # Step 2: Phase Alignment
             if self.enable_phase_alignment:
                 logger.info("\n[MultiTrack] Step 2/6: Phase Alignment")
                 try:
                     output = self.phase_aligner.process(output, sample_rate)
                 except Exception as e:
-                    logger.error(f"[MultiTrack] ⚠️  Phase Alignment failed: {e}")
+                    logger.error("[MultiTrack] ⚠️  Phase Alignment failed: %s", e)
             # Step 3: Comb Filter Removal (deaktiviert)
             if False:
                 logger.info("\n[MultiTrack] Step 3/6: Comb Filter Removal (SKIPPED - performance issue)")
                 try:
                     output = self.comb_filter_remover.process(output, sample_rate)
                 except Exception as e:
-                    logger.error(f"[MultiTrack] ⚠️  Comb Filter Removal failed: {e}")
+                    logger.error("[MultiTrack] ⚠️  Comb Filter Removal failed: %s", e)
             # Step 4: Phase Cancellation Correction
             if self.enable_phase_cancellation_correction:
                 logger.info("\n[MultiTrack] Step 4/6: Phase Cancellation Correction")
                 try:
                     output = self.phase_cancellation_corrector.process(output, sample_rate)
                 except Exception as e:
-                    logger.error(f"[MultiTrack] ⚠️  Phase Cancellation Correction failed: {e}")
+                    logger.error("[MultiTrack] ⚠️  Phase Cancellation Correction failed: %s", e)
             # Step 5: Stereo Balance Correction
             if self.enable_stereo_balance_correction:
                 logger.info("\n[MultiTrack] Step 5/6: Stereo Balance Correction")
                 try:
                     output = self.stereo_balance_corrector.process(output, sample_rate)
                 except Exception as e:
-                    logger.error(f"[MultiTrack] ⚠️  Stereo Balance Correction failed: {e}")
+                    logger.error("[MultiTrack] ⚠️  Stereo Balance Correction failed: %s", e)
             # Step 6: Mid/Side Processing (optional, creative)
             if self.enable_mid_side_processing:
                 logger.info("\n[MultiTrack] Step 6/6: Mid/Side Processing")
                 try:
                     output = self.mid_side_processor.process(output, sample_rate)
                 except Exception as e:
-                    logger.error(f"[MultiTrack] ⚠️  Mid/Side Processing failed: {e}")
+                    logger.error("[MultiTrack] ⚠️  Mid/Side Processing failed: %s", e)
             logger.info("\n[MultiTrack] Processing complete!")
             self._audit_log({"shape": output.shape, "success": True})
             return output
         except Exception as e:
-            logger.error(f"[MultiTrackSpecialist][Fehler] {e}")
+            logger.error("[MultiTrackSpecialist][Fehler] %s", e)
             self._audit_log({"error": str(e)})
             return audio
 
@@ -1282,7 +1282,7 @@ class MultiTrackSpecialist:
         logger.info("[Contract][MultiTrackSpecialist] process(audio: np.ndarray, sample_rate: int) -> np.ndarray")
 
     def _audit_log(self, result: dict):
-        logger.info(f"[AuditLog][MultiTrackSpecialist] Ergebnis: {result}")
+        logger.info("[AuditLog][MultiTrackSpecialist] Ergebnis: %s", result)
 
     def get_metrics(self) -> dict:
         """Get metrics from all processors"""
@@ -1339,8 +1339,10 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     # Load audio
-    logger.info(f"Loading: {args.input}")
-    audio, sr = sf.read(args.input, always_2d=False)
+    logger.info("Loading: %s", args.input)
+    from backend.file_import import load_audio_file
+    _res = load_audio_file(args.input)
+    audio, sr = _res["audio"], int(_res["sr"])
 
     # Transpose if stereo (N, 2) → (2, N)
     if audio.ndim == 2:
@@ -1364,20 +1366,20 @@ if __name__ == "__main__":
 
     # Get metrics
     metrics = processor.get_metrics()
-    logger.info(f"\n{'=' * 60}")
+    logger.info("\n%s", '=' * 60)
     logger.info("METRICS:")
     for module_name, module_metrics in metrics.items():
-        logger.info(f"\n{module_name.upper()}:")
+        logger.info("\n%s:", module_name.upper())
         for key, value in module_metrics.items():
             if isinstance(value, float):
-                logger.info(f"  {key}: {value:.2f}")
+                logger.info("  %s: %.2f", key, value)
             else:
-                logger.info(f"  {key}: {value}")
-    logger.info(f"{'=' * 60}\n")
+                logger.info("  %s: %s", key, value)
+    logger.info("%s\n", '=' * 60)
 
     # Save (transpose back if needed)
     if output.ndim == 2:
         output = output.T
 
     sf.write(args.output, output, sr)
-    logger.info(f"Saved: {args.output}")
+    logger.info("Saved: %s", args.output)

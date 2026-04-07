@@ -251,7 +251,7 @@ class IntegratedVocalProcessor:
             studio_strategy=studio_strategy,
         )
 
-        logger.info(f"✅ Integrated timeline created: {timeline}")
+        logger.info("✅ Integrated timeline created: %s", timeline)
 
         return timeline
 
@@ -614,19 +614,19 @@ if __name__ == "__main__":
     try:
         timeline = create_integrated_vocal_timeline(audio, sr, aurik_mode="restoration", language="en")
 
-        logger.info(f"\n✅ Timeline created: {timeline}")
+        logger.info("\n✅ Timeline created: %s", timeline)
         logger.info("\n📊 Statistics:")
-        logger.info(f"   Vocal: {timeline.vocal_percentage:.1%}")
-        logger.info(f"   Sibilant: {timeline.sibilant_percentage:.1%}")
-        logger.info(f"   Breath: {timeline.breath_percentage:.1%}")
+        logger.info("   Vocal: %.1%", timeline.vocal_percentage)
+        logger.info("   Sibilant: %.1%", timeline.sibilant_percentage)
+        logger.info("   Breath: %.1%", timeline.breath_percentage)
         logger.info("\n⚙️ Global Parameters:")
-        logger.info(f"   De-essing: {timeline.global_deessing_amount:.2f}")
-        logger.info(f"   Compression: {timeline.global_compression_ratio:.1f}:1")
-        logger.info(f"   EQ Boost: {timeline.global_eq_boost_db:+.1f} dB")
+        logger.info("   De-essing: %.2f", timeline.global_deessing_amount)
+        logger.info("   Compression: %.1f:1", timeline.global_compression_ratio)
+        logger.info("   EQ Boost: %+.1f dB", timeline.global_eq_boost_db)
         logger.info("\n📝 Strategy:")
-        logger.info(f"   {timeline.restoration_strategy}")
+        logger.info("   %s", timeline.restoration_strategy)
 
     except Exception as e:
-        logger.error(f"⚠️ Demo failed (expected if dependencies not installed): {e}")
+        logger.error("⚠️ Demo failed (expected if dependencies not installed): %s", e)
 
     logger.info(str("\n" + "=" * 80))

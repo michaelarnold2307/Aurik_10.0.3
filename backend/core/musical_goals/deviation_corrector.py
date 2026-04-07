@@ -19,4 +19,4 @@ class MusicalGoalsDeviationCorrector:
 
     def _correct_goal(self, goal) -> None:
         # Hier könnte DSP/ML-Logik integriert werden
-        logger.debug(f"Correcting deviation for {goal}.")
+        logger.debug("Correcting deviation for %s.", goal)

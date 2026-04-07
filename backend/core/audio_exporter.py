@@ -183,12 +183,14 @@ class AudioExporter:
                     _gain_linear = 10.0 ** (_gain_lu / 20.0)
                     audio_export = np.clip(audio_export * _gain_linear, -1.0, 1.0)
                 # Ensure normalize=True does not leave very low peaks after LUFS-only gain.
-                _post_lufs_peak = float(np.max(np.abs(audio_export)))
+                # §DSP-Invariante: np.percentile(99.9) schützt vor Impuls-Artefakten.
+                _post_lufs_peak = float(np.percentile(np.abs(audio_export), 99.9))
                 if 0.0 < _post_lufs_peak < 0.5:
                     _floor_gain = min(0.989 / _post_lufs_peak, 0.5 / _post_lufs_peak)
                     audio_export = np.clip(audio_export * _floor_gain, -1.0, 1.0)
-                # TruePeak safety: ≤ -0.1 dBTP
-                _tp_peak = float(np.max(np.abs(audio_export)))
+                # TruePeak safety: ≤ -0.1 dBTP — percentile 99.9 guards against
+                # crackle/click impulses blocking normalization of the whole signal.
+                _tp_peak = float(np.percentile(np.abs(audio_export), 99.9))
                 if _tp_peak > 0.989:
                     audio_export = audio_export * (0.989 / _tp_peak)
                 logger.debug(
@@ -199,7 +201,8 @@ class AudioExporter:
             except Exception as _lufs_exc:
                 logger.debug("LUFS-Normalisierung fehlgeschlagen (%s) — Peak-Fallback.", _lufs_exc)
                 # Fallback: Peak-Normalisierung auf -0.1 dBFS
-                peak = float(np.max(np.abs(audio_export)))
+                # §DSP-Invariante: percentile 99.9 — Impuls-Artefakt darf Normalisierung nicht blockieren.
+                peak = float(np.percentile(np.abs(audio_export), 99.9))
                 if peak > 0:
                     audio_export = audio_export * (0.989 / peak)
 
@@ -235,8 +238,8 @@ class AudioExporter:
                 try:
                     sf.write(output_path, audio_export, sr, format="OPUS", subtype=subtype)
                 except RuntimeError as e:
-                    warnings.warn(
-                        f"Opus export failed ({e}). Falling back to FLAC. Install libopusenc for Opus support."
+                    logger.warning(
+                        "Opus export failed (%s). Falling back to FLAC. Install libopusenc for Opus support.", e
                     )
                     # Fallback to FLAC
                     fallback_path = output_path.with_suffix(".flac")
@@ -248,7 +251,7 @@ class AudioExporter:
                 try:
                     sf.write(output_path, audio_export, sr, format="CAF", subtype=subtype)
                 except RuntimeError as e:
-                    warnings.warn(f"CAF export failed ({e}). Falling back to AIFF.")
+                    logger.warning("CAF export failed (%s). Falling back to AIFF.", e)
                     # Fallback to AIFF
                     fallback_path = output_path.with_suffix(".aiff")
                     sf.write(fallback_path, audio_export, sr, subtype=subtype)
@@ -320,13 +323,9 @@ class AudioExporter:
             try:
                 with open(sidecar, "w", encoding="utf-8") as f:
                     json.dump(metadata, f, indent=2, ensure_ascii=False)
-                import logging as _log
-
-                _log.getLogger(__name__).info(f"Metadaten als Sidecar gespeichert: {sidecar}")
+                logger.info("Metadaten als Sidecar gespeichert: %s", sidecar)
             except Exception as e:
-                import logging as _log
-
-                _log.getLogger(__name__).warning(f"Metadata-Schreiben fehlgeschlagen: {e}")
+                logger.warning("Metadata-Schreiben fehlgeschlagen: %s", e)
 
     def batch_export(
         self, audio: np.ndarray, sr: int, base_path: Path, formats: list[str] | None = None, **export_kwargs: Any
@@ -350,7 +349,7 @@ class AudioExporter:
         results = {}
         for fmt in formats:
             if fmt not in self.FORMATS:
-                warnings.warn(f"Skipping unsupported format: {fmt}")
+                logger.warning("Skipping unsupported format: %s", fmt)
                 continue
 
             output_path = base_path.with_suffix(fmt)
@@ -358,7 +357,7 @@ class AudioExporter:
                 exported_path = self.export(audio, sr, output_path, **export_kwargs)
                 results[fmt] = exported_path
             except Exception as e:
-                warnings.warn(f"Failed to export {fmt}: {e}")
+                logger.warning("Failed to export %s: %s", fmt, e)
 
         return results
 
@@ -440,10 +439,10 @@ if __name__ == "__main__":
 
     # Single export
     wav_path = exporter.export(audio, sr, Path("test_output.wav"), bit_depth=24)
-    logger.debug(f"Exported WAV: {wav_path}")
+    logger.debug("Exported WAV: %s", wav_path)
 
     # Batch export
     results = exporter.batch_export(
         audio, sr, Path("test_output"), formats=[".wav", ".flac", ".ogg"], bit_depth=16, normalize=True
     )
-    logger.debug(f"Batch exported: {results}")
+    logger.debug("Batch exported: %s", results)

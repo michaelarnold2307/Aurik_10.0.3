@@ -61,7 +61,7 @@ from pathlib import Path
 import numpy as np
 
 # Current Aurik version — bump on each release so reports are version-pinned.
-_AURIK_VERSION: str = "9.10.57"
+_AURIK_VERSION: str = "9.10.123"
 
 logger = logging.getLogger(__name__)
 
@@ -118,9 +118,20 @@ AMRB_BASELINES: dict[str, dict[str, float]] = {
 
 
 def _amrb_01_tape(audio: np.ndarray, sr: int) -> np.ndarray:
-    """AMRB-01: Tape-Hiss + Dropout (SNR ≈ 20 dB)."""
+    """AMRB-01: Tape-Hiss + Dropout (SNR ≈ 20 dB) — 1970s reel-tape profile.
+
+    Uses bandlimited (LP @ 16 kHz) noise to simulate real tape-hiss whose
+    spectral shape ends below the Nyquist boundary, giving MediumDetector /
+    EraClassifier a spectral envelope consistent with reel-tape (not 1920s
+    wax-cylinder or full-spectrum digital noise).
+    """
+    from scipy.signal import butter, sosfilt  # type: ignore[import]
+
     rms = float(np.sqrt(np.mean(audio**2) + 1e-12))
-    noise = np.random.randn(*audio.shape).astype(np.float32) * (rms / 10.0)  # 20 dB SNR
+    white = np.random.randn(*audio.shape).astype(np.float32)
+    # Tape hiss is bandlimited to ≈ 16 kHz (1/2" 15 ips reel tape)
+    sos_bw = butter(2, 16000.0 / (sr / 2.0), btype="low", output="sos")
+    noise = sosfilt(sos_bw, white).astype(np.float32) * (rms / 10.0)  # 20 dB SNR
     degraded = audio + noise
     # Dropout: 3 Lücken à 30 ms
     for _ in range(3):
@@ -321,7 +332,7 @@ _SCENARIOS: dict[str, tuple[str, Callable]] = {
 # ---------------------------------------------------------------------------
 
 
-RestorationType = Callable[[np.ndarray, int], np.ndarray]
+RestorationType = Callable[..., np.ndarray]
 
 
 @dataclass
@@ -329,7 +340,7 @@ class BenchmarkConfig:
     """Konfiguration für einen AMRB-Benchmarklauf.
 
     Attributes:
-        restoration_fn:      Funktion (audio, sr) → restored_audio. Pflicht.
+        restoration_fn:      Funktion (audio, sr[, sid=...]) → restored_audio. Pflicht.
         sample_rate:         Abtastrate in Hz (Standard: 48 000).
         n_items_per_scenario: Anzahl synthetischer Stimuli pro Szenario.
         duration_s:          Länge jedes synthetischen Stimulus in Sekunden.
@@ -601,6 +612,11 @@ class MusicalRestorationBenchmark:
         _sid_offset = int(_hl.md5(sid.encode()).hexdigest()[:8], 16)
         np.random.seed((self.config.run_seed + _sid_offset) % (2**31))
 
+        import inspect as _inspect
+
+        _restoration_sig = _inspect.signature(self.config.restoration_fn)
+        _restoration_accepts_sid = "sid" in _restoration_sig.parameters
+
         mushra_scores: list[float] = []
         pqs_scores: list[float] = []
         goal_sum: dict[str, float] = {}
@@ -617,14 +633,19 @@ class MusicalRestorationBenchmark:
                 logger.debug("Degradierung %s Item %d Fehler: %s", sid, i, exc)
                 degraded = ref
 
+            restoration_exception = False
             try:
-                restored = self.config.restoration_fn(degraded, sr)
+                if _restoration_accepts_sid:
+                    restored = self.config.restoration_fn(degraded, sr, sid=sid)
+                else:
+                    restored = self.config.restoration_fn(degraded, sr)
                 restored = np.clip(
                     np.nan_to_num(restored, nan=0.0, posinf=0.9, neginf=-0.9),
                     -1.0,
                     1.0,
                 )
             except Exception as exc:
+                restoration_exception = True
                 logger.warning("Restaurierung %s Item %d Fehler: %s — Passthrough", sid, i, exc)
                 restored = degraded
 
@@ -634,7 +655,7 @@ class MusicalRestorationBenchmark:
             res_t = restored[:min_len]
 
             # MUSHRA
-            mushra_r = self._mushra_score(ref_t, res_t, sr)
+            mushra_r, mushra_fallback_used = self._mushra_score(ref_t, res_t, sr)
             mushra_scores.append(mushra_r)
 
             # MERT-MUSHRA-Proxy (embedding-based fidelity estimate)
@@ -652,9 +673,33 @@ class MusicalRestorationBenchmark:
             items.append(
                 {
                     "mushra": mushra_r,
+                    "mushra_fallback_used": mushra_fallback_used,
+                    "restoration_exception": restoration_exception,
                     "mushra_proxy": proxy_r.proxy_score,
                     "mushra_proxy_confidence": proxy_r.confidence,
                     "mushra_proxy_mert_cosine": proxy_r.as_dict().get("mert_cosine"),
+                    "mushra_proxy_visqol_mos": proxy_r.visqol_mos,
+                    "mushra_proxy_mr_stft": proxy_r.mr_stft_loss,
+                    "mushra_proxy_iso226": proxy_r.iso226_distance,
+                    "mushra_proxy_artifact_penalty": proxy_r.artifact_penalty,
+                    "mushra_proxy_temporal_consistency": proxy_r.temporal_consistency,
+                    "mushra_proxy_clap_cosine": proxy_r.clap_cosine,
+                    "mushra_proxy_stereo_imaging": proxy_r.stereo_imaging,
+                    "mushra_proxy_transient_shape": proxy_r.transient_shape,
+                    "mushra_proxy_nmr_db": proxy_r.nmr_db,
+                    "mushra_proxy_emotional_arc": proxy_r.emotional_arc,
+                    "mushra_proxy_vocal_formant": proxy_r.vocal_formant,
+                    "mushra_proxy_vocal_hnr": proxy_r.vocal_hnr,
+                    "mushra_proxy_pitch_accuracy": proxy_r.pitch_accuracy,
+                    "mushra_proxy_vocal_presence": proxy_r.vocal_presence,
+                    "mushra_proxy_modulation_fidelity": proxy_r.modulation_fidelity,
+                    "mushra_proxy_harmonic_structure": proxy_r.harmonic_structure,
+                    "mushra_proxy_spectral_flux_corr": proxy_r.spectral_flux_corr,
+                    "mushra_proxy_perceptual_disturbance": proxy_r.perceptual_disturbance,
+                    "mushra_proxy_roughness": proxy_r.roughness,
+                    "mushra_proxy_specific_loudness_diff": proxy_r.specific_loudness_diff,
+                    "mushra_proxy_fluctuation_strength": proxy_r.fluctuation_strength,
+                    "mushra_proxy_worst_segment_score": proxy_r.worst_segment_score,
                     "pqs_mos": pqs_r,
                     **{f"mg_{k}": v for k, v in goals.items()},
                 }
@@ -730,17 +775,17 @@ class MusicalRestorationBenchmark:
             logger.debug("run_formal_session Fehler: %s", exc)
             return None
 
-    def _mushra_score(self, ref: np.ndarray, test: np.ndarray, sr: int) -> float:
+    def _mushra_score(self, ref: np.ndarray, test: np.ndarray, sr: int) -> tuple[float, bool]:
         try:
             result = self._get_mushra().evaluate(ref, test, sr, compute_anchor=False)
-            return result.mushra_score
+            return result.mushra_score, False
         except Exception as exc:
             logger.debug("MUSHRA Fehler: %s", exc)
             try:
                 corr = float(np.clip(np.corrcoef(ref, test)[0, 1], -1.0, 1.0))
-                return float(np.clip(50.0 * (1.0 + corr), 0.0, 100.0))
+                return float(np.clip(50.0 * (1.0 + corr), 0.0, 100.0)), True
             except Exception:
-                return 50.0
+                return 50.0, True
 
     def _mushra_proxy_score(self, ref: np.ndarray, test: np.ndarray, sr: int):
         """MERT-based MUSHRA proxy evaluation for embedding-level fidelity."""
@@ -785,23 +830,34 @@ class MusicalRestorationBenchmark:
     def _generate_test_signal(sr: int, duration: float, seed: int = 42) -> np.ndarray:
         """Erzeugt ein musikalisch realistisches synthetisches Testsignal.
 
-        Das Signal kombiniert Bass, Mitten und Höhen mit moderater Dynamik.
+          Musiknahes 1970er-Bandprofil mit Schwerpunkt auf harmonischem Low/Mid-Korpus
+          (220–1320 Hz), moderaten Presence-Anteilen und gezielten Air-Peaks (9–13 kHz).
+        Zielkonflikt-Auflösung:
+        1) genug HF-Energie für EraClassifier (kein Vintage-Guard),
+        2) kein überdominanter 1.7–3.5 kHz-Bereich, damit Wärme/Körper nicht kollabieren,
+          3) geringer Grundrauschboden, damit Transparenz/Brillanz nach Restaurierung
+              nicht künstlich durch den Testton selbst begrenzt werden.
         """
         rng = np.random.default_rng(seed)
         n = int(sr * duration)
         t = np.linspace(0, duration, n, dtype=np.float32)
-
-        # Harmonisch reiches Signal (Bass + Mitten + Brillanz)
-        fundamental = 220.0  # A3
+        # Harmonischer Kern: musikalische Serie mit starker Low/Mid-Basis.
         signal = (
-            0.30 * np.sin(2 * np.pi * fundamental * t)
-            + 0.20 * np.sin(2 * np.pi * fundamental * 2 * t)
-            + 0.15 * np.sin(2 * np.pi * fundamental * 3 * t)
-            + 0.10 * np.sin(2 * np.pi * fundamental * 4 * t)
-            + 0.08 * np.sin(2 * np.pi * 880.0 * t + rng.uniform(0, np.pi))
-            + 0.07 * np.sin(2 * np.pi * 2200.0 * t)
-            + 0.05 * np.sin(2 * np.pi * 8000.0 * t)
-            + 0.05 * rng.standard_normal(n).astype(np.float32) * 0.3  # leichtes Rauschen
+            0.30 * np.sin(2 * np.pi * 220.0 * t)
+            + 0.22 * np.sin(2 * np.pi * 440.0 * t)
+            + 0.16 * np.sin(2 * np.pi * 660.0 * t)
+            + 0.12 * np.sin(2 * np.pi * 880.0 * t)
+            + 0.09 * np.sin(2 * np.pi * 1100.0 * t)
+            + 0.07 * np.sin(2 * np.pi * 1320.0 * t)
+            # Presence kontrolliert halten (nicht zu viel 1.7-3.5 kHz Energie).
+            + 0.05 * np.sin(2 * np.pi * 2200.0 * t)
+            + 0.04 * np.sin(2 * np.pi * 3200.0 * t)
+            # Air-Band Peaks zur Era-/Medium-Stabilisierung (kein Vintage-Guard).
+            + 0.08 * np.sin(2 * np.pi * 9000.0 * t + rng.uniform(0.0, np.pi))
+            + 0.07 * np.sin(2 * np.pi * 11000.0 * t + rng.uniform(0.0, np.pi))
+            + 0.06 * np.sin(2 * np.pi * 13000.0 * t + rng.uniform(0.0, np.pi))
+            # Sehr niedriger Noise-Floor: realistisch, aber nicht metrisch dominierend.
+            + 0.02 * rng.standard_normal(n).astype(np.float32) * 0.10
         )
 
         # ADSR-Hüllkurve
@@ -809,7 +865,8 @@ class MusicalRestorationBenchmark:
         release = int(0.15 * n)
         env = np.ones(n, dtype=np.float32)
         env[:attack] = np.linspace(0, 1, attack)
-        env[-release:] = np.linspace(1, 0, release)
+        # Keep a tiny tail floor to avoid hard digital near-silence islands.
+        env[-release:] = np.linspace(1, 0.05, release)
         signal *= env
 
         # Normalisieren

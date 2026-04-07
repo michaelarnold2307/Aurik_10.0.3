@@ -140,7 +140,7 @@ class UnifiedForensicAnalyzer:
             features_used += medium_result.features_used
 
             if verbose:
-                logger.info(f"         Medium: {medium_result.category} ({medium_result.confidence:.1%})")
+                logger.info("         Medium: %s (%.1%)", medium_result.category, medium_result.confidence)
         else:
             # Default values if detector not available
             results["medium"] = MediumResult(
@@ -158,7 +158,7 @@ class UnifiedForensicAnalyzer:
             features_used += era_result.features_used
 
             if verbose:
-                logger.info(f"         Era: {era_result.era} ({era_result.confidence:.1%})")
+                logger.info("         Era: %s (%.1%)", era_result.era, era_result.confidence)
         else:
             # Default values
             results["era"] = EraDetectionResult(
@@ -183,7 +183,7 @@ class UnifiedForensicAnalyzer:
             if verbose:
                 detected = [d for d, v in defect_result.defects_detected.items() if v]
                 if detected:
-                    logger.info(f"         Defects: {', '.join(detected)}")
+                    logger.info("         Defects: %s", ', '.join(detected))
                 else:
                     logger.info("         Defects: None detected")
         else:
@@ -218,8 +218,8 @@ class UnifiedForensicAnalyzer:
         detailed_report = self._generate_detailed_report(results, consistency_score)
 
         if verbose:
-            logger.info(f"\n   Overall Confidence: {overall_confidence:.1%}")
-            logger.info(f"   Analysis Quality: {analysis_quality}")
+            logger.info("\n   Overall Confidence: %.1%", overall_confidence)
+            logger.info("   Analysis Quality: %s", analysis_quality)
             logger.info("=" * 60)
 
         # Build unified result
@@ -268,22 +268,22 @@ class UnifiedForensicAnalyzer:
             if era in ["1950s", "1960s", "1970s", "1980s", "1990s"]:
                 consistency_checks.append(1.0)
                 if verbose:
-                    logger.info(f"         ✓ Medium-Era consistent (Analog → {era})")
+                    logger.info("         ✓ Medium-Era consistent (Analog → %s)", era)
             else:
                 consistency_checks.append(0.5)
                 if verbose:
-                    logger.info(f"         ⚠ Medium-Era inconsistency (Analog → {era})")
+                    logger.info("         ⚠ Medium-Era inconsistency (Analog → %s)", era)
 
         elif medium in ["CD", "DIGITAL", "LOSSY"]:
             # Expect newer eras
             if era in ["1990s", "2000s", "2010s", "2020s"]:
                 consistency_checks.append(1.0)
                 if verbose:
-                    logger.info(f"         ✓ Medium-Era consistent (Digital → {era})")
+                    logger.info("         ✓ Medium-Era consistent (Digital → %s)", era)
             else:
                 consistency_checks.append(0.5)
                 if verbose:
-                    logger.info(f"         ⚠ Medium-Era inconsistency (Digital → {era})")
+                    logger.info("         ⚠ Medium-Era inconsistency (Digital → %s)", era)
 
         # Check 2: Medium-Defect Consistency
         # Analog media → More defects expected
@@ -507,17 +507,17 @@ class UnifiedForensicAnalyzer:
         if medium_model_path:
             self.medium_detector = MLMediumDetector()
             self.medium_detector.load(medium_model_path)
-            logger.info(f"Loaded Medium Detector from {medium_model_path}")
+            logger.info("Loaded Medium Detector from %s", medium_model_path)
 
         if era_model_path:
             self.era_detector = MLEraDetector()
             self.era_detector.load(era_model_path)
-            logger.info(f"Loaded Era Detector from {era_model_path}")
+            logger.info("Loaded Era Detector from %s", era_model_path)
 
         if defect_model_path:
             self.defect_detector = MLDefectDetector()
             self.defect_detector.load(defect_model_path)
-            logger.info(f"Loaded Defect Detector from {defect_model_path}")
+            logger.info("Loaded Defect Detector from %s", defect_model_path)
 
     def is_ready(self) -> bool:
         """Check if analyzer is ready (at least one detector loaded)."""

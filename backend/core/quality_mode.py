@@ -51,7 +51,7 @@ class QualityModeConfig:
     def set_mode(cls, mode: QualityMode) -> None:
         """Set global quality mode."""
         cls._current_mode = mode
-        logger.info(f"Quality mode set to: {mode.value}")
+        logger.info("Quality mode set to: %s", mode.value)
 
     @classmethod
     def get_mode(cls) -> QualityMode:
@@ -192,7 +192,7 @@ def log_mode_decision(phase_name: str, use_ml: bool, reason: str) -> None:
     """Log quality mode decision for debugging."""
     mode = QualityModeConfig.get_mode()
     ml_status = "ML" if use_ml else "DSP"
-    logger.debug(f"Phase {phase_name} | Mode: {mode.value} | Using: {ml_status} | Reason: {reason}")
+    logger.debug("Phase %s | Mode: %s | Using: %s | Reason: %s", phase_name, mode.value, ml_status, reason)
 
 
 if __name__ == "__main__":
@@ -203,11 +203,11 @@ if __name__ == "__main__":
         QualityModeConfig.set_mode(mode)
         perf = QualityModeConfig.get_expected_performance()
 
-        logger.debug(f"\nMode: {mode.value.upper()}")
-        logger.debug(f"  RT Factor: {perf['realtime_factor']}×")
-        logger.debug(f"  Score: {perf['expected_score']}")
-        logger.debug(f"  Natürlichkeit: {perf['natuerlichkeit']}")
-        logger.debug(f"  {perf['description']}")
+        logger.debug("\nMode: %s", mode.value.upper())
+        logger.debug("  RT Factor: %s×", perf['realtime_factor'])
+        logger.debug("  Score: %s", perf['expected_score'])
+        logger.debug("  Natürlichkeit: %s", perf['natuerlichkeit'])
+        logger.debug("  %s", perf['description'])
 
         # Test phase decisions
         logger.debug("\n  ML-Enabled Phases:")
@@ -216,7 +216,7 @@ if __name__ == "__main__":
             if config:
                 enabled = is_phase_ml_enabled(phase_num)
                 status = "✓" if enabled else "✗"
-                logger.debug(f"    {status} Phase {phase_num:02d}: {config['ml_model']}")
+                logger.debug("    %s Phase %d: %s", status, phase_num, config['ml_model'])
 
     logger.debug("\n" + "=" * 50)
     logger.debug("✅ Quality Mode System initialized")

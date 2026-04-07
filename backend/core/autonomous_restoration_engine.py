@@ -237,7 +237,7 @@ class AutonomousRestorationEngine:
         logger.debug("[ENGINE] Phase 1b: IAQS.score_as_float …")
         _t1b = time.perf_counter()
         quality_before = self._iaqs.score_as_float(_audio_clip, sample_rate) * 100
-        logger.debug(f"[ENGINE] Phase 1b fertig ({time.perf_counter() - _t1b:.1f}s): score={quality_before:.1f}")
+        logger.debug("[ENGINE] Phase 1b fertig (%.1fs): score=%.1f", time.perf_counter() - _t1b, quality_before)
         audit.append(
             {
                 "phase": "baseline_quality",
@@ -269,7 +269,7 @@ class AutonomousRestorationEngine:
             logger.info("[ENGINE] Phase 2: Verwende gecachten DefectScan (kein Triple-Scan).")
         else:
             defect_result = self._defect_scanner.scan(audio, sample_rate, _material_hint)
-        logger.debug(f"[ENGINE] Phase 2 fertig: material={defect_result.material_type.value}")
+        logger.debug("[ENGINE] Phase 2 fertig: material=%s", defect_result.material_type.value)
         material = defect_result.material_type
         top_defects = defect_result.get_top_defects(n=5)
         audit.append(
@@ -296,7 +296,7 @@ class AutonomousRestorationEngine:
         causal_ordered = self._causal_graph.resolve_causal_order(all_defects)
         causal_explanation = self._causal_graph.explain(all_defects)
         phantom_defects = self._causal_graph.get_phantom_defects(all_defects)
-        logger.debug(f"[ENGINE] Diff#1 fertig ({time.perf_counter() - _td1:.1f}s)")
+        logger.debug("[ENGINE] Diff#1 fertig (%.1fs)", time.perf_counter() - _td1)
         audit.append(
             {
                 "phase": "causal_defect_graph",
@@ -385,7 +385,7 @@ class AutonomousRestorationEngine:
             defect_result=defect_result,
             quality_estimate=quality_before_estimate,
         )
-        logger.debug(f"[ENGINE] Phase 3 fertig ({time.perf_counter() - _t3:.1f}s)")
+        logger.debug("[ENGINE] Phase 3 fertig (%.1fs)", time.perf_counter() - _t3)
         audit.append(
             {
                 "phase": "goal_setting",
@@ -408,7 +408,7 @@ class AutonomousRestorationEngine:
         _t4 = time.perf_counter()
         _audio_dur_s: float = len(audio) / max(float(sample_rate), 1.0)
         variants = self._build_variants(defect_result, goal_profile, audio_duration_s=_audio_dur_s)
-        logger.debug(f"[ENGINE] Phase 4 fertig ({time.perf_counter() - _t4:.1f}s): {len(variants)} Variante(n)")
+        logger.debug("[ENGINE] Phase 4 fertig (%.1fs): %s Variante(n)", time.perf_counter() - _t4, len(variants))
         audit.append(
             {
                 "phase": "variant_selection",
@@ -432,7 +432,7 @@ class AutonomousRestorationEngine:
             goal_profile=goal_profile,
             progress_callback=progress_callback,
         )
-        logger.debug(f"[ENGINE] Phase 5 fertig: winner={best_variant_name}")
+        logger.debug("[ENGINE] Phase 5 fertig: winner=%s", best_variant_name)
         _p(87, f"Qualitäts-Gate: Ergebnis '{best_variant_name}' wird geprüft …")
         audit.append(
             {

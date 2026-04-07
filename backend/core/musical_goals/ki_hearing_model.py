@@ -118,7 +118,7 @@ class KIHörbarkeitsAnalyzer:
             return float(hörbarkeits_score)
 
         except Exception as e:
-            self.logger.error(f"Hörbarkeitsanalyse fehlgeschlagen: {e}")
+            logger.error("Hörbarkeitsanalyse fehlgeschlagen: %s", e)
             return 0.5  # Conservative fallback
 
     def _measure_spectral_modulation(self, audio: np.ndarray, sr: int) -> float:
@@ -161,7 +161,7 @@ class KIHörbarkeitsAnalyzer:
             return float(spectral_mod_score)
 
         except Exception as e:
-            self.logger.error(f"Spectral Modulation Messung fehlgeschlagen: {e}")
+            logger.error("Spectral Modulation Messung fehlgeschlagen: %s", e)
             return 0.0
 
     def _measure_pitch_variation(self, audio: np.ndarray, sr: int) -> float:
@@ -204,7 +204,7 @@ class KIHörbarkeitsAnalyzer:
             return float(pitch_var_score)
 
         except Exception as e:
-            self.logger.error(f"Pitch Variation Messung fehlgeschlagen: {e}")
+            logger.error("Pitch Variation Messung fehlgeschlagen: %s", e)
             return 0.0
 
     def _measure_amplitude_modulation(self, audio: np.ndarray, sr: int) -> float:
@@ -250,7 +250,7 @@ class KIHörbarkeitsAnalyzer:
             return float(amp_mod_score)
 
         except Exception as e:
-            self.logger.error(f"Amplitude Modulation Messung fehlgeschlagen: {e}")
+            logger.error("Amplitude Modulation Messung fehlgeschlagen: %s", e)
             return 0.0
 
     def _measure_transient_irregularity(self, audio: np.ndarray, sr: int) -> float:
@@ -287,7 +287,7 @@ class KIHörbarkeitsAnalyzer:
             return float(transient_irreg_score)
 
         except Exception as e:
-            self.logger.error(f"Transient Irregularity Messung fehlgeschlagen: {e}")
+            logger.error("Transient Irregularity Messung fehlgeschlagen: %s", e)
             return 0.0
 
     def analyze_multitrack_metrics(self, metrics: dict[str, Any], audio: np.ndarray | None = None) -> float:
@@ -344,7 +344,7 @@ class KIHörbarkeitsAnalyzer:
             return float(np.clip(score, 0.0, 1.0))
 
         except Exception as e:
-            self.logger.error(f"Multitrack-Metrik-Analyse fehlgeschlagen: {e}")
+            logger.error("Multitrack-Metrik-Analyse fehlgeschlagen: %s", e)
             return 0.8  # Conservative fallback
 
     def analyze_tape_metrics(self, metrics: dict[str, Any], audio: np.ndarray | None = None) -> float:
@@ -382,7 +382,7 @@ class KIHörbarkeitsAnalyzer:
             return float(np.clip(score, 0.0, 1.0))
 
         except Exception as e:
-            self.logger.error(f"Tape-Metrik-Analyse fehlgeschlagen: {e}")
+            logger.error("Tape-Metrik-Analyse fehlgeschlagen: %s", e)
             return 0.85  # Conservative fallback
 
 

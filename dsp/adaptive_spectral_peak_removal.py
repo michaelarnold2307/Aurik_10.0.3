@@ -79,17 +79,17 @@ class AdaptiveSpectralPeakRemoval:
         :param threshold: Schwellenwert für Peak-Entfernung (0.1-1.0)
         """
         if not (0.1 <= threshold <= 1.0):
-            logger.error(f"Ungültiger threshold: {threshold}. Muss zwischen 0.1 und 1.0 liegen.")
+            logger.error("Ungültiger threshold: %s. Muss zwischen 0.1 und 1.0 liegen.", threshold)
             raise ValueError("threshold muss zwischen 0.1 und 1.0 liegen.")
         self.threshold = threshold
-        logger.info(f"AdaptiveSpectralPeakRemoval initialisiert mit threshold={self.threshold}")
+        logger.info("AdaptiveSpectralPeakRemoval initialisiert mit threshold=%s", self.threshold)
 
     def log_contract(self):
         """
         Gibt den DSPContract für Auditierbarkeit aus (Log + Print).
         """
         contract_dict = asdict(adaptive_spectral_peak_removal_contract)
-        logger.info(f"[DSPContract] {contract_dict}")
+        logger.info("[DSPContract] %s", contract_dict)
 
     def remove(self, spectrum: np.ndarray, use_deep_learning: bool = False, audit_log: bool = True) -> np.ndarray:
         """
@@ -129,7 +129,7 @@ class AdaptiveSpectralPeakRemoval:
             else:
                 output = self._remove_classic(spectrum)
         except Exception as e:
-            logger.error(f"Fehler bei Spectral Peak Removal: {e}", exc_info=True)
+            logger.error("Fehler bei Spectral Peak Removal: %s", e, exc_info=True)
             fallback_used = True
             output = spectrum.copy()
 
@@ -138,7 +138,7 @@ class AdaptiveSpectralPeakRemoval:
             logger.info(
                 f"AdaptiveSpectralPeakRemoval: peak_suppression={peak_suppression:.6f}, fallback_used={fallback_used}, threshold={self.threshold}"
             )
-            logger.info(f"[DSPContract] {asdict(adaptive_spectral_peak_removal_contract)}")
+            logger.info("[DSPContract] %s", asdict(adaptive_spectral_peak_removal_contract))
         return output
 
     def _remove_classic(self, spectrum: np.ndarray) -> np.ndarray:
@@ -160,4 +160,4 @@ class AdaptiveSpectralPeakRemoval:
             self.threshold = 0.6
         else:
             self.threshold = 0.8
-        logger.info(f"Threshold auto-optimiert auf {self.threshold}")
+        logger.info("Threshold auto-optimiert auf %s", self.threshold)

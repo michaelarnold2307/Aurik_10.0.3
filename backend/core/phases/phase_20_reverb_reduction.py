@@ -117,6 +117,18 @@ logger = logging.getLogger(__name__)
 class ReverbReduction(PhaseInterface):
     """Professional spectral-based reverb reduction."""
 
+    _MAX_RMS_DROP_DB = {
+        "tape": 2.5,
+        "reel_tape": 2.2,
+        "cassette": 2.8,
+        "vinyl": 2.0,
+        "shellac": 1.8,
+        "wax_cylinder": 1.5,
+        "cd_digital": 1.8,
+        "streaming": 1.6,
+        "unknown": 2.0,
+    }
+
     # Material-adaptive reduction strength
     REDUCTION_STRENGTH = {
         MaterialType.SHELLAC: 0.50,  # Moderate (often dry already)
@@ -319,11 +331,16 @@ class ReverbReduction(PhaseInterface):
                 if 0.0 < _effective_strength < 1.0:
                     _audio_clean = audio + _effective_strength * (_audio_clean - audio)
                     _audio_clean = np.clip(_audio_clean, -1.0, 1.0)
+                _audio_clean, _rms_change_db, _makeup_gain_db = self._apply_material_loudness_preservation(
+                    audio,
+                    _audio_clean,
+                    material,
+                )
                 return PhaseResult(
                     success=True,
                     audio=_audio_clean,
                     metrics={
-                        "rms_change_db": float(rms_change_db),
+                        "rms_change_db": float(_rms_change_db),
                         "reverb_estimate": ml_result.reverb_estimate,
                         "dsp_applied": ml_result.dsp_applied,
                         "ml_applied": getattr(ml_result, "ml_applied", ml_result.dccrn_applied),
@@ -347,6 +364,7 @@ class ReverbReduction(PhaseInterface):
                         "ml_metadata": ml_result.metadata,
                         "phase_locality_factor": phase_locality_factor,
                         "effective_strength": _effective_strength,
+                        "loudness_makeup_db": float(_makeup_gain_db),
                     },
                     warnings=warnings,
                     modifications={},
@@ -412,6 +430,11 @@ class ReverbReduction(PhaseInterface):
                 if 0.0 < _effective_strength < 1.0:
                     reduced = audio + _effective_strength * (reduced - audio)
                     reduced = np.clip(reduced, -1.0, 1.0)
+                reduced, rms_change_db, _makeup_gain_db = self._apply_material_loudness_preservation(
+                    audio,
+                    reduced,
+                    material,
+                )
                 return PhaseResult(
                     success=True,
                     audio=reduced,
@@ -428,6 +451,7 @@ class ReverbReduction(PhaseInterface):
                         "wpe_strength": wpe_strength,
                         "phase_locality_factor": phase_locality_factor,
                         "effective_strength": _effective_strength,
+                        "loudness_makeup_db": float(_makeup_gain_db),
                     },
                 )
             except Exception as wpe_err:
@@ -475,6 +499,11 @@ class ReverbReduction(PhaseInterface):
         if 0.0 < _effective_strength < 1.0:
             reduced = audio + _effective_strength * (reduced - audio)
             reduced = np.clip(reduced, -1.0, 1.0)
+        reduced, rms_change_db, _makeup_gain_db = self._apply_material_loudness_preservation(
+            audio,
+            reduced,
+            material,
+        )
 
         # §4.5c Early-Reflection-Guard (Spec §4.5c, v9.10.100)
         # C80 = 10·log10(E_early80ms / E_late) — Kuttruff 2009; ΔC80 ≤ 6 dB
@@ -575,8 +604,46 @@ class ReverbReduction(PhaseInterface):
                 "delta_c80": float(_delta_c80),
                 "c80_guard_triggered": _c80_guard_triggered,
                 "early_blend_triggered": _early_blend_triggered,
+                "loudness_makeup_db": float(_makeup_gain_db),
             },
         )
+
+    def _apply_material_loudness_preservation(
+        self,
+        original_audio: np.ndarray,
+        processed_audio: np.ndarray,
+        material: MaterialType,
+    ) -> tuple[np.ndarray, float, float]:
+        material_key = getattr(material, "value", getattr(material, "name", str(material))).lower()
+        max_rms_drop_db = float(self._MAX_RMS_DROP_DB.get(material_key, self._MAX_RMS_DROP_DB["unknown"]))
+
+        rms_in = float(np.sqrt(np.mean(np.asarray(original_audio, dtype=np.float64) ** 2) + 1e-12))
+        rms_out = float(np.sqrt(np.mean(np.asarray(processed_audio, dtype=np.float64) ** 2) + 1e-12))
+        rms_change_db = 20.0 * np.log10(max(rms_out / rms_in, 1e-30)) if rms_in > 1e-8 else 0.0
+        makeup_gain_db = 0.0
+
+        if rms_in > 1e-8 and rms_change_db < -max_rms_drop_db:
+            target_rms_change_db = -max_rms_drop_db
+            required_gain_db = target_rms_change_db - rms_change_db
+            current_peak = float(np.percentile(np.abs(processed_audio), 99.9) + 1e-12)
+            max_safe_gain_db = max(0.0, -1.5 - 20.0 * np.log10(current_peak))
+            makeup_gain_db = float(np.clip(required_gain_db, 0.0, max_safe_gain_db))
+            if makeup_gain_db > 0.0:
+                processed_audio = np.clip(
+                    processed_audio * (10.0 ** (makeup_gain_db / 20.0)),
+                    -1.0,
+                    1.0,
+                ).astype(np.float32)
+                rms_out = float(np.sqrt(np.mean(np.asarray(processed_audio, dtype=np.float64) ** 2) + 1e-12))
+                rms_change_db = 20.0 * np.log10(max(rms_out / rms_in, 1e-30))
+                logger.info(
+                    "Phase 20 loudness-preservation: material=%s rms_change=%.2f dB via makeup %.2f dB",
+                    material_key,
+                    rms_change_db,
+                    makeup_gain_db,
+                )
+
+        return processed_audio, float(rms_change_db), float(makeup_gain_db)
 
     def _reduce_reverb(self, audio: np.ndarray, sample_rate: int, strength: float, damping: float) -> np.ndarray:
         """Nachhall-Reduktion via STFT-OMLSA/IMCRA (Cohen 2002/2003).

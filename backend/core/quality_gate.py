@@ -30,21 +30,27 @@ class QualityGate:
     SNR_MIN_DB: float = 15.0
 
     # §1.2 — Musical Goals Pflicht-Schwellwerte
+    # §1.2 — Musical Goals Pflicht-Schwellwerte (spec-konform gem. copilot-instructions §14 Musical Goals)
     MUSICAL_GOAL_MIN: dict = {
+        # P1
         "natuerlichkeit": 0.90,
         "authentizitaet": 0.88,
-        "emotionalitaet": 0.87,
-        "transparenz": 0.89,
-        "bass_kraft": 0.85,
-        "brillanz": 0.85,
-        "waerme": 0.80,
-        "groove": 0.88,
+        # P2
         "tonal_center": 0.95,
-        "micro_dynamics": 0.92,
         "timbre_authentizitaet": 0.87,
-        "separation_fidelity": 0.82,
         "artikulation": 0.85,
-        "spatial_depth": 0.75,
+        # P3
+        "emotionalitaet": 0.82,
+        "micro_dynamics": 0.88,
+        "groove": 0.83,
+        # P4
+        "transparenz": 0.82,
+        "waerme": 0.75,
+        "bass_kraft": 0.78,
+        "separation_fidelity": 0.78,
+        # P5
+        "brillanz": 0.78,
+        "spatial_depth": 0.70,
     }
 
     # §1.4 — erlaubte Restaurierungs-Modi

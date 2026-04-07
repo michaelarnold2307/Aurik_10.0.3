@@ -100,7 +100,7 @@ class HighFrequencyExtender:
             HF-extended audio
         """
         assert sr_target == 48000, f"Target SR must be 48000 Hz, got {sr_target}"
-        logger.info(f"HF Extension: {sr_in}Hz → {sr_target}Hz (strength={strength:.2f}, genre={genre})")
+        logger.info("HF Extension: %sHz → %sHz (strength=%.2f, genre=%s)", sr_in, sr_target, strength, genre)
 
         # Genre-adaptive Strength
         strength = self._adjust_strength_for_genre(strength, genre)
@@ -130,7 +130,7 @@ class HighFrequencyExtender:
         audio_blended = np.nan_to_num(audio_blended, nan=0.0, posinf=0.0, neginf=0.0)
         audio_blended = np.clip(audio_blended, -1.0, 1.0)
 
-        logger.info(f"✓ HF Extension complete: {sr_in}Hz → {sr_target}Hz")
+        logger.info("✓ HF Extension complete: %sHz → %sHz", sr_in, sr_target)
 
         return np.asarray(audio_blended)
 
@@ -151,7 +151,7 @@ class HighFrequencyExtender:
         adjusted = min(base_strength, max_strength)
 
         if adjusted < base_strength:
-            logger.info(f"HF Extension strength limited for genre '{genre}': {base_strength:.2f} → {adjusted:.2f}")
+            logger.info("HF Extension strength limited for genre '%s': %.2f → %.2f", genre, base_strength, adjusted)
 
         return adjusted
 
@@ -192,7 +192,7 @@ class HighFrequencyExtender:
         if not is_authentic:
             logger.warning("HF Extension altered character:")
             for warning in warnings:
-                logger.warning(f"  {warning}")
+                logger.warning("  %s", warning)
 
         return audio_extended, is_authentic, metrics
 
@@ -223,7 +223,7 @@ def select_hf_extension_strategy(context: dict, goal: dict) -> dict | None:
     )
 
     if not should_extend:
-        logger.info(f"HF Extension SKIPPED: {reason}")
+        logger.info("HF Extension SKIPPED: %s", reason)
         return None
 
     # Determine target SR based on context
@@ -250,7 +250,7 @@ def select_hf_extension_strategy(context: dict, goal: dict) -> dict | None:
         "reason": reason,
     }
 
-    logger.info(f"HF Extension SELECTED: {reason} (strength={strength:.2f}, target={sr_target}Hz)")
+    logger.info("HF Extension SELECTED: %s (strength=%.2f, target=%sHz)", reason, strength, sr_target)
 
     return params
 
@@ -297,21 +297,21 @@ if __name__ == "__main__":
 
     # Test 1: Low SR (should extend)
     should, reason = extender.should_extend(sr=16000)
-    logger.info(f"Test 1 (16kHz): Should extend = {should}, Reason = {reason}")
+    logger.info("Test 1 (16kHz): Should extend = %s, Reason = %s", should, reason)
     assert should, "16kHz should trigger HF extension"
 
     # Test 2: CD Quality (might not extend)
     should, reason = extender.should_extend(sr=44100, genre="rock")
-    logger.info(f"Test 2 (44.1kHz Rock): Should extend = {should}, Reason = {reason}")
+    logger.info("Test 2 (44.1kHz Rock): Should extend = %s, Reason = %s", should, reason)
 
     # Test 3: Classical at 44.1kHz (should extend for air)
     should, reason = extender.should_extend(sr=44100, genre="classical")
-    logger.info(f"Test 3 (44.1kHz Classical): Should extend = {should}, Reason = {reason}")
+    logger.info("Test 3 (44.1kHz Classical): Should extend = %s, Reason = %s", should, reason)
     assert should, "Classical at 44.1kHz should extend for air/brilliance"
 
     # Test 4: High SR (should not extend)
     should, reason = extender.should_extend(sr=96000)
-    logger.info(f"Test 4 (96kHz): Should extend = {should}, Reason = {reason}")
+    logger.info("Test 4 (96kHz): Should extend = %s, Reason = %s", should, reason)
     assert not should, "96kHz should NOT extend"
 
     # Test 5: Policy Decision
@@ -320,7 +320,7 @@ if __name__ == "__main__":
 
     params = select_hf_extension_strategy(context, goal)
     logger.info("\nTest 5 (Policy Decision):")
-    logger.info(f"  Params = {params}")
+    logger.info("  Params = %s", params)
     assert params is not None, "Should select HF extension for 22kHz jazz"
 
     logger.info("\n✓ All tests passed")

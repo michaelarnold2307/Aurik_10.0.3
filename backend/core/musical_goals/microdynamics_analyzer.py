@@ -433,8 +433,8 @@ def analyze_microdynamics(
     >>> import soundfile as sf
     >>> audio, sr = sf.read("piano.wav")
     >>> analysis = analyze_microdynamics(audio, sr)
-    >>> logger.debug(f"Microdynamics Score: {analysis.microdynamics_score:.2f}")
-    >>> logger.debug(f"Passed: {analysis.passed}")
+    logger.debug("Microdynamics Score: %.2f", analysis.microdynamics_score)
+    logger.debug("Passed: %s", analysis.passed)
     >>> if analysis.microdynamics_score < 0.5:
     ...     logger.debug("Warning: Flat/dead sound - low microdynamics!")
     """
@@ -483,8 +483,10 @@ if __name__ == "__main__":
 
     # Load audio
     audio_path = sys.argv[1]
-    logger.debug(f"Analyzing: {audio_path}")
-    audio, sr = sf.read(audio_path)
+    logger.debug("Analyzing: %s", audio_path)
+    from backend.file_import import load_audio_file
+    _res = load_audio_file(audio_path)
+    audio, sr = np.asarray(_res["audio"], dtype=np.float32), int(_res["sr"])
 
     # Analyze
     analysis = analyze_microdynamics(audio, sr)
@@ -493,18 +495,18 @@ if __name__ == "__main__":
     logger.debug("\n" + "=" * 70)
     logger.debug("MICRODYNAMICS ANALYSIS")
     logger.debug("=" * 70)
-    logger.debug(f"Overall Microdynamics Score: {analysis.microdynamics_score:.3f} (threshold: 0.70)")
-    logger.debug(f"Status: {'✅ PASSED' if analysis.passed else '❌ FAILED'}")
+    logger.debug("Overall Microdynamics Score: %.3f (threshold: 0.70)", analysis.microdynamics_score)
+    logger.debug("Status: %s", '✅ PASSED' if analysis.passed else '❌ FAILED')
     logger.debug("")
     logger.debug("Component Scores (1.0 = Perfect):")
-    logger.debug(f"  Frame RMS Variance:         {analysis.frame_variance_score:.3f}")
-    logger.debug(f"  Envelope Modulation:        {analysis.envelope_modulation_score:.3f}")
-    logger.debug(f"  Crest Factor Variability:   {analysis.crest_variability_score:.3f}")
-    logger.debug(f"  Transient Diversity:        {analysis.transient_diversity_score:.3f}")
+    logger.debug("  Frame RMS Variance:         %.3f", analysis.frame_variance_score)
+    logger.debug("  Envelope Modulation:        %.3f", analysis.envelope_modulation_score)
+    logger.debug("  Crest Factor Variability:   %.3f", analysis.crest_variability_score)
+    logger.debug("  Transient Diversity:        %.3f", analysis.transient_diversity_score)
     logger.debug("")
     logger.debug("Detail Metrics:")
     for key, value in analysis.details.items():
-        logger.debug(f"  {key:35s}: {value:.3f}")
+        logger.debug("  %s: %.3f", key, value)
     logger.debug("=" * 70)
 
     if not analysis.passed:

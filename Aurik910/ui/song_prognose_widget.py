@@ -127,8 +127,8 @@ _DEFECT_LABELS: dict[str, str] = {
     "extremes_rauschen": "Extremes Rauschen",
     "starkes_rauschen": "Starkes Rauschen",
     "leichtes_rauschen": "Leichtes Rauschen",
-    "starkes_clipping": "Starkes Clipping",
-    "leichtes_clipping": "Clipping",
+    "starkes_clipping": "Starke Übersteuerung",
+    "leichtes_clipping": "Übersteuerung",
     "sehr_schmale_bandbreite": "Sehr schmale Bandbreite",
     "schmale_bandbreite": "Schmale Bandbreite",
     "starkes_crackle": "Starkes Knistern",
@@ -136,11 +136,11 @@ _DEFECT_LABELS: dict[str, str] = {
     # DefectScanner keys
     "CRACKLE": "Knistern",
     "CLICKS": "Knackser",
-    "CLIPPING": "Clipping",
+    "CLIPPING": "Übersteuerung",
     "HUM": "Netzbrummen",
     "NOISE": "Rauschen",
     "DROPOUT": "Aussetzer",
-    "WOW_FLUTTER": "Wow/Flutter",
+    "WOW_FLUTTER": "Gleichlaufschwankungen",
     "REVERB": "Nachhall",
     "TAPE_HISS": "Bandrauschen",
     "DC_OFFSET": "Gleichspannung",
@@ -365,7 +365,7 @@ class SongPrognoseWidget(QWidget):
         defect_inner = QVBoxLayout(defect_card)
         defect_inner.setContentsMargins(12, 8, 12, 8)
         defect_inner.setSpacing(6)
-        defect_inner.addWidget(_section_label("ERKANNTE SIGNALPROBLEME"))
+        defect_inner.addWidget(_section_label("ERKANNTE SCHÄDEN"))
 
         self._defect_pills_row = QHBoxLayout()
         self._defect_pills_row.setSpacing(6)
@@ -465,7 +465,7 @@ class SongPrognoseWidget(QWidget):
         name = _MATERIAL_NAMES.get(self._material, self._material)
         pct = int(round(confidence * 100))
         self._meta_rows["material"].setText(
-            f"{name}  <span style='color:{_C_MUTED};font-size:8pt;'>({pct}\u202f% Konfidenz)</span>"
+            f"{name}  <span style='color:{_C_MUTED};font-size:8pt;'>({pct}\u202f% Sicherheit)</span>"
         )
         self._meta_rows["material"].setTextFormat(Qt.TextFormat.RichText)
         self._refresh_phase_prognosis()
@@ -518,7 +518,7 @@ class SongPrognoseWidget(QWidget):
         self._mos_val_lbl.setStyleSheet(f"color:{bar_color}; font-size:10pt; font-weight:bold; background:transparent;")
         lo = float(mos_range[0]) if mos_range else predicted_mos - 0.3
         hi = float(mos_range[1]) if len(mos_range) >= 2 else predicted_mos + 0.3  # type: ignore[arg-type]
-        self._mos_range_lbl.setText(f"90\u202f%-Konfidenzintervall: {lo:.1f} – {hi:.1f}")
+        self._mos_range_lbl.setText(f"90\u202f%-Wahrscheinlichkeit: {lo:.1f} – {hi:.1f}")
 
         # SNR
         self._meta_rows["snr"].setText(
@@ -631,6 +631,28 @@ class SongPrognoseWidget(QWidget):
                 f"color:{_C_RED}; font-size:9pt; font-weight:bold; background:transparent;"
             )
 
+    def set_recommended_mode(self, mode: str) -> None:
+        """Override the grade-based mode recommendation with the authoritative result
+        from _recommend_mode_from_ui_context() (which considers material, defect severity,
+        era, and genre in addition to the plain restorability grade).  Called by
+        ModernMainWindow._apply_mode_recommendation_visuals() once pre-analysis is final."""
+        if mode == "STUDIO_2026":
+            self._mode_rec_lbl.setText("\u2746 Studio 2026 empfohlen")
+            self._mode_rec_lbl.setStyleSheet(
+                f"color:{_C_GREEN}; font-size:9pt; font-weight:bold; background:transparent;"
+            )
+        else:  # RESTORATION
+            if self._grade in ("poor", "critical"):
+                self._mode_rec_lbl.setText("\u25b6 Restoration (maximale Vertr\u00e4glichkeit)")
+                self._mode_rec_lbl.setStyleSheet(
+                    f"color:{_C_RED}; font-size:9pt; font-weight:bold; background:transparent;"
+                )
+            else:
+                self._mode_rec_lbl.setText("\u25b6 Restoration empfohlen")
+                self._mode_rec_lbl.setStyleSheet(
+                    f"color:{_C_AMBER}; font-size:9pt; font-weight:bold; background:transparent;"
+                )
+
 
 # ---------------------------------------------------------------------------
 # Terminal report (ANSI colour output)
@@ -698,7 +720,7 @@ def _print_prognose_terminal(
     ]
 
     if limiting_defects:
-        lines.append(f"  {_ANSI_AMBER}Hauptdefekte{_ANSI_RESET}:")
+        lines.append(f"  {_ANSI_AMBER}Hauptschäden{_ANSI_RESET}:")
         for d in limiting_defects:
             lines.append(f"    • {_defect_label(d)}")
         lines.append("")

@@ -204,7 +204,7 @@ class HybridNVSR:
 
         # Detect current bandwidth
         detected_bandwidth = self._detect_bandwidth(audio, sample_rate)
-        logger.info(f"Detected bandwidth: {detected_bandwidth:.0f} Hz")
+        logger.info("Detected bandwidth: %.0f Hz", detected_bandwidth)
 
         # Choose strategy
         strategy = self.config.strategy
@@ -296,7 +296,7 @@ class HybridNVSR:
                 processing_time_sec=0.0,
             )
         except Exception as e:
-            logger.error(f"AudioSR processing failed: {e}")
+            logger.error("AudioSR processing failed: %s", e)
             return self._apply_dsp_only(audio, sample_rate, detected_bandwidth)
 
     def _apply_adaptive(
@@ -362,7 +362,7 @@ class HybridNVSR:
                 processing_time_sec=0.0,
             )
         except Exception as e:
-            logger.error(f"AudioSR processing failed: {e}")
+            logger.error("AudioSR processing failed: %s", e)
             return NVSRResult(
                 restored_audio=base_audio,
                 strategy_used="adaptive_dsp_fallback",
@@ -413,7 +413,7 @@ class HybridNVSR:
                 processing_time_sec=0.0,
             )
         except Exception as e:
-            logger.error(f"Hybrid processing failed: {e}")
+            logger.error("Hybrid processing failed: %s", e)
             return self._apply_dsp_only(base_audio, sample_rate, detected_bandwidth)
 
     def _run_audiosr(self, audio: np.ndarray, sample_rate: int, plugin: Any) -> np.ndarray:

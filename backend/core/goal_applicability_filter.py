@@ -192,8 +192,9 @@ class GoalApplicabilityFilter:
             inapplicable["groove"] = reason
 
         # REGEL: MicroDynamicsMetric
-        if duration_s < 20.0:
-            inapplicable["micro_dynamics"] = "Zu kurz fuer LUFS-Profil-Korrelation (<20 s)."
+        # §2.47: < 10 s → Groove/MicroDyn off (spec-konform; vorher fälschlich 20 s)
+        if duration_s < 10.0:
+            inapplicable["micro_dynamics"] = "Zu kurz fuer LUFS-Profil-Korrelation (<10 s)."
 
         # REGEL: SeparationFidelityMetric
         if is_mono_signal or mat_mono:

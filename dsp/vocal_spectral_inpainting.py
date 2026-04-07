@@ -399,7 +399,9 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     # Load audio
-    audio, sr = sf.read(args.input)
+    from backend.file_import import load_audio_file
+    _res = load_audio_file(args.input)
+    audio, sr = _res["audio"], int(_res["sr"])
 
     # Process
     inpainter = VocalSpectralInpainting(
@@ -414,21 +416,21 @@ if __name__ == "__main__":
     logger.info(str("\n" + "=" * 70))
     logger.info("VOCAL SPECTRAL INPAINTING REPORT")
     logger.info(str("=" * 70))
-    logger.info(f"Gaps detected: {report['gaps_detected']}")
-    logger.info(f"Gaps filled:   {report['gaps_filled']}")
+    logger.info("Gaps detected: %s", report['gaps_detected'])
+    logger.info("Gaps filled:   %s", report['gaps_filled'])
 
     if report["gaps_detected"] > 0:
         logger.info("\nGap Ranges:")
         for i, (low, high) in enumerate(report["gap_ranges_hz"], 1):
-            logger.info(f"  Gap {i}: {low:.0f} - {high:.0f} Hz ({high - low:.0f} Hz wide)")
+            logger.info("  Gap %s: %.0f - %.0f Hz (%.0f Hz wide)", i, low, high, high - low)
 
     if report["harmonic_awareness"]:
         logger.info("\nHarmonic Awareness: Enabled")
-        logger.info(f"  F0 detected: {report['f0_detected']:.1f} Hz")
+        logger.info("  F0 detected: %.1f Hz", report['f0_detected'])
 
     logger.info(str("=" * 70))
 
     # Save
     if args.output:
         sf.write(args.output, audio_inpainted, sr)
-        logger.info(f"\n✅ Saved to: {args.output}")
+        logger.info("\n✅ Saved to: %s", args.output)

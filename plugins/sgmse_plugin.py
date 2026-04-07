@@ -169,7 +169,16 @@ class SGMSEPlusPlugin:
                 import torch
 
                 torch.set_num_threads(_os.cpu_count() or 4)  # §2.37 CPU-Thread-Budget
-                if _try_alloc is not None and not _try_alloc("SGMSE+", size_gb=0.12):
+                _budget_ok = _try_alloc is None or _try_alloc("SGMSE+", size_gb=0.12)
+                if not _budget_ok:
+                    try:
+                        from backend.core.ml_memory_budget import release as _rel2
+
+                        _rel2("SGMSE+")
+                    except Exception:
+                        pass
+                    _budget_ok = _try_alloc is None or _try_alloc("SGMSE+", size_gb=0.12)
+                if not _budget_ok:
                     logger.warning("SGMSE+: ML-Budget erschöpft — WPE-DSP-Fallback.")
                 else:
                     self._ts_model = torch.jit.load(str(_TS_PATH), map_location="cpu")  # nosec B614

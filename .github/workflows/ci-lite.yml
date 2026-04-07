@@ -46,3 +46,7 @@ jobs:
             -q \
             --disable-warnings \
             --no-header
+
+      - name: VERBOTEN-Regeln Compliance-Check
+        run: |
+          python scripts/compliance_check.py --errors-only

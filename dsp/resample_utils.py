@@ -85,7 +85,7 @@ class AudioResampler:
         self.quality = quality
         self.standard_sr = AURIK_STANDARD_SR
 
-        logger.debug(f"AudioResampler initialized: standard={self.standard_sr} Hz")
+        logger.debug("AudioResampler initialized: standard=%s Hz", self.standard_sr)
 
     def to_standard(self, audio: np.ndarray, sr: int) -> tuple[np.ndarray, int]:
         """
@@ -101,7 +101,7 @@ class AudioResampler:
         if sr == self.standard_sr:
             return audio, sr
 
-        logger.debug(f"Resampling {sr} Hz → {self.standard_sr} Hz")
+        logger.debug("Resampling %s Hz → %s Hz", sr, self.standard_sr)
 
         # Handle stereo/mono
         if audio.ndim == 2:
@@ -109,7 +109,7 @@ class AudioResampler:
             # If shape[0] < shape[1], it's likely (channels, samples) format
             if audio.shape[0] < audio.shape[1] and audio.shape[0] <= 32:
                 # Transpose to (samples, channels) format
-                logger.debug(f"Auto-transposing audio from {audio.shape} (channels, samples) to (samples, channels)")
+                logger.debug("Auto-transposing audio from %s (channels, samples) to (samples, channels)", audio.shape)
                 audio = audio.T
 
             # Stereo: resample each channel (format: (N_samples, N_channels))
@@ -144,7 +144,7 @@ class AudioResampler:
         if target_sr == self.standard_sr:
             return audio, target_sr
 
-        logger.debug(f"Resampling {self.standard_sr} Hz → {target_sr} Hz")
+        logger.debug("Resampling %s Hz → %s Hz", self.standard_sr, target_sr)
 
         # Handle stereo/mono
         if audio.ndim == 2:
@@ -152,7 +152,7 @@ class AudioResampler:
             # If shape[0] < shape[1], it's likely (channels, samples) format
             if audio.shape[0] < audio.shape[1] and audio.shape[0] <= 32:
                 # Transpose to (samples, channels) format
-                logger.debug(f"Auto-transposing audio from {audio.shape} (channels, samples) to (samples, channels)")
+                logger.debug("Auto-transposing audio from %s (channels, samples) to (samples, channels)", audio.shape)
                 audio = audio.T
 
             # Stereo: resample each channel (format: (N_samples, N_channels))
@@ -181,7 +181,7 @@ class AudioResampler:
         if orig_sr == target_sr:
             return audio, target_sr
 
-        logger.debug(f"Direct resampling {orig_sr} Hz → {target_sr} Hz")
+        logger.debug("Direct resampling %s Hz → %s Hz", orig_sr, target_sr)
 
         # Handle stereo/mono
         if audio.ndim == 2:
@@ -257,7 +257,7 @@ def process_with_resampling(
 
     # Step 1: Resample to required SR if needed
     if required_sr and sr != required_sr:
-        logger.debug(f"Resampling for processing: {sr} Hz → {required_sr} Hz")
+        logger.debug("Resampling for processing: %s Hz → %s Hz", sr, required_sr)
         audio_proc, sr_proc = resampler.resample(audio, sr, required_sr)
     else:
         audio_proc, sr_proc = audio, sr
@@ -267,7 +267,7 @@ def process_with_resampling(
 
     # Step 3: Return to standard if requested
     if return_to_standard and sr_proc != AURIK_STANDARD_SR:
-        logger.debug(f"Returning to standard: {sr_proc} Hz → {AURIK_STANDARD_SR} Hz")
+        logger.debug("Returning to standard: %s Hz → %s Hz", sr_proc, AURIK_STANDARD_SR)
         result, sr_out = resampler.resample(result, sr_proc, AURIK_STANDARD_SR)
     else:
         sr_out = sr_proc

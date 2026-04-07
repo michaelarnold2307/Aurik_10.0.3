@@ -81,16 +81,16 @@ class AdaptiveVAD:
         center=True,
     ):
         if not (64 <= frame_length <= 8192):
-            logger.error(f"Ungültiges frame_length: {frame_length}. Muss zwischen 64 und 8192 liegen.")
+            logger.error("Ungültiges frame_length: %s. Muss zwischen 64 und 8192 liegen.", frame_length)
             raise ValueError("frame_length muss zwischen 64 und 8192 liegen.")
         if not (16 <= hop_length <= 4096):
-            logger.error(f"Ungültiges hop_length: {hop_length}. Muss zwischen 16 und 4096 liegen.")
+            logger.error("Ungültiges hop_length: %s. Muss zwischen 16 und 4096 liegen.", hop_length)
             raise ValueError("hop_length muss zwischen 16 und 4096 liegen.")
         if not (0.001 <= energy_thresh <= 0.1):
-            logger.error(f"Ungültiges energy_thresh: {energy_thresh}. Muss zwischen 0.001 und 0.1 liegen.")
+            logger.error("Ungültiges energy_thresh: %s. Muss zwischen 0.001 und 0.1 liegen.", energy_thresh)
             raise ValueError("energy_thresh muss zwischen 0.001 und 0.1 liegen.")
         if not (0.01 <= zcr_thresh <= 0.5):
-            logger.error(f"Ungültiges zcr_thresh: {zcr_thresh}. Muss zwischen 0.01 und 0.5 liegen.")
+            logger.error("Ungültiges zcr_thresh: %s. Muss zwischen 0.01 und 0.5 liegen.", zcr_thresh)
             raise ValueError("zcr_thresh muss zwischen 0.01 und 0.5 liegen.")
         self.frame_length = frame_length
         self.hop_length = hop_length
@@ -103,7 +103,7 @@ class AdaptiveVAD:
 
     def log_contract(self):
         contract_dict = asdict(adaptive_vad_contract)
-        logger.info(f"[DSPContract] {contract_dict}")
+        logger.info("[DSPContract] %s", contract_dict)
 
     def vad(self, y, use_deep_learning: bool = False, audit_log: bool = True, **kwargs):
         """
@@ -148,7 +148,7 @@ class AdaptiveVAD:
             else:
                 output = self._vad_classic(y, frame_length, hop_length, energy_thresh, zcr_thresh, center)
         except Exception as e:
-            logger.error(f"Fehler bei VAD: {e}", exc_info=True)
+            logger.error("Fehler bei VAD: %s", e, exc_info=True)
             fallback_used = True
             output = np.zeros(1)
 
@@ -157,7 +157,7 @@ class AdaptiveVAD:
             logger.info(
                 f"AdaptiveVAD: vad_accuracy={vad_accuracy:.4f}, fallback_used={fallback_used}, frame_length={frame_length}, energy_thresh={energy_thresh}, zcr_thresh={zcr_thresh}"
             )
-            logger.info(f"[DSPContract] {asdict(adaptive_vad_contract)}")
+            logger.info("[DSPContract] %s", asdict(adaptive_vad_contract))
         return output
 
     def _vad_classic(self, y, frame_length, hop_length, energy_thresh, zcr_thresh, center):

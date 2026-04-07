@@ -730,7 +730,9 @@ def main():
 
     # Load audio
     _logger.info("Loading: %s", args.input)
-    audio, sr = sf.read(args.input, always_2d=True)
+    from backend.file_import import load_audio_file
+    _res = load_audio_file(args.input)
+    audio, sr = _res["audio"], int(_res["sr"])
 
     # Make mono for processing
     audio_mono = np.mean(audio, axis=1) if audio.shape[1] == 2 else audio[:, 0]

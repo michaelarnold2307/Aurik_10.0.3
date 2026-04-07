@@ -53,7 +53,7 @@ class AdaptiveSTFT:
             self._audit_log({"func": "stft", "shape": result.shape, "success": True})
             return result
         except Exception as e:
-            logger.error(f"[AdaptiveSTFT][Fehler][stft] {e}")
+            logger.error("[AdaptiveSTFT][Fehler][stft] %s", e)
             self._audit_log({"func": "stft", "error": str(e)})
             return np.zeros((self.n_fft // 2 + 1, 1))
 
@@ -77,15 +77,15 @@ class AdaptiveSTFT:
             self._audit_log({"func": "istft", "shape": result.shape, "success": True})
             return result
         except Exception as e:
-            logger.error(f"[AdaptiveSTFT][Fehler][istft] {e}")
+            logger.error("[AdaptiveSTFT][Fehler][istft] %s", e)
             self._audit_log({"func": "istft", "error": str(e)})
             return np.zeros((1,))
 
     def _log_contract(self, func: str):
-        logger.info(f"[Contract][AdaptiveSTFT] {func}(...) -> np.ndarray")
+        logger.info("[Contract][AdaptiveSTFT] %s(...) -> np.ndarray", func)
 
     def _audit_log(self, result: dict[str, Any]):
-        logger.info(f"[AuditLog][AdaptiveSTFT] Ergebnis: {result}")
+        logger.info("[AuditLog][AdaptiveSTFT] Ergebnis: %s", result)
 
     def auto_optimize(self, y: np.ndarray, sr: int) -> None:
         """Automatische Anpassung der Parameter je nach Signal (SOTA-Ansatz)."""
@@ -144,15 +144,15 @@ class AdaptiveMelSpectrogram:
             self._audit_log({"func": "mel_spectrogram", "shape": result.shape, "success": True})
             return result
         except Exception as e:
-            logger.error(f"[AdaptiveMelSpectrogram][Fehler][mel_spectrogram] {e}")
+            logger.error("[AdaptiveMelSpectrogram][Fehler][mel_spectrogram] %s", e)
             self._audit_log({"func": "mel_spectrogram", "error": str(e)})
             return np.zeros((self.n_mels, 1))
 
     def _log_contract(self, func: str):
-        logger.info(f"[Contract][AdaptiveMelSpectrogram] {func}(...) -> np.ndarray")
+        logger.info("[Contract][AdaptiveMelSpectrogram] %s(...) -> np.ndarray", func)
 
     def _audit_log(self, result: dict[str, Any]):
-        logger.info(f"[AuditLog][AdaptiveMelSpectrogram] Ergebnis: {result}")
+        logger.info("[AuditLog][AdaptiveMelSpectrogram] Ergebnis: %s", result)
 
     def auto_optimize(self, y: np.ndarray, sr: int) -> None:
         """Automatische Anpassung der Mel-Parameter je nach Signal."""

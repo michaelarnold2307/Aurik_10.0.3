@@ -160,7 +160,7 @@ class DatasetGenerator:
         samples = []
 
         if not self.golden_samples_dir.exists():
-            logger.debug(f"⚠️  Golden samples directory not found: {self.golden_samples_dir}")
+            logger.debug("⚠️  Golden samples directory not found: %s", self.golden_samples_dir)
             return samples
 
         # Suche nach Audio-Dateien
@@ -169,7 +169,11 @@ class DatasetGenerator:
 
         for audio_file in audio_files[:100]:  # Limit auf 100 für Performance
             try:
-                audio, sr = sf.read(audio_file)
+                from backend.file_import import load_audio_file
+                _af_res = load_audio_file(str(audio_file))
+                if _af_res is None or _af_res.get("error") or _af_res["audio"] is None:
+                    continue
+                audio, sr = _af_res["audio"], int(_af_res["sr"])
 
                 # Resample wenn nötig
                 if sr != self.target_sr:
@@ -191,7 +195,7 @@ class DatasetGenerator:
                     )
                 )
             except Exception as e:
-                logger.debug(f"⚠️  Failed to load {audio_file}: {e}")
+                logger.debug("⚠️  Failed to load %s: %s", audio_file, e)
 
         return samples
 
@@ -490,7 +494,7 @@ class DatasetGenerator:
         with open(metadata_path, "w") as f:
             json.dump(metadata, f, indent=2)
 
-        logger.debug(f"✅ Dataset saved: {output_path}")
-        logger.debug(f"✅ Metadata saved: {metadata_path}")
+        logger.debug("✅ Dataset saved: %s", output_path)
+        logger.debug("✅ Metadata saved: %s", metadata_path)
 
         return output_path

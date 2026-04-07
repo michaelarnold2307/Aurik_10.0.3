@@ -37,6 +37,7 @@ def batch_worker(batch_id: str, input_files: list[str]):
         import numpy as _np
         import soundfile as _sf
 
+        from backend.file_import import load_audio_file
         from denker.aurik_denker import get_aurik_denker
 
         denker = get_aurik_denker()
@@ -54,8 +55,11 @@ def batch_worker(batch_id: str, input_files: list[str]):
                 batch_jobs[batch_id]["current_file"] = fname
 
             try:
-                audio, sr = _sf.read(str(in_path), always_2d=True)
-                audio = audio.astype(_np.float32)
+                _loaded = load_audio_file(str(in_path), do_carrier_analysis=False)
+                if _loaded is None or _loaded.get("error"):
+                    raise RuntimeError(f"Audio-Datei konnte nicht geladen werden: {in_path}")
+                audio = _np.asarray(_loaded["audio"], dtype=_np.float32)
+                sr = int(_loaded["sr"])
 
                 result = denker.denke(audio, sr, mode="restoration")
 
@@ -76,10 +80,10 @@ def batch_worker(batch_id: str, input_files: list[str]):
                         indent=2,
                     )
 
-                logger.info(f"[Batch {batch_id}] Processed: {fname}")
+                logger.info("[Batch %s] Processed: %s", batch_id, fname)
 
             except Exception as e:
-                logger.exception(f"[Batch {batch_id}] Error processing {fname}: {e}")
+                logger.exception("[Batch %s] Error processing %s: %s", batch_id, fname, e)
                 with batch_lock:
                     if "errors" not in batch_jobs[batch_id]:
                         batch_jobs[batch_id]["errors"] = []
@@ -92,10 +96,10 @@ def batch_worker(batch_id: str, input_files: list[str]):
         with batch_lock:
             batch_jobs[batch_id]["status"] = "completed"
             batch_jobs[batch_id]["current_file"] = None
-            logger.info(f"[Batch {batch_id}] Completed")
+            logger.info("[Batch %s] Completed", batch_id)
 
     except Exception as e:
-        logger.exception(f"[Batch {batch_id}] Fatal error: {e}")
+        logger.exception("[Batch %s] Fatal error: %s", batch_id, e)
         with batch_lock:
             batch_jobs[batch_id]["status"] = "failed"
             batch_jobs[batch_id]["error"] = str(e)
@@ -125,7 +129,7 @@ async def start_batch(background_tasks: BackgroundTasks, files: list[UploadFile]
                         content = await upload_file.read()
                         f.write(content)
                     input_files.append(upload_file.filename)
-                    logger.info(f"Uploaded file: {upload_file.filename}")
+                    logger.info("Uploaded file: %s", upload_file.filename)
 
         # Option 2: Verwende existierende Dateien aus input_audio/
         if not input_files:
@@ -163,7 +167,7 @@ async def start_batch(background_tasks: BackgroundTasks, files: list[UploadFile]
         # Starte Batch-Worker in Background-Task
         background_tasks.add_task(batch_worker, batch_id, input_files)
 
-        logger.info(f"[Batch {batch_id}] Started with {len(input_files)} files")
+        logger.info("[Batch %s] Started with %s files", batch_id, len(input_files))
 
         return {"batch_id": batch_id, "status": "started", "total_files": len(input_files)}
 
@@ -253,7 +257,7 @@ async def batch_audit(batch_id: str):
                         audit_data = json.load(fp)
                         audits.append({"filename": f.name, "data": audit_data})
                 except Exception as e:
-                    logger.warning(f"Could not read audit file {f}: {e}")
+                    logger.warning("Could not read audit file %s: %s", f, e)
 
     return {"batch_id": batch_id, "audits": audits}
 
@@ -295,6 +299,6 @@ async def cancel_batch(batch_id: str):
 
         batch_jobs[batch_id]["status"] = "cancelled"
 
-    logger.info(f"[Batch {batch_id}] Cancelled by user")
+    logger.info("[Batch %s] Cancelled by user", batch_id)
 
     return {"batch_id": batch_id, "status": "cancelled"}

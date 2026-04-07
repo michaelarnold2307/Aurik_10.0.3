@@ -1,14 +1,6 @@
 import numpy as np
 
 
-def normalize_audio(audio: np.ndarray, peak: float = 0.999) -> np.ndarray:
-    """Normiert das Audiosignal auf den angegebenen Peak."""
-    maxval = np.max(np.abs(audio)) + 1e-8
-    if maxval > 0:
-        audio = audio / maxval * peak
-    return audio.astype(audio.dtype)
-
-
 def compute_rms(audio: np.ndarray) -> float:
     """Berechnet den RMS-Wert eines Audiosignals."""
     return float(np.sqrt(np.mean(audio**2)))

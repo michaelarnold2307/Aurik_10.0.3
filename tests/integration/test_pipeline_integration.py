@@ -22,6 +22,8 @@ Spec-Referenzen:
 from __future__ import annotations
 
 import math
+from dataclasses import dataclass, field
+from unittest.mock import patch
 
 import numpy as np
 import pytest
@@ -196,6 +198,73 @@ class TestDefectScannerToReasoner:
         assert clipping_score.severity > 0.1, (
             f"Hard-clipped audio should have clipping severity > 0.1, got {clipping_score.severity}"
         )
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# 1b. Forensic Medium Handoff / Dedup Integration
+# ═══════════════════════════════════════════════════════════════════════
+@dataclass
+class _StubForensicMedium:
+    transfer_chain: list[str] = field(default_factory=lambda: ["vinyl", "mp3_low"])
+    primary_material: str = "vinyl"
+    confidence: float = 0.84
+
+
+class TestForensicMediumHandoffIntegration:
+    """Integration checks for one-time medium detection + scanner handoff."""
+
+    @pytest.mark.timeout(_INT_TIMEOUT)
+    def test_scanner_uses_cached_forensic_medium_without_second_detect(self, audio_48k_mono):
+        """Cached forensic medium must bypass a second MediumDetector.detect() call."""
+        audio, sr = audio_48k_mono
+        from backend.core.defect_scanner import DefectScanner, MaterialType
+
+        scanner = DefectScanner()
+        cached = _StubForensicMedium()
+
+        with patch(
+            "backend.core.forensics.medium_detector.MediumDetector",
+            side_effect=AssertionError("MediumDetector must not be instantiated on cached path"),
+        ):
+            result = scanner.scan(
+                audio,
+                sr,
+                material_type=MaterialType.VINYL,
+                file_ext=".mp3",
+                forensic_medium_result=cached,
+            )
+
+        assert result.transfer_chain_raw is cached
+        assert "vinyl" in str(result.transfer_chain_str)
+
+    @pytest.mark.timeout(_INT_TIMEOUT)
+    def test_scanner_calls_medium_detector_once_without_cache(self, audio_48k_mono):
+        """Without cached forensic medium, scanner should call detector exactly once."""
+        audio, sr = audio_48k_mono
+        from backend.core.defect_scanner import DefectScanner, MaterialType
+
+        scanner = DefectScanner()
+        calls = {"init": 0, "detect": 0}
+
+        class _FakeMediumDetector:
+            def __init__(self):
+                calls["init"] += 1
+
+            def detect(self, _audio, _sr, file_ext=None):
+                calls["detect"] += 1
+                return _StubForensicMedium(transfer_chain=["tape", "mp3_low"], primary_material="tape", confidence=0.79)
+
+        with patch("backend.core.forensics.medium_detector.MediumDetector", _FakeMediumDetector):
+            result = scanner.scan(
+                audio,
+                sr,
+                material_type=MaterialType.TAPE,
+                file_ext=".mp3",
+                forensic_medium_result=None,
+            )
+
+        assert calls == {"init": 1, "detect": 1}
+        assert "tape" in str(result.transfer_chain_str)
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -491,10 +560,274 @@ class TestSongCalibrationIntegration:
             "Shellac and CD_DIGITAL must produce different calibration profiles"
         )
 
+    @pytest.mark.timeout(_INT_TIMEOUT)
+    def test_calibration_source_fidelity_includes_transfer_chain_losses(self):
+        """Transfer chain must increase SourceFidelity generation/HF-loss estimate."""
+        from backend.core.defect_scanner import MaterialType
+        from backend.core.quality_mode import QualityMode
+        from backend.core.unified_restorer_v3 import UnifiedRestorerV3
+
+        kwargs = {
+            "material_type": MaterialType.TAPE,
+            "mode": QualityMode.BALANCED,
+            "restorability_score": 60.0,
+            "input_snr_db": 20.0,
+            "max_defect_severity": 0.4,
+            "pipeline_confidence": 0.9,
+            "era_decade": 1970,
+            "spectral_fingerprint": {"rolloff_95_hz": 7000.0, "effective_bandwidth_hz": 7000.0},
+        }
+
+        profile_material_only = UnifiedRestorerV3._build_song_calibration_profile(
+            transfer_chain=None,
+            **kwargs,
+        )
+        profile_with_chain = UnifiedRestorerV3._build_song_calibration_profile(
+            transfer_chain=["vinyl", "tape", "mp3_low"],
+            **kwargs,
+        )
+
+        assert profile_with_chain["source_fidelity_generation_count"] >= profile_material_only[
+            "source_fidelity_generation_count"
+        ]
+        assert profile_with_chain["source_fidelity_hf_loss_db"] >= profile_material_only["source_fidelity_hf_loss_db"]
+        assert profile_with_chain["source_fidelity_transfer_chain"] == ["vinyl", "tape", "mp3_low"]
+
+    @pytest.mark.timeout(_INT_TIMEOUT)
+    def test_extract_transfer_chain_from_forensics_normalizes_inputs(self):
+        """Helper must normalize dict/object/string chain payloads deterministically."""
+        from backend.core.unified_restorer_v3 import UnifiedRestorerV3
+
+        assert UnifiedRestorerV3._extract_transfer_chain_from_forensics(
+            {"transfer_chain": ["Vinyl", " Tape ", "MP3_LOW"]}
+        ) == ["vinyl", "tape", "mp3_low"]
+
+        assert UnifiedRestorerV3._extract_transfer_chain_from_forensics(
+            {"chain": "vinyl → tape > mp3_low"}
+        ) == ["vinyl", "tape", "mp3_low"]
+
 
 # ═══════════════════════════════════════════════════════════════════════
+# 5b. SourceFidelity Export Audit Trail  [RELEASE_MUST] §2.41 + §2.46 + §2.47
+# ═══════════════════════════════════════════════════════════════════════
+class TestSourceFidelityExportAuditTrail:
+    """Normative: source_fidelity_* fields MUST reach RestorationResult.metadata.
+
+    Proves the hard audit trail from transfer_chain_raw → SongCalibration →
+    metadata["song_calibration"] in the final RestorationsResult export.
+
+    [RELEASE_MUST] §2.41 SourceFidelityReconstructor
+                   §2.46 Carrier-Chain-Inversion
+                   §2.47 Adaptive-Intelligence-Prinzip (chain → gen_count / hf_loss_db)
+    """
+
+    @pytest.mark.timeout(30)
+    def test_transfer_chain_raw_propagates_to_export_metadata(self):
+        """transfer_chain_raw → extract → calibration profile → metadata dict — end-to-end.
+
+        Simulates exactly the 3 steps restore() performs:
+          Step 1 (UV3 ~line 2508): _extract_transfer_chain_from_forensics(defect_result.transfer_chain_raw)
+          Step 2 (UV3 ~line 2528): _build_song_calibration_profile(..., transfer_chain=chain)
+          Step 3 (UV3 ~line 4657): metadata["song_calibration"] = dict(self._song_calibration_profile)
+
+        [RELEASE_MUST] §2.41 SourceFidelityReconstructor audit trail
+                       §2.46 Carrier-Chain-Inversion
+                       §2.47 Adaptive-Intelligence: chain → gen_count / hf_loss_db in export
+        """
+        from backend.core.defect_scanner import MaterialType
+        from backend.core.unified_restorer_v3 import QualityMode, UnifiedRestorerV3
+
+        # ── Step 1: Extract chain from DefectResult.transfer_chain_raw ─────────
+        # Simulates UV3 line ~2508 using a representative transfer_chain_raw payload.
+        raw = {"transfer_chain": ["vinyl", "tape", "mp3_low"]}
+        chain = UnifiedRestorerV3._extract_transfer_chain_from_forensics(raw)
+        assert chain == ["vinyl", "tape", "mp3_low"], (
+            f"_extract_transfer_chain_from_forensics produced unexpected chain: {chain}"
+        )
+
+        # ── Step 2: Build calibration profile with the extracted chain ──────────
+        # Simulates UV3 line ~2528.
+        profile = UnifiedRestorerV3._build_song_calibration_profile(
+            material_type=MaterialType.TAPE,
+            mode=QualityMode.QUALITY,
+            restorability_score=60.0,
+            input_snr_db=20.0,
+            max_defect_severity=0.35,
+            pipeline_confidence=0.80,
+            era_decade=1965,
+            transfer_chain=chain,
+        )
+
+        # ── Step 3: Simulate metadata construction (UV3 line ~4657) ────────────
+        # metadata["song_calibration"] = dict(self._song_calibration_profile)
+        cal = dict(profile)
+
+        # ── Assertions: all 3 required audit-trail fields present and correct ───
+        assert "source_fidelity_transfer_chain" in cal, (
+            "source_fidelity_transfer_chain missing — §2.41 audit trail broken at Step 3"
+        )
+        assert cal["source_fidelity_transfer_chain"] == ["vinyl", "tape", "mp3_low"], (
+            f"Chain mismatch in export: expected ['vinyl','tape','mp3_low'] "
+            f"but got {cal['source_fidelity_transfer_chain']}"
+        )
+
+        assert "source_fidelity_generation_count" in cal, (
+            "source_fidelity_generation_count missing from calibration profile"
+        )
+        assert cal["source_fidelity_generation_count"] >= 3, (
+            f"3-stage chain must yield generation_count >= 3 "
+            f"(got {cal['source_fidelity_generation_count']})"
+        )
+
+        assert "source_fidelity_hf_loss_db" in cal, (
+            "source_fidelity_hf_loss_db missing from calibration profile"
+        )
+        assert cal["source_fidelity_hf_loss_db"] > 0.0, (
+            f"3-stage chain must carry HF loss > 0 dB "
+            f"(got {cal['source_fidelity_hf_loss_db']} dB)"
+        )
+
+        # [RELEASE_MUST] §2.41: source_fidelity_transfer_chain must propagate end-to-end
+        assert "source_fidelity_transfer_chain" in cal, (
+            "source_fidelity_transfer_chain missing from metadata['song_calibration'] — "
+            "§2.41 export audit trail broken (chain_raw → SFR → metadata path severed)"
+        )
+        assert cal["source_fidelity_transfer_chain"] == ["vinyl", "tape", "mp3_low"], (
+            f"Transfer chain mismatch in export: expected ['vinyl','tape','mp3_low'] "
+            f"but got {cal['source_fidelity_transfer_chain']}"
+        )
+
+        # [RELEASE_MUST] §2.47: 3-stage chain must yield generation_count >= 3
+        assert "source_fidelity_generation_count" in cal, (
+            "source_fidelity_generation_count missing from export metadata"
+        )
+        assert cal["source_fidelity_generation_count"] >= 3, (
+            f"3-stage chain (vinyl>tape>mp3_low) must produce generation_count >= 3 "
+            f"(got {cal['source_fidelity_generation_count']})"
+        )
+
+        # [RELEASE_MUST] §2.47: multi-generation chain must carry HF loss > 0
+        assert "source_fidelity_hf_loss_db" in cal, (
+            "source_fidelity_hf_loss_db missing from export metadata"
+        )
+        assert cal["source_fidelity_hf_loss_db"] > 0.0, (
+            f"3-stage chain must have cumulative HF loss > 0 dB "
+            f"(got {cal['source_fidelity_hf_loss_db']} dB)"
+        )
+
+# ═══
+    @pytest.mark.timeout(60)
+    def test_transfer_chain_reaches_export_metadata(self):
+        """Full restore() call: source_fidelity_* fields must appear in metadata.
+
+        Proves the §2.41 audit trail survives the entire restore() pipeline:
+          chain_raw → _extract_transfer_chain_from_forensics → _build_song_calibration_profile
+          → metadata["song_calibration"] in RestorationResult.
+
+        Musical-Goals metrics are stubbed to constant passing scores to keep the test
+        within the 60 s timeout (data-flow / audit-trail test; metric correctness is
+        covered by TestMusicalGoalsCheckerIntegration).
+
+        [RELEASE_MUST] §2.41 SourceFidelityReconstructor
+                       §2.46 Carrier-Chain-Inversion
+                       §2.47 Adaptive-Intelligence: chain → gen_count / hf_loss_db in export
+        """
+        from types import SimpleNamespace
+        from unittest.mock import patch
+
+        import numpy as np
+
+        from backend.core.performance_guard import QualityMode
+        from backend.core.unified_restorer_v3 import RestorationConfig, UnifiedRestorerV3
+
+        sr = 48_000
+        t = np.linspace(0, 2.0, int(sr * 2.0), endpoint=False, dtype=np.float32)
+        rng = np.random.default_rng(7)
+        audio = (
+            0.25 * np.sin(2 * np.pi * 220 * t)
+            + 0.15 * np.sin(2 * np.pi * 440 * t)
+            + 0.05 * np.sin(2 * np.pi * 880 * t)
+            + 0.03 * rng.standard_normal(len(t)).astype(np.float32)
+        )
+        audio = np.clip(audio, -1.0, 1.0)
+
+        _ALL_PASSING: dict[str, float] = {
+            "natuerlichkeit": 0.95,
+            "authentizitaet": 0.95,
+            "tonal_center": 0.95,
+            "timbre_authentizitaet": 0.95,
+            "artikulation": 0.95,
+            "emotionalitaet": 0.95,
+            "micro_dynamics": 0.95,
+            "groove": 0.95,
+            "transparenz": 0.95,
+            "waerme": 0.95,
+            "bass_kraft": 0.95,
+            "separation_fidelity": 0.95,
+            "brillanz": 0.95,
+            "spatial_depth": 0.95,
+        }
+
+        _patch_target = "backend.core.musical_goals.musical_goals_metrics.MusicalGoalsChecker.measure_all"
+        _artifact_patch_target = "backend.core.artifact_freedom_gate.ArtifactFreedomGate.evaluate"
+        _execute_patch_target = "backend.core.unified_restorer_v3.UnifiedRestorerV3._execute_pipeline"
+        _feedback_patch_target = "backend.core.feedback_chain.FeedbackChain.run"
+        _artifact_ok = SimpleNamespace(
+            artifact_freedom=1.0,
+            detected_artifacts=[],
+            noise_texture_deviation_db_oct=0.0,
+        )
+        _feedback_ok = SimpleNamespace(
+            audio=audio,
+            metadata={},
+            overall_score=0.95,
+            total_retries=0,
+            iterations=1,
+            total_time_s=0.0,
+            analytics_overhead_s=0.0,
+            phase_executions=[],
+            ceiling_reached=False,
+        )
+        with (
+            patch(_patch_target, return_value=_ALL_PASSING),
+            patch(_artifact_patch_target, return_value=_artifact_ok),
+            patch(_execute_patch_target, return_value=(audio, [], [], [])),
+            patch(_feedback_patch_target, return_value=_feedback_ok),
+        ):
+            restorer = UnifiedRestorerV3(RestorationConfig(mode=QualityMode.FAST))
+            result = restorer.restore(audio, sr)
+
+        assert result is not None, "restore() returned None"
+        assert isinstance(result.metadata, dict), "RestorationResult.metadata must be dict"
+        assert "song_calibration" in result.metadata, (
+            "song_calibration missing from RestorationResult.metadata — "
+            "§2.41 audit trail broken (profile never written to metadata)"
+        )
+
+        cal = result.metadata["song_calibration"]
+
+        assert "source_fidelity_transfer_chain" in cal, (
+            "source_fidelity_transfer_chain missing from metadata['song_calibration'] — "
+            "§2.41 export audit trail broken (chain_raw → SFR → restore() → metadata severed)"
+        )
+        assert isinstance(cal["source_fidelity_transfer_chain"], list), (
+            "source_fidelity_transfer_chain must be a list in export metadata"
+        )
+        assert "source_fidelity_generation_count" in cal, (
+            "source_fidelity_generation_count missing from restore() export metadata"
+        )
+        assert isinstance(cal["source_fidelity_generation_count"], (int, float)), (
+            "source_fidelity_generation_count must be numeric"
+        )
+        assert "source_fidelity_hf_loss_db" in cal, (
+            "source_fidelity_hf_loss_db missing from restore() export metadata"
+        )
+
+# ════════════════════════════════════════════════════════════════════
 # 6. MusicalGoalsChecker Integration
 # ═══════════════════════════════════════════════════════════════════════
+
+
 class TestMusicalGoalsCheckerIntegration:
     """Test MusicalGoalsChecker measures all 14 goals on real audio."""
 

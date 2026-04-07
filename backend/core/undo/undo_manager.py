@@ -418,7 +418,7 @@ class UndoManager:
         if len(self.undo_stack) >= self.max_undo_levels:
             oldest = self.undo_stack.pop(0)
             oldest.cleanup()
-            logger.debug(f"Removed oldest action: {oldest.description}")
+            logger.debug("Removed oldest action: %s", oldest.description)
 
         # Add new action
         self.undo_stack.append(action)
@@ -428,7 +428,7 @@ class UndoManager:
             action.cleanup()
         self.redo_stack.clear()
 
-        logger.info(f"Recorded action: {action.description}")
+        logger.info("Recorded action: %s", action.description)
 
     def undo(self) -> dict[str, Any] | None:
         """
@@ -445,7 +445,7 @@ class UndoManager:
         previous_state = action.revert()
         self.redo_stack.append(action)
 
-        logger.info(f"Undid action: {action.description}")
+        logger.info("Undid action: %s", action.description)
         return previous_state
 
     def redo(self) -> dict[str, Any] | None:
@@ -463,7 +463,7 @@ class UndoManager:
         new_state = action.apply()
         self.undo_stack.append(action)
 
-        logger.info(f"Redid action: {action.description}")
+        logger.info("Redid action: %s", action.description)
         return new_state
 
     def can_undo(self) -> bool:
@@ -590,4 +590,4 @@ if __name__ == "__main__":
     logging.info(f"Reapplied: {state}")
 
     # Memory usage
-    logger.debug(f"\nMemory usage: {manager.get_memory_usage_mb():.2f} MB")
+    logger.debug("\nMemory usage: %.2f MB", manager.get_memory_usage_mb())

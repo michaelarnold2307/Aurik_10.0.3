@@ -154,10 +154,13 @@ class QualityMetricsManager:
         #    Ergebnis erscheint weiterhin unter Key "cdpam" für Backward-Kompatibilität.
         if "cdpam" in metrics:
             try:
-                import soundfile as _sf
+                from backend.file_import import load_audio_file as _load_af
 
-                audio_np_v, sr_v = _sf.read(audio_file, always_2d=False)
-                audio_np_v = audio_np_v.astype(np.float32)
+                _af_res = _load_af(audio_file)
+                if _af_res is None or _af_res.get("error") or _af_res["audio"] is None:
+                    raise RuntimeError(f"Audio-Import fehlgeschlagen: {audio_file}")
+                audio_np_v = _af_res["audio"].astype(np.float32)
+                sr_v = int(_af_res["sr"])
                 if audio_np_v.ndim == 2:
                     audio_np_v = audio_np_v.mean(axis=1)
                 audio_np_v = np.nan_to_num(audio_np_v, nan=0.0, posinf=0.0, neginf=0.0)
@@ -190,9 +193,13 @@ class QualityMetricsManager:
         #    score_audio_absolute() benötigt kein Referenzsignal.
         if "pqs" in metrics and _PQS_AVAILABLE and _pqs_score is not None:
             try:
-                import soundfile as _sf
+                from backend.file_import import load_audio_file as _load_af
 
-                audio_np, sr = _sf.read(audio_file, always_2d=False)
+                _af_res = _load_af(audio_file)
+                if _af_res is None or _af_res.get("error") or _af_res["audio"] is None:
+                    raise RuntimeError(f"Audio-Import fehlgeschlagen: {audio_file}")
+                audio_np = _af_res["audio"]
+                sr = int(_af_res["sr"])
                 if audio_np.ndim == 2:
                     audio_np = audio_np.mean(axis=1)
                 audio_np = audio_np.astype(np.float32)
@@ -255,12 +262,18 @@ class QualityMetricsManager:
         output_path.mkdir(parents=True, exist_ok=True)
 
         try:
-            import soundfile as _sf
+            from backend.file_import import load_audio_file as _load_af
 
-            ref_audio, ref_sr = _sf.read(reference_file, always_2d=False)
-            deg_audio, deg_sr = _sf.read(degraded_file, always_2d=False)
-            ref_audio = np.asarray(ref_audio, dtype=np.float32)
-            deg_audio = np.asarray(deg_audio, dtype=np.float32)
+            _ref_res = _load_af(reference_file)
+            _deg_res = _load_af(degraded_file)
+            if _ref_res is None or _ref_res.get("error") or _ref_res["audio"] is None:
+                raise RuntimeError(f"Reference Audio-Import fehlgeschlagen: {reference_file}")
+            if _deg_res is None or _deg_res.get("error") or _deg_res["audio"] is None:
+                raise RuntimeError(f"Degraded Audio-Import fehlgeschlagen: {degraded_file}")
+            ref_audio = np.asarray(_ref_res["audio"], dtype=np.float32)
+            deg_audio = np.asarray(_deg_res["audio"], dtype=np.float32)
+            ref_sr = int(_ref_res["sr"])
+            deg_sr = int(_deg_res["sr"])
             if ref_audio.ndim == 2:
                 ref_audio = ref_audio.mean(axis=1)
             if deg_audio.ndim == 2:
@@ -283,11 +296,11 @@ class QualityMetricsManager:
                 "degraded_file": Path(degraded_file).name,
             }
 
-            logger.info(f"✓ ViSQOL: MOS-LQO={mos_raw:.2f}/5.0")
+            logger.info("✓ ViSQOL: MOS-LQO=%.2f/5.0", mos_raw)
             return result
 
         except Exception as e:
-            logger.warning(f"ViSQOL assessment failed: {e}")
+            logger.warning("ViSQOL assessment failed: %s", e)
             return {"error": str(e)}
 
     def assess_comprehensive(
@@ -319,7 +332,7 @@ class QualityMetricsManager:
                 # Update aggregate mit ViSQOL
                 results["aggregate"] = self._compute_aggregate(results["metrics"], include_visqol=True)
             except Exception as e:
-                logger.warning(f"ViSQOL nicht verfügbar: {e}")
+                logger.warning("ViSQOL nicht verfügbar: %s", e)
 
         return results
 
@@ -478,7 +491,7 @@ class QualityMetricsManager:
         if output_file:
             with open(output_file, "w") as f:
                 json.dump(results, f, indent=2)
-            logger.info(f"✓ Report saved: {output_file}")
+            logger.info("✓ Report saved: %s", output_file)
 
         return report
 

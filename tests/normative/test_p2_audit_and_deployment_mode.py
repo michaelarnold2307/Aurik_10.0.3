@@ -136,6 +136,25 @@ class TestAMRBAuditability:
         for sid, scenario_data in d["scenarios"].items():
             assert "scenario_type" in scenario_data, f"Szenario '{sid}' in as_dict() fehlt: scenario_type"
 
+    def test_p2_1_items_include_fallback_and_exception_flags(self):
+        """AMRB-Items müssen technische Audit-Flags für Hörtest-Gates enthalten."""
+        report = self._minimal_report()
+        d = report.as_dict()
+        for sid, scenario_data in d["scenarios"].items():
+            for idx, item in enumerate(scenario_data.get("items", [])):
+                assert "mushra_fallback_used" in item, (
+                    f"Szenario '{sid}' Item {idx} fehlt: mushra_fallback_used"
+                )
+                assert "restoration_exception" in item, (
+                    f"Szenario '{sid}' Item {idx} fehlt: restoration_exception"
+                )
+                assert isinstance(item["mushra_fallback_used"], bool), (
+                    f"Szenario '{sid}' Item {idx}: mushra_fallback_used muss bool sein"
+                )
+                assert isinstance(item["restoration_exception"], bool), (
+                    f"Szenario '{sid}' Item {idx}: restoration_exception muss bool sein"
+                )
+
     def test_p2_1_as_dict_includes_external_validation_block(self):
         """AMRB-Bericht enthält External-Validation-Readiness-Felder."""
         report = self._minimal_report()

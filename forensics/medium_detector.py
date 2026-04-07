@@ -162,6 +162,12 @@ class MediumDetectionResult:
     classification_result: object | None = None
     """ClassificationResult aus MediumClassifier (für cached_medium_result)."""
 
+    dolby_nr_type: str = "none"
+    """Erkannter Dolby/DBX NR-Typ: 'dolby_b'|'dolby_c'|'dolby_s'|'dbx_i'|'dbx_ii'|'none'."""
+
+    dolby_nr_confidence: float = 0.0
+    """Konfidenz der Dolby-NR-Erkennung ∈ [0, 1]."""
+
     @property
     def chain_label(self) -> str:
         return " → ".join(self.transfer_chain) if self.transfer_chain else "unknown"
@@ -177,6 +183,8 @@ class MediumDetectionResult:
             "spectral_fingerprint": self.spectral_fingerprint.as_dict(),
             "evidence": self.evidence,
             "bayesian_scores": self.bayesian_scores,
+            "dolby_nr_type": self.dolby_nr_type,
+            "dolby_nr_confidence": self.dolby_nr_confidence,
         }
 
 
@@ -206,6 +214,8 @@ class MediumDetector:
     _CODEC_ARTIFACT_THRESHOLD: float = 0.15  # ab hier: Codec-Layer erkannt
     _ANALOG_POSTERIOR_MIN: float = 0.08  # Mindest-Posterior für Analog-Layer
     _SECONDARY_ANALOG_MIN: float = 0.08  # Mindest-Posterior für 2. Analog-Stufe
+    _MAX_ANALOG_CHAIN_DEPTH: int = 4  # inkl. Primärquelle; erlaubt 3+ Transfer-Layer
+    _SAME_ORDER_ANALOG_MIN: float = 0.22  # konservativer Guard für gleichrangige Analog-Stufen
 
     # Analog-Materialtypen — können als Primärquelle in Ketten vorkommen
     _ANALOG_MATERIALS: frozenset[str] = frozenset(
@@ -1200,35 +1210,66 @@ class MediumDetector:
                     f"crackle={fp.crackle_density:.4f})"
                 )
 
-                # Secondary analog layer? (e.g. vinyl → tape dubbing)
-                # Zuerst: Bayesian-Posteriors (nicht genullt)
-                _secondary_added = False
+                # Build a deeper analog chain from Bayesian + physical cues.
+                # This allows multi-generation chains beyond one secondary layer.
+                _candidate_scores: dict[str, float] = {}
+                _candidate_sources: dict[str, str] = {}
                 for mat2, score2 in top_materials:
-                    if (
-                        mat2 != best_analog
-                        and mat2 in self._ANALOG_MATERIALS
-                        and score2 >= self._SECONDARY_ANALOG_MIN
-                        and self._MEDIUM_ORDER.get(mat2, 0) > self._MEDIUM_ORDER.get(best_analog, 0)
-                    ):
-                        chain.append(mat2)
-                        chain_confidences.append(score2)
-                        evidence.append(f"Sekundäre Analog-Stufe: {mat2} (posterior={score2:.3f})")
-                        _secondary_added = True
+                    if mat2 == best_analog or mat2 not in self._ANALOG_MATERIALS or score2 < self._SECONDARY_ANALOG_MIN:
+                        continue
+                    _candidate_scores[mat2] = float(score2)
+                    _candidate_sources[mat2] = "posterior"
+
+                for phys_mat, phys_conf in _physical_analog_sources[1:]:
+                    if phys_mat == best_analog:
+                        continue
+                    _prev = _candidate_scores.get(phys_mat)
+                    if _prev is None or phys_conf > _prev:
+                        _candidate_scores[phys_mat] = float(phys_conf)
+                        _candidate_sources[phys_mat] = "physical"
+                    else:
+                        _candidate_sources[phys_mat] = _candidate_sources.get(phys_mat, "posterior") + "+physical"
+
+                _analog_depth = 1
+                _last_order = self._MEDIUM_ORDER.get(best_analog, 0)
+                for mat2 in sorted(
+                    _candidate_scores,
+                    key=lambda _m: (self._MEDIUM_ORDER.get(_m, 99), -_candidate_scores[_m]),
+                ):
+                    if _analog_depth >= self._MAX_ANALOG_CHAIN_DEPTH:
                         break
-                # Fallback: Physical-inference secondary layer (wenn Posteriors genullt)
-                if not _secondary_added and len(_physical_analog_sources) > 1:
-                    for phys_mat, phys_conf in _physical_analog_sources[1:]:
-                        if phys_mat != best_analog and self._MEDIUM_ORDER.get(phys_mat, 0) > self._MEDIUM_ORDER.get(
-                            best_analog, 0
-                        ):
-                            chain.append(phys_mat)
-                            chain_confidences.append(phys_conf)
-                            evidence.append(
-                                f"Sekundäre Analog-Stufe (physical): {phys_mat} "
-                                f"(wow_flutter={fp.wow_flutter_index:.3f}, "
-                                f"crackle={fp.crackle_density:.4f})"
-                            )
-                            break
+                    if mat2 in chain:
+                        continue
+
+                    _order2 = self._MEDIUM_ORDER.get(mat2, 99)
+                    _score2 = float(_candidate_scores[mat2])
+                    _src2 = _candidate_sources.get(mat2, "posterior")
+
+                    # Keep chain order causal: no backward jumps.
+                    if _order2 < _last_order:
+                        continue
+
+                    # Same-order links are only accepted with stronger evidence.
+                    if _order2 == _last_order and _score2 < self._SAME_ORDER_ANALOG_MIN:
+                        continue
+
+                    chain.append(mat2)
+                    chain_confidences.append(_score2)
+                    evidence.append(f"Sekundäre Analog-Stufe ({_src2}): {mat2} (conf={_score2:.3f})")
+                    _analog_depth += 1
+                    _last_order = _order2
+
+                # Optional digital lossless intermediate (e.g. vinyl→tape→cd_digital→mp3).
+                if (
+                    best_digital
+                    and best_digital not in chain
+                    and self._MEDIUM_ORDER.get(best_digital, 99) >= _last_order
+                    and best_digital_score >= self._ANALOG_POSTERIOR_MIN
+                ):
+                    chain.append(best_digital)
+                    chain_confidences.append(best_digital_score)
+                    evidence.append(f"Digitale Zwischenstufe: {best_digital} (posterior={best_digital_score:.3f})")
+                    _last_order = self._MEDIUM_ORDER.get(best_digital, _last_order)
 
             # ── Codec-Layer anhängen ──────────────────────────────────
             if has_codec_artifacts or (
@@ -1243,13 +1284,14 @@ class MediumDetector:
                 else:
                     codec_name = "mp3_high"
                     codec_conf = 0.35
-                chain.append(codec_name)
-                chain_confidences.append(codec_conf)
-                evidence.append(
-                    f"Codec-Stufe: {codec_name} "
-                    f"(artifact={fp.codec_artifact_score:.3f}, "
-                    f"eff_bw={fp.effective_bandwidth_hz:.0f} Hz)"
-                )
+                if codec_name not in chain:
+                    chain.append(codec_name)
+                    chain_confidences.append(codec_conf)
+                    evidence.append(
+                        f"Codec-Stufe: {codec_name} "
+                        f"(artifact={fp.codec_artifact_score:.3f}, "
+                        f"eff_bw={fp.effective_bandwidth_hz:.0f} Hz)"
+                    )
 
         # ── Fallback ─────────────────────────────────────────────────
         if not chain:
@@ -1266,7 +1308,18 @@ class MediumDetector:
         # §6.1 [RELEASE_MUST] Material-Key-Normalisierung (v9.10.101):
         # MediumDetector interne Bayesian-Schlüssel → SUPPORTED_MATERIALS-konforme Schlüssel.
         # Betrifft alle Elemente der transfer_chain, nicht nur primary.
-        chain = [self._normalize_material_key(k) for k in chain]
+        _normalized_chain: list[str] = []
+        _normalized_confidences: list[float] = []
+        for _mat, _conf in zip(chain, chain_confidences):
+            _norm = self._normalize_material_key(_mat)
+            _safe_conf = float(np.clip(_conf, 0.0, 1.0))
+            if _normalized_chain and _normalized_chain[-1] == _norm:
+                _normalized_confidences[-1] = max(_normalized_confidences[-1], _safe_conf)
+                continue
+            _normalized_chain.append(_norm)
+            _normalized_confidences.append(_safe_conf)
+        chain = _normalized_chain
+        chain_confidences = _normalized_confidences
 
         primary = chain[0]
         is_multi = len(chain) > 1
@@ -1306,7 +1359,7 @@ class MediumDetector:
             ", ".join(f"{m}={s:.3f}" for m, s in list(posteriors.items())[:3]),
         )
 
-        return MediumDetectionResult(
+        result = MediumDetectionResult(
             transfer_chain=chain,
             is_multi_generation=is_multi,
             primary_material=primary,
@@ -1317,6 +1370,30 @@ class MediumDetector:
             bayesian_scores=posteriors,
             classification_result=classification_result,
         )
+
+        # §6.7 Dolby / DBX NR detection for tape-chain material
+        _tape_types = {"tape", "reel_tape", "wire_recording"}
+        if primary in _tape_types or any(m in _tape_types for m in chain):
+            try:
+                from backend.core.dolby_nr_detector import get_dolby_nr_detector as _get_dolby
+                era_decade = None
+                _dolby_det = _get_dolby().detect(audio, sr, material_type=primary)
+                if _dolby_det.detected:
+                    result.dolby_nr_type = _dolby_det.nr_type
+                    result.dolby_nr_confidence = _dolby_det.confidence
+                    result.evidence.append(
+                        f"Dolby/DBX NR detected: {_dolby_det.nr_type} "
+                        f"({_dolby_det.confidence:.0%} konfident, "
+                        f"HF-Überschuss {_dolby_det.hf_excess_db:.1f} dB)"
+                    )
+                    logger.info(
+                        "MediumDetector: Dolby NR detected type=%s conf=%.2f hf_excess=%.1f dB",
+                        _dolby_det.nr_type, _dolby_det.confidence, _dolby_det.hf_excess_db,
+                    )
+            except Exception as exc:
+                logger.debug("MediumDetector: Dolby NR detection skipped (%s)", exc)
+
+        return result
 
     # ── Hilfsmethoden ────────────────────────────────────────────────────
 

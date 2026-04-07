@@ -208,7 +208,7 @@ class SemanticAudioAnalyzer:
             audio_mono = audio
 
         duration = len(audio_mono) / sr
-        logger.debug(f"Analyzing {duration:.2f}s audio semantically")
+        logger.debug("Analyzing %.2fs audio semantically", duration)
 
         # 1. Detect instruments
         instruments = self._detect_instruments(audio_mono, sr)

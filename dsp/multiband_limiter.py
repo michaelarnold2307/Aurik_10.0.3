@@ -102,7 +102,7 @@ class MultibandLimiter:
                 out = np.sum(np.stack(processed, axis=0), axis=0)
                 maxval = np.max(np.abs(out))
                 if maxval > 1.0:
-                    out = out * (0.999 / maxval)
+                    out = np.clip(out, -1.0, 1.0)
                 self._audit_log({"bands": self.bands, "shape": out.shape, "success": True})
                 return np.clip(np.nan_to_num(out, nan=0.0, posinf=0.0, neginf=0.0), -1.0, 1.0).astype(orig_dtype)
             else:

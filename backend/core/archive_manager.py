@@ -76,7 +76,7 @@ class ArchiveManager:
         # Create directory structure
         self._ensure_directory_structure()
 
-        logger.info(f"ArchiveManager initialized: base_path={self.base_path}")
+        logger.info("ArchiveManager initialized: base_path=%s", self.base_path)
 
     def _ensure_directory_structure(self) -> None:
         """Create archive directory structure if it doesn't exist."""
@@ -88,7 +88,7 @@ class ArchiveManager:
             self.models_path,
         ]:
             directory.mkdir(parents=True, exist_ok=True)
-            logger.debug(f"Ensured directory exists: {directory}")
+            logger.debug("Ensured directory exists: %s", directory)
 
     @staticmethod
     def calculate_file_hash(file_path: str) -> str:
@@ -135,7 +135,7 @@ class ArchiveManager:
             os.remove(dest)
             raise ValueError(f"File copy integrity check failed: {src} -> {dest}")
 
-        logger.debug(f"File copied and verified: {src} -> {dest} (hash: {src_hash[:8]}...)")
+        logger.debug("File copied and verified: %s -> %s (hash: %s...)", src, dest, src_hash[:8])
         return dest_hash
 
     def _create_retention_metadata(
@@ -186,7 +186,7 @@ class ArchiveManager:
             raise ValueError(f"Job {job.job_id} is already archived at {job.archive_path}")
 
         job_id_str = str(job.job_id)
-        logger.info(f"Archiving job {job_id_str}...")
+        logger.info("Archiving job %s...", job_id_str)
 
         try:
             # 1. Archive original file (permanent)
@@ -206,7 +206,7 @@ class ArchiveManager:
                     f"Input file hash mismatch: expected {job.input_file.file_hash[:8]}..., got {orig_hash[:8]}..."
                 )
 
-            logger.info(f"Archived original: {orig_dest}")
+            logger.info("Archived original: %s", orig_dest)
 
             # 2. Archive intermediate files (90-day retention)
             inter_dir = self.intermediates_dir / job_id_str
@@ -214,20 +214,20 @@ class ArchiveManager:
 
             for idx, inter_file in enumerate(job.intermediate_files):
                 if not os.path.exists(inter_file.file_path):
-                    logger.warning(f"Intermediate file not found, skipping: {inter_file.file_path}")
+                    logger.warning("Intermediate file not found, skipping: %s", inter_file.file_path)
                     continue
 
                 inter_ext = Path(inter_file.file_path).suffix
                 inter_dest = inter_dir / f"step_{idx:03d}{inter_ext}"
                 self._copy_file_with_verification(inter_file.file_path, str(inter_dest))
-                logger.debug(f"Archived intermediate {idx}: {inter_dest}")
+                logger.debug("Archived intermediate %s: %s", idx, inter_dest)
 
             # Create retention metadata
             retention_data = self._create_retention_metadata(job.job_id, job.created_at)
             retention_path = inter_dir / "retention.json"
             with open(retention_path, "w") as f:
                 json.dump(retention_data, f, indent=2)
-            logger.info(f"Created retention metadata: {retention_path}")
+            logger.info("Created retention metadata: %s", retention_path)
 
             # 3. Archive output file (permanent)
             if job.output_file:
@@ -235,7 +235,7 @@ class ArchiveManager:
                 out_dir.mkdir(parents=True, exist_ok=True)
 
                 if not os.path.exists(job.output_file.file_path):
-                    logger.warning(f"Output file not found: {job.output_file.file_path}")
+                    logger.warning("Output file not found: %s", job.output_file.file_path)
                 else:
                     out_ext = Path(job.output_file.file_path).suffix
                     out_dest = out_dir / f"output{out_ext}"
@@ -247,23 +247,23 @@ class ArchiveManager:
                             f"Output file hash mismatch: expected {job.output_file.file_hash[:8]}..., got {out_hash[:8]}..."
                         )
 
-                    logger.info(f"Archived output: {out_dest}")
+                    logger.info("Archived output: %s", out_dest)
 
             # 4. Archive full job report (permanent JSON)
             report_path = self.reports_dir / f"{job_id_str}.json"
             with open(report_path, "w") as f:
                 json.dump(job.model_dump(), f, indent=2, default=str)
-            logger.info(f"Archived job report: {report_path}")
+            logger.info("Archived job report: %s", report_path)
 
             # Update job metadata
             job.archived = True
             job.archive_path = str(self.base_path / job_id_str)
 
-            logger.info(f"Job {job_id_str} successfully archived to {job.archive_path}")
+            logger.info("Job %s successfully archived to %s", job_id_str, job.archive_path)
             return job.archive_path
 
         except Exception as e:
-            logger.error(f"Failed to archive job {job_id_str}: {e}")
+            logger.error("Failed to archive job %s: %s", job_id_str, e)
             raise
 
     def retrieve_job(self, job_id: UUID) -> ResturationJob | None:
@@ -280,7 +280,7 @@ class ArchiveManager:
         report_path = self.reports_dir / f"{job_id_str}.json"
 
         if not report_path.exists():
-            logger.warning(f"Job report not found: {report_path}")
+            logger.warning("Job report not found: %s", report_path)
             return None
 
         try:
@@ -289,11 +289,11 @@ class ArchiveManager:
 
             # Reconstruct ResturationJob from JSON
             job = ResturationJob(**job_data)
-            logger.info(f"Retrieved job {job_id_str} from archive")
+            logger.info("Retrieved job %s from archive", job_id_str)
             return job
 
         except Exception as e:
-            logger.error(f"Failed to retrieve job {job_id_str}: {e}")
+            logger.error("Failed to retrieve job %s: %s", job_id_str, e)
             return None
 
     def cleanup_expired_intermediates(self, dry_run: bool = False) -> tuple[int, list[str]]:
@@ -310,7 +310,7 @@ class ArchiveManager:
         deleted_count = 0
         deleted_paths = []
 
-        logger.info(f"Starting intermediate cleanup (dry_run={dry_run})...")
+        logger.info("Starting intermediate cleanup (dry_run=%s)...", dry_run)
 
         for job_dir in self.intermediates_dir.iterdir():
             if not job_dir.is_dir():
@@ -318,7 +318,7 @@ class ArchiveManager:
 
             retention_path = job_dir / "retention.json"
             if not retention_path.exists():
-                logger.warning(f"No retention.json found in {job_dir}, skipping")
+                logger.warning("No retention.json found in %s, skipping", job_dir)
                 continue
 
             try:
@@ -327,7 +327,7 @@ class ArchiveManager:
 
                 expire_at_str = retention_data.get("expire_at")
                 if not expire_at_str:
-                    logger.warning(f"No expire_at in retention.json for {job_dir}, skipping")
+                    logger.warning("No expire_at in retention.json for %s, skipping", job_dir)
                     continue
 
                 expire_at = datetime.fromisoformat(expire_at_str)
@@ -335,20 +335,20 @@ class ArchiveManager:
                 if now > expire_at:
                     # Retention period expired
                     if dry_run:
-                        logger.info(f"[DRY RUN] Would delete: {job_dir}")
+                        logger.info("[DRY RUN] Would delete: %s", job_dir)
                         deleted_paths.append(str(job_dir))
                         deleted_count += 1
                     else:
                         shutil.rmtree(job_dir)
-                        logger.info(f"Deleted expired intermediates: {job_dir}")
+                        logger.info("Deleted expired intermediates: %s", job_dir)
                         deleted_paths.append(str(job_dir))
                         deleted_count += 1
                 else:
                     days_remaining = (expire_at - now).days
-                    logger.debug(f"{job_dir}: {days_remaining} days remaining until expiration")
+                    logger.debug("%s: %s days remaining until expiration", job_dir, days_remaining)
 
             except Exception as e:
-                logger.error(f"Error processing {job_dir}: {e}")
+                logger.error("Error processing %s: %s", job_dir, e)
                 continue
 
         logger.info(
@@ -477,7 +477,7 @@ class ArchiveManager:
                 )
 
             except Exception as e:
-                logger.warning(f"Failed to read job report {report_path}: {e}")
+                logger.warning("Failed to read job report %s: %s", report_path, e)
                 continue
 
         # Sort by creation time (newest first)
@@ -510,7 +510,7 @@ class ArchiveManager:
         archive_dest = self.models_path / archive_name
 
         if archive_dest.exists():
-            logger.info(f"Model version already archived: {archive_dest}")
+            logger.info("Model version already archived: %s", archive_dest)
             return str(archive_dest)
 
         archive_dest.mkdir(parents=True, exist_ok=True)
@@ -533,7 +533,7 @@ class ArchiveManager:
         with open(metadata_path, "w") as f:
             json.dump(metadata, f, indent=2)
 
-        logger.info(f"Archived model {model_name} v{model_version} to {archive_dest}")
+        logger.info("Archived model %s v%s to %s", model_name, model_version, archive_dest)
         return str(archive_dest)
 
 

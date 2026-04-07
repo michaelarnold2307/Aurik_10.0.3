@@ -162,7 +162,7 @@ class ConductEnforcer:
             ...     context={'medium_type': 'vinyl', 'zone': 'A'}
             ... )
             >>> if not result.allowed:
-            ...     logger.debug(f"Hard Stop: {result.reason}")
+            logger.debug("Hard Stop: %s", result.reason)
             ...     # Skip processing or rollback
         """
         context = context or {}
@@ -374,7 +374,7 @@ class ConductEnforcer:
             ...     context={'medium_type': 'vinyl'}
             ... )
             >>> if not allowed:
-            ...     logger.debug(f"Goal violation: {reason}")
+            logger.debug("Goal violation: %s", reason)
         """
         context = context or {}
 
@@ -489,7 +489,7 @@ class ConductEnforcer:
                 with open(self.audit_log_path, "w") as f:
                     json.dump(audit_log, f, indent=2)
             except Exception as e:
-                logger.debug(f"Warning: Could not write to audit log: {e}")
+                logger.debug("Warning: Could not write to audit log: %s", e)
 
     def get_decision_history(self) -> list[ValidationResult]:
         """Returns complete decision history for Timeline visualization."""
@@ -563,9 +563,9 @@ if __name__ == "__main__":
         },
         context={"medium_type": "vinyl", "zone": "A"},
     )
-    logger.debug(f"Allowed: {result.allowed}")
-    logger.debug(f"Reason: {result.reason}")
-    logger.debug(f"Zone: {result.zone.name}\n")
+    logger.debug("Allowed: %s", result.allowed)
+    logger.debug("Reason: %s", result.reason)
+    logger.debug("Zone: %s\n", result.zone.name)
 
     # Test Case 2: High uncertainty (should block)
     logger.debug("Test 2: High Uncertainty")
@@ -579,8 +579,8 @@ if __name__ == "__main__":
         musical_goals_predicted={"brillanz": 0.85, "waerme": 0.87},
         context={},
     )
-    logger.debug(f"Allowed: {result2.allowed}")
-    logger.debug(f"Reason: {result2.reason}\n")
+    logger.debug("Allowed: %s", result2.allowed)
+    logger.debug("Reason: %s\n", result2.reason)
 
     # Test Case 3: Musical goal violation (should block)
     logger.debug("Test 3: Musical Goal Violation")
@@ -594,13 +594,13 @@ if __name__ == "__main__":
         musical_goals_predicted={"brillanz": 0.65, "authentizitaet": 0.88},  # Brillanz < 0.70 hard stop!
         context={},
     )
-    logger.debug(f"Allowed: {result3.allowed}")
-    logger.debug(f"Reason: {result3.reason}\n")
+    logger.debug("Allowed: %s", result3.allowed)
+    logger.debug("Reason: %s\n", result3.reason)
 
     # Statistics
     logger.debug("=== Statistics ===")
     stats = enforcer.get_statistics()
-    logger.debug(f"Total validations: {stats['total']}")
-    logger.debug(f"Allowed: {stats['allowed']}")
-    logger.debug(f"Blocked: {stats['blocked']}")
-    logger.debug(f"Block rate: {stats['block_rate']:.1%}")
+    logger.debug("Total validations: %s", stats['total'])
+    logger.debug("Allowed: %s", stats['allowed'])
+    logger.debug("Blocked: %s", stats['blocked'])
+    logger.debug("Block rate: %s", format(stats['block_rate'], '.1%'))

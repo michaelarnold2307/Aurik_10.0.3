@@ -116,11 +116,17 @@ class MpSenetPlugin:
             import onnxruntime as ort
 
             try:
+                from backend.core.ml_memory_budget import release as _release
                 from backend.core.ml_memory_budget import try_allocate as _try_alloc
 
                 if not _try_alloc("MP-SENet", size_gb=0.04):
-                    logger.warning("MP-SENet: ML-Budget erschöpft — DSP-Fallback.")
-                    return
+                    try:
+                        _release("MP-SENet")
+                    except Exception:
+                        pass
+                    if not _try_alloc("MP-SENet", size_gb=0.04):
+                        logger.warning("MP-SENet: ML-Budget erschöpft — DSP-Fallback.")
+                        return
             except Exception as _exc:
                 logger.debug("Operation failed (non-critical): %s", _exc)
 

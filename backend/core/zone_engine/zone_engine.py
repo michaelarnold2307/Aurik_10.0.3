@@ -54,7 +54,7 @@ class ZoneEngine:
     Example:
         >>> engine = ZoneEngine()
         >>> classification = engine.classify_zone(confidence=0.85)
-        >>> logger.debug(f"Zone: {classification.zone.name}, CAS multiplier: {classification.cas_multiplier}")
+        logger.debug("Zone: %s, CAS multiplier: %s", classification.zone.name, classification.cas_multiplier)
         Zone: B, CAS multiplier: 0.7
         >>>
         >>> goals = engine.get_musical_goals_for_zone(zone=Zone.B, medium='vinyl')

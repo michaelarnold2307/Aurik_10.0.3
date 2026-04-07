@@ -139,7 +139,7 @@ class KIQualityAnalyzer:
             return float(final_score)
 
         except Exception as e:
-            self.logger.error(f"KI-Quality Chain Analysis failed: {e}", exc_info=True)
+            logger.error("KI-Quality Chain Analysis failed: %s", e, exc_info=True)
             # Fallback zu alter Logik wenn vorhanden
             if processing_chain is not None and forensic_analysis is not None:
                 return self._fallback_chain_analysis(processing_chain, forensic_analysis)
@@ -163,7 +163,7 @@ class KIQualityAnalyzer:
             return np.clip(quality_score, 0.0, 1.0)
 
         except Exception as e:
-            self.logger.warning(f"Fallback chain analysis failed: {e}")
+            logger.warning("Fallback chain analysis failed: %s", e)
             return 0.5
 
     # ============================================================================
@@ -226,7 +226,7 @@ class KIQualityAnalyzer:
             return float(np.clip(clarity_score, 0.0, 1.0))
 
         except Exception as e:
-            self.logger.warning(f"Spectral clarity measurement failed: {e}")
+            logger.warning("Spectral clarity measurement failed: %s", e)
             return 0.7  # Neutral fallback
 
     def _measure_thd(self, audio: np.ndarray, sr: int) -> float:
@@ -281,7 +281,7 @@ class KIQualityAnalyzer:
             return float(thd_normalized)
 
         except Exception as e:
-            self.logger.warning(f"THD measurement failed: {e}")
+            logger.warning("THD measurement failed: %s", e)
             return 0.05  # Low distortion fallback
 
     def _measure_dynamic_range(self, audio: np.ndarray) -> float:
@@ -321,7 +321,7 @@ class KIQualityAnalyzer:
             return float(dr_score)
 
         except Exception as e:
-            self.logger.warning(f"Dynamic range measurement failed: {e}")
+            logger.warning("Dynamic range measurement failed: %s", e)
             return 0.5  # Medium fallback
 
     def _measure_snr(self, audio: np.ndarray, sr: int) -> float:
@@ -373,7 +373,7 @@ class KIQualityAnalyzer:
             return float(snr_score)
 
         except Exception as e:
-            self.logger.warning(f"SNR measurement failed: {e}")
+            logger.warning("SNR measurement failed: %s", e)
             return 0.7  # Good fallback
 
     def _measure_transient_quality(self, audio: np.ndarray, sr: int) -> float:
@@ -412,7 +412,7 @@ class KIQualityAnalyzer:
             return float(transient_score)
 
         except Exception as e:
-            self.logger.warning(f"Transient quality measurement failed: {e}")
+            logger.warning("Transient quality measurement failed: %s", e)
             return 0.75  # Good fallback
 
     def _measure_phase_coherence(self, audio_stereo: np.ndarray) -> float:
@@ -452,7 +452,7 @@ class KIQualityAnalyzer:
             return float(score)
 
         except Exception as e:
-            self.logger.warning(f"Phase coherence measurement failed: {e}")
+            logger.warning("Phase coherence measurement failed: %s", e)
             return 0.8  # Good fallback
 
     # ============================================================================
@@ -488,7 +488,7 @@ class KIQualityAnalyzer:
             return np.clip(score, 0.0, 1.0)
 
         except Exception as e:
-            self.logger.warning(f"KI-Quality Digital Analysis failed: {e}")
+            logger.warning("KI-Quality Digital Analysis failed: %s", e)
             return 0.7  # Positive fallback
 
     def analyze_multi_track_metrics(self, mt_metrics: dict, audio: np.ndarray) -> float:
@@ -520,7 +520,7 @@ class KIQualityAnalyzer:
             return np.clip(score, 0.0, 1.0)
 
         except Exception as e:
-            self.logger.warning(f"KI-Quality Multi-Track Analysis failed: {e}")
+            logger.warning("KI-Quality Multi-Track Analysis failed: %s", e)
             return 0.7  # Positive fallback
 
     def analyze_mono_to_stereo_metrics(self, metrics: dict, audio: np.ndarray) -> float:
@@ -551,7 +551,7 @@ class KIQualityAnalyzer:
             return np.clip(score, 0.0, 1.0)
 
         except Exception as e:
-            self.logger.warning(f"KI-Quality Mono-to-Stereo Analysis failed: {e}")
+            logger.warning("KI-Quality Mono-to-Stereo Analysis failed: %s", e)
             return 0.75
 
     def analyze_spectral_metrics(self, metrics: dict, audio: np.ndarray) -> float:
@@ -579,7 +579,7 @@ class KIQualityAnalyzer:
             return np.clip(quality_score, 0.0, 1.0)
 
         except Exception as e:
-            self.logger.warning(f"KI-Quality Spectral Analysis failed: {e}")
+            logger.warning("KI-Quality Spectral Analysis failed: %s", e)
             return 0.7
 
     def analyze_audio_quality(self, audio: np.ndarray, sr: int, metrics: dict | None = None) -> float:
@@ -601,7 +601,7 @@ class KIQualityAnalyzer:
             return self.analyze_chain(audio, sr, processing_chain=None, forensic_analysis=None)
 
         except Exception as e:
-            self.logger.warning(f"KI-Quality Audio Analysis failed: {e}")
+            logger.warning("KI-Quality Audio Analysis failed: %s", e)
             return 0.6
 
     def analyze_multitrack_metrics(self, metrics: dict[str, Any], audio: np.ndarray | None = None) -> float:
@@ -658,7 +658,7 @@ class KIQualityAnalyzer:
             return float(np.clip(score, 0.0, 1.0))
 
         except Exception as e:
-            self.logger.error(f"Multitrack-Metrik-Analyse fehlgeschlagen: {e}")
+            logger.error("Multitrack-Metrik-Analyse fehlgeschlagen: %s", e)
             return 0.8  # Conservative fallback
 
     def analyze_tape_metrics(self, metrics: dict[str, Any], audio: np.ndarray | None = None) -> float:
@@ -696,7 +696,7 @@ class KIQualityAnalyzer:
             return float(np.clip(score, 0.0, 1.0))
 
         except Exception as e:
-            self.logger.error(f"Tape-Metrik-Analyse fehlgeschlagen: {e}")
+            logger.error("Tape-Metrik-Analyse fehlgeschlagen: %s", e)
             return 0.85  # Conservative fallback
 
 

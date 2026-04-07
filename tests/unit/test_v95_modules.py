@@ -1141,6 +1141,7 @@ class TestOptimizeForExcellenceMaterial:
         out, rep = optimize_for_excellence(audio, 48000, material="tape")
         assert out.shape == audio.shape
 
+    @pytest.mark.ml
     def test_all_materials_run_without_error(self):
         from backend.core.excellence_optimizer import optimize_for_excellence
 

@@ -82,17 +82,17 @@ class AdaptiveSplineInterpolation:
         """
         allowed_kinds = ["linear", "cubic", "quadratic"]
         if kind not in allowed_kinds:
-            logger.error(f"Ungültige Interpolationsart: {kind}. Erlaubt: {allowed_kinds}")
+            logger.error("Ungültige Interpolationsart: %s. Erlaubt: %s", kind, allowed_kinds)
             raise ValueError(f"kind muss in {allowed_kinds} liegen.")
         self.kind = kind
-        logger.info(f"AdaptiveSplineInterpolation initialisiert mit kind={self.kind}")
+        logger.info("AdaptiveSplineInterpolation initialisiert mit kind=%s", self.kind)
 
     def log_contract(self):
         """
         Gibt den DSPContract für Auditierbarkeit aus (Log + Print).
         """
         contract_dict = asdict(adaptive_spline_contract)
-        logger.info(f"[DSPContract] {contract_dict}")
+        logger.info("[DSPContract] %s", contract_dict)
 
     def interpolate(
         self, x: np.ndarray, mask: np.ndarray, use_deep_learning: bool = False, audit_log: bool = True
@@ -116,7 +116,7 @@ class AdaptiveSplineInterpolation:
             logger.error("x oder mask ist leer")
             raise ValueError("x oder mask ist leer")
         if x.shape != mask.shape:
-            logger.error(f"Shape mismatch: x {x.shape}, mask {mask.shape}")
+            logger.error("Shape mismatch: x %s, mask %s", x.shape, mask.shape)
             raise ValueError(f"Shape mismatch: x {x.shape}, mask {mask.shape}")
         if np.isnan(x).any() or np.isnan(mask).any():
             logger.error("x oder mask enthält NaN-Werte")
@@ -141,7 +141,7 @@ class AdaptiveSplineInterpolation:
             else:
                 output = self._interpolate_classic(x, mask)
         except Exception as e:
-            logger.error(f"Fehler bei Spline-Interpolation: {e}", exc_info=True)
+            logger.error("Fehler bei Spline-Interpolation: %s", e, exc_info=True)
             fallback_used = True
             output = x.copy()
 
@@ -150,7 +150,7 @@ class AdaptiveSplineInterpolation:
             logger.info(
                 f"AdaptiveSplineInterpolation: interpolation_error={interpolation_error:.6f}, fallback_used={fallback_used}, kind={self.kind}"
             )
-            logger.info(f"[DSPContract] {asdict(adaptive_spline_contract)}")
+            logger.info("[DSPContract] %s", asdict(adaptive_spline_contract))
         return output
 
     def _interpolate_classic(self, x: np.ndarray, mask: np.ndarray) -> np.ndarray:
@@ -170,4 +170,4 @@ class AdaptiveSplineInterpolation:
         """
         self.log_contract()
         self.kind = "cubic" if np.sum(mask) > 10 else "linear"
-        logger.info(f"Interpolationsart auto-optimiert auf {self.kind}")
+        logger.info("Interpolationsart auto-optimiert auf %s", self.kind)

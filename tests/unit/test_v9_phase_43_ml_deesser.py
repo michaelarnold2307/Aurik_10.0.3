@@ -314,3 +314,18 @@ class TestSampleRateAndConsistency:
         result = phase.process(noise, SR)
         assert np.isfinite(result.audio).all()
         assert np.max(np.abs(result.audio)) <= 1.0 + 1e-6
+
+    def test_31_ml_refine_bypass_metadata_present(self, phase, mono, monkeypatch):
+        import backend.core.phases.phase_43_ml_deesser as phase43
+
+        monkeypatch.setattr(
+            phase43,
+            "_try_mp_senet_refine",
+            lambda audio, sr: (np.asarray(audio, dtype=np.float32).copy(), "omlsa_dsp_fallback"),
+        )
+
+        result = phase.process(mono, SR)
+
+        assert result.metadata["ml_refine_applied"] is False
+        assert result.metadata["ml_refine_bypassed"] is True
+        assert result.metadata["ml_refine_bypass_reason"] == "omlsa_dsp_fallback"

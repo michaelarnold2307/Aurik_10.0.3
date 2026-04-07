@@ -137,7 +137,7 @@ class StereoParallelProcessor:
                 result_left = future_left.result(timeout=self.timeout)
                 result_right = future_right.result(timeout=self.timeout)
             except TimeoutError as e:
-                logger.error(f"Processing timeout: {e}")
+                logger.error("Processing timeout: %s", e)
                 raise RuntimeError("Stereo processing timeout") from e
 
         processing_time = time.time() - start_time
@@ -151,7 +151,7 @@ class StereoParallelProcessor:
                 errors.append(f"Right channel: {result_right.error}")
 
             error_msg = "; ".join(errors)
-            logger.error(f"Stereo processing failed: {error_msg}")
+            logger.error("Stereo processing failed: %s", error_msg)
             raise RuntimeError(f"Stereo processing failed: {error_msg}")
 
         # Update statistics
@@ -203,7 +203,7 @@ class StereoParallelProcessor:
 
         except Exception as e:
             processing_time = time.time() - start_time
-            logger.error(f"Channel {channel.value} processing failed: {e}")
+            logger.error("Channel %s processing failed: %s", channel.value, e)
 
             return ProcessingResult(
                 channel=channel,

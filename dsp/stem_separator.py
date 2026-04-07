@@ -513,7 +513,9 @@ if __name__ == "__main__":
 
     # Load audio
     _logger.info("Loading: %s", args.input)
-    audio, sr = sf.read(args.input)
+    from backend.file_import import load_audio_file
+    _res = load_audio_file(args.input)
+    audio, sr = _res["audio"], int(_res["sr"])
     _logger.info("Loaded %d Hz, shape %s", sr, audio.shape)
 
     # Separate stems

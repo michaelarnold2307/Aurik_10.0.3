@@ -136,7 +136,7 @@ class ModuleParallelProcessor:
         # Build dependency graph and execution phases
         phases = self._build_execution_phases(modules)
 
-        logger.debug(f"Built {len(phases)} execution phases from {len(modules)} modules")
+        logger.debug("Built %s execution phases from %s modules", len(phases), len(modules))
 
         # Execute phases
         current_audio = audio.copy()
@@ -171,12 +171,12 @@ class ModuleParallelProcessor:
             if phase_results:
                 current_audio = phase_results[-1].audio
 
-            logger.debug(f"Phase {phase_idx} complete: {len(phase_modules)} modules, {phase_time:.3f}s")
+            logger.debug("Phase %s complete: %s modules, %.3fs", phase_idx, len(phase_modules), phase_time)
 
         processing_time = time.time() - start_time
         self._processing_stats["total_processed"] += 1
 
-        logger.debug(f"Module pipeline complete: {processing_time:.3f}s, {len(phases)} phases, {len(modules)} modules")
+        logger.debug("Module pipeline complete: %.3fs, %s phases, %s modules", processing_time, len(phases), len(modules))
 
         return current_audio
 
@@ -335,7 +335,7 @@ class ModuleParallelProcessor:
 
         except Exception as e:
             processing_time = time.time() - start_time
-            logger.error(f"Module {module.name} failed: {e}")
+            logger.error("Module %s failed: %s", module.name, e)
 
             return ModuleResult(
                 module_name=module.name,

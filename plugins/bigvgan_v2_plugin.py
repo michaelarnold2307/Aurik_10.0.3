@@ -434,7 +434,7 @@ def synthesize_audio(
     Beispiel::
 
         result = synthesize_audio(restored_audio, sr=48000, mode="studio2026")
-        logger.debug(f"PQS-MOS: {result.pqs_mos:.2f}, Modell: {result.model_used}")
+        logger.debug("PQS-MOS: %.2f, Modell: %s", result.pqs_mos, result.model_used)
 
     Args:
         audio:  Restauriertes Audio (1D float32, 48000 Hz)

@@ -427,7 +427,7 @@ class ObjectiveScorer:
                 self.versa_plugin = get_versa_plugin()
                 logger.info("✓ VERSA Plugin loaded (§4.4, non-reference MOS)")
             except Exception as e:
-                logger.warning(f"⚠ VERSA Plugin not available: {e}")
+                logger.warning("⚠ VERSA Plugin not available: %s", e)
 
         # §10.2: DNSMOS-Plugin wird nicht geladen — DNSMOS P.835 ist auf Sprachkorpus
         # trainiert (16 kHz DNS-Challenge) und ist VERBOTEN als Musik-Qualitätsmetrik.
@@ -476,7 +476,7 @@ class ObjectiveScorer:
                 score.versa_active = True
 
             except Exception as e:
-                logger.warning(f"VERSA scoring failed: {e}")
+                logger.warning("VERSA scoring failed: %s", e)
                 score.versa_score = 0.5  # Neutral default, versa_active bleibt False
 
         # §10.2: DNSMOS-Berechnung deaktiviert — Sprach-Metrik verboten für Musikrestaurierung.
@@ -498,7 +498,7 @@ class ObjectiveScorer:
                     _mg_loaded = True
 
             except Exception as e:
-                logger.debug(f"MusicalGoalsChecker nicht verfügbar ({e}) — IAQS-Fallback")
+                logger.debug("MusicalGoalsChecker nicht verfügbar (%s) — IAQS-Fallback", e)
 
             if not _mg_loaded:
                 # Intrinsischer Fallback: IAQS liefert psychoakustisch fundierte Scores
@@ -508,9 +508,9 @@ class ObjectiveScorer:
                     mg_approx = (iaqs.harmonicity + iaqs.bark_balance + iaqs.spectral_regularity) / 3.0
                     score.musical_goals_avg = float(np.clip(mg_approx, 0.0, 1.0))
                     score.musical_goals_min = float(min(iaqs.harmonicity, iaqs.bark_balance, iaqs.spectral_regularity))
-                    logger.debug(f"IAQS Musical-Goals-Fallback: avg={score.musical_goals_avg:.3f}")
+                    logger.debug("IAQS Musical-Goals-Fallback: avg=%.3f", score.musical_goals_avg)
                 except Exception as e2:
-                    logger.warning(f"IAQS-Fallback fehlgeschlagen: {e2}")
+                    logger.warning("IAQS-Fallback fehlgeschlagen: %s", e2)
                     score.musical_goals_avg = 0.5
                     score.musical_goals_min = 0.5
 
@@ -522,9 +522,9 @@ class ObjectiveScorer:
             # IAQS gesamt Score direkt aus bereits berechnetem Objekt (kein Doppel-Call)
             score.iaqs_total = float(np.clip(iaqs_stats.overall, 0.0, 1.0))
             score.iaqs_active = True
-            logger.debug(f"IAQS: SNR={score.snr_db:.1f} dB, THD={score.thd_percent:.2f}%, Total={score.iaqs_total:.3f}")
+            logger.debug("IAQS: SNR=%.1f dB, THD=%.2f%%, Total=%.3f", score.snr_db, score.thd_percent, score.iaqs_total)
         except Exception as e:
-            logger.warning(f"IAQS Signal statistics failed: {e}")
+            logger.warning("IAQS Signal statistics failed: %s", e)
             # Letzter Fallback: EnhancedMetrics Backend
             try:
                 from backend.core.enhanced_metrics import EnhancedMetrics
@@ -539,7 +539,7 @@ class ObjectiveScorer:
                 except Exception:
                     score.thd_percent = 1.0
             except Exception as e2:
-                logger.warning(f"EnhancedMetrics auch nicht verfügbar: {e2}")
+                logger.warning("EnhancedMetrics auch nicht verfügbar: %s", e2)
                 score.snr_db = 20.0
                 score.thd_percent = 1.0
 
@@ -745,7 +745,7 @@ class MultiPassEngine:
         if len(variants) == 0:
             raise ValueError("Mindestens 1 ProcessingVariant erforderlich")
 
-        logger.info(f"🎯 Multi-Pass Processing: testing {len(variants)} variants...")
+        logger.info("🎯 Multi-Pass Processing: testing %s variants...", len(variants))
 
         # Default processing function
         if process_func is None:
@@ -757,8 +757,8 @@ class MultiPassEngine:
 
         for variant in variants:
             try:
-                logger.info(f"  Processing with '{variant.name}' ({variant.strategy.value})...")
-                logger.debug(f"[MPASS] Starte Variante '{variant.name}' …")
+                logger.info("  Processing with '%s' (%s)...", variant.name, variant.strategy.value)
+                logger.debug("[MPASS] Starte Variante '%s' …", variant.name)
 
                 # —— Emit variant start — real-time progress
                 _vi = variants.index(variant)
@@ -795,7 +795,7 @@ class MultiPassEngine:
                     # Custom process_func without progress_callback support — graceful fallback
                     processed_audio = process_func(audio, sample_rate, variant.config)
                 proc_time = time.time() - start_time
-                logger.debug(f"[MPASS] Variante '{variant.name}' fertig in {proc_time:.1f}s")
+                logger.debug("[MPASS] Variante '%s' fertig in %.1fs", variant.name, proc_time)
 
                 processing_times[variant.name] = proc_time
 
@@ -824,7 +824,7 @@ class MultiPassEngine:
                     except Exception as _exc:
                         logger.debug("Operation failed (non-critical): %s", _exc)
 
-                logger.info(f"    → {score}")
+                logger.info("    → %s", score)
 
             except Exception as e:
                 logger.error(
@@ -991,8 +991,11 @@ def create_default_variants(
 if __name__ == "__main__":
     import soundfile as sf
 
+    from backend.file_import import load_audio_file
+
     # Load test audio
-    audio, sr = sf.read("test_audio/test_input.wav")
+    _res = load_audio_file("test_audio/test_input.wav")
+    audio, sr = np.asarray(_res["audio"], dtype=np.float32), int(_res["sr"])
 
     # Create variants
     variants = create_default_variants(base_mode=ProcessingMode.RESTORATION, num_variants=3)
@@ -1004,9 +1007,9 @@ if __name__ == "__main__":
     # Save best result
     sf.write("test_output/multipass_best.wav", result["audio"], sr)
 
-    logger.debug(f"\n✅ Best Variant: {result['variant_name']}")
-    logger.debug(f"   Composite Score: {result['composite_score']:.3f}")
-    logger.debug(f"   Confidence: {result['confidence']:.2f}")
+    logger.debug("\n✅ Best Variant: %s", result['variant_name'])
+    logger.debug("   Composite Score: %.3f", result['composite_score'])
+    logger.debug("   Confidence: %.2f", result['confidence'])
     logger.debug("\n📊 All Scores:")
     for score in result["all_scores"]:
-        logger.debug(f"   {score}")
+        logger.debug("   %s", score)

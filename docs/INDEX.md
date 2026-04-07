@@ -1,12 +1,12 @@
 
 # 📚 Aurik 9.x.x — Projektdokumentation
 
-Offizielle Dokumentation von **Aurik 9.10.102** — dem weltweit ersten intelligenten,
+Offizielle Dokumentation von **Aurik 9.10.124** — dem weltweit ersten intelligenten,
 kontextbewussten Musik- und Gesangs-Restaurierungs-, Reparatur- und
 Rekonstruktions-Denkersystem. Alle Inhalte sind an die KI-Programmierrichtlinien
 (`.github/copilot-instructions.md`) ausgerichtet.
 
-**Version:** 9.10.102 | **Phasen:** 64 | **Musical Goals:** 14 | **DefectTypes:** 32 | **Tests:** ~11.023
+**Version:** 9.10.124 | **Phasen:** 64 | **Musical Goals:** 14 | **DefectTypes:** 32 | **Tests:** ~11.023
 
 > Hinweis: Verbindlicher Wahrheitsstand ist die Spezifikation in `.github/specs/01-08` plus `docs/CHANGELOG_HISTORY.md`. Wo Zahlen abweichen, gelten Specs/Changelog.
 
@@ -109,7 +109,7 @@ Schlüsselbindungen (Auszug):
 - **CPU-only**: keine GPU/CUDA — `providers=["CPUExecutionProvider"]`
 - **14 Musical Goals**: nach jeder Restaurierung zu prüfen, Regression = Feature ungültig
 - **64 Phasen** (Phase 01–64, Defect-First) in `backend/core/phases/`
-- Material-adaptive Verarbeitung via `MediumClassifier`
+- Material-adaptive Verarbeitung via `MediumDetector.detect(audio, sr, file_ext=...)`
 - **32 DefectTypes** — vollständiger Defektkatalog in `core/defect_scanner.py`
 - **Desktop-only (Linux AppImage + Windows 10/11)**: keine Cloud, kein Docker, kein pip für Endnutzer
 - **§2.36 LyricsGuidedEnhancement**: Whisper-Tiny ONNX + wav2vec2 Forced Alignment (Phase 58)
@@ -150,7 +150,7 @@ Schlüsselbindungen (Auszug):
 
 ## 📅 Aktuelle Updates
 
-**April 2026 (v9.10.102):**
+**April 2026 (v9.10.124):**
 
 - Genre-Phase-1 (GenreClassifier: Family+Top-k+Open-Set, Lyrics-Fusion, UI-Badge) integriert.
 - Normative Nachschärfung Lyrics-Produktivpfad (§2.36): Einziger Produktionspfad ist `backend/core/lyrics_guided_enhancement.py`.
@@ -161,6 +161,6 @@ Schlüsselbindungen (Auszug):
 Historische Detailstände sind in `docs/CHANGELOG_HISTORY.md` aufgeführt.
 
 ---
-**Aurik 9.10.102 Projektdokumentation** | Letzte Aktualisierung: April 2026
+**Aurik 9.10.124 Projektdokumentation** | Letzte Aktualisierung: April 2026
 
 [🏠 Zurück zur README](../README.md)

@@ -96,8 +96,14 @@ class DeepFilterNetV3Plugin:
             from backend.core.ml_memory_budget import try_allocate
 
             if not try_allocate("DeepFilterNetV3", size_gb=0.15):
-                logger.warning("DeepFilterNet: ML-Budget erschöpft — DSP-Fallback aktiv")
-                return
+                # Second-chance allocation: clear potential stale slot and retry once.
+                try:
+                    _release("DeepFilterNetV3")
+                except Exception:
+                    pass
+                if not try_allocate("DeepFilterNetV3", size_gb=0.15):
+                    logger.warning("DeepFilterNet: ML-Budget erschöpft — DSP-Fallback aktiv")
+                    return
             _allocated = True
         except ImportError:
             pass
@@ -341,11 +347,52 @@ class DeepFilterNetV3Plugin:
         return out[: len(mono)].astype(np.float32)
 
     @staticmethod
-    def _omlsa_fallback(mono: np.ndarray, sr: int) -> np.ndarray:
-        """OMLSA-Wiener-Filter Fallback (Cohen 2002).
+    def _estimate_input_snr_db(mono: np.ndarray, frame_len: int = 2048, hop: int = 512) -> float:
+        """Grober Eingangs-SNR-Proxy zur Auswahl des Sekundärfallbacks."""
+        x = np.nan_to_num(np.asarray(mono, dtype=np.float32), nan=0.0, posinf=0.0, neginf=0.0)
+        if x.size < frame_len:
+            rms = float(np.sqrt(np.mean(x**2) + 1e-12))
+            return 40.0 if rms < 1e-3 else 20.0
+        frames = []
+        for start in range(0, max(x.size - frame_len + 1, 1), hop):
+            frames.append(x[start : start + frame_len])
+        if not frames:
+            frames = [x[:frame_len]]
+        frame_rms = np.array([np.sqrt(np.mean(f.astype(np.float64) ** 2) + 1e-12) for f in frames], dtype=np.float64)
+        signal_rms = float(np.percentile(frame_rms, 95))
+        noise_rms = float(np.percentile(frame_rms, 10))
+        return float(20.0 * np.log10((signal_rms + 1e-12) / (noise_rms + 1e-12)))
 
-        Numerisch robust, kein ML-Modell erforderlich.
-        """
+    @staticmethod
+    def _spectral_gating_fallback(mono: np.ndarray, sr: int) -> np.ndarray:
+        """Sekundärfallback: leichtes Spectral-Gating mit Originalphase."""
+        from scipy.signal import istft, stft
+
+        n_fft = 1024
+        hop = n_fft // 4
+        _, _, Zxx = stft(mono, fs=sr, nperseg=n_fft, noverlap=n_fft - hop, window="hann", padded=True)
+        mag = np.abs(Zxx)
+        noise_est = np.percentile(mag, 20, axis=1, keepdims=True)
+        noise_est = np.maximum(noise_est, 1e-8)
+        mask = np.clip((mag - 1.25 * noise_est) / (mag + 1e-10), 0.05, 1.0)
+        Zxx_out = mask * mag * np.exp(1j * np.angle(Zxx))
+        _, out = istft(Zxx_out, fs=sr, nperseg=n_fft, noverlap=n_fft - hop, window="hann")
+        out = np.nan_to_num(out[: len(mono)], nan=0.0, posinf=0.0, neginf=0.0)
+        return np.clip(out, -1.0, 1.0).astype(np.float32)
+
+    @staticmethod
+    def _secondary_fallback(mono: np.ndarray, sr: int) -> np.ndarray:
+        """Sekundärfallback gemäß §2.47: Spectral-Gating oder Dry bei hohem SNR."""
+        snr_db = DeepFilterNetV3Plugin._estimate_input_snr_db(mono)
+        if snr_db > 35.0:
+            logger.info("DeepFilterNet: hoher Eingangs-SNR %.1f dB — Dry-Signal statt Zusatzbearbeitung.", snr_db)
+            return np.clip(np.nan_to_num(mono, nan=0.0, posinf=0.0, neginf=0.0), -1.0, 1.0).astype(np.float32)
+        logger.info("DeepFilterNet: OMLSA fehlgeschlagen — Spectral-Gating-Fallback (SNR=%.1f dB).", snr_db)
+        return DeepFilterNetV3Plugin._spectral_gating_fallback(mono, sr)
+
+    @staticmethod
+    def _omlsa_primary_fallback(mono: np.ndarray, sr: int) -> np.ndarray:
+        """OMLSA-Wiener-Filter Primärfallback (Cohen 2002)."""
         from scipy.signal import istft, stft
 
         n_fft = 1024
@@ -374,6 +421,15 @@ class DeepFilterNetV3Plugin:
         Zxx_out = gain * mag * np.exp(1j * np.angle(Zxx))
         _, out = istft(Zxx_out, fs=sr, nperseg=n_fft, noverlap=n_fft - hop, window="hann")
         return out[: len(mono)].astype(np.float32)
+
+    @staticmethod
+    def _omlsa_fallback(mono: np.ndarray, sr: int) -> np.ndarray:
+        """OMLSA/IMCRA Primärfallback mit Spectral-Gating/Dry als Letztfallback."""
+        try:
+            return DeepFilterNetV3Plugin._omlsa_primary_fallback(mono, sr)
+        except Exception as exc:
+            logger.warning("DeepFilterNet OMLSA-Fallback fehlgeschlagen: %s — Sekundärfallback aktiv.", exc)
+            return DeepFilterNetV3Plugin._secondary_fallback(mono, sr)
 
 
 # ── Singleton ───────────────────────────────────────────────────────────────

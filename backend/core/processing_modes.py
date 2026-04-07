@@ -411,8 +411,8 @@ if __name__ == "__main__":
     logger.debug("AURIK Processing Modes:")
     logger.debug("=" * 60)
     for mode_name, description in list_available_modes().items():
-        logger.debug(f"\n{mode_name.upper()}:")
-        logger.debug(f"  {description}")
+        logger.debug("\n%s:", mode_name.upper())
+        logger.debug("  %s", description)
 
     logger.debug("\n" + "=" * 60)
     logger.debug("\nExample: RESTORATION mode parameters:")

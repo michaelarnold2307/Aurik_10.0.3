@@ -101,8 +101,8 @@ class ONNXConverter:
         output_path = Path(output_path)
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
-        logger.info(f"Converting model to ONNX: {output_path.name}")
-        logger.info(f"Sample input shape: {sample_input.shape}")
+        logger.info("Converting model to ONNX: %s", output_path.name)
+        logger.info("Sample input shape: %s", sample_input.shape)
 
         # Set model to evaluation mode
         pytorch_model.eval()
@@ -113,7 +113,7 @@ class ONNXConverter:
             assert torch is not None
             with torch.no_grad():
                 pytorch_output = pytorch_model(sample_input)
-            logger.info(f"PyTorch output shape: {pytorch_output.shape}")
+            logger.info("PyTorch output shape: %s", pytorch_output.shape)
 
         try:
             # Export to ONNX
@@ -137,7 +137,7 @@ class ONNXConverter:
                     verbose=self.config.verbose,
                 )
 
-            logger.info(f"ONNX export successful: {output_path}")
+            logger.info("ONNX export successful: %s", output_path)
 
             # Handle external data for large models
             if use_external_data:
@@ -158,7 +158,7 @@ class ONNXConverter:
             return True
 
         except Exception as e:
-            logger.error(f"ONNX conversion failed: {e}")
+            logger.error("ONNX conversion failed: %s", e)
             self.conversion_stats["failed_conversions"] += 1
             self.conversion_stats["total_conversions"] += 1
             return False
@@ -195,7 +195,7 @@ class ONNXConverter:
             max_diff = np.abs(pytorch_np - onnx_output).max()
             mean_diff = np.abs(pytorch_np - onnx_output).mean()
 
-            logger.info(f"Validation - Max diff: {max_diff:.2e}, Mean diff: {mean_diff:.2e}")
+            logger.info("Validation - Max diff: %.2e, Mean diff: %.2e", max_diff, mean_diff)
 
             if max_diff > self.validation_tolerance:
                 logger.error(
@@ -204,11 +204,11 @@ class ONNXConverter:
                 )
                 return False
 
-            logger.info(f"✓ Validation passed (tolerance: {self.validation_tolerance:.2e})")
+            logger.info("✓ Validation passed (tolerance: %.2e)", self.validation_tolerance)
             return True
 
         except Exception as e:
-            logger.error(f"Validation error: {e}")
+            logger.error("Validation error: %s", e)
             return False
 
     def _save_external_data(self, onnx_path: Path) -> None:
@@ -236,10 +236,10 @@ class ONNXConverter:
                 location=external_data_path.name,
             )
 
-            logger.info(f"Saved external data: {external_data_path}")
+            logger.info("Saved external data: %s", external_data_path)
 
         except Exception as e:
-            logger.warning(f"Failed to save external data: {e}")
+            logger.warning("Failed to save external data: %s", e)
 
     def convert_batch(self, models: dict[str, tuple[Any, Any, Path]], validate: bool = True) -> dict[str, bool]:
         """
@@ -255,25 +255,25 @@ class ONNXConverter:
         results = {}
 
         for name, (model, sample_input, output_path) in models.items():
-            logger.info(f"\n{'=' * 60}")
-            logger.info(f"Converting: {name}")
-            logger.info(f"{'=' * 60}")
+            logger.info("\n%s", '=' * 60)
+            logger.info("Converting: %s", name)
+            logger.info("%s", '=' * 60)
 
             success = self.convert(
                 pytorch_model=model, output_path=output_path, sample_input=sample_input, validate=validate
             )
 
             results[name] = success
-            logger.info(f"Result: {'✓ SUCCESS' if success else '❌ FAILED'}")
+            logger.info("Result: %s", '✓ SUCCESS' if success else '❌ FAILED')
 
         # Summary
-        logger.info(f"\n{'=' * 60}")
+        logger.info("\n%s", '=' * 60)
         logger.info("CONVERSION SUMMARY")
-        logger.info(f"{'=' * 60}")
+        logger.info("%s", '=' * 60)
         successful = sum(1 for v in results.values() if v)
-        logger.info(f"Total: {len(results)}")
-        logger.info(f"Successful: {successful}")
-        logger.info(f"Failed: {len(results) - successful}")
+        logger.info("Total: %s", len(results))
+        logger.info("Successful: %s", successful)
+        logger.info("Failed: %s", len(results) - successful)
 
         return results
 

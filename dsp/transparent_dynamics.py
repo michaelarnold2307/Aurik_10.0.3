@@ -442,7 +442,7 @@ class TransparentDynamicsProcessor:
         # Quality gate: Clipping prevention
         peak = np.max(np.abs(audio_compressed))
         if peak > 0.99:
-            logger.warning(f"[QualityGate] Warning: Near-clipping (peak={peak:.3f}), normalizing")
+            logger.warning("[QualityGate] Warning: Near-clipping (peak=%.3f), normalizing", peak)
             audio_compressed = audio_compressed / (peak / 0.95)
 
         logger.info(
@@ -650,7 +650,7 @@ class MicroDynamicsEnhancer:
         analysis = self.analyze_micro_dynamics(audio, sr)
         self.metrics = analysis
 
-        logger.info(f"[MicroDynamics] Micro-Dynamics Score: {analysis['micro_dynamics_score']:.3f}")
+        logger.info("[MicroDynamics] Micro-Dynamics Score: %.3f", analysis['micro_dynamics_score'])
 
         # Check if enhancement needed
         if analysis["micro_dynamics_score"] < 0.1:
@@ -689,7 +689,7 @@ class MicroDynamicsEnhancer:
         # Quality gate: Clipping prevention
         peak = np.max(np.abs(audio_final))
         if peak > 0.99:
-            logger.warning(f"[QualityGate] Warning: Peak={peak:.3f}, normalizing")
+            logger.warning("[QualityGate] Warning: Peak=%.3f, normalizing", peak)
             audio_final = audio_final / (peak / 0.95)
 
         # Compute enhancement amount
@@ -698,7 +698,7 @@ class MicroDynamicsEnhancer:
         enhancement_db = 20 * np.log10((rms_after + 1e-8) / (rms_before + 1e-8))
         self.metrics["enhancement_applied_db"] = float(enhancement_db)
 
-        logger.info(f"[MicroDynamics] Enhancement applied: {enhancement_db:+.2f} dB")
+        logger.info("[MicroDynamics] Enhancement applied: %+.2f dB", enhancement_db)
 
         return audio_final
 
@@ -866,12 +866,14 @@ if __name__ == "__main__":
             i += 1
 
     # Load audio
-    logger.info(f"\nLoading: {input_file}")
-    audio, sr = sf.read(input_file)
+    logger.info("\nLoading: %s", input_file)
+    from backend.file_import import load_audio_file
+    _res = load_audio_file(input_file)
+    audio, sr = _res["audio"], int(_res["sr"])
 
     # Ensure mono for processing (or handle stereo properly)
     if audio.ndim > 1:
-        logger.info(f"Input is stereo ({audio.shape[1]} channels), processing both channels")
+        logger.info("Input is stereo (%s channels), processing both channels", audio.shape[1])
         audio = audio.T  # Shape: (channels, samples)
 
     # Process
@@ -884,7 +886,7 @@ if __name__ == "__main__":
     logger.info(str(metrics))
 
     # Save
-    logger.info(f"\nSaving: {output_file}")
+    logger.info("\nSaving: %s", output_file)
     if audio_processed.ndim > 1:
         audio_processed = audio_processed.T  # Back to (samples, channels)
     sf.write(output_file, audio_processed, sr)

@@ -175,7 +175,7 @@ class IntelligibilityScorer:
         # Ensure mono
         audio_mono = np.mean(audio, axis=0) if audio.ndim > 1 else audio
 
-        logger.debug(f"Scoring {len(audio_mono) / sr:.2f}s audio at {sr} Hz")
+        logger.debug("Scoring %.2fs audio at %s Hz", len(audio_mono) / sr, sr)
 
         # 1. Formant analysis
         formant_data = self._extract_formants(audio_mono, sr)
@@ -345,7 +345,7 @@ class IntelligibilityScorer:
             return None
 
         except Exception as e:
-            logger.warning(f"Formant extraction failed: {e}")
+            logger.warning("Formant extraction failed: %s", e)
             return None
 
     def _assess_formant_clarity(

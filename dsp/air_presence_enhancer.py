@@ -432,6 +432,8 @@ if __name__ == "__main__":
 
     import soundfile as sf
 
+    from backend.file_import import load_audio_file
+
     if len(sys.argv) < 2:
         logger.info("Usage: python air_presence_enhancer.py <audio_file> [output_file]")
         logger.info("Options:")
@@ -443,7 +445,8 @@ if __name__ == "__main__":
     # Load audio
     audio_path = sys.argv[1]
     logger.info("Processing: %s", audio_path)
-    audio, sr = sf.read(audio_path)
+    _res = load_audio_file(audio_path)
+    audio, sr = _res["audio"], int(_res["sr"])
 
     # Parse options
     air_gain = 1.5

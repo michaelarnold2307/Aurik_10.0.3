@@ -55,8 +55,8 @@ def detect_formants_lpc(audio: np.ndarray, sr: int, n_formants: int = 5) -> np.n
     # Pre-emphasis to boost high frequencies
     pre_emphasized = np.append(audio[0], audio[1:] - 0.97 * audio[:-1])
 
-    # LPC order (rule of thumb: 2 + sr/1000)
-    lpc_order = int(2 + sr / 1000)
+    # LPC order (rule of thumb: 2 + sr/1000, minimum 16 per §VERBOTEN)
+    lpc_order = max(16, min(40, int(2 + sr / 1000)))
 
     # Compute LPC coefficients
 

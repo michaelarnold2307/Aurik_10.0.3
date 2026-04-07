@@ -84,10 +84,10 @@ class AdaptiveSpectralSubtraction:
         :param floor: Minimum-Faktor für Noise-Floor (0.0-0.1)
         """
         if not (0.5 <= oversubtract <= 2.0):
-            logger.error(f"Ungültiger oversubtract: {oversubtract}. Muss zwischen 0.5 und 2.0 liegen.")
+            logger.error("Ungültiger oversubtract: %s. Muss zwischen 0.5 und 2.0 liegen.", oversubtract)
             raise ValueError("oversubtract muss zwischen 0.5 und 2.0 liegen.")
         if not (0.0 <= floor <= 0.1):
-            logger.error(f"Ungültiger floor: {floor}. Muss zwischen 0.0 und 0.1 liegen.")
+            logger.error("Ungültiger floor: %s. Muss zwischen 0.0 und 0.1 liegen.", floor)
             raise ValueError("floor muss zwischen 0.0 und 0.1 liegen.")
         self.oversubtract = oversubtract
         self.floor = floor
@@ -100,7 +100,7 @@ class AdaptiveSpectralSubtraction:
         Gibt den DSPContract für Auditierbarkeit aus (Log + Print).
         """
         contract_dict = asdict(adaptive_spectral_subtraction_contract)
-        logger.info(f"[DSPContract] {contract_dict}")
+        logger.info("[DSPContract] %s", contract_dict)
 
     def subtract(self, noisy_mag, noise_mag, use_deep_learning: bool = False, audit_log: bool = True, **kwargs):
         """
@@ -123,7 +123,7 @@ class AdaptiveSpectralSubtraction:
             logger.error("noisy_mag oder noise_mag ist leer")
             raise ValueError("noisy_mag oder noise_mag ist leer")
         if noisy_mag.shape != noise_mag.shape:
-            logger.error(f"Shape mismatch: noisy_mag {noisy_mag.shape}, noise_mag {noise_mag.shape}")
+            logger.error("Shape mismatch: noisy_mag %s, noise_mag %s", noisy_mag.shape, noise_mag.shape)
             raise ValueError(f"Shape mismatch: noisy_mag {noisy_mag.shape}, noise_mag {noise_mag.shape}")
         if np.isnan(noisy_mag).any() or np.isnan(noise_mag).any():
             logger.error("noisy_mag oder noise_mag enthält NaN-Werte")
@@ -151,7 +151,7 @@ class AdaptiveSpectralSubtraction:
             else:
                 output = self._subtract_classic(noisy_mag, noise_mag, oversubtract, floor)
         except Exception as e:
-            logger.error(f"Fehler bei Spectral Subtraction: {e}", exc_info=True)
+            logger.error("Fehler bei Spectral Subtraction: %s", e, exc_info=True)
             fallback_used = True
             output = noisy_mag.copy()
 
@@ -162,7 +162,7 @@ class AdaptiveSpectralSubtraction:
             logger.info(
                 f"AdaptiveSpectralSubtraction: snr_improvement={snr_improvement:.4f}, fallback_used={fallback_used}, oversubtract={oversubtract}, floor={floor}"
             )
-            logger.info(f"[DSPContract] {asdict(adaptive_spectral_subtraction_contract)}")
+            logger.info("[DSPContract] %s", asdict(adaptive_spectral_subtraction_contract))
         return output
 
     def _subtract_classic(self, noisy_mag, noise_mag, oversubtract, floor):
@@ -199,4 +199,4 @@ class AdaptiveSpectralSubtraction:
         else:
             self.oversubtract = 1.0
             self.floor = 0.01
-        logger.info(f"Parameter auto-optimiert: oversubtract={self.oversubtract}, floor={self.floor}")
+        logger.info("Parameter auto-optimiert: oversubtract=%s, floor=%s", self.oversubtract, self.floor)

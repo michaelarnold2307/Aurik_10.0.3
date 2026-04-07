@@ -43,6 +43,7 @@ def test_phase06_uses_ml_hybrid_when_audiosr_available(monkeypatch) -> None:
         sample_rate=48_000,
         material_type="shellac",
         quality_mode="maximum",
+        audiosr_min_duration_s=0.0,
     )
 
     assert result.success
@@ -70,9 +71,41 @@ def test_phase06_falls_back_to_dsp_on_ml_error(monkeypatch) -> None:
         sample_rate=48_000,
         material_type="shellac",
         quality_mode="maximum",
+        audiosr_min_duration_s=0.0,
     )
 
     assert result.success
     assert result.modifications.get("frequency_restored") is True
     assert result.metadata.get("strategy_used") == "dsp_only"
     assert "ml_error" in result.metadata
+
+
+def test_phase06_skips_audiosr_for_short_clip_guard(monkeypatch) -> None:
+    called = {"plugin": False}
+
+    class _ShouldNotBeCalledPlugin:
+        def process(self, audio: np.ndarray, sr: int, target_sr: int = 48_000) -> np.ndarray:
+            _ = (audio, sr, target_sr)
+            called["plugin"] = True
+            return np.asarray(audio, dtype=np.float32)
+
+    phase = FrequencyRestorationPhase(sample_rate=48_000)
+    audio = _make_rolloff_audio(duration_s=0.35)
+
+    monkeypatch.setattr(
+        "backend.core.phases.phase_06_frequency_restoration._get_audiosr_plugin",
+        lambda: _ShouldNotBeCalledPlugin(),
+    )
+
+    result = phase.process(
+        audio,
+        sample_rate=48_000,
+        material_type="shellac",
+        quality_mode="maximum",
+    )
+
+    assert result.success
+    assert result.modifications.get("frequency_restored") is True
+    assert result.metadata.get("strategy_used") == "dsp_only"
+    assert "short_clip_guard" in str(result.metadata.get("ml_reason", ""))
+    assert called["plugin"] is False

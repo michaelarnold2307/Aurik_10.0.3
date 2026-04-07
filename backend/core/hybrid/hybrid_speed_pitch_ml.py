@@ -148,7 +148,7 @@ class HybridSpeedPitch:
             self.crepe = CREPEPlugin()
             logger.info("CREPE plugin loaded for Phase 31 speed/pitch detection")
         except Exception as e:
-            logger.warning(f"Kein Pitch-ML-Plugin verfügbar: {e}")
+            logger.warning("Kein Pitch-ML-Plugin verfügbar: %s", e)
             self.crepe = None
 
     def detect_global_pitch(self, audio: np.ndarray, sample_rate: int = 48000) -> SpeedPitchResult:
@@ -192,7 +192,7 @@ class HybridSpeedPitch:
 
             metadata["pyin"] = {"pitch": float(pyin_pitch), "confidence": float(pyin_confidence)}
 
-            logger.info(f"pYIN: pitch={pyin_pitch:.2f} Hz, confidence={pyin_confidence:.3f}")
+            logger.info("pYIN: pitch=%.2f Hz, confidence=%.3f", pyin_pitch, pyin_confidence)
 
         # Stufe 2: CREPE-Detektion (bedingt)
         should_apply_crepe = False
@@ -207,7 +207,7 @@ class HybridSpeedPitch:
                 )
                 should_apply_crepe = True
             else:
-                logger.info(f"pYIN confidence {pyin_confidence:.3f} ausreichend → CREPE überspringen")
+                logger.info("pYIN confidence %.3f ausreichend → CREPE überspringen", pyin_confidence)
 
         if should_apply_crepe and self.crepe is not None:
             logger.info("Stufe 2: CREPE ML-Pitch-Detektion (Kim et al. 2018)...")
@@ -216,7 +216,7 @@ class HybridSpeedPitch:
 
             metadata["crepe"] = {"pitch": float(crepe_pitch), "confidence": float(crepe_confidence)}
 
-            logger.info(f"CREPE: pitch={crepe_pitch:.2f} Hz, confidence={crepe_confidence:.3f}")
+            logger.info("CREPE: pitch=%.2f Hz, confidence=%.3f", crepe_pitch, crepe_confidence)
 
         # Finaler Pitch-Schätzwert
         final_pitch, final_confidence = self._combine_estimates(
@@ -300,7 +300,7 @@ class HybridSpeedPitch:
             return global_pitch, confidence
 
         except Exception as e:
-            logger.debug(f"pYIN-Fensteranalyse fehlgeschlagen: {e}, Notfall-librosa.yin")
+            logger.debug("pYIN-Fensteranalyse fehlgeschlagen: %s, Notfall-librosa.yin", e)
             try:
                 f0_yin = librosa.yin(segment, fmin=60, fmax=800, sr=sample_rate)
                 valid = f0_yin[(f0_yin > 0) & np.isfinite(f0_yin)]
@@ -351,7 +351,7 @@ class HybridSpeedPitch:
             return float(global_pitch), float(global_confidence)
 
         except Exception as e:
-            logger.error(f"CREPE processing failed: {e}")
+            logger.error("CREPE processing failed: %s", e)
             return 0.0, 0.0
 
     def _combine_estimates(

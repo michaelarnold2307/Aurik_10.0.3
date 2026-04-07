@@ -572,26 +572,26 @@ class MLDefectDetector:
             logger.info("=" * 60)
             logger.info("   ML Defect Detector Training")
             logger.info("=" * 60)
-            logger.info(f"   Samples: {X.shape[0]}, Features: {X.shape[1]}")
-            logger.info(f"   Defect Types: {len(self.DEFECT_TYPES)}")
-            logger.info(f"   Recall Target: {self.recall_target:.1%}")
+            logger.info("   Samples: %s, Features: %s", X.shape[0], X.shape[1])
+            logger.info("   Defect Types: %s", len(self.DEFECT_TYPES))
+            logger.info("   Recall Target: %.1%", self.recall_target)
 
         all_metrics = {}
 
         for defect_type in self.DEFECT_TYPES:
             if defect_type not in y:
-                logger.warning(f"   ⚠️ No labels for {defect_type}, skipping")
+                logger.warning("   ⚠️ No labels for %s, skipping", defect_type)
                 continue
 
             if verbose:
-                logger.info(f"\n   Training {defect_type} detector...")
+                logger.info("\n   Training %s detector...", defect_type)
 
             y_defect = y[defect_type]
 
             # Check if we have both classes
             unique_classes = np.unique(y_defect)
             if len(unique_classes) < 2:
-                logger.warning(f"   ⚠️ {defect_type}: Only one class present, skipping")
+                logger.warning("   ⚠️ %s: Only one class present, skipping", defect_type)
                 continue
 
             # Scale features
@@ -631,14 +631,14 @@ class MLDefectDetector:
             self.is_trained[defect_type] = True
 
             if verbose:
-                logger.info(f"   RF Recall: {rf_cv_recall.mean():.4f} ± {rf_cv_recall.std():.4f}")
-                logger.info(f"   GB Recall: {gb_cv_recall.mean():.4f} ± {gb_cv_recall.std():.4f}")
+                logger.info("   RF Recall: %.4f ± %.4f", rf_cv_recall.mean(), rf_cv_recall.std())
+                logger.info("   GB Recall: %.4f ± %.4f", gb_cv_recall.mean(), gb_cv_recall.std())
 
                 # Check if recall target is met
                 if rf_cv_recall.mean() >= self.recall_target or gb_cv_recall.mean() >= self.recall_target:
-                    logger.info(f"   ✅ {defect_type}: Recall target MET!")
+                    logger.info("   ✅ %s: Recall target MET!", defect_type)
                 else:
-                    logger.warning(f"   ⚠️ {defect_type}: Recall below target ({self.recall_target:.1%})")
+                    logger.warning("   ⚠️ %s: Recall below target (%.1%)", defect_type, self.recall_target)
 
             all_metrics[defect_type] = {
                 "rf_recall_mean": rf_cv_recall.mean(),
@@ -761,7 +761,7 @@ class MLDefectDetector:
         with open(filepath, "wb") as f:
             pickle.dump(model_data, f)
 
-        logger.info(f"Model saved to {filepath}")
+        logger.info("Model saved to %s", filepath)
 
     def load(self, filepath: str) -> None:
         """Load trained models from file."""
@@ -778,7 +778,7 @@ class MLDefectDetector:
         self.training_metrics = model_data.get("training_metrics", {})
         self.cv_recalls = model_data.get("cv_recalls", {})
 
-        logger.info(f"Model loaded from {filepath}")
+        logger.info("Model loaded from %s", filepath)
 
 
 def train_ml_defect_detector_from_dataset(
@@ -804,7 +804,7 @@ def train_ml_defect_detector_from_dataset(
         (detector, evaluation_metrics)
     """
     if verbose:
-        logger.info(f"Training ML Defect Detector from {len(dataset)} samples...")
+        logger.info("Training ML Defect Detector from %s samples...", len(dataset))
 
     # Extract features
     feature_extractor = DefectFeatureExtractor()
@@ -830,7 +830,7 @@ def train_ml_defect_detector_from_dataset(
     y = {defect: np.array(labels) for defect, labels in y_dict.items()}
 
     if verbose:
-        logger.info(f"Extracted features: {X.shape}")
+        logger.info("Extracted features: %s", X.shape)
 
     # Split train/test
     from sklearn.model_selection import train_test_split
@@ -872,7 +872,7 @@ def train_ml_defect_detector_from_dataset(
         }
 
         if verbose:
-            logger.info(f"{defect_type} Test Recall: {recall:.4f}")
+            logger.info("%s Test Recall: %.4f", defect_type, recall)
 
     # Save if requested
     if save_path:

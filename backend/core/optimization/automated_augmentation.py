@@ -255,7 +255,7 @@ class AugmentationPolicy:
                 try:
                     augmented = self.op_map[op_name](augmented, magnitude)
                 except Exception as e:
-                    logger.warning(f"Failed to apply {op_name}: {e}")
+                    logger.warning("Failed to apply %s: %s", op_name, e)
 
         return augmented
 
@@ -291,7 +291,7 @@ class RandAugment:
         elif material_type == "mp3":
             self.operations.append("add_mp3_artifacts")
 
-        logger.info(f"RandAugment initialized: n_ops={n_ops}, magnitude={magnitude}, material={material_type}")
+        logger.info("RandAugment initialized: n_ops=%s, magnitude=%s, material=%s", n_ops, magnitude, material_type)
 
     def __call__(self, audio: torch.Tensor) -> torch.Tensor:
         """Apply random augmentations."""
@@ -328,7 +328,7 @@ class AutoAugment:
         # Initialize random policies
         self.policies: list = self._initialize_policies() or []
 
-        logger.info(f"AutoAugment initialized: {n_policies} policies, {n_ops_per_policy} ops per policy")
+        logger.info("AutoAugment initialized: %s policies, %s ops per policy", n_policies, n_ops_per_policy)
 
     def _initialize_policies(self) -> list[AugmentationPolicy]:
         """Initialize random policies."""
@@ -373,7 +373,7 @@ class AutoAugment:
             n_iterations: Number of search iterations
             device: Device to use
         """
-        logger.info(f"Searching for optimal augmentation policies ({n_iterations} iterations)...")
+        logger.info("Searching for optimal augmentation policies (%s iterations)...", n_iterations)
 
         best_policies = None
         best_val_loss = float("inf")
@@ -420,10 +420,10 @@ class AutoAugment:
                 best_policies = [AugmentationPolicy(p.operations, p.material_type) for p in self.policies]
 
             if iteration % 10 == 0:
-                logger.info(f"Iteration {iteration}: Val Loss = {avg_val_loss:.4f}, Best = {best_val_loss:.4f}")
+                logger.info("Iteration %s: Val Loss = %.4f, Best = %.4f", iteration, avg_val_loss, best_val_loss)
 
         self.policies = best_policies
-        logger.info(f"Policy search completed! Best val loss: {best_val_loss:.4f}")
+        logger.info("Policy search completed! Best val loss: %.4f", best_val_loss)
 
     def save_policies(self, path: Path) -> None:
         """Save learned policies."""
@@ -435,7 +435,7 @@ class AutoAugment:
         with open(path, "w") as f:
             json.dump(policies_data, f, indent=2)
 
-        logger.info(f"Policies saved to {path}")
+        logger.info("Policies saved to %s", path)
 
     def load_policies(self, path: Path) -> None:
         """Load policies from file."""
@@ -444,7 +444,7 @@ class AutoAugment:
 
         self.policies = [AugmentationPolicy(p["operations"], p.get("material_type")) for p in policies_data]
 
-        logger.info(f"Loaded {len(self.policies)} policies from {path}")
+        logger.info("Loaded %s policies from %s", len(self.policies), path)
 
 
 class ConsistencyTraining:
@@ -471,7 +471,7 @@ class ConsistencyTraining:
         self.consistency_weight = consistency_weight
         self.device = device
 
-        logger.info(f"ConsistencyTraining initialized: consistency_weight={consistency_weight}")
+        logger.info("ConsistencyTraining initialized: consistency_weight=%s", consistency_weight)
 
     def train_step(
         self, batch_x: torch.Tensor, batch_y: torch.Tensor, optimizer: torch.optim.Optimizer
@@ -525,17 +525,17 @@ if __name__ == "__main__":
     audio = torch.randn(2, 1, 48000)
     augmented = rand_augment(audio)
 
-    logger.debug(f"Original shape: {audio.shape}")
-    logger.debug(f"Augmented shape: {augmented.shape}")
+    logger.debug("Original shape: %s", audio.shape)
+    logger.debug("Augmented shape: %s", augmented.shape)
 
     # Test AutoAugment
     logger.debug("\n=== AutoAugment ===")
     auto_augment = AutoAugment(n_policies=3, n_ops_per_policy=2, material_type="tape_cassette")
 
     augmented = auto_augment(audio)
-    logger.debug(f"Augmented shape: {augmented.shape}")
+    logger.debug("Augmented shape: %s", augmented.shape)
 
     # Show policies
     logger.debug("\nPolicies:")
     for i, policy in enumerate(auto_augment.policies):
-        logger.debug(f"  Policy {i + 1}: {policy.operations}")
+        logger.debug("  Policy %s: %s", i + 1, policy.operations)

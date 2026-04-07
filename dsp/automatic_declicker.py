@@ -111,7 +111,7 @@ class AutomaticDeclicker:
             else:
                 audio_out = self._declick_classic(audio)
         except Exception as e:
-            logger.error(f"Fehler bei Declicking: {e}")
+            logger.error("Fehler bei Declicking: %s", e)
             fallback_used = True
             audio_out = audio.copy()
 
@@ -120,7 +120,7 @@ class AutomaticDeclicker:
             logger.info(
                 f"AutomaticDeclicker: click_removal_score={click_removal_score:.4f}, fallback_used={fallback_used}"
             )
-        logger.info(f"[DSPContract] {asdict(declicker_contract)}")
+        logger.info("[DSPContract] %s", asdict(declicker_contract))
         return audio_out.astype(audio.dtype)
 
     def _declick_classic(self, audio: np.ndarray) -> np.ndarray:

@@ -318,7 +318,7 @@ class PsychoAcousticMetrics:
                 scores["spectral_distortion_normalized"] = 1.0 / (1.0 + lsd / 2)
 
             except Exception as e:
-                logger.warning(f"Comparative metrics failed: {e}")
+                logger.warning("Comparative metrics failed: %s", e)
 
         # Calculate overall naturalness (weighted combination)
         # SI-SDR entfernt §4.4+§10.2 — Gewichte auf verbleibende Metriken umverteilt
@@ -519,17 +519,17 @@ if __name__ == "__main__":
     logger.debug("\nClean Signal:")
     clean_scores = metrics.calculate_naturalness_score(clean)
     for key, val in clean_scores.items():
-        logger.debug(f"  {key}: {val:.3f}")
+        logger.debug("  %s: %.3f", key, val)
 
     logger.debug("\nDegraded Signal:")
     degraded_scores = metrics.calculate_naturalness_score(degraded, reference=clean)
     for key, val in degraded_scores.items():
-        logger.debug(f"  {key}: {val:.3f}")
+        logger.debug("  %s: %.3f", key, val)
 
     logger.debug("\nImprovement Analysis:")
     improvement = measure_quality_improvement(degraded, clean, sr)
     for key, val in improvement.items():
-        logger.debug(f"  {key}: {val:.3f}")
+        logger.debug("  %s: %.3f", key, val)
 
     logger.debug("\n" + "=" * 70)
     logger.debug("✅ Psychoacoustic Metrics Module operational")

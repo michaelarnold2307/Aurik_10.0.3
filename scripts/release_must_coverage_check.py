@@ -80,6 +80,34 @@ FORCED_TRACEABILITY: dict[str, list[str]] = {
         "tests/normative/test_lyrics_guided_enhancement_gate.py",
         "tests/unit/test_lyrics_guided_enhancement.py",
     ],
+    "### [RELEASE_MUST] §2.45 Minimal-Intervention-Prinzip (v9.10.122)": [
+        "tests/test_phase_skipping_integration.py",
+        "tests/test_phase_skipping.py",
+        "tests/unit/test_unified_restorer_v3.py",
+    ],
+    "### [RELEASE_MUST] §2.46 Carrier-Chain-Inversion (v9.10.122)": [
+        "tests/unit/test_denker/test_tontraegerkette_denker.py",
+        "tests/unit/test_era_classifier.py",
+        "tests/integration/test_pipeline_integration.py",
+    ],
+    "### [RELEASE_MUST] §2.47 Adaptive-Intelligence-Prinzip (v9.10.123)": [
+        "tests/unit/test_gp_parameter_optimizer.py",
+        "tests/unit/test_per_phase_musical_goals_gate.py",
+        "tests/unit/test_era_classifier.py",
+        "tests/test_defect_scanner_comprehensive.py",
+    ],
+    "### [RELEASE_MUST] §2.48 Kumulative-Phasen-Interaktions-Guard (v9.10.123)": [
+        "tests/unit/test_cumulative_interaction_guard.py",
+    ],
+    "### [RELEASE_MUST] §2.49 Artefakt-Freiheits-Gate (v9.10.123)": [
+        "tests/unit/test_artifact_freedom_gate.py",
+    ],
+    "### [RELEASE_MUST] §6.2a Material-Pflicht-Phasen (v9.10.73)": [
+        "tests/normative/test_material_priority_phases_gate.py",
+    ],
+    "### [RELEASE_MUST] §2.29c PMGG Restorative-Baseline-Capping (v9.10.96)": [
+        "tests/unit/test_per_phase_musical_goals_gate.py",
+    ],
 }
 
 

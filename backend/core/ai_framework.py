@@ -62,7 +62,7 @@ try:
     VOCAL_AI_AVAILABLE = True
 except ImportError:
     VOCAL_AI_AVAILABLE = False
-    warnings.warn("Vocal AI Enhancement not available")
+    logger.warning("Vocal AI Enhancement not available")
 
 # Import Dynamics Processing Phases (Phase 10 + 11)
 try:
@@ -75,7 +75,7 @@ try:
 except ImportError:
     DYNAMICS_PHASES_AVAILABLE = False
     PhasesMaterialType = None
-    warnings.warn("Dynamics phases (Compression/Limiting) not available")
+    logger.warning("Dynamics phases (Compression/Limiting) not available")
 
 
 # ============================================================
@@ -199,7 +199,7 @@ class UnifiedDefectDetector:
             logger.info("✓ ML Defect Detector loaded")
         except ImportError:
             self.has_ml_detector = False
-            warnings.warn("ML Defect Detector not available - using rule-based only")
+            logger.warning("ML Defect Detector not available - using rule-based only")
 
     def detect(self, audio: np.ndarray, return_locations: bool = True) -> DefectDetectionResult:
         """
@@ -687,7 +687,7 @@ class UnifiedAudioRestorer:
         # Detect defects if auto mode
         if auto_detect:
             detection = self.detector.detect(audio)
-            logger.info(f"Detected {len(detection.defects)} defect types")
+            logger.info("Detected %s defect types", len(detection.defects))
         else:
             detection = None
 
@@ -1258,7 +1258,8 @@ class Studio2026Processor:
 
         if not DYNAMICS_PHASES_AVAILABLE or self.compression is None:
             # Fallback: simple peak limiting only
-            peak = np.max(np.abs(audio))
+            # §DSP-Invariante: percentile 99.9 — Impuls-Artefakt darf Normalisierung nicht blockieren.
+            peak = float(np.percentile(np.abs(audio), 99.9))
             if peak > 0.95:
                 audio = audio / peak * 0.95
                 report["fallback_limiting"] = True
@@ -1308,7 +1309,8 @@ class Studio2026Processor:
         mastered = 0.9 * audio + 0.1 * hf
 
         # Final safety limiting to -0.1 dBFS (brick wall)
-        peak = np.max(np.abs(mastered))
+        # §DSP-Invariante: percentile 99.9 — Impuls-Artefakt darf Normalisierung nicht blockieren.
+        peak = float(np.percentile(np.abs(mastered), 99.9))
         if peak > 0.99:
             mastered = mastered / peak * 0.99
 
@@ -1446,33 +1448,33 @@ if __name__ == "__main__":
     # Test detection
     logger.debug("\n1. Testing Defect Detection...")
     detection = framework.analyze(audio)
-    logger.debug(f"   Quality Score: {detection.overall_quality_score:.2f}")
+    logger.debug("   Quality Score: %.2f", detection.overall_quality_score)
     logger.debug("   Detected Defects:")
     for defect, confidence in detection.defects.items():
         if confidence > 0.3:
             severity = detection.severity.get(defect, 0)
-            logger.debug(f"     - {defect.value}: confidence={confidence:.2f}, severity={severity:.2f}")
+            logger.debug("     - %s: confidence=%.2f, severity=%.2f", defect.value, confidence, severity)
 
     # Test restoration
     logger.debug("\n2. Testing Audio Restoration...")
     restoration = framework.restore(audio, mode=RestorationMode.BALANCED)
-    logger.debug(f"   Processes Applied: {', '.join(restoration.processing_applied)}")
-    logger.debug(f"   Defects Removed: {sum(restoration.defects_removed.values())}")
-    logger.debug(f"   Quality Improvement: +{restoration.quality_improvement:.2f}")
+    logger.debug("   Processes Applied: %s", ', '.join(restoration.processing_applied))
+    logger.debug("   Defects Removed: %s", sum(restoration.defects_removed.values()))
+    logger.debug("   Quality Improvement: +%.2f", restoration.quality_improvement)
 
     # Test enhancement
     logger.debug("\n3. Testing Audio Enhancement...")
     enhancement = framework.enhance(restoration.audio, target_clarity=0.8)
-    logger.debug(f"   Enhancements: {', '.join(enhancement.enhancements_applied)}")
-    logger.debug(f"   Clarity Improvement: {enhancement.clarity_improvement:.2f}")
+    logger.debug("   Enhancements: %s", ', '.join(enhancement.enhancements_applied))
+    logger.debug("   Clarity Improvement: %.2f", enhancement.clarity_improvement)
 
     # Test Magic Button
     logger.debug("\n4. Testing Magic Button (Studio 2026)...")
     studio_audio, report = framework.magic_button(audio)
     logger.debug("   ✅ Processed to Studio 2026 Standard")
-    logger.debug(f"   Defects Found: {report['detection']['defects_found']}")
-    logger.debug(f"   Total Removed: {report['restoration']['defects_removed']}")
-    logger.debug(f"   Quality Before: {report['detection']['quality_score_before']:.2f}")
+    logger.debug("   Defects Found: %s", report['detection']['defects_found'])
+    logger.debug("   Total Removed: %s", report['restoration']['defects_removed'])
+    logger.debug("   Quality Before: %.2f", report['detection']['quality_score_before'])
 
     logger.debug("\n" + "=" * 70)
     logger.debug("✅ AI Framework Test Complete!")

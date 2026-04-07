@@ -82,7 +82,7 @@ class ONNXPluginManager:
         self.total_inferences = 0
         self.total_inference_time_ms = 0.0
 
-        logger.info(f"ONNX Plugin Manager initialized with {len(self.registry['models'])} models")
+        logger.info("ONNX Plugin Manager initialized with %s models", len(self.registry['models']))
 
     def get_available_models(self) -> list[str]:
         """
@@ -127,13 +127,13 @@ class ONNXPluginManager:
 
         # Check if already loaded
         if model_id in self.loaded_models and not force_reload:
-            logger.debug(f"Model {model_id} already loaded")
+            logger.debug("Model %s already loaded", model_id)
             return True
 
         # Get model config
         model_config = self.get_model_config(model_id)
         if not model_config:
-            logger.error(f"Model {model_id} not found in registry")
+            logger.error("Model %s not found in registry", model_id)
             return False
 
         # Store config
@@ -145,14 +145,14 @@ class ONNXPluginManager:
             # Choose FP32 or INT8
             if use_quantized and onnx_config.get("quantized", False):
                 model_path = Path(onnx_config["quantized_path"])
-                logger.info(f"Loading quantized model: {model_path}")
+                logger.info("Loading quantized model: %s", model_path)
             else:
                 model_path = Path(onnx_config["path"])
-                logger.info(f"Loading FP32 model: {model_path}")
+                logger.info("Loading FP32 model: %s", model_path)
 
             # Check if model exists
             if not model_path.exists():
-                logger.warning(f"Model file not found: {model_path}")
+                logger.warning("Model file not found: %s", model_path)
                 continue
 
             try:
@@ -165,14 +165,14 @@ class ONNXPluginManager:
                 )
 
                 onnx_models[onnx_config["name"]] = onnx_model
-                logger.info(f"Loaded ONNX model: {model_id}/{onnx_config['name']}")
+                logger.info("Loaded ONNX model: %s/%s", model_id, onnx_config['name'])
 
             except Exception as e:
-                logger.error(f"Failed to load {model_id}/{onnx_config['name']}: {e}")
+                logger.error("Failed to load %s/%s: %s", model_id, onnx_config['name'], e)
                 continue
 
         if not onnx_models:
-            logger.error(f"No ONNX models loaded for {model_id}")
+            logger.error("No ONNX models loaded for %s", model_id)
             return False
 
         # Multi-model-Plugins (z.B. DeepFilterNet: encoder + decoder + erb_dec)
@@ -213,7 +213,7 @@ class ONNXPluginManager:
         )
 
         self.loaded_models[model_id] = wrapped_model
-        logger.info(f"Successfully loaded model: {model_id}")
+        logger.info("Successfully loaded model: %s", model_id)
         return True
 
     def unload_model(self, model_id: str) -> bool:
@@ -227,12 +227,12 @@ class ONNXPluginManager:
             True if unloaded successfully
         """
         if model_id not in self.loaded_models:
-            logger.warning(f"Model {model_id} not loaded")
+            logger.warning("Model %s not loaded", model_id)
             return False
 
         del self.loaded_models[model_id]
         del self.model_configs[model_id]
-        logger.info(f"Unloaded model: {model_id}")
+        logger.info("Unloaded model: %s", model_id)
         return True
 
     def is_loaded(self, model_id: str) -> bool:
@@ -260,7 +260,7 @@ class ONNXPluginManager:
             Processed audio or None if failed
         """
         if model_id not in self.loaded_models:
-            logger.error(f"Model {model_id} not loaded. Call load_model() first.")
+            logger.error("Model %s not loaded. Call load_model() first.", model_id)
             return None
 
         try:
@@ -277,7 +277,7 @@ class ONNXPluginManager:
             return output
 
         except Exception as e:
-            logger.error(f"Error processing with {model_id}: {e}")
+            logger.error("Error processing with %s: %s", model_id, e)
             return None
 
     def get_statistics(self, model_id: str | None = None) -> dict:
@@ -358,7 +358,7 @@ class ONNXPluginManager:
 
         successful = sum(results.values())
         total = len(results)
-        logger.info(f"Loaded {successful}/{total} models")
+        logger.info("Loaded %s/%s models", successful, total)
 
         return results
 
@@ -372,7 +372,7 @@ class ONNXPluginManager:
         count = len(self.loaded_models)
         self.loaded_models.clear()
         self.model_configs.clear()
-        logger.info(f"Unloaded {count} models")
+        logger.info("Unloaded %s models", count)
         return count
 
     def get_model_info(self, model_id: str) -> dict | None:

@@ -702,3 +702,136 @@ class TestProposeParetaMOO:
         self._populate_memory(opt, "tape", 8, tmp_path, monkeypatch)
         proposals = opt.propose_pareto(material="tape", n_candidates=99)
         assert len(proposals) <= 5
+
+    # ── §2.47 Material-Ähnlichkeitsmatrix + Cross-Material-Transfer ───────
+
+    def test_71_material_similarity_diagonal(self):
+        """Diagonale der Ähnlichkeitsmatrix muss 1.0 sein."""
+        from backend.core.gp_parameter_optimizer import _material_similarity, _MATERIAL_SIMILARITY_KEYS
+        for mat in _MATERIAL_SIMILARITY_KEYS:
+            sim = _material_similarity(mat, mat)
+            assert sim == pytest.approx(1.0), f"Self-similarity of {mat} should be 1.0, got {sim}"
+
+    def test_72_material_similarity_matrix_values(self):
+        """Spezifische Spec-Werte aus §2.47 prüfen."""
+        from backend.core.gp_parameter_optimizer import _material_similarity
+        cases = [
+            ("shellac",  "wax_cyl",  0.85),
+            ("vinyl_78", "vinyl_std", 0.65),
+            ("tape_std", "tape_stu",  0.85),
+            ("tape_std", "cassette",  0.70),
+            ("digital",  "mp3_lossy", 0.55),
+            ("shellac",  "digital",   0.05),
+        ]
+        for m1, m2, expected in cases:
+            got = _material_similarity(m1, m2)
+            assert got == pytest.approx(expected, abs=1e-3), (
+                f"_material_similarity({m1!r},{m2!r})={got:.3f}, expected {expected}"
+            )
+
+    def test_73_material_similarity_alias_tape(self):
+        """tape-Alias soll zu tape_std gemappt werden (Ähnlichkeit mit tape_stu = 0.85)."""
+        from backend.core.gp_parameter_optimizer import _material_similarity
+        sim = _material_similarity("tape", "tape_stu")
+        assert sim == pytest.approx(0.85, abs=1e-3)
+
+    def test_74_material_similarity_alias_vinyl(self):
+        """vinyl-Alias → vinyl_std (Ähnlichkeit mit vinyl_78 = 0.65)."""
+        from backend.core.gp_parameter_optimizer import _material_similarity
+        sim = _material_similarity("vinyl", "vinyl_78")
+        assert sim == pytest.approx(0.65, abs=1e-3)
+
+    def test_75_material_similarity_unknown_returns_zero(self):
+        """Unbekanntes Material → keine Ähnlichkeit (0.0)."""
+        from backend.core.gp_parameter_optimizer import _material_similarity
+        sim = _material_similarity("xyz_unknown_material", "shellac")
+        assert sim == pytest.approx(0.0)
+
+    def test_76_material_similarity_symmetric(self):
+        """Ähnlichkeitsmatrix muss symmetrisch sein."""
+        from backend.core.gp_parameter_optimizer import (
+            _material_similarity, _MATERIAL_SIMILARITY_KEYS,
+        )
+        keys = _MATERIAL_SIMILARITY_KEYS
+        for i, m1 in enumerate(keys):
+            for m2 in keys[i + 1:]:
+                a = _material_similarity(m1, m2)
+                b = _material_similarity(m2, m1)
+                assert a == pytest.approx(b, abs=1e-6), (
+                    f"Asymmetry: {m1}↔{m2}: {a:.4f} vs {b:.4f}"
+                )
+
+    def test_77_augment_cross_material_no_augment_if_enough_obs(self, tmp_path, monkeypatch):
+        """Bei ≥ 10 eigenen Beobachtungen: kein Cross-Material-Transfer."""
+        import backend.core.gp_parameter_optimizer as gp_mod
+        monkeypatch.setattr(gp_mod, "_MEMORY_DIR", tmp_path)
+        opt = GPParameterOptimizer(rng_seed=30)
+
+        rng = np.random.default_rng(0)
+        all_X = [rng.random(opt._dim).tolist() for _ in range(10)]
+        all_y = [float(rng.random()) for _ in range(10)]
+        # Convert to np.ndarray list as the method expects
+        X_np = [np.array(x) for x in all_X]
+
+        augmented_X, augmented_y = opt._augment_with_cross_material("shellac", X_np, all_y)
+        assert len(augmented_X) == 10  # unchanged
+        assert len(augmented_y) == 10
+
+    def test_78_augment_cross_material_augments_few_obs(self, tmp_path, monkeypatch):
+        """Bei < 10 eigenen Obs und ähnlichem Material vorhanden → Cross-Transfer aktiv."""
+        import json
+        import backend.core.gp_parameter_optimizer as gp_mod
+        monkeypatch.setattr(gp_mod, "_MEMORY_DIR", tmp_path)
+        opt = GPParameterOptimizer(rng_seed=31)
+
+        # Shellac hat 2 eigene Einträge
+        rng = np.random.default_rng(1)
+        own_X = [rng.random(opt._dim) for _ in range(2)]
+        own_y = [0.6, 0.7]
+
+        # wax_cyl (Ähnlichkeit 0.85 mit shellac) hat 3 Einträge im Memory
+        wax_entries = [
+            {"params": rng.random(opt._dim).tolist(), "score": 0.65, "ts": float(i)}
+            for i in range(3)
+        ]
+        (tmp_path / "wax_cyl.json").write_text(json.dumps(wax_entries))
+
+        augmented_X, augmented_y = opt._augment_with_cross_material("shellac", own_X, own_y)
+        assert len(augmented_X) > 2  # cross entries wurden hinzugefügt
+        # Alle augmentierten Scores müssen ≤ Originalscores sein (Dämpfung via Ähnlichkeit)
+        for y in augmented_y[2:]:
+            assert y <= 1.0
+
+    def test_79_augment_cross_material_score_damped_by_similarity(self, tmp_path, monkeypatch):
+        """Cross-Material-Scores werden mit Ähnlichkeit multipliziert."""
+        import json
+        import backend.core.gp_parameter_optimizer as gp_mod
+        monkeypatch.setattr(gp_mod, "_MEMORY_DIR", tmp_path)
+        opt = GPParameterOptimizer(rng_seed=32)
+
+        rng = np.random.default_rng(2)
+        own_X = [rng.random(opt._dim) for _ in range(1)]
+        own_y = [0.9]
+
+        # tape_std hat Ähnlichkeit 0.85 zu tape_stu
+        tape_stu_entries = [
+            {"params": rng.random(opt._dim).tolist(), "score": 1.0, "ts": 0.0}
+        ]
+        (tmp_path / "tape_stu.json").write_text(json.dumps(tape_stu_entries))
+
+        augmented_X, augmented_y = opt._augment_with_cross_material("tape_std", own_X, own_y)
+        # Neuer Score = 1.0 × 0.85 = 0.85
+        cross_scores = augmented_y[1:]
+        if cross_scores:
+            assert cross_scores[0] == pytest.approx(0.85, abs=0.01)
+
+    def test_80_propose_uses_cross_material_with_few_obs(self, tmp_path, monkeypatch):
+        """propose() mit 2 eigenen Obs gibt keinen Fehler (Cross-Transfer greift)."""
+        import backend.core.gp_parameter_optimizer as gp_mod
+        monkeypatch.setattr(gp_mod, "_MEMORY_DIR", tmp_path)
+        opt = GPParameterOptimizer(rng_seed=33)
+
+        self._populate_memory(opt, "shellac", 2, tmp_path, monkeypatch)
+        proposal = opt.propose(material="shellac", n_init=5)
+        assert isinstance(proposal, ParameterProposal)
+        assert proposal.parameters  # nicht leer

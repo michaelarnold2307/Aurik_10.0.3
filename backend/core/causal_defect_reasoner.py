@@ -1078,7 +1078,7 @@ CAUSE_TO_PHASES: dict[str, list[str]] = {
     "crosstalk": [
         "phase_62_crosstalk_cancellation",  # Primary: BSS-based channel separation
         "phase_14_phase_correction",  # Phase alignment after separation
-        "phase_34_stereo_restoration",  # Stereo field restoration
+        "phase_34_mid_side_processing",  # §7.2 Spec 06 — M/S für Restfehler-Kontrolle
     ],
     "intermodulation_distortion": [
         "phase_63_intermodulation_reduction",  # Primary: Volterra-based IMD removal
@@ -1118,7 +1118,8 @@ CAUSE_TO_PHASES: dict[str, list[str]] = {
     ],
     "motor_interference": [
         "phase_02_hum_removal",  # Primary: harmonic removal in 80–300 Hz
-        "phase_05_low_freq_cleanup",  # Sub-harmonic cleanup
+        "phase_03_denoise",  # §7.2 Spec 06 — OMLSA/DFNet für Motor-Breitbandrauschen
+        "phase_29_tape_hiss_reduction",  # §7.2 Spec 06 — HF-Anteile der Motor-Interferenz
         "phase_04_eq_correction",  # Residual spectral correction
     ],
 }

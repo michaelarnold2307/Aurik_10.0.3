@@ -31,11 +31,6 @@ try:
 except Exception:
     yaml = None
 
-try:
-    import soundfile as sf
-except Exception:
-    sf = None
-
 logger = logging.getLogger(__name__)
 
 try:
@@ -77,17 +72,7 @@ def _load_audio(path: str) -> tuple[np.ndarray, int]:
     except Exception as exc:
         logger.warning("_load_audio: file_import failed for %s: %s — trying soundfile", path, exc)
 
-    # Stufe 2: soundfile direct (WAV, FLAC, AIFF, OGG, …)
-    if sf is not None:
-        try:
-            audio, sr = sf.read(path, dtype="float32", always_2d=False)
-            if audio.ndim > 1:
-                audio = audio.mean(axis=1)
-            return np.ascontiguousarray(audio, dtype=np.float32), int(sr)
-        except Exception as exc:
-            logger.warning("soundfile failed for %s: %s — trying scipy", path, exc)
-
-    # Stufe 3: scipy fallback (WAV only)
+    # Stufe 2: scipy fallback (WAV only)
     try:
         from scipy.io import wavfile
 
@@ -302,7 +287,7 @@ def main():
     if args.out:
         with open(args.out, "w", encoding="utf-8") as f:
             f.write(js)
-        logger.info(f"Wrote: {args.out}")
+        logger.info("Wrote: %s", args.out)
     else:
         logger.info(str(js))
 

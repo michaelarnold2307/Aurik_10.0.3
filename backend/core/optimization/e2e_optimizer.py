@@ -376,9 +376,9 @@ class E2EOptimizationFramework:
         # Optimizer (will be set up during training)
         self.optimizer = None
 
-        logger.info(f"E2EOptimizationFramework initialized on {device}")
-        logger.info(f"  Sample rate: {sr} Hz")
-        logger.info(f"  Checkpoint dir: {self.checkpoint_dir}")
+        logger.info("E2EOptimizationFramework initialized on %s", device)
+        logger.info("  Sample rate: %s Hz", sr)
+        logger.info("  Checkpoint dir: %s", self.checkpoint_dir)
 
     def setup_optimizer(self, learning_rate: float = 1e-4, weight_decay: float = 1e-5):
         """Setup optimizer for training."""
@@ -386,7 +386,7 @@ class E2EOptimizationFramework:
             self.trainable_modules.parameters(), lr=learning_rate, weight_decay=weight_decay
         )
 
-        logger.info(f"Optimizer configured: AdamW(lr={learning_rate}, wd={weight_decay})")
+        logger.info("Optimizer configured: AdamW(lr=%s, wd=%s)", learning_rate, weight_decay)
 
     def _require_optimizer(self) -> torch.optim.Optimizer:
         """Return initialized optimizer or raise a clear error."""
@@ -478,7 +478,7 @@ class E2EOptimizationFramework:
             epoch_losses.append(losses)
 
             if batch_idx % 100 == 0:
-                logger.info(f"Epoch {epoch}, Batch {batch_idx}: Loss = {losses['total_perceptual_loss']:.4f}")
+                logger.info("Epoch %s, Batch %s: Loss = %.4f", epoch, batch_idx, losses['total_perceptual_loss'])
 
         # Average losses
         avg_losses = {}
@@ -534,7 +534,7 @@ class E2EOptimizationFramework:
         checkpoint_path = self.checkpoint_dir / f"checkpoint_epoch_{epoch:04d}.pt"
         torch.save(checkpoint, checkpoint_path)
 
-        logger.info(f"Checkpoint saved: {checkpoint_path}")
+        logger.info("Checkpoint saved: %s", checkpoint_path)
 
     def load_checkpoint(self, checkpoint_path: Path):
         """Load training checkpoint."""
@@ -544,9 +544,9 @@ class E2EOptimizationFramework:
         if self.optimizer is not None:
             self.optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
 
-        logger.info(f"Checkpoint loaded: {checkpoint_path}")
-        logger.info(f"  Epoch: {checkpoint['epoch']}")
-        logger.info(f"  Metrics: {checkpoint['metrics']}")
+        logger.info("Checkpoint loaded: %s", checkpoint_path)
+        logger.info("  Epoch: %s", checkpoint['epoch'])
+        logger.info("  Metrics: %s", checkpoint['metrics'])
 
         return checkpoint["epoch"], checkpoint["metrics"]
 
@@ -609,11 +609,11 @@ if __name__ == "__main__":
     logger.debug("Training step completed")
     logger.debug("Losses:")
     for key, value in losses.items():
-        logger.debug(f"  {key}: {value:.4f}")
+        logger.debug("  %s: %.4f", key, value)
 
     # Export parameters
     params = framework.export_optimized_parameters()
     logger.debug("\nOptimized Parameters:")
-    logger.debug(f"  EQ bands: {len(params['eq']['frequencies'])}")
-    logger.debug(f"  Compressor ratio: {params['compressor']['ratio']:.2f}")
-    logger.debug(f"  Gate threshold: {params['gate']['threshold_db']:.1f} dB")
+    logger.debug("  EQ bands: %s", len(params['eq']['frequencies']))
+    logger.debug("  Compressor ratio: %.2f", params['compressor']['ratio'])
+    logger.debug("  Gate threshold: %.1f dB", params['gate']['threshold_db'])

@@ -25,7 +25,7 @@ def extract_features(audio_bytes: bytes) -> dict[str, Any]:
 
     min_len = 2048
     if len(audio_mono) < min_len:
-        logger.warning(f"Audio zu kurz für Feature-Analyse: {len(audio_mono)} Samples (min. {min_len})")
+        logger.warning("Audio zu kurz für Feature-Analyse: %s Samples (min. %s)", len(audio_mono), min_len)
         return {
             "rms": 0.0,
             "channels": channels,
@@ -41,16 +41,16 @@ def extract_features(audio_bytes: bytes) -> dict[str, Any]:
         }
     rms = float(np.sqrt(np.mean(audio_mono**2)))
     duration = float(len(audio_mono) / sr)
-    logger.info(f"[librosa] Signal-Länge (Samples): {len(audio_mono)}, dtype: {audio_mono.dtype}, sr: {sr}")
+    logger.info("[librosa] Signal-Länge (Samples): %s, dtype: %s, sr: %s", len(audio_mono), audio_mono.dtype, sr)
     zcr = float(np.mean(librosa.feature.zero_crossing_rate(audio_mono)))
-    logger.info(f"[librosa] Signal-Länge (Samples): {len(audio_mono)}, dtype: {audio_mono.dtype}, sr: {sr}")
+    logger.info("[librosa] Signal-Länge (Samples): %s, dtype: %s, sr: %s", len(audio_mono), audio_mono.dtype, sr)
     spectral_centroid = float(np.mean(librosa.feature.spectral_centroid(y=audio_mono, sr=sr)))
-    logger.info(f"[librosa] Signal-Länge (Samples): {len(audio_mono)}, dtype: {audio_mono.dtype}, sr: {sr}")
+    logger.info("[librosa] Signal-Länge (Samples): %s, dtype: %s, sr: %s", len(audio_mono), audio_mono.dtype, sr)
     # SOTA-Features
     spectral_flatness = float(np.mean(librosa.feature.spectral_flatness(y=audio_mono)))
-    logger.info(f"[librosa] Signal-Länge (Samples): {len(audio_mono)}, dtype: {audio_mono.dtype}, sr: {sr}")
+    logger.info("[librosa] Signal-Länge (Samples): %s, dtype: %s, sr: %s", len(audio_mono), audio_mono.dtype, sr)
     harmonicity = float(np.mean(librosa.effects.harmonic(audio_mono))) if hasattr(librosa.effects, "harmonic") else 0.0
-    logger.info(f"[librosa] Signal-Länge (Samples): {len(audio_mono)}, dtype: {audio_mono.dtype}, sr: {sr}")
+    logger.info("[librosa] Signal-Länge (Samples): %s, dtype: %s, sr: %s", len(audio_mono), audio_mono.dtype, sr)
     onset_env = librosa.onset.onset_strength(y=audio_mono, sr=sr)
     transients = int(np.sum(onset_env > np.mean(onset_env) + 2 * np.std(onset_env)))
     # Modulation (Amplitude Modulation Index)

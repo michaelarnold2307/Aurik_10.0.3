@@ -155,7 +155,10 @@ class ArtifactDetectionPlugin:
 if __name__ == "__main__":
     import soundfile as sf
 
-    audio, sr = sf.read("audio_examples/example.wav")
+    from backend.file_import import load_audio_file
+
+    _res = load_audio_file("audio_examples/example.wav")
+    audio, sr = np.asarray(_res["audio"], dtype=np.float32), int(_res["sr"])
     plugin = ArtifactDetectionPlugin("models/artifact_detector.pt")
     result = plugin.detect_artifacts(audio, sr)
     logger.debug(result)

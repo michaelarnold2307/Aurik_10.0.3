@@ -94,10 +94,10 @@ class SpectralEnergyGuard:
             return result
         except Exception as e:
             result["error"] = str(e)
-            logger.error(f"[SpectralEnergyGuard][Fehler] {e}")
+            logger.error("[SpectralEnergyGuard][Fehler] %s", e)
             self._audit_log(result, sr if "sr" in locals() else None)
             return result
 
     def _audit_log(self, result: dict[str, Any], sr: int | None = None):
         # Minimaler Audit-Log als Code, erweiterbar für zentrale Audit-Logik
-        logger.info(f"[AuditLog][SpectralEnergyGuard] Ergebnis: {result} | SR: {sr}")
+        logger.info("[AuditLog][SpectralEnergyGuard] Ergebnis: %s | SR: %s", result, sr)

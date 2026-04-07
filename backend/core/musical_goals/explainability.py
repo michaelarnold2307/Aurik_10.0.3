@@ -154,7 +154,7 @@ class GoalExplainer:
         >>> explanation = explainer.generate_explanation()
         >>> logger.debug(explanation.summary)
         >>> for rec in explanation.recommendations:
-        ...     logger.debug(f"  - {rec}")
+        logger.debug("  - %s", rec)
     """
 
     def __init__(self, checker: MusicalGoalsChecker | None = None) -> None:
@@ -231,8 +231,8 @@ class GoalExplainer:
             {"step": "Original", "scores": initial_scores, "audio_hash": hash(original_audio.tobytes())}
         )
 
-        logger.info(f"Started goal tracking in {mode.value} mode")
-        logger.info(f"Initial scores: {initial_scores}")
+        logger.info("Started goal tracking in %s mode", mode.value)
+        logger.info("Initial scores: %s", initial_scores)
 
     def record_step(
         self, step_name: str, processed_audio: np.ndarray, sr: int, step_params: dict | None = None
@@ -264,7 +264,7 @@ class GoalExplainer:
             {"step": step_name, "scores": current_scores, "audio_hash": hash(processed_audio.tobytes())}
         )
 
-        logger.debug(f"Recorded step '{step_name}': {current_scores}")
+        logger.debug("Recorded step '%s': %s", step_name, current_scores)
 
         return current_scores
 
@@ -708,13 +708,13 @@ if __name__ == "__main__":
 
     logger.debug("\nRecommendations:")
     for rec in explanation.recommendations:
-        logger.debug(f"  • {rec}")
+        logger.debug("  • %s", rec)
 
     logger.debug("\n" + "=" * 60)
 
     # Detailed trajectory example
     logger.debug("\nDetailed Goal Trajectories:")
     for goal_name, traj in explanation.goal_trajectories.items():
-        logger.debug(f"\n{traj.explanation}")
+        logger.debug("\n%s", traj.explanation)
 
     logger.debug("\n=== Test Complete ===")

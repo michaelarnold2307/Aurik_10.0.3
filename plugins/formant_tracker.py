@@ -53,7 +53,7 @@ _DEEPFORMANTS_HOP: int = 160  # 10 ms @ 16 kHz
 # ---------------------------------------------------------------------------
 # Konstanten
 # ---------------------------------------------------------------------------
-LPC_ORDER: int = 16  # Spec §4.4: Ordnung 16
+LPC_ORDER: int = 32  # Spec §VERBOTEN: < 16; Richtig: 30–40 @ 48 kHz (war: 16)
 FRAME_MS: float = 25.0  # Analysis frame [ms]
 HOP_MS: float = 10.0  # Hop size [ms]
 TARGET_SR: int = 48_000  # Internal processing SR

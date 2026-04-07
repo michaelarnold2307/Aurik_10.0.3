@@ -275,6 +275,18 @@ def run_pre_analysis(
     result.elapsed_seconds = _time.monotonic() - t0
     logger.info("pre_analysis: complete in %.1fs (errors=%s)", result.elapsed_seconds, list(result.errors))
 
+    # Free DefectScanner STFT/spectral intermediate arrays (30 defect types × full audio).
+    # These can occupy 10–15 GB of numpy malloc arenas.  Releasing them before the
+    # BatchProcessingThread loads the audio again prevents SIGABRT (malloc corruption)
+    # caused by glibc reusing bloated free-lists when pedalboard calls malloc.
+    import gc as _gc_pa
+    _gc_pa.collect()
+    try:
+        import ctypes as _ct_pa
+        _ct_pa.CDLL("libc.so.6").malloc_trim(0)
+    except Exception as _trim_exc:
+        logger.debug("malloc_trim unavailable (non-glibc platform): %s", _trim_exc)
+
     _cb(100, "Voranalyse fertig.")
     return result
 

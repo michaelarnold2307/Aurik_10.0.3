@@ -320,9 +320,62 @@ Greift wenn `file_ext ∈ DIGITAL_FILE_EXTS` und Bayesian kein `best_analog` fin
 
 Rückgabe: sortierte Liste `[(material_key, confidence)]` nach Signalketten-Reihenfolge (Disc vor Band vor Codec). Konfidenzen: [0.20, 0.85].
 
+### Phase 1b: Physikalische Analogquellen-Inferenz (NEU v9.10.97)
+
+Greift wenn `file_ext ∈ DIGITAL_FILE_EXTS` und Bayesian kein `best_analog` findet. Physikalische Merkmale überleben bei Kassetten/Vinyl auch nach Codec-Encoding:
+
+| Material | Erkennungsbedingung | Kalibrierung |
+| --- | --- | --- |
+| Vinyl | `infrasonic_rms > 0.030` (Plattentellerlagerlärm) ODER `crackle_density > 0.004 events/s` ODER `rotation_strength > 0.08` | μ_vinyl(infrasonic)=0.08, Schwelle = μ − 1σ |
+| Shellac | `crackle_density > 0.015 AND infrasonic_rms > 0.040` (schlägt Vinyl-Erkennung) | |
+| Kassette | `wow_flutter_index > 0.30` (Capstan/Pinch-Roller-Transport-Flutter) | Kassette: μ=1.5, σ=1.0; Vinyl-Eigenflutter max ≈ 0.15; Schwelle 0.30 = vinyl-sicher |
+| Reel-Tape | `wow_flutter_index > 0.20 AND rotation_strength < 0.05` (kein Disc-Source) | μ_tape_wow=0.3, σ=0.3 |
+
+Rückgabe: sortierte Liste `[(material_key, confidence)]` nach Signalketten-Reihenfolge (Disc vor Band vor Codec). Konfidenzen: [0.20, 0.85].
+
+### Phase 1c: Dolby / DBX NR-Erkennung (v9.10.128)
+
+**Modul**: `backend/core/dolby_nr_detector.py` — `DolbyNRDetector.detect(audio, sr, material_type, era_decade)`.
+
+Wird **automatisch** von `MediumDetector.detect()` aufgerufen wenn `primary_material ∈ {tape, reel_tape, wire_recording}`.
+
+**Erkennungsmethode** (Frequenzband-Heuristik):
+- `lf_rms` (300–1000 Hz): NR-unabhängige Referenz (Instrumenten-Grundtöne)
+- `hf_rms` (800–4000 Hz + 4000–12000 Hz): Bandbereich mit stärkstem NR-Einfluss
+- `hf_excess_db` = `20·log10(hf_rms / lf_rms)` − Erwartungswert_für_Material
+- Slope-Analyse: DBX hat uniformen Slope (hf2 ≈ hf1), Dolby B/C wächst Richtung HF
+
+| Typ | hf_excess Schwelle | Charakteristik |
+|---|---|---|
+| Dolby B | ≥ 2.5 dB | +10 dB HF-Anhebung für leise Passagen; ~3-5 dB Durchschnitt |
+| Dolby C | ≥ 5.0 dB | Doppelband, bis +20 dB; stark oberhalb 4 kHz |
+| Dolby S | ≥ 3.5 dB | Dreifachband; ausgeprägt 2–8 kHz |
+| DBX I | ≥ 4.0 dB | Breitbandig; uniformer ~9 dB/Oktave Slope |
+| DBX II | ≥ 3.0 dB | Milder: ~6 dB/Oktave |
+
+**Näherungsinversion** (statischer IIR Biquad-Kaskade):
+- Dolby B: High-Shelf −4.5 dB @ 3 kHz (Q=0.6) + Peaking −2 dB @ 8 kHz (Q=0.7)
+- Dolby C: High-Shelf −9 dB @ 4 kHz (Q=0.7) + Peaking −3 dB @ 10 kHz (Q=1.0)
+- DBX I/II: gestaffelte High-Shelf-Kette (annähernde Steigung)
+
+**Integration in `phase_04_eq_correction.py`**: Beide kwargs `dolby_nr_type` und `dolby_nr_confidence` werden nach RIAA/NAB-EQ angewendet. Activation via `kwargs["dolby_nr_type"] = result.dolby_nr_type`.
+
+**`MediumDetectionResult`-Felder** (v9.10.128):
+- `dolby_nr_type: str = "none"` — erkannter Typ
+- `dolby_nr_confidence: float = 0.0` — Konfidenz [0..1]
+
+**ACHTUNG — physikalische Limitierung**: Dies ist eine statische Näherung des level-abhängigen Dolby-Klangregelungssystems. Für Quellmaterial mit messbarer Klangverfälschung empfiehlt sich Re-Digitalisierung mit korrekt kalibriertem Wiedergabework.
+
 ### Phase 2: Transferketten-Aufbau
 
-Primärquelle + Codec-Layer (z. B. `mp3_low`/`mp3_high` aus Bayesian-Digital-Scoring) → `MediumDetectionResult.transfer_chain: list[str]`. Bei leerem Bayesian-Sekundärpfad: `_physical_analog_sources[1:]` als Fallback.
+**Deep-Chain-Pflicht (v9.10.124)**: Kettenaufbau ist nicht auf Primärquelle + 1 Sekundärstufe begrenzt.
+
+- Mehrere analoge Folgeglieder sind zulässig, solange die Reihenfolge kausal bleibt (`_MEDIUM_ORDER` monoton steigend).
+- Digitale Zwischenstufen (`cd_digital`, `dat`) müssen eingefügt werden, wenn Posterior-Evidenz vorliegt.
+- Lossy-Codec-Layer (`mp3_low`, `mp3_high`, `aac`, `streaming`) kommt am Kettenende und nur einmal.
+- Nach Material-Key-Normalisierung (`cassette -> tape`, ...) werden benachbarte Duplikate konsolidiert; Link-Konfidenz bleibt der Maximalwert.
+
+Ergebnis: `MediumDetectionResult.transfer_chain: list[str]` bildet reale 3+/4+/5+-Übertragungsketten vollständig ab.
 
 ```python
 # Pflicht-Aufruf in allen Analyse-Kontexten:
@@ -332,7 +385,7 @@ result = get_medium_detector().detect(audio, sr, file_ext=Path(file_path).suffix
 # Kettenerkennung → MaterialType-Ableitung:
 if result.transfer_chain:
     primary_material = result.transfer_chain[0]    # z. B. "vinyl"
-    secondary_chain  = result.transfer_chain[1:]   # z. B. ["cassette", "mp3_low"]
+    secondary_chain  = result.transfer_chain[1:]   # z. B. ["tape", "cd_digital", "mp3_low"]
     # → aktiviert kombinierte Phasen beider Materialien
 
 # Kettenergebnis in RestorationResult.genealogy:
@@ -350,6 +403,12 @@ if result.transfer_chain:
 | crackle_density | 0.006 events/s | Vinyl-Knackser detektiert (> 0.004) |
 | file_ext | `.mp3` | Digital → Phase 1b physikalische Inferenz |
 | Tonträgerkette | `vinyl → cassette → mp3_low` | Drei-stufige Degradation |
+
+**Testpflicht (bindend)**:
+
+- Unit-Test: 4-stufige Kette mit digitaler Zwischenstufe (`vinyl -> tape -> cd_digital -> mp3_low`).
+- Unit-Test: `file_ext=.mp3` + physikalische Inferenz muss 4-stufige Kette liefern.
+- Integrationstest: `source_fidelity_transfer_chain` muss unverändert bis `metadata["song_calibration"]` durchgereicht werden.
 
 ---
 

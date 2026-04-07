@@ -45,9 +45,9 @@ class ArtifactTransientEnhancer:
             self._audit_log({"enhanced": False, "gacela": False, "shape": audio.shape, "sr": sr})
             return audio
         except Exception as e:
-            logger.error(f"[ArtifactTransientEnhancer][Fehler] {e}")
+            logger.error("[ArtifactTransientEnhancer][Fehler] %s", e)
             self._audit_log({"enhanced": False, "error": str(e)})
             return audio
 
     def _audit_log(self, result):
-        logger.info(f"[AuditLog][ArtifactTransientEnhancer] Ergebnis: {result}")
+        logger.info("[AuditLog][ArtifactTransientEnhancer] Ergebnis: %s", result)

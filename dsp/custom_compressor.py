@@ -72,7 +72,7 @@ class CustomCompressor:
         # Pegel normalisieren
         maxval = np.max(np.abs(out))
         if maxval > 1.0:
-            out = out * (0.999 / maxval)
+            out = np.clip(out, -1.0, 1.0)
         # Output-Länge exakt auf Input trimmen/padden
         if len(out) > len(audio):
             out = out[: len(audio)]

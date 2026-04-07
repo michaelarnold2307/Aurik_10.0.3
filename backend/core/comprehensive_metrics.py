@@ -56,7 +56,7 @@ try:
     ENHANCED_METRICS_AVAILABLE = True
 except ImportError:
     ENHANCED_METRICS_AVAILABLE = False
-    warnings.warn("EnhancedMetrics not available")
+    logger.warning("EnhancedMetrics not available")
 
 try:
     from dsp.professional_meters import LUFSMeter
@@ -64,7 +64,7 @@ try:
     PROFESSIONAL_METERS_AVAILABLE = True
 except ImportError:
     PROFESSIONAL_METERS_AVAILABLE = False
-    warnings.warn("Professional meters not available")
+    logger.warning("Professional meters not available")
 
 
 # ============================================================
@@ -413,7 +413,7 @@ class ComprehensiveMetricsCalculator:
                     lra_lu = 0.0
                 return (integrated_lufs, float(lra_lu), float(peak))
             except Exception as e:
-                warnings.warn(f"LUFS meter failed: {e}")
+                logger.warning("LUFS meter failed: %s", e)
 
         # Fallback: Simple RMS-based estimation
         rms = np.sqrt(np.mean(audio**2))
@@ -1454,5 +1454,5 @@ if __name__ == "__main__":
     logger.debug("\n" + "=" * 70)
     logger.debug("Exporting to dictionary...")
     metrics_dict = result.to_dict()
-    logger.debug(f"Total metrics computed: {len(str(metrics_dict).split(','))} values")
+    logger.debug("Total metrics computed: %s values", len(str(metrics_dict).split(',')))
     logger.debug("✅ Comprehensive Metrics System Test Complete!")

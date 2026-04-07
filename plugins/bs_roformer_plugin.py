@@ -717,7 +717,7 @@ def separate_stems(
 
         result = separate_stems(audio, sr=48000, stems=["vocals", "drums"])
         vocals = result.stems["vocals"]
-        logger.debug(f"Model: {result.model_used}, SDRi: {result.sdri_db:.1f} dB")
+        logger.debug("Model: %s, SDRi: %.1f dB", result.model_used, result.sdri_db)
 
     Args:
         audio:  Eingangs-Audio (mono oder stereo float32)

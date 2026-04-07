@@ -236,7 +236,7 @@ class BarkScaleProcessor:
     Example:
         >>> processor = BarkScaleProcessor()
         >>> spectrum = processor.analyze(audio, sr=48000)
-        >>> logger.debug(f"Peak band: {spectrum.get_peak_band()[0].center_hz:.0f} Hz")
+        logger.debug("Peak band: %.0f Hz", spectrum.get_peak_band()[0].center_hz)
     """
 
     def __init__(self, num_bands: int = 24):
@@ -248,7 +248,7 @@ class BarkScaleProcessor:
         """
         self.num_bands = num_bands
         self.bands = get_bark_bands(num_bands)
-        logger.debug(f"BarkScaleProcessor initialized with {num_bands} bands")
+        logger.debug("BarkScaleProcessor initialized with %s bands", num_bands)
 
     def analyze(self, audio: np.ndarray, sr: int, window: str = "hamming", normalize: bool = True) -> BarkSpectrum:
         """
@@ -323,7 +323,7 @@ class BarkScaleProcessor:
         high_norm = min(0.99, band.upper_hz / nyquist)
 
         if low_norm >= high_norm:
-            logger.warning(f"Invalid band [{bark_index}]: {low_norm} >= {high_norm}")
+            logger.warning("Invalid band [%s]: %s >= %s", bark_index, low_norm, high_norm)
             return np.zeros_like(audio)
 
         # Design bandpass filter
@@ -451,20 +451,20 @@ if __name__ == "__main__":
     spectrum = processor.analyze(audio, sr)
 
     logger.debug("Bark Spectrum Analysis:")
-    logger.debug(f"  Sample Rate: {spectrum.sample_rate} Hz")
-    logger.debug(f"  Total Energy: {spectrum.total_energy:.2e}")
-    logger.debug(f"  Spectral Centroid: {spectrum.get_spectral_centroid_bark():.2f} Bark")
+    logger.debug("  Sample Rate: %s Hz", spectrum.sample_rate)
+    logger.debug("  Total Energy: %.2e", spectrum.total_energy)
+    logger.debug("  Spectral Centroid: %.2f Bark", spectrum.get_spectral_centroid_bark())
 
     peak_band, peak_energy = spectrum.get_peak_band()
-    logger.debug(f"\n  Peak Band: {peak_band}")
-    logger.debug(f"  Peak Energy: {peak_energy:.4f}")
+    logger.debug("\n  Peak Band: %s", peak_band)
+    logger.debug("  Peak Energy: %.4f", peak_energy)
 
     logger.debug("\n  Top 5 Bands by Energy:")
     top_indices = np.argsort(spectrum.energies)[-5:][::-1]
     for idx in top_indices:
         band = spectrum.bands[idx]
         energy = spectrum.energies[idx]
-        logger.debug(f"    Band {idx}: {band.center_hz:.0f} Hz - Energy: {energy:.4f}")
+        logger.debug("    Band %s: %.0f Hz - Energy: %.4f", idx, band.center_hz, energy)
 
     # Test filtering
     logger.debug("\n  Testing Band Filtering...")
@@ -472,9 +472,9 @@ if __name__ == "__main__":
     filtered_band_13 = processor.filter_bark_band(audio, sr, bark_index=13)
     filtered_band_21 = processor.filter_bark_band(audio, sr, bark_index=21)
 
-    logger.debug(f"    Band 5 (500 Hz): RMS = {np.sqrt(np.mean(filtered_band_5**2)):.4f}")
-    logger.debug(f"    Band 13 (2 kHz): RMS = {np.sqrt(np.mean(filtered_band_13**2)):.4f}")
-    logger.debug(f"    Band 21 (8 kHz): RMS = {np.sqrt(np.mean(filtered_band_21**2)):.4f}")
+    logger.debug("    Band 5 (500 Hz): RMS = %.4f", np.sqrt(np.mean(filtered_band_5**2)))
+    logger.debug("    Band 13 (2 kHz): RMS = %.4f", np.sqrt(np.mean(filtered_band_13**2)))
+    logger.debug("    Band 21 (8 kHz): RMS = %.4f", np.sqrt(np.mean(filtered_band_21**2)))
 
     logger.debug("\n" + "=" * 70)
     logger.debug("Demo complete!")

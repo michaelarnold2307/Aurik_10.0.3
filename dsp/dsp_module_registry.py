@@ -34,7 +34,7 @@ class DSPModuleRegistry:
                     mod = importlib.import_module(f"dsp.{mod_name}")
                     self.modules[mod_name] = mod
                 except Exception as e:
-                    logger.error(f"[Registry] Fehler beim Import von {mod_name}: {e}")
+                    logger.error("[Registry] Fehler beim Import von %s: %s", mod_name, e)
 
     def get_module(self, name: str) -> Any | None:
         return self.modules.get(name)

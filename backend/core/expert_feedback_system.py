@@ -5,6 +5,18 @@ backend/core/expert_feedback_system.py — Expert feedback aggregator
 
 from __future__ import annotations
 
+from dataclasses import dataclass, field
+
+
+@dataclass(frozen=True)
+class ExpertAggregate:
+    """Typed aggregate payload for expert feedback scores."""
+
+    scores: dict[str, float] = field(default_factory=dict)
+
+    def get(self, key: str, default: float = 0.0) -> float:
+        return float(self.scores.get(key, default))
+
 
 class ExpertFeedbackSystem:
     """Collects expert feedback and computes per-dimension averages."""
@@ -16,12 +28,14 @@ class ExpertFeedbackSystem:
         """Add *scores* from *expert*."""
         self._feedback.append(dict(scores))
 
-    def aggregate(self) -> dict[str, float]:
+    def aggregate(self) -> ExpertAggregate:
         """Return mean score per dimension across all expert feedback entries."""
         if not self._feedback:
-            return {}
+            return ExpertAggregate()
         keys = self._feedback[0].keys()
-        return {k: sum(f.get(k, 0.0) for f in self._feedback) / len(self._feedback) for k in keys}
+        return ExpertAggregate(
+            {k: sum(f.get(k, 0.0) for f in self._feedback) / len(self._feedback) for k in keys}
+        )
 
 
 # ---------------------------------------------------------------------------

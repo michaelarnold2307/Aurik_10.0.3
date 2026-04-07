@@ -120,12 +120,12 @@ class AdaptiveFormantShifter:
             else:
                 result = self._formant_shift_classic(audio, sr, shift_ratio)
         except Exception as e:
-            logger.error(f"Fehler bei Formantverschiebung: {e}")
+            logger.error("Fehler bei Formantverschiebung: %s", e)
             fallback_used = True
             result = audio.copy()
 
         if audit_log:
-            logger.info(f"AdaptiveFormantShifter: shift_ratio={shift_ratio}, fallback_used={fallback_used}")
+            logger.info("AdaptiveFormantShifter: shift_ratio=%s, fallback_used=%s", shift_ratio, fallback_used)
         return result
 
     def _formant_shift_classic(self, audio: np.ndarray, sr: int, shift_ratio: float) -> np.ndarray:

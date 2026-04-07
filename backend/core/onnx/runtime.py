@@ -20,11 +20,13 @@ logger = logging.getLogger(__name__)
 
 
 class ONNXProvider(Enum):
-    """ONNX Runtime execution providers"""
+    """ONNX Runtime execution providers.
+
+    §Spec: Aurik ist CPU-only (§3.x, map_location='cpu').
+    CUDA/TensorRT existieren NICHT - nur CPUExecutionProvider erlaubt.
+    """
 
     CPU = "CPUExecutionProvider"
-    CUDA = "CUDAExecutionProvider"
-    TensorRT = "TensorRTExecutionProvider"
 
 
 @dataclass
@@ -122,16 +124,16 @@ class ONNXInferenceSession:
             self.input_shape = self.session.get_inputs()[0].shape
             self.output_shape = self.session.get_outputs()[0].shape
 
-            logger.info(f"ONNX session initialized: {self.model_path.name}")
-            logger.info(f"Input: {self.input_name} {self.input_shape}")
-            logger.info(f"Output: {self.output_name} {self.output_shape}")
-            logger.info(f"Providers: {self.session.get_providers()}")
+            logger.info("ONNX session initialized: %s", self.model_path.name)
+            logger.info("Input: %s %s", self.input_name, self.input_shape)
+            logger.info("Output: %s %s", self.output_name, self.output_shape)
+            logger.info("Providers: %s", self.session.get_providers())
 
         except Exception as e:
             if _ml_release is not None:
                 with contextlib.suppress(Exception):
                     _ml_release(_session_name)
-            logger.error(f"Failed to initialize ONNX session: {e}")
+            logger.error("Failed to initialize ONNX session: %s", e)
             raise
 
         # Performance tracking
@@ -153,7 +155,7 @@ class ONNXInferenceSession:
             logger.debug("Session already warmed up")
             return
 
-        logger.info(f"Warming up ONNX session ({num_iterations} iterations)...")
+        logger.info("Warming up ONNX session (%s iterations)...", num_iterations)
 
         # Create dummy input matching expected shape
         dummy_shape = list(self.input_shape)
@@ -191,12 +193,12 @@ class ONNXInferenceSession:
             self.total_inference_time += inference_time
 
             if profile:
-                logger.info(f"Inference time: {inference_time * 1000:.2f} ms")
+                logger.info("Inference time: %.2f ms", inference_time * 1000)
 
             return outputs
 
         except Exception as e:
-            logger.error(f"ONNX inference failed: {e}")
+            logger.error("ONNX inference failed: %s", e)
             raise
 
     def get_stats(self) -> dict[str, Any]:
@@ -259,7 +261,7 @@ class OptimizedONNXModel:
             self.session.warmup()
 
         self.status = ONNXModelStatus.READY
-        logger.info(f"OptimizedONNXModel ready: {self.model_path.name}")
+        logger.info("OptimizedONNXModel ready: %s", self.model_path.name)
 
     def process(self, audio: np.ndarray, sr: int | None = None) -> np.ndarray:
         """
@@ -273,7 +275,7 @@ class OptimizedONNXModel:
             Processed audio array
         """
         if sr is not None and sr != self.sample_rate:
-            logger.warning(f"Sample rate mismatch: expected {self.sample_rate}, got {sr}")
+            logger.warning("Sample rate mismatch: expected %s, got %s", self.sample_rate, sr)
 
         # Handle input shape
         audio = self._prepare_input(audio)

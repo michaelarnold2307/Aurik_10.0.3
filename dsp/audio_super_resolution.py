@@ -31,10 +31,10 @@ class AudioSuperResolution:
             import torch
 
             model = torch.jit.load(model_path)
-            logger.info(f"Deep-Learning-Modell geladen: {model_path}")
+            logger.info("Deep-Learning-Modell geladen: %s", model_path)
             return model
         except Exception as e:
-            logger.warning(f"Fehler beim Laden des Modells: {e}")
+            logger.warning("Fehler beim Laden des Modells: %s", e)
             return None
 
     def process(self, audio: np.ndarray, sr: int, audit_log: bool = True) -> np.ndarray:
@@ -62,7 +62,7 @@ class AudioSuperResolution:
                 audio_up = resample(audio, n_samples)
                 audio_up = np.nan_to_num(audio_up, nan=0.0, posinf=0.0, neginf=0.0)
                 audio_up = np.clip(audio_up, -1.0, 1.0)
-                logger.info(f"Fallback: Spline-Upsampling auf {self.target_sr} Hz.")
+                logger.info("Fallback: Spline-Upsampling auf %s Hz.", self.target_sr)
                 fallback_used = True
             else:
                 # Deep-Learning-Inferenz
@@ -74,16 +74,16 @@ class AudioSuperResolution:
                 audio_up = audio_up.squeeze().cpu().numpy().astype(audio.dtype)
                 logger.info("Deep-Learning-Inferenz erfolgreich.")
         except Exception as e:
-            logger.error(f"Fehler bei Deep-Learning-Inferenz: {e}")
+            logger.error("Fehler bei Deep-Learning-Inferenz: %s", e)
             # Fallback auf Spline-Upsampling
             from scipy.signal import resample
 
             upsample_factor = self.target_sr / sr
             n_samples = int(len(audio) * upsample_factor)
             audio_up = resample(audio, n_samples)
-            logger.info(f"Fallback nach Fehler: Spline-Upsampling auf {self.target_sr} Hz.")
+            logger.info("Fallback nach Fehler: Spline-Upsampling auf %s Hz.", self.target_sr)
             fallback_used = True
 
         if audit_log:
-            logger.info(f"AudioSuperResolution: target_sr={self.target_sr}, fallback_used={fallback_used}")
+            logger.info("AudioSuperResolution: target_sr=%s, fallback_used=%s", self.target_sr, fallback_used)
         return audio_up.astype(audio.dtype)

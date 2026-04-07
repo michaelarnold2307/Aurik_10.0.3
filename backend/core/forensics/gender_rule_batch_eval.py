@@ -54,13 +54,13 @@ def batch_evaluate(audio_dir, label_csv, out_csv, sr=16000) -> None:
         )
         writer.writeheader()
         writer.writerows(results)
-    logger.debug(f"Batch-Auswertung abgeschlossen. Ergebnisse in {out_csv}")
+    logger.debug("Batch-Auswertung abgeschlossen. Ergebnisse in %s", out_csv)
 
     # Metriken berechnen
     y_true = [r["true"] for r in results]
     y_pred = [r["predicted"] for r in results]
     acc = np.mean([yt == yp for yt, yp in zip(y_true, y_pred)])
-    logger.debug(f"Accuracy: {acc:.3f}")
+    logger.debug("Accuracy: %.3f", acc)
     # Confusion Matrix
     classes = sorted(set(y_true) | set(y_pred))
     matrix = np.zeros((len(classes), len(classes)), dtype=int)
@@ -70,7 +70,7 @@ def batch_evaluate(audio_dir, label_csv, out_csv, sr=16000) -> None:
     logger.debug("Confusion Matrix:")
     logger.debug("\t" + "\t".join(classes))
     for i, c in enumerate(classes):
-        logger.debug(f"{c}\t" + "\t".join(str(matrix[i, j]) for j in range(len(classes))))
+        logger.debug("%s\t", c, + "\t".join(str(matrix[i, j])  for j in range(len(classes))))
 
     # Scatterplot f0 vs. f1, farbcodiert nach true label
     try:
@@ -86,9 +86,9 @@ def batch_evaluate(audio_dir, label_csv, out_csv, sr=16000) -> None:
         plt.legend()
         plt.tight_layout()
         plt.savefig(out_csv.replace(".csv", "_f0f1.png"))
-        logger.debug(f"Scatterplot gespeichert: {out_csv.replace('.csv', '_f0f1.png')}")
+        logger.debug("Scatterplot gespeichert: %s", out_csv.replace('.csv', '_f0f1.png'))
     except Exception as e:
-        logger.debug(f"[Warnung] Scatterplot nicht erzeugt: {e}")
+        logger.debug("[Warnung] Scatterplot nicht erzeugt: %s", e)
 
 
 if __name__ == "__main__":

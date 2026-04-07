@@ -5,6 +5,8 @@ Real-time audio waveform visualization
 
 import numpy as np
 import soundfile as sf
+
+from backend.file_import import load_audio_file
 from matplotlib.backends.backend_qt import NavigationToolbar2QT
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
 from matplotlib.figure import Figure
@@ -274,7 +276,10 @@ class MatplotlibWaveformWidget(QWidget):
         """
         try:
             self.progress.emit(10)
-            audio, sr = sf.read(filepath)
+            _loaded = load_audio_file(filepath, do_carrier_analysis=False)
+            if _loaded is None or _loaded.get("error"):
+                raise RuntimeError(f"Audio-Datei konnte nicht geladen werden: {filepath}")
+            audio, sr = _loaded["audio"], int(_loaded["sr"])
             self.progress.emit(40)
             # Simulierte Schrittweite für große Dateien (optional sleep für Demo)
             # import time; time.sleep(0.1)

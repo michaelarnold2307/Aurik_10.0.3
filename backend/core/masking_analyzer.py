@@ -183,7 +183,7 @@ class MaskingAnalyzer:
         >>> analyzer = MaskingAnalyzer()
         >>> profile = analyzer.analyze(audio, sr=48000)
         >>> masked_ratio = profile.get_masked_components_ratio()
-        >>> logger.debug(f"Masked components: {masked_ratio*100:.1f}%")
+        logger.debug("Masked components: %.1f%%", masked_ratio*100)
     """
 
     def __init__(self, config: MaskingConfig | None = None):
@@ -502,20 +502,20 @@ if __name__ == "__main__":
     profile = analyzer.analyze(audio, sr)
 
     logger.debug("Masking Profile Analysis:")
-    logger.debug(f"  STFT Shape: {profile.shape[0]} freq bins × {profile.shape[1]} time frames")
-    logger.debug(f"  Frequency Range: {profile.frequencies[0]:.0f} - {profile.frequencies[-1]:.0f} Hz")
-    logger.debug(f"  Time Range: {profile.times[0]:.3f} - {profile.times[-1]:.3f} s")
+    logger.debug("  STFT Shape: %s freq bins × %s time frames", profile.shape[0], profile.shape[1])
+    logger.debug("  Frequency Range: %.0f - %.0f Hz", profile.frequencies[0], profile.frequencies[-1])
+    logger.debug("  Time Range: %.3f - %.3f s", profile.times[0], profile.times[-1])
 
     masked_ratio = profile.get_masked_components_ratio()
-    logger.debug(f"\n  Masked Components: {masked_ratio * 100:.1f}%")
+    logger.debug("\n  Masked Components: %.1f%%", masked_ratio * 100)
 
     avg_smr = analyzer.compute_smr(audio, sr)
-    logger.debug(f"  Average SMR: {avg_smr:.1f} dB")
+    logger.debug("  Average SMR: %.1f dB", avg_smr)
 
     # Check if 1.2 kHz is masked
     freq_1200_idx = np.argmin(np.abs(profile.frequencies - 1200))
     smr_at_1200 = np.mean(profile.masking_ratio_db[freq_1200_idx, :])
-    logger.debug(f"\n  SMR at 1.2 kHz: {smr_at_1200:.1f} dB")
+    logger.debug("\n  SMR at 1.2 kHz: %.1f dB", smr_at_1200)
     if smr_at_1200 < 0:
         logger.debug("  → 1.2 kHz tone is MASKED (inaudible)")
     else:
@@ -525,8 +525,8 @@ if __name__ == "__main__":
     logger.debug("\n  Applying masking filter...")
     audio_filtered = analyzer.apply_masking(audio, sr, profile)
 
-    logger.debug(f"    Original RMS: {np.sqrt(np.mean(audio**2)):.4f}")
-    logger.debug(f"    Filtered RMS: {np.sqrt(np.mean(audio_filtered**2)):.4f}")
+    logger.debug("    Original RMS: %.4f", np.sqrt(np.mean(audio**2)))
+    logger.debug("    Filtered RMS: %.4f", np.sqrt(np.mean(audio_filtered**2)))
 
     logger.debug("\n" + "=" * 70)
     logger.debug("Demo complete!")

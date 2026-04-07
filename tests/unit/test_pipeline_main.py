@@ -1,10 +1,9 @@
 """Unit-Tests für backend/core/pipeline_main.py.
 
-Spec §2.1: AurikAutonomousPipeline (primär) und AurikMainPipeline (Legacy).
+Spec §2.1: AurikAutonomousPipeline (primär).
 Tests decken ab: Initialisierung, get_session_summary() Leer-Zustand,
 process()-Aufruf über gemockte Engine, Audit-Trail-Schreiben, Edge-Cases
 (Stille, NaN-Audio, Stereo), Singleton-Verhalten und prozess-Ausgabe-Format.
-≥ 35 Tests.
 """
 
 from __future__ import annotations
@@ -17,7 +16,7 @@ import numpy as np
 
 np.random.seed(3)
 
-from backend.core.pipeline_main import AurikAutonomousPipeline, AurikMainPipeline
+from backend.core.pipeline_main import AurikAutonomousPipeline
 from backend.core.processing_modes import ProcessingMode
 
 SR = 48000
@@ -75,9 +74,6 @@ def _make_pipeline_with_mock_engine(audio: np.ndarray, mode=ProcessingMode.RESTO
 class TestImportAndConstants:
     def test_01_autonomous_pipeline_importable(self):
         assert AurikAutonomousPipeline is not None
-
-    def test_02_main_pipeline_importable(self):
-        assert AurikMainPipeline is not None
 
     def test_03_processing_mode_importable(self):
         assert ProcessingMode is not None
@@ -306,44 +302,7 @@ class TestAppendAudit:
 
 
 # ---------------------------------------------------------------------------
-# Klasse 7: AurikMainPipeline (Legacy) — Initialisierung und Struktur
-# ---------------------------------------------------------------------------
-
-
-class TestAurikMainPipeline:
-    def _mock_main_pipeline(self):
-        """Erstellt AurikMainPipeline mit allen internen Abhängigkeiten gemockt."""
-        with patch("backend.core.pipeline_main.AurikMainPipeline.__init__") as mock_init:
-            mock_init.return_value = None
-            pipeline = AurikMainPipeline.__new__(AurikMainPipeline)
-            pipeline.importer = MagicMock()
-            pipeline.restorer = MagicMock()
-            pipeline.config = {}
-            pipeline.audit_log = []
-        return pipeline
-
-    def test_31_class_is_importable(self):
-        assert AurikMainPipeline is not None
-
-    def test_32_init_with_mocked_deps(self):
-        with patch("backend.core.pipeline_main.AurikMainPipeline.__init__", return_value=None):
-            pipeline = AurikMainPipeline.__new__(AurikMainPipeline)
-            assert pipeline is not None
-
-    def test_33_has_process_method(self):
-        assert hasattr(AurikMainPipeline, "process")
-
-    def test_34_audit_log_starts_empty(self):
-        pipeline = self._mock_main_pipeline()
-        assert pipeline.audit_log == []
-
-    def test_35_config_default_dict(self):
-        pipeline = self._mock_main_pipeline()
-        assert isinstance(pipeline.config, dict)
-
-
-# ---------------------------------------------------------------------------
-# Klasse 8: Edge-Cases
+# Edge-Cases
 # ---------------------------------------------------------------------------
 
 

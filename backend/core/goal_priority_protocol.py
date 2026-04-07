@@ -100,10 +100,10 @@ class GoalPriorityProtocol:
         if self.priority_of(goal) <= 2:
             return (
                 "Die Restaurierung konnte zentrale Klangziele nicht voll erreichen. "
-                "Das bestmoegliche Ergebnis wurde dennoch ausgegeben."
+                "Das bestmögliche Ergebnis wurde dennoch ausgegeben."
             )
         return (
-            "Einige zusaetzliche Klangziele konnten nicht voll erreicht werden. "
+            "Einige zusätzliche Klangziele konnten nicht voll erreicht werden. "
             "Das ist bei diesem Material physikalisch bedingt."
         )
 

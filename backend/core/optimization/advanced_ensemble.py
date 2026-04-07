@@ -69,7 +69,7 @@ class MetaLearner(nn.Module):
             nn.Linear(hidden_dim // 2, output_dim),
         )
 
-        logger.info(f"MetaLearner initialized: {n_base_models} base models, {feature_dim} features")
+        logger.info("MetaLearner initialized: %s base models, %s features", n_base_models, feature_dim)
 
     def forward(self, base_predictions: list[torch.Tensor]) -> torch.Tensor:
         """
@@ -115,7 +115,7 @@ class AttentionWeightPredictor(nn.Module):
         # Output projection
         self.output_proj = nn.Linear(attention_dim, 1)
 
-        logger.info(f"AttentionWeightPredictor initialized: {n_members} members")
+        logger.info("AttentionWeightPredictor initialized: %s members", n_members)
 
     def forward(self, input_features: torch.Tensor) -> torch.Tensor:
         """
@@ -169,7 +169,7 @@ class DynamicEnsembleSelector(nn.Module):
             nn.Sigmoid(),  # Selection probabilities
         )
 
-        logger.info(f"DynamicEnsembleSelector initialized: top-{k_select} from {n_members}")
+        logger.info("DynamicEnsembleSelector initialized: top-%s from %s", k_select, n_members)
 
     def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         """
@@ -226,7 +226,7 @@ class MixtureOfExperts(nn.Module):
         # Load balancing loss weight
         self.load_balance_weight = 0.01
 
-        logger.info(f"MixtureOfExperts initialized: {self.n_experts} experts, top-{k_active} active")
+        logger.info("MixtureOfExperts initialized: %s experts, top-%s active", self.n_experts, k_active)
 
     def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
         """
@@ -355,7 +355,7 @@ class AdvancedEnsemble:
                 k_active=max(2, len(ensemble_members) // 3),
             ).to(device)
 
-        logger.info(f"AdvancedEnsemble initialized: strategy={strategy}, {len(ensemble_members)} members")
+        logger.info("AdvancedEnsemble initialized: strategy=%s, %s members", strategy, len(ensemble_members))
 
     def predict(self, x: torch.Tensor, return_details: bool = False) -> tuple[torch.Tensor, dict[str, Any] | None]:
         """
@@ -460,12 +460,12 @@ class AdvancedEnsemble:
             lr: Learning rate
         """
         if self.strategy != "stacking":
-            logger.warning(f"Meta-learner training only for stacking strategy, current: {self.strategy}")
+            logger.warning("Meta-learner training only for stacking strategy, current: %s", self.strategy)
             return
 
         optimizer = torch.optim.Adam(self.meta_learner.parameters(), lr=lr)
 
-        logger.info(f"Training meta-learner for {epochs} epochs...")
+        logger.info("Training meta-learner for %s epochs...", epochs)
 
         for epoch in range(epochs):
             # Training
@@ -516,7 +516,7 @@ class AdvancedEnsemble:
             avg_val_loss = np.mean(val_losses)
 
             if epoch % 5 == 0:
-                logger.info(f"Epoch {epoch}: Train Loss = {avg_train_loss:.4f}, Val Loss = {avg_val_loss:.4f}")
+                logger.info("Epoch %s: Train Loss = %.4f, Val Loss = %.4f", epoch, avg_train_loss, avg_val_loss)
 
         logger.info("Meta-learner training completed!")
 
@@ -545,7 +545,7 @@ class AdvancedEnsemble:
         with open(path, "w") as f:
             json.dump(save_dict, f, indent=2)
 
-        logger.info(f"Ensemble saved to {path}")
+        logger.info("Ensemble saved to %s", path)
 
 
 # Example usage
@@ -558,12 +558,12 @@ if __name__ == "__main__":
 
     # Test each strategy
     for strategy in ["stacking", "weighted_voting", "dynamic_selection"]:
-        logger.debug(f"\n=== Testing {strategy} ===")
+        logger.debug("\n=== Testing %s ===", strategy)
         ensemble = AdvancedEnsemble(members, strategy=strategy, device="cpu")
 
         x = torch.randn(2, 1, 48000)
         prediction, details = ensemble.predict(x, return_details=True)
 
-        logger.debug(f"Prediction shape: {prediction.shape}")
+        logger.debug("Prediction shape: %s", prediction.shape)
         if details:
-            logger.debug(f"Details keys: {list(details.keys())}")
+            logger.debug("Details keys: %s", list(details.keys()))

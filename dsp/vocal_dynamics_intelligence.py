@@ -370,29 +370,29 @@ class VocalDynamicsIntelligence:
         """
         # Handle stereo
         if audio.ndim == 2:
-            logger.info(f"DEBUG [VocalDynamicsIntelligence.process]: Input audio shape: {audio.shape}")
+            logger.debug("VocalDynamicsIntelligence: input shape %s", audio.shape)
             # Auto-detect format: (channels, samples) vs (samples, channels)
             # Heuristic: If first dimension is small and < second dimension, likely channels
             if audio.shape[0] < audio.shape[1] and audio.shape[0] <= 32:
                 # Format: (channels, samples) - process each channel
-                logger.info("DEBUG [VocalDynamicsIntelligence.process]: Detected format (channels, samples)")
+                logger.debug("VocalDynamicsIntelligence: format (channels, samples)")
                 left, left_report = self.process(audio[0], sr)
                 right, right_report = self.process(audio[1], sr)
                 result = np.vstack([left, right])
-                logger.info(f"DEBUG [VocalDynamicsIntelligence.process]: Output shape: {result.shape}")
+                logger.debug("VocalDynamicsIntelligence: output shape %s", result.shape)
                 return result, {**left_report, "stereo": True}
             else:
                 # Format: (samples, channels) - transpose to (channels, samples) for processing
-                logger.info("DEBUG [VocalDynamicsIntelligence.process]: Detected format (samples, channels)")
+                logger.debug("VocalDynamicsIntelligence: format (samples, channels)")
                 audio_transposed = audio.T
-                logger.info(f"DEBUG [VocalDynamicsIntelligence.process]: Transposed shape: {audio_transposed.shape}")
+                logger.debug("VocalDynamicsIntelligence: transposed shape %s", audio_transposed.shape)
                 left, left_report = self.process(audio_transposed[0], sr)
-                logger.info(f"DEBUG [VocalDynamicsIntelligence.process]: Left channel processed, shape: {left.shape}")
+                logger.debug("VocalDynamicsIntelligence: left shape %s", left.shape)
                 right, _right_report = self.process(audio_transposed[1], sr)
-                logger.info(f"DEBUG [VocalDynamicsIntelligence.process]: Right channel processed, shape: {right.shape}")
+                logger.debug("VocalDynamicsIntelligence: right shape %s", right.shape)
                 # Return in original format: (samples, channels)
                 result = np.column_stack([left, right])
-                logger.info(f"DEBUG [VocalDynamicsIntelligence.process]: Output shape: {result.shape}")
+                logger.debug("VocalDynamicsIntelligence: output shape %s", result.shape)
                 return result, {**left_report, "stereo": True}
 
         # Stage 1: Micro-compression
@@ -433,7 +433,9 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     # Load audio
-    audio, sr = sf.read(args.input)
+    from backend.file_import import load_audio_file
+    _res = load_audio_file(args.input)
+    audio, sr = _res["audio"], int(_res["sr"])
 
     # Process
     dynamics = VocalDynamicsIntelligence(
@@ -449,25 +451,25 @@ if __name__ == "__main__":
 
     logger.info("\n[Micro-Compression]")
     comp = report["micro_compression"]
-    logger.info(f"  Max gain reduction: {comp['max_gain_reduction_db']:.1f} dB")
-    logger.info(f"  Avg gain reduction: {comp['avg_gain_reduction_db']:.1f} dB")
-    logger.info(f"  Ratio:              {comp['ratio']:.1f}:1")
+    logger.info("  Max gain reduction: %.1f dB", comp['max_gain_reduction_db'])
+    logger.info("  Avg gain reduction: %.1f dB", comp['avg_gain_reduction_db'])
+    logger.info("  Ratio:              %.1f:1", comp['ratio'])
 
     logger.info("\n[Consonant Enhancement]")
     cons = report["consonant_enhancement"]
-    logger.info(f"  Transients detected: {cons['transients_detected']}")
-    logger.info(f"  Enhancement:         {cons['enhancement_db']:.1f} dB")
+    logger.info("  Transients detected: %s", cons['transients_detected'])
+    logger.info("  Enhancement:         %.1f dB", cons['enhancement_db'])
 
     if report["breath_aware_gating"].get("enabled", True):
         logger.info("\n[Breath-Aware Gating]")
         gate = report["breath_aware_gating"]
-        logger.info(f"  Gate open:    {gate['gate_open_percent']:.1f}%")
-        logger.info(f"  Threshold:    {gate['threshold_db']:.1f} dB")
-        logger.info(f"  Reduction:    {gate['reduction_db']:.1f} dB")
+        logger.info("  Gate open:    %.1f%%", gate['gate_open_percent'])
+        logger.info("  Threshold:    %.1f dB", gate['threshold_db'])
+        logger.info("  Reduction:    %.1f dB", gate['reduction_db'])
 
     logger.info(str("=" * 70))
 
     # Save
     if args.output:
         sf.write(args.output, audio_processed, sr)
-        logger.info(f"\n✅ Saved to: {args.output}")
+        logger.info("\n✅ Saved to: %s", args.output)

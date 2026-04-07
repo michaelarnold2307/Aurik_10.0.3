@@ -2,7 +2,7 @@ import numpy as np
 from hypothesis import given
 from hypothesis import strategies as st
 
-from backend.core.core_utils import normalize_audio
+from backend.core.core_utils import compute_rms
 
 
 def arrays(dtype=np.float32, min_size=1, max_size=48000):
@@ -10,10 +10,7 @@ def arrays(dtype=np.float32, min_size=1, max_size=48000):
 
 
 @given(audio=arrays())
-def test_normalize_audio_property(audio):
-    norm = normalize_audio(audio)
-    if len(audio) == 0:
-        assert np.all(norm == 0)
-    else:
-        assert np.max(np.abs(norm)) <= 1.0
-        assert norm.shape == audio.shape
+def test_compute_rms_property(audio):
+    rms = compute_rms(audio)
+    assert np.isfinite(rms)
+    assert rms >= 0.0

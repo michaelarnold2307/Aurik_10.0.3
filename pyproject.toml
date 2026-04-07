@@ -4,7 +4,7 @@
 
 [project]
 name = "aurik9"
-version = "9.10.103"
+version = "9.10.121"
 description = "Intelligentes Musik-Restaurierungssystem — weltweite Erstimplementierung"
 readme = "README.md"
 license = { file = "LICENSE" }

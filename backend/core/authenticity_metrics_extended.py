@@ -730,8 +730,11 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     # Load audio
-    logger.debug(f"Loading: {args.input}")
-    audio, sr = sf.read(args.input, always_2d=False)
+    logger.debug("Loading: %s", args.input)
+    from backend.file_import import load_audio_file
+    _res = load_audio_file(args.input)
+    audio = np.asarray(_res["audio"], dtype=np.float32)
+    sr = int(_res["sr"])
 
     # Transpose if stereo
     if audio.ndim == 2:
@@ -742,18 +745,18 @@ if __name__ == "__main__":
         analyzer = AuthenticityMetricsExtended()
         metrics = analyzer.analyze(audio, sr)
 
-        logger.debug(f"\n{'=' * 60}")
+        logger.debug("\n%s", '=' * 60)
         logger.debug("GENRE-SPECIFIC AUTHENTICITY METRICS:")
-        logger.debug(f"{'=' * 60}")
+        logger.debug("%s", '=' * 60)
         for key, value in metrics.items():
             if key != "detected_elements":
-                logger.debug(f"\n{key.upper()}:")
+                logger.debug("\n%s:", key.upper())
                 for k, v in value.items():
                     if isinstance(v, float):
-                        logger.debug(f"  {k}: {v:.4f}")
+                        logger.debug("  %s: %.4f", k, v)
                     else:
-                        logger.debug(f"  {k}: {v}")
-        logger.debug(f"{'=' * 60}\n")
+                        logger.debug("  %s: %s", k, v)
+        logger.debug("%s\n", '=' * 60)
     else:
         # Single detector
         if args.detector == "finger":
@@ -770,12 +773,12 @@ if __name__ == "__main__":
         audio_mono = audio[0] if audio.ndim == 2 else audio
         metrics = detector.detect(audio_mono, sr)
 
-        logger.debug(f"\n{'=' * 60}")
-        logger.debug(f"{args.detector.upper()} DETECTOR METRICS:")
-        logger.debug(f"{'=' * 60}")
+        logger.debug("\n%s", '=' * 60)
+        logger.debug("%s DETECTOR METRICS:", args.detector.upper())
+        logger.debug("%s", '=' * 60)
         for k, v in metrics.items():
             if isinstance(v, float):
-                logger.debug(f"{k}: {v:.4f}")
+                logger.debug("%s: %.4f", k, v)
             else:
-                logger.debug(f"{k}: {v}")
-        logger.debug(f"{'=' * 60}\n")
+                logger.debug("%s: %s", k, v)
+        logger.debug("%s\n", '=' * 60)

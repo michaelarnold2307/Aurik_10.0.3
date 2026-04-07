@@ -36,7 +36,7 @@ _RES = Path(__file__).parent.parent / "resources"
 try:
     from Aurik910 import __version__ as _VERSION  # type: ignore[attr-defined]
 except Exception:
-    _VERSION = "9.10.103"
+    _VERSION = "9.10.120"
 
 
 class AurikSplashScreen(QWidget):
@@ -82,7 +82,7 @@ class AurikSplashScreen(QWidget):
                     Qt.SmoothTransformation,  # type: ignore[attr-defined]
                 )
 
-        self._status: str = "Initialisierung..."
+        self._status: str = "Initialisierung …"
         self._phase: float = 0.0  # equalizer / dot animation phase
 
         self._timer = QTimer(self)
@@ -248,7 +248,7 @@ class AurikSplashScreen(QWidget):
     # ── Tagline ───────────────────────────────────────────────────────────────
 
     def _draw_tagline(self, p: QPainter, w: int, h: int) -> None:
-        text = "AUDIO RESTAURATION UND INTELLIGENTE KORREKTUR"
+        text = "AUDIO RESTAURIERUNG UND INTELLIGENTE KORREKTUR"
 
         font = QFont("Arial", 9)
         font.setLetterSpacing(QFont.AbsoluteSpacing, 3.2)  # type: ignore[attr-defined]

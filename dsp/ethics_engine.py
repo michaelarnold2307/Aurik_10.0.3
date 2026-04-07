@@ -22,7 +22,7 @@ def check_ethics_and_originality(audit_log_path="audit/audit_trail.json"):
             logger.info("[Ethik-Engine] Bias- oder Diskriminierungsverdacht!")
             return False
         if entry.get("step") == "quality_gate" and entry.get("result") == "fail":
-            logger.info(f"[Ethik-Engine] Quality-Gate nicht bestanden: {entry}")
+            logger.info("[Ethik-Engine] Quality-Gate nicht bestanden: %s", entry)
             return False
     logger.info("[Ethik-Engine] Alle ethischen und Originalitäts-Prüfungen bestanden.")
     return True

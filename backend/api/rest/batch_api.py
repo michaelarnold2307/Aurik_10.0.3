@@ -12,6 +12,8 @@ import numpy as np
 import soundfile as sf
 from flask import Flask, jsonify
 
+from backend.file_import import load_audio_file
+
 try:
     from backend.core.dsp_decision_logic import DSPDecisionLogic  # type: ignore[import]
 
@@ -54,12 +56,15 @@ def batch_worker() -> None:
         out_path = os.path.join(AUDIO_OUT_DIR, fname)
         BATCH_STATUS["last_file"] = fname
         try:
-            audio, sr = sf.read(in_path)
+            _loaded = load_audio_file(in_path, do_carrier_analysis=False)
+            if _loaded is None or _loaded.get("error"):
+                raise RuntimeError(f"Audio-Datei konnte nicht geladen werden: {in_path}")
+            audio, sr = _loaded["audio"], int(_loaded["sr"])
             logic.output_path_hint = out_path
             result = logic.process(audio, sr)
             sf.write(out_path, result, sr)
         except Exception as e:
-            logger.error(f"[BatchAPI] Fehler bei {in_path}: {e}")
+            logger.error("[BatchAPI] Fehler bei %s: %s", in_path, e)
         BATCH_STATUS["progress"] = idx + 1
     BATCH_STATUS["running"] = False
 

@@ -350,6 +350,63 @@ class TestAurikDenkerStage1b:
             except Exception:
                 pass  # Andere Stufen dürfen scheitern
 
+    def test_16b_pre_analysis_medium_forwarded_to_kette_denker(self):
+        """pre_analysis_result.medium muss als cached_medium_result an analysiere() gehen (§2.47a)."""
+        audio = _sine()
+
+        cached_medium = MagicMock()
+        cached_medium.primary_material = "vinyl"
+        cached_medium.confidence = 0.91
+
+        pre = MagicMock()
+        pre.medium = cached_medium
+        pre.era = None
+        pre.genre = None
+        pre.defects = None
+        pre.restorability = None
+
+        kette_m = _make_kette_mock("vinyl→mp3_low")
+        exz_m = _make_exzellenz_mock(audio)
+        exz_denker_m = MagicMock()
+        exz_denker_m.optimiere.return_value = exz_m
+        versa_result_m = MagicMock(mos=4.2, model_used="mock_versa")
+        strat_m = MagicMock()
+        strat_m.check.return_value = MagicMock(should_exit_early=False)
+        rest_m = MagicMock()
+        rest_m.restauriere.return_value = MagicMock(audio=audio.copy())
+        rep_m = MagicMock()
+        rep_m.repariere.return_value = audio.copy()
+        rek_m = MagicMock()
+        rek_m.rekonstruiere.return_value = audio.copy()
+
+        toni_denker_m = MagicMock()
+        kette_denker_m = MagicMock(analysiere=MagicMock(return_value=kette_m))
+
+        with (
+            patch("denker.aurik_denker.get_tontraeger_denker", MagicMock(return_value=toni_denker_m)),
+            patch("denker.aurik_denker.get_tontraegerkette_denker", MagicMock(return_value=kette_denker_m)),
+            patch(
+                "denker.aurik_denker.get_defekt_denker",
+                MagicMock(return_value=MagicMock(analysiere=MagicMock(return_value=_make_defekt_mock()))),
+            ),
+            patch("denker.aurik_denker.get_strategie_denker", MagicMock(return_value=strat_m)),
+            patch("denker.aurik_denker.get_restaurier_denker", MagicMock(return_value=rest_m)),
+            patch("denker.aurik_denker.get_reparatur_denker", MagicMock(return_value=rep_m)),
+            patch("denker.aurik_denker.get_rekonstruktions_denker", MagicMock(return_value=rek_m)),
+            patch("denker.aurik_denker.get_exzellenz_denker", MagicMock(return_value=exz_denker_m)),
+            patch("plugins.versa_plugin.score_mos", MagicMock(return_value=versa_result_m)),
+        ):
+            from denker.aurik_denker import AurikDenker
+
+            result = AurikDenker().denke(audio, SR, pre_analysis_result=pre)
+
+        # Bei vorhandenem cached_medium_result darf Stufe 1 keinen neuen Tonträger-Scan starten.
+        toni_denker_m.erkenne.assert_not_called()
+        assert kette_denker_m.analysiere.called
+        call_kwargs = kette_denker_m.analysiere.call_args.kwargs
+        assert call_kwargs.get("cached_medium_result") is cached_medium
+        assert "vinyl" in str(result.stage_notes.get("tontraeger", "")).lower()
+
     def test_17_no_crash_on_all_stages_failing(self):
         """AurikDenker stürzt nicht ab, auch wenn alle Unterphasen scheitern."""
         audio = _sine()

@@ -549,12 +549,12 @@ def analyze_listening_fatigue(audio: np.ndarray, sr: int, threshold: float = 0.9
     >>> import soundfile as sf
     >>> audio, sr = sf.read("audio.wav")
     >>> analysis = analyze_listening_fatigue(audio, sr)
-    >>> logger.debug(f"Fatigue Score: {analysis.fatigue_score:.2f}")
-    >>> logger.debug(f"Passed: {analysis.passed}")
+    logger.debug("Fatigue Score: %.2f", analysis.fatigue_score)
+    logger.debug("Passed: %s", analysis.passed)
     >>> if not analysis.passed:
     ...     logger.debug("Warning: High listening fatigue detected!")
-    ...     logger.debug(f"  Harshness: {1.0 - analysis.harshness_score:.2f}")
-    ...     logger.debug(f"  IMD: {1.0 - analysis.imd_score:.2f}")
+    logger.debug("  Harshness: %.2f", 1.0 - analysis.harshness_score)
+    logger.debug("  IMD: %.2f", 1.0 - analysis.imd_score)
     """
     analyzer = ListeningFatigueAnalyzer(threshold=threshold)
     return analyzer.analyze(audio, sr)
@@ -601,8 +601,10 @@ if __name__ == "__main__":
 
     # Load audio
     audio_path = sys.argv[1]
-    logger.debug(f"Analyzing: {audio_path}")
-    audio, sr = sf.read(audio_path)
+    logger.debug("Analyzing: %s", audio_path)
+    from backend.file_import import load_audio_file
+    _res = load_audio_file(audio_path)
+    audio, sr = np.asarray(_res["audio"], dtype=np.float32), int(_res["sr"])
 
     # Analyze
     analysis = analyze_listening_fatigue(audio, sr)
@@ -611,19 +613,19 @@ if __name__ == "__main__":
     logger.debug("\n" + "=" * 70)
     logger.debug("LISTENING FATIGUE ANALYSIS")
     logger.debug("=" * 70)
-    logger.debug(f"Overall Fatigue Score: {analysis.fatigue_score:.3f} (threshold: 0.90)")
-    logger.debug(f"Status: {'✅ PASSED' if analysis.passed else '❌ FAILED'}")
+    logger.debug("Overall Fatigue Score: %.3f (threshold: 0.90)", analysis.fatigue_score)
+    logger.debug("Status: %s", '✅ PASSED' if analysis.passed else '❌ FAILED')
     logger.debug("")
     logger.debug("Component Scores (1.0 = Perfect):")
-    logger.debug(f"  Harshness (3-8 kHz):        {analysis.harshness_score:.3f}")
-    logger.debug(f"  IMD (Distortion):           {analysis.imd_score:.3f}")
-    logger.debug(f"  Spectral Roughness:         {analysis.roughness_score:.3f}")
-    logger.debug(f"  Bark Scale Balance:         {analysis.bark_balance_score:.3f}")
-    logger.debug(f"  Temporal Masking:           {analysis.temporal_masking_score:.3f}")
+    logger.debug("  Harshness (3-8 kHz):        %.3f", analysis.harshness_score)
+    logger.debug("  IMD (Distortion):           %.3f", analysis.imd_score)
+    logger.debug("  Spectral Roughness:         %.3f", analysis.roughness_score)
+    logger.debug("  Bark Scale Balance:         %.3f", analysis.bark_balance_score)
+    logger.debug("  Temporal Masking:           %.3f", analysis.temporal_masking_score)
     logger.debug("")
     logger.debug("Problem Indicators (0.0 = No Problem):")
     for key, value in analysis.details.items():
-        logger.debug(f"  {key:30s}: {value:.3f}")
+        logger.debug("  %s: %.3f", key, value)
     logger.debug("=" * 70)
 
     if not analysis.passed:

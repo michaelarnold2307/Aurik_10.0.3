@@ -27,7 +27,7 @@ Example:
     ...     pass
     ... else:
     ...     # Hard Stop!
-    ...     logger.debug(f"Blocked: {result.reason}")
+    logger.debug("Blocked: %s", result.reason)
 """
 
 import logging

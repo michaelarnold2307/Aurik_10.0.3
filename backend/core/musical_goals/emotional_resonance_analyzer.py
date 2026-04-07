@@ -606,8 +606,8 @@ def analyze_and_enhance_emotional_resonance(
 
     Example:
         >>> enhanced, analysis, report = analyze_and_enhance_emotional_resonance(audio, sr)
-        >>> logger.debug(f"Emotional Resonance: {analysis.emotional_resonance_score:.1%}")
-        >>> logger.debug(f"Warmth Boost: {report.warmth_boost_db:.1f} dB")
+        logger.debug("Emotional Resonance: %.1%", analysis.emotional_resonance_score)
+        logger.debug("Warmth Boost: %.1f dB", report.warmth_boost_db)
     """
     # Analyze
     analyzer = EmotionalResonanceAnalyzer(threshold=threshold)
@@ -653,25 +653,25 @@ if __name__ == "__main__":
     # Make stereo
     audio = np.stack([audio, audio], axis=1)
 
-    logger.debug(f"Input: {samples} samples, {audio.shape[1]} channels, {sr} Hz")
-    logger.debug(f"Duration: {duration:.1f} seconds")
+    logger.debug("Input: %s samples, %s channels, %s Hz", samples, audio.shape[1], sr)
+    logger.debug("Duration: %.1f seconds", duration)
     logger.debug("Signal: A3 (220 Hz) + Harmonics")
 
     # Analyze & Enhance
     enhanced, analysis, report = analyze_and_enhance_emotional_resonance(audio, sr)
 
     logger.debug("\n✅ Emotional Resonance Analysis:")
-    logger.debug(f"  • Vocal Warmth: {analysis.vocal_warmth:.1%}")
-    logger.debug(f"  • Dynamic Expression: {analysis.dynamic_expression:.1%}")
-    logger.debug(f"  • Harmonic Richness: {analysis.harmonic_richness:.1%}")
-    logger.debug(f"  • Temporal Flow: {analysis.temporal_flow:.1%}")
-    logger.debug(f"  • Air & Presence: {analysis.air_presence:.1%}")
-    logger.debug(f"  • Overall Score: {analysis.emotional_resonance_score:.1%}")
+    logger.debug("  • Vocal Warmth: %.1%", analysis.vocal_warmth)
+    logger.debug("  • Dynamic Expression: %.1%", analysis.dynamic_expression)
+    logger.debug("  • Harmonic Richness: %.1%", analysis.harmonic_richness)
+    logger.debug("  • Temporal Flow: %.1%", analysis.temporal_flow)
+    logger.debug("  • Air & Presence: %.1%", analysis.air_presence)
+    logger.debug("  • Overall Score: %.1%", analysis.emotional_resonance_score)
 
     logger.debug("\n✨ Emotional Enhancement Applied:")
-    logger.debug(f"  • Warmth Boost: {report.warmth_boost_db:.1f} dB @ 400 Hz")
-    logger.debug(f"  • Harmonic Saturation: {report.harmonic_saturation_gain:.1%}")
-    logger.debug(f"  • Air Boost: {report.air_boost_db:.1f} dB @ 12 kHz")
-    logger.debug(f"  • Expansion Applied: {report.expansion_applied}")
+    logger.debug("  • Warmth Boost: %.1f dB @ 400 Hz", report.warmth_boost_db)
+    logger.debug("  • Harmonic Saturation: %.1%", report.harmonic_saturation_gain)
+    logger.debug("  • Air Boost: %.1f dB @ 12 kHz", report.air_boost_db)
+    logger.debug("  • Expansion Applied: %s", report.expansion_applied)
 
     logger.debug("\n💎 Emotionale Resonanz optimiert!")

@@ -509,7 +509,7 @@ class PerformanceGuard:
             quality_degradation=quality_degradation,
         )
 
-        logger.info(f"\n{report}")
+        logger.info("\n%s", report)
 
         return report
 
@@ -608,9 +608,9 @@ if __name__ == "__main__":
     # Setup Logging
     logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 
-    logger.debug(f"\n{'=' * 60}")
+    logger.debug("\n%s", '=' * 60)
     logger.debug("PERFORMANCE GUARD TEST")
-    logger.debug(f"{'=' * 60}\n")
+    logger.debug("%s\n", '=' * 60)
 
     # Simuliere 3:45 Audio (225 Sekunden)
     audio_duration = 225.0
@@ -668,9 +668,9 @@ if __name__ == "__main__":
     report2 = guard2.get_performance_report()
 
     # Zusammenfassung
-    logger.debug(f"\n\n{'=' * 60}")
+    logger.debug("\n\n%s", '=' * 60)
     logger.debug("SUMMARY")
-    logger.debug(f"{'=' * 60}")
+    logger.debug("%s", '=' * 60)
     logger.debug(
         f"Balanced Mode: {report1.total_rt_factor:.2f}× RT, "
         f"{len(report1.skipped_phases)} skipped, "

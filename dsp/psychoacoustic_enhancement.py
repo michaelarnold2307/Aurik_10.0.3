@@ -82,7 +82,7 @@ class PsychoacousticEnhancer:
             else:
                 result = self._process_classic(audio, sr)
         except Exception as e:
-            logger.error(f"Fehler bei psychoakustischer Verbesserung: {e}")
+            logger.error("Fehler bei psychoakustischer Verbesserung: %s", e)
             fallback_used = True
             result = audio.copy()
             metrics["error"] = str(e)
@@ -109,7 +109,7 @@ class PsychoacousticEnhancer:
         return result, metrics
 
     def _audit_log(self, metrics):
-        logger.info(f"[AuditLog][PsychoacousticEnhancer] metrics={metrics}")
+        logger.info("[AuditLog][PsychoacousticEnhancer] metrics=%s", metrics)
 
     def _process_classic(self, audio: np.ndarray, sr: int) -> np.ndarray:
         """Klassische Verarbeitung (ohne DL-Inferenz)."""
@@ -146,11 +146,6 @@ class PsychoacousticEnhancer:
 
         # NaN/Inf-Guard
         result = np.nan_to_num(result, nan=0.0, posinf=0.0, neginf=0.0)
-
-        # Prevent clipping
-        max_val = np.max(np.abs(result))
-        if max_val > 0.95:
-            result = result * (0.95 / max_val)
 
         # Final clip
         result = np.clip(result, -1.0, 1.0)
@@ -246,17 +241,20 @@ if __name__ == "__main__":
 
     import soundfile as sf
 
+    from backend.file_import import load_audio_file
+
     logging.basicConfig(level=logging.INFO)
     try:
-        audio, sr = sf.read("test_audio.wav")
+        _res = load_audio_file("test_audio.wav")
+        audio, sr = np.asarray(_res["audio"], dtype=np.float32), int(_res["sr"])
         enhancer = create_psychoacoustic_enhancer(bass_freq_range=(20, 80), harmonic_gain_db=6.0, mix=0.5)
         enhanced, metrics = enhancer.process(audio, sr, use_deep_learning=True, audit_log=True)
         logger.info("Psychoacoustic Enhancement applied:")
-        logger.info(f"  Bass Energy Gain: {metrics['enhancement_db']:.1f} dB")
-        logger.info(f"  Harmonic Gain: {metrics['harmonic_gain_db']:.1f} dB")
+        logger.info("  Bass Energy Gain: %.1f dB", metrics['enhancement_db'])
+        logger.info("  Harmonic Gain: %.1f dB", metrics['harmonic_gain_db'])
         if metrics.get("fallback_used"):
             logger.info("[INFO] Fallback auf klassische Methode oder Originalaudio.")
         sf.write("enhanced_psychoacoustic.wav", enhanced, sr)
     except Exception as e:
-        logger.error(f"Fehler im Beispielskript: {e}")
+        logger.error("Fehler im Beispielskript: %s", e)
         sys.exit(1)

@@ -89,6 +89,15 @@ class AdvancedDereverbPhase(PhaseInterface):
     _WPE_ORDER: int = 5  # Prädiktionsordnung K (war 8): ~58 ms — rt_factor ≤ 3.0
     _WPE_ITERATIONS: int = 1  # Iterationen (war 2): 1 Iteration reicht für Restaurierung
     _WIENER_FLOOR: float = 0.1  # Minimale Gain-Floor für Wiener-Postfilter
+    _MAX_RMS_DROP_DB = {
+        "tape": 2.5,
+        "reel_tape": 2.2,
+        "cassette": 2.8,
+        "vinyl": 2.0,
+        "shellac": 1.8,
+        "wax_cylinder": 1.5,
+        "unknown": 2.0,
+    }
 
     def get_metadata(self) -> PhaseMetadata:
         return PhaseMetadata(
@@ -146,6 +155,8 @@ class AdvancedDereverbPhase(PhaseInterface):
 
         strength = effective_strength
         protect_transients: bool = bool(kwargs.get("protect_transients", True))
+        # Store material type for EMA-alpha selection in _dereverb_channel
+        self._current_material = str(kwargs.get("material_type", "unknown"))
 
         is_stereo = audio.ndim == 2
         if is_stereo:
@@ -179,9 +190,12 @@ class AdvancedDereverbPhase(PhaseInterface):
 
         # Safety rescue for catastrophic dereverb attenuation. If the raw processed
         # signal collapses energy too aggressively, reduce wet mix preemptively.
-        if rms_drop_db < -4.0 and wet_mix > 0.0:
+        _max_rms_drop_db = float(self._MAX_RMS_DROP_DB.get(self._current_material, self._MAX_RMS_DROP_DB["unknown"]))
+        if rms_drop_db < -_max_rms_drop_db and wet_mix > 0.0:
             attenuation_guard_triggered = True
-            attenuation_guard_factor = float(np.clip(4.0 / (abs(rms_drop_db) + 1e-9), 0.20, 1.0))
+            attenuation_guard_factor = float(
+                np.clip(_max_rms_drop_db / (abs(rms_drop_db) + 1e-9), 0.35, 1.0)
+            )
             wet_mix *= attenuation_guard_factor
 
         # --- §4.5c Early-Reflection-Guard: C80/D50 clarity-based wet-mix limiting ---
@@ -246,6 +260,15 @@ class AdvancedDereverbPhase(PhaseInterface):
 
         if wet_mix < 1.0:
             processed = audio + wet_mix * (processed - audio)
+
+        # Final dry/wet rescue: keep dereverb effective, but do not allow an
+        # audible loudness collapse after all clarity guards have been applied.
+        rms_after_blend = float(np.sqrt(np.mean(processed**2)))
+        rms_drop_after_blend_db = 20.0 * np.log10(max(rms_after_blend / (rms_before + 1e-10), 1e-30))
+        if rms_drop_after_blend_db < -_max_rms_drop_db and wet_mix > 0.0:
+            _rescue_wet = float(np.clip(wet_mix * (_max_rms_drop_db / (abs(rms_drop_after_blend_db) + 1e-9)), 0.20, wet_mix))
+            processed = audio + _rescue_wet * (processed - audio)
+            wet_mix = _rescue_wet
 
         elapsed = time.time() - t0
         rms_after = float(np.sqrt(np.mean(processed**2)))
@@ -371,7 +394,12 @@ class AdvancedDereverbPhase(PhaseInterface):
 
         for _iteration in range(self._WPE_ITERATIONS):
             power = np.abs(enhanced) ** 2
-            smoothed_power = self._smooth_power(power, alpha=0.90)
+            # alpha=0.90 is fast (high noise-floor reactivity) — good for vinyl/cassette
+            # reverb bursts.  Tape material has a longer reverb tail and gentler room
+            # impulse; alpha=0.93 averages over more frames, preventing over-dereverb
+            # that strips authentic Tape room character (§0 Authenticity).
+            _ema_alpha = 0.93 if getattr(self, '_current_material', '') in ('tape', 'reel_tape') else 0.90
+            smoothed_power = self._smooth_power(power, alpha=_ema_alpha)
 
             reverb_estimate = np.zeros_like(stft_matrix)
             for f in range(F):

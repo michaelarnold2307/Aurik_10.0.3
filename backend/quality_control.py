@@ -204,7 +204,7 @@ def enhance_quality_report_with_objective_metrics(
         # §4.4: Kein SI-SDR-Fallback für Musikmetriken.
 
     except Exception as e:
-        logger.warning(f"Objective metrics enhancement failed: {e}")
+        logger.warning("Objective metrics enhancement failed: %s", e)
 
     return report
 
@@ -392,7 +392,7 @@ class QualityGates:
                 self._metrics_manager = QualityMetricsManager()
                 logger.info("✓ Quality Metrics Manager initialized")
             except Exception as e:
-                logger.warning(f"Quality Metrics Manager nicht verfügbar: {e}")
+                logger.warning("Quality Metrics Manager nicht verfügbar: %s", e)
 
     def validate_all(
         self,
@@ -478,7 +478,7 @@ class QualityGates:
                 results["nisqa_check"] = True  # immer bestanden (Metrik deaktiviert)
 
             except Exception as e:
-                logger.warning(f"Plugin-based quality checks failed: {e}")
+                logger.warning("Plugin-based quality checks failed: %s", e)
                 # Fallback to approximations
                 results["cdpam_score"] = None
                 results["cdpam_check"] = True
@@ -654,18 +654,18 @@ class QualityGates:
         logger.info("QUALITY GATES REPORT - AURIK v8.0")
         logger.info("=" * 80)
 
-        logger.info(f"\n1. SNR Check: {'✅ PASS' if results['snr_check'] else '❌ FAIL'}")
-        logger.info(f"   Before: {results['snr_before']:.1f} dB")
-        logger.info(f"   After:  {results['snr_after']:.1f} dB")
-        logger.info(f"   Change: {results['snr_improvement']:+.1f} dB")
+        logger.info("\n1. SNR Check: %s", '✅ PASS' if results['snr_check'] else '❌ FAIL')
+        logger.info("   Before: %.1f dB", results['snr_before'])
+        logger.info("   After:  %.1f dB", results['snr_after'])
+        logger.info("   Change: %.1f dB", results['snr_improvement'])
 
-        logger.info(f"\n2. THD Check: {'✅ PASS' if results['thd_check'] else '❌ FAIL'}")
-        logger.info(f"   Before: {results['thd_before']:.3f}")
-        logger.info(f"   After:  {results['thd_after']:.3f}")
-        logger.info(f"   Ratio:  {results['thd_ratio']:.2f}x")
+        logger.info("\n2. THD Check: %s", '✅ PASS' if results['thd_check'] else '❌ FAIL')
+        logger.info("   Before: %.3f", results['thd_before'])
+        logger.info("   After:  %.3f", results['thd_after'])
+        logger.info("   Ratio:  %.2fx", results['thd_ratio'])
 
-        logger.info(f"\n3. Clipping Check: {'✅ PASS' if results['no_clipping'] else '❌ FAIL'}")
-        logger.info(f"   Peak Amplitude: {results['peak_amplitude']:.3f}")
+        logger.info("\n3. Clipping Check: %s", '✅ PASS' if results['no_clipping'] else '❌ FAIL')
+        logger.info("   Peak Amplitude: %.3f", results['peak_amplitude'])
 
         # ML-BASED QUALITY METRICS
         logger.info("\n" + "-" * 80)
@@ -673,28 +673,28 @@ class QualityGates:
         logger.info("-" * 80)
 
         if results.get("cdpam_score") is not None:
-            logger.info(f"\n4. VERSA Compat-Check (Key: cdpam): {'✅ PASS' if results['cdpam_check'] else '❌ FAIL'}")
-            logger.info(f"   Score: {results['cdpam_score']:.2f}/100")
+            logger.info("\n4. VERSA Compat-Check (Key: cdpam): %s", '✅ PASS' if results['cdpam_check'] else '❌ FAIL')
+            logger.info("   Score: %.2f/100", results['cdpam_score'])
         else:
             logger.info("\n4. VERSA Compat-Check: ⏭️  SKIPPED")
 
         if results.get("dnsmos_ovrl_p835") is not None:
-            logger.info(f"\n5. DNSMOS Check (Noise Assessment): {'✅ PASS' if results['dnsmos_check'] else '❌ FAIL'}")
-            logger.info(f"   OVRL P.835: {results['dnsmos_ovrl_p835']:.2f}/5.0 ⭐ (Musik - Primär)")
-            logger.info(f"   SIG P.835:  {results.get('dnsmos_sig', 0.0):.2f}/5.0 (Signal distortion)")
-            logger.info(f"   BAK P.835:  {results.get('dnsmos_bak', 0.0):.2f}/5.0 (Background noise)")
-            logger.info(f"   MOS P.808:  {results.get('dnsmos_p808', 0.0):.2f}/5.0 (Sprache - Referenz)")
+            logger.info("\n5. DNSMOS Check (Noise Assessment): %s", '✅ PASS' if results['dnsmos_check'] else '❌ FAIL')
+            logger.info("   OVRL P.835: %.2f/5.0 ⭐ (Musik - Primär)", results['dnsmos_ovrl_p835'])
+            logger.info("   SIG P.835:  %.2f/5.0 (Signal distortion)", results.get('dnsmos_sig', 0.0))
+            logger.info("   BAK P.835:  %.2f/5.0 (Background noise)", results.get('dnsmos_bak', 0.0))
+            logger.info("   MOS P.808:  %.2f/5.0 (Sprache - Referenz)", results.get('dnsmos_p808', 0.0))
         else:
             logger.info("\n5. DNSMOS Check: ⏭️  SKIPPED (deaktiviert §4.4/§10.2)")
 
         if results.get("nisqa_mos") is not None:
-            logger.info(f"\n6. NISQA Check (Broadband Audio): {'✅ PASS' if results['nisqa_check'] else '❌ FAIL'}")
-            logger.info(f"   MOS:           {results['nisqa_mos']:.2f}/5.0")
+            logger.info("\n6. NISQA Check (Broadband Audio): %s", '✅ PASS' if results['nisqa_check'] else '❌ FAIL')
+            logger.info("   MOS:           %.2f/5.0", results['nisqa_mos'])
             if results.get("nisqa_noisiness") is not None:
-                logger.info(f"   Noisiness:     {results['nisqa_noisiness']:.2f}/5.0")
-                logger.info(f"   Coloration:    {results['nisqa_coloration']:.2f}/5.0")
-                logger.info(f"   Discontinuity: {results['nisqa_discontinuity']:.2f}/5.0")
-                logger.info(f"   Loudness:      {results['nisqa_loudness']:.2f}/5.0")
+                logger.info("   Noisiness:     %.2f/5.0", results['nisqa_noisiness'])
+                logger.info("   Coloration:    %.2f/5.0", results['nisqa_coloration'])
+                logger.info("   Discontinuity: %.2f/5.0", results['nisqa_discontinuity'])
+                logger.info("   Loudness:      %.2f/5.0", results['nisqa_loudness'])
         else:
             logger.info("\n6. NISQA Check: ⏭️  SKIPPED (deaktiviert §4.4/§10.2)")
 
@@ -702,17 +702,17 @@ class QualityGates:
         logger.info("TRADITIONAL QUALITY METRICS")
         logger.info("-" * 80)
 
-        logger.info(f"\n7. CAS Score Check: {'✅ PASS' if results['cas_check'] else '❌ FAIL'}")
+        logger.info("\n7. CAS Score Check: %s", '✅ PASS' if results['cas_check'] else '❌ FAIL')
         cas = results["cas_details"]
-        logger.info(f"   Overall: {cas['cas_score']:.3f} - {cas['rating']}")
-        logger.info(f"   └─ Brillanz:        {cas['brillanz']:.3f}")
-        logger.info(f"   └─ Transparenz:     {cas['transparenz']:.3f}")
-        logger.info(f"   └─ Authentizität:   {cas['authentizitaet']:.3f}")
-        logger.info(f"   └─ Emotionalität:   {cas['emotionalitaet']:.3f}")
-        logger.info(f"   └─ Wärme:           {cas['waerme']:.3f}")
+        logger.info("   Overall: %.3f - %s", cas['cas_score'], cas['rating'])
+        logger.info("   └─ Brillanz:        %.3f", cas['brillanz'])
+        logger.info("   └─ Transparenz:     %.3f", cas['transparenz'])
+        logger.info("   └─ Authentizität:   %.3f", cas['authentizitaet'])
+        logger.info("   └─ Emotionalität:   %.3f", cas['emotionalitaet'])
+        logger.info("   └─ Wärme:           %.3f", cas['waerme'])
 
-        logger.info(f"\n8. Spectral Fidelity: {'✅ PASS' if results['spectral_check'] else '❌ FAIL'}")
-        logger.info(f"   Similarity: {results['spectral_fidelity']:.1%}")
+        logger.info("\n8. Spectral Fidelity: %s", '✅ PASS' if results['spectral_check'] else '❌ FAIL')
+        logger.info("   Similarity: %s", format(results['spectral_fidelity'], '.1%'))
 
         logger.info("\n" + "=" * 80)
         if results["all_passed"]:
@@ -760,12 +760,12 @@ if __name__ == "__main__":
     cas_calc = CASScoreCalculator()
     cas_results = cas_calc.compute(audio_after, sr)
 
-    logger.info(f"CAS Score: {cas_results['cas_score']:.3f} - {cas_results['rating']}")
-    logger.info(f"  Brillanz:        {cas_results['brillanz']:.3f}")
-    logger.info(f"  Transparenz:     {cas_results['transparenz']:.3f}")
-    logger.info(f"  Authentizität:   {cas_results['authentizitaet']:.3f}")
-    logger.info(f"  Emotionalität:   {cas_results['emotionalitaet']:.3f}")
-    logger.info(f"  Wärme:           {cas_results['waerme']:.3f}")
+    logger.info("CAS Score: %.3f - %s", cas_results['cas_score'], cas_results['rating'])
+    logger.info("  Brillanz:        %.3f", cas_results['brillanz'])
+    logger.info("  Transparenz:     %.3f", cas_results['transparenz'])
+    logger.info("  Authentizität:   %.3f", cas_results['authentizitaet'])
+    logger.info("  Emotionalität:   %.3f", cas_results['emotionalitaet'])
+    logger.info("  Wärme:           %.3f", cas_results['waerme'])
 
     # Test 2: Quality Gates
     logger.info(str("\n" + "=" * 80))

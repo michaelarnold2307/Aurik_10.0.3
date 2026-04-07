@@ -418,7 +418,7 @@ def _detect_language(mono: np.ndarray, sr: int = 16_000) -> tuple[str, float]:
 
         frame_size = max(64, int(0.025 * sr))  # 25 ms
         hop = max(32, int(0.010 * sr))  # 10 ms
-        lpc_order = 12
+        lpc_order = max(16, min(40, int(sr / 1200)))  # §4.5: >= 16, 30-40 @ 48 kHz
 
         formant_pairs: list[tuple[float, float]] = []
 

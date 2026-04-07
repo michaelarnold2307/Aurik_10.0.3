@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 
 _GITHUB_RELEASES_URL = "https://api.github.com/repos/AURIK-audio/aurik-professional/releases/latest"
 _TIMEOUT_S = 8
-_CURRENT_VERSION = "9.10.77"
+_CURRENT_VERSION = "9.10.120"
 
 # Singleton
 _instance = None

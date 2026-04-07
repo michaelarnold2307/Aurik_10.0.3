@@ -65,7 +65,7 @@ class AudioRestorationDataset(Dataset):
         # Find all audio pairs
         self.audio_pairs = self._find_audio_pairs()
 
-        logger.info(f"AudioRestorationDataset({split}): {len(self.audio_pairs)} pairs")
+        logger.info("AudioRestorationDataset(%s): %s pairs", split, len(self.audio_pairs))
 
     def _find_audio_pairs(self) -> list[tuple[Path, Path]]:
         """Find pairs of degraded and clean audio files."""
@@ -75,7 +75,7 @@ class AudioRestorationDataset(Dataset):
         clean_dir = self.data_dir / "clean"
 
         if not degraded_dir.exists() or not clean_dir.exists():
-            logger.warning(f"Dataset directories not found: {degraded_dir}, {clean_dir}")
+            logger.warning("Dataset directories not found: %s, %s", degraded_dir, clean_dir)
             return pairs
 
         for degraded_file in degraded_dir.glob("*.wav"):
@@ -131,12 +131,12 @@ def train_e2e_optimization(
     logger.info("=" * 80)
     logger.info("Starting E2E Optimization Training")
     logger.info("=" * 80)
-    logger.info(f"Dataset: {dataset_path}")
-    logger.info(f"Output: {output_path}")
-    logger.info(f"Epochs: {epochs}")
-    logger.info(f"Batch size: {batch_size}")
-    logger.info(f"Learning rate: {learning_rate}")
-    logger.info(f"Device: {device}")
+    logger.info("Dataset: %s", dataset_path)
+    logger.info("Output: %s", output_path)
+    logger.info("Epochs: %s", epochs)
+    logger.info("Batch size: %s", batch_size)
+    logger.info("Learning rate: %s", learning_rate)
+    logger.info("Device: %s", device)
     logger.info("=" * 80)
 
     # Create output directory
@@ -166,23 +166,23 @@ def train_e2e_optimization(
     best_val_loss = float("inf")
 
     for epoch in range(1, epochs + 1):
-        logger.info(f"\n{'=' * 80}")
-        logger.info(f"Epoch {epoch}/{epochs}")
-        logger.info(f"{'=' * 80}")
+        logger.info("\n%s", '=' * 80)
+        logger.info("Epoch %s/%s", epoch, epochs)
+        logger.info("%s", '=' * 80)
 
         # Train
         train_metrics = framework.train_epoch(train_loader, epoch)
 
         logger.info("\nTraining metrics:")
         for key, value in train_metrics.items():
-            logger.info(f"  {key}: {value:.4f}")
+            logger.info("  %s: %.4f", key, value)
 
         # Validate
         val_metrics = framework.validate(val_loader)
 
         logger.info("\nValidation metrics:")
         for key, value in val_metrics.items():
-            logger.info(f"  {key}: {value:.4f}")
+            logger.info("  %s: %.4f", key, value)
 
         # Save checkpoint
         if epoch % 10 == 0 or val_metrics["total_perceptual_loss"] < best_val_loss:
@@ -192,7 +192,7 @@ def train_e2e_optimization(
             framework.save_checkpoint(epoch, {"train": train_metrics, "val": val_metrics})
 
             if is_best:
-                logger.info(f"  *** New best validation loss: {best_val_loss:.4f} ***")
+                logger.info("  *** New best validation loss: %.4f ***", best_val_loss)
 
     # Export optimized parameters
     final_params = framework.export_optimized_parameters()
@@ -201,7 +201,7 @@ def train_e2e_optimization(
     with open(params_file, "w") as f:
         yaml.dump(final_params, f, default_flow_style=False)
 
-    logger.info(f"\nOptimized parameters saved: {params_file}")
+    logger.info("\nOptimized parameters saved: %s", params_file)
     logger.info("\nTraining completed!")
 
 
@@ -219,12 +219,12 @@ def train_hyperparameter_optimization(
         n_jobs: Number of parallel jobs
     """
     logger.info("=" * 80)
-    logger.info(f"Starting Hyperparameter Optimization for {material_type}")
+    logger.info("Starting Hyperparameter Optimization for %s", material_type)
     logger.info("=" * 80)
-    logger.info(f"Dataset: {dataset_path}")
-    logger.info(f"Output: {output_path}")
-    logger.info(f"Trials: {n_trials}")
-    logger.info(f"Jobs: {n_jobs}")
+    logger.info("Dataset: %s", dataset_path)
+    logger.info("Output: %s", output_path)
+    logger.info("Trials: %s", n_trials)
+    logger.info("Jobs: %s", n_jobs)
     logger.info("=" * 80)
 
     # Create optimizer
@@ -245,8 +245,8 @@ def train_hyperparameter_optimization(
     results = optimizer.optimize(evaluation_dataset=eval_dataset, process_function=process_audio)
 
     logger.info("\nOptimization completed!")
-    logger.info(f"Best score: {results['best_score']:.4f}")
-    logger.info(f"Best params saved to: {output_path / material_type}")
+    logger.info("Best score: %.4f", results['best_score'])
+    logger.info("Best params saved to: %s", output_path / material_type)
 
 
 def train_all_materials(dataset_path: Path, output_path: Path, n_trials: int = 100) -> None:
@@ -279,7 +279,7 @@ def train_all_materials(dataset_path: Path, output_path: Path, n_trials: int = 1
     optimizer.optimize_all(datasets=datasets, process_functions=process_functions)
 
     logger.info("\nAll materials optimized!")
-    logger.info(f"Results saved to: {output_path}")
+    logger.info("Results saved to: %s", output_path)
 
 
 def main() -> None:
@@ -323,7 +323,7 @@ def main() -> None:
     output_path = Path(args.output)
 
     if not dataset_path.exists():
-        logger.error(f"Dataset path does not exist: {dataset_path}")
+        logger.error("Dataset path does not exist: %s", dataset_path)
         sys.exit(1)
 
     # Run training based on mode

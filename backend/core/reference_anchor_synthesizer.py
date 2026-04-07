@@ -26,7 +26,7 @@ import numpy as np
 logger = logging.getLogger(__name__)
 
 # Pfad zur Anker-Datei (optional — DSP-Fallback wenn fehlt)
-_ANCHORS_PATH = Path(__file__).parent.parent / "models" / "era_classifier" / "reference_anchors.npz"
+_ANCHORS_PATH = Path(__file__).parent.parent.parent / "models" / "era_classifier" / "reference_anchors.npz"
 
 MAX_EQ_DB = 6.0  # Maximale EQ-Korrektur pro Band
 K_NEAREST = 3  # k-NN für Anker-Auswahl

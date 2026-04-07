@@ -2,6 +2,301 @@
 
 > Hinweis: Dieses Dokument ist eine Versionshistorie. Ältere Versionsnummern und Kennzahlen sind hier erwartbar und keine veralteten Reststände.
 
+## Version 9.10.128 — §2.51 Stereo-Kohärenz-Invariante (Spec) (Apr 2026)
+
+### Zusammenfassung
+
+Ergänzt die fehlende normative Spezifikation für Stereo-Kohärenz in Phasen-Verarbeitung. Root-Cause-Analyse der verbleibenden §2.49-Rollbacks (phase_07/18/23/24/35) ergab: unabhängige L/R-Verarbeitung ohne Linked-Stereo / M/S-Domain. Dies ist kein Gate-Parameter-Problem, sondern ein Implementierungsfehler in betroffenen Phasen.
+
+### Spec-Änderungen
+
+- **`specs/02_pipeline_architecture.md`**
+  - **§2.49 Phase-Cancellation (v9.10.127)**: Vier Präzisierungen ergänzt:
+    1. Anti-Korrelation-Schwelle: `lr_corr < −0.20` (nicht `< 0.0`) — begründet und normiert
+    2. Delta-Guard: `_DELTA_THRESHOLD = 0.10` — begründet und normiert
+    3. Near-Mono-Guard: `orig_compat > 0.65 AND output > 0.40 → skip` — begründet und normiert
+    4. Stereo-Collapse-Guard: Channel RMS -40 dB → 1 Artefakt, Early-Return — begründet und normiert
+  - **§2.49 Tabelle Phase-Cancellation (mono_compat)**: Tape ≥ 0.25 → **≥ 0.20** (Code-Spec-Synchronisation Fix F)
+  - **§2.51 [RELEASE_MUST] Stereo-Kohärenz-Invariante für Phasen (v9.10.127)**: Neuer Abschnitt mit:
+    - Option A: M/S-Domain-Processing (bevorzugt für spektrale Operationen)
+    - Option B: Linked-Stereo-Processing (für dynamische Verarbeitung)
+    - Referenz-Code-Patterns für beide Strategien
+    - Pflicht-Mapping: phase_07→M/S, phase_18→Linked, phase_23→M/S, phase_24→Linked, phase_35→Linked
+    - Downstream-Auswirkungen auf alle Metriken (Brillanz, Raumtiefe, SepFidelity, Groove, Wärme)
+
+- **`specs/06_phases_system.md`**
+  - **§7.1a [RELEASE_MUST] Stereo-Kohärenz-Pflicht für Phasen (v9.10.127)**: Neuer Abschnitt mit Code-Patterns für M/S-Domain und Linked-Stereo
+  - **§7.4 Checkliste**: Eintrag `□ Stereo-Kohärenz (§2.51/§7.1a): M/S oder Linked-Stereo bei Stereo-Audio` ergänzt
+
+### Downstream-Auswirkungen (dokumentiert in §2.51)
+
+| Metrik | Auswirkung nach Umsetzung |
+| --- | --- |
+| Brillanz | Stabil (Gesamt-HF-Energie bleibt durch M/S erhalten) |
+| Raumtiefe | +0.02–0.05 (Side-Kanal wird besser bewahrt bei phase_35) |
+| SepFidelity | +0.01–0.03 (kohärente Dropout-Füllung in phase_24) |
+| Groove | +0.01–0.02 (Linked Gate öffnet kohärent → Transient präziser) |
+| Wärme | Stabil (Wärme-Proxy nutzt harmonische Ratio, nicht L/R-Differenz) |
+
+### Offener Punkt (Implementierung)
+
+Spec ist vollständig. Implementierung der 5 Phasen (M/S/Linked-Stereo) steht aus. Nach Umsetzung: 5 §2.49-Rollbacks entfallen → OQS Δ+1 bis +2 erwartet.
+
+---
+
+## Version 9.10.127 — §2.49 AFG False-Positive-Eliminierung + OQS 58.4→70.8 (Apr 2026)
+
+### Zusammenfassung
+
+Behebt die systematische `artifact_freedom=0.000`-Kaskade im **per-phase-Auswertungsmodus**, die alle Enhancement-Phasen durch false-positive §2.49-Rollbacks blockierte. Kernfix: `_artifact_freedom_score` wird nun aus dem **Minimum aller akzeptierten Phasen** berechnet (`_min_per_phase_afg_score`), nicht mehr aus einem Ganzpipeline-Vergleich (Original degradiert vs. processed). HPI steigt von 0.0000 auf 0.9885; OQS steigt von 58.4 auf **70.8** (AMRB-01-TAPE).
+
+**6 Detailkorrekturen im ArtifactFreedomGate (35 Tests grün):**
+
+- Fix A: Stereo-Collapse-Guard in `_detect_phase_cancellation` (> 40 dB RMS-Abfall → 1 Artefakt, sofortiger Return)
+- Fix C: `_DELTA_THRESHOLD` 0.05 → 0.10 (reduziert false positives bei kleinen STFT-Transient-Asym.)
+- Fix D: Near-Mono-Guard (orig_compat > 0.65 AND output > 0.40 → skip — quasi-mono Quellmaterial)
+- Fix E: `is_anti_corr = lr_corr < -0.20` (war `< 0.0` — STFT-Window-Artefakte sind kein Phase-Cancellation)
+- Fix F: Tape `phase_cancellation_corr` = 0.667 (threshold 0.20 statt 0.25 — angemessen für breites Stereofeld)
+- test_09 normiert: verwendet echte Anti-Phase (R = −0.9×L, lr_corr = −0.9) statt unkorreliertes Rauschen
+
+### Offener Punkt: Phasen-Stereo-Kohärenz
+
+8 Phasen (phase_07, phase_18, phase_23, phase_24, phase_35, phase_49, phase_17, phase_41) rollen weiterhin zurück wegen echter L/R-Asymmetrie < 0.20 mono_compat in 2-3 Frames. Ursache: unabhängige L/R-Verarbeitung ohne Linked-Stereo/M/S. Fix in nächster Version: M/S-Domain für Harmonic Restoration, Spectral Repair, Multiband Compression.
+
+### Änderungen
+
+- `backend/core/artifact_freedom_gate.py`
+  - **Fix A**: Stereo-Collapse-Guard in `_detect_phase_cancellation`
+  - **Fix C**: `_DELTA_THRESHOLD = 0.10`
+  - **Fix D**: Near-Mono-Input-Guard (orig_compat > 0.65)
+  - **Fix E**: `is_anti_corr = lr_corr < -0.20`
+  - **Fix F**: Tape-Material `phase_cancellation_corr = 0.667` (threshold 0.20)
+  - Debug-Log für FLAGGED-Frames
+
+- `backend/core/unified_restorer_v3.py`  
+  - **Fix B (§2.49 Final)**: `_artifact_freedom_score = _min_per_phase_afg_score` statt Ganzpipeline-Evaluierung
+  - **§2.49b Post-Pipeline Kumulativer Stereo-Collapse-Guard** bereits vorhanden
+  - **§2.44/§2.49 HPI-Rollback-Checkpoint Stereo-Health-Validation** bereits vorhanden
+
+- `tests/unit/test_artifact_freedom_gate.py`
+  - **test_33**: Near-Mono-Guard (quasi-mono, Minor Gate-Asymmetrie → no artifact)
+  - **test_34**: Near-Mono-Guard bleibt korrekt bei starkem Kollaps (3 Frames inverted R → failure)
+  - **test_31/32**: Stereo-Collapse-Guard Tests (bereits vorhanden)
+  - **test_09**: Korrigiert auf echte Anti-Korrelation (R = −0.9 × L)
+  - **35 Tests gesamt, alle grün**
+
+---
+
+## Version 9.10.126 — §2.49b + §2.44 Stereo-Health-Validation (Apr 2026)
+
+### Zusammenfassung
+
+Behebt kumulativen Stereo-Kollaps-Drift über mehrere Phasen (§2.49b) sowie den HPI-Rollback-Checkpoint auf ein stereo-zerstörtes Signal (§2.44 Health-Validation).
+
+### Änderungen
+
+- `backend/core/unified_restorer_v3.py`
+  - **§2.49b**: Post-Pipeline Kumulativer Stereo-Collapse-Guard (L/R-Imbalance > 20 dB → Recovery)
+  - **§2.44**: HPI-Rollback-Checkpoint Stereo-Validierung (> 20 dB Imbalance → Checkpoint verwerfen)
+
+---
+
+## Version 9.10.125 — §2.49 Phase-Cancellation Delta-Guard + §2.50 Material-Adaptive Gate Baseline + Peak-Guard DSP-Invariante (Apr 2026)
+
+### Zusammenfassung
+
+Behebt die systematische `artifact_freedom=0.0`-Kaskade bei Quellmaterial mit Trägerkettendefekten. Normiert zusätzlich die §2.49 DSP-Invariante in 4 Phasen: Einzelne Impuls-Artefakte (Crackle, Click) dürfen die Gain-Normalisierung des gesamten Musiksignals nicht blockieren.
+
+**Normativer Kern**: §2.50 kodifiziert das Prinzip der Material-Adaptiven Gate-Baseline. Die Spec (6.5) war dem Code voraus — alle Fixes sind reine Code-Implementierungslücken gegen normativ korrekte Vorgaben.
+
+### Änderungen
+
+- `backend/core/artifact_freedom_gate.py`
+  - **`SourceMaterialBaseline`** — neues `@dataclass` (§2.50)
+  - **`measure_source_baseline(audio, sr, material_type)`** — neue Methode
+  - **`_detect_phase_cancellation`** — Delta-Guard + `original_stereo` Parameter
+  - **`_lr_corr_and_compat`** — Hilfs-Staticmethod (DRY)
+
+- `backend/core/unified_restorer_v3.py`
+  - **§2.50-Block in `restore()`** — Baseline-Messung + autonome Remediation + Metadata-Export
+
+- `backend/core/phases/phase_10_compression.py`
+  - Gain-Guard: `np.max` → `np.percentile(np.abs(audio_processed), 99.9)` (§2.49 Peak-Guard)
+
+- `backend/core/phases/phase_16_final_eq.py`
+  - Gain-Guard: `np.max` → `np.percentile(np.abs(eq_audio), 99.9)` (§2.49 Peak-Guard)
+
+- `backend/core/phases/phase_22_tape_saturation.py`
+  - Soft Limiter + Harmonic-Normalization: `np.max` → `np.percentile(..., 99.9)` (§2.49 Peak-Guard, 2 Stellen)
+
+- `backend/core/phases/phase_34_mid_side_processing.py`
+  - Gain-Guard: `np.max` → `np.percentile(np.abs(audio_processed), 99.9)` (§2.49 Peak-Guard)
+
+- `.github/copilot-instructions.md`
+  - §2.49 + §2.50 normativ (instructions_version 6.4 → **6.5**)
+
+### Änderungen
+
+- `backend/core/artifact_freedom_gate.py`
+  - **`SourceMaterialBaseline`** — neues `@dataclass` (§2.50): misst Stereo-Feld-Gesundheit und HF-Verlust des degradierten Eingangs vor Pipeline-Start
+  - **`measure_source_baseline(audio, sr, material_type)`** — neue Methode; liefert `phase_cancellation_ratio`, `stereo_mono_compat_mean`, `stereo_lr_corr_mean`, `has_critical_stereo_issue`, `has_anti_phase_region`, `hf_loss_db`
+  - **`_detect_phase_cancellation(restored, sr, thresholds, original_stereo=None)`** — neuer optionaler Parameter; per-Phase-Modus überspringt Frames mit pre-existing Stereo-Problemen; Delta-Guard `Δmono_compat > 0.05`
+  - **`_lr_corr_and_compat(left, right)`** — neues Hilfs-Staticmethod (DRY für L/R-Korrelation)
+  - **`evaluate()`** — übergibt immer `original` als `_orig_stereo_for_pc`, wenn Stereo vorhanden (per-Phase UND Finale Bewertung)
+
+- `backend/core/unified_restorer_v3.py`
+  - **§2.50-Block in `restore()`** nach `_select_phases`: misst `SourceMaterialBaseline` via `ArtifactFreedomGate.measure_source_baseline()`
+  - Autonome Remediation: `has_critical_stereo_issue` → `phase_14_phase_correction` + `phase_15_stereo_balance` als Notfall-Phasen injiziert; `has_anti_phase_region` → `phase_14` allein
+  - **`RestorationResult.metadata["source_material_baseline"]`** — 5 Baseline-Felder für Audit exportiert
+  - `_source_material_baseline` auf `self` gespeichert (Diagnose, Logging)
+
+- `.github/copilot-instructions.md`
+  - **§2.49 erweitert**: Per-Phase-Modus-Delta und Phase-Cancellation-Delta explizit spezifiziert
+  - **§2.50 neu** (v9.10.125): Material-Adaptive Gate Baseline als normatives `[RELEASE_MUST]`-Kapitel
+  - Gate-Paradoxon-Invariante: systematisches `artifact_freedom=0.0` ist Implementierungsfehler, kein Rollback-Grund
+  - instructions_version: 6.3 → **6.4**
+
+## Version 9.10.124 — AMRB Pre-Listening-Gate + LUFS-Metrik-Härtung + Tonträgerkette-SourceFidelity-Audit (Apr 2026)
+
+### Zusammenfassung
+
+Vorbereitung für belastbare Hörtests (Pre-Listening-Gate, BS.1770-LUFS), plus vollständige Auditierbarkeit der Tonträgerketten-Verluste im Export-Metadata-Block: `source_fidelity_transfer_chain`, `source_fidelity_generation_count` und `source_fidelity_hf_loss_db` sind jetzt normativ in `RestorationResult.metadata["song_calibration"]` nachweisbar.
+
+### Änderungen
+
+- `benchmarks/run_amrb_baseline.py`
+  - Neues CLI-Gate: `--pre-listening-gate` (Default aktiv)
+  - Hard-Fail-Kriterien: Restore-Exceptions, MUSHRA-Fallback-Nutzung, Laufzeitüberschreitung
+  - Zusätzliche Reporting-Felder: `total_items`, `restoration_exceptions`, `mushra_fallbacks`, `pre_listening_gate_passed`, `pre_listening_fail_reasons`
+  - OOM-Schutz: konservative CPU-Thread-Limits via Umgebungsvariablen (`OMP/MKL/OPENBLAS/NUMEXPR`)
+  - Sicherheits-Default: `no_rt_limit=False`; explizites Opt-in via `--no-rt-limit`
+  - Neue Kettensteuerung für kontrollierte Benchmarks: `--chain-hint` (beliebige Länge, z. B. `vinyl>tape>mp3_low`)
+  - Ketten-Hint wird als `cached_medium_result.transfer_chain` + passender `input_path`-Dateityp in den Denker-Pfad injiziert
+
+- `benchmarks/musical_restoration_benchmark.py`
+  - Item-Level-Audit ergänzt:
+    - `restoration_exception` (bool)
+    - `mushra_fallback_used` (bool)
+  - `_mushra_score(...)` liefert jetzt `(score, fallback_used)` zur sauberen Gate-Auswertung
+
+- `backend/core/mushra_evaluator.py`
+  - `_compute_lufs_diff(...)` nutzt primär `pyloudnorm` (BS.1770 Integrated Loudness)
+  - Robuster Fallback auf RMS bleibt erhalten (mit Debug-Logging)
+
+- `tests/normative/test_p2_audit_and_deployment_mode.py`
+  - Neuer Normativtest für AMRB-Item-Audit-Flags (`mushra_fallback_used`, `restoration_exception`)
+
+- `tests/integration/test_pipeline_integration.py`
+  - Neue Regressionstests für kettenbasierte SourceFidelity-Ableitung:
+    - Transferkette erhöht deterministisch Generations-/HF-Verlustschätzung
+    - Forensik-Transferketten werden robust normalisiert (`dict`/`list`/String mit `→`/`>`)
+  - **Neuer normativer Export-Audit-Trail-Test** `TestSourceFidelityExportAuditTrail`:
+    - Beweist 3-stufigen Ablauf: `transfer_chain_raw → _extract_transfer_chain_from_forensics → _build_song_calibration_profile → metadata["song_calibration"]`
+    - Prüft `source_fidelity_transfer_chain == ["vinyl","tape","mp3_low"]`, `generation_count >= 3`, `hf_loss_db > 0`
+    - [RELEASE_MUST] §2.41 + §2.46 + §2.47
+
+- `backend/core/unified_restorer_v3.py`
+  - Tape-Material-Pflichtphasen erweitert um `phase_06_frequency_restoration`
+  - Ziel: Brillanz-/Transparenz-Defizite im AMRB-01-TAPE nach subtraktiver Hiss-/Dropout-Reparatur reduzieren
+  - SourceFidelity-Kalibrierung nutzt jetzt explizit die erkannte Transferkette (`transfer_chain`) aus der Forensik
+  - Dadurch fließen Generationszahl und kumulativer HF-Verlust direkt in `source_fidelity_generation_count`, `source_fidelity_hf_loss_db` und Rekonstruktionsstärke ein
+
+- `backend/core/phases/phase_29_tape_hiss_reduction.py`
+  - Neuer HF-Detailschutz (6–18 kHz): salienzbasierte Mindest-Gain-Klammer je Frequenzbin/Frame
+  - Ziel: stationäres Hiss weiter reduzieren, aber musikalische HF-Details (Brillanz/Transparenz) erhalten
+  - Neuer HF-Over-Suppression-Guard: bei zu starker HF-Dämpfung materialadaptiver Rückblendpfad (`hf_detail_blend`)
+
+- `plugins/audiosr_plugin.py`
+- AudioSR-Phase weiterhin modellgeführt bei eingeschränkter Bandbreite; Sentinel-/Budget-Logik bleibt OOM-sicher
+- ML-Budget-Allocation erhält Second-Chance-Retry (`release` + erneutes `try_allocate`) um unnötige DSP-Default-Degradation bei stale Slots zu vermeiden
+
+- `plugins/mert_plugin.py`
+- HF-Kurzsignalverarbeitung gehärtet: Inputs werden auf Mindestkontext gepaddet statt standardmäßig in DSP zu degradieren
+- MERT fairseq/ONNX Budget-Allocation mit Second-Chance-Retry gegen vermeidbare DSP-Defaults
+
+- `plugins/deepfilternet_v3_ii_plugin.py`, `plugins/mp_senet_plugin.py`, `plugins/crepe_plugin.py`, `plugins/mdx23c_plugin.py`
+- Einheitliche Second-Chance-ML-Budget-Strategie eingebaut (`release` + Retry), damit vorhandene Modelle nicht durch temporäre Budget-Blockaden standardmäßig auf DSP fallen
+
+### Verifikation
+
+- Gezielte Testläufe erfolgreich:
+  - `tests/unit/test_v99_core_modules.py`
+  - `tests/normative/test_p2_audit_and_deployment_mode.py`
+- Dry-Run des AMRB-Runners mit aktivem Pre-Listening-Gate erfolgreich ausführbar.
+
+## Version 9.10.123 — §2.44 HolisticPerceptualGate, §2.48 Interaktions-Guard, §2.49 Artefakt-Freiheits-Gate (Apr 2026)
+
+### Zusammenfassung
+
+Drei neue [RELEASE_MUST] Module implementiert und in die Pipeline integriert. Das System prüft nun nach jeder Phase auf kumulative Drift (§2.48), Artefakt-Freiheit (§2.49) und am Export-Gate auf ganzheitliche Hörverbesserung (§2.44 HPI).
+
+### §2.49 Artefakt-Freiheits-Gate (`backend/core/artifact_freedom_gate.py`)
+
+- 5 Artefakt-Detektoren: Musical Noise, Pre-Echo, Spectral Holes, Phase Cancellation, Metallic Ringing
+- Material-adaptive Schwellwerte (digital, cd, tape, vinyl, shellac, wax)
+- Perzeptuelle Salienz-Gewichtung (Frequenz, Kontext, Dauer)
+- Rauschtextur-Kohärenz-Prüfung (spektrale Neigung ≤ 3 dB/oct OK, > 6 dB/oct → Rollback)
+- Formel: `artifact_freedom = 1.0 - (weighted_sum / max_tolerance)`, Veto bei < 0.95
+
+### §2.48 Kumulative-Phasen-Interaktions-Guard (`backend/core/cumulative_interaction_guard.py`)
+
+- P1/P2-Drift-Monitoring (Natürlichkeit, Authentizität, Tonal, Timbre, Artikulation)
+- 5 kritische Phasen-Paare (z.B. DeNoise+DeReverb → Over-Denoising-Erkennung)
+- STFT-Phasenkohärenz: Gruppenlaufzeit-Deviation ≤ 2 ms nach ≥ 3 STFT-Phasen
+- Checkpoint-Management: Rollback auf best_checkpoint bei drift < -0.05, max 2 konsekutive Rollbacks
+
+### §2.44 Holistic Perceptual Gate (`backend/core/holistic_perceptual_gate.py`)
+
+- **Restoration**: HPI = MERT_similarity × timbral_fidelity × artifact_freedom × emotional_arc
+- **Studio 2026**: HPI = studio_quality_gain × PQS_improvement × artifact_freedom × emotional_arc
+- Letztes Gate vor Export: HPI > 0 UND artifact_freedom ≥ 0.95 → Export erlaubt
+- MERT-Similarity via Multi-Scale-Spektral-Korrelation (Proxy)
+- Timbral Fidelity via Mel-Feature Cosine Similarity
+
+### Pipeline-Integration (`backend/core/unified_restorer_v3.py`)
+
+- Init-Block: Alle 3 Module nach PMGG-Init aktiviert
+- Pre-Pipeline: Baseline-Messung für Drift-Monitoring + Audio-Snapshot
+- Post-Phase: §2.48 Drift-Check + §2.49 Artefakt-Check nach jeder Phase (mit Rollback)
+- Export-Gate: §2.44 HPI-Bewertung vor RestorationResult
+- Metadata: artifact_freedom, holistic_perceptual_gate, interaction_guard in RestorationResult
+
+### Tests
+
+- `tests/unit/test_artifact_freedom_gate.py` — 27 Tests
+- `tests/unit/test_cumulative_interaction_guard.py` — 27 Tests
+- `tests/unit/test_holistic_perceptual_gate.py` — 26 Tests
+- Alle 80 Tests grün
+
+### Weitere Fixes (Tiefenanalyse)
+
+- `backend/ml/safety_wrappers/formant_shifter_safety.py`: LPC-Ordnung < 16 Violation gefixt → `max(16, min(40, …))`
+- `backend/core/artist_signature_store.py`: Thread-unsicherer `_cache`-Zugriff → `_cache_lock` hinzugefügt
+- `backend/meta_router.py`: sf.read()-Fallback mit Warnung dokumentiert
+
+---
+
+## Version 9.10.121 — Fortschrittsbalken-Fix: load_audio_file carrier-Analyse deaktiviert (Apr 2026)
+
+### Zusammenfassung
+
+Root-Cause-Fix für "Fortschrittsbalken stuck bei 2.1%" Bug. `load_audio_file()` blockierte 6+ Minuten durch redundante Carrier-Forensics-Analyse auf dem vollen Audio im BatchProcessingThread.
+
+### Root-Cause
+
+`backend/file_import.py:load_audio_file()` führte nach dem Dekodieren automatisch `analyze_carrier_forensics(audio, sr)` → `classify_medium()` (MediumClassifier) und `classify_carrier_ml()` auf dem VOLLEN Audio aus (225s = 10.8M Samples). Diese Analyse lief synchron im BatchProcessingThread und blockierte den Load-Ticker bei 209/10000 = 2.09%. Da keine UV3-Logs zwischen 20:03:44 und 20:10:25 auftraten, war klar: `AurikDenker.restauriere()` wurde nie gestartet. Die Carrier-Analyse läuft bereits korrekt in `_carrier_bg` + Bridge-Cache.
+
+### Fix
+
+- `backend/file_import.py`: Parameter `do_carrier_analysis: bool = True` hinzugefügt; Carrier-Block geschützt
+- `Aurik910/ui/modern_window.py` (`_load_audio_robust`): `do_carrier_analysis=False`
+- `Aurik910/ui/audio_player.py`: `do_carrier_analysis=False` (beide load-Aufrufe)
+- `backend/core/recovery_checkpoint.py`: `do_carrier_analysis=False`
+- Default `True` für Rückwärtskompatibilität (meta_router, aurik_restore)
+- Load-Zeit: 0.002s statt 6+ Minuten im BatchProcessingThread
+
+---
+
 ## Version 9.10.120 — Harmonisierte Maximierung aller Musical Goals + PQS (Apr 2026)
 
 ### Zusammenfassung

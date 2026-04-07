@@ -39,7 +39,7 @@ class SampleRateConverter:
         try:
             audio_out = np.asarray(soxr.resample(audio, orig_sr, self.target_sr, quality=self.quality))
         except Exception as e:
-            logger.error(f"Fehler bei Sample Rate Conversion: {e}")
+            logger.error("Fehler bei Sample Rate Conversion: %s", e)
             audio_out = audio.copy()
 
         if audit_log:

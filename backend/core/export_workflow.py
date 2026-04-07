@@ -196,7 +196,7 @@ def export_audio(
         if metadata:
             _write_metadata_sidecar(export_path, metadata)
 
-        logger.debug(f"✓ Exported: {export_path} ({fmt_info['description']})")
+        logger.debug("✓ Exported: %s (%s)", export_path, fmt_info['description'])
         return export_path
 
     except Exception as e:
@@ -249,10 +249,10 @@ def export_multi_version(
             )
             results[fmt] = path
         except Exception as e:
-            logger.debug(f"⚠️ Export failed for format '{fmt}': {e}")
+            logger.debug("⚠️ Export failed for format '%s': %s", fmt, e)
             results[fmt] = None
 
-    logger.debug(f"✓ Multi-version export complete: {len([p for p in results.values() if p])} / {len(formats)} formats")
+    logger.debug("✓ Multi-version export complete: %s / %s formats", len([p for p in results.values() if p]), len(formats))
     return results
 
 
@@ -282,7 +282,7 @@ def export_audit_log(audit_log: list, filename: str):
     with open(log_path, "a") as f:
         for entry in audit_log:
             f.write(str(entry) + "\n")
-    logger.debug(f"✓ Audit-Log gespeichert: {log_path}")
+    logger.debug("✓ Audit-Log gespeichert: %s", log_path)
     return log_path
 
 
@@ -334,14 +334,14 @@ def export_stems(
     except ImportError as e:
         raise RuntimeError("Stem separator not available. Make sure dsp/ module is in your Python path.") from e
 
-    logger.debug(f"Separating stems (backend: {backend})...")
+    logger.debug("Separating stems (backend: %s)...", backend)
 
     # Separate into stems
     separator = StemSeparator(backend=backend)
     stems = separator.separate(audio, sr)
 
     backend_info = separator.get_backend_info()
-    logger.debug(f"✓ Separated using {backend_info['backend']} ({backend_info['quality']} quality)")
+    logger.debug("✓ Separated using %s (%s quality)", backend_info['backend'], backend_info['quality'])
 
     # Create output directory
     os.makedirs(output_dir, exist_ok=True)
@@ -372,19 +372,19 @@ def export_stems(
                 stem_audio, sr, stem_filename, format=format, metadata=stem_metadata, output_dir=output_dir
             )
             results[stem_name] = path
-            logger.debug(f"  ✓ {stem_name:8s} → {os.path.basename(path)}")
+            logger.debug("  ✓ %s → %s", stem_name, os.path.basename(path))
         except Exception as e:
-            logger.debug(f"  ⚠️  {stem_name:8s} export failed: {e}")
+            logger.debug("  ⚠️  %s export failed: %s", stem_name, e)
             results[stem_name] = None
 
     # Print summary
     successful = len([p for p in results.values() if p])
-    logger.debug(f"✓ Stem export complete: {successful}/{len(stems)} stems exported")
+    logger.debug("✓ Stem export complete: %s/%s stems exported", successful, len(stems))
 
     # Print metrics
     metrics = separator.get_metrics()
     if metrics:
-        logger.debug(f"  Backend: {metrics.get('backend', 'unknown')}")
-        logger.debug(f"  Quality: {metrics.get('quality', 'unknown')}")
+        logger.debug("  Backend: %s", metrics.get('backend', 'unknown'))
+        logger.debug("  Quality: %s", metrics.get('quality', 'unknown'))
 
     return results

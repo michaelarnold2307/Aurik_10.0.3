@@ -304,7 +304,7 @@ class RFInterferenceRemover:
                 ),
             }
         except Exception as e:
-            logger.error(f"Fehler bei RF-Interferenz-Entfernung: {e}")
+            logger.error("Fehler bei RF-Interferenz-Entfernung: %s", e)
             processed = audio.copy()
             metrics = {"interference_freqs": [], "num_interference": 0, "frequency_range": (0, 0)}
 
@@ -344,13 +344,13 @@ if __name__ == "__main__":
     processed, metrics = remover.process(contaminated, sr)
 
     logger.info("RF Interference Removal Results:")
-    logger.info(f"  Detected {metrics['num_interference']} interference frequencies:")
+    logger.info("  Detected %s interference frequencies:", metrics['num_interference'])
     for freq in metrics["interference_freqs"]:
-        logger.info(f"    - {freq:.1f} Hz")
-    logger.info(f"  Frequency range: {metrics['frequency_range'][0]:.1f} - {metrics['frequency_range'][1]:.1f} Hz")
+        logger.info("    - %.1f Hz", freq)
+    logger.info("  Frequency range: %.1f - %.1f Hz", metrics['frequency_range'][0], metrics['frequency_range'][1])
 
     # Compare RMS
     rms_original = np.sqrt(np.mean(contaminated**2))
     rms_processed = np.sqrt(np.mean(processed**2))
     reduction_db = 20 * np.log10(rms_processed / rms_original)
-    logger.info(f"  Overall level reduction: {reduction_db:.2f} dB")
+    logger.info("  Overall level reduction: %.2f dB", reduction_db)

@@ -368,12 +368,14 @@ class TontraegerketteDenker:
         sr: int,
         *,
         file_path: str = "",
+        cached_medium_result: object | None = None,
     ) -> KettenErgebnis:
         """Analysiert die Tonträgerkette eines Audio-Signals.
 
         Algorithmus:
             1. NaN/Inf-Schutz (§3.1)
             2. MediumDetector.detect(audio, sr, file_ext=...) → Rohbefund
+               (überspringen wenn cached_medium_result übergeben, §2.47a)
             3. detected_media (List[Tuple[str, float]]) extrahieren
             4. Zeitliche Sortierung via _MEDIUM_ORDER
             5. KettenGlieder mit Phasen-Empfehlungen aufbauen
@@ -382,10 +384,13 @@ class TontraegerketteDenker:
             8. KettenErgebnis zurückgeben
 
         Args:
-            audio:     Float32-Array ∈ [-1, 1], mono oder stereo.
-            sr:        Abtastrate in Hz.
-            file_path: Optionaler Pfad zur Quelldatei.  Dateiendung wird als
-                       Prior für die Materialerkennung verwendet (§6.7b).
+            audio:                Float32-Array ∈ [-1, 1], mono oder stereo.
+            sr:                   Abtastrate in Hz.
+            file_path:            Optionaler Pfad zur Quelldatei.  Dateiendung wird als
+                                  Prior für die Materialerkennung verwendet (§6.7b).
+            cached_medium_result: Vorhandenes MediumDetectionResult aus Pre-Analysis
+                                  (§2.47a Direct Handover). Falls übergeben, wird
+                                  MediumDetector.detect() NICHT erneut aufgerufen.
 
         Returns:
             KettenErgebnis mit zeitlich geordneter Kette, Phasen und Komplexität.
@@ -399,7 +404,19 @@ class TontraegerketteDenker:
             neginf=0.0,
         )
 
-        # Detektion durchführen
+        # §2.47a: Use cached result directly to avoid second MediumDetector.detect() call.
+        if cached_medium_result is not None:
+            logger.debug(
+                "TontraegerketteDenker.analysiere(): gecachtes MediumResult übernommen "
+                "(primary_material=%s, conf=%.2f) — detect() NICHT aufgerufen",
+                getattr(cached_medium_result, "primary_material", None)
+                or getattr(cached_medium_result, "material_type", "?"),
+                getattr(cached_medium_result, "confidence", 0.0),
+            )
+            raw = self._aufbereiten_from_cached(cached_medium_result)
+            return raw
+
+        # Detektion durchführen (nur wenn kein cached result)
         import os as _os
 
         _file_ext = _os.path.splitext(file_path)[1] if file_path else ""
@@ -454,6 +471,45 @@ class TontraegerketteDenker:
         except Exception as exc:
             logger.warning("MediumDetector fehlgeschlagen: %s", exc)
             return {}
+
+    def _aufbereiten_from_cached(self, cached_medium_result: object) -> "KettenErgebnis":
+        """Baut KettenErgebnis aus einem gecachten MediumDetectionResult.
+
+        §2.47a: Wird aufgerufen wenn cached_medium_result übergeben wurde,
+        um detect() nicht erneut aufzurufen.
+        """
+        # Attribute mit Multi-Fallback (wie UV3 Zeile 1564)
+        primary = str(
+            getattr(cached_medium_result, "primary_material", None)
+            or getattr(cached_medium_result, "material_type", None)
+            or getattr(cached_medium_result, "material", None)
+            or "unknown"
+        )
+        conf = float(getattr(cached_medium_result, "confidence", 0.5))
+
+        # transfer_chain bevorzugen, fallback auf single primary
+        chain: list[str] = []
+        raw_chain = getattr(cached_medium_result, "transfer_chain", None)
+        if raw_chain and isinstance(raw_chain, (list, tuple)) and len(raw_chain) >= 1:
+            chain = [str(c) for c in raw_chain]
+        else:
+            chain = [primary]
+
+        # Normiertes raw-dict für _aufbereiten() erzeugen
+        per_link: list[float] = getattr(cached_medium_result, "medium_confidences", []) or []
+        if len(per_link) == len(chain):
+            detected_media = list(zip(chain, per_link))
+        else:
+            detected_media = [(m, conf) for m in chain]
+
+        raw: dict[str, Any] = {
+            "primary_material": primary,
+            "confidence": conf,
+            "transfer_chain": chain,
+            "detected_media": detected_media,
+            "is_multi_generation": len(chain) >= 2,
+        }
+        return self._aufbereiten(raw)
 
     def _aufbereiten(self, raw: dict[str, Any]) -> KettenErgebnis:
         """Wandelt das Rohresultat des MediumDetectors in ein KettenErgebnis um.

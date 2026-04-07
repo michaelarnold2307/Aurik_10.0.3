@@ -129,16 +129,32 @@ def _preflight_system_memory(required_mb: float) -> bool:
     This complements the logical ML budget with a physical RAM check.
     On pressure, it asks PluginLifecycleManager to evict stale models first.
 
-    Uses scaled margin: large models get proportionally less reserve overhead
-    (see _scaled_margin for rationale).
+    For models >= 1 GB we apply a load-peak-aware check:
+      PyTorch's torch.load() temporarily uses ~1.6× the model weight size while
+      deserializing tensors (the original bytes and the parsed tensors coexist
+      briefly in memory).  We must also keep at least 12 % of total system RAM
+      free after the peak to stay below the systemd-oomd kill threshold (90 %).
+      Without this check a 2 GB model on a system with 5.9 GB free PASSES the
+      steady-state margin (1.29 GB needed) but CRASHES during load:
+        peak usage ≈ 3.2 GB → RAM reaches 92 % → systemd-oomd fires SIGKILL.
     """
     if _psutil is None:
         return True
 
     _size_gb = required_mb / 1024.0
-    _margin = _scaled_margin(_size_gb)
-    required_with_margin = max(required_mb * _margin, _MIN_FREE_MB_HARD)
     available_mb = _available_memory_mb()
+
+    if _size_gb >= 1.0:
+        # Load-peak formula: require enough free RAM to survive the peak
+        # (1.6× model size) PLUS a systemd-oomd safety margin (12 % of total).
+        _total_ram_mb = float(_psutil.virtual_memory().total) / (1024.0 * 1024.0)
+        _oomd_safe_mb = max(2048.0, _total_ram_mb * 0.12)
+        _peak_required_mb = required_mb * 1.6 + _oomd_safe_mb
+        required_with_margin = max(_peak_required_mb, required_mb * _scaled_margin(_size_gb), _MIN_FREE_MB_HARD)
+    else:
+        _margin = _scaled_margin(_size_gb)
+        required_with_margin = max(required_mb * _margin, _MIN_FREE_MB_HARD)
+
     if available_mb >= required_with_margin:
         return True
 

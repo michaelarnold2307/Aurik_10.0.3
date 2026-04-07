@@ -11,28 +11,28 @@
 ### Executive Level (5–10 min read)
 
 | Document | Purpose | Audience | Time |
-|----------|---------|----------|------|
+| --- | --- | --- | --- |
 | [UAT_QUICK_REFERENCE.md](audit/UAT_QUICK_REFERENCE.md) | 30-second status summary | C-level, PMs | 2 min |
 | [UAT_REPORT_2026-03-28.md](docs/UAT_REPORT_2026-03-28.md) | Formal certification | Legal, Release Lead | 10 min |
 
 ### Operational Level (20–40 min read)
 
 | Document | Purpose | Audience | Time |
-|----------|---------|----------|------|
+| --- | --- | --- | --- |
 | [UAT_SCORECARD_2026-03-28.md](docs/UAT_SCORECARD_2026-03-28.md) | Detailed test matrix | QA, Engineers | 20 min |
 | [README_UAT_SYSTEM.md](audit/README_UAT_SYSTEM.md) | How-to guide & workflow | Test Engineers | 30 min |
 
 ### Technical Level (implementation)
 
 | Document | Purpose | Audience | Time |
-|----------|---------|----------|------|
+| --- | --- | --- | --- |
 | [test_uat_acceptance_criteria.py](tests/test_uat_acceptance_criteria.py) | Executable test suite | Developers, CI/CD | 45 min |
 | [uat_report_generator.py](audit/uat_report_generator.py) | Report orchestration | DevOps, Automation | 30 min |
 
 ### Data Level (machine-readable)
 
 | Document | Purpose | Audience | Time |
-|----------|---------|----------|------|
+| --- | --- | --- | --- |
 | [uat_results_2026-03-28.json](audit/uat_results_2026-03-28.json) | Machine-parsed results | CI/CD, Dashboards | 5 min |
 
 ---

@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 # Konstanten
 # ──────────────────────────────────────────────────────────────────────────────
 
-_PROJECT_ROOT = Path(__file__).parent.parent
+_PROJECT_ROOT = Path(__file__).parent.parent.parent
 _MANIFEST_PATH = _PROJECT_ROOT / "models" / "manifest.json"
 _SOTA_CACHE_DIR = Path.home() / ".aurik" / "sota_models"
 _SOTA_MANIFEST = Path.home() / ".aurik" / "sota_manifest.json"

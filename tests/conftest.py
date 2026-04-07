@@ -136,6 +136,8 @@ def audio_by_medium_type_full(request) -> tuple[np.ndarray, int, str]:
 
 _SESSION_SR = 44100
 _SESSION_DURATION = 0.5  # Sekunden — kurz genug für schnelle Tests
+_GC_FULL_INTERVAL = 200
+_gc_teardown_counter = 0
 
 
 @pytest.fixture(scope="session")
@@ -196,7 +198,26 @@ def _gc_after_test():
     Overhead: ~1–3 ms pro Test — vernachlässigbar.
     """
     yield
+    global _gc_teardown_counter
+    _gc_teardown_counter += 1
     try:
-        gc.collect()
+        # Fast path: collect only generation 0 to avoid long teardown stalls.
+        gc.collect(0)
+        # Periodically run a full collection to keep long runs memory-stable.
+        if (_gc_teardown_counter % _GC_FULL_INTERVAL) == 0:
+            gc.collect()
+    except (KeyboardInterrupt, SystemExit, Exception):
+        pass
+
+
+def pytest_sessionfinish(session, exitstatus):
+    """Best-effort shutdown for background managers created during tests."""
+    try:
+        from backend.core import plugin_lifecycle_manager as _plm_mod
+
+        mgr = _plm_mod._instance
+        if mgr is not None:
+            mgr.shutdown()
+        _plm_mod._instance = None
     except (KeyboardInterrupt, SystemExit, Exception):
         pass

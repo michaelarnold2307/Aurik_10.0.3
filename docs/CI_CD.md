@@ -12,7 +12,7 @@ Aurik 9.0 nutzt GitHub Actions für Continuous Integration, Testing, Security Au
 ### Available Workflows
 
 | Workflow | Trigger | Purpose | Status |
-|----------|---------|---------|--------|
+| --- | --- | --- | --- |
 | `ci_enhanced.yml` | Push/PR | Umfassende CI/CD Pipeline | ✅ Active |
 | `ci.yml` | Push/PR | Basis CI mit Tests | ✅ Active |
 | `release.yml` | Git Tags | Multi-Platform Build & Release | ✅ Active |

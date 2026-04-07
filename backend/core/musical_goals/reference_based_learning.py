@@ -290,13 +290,13 @@ class ReferenceLearner:
         # Try to load existing profile
         if profile_path and Path(profile_path).exists():
             self.profile = self._load_profile(profile_path)
-            logger.info(f"Loaded existing profile for {user_id}")
+            logger.info("Loaded existing profile for %s", user_id)
         else:
             # Create new profile
             self.profile = UserPreferenceProfile(
                 user_id=user_id, learned_goals=base_goals.copy(), goal_weights=dict.fromkeys(goal_names, 1.0)
             )
-            logger.info(f"Created new profile for {user_id}")
+            logger.info("Created new profile for %s", user_id)
 
         # Learning rate based on strategy
         self.learning_rates = {
@@ -349,7 +349,7 @@ class ReferenceLearner:
         # Update profile with reference
         self._update_from_reference(reference)
 
-        logger.info(f"Analyzed reference track: {len(analyzed_goals)} goals, confidence={analysis_confidence:.2f}")
+        logger.info("Analyzed reference track: %s goals, confidence=%.2f", len(analyzed_goals), analysis_confidence)
 
         return reference
 
@@ -498,7 +498,7 @@ class ReferenceLearner:
 
             adapted[goal_name] = float(np.clip(adapted_value, 0.7, 1.0))
 
-        logger.debug(f"Adapted goals: strength={effective_strength:.2f}, confidence={self.profile.confidence:.2f}")
+        logger.debug("Adapted goals: strength=%.2f, confidence=%.2f", effective_strength, self.profile.confidence)
 
         return adapted
 
@@ -537,16 +537,16 @@ class ReferenceLearner:
         if self.profile_path:
             self._save_profile(self.profile_path)
 
-        logger.info(f"Reset profile for {self.user_id}")
+        logger.info("Reset profile for %s", self.user_id)
 
     def _save_profile(self, path: str):
         """Save profile to file"""
         try:
             with open(path, "w") as f:
                 json.dump(self.profile.to_dict(), f, indent=2)
-            logger.debug(f"Saved profile to {path}")
+            logger.debug("Saved profile to %s", path)
         except Exception as e:
-            logger.error(f"Failed to save profile: {e}")
+            logger.error("Failed to save profile: %s", e)
 
     def _load_profile(self, path: str) -> UserPreferenceProfile:
         """Load profile from file"""
@@ -555,7 +555,7 @@ class ReferenceLearner:
                 data = json.load(f)
             return UserPreferenceProfile.from_dict(data)
         except Exception as e:
-            logger.error(f"Failed to load profile: {e}")
+            logger.error("Failed to load profile: %s", e)
             # Return new profile on error
             return UserPreferenceProfile(
                 user_id=self.user_id,

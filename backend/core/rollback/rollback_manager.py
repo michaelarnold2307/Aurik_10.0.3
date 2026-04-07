@@ -79,7 +79,7 @@ class RollbackManager:
         >>> if has_violations(processed_goals):
         >>>     # Rollback to original
         >>>     audio, sr, goals = manager.rollback_to_snapshot('original')
-        >>>     logger.debug(f"Rolled back: {goals}")
+        logger.debug("Rolled back: %s", goals)
     """
 
     def __init__(self, max_snapshots: int = 5):
@@ -126,9 +126,9 @@ class RollbackManager:
         # Enforce max snapshots limit (keep most recent)
         if len(self.snapshots) > self.max_snapshots:
             removed = self.snapshots.pop(0)  # Remove oldest
-            logger.info(f"Removed oldest snapshot '{removed.name}' (max limit reached)")
+            logger.info("Removed oldest snapshot '%s' (max limit reached)", removed.name)
 
-        logger.info(f"Created snapshot '{name}': {len(self.snapshots)}/{self.max_snapshots} snapshots")
+        logger.info("Created snapshot '%s': %s/%s snapshots", name, len(self.snapshots), self.max_snapshots)
 
     def get_snapshot(self, name: str) -> AudioSnapshot | None:
         """
@@ -172,7 +172,7 @@ class RollbackManager:
         decision = RollbackDecision(rolled_back=True, from_snapshot=current_name, to_snapshot=name, reason=reason)
         self.rollback_history.append(decision)
 
-        logger.warning(f"Rolling back from '{current_name}' to '{name}': {reason}")
+        logger.warning("Rolling back from '%s' to '%s': %s", current_name, name, reason)
 
         # Return deep copies to prevent unwanted modifications
         return (copy.deepcopy(snapshot.audio), snapshot.sr, copy.deepcopy(snapshot.musical_goals))
@@ -262,13 +262,13 @@ class RollbackManager:
         """Clear all snapshots (use with caution!)."""
         count = len(self.snapshots)
         self.snapshots = []
-        logger.warning(f"Cleared all {count} snapshots")
+        logger.warning("Cleared all %s snapshots", count)
 
     def clear_history(self):
         """Clear rollback history."""
         count = len(self.rollback_history)
         self.rollback_history = []
-        logger.info(f"Cleared rollback history ({count} entries)")
+        logger.info("Cleared rollback history (%s entries)", count)
 
 
 if __name__ == "__main__":
@@ -317,8 +317,8 @@ if __name__ == "__main__":
     # List snapshots
     logger.debug("\n2. List snapshots:")
     for i, snapshot_info in enumerate(manager.list_snapshots()):
-        logger.debug(f"   [{i}] {snapshot_info['name']} - {snapshot_info['timestamp']}")
-        logger.debug(f"       Musical goals: {snapshot_info['musical_goals']}")
+        logger.debug("   [%s] %s - %s", i, snapshot_info['name'], snapshot_info['timestamp'])
+        logger.debug("       Musical goals: %s", snapshot_info['musical_goals'])
 
     # Rollback to 'after_noise_reduction' (violations detected)
     logger.debug("\n3. Rollback (violation detected in 'after_enhancement'):")
@@ -326,14 +326,14 @@ if __name__ == "__main__":
         "after_noise_reduction", reason="Critical violation: authentizitaet < 0.88"
     )
     logger.debug("   Rolled back to 'after_noise_reduction'")
-    logger.debug(f"   Restored musical goals: {goals_restored}")
+    logger.debug("   Restored musical goals: %s", goals_restored)
 
     # Verify audio restored correctly
-    logger.debug(f"   Audio restored correctly: {np.allclose(audio_restored, audio_nr)}")
+    logger.debug("   Audio restored correctly: %s", np.allclose(audio_restored, audio_nr))
 
     # Rollback history
     logger.debug("\n4. Rollback history:")
     for entry in manager.get_rollback_history():
-        logger.debug(f"   {entry['from_snapshot']} → {entry['to_snapshot']}: {entry['reason']}")
+        logger.debug("   %s → %s: %s", entry['from_snapshot'], entry['to_snapshot'], entry['reason'])
 
     logger.debug("\n=== Test complete ===")

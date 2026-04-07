@@ -61,7 +61,7 @@ class AdaptiveResourceManager:
         self.lock = threading.Lock()
         self._monitor_thread: threading.Thread | None = None
         self.use_lightweight = False  # Fallback-Flag
-        logger.info(f"AdaptiveResourceManager initialized: {self.min_cores}-{self.max_cores} cores")
+        logger.info("AdaptiveResourceManager initialized: %s-%s cores", self.min_cores, self.max_cores)
 
     def get_cpu_usage(self) -> float:
         """Get current CPU usage percentage."""

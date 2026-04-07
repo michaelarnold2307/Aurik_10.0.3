@@ -275,7 +275,7 @@ class CodecArtifactRemover:
 
         # Remove pre-echo if detected
         if transient_indices:
-            logger.info(f"[CodecArtifact] {len(transient_indices)} transients found, removing pre-echo")
+            logger.info("[CodecArtifact] %s transients found, removing pre-echo", len(transient_indices))
             audio_cleaned = self.remove_pre_echo(audio, transient_indices, sample_rate)
         else:
             audio_cleaned = audio.copy()
@@ -286,7 +286,7 @@ class CodecArtifactRemover:
 
         n_holes = np.sum(hole_mask)
         if n_holes > 0:
-            logger.info(f"[CodecArtifact] {n_holes} spectral holes found, filling...")
+            logger.info("[CodecArtifact] %s spectral holes found, filling...", n_holes)
             audio_cleaned = self.fill_spectral_holes(audio_cleaned, hole_mask, sample_rate)
         else:
             logger.info("[CodecArtifact] No significant spectral holes detected")
@@ -488,7 +488,7 @@ class PacketLossConcealer:
             self.metrics["total_gap_duration_ms"] = 0.0
             return audio
 
-        logger.info(f"[PacketLoss] {len(gaps)} gaps found, concealing...")
+        logger.info("[PacketLoss] %s gaps found, concealing...", len(gaps))
 
         # Conceal each gap
         audio_concealed = audio.copy()
@@ -669,11 +669,11 @@ class JitterCorrector:
         logger.info("[Jitter] Detecting jitter...")
         jitter_ppm = self.detect_jitter(audio, sample_rate)
 
-        logger.info(f"[Jitter] Estimated jitter: {jitter_ppm:.1f} ppm")
+        logger.info("[Jitter] Estimated jitter: %.1f ppm", jitter_ppm)
 
         # Correct if above threshold
         if jitter_ppm > self.jitter_threshold_ppm:
-            logger.info(f"[Jitter] Jitter above threshold ({self.jitter_threshold_ppm} ppm), correcting...")
+            logger.info("[Jitter] Jitter above threshold (%s ppm), correcting...", self.jitter_threshold_ppm)
             audio_corrected = self.correct_jitter(audio, jitter_ppm, sample_rate)
         else:
             logger.info("[Jitter] Jitter within acceptable range, no correction needed")
@@ -846,8 +846,10 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     # Load audio
-    logger.info(f"Loading: {args.input}")
-    audio, sr = sf.read(args.input, always_2d=False)
+    logger.info("Loading: %s", args.input)
+    from backend.file_import import load_audio_file
+    _res = load_audio_file(args.input)
+    audio, sr = _res["audio"], int(_res["sr"])
 
     # Transpose if stereo
     if audio.ndim == 2:
@@ -871,20 +873,20 @@ if __name__ == "__main__":
 
     # Get metrics
     metrics = processor.get_metrics()
-    logger.info(f"\n{'=' * 60}")
+    logger.info("\n%s", '=' * 60)
     logger.info("METRICS:")
     for module_name, module_metrics in metrics.items():
-        logger.info(f"\n{module_name.upper()}:")
+        logger.info("\n%s:", module_name.upper())
         for key, value in module_metrics.items():
             if isinstance(value, float):
-                logger.info(f"  {key}: {value:.2f}")
+                logger.info("  %s: %.2f", key, value)
             else:
-                logger.info(f"  {key}: {value}")
-    logger.info(f"{'=' * 60}\n")
+                logger.info("  %s: %s", key, value)
+    logger.info("%s\n", '=' * 60)
 
     # Save
     if output.ndim == 2:
         output = output.T
 
     sf.write(args.output, output, sr)
-    logger.info(f"Saved: {args.output}")
+    logger.info("Saved: %s", args.output)

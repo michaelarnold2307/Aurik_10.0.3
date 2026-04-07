@@ -232,7 +232,7 @@ class AdaptiveThresholdsManager:
         for goal in thresholds:
             thresholds[goal] = np.clip(thresholds[goal], 0.0, 1.0)
 
-        logger.info(f"Calibrated thresholds: genre={genre}, medium={medium_type}, instrument={instrument_focus}")
+        logger.info("Calibrated thresholds: genre=%s, medium=%s, instrument=%s", genre, medium_type, instrument_focus)
 
         return thresholds
 
@@ -241,7 +241,7 @@ class AdaptiveThresholdsManager:
         for goal, adjustment in adjustments.items():
             if goal in thresholds:
                 thresholds[goal] += adjustment
-                logger.debug(f"Applied {context} adjustment: {goal} {adjustment:+.3f}")
+                logger.debug("Applied %s adjustment: %s %+.3f", context, goal, adjustment)
 
     def get_profile(
         self, genre: str | None = None, medium_type: str | None = None, instrument_focus: str | None = None
@@ -306,7 +306,7 @@ class AdaptiveThresholdsManager:
 
         self.custom_profiles.append(profile)
 
-        logger.info(f"Created custom profile: {name}")
+        logger.info("Created custom profile: %s", name)
 
         return profile
 
@@ -329,7 +329,7 @@ class AdaptiveThresholdsManager:
         with open(save_path, "w") as f:
             json.dump(profiles_data, f, indent=2)
 
-        logger.info(f"Saved {len(profiles_data)} custom profiles to {save_path}")
+        logger.info("Saved %s custom profiles to %s", len(profiles_data), save_path)
 
     def _load_custom_profiles(self):
         """Load custom profiles from JSON file."""
@@ -349,7 +349,7 @@ class AdaptiveThresholdsManager:
             )
             self.custom_profiles.append(profile)
 
-        logger.info(f"Loaded {len(profiles_data)} custom profiles")
+        logger.info("Loaded %s custom profiles", len(profiles_data))
 
     def get_all_genres(self) -> list[str]:
         """Get list of all supported genres."""

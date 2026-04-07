@@ -263,7 +263,7 @@ class QualityRecoverySystem:
             ],
         }
 
-        logger.info(f"Quality Recovery System initialized (v{self.VERSION})")
+        logger.info("Quality Recovery System initialized (v%s)", self.VERSION)
 
     def diagnose_problem(
         self,
@@ -299,7 +299,7 @@ class QualityRecoverySystem:
 
         # Select primary problem
         primary_problem = problems[0]
-        logger.info(f"Primary Problem: {primary_problem.value}")
+        logger.info("Primary Problem: %s", primary_problem.value)
 
         # Generate recovery actions
         actions = self._generate_recovery_actions(primary_problem, quality_report, medium_type, processing_mode)
@@ -316,10 +316,10 @@ class QualityRecoverySystem:
             fallback_description="Adaptive optimization to find best achievable quality",
         )
 
-        logger.info(f"Recovery Plan Generated: {len(actions)} strategies")
+        logger.info("Recovery Plan Generated: %s strategies", len(actions))
         for i, action in enumerate(actions, 1):
-            logger.info(f"  {i}. [{action.strategy.value}] {action.description}")
-            logger.info(f"     Expected improvement: {action.expected_improvement:.1%}")
+            logger.info("  %s. [%s] %s", i, action.strategy.value, action.description)
+            logger.info("     Expected improvement: %.1%", action.expected_improvement)
 
         return plan
 
@@ -356,9 +356,9 @@ class QualityRecoverySystem:
         original_quality = self.analyzer.analyze_quality(original_audio, sample_rate)
         current_quality = self.analyzer.analyze_quality(current_audio, sample_rate)
 
-        logger.info(f"Original Quality: {original_quality.overall_score:.1f}/100")
-        logger.info(f"Current Quality: {current_quality.overall_score:.1f}/100")
-        logger.info(f"Degradation: {current_quality.overall_score - original_quality.overall_score:.1f} points")
+        logger.info("Original Quality: %.1f/100", original_quality.overall_score)
+        logger.info("Current Quality: %.1f/100", current_quality.overall_score)
+        logger.info("Degradation: %.1f points", current_quality.overall_score - original_quality.overall_score)
 
         # Try each recovery strategy
         recovered_audio = current_audio.copy()
@@ -366,7 +366,7 @@ class QualityRecoverySystem:
         strategy_used = None
 
         for action in recovery_plan.actions:
-            logger.info(f"\nAttempting: [{action.strategy.value}] {action.description}")
+            logger.info("\nAttempting: [%s] %s", action.strategy.value, action.description)
 
             try:
                 # Execute strategy
@@ -382,7 +382,7 @@ class QualityRecoverySystem:
                 elif action.strategy == RecoveryStrategy.SWITCH_MODE:
                     # Return to original with recommendation to switch mode
                     recovered_audio = original_audio.copy()
-                    logger.info(f"  → Recommendation: Switch to {action.parameters.get('new_mode')} mode")
+                    logger.info("  → Recommendation: Switch to %s mode", action.parameters.get('new_mode'))
 
                 elif action.strategy == RecoveryStrategy.INCREMENTAL_PROCESSING:
                     recovered_audio = self._incremental_processing(original_audio, current_audio, action.parameters)
@@ -394,13 +394,13 @@ class QualityRecoverySystem:
                     )
 
                 else:
-                    logger.warning(f"  Strategy {action.strategy.value} not implemented yet")
+                    logger.warning("  Strategy %s not implemented yet", action.strategy.value)
                     continue
 
                 # Check if recovery worked
                 recovered_quality = self.analyzer.analyze_quality(recovered_audio, sample_rate)
 
-                logger.info(f"  Recovered Quality: {recovered_quality.overall_score:.1f}/100")
+                logger.info("  Recovered Quality: %.1f/100", recovered_quality.overall_score)
 
                 # Check quality gate
                 gate_passed, reason = self.mqa.check_quality_gate(
@@ -413,11 +413,11 @@ class QualityRecoverySystem:
                     actions_taken.append(action.description)
                     break
                 else:
-                    logger.warning(f"  ❌ Quality gate still failing: {reason}")
+                    logger.warning("  ❌ Quality gate still failing: %s", reason)
                     actions_taken.append(f"{action.description} (failed)")
 
             except Exception as e:
-                logger.error(f"  ❌ Strategy failed with error: {e}")
+                logger.error("  ❌ Strategy failed with error: %s", e)
                 actions_taken.append(f"{action.description} (error)")
 
         # If no strategy worked, use adaptive optimization fallback
@@ -451,10 +451,10 @@ class QualityRecoverySystem:
         logger.info("=" * 60)
         logger.info("QUALITY RECOVERY: Complete")
         logger.info("=" * 60)
-        logger.info(f"Status: {'SUCCESS' if success else 'FAILED'}")
-        logger.info(f"Strategy Used: {strategy_used.value if strategy_used else 'None'}")
-        logger.info(f"Quality Improvement: {improvement:+.1f} points")
-        logger.info(f"Final Score: {final_quality.overall_score:.1f}/100")
+        logger.info("Status: %s", 'SUCCESS' if success else 'FAILED')
+        logger.info("Strategy Used: %s", strategy_used.value if strategy_used else 'None')
+        logger.info("Quality Improvement: %+.1f points", improvement)
+        logger.info("Final Score: %.1f/100", final_quality.overall_score)
 
         return result
 
@@ -554,7 +554,7 @@ class QualityRecoverySystem:
         """
         max_iterations = parameters.get("max_iterations", 10)
 
-        logger.info(f"  → Adaptive optimization: Testing {max_iterations} different approaches...")
+        logger.info("  → Adaptive optimization: Testing %s different approaches...", max_iterations)
 
         best_audio = processed.copy()
         best_score = self.analyzer.analyze_quality(processed, sample_rate).overall_score
@@ -590,9 +590,9 @@ class QualityRecoverySystem:
                 best_score = candidate_score
 
         if best_gate_passed:
-            logger.info(f"  → OPTIMAL quality found: {best_score:.1f}/100 (GATE PASSED)")
+            logger.info("  → OPTIMAL quality found: %.1f/100 (GATE PASSED)", best_score)
         else:
-            logger.info(f"  → BEST ACHIEVABLE quality: {best_score:.1f}/100")
+            logger.info("  → BEST ACHIEVABLE quality: %.1f/100", best_score)
 
         return best_audio.astype(np.float32)
 
@@ -604,7 +604,7 @@ class QualityRecoverySystem:
         # Less processed = more original
         blended = (1 - intensity_factor) * original + intensity_factor * processed
 
-        logger.info(f"  → Blending: {(1 - intensity_factor):.1%} original + {intensity_factor:.1%} processed")
+        logger.info("  → Blending: %.1% original + %.1% processed", (1 - intensity_factor), intensity_factor)
 
         return blended.astype(np.float32)
 
@@ -734,7 +734,7 @@ class QualityRecoverySystem:
         # Move 25% towards target
         incremental = original + step_size * (target - original)
 
-        logger.info(f"  → Incremental step: {step_size:.1%} towards target")
+        logger.info("  → Incremental step: %.1% towards target", step_size)
 
         return incremental.astype(np.float32)
 
@@ -748,9 +748,13 @@ def create_quality_recovery_system() -> QualityRecoverySystem:
 if __name__ == "__main__":
     import soundfile as sf
 
+    from backend.file_import import load_audio_file
+
     # Example: Recover from failed quality gate
-    original, sr = sf.read("input/vinyl.wav")
-    processed, _ = sf.read("output/over_processed.wav")
+    _res1 = load_audio_file("input/vinyl.wav")
+    original, sr = np.asarray(_res1["audio"], dtype=np.float32), int(_res1["sr"])
+    _res2 = load_audio_file("output/over_processed.wav")
+    processed = np.asarray(_res2["audio"], dtype=np.float32)
 
     # Create systems
     mqa = MusicalQualityAssurance()
@@ -782,7 +786,7 @@ if __name__ == "__main__":
         )
 
         if result.success:
-            logger.debug(f"✓ Quality recovered: {result.improvement:+.1f} points")
+            logger.debug("✓ Quality recovered: %+.1f points", result.improvement)
             sf.write("output/recovered.wav", result.recovered_audio, sr)
         else:
             logger.debug("❌ Recovery failed - using original")

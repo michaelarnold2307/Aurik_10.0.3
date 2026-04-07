@@ -255,7 +255,7 @@ class SessionManager:
         self._history: list[ProcessedFile] = []
         self._load_history()
 
-        logger.info(f"SessionManager initialized with sessions_dir: {self.sessions_dir}")
+        logger.info("SessionManager initialized with sessions_dir: %s", self.sessions_dir)
 
     def create_session(self, session_name: str, description: str = "", default_settings: dict | None = None) -> Session:
         """
@@ -281,7 +281,7 @@ class SessionManager:
             status=SessionStatus.ACTIVE,
         )
 
-        logger.info(f"Created new session: {session_name} (ID: {session_id})")
+        logger.info("Created new session: %s (ID: %s)", session_name, session_id)
         return self.current_session
 
     def add_to_session(self, processed_file: ProcessedFile):
@@ -301,7 +301,7 @@ class SessionManager:
         if len(self._history) > self.max_history:
             self._history.pop(0)  # Remove oldest
 
-        logger.info(f"Added file to session: {processed_file.input_path}")
+        logger.info("Added file to session: %s", processed_file.input_path)
 
     def save_session(self, session_name: str | None = None) -> Path:
         """
@@ -336,7 +336,7 @@ class SessionManager:
         # Save history
         self._save_history()
 
-        logger.info(f"Session saved: {session_path}")
+        logger.info("Session saved: %s", session_path)
         return session_path
 
     def load_session(self, session_name: str) -> Session:
@@ -363,7 +363,7 @@ class SessionManager:
         # Update recent sessions
         self._add_to_recent(session_name, session_path)
 
-        logger.info(f"Session loaded: {session_name}")
+        logger.info("Session loaded: %s", session_name)
         return self.current_session
 
     def get_recent_sessions(self, n: int | None = None) -> list[dict[str, str]]:
@@ -417,7 +417,7 @@ class SessionManager:
                     }
                 )
             except Exception as e:
-                logger.warning(f"Failed to load session {session_path}: {e}")
+                logger.warning("Failed to load session %s: %s", session_path, e)
                 continue
 
         # Sort by last modified (most recent first)
@@ -444,7 +444,7 @@ class SessionManager:
         self._recent_sessions = [s for s in self._recent_sessions if s["name"] != session_name]
         self._save_recent_sessions()
 
-        logger.info(f"Session deleted: {session_name}")
+        logger.info("Session deleted: %s", session_name)
 
     def toggle_favorite(self, session_name: str):
         """
@@ -475,7 +475,7 @@ class SessionManager:
             raise FileNotFoundError(f"Session not found: {session_name}")
 
         shutil.copy(session_path, export_path)
-        logger.info(f"Session exported to: {export_path}")
+        logger.info("Session exported to: %s", export_path)
 
     def import_session(self, import_path: Path) -> Session:
         """
@@ -501,7 +501,7 @@ class SessionManager:
         # Update recent sessions
         self._add_to_recent(session.session_name, session_path)
 
-        logger.info(f"Session imported: {session.session_name}")
+        logger.info("Session imported: %s", session.session_name)
         return session
 
     def get_favorites(self) -> list[dict[str, Any]]:
@@ -540,7 +540,7 @@ class SessionManager:
                 if name_match or desc_match:
                     matches.append(session_info)
             except Exception as e:
-                logger.warning(f"Failed to search session {session_info['name']}: {e}")
+                logger.warning("Failed to search session %s: %s", session_info['name'], e)
                 continue
 
         return matches
@@ -590,7 +590,7 @@ class SessionManager:
                 else:
                     self._recent_sessions = [e for e in raw if isinstance(e, dict)]
             except Exception as e:
-                logger.warning(f"Failed to load recent sessions: {e}")
+                logger.warning("Failed to load recent sessions: %s", e)
                 self._recent_sessions = []
         else:
             self._recent_sessions = []
@@ -618,7 +618,7 @@ class SessionManager:
                         logger.debug("_history.json: skipping malformed entry: %s", entry_exc)
                 self._history = loaded
             except Exception as e:
-                logger.warning(f"Failed to load history: {e}")
+                logger.warning("Failed to load history: %s", e)
                 self._history = []
         else:
             self._history = []
@@ -653,22 +653,22 @@ if __name__ == "__main__":
 
     # Save session
     session_path = manager.save_session()
-    logger.debug(f"Session saved to: {session_path}")
+    logger.debug("Session saved to: %s", session_path)
 
     # List all sessions
     sessions = manager.list_sessions()
-    logger.debug(f"\nAll sessions ({len(sessions)}):")
+    logger.debug("\nAll sessions (%s):", len(sessions))
     for s in sessions:
-        logger.debug(f"  - {s['name']}: {s['file_count']} files, status: {s['status']}")
+        logger.debug("  - %s: %s files, status: %s", s['name'], s['file_count'], s['status'])
 
     # Get recent sessions
     recent = manager.get_recent_sessions()
-    logger.debug(f"\nRecent sessions ({len(recent)}):")
+    logger.debug("\nRecent sessions (%s):", len(recent))
     for s in recent:
-        logger.debug(f"  - {s['name']}")
+        logger.debug("  - %s", s['name'])
 
     # Get history
     history = manager.get_session_history(n=5)
-    logger.debug(f"\nRecent history ({len(history)} files):")
+    logger.debug("\nRecent history (%s files):", len(history))
     for f in history:
-        logger.debug(f"  - {f.input_path} at {f.timestamp}")
+        logger.debug("  - %s at %s", f.input_path, f.timestamp)

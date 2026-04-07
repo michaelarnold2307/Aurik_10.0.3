@@ -136,6 +136,33 @@ class EmergencyReport:
     """Additional processing notes."""
 
 
+@dataclass
+class EmergencyRestorationResult:
+    """Typed result for EmergencyRestorationEngine with dict-style compatibility."""
+
+    audio: np.ndarray
+    assessment: DamageAssessment
+    report: EmergencyReport
+    success: bool
+
+    def __getitem__(self, key: str) -> Any:
+        return getattr(self, key)
+
+    def __contains__(self, key: object) -> bool:
+        return isinstance(key, str) and hasattr(self, key)
+
+    def get(self, key: str, default: Any = None) -> Any:
+        return getattr(self, key, default)
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "audio": self.audio,
+            "assessment": self.assessment,
+            "report": self.report,
+            "success": self.success,
+        }
+
+
 class DamageAnalyzer:
     """
     Analyze extent and type of audio damage.
@@ -176,7 +203,7 @@ class DamageAnalyzer:
         else:
             severity = DamageSeverity.CRITICAL
 
-        logger.info(f"  Overall Corruption: {corruption_percent:.1f}% ({severity.value.upper()})")
+        logger.info("  Overall Corruption: %.1f%% (%s)", corruption_percent, severity.value.upper())
 
         # === 3. Frequency Band Triage ===
         frequency_bands = self._analyze_frequency_bands(audio, sample_rate)
@@ -376,7 +403,7 @@ class EmergencyRestorationEngine:
 
     def emergency_restore(
         self, audio: np.ndarray, sample_rate: int, attempt_reconstruction: bool = True
-    ) -> dict[str, Any]:
+    ) -> EmergencyRestorationResult:
         """
         Attempt emergency restoration of severely damaged audio.
 
@@ -386,11 +413,7 @@ class EmergencyRestorationEngine:
             attempt_reconstruction: Whether to attempt AI reconstruction
 
         Returns:
-            Dict with:
-            - audio: Restored audio (best effort)
-            - assessment: DamageAssessment
-            - report: EmergencyReport
-            - success: Boolean
+            EmergencyRestorationResult with dict-compatible accessors.
         """
         logger.info("🚨 EMERGENCY RESTORATION MODE ACTIVATED")
 
@@ -409,8 +432,8 @@ class EmergencyRestorationEngine:
         # === 1. Assess Damage ===
         assessment = self.damage_analyzer.assess_damage(audio_for_assessment, sample_rate)
 
-        logger.info(f"  Damage: {assessment.overall_corruption_percent:.1f}% ({assessment.severity.value})")
-        logger.info(f"  Salvageable Bands: {assessment.salvageable_bands_count}/{assessment.total_bands}")
+        logger.info("  Damage: %.1f%% (%s)", assessment.overall_corruption_percent, assessment.severity.value)
+        logger.info("  Salvageable Bands: %s/%s", assessment.salvageable_bands_count, assessment.total_bands)
 
         # === 2. Check if Restoration is Possible ===
         if not assessment.can_attempt_restoration:
@@ -424,12 +447,12 @@ class EmergencyRestorationEngine:
                 processing_notes="Material archived as 'severely degraded'",
             )
 
-            return {
-                "audio": audio,  # Return original (no point processing)
-                "assessment": assessment,
-                "report": report,
-                "success": False,
-            }
+            return EmergencyRestorationResult(
+                audio=audio,
+                assessment=assessment,
+                report=report,
+                success=False,
+            )
 
         # === 3. Attempt Restoration ===
         restored_audio = audio.copy()
@@ -447,7 +470,7 @@ class EmergencyRestorationEngine:
                 logger.info("  ✓ Partial reconstruction applied")
 
             except Exception as e:
-                logger.warning(f"  ⚠ Reconstruction failed: {e}")
+                logger.warning("  ⚠ Reconstruction failed: %s", e)
                 restored_audio = self._fallback_restoration(audio)
                 logger.info("  ✓ Fallback restoration applied")
         else:
@@ -465,10 +488,15 @@ class EmergencyRestorationEngine:
         else:
             report.final_quality_estimate = "acceptable"
 
-        logger.info(f"  Final Quality Estimate: {report.final_quality_estimate.upper()}")
+        logger.info("  Final Quality Estimate: %s", report.final_quality_estimate.upper())
         logger.info("✅ Emergency restoration complete")
 
-        return {"audio": restored_audio, "assessment": assessment, "report": report, "success": True}
+        return EmergencyRestorationResult(
+            audio=restored_audio,
+            assessment=assessment,
+            report=report,
+            success=True,
+        )
 
     def _frequency_band_restoration(
         self, audio: np.ndarray, sample_rate: int, bands: list[FrequencyBand]
@@ -494,9 +522,9 @@ class EmergencyRestorationEngine:
                         sos = signal.butter(4, [low, high], "bandstop", output="sos")
                         restored = signal.sosfilt(sos, restored)
 
-                        logger.debug(f"    Attenuated band {band.low_freq_hz:.0f}-{band.high_freq_hz:.0f} Hz")
+                        logger.debug("    Attenuated band %.0f-%.0f Hz", band.low_freq_hz, band.high_freq_hz)
                 except Exception as e:
-                    logger.warning(f"    Failed to filter band: {e}")
+                    logger.warning("    Failed to filter band: %s", e)
 
         return restored
 
@@ -529,7 +557,7 @@ class EmergencyRestorationEngine:
                     audio = audio.copy()
                     audio[abnormal_mask] = reconstructed[abnormal_mask]
 
-                    logger.debug(f"    Reconstructed {np.sum(abnormal_mask)} samples")
+                    logger.debug("    Reconstructed %s samples", np.sum(abnormal_mask))
                 except Exception as _exc:
                     logger.debug("Operation failed (non-critical): %s", _exc)
 
@@ -605,8 +633,11 @@ class EmergencyRestorationEngine:
 if __name__ == "__main__":
     import soundfile as sf
 
+    from backend.file_import import load_audio_file
+
     # Load severely damaged audio
-    audio, sr = sf.read("test_audio/severely_damaged.wav")
+    _res = load_audio_file("test_audio/severely_damaged.wav")
+    audio, sr = np.asarray(_res["audio"], dtype=np.float32), int(_res["sr"])
 
     # Run emergency restoration
     engine = EmergencyRestorationEngine()
@@ -621,20 +652,20 @@ if __name__ == "__main__":
 
     logger.debug("\n🚨 EMERGENCY RESTORATION REPORT")
     logger.debug("=" * 60)
-    logger.debug(f"Input Corruption: {report.input_corruption_percent:.1f}%")
-    logger.debug(f"Severity: {assessment.severity.value.upper()}")
-    logger.debug(f"Restoration Attempted: {report.restoration_attempted}")
-    logger.debug(f"Success: {report.restoration_successful}")
-    logger.debug(f"\nSalvaged Bands: {len(report.salvaged_bands)}")
+    logger.debug("Input Corruption: %.1f%%", report.input_corruption_percent)
+    logger.debug("Severity: %s", assessment.severity.value.upper())
+    logger.debug("Restoration Attempted: %s", report.restoration_attempted)
+    logger.debug("Success: %s", report.restoration_successful)
+    logger.debug("\nSalvaged Bands: %s", len(report.salvaged_bands))
     for band in report.salvaged_bands:
-        logger.debug(f"  ✓ {band}")
-    logger.debug(f"\nLost Bands: {len(report.lost_bands)}")
+        logger.debug("  ✓ %s", band)
+    logger.debug("\nLost Bands: %s", len(report.lost_bands))
     for band in report.lost_bands:
-        logger.debug(f"  ❌ {band}")
-    logger.debug(f"\nFinal Quality: {report.final_quality_estimate.upper()}")
+        logger.debug("  ❌ %s", band)
+    logger.debug("\nFinal Quality: %s", report.final_quality_estimate.upper())
     logger.debug("\nWarnings:")
     for warning in report.warnings:
-        logger.debug(f"  ⚠ {warning}")
+        logger.debug("  ⚠ %s", warning)
 
 
 # Singleton-Instanz (§3.2)

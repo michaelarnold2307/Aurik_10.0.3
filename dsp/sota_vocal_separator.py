@@ -34,11 +34,11 @@ class SotaVocalSeparator:
         if os.path.exists(self.model_path):
             _model_size_gb = os.path.getsize(self.model_path) / (1024**3)
             if check_budget("sota_vocal_separator", max(0.1, _model_size_gb)):
-                self.session = ort.InferenceSession(self.model_path)
+                self.session = ort.InferenceSession(self.model_path, providers=["CPUExecutionProvider"])
             else:
                 logger.warning("Memory budget exceeded for vocal separator — returning original")
         else:
-            logger.warning(f"[WARN] ONNX-Modell nicht gefunden: {self.model_path}")
+            logger.warning("[WARN] ONNX-Modell nicht gefunden: %s", self.model_path)
 
     def process(self, audio: np.ndarray, sr: int) -> np.ndarray:
         result, _ = self.process_with_confidence(audio, sr)
@@ -66,5 +66,5 @@ class SotaVocalSeparator:
             vocal_confidence = float(np.clip(sep_energy / orig_energy, 0.0, 1.0))
             return separated, vocal_confidence
         except Exception as e:
-            logger.error(f"[ERROR] Inferenz fehlgeschlagen: {e}")
+            logger.error("[ERROR] Inferenz fehlgeschlagen: %s", e)
             return audio, 0.0

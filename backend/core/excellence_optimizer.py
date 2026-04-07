@@ -196,6 +196,19 @@ MATERIAL_PROFILES: dict[str, MaterialProfile] = {
     ),
 }
 
+# Aliases: material variants that share an existing profile
+# (e.g. MediumDetector returns "reel_tape" but "tape" profile applies)
+MATERIAL_PROFILES["reel_tape"] = MATERIAL_PROFILES["tape"]
+MATERIAL_PROFILES["cassette"] = MATERIAL_PROFILES["tape"]
+MATERIAL_PROFILES["wax"] = MATERIAL_PROFILES["shellac"]
+MATERIAL_PROFILES["wax_cylinder"] = MATERIAL_PROFILES["shellac"]
+MATERIAL_PROFILES["acetate"] = MATERIAL_PROFILES["shellac"]
+MATERIAL_PROFILES["lacquer"] = MATERIAL_PROFILES["shellac"]
+MATERIAL_PROFILES["mp3"] = MATERIAL_PROFILES["mp3_low"]
+MATERIAL_PROFILES["aac_low"] = MATERIAL_PROFILES["aac"]
+MATERIAL_PROFILES["digital"] = MATERIAL_PROFILES["cd_digital"]
+MATERIAL_PROFILES["cd"] = MATERIAL_PROFILES["cd_digital"]
+
 
 def map_panns_to_profile(panns_tags: dict[str, float]) -> str:
     """Mappt PANNs-Konfidenz-Tags auf einen MATERIAL_PROFILES-Schlüssel.
@@ -622,8 +635,8 @@ def _reinforce_harmonics(
     if _PGHI_AVAILABLE_EX:
         try:
             Zxx_new = _pghi_excellence(Zxx_new, hop_length=_HOP)
-        except Exception:
-            pass
+        except Exception as _pghi_exc:
+            logger.debug("PGHI excellence harmonic boost failed, using unmodified phase: %s", _pghi_exc)
     boosted = _istft(Zxx_new, len(_audio_proc))
 
     # Wenn nur ein Segment bearbeitet wurde, Original-Audio zusammensetzen

@@ -940,7 +940,7 @@ class DefectScanner:
             material_type if material_type else MaterialType.UNKNOWN, self.MATERIAL_SENSITIVITY[MaterialType.UNKNOWN]
         )
 
-        logger.info(f"DefectScanner initialisiert: SR={sample_rate}, Material={material_type}")
+        logger.info("DefectScanner initialisiert: SR=%s, Material=%s", sample_rate, material_type)
 
     def scan(
         self,
@@ -1092,7 +1092,14 @@ class DefectScanner:
                         progress_callback(_pct)  # type: ignore[call-arg]
 
         _tail_steps_done = 0
-        _TAIL_STEP_BUDGET = 34
+        # Fixed tail steps: 24 defect-type ticks always run.
+        # Full-audio recheck path (files > 60 s): up to 8 event-detector re-runs
+        # + up to 9 severity-recheck re-runs = 17 extra ticks.  Without the
+        # dynamic budget the counter reaches min(1.0, 34/34) = 1.0 too early,
+        # freezing the progress bar at 99.9 % while ~40 s of work remains.
+        _FIXED_TAIL = 24
+        _EXTRA_TAIL = 17 if _location_offset_s > 0.0 else 0
+        _TAIL_STEP_BUDGET = _FIXED_TAIL + _EXTRA_TAIL  # 24 (short) or 41 (long files)
         _DIGITAL_FAST_TAIL: frozenset[MaterialType] = frozenset(
             {
                 MaterialType.CD_DIGITAL,
@@ -1693,7 +1700,7 @@ class DefectScanner:
                 # Für lange Dateien: nur erste 30 s analysieren (Geschwindigkeit)
                 _max_forensic = sr * 30
                 _audio_forensic = audio_mono[:_max_forensic] if len(audio_mono) > _max_forensic else audio_mono
-                logger.debug(f"[SCAN] MediumDetector.detect() → {len(_audio_forensic) / sr:.1f}s Audio …")
+                logger.debug("[SCAN] MediumDetector.detect() → %.1fs Audio …", len(_audio_forensic) / sr)
                 _fmd_result = _ForensicMD().detect(_audio_forensic, sr, file_ext=file_ext)
                 # MediumDetectionResult ist ein Dataclass — getattr statt .get()
                 _multi = getattr(_fmd_result, "is_multi_generation", None)
@@ -1702,7 +1709,7 @@ class DefectScanner:
                     f"[SCAN] MediumDetector OK: multi={_multi}, chain={_chain_val}",
                 )
             except Exception as _fmd_err:
-                logger.debug(f"[SCAN] MediumDetector FEHLER: {_fmd_err}")
+                logger.debug("[SCAN] MediumDetector FEHLER: %s", _fmd_err)
                 logger.debug("ForensicMediumDetector nicht verfügbar: %s", _fmd_err)
 
         _prog(100)
@@ -1880,10 +1887,10 @@ class DefectScanner:
         best_score = scores[best_material]
 
         if best_score > 0.5:
-            logger.info(f"Detected mono material: {best_material.value} (score={best_score:.2f})")
+            logger.info("Detected mono material: %s (score=%.2f)", best_material.value, best_score)
             return best_material
         else:
-            logger.warning(f"Mono material unclear (best score={best_score:.2f}), using UNKNOWN")
+            logger.warning("Mono material unclear (best score=%.2f), using UNKNOWN", best_score)
             return MaterialType.UNKNOWN
 
     def _detect_stereo_material(self, audio: np.ndarray) -> MaterialType:
@@ -2063,8 +2070,8 @@ class DefectScanner:
             return MaterialType.UNKNOWN
 
         best_material = max(scores.items(), key=lambda x: x[1])
-        logger.debug(f"Material scores: {scores}")
-        logger.info(f"Detected material: {best_material[0].value} (score: {best_material[1]:.2f})")
+        logger.debug("Material scores: %s", scores)
+        logger.info("Detected material: %s (score: %.2f)", best_material[0].value, best_material[1])
 
         return best_material[0]
 
@@ -6347,6 +6354,22 @@ class DefectScanner:
             return DefectScore(DefectType.MOTOR_INTERFERENCE, 0.0, 0.3)
 
 
+# ========== Singleton ==========
+
+_defect_scanner_instance: "DefectScanner | None" = None
+_defect_scanner_lock = threading.Lock()
+
+
+def get_defect_scanner(sample_rate: int = 48000) -> "DefectScanner":
+    """Return the module-level DefectScanner singleton (thread-safe, double-checked locking)."""
+    global _defect_scanner_instance
+    if _defect_scanner_instance is None:
+        with _defect_scanner_lock:
+            if _defect_scanner_instance is None:
+                _defect_scanner_instance = DefectScanner(sample_rate=sample_rate)
+    return _defect_scanner_instance
+
+
 # ========== CLI/Testing Interface ==========
 
 if __name__ == "__main__":
@@ -6379,16 +6402,16 @@ if __name__ == "__main__":
     scanner = DefectScanner(sample_rate=sr)
     result = scanner.scan(audio, material_type=MaterialType.VINYL)
 
-    logger.debug(f"\n{'=' * 60}")
+    logger.debug("\n%s", '=' * 60)
     logger.debug("DEFECT SCAN RESULTS")
-    logger.debug(f"{'=' * 60}")
-    logger.debug(f"Material: {result.material_type.value}")
-    logger.debug(f"Duration: {result.duration_seconds:.1f}s")
+    logger.debug("%s", '=' * 60)
+    logger.debug("Material: %s", result.material_type.value)
+    logger.debug("Duration: %.1fs", result.duration_seconds)
     logger.debug(
         f"Analysis Time: {result.analysis_time_seconds:.3f}s ({result.analysis_time_seconds / result.duration_seconds * 100:.1f}% overhead)"
     )
     logger.debug("\nTop 5 Defects:")
     for i, score in enumerate(result.get_top_defects(5), 1):
-        logger.debug(f"  {i}. {score}")
+        logger.debug("  %s. %s", i, score)
 
-    logger.debug(f"\nTotal Severity: {result.get_total_severity():.3f}")
+    logger.debug("\nTotal Severity: %.3f", result.get_total_severity())

@@ -162,7 +162,7 @@ detector = PhonemeDetector(confidence_threshold=0.5)
 #### Performance Characteristics
 
 | Metric | Value |
-|--------|-------|
+| --- | --- |
 | **Latency** | ~200-300ms per second of audio (CPU) |
 | **Accuracy** | 85-92% on clean speech |
 | **Memory** | ~1.2GB model weights + ~200MB per audio minute |

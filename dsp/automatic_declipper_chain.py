@@ -26,7 +26,7 @@ except (ImportError, ModuleNotFoundError):
                 self.description = description
 
             def log(self):
-                logger.info(f"[Audit] Contract: {self.name} v{self.version} - {self.description}")
+                logger.info("[Audit] Contract: %s v%s - %s", self.name, self.version, self.description)
 
 
 class AiAutomaticDeclipperChain:

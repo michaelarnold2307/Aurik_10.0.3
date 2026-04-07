@@ -322,7 +322,7 @@ class AdaptiveTonalBalanceRestorer:
         # Quality gate: Prevent clipping
         peak = np.max(np.abs(audio_corrected))
         if peak > 0.99:
-            logger.warning(f"[QualityGate] Warning: Near-clipping detected (peak={peak:.3f}), applying limiter")
+            logger.warning("[QualityGate] Warning: Near-clipping detected (peak=%.3f), applying limiter", peak)
             audio_corrected = audio_corrected / (peak / 0.95)
 
         # Store correction amount for reporting
@@ -333,7 +333,7 @@ class AdaptiveTonalBalanceRestorer:
         audio_corrected = np.nan_to_num(audio_corrected, nan=0.0, posinf=0.0, neginf=0.0)
         audio_corrected = np.clip(audio_corrected, -1.0, 1.0)
 
-        logger.info(f"[AdaptiveTonalBalance] Applied {correction_amount * 100:.1f}% brightness correction")
+        logger.info("[AdaptiveTonalBalance] Applied %.1f%% brightness correction", correction_amount * 100)
 
         return audio_corrected
 
@@ -564,12 +564,12 @@ class LowEndClarityEnhancer:
         # Quality gate
         peak = np.max(np.abs(audio_processed))
         if peak > 0.99:
-            logger.warning(f"[QualityGate] Warning: Peak={peak:.3f}, normalizing")
+            logger.warning("[QualityGate] Warning: Peak=%.3f, normalizing", peak)
             audio_processed = audio_processed / (peak / 0.95)
 
         self.metrics["correction_db"] = -6.0 * muddiness * self.strength * self.target_tightness
 
-        logger.info(f"[LowEndClarity] Applied {self.metrics['correction_db']:.1f} dB mud reduction")
+        logger.info("[LowEndClarity] Applied %.1f dB mud reduction", self.metrics['correction_db'])
 
         return audio_processed
 
@@ -814,7 +814,7 @@ class FrequencyDeMasker:
         analysis = self.analyze_masking(audio, sr)
         self.metrics = {"masking_detected": analysis["masking_count"], "bands_adjusted": analysis["masking_count"]}
 
-        logger.info(f"[FrequencyDeMasker] Detected {analysis['masking_count']} masked bands out of {self.n_bands}")
+        logger.info("[FrequencyDeMasker] Detected %s masked bands out of %s", analysis['masking_count'], self.n_bands)
 
         if analysis["masking_count"] == 0:
             logger.info("[FrequencyDeMasker] No masking detected, no correction needed")
@@ -842,7 +842,7 @@ class FrequencyDeMasker:
         # Quality gate
         peak = np.max(np.abs(audio_demasked))
         if peak > 0.99:
-            logger.warning(f"[QualityGate] Warning: Peak={peak:.3f}, normalizing")
+            logger.warning("[QualityGate] Warning: Peak=%.3f, normalizing", peak)
             audio_demasked = audio_demasked / (peak / 0.95)
 
         # Estimate clarity improvement
@@ -1041,12 +1041,14 @@ if __name__ == "__main__":
             i += 1
 
     # Load audio
-    logger.info(f"\nLoading: {input_file}")
-    audio, sr = sf.read(input_file)
+    logger.info("\nLoading: %s", input_file)
+    from backend.file_import import load_audio_file
+    _res = load_audio_file(input_file)
+    audio, sr = _res["audio"], int(_res["sr"])
 
     # Ensure mono for processing (or handle stereo properly)
     if audio.ndim > 1:
-        logger.info(f"Input is stereo ({audio.shape[1]} channels), processing both channels")
+        logger.info("Input is stereo (%s channels), processing both channels", audio.shape[1])
         audio = audio.T  # Shape: (channels, samples)
 
     # Process
@@ -1059,7 +1061,7 @@ if __name__ == "__main__":
     logger.info(str(metrics))
 
     # Save
-    logger.info(f"\nSaving: {output_file}")
+    logger.info("\nSaving: %s", output_file)
     if audio_restored.ndim > 1:
         audio_restored = audio_restored.T  # Back to (samples, channels)
     sf.write(output_file, audio_restored, sr)

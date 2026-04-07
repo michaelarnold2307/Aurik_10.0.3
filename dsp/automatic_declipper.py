@@ -107,7 +107,7 @@ class AutomaticDeclipper:
             else:
                 audio_out = self._declip_classic(audio)
         except Exception as e:
-            logger.error(f"Fehler bei Declipper: {e}")
+            logger.error("Fehler bei Declipper: %s", e)
             fallback_used = True
             audio_out = audio.copy()
 
@@ -116,7 +116,7 @@ class AutomaticDeclipper:
             logger.info(
                 f"AutomaticDeclipper: clipping_reduction={clipping_reduction:.4f}, fallback_used={fallback_used}"
             )
-        logger.info(f"[DSPContract] {asdict(self.contract)}")
+        logger.info("[DSPContract] %s", asdict(self.contract))
         return audio_out.astype(audio.dtype)
 
     def _declip_classic(self, audio: np.ndarray) -> np.ndarray:
@@ -132,5 +132,5 @@ class AutomaticDeclipper:
         audio_out[clipped] = interp(x[clipped])
         maxval = np.max(np.abs(audio_out))
         if maxval > 1.0:
-            audio_out = audio_out * (0.999 / maxval)
+            audio_out = np.clip(audio_out, -1.0, 1.0)
         return audio_out

@@ -30,9 +30,9 @@ broadband_dynamics_stabilizer_contract = DSPContract(
     },
     preconditions=[{"if": "True", "reason": "Immer aktiv"}],
     params={
-        "defaults": {"target_rms": -18.0, "window_ms": 100.0},
+        "defaults": {"target_lufs": -18.0, "window_ms": 100.0},
         "safe_ranges": {
-            "target_rms": {"min": -30.0, "max": -8.0},
+            "target_lufs": {"min": -30.0, "max": -8.0},
             "window_ms": {"min": 10.0, "max": 500.0},
         },
         "trial_profile": {"wet": 1.0, "segment_sec": 1.0, "warmup_ms": 0},
@@ -56,8 +56,8 @@ class BroadbandDynamicsStabilizer:
     - Stabilisiert die Dynamik ohne Pumpen (z.B. RMS-Tracking, sanfte Gain-Riding)
     """
 
-    def __init__(self, target_rms: float = -18.0, window_ms: float = 100.0):
-        self.target_rms = target_rms
+    def __init__(self, target_lufs: float = -18.0, window_ms: float = 100.0):
+        self.target_lufs = target_lufs
         self.window_ms = window_ms
 
     def log_contract(self):
@@ -79,7 +79,7 @@ class BroadbandDynamicsStabilizer:
         audio = np.nan_to_num(np.asarray(audio, dtype=np.float64))
 
         window = max(1, int(self.window_ms * sr / 1000.0))
-        target_lin = 10.0 ** (self.target_rms / 20.0)
+        target_lin = 10.0 ** (self.target_lufs / 20.0)
 
         # K-weighting approximation (BS.1770 inspired):
         # High-shelf boost at 1681 Hz + high-pass at 38 Hz

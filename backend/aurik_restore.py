@@ -251,7 +251,7 @@ def quality_gates(audio: np.ndarray, sr: int) -> bool:
     mos_score = results["UTMOS"] if isinstance(results["UTMOS"], float) else results["UTMOS"].get("mos", 0.0)
     if mos_score < 3.5:
         passed = False
-    logger.info(f"        [Quality-Gate] GACELA_MSE: {results.get('GACELA_MSE', 'n/a')}")
+    logger.info("        [Quality-Gate] GACELA_MSE: %s", results.get('GACELA_MSE', 'n/a'))
     return passed
 
 
@@ -263,14 +263,14 @@ def export(audio: np.ndarray, sr: int, out_path: str) -> None:
     audio = np.nan_to_num(audio, nan=0.0, posinf=0.0, neginf=0.0)
     audio = np.clip(audio, -1.0, 1.0)
 
-    logger.info(f"[7] Exportiere nach {out_path} ...")
+    logger.info("[7] Exportiere nach %s ...", out_path)
     import soundfile as sf
 
     # Falls (channels, samples), transponieren zu (samples, channels)
     if isinstance(audio, np.ndarray) and audio.ndim == 2 and audio.shape[0] < audio.shape[1]:
         audio = audio.T
     sf.write(out_path, audio, sr)
-    logger.info(f"[Export] Datei gespeichert: {out_path}")
+    logger.info("[Export] Datei gespeichert: %s", out_path)
 
 
 def main(importfile_path: str, out_path: str) -> None:
@@ -290,17 +290,17 @@ def main(importfile_path: str, out_path: str) -> None:
     logger.info("✔️")
     logger.info("[Analyse-Ergebnisse]")
     for k, v in analysis_result.items():
-        logger.info(f"    {k}: {v}")
+        logger.info("    %s: %s", k, v)
     # Tonträgererkennung und Kette explizit ausgeben
     material_chain = analysis_result.get("material_chain", None)
     if material_chain and hasattr(material_chain, "detected_medium"):
         medium = material_chain.detected_medium
         confidence = material_chain.medium_confidence
-        logger.info(f"[Tonträgererkennung] Medium: {medium} (Konfidenz: {confidence:.2f})")
+        logger.info("[Tonträgererkennung] Medium: %s (Konfidenz: %.2f)", medium, confidence)
     # Versuche, die Kette auszugeben, falls vorhanden
     forensic_report = getattr(material_chain, "forensic_report", None)
     if forensic_report and hasattr(forensic_report, "transfer_chain"):
-        logger.info(f"[Erkannte Kette] Transfer-Chain: {forensic_report.transfer_chain}")
+        logger.info("[Erkannte Kette] Transfer-Chain: %s", forensic_report.transfer_chain)
 
     # Maximal transparente Gesangs- und Sibilantenerkennung
     try:
@@ -311,7 +311,7 @@ def main(importfile_path: str, out_path: str) -> None:
         profile = analysis_engine.analyze(audio, sr)
         va = profile.vocal_analysis
         logger.info("[VocalAnalysis]")
-        logger.info(f"    Vocals erkannt: {va.has_vocals} (Konfidenz: {va.vocal_confidence:.2f})")
+        logger.info("    Vocals erkannt: %s (Konfidenz: %.2f)", va.has_vocals, va.vocal_confidence)
         # PANNS-Tags für Gender-Transparenz
         raw_tags = profile.raw_features.get("panns_tags", {})
         # Frauen-, Männer-, Kindergesang
@@ -333,17 +333,17 @@ def main(importfile_path: str, out_path: str) -> None:
         if choir > 0.3:
             detected.append("Chor")
         if detected:
-            logger.info(f"    Erkannt: {', '.join(detected)}")
+            logger.info("    Erkannt: %s", ', '.join(detected))
         else:
             logger.info("    Keine dominante Gesangsart erkannt.")
         # Sibilanten-Score (sofern vorhanden)
         sibilant = raw_tags.get("Sibilance", None)
         if sibilant is not None:
-            logger.info(f"    Sibilanten-Score: {sibilant:.2f}")
+            logger.info("    Sibilanten-Score: %.2f", sibilant)
         else:
             logger.info("    Sibilanten-Score: nicht verfügbar")
     except Exception as e:
-        logger.info(f"[VocalAnalysis] Transparenz nicht möglich: {e}")
+        logger.info("[VocalAnalysis] Transparenz nicht möglich: %s", e)
 
     # Policy- und Quality-Gates initialisieren mit realen Zielwerten
     policy_targets = {
@@ -358,7 +358,7 @@ def main(importfile_path: str, out_path: str) -> None:
     analysis_result["policy_targets"] = policy_targets
     logger.info("[Policy-Targets]")
     for k, v in policy_targets.items():
-        logger.info(f"    {k}: {v}")
+        logger.info("    %s: %s", k, v)
 
     logger.info("\nVerarbeitung\n────────────")
     logger.info("[4] Policy-Engine wählt Maßnahmenkette …")
@@ -374,7 +374,7 @@ def main(importfile_path: str, out_path: str) -> None:
             dsps = phase.get("dsps", [])
             models = phase.get("models", [])
             details = phase.get("details", {})
-            logger.info(f"    • {phase_name}:")
+            logger.info("    • %s:", phase_name)
             if dsps:
                 for dsp in dsps:
                     dsp_info = details.get(dsp, {}) if isinstance(details, dict) else {}
@@ -382,12 +382,12 @@ def main(importfile_path: str, out_path: str) -> None:
                     beschr = dsp_info.get("beschreibung", "-")
                     status = dsp_info.get("status", "-")
                     effect = dsp_info.get("effect", None)
-                    logger.info(f"        DSP-Modul: {dsp}")
-                    logger.info(f"            Parameter: {params}")
-                    logger.info(f"            Beschreibung: {beschr}")
-                    logger.info(f"            Status: {status}")
+                    logger.info("        DSP-Modul: %s", dsp)
+                    logger.info("            Parameter: %s", params)
+                    logger.info("            Beschreibung: %s", beschr)
+                    logger.info("            Status: %s", status)
                     if effect:
-                        logger.info(f"            Effekt: {effect}")
+                        logger.info("            Effekt: %s", effect)
             else:
                 logger.info("        DSP-Modul: -")
             if models:
@@ -397,12 +397,12 @@ def main(importfile_path: str, out_path: str) -> None:
                     beschr = model_info.get("beschreibung", "-")
                     status = model_info.get("status", "-")
                     effect = model_info.get("effect", None)
-                    logger.info(f"        KI-Modell: {model}")
-                    logger.info(f"            Parameter: {params}")
-                    logger.info(f"            Beschreibung: {beschr}")
-                    logger.info(f"            Status: {status}")
+                    logger.info("        KI-Modell: %s", model)
+                    logger.info("            Parameter: %s", params)
+                    logger.info("            Beschreibung: %s", beschr)
+                    logger.info("            Status: %s", status)
                     if effect:
-                        logger.info(f"            Effekt: {effect}")
+                        logger.info("            Effekt: %s", effect)
             else:
                 logger.info("        KI-Modell: -")
     else:
@@ -423,8 +423,8 @@ def main(importfile_path: str, out_path: str) -> None:
     from backend.core.forensics.analysis_and_modules import FeatureExtractor
 
     features = FeatureExtractor().extract(audio, sr, policy_manager=policy_manager)
-    logger.info(f"[Test] Extrahierte Features: {features}")
-    logger.info(f"[Test] Policy-Status: {policy_manager.policy}")
+    logger.info("[Test] Extrahierte Features: %s", features)
+    logger.info("[Test] Policy-Status: %s", policy_manager.policy)
 
     while step_idx < len(chain):
         # Wenn chain Dicts enthält, nutze Phase, DSPs und Modelle
@@ -437,14 +437,14 @@ def main(importfile_path: str, out_path: str) -> None:
             )
         else:
             step = chain[step_idx]
-            logger.info(f"    • Maßnahme: {step.capitalize()} …")
+            logger.info("    • Maßnahme: %s …", step.capitalize())
         # --- Audit-Trail: Schrittstart ---
         audit_entry = {"step": step, "index": step_idx, "status": "started"}
         # --- Adaptive Parameteroptimierung ---
         if feedback_log:
             last = feedback_log[-1]
             if not last.get("passed") and last.get("step") == step:
-                logger.info(f"        [Adaptiv] Wiederholung von '{step}' mit erhöhter Intensität.")
+                logger.info("        [Adaptiv] Wiederholung von '%s' mit erhöhter Intensität.", step)
         # --- Maßnahmenausführung ---
         while step_idx < len(chain):
             # Wenn chain Dicts enthält, nutze Phase, DSPs und Modelle
@@ -456,7 +456,7 @@ def main(importfile_path: str, out_path: str) -> None:
                 step = chain[step_idx]
                 dsps = []
                 models = []
-                logger.info(f"    • Maßnahme: {step.capitalize()} …")
+                logger.info("    • Maßnahme: %s …", step.capitalize())
             # --- Audit-Trail: Schrittstart ---
             audit_entry = {"step": step, "index": step_idx, "status": "started"}
             # --- Maßnahmenausführung ---
@@ -476,12 +476,12 @@ def main(importfile_path: str, out_path: str) -> None:
                 audio = IntelligentLimiter(ceiling=-1.0).process(audio, sr)
                 # Artefakterkennung nach Remastering
                 artifacts = SpectralArtifactDetector().detect(audio)
-                logger.info(f"        Artefakterkennung: {artifacts}")
+                logger.info("        Artefakterkennung: %s", artifacts)
                 mos_result = estimate_mos(audio, sr)
                 mos_score = (
                     mos_result.as_dict().get("mos", 0.0) if hasattr(mos_result, "as_dict") else float(mos_result)
                 )
-                logger.info(f"        Quality Gate: UTMOS={mos_score:.3f}")
+                logger.info("        Quality Gate: UTMOS=%.3f", mos_score)
             # --- Export Zwischenergebnis ---
             interm_path = f"intermediate_{step_idx + 1}_{step}.wav"
             export(audio, sr, interm_path)
@@ -497,7 +497,7 @@ def main(importfile_path: str, out_path: str) -> None:
                 logger.info("✖️ (Quality-Gate nicht bestanden)")
             # --- Fehlerklassifikation & Alternativmaßnahmen ---
             if not passed:
-                logger.info(f"[Quality-Gate] Schritt '{step}' nicht bestanden. Feedback-Loop wird aktiviert.")
+                logger.info("[Quality-Gate] Schritt '%s' nicht bestanden. Feedback-Loop wird aktiviert.", step)
                 audit_entry["status"] = "failed"
                 audit_entry["action"] = "feedback_loop"
                 # Fehlerklassifikation:
@@ -514,7 +514,7 @@ def main(importfile_path: str, out_path: str) -> None:
                 # Policy-Engine erhält Feedback-Log und kann Maßnahmenkette adaptiv anpassen
                 analysis_result["feedback_log"] = feedback_log
                 chain = policy_engine(analysis_result)
-                logger.info(f"[Workflow] Maßnahmenkette nach Feedback-Loop: {chain}")
+                logger.info("[Workflow] Maßnahmenkette nach Feedback-Loop: %s", chain)
                 # Optional: Schritt zurücksetzen oder anpassen
                 step_idx = max(0, step_idx - 1)
                 # Optional: Abbruch nach zu vielen Iterationen

@@ -68,7 +68,7 @@ class DemucsV5Separator:
         # Parameter 'device' wird ignoriert — immer 'cpu'.
         self.device = "cpu"
 
-        logger.info(f"DemucsV5Separator ({model_name}) initialized on {self.device} (§9.5 CPU-only)")
+        logger.info("DemucsV5Separator (%s) initialized on %s (§9.5 CPU-only)", model_name, self.device)
 
         # Model loading
         self.model_path = model_path or self._get_default_model_path()
@@ -86,7 +86,7 @@ class DemucsV5Separator:
 
         model_path = model_dir / f"{self.model_name}.yaml"
         if not model_path.exists():
-            logger.warning(f"Demucs model not found at {model_path}. Install with: pip install demucs")
+            logger.warning("Demucs model not found at %s. Install with: pip install demucs", model_path)
 
         return model_path
 
@@ -105,14 +105,14 @@ class DemucsV5Separator:
             model = pretrained.get_model(self.model_name)
             model.eval()
             # §9.5 CPU-only — kein CUDA/GPU
-            logger.info(f"Demucs {self.model_name} loaded successfully")
+            logger.info("Demucs %s loaded successfully", self.model_name)
             return model
 
         except ImportError:
             logger.warning("Demucs package not installed. Install with: pip install demucs")
             return None
         except Exception as e:
-            logger.error(f"Failed to load Demucs model: {e}")
+            logger.error("Failed to load Demucs model: %s", e)
             return None
 
     def separate(
@@ -146,7 +146,7 @@ class DemucsV5Separator:
         assert sr == 48000 or sr is None or sr == self.sample_rate, f"SR muss 48000 Hz sein, erhalten: {sr}"
         # Resample if needed
         if sr is not None and sr != self.sample_rate:
-            logger.info(f"Resampling from {sr}Hz to {self.sample_rate}Hz")
+            logger.info("Resampling from %sHz to %sHz", sr, self.sample_rate)
             audio = librosa.resample(audio, orig_sr=sr, target_sr=self.sample_rate)
         # NaN/Inf-Guard
         audio = np.nan_to_num(audio, nan=0.0, posinf=0.0, neginf=0.0)
@@ -237,7 +237,7 @@ class DemucsV5Separator:
             return separated
 
         except Exception as e:
-            logger.error(f"Demucs inference failed: {e}. Using fallback.")
+            logger.error("Demucs inference failed: %s. Using fallback.", e)
             return self._fallback_separation(audio, stems)
 
     def _fallback_separation(self, audio: np.ndarray, stems: list[str]) -> dict[str, np.ndarray]:
@@ -397,6 +397,6 @@ if __name__ == "__main__":
     stems = separator.separate(audio, sr=sr, stems=["vocals", "drums"])
 
     logger.info("✓ Demucs separation test passed")
-    logger.info(f"  Vocals shape: {stems['vocals'].shape}")
-    logger.info(f"  Drums shape: {stems['drums'].shape}")
-    logger.info(f"  Metrics: {separator.get_separation_metrics()}")
+    logger.info("  Vocals shape: %s", stems['vocals'].shape)
+    logger.info("  Drums shape: %s", stems['drums'].shape)
+    logger.info("  Metrics: %s", separator.get_separation_metrics())

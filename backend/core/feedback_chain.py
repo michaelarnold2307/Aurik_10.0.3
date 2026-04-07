@@ -189,9 +189,10 @@ class FeedbackChain:
 
         current = np.nan_to_num(np.asarray(audio, dtype=np.float32))
 
-        # §Performance-Budget: ≤60s per minute audio for FeedbackChain (all iterations).
+        # §Performance-Budget: ≤120s per minute audio for FeedbackChain (all iterations).
+        # Spec §2.38: FeedbackChain ≤ 120 s per minute audio.
         _audio_dur_s = float(max(current.shape) if current.ndim == 2 else len(current)) / float(_sr)
-        _time_budget_s = max(60.0, 60.0 * (_audio_dur_s / 60.0))  # 60s per minute, min 60s
+        _time_budget_s = max(120.0, 2.0 * _audio_dur_s)  # 120s per minute, min 120s
         best = current.copy()
         best_mos = self._compute_iteration_score(best, _sr)
         history = [best_mos]

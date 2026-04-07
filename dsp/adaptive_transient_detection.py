@@ -76,14 +76,14 @@ class AdaptiveTransientDetection:
 
     def __init__(self, threshold=2.0):
         if not (0.5 <= threshold <= 10.0):
-            logger.error(f"Ungültiger threshold: {threshold}. Muss zwischen 0.5 und 10.0 liegen.")
+            logger.error("Ungültiger threshold: %s. Muss zwischen 0.5 und 10.0 liegen.", threshold)
             raise ValueError("threshold muss zwischen 0.5 und 10.0 liegen.")
         self.threshold = threshold
-        logger.info(f"AdaptiveTransientDetection initialisiert mit threshold={self.threshold}")
+        logger.info("AdaptiveTransientDetection initialisiert mit threshold=%s", self.threshold)
 
     def log_contract(self):
         contract_dict = asdict(adaptive_transient_detection_contract)
-        logger.info(f"[DSPContract] {contract_dict}")
+        logger.info("[DSPContract] %s", contract_dict)
 
     def detect(self, signal, envelope=None, use_deep_learning: bool = False, audit_log: bool = True, **kwargs):
         """
@@ -134,7 +134,7 @@ class AdaptiveTransientDetection:
             else:
                 output = self._detect_classic(signal, envelope, threshold)
         except Exception as e:
-            logger.error(f"Fehler bei Transientenerkennung: {e}", exc_info=True)
+            logger.error("Fehler bei Transientenerkennung: %s", e, exc_info=True)
             fallback_used = True
             output = np.zeros_like(signal)
 
@@ -143,7 +143,7 @@ class AdaptiveTransientDetection:
             logger.info(
                 f"AdaptiveTransientDetection: transient_count={transient_count}, fallback_used={fallback_used}, threshold={threshold}"
             )
-            logger.info(f"[DSPContract] {asdict(adaptive_transient_detection_contract)}")
+            logger.info("[DSPContract] %s", asdict(adaptive_transient_detection_contract))
         return output
 
     def _detect_classic(self, signal, envelope, threshold):
@@ -163,4 +163,4 @@ class AdaptiveTransientDetection:
             self.threshold = 2.0
         else:
             self.threshold = 3.0
-        logger.info(f"Threshold auto-optimiert auf {self.threshold}")
+        logger.info("Threshold auto-optimiert auf %s", self.threshold)

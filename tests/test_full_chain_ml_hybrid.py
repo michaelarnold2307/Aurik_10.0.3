@@ -71,7 +71,7 @@ class TestFullChainMLHybrid:
         audio = np.nan_to_num(audio, nan=0.0, posinf=0.0, neginf=0.0)
         max_val = np.abs(audio).max()
         if max_val > 1.0:
-            audio = audio / max_val
+            audio = np.clip(audio, -1.0, 1.0)
 
         return audio, sr
 

@@ -81,7 +81,7 @@ class CREPEPitchDetector:
                 "CREPE not available. Install with: pip install crepe-tf2. Falling back to basic pitch tracking."
             )
 
-        logger.info(f"CREPEPitchDetector initialized: sr={sample_rate}, model={model_capacity}, step={step_size}ms")
+        logger.info("CREPEPitchDetector initialized: sr=%s, model=%s, step=%sms", sample_rate, model_capacity, step_size)
 
     def detect(self, audio: np.ndarray, min_confidence: float = 0.85) -> PitchAnalysis:
         """

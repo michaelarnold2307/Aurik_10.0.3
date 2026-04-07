@@ -11,6 +11,27 @@ import sys
 import time
 from pathlib import Path
 
+# ── OpenBLAS/OMP thread-safety: must be set BEFORE any numpy/scipy import ────
+# When multiple Python threads call into numpy simultaneously (pre-analysis
+# ThreadPoolExecutor, pipeline workers), OpenBLAS spawning its own threads
+# causes race conditions and segfaults (faulthandler confirmed: numpy
+# _wrapreduction thread + psychoacoustic_masking_model seg-fault pattern).
+# Capping OpenBLAS/OMP to 1 internal thread makes each numpy call single-
+# threaded but prevents the OpenBLAS-vs-Python-thread race. PyTorch uses its
+# own thread pool (set via torch.set_num_threads) and is unaffected.
+os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
+os.environ.setdefault("OMP_NUM_THREADS", "1")
+os.environ.setdefault("MKL_NUM_THREADS", "1")
+os.environ.setdefault("VECLIB_MAXIMUM_THREADS", "1")
+os.environ.setdefault("NUMEXPR_NUM_THREADS", "1")
+
+# ── PyTorch global thread-pool — must be set once at startup (§VERBOTEN) ─────
+try:
+    import torch as _torch
+    _torch.set_num_threads(os.cpu_count() or 4)
+except Exception:  # torch not installed / import error on first run
+    pass
+
 # Add parent directory to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
@@ -221,7 +242,7 @@ def main():
     app = QApplication(sys.argv)
     app.setApplicationName("AURIK Professional")
     app.setOrganizationName("AURIK")
-    app.setApplicationVersion("9.10.77")
+    app.setApplicationVersion("9.10.120")
 
     # §3.9.2: Register SIGTERM handler for graceful shutdown + emergency checkpoint.
     # Must be installed after QApplication to avoid race with Qt's signal handling.

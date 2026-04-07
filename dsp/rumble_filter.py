@@ -89,18 +89,20 @@ class RumbleFilter:
                     logger.warning("Memory budget exceeded for rumble_filter ONNX — using DSP fallback")
                 else:
                     try:
-                        self.model = ort.InferenceSession(model_path)
+                        self.model = ort.InferenceSession(
+                            model_path, providers=["CPUExecutionProvider"]
+                        )
                         self.backend = "onnx"
                     except Exception as e:
-                        warnings.warn(f"ONNX-Modell konnte nicht geladen werden: {e}")
+                        logger.warning("ONNX-Modell konnte nicht geladen werden: %s", e)
             elif torch is not None:
                 try:
                     self.model = torch.jit.load(model_path)
                     self.backend = "torch"
                 except Exception as e:
-                    warnings.warn(f"Torch-Modell konnte nicht geladen werden: {e}")
+                    logger.warning("Torch-Modell konnte nicht geladen werden: %s", e)
             else:
-                warnings.warn("Weder ONNX noch Torch verfügbar. Nur klassischer Filter nutzbar.")
+                logger.warning("Weder ONNX noch Torch verfügbar. Nur klassischer Filter nutzbar.")
 
     # Audit: Contract-Infos loggen (optional)
     def log_contract(self):
@@ -136,7 +138,7 @@ class RumbleFilter:
                     out = self.model.run(None, {self.model.get_inputs()[0].name: inp})[0]
                     audio_out = out.squeeze().astype(audio.dtype)
                 except Exception as e:
-                    logger.warning(f"ONNX-Inferenz fehlgeschlagen: {e}")
+                    logger.warning("ONNX-Inferenz fehlgeschlagen: %s", e)
                     fallback_used = True
             elif self.model is not None and self.backend == "torch" and torch is not None:
                 try:
@@ -145,7 +147,7 @@ class RumbleFilter:
                     out = model_torch(inp).detach().cpu().numpy().squeeze()
                     audio_out = out.astype(audio.dtype)
                 except Exception as e:
-                    logger.warning(f"Torch-Inferenz fehlgeschlagen: {e}")
+                    logger.warning("Torch-Inferenz fehlgeschlagen: %s", e)
                     fallback_used = True
             if audio_out is None:
                 # Fallback: Digitaler Hochpass (Butterworth)
@@ -155,10 +157,10 @@ class RumbleFilter:
                 audio_out = lfilter(b, a, audio)
                 fallback_used = True
         except Exception as e:
-            logger.error(f"Fehler beim Rumble-Filtering: {e}")
+            logger.error("Fehler beim Rumble-Filtering: %s", e)
             audio_out = audio.copy()
             fallback_used = True
 
         if audit_log:
-            logger.info(f"RumbleFilter: cutoff={self.cutoff}, order={self.order}, fallback_used={fallback_used}")
+            logger.info("RumbleFilter: cutoff=%s, order=%s, fallback_used=%s", self.cutoff, self.order, fallback_used)
         return audio_out.astype(audio.dtype)

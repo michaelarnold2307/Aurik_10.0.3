@@ -9,7 +9,7 @@
 
 **Tier 1 Complete (10 Phasen):**
 | Phase | Name | ML-Komponente | Status |
-|-------|------|---------------|--------|
+| --- | --- | --- | --- |
 | 01 | Click Removal | DeepFilterNet | ✅ |
 | 02 | Hum Removal | DeepFilterNet | ✅ |
 | **03** | **Denoise** | **OMLSA + Resemble** | ✅ NEW |

@@ -1,7 +1,7 @@
 # KI-Agent Integration Guide — AURIK 9.x.x
 
-**Erstellt:** 15. Februar 2026 | **Aktualisiert:** 3. April 2026  
-**Version:** 9.10.102  
+**Erstellt:** 15. Februar 2026 | **Aktualisiert:** 7. April 2026  
+**Version:** 9.10.124  
 **Zielgruppe:** KI-Agenten (GitHub Copilot, Claude, GPT) die an AURIK arbeiten  
 **Status:** 🟢 AKTIV — Verbindlich für alle KI-Agenten
 
@@ -29,7 +29,7 @@ Dieses Dokument liefert **praktische Ergänzungen** zu den Richtlinien.
 ### Kognitive Kernmodule (Pflichtübersicht)
 
 | Modul | Datei | Funktion |
-|---|---|---|
+| --- | --- | --- |
 | `PerceptualEmbedder` | `core/perceptual_embedder.py` | 256-dim L2-normalisierter Einbettungsraum |
 | `CausalDefectReasoner` | `core/causal_defect_reasoner.py` | Bayesianische Kausalinferenz, 34 Kausal-Ursachen |
 | `GPParameterOptimizer` | `core/gp_parameter_optimizer.py` | RBF-GP + UCB, lernt dauerhaft pro Material |
@@ -94,7 +94,7 @@ if not all(scores[g] >= checker.thresholds[g] for g in checker.thresholds):
 **Schwellwerte + Prioritätsstufen:**
 
 | Ziel | Restoration-Schwellwert | Studio-2026-Schwellwert | Priorität |
-|------|-------------|----------|-----------|
+| --- | --- | --- | --- |
 | Natürlichkeit | ≥ 0.90 | ≥ 0.90 | **P1** (Rollback bei Regression) |
 | Authentizität | ≥ 0.88 | ≥ 0.88 | **P1** (Rollback bei Regression) |
 | Tonales Zentrum | ≥ 0.95 | ≥ 0.97 | P2 |
@@ -141,6 +141,7 @@ ls core/*.py | grep -i "mein_bereich"
 Alle Phasen liegen in `core/phases/phase_NN_<beschreibung>.py` (backend/core/phases/).
 
 **Neue Phase erstellen — Pflicht:**
+
 1. Datei: `core/phases/phase_NN_<beschreibung>.py`
 2. Implementiert `PhaseInterface.process(audio, sample_rate, **kwargs) → np.ndarray`
 3. `assert sample_rate == 48000` am Anfang
@@ -148,6 +149,7 @@ Alle Phasen liegen in `core/phases/phase_NN_<beschreibung>.py` (backend/core/pha
 5. Export in `core/phases/__init__.py`
 
 **CausalReasoner → Phase-Mapping:**
+
 ```python
 CAUSE_TO_PHASES = {
     "tape_dropout":      ["phase_24_dropout_repair", "phase_55_diffusion_inpainting"],
@@ -166,12 +168,14 @@ CAUSE_TO_PHASES = {
 ## 📦 Material-System (§6.1, §6.3)
 
 **Materialien (`MaterialType`):**
+
 ```
 tape · reel_tape · vinyl · shellac · wax_cylinder · wire_recording · lacquer_disc
 dat · cd_digital · mp3_low · mp3_high · aac · minidisc · streaming · unknown
 ```
 
-**32 DefectTypes (vollständig, Stand v9.10.102):**
+**32 DefectTypes (vollständig, Stand v9.10.124):**
+
 ```
 CLICKS · CRACKLE · HUM · WOW · FLUTTER · LOW_FREQ_RUMBLE · DROPOUTS
 STEREO_IMBALANCE · PHASE_ISSUES · DIGITAL_ARTIFACTS
@@ -182,6 +186,7 @@ JITTER_ARTIFACTS · DYNAMIC_COMPRESSION_EXCESS
 HEAD_WEAR · AZIMUTH_ERROR · TRANSIENT_SMEARING · PRE_ECHO
 RIAA_CURVE_ERROR · ALIASING · BIAS_ERROR · SIBILANCE · TRANSPORT_BUMP · VOCAL_HARSHNESS
 ```
+
 ⚠️ **WOW** und **FLUTTER** sind seit v9.10.x getrennte Defekttypen (IEC 60386-konform, nicht mehr WOW_FLUTTER).
 
 > **Kritisch:** `SOFT_SATURATION` = Tube-/Tape-Sättigung → **BEWAHREN**, nie reparieren!  
@@ -211,6 +216,7 @@ result = enhancer.enhance(audio, characteristics)
 ```
 
 **Invarianten (zwingend — §2.8):**
+
 - Formant-Korrelation Pearson ≥ 0.95 (Authentizitäts-Invariante)
 - Breathiness-Ratio: Änderung ≤ ±0.05 (natürliche Stimmfärbung)
 - Vibrato-Rate: Änderung ≤ ±0.3 Hz (emotionaler Ausdruck)
@@ -348,6 +354,7 @@ Backend-Core (core/ · plugins/ · dsp/)
 ```
 
 **Verboten:**
+
 - Direktaufruf von `core/`, `dsp/` oder `plugins/` aus `frontend/`-Code
 - Netzwerkaufruf nach außen — Desktop-only, 100 % offline
 - `torch.cuda` / `CUDAExecutionProvider` — CPU-only
@@ -381,7 +388,7 @@ logger.debug("Likelihood P(O|K=%s) = %.4f", cause, likelihood)
 Jede neue DSP-Funktion MUSS auf mindestens einem dieser Prinzipien basieren:
 
 | Konzept | Anwendung |
-|---|---|
+| --- | --- |
 | Bark-Skala / Critical Bands | Frequenzband-Gewichtung, spezifische Lautheit |
 | ERB / Gammatone-Filterbank | PQS, PerceptualQualityScorer |
 | LUFS / ITU-R BS.1770-5 | Lautstärke-Normierung (−14 LUFS EBU R128) |
@@ -406,7 +413,7 @@ Jede neue DSP-Funktion MUSS auf mindestens einem dieser Prinzipien basieren:
 ## 📊 Neue Module seit v9.x.x — Schnellreferenz
 
 | Modul | Position in Pipeline | Messbarer Effekt |
-|---|---|---|
+| --- | --- | --- |
 | `TransientDecoupledProcessing` | Allererster Schritt | GrooveMetric +0.03–0.06 |
 | `HarmonicPreservationGuard` | Vor phase_03/phase_29 | Natürlichkeit +0.03–0.07 |
 | `PerPhaseMusicalGoalsGate` | Wraps jede Phase | Kein kumulativer Qualitätsverlust |
@@ -451,5 +458,5 @@ Jede neue DSP-Funktion MUSS auf mindestens einem dieser Prinzipien basieren:
 
 ---
 
-**KI-Agent Integration Guide — Aurik 9.10.102 — April 2026**
+**KI-Agent Integration Guide — Aurik 9.10.124 — April 2026**
 **Bindend für: GitHub Copilot, Claude, GPT-Instanzen**

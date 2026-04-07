@@ -159,7 +159,7 @@ class GenreWeightRegistry:
         """Validate that all genre weight tables sum to 1.0"""
         for genre, weights in cls.GENRE_WEIGHTS.items():
             if not weights.validate_sum():
-                logger.warning(f"Genre {genre} weights do not sum to 1.0")
+                logger.warning("Genre %s weights do not sum to 1.0", genre)
                 return False
         return True
 
@@ -920,7 +920,7 @@ class AestheticJudgmentModel:
             errors=errors,
         )
 
-        logger.info(f"Quality evaluation complete: CAS {cas_before:.3f} → {cas_after:.3f} (Δ{cas_improvement:+.3f})")
+        logger.info("Quality evaluation complete: CAS %.3f → %.3f (Δ%+.3f)", cas_before, cas_after, cas_improvement)
 
         return report
 

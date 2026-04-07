@@ -151,8 +151,8 @@ class AudioForensicsAnalyzer:
     Example:
         >>> analyzer = AudioForensicsAnalyzer()
         >>> report = analyzer.analyze(audio, sr=48000)
-        >>> logger.debug(f"Authenticity: {report.authenticity_score:.2f}")
-        >>> logger.debug(f"Risk: {report.risk_level.value}")
+        logger.debug("Authenticity: %.2f", report.authenticity_score)
+        logger.debug("Risk: %s", report.risk_level.value)
     """
 
     def __init__(self, sensitivity: float = 0.7) -> None:
@@ -164,7 +164,7 @@ class AudioForensicsAnalyzer:
                         Higher = more sensitive but more false positives
         """
         self.sensitivity = sensitivity
-        logger.info(f"AudioForensicsAnalyzer initialized (sensitivity={sensitivity})")
+        logger.info("AudioForensicsAnalyzer initialized (sensitivity=%s)", sensitivity)
 
     def analyze(
         self,
@@ -186,7 +186,7 @@ class AudioForensicsAnalyzer:
         # Convert to mono
         audio_mono = np.mean(audio, axis=0) if audio.ndim > 1 else audio
 
-        logger.debug(f"Analyzing {len(audio_mono) / sr:.2f}s audio for authenticity")
+        logger.debug("Analyzing %.2fs audio for authenticity", len(audio_mono) / sr)
 
         # 1. AI-generation detection
         ai_confidence, gan_detected, diffusion_detected = self._detect_ai_generation(audio_mono, sr)
@@ -681,8 +681,8 @@ def verify_audio_authenticity(
 
     Example:
         >>> report = verify_audio_authenticity(audio, sr=48000, aurik_mode="restoration")
-        >>> logger.debug(f"Authenticity: {report.authenticity_score:.2f}")
-        >>> logger.debug(f"Recommendation: {report.restoration_recommendation}")
+        logger.debug("Authenticity: %.2f", report.authenticity_score)
+        logger.debug("Recommendation: %s", report.restoration_recommendation)
     """
     analyzer = AudioForensicsAnalyzer(sensitivity=sensitivity)
     return analyzer.analyze(audio, sr, aurik_mode=aurik_mode)

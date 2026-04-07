@@ -316,14 +316,14 @@ class MLEraDetector:
         """
         if verbose:
             logger.info("🎓 Training ML Era Detector...")
-            logger.info(f"   Samples: {X.shape[0]}, Features: {X.shape[1]}")
+            logger.info("   Samples: %s, Features: %s", X.shape[0], X.shape[1])
 
         # Encode labels
         y_encoded = self.label_encoder.fit_transform(y)
         self.n_classes = len(self.label_encoder.classes_)
 
         if verbose:
-            logger.info(f"   Eras: {self.n_classes} → {list(self.label_encoder.classes_)}")
+            logger.info("   Eras: %s → %s", self.n_classes, list(self.label_encoder.classes_))
 
         # Scale features
         X_scaled = self.scaler.fit_transform(X)
@@ -342,7 +342,7 @@ class MLEraDetector:
 
         # Cross-validation
         if verbose:
-            logger.info(f"   Running {cv_folds}-fold cross-validation...")
+            logger.info("   Running %s-fold cross-validation...", cv_folds)
 
         cv = StratifiedKFold(n_splits=cv_folds, shuffle=True, random_state=self.random_state)
         rf_cv_scores = cross_val_score(self.rf_model, X_scaled, y_encoded, cv=cv, n_jobs=-1)
@@ -373,12 +373,12 @@ class MLEraDetector:
         if verbose:
             logger.info("   " + "=" * 50)
             logger.info("   ✅ Training Complete!")
-            logger.info(f"   RF Train Accuracy:     {rf_train_acc:.4f}")
-            logger.info(f"   GB Train Accuracy:     {gb_train_acc:.4f}")
-            logger.info(f"   Ensemble Train Acc:    {self.training_accuracy:.4f}")
-            logger.info(f"   RF CV Accuracy:        {rf_cv_scores.mean():.4f} ± {rf_cv_scores.std():.4f}")
-            logger.info(f"   GB CV Accuracy:        {gb_cv_scores.mean():.4f} ± {gb_cv_scores.std():.4f}")
-            logger.info(f"   Ensemble CV Accuracy:  {self.cv_accuracy:.4f}")
+            logger.info("   RF Train Accuracy:     %.4f", rf_train_acc)
+            logger.info("   GB Train Accuracy:     %.4f", gb_train_acc)
+            logger.info("   Ensemble Train Acc:    %.4f", self.training_accuracy)
+            logger.info("   RF CV Accuracy:        %.4f ± %.4f", rf_cv_scores.mean(), rf_cv_scores.std())
+            logger.info("   GB CV Accuracy:        %.4f ± %.4f", gb_cv_scores.mean(), gb_cv_scores.std())
+            logger.info("   Ensemble CV Accuracy:  %.4f", self.cv_accuracy)
             logger.info("   " + "=" * 50)
 
         return report
@@ -509,10 +509,10 @@ class MLEraDetector:
             logger.info("=" * 60)
             logger.info("📊 TEST SET EVALUATION - ERA DETECTOR")
             logger.info("=" * 60)
-            logger.info(f"Test Samples: {len(y_test)}")
-            logger.info(f"RF Accuracy:       {rf_acc:.4f}")
-            logger.info(f"GB Accuracy:       {gb_acc:.4f}")
-            logger.info(f"Ensemble Accuracy: {ensemble_acc:.4f}")
+            logger.info("Test Samples: %s", len(y_test))
+            logger.info("RF Accuracy:       %.4f", rf_acc)
+            logger.info("GB Accuracy:       %.4f", gb_acc)
+            logger.info("Ensemble Accuracy: %.4f", ensemble_acc)
             logger.info("")
             logger.info("Per-Era Metrics:")
             logger.info("-" * 60)
@@ -551,7 +551,7 @@ class MLEraDetector:
         with open(filepath, "wb") as f:
             pickle.dump(model_data, f)
 
-        logger.info(f"✅ Era Detector model saved to {filepath}")
+        logger.info("✅ Era Detector model saved to %s", filepath)
 
     def load(self, filepath: Path) -> None:
         """Load trained model from disk."""
@@ -569,10 +569,10 @@ class MLEraDetector:
 
         self.is_trained = True
 
-        logger.info(f"✅ Era Detector model loaded from {filepath}")
-        logger.info(f"   Version: {model_data.get('version', 'unknown')}")
-        logger.info(f"   Eras: {self.n_classes}")
-        logger.info(f"   CV Accuracy: {self.cv_accuracy:.4f}")
+        logger.info("✅ Era Detector model loaded from %s", filepath)
+        logger.info("   Version: %s", model_data.get('version', 'unknown'))
+        logger.info("   Eras: %s", self.n_classes)
+        logger.info("   CV Accuracy: %.4f", self.cv_accuracy)
 
 
 def train_ml_era_detector_from_dataset(
@@ -602,11 +602,11 @@ def train_ml_era_detector_from_dataset(
     labels = []
 
     if verbose:
-        logger.info(f"📊 Extracting era features from {len(dataset['samples'])} samples...")
+        logger.info("📊 Extracting era features from %s samples...", len(dataset['samples']))
 
     for i, sample in enumerate(dataset["samples"]):
         if verbose and (i + 1) % 50 == 0:
-            logger.info(f"   Processed {i + 1}/{len(dataset['samples'])}...")
+            logger.info("   Processed %s/%s...", i + 1, len(dataset['samples']))
 
         base_features, era_features = extractor.extract_era_features(sample.audio, sample.sample_rate, verbose=False)
 

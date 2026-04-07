@@ -732,6 +732,99 @@ fundamentale Frequenzen → K-S volatile.
 
 ---
 
+## §2.37 [RELEASE_MUST] Frontend-Backend-PreAnalysis-Handover-Architektur (v9.10.127)
+
+### Kernprinzip
+
+Pre-Analyseergebnisse werden **einmalig** bei Import berechnet (`run_pre_analysis()`) und als **direkte Objektreferenz** (nicht Cache-Keys) weitergereicht. Cache-basierte Rekonstruktion in asynchronen Batch-Threads erzeugt Racebedingungen.
+
+### Datenfluss: Import → Analysis → Queue → Batch → Denker
+
+```
+UI: _load_file(path)
+  │
+  ├─→ [A] Hard Cache Clear: _bridge_clear_cache_for_path(old_path)
+  │       └─ Alte Caches (defect, era/genre, medium, restorability) aktiv löschen
+  │
+  ├─→ [B] _pre_analysis_bg() → run_pre_analysis(audio_native, sr_native, ...)
+  │       └─ MediumDetector.detect() aufgerufen GENAU 1x (native SR)
+  │       └─ Alle 5 Analysen parallel: Medium, Era, Genre, Defect, Restorability
+  │       └─ Ergebnisse in Bridge-Cache speichern (LRU, content-addressed)
+  │
+  ├─→ [C] Frontend speichert: _latest_pre_analysis_result = PreAnalysisResult(...)
+  │       └─ Complete object reference (nicht nur Cache-Keys)
+  │
+  └─→ [D] Mode-Click (Restoration / Studio 2026)
+          │
+          ├─→ _add_to_queue_with_mode()
+          │   └─ queue_item.settings["pre_analysis_result"] = _latest_pre_analysis_result
+          │   └─ falls vorhanden: queue_item.settings["cached_defect_result"] = pre_analysis_result.defects
+          │
+          └─→ BatchProcessingThread.run()
+              │
+              ├─→ [E] Check queue_item.settings.get("pre_analysis_result"):
+              │       IF present: pre_result = settings["pre_analysis_result"]
+              │       ELSE: Rekonstruiere von Bridge-Caches (Fallback)
+              │       Zusätzlich: konkret verwendetes Defect-Result immer als
+              │       `cached_defect_result` an denke()/UV3 weiterreichen
+              │
+              └─→ [F] AurikDenker.denke(pre_analysis_result=pre_result, ...)
+                  │
+                  └─→ UV3.restore(cached_medium_kwarg=..., ...)
+                      └─ MediumDetector.detect() NICHT aufgerufen (bereits 1x in pre_analysis)
+```
+
+### Invarianten (RELEASE_MUST)
+
+| Invariante | Ort | Status |
+| --- | --- | --- |
+| Hard Cache Clear bei neuem Import | `Aurik910/ui/modern_window.py` line ~11920 | ✅ |
+| PreAnalysisResult Storage | `Aurik910/ui/modern_window.py` line ~12691 | ✅ |
+| Queue-Handover | `Aurik910/ui/modern_window.py` line ~13939 | ✅ |
+| Batch-Prioritization | `Aurik910/ui/modern_window.py` line ~2117 | ✅ |
+| Defect-Handover-Absicherung | `Aurik910/ui/modern_window.py` line ~2107 | ✅ |
+| Test: Exactly 1 detect() call | `tests/unit/test_pre_analysis_handover_no_double_detect.py` | ✅ |
+
+**Kritische Invariante**: `MediumDetector.detect()` wird **GENAU 1x** aufgerufen (von `run_pre_analysis()`), nie 2x oder 3x.
+
+**Zusätzliche Invariante**: Das für den Run tatsächlich verwendete `DefectAnalysisResult` MUSS `AurikDenker.denke()` und UV3 immer als `cached_defect_result` erreichen. Ein unvollständiges `PreAnalysisResult` darf keinen zweiten Defect-Scan erzwingen, solange bereits ein konkretes Defect-Result im Queue-Kontext vorliegt.
+
+### Fallback-Hierarchie
+
+Falls `queue_item.settings["pre_analysis_result"]` ist `None` (shouldn't happen):
+
+1. Bridge-Cache Rekonstruktion bei einzelnen Caches
+2. Wenn Cache incomplete: UV3 führt fehlende Analysen eigenständig aus
+3. Monitoring: `metadata["pre_analysis_handover"]` dokumentiert Fallback-Nutzung
+
+### Rationale: Warum nicht Bridge-Cache?
+
+**Problem**: Zeitfenster zwischen Frontend und Batch erlaubt Racebedingungen
+
+```python
+# ❌ RACE CONDITION
+# Thread 1 (Frontend):
+bridge.cache_medium_result(path, medium)
+bridge.cache_defect_result(path, defect)
+
+# Fenster (ms) — Batch-Thread könnte stale Cache lesen
+# Old cache von vorrigem File könnte persistent sein
+
+# Thread 2 (Batch):
+medium = bridge.get_cached_medium_result(path)  # Original oder degradiert?
+defect = bridge.get_cached_defect_result(path)  # Aus alter Datei gelesen?
+```
+
+**Lösung**: Direct Object Reference (Frozen nach Frontend-Capture, keine Parallelität)
+
+```python
+# ✓ DETERMINISTIC
+pre_result = queue_item.settings["pre_analysis_result"]  # Complete object
+# Immutable nach Frontend-Capture → keine Racebedingungen
+```
+
+---
+
 ## §2.38 Kontinuierliche ML-Veredelung (KMV) — [RELEASE_MUST]
 
 > **Kernprinzip**: Der PerformanceGuard verwirft überschrittene Phasen nie endgültig — er _deferriert_ sie.
@@ -1063,6 +1156,31 @@ Ein Artefakt (`artifact_freedom` = 0.5) killt den HPI härter als eine leichte T
 
 - `perceptual_delta > 0` Pflicht — auch Enhancement-Phasen müssen messbaren Nutzen zeigen
 - Phasen ohne messbaren Klanggewinn → Skip
+
+## §2.45a [RELEASE_MUST] Mid-Pipeline-Loudness-Drift-Guard (v9.10.128)
+
+### Problem
+
+Die finale LUFS-Invariante (`LUFS-Differenz ≤ 1 LU`) schützt den Export, aber nicht zwingend frühe, hörbare Pegelkollapse innerhalb der subtraktiven Phasenkette.
+
+### Pflicht-Invarianten
+
+- Für breitbandig/subtraktive Phasen MUSS ein material-adaptiver per-Phase-RMS-Drift-Guard aktiv sein.
+- Ein Guard darf die Phase nicht trivialisieren (`strength=0`/Bypass als Standardreaktion ist unzulässig).
+- Bei Überschreitung des material-adaptiven RMS-Drift-Limits gilt: primär Dry/Wet-Rescue (mehr Dry-Anteil), sekundär sichere Makeup-Gain-Kompensation.
+- Gain-Limits müssen den DSP-Peak-Guard nutzen: `np.percentile(np.abs(audio), 99.9)`.
+- Phase-Metadaten müssen `rms_drop_db` und `loudness_makeup_db` ausweisen.
+- Pipeline-Metadaten müssen stärkste Pegelabfälle separat ausweisen (z. B. `phase_regression_top_drops`).
+
+### Normativer Scope (typische Kandidaten)
+
+- Denoise / Hiss / Surface-Noise Reduction
+- Noise-Gate
+- Dereverb
+
+### Rationale
+
+Schützt §0 (Primum non nocere), §2.45 (Minimal-Intervention) und P1/P2-Hartregeln gegen frühe Klangausdünnung, ohne die Defektkorrekturwirkung zu verlieren.
 
 ## §2.46 [RELEASE_MUST] Carrier-Chain-Inversion (v9.10.122)
 

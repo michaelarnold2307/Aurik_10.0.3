@@ -50,15 +50,15 @@ class ShellacEqualizer:
                 "HMV": (500, +18.0, 5500, -18.0),  # HMV / EMI (corrected: 5.5 kHz, not 3.5 kHz)
             }
             if self.curve not in curve_params:
-                logger.warning(f"Unbekannte Entzerrungskurve: {self.curve}, Fallback auf 78rpm")
+                logger.warning("Unbekannte Entzerrungskurve: %s, Fallback auf 78rpm", self.curve)
             params = curve_params.get(self.curve, curve_params["78rpm"])
             audio_out = self._apply_shellac_eq(audio, sr, *params)
         except Exception as e:
-            logger.error(f"Fehler bei der Entzerrung: {e}")
+            logger.error("Fehler bei der Entzerrung: %s", e)
             audio_out = audio.copy()
 
         if audit_log:
-            logger.info(f"ShellacEqualizer: curve={self.curve}, EQ angewendet")
+            logger.info("ShellacEqualizer: curve=%s, EQ angewendet", self.curve)
         return audio_out.astype(audio.dtype)
 
     @staticmethod

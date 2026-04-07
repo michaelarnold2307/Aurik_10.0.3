@@ -294,15 +294,13 @@ def load_checkpoint_audio(checkpoint: RecoveryCheckpoint) -> np.ndarray | None:
 
     Returns ``None`` only if both paths fail.
     """
-    import soundfile as sf
+    from backend.file_import import load_audio_file
 
     orig_exc: Exception | None = None
 
     # Primary source per §2.39: original input audio
     try:
-        from backend.file_import import load_audio_file
-
-        _res = load_audio_file(checkpoint.original_input_path)
+        _res = load_audio_file(checkpoint.original_input_path, do_carrier_analysis=False)
         if _res is not None and not _res.get("error"):
             audio = np.asarray(_res["audio"], dtype=np.float32)
             sr = int(_res["sr"])
@@ -330,7 +328,11 @@ def load_checkpoint_audio(checkpoint: RecoveryCheckpoint) -> np.ndarray | None:
 
     # Emergency fallback: checkpoint audio WAV
     try:
-        audio, sr = sf.read(checkpoint.audio_wav_path, dtype="float32")
+        _res_cp = load_audio_file(checkpoint.audio_wav_path, do_carrier_analysis=False)
+        if _res_cp is None or _res_cp.get("error"):
+            raise RuntimeError(str((_res_cp or {}).get("error", "load_audio_file returned invalid result")))
+        audio = np.asarray(_res_cp["audio"], dtype=np.float32)
+        sr = int(_res_cp["sr"])
         if sr != checkpoint.sample_rate:
             logger.warning(
                 "Recovery: SR mismatch — checkpoint %d Hz, WAV %d Hz",

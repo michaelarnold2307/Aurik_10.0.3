@@ -49,6 +49,12 @@ except ImportError:
     def _bridge_get_load_audio_fn() -> Any:  # type: ignore[misc]
         return None
 
+# Direct fallback import for when bridge is unavailable
+try:
+    from backend.file_import import load_audio_file as _direct_load_audio_file
+except ImportError:
+    _direct_load_audio_file = None  # type: ignore[assignment]
+
 
 _TARGET_SR = 48_000
 
@@ -106,9 +112,15 @@ class ProcessingThread(QThread):
                 audio = np.asarray(_loaded["audio"], dtype=np.float32)
                 sr = int(_loaded["sr"])
             else:
-                # Bridge nicht verfügbar — sf.read als Notfall-Fallback
-                audio, sr = sf.read(self.input_file)
-                audio, sr = _resample_to_48k(np.asarray(audio, dtype=np.float32), sr)
+                # Bridge nicht verfügbar — load_audio_file direkt
+                if _direct_load_audio_file is not None:
+                    _loaded = _direct_load_audio_file(self.input_file, target_sr=_TARGET_SR, do_carrier_analysis=False)
+                    if _loaded is None or _loaded.get("error"):
+                        raise RuntimeError(f"Audio-Datei konnte nicht geladen werden: {self.input_file}")
+                    audio = np.asarray(_loaded["audio"], dtype=np.float32)
+                    sr = int(_loaded["sr"])
+                else:
+                    raise RuntimeError("Kein Audio-Loader verfügbar (Bridge und file_import fehlen)")
             self.progress.emit(20)
 
             # §RELEASE_MUST: Canonical entrypoint via AurikDenker.denke() — no UV3 bypass
@@ -177,9 +189,15 @@ class BatchProcessingThread(QThread):
                     audio = np.asarray(_loaded["audio"], dtype=np.float32)
                     sr = int(_loaded["sr"])
                 else:
-                    # Bridge nicht verfügbar — sf.read als Notfall-Fallback
-                    audio, sr = sf.read(item.input_file)
-                    audio, sr = _resample_to_48k(np.asarray(audio, dtype=np.float32), sr)
+                    # Bridge nicht verfügbar — load_audio_file direkt
+                    if _direct_load_audio_file is not None:
+                        _loaded = _direct_load_audio_file(item.input_file, target_sr=_TARGET_SR, do_carrier_analysis=False)
+                        if _loaded is None or _loaded.get("error"):
+                            raise RuntimeError(f"Audio-Datei konnte nicht geladen werden: {item.input_file}")
+                        audio = np.asarray(_loaded["audio"], dtype=np.float32)
+                        sr = int(_loaded["sr"])
+                    else:
+                        raise RuntimeError("Kein Audio-Loader verfügbar (Bridge und file_import fehlen)")
                 self.item_progress.emit(item.id, 20)
                 self.queue_manager.update_item_status(item.id, QueueStatus.PROCESSING, 20)
 

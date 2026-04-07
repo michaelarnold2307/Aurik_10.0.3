@@ -99,8 +99,13 @@ class MDX23CModel:
                     )
 
                     if not _try_alloc(f"MDX23C_{self.stem_key}", size_gb=0.55):
-                        logger.warning("MDX23C [%s]: ML-Budget erschöpft — HPSS-Fallback", self.stem_key)
-                        return
+                        try:
+                            _rel(f"MDX23C_{self.stem_key}")
+                        except Exception:
+                            pass
+                        if not _try_alloc(f"MDX23C_{self.stem_key}", size_gb=0.55):
+                            logger.warning("MDX23C [%s]: ML-Budget erschöpft — NMF-β-Fallback", self.stem_key)
+                            return
                 except Exception:
                     _rel = None  # Budget-Modul nicht verfügbar
 
@@ -144,7 +149,7 @@ class MDX23CModel:
                 except Exception as _exc:
                     logger.debug("Operation failed (non-critical): %s", _exc)
 
-        logger.warning("MDX23C [%s]: Kein ONNX-Modell gefunden — HPSS-Fallback aktiv", self.stem_key)
+        logger.warning("MDX23C [%s]: Kein ONNX-Modell gefunden — NMF-β-Fallback aktiv", self.stem_key)
 
     # ------------------------------------------------------------------
     def separate(self, audio: np.ndarray, sr: int) -> np.ndarray:
@@ -169,14 +174,15 @@ class MDX23CModel:
         # Resample auf MDX_SR
         resampled, rs_sr = self._resample(audio, sr, MDX_SR)
 
+        is_vocals = self.stem_key == "vocals"
         if self._ok:
             try:
                 out = self._mdx_separate(resampled)
             except Exception as exc:
-                logger.warning("MDX23C ONNX-Fehler: %s — HPSS-Fallback", exc)
-                out = self._hpss_fallback(resampled, is_vocals=self.stem_key == "vocals")
+                logger.warning("MDX23C ONNX-Fehler: %s — NMF-β-Fallback", exc)
+                out = self._nmf_beta_fallback(resampled, is_vocals=is_vocals)
         else:
-            out = self._hpss_fallback(resampled, is_vocals=self.stem_key == "vocals")
+            out = self._nmf_beta_fallback(resampled, is_vocals=is_vocals)
 
         # Zurück auf Original-SR
         if rs_sr != sr:
@@ -296,8 +302,121 @@ class MDX23CModel:
 
     # ------------------------------------------------------------------
     @staticmethod
+    def _nmf_beta_fallback(audio: np.ndarray, is_vocals: bool) -> np.ndarray:
+        """NMF-β Stem-Separation (Smaragdis & Brown 2003, §2.47 Spec ML-Fallback).
+
+        Itakura-Saito NMF (β=0) auf STFT-Magnitude; Komponenten werden nach
+        Vokal-Band-Energie-Anteil (300–3000 Hz) in Gesang/Instrumental klassifiziert.
+        Anforderung: Proxy-SDR ≥ 5 dB (Energie-Kontrast zwischen Maske und Residuum).
+        Bei Unterschreitung oder Fehler → HPSS-Fallback.
+
+        is_vocals=True  → vokale Komponenten (hoher 300–3000 Hz Anteil)
+        is_vocals=False → nicht-vokale Komponenten (Instrumente)
+        """
+        try:
+            from sklearn.decomposition import NMF as _NMF
+        except ImportError:
+            return MDX23CModel._hpss_fallback(audio, is_vocals)
+
+        try:
+            channels, n = audio.shape
+            if n < MDX_N_FFT:
+                return MDX23CModel._hpss_fallback(audio, is_vocals)
+
+            n_fft = 2048
+            hop = 512
+            K = 8  # NMF-Rang (8 Komponenten ausreichend für Vokal/Instrumental-Split)
+            win = np.hanning(n_fft).astype(np.float32)
+            freqs_hz = np.fft.rfftfreq(n_fft, d=1.0 / MDX_SR)  # MDX_SR = 44100 Hz
+            vocal_band = (freqs_hz >= 300) & (freqs_hz <= 3000)
+
+            result = []
+            for c in range(channels):
+                sig = audio[c]
+                n_frames = (len(sig) - n_fft) // hop + 1
+                if n_frames < 4:
+                    result.append(sig.copy())
+                    continue
+
+                # STFT → Magnitude + Phase
+                frames = np.stack([
+                    sig[i * hop: i * hop + n_fft] for i in range(n_frames)
+                ])  # (n_frames, n_fft)
+                stft = np.fft.rfft(frames * win, n=n_fft)  # (n_frames, n_fft//2+1)
+                mag = np.abs(stft).astype(np.float32)       # NMF input
+
+                # NMF Itakura-Saito (β=0): V ≈ W · H, min IS-Divergenz
+                model = _NMF(
+                    n_components=K,
+                    beta_loss="itakura-saito",
+                    solver="mu",
+                    max_iter=120,
+                    random_state=0,
+                    init="nndsvda",
+                )
+                H = model.fit_transform(mag + 1e-8)  # (n_frames, K) — Zeitaktivierungen
+                W = model.components_                 # (K, n_fft//2+1) — Spektralbases
+
+                # Vokal-Ratio pro Komponente: Energie-Anteil im Vokalband 300–3000 Hz
+                component_vocal_ratios = np.array([
+                    np.sum(W[k, vocal_band]) / (np.sum(W[k]) + 1e-8)
+                    for k in range(K)
+                ])
+
+                # Soft-Mask: gewichtete Rekonstruktion nach Vokal-Anteil
+                vocal_spec = np.zeros_like(mag)
+                inst_spec = np.zeros_like(mag)
+                for k in range(K):
+                    component = np.outer(H[:, k], W[k])  # (n_frames, freqs)
+                    v_weight = float(component_vocal_ratios[k])
+                    vocal_spec += v_weight * component
+                    inst_spec += (1.0 - v_weight) * component
+
+                # Soft-Wiener-Maske
+                total = vocal_spec + inst_spec + 1e-8
+                vocal_mask = vocal_spec / total  # (n_frames, freqs) ∈ [0, 1]
+                inst_mask  = inst_spec  / total
+
+                target_mask = vocal_mask if is_vocals else inst_mask
+
+                # Proxy-SDR: Energie-Kontrast in Vokalband
+                target_in_band  = float(np.mean(target_mask[:, vocal_band]))
+                reject_in_band  = float(np.mean((1.0 - target_mask)[:, vocal_band]))
+                sdr_proxy_db = 10.0 * np.log10(target_in_band / (reject_in_band + 1e-12) + 1e-12)
+                if sdr_proxy_db < 5.0:
+                    logger.debug(
+                        "MDX23C NMF-β: Proxy-SDR %.1f dB < 5 dB — HPSS-Fallback",
+                        sdr_proxy_db,
+                    )
+                    return MDX23CModel._hpss_fallback(audio, is_vocals)
+
+                # Maske × Original-STFT → iSTFT (Overlap-Add)
+                masked_stft = stft * target_mask
+                out = np.zeros(n, dtype=np.float32)
+                norm = np.zeros(n, dtype=np.float32)
+                for i in range(n_frames):
+                    frame = np.fft.irfft(masked_stft[i], n=n_fft).real.astype(np.float32)
+                    s, e = i * hop, min(i * hop + n_fft, n)
+                    out[s:e]  += frame[: e - s] * win[: e - s]
+                    norm[s:e] += win[: e - s] ** 2
+                norm = np.where(norm < 1e-8, 1.0, norm)
+                out /= norm
+                result.append(out)
+
+            logger.info(
+                "MDX23C NMF-β-Fallback: %s Stem (K=%d, SDR-Proxy≥5 dB OK)",
+                "vocals" if is_vocals else "instruments",
+                K,
+            )
+            return np.stack(result)
+
+        except Exception as exc:
+            logger.warning("MDX23C NMF-β fehlgeschlagen: %s — HPSS-Fallback", exc)
+            return MDX23CModel._hpss_fallback(audio, is_vocals)
+
+    @staticmethod
     def _hpss_fallback(audio: np.ndarray, is_vocals: bool) -> np.ndarray:
-        """HPSS-Fallback (Fitzgerald 2010, Medianfilter).
+        """HPSS-Fallback (Fitzgerald 2010, Medianfilter) — tertiärer Fallback nach NMF-β.
 
         is_vocals=True  → harmonischer Anteil (Gesang)
         is_vocals=False → perkussiver Anteil  (Instrumente)
@@ -436,10 +555,13 @@ class MDX23CPlugin:
     ) -> None:
         """Verarbeite WAV-Datei (kompatibel mit alter Docker-API)."""
         try:
+            from backend.file_import import load_audio_file
             import soundfile as sf
 
-            audio, sr = sf.read(input_wav, dtype="float32", always_2d=True)
-            audio = audio.T
+            _res = load_audio_file(input_wav, do_carrier_analysis=False)
+            audio = np.asarray(_res["audio"], dtype=np.float32)
+            sr = int(_res["sr"])
+            audio = audio[np.newaxis, :] if audio.ndim == 1 else audio.T
             result = self.process(audio, sr, stem=stem)
             Path(output_wav).parent.mkdir(parents=True, exist_ok=True)
             sf.write(output_wav, result.T if result.ndim == 2 else result, sr)

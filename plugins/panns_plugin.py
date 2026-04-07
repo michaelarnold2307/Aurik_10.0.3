@@ -325,9 +325,11 @@ class PANNsPlugin:
         import json
 
         try:
-            import soundfile as sf
+            from backend.file_import import load_audio_file
 
-            audio, sr = sf.read(str(input_wav), dtype="float32", always_2d=False)
+            _res = load_audio_file(str(input_wav), do_carrier_analysis=False)
+            audio = np.asarray(_res["audio"], dtype=np.float32)
+            sr = int(_res["sr"])
         except Exception as exc:
             logger.error("PANNsPlugin.tag: Datei nicht lesbar '%s': %s", input_wav, exc)
             return {}
@@ -385,18 +387,18 @@ if __name__ == "__main__":
         logger.debug("Verwendung: panns_plugin.py <audio_datei> [output.json]")
         sys.exit(1)
 
-    import soundfile as sf
-
-    _audio, _sr = sf.read(sys.argv[1], dtype="float32", always_2d=False)
+    from backend.file_import import load_audio_file
+    _res = load_audio_file(sys.argv[1])
+    _audio, _sr = _res["audio"], int(_res["sr"])
     _tags = classify_audio(_audio, _sr)
-    logger.debug(f"PANNs CNN14 — {sys.argv[1]}")
+    logger.debug("PANNs CNN14 — %s", sys.argv[1])
     for _tag, _score in sorted(_tags.items(), key=lambda x: -x[1]):
         bar = "█" * int(_score * 20)
-        logger.debug(f"  {_tag:30s}  {_score:.4f}  {bar}")
+        logger.debug("  %s  %.4f  %s", _tag, _score, bar)
 
     if len(sys.argv) > 2:
         import json
 
         with open(sys.argv[2], "w", encoding="utf-8") as _f:
             json.dump(_tags, _f, indent=2)
-        logger.debug(f"→ JSON gespeichert: {sys.argv[2]}")
+        logger.debug("→ JSON gespeichert: %s", sys.argv[2])

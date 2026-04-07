@@ -43,9 +43,9 @@ adaptive_gain_rider_contract = DSPContract(
     },
     preconditions=[{"if": "True", "reason": "Immer aktiv"}],
     params={
-        "defaults": {"target_rms": -18.0, "window_sec": 0.2, "max_gain_db": 12.0},
+        "defaults": {"target_lufs": -18.0, "window_sec": 0.2, "max_gain_db": 12.0},
         "safe_ranges": {
-            "target_rms": {"min": -30.0, "max": -10.0},
+            "target_lufs": {"min": -30.0, "max": -10.0},
             "window_sec": {"min": 0.05, "max": 1.0},
             "max_gain_db": {"min": 1.0, "max": 24.0},
         },
@@ -66,16 +66,16 @@ adaptive_gain_rider_contract = DSPContract(
 class AdaptiveGainRider:
     """
     SOTA-konformer Adaptive Gain Rider:
-    - Automatische Lautstärkeanpassung auf Ziel-RMS
+    - Automatische Lautstärkeanpassung auf Ziel-LUFS (lineare Approximation)
     """
 
     def __init__(
         self,
-        target_rms: float = -18.0,
+        target_lufs: float = -18.0,
         window_sec: float = 0.2,
         max_gain_db: float = 12.0,
     ):
-        self.target_rms = target_rms
+        self.target_lufs = target_lufs
         self.window_sec = window_sec
         self.max_gain_db = max_gain_db
 
@@ -113,7 +113,7 @@ class AdaptiveGainRider:
             else:
                 out = self._process_classic(audio, sr)
         except Exception as e:
-            logger.error(f"Fehler bei Gain Riding: {e}")
+            logger.error("Fehler bei Gain Riding: %s", e)
             fallback_used = True
             out = audio.copy()
 
@@ -124,13 +124,13 @@ class AdaptiveGainRider:
 
         if audit_log:
             rms_profile = float(np.sqrt(np.mean(out**2)))
-            logger.info(f"AdaptiveGainRider: rms_profile={rms_profile:.3f}, fallback_used={fallback_used}")
+            logger.info("AdaptiveGainRider: rms_profile=%.3f, fallback_used=%s", rms_profile, fallback_used)
         return out
 
     def _process_classic(self, audio: np.ndarray, sr: int) -> np.ndarray:
         window = max(1, int(self.window_sec * sr))
         hop = max(1, window // 2)  # 50% overlap for smooth transitions
-        target_linear = 10.0 ** (self.target_rms / 20.0)
+        target_linear = 10.0 ** (self.target_lufs / 20.0)
         max_gain_lin = 10.0 ** (self.max_gain_db / 20.0)
         min_gain_lin = 10.0 ** (-self.max_gain_db / 20.0)
 

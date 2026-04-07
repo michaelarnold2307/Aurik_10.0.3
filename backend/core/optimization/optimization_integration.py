@@ -88,8 +88,8 @@ class OptimizationIntegration:
         self._moo_optimizer: NSGAII | None = None
 
         logger.info("OptimizationIntegration initialized (v8.2)")
-        logger.info(f"  Optimization path: {self.optimization_base_path}")
-        logger.info(f"  Loaded parameters for {len(self.material_params_cache)} materials")
+        logger.info("  Optimization path: %s", self.optimization_base_path)
+        logger.info("  Loaded parameters for %s materials", len(self.material_params_cache))
         logger.info("  Phase 1: Perceptual Loss, E2E Optimization, Hyperparameter Optimization")
         logger.info("  Phase 2-4: NAS, Ensemble, MOO, Uncertainty, Augmentation available")
 
@@ -101,14 +101,14 @@ class OptimizationIntegration:
             params = self._load_material_parameters(material)
             if params:
                 self.material_params_cache[material] = params
-                logger.info(f"  Loaded optimized parameters for: {material}")
+                logger.info("  Loaded optimized parameters for: %s", material)
 
     def _load_material_parameters(self, material_type: str) -> dict[str, Any] | None:
         """Load optimized parameters for specific material."""
         params_path = self.optimization_base_path / material_type / f"best_params_{material_type}.yaml"
 
         if not params_path.exists():
-            logger.debug(f"No optimized parameters found for {material_type}: {params_path}")
+            logger.debug("No optimized parameters found for %s: %s", material_type, params_path)
             return None
 
         try:
@@ -116,7 +116,7 @@ class OptimizationIntegration:
                 params = yaml.safe_load(f)
             return params
         except Exception as e:
-            logger.error(f"Failed to load parameters for {material_type}: {e}")
+            logger.error("Failed to load parameters for %s: %s", material_type, e)
             return None
 
     def get_optimized_parameters(self, material_type: str, fallback_to_defaults: bool = True) -> dict[str, Any]:
@@ -142,7 +142,7 @@ class OptimizationIntegration:
 
         # Fallback to defaults
         if fallback_to_defaults:
-            logger.warning(f"Using default parameters for {material_type}")
+            logger.warning("Using default parameters for %s", material_type)
             return self._get_default_parameters()
 
         return {}
@@ -218,7 +218,7 @@ class OptimizationIntegration:
         self._update_compressor_config(context, params)
         self._update_musical_goals_weights(context, params)
 
-        logger.info(f"Applied optimized parameters for material: {material_type}")
+        logger.info("Applied optimized parameters for material: %s", material_type)
 
         return context
 
@@ -420,9 +420,9 @@ class OptimizationIntegration:
         # Add optimized parameters to strategy
         strategy["optimized_params"] = params
 
-        logger.info(f"Processing strategy recommended for {material_type}")
-        logger.info(f"  Models: {strategy['recommended_models']}")
-        logger.info(f"  DSP chain: {strategy['recommended_dsp_chain']}")
+        logger.info("Processing strategy recommended for %s", material_type)
+        logger.info("  Models: %s", strategy['recommended_models'])
+        logger.info("  DSP chain: %s", strategy['recommended_dsp_chain'])
 
         return strategy
 
@@ -456,7 +456,7 @@ class OptimizationIntegration:
         cache_key = f"{material_type}_{input_channels}_{initial_channels}_{n_cells}_{n_nodes}"
 
         if not force_new and cache_key in self._nas_network_cache:
-            logger.debug(f"Using cached NAS network for {material_type}")
+            logger.debug("Using cached NAS network for %s", material_type)
             return self._nas_network_cache[cache_key]
 
         # Create new network
@@ -469,12 +469,12 @@ class OptimizationIntegration:
         if weights_path.exists():
             try:
                 network.load_state_dict(torch.load(weights_path, map_location=self.device))  # nosec B614 — interner Checkpoint aus models/
-                logger.info(f"Loaded pretrained NAS network for {material_type}")
+                logger.info("Loaded pretrained NAS network for %s", material_type)
             except Exception as e:
-                logger.warning(f"Failed to load NAS weights for {material_type}: {e}")
+                logger.warning("Failed to load NAS weights for %s: %s", material_type, e)
 
         self._nas_network_cache[cache_key] = network
-        logger.info(f"Created NAS network for {material_type}: {n_cells} cells, {n_nodes} nodes")
+        logger.info("Created NAS network for %s: %s cells, %s nodes", material_type, n_cells, n_nodes)
 
         return network
 
@@ -502,7 +502,7 @@ class OptimizationIntegration:
         cache_key = f"{material_type}_{strategy}_{len(members)}" if material_type else None
 
         if cache_key and cache_key in self._ensemble_cache:
-            logger.debug(f"Using cached ensemble for {material_type}")
+            logger.debug("Using cached ensemble for %s", material_type)
             return self._ensemble_cache[cache_key]
 
         # Wrap members if needed
@@ -519,7 +519,7 @@ class OptimizationIntegration:
         if cache_key:
             self._ensemble_cache[cache_key] = ensemble
 
-        logger.info(f"Created {strategy} ensemble with {len(members)} members")
+        logger.info("Created %s ensemble with %s members", strategy, len(members))
 
         return ensemble
 
@@ -567,7 +567,7 @@ class OptimizationIntegration:
         cache_key = f"{material_type}_{method}_{n_samples}" if material_type else None
 
         if not force_new and cache_key and cache_key in self._uncertainty_quantifier_cache:
-            logger.debug(f"Using cached uncertainty quantifier for {material_type}")
+            logger.debug("Using cached uncertainty quantifier for %s", material_type)
             return self._uncertainty_quantifier_cache[cache_key]
 
         # Create quantifier
@@ -576,7 +576,7 @@ class OptimizationIntegration:
         if cache_key:
             self._uncertainty_quantifier_cache[cache_key] = quantifier
 
-        logger.info(f"Created {method} uncertainty quantifier")
+        logger.info("Created %s uncertainty quantifier", method)
 
         return quantifier
 
@@ -604,7 +604,7 @@ class OptimizationIntegration:
         cache_key = f"{material_type}_{strategy}_{n_ops}_{magnitude}"
 
         if not force_new and cache_key in self._augmentation_cache:
-            logger.debug(f"Using cached augmentation policy for {material_type}")
+            logger.debug("Using cached augmentation policy for %s", material_type)
             return self._augmentation_cache[cache_key]
 
         # Create augmentation policy
@@ -618,14 +618,14 @@ class OptimizationIntegration:
             if policy_path.exists():
                 try:
                     policy.load_policies(str(policy_path))
-                    logger.info(f"Loaded pretrained augmentation policy for {material_type}")
+                    logger.info("Loaded pretrained augmentation policy for %s", material_type)
                 except Exception as e:
-                    logger.warning(f"Failed to load augmentation policy: {e}")
+                    logger.warning("Failed to load augmentation policy: %s", e)
         else:
             raise ValueError(f"Unknown augmentation strategy: {strategy}")
 
         self._augmentation_cache[cache_key] = policy
-        logger.info(f"Created {strategy} augmentation policy for {material_type}")
+        logger.info("Created %s augmentation policy for %s", strategy, material_type)
 
         return policy
 
@@ -665,14 +665,14 @@ if __name__ == "__main__":
 
     # Get optimized parameters for vinyl
     params = integration.get_optimized_parameters("vinyl")
-    logger.debug(f"Vinyl parameters: {params}")
+    logger.debug("Vinyl parameters: %s", params)
 
     # Apply to context
     context = {"material_type": "vinyl", "detected_artifacts": ["clicks", "pops", "rumble"]}
 
     context = integration.apply_optimized_parameters_to_context(context, "vinyl")
-    logger.debug(f"\nUpdated context: {context}")
+    logger.debug("\nUpdated context: %s", context)
 
     # Recommend strategy
     strategy = integration.recommend_processing_strategy(context, "vinyl")
-    logger.debug(f"\nRecommended strategy: {strategy}")
+    logger.debug("\nRecommended strategy: %s", strategy)

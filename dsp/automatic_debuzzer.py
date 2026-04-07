@@ -110,9 +110,9 @@ class AutomaticDebuzzer:
                 b, a = scipy.signal.iirnotch(w0, self.q)
                 out = scipy.signal.lfilter(b, a, out)
         except Exception as e:
-            logger.error(f"Fehler beim Debuzzing: {e}")
+            logger.error("Fehler beim Debuzzing: %s", e)
             out = audio.copy()
 
         if audit_log:
-            logger.info(f"AutomaticDebuzzer: base_freq={self.base_freq}, harmonics={self.harmonics}, q={self.q}")
+            logger.info("AutomaticDebuzzer: base_freq=%s, harmonics=%s, q=%s", self.base_freq, self.harmonics, self.q)
         return out.astype(audio.dtype)

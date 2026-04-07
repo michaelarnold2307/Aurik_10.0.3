@@ -180,7 +180,7 @@ class LyricsAligner:
         # Convert to mono
         audio_mono = np.mean(audio, axis=0) if audio.ndim > 1 else audio
 
-        logger.info(f"Aligning lyrics for {len(audio_mono) / sr:.2f}s audio (language={language})")
+        logger.info("Aligning lyrics for %.2fs audio (language=%s)", len(audio_mono) / sr, language)
 
         # Use Whisper for transcription + alignment
         # (In production, use more sophisticated forced alignment)
@@ -375,7 +375,7 @@ class ContentAwareProcessor:
 
         duration = len(audio_mono) / sr
 
-        logger.info(f"Creating processing timeline ({aurik_mode} mode, {duration:.2f}s)")
+        logger.info("Creating processing timeline (%s mode, %.2fs)", aurik_mode, duration)
 
         # 1. Get lyrics alignment
         lyrics_segments = self.lyrics_aligner.align(audio_mono, sr, language)

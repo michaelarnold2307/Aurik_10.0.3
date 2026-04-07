@@ -440,9 +440,9 @@ def analyze_harmonic_character(audio: np.ndarray, sr: int, threshold: float = 0.
     >>> import soundfile as sf
     >>> audio, sr = sf.read("vocal.wav")
     >>> analysis = analyze_harmonic_character(audio, sr)
-    >>> logger.debug(f"Harmonic Richness: {analysis.harmonic_richness_score:.2f}")
-    >>> logger.debug(f"Even Harmonics: {analysis.even_harmonics_ratio*100:.1f}%")
-    >>> logger.debug(f"Odd Harmonics: {analysis.odd_harmonics_ratio*100:.1f}%")
+    logger.debug("Harmonic Richness: %.2f", analysis.harmonic_richness_score)
+    logger.debug("Even Harmonics: %.1f%%", analysis.even_harmonics_ratio*100)
+    logger.debug("Odd Harmonics: %.1f%%", analysis.odd_harmonics_ratio*100)
     """
     analyzer = HarmonicCharacterAnalyzer(threshold=threshold)
     return analyzer.analyze(audio, sr)
@@ -491,8 +491,10 @@ if __name__ == "__main__":
 
     # Load audio
     audio_path = sys.argv[1]
-    logger.debug(f"Analyzing: {audio_path}")
-    audio, sr = sf.read(audio_path)
+    logger.debug("Analyzing: %s", audio_path)
+    from backend.file_import import load_audio_file
+    _res = load_audio_file(audio_path)
+    audio, sr = np.asarray(_res["audio"], dtype=np.float32), int(_res["sr"])
 
     # Analyze
     analysis = analyze_harmonic_character(audio, sr)
@@ -501,22 +503,22 @@ if __name__ == "__main__":
     logger.debug("\n" + "=" * 70)
     logger.debug("HARMONIC CHARACTER ANALYSIS")
     logger.debug("=" * 70)
-    logger.debug(f"Harmonic Richness Score:  {analysis.harmonic_richness_score:.3f} (threshold: 0.75)")
-    logger.debug(f"Status: {'✅ PASSED' if analysis.passed else '❌ FAILED'}")
+    logger.debug("Harmonic Richness Score:  %.3f (threshold: 0.75)", analysis.harmonic_richness_score)
+    logger.debug("Status: %s", '✅ PASSED' if analysis.passed else '❌ FAILED')
     logger.debug("")
     logger.debug("Harmonic Distribution:")
-    logger.debug(f"  Even Harmonics (2f,4f,6f):  {analysis.even_harmonics_ratio * 100:.2f}% (optimal: 3-8%)")
-    logger.debug(f"  Odd Harmonics (3f,5f,7f):   {analysis.odd_harmonics_ratio * 100:.2f}% (optimal: <1%)")
-    logger.debug(f"  Total THD:                  {analysis.total_thd * 100:.2f}%")
+    logger.debug("  Even Harmonics (2f,4f,6f):  %.2f%% (optimal: 3-8%%)", analysis.even_harmonics_ratio * 100)
+    logger.debug("  Odd Harmonics (3f,5f,7f):   %.2f%% (optimal: <1%%)", analysis.odd_harmonics_ratio * 100)
+    logger.debug("  Total THD:                  %.2f%%", analysis.total_thd * 100)
     logger.debug("")
     logger.debug("Character Scores:")
-    logger.debug(f"  Warmth (Even):              {analysis.warmth_score:.3f}")
-    logger.debug(f"  Harshness Penalty (Odd):    {analysis.harshness_penalty:.3f}")
+    logger.debug("  Warmth (Even):              %.3f", analysis.warmth_score)
+    logger.debug("  Harshness Penalty (Odd):    %.3f", analysis.harshness_penalty)
     logger.debug("")
     logger.debug("Per-Harmonic Power:")
     for key, value in analysis.details.items():
         if "harmonic_power" in key or "fundamental" in key:
-            logger.debug(f"  {key:30s}: {value:.6f}")
+            logger.debug("  %s: %.6f", key, value)
     logger.debug("=" * 70)
 
     # Suggestions
@@ -524,11 +526,11 @@ if __name__ == "__main__":
     suggestions = analyzer.suggest_enhancement(audio, sr)
 
     if suggestions["recommended_action"] != "none":
-        logger.debug(f"\n💡 SUGGESTION: {suggestions['recommended_action']}")
+        logger.debug("\n💡 SUGGESTION: %s", suggestions['recommended_action'])
         if suggestions["recommended_action"] == "add_warmth":
-            logger.debug(f"   Recommended Saturation Gain: {suggestions['saturation_gain']:.2f}")
+            logger.debug("   Recommended Saturation Gain: %.2f", suggestions['saturation_gain'])
         elif suggestions["recommended_action"] == "reduce_harshness":
-            logger.debug(f"   Recommended De-Harsh Strength: {suggestions['de_harsh_strength']:.2f}")
+            logger.debug("   Recommended De-Harsh Strength: %.2f", suggestions['de_harsh_strength'])
 
     # Optional: Enhance
     if "--enhance" in sys.argv and suggestions["recommended_action"] == "add_warmth":
@@ -536,8 +538,8 @@ if __name__ == "__main__":
         enhanced, report = enhance_harmonic_warmth(audio, sr, saturation_gain=suggestions["saturation_gain"])
         output_path = audio_path.replace(".wav", "_enhanced.wav")
         sf.write(output_path, enhanced, sr)
-        logger.debug(f"✅ Enhanced audio saved: {output_path}")
+        logger.debug("✅ Enhanced audio saved: %s", output_path)
         logger.debug(
             f"   Even Harmonics: {report['even_harmonics_before']:.2f}% → {report['even_harmonics_after']:.2f}%"
         )
-        logger.debug(f"   Warmth Improvement: +{report['warmth_improvement']:.3f}")
+        logger.debug("   Warmth Improvement: +%.3f", report['warmth_improvement'])

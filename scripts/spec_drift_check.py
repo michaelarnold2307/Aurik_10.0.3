@@ -24,7 +24,10 @@ WATCHED_FILES = [
     "tests/normative/test_amrb_ci_gate.py",
     "tests/normative/test_competitive_ci_gate.py",
     "tests/normative/test_magic_button_autopilot_ci_gate.py",
+    "tests/normative/test_material_priority_phases_gate.py",
     "scripts/release_must_coverage_check.py",
+    "scripts/compliance_check.py",
+    "scripts/check_musical_goals.py",
 ]
 
 BASELINE = ROOT / "reports" / "spec_drift_baseline.json"

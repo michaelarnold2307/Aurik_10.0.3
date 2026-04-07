@@ -16,7 +16,8 @@ Referenz:
     Kim et al. (2018) — "CREPE: A Convolutional Representation for Pitch Estimation"
     https://arxiv.org/abs/1802.06182
 
-DSP-Fallback: librosa.pyin() (Mauch & Dixon 2014) bei fehlender ONNX-Laufzeit.
+DSP-Fallback: librosa.pyin() (Mauch & Dixon 2014), sekundär librosa.yin()
+bei fehlender ONNX-Laufzeit oder pYIN-Fehlern.
 
 Invarianten (§3.1, §3.2, §3.7 Aurik-Spec):
     - Thread-sicherer Singleton mit Double-Checked Locking
@@ -76,7 +77,7 @@ class CrepeResult:
     voiced_prob: np.ndarray  # Voicing-Wahrscheinlichkeit  ∈ [0, 1]
     salience: np.ndarray  # Maximale Salience pro Frame  ∈ [0, 1]
     times_s: np.ndarray  # Zeitstempel in Sekunden
-    model_used: str  # "crepe_onnx" | "dsp_pyin"
+    model_used: str  # "crepe_onnx" | "dsp_pyin" | "dsp_yin" | "dsp_yin_failed"
     details: dict[str, float] = field(default_factory=dict)
 
     def voiced_f0(self, threshold: float = _VOICED_THRESHOLD) -> np.ndarray:
@@ -135,11 +136,17 @@ class CrepePlugin:
                 return
 
             try:
+                from backend.core.ml_memory_budget import release as _release
                 from backend.core.ml_memory_budget import try_allocate as _try_alloc
 
                 if not _try_alloc("CREPE", size_gb=0.10):
-                    logger.warning("CREPE: ML-Budget erschöpft — pYIN-Fallback.")
-                    return
+                    try:
+                        _release("CREPE")
+                    except Exception:
+                        pass
+                    if not _try_alloc("CREPE", size_gb=0.10):
+                        logger.warning("CREPE: ML-Budget erschöpft — pYIN-Fallback.")
+                        return
             except Exception as _exc:
                 logger.debug("Plugin operation failed (non-critical): %s", _exc)
 
@@ -350,13 +357,43 @@ class CrepePlugin:
                 details={"segment_len_s": seg_len / sr},
             )
         except Exception as exc:
-            logger.warning("pYIN-Fallback fehlgeschlagen (%s) — leeres Ergebnis", exc)
+            logger.warning("pYIN-Fallback fehlgeschlagen (%s) — Wechsel zu YIN", exc)
+            return self._analyze_yin(audio, sr)
+
+    def _analyze_yin(self, audio: np.ndarray, sr: int) -> CrepeResult:
+        """Sekundärer YIN-Fallback (de Cheveigne & Kawahara 2002)."""
+        try:
+            import librosa
+
+            seg_len = min(len(audio), int(sr * 30.0))
+            seg = audio[:seg_len]
+
+            _frame_length = 2048
+            _fmin_floor = float(librosa.note_to_hz("C1"))
+            _fmin_safe = max(_fmin_floor, sr / _frame_length * 2)
+            f0 = librosa.yin(seg, fmin=_fmin_safe, fmax=2_000.0, sr=sr, frame_length=_frame_length)
+            f0 = np.nan_to_num(np.asarray(f0, dtype=np.float32), nan=0.0, posinf=0.0, neginf=0.0)
+            voiced_probs = np.where(f0 > 0.0, 0.55, 0.0).astype(np.float32)
+            n_frames = len(f0)
+            hop_lib = 512
+            times_s = (np.arange(n_frames) * hop_lib / sr).astype(np.float32)
+
+            return CrepeResult(
+                f0_hz=f0,
+                voiced_prob=voiced_probs,
+                salience=voiced_probs,
+                times_s=times_s,
+                model_used="dsp_yin",
+                details={"segment_len_s": seg_len / sr},
+            )
+        except Exception as exc:
+            logger.warning("YIN-Fallback fehlgeschlagen (%s) — leeres Ergebnis", exc)
             return CrepeResult(
                 f0_hz=np.zeros(1, dtype=np.float32),
                 voiced_prob=np.zeros(1, dtype=np.float32),
                 salience=np.zeros(1, dtype=np.float32),
                 times_s=np.zeros(1, dtype=np.float32),
-                model_used="dsp_pyin_failed",
+                model_used="dsp_yin_failed",
             )
 
 
@@ -413,7 +450,7 @@ def analyze_pitch(
 ) -> CrepeResult:
     """Pitch-Tracking ohne manuelle Plugin-Instantiierung.
 
-    Nutzt CREPE-ONNX wenn verfügbar, andernfalls pYIN-Fallback.
+    Nutzt CREPE-ONNX wenn verfügbar, andernfalls pYIN- und YIN-Fallback.
 
     Args:
         audio: 1-D oder Stereo Audio-Array (beliebige SR).
@@ -425,8 +462,8 @@ def analyze_pitch(
     Example::
 
         result = analyze_pitch(audio, sr=48000)
-        logger.debug(f"Mittlere F0: {result.mean_f0():.1f} Hz")
-        logger.debug(f"Modell: {result.model_used}")
+        logger.debug("Mittlere F0: %.1f Hz", result.mean_f0())
+        logger.debug("Modell: %s", result.model_used)
     """
     return get_crepe_plugin().analyze(audio, sr)
 

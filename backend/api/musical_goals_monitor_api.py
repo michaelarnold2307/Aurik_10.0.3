@@ -113,7 +113,7 @@ class ConnectionManager:
                 self.session_connections[session_id] = []
             self.session_connections[session_id].append(websocket)
 
-        logger.info(f"New WebSocket connection (session={session_id})")
+        logger.info("New WebSocket connection (session=%s)", session_id)
 
     def disconnect(self, websocket: WebSocket, session_id: str | None = None):
         """
@@ -130,7 +130,7 @@ class ConnectionManager:
             if not self.session_connections[session_id]:
                 del self.session_connections[session_id]
 
-        logger.info(f"WebSocket disconnected (session={session_id})")
+        logger.info("WebSocket disconnected (session=%s)", session_id)
 
     async def broadcast(self, message: dict[str, Any]):
         """
@@ -144,7 +144,7 @@ class ConnectionManager:
             try:
                 await connection.send_json(message)
             except Exception as e:
-                logger.warning(f"Failed to send to connection: {e}")
+                logger.warning("Failed to send to connection: %s", e)
                 disconnected.append(connection)
 
         # Clean up disconnected
@@ -168,7 +168,7 @@ class ConnectionManager:
             try:
                 await connection.send_json(message)
             except Exception as e:
-                logger.warning(f"Failed to send to session {session_id}: {e}")
+                logger.warning("Failed to send to session %s: %s", session_id, e)
                 disconnected.append(connection)
 
         # Clean up disconnected
@@ -364,7 +364,7 @@ class MusicalGoalsMonitorAPI:
 
         # Log violations
         if violations:
-            logger.warning(f"Session {session_id} step {step_name}: Violations: {', '.join(violations)}")
+            logger.warning("Session %s step %s: Violations: %s", session_id, step_name, ', '.join(violations))
 
     def save_history(self, session_id: str):
         """
@@ -381,7 +381,7 @@ class MusicalGoalsMonitorAPI:
         with open(history_file, "w") as f:
             json.dump([snapshot.to_dict() for snapshot in self.history[session_id]], f, indent=2)
 
-        logger.info(f"Saved history for session {session_id}")
+        logger.info("Saved history for session %s", session_id)
 
     def load_history(self, session_id: str) -> bool:
         """
@@ -403,7 +403,7 @@ class MusicalGoalsMonitorAPI:
 
         self.history[session_id] = [GoalsSnapshot(**snapshot) for snapshot in data]
 
-        logger.info(f"Loaded history for session {session_id}")
+        logger.info("Loaded history for session %s", session_id)
         return True
 
     def get_statistics(self) -> dict[str, Any]:

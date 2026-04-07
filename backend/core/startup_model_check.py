@@ -110,7 +110,7 @@ def check_models(app_root: Path | None = None) -> ModelCheckResult:
             user_title_de="⚠ Modell-Konfiguration nicht gefunden",
             user_message_de=(
                 "Die Modell-Konfigurationsdatei (models/manifest.json) wurde nicht gefunden.\n\n"
-                "Aurik startet im reinen DSP-Modus — ML-basierte Verbesserungen sind deaktiviert.\n\n"
+                "Aurik startet mit eingeschränkter Klangqualität — KI-basierte Verbesserungen sind deaktiviert.\n\n"
                 "Lösung: Stellen Sie sicher, dass der Aurik-Installationsordner vollständig "
                 "vorhanden ist und models/manifest.json existiert."
             ),
@@ -128,7 +128,7 @@ def check_models(app_root: Path | None = None) -> ModelCheckResult:
             user_title_de="⚠ Modell-Konfiguration fehlerhaft",
             user_message_de=(
                 f"Die Modell-Konfigurationsdatei konnte nicht geladen werden:\n{exc}\n\n"
-                "Aurik startet im reinen DSP-Modus. Bitte prüfen Sie die Installation."
+                "Aurik startet mit eingeschränkter Klangqualität. Bitte prüfen Sie die Installation."
             ),
         )
 
@@ -189,27 +189,26 @@ def check_models(app_root: Path | None = None) -> ModelCheckResult:
         n_total_missing = len(missing_primary) + len(missing_optional)
 
         if mode == "DSP_ONLY":
-            user_title_de = "⚠ ML-Modelle fehlen — Eingeschränkter Betrieb"
+            user_title_de = "⚠ KI-Modelle fehlen — Eingeschränkter Betrieb"
             user_message_de = (
-                f"Es wurden keine ML-Modell-Dateien gefunden "
+                f"Es wurden keine KI-Modell-Dateien gefunden "
                 f"({n_total_missing} von {total_bundled} fehlen).\n\n"
-                "Aurik läuft im reinen DSP-Modus. Die Restaurierungsqualität ist "
-                "deutlich eingeschränkt — ML-basierte Methoden (SGMSE+, DeepFilterNet, "
-                "RMVPE, BEATs usw.) sind nicht verfügbar.\n\n"
+                "Die Restaurierungsqualität ist deutlich eingeschränkt — "
+                "KI-gestützte Methoden sind nicht verfügbar.\n\n"
                 "Lösung: Stellen Sie sicher, dass der Ordner 'models/' vollständig "
                 "im Programmverzeichnis vorhanden ist.\n\n"
                 "Aurik kann trotzdem gestartet werden — die Verarbeitung erfolgt "
-                "mit klassischen DSP-Algorithmen."
+                "mit klassischen Verfahren."
             )
         elif missing_primary:
             names = ", ".join(m["name"] for m in missing_primary[:4])
             if len(missing_primary) > 4:
                 names += f" und {len(missing_primary) - 4} weitere"
-            user_title_de = "ℹ Einige ML-Modelle nicht gefunden"
+            user_title_de = "ℹ Einige KI-Modelle nicht gefunden"
             user_message_de = (
-                f"{len(missing_primary)} primäre ML-Modell(e) fehlen: {names}.\n\n"
-                "Aurik startet im eingeschränkten ML-Modus. Für die betroffenen "
-                "Verarbeitungsschritte werden DSP-Fallback-Algorithmen verwendet.\n\n"
+                f"{len(missing_primary)} KI-Modell(e) fehlen: {names}.\n\n"
+                "Aurik startet mit leicht eingeschränkter Qualität. Für die betroffenen "
+                "Verarbeitungsschritte werden klassische Verfahren verwendet.\n\n"
                 "Die Grundfunktionalität ist vollständig erhalten."
             )
         elif missing_optional:

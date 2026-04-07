@@ -61,7 +61,7 @@ class HybridDenoiseRefiner:
             Refined audio (hybrid ML+DSP)
         """
         assert sr == 48000, f"Sample rate must be 48000 Hz, got {sr}"
-        logger.info(f"Hybrid Denoise Refinement (strength={strength:.2f}, genre={genre})")
+        logger.info("Hybrid Denoise Refinement (strength=%.2f, genre=%s)", strength, genre)
 
         # Genre-adaptive Parameter
         params = self._get_genre_params(genre)
@@ -298,7 +298,7 @@ def apply_hybrid_refinement(
     if not is_authentic:
         logger.warning("Refinement altered character:")
         for warning in warnings:
-            logger.warning(f"  {warning}")
+            logger.warning("  %s", warning)
 
     return audio_refined, metrics
 

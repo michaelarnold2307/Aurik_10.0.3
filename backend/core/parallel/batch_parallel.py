@@ -166,7 +166,7 @@ class BatchParallelProcessor:
             logger.warning("No tasks to process")
             return []
 
-        logger.info(f"Processing {len(tasks)} files with {self.n_jobs} workers")
+        logger.info("Processing %s files with %s workers", len(tasks), self.n_jobs)
 
         start_time = time.time()
         results = []
@@ -206,11 +206,11 @@ class BatchParallelProcessor:
                         if result.status == ProcessingStatus.COMPLETED:
                             completed_count += 1
                             if self.show_progress:
-                                logger.info(f"✓ Completed: {result.input_path.name} ({result.processing_time:.2f}s)")
+                                logger.info("✓ Completed: %s (%.2fs)", result.input_path.name, result.processing_time)
                         elif result.status == ProcessingStatus.FAILED:
                             failed_count += 1
                             if self.show_progress:
-                                logger.error(f"❌ Failed: {result.input_path.name} - {result.error}")
+                                logger.error("❌ Failed: %s - %s", result.input_path.name, result.error)
 
                         # Progress callback
                         if progress_callback:
@@ -224,7 +224,7 @@ class BatchParallelProcessor:
                             progress_callback(progress)
 
                     except Exception as e:
-                        logger.error(f"Task {task.task_id} failed with exception: {e}")
+                        logger.error("Task %s failed with exception: %s", task.task_id, e)
                         results.append(
                             FileResult(
                                 task_id=task.task_id,
@@ -253,7 +253,7 @@ class BatchParallelProcessor:
         self._processing_stats["total_successes"] += completed_count
         self._processing_stats["total_failures"] += failed_count
 
-        logger.info(f"Batch complete: {completed_count} succeeded, {failed_count} failed, {total_time:.2f}s total")
+        logger.info("Batch complete: %s succeeded, %s failed, %.2fs total", completed_count, failed_count, total_time)
 
         # Sort results by task_id
         results.sort(key=lambda r: r.task_id)

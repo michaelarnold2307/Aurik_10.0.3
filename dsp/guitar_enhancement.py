@@ -705,8 +705,10 @@ def main():
     args = parser.parse_args()
 
     # Load audio
-    logger.info(f"Loading: {args.input}")
-    audio, sr = sf.read(args.input, always_2d=True)
+    logger.info("Loading: %s", args.input)
+    from backend.file_import import load_audio_file
+    _res = load_audio_file(args.input)
+    audio, sr = _res["audio"], int(_res["sr"])
 
     # Make mono for processing
     audio_mono = np.mean(audio, axis=1) if audio.shape[1] == 2 else audio[:, 0]
@@ -729,25 +731,25 @@ def main():
     # Print report
     logger.info("\n📊 Processing Report:")
     logger.info("-" * 60)
-    logger.info(f"Pick Attack: {report['pick_attack']['pick_attack_energy_change_db']:+.1f} dB")
-    logger.info(f"  Transients detected: {report['pick_attack']['transients_detected']}")
+    logger.info("Pick Attack: %.1f dB", report['pick_attack']['pick_attack_energy_change_db'])
+    logger.info("  Transients detected: %s", report['pick_attack']['transients_detected'])
 
-    logger.info(f"\nString Resonance: {report['string_resonance']['fundamental_energy_change_db']:+.1f} dB")
+    logger.info("\nString Resonance: %.1f dB", report['string_resonance']['fundamental_energy_change_db'])
     logger.info(
         f"  Harmonic enhancement: {'Yes' if report['string_resonance']['harmonic_enhancement_applied'] else 'No'}"
     )
 
-    logger.info(f"\nFret Noise: {report['fret_noise']['fret_noise_reduction_db']:+.1f} dB")
-    logger.info(f"  Reduction: {report['fret_noise']['fret_noise_reduction_percent']:.1f}%")
+    logger.info("\nFret Noise: %.1f dB", report['fret_noise']['fret_noise_reduction_db'])
+    logger.info("  Reduction: %.1f%%", report['fret_noise']['fret_noise_reduction_percent'])
 
-    logger.info(f"\nBody Resonance: {report['body_resonance']['body_resonance_change_db']:+.1f} dB")
-    logger.info(f"  Warmth applied: {'Yes' if report['body_resonance']['warmth_applied'] else 'No'}")
+    logger.info("\nBody Resonance: %.1f dB", report['body_resonance']['body_resonance_change_db'])
+    logger.info("  Warmth applied: %s", 'Yes' if report['body_resonance']['warmth_applied'] else 'No')
 
-    logger.info(f"\nString Clarity: {report['string_clarity_db']:+.1f} dB")
-    logger.info(f"Stages applied: {report['stages_applied']}")
+    logger.info("\nString Clarity: %.1f dB", report['string_clarity_db'])
+    logger.info("Stages applied: %s", report['stages_applied'])
 
     # Save
-    logger.info(f"\nSaving: {args.output}")
+    logger.info("\nSaving: %s", args.output)
     sf.write(args.output, processed, sr)
     logger.info("✓ Done!")
 

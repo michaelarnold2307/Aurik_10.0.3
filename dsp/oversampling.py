@@ -43,7 +43,7 @@ class Oversampler:
             self._audit_log({"mode": "upsample", "factor": self.factor, "shape": result.shape})
             return result
         except Exception as e:
-            logger.error(f"[Oversampler][upsample][Fehler] {e}")
+            logger.error("[Oversampler][upsample][Fehler] %s", e)
             self._audit_log({"mode": "upsample", "error": str(e)})
             return audio
 
@@ -59,9 +59,9 @@ class Oversampler:
             self._audit_log({"mode": "downsample", "factor": self.factor, "shape": result.shape})
             return result
         except Exception as e:
-            logger.error(f"[Oversampler][downsample][Fehler] {e}")
+            logger.error("[Oversampler][downsample][Fehler] %s", e)
             self._audit_log({"mode": "downsample", "error": str(e)})
             return audio
 
     def _audit_log(self, result: dict[str, Any]):
-        logger.info(f"[AuditLog][Oversampler] Ergebnis: {result}")
+        logger.info("[AuditLog][Oversampler] Ergebnis: %s", result)

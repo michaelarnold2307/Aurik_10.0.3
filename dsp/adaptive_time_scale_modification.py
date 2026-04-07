@@ -72,7 +72,7 @@ class AdaptiveTimeScaleModification:
     def __init__(self, method: str = "phase_vocoder", auto_optimize: bool = True):
         allowed_methods = ["phase_vocoder", "wsola", "rubberband"]
         if method not in allowed_methods:
-            logger.error(f"Ungültige Methode: {method}. Erlaubt: {allowed_methods}")
+            logger.error("Ungültige Methode: %s. Erlaubt: %s", method, allowed_methods)
             raise ValueError(f"method muss in {allowed_methods} liegen.")
         self.method = method
         self.auto_optimize = auto_optimize
@@ -83,7 +83,7 @@ class AdaptiveTimeScaleModification:
 
     def log_contract(self):
         contract_dict = asdict(adaptive_tsm_contract)
-        logger.info(f"[DSPContract] {contract_dict}")
+        logger.info("[DSPContract] %s", contract_dict)
 
     def time_stretch(
         self, audio: np.ndarray, sr: int, rate: float = 1.0, use_deep_learning: bool = False, audit_log: bool = True
@@ -107,7 +107,7 @@ class AdaptiveTimeScaleModification:
             logger.error("audio enthält NaN-Werte")
             raise ValueError("audio enthält NaN-Werte")
         if not (0.5 <= rate <= 2.0):
-            logger.error(f"Ungültiger rate: {rate}. Muss zwischen 0.5 und 2.0 liegen.")
+            logger.error("Ungültiger rate: %s. Muss zwischen 0.5 und 2.0 liegen.", rate)
             raise ValueError("rate muss zwischen 0.5 und 2.0 liegen.")
 
         output = None
@@ -129,7 +129,7 @@ class AdaptiveTimeScaleModification:
             else:
                 output = self._time_stretch_classic(audio, sr, rate)
         except Exception as e:
-            logger.error(f"Fehler bei TSM: {e}", exc_info=True)
+            logger.error("Fehler bei TSM: %s", e, exc_info=True)
             fallback_used = True
             output = audio.copy()
 
@@ -138,7 +138,7 @@ class AdaptiveTimeScaleModification:
             logger.info(
                 f"AdaptiveTimeScaleModification: tsm_quality={tsm_quality:.6f}, fallback_used={fallback_used}, method={self.method}, rate={rate}"
             )
-            logger.info(f"[DSPContract] {asdict(adaptive_tsm_contract)}")
+            logger.info("[DSPContract] %s", asdict(adaptive_tsm_contract))
         return output
 
     def _time_stretch_classic(self, audio: np.ndarray, sr: int, rate: float) -> np.ndarray:
@@ -166,7 +166,7 @@ class AdaptiveTimeScaleModification:
                 logger.warning("pyrubberband nicht verfügbar – librosa Phase-Vocoder als Fallback.")
                 return librosa.effects.time_stretch(audio, rate=rate)
         else:
-            logger.warning(f"Unbekannte Methode '{self.method}' – Fallback: librosa phase vocoder.")
+            logger.warning("Unbekannte Methode '%s' – Fallback: librosa phase vocoder.", self.method)
             return librosa.effects.time_stretch(audio, rate=rate)
 
     @staticmethod
@@ -269,7 +269,7 @@ class AdaptiveTimeScaleModification:
             else:
                 output = self._pitch_shift_classic(audio, sr, n_steps)
         except Exception as e:
-            logger.error(f"Fehler bei Pitch-Shift: {e}", exc_info=True)
+            logger.error("Fehler bei Pitch-Shift: %s", e, exc_info=True)
             fallback_used = True
             output = audio.copy()
 
@@ -277,7 +277,7 @@ class AdaptiveTimeScaleModification:
             logger.info(
                 f"AdaptiveTimeScaleModification: pitch_shift ausgeführt, fallback_used={fallback_used}, n_steps={n_steps}"
             )
-            logger.info(f"[DSPContract] {asdict(adaptive_tsm_contract)}")
+            logger.info("[DSPContract] %s", asdict(adaptive_tsm_contract))
         return output
 
     def _pitch_shift_classic(self, audio: np.ndarray, sr: int, n_steps: float) -> np.ndarray:
@@ -286,5 +286,5 @@ class AdaptiveTimeScaleModification:
     def auto_optimize_params(self, audio, sr, target=None):
         self.log_contract()
         self.last_params = {"method": self.method, "rate": 1.0}
-        logger.info(f"TSM-Parameter auto-optimiert: {self.last_params}")
+        logger.info("TSM-Parameter auto-optimiert: %s", self.last_params)
         return self.last_params

@@ -548,8 +548,10 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     # Load audio
-    audio, sr = sf.read(args.input, always_2d=False)
-    logger.info(f"Input: {args.input} ({sr} Hz, {'stereo' if audio.ndim == 2 else 'mono'})")
+    from backend.file_import import load_audio_file
+    _res = load_audio_file(args.input)
+    audio, sr = _res["audio"], int(_res["sr"])
+    logger.info("Input: %s (%s Hz, %s)", args.input, sr, 'stereo' if audio.ndim == 2 else 'mono')
 
     # Create de-reverb system
     dereverb = AdvancedDereverb(mode=args.mode)
@@ -557,25 +559,25 @@ if __name__ == "__main__":
     # Analyze
     logger.info("\nAnalyzing...")
     analysis = dereverb.analyze(audio, sr)
-    logger.info(f"  Reverb score: {analysis['reverb_score']:.3f}")
-    logger.info(f"  Transient density: {analysis['transient_density']:.2%}")
-    logger.info(f"  RT60 estimate: {analysis['rt60_estimate']:.2f}s")
-    logger.info(f"  Significant reverb: {analysis['has_significant_reverb']}")
+    logger.info("  Reverb score: %.3f", analysis['reverb_score'])
+    logger.info("  Transient density: %s", format(analysis['transient_density'], '.2%'))
+    logger.info("  RT60 estimate: %.2fs", analysis['rt60_estimate'])
+    logger.info("  Significant reverb: %s", analysis['has_significant_reverb'])
 
     if not args.analyze_only:
         # Process
-        logger.info(f"\nProcessing (mode: {args.mode})...")
+        logger.info("\nProcessing (mode: %s)...", args.mode)
         audio_dereverbed, metrics = dereverb.process(audio, sr)
 
         if metrics["processed"]:
             logger.info("\n✓ De-reverb complete:")
-            logger.info(f"  Wiener reduction: {metrics['wiener']['reverb_reduction_db']:.1f} dB")
-            logger.info(f"  Reflection suppression: {metrics['late_reflection']['suppression_db']:.1f} dB")
-            logger.info(f"  Reflection regions: {metrics['late_reflection']['reflection_percentage']:.1f}%")
+            logger.info("  Wiener reduction: %.1f dB", metrics['wiener']['reverb_reduction_db'])
+            logger.info("  Reflection suppression: %.1f dB", metrics['late_reflection']['suppression_db'])
+            logger.info("  Reflection regions: %.1f%%", metrics['late_reflection']['reflection_percentage'])
         else:
-            logger.info(f"\n○ {metrics['reason']}")
+            logger.info("\n○ %s", metrics['reason'])
 
         # Save output
         output_path = args.output or args.input.replace(".wav", "_dereverb.wav")
         sf.write(output_path, audio_dereverbed, sr)
-        logger.info(f"\n✓ Saved: {output_path}")
+        logger.info("\n✓ Saved: %s", output_path)

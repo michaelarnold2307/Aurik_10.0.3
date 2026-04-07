@@ -180,7 +180,7 @@ class FeatureExtractor:
             features = self._extract_stereo_features(audio, sr, features)
 
         if verbose:
-            logger.debug(f"✅ Extracted {len(features.to_array())} features")
+            logger.debug("✅ Extracted %s features", len(features.to_array()))
 
         return features
 
@@ -393,7 +393,7 @@ class FeatureExtractor:
 
         for i, audio in enumerate(audio_list):
             if verbose and i % 10 == 0:
-                logger.debug(f"  Processing {i + 1}/{len(audio_list)}...")
+                logger.debug("  Processing %s/%s...", i + 1, len(audio_list))
 
             features = self.extract_all(audio, sr, verbose=False)
             features_list.append(features)

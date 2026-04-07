@@ -104,7 +104,7 @@ class MaskingAwareDynamicEQ:
             else:
                 eq_audio = self._process_classic(audio, sr)
         except Exception as e:
-            logger.error(f"Fehler bei Masking-EQ: {e}")
+            logger.error("Fehler bei Masking-EQ: %s", e)
             fallback_used = True
             eq_audio = audio.copy()
 

@@ -143,8 +143,13 @@ class VocosPlugin:
             from backend.core.ml_memory_budget import try_allocate
 
             if not try_allocate("Vocos", size_gb=0.12):
-                logger.warning("Vocos: ML-Budget erschöpft — Griffin-Lim-Fallback")
-                return
+                try:
+                    _release("Vocos")
+                except Exception:
+                    pass
+                if not try_allocate("Vocos", size_gb=0.12):
+                    logger.warning("Vocos: ML-Budget erschöpft — Griffin-Lim-Fallback")
+                    return
             _allocated = True
         except ImportError as _imp_exc:
             logger.debug("Vocos: ml_memory_budget nicht verfügbar, Budget-Check übersprungen: %s", _imp_exc)

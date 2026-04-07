@@ -48,20 +48,20 @@ class PerceptualEQ:
                     _logger.warning("Memory budget exceeded for perceptual_eq ONNX — using DSP fallback")
                 else:
                     try:
-                        self.onnx_session = ort.InferenceSession(model_path)
+                        self.onnx_session = ort.InferenceSession(model_path, providers=["CPUExecutionProvider"])
                         self.model = self.onnx_session
                         self.backend = "onnx"
                     except Exception as e:
-                        warnings.warn(f"ONNX-Modell konnte nicht geladen werden: {e}")
+                        _logger.warning("ONNX-Modell konnte nicht geladen werden: %s", e)
             elif torch is not None:
                 try:
                     self.torch_model = torch.jit.load(model_path)
                     self.model = self.torch_model
                     self.backend = "torch"
                 except Exception as e:
-                    warnings.warn(f"Torch-Modell konnte nicht geladen werden: {e}")
+                    _logger.warning("Torch-Modell konnte nicht geladen werden: %s", e)
             else:
-                warnings.warn("Weder ONNX noch Torch verfügbar. Nur klassische Filter nutzbar.")
+                _logger.warning("Weder ONNX noch Torch verfügbar. Nur klassische Filter nutzbar.")
 
     def process(self, audio: np.ndarray, sr: int) -> np.ndarray:
         # Deep-Learning-Inferenz
@@ -71,14 +71,14 @@ class PerceptualEQ:
                 out = self.onnx_session.run(None, {self.onnx_session.get_inputs()[0].name: inp})[0]
                 return out.squeeze().astype(audio.dtype)
             except Exception as e:
-                warnings.warn(f"ONNX-Inferenz fehlgeschlagen: {e}")
+                _logger.warning("ONNX-Inferenz fehlgeschlagen: %s", e)
         elif self.torch_model is not None and self.backend == "torch" and torch is not None:
             try:
                 inp = torch.from_numpy(audio.astype(np.float32)).unsqueeze(0).unsqueeze(0)
                 out = self.torch_model(inp).detach().cpu().numpy().squeeze()
                 return out.astype(audio.dtype)
             except Exception as e:
-                warnings.warn(f"Torch-Inferenz fehlgeschlagen: {e}")
+                _logger.warning("Torch-Inferenz fehlgeschlagen: %s", e)
         # Fallback: klassische Filter nach Hörmodell
         return self._perceptual_filter(audio, sr)
 

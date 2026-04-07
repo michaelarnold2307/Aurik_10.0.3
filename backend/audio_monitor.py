@@ -196,7 +196,7 @@ def compute_f0_stats(audio: np.ndarray, sr: int, fmin: float = 50.0, fmax: float
             return {"f0_mean": 0.0, "f0_std": 0.0, "f0_range": 0.0, "voiced_ratio": 0.0}
 
     except Exception as e:
-        logger.warning(f"F0 computation failed: {e}")
+        logger.warning("F0 computation failed: %s", e)
         return {"f0_mean": 0.0, "f0_std": 0.0, "f0_range": 0.0, "voiced_ratio": 0.0}
 
 
@@ -230,7 +230,7 @@ def compute_hnr(audio: np.ndarray, sr: int, f0: np.ndarray | None = None) -> dic
         return {"hnr_mean": float(hnr_db), "hnr_std": 0.0}  # Simplified
 
     except Exception as e:
-        logger.warning(f"HNR computation failed: {e}")
+        logger.warning("HNR computation failed: %s", e)
         return {"hnr_mean": 0.0, "hnr_std": 0.0}
 
 
@@ -334,7 +334,7 @@ class PermanentAudioMonitor:
             file_path: Pfad zur Input-Datei
             metadata: Zusätzliche Metadaten
         """
-        logger.info(f"📊 Capturing baseline metrics for: {file_path or 'unknown'}")
+        logger.info("📊 Capturing baseline metrics for: %s", file_path or 'unknown')
         self.file_path = file_path
         self.metadata = metadata or {}
         self.baseline_metrics = self._compute_metrics(audio, sr)
@@ -348,7 +348,7 @@ class PermanentAudioMonitor:
         """Startet Tracking eines Processing-Moduls."""
         self.current_module = module_name
         self.current_module_start_time = time.time()
-        logger.debug(f"🔧 Starting module: {module_name}")
+        logger.debug("🔧 Starting module: %s", module_name)
 
     def end_module(
         self,
@@ -471,27 +471,27 @@ class PermanentAudioMonitor:
             json_path = output_path / f"{file_base}.json"
             with open(json_path, "w") as f:
                 json.dump(asdict(report), f, indent=2)
-            logger.info(f"✅ Exported JSON audit: {json_path}")
+            logger.info("✅ Exported JSON audit: %s", json_path)
 
         # Export YAML (human-readable)
         if "yaml" in formats:
             yaml_path = output_path / f"{file_base}.yaml"
             with open(yaml_path, "w") as f:
                 yaml.dump(asdict(report), f, sort_keys=False, default_flow_style=False)
-            logger.info(f"✅ Exported YAML audit: {yaml_path}")
+            logger.info("✅ Exported YAML audit: %s", yaml_path)
 
         # Export CSV (Excel-compatible)
         if "csv" in formats:
             csv_path = output_path / f"{file_base}.csv"
             self._export_csv(report, csv_path)
-            logger.info(f"✅ Exported CSV audit: {csv_path}")
+            logger.info("✅ Exported CSV audit: %s", csv_path)
 
         logger.info("📊 Audit Report Summary:")
-        logger.info(f"   ├─ File: {report.file_path}")
-        logger.info(f"   ├─ Modules: {len(report.module_logs)}")
-        logger.info(f"   ├─ Total Time: {report.total_processing_time_ms:.1f} ms")
-        logger.info(f"   ├─ Quality Gates: {'ALL PASS ✅' if report.overall_quality_passed else 'FAILED ❌'}")
-        logger.info(f"   └─ CAS Improvement: {report.cas_improvement:+.2f}")
+        logger.info("   ├─ File: %s", report.file_path)
+        logger.info("   ├─ Modules: %s", len(report.module_logs))
+        logger.info("   ├─ Total Time: %.1f ms", report.total_processing_time_ms)
+        logger.info("   ├─ Quality Gates: %s", 'ALL PASS ✅' if report.overall_quality_passed else 'FAILED ❌')
+        logger.info("   └─ CAS Improvement: %+.2f", report.cas_improvement)
 
     def _export_csv(self, report: AuditReport, csv_path: Path):
         """Exportiert Report als CSV (simplified - nur Module Summary)."""

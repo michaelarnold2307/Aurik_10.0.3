@@ -188,7 +188,42 @@ class PerceptualSalienceEstimator:
                 mono = np.mean(audio, axis=1) if audio.ndim == 2 else audio
                 mono = np.nan_to_num(np.asarray(mono, dtype=np.float64), nan=0.0)
 
-                for ann in salience_result.annotations:
+                # ERB masking is expensive (3 FFTs per annotation).
+                # Cap at _ERB_MAX_ANNOTATIONS representative samples to bound scan time.
+                # Strategy: take up to _ERB_PER_TYPE highest-salience annotations per
+                # defect type so all types are represented, then fill remaining budget
+                # with remaining annotations sorted by broadband salience descending.
+                _ERB_MAX_ANNOTATIONS = 500
+                _ERB_PER_TYPE = 20
+                all_anns = salience_result.annotations
+                if len(all_anns) > _ERB_MAX_ANNOTATIONS:
+                    # Tier 1: top-N per defect type
+                    _by_type: dict = {}
+                    for _a in all_anns:
+                        _by_type.setdefault(_a.defect_type, []).append(_a)
+                    _selected: list = []
+                    for _type_anns in _by_type.values():
+                        _type_anns_sorted = sorted(_type_anns, key=lambda a: a.salience, reverse=True)
+                        _selected.extend(_type_anns_sorted[:_ERB_PER_TYPE])
+                    # Tier 2: fill remaining budget from all annotations not yet selected
+                    _selected_set = set(id(a) for a in _selected)
+                    _remaining = sorted(
+                        (a for a in all_anns if id(a) not in _selected_set),
+                        key=lambda a: a.salience,
+                        reverse=True,
+                    )
+                    _selected.extend(_remaining[: max(0, _ERB_MAX_ANNOTATIONS - len(_selected))])
+                    erb_anns = _selected
+                    logger.debug(
+                        "ERB masking: capped %d → %d annotations (budget=%d)",
+                        len(all_anns),
+                        len(erb_anns),
+                        _ERB_MAX_ANNOTATIONS,
+                    )
+                else:
+                    erb_anns = all_anns
+
+                for ann in erb_anns:
                     erb_result = erb_model.compute_masking_threshold(
                         mono,
                         sr,

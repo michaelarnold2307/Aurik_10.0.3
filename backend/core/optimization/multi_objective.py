@@ -109,7 +109,7 @@ class NSGAII:
         self.population: list[Individual] = []
         self.pareto_front: list[Individual] = []
 
-        logger.info(f"NSGA-II initialized: {len(objectives)} objectives, pop_size={population_size}")
+        logger.info("NSGA-II initialized: %s objectives, pop_size=%s", len(objectives), population_size)
 
     def initialize_population(self) -> list[Individual]:
         """Initialize random population."""
@@ -125,7 +125,7 @@ class NSGAII:
 
             population.append(Individual(parameters=parameters))
 
-        logger.info(f"Initialized population of {len(population)} individuals")
+        logger.info("Initialized population of %s individuals", len(population))
         return population
 
     def evaluate_population(self, population: list[Individual]) -> None:
@@ -302,7 +302,7 @@ class NSGAII:
         Returns:
             Pareto front (list of non-dominated individuals)
         """
-        logger.info(f"Starting NSGA-II optimization for {self.n_generations} generations...")
+        logger.info("Starting NSGA-II optimization for %s generations...", self.n_generations)
 
         # Initialize population
         self.population = self.initialize_population()
@@ -352,13 +352,13 @@ class NSGAII:
             # Log progress
             if generation % 10 == 0:
                 pareto_size = len(fronts[0]) if fronts else 0
-                logger.info(f"Generation {generation}: Pareto front size = {pareto_size}")
+                logger.info("Generation %s: Pareto front size = %s", generation, pareto_size)
 
         # Extract final Pareto front
         final_fronts = self.fast_non_dominated_sort(self.population)
         self.pareto_front = final_fronts[0] if final_fronts else []
 
-        logger.info(f"Optimization completed! Final Pareto front has {len(self.pareto_front)} solutions")
+        logger.info("Optimization completed! Final Pareto front has %s solutions", len(self.pareto_front))
 
         return self.pareto_front
 
@@ -414,12 +414,12 @@ class NSGAII:
             ax.set_title("Pareto Front (3D)")
 
         else:
-            logger.warning(f"Cannot visualize {n_objectives} objectives")
+            logger.warning("Cannot visualize %s objectives", n_objectives)
             return
 
         if save_path:
             plt.savefig(save_path, dpi=300, bbox_inches="tight")
-            logger.info(f"Pareto front saved to {save_path}")
+            logger.info("Pareto front saved to %s", save_path)
         else:
             plt.show()
 
@@ -464,7 +464,7 @@ class NSGAII:
                 best_score = score
                 best_individual = individual
 
-        logger.info(f"Selected solution with score {best_score:.4f}")
+        logger.info("Selected solution with score %.4f", best_score)
         return best_individual
 
     def save_pareto_front(self, path: Path):
@@ -484,7 +484,7 @@ class NSGAII:
         with open(path, "w") as f:
             json.dump(pareto_data, f, indent=2)
 
-        logger.info(f"Pareto front saved to {path}")
+        logger.info("Pareto front saved to %s", path)
 
 
 # Example: Audio Restoration Multi-Objective Optimization
@@ -563,11 +563,11 @@ if __name__ == "__main__":
     # Run optimization
     pareto_front = optimizer.optimize()
 
-    logger.debug(f"\nPareto front has {len(pareto_front)} solutions:")
+    logger.debug("\nPareto front has %s solutions:", len(pareto_front))
     for i, ind in enumerate(pareto_front[:5]):  # Show first 5
-        logger.debug(f"\nSolution {i + 1}:")
-        logger.debug(f"  Parameters: {ind.parameters}")
-        logger.debug(f"  Objectives: {ind.objectives}")
+        logger.debug("\nSolution %s:", i + 1)
+        logger.debug("  Parameters: %s", ind.parameters)
+        logger.debug("  Objectives: %s", ind.objectives)
 
     # Select solution with preference for quality
     preferences = {
@@ -578,11 +578,11 @@ if __name__ == "__main__":
 
     selected = optimizer.select_solution(preferences)
     logger.debug("\nSelected solution:")
-    logger.debug(f"  Parameters: {selected.parameters}")
-    logger.debug(f"  Objectives: {selected.objectives}")
+    logger.debug("  Parameters: %s", selected.parameters)
+    logger.debug("  Objectives: %s", selected.objectives)
 
     # Visualize (if matplotlib available)
     try:
         optimizer.visualize_pareto_front()
     except Exception as e:
-        logger.debug(f"Visualization skipped: {e}")
+        logger.debug("Visualization skipped: %s", e)

@@ -9,7 +9,8 @@ ML-Pfad (Primaer, Lazy-Load bei eingeschraenkter Bandbreite):
 DSP-Kaskade (Fallback bei fehlendem Modell oder ML-Fehler):
     1. Polyphase-Resampling (scipy resample_poly, Lanczos-aequivalent)
     2. Spektrale HF-Erweiterung durch harmonische Oberton-Synthese
-    3. PGHI-konsistente Phasenrekonstruktion (Griffin-Lim, >= 32 Iter.)
+    3. Sekundärfallback: Spectral Band Replication (SBR)
+    4. PGHI-konsistente Phasenrekonstruktion
     4. Psychoakustisch-optimiertes HF-Shelving (> 8 kHz)
 
 Referenz:
@@ -104,10 +105,16 @@ def _get_ml_model() -> object | None:
             return None
         # Globaler ML-Budget-Guard: verhindert kumulative OOM über alle Plugins.
         try:
+            from backend.core.ml_memory_budget import release as _release
             from backend.core.ml_memory_budget import try_allocate as _try_alloc
 
             if not _try_alloc("AudioSR", _AUDIOSR_BUDGET_GB):
-                return None  # Budget erschöpft → DSP-Fallback
+                try:
+                    _release("AudioSR")
+                except Exception:
+                    pass
+                if not _try_alloc("AudioSR", _AUDIOSR_BUDGET_GB):
+                    return None  # Budget erschöpft → DSP-Fallback
         except Exception as _exc:
             logger.debug("Operation failed (non-critical): %s", _exc)  # Budget-Modul nicht verfügbar — weiter
         try:
@@ -292,7 +299,7 @@ class AudioSRPlugin:
         """Bandbreiten-Erweiterung und Resampling.
 
         ML-Pfad (primaer): AudioSR wenn Quell-Bandbreite eingeschraenkt.
-        DSP-Fallback: harmonische Oberton-Synthese + Griffin-Lim-PGHI.
+        DSP-Fallback: harmonische Oberton-Synthese + SBR + PGHI.
 
         Args:
             audio    : float32 [samples] ODER [channels, samples]
@@ -350,12 +357,67 @@ class AudioSRPlugin:
 
     # ------------------------------------------------------------------
     def _hf_extend(self, x: np.ndarray, sr: int) -> np.ndarray:
-        """Harmonische Oberton-Synthese fuer eingeschraenkte Bandbreite (DSP)."""
+        """Primärer DSP-Fallback, sekundär Spectral Band Replication."""
         try:
             return self._spectral_exciter(x, sr)
         except Exception as exc:
-            logger.debug("HF-Erweiterung fehlgeschlagen: %s", exc)
-            return x
+            logger.debug("HF-Erweiterung fehlgeschlagen: %s — SBR-Fallback aktiv", exc)
+            return self._spectral_band_replication(x, sr)
+
+    def _spectral_band_replication(self, x: np.ndarray, sr: int) -> np.ndarray:
+        """Sekundärfallback: konservative Spectral Band Replication mit Originalphase."""
+        n_fft = 2048
+        hop = 256
+        win = np.hanning(n_fft).astype(np.float32)
+        n_frames = (len(x) - n_fft) // hop + 1
+        if n_frames <= 0:
+            return np.clip(np.nan_to_num(x, nan=0.0, posinf=0.0, neginf=0.0), -1.0, 1.0)
+
+        specs = []
+        for i in range(n_frames):
+            seg = x[i * hop : i * hop + n_fft]
+            if len(seg) < n_fft:
+                seg = np.pad(seg, (0, n_fft - len(seg)))
+            specs.append(np.fft.rfft(seg * win))
+
+        S = np.stack(specs, axis=1).astype(np.complex64)
+        mag = np.abs(S)
+        phase = np.angle(S)
+        freq_bins = mag.shape[0]
+        bin_hz = (sr / 2.0) / max(freq_bins - 1, 1)
+        cutoff_b = int(8000 / bin_hz) if bin_hz > 0 else freq_bins
+        cutoff_b = int(np.clip(cutoff_b, 8, freq_bins - 1))
+
+        mag_ext = mag.copy()
+        src_band = mag[max(1, cutoff_b // 2) : cutoff_b]
+        dst_len = freq_bins - cutoff_b
+        if src_band.size > 0 and dst_len > 0:
+            src_idx = np.linspace(0, src_band.shape[0] - 1, dst_len)
+            for t in range(mag.shape[1]):
+                replicated = np.interp(src_idx, np.arange(src_band.shape[0]), src_band[:, t])
+                tilt = np.linspace(0.85, 0.45, dst_len, dtype=np.float32)
+                mag_ext[cutoff_b:, t] = np.maximum(mag_ext[cutoff_b:, t], replicated * tilt)
+
+        S_ext = mag_ext * np.exp(1j * phase)
+        try:
+            from scipy.signal import istft as _istft_fn
+
+            _, out = _istft_fn(
+                S_ext,
+                fs=sr,
+                nperseg=n_fft,
+                noverlap=n_fft - hop,
+                window=win,
+            )
+        except Exception as exc:
+            logger.debug("SBR-Fallback ISTFT fehlgeschlagen: %s", exc)
+            out = x
+        out = np.asarray(out, dtype=np.float32)
+        if len(out) > len(x):
+            out = out[: len(x)]
+        elif len(out) < len(x):
+            out = np.pad(out, (0, len(x) - len(out)))
+        return np.clip(np.nan_to_num(out, nan=0.0, posinf=0.0, neginf=0.0), -1.0, 1.0)
 
     def _spectral_exciter(self, x: np.ndarray, sr: int) -> np.ndarray:
         """Spektraler Exciter via Oberton-Synthese."""
@@ -492,10 +554,13 @@ class AudioSRPlugin:
             target_sr : Ziel-Sample-Rate (Standard 48 000 Hz)
         """
         try:
+            from backend.file_import import load_audio_file
             import soundfile as sf
 
-            audio, sr = sf.read(input_wav, dtype="float32", always_2d=True)
-            audio = audio.T  # [channels, samples]
+            _res = load_audio_file(input_wav, do_carrier_analysis=False)
+            audio = np.asarray(_res["audio"], dtype=np.float32)
+            sr = int(_res["sr"])
+            audio = audio[np.newaxis, :] if audio.ndim == 1 else audio.T  # [channels, samples]
             result = self.process(audio, sr, target_sr=target_sr)
             Path(output_wav).parent.mkdir(parents=True, exist_ok=True)
             sf.write(

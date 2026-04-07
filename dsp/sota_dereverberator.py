@@ -32,7 +32,7 @@ class SotaDereverberator:
             dccrn_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "../models/dccrn/dccrn.onnx"))
             if use_dccrn and os.path.exists(dccrn_path):
                 if check_budget("sota_dereverb_dccrn", 0.15):
-                    self.dccrn_session = ort.InferenceSession(dccrn_path)
+                    self.dccrn_session = ort.InferenceSession(dccrn_path, providers=["CPUExecutionProvider"])
                 else:
                     _logger.warning("Memory budget exceeded for dereverberator DCCRN")
         except ImportError:

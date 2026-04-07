@@ -305,8 +305,8 @@ class EnhancedMetrics:
         Example:
             >>> metrics = EnhancedMetrics()
             >>> result = metrics.compute_all(original, restored, sr=48000)
-            >>> logger.debug(f"ViSQOL: {result.visqol_mos}")
-            >>> logger.debug(f"Passes standards: {result.passes_aurik_standards()}")
+            logger.debug("ViSQOL: %s", result.visqol_mos)
+            logger.debug("Passes standards: %s", result.passes_aurik_standards())
         """
         # Basic metrics on restored audio
         snr_restored = self.compute_snr(restored, sr)

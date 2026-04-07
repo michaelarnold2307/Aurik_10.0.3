@@ -273,7 +273,7 @@ pip install pybind11
 ### Core Parameters (20)
 
 | # | Parameter | Type | Range | Default | Maps To |
-|---|-----------|------|-------|---------|---------|
+| --- | --- | --- | --- | --- | --- |
 | 1 | Medium Type | Choice | 10 options | Vinyl | `medium_type` |
 | 2 | Processing Mode | Choice | 5 options | Balanced | `processing_mode` |
 | 3 | Brillanz Target | Float | 0.0-1.0 | 0.87 | `musical_goals.brillanz` |

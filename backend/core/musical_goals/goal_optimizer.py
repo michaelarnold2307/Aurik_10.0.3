@@ -20,4 +20,4 @@ class MusicalGoalsOptimizer:
 
     def _boost(self, goal) -> None:
         # Hier könnte DSP/ML-Logik integriert werden
-        logger.debug(f"Boosting {goal} for musical excellence.")
+        logger.debug("Boosting %s for musical excellence.", goal)

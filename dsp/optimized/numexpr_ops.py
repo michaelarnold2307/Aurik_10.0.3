@@ -89,7 +89,7 @@ class OptimizedDSP:
         self.num_threads = (
             ne.detect_number_of_cores() if _NUMEXPR_AVAILABLE and ne is not None else (os.cpu_count() or 1)
         )
-        logger.info(f"OptimizedDSP initialized with {self.num_threads} threads")
+        logger.info("OptimizedDSP initialized with %s threads", self.num_threads)
 
     def spectral_gate(self, spectrum: np.ndarray, threshold: float, slope: float = 1.0) -> np.ndarray:
         """

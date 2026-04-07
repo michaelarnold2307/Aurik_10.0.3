@@ -330,7 +330,7 @@ class FletcherMunsonProcessor:
             spls = np.array([spl for _, spl in data])
             self.contours[phon_level] = EqualLoudnessContour(phon_level=phon_level, frequencies=freqs, spl_levels=spls)
 
-        logger.debug(f"FletcherMunsonProcessor initialized (target={self.config.target_phon} phon)")
+        logger.debug("FletcherMunsonProcessor initialized (target=%s phon)", self.config.target_phon)
 
     def get_contour(self, phon_level: int) -> EqualLoudnessContour:
         """
@@ -519,7 +519,7 @@ if __name__ == "__main__":
             contour = processor.get_contour(phon)
             spl = contour.get_spl_at_frequency(freq)
             values.append(f"{spl:7.1f}")
-        logger.debug(f"{freq:5.0f} Hz | " + " | ".join(values) + " |")
+        logger.debug('%5.0f Hz | " + " | ".join(values) + " |', freq)
 
     # Correction curves
     logger.debug("\n\nLoudness Compensation Curves (dB correction):\n")
@@ -532,7 +532,7 @@ if __name__ == "__main__":
     logger.debug("\nFreq (Hz) | Correction (dB)")
     logger.debug("-" * 35)
     for f, c in zip(freqs, correction_60):
-        logger.debug(f"{f:8.0f} | {c:+6.2f}")
+        logger.debug("%8.0f | %+6.2f", f, c)
 
     # Test with audio
     logger.debug("\n\nApplying compensation to test signal...")
@@ -551,9 +551,9 @@ if __name__ == "__main__":
     compensated_quiet, _ = processor.apply_compensation(audio, sr, target_phon=40, reference_phon=80)
     compensated_normal, _ = processor.apply_compensation(audio, sr, target_phon=60, reference_phon=80)
 
-    logger.debug(f"  Original RMS: {np.sqrt(np.mean(audio**2)):.4f}")
-    logger.debug(f"  Quiet (40 phon) RMS: {np.sqrt(np.mean(compensated_quiet**2)):.4f}")
-    logger.debug(f"  Normal (60 phon) RMS: {np.sqrt(np.mean(compensated_normal**2)):.4f}")
+    logger.debug("  Original RMS: %.4f", np.sqrt(np.mean(audio**2)))
+    logger.debug("  Quiet (40 phon) RMS: %.4f", np.sqrt(np.mean(compensated_quiet**2)))
+    logger.debug("  Normal (60 phon) RMS: %.4f", np.sqrt(np.mean(compensated_normal**2)))
 
     logger.debug("\n" + "=" * 70)
     logger.debug("Demo complete!")

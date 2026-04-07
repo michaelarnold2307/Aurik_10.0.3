@@ -54,7 +54,7 @@ class MCDropoutModel(nn.Module):
         # Add dropout layers if not already present
         self._add_dropout_layers()
 
-        logger.info(f"MCDropoutModel initialized: dropout={dropout_rate}, n_samples={n_samples}")
+        logger.info("MCDropoutModel initialized: dropout=%s, n_samples=%s", dropout_rate, n_samples)
 
     def _add_dropout_layers(self):
         """Recursively add dropout layers after each activation."""
@@ -200,7 +200,7 @@ class BayesianNN(nn.Module):
 
         self.layers = nn.ModuleList(layers)
 
-        logger.info(f"BayesianNN initialized: {input_dim} -> {hidden_dims} -> {output_dim}")
+        logger.info("BayesianNN initialized: %s -> %s -> %s", input_dim, hidden_dims, output_dim)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Forward pass."""
@@ -265,7 +265,7 @@ class EnsembleUncertainty:
         self.device = device
         self.n_models = len(models)
 
-        logger.info(f"EnsembleUncertainty initialized: {self.n_models} models")
+        logger.info("EnsembleUncertainty initialized: %s models", self.n_models)
 
     def predict_with_uncertainty(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, dict[str, torch.Tensor]]:
         """
@@ -386,7 +386,7 @@ class TemperatureScaling(nn.Module):
 
         optimizer.step(closure=eval_loss)
 
-        logger.info(f"Calibration completed: temperature = {self.temperature.item():.4f}")
+        logger.info("Calibration completed: temperature = %.4f", self.temperature.item())
 
 
 @dataclass
@@ -460,7 +460,7 @@ class UncertaintyQuantifier:
         else:
             raise ValueError(f"Unknown method: {method}")
 
-        logger.info(f"UncertaintyQuantifier initialized: method={method}")
+        logger.info("UncertaintyQuantifier initialized: method=%s", method)
 
     def predict(self, x: torch.Tensor, return_samples: bool = False) -> UncertaintyMetrics:
         """
@@ -542,10 +542,10 @@ if __name__ == "__main__":
     x = torch.randn(4, 128)
     mean, std, samples = mc_dropout.predict_with_uncertainty(x)
 
-    logger.debug(f"Mean shape: {mean.shape}")
-    logger.debug(f"Std shape: {std.shape}")
-    logger.debug(f"Samples shape: {samples.shape}")
-    logger.debug(f"Mean std: {std.mean().item():.4f}")
+    logger.debug("Mean shape: %s", mean.shape)
+    logger.debug("Std shape: %s", std.shape)
+    logger.debug("Samples shape: %s", samples.shape)
+    logger.debug("Mean std: %.4f", std.mean().item())
 
     # Test Bayesian NN
     logger.debug("\n=== Bayesian NN ===")
@@ -554,9 +554,9 @@ if __name__ == "__main__":
     mean, std = bayesian_model.predict_with_uncertainty(x, n_samples=10)
     kl = bayesian_model.kl_divergence()
 
-    logger.debug(f"Mean shape: {mean.shape}")
-    logger.debug(f"Std shape: {std.shape}")
-    logger.debug(f"KL divergence: {kl.item():.4f}")
+    logger.debug("Mean shape: %s", mean.shape)
+    logger.debug("Std shape: %s", std.shape)
+    logger.debug("KL divergence: %.4f", kl.item())
 
     # Test UncertaintyQuantifier
     logger.debug("\n=== UncertaintyQuantifier ===")
@@ -565,7 +565,7 @@ if __name__ == "__main__":
     metrics = quantifier.predict(x)
     is_confident = quantifier.is_confident(metrics, threshold=0.8)
 
-    logger.debug(f"Mean: {metrics.mean.shape}")
-    logger.debug(f"Std: {metrics.std.shape}")
-    logger.debug(f"Confidence: {metrics.confidence.shape if metrics.confidence is not None else 'N/A'}")
-    logger.debug(f"Confident predictions: {is_confident.sum().item()}/{len(is_confident)}")
+    logger.debug("Mean: %s", metrics.mean.shape)
+    logger.debug("Std: %s", metrics.std.shape)
+    logger.debug("Confidence: %s", metrics.confidence.shape if metrics.confidence is not None else 'N/A')
+    logger.debug("Confident predictions: %s/%s", is_confident.sum().item(), len(is_confident))

@@ -2,8 +2,8 @@ import logging
 from typing import Any
 
 import numpy as np
-import soundfile as sf
-from scipy.signal import find_peaks, hamming
+from scipy.signal import find_peaks
+from scipy.signal.windows import hamming
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +34,11 @@ class RuleBasedGenderDetector:
         return gender
 
     def detect_gender(self, audio_file: str) -> str:
-        audio, sr = sf.read(audio_file)
+        from backend.file_import import load_audio_file
+        _af_res = load_audio_file(audio_file)
+        if _af_res is None or _af_res.get("error") or _af_res["audio"] is None:
+            return "unknown"
+        audio, sr = _af_res["audio"], int(_af_res["sr"])
         if audio.ndim > 1:
             audio = audio[0]  # Mono
         # Robustere Pitch-Schätzung: Median über voiced frames
@@ -82,7 +86,8 @@ class RuleBasedGenderDetector:
         # LPC-Formant-Schätzung über mehrere Frames (robuster)
         frame_size = int(0.03 * sr)
         hop_size = int(0.015 * sr)
-        n_coeff = 12
+        # §VERBOTEN: LPC order < 16 — use SR-adaptive order (min 16 per spec VERBOTEN list)
+        n_coeff = max(16, 2 + sr // 1000)
         f1s, f2s = [], []
         for i in range(0, min(len(audio) - frame_size, 10 * hop_size), hop_size):
             frame = audio[i : i + frame_size] * hamming(frame_size)

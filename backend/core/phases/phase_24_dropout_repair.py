@@ -480,7 +480,10 @@ class DropoutRepairPhase(PhaseInterface):
             return dropouts
 
         _TARGET_SR = plugin.TARGET_SR  # 16 000 Hz
-        _CROSSFADE_S = 0.010  # 10 ms cosine crossfade
+        # 5 ms crossfade (was 10 ms): shorter gaps on Tape typically 1–5 ms;
+        # a 10 ms crossfade is wider than the gap itself and smears the transient.
+        # 5 ms gives cleaner boundaries without sacrificing stability.
+        _CROSSFADE_S = 0.005  # 5 ms cosine crossfade
         _CTX_S = 2.0  # 2 s context window for prompt + RMS matching
         _GUIDANCE = 3.5
 

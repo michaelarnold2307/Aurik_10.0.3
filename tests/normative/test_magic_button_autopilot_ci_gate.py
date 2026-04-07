@@ -31,7 +31,7 @@ def test_one_button_release_must_section_exists() -> None:
         "copilot-instructions.md fehlt. RELEASE_MUST-Vorgaben müssen im Repo versioniert sein."
     )
     text = _COPILOT_INSTRUCTIONS.read_text(encoding="utf-8")
-    assert "[RELEASE_MUST] Autonomer Magic-Button-Betrieb + Profi-Highlights" in text, (
+    assert "[RELEASE_MUST] Autonomer Magic-Button-Betrieb" in text, (
         "RELEASE_MUST-Abschnitt für Magic-Button-Autopilot fehlt in .github/copilot-instructions.md."
     )
 

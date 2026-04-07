@@ -699,14 +699,14 @@ class SemanticGoalsEngine:
             model = AutoModel.from_pretrained(str(model_path), local_files_only=True)  # nosec B615 — local_files_only=True, kein Download
             feature_extractor = AutoFeatureExtractor.from_pretrained(str(model_path), local_files_only=True)  # nosec B615 — local_files_only=True, kein Download
 
-            logger.info(f"Instrument detector loaded from {model_path}")
+            logger.info("Instrument detector loaded from %s", model_path)
             return (model, feature_extractor)
 
         except ImportError:
             logger.warning("transformers package not installed. pip install transformers")
             return None
         except Exception as e:
-            logger.warning(f"Failed to load instrument detector: {e}")
+            logger.warning("Failed to load instrument detector: %s", e)
             return None
 
     def _load_structure_analyzer(self, model_path: Path | None) -> Any | None:
@@ -770,7 +770,7 @@ class SemanticGoalsEngine:
             return dominant, all_instruments, confidence
 
         except Exception as e:
-            logger.warning(f"Instrument detection failed: {e}")
+            logger.warning("Instrument detection failed: %s", e)
             return self._detect_instruments_fallback(audio, sr)
 
     def _detect_instruments_fallback(
@@ -839,7 +839,7 @@ class SemanticGoalsEngine:
             return segments
 
         except Exception as e:
-            logger.warning(f"Structure analysis failed: {e}")
+            logger.warning("Structure analysis failed: %s", e)
             return self._analyze_structure_fallback(audio, sr)
 
     def _analyze_structure_fallback(self, audio: np.ndarray, sr: int) -> list[tuple[float, float, SegmentType]]:

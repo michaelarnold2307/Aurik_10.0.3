@@ -320,12 +320,12 @@ def _synthesize_sinusoidal(
         phase = np.random.uniform(0, 2 * np.pi)
         output += amp * np.sin(2.0 * np.pi * freq_hz * t + phase)
 
-    # Normalize to match partial amplitudes scale
+    # Robust level match (no RMS normalization)
     peak = np.max(np.abs(output))
     if peak > 0:
-        target_rms = np.sqrt(np.mean(np.array([a for _, a in partials[:8]]) ** 2)) if partials else 0.1
-        current_rms = np.sqrt(np.mean(output**2)) + 1e-10
-        output *= target_rms / current_rms
+        target_level = float(np.median(np.abs(np.array([a for _, a in partials[:8]], dtype=np.float64)))) if partials else 0.1
+        current_level = float(np.percentile(np.abs(output), 90)) + 1e-10
+        output *= target_level / current_level
 
     return output.astype(np.float32)
 

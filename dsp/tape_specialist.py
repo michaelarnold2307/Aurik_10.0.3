@@ -703,16 +703,14 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     # Load audio
-    logger.info(f"Loading: {args.input}")
-    read_result = sf.read(args.input, always_2d=False)
-    if not isinstance(read_result, tuple) or len(read_result) != 2:
-        raise RuntimeError("soundfile.read returned unexpected value")
+    logger.info("Loading: %s", args.input)
+    from backend.file_import import load_audio_file
+    _res = load_audio_file(args.input)
+    audio = np.asarray(_res["audio"])
+    sr = int(_res["sr"])
 
-    audio = np.asarray(read_result[0])
-    sr = int(read_result[1])
-
-    # Transpose if stereo (soundfile returns (n_samples, n_channels))
-    if audio.ndim == 2:
+    # Transpose if stereo (convert from channels-last to channels-first if needed)
+    if audio.ndim == 2 and audio.shape[1] < audio.shape[0]:
         audio = audio.T
 
     # Initialize processor
@@ -731,16 +729,16 @@ if __name__ == "__main__":
 
     # Get metrics
     metrics = processor.get_metrics()
-    logger.info(f"\n{'=' * 60}")
+    logger.info("\n%s", '=' * 60)
     logger.info("METRICS:")
     for module_name, module_metrics in metrics.items():
-        logger.info(f"\n{module_name.upper()}:")
+        logger.info("\n%s:", module_name.upper())
         for key, value in module_metrics.items():
             if isinstance(value, float):
-                logger.info(f"  {key}: {value:.2f}")
+                logger.info("  %s: %.2f", key, value)
             else:
-                logger.info(f"  {key}: {value}")
-    logger.info(f"{'=' * 60}\n")
+                logger.info("  %s: %s", key, value)
+    logger.info("%s\n", '=' * 60)
 
     # Save
     # Transpose back if stereo
@@ -748,4 +746,4 @@ if __name__ == "__main__":
         output = output.T
 
     sf.write(args.output, output, sr)
-    logger.info(f"Saved: {args.output}")
+    logger.info("Saved: %s", args.output)

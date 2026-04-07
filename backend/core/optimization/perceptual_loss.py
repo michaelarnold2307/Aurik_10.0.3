@@ -536,11 +536,11 @@ class CombinedPerceptualLoss(nn.Module):
         else:
             self.musical_loss = None
 
-        logger.info(f"CombinedPerceptualLoss initialized with sr={sr}")
-        logger.info(f"  STFT weight: {stft_weight}")
-        logger.info(f"  PANNs weight: {panns_weight} (enabled: {use_panns})")
-        logger.info(f"  Psychoacoustic weight: {psychoacoustic_weight} (enabled: {use_psychoacoustic})")
-        logger.info(f"  Musical weight: {musical_weight} (enabled: {use_musical})")
+        logger.info("CombinedPerceptualLoss initialized with sr=%s", sr)
+        logger.info("  STFT weight: %s", stft_weight)
+        logger.info("  PANNs weight: %s (enabled: %s)", panns_weight, use_panns)
+        logger.info("  Psychoacoustic weight: %s (enabled: %s)", psychoacoustic_weight, use_psychoacoustic)
+        logger.info("  Musical weight: %s (enabled: %s)", musical_weight, use_musical)
 
     def forward(
         self, output: torch.Tensor, target: torch.Tensor, return_details: bool = False
@@ -607,7 +607,7 @@ if __name__ == "__main__":
     loss_fn = CombinedPerceptualLoss(sr=sr)
     loss, details = loss_fn(output, target, return_details=True)
 
-    logger.debug(f"Total Perceptual Loss: {loss.item():.4f}")
+    logger.debug("Total Perceptual Loss: %.4f", loss.item())
     logger.debug("\nDetailed Breakdown:")
     for key, value in details.items():
-        logger.debug(f"  {key}: {value:.4f}")
+        logger.debug("  %s: %.4f", key, value)

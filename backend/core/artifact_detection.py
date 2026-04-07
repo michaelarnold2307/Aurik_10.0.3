@@ -97,7 +97,7 @@ class RestorationArtifactDetector:
             restored_audio,
             sr=48000
         )
-        logger.debug(f"Artifacts per minute: {result.artifacts_per_minute:.1f}")
+        logger.debug("Artifacts per minute: %.1f", result.artifacts_per_minute)
     """
 
     def __init__(

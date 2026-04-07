@@ -202,9 +202,9 @@ class AurikDenker:
 
         aurik = get_aurik_denker()
         ergebnis = aurik.restauriere(audio, sr=48_000)
-        logger.debug(f"RT-Faktor: {ergebnis.rt_factor:.2f}×")
-        logger.debug(f"Qualität: {ergebnis.quality_estimate:.3f} (VERSA MOS eingerechnet)")
-        logger.debug(f"Goals: {ergebnis.goals_passed}/{len(ergebnis.musical_goals)}")
+        logger.debug("RT-Faktor: %.2f×", ergebnis.rt_factor)
+        logger.debug("Qualität: %.3f (VERSA MOS eingerechnet)", ergebnis.quality_estimate)
+        logger.debug("Goals: %s/%s", ergebnis.goals_passed, len(ergebnis.musical_goals))
     """
 
     # ── Öffentliche API ──────────────────────────────────────────────────────
@@ -319,6 +319,31 @@ class AurikDenker:
 
     def denke(self, audio: np.ndarray, sr: int = 48_000, **kwargs: Any) -> AurikErgebnis:
         """Alias für restauriere() — API-Kompatibilität (Spec §2.2)."""
+        # Unpack pre_analysis_result into individual cached_* kwargs if present.
+        # BatchProcessingThread passes a PreAnalysisResult object; restauriere() expects
+        # individual cached_* parameters.  Without this step all cached analyses would be
+        # silently discarded, forcing DefektDenker / TontraegerDenker to re-run (~120 s).
+        _pre = kwargs.get("pre_analysis_result")
+        if _pre is not None:
+            if kwargs.get("cached_era_result") is None and getattr(_pre, "era", None) is not None:
+                kwargs["cached_era_result"] = _pre.era
+            if kwargs.get("cached_genre_result") is None and getattr(_pre, "genre", None) is not None:
+                kwargs["cached_genre_result"] = _pre.genre
+            if kwargs.get("cached_defect_result") is None and getattr(_pre, "defects", None) is not None:
+                kwargs["cached_defect_result"] = _pre.defects
+            if kwargs.get("cached_medium_result") is None and getattr(_pre, "medium", None) is not None:
+                kwargs["cached_medium_result"] = _pre.medium
+            if kwargs.get("cached_restorability_result") is None and getattr(_pre, "restorability", None) is not None:
+                kwargs["cached_restorability_result"] = _pre.restorability
+            logger.debug(
+                "AurikDenker.denke(): pre_analysis_result entpackt "
+                "(era=%s genre=%s defects=%s medium=%s rest=%s)",
+                "✓" if kwargs.get("cached_era_result") else "—",
+                "✓" if kwargs.get("cached_genre_result") else "—",
+                "✓" if kwargs.get("cached_defect_result") else "—",
+                "✓" if kwargs.get("cached_medium_result") else "—",
+                "✓" if kwargs.get("cached_restorability_result") else "—",
+            )
         return self.restauriere(
             audio,
             sr,
@@ -666,7 +691,13 @@ class AurikDenker:
         # redundant MediumDetector pass that the user sees as "Tonträger wird erkannt".
         material = "unknown"
         if cached_medium_result is not None:
-            material = str(getattr(cached_medium_result, "material_type", "unknown") or "unknown")
+            # Use same multi-fallback as UV3 (line 1564): primary_material → material_type → material
+            material = str(
+                getattr(cached_medium_result, "primary_material", None)
+                or getattr(cached_medium_result, "material_type", None)
+                or getattr(cached_medium_result, "material", None)
+                or "unknown"
+            )
             stage_notes["tontraeger"] = (
                 f"{material} (Cache, Konfidenz: {getattr(cached_medium_result, 'confidence', 0.0):.2f})"
             )
@@ -700,10 +731,14 @@ class AurikDenker:
                 logger.warning("AurikDenker [1/10] TontraegerDenker: %s", exc)
 
         # ── Stufe 2: Tonträgerketten-Analyse ──────────────────────────────────
+        # §2.47a: Pass cached_medium_result to avoid a second MediumDetector.detect() call.
         _emit(4, "Tonträgerkette analysiert …")
         chain_info: dict[str, Any] = {}
         try:
-            kette = get_tontraegerkette_denker().analysiere(aktuelles_audio, sr, file_path=input_path)
+            kette = get_tontraegerkette_denker().analysiere(
+                aktuelles_audio, sr, file_path=input_path,
+                cached_medium_result=cached_medium_result,
+            )
             chain_info = kette.as_dict()
             stage_notes["kette"] = kette.chain_string
             phases_executed.extend(kette.combined_phases)

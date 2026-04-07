@@ -320,9 +320,9 @@ class EthicsEngine:
         if approved:
             self.logger.info("Conduct Regulator: Plan APPROVED ✅")
         else:
-            self.logger.warning(f"Conduct Regulator: Plan REJECTED ❌ ({len(violations)} violations)")
+            logger.warning("Conduct Regulator: Plan REJECTED ❌ (%s violations)", len(violations))
             for violation in violations:
-                self.logger.warning(f"  - {violation}")
+                logger.warning("  - %s", violation)
 
         return approved, violations
 
@@ -397,10 +397,10 @@ if __name__ == "__main__":
 
     report = engine.epistemic_gate(context_vinyl)
     logger.debug("\n=== Example 1: Vinyl mit Clicks ===")
-    logger.debug(f"Decision: {report.decision.value}")
-    logger.debug(f"Mode: {report.mode.value if report.mode else 'N/A'}")
-    logger.debug(f"Reasoning: {report.reasoning}")
-    logger.debug(f"Recommendation: {report.recommendation}")
+    logger.debug("Decision: %s", report.decision.value)
+    logger.debug("Mode: %s", report.mode.value if report.mode else 'N/A')
+    logger.debug("Reasoning: %s", report.reasoning)
+    logger.debug("Recommendation: %s", report.recommendation)
 
     # Example 2: Forensic Material (Preserve)
     context_forensic = {
@@ -415,8 +415,8 @@ if __name__ == "__main__":
 
     report2 = engine.epistemic_gate(context_forensic)
     logger.debug("\n=== Example 2: Forensic Material ===")
-    logger.debug(f"Decision: {report2.decision.value}")
-    logger.debug(f"Reasoning: {report2.reasoning}")
+    logger.debug("Decision: %s", report2.decision.value)
+    logger.debug("Reasoning: %s", report2.reasoning)
 
     # Example 3: Modern Reproduction (Mode B)
     context_modern = {
@@ -431,9 +431,9 @@ if __name__ == "__main__":
 
     report3 = engine.epistemic_gate(context_modern)
     logger.debug("\n=== Example 3: Modern Reproduction ===")
-    logger.debug(f"Decision: {report3.decision.value}")
-    logger.debug(f"Mode: {report3.mode.value if report3.mode else 'N/A'}")
-    logger.debug(f"Recommendation: {report3.recommendation}")
+    logger.debug("Decision: %s", report3.decision.value)
+    logger.debug("Mode: %s", report3.mode.value if report3.mode else 'N/A')
+    logger.debug("Recommendation: %s", report3.recommendation)
 
     # Example 4: Conduct Regulator Check
     logger.debug("\n=== Example 4: Conduct Regulator ===")
@@ -446,9 +446,9 @@ if __name__ == "__main__":
     }
 
     approved, violations = engine.conduct_regulator(processing_plan_good, context_vinyl)
-    logger.debug(f"Plan Approved: {approved}")
+    logger.debug("Plan Approved: %s", approved)
     if violations:
-        logger.debug(f"Violations: {violations}")
+        logger.debug("Violations: %s", violations)
 
     # Example 5: Conduct Regulator Rejection
     processing_plan_bad = {
@@ -458,5 +458,5 @@ if __name__ == "__main__":
     }
 
     approved2, violations2 = engine.conduct_regulator(processing_plan_bad, context_vinyl)
-    logger.debug(f"\nPlan 2 Approved: {approved2}")
-    logger.debug(f"Violations: {violations2}")
+    logger.debug("\nPlan 2 Approved: %s", approved2)
+    logger.debug("Violations: %s", violations2)

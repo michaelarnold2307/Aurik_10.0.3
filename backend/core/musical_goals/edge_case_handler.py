@@ -133,9 +133,9 @@ class EdgeCaseHandler:
         >>> assessment = handler.assess_edge_cases(audio, sr, mode=ProcessingMode.RESTORATION)
         >>>
         >>> if assessment.edge_case_type != EdgeCaseType.NONE:
-        ...     logger.debug(f"Edge case detected: {assessment.edge_case_type}")
-        ...     logger.debug(f"Unreachable goals: {assessment.unreachable_goals}")
-        ...     logger.debug(f"Adjusted thresholds: {assessment.adjusted_thresholds}")
+        logger.debug("Edge case detected: %s", assessment.edge_case_type)
+        logger.debug("Unreachable goals: %s", assessment.unreachable_goals)
+        logger.debug("Adjusted thresholds: %s", assessment.adjusted_thresholds)
     """
 
     def __init__(self, musical_goals_checker: MusicalGoalsChecker | None = None) -> None:
@@ -976,16 +976,16 @@ if __name__ == "__main__":
     logger.debug("Assessing edge cases...")
     assessment = handler.assess_edge_cases(degraded_audio, sr=sr, mode=ProcessingMode.RESTORATION)
 
-    logger.debug(f"\nEdge Case Type: {assessment.edge_case_type.value}")
-    logger.debug(f"Severity: {assessment.severity.value}")
-    logger.debug(f"Confidence: {assessment.confidence:.2f}")
-    logger.debug(f"\nReachable Goals ({len(assessment.reachable_goals)}):")
+    logger.debug("\nEdge Case Type: %s", assessment.edge_case_type.value)
+    logger.debug("Severity: %s", assessment.severity.value)
+    logger.debug("Confidence: %.2f", assessment.confidence)
+    logger.debug("\nReachable Goals (%s):", len(assessment.reachable_goals))
     for goal in assessment.reachable_goals:
-        logger.debug(f"  ✅ {goal}")
-    logger.debug(f"\nUnreachable Goals ({len(assessment.unreachable_goals)}):")
+        logger.debug("  ✅ %s", goal)
+    logger.debug("\nUnreachable Goals (%s):", len(assessment.unreachable_goals))
     for goal in assessment.unreachable_goals:
-        logger.debug(f"  ❌ {goal}")
-    logger.debug(f"\nRecommended Mode: {assessment.recommended_mode.value}")
-    logger.debug(f"Fallback Strategy: {assessment.fallback_strategy}")
+        logger.debug("  ❌ %s", goal)
+    logger.debug("\nRecommended Mode: %s", assessment.recommended_mode.value)
+    logger.debug("Fallback Strategy: %s", assessment.fallback_strategy)
 
     logger.debug("\n=== Test Complete ===")

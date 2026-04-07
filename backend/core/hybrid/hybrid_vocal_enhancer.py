@@ -76,7 +76,7 @@ class HybridVocalEnhancer:
             modules["formant"] = FormantTracker()
             logger.info("ML-Module für Vocal Enhancement geladen.")
         except Exception as e:
-            logger.warning(f"ML-Module nicht vollständig verfügbar: {e}")
+            logger.warning("ML-Module nicht vollständig verfügbar: %s", e)
         return modules
 
     def enhance(self, audio: np.ndarray, sample_rate: int, quality_mode: str = "balanced") -> VocalEnhancerResult:
@@ -217,7 +217,7 @@ class HybridVocalEnhancer:
             result = de_esser.process(audio.astype(np.float64), sr)
             return result.astype(audio.dtype), {"deesser_strength": strength, "applied": True}
         except Exception as exc:
-            logger.warning(f"MLDeEsser nicht verfügbar: {exc}")
+            logger.warning("MLDeEsser nicht verfügbar: %s", exc)
             return audio, {"deesser_strength": 0.0, "applied": False}
 
     def _apply_dynamic_compression(self, audio, amount) -> np.ndarray:

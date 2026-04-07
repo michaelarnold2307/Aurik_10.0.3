@@ -22,9 +22,9 @@ Beispiel::
     from backend.core.mushra_evaluator import evaluate_mushra, get_mushra_evaluator
 
     result = evaluate_mushra(reference_audio, restored_audio, sr=48000)
-    logger.debug(f"MUSHRA-Score: {result.mushra_score:.1f}/100")
-    logger.debug(f"Kategorie: {result.grade}")          # z.B. "Good"
-    logger.debug(f"ITU-Konform: {result.itu_grade}")    # z.B. "B (Good)"
+    logger.debug("MUSHRA-Score: %.1f/100", result.mushra_score)
+    logger.debug("Kategorie: %s", result.grade)  # z.B. "Good"
+    logger.debug("ITU-Konform: %s", result.itu_grade)  # z.B. "B (Good)"
 
 Autor: Aurik 9.9 — 19. Februar 2026
 Referenz: ITU-R BS.1534-3 (2015): "Method for the subjective assessment of
@@ -41,6 +41,18 @@ from dataclasses import dataclass, field
 import numpy as np
 
 logger = logging.getLogger(__name__)
+
+
+def _safe_fft_size(length: int, target: int = 2048, minimum: int = 64) -> int:
+    """Return power-of-two FFT size capped by signal length.
+
+    Prevents librosa short-signal warnings while keeping spectral resolution
+    as close as possible to the nominal target.
+    """
+    if length <= minimum:
+        return minimum
+    capped = min(target, int(length))
+    return max(minimum, 1 << (capped.bit_length() - 1))
 
 
 # ---------------------------------------------------------------------------
@@ -204,7 +216,10 @@ class MushraEvaluator:
 
         # Score-Konversion in [0, 1]-Raum
         nsim_score = float(np.clip(nsim, 0.0, 1.0))
-        mg_score = float(np.clip(mg_mean, 0.0, 1.0))
+        # NaN guard: musical_goals sub-metrics can return nan for near-silent
+        # audio; np.mean propagates nan → mg_score=nan → mushra_score=nan.
+        mg_mean_safe = float(np.nan_to_num(mg_mean, nan=0.0))
+        mg_score = float(np.clip(mg_mean_safe, 0.0, 1.0))
         mcd_score = float(np.exp(-mcd / 300.0))  # MCD 0→1.0  242→0.446  500→0.189
         lufs_score = float(np.clip(1.0 - abs(lufs_diff) / 12.0, 0.0, 1.0))
         sc_score = float(np.clip(spectral_corr, 0.0, 1.0))
@@ -217,6 +232,9 @@ class MushraEvaluator:
             + self._WEIGHTS["lufs_diff"] * lufs_score
             + self._WEIGHTS["spectral_corr"] * sc_score
         )
+        # Final NaN/Inf guard before scaling (defensive — sub-metric guards above
+        # should prevent this, but belt-and-suspenders per coding standards).
+        raw = float(np.nan_to_num(raw, nan=0.0, posinf=1.0, neginf=0.0))
 
         # → MUSHRA [0, 100]
         mushra_score = float(np.clip(raw * 100.0, 0.0, 100.0))
@@ -320,8 +338,8 @@ class MushraEvaluator:
         try:
             import librosa
 
-            n_fft = 2048
-            hop = 512
+            n_fft = _safe_fft_size(min(len(ref), len(test)), target=2048, minimum=64)
+            hop = max(16, n_fft // 4)
             n_mel = 128
 
             S_ref = librosa.feature.melspectrogram(y=ref, sr=sr, n_fft=n_fft, hop_length=hop, n_mels=n_mel)
@@ -372,11 +390,23 @@ class MushraEvaluator:
             LUFS-Differenz in LU (signed). Ziel: ≤ 1 LU.
         """
         try:
-            rms_ref = float(np.sqrt(np.mean(ref**2) + 1e-12))
-            rms_test = float(np.sqrt(np.mean(test**2) + 1e-12))
-            lufs_ref = 20.0 * math.log10(rms_ref)
-            lufs_test = 20.0 * math.log10(rms_test)
-            return lufs_test - lufs_ref
+            try:
+                import pyloudnorm as pyln
+
+                meter = pyln.Meter(sr)
+                lufs_ref = float(meter.integrated_loudness(ref))
+                lufs_test = float(meter.integrated_loudness(test))
+            except Exception as exc:
+                logger.debug("LUFS-BS.1770 Fallback auf RMS (Fehler: %s)", exc)
+                rms_ref = float(np.sqrt(np.mean(ref**2) + 1e-12))
+                rms_test = float(np.sqrt(np.mean(test**2) + 1e-12))
+                lufs_ref = 20.0 * math.log10(rms_ref)
+                lufs_test = 20.0 * math.log10(rms_test)
+
+            diff = lufs_test - lufs_ref
+            # Clamp to ±60 LU — values beyond that indicate a near-silent or
+            # clipped signal; the score already clips to 0 at |12| LU anyway.
+            return float(np.clip(diff, -60.0, 60.0))
         except Exception:
             return 0.0
 
@@ -386,6 +416,10 @@ class MushraEvaluator:
             P_ref = np.abs(np.fft.rfft(ref)) ** 2
             P_test = np.abs(np.fft.rfft(test)) ** 2
             corr = float(np.corrcoef(P_ref, P_test)[0, 1])
+            # NaN guard: np.corrcoef returns nan when std of one array is 0
+            # (e.g. near-silent test signal).  np.clip does NOT filter nan.
+            if not np.isfinite(corr):
+                return 0.5
             return float(np.clip(corr, 0.0, 1.0))
         except Exception:
             return 0.5
@@ -510,7 +544,7 @@ def evaluate_mushra(
     Example::
 
         result = evaluate_mushra(original_audio, restored_audio, sr=48000)
-        logger.debug(f"MUSHRA: {result.mushra_score:.1f}/100  ({result.grade})")
+        logger.debug("MUSHRA: %.1f/100  (%s)", result.mushra_score, result.grade)
         # → MUSHRA: 84.3/100  (Good)
     """
     return get_mushra_evaluator().evaluate(reference, test, sr, compute_anchor=compute_anchor)
@@ -538,6 +572,6 @@ def compare_mushra(
             "Studio 2026 Mode":  restored_v2,
             "Baseline (RX10)":   baseline,
         }, sr=48000)
-        logger.debug(f"Gewinner: {comparison.winner}")
+        logger.debug("Gewinner: %s", comparison.winner)
     """
     return get_mushra_evaluator().compare_conditions(reference, conditions, sr)

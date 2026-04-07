@@ -75,9 +75,9 @@ class OverDrynessGuard:
             return result
         except Exception as e:
             result["error"] = str(e)
-            logger.error(f"[OverDrynessGuard][Fehler] {e}")
+            logger.error("[OverDrynessGuard][Fehler] %s", e)
             self._audit_log(result, sr if "sr" in locals() else None)
             return result
 
     def _audit_log(self, result: dict[str, Any], sr: int | None = None):
-        logger.info(f"[AuditLog][OverDrynessGuard] Ergebnis: {result} | SR: {sr}")
+        logger.info("[AuditLog][OverDrynessGuard] Ergebnis: %s | SR: %s", result, sr)

@@ -321,7 +321,7 @@ def process_vocals(
                     }
                 )
             except Exception as e:
-                logger.error(f"[GenderDetection] Fehler: {e}")
+                logger.error("[GenderDetection] Fehler: %s", e)
                 gender = "unknown"
                 write_audit_log(
                     {

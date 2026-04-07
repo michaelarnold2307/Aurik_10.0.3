@@ -55,11 +55,11 @@ class UnifiedDefectDetector:
 
         # Review defects
         for defect in report.get_critical_defects():
-            logger.info(f"{defect.type.value}: {defect.description}")
+            logger.info("%s: %s", defect.type.value, defect.description)
 
         # Apply treatments
         for treatment in report.recommended_treatments:
-            logger.info(f"Priority {treatment.priority}: {treatment.method}")
+            logger.info("Priority %s: %s", treatment.priority, treatment.method)
     """
 
     def __init__(
@@ -180,7 +180,7 @@ class UnifiedDefectDetector:
                     tol = 0.3
                 all_defects.extend(defects)
             except Exception as e:
-                logger.error(f"Warning: Detector {detector.name} failed: {e}")
+                logger.error("Warning: Detector %s failed: %s", detector.name, e)
                 continue
 
         # Generate treatment recommendations

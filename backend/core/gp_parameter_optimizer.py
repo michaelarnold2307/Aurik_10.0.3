@@ -134,6 +134,71 @@ MATERIAL_DEFAULTS: dict[str, dict[str, float]] = {
     },
 }
 
+# ---------------------------------------------------------------------------
+# §2.47 Material-Ähnlichkeitsmatrix (9×9) — Cross-Material GP-Wissenstransfer
+# ---------------------------------------------------------------------------
+# Spec 02 §2.47: Bei < 10 Beobachtungen für ein Material werden ähnliche
+# Materialien als gewichtete Prior-Quellen hinzugezogen.
+# Schlüssel entsprechen den cannonical Material-Namen der Carrier-Chain.
+
+_MATERIAL_SIMILARITY_KEYS: list[str] = [
+    "shellac", "wax_cyl", "vinyl_78", "vinyl_std",
+    "tape_std", "tape_stu", "cassette", "digital", "mp3_lossy",
+]
+
+# Alias-Mapping: kurze Bezeichnungen → normalized keys
+_MATERIAL_ALIAS: dict[str, str] = {
+    "tape": "tape_std",
+    "vinyl": "vinyl_std",
+    "shellac": "shellac",
+    "digital": "digital",
+    "cassette": "cassette",
+    "mp3": "mp3_lossy",
+    "wax": "wax_cyl",
+    "wax_cyl": "wax_cyl",
+    "vinyl_78": "vinyl_78",
+    "vinyl_std": "vinyl_std",
+    "tape_std": "tape_std",
+    "tape_stu": "tape_stu",
+    "mp3_lossy": "mp3_lossy",
+    "unknown": "digital",  # digital als neutraler Fallback
+}
+
+# Symmetrische Ähnlichkeitsmatrix (Spec 02 §2.47)
+_MATERIAL_SIMILARITY_MATRIX: list[list[float]] = [
+    # shl    wax    v78    vst    tst    tsu    cas    dig    mp3
+    [1.00,  0.85,  0.75,  0.40,  0.15,  0.10,  0.10,  0.05,  0.05],  # shellac
+    [0.85,  1.00,  0.70,  0.35,  0.10,  0.10,  0.08,  0.05,  0.05],  # wax_cyl
+    [0.75,  0.70,  1.00,  0.65,  0.20,  0.15,  0.15,  0.08,  0.08],  # vinyl_78
+    [0.40,  0.35,  0.65,  1.00,  0.45,  0.40,  0.35,  0.15,  0.12],  # vinyl_std
+    [0.15,  0.10,  0.20,  0.45,  1.00,  0.85,  0.70,  0.25,  0.20],  # tape_std
+    [0.10,  0.10,  0.15,  0.40,  0.85,  1.00,  0.60,  0.35,  0.25],  # tape_stu
+    [0.10,  0.08,  0.15,  0.35,  0.70,  0.60,  1.00,  0.20,  0.18],  # cassette
+    [0.05,  0.05,  0.08,  0.15,  0.25,  0.35,  0.20,  1.00,  0.55],  # digital
+    [0.05,  0.05,  0.08,  0.12,  0.20,  0.25,  0.18,  0.55,  1.00],  # mp3_lossy
+]
+
+# Minimale Ähnlichkeit für Cross-Material-Transfer
+_CROSS_MATERIAL_MIN_SIM: float = 0.30
+
+
+def _material_similarity(m1: str, m2: str) -> float:
+    """§2.47 Ähnlichkeit zwischen zwei Material-Bezeichnungen [0, 1].
+
+    Verwendet Alias-Mapping + MATERIAL_SIMILARITY_MATRIX.
+    Liefert 0.0 wenn kein Eintrag in der Matrix.
+    """
+    n1 = _MATERIAL_ALIAS.get(m1, None)
+    n2 = _MATERIAL_ALIAS.get(m2, None)
+    if n1 is None or n2 is None:
+        return 0.0
+    try:
+        i = _MATERIAL_SIMILARITY_KEYS.index(n1)
+        j = _MATERIAL_SIMILARITY_KEYS.index(n2)
+        return _MATERIAL_SIMILARITY_MATRIX[i][j]
+    except ValueError:
+        return 0.0
+
 
 # ---------------------------------------------------------------------------
 # Datenklassen
@@ -518,6 +583,12 @@ class GPParameterOptimizer:
         # was added in the current session.
 
         n_obs = len(all_X)
+
+        # §2.47 Cross-Material-Transfer: bei < 10 Beobachtungen ähnliche Materialien einbeziehen
+        if n_obs < 10:
+            all_X, all_y = self._augment_with_cross_material(
+                material, all_X, all_y
+            )
 
         if n_obs < n_init:
             # Zufällige Exploration oder Defaults
@@ -917,6 +988,86 @@ class GPParameterOptimizer:
 
         params = _denormalize_params(x_norm, self._space)
         return params, 0.5, 0.5  # uninformierter Prior
+
+    def _augment_with_cross_material(
+        self,
+        material: str,
+        all_X: list[np.ndarray],
+        all_y: list[float],
+        max_cross_entries: int = 20,
+    ) -> tuple[list[np.ndarray], list[float]]:
+        """§2.47 Cross-Material GP-Prior-Transfer.
+
+        Wenn das eigene Material < 10 Beobachtungen hat, werden ähnliche
+        Materialien (Ähnlichkeit ≥ _CROSS_MATERIAL_MIN_SIM) als zusätzliche
+        Prior-Punkte einbezogen — gewichtet nach Ähnlichkeit.
+
+        Gewichtung: Score wird mit Ähnlichkeit multipliziert → ähnlichere
+        Materialien dominieren den Prior stärker.
+
+        Args:
+            material:          Primäres Material.
+            all_X:             Bereits geladene eigene Beobachtungen (normiert).
+            all_y:             Score-Werte der eigenen Beobachtungen.
+            max_cross_entries: Maximale Fremd-Einträge die hinzugefügt werden.
+
+        Returns:
+            Erweiterte (all_X, all_y) Listen (oder unverändert wenn n_obs >= 10).
+        """
+        _CROSS_MIN_OBS = 10  # Spec 02 §2.47: Transfer nur bei < 10 Obs
+        if len(all_X) >= _CROSS_MIN_OBS:
+            return all_X, all_y
+
+        augmented_X = list(all_X)
+        augmented_y = list(all_y)
+        added = 0
+
+        # Sortiere andere Materialien nach Ähnlichkeit (absteigend)
+        similar_materials = sorted(
+            [
+                (m, _material_similarity(material, m))
+                for m in _MATERIAL_ALIAS
+                if m != material and _material_similarity(material, m) >= _CROSS_MATERIAL_MIN_SIM
+            ],
+            key=lambda t: t[1],
+            reverse=True,
+        )
+        # Duplikate entfernen (Alias-Normalisierung kann gleiche Materialien erzeugen)
+        seen_normalized: set[str] = {_MATERIAL_ALIAS.get(material, material)}
+        unique_similar = []
+        for m_name, sim in similar_materials:
+            nm = _MATERIAL_ALIAS.get(m_name, m_name)
+            if nm not in seen_normalized:
+                seen_normalized.add(nm)
+                unique_similar.append((nm, sim))
+
+        for cross_material, sim in unique_similar:
+            if added >= max_cross_entries:
+                break
+            cross_memory = _load_memory(cross_material)
+            cross_entries = [
+                e for e in cross_memory
+                if len(e.params_normalized) == self._dim
+            ]
+            if not cross_entries:
+                continue
+
+            # Älteste Einträge bevorzugen (konservativere Prior-Schätzung)
+            cross_entries.sort(key=lambda e: e.timestamp)
+            for entry in cross_entries[: max_cross_entries - added]:
+                # Ähnlichkeit als Dämpfungsfaktor für Score
+                weighted_score = entry.score * sim
+                augmented_X.append(np.array(entry.params_normalized))
+                augmented_y.append(weighted_score)
+                added += 1
+
+        if added > 0:
+            logger.info(
+                "§2.47 cross-material augmentation: material='%s' own=%d cross=%d total=%d",
+                material, len(all_X), added, len(augmented_X),
+            )
+
+        return augmented_X, augmented_y
 
 
 # ---------------------------------------------------------------------------

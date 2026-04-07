@@ -140,11 +140,6 @@ class DialogIntelligibilityEnhancer:
         if abs(self.sibilance_control_db) > 0.1:
             result = self._apply_bandpass_gain(result, sr, freq_range=(6000, 8000), gain_db=self.sibilance_control_db)
 
-        # Normalize to prevent clipping
-        max_val = np.max(np.abs(result))
-        if max_val > 0.95:
-            result = result * (0.95 / max_val)
-
         # Final NaN/Inf-Guard and clipping
         result = np.nan_to_num(result, nan=0.0, posinf=0.0, neginf=0.0)
         result = np.clip(result, -1.0, 1.0)
@@ -253,8 +248,11 @@ def create_dialog_intelligibility_enhancer(
 if __name__ == "__main__":
     import soundfile as sf
 
+    from backend.file_import import load_audio_file
+
     # Load test audio
-    audio, sr = sf.read("dialog_test.wav")
+    _res = load_audio_file("dialog_test.wav")
+    audio, sr = np.asarray(_res["audio"], dtype=np.float32), int(_res["sr"])
 
     # Create enhancer
     enhancer = create_dialog_intelligibility_enhancer(

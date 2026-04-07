@@ -155,7 +155,7 @@ class ContextAwareAnalyzer:
         # Convert to mono for analysis
         audio_mono = np.mean(audio, axis=0) if audio.ndim > 1 else audio
 
-        logger.debug(f"Analyzing {len(audio_mono) / sr:.2f}s audio context")
+        logger.debug("Analyzing %.2fs audio context", len(audio_mono) / sr)
 
         # 1. Vocal density analysis
         vocal_density, vocal_percentage = self._analyze_vocal_density(audio_mono, sr)

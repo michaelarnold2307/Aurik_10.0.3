@@ -185,7 +185,7 @@ class PhonemeDetector:
         self._processor = None
         self._device = None
 
-        logger.info(f"PhonemeDetector initialized with model: {self.config.model_name}")
+        logger.info("PhonemeDetector initialized with model: %s", self.config.model_name)
 
     def _resolved_model_name(self) -> str:
         """Resolve model source with local-first fallback for offline runtime."""
@@ -207,7 +207,7 @@ class PhonemeDetector:
         """Lazy load Wav2Vec2 model."""
         if self._model is None:
             model_name = self._resolved_model_name()
-            logger.info(f"Loading model: {model_name}")
+            logger.info("Loading model: %s", model_name)
             self._model = Wav2Vec2ForCTC.from_pretrained(
                 model_name,
                 local_files_only=Path(model_name).exists(),
@@ -222,7 +222,7 @@ class PhonemeDetector:
         """Lazy load Wav2Vec2 processor."""
         if self._processor is None:
             model_name = self._resolved_model_name()
-            logger.info(f"Loading processor: {model_name}")
+            logger.info("Loading processor: %s", model_name)
             self._processor = Wav2Vec2Processor.from_pretrained(
                 model_name,
                 local_files_only=Path(model_name).exists(),
@@ -254,12 +254,10 @@ class PhonemeDetector:
         # Resample to 16kHz if needed
         if sr != self.config.target_sample_rate:
             audio = librosa.resample(audio, orig_sr=sr, target_sr=self.config.target_sample_rate)
-            logger.debug(f"Resampled audio: {sr}Hz → {self.config.target_sample_rate}Hz")
+            logger.debug("Resampled audio: %sHz → %sHz", sr, self.config.target_sample_rate)
 
-        # Normalize to [-1, 1]
-        max_val = np.abs(audio).max()
-        if max_val > 0:
-            audio = audio / max_val
+        # Safety clip only (no peak normalization)
+        audio = np.clip(audio, -1.0, 1.0)
 
         return audio
 
@@ -347,9 +345,11 @@ class PhonemeDetector:
 
         Example:
             >>> detector = PhonemeDetector()
-            >>> audio, sr = librosa.load('speech.wav', sr=None)
+            >>> from backend.file_import import load_audio_file
+            >>> _res = load_audio_file('speech.wav')
+            >>> audio, sr = _res['audio'], int(_res['sr'])
             >>> phonemes = detector.detect(audio, sr)
-            >>> print(f"Detected {len(phonemes)} phonemes")
+            >>> logger.info("Detected %d phonemes", len(phonemes))
         """
         language = language or self.config.language
         min_confidence = min_confidence or self.config.min_confidence
@@ -410,7 +410,7 @@ class PhonemeDetector:
             )
             segments.append(segment)
 
-        logger.info(f"Detected {len(segments)} phonemes (filtered from {len(phonemes_raw)} by confidence)")
+        logger.info("Detected %s phonemes (filtered from %s by confidence)", len(segments), len(phonemes_raw))
 
         return segments
 

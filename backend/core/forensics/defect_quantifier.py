@@ -698,14 +698,14 @@ if __name__ == "__main__":
     result = quantifier.quantify(audio)
 
     logger.debug("Defect Quantification Results:")
-    logger.debug(f"  Clicks: {result.clicks.count} detected ({result.clicks.severity})")
+    logger.debug("  Clicks: %s detected (%s)", result.clicks.count, result.clicks.severity)
     logger.debug(
         f"  Hum: {result.hum.fundamental_freq_hz}Hz at {result.hum.fundamental_level_db:.1f}dB ({result.hum.severity})"
     )
     logger.debug(
         f"  Distortion: THD={result.distortion.thd_percent:.2f}%, Clipping={result.distortion.clipping_percent:.2f}% ({result.distortion.severity})"
     )
-    logger.debug(f"  Dropout: {result.dropout.count} detected ({result.dropout.severity})")
-    logger.debug(f"  Noise Bursts: {result.noise_burst.count} detected ({result.noise_burst.severity})")
-    logger.debug(f"\nOverall Quality: {result.overall_quality:.2f}")
-    logger.debug(f"Priority Defects: {', '.join(result.priority_defects) if result.priority_defects else 'None'}")
+    logger.debug("  Dropout: %s detected (%s)", result.dropout.count, result.dropout.severity)
+    logger.debug("  Noise Bursts: %s detected (%s)", result.noise_burst.count, result.noise_burst.severity)
+    logger.debug("\nOverall Quality: %.2f", result.overall_quality)
+    logger.debug("Priority Defects: %s", ', '.join(result.priority_defects) if result.priority_defects else 'None')

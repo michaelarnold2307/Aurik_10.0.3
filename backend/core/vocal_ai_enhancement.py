@@ -863,11 +863,11 @@ class UnifiedVocalAIEnhancer:
         logger.info("Step 1: Detecting voice characteristics...")
         characteristics = self.gender_detector.detect(audio_mono)
 
-        logger.info(f"  Gender: {characteristics.gender.value}")
-        logger.info(f"  F0: {characteristics.fundamental_freq:.1f} Hz")
-        logger.info(f"  Breathiness: {characteristics.breathiness:.2f}")
-        logger.info(f"  Emotional Intensity: {characteristics.emotional_intensity:.2f}")
-        logger.info(f"  Sibilance Severity: {characteristics.sibilance_severity:.2f}")
+        logger.info("  Gender: %s", characteristics.gender.value)
+        logger.info("  F0: %.1f Hz", characteristics.fundamental_freq)
+        logger.info("  Breathiness: %.2f", characteristics.breathiness)
+        logger.info("  Emotional Intensity: %.2f", characteristics.emotional_intensity)
+        logger.info("  Sibilance Severity: %.2f", characteristics.sibilance_severity)
 
         # Process mono
         processed = audio_mono.copy()
@@ -1037,24 +1037,24 @@ if __name__ == "__main__":
         vocal, emotion_mode=EmotionPreservationMode.BALANCED, breath_preservation=0.7, sibilance_reduction=True
     )
 
-    logger.debug(f"\n{'=' * 70}")
+    logger.debug("\n%s", '=' * 70)
     logger.debug("RESULTS:")
-    logger.debug(f"{'=' * 70}")
-    logger.debug(f"Gender Detected: {result.characteristics.gender.value}")
+    logger.debug("%s", '=' * 70)
+    logger.debug("Gender Detected: %s", result.characteristics.gender.value)
     if result.characteristics.age_group:
-        logger.debug(f"Age Group: {result.characteristics.age_group.value}")
-    logger.debug(f"F0: {result.characteristics.fundamental_freq:.1f} Hz")
-    logger.debug(f"Formants: {[f'{f:.0f} Hz' for f in result.characteristics.formants]}")
-    logger.debug(f"\nSibilance Reduced: {result.sibilance_reduced_db:.1f} dB")
-    logger.debug(f"Breath Preserved: {result.breath_preserved_ratio:.1%}")
-    logger.debug(f"Emotion Preservation: {result.emotion_preservation_score:.1%}")
-    logger.debug(f"Formant Preservation: {result.formant_preservation_score:.1%}")
-    logger.debug(f"Quality Improvement: {result.quality_improvement:+.2f}")
+        logger.debug("Age Group: %s", result.characteristics.age_group.value)
+    logger.debug("F0: %.1f Hz", result.characteristics.fundamental_freq)
+    logger.debug("Formants: {[f'%.0f Hz' for f in result.characteristics.formants]}", f)
+    logger.debug("\nSibilance Reduced: %.1f dB", result.sibilance_reduced_db)
+    logger.debug("Breath Preserved: %.1%", result.breath_preserved_ratio)
+    logger.debug("Emotion Preservation: %.1%", result.emotion_preservation_score)
+    logger.debug("Formant Preservation: %.1%", result.formant_preservation_score)
+    logger.debug("Quality Improvement: %+.2f", result.quality_improvement)
     logger.debug("\nProcessing Applied:")
     for proc in result.processing_applied:
-        logger.debug(f"  ✓ {proc}")
+        logger.debug("  ✓ %s", proc)
 
-    logger.debug(f"\n{'=' * 70}")
+    logger.debug("\n%s", '=' * 70)
     logger.debug("✅ Vocal AI Enhancement Test Complete!")
 
 

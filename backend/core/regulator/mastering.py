@@ -109,17 +109,6 @@ def mastering_chain(audio: np.ndarray, sr: int, config: dict[str, Any] | None = 
 # ---------------------------------------------------------------------------
 
 
-def loudness_normalize(audio: np.ndarray, target_loudness: float = -18.0) -> np.ndarray:
-    """
-    Einfache RMS-basierte Lautheits-Normalisierung (Legacy; bevorzuge lufs_normalize).
-    """
-    rms = float(np.sqrt(np.mean(audio**2)))
-    if rms == 0:
-        return audio
-    target_rms = 10 ** (target_loudness / 20)
-    return audio * (target_rms / rms)
-
-
 def dither(audio: np.ndarray, bit_depth: int = 16) -> np.ndarray:
     """
     TPDF-Dithering (Triangular Probability Density Function) for quantization

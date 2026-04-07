@@ -190,13 +190,13 @@ class MusicalGoalsQualityGate:
         edge_cases = []
 
         mode_str = mode.value if hasattr(mode, "value") else str(mode)
-        logger.info(f"Pre-Check started (mode={mode_str})")
+        logger.info("Pre-Check started (mode=%s)", mode_str)
 
         # Measure baseline Musical Goals
         try:
             baseline = self.checker.measure_all(audio, sr)
         except Exception as e:
-            logger.error(f"Pre-Check failed: {e}")
+            logger.error("Pre-Check failed: %s", e)
             return PreCheckResult(
                 passed=False,
                 measurable=False,
@@ -216,7 +216,7 @@ class MusicalGoalsQualityGate:
         edge_cases_detected = self._detect_edge_cases(audio, sr, baseline, context)
         if edge_cases_detected:
             edge_cases.extend(edge_cases_detected)
-            logger.warning(f"Edge cases detected: {edge_cases_detected}")
+            logger.warning("Edge cases detected: %s", edge_cases_detected)
 
         # Check for extreme degradation
         if self._is_extremely_degraded(audio, sr, baseline):
@@ -250,7 +250,7 @@ class MusicalGoalsQualityGate:
             recommendation=recommendation,
         )
 
-        logger.info(f"Pre-Check complete: passed={passed}, warnings={len(warnings)}, edge_cases={len(edge_cases)}")
+        logger.info("Pre-Check complete: passed=%s, warnings=%s, edge_cases=%s", passed, len(warnings), len(edge_cases))
 
         return result
 
@@ -296,21 +296,21 @@ class MusicalGoalsQualityGate:
         context = context or {}
 
         mode_str = mode.value if hasattr(mode, "value") else str(mode)
-        logger.info(f"Post-Check started (mode={mode_str})")
+        logger.info("Post-Check started (mode=%s)", mode_str)
 
         # Measure baseline if not provided
         if baseline_scores is None:
             try:
                 baseline_scores = self.checker.measure_all(original, sr)
             except Exception as e:
-                logger.error(f"Baseline measurement failed: {e}")
+                logger.error("Baseline measurement failed: %s", e)
                 baseline_scores = {}
 
         # Measure achieved goals
         try:
             achieved_scores = self.checker.measure_all(processed, sr)
         except Exception as e:
-            logger.error(f"Post-Check measurement failed: {e}")
+            logger.error("Post-Check measurement failed: %s", e)
             return PostCheckResult(
                 passed=False,
                 decision=QualityGateDecision.FAILED,
@@ -331,7 +331,7 @@ class MusicalGoalsQualityGate:
             mode_config = PROCESSING_MODE_CONFIGS[mode]
             thresholds = mode_config.musical_goals
             mode_str = mode.value if hasattr(mode, "value") else str(mode)
-            logger.info(f"Using DEFAULT thresholds (mode: {mode_str})")
+            logger.info("Using DEFAULT thresholds (mode: %s)", mode_str)
 
         # Check for violations
         violations = {}
@@ -493,7 +493,7 @@ class MusicalGoalsQualityGate:
         processing_steps = processing_steps or []
 
         mode_str = mode.value if hasattr(mode, "value") else str(mode)
-        logger.info(f"Full validation started (session={session_id}, mode={mode_str})")
+        logger.info("Full validation started (session=%s, mode=%s)", session_id, mode_str)
 
         # Pre-Check
         pre_check = self.pre_check(original, sr, mode)
@@ -681,7 +681,7 @@ class MusicalGoalsQualityGate:
         with open(output_path, "w") as f:
             json.dump(report_dict, f, indent=2)
 
-        logger.info(f"Report exported to {output_path}")
+        logger.info("Report exported to %s", output_path)
 
     def get_recent_reports(self, n: int = 10) -> list[QualityGateReport]:
         """Get n most recent reports."""
@@ -866,7 +866,7 @@ class EnhancedQualityGate:
                 self._visqol_plugin = ViSQOLPlugin()
                 logger.info("ViSQOL plugin loaded")
             except Exception as e:
-                logger.warning(f"ViSQOL plugin unavailable: {e}")
+                logger.warning("ViSQOL plugin unavailable: %s", e)
         return self._visqol_plugin
 
     def _get_versa_plugin(self):
@@ -878,7 +878,7 @@ class EnhancedQualityGate:
                 self._versa_plugin = get_versa_plugin()
                 logger.info("VERSA plugin loaded (§4.4)")
             except Exception as e:
-                logger.warning(f"VERSA plugin unavailable: {e}")
+                logger.warning("VERSA plugin unavailable: %s", e)
         return self._versa_plugin
 
     def _get_reprocessing_engine(self):
@@ -945,7 +945,7 @@ class EnhancedQualityGate:
 
                         ref_path.unlink(missing_ok=True)
                     except Exception as e:
-                        logger.warning(f"ViSQOL failed: {e}")
+                        logger.warning("ViSQOL failed: %s", e)
 
             # VERSA (non-reference MOS, §4.4 CDPAM-Nachfolger)
             versa_score = 0.0
@@ -953,10 +953,13 @@ class EnhancedQualityGate:
             if versa is not None:
                 try:
                     import numpy as _np
-                    import soundfile as sf
+                    from backend.file_import import load_audio_file as _load_af
 
-                    audio_arr, sr_v = sf.read(str(audio_path), always_2d=False)
-                    audio_arr = _np.asarray(audio_arr, dtype=_np.float32)
+                    _af_result = _load_af(str(audio_path))
+                    if _af_result is None or _af_result.get("error") or _af_result["audio"] is None:
+                        raise RuntimeError(f"Audio-Import fehlgeschlagen: {audio_path}")
+                    audio_arr = _np.asarray(_af_result["audio"], dtype=_np.float32)
+                    sr_v = int(_af_result["sr"])
                     if audio_arr.ndim == 2:
                         audio_arr = audio_arr.mean(axis=1)
                     audio_arr = _np.nan_to_num(audio_arr, nan=0.0, posinf=0.0, neginf=0.0)
@@ -964,7 +967,7 @@ class EnhancedQualityGate:
                     # MOS [1,5] → [0,100] für PerceptualMetrics.versa_score
                     versa_score = float(_np.clip((versa_result.mos - 1.0) / 4.0 * 100.0, 0.0, 100.0))
                 except Exception as e:
-                    logger.warning(f"VERSA failed: {e}")
+                    logger.warning("VERSA failed: %s", e)
 
             return PerceptualMetrics(
                 nisqa_mos=nisqa_mos,
@@ -1265,7 +1268,7 @@ class EnhancedQualityGate:
             and self.enable_auto_reprocessing
             and post_check.decision in [QualityGateDecision.ROLLBACK_REQUIRED, QualityGateDecision.WARNING]
         ):
-            logger.info(f"Quality gates failed ({post_check.decision.value}), triggering automatic reprocessing...")
+            logger.info("Quality gates failed (%s), triggering automatic reprocessing...", post_check.decision.value)
 
             # Define quality validator for reprocessing engine
             def quality_validator(orig, proc, sample_rate):

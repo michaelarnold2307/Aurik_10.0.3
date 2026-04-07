@@ -183,6 +183,16 @@ class TestExcellenceOptimizerMaterials:
         out, _ = opt.optimize(_sine())
         assert np.all(np.isfinite(out))
 
+    def test_21b_reel_tape_alias_uses_tape_profile(self):
+        """ExcellenceOptimizer: 'reel_tape' must resolve to 'tape' profile without warning."""
+        from backend.core.excellence_optimizer import MATERIAL_PROFILES
+        opt = ExcellenceOptimizer(sample_rate=SR, material="reel_tape")
+        # Should not fall back to 'auto' — profile must equal 'tape'
+        assert opt._profile == MATERIAL_PROFILES["tape"]
+        # Optimize must complete without error
+        out, _ = opt.optimize(_sine())
+        assert np.all(np.isfinite(out))
+
     def test_22_shellac_material_runs(self):
         opt = ExcellenceOptimizer(sample_rate=SR, material="shellac")
         out, _ = opt.optimize(_sine())
