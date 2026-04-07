@@ -218,7 +218,7 @@ class FcpePlugin:
                     sess_options=opts,
                     providers=["CPUExecutionProvider"],
                 )
-                logger.info("🎵 FCPE ONNX geladen: %s", _FCPE_ONNX_PATH.name)
+                logger.info("fcpe_plugin: ONNX model loaded: %s", _FCPE_ONNX_PATH.name)
                 try:
                     from backend.core.plugin_lifecycle_manager import register_plugin as _reg_plm
 

@@ -1099,6 +1099,450 @@ class UnifiedRestorerV3:
         "phase_57_print_through_reduction": "phase_29_tape_hiss_reduction",
     }
 
+    # Explicit SOTA intervention taxonomy: every canonical phase (01–64) maps to
+    # a dedicated intervention class. This prevents generic one-size-fits-all rescue
+    # logic and lets the active intervention layer operate phase-aware.
+    _PHASE_INTERVENTION_CLASS: dict[str, str] = {
+        "phase_01_click_removal": "subtractive_cleanup",
+        "phase_02_hum_removal": "harmonic_noise_control",
+        "phase_03_denoise": "subtractive_cleanup",
+        "phase_04_eq_correction": "tonal_restoration",
+        "phase_05_rumble_filter": "subtractive_cleanup",
+        "phase_06_frequency_restoration": "spectral_restoration",
+        "phase_07_harmonic_restoration": "harmonic_reconstruction",
+        "phase_08_transient_preservation": "transient_shaping",
+        "phase_09_crackle_removal": "subtractive_cleanup",
+        "phase_10_compression": "dynamics_repair",
+        "phase_11_limiting": "dynamics_repair",
+        "phase_12_wow_flutter_fix": "time_pitch_transport",
+        "phase_13_stereo_enhancement": "stereo_enhancement",
+        "phase_14_phase_correction": "stereo_phase_geometry",
+        "phase_15_stereo_balance": "stereo_phase_geometry",
+        "phase_16_final_eq": "tonal_mastering",
+        "phase_17_mastering_polish": "tonal_mastering",
+        "phase_18_noise_gate": "subtractive_cleanup",
+        "phase_19_de_esser": "sibilance_control",
+        "phase_20_reverb_reduction": "subtractive_cleanup",
+        "phase_21_exciter": "harmonic_enhancement",
+        "phase_22_tape_saturation": "harmonic_enhancement",
+        "phase_23_spectral_repair": "spectral_restoration",
+        "phase_24_dropout_repair": "reconstruction_inpainting",
+        "phase_25_azimuth_correction": "stereo_phase_geometry",
+        "phase_26_dynamic_range_expansion": "dynamics_repair",
+        "phase_27_click_pop_removal": "subtractive_cleanup",
+        "phase_28_surface_noise_profiling": "subtractive_cleanup",
+        "phase_29_tape_hiss_reduction": "subtractive_cleanup",
+        "phase_30_dc_offset_removal": "subtractive_cleanup",
+        "phase_31_speed_pitch_correction": "time_pitch_transport",
+        "phase_32_mono_to_stereo": "stereo_generation",
+        "phase_33_stereo_width_limiter": "stereo_phase_geometry",
+        "phase_34_mid_side_processing": "stereo_phase_geometry",
+        "phase_35_multiband_compression": "dynamics_control",
+        "phase_36_transient_shaper": "transient_shaping",
+        "phase_37_bass_enhancement": "tonal_enhancement",
+        "phase_38_presence_boost": "tonal_enhancement",
+        "phase_39_air_band_enhancement": "tonal_enhancement",
+        "phase_40_loudness_normalization": "finalizer_output",
+        "phase_41_output_format_optimization": "finalizer_output",
+        "phase_42_vocal_enhancement": "source_enhancement",
+        "phase_43_ml_deesser": "sibilance_control",
+        "phase_44_guitar_enhancement": "source_enhancement",
+        "phase_45_brass_enhancement": "source_enhancement",
+        "phase_46_spatial_enhancement": "stereo_enhancement",
+        "phase_47_truepeak_limiter": "finalizer_output",
+        "phase_48_stereo_width_enhancer": "stereo_enhancement",
+        "phase_49_advanced_dereverb": "subtractive_cleanup",
+        "phase_50_spectral_repair": "spectral_restoration",
+        "phase_51_drums_enhancement": "source_enhancement",
+        "phase_52_piano_restoration": "source_enhancement",
+        "phase_53_semantic_audio": "semantic_guidance",
+        "phase_54_transparent_dynamics": "dynamics_control",
+        "phase_55_diffusion_inpainting": "reconstruction_inpainting",
+        "phase_56_spectral_band_gap_repair": "reconstruction_inpainting",
+        "phase_57_print_through_reduction": "subtractive_cleanup",
+        "phase_58_lyrics_guided_enhancement": "semantic_guidance",
+        "phase_59_modulation_noise_reduction": "subtractive_cleanup",
+        "phase_60_inner_groove_distortion_repair": "distortion_repair",
+        "phase_61_groove_echo_cancellation": "subtractive_cleanup",
+        "phase_62_crosstalk_cancellation": "stereo_phase_geometry",
+        "phase_63_intermodulation_reduction": "distortion_repair",
+        "phase_64_tape_splice_repair": "reconstruction_inpainting",
+    }
+
+    _INTERVENTION_CLASS_DEFAULTS: dict[str, dict[str, Any]] = {
+        "general": {
+            "enable_loudness": True,
+            "enable_stereo": True,
+            "enable_transient": True,
+            "stereo_abs_db": 14.0,
+            "stereo_growth_db": 6.0,
+            "stereo_target_db": 8.0,
+            "stereo_gain_cap": 2.2,
+            "transient_floor": 0.60,
+            "dry_blend_min": 0.08,
+            "dry_blend_max": 0.24,
+            "cost_loudness_w": 1.0,
+            "cost_stereo_w": 0.25,
+            "cost_transient_w": 3.0,
+        },
+        "subtractive_cleanup": {
+            "enable_loudness": True,
+            "enable_stereo": True,
+            "enable_transient": True,
+            "stereo_abs_db": 14.0,
+            "stereo_growth_db": 6.0,
+            "stereo_target_db": 8.0,
+            "stereo_gain_cap": 2.2,
+            "transient_floor": 0.72,
+            "dry_blend_min": 0.10,
+            "dry_blend_max": 0.30,
+            "cost_loudness_w": 1.0,
+            "cost_stereo_w": 0.25,
+            "cost_transient_w": 3.8,
+        },
+        "harmonic_noise_control": {
+            "enable_loudness": True,
+            "enable_stereo": False,
+            "enable_transient": False,
+            "stereo_abs_db": 14.0,
+            "stereo_growth_db": 6.0,
+            "stereo_target_db": 8.0,
+            "stereo_gain_cap": 2.0,
+            "transient_floor": 0.60,
+            "dry_blend_min": 0.04,
+            "dry_blend_max": 0.12,
+            "cost_loudness_w": 1.2,
+            "cost_stereo_w": 0.0,
+            "cost_transient_w": 0.0,
+        },
+        "tonal_restoration": {
+            "enable_loudness": True,
+            "enable_stereo": False,
+            "enable_transient": False,
+            "enable_hf_preservation": True,
+            "hf_floor": 0.82,
+            "stereo_abs_db": 14.0,
+            "stereo_growth_db": 6.0,
+            "stereo_target_db": 8.0,
+            "stereo_gain_cap": 2.0,
+            "transient_floor": 0.60,
+            "dry_blend_min": 0.03,
+            "dry_blend_max": 0.10,
+            "cost_loudness_w": 0.8,
+            "cost_stereo_w": 0.0,
+            "cost_transient_w": 0.0,
+            "cost_hf_w": 1.8,
+        },
+        "spectral_restoration": {
+            "enable_loudness": True,
+            "enable_stereo": False,
+            "enable_transient": True,
+            "enable_hf_preservation": True,
+            "hf_floor": 0.86,
+            "stereo_abs_db": 14.0,
+            "stereo_growth_db": 6.0,
+            "stereo_target_db": 8.0,
+            "stereo_gain_cap": 2.0,
+            "transient_floor": 0.66,
+            "dry_blend_min": 0.06,
+            "dry_blend_max": 0.18,
+            "cost_loudness_w": 0.9,
+            "cost_stereo_w": 0.0,
+            "cost_transient_w": 2.2,
+            "cost_hf_w": 2.4,
+        },
+        "harmonic_reconstruction": {
+            "enable_loudness": False,
+            "enable_stereo": False,
+            "enable_transient": True,
+            "enable_hf_preservation": True,
+            "hf_floor": 0.88,
+            "stereo_abs_db": 14.0,
+            "stereo_growth_db": 6.0,
+            "stereo_target_db": 8.0,
+            "stereo_gain_cap": 2.0,
+            "transient_floor": 0.64,
+            "dry_blend_min": 0.04,
+            "dry_blend_max": 0.14,
+            "cost_loudness_w": 0.0,
+            "cost_stereo_w": 0.0,
+            "cost_transient_w": 1.8,
+            "cost_hf_w": 2.0,
+        },
+        "transient_shaping": {
+            "enable_loudness": False,
+            "enable_stereo": False,
+            "enable_transient": True,
+            "stereo_abs_db": 14.0,
+            "stereo_growth_db": 6.0,
+            "stereo_target_db": 8.0,
+            "stereo_gain_cap": 2.0,
+            "transient_floor": 0.82,
+            "dry_blend_min": 0.10,
+            "dry_blend_max": 0.28,
+            "cost_loudness_w": 0.0,
+            "cost_stereo_w": 0.0,
+            "cost_transient_w": 4.4,
+        },
+        "dynamics_repair": {
+            "enable_loudness": True,
+            "enable_stereo": False,
+            "enable_transient": True,
+            "stereo_abs_db": 14.0,
+            "stereo_growth_db": 6.0,
+            "stereo_target_db": 8.0,
+            "stereo_gain_cap": 2.0,
+            "transient_floor": 0.70,
+            "dry_blend_min": 0.06,
+            "dry_blend_max": 0.18,
+            "cost_loudness_w": 0.8,
+            "cost_stereo_w": 0.0,
+            "cost_transient_w": 2.8,
+        },
+        "time_pitch_transport": {
+            "enable_loudness": False,
+            "enable_stereo": False,
+            "enable_transient": False,
+            "stereo_abs_db": 14.0,
+            "stereo_growth_db": 6.0,
+            "stereo_target_db": 8.0,
+            "stereo_gain_cap": 1.2,
+            "transient_floor": 0.60,
+            "dry_blend_min": 0.0,
+            "dry_blend_max": 0.0,
+            "cost_loudness_w": 0.0,
+            "cost_stereo_w": 0.0,
+            "cost_transient_w": 0.0,
+        },
+        "stereo_phase_geometry": {
+            "enable_loudness": False,
+            "enable_stereo": True,
+            "enable_transient": False,
+            "enable_mono_compat": True,
+            "mono_compat_floor": 0.78,
+            "stereo_abs_db": 10.0,
+            "stereo_growth_db": 3.0,
+            "stereo_target_db": 6.0,
+            "stereo_gain_cap": 1.6,
+            "transient_floor": 0.60,
+            "dry_blend_min": 0.0,
+            "dry_blend_max": 0.0,
+            "cost_loudness_w": 0.0,
+            "cost_stereo_w": 0.55,
+            "cost_transient_w": 0.0,
+            "cost_mono_compat_w": 2.2,
+        },
+        "stereo_enhancement": {
+            "enable_loudness": False,
+            "enable_stereo": True,
+            "enable_transient": False,
+            "enable_mono_compat": True,
+            "mono_compat_floor": 0.68,
+            "stereo_abs_db": 12.0,
+            "stereo_growth_db": 4.0,
+            "stereo_target_db": 8.0,
+            "stereo_gain_cap": 1.8,
+            "transient_floor": 0.60,
+            "dry_blend_min": 0.02,
+            "dry_blend_max": 0.08,
+            "cost_loudness_w": 0.0,
+            "cost_stereo_w": 0.40,
+            "cost_transient_w": 0.0,
+            "cost_mono_compat_w": 1.8,
+        },
+        "stereo_generation": {
+            "enable_loudness": False,
+            "enable_stereo": True,
+            "enable_transient": False,
+            "enable_mono_compat": True,
+            "mono_compat_floor": 0.60,
+            "stereo_abs_db": 14.0,
+            "stereo_growth_db": 5.0,
+            "stereo_target_db": 10.0,
+            "stereo_gain_cap": 1.6,
+            "transient_floor": 0.60,
+            "dry_blend_min": 0.02,
+            "dry_blend_max": 0.06,
+            "cost_loudness_w": 0.0,
+            "cost_stereo_w": 0.35,
+            "cost_transient_w": 0.0,
+            "cost_mono_compat_w": 1.4,
+        },
+        "tonal_mastering": {
+            "enable_loudness": True,
+            "enable_stereo": False,
+            "enable_transient": False,
+            "enable_hf_preservation": True,
+            "hf_floor": 0.84,
+            "stereo_abs_db": 14.0,
+            "stereo_growth_db": 6.0,
+            "stereo_target_db": 8.0,
+            "stereo_gain_cap": 1.6,
+            "transient_floor": 0.60,
+            "dry_blend_min": 0.02,
+            "dry_blend_max": 0.08,
+            "cost_loudness_w": 0.3,
+            "cost_stereo_w": 0.0,
+            "cost_transient_w": 0.0,
+            "cost_hf_w": 1.4,
+        },
+        "harmonic_enhancement": {
+            "enable_loudness": False,
+            "enable_stereo": False,
+            "enable_transient": True,
+            "enable_hf_preservation": True,
+            "hf_floor": 0.88,
+            "stereo_abs_db": 14.0,
+            "stereo_growth_db": 6.0,
+            "stereo_target_db": 8.0,
+            "stereo_gain_cap": 1.6,
+            "transient_floor": 0.62,
+            "dry_blend_min": 0.03,
+            "dry_blend_max": 0.10,
+            "cost_loudness_w": 0.0,
+            "cost_stereo_w": 0.0,
+            "cost_transient_w": 1.6,
+            "cost_hf_w": 1.8,
+        },
+        "dynamics_control": {
+            "enable_loudness": True,
+            "enable_stereo": False,
+            "enable_transient": True,
+            "stereo_abs_db": 14.0,
+            "stereo_growth_db": 6.0,
+            "stereo_target_db": 8.0,
+            "stereo_gain_cap": 1.6,
+            "transient_floor": 0.68,
+            "dry_blend_min": 0.04,
+            "dry_blend_max": 0.14,
+            "cost_loudness_w": 0.5,
+            "cost_stereo_w": 0.0,
+            "cost_transient_w": 2.2,
+        },
+        "tonal_enhancement": {
+            "enable_loudness": False,
+            "enable_stereo": False,
+            "enable_transient": False,
+            "enable_hf_preservation": True,
+            "hf_floor": 0.90,
+            "stereo_abs_db": 14.0,
+            "stereo_growth_db": 6.0,
+            "stereo_target_db": 8.0,
+            "stereo_gain_cap": 1.6,
+            "transient_floor": 0.60,
+            "dry_blend_min": 0.02,
+            "dry_blend_max": 0.08,
+            "cost_loudness_w": 0.0,
+            "cost_stereo_w": 0.0,
+            "cost_transient_w": 0.0,
+            "cost_hf_w": 1.8,
+        },
+        "finalizer_output": {
+            "enable_loudness": True,
+            "enable_stereo": False,
+            "enable_transient": False,
+            "stereo_abs_db": 14.0,
+            "stereo_growth_db": 6.0,
+            "stereo_target_db": 8.0,
+            "stereo_gain_cap": 1.2,
+            "transient_floor": 0.60,
+            "dry_blend_min": 0.0,
+            "dry_blend_max": 0.0,
+            "cost_loudness_w": 0.1,
+            "cost_stereo_w": 0.0,
+            "cost_transient_w": 0.0,
+        },
+        "source_enhancement": {
+            "enable_loudness": False,
+            "enable_stereo": False,
+            "enable_transient": True,
+            "enable_hf_preservation": True,
+            "hf_floor": 0.86,
+            "stereo_abs_db": 14.0,
+            "stereo_growth_db": 6.0,
+            "stereo_target_db": 8.0,
+            "stereo_gain_cap": 1.6,
+            "transient_floor": 0.64,
+            "dry_blend_min": 0.02,
+            "dry_blend_max": 0.10,
+            "cost_loudness_w": 0.0,
+            "cost_stereo_w": 0.0,
+            "cost_transient_w": 1.8,
+            "cost_hf_w": 1.4,
+        },
+        "semantic_guidance": {
+            "enable_loudness": False,
+            "enable_stereo": False,
+            "enable_transient": True,
+            "enable_hf_preservation": True,
+            "hf_floor": 0.84,
+            "stereo_abs_db": 14.0,
+            "stereo_growth_db": 6.0,
+            "stereo_target_db": 8.0,
+            "stereo_gain_cap": 1.6,
+            "transient_floor": 0.66,
+            "dry_blend_min": 0.03,
+            "dry_blend_max": 0.12,
+            "cost_loudness_w": 0.0,
+            "cost_stereo_w": 0.0,
+            "cost_transient_w": 1.8,
+            "cost_hf_w": 1.2,
+        },
+        "reconstruction_inpainting": {
+            "enable_loudness": True,
+            "enable_stereo": False,
+            "enable_transient": True,
+            "stereo_abs_db": 14.0,
+            "stereo_growth_db": 6.0,
+            "stereo_target_db": 8.0,
+            "stereo_gain_cap": 1.6,
+            "transient_floor": 0.64,
+            "dry_blend_min": 0.05,
+            "dry_blend_max": 0.16,
+            "cost_loudness_w": 0.7,
+            "cost_stereo_w": 0.0,
+            "cost_transient_w": 1.8,
+        },
+        "sibilance_control": {
+            "enable_loudness": False,
+            "enable_stereo": False,
+            "enable_transient": True,
+            "enable_hf_preservation": True,
+            "hf_floor": 0.78,
+            "stereo_abs_db": 14.0,
+            "stereo_growth_db": 6.0,
+            "stereo_target_db": 8.0,
+            "stereo_gain_cap": 1.4,
+            "transient_floor": 0.76,
+            "dry_blend_min": 0.06,
+            "dry_blend_max": 0.16,
+            "cost_loudness_w": 0.0,
+            "cost_stereo_w": 0.0,
+            "cost_transient_w": 3.0,
+            "cost_hf_w": 1.2,
+        },
+        "distortion_repair": {
+            "enable_loudness": False,
+            "enable_stereo": False,
+            "enable_transient": True,
+            "stereo_abs_db": 14.0,
+            "stereo_growth_db": 6.0,
+            "stereo_target_db": 8.0,
+            "stereo_gain_cap": 1.6,
+            "transient_floor": 0.68,
+            "dry_blend_min": 0.04,
+            "dry_blend_max": 0.14,
+            "cost_loudness_w": 0.0,
+            "cost_stereo_w": 0.0,
+            "cost_transient_w": 2.4,
+        },
+    }
+
+    @classmethod
+    def get_phase_intervention_registry(cls) -> dict[str, str]:
+        """Return the explicit 64-phase intervention-class registry for tests/audit."""
+        return dict(cls._PHASE_INTERVENTION_CLASS)
+
     def _get_phase(self, phase_id: str) -> PhaseInterface | None:
         """Lädt und instanziiert eine Phase nur bei Bedarf (Lazy Loading).
 
@@ -1213,7 +1657,10 @@ class UnifiedRestorerV3:
                 kwargs["cached_genre_result"] = _pre_analysis.genre
             if kwargs.get("cached_defect_result") is None and getattr(_pre_analysis, "defects", None) is not None:
                 kwargs["cached_defect_result"] = _pre_analysis.defects
-            if kwargs.get("cached_restorability_result") is None and getattr(_pre_analysis, "restorability", None) is not None:
+            if (
+                kwargs.get("cached_restorability_result") is None
+                and getattr(_pre_analysis, "restorability", None) is not None
+            ):
                 kwargs["cached_restorability_result"] = _pre_analysis.restorability
         _cached_era_kwarg = kwargs.pop("cached_era_result", None)
         _cached_genre_kwarg = kwargs.pop("cached_genre_result", None)
@@ -1242,7 +1689,7 @@ class UnifiedRestorerV3:
         logger.info("Starting restoration: %.1fs audio @ %d Hz", _n_samples / sample_rate, sample_rate)
         # §2.31d Edge-Case flags — computed once, used throughout restore().
         _audio_duration_s: float = float(_n_samples) / float(sample_rate)
-        _is_very_short: bool = _audio_duration_s < 10.0   # Groove/MicroDyn/EmotionalArc off
+        _is_very_short: bool = _audio_duration_s < 10.0  # Groove/MicroDyn/EmotionalArc off
         _is_very_long: bool = _audio_duration_s > 3600.0  # DefectScanner 3×60s-Segmente
         if _is_very_short:
             logger.info(
@@ -1252,8 +1699,7 @@ class UnifiedRestorerV3:
             )
         if _is_very_long:
             logger.info(
-                "§2.31d Edge-Case: Audio %.0fs > 60 min — "
-                "DefectScanner auf 3×60-s-Segmente (Anfang/Mitte/Ende)",
+                "§2.31d Edge-Case: Audio %.0fs > 60 min — DefectScanner auf 3×60-s-Segmente (Anfang/Mitte/Ende)",
                 _audio_duration_s,
             )
 
@@ -1561,7 +2007,13 @@ class UnifiedRestorerV3:
                 else:
                     logger.info(
                         "MediumDetector: verwende gecachtes Ergebnis (material=%s, conf=%.2f)",
-                        getattr(_cached_medium_kwarg, "primary_material", getattr(_cached_medium_kwarg, "material_type", getattr(_cached_medium_kwarg, "material", "?"))),
+                        getattr(
+                            _cached_medium_kwarg,
+                            "primary_material",
+                            getattr(
+                                _cached_medium_kwarg, "material_type", getattr(_cached_medium_kwarg, "material", "?")
+                            ),
+                        ),
                         float(getattr(_cached_medium_kwarg, "confidence", 0.0)),
                     )
                 if not _era_cached:
@@ -1992,8 +2444,10 @@ class UnifiedRestorerV3:
             _formant_pearson: float = 0.0
             if _panns_singing >= 0.50 and _panns_opera < 0.45:
                 try:
-                    from plugins.formant_tracker import get_formant_tracker as _get_ft
                     from scipy.stats import pearsonr as _pearsonr
+
+                    from plugins.formant_tracker import get_formant_tracker as _get_ft
+
                     _ft = _get_ft()
                     _ft_sr = sample_rate
                     _ft_audio = audio
@@ -2037,6 +2491,7 @@ class UnifiedRestorerV3:
             if _panns_fallback_profile_key:
                 try:
                     from backend.core.genre_classifier import get_restoration_profile as _grf_fb
+
                     _genre_profile = _grf_fb(_panns_fallback_profile_key) or {}
                     if _genre_profile:
                         _gp_material_key = str(_genre_profile.get("gp_memory_key", _gp_material_key))
@@ -2133,12 +2588,9 @@ class UnifiedRestorerV3:
             from scipy.signal import filtfilt as _filtfilt
             from scipy.signal import lfilter as _lfilter
 
-            _is_reel_tape = (
-                _classified_material is not None
-                and (
-                    _classified_material == MaterialType.REEL_TAPE
-                    or getattr(_classified_material, "value", "") == "reel_tape"
-                )
+            _is_reel_tape = _classified_material is not None and (
+                _classified_material == MaterialType.REEL_TAPE
+                or getattr(_classified_material, "value", "") == "reel_tape"
             )
             if _is_reel_tape:
                 # Tape: aggressiverer HP (fc ≈ 3.8 Hz), zero-phase (filtfilt)
@@ -2240,7 +2692,9 @@ class UnifiedRestorerV3:
             _defect_scan_audio = analysis_audio
             if _is_very_long:
                 _seg_sr = analysis_sample_rate
-                _seg_len = min(60 * _seg_sr, analysis_audio.shape[-1] // 4 if analysis_audio.ndim > 1 else len(analysis_audio) // 4)
+                _seg_len = min(
+                    60 * _seg_sr, analysis_audio.shape[-1] // 4 if analysis_audio.ndim > 1 else len(analysis_audio) // 4
+                )
                 _n_full = analysis_audio.shape[-1] if analysis_audio.ndim > 1 else len(analysis_audio)
                 if _n_full >= 3 * _seg_len:
                     _mid_start = _n_full // 2 - _seg_len // 2
@@ -2609,9 +3063,7 @@ class UnifiedRestorerV3:
 
             _afg_250 = _get_afg_250()
             _mat_str_250 = str(getattr(material_type, "value", material_type)).lower() if material_type else "digital"
-            _src_baseline = _afg_250.measure_source_baseline(
-                audio, sample_rate, _mat_str_250
-            )
+            _src_baseline = _afg_250.measure_source_baseline(audio, sample_rate, _mat_str_250)
             if _src_baseline.has_critical_stereo_issue:
                 _stereo_remedy_phases = [
                     "phase_14_phase_correction",
@@ -2626,8 +3078,7 @@ class UnifiedRestorerV3:
                         _injected_250.append(_sp250)
                 if _injected_250:
                     logger.warning(
-                        "§2.50 Stereo-Notfall-Remediation: ratio=%.2f, "
-                        "mean_compat=%.3f → injiziert: %s",
+                        "§2.50 Stereo-Notfall-Remediation: ratio=%.2f, mean_compat=%.3f → injiziert: %s",
                         _src_baseline.phase_cancellation_ratio,
                         _src_baseline.stereo_mono_compat_mean,
                         _injected_250,
@@ -2636,9 +3087,7 @@ class UnifiedRestorerV3:
                 # Teilweise Anti-Phasigkeit: nur phase_14 (Phase-Korrektur)
                 if "phase_14_phase_correction" not in set(selected_phases):
                     selected_phases.append("phase_14_phase_correction")
-                    logger.info(
-                        "§2.50 Anti-Phasen-Region erkannt → phase_14_phase_correction aktiviert"
-                    )
+                    logger.info("§2.50 Anti-Phasen-Region erkannt → phase_14_phase_correction aktiviert")
         except Exception as _sb250_exc:
             logger.debug("§2.50 Source-Baseline-Messung fehlgeschlagen: %s", _sb250_exc)
         # Baseline für Pipeline speichern (Übergabe an _execute_pipeline via self)
@@ -2772,9 +3221,7 @@ class UnifiedRestorerV3:
                     _gp_phase_prefix = _gp_key[: -len("_enabled")]  # "phase_20_dereverb"
                     _gp_phase_prefix_base = "_".join(_gp_phase_prefix.split("_")[:2]) + "_"  # "phase_20_"
                     _gp_blocked = [
-                        p
-                        for p in selected_phases
-                        if p == _gp_phase_prefix or p.startswith(_gp_phase_prefix_base)
+                        p for p in selected_phases if p == _gp_phase_prefix or p.startswith(_gp_phase_prefix_base)
                     ]
                     if _gp_blocked:
                         selected_phases = [p for p in selected_phases if p not in _gp_blocked]
@@ -2931,7 +3378,6 @@ class UnifiedRestorerV3:
         _material_phase_initial_strengths: dict[str, float] = {}
         try:
             from backend.core.defect_phase_mapper import get_material_initial_strength as _get_mat_strength
-
             from backend.core.material_canonical import canonical_material_key as _canonical_material_key
 
             _mat_val = _canonical_material_key(material_type)
@@ -3033,9 +3479,8 @@ class UnifiedRestorerV3:
         # und Bandbreite, nicht auf goal-Scores — daher trotzdem valid.
         _fc_ceiling_val: float | None = None
         try:
-            from backend.core.physical_ceiling_estimator import PhysicalCeilingEstimator as _FCEarly
-
             from backend.core.material_canonical import canonical_material_key as _canonical_material_key
+            from backend.core.physical_ceiling_estimator import PhysicalCeilingEstimator as _FCEarly
 
             _fc_mat_val = _canonical_material_key(material_type)
             _fc_pce_result = _FCEarly().estimate(restored_audio, sample_rate, {}, _fc_mat_val)
@@ -4063,15 +4508,15 @@ class UnifiedRestorerV3:
                     )
                     _mat = str(getattr(self, "_material_type", material_type or "digital")).lower()
                     _valence_threshold = (
-                        0.55
-                        if _mat in ("tape", "reel_tape", "vinyl") and _wow_flutter_sev >= 0.5
-                        else 0.80
+                        0.55 if _mat in ("tape", "reel_tape", "vinyl") and _wow_flutter_sev >= 0.5 else 0.80
                     )
                     if _valence_threshold < 0.80:
                         logger.info(
                             "§2.47 EmotionalArc: material-adaptive Valence-Schwelle %.2f "
                             "(material=%s wow/flutter=%.2f)",
-                            _valence_threshold, _mat, _wow_flutter_sev,
+                            _valence_threshold,
+                            _mat,
+                            _wow_flutter_sev,
                         )
 
                     if not (_are_p >= 0.85 and _val_p >= _valence_threshold):
@@ -4564,26 +5009,32 @@ class UnifiedRestorerV3:
                 # Verbesserung, damit kein False-Rollback durch HPI=0 ausgelöst wird (§2.44).
                 _pqs_impr = (_pqs_result.pqs_mos - 2.5) / 2.5 if _pqs_result is not None else 0.1
                 _hpi_result = _hg.evaluate_studio(
-                    original_audio_for_goals, restored_audio, sample_rate,
+                    original_audio_for_goals,
+                    restored_audio,
+                    sample_rate,
                     pqs_improvement=_pqs_impr,
                     artifact_freedom=_artifact_freedom_for_hpi,
                     emotional_arc_score=_emotional_arc_for_hpi,
                 )
             else:
                 _hpi_result = _hg.evaluate_restoration(
-                    original_audio_for_goals, restored_audio, sample_rate,
+                    original_audio_for_goals,
+                    restored_audio,
+                    sample_rate,
                     artifact_freedom=_artifact_freedom_for_hpi,
                     emotional_arc_score=_emotional_arc_for_hpi,
                     restorability_score=float(getattr(self, "_restorability_score", 70.0)),
                 )
             if not _hpi_result.passed:
-                _fail_reasons.append({
-                    "component": "HolisticPerceptualGate",
-                    "error_code": "HPI_FAIL",
-                    "severity": "failed",
-                    "hpi": _hpi_result.hpi,
-                    "artifact_freedom": _hpi_result.artifact_freedom,
-                })
+                _fail_reasons.append(
+                    {
+                        "component": "HolisticPerceptualGate",
+                        "error_code": "HPI_FAIL",
+                        "severity": "failed",
+                        "hpi": _hpi_result.hpi,
+                        "artifact_freedom": _hpi_result.artifact_freedom,
+                    }
+                )
                 # §2.44 [RELEASE_MUST] HPI ≤ 0 → Rollback auf weniger aggressive Variante.
                 # Rollback-Kaskade:
                 #   1. _hpi_best_rollback_audio — letzter artefaktfreier Pipeline-Stand (§2.49)
@@ -4619,7 +5070,8 @@ class UnifiedRestorerV3:
                     )
                     restored_audio = np.clip(
                         np.nan_to_num(_rollback_target, nan=0.0, posinf=0.0, neginf=0.0),
-                        -1.0, 1.0,
+                        -1.0,
+                        1.0,
                     )
                 else:
                     logger.warning(
@@ -4636,13 +5088,15 @@ class UnifiedRestorerV3:
         #   1. _hpi_best_rollback_audio — letzter artefaktfreier Pipeline-Stand
         #   2. original_audio_for_goals — Eingabe vor Pipeline (Primum non nocere)
         if _artifact_freedom_for_hpi < 0.95:
-            _fail_reasons.append({
-                "component": "ArtifactFreedomGate",
-                "error_code": "ARTIFACT_FREEDOM_VETO",
-                "severity": "failed",
-                "artifact_freedom": _artifact_freedom_for_hpi,
-                "detail": getattr(self, "_artifact_freedom_detail", {}),
-            })
+            _fail_reasons.append(
+                {
+                    "component": "ArtifactFreedomGate",
+                    "error_code": "ARTIFACT_FREEDOM_VETO",
+                    "severity": "failed",
+                    "artifact_freedom": _artifact_freedom_for_hpi,
+                    "detail": getattr(self, "_artifact_freedom_detail", {}),
+                }
+            )
             _afg_rollback_target = getattr(self, "_hpi_best_rollback_audio", None)
             if _afg_rollback_target is None:
                 try:
@@ -4657,7 +5111,8 @@ class UnifiedRestorerV3:
                 )
                 restored_audio = np.clip(
                     np.nan_to_num(_afg_rollback_target, nan=0.0, posinf=0.0, neginf=0.0),
-                    -1.0, 1.0,
+                    -1.0,
+                    1.0,
                 )
             else:
                 logger.warning(
@@ -4670,8 +5125,11 @@ class UnifiedRestorerV3:
         try:
             from backend.core.pipeline_health_state import (
                 pipeline_health_from_fail_reasons as _phfr_2,
+            )
+            from backend.core.pipeline_health_state import (
                 primary_fail_reason_from_fail_reasons as _prfr_2,
             )
+
             _degradation_status = _phfr_2(_fail_reasons).value
             _primary_fail_reason = _prfr_2(_fail_reasons)
         except Exception:
@@ -4782,6 +5240,20 @@ class UnifiedRestorerV3:
                     ],
                     key=lambda x: x["rms_delta_db"],
                 )[:10],
+                "active_interventions": {
+                    "count": len(getattr(self, "_active_intervention_log", [])),
+                    "accepted_count": sum(
+                        1
+                        for _ev in list(getattr(self, "_active_intervention_log", []))
+                        if isinstance(_ev, dict) and bool(_ev.get("accepted", False))
+                    ),
+                    "rejected_count": sum(
+                        1
+                        for _ev in list(getattr(self, "_active_intervention_log", []))
+                        if isinstance(_ev, dict) and not bool(_ev.get("accepted", False))
+                    ),
+                    "events": list(getattr(self, "_active_intervention_log", [])),
+                },
                 "phase_plan_intelligence": dict(getattr(self, "_phase_plan_intelligence", {})),
                 "excellence_optimizer": (
                     {
@@ -4830,25 +5302,18 @@ class UnifiedRestorerV3:
                 # §2.50 Source Material Baseline
                 "source_material_baseline": {
                     "phase_cancellation_ratio": getattr(
-                        getattr(self, "_source_material_baseline", None),
-                        "phase_cancellation_ratio", None
+                        getattr(self, "_source_material_baseline", None), "phase_cancellation_ratio", None
                     ),
                     "stereo_mono_compat_mean": getattr(
-                        getattr(self, "_source_material_baseline", None),
-                        "stereo_mono_compat_mean", None
+                        getattr(self, "_source_material_baseline", None), "stereo_mono_compat_mean", None
                     ),
                     "has_critical_stereo_issue": getattr(
-                        getattr(self, "_source_material_baseline", None),
-                        "has_critical_stereo_issue", None
+                        getattr(self, "_source_material_baseline", None), "has_critical_stereo_issue", None
                     ),
                     "has_anti_phase_region": getattr(
-                        getattr(self, "_source_material_baseline", None),
-                        "has_anti_phase_region", None
+                        getattr(self, "_source_material_baseline", None), "has_anti_phase_region", None
                     ),
-                    "hf_loss_db": getattr(
-                        getattr(self, "_source_material_baseline", None),
-                        "hf_loss_db", None
-                    ),
+                    "hf_loss_db": getattr(getattr(self, "_source_material_baseline", None), "hf_loss_db", None),
                 },
                 # §2.44 Holistic Perceptual Gate
                 "holistic_perceptual_gate": (
@@ -9255,7 +9720,11 @@ class UnifiedRestorerV3:
             "phase_31_stem_separation": (0.70, 0.85, 0.95),
             "phase_32_vocal_isolation": (0.72, 0.87, 0.95),
             "phase_33_music_enhancement": (0.65, 0.78, 0.85),
-            "phase_34_mid_side_processing": (0.62, 0.72, 0.65),  # M/S dynamics (stereo-field restoration, moderate impact)
+            "phase_34_mid_side_processing": (
+                0.62,
+                0.72,
+                0.65,
+            ),  # M/S dynamics (stereo-field restoration, moderate impact)
             "phase_35_psychoacoustic_enhancement": (0.55, 0.68, 0.60),
             "phase_36_spatial_enhancement": (0.52, 0.65, 0.70),
             "phase_37_codec_artifact_removal": (0.80, 0.87, 0.55),
@@ -9276,7 +9745,11 @@ class UnifiedRestorerV3:
             "phase_55_diffusion_inpainting": (0.70, 0.82, 0.90),
             "phase_56_reference_mastering": (0.55, 0.70, 0.85),
             "phase_57_print_through_reduction": (0.65, 0.75, 0.50),
-            "phase_58_lyrics_guided_enhancement": (0.72, 0.82, 0.75),  # LGE §2.36: phoneme-aligned DSP → high vocal quality impact
+            "phase_58_lyrics_guided_enhancement": (
+                0.72,
+                0.82,
+                0.75,
+            ),  # LGE §2.36: phoneme-aligned DSP → high vocal quality impact
             "phase_59_modulation_noise_reduction": (0.68, 0.78, 0.55),
             "phase_60_inner_groove_distortion_repair": (0.65, 0.75, 0.50),
             "phase_61_groove_echo_cancellation": (0.62, 0.72, 0.55),
@@ -9872,14 +10345,14 @@ class UnifiedRestorerV3:
                 max_n = int(5.0 * sr_)  # max 5 s
                 if len(mono) > max_n:
                     start = (len(mono) - max_n) // 2
-                    mono = mono[start: start + max_n]
+                    mono = mono[start : start + max_n]
                 n_fft = 2048
                 hop = n_fft // 4
                 n_frames = max(1, (len(mono) - n_fft) // hop)
                 win = np.hanning(n_fft)
                 mag_acc = np.zeros(n_fft // 2 + 1)
                 for k in range(min(n_frames, 30)):
-                    seg = mono[k * hop: k * hop + n_fft]
+                    seg = mono[k * hop : k * hop + n_fft]
                     if len(seg) < n_fft:
                         break
                     mag_acc += np.abs(np.fft.rfft(seg * win))
@@ -10021,9 +10494,466 @@ class UnifiedRestorerV3:
                 warnings=[f"invalid_phase_result_type:{type(_r).__name__}"],
             )
 
+        def _rms_dbfs(_x: np.ndarray) -> float:
+            _arr = np.asarray(_x, dtype=np.float32)
+            return float(20.0 * np.log10(float(np.sqrt(np.mean(_arr * _arr) + 1e-12))))
+
+        def _peak_p999(_x: np.ndarray) -> float:
+            _arr = np.asarray(_x, dtype=np.float32)
+            return float(np.percentile(np.abs(_arr), 99.9))
+
+        def _imbalance_db(_x: np.ndarray) -> float:
+            if not isinstance(_x, np.ndarray) or _x.ndim != 2 or _x.shape[0] != 2:
+                return 0.0
+            _l = float(np.sqrt(np.mean(_x[0] ** 2)) + 1e-12)
+            _r = float(np.sqrt(np.mean(_x[1] ** 2)) + 1e-12)
+            return float(abs(20.0 * np.log10((_l + 1e-12) / (_r + 1e-12))))
+
+        def _transient_ratio(_ref: np.ndarray, _cand: np.ndarray) -> float:
+            try:
+                _rd = np.diff(np.asarray(_ref, dtype=np.float32), axis=-1)
+                _cd = np.diff(np.asarray(_cand, dtype=np.float32), axis=-1)
+                _r95 = float(np.percentile(np.abs(_rd), 95.0))
+                _c95 = float(np.percentile(np.abs(_cd), 95.0))
+                if _r95 <= 1e-9:
+                    return 1.0
+                return float(np.clip(_c95 / _r95, 0.0, 4.0))
+            except Exception:
+                return 1.0
+
+        def _mono_compatibility(_x: np.ndarray) -> float:
+            try:
+                _arr = np.asarray(_x, dtype=np.float32)
+                if _arr.ndim != 2 or _arr.shape[0] != 2:
+                    return 1.0
+                _mid = 0.5 * (_arr[0] + _arr[1])
+                _side = 0.5 * (_arr[0] - _arr[1])
+                _mid_rms = float(np.sqrt(np.mean(_mid * _mid)) + 1e-12)
+                _side_rms = float(np.sqrt(np.mean(_side * _side)) + 1e-12)
+                return float(np.clip(_mid_rms / (_mid_rms + _side_rms + 1e-12), 0.0, 1.0))
+            except Exception:
+                return 1.0
+
+        def _hf_energy_ratio(_ref: np.ndarray, _cand: np.ndarray) -> float:
+            try:
+                _ref_arr = np.asarray(_ref, dtype=np.float32)
+                _cand_arr = np.asarray(_cand, dtype=np.float32)
+                if _ref_arr.ndim == 2:
+                    _ref_arr = np.mean(_ref_arr, axis=0)
+                if _cand_arr.ndim == 2:
+                    _cand_arr = np.mean(_cand_arr, axis=0)
+                _ref_mag = np.abs(np.fft.rfft(_ref_arr))
+                _cand_mag = np.abs(np.fft.rfft(_cand_arr))
+                if _ref_mag.size < 8 or _cand_mag.size != _ref_mag.size:
+                    return 1.0
+                _start = int(_ref_mag.size * 0.65)
+                _ref_hf = float(np.mean(_ref_mag[_start:]) + 1e-12)
+                _cand_hf = float(np.mean(_cand_mag[_start:]) + 1e-12)
+                return float(np.clip(_cand_hf / _ref_hf, 0.0, 4.0))
+            except Exception:
+                return 1.0
+
+        def _phase_intervention_profile(phase_id: str) -> dict[str, Any]:
+            """Build a phase-specific intervention profile (family + exact overrides)."""
+            _meta = self.phase_metadata.get(phase_id, {})
+            _category = str(_meta.get("category", "")).lower()
+            _pid = str(phase_id).lower()
+
+            _family = self._PHASE_INTERVENTION_CLASS.get(phase_id, "general")
+            _profile: dict[str, Any] = dict(
+                self._INTERVENTION_CLASS_DEFAULTS.get(_family, self._INTERVENTION_CLASS_DEFAULTS["general"])
+            )
+            _profile["family"] = _family
+
+            # Category-based refinements.
+            if _category in {"cleanup", "denoise", "restoration"}:
+                _profile["cost_transient_w"] = max(float(_profile["cost_transient_w"]), 3.2)
+            if _category in {"mastering", "output"}:
+                _profile["enable_transient"] = False
+
+            # Exact phase overrides for known critical paths.
+            _phase_overrides: dict[str, dict[str, Any]] = {
+                "phase_03_denoise": {
+                    "family": "phase03_denoise",
+                    "transient_floor": 0.78,
+                    "dry_blend_min": 0.12,
+                    "dry_blend_max": 0.34,
+                    "cost_transient_w": 4.3,
+                },
+                "phase_06_frequency_restoration": {
+                    "family": "phase06_freq_restore",
+                    "enable_loudness": True,
+                    "enable_stereo": False,
+                    "enable_hf_preservation": True,
+                    "hf_floor": 0.92,
+                    "transient_floor": 0.70,
+                    "dry_blend_min": 0.08,
+                    "dry_blend_max": 0.20,
+                    "cost_loudness_w": 0.7,
+                    "cost_transient_w": 2.4,
+                    "cost_hf_w": 3.0,
+                },
+                "phase_18_noise_gate": {
+                    "family": "phase18_noise_gate",
+                    "transient_floor": 0.80,
+                    "dry_blend_min": 0.14,
+                    "dry_blend_max": 0.36,
+                    "cost_transient_w": 4.6,
+                },
+                "phase_20_reverb_reduction": {
+                    "family": "phase20_dereverb",
+                    "transient_floor": 0.75,
+                    "dry_blend_min": 0.10,
+                    "dry_blend_max": 0.28,
+                    "cost_transient_w": 4.0,
+                },
+                "phase_23_spectral_repair": {
+                    "family": "phase23_spectral",
+                    "enable_loudness": True,
+                    "enable_stereo": False,
+                    "enable_hf_preservation": True,
+                    "hf_floor": 0.89,
+                    "transient_floor": 0.68,
+                    "dry_blend_min": 0.09,
+                    "dry_blend_max": 0.22,
+                    "cost_loudness_w": 0.8,
+                    "cost_transient_w": 2.6,
+                    "cost_hf_w": 2.8,
+                },
+                "phase_49_advanced_dereverb": {
+                    "family": "phase49_dereverb",
+                    "transient_floor": 0.73,
+                    "dry_blend_min": 0.10,
+                    "dry_blend_max": 0.26,
+                    "cost_transient_w": 3.8,
+                },
+                "phase_63_intermodulation_reduction": {
+                    "family": "phase63_imd",
+                    "enable_loudness": False,
+                    "enable_stereo": False,
+                    "enable_hf_preservation": True,
+                    "hf_floor": 0.85,
+                    "transient_floor": 0.62,
+                    "dry_blend_min": 0.04,
+                    "dry_blend_max": 0.12,
+                    "cost_transient_w": 1.5,
+                    "cost_hf_w": 1.6,
+                },
+                "phase_14_phase_correction": {
+                    "family": "phase14_phase",
+                    "enable_loudness": False,
+                    "enable_transient": False,
+                    "stereo_abs_db": 9.0,
+                    "stereo_growth_db": 2.5,
+                    "stereo_target_db": 5.0,
+                    "stereo_gain_cap": 1.5,
+                    "cost_stereo_w": 0.65,
+                },
+                "phase_25_azimuth_correction": {
+                    "family": "phase25_azimuth",
+                    "enable_loudness": False,
+                    "enable_transient": False,
+                    "stereo_abs_db": 9.0,
+                    "stereo_growth_db": 2.0,
+                    "stereo_target_db": 5.0,
+                    "stereo_gain_cap": 1.45,
+                    "cost_stereo_w": 0.70,
+                },
+                "phase_24_dropout_repair": {
+                    "family": "phase24_dropout",
+                    "enable_stereo": False,
+                    "transient_floor": 0.66,
+                    "dry_blend_min": 0.06,
+                    "dry_blend_max": 0.18,
+                    "cost_transient_w": 2.0,
+                },
+                "phase_55_diffusion_inpainting": {
+                    "family": "phase55_inpainting",
+                    "enable_stereo": False,
+                    "transient_floor": 0.64,
+                    "dry_blend_min": 0.05,
+                    "dry_blend_max": 0.16,
+                    "cost_transient_w": 1.8,
+                },
+                "phase_40_loudness_normalization": {
+                    "family": "phase40_loudness",
+                    "enable_stereo": False,
+                    "enable_transient": False,
+                    "cost_loudness_w": 0.1,
+                },
+                "phase_47_truepeak_limiter": {
+                    "family": "phase47_truepeak",
+                    "enable_stereo": False,
+                    "enable_transient": False,
+                    "cost_loudness_w": 0.1,
+                },
+            }
+            _profile.update(_phase_overrides.get(phase_id, {}))
+            return _profile
+
+        def _intervention_cost(_ref: np.ndarray, _cand: np.ndarray, _prof: dict[str, Any]) -> float:
+            _rms_drop = _rms_dbfs(_ref) - _rms_dbfs(_cand)
+            _imb_ref = _imbalance_db(_ref)
+            _imb_cand = _imbalance_db(_cand)
+            _imb_growth = max(0.0, _imb_cand - max(_imb_ref, float(_prof.get("stereo_target_db", 8.0))))
+            _tr_ratio = _transient_ratio(_ref, _cand)
+            _tr_loss = max(0.0, float(_prof.get("transient_floor", 0.65)) - _tr_ratio)
+            _mono_ref = _mono_compatibility(_ref)
+            _mono_cand = _mono_compatibility(_cand)
+            _mono_floor = max(float(_prof.get("mono_compat_floor", 0.50)), _mono_ref - 0.05)
+            _mono_loss = max(0.0, _mono_floor - _mono_cand)
+            _hf_ratio = _hf_energy_ratio(_ref, _cand)
+            _hf_loss = max(0.0, float(_prof.get("hf_floor", 0.75)) - _hf_ratio)
+            return float(
+                float(_prof.get("cost_loudness_w", 1.0)) * max(0.0, _rms_drop - 3.5)
+                + float(_prof.get("cost_stereo_w", 0.25)) * _imb_growth
+                + float(_prof.get("cost_transient_w", 3.0)) * _tr_loss
+                + float(_prof.get("cost_mono_compat_w", 0.0)) * _mono_loss
+                + float(_prof.get("cost_hf_w", 0.0)) * _hf_loss
+            )
+
+        def _active_quality_intervention(phase_id: str, _ref: np.ndarray, _cand: np.ndarray) -> np.ndarray:
+            """Actively rescue catastrophic phase side-effects (loudness/stereo/transients).
+
+            This executes only when a measurable deterioration is present and only keeps
+            the intervention if the composite cost decreases.
+            """
+            _mat = str(getattr(material_type, "value", material_type)).lower()
+            _max_rms_drop_db = {
+                "shellac": 2.2,
+                "wax_cylinder": 2.2,
+                "wire_recording": 2.3,
+                "vinyl": 2.8,
+                "reel_tape": 3.0,
+                "tape": 3.0,
+                "cassette": 3.0,
+                "cd_digital": 4.0,
+                "dat": 4.0,
+                "mp3_low": 4.5,
+                "mp3_high": 4.0,
+                "aac": 4.0,
+                "streaming": 4.0,
+            }.get(_mat, 3.5)
+
+            _ref_arr = np.asarray(_ref, dtype=np.float32)
+            _base = np.clip(
+                np.nan_to_num(np.asarray(_cand, dtype=np.float32), nan=0.0, posinf=0.0, neginf=0.0), -1.0, 1.0
+            )
+            _work = _base.copy()
+            _actions: list[dict[str, Any]] = []
+            _prof = _phase_intervention_profile(phase_id)
+
+            # 1) Loudness collapse rescue (peak-safe via percentile guard).
+            _rms_ref = _rms_dbfs(_ref_arr)
+            _rms_work = _rms_dbfs(_work)
+            _drop_db = _rms_ref - _rms_work
+            if bool(_prof.get("enable_loudness", True)) and _drop_db > _max_rms_drop_db:
+                _target_rms = _rms_ref - _max_rms_drop_db
+                _needed_db = max(0.0, _target_rms - _rms_work)
+                if _needed_db > 0.01:
+                    _g = float(10.0 ** (_needed_db / 20.0))
+                    _p = _peak_p999(_work)
+                    if _p > 1e-9:
+                        _g = min(_g, float(0.995 / _p))
+                    if _g > 1.0005:
+                        _work = np.clip(_work * _g, -1.0, 1.0)
+                        _actions.append(
+                            {
+                                "type": "loudness_makeup",
+                                "rms_drop_db_before": round(float(_drop_db), 3),
+                                "makeup_db": round(float(20.0 * np.log10(max(_g, 1e-9))), 3),
+                            }
+                        )
+
+            # 2) Stereo collapse rescue (rebalance weaker side only when collapse grew strongly).
+            if (
+                bool(_prof.get("enable_stereo", True))
+                and _work.ndim == 2
+                and _work.shape[0] == 2
+                and _ref_arr.ndim == 2
+                and _ref_arr.shape[0] == 2
+            ):
+                _imb_ref = _imbalance_db(_ref_arr)
+                _imb_work = _imbalance_db(_work)
+                _imb_abs = float(_prof.get("stereo_abs_db", 14.0))
+                _imb_growth_thr = float(_prof.get("stereo_growth_db", 6.0))
+                _imb_target = float(_prof.get("stereo_target_db", 8.0))
+                _gain_cap = float(_prof.get("stereo_gain_cap", 2.2))
+                if _imb_work > _imb_abs and (_imb_work - _imb_ref) > _imb_growth_thr:
+                    _l = float(np.sqrt(np.mean(_work[0] ** 2)) + 1e-12)
+                    _r = float(np.sqrt(np.mean(_work[1] ** 2)) + 1e-12)
+                    _max_ch = max(_l, _r)
+                    _min_ch = min(_l, _r)
+                    if _min_ch > 1e-9:
+                        _target_min = _max_ch * float(10.0 ** (-_imb_target / 20.0))
+                        _weak_gain = float(np.clip(_target_min / _min_ch, 1.0, _gain_cap))
+                        if _l < _r:
+                            _work[0] = np.clip(_work[0] * _weak_gain, -1.0, 1.0)
+                        else:
+                            _work[1] = np.clip(_work[1] * _weak_gain, -1.0, 1.0)
+                        _actions.append(
+                            {
+                                "type": "stereo_rebalance",
+                                "imbalance_db_before": round(float(_imb_work), 3),
+                                "weak_channel_gain_db": round(float(20.0 * np.log10(max(_weak_gain, 1e-9))), 3),
+                            }
+                        )
+
+            # 3) Transient rescue by limited dry blend (keeps restoration, restores life).
+            _tr_ratio = _transient_ratio(_ref_arr, _work)
+            _tr_floor = float(_prof.get("transient_floor", 0.60))
+            if bool(_prof.get("enable_transient", True)) and _tr_ratio < _tr_floor:
+                _a_min = float(_prof.get("dry_blend_min", 0.08))
+                _a_max = float(_prof.get("dry_blend_max", 0.24))
+                _alpha = float(np.clip(_a_min + (_tr_floor - _tr_ratio) * 0.40, _a_min, _a_max))
+                _work = np.clip((1.0 - _alpha) * _work + _alpha * _ref_arr, -1.0, 1.0)
+                _actions.append(
+                    {
+                        "type": "transient_recovery",
+                        "transient_ratio_before": round(float(_tr_ratio), 3),
+                        "dry_blend": round(float(_alpha), 3),
+                    }
+                )
+
+            if not _actions:
+                return _base
+
+            _action_types = {str(a.get("type", "")) for a in _actions}
+
+            def _evaluate_targets(_sig: np.ndarray) -> tuple[dict[str, Any], bool, float]:
+                _targets_local: dict[str, Any] = {}
+                _penalty = 0.0
+                _rms_drop_sig = _rms_dbfs(_ref_arr) - _rms_dbfs(_sig)
+                _imb_ref_sig = _imbalance_db(_ref_arr)
+                _imb_sig = _imbalance_db(_sig)
+                _tr_sig = _transient_ratio(_ref_arr, _sig)
+                _mono_ref_sig = _mono_compatibility(_ref_arr)
+                _mono_sig = _mono_compatibility(_sig)
+                _hf_sig = _hf_energy_ratio(_ref_arr, _sig)
+
+                if "loudness_makeup" in _action_types:
+                    _ok = bool(_rms_drop_sig <= (_max_rms_drop_db + 0.15))
+                    _targets_local["loudness"] = {
+                        "target_max_rms_drop_db": round(float(_max_rms_drop_db), 3),
+                        "measured_rms_drop_db": round(float(_rms_drop_sig), 3),
+                        "met": _ok,
+                    }
+                    if not _ok:
+                        _penalty += max(0.0, _rms_drop_sig - (_max_rms_drop_db + 0.15)) * 4.0
+
+                if "stereo_rebalance" in _action_types:
+                    _stereo_target = max(_imb_ref_sig, float(_prof.get("stereo_target_db", 8.0)))
+                    _ok = bool(_imb_sig <= (_stereo_target + 0.75))
+                    _targets_local["stereo"] = {
+                        "target_max_imbalance_db": round(float(_stereo_target), 3),
+                        "measured_imbalance_db": round(float(_imb_sig), 3),
+                        "met": _ok,
+                    }
+                    if not _ok:
+                        _penalty += max(0.0, _imb_sig - (_stereo_target + 0.75)) * 1.5
+
+                if "transient_recovery" in _action_types:
+                    _tr_floor_eval = float(_prof.get("transient_floor", 0.60))
+                    _ok = bool(_tr_sig >= (_tr_floor_eval - 0.02))
+                    _targets_local["transient"] = {
+                        "target_min_ratio": round(float(_tr_floor_eval), 3),
+                        "measured_ratio": round(float(_tr_sig), 3),
+                        "met": _ok,
+                    }
+                    if not _ok:
+                        _penalty += max(0.0, (_tr_floor_eval - 0.02) - _tr_sig) * 6.0
+
+                if bool(_prof.get("enable_mono_compat", False)):
+                    _mono_floor_eval = max(float(_prof.get("mono_compat_floor", 0.50)), _mono_ref_sig - 0.05)
+                    _ok = bool(_mono_sig >= (_mono_floor_eval - 0.02))
+                    _targets_local["mono_compat"] = {
+                        "target_min_ratio": round(float(_mono_floor_eval), 3),
+                        "measured_ratio": round(float(_mono_sig), 3),
+                        "met": _ok,
+                    }
+                    if not _ok:
+                        _penalty += max(0.0, (_mono_floor_eval - 0.02) - _mono_sig) * 5.0
+
+                if bool(_prof.get("enable_hf_preservation", False)):
+                    _hf_floor_eval = float(_prof.get("hf_floor", 0.75))
+                    _ok = bool(_hf_sig >= (_hf_floor_eval - 0.03))
+                    _targets_local["hf_preservation"] = {
+                        "target_min_ratio": round(float(_hf_floor_eval), 3),
+                        "measured_ratio": round(float(_hf_sig), 3),
+                        "met": _ok,
+                    }
+                    if not _ok:
+                        _penalty += max(0.0, (_hf_floor_eval - 0.03) - _hf_sig) * 4.0
+
+                _targets_met_local = bool(_targets_local) and all(
+                    bool(v.get("met", False)) for v in _targets_local.values()
+                )
+                return _targets_local, _targets_met_local, float(_penalty)
+
+            _cost_base = _intervention_cost(_ref_arr, _base, _prof)
+
+            # Intelligent forwarding: choose best candidate (work or blend), not binary reject.
+            _candidates: list[tuple[str, np.ndarray, float]] = [("base", _base, 0.0), ("work", _work, 1.0)]
+            for _alpha in (0.15, 0.30, 0.45, 0.60, 0.75, 0.85):
+                _blend = np.clip((1.0 - _alpha) * _base + _alpha * _work, -1.0, 1.0)
+                _candidates.append(("blend", _blend, float(_alpha)))
+
+            _best_sig = _base
+            _best_mode = "base"
+            _best_alpha = 0.0
+            _best_targets: dict[str, Any] = {}
+            _best_targets_met = False
+            _best_score = float("inf")
+            _best_cost = _cost_base
+
+            for _mode, _sig, _alpha in _candidates:
+                _targets, _targets_met, _target_penalty = _evaluate_targets(_sig)
+                _cost_sig = _intervention_cost(_ref_arr, _sig, _prof)
+                # Keep intervention close to phase output unless needed for target recovery.
+                _fidelity_drift = float(np.sqrt(np.mean((_sig - _base) ** 2) + 1e-12))
+                _score = _cost_sig + _target_penalty + (0.06 * _fidelity_drift)
+                if _score < _best_score:
+                    _best_score = _score
+                    _best_sig = _sig
+                    _best_mode = _mode
+                    _best_alpha = _alpha
+                    _best_targets = _targets
+                    _best_targets_met = _targets_met
+                    _best_cost = _cost_sig
+
+            _accepted = bool(_best_mode != "base" and (_best_score + 1e-6 < _cost_base))
+
+            self._active_intervention_log.append(
+                {
+                    "phase_id": phase_id,
+                    "family": str(_prof.get("family", "general")),
+                    "material": _mat,
+                    "accepted": _accepted,
+                    "selection_mode": _best_mode,
+                    "selection_alpha": round(float(_best_alpha), 3),
+                    "cost_before": round(float(_cost_base), 4),
+                    "cost_after": round(float(_best_cost), 4),
+                    "targets": _best_targets,
+                    "targets_met": bool(_best_targets_met),
+                    "actions": _actions,
+                }
+            )
+
+            logger.warning(
+                "ActiveIntervention %s SELECTED mode=%s alpha=%.2f cost %.4f -> %.4f (targets_met=%s)",
+                phase_id,
+                _best_mode,
+                _best_alpha,
+                _cost_base,
+                _best_cost,
+                _best_targets_met,
+            )
+            return _best_sig
+
         # §Punkt3 Phasen-Regressionsprotokoll: RMS-Delta je Phase (sequentielle Ausführung)
         # Einheit: dBFS-Differenz nach - vor Phase. Positiv = Energie gestiegen, negativ = gesunken.
         self._phase_regression_log: dict[str, float] = {}
+        self._active_intervention_log: list[dict[str, Any]] = []
         # §2.29 PerPhaseMusicalGoalsGate — vor Pipeline-Loop initialisieren (sequentielle Ausführung)
         # Deaktiviert AUSSCHLIESSLICH über enable_phase_gate=False (z. B. --no-phase-gate).
         # enable_performance_guard steuert das CPU-Budget-Throttling, NICHT die musikalische
@@ -10123,16 +11053,12 @@ class UnifiedRestorerV3:
 
             # Internal format is channel-first (2, N) — use audio[0] for left channel.
             # ascontiguousarray: ensures owned, aligned buffer for BLAS ops.
-            _ma = np.ascontiguousarray(
-                audio if audio.ndim == 1 else audio[0], dtype=np.float32
-            )
+            _ma = np.ascontiguousarray(audio if audio.ndim == 1 else audio[0], dtype=np.float32)
             _masking_result = _cmt(_ma, sample_rate)
             # Right channel: only for stereo, computed independently — avoids cross-channel
             # masking error for asymmetric recordings (e.g. violin hard-left, cello hard-right).
             if audio.ndim == 2 and audio.shape[0] >= 2:
-                _masking_result_r = _cmt(
-                    np.ascontiguousarray(audio[1], dtype=np.float32), sample_rate
-                )
+                _masking_result_r = _cmt(np.ascontiguousarray(audio[1], dtype=np.float32), sample_rate)
             _gm_median = float(np.median(_masking_result.gain_modifier))
             _masking_scalar = float(np.clip(0.4 + _gm_median * 0.6, 0.4, 1.0))
             logger.debug(
@@ -10400,7 +11326,9 @@ class UnifiedRestorerV3:
                     _mg_checker_248 = _get_mg_checker_248()
                     _baseline_goals_248 = _mg_checker_248.measure_all(current_audio, sample_rate)
                     _interaction_guard.set_pre_pipeline_baseline(
-                        _interaction_guard_state, current_audio, _baseline_goals_248,
+                        _interaction_guard_state,
+                        current_audio,
+                        _baseline_goals_248,
                     )
                 except Exception as _ig_baseline_exc:
                     logger.debug("§2.48 InteractionGuard baseline failed: %s", _ig_baseline_exc)
@@ -10577,13 +11505,14 @@ class UnifiedRestorerV3:
                             _n_exec = len(executed)
                             if _n_exec > 20 and phase_id not in _MASK_TIMING:
                                 _diminish = max(0.30, 1.0 - 0.015 * (_n_exec - 20))
-                                _combined_strength = float(
-                                    np.clip(_combined_strength * _diminish, 0.05, 1.0)
-                                )
+                                _combined_strength = float(np.clip(_combined_strength * _diminish, 0.05, 1.0))
                                 if _diminish < 0.95:
                                     logger.debug(
                                         "§9.10.118 DiminishingReturns %s: exec#%d → factor=%.3f strength=%.3f",
-                                        phase_id, _n_exec, _diminish, _combined_strength,
+                                        phase_id,
+                                        _n_exec,
+                                        _diminish,
+                                        _combined_strength,
                                     )
 
                             _pmgg_audio_out, _pmgg_scores_curr, _pmgg_entry = _pmgg_gate.wrap_phase(
@@ -10618,7 +11547,9 @@ class UnifiedRestorerV3:
                                     ),  # §2.31a SongCalibration opt-in
                                     "phoneme_timeline": phoneme_timeline,  # §2.36a: PhonemeTimeline opt-in
                                     "pre_transcription": pre_transcription,  # §2.36: LGE pre-computed transcription for phase_58
-                                    "vocal_probability": float(getattr(self, '_restoration_context', {}).get('panns_vocals_confidence', 1.0)),  # §2.36: PANNs vocal prob for phase_58
+                                    "vocal_probability": float(
+                                        getattr(self, "_restoration_context", {}).get("panns_vocals_confidence", 1.0)
+                                    ),  # §2.36: PANNs vocal prob for phase_58
                                 },
                                 restorability_score=_pmgg_restorability_score,  # §2.29 normativ
                                 applicable_goals=applicable_goals,  # §2.32 normativ
@@ -10634,7 +11565,12 @@ class UnifiedRestorerV3:
                                     phase_id,
                                 )
                             else:
-                                current_audio = np.clip(_pmgg_audio_out, -1.0, 1.0)
+                                current_audio = _active_quality_intervention(
+                                    phase_id,
+                                    current_audio,
+                                    _pmgg_audio_out,
+                                )
+                                current_audio = np.clip(current_audio, -1.0, 1.0)
                             # §PROGRESS: Per-Phase Fortschritt (PMGG-Pfad)
                             _n_sel = max(len(selected_phases), 1)
                             _idx_ex = len(executed)
@@ -10700,7 +11636,9 @@ class UnifiedRestorerV3:
                                 masking_scalar=_masking_scalar,  # §Psychoacoustic: global audibility scalar ∈ [0.4, 1.0]
                                 phoneme_timeline=phoneme_timeline,  # §2.36a: PhonemeTimeline opt-in
                                 pre_transcription=pre_transcription,  # §2.36: LGE pre-computed transcription for phase_58
-                                vocal_probability=float(getattr(self, '_restoration_context', {}).get('panns_vocals_confidence', 1.0)),  # §2.36: PANNs vocal prob for phase_58
+                                vocal_probability=float(
+                                    getattr(self, "_restoration_context", {}).get("panns_vocals_confidence", 1.0)
+                                ),  # §2.36: PANNs vocal prob for phase_58
                             )
                             result = _normalize_phase_result(result)
                             _collect_guard_payload(_phase_for_exec, phase_id, result)
@@ -10711,17 +11649,21 @@ class UnifiedRestorerV3:
                                 if not np.any(np.isnan(_fa)):
                                     # §2.45 [RELEASE_MUST] Minimal-Intervention: perceptual_delta > 0 Pflicht.
                                     # PMGG failed so no goal-based guard active — use fast spectral proxy.
-                                    _pdelta_245 = (
-                                        _spectral_quality_score(_fa, sample_rate)
-                                        - _spectral_quality_score(current_audio, sample_rate)
+                                    _pdelta_245 = _spectral_quality_score(_fa, sample_rate) - _spectral_quality_score(
+                                        current_audio, sample_rate
                                     )
                                     if _pdelta_245 > 0.0:
-                                        current_audio = np.clip(_fa, -1.0, 1.0)
+                                        current_audio = _active_quality_intervention(
+                                            phase_id,
+                                            current_audio,
+                                            _fa,
+                                        )
+                                        current_audio = np.clip(current_audio, -1.0, 1.0)
                                     else:
                                         logger.debug(
-                                            "§2.45 PMGG-Fallback: %s übersprungen "
-                                            "(perceptual_delta=%.4f <= 0.0)",
-                                            phase_id, _pdelta_245,
+                                            "§2.45 PMGG-Fallback: %s übersprungen (perceptual_delta=%.4f <= 0.0)",
+                                            phase_id,
+                                            _pdelta_245,
                                         )
                                         skipped.append(phase_id)
                                         _245_skipped_fb = True
@@ -10792,19 +11734,28 @@ class UnifiedRestorerV3:
                                 # Direct path (no PMGG) — gate via fast spectral quality proxy.
                                 # Exception: no_rt_limit=True = force-execute semantics → §2.45 skip.
                                 if no_rt_limit:
-                                    current_audio = np.clip(_ra, -1.0, 1.0)
-                                else:
-                                    _pdelta_245_direct = (
-                                        _spectral_quality_score(_ra, sample_rate)
-                                        - _spectral_quality_score(current_audio, sample_rate)
+                                    current_audio = _active_quality_intervention(
+                                        phase_id,
+                                        current_audio,
+                                        _ra,
                                     )
+                                    current_audio = np.clip(current_audio, -1.0, 1.0)
+                                else:
+                                    _pdelta_245_direct = _spectral_quality_score(
+                                        _ra, sample_rate
+                                    ) - _spectral_quality_score(current_audio, sample_rate)
                                     if _pdelta_245_direct > 0.0:
-                                        current_audio = np.clip(_ra, -1.0, 1.0)
+                                        current_audio = _active_quality_intervention(
+                                            phase_id,
+                                            current_audio,
+                                            _ra,
+                                        )
+                                        current_audio = np.clip(current_audio, -1.0, 1.0)
                                     else:
                                         logger.debug(
-                                            "§2.45 Direkt-Pfad: %s übersprungen "
-                                            "(perceptual_delta=%.4f <= 0.0)",
-                                            phase_id, _pdelta_245_direct,
+                                            "§2.45 Direkt-Pfad: %s übersprungen (perceptual_delta=%.4f <= 0.0)",
+                                            phase_id,
+                                            _pdelta_245_direct,
                                         )
                                         skipped.append(phase_id)
                                         _245_skipped_dr = True
@@ -10824,7 +11775,9 @@ class UnifiedRestorerV3:
                                     try:
                                         _phase_label = (self.phase_metadata.get(phase_id) or {}).get(
                                             "name"
-                                        ) or phase_id.replace("phase_", "").replace("_", " ").title().lstrip("0123456789 ")
+                                        ) or phase_id.replace("phase_", "").replace("_", " ").title().lstrip(
+                                            "0123456789 "
+                                        )
                                         progress_callback(
                                             _phase_pct,
                                             f"{_phase_label} [{phase_id}]",
@@ -10848,7 +11801,9 @@ class UnifiedRestorerV3:
                                 _record_oom_probe(
                                     "phase_ok",
                                     phase_id,
-                                    execution_time_s=round(float(getattr(result, "execution_time_seconds", 0.0) or 0.0), 3),
+                                    execution_time_s=round(
+                                        float(getattr(result, "execution_time_seconds", 0.0) or 0.0), 3
+                                    ),
                                 )
                                 # §Punkt3 Regressionsprotokoll: RMS nach direkter Phase
                                 _rms_after_db = 20.0 * np.log10(float(np.sqrt(np.mean(current_audio**2) + 1e-12)))
@@ -11039,14 +11994,14 @@ class UnifiedRestorerV3:
                 # Uses _afg_phase_input (audio before THIS phase) not _afg_pre_pipeline_audio (pipeline start),
                 # so only the delta introduced by this single phase is measured. This prevents false rollbacks
                 # on enhancement phases whose intentional signal changes would exceed cumulative thresholds.
-                if (
-                    _artifact_gate is not None
-                    and _afg_phase_input is not None
-                    and phase_id in executed
-                ):
+                if _artifact_gate is not None and _afg_phase_input is not None and phase_id in executed:
                     try:
                         _afg_result = _artifact_gate.evaluate(
-                            _afg_phase_input, current_audio, sample_rate, _mat_str, phase_id,
+                            _afg_phase_input,
+                            current_audio,
+                            sample_rate,
+                            _mat_str,
+                            phase_id,
                         )
                         if _afg_result.artifact_freedom < 0.95:
                             _dr = _afg_result.detail_report
@@ -11161,7 +12116,8 @@ class UnifiedRestorerV3:
                         _d_recovery = _afg_pre_pipeline_audio.copy()
                 current_audio = np.clip(
                     np.nan_to_num(_d_recovery, nan=0.0, posinf=0.0, neginf=0.0),
-                    -1.0, 1.0,
+                    -1.0,
+                    1.0,
                 )
 
         self._pmgg_log_entries = _pmgg_log_entries
@@ -11172,12 +12128,14 @@ class UnifiedRestorerV3:
         for _ev in pipeline_ml_guard_events:
             _fb = str(_ev.get("fallback", "")).strip()
             if _fb:
-                _ml_fallbacks_used.append({
-                    "phase": str(_ev.get("phase_id", "")),
-                    "model": str(_ev.get("model", "")),
-                    "fallback": _fb,
-                    "reason": str(_ev.get("reason", "oom")),
-                })
+                _ml_fallbacks_used.append(
+                    {
+                        "phase": str(_ev.get("phase_id", "")),
+                        "model": str(_ev.get("model", "")),
+                        "fallback": _fb,
+                        "reason": str(_ev.get("reason", "oom")),
+                    }
+                )
         self._ml_fallbacks_used = _ml_fallbacks_used
 
         # §2.48 Store interaction guard metadata for RestorationResult
@@ -11203,9 +12161,7 @@ class UnifiedRestorerV3:
         # Primärquelle: _afg_best_clean_checkpoint (letzter artefaktfreier Stand).
         # Fallback: current_audio (Pipeline-Ausgang).
         self._hpi_best_rollback_audio: np.ndarray | None = (
-            _afg_best_clean_checkpoint.copy()
-            if _afg_best_clean_checkpoint is not None
-            else None
+            _afg_best_clean_checkpoint.copy() if _afg_best_clean_checkpoint is not None else None
         )
 
         # §Längen-Guard: Phasen-akkumulierten Längen-Drift korrigieren (Trim oder Zero-Pad).
@@ -11372,9 +12328,9 @@ if __name__ == "__main__":
     # Setup Logging
     logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 
-    logger.debug("\n%s", '=' * 70)
+    logger.debug("\n%s", "=" * 70)
     logger.debug("UNIFIED RESTORER V3 TEST - Aurik 9.0")
-    logger.debug("%s\n", '=' * 70)
+    logger.debug("%s\n", "=" * 70)
 
     # Generate test audio (3:45 = 225 seconds)
     sr = 44100
@@ -11401,9 +12357,9 @@ if __name__ == "__main__":
 
     # Test alle Modi
     for mode in [QualityMode.FAST, QualityMode.BALANCED]:
-        logger.debug("\n%s", '─' * 70)
+        logger.debug("\n%s", "─" * 70)
         logger.debug("Testing %s Mode", mode.value.upper())
-        logger.debug("%s\n", '─' * 70)
+        logger.debug("%s\n", "─" * 70)
 
         config = RestorationConfig(mode=mode, num_cores=4, enforce_3x_rt=True, enable_adaptive_skipping=True)
 
@@ -11413,12 +12369,12 @@ if __name__ == "__main__":
         result = restorer.restore(audio, sample_rate=sr)
 
         # Report
-        logger.debug("\n%s", '=' * 70)
+        logger.debug("\n%s", "=" * 70)
         logger.debug("RESULT SUMMARY - %s", mode.value.upper())
-        logger.debug("%s", '=' * 70)
+        logger.debug("%s", "=" * 70)
         logger.debug("Material: %s", result.material_type.value)
         logger.debug("Total Time: %.1fs", result.total_time_seconds)
-        logger.debug("RT Factor: %.2f× (%s)", result.rt_factor, '✅ PASS' if result.rt_factor <= 3.0 else '❌ FAIL')
+        logger.debug("RT Factor: %.2f× (%s)", result.rt_factor, "✅ PASS" if result.rt_factor <= 3.0 else "❌ FAIL")
         logger.debug("Quality Estimate: %.1f%%", result.quality_estimate * 100)
         logger.debug("Phases Executed: %s", len(result.phases_executed))
         logger.debug("Phases Skipped: %s", len(result.phases_skipped))
@@ -11428,7 +12384,7 @@ if __name__ == "__main__":
                 logger.debug("  - %s", w)
         logger.debug("\nTop Defects (Before):")
         for i, defect in enumerate(result.metadata["defect_analysis"]["top_defects"][:3], 1):
-            logger.debug("  %s. %s: %.2f", i, defect['type'], defect['severity'])
-        logger.debug("%s\n", '=' * 70)
+            logger.debug("  %s. %s: %.2f", i, defect["type"], defect["severity"])
+        logger.debug("%s\n", "=" * 70)
 
     logger.debug("\n✅ UnifiedRestorerV3 Test Complete!")

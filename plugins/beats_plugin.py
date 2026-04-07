@@ -144,7 +144,7 @@ class BeatsPlugin:
                 providers=["CPUExecutionProvider"],
             )
             self._model_loaded = True
-            logger.info("✅ BEATs ONNX geladen (%s, §4.4 Spec — PANNs-Nachfolger)", self._ONNX_PATH.name)
+            logger.info("beats_plugin: ONNX model loaded (%s, §4.4 primary audio tagger)", self._ONNX_PATH.name)
             try:
                 from backend.core.plugin_lifecycle_manager import register_plugin as _reg_plm
 

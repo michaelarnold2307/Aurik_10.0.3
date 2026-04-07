@@ -161,7 +161,7 @@ class CrepePlugin:
             )
             self._model_used = "crepe_onnx"
             logger.info(
-                "🎵 CREPE ONNX geladen: %s",
+                "crepe_plugin: ONNX model loaded: %s",
                 _CREPE_ONNX_PATH.name,
             )
             # Warmup-Inference: erste ONNX-Inferenz ist langsam (JIT/Graph-Optimierung).

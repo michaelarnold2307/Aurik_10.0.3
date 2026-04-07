@@ -154,7 +154,7 @@ class PANNsPlugin:
                 providers=["CPUExecutionProvider"],
             )
             logger.info(
-                "✅ PANNs CNN14 ONNX geladen (%s, §4.4 Spec)",
+                "panns_plugin: CNN14 ONNX model loaded (%s, §4.4 primary genre/tagging)",
                 self._ONNX_PATH.name,
             )
             try:
@@ -388,6 +388,7 @@ if __name__ == "__main__":
         sys.exit(1)
 
     from backend.file_import import load_audio_file
+
     _res = load_audio_file(sys.argv[1])
     _audio, _sr = _res["audio"], int(_res["sr"])
     _tags = classify_audio(_audio, _sr)

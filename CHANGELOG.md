@@ -2,6 +2,34 @@
 
 > Hinweis: Dieses Dokument ist eine Versionshistorie. Ältere Versionsnummern und Kennzahlen sind hier erwartbar und keine veralteten Reststände.
 
+## Version 9.10.129 — Pytest-Teardown-Stabilität + Background-Monitor-Lifecycle (Apr 2026)
+
+### Zusammenfassung
+
+Normiert die Test-Infrastruktur gegen sporadische Teardown-Timeouts in großen Unit-Suiten. Root-Cause: unbedingtes Full-GC pro Test plus weiterlaufende Hintergrund-Monitor-Threads. Die Vorgabe trennt jetzt explizit zwischen leichtem Per-Test-GC und cadence-gesteuertem Full-GC und fordert einen non-blocking Shutdown-Kontrakt für lang lebige Manager.
+
+### Spec-Änderungen
+
+- **`.github/specs/07_quality_and_tests.md`**
+  - **§5.8 [RELEASE_MUST] Pytest-Teardown-Stabilität für große Suiten (v9.10.129)** ergänzt:
+    - inkrementeller GC als Standard im Per-Test-Teardown
+    - Full-GC nur cadence-/datei-/sessiongesteuert
+    - optionales Env-Flag `AURIK_TEST_FULL_GC_INTERVAL`
+    - Session-Cleanup für Hintergrund-Manager + Singleton-Reset
+    - Verbot von unbedingtem Full-GC und `join()` ohne Timeout im Test-Cleanup
+
+- **`.github/specs/08_architecture_and_distribution.md`**
+  - **§3.9.4a Background-Monitor-Lifecycle — kein Zombie-Daemon** ergänzt:
+    - `shutdown()`-Pflicht für lang lebige Monitor-Threads
+    - `Event.set()` + `join(timeout=...)` als Referenz-Pattern
+    - `daemon=True` nur als Zusatzsicherung, nicht als Lifecycle-Kontrakt
+
+### Implementierungs-Folgen
+
+- `tests/conftest.py`: Per-Test nur leichter GC; optionales Full-GC cadence-gesteuert.
+- `tests/conftest.py`: `pytest_sessionfinish()` stoppt den `PluginLifecycleManager` best-effort und resetet den Singleton.
+- `backend/core/plugin_lifecycle_manager.py`: `shutdown()` joined den Monitor-Thread bounded und gibt die Thread-Referenz frei.
+
 ## Version 9.10.128 — §2.51 Stereo-Kohärenz-Invariante (Spec) (Apr 2026)
 
 ### Zusammenfassung

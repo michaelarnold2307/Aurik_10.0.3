@@ -328,6 +328,30 @@ def _cleanup(self):
 - Alle lang-lebigen Executor-Instanzen als Kontext-Manager oder mit `atexit.register(executor.shutdown)`.
 - VERBOTEN: dauerhaft laufende Executors ohne Shutdown-Kontrakt.
 
+### §3.9.4a Background-Monitor-Lifecycle — kein Zombie-Daemon
+
+**Problem**: Lang lebige Monitor-Threads (z. B. RAM-/Plugin-Lifecycle-Manager) sind oft als `daemon=True` implementiert. Das verhindert zwar Prozess-Hänger am Exit, ist aber **kein** ausreichender Cleanup-Vertrag: in Tests und bei geordnetem App-Shutdown bleiben sonst Race-Conditions, GIL-Stalls und stale Singleton-Zustände zurück.
+
+**Pflicht**:
+
+```python
+class Manager:
+    def shutdown(self) -> None:
+        self._stop_event.set()
+        thread = self._thread
+        if thread is not None and thread.is_alive() and thread is not threading.current_thread():
+            thread.join(timeout=1.0)  # best-effort, non-blocking
+        self._thread = None
+```
+
+**Invarianten:**
+
+- Jeder lang lebige Monitor-Thread in `backend/core/` MUSS einen **idempotenten** `shutdown()`-Pfad besitzen.
+- `shutdown()` darf nie unbounded blockieren; `join(timeout=...)` ist Pflicht, nacktes `join()` ist verboten.
+- `daemon=True` ist nur eine zusätzliche Exit-Sicherung, **nicht** der primäre Lifecycle-Kontrakt.
+- Test-Infrastruktur darf solche Manager in `pytest_sessionfinish` oder Fixture-Finalizern stoppen und Singleton-Instanzen resetten.
+- Implementierungen müssen nach `shutdown()` einen erneuten Prozess-/Session-Start ohne stale Thread-Referenz erlauben.
+
 ### §3.9.5 ml_memory_budget Startup-Reconciliation
 
 **Problem**: Bei SIGKILL während eines `try_allocate()`-Aufrufs bleibt die Budget-Buchführung inkonsistent. Nächster Start sieht ggf. ein bereits voll ausgelastetes Budget (stale allocation), obwohl kein Modell mehr geladen ist.

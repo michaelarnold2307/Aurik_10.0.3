@@ -19,6 +19,8 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
+_MONITOR_JOIN_TIMEOUT_S = 1.0
+
 
 _instance: AdaptiveResourceManager | None = None
 _lock_singleton = threading.Lock()
@@ -96,8 +98,13 @@ class AdaptiveResourceManager:
 
     def stop_monitoring(self) -> None:
         self.running = False
-        if hasattr(self, "_stop_event"):
-            self._stop_event.set()
+        stop_event = getattr(self, "_stop_event", None)
+        if stop_event is not None:
+            stop_event.set()
+        thread = self._monitor_thread
+        if thread is not None and thread.is_alive() and thread is not threading.current_thread():
+            thread.join(timeout=_MONITOR_JOIN_TIMEOUT_S)
+        self._monitor_thread = None
 
     def _monitor_loop(self) -> None:
         import gc as _gc

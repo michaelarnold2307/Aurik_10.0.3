@@ -117,7 +117,7 @@ class DeepFilterNetV3Plugin:
             self._enc = ort.InferenceSession(os.path.join(d, "enc.onnx"), sess_options=opts, providers=prov)
             self._dec = ort.InferenceSession(os.path.join(d, "dec.onnx"), sess_options=opts, providers=prov)
             self._erb_dec = ort.InferenceSession(os.path.join(d, "erb_dec.onnx"), sess_options=opts, providers=prov)
-            logger.info("DeepFilterNet v3 II ONNX-Modelle geladen aus: %s", d)
+            logger.info("deepfilternet_v3_ii_plugin: ONNX models loaded from: %s", d)
             try:
                 from backend.core.plugin_lifecycle_manager import register_plugin as _reg_plm
 

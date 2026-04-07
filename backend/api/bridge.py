@@ -116,7 +116,7 @@ __all__ = [
     "get_genre_classifier_fn",
     "get_lyrics_guided_enhancement_fn",
     "get_medium_classifier_fn",
-    "get_medium_detector",          # §6.1 MediumDetector forensic chain
+    "get_medium_detector",  # §6.1 MediumDetector forensic chain
     "get_medium_type_enum",
     "get_ml_memory_budget_status",
     "get_mushra_evaluator",
@@ -904,7 +904,7 @@ def warmup_models_background() -> None:
         ("plugins.panns_plugin", "get_panns_plugin"),  # Audio-Tagging Fallback
         ("plugins.crepe_plugin", "get_crepe_plugin"),  # Pitch-Tracking Fallback
     ]
-    logger.info("bridge: Warmup gestartet (%d Plugins) …", len(_plugins))
+    logger.info("bridge: warmup started (%d plugins) …", len(_plugins))
     for _mod, _accessor in _plugins:
         try:
             m = importlib.import_module(_mod)
@@ -914,7 +914,7 @@ def warmup_models_background() -> None:
                 logger.debug("bridge: %s.%s vorgeladen", _mod.split(".")[-1], _accessor)
         except Exception as _e:
             logger.debug("bridge: %s.%s übersprungen: %s", _mod, _accessor, _e)
-    logger.info("bridge: Warmup abgeschlossen")
+    logger.info("bridge: warmup complete")
 
 
 # ---------------------------------------------------------------------------
@@ -1188,6 +1188,7 @@ def get_startup_check_result():
 # Pre-Analysis — single authoritative entry point re-export
 # ---------------------------------------------------------------------------
 
+
 def run_pre_analysis(
     audio_native,
     sr_native: int,
@@ -1207,6 +1208,7 @@ def run_pre_analysis(
             ``DefectScanner.scan()`` for fine-grained scan progress (0–100).
     """
     from backend.core.pre_analysis import run_pre_analysis as _fn
+
     return _fn(
         audio_native,
         sr_native,
@@ -1222,7 +1224,7 @@ def run_pre_analysis(
 # a try-block so bridge consumers can do:
 #   from backend.api.bridge import PreAnalysisResult
 try:
-    from backend.core.pre_analysis import PreAnalysisResult  # noqa: F401
+    from backend.core.pre_analysis import PreAnalysisResult
 except Exception:  # pragma: no cover
     PreAnalysisResult = None  # type: ignore[assignment,misc]
 
@@ -1230,6 +1232,7 @@ except Exception:  # pragma: no cover
 # ---------------------------------------------------------------------------
 # Audio-Import — Kaskade soundfile → pedalboard/FFmpeg → pydub
 # ---------------------------------------------------------------------------
+
 
 def get_load_audio_fn():
     """Return ``load_audio_file`` from backend.file_import (lazy).
@@ -1243,4 +1246,5 @@ def get_load_audio_fn():
     gracefully.
     """
     from backend.file_import import load_audio_file  # type: ignore[import]
+
     return load_audio_file

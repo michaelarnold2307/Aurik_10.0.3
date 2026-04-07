@@ -80,9 +80,17 @@ def test_adaptive_resource_manager_start_monitoring_is_idempotent(monkeypatch):
             self.target = target
             self.daemon = daemon
             self.name = name
+            self.started = False
 
         def start(self):
+            self.started = True
             starts["count"] += 1
+
+        def is_alive(self):
+            return self.started
+
+        def join(self, timeout=None):
+            self.started = False
 
     # Patch only for this test.
     monkeypatch.setattr("backend.core.adaptive_resource_manager.threading.Thread", _FakeThread)
@@ -97,6 +105,41 @@ def test_adaptive_resource_manager_start_monitoring_is_idempotent(monkeypatch):
     assert first_thread is second_thread
 
     manager.stop_monitoring()
+
+
+def test_adaptive_resource_manager_stop_monitoring_joins_thread(monkeypatch):
+    manager = AdaptiveResourceManager(check_interval=10.0)
+
+    joined = {"timeout": None}
+
+    class _FakeThread:
+        def __init__(self, target=None, daemon=None, name=None):
+            self.target = target
+            self.daemon = daemon
+            self.name = name
+            self.started = False
+
+        def start(self):
+            self.started = True
+
+        def is_alive(self):
+            return self.started
+
+        def join(self, timeout=None):
+            joined["timeout"] = timeout
+            self.started = False
+
+    monkeypatch.setattr("backend.core.adaptive_resource_manager.threading.Thread", _FakeThread)
+
+    manager.start_monitoring()
+    thread = manager._monitor_thread
+
+    manager.stop_monitoring()
+
+    assert manager.running is False
+    assert joined["timeout"] == 1.0
+    assert manager._monitor_thread is None
+    assert thread is not None and thread.started is False
 
 
 # ── Auto-detect budget tests ────────────────────────────────────────────

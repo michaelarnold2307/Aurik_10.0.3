@@ -488,6 +488,44 @@ addopts = --timeout=30 --import-mode=importlib -p no:warnings
 - Alle Tests mit **synthetischen Signalen** (`np.random.seed(42)`)
 - Keine realen Audio-Dateien in Tests
 
+### §5.8 [RELEASE_MUST] Pytest-Teardown-Stabilität für große Suiten (v9.10.129)
+
+**Problem**: Unbedingtes `gc.collect()` nach jedem Test kann in Suiten mit tausenden Tests sporadische `pytest-timeout`-Fehler im Teardown auslösen. Zusätzlich können lang lebige Monitor-Threads (z. B. Plugin-/RAM-Manager) nach Testende weiterlaufen und den Teardown verfälschen.
+
+**Pflichtregeln:**
+
+1. Per-Test-Teardown nutzt standardmäßig **inkrementellen/leichten GC** (`gc.collect(0)` oder äquivalent), nicht volles `gc.collect()`.
+2. Volles `gc.collect()` ist nur **cadence-gesteuert**, dateibasiert oder sessionbasiert erlaubt.
+3. Diagnose-Kadenz darf optional über Env-Flag gesteuert werden; Standardverhalten muss für lokale Unit-Suiten timeout-stabil bleiben.
+4. Hintergrund-Manager mit eigenem Thread müssen in `pytest_sessionfinish`, Fixture-Finalizern oder äquivalentem Session-Cleanup best-effort gestoppt werden.
+5. Singleton-basierte Manager dürfen nach Session-Cleanup auf `None` zurückgesetzt werden, damit Folge-Sessions keinen stale Thread-/State-Rest sehen.
+
+**Referenz-Pattern:**
+
+```python
+_GC_FULL_INTERVAL = int(os.environ.get("AURIK_TEST_FULL_GC_INTERVAL", "0"))
+_gc_teardown_counter = 0
+
+@pytest.fixture(autouse=True)
+def _gc_after_test():
+    yield
+    global _gc_teardown_counter
+    _gc_teardown_counter += 1
+    gc.collect(0)
+    if _GC_FULL_INTERVAL > 0 and (_gc_teardown_counter % _GC_FULL_INTERVAL) == 0:
+        gc.collect()
+
+def pytest_sessionfinish(session, exitstatus):
+    manager.shutdown()   # best-effort, non-blocking
+    singleton_module._instance = None
+```
+
+**VERBOTEN:**
+
+- Unbedingtes Full-GC in jedem Test-Teardown der Standard-Unit-Suite.
+- `join()` ohne Timeout in Test-Cleanup-Pfaden.
+- Verlassen auf `daemon=True` als einziges Lebenszyklus-Modell für Hintergrund-Threads.
+
 ---
 
 ## §14 E2E-Test-Spezifikation (Pflicht ab v9.10.42)

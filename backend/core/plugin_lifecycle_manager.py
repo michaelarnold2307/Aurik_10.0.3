@@ -35,6 +35,7 @@ _RAM_EVICT_THRESHOLD_PCT: float = 75.0  # RAM% ab der Eviction beginnt (gesenkt:
 _RAM_TARGET_PCT: float = 65.0  # RAM% auf die wir evicten wollen
 _MIN_FREE_MB_HARD: float = 3000.0  # immer mind. 3 GB frei halten
 _PIPELINE_EMERGENCY_PCT: float = 78.0  # RAM% ab der auch WÄHREND Pipeline evicted wird (gesenkt von 82%)
+_MONITOR_JOIN_TIMEOUT_S: float = 1.0  # Shutdown darf Tests/App-Ende nicht unbounded blockieren
 # Begründung Absenkung: 82% war zu konservativ — AudioSR (7 GB) konnte nicht geladen werden weil
 # Eviction erst bei 82% erlaubt war, RAM aber schon bei 78% knapp wurde. Modelle die gerade
 # NICHT in Inferenz sind (active=False) können sicher entladen werden auch bei 78%.
@@ -126,7 +127,7 @@ class PluginLifecycleManager:
         self._stop_event = threading.Event()
         self._pipeline_active: int = 0  # Refcount: >0 suppresses auto-eviction during pipeline
         self._start_auto_evict_monitor()
-        logger.info("PluginLifecycleManager: initialisiert (RAM-Threshold %.0f %%)", _RAM_EVICT_THRESHOLD_PCT)
+        logger.info("PluginLifecycleManager: initialized (RAM eviction threshold %.0f %%)", _RAM_EVICT_THRESHOLD_PCT)
 
     # ------------------------------------------------------------------
     # Registrierung
@@ -381,8 +382,12 @@ class PluginLifecycleManager:
                 logger.debug("PLM Monitor-Fehler: %s", exc)
 
     def shutdown(self) -> None:
-        """Stoppt den Monitor-Thread (bei App-Ende)."""
+        """Stoppt den Monitor-Thread best-effort ohne unbounded block."""
         self._stop_event.set()
+        thread = self._auto_evict_thread
+        if thread is not None and thread.is_alive() and thread is not threading.current_thread():
+            thread.join(timeout=_MONITOR_JOIN_TIMEOUT_S)
+        self._auto_evict_thread = None
 
     # ------------------------------------------------------------------
     # RAM-Messung

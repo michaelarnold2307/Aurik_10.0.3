@@ -111,8 +111,8 @@ def is_system_thrashing() -> bool:
         thrashing = swap_used_pct > 30.0 and avail_ratio < 0.15
         if thrashing:
             logger.warning(
-                "🚨 Swap-Thrashing erkannt: Swap %.0f %% belegt (%.1f GB), "
-                "RAM verfügbar %.1f %% (%.1f GB) — ML-Loads werden blockiert",
+                "ml_memory_budget: swap thrashing detected — swap %.0f %% used (%.1f GB), "
+                "RAM available %.1f %% (%.1f GB) — ML loads will be blocked",
                 swap_used_pct,
                 swap.used / (1024**3),
                 avail_ratio * 100,
@@ -170,8 +170,8 @@ def _preflight_system_memory(required_mb: float) -> bool:
         return True
 
     logger.warning(
-        "Physischer RAM zu knapp: benötigt %.0f MB (inkl. Reserve), verfügbar %.0f MB. "
-        "ML-Load wird blockiert, DSP-Fallback aktiv.",
+        "ml_memory_budget: physical RAM too low — required %.0f MB (incl. safety margin), "
+        "available %.0f MB. ML load blocked, DSP fallback active.",
         required_with_margin,
         available_after_evict_mb,
     )
@@ -215,7 +215,7 @@ def try_allocate(model_name: str, size_gb: float) -> bool:
         remaining = ML_MAX_GB - _total_gb
         if size_gb > remaining:
             logger.warning(
-                "ML-Budget erschöpft: '%s' benötigt %.1f GB, aber nur %.1f GB von %.1f GB frei — DSP-Fallback aktiv.",
+                "ml_memory_budget: '%s' needs %.1f GB, only %.1f GB of %.1f GB free — DSP fallback active.",
                 model_name,
                 size_gb,
                 remaining,
@@ -225,7 +225,7 @@ def try_allocate(model_name: str, size_gb: float) -> bool:
         _allocated[model_name] = size_gb
         _total_gb += size_gb
         logger.info(
-            "ML-Budget: '%s' reserviert %.1f GB  →  Gesamt %.1f / %.1f GB belegt.",
+            "ml_memory_budget: '%s' allocated %.1f GB  →  total %.1f / %.1f GB used.",
             model_name,
             size_gb,
             _total_gb,
@@ -245,7 +245,7 @@ def release(model_name: str) -> None:
         _total_gb = max(0.0, _total_gb - freed)
         if freed:
             logger.info(
-                "ML-Budget: '%s' freigegeben (%.1f GB)  →  Gesamt %.1f / %.1f GB belegt.",
+                "ml_memory_budget: '%s' released (%.1f GB)  →  total %.1f / %.1f GB used.",
                 model_name,
                 freed,
                 _total_gb,
@@ -269,7 +269,7 @@ def set_budget(max_gb: float) -> None:
     global ML_MAX_GB
     with _lock:
         ML_MAX_GB = float(max_gb)
-        logger.info("ML-Budget neu gesetzt: %.1f GB Maximum.", ML_MAX_GB)
+        logger.info("ml_memory_budget: max budget set to %.1f GB.", ML_MAX_GB)
 
 
 # ---------------------------------------------------------------------------

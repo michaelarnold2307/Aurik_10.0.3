@@ -1133,6 +1133,20 @@ class TestGlobalBudgetInvariants:
         plm.set_active("ActivePlugin", False)
         _plm_evict_all()
 
+    def test_plm_shutdown_stops_monitor_thread(self):
+        """PLM.shutdown() muss den Monitor-Thread best-effort beenden."""
+        from backend.core.plugin_lifecycle_manager import PluginLifecycleManager
+
+        plm = PluginLifecycleManager()
+        monitor_thread = plm._auto_evict_thread
+        assert monitor_thread is not None and monitor_thread.is_alive()
+
+        plm.shutdown()
+
+        assert plm._stop_event.is_set(), "Shutdown setzte stop_event nicht"
+        assert plm._auto_evict_thread is None, "Shutdown muss Thread-Referenz freigeben"
+        assert monitor_thread is not None and not monitor_thread.is_alive(), "Monitor-Thread läuft nach Shutdown weiter"
+
     def test_cleanup_after_all_plugins_budget_stays_zero(self):
         """Nach komplettem Cleanup aller Plugin-Budget-Slots ist _total_gb==0."""
         from backend.core import ml_memory_budget as _bud

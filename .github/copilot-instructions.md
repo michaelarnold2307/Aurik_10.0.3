@@ -134,6 +134,11 @@ logger.info("phase=%s score=%.2f", phase, score)  # kein print()
 - **UI-Texte, Fehlermeldungen**: Deutsch (Ursache + Lösungsvorschlag)
 - **Code-Kommentare, Docstrings, Log-Meldungen**: Englisch
 
+### Test-Infrastruktur
+- `pytest`/`conftest`-Teardowns für große Suiten bevorzugen **leichten inkrementellen GC** (`gc.collect(0)` o. ä.); volles `gc.collect()` nur cadence-gesteuert oder an Datei-/Session-Grenzen.
+- Lang lebige Hintergrund-Manager (z. B. Monitor-Threads) brauchen einen **idempotenten `shutdown()`-Kontrakt** mit `Event.set()` + `join(timeout=...)`; Test-Sessions räumen diese Manager in `pytest_sessionfinish` oder Finalizern ab.
+- **VERBOTEN**: unbedingtes Full-GC nach jedem Test in großen Suiten und das Verlassen auf `daemon=True` als einziges Cleanup-Modell.
+
 ## Anti-Parallelwelten-Workflow (vor jeder Implementierung)
 
 ```

@@ -1,0 +1,33 @@
+import os
+
+from backend.core.unified_restorer_v3 import UnifiedRestorerV3
+
+
+def test_phase_intervention_registry_covers_all_phase_modules() -> None:
+    phase_dir = os.path.join(
+        os.path.dirname(__file__),
+        "..",
+        "..",
+        "backend",
+        "core",
+        "phases",
+    )
+    phase_dir = os.path.abspath(phase_dir)
+
+    module_phase_ids = {
+        fname[:-3]
+        for fname in os.listdir(phase_dir)
+        if fname.startswith("phase_") and fname.endswith(".py") and fname not in {"phase_interface.py"}
+    }
+    registry = UnifiedRestorerV3.get_phase_intervention_registry()
+
+    aliases = set(UnifiedRestorerV3._PHASE_ALIASES.keys())
+    canonical_phase_ids = module_phase_ids | aliases
+
+    missing = sorted(canonical_phase_ids - set(registry.keys()))
+    assert not missing, f"Phases missing from intervention registry: {missing}"
+
+
+def test_phase_intervention_registry_targets_64_phases() -> None:
+    registry = UnifiedRestorerV3.get_phase_intervention_registry()
+    assert len(registry) == 64, f"Expected 64 registered phases, got {len(registry)}"

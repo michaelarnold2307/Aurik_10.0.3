@@ -47,7 +47,7 @@ from __future__ import annotations
 
 import logging
 import threading
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 import numpy as np
 import scipy.signal as spsig
@@ -75,12 +75,12 @@ _TRANSIENT_THRESH_PERCENTILE = 75  # Frames über diesem Flux-Perzentil = Transi
 # Micro-Dynamic
 _TARGET_CV_MIN = 0.05  # Mindest-Variationskoeffizient (natural music)
 _TARGET_CV_MAX = 0.20  # Maximal-Variationskoeffizient (noise threshold)
-_MODULATION_STRENGTH = (
-    0.42  # Stärke der re-injizierten Modulation [0–1] (v9.10.114: ↑0.25→0.42 — zu konservativ für über-denoisete Signale)
-)
+_MODULATION_STRENGTH = 0.42  # Stärke der re-injizierten Modulation [0–1] (v9.10.114: ↑0.25→0.42 — zu konservativ für über-denoisete Signale)
 
 # Harmonic Reinforcement
-_HARM_BOOST_DB = 2.5  # Max Anhebung der Obertöne in dB (v9.10.114: ↑1.0→2.5 — Oberton-Brillanz zu konservativ gegen iZotope RX11)
+_HARM_BOOST_DB = (
+    2.5  # Max Anhebung der Obertöne in dB (v9.10.114: ↑1.0→2.5 — Oberton-Brillanz zu konservativ gegen iZotope RX11)
+)
 _HARM_MAX_ORDER = 8  # Bis zum 8. Oberton
 _F0_FREQ_MAX = 2000  # Grundfrequenz-Suche nur bis 2000 Hz
 
@@ -100,7 +100,7 @@ class MaterialProfile:
     den entsprechenden Modul-Konstanten.
     """
 
-    name: str
+    name: str = field(compare=False)
     flux_smoothing_max: float  # Max Temporal-Smoothing [0, 1]
     target_cv_min: float  # Mindest-Variations-Koeffizient
     modulation_strength: float  # Micro-Dynamic Re-Injection Stärke [0, 1]
@@ -198,16 +198,16 @@ MATERIAL_PROFILES: dict[str, MaterialProfile] = {
 
 # Aliases: material variants that share an existing profile
 # (e.g. MediumDetector returns "reel_tape" but "tape" profile applies)
-MATERIAL_PROFILES["reel_tape"] = MATERIAL_PROFILES["tape"]
-MATERIAL_PROFILES["cassette"] = MATERIAL_PROFILES["tape"]
-MATERIAL_PROFILES["wax"] = MATERIAL_PROFILES["shellac"]
-MATERIAL_PROFILES["wax_cylinder"] = MATERIAL_PROFILES["shellac"]
-MATERIAL_PROFILES["acetate"] = MATERIAL_PROFILES["shellac"]
-MATERIAL_PROFILES["lacquer"] = MATERIAL_PROFILES["shellac"]
-MATERIAL_PROFILES["mp3"] = MATERIAL_PROFILES["mp3_low"]
-MATERIAL_PROFILES["aac_low"] = MATERIAL_PROFILES["aac"]
-MATERIAL_PROFILES["digital"] = MATERIAL_PROFILES["cd_digital"]
-MATERIAL_PROFILES["cd"] = MATERIAL_PROFILES["cd_digital"]
+MATERIAL_PROFILES["reel_tape"] = replace(MATERIAL_PROFILES["tape"], name="reel_tape")
+MATERIAL_PROFILES["cassette"] = replace(MATERIAL_PROFILES["tape"], name="cassette")
+MATERIAL_PROFILES["wax"] = replace(MATERIAL_PROFILES["shellac"], name="wax")
+MATERIAL_PROFILES["wax_cylinder"] = replace(MATERIAL_PROFILES["shellac"], name="wax_cylinder")
+MATERIAL_PROFILES["acetate"] = replace(MATERIAL_PROFILES["shellac"], name="acetate")
+MATERIAL_PROFILES["lacquer"] = replace(MATERIAL_PROFILES["shellac"], name="lacquer")
+MATERIAL_PROFILES["mp3"] = replace(MATERIAL_PROFILES["mp3_low"], name="mp3")
+MATERIAL_PROFILES["aac_low"] = replace(MATERIAL_PROFILES["aac"], name="aac_low")
+MATERIAL_PROFILES["digital"] = replace(MATERIAL_PROFILES["cd_digital"], name="digital")
+MATERIAL_PROFILES["cd"] = replace(MATERIAL_PROFILES["cd_digital"], name="cd")
 
 
 def map_panns_to_profile(panns_tags: dict[str, float]) -> str:
