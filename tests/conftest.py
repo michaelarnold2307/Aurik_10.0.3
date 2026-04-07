@@ -136,7 +136,10 @@ def audio_by_medium_type_full(request) -> tuple[np.ndarray, int, str]:
 
 _SESSION_SR = 44100
 _SESSION_DURATION = 0.5  # Sekunden — kurz genug für schnelle Tests
-_GC_FULL_INTERVAL = 200
+# Optional full GC cadence for long local runs.
+# Default 0 disables expensive full collections in per-test teardown,
+# which can trigger flaky pytest-timeout failures in large suites.
+_GC_FULL_INTERVAL = int(os.environ.get("AURIK_TEST_FULL_GC_INTERVAL", "0"))
 _gc_teardown_counter = 0
 
 
@@ -195,7 +198,8 @@ def _gc_after_test():
 
     Verhindert Speicher-Akkumulation über 267+ Testdateien.
     numpy-Arrays und importierte Module werden freigegeben.
-    Overhead: ~1–3 ms pro Test — vernachlässigbar.
+    Overhead: gen0 GC ~1–3 ms pro Test.
+    Volles GC ist optional über AURIK_TEST_FULL_GC_INTERVAL steuerbar.
     """
     yield
     global _gc_teardown_counter
@@ -203,8 +207,8 @@ def _gc_after_test():
     try:
         # Fast path: collect only generation 0 to avoid long teardown stalls.
         gc.collect(0)
-        # Periodically run a full collection to keep long runs memory-stable.
-        if (_gc_teardown_counter % _GC_FULL_INTERVAL) == 0:
+        # Optional full GC for local diagnostics (disabled by default).
+        if _GC_FULL_INTERVAL > 0 and (_gc_teardown_counter % _GC_FULL_INTERVAL) == 0:
             gc.collect()
     except (KeyboardInterrupt, SystemExit, Exception):
         pass
