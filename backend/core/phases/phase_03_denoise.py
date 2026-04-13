@@ -485,7 +485,11 @@ class DenoisePhase(PhaseInterface):
         _snr_bypass = False
         _est_snr_db: float | None = None  # preserved for SGMSE+ sigma calibration below
         try:
-            _snr_seg = audio[:, 0] if audio.ndim == 2 else audio
+            if audio.ndim == 2:
+                _snr_ch_first = audio.shape[0] == 2 and audio.shape[1] > 2
+                _snr_seg = audio[0] if _snr_ch_first else audio[:, 0]
+            else:
+                _snr_seg = audio
             _snr_seg = _snr_seg.astype(np.float64)
             _snr_n = len(_snr_seg)
             _snr_win = min(_snr_n, 5 * sample_rate)
@@ -531,6 +535,91 @@ class DenoisePhase(PhaseInterface):
                     "execution_time_seconds": execution_time,
                 },
             )
+
+        # Optionaler Stem-aware NR-Optionspfad (TDP, §2.27):
+        # Percussive stem bleibt unentrauscht, NR wird auf harmonic stem angewendet.
+        _tdp_raw = kwargs.get("tdp_stem_aware_nr", False)
+        _tdp_mode = str(_tdp_raw).strip().lower()
+        _tdp_enabled = bool(_tdp_raw) if isinstance(_tdp_raw, bool) else _tdp_mode in {"1", "true", "on", "yes"}
+        if _tdp_mode == "auto":
+            _tdp_enabled = (
+                quality_mode in ("quality", "maximum")
+                and not use_lightweight
+                and material_type in ("vinyl", "shellac", "tape", "reel_tape", "cassette")
+            )
+
+        _tdp_active = False
+        _tdp_percussive: np.ndarray | None = None
+        _tdp_original_audio: np.ndarray | None = None
+        _tdp_processor = None
+        if _tdp_enabled:
+            try:
+                from backend.core.transient_decoupled_processor import get_transient_decoupled_processor
+
+                _tdp_processor = get_transient_decoupled_processor()
+                _tdp_original_audio = np.asarray(audio, dtype=np.float32).copy()
+                if audio.ndim == 2:
+                    _n, _c = audio.shape
+                    _tdp_p = np.zeros((_n, _c), dtype=np.float32)
+                    _tdp_h = np.zeros((_n, _c), dtype=np.float32)
+                    for _ch in range(_c):
+                        _p, _h = _tdp_processor.separate(audio[:, _ch], sample_rate)
+                        _p = np.pad(_p, (0, max(0, _n - len(_p))))[:_n]
+                        _h = np.pad(_h, (0, max(0, _n - len(_h))))[:_n]
+                        _tdp_p[:, _ch] = _p
+                        _tdp_h[:, _ch] = _h
+                    _tdp_percussive = _tdp_p
+                    audio = _tdp_h
+                else:
+                    _p, _h = _tdp_processor.separate(audio, sample_rate)
+                    _n = len(audio)
+                    _tdp_percussive = np.pad(_p, (0, max(0, _n - len(_p))))[:_n].astype(np.float32)
+                    audio = np.pad(_h, (0, max(0, _n - len(_h))))[:_n].astype(np.float32)
+                audio = np.clip(np.nan_to_num(audio, nan=0.0, posinf=0.0, neginf=0.0), -1.0, 1.0)
+                _tdp_active = True
+                logger.info(
+                    "Phase 03 TDP stem-aware NR aktiv: material=%s mode=%s",
+                    material_type,
+                    _tdp_mode,
+                )
+            except Exception as _tdp_exc:
+                logger.debug("Phase 03 TDP stem-aware NR skipped (non-blocking): %s", _tdp_exc)
+                _tdp_active = False
+
+        def _recombine_tdp_if_needed(processed_audio: np.ndarray) -> tuple[np.ndarray, bool]:
+            if not _tdp_active or _tdp_processor is None or _tdp_percussive is None:
+                return processed_audio, False
+            try:
+                _proc = np.nan_to_num(np.asarray(processed_audio, dtype=np.float32), nan=0.0, posinf=0.0, neginf=0.0)
+                if _proc.ndim == 2 and _tdp_percussive.ndim == 2:
+                    _n = _proc.shape[0]
+                    _perc = _tdp_percussive
+                    if _perc.shape[0] != _n:
+                        if _perc.shape[0] > _n:
+                            _perc = _perc[:_n, :]
+                        else:
+                            _pad = np.zeros((_n - _perc.shape[0], _perc.shape[1]), dtype=np.float32)
+                            _perc = np.vstack([_perc, _pad])
+                    _out = np.zeros_like(_proc)
+                    for _ch in range(_proc.shape[1]):
+                        _out[:, _ch] = _tdp_processor.recombine(
+                            _perc[:, _ch],
+                            _proc[:, _ch],
+                            sample_rate,
+                            original_perc=_perc[:, _ch],
+                        )
+                    return np.clip(_out, -1.0, 1.0).astype(np.float32), True
+
+                if _proc.ndim == 1 and _tdp_percussive.ndim == 1:
+                    _n = len(_proc)
+                    _perc = _tdp_percussive
+                    if len(_perc) != _n:
+                        _perc = np.pad(_perc, (0, max(0, _n - len(_perc))))[:_n]
+                    _out_m = _tdp_processor.recombine(_perc, _proc, sample_rate, original_perc=_perc)
+                    return np.clip(_out_m, -1.0, 1.0).astype(np.float32), True
+            except Exception as _tdp_rec_exc:
+                logger.debug("Phase 03 TDP recombine skipped (non-blocking): %s", _tdp_rec_exc)
+            return processed_audio, False
 
         # §Hebel-2 SGMSE+ Tier-0: Score-Based Generative Speech Enhancement
         # Applied BEFORE ML-Hybrid for vocal-dominant material (singing, speech, opera).
@@ -742,7 +831,11 @@ class DenoisePhase(PhaseInterface):
                     dsp_params_fb["strength"] = effective_strength
                     if audio.ndim == 2:
                         # §2.51 Linked-Stereo: OMLSA-Gain aus Mid-Sidechain (L+R)/√2
-                        _mid_fb = (audio[:, 0] + audio[:, 1]) / np.sqrt(2.0)
+                        # Handle channels-first (2, N) and samples-first (N, 2).
+                        _ch_first_fb = audio.shape[0] == 2 and audio.shape[1] > 2
+                        _ch0_fb = audio[0] if _ch_first_fb else audio[:, 0]
+                        _ch1_fb = audio[1] if _ch_first_fb else audio[:, 1]
+                        _mid_fb = (_ch0_fb + _ch1_fb) / np.sqrt(2.0)
                         _mid_den_fb, _fb_stats_l = self._denoise_mono_professional(
                             _mid_fb, dsp_params_fb, noise_profile_start, noise_profile_end
                         )
@@ -753,9 +846,12 @@ class DenoisePhase(PhaseInterface):
                             1.0,
                         )
                         _gain_fb = np.clip(_gain_fb, 0.0, 10.0)
-                        ml_result.audio = np.column_stack([audio[:, 0] * _gain_fb, audio[:, 1] * _gain_fb]).astype(
-                            np.float32
-                        )
+                        if _ch_first_fb:
+                            ml_result.audio = np.stack([_ch0_fb * _gain_fb, _ch1_fb * _gain_fb]).astype(np.float32)
+                        else:
+                            ml_result.audio = np.column_stack([_ch0_fb * _gain_fb, _ch1_fb * _gain_fb]).astype(
+                                np.float32
+                            )
                         noise_reduction_db = _fb_stats_l["reduction_db"]
                     else:
                         ml_result.audio, _fb_stats = self._denoise_mono_professional(
@@ -765,8 +861,13 @@ class DenoisePhase(PhaseInterface):
                     ml_result.audio = np.nan_to_num(ml_result.audio, nan=0.0, posinf=0.0, neginf=0.0)
                     ml_result.audio = np.clip(ml_result.audio, -1.0, 1.0)
 
+                ml_result.audio, _tdp_recombined_ml = _recombine_tdp_if_needed(ml_result.audio)
+
+                _loudness_ref_audio = (
+                    _tdp_original_audio if (_tdp_active and _tdp_original_audio is not None) else audio
+                )
                 ml_result.audio, loudness_stats = self._apply_material_loudness_preservation(
-                    audio,
+                    _loudness_ref_audio,
                     ml_result.audio,
                     material_type,
                     quality_mode,
@@ -785,6 +886,7 @@ class DenoisePhase(PhaseInterface):
                         "material_type": material_type,
                         "strategy": str(ml_result.strategy_used),
                         "quality_mode": quality_mode,
+                        "tdp_stem_aware_nr": _tdp_active,
                         "rms_drop_db": loudness_stats["rms_drop_db"],
                         "loudness_makeup_db": loudness_stats["makeup_gain_db"],
                     },
@@ -801,6 +903,10 @@ class DenoisePhase(PhaseInterface):
                         "scientific_ref": "OMLSA Cohen (2003), IMCRA Cohen & Berdugo (2002), Resemble Enhance (2023)",
                         "benchmark": "Professional ML-enhanced denoising",
                         "ml_metadata": ml_result.metadata,
+                        "tdp_mode": _tdp_mode,
+                        "tdp_requested": _tdp_enabled,
+                        "tdp_active": _tdp_active,
+                        "tdp_recombined": _tdp_recombined_ml,
                     },
                 )
 
@@ -821,7 +927,11 @@ class DenoisePhase(PhaseInterface):
         # Stereo/Mono handling
         if audio.ndim == 2:
             # §2.51 Linked-Stereo: OMLSA-Gain aus Mid-Sidechain (L+R)/√2, identisch auf L+R
-            _mid_dsp = (audio[:, 0] + audio[:, 1]) / np.sqrt(2.0)
+            # Supports both (2, N) channels-first (UV3) and (N, 2) samples-first.
+            _ch_first_dsp = audio.shape[0] == 2 and audio.shape[1] > 2
+            _ch0_dsp = audio[0] if _ch_first_dsp else audio[:, 0]
+            _ch1_dsp = audio[1] if _ch_first_dsp else audio[:, 1]
+            _mid_dsp = (_ch0_dsp + _ch1_dsp) / np.sqrt(2.0)
             _mid_denoised, stats_left = self._denoise_mono_professional(
                 _mid_dsp, dsp_params, noise_profile_start, noise_profile_end
             )
@@ -832,7 +942,10 @@ class DenoisePhase(PhaseInterface):
                 1.0,
             )
             _gain_dsp = np.clip(_gain_dsp, 0.0, 10.0)
-            result_audio = np.column_stack([audio[:, 0] * _gain_dsp, audio[:, 1] * _gain_dsp])
+            if _ch_first_dsp:
+                result_audio = np.stack([_ch0_dsp * _gain_dsp, _ch1_dsp * _gain_dsp]).astype(np.float32)
+            else:
+                result_audio = np.column_stack([_ch0_dsp * _gain_dsp, _ch1_dsp * _gain_dsp]).astype(np.float32)
 
             noise_reduction_db = stats_left["reduction_db"]
             musical_noise_suppression = stats_left["musical_suppression"]
@@ -855,8 +968,11 @@ class DenoisePhase(PhaseInterface):
         result_audio = np.nan_to_num(result_audio, nan=0.0, posinf=0.0, neginf=0.0)
 
         result_audio = np.clip(result_audio, -1.0, 1.0)
+        result_audio, _tdp_recombined_dsp = _recombine_tdp_if_needed(result_audio)
+
+        _loudness_ref_audio = _tdp_original_audio if (_tdp_active and _tdp_original_audio is not None) else audio
         result_audio, loudness_stats = self._apply_material_loudness_preservation(
-            audio,
+            _loudness_ref_audio,
             result_audio,
             material_type,
             quality_mode,
@@ -879,12 +995,16 @@ class DenoisePhase(PhaseInterface):
             _target_texture = get_material_noise_texture(material_type)
             if float(np.max(_denoised_texture)) > 1e-6:
                 # Estimate residual noise floor from quiet frames
-                _mono_for_nf = result_audio if result_audio.ndim == 1 else result_audio.mean(axis=0)
+                if result_audio.ndim == 1:
+                    _mono_for_nf = result_audio
+                else:
+                    _nf_ch_first = result_audio.shape[0] == 2 and result_audio.shape[1] > 2
+                    _mono_for_nf = result_audio.mean(axis=0) if _nf_ch_first else result_audio.mean(axis=1)
                 _frame_sz = int(0.05 * sample_rate)
                 _nf_rms_vals = []
                 for _nf_s in range(0, len(_mono_for_nf) - _frame_sz, _frame_sz // 2):
-                    _nf_f = _mono_for_nf[_nf_s: _nf_s + _frame_sz]
-                    _nf_r = float(np.sqrt(np.mean(_nf_f ** 2) + 1e-12))
+                    _nf_f = _mono_for_nf[_nf_s : _nf_s + _frame_sz]
+                    _nf_r = float(np.sqrt(np.mean(_nf_f**2) + 1e-12))
                     _nf_db = 20.0 * np.log10(_nf_r + 1e-12)
                     if _nf_db < -35.0:
                         _nf_rms_vals.append(_nf_r)
@@ -893,17 +1013,37 @@ class DenoisePhase(PhaseInterface):
                     _nf_dbfs = 20.0 * np.log10(max(_median_nf_rms, 1e-10))
                     if result_audio.ndim == 1:
                         result_audio = synthesize_comfort_noise(
-                            result_audio, sample_rate, _denoised_texture, _target_texture, _nf_dbfs,
+                            result_audio,
+                            sample_rate,
+                            _denoised_texture,
+                            _target_texture,
+                            _nf_dbfs,
                         )
                     else:
-                        for _ch in range(result_audio.shape[0]):
-                            result_audio[_ch] = synthesize_comfort_noise(
-                                result_audio[_ch], sample_rate, _denoised_texture, _target_texture, _nf_dbfs,
-                            )
+                        _ntm_ch_first = result_audio.shape[0] == 2 and result_audio.shape[1] > 2
+                        if _ntm_ch_first:
+                            for _ch in range(result_audio.shape[0]):
+                                result_audio[_ch] = synthesize_comfort_noise(
+                                    result_audio[_ch],
+                                    sample_rate,
+                                    _denoised_texture,
+                                    _target_texture,
+                                    _nf_dbfs,
+                                )
+                        else:
+                            for _ch in range(result_audio.shape[1]):
+                                result_audio[:, _ch] = synthesize_comfort_noise(
+                                    result_audio[:, _ch],
+                                    sample_rate,
+                                    _denoised_texture,
+                                    _target_texture,
+                                    _nf_dbfs,
+                                )
                     _noise_texture_applied = True
                     logger.info(
                         "§0a noise-texture-matching applied: material=%s nf=%.1f dBFS",
-                        material_type, _nf_dbfs,
+                        material_type,
+                        _nf_dbfs,
                     )
         except Exception as _ntm_exc:
             logger.debug("§0a noise-texture-matching non-blocking: %s", _ntm_exc)
@@ -917,6 +1057,7 @@ class DenoisePhase(PhaseInterface):
                 "musical_noise_suppression": musical_noise_suppression,
                 "material_type": material_type,
                 "bands": dsp_params["bands"],
+                "tdp_stem_aware_nr": _tdp_active,
                 "rms_drop_db": loudness_stats["rms_drop_db"],
                 "loudness_makeup_db": loudness_stats["makeup_gain_db"],
             },
@@ -932,6 +1073,10 @@ class DenoisePhase(PhaseInterface):
                 "benchmark": "iZotope RX Voice De-noise Pro, CEDAR DNS One",
                 "algorithm_version": "3.0_omlsa_imcra",
                 "execution_time_seconds": execution_time,
+                "tdp_mode": _tdp_mode,
+                "tdp_requested": _tdp_enabled,
+                "tdp_active": _tdp_active,
+                "tdp_recombined": _tdp_recombined_dsp,
             },
         )
 

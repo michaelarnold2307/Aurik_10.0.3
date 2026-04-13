@@ -194,11 +194,24 @@ class RumbleFilterPhase(PhaseInterface):
 
         sample_rate = kwargs.get("sample_rate", 48000)
         assert sample_rate == 48000, f"SR muss 48000 Hz sein, erhalten: {sample_rate}"
+        self.sample_rate = int(sample_rate)
         start_time = time.time()
+
+        # UV3 uses channel-first stereo internally (2, N), while this phase expects
+        # column-major stereo (N, 2). Normalize once at the boundary and restore the
+        # original layout on output to keep the phase universally safe for all callers.
+        _was_channel_first_05 = bool(audio.ndim == 2 and audio.shape[0] == 2 and audio.shape[1] != 2)
+        if _was_channel_first_05:
+            audio = audio.T
+
+        def _restore_layout_05(arr: np.ndarray) -> np.ndarray:
+            if _was_channel_first_05 and isinstance(arr, np.ndarray) and arr.ndim == 2 and arr.shape[1] == 2:
+                return arr.T
+            return arr
 
         # §2.45a: RMS-Referenz NACH DC-Block (DC-Offset darf den Musik-Pegel nicht aufblähen).
         # Raw audio kann DC-Offset von Vinyl-Nadel tragen; der HP-Filter arbeitet auf dc_blocked.
-        # Beide Seiten der Guard müssen vergleichbar sein — sonst werden korrekte Rumble-
+        # Beide Seiten der Guard müssen vergleichbar sein -- sonst werden korrekte Rumble-
         # Entfernungen (33+ dB Breitband-Abfall bei rausch-dominiertem Vinyl) als Schaden gewertet.
         # Guard-Messung wird nach der Verarbeitung mit dem gleichen dc_blocked als Referenz getan.
         _dc_alpha_05 = 0.9995  # 1 Hz ≈ Cutoff @ 48 kHz (zero-phase via filtfilt)
@@ -227,7 +240,7 @@ class RumbleFilterPhase(PhaseInterface):
             passthrough = np.nan_to_num(audio.copy(), nan=0.0, posinf=0.0, neginf=0.0)
             passthrough = np.clip(passthrough, -1.0, 1.0)
             return create_phase_result(
-                audio=passthrough,
+                audio=_restore_layout_05(passthrough),
                 modifications={"rumble_filtered": False, "reason": "skipped_zero_strength"},
                 warnings=["Rumble filter skipped due to zero effective strength"],
                 metadata={
@@ -254,7 +267,7 @@ class RumbleFilterPhase(PhaseInterface):
             audio = np.clip(audio, -1.0, 1.0)
 
             return create_phase_result(
-                audio=audio,
+                audio=_restore_layout_05(audio),
                 modifications={
                     "rumble_filtered": False,
                     "reason": f"no significant rumble detected (threshold: {params['detection_threshold']:.1%})",
@@ -360,7 +373,7 @@ class RumbleFilterPhase(PhaseInterface):
                 )
 
         return create_phase_result(
-            audio=filtered,
+            audio=_restore_layout_05(filtered),
             modifications={
                 "rumble_filtered": True,
                 "cutoff_hz": adapted_cutoff,

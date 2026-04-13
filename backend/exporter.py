@@ -188,6 +188,73 @@ def _export_guard(audio: np.ndarray) -> np.ndarray:
     return audio
 
 
+def _export_nuance_guard(audio: np.ndarray, sr: int) -> np.ndarray:
+    """Apply subtle perceptual refinements before final export.
+
+    Goal: preserve listening comfort without changing musical intent.
+    Interventions are intentionally conservative and only applied when clear
+    nuisance indicators are present.
+    """
+    a = np.asarray(audio, dtype=np.float32)
+    if a.ndim == 0:
+        return a
+
+    # 1) Short micro-fades to prevent boundary clicks on start/end.
+    n = len(a) if a.ndim == 1 else a.shape[0]
+    fade_n = int(max(16, min(int(0.005 * max(sr, 1)), n // 8)))
+    if n > 2 * fade_n and fade_n > 0:
+        w = np.linspace(0.0, 1.0, fade_n, dtype=np.float32)
+        if a.ndim == 1:
+            a[:fade_n] *= w
+            a[-fade_n:] *= w[::-1]
+        else:
+            a[:fade_n, :] *= w[:, None]
+            a[-fade_n:, :] *= w[::-1, None]
+
+    # 2) Stereo balance guard: fix strong L/R drift only if clearly imbalanced.
+    if a.ndim == 2 and a.shape[1] >= 2:
+        l = a[:, 0].astype(np.float64)
+        r = a[:, 1].astype(np.float64)
+        l_rms = float(np.sqrt(np.mean(l**2) + 1e-12))
+        r_rms = float(np.sqrt(np.mean(r**2) + 1e-12))
+        bal_db = 20.0 * math.log10((l_rms + 1e-12) / (r_rms + 1e-12))
+        if abs(bal_db) > 7.0:
+            target = 0.5 * (l_rms + r_rms)
+            g_l = float(np.clip(target / (l_rms + 1e-12), 0.80, 1.25))
+            g_r = float(np.clip(target / (r_rms + 1e-12), 0.80, 1.25))
+            a[:, 0] = np.clip(a[:, 0] * g_l, -1.0, 1.0)
+            a[:, 1] = np.clip(a[:, 1] * g_r, -1.0, 1.0)
+            logger.info("Export-NuanceGuard: Stereo-Balance korrigiert (%.2f dB, gL=%.3f gR=%.3f)", bal_db, g_l, g_r)
+
+    # 3) Gentle HF-harshness guard (only on clear excess treble energy).
+    if _SCIPY_AVAILABLE and _scipy_signal is not None:
+        mono = a if a.ndim == 1 else a.mean(axis=1)
+        if mono.size > max(1024, sr // 4):
+            nper = min(4096, mono.size)
+            freqs, psd = _scipy_signal.welch(mono.astype(np.float64), fs=sr, nperseg=nper)
+            low_e = float(np.sum(psd[(freqs >= 200.0) & (freqs <= 4500.0)])) + 1e-12
+            high_e = float(np.sum(psd[(freqs >= 7000.0) & (freqs <= 14000.0)]))
+            ratio = high_e / low_e
+            if ratio > 0.42:
+                # Split at 6.5 kHz and attenuate only the HF residual slightly.
+                sos = _scipy_signal.butter(2, 6500.0 / max(sr / 2.0, 1.0), btype="low", output="sos")
+                att = float(np.clip(0.94 - (ratio - 0.42) * 0.10, 0.86, 0.94))
+                if a.ndim == 1:
+                    low = _scipy_signal.sosfiltfilt(sos, a.astype(np.float64))
+                    high = a.astype(np.float64) - low
+                    a = np.clip((low + high * att).astype(np.float32), -1.0, 1.0)
+                else:
+                    out = np.empty_like(a)
+                    for ch in range(a.shape[1]):
+                        low = _scipy_signal.sosfiltfilt(sos, a[:, ch].astype(np.float64))
+                        high = a[:, ch].astype(np.float64) - low
+                        out[:, ch] = np.clip((low + high * att).astype(np.float32), -1.0, 1.0)
+                    a = out
+                logger.info("Export-NuanceGuard: sanfte HF-Glättung aktiv (ratio=%.3f, att=%.3f)", ratio, att)
+
+    return np.clip(np.nan_to_num(a, nan=0.0, posinf=0.0, neginf=0.0), -1.0, 1.0)
+
+
 def validate_export_quality(result: Any) -> tuple[bool, list[str]]:
     """Validate export quality based on RestorationResult metadata.
 
@@ -324,6 +391,9 @@ def export_audio(
 
     # 2. NaN/Inf-Bereinigung + True-Peak-Schutz
     audio = _export_guard(audio)
+
+    # 2b. Subtle perceptual polish for listening comfort (non-destructive).
+    audio = _export_nuance_guard(audio, sr)
 
     # 3. Dithering before integer quantisation (spec §DSP-Spezialregeln)
     if bit_depth < 32 and format.lower() not in ("mp3", "aac", "m4a", "opus"):

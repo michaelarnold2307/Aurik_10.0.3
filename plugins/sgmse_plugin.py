@@ -340,6 +340,10 @@ class SGMSEPlusPlugin:
         """
         assert sr == 48_000, f"SR muss 48000 Hz sein, erhalten: {sr}"
         audio = np.nan_to_num(audio.astype(np.float32), nan=0.0, posinf=0.0, neginf=0.0)
+        # UV3 passes (2, N) channels-first; normalize to (N, 2) for uniform processing.
+        _was_channels_first = audio.ndim == 2 and audio.shape[0] == 2 and audio.shape[1] > 2
+        if _was_channels_first:
+            audio = audio.T  # (2, N) → (N, 2)
         stereo = audio.ndim == 2 and audio.shape[1] == 2
 
         # ── RAM guard: < 3 GB available → WPE-DSP-Fallback ──────────
@@ -376,8 +380,11 @@ class SGMSEPlusPlugin:
         rms_diff = float(np.sqrt(np.mean((out - audio) ** 2))) + 1e-10
         snr_imp = 20.0 * math.log10(rms_in / rms_diff) if rms_diff < rms_in else 0.0
 
+        # Restore channels-first layout if input was (2, N)
+        out_final = out.T if (_was_channels_first and out.ndim == 2) else out
+
         return SgmseResult(
-            audio=out.astype(np.float32),
+            audio=out_final.astype(np.float32),
             sr=sr,
             model_used=("sgmse_plus_torchscript" if _use_ml else "wpe_dsp_fallback"),
             snr_improvement_db=float(np.clip(snr_imp, 0.0, 30.0)),
@@ -574,11 +581,15 @@ class SGMSEPlusPlugin:
         from scipy.signal import stft as scipy_stft
 
         n_orig = len(mono)
+        # §2.57: Clamp noverlap so it is always < min(nperseg, signal_length).
+        # scipy auto-reduces nperseg to signal_length for short chunks, which
+        # makes the fixed noverlap >= effective nperseg → ValueError.
+        _noverlap = max(0, min(self._win - self._hop, n_orig - 1))
         _, _, Z = scipy_stft(
             mono.astype(np.float64),
             fs=_SR,
             nperseg=self._win,
-            noverlap=self._win - self._hop,
+            noverlap=_noverlap,
             window="hann",
         )
         return Z.astype(np.complex64), n_orig
@@ -587,11 +598,12 @@ class SGMSEPlusPlugin:
         """Inverse STFT."""
         from scipy.signal import istft as scipy_istft
 
+        _noverlap = max(0, min(self._win - self._hop, n_orig - 1))
         _, x = scipy_istft(
             Z.astype(np.complex128),
             fs=_SR,
             nperseg=self._win,
-            noverlap=self._win - self._hop,
+            noverlap=_noverlap,
             window="hann",
         )
         x = x.astype(np.float32)
@@ -656,6 +668,13 @@ class SGMSEPlusPlugin:
         """
         if self._ts_model is None and self._eager_model is None:
             return self._wpe_fallback(mono, _SR)
+        # Minimum-Input-Guard: NCSNPP U-Net 4×4 kernel requires STFT freq/time dims > 4.
+        # Short segments produce too few STFT bins → RuntimeError:
+        # "Kernel size can't be greater than actual input size (3×130)".
+        _MIN_MONO_SAMPLES = _DEFAULT_N_FFT * 8  # 510*8 = 4080 ≈ 85 ms @ 48 kHz
+        if len(mono) < _MIN_MONO_SAMPLES:
+            logger.debug("SGMSE+: Segment zu kurz (%d < %d samples) → WPE-Fallback", len(mono), _MIN_MONO_SAMPLES)
+            return self._wpe_fallback(mono, _SR)
         try:
             import gc
 
@@ -693,9 +712,10 @@ class SGMSEPlusPlugin:
                 t_t = torch.tensor([float(sigma)], dtype=torch.float32).to(self._device)
                 try:
                     from backend.core.ml_device_manager import get_ml_device_manager as _get_mdm
+
                     _pin_fn = _get_mdm().pin_tensor_rocm
                 except Exception:
-                    _pin_fn = lambda x: x  # noqa: E731
+                    _pin_fn = lambda x: x
                 for s in starts:
                     e = min(s + target_frames, T_orig)
                     seg = x_t[:, :, :, s:e]
@@ -704,7 +724,9 @@ class SGMSEPlusPlugin:
                         seg = np.pad(seg, ((0, 0), (0, 0), (0, 0), (0, target_frames - seg_len)), mode="constant")
 
                     _pinned = _pin_fn(seg)
-                    xt_t = (_pinned if isinstance(_pinned, torch.Tensor) else torch.from_numpy(_pinned)).to(self._device)
+                    xt_t = (_pinned if isinstance(_pinned, torch.Tensor) else torch.from_numpy(_pinned)).to(
+                        self._device
+                    )
                     y_t = xt_t
                     if self._ts_model is not None:
                         out_t = self._run_with_timeout(
@@ -806,7 +828,7 @@ class SGMSEPlusPlugin:
         def _worker() -> None:
             try:
                 box["value"] = fn()
-            except BaseException as exc:  # noqa: BLE001
+            except BaseException as exc:
                 err["error"] = exc
 
         thread = threading.Thread(target=_worker, name="sgmse-forward", daemon=True)

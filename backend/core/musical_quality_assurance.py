@@ -554,7 +554,7 @@ class MusicalQualityAssurance:
             min_quality_level=QualityLevel.GOOD,
             min_overall_score=70.0,
             min_authenticity=0.75,  # Authentizität SEHR wichtig
-            max_processing_intensity=0.7,  # Moderate Bearbeitung
+            max_processing_intensity=1.0,  # Aurik 9: bis zu 50 Phasen — Intensität durch §2.45+PMGG reguliert
             require_natural_sound=True,
             require_authentic_character=True,
             allow_modern_enhancement=False,
@@ -683,8 +683,33 @@ class MusicalQualityAssurance:
 
         # Check naturalness degradation (compared to baseline)
         naturalness_drop = baseline.naturalness - current.naturalness
-        if naturalness_drop > 0.20:  # 20% naturalness loss = overprocessing
-            return False, f"Naturalness dropped {naturalness_drop:.2f} (overprocessing detected)"
+        # §2.54 material-adaptive tolerance: degraded analog sources can show
+        # larger short-term naturalness proxy drift after legitimate carrier-repair,
+        # while clean digital should stay tighter.
+        _NAT_DROP_GATE: dict[MediumType, float] = {
+            MediumType.CD: 0.15,
+            MediumType.CD_R: 0.15,
+            MediumType.SACD: 0.15,
+            MediumType.DAT: 0.15,
+            MediumType.LOSSLESS: 0.15,
+            MediumType.LOSSY_HIGH: 0.18,
+            MediumType.LOSSY_MID: 0.20,
+            MediumType.LOSSY_LOW: 0.24,
+            MediumType.MINIDISC: 0.22,
+            MediumType.VINYL_33: 0.25,
+            MediumType.VINYL_45: 0.25,
+            MediumType.CASSETTE: 0.28,
+            MediumType.REEL_TO_REEL: 0.26,
+            MediumType.SHELLAC_78: 0.32,
+            MediumType.WAX_CYLINDER: 0.35,
+            MediumType.WIRE_RECORDING: 0.33,
+        }
+        _nat_drop_limit = float(_NAT_DROP_GATE.get(medium_type, 0.24))
+        if naturalness_drop > _nat_drop_limit:
+            return (
+                False,
+                f"Naturalness dropped {naturalness_drop:.2f} > {_nat_drop_limit:.2f} (overprocessing detected)",
+            )
 
         # Check mode-specific standards
         # Unknown media classification is inherently uncertain; use slightly softer
@@ -766,8 +791,27 @@ class MusicalQualityAssurance:
         medium_gates = self.MEDIUM_GATES.get(medium_type, self.MEDIUM_GATES[MediumType.UNKNOWN])
         mode_standards = self.MODE_STANDARDS.get(processing_mode, self.MODE_STANDARDS[ProcessingMode.RESTORATION])
 
-        # 1. Check overprocessing (naturalness drop > 25%)
-        if naturalness_change < -0.25:
+        # 1. Check overprocessing (material-adaptive naturalness drop threshold)
+        _NAT_DROP_INTEGRITY: dict[MediumType, float] = {
+            MediumType.CD: 0.18,
+            MediumType.CD_R: 0.18,
+            MediumType.SACD: 0.18,
+            MediumType.DAT: 0.18,
+            MediumType.LOSSLESS: 0.18,
+            MediumType.LOSSY_HIGH: 0.22,
+            MediumType.LOSSY_MID: 0.25,
+            MediumType.LOSSY_LOW: 0.28,
+            MediumType.MINIDISC: 0.26,
+            MediumType.VINYL_33: 0.28,
+            MediumType.VINYL_45: 0.28,
+            MediumType.CASSETTE: 0.30,
+            MediumType.REEL_TO_REEL: 0.28,
+            MediumType.SHELLAC_78: 0.35,
+            MediumType.WAX_CYLINDER: 0.38,
+            MediumType.WIRE_RECORDING: 0.35,
+        }
+        _nat_drop_limit_integrity = float(_NAT_DROP_INTEGRITY.get(medium_type, 0.28))
+        if naturalness_change < -_nat_drop_limit_integrity:
             violations.append(IntegrityViolation.OVERPROCESSING)
             violation_details[IntegrityViolation.OVERPROCESSING] = (
                 f"Naturalness dropped {abs(naturalness_change):.2%} "
@@ -777,8 +821,46 @@ class MusicalQualityAssurance:
             recommendations.append("Re-run with ARCHIVAL or FORENSIC mode")
 
         # 2. Check character loss (authenticity drop > 20%)
+        # The authenticity metric (SNR ≈ 60 dB, THD, bandwidth < 18 kHz) models
+        # *analog* material character. For digital material (CD, LOSSY_*,
+        # DIGITAL_UNKNOWN, DAT) this metric is meaningless: after restoration the
+        # SNR improves far beyond 60 dB and bandwidth may extend past 18 kHz —
+        # both are improvements, not character loss. §0 / §2.47 require material-
+        # adaptive gates; applying the analog check to digital sources causes false
+        # violations and misleads operators.
+        _DIGITAL_MEDIA = frozenset(
+            {
+                MediumType.CD,
+                MediumType.CD_R,
+                MediumType.SACD,
+                MediumType.DVD_AUDIO,
+                MediumType.LOSSY_HIGH,
+                MediumType.LOSSY_MID,
+                MediumType.LOSSY_LOW,
+                MediumType.LOSSLESS,
+                MediumType.DSD,
+                MediumType.DAT,
+                MediumType.MINIDISC,
+                MediumType.DAW_BOUNCE,
+                MediumType.DIGITAL_UNKNOWN,
+            }
+        )
+        _effective_require_authentic = mode_standards.require_authentic_character and medium_type not in _DIGITAL_MEDIA
         authenticity_drop = original_quality.authenticity - processed_quality.authenticity
-        if authenticity_drop > 0.20 and mode_standards.require_authentic_character:
+        # §2.54 material-adaptive authenticity drop threshold (analog only path)
+        _AUTH_DROP_LIMIT: dict[MediumType, float] = {
+            MediumType.VINYL_33: 0.24,
+            MediumType.VINYL_45: 0.24,
+            MediumType.CASSETTE: 0.26,
+            MediumType.REEL_TO_REEL: 0.24,
+            MediumType.SHELLAC_78: 0.32,
+            MediumType.WAX_CYLINDER: 0.35,
+            MediumType.WIRE_RECORDING: 0.33,
+            MediumType.ACETATE: 0.30,
+            MediumType.ANALOG_UNKNOWN: 0.30,
+        }
+        _auth_drop_limit = float(_AUTH_DROP_LIMIT.get(medium_type, 0.24))
+        if authenticity_drop > _auth_drop_limit and _effective_require_authentic:
             violations.append(IntegrityViolation.CHARACTER_LOSS)
             violation_details[IntegrityViolation.CHARACTER_LOSS] = (
                 f"Authenticity dropped {authenticity_drop:.2%} "
@@ -936,8 +1018,15 @@ class MusicalQualityAssurance:
         # Calculate processing intensity.
         # Deduplicate module names first: retries/candidate loops can append duplicates
         # and otherwise overstate intensity (false OVERPROCESSED verdicts).
+        # §2.54: Aurik 9 runs 8–50 unique phases per restoration. The original divisor
+        # of 8.0 was calibrated for a simple 8-module pipeline and always produces
+        # intensity=1.0 for Aurik 9, causing misleading OVERPROCESSED verdicts.
+        # Each phase is already regulated by §2.45 Minimal-Intervention + PMGG;
+        # phase count alone is not a meaningful over-processing indicator here.
         _unique_modules = {m for m in modules_applied if isinstance(m, str) and m.strip()}
-        processing_intensity = min(len(_unique_modules) / 8.0, 1.0)  # 8 unique modules = full intensity
+        _N_MODULES = max(len(_unique_modules), 1)
+        # Normalise to Aurik 9's practical maximum (~50 unique phase IDs per run).
+        processing_intensity = min(_N_MODULES / 50.0, 1.0)
 
         # Check mode standards
         mode_standards = self.MODE_STANDARDS.get(processing_mode, self.MODE_STANDARDS[ProcessingMode.RESTORATION])

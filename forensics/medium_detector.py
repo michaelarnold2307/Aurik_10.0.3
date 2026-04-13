@@ -178,6 +178,16 @@ class MediumDetectionResult:
     dolby_nr_confidence: float = 0.0
     """Konfidenz der Dolby-NR-Erkennung ∈ [0, 1]."""
 
+    # §6.7 (v9.11.14): Tape-Speed + RIAA-Curve Detection
+    tape_speed_ips: float | None = None
+    """Geschätzte Bandgeschwindigkeit in ips (1.875/3.75/7.5/15/30). None bei Nicht-Tape."""
+
+    riaa_curve_type: str = "unknown"
+    """Erkannter EQ-Kurventyp: 'riaa'|'nab'|'columbia'|'aes'|'capitol'|'london'|'ccir'|'unknown_prestandard'|'unknown'."""
+
+    riaa_curve_confidence: float = 0.0
+    """Konfidenz der RIAA/EQ-Kurven-Erkennung ∈ [0, 1]. ≥ 0.70 = aktiv."""
+
     @property
     def chain_label(self) -> str:
         return " → ".join(self.transfer_chain) if self.transfer_chain else "unknown"
@@ -195,6 +205,9 @@ class MediumDetectionResult:
             "bayesian_scores": self.bayesian_scores,
             "dolby_nr_type": self.dolby_nr_type,
             "dolby_nr_confidence": self.dolby_nr_confidence,
+            "tape_speed_ips": self.tape_speed_ips,
+            "riaa_curve_type": self.riaa_curve_type,
+            "riaa_curve_confidence": self.riaa_curve_confidence,
         }
 
 
@@ -517,10 +530,62 @@ class MediumDetector:
         vinyl_conf = 0.0
         if fp.infrasonic_rms > 0.030:
             vinyl_conf = max(vinyl_conf, float(min((fp.infrasonic_rms - 0.030) / 0.080, 1.0)))
+        # Crackle-based vinyl inference — adaptive physical plausibility cap.
+        #
+        # Physical upper bound (Copeland 2008, §VI): genuine analog vinyl damage
+        # produces at most ~20 impulsive events/s even for severely worn records.
+        # Lossy codecs (MP3/AAC, Brandenburg 1999) add MDCT granule-boundary
+        # artifacts at ≈ sr/576 per second (76.6/s @ 44.1 kHz; 83.3/s @ 48 kHz).
+        # These inflate the measured crackle density far beyond the analog maximum.
+        #
+        # Strategy: the cap adapts to fp.codec_artifact_score ∈ [0, 1] which measures
+        # per-song spectral log-envelope discontinuity at MDCT boundaries (Müller &
+        # Ewert 2011).  The cap ranges from 20.0 (lossless) down to ≈5.0 (pure MP3).
+        # This is UNIVERSAL across all song classes — no song-specific constants.
+        #
+        #   codec_score = 0.0 (lossless WAV/FLAC):  cap = 20.0/s  ← full physical range
+        #   codec_score = 0.3 (mild compression):    cap ≈ 12.5/s  ← moderate penalty
+        #   codec_score ≥ 0.6 (MP3 ≤ 128 kbps):    cap ≈  5.0/s  ← codec-dominated
+        #
+        #   • crackle ≤ cap:              plausible analog → calibrated vinyl model
+        #   • crackle > cap, infra > 0.030: rumble confirms playback → moderate conf
+        #   • crackle > cap, no infrasonic: ambiguous → weak chain signal (0.25)
+        _codec_contamination = min(1.0, fp.codec_artifact_score / 0.60)
+        _crackle_cap = max(3.0, 20.0 * (1.0 - 0.75 * _codec_contamination))
         if fp.crackle_density > 0.004:
-            vinyl_conf = max(vinyl_conf, float(min((fp.crackle_density - 0.004) / 0.025, 1.0)))
+            if fp.crackle_density <= _crackle_cap:
+                # Plausible analog crackle level: calibrated vinyl model.
+                vinyl_conf = max(vinyl_conf, float(min((fp.crackle_density - 0.004) / 0.025, 1.0)))
+            elif fp.infrasonic_rms > 0.030:
+                # High crackle + confirmed infrasonic rumble: vinyl physically certain.
+                vinyl_conf = max(vinyl_conf, 0.55)
+            else:
+                # High crackle, no infrasonic: ambiguous (codec artifacts dominate),
+                # but chain detection requires at least a weak vinyl signal.
+                vinyl_conf = max(vinyl_conf, 0.25)
+        # Rotation-based vinyl inference — adaptive infrasonic requirement.
+        #
+        # Vinyl turntable rotation (33⅓–78 RPM) always co-excites infrasonic
+        # platter-bearing rumble (Copeland 2008, 10–25 Hz mechanical coupling).
+        # Musical phrasing periodicity produces envelope autocorrelation in the same
+        # 0.4–1.5 Hz band but has no infrasonic component.
+        #
+        # Three-tier gate (all universal — no song-specific constants):
+        #   1. infrasonic_rms > 0.025: rumble confirmed → full rotation confidence
+        #   2. no infrasonic, codec_artifact_score < 0.25, rotation ≥ 0.20:
+        #      lossless/near-lossless material where infrasonic may have been
+        #      HPF-removed during archival digitisation (Copeland 2008, §9.2)
+        #      → apply 55% weight to avoid penalising genuine vinyl
+        #   3. no infrasonic + codec present (MP3/AAC): likely song-rhythm aliasing
+        #      → suppress rotation inference entirely
         if fp.rotation_strength > 0.08:
-            vinyl_conf = max(vinyl_conf, float(fp.rotation_strength))
+            if fp.infrasonic_rms > 0.025:
+                # Tier 1: confirmed rumble → full confidence
+                vinyl_conf = max(vinyl_conf, float(fp.rotation_strength))
+            elif fp.codec_artifact_score < 0.25 and fp.rotation_strength >= 0.20:
+                # Tier 2: lossless, HPF-digitised — moderate inference (55 %)
+                vinyl_conf = max(vinyl_conf, float(fp.rotation_strength) * 0.55)
+            # Tier 3: codec present, no infrasonic → skip (song rhythm false positive)
         if vinyl_conf >= 0.20:
             sources.append(("vinyl", float(np.clip(vinyl_conf, 0.20, 0.85))))
 
@@ -911,7 +976,7 @@ class MediumDetector:
                 spec_disco = float(np.percentile(log_diffs, 75))
                 # Score is nonzero above 0.5; saturates around 2.0 (strong codec)
                 spec_disco_score = float(np.clip((spec_disco - 0.5) / 1.5, 0.0, 1.0))
-            except Exception:  # noqa: BLE001
+            except Exception:
                 pass
 
             # Müller & Ewert (2011): spectral discontinuity is the reliable codec
@@ -971,7 +1036,17 @@ class MediumDetector:
 
     @staticmethod
     def _crackle_density(mono: np.ndarray, sr: int) -> float:
-        """Count impulsive crackle events per second (vinyl/shellac indicator)."""
+        """Count impulsive crackle events per second (vinyl/shellac indicator).
+
+        Applies a stochasticity filter (Cox & Lewis 1966): genuine vinyl crackle
+        follows a Poisson process (CV of inter-event intervals ≈ 1.0).  MDCT-codec
+        boundary artifacts are quasi-deterministic (period ≈ 576 / sr ≈ 13 ms for
+        MP3); their CV is << 0.35.  When the majority of events are periodic, the
+        periodic component is stripped and only the residual stochastic events are
+        counted.  This allows genuine vinyl crackle to be detected even through a
+        codec layer while preventing codec-only artifacts from triggering analog
+        source inference.
+        """
         n = len(mono)
         duration_s = n / max(sr, 1)
         if duration_s < 0.5:
@@ -986,14 +1061,45 @@ class MediumDetector:
         impulses = np.abs(hp) > threshold
 
         min_gap = max(1, int(sr * 0.005))
-        events = 0
+        event_positions: list[int] = []
         last_event = -min_gap
         for i in np.where(impulses)[0]:
             if i - last_event >= min_gap:
-                events += 1
+                event_positions.append(int(i))
                 last_event = i
 
-        return events / max(duration_s, 0.1)
+        n_events = len(event_positions)
+        if n_events < 2:
+            return n_events / max(duration_s, 0.1)
+
+        # ── Stochasticity filter (Cox & Lewis 1966) ──────────────────────────
+        # CV of inter-event intervals: Poisson (vinyl) → CV ≈ 1.0,
+        # periodic (codec MDCT boundary) → CV << 0.35.
+        # When events are predominantly periodic, strip the periodic component
+        # and return only the residual stochastic (analog-source) events.
+        intervals = np.diff(np.array(event_positions, dtype=np.float64))
+        iv_mean = float(np.mean(intervals))
+        iv_std = float(np.std(intervals))
+        cv = iv_std / (iv_mean + 1e-12)
+
+        if cv < 0.35 and n_events >= 20:
+            # Dominant period estimated robustly via median (resistant to stochastic
+            # outliers that represent genuine crackle mixed into codec artifacts).
+            dominant_period = float(np.median(intervals))
+            if dominant_period > 0:
+                pos_arr = np.array(event_positions, dtype=np.float64)
+                ivs_to_prev = np.concatenate([[dominant_period], np.diff(pos_arr)])
+                ivs_to_next = np.concatenate([np.diff(pos_arr), [dominant_period]])
+                tol = dominant_period * 0.30
+                # Non-periodic events: both neighbours deviate > 30 % from dominant
+                # period — these are the stochastic (analog-source) impulses.
+                non_periodic = (np.abs(ivs_to_prev - dominant_period) > tol) & (
+                    np.abs(ivs_to_next - dominant_period) > tol
+                )
+                stochastic_events = int(np.sum(non_periodic))
+                return stochastic_events / max(duration_s, 0.1)
+
+        return n_events / max(duration_s, 0.1)
 
     @staticmethod
     def _snr(mono: np.ndarray, sr: int) -> float:
@@ -1184,19 +1290,39 @@ class MediumDetector:
         if _analog_zeroed and best_analog is None:
             _physical_analog_sources = self._infer_analog_source_from_fingerprint(fp)
             if _physical_analog_sources:
-                best_analog, best_analog_score = _physical_analog_sources[0]
-                logger.info(
-                    "MediumDetector: physical-feature analog inference — "
-                    "primary=%s (conf=%.3f) chain=%s "
-                    "[crackle=%.4f infrasonic=%.4f rotation=%.3f wow_flutter=%.3f]",
-                    best_analog,
-                    best_analog_score,
-                    [m for m, _ in _physical_analog_sources],
-                    fp.crackle_density,
-                    fp.infrasonic_rms,
-                    fp.rotation_strength,
-                    fp.wow_flutter_index,
+                _cand_analog, _cand_conf = _physical_analog_sources[0]
+                # For digital container formats, analog-primary override is only valid
+                # when physical evidence is strong. Weak analog hints are common in
+                # lossy codec material and must not dominate primary-material routing.
+                _strong_physical_analog = _cand_conf >= 0.55 and (
+                    fp.rotation_strength >= 0.65
+                    or fp.wow_flutter_index >= 0.06
+                    or (fp.infrasonic_rms >= 0.025 and fp.crackle_density >= 0.02)
                 )
+                if _strong_physical_analog:
+                    best_analog, best_analog_score = _cand_analog, _cand_conf
+                    logger.info(
+                        "MediumDetector: physical-feature analog inference — "
+                        "primary=%s (conf=%.3f) chain=%s "
+                        "[crackle=%.4f infrasonic=%.4f rotation=%.3f wow_flutter=%.3f]",
+                        best_analog,
+                        best_analog_score,
+                        [m for m, _ in _physical_analog_sources],
+                        fp.crackle_density,
+                        fp.infrasonic_rms,
+                        fp.rotation_strength,
+                        fp.wow_flutter_index,
+                    )
+                else:
+                    logger.info(
+                        "MediumDetector: weak physical analog evidence suppressed for digital file_ext=%s "
+                        "(cand=%s conf=%.3f rotation=%.3f wow=%.3f)",
+                        _ext_lower,
+                        _cand_analog,
+                        _cand_conf,
+                        fp.rotation_strength,
+                        fp.wow_flutter_index,
+                    )
 
         # Best digital lossless
         best_digital: str | None = None

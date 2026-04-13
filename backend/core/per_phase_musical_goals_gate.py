@@ -178,38 +178,38 @@ _PRIORITY_THRESHOLD_FACTOR: dict[int, float] = {
 #   Griesinger (1997) J AES 45:313 — reverb/spatial impression JND in concert halls
 JND_MIN_DELTA: dict[str, float] = {
     # P1 — highest perceptual prominence; vocal-lead music makes these highly salient
-    "natuerlichkeit":        0.012,  # Thoret et al. (2021) JASA 149:3429: timbral JND in
-                                     # musical sounds; Caclin et al. (2005) JASA ≈1 %
-    "authentizitaet":        0.012,  # Kreiman & Sidtis (2011): voice-quality detection
-                                     # acutely sensitive in singing; voice most salient stream
+    "natuerlichkeit": 0.012,  # Thoret et al. (2021) JASA 149:3429: timbral JND in
+    # musical sounds; Caclin et al. (2005) JASA ≈1 %
+    "authentizitaet": 0.012,  # Kreiman & Sidtis (2011): voice-quality detection
+    # acutely sensitive in singing; voice most salient stream
     # P2 — structural musical properties; tonal centre most salient in tonal vocal styles
-    "tonal_center":          0.008,  # Krumhansl & Cuddy (2010) + Marjieh et al. (2023):
-                                     # key is most discriminable feature in tonal vocal music
+    "tonal_center": 0.008,  # Krumhansl & Cuddy (2010) + Marjieh et al. (2023):
+    # key is most discriminable feature in tonal vocal music
     "timbre_authentizitaet": 0.012,  # Caclin et al. (2005) JASA 118:2925;
-                                     # McAdams (2019) Curr Biol 29:R764 — timbre structure
-    "artikulation":          0.010,  # London (2012) "Hearing in Time" 2nd ed. ~8 ms;
-                                     # Repp & Su (2013) Psychon Bull Rev 20:403 rhythm JND
+    # McAdams (2019) Curr Biol 29:R764 — timbre structure
+    "artikulation": 0.010,  # London (2012) "Hearing in Time" 2nd ed. ~8 ms;
+    # Repp & Su (2013) Psychon Bull Rev 20:403 rhythm JND
     # P3 — groove/dynamics/emotion; emotional cues in voice prominent at 100–300 ms scale
-    "emotionalitaet":        0.014,  # Juslin (2019) "Musical Emotions Explained" OUP;
-                                     # Zentner et al. (2008) Emotion 8:494 voice-emotion JND
-    "micro_dynamics":        0.012,  # Glasberg & Moore (2002) J AES 50:331 time-varying
-                                     # loudness JND; Zwicker & Fastl (1999) §11.2 reference
-    "groove":                0.010,  # Witek et al. (2017) PLOS ONE 12:e0169907 groove;
-                                     # Madison (2006) Music Percept. 23:227 isochrony ≈6 ms
+    "emotionalitaet": 0.014,  # Juslin (2019) "Musical Emotions Explained" OUP;
+    # Zentner et al. (2008) Emotion 8:494 voice-emotion JND
+    "micro_dynamics": 0.012,  # Glasberg & Moore (2002) J AES 50:331 time-varying
+    # loudness JND; Zwicker & Fastl (1999) §11.2 reference
+    "groove": 0.010,  # Witek et al. (2017) PLOS ONE 12:e0169907 groove;
+    # Madison (2006) Music Percept. 23:227 isochrony ≈6 ms
     # P4 — tonal-balance/spatial; slower time-constants but smaller than once assumed
-    "transparenz":           0.012,  # Beranek (2016) JASA 139:1548 clarity C80 JND ~1 dB;
-                                     # Toole (2018) "Sound Reproduction" 3rd ed. Ch. 9
-    "waerme":                0.016,  # Alluri & Toiviainen (2012) Music Percept. 29:459;
-                                     # Howard & Angus (2017) "Acoustics & Psychoacoustics" 5th ed.
-    "bass_kraft":            0.012,  # Glasberg & Moore (2006) JASA 119:1705 revised model;
-                                     # ISO 226:2003 equal-loudness contours, LF region
-    "separation_fidelity":   0.014,  # Bregman (1990) "Auditory Scene Analysis" Ch.2;
-                                     # McDermott (2009) Curr Biol 19:R1115 scene analysis
+    "transparenz": 0.012,  # Beranek (2016) JASA 139:1548 clarity C80 JND ~1 dB;
+    # Toole (2018) "Sound Reproduction" 3rd ed. Ch. 9
+    "waerme": 0.016,  # Alluri & Toiviainen (2012) Music Percept. 29:459;
+    # Howard & Angus (2017) "Acoustics & Psychoacoustics" 5th ed.
+    "bass_kraft": 0.012,  # Glasberg & Moore (2006) JASA 119:1705 revised model;
+    # ISO 226:2003 equal-loudness contours, LF region
+    "separation_fidelity": 0.014,  # Bregman (1990) "Auditory Scene Analysis" Ch.2;
+    # McDermott (2009) Curr Biol 19:R1115 scene analysis
     # P5 — spectral brilliance / room depth; broader integration windows
-    "brillanz":              0.016,  # Siedenburg & McAdams (2017) J New Music Res 46:149;
-                                     # HF brightness JND in complex musical sounds ≈1 dB
-    "spatial_depth":         0.018,  # Blauert (1997) "Spatial Hearing" 2nd ed.;
-                                     # Choisel & Wickelmaier (2007) JASA 121:2718 spatial JND
+    "brillanz": 0.016,  # Siedenburg & McAdams (2017) J New Music Res 46:149;
+    # HF brightness JND in complex musical sounds ≈1 dB
+    "spatial_depth": 0.018,  # Blauert (1997) "Spatial Hearing" 2nd ed.;
+    # Choisel & Wickelmaier (2007) JASA 121:2718 spatial JND
 }
 
 SAMPLE_DURATION_S: float = 5.0
@@ -1753,7 +1753,13 @@ def _measure_quick(
     Returns:
         Dict mit 14 Scores ∈ [0, 1]
     """
-    mono = audio[:, 0] if audio.ndim == 2 else audio
+    # §2.54 Shape-robuste Stereo-zu-Mono-Konvertierung: UV3 übergibt (2, N) channels-first,
+    # aber audio[:, 0] bei (2, N) gibt 2 Samples zurück, nicht Kanal 0.
+    # Fix: orientation-adaptiver mean() für beide (N, 2) und (2, N) Layouts.
+    if audio.ndim == 2:
+        mono = audio.mean(axis=0) if audio.shape[0] <= 2 else audio.mean(axis=1)
+    else:
+        mono = audio
     mono = np.nan_to_num(mono, nan=0.0).astype(np.float32)
 
     scores: dict[str, float] = {}
@@ -1777,7 +1783,11 @@ def _measure_quick(
     _ref_mono: np.ndarray | None = None
     if reference is not None:
         try:
-            _rm = reference[:, 0] if reference.ndim == 2 else reference
+            # §2.54 Shape-robuste Referenz-Downmix — gleiche Logik wie mono-Input
+            if reference.ndim == 2:
+                _rm = reference.mean(axis=0) if reference.shape[0] <= 2 else reference.mean(axis=1)
+            else:
+                _rm = reference
             _rm = np.nan_to_num(_rm, nan=0.0).astype(np.float32)
             _ml = min(len(mono), len(_rm))
             _ref_mono = _rm[:_ml]
@@ -1876,11 +1886,12 @@ def _measure_quick(
             # Microtiming/syncopation component via inter-onset-interval variability.
             # The perceptual sweet spot is moderate variability (CV ≈ 0.20).
             _onset_thresh = float(np.mean(rms_env) + 0.5 * float(np.std(rms_env)) + 1e-9)
-            _onsets = np.where(
-                (rms_env[1:-1] > rms_env[:-2])
-                & (rms_env[1:-1] > rms_env[2:])
-                & (rms_env[1:-1] > _onset_thresh)
-            )[0] + 1
+            _onsets = (
+                np.where(
+                    (rms_env[1:-1] > rms_env[:-2]) & (rms_env[1:-1] > rms_env[2:]) & (rms_env[1:-1] > _onset_thresh)
+                )[0]
+                + 1
+            )
             if len(_onsets) >= 4:
                 _ioi = np.diff(_onsets.astype(np.float32))
                 _ioi_mean = float(np.mean(_ioi))
@@ -1889,9 +1900,7 @@ def _measure_quick(
             else:
                 _syncopation_score = 0.5
 
-            scores["groove"] = float(
-                np.clip(0.60 * periodicity_score + 0.40 * _syncopation_score, 0.0, 1.0)
-            )
+            scores["groove"] = float(np.clip(0.60 * periodicity_score + 0.40 * _syncopation_score, 0.0, 1.0))
         else:
             scores["groove"] = 0.5
     except Exception:
@@ -2578,7 +2587,7 @@ class PerPhaseMusicalGoalsGate:
         phase_kwargs: dict[str, Any] | None = None,
         threshold: float = REGRESSION_THRESHOLD_GOOD,
         **kwargs: Any,
-    ) -> tuple[np.ndarray, dict[str, float], "PhaseGateLogEntry"]:
+    ) -> tuple[np.ndarray, dict[str, float], PhaseGateLogEntry]:
         """Public alias to wrap_phase for direct access and testing.
 
         Simplified signature that accepts scores_before and effective_goals without
@@ -3077,9 +3086,9 @@ class PerPhaseMusicalGoalsGate:
                         if _bark_profile is None or _total_bark < 1e-10:
                             return 1.0
                         # Map goal centroid to Bark bands: low/mid/high
-                        _lf_ratio = float(np.sum(_bark_profile[:6])) / _total_bark   # Barks 0-6 ≈ <500 Hz
+                        _lf_ratio = float(np.sum(_bark_profile[:6])) / _total_bark  # Barks 0-6 ≈ <500 Hz
                         _mf_ratio = float(np.sum(_bark_profile[6:15])) / _total_bark  # Barks 6-15 ≈ 500-4 kHz
-                        _hf_ratio = float(np.sum(_bark_profile[15:])) / _total_bark   # Barks 15+ ≈ >4 kHz
+                        _hf_ratio = float(np.sum(_bark_profile[15:])) / _total_bark  # Barks 15+ ≈ >4 kHz
                         if goal in ("bass_kraft", "waerme"):
                             return 1.0 + 0.50 * _lf_ratio  # LF masking boosts bass-goal JND
                         if goal in ("artikulation", "transparenz", "separation_fidelity"):

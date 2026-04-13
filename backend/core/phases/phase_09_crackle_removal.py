@@ -1166,9 +1166,7 @@ class CrackleRemovalPhase(PhaseInterface):
             if audio.ndim == 2:
                 result = np.zeros((gap_len, audio.shape[1]), dtype=audio.dtype)
                 for ch in range(audio.shape[1]):
-                    result[:, ch] = self._ar_fill_channel(
-                        audio[:, ch], gap_start, gap_end, before_start, after_end
-                    )
+                    result[:, ch] = self._ar_fill_channel(audio[:, ch], gap_start, gap_end, before_start, after_end)
                 return result
             return self._ar_fill_channel(audio, gap_start, gap_end, before_start, after_end)
         except Exception as exc:
@@ -1213,32 +1211,23 @@ class CrackleRemovalPhase(PhaseInterface):
         return blended.astype(ch.dtype)
 
     def _ar_predict(self, context: np.ndarray, n_samples: int, order: int) -> np.ndarray:
-        """One-step-ahead AR synthesis via Yule-Walker LPC (order 30–40 @ 48 kHz).
+        """One-step-ahead AR synthesis via Burg-LPC with Yule-Walker fallback.
 
-        The Yule-Walker normal equations yield AR coefficients a such that
-        x_hat[n] = a[0]*x[n-1] + a[1]*x[n-2] + ... + a[p-1]*x[n-p].
-        We then synthesise n_samples steps into the gap using these coefficients.
+        Primary path: Burg maximum-entropy LPC (robust for short contexts and
+        gap interpolation). Fallback path: Yule-Walker Toeplitz solve.
 
-        Stability guarantee: all AR poles are reflected into |z| < 0.995 (root
-        stabilisation; Rabiner & Schafer 1978).  This prevents exponential divergence
-        which Yule-Walker does not guard against on its own.
+        LPC order follows spec constraints: 30–40 @ 48 kHz (min 16).
         """
         if len(context) < order + 2:
             return np.zeros(n_samples, dtype=np.float32)
         try:
-            from scipy.linalg import solve_toeplitz
-
-            n = len(context)
+            len(context)
             ctx_f64 = context.astype(np.float64)
-            # Unbiased autocorrelation lags 0..order with energy normalisation
-            r = np.array(
-                [float(np.dot(ctx_f64[: n - k], ctx_f64[k:])) / n for k in range(order + 1)]
-            )
-            # Tikhonov regularisation + 1 % diagonal leakage (improves conditioning,
-            # biases poles inward, prevents singular Toeplitz matrix)
-            r[0] = r[0] * 1.01 + 1e-9
-            # Solve: T(r[0:order]) @ a = -r[1:order+1]
-            a_coeffs = solve_toeplitz(r[:order], -r[1 : order + 1])
+            a_coeffs = self._burg_predictor_coeffs(ctx_f64, order)
+            if a_coeffs is None:
+                a_coeffs = self._yule_walker_predictor_coeffs(ctx_f64, order)
+            if a_coeffs is None:
+                return np.zeros(n_samples, dtype=np.float32)
 
             # ── Stability check: reflect poles inside unit circle (max |z| = 0.995) ──
             # AR polynomial: A(z) = 1 - a[0]z^{-1} - ... - a[p-1]z^{-p}
@@ -1276,6 +1265,67 @@ class CrackleRemovalPhase(PhaseInterface):
         except Exception as exc:
             logger.debug("AR prediction failed (%s), returning zeros.", exc)
             return np.zeros(n_samples, dtype=np.float32)
+
+    def _burg_predictor_coeffs(self, context: np.ndarray, order: int) -> np.ndarray | None:
+        """Estimate predictor coeffs with Burg LPC (Rabiner & Schafer 1978).
+
+        Returns predictor coefficients ``a_pred`` for
+        ``x_hat[n] = sum(a_pred[k] * x[n-k-1])``.
+        """
+        x = np.asarray(context, dtype=np.float64)
+        n = int(x.size)
+        if n < order + 2:
+            return None
+        # Remove DC bias before Burg recursion to improve numerical stability.
+        x = x - float(np.mean(x))
+        if not np.isfinite(x).all():
+            return None
+
+        ef = x[1:].copy()
+        eb = x[:-1].copy()
+        a_lpc = np.zeros(order + 1, dtype=np.float64)
+        a_lpc[0] = 1.0
+
+        for m in range(1, order + 1):
+            if ef.size < 2 or eb.size < 2:
+                break
+            den = float(np.dot(ef, ef) + np.dot(eb, eb) + 1e-12)
+            num = float(-2.0 * np.dot(eb, ef))
+            k = float(np.clip(num / den, -0.995, 0.995))
+
+            a_prev = a_lpc.copy()
+            if m > 1:
+                a_lpc[1:m] = a_prev[1:m] + k * a_prev[m - 1 : 0 : -1]
+            a_lpc[m] = k
+
+            ef_new = ef[1:] + k * eb[1:]
+            eb_new = eb[:-1] + k * ef[:-1]
+            ef, eb = ef_new, eb_new
+
+        # Convert LPC polynomial coefficients to predictor coefficients.
+        # LPC: A(z)=1+a1 z^-1+...+ap z^-p -> x[n] = -sum(ai*x[n-i]).
+        a_pred = -a_lpc[1 : order + 1]
+        if a_pred.size < order:
+            a_pred = np.pad(a_pred, (0, order - a_pred.size), mode="constant")
+        if not np.isfinite(a_pred).all():
+            return None
+        return a_pred.astype(np.float64)
+
+    @staticmethod
+    def _yule_walker_predictor_coeffs(context: np.ndarray, order: int) -> np.ndarray | None:
+        """Fallback predictor coefficients via Yule-Walker Toeplitz solve."""
+        try:
+            from scipy.linalg import solve_toeplitz
+
+            n = len(context)
+            r = np.array([float(np.dot(context[: n - k], context[k:])) / n for k in range(order + 1)])
+            r[0] = r[0] * 1.01 + 1e-9
+            a_coeffs = solve_toeplitz(r[:order], -r[1 : order + 1])
+            if not np.isfinite(a_coeffs).all():
+                return None
+            return a_coeffs.astype(np.float64)
+        except Exception:
+            return None
 
     def _interpolate_linear(self, audio: np.ndarray, gap_start: int, gap_end: int) -> np.ndarray:
         """Linear interpolation."""

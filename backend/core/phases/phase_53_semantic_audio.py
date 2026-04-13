@@ -1,25 +1,28 @@
 """
-Phase 53: Semantic Audio Analysis v2.0 — DSP Feature Extraction
-================================================================
+Phase 53: Semantic Audio Analysis v3.0 — ML Tier-1 + DSP Baseline
+==================================================================
 
-Vollständige DSP-Implementierung ohne aurik_ml.
-Ersetzt den kaputten ML-Stub (aurik_ml.semantic → ImportError).
+Drei-stufige Semantik-Kaskade (beste Qualität → robuster Fallback):
+  Tier-1: LAION-CLAP  (text-audio aligned, 512-dim, genre/instrument)
+  Tier-0: BEATs iter3  (AudioSet-527, sound-event tagging)
+  DSP:    Chromagramm + Spektralzentroid (kein Modell erforderlich)
 
 KATEGORIE: METADATA — Audio wird NICHT verändert, nur analysiert.
 
 EXTRAHIERTE FEATURES:
-  - BPM:           Auto-Korrelation der Onset-Stärke (Bereich 60–180 BPM)
-  - Tonart (Key):  Chromagramm-Projektion auf Dur/Moll-Profil (Krumhansl 1990)
-  - Genre-Hint:    Spektraler Zentroid + Crest Factor → Grobklassifikation
+  - BPM:            Auto-Korrelation der Onset-Stärke (Bereich 60–180 BPM)
+  - Tonart (Key):   Chromagramm-Projektion auf Dur/Moll-Profil (Krumhansl 1990)
+  - Genre-Hint:     CLAP > BEATs > DSP-Heuristik (Prioritätskaskade)
   - Loudness-Klasse: LUFS-Näherung + Crest Factor
-  - Energie-Struktur: Überblick über HF/LF-Energie-Segmente
+  - CLAP:           top_genres, top_instruments, 32-dim embedding
+  - BEATs:          top_tags (AudioSet-527), 32-dim embedding
 
 WICHTIG:
   - process() gibt audio UNVERÄNDERT zurück
   - Alle Analysen landen in PhaseResult.metadata + PhaseResult.metrics
 
 Author: Aurik Development Team
-Version: 2.0.0
+Version: 3.0.0
 """
 
 from __future__ import annotations
@@ -39,6 +42,42 @@ _MAJOR_PROFILE = np.array([6.35, 2.23, 3.48, 2.33, 4.38, 4.09, 2.52, 5.19, 2.39,
 _MINOR_PROFILE = np.array([6.33, 2.68, 3.52, 5.38, 2.60, 3.53, 2.54, 4.75, 3.98, 2.69, 3.34, 3.17])
 
 _NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
+
+_CANONICAL_GENRE_FALLBACK = "Unbekannt"
+_GENRE_ALIAS_MAP = {
+    "classical": "Klassik",
+    "classical_orchestral": "Klassik",
+    "orchestra": "Klassik",
+    "orchestral": "Klassik",
+    "opera": "Oper",
+    "jazz": "Jazz",
+    "jazz_acoustic": "Jazz",
+    "rock": "Rock",
+    "rock_metal": "Rock",
+    "metal": "Rock",
+    "pop": "Pop",
+    "pop_ballad": "Pop",
+    "blues": "Blues",
+    "folk": "Folk",
+    "country": "Folk",
+    "electronic": "Electronic",
+    "electronic_edm": "Electronic",
+    "ambient": "Electronic",
+    "hip_hop": "Hip-Hop",
+    "hip-hop": "Hip-Hop",
+    "rap": "Hip-Hop",
+    "reggae": "Reggae",
+    "gospel": "Gospel",
+    "rnb": "Soul/R&B",
+    "soul": "Soul/R&B",
+    "soul/r&b": "Soul/R&B",
+    "r&b": "Soul/R&B",
+    "rhythm_and_blues": "Soul/R&B",
+    "schlager": "Schlager",
+    "general": _CANONICAL_GENRE_FALLBACK,
+    "unknown": _CANONICAL_GENRE_FALLBACK,
+    "unbekannt": _CANONICAL_GENRE_FALLBACK,
+}
 
 
 def _mono(audio: np.ndarray) -> np.ndarray:
@@ -138,15 +177,50 @@ def _estimate_genre_hint(mono: np.ndarray, sr: int) -> str:
     return "general"
 
 
+def _canonicalize_genre_hint(label: str | None) -> str:
+    """Map raw DSP/CLAP/BEATs genre tags to Aurik canonical labels."""
+    if not label:
+        return _CANONICAL_GENRE_FALLBACK
+    key = str(label).strip().lower().replace(" ", "_")
+    if key in _GENRE_ALIAS_MAP:
+        return _GENRE_ALIAS_MAP[key]
+    if "opera" in key:
+        return "Oper"
+    if "class" in key or "orch" in key:
+        return "Klassik"
+    if "jazz" in key:
+        return "Jazz"
+    if "gospel" in key:
+        return "Gospel"
+    if "blues" in key:
+        return "Blues"
+    if "folk" in key or "country" in key:
+        return "Folk"
+    if "reggae" in key or "dub" in key:
+        return "Reggae"
+    if "hip" in key or "rap" in key:
+        return "Hip-Hop"
+    if "rnb" in key or "r&b" in key or "soul" in key:
+        return "Soul/R&B"
+    if "electro" in key or "edm" in key or "ambient" in key or "techno" in key:
+        return "Electronic"
+    if "metal" in key or "rock" in key or "punk" in key:
+        return "Rock"
+    if "pop" in key:
+        return "Pop"
+    return _CANONICAL_GENRE_FALLBACK
+
+
 class SemanticAudioPhase(PhaseInterface):
     """Reine Analyse-Phase: DSP Feature Extraction (BPM, Key, Genre, Loudness)."""
 
     PHASE_ID = "phase_53_semantic_audio"
     PHASE_NAME = "Semantic Audio Analysis"
     PHASE_DESCRIPTION = (
-        "Analysiert Audio auf BPM, Tonart (Krumhansl-Profile), Genre-Hint "
-        "(Spektralzentroid + Crest Factor) und Lautheitsprofil — OHNE die Audio-Daten zu verändern. "
-        "Kein aurik_ml benötigt."
+        "Analysiert Audio semantisch auf drei Ebenen: "
+        "Tier-1 LAION-CLAP (text-audio-aligned 512-dim Embeddings, Genre/Instrument-Tagging), "
+        "Tier-0 BEATs iter3 (AudioSet-527), DSP-Fallback (Chromagramm/Spektralzentroid). "
+        "Extrahiert BPM, Tonart, Genre-Hint, Loudness-Klasse — OHNE Audio zu verändern."
     )
 
     def get_metadata(self) -> PhaseMetadata:
@@ -155,7 +229,7 @@ class SemanticAudioPhase(PhaseInterface):
             name=self.PHASE_NAME,
             category=PhaseCategory.METADATA,
             priority=2,
-            version="2.0.0",
+            version="3.0.0",
             dependencies=[],
             estimated_time_factor=0.08,
             memory_requirement_mb=80,
@@ -203,7 +277,10 @@ class SemanticAudioPhase(PhaseInterface):
 
         bpm = _estimate_bpm(mono, sample_rate)
         key = _estimate_key(mono, sample_rate)
-        genre_hint = _estimate_genre_hint(mono, sample_rate)
+        genre_hint_raw = _estimate_genre_hint(mono, sample_rate)
+        genre_hint = _canonicalize_genre_hint(genre_hint_raw)
+        genre_hint_source = "dsp"
+        genre_hint_confidence = 0.25 if genre_hint != _CANONICAL_GENRE_FALLBACK else 0.0
 
         rms = float(np.sqrt(np.mean(mono**2))) + 1e-12
         peak = float(np.max(np.abs(mono))) + 1e-12
@@ -223,9 +300,54 @@ class SemanticAudioPhase(PhaseInterface):
         f, psd = sig.periodogram(mono, fs=sample_rate, window="hann")
         centroid = float(np.sum(f * psd) / (np.sum(psd) + 1e-12))
 
+        # ── Tier-1: LAION-CLAP (text-audio aligned, 512-dim embeddings) ─────────────
+        # Primary ML semantic path. Provides richer genre/instrument classification
+        # than BEATs because CLAP is trained with natural-language supervision —
+        # enabling zero-shot genre inference beyond AudioSet ontology.
+        # Falls back to BEATs (Tier-0) transparently on OOM / missing model.
+        _clap_top_genres: list[tuple[str, float]] = []
+        _clap_instruments: list[str] = []
+        _clap_embedding_32: list[float] = []
+        _clap_model_used = "none"
+        _clap_confidence = 0.0
+        _clap_succeeded = False
+        try:
+            from backend.core.ml_memory_budget import release as _release_c53
+            from backend.core.ml_memory_budget import try_allocate as _alloc_c53
+            from plugins.laion_clap_plugin import get_laion_clap as _clap_factory
+
+            if _alloc_c53("CLAP_phase53", 0.40):
+                try:
+                    _clap_result = _clap_factory().tag(audio.astype(np.float32), sample_rate)
+                    _clap_top_genres = sorted(_clap_result.genre_tags.items(), key=lambda x: x[1], reverse=True)[:5]
+                    _clap_instruments = _clap_result.top_instruments(n=5)
+                    emb = _clap_result.embedding
+                    _clap_embedding_32 = [float(x) for x in emb.flatten()[:32].tolist()]
+                    _clap_model_used = _clap_result.model_used
+                    _clap_confidence = float(_clap_result.confidence)
+                    # Override DSP genre_hint when CLAP is confident enough
+                    if _clap_top_genres and _clap_top_genres[0][1] >= 0.35:
+                        genre_hint = _canonicalize_genre_hint(_clap_top_genres[0][0])
+                        genre_hint_source = "clap"
+                        genre_hint_confidence = float(_clap_top_genres[0][1])
+                        _clap_succeeded = True
+                    logger.info(
+                        "Phase 53: CLAP OK (model=%s, conf=%.2f, top_genre=%s, instruments=%s)",
+                        _clap_model_used,
+                        _clap_confidence,
+                        _clap_top_genres[:2],
+                        _clap_instruments[:2],
+                    )
+                except Exception as _clap_err:
+                    logger.debug("Phase 53: CLAP tagging fehlgeschlagen (%s) — BEATs-Fallback", _clap_err)
+                finally:
+                    _release_c53("CLAP_phase53")
+        except Exception as _clap_imp_err:
+            logger.debug("Phase 53: CLAP-Import nicht verfügbar (%s) — BEATs-Fallback", _clap_imp_err)
+
         # ── Tier-0: BEATs iter3 Audio Tagging (SOTA §4.4) ───────────────────────────
         # AudioSet-527-Klassifikation für semantisch reichere Pipeline-Metadaten.
-        # Fallback auf DSP-Chromagramm/Zentroid wenn BEATs nicht verfügbar.
+        # Runs after CLAP; only overrides genre_hint when CLAP did not succeed.
         _beats_tags: dict[str, float] = {}
         _beats_model_used = "dsp_only"
         _beats_embedding: list[float] = []
@@ -243,11 +365,13 @@ class SemanticAudioPhase(PhaseInterface):
                     _beats_top_k = _beats_result.top_k
                     # Speichere die ersten 32 Embedding-Dimensionen (Transport-safe)
                     _beats_embedding = [float(x) for x in _beats_result.embeddings[:32].tolist()]
-                    # Überschreibe Genre-Hint wenn BEATs einen klaren Tag liefert
-                    if _beats_top_k:
+                    # Überschreibe Genre-Hint nur wenn CLAP nicht erfolgreich war
+                    if not _clap_succeeded and _beats_top_k:
                         _top_tag, _top_conf = _beats_top_k[0]
                         if _top_conf >= 0.40:
-                            genre_hint = _top_tag  # BEATs-Tag ersetzt DSP-Heuristik
+                            genre_hint = _canonicalize_genre_hint(_top_tag)
+                            genre_hint_source = "beats"
+                            genre_hint_confidence = float(_top_conf)
                     logger.info(
                         "Phase 53: BEATs OK (model=%s, top=%s)",
                         _beats_model_used,
@@ -264,13 +388,22 @@ class SemanticAudioPhase(PhaseInterface):
             "bpm": round(bpm, 1),
             "key": key,
             "genre_hint": genre_hint,
+            "genre_hint_raw_dsp": genre_hint_raw,
+            "genre_hint_source": genre_hint_source,
+            "genre_hint_confidence": round(float(genre_hint_confidence), 3),
             "loudness_class": loudness_class,
             "lufs_approx": round(float(lufs_approx), 1),
             "crest_factor": round(float(crest_factor), 2),
             "spectral_centroid_hz": round(float(centroid), 1),
             "phase_locality_factor": phase_locality_factor,
             "effective_strength": effective_strength,
-            # BEATs semantic tags (leer wenn BEATs nicht verfügbar)
+            # CLAP semantic tags — Tier-1 (text-audio aligned, 512-dim)
+            "clap_model_used": _clap_model_used,
+            "clap_confidence": round(_clap_confidence, 3),
+            "clap_top_genres": [{"genre": g, "confidence": round(c, 3)} for g, c in _clap_top_genres[:5]],
+            "clap_top_instruments": _clap_instruments[:5],
+            "clap_embedding_32": _clap_embedding_32,
+            # BEATs semantic tags — Tier-0 (AudioSet-527)
             "beats_model_used": _beats_model_used,
             "beats_top_tags": [{"tag": t, "confidence": round(c, 3)} for t, c in _beats_top_k[:10]],
             "beats_embedding_32": _beats_embedding,

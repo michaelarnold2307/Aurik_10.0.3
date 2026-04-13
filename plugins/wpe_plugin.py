@@ -144,14 +144,26 @@ def _wpe_stft(
     """
     from scipy.signal import istft, stft
 
-    _, _, Z = stft(mono, fs=sr, nperseg=_N_FFT, noverlap=_N_FFT - _HOP, window="hann")
+    # Ensure 1-D: if a 2-D array slips through, len() returns the channel count
+    # (e.g. 2) rather than the sample count, making _sig_len falsely tiny and
+    # causing noverlap >= scipy's auto-reduced nperseg → ValueError.
+    if mono.ndim != 1:
+        mono = mono.mean(axis=0) if mono.shape[0] <= 2 else mono.mean(axis=1)
+        mono = mono.astype(np.float32)
+    _sig_len = int(len(mono))
+    if _sig_len < 8:
+        return np.clip(np.nan_to_num(mono.astype(np.float32), nan=0.0), -1.0, 1.0)
+    _nperseg = int(min(_N_FFT, _sig_len))
+    _noverlap = int(min(max(0, _N_FFT - _HOP), _nperseg - 1))
+
+    _, _, Z = stft(mono, fs=sr, nperseg=_nperseg, noverlap=_noverlap, window="hann")
     Z = Z.astype(np.complex64)
     Z_wpe = _wpe_numpy(Z, delay=_DELAY, L=_TAPS, n_iter=_ITER)
 
     if strength < 1.0:
         Z_wpe = (1.0 - strength) * Z + strength * Z_wpe
 
-    _, out = istft(Z_wpe, fs=sr, nperseg=_N_FFT, noverlap=_N_FFT - _HOP, window="hann")
+    _, out = istft(Z_wpe, fs=sr, nperseg=_nperseg, noverlap=_noverlap, window="hann")
     out = np.clip(np.nan_to_num(out.astype(np.float32), nan=0.0), -1.0, 1.0)
     return out[: len(mono)]
 
@@ -181,13 +193,23 @@ def _omlsa_fallback(
     from scipy.ndimage import uniform_filter
     from scipy.signal import istft, stft
 
-    _, _, Z = stft(mono, fs=sr, nperseg=1024, noverlap=768, window="hann")
+    # Guard: 2-D array → len() gives channel count, not sample count.
+    if mono.ndim != 1:
+        mono = mono.mean(axis=0) if mono.shape[0] <= 2 else mono.mean(axis=1)
+        mono = mono.astype(np.float32)
+    _sig_len = int(len(mono))
+    if _sig_len < 8:
+        return np.clip(np.nan_to_num(mono.astype(np.float32), nan=0.0), -1.0, 1.0)
+    _nperseg = int(min(1024, _sig_len))
+    _noverlap = int(min(768, _nperseg - 1))
+
+    _, _, Z = stft(mono, fs=sr, nperseg=_nperseg, noverlap=_noverlap, window="hann")
     mag = np.abs(Z)
     phase = np.angle(Z)
     noise = np.maximum(uniform_filter(np.minimum.accumulate(mag, axis=1), size=(1, 25)), 1e-8)
     snr = mag / noise
     gain = np.clip(1.0 - strength / (snr + 1e-6), 0.1, 1.0)
-    _, out = istft(gain * mag * np.exp(1j * phase), fs=sr, nperseg=1024, noverlap=768, window="hann")
+    _, out = istft(gain * mag * np.exp(1j * phase), fs=sr, nperseg=_nperseg, noverlap=_noverlap, window="hann")
     out = np.clip(np.nan_to_num(out.astype(np.float32), nan=0.0), -1.0, 1.0)
     return out[: len(mono)]
 

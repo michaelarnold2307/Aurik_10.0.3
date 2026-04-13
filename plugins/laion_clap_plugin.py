@@ -664,8 +664,8 @@ class LAIONCLAPPlugin:
             import torch
 
             audio_f32 = audio.astype(np.float32)
-            if audio_f32.ndim > 1:
-                audio_f32 = np.mean(audio_f32, axis=0)
+            if audio_f32.ndim == 2:
+                audio_f32 = audio_f32.mean(axis=0) if audio_f32.shape[0] <= 2 else audio_f32.mean(axis=1)
 
             model = self._clap_model
 

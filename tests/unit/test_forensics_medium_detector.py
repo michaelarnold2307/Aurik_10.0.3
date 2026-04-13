@@ -459,3 +459,92 @@ class TestMediumDetector:
         assert result.transfer_chain[:4] == ["vinyl", "tape", "cd_digital", "mp3_low"]
         assert len(result.medium_confidences) == len(result.transfer_chain)
         assert result.is_multi_generation is True
+
+    def test_33_detect_mp3_ext_weak_physical_inference_stays_digital_primary(self, monkeypatch):
+        """Weak analog physical evidence on .mp3 must not override digital-primary classification."""
+        detector = MediumDetector()
+        fp = SpectralFingerprint(
+            rolloff_95_hz=6400.0,
+            wow_flutter_index=0.019,  # below strong-analog threshold
+            hf_energy_above_16k=0.0001,
+            noise_floor_db=-36.0,
+            effective_bandwidth_hz=12000.0,
+            codec_artifact_score=0.35,
+            codec_type_code=2.0,
+            crackle_density=0.012,
+            rotation_strength=0.474,
+            infrasonic_rms=0.0102,
+        )
+
+        monkeypatch.setattr(detector, "_compute_fingerprint", lambda _audio, _sr: fp)
+        monkeypatch.setattr(
+            detector,
+            "_bayesian_score",
+            lambda _fp: {
+                "vinyl": 0.46,
+                "cassette": 0.39,
+                "cd_digital": 0.00,
+                "mp3_low": 0.00,
+                "aac": 0.00,
+            },
+        )
+        monkeypatch.setattr(
+            detector,
+            "_infer_analog_source_from_fingerprint",
+            lambda _fp: [("vinyl", 0.261), ("cassette", 0.22)],
+        )
+        monkeypatch.setattr(detector, "_is_benign_codec_source", lambda _audio, _sr, _fp: False)
+
+        audio = np.random.randn(48000).astype(np.float32) * 0.1
+        result = detector.detect(audio, sr=48000, file_ext=".mp3")
+
+        assert result.primary_material == "mp3_low"
+        assert result.transfer_chain[0] == "mp3_low"
+        assert "vinyl" not in result.transfer_chain[:1]
+
+    def test_34_detect_mp3_ext_keeps_causal_order_and_depth_cap(self, monkeypatch):
+        """Deep candidate sets must remain causal and bounded by configured chain depth."""
+        detector = MediumDetector()
+        fp = SpectralFingerprint(
+            rolloff_95_hz=6200.0,
+            wow_flutter_index=0.11,
+            hf_energy_above_16k=0.0002,
+            noise_floor_db=-33.0,
+            effective_bandwidth_hz=9500.0,
+            codec_artifact_score=0.33,
+            codec_type_code=2.0,
+            crackle_density=0.025,
+            rotation_strength=0.70,
+            infrasonic_rms=0.03,
+        )
+
+        monkeypatch.setattr(detector, "_compute_fingerprint", lambda _audio, _sr: fp)
+        monkeypatch.setattr(
+            detector,
+            "_bayesian_score",
+            lambda _fp: {
+                "vinyl": 0.50,
+                "cassette": 0.45,
+                "reel_tape": 0.41,
+                "wire_recording": 0.20,
+                "cd_digital": 0.34,
+                "mp3_low": 0.28,
+                "aac": 0.10,
+            },
+        )
+        monkeypatch.setattr(
+            detector,
+            "_infer_analog_source_from_fingerprint",
+            lambda _fp: [("vinyl", 0.80), ("cassette", 0.62), ("reel_tape", 0.58)],
+        )
+        monkeypatch.setattr(detector, "_is_benign_codec_source", lambda _audio, _sr, _fp: False)
+
+        audio = np.random.randn(48000).astype(np.float32) * 0.1
+        result = detector.detect(audio, sr=48000, file_ext=".mp3")
+
+        order = detector._MEDIUM_ORDER
+        assert len(result.transfer_chain) <= 5
+        assert result.transfer_chain[-1] in {"mp3_low", "mp3_high", "aac"}
+        assert all(
+            order.get(a, 99) <= order.get(b, 99) for a, b in zip(result.transfer_chain, result.transfer_chain[1:])
+        )

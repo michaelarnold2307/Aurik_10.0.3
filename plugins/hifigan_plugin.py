@@ -51,8 +51,15 @@ class HifiGanPlugin:
 
             opts = ort.SessionOptions()
             opts.inter_op_num_threads = 2
-            self._session = ort.InferenceSession(path, sess_options=opts, providers=["CPUExecutionProvider"])
-            logger.info("HiFi-GAN ONNX geladen: %s", path)
+            try:
+                from backend.core.ml_device_manager import get_ort_providers as _get_prov
+
+                _providers = _get_prov("HiFiGAN")
+            except Exception:
+                _providers = ["CPUExecutionProvider"]
+
+            self._session = ort.InferenceSession(path, sess_options=opts, providers=_providers)
+            logger.info("HiFi-GAN ONNX geladen: %s [providers=%s]", path, _providers)
             try:
                 from backend.core.plugin_lifecycle_manager import register_plugin as _reg_plm
 
@@ -81,7 +88,13 @@ class HifiGanPlugin:
 
     def mel_from_audio(self, audio: np.ndarray, sr: int) -> np.ndarray:
         """Erzeuge 80-Band-Mel-Spektrogramm [80, T]."""
-        mono = audio.mean(axis=1) if audio.ndim == 2 else audio
+        if audio.ndim == 2:
+            # Handle (2, N) channels-first (UV3) and (N, 2) samples-first
+            mono = (
+                audio.mean(axis=0) if (audio.shape[0] <= 8 and audio.shape[1] > audio.shape[0]) else audio.mean(axis=1)
+            )
+        else:
+            mono = audio
         mono = _resamp(mono, sr, _SR_MODEL)
         return _mel_spec(mono, _SR_MODEL, _N_MELS, _WIN, _HOP)
 

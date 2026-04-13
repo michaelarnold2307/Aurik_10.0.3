@@ -160,6 +160,24 @@ _TYPE_WEIGHTS = {
 
 # Max tolerance (normalisation denominator for artifact_freedom)
 _MAX_TOLERANCE = 5.0
+_MAX_TOLERANCE_BY_MATERIAL: dict[str, float] = {
+    "digital": 5.0,
+    "cd": 5.0,
+    "cd_digital": 5.0,
+    "streaming": 5.5,
+    "mp3_high": 5.5,
+    "mp3_low": 6.0,
+    "aac": 5.8,
+    "minidisc": 5.8,
+    "tape": 6.2,
+    "reel_tape": 6.2,
+    "cassette": 6.4,
+    "vinyl": 6.8,
+    "shellac": 7.5,
+    "wax": 7.8,
+    "wax_cylinder": 7.8,
+    "wire_recording": 7.8,
+}
 
 # §2.49c Roughness/Sharpness Guard thresholds
 _ROUGHNESS_FLAG_ASPER: float = 0.15  # Δrauheit per phase in asper
@@ -334,7 +352,25 @@ class ArtifactFreedomGate:
         # Without original: detector falls back to absolute corr/mono-compat check.
         _orig_stereo_for_pc = original if (original.ndim == 2 and original.shape[0] >= 2) else None
         if restored.ndim == 2 and restored.shape[0] >= 2:
-            all_artifacts.extend(self._detect_phase_cancellation(restored, sr, thresholds, _orig_stereo_for_pc))
+            # §2.49 [RELEASE_MUST] Phase-Typ-adaptiver PC-Delta-Threshold (§2.54).
+            # SUBTRACTIVE (Dereverb, Denoising): STFT-M/S-Verarbeitung verändert L/R-Korrelation
+            #   strukturell — 0.10 erzeugt systematisch False Positives auf allen Dereverb-Phasen.
+            #   Schwellwert aus Physik: Dereverb-Gain < 6 dB Kanalasymmetrie ist inaudibel (ITU-R BS.775).
+            # CORRECTIVE/ML_GENERATIVE: moderate Toleranz — intentionale Signalform-Änderungen.
+            # ADDITIVE/ENHANCEMENT/DYNAMICS: enge Toleranz — parallele Kanalverarbeitung erwartet.
+            # Invariante: Schwellwerte aus Phase-Typ-Semantik abgeleitet, NICHT song-spezifisch.
+            _PC_DELTA_BY_TYPE: dict = {
+                PhaseOperationType.SUBTRACTIVE: 0.22,  # Dereverb, Denoising — freq.-domain L/R shift
+                PhaseOperationType.CORRECTIVE: 0.18,  # Phase-Korrektur, EQ — gezielte Änderungen
+                PhaseOperationType.ML_GENERATIVE: 0.20,  # Neuronale Verarbeitung — L/R unvorhersehbar
+                PhaseOperationType.ADDITIVE: 0.12,  # Harmonik-Synthese — sollte L/R-parallel sein
+                PhaseOperationType.ENHANCEMENT: 0.12,  # Loudness, EQ — parallele Kanalverarbeitung
+                PhaseOperationType.DYNAMICS: 0.12,  # Kompression — Gain-Kopplung erwartet
+            }
+            _pc_delta_threshold = _PC_DELTA_BY_TYPE.get(_phase_type, 0.12)
+            all_artifacts.extend(
+                self._detect_phase_cancellation(restored, sr, thresholds, _orig_stereo_for_pc, _pc_delta_threshold)
+            )
 
         # 5. Metallic Ringing — residual-based (persistent peaks in restored-original).
         #    In per-phase mode the residual = processing delta (added harmonics, EQ boosts, etc.)
@@ -416,7 +452,11 @@ class ArtifactFreedomGate:
 
         # Score calculation
         weighted_sum = sum(_TYPE_WEIGHTS.get(a.artifact_type, 1.0) * a.salience_weighted_score for a in all_artifacts)
-        artifact_freedom = float(np.clip(1.0 - (weighted_sum / _MAX_TOLERANCE), 0.0, 1.0))
+        # §2.54 material-adaptive cumulative tolerance: older/noisier carriers contain
+        # more benign residual micro-artifacts after restorative phases. A single global
+        # denominator over-penalizes shellac/wax/tape vs digital material.
+        _max_tolerance = float(_MAX_TOLERANCE_BY_MATERIAL.get(mat_key, _MAX_TOLERANCE))
+        artifact_freedom = float(np.clip(1.0 - (weighted_sum / _max_tolerance), 0.0, 1.0))
         artifact_freedom = artifact_freedom + noise_penalty  # penalty is negative or 0
         artifact_freedom = artifact_freedom + _rs_penalty  # §2.49c roughness/sharpness penalty
         artifact_freedom = float(np.clip(artifact_freedom, 0.0, 1.0))
@@ -469,8 +509,8 @@ class ArtifactFreedomGate:
     def _compute_temporal_masking_weights(
         audio: np.ndarray,
         sr: int,
-        artifacts: "list[DetectedArtifact]",
-    ) -> "list[float]":
+        artifacts: list[DetectedArtifact],
+    ) -> list[float]:
         """Psychoacoustic temporal masking weight per artifact (B4, ISO 532-1 §3.1).
 
         Forward masking: loud transient masks artefacts up to 200 ms AFTER it.
@@ -512,8 +552,8 @@ class ArtifactFreedomGate:
         if not transient_positions_s:
             return [1.0] * len(artifacts)
 
-        fwd_mask_s = 0.200   # 200 ms forward masking window
-        bwd_mask_s = 0.005   # 5 ms backward masking window
+        fwd_mask_s = 0.200  # 200 ms forward masking window
+        bwd_mask_s = 0.005  # 5 ms backward masking window
 
         weights: list[float] = []
         for art in artifacts:
@@ -613,9 +653,7 @@ class ArtifactFreedomGate:
                 _lo = max(0, _mb - _spread_bins)
                 _hi = min(_n_bins, _mb + _spread_bins + 1)
                 _mask_level = _rest_mag_db[_mb] - 14.5  # simultaneous masking offset
-                _masking_threshold[_lo:_hi] = np.maximum(
-                    _masking_threshold[_lo:_hi], _mask_level
-                )
+                _masking_threshold[_lo:_hi] = np.maximum(_masking_threshold[_lo:_hi], _mask_level)
 
             # Median neighbor comparison: peak must exceed neighbors by threshold
             for j in range(2, len(mag_db) - 2):
@@ -878,6 +916,7 @@ class ArtifactFreedomGate:
         sr: int,
         thresholds: dict,
         original_stereo: np.ndarray | None = None,
+        delta_threshold: float = 0.12,
     ) -> list[DetectedArtifact]:
         """Detect mono-incompatible phase cancellation in stereo output.
 
@@ -889,11 +928,11 @@ class ArtifactFreedomGate:
         """
         artifacts: list[DetectedArtifact] = []
         corr_threshold = thresholds["phase_cancellation_corr"]
-        # Delta guard: only flag if this phase degraded mono-compat by > 0.10.
-        # 0.05 was too sensitive: noise gates / dropout repair cause minor L/R
-        # asymmetry (1-3 frames out of 150+) that is inaudible but consistently
-        # triggered false-positive rollbacks on every enhancement phase.
-        _DELTA_THRESHOLD = 0.10
+        # Delta guard: only flag if this phase degraded mono-compat beyond the
+        # phase-type-adaptive threshold (passed by caller from §2.54 logic).
+        # SUBTRACTIVE (dereverb): 0.22 — STFT M/S processing shifts L/R correlation structurally.
+        # CORRECTIVE: 0.18 | ML_GENERATIVE: 0.20 | ADDITIVE/ENHANCEMENT/DYNAMICS: 0.12 (default).
+        _DELTA_THRESHOLD = float(delta_threshold)
 
         left = restored_stereo[0]
         right = restored_stereo[1] if restored_stereo.shape[0] >= 2 else left
@@ -1464,9 +1503,16 @@ class ArtifactFreedomGate:
                 lr_corr, mono_compat = self._lr_corr_and_compat(l_f, r_f)
                 compat_values.append(mono_compat)
                 corr_values.append(lr_corr)
-                if lr_corr < 0.0:
+                # Meaningfully anti-phase: correlation < -0.15 (distinguish from
+                # normal stereo decorrelation which can be -0.05 to -0.10 naturally).
+                if lr_corr < -0.15:
                     anti_phase_found = True
-                if mono_compat < corr_threshold or lr_corr < 0.0:
+                # Count as bad only when mono-compatibility is genuinely poor.
+                # lr_corr < 0.0 alone is NOT a defect: wide stereo music routinely
+                # has many frames with near-zero or slightly negative LR correlation
+                # (properly panned instruments, stereo reverb). Using that condition
+                # incorrectly flagged 48 % of Schlager frames as "critical stereo".
+                if mono_compat < corr_threshold:
                     bad_frames += 1
 
             if compat_values:

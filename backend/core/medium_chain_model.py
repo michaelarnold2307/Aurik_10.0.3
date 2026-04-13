@@ -355,7 +355,12 @@ class PhysicalMediumChainModel:
         corrections.append(f"bias_hf_rolloff_compensation_{int(rolloff_freq)}hz_{boost_db}dB")
 
         # 2. Azimuth-Kammfilter-Korrektur (nur relevant bei Stereo)
-        if audio_out.ndim == 2 and audio_out.shape[1] == 2:
+        # Supports both (N, 2) samples-first and (2, N) channels-first (UV3)
+        is_stereo_2d = audio_out.ndim == 2 and (
+            (audio_out.shape[1] == 2 and audio_out.shape[0] != 2)  # (N, 2)
+            or (audio_out.shape[0] == 2 and audio_out.shape[1] != 2)  # (2, N)
+        )
+        if is_stereo_2d:
             if DefectType.STEREO_IMBALANCE in detected or self._has_azimuth_comb(audio_out, sr):
                 audio_out = self._correct_azimuth_comb(audio_out, sr)
                 corrections.append("azimuth_comb_correction")

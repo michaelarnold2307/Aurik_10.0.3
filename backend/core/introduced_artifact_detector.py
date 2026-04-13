@@ -64,7 +64,7 @@ class IntroducedArtifactDetector:
     CLICK_THRESHOLD_DB: float = 12.0
     CLICK_MAX_DURATION_MS: float = 5.0
     PVOC_SMEAR_THRESHOLD_MS: float = (
-        50.0  # was 10.0; < 1 hop (10.67ms) caused false-positive for every single-frame transient shift
+        50.0  # Fallback floor; _detect_pvoc_smearing uses signal-adaptive threshold (see below)
     )
     MUSICAL_NOISE_THRESHOLD_DB: float = 3.0
     SILENCE_THRESHOLD_DBFS: float = -40.0
@@ -212,7 +212,54 @@ class IntroducedArtifactDetector:
 
     def _detect_pvoc_smearing(self, orig: np.ndarray, rest: np.ndarray, sr: int) -> list[ArtifactRegion]:
         hop = 512
-        smear = max(1, int(self.PVOC_SMEAR_THRESHOLD_MS / 1000.0 * sr))
+
+        # Signal-adaptive smearing threshold (§2.49 adaptive intelligence):
+        # Estimate transient density from original and set threshold accordingly.
+        # High transient density (percussive) → tighter threshold (smearing more audible).
+        # Low transient density (sustained) → relaxed threshold (avoids false positives).
+        # Floor: PVOC_SMEAR_THRESHOLD_MS (50 ms) for very low-event / noisy material.
+        try:
+            _frame_len = max(2, int(0.05 * sr))  # 50 ms energy frames
+            _hop_td = max(1, _frame_len // 2)
+            _energies = np.array(
+                [
+                    float(np.sqrt(np.mean(orig[i : i + _frame_len] ** 2) + 1e-12))
+                    for i in range(0, max(1, len(orig) - _frame_len), _hop_td)
+                ],
+                dtype=np.float32,
+            )
+            if len(_energies) >= 2:
+                _diff = np.diff(_energies)
+                _transient_frames = np.sum(_diff > 0.20 * float(np.max(_energies) + 1e-12))
+                _duration_s = max(len(orig) / sr, 1e-3)
+                _transient_density = float(_transient_frames) / _duration_s  # events/s
+            else:
+                _transient_density = 0.0
+        except Exception:
+            _transient_density = 0.0
+
+        # Threshold mapping: percussive → 15 ms, rhythmic → 25 ms, sustained → 35 ms,
+        # low-event/noisy → 50 ms floor.
+        if _transient_density > 3.0:
+            _smear_ms = 15.0  # percussion / drums
+        elif _transient_density > 1.5:
+            _smear_ms = 25.0  # rhythmic / mixed
+        elif _transient_density > 0.5:
+            _smear_ms = 35.0  # sustained melodic
+        else:
+            _smear_ms = self.PVOC_SMEAR_THRESHOLD_MS  # 50 ms floor for near-static/noise
+
+        # Dense transient material produces weaker per-frame RMS slopes because
+        # event energy is distributed across many short events. Use adaptive onset
+        # gating to keep smear detection sensitive in percussive contexts while
+        # remaining conservative for sparse/sustained material.
+        if _transient_density > 3.0:
+            _onset_threshold = 0.08
+        elif _transient_density > 1.5:
+            _onset_threshold = 0.12
+        else:
+            _onset_threshold = 0.20
+        smear = max(1, int(_smear_ms / 1000.0 * sr))
 
         def frames(sig: np.ndarray) -> np.ndarray:
             return np.array([float(np.sqrt(np.mean(sig[i : i + hop] ** 2))) for i in range(0, len(sig) - hop, hop)])
@@ -226,7 +273,8 @@ class IntroducedArtifactDetector:
         dr = np.diff(er[:n])
         artifacts: list[ArtifactRegion] = []
         for i in range(1, min(n - 1, len(do))):
-            if do[i - 1] > 0.20:  # was 0.1; raised to only flag strong transients, not normal music dynamics
+            orig_idx = i - 1
+            if do[orig_idx] > _onset_threshold:
                 bj, bv = i, -1.0
                 for j in range(
                     max(0, i - 6), min(n - 1, i + 6)
@@ -234,10 +282,17 @@ class IntroducedArtifactDetector:
                     if j < len(dr) and dr[j] > bv:
                         bv = dr[j]
                         bj = j
-                if abs(bj - i) * hop > smear:
-                    sev = float(np.clip(abs(bj - i) * hop / max(smear * 5, 1), 0.0, 1.0))
+                delay_samples = abs(bj - orig_idx) * hop
+                if delay_samples > smear:
+                    sev = float(np.clip(delay_samples / max(smear * 5, 1), 0.0, 1.0))
                     artifacts.append(
-                        ArtifactRegion("phase_vocoder_smearing", i * hop, min(len(orig), (i + 5) * hop), sev, 0.65)
+                        ArtifactRegion(
+                            "phase_vocoder_smearing",
+                            orig_idx * hop,
+                            min(len(orig), (orig_idx + 5) * hop),
+                            sev,
+                            0.65,
+                        )
                     )
         return artifacts
 

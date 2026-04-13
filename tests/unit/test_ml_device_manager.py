@@ -13,6 +13,7 @@ Tests decken ab:
 
 from __future__ import annotations
 
+import pathlib
 import threading
 from typing import TYPE_CHECKING
 from unittest.mock import patch
@@ -77,6 +78,21 @@ def test_ort_providers_cpu_only():
     assert mgr.get_ort_providers() == ["CPUExecutionProvider"]
 
 
+def test_ort_providers_cpu_when_plugin_session_disabled() -> None:
+    """Session-deaktivierte Plugins müssen CPU-Provider erhalten."""
+    mgr = _make_manager_rocm()
+    mgr._gpu_disabled_plugins.add("BSRoFormer")
+    assert mgr.get_ort_providers("BSRoFormer") == ["CPUExecutionProvider"]
+
+
+def test_mark_ort_gpu_unsupported_forces_cpu() -> None:
+    """Explizit als inkompatibel markierte Plugins müssen ORT-CPU erzwingen."""
+    mgr = _make_manager_rocm()
+    mgr.mark_ort_gpu_unsupported("Vocos", "provider mismatch")
+    assert mgr.is_ort_gpu_supported("Vocos") is False
+    assert mgr.get_ort_providers("Vocos") == ["CPUExecutionProvider"]
+
+
 def test_vram_try_allocate_fails_without_gpu():
     """try_allocate_vram() gibt False zurück wenn kein GPU vorhanden."""
     mgr = _make_manager_cpu_only()
@@ -97,7 +113,7 @@ def test_heavy_plugins_classified():
     """Bekannte schwere Plugins sind in _HEAVY_ML_PLUGINS."""
     from backend.core.ml_device_manager import _HEAVY_ML_PLUGINS
 
-    for name in ("SGMSE", "AudioSR", "BSRoFormer", "MDXNet", "BigVGAN", "ApolloPlugin"):
+    for name in ("SGMSE", "AudioSR", "BSRoFormer", "MDXNet", "BigVGAN", "Vocos", "HiFiGAN", "ApolloPlugin"):
         assert name in _HEAVY_ML_PLUGINS, f"{name} should be in _HEAVY_ML_PLUGINS"
 
 
@@ -168,6 +184,19 @@ def test_rocm_ort_providers_heavy():
     providers = mgr.get_ort_providers("BSRoFormer")
     assert "ROCMExecutionProvider" in providers
     assert "CPUExecutionProvider" in providers  # Fallback immer dabei
+
+
+def test_rocm_ort_providers_vocoder_plugins_heavy() -> None:
+    """Vocos und HiFiGAN nutzen im ROCm-Modus GPU-Provider (mit CPU-Fallback)."""
+    mgr = _make_manager_rocm()
+
+    vocos_providers = mgr.get_ort_providers("Vocos")
+    hifigan_providers = mgr.get_ort_providers("HiFiGAN")
+
+    assert "ROCMExecutionProvider" in vocos_providers
+    assert "CPUExecutionProvider" in vocos_providers
+    assert "ROCMExecutionProvider" in hifigan_providers
+    assert "CPUExecutionProvider" in hifigan_providers
 
 
 def test_rocm_ort_providers_returns_copy():
@@ -390,6 +419,17 @@ def test_report_gpu_error_disables_after_three_failures():
     assert "CQTDiffPlus" in mgr._gpu_disabled_plugins
 
 
+def test_report_gpu_error_unsupported_disables_immediately() -> None:
+    """Kernel/Provider-Inkompatibilität muss sofort auf CPU degradieren."""
+    mgr = _make_manager_with_gpu()
+
+    assert mgr.get_ort_providers("BSRoFormer") == ["ROCMExecutionProvider", "CPUExecutionProvider"]
+    mgr.report_gpu_error("BSRoFormer", RuntimeError("No kernel registered for op on ROCMExecutionProvider"))
+
+    assert "BSRoFormer" in mgr._gpu_disabled_plugins
+    assert mgr.get_ort_providers("BSRoFormer") == ["CPUExecutionProvider"]
+
+
 def test_get_torch_device_respects_disabled_plugins():
     """get_torch_device() liefert 'cpu' für Session-deaktivierte Plugins."""
     mgr = _make_manager_with_gpu()
@@ -433,3 +473,18 @@ def test_report_gpu_error_thread_safe():
 
     assert not errors
     assert mgr._gpu_errors.get("BigVGAN", 0) == 20
+
+
+def test_vocoder_plugins_use_ml_device_manager_provider_selection() -> None:
+    """Vocos/HiFiGAN dürfen ORT-Sessions nicht hart auf CPU festnageln."""
+    root = pathlib.Path(__file__).parents[2]
+    files = [
+        root / "plugins" / "vocos_plugin.py",
+        root / "plugins" / "hifigan_plugin.py",
+    ]
+    for path in files:
+        src = path.read_text(encoding="utf-8")
+        assert "get_ort_providers" in src, f"{path.name} must use ml_device_manager.get_ort_providers"
+        assert 'InferenceSession(path, sess_options=opts, providers=["CPUExecutionProvider"])' not in src, (
+            f"{path.name} must not hardcode CPUExecutionProvider for primary session"
+        )

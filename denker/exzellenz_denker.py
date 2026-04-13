@@ -271,6 +271,29 @@ class ExzellenzDenker:
                 logger.debug("ExzellenzDenker Re-Pass %d fehlgeschlagen: %s", _re_pass_i, _rp_exc)
                 break
 
+        # §2.53a VERSA Re-measurement nach Goal-Re-Pass: optimiertes_audio könnte durch
+        # Re-Pass geändert worden sein. VERSA neu messen für post-repair MOS.
+        # (Die initiale VERSA-Messung L186–200 war VOR Re-Pass → hier re-messen.)
+        if optimiertes_audio.shape != audio.shape or not np.array_equal(optimiertes_audio, audio):
+            try:
+                from plugins.versa_plugin import score_mos as _score_mos_post
+
+                _mono_post = optimiertes_audio if optimiertes_audio.ndim == 1 else optimiertes_audio.mean(axis=-1)
+                _mono_post = np.nan_to_num(_mono_post.astype(np.float32), nan=0.0, posinf=0.0, neginf=0.0)
+                _vr_post = _score_mos_post(_mono_post, sr)
+                _mos_post = float(getattr(_vr_post, "mos", 1.0))
+                if math.isfinite(_mos_post) and 1.0 <= _mos_post <= 5.0:
+                    logger.info(
+                        "ExzellenzDenker VERSA post-repair re-measurement: MOS=%.3f (pre-repair war %.3f)",
+                        _mos_post,
+                        versa_mos,
+                    )
+                    versa_mos = _mos_post  # Überschreibe pre-repair Wert
+                else:
+                    logger.debug("ExzellenzDenker: VERSA post-repair MOS ungültig: %.1f", _mos_post)
+            except Exception as _ve:
+                logger.debug("ExzellenzDenker: VERSA post-repair Messung fehlgeschlagen: %s", _ve)
+
         note = (
             f"Exzellenz-Optimierung abgeschlossen: Score {score:.3f}, "
             f"{passed}/{len(goals)} Ziele erfüllt" + (f", VERSA MOS={versa_mos:.2f}" if versa_mos > 0.0 else "") + "."

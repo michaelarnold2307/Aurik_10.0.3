@@ -219,6 +219,7 @@ class OutputFormatOptimization(PhaseInterface):
         output_bit_depth = 32
 
         quality_mode = str(kwargs.get("quality_mode", "balanced")).lower()
+        _is_studio_2026 = bool(kwargs.get("studio_mode", False)) or (quality_mode in ("studio2026", "studio"))
         if quality_mode in ("quality", "maximum", "studio2026"):
             hq_scale = 1.10 if quality_mode in ("maximum", "studio2026") else 1.05
             lufs_target = float(np.clip(lufs_target + 0.5 * (1.0 - hq_scale), -24.0, -12.0))
@@ -234,14 +235,28 @@ class OutputFormatOptimization(PhaseInterface):
         else:
             audio_resampled = audio.copy()
 
-        # Step 2: Loudness normalization (LUFS-based)
-        audio_normalized, lufs_before, lufs_after = self._normalize_loudness(audio_resampled, output_sr, lufs_target)
+        # Step 2/3: In-pipeline loudness operations.
+        # Restoration mode: advisory-only (no active gain drive).
+        # Rationale: global carrier-restoration pipeline must preserve musical level
+        # and avoid late-stage loudness jumps; final delivery loudness is handled by
+        # exporter/end-guard. Studio 2026 may still apply active normalization.
+        if not _is_studio_2026:
+            lufs_before = self._measure_integrated_lufs(audio_resampled, output_sr)
+            lufs_after = lufs_before
+            audio_normalized = audio_resampled
+            audio_limited = audio_resampled
+            peak_reduction_db = 0.0
+        else:
+            # Step 2: Loudness normalization (LUFS-based)
+            audio_normalized, lufs_before, lufs_after = self._normalize_loudness(
+                audio_resampled, output_sr, lufs_target
+            )
 
-        if 0.0 < _effective_strength < 1.0:
-            audio_normalized = audio_resampled + _effective_strength * (audio_normalized - audio_resampled)
+            if 0.0 < _effective_strength < 1.0:
+                audio_normalized = audio_resampled + _effective_strength * (audio_normalized - audio_resampled)
 
-        # Step 3: True peak limiting
-        audio_limited, peak_reduction_db = self._limit_true_peak(audio_normalized, true_peak_ceiling)
+            # Step 3: True peak limiting
+            audio_limited, peak_reduction_db = self._limit_true_peak(audio_normalized, true_peak_ceiling)
 
         # Step 4: Dithering (before bit-depth reduction — 16-bit and 24-bit)
         # §4.5 Spec 04: POW-r Typ 3 PRIMÄR, TPDF FALLBACK

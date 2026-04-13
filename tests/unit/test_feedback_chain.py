@@ -393,7 +393,7 @@ class TestFeedbackChainPerceptualLoopScoring:
 
         result = fc.run(_sine(), _identity_fn)
 
-        assert result.metadata["score_source"] == "versa"
+        assert result.metadata["score_source"] in ("versa", "versa_segmented")
         assert result.metadata["score_fallback_used"] is False
         assert result.overall_score == pytest.approx(4.7)
 
@@ -507,13 +507,9 @@ class TestGoalWeightsBias256:
         t_uni = fc_uni._compute_adaptive_prune_threshold(is_restorative=True)
 
         # P1/P2 heavy → stricter (less negative) than uniform
-        assert t_p1p2 > t_uni, (
-            f"P1/P2-heavy ({t_p1p2}) should be stricter (less negative) than uniform ({t_uni})"
-        )
+        assert t_p1p2 > t_uni, f"P1/P2-heavy ({t_p1p2}) should be stricter (less negative) than uniform ({t_uni})"
         # P4/P5 heavy → more lenient (more negative) than uniform
-        assert t_p4p5 < t_uni, (
-            f"P4/P5-heavy ({t_p4p5}) should be more lenient (more negative) than uniform ({t_uni})"
-        )
+        assert t_p4p5 < t_uni, f"P4/P5-heavy ({t_p4p5}) should be more lenient (more negative) than uniform ({t_uni})"
 
     def test_46_goal_weights_bias_bounded(self):
         """Bias must remain within ±0.05; overall threshold stays within [-0.30, -0.005]."""
@@ -539,9 +535,7 @@ class TestGoalWeightsBias256:
         tol_p1p2 = fc_p1p2._compute_adaptive_mos_regression_tolerance()
         tol_uni = fc_uni._compute_adaptive_mos_regression_tolerance()
         # P1/P2 heavy → tighter tolerance (smaller value) to protect critical goals
-        assert tol_p1p2 <= tol_uni, (
-            f"P1/P2-heavy tolerance ({tol_p1p2}) should be ≤ uniform ({tol_uni})"
-        )
+        assert tol_p1p2 <= tol_uni, f"P1/P2-heavy tolerance ({tol_p1p2}) should be ≤ uniform ({tol_uni})"
 
     def test_49_mos_tolerance_no_goal_weights_unchanged(self):
         """Without goal_weights, MOS tolerance is unaffected by §2.56."""

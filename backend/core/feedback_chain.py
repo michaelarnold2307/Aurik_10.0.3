@@ -109,10 +109,9 @@ class FeedbackChain:
         """
         if self._versa_score_fn is not None:
             try:
-                versa = self._versa_score_fn(audio, sr)
-                versa_mos = float(getattr(versa, "mos", np.nan))
+                versa_mos = self._compute_versa_segmented_score(audio, sr)
                 if np.isfinite(versa_mos):
-                    self._last_score_source = "versa"
+                    self._last_score_source = "versa_segmented"
                     return float(np.clip(versa_mos, 1.0, 5.0))
             except Exception as exc:
                 logger.debug("FeedbackChain: VERSA loop score failed, trying PQS fallback: %s", exc)
@@ -127,6 +126,53 @@ class FeedbackChain:
                 logger.debug("FeedbackChain: PQS loop score failed, fallback active: %s", exc)
         self._last_score_source = "heuristic_rms"
         return self.compute_perceptual_score(audio)
+
+    def _compute_versa_segmented_score(self, audio: np.ndarray, sr: int) -> float:
+        """Compute VERSA MOS on up to 5 representative segments, aggregate via min.
+
+        Motivation: avoid local quality collapses being hidden by a single global MOS.
+        """
+        if self._versa_score_fn is None:
+            return float("nan")
+
+        arr = np.nan_to_num(np.asarray(audio, dtype=np.float32), nan=0.0, posinf=0.0, neginf=0.0)
+        if arr.ndim == 2:
+            if arr.shape[1] <= 2 and arr.shape[0] > arr.shape[1]:
+                mono = arr.mean(axis=1)
+            elif arr.shape[0] <= 2 and arr.shape[1] > arr.shape[0]:
+                mono = arr.mean(axis=0)
+            else:
+                mono = arr.mean(axis=-1)
+        else:
+            mono = arr.ravel()
+
+        win = int(sr * 30)  # align with SingMOS 30 s design window
+        if mono.size <= win:
+            versa = self._versa_score_fn(mono, sr)
+            return float(getattr(versa, "mos", np.nan))
+
+        n_segments = int(np.clip(np.ceil(mono.size / win), 3, 5))
+        half = win // 2
+        centers = np.linspace(half, mono.size - half, n_segments, dtype=int)
+
+        seg_scores: list[float] = []
+        for c in centers:
+            s = int(max(0, c - half))
+            e = int(min(mono.size, s + win))
+            seg = mono[s:e]
+            if seg.size < int(sr * 5):
+                continue
+            versa = self._versa_score_fn(seg, sr)
+            mos = float(getattr(versa, "mos", np.nan))
+            if np.isfinite(mos):
+                seg_scores.append(float(np.clip(mos, 1.0, 5.0)))
+
+        if not seg_scores:
+            versa = self._versa_score_fn(mono, sr)
+            return float(getattr(versa, "mos", np.nan))
+
+        # Conservative aggregation: bottleneck quality dominates listener perception.
+        return float(np.min(seg_scores))
 
     def _adaptive_convergence_delta(self, current_mos: float) -> float:
         """Adaptive convergence threshold based on current MOS level and §2.56 goal_weights.
@@ -355,7 +401,8 @@ class FeedbackChain:
                         _gp_advisory_applied = True
                         logger.info(
                             "FeedbackChain: GP advisory applied %d strength hints (material=%s)",
-                            _hints_applied, _mat,
+                            _hints_applied,
+                            _mat,
                         )
             except Exception as _gp_exc:
                 logger.debug("FeedbackChain: GP advisory lookup non-blocking: %s", _gp_exc)

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from backend.core.musical_quality_assurance import (
     IntegrityCheckResult,
     MediumType,
@@ -73,6 +75,8 @@ def test_validate_final_quality_uses_unique_modules_for_intensity(monkeypatch):
         ],
     )
 
-    assert report.processing_intensity == 0.25
+    # §2.54: Divisor ist jetzt 50 (Aurik-9-Pipeline-Max), nicht 8.
+    # 2 unique modules / 50 = 0.04 — Deduplizierung ist weiterhin korrekt.
+    assert report.processing_intensity == pytest.approx(2 / 50.0, abs=1e-6)
     assert report.overprocessed is False
     assert "OVERPROCESSED" not in report.verdict

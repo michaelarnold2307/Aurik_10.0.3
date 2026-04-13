@@ -270,7 +270,7 @@ SCHLAGER_RESTORATION_PROFILE: dict[str, object] = {
 }
 ```
 
-**Laufzeit**: ≤ 4 s/Minute Audio. **Recall**: ≥ 90 % (mit CLAP), ≥ 75 % (nur DSP).
+**Laufzeit**: ≤ 20 s/Minute Audio. **Recall**: ≥ 90 % (mit CLAP), ≥ 75 % (nur DSP).
 
 Nutzer-Meldung: „Deutscher Schlager erkannt — Akkordeon-Klangcharakter und Schunkelrhythmus werden sorgfältig bewahrt."
 

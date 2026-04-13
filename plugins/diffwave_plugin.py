@@ -69,14 +69,20 @@ class DiffwavePlugin:
         """Lücken-Inpainting via NMF-\u03b2 (DSP) oder DiffWave ONNX.
         mask=True markiert zu rekonstruierende Samples."""
         audio = np.nan_to_num(audio.astype(np.float32))
-        mono = audio.mean(axis=1) if audio.ndim == 2 else audio
+        _was_channels_first = audio.ndim == 2 and audio.shape[0] <= 8 and audio.shape[1] > audio.shape[0]
+        if audio.ndim == 2:
+            # Handle (2, N) channels-first (UV3) and (N, 2) samples-first
+            mono = audio.mean(axis=0) if _was_channels_first else audio.mean(axis=1)
+        else:
+            mono = audio
         n = len(mono)
 
         # Early exit for near-silent signals — diffusion/NMF would inject noise into silence
         if float(np.sqrt(np.mean(mono**2))) < 1e-4:
             result = mono.copy()
             if audio.ndim == 2:
-                result = np.stack([result, result], axis=1)
+                # Restore to input layout: (2, N) or (N, 2)
+                result = np.stack([result, result], axis=0 if _was_channels_first else 1)
             return result.astype(np.float32)
 
         m22 = _resamp(mono, sr, _SR)
@@ -93,7 +99,8 @@ class DiffwavePlugin:
         out = self._diffuse(m22, mask22) if self._session else _nmf_inpaint(m22, mask22, _SR)
         result = _resamp(out, _SR, sr)[:n]
         if audio.ndim == 2:
-            result = np.stack([result, result], axis=1)
+            # Restore to input layout: (2, N) or (N, 2)
+            result = np.stack([result, result], axis=0 if _was_channels_first else 1)
         return np.clip(result, -1.0, 1.0).astype(np.float32)
 
     def _diffuse(self, mono: np.ndarray, mask: np.ndarray | None) -> np.ndarray:
@@ -307,12 +314,16 @@ def inpaint(audio: np.ndarray, gap_start: int, gap_end: int, sr: int, n_steps: i
         Audio with the same shape as input and the gap region reconstructed.
     """
     audio = np.nan_to_num(np.asarray(audio, dtype=np.float32))
+    # Normalize (2, N) channels-first → (N, 2) samples-first for index-based ops
+    _was_channels_first = audio.ndim == 2 and audio.shape[0] <= 8 and audio.shape[1] > audio.shape[0]
+    if _was_channels_first:
+        audio = audio.T  # (2, N) → (N, 2)
     n = audio.shape[0]
     safe_start = max(0, int(gap_start))
     safe_end = min(n, int(gap_end))
 
     if safe_start >= safe_end:
-        return audio.copy()
+        return (audio.T if _was_channels_first else audio).copy()
 
     # ── Primary path: DiffWave ONNX via plugin ────────────────────────────────
     try:
@@ -321,15 +332,18 @@ def inpaint(audio: np.ndarray, gap_start: int, gap_end: int, sr: int, n_steps: i
         mask[safe_start:safe_end] = True
         plugin_result = plugin.inpaint(audio, sr=sr, mask=mask, n_steps=n_steps)
         if plugin_result is not None and np.isfinite(plugin_result).all():
-            return np.clip(plugin_result, -1.0, 1.0).astype(np.float32)
+            out = np.clip(plugin_result, -1.0, 1.0).astype(np.float32)
+            return out.T if (_was_channels_first and out.ndim == 2) else out
     except Exception as _e:
         logger.debug("DiffWave plugin inpaint fehlgeschlagen, DSP-Fallback: %s", _e)
 
     # ── Fallback: DSP cubic/linear interpolation ──────────────────────────────
     if audio.ndim == 2:
+        # audio is now (N, 2) after potential transpose above
         channels = [_dsp_interp_fill(audio[:, c], safe_start, safe_end) for c in range(audio.shape[1])]
-        result = np.stack(channels, axis=1)
-        return np.clip(result, -1.0, 1.0).astype(np.float32)
+        result = np.stack(channels, axis=1)  # (N, 2)
+        out = np.clip(result, -1.0, 1.0).astype(np.float32)
+        return out.T if _was_channels_first else out
     return _dsp_interp_fill(audio, safe_start, safe_end)
 
 

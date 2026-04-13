@@ -65,7 +65,13 @@ class SileroPlugin:
 
     def is_speech(self, audio: np.ndarray, sr: int) -> float:
         """Gibt Sprach-Wahrscheinlichkeit [0,1] zurueck."""
-        mono = audio.mean(axis=1) if audio.ndim == 2 else audio
+        if audio.ndim == 2:
+            # Handle (2, N) channels-first (UV3) and (N, 2) samples-first
+            mono = (
+                audio.mean(axis=0) if (audio.shape[0] <= 8 and audio.shape[1] > audio.shape[0]) else audio.mean(axis=1)
+            )
+        else:
+            mono = audio
         mono = _resamp(mono, sr, _SR).astype(np.float32)
         if self._session:
             return self._vad_onnx(mono)
@@ -77,7 +83,13 @@ class SileroPlugin:
         Uses a single ONNX call for the entire audio to avoid repeated small
         inference calls that can destabilise the ONNX runtime.
         """
-        mono = audio.mean(axis=1) if audio.ndim == 2 else audio
+        if audio.ndim == 2:
+            # Handle (2, N) channels-first (UV3) and (N, 2) samples-first
+            mono = (
+                audio.mean(axis=0) if (audio.shape[0] <= 8 and audio.shape[1] > audio.shape[0]) else audio.mean(axis=1)
+            )
+        else:
+            mono = audio
         mono16 = _resamp(mono, sr, _SR).astype(np.float32)
         n16 = len(mono16)
 

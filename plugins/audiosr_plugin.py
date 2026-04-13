@@ -55,9 +55,12 @@ def _detect_bandwidth(audio: np.ndarray, sr: int) -> float:
 
     Returns: Rolloff-Frequenz in Hz.
     """
-    mono = (
-        audio if audio.ndim == 1 else (audio.mean(axis=0) if audio.shape[0] <= audio.shape[-1] else audio.mean(axis=1))
-    )
+    if audio.ndim == 1:
+        mono = audio
+    elif audio.ndim == 2:
+        mono = audio.mean(axis=0) if audio.shape[0] <= 2 else audio.mean(axis=1)
+    else:
+        mono = audio
     n_fft = min(len(mono), sr)  # max. 1 Sekunde fuer Geschwindigkeit
     if n_fft < 64:
         return float(sr / 2)

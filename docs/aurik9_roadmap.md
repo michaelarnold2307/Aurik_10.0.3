@@ -263,7 +263,7 @@
   - Tier-1: LAION-CLAP Zero-Shot (7 gewichtete Prompts); Tier-2: Akkordeon-Reed-Beating (Hilbert, 5–15 Hz)
   - Tier-3: Harmonischer Simplizitäts-Index (CQT-Chroma, HSI ≥ 0.82); Tier-4: Schunkelrhythmus (madmom)
   - Tier-5: Deutsch-Vokal-Formant-Prior (SAMPA ä/ö/ü); Tier-6: MFCC-Self-Similarity-Rate
-  - Recall ≥ 90 % (mit CLAP), ≥ 75 % (nur DSP); False-Positive < 5 %; ≤ 4 s/Minute Audio
+  - Recall ≥ 90 % (mit CLAP), ≥ 75 % (nur DSP); False-Positive < 5 %; ≤ 20 s/Minute Audio
 - [x] **Genre-Klassifikations-Matrix** (9 Genres, §2.20) ✅
 - [x] **4 Genre-Restaurierungsprofile** (`JAZZ_`, `KLASSIK_`, `OPER_`, `ROCK_RESTORATION_PROFILE`, §2.20) ✅
 

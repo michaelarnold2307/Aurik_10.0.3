@@ -93,6 +93,7 @@ if __name__ == "__main__":
     )
 else:
     from .phase_interface import PhaseCategory, PhaseInterface, PhaseMetadata, PhaseResult, create_phase_result
+
 import logging
 
 logger = logging.getLogger(__name__)
@@ -634,9 +635,13 @@ class EQCorrectionPhase(PhaseInterface):
         # §4.5 Psychoacoustic Masking Compensation — fulfill the docstring promise (L27-46)
         try:
             from backend.core.dsp.psychoacoustics import apply_psychoacoustic_masking_clamp
+
             result_audio = apply_psychoacoustic_masking_clamp(
-                audio, result_audio, sample_rate,
-                strength=_effective_strength, mode="additive",
+                audio,
+                result_audio,
+                sample_rate,
+                strength=_effective_strength,
+                mode="additive",
             )
         except Exception as _pm_exc:
             logger.debug("Phase04 masking clamp non-blocking: %s", _pm_exc)
@@ -732,12 +737,12 @@ class EQCorrectionPhase(PhaseInterface):
         # Material+era reference spectral tilt (approximate, 1/3-oct band energies in dB)
         # Relative to neutral (0 dB = flat); positive = boosted in reference recording.
         _ERA_OT_PROFILES: dict[str, dict[str, float]] = {
-            "shellac":      {"bass": +3.0, "low_mid": +1.0, "mid": -1.0, "high_mid": -6.0, "high": -12.0},
-            "vinyl":        {"bass": +2.0, "low_mid": +0.5, "mid":  0.0, "high_mid": -2.0, "high":  -5.0},
-            "tape":         {"bass": +1.0, "low_mid": +0.5, "mid":  0.0, "high_mid": -1.5, "high":  -4.0},
-            "cassette":     {"bass": +0.5, "low_mid":  0.0, "mid":  0.0, "high_mid": -1.0, "high":  -3.0},
-            "cd_digital":   {"bass":  0.0, "low_mid":  0.0, "mid":  0.0, "high_mid":  0.0, "high":   0.0},
-            "mp3_low":      {"bass": -0.5, "low_mid": +0.5, "mid": +0.5, "high_mid": -1.0, "high":  -4.0},
+            "shellac": {"bass": +3.0, "low_mid": +1.0, "mid": -1.0, "high_mid": -6.0, "high": -12.0},
+            "vinyl": {"bass": +2.0, "low_mid": +0.5, "mid": 0.0, "high_mid": -2.0, "high": -5.0},
+            "tape": {"bass": +1.0, "low_mid": +0.5, "mid": 0.0, "high_mid": -1.5, "high": -4.0},
+            "cassette": {"bass": +0.5, "low_mid": 0.0, "mid": 0.0, "high_mid": -1.0, "high": -3.0},
+            "cd_digital": {"bass": 0.0, "low_mid": 0.0, "mid": 0.0, "high_mid": 0.0, "high": 0.0},
+            "mp3_low": {"bass": -0.5, "low_mid": +0.5, "mid": +0.5, "high_mid": -1.0, "high": -4.0},
         }
         _mat_key = str(material_type).split("_")[0].lower() if material_type else "cd_digital"
         if _mat_key not in _ERA_OT_PROFILES:
@@ -767,7 +772,7 @@ class EQCorrectionPhase(PhaseInterface):
             _mask = (freqs >= band_hz * 0.5) & (freqs < band_hz * 2.0)
             if not np.any(_mask):
                 continue
-            current_energy_db = float(10.0 * np.log10(np.mean(spec[_mask]**2) + 1e-14))
+            current_energy_db = float(10.0 * np.log10(np.mean(spec[_mask] ** 2) + 1e-14))
             ref_delta_db = ref_profile.get(band_name, 0.0)
             # Transport correction: nudge current energy toward reference
             correction_db = ref_delta_db - current_energy_db
@@ -782,7 +787,7 @@ class EQCorrectionPhase(PhaseInterface):
         # Apply corrections as smooth Butterworth shelving/peaking filters
         result = np.asarray(audio, dtype=np.float64)
         try:
-            from scipy.signal import sosfiltfilt, butter
+            from scipy.signal import butter, sosfiltfilt
 
             for band_name, gain_db in eq_corrections.items():
                 if abs(gain_db) < 0.3:
@@ -906,8 +911,13 @@ class EQCorrectionPhase(PhaseInterface):
             return candidates[0]  # unambiguous (wax cylinder or post-RIAA)
 
         # --- Pass 2: spectral correlation ---
-        # Convert to mono, take the first 10 s max for speed.
-        mono = audio[:, 0] if audio.ndim == 2 else audio
+        # Convert to mono (supports (2,N) channels-first and (N,2) samples-first),
+        # then take first 10 s max for speed.
+        if audio.ndim == 2:
+            _ch_first = audio.shape[0] == 2 and audio.shape[1] > 2
+            mono = audio.mean(axis=0) if _ch_first else audio.mean(axis=1)
+        else:
+            mono = audio
         max_samples = min(len(mono), sr * 10)
         mono = mono[:max_samples].astype(np.float64)
 
@@ -962,11 +972,16 @@ class EQCorrectionPhase(PhaseInterface):
         Returns:
             Dict of {frequency: deviation_db}
         """
-        # Convert to mono
-        mono = np.mean(audio, axis=1) if audio.ndim == 2 else audio
+        # Convert to mono (supports (2,N) channels-first and (N,2) samples-first)
+        if audio.ndim == 2:
+            _ch_first = audio.shape[0] == 2 and audio.shape[1] > 2
+            mono = np.mean(audio, axis=0) if _ch_first else np.mean(audio, axis=1)
+        else:
+            mono = audio
 
-        # Average spectrum via Welch method
-        freqs, psd = signal.welch(mono, self.sample_rate, nperseg=4096)
+        # Average spectrum via Welch method with safe nperseg clamp for short chunks.
+        _nperseg = int(min(4096, max(8, len(mono))))
+        freqs, psd = signal.welch(mono, self.sample_rate, nperseg=_nperseg)
 
         # Convert to dB
         psd_db = 10 * np.log10(psd + 1e-10)

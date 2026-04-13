@@ -24,10 +24,17 @@ def rms(audio: np.ndarray) -> float:
 
 
 def side_rms(audio: np.ndarray) -> float:
-    """Return side-channel RMS for stereo audio."""
-    if audio.ndim != 2 or audio.shape[1] != 2:
+    """Return side-channel RMS for stereo audio (handles both (N,2) and (2,N))."""
+    if audio.ndim != 2:
         return 0.0
-    side = 0.5 * (audio[:, 0].astype(np.float64) - audio[:, 1].astype(np.float64))
+    # (N, 2) samples-first
+    if audio.shape[1] == 2 and audio.shape[0] > 2:
+        side = 0.5 * (audio[:, 0].astype(np.float64) - audio[:, 1].astype(np.float64))
+    # (2, N) channels-first
+    elif audio.shape[0] == 2 and audio.shape[1] > 2:
+        side = 0.5 * (audio[0].astype(np.float64) - audio[1].astype(np.float64))
+    else:
+        return 0.0
     return float(np.sqrt(np.mean(side**2) + 1e-12))
 
 
@@ -43,7 +50,14 @@ def evaluate_output_guard(
     """Evaluate conservative output guard constraints for phase outputs."""
     rms_delta_db = float(20.0 * np.log10((rms(candidate) + 1e-12) / (rms(original) + 1e-12)))
     side_ratio = 1.0
-    is_stereo = original.ndim == 2 and original.shape[1] == 2 and candidate.ndim == 2 and candidate.shape[1] == 2
+    # Detect stereo for both (N, 2) samples-first and (2, N) channels-first layouts
+
+    def _is_stereo_2d(arr: np.ndarray) -> bool:
+        if arr.ndim != 2:
+            return False
+        return (arr.shape[1] == 2 and arr.shape[0] > 2) or (arr.shape[0] == 2 and arr.shape[1] > 2)
+
+    is_stereo = _is_stereo_2d(original) and _is_stereo_2d(candidate)
     if is_stereo:
         side_ratio = float((side_rms(candidate) + 1e-12) / (side_rms(original) + 1e-12))
 

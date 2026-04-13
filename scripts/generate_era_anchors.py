@@ -258,9 +258,14 @@ def generate_era_anchors() -> None:
         print(f"  ⚠ Anchors neu normalisieren (max_abw={abs(norms - 1).max():.2e})")
         anchors /= norms[:, np.newaxis]
 
+    # §2.47 Format-Pflicht: letztes Spalte = Dekaden-Label (float32) für EraClassifier NN-Suche.
+    # era_classifier._clap_nearest_neighbor erwartet shape (n_anchors, embedding_dim + 1).
+    decade_col = np.array(DECADES_15, dtype=np.float32).reshape(-1, 1)
+    anchors_with_labels = np.concatenate([anchors, decade_col], axis=1)  # shape: [15, 513]
+
     era_path = OUT_DIR / "era_anchors.npy"
-    np.save(str(era_path), anchors)
-    print(f"  ✓ era_anchors.npy: shape={anchors.shape}, dtype={anchors.dtype}")
+    np.save(str(era_path), anchors_with_labels)
+    print(f"  ✓ era_anchors.npy: shape={anchors_with_labels.shape}, dtype={anchors_with_labels.dtype}")
     print(f"    Kosinus-Ähnlichkeit 1920↔1930: {float(anchors[3] @ anchors[4]):.3f}")
     print(f"    Kosinus-Ähnlichkeit 1920↔2010: {float(anchors[3] @ anchors[12]):.3f}")
 
@@ -294,7 +299,7 @@ def generate_era_anchors() -> None:
     print(f"    Schlüssel-Beispiel: 'd1950_gschlager_mtape' shape={arrays['d1950_gschlager_mtape'].shape}")
 
     print(f"\n✅ ERA-Anker erfolgreich generiert in: {OUT_DIR}")
-    print(f"   era_anchors.npy     : {era_path.stat().st_size / 1024:.1f} KB  ({anchors.shape})")
+    print(f"   era_anchors.npy     : {era_path.stat().st_size / 1024:.1f} KB  ({anchors_with_labels.shape})")
     print(f"   reference_anchors.npz: {size_kb:.1f} KB  ({total} Anker à {N_SPEC_BINS}-dim)")
 
 

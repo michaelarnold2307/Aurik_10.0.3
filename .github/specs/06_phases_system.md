@@ -484,3 +484,129 @@ audio_retry = _wet_dry_blend(audio, audio_full, retry_strength)
 ```
 
 > **Invariante**: `phase_58_lyrics_guided_enhancement` ist NICHT ML-deterministisch im PMGG-Sinne — sie operiert als Post-Processing-Modul nach der PMGG-Kette und unterliegt eigenen Retry-Regeln (§2.36).
+
+---
+
+## §7.8 [RELEASE_MUST] Phase-50 HF-Spike-Schutz nach Vorphasen-Restauration (v9.11.4)
+
+Pass-1 Spike-Detektor (11-Bin-Fenster, Threshold-Factor 3.0–4.5) darf durch `phase_07`/`phase_06`
+restaurierte Harmoniken **nicht** als Codec-Spikes flaggen.
+
+**Invariante**: `_repair_channel` erhält `hf_protected_bin_start` aus Material-Rolloff-Tabelle
+(nur analoge Materialtypen). Bins ≥ `hf_protected_bin_start` sind in Pass-1 ausgeschlossen.
+Pass-2 (Frame-Energy-Dropout) bleibt global aktiv.
+
+**VERBOTEN**: Spike-Detektion ohne HF-Schutzzone für analoge Materialien nach Harmonik-Restauration.
+
+> Vollständige Invariante: Spec 02 §2.57a — Algorithmus: Spec 04 §4.7a (Lookup-Tabelle)
+
+## §7.9 [RELEASE_MUST] Phase-09 LPC/AR-Lücken-Interpolation (v9.11.13)
+
+`_interpolate_hybrid()` ist eine **vollständige LPC/AR-Vorhersage** — kein Stub.
+
+**Invariante**: Vorwärts-AR aus Pre-Gap + Rückwärts-AR aus Post-Gap, linear überblendet.
+Pol-Stabilisierung (|z| ≥ 0.995 → 0.994). 5 ms Boundary-Crossfade.
+
+**VERBOTEN**: `_interpolate_hybrid()` als Alias für `_interpolate_linear()`.
+
+> Vollständiger Algorithmus: Spec 04 §4.7a
+
+---
+
+## §7.3a Phase-Implementierung — Patterns, Caching & Checkliste (konsolidiert aus Skill new-phase)
+
+### Phasen-Interface (Pflicht für jede Phase)
+
+Jede Phase liegt in `backend/core/phases/phase_XX_<name>.py` und MUSS:
+
+- `def execute(audio, sr, strength=1.0, **kwargs) -> tuple[np.ndarray, dict]` exportieren
+- `assert sr == 48000` am Eingang
+- `audio = np.clip(audio, -1.0, 1.0)` am Ausgang
+- `np.nan_to_num(result)` vor Return
+- PhaseResult-dict mit mindestens: `phase_id`, `applied`, `strength`, `metadata`
+
+### §2.29a Inference-Caching bei ML-Phasen
+
+ML-deterministische Phasen: Erster Aufruf mit `strength=1.0` → Cache `audio_full`. Retries nur Wet/Dry-Blend:
+`audio_retry = dry + strength × (audio_full − dry)`
+
+**ML-deterministische Phasen** (gecachte Inferenz):
+`phase_03`, `phase_06`, `phase_09`, `phase_12`, `phase_18`, `phase_20`,
+`phase_23`, `phase_24`, `phase_29`, `phase_42`, `phase_55`, `phase_56`
+
+**Strength-abhängige DSP-Phasen** (bei Retry neu ausführen):
+`phase_01`, `phase_02`, `phase_04`, `phase_10`, `phase_14`, `phase_17`, `phase_19`,
+`phase_22`, `phase_25`–`phase_28`, `phase_31`–`phase_41`, `phase_43`–`phase_54`
+
+### §2.43 Phase-Preserved Wet/Dry-Blend
+
+STFT-Bereich: `M_blend = (1−α)·M_dry + α·M_wet`, Phase vom Wet-Signal.
+Verhindert Phase-Cancellation bei Kopfhörer.
+
+### PHASE_GOAL_EXCLUSIONS — kanonische Tabelle (v9.10.96)
+
+| Phase | Ausgeschlossene Goals | Begründung |
+|---|---|---|
+| `phase_02` | bass_kraft, authentizitaet, natuerlichkeit, transparenz, groove, timbre_authentizitaet | Kammfilter Hum-Removal |
+| `phase_03` | natuerlichkeit, artikulation, authentizitaet, tonal_center, timbre_authentizitaet | CREPE-Load-State + shaped NR |
+| `phase_04` | transparenz, brillanz, waerme, authentizitaet, natuerlichkeit, timbre_authentizitaet | EQ |
+| `phase_08` | micro_dynamics, artikulation | TDP/HPSS |
+| `phase_12` | tonal_center, timbre_authentizitaet | K-S volatile nach Pitch-Korrektur |
+| `phase_18` | micro_dynamics, authentizitaet, emotionalitaet, groove | Noise Gate |
+| `phase_20` | authentizitaet, natuerlichkeit | SGMSE+ Reverb-Reduction |
+| `phase_23` | natuerlichkeit, brillanz, authentizitaet, artikulation, timbre_authentizitaet | AudioSR synthetisiert |
+| `phase_24` | natuerlichkeit, brillanz, authentizitaet, artikulation, timbre_authentizitaet | Dropout |
+| `phase_29` | artikulation, authentizitaet, natuerlichkeit, tonal_center, timbre_authentizitaet | DeepFilterNet Tape-Hiss |
+| `phase_49` | authentizitaet | Dereverb |
+
+**Material-adaptive Relaxation**: `cd_digital`/`dat` → phase_03/phase_29 reduziert auf `{"natuerlichkeit", "artikulation"}`.
+
+### §2.31b Song-Kalibrierungs-Integration (7 PMGG-Schnittstellen)
+
+1. **Threshold**: `global_scalar < 0.85` → ×0.85; `> 1.20` → ×1.15. Begrenzt [0.015, 0.070]
+2. **Retry-Leiter**: `initial_strength < 0.90` → Ankerpunkte `[0.80, 0.65, 0.50, 0.35, 0.20]`
+3. **Stagnation**: `max(0.002, threshold × 0.15)`
+4. **P3-Budget**: tier="good" → 3 Retries; tier="poor" → 1
+5. **FeedbackChain target**: Base 0.72/0.78 ±0.035 nach restorability. Begrenzt [0.60, 0.85]
+6. **Catastrophic**: `max(0.08, 4.0 × adaptive_threshold)`
+7. **Material-adaptive Exclusions**: cd_digital/dat → reduzierter Satz
+
+### PANNs Instrument-Aktivierungsmatrix
+
+| PANNs-Kategorie | Phase | Schwellwert |
+|---|---|---|
+| Vocals / Singing | phase_19 + phase_42 + phase_43 | ≥ 0.40 / ≥ 0.35 |
+| Guitar | phase_44 | ≥ 0.50 |
+| Brass / Saxophone | phase_45 | ≥ 0.50 |
+| Drum / Percussion | phase_51 | ≥ 0.50 |
+| Piano / Keyboard | phase_52 | ≥ 0.50 |
+
+### Vocal-Restaurierungskette (§2.8) — API-Falle
+
+`enhanced, report = self.breath_intelligence.process(audio, sr)` — **KEIN `events`-Argument!**
+
+### §2.36a Phonem-DSP-Klassen
+
+| Klasse | Algorithmus |
+|---|---|
+| fricative | Ramp-Gain 4–8 kHz, KEIN Wiener |
+| plosive | TransientShapeGuard (onset gain=1.0), Burst ×1.40 |
+| vowel_stressed | LPC Burg → F1–F4 Shelving |
+| silence | OMLSA G_floor=0.05 |
+
+### Checkliste neue Phase
+
+```
+□ backend/core/phases/phase_XX_<name>.py
+□ execute(audio, sr, strength=1.0, **kwargs) → (ndarray, dict)
+□ assert sr == 48000; NaN/Inf-Guard + Clip [-1, 1]
+□ PMGG-Exclusions festlegen + begründen (§2.55 bidirektional mit CIG!)
+□ ML-deterministisch oder strength-abhängig? → Caching-Strategie
+□ DSP-Fallback für optionale ML-Imports
+□ ml_memory_budget.try_allocate() VOR Modell-Laden
+□ defect_locations kwargs opt-in nutzen (§9.1)
+□ §2.51 Stereo: M/S-Domain oder Linked-Stereo (kein unabhängiges L/R)
+□ ≥ 35 Unit-Tests (Shape, NaN, Bounds, Edge, Mono, Stereo, MG, Groove-DTW, SOFT_SAT, Pass-Through, quality_est)
+□ OQS ≥ 80 nachweisbar
+□ CHANGELOG.md Eintrag
+```

@@ -193,6 +193,27 @@ class TestPhase44GuitarEnhancement:
         assert 0.0 < eff < 1.0
         assert float(result.metadata.get("phase_locality_factor", 1.0)) <= 0.4 + 1e-6
 
+    def test_metadata_contains_clap_fields(self, mono):
+        result = self.phase.process(mono, SR)
+        assert "clap_model_used" in result.metadata
+        assert "clap_confidence" in result.metadata
+        assert "clap_top_genres" in result.metadata
+        assert "clap_top_instruments" in result.metadata
+        assert "clap_embedding_32" in result.metadata
+
+    def test_metadata_contains_beats_fields(self, mono):
+        result = self.phase.process(mono, SR)
+        assert "beats_model_used" in result.metadata
+        assert "beats_top_tags" in result.metadata
+        assert "beats_embedding_32" in result.metadata
+
+    def test_semantic_embeddings_are_transport_safe_lists(self, mono):
+        result = self.phase.process(mono, SR)
+        assert isinstance(result.metadata.get("clap_embedding_32"), list)
+        assert isinstance(result.metadata.get("beats_embedding_32"), list)
+        assert len(result.metadata.get("clap_embedding_32", [])) <= 32
+        assert len(result.metadata.get("beats_embedding_32", [])) <= 32
+
 
 # ===========================================================================
 # Phase 45 – Brass Enhancement
@@ -540,6 +561,30 @@ class TestPhase53SemanticAudio:
         result = self.phase.process(mono, SR)
         assert "genre_hint" in result.metadata, "Kein genre_hint in Metadata"
 
+    def test_metadata_contains_genre_hint_source_and_confidence(self, mono):
+        result = self.phase.process(mono, SR)
+        assert "genre_hint_source" in result.metadata
+        assert "genre_hint_confidence" in result.metadata
+
+    def test_genre_hint_is_canonical_label(self, mono):
+        result = self.phase.process(mono, SR)
+        assert result.metadata.get("genre_hint") in {
+            "Klassik",
+            "Oper",
+            "Jazz",
+            "Rock",
+            "Pop",
+            "Blues",
+            "Folk",
+            "Electronic",
+            "Hip-Hop",
+            "Reggae",
+            "Gospel",
+            "Soul/R&B",
+            "Schlager",
+            "Unbekannt",
+        }
+
     def test_metadata_contains_loudness_class(self, mono):
         result = self.phase.process(mono, SR)
         assert "loudness_class" in result.metadata
@@ -568,3 +613,18 @@ class TestPhase53SemanticAudio:
         eff = float(result.metadata.get("effective_strength", 1.0))
         assert 0.0 < eff < 1.0
         assert float(result.metadata.get("phase_locality_factor", 1.0)) <= 0.4 + 1e-6
+
+    def test_metadata_contains_semantic_tier_fields(self, mono):
+        result = self.phase.process(mono, SR)
+        assert "clap_model_used" in result.metadata
+        assert "clap_top_genres" in result.metadata
+        assert "beats_model_used" in result.metadata
+        assert "beats_top_tags" in result.metadata
+
+    def test_phase53_canonicalize_genre_helper(self):
+        from backend.core.phases.phase_53_semantic_audio import _canonicalize_genre_hint
+
+        assert _canonicalize_genre_hint("classical") == "Klassik"
+        assert _canonicalize_genre_hint("rock_metal") == "Rock"
+        assert _canonicalize_genre_hint("rnb") == "Soul/R&B"
+        assert _canonicalize_genre_hint("hip_hop") == "Hip-Hop"

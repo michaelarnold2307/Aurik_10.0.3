@@ -96,6 +96,16 @@ class AdvancedDereverbPhase(PhaseInterface):
         "vinyl": 2.0,
         "shellac": 1.8,
         "wax_cylinder": 1.5,
+        "cd_digital": 1.8,
+        "mp3_low": 1.5,
+        "mp3_high": 1.8,
+        "aac": 1.8,
+        "m4a": 1.8,
+        "ogg": 1.8,
+        "flac": 1.8,
+        "streaming": 1.6,
+        "dat": 1.8,
+        "minidisc": 1.8,
         "unknown": 2.0,
     }
 
@@ -238,6 +248,14 @@ class AdvancedDereverbPhase(PhaseInterface):
 
             if _alloc_49("SGMSE+_phase49", 0.25):
                 try:
+                    _plm49 = None
+                    try:
+                        from backend.core.plugin_lifecycle_manager import get_plugin_lifecycle_manager as _get_plm49
+
+                        _plm49 = _get_plm49()
+                        _plm49.set_active("SGMSE+", True)
+                    except Exception:
+                        _plm49 = None
                     # sigma: adaptiv aus strength — stärkerer Nachhall braucht höheres sigma
                     _sigma = float(np.clip(0.25 + strength * 0.65, 0.25, 0.90))
                     _ml_runtime_budget_s = float(np.clip(kwargs.get("ml_runtime_budget_s", 60.0), 20.0, 120.0))
@@ -264,6 +282,11 @@ class AdvancedDereverbPhase(PhaseInterface):
                         _sgmse_err,
                     )
                 finally:
+                    if _plm49 is not None:
+                        try:
+                            _plm49.set_active("SGMSE+", False)
+                        except Exception:
+                            pass
                     _release_49("SGMSE+_phase49")
         except Exception as _imp_err:
             logger.debug("Phase 49: SGMSE+-Import nicht verfügbar (%s) → WPE DSP-Fallback", _imp_err)
@@ -412,9 +435,13 @@ class AdvancedDereverbPhase(PhaseInterface):
         # §4.5 Psychoacoustic Masking Clamp — preserve inaudible reverb tail
         try:
             from backend.core.dsp.psychoacoustics import apply_psychoacoustic_masking_clamp
+
             processed = apply_psychoacoustic_masking_clamp(
-                audio, processed, sample_rate,
-                strength=effective_strength, mode="subtractive",
+                audio,
+                processed,
+                sample_rate,
+                strength=effective_strength,
+                mode="subtractive",
             )
         except Exception as _pm_exc:
             logger.debug("Phase49 masking clamp non-blocking: %s", _pm_exc)
@@ -464,7 +491,10 @@ class AdvancedDereverbPhase(PhaseInterface):
     def _rms_dbfs_gated(self, audio: np.ndarray, gate_dbfs: float = -50.0) -> float:
         """Frame-wise RMS over active music frames only (§2.45a-I)."""
         _x = np.asarray(audio, dtype=np.float32)
-        _mono = np.mean(_x, axis=1) if _x.ndim == 2 else _x
+        if _x.ndim == 2:
+            _mono = _x.mean(axis=0) if _x.shape[0] <= 2 else _x.mean(axis=1)
+        else:
+            _mono = _x
         if _mono.size < 480:
             _rms = float(np.sqrt(np.mean(_mono.astype(np.float64) ** 2) + 1e-12))
             return float(20.0 * np.log10(_rms + 1e-10))
@@ -661,8 +691,8 @@ class AdvancedDereverbPhase(PhaseInterface):
             # 2. Predelay via normalized autocorrelation
             max_lag = int(0.020 * sample_rate)  # Search up to 20 ms
             if len(x) > 2 * max_lag:
-                ac = np.correlate(x[:max_lag * 4], x[:max_lag * 4], mode="full")
-                ac = ac[len(ac)//2:]  # Keep positive lags only
+                ac = np.correlate(x[: max_lag * 4], x[: max_lag * 4], mode="full")
+                ac = ac[len(ac) // 2 :]  # Keep positive lags only
                 ac_norm = ac / (float(ac[0]) + 1e-14)
                 # Find first local peak after lag=0
                 for lag in range(2, min(max_lag, len(ac_norm) - 1)):
@@ -680,7 +710,7 @@ class AdvancedDereverbPhase(PhaseInterface):
             # 4. DRR proxy: first 5 ms vs full (Vesa & Harma 2005)
             direct_window = int(0.005 * sample_rate)
             if direct_window > 0:
-                rms_direct = float(np.sqrt(np.mean(x[:direct_window]**2)) + 1e-14)
+                rms_direct = float(np.sqrt(np.mean(x[:direct_window] ** 2)) + 1e-14)
                 rms_total = float(np.sqrt(np.mean(x**2)) + 1e-14)
                 ddRR = 20.0 * np.log10(rms_direct / rms_total)
                 result["drr_db"] = float(np.clip(ddRR, -20.0, 30.0))

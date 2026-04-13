@@ -237,13 +237,28 @@ class HybridMLDenoiser:
 
         # Store original shape for length preservation
         is_stereo = audio.ndim == 2
-        original_length = audio.shape[1] if is_stereo else audio.shape[0]
+        if is_stereo:
+            # Detect orientation: channels-first (ch, N) → shape[0] ≤ 2 and shape[1] > 2
+            # vs samples-first (N, ch) → shape[0] > shape[1].
+            if audio.shape[0] <= 2 and audio.shape[1] > 2:
+                # (ch, N) → downmix along axis=0
+                audio_mono = np.mean(audio, axis=0)
+                original_length = audio.shape[1]
+            else:
+                # (N, ch) → downmix along axis=1
+                audio_mono = np.mean(audio, axis=1)
+                original_length = audio.shape[0]
+        else:
+            audio_mono = audio
+            original_length = audio.shape[0]
 
-        # Handle stereo → mono
-        audio_mono = np.mean(audio, axis=0) if is_stereo else audio
-
-        # STFT
-        _f, _t, Zxx = signal.stft(audio_mono, fs=sample_rate, nperseg=2048, noverlap=1536)
+        # STFT — clamp noverlap so it is always < min(nperseg, signal_length).
+        # scipy auto-reduces nperseg to signal_length for short chunks which leaves
+        # the fixed noverlap=1536 >= effective nperseg → ValueError.
+        _sig_len = int(len(audio_mono))
+        _nperseg = int(min(2048, max(1, _sig_len)))
+        _noverlap = int(min(1536, max(0, _nperseg - 1)))
+        _f, _t, Zxx = signal.stft(audio_mono, fs=sample_rate, nperseg=_nperseg, noverlap=_noverlap)
 
         noisy_mag = np.abs(Zxx)
         noisy_phase = np.angle(Zxx)
@@ -262,7 +277,7 @@ class HybridMLDenoiser:
 
         # ISTFT
         Zxx_clean = clean_mag * np.exp(1j * noisy_phase)
-        _, audio_clean = signal.istft(Zxx_clean, fs=sample_rate, nperseg=2048, noverlap=1536)
+        _, audio_clean = signal.istft(Zxx_clean, fs=sample_rate, nperseg=_nperseg, noverlap=_noverlap)
 
         # Trim/pad to original length
         if len(audio_clean) > original_length:

@@ -1,21 +1,84 @@
 {
-  "timestamp": "2026-04-12T12:01:13.852942",
   "backend_log": "logs/aurik_backend.log",
-  "frontend_log": "logs/aurik_frontend.out",
-  "latest_run_window": {
-    "start_line": -1,
-    "end_line": -1
-  },
-  "compliance_ok": false,
-  "required_passed": 0,
-  "required_total": 1,
   "checks": [
     {
+      "evidence": "AurikDenker.denke() gestartet gefunden",
       "id": "entry_denker",
-      "title": "AurikDenker Einstieg genutzt",
+      "passed": true,
+      "required": true,
+      "title": "AurikDenker Einstieg genutzt"
+    },
+    {
+      "evidence": "mode=restoration/studio_2026 vorhanden",
+      "id": "mode_contract",
+      "passed": true,
+      "required": true,
+      "title": "Nur erlaubter Betriebsmodus"
+    },
+    {
+      "evidence": "Cached Defect/PreAnalysis im Lauf genutzt",
+      "id": "preanalysis_handover",
+      "passed": true,
+      "required": true,
+      "title": "\u00a72.47a PreAnalysis-Handover sichtbar"
+    },
+    {
+      "evidence": "\ud83d\udd0d MediumDetector fresh_count=0 (cached ignoriert)",
+      "id": "medium_detect_single",
+      "passed": true,
+      "required": true,
+      "title": "MediumDetector im Lauf nicht mehrfach aktiv"
+    },
+    {
+      "evidence": "Kein Final-AFG-Eintrag",
+      "id": "artifact_gate",
       "passed": false,
       "required": true,
-      "evidence": "Kein AurikDenker-Start im Backend-Log"
+      "title": "\u00a72.49 Artifact-Freedom Gate erf\u00fcllt"
+    },
+    {
+      "evidence": "HPI-Eintrag vorhanden",
+      "id": "hpi_gate",
+      "passed": true,
+      "required": true,
+      "title": "\u00a72.44 HPI-Gate protokolliert"
+    },
+    {
+      "evidence": "Joy-Index-Signal gefunden",
+      "id": "exp_joy_runtime",
+      "passed": true,
+      "required": true,
+      "title": "\u00a72.53 joy_runtime_index propagiert"
+    },
+    {
+      "evidence": "Auto-Improve-Signal gefunden",
+      "id": "exp_auto_improve",
+      "passed": true,
+      "required": true,
+      "title": "\u00a72.53 auto_improvement_recommendations propagiert"
+    },
+    {
+      "evidence": "cluster_policy gefunden",
+      "id": "exp_cluster_policy",
+      "passed": true,
+      "required": true,
+      "title": "\u00a72.53 cluster_policy propagiert"
+    },
+    {
+      "evidence": "Exzellenz-API-Hinweis gefunden",
+      "id": "exzellenz_api_contract",
+      "passed": true,
+      "required": false,
+      "title": "\u00a72.53a Exzellenz-API-Pfad erkennbar"
     }
-  ]
+  ],
+  "compliance_ok": false,
+  "frontend_log": "logs/aurik_frontend.out",
+  "latest_run_window": {
+    "end_line": 5183,
+    "start_line": 2871
+  },
+  "required_passed": 8,
+  "required_total": 9,
+  "timestamp": "2026-04-13T15:39:28.243414"
 }

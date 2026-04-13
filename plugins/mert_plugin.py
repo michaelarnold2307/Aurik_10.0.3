@@ -104,9 +104,9 @@ def _resample_if_needed(audio: np.ndarray, src_sr: int, dst_sr: int) -> np.ndarr
 def _to_mono(audio: np.ndarray) -> np.ndarray:
     if audio.ndim == 1:
         return audio
-    if audio.shape[0] <= 8:
-        return np.mean(audio, axis=0)
-    return np.mean(audio, axis=1)
+    if audio.ndim == 2:
+        return audio.mean(axis=0) if audio.shape[0] <= 2 else audio.mean(axis=1)
+    return audio
 
 
 def _frame_rms(audio: np.ndarray, hop: int) -> np.ndarray:

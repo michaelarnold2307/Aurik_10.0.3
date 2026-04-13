@@ -200,7 +200,7 @@ class ConsonantDetector:
             mono = audio
         elif audio.ndim == 2:
             # Unterstütze [channels, samples] und [samples, channels]
-            mono = audio.mean(axis=0) if audio.shape[0] <= 2 and audio.shape[0] < audio.shape[1] else audio.mean(axis=1)
+            mono = audio.mean(axis=0) if audio.shape[0] <= 2 else audio.mean(axis=1)
         else:
             mono = audio.flatten()
 

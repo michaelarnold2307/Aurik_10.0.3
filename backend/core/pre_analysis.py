@@ -249,6 +249,10 @@ def run_pre_analysis(
             "file_ext": file_ext,
             "forensic_medium_result": _medium_result,
         }
+        # §2.47a: Pass forensically-detected material to scan() so threshold setup
+        # uses the MediumDetector result rather than the internal heuristic fallback.
+        if _material_str not in ("unknown", ""):
+            _kw["material_type"] = _material_str
         if scan_progress_callback is not None:
             _kw["progress_callback"] = scan_progress_callback
         return scanner.scan(audio_native, **_kw)

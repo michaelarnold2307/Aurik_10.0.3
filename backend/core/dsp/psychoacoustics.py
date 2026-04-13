@@ -35,7 +35,6 @@ from __future__ import annotations
 import logging
 import threading
 from dataclasses import dataclass
-from typing import Optional
 
 import numpy as np
 from scipy import signal as _sp_signal
@@ -48,9 +47,31 @@ logger = logging.getLogger(__name__)
 # ──────────────────────────────────────────────────────────────────────
 BARK_EDGES_HZ: np.ndarray = np.array(
     [
-        20, 100, 200, 300, 400, 510, 630, 770,
-        920, 1080, 1270, 1480, 1720, 2000, 2320, 2700,
-        3150, 3700, 4400, 5300, 6400, 7700, 9500, 12000, 15500,
+        20,
+        100,
+        200,
+        300,
+        400,
+        510,
+        630,
+        770,
+        920,
+        1080,
+        1270,
+        1480,
+        1720,
+        2000,
+        2320,
+        2700,
+        3150,
+        3700,
+        4400,
+        5300,
+        6400,
+        7700,
+        9500,
+        12000,
+        15500,
     ],
     dtype=np.float64,
 )
@@ -67,15 +88,73 @@ BARK_CENTERS_HZ: np.ndarray = 0.5 * (BARK_EDGES_HZ[:-1] + BARK_EDGES_HZ[1:])
 # ──────────────────────────────────────────────────────────────────────
 # Reference SPL at 40 phon (ISO 226:2023) for selected standard frequencies
 _ISO226_FREQ_HZ: np.ndarray = np.array(
-    [20, 25, 31.5, 40, 50, 63, 80, 100, 125, 160, 200, 250, 315, 400, 500,
-     630, 800, 1000, 1250, 1600, 2000, 2500, 3150, 4000, 5000, 6300, 8000,
-     10000, 12500, 16000],
+    [
+        20,
+        25,
+        31.5,
+        40,
+        50,
+        63,
+        80,
+        100,
+        125,
+        160,
+        200,
+        250,
+        315,
+        400,
+        500,
+        630,
+        800,
+        1000,
+        1250,
+        1600,
+        2000,
+        2500,
+        3150,
+        4000,
+        5000,
+        6300,
+        8000,
+        10000,
+        12500,
+        16000,
+    ],
     dtype=np.float64,
 )
 _ISO226_40PHON_SPL: np.ndarray = np.array(
-    [73.4, 65.8, 59.2, 53.8, 49.3, 45.6, 42.5, 40.5, 38.7, 37.4, 36.7, 36.5,
-     36.7, 37.0, 37.4, 37.5, 37.1, 36.8, 36.2, 34.4, 30.6, 26.5, 22.7, 20.4,
-     20.8, 24.0, 28.7, 33.7, 38.4, 43.9],
+    [
+        73.4,
+        65.8,
+        59.2,
+        53.8,
+        49.3,
+        45.6,
+        42.5,
+        40.5,
+        38.7,
+        37.4,
+        36.7,
+        36.5,
+        36.7,
+        37.0,
+        37.4,
+        37.5,
+        37.1,
+        36.8,
+        36.2,
+        34.4,
+        30.6,
+        26.5,
+        22.7,
+        20.4,
+        20.8,
+        24.0,
+        28.7,
+        33.7,
+        38.4,
+        43.9,
+    ],
     dtype=np.float64,
 )
 
@@ -86,9 +165,38 @@ _ATH_SPL: np.ndarray = np.interp(
     _ISO226_FREQ_HZ,
     # Approximate ATH from ISO 226:2023 (minimum audible field)
     np.array(
-        [78.5, 68.7, 59.5, 51.1, 44.0, 38.5, 34.0, 30.5, 27.5, 25.0, 23.0,
-         22.0, 21.0, 21.0, 19.0, 18.5, 17.5, 16.5, 15.5, 14.0, 12.0, 10.0,
-         8.0, 8.5, 11.0, 15.0, 21.0, 29.5, 38.0, 48.0],
+        [
+            78.5,
+            68.7,
+            59.5,
+            51.1,
+            44.0,
+            38.5,
+            34.0,
+            30.5,
+            27.5,
+            25.0,
+            23.0,
+            22.0,
+            21.0,
+            21.0,
+            19.0,
+            18.5,
+            17.5,
+            16.5,
+            15.5,
+            14.0,
+            12.0,
+            10.0,
+            8.0,
+            8.5,
+            11.0,
+            15.0,
+            21.0,
+            29.5,
+            38.0,
+            48.0,
+        ],
         dtype=np.float64,
     ),
 )
@@ -97,20 +205,23 @@ _ATH_SPL: np.ndarray = np.interp(
 # ISO 532-1 Lautheits-Kurve: Pegeldifferenz (dB) bei 40 Phon pro Bark-Band
 # gegenüber 1 kHz-Referenz (ISO 226:2023-basiert)
 # ──────────────────────────────────────────────────────────────────────
-_ISO226_CORRECTION_DB: np.ndarray = np.interp(
-    BARK_CENTERS_HZ,
-    _ISO226_FREQ_HZ,
-    _ISO226_40PHON_SPL,
-) - _ISO226_40PHON_SPL[np.where(_ISO226_FREQ_HZ == 1000)[0][0]]  # Normalize to 1 kHz
+_ISO226_CORRECTION_DB: np.ndarray = (
+    np.interp(
+        BARK_CENTERS_HZ,
+        _ISO226_FREQ_HZ,
+        _ISO226_40PHON_SPL,
+    )
+    - _ISO226_40PHON_SPL[np.where(_ISO226_FREQ_HZ == 1000)[0][0]]
+)  # Normalize to 1 kHz
 
 # ──────────────────────────────────────────────────────────────────────
 # Sone-Phon Konversionskonstanten (Zwicker 1961)
 # N = 2^((Lp - 40) / 10) für Lp ≥ 40 Phon (sone Referenz: 40 Phon @ 1 kHz = 1 sone)
 # N = (Lp / 40)^2.642    für 0 < Lp < 40 Phon (low-level approximation)
 # ──────────────────────────────────────────────────────────────────────
-_REF_PHON: float = 40.0   # 1 sone = 40 Phon @ 1 kHz
-_EXP_HIGH: float = 0.1    # exponent for Lp ≥ 40: N = 2^(0.1 * (Lp - 40))
-_EXP_LOW: float = 2.642   # exponent for Lp < 40: N = (Lp/40)^2.642
+_REF_PHON: float = 40.0  # 1 sone = 40 Phon @ 1 kHz
+_EXP_HIGH: float = 0.1  # exponent for Lp ≥ 40: N = 2^(0.1 * (Lp - 40))
+_EXP_LOW: float = 2.642  # exponent for Lp < 40: N = (Lp/40)^2.642
 
 # Assumed SPL calibration: full-scale (0 dBFS) ≡ 90 dB SPL (typical studio level)
 # This is a conservative studio reference; Aurik does not perform absolute SPL
@@ -135,17 +246,17 @@ class ZwickerLoudnessResult:
     """
 
     total_loudness_sone: float
-    specific_loudness: np.ndarray   # shape (24,), float64
+    specific_loudness: np.ndarray  # shape (24,), float64
     loudness_phon: float
     n_bark_bands: int = N_BARK
-    band_levels_db_spl: Optional[np.ndarray] = None
+    band_levels_db_spl: np.ndarray | None = None
     computation_valid: bool = True
 
-    def delta_phon(self, reference: "ZwickerLoudnessResult") -> float:
+    def delta_phon(self, reference: ZwickerLoudnessResult) -> float:
         """Pegel-Differenz in Phon gegenüber Referenz."""
         return self.loudness_phon - reference.loudness_phon
 
-    def delta_sone(self, reference: "ZwickerLoudnessResult") -> float:
+    def delta_sone(self, reference: ZwickerLoudnessResult) -> float:
         """Lautheits-Differenz in Sone gegenüber Referenz."""
         return self.total_loudness_sone - reference.total_loudness_sone
 
@@ -329,7 +440,7 @@ def _compute_zwicker_internal(
             continue
 
         # RMS → dBFS
-        rms = float(np.sqrt(np.mean(filtered ** 2)))
+        rms = float(np.sqrt(np.mean(filtered**2)))
         if rms < 1e-12:
             band_levels_db_spl[b] = -120.0  # Below computational floor
             continue
@@ -379,6 +490,7 @@ def _compute_zwicker_internal(
 # Pipeline-Guard-Hilfsfunktion (Aurik §4.1b ΔN-Tabelle)
 # ──────────────────────────────────────────────────────────────────────
 
+
 def evaluate_mid_pipeline_loudness_delta(
     audio_before: np.ndarray,
     audio_after: np.ndarray,
@@ -425,12 +537,17 @@ def evaluate_mid_pipeline_loudness_delta(
     if action in ("warning", "fail_dry_wet_rescue"):
         logger.warning(
             "§4.1b Zwicker-Lautheit: Phase=%s ΔN=%.2f sone (%.1f phon) → %s",
-            phase_name, delta_sone, delta_phon, action,
+            phase_name,
+            delta_sone,
+            delta_phon,
+            action,
         )
     elif action == "info":
         logger.info(
             "§4.1b Zwicker-Lautheit: Phase=%s ΔN=%.2f sone (%.1f phon) → info",
-            phase_name, delta_sone, delta_phon,
+            phase_name,
+            delta_sone,
+            delta_phon,
         )
 
     return {
@@ -449,6 +566,7 @@ def evaluate_mid_pipeline_loudness_delta(
 # ──────────────────────────────────────────────────────────────────────
 # Spezifische Lautheit nach ISO 532-1 als numpy-Array (schnelle Variante)
 # ──────────────────────────────────────────────────────────────────────
+
 
 def compute_specific_loudness_array(audio: np.ndarray, sr: int) -> np.ndarray:
     """Gibt spezifische Lautheit N'(z) als float64-Array zurück (24 Bark-Bänder).
@@ -469,6 +587,7 @@ def compute_specific_loudness_array(audio: np.ndarray, sr: int) -> np.ndarray:
 # Bark-Energie-Profil (vereinfachte Variante ohne Phon-Konversion)
 # Für schnelle Nutzung in Guards (< 5 ms)
 # ──────────────────────────────────────────────────────────────────────
+
 
 def compute_bark_energy_profile(audio: np.ndarray, sr: int) -> np.ndarray:
     """Schnelles Bark-Energieprofil ohne Phon-Konversion (RMS pro Band).
@@ -495,7 +614,7 @@ def compute_bark_energy_profile(audio: np.ndarray, sr: int) -> np.ndarray:
             if sos is None:
                 continue
             filtered = _sp_signal.sosfilt(sos, arr)
-            profile[b] = float(np.sqrt(np.mean(filtered ** 2)))
+            profile[b] = float(np.sqrt(np.mean(filtered**2)))
         return np.nan_to_num(profile, nan=0.0, posinf=0.0, neginf=0.0)
     except Exception as _e:
         logger.debug("compute_bark_energy_profile Fehler: %s", _e)
@@ -578,7 +697,7 @@ def compute_noise_texture_profile(
             if e > len(arr):
                 break
             frame = arr[s:e]
-            rms = float(np.sqrt(np.mean(frame ** 2) + 1e-12))
+            rms = float(np.sqrt(np.mean(frame**2) + 1e-12))
             rms_db = 20.0 * np.log10(rms + 1e-12)
             if rms_db < -35.0:
                 # Analyse spectrum of quiet frame
@@ -707,27 +826,27 @@ def synthesize_comfort_noise(
             shaped_spec = spec * shape_filter
             shaped_noise = np.fft.irfft(shaped_spec, n=n_fft) * win
             # Normalise to target RMS
-            block_rms = float(np.sqrt(np.mean(shaped_noise ** 2) + 1e-12))
+            block_rms = float(np.sqrt(np.mean(shaped_noise**2) + 1e-12))
             if block_rms > 1e-10:
                 shaped_noise *= target_rms / block_rms
-            noise_out[s: s + n_fft] += shaped_noise
+            noise_out[s : s + n_fft] += shaped_noise
 
         # Overlap-add normalisation
         win_sum = np.zeros(n_samples, dtype=np.float64)
         for s in range(0, n_samples - n_fft, hop):
-            win_sum[s: s + n_fft] += win
+            win_sum[s : s + n_fft] += win
         win_sum = np.clip(win_sum, 1e-8, None)
         noise_out /= win_sum
 
         # Apply only to quiet frames (< -40 dBFS) with smooth crossfade
         frame_len = int(0.03 * sr)  # 30 ms
-        fade_len = int(0.01 * sr)   # 10 ms crossfade
+        fade_len = int(0.01 * sr)  # 10 ms crossfade
         result = arr.copy()
 
         for s in range(0, n_samples - frame_len, frame_len // 2):
             e = min(s + frame_len, n_samples)
             frame = arr[s:e]
-            rms = float(np.sqrt(np.mean(frame ** 2) + 1e-12))
+            rms = float(np.sqrt(np.mean(frame**2) + 1e-12))
             rms_db = 20.0 * np.log10(rms + 1e-12)
 
             if rms_db < -40.0:
@@ -738,10 +857,9 @@ def synthesize_comfort_noise(
                 # Smooth edges
                 if s > fade_len:
                     fade_in = np.linspace(0.0, 1.0, fade_len)
-                    result[s: s + fade_len] = (
-                        (1.0 - fade_in) * arr[s: s + fade_len]
-                        + fade_in * result[s: s + fade_len]
-                    )
+                    result[s : s + fade_len] = (1.0 - fade_in) * arr[s : s + fade_len] + fade_in * result[
+                        s : s + fade_len
+                    ]
 
         return np.nan_to_num(result, nan=0.0, posinf=0.0, neginf=0.0).astype(audio.dtype)
 
@@ -753,6 +871,7 @@ def synthesize_comfort_noise(
 # ──────────────────────────────────────────────────────────────────────
 # §2.45a-IV Zeitvariante Loudness (von Bismarck 1974 / Moore 2014)
 # ──────────────────────────────────────────────────────────────────────
+
 
 def compute_time_varying_loudness(
     audio: np.ndarray,
@@ -803,7 +922,7 @@ def compute_time_varying_loudness(
             frame = arr[s:e]
             # Fast RMS → approximate loudness via Stevens' power law:
             # L = k * I^0.3 (sone approximation for broadband signals)
-            rms = float(np.sqrt(np.mean(frame ** 2) + 1e-12))
+            rms = float(np.sqrt(np.mean(frame**2) + 1e-12))
             # Convert RMS to approximate SPL (dB), then to sone
             rms_db = 20.0 * np.log10(max(rms, 1e-10))
             # Map dBFS to approximate Phon (40 phon ≈ -20 dBFS for typical mastering)
@@ -819,8 +938,8 @@ def compute_time_varying_loudness(
         # Apply temporal integration (attack/release smoothing)
         # τ_attack ≈ 20 ms, τ_release ≈ 100 ms (von Bismarck 1974)
         dt = hop_ms / 1000.0
-        alpha_attack = 1.0 - np.exp(-dt / 0.020)   # 20 ms attack
-        alpha_release = 1.0 - np.exp(-dt / 0.100)   # 100 ms release
+        alpha_attack = 1.0 - np.exp(-dt / 0.020)  # 20 ms attack
+        alpha_release = 1.0 - np.exp(-dt / 0.100)  # 100 ms release
 
         smoothed = np.zeros_like(raw_loudness)
         smoothed[0] = raw_loudness[0]
@@ -869,7 +988,7 @@ def compute_loudness_envelope_delta(
         return {
             "mean_delta_sone": float(np.mean(delta)),
             "max_delta_sone": float(np.max(np.abs(delta))),
-            "rms_delta_sone": float(np.sqrt(np.mean(delta ** 2))),
+            "rms_delta_sone": float(np.sqrt(np.mean(delta**2))),
             "quiet_passage_delta_sone": quiet_delta,
             "n_frames": int(n),
             "valid": True,
@@ -883,6 +1002,7 @@ def compute_loudness_envelope_delta(
 # §4.5 Reusable Psychoacoustic Masking Clamp — for ALL subtraktive/additive Phasen
 # ──────────────────────────────────────────────────────────────────────
 
+
 def apply_psychoacoustic_masking_clamp(
     original_audio: np.ndarray,
     processed_audio: np.ndarray,
@@ -891,6 +1011,7 @@ def apply_psychoacoustic_masking_clamp(
     strength: float = 1.0,
     mode: str = "subtractive",
     min_energy_ratio: float = 0.20,
+    masking_result=None,
 ) -> np.ndarray:
     """Apply psychoacoustic masking to protect inaudible modifications.
 
@@ -941,8 +1062,10 @@ def apply_psychoacoustic_masking_clamp(
         if orig_mono.size < 1024:
             return processed_audio
 
-        # Compute masking threshold on the ORIGINAL audio
-        masking_result = compute_masking_threshold(orig_mono, sr)
+        # Compute masking threshold on the ORIGINAL audio (or reuse precomputed result).
+        # Reuse improves consistency across phases and avoids redundant per-phase recompute.
+        if masking_result is None:
+            masking_result = compute_masking_threshold(orig_mono, sr)
         gain_t = np.mean(masking_result.gain_modifier, axis=1).astype(np.float32)
 
         # Interpolate to sample-level

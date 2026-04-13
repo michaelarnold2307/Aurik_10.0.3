@@ -922,3 +922,251 @@ threading.Thread(target=_warmup_models_background, daemon=True, name="AurikWarmu
 #          Ausreichend für stationäre Spektral-/Chroma-/Transient-Metriken
 #          Verhindert NMF/Onset-Runs auf Langaudio (> 2 s/Call auf 60 s-Material)
 ```
+
+---
+
+## §11.4c UI — Echtzeit-UX, Thread-Safety & State-Machines (konsolidiert aus Skill ui-feature)
+
+### Thread-Safety (ABSOLUTES VERBOT)
+
+**Kein Qt-Widget-Zugriff aus Hintergrundthreads.**
+
+```python
+# Pattern: Signal-Dispatch
+_gui_dispatch = pyqtSignal(object)
+# connect: self._gui_dispatch.connect(lambda fn: fn())
+# Aufruf aus Thread:
+self._dispatch_to_gui(lambda: widget.setText("..."))
+```
+
+### Progress Bar
+
+- **`setRange(0, 10000)`** immer — 1 Einheit = 0.01 %
+- Signale senden 0–100, Slot skaliert `v * 100`
+- **VERBOTEN**: `setRange(0, 100)` in ModernMainWindow
+
+### Shortcuts
+
+| Key | Aktion |
+|---|---|
+| Space | Play/Pause |
+| A / B | Original / Restauriert |
+| Ctrl+O / Ctrl+S | Öffnen / Export |
+| Ctrl+R / Ctrl+Shift+R | Restoration / Studio 2026 |
+| Escape | Abbruch |
+| L | Lyrics-Overlay |
+
+### BatchProcessingThread — Signal-Kontrakt
+
+`item_started(str)`, `item_progress(str,int)`, `item_finished(str)`, `item_finished_with_result(str,object)`,
+`item_error(str,str)`, `all_finished()`, `defect_update(dict)`, `phase_update(str)`, `waveform_data(ndarray,int)`,
+`mode_update(str)`, `ml_status_update(bool,list)`, `phase_progress(int)`, `scan_progress(float)`, `quality_update(float)`.
+
+`progress_callback`-Signatur: `(pct: int, msg: str, elapsed_s: float = 0.0) → None`
+
+### Echtzeit-UX-Features
+
+| Feature | Implementierung |
+|---|---|
+| Phase-Fortschritt | `phase_progress_bar` (5 px, lila Gradient) unter Hauptleiste |
+| Defekte-Animation | Count-up (22 Frames × 85 ms); `_PHASE_REDUCES` senkt Scores ×0.3 |
+| Varianten-Wettkampf | `★name_1 (4.12) › name_2 (3.87)` Rangliste |
+| Quality-Meter | `quality_meter_widget.set_mos()`, startet 2.5 → 4.2 |
+| Phasen-Erklärung | `_PHASE_EXPL`-Dict (22 Einträge) → Statuszeile |
+| Waveform-Scan | oranger Cursor (12px Glow + 2px DashLine) |
+| Vorab-Hörprobe | `QTimer.singleShot(1400, _auto_preview_restored)` — erste 5 s |
+
+### §11.4b Schadensmarker-Lebenszyklus
+
+| Phase | Waveform | Defekt-Chip |
+|---|---|---|
+| `detected` | Farbiger Marker per Count-up-Animation | Roter/amber Severity-Chip mit Fortschrittsbalken |
+| `correcting` | Marker bleibt sichtbar; verschwindet bei Score ≤ 0.01 (`_tick_defect_removal`, 75 ms) | Amber → orange bei aktivem Repair |
+| **Abgeschlossen** (score ≤ 0.01) | **Marker verschwindet** — kein grünes Overlay | **Grüner Haken-Chip** `&#10003;` in `#4DC878`, Rand `rgba(77,200,120,0.45)` |
+
+`_show_resolved_markers = False` — keine grünen Overlay-Rechtecke. Haken-Chip-Rendering: `fix_ratio >= 0.75` → kein `_bar`, nur Haken.
+
+### Async-Analyse-Kette
+
+5 Daemon-Threads: `_bg_load` → `_carrier_bg` → `_detect_era_genre_bg` → `_estimate_restorability_bg` → `_run_defect_scan_bg`
+
+**Magic-Button-Sync-Gate**: Buttons deaktiviert bis `_run_defect_scan_bg` UND `_detect_era_genre_bg` fertig.
+Freigabe über `_try_signal_preanalysis_done()` → `_finalize_preanalysis()`.
+Timeout: `QTimer.singleShot(15_000, _preanalysis_timeout)`.
+
+**`_carrier_bg` Pflicht**: `get_medium_detector().detect(audio, sr, file_ext=...)` — NICHT `classify_medium()`.
+
+### Watchdog-Timer
+
+```python
+_per_file_ms = max(5_400_000, int(audio_dur_s * 32_000) + 1_800_000)
+_watchdog_ms = max(5_400_000, n_files * _per_file_ms)  # Min 90 Min
+```
+
+### Bridge-Fallback (`_BRIDGE_AVAILABLE`)
+
+Bei fehlendem Backend: `_BRIDGE_AVAILABLE = False` mit 17 Stub-Funktionen.
+`_export_guard` vollständig (NaN+Clip), alle anderen: `return None`.
+
+### KMV Stufe-2 UI
+
+- `refinement_progress_bar`: 3 px, türkis `#00BCD4`
+- Fertig: `"Export vollständig restauriert ✓ — ML-Qualität"` (5 s Notification)
+- Escape → `requestInterruption()` trifft BatchThread UND MLRefinementThread
+
+---
+
+## §11.5a Architektur-Visualisierung mit Mermaid (konsolidiert aus Skill aurik-architecture-diagram)
+
+### Farbschema (verbindlich für alle Diagramme)
+
+| Typ | `classDef` | Fill | Beschreibung |
+|---|---|---|---|
+| ML-Modell / Plugin | `ml` | `#7B2FBE` (Lila) | Torch, ONNX, MDX23C |
+| DSP-Algorithmus | `dsp` | `#1a6fcf` (Blau) | NumPy, SciPy, OMLSA |
+| Qualitätsmetrik | `metric` | `#0f7a3e` (Grün) | MusicalGoals, PQS |
+| Persistenz | `mem` | `#a05c10` (Braun) | ~/.aurik/ JSON |
+| Gating / Schutz | `gate` | `#c0392b` (Rot) | PMGG, Rollback |
+| Ein-/Ausgabe | `io` | `#2c3e50` (Dunkel) | Audio-Eingang, Result |
+
+### Software-Schichten (korrigiert)
+
+```
+Frontend["PyQt5 Frontend"] --> Bridge["backend/api/bridge.py (direkte Python-Aufrufe)"]
+Bridge --> Denker["Denker-Orchestrierung"]
+Denker --> Core["core/ · plugins/ · dsp/"]
+```
+
+**VERBOTEN**: FastAPI/REST-Referenzen — Aurik ist eine reine Desktop-App ohne Server.
+
+### Diagramm-Komplexitäts-Management
+
+- `flowchart TD` (top-down) bevorzugen
+- Module in `subgraph`-Blöcken nach Pipeline-Stufen gruppieren
+- Haupt-Datenfluss mit `-->`, Gedächtnis/Plugin-Verbindungen mit `-.->` (gestrichelt)
+- Bei > 30 Knoten → aufteilen in Pipeline-Übersicht + Detail-Diagramme je Stufe
+- HTML-Entitäten für `<` und `>`: `&lt;` und `&gt;`
+
+---
+
+## §11.4c UI — Echtzeit-UX, Thread-Safety & State-Machines (konsolidiert aus Skill ui-feature)
+
+### Thread-Safety (ABSOLUTES VERBOT)
+
+**Kein Qt-Widget-Zugriff aus Hintergrundthreads.**
+
+```python
+# Pattern: Signal-Dispatch
+_gui_dispatch = pyqtSignal(object)
+# connect: self._gui_dispatch.connect(lambda fn: fn())
+# Aufruf aus Thread:
+self._dispatch_to_gui(lambda: widget.setText("..."))
+```
+
+### Progress Bar
+
+- **`setRange(0, 10000)`** immer — 1 Einheit = 0.01 %
+- Signale senden 0–100, Slot skaliert `v * 100`
+- **VERBOTEN**: `setRange(0, 100)` in ModernMainWindow
+
+### Shortcuts
+
+| Key | Aktion |
+|---|---|
+| Space | Play/Pause |
+| A / B | Original / Restauriert |
+| Ctrl+O / Ctrl+S | Öffnen / Export |
+| Ctrl+R / Ctrl+Shift+R | Restoration / Studio 2026 |
+| Escape | Abbruch |
+| L | Lyrics-Overlay |
+
+### BatchProcessingThread — Signal-Kontrakt
+
+`item_started(str)`, `item_progress(str,int)`, `item_finished(str)`, `item_finished_with_result(str,object)`,
+`item_error(str,str)`, `all_finished()`, `defect_update(dict)`, `phase_update(str)`, `waveform_data(ndarray,int)`,
+`mode_update(str)`, `ml_status_update(bool,list)`, `phase_progress(int)`, `scan_progress(float)`, `quality_update(float)`.
+
+`progress_callback`-Signatur: `(pct: int, msg: str, elapsed_s: float = 0.0) → None`
+
+### Echtzeit-UX-Features
+
+| Feature | Implementierung |
+|---|---|
+| Phase-Fortschritt | `phase_progress_bar` (5 px, lila Gradient) unter Hauptleiste |
+| Defekte-Animation | Count-up (22 Frames × 85 ms); `_PHASE_REDUCES` senkt Scores ×0.3 |
+| Varianten-Wettkampf | `★name_1 (4.12) › name_2 (3.87)` Rangliste |
+| Quality-Meter | `quality_meter_widget.set_mos()`, startet 2.5 → 4.2 |
+| Phasen-Erklärung | `_PHASE_EXPL`-Dict (22 Einträge) → Statuszeile |
+| Waveform-Scan | oranger Cursor (12px Glow + 2px DashLine) |
+| Vorab-Hörprobe | `QTimer.singleShot(1400, _auto_preview_restored)` — erste 5 s |
+
+### §11.4b Schadensmarker-Lebenszyklus
+
+| Phase | Waveform | Defekt-Chip |
+|---|---|---|
+| `detected` | Farbiger Marker per Count-up-Animation | Roter/amber Severity-Chip mit Fortschrittsbalken |
+| `correcting` | Marker bleibt sichtbar; verschwindet bei Score ≤ 0.01 (`_tick_defect_removal`, 75 ms) | Amber → orange bei aktivem Repair |
+| **Abgeschlossen** (score ≤ 0.01) | **Marker verschwindet** — kein grünes Overlay | **Grüner Haken-Chip** `&#10003;` in `#4DC878`, Rand `rgba(77,200,120,0.45)` |
+
+`_show_resolved_markers = False` — keine grünen Overlay-Rechtecke. Haken-Chip-Rendering: `fix_ratio >= 0.75` → kein `_bar`, nur Haken.
+
+### Async-Analyse-Kette
+
+5 Daemon-Threads: `_bg_load` → `_carrier_bg` → `_detect_era_genre_bg` → `_estimate_restorability_bg` → `_run_defect_scan_bg`
+
+**Magic-Button-Sync-Gate**: Buttons deaktiviert bis `_run_defect_scan_bg` UND `_detect_era_genre_bg` fertig.
+Freigabe über `_try_signal_preanalysis_done()` → `_finalize_preanalysis()`.
+Timeout: `QTimer.singleShot(15_000, _preanalysis_timeout)`.
+
+**`_carrier_bg` Pflicht**: `get_medium_detector().detect(audio, sr, file_ext=...)` — NICHT `classify_medium()`.
+
+### Watchdog-Timer
+
+```python
+_per_file_ms = max(5_400_000, int(audio_dur_s * 32_000) + 1_800_000)
+_watchdog_ms = max(5_400_000, n_files * _per_file_ms)  # Min 90 Min
+```
+
+### Bridge-Fallback (`_BRIDGE_AVAILABLE`)
+
+Bei fehlendem Backend: `_BRIDGE_AVAILABLE = False` mit 17 Stub-Funktionen.
+`_export_guard` vollständig (NaN+Clip), alle anderen: `return None`.
+
+### KMV Stufe-2 UI
+
+- `refinement_progress_bar`: 3 px, türkis `#00BCD4`
+- Fertig: `"Export vollständig restauriert ✓ — ML-Qualität"` (5 s Notification)
+- Escape → `requestInterruption()` trifft BatchThread UND MLRefinementThread
+
+---
+
+## §11.5a Architektur-Visualisierung mit Mermaid (konsolidiert aus Skill aurik-architecture-diagram)
+
+### Farbschema (verbindlich für alle Diagramme)
+
+| Typ | `classDef` | Fill | Beschreibung |
+|---|---|---|---|
+| ML-Modell / Plugin | `ml` | `#7B2FBE` (Lila) | Torch, ONNX, MDX23C |
+| DSP-Algorithmus | `dsp` | `#1a6fcf` (Blau) | NumPy, SciPy, OMLSA |
+| Qualitätsmetrik | `metric` | `#0f7a3e` (Grün) | MusicalGoals, PQS |
+| Persistenz | `mem` | `#a05c10` (Braun) | ~/.aurik/ JSON |
+| Gating / Schutz | `gate` | `#c0392b` (Rot) | PMGG, Rollback |
+| Ein-/Ausgabe | `io` | `#2c3e50` (Dunkel) | Audio-Eingang, Result |
+
+### Software-Schichten (korrigiert)
+
+```
+Frontend["PyQt5 Frontend"] --> Bridge["backend/api/bridge.py (direkte Python-Aufrufe)"]
+Bridge --> Denker["Denker-Orchestrierung"]
+Denker --> Core["core/ · plugins/ · dsp/"]
+```
+
+**VERBOTEN**: FastAPI/REST-Referenzen — Aurik ist eine reine Desktop-App ohne Server.
+
+### Diagramm-Komplexitäts-Management
+
+- `flowchart TD` (top-down) bevorzugen
+- Module in `subgraph`-Blöcken nach Pipeline-Stufen gruppieren
+- Haupt-Datenfluss mit `-->`, Gedächtnis/Plugin-Verbindungen mit `-.->` (gestrichelt)
+- Bei > 30 Knoten → aufteilen in Pipeline-Übersicht + Detail-Diagramme je Stufe
+- HTML-Entitäten für `<` und `>`: `&lt;` und `&gt;`

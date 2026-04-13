@@ -70,6 +70,8 @@ _HEAVY_ML_PLUGINS: frozenset[str] = frozenset(
         "DemucsV4",  # demucs_v4_plugin — htdemucs_6s ONNX (~500 MB)
         # --- Neural Vocoders / Enhancement ---
         "BigVGAN",  # bigvgan_v2_plugin — neural vocoder (400 MB)
+        "Vocos",  # vocos_plugin — primary neural vocoder in restore/export path
+        "HiFiGAN",  # hifigan_plugin — neural vocoder fallback path
         "ApolloPlugin",  # apollo_plugin — restorative ML
         "CQTDiffPlus",  # cqtdiff_plus_plugin — diffusion inpainting
         "Gacela",  # gacela_plugin — audio inpainting
@@ -115,6 +117,17 @@ _FP16_ELIGIBLE_PLUGINS: frozenset[str] = frozenset(
         "BigVGAN",
         "MDX23C",
     }
+)
+
+# Error hints that indicate provider/kernel-level GPU incompatibility.
+_GPU_UNSUPPORTED_ERROR_HINTS: tuple[str, ...] = (
+    "not implemented",
+    "unsupported",
+    "no kernel",
+    "kernel not found",
+    "failed to find kernel",
+    "not supported",
+    "execution provider",
 )
 
 # ---------------------------------------------------------------------------
@@ -237,6 +250,7 @@ class MLDeviceManager:
         self._gpu_name: str = "N/A"
         self._gpu_errors: dict[str, int] = {}  # plugin_name → error count
         self._gpu_disabled_plugins: set[str] = set()  # session-disabled plugins
+        self._ort_gpu_compatible_plugins: set[str] = set(_HEAVY_ML_PLUGINS)
         self._detect_backend()
 
     # ── Detection ────────────────────────────────────────────────────────
@@ -393,11 +407,42 @@ class MLDeviceManager:
         Heavy plugins get the GPU provider (with CPU fallback); others get CPU-only.
         Returns a defensive copy of the internal list.
         """
-        if not self._gpu_available:
-            return ["CPUExecutionProvider"]
-        if plugin_name and plugin_name not in _HEAVY_ML_PLUGINS:
+        if not self.is_ort_gpu_supported(plugin_name):
             return ["CPUExecutionProvider"]
         return list(self._ort_gpu_providers)
+
+    def is_ort_gpu_supported(self, plugin_name: str = "") -> bool:
+        """Return True if ORT-GPU should be used for *plugin_name* in this session.
+
+        Decision is conservative: GPU must be available, plugin must be in the heavy
+        GPU-eligible set, and the plugin must not be session-disabled due to prior
+        incompatibility/runtime failures.
+        """
+        if not self._gpu_available:
+            return False
+        if plugin_name and plugin_name not in _HEAVY_ML_PLUGINS:
+            return False
+        if plugin_name and plugin_name in self._gpu_disabled_plugins:
+            return False
+        if plugin_name and plugin_name not in self._ort_gpu_compatible_plugins:
+            return False
+        return True
+
+    def mark_ort_gpu_unsupported(self, plugin_name: str, reason: str = "") -> None:
+        """Disable ORT-GPU for *plugin_name* for the current session.
+
+        Use this when session creation/inference proves provider incompatibility.
+        Subsequent calls to ``get_ort_providers(plugin_name)`` will return CPU-only.
+        """
+        if not plugin_name:
+            return
+        with self._lock:
+            self._gpu_disabled_plugins.add(plugin_name)
+            self._ort_gpu_compatible_plugins.discard(plugin_name)
+        if reason:
+            logger.info("MLDeviceManager: ORT-GPU für %s deaktiviert (%s) → CPU", plugin_name, reason)
+        else:
+            logger.info("MLDeviceManager: ORT-GPU für %s deaktiviert → CPU", plugin_name)
 
     def get_vram_free_gb(self) -> float:
         """Return current estimated free VRAM in GB (refreshed on ROCm via HW query)."""
@@ -493,6 +538,17 @@ class MLDeviceManager:
         with self._lock:
             self._gpu_errors[plugin_name] = self._gpu_errors.get(plugin_name, 0) + 1
             count = self._gpu_errors[plugin_name]
+            lower_msg = str(exc).lower()
+            if any(hint in lower_msg for hint in _GPU_UNSUPPORTED_ERROR_HINTS):
+                # Provider/kernel incompatibility: disable immediately.
+                self._gpu_disabled_plugins.add(plugin_name)
+                self._ort_gpu_compatible_plugins.discard(plugin_name)
+                logger.info(
+                    "MLDeviceManager: GPU-Inkompatibilität für %s erkannt (%s) — sofort CPU-Fallback",
+                    plugin_name,
+                    exc,
+                )
+                return
             logger.warning(
                 "MLDeviceManager: GPU-Inferenz-Fehler #%d für %s (%s)",
                 count,
@@ -511,6 +567,7 @@ class MLDeviceManager:
                     plugin_name,
                     count,
                 )
+
     # ── AMD ROCm performance extensions ──────────────────────────────────
 
     def is_fp16_eligible(self, plugin_name: str) -> bool:
@@ -574,7 +631,7 @@ class MLDeviceManager:
             logger.debug("MLDeviceManager: ROCm warmup failed (non-critical): %s", exc)
             return False
 
-    def pin_tensor_rocm(self, array: "Any") -> "Any":
+    def pin_tensor_rocm(self, array: Any) -> Any:
         """Return a pinned-memory copy of *array* for zero-copy CPU→GPU transfers.
 
         Only active on ROCm; returns the original array unchanged on all other backends.

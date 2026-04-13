@@ -449,9 +449,12 @@ class SourceFidelityReconstructor:
         if current_bandwidth_hz is not None:
             _cur_bw = float(np.clip(current_bandwidth_hz, 500.0, 24000.0))
         elif spectral_fingerprint:
-            _ro = float(spectral_fingerprint.get("rolloff_95_hz", 20000.0))
+            # effective_bandwidth_hz = last freq bin at -60 dBFS → actual HF cutoff
+            # rolloff_95_hz = 95th-percentile cumulative energy → always low for
+            # bass/mid-heavy music (Schlager, rock, classical) regardless of HF content.
+            # Using min(rolloff_95, eff_bw) caused cur_bw=1475 Hz for normal MP3s.
             _ef = float(spectral_fingerprint.get("effective_bandwidth_hz", 20000.0))
-            _cur_bw = min(_ro, _ef)
+            _cur_bw = float(np.clip(_ef, 500.0, 24000.0))
             notes.append(f"cur_bw_from_fingerprint={_cur_bw:.0f}Hz")
         else:
             _cur_bw = 20000.0
@@ -459,11 +462,25 @@ class SourceFidelityReconstructor:
 
         # -- 3. Überspielgenerationen schätzen --------------------------------
         if transfer_chain and len(transfer_chain) >= 2:
-            _gen_count = 1
+            # Correct generation count:
+            # - Start with the SOURCE medium's internal stage count (recording → pressing etc.)
+            # - Add +1 for each ADDITIONAL analog-medium boundary (each new copy generation)
+            # - Digital media (mp3, cd, dat) do NOT add analog generation losses
+            # Old code summed ALL media's gen counts → vinyl(3)+tape(3)=7 for a 2-step chain.
             _ANALOG_MEDIA = {"shellac", "vinyl", "tape", "reel_tape", "cassette", "wire_recording", "wax_cylinder"}
-            for medium in transfer_chain:
-                if medium.lower() in _ANALOG_MEDIA:
-                    _gen_count += _MATERIAL_GENERATION_COUNT.get(medium.lower(), 1)
+            _chain_lower = [m.lower() for m in transfer_chain]
+            _first_analog = next((m for m in _chain_lower if m in _ANALOG_MEDIA), None)
+            if _first_analog:
+                _gen_count = _MATERIAL_GENERATION_COUNT.get(_first_analog, 2)
+                _found_first = False
+                for _m in _chain_lower:
+                    if _m == _first_analog and not _found_first:
+                        _found_first = True
+                        continue
+                    if _found_first and _m in _ANALOG_MEDIA:
+                        _gen_count += 1  # Each additional analog medium = 1 copy generation
+            else:
+                _gen_count = 1
             _gen_count = min(_gen_count, 8)
             notes.append(f"gen_count_from_chain={_gen_count}")
         else:

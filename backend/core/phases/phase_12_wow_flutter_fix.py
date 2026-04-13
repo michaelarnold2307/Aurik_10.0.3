@@ -440,8 +440,11 @@ class WowFlutterFix(PhaseInterface):
             _TAPE_LEVEL_MATERIALS = {MaterialType.TAPE, MaterialType.REEL_TAPE}
             _mat_enum = material if isinstance(material, MaterialType) else None
             _has_tape_dip_defect = bool((kwargs.get("defect_locations") or {}).get("tape_head_level_dip"))
-            if (_mat_enum in _TAPE_LEVEL_MATERIALS or _has_tape_dip_defect) and _effective_strength > 0.0:
-                audio, n_level_dips_repaired = self._stabilize_tape_level(audio, sample_rate, _effective_strength)
+            _is_primary_tape = _mat_enum in _TAPE_LEVEL_MATERIALS
+            if (_is_primary_tape or _has_tape_dip_defect) and _effective_strength > 0.0:
+                audio, n_level_dips_repaired = self._stabilize_tape_level(
+                    audio, sample_rate, _effective_strength, is_primary_tape=_is_primary_tape
+                )
                 if n_level_dips_repaired > 0:
                     logger.info(
                         "Phase 12 tape level stabilizer (low confidence path): %d dips repaired",
@@ -512,8 +515,11 @@ class WowFlutterFix(PhaseInterface):
             _TAPE_LEVEL_MATERIALS = {MaterialType.TAPE, MaterialType.REEL_TAPE}
             _mat_enum = material if isinstance(material, MaterialType) else None
             _has_tape_dip_defect = bool((kwargs.get("defect_locations") or {}).get("tape_head_level_dip"))
-            if (_mat_enum in _TAPE_LEVEL_MATERIALS or _has_tape_dip_defect) and _effective_strength > 0.0:
-                audio, n_level_dips_repaired = self._stabilize_tape_level(audio, sample_rate, _effective_strength)
+            _is_primary_tape = _mat_enum in _TAPE_LEVEL_MATERIALS
+            if (_is_primary_tape or _has_tape_dip_defect) and _effective_strength > 0.0:
+                audio, n_level_dips_repaired = self._stabilize_tape_level(
+                    audio, sample_rate, _effective_strength, is_primary_tape=_is_primary_tape
+                )
                 if n_level_dips_repaired > 0:
                     logger.info(
                         "Phase 12 tape level stabilizer (no wow/flutter): %d dips repaired",
@@ -702,8 +708,11 @@ class WowFlutterFix(PhaseInterface):
         _mat_enum = material if isinstance(material, MaterialType) else None
         _report_progress(90.0, "Wow/Flutter: Impuls-Reparaturen abgeschlossen")
         _has_tape_dip_defect = bool((kwargs.get("defect_locations") or {}).get("tape_head_level_dip"))
-        if (_mat_enum in _TAPE_LEVEL_MATERIALS or _has_tape_dip_defect) and _effective_strength > 0.0:
-            restored, n_level_dips_repaired = self._stabilize_tape_level(restored, sample_rate, _effective_strength)
+        _is_primary_tape = _mat_enum in _TAPE_LEVEL_MATERIALS
+        if (_is_primary_tape or _has_tape_dip_defect) and _effective_strength > 0.0:
+            restored, n_level_dips_repaired = self._stabilize_tape_level(
+                restored, sample_rate, _effective_strength, is_primary_tape=_is_primary_tape
+            )
             if n_level_dips_repaired > 0:
                 restored_mono = np.mean(restored, axis=1) if is_stereo else restored
                 logger.info(
@@ -964,10 +973,12 @@ class WowFlutterFix(PhaseInterface):
         # -----------------------------------------------------------------
         _PYIN_CAP_S = 30
         _cap_samples = int(_PYIN_CAP_S * sample_rate)
+        _analysis_offset_samples = 0  # sample index where the analysed window starts in full audio
         if len(audio) > _cap_samples:
             _mid = len(audio) // 2
             _half = _cap_samples // 2
             audio_pyin = audio[_mid - _half : _mid + _half]
+            _analysis_offset_samples = _mid - _half
             logger.debug(
                 "pYIN Python fallback: %.0f s audio capped to %d s centre", len(audio) / sample_rate, _PYIN_CAP_S
             )
@@ -1055,6 +1066,39 @@ class WowFlutterFix(PhaseInterface):
         for i in range(1, num_windows):
             if pitch_trajectory[i] > 0 and pitch_trajectory[i - 1] > 0:
                 pitch_trajectory[i] = alpha_smooth * pitch_trajectory[i - 1] + (1 - alpha_smooth) * pitch_trajectory[i]
+
+        # §2.54 Temporal alignment — when pYIN analysed only a center window of a longer
+        # audio, expand the trajectory to the full audio length.
+        # Without this, N frames from a 30 s window get linspace-interpolated across
+        # the full audio in _phase_vocoder_timestretch, applying the center-window
+        # pitch-variation pattern to completely different temporal positions (intro/outro).
+        # Frames outside the analysed window receive: pitch = center median (neutral),
+        # confidence = 0.05 → below the >0.3 / >0.5 thresholds → stretch_factor = 1.0.
+        if _analysis_offset_samples > 0 and len(audio) > len(audio_pyin):
+            _full_windows = max(1, (len(audio) - window_samples) // hop_samples + 1)
+            _center_first = _analysis_offset_samples // hop_samples
+            _center_last = _center_first + num_windows
+            _neutral_hz = (
+                float(np.median(pitch_trajectory[pitch_trajectory > 0])) if np.any(pitch_trajectory > 0) else 0.0
+            )
+            _full_pitch = np.full(_full_windows, _neutral_hz, dtype=np.float64)
+            _full_conf = np.full(_full_windows, 0.05, dtype=np.float64)
+            _s = min(_center_first, _full_windows)
+            _e = min(_center_last, _full_windows)
+            _n = min(_e - _s, len(pitch_trajectory))
+            _full_pitch[_s : _s + _n] = pitch_trajectory[:_n]
+            _full_conf[_s : _s + _n] = confidence[:_n]
+            pitch_trajectory = _full_pitch
+            confidence = _full_conf
+            num_windows = _full_windows
+            logger.debug(
+                "pYIN Python fallback: trajectory expanded to %d frames (full audio),"
+                " center window at frames %d..%d, neutral pitch=%.1f Hz outside window",
+                _full_windows,
+                _s,
+                _s + _n,
+                _neutral_hz,
+            )
 
         logger.debug(
             "pYIN (Python): %d frames, μ_pitch=%.1f Hz, μ_conf=%.3f",
@@ -1395,6 +1439,8 @@ class WowFlutterFix(PhaseInterface):
         audio: np.ndarray,
         sample_rate: int,
         strength: float,
+        *,
+        is_primary_tape: bool = True,
     ) -> tuple[np.ndarray, int]:
         """Detect and repair tape head contact level dips — STFT-domain SOTA v2.
 
@@ -1450,9 +1496,23 @@ class WowFlutterFix(PhaseInterface):
         env_win_s = 0.020
         env_hop_s = 0.010
         ref_win_s = 0.500
-        dip_thresh_db = 3.0
-        min_dip_frames = 3
-        max_gain_db = 15.0
+        # Material-adaptive thresholds:
+        # Primary tape (reel_tape/cassette): standard tape-head contact physics → tight params.
+        # Chain material (vinyl→tape→mp3 etc.): stabilizer runs because tape is in chain but the
+        # primary material is NOT tape → use conservative params to avoid false positives on
+        # natural musical dynamics (reverb tails, note decays, breath pauses = 30–80 ms).
+        if is_primary_tape:
+            dip_thresh_db = 3.0
+            min_dip_frames = 3  # 30 ms — tight for cassette capstan bumps
+            max_gain_db = 15.0
+        else:
+            dip_thresh_db = 6.0  # only repair severe dips (> 6 dB below rolling p75)
+            min_dip_frames = 20  # 200 ms minimum — real tape contact dips last 200–500 ms
+            max_gain_db = 6.0  # max 6 dB boost for chain material (§0 Primum non nocere)
+        # Intro/outro protection: ignore first and last 5 s to prevent fade-in/out from being
+        # treated as level dips and getting boosted (root cause of begin/end level surge).
+        _protect_s = 5.0
+        _protect_frames = int(_protect_s / env_hop_s)
 
         env_win = max(1, int(env_win_s * sample_rate))
         env_hop = max(1, int(env_hop_s * sample_rate))
@@ -1471,9 +1531,17 @@ class WowFlutterFix(PhaseInterface):
 
         ref_n = max(3, int(ref_win_s / env_hop_s))
         ref_n = ref_n + (1 - ref_n % 2)  # ensure odd
-        ref_db = percentile_filter(rms_db, percentile=75, size=ref_n, mode="reflect")
+        # mode='nearest' repeats the edge value at signal boundaries.
+        # mode='reflect' (former setting) mirrors the signal: for a quiet intro the reflected
+        # window contained the louder song body → ref_db[0] = loud → intro detected as dip
+        # → up-to-15 dB boost at beginning/end of song (root cause of level surge artifact).
+        ref_db = percentile_filter(rms_db, percentile=75, size=ref_n, mode="nearest")
 
         dip_mask_rms = rms_db < (ref_db - dip_thresh_db)
+        # Intro/outro protection: force dip_mask=False in first/last _protect_frames
+        if _protect_frames > 0 and n_frames > 2 * _protect_frames:
+            dip_mask_rms[:_protect_frames] = False
+            dip_mask_rms[-_protect_frames:] = False
 
         from scipy.ndimage import label as nd_label
 
@@ -1888,6 +1956,28 @@ class WowFlutterFix(PhaseInterface):
             return np.ones_like(pitch_trajectory)
 
         confident_pitches = pitch_trajectory[confident_mask]
+
+        # §0 Primum non nocere — Melody-Detection Guard:
+        # pYIN measures ALL pitch variation, including melodic note changes.
+        # A span > 100 cents (1 semitone P5..P95) cannot be wow/flutter:
+        # real wow/flutter is < 50 cents; melody spans multiple semitones.
+        # Applying melody-derived stretch_factors destroys the recording.
+        if len(confident_pitches) >= 10:
+            _cp_p5 = np.percentile(confident_pitches, 5)
+            _cp_p95 = np.percentile(confident_pitches, 95)
+            if _cp_p5 > 0.0 and _cp_p95 > _cp_p5:
+                _span_cents = 1200.0 * np.log2(_cp_p95 / _cp_p5)
+                if _span_cents > 100.0:  # > 1 semitone ⇒ melody, not transport speed drift
+                    logger.warning(
+                        "Phase 12 _calculate_stretch_factors: pitch span %.0f cents"
+                        " (P5=%.1f Hz P95=%.1f Hz) > 100 cents — melody content detected,"
+                        " bypassing wow/flutter timestretch (§0 Primum non nocere)",
+                        _span_cents,
+                        _cp_p5,
+                        _cp_p95,
+                    )
+                    return np.ones_like(pitch_trajectory)
+
         target_pitch = np.median(confident_pitches)
 
         # Calculate stretch factors for each frame
@@ -2038,10 +2128,9 @@ class WowFlutterFix(PhaseInterface):
             if n_frames < 2:
                 return audio.copy()
 
-            stft = np.array([
-                np.fft.rfft(audio_f[t * hop: t * hop + n_fft] * win)
-                for t in range(n_frames)
-            ])  # shape: (T, F)
+            stft = np.array(
+                [np.fft.rfft(audio_f[t * hop : t * hop + n_fft] * win) for t in range(n_frames)]
+            )  # shape: (T, F)
 
             mag = np.abs(stft)
             phase = np.angle(stft)
@@ -2049,10 +2138,7 @@ class WowFlutterFix(PhaseInterface):
             # Step 2: Coherence proxy — if reference available, use it; else use autocorrelation
             if reference is not None and len(reference) == orig_len:
                 ref_f = np.asarray(reference, dtype=np.float64)
-                stft_ref = np.array([
-                    np.fft.rfft(ref_f[t * hop: t * hop + n_fft] * win)
-                    for t in range(n_frames)
-                ])
+                stft_ref = np.array([np.fft.rfft(ref_f[t * hop : t * hop + n_fft] * win) for t in range(n_frames)])
                 # Per-bin Pearson-like correlation magnitude
                 mag_ref = np.abs(stft_ref)
                 coherence = np.abs(stft * np.conj(stft_ref)) / (mag * mag_ref + 1e-14)
@@ -2094,8 +2180,8 @@ class WowFlutterFix(PhaseInterface):
             for t in range(n_frames):
                 frame = np.fft.irfft(stft_reg[t])[:n_fft]
                 start = t * hop
-                output[start: start + n_fft] += frame * win
-                norm[start: start + n_fft] += win**2
+                output[start : start + n_fft] += frame * win
+                norm[start : start + n_fft] += win**2
             norm = np.where(norm > 1e-10, norm, 1.0)
             output = output / norm
 

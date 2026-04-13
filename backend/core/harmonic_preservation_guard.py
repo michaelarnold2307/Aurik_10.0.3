@@ -191,6 +191,11 @@ class HarmonicPreservationGuard:
         """
         assert sr == 48000, f"SR muss 48000 Hz sein, erhalten: {sr}"
         audio = np.nan_to_num(audio, nan=0.0, posinf=0.0, neginf=0.0)
+        # Normalize to (N, ch) samples-first — UV3 passes (ch, N) channels-first.
+        # Guard: only transpose when shape[0] ≤ 2 and shape[1] > 2 to avoid flipping
+        # genuine (N, 2)-shaped audio with exactly 2 samples (e.g. unit tests).
+        if audio.ndim == 2 and audio.shape[0] <= 2 and audio.shape[1] > 2:
+            audio = audio.T
 
         mono = audio[:, 0] if audio.ndim == 2 else audio
         mono = mono.astype(np.float32)
@@ -263,11 +268,18 @@ class HarmonicPreservationGuard:
         """
         assert sr == 48000, f"SR muss 48000 Hz sein, erhalten: {sr}"
         restored = np.nan_to_num(restored, nan=0.0, posinf=0.0, neginf=0.0)
+        # Normalize to (N, ch) samples-first — UV3 passes (ch, N) channels-first.
+        # Track orientation so we can return audio in the same format that was passed in.
+        _was_channels_first = restored.ndim == 2 and restored.shape[0] <= 2 and restored.shape[1] > 2
+        if _was_channels_first:
+            restored = restored.T  # (ch, N) → (N, ch)
 
         if restored.ndim == 2:
             c_l = self._correct_channel(restored[:, 0], h_ref, protected_mask, sr)
             c_r = self._correct_channel(restored[:, 1], h_ref, protected_mask, sr)
-            out = np.stack([c_l, c_r], axis=1)
+            out = np.stack([c_l, c_r], axis=1)  # (N, ch)
+            if _was_channels_first:
+                out = out.T  # restore (ch, N) for UV3
         else:
             out = self._correct_channel(restored, h_ref, protected_mask, sr)
 

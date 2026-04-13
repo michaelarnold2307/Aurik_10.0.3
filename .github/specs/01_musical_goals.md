@@ -63,6 +63,38 @@ Einzelphasen dürfen Proxy-Werte vorübergehend senken, wenn:
 
 Eine Regression nach der **gesamten Kette** macht das Feature ungültig.
 
+### §1.2a [RELEASE_MUST] Carrier-Recovery-Referenz am Pipeline-Ende (v9.11.14)
+
+**Problem**: Am Pipeline-Ende messen referenzbasierte Goals (timbral_fidelity, MFCC, Centroid, Authentizität) den Output gegen den **degradierten Input**. Bei erfolgreicher Carrier-Chain-Inversion hat sich das Signal intentional stark verändert — die Messung bestraft korrekte Restaurierung als Regression.
+
+**Lösung**: Wenn `metadata["carrier_chain_recovery_ratio"] > 0.15`, wird die End-Referenz für referenzbasierte Goals auf das **best_carrier_checkpoint** verschoben:
+
+```python
+# In MusicalGoalsChecker.measure_all() bzw. UV3._final_goals_check():
+if metadata.get("carrier_chain_recovery_ratio", 0.0) > 0.15:
+    # Referenz ist post-Carrier-Audio (nach Stufe 1–4, vor Enhancement-Phasen)
+    reference_audio = metadata["best_carrier_checkpoint"]
+else:
+    # Standard-Referenz: degradierter Input
+    reference_audio = original_audio
+
+# Betroffene Goals (referenzbasiert):
+#   timbral_authentizitaet  — MFCC-Pearson, Centroid-Korrelation
+#   authentizitaet          — spektraler Fingerabdruck
+#   tonal_center            — Chroma-Korrelation
+# Nicht-referenzbasierte Goals (natuerlichkeit, brillanz, waerme etc.) bleiben unverändert.
+```
+
+**UV3-Pflicht**: Nach der letzten Carrier-Phase (§2.46 Stufe 4) wird `best_carrier_checkpoint = current_audio.copy()` gespeichert und `carrier_chain_recovery_ratio` berechnet:
+
+```python
+recovery_ratio = 1.0 - spectral_correlation(pre_carrier_audio, current_audio)
+metadata["carrier_chain_recovery_ratio"] = recovery_ratio
+metadata["best_carrier_checkpoint"] = current_audio.copy()
+```
+
+**Invariante**: Ohne §1.2a-Referenz-Shift würde jede erfolgreiche Carrier-Inversion bei Shellac/Multi-Gen-Material (recovery_ratio > 0.35) einen End-Goals-Fail erzeugen — die Pipeline wäre für genau die Materialien unbrauchbar, für die sie gebaut ist.
+
 ---
 
 ## §2.34 GoalPriorityProtocol — Hierarchie bei Ressourcen-Konflikten
@@ -500,3 +532,53 @@ Formel:  w > 1.5 → w' = 1.5 + excess/(1 + 3·excess)    // Asymptote: 1.83
 - Core: `backend/core/song_goal_importance.py` — `SongGoalImportance`, `estimate_goal_importance()`
 - Feature-Extraktion: `unified_restorer_v3.py` — SGI-Block in `restore()` nach SongCalibration
 - Durchreichung: `phase_kwargs["goal_importance"]` → PMGG `goal_weights` Parameter
+
+---
+
+## §1.3 Metric Recalibration Details & Debugging Patterns (konsolidiert aus Skill fix-metric)
+
+### §9.7.15 Recalibration-Werte (v9.10.120)
+
+| Metrik | Änderung | Wissenschaftliche Basis |
+| --- | --- | --- |
+| **Brillanz** | HF Crest-Divisor 13.5 → **10.5** | Fastl & Zwicker 2007 §8.3 |
+| **Transparenz** | 5-Band-Crest-Divisor 8.8 → **7.0** | Moore & Glasberg 1983 |
+| **Wärme** | H2/H4 Even-Harmonic-Divisor 9.0 → **5.0** | Fletcher & Rossing |
+| **Natürlichkeit** | Flatness ×2→×2.5, ZCR-Var ×100→×60, Contrast ÷30→÷25, Onset ÷10→÷8 | Johnston 1988 |
+| **Emotionalität** | LUFS Pre-Norm auf −14 LUFS | Loudness-invariant |
+| **PQS NSIM** | Pearson → ERB-gewichtete Korrelation (300–4000 Hz) | Patterson et al. 1992 |
+| **PQS MCD** | Pseudo-RMS → echte Mel-Cepstral Distortion (13 MFCCs) | Kubichek 1993 |
+
+### SNR-robuste PMGG-Proxy-Fixes (§9.7.11–14)
+
+- **§9.7.11 tonal_center**: Krumhansl-Schmuckler-Key-Detection — SNR-invariant. Alle früheren Exclusions entfernt.
+- **§9.7.12 brillanz**: HF Spectral Crest Factor (2–16 kHz), p95/p50. Noise hebt p50-Median → Crest steigt nach Denoise. `BrillanzMetric`-Preservation-Penalty entfernt (kontraproduktiv).
+- **§9.7.13 transparenz**: Multi-Band Spectral Crest (5 Oktavbänder 250 Hz–8 kHz). Bug-fix: `TransparenzMetric.measure()` hatte kein `reference=`-Parameter → TypeError in Precise-Override.
+- **§9.7.14 waerme**: **Primär** Even-Harmonic-Ratio `THD_even / THD_total` (H2/H4), ISO 226:2023 gewichtet. **Sekundär** Sub-Band-Verhältnis E(200–800)/E(800–3000) als Tilt-Proxy. Begründung: Parametrischer EQ-Boost bei 400 Hz erhöht Sub-Band-Verhältnis ohne wahrgenommene Wärme; gerade Harmonische (H2, H4) sind Fingerabdruck von Röhren-/Bandsignalketten (Fletcher & Rossing).
+
+### §9.7.16 [TARGET_2026] NatuerlichkeitMetric-Reform
+
+**Problem**: Aktuelle Sub-Metriken (Spectral Flatness, ZCR-Varianz, Spectral Contrast, Onset-Dichte) sind Signal-Statistiken, keine Wahrnehmungs-Features. Synthesizer = hoher Score, Jazz-Bar-Aufnahme = niedriger Score → Inversion.
+
+**Reformulierung modus-differenziert**:
+
+| Aspekt | Restoration | Studio 2026 |
+| --- | --- | --- |
+| **Definition** | "Klingt wie die echte Aufnahme" | "Klingt wie echtes Instrument im Studio" |
+| **Primär-Proxy** | MERT-Embedding-Distanz zum Input | MERT-Embedding-Distanz zu Studio-Referenzen |
+| **Harmonic Coherence** | Obertonstruktur inkl. Ära-typischer Verzerrungen | Saubere Obertonstruktur ohne Artefakte |
+| **Micro-Variation** | Originale Frame-zu-Frame-Variation bewahren | Musikalisch sinnvolle Variation |
+
+**Bis Reform**: `NatuerlichkeitMetric` nur im Export-Gate, nie in PMGG-Delta-Checks. HPI übernimmt holistische Bewertung.
+
+### Root-Cause NatuerlichkeitMetric-Bug
+
+CREPE ändert `w_crepe` 0.0→0.18 zwischen before/after → Pseudo-Regression Δ ≈ 0.15–0.28 → false P1-Kaskade → Phase_03 best-effort @ 5.6 % → Noise-Floor −55 dBFS → Tiefen-Immersion zerstört.
+
+### quality_estimate-Formel (einzige erlaubte)
+
+```python
+quality_estimate = max(0.0, min(1.0, 0.40 * (1 - defect_severity) + 0.60 * (pqs_mos - 1) / 4))
+```
+
+**VERBOTEN**: `quality_estimate * 1.15`

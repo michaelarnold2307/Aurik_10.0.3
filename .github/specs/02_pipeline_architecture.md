@@ -1349,6 +1349,29 @@ Die GP-Memory-Referenz-Vektoren werden **automatisch** aus dem Verarbeitungsverl
 
 **Beide Modi**: `HPI > 0` → Export | `HPI ≤ 0` → Rollback auf weniger aggressive Variante
 
+### §2.44a [RELEASE_MUST] carrier_chain_recovery_ratio — UV3-Pflichtfeld (v9.11.14)
+
+UV3 MUSS nach der letzten Carrier-Phase (§2.46 Stufe 4) folgende Metadata-Felder befüllen:
+
+```python
+# In UV3._execute_pipeline(), nach letzter Carrier-Phase:
+pre_carrier_audio = metadata["_pre_carrier_audio"]  # gespeichert vor erster Carrier-Phase
+post_carrier_audio = current_audio.copy()
+
+# Spektrale Korrelation via normalisierte MFCC-Cross-Correlation
+recovery_ratio = 1.0 - spectral_correlation(pre_carrier_audio, post_carrier_audio)
+
+metadata["carrier_chain_recovery_ratio"] = float(np.clip(recovery_ratio, 0.0, 1.0))
+metadata["best_carrier_checkpoint"] = post_carrier_audio  # Referenz für §1.2a End-Goals
+
+# Schwellwerte:
+# > 0.15 = signifikante Carrier-Inversion → §1.2a Referenz-Shift aktiv
+# > 0.35 = massive Inversion (Shellac, Multi-Gen) → HPI MERT-Referenz-Anker verstärkt
+# ≤ 0.15 = geringe Inversion (CD, MP3) → Standard-Referenz gegen degradierten Input
+```
+
+**Invariante**: `carrier_chain_recovery_ratio` ist ein Pflichtfeld in `RestorationResult.metadata`. Fehlt es, greift der Fallback `0.0` (kein Referenz-Shift).
+
 ### HPI-Gewichtungs-Semantik
 
 Die HPI-Multiplikation ist **nicht** gleichgewichtet — die Faktoren operieren auf unterschiedlichen Wertebereichen:
@@ -1559,6 +1582,60 @@ if era_result is not None and hasattr(era_result, "spectral_tilt"):
 
 > Messmethode: `backend/core/era_classifier.py` — `_estimate_spectral_tilt()` (bestehende Methode, nicht kopieren!)
 > Aufruf: `backend/core/phases/phase_06_frequency_restoration.py` — `process(..., **kwargs)`
+
+## §2.46c [RELEASE_MUST] Zentraler BW-Hard-Cap nach additiven Phasen (v9.11.14)
+
+**Problem**: Einzelne Phasen (phase_06, phase_07, phase_23, phase_39) haben per-Phase-BW-Limits, aber es gibt keine zentrale Absicherung, dass die **kumulative** Wirkung mehrerer additiver Phasen das physikalische BW-Ceiling des Quellmaterials nicht überschreitet.
+
+**Lösung**: UV3 führt nach dem letzten ADDITIVE-Phase-Block einen zentralen BW-Hard-Cap aus:
+
+```python
+# In UV3._execute_pipeline(), nach letztem ADDITIVE-Phase-Block:
+_MATERIAL_BW_CEILING_HZ = {
+    "wax_cylinder":   5000,
+    "wire_recording": 6000,
+    "shellac":        8000,
+    "lacquer_disc":   8000,
+    "vinyl":         16000,
+    "tape":          15000,
+    "reel_tape":     18000,
+    "cassette":      14000,   # alias: tape
+    "dat":           22000,
+    "minidisc":      20000,
+    "cd_digital":    22050,
+    "mp3_low":       16000,   # 128 kbps → effektive BW
+    "mp3_high":      20000,
+    "aac":           20000,
+    "streaming":     20000,
+    "unknown":       20000,
+}
+
+def _post_additive_bw_guard(audio, sr, material_type, mode):
+    """Zentraler BW-Guard nach allen additiven Phasen."""
+    if mode == "studio_2026":
+        return audio  # Studio 2026: volle BW-Extension erlaubt
+    ceiling_hz = _MATERIAL_BW_CEILING_HZ.get(material_type, 20000)
+    # Butterworth 8th-order zero-phase LPF
+    if ceiling_hz < sr / 2 - 100:
+        from scipy.signal import butter, sosfiltfilt
+        sos = butter(8, ceiling_hz, btype="low", fs=sr, output="sos")
+        if audio.ndim == 1:
+            audio = sosfiltfilt(sos, audio)
+        else:
+            for ch in range(audio.shape[-1]):
+                audio[..., ch] = sosfiltfilt(sos, audio[..., ch])
+        metadata["bw_ceiling_applied_hz"] = ceiling_hz
+    return audio
+```
+
+**Platzierung in Pipeline**: Nach der letzten Phase mit `family in ("additive", "reconstruction")`, VOR dem FeedbackChain und End-Goals-Check.
+
+**Invarianten**:
+
+- NUR im Restoration-Modus aktiv. Studio 2026 darf volle BW-Extension nutzen (erfordert aber MUSHRA ≥ 3.5 per Extension-Band).
+- Kein Rollback — reiner Guard-Filter (transparent für Audio unter Ceiling).
+- Material-Keys folgen `SUPPORTED_MATERIALS` (§6.1).
+- Telemetrie: `metadata["bw_ceiling_applied_hz"]` nur wenn tatsächlich gefiltert wurde.
 
 ## §2.47 [RELEASE_MUST] Adaptive-Intelligence-Prinzip (v9.10.123)
 
@@ -2508,3 +2585,185 @@ Drift zählt.
 ### Testpflicht
 
 - CI-Regressionstest: `tests/unit/test_pmgg_cig_sync.py`
+
+---
+
+## §2.57 [RELEASE_MUST] Phase-50-HF-Guard + Phase-09-LPC/AR-Reparatur (v9.11.4 / v9.11.13)
+
+### §2.57a Phase-50 HF-Spike-Schutz für Vorphasen-Harmoniken
+
+**Problem**: Pass-1 Spike-Detektor (11-Bin-Fenster) flaggt durch `phase_07`/`phase_06` restaurierte
+Harmoniken als Codec-Spikes und inpaintet sie — Vorphasen-Restaurierung wird rückgängig gemacht.
+
+**Invariante** (`backend/core/phases/phase_50_spectral_repair.py`):
+
+- `_repair_channel(audio, hf_protected_bin_start=0)` — neuer Parameter
+- Bins ≥ `hf_protected_bin_start` aus Pass-1 (Spike-Detection) ausgeschlossen
+- Pass-2 (Frame-Energy-Dropout) bleibt global aktiv — Frame-RMS reagiert nicht auf isolierte HF-Peaks
+- `process()` berechnet `hf_protected_bin_start = material_rolloff × 0.85 / bin_hz`
+
+**Material-Rolloff-Lookup** (analoge Materialtypen, Pass-1 Schutzzone aktiv):
+
+| Material | Rolloff | Material | Rolloff |
+| --- | --- | --- | --- |
+| `wax_cylinder` | 5 000 Hz | `lacquer_disc` | 10 000 Hz |
+| `shellac` | 8 000 Hz | `cassette` | 12 000 Hz |
+| `wire_recording` | 6 000 Hz | `vinyl` | 18 000 Hz |
+| `tape` / `reel_tape` | 16 000 Hz | `minidisc` | 16 000 Hz |
+
+Digitale Materialien (`cd_digital`, `mp3*`, `dat`, `aac`, `streaming`): keine Schutzzone.
+
+**Metadata**: `hf_protected_bin_start`, `hf_protection_rolloff_hz` in Phase-Metadata (Audit).
+
+**Testpflicht**: `tests/unit/test_phase_50_hf_protection_guard.py` (16 Tests, alle grün).
+
+### §2.57b Phase-09 LPC/AR-Lücken-Interpolation
+
+**Problem**: `_interpolate_hybrid()` rief intern `_interpolate_linear()` auf — kein AR-Verhalten.
+
+**Vollständige LPC/AR-Vorhersage** (`backend/core/phases/phase_09_crackle_removal.py`):
+
+```python
+# `_ar_fill_channel(gap_audio, pre_context, post_context, lpc_order=32)`:
+# 1. Vorwärts-AR aus Pre-Gap-Kontext (Rabiner & Schafer 1978, Yule-Walker)
+# 2. Rückwärts-AR aus Post-Gap-Kontext (gespiegeltes Signal)
+# 3. Lineare Überblendung beider Vorhersagen über Lückenlänge
+# 4. Pol-Stabilisierung: alle Pole |z| ≥ 0.995 auf 0.994 gespiegelt
+# 5. 5 ms Boundary-Crossfade tapern an Lückenrändern
+```
+
+**Geltungsbereich**: Shellac-Material (`params["interpolation"] == "hybrid"`) und alle Gaps ≤ 50 ms.
+
+**Wissenschaftliche Referenzen**:
+
+- Lagrange & Marchand (2007) "Long Interpolation of Audio Signals using Linear Prediction"
+- Godsill & Rayner (1998) "Digital Audio Restoration"
+
+### §2.57c Phase-50 STFT-Konsistenz-Projektion (POCS)
+
+**Problem**: Pass-2 (Time-Axis-Dropout-Reparatur) verwendete einmalige lineare Interpolation.
+
+**Iterative STFT-Konsistenz-Projektion** (5 Iterationen, POCS-Schema):
+
+```
+1. Initialisierung mit linearer Interpolation der Dropout-Frames
+2. ISTFT → zeitkontinuierliches Signal
+3. STFT → zurück in Spektralraum
+4. Undamaged Frames re-ankern (Original-Spektraldaten wiederherstellen)
+5. Schritt 2–4 wiederholen (5 Iterationen)
+```
+
+Die STFT-Redundanz propagiert Spektralstruktur aus unbeschädigten Frames in Lücken.
+
+**Wissenschaftliche Referenz**: Siedenburg & Dörfler (2013) "Audio Inpainting", JASA.
+
+**Testpflicht**: `tests/unit/test_literature_algorithms.py` (21 Tests: Phase 09 + Phase 50).
+
+---
+
+## §2.58 [RELEASE_MUST] PMGG Passthrough-Erkennung (v9.11.3)
+
+Phasen, die ihr Audio unverändert zurückgeben (z. B. `phase_31` bei CREPE confidence=0.0),
+dürfen kein Goal-Scoring, Retry oder StrictConflictDecay auslösen.
+
+**Invariante** (`backend/core/per_phase_musical_goals_gate.py`):
+
+```python
+if np.array_equal(phase_input_audio, phase_output_audio):
+    # Kein Scoring, kein Retry, kein Decay
+    return PhaseGateResult(accepted=True, passthrough=True)
+```
+
+**Rationale**: ~51 s überflüssige CREPE/pYIN-Inferenz pro Song bei confidence=0.0 werden eingespart.
+Passthrough ist kein Qualitätsmangel — die Phase hat einfach keinen Eingriff für nötig befunden.
+
+**VERBOTEN**: Passthrough-Audio durch alle Goal-Scoring-Pfade schicken.
+
+---
+
+## §2.59 [RELEASE_MUST] CausalDefectReasoner Bidirektionale Konsistenz (v9.11.14)
+
+`CAUSES` und `CAUSE_TO_PHASES` müssen bidirektional konsistent sein.
+
+**Problem**: Eine Ursache (z. B. `vocal_harshness`) nur in `CAUSE_TO_PHASES` einzutragen ohne
+korrespondierendes `CAUSES`-Feld erzeugt dead code — der Bayes-Loop iteriert **ausschließlich `CAUSES`**.
+
+**Invariante** (`backend/core/causal_defect_reasoner.py`):
+
+- Jeder Schlüssel in `CAUSE_TO_PHASES` MUSS einen entsprechenden Eintrag in `CAUSES` haben.
+- Jeder Eintrag in `CAUSES` SOLLTE in `CAUSE_TO_PHASES` abgebildet sein (oder explizit dokumentiert,
+  warum er keine direkten Phasen triggert).
+- `LIKELIHOOD_FNS` muss jeden `CAUSES`-Eintrag abdecken (bei fehlendem Eintrag: Lambda → 0.0).
+
+**Testpflicht**: Behavioral Guard Test — starkes `vocal_harshness`-Defekt-Score muss
+`phase_42_vocal_enhancement` in `recommended_phases` enthalten.
+
+**VERBOTEN**: Neue Ursache nur in einer Richtung eintragen.
+
+---
+
+## §2.2c Denker-Orchestrierung, Hänger-Patterns & Diagnose (konsolidiert aus Skill pipeline-debug)
+
+### Denker-Rollendifferenzierung (§11.7a)
+
+| Stufe | Denker | Domäne | Kurzregel |
+| --- | --- | --- | --- |
+| 6 | `ReparaturDenker` | Defekt-Beseitigung | Entfernt Clicks, Hum, Clipping |
+| 7 | `RekonstruktionsDenker` | Rekonstruktion | Füllt Lücken, annotiert BW-Verlust |
+| 8 | `RestaurierDenker` | Restaurierung | Orchestriert UV3, schützt Klangcharakter |
+
+**Kontextfluss**: `defect_result → ReparaturDenker → RekonstruktionsDenker(+defect_result) → RestaurierDenker(+reconstruction_context) → UV3`
+
+### §2.41 Denker-Vollkontext (v9.10.117)
+
+- **ReparaturDenker**: 12 Material-Profile (click_iqr, click_kernel_ms, clip_threshold, hum_detect_db). Shellac IQR=4.0 → CD IQR=9.0. Era-adaptive Hum (≤1940: ≥−42 dB).
+- **RekonstruktionsDenker**: 6 Material-Konfigurationen für GapReconstructor (Shellac: max 200 ms, Tape: bis 2000 ms).
+- **AurikDenker**: Leitet defect_scores, defect_locations, era_decade, material an alle Stufen weiter.
+
+### Parallelisierung
+
+Tier 0+1 sequenziell; Era+Schlager+Medium parallel (ThreadPoolExecutor max_workers=3); Tier 6 sequenziell.
+
+### Song-Selbstkalibrierung — Berechnungsblöcke (Reihenfolge in `_build_song_calibration_profile`)
+
+1. Era-GP-Warmstart: ≤1940 → ×1.10; ≤1960 → ×1.00; ≥1970 → ×0.88
+2. Material-Multiplikatoren (6 Materialien)
+3. Per-Defekt-Family-Boost: 28 DefectTypes → 6 Familien, max +12 %
+4. Spektral-Fingerprint: rolloff→reconstruction, noise_floor→denoise, wow_flutter→dynamics
+5. SOFT_SATURATION-Guard: severity ≥ 0.25 → denoise −12 %, transient −7 %
+6. Schlager-Profil: vocal +10 %, transient +5 %, dynamics +5 %, reconstruction ×0.95
+7. Diversity-Penalty: ≥8 Defekte → global −1 % je Extra, max −6 %
+8. PANNs: vocal_prob/inst_prob → Familien-Skalierung
+9. Modus-Post: studio → reconstruction ×1.08, transient/vocal/instrument ×1.05
+
+### Bekannte Hänger-Patterns (aus realen Runs)
+
+**1. Progress stuck bei ~2 % — synchrone Carrier-Analyse in `load_audio_file()`**
+`load_audio_file()` ruft intern `analyze_carrier_forensics()` → `classify_medium()` auf vollem Audio.
+Bei 225s Stereo (10 M+ Samples) → 6+ Minuten synchroner Block im `BatchProcessingThread`.
+Diagnose: UV3-Log "Starting restoration" erscheint nie → Blocker liegt VOR `denke()`.
+Fix: `load_audio_file(path, do_carrier_analysis=False)` in allen UI/Thread-Aufrufen.
+
+**2. Phase hängt 2+ Stunden — O(n²)-Autokorrelation im DSP-Fallback**
+`np.correlate(signal, signal, mode="full")` bei 10 M+ Samples = ~10¹⁴ Operationen.
+Fix: `np.array([np.dot(s[:n-k], s[k:]) for k in range(AR_ORDER+1)])` — O(n·order).
+Betroffen: AR/LPC-DSP-Fallbacks in Phase 09, Phase 12 und anderen.
+
+**3. R-Kanal kollabiert zu -111 dBFS — kumulativer Stereo-Drift**
+4 Stereo-Phasen à 6–8 dB L/R-Imbalance-Delta → kumulativ > 40 dB Kollaps.
+Jede Phase besteht per-Phase δ-Guard (< 0.05 Δ), Gate-Kaskade bleibt blind.
+Fix: Post-Pipeline kumulative Stereo-Collapse-Guard (§2.49b).
+
+**4. PlateauStop dämpft fälschlich ab Phase 4 für Stereo-Songs**
+`_spectral_quality_score` nutzte `a[0]` statt `a[:, 0]` → immer 0.0 für Stereo →
+PlateauStop aktiv. Fix: `mono = a[:, 0] if a.ndim == 2 else a`.
+
+### Psychoakustik-Gewichtung für Tiefen-Immersion (§8.3)
+
+| Prinzip | Gewicht | Modul |
+| --- | --- | --- |
+| Transient-Punch | ~40 % | TDP |
+| Mikro-Dynamik | ~25 % | MDEM (400 ms) + EmotionalArcCorrection (5 s) |
+| Klarheit | ~20 % | SGMSE+ / OMLSA |
+| Vokal-Präsenz | ~10 % | Phase 42/43 + VocalAI |
+| Neurale Synthese | ~5 % | Vocos 48k (Studio, MOS < 4.3) |

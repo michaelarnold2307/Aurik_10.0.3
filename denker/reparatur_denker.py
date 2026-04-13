@@ -110,6 +110,23 @@ class ReparaturDenker:
     _CLIP_THRESHOLD: float = 0.995  # Amplitude ≥ threshold gilt als Clipping
     _HUM_DETECT_DB: float = -50.0  # Energieschwelle für Brumm-Erkennung (dBFS)
 
+    # Verlustbehaftete Codecs, die MDCT-Quantisierungsartefakte erzeugen (Brandenburg 1999).
+    # Bei Terminal-Codec aus dieser Menge wird click_iqr nach oben auf Codec-IQR korrigiert,
+    # um False-Positive-Clicks durch MP3/AAC-Subbandquantisierung zu vermeiden.
+    _LOSSY_CODECS: frozenset[str] = frozenset(
+        {
+            "mp3_low",
+            "mp3_standard",
+            "mp3_high",
+            "mp3",
+            "aac",
+            "aac_low",
+            "wma",
+            "ogg",
+            "opus",
+        }
+    )
+
     # Material-adaptive Schwellwertprofile (§2.41 Klangtreue v9.10.117)
     # Quellen: Copeland 2008 (Manual of Analogue Sound Restoration),
     #          Katz 2007 (Mastering Audio)
@@ -188,11 +205,20 @@ class ReparaturDenker:
     # Öffentliche API
     # ------------------------------------------------------------------
 
-    def _apply_material_profile(self, material: str) -> None:
+    def _apply_material_profile(
+        self,
+        material: str,
+        transfer_chain: list[str] | None = None,
+    ) -> None:
         """Apply material-adaptive threshold profile (§2.41 v9.10.117).
 
         Falls material im ``_MATERIAL_PROFILES``-Dict enthalten ist,
         werden die 4 Schwellwerte überschrieben. Sonst bleiben Defaults.
+
+        Zusatz (§0c Codec-Chain-Invariante): Endet die Trägerkette in einem
+        verlustbehafteten Codec (MP3/AAC/OGG), wird click_iqr nach oben auf
+        den Codec-IQR korrigiert, da MDCT-Quantisierungsartefakte andernfalls
+        als Vinyl-Clicks fehlklassifiziert werden (Brandenburg 1999).
         """
         mat_key = (material or "").lower().strip()
         profile = self._MATERIAL_PROFILES.get(mat_key)
@@ -214,6 +240,29 @@ class ReparaturDenker:
             self._CLIP_THRESHOLD = 0.995
             self._HUM_DETECT_DB = -50.0
 
+        # §0c Codec-Chain-IQR-Floor: Terminal-Codec-Artefakte dürfen nicht
+        # als Analog-Clicks fehlklassifiziert werden.
+        # Adaptive Logik (universal — kein fester Schwellwert):
+        # Quelle: Brandenburg (1999) — MDCT-Quantisierungsfehler in Tonal-
+        # Subbändern übersteigen IQR×5-Schwelle in ruhigen Passagen;
+        # empirisch validiert auf 128-kbps-Material, aber mechanisch gültig
+        # für alle Abtastraten (fs/576 ≈ 76.6/s @ 44.1 kHz).
+        if transfer_chain:
+            _terminal = str(transfer_chain[-1]).lower().strip()
+            if _terminal in self._LOSSY_CODECS:
+                _codec_profile = self._MATERIAL_PROFILES.get(_terminal)
+                if _codec_profile:
+                    _codec_iqr = _codec_profile["click_iqr"]
+                    if _codec_iqr > self._CLICK_IQR_MULTIPLIER:
+                        logger.info(
+                            "ReparaturDenker: terminal-codec '%s' → click_iqr %.1f → %.1f "
+                            "(MDCT-Quantisierungs-False-Positive-Guard, Brandenburg 1999)",
+                            _terminal,
+                            self._CLICK_IQR_MULTIPLIER,
+                            _codec_iqr,
+                        )
+                        self._CLICK_IQR_MULTIPLIER = _codec_iqr
+
     def repariere(
         self,
         audio: np.ndarray,
@@ -229,6 +278,7 @@ class ReparaturDenker:
         defect_scores: dict[str, float] | None = None,
         defect_locations: dict[str, list[tuple[float, float]]] | None = None,
         era_decade: int | None = None,
+        transfer_chain: list[str] | None = None,
     ) -> ReparaturErgebnis:
         """Repariert die häufigsten analogen Defekte per DSP.
 
@@ -260,8 +310,8 @@ class ReparaturDenker:
         """
         assert sr == 48000, f"ReparaturDenker.repariere() erwartet sr=48000 Hz, erhalten: {sr} Hz"
 
-        # §2.41: Material-adaptive Schwellwerte anwenden
-        self._apply_material_profile(material)
+        # §2.41: Material-adaptive Schwellwerte anwenden (inkl. §0c Codec-Chain-IQR-Floor)
+        self._apply_material_profile(material, transfer_chain=transfer_chain)
 
         # §2.41: Era-adaptive Hum-Sensitivität — ältere Aufnahmen haben
         # typischerweise stärkeren Netzbrumm durch ungefilterte Netzteile.

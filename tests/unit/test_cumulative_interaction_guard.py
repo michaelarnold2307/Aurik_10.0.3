@@ -160,6 +160,12 @@ def test_07_rollback_resets_on_success():
 
 
 def test_08_critical_pair_denoise_dereverb():
+    """§2.55 + §2.44 Reference Paradox: natuerlichkeit ist in den Phase-Exclusions
+    von phase_20 und phase_49. Deshalb darf die kritische Paarprüfung
+    {phase_03, phase_20} auf natuerlichkeit KEINEN Rollback auslösen.
+    Reverb-Entfernung senkt den natuerlichkeit-Score intentional (reverb = 'natürlich'
+    für die Metrik) — das ist kein Artefakt, sondern §2.46 Carrier-Chain-Inversion.
+    Alte Erwartung (assert rolled_back) prüfte einen §2.55-Verstoß."""
     from backend.core.cumulative_interaction_guard import get_interaction_guard
 
     guard = get_interaction_guard()
@@ -169,8 +175,10 @@ def test_08_critical_pair_denoise_dereverb():
     guard.set_pre_pipeline_baseline(state, audio, baseline)
     # Execute phase_03 — OK
     state.executed_phases.add("phase_03_denoise")
-    # Now phase_20 triggers critical pair check
-    degraded = _goals(nat=0.88)  # drift = -0.04 > -0.03 threshold
+    # phase_20 triggers critical pair check for natuerlichkeit.
+    # natuerlichkeit is in _PHASE_SPECIFIC_DRIFT_EXCLUSIONS["phase_20"] → §2.55:
+    # critical pair MUST respect exclusions → NO rollback (Reference Paradox §2.44).
+    degraded = _goals(nat=0.88)  # drift = -0.04 — intentionale Dereverb-Drift
     _, rolled_back = guard.check_after_phase(
         state,
         "phase_20_reverb_reduction",
@@ -178,7 +186,36 @@ def test_08_critical_pair_denoise_dereverb():
         degraded,
         SR,
     )
-    assert rolled_back
+    assert not rolled_back, (
+        "§2.55 Verletzung: natuerlichkeit ist in _PHASE_SPECIFIC_DRIFT_EXCLUSIONS['phase_20'] "
+        "— kritische Paarprüfung darf dieses Goal nicht blockieren (Reference Paradox §2.44)"
+    )
+
+
+def test_08b_critical_pair_non_excluded_goal_still_fires():
+    """Wenn ein nicht-ausgeschlossenes Goal in der kritischen Paar-Schwelle regressiert,
+    soll der Guard trotzdem EINEN Rollback auslösen.
+    Verwendet phase_35 + phase_40 (micro_dynamics) als Testszenario."""
+    from backend.core.cumulative_interaction_guard import get_interaction_guard
+
+    guard = get_interaction_guard()
+    state = guard.reset()
+    audio = _audio()
+    baseline = _goals(nat=0.92)
+    baseline["micro_dynamics"] = 0.90
+    guard.set_pre_pipeline_baseline(state, audio, baseline)
+    state.executed_phases.add("phase_35_multiband_compression")
+    # phase_40 with micro_dynamics regression below pair threshold
+    degraded = dict(baseline)
+    degraded["micro_dynamics"] = 0.84  # drift = -0.06 < -0.04 pair threshold
+    _, rolled_back = guard.check_after_phase(
+        state,
+        "phase_40_lufs_normalization",
+        audio * 0.8,
+        degraded,
+        SR,
+    )
+    assert rolled_back, "Critical pair {phase_35, phase_40} auf micro_dynamics soll rollback auslösen"
 
 
 def test_09_critical_pair_no_trigger_if_good():

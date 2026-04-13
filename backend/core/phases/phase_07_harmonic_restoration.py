@@ -440,7 +440,6 @@ class HarmonicRestorationPhase(PhaseInterface):
         # and synthesizes only the MISSING/WEAK partials (Minimal-Intervention §0).
         _ddsp_audio: np.ndarray | None = None
         _ddsp_inharmonicity: float = 0.0
-        _ddsp_used = False
         try:
             _ddsp_audio, _ddsp_inharmonicity = _ddsp_harmonic_inversion(
                 _mono, sample_rate, f0_info, n_harmonics=64, material_type=str(material_type)
@@ -454,7 +453,6 @@ class HarmonicRestorationPhase(PhaseInterface):
                 else:
                     audio = np.clip(audio + _ddsp_wet * (_ddsp_audio - audio), -1.0, 1.0)
                 _mono = np.mean(audio, axis=1) if audio.ndim == 2 else audio  # re-derive mono
-                _ddsp_used = True
         except Exception as _ddsp_exc:
             logger.debug("§C5 DDSP-Inversion skipped (non-blocking): %s", _ddsp_exc)
 
@@ -537,6 +535,29 @@ class HarmonicRestorationPhase(PhaseInterface):
         except Exception as _tc07:
             logger.debug("phase_07 §2.46b tilt-cap skipped (graceful): %s", _tc07)
 
+        # §4.1 Harmonic-Lattice-Coherence (Fletcher 1964): enforce post-synthesis
+        # coherence on the final signal to avoid inharmonic partial drift.
+        _lattice_enforced = False
+        _lattice_score = 1.0
+        try:
+            from backend.core.harmonic_lattice_analyzer import get_harmonic_lattice_analyzer
+
+            _instrument_tag = str(kwargs.get("instrument_tag", "unknown"))
+            _lattice = get_harmonic_lattice_analyzer()
+            _lat_in = np.mean(restored, axis=1) if restored.ndim == 2 else restored
+            _lat_res = _lattice.analyze(_lat_in, sample_rate, instrument_tag=_instrument_tag)
+            _lattice_score = float(np.clip(_lat_res.coherence_score, 0.0, 1.0))
+            if restored.ndim == 2:
+                _left = _lattice.enforce_coherence(restored[:, 0], sample_rate, _lat_res)
+                _right = _lattice.enforce_coherence(restored[:, 1], sample_rate, _lat_res)
+                restored = np.column_stack((_left, _right)).astype(np.float32)
+            else:
+                restored = _lattice.enforce_coherence(restored, sample_rate, _lat_res).astype(np.float32)
+            restored = np.clip(restored, -1.0, 1.0)
+            _lattice_enforced = True
+        except Exception as _lat_exc:
+            logger.debug("phase_07 harmonic lattice coherence skipped (graceful): %s", _lat_exc)
+
         # §2.47 PMGG-Retry: phase_locality_factor als finaler Wet/Dry-Regler
         if _effective_strength < 1.0:
             restored = audio + _effective_strength * (restored - audio)
@@ -558,6 +579,8 @@ class HarmonicRestorationPhase(PhaseInterface):
                 "n_pitches_detected": len(f0_info),
                 "phase_locality_factor": phase_locality_factor,
                 "effective_strength": _effective_strength,
+                "lattice_enforced": _lattice_enforced,
+                "lattice_coherence_score": _lattice_score,
             },
             warnings=[f"High THD: {thd_percent:.2f}%"] if thd_percent > 2.0 else [],
             metadata={
@@ -573,6 +596,8 @@ class HarmonicRestorationPhase(PhaseInterface):
                 "phase_locality_factor": phase_locality_factor,
                 "effective_strength": _effective_strength,
                 "spectral_tilt_capped": _tilt_capped_p07,
+                "lattice_enforced": _lattice_enforced,
+                "lattice_coherence_score": _lattice_score,
                 "rms_drop_db": 0.0,
                 "loudness_makeup_db": 0.0,
             },

@@ -498,6 +498,138 @@ IMPLEMENTATION: Butterworth 4th-Order Tiefpass (sosfiltfilt, zero-phase) nach
 
 ---
 
+## §4.7 [RELEASE_MUST] Noise-Texture-Coherence-Guard (v9.11.14)
+
+**Problem**: Denoising-Phasen (phase_03, phase_29) können die spektrale Form des Restrauschens verändern. Ein Vinyl-Song, der nach Denoising weißen Rauschboden zeigt, klingt „falsch" — auch wenn der Rauschpegel niedrig ist. Die Rauschtextur ist Teil des Trägerprofils und muss kohärent bleiben (§0a).
+
+**Trägerprofil-Referenz (normativ)**:
+
+| Material | Rausch-Spektral-Profil | Slope (dB/oct) | Begründung |
+| --- | --- | --- | --- |
+| `vinyl` | Rosa/Pink | ≈ −3 | Rillengeometrie, Nadelkontakt, Motorgeräusch |
+| `shellac` | Rosa mit HF-Plateau | ≈ −2.5 | Breiteres Rauschband, gröbere Rillen |
+| `tape`, `reel_tape` | Brown + HF-Hiss-Buckel | ≈ −4.5 (LF) + Hiss-Peak 4–8 kHz | Magnetbandkorn + Bias-Rauschen |
+| `cassette` | Brown + stärkerer HF-Hiss | ≈ −5 (LF) + Hiss-Peak 6–12 kHz | NR-Restfehler, schmaleres Band |
+| `wax_cylinder` | Breitband, Pink-ähnlich | ≈ −2 | Mechanisches Rauschen, Horn-Resonanz |
+| `wire_recording` | White-ish + Clicks | ≈ −1 | Drahtlauf, mechanisch |
+| `cd_digital` | Weiß / Flat | ≈ 0 | Quantisierungsrauschen |
+| `mp3_low`, `mp3_high` | Codec-geformt | variabel | MDCT-Quantisierung |
+| `streaming`, `aac` | Codec-geformt | variabel | MDCT-Quantisierung |
+
+**Kohärenz-Messung**:
+
+```python
+def compute_noise_texture_coherence(
+    residual_noise: np.ndarray,  # restored_audio - original_dry_estimate
+    material_type: str,
+    sr: int = 48000,
+) -> float:
+    """
+    Misst spektrale Kohärenz zwischen Restrauschen und materialspezifischem Trägerprofil.
+
+    1. PSD des Restrauschens (Welch, 4096 Samples, Hann)
+    2. Log-PSD normieren (Median = 0 dB)
+    3. Referenz-PSD aus _PROFILE_SLOPES[material_type] generieren
+    4. Pearson-Korrelation(log_residual_psd, log_reference_psd)
+
+    Returns: Kohärenz-Score [0, 1]; ≥ 0.80 = kohärent
+    """
+```
+
+**Guard-Integration**:
+
+- **Per-Phase**: Nach jeder subtraktiven Phase (phase_03, phase_29, phase_28) messen.
+  Kohärenz < 0.60 → Strength-Reduktion (−30 % Wet), kein Rollback.
+  Kohärenz ∈ [0.60, 0.80) → Telemetrie-Warning, kein Eingriff.
+  Kohärenz ≥ 0.80 → OK.
+- **End-of-Pipeline**: `metadata["noise_texture_coherence"]` als Pflichtfeld.
+  Restoration-Modus: Kohärenz < 0.80 → Warning im Export, Empfehlung in `auto_improvement_recommendations`.
+  Studio 2026: Kein Kohärenz-Zwang (Ziel ist minimaler Rauschboden).
+
+**Invariante**: Der Guard darf Denoising nicht wirkungslos machen — er begrenzt die Texturveränderung, nicht die Rauschreduktion an sich.
+
+**Implementierungspfad**: `backend/core/noise_texture_coherence.py` — `NoiseTextureCoherenceGuard`; Aufruf in UV3 nach subtraktiven Phasen.
+
+---
+
+## §4.8 [RELEASE_MUST] Generation-Loss-Kompensationsformel (v9.11.14)
+
+**Problem**: Mehrgenerations-Übertragungsketten (z. B. Shellac → Reel-Tape → Cassette → CD → MP3) verursachen kumulative, physikalisch modellierbare Verluste. Ohne explizite Formel schätzt jede Komponente den Gesamtverlust anders, was zu inkonsistenter Restaurierungsstärke führt.
+
+**Normative Formel** (input: `transfer_chain` aus MediumDetector):
+
+```python
+# Konsolidierte Carrier-Transfer-Charakteristik-Tabelle (normativ)
+CARRIER_TRANSFER_CHARACTERISTICS = {
+    # material_key: (bw_ceiling_hz, snr_floor_db, generation_loss_db_per_gen, dr_ceiling_db)
+    "wax_cylinder":   ( 5000, -25, -6.0, 35),
+    "shellac":        ( 8000, -30, -5.0, 45),
+    "lacquer_disc":   ( 8000, -32, -4.5, 50),
+    "wire_recording": ( 6000, -28, -5.5, 40),
+    "vinyl":          (16000, -55, -2.0, 70),
+    "tape":           (15000, -50, -3.0, 68),
+    "reel_tape":      (18000, -60, -1.5, 72),
+    "cassette":       (14000, -48, -3.5, 60),
+    "dat":            (22000, -90, -0.2, 92),
+    "minidisc":       (20000, -85, -0.5, 88),
+    "cd_digital":     (22050, -96, -0.1, 96),
+    "mp3_low":        (16000, -70, -1.5, 90),
+    "mp3_high":       (20000, -80, -0.5, 93),
+    "aac":            (20000, -82, -0.4, 93),
+    "streaming":      (20000, -78, -0.8, 90),
+    "unknown":        (20000, -50, -2.0, 70),
+}
+
+def compute_cumulative_generation_loss(transfer_chain: list[str]) -> dict:
+    """
+    Berechnet kumulativen Verlust über die gesamte Transferkette.
+
+    Returns:
+        {
+            "generation_count": int,         # Anzahl Transfer-Stufen
+            "cumulative_bw_hz": float,       # = min(bw_ceiling für jede Stufe)
+            "cumulative_snr_db": float,      # ≈ 10·log10(Σ 10^(loss_i/10))  
+            "cumulative_hf_loss_db": float,  # = Σ generation_loss_db_per_gen
+            "cumulative_dr_ceiling_db": float,  # = min(dr_ceiling für jede Stufe)
+            "source_fidelity_confidence": float,  # 1.0 / (1.0 + 0.15·gen_count)
+        }
+
+    Example:
+        chain = ["shellac", "reel_tape", "cd_digital", "mp3_low"]
+        → bw = min(8000, 18000, 22050, 16000) = 8000 Hz
+        → hf_loss = -5.0 + -1.5 + -0.1 + -1.5 = -8.1 dB
+        → dr_ceiling = min(45, 72, 96, 90) = 45 dB
+        → confidence = 1.0 / (1.0 + 0.15·4) = 0.625
+    """
+    results = {}
+    bw_values = []
+    dr_values = []
+    total_hf_loss = 0.0
+    for material in transfer_chain:
+        chars = CARRIER_TRANSFER_CHARACTERISTICS.get(material, CARRIER_TRANSFER_CHARACTERISTICS["unknown"])
+        bw_values.append(chars[0])
+        total_hf_loss += chars[2]
+        dr_values.append(chars[3])
+
+    results["generation_count"] = len(transfer_chain)
+    results["cumulative_bw_hz"] = min(bw_values) if bw_values else 20000
+    results["cumulative_hf_loss_db"] = total_hf_loss
+    results["cumulative_dr_ceiling_db"] = min(dr_values) if dr_values else 70
+    results["source_fidelity_confidence"] = 1.0 / (1.0 + 0.15 * len(transfer_chain))
+    return results
+```
+
+**Integration**:
+
+- `SourceFidelityReconstructor` MUSS `CARRIER_TRANSFER_CHARACTERISTICS` als Single Source of Truth verwenden (keine eigene Tabelle).
+- `SongCalibrationProfile` MUSS `cumulative_hf_loss_db` und `generation_count` für Stärke-Skalierung nutzen.
+- `PhysicalCeilingEstimator` MUSS `cumulative_bw_hz` und `cumulative_dr_ceiling_db` respektieren.
+- `RestorationResult.metadata["carrier_chain_characteristics"]` enthält das vollständige Dict.
+
+**Invariante**: Die Formel ist deterministisch — gleiche `transfer_chain` → gleiches Ergebnis. Keine lernbasierten oder stochastischen Elemente in der Baseline-Berechnung.
+
+---
+
 ## §12 Referenzen (Auswahl — Pflicht-Algorithmen)
 
 - Cohen & Berdugo (2002): IMCRA — _Noise Estimation by Minima Controlled Recursive Averaging_
@@ -591,3 +723,216 @@ audio = np.clip(audio, -1.0, 1.0)  # Finales Sicherheitsnetz
 Diese drei Invarianten verhindern das Silence-Amplification-Problem: Subtraktive Phasen entfernen Rauschen aus Stille-Segmenten → globaler RMS sinkt → Guard meldet falschen Pegelkollaps → uniformer Makeup-Gain amplifiziert entrauschte Stille → Soft-Limiter komprimiert Musikpeaks. Ergebnis: Musik leiser, Stille lauter — exakt das Gegenteil des Ziels.
 
 > Kreuzreferenz: Spec 02 §2.45a-I bis §2.45a-IV
+
+---
+
+## §4.7 [RELEASE_MUST] Literaturbasierte Gap-Interpolation (v9.11.13)
+
+### §4.7a Phase-09 LPC/AR-Lücken-Interpolation
+
+Für Crackle-Lücken ≤ 50 ms (sowie Shellac `interpolation == "hybrid"`):
+
+```python
+# Kanonischer Algorithmus (_ar_fill_channel):
+# 1. Vorwärts-AR-Koeffizienten aus Pre-Gap-Kontext (Yule-Walker, lpc_order=32)
+#    a_fwd = librosa.lpc(pre_context[-context_len:], order=lpc_order)
+# 2. Rückwärts-AR-Koeffizienten aus Post-Gap-Kontext (gespiegeltes Signal)
+#    a_bwd = librosa.lpc(post_context[:context_len][::-1], order=lpc_order)
+# 3. Pol-Stabilisierung: alle Pole |z| >= 0.995 auf 0.994 spiegeln
+#    (verhindert exponentielle Divergenz bei schlecht konditionierter Yule-Walker-Lösung)
+# 4. Vorwärts- und Rückwärts-Vorhersage über Gap-Länge berechnen
+# 5. Lineare Überblendung beider Vorhersagen: alpha = linspace(0, 1, gap_len)
+#    fill = (1 - alpha) * fwd_fill + alpha * bwd_fill
+# 6. 5 ms Boundary-Crossfade (Hann-Taper) an Lückenrändern
+```
+
+**Wissenschaftliche Referenzen**:
+
+- Rabiner & Schafer (1978): _Digital Processing of Speech Signals_
+- Lagrange & Marchand (2007): "Long Interpolation of Audio Signals using Linear Prediction", DAFX
+- Godsill & Rayner (1998): _Digital Audio Restoration_, Springer
+
+**VERBOTEN**: `_interpolate_hybrid()` als Stub, der intern `_interpolate_linear()` aufruft.
+
+### §4.7b Phase-50 STFT-Konsistenz-Projektion (POCS)
+
+Für Time-Axis-Dropout-Reparatur (Pass-2) in Phase 50:
+
+```python
+# Kanonischer Algorithmus (_fill_dropout_frames_pocs):
+# 1. Initialisierung: linear interpolierte Spektren als Startwert für Dropout-Frames
+# 2. ISTFT: Spektrum → Zeitbereich (setzt STFT-Konsistenz voraus)
+# 3. STFT: Zeitbereich → Spektrum (projiziert auf konsistente STFT-Mannigfaltigkeit)
+# 4. Projection: undamaged Frames werden auf Original-Spektraldaten zurückgesetzt
+# 5. Schritte 2-4 wiederholen (n_iter=5)
+#
+# Konvergenz: POCS (Projection Onto Convex Sets) garantiert Annäherung an
+# zulässigen Datenpunkt der Schnittmenge beider Constraints:
+# - C1: Signal konsistent mit undamaged Frames
+# - C2: Spektrum liegt auf korrekter STFT-Mannigfaltigkeit
+```
+
+**Wissenschaftliche Referenz**: Siedenburg & Dörfler (2013) "Audio Inpainting with Social Sparsity", JASA.
+
+**VERBOTEN**: Einmalige lineare Interpolation als finale Time-Axis-Dropout-Reparatur.
+
+**Testpflicht**: `tests/unit/test_literature_algorithms.py` (21 Tests, alle grün).
+
+---
+
+## §4.6a ML-Plugin-Integration — Workflow, Budget & ONNX-Chunking (konsolidiert aus Skill ml-plugin)
+
+### Memory-Budget-Pflicht (RELEASE_MUST)
+
+**Jeder** ML-Modell-Load MUSS diesen Ablauf einhalten:
+
+```python
+from backend.core.ml_memory_budget import get_ml_memory_budget
+from backend.core.plugin_lifecycle_manager import get_plugin_lifecycle_manager
+
+budget = get_ml_memory_budget()
+plm = get_plugin_lifecycle_manager()
+
+# 1. Budget prüfen — VOR torch.load() / InferenceSession()
+if not budget.try_allocate("my_model", size_gb=1.2):
+    logger.warning("ml_budget_denied model=my_model required_gb=1.2")
+    budget.release("my_model")  # safety cleanup
+    return _dsp_fallback(audio, sr)  # PFLICHT: DSP-Fallback
+
+try:
+    # 2. Modell laden
+    model = onnxruntime.InferenceSession(path, providers=get_ort_providers("my_model"))
+    # 3. LRU-Tracking registrieren
+    plm.register("my_model", size_gb=1.2, unload_fn=lambda: del_model())
+except Exception:
+    budget.release("my_model")  # 4. IMMER release bei Fehler
+    return _dsp_fallback(audio, sr)
+```
+
+**Verboten**: `plm.try_allocate()` (existiert nicht), `torch.load(..., map_location="cuda")` ohne ml_device_manager, ML-Load ohne `try_allocate()`.
+
+**Auto-Budget-Formel**: `max(4.0, min(12.0, RAM_GB / 3))`. Budget-Einheit: **immer GB (float)**, nie MB.
+
+### §2.38a Headroom-Guard (RELEASE_MUST)
+
+Für schwere ML-Pfade (SGMSE+, ResembleEnhance, AudioSR, CQTdiff/FlowMatching):
+
+1. Vor Load: Physischer RAM-Headroom prüfen (mono/stereo, Dateilänge)
+2. Bei knappem RAM: `evict_stale_plugins()` + `gc.collect()` + `malloc_trim(0)`
+3. Guard triggert → DSP-Fallback innerhalb derselben Phase — **kein Phase-Skip**
+
+**Structured Fallback-Metadaten** (Pflicht in `metadata["ml_guard_events"]`):
+`phase_id`, `model`, `reason`, `required_gb`, `available_gb`, `channels`, `duration_s`, `fallback`.
+
+### ONNX Fixed-Shape-Input — Pflicht-Chunking (RELEASE_MUST)
+
+Vor jedem `session.run()` Input-Dimension prüfen:
+
+```python
+inp = session.get_inputs()[0]
+fixed_len = None
+if inp.shape and len(inp.shape) >= 2:
+    dim = inp.shape[1]
+    if isinstance(dim, int) and dim > 0:
+        fixed_len = dim
+
+if fixed_len is not None and len(audio) > fixed_len:
+    # Chunking-Loop — 50 % Overlap, Zero-Padding für letzten Chunk
+    results = []
+    pos = 0
+    while pos < len(audio):
+        chunk = audio[pos : pos + fixed_len]
+        if len(chunk) < fixed_len:
+            chunk = np.pad(chunk, (0, fixed_len - len(chunk)))
+        results.append(session.run(..., {inp.name: chunk[np.newaxis, :]}))
+        pos += fixed_len // 2
+```
+
+**Invariante**: `INVALID_ARGUMENT`-ONNX-Fehler für falsche Eingabegröße ist immer Bug im Plugin-Code.
+
+### ONNX-Sessions — Pflicht-Konfiguration
+
+```python
+opts = onnxruntime.SessionOptions()
+opts.intra_op_num_threads = os.cpu_count()
+opts.graph_optimization_level = onnxruntime.GraphOptimizationLevel.ORT_ENABLE_ALL
+```
+
+### Lazy-Load-Pflicht (Budget > 4 GB allein)
+
+| Modell | Größe | Lazy-Load |
+| --- | --- | --- |
+| AudioSR | 5.9 GB | Pflicht |
+| MERT-v1-330M | 3.9 GB | Pflicht |
+
+### Hybrid-Release-Mode (RELEASE_MUST)
+
+`release_mode` ∈ `primary | fallback | blocked`. Kein ML-Failure darf Pipeline vollständig abbrechen.
+Jeder Fallback in `metadata["ml_fallbacks_used"]` protokollieren.
+
+### Checkliste neues ML-Plugin
+
+```
+□ plugins/<name>_plugin.py
+□ ml_memory_budget.try_allocate(name, size_gb) VOR Load (Einheit: GB float)
+□ ml_memory_budget.release(name) in ALLEN Fehler-Pfaden
+□ plm.register(name, size_gb, unload_fn) nach erfolgreichem Load
+□ DSP-Fallback für ImportError UND Budget-Überschreitung
+□ Heavy: providers=get_ort_providers("Name") / Light: providers=["CPUExecutionProvider"]
+□ Headroom-Guard für schwere Modelle (> 1 GB)
+□ ONNX Fixed-Shape-Check: inp.shape[1] → Chunking
+□ models/manifest.json: sha256 + bundled_path + size_gb + fallback
+□ Tests als ml/slow markieren wenn Timeout ≥ 30 s
+□ CHANGELOG.md Eintrag
+```
+
+---
+
+## §4.6b Material×Defect DSP-Entscheidungsbaum (konsolidiert aus Skill aurik-dsp-decision)
+
+### MRSA-Zonen (5 Pflicht-Zonen)
+
+| Zone | FFT-Size | Bereich |
+| --- | --- | --- |
+| sub_bass | 65536 | < 80 Hz |
+| mid_low | 16384 | 80–500 Hz |
+| mid | 8192 | 500 Hz–4 kHz |
+| presence | 1024 | 4–8 kHz |
+| air | 128 | > 8 kHz |
+
+PGHI per Zone, Kreuzfade Hanning 10 ms. **VERBOTEN**: willkürliche FFT-Größen.
+
+### Integrations-Checkliste neue Modelle
+
+```
+□ Lokal gebündelt (kein Download-Code in Produktion)
+□ models/manifest.json v2 Eintrag mit SHA256
+□ Post-2018-DSP-Fallback definiert
+□ SR=48000 Konformität geprüft
+□ Musik-spezifischer Benchmark (nicht PESQ/DNSMOS)
+□ Material × DefectType Mapping eingetragen
+□ Plugin-Policy-Konformität (§11.3)
+□ Thread-safe Singleton-Integration
+```
+
+### Chunk-Verarbeitung (§7.6)
+
+Severity ≥ 0.6 → 5 s, ≥ 0.3 → 15 s, sonst 60 s (Min 2 s / Max 120 s).
+Crossfade: Hanning 10 ms. Modul: `backend/core/adaptive_chunk_processor.py`
+
+### Versionsmatrix
+
+| Modell | Version | Eingebunden seit |
+| --- | --- | --- |
+| DeepFilterNet | v3.II | Aurik 9.0 |
+| MelBandRoformer | 860 MB ONNX | Aurik 9.10.x |
+| MDX23C | Kim_Vocal_2 / Kim_Inst | Aurik 9.0 (Fallback) |
+| Apollo | v1 TorchScript | Aurik 9.0 |
+| FCPE | ONNX | Aurik 9.10.x |
+| Vocos | 48 kHz nativ ONNX | Aurik 9.10.x |
+| BEATs | iter3 ONNX 90 MB | Aurik 9.10.x |
+| VERSA | PyTorch Checkpoint | Aurik 9.10.x |
+| SGMSE+ | TorchScript 251 MB | Aurik 9.10.x |
+| Flow Matching | ONNX/PT | Aurik 9.10.x |
+| Whisper-Tiny | ONNX 39 MB | Aurik 9.10.46b |
+| Resemble-Enhance | ONNX 722 MB | Aurik 9.0 (Fallback) |

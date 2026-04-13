@@ -171,6 +171,10 @@ class DeepFilterNetV3Plugin:
         """
         self._current_energy_bias_db: float = energy_bias_db
         audio = np.nan_to_num(audio.astype(np.float32), nan=0.0, posinf=0.0, neginf=0.0)
+        # UV3 passes (2, N) channels-first; normalize to (N, 2) for uniform processing.
+        _was_channels_first = audio.ndim == 2 and audio.shape[0] == 2 and audio.shape[1] > 2
+        if _was_channels_first:
+            audio = audio.T  # (2, N) → (N, 2)
         stereo = audio.ndim == 2 and audio.shape[1] == 2
 
         def proc(ch: np.ndarray) -> np.ndarray:
@@ -186,6 +190,9 @@ class DeepFilterNetV3Plugin:
             mono = audio[:, 0] if audio.ndim == 2 else audio
             out = proc(mono)
 
+        # Restore channels-first layout if input was (2, N)
+        if _was_channels_first and out.ndim == 2:
+            out = out.T
         return np.clip(out, -1.0, 1.0)
 
     # ── Internal ────────────────────────────────────────────────────────────

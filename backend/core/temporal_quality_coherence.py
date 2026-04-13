@@ -24,6 +24,34 @@ MIN_FILE_DURATION_S: float = 25.0
 SEGMENT_DURATION_S: float = 10.0
 SEGMENT_HOP_S: float = 5.0
 
+# §2.54 Material-adaptive thresholds — lossy codecs show high spectral variance
+# across segments (bitrate-allocation fluctuations), so tighter thresholds cause
+# false-positive warnings without indicating real quality inconsistency.
+_MATERIAL_SPAN_THRESHOLD: dict[str, float] = {
+    "mp3_low": 2.50,  # 128 kbps: aggressive bitrate allocation variance
+    "mp3_mid": 1.80,  # 192 kbps
+    "mp3_high": 1.20,  # 320 kbps
+    "lossy_low": 2.50,
+    "lossy_mid": 1.80,
+    "lossy_high": 1.20,
+    "ogg": 1.50,
+    "aac": 1.50,
+    "cassette": 1.20,  # Analog with flutter-induced variance
+    "default": 0.30,
+}
+_MATERIAL_SIGMA_THRESHOLD: dict[str, float] = {
+    "mp3_low": 1.20,
+    "mp3_mid": 0.90,
+    "mp3_high": 0.60,
+    "lossy_low": 1.20,
+    "lossy_mid": 0.90,
+    "lossy_high": 0.60,
+    "ogg": 0.70,
+    "aac": 0.70,
+    "cassette": 0.60,
+    "default": 0.15,
+}
+
 
 # ---------------------------------------------------------------------------
 # Ergebnis-Dataclass
@@ -69,19 +97,29 @@ class TemporalQualityCoherenceMetric:
     SIGMA_THRESHOLD: float = SIGMA_THRESHOLD
     MIN_FILE_DURATION_S: float = MIN_FILE_DURATION_S
 
-    def measure(self, audio: np.ndarray, sr: int) -> TemporalCoherenceResult:
+    def measure(self, audio: np.ndarray, sr: int, material_key: str | None = None) -> TemporalCoherenceResult:
         """Misst temporale Qualitaetskohaerentz.
 
         Args:
-            audio: float32 1-D oder 2-D
-            sr:    Sample-Rate (muss 48000 sein)
+            audio:        float32 1-D oder 2-D
+            sr:           Sample-Rate (muss 48000 sein)
+            material_key: Optionaler Materialtyp-Key für adaptive Thresholds
+                          (z.B. 'mp3_low', 'vinyl', 'cd_digital').
 
         Returns:
             TemporalCoherenceResult
         """
         audio = np.nan_to_num(np.asarray(audio, dtype=np.float32))
         if audio.ndim == 2:
-            audio = audio.mean(axis=0)
+            # Handle (2, N) channels-first (UV3) and (N, 2) samples-first
+            audio = (
+                audio.mean(axis=0) if (audio.shape[0] <= 8 and audio.shape[1] > audio.shape[0]) else audio.mean(axis=1)
+            )
+
+        # §2.54 Material-adaptive thresholds
+        _mat = str(material_key).lower().replace("-", "_") if material_key else "default"
+        span_threshold = _MATERIAL_SPAN_THRESHOLD.get(_mat, _MATERIAL_SPAN_THRESHOLD["default"])
+        sigma_threshold = _MATERIAL_SIGMA_THRESHOLD.get(_mat, _MATERIAL_SIGMA_THRESHOLD["default"])
 
         duration_s = len(audio) / max(sr, 1)
         if duration_s < self.MIN_FILE_DURATION_S:
@@ -123,7 +161,7 @@ class TemporalQualityCoherenceMetric:
         max_span = float(arr.max() - arr.min())
         sigma = float(arr.std())
         mean_mos = float(arr.mean())
-        passes = (max_span <= self.TEMPORAL_CONSISTENCY_THRESHOLD) and (sigma <= self.SIGMA_THRESHOLD)
+        passes = (max_span <= span_threshold) and (sigma <= sigma_threshold)
 
         return TemporalCoherenceResult(
             passed=passes,
@@ -185,9 +223,9 @@ def get_temporal_coherence_metric() -> TemporalQualityCoherenceMetric:
     return _instance
 
 
-def measure_temporal_coherence(audio: np.ndarray, sr: int) -> TemporalCoherenceResult:
+def measure_temporal_coherence(audio: np.ndarray, sr: int, material_key: str | None = None) -> TemporalCoherenceResult:
     """Convenience-Wrapper."""
-    return get_temporal_coherence_metric().measure(audio, sr)
+    return get_temporal_coherence_metric().measure(audio, sr, material_key=material_key)
 
 
 # Convenience-Alias (Spec §3.2)

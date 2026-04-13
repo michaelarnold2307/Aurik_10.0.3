@@ -229,13 +229,27 @@ class MushraEvaluator:
         sc_score = float(np.clip(spectral_corr, 0.0, 1.0))
 
         # Gewichtete Kombination → [0, 1]
-        raw = (
-            self._WEIGHTS["nsim"] * nsim_score
-            + self._WEIGHTS["musical_goals"] * mg_score
-            + self._WEIGHTS["mcd"] * mcd_score
-            + self._WEIGHTS["lufs_diff"] * lufs_score
-            + self._WEIGHTS["spectral_corr"] * sc_score
-        )
+        # When musical_goals could not be computed (empty dict → mg_score=0), the
+        # mg weight is redistributed proportionally across the remaining metrics so
+        # a perfect perceptual match still reaches 100.  This prevents short or
+        # synthetic test signals from being unfairly penalised for a missing Goal
+        # computation (§0 Primum non nocere — no artefact from an absent sub-metric).
+        if not musical_goals:
+            _remaining_w = 1.0 - self._WEIGHTS["musical_goals"]
+            raw = (
+                (self._WEIGHTS["nsim"] / _remaining_w) * nsim_score
+                + (self._WEIGHTS["mcd"] / _remaining_w) * mcd_score
+                + (self._WEIGHTS["lufs_diff"] / _remaining_w) * lufs_score
+                + (self._WEIGHTS["spectral_corr"] / _remaining_w) * sc_score
+            )
+        else:
+            raw = (
+                self._WEIGHTS["nsim"] * nsim_score
+                + self._WEIGHTS["musical_goals"] * mg_score
+                + self._WEIGHTS["mcd"] * mcd_score
+                + self._WEIGHTS["lufs_diff"] * lufs_score
+                + self._WEIGHTS["spectral_corr"] * sc_score
+            )
         # Final NaN/Inf guard before scaling (defensive — sub-metric guards above
         # should prevent this, but belt-and-suspenders per coding standards).
         raw = float(np.nan_to_num(raw, nan=0.0, posinf=1.0, neginf=0.0))
@@ -377,12 +391,27 @@ class MushraEvaluator:
             mfcc_ref = librosa.feature.mfcc(y=ref, sr=sr, n_mfcc=n_mfcc).T
             mfcc_test = librosa.feature.mfcc(y=test, sr=sr, n_mfcc=n_mfcc).T
 
+            # CMVN — Cepstral Mean and Variance Normalization (standard speech/music DSP).
+            # Librosa MFCC-Koeffizienten liegen in rohen Log-Energie-Einheiten (Wertebereich
+            # typisch ±500 dB) — ohne Normalisierung ergibt die MCD-Formel 500–1000 dB statt
+            # des phys. sinnvollen Bereichs 0–30 dB.  CMVN subtrahiert die utterance-globale
+            # Mittelwert-Verschiebung und normalisiert auf σ=1, sodass die Distanz ausschließlich
+            # zeitliche Klangfarbenunterschiede (nicht absoluten Lautstärke-Offset) misst.
+            # Invariante: gilt für alle Songs/Materialien — nicht song-spezifisch.
+            # Referenz: Aal-Saleh & Mokbel 2011; Kominek & Black 2008 (CMU-Arctic MCD benchmark).
+            for _mc in (mfcc_ref, mfcc_test):
+                _mu = np.mean(_mc, axis=0, keepdims=True)
+                _sigma = np.std(_mc, axis=0, keepdims=True) + 1e-8
+                _mc -= _mu
+                _mc /= _sigma
+
             min_frames = min(mfcc_ref.shape[0], mfcc_test.shape[0])
             diff = mfcc_ref[:min_frames, 1:] - mfcc_test[:min_frames, 1:]  # skip c0
-            # Per-frame MCD then average (correct formulation — not global RMS)
+            # Per-frame MCD then average (correct ITU-T P.862 formulation)
             frame_dists = np.sqrt(2.0 * np.sum(diff**2, axis=1))
             mcd = (10.0 / math.log(10)) * float(np.mean(frame_dists))
-            return max(0.0, mcd)
+            # Sane cap: CMVN MCD range 0–40 dB (>40 = completely different timbre, maps to 0 score anyway).
+            return float(np.clip(mcd, 0.0, 40.0))
         except Exception as exc:
             logger.debug("MCD Fallback: %s", exc)
             return 5.0

@@ -235,11 +235,23 @@ def _wiener(mono, sr):
     from scipy.ndimage import uniform_filter
     from scipy.signal import istft, stft
 
-    _, _, Z = stft(mono, fs=sr, nperseg=_N, noverlap=_N - _HOP, window="hann")
+    # Guard short segments: scipy reduces effective nperseg to signal length,
+    # so a fixed noverlap can become >= nperseg and raise ValueError.
+    _sig_len = int(len(mono))
+    _nperseg = int(min(_N, max(1, _sig_len)))
+    _noverlap = int(min(_N - _HOP, max(0, _nperseg - 1)))
+
+    _, _, Z = stft(mono, fs=sr, nperseg=_nperseg, noverlap=_noverlap, window="hann")
     mag = np.abs(Z)
     ne = np.maximum(uniform_filter(mag, (1, 9)), 1e-8)
     gain = np.maximum(mag**2 / (mag**2 + ne**2 + 1e-10), 0.15)
-    _, o = istft(gain * mag * np.exp(1j * np.angle(Z)), fs=sr, nperseg=_N, noverlap=_N - _HOP, window="hann")
+    _, o = istft(
+        gain * mag * np.exp(1j * np.angle(Z)),
+        fs=sr,
+        nperseg=_nperseg,
+        noverlap=_noverlap,
+        window="hann",
+    )
     return o[: len(mono)].astype(np.float32)
 
 

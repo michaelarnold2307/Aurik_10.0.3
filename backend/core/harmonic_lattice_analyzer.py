@@ -114,28 +114,44 @@ class HarmonicLatticeAnalyzer:
             return self._null_result(instrument_tag)
 
         f0 = self._estimate_f0(mono, sr)
-        b = float(self.INHARMONICITY_PRIORS.get(instrument_tag, 0.0001))
+        b_prior = float(self.INHARMONICITY_PRIORS.get(instrument_tag, 0.0001))
 
+        # Detect actual partial positions from the audio spectrum.
+        # Uses _detect_partials() which searches ±5 % bands around ideal positions.
+        detected = self._detect_partials(mono, sr, f0)
+
+        # Refine inharmonicity coefficient B from measured data when possible
+        # (Fletcher 1964: fₙ = n·f₀·√(1 + B·n²)).
+        b = self._estimate_b_from_partials(detected, f0) if len(detected) >= 3 else b_prior
+
+        # Build per-partial analysis objects merging ideal lattice with observed positions.
+        detected_by_n = {p.partial_index: p for p in detected}
         freq_list: list[float] = []
         dev_list: list[float] = []
         partial_objs: list[PartialAnalysis] = []
         for n in range(1, 21):
-            ideal = n * f0
-            corrected = ideal * math.sqrt(max(1e-12, 1.0 + b * (n**2)))
-            freq_list.append(float(corrected))
-            dev_list.append(0.0)
+            ideal = float(n * f0 * math.sqrt(max(1e-12, 1.0 + b * (n**2))))
+            freq_list.append(ideal)
+            if n in detected_by_n:
+                obs_hz = detected_by_n[n].observed_hz
+                dev_c = detected_by_n[n].deviation_cents
+            else:
+                obs_hz = ideal  # undetected → assume on-target
+                dev_c = 0.0
+            dev_list.append(dev_c)
             partial_objs.append(
                 PartialAnalysis(
                     partial_index=n,
-                    target_hz=float(corrected),
-                    observed_hz=float(corrected),
-                    deviation_cents=0.0,
+                    target_hz=ideal,
+                    observed_hz=obs_hz,
+                    deviation_cents=dev_c,
                     protected=True,
                 )
             )
 
-        confidence = float(np.clip(np.std(mono) * 5.0, 0.0, 1.0))
-        score = float(np.clip(1.0 - np.mean(np.abs(dev_list)) / 10.0, 0.0, 1.0))
+        # Confidence: fraction of expected partials actually detected (max 1.0).
+        confidence = float(np.clip(len(detected) / 10.0, 0.0, 1.0))
+        score = float(np.clip(1.0 - np.mean(np.abs(dev_list)) / 50.0, 0.0, 1.0))
         needs_enf = any(abs(d) > 3.0 for d in dev_list)
         return HarmonicLatticeResult(
             f0_hz=float(f0),
@@ -156,17 +172,110 @@ class HarmonicLatticeAnalyzer:
         sr: int,
         lattice_result: HarmonicLatticeResult,
     ) -> np.ndarray:
+        """Nudge outlier partials toward the Fletcher inharmonicity lattice.
+
+        For each partial whose observed peak deviates from the ideal inharmonic
+        frequency by more than 3 cents, applies a narrow zero-phase Bell-EQ pair
+        (notch at observed position, boost at target position) in the STFT domain.
+        Correction magnitude is confidence-weighted; wet factor ≤ 0.30.
+
+        Input *audio* must be 1-D (mono channel).
+        Phase 07 calls this per-channel and column_stacks the result.
+
+        Reference: Fletcher (1964), J. Acoust. Soc. Am. 36 (1): 203–209.
+        """
         assert sr == 48000, f"SR muss 48000 Hz sein, erhalten: {sr}"
-        _ = lattice_result
-        out = np.asarray(audio, dtype=np.float32)
-        out = np.nan_to_num(out, nan=0.0, posinf=0.0, neginf=0.0)
-        return np.clip(out, -1.0, 1.0)
+        audio_f32 = np.asarray(audio, dtype=np.float32)
+        audio_f32 = np.nan_to_num(audio_f32, nan=0.0, posinf=0.0, neginf=0.0)
+
+        # Fast exits — §0 Primum non nocere: if nothing to correct, passthrough.
+        if (
+            not lattice_result.needs_enforcement
+            or lattice_result.confidence < 0.25
+            or lattice_result.f0_hz <= 0.0
+            or audio_f32.ndim != 1
+            or len(audio_f32) < 512
+        ):
+            return np.clip(audio_f32, -1.0, 1.0)
+
+        n_samples = len(audio_f32)
+        n_fft = min(2048, n_samples)
+        hop = n_fft // 4
+        nyquist_cap = sr / 2.0 * 0.95
+
+        # Build frequency-domain correction gain (uniform across all frames).
+        # Narrow Bell-EQ: Q ≈ 25 → bandwidth ≈ f/25 Hz.
+        freqs = np.fft.rfftfreq(n_fft, d=1.0 / sr).astype(np.float64)
+        correction_gain = np.ones(len(freqs), dtype=np.float64)
+
+        # Confidence-weighted wet factor — bounded to [0.05, 0.30].
+        wet = float(np.clip(0.30 * lattice_result.confidence, 0.05, 0.30))
+
+        n_corrections = 0
+        for pa in lattice_result.partials:
+            if not pa.needs_correction:
+                continue
+            f_tgt = float(pa.target_hz)
+            f_obs = float(pa.observed_hz)
+            if f_tgt <= 0.0 or f_obs <= 0.0 or f_tgt > nyquist_cap or abs(f_tgt - f_obs) < 0.5:
+                continue
+            # Correction depth proportional to deviation magnitude, capped at 0.45.
+            depth = float(np.clip(0.50 * abs(pa.deviation_cents) / 50.0, 0.05, 0.45))
+            bw = f_tgt / 25.0 + 1.0  # +1 Hz floor to avoid division by zero
+            # Narrow notch at observed (incorrect) position.
+            correction_gain *= 1.0 - depth * np.exp(-0.5 * ((freqs - f_obs) / bw) ** 2)
+            # Narrow boost at target (correct) position (slightly weaker to stay conservative).
+            correction_gain *= 1.0 + depth * 0.75 * np.exp(-0.5 * ((freqs - f_tgt) / bw) ** 2)
+            n_corrections += 1
+
+        if n_corrections == 0:
+            return np.clip(audio_f32, -1.0, 1.0)
+
+        # Apply correction via STFT → spectral multiply → ISTFT (zero-phase, boundary='even').
+        try:
+            from scipy.signal import istft, stft
+
+            _f, _t, Zxx = stft(
+                audio_f32.astype(np.float64),
+                fs=sr,
+                nperseg=n_fft,
+                noverlap=n_fft - hop,
+                window="hann",
+                boundary="even",
+            )
+            Zxx_corr = Zxx * correction_gain[:, np.newaxis]
+            _, audio_corr = istft(
+                Zxx_corr,
+                fs=sr,
+                nperseg=n_fft,
+                noverlap=n_fft - hop,
+                window="hann",
+                boundary="even",
+            )
+            audio_corr = audio_corr.astype(np.float32)
+            # Trim or zero-pad to original length.
+            if len(audio_corr) >= n_samples:
+                audio_corr = audio_corr[:n_samples]
+            else:
+                audio_corr = np.pad(audio_corr, (0, n_samples - len(audio_corr)))
+        except Exception:
+            return np.clip(audio_f32, -1.0, 1.0)  # graceful passthrough on any STFT error
+
+        # Dry/wet blend — confidence already factored into `wet`.
+        out = (1.0 - wet) * audio_f32 + wet * audio_corr
+        return np.clip(np.nan_to_num(out, nan=0.0, posinf=0.0, neginf=0.0).astype(np.float32), -1.0, 1.0)
 
     @staticmethod
     def _to_mono(audio: np.ndarray) -> np.ndarray:
         arr = np.asarray(audio, dtype=np.float32)
         if arr.ndim == 2:
-            arr = np.mean(arr, axis=0)
+            # Accept both layouts: [N, C] and [C, N].
+            if arr.shape[1] <= 2 and arr.shape[0] > arr.shape[1]:
+                arr = np.mean(arr, axis=1)
+            elif arr.shape[0] <= 2 and arr.shape[1] > arr.shape[0]:
+                arr = np.mean(arr, axis=0)
+            else:
+                arr = np.mean(arr, axis=-1)
         return np.nan_to_num(arr, nan=0.0, posinf=0.0, neginf=0.0)
 
     @staticmethod

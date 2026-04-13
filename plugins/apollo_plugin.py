@@ -291,6 +291,14 @@ class ApolloPlugin:
             3. Resample 44100 → 48000 Hz
             4. NaN-Guard + Clip [-1, 1]
         """
+        # Minimum-Input-Guard (§ml-plugin: Fixed-Shape-Input Rule)
+        # Apollo internal STFT uses padding=441 (n_fft=882 @ 44100 Hz).
+        # Segments shorter than 8192 samples @ 44100 Hz cause RuntimeError:
+        # "Padding size should be less than the corresponding input dimension".
+        _min_at_sr = int(np.ceil(8192 * sr / self._APOLLO_SR))  # ≈ 9102 @ 48 kHz
+        if len(audio) < _min_at_sr:
+            logger.debug("Apollo: Segment zu kurz (%d < %d samples) → DSP-Fallback", len(audio), _min_at_sr)
+            return self._repair_dsp_fallback(audio, sr, material)
         try:
             import torch
             import torchaudio

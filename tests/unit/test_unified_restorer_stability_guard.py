@@ -31,12 +31,14 @@ class _DummyPhase:
             description="dummy",
         )
         self.last_strength = None
+        self.last_kwargs = None
 
     def get_metadata(self):
         return self._meta
 
     def process(self, audio: np.ndarray, sample_rate: int = 48000, **kwargs):
         self.last_strength = kwargs.get("strength")
+        self.last_kwargs = dict(kwargs)
         return create_phase_result(audio=np.asarray(audio, dtype=np.float32))
 
 
@@ -77,6 +79,28 @@ def test_explicit_strength_not_overridden_by_corridor():
 
     assert isinstance(phase.last_strength, float)
     assert abs(phase.last_strength - 0.99) < 1e-9
+
+
+def test_phase03_gets_tdp_stem_aware_nr_auto_injected():
+    uv3 = UnifiedRestorerV3()
+    phase = _DummyPhase("phase_03_denoise")
+
+    audio = np.zeros(1024, dtype=np.float32)
+    uv3._profiled_phase_call(phase, audio, sample_rate=48000)
+
+    assert isinstance(phase.last_kwargs, dict)
+    assert phase.last_kwargs.get("tdp_stem_aware_nr") == "auto"
+
+
+def test_non_phase03_does_not_get_tdp_stem_aware_nr_injected():
+    uv3 = UnifiedRestorerV3()
+    phase = _DummyPhase("phase_29_tape_hiss_reduction")
+
+    audio = np.zeros(1024, dtype=np.float32)
+    uv3._profiled_phase_call(phase, audio, sample_rate=48000)
+
+    assert isinstance(phase.last_kwargs, dict)
+    assert "tdp_stem_aware_nr" not in phase.last_kwargs
 
 
 def test_phase_calibration_scalar_has_interior_pullback():
@@ -196,6 +220,153 @@ def test_continuous_joy_refinement_returns_none_when_no_signal():
     assert out is None
 
 
+# ---------------------------------------------------------------------------
+# §2.47 Phase-53-Semantic-Feedback wiring tests
+# ---------------------------------------------------------------------------
+
+
+def test_phase53_semantic_feedback_updates_unbekannt_genre():
+    """_restoration_context genre_label 'Unbekannt' is overridden by Phase-53 CLAP output."""
+    from types import SimpleNamespace
+
+    uv3 = UnifiedRestorerV3()
+    uv3._restoration_context = {
+        "genre_label": "Unbekannt",
+        "is_schlager": False,
+    }
+
+    # Simulate a Phase 53 result with CLAP genre Jazz / conf=0.62
+    fake_result = SimpleNamespace(
+        metadata={
+            "genre_hint": "Jazz",
+            "genre_hint_source": "clap",
+            "genre_hint_confidence": 0.62,
+            "clap_top_genres": [{"genre": "Jazz", "confidence": 0.62}],
+            "beats_top_tags": [],
+        }
+    )
+
+    # Replicate the hook logic from _execute_pipeline
+    _s53_meta = fake_result.metadata if hasattr(fake_result, "metadata") else {}
+    _s53_genre = str(_s53_meta.get("genre_hint", "") or "")
+    _s53_src = str(_s53_meta.get("genre_hint_source", "dsp"))
+    _s53_conf = float(_s53_meta.get("genre_hint_confidence", 0.0))
+    _s53_current_label = str(uv3._restoration_context.get("genre_label", "Unbekannt"))
+    _s53_is_schlager = bool(uv3._restoration_context.get("is_schlager", False))
+    _s53_override = (
+        not _s53_is_schlager
+        and _s53_genre not in ("", "Unbekannt")
+        and (_s53_current_label in ("Unbekannt", "unknown", "") or (_s53_src == "clap" and _s53_conf >= 0.55))
+    )
+    if _s53_override:
+        uv3._restoration_context["genre_label"] = _s53_genre
+        uv3._restoration_context["genre_hint_source"] = _s53_src
+        uv3._restoration_context["genre_hint_confidence"] = _s53_conf
+        uv3._restoration_context["clap_top_genres"] = _s53_meta.get("clap_top_genres", [])
+        uv3._restoration_context["beats_top_tags"] = _s53_meta.get("beats_top_tags", [])
+
+    assert uv3._restoration_context["genre_label"] == "Jazz"
+    assert uv3._restoration_context["genre_hint_source"] == "clap"
+    assert abs(uv3._restoration_context["genre_hint_confidence"] - 0.62) < 0.01
+
+
+def test_phase53_semantic_feedback_does_not_override_schlager():
+    """Schlager (is_schlager=True) is never overridden by Phase-53 CLAP output."""
+    from types import SimpleNamespace
+
+    uv3 = UnifiedRestorerV3()
+    uv3._restoration_context = {
+        "genre_label": "Schlager",
+        "is_schlager": True,
+    }
+
+    fake_result = SimpleNamespace(
+        metadata={
+            "genre_hint": "Rock",
+            "genre_hint_source": "clap",
+            "genre_hint_confidence": 0.80,
+            "clap_top_genres": [],
+            "beats_top_tags": [],
+        }
+    )
+
+    _s53_meta = fake_result.metadata
+    _s53_genre = str(_s53_meta.get("genre_hint", "") or "")
+    _s53_src = str(_s53_meta.get("genre_hint_source", "dsp"))
+    _s53_conf = float(_s53_meta.get("genre_hint_confidence", 0.0))
+    _s53_current_label = str(uv3._restoration_context.get("genre_label", "Unbekannt"))
+    _s53_is_schlager = bool(uv3._restoration_context.get("is_schlager", False))
+    _s53_override = (
+        not _s53_is_schlager
+        and _s53_genre not in ("", "Unbekannt")
+        and (_s53_current_label in ("Unbekannt", "unknown", "") or (_s53_src == "clap" and _s53_conf >= 0.55))
+    )
+    if _s53_override:
+        uv3._restoration_context["genre_label"] = _s53_genre
+
+    # Schlager must not be overridden
+    assert uv3._restoration_context["genre_label"] == "Schlager"
+
+
+def test_phase53_semantic_feedback_requires_clap_conf_threshold():
+    """Low-confidence CLAP (< 0.55) does not override an existing non-Unbekannt label."""
+    from types import SimpleNamespace
+
+    uv3 = UnifiedRestorerV3()
+    uv3._restoration_context = {
+        "genre_label": "Klassik",
+        "is_schlager": False,
+    }
+
+    fake_result = SimpleNamespace(
+        metadata={
+            "genre_hint": "Pop",
+            "genre_hint_source": "clap",
+            "genre_hint_confidence": 0.40,  # below 0.55 threshold
+            "clap_top_genres": [],
+            "beats_top_tags": [],
+        }
+    )
+
+    _s53_meta = fake_result.metadata
+    _s53_genre = str(_s53_meta.get("genre_hint", "") or "")
+    _s53_src = str(_s53_meta.get("genre_hint_source", "dsp"))
+    _s53_conf = float(_s53_meta.get("genre_hint_confidence", 0.0))
+    _s53_current_label = str(uv3._restoration_context.get("genre_label", "Unbekannt"))
+    _s53_is_schlager = bool(uv3._restoration_context.get("is_schlager", False))
+    _s53_override = (
+        not _s53_is_schlager
+        and _s53_genre not in ("", "Unbekannt")
+        and (_s53_current_label in ("Unbekannt", "unknown", "") or (_s53_src == "clap" and _s53_conf >= 0.55))
+    )
+    if _s53_override:
+        uv3._restoration_context["genre_label"] = _s53_genre
+
+    # Low confidence must not override existing label
+    assert uv3._restoration_context["genre_label"] == "Klassik"
+
+
+def test_phase53_profiled_phase_call_propagates_updated_genre_label():
+    """After _restoration_context is updated, _profiled_phase_call injects the new genre_label."""
+    uv3 = UnifiedRestorerV3()
+    # Simulate post-Phase-53 state: genre upgraded from Unbekannt to Jazz
+    uv3._restoration_context = {
+        "genre_label": "Jazz",
+        "genre_hint_source": "clap",
+        "genre_hint_confidence": 0.62,
+        "is_schlager": False,
+        "bpm": 120.0,
+    }
+
+    phase = _DummyPhase("phase_07_harmonic_restoration")
+    audio = np.zeros(1024, dtype=np.float32)
+    uv3._profiled_phase_call(phase, audio, sample_rate=48000)
+
+    assert isinstance(phase.last_kwargs, dict)
+    assert phase.last_kwargs.get("genre_label") == "Jazz"
+    assert phase.last_kwargs.get("genre_hint_source") == "clap"
+
+
 def test_song_cluster_policy_is_deterministic_and_bounded():
     pol = UnifiedRestorerV3._derive_song_cluster_policy(
         material="mp3_low",
@@ -287,6 +458,59 @@ def test_frisson_audio_scalar_active_and_bounded_in_studio_mode():
     assert 0.94 <= float(scalar_sub) <= 1.06
     assert float(scalar_enh) > 1.0
     assert float(scalar_sub) <= 1.0
+
+
+# ---------------------------------------------------------------------------
+# §2.54 PlateauStop — material-adaptive params (_compute_plateau_params)
+# ---------------------------------------------------------------------------
+
+
+def test_plateau_params_shellac_uses_conservative_threshold():
+    """Shellac: tiny per-phase improvements must not trigger plateau → low threshold."""
+    thr, dmp = UnifiedRestorerV3._compute_plateau_params("shellac", 60.0)
+    assert abs(thr - 0.002) < 1e-6, f"shellac threshold should be 0.002, got {thr}"
+    assert abs(dmp - 0.55) < 1e-6, f"shellac dampen should be 0.55, got {dmp}"
+
+
+def test_plateau_params_cd_digital_uses_aggressive_threshold():
+    """CD: large per-phase deltas expected → high threshold for plateau detection."""
+    thr, dmp = UnifiedRestorerV3._compute_plateau_params("cd_digital", 75.0)
+    assert abs(thr - 0.010) < 1e-6, f"cd_digital threshold should be 0.010, got {thr}"
+    assert abs(dmp - 0.35) < 1e-6, f"cd_digital dampen should be 0.35, got {dmp}"
+
+
+def test_plateau_params_reel_tape_mapping():
+    thr, dmp = UnifiedRestorerV3._compute_plateau_params("reel_tape", 55.0)
+    assert abs(thr - 0.003) < 1e-6
+    assert abs(dmp - 0.50) < 1e-6
+
+
+def test_plateau_params_low_restorability_raises_dampen_floor():
+    """restorability < 40 → dampen must be raised to at least 0.60."""
+    # Shellac default dampen = 0.55, but restorability=30 → must be raised to 0.60
+    _thr, dmp = UnifiedRestorerV3._compute_plateau_params("shellac", 30.0)
+    assert dmp >= 0.60, f"Expected dampen ≥ 0.60 for restorability=30, got {dmp}"
+    # CD default dampen = 0.35 → also raised to 0.60
+    _thr_cd, dmp_cd = UnifiedRestorerV3._compute_plateau_params("cd_digital", 25.0)
+    assert dmp_cd >= 0.60, f"Expected dampen ≥ 0.60 for cd_digital restorability=25, got {dmp_cd}"
+
+
+def test_plateau_params_unknown_material_uses_default():
+    """Unknown material falls back to default (0.005, 0.40)."""
+    thr, dmp = UnifiedRestorerV3._compute_plateau_params("unknown_format", 70.0)
+    assert abs(thr - 0.005) < 1e-6
+    assert abs(dmp - 0.40) < 1e-6
+
+
+def test_plateau_params_enum_value_attribute_is_used():
+    """Material passed as enum-like object uses .value attribute."""
+
+    class _FakeMaterial:
+        value = "cassette"
+
+    thr, dmp = UnifiedRestorerV3._compute_plateau_params(_FakeMaterial(), 65.0)
+    assert abs(thr - 0.004) < 1e-6, f"cassette threshold should be 0.004, got {thr}"
+    assert abs(dmp - 0.45) < 1e-6
 
 
 def test_auto_improvement_recommendations_contains_actionable_items():

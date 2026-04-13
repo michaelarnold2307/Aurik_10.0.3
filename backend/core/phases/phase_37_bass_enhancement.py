@@ -323,24 +323,74 @@ class BassEnhancement(PhaseInterface):
         Moore et al. (2006): "A Model for the Prediction of Thresholds,
         Loudness, and Partial Loudness" — Virtual Pitch via Harmonic Template Matching.
         """
-        if len(bass) < 256:
-            return bass
+        if len(bass) < 1024:
+            return self._generate_sub_harmonic(bass) * 0.25
         from scipy import signal as _sig
 
         # Bandpass 120–500 Hz: Zone der Missing-Fundamental-Wahrnehmung
         try:
             sos_vp = _sig.butter(4, [120.0 / (sr / 2), min(500.0 / (sr / 2), 0.99)], btype="band", output="sos")
-            vp_band = _sig.sosfilt(sos_vp, bass)
+            vp_band = _sig.sosfiltfilt(sos_vp, bass)
         except Exception:
-            return bass
-        # Subharmonische Sättigung via tanh: erzeugt H2, H3... bei f0/2
-        vp_sat = np.tanh(vp_band * 2.0) * 0.5
-        # Mischung: Bandpass der gesättigten Zone auf Sub-Bass (60-120 Hz)
+            return self._generate_sub_harmonic(bass) * 0.25
+
+        _rms = float(np.sqrt(np.mean(vp_band.astype(np.float64) ** 2) + 1e-12))
+        if _rms < 1e-5:
+            return np.zeros_like(bass)
+
+        # Moore-style harmonic template matching:
+        # estimate virtual fundamental f0 from harmonics (2f0..5f0 in 120–500 Hz).
+        _n_fft = int(min(8192, 2 ** np.floor(np.log2(max(1024, len(vp_band))))))
+        _win = _sig.get_window("hann", _n_fft, fftbins=True)
+        _seg = vp_band[:_n_fft] * _win
+        _spec = np.fft.rfft(_seg)
+        _mag = np.abs(_spec)
+        _freqs = np.fft.rfftfreq(_n_fft, d=1.0 / sr)
+        _f0_candidates = np.arange(40.0, 121.0, 1.0)
+        _weights = np.array([1.00, 0.75, 0.55, 0.40], dtype=np.float64)  # k=2..5
+        _scores = np.zeros_like(_f0_candidates)
+
+        for i, _f0_cand in enumerate(_f0_candidates):
+            _score = 0.0
+            for _k_idx, _k in enumerate(range(2, 6)):
+                _target = _k * _f0_cand
+                if _target < 120.0 or _target > 500.0:
+                    continue
+                _bin = int(np.argmin(np.abs(_freqs - _target)))
+                _score += _weights[_k_idx] * float(_mag[_bin])
+            _scores[i] = _score
+
+        _best_idx = int(np.argmax(_scores))
+        _f0 = float(_f0_candidates[_best_idx])
+        _score_peak = float(_scores[_best_idx])
+        _score_ref = float(np.percentile(_scores, 90)) + 1e-12
+        _template_conf = float(np.clip(_score_peak / _score_ref, 0.0, 1.5) / 1.5)
+
+        # Envelope-followed fundamental synthesis: carries low-band energy while
+        # preserving groove/transients from the detected harmonic activity.
+        try:
+            _env = np.abs(_sig.hilbert(vp_band))
+            _env_lp = _sig.butter(2, 20.0 / (sr / 2), btype="low", output="sos")
+            _env = _sig.sosfiltfilt(_env_lp, _env)
+        except Exception:
+            _env = np.abs(vp_band)
+        _env = _env / (float(np.percentile(_env, 95)) + 1e-8)
+        _env = np.clip(_env, 0.0, 1.5)
+
+        _phase = np.cumsum(np.full(len(vp_band), 2.0 * np.pi * _f0 / sr, dtype=np.float64))
+        _fund = np.sin(_phase)
+        _virtual = (_fund * _env).astype(np.float32)
+
+        # Band-limit to 60–120 Hz to avoid uncontrolled low-end bloom.
         try:
             sos_sub = _sig.butter(4, [60.0 / (sr / 2), 120.0 / (sr / 2)], btype="band", output="sos")
-            sub_result = _sig.sosfilt(sos_sub, vp_sat)
+            sub_result = _sig.sosfiltfilt(sos_sub, _virtual)
         except Exception:
-            sub_result = vp_sat * 0.5
+            sub_result = _virtual * 0.5
+
+        # Confidence-aware blend avoids artifacts when template fit is weak.
+        _gain = float(np.clip(0.20 + 0.80 * _template_conf, 0.20, 1.0))
+        sub_result = sub_result * _gain
         sub_result = np.nan_to_num(sub_result, nan=0.0, posinf=0.0, neginf=0.0)
         sub_result = np.clip(sub_result, -1.0, 1.0)
         return sub_result

@@ -294,9 +294,9 @@ def test_scanner_performance(defect_scanner, clean_audio, sample_rate):
     print(f"   Scan Time: {scan_time:.3f}s")
     print(f"   Performance: {scan_time / audio_duration:.2f}× RT")
 
-    # Performance-Schwellenwert: < 5× RT (realistisch für komplexe DSP-Analyse)
-    # Ziel-Optimum wäre < 0.5× RT, aber aktuelle Implementierung braucht ~1.5× RT
-    assert scan_time < audio_duration * 5.0, "Scanner sollte schneller als 5× RT sein"
+    # Performance-Schwellenwert: ≤ 20 s/Minute Audio = 0.333× RT
+    # Aktuelle Implementierung läuft bei ~0.23× RT (≈13.5 s/60 s Audio)
+    assert scan_time < audio_duration * (20.0 / 60.0), "Scanner sollte ≤ 20 s/Minute Audio sein"
 
     print(f"\n   ✅ Performance OK: {scan_time / audio_duration:.2f}× RT")
     print("\n✅ TEST 8 PASSED\n")

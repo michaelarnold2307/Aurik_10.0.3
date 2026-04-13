@@ -180,6 +180,10 @@ class MpSenetPlugin:
         """
         assert sr == 48_000, f"SR muss 48000 Hz sein, erhalten: {sr}"
         audio = np.nan_to_num(audio.astype(np.float32), nan=0.0, posinf=0.0, neginf=0.0)
+        # UV3 passes (2, N) channels-first; normalize to (N, 2) for uniform processing.
+        _was_channels_first = audio.ndim == 2 and audio.shape[0] == 2 and audio.shape[1] > 2
+        if _was_channels_first:
+            audio = audio.T  # (2, N) → (N, 2)
         stereo = audio.ndim == 2 and audio.shape[1] == 2
 
         def process_channel(ch: np.ndarray) -> tuple[np.ndarray, str | None, str]:
@@ -213,8 +217,11 @@ class MpSenetPlugin:
         rms_diff = float(np.sqrt(np.mean((out - audio) ** 2))) + 1e-10
         snr_imp = 20.0 * math.log10(rms_in / rms_diff) if rms_diff < rms_in else 0.0
 
+        # Restore channels-first layout if input was (2, N)
+        out_final = out.T if (_was_channels_first and out.ndim == 2) else out
+
         return MpSenetResult(
-            audio=out.astype(np.float32),
+            audio=out_final.astype(np.float32),
             sr=sr,
             model_used=model_used,
             snr_improvement_db=float(np.clip(snr_imp, 0.0, 30.0)),

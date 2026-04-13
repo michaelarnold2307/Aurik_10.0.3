@@ -307,3 +307,34 @@ def test_26_ml_hallucination_window_cap_limits_runtime_cost(monkeypatch):
 
     _ = iad._detect_ml_hallucinations(residuum, SR)
     assert calls["n"] <= iad.MAX_HALLUCINATION_WINDOWS
+
+
+def test_27_pvoc_smearing_threshold_tightens_for_transient_dense_material():
+    from backend.core.introduced_artifact_detector import IntroducedArtifactDetector
+
+    iad = IntroducedArtifactDetector()
+
+    duration_s = 3.0
+    n = int(duration_s * SR)
+    shift = 1024  # ~21.3 ms @ 48 kHz; should exceed 15 ms but not 50 ms
+
+    # High transient density: pulses every 0.2 s (~5 events/s)
+    orig_dense = np.zeros(n, dtype=np.float32)
+    for pos in range(SR // 10, n - 64, int(0.2 * SR)):
+        orig_dense[pos : pos + 64] = 0.9
+    rest_dense = np.zeros_like(orig_dense)
+    for pos in range(SR // 10 + shift, n - 64, int(0.2 * SR)):
+        rest_dense[pos : pos + 64] = 0.9
+
+    # Low transient density: one isolated event (~0.33 events/s)
+    orig_sparse = np.zeros(n, dtype=np.float32)
+    pos_sparse = n // 2
+    orig_sparse[pos_sparse : pos_sparse + 64] = 0.9
+    rest_sparse = np.zeros_like(orig_sparse)
+    rest_sparse[pos_sparse + shift : pos_sparse + shift + 64] = 0.9
+
+    dense_artifacts = iad._detect_pvoc_smearing(orig_dense, rest_dense, SR)
+    sparse_artifacts = iad._detect_pvoc_smearing(orig_sparse, rest_sparse, SR)
+
+    assert len(dense_artifacts) >= 1
+    assert len(sparse_artifacts) == 0

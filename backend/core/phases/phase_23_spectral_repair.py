@@ -69,7 +69,10 @@ _TILT_TOLERANCE_P23: dict[str, float] = {
 
 def _est_tilt_p23(audio: np.ndarray, sr: int) -> float:
     """Quick spectral tilt estimate in dB/octave (§2.46b)."""
-    mono = audio[:, 0] if audio.ndim == 2 else audio
+    if audio.ndim == 2:
+        mono = audio.mean(axis=0) if audio.shape[0] <= 2 else audio.mean(axis=1)
+    else:
+        mono = audio
     n = min(len(mono), 8192)
     if n < 64:
         return 0.0
@@ -361,6 +364,13 @@ class SpectralRepair(PhaseInterface):
         self.validate_input(audio)
         _audio_for_tilt_p23 = audio.copy()  # §2.46b: tilt reference before any processing (incl. Apollo)
 
+        # Normalize stereo layout: UV3 sends (2, N) channels-first; phase_23 processes
+        # internally as (N, 2) samples-first for M/S and column_stack operations.
+        _was_channels_first = audio.ndim == 2 and audio.shape[0] == 2 and audio.shape[1] > 2
+        if _was_channels_first:
+            audio = audio.T  # (2, N) → (N, 2)
+            _audio_for_tilt_p23 = _audio_for_tilt_p23.T
+
         is_stereo = audio.ndim == 2
 
         # Get material-specific parameters
@@ -379,6 +389,8 @@ class SpectralRepair(PhaseInterface):
         if _effective_strength <= 0.0:
             passthrough = np.nan_to_num(audio.copy(), nan=0.0, posinf=0.0, neginf=0.0)
             passthrough = np.clip(passthrough, -1.0, 1.0)
+            if _was_channels_first and passthrough.ndim == 2:
+                passthrough = passthrough.T  # (N, 2) → (2, N)
             return PhaseResult(
                 success=True,
                 audio=passthrough,
@@ -401,6 +413,8 @@ class SpectralRepair(PhaseInterface):
         if repair_strength <= 0.0:
             passthrough = np.nan_to_num(audio.copy(), nan=0.0, posinf=0.0, neginf=0.0)
             passthrough = np.clip(passthrough, -1.0, 1.0)
+            if _was_channels_first and passthrough.ndim == 2:
+                passthrough = passthrough.T  # (N, 2) → (2, N)
             return PhaseResult(
                 success=True,
                 audio=passthrough,
@@ -433,12 +447,22 @@ class SpectralRepair(PhaseInterface):
             try:
                 from plugins.apollo_plugin import get_apollo as _get_apollo
 
+                _plm23 = None
+                try:
+                    from backend.core.plugin_lifecycle_manager import get_plugin_lifecycle_manager as _get_plm23
+
+                    _plm23 = _get_plm23()
+                    _plm23.set_active("Apollo", True)
+                except Exception:
+                    _plm23 = None
+
                 _apollo_inst = _get_apollo()
                 if _apollo_inst._model_loaded and _apollo_inst._torch_model is not None:
                     if is_stereo:
+                        # Audio is normalized to (N, 2) at method start — safe to use [:, 0]
                         _ap_l = _apollo_inst.repair(audio[:, 0], sample_rate, material=self._current_material)
                         _ap_r = _apollo_inst.repair(audio[:, 1], sample_rate, material=self._current_material)
-                        audio = np.column_stack((_ap_l.audio, _ap_r.audio))
+                        audio = np.column_stack((_ap_l.audio, _ap_r.audio))  # (N, 2)
                         _apollo_hf_gain_db = float((_ap_l.hf_gain_db + _ap_r.hf_gain_db) / 2.0)
                     else:
                         _ap_res = _apollo_inst.repair(audio, sample_rate, material=self._current_material)
@@ -451,7 +475,17 @@ class SpectralRepair(PhaseInterface):
                         _apollo_hf_gain_db,
                     )
                     _report_progress(20.0, "Spektralreparatur: Apollo-Vorverarbeitung")
+                if _plm23 is not None:
+                    try:
+                        _plm23.set_active("Apollo", False)
+                    except Exception:
+                        pass
             except Exception as _apollo_exc:
+                try:
+                    if _plm23 is not None:
+                        _plm23.set_active("Apollo", False)
+                except Exception:
+                    pass
                 logger.debug("Apollo pre-processing skipped (non-critical): %s", _apollo_exc)
 
         # --- ADMM Declipping path (spec §4.5a) ---
@@ -467,7 +501,10 @@ class SpectralRepair(PhaseInterface):
             try:
                 from backend.core.clipping_detection import ClippingType, classify_clipping
 
-                _mono_ref = audio[:, 0] if is_stereo else audio
+                if is_stereo:
+                    _mono_ref = audio.mean(axis=0) if audio.shape[0] <= 2 else audio.mean(axis=1)
+                else:
+                    _mono_ref = audio
                 _clip_check = _mono_ref[: min(len(_mono_ref), sample_rate * 10)]
                 if classify_clipping(_clip_check, sample_rate) == ClippingType.CLIPPING:
                     _use_admm = True
@@ -592,14 +629,22 @@ class SpectralRepair(PhaseInterface):
         # §4.5 Psychoacoustic Masking Clamp — only repair audible spectral gaps
         try:
             from backend.core.dsp.psychoacoustics import apply_psychoacoustic_masking_clamp
+
             repaired_audio = apply_psychoacoustic_masking_clamp(
-                audio, repaired_audio, sample_rate,
-                strength=_effective_strength, mode="additive",
+                audio,
+                repaired_audio,
+                sample_rate,
+                strength=_effective_strength,
+                mode="additive",
             )
         except Exception as _pm_exc:
             logger.debug("Phase23 masking clamp non-blocking: %s", _pm_exc)
 
         _report_progress(92.0, "Spektralreparatur: Abschluss")
+
+        # Restore channels-first layout expected by UV3 (2, N)
+        if _was_channels_first and repaired_audio.ndim == 2:
+            repaired_audio = repaired_audio.T  # (N, 2) → (2, N)
 
         _result = PhaseResult(
             success=True,
@@ -763,6 +808,7 @@ class SpectralRepair(PhaseInterface):
         progress_cb=None,
     ) -> np.ndarray:
         """Repair a single audio channel using spectral inpainting."""
+
         def _report(pct: float, label: str) -> None:
             if callable(progress_cb):
                 try:
@@ -870,6 +916,7 @@ class SpectralRepair(PhaseInterface):
         # Phase-kohärente Rekonstruktion via PGHI (§2.47 VERBOTEN: direktes ISTFT nach Spektralmodifikation)
         try:
             from dsp.pghi import pghi_reconstruct_from_stft as _pghi_istft_p23
+
             _hop_p23 = stft_cfg["nperseg"] - stft_cfg["noverlap"]
             audio_repaired = _pghi_istft_p23(
                 Zxx_blended,

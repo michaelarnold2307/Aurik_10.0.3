@@ -497,6 +497,14 @@ class TestHarmonicLatticeAnalyzer:
         r = analyze_harmonic_lattice(stereo, SR)
         assert r is not None
 
+    def test_26b_stereo_input_samples_channels_layout(self):
+        from backend.core.harmonic_lattice_analyzer import analyze_harmonic_lattice
+
+        stereo = np.column_stack([make_sine(), make_sine(freq=880.0)])
+        r = analyze_harmonic_lattice(stereo, SR)
+        assert r is not None
+        assert math.isfinite(r.lattice_score)
+
     def test_27_nan_input_handled(self):
         a = self._get_analyzer()
         audio = make_sine()

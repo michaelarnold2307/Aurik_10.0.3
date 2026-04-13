@@ -101,7 +101,12 @@ class UVRMDXNetPlugin:
     def separate(self, audio: np.ndarray, sr: int) -> tuple[np.ndarray, np.ndarray]:
         """(vocals, instrumental) aus Audio trennen."""
         audio = np.nan_to_num(audio.astype(np.float32))
-        mono = audio if audio.ndim == 1 else audio.mean(axis=1)
+        if audio.ndim == 1:
+            mono = audio
+        elif audio.shape[0] <= 8 and audio.shape[1] > audio.shape[0]:  # (2, N) channels-first (UV3)
+            mono = audio.mean(axis=0)
+        else:  # (N, 2) samples-first
+            mono = audio.mean(axis=1)
         inst = self._run_ensemble(mono, sr) if self._sessions else self._hpss_fallback(mono)
         voc = np.clip(mono - inst, -1.0, 1.0)
         return voc.astype(np.float32), inst.astype(np.float32)

@@ -21,7 +21,9 @@ Hinweis: Phase_51 hat zwei Klassen – DrumsEnhancementV1 wird getestet.
          Phase_32 ändert die Shape (mono→stereo), shape-Check entfällt dort.
 """
 
+import contextlib
 import importlib
+import unittest.mock as _mock
 
 import numpy as np
 import pytest
@@ -46,6 +48,10 @@ _LONG_MONO: np.ndarray = np.clip(_rng.standard_normal(SR).astype(np.float32) * 0
 _LONG_STEREO: np.ndarray = np.clip(_rng.standard_normal((SR, 2)).astype(np.float32) * 0.30, -1.0, 1.0)
 # Phasen, die ein 1-Sekunden-Signal benötigen (window_length > SR//10)
 _NEEDS_LONG_AUDIO: frozenset = frozenset({"phase_24_dropout_repair"})
+
+# Phasen mit schwerem ML-Singleton (LAION-CLAP, BEATs) — try_allocate wird auf False
+# gemockt, damit der DSP-Fallback greift und kein echtes Modell geladen wird (Unit-Test).
+_HEAVY_ML_PHASES: frozenset = frozenset({"phase_53_semantic_audio"})
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Phase-Registry: (modul, klassenname, stereo_input, skip_shape_check)
@@ -202,13 +208,20 @@ def test_phase_smoke(mod_name: str, cls_name: str, use_stereo: bool, skip_shape:
         audio = _STEREO if use_stereo else _MONO
 
     # --- Verarbeitung (material als Keyword → deckt auch Pflicht-Positional-Args ab) ---
+    # Schwere ML-Phasen: try_allocate → False, damit DSP-Fallback greift (kein Modell-Load).
+    _budget_patch = (
+        _mock.patch("backend.core.ml_memory_budget.try_allocate", return_value=False)
+        if mod_name in _HEAVY_ML_PHASES
+        else contextlib.nullcontext()
+    )
     try:
-        result = phase.process(
-            audio,
-            sample_rate=SR,
-            material=_MAT,  # Pflicht-Arg in phase_11/13/17/19/25/32/33/40/41
-            material_type=_MAT,  # Alternative Benennung in einzelnen Phasen
-        )
+        with _budget_patch:
+            result = phase.process(
+                audio,
+                sample_rate=SR,
+                material=_MAT,  # Pflicht-Arg in phase_11/13/17/19/25/32/33/40/41
+                material_type=_MAT,  # Alternative Benennung in einzelnen Phasen
+            )
     except Exception as exc:
         pytest.fail(f"[{mod_name}] process() Exception: {exc}")
 

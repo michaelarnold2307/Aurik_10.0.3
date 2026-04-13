@@ -1166,6 +1166,16 @@ class AurikDenker:
                         if cached_era_result is not None:
                             _repair_era_decade = int(getattr(cached_era_result, "decade", 0) or 0) or None
 
+                        # §0c Codec-Chain-IQR-Floor: Ketten-Liste aus chain_info extrahieren,
+                        # damit ReparaturDenker bei Terminal-Codec (mp3/aac) keinen
+                        # zu aggressiven click_iqr verwendet (Brandenburg 1999).
+                        # Key "transfer_chain" (TontraegerInfo.as_dict()) mit Fallback auf
+                        # "chain" (ältere Serialisierungs-Pfade und pre_analysis-Handover).
+                        _transfer_chain: list[str] | None = (
+                            list(chain_info.get("transfer_chain") or chain_info.get("chain") or []) or None
+                            if isinstance(chain_info, dict)
+                            else None
+                        )
                         rep = get_reparatur_denker().repariere(
                             _work_audio,
                             sr,
@@ -1177,6 +1187,7 @@ class AurikDenker:
                             defect_scores=_repair_defect_scores or None,
                             defect_locations=_repair_defect_locations or None,
                             era_decade=_repair_era_decade,
+                            transfer_chain=_transfer_chain,
                         )
                         _work_audio = rep.audio
                         _rep_result_box.append(rep)
@@ -1452,7 +1463,18 @@ class AurikDenker:
                 try:
                     from plugins.versa_plugin import score_mos as _exz_score_mos
 
-                    _mono_exz = aktuelles_audio if aktuelles_audio.ndim == 1 else aktuelles_audio.mean(axis=-1)
+                    if aktuelles_audio.ndim == 1:
+                        _mono_exz = aktuelles_audio
+                    elif aktuelles_audio.ndim == 2:
+                        # Robust mono downmix for both layouts:
+                        # (channels, samples) -> axis=0, (samples, channels) -> axis=1.
+                        _mono_exz = (
+                            aktuelles_audio.mean(axis=0)
+                            if aktuelles_audio.shape[0] <= 2 and aktuelles_audio.shape[1] > 2
+                            else aktuelles_audio.mean(axis=1)
+                        )
+                    else:
+                        _mono_exz = np.ravel(aktuelles_audio)
                     _mono_exz = np.nan_to_num(_mono_exz.astype(np.float32), nan=0.0, posinf=0.0, neginf=0.0)
                     _vr_exz = _exz_score_mos(_mono_exz, sr)
                     _exz_versa_mos = float(_vr_exz.mos)
@@ -1574,7 +1596,16 @@ class AurikDenker:
             try:
                 from plugins.versa_plugin import score_mos as _budget_score_mos
 
-                _mono_budget = aktuelles_audio if aktuelles_audio.ndim == 1 else aktuelles_audio.mean(axis=-1)
+                if aktuelles_audio.ndim == 1:
+                    _mono_budget = aktuelles_audio
+                elif aktuelles_audio.ndim == 2:
+                    _mono_budget = (
+                        aktuelles_audio.mean(axis=0)
+                        if aktuelles_audio.shape[0] <= 2 and aktuelles_audio.shape[1] > 2
+                        else aktuelles_audio.mean(axis=1)
+                    )
+                else:
+                    _mono_budget = np.ravel(aktuelles_audio)
                 _mono_budget = np.nan_to_num(_mono_budget.astype(np.float32), nan=0.0, posinf=0.0, neginf=0.0)
                 _vr_budget = _budget_score_mos(_mono_budget, sr)
                 _exz_versa_mos = float(_vr_budget.mos)
@@ -1609,7 +1640,16 @@ class AurikDenker:
             try:
                 from plugins.versa_plugin import score_mos
 
-                _mono_final = aktuelles_audio if aktuelles_audio.ndim == 1 else aktuelles_audio.mean(axis=-1)
+                if aktuelles_audio.ndim == 1:
+                    _mono_final = aktuelles_audio
+                elif aktuelles_audio.ndim == 2:
+                    _mono_final = (
+                        aktuelles_audio.mean(axis=0)
+                        if aktuelles_audio.shape[0] <= 2 and aktuelles_audio.shape[1] > 2
+                        else aktuelles_audio.mean(axis=1)
+                    )
+                else:
+                    _mono_final = np.ravel(aktuelles_audio)
                 _mono_final = np.nan_to_num(_mono_final.astype(np.float32), nan=0.0, posinf=0.0, neginf=0.0)
                 _vr = score_mos(_mono_final, sr)
                 _versa_mos = float(_vr.mos)

@@ -9,7 +9,6 @@ Modell-Kaskade (§4.4 SOTA-Matrix, 3-Tier):
   5. HiFi-GAN    (hifigan_plugin.HifiGanPlugin)     — neuronaler Fallback
   6. Griffin-Lim+ ≥ 32 Iterationen (DSP-Letzfall)  — nur wenn alle Modelle fehlen
 
-CPU-Only: CPUExecutionProvider — kein CUDA.
 Out-of-the-Box: Kein Download beim ersten Start.
 """
 
@@ -98,11 +97,15 @@ class VocosPlugin:
 
     Modell-Kaskade (§4.4 SOTA-Matrix, 3-Tier):
         1. Vocos ONNX 48 kHz nativ — vocos_48khz/vocos_48khz.onnx (kein Resampling!)
-        2. Vocos ONNX 44.1 kHz     — vocos_mel_spec_44khz.onnx (CPUExecutionProvider)
+        2. Vocos ONNX 44.1 kHz     — vocos_mel_spec_44khz.onnx
         3. Vocos ONNX 24 kHz       — vocos_mel_spec_24khz.onnx (Release-Bundle)
         4. BigVGAN v2  — bigvgan_v2_plugin.BigVGANv2Plugin (Stufe 1.5)
-        5. HiFi-GAN    — hifigan_plugin.HifiGanPlugin.reconstruct() (CPUExecutionProvider)
+        5. HiFi-GAN    — hifigan_plugin.HifiGanPlugin.reconstruct()
         6. Griffin-Lim+ ≥ 32 It. — DSP-Letzfall (nur wenn alle Modelle fehlen)
+
+    ONNX provider policy:
+        Uses ml_device_manager.get_ort_providers("Vocos").
+        GPU provider is preferred when supported; CPU remains mandatory fallback.
 
     Singleton-Pattern: get_vocos_plugin() verwenden.
     """
@@ -158,7 +161,14 @@ class VocosPlugin:
 
             opts = ort.SessionOptions()
             opts.inter_op_num_threads = 2
-            self._onnx_session = ort.InferenceSession(path, sess_options=opts, providers=["CPUExecutionProvider"])
+            try:
+                from backend.core.ml_device_manager import get_ort_providers as _get_prov
+
+                _providers = _get_prov("Vocos")
+            except Exception:
+                _providers = ["CPUExecutionProvider"]
+
+            self._onnx_session = ort.InferenceSession(path, sess_options=opts, providers=_providers)
             self._model_loaded = True
             self._fallback_mode = "vocos_onnx"
             # Mel-Parameter je Modell-SR anpassen (48 kHz zuerst prüfen!)
@@ -169,21 +179,23 @@ class VocosPlugin:
                 self._mel_n_fft = _N_FFT_48K
                 self._mel_hop = _HOP_48K
                 self._mel_win = _WIN_48K
-                logger.info("Vocos 48 kHz ONNX geladen (nativ, kein Resampling): %s", path)
+                logger.info("Vocos 48 kHz ONNX geladen (nativ, kein Resampling): %s [providers=%s]", path, _providers)
             elif "44" in bname:
                 self._model_sr = _MEL_SR_44K
                 self._mel_n_mels = _N_MELS_44K
                 self._mel_n_fft = _N_FFT_44K
                 self._mel_hop = _HOP_44K
                 self._mel_win = _WIN_44K
-                logger.info("Vocos 44.1 kHz ONNX geladen: %s (volles Spektrum bis 22 kHz)", path)
+                logger.info(
+                    "Vocos 44.1 kHz ONNX geladen: %s (volles Spektrum bis 22 kHz) [providers=%s]", path, _providers
+                )
             else:
                 self._model_sr = _MEL_SR_24K
                 self._mel_n_mels = _N_MELS_24K
                 self._mel_n_fft = _N_FFT_24K
                 self._mel_hop = _HOP_24K
                 self._mel_win = _WIN_24K
-                logger.info("Vocos 24 kHz ONNX geladen: %s", path)
+                logger.info("Vocos 24 kHz ONNX geladen: %s [providers=%s]", path, _providers)
             # ── PLM-Registrierung (LRU-Tracking, §5.1 OOM-Schutz) ─────────────────
             try:
                 from backend.core.plugin_lifecycle_manager import get_plugin_lifecycle_manager

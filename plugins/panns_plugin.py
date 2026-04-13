@@ -207,7 +207,7 @@ class PANNsPlugin:
         # Stereo → Mono
         if audio.ndim == 2:
             # [channels, samples] oder [samples, channels]
-            audio = audio.mean(axis=0) if audio.shape[0] <= 8 else audio.mean(axis=1)
+            audio = audio.mean(axis=0) if audio.shape[0] <= 2 else audio.mean(axis=1)
 
         audio = np.nan_to_num(audio.astype(np.float32), nan=0.0, posinf=0.0, neginf=0.0)
 

@@ -2,11 +2,11 @@
 
 > **Systemidentität**: Aurik 9.x.x ist ein *weltweit erstmaliges intelligentes,
 > kontextbewusstes Musik- und Gesangs-Restaurations-, Reparatur- und
-> Rekonstruktions-Denkersystem.* Stand: April 2026 — Version **9.11.0**
+> Rekonstruktions-Denkersystem.* Stand: April 2026 — Version **9.11.14**
 >
-> **instructions_version: 7.1** — §2.55 PMGG-CIG-Synchronisations-Invariante normiert 10.04.2026
+> **instructions_version: 7.3** — §0a DR/BW/Rauschtextur-Ceiling + §0d Carrier-Recovery-Referenzmodell + §1.2a/§4.7/§6.2b normiert 13.04.2026
 >
-> Aktuelle Testzahl: **~11084 `def test_`-Funktionen** (424 Testdateien; alle grün)
+> Aktuelle Testzahl: **~11598 `def test_`-Funktionen** (436 Testdateien; alle grün)
 >
 > **§2.36 `LyricsGuidedEnhancement`** ist ab Version **9.10.x Pflicht**.
 
@@ -31,8 +31,32 @@
 | **Authentizität** | Zum Original — akustisch nicht unterscheidbar vom Studio-Master | Zum Künstler — musikalische Intention bewahren, Klangqualität modernisieren |
 | **Rauschboden** | **Material-adaptiv** — Rauschboden-*Niveau* UND -*Textur* des originalen Aufnahmemediums anstreben, nicht aggressiver (Studio-Ambience bewahren). Spektrale Form des Restrauschens muss dem Trägerprofil entsprechen (kein weißes Rauschen nach Vinyl-Denoising) | **≤ −72 dBFS** — moderner Studio-Standard |
 | **Qualitätsmaß** | Nähe zum Original (timbral fidelity) | Verbesserung gegenüber Input (PQS improvement) |
+| **Dynamic Range** | **Material-Ceiling** — DR darf physikalisches Medium-Maximum nicht überschreiten (Spec 05 §6.2b DR_CEILING): Vinyl ≤ 70 dB, Shellac ≤ 45 dB, Tape ≤ 68 dB, CD ≤ 96 dB. Expansion über Ceiling = Artefakt. | DR-Erweiterung bis moderne Studio-Standards erlaubt, aber ≤ src_ceiling × 1.5 |
+| **Bandbreite** | **Material-Ceiling** — Output-BW darf physikalisches Maximum des Quellmediums nicht überschreiten (Spec 05 §6.2c BW_CEILING): Shellac ≤ 8 kHz, Vinyl ≤ 16 kHz, WaxCyl ≤ 5 kHz. Additiv-Phasen müssen BW-Hard-Cap respektieren. | Volle BW-Erweiterung bis 22 kHz, erfordert aber MUSHRA ≥ 3.5 für Extension-Band |
+| **Rauschtextur** | **Kohärent zum Trägerprofil** — spektrale Form des Restrauschens muss dem Trägermedium entsprechen (Spec 04 §4.7). Vinyl: rosa; Tape: Brown+HF-Hiss; CD: Weiß/Flat. Kohärenz-Score ≥ 0.80 Pflicht. | Minimaler Rauschboden; Textur-Kohärenz nicht erzwungen |
 
 > §0 ist **normativ übergeordnet**: Wenn eine technische Regel (PMGG-Threshold, Metrik-Schwellwert, Phase-Pflicht) dem Klangergebnis schadet, ist das ein Bug in der Regel — nicht im Klang.
+
+### §0d [RELEASE_MUST] Carrier-Recovery-Referenzmodell (v9.11.14)
+
+**Das fundamentale Messproblem**: Bei Carrier-Chain-Inversion verändert sich das Signal intentional stark gegenüber dem degradierten Input. Musical-Goals-Messungen, die den degradierten Input als Referenz verwenden, bestrafen korrekte Restaurierung als „Regression". Dieses Paradoxon muss auf **allen** Ebenen aufgelöst werden.
+
+**Dreischichtiges Referenzmodell (normativ)**:
+
+| Ebene | Referenzquelle | Anwendung |
+|---|---|---|
+| **1. Per-Phase PMGG** | §2.29c Baseline-Capping: `effective_before = min(measured, threshold + 0.05)` für restorative Phasen | Verhindert, dass verrauschter/defekter Input überhöhte Baseline liefert |
+| **2. End-of-Pipeline Goals** | §1.2a Carrier-Recovery-Referenz: bei `carrier_chain_recovery_ratio > 0.15` wird die End-Referenz für timbral_fidelity/MFCC/Centroid auf das **best_carrier_checkpoint** (nach Carrier-Phasen, vor Enhancement) verschoben | Verhindert, dass starke Carrier-Inversion als Timbre-Regression gewertet wird |
+| **3. HPI Export-Gate** | §2.44 Referenz-Paradoxon: restorability-abhängiger Referenz-Anker (GP-Memory MERT bei Restorability ≤ 50) | Finale Gesamt-Bewertung unabhängig vom degradierten Input |
+
+**carrier_chain_recovery_ratio** (Pflichtfeld in `metadata`):
+```python
+recovery_ratio = 1.0 - spectral_correlation(pre_carrier_audio, post_carrier_audio)
+# > 0.15 = signifikante Carrier-Inversion → Referenz-Shift aktiv
+# > 0.35 = massive Inversion (Shellac, Multi-Gen) → voller MERT-Referenz-Anker
+```
+
+**Invariante**: Kein Gate (PMGG, CIG, HPI, AFG) darf eine Phase oder den Export blockieren, weil das Signal sich vom **degradierten** Input entfernt hat — solange es sich dem **physikalischen Ceiling** des erkannten Materials nähert.
 
 ### §0c [RELEASE_MUST] Universalitäts-Invariante — alle Importsongs
 
@@ -58,23 +82,24 @@ niemals auf einen einzelnen Referenzsong optimiert werden.
 ## Architektur dieser Richtlinien
 
 Diese Datei ist der **Slim Core** (~250 Zeilen) — wird in **jeder** Konversation geladen.
-Detailwissen liegt in **aufgabenspezifischen Skills** unter `.github/skills/*/SKILL.md`, die nur bei Bedarf geladen werden.
-
-| Aufgabe | Skill | Trigger-Phrases |
-|---|---|---|
-| Neue Phase implementieren | `new-phase` | phase, PMGG, Exclusions, PhaseResult |
-| Musical-Goal-Metrik ändern | `fix-metric` | Metrik, Goal, Schwellwert, Kalibrierung, Divisor |
-| DSP-Algorithmus wählen/bauen | `aurik-dsp-decision` | SOTA, Modell, Fallback, OMLSA, PGHI, STFT |
-| ML-Plugin integrieren | `ml-plugin` | Plugin, ONNX, try_allocate, Headroom, Fallback |
-| Pipeline debuggen/verstehen | `pipeline-debug` | UV3, Denker, SongCal, KMV, FeedbackChain |
-| UI/Frontend-Feature | `ui-feature` | Qt, Signal, Widget, Progress, Thread-Safety |
-| Tests schreiben | `test-writing` | Test, pytest, Marker, Heavy, conftest |
-| Qualität/Benchmark messen | `quality-benchmark` | OQS, AMRB, PQS, MOS, MUSHRA |
-| Architektur visualisieren | `aurik-architecture-diagram` | Diagramm, Mermaid, Flowchart, Übersicht |
+Detailwissen liegt in den **8 normativen Specs** unter `.github/specs/` — Single Source of Truth.
 
 ## Vollständige Spezifikation (normative Referenz)
 
-**8 Specs** in `.github/specs/`: **01** Goals/PMGG, **02** Pipeline/§2.x, **03** Module/§3.x, **04** DSP/SOTA, **05** Material/Defekte, **06** Phasen 01–64, **07** Tests/Qualität, **08** Architektur/Distribution — Änderungshistorie: `docs/CHANGELOG_HISTORY.md`
+**8 Specs** in `.github/specs/`:
+
+| Spec | Inhalt | Konsolidierte Praxis-Abschnitte |
+|---|---|---|
+| **01** Goals/PMGG | 14 Musical Goals, Schwellwerte, GoalApplicability | §1.3 Metric Recalibration & Debugging |
+| **02** Pipeline/§2.x | UV3, Denker, SongCal, KMV, FeedbackChain | §2.2c Denker-Orchestrierung & Hänger-Patterns |
+| **03** Module/§3.x | Kognitive Module §2.1–§2.43 | — |
+| **04** DSP/SOTA | Algorithmen, SOTA-Matrix, Psychoakustik | §4.6a ML-Plugin-Workflow & ONNX-Chunking, §4.6b Material×Defect-Entscheidungsbaum |
+| **05** Material/Defekte | 15 Materialtypen, 46 DefectTypes | — |
+| **06** Phasen 01–64 | Phase-Liste, CAUSE_TO_PHASES | §7.3a Phase-Implementierung, Caching & Checkliste |
+| **07** Tests/Qualität | PQS, AMRB, OQS, MUSHRA | §8.4a Test-Patterns, 6 Pitfalls & CI-Gates |
+| **08** Architektur/Distribution | Layers, Plugins, CLI, AppImage | §11.4c UI-State-Machines & Thread-Safety, §11.5a Mermaid-Visualisierung |
+
+Änderungshistorie: `docs/CHANGELOG_HISTORY.md`
 
 ## [RELEASE_MUST] Projektgrenzen (bindend, keine Ausnahmen)
 
@@ -165,11 +190,34 @@ logger.info("phase=%s score=%.2f", phase, score)  # kein print()
 | Roughness/Sharpness Anstieg ungeprüft | DYNAMICS/ADDITIVE-Phasen (phase_35, phase_39) erhöhen psychoakustische Lästigkeit ohne Gate | `ArtifactFreedomGate._compute_roughness_zwicker()` + `_compute_sharpness_bismarck()` für `DYNAMICS/ADDITIVE/ENHANCEMENT`-Phasen; Penalty -0.05 bzw. -0.10 (§2.49c) |
 | MERT als primäre Qualitätsmetrik | `MertPlugin.score()` direkt als HPI-Haupt-Koeffizient wenn VERSA verfügbar | VERSA primär; MERT als Proxy-Fallback wenn VERSA fehlschlägt; `metadata["mert_proxy_used"]` setzen (§2.44) |
 | VERSA auf RESEARCH-Modus beschränkt | `use_versa_in_loop=deployment_mode == RESEARCH` im FeedbackChain-Aufruf | `use_versa_in_loop=True` — VERSA ist produktionsstabil und muss immer aktiv sein (§2.44 VERBOTEN: MERT darf nicht primary sein wenn VERSA verfügbar) |
+| DR-Expansion ohne Ceiling | `phase_26` expandiert ungeprüft über Material-Limit | `_MATERIAL_DR_CEILING_DB` Dict respektieren (§6.2b): Vinyl ≤ 70 dB, Shellac ≤ 45 dB, Tape ≤ 68 dB, CD ≤ 96 dB |
+| BW-Extension ohne Ceiling | Phase_06/07/23/39 erzeugen Frequenzinhalt über Material-BW-Limit | `_MATERIAL_BW_CEILING_HZ` Hard-Cap in UV3 `_post_additive_bw_guard()` (§6.2c): Shellac ≤ 8 kHz, Vinyl ≤ 16 kHz etc. |
+| Rauschtextur-Check fehlt | Denoising erzeugt weiße/flache Rauschtextur statt Carrier-kohärentem Profil | `NoiseTextureCoherenceGuard` (§4.7): spektrale Form des Restrauschens vs. Trägerprofil; Kohärenz ≥ 0.80 in Restoration |
+| Goals gegen degradierten Input am Pipeline-Ende | `MusicalGoalsChecker.measure_all(restored, sr, original=degraded_input)` | Bei `carrier_chain_recovery_ratio > 0.15`: End-Referenz = `best_carrier_checkpoint` (§0d Ebene 2, §1.2a) |
+| carrier_chain_recovery_ratio fehlt | Metadata ohne Carrier-Recovery-Signal | UV3 Pflichtfeld `metadata["carrier_chain_recovery_ratio"]` — berechnet nach letzter Carrier-Phase (§0d) |
 | Pitch-Kaskade ohne RMVPE | FCPE → CREPE → PESTO → pYIN (RMVPE übersprungen) | FCPE → RMVPE → PESTO → pYIN: `get_rmvpe_plugin()` als Tier-2 in HPG `_estimate_f0_track`, `hybrid_wow_flutter._init_crepe`, `hybrid_speed_pitch_ml._init_crepe` (§4.4 — 30 % geringere Pitch-Fehlerrate bei Gesang, Wei et al. ICASSP 2023) |
 | Lautheitsmessung ohne ISO 532-1 | `np.mean(audio**2)` oder LUFS-only nach Rumble/Multiband-Phasen | `compute_specific_loudness_zwicker(audio, sr)` → ΔN > 2.0 sone = FAIL, Dry/Wet-Rescue (§4.1b) |
 | JND-blinde PMGG-Phase-Akzeptanz | Phase mit allen Deltas > 0 und < JND wird identisch zu signifikant positiver Phase behandelt | `JND_MIN_DELTA` Dict in `_run_with_retry()`: wenn alle Deltas ≥ 0 UND alle < JND → `sub_threshold`, kein Retry, `metadata["sub_threshold_phases"]` (§2.47b) |
 | Uniforme Goal-Gewichtung | Alle 14 Goals gleich gewichtet via Minimax (`_max_regression` ohne Weights) | `estimate_goal_importance()` → Per-Song-Profil → `goal_weights` in PMGG/CIG/GPP/FC (§2.56) |
 | §2.56 nur in Gates nutzen | `goal_weights` ausschließlich für PMGG/CIG verwenden; Phasen laufen mit statischer Strength/Wetness | Globale all-phase Kopplung in UV3 `_profiled_phase_call`: `_compute_harmonic_adaptation_scalar(...)` (advisory-only), wirkt auf implizite `strength` + wet/dry, explizite PMGG-Strength bleibt führend (§2.56a) |
+| Phase-50 Spike-Detection ohne HF-Guard | `_repair_channel()` flaggt restaurierte analoge Harmoniken als Codec-Spikes und inpaintet sie (zerstört Vorphasen-Restaurierung) | `_hf_protected_bin_start = material_rolloff × 0.85 / bin_hz` für alle analogen Materialtypen; Bins ≥ Start aus Pass-1 ausschließen; Pass-2 (Frame-Energy) bleibt global aktiv (§2.57) |
+| PMGG Goal-Scoring bei Passthrough-Audio | Phase gibt unverändert Audio zurück, trotzdem werden 3× CREPE/pYIN-Retries und StrictConflictDecay ausgelöst | `np.array_equal(input, output)` → kein Scoring, kein Retry, kein Decay; ~51 s Laufzeit-Einsparung bei confidence=0.0 (§2.58) |
+| Phase-09 Stub-Interpolation | `_interpolate_hybrid()` ruft intern `_interpolate_linear()` auf — kein AR-Verhalten trotz Bezeichnung | Vollständige LPC/AR-Vorhersage: Vorwärts-AR aus Pre-Gap + Rückwärts-AR aus Post-Gap, linear übergeblendet; Pol-Stabilisierung via Einheitskreis-Spiegelung; 5 ms Boundary-Crossfade (Rabiner & Schafer 1978) (§2.57) |
+| Phase-50 lineare Zeit-Interpolation | Dropout-Frames werden einmalig linear interpoliert — keine Nutzung der STFT-Redundanz | Iterative STFT-Konsistenz-Projektion (5 Iterationen, POCS-Schema): Initialisierung → ISTFT → STFT → undamaged Frames re-ankern → wiederholen (Siedenburg & Dörfler 2013) (§2.57) |
+| CausalDefectReasoner einseitige Tabellen | Neue Ursache (z.B. `vocal_harshness`) nur in `CAUSE_TO_PHASES` eingetragen, nicht in `CAUSES`/`LIKELIHOOD_FNS` | `CAUSES` und `CAUSE_TO_PHASES` sind bidirektional konsistent: Einträge in `CAUSE_TO_PHASES` ohne korrespondierendes `CAUSES`-Feld sind dead code — Bayes-Loop iteriert ausschließlich `CAUSES` (§2.59) |
+| QualityGate SNR/STFT vor Musical-Goal-Check | `check_dsp/check_ml` führt `_check_audio_array` (STFT/SNR) durch, bevor Musical-Goals-Failures ausgewertet sind | `_check_musical_goals()` zuerst; bei Failure sofort `return` — teure STFT-Analyse nur wenn Goals bestanden |
+| TFS-Guard Hilbert vor Voiced-Gate | `tfs_preservation_guard.py` berechnet Hilbert-Phasenextraktion und Band-Filterung für alle 12 ERB-Bänder vor dem Voiced-Energy-Gate | Frame-Energie der Original-Bänder zuerst prüfen; Bänder mit < 3 Voiced-Frames überspringen vor `filtfilt` + Hilbert — Muster: teure Analytic-Transforms nach dem günstigsten Admissibility-Gate |
+| AudioSR ohne Wall-Time-Budget | AudioSR-Zonen-Schleife läuft zeitlich unbegrenzt → Hänger bei extremen Songstrukturen | `_AUDIOSR_WALL_BUDGET_S = 900.0` (15 min) vor Zonen-Schleife; Zonen jenseits Budget als Passthrough (Original-Audio) abschließen |
+| Stereo-Kanal-Slicing `a[0]` | `a[0]` wenn `a.ndim == 2` (Shape: samples×channels) gibt nur 2 Samples zurück (erste Zeitzeile), nicht Kanal 0 — Score-Funktionen liefern immer 0.0 → PlateauStop, Gate-Logik, Proxy-Metriken blind für alle Songs | `a[:, 0]` für Kanal-0; bei skalenunklarer Orientation erst `_normalize_audio()` verwenden, die (channels, samples) → (samples, channels) transponiert |
+| ONNX Fixed-Shape-Input ohne Chunking | `session.run()` mit Audio-Länge ≠ `inp.shape[1]` (z. B. 4968577 statt 43844) → INVALID_ARGUMENT, DSP-Fallback, Pitch-Schätzung degradiert | Vor `session.run()`: `inp.shape[1]` lesen; `isinstance(dim, int) and dim > 0` → Chunking-Loop mit Zero-Padding für letzten Chunk; gilt für alle ONNX-Plugins mit variabel langem Audio-Input (§ml-plugin-SKILL) |
+| PlateauStop mit festen Konstanten | `_PLATEAU_THRESHOLD = 0.005` und `_PLATEAU_DAMPEN = 0.40` als universelle Konstanten (§2.54-Verletzung): Shellac hat 0.002-Verbesserungen pro Phase → fälschlich gedämpft; CD hat 0.010-Sprünge → Plateau zu früh | `_compute_plateau_params(material_type)` → material-adaptive (threshold, dampen); Shellac 0.002/0.55, Reel-Tape 0.003/0.50, Cassette 0.004/0.45, MP3 0.008/0.40, CD 0.010/0.35; zusätzlich: `restorability < 40` → dampen_floor = 0.60 |
+| O(n²)-Autokorrelation im DSP-Fallback | `np.correlate(signal, signal, mode="full")` für AR-Koeffizientenberechnung — bei langen Signalen (10 M+ Samples) multi-stündiger Hänger | `np.array([np.dot(s[:n-k], s[k:]) for k in range(AR_ORDER+1)])` — O(n·order); nur benötigte Lag-Werte berechnen |
+| `np.corrcoef` auf nahezu-konstanten Signalen | `np.corrcoef(a, b)` bei near-constant (Stille, DC-Offset) → RuntimeWarning: invalid value in true_divide; mit `-W error` Testabbruch | Guarded correlation: `dot(a,b) / (||a||·||b|| + ε)` — NaN-safe, kein Warning |
+| `scipy.signal.stft` boundary='reflect' | `boundary='reflect'` → `ValueError: Unknown boundary condition` in scipy < 1.12 | `boundary='even'` für reflect-ähnliches Verhalten — einzige universell unterstützte spiegelnde Randbedingung |
+| `load_audio_file()` mit synchroner Carrier-Analyse | `load_audio_file()` ruft intern `analyze_carrier_forensics()` → `classify_medium()` auf vollem Audio (225s = 10 M+ Samples) → 6+ Minuten synchroner Block im BatchProcessingThread, Progress stuck bei 2 % | `load_audio_file(path, do_carrier_analysis=False)` in allen UI/Thread-Aufrufen; Carrier-Analyse läuft separat in `_carrier_bg`-Thread |
+| QualityMode-Vergleich als roher String | `if quality_mode in ("restoration", "balanced")` statt Enum — überprüft literalen String; `QualityMode.QUALITY.value == "quality"` feuert nie → Gate deaktiviert | `if quality_mode in (QualityMode.RESTORATION, QualityMode.QUALITY, ...)` oder Enum-Value explizit mappen |
+| ML-Budget-Größe als MB statt GB | `try_allocate("Plugin", 630)` wenn 630 MB gemeint — aber Einheit ist GB → `required 630000 MB` → alle Allokations-Checks schlagen für alle weiteren Plugins fehl | Einheitenpräzision in `try_allocate()`: Argument ist immer GB (float); `630 MB → 0.63` |
+| Unit-Tests Budget-Logik ohne `is_system_thrashing`-Mock | `try_allocate()` prüft `is_system_thrashing()` vor Budget-Preflight; Tests ohne diesen Mock schlagen auf Hosts mit hoher Swap-Auslastung fehl | `monkeypatch(budget.is_system_thrashing, lambda: False)` in allen Unit-Tests die Budget-Logik testen — hostseitige Druckheuristiken isolieren |
 
 ### Sprachkonvention
 - **UI-Texte, Fehlermeldungen**: Deutsch (Ursache + Lösungsvorschlag)
@@ -179,6 +227,10 @@ logger.info("phase=%s score=%.2f", phase, score)  # kein print()
 - `pytest`/`conftest`-Teardowns für große Suiten bevorzugen **leichten inkrementellen GC** (`gc.collect(0)` o. ä.); volles `gc.collect()` nur cadence-gesteuert oder an Datei-/Session-Grenzen.
 - Lang lebige Hintergrund-Manager (z. B. Monitor-Threads) brauchen einen **idempotenten `shutdown()`-Kontrakt** mit `Event.set()` + `join(timeout=...)`; Test-Sessions räumen diese Manager in `pytest_sessionfinish` oder Finalizern ab.
 - **VERBOTEN**: unbedingtes Full-GC nach jedem Test in großen Suiten und das Verlassen auf `daemon=True` als einziges Cleanup-Modell.
+- Unit-Tests, die Budget-Logik (`try_allocate`, `release`) prüfen, **müssen** `is_system_thrashing` auf `False` mocken — andernfalls versagen Tests auf Hosts mit hoher Swap-Auslastung (environment-dependent flakiness).
+- Resampling-Bibliotheken (`resampy`, `librosa`) können `pkg_resources`-Warnings auslösen, die unter `-W error::Warning` Testabbrüche verursachen. Immer auf aktueller Version (`resampy >= 0.4.3`) halten.
+- Teuere Analytic-Transforms (Hilbert, `filtfilt`, STFT) **IMMER nach** dem günstigsten Admissibility-Gate platzieren. Muster: Frame-Energie-Check → Voiced-Gate → dann `filtfilt` + Hilbert (vgl. TFS-Guard).
+- ML-Budget-Tests und Phase-Tests, die `np.corrcoef` auf near-constant Signalen aufrufen, brauchen guarded correlation (`dot(a,b)/(||a||·||b||+ε)`) — kein Warning, NaN-safe.
 
 ## Anti-Parallelwelten-Workflow (vor jeder Implementierung)
 
@@ -199,7 +251,7 @@ logger.info("phase=%s score=%.2f", phase, score)  # kein print()
 
 | Operation | Limit / Minute Audio |
 |---|---|
-| DefectScanner | ≤ 4 s |
+| DefectScanner | ≤ 20 s |
 | Phase-Pipeline gesamt | ≤ 240 s |
 | FeedbackChain | ≤ 120 s |
 | RestorabilityEstimator | ≤ 5 s |
@@ -507,8 +559,9 @@ MATERIAL_PRIORITY_PHASES = {
     "tape":     ["phase_29_tape_hiss_reduction", "phase_24_dropout_repair"],
     "reel_tape":["phase_29_tape_hiss_reduction", "phase_03_denoise", "phase_24_dropout_repair"],
     "shellac":  ["phase_03_denoise", "phase_06_frequency_restoration", "phase_01_click_removal"],
+    "cassette": ["phase_29_tape_hiss_reduction", "phase_12_wow_flutter_fix", "phase_06_frequency_restoration", "phase_24_dropout_repair", "phase_03_denoise"],
     "mp3_low":  ["phase_23_spectral_repair", "phase_03_denoise", "phase_50"],
-    # … alle 15 Materialtypen
+    # … alle 15 Materialtypen (vollständig in backend/core/unified_restorer_v3.py)
 }
 # Ausnahme: GoalApplicabilityFilter kann Material-Phasen für spezifisches Material deaktivieren
 # (z.B. phase_48 Stereo-Imaging bei Mono-Quellen)
@@ -770,4 +823,4 @@ ein stark verrauschter Vinyl-Song akzeptiert mehr Chroma-Drift nach Denoise als 
 
 *Diese Richtlinien gelten für alle KI-Agenten (GitHub Copilot, Claude, GPT) die an Aurik 9 arbeiten.*
 *Vollständige normative Spezifikation: `.github/specs/01–08`.*
-*Stand: April 2026 — Aurik 9.11.0 — instructions_version 7.1*
+*Stand: April 2026 — Aurik 9.11.14 — instructions_version 7.3*

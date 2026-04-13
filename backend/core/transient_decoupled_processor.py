@@ -63,29 +63,46 @@ class TransientDecoupledProcessing:
     def separate(self, audio: np.ndarray, sr: int) -> tuple[np.ndarray, np.ndarray]:
         """Gibt (audio_percussive, audio_harmonic) zurueck."""
         audio = np.nan_to_num(audio, nan=0.0, posinf=0.0, neginf=0.0).astype(np.float32)
-        if audio.ndim == 2:
-            audio = audio.mean(axis=0)
-        if len(audio) < self._n_fft:
-            half = audio * 0.5
-            return half.copy(), half.copy()
-        try:
-            from scipy.signal import istft as _istft
-            from scipy.signal import stft as _stft
 
-            _, _, Z = _stft(audio, fs=sr, nperseg=self._n_fft, noverlap=self._n_fft - self._hop_length)
-            mask_h, mask_p = _hpss_separate(Z, self.HPSS_HARMONIC_KERNEL, self.HPSS_PERCUSSIVE_KERNEL)
-            _, h = _istft(Z * mask_h, fs=sr, nperseg=self._n_fft, noverlap=self._n_fft - self._hop_length)
-            _, p = _istft(Z * mask_p, fs=sr, nperseg=self._n_fft, noverlap=self._n_fft - self._hop_length)
-            n = len(audio)
-            h = np.pad(h, (0, max(0, n - len(h))))[:n]
-            p = np.pad(p, (0, max(0, n - len(p))))[:n]
-        except Exception as exc:
-            logger.debug("HPSS-Fallback: %s", exc)
-            p = audio * 0.5
-            h = audio * 0.5
-        p = np.nan_to_num(p.astype(np.float32))
-        h = np.nan_to_num(h.astype(np.float32))
-        return np.clip(p, -1.0, 1.0), np.clip(h, -1.0, 1.0)
+        def _separate_mono(x: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+            if len(x) < self._n_fft:
+                half = x * 0.5
+                return half.copy(), half.copy()
+            try:
+                from scipy.signal import istft as _istft
+                from scipy.signal import stft as _stft
+
+                _, _, Z = _stft(x, fs=sr, nperseg=self._n_fft, noverlap=self._n_fft - self._hop_length)
+                mask_h, mask_p = _hpss_separate(Z, self.HPSS_HARMONIC_KERNEL, self.HPSS_PERCUSSIVE_KERNEL)
+                _, h = _istft(Z * mask_h, fs=sr, nperseg=self._n_fft, noverlap=self._n_fft - self._hop_length)
+                _, p = _istft(Z * mask_p, fs=sr, nperseg=self._n_fft, noverlap=self._n_fft - self._hop_length)
+                n = len(x)
+                h = np.pad(h, (0, max(0, n - len(h))))[:n]
+                p = np.pad(p, (0, max(0, n - len(p))))[:n]
+            except Exception as exc:
+                logger.debug("HPSS-Fallback: %s", exc)
+                p = x * 0.5
+                h = x * 0.5
+            p = np.nan_to_num(p.astype(np.float32))
+            h = np.nan_to_num(h.astype(np.float32))
+            return np.clip(p, -1.0, 1.0), np.clip(h, -1.0, 1.0)
+
+        if audio.ndim == 1:
+            return _separate_mono(audio)
+
+        # Stereo-safe handling: preserve layout for (2, N) and (N, 2).
+        if audio.ndim == 2 and audio.shape[0] == 2 and audio.shape[1] != 2:
+            p0, h0 = _separate_mono(audio[0])
+            p1, h1 = _separate_mono(audio[1])
+            return np.stack([p0, p1], axis=0), np.stack([h0, h1], axis=0)
+        if audio.ndim == 2 and audio.shape[1] == 2 and audio.shape[0] != 2:
+            p0, h0 = _separate_mono(audio[:, 0])
+            p1, h1 = _separate_mono(audio[:, 1])
+            return np.column_stack([p0, p1]), np.column_stack([h0, h1])
+
+        # Fallback for unexpected layouts: conservative mono path.
+        mono = audio.mean(axis=0) if audio.ndim == 2 else audio
+        return _separate_mono(mono)
 
     def recombine(
         self,
@@ -103,21 +120,59 @@ class TransientDecoupledProcessing:
         """
         audio_p = np.nan_to_num(np.asarray(audio_p, dtype=np.float32))
         audio_h = np.nan_to_num(np.asarray(audio_h, dtype=np.float32))
-        n = max(len(audio_p), len(audio_h))
-        audio_p = np.pad(audio_p, (0, max(0, n - len(audio_p))))[:n]
-        audio_h = np.pad(audio_h, (0, max(0, n - len(audio_h))))[:n]
-        mix = audio_p + audio_h
-        if original_perc is not None:
-            violated, dtw_ms = self._grove_violated_ex(audio_p, original_perc, sr)
-            if violated:
-                if raise_on_groove_violation:
-                    raise GrooveViolationError(dtw_ms)
-                orig = np.nan_to_num(np.asarray(original_perc, dtype=np.float32))
-                orig = np.pad(orig, (0, max(0, n - len(orig))))[:n]
-                mix = orig + audio_h
-                logger.debug("GrooveMetric DTW %.2f ms > 8 ms -- original_perc uebernommen", dtw_ms)
-        mix = np.nan_to_num(mix)
-        return np.clip(mix, -1.0, 1.0).astype(np.float32)
+
+        def _recombine_mono(p: np.ndarray, h: np.ndarray, orig_p: np.ndarray | None) -> np.ndarray:
+            n = max(len(p), len(h))
+            p = np.pad(p, (0, max(0, n - len(p))))[:n]
+            h = np.pad(h, (0, max(0, n - len(h))))[:n]
+            mix_local = p + h
+            if orig_p is not None:
+                violated, dtw_ms = self._grove_violated_ex(p, orig_p, sr)
+                if violated:
+                    if raise_on_groove_violation:
+                        raise GrooveViolationError(dtw_ms)
+                    orig = np.nan_to_num(np.asarray(orig_p, dtype=np.float32))
+                    orig = np.pad(orig, (0, max(0, n - len(orig))))[:n]
+                    mix_local = orig + h
+                    logger.debug("GrooveMetric DTW %.2f ms > 8 ms -- original_perc uebernommen", dtw_ms)
+            mix_local = np.nan_to_num(mix_local)
+            return np.clip(mix_local, -1.0, 1.0).astype(np.float32)
+
+        # Stereo channel-first (2, N)
+        if (
+            audio_p.ndim == 2
+            and audio_h.ndim == 2
+            and audio_p.shape[0] == 2
+            and audio_h.shape[0] == 2
+            and audio_p.shape[1] != 2
+            and audio_h.shape[1] != 2
+        ):
+            op = np.asarray(original_perc, dtype=np.float32) if original_perc is not None else None
+            op0 = op[0] if op is not None and op.ndim == 2 and op.shape[0] == 2 else None
+            op1 = op[1] if op is not None and op.ndim == 2 and op.shape[0] == 2 else None
+            m0 = _recombine_mono(audio_p[0], audio_h[0], op0)
+            m1 = _recombine_mono(audio_p[1], audio_h[1], op1)
+            return np.stack([m0, m1], axis=0)
+
+        # Stereo column-major (N, 2)
+        if (
+            audio_p.ndim == 2
+            and audio_h.ndim == 2
+            and audio_p.shape[1] == 2
+            and audio_h.shape[1] == 2
+            and audio_p.shape[0] != 2
+            and audio_h.shape[0] != 2
+        ):
+            op = np.asarray(original_perc, dtype=np.float32) if original_perc is not None else None
+            op0 = op[:, 0] if op is not None and op.ndim == 2 and op.shape[1] == 2 else None
+            op1 = op[:, 1] if op is not None and op.ndim == 2 and op.shape[1] == 2 else None
+            m0 = _recombine_mono(audio_p[:, 0], audio_h[:, 0], op0)
+            m1 = _recombine_mono(audio_p[:, 1], audio_h[:, 1], op1)
+            return np.column_stack([m0, m1])
+
+        # Mono / fallback
+        orig = np.asarray(original_perc, dtype=np.float32) if original_perc is not None else None
+        return _recombine_mono(audio_p.ravel(), audio_h.ravel(), orig.ravel() if orig is not None else None)
 
     def _grove_violated(self, proc: np.ndarray, orig: np.ndarray, sr: int) -> bool:
         violated, _ = self._grove_violated_ex(proc, orig, sr)

@@ -125,9 +125,29 @@ class ReverbReduction(PhaseInterface):
         "shellac": 1.8,
         "wax_cylinder": 1.5,
         "cd_digital": 1.8,
+        "mp3_low": 1.5,  # Fix 11B: digital — very conservative for compression material
+        "mp3_high": 1.8,
+        "aac": 1.8,
+        "m4a": 1.8,
+        "ogg": 1.8,
+        "flac": 1.8,
         "streaming": 1.6,
         "unknown": 2.0,
     }
+
+    # Fix 11C: Digital materials that need reverb defect evidence before ML dereverb
+    _DIGITAL_LOW_REVERB_MATERIALS: frozenset = frozenset(
+        {
+            "mp3_low",
+            "mp3_high",
+            "aac",
+            "m4a",
+            "ogg",
+            "streaming",
+        }
+    )
+    # Minimum reverb severity required to use ML-Hybrid for digital material
+    _DIGITAL_ML_REVERB_SEVERITY_MIN: float = 0.30
 
     # Material-adaptive reduction strength
     REDUCTION_STRENGTH = {
@@ -339,12 +359,68 @@ class ReverbReduction(PhaseInterface):
                     f"Memory: {adaptive_resource_manager.get_memory_usage():.1f}%)"
                 )
 
+        # Fix 11C: For digital material with no reverb defect evidence → skip expensive ML
+        _defect_result_ph20 = kwargs.get("defect_result")
+        _reverb_severity_ph20 = 0.0
+        if _defect_result_ph20 is not None:
+            for _d in getattr(_defect_result_ph20, "defects", []):
+                _dtype = getattr(_d, "defect_type", "")
+                if isinstance(_dtype, str):
+                    _dtype_s = _dtype.lower()
+                else:
+                    _dtype_s = str(_dtype).lower()
+                if "reverb" in _dtype_s:
+                    _reverb_severity_ph20 = max(_reverb_severity_ph20, float(getattr(_d, "severity", 0.0)))
+        _skip_ml_digital_no_reverb = (
+            material.value in self._DIGITAL_LOW_REVERB_MATERIALS
+            and _reverb_severity_ph20 < self._DIGITAL_ML_REVERB_SEVERITY_MIN
+        )
+        if _skip_ml_digital_no_reverb:
+            if _reverb_severity_ph20 < 0.10:
+                # §0 Primum non nocere: near-zero reverb on digital material → passthrough.
+                # Any dereverb processing would only add artifacts.
+                logger.info(
+                    "Phase 20: Fix11C — digital=%s, reverb_severity=%.3f < 0.10 → passthrough (§0 Primum non nocere)",
+                    material.value,
+                    _reverb_severity_ph20,
+                )
+                _pt = np.nan_to_num(audio.copy(), nan=0.0, posinf=0.0, neginf=0.0)
+                _pt = np.clip(_pt, -1.0, 1.0)
+                return PhaseResult(
+                    success=True,
+                    audio=_pt,
+                    metrics={
+                        "rms_change_db": 0.0,
+                        "reduction_strength": 0.0,
+                        "reverb_estimate": _reverb_severity_ph20,
+                        "material": material.value,
+                    },
+                    execution_time_seconds=time.time() - start_time,
+                    metadata={
+                        "algorithm": "digital_passthrough_no_reverb_fix11c",
+                        "reverb_severity": _reverb_severity_ph20,
+                        "skip_reason": "digital_material_below_reverb_threshold",
+                    },
+                )
+            else:
+                # reverb_severity 0.10–0.29: scale DSP strength proportionally
+                _severity_scale = _reverb_severity_ph20 / self._DIGITAL_ML_REVERB_SEVERITY_MIN
+                strength = float(np.clip(strength * _severity_scale, 0.0, strength))
+                logger.info(
+                    "Phase 20: Fix11C — Skip ML-Hybrid: digital=%s, reverb_severity=%.2f → "
+                    "DSP-only, scaled strength=%.2f",
+                    material.value,
+                    _reverb_severity_ph20,
+                    strength,
+                )
+
         # ML-Hybrid only if resources available and quality mode permits
         use_ml_hybrid = (
             ML_HYBRID_AVAILABLE
             and quality_mode in ["balanced", "maximum", "quality"]
             and not use_lightweight
             and not self._force_dsp_only_due_ml_error
+            and not _skip_ml_digital_no_reverb  # Fix 11C: digital with no reverb → DSP-only
         )
 
         if use_ml_hybrid:
@@ -383,6 +459,32 @@ class ReverbReduction(PhaseInterface):
                     f"RMS change={rms_change_db:.2f}dB, time={processing_time:.2f}s"
                 )
 
+                # Fix 11A: Catastrophic ML/WPE fallback drop guard
+                # If the ML path (including WPE fallback inside HybridDereverb) caused a severe
+                # drop, disable ML for PMGG retries and restrict the wet/dry blend to protect signal.
+                _ml_drop_abs = abs(min(0.0, rms_change_db))
+                if _ml_drop_abs > 6.0 and not self._force_dsp_only_due_ml_error:
+                    # Prevent costly PMGG retry with another SGMSE+/WPE cycle
+                    self._force_dsp_only_due_ml_error = True
+                    self._ml_disable_reason = (
+                        f"ML/WPE fallback caused {rms_change_db:.1f} dB drop — disabling ML for retries"
+                    )
+                    logger.warning(
+                        "Phase 20: Fix11A §2.45a — catastrophic ML/WPE drop %.1f dB > 6 dB → "
+                        "disable ML for PMGG retries (reason: %s)",
+                        rms_change_db,
+                        self._ml_disable_reason,
+                    )
+                # Restrict blend further when drop is severe (≥ 10 dB)
+                _blend_str = _effective_strength
+                if _ml_drop_abs > 10.0:
+                    _blend_str = min(_effective_strength, 0.10)
+                    logger.warning(
+                        "Phase 20: Fix11A — extreme drop %.1f dB → capping blend to %.2f",
+                        rms_change_db,
+                        _blend_str,
+                    )
+
                 # Generate warnings
                 warnings = []
                 if ml_result.reverb_estimate > 0.7:
@@ -392,8 +494,8 @@ class ReverbReduction(PhaseInterface):
 
                 _audio_clean = np.nan_to_num(ml_result.audio, nan=0.0, posinf=0.0, neginf=0.0)
                 _audio_clean = np.clip(_audio_clean, -1.0, 1.0)
-                if 0.0 < _effective_strength < 1.0:
-                    _audio_clean = audio + _effective_strength * (_audio_clean - audio)
+                if 0.0 < _blend_str < 1.0:
+                    _audio_clean = audio + _blend_str * (_audio_clean - audio)
                     _audio_clean = np.clip(_audio_clean, -1.0, 1.0)
                 _audio_clean, _rms_change_db, _makeup_gain_db = self._apply_material_loudness_preservation(
                     audio,
@@ -658,9 +760,13 @@ class ReverbReduction(PhaseInterface):
         # §4.5 Psychoacoustic Masking Clamp — preserve reverb tails below masking threshold
         try:
             from backend.core.dsp.psychoacoustics import apply_psychoacoustic_masking_clamp
+
             reduced = apply_psychoacoustic_masking_clamp(
-                audio, reduced, sample_rate,
-                strength=_effective_strength, mode="subtractive",
+                audio,
+                reduced,
+                sample_rate,
+                strength=_effective_strength,
+                mode="subtractive",
             )
         except Exception as _pm_exc:
             logger.debug("Phase20 masking clamp non-blocking: %s", _pm_exc)

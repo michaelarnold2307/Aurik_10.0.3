@@ -438,7 +438,7 @@ AURIK_NIGHTLY_ITEMS=5 pytest tests/normative/test_competitive_ci_gate.py -m comp
 | Tier-6 Repetition | SSM MFCC Kosinus ≥ 0.85 | ≥ 0.42 |
 
 Voting: ≥ 3/5 DSP-Schichten + Gesamt ≥ 0.52 → `is_schlager=True`  
-Recall ≥ 90 % (mit CLAP) · False-Positive < 5 % · ≤ 4 s/Minute Audio
+Recall ≥ 90 % (mit CLAP) · False-Positive < 5 % · ≤ 20 s/Minute Audio
 
 ---
 

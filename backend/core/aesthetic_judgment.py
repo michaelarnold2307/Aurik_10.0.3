@@ -328,11 +328,62 @@ class AestheticProxyCalculator:
         naturalness_from_artifacts = 1.0 - artifact_likelihood
         details["artifact_likelihood"] = float(artifact_likelihood)
 
-        # 2. Foundation Model Deviation (placeholder - would require ML model)
-        # For now, use overall quality score as proxy
+        # 2. Foundation Model Deviation (CLAP-based; fallback to quality proxy)
         foundation_deviation = 1.0 - profile.overall_quality_score
+        _foundation_source = "overall_quality_proxy"
+        try:
+            _audio_np = np.asarray(audio, dtype=np.float32)
+            _audio_mono = _audio_np
+            if _audio_np.ndim == 2:
+                if _audio_np.shape[1] <= 2 and _audio_np.shape[0] > _audio_np.shape[1]:
+                    _audio_mono = _audio_np.mean(axis=1)
+                elif _audio_np.shape[0] <= 2 and _audio_np.shape[1] > _audio_np.shape[0]:
+                    _audio_mono = _audio_np.mean(axis=0)
+                else:
+                    _audio_mono = _audio_np.mean(axis=-1)
+
+            # Runtime budget: CLAP auf repräsentativem 30s Zentrumsslice.
+            _max_len = int(sr * 30)
+            if _audio_mono.size > _max_len:
+                _s = (_audio_mono.size - _max_len) // 2
+                _audio_mono = _audio_mono[_s : _s + _max_len]
+
+            if int(sr) == 48000 and _audio_mono.size >= 2048:
+                from plugins.laion_clap_plugin import get_laion_clap
+
+                _clap = get_laion_clap()
+                _tag_res = _clap.tag(_audio_mono, sr)
+
+                _genre_map = {
+                    Genre.CLASSICAL: "classical",
+                    Genre.JAZZ: "jazz",
+                    Genre.ROCK_METAL: "rock",
+                    Genre.ELECTRONIC: "electronic",
+                    Genre.VOCAL_POP: "pop",
+                    Genre.VINTAGE_ANALOG: "blues",
+                    Genre.UNKNOWN: "pop",
+                }
+                _genre_key = _genre_map.get(profile.musical_context.genre, "pop")
+                _genre_match = float(np.clip(_tag_res.genre_tags.get(_genre_key, 0.0), 0.0, 1.0))
+                _dominant_genre = (
+                    float(np.clip(max(_tag_res.genre_tags.values()), 0.0, 1.0)) if _tag_res.genre_tags else 0.0
+                )
+                _model_conf = float(np.clip(_tag_res.confidence, 0.0, 1.0))
+                _semantic_alignment = float(np.clip(0.65 * _genre_match + 0.35 * _dominant_genre, 0.0, 1.0))
+
+                # Niedrige Abweichung = hohe Foundation-Nähe.
+                _foundation_similarity = float(np.clip(0.55 * _model_conf + 0.45 * _semantic_alignment, 0.0, 1.0))
+                foundation_deviation = 1.0 - _foundation_similarity
+                _foundation_source = str(_tag_res.model_used)
+                details["foundation_model_confidence"] = _model_conf
+                details["foundation_genre_match"] = _genre_match
+                details["foundation_semantic_alignment"] = _semantic_alignment
+        except Exception as exc:
+            logger.debug("Naturalness CLAP foundation deviation fallback active: %s", exc)
+
         naturalness_from_foundation = 1.0 - foundation_deviation
         details["foundation_model_deviation"] = float(foundation_deviation)
+        details["foundation_model_source"] = _foundation_source
 
         # 3. Harmonic Distortion Profile (from harmonicity if available)
         if profile.feature_vectors.harmonicity is not None:
@@ -358,59 +409,111 @@ class AestheticProxyCalculator:
         sr: int,
         profile: AnalysisProfile,
     ) -> tuple[float, dict]:
-        """
-        Calculate Authenticity score (Spec 1.2: Authentizität).
+        """Calculate Authenticity score (Spec 1.2: Authentizität).
 
-        Proxies:
-        - Spectral Correlation (Original vs Restored)
-        - Timbre Consistency Score
-        - Perceptual Similarity Index
+        Perceptual timbral-authenticity via three complementary proxy metrics:
+        1. MFCC correlation   — timbral fingerprint similarity (DCT of log-spectrogram),
+                                robust to loudness differences unlike MSE/RMS-ratio.
+        2. Spectral centroid  — brightness preservation; large centroid drift indicates
+                                over-denoising (HF loss) or additive HF hallucination.
+        3. Chroma correlation — harmonic/key authenticity; captures whether the pitch-class
+                                distribution of the restored signal matches the original.
+
+        Weights: 0.45 MFCC + 0.25 centroid + 0.30 chroma  (same as GoosebumpsQualityChecker).
 
         Args:
-            original_audio: Original audio signal
-            processed_audio: Processed audio signal
-            sr: Sample rate
-            profile: Analysis profile
+            original_audio: Original (reference) audio, mono or stereo.
+            processed_audio: Restored audio, mono or stereo.
+            sr: Sample rate in Hz.
+            profile: Analysis profile (unused; kept for API compatibility).
 
         Returns:
-            Tuple of (authenticity_score, proxy_details)
+            Tuple of (authenticity_score ∈ [0, 1], proxy_details dict).
         """
-        details = {}
+        # ── Flatten stereo → mono ──────────────────────────────────────────────
+        orig_m = original_audio.flatten() if original_audio.ndim == 1 else np.mean(original_audio, axis=1)
+        proc_m = processed_audio.flatten() if processed_audio.ndim == 1 else np.mean(processed_audio, axis=1)
 
-        # Align lengths
-        min_len = min(len(original_audio), len(processed_audio))
-        orig = original_audio[:min_len]
-        proc = processed_audio[:min_len]
+        min_len = min(len(orig_m), len(proc_m))
+        orig = orig_m[:min_len]
+        proc = proc_m[:min_len]
 
-        # 1. Spectral Correlation
-        orig_fft = np.fft.rfft(orig.flatten())
-        proc_fft = np.fft.rfft(proc.flatten())
+        n_fft = 2048
+        hop = 512
+        n_mfcc = 13
 
-        orig_mag = np.abs(orig_fft)
-        proc_mag = np.abs(proc_fft)
+        # ── 1. MFCC correlation (timbral fingerprint) ─────────────────────────
+        def _mfcc_frames(audio: np.ndarray) -> np.ndarray:
+            """DCT-II of log-magnitude spectrum per frame (no external deps)."""
+            n_frames = max(1, (len(audio) - n_fft) // hop)
+            window = np.hanning(n_fft)
+            coeffs = np.zeros((n_frames, n_mfcc))
+            half = n_fft // 2 + 1
+            cos_tbl = np.array(
+                [np.cos(np.pi * k * (2 * np.arange(half) + 1) / (2 * half)) for k in range(n_mfcc)]
+            )  # shape (n_mfcc, half)
+            for i in range(n_frames):
+                frame = audio[i * hop : i * hop + n_fft]
+                if len(frame) < n_fft:
+                    frame = np.pad(frame, (0, n_fft - len(frame)))
+                log_spec = np.log(np.maximum(np.abs(np.fft.rfft(frame * window)), 1e-10))
+                coeffs[i] = cos_tbl @ log_spec
+            return coeffs
 
-        correlation = np.corrcoef(orig_mag, proc_mag)[0, 1]
-        correlation = np.clip(correlation, 0.0, 1.0)
-        details["spectral_correlation"] = float(correlation)
+        mfcc_o = _mfcc_frames(orig).flatten()
+        mfcc_p = _mfcc_frames(proc).flatten()
+        min_f = min(len(mfcc_o), len(mfcc_p))
+        mfcc_o = mfcc_o[:min_f]
+        mfcc_p = mfcc_p[:min_f]
+        std_o, std_p = np.std(mfcc_o), np.std(mfcc_p)
+        if std_o > 1e-8 and std_p > 1e-8:
+            _cc = np.dot(mfcc_o - mfcc_o.mean(), mfcc_p - mfcc_p.mean()) / (
+                np.linalg.norm(mfcc_o - mfcc_o.mean()) * np.linalg.norm(mfcc_p - mfcc_p.mean()) + 1e-10
+            )
+            mfcc_corr = float(np.clip(_cc, 0.0, 1.0))
+        elif std_o < 1e-8 and std_p < 1e-8:
+            mfcc_corr = 1.0  # both constant (silence)
+        else:
+            mfcc_corr = 0.3  # one constant, one not → timbral mismatch
 
-        # 2. Timbre Consistency (RMS-based approximation)
-        orig_rms = np.sqrt(np.mean(orig**2))
-        proc_rms = np.sqrt(np.mean(proc**2))
-        rms_ratio = min(orig_rms, proc_rms) / (max(orig_rms, proc_rms) + 1e-10)
-        details["timbre_consistency"] = float(rms_ratio)
+        # ── 2. Spectral centroid stability ────────────────────────────────────
+        def _centroid(audio: np.ndarray) -> float:
+            spec = np.abs(np.fft.rfft(audio[:n_fft]))
+            freqs = np.fft.rfftfreq(n_fft, 1.0 / sr)
+            total = np.sum(spec) + 1e-10
+            return float(np.sum(freqs * spec) / total)
 
-        # 3. Perceptual Similarity (simple MSE-based for now)
-        mse = np.mean((orig - proc) ** 2)
-        max_val = max(np.max(np.abs(orig)), np.max(np.abs(proc)))
-        normalized_mse = mse / (max_val**2 + 1e-10)
-        perceptual_similarity = 1.0 - np.clip(normalized_mse * 10, 0.0, 1.0)
-        details["perceptual_similarity_index"] = float(perceptual_similarity)
+        centroid_o = _centroid(orig)
+        centroid_p = _centroid(proc)
+        centroid_dev = abs(centroid_p - centroid_o) / (sr / 2.0)
+        centroid_score = float(max(0.0, 1.0 - centroid_dev * 10.0))  # 10 % Nyquist drift → 0
 
-        # Weighted combination
-        authenticity = 0.4 * correlation + 0.3 * rms_ratio + 0.3 * perceptual_similarity
-        authenticity = np.clip(authenticity, 0.0, 1.0)
+        # ── 3. Chroma correlation (harmonic/key authenticity, first 30 s) ─────
+        def _chroma(audio: np.ndarray) -> np.ndarray:
+            n = min(len(audio), int(30.0 * sr))
+            spec = np.abs(np.fft.rfft(audio[:n]))
+            freqs = np.fft.rfftfreq(n, 1.0 / sr)
+            chroma = np.zeros(12)
+            for i, f in enumerate(freqs):
+                if f < 20 or f > 8000:
+                    continue
+                chroma[int(round(69 + 12 * np.log2(f / 440.0 + 1e-12))) % 12] += spec[i] ** 2
+            norm = np.linalg.norm(chroma)
+            return chroma / norm if norm > 0 else chroma
 
-        return float(authenticity), details
+        chroma_corr = float(np.dot(_chroma(orig), _chroma(proc)))
+
+        # ── Weighted combination ───────────────────────────────────────────────
+        authenticity = float(np.clip(0.45 * mfcc_corr + 0.25 * centroid_score + 0.30 * chroma_corr, 0.0, 1.0))
+
+        details = {
+            "mfcc_corr": round(mfcc_corr, 4),
+            "centroid_score": round(centroid_score, 4),
+            "centroid_orig_hz": round(centroid_o, 1),
+            "centroid_proc_hz": round(centroid_p, 1),
+            "chroma_corr": round(chroma_corr, 4),
+        }
+        return authenticity, details
 
     @staticmethod
     def calculate_emotionality_score(audio: np.ndarray, sr: int, profile: AnalysisProfile) -> tuple[float, dict]:

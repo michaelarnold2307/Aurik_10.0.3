@@ -907,16 +907,25 @@ class ClickRemovalPhase(PhaseInterface):
             return result
 
         # AR model on reliable samples (LPC order 16 @ 48 kHz — Aurik spec minimum ≥ 16)
-        reliable_mask = ~mask
-        if reliable_mask.sum() < 40:
+        # PERFORMANCE FIX (§2.54): Use local context window instead of full signal.
+        # LPC captures short-range temporal correlation; using the full signal (10M+ samples)
+        # causes O(n_clicks × n_signal) = hours on vinyl/shellac with many clicks.
+        # Context window ±4096 samples (~85ms @ 48kHz) is sufficient for AR order 16.
+        _gap_center = int(missing_idx[len(missing_idx) // 2])
+        _CTX_RADIUS = 4096  # 85ms @ 48kHz, >> LPC order 16 context requirement
+        _local_start = max(0, _gap_center - _CTX_RADIUS)
+        _local_end = min(len(signal), _gap_center + _CTX_RADIUS)
+        _local_mask = mask[_local_start:_local_end]
+        reliable_signal = signal[_local_start:_local_end][~_local_mask]
+
+        if len(reliable_signal) < 40:
             return result  # insufficient context — caller falls back to cubic spline
 
-        reliable_signal = signal[reliable_mask]
         _ar_order = min(16, len(reliable_signal) // 4)
         if _ar_order < 2:
             return result
 
-        # Autocorrelation (positive lags 0 … order)
+        # Autocorrelation (positive lags 0 … order) — O(n_local) not O(n_signal)
         _r = np.array(
             [
                 np.sum(reliable_signal[: len(reliable_signal) - k] * reliable_signal[k:]) / len(reliable_signal)

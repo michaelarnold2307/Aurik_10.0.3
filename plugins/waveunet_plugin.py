@@ -21,7 +21,13 @@ class WaveUNetPlugin:
     def separate(self, audio: np.ndarray, sr: int) -> tuple[np.ndarray, np.ndarray]:
         assert sr == 48000, f"SR muss 48000 Hz sein, erhalten: {sr}"
         audio = np.nan_to_num(audio, nan=0.0, posinf=0.0, neginf=0.0)
-        mono = audio.mean(axis=1) if audio.ndim == 2 else audio
+        if audio.ndim == 2:
+            # Handle (2, N) channels-first (UV3) and (N, 2) samples-first
+            mono = (
+                audio.mean(axis=0) if (audio.shape[0] <= 8 and audio.shape[1] > audio.shape[0]) else audio.mean(axis=1)
+            )
+        else:
+            mono = audio
         mono = mono.astype(np.float32)
         try:
             import librosa

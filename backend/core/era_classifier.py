@@ -1246,6 +1246,29 @@ class EraClassifier:
             )
             result = None
 
+        # Physical plausibility cross-check for Tier-1 (Eargle 2004, §2.47).
+        # CLAP is a statistical model; hard physical facts override its classification:
+        #  • Commercial stereo recordings started ca. 1958.  A stereo signal CANNOT
+        #    originate from a pre-1958 decade regardless of CLAP confidence.
+        #  • Significant high-band energy above 8 kHz is incompatible with a decade
+        #    that nominally had ≤ 8 kHz recording bandwidth (pre-1940s equipment).
+        # When either constraint is violated, Tier-1 is discarded and Tier-2 DSP
+        # (which implements these guards natively) is used instead.
+        if result is not None and result.tier_used == 1:
+            _clap_decade = result.decade
+            _stereo_violation = is_stereo and _clap_decade < 1960
+            _hf_violation = (highband_presence > 0.20) and (_clap_decade < 1940)
+            if _stereo_violation or _hf_violation:
+                logger.info(
+                    "EraClassifier: Tier-1 Plausibilitätsverletzung ("
+                    "CLAP-Jahrzehnt=%d, stereo=%s, hf_presence=%.2f"
+                    ") → Tier-2 DSP-Override (Eargle 2004)",
+                    _clap_decade,
+                    is_stereo,
+                    highband_presence,
+                )
+                result = None  # force Tier-2
+
         # Tier-2: DSP-Fingerprint (multi-factor)
         if result is None or result.confidence < 0.40:
             result = self._tier2(

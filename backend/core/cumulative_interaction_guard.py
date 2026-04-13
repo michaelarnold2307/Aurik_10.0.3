@@ -709,8 +709,10 @@ class CumulativeInteractionGuard:
             # Drifts below the Just-Noticeable Difference are inaudible and must not
             # accumulate into false rollback triggers (§0 Klangwahrheit, §2.54 Messen-Handeln-Validieren).
             _JND_PER_GOAL = {
-                "natuerlichkeit": 0.015, "authentizitaet": 0.015,
-                "tonal_center": 0.020, "timbre_authentizitaet": 0.018,
+                "natuerlichkeit": 0.015,
+                "authentizitaet": 0.015,
+                "tonal_center": 0.020,
+                "timbre_authentizitaet": 0.018,
                 "artikulation": 0.018,
             }
             for g in P1_P2_GOALS:
@@ -920,6 +922,21 @@ class CumulativeInteractionGuard:
             if phase_id in pair_phases:
                 other_phases = pair_phases - {phase_id}
                 if other_phases.issubset(state.executed_phases):
+                    # §2.55 Sync-Invariante: Wenn guard_goal in den Phase-spezifischen
+                    # Drift-Exclusions der aktuellen Phase liegt, darf der Critical-Pair-Check
+                    # dieses Goal nicht blockieren. Sonst würde der symmetrische Ausschluss
+                    # von P1/P2-Drift (PMGG ↔ CIG) für Dereverb/Carrier-Repair-Phasen
+                    # unterlaufen (Reference Paradox §2.44 / §2.29c).
+                    _phase_excl = _resolve_phase_specific_drift_exclusions(phase_id)
+                    if guard_goal in _phase_excl:
+                        logger.debug(
+                            "§2.55 Critical-pair '%s' für %s übersprungen: %s liegt in Phase-Exclusions "
+                            "(§2.44 Reference Paradox — intentionale Divergenz, kein Artefakt)",
+                            description,
+                            phase_id,
+                            guard_goal,
+                        )
+                        continue
                     # Both phases of the pair have executed
                     if guard_goal in goals and guard_goal in state.pre_pipeline_goals:
                         drift = goals[guard_goal] - state.pre_pipeline_goals[guard_goal]

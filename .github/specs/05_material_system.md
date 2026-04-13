@@ -85,6 +85,95 @@ for phase_id in MATERIAL_PRIORITY_PHASES[material]:
 
 ---
 
+## §6.2b [RELEASE_MUST] Material-Dynamic-Range-Ceiling (v9.11.14)
+
+**Problem**: `phase_26_dynamic_range_expansion` hat nur ein globales `MAX_EXPANSION_DB = 12.0`, aber kein material-spezifisches Ceiling. Ein Vinyl-Song physikalisch kann nicht mehr als ≈ 70 dB DR aufweisen — Expansion über dieses Limit erzeugt Rauschartefakte, die als „Dynamik" fehlinterpretiert werden.
+
+**Normatives Dict (Single Source of Truth — identisch mit §4.8 `CARRIER_TRANSFER_CHARACTERISTICS`)**:
+
+```python
+_MATERIAL_DR_CEILING_DB = {
+    "wax_cylinder":   35,   # Mechanische Aufnahme, Horn-Verstärkung
+    "shellac":        45,   # 78 rpm, breite Rillen, hoher Rauschboden
+    "lacquer_disc":   50,   # Acetat-Direktschnitt
+    "wire_recording": 40,   # Stahlband, mechanische Begrenzung
+    "vinyl":          70,   # LP, Best-Case-Pressung
+    "tape":           68,   # Kompaktkassette (Typ I/II)
+    "reel_tape":      72,   # Profi-Spulenband 15 ips
+    "cassette":       60,   # Kompaktkassette (Typ I, schlechter Transport)
+    "dat":            92,   # Digital Audio Tape (16-bit linear)
+    "minidisc":       88,   # ATRAC-Kompression
+    "cd_digital":     96,   # 16-bit PCM
+    "mp3_low":        90,   # Codec-bedingte theoretische Grenze
+    "mp3_high":       93,
+    "aac":            93,
+    "streaming":      90,
+    "unknown":        70,   # Konservativ: Vinyl-Niveau
+}
+```
+
+**Integration in `phase_26_dynamic_range_expansion.py`**:
+
+```python
+# In process():
+dr_ceiling = _MATERIAL_DR_CEILING_DB.get(material_type, 70)
+input_dr = compute_dynamic_range_db(audio, sr)
+max_expansion = dr_ceiling - input_dr
+expansion_target = min(expansion_target, max_expansion)
+# Negative max_expansion → kein Bedarf für Expansion (Input bereits am Ceiling)
+```
+
+**Modus-Differenzierung**:
+
+- **Restoration**: Hart-Cap bei `dr_ceiling`. Expansion über Ceiling = Artefakt (§0a).
+- **Studio 2026**: Soft-Cap bei `dr_ceiling × 1.5`. Mehr Spielraum, aber nicht unbegrenzt.
+
+**Invariante**: `_MATERIAL_DR_CEILING_DB` ist identisch mit der `dr_ceiling_db`-Spalte in `CARRIER_TRANSFER_CHARACTERISTICS` (§4.8). Änderungen müssen synchron erfolgen.
+
+---
+
+## §6.2c [RELEASE_MUST] Material-Bandwidth-Ceiling (v9.11.14)
+
+**Problem**: Additive Phasen (phase_06, phase_07, phase_23, phase_39) erzeugen kumulativ Frequenzinhalt, der das physikalische BW-Limit des Quellmaterials überschreiten kann. Einzelphasen haben per-Phase-Limits, aber der kumulative Effekt wird nicht zentral überwacht.
+
+**Normatives Dict (Single Source of Truth — identisch mit §4.8 `CARRIER_TRANSFER_CHARACTERISTICS`)**:
+
+```python
+_MATERIAL_BW_CEILING_HZ = {
+    "wax_cylinder":   5000,
+    "shellac":        8000,
+    "lacquer_disc":   8000,
+    "wire_recording": 6000,
+    "vinyl":         16000,
+    "tape":          15000,
+    "reel_tape":     18000,
+    "cassette":      14000,
+    "dat":           22000,
+    "minidisc":      20000,
+    "cd_digital":    22050,
+    "mp3_low":       16000,
+    "mp3_high":      20000,
+    "aac":           20000,
+    "streaming":     20000,
+    "unknown":       20000,
+}
+```
+
+**Dreistufige Enforcement-Architektur**:
+
+1. **Per-Phase** (bestehend): Jede additive Phase hat `MATERIAL_PARAMS[material]["rolloff_hz"]` als lokales Limit.
+2. **Post-Additive-Block** (NEU §2.46c): UV3 `_post_additive_bw_guard()` — Butterworth 8th-order zero-phase LPF nach dem letzten ADDITIVE-Phase-Block.
+3. **Export-Gate** (bestehend): `PhysicalCeilingEstimator` → `further_optimization_worthwhile=False` wenn BW-Ceiling erreicht.
+
+**Modus-Differenzierung**:
+
+- **Restoration**: Hard-Cap. Output-BW darf Material-Ceiling nicht überschreiten.
+- **Studio 2026**: Volle Extension erlaubt, aber MUSHRA-Score ≥ 3.5 im Extension-Band (8 kHz–Nyquist) Pflicht; darunter → Rollback auf Material-Cap.
+
+**Invariante**: `_MATERIAL_BW_CEILING_HZ` ist identisch mit der `bw_ceiling_hz`-Spalte in `CARRIER_TRANSFER_CHARACTERISTICS` (§4.8). Änderungen müssen synchron erfolgen.
+
+---
+
 ## §6.3 DefectType-Vollkatalog (46 Defekte)
 
 ```python
@@ -406,10 +495,34 @@ Wird **automatisch** von `MediumDetector.detect()` aufgerufen wenn `primary_mate
 
 **Integration in `phase_04_eq_correction.py`**: Beide kwargs `dolby_nr_type` und `dolby_nr_confidence` werden nach RIAA/NAB-EQ angewendet. Activation via `kwargs["dolby_nr_type"] = result.dolby_nr_type`.
 
-**`MediumDetectionResult`-Felder** (v9.10.128):
+**`MediumDetectionResult`-Felder** (v9.10.128, erweitert v9.11.14):
 
 - `dolby_nr_type: str = "none"` — erkannter Typ
 - `dolby_nr_confidence: float = 0.0` — Konfidenz [0..1]
+- `tape_speed_ips: Optional[float] = None` — erkannte Bandgeschwindigkeit (1.875 / 3.75 / 7.5 / 15 / 30 ips); None = unbekannt. Wird von Phase 1 via `wow_flutter_index` + `bandwidth_hz` + Material-Heuristik geschätzt. Aktiviert Head-Bump-Kompensation in `phase_04` (§4.5 Head-Bump).
+- `riaa_curve_type: str = "riaa"` — erkannte Entzerrungskurve aus `{"riaa", "nab", "columbia", "aes", "capitol", "london", "ccir", "unknown_prestandard"}`. Default „riaa" (Standard ab 1954). Wird bei `material ∈ {vinyl, shellac, lacquer_disc}` via Spectral-Slope-Analyse gegen PRE_RIAA_EQ_CURVES (§6.3a) erkannt. Aktiviert kurvenspezifische Inverse-EQ in `phase_04`.
+- `riaa_curve_confidence: float = 0.0` — Konfidenz der RIAA-Kurven-Erkennung [0..1]; ≥ 0.70 = aktiv.
+
+**Schätz-Heuristik für `tape_speed_ips`**:
+
+```python
+# In MediumDetector._estimate_tape_speed():
+if material_type not in ("tape", "reel_tape", "cassette"):
+    return None
+# Bandbreite → Geschwindigkeit (physikalische Beziehung: BW ∝ speed)
+if bandwidth_hz < 8000:
+    return 1.875   # Kompaktkassette, langsam
+elif bandwidth_hz < 12000:
+    return 3.75    # Standard-Kassette
+elif bandwidth_hz < 16000:
+    return 7.5     # Standard-Reel
+elif bandwidth_hz < 20000:
+    return 15.0    # Semi-Pro
+else:
+    return 30.0    # Profi-Master
+# Zusätzliche Validierung via wow_flutter_index:
+# Hoher Flutter (> 1.0) + niedrige BW → 1.875 ips mit höherer Konfidenz
+```
 
 **ACHTUNG — physikalische Limitierung**: Dies ist eine statische Näherung des level-abhängigen Dolby-Klangregelungssystems. Für Quellmaterial mit messbarer Klangverfälschung empfiehlt sich Re-Digitalisierung mit korrekt kalibriertem Wiedergabework.
 

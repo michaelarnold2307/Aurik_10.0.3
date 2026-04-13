@@ -128,11 +128,16 @@ class DemucsV4Plugin:
         assert sr == 48000, f"SR muss 48000 Hz sein, erhalten: {sr}"
         audio = np.nan_to_num(audio.astype(np.float32), nan=0.0, posinf=0.0, neginf=0.0)
 
-        # Mono → Stereo
+        # Normalize to (2, N) channels-first — required by MDX23C/HTDemucs.
+        # UV3 sends (2, N); (N, 2) samples-first is transposed; unexpected layouts fallback to first row.
         if audio.ndim == 1:
-            audio = np.stack([audio, audio], axis=1)
+            audio = np.stack([audio, audio], axis=0)  # (N,) → (2, N)
+        elif audio.ndim == 2 and audio.shape[0] == 2 and audio.shape[1] > 2:
+            pass  # already (2, N) channels-first — correct for MDX23C
+        elif audio.ndim == 2 and audio.shape[1] == 2 and audio.shape[0] != 2:
+            audio = audio.T  # (N, 2) → (2, N)
         elif audio.ndim == 2 and audio.shape[1] != 2:
-            audio = np.stack([audio[:, 0], audio[:, 0]], axis=1)
+            audio = np.stack([audio[0], audio[0]], axis=0)  # (C, N) unexpected → duplicate ch0
 
         # Primary: MDX23C (Kim_Vocal_2) — production-grade vocal separation (§4.4 spec)
         try:

@@ -29,6 +29,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 from tqdm import tqdm
 
 try:
@@ -185,14 +186,16 @@ class BatchProcessor:
             restorer_result = denker_result
             restored_audio = denker_result.audio
 
-            # Export-Quality-Gate (Spec §8.1, [RELEASE_MUST])
+            # Export-Quality-Gate §8.1 + §0c RELEASE_MUST
+            # §0c: Bei fehlgeschlagenem Gate → Export mit degraded-Status, kein Hardstop.
+            _export_degraded = False
+            _degraded_reasons: list[str] = []
+
             _qe = getattr(denker_result, "quality_estimate", None)
             if _qe is not None and _qe < 0.55:
-                raise RuntimeError(
-                    f"Export abgebrochen: quality_estimate={_qe:.3f} < 0.55 (Mindestanforderung §8.1). "
-                    "Ursache: Restaurierungsqualität unzureichend. "
-                    "Lösung: Eingabedatei prüfen oder anderen Modus verwenden."
-                )
+                _export_degraded = True
+                _degraded_reasons.append(f"quality_estimate={_qe:.3f}<0.55 (§8.1)")
+                logger.warning("§0c: quality_estimate=%.3f < 0.55 — Export mit Status 'degraded' (§0c Pflicht).", _qe)
             _P1_P2_THRESHOLDS = {
                 "natuerlichkeit": 0.90,
                 "authentizitaet": 0.88,
@@ -205,10 +208,11 @@ class BatchProcessor:
                 f"{g}={_goals[g]:.3f}<{t}" for g, t in _P1_P2_THRESHOLDS.items() if g in _goals and _goals[g] < t
             ]
             if _failed_goals:
-                raise RuntimeError(
-                    f"Export abgebrochen: P1/P2-Musical-Goals nicht bestanden — {', '.join(_failed_goals)}. "
-                    "Ursache: Restaurierung hat Kernqualitätsziele verfehlt. "
-                    "Lösung: Material prüfen oder anderen Modus verwenden."
+                _export_degraded = True
+                _degraded_reasons.append(f"P1/P2-Goals: {', '.join(_failed_goals)}")
+                logger.warning(
+                    "§0c: P1/P2-Goals verfehlt (%s) — Export mit Status 'degraded'.",
+                    ", ".join(_failed_goals),
                 )
 
             try:
@@ -219,6 +223,12 @@ class BatchProcessor:
                     "Lösung: Installation prüfen und erneut starten."
                 ) from exc
 
+            # Aurik-internes Format: (channels, samples) → normalisieren auf (samples, channels)
+            if isinstance(restored_audio, np.ndarray):
+                if restored_audio.ndim == 2 and restored_audio.shape[0] < restored_audio.shape[1]:
+                    restored_audio = np.ascontiguousarray(restored_audio.T)
+                restored_audio = np.asarray(restored_audio, dtype=np.float32)
+
             sf.write(str(output_file), restored_audio, file_sr)
 
             elapsed = time.time() - start_time
@@ -227,13 +237,17 @@ class BatchProcessor:
             self.completed.add(str(input_file))
             self._save_state()
 
-            return {
+            _result_dict: dict = {
                 "file": str(input_file),
                 "success": True,
                 "output": str(output_file),
                 "elapsed": elapsed,
                 "total_time": restorer_result.total_time_seconds,
             }
+            if _export_degraded:
+                _result_dict["degraded"] = True
+                _result_dict["degraded_reasons"] = _degraded_reasons
+            return _result_dict
 
         except Exception as e:
             elapsed = time.time() - start_time

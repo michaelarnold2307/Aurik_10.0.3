@@ -129,7 +129,9 @@ class DefectType(Enum):
     PRINT_THROUGH = "print_through"  # Magnetisches Übersprechen bei Tape (Pre-Echo)
     # --- Weltklasse-Erweiterung Runde 3 ---
     QUANTIZATION_NOISE = "quantization_noise"  # Quantisierungsrauschen (niedrige Bit-Tiefe / Resampling)
-    JITTER_ARTIFACTS = "jitter_artifacts"  # Zeitgitter-Fehler bei D/A-Wandlung (CD, DAT, Streaming) — Bitto (2000) AES Conv. 109
+    JITTER_ARTIFACTS = (
+        "jitter_artifacts"  # Zeitgitter-Fehler bei D/A-Wandlung (CD, DAT, Streaming) — Bitto (2000) AES Conv. 109
+    )
     DYNAMIC_COMPRESSION_EXCESS = "dynamic_compression_excess"  # Übermäßige Dynamikkompression (Loudness War)
     # --- Spec §6.3: fehlende DefectTypes für 24-Wert-Katalog ---
     SOFT_SATURATION = "soft_saturation"  # Tube-/Tape-Sättigung (gerade Obertöne) — BEWAHREN! (§2.1, §6.3)
@@ -1087,6 +1089,83 @@ class DefectScanner:
 
         self.thresholds = self.MATERIAL_SENSITIVITY[material_type]
 
+        # §9.x [RELEASE_MUST] Chain-adaptive threshold merge — Tonträgerkette darf niemals
+        # ignoriert werden.  Wenn die Kette Stufen enthält, die für bestimmte Defekttypen
+        # empfindlichere Schwellwerte haben (z. B. Tape-Stufe in shellac→tape→mp3_low),
+        # werden die "gated" Schwellwerte des primären Materials (≥ 0.95 = N/A-Gate)
+        # durch den Schwellwert der Kettenstufe ersetzt.
+        # Rationale: Wow/Flutter einer Tape-Stufe überlebt als spektrale Signatur auch
+        # nach verlustbehafteter Transkodierung und muss detektierbar bleiben.
+        # Invariante: Nur Schwellwerte, die auf dem primären Material wirksam gesperrt
+        # sind (≥ 0.95), werden überschrieben — aktive Schwellwerte bleiben unverändert.
+        _chain_threshold_overrides: set[DefectType] = set()
+        if forensic_medium_result is not None:
+            try:
+                # Kette als echte Liste lesen (kein String-Substring-Matching, das z. B.
+                # 'tape' in 'reel_tape' fälschlicherweise trifft).
+                _raw_chain_val = getattr(forensic_medium_result, "transfer_chain", None) or getattr(
+                    forensic_medium_result, "chain", None
+                )
+                # Normalisierung: list[str] bevorzugt, Fallback auf str-Aufspaltung
+                if isinstance(_raw_chain_val, list):
+                    _chain_links: list[str] = [str(s).lower().strip() for s in _raw_chain_val if s]
+                elif isinstance(_raw_chain_val, str) and _raw_chain_val:
+                    # "shellac → tape → mp3_low"  oder  "['shellac', 'tape']" → Aufspaltung
+                    _chain_links = [
+                        s.strip().strip("'\"[]")
+                        for s in _raw_chain_val.lower().replace("→", ",").split(",")
+                        if s.strip().strip("'\"[]")
+                    ]
+                else:
+                    _chain_links = []
+
+                _primary_val = str(getattr(material_type, "value", "")).lower()
+
+                # Kettenstufen ohne primäres Material, mit exaktem String-Vergleich
+                _chain_stage_mats: list[MaterialType] = []
+                _chain_links_set = set(_chain_links)
+                for _cand_mat in MaterialType:
+                    _cand_key = _cand_mat.value.lower()
+                    if (
+                        _cand_key
+                        and _cand_key in _chain_links_set  # exakter Wert-Vergleich
+                        and _cand_key != _primary_val  # primäres Material ausschließen
+                        and _cand_mat in self.MATERIAL_SENSITIVITY
+                    ):
+                        _chain_stage_mats.append(_cand_mat)
+
+                if _chain_stage_mats:
+                    # Gate-Analyse: Defekttypen, die beim primären Material gesperrt sind (≥ 0.95)
+                    _primary_sensitivity = self.MATERIAL_SENSITIVITY[material_type]
+                    _gated_defects: set[DefectType] = {_dt for _dt, _t in _primary_sensitivity.items() if _t >= 0.95}
+                    # Für jeden gesperrten Defekttyp: sensitivsten (niedrigsten) Schwellwert
+                    # über alle Kettenstufen bestimmen — "most-sensitive-wins", nicht "first-wins".
+                    # Invariante: aktive Schwellwerte des primären Materials (< 0.95) bleiben unberührt.
+                    _merged_thresh: dict[DefectType, float] = dict(self.thresholds)
+                    for _dt in _gated_defects:
+                        _best_chain_t = min(
+                            (
+                                self.MATERIAL_SENSITIVITY[_csm][_dt]
+                                for _csm in _chain_stage_mats
+                                if _dt in self.MATERIAL_SENSITIVITY[_csm]
+                            ),
+                            default=1.0,
+                        )
+                        if _best_chain_t < 0.95:
+                            _merged_thresh[_dt] = _best_chain_t
+                            _chain_threshold_overrides.add(_dt)
+                    if _chain_threshold_overrides:
+                        self.thresholds = _merged_thresh
+                        logger.info(
+                            "DefectScanner: chain-adaptive thresholds aktiv für %d Defekttypen "
+                            "(Kette=%s, Kettenstufen=%s)",
+                            len(_chain_threshold_overrides),
+                            " → ".join(_chain_links),
+                            [m.value for m in _chain_stage_mats],
+                        )
+            except Exception as _cta_exc:
+                logger.debug("DefectScanner chain-threshold-merge fehlgeschlagen: %s", _cta_exc)
+
         # Audio normalisieren für konsistente Detection
         if audio.ndim == 2:
             is_stereo = True
@@ -1822,6 +1901,132 @@ class DefectScanner:
                     _x_alias.severity,
                 )
 
+        # §9.x Chain-stage defect annotation + Severity-Skalierung (Kettendämpfung).
+        #
+        # Physikalisches Modell: Defekte einer Kettenstufe (z. B. Wow/Flutter auf Tape)
+        # werden beim Transfer durch jede nachfolgende verlustbehaftete Stufe gedämpft.
+        # Der Detektor misst das Residual auf dem Endsignal — ohne Kompensation wird die
+        # Severity systematisch zu niedrig ausgewiesen.
+        #
+        # Dämpfungsmodell (empirisch, Tsai & Välimäki 2003, Brixen 2007):
+        #   Severity_korrigiert = Severity_gemessen / (Dämpfungsfaktor per Stufe ^ n_stufen_dahinter)
+        #   Dämpfung pro Codec-Stufe (mp3/aac/streaming): 0.55–0.65× je nach Bitrate
+        #   Dämpfung pro digitale neutrale Stufe (cd/dat):  0.80×
+        #   Dämpfung pro analoge Stufe als Zwischenstufe:   0.75×
+        #
+        # Konfidenz-Penalty (Unschärfe durch Kette): 0.75 × measured_confidence, max 0.85
+        if _chain_threshold_overrides:
+            try:
+                # Kette aus fmd_result lesen (list[str], z.B. ['shellac','tape','mp3_low'])
+                _fmd_for_ann = forensic_medium_result
+                _ann_chain: list[str] = []
+                if _fmd_for_ann is not None:
+                    _raw_chain = getattr(_fmd_for_ann, "transfer_chain", None)
+                    if isinstance(_raw_chain, list):
+                        _ann_chain = [str(s).lower() for s in _raw_chain]
+                _ann_primary = str(getattr(material_type, "value", "")).lower()
+
+                # Dämpfungsfaktor pro Folgestufe nach der Quellstufe des Defekts
+                _STAGE_ATTENUATION: dict[str, float] = {
+                    "mp3_low": 0.55,
+                    "mp3_high": 0.65,
+                    "aac": 0.60,
+                    "streaming": 0.58,
+                    "minidisc": 0.68,
+                    "cd_digital": 0.80,
+                    "dat": 0.82,
+                    # Analoge Folgestufen: geringere Dämpfung als Codec
+                    "vinyl": 0.80,
+                    "shellac": 0.80,
+                    "tape": 0.75,
+                    "reel_tape": 0.75,
+                    "cassette": 0.75,
+                    "wire_recording": 0.70,
+                }
+
+                def _chain_severity_scale(defect_source_stages: list[str], chain: list[str]) -> float:
+                    """Berechnet den Kompensationsfaktor für in chain nachfolgende Stufen.
+
+                    defect_source_stages: Materialtypen, die diesen Defekt erzeugen können.
+                    chain: Gesamte Kette (ältester Träger zuerst).
+                    """
+                    if not chain or len(chain) < 2:
+                        return 1.0
+                    # Finde späteste Quelle des Defekts in der Kette
+                    _source_idx = -1
+                    for _i, _lnk in enumerate(chain):
+                        if any(_lnk == _s for _s in defect_source_stages):
+                            _source_idx = _i
+                    if _source_idx < 0 or _source_idx >= len(chain) - 1:
+                        return 1.0  # Quelle nicht gefunden oder ist letztes Glied
+                    # Kumulierter Dämpfungsfaktor aller Folgestufen
+                    _att = 1.0
+                    for _fi in range(_source_idx + 1, len(chain)):
+                        _att *= _STAGE_ATTENUATION.get(chain[_fi], 0.75)
+                    # Kompensation = 1 / Dämpfung, geclippt auf [1.0, 3.5]
+                    return float(np.clip(1.0 / max(_att, 0.28), 1.0, 3.5))
+
+                # Defekttypen → erzeugende Primärstufen (für Dämpfungsberechnung)
+                _WOW_FLUTTER_SOURCES = (
+                    "tape",
+                    "reel_tape",
+                    "cassette",
+                    "vinyl",
+                    "shellac",
+                    "wire_recording",
+                    "wax_cylinder",
+                    "lacquer_disc",
+                )
+                _TAPE_SOURCES = ("tape", "reel_tape", "cassette")
+                _DEFECT_SOURCES: dict[DefectType, tuple[str, ...]] = {
+                    DefectType.WOW: _WOW_FLUTTER_SOURCES,
+                    DefectType.FLUTTER: _WOW_FLUTTER_SOURCES,
+                    DefectType.MULTIBAND_WOW_FLUTTER: _WOW_FLUTTER_SOURCES,
+                    DefectType.PITCH_DRIFT: _WOW_FLUTTER_SOURCES,
+                    DefectType.MODULATION_NOISE: _TAPE_SOURCES,
+                    DefectType.TAPE_HEAD_LEVEL_DIP: _TAPE_SOURCES,
+                    DefectType.HF_REMANENCE_LOSS: _TAPE_SOURCES,
+                    DefectType.STICKY_SHED_RESIDUE: _TAPE_SOURCES,
+                    DefectType.TAPE_SPLICE_ARTIFACT: _TAPE_SOURCES,
+                    DefectType.BIAS_ERROR: _TAPE_SOURCES,
+                    DefectType.AZIMUTH_ERROR: _TAPE_SOURCES,
+                    DefectType.DOLBY_NR_MISMATCH: _TAPE_SOURCES,
+                    DefectType.PRINT_THROUGH: _TAPE_SOURCES,
+                    DefectType.CRACKLE: ("shellac", "vinyl", "lacquer_disc", "wax_cylinder"),
+                    DefectType.CLICKS: ("shellac", "vinyl", "lacquer_disc"),
+                    DefectType.INNER_GROOVE_DISTORTION: ("vinyl", "shellac", "lacquer_disc"),
+                    DefectType.GROOVE_ECHO: ("vinyl", "shellac", "lacquer_disc"),
+                }
+
+                for _cto_dt in _chain_threshold_overrides:
+                    if _cto_dt not in scores:
+                        continue
+                    _cto_score = scores[_cto_dt]
+                    if float(_cto_score.severity) <= 0.05:
+                        continue  # kein messbarer Defekt — nicht skalieren
+                    # Severity-Kompensation für Kettendämpfung
+                    _source_stages = _DEFECT_SOURCES.get(_cto_dt, ())
+                    _scale = _chain_severity_scale(list(_source_stages), _ann_chain)
+                    if _scale > 1.001:  # nur wenn nennenswerte Dämpfung vorlag
+                        _raw_sev = float(_cto_score.severity)
+                        _cto_score.severity = float(np.clip(_raw_sev * _scale, 0.0, 1.0))
+                        _cto_score.metadata["chain_severity_scale"] = round(_scale, 3)
+                        _cto_score.metadata["chain_severity_raw"] = round(_raw_sev, 4)
+                    # Konfidenz-Penalty (Kettenunschärfe)
+                    _cto_score.confidence = float(np.clip(float(_cto_score.confidence) * 0.75, 0.05, 0.85))
+                    _cto_score.metadata["chain_stage_defect"] = True
+                    _cto_score.metadata["chain_threshold_override"] = True
+                    logger.debug(
+                        "chain-stage annotation: %s severity %.3f→%.3f scale=%.2f conf=%.2f",
+                        _cto_dt.value,
+                        _cto_score.metadata.get("chain_severity_raw", _cto_score.severity),
+                        _cto_score.severity,
+                        _scale if _scale > 1.001 else 1.0,
+                        _cto_score.confidence,
+                    )
+            except Exception as _cann_exc:
+                logger.debug("Chain-stage annotation fehlgeschlagen: %s", _cann_exc)
+
         _prog(100)
         _scan_result = DefectAnalysisResult(
             material_type=material_type,
@@ -2285,7 +2490,7 @@ class DefectScanner:
             ar_rate = self._ar_click_residual_rate(audio)
             # AR augments diff-based severity; never reduces (conservative lower-bound)
             click_rate = max(click_rate, ar_rate * 0.80)
-        except Exception as _ar_exc:  # noqa: BLE001
+        except Exception as _ar_exc:
             logger.debug("AR click augmentation failed: %s", _ar_exc)
 
         severity = min(1.0, click_rate / 20)  # 20 clicks/sec = severity 1.0
@@ -2337,11 +2542,7 @@ class DefectScanner:
             seg = analysis[i * seg_n : (i + 1) * seg_n]
 
             # Yule-Walker autocorrelation via FFT (efficient for long segments)
-            ac_full = np.real(
-                np.fft.irfft(
-                    np.abs(np.fft.rfft(seg, n=2 * len(seg))) ** 2
-                )
-            )
+            ac_full = np.real(np.fft.irfft(np.abs(np.fft.rfft(seg, n=2 * len(seg))) ** 2))
             r = ac_full[: lpc_order + 1]
             if not np.isfinite(r[0]) or r[0] < 1e-20:
                 continue
@@ -2796,7 +2997,13 @@ class DefectScanner:
 
         # --- Feature 1 (MANDATORY): Energy anomaly ---
         rms_ratio = rms_env / (rms_baseline + 1e-12)
-        feat_energy = (rms_ratio < 0.45) | (rms_ratio > 2.5)
+        # Transport bumps manifest as energy DROPS (tape head lifting, groove skip).
+        # Energy SPIKES (rms_ratio > 2.5) are musical transients (kick drum, snare,
+        # percussive attack) — using them as mandatory criterion caused 112 false
+        # positives on drum patterns at 120 BPM (29.8/min vs real max ~8/min).
+        feat_energy = rms_ratio < 0.45  # mandatory: dropout/energy-dip only
+        # Energy spike is an optional secondary indicator (non-mandatory, +1 score)
+        feat_energy_spike = rms_ratio > 2.5
 
         # --- Feature 2: Low-frequency thump ---
         lf_factor = lf_ratio / (lf_baseline + 1e-12)
@@ -2828,6 +3035,8 @@ class DefectScanner:
             if not np.any(feat_energy[lo:hi]):
                 continue
             hits = 1.0  # energy counts as 1
+            if np.any(feat_energy_spike[lo:hi]):
+                hits += 1.0
             if np.any(feat_lf[lo:hi]):
                 hits += 1.0
             if np.any(feat_sc[lo:hi]):
@@ -2911,6 +3120,26 @@ class DefectScanner:
         )
         confidence = float(np.clip(0.60 + 0.08 * n_bumps, 0.60, 0.95))
 
+        # Anti-FP rhythm guard:
+        # Dense, highly periodic event trains in beat-like ranges are usually
+        # musical transients (kick/snare at ~80–170 BPM), not transport bumps.
+        _rhythm_guard_applied = False
+        _interval_mean_s = 0.0
+        _interval_cv = 1.0
+        if n_bumps >= 8:
+            _centers = np.array([(s + e) * 0.5 for s, e in locations], dtype=np.float64)
+            _intervals = np.diff(_centers)
+            if _intervals.size >= 4:
+                _interval_mean_s = float(np.mean(_intervals))
+                _interval_std_s = float(np.std(_intervals))
+                _interval_cv = _interval_std_s / max(_interval_mean_s, 1e-6)
+                _beat_like = 0.35 <= _interval_mean_s <= 0.75 and _interval_cv < 0.25
+                _too_dense_low_mag = bump_density > 20.0 and max_mag < 1.5
+                if _beat_like or _too_dense_low_mag:
+                    severity *= 0.25
+                    confidence = float(np.clip(confidence * 0.70, 0.45, 0.85))
+                    _rhythm_guard_applied = True
+
         logger.info(
             "transport_bump detection: n_bumps=%d, density=%.1f/min, max_mag=%.3f, mean_score=%.2f, severity=%.3f, suppressed_head_dip_like=%d",
             n_bumps,
@@ -2932,6 +3161,9 @@ class DefectScanner:
                 "max_magnitude": round(max_mag, 4),
                 "mean_multi_feature_score": round(mean_score, 2),
                 "suppressed_head_dip_like": suppressed_head_dip_like,
+                "rhythm_guard_applied": _rhythm_guard_applied,
+                "interval_mean_s": round(_interval_mean_s, 4),
+                "interval_cv": round(_interval_cv, 4),
                 "magnitudes": [round(float(m), 4) for m in magnitudes[:30]],
             },
         )
@@ -4374,7 +4606,7 @@ class DefectScanner:
                             mean_sb_ratio = float(np.mean(sideband_ratios_b))
                             # Jitter sidebands: ratio typically 0.05–0.30; pure signal < 0.01
                             sev_bitto = float(np.clip((mean_sb_ratio - 0.03) / 0.25, 0.0, 1.0))
-        except Exception:  # noqa: BLE001
+        except Exception:
             pass
 
         raw_severity = 0.22 * sev_zc + 0.26 * sev_if + 0.22 * sev_hf + 0.16 * sev_sb + 0.14 * sev_bitto

@@ -72,7 +72,10 @@ def _rms_dbfs_gated(sig: np.ndarray) -> float:
 
     Stereo → Mono-Downmix vor Framing. Gibt -96.0 zurück wenn kein aktiver Frame.
     """
-    _mono = np.mean(sig, axis=1).astype(np.float64) if sig.ndim == 2 else sig.astype(np.float64)
+    if sig.ndim == 2:
+        _mono = sig.mean(axis=0).astype(np.float64) if sig.shape[0] <= 2 else sig.mean(axis=1).astype(np.float64)
+    else:
+        _mono = sig.astype(np.float64)
     _frame = 480  # 10 ms @ 48 kHz
     _active = [
         _mono[i : i + _frame]
@@ -81,7 +84,7 @@ def _rms_dbfs_gated(sig: np.ndarray) -> float:
     ]
     if not _active:
         return -96.0
-    return float(20.0 * np.log10(np.sqrt(np.mean([np.mean(r ** 2) for r in _active])) + 1e-10))
+    return float(20.0 * np.log10(np.sqrt(np.mean([np.mean(r**2) for r in _active])) + 1e-10))
 
 
 class TapeHissReductionPhase(PhaseInterface):
@@ -966,7 +969,9 @@ class TapeHissReductionPhase(PhaseInterface):
         # §2.47 ml_memory_budget guard (400 MB for DeepFilterNet v3 II)
         _dfn_release = None
         try:
-            from backend.core.ml_memory_budget import try_allocate as _try_alloc_29, release as _rel_29
+            from backend.core.ml_memory_budget import release as _rel_29
+            from backend.core.ml_memory_budget import try_allocate as _try_alloc_29
+
             if not _try_alloc_29("DeepFilterNet_phase29", 0.40):
                 logger.debug("DeepFilterNet_phase29: ml_memory_budget insufficient — DSP-Fallback")
                 return False
