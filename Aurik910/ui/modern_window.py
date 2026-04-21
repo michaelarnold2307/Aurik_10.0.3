@@ -16021,7 +16021,9 @@ class ModernMainWindow(QMainWindow):
                 # §11 VERBOTEN: sf.read(path) für beliebige Formate — bridge load_audio_fn nutzen
                 _load_fn = _bridge_get_load_audio_fn() if callable(_bridge_get_load_audio_fn) else None
                 if _load_fn is not None and callable(_load_fn):
-                    _load_result = _load_fn(str(input_path))
+                    # §VERBOTEN: load_audio_file ohne do_carrier_analysis=False in UI-Thread
+                    # → synchroner Carrier-Analyse-Block bis 6+ Minuten (§2.47a)
+                    _load_result = _load_fn(str(input_path), do_carrier_analysis=False)
                     if _load_result is not None:
                         _arr = np.asarray(_load_result["audio"], dtype=np.float32)
                         _sr_i = int(_load_result["sr"])
