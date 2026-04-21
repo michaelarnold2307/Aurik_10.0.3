@@ -2,6 +2,13 @@
 
 > Hinweis: Dieses Dokument ist eine Versionshistorie. Ältere Versionsnummern und Kennzahlen sind hier erwartbar und keine veralteten Reststände.
 
+## Version 9.11.46 — do_carrier_analysis=False KMV UI-Thread (Apr 2026)
+
+### Bugfix (§2.47a)
+- **`Aurik910/ui/modern_window.py`**: KMV-Stufe-2-Vorbereitung rief `_load_fn(input_path)`
+  ohne `do_carrier_analysis=False` auf → synchroner Carrier-Analyse-Block im UI-Thread
+  (225 s Audio = 10 M+ Samples, 6+ Minuten Hang). Fix: `do_carrier_analysis=False` gesetzt.
+
 ## Version 9.11.45 — PLM-Active-Guard Whisper ONNX + AST ONNX (Apr 2026)
 
 ### Bugfix (§4.6b PLM-Active-Guard)
