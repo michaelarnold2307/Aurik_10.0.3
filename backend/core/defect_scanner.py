@@ -5935,7 +5935,15 @@ class DefectScanner:
                                 spec_ghost = np.abs(np.fft.rfft(audio[lp_start:lp_end][: trans_end - trans_start]))
                                 min_len_s = min(len(spec_trans), len(spec_ghost))
                                 if min_len_s > 4:
-                                    corr = float(np.corrcoef(spec_trans[:min_len_s], spec_ghost[:min_len_s])[0, 1])
+                                    _a = spec_trans[:min_len_s].astype(float)
+                                    _b = spec_ghost[:min_len_s].astype(float)
+                                    _na = float(np.linalg.norm(_a))
+                                    _nb = float(np.linalg.norm(_b))
+                                    corr = (
+                                        float(np.dot(_a, _b) / (_na * _nb + 1e-12))
+                                        if _na > 1e-12 and _nb > 1e-12
+                                        else 0.0
+                                    )
                                     if not np.isnan(corr):
                                         spectral_similarities.append(max(0.0, corr))
 
@@ -6096,8 +6104,14 @@ class DefectScanner:
             if np.sum(mask) < 20:
                 return DefectScore(DefectType.MODULATION_NOISE, 0.0, 0.4)
 
-            # Pearson correlation between signal level and noise variance
-            corr = float(np.corrcoef(signal_env[mask], noise_var[mask])[0, 1])
+            # Pearson correlation between signal level and noise variance (guarded dot-product)
+            _s = signal_env[mask].astype(float)
+            _n = noise_var[mask].astype(float)
+            _s_c = _s - float(np.mean(_s))
+            _n_c = _n - float(np.mean(_n))
+            _ns = float(np.linalg.norm(_s_c))
+            _nn = float(np.linalg.norm(_n_c))
+            corr = float(np.dot(_s_c, _n_c) / (_ns * _nn + 1e-12)) if _ns > 1e-12 and _nn > 1e-12 else 0.0
             if np.isnan(corr):
                 corr = 0.0
 

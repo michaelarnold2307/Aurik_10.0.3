@@ -13167,6 +13167,23 @@ class UnifiedRestorerV3:
                 selected.append(_mp)
                 _selected_set_mat.add(_mp)
                 _mat_priority_added.append(_mp)
+        # §6.2a [RELEASE_MUST] Carrier-Chain-Invariante: Pflichtphasen auch für Zwischenstufen
+        # Wenn Kassette in der Kette steckt (z.B. vinyl→cassette→mp3), aber nicht primary_material ist,
+        # müssen trotzdem alle cassette-Pflichtphasen aktiviert werden (§2.46a).
+        if chain_info is not None:
+            _chain_stages: list[str] = []
+            if isinstance(chain_info, dict):
+                _raw_stages = chain_info.get("chain", [])
+                _chain_stages = [str(s) for s in _raw_stages if s] if isinstance(_raw_stages, list) else []
+            for _stage in _chain_stages:
+                if _stage == _mat_key:
+                    continue  # primary material already handled above
+                _stage_priorities = _MATERIAL_PRIORITY_PHASES.get(_stage, [])
+                for _sp in _stage_priorities:
+                    if _sp not in _selected_set_mat:
+                        selected.append(_sp)
+                        _selected_set_mat.add(_sp)
+                        _mat_priority_added.append(_sp)
         if _mat_priority_added:
             logger.info(
                 "📋 §6.2a Material-Pflichtphasen: %d ergänzt für material=%s: %s",

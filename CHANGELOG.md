@@ -2,6 +2,36 @@
 
 > Hinweis: Dieses Dokument ist eine Versionshistorie. Ältere Versionsnummern und Kennzahlen sind hier erwartbar und keine veralteten Reststände.
 
+## Version 9.11.28 — Stereo-Slicing-Bug, Ketten-Pflichtphasen, corrcoef, GPU-Fix (Apr 2026)
+
+### Ziel
+
+Behebung von 5 RELEASE_MUST-Defekten aus weiterführender Tiefenanalyse.
+Insbesondere §VERBOTEN-Muster für Stereo-Kanal-Slicing und Carrier-Chain-Pflichtphasen.
+
+### Änderungen
+
+**Stereo-Kanal-Slicing `audio[0]` → `audio[:, 0]`** — §VERBOTEN-Verletzung:
+- `backend/core/authenticity_metrics_extended.py` L673, L772: `audio[0]` →
+  `audio[:, 0]` (bei Shape `samples×channels` gab `audio[0]` nur 2 Samples zurück;
+  alle Authentizitäts-Metriken lieferten 0.0 für Stereo-Songs)
+- `backend/core/genre_classifier.py` L337: gleiches Muster korrigiert
+
+**UV3 `_MATERIAL_PRIORITY_PHASES` auf volle Kette erweitert** — §6.2a / §2.46a:
+- `backend/core/unified_restorer_v3.py`: §6.2a Pflichtphasen wurden bisher nur für
+  `primary_material` aktiviert. Bei Kette `vinyl→cassette→mp3` blieben Kassetten-Pflichtphasen
+  aus, wenn Kassette nicht Primary war. Jetzt: alle `chain_info["chain"]`-Stufen werden
+  gegen `_MATERIAL_PRIORITY_PHASES` geprüft.
+
+**`np.corrcoef` NaN-Guard** — weitere Stellen in `defect_scanner.py`:
+- L5938 (Ghost-Transient-Detektor): inline guarded dot-product
+- L6100 (Modulation-Noise-Detektor): inline guarded Pearson-Korrelation
+
+**`ml_device_manager.py` GPU-Memory-Budget tier-adaptiv** — §VERBOTEN-Muster:
+- L988: `gpu_mem_limit` war hardcoded `vram_total × 0.80` — jetzt
+  `vram_total × _TIER_VRAM_PARAMS[gpu_tier]["max_usage_ratio"]` (Tier1: 0.85, Tier2: 0.80, ...)
+- `_VRAM_MAX_USAGE_RATIO` als tote Konstante mit Kommentar dokumentiert (→ `_TIER_VRAM_PARAMS`)
+
 ## Version 9.11.27 — Tiefenanalyse-Fixes: PLM-Guards, Korrelation, Pegelexplosion (Apr 2026)
 
 ### Ziel

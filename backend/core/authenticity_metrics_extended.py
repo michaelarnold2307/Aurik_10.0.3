@@ -670,7 +670,8 @@ class AuthenticityMetricsExtended:
         assert sample_rate == 48000, f"SR muss 48000 Hz sein, erhalten: {sample_rate}"
         audio = np.nan_to_num(audio, nan=0.0, posinf=0.0, neginf=0.0)
         # Handle stereo (use left channel for analysis)
-        audio_mono = audio[0] if audio.ndim == 2 else audio
+        # §VERBOTEN: audio[0] liefert bei (samples×channels)-Shape nur 2 Samples → audio[:, 0] korrekt
+        audio_mono = audio[:, 0] if audio.ndim == 2 else audio
         audio_mono = np.nan_to_num(audio_mono, nan=0.0, posinf=0.0, neginf=0.0)
 
         logger.debug("AuthenticityMetricsExtended: Analysiere genre-spezifische Authentizitätselemente")
@@ -769,7 +770,8 @@ if __name__ == "__main__":
         elif args.detector == "vinyl":
             detector = VinylCharacterDetector()
 
-        audio_mono = audio[0] if audio.ndim == 2 else audio
+        # §VERBOTEN: audio[0] liefert bei (samples×channels)-Shape nur 2 Samples → audio[:, 0] korrekt
+        audio_mono = audio[:, 0] if audio.ndim == 2 else audio
         metrics = detector.detect(audio_mono, sr)
 
         logger.debug("\n%s", "=" * 60)

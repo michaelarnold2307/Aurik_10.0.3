@@ -421,7 +421,9 @@ _GPU_UNSUPPORTED_ERROR_HINTS: tuple[str, ...] = (
 # Keep at least this much VRAM free after allocations (hard floor).
 _VRAM_MIN_FREE_MB: float = 512.0
 # At most this fraction of total VRAM may be used by Aurik plugins combined.
-_VRAM_MAX_USAGE_RATIO: float = 0.85
+# NOTE: This constant is superseded by tier-adaptive _TIER_VRAM_PARAMS[gpu_tier]["max_usage_ratio"].
+# Retained only as a module-level documentation value; do NOT use it in logic.
+_VRAM_MAX_USAGE_RATIO: float = 0.85  # see _TIER_VRAM_PARAMS for actual per-tier values
 
 # ---------------------------------------------------------------------------
 # AMD ROCm performance constants
@@ -985,7 +987,11 @@ class MLDeviceManager:
                 "ROCMExecutionProvider",
                 {
                     "device_id": 0,
-                    "gpu_mem_limit": int(self._vram_total_gb * 0.80 * 1024**3),
+                    "gpu_mem_limit": int(
+                        self._vram_total_gb
+                        * _TIER_VRAM_PARAMS.get(self._gpu_tier, _TIER_VRAM_PARAMS[GPUTier.TIER_4])["max_usage_ratio"]
+                        * 1024**3
+                    ),
                     "arena_extend_strategy": "kSameAsRequested",
                     "enable_cuda_graph": 0,
                 },

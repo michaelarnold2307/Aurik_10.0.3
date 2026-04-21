@@ -334,7 +334,8 @@ class GermanSchlagerClassifier:
             try:
                 import librosa
 
-                audio_48k = librosa.resample(audio if audio.ndim == 1 else audio[0], orig_sr=sr, target_sr=48_000)
+                # §VERBOTEN: audio[0] liefert bei (samples×channels)-Shape nur 2 Samples → audio[:, 0] korrekt
+                audio_48k = librosa.resample(audio if audio.ndim == 1 else audio[:, 0], orig_sr=sr, target_sr=48_000)
                 sr_48k = 48_000
             except Exception as _exc:
                 logger.debug("Lyrics hint: resample to 48k failed: %s", _exc)
