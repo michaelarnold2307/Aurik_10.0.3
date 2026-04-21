@@ -691,9 +691,25 @@ class MertPlugin:
             _dev = getattr(self, "_device", "cpu")
             if str(_dev) not in ("", "cpu"):
                 inputs = {k: v.to(_dev) for k, v in inputs.items() if isinstance(v, torch.Tensor)}
-            with torch.no_grad():
-                # Request only the final hidden state to keep metric inference bounded.
-                outputs = self._model(**inputs, output_hidden_states=False)
+            # §4.6b PLM-Active-Guard: prevent Emergency-Eviction during MERT HF inference
+            _plm_mert_hf = None
+            try:
+                from backend.core.plugin_lifecycle_manager import get_plugin_lifecycle_manager as _get_plm_mh
+
+                _plm_mert_hf = _get_plm_mh()
+                _plm_mert_hf.set_active("MERT-330M-HF", True)
+            except Exception:
+                pass
+            try:
+                with torch.no_grad():
+                    # Request only the final hidden state to keep metric inference bounded.
+                    outputs = self._model(**inputs, output_hidden_states=False)
+            finally:
+                if _plm_mert_hf is not None:
+                    try:
+                        _plm_mert_hf.set_active("MERT-330M-HF", False)
+                    except Exception:
+                        pass
             last_hidden = outputs.last_hidden_state  # (batch, time, dim)
             # NAT-Score aus L2-Norm der Embeddings (Proxy für tonale Stärke)
             embedding_norm = float(torch.norm(last_hidden, dim=-1).mean().item())
@@ -749,7 +765,23 @@ class MertPlugin:
             if len(audio) < min_len:
                 audio = np.pad(audio, (0, min_len - len(audio)))
             feed = {self._model.get_inputs()[0].name: audio[np.newaxis]}
-            result = self._model.run(None, feed)[0]  # (1, time, dim) oder (1, dim)
+            # §4.6b PLM-Active-Guard: prevent Emergency-Eviction during MERT ONNX inference
+            _plm_mert_onnx = None
+            try:
+                from backend.core.plugin_lifecycle_manager import get_plugin_lifecycle_manager as _get_plm_mo
+
+                _plm_mert_onnx = _get_plm_mo()
+                _plm_mert_onnx.set_active("MERT-ONNX", True)
+            except Exception:
+                pass
+            try:
+                result = self._model.run(None, feed)[0]  # (1, time, dim) oder (1, dim)
+            finally:
+                if _plm_mert_onnx is not None:
+                    try:
+                        _plm_mert_onnx.set_active("MERT-ONNX", False)
+                    except Exception:
+                        pass
             score = float(np.clip(np.mean(np.abs(result)) / 10.0, 0.0, 1.0))
             dsp = _dsp_analyze(audio, self._target_sr)
             # §Lücke10: MERT-Kalibrierung Guard (Pearson r=0.74 vs. DSP-Proxy, Li et al. 2023)
