@@ -814,17 +814,23 @@ class CumulativeInteractionGuard:
         # 3. Check STFT phase coherence after ≥3 STFT phases
         # §2.48a: GDD nur prüfen wenn Typ valide und Phase in STFT_PHASES.
         if len(state.stft_phases_executed) >= 3 and phase_id in STFT_PHASES and _gdd_valid_for_type:
-            gdd_ok = self._check_group_delay(
-                state.best_checkpoint.audio if state.best_checkpoint else current_audio,
-                current_audio,
-                sr,
-                phase_id=phase_id,
-                state=state,
-            )
+            # §2.48 GDD: measure once, compare against adaptive threshold — avoid double STFT.
+            _ref_audio = state.best_checkpoint.audio if state.best_checkpoint else current_audio
             _gdd_threshold = self._compute_gdd_threshold(phase_id, state)
+            _gdd_measured_ms = self._measure_group_delay_ms(
+                _ref_audio, current_audio, sr, phase_id=phase_id, state=state
+            )
+            gdd_ok = _gdd_measured_ms < 0.0 or _gdd_measured_ms <= _gdd_threshold
+            logger.debug(
+                "§2.48 STFT group delay deviation: %.2f ms (threshold: %.1f ms, phase=%s)",
+                _gdd_measured_ms,
+                _gdd_threshold,
+                phase_id,
+            )
             if not gdd_ok:
                 logger.warning(
-                    "§2.48 STFT group delay deviation > %.1f ms after %d STFT phases (%s) → rollback",
+                    "§2.48 STFT group delay deviation %.1f ms > threshold %.1f ms after %d STFT phases (%s) → rollback",
+                    _gdd_measured_ms,
                     _gdd_threshold,
                     len(state.stft_phases_executed),
                     phase_id,
@@ -837,7 +843,17 @@ class CumulativeInteractionGuard:
                         rolled_back_to=state.best_checkpoint.phase_id if state.best_checkpoint else "pre_pipeline",
                     )
                 )
-                state.consecutive_rollbacks += 1
+                # §2.48 v9.11.3: Carrier-Repair-Rollbacks nie zählen — gilt auch für GDD-Rollbacks.
+                # phase_29 (tape hiss), phase_49 (dereverb) etc. erzeugen erwartungsgemäß hohe
+                # GDD-Werte (noise-dominated bins verändern Phase nach NR — kein echter Fehler).
+                _is_carrier_repair_gdd = any(phase_id.startswith(p) for p in _CARRIER_REPAIR_PHASE_PREFIXES)
+                if not _is_carrier_repair_gdd:
+                    state.consecutive_rollbacks += 1
+                else:
+                    logger.debug(
+                        "§2.48 GDD rollback (%s) — consecutive_rollbacks NICHT inkrementiert (Carrier-Repair §2.44)",
+                        phase_id,
+                    )
                 # §2.48 STFT-Zähler korrigieren: Group-Delay-Rollback bedeutet,
                 # diese Phase ist nicht im Audio-Zustand persistent.  Ohne
                 # Korrektur bleibt len(stft_phases_executed) dauerhaft ≥ 3 und
@@ -1038,6 +1054,49 @@ class CumulativeInteractionGuard:
         mat_factor = 1.4 if material in _ANALOG_MATERIALS else 1.0
         return base * rest_factor * mat_factor
 
+    def _measure_group_delay_ms(
+        self,
+        reference: np.ndarray,
+        current: np.ndarray,
+        sr: int,
+        phase_id: str = "",
+        state: InteractionGuardState | None = None,
+    ) -> float:
+        """Measure 95th-percentile STFT group delay deviation in milliseconds.
+
+        Returns -1.0 if the signal is too short to measure.
+        """
+        ref_mono = reference if reference.ndim == 1 else np.mean(reference, axis=0)
+        cur_mono = current if current.ndim == 1 else np.mean(current, axis=0)
+        min_len = min(len(ref_mono), len(cur_mono))
+        if min_len < 2048:
+            return -1.0  # too short to measure meaningfully
+
+        ref_mono = ref_mono[:min_len]
+        cur_mono = cur_mono[:min_len]
+
+        n_fft = 2048
+        mid = min_len // 2
+        start = max(0, mid - n_fft)
+        end = start + n_fft
+
+        win = np.hanning(n_fft).astype(np.float32)
+        ref_fft = np.fft.rfft(ref_mono[start:end] * win)
+        cur_fft = np.fft.rfft(cur_mono[start:end] * win)
+
+        ref_phase = np.unwrap(np.angle(ref_fft))
+        cur_phase = np.unwrap(np.angle(cur_fft))
+
+        phase_diff = cur_phase - ref_phase
+        gd_deviation_samples = np.abs(np.diff(phase_diff)) / (2.0 * np.pi / n_fft)
+
+        gd_valid = gd_deviation_samples[5:-5]
+        if len(gd_valid) == 0:
+            return -1.0
+
+        max_deviation_samples = float(np.percentile(gd_valid, 95))
+        return 1000.0 * max_deviation_samples / sr
+
     def _check_group_delay(
         self,
         reference: np.ndarray,
@@ -1062,42 +1121,10 @@ class CumulativeInteractionGuard:
                 if phase_id in _SPECTRAL_SUBTRACTION_PHASES
                 else MAX_GROUP_DELAY_DEVIATION_MS
             )
-        ref_mono = reference if reference.ndim == 1 else np.mean(reference, axis=0)
-        cur_mono = current if current.ndim == 1 else np.mean(current, axis=0)
-        min_len = min(len(ref_mono), len(cur_mono))
-        if min_len < 2048:
-            return True  # too short to measure meaningfully
 
-        ref_mono = ref_mono[:min_len]
-        cur_mono = cur_mono[:min_len]
-
-        n_fft = 2048
-        # Use a representative segment from the middle
-        mid = min_len // 2
-        start = max(0, mid - n_fft)
-        end = start + n_fft
-
-        win = np.hanning(n_fft).astype(np.float32)
-        ref_fft = np.fft.rfft(ref_mono[start:end] * win)
-        cur_fft = np.fft.rfft(cur_mono[start:end] * win)
-
-        # Group delay = -d(phase)/d(omega)
-        # Approximate: phase difference between consecutive bins
-        ref_phase = np.unwrap(np.angle(ref_fft))
-        cur_phase = np.unwrap(np.angle(cur_fft))
-
-        phase_diff = cur_phase - ref_phase
-        # Group delay deviation in samples
-        # dphase/dbin approximation
-        gd_deviation_samples = np.abs(np.diff(phase_diff)) / (2.0 * np.pi / n_fft)
-
-        # Ignore extreme outliers (DC, Nyquist region)
-        gd_valid = gd_deviation_samples[5:-5]
-        if len(gd_valid) == 0:
-            return True
-
-        max_deviation_samples = float(np.percentile(gd_valid, 95))
-        max_deviation_ms = 1000.0 * max_deviation_samples / sr
+        max_deviation_ms = self._measure_group_delay_ms(reference, current, sr, phase_id=phase_id, state=state)
+        if max_deviation_ms < 0.0:
+            return True  # too short to measure — pass
 
         logger.debug(
             "§2.48 STFT group delay deviation: %.2f ms (threshold: %.1f ms, phase=%s)",

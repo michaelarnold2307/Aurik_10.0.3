@@ -380,7 +380,7 @@ def _estimate_harmonic_coherence(mono: np.ndarray, sr: int) -> float:
     if len(segment) < 64:
         return 0.5
     # FFT-based autocorrelation: O(n log n) instead of O(n^2).
-    n = int(len(segment))
+    n = len(segment)
     n_fft = 1 << ((2 * n - 1).bit_length())
     spec = np.fft.rfft(segment, n=n_fft)
     ac = np.fft.irfft(spec * np.conj(spec), n=n_fft)[:n]

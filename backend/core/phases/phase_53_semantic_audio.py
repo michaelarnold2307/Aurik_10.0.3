@@ -33,6 +33,8 @@ import time
 import numpy as np
 import scipy.signal as sig
 
+from backend.core.audio_utils import safe_to_mono
+
 from .phase_interface import PhaseCategory, PhaseInterface, PhaseMetadata, PhaseResult
 
 logger = logging.getLogger(__name__)
@@ -81,9 +83,7 @@ _GENRE_ALIAS_MAP = {
 
 
 def _mono(audio: np.ndarray) -> np.ndarray:
-    if audio.ndim == 2:
-        return audio.mean(axis=1)
-    return audio
+    return safe_to_mono(audio) if audio.ndim == 2 else audio
 
 
 def _estimate_bpm(mono: np.ndarray, sr: int) -> float:
@@ -100,10 +100,11 @@ def _estimate_bpm(mono: np.ndarray, sr: int) -> float:
     if n_frames < 4:
         return 120.0
     onset = np.array([float(np.sqrt(np.mean(mono[i * hop : i * hop + frame] ** 2))) for i in range(n_frames)])
-    # Auto-Korrelation
+    # Auto-Korrelation — FFT-based O(N log N)
     onset -= onset.mean()
-    ac = np.correlate(onset, onset, mode="full")
-    ac = ac[len(ac) // 2 :]
+    from backend.core.core_utils import fft_autocorr
+
+    ac = fft_autocorr(onset)
     # Suchbereich: 60–180 BPM → Periode in Frames
     min_period = int(60.0 / 180.0 * sr / hop)
     max_period = int(60.0 / 60.0 * sr / hop)

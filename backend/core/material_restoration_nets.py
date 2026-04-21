@@ -422,7 +422,9 @@ def restore_tape(audio: np.ndarray, sample_rate: int, **kwargs) -> MaterialResto
         # Kreuzkorrelation L/R → Verzögerung bestimmen und korrigieren
         max_lag = int(0.005 * sample_rate)  # ±5ms
         min_len = min(out.shape[1], 4096)
-        xcorr = np.correlate(out[0, :min_len], out[1, :min_len], mode="full")
+        from backend.core.core_utils import fft_crosscorr
+
+        xcorr = fft_crosscorr(out[0, :min_len], out[1, :min_len])
         lag = np.argmax(xcorr) - (min_len - 1)
         lag = int(np.clip(lag, -max_lag, max_lag))
         if abs(lag) > 0:

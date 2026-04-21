@@ -182,9 +182,10 @@ def detect_harmonic_structure(audio: np.ndarray, sr: int) -> tuple[bool, float]:
     if audio.ndim > 1:
         audio = np.mean(audio, axis=0)
 
-    # Autocorrelation method to detect periodicity
-    autocorr = np.correlate(audio, audio, mode="full")
-    autocorr = autocorr[len(autocorr) // 2 :]
+    # Autocorrelation method to detect periodicity — FFT-based O(N log N)
+    from backend.core.core_utils import fft_autocorr
+
+    autocorr = fft_autocorr(audio)
 
     # Normalize
     autocorr = autocorr / autocorr[0]

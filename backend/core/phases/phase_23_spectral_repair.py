@@ -589,6 +589,23 @@ class SpectralRepair(PhaseInterface):
                     _apollo_swap_blocked = True
             except Exception as _swap_chk_exc:
                 logger.debug("phase_23: Swap-Thrashing-Check fehlgeschlagen (non-critical): %s", _swap_chk_exc)
+            # RAM-Guard: Apollo benötigt mind. 6 GB freien RAM (TorchScript + Mamba-State-Space).
+            # Swap-Thrashing-Check allein reicht nicht — Crash tritt auch bei niedrigem
+            # Swap-Prozent auf wenn nach großen Vorphasen (SGMSE+/MDX) wenig RAM verfügbar ist.
+            if not _apollo_swap_blocked:
+                try:
+                    import psutil as _psutil_p23
+
+                    _avail_ram_p23 = _psutil_p23.virtual_memory().available / (1024**3)
+                    if _avail_ram_p23 < 6.0:
+                        logger.warning(
+                            "phase_23: Apollo TorchScript übersprungen — nur %.1f GB RAM verfügbar "
+                            "(< 6.0 GB Mindest-Headroom). DSP-Inpainting wird verwendet.",
+                            _avail_ram_p23,
+                        )
+                        _apollo_swap_blocked = True
+                except Exception as _ram_chk_exc:
+                    logger.debug("phase_23: RAM-Check fehlgeschlagen (non-critical): %s", _ram_chk_exc)
 
             _plm23 = None
             if not _apollo_swap_blocked:

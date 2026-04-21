@@ -305,8 +305,9 @@ class VoiceHealthNet:
         try:
             seg_len = min(len(mono), sr)  # max 1 s
             seg = mono[:seg_len]
-            acf = np.correlate(seg, seg, mode="full")
-            acf = acf[len(acf) // 2 :]
+            from backend.core.core_utils import fft_autocorr
+
+            acf = fft_autocorr(seg)
             # f0 search range 80-400 Hz
             lag_min = int(sr / 400)
             lag_max = int(sr / 80)

@@ -87,10 +87,10 @@ def detect_formants_lpc(audio: np.ndarray, sr: int, n_formants: int = 5) -> np.n
 
 def _lpc_autocorr(signal: np.ndarray, order: int) -> np.ndarray:
     """Compute LPC coefficients using autocorrelation method."""
-    # Compute autocorrelation
-    r = np.correlate(signal, signal, mode="full")
-    r = r[len(r) // 2 :]
-    r = r[: order + 1]
+    # Compute autocorrelation — FFT-based O(N log N)
+    from backend.core.core_utils import fft_autocorr
+
+    r = fft_autocorr(signal, max_lag=order)
 
     # Levinson-Durbin recursion
     a = np.zeros(order + 1)

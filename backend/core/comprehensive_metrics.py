@@ -824,9 +824,10 @@ class ComprehensiveMetricsCalculator:
             diff = magnitude[:, i] - magnitude[:, i - 1]
             flux[i] = np.sum(np.maximum(diff, 0))
 
-        # Autocorrelation of onset strength
-        autocorr = np.correlate(flux, flux, mode="full")
-        autocorr = autocorr[len(autocorr) // 2 :]
+        # Autocorrelation of onset strength — FFT-based O(N log N)
+        from backend.core.core_utils import fft_autocorr
+
+        autocorr = fft_autocorr(flux)
         autocorr = autocorr / (autocorr[0] + 1e-10)
 
         # Find tempo in reasonable range (60-180 BPM)
@@ -873,9 +874,10 @@ class ComprehensiveMetricsCalculator:
         if len(envelope_ds) < 16:
             return 0.3
 
-        # Autocorrelation
-        autocorr = np.correlate(envelope_ds, envelope_ds, mode="full")
-        autocorr = autocorr[len(autocorr) // 2 :]
+        # Autocorrelation — FFT-based O(N log N)
+        from backend.core.core_utils import fft_autocorr
+
+        autocorr = fft_autocorr(envelope_ds)
         autocorr = autocorr / (autocorr[0] + 1e-10)
 
         # Regularity = strength of first peak

@@ -43,6 +43,8 @@ import time
 import numpy as np
 import scipy.signal as sig
 
+from backend.core.audio_utils import safe_to_mono
+
 from .phase_interface import PhaseCategory, PhaseInterface, PhaseMetadata, PhaseResult
 
 logger = logging.getLogger(__name__)
@@ -137,7 +139,7 @@ def _estimate_breathiness(audio: np.ndarray, sr: int) -> float:
     Slope ≈ −6 dB/Okt → normalsprachlich (breathiness=0.0)
     Slope < −18 dB/Okt → stark hauchig (breathiness→1.0)
     """
-    mono = audio if audio.ndim == 1 else (audio[:, 0] if audio.ndim == 2 else audio.mean(axis=0))
+    mono = safe_to_mono(audio) if audio.ndim == 2 else audio
     mono = np.nan_to_num(mono, nan=0.0, posinf=0.0, neginf=0.0)
     n_fft = min(4096, len(mono))
     if n_fft < 64:
@@ -206,10 +208,7 @@ def _deess_channel(
 
 def _band_rms(audio: np.ndarray, sr: int, low_hz: float, high_hz: float) -> float:
     """Return RMS in a frequency band (zero-phase when possible)."""
-    if audio.ndim == 2:
-        mono = audio.mean(axis=1)
-    else:
-        mono = audio
+    mono = safe_to_mono(audio) if audio.ndim == 2 else audio
     mono = np.nan_to_num(mono.astype(np.float64), nan=0.0, posinf=0.0, neginf=0.0)
     nyq = sr / 2.0
     high_hz = min(high_hz, nyq * 0.98)
@@ -405,7 +404,8 @@ class AdaptiveDeEsserPhase(PhaseInterface):
             gr_dbs.append(gr_db)
         else:
             # §2.51 Linked-Stereo: Sibilanz-Detektion auf Mono-Mix, identische GR auf L+R
-            mono_mix = np.mean(x, axis=1)
+            # Handle both (2, N) and (N, 2) orientations
+            mono_mix = np.mean(x, axis=0) if (x.shape[0] == 2 and x.shape[1] > 2) else np.mean(x, axis=1)
             _mono_deessed, gr_db_linked = _deess_channel(
                 mono_mix,
                 sample_rate,
@@ -425,7 +425,13 @@ class AdaptiveDeEsserPhase(PhaseInterface):
                 1.0,
             )
             _gain_ds = np.clip(_gain_ds, 0.0, 10.0)
-            processed = np.column_stack([x[:, ch] * _gain_ds for ch in range(x.shape[1])])
+            # Handle both (2, N) and (N, 2) channel indexing
+            if x.shape[0] == 2 and x.shape[1] > 2:
+                # (2, N) channels-first
+                processed = np.vstack([x[ch, :] * _gain_ds for ch in range(x.shape[0])])
+            else:
+                # (N, 2) channels-last
+                processed = np.column_stack([x[:, ch] * _gain_ds for ch in range(x.shape[1])])
             gr_dbs.append(gr_db_linked)
 
         if 0.0 < _effective_strength < 1.0 and processed.shape == x.shape:

@@ -50,6 +50,7 @@ from typing import Any
 import numpy as np
 from scipy import signal
 
+from backend.core.audio_utils import audio_sample_count, stereo_channel_view, stereo_like
 from backend.core.defect_scanner import MaterialType
 
 from .phase_interface import PhaseCategory, PhaseInterface, PhaseMetadata, PhaseResult
@@ -197,10 +198,11 @@ class TransientShaper(PhaseInterface):
         if is_stereo:
             # §2.51 Linked Stereo: derive transient detection from mono sidechain (√(L²+R²)/√2)
             # so that both channels receive the identical gain curve — prevents stereo-field divergence.
-            mono_sc = np.sqrt(audio[:, 0] ** 2 + audio[:, 1] ** 2) * (1.0 / np.sqrt(2))
-            shaped_left = self._shape_channel(audio[:, 0], sample_rate, config, sidechain=mono_sc)
-            shaped_right = self._shape_channel(audio[:, 1], sample_rate, config, sidechain=mono_sc)
-            shaped_audio = np.column_stack((shaped_left, shaped_right))
+            _ch0, _ch1 = stereo_channel_view(audio)
+            mono_sc = np.sqrt(_ch0**2 + _ch1**2) * (1.0 / np.sqrt(2))
+            shaped_left = self._shape_channel(_ch0, sample_rate, config, sidechain=mono_sc)
+            shaped_right = self._shape_channel(_ch1, sample_rate, config, sidechain=mono_sc)
+            shaped_audio = stereo_like(shaped_left, shaped_right, audio)
         else:
             shaped_audio = self._shape_channel(audio, sample_rate, config)
 
@@ -217,7 +219,7 @@ class TransientShaper(PhaseInterface):
             shaped_audio = shaped_audio * (0.99 / peak)
 
         execution_time = time.time() - start_time
-        rt_factor = execution_time / (len(audio) / sample_rate)
+        rt_factor = execution_time / (audio_sample_count(audio) / sample_rate)
 
         shaped_audio = np.nan_to_num(shaped_audio, nan=0.0, posinf=0.0, neginf=0.0)
         shaped_audio = np.clip(shaped_audio, -1.0, 1.0)

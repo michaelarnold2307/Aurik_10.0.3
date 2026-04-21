@@ -66,9 +66,12 @@ def adaptive_eq(audio: np.ndarray, sr: int) -> np.ndarray:
 
 
 def limiter(audio: np.ndarray, threshold: float = 0.98) -> np.ndarray:
-    # True Peak Limiter (vereinfachte Version)
-    peak = np.max(np.abs(audio))
+    # True Peak Limiter (vereinfachte Version) — §2.45a Peak-Guard Conformity
+    # Use percentile(99.9) to prevent single transient from blocking limiting
+    # Only reduce gain if needed (never amplify - that would be compression, not limiting)
+    peak = float(np.percentile(np.abs(audio), 99.9)) if len(audio) > 0 else 1e-8
     if peak > threshold:
+        # Only apply reduction, never amplification
         audio = audio * (threshold / peak)
     return audio
 

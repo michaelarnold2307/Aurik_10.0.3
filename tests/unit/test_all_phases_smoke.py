@@ -49,9 +49,9 @@ _LONG_STEREO: np.ndarray = np.clip(_rng.standard_normal((SR, 2)).astype(np.float
 # Phasen, die ein 1-Sekunden-Signal benötigen (window_length > SR//10)
 _NEEDS_LONG_AUDIO: frozenset = frozenset({"phase_24_dropout_repair"})
 
-# Phasen mit schwerem ML-Singleton (LAION-CLAP, BEATs) — try_allocate wird auf False
-# gemockt, damit der DSP-Fallback greift und kein echtes Modell geladen wird (Unit-Test).
-_HEAVY_ML_PHASES: frozenset = frozenset({"phase_53_semantic_audio"})
+# Phasen mit schwerem ML-Singleton (LAION-CLAP, BEATs, SGMSE+) — try_allocate wird auf
+# False gemockt, damit der DSP-Fallback greift und kein echtes Modell geladen wird (Unit-Test).
+_HEAVY_ML_PHASES: frozenset = frozenset({"phase_53_semantic_audio", "phase_49_advanced_dereverb"})
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Phase-Registry: (modul, klassenname, stereo_input, skip_shape_check)

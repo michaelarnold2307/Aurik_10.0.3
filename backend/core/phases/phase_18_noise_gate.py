@@ -53,6 +53,7 @@ from typing import Any
 import numpy as np
 from scipy import signal
 
+from backend.core.audio_utils import audio_sample_count, safe_to_mono, stereo_channel_view, stereo_like
 from backend.core.defect_scanner import MaterialType
 from backend.core.quality_mode import QualityModeConfig, is_phase_ml_enabled, log_mode_decision
 
@@ -66,7 +67,7 @@ def _rms_dbfs_gated(sig: np.ndarray) -> float:
 
     Stereo → Mono-Downmix vor Framing. Gibt -96.0 zurück wenn kein aktiver Frame.
     """
-    _mono = np.mean(sig, axis=1).astype(np.float64) if sig.ndim == 2 else sig.astype(np.float64)
+    _mono = safe_to_mono(sig).astype(np.float64) if sig.ndim == 2 else sig.astype(np.float64)
     _frame = 480  # 10 ms @ 48 kHz
     _active = [
         _mono[i : i + _frame]
@@ -285,21 +286,22 @@ class NoiseGate(PhaseInterface):
             # §2.51 Linked-Stereo: gate decision based on max(L_rms, R_rms).
             # Both channels open/close together to preserve stereo coherence.
             # RMS-linked sidechain √(L²+R²)/√2 represents the combined signal level.
-            _linked_sc = np.sqrt(audio[:, 0] ** 2 + audio[:, 1] ** 2) * (1.0 / np.sqrt(2))
+            left, right = stereo_channel_view(audio)
+            _linked_sc = np.sqrt(left**2 + right**2) * (1.0 / np.sqrt(2))
             _gated_sc = self._gate_channel(_linked_sc, sample_rate, config)
             # Derive per-sample linked gain (ratio of gated to original sidechain level).
             _sc_mag = np.abs(_linked_sc)
             _linked_gain = np.where(_sc_mag > 1e-9, np.abs(_gated_sc) / np.maximum(_sc_mag, 1e-9), 1.0)
             _linked_gain = np.clip(_linked_gain, 0.0, 1.0)
-            gated_audio = np.column_stack((_linked_gain * audio[:, 0], _linked_gain * audio[:, 1]))
+            gated_audio = stereo_like(_linked_gain * left, _linked_gain * right, audio)
         else:
             gated_audio = self._gate_channel(audio, sample_rate, config)
 
         # §2.45a Pre-Makeup-Guard: Erkennt Gates die Musik stärker dämpfen als Stille
         # (d. h. Gate-Schwellen zu weit offen für Musik-Pegel).
         # Geprüft VOR Makeup: silence_ratio ≈ 1.0 = Gate berührt Stille nicht → Musik wird gegated.
-        _orig_mono_pre = np.mean(audio, axis=1) if is_stereo else audio
-        _gated_mono_pre = np.mean(gated_audio, axis=1) if is_stereo else gated_audio
+        _orig_mono_pre = safe_to_mono(audio) if is_stereo else audio
+        _gated_mono_pre = safe_to_mono(gated_audio) if is_stereo else gated_audio
         _music_silence_alert_pre, _music_silence_wet_pre = self._check_music_silence_inversion(
             _orig_mono_pre, _gated_mono_pre, sample_rate
         )
@@ -309,8 +311,8 @@ class NoiseGate(PhaseInterface):
 
         # Low-frequency energy guard: prevent excessive bass/fundamental removal
         # especially critical for tape/vinyl where gate can eat musical low end
-        _orig_mono = np.mean(audio, axis=1) if is_stereo else audio
-        _gated_mono = np.mean(gated_audio, axis=1) if is_stereo else gated_audio
+        _orig_mono = safe_to_mono(audio) if is_stereo else audio
+        _gated_mono = safe_to_mono(gated_audio) if is_stereo else gated_audio
         sos_lf = signal.butter(4, 800, btype="low", fs=sample_rate, output="sos")
         _lf_orig = np.sqrt(np.mean(signal.sosfilt(sos_lf, _orig_mono) ** 2) + 1e-20)
         _lf_gated = np.sqrt(np.mean(signal.sosfilt(sos_lf, _gated_mono) ** 2) + 1e-20)
@@ -341,8 +343,8 @@ class NoiseGate(PhaseInterface):
         # §2.45a Post-Makeup-Guard: Stille-Anstieg nach Makeup prüfen.
         # Wenn Makeup-Gain die Stille ÜBER den Original-Rausch-Boden hebt und Musik
         # gleichzeitig deutlich unterdrückt wurde → sofortiger Rescue.
-        _orig_mono_post = np.mean(audio, axis=1) if is_stereo else audio
-        _gated_mono_post = np.mean(gated_audio, axis=1) if is_stereo else gated_audio
+        _orig_mono_post = safe_to_mono(audio) if is_stereo else audio
+        _gated_mono_post = safe_to_mono(gated_audio) if is_stereo else gated_audio
         _music_silence_alert_post, _music_silence_wet_post = self._check_music_silence_inversion(
             _orig_mono_post, _gated_mono_post, sample_rate
         )
@@ -372,7 +374,7 @@ class NoiseGate(PhaseInterface):
         noise_reduction_db = (_rms_gated_db - _rms_orig_db) if _rms_orig_db > -80.0 else 0.0
 
         execution_time = time.time() - start_time
-        rt_factor = execution_time / (len(audio) / sample_rate)
+        rt_factor = execution_time / (audio_sample_count(audio) / sample_rate)
         return PhaseResult(
             success=True,
             audio=gated_audio,

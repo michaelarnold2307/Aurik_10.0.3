@@ -284,7 +284,7 @@ except ImportError:
     def _bridge_get_unified_restorer_v3_instance() -> object | None:  # type: ignore[misc]
         return None
 
-    _bridge_PreAnalysisResult = None  # type: ignore[assignment,misc]  # noqa: N816
+    _bridge_PreAnalysisResult = None  # type: ignore[assignment,misc]
 
     def _bridge_run_pre_analysis(*args, **kwargs) -> object | None:  # type: ignore[misc]
         return None
@@ -944,6 +944,96 @@ def _normalize_audio(audio: np.ndarray) -> np.ndarray:
     # Clipping auf [-1, 1]
     audio = np.clip(audio, -1.0, 1.0)
     return audio
+
+
+# ── Single source of truth: Tonträger-Label-Mapping (§UI-CARRIER-DISPLAY-INVARIANT) ──
+# VERBOTEN: Diese Daten in lokalen Variablen innerhalb von Methoden/Callbacks zu duplizieren.
+# Alle Display-Pfade (Voranalyse, Live-Update, Post-Processing) MÜSSEN diese referenzieren.
+_CARRIER_ICONS_DIR: str = os.path.join(os.path.dirname(os.path.dirname(__file__)), "resources", "carrier_icons")
+
+_CARRIER_MEDIUM_DISPLAY: dict[str, tuple[str, str]] = {
+    # key: (icon_stem, german_label)
+    "wax_cylinder": ("wax_cylinder", "Wachswalze"),
+    "lacquer_disc": ("lacquer_disc", "Lackfolie"),
+    "shellac": ("shellac", "Schellack"),
+    "vinyl": ("vinyl", "Vinyl-Schallplatte"),
+    "wire_recording": ("wire_recording", "Drahtband"),
+    "reel_tape": ("reel_tape", "Spulenband"),
+    "tape": ("tape", "Kassette (Band)"),
+    "cassette": ("tape", "Kassette (Band)"),
+    "dat": ("dat", "DAT"),
+    "cd_digital": ("cd_digital", "CD"),
+    "cd": ("cd_digital", "CD"),
+    "digital": ("cd_digital", "Digital"),
+    "minidisc": ("minidisc", "MiniDisc"),
+    "mp3_low": ("mp3_low", "MP3 (schwach)"),
+    "mp3_high": ("mp3_high", "MP3"),
+    "damaged_mp3": ("damaged_mp3", "MP3 (defekt)"),
+    "aac": ("aac", "AAC"),
+    "streaming": ("streaming", "Streaming"),
+    "unknown": ("unknown", "Unbekannt"),
+}
+
+_CARRIER_EXT_DISPLAY: dict[str, tuple[str, str]] = {
+    # file extension → (icon_stem, german_label) for digital container display
+    ".mp3": ("mp3_high", "MP3"),
+    ".m4a": ("aac", "M4A/AAC"),
+    ".aac": ("aac", "AAC"),
+    ".ogg": ("streaming", "OGG"),
+    ".opus": ("streaming", "Opus"),
+    ".wma": ("streaming", "WMA"),
+    ".flac": ("cd_digital", "FLAC"),
+    ".wav": ("cd_digital", "WAV"),
+    ".aiff": ("cd_digital", "AIFF"),
+    ".aif": ("cd_digital", "AIFF"),
+}
+
+_CARRIER_ANALOG_MEDIA: frozenset[str] = frozenset(
+    {
+        "wax_cylinder",
+        "lacquer_disc",
+        "shellac",
+        "vinyl",
+        "wire_recording",
+        "reel_tape",
+        "tape",
+        "cassette",
+    }
+)
+
+
+def _render_carrier_html(icon_stem: str, label: str, icons_dir: str = _CARRIER_ICONS_DIR) -> str:
+    """Rendert ein Tonträger-Glied als HTML mit Icon oder Plaintext-Fallback.
+
+    §UI-CARRIER-DISPLAY-INVARIANT: Diese Funktion ist der EINZIGE Ort für
+    icon-to-HTML-Konversion in der Tonträgerketten-Anzeige.
+    """
+    if not icons_dir:
+        return label
+    try:
+        _svg = os.path.join(icons_dir, f"{icon_stem}.svg")
+        _png = os.path.join(icons_dir, f"{icon_stem}.png")
+        _p = _svg if os.path.isfile(_svg) else (_png if os.path.isfile(_png) else None)
+        if _p is None:
+            return label  # Kein Icon vorhanden → Plaintext-Fallback
+        return f'<img src="file:///{_p}" width="22" height="22" style="vertical-align:middle;">&nbsp;{label}'
+    except (OSError, TypeError, ValueError):
+        return label  # Defensive Plaintext-Fallback
+
+
+def _build_carrier_chain_html(chain_keys: list[str]) -> str:
+    """Baut die vollständige Ketten-HTML aus einer Liste von Medienschlüsseln.
+
+    §UI-CARRIER-DISPLAY-INVARIANT: Einzige Implementierung der Ketten-Zusammensetzung.
+    Nutzt immer _CARRIER_MEDIUM_DISPLAY + _render_carrier_html (Single Source of Truth).
+    Gibt '' zurück wenn chain_keys leer oder nur Whitespace-Einträge enthält.
+    """
+    parts: list[str] = []
+    for k in chain_keys:
+        k_str = str(k).strip().lower() if k else "unknown"
+        icon_stem, label = _CARRIER_MEDIUM_DISPLAY.get(k_str, ("unknown", k_str or "Unbekannt"))
+        parts.append(_render_carrier_html(icon_stem, label))
+    return "&nbsp;&nbsp;→&nbsp;&nbsp;".join(parts) if parts else ""
 
 
 def _resolve_export_sample_rate(settings: dict | None) -> int:
@@ -13017,64 +13107,27 @@ class ModernMainWindow(QMainWindow):
         self._apply_mode_recommendation_visuals()
 
     def _apply_authoritative_chain_display(self, chain_keys: list[str]) -> bool:
-        """Render an authoritative multi-link carrier chain into the main label."""
+        """Render an authoritative multi-link carrier chain into the main label.
+
+        §UI-CARRIER-DISPLAY-INVARIANT: Nutzt ausschließlich _build_carrier_chain_html()
+        (Modul-Level). Kein lokales _CI_MEDIUM_DATA oder _ci_html().
+        """
         if not hasattr(self, "detected_medium_label"):
             return False
         if not isinstance(chain_keys, list) or len(chain_keys) < 2:
-            return False
-
-        try:
-            _ci_icons_dir = os.path.join(
-                os.path.dirname(os.path.dirname(__file__)),
-                "resources",
-                "carrier_icons",
+            logger.debug(
+                "_apply_authoritative_chain_display: übersprungen – len=%d < 2 (chain=%s)",
+                len(chain_keys) if isinstance(chain_keys, list) else -1,
+                chain_keys,
             )
-        except (TypeError, AttributeError):
-            _ci_icons_dir = ""
-
-        _CI_MEDIUM_DATA: dict[str, tuple[str, str]] = {
-            "wax_cylinder": ("wax_cylinder", "Wachswalze"),
-            "lacquer_disc": ("lacquer_disc", "Lackfolie"),
-            "shellac": ("shellac", "Schellack"),
-            "vinyl": ("vinyl", "Vinyl-Schallplatte"),
-            "wire_recording": ("wire_recording", "Drahtband"),
-            "reel_tape": ("reel_tape", "Spulenband"),
-            "tape": ("tape", "Kassette (Band)"),
-            "cassette": ("tape", "Kassette (Band)"),
-            "dat": ("dat", "DAT"),
-            "cd_digital": ("cd_digital", "CD"),
-            "cd": ("cd", "CD"),
-            "digital": ("cd_digital", "Digital"),
-            "minidisc": ("minidisc", "MiniDisc"),
-            "mp3_low": ("mp3_low", "MP3 (schwach)"),
-            "mp3_high": ("mp3_high", "MP3"),
-            "damaged_mp3": ("damaged_mp3", "MP3 (defekt)"),
-            "aac": ("aac", "AAC"),
-            "streaming": ("streaming", "Streaming"),
-            "unknown": ("unknown", "Unbekannt"),
-        }
-
-        def _ci_html(icon_key: str, label: str) -> str:
-            if not _ci_icons_dir:
-                return label
-            try:
-                _svg = os.path.join(_ci_icons_dir, f"{icon_key}.svg")
-                _png = os.path.join(_ci_icons_dir, f"{icon_key}.png")
-                _p = _svg if os.path.isfile(_svg) else _png
-                return f'<img src="file:///{_p}" width="22" height="22" style="vertical-align:middle;">&nbsp;{label}'
-            except (OSError, TypeError):
-                return label
-
-        _parts: list[str] = []
-        for _k in chain_keys:
-            _k_str = str(_k).strip().lower() if _k else "unknown"
-            _icon_key, _label = _CI_MEDIUM_DATA.get(_k_str, ("unknown", "Unbekannt"))
-            _parts.append(_ci_html(_icon_key, _label))
-
-        if not _parts:
             return False
 
-        _chain_html = "&nbsp;&nbsp;→&nbsp;&nbsp;".join(_parts)
+        # §UI-CARRIER-DISPLAY-INVARIANT: Modul-Level-Helper nutzen
+        _chain_html = _build_carrier_chain_html(chain_keys)
+        if not _chain_html:
+            return False
+
+        # §UI-CARRIER-DISPLAY-INVARIANT: _carrier_bg_label MUSS synchron bleiben
         self._carrier_bg_label = _chain_html
         _ampel = self._render_ampel_html(int(getattr(self, "_carrier_bg_score", 0) or 0))
         _badge = getattr(self, "_era_genre_badge", "") or ""
@@ -13433,70 +13486,13 @@ class ModernMainWindow(QMainWindow):
                 _self._pa_sr_native = 0
 
                 import logging as _log_
-                import os as _os
 
                 _logger_ = _log_.getLogger(__name__)
 
-                # ── Icon/HTML helper ─────────────────────────────────────────
-                _ICONS_DIR = _os.path.join(
-                    _os.path.dirname(_os.path.dirname(__file__)),
-                    "resources",
-                    "carrier_icons",
-                )
-
-                def _html(icon_key: str, label: str) -> str:
-                    _svg = _os.path.join(_ICONS_DIR, f"{icon_key}.svg")
-                    _png = _os.path.join(_ICONS_DIR, f"{icon_key}.png")
-                    _p = _svg if _os.path.isfile(_svg) else _png
-                    return (
-                        f'<img src="file:///{_p}" width="22" height="22" style="vertical-align:middle;">&nbsp;{label}'
-                    )
-
-                _MEDIUM_DATA: dict[str, tuple[str, str]] = {
-                    "wax_cylinder": ("wax_cylinder", "Wachswalze"),
-                    "lacquer_disc": ("lacquer_disc", "Lackfolie"),
-                    "shellac": ("shellac", "Schellack"),
-                    "vinyl": ("vinyl", "Vinyl-Schallplatte"),
-                    "wire_recording": ("wire_recording", "Drahtband"),
-                    "reel_tape": ("reel_tape", "Spulenband"),
-                    "tape": ("tape", "Kassette (Band)"),
-                    "cassette": ("tape", "Kassette (Band)"),
-                    "dat": ("dat", "DAT"),
-                    "cd_digital": ("cd_digital", "CD"),
-                    "cd": ("cd", "CD"),
-                    "digital": ("cd_digital", "Digital"),
-                    "minidisc": ("minidisc", "MiniDisc"),
-                    "mp3_low": ("mp3_low", "MP3 (schwach)"),
-                    "mp3_high": ("mp3_high", "MP3"),
-                    "damaged_mp3": ("damaged_mp3", "MP3 (defekt)"),
-                    "aac": ("aac", "AAC"),
-                    "streaming": ("streaming", "Streaming"),
-                    "unknown": ("unknown", "Unbekannt"),
-                }
-                _EXT_DATA: dict[str, tuple[str, str]] = {
-                    ".mp3": ("mp3_high", "MP3"),
-                    ".m4a": ("aac", "M4A/AAC"),
-                    ".aac": ("aac", "AAC"),
-                    ".ogg": ("streaming", "OGG"),
-                    ".opus": ("streaming", "Opus"),
-                    ".wma": ("streaming", "WMA"),
-                    ".flac": ("cd_digital", "FLAC"),
-                    ".wav": ("cd_digital", "WAV"),
-                    ".aiff": ("cd_digital", "AIFF"),
-                    ".aif": ("cd_digital", "AIFF"),
-                }
-                _ANALOG_MEDIA = frozenset(
-                    {
-                        "wax_cylinder",
-                        "lacquer_disc",
-                        "shellac",
-                        "vinyl",
-                        "wire_recording",
-                        "reel_tape",
-                        "tape",
-                        "cassette",
-                    }
-                )
+                # §UI-CARRIER-DISPLAY-INVARIANT: Modul-Level-Konstanten verwenden —
+                # KEIN lokales Redefinieren von _MEDIUM_DATA/_CI_MEDIUM_DATA oder _html()/_ci_html().
+                # Alle Carrier-Display-Pfade nutzen: _CARRIER_MEDIUM_DISPLAY, _CARRIER_EXT_DISPLAY,
+                # _CARRIER_ANALOG_MEDIA, _render_carrier_html(), _build_carrier_chain_html()
 
                 def _on_scan_progress(pct: float) -> None:
                     _self._load_progress.emit(float(pct))
@@ -13550,27 +13546,32 @@ class ModernMainWindow(QMainWindow):
                     return
 
                 # ── Build carrier HTML from result.medium ────────────────────
+                # §UI-CARRIER-DISPLAY-INVARIANT: Modul-Level-Helpers nutzen.
                 _med = _result.medium  # type: ignore[union-attr]
                 _raw_medium = getattr(_med, "primary_material", None) or "unknown"
                 _score = round(float(getattr(_med, "confidence", 0)) * 5) if _med else 0
                 _chain_keys: list[str] = list(getattr(_med, "transfer_chain", None) or [])
-                _orig_html = _html(*_MEDIUM_DATA.get(_raw_medium, ("unknown", _raw_medium)))
-                if _chain_keys and len(_chain_keys) > 1:
-                    _lbl = "&nbsp;&nbsp;→&nbsp;&nbsp;".join(
-                        _html(*_MEDIUM_DATA.get(k, ("unknown", k))) for k in _chain_keys
-                    )
-                else:
+                _orig_stem, _orig_label = _CARRIER_MEDIUM_DISPLAY.get(_raw_medium, ("unknown", _raw_medium))
+                _orig_html = _render_carrier_html(_orig_stem, _orig_label)
+                if len(_chain_keys) > 1:
+                    # MediumDetector hat vollständige Kette — direkt verwenden
+                    _lbl = _build_carrier_chain_html(_chain_keys)
+                elif len(_chain_keys) == 1:
+                    # Einzel-Eintrag: analog? → Dateiendung als Container anhängen
                     _ext = Path(_file_key).suffix.lower()
-                    _ext_entry = _EXT_DATA.get(_ext)
-                    if _ext_entry and _raw_medium in _ANALOG_MEDIA:
-                        _lbl = f"{_orig_html}&nbsp;&nbsp;→&nbsp;&nbsp;{_html(*_ext_entry)}"
+                    _ext_entry = _CARRIER_EXT_DISPLAY.get(_ext)
+                    if _ext_entry and _raw_medium in _CARRIER_ANALOG_MEDIA:
+                        _lbl = f"{_orig_html}&nbsp;&nbsp;→&nbsp;&nbsp;{_render_carrier_html(*_ext_entry)}"
                     else:
                         _lbl = _orig_html
-                if not _chain_keys and _raw_medium in _ANALOG_MEDIA:
+                else:
+                    # Leere Kette: Analog-Medium + Dateiendung als Fallback
                     _ext = Path(_file_key).suffix.lower()
-                    _ext_entry = _EXT_DATA.get(_ext)
-                    if _ext_entry:
-                        _lbl = f"{_orig_html}&nbsp;&nbsp;→&nbsp;&nbsp;{_html(*_ext_entry)}"
+                    _ext_entry = _CARRIER_EXT_DISPLAY.get(_ext)
+                    if _ext_entry and _raw_medium in _CARRIER_ANALOG_MEDIA:
+                        _lbl = f"{_orig_html}&nbsp;&nbsp;→&nbsp;&nbsp;{_render_carrier_html(*_ext_entry)}"
+                    else:
+                        _lbl = _orig_html
 
                 # ── Build era/genre badge ────────────────────────────────────
                 decade_label = ""
@@ -13688,7 +13689,7 @@ class ModernMainWindow(QMainWindow):
                     )
 
                 # ── Build era/genre tooltip ──────────────────────────────────
-                _carrier_name = _MEDIUM_DATA.get(_raw_medium, ("unknown", _raw_medium))[1]
+                _carrier_name = _CARRIER_MEDIUM_DISPLAY.get(str(_raw_medium), ("unknown", str(_raw_medium)))[1]
                 tip_era = (
                     f"<b>Träger-Forensik &amp; Aufnahme-Epoche</b><br>Erkanntes Medium: <b>{_carrier_name}</b><br>"
                 )
@@ -15583,79 +15584,30 @@ class ModernMainWindow(QMainWindow):
                     )
             if isinstance(_chain_info, dict) and hasattr(self, "detected_medium_label"):
                 _chain_string = str(_chain_info.get("chain_string", "")) or ""
-                # BUGFIX: Backend speichert "transfer_chain", nicht "chain"
-                _chain_keys = _chain_info.get("transfer_chain") or _chain_info.get("chain") or []
+                # §UI-CARRIER-DISPLAY-INVARIANT: kette.as_dict() liefert "chain", NICHT "transfer_chain".
+                # VERBOTEN: _chain_info.get("transfer_chain") — dieser Key existiert in as_dict() nicht.
+                _chain_keys = _chain_info.get("chain") or []
                 # Vollständige Kette mit Icons anzeigen wenn ≥ 2 Glieder
                 if isinstance(_chain_keys, (list, tuple)) and len(_chain_keys) >= 2:
-                    # Icon-HTML-Helfer (konsistent mit _pre_analysis_bg)
-                    _ci_icons_dir = None
                     try:
-                        _ci_icons_dir = os.path.join(
-                            os.path.dirname(os.path.dirname(__file__)),
-                            "resources",
-                            "carrier_icons",
-                        )
-                    except (TypeError, AttributeError):
-                        pass
-
-                    _CI_MEDIUM_DATA: dict[str, tuple[str, str]] = {
-                        "wax_cylinder": ("wax_cylinder", "Wachswalze"),
-                        "lacquer_disc": ("lacquer_disc", "Lackfolie"),
-                        "shellac": ("shellac", "Schellack"),
-                        "vinyl": ("vinyl", "Vinyl-Schallplatte"),
-                        "wire_recording": ("wire_recording", "Drahtband"),
-                        "reel_tape": ("reel_tape", "Spulenband"),
-                        "tape": ("tape", "Kassette (Band)"),
-                        "cassette": ("tape", "Kassette (Band)"),
-                        "dat": ("dat", "DAT"),
-                        "cd_digital": ("cd_digital", "CD"),
-                        "cd": ("cd", "CD"),
-                        "digital": ("cd_digital", "Digital"),
-                        "minidisc": ("minidisc", "MiniDisc"),
-                        "mp3_low": ("mp3_low", "MP3 (schwach)"),
-                        "mp3_high": ("mp3_high", "MP3"),
-                        "damaged_mp3": ("damaged_mp3", "MP3 (defekt)"),
-                        "aac": ("aac", "AAC"),
-                        "streaming": ("streaming", "Streaming"),
-                        "unknown": ("unknown", "Unbekannt"),
-                    }
-
-                    def _ci_html(icon_key: str, label: str) -> str:
-                        if not _ci_icons_dir:
-                            return label  # Plain text fallback
-                        try:
-                            _svg = os.path.join(_ci_icons_dir, f"{icon_key}.svg")
-                            _png = os.path.join(_ci_icons_dir, f"{icon_key}.png")
-                            _p = _svg if os.path.isfile(_svg) else _png
-                            return (
-                                f'<img src="file:///{_p}" width="22" height="22" '
-                                f'style="vertical-align:middle;">&nbsp;{label}'
-                            )
-                        except (OSError, TypeError):
-                            return label  # Fallback if icon lookup fails
-
-                    try:
-                        _chain_parts = []
-                        for _k in _chain_keys:
-                            _k_str = str(_k).strip().lower() if _k else "unknown"
-                            _tuple = _CI_MEDIUM_DATA.get(_k_str, ("unknown", "Unbekannt"))
-                            _icon_key, _label = _tuple[0], _tuple[1]
-                            _chain_parts.append(_ci_html(_icon_key, _label))
-
-                        _chain_html = "&nbsp;&nbsp;→&nbsp;&nbsp;".join(_chain_parts)
+                        # §UI-CARRIER-DISPLAY-INVARIANT: Modul-Level-Helper nutzen
+                        _chain_html = _build_carrier_chain_html(list(_chain_keys))
                         # Autoritative Kette ERSETZT die Voranalyse-Anzeige.
-                        # INVARIANTE (§2.26 State-Synchronisation, 2026-04-14 Fix):
-                        # _carrier_bg_label MUSS immer = aktuelle detected_medium_label.text()
-                        # sein, weil Era-Badge-Block (nachfolgend) aus _carrier_bg_label rekonstruiert.
-                        # FEHLER: Wenn _carrier_bg_label ≠ detected_medium_label, dann:
-                        #   Era-Badge liest alte _carrier_bg_label → schreibt detected_medium_label
-                        #   mit älterem Content → Kettenanalyse wird überschrieben (SILENT DATA LOSS)
+                        # §UI-CARRIER-DISPLAY-INVARIANT: _carrier_bg_label MUSS immer
+                        # synchron mit detected_medium_label sein, weil Era-Badge-Block
+                        # (nachfolgend) aus _carrier_bg_label rekonstruiert.
                         if _chain_html:
                             self.detected_medium_label.setText(_chain_html)
                             self._carrier_bg_label = _chain_html  # ← CRITICAL State sync
                             logger.debug("detected_medium_label: Kettenanalyse ersetzt — %s", _chain_string)
                     except Exception as _html_exc:
                         logger.debug("Kettenanalyse HTML-Bildung fehlgeschlagen: %s", _html_exc)
+                else:
+                    logger.debug(
+                        "_on_item_finished_with_result: Kettenanzeige übersprungen – len=%d < 2 (chain=%s)",
+                        len(_chain_keys) if isinstance(_chain_keys, (list, tuple)) else -1,
+                        _chain_keys,
+                    )
 
                 # Vollständige Kette immer als Tooltip-Info (unabhängig vom HTML)
                 if _chain_string:
@@ -15680,6 +15632,12 @@ class ModernMainWindow(QMainWindow):
         # Analyse-Kette → era_decade im RestorationResult ist die verlässliche Quelle.
         try:
             _final_decade = getattr(restoration_result, "era_decade", None) if restoration_result is not None else None
+            # AurikErgebnis hat kein era_decade-Feld — Fallback auf metadata["era_decade"]
+            # (UV3 schreibt era_decade in RestorationResult.metadata → _rest_metadata → AurikErgebnis.metadata)
+            if _final_decade is None and restoration_result is not None:
+                _meta_era = getattr(restoration_result, "metadata", {}) or {}
+                if isinstance(_meta_era, dict):
+                    _final_decade = _meta_era.get("era_decade")
             if _final_decade is not None and hasattr(self, "detected_medium_label"):
                 # Datei-Abgleich: Era-Badge nur aktualisieren wenn das fertige Item
                 # zur aktuell im UI geladenen Datei gehört. Andernfalls würde das

@@ -153,8 +153,6 @@ class ArtifactDetectionPlugin:
 
 # Beispiel für API-Nutzung
 if __name__ == "__main__":
-    import soundfile as sf
-
     from backend.file_import import load_audio_file
 
     _res = load_audio_file("audio_examples/example.wav")

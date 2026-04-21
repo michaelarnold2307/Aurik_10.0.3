@@ -319,7 +319,7 @@ class TapeHissReductionPhase(PhaseInterface):
         )
         self._omlsa_runtime_profile_current = omlsa_runtime_profile
 
-        # Skip for digital sources
+        # Skip for digital sources (MaterialType enum)
         if material in [MaterialType.CD_DIGITAL, MaterialType.STREAMING]:
             audio = np.nan_to_num(audio, nan=0.0, posinf=0.0, neginf=0.0)
             audio = np.clip(audio, -1.0, 1.0)
@@ -333,6 +333,46 @@ class TapeHissReductionPhase(PhaseInterface):
                     "omlsa_runtime_profile": omlsa_runtime_profile,
                 },
                 warnings=["Digital source - no tape hiss expected"],
+            )
+
+        # Skip for digital sources identified by string key (mp3, aac, dat, cd variants).
+        # These sources never have tape hiss; OMLSA processing would only add artefacts (§0).
+        _DIGITAL_KEYS = frozenset(
+            {
+                "mp3_low",
+                "mp3_medium",
+                "mp3_high",
+                "aac",
+                "aac_low",
+                "aac_high",
+                "cd_digital",
+                "dat",
+                "digital",
+                "streaming",
+                "mp3",
+            }
+        )
+        _mat_key_norm = material_key.lower().replace("-", "_").replace(" ", "_")
+        if _mat_key_norm in _DIGITAL_KEYS:
+            audio = np.nan_to_num(audio, nan=0.0, posinf=0.0, neginf=0.0)
+            audio = np.clip(audio, -1.0, 1.0)
+            logger.info(
+                "Phase 29: Digital-Material '%s' — No-Op (no tape hiss expected, §0 Primum non nocere)",
+                material_key,
+            )
+            return PhaseResult(
+                success=True,
+                audio=audio.copy(),
+                execution_time_seconds=time.time() - start_time,
+                metadata={
+                    "material": material_key,
+                    "processing": "skipped_digital",
+                    "reason": "digital_source_no_tape_hiss",
+                    "omlsa_runtime_profile": omlsa_runtime_profile,
+                    "rms_drop_db": 0.0,
+                    "loudness_makeup_db": 0.0,
+                },
+                warnings=[f"Digital source '{material_key}' - tape hiss reduction skipped"],
             )
 
         # §2.47 [RELEASE_MUST] SNR > 35 dB Dry-Signal Bypass
@@ -625,8 +665,10 @@ class TapeHissReductionPhase(PhaseInterface):
                             _over_29, _sign_29 * (0.92 + 0.08 * np.tanh((_abs_29 - 0.92) / 0.08)), processed_audio
                         )
                 processed_audio = np.clip(processed_audio, -1.0, 1.0).astype(np.float32)
-                rms_out = float(np.sqrt(np.mean(np.asarray(processed_audio, dtype=np.float64) ** 2) + 1e-12))
-                rms_drop_db = 20.0 * np.log10(max(rms_out / rms_in, 1e-30))
+                # §2.45a-I: re-measure after makeup-gain with Gated-RMS (consistent with pre-phase measurement)
+                _rms_out_db_final = _rms_dbfs_gated(np.asarray(processed_audio, dtype=np.float32))
+                rms_out = float(10.0 ** (_rms_out_db_final / 20.0))
+                rms_drop_db = (_rms_out_db_final - _rms_in_db) if _rms_in_db > -90.0 else 0.0
                 logger.info(
                     "Phase 29 loudness-preservation: material=%s rms_drop=%.2f dB via makeup %.2f dB",
                     material_key,

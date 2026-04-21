@@ -121,7 +121,9 @@ def _wpe_numpy(
         Phi += 1e-6 * np.eye(L, dtype=np.complex64)[np.newaxis, ...]
 
         try:
-            w = np.linalg.solve(Phi, psi)  # [K, L]
+            # psi is [K, L] — np.linalg.solve gufunc requires RHS shape [K, L, N].
+            # Expand to [K, L, 1], solve, then squeeze back to [K, L].
+            w = np.linalg.solve(Phi, psi[..., np.newaxis])[..., 0]  # [K, L]
         except np.linalg.LinAlgError:
             break  # singulaere Matrix -> Abbruch
 
@@ -150,7 +152,7 @@ def _wpe_stft(
     if mono.ndim != 1:
         mono = mono.mean(axis=0) if mono.shape[0] <= 2 else mono.mean(axis=1)
         mono = mono.astype(np.float32)
-    _sig_len = int(len(mono))
+    _sig_len = len(mono)
     if _sig_len < 8:
         return np.clip(np.nan_to_num(mono.astype(np.float32), nan=0.0), -1.0, 1.0)
     _nperseg = int(min(_N_FFT, _sig_len))
@@ -197,7 +199,7 @@ def _omlsa_fallback(
     if mono.ndim != 1:
         mono = mono.mean(axis=0) if mono.shape[0] <= 2 else mono.mean(axis=1)
         mono = mono.astype(np.float32)
-    _sig_len = int(len(mono))
+    _sig_len = len(mono)
     if _sig_len < 8:
         return np.clip(np.nan_to_num(mono.astype(np.float32), nan=0.0), -1.0, 1.0)
     _nperseg = int(min(1024, _sig_len))

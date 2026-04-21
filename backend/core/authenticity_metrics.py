@@ -586,8 +586,15 @@ class RoomToneDetector:
             left = audio[0]
             right = audio[1]
 
-            # Correlation between channels
-            correlation = np.corrcoef(left, right)[0, 1]
+            # Correlation between channels (NaN-safe: guard against near-constant signals)
+            _sl = float(np.std(left))
+            _sr = float(np.std(right))
+            if _sl > 1e-8 and _sr > 1e-8:
+                correlation = float(np.corrcoef(left, right)[0, 1])
+                if not np.isfinite(correlation):
+                    correlation = 1.0
+            else:
+                correlation = 1.0  # Both constant — mono-equivalent
             spatial_correlation = float(1.0 - abs(correlation))  # 0=mono, 1=wide
         else:
             spatial_correlation = 0.0  # Mono

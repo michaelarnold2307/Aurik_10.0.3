@@ -737,7 +737,8 @@ def get_experience_insights(result: Any) -> dict[str, Any]:
     if not isinstance(_stage_notes, dict):
         _stage_notes = {}
 
-    _recommendations = _auto.get("recommendations") if isinstance(_auto.get("recommendations"), list) else []
+    _rec_raw = _auto.get("recommendations")
+    _recommendations: list[Any] = list(_rec_raw) if isinstance(_rec_raw, list) else []
 
     def _safe01(v: Any) -> float:
         try:
@@ -778,7 +779,8 @@ def get_experience_insights(result: Any) -> dict[str, Any]:
     _cnt = max(_cnt, len(_normalized_recommendations), 0)
 
     _tc = _meta.get("team_coordination") if isinstance(_meta.get("team_coordination"), dict) else {}
-    _tc_events_raw = _tc.get("events") if isinstance(_tc.get("events"), list) else []
+    _tc_events_raw_val = _tc.get("events")
+    _tc_events_raw: list[Any] = list(_tc_events_raw_val) if isinstance(_tc_events_raw_val, list) else []
     _tc_events: list[dict[str, Any]] = []
     for _tce in _tc_events_raw:
         if not isinstance(_tce, dict):
@@ -796,7 +798,8 @@ def get_experience_insights(result: Any) -> dict[str, Any]:
     except Exception:
         _tc_count = len(_tc_events)
     _pt_summary = dict(_tc.get("phase_type_summary", {}) or {})
-    _fqf_trace_raw = _fqf.get("recovery_trace") if isinstance(_fqf.get("recovery_trace"), list) else []
+    _fqf_trace_raw_val = _fqf.get("recovery_trace")
+    _fqf_trace_raw: list[Any] = list(_fqf_trace_raw_val) if isinstance(_fqf_trace_raw_val, list) else []
     _fqf_trace: list[dict[str, Any]] = []
     for _tr in _fqf_trace_raw:
         if not isinstance(_tr, dict):
@@ -932,7 +935,7 @@ def get_experience_insights(result: Any) -> dict[str, Any]:
                 "fallback": str(fb.get("fallback", "") or ""),
                 "reason": str(fb.get("reason", "") or ""),
             }
-            for fb in (_meta.get("ml_fallbacks_used") if isinstance(_meta.get("ml_fallbacks_used"), list) else [])
+            for fb in (list(_meta["ml_fallbacks_used"]) if isinstance(_meta.get("ml_fallbacks_used"), list) else [])
             if isinstance(fb, dict)
         ],
         # §0d Carrier-Chain-Recovery-Ratio — Pflichtfeld
@@ -1207,7 +1210,7 @@ def build_export_quality_gate_payload(result: object) -> dict[str, Any]:
         "recovery_attempted": bool(fqf_attempts > 0),
         "best_possible_reached": bool(fqf_status == "recovered"),
         "degradation_status": degradation_status,
-        "fallback_quality_floor": dict(fqf),
+        "fallback_quality_floor": dict(fqf) if fqf else {},
         "warnings": [str(w) for w in warnings],
     }
 
@@ -1673,3 +1676,65 @@ def get_load_audio_fn():
     from backend.file_import import load_audio_file  # type: ignore[import]
 
     return load_audio_file
+
+
+# ---------------------------------------------------------------------------
+# Album Consistency Pass  (§ Album-Konsistenz-Pass)
+# ---------------------------------------------------------------------------
+
+
+def run_album_consistency_pass(
+    output_files: list[str],
+    sr: int = 48000,
+    dry_run: bool = False,
+) -> dict:
+    """Run post-batch album consistency pass over a list of restored output files.
+
+    Aligns LUFS (±3 dB max) and spectral tilt (±1.5 dB/oct max shelf) across
+    songs that deviate more than the outlier threshold from the album median.
+    Songs already within the median ± threshold are NOT touched (§0).
+
+    Args:
+        output_files:  Paths to fully-restored WAV/FLAC files.
+        sr:            Sample rate to assume (default 48000).
+        dry_run:       Analyze only — do not rewrite any files.
+
+    Returns:
+        Serializable dict with album-level stats and per-song correction report.
+    """
+    from backend.core.album_consistency import get_album_consistency_pass as _get
+
+    _pass = _get()
+    _report = _pass.process_output_files(output_files, sr=sr, dry_run=dry_run)
+
+    songs_out = []
+    for _sp in _report.songs:
+        songs_out.append(
+            {
+                "file": _sp.file_path,
+                "lufs": float(_sp.lufs),
+                "spectral_tilt": float(_sp.spectral_tilt),
+                "dynamic_range_db": float(_sp.dynamic_range_db),
+                "lufs_correction_db": float(_sp.lufs_correction_db),
+                "tilt_correction_db": float(_sp.tilt_correction_db),
+                "correction_applied": bool(_sp.correction_applied),
+            }
+        )
+
+    return {
+        "n_songs": _report.n_songs,
+        "album_lufs_median": float(_report.album_lufs_median)
+        if _report.album_lufs_median == _report.album_lufs_median
+        else None,
+        "album_tilt_median": float(_report.album_tilt_median)
+        if _report.album_tilt_median == _report.album_tilt_median
+        else None,
+        "album_dr_median": float(_report.album_dr_median)
+        if _report.album_dr_median == _report.album_dr_median
+        else None,
+        "corrections_applied": _report.corrections_applied,
+        "skipped_insufficient_songs": _report.skipped_insufficient_songs,
+        "elapsed_seconds": float(_report.elapsed_seconds),
+        "dry_run": dry_run,
+        "songs": songs_out,
+    }

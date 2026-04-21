@@ -38,6 +38,8 @@ import time
 import numpy as np
 import scipy.signal as sig
 
+from backend.core.audio_utils import to_channels_last
+
 from .phase_interface import PhaseCategory, PhaseInterface, PhaseMetadata, PhaseResult
 
 logger = logging.getLogger(__name__)
@@ -96,6 +98,7 @@ class TruePeakLimiterPhase(PhaseInterface):
         sample_rate = kwargs.get("sample_rate", 48000)
         assert sample_rate == 48000, f"SR muss 48000 Hz sein, erhalten: {sample_rate}"
         self.validate_input(audio)
+        audio, _p47_transposed = to_channels_last(audio)
         t0 = time.time()
 
         phase_locality_factor = float(kwargs.get("phase_locality_factor", 1.0))

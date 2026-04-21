@@ -6332,9 +6332,11 @@ class DefectScanner:
             # Normal stereo: coherence 0.3–0.7; Crosstalk: >0.85
             raw_sev = float(np.clip((mean_coherence - 0.75) / 0.20, 0.0, 1.0))
 
-            # Time-domain cross-correlation peak (delayed crosstalk)
+            # Time-domain cross-correlation peak (delayed crosstalk) — FFT-based
             max_delay = int(0.002 * sr)  # Max 2ms delay for mechanical crosstalk
-            xcorr = np.correlate(left[:n_fft], right[:n_fft], mode="full")
+            from backend.core.core_utils import fft_crosscorr
+
+            xcorr = fft_crosscorr(left[:n_fft], right[:n_fft])
             center = len(xcorr) // 2
             side_peak = float(np.max(np.abs(xcorr[center + 1 : center + max_delay + 1])))
             center_peak = float(np.abs(xcorr[center])) + 1e-12

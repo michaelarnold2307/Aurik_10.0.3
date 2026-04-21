@@ -1199,19 +1199,19 @@ def compute_erb_masking_threshold(
 
 
 __all__ = [
-    "BARK_EDGES_HZ",
     "BARK_CENTERS_HZ",
+    "BARK_EDGES_HZ",
     "N_BARK",
     "ZwickerLoudnessResult",
-    "compute_specific_loudness_zwicker",
-    "compute_specific_loudness_array",
+    "apply_psychoacoustic_masking_clamp",
     "compute_bark_energy_profile",
-    "evaluate_mid_pipeline_loudness_delta",
+    "compute_erb_masking_threshold",
+    "compute_loudness_envelope_delta",
     "compute_noise_texture_profile",
+    "compute_specific_loudness_array",
+    "compute_specific_loudness_zwicker",
+    "compute_time_varying_loudness",
+    "evaluate_mid_pipeline_loudness_delta",
     "get_material_noise_texture",
     "synthesize_comfort_noise",
-    "compute_time_varying_loudness",
-    "compute_loudness_envelope_delta",
-    "apply_psychoacoustic_masking_clamp",
-    "compute_erb_masking_threshold",
 ]

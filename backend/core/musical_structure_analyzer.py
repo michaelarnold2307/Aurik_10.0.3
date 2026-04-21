@@ -186,8 +186,10 @@ class MusicalStructureAnalyzer:
             )
             if frame_e.size < 4:
                 return 120.0
-            ac = np.correlate(frame_e - frame_e.mean(), frame_e - frame_e.mean(), mode="full")
-            ac = ac[ac.size // 2 :]
+            from backend.core.core_utils import fft_autocorr
+
+            frame_e_centered = frame_e - frame_e.mean()
+            ac = fft_autocorr(frame_e_centered)
             min_lag = max(1, int(sr * 60 / (200 * hop)))
             max_lag = min(ac.size - 1, int(sr * 60 / (60 * hop)))
             if max_lag <= min_lag:

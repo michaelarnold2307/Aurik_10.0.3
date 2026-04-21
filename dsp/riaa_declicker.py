@@ -5,7 +5,6 @@ Dieses Modul entfernt Klicks/Knackser speziell nach RIAA-Kennlinie (Stub).
 """
 
 import logging
-import warnings
 from typing import Any
 
 import numpy as np

@@ -128,6 +128,13 @@ class ApolloPlugin:
 
     _BUDGET_NAME: str = "Apollo"
     _BUDGET_SIZE_GB: float = 0.8  # Erhöht von 0.15 GB (zu klein für lange Audio + TorchScript)
+    # Wall-budget wird audio-adaptiv berechnet: 2× Echtzeit, min 60 s, max 240 s.
+    # Apollo ist ein leichtes BSNet-Feed-Forward-Modell (kein Diffusions-Modell wie AudioSR).
+    # Bei Überschreitung: DSP-Fallback für restliche Chunks — kein Hardstop.
+    _WALL_BUDGET_FACTOR: float = 2.0  # Faktor × Audio-Dauer
+    _WALL_BUDGET_MIN_S: float = 60.0  # Untergrenze (sehr kurze Clips)
+    _WALL_BUDGET_MAX_S: float = 240.0  # Obergrenze (konsistent mit §phase_55: 40–240 s)
+    _CHUNK_S: float = 30.0  # Apollo-Inferenz-Chunk: 30 s → kontrolliertes RAM-Profil + Budget-Checks
 
     def _try_load_model(self) -> None:
         """Lädt Apollo TorchScript-Modell; aktiviert DSP-Fallback bei Fehler."""
@@ -318,6 +325,8 @@ class ApolloPlugin:
             logger.debug("Apollo: Segment zu kurz (%d < %d samples) → DSP-Fallback", len(audio), _min_at_sr)
             return self._repair_dsp_fallback(audio, sr, material)
         try:
+            import time
+
             import torch
             import torchaudio
 
@@ -325,33 +334,69 @@ class ApolloPlugin:
             if model is None:
                 raise RuntimeError("Apollo TorchScript-Modell nicht initialisiert")
 
-            # 1. Resample 48000 → 44100
-            t = torch.from_numpy(audio).float().unsqueeze(0).unsqueeze(0).to(self._device)  # [1,1,T]
-            if sr != self._APOLLO_SR:
-                t = torchaudio.functional.resample(t, sr, self._APOLLO_SR)
-
-            # 2. Modell-Inferenz
-            with torch.no_grad():
-                out = model(t)  # [1,1,T']
-
-            # Free input tensor immediately — no longer needed
-            del t
-
-            # 3. Resample 44100 → 48000
-            if sr != self._APOLLO_SR:
-                out = torchaudio.functional.resample(out, self._APOLLO_SR, sr)
-
-            reconstructed = out.squeeze().cpu().numpy()  # [T]
-
-            # Free output tensor — data is in numpy now
-            del out
-
-            # 4. Länge angleichen + Guard
-            n = min(len(audio), len(reconstructed))
+            wall_start = time.monotonic()
+            audio_duration_s = len(audio) / sr
+            wall_budget = float(
+                np.clip(
+                    audio_duration_s * self._WALL_BUDGET_FACTOR,
+                    self._WALL_BUDGET_MIN_S,
+                    self._WALL_BUDGET_MAX_S,
+                )
+            )
+            chunk_samples = int(self._CHUNK_S * sr)
+            n_total = len(audio)
             result = audio.copy()
-            result[:n] = np.nan_to_num(reconstructed[:n], nan=0.0, posinf=0.0, neginf=0.0)
-            del reconstructed
-            return np.clip(result, -1.0, 1.0).astype(np.float32)
+
+            pos = 0
+            while pos < n_total:
+                # Wall-time budget check before each chunk
+                elapsed = time.monotonic() - wall_start
+                if elapsed > wall_budget:
+                    logger.warning(
+                        "Apollo: Wall-time budget %.0f s überschritten (%.1f s) — "
+                        "restliche %d Samples als DSP-Fallback",
+                        wall_budget,
+                        elapsed,
+                        n_total - pos,
+                    )
+                    result[pos:] = self._repair_dsp_fallback(audio[pos:], sr, material)
+                    break
+
+                chunk_end = min(pos + chunk_samples, n_total)
+                chunk = audio[pos:chunk_end]
+
+                # Skip chunks that are too short for Apollo
+                if len(chunk) < _min_at_sr:
+                    pos = chunk_end
+                    continue
+
+                # 1. Resample 48000 → 44100
+                t = torch.from_numpy(chunk).float().unsqueeze(0).unsqueeze(0).to(self._device)  # [1,1,T]
+                if sr != self._APOLLO_SR:
+                    t = torchaudio.functional.resample(t, sr, self._APOLLO_SR)
+
+                # 2. Modell-Inferenz
+                with torch.no_grad():
+                    out = model(t)  # [1,1,T']
+
+                del t
+
+                # 3. Resample 44100 → 48000
+                if sr != self._APOLLO_SR:
+                    out = torchaudio.functional.resample(out, self._APOLLO_SR, sr)
+
+                reconstructed = out.squeeze().cpu().numpy()  # [T_chunk]
+                del out
+
+                # 4. Einschreiben (Länge sichern)
+                n_chunk = min(len(chunk), len(reconstructed))
+                chunk_result = np.nan_to_num(reconstructed[:n_chunk], nan=0.0, posinf=0.0, neginf=0.0)
+                del reconstructed
+                result[pos : pos + n_chunk] = np.clip(chunk_result, -1.0, 1.0)
+
+                pos = chunk_end
+
+            return result.astype(np.float32)
 
         except Exception as exc:
             if self._device != "cpu":

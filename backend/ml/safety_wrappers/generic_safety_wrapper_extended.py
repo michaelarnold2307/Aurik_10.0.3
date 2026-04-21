@@ -527,8 +527,15 @@ class GenericSpectralSafety(BaseSafetyWrapper):
         left = stereo_audio[0]
         right = stereo_audio[1]
 
-        # Cross-correlation
-        correlation = np.corrcoef(left, right)[0, 1]
+        # Cross-correlation (NaN-safe)
+        _sl = float(np.std(left))
+        _sr = float(np.std(right))
+        if _sl > 1e-8 and _sr > 1e-8:
+            correlation = float(np.corrcoef(left, right)[0, 1])
+            if not np.isfinite(correlation):
+                correlation = 1.0
+        else:
+            correlation = 1.0
 
         # Map to 0-1 (0 = out of phase, 1 = in phase)
         coherence = (correlation + 1.0) / 2.0
@@ -708,14 +715,17 @@ class GenericSpatialSafety(BaseSafetyWrapper):
         left = stereo_audio[0]
         right = stereo_audio[1]
 
-        # Correlation-based width metric
-        correlation = np.corrcoef(left, right)[0, 1]
+        # Correlation-based width metric (NaN-safe)
+        _sl = float(np.std(left))
+        _sr = float(np.std(right))
+        if _sl > 1e-8 and _sr > 1e-8:
+            correlation = float(np.corrcoef(left, right)[0, 1])
+            if not np.isfinite(correlation):
+                correlation = 1.0
+        else:
+            correlation = 1.0  # Constant signals — treat as mono
 
         # Width = 1 - correlation
-        # correlation = 1 → width = 0 (mono)
-        # correlation = 0 → width = 1 (fully decorrelated)
-        # correlation = -1 → width = 2 (completely out of phase)
-
         width = 1.0 - correlation
 
         return float(np.clip(width, 0.0, 1.0))

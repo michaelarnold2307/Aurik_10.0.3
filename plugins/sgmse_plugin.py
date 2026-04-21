@@ -361,7 +361,21 @@ class SGMSEPlusPlugin:
 
         def process_channel(ch: np.ndarray) -> np.ndarray:
             if _use_ml:
-                return self._enhance_chunked(ch, sigma, max_runtime_s=max_runtime_s)
+                try:
+                    from backend.core.plugin_lifecycle_manager import get_plugin_lifecycle_manager as _get_plm
+
+                    _plm = _get_plm()
+                    _plm.set_active("SGMSE+", True)
+                except Exception:
+                    _plm = None
+                try:
+                    return self._enhance_chunked(ch, sigma, max_runtime_s=max_runtime_s)
+                finally:
+                    try:
+                        if _plm is not None:
+                            _plm.set_active("SGMSE+", False)
+                    except Exception:
+                        pass
             return self._wpe_fallback(ch, sr)
 
         if stereo:
@@ -438,12 +452,15 @@ class SGMSEPlusPlugin:
         # For 225 s audio this allows ~9.4 min ML wall-time before controlled fallback.
         # Hard-cap per channel to avoid pathological long tails on CPU TorchScript
         # (critical for UAT real-audio paths with strict global pytest timeouts).
-        _base_budget_s = float(np.clip(1.10 * _audio_s, 35.0, 75.0))
+        # Budget: 2× Echtzeit, min 60 s, max 300 s.
+        # Vorher: Hard-Cap 75 s → nach 1 CPU-Chunk (70 s) Projektion schlägt fehl → WPE für Rest.
+        # Jetzt: 300 s max — auf GPU (ROCm) irrelevant, auf CPU realistisch für lange Audios.
+        _base_budget_s = float(np.clip(2.0 * _audio_s, 60.0, 300.0))
         if max_runtime_s is not None:
             # Use the explicitly provided budget directly (no lower-bound clip) so that
             # callers with strict timeouts (tests, UAT) get exact control.  Only cap the
-            # upper end to avoid infinite budgets (> 300 s is pathological).
-            _runtime_budget_s = min(_base_budget_s, float(min(max_runtime_s, 300.0)))
+            # upper end to avoid infinite budgets (> 600 s is pathological).
+            _runtime_budget_s = min(_base_budget_s, float(min(max_runtime_s, 600.0)))
         else:
             _runtime_budget_s = _base_budget_s
         while pos < n_total:
@@ -666,7 +683,11 @@ class SGMSEPlusPlugin:
         Time-dimension is zero-padded to a multiple of _UNET_ALIGN to prevent
         encoder/decoder skip-connection shape mismatches in NCSNPP.
         """
-        if self._ts_model is None and self._eager_model is None:
+        # Capture model refs atomically — PLM may set _ts_model/eager_model to None
+        # between the None-check and the lambda invocation in _run_with_timeout (race cond.)
+        _ts = self._ts_model
+        _eager = self._eager_model
+        if _ts is None and _eager is None:
             return self._wpe_fallback(mono, _SR)
         # Minimum-Input-Guard: NCSNPP U-Net 4×4 kernel requires STFT freq/time dims > 4.
         # Short segments produce too few STFT bins → RuntimeError:
@@ -728,15 +749,15 @@ class SGMSEPlusPlugin:
                         self._device
                     )
                     y_t = xt_t
-                    if self._ts_model is not None:
+                    if _ts is not None:
                         out_t = self._run_with_timeout(
-                            lambda xt_t=xt_t, y_t=y_t, t_t=t_t: self._ts_model(xt_t, y_t, t_t),
+                            lambda xt_t=xt_t, y_t=y_t, t_t=t_t, _m=_ts: _m(xt_t, y_t, t_t),
                             timeout_s=self.FORWARD_TIMEOUT_S,
                         )
                     else:
                         if self._eager_backbone == "ncsnpp_v2":
                             out_t = self._run_with_timeout(
-                                lambda xt_t=xt_t, y_t=y_t, t_t=t_t: self._eager_model(xt_t, y_t, t_t),
+                                lambda xt_t=xt_t, y_t=y_t, t_t=t_t, _m=_eager: _m(xt_t, y_t, t_t),
                                 timeout_s=self.FORWARD_TIMEOUT_S,
                             )
                         else:
@@ -744,7 +765,7 @@ class SGMSEPlusPlugin:
                             y_complex = torch.complex(y_t[:, 0], y_t[:, 1])
                             dnn_input = torch.stack([x_complex, y_complex], dim=1)
                             out_complex = -self._run_with_timeout(
-                                lambda dnn_input=dnn_input, t_t=t_t: self._eager_model(dnn_input, t_t),
+                                lambda dnn_input=dnn_input, t_t=t_t, _m=_eager: _m(dnn_input, t_t),
                                 timeout_s=self.FORWARD_TIMEOUT_S,
                             )
                             out_t = torch.stack([out_complex.real, out_complex.imag], dim=1)

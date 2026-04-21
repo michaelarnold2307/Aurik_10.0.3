@@ -112,7 +112,9 @@ class MergeStemsSOTA:
         aligned = [ref]
         for s in stems[1:]:
             s_arr: np.ndarray = np.asarray(s)
-            shift = int(np.argmax(np.correlate(ref, s_arr, mode="full"))) - len(s_arr) + 1
+            from backend.core.core_utils import fft_crosscorr
+
+            shift = int(np.argmax(fft_crosscorr(ref, s_arr))) - len(s_arr) + 1
             if shift > 0:
                 s_aligned = np.pad(s_arr, (shift, 0), mode="constant")[: len(ref)]
             elif shift < 0:

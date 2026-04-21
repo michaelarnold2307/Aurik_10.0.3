@@ -575,13 +575,11 @@ class HarmonicPreservationGuard:
             except Exception as exc:
                 logger.debug("pYIN f₀-Track fehlgeschlagen: %s", exc)
 
-        # Tier-3: Globale Autokorrelation → konstante f₀ für alle Frames
-        autocorr = np.correlate(
-            mono[: min(len(mono), sr)],
-            mono[: min(len(mono), sr)],
-            mode="full",
-        )
-        autocorr = autocorr[len(autocorr) // 2 :]
+        # Tier-3: Globale Autokorrelation → konstante f₀ für alle Frames — FFT-based O(N log N)
+        from backend.core.core_utils import fft_autocorr
+
+        mono_seg = mono[: min(len(mono), sr)]
+        autocorr = fft_autocorr(mono_seg)
         min_lag = max(1, int(sr / 1200.0))
         max_lag = min(int(sr / 50.0), len(autocorr) - 1)
         if max_lag > min_lag:

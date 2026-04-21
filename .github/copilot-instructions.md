@@ -176,6 +176,8 @@ logger.info("phase=%s score=%.2f", phase, score)  # kein print()
 | Dolby NR Inversion | Statische globale HF-Absenkung ohne Typ-Erkennung | `DolbyNRDetector.detect()` → `phase_04(dolby_nr_type=..., dolby_nr_confidence=...)` (§6.7 Phase 1c) |
 | Head-Bump Tape | Kein LF-Kerbfilter bei Tape-Material | `phase_04(tape_speed_ips=X)` → HEAD_BUMP_PROFILES[nearest_speed] parametrischer Dip |
 | Inpainting HF-Halluzination | AR/Diffusion ohne BW-Begrenzung | `_MATERIAL_BW_CAP_HZ` in phase_55 — wax_cylinder ≤ 5kHz, wire_recording ≤ 6kHz (§0) |
+| Analogquelle in digitalem Dateicontainer supprimieren | `file_ext=.mp3` → alle Analog-Posteriors auf 0 → vinyl/reel_tape dauerhaft unerkannt — korrekte Kette `vinyl → reel_tape → mp3_low` kollabiert zu `mp3_low` (Datenmüll — falsche Phasen, falsche Ziele) | Fallback-Gate Pflicht: `rotation_strength ≥ 0.30 AND conf ≥ 0.20 → vinyl akzeptiert`. `file_ext` bestimmt **ausschließlich die letzte Kettenstufe**, NICHT die Quellanalyse (§2.46b) |
+| reel_tape vs. cassette ohne Disambiguation | Universelle `wow_flutter`-Schwelle ohne Disc-Kontext → Studio-Bandmaschine wird als Kassette klassifiziert → falsche Phasen (phase_12 zu stark, phase_29-Profil falsch) | Studio-Pfad wenn `has_disc AND codec_contamination > 0.5`: Schwelle `max(0.010, 0.025×(1−0.55×cc))` (IEC 60386:1987); Disambiguation: `wow < 0.06 WRMS → reel_tape; wow ≥ 0.06 WRMS → cassette` (§2.46b) |
 | Phase_63 Stereo IMD | Unabhängiges L/R-IMD-Notch | M/S-Domain: Notch-Maske aus Mid berechnen, symmetrisch auf Mid+Side anwenden (§2.51) |
 | Phase-Wetness ohne Feedback | Feste `strength` ohne Mess-Feedback zwischen Phasen | `PhaseConductor.recommend()` (§2.52) — 4D-State-Vektor → adaptiver Strength-Hint |
 | Feste Guard-Schwellwerte | `MAX_DRIFT = -0.05` / `regression > 0.02` als Konstanten | `compute_adaptive_drift_tolerance()` aus Material/Restorability/Defects (§2.54) |
@@ -186,7 +188,7 @@ logger.info("phase=%s score=%.2f", phase, score)  # kein print()
 | Loudness-Guard Limiter | Unbedingter Soft-Limiter nach Makeup-Gain | Soft-Limiter NUR wenn `peak > 0.98` — keine Routine-Dynamik-Kompression (§2.45a-III) |
 | FeedbackChain feste Schwellen | `_prune_threshold = -0.05` / `if history[-1] < history[-2] - 0.05` als Konstanten | `_compute_adaptive_prune_threshold(is_restorative, material, rest, severity)` — z. B. shellac 3×, vinyl 2×, clamped [-0.30, base] |
 | Carrier-Repair consecutive_rollbacks | Carrier-Repair-Rollback inkrementiert `consecutive_rollbacks` | `_CARRIER_REPAIR_PHASE_PREFIXES`-Check vor Increment: Carrier-Repair-Rollbacks niemals zählen (§2.48 v9.11.3) |
-| Spectral-Tilt-Drift in ADDITIVE-Phasen | HF-Extension ohne Tilt-Check (phase_06, phase_39) — Ära-Charakter wird zerstört ohne Goal-Verstoß | `era_result.spectral_tilt` in `kwargs` prüfen; Post-Tilt via `_estimate_spectral_tilt_quick()`; Cap wenn Deviation > material_tolerance (±1.5–±3.0 dB/oct je Material) (§2.46b) |
+| Spectral-Tilt-Drift in ADDITIVE-Phasen | HF-Extension ohne Tilt-Check (phase_06, phase_39) — Ära-Charakter wird zerstört ohne Goal-Verstoß | `era_result.spectral_tilt` in `kwargs` prüfen; Post-Tilt via `_estimate_spectral_tilt_quick()`; Cap wenn Deviation > material_tolerance (±1.5–±3.0 dB/oct je Material) (Spec 04 §4.7) |
 | Roughness/Sharpness Anstieg ungeprüft | DYNAMICS/ADDITIVE-Phasen (phase_35, phase_39) erhöhen psychoakustische Lästigkeit ohne Gate | `ArtifactFreedomGate._compute_roughness_zwicker()` + `_compute_sharpness_bismarck()` für `DYNAMICS/ADDITIVE/ENHANCEMENT`-Phasen; Penalty -0.05 bzw. -0.10 (§2.49c) |
 | MERT als primäre Qualitätsmetrik | `MertPlugin.score()` direkt als HPI-Haupt-Koeffizient wenn VERSA verfügbar | VERSA primär; MERT als Proxy-Fallback wenn VERSA fehlschlägt; `metadata["mert_proxy_used"]` setzen (§2.44) |
 | VERSA auf RESEARCH-Modus beschränkt | `use_versa_in_loop=deployment_mode == RESEARCH` im FeedbackChain-Aufruf | `use_versa_in_loop=True` — VERSA ist produktionsstabil und muss immer aktiv sein (§2.44 VERBOTEN: MERT darf nicht primary sein wenn VERSA verfügbar) |
@@ -220,6 +222,11 @@ logger.info("phase=%s score=%.2f", phase, score)  # kein print()
 | QualityMode-Vergleich als roher String | `if quality_mode in ("restoration", "balanced")` statt Enum — überprüft literalen String; `QualityMode.QUALITY.value == "quality"` feuert nie → Gate deaktiviert | `if quality_mode in (QualityMode.RESTORATION, QualityMode.QUALITY, ...)` oder Enum-Value explizit mappen |
 | ML-Budget-Größe als MB statt GB | `try_allocate("Plugin", 630)` wenn 630 MB gemeint — aber Einheit ist GB → `required 630000 MB` → alle Allokations-Checks schlagen für alle weiteren Plugins fehl | Einheitenpräzision in `try_allocate()`: Argument ist immer GB (float); `630 MB → 0.63` |
 | Unit-Tests Budget-Logik ohne `is_system_thrashing`-Mock | `try_allocate()` prüft `is_system_thrashing()` vor Budget-Preflight; Tests ohne diesen Mock schlagen auf Hosts mit hoher Swap-Auslastung fehl | `monkeypatch(budget.is_system_thrashing, lambda: False)` in allen Unit-Tests die Budget-Logik testen — hostseitige Druckheuristiken isolieren |
+| Tonträgerketten-Mapping inline duplizieren | `_MEDIUM_DATA`, `_CI_MEDIUM_DATA` oder gleichwertiger Dict lokal innerhalb von Methoden/Callbacks in `modern_window.py` definieren — bei neuem Medium vergisst man Kopie 2/3 → Divergenz, falscher Labeltext, kein Test-Alarm | Ausschließlich `_CARRIER_MEDIUM_DISPLAY` (Modul-Level-Konstante) referenzieren; HTML-Rendering über `_render_carrier_html(icon_stem, label)`; Kettenkombination über `_build_carrier_chain_html(chain_keys)` — beides in `Aurik910/ui/modern_window.py` definiert |
+| `chain_info.get("transfer_chain")` als ersten Key versuchen | `kette.as_dict()` liefert **ausschließlich** den Key `"chain"` (nicht `"transfer_chain"`) — blindes Fallback-`get` verdeckt Tippfehler und übersteht Reviews ohne Fehler | `_chain_info.get("chain")` direkt; `"transfer_chain"` existiert in `KettenErgebnis.as_dict()` nicht (§UI-CARRIER-DISPLAY-INVARIANT) |
+| `detected_medium_label.setText(...)` ohne `_carrier_bg_label`-Sync | Era-Badge-Block liest `self._carrier_bg_label` und schreibt `detected_medium_label` neu → wenn `_carrier_bg_label` ≠ aktuelle Ketten-HTML → Era-Badge-Update überschreibt die Kettenanzeige mit altem/leerem Content (Silent Data Loss) | Jedes `detected_medium_label.setText(html)` MUSS unmittelbar gefolgt von `self._carrier_bg_label = html` sein — keine Ausnahme |
+| Kettenanzeige-Update bei len < 2 ohne Logging | `if len(chain_keys) < 2: return` — stilles Überspringen; kein Debug-Log; Anzeige bleibt bei Voranalyse-Wert obwohl TontraegerketteDenker geringere/andere Kette meldet | Immer `logger.debug("Kettenanzeige übersprungen – len=%d < 2 (chain=%s)", len(chain_keys), chain_keys)` wenn Guard feuert |
+| Icon-HTML ohne Plaintext-Fallback | `f'<img src="file:///{path}"...'` ohne `if path is None: return label` — fehlendes Icon → kaputtes Bild-Tag im Label; besonders in Background-Threads ohne Exception-Handling fatal | `_render_carrier_html()` nutzen: prüft `_svg` → `_png` → `return label` wenn kein Icon gefunden; immer `except (OSError, TypeError, ValueError): return label` |
 
 ### Sprachkonvention
 - **UI-Texte, Fehlermeldungen**: Deutsch (Ursache + Lösungsvorschlag)
@@ -265,6 +272,39 @@ logger.info("phase=%s score=%.2f", phase, score)  # kein print()
 - Torch (heavy plugins): `model.to(get_torch_device("PluginName"))` via `ml_device_manager`
 - Torch (light plugins/DSP): `model.to("cpu")`; `torch.set_num_threads(os.cpu_count())`
 - GPU-Fallback: Jedes Plugin MUSS bei GPU-Fehler transparent auf CPU fallen (§2.47)
+
+### [RELEASE_MUST] AMD-GPU-Beschleunigung (v9.11.14)
+
+Aurik unterstützt **AMD-GPU-Beschleunigung** als Mixed-Mode (Heavy-Plugins → GPU, DSP/Light → CPU).
+Alle GPU-Operationen laufen über den kanonischen `ml_device_manager`-Singleton.
+
+**Unterstützte Backends:**
+
+| Plattform | Backend | Provider | Erkennung |
+|---|---|---|---|
+| **Linux** | ROCm 6.x | `ROCMExecutionProvider` (ONNX) + `torch.cuda` (PyTorch) | Automatisch via `torch.cuda.is_available()` |
+| **Windows** | DirectML | `DmlExecutionProvider` (ONNX) + optional `torch-directml` (PyTorch) | Automatisch via `onnxruntime.get_available_providers()` |
+| **Beide** | CPU-only | `CPUExecutionProvider` | Fallback wenn kein GPU-Backend erkannt |
+
+**AMD-GPU-Architektur-Erkennung & Tier-System:**
+
+| Tier | Architektur | VRAM | Verhalten |
+|---|---|---|---|
+| **Tier 1** | RDNA3 (RX 7000), RDNA2 (≥16 GB), CDNA (≥8 GB) | ≥16 GB | Alle Plugins GPU, fp16 auto, max_usage 85 % |
+| **Tier 2** | RDNA2 (8–15 GB), RDNA1 (≥8 GB), CDNA (<8 GB) | 8–15 GB | Meiste Plugins GPU, fp16 auto, max_usage 80 % |
+| **Tier 3** | RDNA2 (4–7 GB), RDNA1 (4–7 GB), GCN5 (≥8 GB) | 4–7 GB | Selektive GPU (AudioSR/AudioLDM2 ausgeschlossen), max_usage 70 % |
+| **Tier 4** | GCN4, <4 GB VRAM | <4 GB | CPU-only empfohlen, VRAM-Budget zu klein |
+
+**fp16-Auto-Aktivierung**: Auf ROCm erhalten fp16-eligible Plugins (BSRoFormer, MDXNet, DemucsV4, MPSENet, ResembleEnhance, PANNs, LaionCLAP, BanquetVinyl, DeepFilterNetV3, BigVGAN, MDX23C) automatisch fp16-Provider — halbiert VRAM, verdoppelt Throughput.
+
+**VERBOTEN-Erweiterung:**
+
+| Kategorie | Verboten | Richtig |
+|---|---|---|
+| GPU-Architektur | Feste VRAM-Ratio `0.85` für alle GPUs | Tier-adaptive Ratio via `_TIER_VRAM_PARAMS[gpu_tier]` |
+| fp16-Aktivierung | Plugin ruft manuell `get_ort_providers_fp16()` | `get_ort_providers()` aktiviert fp16 automatisch wenn eligible+Tier erlaubt |
+| GPU-Dispatch | `model.to("cuda")` / `CUDAExecutionProvider` direkt | `get_torch_device("PluginName")` / `get_ort_providers("PluginName")` |
+| VRAM-Größe | Alle Plugins auf jeder GPU | Tier-basierte Exclusion für VRAM-hungrige Plugins (AudioSR, MERT-fairseq) |
 
 ## Kanonischer Pipeline-Ablauf (Kurzfassung)
 
@@ -393,7 +433,64 @@ Importsongs mit **3+ Tonträgerstufen** sind vollständig zu modellieren; die Ke
 
 > Details (Signalkette, Phasen-Ordering in UV3): Spec 02 §2.46 + Skill `pipeline-debug`
 
+### [RELEASE_MUST] §2.46b Dateicontainer-Invariante — file_ext ≠ Quellanalyse (v9.11.14)
+
+**Fundamentalregel**: Der Dateicontainer (`.mp3`, `.wav`, `.flac`) bestimmt **ausschließlich die letzte Stufe** der Tonträgerkette. Er darf physikalische Fingerabdruck-Evidenz **niemals vollständig unterdrücken** — sonst ist jede Restaurierung wertlos, weil falsche Phasen mit falschen Zielen auf falschem Material arbeiten.
+
+**Zweistufige Erkennungsarchitektur (normativ)**:
+
+1. **Bayesian-Scorer**: `file_ext ∈ DIGITAL_FILE_EXTS` → Analog-Posterior = 0 (korrekt, verhindert falsche Primärquelle)
+2. **Physikalischer Fallback** (`_infer_analog_source_from_fingerprint`, Pflicht): prüft ob Fingerprint-Evidenz eine Analogquelle beweist
+
+**Fallback-Gate Vinyl** (Pflicht, darf nicht entfernt werden):
+```python
+# Primär-Gate: conf >= codec-adaptiver Schwellwert (kann vinyl mit conf=0.25 zu Unrecht ablehnen)
+# Fallback-Gate: rotation_strength >= 0.30 ist eindeutige Plattenspieler-Periodizität
+_strong_physical_analog = (
+    (_cand_conf >= _pa_conf_thresh and _feature_ok)
+    or (_cand_conf >= 0.20 and fp.rotation_strength >= 0.30)  # Fallback — NICHT entfernen
+)
+```
+
+**Studio-Tape-Pfad** (IEC 60386:1987, Pflicht bei `has_disc AND codec_contamination > 0.5`):
+```python
+# Professionelle Bandmaschine: 0.010–0.030 WRMS wow/flutter
+# Alte Universalschwelle 0.20 ist für Studio-Reel blind!
+_thresh_rt = max(0.010, 0.025 * (1.0 - 0.55 * _codec_contamination))
+# Rotation-Guard entfernt: Vinyl-Drehzahl ist ERWARTET, kein Ausschlusskriterium
+```
+
+**Cassette vs. reel_tape Disambiguation** (IEC 60386:1987, normativ):
+```python
+if _has_cassette and _has_reel_tape:
+    if fp.wow_flutter_index < 0.06:
+        sources = [(m, c) for m, c in sources if m != "cassette"]   # Studio-Bandmaschine
+    else:
+        sources = [(m, c) for m, c in sources if m != "reel_tape"]  # Consumer-Kassette
+```
+
+**Produktions-Invariante** (Backend-Log 2026-04-21 — darf nie regressieren):
+```python
+# rotation=0.371, wow=0.034, codec_artifact=0.40, file_ext=".mp3"
+result = MediumDetector().detect(audio, sr, file_ext=".mp3")
+assert result.transfer_chain == ["vinyl", "reel_tape", "mp3_low"]
+# Test: tests/unit/test_vinyl_tape_mp3_chain_detection.py::test_vinyl_reel_tape_mp3_full_chain_production_case
+```
+
+**VERBOTEN**: Jede Implementierung die bei `file_ext=.mp3 AND rotation_strength=0.371` das Einzelergebnis `mp3_low` zurückgibt. Das ist ein RELEASE_MUST-Verstoß — alle Phasen arbeiten dann auf dem falschen Material und das Ergebnis ist klanglich wertlos.
+
+> Details: Spec 05 §6.7 Phase 1b — vollständige Schwellwerte, Kalibrierung, Referenzfall
+
 ### [RELEASE_MUST] §2.47 Adaptive-Intelligence-Prinzip (v9.10.123)
+
+Jede Eingabe ist ein einzigartiges Musikstück. Das System passt sich **vor** der Verarbeitung an das konkrete Material an.
+
+**Adaptions-Kaskade (9 Schritte, kanonische Reihenfolge):**
+1. `MediumDetector.detect(audio, sr, file_ext=...)` → transfer_chain, primary_material (§6.7)
+2. `EraClassifier.classify()` → decade, era_profile **+ ERB-Salience-Annotation** (v9.11.0)
+3. `GenreClassifier.classify()` → genre_label, genre_profile
+4. `RestorabilityEstimator.estimate()` → restorability_score, tier
+5. `DefectScanner.scan()` → 46 DefectTypes × Severity × Locations
 
 Jede Eingabe ist ein einzigartiges Musikstück. Das System passt sich **vor** der Verarbeitung an das konkrete Material an.
 

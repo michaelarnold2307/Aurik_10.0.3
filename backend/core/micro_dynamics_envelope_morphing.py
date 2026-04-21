@@ -249,14 +249,15 @@ class MicroDynamicsEnvelopeMorphing:
             if r_final < 0.92:
                 # Pearson still < 0.92 after retry — signal structure limits correlation
                 # (e.g. heavily compressed 1970s vinyl).  Only warn if retry made no progress.
-                _pearson_improved = r_final > r + 0.005
+                _delta = r_final - r
+                _pearson_improved = _delta > 0.001  # < 0.001 = konvergiert, kein weiterer Retry sinnvoll
                 _log_fn = logger.debug if _pearson_improved else logger.warning
                 _log_fn(
                     "§8.2 MDEM Mikro-Dynamik-Guarantee VERFEHLT: pearson=%.4f < 0.92 "
                     "(max_gain=%.1f dB, mode=retry, Δ=%.4f) — Rohausgabe nicht unterdrückt",
                     r_final,
                     max_gain,
-                    r_final - r,
+                    _delta,
                 )
             else:
                 logger.info("§8.2 MDEM Micro-Dynamics pearson=%.4f ≥ 0.92 (retry, r_before=%.4f)", r_final, r)

@@ -169,8 +169,9 @@ def _estimate_tempo_acf(audio: np.ndarray, sr: int) -> float:
     if len(onset) < 4:
         return 0.0
     onset -= onset.mean()
-    acf = np.correlate(onset, onset, mode="full")
-    acf = acf[len(acf) // 2 :]  # keep non-negative lags
+    from backend.core.core_utils import fft_autocorr
+
+    acf = fft_autocorr(onset)
     lag_min = max(1, int(sr / (hop * 220.0)))  # 220 BPM upper bound
     lag_max = max(lag_min + 1, int(sr / (hop * 40.0)))  # 40 BPM lower bound
     lag_max = min(lag_max, len(acf) - 1)

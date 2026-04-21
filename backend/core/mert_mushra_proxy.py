@@ -1625,9 +1625,10 @@ class MertMushraProxy:
                     if rms < 0.005:
                         continue  # Skip silence
                     windowed = frame * np.hanning(frame_len)
-                    # Autocorrelation LPC via Levinson-Durbin
-                    r = np.correlate(windowed, windowed, mode="full")
-                    r = r[len(r) // 2 :]
+                    # Autocorrelation LPC via Levinson-Durbin — FFT-based
+                    from backend.core.core_utils import fft_autocorr
+
+                    r = fft_autocorr(windowed, max_lag=order)
                     if r[0] < 1e-12 or not np.isfinite(r[: order + 1]).all():
                         continue
                     try:

@@ -53,6 +53,7 @@ from typing import Any
 import numpy as np
 from scipy import signal
 
+from backend.core.audio_utils import audio_sample_count, stereo_channel_view, stereo_like
 from backend.core.defect_scanner import MaterialType
 
 from .phase_interface import PhaseCategory, PhaseInterface, PhaseMetadata, PhaseResult
@@ -220,9 +221,10 @@ class DCOffsetRemoval(PhaseInterface):
 
         # Process each channel
         if is_stereo:
-            clean_left = self._remove_dc_and_rumble(audio[:, 0], sample_rate, config)
-            clean_right = self._remove_dc_and_rumble(audio[:, 1], sample_rate, config)
-            audio_processed = np.column_stack((clean_left, clean_right))
+            left, right = stereo_channel_view(audio)
+            clean_left = self._remove_dc_and_rumble(left, sample_rate, config)
+            clean_right = self._remove_dc_and_rumble(right, sample_rate, config)
+            audio_processed = stereo_like(clean_left, clean_right, audio)
         else:
             audio_processed = self._remove_dc_and_rumble(audio, sample_rate, config)
 
@@ -240,7 +242,7 @@ class DCOffsetRemoval(PhaseInterface):
         subsonic_reduction_db = 20 * np.log10((subsonic_energy_before + 1e-10) / (subsonic_energy_after + 1e-10))
 
         execution_time = time.time() - start_time
-        rt_factor = execution_time / (len(audio) / sample_rate)
+        rt_factor = execution_time / (audio_sample_count(audio) / sample_rate)
 
         audio_processed = np.nan_to_num(audio_processed, nan=0.0, posinf=0.0, neginf=0.0)
         audio_processed = np.clip(audio_processed, -1.0, 1.0)

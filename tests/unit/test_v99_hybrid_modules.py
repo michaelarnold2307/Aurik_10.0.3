@@ -89,9 +89,7 @@ class TestHybridDereverb:
 
             def enhance(self, _audio, _sr):
                 self.calls += 1
-                raise RuntimeError(
-                    "The size of tensor a (3841) must match the size of tensor b (3843) at non-singleton dimension 2"
-                )
+                raise RuntimeError("invalid magic number for TorchScript archive — model file is corrupted")
 
         plugin = _ExplodingSGMSE()
         hd.dccrn = plugin

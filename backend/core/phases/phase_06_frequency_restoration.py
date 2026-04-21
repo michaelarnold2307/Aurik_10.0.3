@@ -674,8 +674,11 @@ class FrequencyRestorationPhase(PhaseInterface):
             default_min_duration_s=float(audiosr_min_duration_s),
         )
         _min_dur = float(_watchdog_profile["min_duration_s"])
-        _short_clip_guard_active = quality_mode not in ("quality", "maximum")
-        if _short_clip_guard_active and audio_dur_s < _min_dur:
+        # short_clip_guard: always active — quality_mode already lowers _min_dur for quality/maximum.
+        # A 0.35 s clip is too short for AudioSR regardless of mode.
+        # Previously gated with: quality_mode not in ("quality", "maximum") — removed: guard should
+        # always fire; quality_mode controls _min_dur threshold, not guard activation.
+        if audio_dur_s < _min_dur:
             logger.info(
                 "Phase 06: AudioSR skipped for short clip (%.2fs < %.2fs) — DSP-only aktiv",
                 audio_dur_s,
@@ -788,9 +791,9 @@ class FrequencyRestorationPhase(PhaseInterface):
         try:
             ml_thread = threading.Thread(target=ml_infer, daemon=True)
             ml_thread.start()
-            if quality_mode in ("quality", "maximum") or quality_mode == "studio_2026":
-                pass
-            else:
+            if quality_mode in ("quality", "maximum"):
+                # Quality-first: extended timeout already applied via watchdog profile.
+                # studio_2026 uses the same extended profile via _compute_audiosr_watchdog_profile.
                 pass
 
             # Quality-first watchdog policy:
@@ -813,6 +816,15 @@ class FrequencyRestorationPhase(PhaseInterface):
                         "ml_error": "shape_mismatch",
                     }
                 # Blend only high-frequency delta (around rolloff and above) to keep timbre stable.
+                # §Guard: AudioSR NaN/Inf output → DSP-only fallback before blend (§0 Primum non nocere)
+                if not np.isfinite(ml_restored).all():
+                    logger.warning("Phase 06: AudioSR NaN/Inf output detected — falling back to DSP-only")
+                    return dsp_restored, {
+                        "ml_hybrid_available": True,
+                        "quality_mode": quality_mode,
+                        "strategy_used": "dsp_only",
+                        "ml_error": "nan_inf_output",
+                    }
                 hp_hz = float(max(2000.0, min(params.get("rolloff_hz", 10000.0) * 0.85, self.sample_rate * 0.45)))
                 sos = signal.butter(4, hp_hz / (self.sample_rate / 2.0), btype="high", output="sos")
                 hf_base = signal.sosfiltfilt(sos, dsp_restored, axis=0)

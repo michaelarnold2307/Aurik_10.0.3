@@ -143,6 +143,24 @@ class BeatsPlugin:
                 sess_options=opts,
                 providers=["CPUExecutionProvider"],
             )
+            # Detect embedding-only models (rank-3 fbank input, 768-dim output).
+            # These cannot produce AudioSet-527 scores without a classification head.
+            # Route to DSP fallback silently rather than triggering INVALID_ARGUMENT errors.
+            _inp = self._session.get_inputs()[0]
+            _out = self._session.get_outputs()[0]
+            _inp_rank = len(_inp.shape)
+            _out_last_dim = _inp.shape[-1] if _inp.shape else 0
+            _out_last_dim_out = _out.shape[-1] if _out.shape else 0
+            if _inp_rank == 3 or int(_out_last_dim_out or 0) == 768:
+                logger.debug(
+                    "beats_plugin: embedding-only model detected (input=%s, output=%s) "
+                    "— no AudioSet-527 head; routing to spectral DSP fallback.",
+                    _inp.shape,
+                    _out.shape,
+                )
+                self._session = None
+                self._model_loaded = False
+                return
             self._model_loaded = True
             logger.info("beats_plugin: ONNX model loaded (%s, §4.4 primary audio tagger)", self._ONNX_PATH.name)
             try:

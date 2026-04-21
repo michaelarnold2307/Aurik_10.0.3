@@ -438,8 +438,10 @@ class AzimuthCorrectionPhaseV2(PhaseInterface):
         left_window = left[:window_samples]
         right_window = right[:window_samples]
 
-        # Compute cross-correlation
-        correlation = np.correlate(left_window, right_window, mode="full")
+        # Compute cross-correlation — FFT-based O(N log N)
+        from backend.core.core_utils import fft_crosscorr
+
+        correlation = fft_crosscorr(left_window, right_window)
         center = len(correlation) // 2
 
         # Search within ±MAX_AZIMUTH_ERROR_SAMPLES
@@ -559,7 +561,9 @@ class AzimuthCorrectionPhaseV2(PhaseInterface):
         while pos + win_n <= n_samples:
             lw = left[pos : pos + win_n]
             rw = right[pos : pos + win_n]
-            corr = np.correlate(lw, rw, mode="full")
+            from backend.core.core_utils import fft_crosscorr
+
+            corr = fft_crosscorr(lw, rw)
             mid = len(corr) // 2
             sr_range = min(search, mid)
             sw = corr[mid - sr_range : mid + sr_range + 1]

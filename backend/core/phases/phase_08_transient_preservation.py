@@ -99,7 +99,10 @@ if __name__ == "__main__":
     )
 else:
     from .phase_interface import PhaseCategory, PhaseInterface, PhaseMetadata, PhaseResult, create_phase_result
+
 import logging
+
+from backend.core.audio_utils import to_channels_last
 
 logger = logging.getLogger(__name__)
 
@@ -281,6 +284,7 @@ class TransientPreservationPhase(PhaseInterface):
         sample_rate = kwargs.get("sample_rate", 48000)
         assert sample_rate == 48000, f"SR muss 48000 Hz sein, erhalten: {sample_rate}"
         start_time = time.time()
+        audio, _p08_transposed = to_channels_last(audio)
 
         # §2.47 PMGG-Retry: locality_factor skaliert finale Intensität bei Retries
         phase_locality_factor = float(np.clip(float(kwargs.get("phase_locality_factor", 1.0)), 0.35, 1.0))

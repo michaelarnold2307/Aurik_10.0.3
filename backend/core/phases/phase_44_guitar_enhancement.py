@@ -36,6 +36,8 @@ import time
 import numpy as np
 import scipy.signal as sig
 
+from backend.core.audio_utils import safe_to_mono
+
 from .phase_interface import PhaseCategory, PhaseInterface, PhaseMetadata, PhaseResult
 
 try:
@@ -51,7 +53,7 @@ logger = logging.getLogger(__name__)
 
 def _spectral_centroid(audio: np.ndarray) -> float:
     """Amplitudengewichteter Spektralzentroid (normiert 0–1)."""
-    mono = audio.mean(axis=1) if audio.ndim == 2 else audio
+    mono = safe_to_mono(audio) if audio.ndim == 2 else audio
     mag = np.abs(np.fft.rfft(mono[: min(len(mono), 65536)]))
     total = mag.sum() + 1e-12
     freqs = np.arange(len(mag), dtype=np.float64)
@@ -73,6 +75,9 @@ def _peaking_eq(x: np.ndarray, sr: int, freq: float, gain_db: float, q: float) -
     a = np.array([1.0, a1 / a0, a2 / a0])
     if x.ndim == 1:
         return sig.lfilter(b, a, x)
+    # Handle both (2,N) channels-first and (N,2) channels-last
+    if x.shape[0] == 2 and x.shape[1] > 2:
+        return np.vstack([sig.lfilter(b, a, x[ch, :]) for ch in range(x.shape[0])])
     return np.column_stack([sig.lfilter(b, a, x[:, ch]) for ch in range(x.shape[1])])
 
 
@@ -146,7 +151,7 @@ class GuitarEnhancementPhase(PhaseInterface):
         exciter_gain = float(exciter_gain * _effective_strength)
 
         x = audio.astype(np.float64)
-        mono = x.mean(axis=1) if x.ndim == 2 else x
+        mono = safe_to_mono(x) if x.ndim == 2 else x
 
         # 1. Genre-Klassifikation via Spektralzentroid + Crest Factor
         centroid = _spectral_centroid(audio)
@@ -192,15 +197,21 @@ class GuitarEnhancementPhase(PhaseInterface):
             x = _transient_boost_channel(x)
         else:
             # §2.51 M/S-Domain: Transient Boost nur auf Mid
-            mid = (x[:, 0] + x[:, 1]) / np.sqrt(2.0)
-            side = (x[:, 0] - x[:, 1]) / np.sqrt(2.0)
+            # Handle both (2,N) channels-first and (N,2) channels-last
+            if x.shape[0] == 2 and x.shape[1] > 2:
+                _x_ch0, _x_ch1 = x[0], x[1]  # (2,N)
+            else:
+                _x_ch0, _x_ch1 = x[:, 0], x[:, 1]  # (N,2)
+            mid = (_x_ch0 + _x_ch1) / np.sqrt(2.0)
+            side = (_x_ch0 - _x_ch1) / np.sqrt(2.0)
             mid = _transient_boost_channel(mid)
-            x = np.column_stack(
-                [
-                    (mid + side) / np.sqrt(2.0),
-                    (mid - side) / np.sqrt(2.0),
-                ]
-            )
+            _out_l = (mid + side) / np.sqrt(2.0)
+            _out_r = (mid - side) / np.sqrt(2.0)
+            # Preserve original orientation
+            if x.shape[0] == 2 and x.shape[1] > 2:
+                x = np.vstack([_out_l, _out_r])  # (2,N)
+            else:
+                x = np.column_stack([_out_l, _out_r])  # (N,2)
 
         # 3. Genre-adaptiver Harmonic Exciter (band-limited to body resonance region)
         # Limit exciter to 200-5000 Hz to avoid mud (< 200 Hz) and hash (> 5 kHz)
@@ -224,15 +235,20 @@ class GuitarEnhancementPhase(PhaseInterface):
             x = _excite_channel(x)
         else:
             # §2.51 M/S-Domain: Exciter nur auf Mid
-            mid = (x[:, 0] + x[:, 1]) / np.sqrt(2.0)
-            side = (x[:, 0] - x[:, 1]) / np.sqrt(2.0)
+            # Handle both (2,N) channels-first and (N,2) channels-last
+            if x.shape[0] == 2 and x.shape[1] > 2:
+                _xc0, _xc1 = x[0], x[1]  # (2,N)
+            else:
+                _xc0, _xc1 = x[:, 0], x[:, 1]  # (N,2)
+            mid = (_xc0 + _xc1) / np.sqrt(2.0)
+            side = (_xc0 - _xc1) / np.sqrt(2.0)
             mid = _excite_channel(mid)
-            x = np.column_stack(
-                [
-                    (mid + side) / np.sqrt(2.0),
-                    (mid - side) / np.sqrt(2.0),
-                ]
-            )
+            _xl = (mid + side) / np.sqrt(2.0)
+            _xr = (mid - side) / np.sqrt(2.0)
+            if x.shape[0] == 2 and x.shape[1] > 2:
+                x = np.vstack([_xl, _xr])  # (2,N)
+            else:
+                x = np.column_stack([_xl, _xr])  # (N,2)
 
         # 4. Presence-EQ (genre-adaptive)
         if genre == "Rock":

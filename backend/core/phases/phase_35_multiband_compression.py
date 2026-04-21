@@ -66,7 +66,7 @@ import time
 import numpy as np
 from scipy import signal
 
-from backend.core.audio_utils import compute_gated_rms_linear
+from backend.core.audio_utils import compute_gated_rms_linear, to_channels_last
 from backend.core.defect_scanner import MaterialType
 
 from .phase_interface import PhaseCategory, PhaseInterface, PhaseMetadata, PhaseResult
@@ -175,6 +175,7 @@ class MultibandCompressionPhase(PhaseInterface):
         """
         sample_rate = kwargs.get("sample_rate", 48000)
         assert sample_rate == 48000, f"SR muss 48000 Hz sein, erhalten: {sample_rate}"
+        audio, _p35_transposed = to_channels_last(audio)
         start_time = time.time()
 
         self.validate_input(audio)

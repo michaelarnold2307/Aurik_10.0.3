@@ -568,8 +568,10 @@ class PhysicalMediumChainModel:
         if audio.ndim < 2 or audio.shape[1] < 2:
             return audio
         N = min(len(audio), sr)
-        # Kreuzkorrelation für Delay-Schätzung
-        corr = np.correlate(audio[:N, 0], audio[:N, 1], mode="full")
+        # Kreuzkorrelation für Delay-Schätzung — FFT-based O(N log N)
+        from backend.core.core_utils import fft_crosscorr
+
+        corr = fft_crosscorr(audio[:N, 0], audio[:N, 1])
         best_lag = int(np.argmax(np.abs(corr)) - (N - 1))
         # Maximal 50 Samples Korrektur (> 1 ms bei 44.1 kHz = grob falsch)
         best_lag = max(-50, min(50, best_lag))

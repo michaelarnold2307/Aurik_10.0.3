@@ -51,6 +51,7 @@ from typing import Any
 import numpy as np
 from scipy import signal
 
+from backend.core.audio_utils import safe_to_mono
 from backend.core.defect_scanner import MaterialType
 
 from .phase_interface import PhaseCategory, PhaseInterface, PhaseMetadata, PhaseResult
@@ -469,7 +470,7 @@ class VocalEnhancement(PhaseInterface):
                 from backend.core.harmonic_preservation_guard import get_harmonic_preservation_guard
 
                 _hpg_v = get_harmonic_preservation_guard()
-                _v_mono = vocals_stem.mean(axis=1) if vocals_stem.ndim == 2 else vocals_stem
+                _v_mono = safe_to_mono(vocals_stem) if vocals_stem.ndim == 2 else vocals_stem
                 _hpg_vocal_mask, _hpg_vocal_href = _hpg_v.extract_harmonic_mask(
                     _v_mono.astype(np.float32), sample_rate, instrument_tag="vocals"
                 )
@@ -483,17 +484,23 @@ class VocalEnhancement(PhaseInterface):
                 # Independent L/R _enhance_channel calls introduce time-variant
                 # gain divergence between channels → §2.49 phase-cancellation.
                 _sqrt2_s = np.sqrt(2.0)
-                _v_mid = (vocals_stem[:, 0] + vocals_stem[:, 1]) / _sqrt2_s
-                _v_side = (vocals_stem[:, 0] - vocals_stem[:, 1]) / _sqrt2_s
+                # Handle both (2,N) channels-first and (N,2) channels-last
+                if vocals_stem.shape[0] == 2 and vocals_stem.shape[1] > 2:
+                    _vs_ch0, _vs_ch1 = vocals_stem[0], vocals_stem[1]  # (2,N)
+                else:
+                    _vs_ch0, _vs_ch1 = vocals_stem[:, 0], vocals_stem[:, 1]  # (N,2)
+                _v_mid = (_vs_ch0 + _vs_ch1) / _sqrt2_s
+                _v_side = (_vs_ch0 - _vs_ch1) / _sqrt2_s
                 _v_mid_enh = self._enhance_channel(
                     _v_mid, sample_rate, config, harshness_severity, _vocal_gender, material
                 )
-                enhanced_vocals = np.column_stack(
-                    (
-                        (_v_mid_enh + _v_side) / _sqrt2_s,
-                        (_v_mid_enh - _v_side) / _sqrt2_s,
-                    )
-                )
+                _ev_l = (_v_mid_enh + _v_side) / _sqrt2_s
+                _ev_r = (_v_mid_enh - _v_side) / _sqrt2_s
+                # Preserve original stereo orientation
+                if vocals_stem.shape[0] == 2 and vocals_stem.shape[1] > 2:
+                    enhanced_vocals = np.vstack([_ev_l, _ev_r])  # (2,N)
+                else:
+                    enhanced_vocals = np.column_stack([_ev_l, _ev_r])  # (N,2)
             else:
                 enhanced_vocals = self._enhance_channel(
                     vocals_stem, sample_rate, config, harshness_severity, _vocal_gender, material
@@ -504,7 +511,7 @@ class VocalEnhancement(PhaseInterface):
             if _hpg_vocal_mask is not None and _hpg_vocal_href is not None:
                 try:
                     _hpg_v = get_harmonic_preservation_guard()
-                    _enh_mono = enhanced_vocals.mean(axis=1) if enhanced_vocals.ndim == 2 else enhanced_vocals
+                    _enh_mono = safe_to_mono(enhanced_vocals) if enhanced_vocals.ndim == 2 else enhanced_vocals
                     _corrected = _hpg_v.apply_correction(
                         _enh_mono.astype(np.float32), _hpg_vocal_href, _hpg_vocal_mask, sample_rate
                     )
@@ -542,17 +549,23 @@ class VocalEnhancement(PhaseInterface):
             if is_stereo:
                 # §2.51 M/S: enhance Mid only (vocals centred), Side untouched.
                 _sqrt2_f = np.sqrt(2.0)
-                _f_mid = (audio[:, 0] + audio[:, 1]) / _sqrt2_f
-                _f_side = (audio[:, 0] - audio[:, 1]) / _sqrt2_f
+                # Handle both (N,2) channels-last and (2,N) channels-first orientations
+                if audio.shape[0] == 2 and audio.shape[1] > 2:
+                    _ch0, _ch1 = audio[0], audio[1]  # (2,N)
+                else:
+                    _ch0, _ch1 = audio[:, 0], audio[:, 1]  # (N,2)
+                _f_mid = (_ch0 + _ch1) / _sqrt2_f
+                _f_side = (_ch0 - _ch1) / _sqrt2_f
                 _f_mid_enh = self._enhance_channel(
                     _f_mid, sample_rate, config, harshness_severity, _vocal_gender, material
                 )
-                enhanced_audio = np.column_stack(
-                    (
-                        (_f_mid_enh + _f_side) / _sqrt2_f,
-                        (_f_mid_enh - _f_side) / _sqrt2_f,
-                    )
-                )
+                _out_l = (_f_mid_enh + _f_side) / _sqrt2_f
+                _out_r = (_f_mid_enh - _f_side) / _sqrt2_f
+                # Preserve original stereo orientation
+                if audio.shape[0] == 2 and audio.shape[1] > 2:
+                    enhanced_audio = np.vstack([_out_l, _out_r])  # (2,N)
+                else:
+                    enhanced_audio = np.column_stack([_out_l, _out_r])  # (N,2)
             else:
                 enhanced_audio = self._enhance_channel(
                     audio, sample_rate, config, harshness_severity, _vocal_gender, material
@@ -711,10 +724,14 @@ class VocalEnhancement(PhaseInterface):
         Source Separation"; Wiener optimal gain minimises MSE while preserving
         original phase.
         """
-        n = min(audio_stereo.shape[0], len(voc_mono))
-        audio_st = audio_stereo[:n]
+        # Handle both (2,N) and (N,2) stereo orientations
+        _n_samples = (
+            audio_stereo.shape[1] if (audio_stereo.ndim == 2 and audio_stereo.shape[0] == 2) else audio_stereo.shape[0]
+        )
+        n = min(_n_samples, len(voc_mono))
+        audio_st = audio_stereo[:, :n] if (audio_stereo.ndim == 2 and audio_stereo.shape[0] == 2) else audio_stereo[:n]
         voc_m = voc_mono[:n]
-        inst_m = np.clip(audio_st.mean(axis=1).astype(np.float32) - voc_m, -1.0, 1.0)
+        inst_m = np.clip(safe_to_mono(audio_st).astype(np.float32) - voc_m, -1.0, 1.0)
 
         # STFT parameters matching MRSA reference window
         win_size = 2048

@@ -45,6 +45,7 @@ import time
 import numpy as np
 from scipy import signal
 
+from backend.core.audio_utils import audio_sample_count, stereo_channel_view, stereo_like
 from backend.core.defect_scanner import MaterialType
 
 from .phase_interface import PhaseCategory, PhaseInterface, PhaseMetadata, PhaseResult
@@ -216,16 +217,14 @@ class BassEnhancement(PhaseInterface):
 
         # §2.51 M/S-Domain: Bass Enhancement nur auf Mid, Side unver\u00e4ndert
         if is_stereo:
-            mid = (audio[:, 0] + audio[:, 1]) / np.sqrt(2.0)
-            side = (audio[:, 0] - audio[:, 1]) / np.sqrt(2.0)
+            _ch0, _ch1 = stereo_channel_view(audio)
+            mid = (_ch0 + _ch1) / np.sqrt(2.0)
+            side = (_ch0 - _ch1) / np.sqrt(2.0)
             mid_enhanced = self._enhance_channel(mid, sample_rate, config)
             # Decode back to L/R
-            enhanced_audio = np.column_stack(
-                (
-                    (mid_enhanced + side) / np.sqrt(2.0),
-                    (mid_enhanced - side) / np.sqrt(2.0),
-                )
-            )
+            out_l = (mid_enhanced + side) / np.sqrt(2.0)
+            out_r = (mid_enhanced - side) / np.sqrt(2.0)
+            enhanced_audio = stereo_like(out_l, out_r, audio)
         else:
             enhanced_audio = self._enhance_channel(audio, sample_rate, config)
 
@@ -237,7 +236,7 @@ class BassEnhancement(PhaseInterface):
         bass_boost_db = 20 * np.log10((bass_energy_after + 1e-10) / (bass_energy_before + 1e-10))
 
         execution_time = time.time() - start_time
-        rt_factor = execution_time / (len(audio) / sample_rate)
+        rt_factor = execution_time / (audio_sample_count(audio) / sample_rate)
 
         enhanced_audio = np.nan_to_num(enhanced_audio, nan=0.0, posinf=0.0, neginf=0.0)
         enhanced_audio = np.clip(enhanced_audio, -1.0, 1.0)

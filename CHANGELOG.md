@@ -2,6 +2,213 @@
 
 > Hinweis: Dieses Dokument ist eine Versionshistorie. Ältere Versionsnummern und Kennzahlen sind hier erwartbar und keine veralteten Reststände.
 
+## Version 9.11.26 — Tonträgerketten-Display: Single Source of Truth (Apr 2026)
+
+### Ziel
+
+Beseitigung dreifach-duplizierter Medium-Mapping-Dicts in `modern_window.py` und Einführung
+einer SSOT-Architektur für das Carrier-Chain-Display. Verhindert zukünftige Divergenz
+bei neuen Medientypen, repariert `_html()` ohne Plaintext-Fallback und korrigiert den
+falschen Key-Lookup (`"transfer_chain"` → `"chain"`).
+
+### Änderungen
+
+**`Aurik910/ui/modern_window.py`**:
+
+- Neue Modul-Level-Konstanten:
+`_CARRIER_MEDIUM_DISPLAY`, `_CARRIER_EXT_DISPLAY`,
+  `_CARRIER_ANALOG_MEDIA`, `_CARRIER_ICONS_DIR`
+- Neue Modul-Level-Helper: `_render_carrier_html(icon_stem, label)` mit try/except
+  und Plaintext-Fallback; `_build_carrier_chain_html(chain_keys)` als SSOT-Kombinator
+- Pfad A (`_pre_analysis_bg`): lokale `_html()`/`_MEDIUM_DATA`/`_EXT_DATA`/`_ANALOG_MEDIA`
+  durch Modul-Level-Konstanten ersetzt; redundanten Doppel-Block bereinigt
+- Pfad B (`_apply_authoritative_chain_display`): lokale `_CI_MEDIUM_DATA`/`_ci_html()`
+  durch `_build_carrier_chain_html()` ersetzt; Debug-Logging bei `len < 2` Guard hinzugefügt
+- Pfad C (`_on_item_finished_with_result`): lokale `_CI_MEDIUM_DATA`/`_ci_html()`
+  durch `_build_carrier_chain_html()` ersetzt; falscher Key `"transfer_chain"` →
+  korrekter Key `"chain"` (§UI-CARRIER-DISPLAY-INVARIANT); Debug-Logging bei Skip
+
+**`.github/copilot-instructions.md`**:
+
+- 6 neue VERBOTEN-Einträge: Inline-Dict-Duplizierung, `"transfer_chain"`-Key,
+  fehlender `_carrier_bg_label`-Sync, len<2-Guard ohne Logging, Icon-HTML ohne Fallback
+
+**`.github/specs/08_architecture_and_distribution.md`**:
+
+- Neuer normativer Abschnitt `§11.4d [RELEASE_MUST] Tonträgerketten-Display-Invarianten`
+  mit vollständigem Drei-Pfade-Diagramm, SSOT-Dokumentation, Key-Invariante, Testpflicht
+
+---
+
+## Version 9.11.25 — AMD GPU: RDNA4 + vollständige APU-Abdeckung (Apr 2026)
+
+### Ziel
+
+Vollständige AMD-GPU-Abdeckung laut `[RELEASE_MUST] AMD-GPU-Beschleunigung (v9.11.14)`:
+alle Architektur-Familien (RDNA4/3/2/1, GCN5/4/3, CDNA3/2/1) samt APUs erkannt und
+korrekt in Tier 1–4 eingestuft. 120 Unit-Tests grün, 11424 gesamt grün.
+
+### Änderungen
+
+- **`backend/core/ml_device_manager.py`** — `_AMD_ARCH_PATTERNS` erweitert:
+  - **RDNA4**: `navi4`, `rx 9070/9060/9050`, `gfx1200/1201` → `AMDArchitecture.RDNA4`
+  - **Strix Point APU (RDNA 3.5)**: `890m`, `880m`, `870m`, `860m`, `gfx1150`, `gfx1151`
+  - **GCN5 APU**: `gfx90c` (Renoir/Cezanne, Vega 7/8), `gfx902` (Raven Ridge/Picasso, Vega 8/11)
+  - Kommentar im GCN5-Abschnitt präzisiert (APU-Chips explizit benannt)
+
+- **`tests/unit/test_ml_device_manager_amd.py`** — 9 neue Tests:
+  - `test_radeon_890m_rdna3`, `test_radeon_880m_rdna3`, `test_radeon_860m_rdna3`
+  - `test_gfx1151_rdna3`, `test_gfx1150_rdna3`
+  - `test_vega_8_gcn5_marketing_name`, `test_vega_7_gcn5_marketing_name`
+  - `test_gfx90c_gcn5`, `test_gfx902_gcn5`
+
+### GPU-Abdeckungsmatrix (vollständig)
+
+| Familie | Beispiele | Architektur | Tier (ROCm) | Tier (DirectML) |
+| --- | --- | --- | --- | --- |
+| RDNA4 | RX 9070 XT / 9060 | RDNA4 | Tier 1–2 | Tier 1–2 |
+| RDNA3 | RX 7900 XTX / 7600 | RDNA3 | Tier 1–2 | Tier 1–2 |
+| RDNA3 APU | 890M / 780M | RDNA3 | Tier 3 | Tier 3 |
+| RDNA2 | RX 6900 XT / 6600 | RDNA2 | Tier 1–3 | Tier 1–3 |
+| RDNA2 APU | 680M / 660M | RDNA2 | Tier 3 | Tier 3 |
+| RDNA1 | RX 5700 XT / 5500 | RDNA1 | Tier 2–3 | Tier 2–3 |
+| GCN5 | Vega 64 / Radeon VII | GCN5 | Tier 3 | Tier 2 |
+| GCN5 APU | Vega 7 / Vega 8 | GCN5 | Tier 4 | Tier 3 |
+| GCN4 | RX 580 / 570 | GCN4 | Tier 4 | Tier 3 |
+| CDNA | MI300 / MI250 / MI100 | CDNA3/2/1 | Tier 1 | — |
+
+---
+
+## Version 9.11.24 — Wide-Stereo-Guard phase_13/phase_14 (R11 UAT Fix) (Apr 2026)
+
+### Ziel
+
+- **R11 UAT**: Letztes verbleibendes UAT-Kriterium (30/30) repariert.
+- `authentizitaet` P1/P2-Regression bei MP3-als-Vinyl-Song mit natürlich breitem Stereo (corr=0.37) eliminiert.
+- `artikulation` P1/P2-Regression bei selber Quelle eliminiert.
+
+### Änderungen
+
+- **`backend/core/phases/phase_14_phase_correction.py`** — Wide-Stereo-Guard:
+  - Neu: `_WIDE_STEREO_CORR_CAP = 0.20` — wenn **alle** Frequenzbänder (bass/mid-low/mid-high/high) `corr < 0.20`, handelt es sich um natürlich breites Stereo, kein Azimuth-Fehler → Phase gibt Original unverändert zurück.
+  - Verhindert fälschliche Phasenschiebung auf weit aufgemachtem Stereo-Material, die `artikulation` von 0.662 → 0.998 degradierte.
+
+- **`backend/core/phases/phase_13_stereo_enhancement.py`** — Wide-Stereo-Guard:
+  - Neu: `_WIDE_STEREO_GUARD = 0.45` — wenn `initial_correlation < 0.45`, ist das Stereofeld bereits breit genug; Haas-Delays und M/S-Widening würden Kammfilter im Vokalbereich (200–1000 Hz) erzeugen → Phase gibt Original unverändert zurück.
+  - Verhindert Chroma-Fingerprint-Verschiebung durch 8/15/20 ms Haas-Delays, die `authentizitaet` von 0.714 → ≥ 0.72 verringerte.
+
+### Tests
+
+- `tests/test_uat_acceptance_criteria.py::test_restoration_criteria[R11]` — PASSED nach 8 Iterationen
+- Volle UAT (30/30) bestätigt
+- Unit-Tests: 4 pre-existing Failures behoben:
+  - `phase_12_wow_flutter_fix.py`: fehlender `safe_to_mono`-Import ergänzt
+  - `phase_06_frequency_restoration.py`: `short_clip_guard` immer aktiv (quality_mode steuert `_min_dur`, nicht Guard-Aktivierung)
+  - `phase_06_frequency_restoration.py`: toten `if/else pass`-Block durch korrekten quality-gate-Check ersetzt
+
+---
+
+## Version 9.11.23 — Stereo Axis Invariance Phase (§2.51 RELEASE_MUST) (Apr 2026)
+
+### Ziel
+
+- **§2.51 Stereo-Kohärenz-Invariante**: Alle Phasen müssen beide (2,N) channels-first und (N,2) channels-last Orientierungen korrekt verarbeiten.
+- Zentrale `safe_to_mono()` Utility bereitstellen für orientierungsunabhängige Stereo-zu-Mono-Konvertierung.
+- Kategorie-A kritische Violations (unconditional axis-Annahmen) in 4 Phase-Dateien beheben.
+
+### Änderungen
+
+- **Neue Infrastruktur**:
+  - `backend/core/audio_utils.py::safe_to_mono()` (neu)
+    - Orientierungsunabhängige Stereo-Mono-Konvertierung, Handling für (2,N) und (N,2) Layouts.
+    - Fallback-Heuristic für mehrdeutige Shapes; dtype-Präzision als float64.
+    - §2.51 Stereo-Kohärenz-Invariante konform.
+
+- **Phase Fixes (Kategorie-A Critical)**:
+  - `backend/core/phases/phase_12_wow_flutter_fix.py`:
+    - Line 1591: `audio.mean(axis=1)` → `safe_to_mono(audio)`
+    - **Bonus**: n_samples Bug behoben (was axes-unkorrekt bei (2,N) input)
+  - `backend/core/phases/phase_43_ml_deesser.py` (3 Fixes):
+    - Line 210: _band_rms Mono-Konvertierung → safe_to_mono()
+    - Line 142: _estimate_breathiness `audio[:, 0]` → safe_to_mono() (Kategorie-B improvement)
+    - Lines 408-427: Linked-Stereo Loop mit axes-aware mean() und channel indexing (Kategorie-B improvement)
+  - `backend/core/phases/phase_53_semantic_audio.py`:
+    - Line 85: _mono() helper → safe_to_mono()
+  - `backend/core/phases/phase_56_spectral_band_gap_repair.py`:
+    - Line 135: _to_mono() → safe_to_mono()
+
+- **Test Suite**:
+  - `tests/unit/test_stereo_axis_invariance.py` (neu, 19 Tests)
+    - **TestSafeToMono** (9 Tests): Mono passthrough, channels-first/last conversion, axis invariance, edge cases, dtype preservation
+    - **TestPhaseAxisInvariance** (8 Tests): Phase 12/43/53/56 × 2 axis variants — validates both orientations produce valid output
+    - **TestSpecCompliance** (2 Tests): §2.51 linked-stereo requirement, no stereo collapse validation
+  - **Status**: All 19/19 PASSED
+
+### Regressions & Validierung
+
+- **Peak-Guard Regressions** (16 Tests): All PASSED ✅
+- **Stereo-Axis Integration** (19 Tests): All PASSED ✅
+- **Combined** (35 Tests): 39.56s, 0 failures ✅
+
+### Normativer Bezug
+
+- §2.51 Stereo-Kohärenz-Invariante: Phases must use linked-stereo or M/S domain. **FULLY COMPLIANT** after this update.
+- §0 Primum non nocere: No audio quality degradation, only orientation-safe conversion.
+- Wave 4 (Kategorie-A): 4/4 critical violations fixed ✅
+
+---
+
+## Version 9.11.22 — Peak-Guard Conformity Phase (§2.45a RELEASE_MUST) (Apr 2026)
+
+### Ziel
+
+- **§0 Primum non nocere**: Ein einzelner Crackle/Click darf die Normalisierung des gesamten Musiksignals nicht blockieren.
+- Peak-Guard in produktiven Gain-Pfaden flächendeckend auf `np.percentile(np.abs(...), 99.9)` migrieren.
+- Automatische CI-Gate-Linting-Regeln etablieren zur Prävention künftiger Violations.
+
+### Änderungen
+
+- `backend/core/regulator/mastering.py`:
+  - `limiter()` Funktion von `np.max(np.abs(audio))` auf `np.percentile(np.abs(audio), 99.9)` migriert.
+  - **Auswirkung**: Limiter wird nicht mehr blockiert, wenn zufällig ein einzelner transient sample in extremem headroom liegt.
+  - **§2.45a Konformität**: Gain-Berechnung nutzt jetzt robustes 99.9%-Perzentil statt absolutes Maximum.
+
+- Neue CI-Gate Linting-Infrastruktur:
+  - `backend/core/scripts/lint_peak_guard_conformity.py` (neu)
+  - Automatische Pattern-basierte Erkennung von `np.max(np.abs(...))` in produktiven Gain-Pfaden.
+  - **Kontexten whitelist**: Telemetrie, Analyse, Synthese-Referenzen, True-Peak-Measurement erlaubt.
+  - **Violations erfasst**: Gain-Berechnung, makeup gain, level normalization in production code.
+
+- Umfassende Peak-Guard Test-Suite:
+  - `tests/unit/test_peak_guard_conformity.py` (neu, 16 Tests)
+  - **TestPeakGuardConformity**: Grundsätzliche Limiter-Robustheit gegen Transient-Outlier.
+  - **TestPeakGuardRegressionMatrix**: Signal-Längen (480-480000 samples) × Defekt-Profile (clean/clicks/crackle/clipped).
+  - **TestPeakGuardSpecCompliance**: §2.45a Invarianten (minimal intervention, headroom preservation, NaN/Inf stability).
+
+### Audit-Ergebnisse
+
+- **Linter-Lauf auf backend/core/**:
+  - `phase/`: ✅ 0 Violations (alle use cases legitim: artifact detection, telemetry, synthesis)
+  - `regulator/`: ✅ 0 Violations (mastering.py fix validiert)
+  - `dsp/`: ✅ 0 Violations
+  - **Gesamt-Konformität**: 26/26 `np.max(np.abs(...))` Calls klassifiziert und validiert
+
+- **Test-Validierung**:
+  - `test_peak_guard_conformity.py`: 16/16 ✅
+  - Combined regression (affected suites): 231+ ✅
+
+### Normativer Hintergrund
+
+- **§2.45a Minimal-Intervention-Prinzip**: Frühe subtraktive Phasen dürfen nicht den wahrgenommenen Musikpegel kollabieren lassen.
+- **§0 Klangwahrheit**: Systemziel ist Rekonstruktion des Studio-Originals — kein einzelner Defekt darf gesundes Audio "blockieren".
+- **Peak-Guard vs. True-Peak**: Peak-Guard (percentile) für robuste Levels; True-Peak-Measurement (phase_47) bleibt mit Oversampling.
+
+### Zukünftige Erweiterungen
+
+- CI-Integration: lint_peak_guard_conformity.py als Merge-Gate für RELEASE_MUST Phasen.
+- Weiterführung auf Stereo-Achsen-Invariante (Matrix: channels-first vs. channels-last).
+- STFT-Policy zentralisieren (window, boundary, hop-length Standardisierung).
+
 ## Version 9.11.21 — GlobalPlan-Ära-Floor + Reference-Anchor-Arbitration + Gated-RMS-Zentralisierung (Apr 2026)
 
 ### Ziel

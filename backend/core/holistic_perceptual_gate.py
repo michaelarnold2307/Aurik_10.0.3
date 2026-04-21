@@ -761,7 +761,9 @@ class HolisticPerceptualGate:
                 ]
                 best_seg = int(np.argmax(energies_seg)) * (win_len // 2)
                 segment = mono[best_seg : best_seg + win_len]
-                ac = np.correlate(segment, segment, mode="full")[len(segment) - 1 :]
+                from backend.core.core_utils import fft_autocorr
+
+                ac = fft_autocorr(segment)
                 ac = ac / (ac[0] + 1e-12)
                 # Look for AC peak in F0 range 80–800 Hz → lags [sr//800, sr//80]
                 lag_min = max(1, int(sr / 800))

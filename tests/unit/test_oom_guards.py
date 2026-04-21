@@ -199,8 +199,9 @@ def test_try_allocate_blocks_heavy_model_on_early_swap_plus_low_headroom(monkeyp
         @staticmethod
         def virtual_memory():
             total = 32 * 1024**3
-            available = int(12.7 * 1024**3)
-            return SimpleNamespace(total=total, available=available, percent=62.0)
+            # 5.5 GB free < _HEAVY_MODEL_PREEMPTIVE_AVAIL_GB_MAX (6.0 GB) → low_headroom=True
+            available = int(5.5 * 1024**3)
+            return SimpleNamespace(total=total, available=available, percent=82.8)
 
         @staticmethod
         def swap_memory():

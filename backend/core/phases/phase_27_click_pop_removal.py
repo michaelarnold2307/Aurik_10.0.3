@@ -41,6 +41,7 @@ from typing import Any
 import numpy as np
 from scipy import interpolate
 
+from backend.core.audio_utils import audio_sample_count, stereo_channel_view, stereo_like
 from backend.core.defect_scanner import MaterialType
 
 from .phase_interface import PhaseCategory, PhaseInterface, PhaseMetadata, PhaseResult
@@ -275,18 +276,19 @@ class ClickPopRemoval(PhaseInterface):
 
         # §2.51: Linked detection — detect on mono mix, repair synchronized
         if is_stereo:
-            mono_mix = (audio[:, 0] + audio[:, 1]) * 0.5
+            left, right = stereo_channel_view(audio)
+            mono_mix = (left + right) * 0.5
             click_locations = self._detect_clicks_multiband(mono_mix, config)
             classified_clicks = self._classify_clicks(mono_mix, click_locations, config)
-            cleaned_left = self._repair_clicks(audio[:, 0], classified_clicks, config)
-            cleaned_right = self._repair_clicks(audio[:, 1], classified_clicks, config)
-            cleaned_audio = np.column_stack((cleaned_left, cleaned_right))
+            cleaned_left = self._repair_clicks(left, classified_clicks, config)
+            cleaned_right = self._repair_clicks(right, classified_clicks, config)
+            cleaned_audio = stereo_like(cleaned_left, cleaned_right, audio)
             total_clicks = len(classified_clicks)
         else:
             cleaned_audio, total_clicks = self._process_channel(audio, sample_rate, config)
 
         execution_time = time.time() - start_time
-        rt_factor = execution_time / (len(audio) / sample_rate)
+        rt_factor = execution_time / (audio_sample_count(audio) / sample_rate)
 
         cleaned_audio = np.nan_to_num(cleaned_audio, nan=0.0, posinf=0.0, neginf=0.0)
         cleaned_audio = np.clip(cleaned_audio, -1.0, 1.0)
@@ -297,7 +299,7 @@ class ClickPopRemoval(PhaseInterface):
             metadata={
                 "material": material.name,
                 "clicks_removed": int(total_clicks),
-                "clicks_per_second": float(total_clicks / (len(audio) / sample_rate)),
+                "clicks_per_second": float(total_clicks / (audio_sample_count(audio) / sample_rate)),
                 "rt_factor": float(rt_factor),
                 "stereo_mode": "linked_detection" if is_stereo else "mono",
                 "click_repair_profile": click_repair_profile,

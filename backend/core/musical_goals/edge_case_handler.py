@@ -563,8 +563,18 @@ class EdgeCaseHandler:
         # Quantization noise shows up as correlated noise in difference signal
         diff = np.diff(_seg)
 
-        # Autocorrelation of difference
-        autocorr = np.correlate(diff, diff, mode="same")
+        # Autocorrelation of difference — FFT-based O(N log N)
+        from backend.core.core_utils import fft_autocorr
+
+        _ac_full = fft_autocorr(diff)
+        # Match mode="same" output: take center N elements
+        _n = len(diff)
+        _start = (len(_ac_full) * 2 - 1 - _n) // 2  # map to mode='same' center window
+        # fft_autocorr returns positive-lag half; for mode="same" compatibility,
+        # reconstruct symmetric then extract center portion:
+        autocorr_sym = np.concatenate([_ac_full[:0:-1], _ac_full])
+        _center_start = max(0, (len(autocorr_sym) - _n) // 2)
+        autocorr = autocorr_sym[_center_start : _center_start + _n]
         _denom = np.max(np.abs(autocorr))
         autocorr = autocorr / _denom if _denom > 0 else np.zeros_like(autocorr)  # §3.1
 

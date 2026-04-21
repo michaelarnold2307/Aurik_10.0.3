@@ -450,31 +450,92 @@ Log-Likelihood: `log P(m|features) = Σ log N(f; μ_m, σ_m)` → Softmax-Poster
 
 **file_ext Prior-Zeroing**: Bei digitalen Dateiendungen (`.mp3`, `.aac`, `.ogg`, `.wma`, `.opus` u. a.) werden Analog-Posteriors auf 0 gezwungen — der Bayesian-Scorer kann keine analoge Primärquelle ausgeben.
 
-### Phase 1b: Physikalische Analogquellen-Inferenz (NEU v9.10.97)
+### Phase 1b: Physikalische Analogquellen-Inferenz (v9.10.97, aktualisiert v9.11.14)
 
-Greift wenn `file_ext ∈ DIGITAL_FILE_EXTS` und Bayesian kein `best_analog` findet. Physikalische Merkmale überleben bei Kassetten/Vinyl auch nach Codec-Encoding:
+Greift wenn `file_ext ∈ DIGITAL_FILE_EXTS` und Bayesian kein `best_analog` findet. Physikalische Merkmale überleben bei Kassetten/Vinyl auch nach Codec-Encoding. **Implementierung: `_infer_analog_source_from_fingerprint()` in `forensics/medium_detector.py`.**
 
-| Material | Erkennungsbedingung | Kalibrierung |
-| --- | --- | --- |
-| Vinyl | `infrasonic_rms > 0.030` (Plattentellerlagerlärm) ODER `crackle_density > 0.004 events/s` ODER `rotation_strength > 0.08` | μ_vinyl(infrasonic)=0.08, Schwelle = μ − 1σ |
-| Shellac | `crackle_density > 0.015 AND infrasonic_rms > 0.040` (schlägt Vinyl-Erkennung) | |
-| Kassette | `wow_flutter_index > 0.30` (Capstan/Pinch-Roller-Transport-Flutter) | Kassette: μ=1.5, σ=1.0; Vinyl-Eigenflutter max ≈ 0.15; Schwelle 0.30 = vinyl-sicher |
-| Reel-Tape | `wow_flutter_index > 0.20 AND rotation_strength < 0.05` (kein Disc-Source) | μ_tape_wow=0.3, σ=0.3 |
-
-Rückgabe: sortierte Liste `[(material_key, confidence)]` nach Signalketten-Reihenfolge (Disc vor Band vor Codec). Konfidenzen: [0.20, 0.85].
-
-### Phase 1b: Physikalische Analogquellen-Inferenz (NEU v9.10.97)
-
-Greift wenn `file_ext ∈ DIGITAL_FILE_EXTS` und Bayesian kein `best_analog` findet. Physikalische Merkmale überleben bei Kassetten/Vinyl auch nach Codec-Encoding:
+#### Vinyl / Shellac (Disc-Quellen)
 
 | Material | Erkennungsbedingung | Kalibrierung |
 | --- | --- | --- |
-| Vinyl | `infrasonic_rms > 0.030` (Plattentellerlagerlärm) ODER `crackle_density > 0.004 events/s` ODER `rotation_strength > 0.08` | μ_vinyl(infrasonic)=0.08, Schwelle = μ − 1σ |
+| Vinyl | `infrasonic_rms > 0.030` ODER `crackle_density > 0.004 events/s` ODER `rotation_strength > 0.08` → Konfidenz berechnet; **Fallback-Gate: `rotation_strength ≥ 0.30 AND conf ≥ 0.20`** (überlebt `_pa_conf_thresh`-Dämpfung) | μ_vinyl(infrasonic)=0.08, Schwelle = μ − 1σ. Fallback deckt `rotation_strength=0.30–0.55` bei `codec_artifact=0.30–0.60` ab. |
 | Shellac | `crackle_density > 0.015 AND infrasonic_rms > 0.040` (schlägt Vinyl-Erkennung) | |
-| Kassette | `wow_flutter_index > 0.30` (Capstan/Pinch-Roller-Transport-Flutter) | Kassette: μ=1.5, σ=1.0; Vinyl-Eigenflutter max ≈ 0.15; Schwelle 0.30 = vinyl-sicher |
-| Reel-Tape | `wow_flutter_index > 0.20 AND rotation_strength < 0.05` (kein Disc-Source) | μ_tape_wow=0.3, σ=0.3 |
 
-Rückgabe: sortierte Liste `[(material_key, confidence)]` nach Signalketten-Reihenfolge (Disc vor Band vor Codec). Konfidenzen: [0.20, 0.85].
+**`_strong_physical_analog`-Gate** (normativ):
+```python
+_feature_ok = (
+    fp.rotation_strength >= _pa_rot_thresh
+    or fp.wow_flutter_index >= _pa_wow_thresh
+    or (fp.infrasonic_rms >= _pa_infra_thresh and fp.crackle_density >= _pa_crackle_thresh)
+)
+# Primär: conf >= codec-adaptiver Schwellwert UND physikalisches Feature
+# Fallback: rotation_strength >= 0.30 UND conf >= 0.20 (Plattenspieler-Periodizität)
+_strong_physical_analog = (
+    (_cand_conf >= _pa_conf_thresh and _feature_ok)
+    or (_cand_conf >= 0.20 and fp.rotation_strength >= 0.30)
+)
+```
+
+**VERBOTEN**: Kein Fallback-Gate → `rotation_strength=0.371` wird bei `vinyl_conf=0.250 < _pa_conf_thresh≈0.348` vollständig unterdrückt → Chain bleibt `mp3_low` (Datenmüll, §2.46b).
+
+#### Reel-Tape (Bandmaschinen-Erkennung — zwei Pfade, IEC 60386:1987)
+
+**Studio-Pfad** (normativ, Produktionsfall): Wenn `has_disc=True AND codec_contamination > 0.5` ist der Flutter-Bereich einer professionellen Bandmaschine (0.010–0.035 WRMS) weit unter alten Schwellwerten. Neues adaptives Gate:
+```python
+if has_disc and _codec_contamination > 0.5:
+    _thresh = max(0.010, 0.025 * (1.0 - 0.55 * _codec_contamination))  # ≈ 0.016 bei cc=0.667
+    # Rotation-Guard entfernt: Vinyl-Drehzahl ist ERWARTET wenn has_disc=True
+    tape_conf = clip((wow - _thresh) / 0.10, 0.12, 0.50)
+    if tape_conf >= 0.12: sources.append(("reel_tape", tape_conf))
+```
+**Standard-Pfad**: `wow_flutter_index > 0.20 AND rotation_strength < 0.10` (kein Disc-Source, Rotation = Tape-Motor-Artefakt unwahrscheinlich).
+
+**Kalibrierung**: IEC 60386:1987 — Studio-Reel professionell 0.010–0.030 WRMS, Halbprofi 0.030–0.060 WRMS, Konsumerkassette 0.060–1.500 WRMS.
+
+#### Kassette vs. reel_tape — Disambiguation (§2.46b, normativ)
+
+Wenn beide erkannt: **wow/flutter-Schwelle trennt Studio von Consumer** (IEC 60386:1987, Pohlmann 2010):
+```python
+if _has_cassette and _has_reel_tape:
+    if fp.wow_flutter_index < 0.06:
+        sources = [(m, c) for m, c in sources if m != "cassette"]   # → reel_tape
+    else:
+        sources = [(m, c) for m, c in sources if m != "reel_tape"]  # → cassette
+```
+- `wow < 0.06 WRMS` → Studio-Bandmaschine (`reel_tape`): Präzisions-Transport, gleichmäßig
+- `wow ≥ 0.06 WRMS` → Konsumerkassette (`cassette`): Capstan/Pinch-Roller-Flutter
+
+#### Kassette (BW-basierte Erkennung)
+
+`effective_bandwidth_hz < 15_500 AND codec_contamination < 0.30` → cassette_conf=0.55. Unterliegt Disambiguation.
+
+#### Rückgabe
+
+Sortierte Liste `[(material_key, confidence)]` nach Signalketten-Reihenfolge (Disc vor Band vor Codec). Konfidenzen: [0.12, 0.85].
+
+#### Produktions-Referenzfall (Backend-Log 2026-04-21, normativ — darf nie regressieren)
+
+| Merkmal | Messwert | Diagnose |
+| --- | --- | --- |
+| rotation_strength | 0.371 | Plattenspieler-Periodizität — Fallback-Gate greift (`0.371 ≥ 0.30, conf=0.250 ≥ 0.20`) |
+| wow_flutter_index | 0.034 | Studio-Bandmaschine — Studio-Pfad (`0.034 > 0.016`, `cc=0.667 > 0.5`, Disambiguation: `0.034 < 0.06 → reel_tape`) |
+| codec_artifact_score | 0.40 → `cc=0.667` | MP3-Encoding erkannt |
+| file_ext | `.mp3` | Digital → Bayesian zeroed → Phase 1b greift |
+| **Tonträgerkette** | **`vinyl → reel_tape → mp3_low`** | **Drei-stufige Restaurierung erforderlich** |
+
+**Test-Invariante**: `tests/unit/test_vinyl_tape_mp3_chain_detection.py::TestInferAnalogSourceWithDisc::test_vinyl_reel_tape_mp3_full_chain_production_case` muss grün bleiben.
+
+**Referenz-Fingerabdruck (Elke, Feb 2026):**
+
+| Merkmal | Messwert | Diagnose |
+| --- | --- | --- |
+| infrasonic_rms | 0.065 | Vinyl-Rumble detektiert (> 0.030) |
+| wow_flutter_index | 0.82 | Kassette-Flutter detektiert (≥ 0.06 WRMS → cassette, Disambiguation) |
+| crackle_density | 0.006 events/s | Vinyl-Knackser detektiert (> 0.004) |
+| file_ext | `.mp3` | Digital → Phase 1b physikalische Inferenz |
+| Tonträgerkette | `vinyl → cassette → mp3_low` | Drei-stufige Degradation |
+
+Rückgabe: sortierte Liste `[(material_key, confidence)]` nach Signalketten-Reihenfolge (Disc vor Band vor Codec). Konfidenzen: [0.12, 0.85].
 
 ### Phase 1c: Dolby / DBX NR-Erkennung (v9.10.128)
 

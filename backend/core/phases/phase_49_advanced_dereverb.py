@@ -55,6 +55,8 @@ import numpy as np
 import scipy.signal as sig
 from scipy.ndimage import median_filter
 
+from backend.core.audio_utils import restore_layout, to_channels_last
+
 from .phase_interface import (
     PhaseCategory,
     PhaseInterface,
@@ -232,6 +234,9 @@ class AdvancedDereverbPhase(PhaseInterface):
         sample_rate = kwargs.get("sample_rate", 48000)
         assert sample_rate == 48000, f"SR muss 48000 Hz sein, erhalten: {sample_rate}"
         self.validate_input(audio)
+        # §2.51 Stereo-Kohärenz: normalize to channels-last (N,2) so all M/S
+        # processing uses audio[:,0]/audio[:,1] correctly.
+        audio, _p49_transposed = to_channels_last(audio)
         t0 = time.time()
 
         # §4.6b: Pre-phase eviction — free previous phase models to prevent OOM
@@ -252,7 +257,7 @@ class AdvancedDereverbPhase(PhaseInterface):
             dry = np.clip(dry, -1.0, 1.0)
             return PhaseResult(
                 success=True,
-                audio=dry,
+                audio=restore_layout(dry, _p49_transposed),
                 execution_time_seconds=time.time() - t0,
                 metadata={
                     "algorithm": "skipped_zero_strength",
@@ -546,7 +551,7 @@ class AdvancedDereverbPhase(PhaseInterface):
 
         return PhaseResult(
             success=True,
-            audio=processed,
+            audio=restore_layout(processed, _p49_transposed),
             execution_time_seconds=elapsed,
             metadata={
                 "algorithm": _ml_model_name,
@@ -791,11 +796,12 @@ class AdvancedDereverbPhase(PhaseInterface):
                 t30 = (below35[0] - below5[0]) / float(sample_rate)
                 result["rt60_s"] = float(np.clip(2.0 * t30, 0.05, 3.0))
 
-            # 2. Predelay via normalized autocorrelation
+            # 2. Predelay via normalized autocorrelation — FFT-based O(N log N)
             max_lag = int(0.020 * sample_rate)  # Search up to 20 ms
             if len(x) > 2 * max_lag:
-                ac = np.correlate(x[: max_lag * 4], x[: max_lag * 4], mode="full")
-                ac = ac[len(ac) // 2 :]  # Keep positive lags only
+                from backend.core.core_utils import fft_autocorr
+
+                ac = fft_autocorr(x[: max_lag * 4])
                 ac_norm = ac / (float(ac[0]) + 1e-14)
                 # Find first local peak after lag=0
                 for lag in range(2, min(max_lag, len(ac_norm) - 1)):

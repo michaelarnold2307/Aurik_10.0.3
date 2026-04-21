@@ -78,6 +78,7 @@ from typing import Any
 import numpy as np
 from scipy import signal
 
+from backend.core.audio_utils import stereo_channel_view, stereo_like
 from backend.core.defect_scanner import MaterialType
 
 from .phase_interface import PhaseCategory, PhaseInterface, PhaseMetadata, PhaseResult
@@ -289,7 +290,7 @@ class StereoWidthLimiterPhaseV2(PhaseInterface):
         mid_final = self._recombine_multiband(mid_bands)
 
         # Step 7: M/S encode
-        audio_limited = self._ms_encode(mid_final, side_limited)
+        audio_limited = self._ms_encode(mid_final, side_limited, audio)
 
         if 0.0 < _effective_strength < 1.0:
             audio_limited = audio + _effective_strength * (audio_limited - audio)
@@ -351,20 +352,19 @@ class StereoWidthLimiterPhaseV2(PhaseInterface):
 
     def _ms_decode(self, audio: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         """Decode L/R to Mid/Side."""
-        left = audio[:, 0]
-        right = audio[:, 1]
+        left, right = stereo_channel_view(audio)
 
         mid = (left + right) * 0.5
         side = (left - right) * 0.5
 
         return mid, side
 
-    def _ms_encode(self, mid: np.ndarray, side: np.ndarray) -> np.ndarray:
+    def _ms_encode(self, mid: np.ndarray, side: np.ndarray, template: np.ndarray) -> np.ndarray:
         """Encode Mid/Side to L/R."""
         left = mid + side
         right = mid - side
 
-        return np.column_stack([left, right])
+        return stereo_like(left, right, template)
 
     def _split_multiband(self, signal_in: np.ndarray, sample_rate: int) -> list[np.ndarray]:
         """
@@ -565,8 +565,7 @@ class StereoWidthLimiterPhaseV2(PhaseInterface):
             width = side_rms / mid_rms
         else:
             # Fallback: Use L/R correlation (for pure side signals mid ≈ 0)
-            left = audio[:, 0]
-            right = audio[:, 1]
+            left, right = stereo_channel_view(audio)
 
             # Normalize signals
             left_norm = left / (np.sqrt(np.mean(left**2)) + 1e-10)

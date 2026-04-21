@@ -1257,23 +1257,50 @@ class UnifiedRestorerV3:
         return None
 
     @staticmethod
-    def _infer_tape_speed_ips(material_type: Any, era_decade: int | None) -> float | None:
-        """Infer tape speed in IPS from material type and recording era.
+    def _infer_tape_speed_ips(
+        material_type: Any,
+        era_decade: int | None,
+        transfer_chain: list[str] | None = None,
+    ) -> float | None:
+        """Infer tape speed in IPS from material type, era, and transfer chain.
 
         Used to inject ``tape_speed_ips`` into ``_restoration_context`` so that
         phase_04 head-bump compensation fires automatically for tape material
         (§copilot-instructions HEAD_BUMP_PROFILES invariant).
 
+        Also searches the full transfer_chain for tape intermediate stages so that
+        multi-generation chains such as vinyl → tape → mp3_low correctly trigger
+        head-bump compensation even when the primary material is vinyl/shellac.
+
         Returns None for non-tape materials (no head-bump compensation needed).
         """
+
+        def _ips_for_mat(mat_str: str) -> float | None:
+            if "cassette" in mat_str:
+                return 1.875  # IEC standard compact cassette speed
+            if "reel_tape" in mat_str:
+                # Professional reel-to-reel: 15 ips dominant from 1960s onward; earlier 7.5 ips
+                return 15.0 if (era_decade is not None and era_decade >= 1960) else 7.5
+            if "tape" in mat_str:
+                return 7.5  # Generic tape: conservative default
+            return None
+
         mat_str = (material_type.value if hasattr(material_type, "value") else str(material_type)).lower()
-        if "cassette" in mat_str:
-            return 1.875  # IEC standard compact cassette speed
-        if "reel_tape" in mat_str:
-            # Professional reel-to-reel: 15 ips dominant from 1960s onward; earlier 7.5 ips
-            return 15.0 if (era_decade is not None and era_decade >= 1960) else 7.5
-        if "tape" in mat_str:
-            return 7.5  # Generic tape: conservative default
+        _primary_result = _ips_for_mat(mat_str)
+        if _primary_result is not None:
+            return _primary_result
+
+        # §2.46a: For multi-generation chains (e.g. vinyl → tape → mp3_low) the
+        # primary material is not tape, but a tape intermediate stage still imprints
+        # a head-bump LF boost that must be compensated.  Scan transfer_chain for
+        # the first tape-family stage and return its speed.
+        if transfer_chain:
+            for stage in transfer_chain:
+                stage_lower = str(stage).lower()
+                _chain_result = _ips_for_mat(stage_lower)
+                if _chain_result is not None:
+                    return _chain_result
+
         return None  # vinyl, shellac, digital, etc. — head-bump not applicable
 
     @staticmethod
@@ -4630,10 +4657,13 @@ class UnifiedRestorerV3:
                     # §2.54 Adaptive Intelligence — downstream phases may query these directly
                     "restorability_score": float(_pmgg_restorability_score),
                     "transfer_chain": list(_cal_transfer_chain) if _cal_transfer_chain else [],
-                    # §HEAD_BUMP_PROFILES — enables phase_04 head-bump for tape/cassette material
+                    # §HEAD_BUMP_PROFILES — enables phase_04 head-bump for tape/cassette material.
+                    # §2.46a: transfer_chain passed so that intermediate tape stages in
+                    # multi-generation chains (e.g. vinyl → tape → mp3_low) are detected.
                     "tape_speed_ips": UnifiedRestorerV3._infer_tape_speed_ips(
                         material_type,
                         getattr(_era_result, "decade", None) if _era_result is not None else None,
+                        list(_cal_transfer_chain) if _cal_transfer_chain else None,
                     ),
                 }
             )
@@ -12513,12 +12543,13 @@ class UnifiedRestorerV3:
                         _bmag = np.abs(np.fft.rfft(_bframe * np.hanning(_br_win)))
                         _br_flux[_bi] = float(np.sum(np.maximum(_bmag - _prev_mag, 0.0)))
                         _prev_mag = _bmag
-                    # Auto-Korrelation der Onset-Stärke (BPM 40–220)
+                    # Auto-Korrelation der Onset-Stärke (BPM 40–220) — FFT-based O(N log N)
                     _min_lag = max(1, int(sr / (_br_hop * 220.0 / 60.0)))
                     _max_lag = min(_br_n_frames // 2, int(sr / (_br_hop * 40.0 / 60.0)))
                     if _max_lag > _min_lag + 5:
-                        _br_ac = np.correlate(_br_flux[:_br_n_frames], _br_flux[:_br_n_frames], mode="full")
-                        _br_ac = _br_ac[_br_n_frames - 1 :]  # positive lags only
+                        from backend.core.core_utils import fft_autocorr
+
+                        _br_ac = fft_autocorr(_br_flux[:_br_n_frames])
                         _br_ac_norm = _br_ac / (_br_ac[0] + 1e-12)
                         _br_region = _br_ac_norm[_min_lag:_max_lag]
                         if len(_br_region) > 0:
@@ -17606,6 +17637,33 @@ class UnifiedRestorerV3:
                 logger.debug("§2.45a CUMULATIVE level-guard (final) failed (non-blocking): %s", _cum_exc)
 
         self._pmgg_log_entries = _pmgg_log_entries
+
+        # §Debug-Telemetrie: Per-Phase Goal-Delta-Tabelle (rein additives Logging, kein Audioeffekt).
+        # Ermöglicht schnelle Diagnose welche Phase welches Goal wie stark beeinflusst hat.
+        try:
+            _p1p2_goals = ["natuerlichkeit", "authentizitaet", "tonal_center", "timbre_authentizitaet", "artikulation"]
+            _all_goals_in_log: set[str] = set()
+            for _e in _pmgg_log_entries:
+                _all_goals_in_log.update(_e.goal_regressions.keys())
+            _tracked = [g for g in _p1p2_goals if g in _all_goals_in_log] + [
+                g for g in sorted(_all_goals_in_log) if g not in _p1p2_goals
+            ]
+            if _pmgg_log_entries and _tracked:
+                _col_w = max(12, max(len(g) for g in _tracked) + 2)
+                _header = f"{'Phase':<40}" + "".join(f"{g:>{_col_w}}" for g in _tracked)
+                _rows = [_header, "-" * len(_header)]
+                for _e in _pmgg_log_entries:
+                    _row = f"{_e.phase_id:<40}"
+                    for _g in _tracked:
+                        _delta = _e.goal_regressions.get(_g)
+                        if _delta is None:
+                            _row += f"{'—':>{_col_w}}"
+                        else:
+                            _row += f"{_delta:>+{_col_w}.3f}"
+                    _rows.append(_row)
+                logger.info("§Phase-Delta-Table:\n%s", "\n".join(_rows))
+        except Exception as _pdt_exc:
+            logger.debug("Phase-Delta-Table generation failed (non-blocking): %s", _pdt_exc)
 
         # §2.29e Team-Coordination-Telemetrie: Ereignisse aus PMGG-Log extrahieren.
         # Nur Entries mit gesetztem team_policy_reason — d.h. Phasen, bei denen die

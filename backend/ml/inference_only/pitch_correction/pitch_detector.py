@@ -166,9 +166,10 @@ class CREPEPitchDetector:
 
             frame = audio[start:end]
 
-            # Autocorrelation
-            autocorr = np.correlate(frame, frame, mode="full")
-            autocorr = autocorr[len(autocorr) // 2 :]
+            # Autocorrelation — FFT-based O(N log N)
+            from backend.core.core_utils import fft_autocorr
+
+            autocorr = fft_autocorr(frame)
 
             # Find first peak after zero lag
             min_lag = int(self.sample_rate / 500)  # Max 500 Hz

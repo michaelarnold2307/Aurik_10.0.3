@@ -49,6 +49,290 @@ class GPUBackend(enum.Enum):
     NONE = "none"  # CPU-only (no AMD GPU or GPU suppressed)
 
 
+class AMDArchitecture(enum.Enum):
+    """AMD GPU micro-architecture family — determines kernel behaviour and limits."""
+
+    RDNA4 = "rdna4"  # RX 9000 series (Navi 4x) — wave32, AI accelerators Gen2 (2025+)
+    RDNA3 = "rdna3"  # RX 7000 series (Navi 3x) — wave32, AV1, AI accelerators
+    RDNA2 = "rdna2"  # RX 6000 series (Navi 2x) — wave32, ray-tracing, Infinity Cache
+    RDNA1 = "rdna1"  # RX 5000 series (Navi 1x) — wave32, first RDNA
+    GCN5 = "gcn5"  # RX Vega 56/64 (Vega) — wave64, HBM2; DX12 on Windows
+    GCN4 = "gcn4"  # RX 400/500 series (Polaris) — wave64; DX12 on Windows
+    GCN3 = "gcn3"  # R9 380/390/Fury (Volcanic Islands / Hawaii) — DX12 on Windows
+    CDNA3 = "cdna3"  # MI300 series — data-centre, HBM3, matrix cores
+    CDNA2 = "cdna2"  # MI200 series — data-centre, HBM2e, matrix cores
+    CDNA1 = "cdna1"  # MI100 — data-centre, HBM2, first CDNA
+    UNKNOWN = "unknown"
+
+
+class GPUTier(enum.Enum):
+    """GPU capability tier — controls VRAM budgets, fp16 policy and batch sizing.
+
+    Tier 1: ≥16 GB VRAM, modern architecture → all plugins GPU-eligible, fp16 auto
+    Tier 2: 8–15 GB VRAM, RDNA2+ or CDNA → most plugins GPU, fp16 for heavy models
+    Tier 3: 4–7 GB VRAM or legacy arch → selective GPU, conservative budgets
+    Tier 4: <4 GB VRAM or very old arch → CPU-only (GPU overhead > benefit)
+    """
+
+    TIER_1 = 1
+    TIER_2 = 2
+    TIER_3 = 3
+    TIER_4 = 4
+
+
+# ---------------------------------------------------------------------------
+# AMD GPU name → architecture mapping
+#
+# ROCm exposes torch.cuda.get_device_name() with the marketing name.
+# We pattern-match to determine the architecture family.
+# ---------------------------------------------------------------------------
+
+_AMD_ARCH_PATTERNS: list[tuple[str, AMDArchitecture]] = [
+    # ── CDNA (data-centre) — check first; names may overlap with consumer cards ──
+    ("mi300", AMDArchitecture.CDNA3),
+    ("mi250", AMDArchitecture.CDNA2),
+    ("mi210", AMDArchitecture.CDNA2),
+    ("mi200", AMDArchitecture.CDNA2),
+    ("mi100", AMDArchitecture.CDNA1),
+    ("mi50", AMDArchitecture.CDNA1),
+    # ── RDNA 4 (Navi 4x) — RX 9000 series (2025) ────────────────────────────────
+    ("navi4", AMDArchitecture.RDNA4),
+    ("rx 9070", AMDArchitecture.RDNA4),
+    ("rx 9060", AMDArchitecture.RDNA4),
+    ("rx 9050", AMDArchitecture.RDNA4),
+    ("gfx1200", AMDArchitecture.RDNA4),
+    ("gfx1201", AMDArchitecture.RDNA4),
+    # ── RDNA 3 (Navi 3x) — RX 7000 series ──────────────────────────────────────
+    ("navi3", AMDArchitecture.RDNA3),
+    # Discrete desktop/laptop (marketing names)
+    ("7900", AMDArchitecture.RDNA3),
+    ("7800", AMDArchitecture.RDNA3),
+    ("7700", AMDArchitecture.RDNA3),
+    ("7600", AMDArchitecture.RDNA3),
+    # Professional (W-series)
+    ("w7900", AMDArchitecture.RDNA3),
+    ("w7800", AMDArchitecture.RDNA3),
+    ("w7700", AMDArchitecture.RDNA3),
+    ("w7600", AMDArchitecture.RDNA3),
+    # APU / integrated (Phoenix, Hawk Point, Strix Point)
+    ("890m", AMDArchitecture.RDNA3),  # Radeon 890M  = gfx1151 (Strix Point)
+    ("880m", AMDArchitecture.RDNA3),  # Radeon 880M  = gfx1151 (Strix Point)
+    ("870m", AMDArchitecture.RDNA3),  # Radeon 870M  = gfx1150 (Strix Point)
+    ("860m", AMDArchitecture.RDNA3),  # Radeon 860M  = gfx1150 (Strix Point/Hawk Point Pro)
+    ("780m", AMDArchitecture.RDNA3),  # Radeon 780M  = gfx1103 (Phoenix)
+    ("760m", AMDArchitecture.RDNA3),  # Radeon 760M  = gfx1103
+    ("740m", AMDArchitecture.RDNA3),  # Radeon 740M  = gfx1103
+    # GFX IDs
+    ("gfx1100", AMDArchitecture.RDNA3),
+    ("gfx1101", AMDArchitecture.RDNA3),
+    ("gfx1102", AMDArchitecture.RDNA3),
+    ("gfx1103", AMDArchitecture.RDNA3),  # APU: Phoenix/Hawk Point
+    ("gfx1150", AMDArchitecture.RDNA3),  # APU: Strix Point (RDNA 3.5 — same ISA)
+    ("gfx1151", AMDArchitecture.RDNA3),  # APU: Strix Point / Strix Halo
+    # ── RDNA 2 (Navi 2x) — RX 6000 series ──────────────────────────────────────
+    ("navi2", AMDArchitecture.RDNA2),
+    # Discrete desktop/laptop
+    ("6900", AMDArchitecture.RDNA2),
+    ("6800", AMDArchitecture.RDNA2),
+    ("6750", AMDArchitecture.RDNA2),
+    ("6700", AMDArchitecture.RDNA2),
+    ("6650", AMDArchitecture.RDNA2),
+    ("6600", AMDArchitecture.RDNA2),
+    ("6500", AMDArchitecture.RDNA2),
+    ("6400", AMDArchitecture.RDNA2),
+    ("6300", AMDArchitecture.RDNA2),
+    ("6200", AMDArchitecture.RDNA2),
+    # Professional
+    ("w6800", AMDArchitecture.RDNA2),
+    ("w6700", AMDArchitecture.RDNA2),
+    ("w6600", AMDArchitecture.RDNA2),
+    ("w6400", AMDArchitecture.RDNA2),
+    # APU / integrated (Van Gogh, Rembrandt, Mendocino)
+    ("680m", AMDArchitecture.RDNA2),  # Radeon 680M = gfx1035 (Rembrandt)
+    ("660m", AMDArchitecture.RDNA2),  # Radeon 660M = gfx1034
+    ("610m", AMDArchitecture.RDNA2),  # Radeon 610M = gfx1036
+    # GFX IDs
+    ("gfx1030", AMDArchitecture.RDNA2),
+    ("gfx1031", AMDArchitecture.RDNA2),
+    ("gfx1032", AMDArchitecture.RDNA2),
+    ("gfx1033", AMDArchitecture.RDNA2),  # Ryzen 6000 APU
+    ("gfx1034", AMDArchitecture.RDNA2),
+    ("gfx1035", AMDArchitecture.RDNA2),
+    ("gfx1036", AMDArchitecture.RDNA2),
+    # ── RDNA 1 (Navi 1x) — RX 5000 series ──────────────────────────────────────
+    ("navi1", AMDArchitecture.RDNA1),
+    ("5700", AMDArchitecture.RDNA1),
+    ("5600", AMDArchitecture.RDNA1),
+    ("5500", AMDArchitecture.RDNA1),
+    ("5300", AMDArchitecture.RDNA1),
+    # GFX IDs
+    ("gfx1010", AMDArchitecture.RDNA1),
+    ("gfx1011", AMDArchitecture.RDNA1),
+    ("gfx1012", AMDArchitecture.RDNA1),
+    ("gfx1013", AMDArchitecture.RDNA1),  # Integrated RDNA1 (Renoir/Cézanne)
+    # ── GCN 5 (Vega / Vega 20 / Radeon VII + APU Renoir/Picasso) ────────────────
+    ("vega", AMDArchitecture.GCN5),
+    ("radeon vii", AMDArchitecture.GCN5),
+    ("gfx900", AMDArchitecture.GCN5),  # Vega 10 (discrete)
+    ("gfx906", AMDArchitecture.GCN5),  # Vega 20 / Radeon VII
+    ("gfx90c", AMDArchitecture.GCN5),  # APU: Renoir (Ryzen 4000) / Cezanne (Ryzen 5000) — Vega 7/8
+    ("gfx902", AMDArchitecture.GCN5),  # APU: Raven Ridge / Picasso (Ryzen 2000/3000) — Vega 8/11
+    # Note: gfx908 is CDNA1 (MI100), not consumer GCN5
+    # ── GCN 4 (Polaris) ─────────────────────────────────────────────────────────
+    # ROCm 6.x: no official support; DirectML: DX12-capable → GPU acceleration
+    ("polaris", AMDArchitecture.GCN4),
+    ("rx 590", AMDArchitecture.GCN4),
+    ("rx 580", AMDArchitecture.GCN4),
+    ("rx 570", AMDArchitecture.GCN4),
+    ("rx 560", AMDArchitecture.GCN4),
+    ("rx 550", AMDArchitecture.GCN4),
+    ("rx 480", AMDArchitecture.GCN4),
+    ("rx 470", AMDArchitecture.GCN4),
+    ("rx 460", AMDArchitecture.GCN4),
+    ("gfx803", AMDArchitecture.GCN4),  # Polaris 10/11/12
+    # ── GCN 3 (Volcanic Islands / Hawaii) ────────────────────────────────────────
+    # ROCm: not supported; DirectML: DX12-capable on some models
+    ("r9 390", AMDArchitecture.GCN3),
+    ("r9 380", AMDArchitecture.GCN3),
+    ("r9 285", AMDArchitecture.GCN3),
+    ("fury", AMDArchitecture.GCN3),
+    ("nano", AMDArchitecture.GCN3),  # R9 Nano (Fiji)
+    ("gfx802", AMDArchitecture.GCN3),  # Tonga
+    ("gfx801", AMDArchitecture.GCN3),  # Fiji
+    ("gfx800", AMDArchitecture.GCN3),  # Carrizo APU (GCN3)
+]
+
+
+def _detect_amd_architecture(device_name: str) -> AMDArchitecture:
+    """Match *device_name* against known AMD GPU patterns to determine architecture."""
+    lower = device_name.lower()
+    for pattern, arch in _AMD_ARCH_PATTERNS:
+        if pattern in lower:
+            return arch
+    return AMDArchitecture.UNKNOWN
+
+
+def _compute_gpu_tier(
+    arch: AMDArchitecture,
+    vram_gb: float,
+    backend: GPUBackend = None,  # type: ignore[assignment]
+) -> GPUTier:
+    """Determine GPU capability tier from architecture, VRAM and backend.
+
+    ROCm (Linux):    tier reflects kernel / wavefront-mode support; GCN4+ unsupported.
+    DirectML (Windows): DX12-based — GCN4 and GCN3 GPUs receive a one-tier uplift because
+                        DirectML bypasses ROCm's kernel-coverage limitations.
+    """
+    # Resolve late import (GPUBackend is defined above in the same module scope)
+    _be = backend  # may be None at module load time (pure-function use in tests)
+    _is_directml = _be is not None and _be.value == "directml"
+
+    # ── CDNA (data-centre) — always Tier 1 when enough VRAM ─────────────────
+    if arch in (AMDArchitecture.CDNA3, AMDArchitecture.CDNA2, AMDArchitecture.CDNA1):
+        return GPUTier.TIER_1 if vram_gb >= 8.0 else GPUTier.TIER_2
+
+    # ── RDNA 4 — treat same as RDNA 3 (same tier thresholds, newer arch) ───
+    if arch == AMDArchitecture.RDNA4:
+        if vram_gb >= 16.0:
+            return GPUTier.TIER_1
+        if vram_gb >= 8.0:
+            return GPUTier.TIER_2
+        if vram_gb >= 4.0:
+            return GPUTier.TIER_3
+        return GPUTier.TIER_4
+
+    # ── RDNA 3 / RDNA 2 — modern architectures, tier purely by VRAM ─────────
+    if arch in (AMDArchitecture.RDNA3, AMDArchitecture.RDNA2):
+        if vram_gb >= 16.0:
+            return GPUTier.TIER_1
+        if vram_gb >= 8.0:
+            return GPUTier.TIER_2
+        if vram_gb >= 4.0:
+            return GPUTier.TIER_3
+        return GPUTier.TIER_4
+
+    # ── RDNA 1 — wave32, but older; cap at Tier 2 ───────────────────────────
+    if arch == AMDArchitecture.RDNA1:
+        if vram_gb >= 8.0:
+            return GPUTier.TIER_2
+        if vram_gb >= 4.0:
+            return GPUTier.TIER_3
+        return GPUTier.TIER_4
+
+    # ── GCN 5 (Vega) — wave64; ROCm 6.x limited, DirectML full DX12 ─────────
+    if arch == AMDArchitecture.GCN5:
+        if _is_directml:
+            # Vega has 8–16 GB HBM2 and DX12 feature-level 12_0 → Tier 2 on DirectML
+            if vram_gb >= 8.0:
+                return GPUTier.TIER_2
+            return GPUTier.TIER_3
+        # ROCm: limited kernel coverage
+        if vram_gb >= 8.0:
+            return GPUTier.TIER_3
+        return GPUTier.TIER_4
+
+    # ── GCN 4 (Polaris) — ROCm 6.x: unsupported; DirectML: DX12-capable ────
+    if arch == AMDArchitecture.GCN4:
+        if _is_directml:
+            if vram_gb >= 8.0:
+                return GPUTier.TIER_3
+            if vram_gb >= 4.0:
+                return GPUTier.TIER_3
+            return GPUTier.TIER_4
+        return GPUTier.TIER_4  # ROCm: not supported → CPU-only
+
+    # ── GCN 3 (Volcanic Islands / Hawaii) — DirectML only, very conservative ─
+    if arch == AMDArchitecture.GCN3:
+        # Only light ONNX models via DirectML; cap at Tier 4 unless DirectML + decent VRAM
+        if _is_directml and vram_gb >= 4.0:
+            return GPUTier.TIER_4  # minimal benefit; still CPU-only for heavy plugins
+        return GPUTier.TIER_4
+
+    # ── UNKNOWN — conservative, VRAM-only estimate ───────────────────────────
+    if vram_gb >= 16.0:
+        return GPUTier.TIER_2
+    if vram_gb >= 8.0:
+        return GPUTier.TIER_3
+    return GPUTier.TIER_4
+
+
+# ---------------------------------------------------------------------------
+# Tier-adaptive VRAM budget parameters
+# ---------------------------------------------------------------------------
+
+_TIER_VRAM_PARAMS: dict[GPUTier, dict[str, float]] = {
+    # max_usage_ratio: fraction of total VRAM Aurik may use
+    # min_free_mb: hard floor of free VRAM to preserve
+    # fp16_auto: whether fp16 is automatically activated for eligible plugins
+    GPUTier.TIER_1: {"max_usage_ratio": 0.85, "min_free_mb": 512.0, "fp16_auto": 1.0},
+    GPUTier.TIER_2: {"max_usage_ratio": 0.80, "min_free_mb": 640.0, "fp16_auto": 1.0},
+    GPUTier.TIER_3: {"max_usage_ratio": 0.70, "min_free_mb": 768.0, "fp16_auto": 1.0},
+    GPUTier.TIER_4: {"max_usage_ratio": 0.50, "min_free_mb": 512.0, "fp16_auto": 0.0},
+}
+
+
+# Tier 3/4 plugins that are too large for small-VRAM GPUs → CPU-only
+_TIER3_GPU_EXCLUDE: frozenset[str] = frozenset(
+    {
+        "AudioSR",  # ~7 GB VRAM — only Tier 1
+        "AudioLDM2",  # ~1.3 GB peak — needs headroom
+        "MERT-330M-fairseq",  # ~3.7 GB — only Tier 1/2
+    }
+)
+
+_TIER4_GPU_EXCLUDE: frozenset[str] = frozenset(
+    {
+        *_TIER3_GPU_EXCLUDE,
+        "MERT-330M-HF",  # ~1.2 GB — too large for <4 GB VRAM
+        "BSRoFormer",  # ~860 MB peak
+        "MDXNet",  # ~1.2 GB peak
+        "BigVGAN",  # ~400 MB + intermediates
+        "CQTDiffPlus",  # diffusion iterations need headroom
+        "SGMSE",  # diffusion score-matching
+    }
+)
+
+
 # ---------------------------------------------------------------------------
 # Heavy ML plugins eligible for GPU acceleration
 #
@@ -248,6 +532,8 @@ class MLDeviceManager:
         self._vram_free_gb: float = 0.0
         self._gpu_available: bool = False
         self._gpu_name: str = "N/A"
+        self._gpu_architecture: AMDArchitecture = AMDArchitecture.UNKNOWN
+        self._gpu_tier: GPUTier = GPUTier.TIER_4
         self._gpu_errors: dict[str, int] = {}  # plugin_name → error count
         self._gpu_disabled_plugins: set[str] = set()  # session-disabled plugins
         self._ort_gpu_compatible_plugins: set[str] = set(_HEAVY_ML_PLUGINS)
@@ -267,11 +553,13 @@ class MLDeviceManager:
 
         if self._gpu_available:
             logger.info(
-                "MLDeviceManager: GPU backend=%s device=%s VRAM=%.1f GB gpu=%s",
+                "MLDeviceManager: GPU backend=%s device=%s VRAM=%.1f GB gpu=%s arch=%s tier=%s",
                 self._backend.value,
                 self._torch_gpu_device,
                 self._vram_total_gb,
                 self._gpu_name,
+                self._gpu_architecture.value,
+                self._gpu_tier.name,
             )
         else:
             logger.info("MLDeviceManager: no GPU backend — CPU-only mode (ROCm/DirectML not found or not installed)")
@@ -298,6 +586,18 @@ class MLDeviceManager:
             self._gpu_available = True
             self._gpu_name = device_name
 
+            # AMD architecture & tier detection
+            self._gpu_architecture = _detect_amd_architecture(device_name)
+            self._gpu_tier = _compute_gpu_tier(self._gpu_architecture, self._vram_total_gb, self._backend)
+
+            logger.info(
+                "MLDeviceManager: AMD GPU arch=%s tier=%s name=%s VRAM=%.1f GB",
+                self._gpu_architecture.value,
+                self._gpu_tier.name,
+                device_name,
+                self._vram_total_gb,
+            )
+
         except Exception as exc:
             logger.debug("MLDeviceManager: ROCm detection failed: %s", exc)
 
@@ -318,9 +618,24 @@ class MLDeviceManager:
             self._backend = GPUBackend.DIRECTML
             self._ort_gpu_providers = ["DmlExecutionProvider", "CPUExecutionProvider"]
             self._gpu_available = True
-            self._gpu_name = "DirectML (AMD/DX12)"
             self._vram_total_gb = self._query_vram_directml()
             self._vram_free_gb = self._vram_total_gb  # assume clear at startup
+
+            # Query real GPU name for architecture detection
+            gpu_name = self._query_gpu_name_windows()
+            self._gpu_name = gpu_name if gpu_name else "DirectML (AMD/DX12)"
+
+            # Architecture & tier detection (same pipeline as ROCm)
+            self._gpu_architecture = _detect_amd_architecture(self._gpu_name)
+            self._gpu_tier = _compute_gpu_tier(self._gpu_architecture, self._vram_total_gb, self._backend)
+
+            logger.info(
+                "MLDeviceManager: DirectML GPU arch=%s tier=%s name=%s VRAM=%.1f GB",
+                self._gpu_architecture.value,
+                self._gpu_tier.name,
+                self._gpu_name,
+                self._vram_total_gb,
+            )
 
             # Optional: torch-directml enables PyTorch models on DirectML.
             # Without it, only ONNX models get DirectML acceleration.
@@ -339,6 +654,31 @@ class MLDeviceManager:
             logger.debug("MLDeviceManager: DirectML detection failed: %s", exc)
 
     # ── VRAM query helpers ────────────────────────────────────────────────
+
+    def _query_gpu_name_windows(self) -> str:
+        """Query the GPU display name on Windows via WMIC.
+
+        Returns the real GPU name (e.g. 'AMD Radeon RX 7900 XTX') so that
+        _detect_amd_architecture() can determine the correct architecture.
+        Returns empty string when WMIC is unavailable (non-Windows or no admin).
+        """
+        try:
+            import subprocess  # nosec B404 — WMIC read-only hardware query
+
+            result = subprocess.run(  # nosec B603 B607
+                ["wmic", "path", "Win32_VideoController", "get", "Caption", "/value"],
+                capture_output=True,
+                text=True,
+                timeout=3,
+            )
+            for line in result.stdout.splitlines():
+                if "Caption" in line and "=" in line:
+                    name = line.split("=", 1)[1].strip()
+                    if name:
+                        return name
+        except Exception:
+            pass
+        return ""
 
     def _query_vram_free_rocm(self) -> float:
         """Query free VRAM in GB via torch.cuda.mem_get_info(device=0)."""
@@ -384,17 +724,36 @@ class MLDeviceManager:
         """True when *plugin_name* is eligible for GPU dispatch."""
         return plugin_name in _HEAVY_ML_PLUGINS
 
+    @property
+    def gpu_architecture(self) -> AMDArchitecture:
+        """Return the detected AMD GPU architecture family."""
+        return self._gpu_architecture
+
+    @property
+    def gpu_tier(self) -> GPUTier:
+        """Return the GPU capability tier (1=best, 4=CPU-only recommended)."""
+        return self._gpu_tier
+
+    @property
+    def gpu_name(self) -> str:
+        """Return the GPU device name (e.g. 'AMD Radeon RX 7900 XTX')."""
+        return self._gpu_name
+
     def get_torch_device(self, plugin_name: str = "") -> str:
         """Return PyTorch device string for *plugin_name*.
 
         Heavy plugins receive the GPU device string; all others receive ``"cpu"``.
         DirectML without torch-directml always returns ``"cpu"`` for PyTorch models.
+        Tier-based exclusion: Tier 3/4 GPUs exclude VRAM-heavy plugins.
         """
         if not self._gpu_available:
             return "cpu"
         if plugin_name and plugin_name not in _HEAVY_ML_PLUGINS:
             return "cpu"
         if plugin_name and plugin_name in self._gpu_disabled_plugins:
+            return "cpu"
+        # Tier-based exclusion for plugins too large for the GPU
+        if plugin_name and self._is_tier_excluded(plugin_name):
             return "cpu"
         # DirectML requires separate torch-directml package for PyTorch tensors.
         if self._backend == GPUBackend.DIRECTML and self._torch_gpu_device == "cpu":
@@ -405,10 +764,20 @@ class MLDeviceManager:
         """Return ONNX Runtime provider list for *plugin_name*.
 
         Heavy plugins get the GPU provider (with CPU fallback); others get CPU-only.
+        On ROCm, fp16-eligible plugins automatically receive fp16-optimised providers
+        when the GPU tier supports it (Tier 1–3).
         Returns a defensive copy of the internal list.
         """
         if not self.is_ort_gpu_supported(plugin_name):
             return ["CPUExecutionProvider"]
+        # Auto-fp16: if plugin is fp16-eligible and tier allows it, use fp16 providers
+        if (
+            self._backend == GPUBackend.ROCM
+            and plugin_name
+            and plugin_name in _FP16_ELIGIBLE_PLUGINS
+            and _TIER_VRAM_PARAMS.get(self._gpu_tier, {}).get("fp16_auto", 0.0) >= 1.0
+        ):
+            return self.get_ort_providers_fp16(plugin_name)
         return list(self._ort_gpu_providers)
 
     def is_ort_gpu_supported(self, plugin_name: str = "") -> bool:
@@ -416,7 +785,7 @@ class MLDeviceManager:
 
         Decision is conservative: GPU must be available, plugin must be in the heavy
         GPU-eligible set, and the plugin must not be session-disabled due to prior
-        incompatibility/runtime failures.
+        incompatibility/runtime failures. Tier-based exclusion also applies.
         """
         if not self._gpu_available:
             return False
@@ -426,7 +795,17 @@ class MLDeviceManager:
             return False
         if plugin_name and plugin_name not in self._ort_gpu_compatible_plugins:
             return False
+        if plugin_name and self._is_tier_excluded(plugin_name):
+            return False
         return True
+
+    def _is_tier_excluded(self, plugin_name: str) -> bool:
+        """Return True if *plugin_name* is excluded from GPU on the current tier."""
+        if self._gpu_tier == GPUTier.TIER_4:
+            return plugin_name in _TIER4_GPU_EXCLUDE
+        if self._gpu_tier == GPUTier.TIER_3:
+            return plugin_name in _TIER3_GPU_EXCLUDE
+        return False
 
     def mark_ort_gpu_unsupported(self, plugin_name: str, reason: str = "") -> None:
         """Disable ORT-GPU for *plugin_name* for the current session.
@@ -471,28 +850,34 @@ class MLDeviceManager:
                 self._vram_free_gb = self._query_vram_free_rocm()
 
             already_used = sum(v for k, v in self._vram_allocated.items())
-            max_usable = self._vram_total_gb * _VRAM_MAX_USAGE_RATIO
+            # Tier-adaptive VRAM budget parameters
+            tier_params = _TIER_VRAM_PARAMS.get(self._gpu_tier, _TIER_VRAM_PARAMS[GPUTier.TIER_4])
+            max_usage_ratio = tier_params["max_usage_ratio"]
+            min_free_mb = tier_params["min_free_mb"]
+            max_usable = self._vram_total_gb * max_usage_ratio
 
             if already_used + size_gb > max_usable:
                 logger.warning(
-                    "MLDeviceManager: VRAM budget exceeded for %s (%.2f GB) — used %.2f / %.2f GB → CPU fallback",
+                    "MLDeviceManager: VRAM budget exceeded for %s (%.2f GB) — used %.2f / %.2f GB (tier=%s) → CPU fallback",
                     plugin_name,
                     size_gb,
                     already_used,
                     max_usable,
+                    self._gpu_tier.name,
                 )
                 return False
 
-            required_with_floor = size_gb + (_VRAM_MIN_FREE_MB / 1024.0)
+            required_with_floor = size_gb + (min_free_mb / 1024.0)
             effective_free = self._vram_free_gb - already_used
             if effective_free < required_with_floor:
                 logger.warning(
                     "MLDeviceManager: insufficient VRAM for %s — "
-                    "need %.2f GB (incl. %.0f MB floor), have %.2f GB → CPU fallback",
+                    "need %.2f GB (incl. %.0f MB floor), have %.2f GB (tier=%s) → CPU fallback",
                     plugin_name,
                     required_with_floor,
-                    _VRAM_MIN_FREE_MB,
+                    min_free_mb,
                     effective_free,
+                    self._gpu_tier.name,
                 )
                 return False
 
@@ -520,12 +905,15 @@ class MLDeviceManager:
                 "backend": self._backend.value,
                 "gpu_available": self._gpu_available,
                 "gpu_name": self._gpu_name,
+                "gpu_architecture": self._gpu_architecture.value,
+                "gpu_tier": self._gpu_tier.name,
                 "vram_total_gb": self._vram_total_gb,
                 "vram_free_gb": self._vram_free_gb,
                 "vram_allocated_gb": sum(self._vram_allocated.values()),
                 "allocated_plugins": dict(self._vram_allocated),
                 "gpu_errors": dict(self._gpu_errors),
                 "gpu_disabled_plugins": list(self._gpu_disabled_plugins),
+                "fp16_auto": _TIER_VRAM_PARAMS.get(self._gpu_tier, {}).get("fp16_auto", 0.0) >= 1.0,
             }
 
     def report_gpu_error(self, plugin_name: str, exc: Exception) -> None:

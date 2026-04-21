@@ -46,6 +46,7 @@ import time
 import numpy as np
 from scipy import signal
 
+from backend.core.audio_utils import audio_sample_count, stereo_channel_view, stereo_like
 from backend.core.defect_scanner import MaterialType
 
 from .phase_interface import PhaseCategory, PhaseInterface, PhaseMetadata, PhaseResult
@@ -257,7 +258,8 @@ class DynamicRangeExpansion(PhaseInterface):
 
         # §2.51 Linked-Stereo: Gain-Envelope aus \u221a(L\u00b2+R\u00b2)/\u221a2, identisch auf L+R
         if is_stereo:
-            mono_sidechain = np.sqrt((audio[:, 0] ** 2 + audio[:, 1] ** 2) / 2.0)
+            left, right = stereo_channel_view(audio)
+            mono_sidechain = np.sqrt((left**2 + right**2) / 2.0)
             expanded_mono = self._expand_channel(mono_sidechain, sample_rate, config)
             _eps_exp = 1e-10
             _gain_exp = np.where(
@@ -266,12 +268,7 @@ class DynamicRangeExpansion(PhaseInterface):
                 1.0,
             )
             _gain_exp = np.clip(_gain_exp, 0.0, 10.0)
-            expanded_audio = np.column_stack(
-                (
-                    audio[:, 0] * _gain_exp,
-                    audio[:, 1] * _gain_exp,
-                )
-            )
+            expanded_audio = stereo_like(left * _gain_exp, right * _gain_exp, audio)
         else:
             expanded_audio = self._expand_channel(audio, sample_rate, config)
 
@@ -311,7 +308,7 @@ class DynamicRangeExpansion(PhaseInterface):
             logger.debug("DR-Ceiling check failed (non-blocking): %s", _dr_ceil_exc)
 
         execution_time = time.time() - start_time
-        rt_factor = execution_time / (len(audio) / sample_rate)
+        rt_factor = execution_time / (audio_sample_count(audio) / sample_rate)
 
         expanded_audio = np.nan_to_num(expanded_audio, nan=0.0, posinf=0.0, neginf=0.0)
         expanded_audio = np.clip(expanded_audio, -1.0, 1.0)
@@ -354,7 +351,7 @@ class DynamicRangeExpansion(PhaseInterface):
         # Combine bands
         expanded_audio = self._combine_bands(expanded_bands)
 
-        return expanded_audio[: len(audio)]
+        return expanded_audio[: audio_sample_count(audio)]
 
     def _split_into_bands(self, audio: np.ndarray, sample_rate: int) -> list:
         """

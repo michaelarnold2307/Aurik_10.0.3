@@ -237,7 +237,7 @@ def _wiener(mono, sr):
 
     # Guard short segments: scipy reduces effective nperseg to signal length,
     # so a fixed noverlap can become >= nperseg and raise ValueError.
-    _sig_len = int(len(mono))
+    _sig_len = len(mono)
     _nperseg = int(min(_N, max(1, _sig_len)))
     _noverlap = int(min(_N - _HOP, max(0, _nperseg - 1)))
 

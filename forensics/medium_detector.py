@@ -632,12 +632,66 @@ class MediumDetector:
             sources.append(("cassette", float(np.clip(cassette_conf, _cassette_min, 0.85))))
 
         # ── Reel tape ────────────────────────────────────────────────
-        # Direct reel-tape recording (no disc source): moderate flutter, no rotation.
-        # Reel-tape Bayesian model: wow_depth μ=0.3, σ=0.3 (lower than cassette).
-        if not has_disc and fp.wow_flutter_index > 0.20 and fp.rotation_strength < 0.05:
-            tape_conf = float(min((fp.wow_flutter_index - 0.20) / 1.00, 1.0))
-            if tape_conf >= 0.20:
-                sources.append(("reel_tape", float(np.clip(tape_conf, 0.20, 0.85))))
+        # §2.46a: Codec-adaptive reel-tape flutter threshold — komplett überarbeitete Logik.
+        #
+        # Zwei strukturelle Bugs der Vorgängerversion:
+        #
+        # BUG A: `rotation_strength < 0.10`-Guard blockierte Tape-Erkennung bei has_disc=True.
+        #   Vinyl-Quelldateien haben naturgemäß rotation_strength 0.08–0.60 vom Plattenteller.
+        #   Wenn der Disc-Ursprung bereits in `sources` bestätigt ist, ist diese Rotation
+        #   ERWARTET und darf das Tape-Zwischenglied nicht unterdrücken.
+        #   Korrekt: Guard gilt nur wenn KEIN Disc-Ursprung bestätigt (no has_disc).
+        #
+        # BUG B: max(0.10,...)-Floor zu hoch für Studio-Bandmaschinen.
+        #   Studio reel-tape (Studer A80, Ampex ATR) hat wow/flutter 0.01–0.03 WRMS (IEC 60386,
+        #   Pohlmann 2010). Nach Multi-Gen-Transfer + Codec-Encoding weiter gedämpft.
+        #   Fester Floor 0.10 greift systematisch über dem physikalischen Signal.
+        #   Fix: Spezial-Pfad für has_disc=True + hohe Codec-Kontamination (>0.5).
+        if has_disc and _codec_contamination > 0.5:
+            # Studio reel-tape Pfad: Threshold auf Basis des Studio-Flutter-Bereichs
+            # (0.010–0.030 WRMS) mit Codec-Dämpfungskorrektur.
+            # rotation_strength Guard entfernt — Disc-Rotation ist erwartet, kein Ausschluss.
+            _tape_flutter_thresh_rt = max(0.010, 0.025 * (1.0 - 0.55 * _codec_contamination))
+            if fp.wow_flutter_index > _tape_flutter_thresh_rt:
+                # Konfidenz über schmalen Studio-Bereich skalieren
+                tape_conf_rt = float(np.clip((fp.wow_flutter_index - _tape_flutter_thresh_rt) / 0.10, 0.12, 0.50))
+                if tape_conf_rt >= 0.12:
+                    sources.append(("reel_tape", float(np.clip(tape_conf_rt, 0.12, 0.85))))
+        else:
+            # Standard-Pfad: Consumer reel-tape oder kein Disc-Ursprung.
+            # rotation_strength < 0.10 Guard: unterscheidet Tape-Flutter von Plattenspieler-Drift
+            # (gilt nur wenn kein Disc-Ursprung bestätigt oder niedrige Codec-Kontamination).
+            _tape_base_thresh = 0.20
+            _tape_flutter_thresh = max(0.10, _tape_base_thresh * (1.0 - 0.55 * _codec_contamination))
+            if fp.wow_flutter_index > _tape_flutter_thresh and fp.rotation_strength < 0.10:
+                tape_conf = float(min((fp.wow_flutter_index - _tape_flutter_thresh) / 1.00, 1.0))
+                _tape_min_conf = 0.15 if has_disc else 0.20
+                if tape_conf >= _tape_min_conf:
+                    sources.append(("reel_tape", float(np.clip(tape_conf, _tape_min_conf, 0.85))))
+
+        # §2.46a: Cassette vs. reel_tape Disambiguation.
+        # Consumer-Kassette: wow/flutter typisch >= 0.06 WRMS (Nakamichi-Spezifikation 0.04 WRMS,
+        # typisch 0.08–0.50 WRMS; IEC 60386, AES 1984).
+        # Studio reel-tape: wow/flutter typisch <= 0.05 WRMS.
+        # Wenn beide erkannt wurden (BW-basierte Kassetten-Erkennung UND Flutter-basiertes Tape):
+        # Entscheidung nach Wow/Flutter-Niveau — niedrig → reel_tape, hoch → cassette.
+        _has_cassette_d = any(m == "cassette" for m, _ in sources)
+        _has_reel_tape_d = any(m == "reel_tape" for m, _ in sources)
+        if _has_cassette_d and _has_reel_tape_d:
+            if fp.wow_flutter_index < 0.06:
+                # Niedriger Flutter → Studio reel_tape wahrscheinlicher; Kassette entfernen
+                sources = [(m, c) for m, c in sources if m != "cassette"]
+                logger.debug(
+                    "MediumDetector: cassette/reel_tape disambiguation — wow=%.3f < 0.06 → reel_tape",
+                    fp.wow_flutter_index,
+                )
+            else:
+                # Höherer Flutter → Consumer-Kassette wahrscheinlicher; reel_tape entfernen
+                sources = [(m, c) for m, c in sources if m != "reel_tape"]
+                logger.debug(
+                    "MediumDetector: cassette/reel_tape disambiguation — wow=%.3f >= 0.06 → cassette",
+                    fp.wow_flutter_index,
+                )
 
         # Sort by signal-chain order: disc (0) before tape (1) before codec (2).
         sources.sort(key=lambda x: self._MEDIUM_ORDER.get(x[0], 5))
@@ -1316,10 +1370,19 @@ class MediumDetector:
                 _pa_wow_thresh = max(0.02, 0.06 * (1.0 - 0.45 * _pa_codec_att))
                 _pa_infra_thresh = max(0.015, 0.025 * (1.0 - 0.40 * _pa_codec_att))
                 _pa_crackle_thresh = max(0.010, 0.020 * (1.0 - 0.40 * _pa_codec_att))
-                _strong_physical_analog = _cand_conf >= _pa_conf_thresh and (
+                _feature_ok = (
                     fp.rotation_strength >= _pa_rot_thresh
                     or fp.wow_flutter_index >= _pa_wow_thresh
                     or (fp.infrasonic_rms >= _pa_infra_thresh and fp.crackle_density >= _pa_crackle_thresh)
+                )
+                # §2.46a: Primär-Gate: conf >= codec-adaptiver Schwellwert UND physikalisches Feature.
+                # Fallback-Gate: innere Analyse (_infer_analog_source_from_fingerprint) hat bereits
+                # adaptive Schwellen angewandt und einen Kandidaten geliefert. Wenn rotation_strength
+                # >= 0.30 (klare Plattenspieler-Periodizität, Copeland 2008) UND conf >= inneres
+                # Minimum (0.20), ist der analoge Ursprung physikalisch plausibel — auch wenn conf
+                # unterhalb des codec-adaptiven Floors liegt (Multi-Gen-Dämpfung).
+                _strong_physical_analog = (_cand_conf >= _pa_conf_thresh and _feature_ok) or (
+                    _cand_conf >= 0.20 and fp.rotation_strength >= 0.30
                 )
                 if _strong_physical_analog:
                     best_analog, best_analog_score = _cand_analog, _cand_conf

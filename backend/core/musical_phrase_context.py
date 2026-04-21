@@ -333,8 +333,9 @@ class MusicalPhraseContextExtractor:
         if lag_hi <= lag_lo:
             return 120.0
 
-        acf = np.correlate(onset_env, onset_env, "full")
-        acf = acf[len(acf) // 2 :]
+        from backend.core.core_utils import fft_autocorr
+
+        acf = fft_autocorr(onset_env)
         peak_lag = int(np.argmax(acf[lag_lo : lag_hi + 1])) + lag_lo
         if peak_lag == 0:
             return 120.0

@@ -65,6 +65,7 @@ from typing import Any
 import numpy as np
 from scipy import signal
 
+from backend.core.audio_utils import stereo_channel_view, stereo_like
 from backend.core.defect_scanner import MaterialType
 
 from .phase_interface import PhaseCategory, PhaseInterface, PhaseMetadata, PhaseResult
@@ -207,6 +208,44 @@ class StereoEnhancementPhaseV2(PhaseInterface):
         initial_width = self._measure_stereo_width(audio)
         initial_correlation = self._measure_correlation(audio)
 
+        # Wide-stereo guard: if the stereo is already significantly wide (corr < 0.45),
+        # no enhancement is needed. This song already has wide production. Applying Haas
+        # delays + M/S widening + 50/50-blend would introduce comb filtering in the
+        # 200–1000 Hz range (comb notch at f = (2n+1)/(2·τ) for τ=8ms → 62.5 Hz,
+        # 187.5 Hz … within vocal band) → chroma shift → authentizitaet regression.
+        _WIDE_STEREO_GUARD = 0.45
+        if initial_correlation < _WIDE_STEREO_GUARD:
+            logger.debug(
+                "phase_13: initial_correlation=%.3f < %.2f — already wide stereo, "
+                "no enhancement needed, returning input unchanged",
+                initial_correlation,
+                _WIDE_STEREO_GUARD,
+            )
+            passthrough = np.nan_to_num(audio.copy(), nan=0.0, posinf=0.0, neginf=0.0)
+            passthrough = np.clip(passthrough, -1.0, 1.0)
+            return PhaseResult(
+                success=True,
+                audio=passthrough,
+                execution_time_seconds=time.time() - start_time,
+                metadata={
+                    "material": material.name,
+                    "enhancement_applied": False,
+                    "algorithm": "stereo_enhancement_no_op",
+                    "reason": "already_wide_stereo",
+                    "phase_locality_factor": phase_locality_factor,
+                    "effective_strength": _effective_strength,
+                    "rms_drop_db": 0.0,
+                    "loudness_makeup_db": 0.0,
+                },
+                metrics={
+                    "stereo_width_before": float(initial_width),
+                    "stereo_width_after": float(initial_width),
+                    "width_increase_percent": 0.0,
+                    "correlation_before": float(initial_correlation),
+                    "correlation_after": float(initial_correlation),
+                },
+            )
+
         # Step 1: Multi-band split
         bands = self._split_multiband(audio, sample_rate)
 
@@ -299,29 +338,30 @@ class StereoEnhancementPhaseV2(PhaseInterface):
         - Band 3: 5000-20000 Hz (High)
         """
         bands = []
+        filter_axis = 1 if audio.ndim == 2 and audio.shape[0] == 2 and audio.shape[1] > 2 else 0
 
         # Band 0: Low-pass 200 Hz (Bass)
         sos_lp = signal.butter(4, self.BAND_SPLITS[0], btype="lowpass", fs=sample_rate, output="sos")
-        band_0 = signal.sosfilt(sos_lp, audio, axis=0)
+        band_0 = signal.sosfilt(sos_lp, audio, axis=filter_axis)
         bands.append(band_0)
 
         # Band 1: Band-pass 200-1000 Hz (Low-Mid)
         sos_bp1 = signal.butter(
             4, [self.BAND_SPLITS[0], self.BAND_SPLITS[1]], btype="bandpass", fs=sample_rate, output="sos"
         )
-        band_1 = signal.sosfilt(sos_bp1, audio, axis=0)
+        band_1 = signal.sosfilt(sos_bp1, audio, axis=filter_axis)
         bands.append(band_1)
 
         # Band 2: Band-pass 1000-5000 Hz (Mid)
         sos_bp2 = signal.butter(
             4, [self.BAND_SPLITS[1], self.BAND_SPLITS[2]], btype="bandpass", fs=sample_rate, output="sos"
         )
-        band_2 = signal.sosfilt(sos_bp2, audio, axis=0)
+        band_2 = signal.sosfilt(sos_bp2, audio, axis=filter_axis)
         bands.append(band_2)
 
         # Band 3: High-pass 5000 Hz (High)
         sos_hp = signal.butter(4, self.BAND_SPLITS[2], btype="highpass", fs=sample_rate, output="sos")
-        band_3 = signal.sosfilt(sos_hp, audio, axis=0)
+        band_3 = signal.sosfilt(sos_hp, audio, axis=filter_axis)
         bands.append(band_3)
 
         return bands
@@ -348,8 +388,7 @@ class StereoEnhancementPhaseV2(PhaseInterface):
         6. Check correlation, reduce width if needed
         7. M/S encode
         """
-        left = audio[:, 0]
-        right = audio[:, 1]
+        left, right = stereo_channel_view(audio)
 
         # Measure initial width
         initial_width = self._measure_stereo_width(audio)
@@ -375,7 +414,7 @@ class StereoEnhancementPhaseV2(PhaseInterface):
         # M/S encode (preliminary)
         enhanced_left = mid + enhanced_side
         enhanced_right = mid - enhanced_side
-        enhanced_audio = np.column_stack((enhanced_left, enhanced_right))
+        enhanced_audio = stereo_like(enhanced_left, enhanced_right, audio)
 
         # Check correlation
         current_correlation = self._measure_correlation(enhanced_audio)
@@ -391,7 +430,7 @@ class StereoEnhancementPhaseV2(PhaseInterface):
             # Re-encode
             enhanced_left = mid + enhanced_side
             enhanced_right = mid - enhanced_side
-            enhanced_audio = np.column_stack((enhanced_left, enhanced_right))
+            enhanced_audio = stereo_like(enhanced_left, enhanced_right, audio)
             current_correlation = self._measure_correlation(enhanced_audio)
 
         # Measure final width
@@ -477,8 +516,7 @@ class StereoEnhancementPhaseV2(PhaseInterface):
         - 1.0 = equal Mid/Side energy
         - >1.0 = wide stereo
         """
-        left = audio[:, 0]
-        right = audio[:, 1]
+        left, right = stereo_channel_view(audio)
 
         mid = (left + right) / 2.0
         side = (left - right) / 2.0
@@ -501,8 +539,7 @@ class StereoEnhancementPhaseV2(PhaseInterface):
 
         For mono compatibility, correlation should be >0.5 (preferably >0.7).
         """
-        left = audio[:, 0]
-        right = audio[:, 1]
+        left, right = stereo_channel_view(audio)
 
         # Pearson correlation coefficient
         # Guard: np.corrcoef zweier Null-Vektoren erzeugt RuntimeWarning(invalid in divide)

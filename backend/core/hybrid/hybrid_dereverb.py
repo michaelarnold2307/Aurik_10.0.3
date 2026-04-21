@@ -293,12 +293,9 @@ class HybridDereverb:
             except Exception as _exc:
                 logger.debug("Operation failed (non-critical): %s", _exc)
             gc.collect()
-            try:
-                import ctypes as _ct
-
-                _ct.CDLL("libc.so.6").malloc_trim(0)
-            except Exception as _exc:
-                logger.debug("Operation failed (non-critical): %s", _exc)
+            # NOTE: malloc_trim(0) removed — kann SIGABRT verursachen wenn sbrk() im
+            # Hintergrund-Thread mit numpy-Allokationen im Restaurierungs-Thread kollidiert.
+            # gc.collect() ist ausreichend für RAM-Freigabe (identisch mit PLM-Policy).
             avail_gb = psutil.virtual_memory().available / (1024**3)
 
         if avail_gb < required_gb:
@@ -464,14 +461,25 @@ class HybridDereverb:
         except Exception as e:
             err_msg = str(e)
             err_l = err_msg.lower()
-            deterministic_patterns = (
+            # Shape/size mismatches are transient alignment issues (off-by-1/2 from
+            # resampling or STFT padding rounding) — NOT permanent model failures.
+            # Only latch the disable flag for genuinely non-recoverable errors
+            # (TorchScript load failure, model architecture mismatch, etc.).
+            _transient_patterns = (
                 "the size of tensor",
                 "must match the size of tensor",
-                "torchscript",
                 "size mismatch",
                 "shape mismatch",
             )
-            if any(pat in err_l for pat in deterministic_patterns):
+            _deterministic_patterns = (
+                "torchscript",
+                "no such file",
+                "invalid magic",
+                "runtime error: expected",
+            )
+            _is_transient = any(pat in err_l for pat in _transient_patterns)
+            _is_deterministic = not _is_transient and any(pat in err_l for pat in _deterministic_patterns)
+            if _is_deterministic:
                 self._disable_ml_due_deterministic_error = True
                 self._last_deterministic_ml_error = err_msg
             logger.warning("HybridDereverb ML-Stufe fehlgeschlagen (%s) — DSP-Ergebnis unverändert", e)

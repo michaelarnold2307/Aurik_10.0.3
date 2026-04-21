@@ -7,12 +7,12 @@
 ## Implementierungsstatus
 
 | Symbol | Bedeutung |
-|---|---|
+| --- | --- |
 | ✅ | Implementiert, getestet, produktionsstabil |
 | 🔲 | Geplant / Roadmap |
 
 | Komponente | Pfad | Status |
-|---|---|---|
+| --- | --- | --- |
 | `CANONICAL_THRESHOLDS_RESTORATION/STUDIO2026` | `backend/core/calibration_matrix.py` | ✅ |
 | `estimate_song_goal_targets` (Pipeline, SongGoalTargets) | `backend/core/studio_goal_targets.py` | ✅ |
 | `estimate_song_goal_targets` (Convenience, dict) | `backend/core/calibration_matrix.py` | ✅ |
@@ -119,7 +119,7 @@ Nicht alle Songs sollten zu denselben Schwellwerten führen. Ein 1920er-Shellac-
 ### §09.2 Zwei-Ebenen-API (normativ)
 
 | Ebene | Modul | Rückgabe | Einsatz |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | **Pipeline** | `backend/core/studio_goal_targets.py` | `SongGoalTargets` (frozen dataclass mit `.targets`, `.confidence`, `.derived`) | UV3 → PMGG `wrap_phase(..., goal_targets=result.targets, goal_targets_confidence=result.confidence)` |
 | **Convenience** | `backend/core/calibration_matrix.py` | `dict[str, float]` | Pre-Analysis-Preview, Tests, Bridge/UI, einfache Scores |
 

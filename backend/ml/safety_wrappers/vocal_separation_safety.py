@@ -184,7 +184,13 @@ class VocalSeparationSafetyWrapper:
 
         # Check 3: Stereo field validity
         if audio.shape[0] >= 2:
-            correlation = np.corrcoef(audio[0], audio[1])[0, 1]
+            _std0 = float(np.std(audio[0]))
+            _std1 = float(np.std(audio[1]))
+            if _std0 > 1e-8 and _std1 > 1e-8:
+                correlation = float(np.corrcoef(audio[0], audio[1])[0, 1])
+            else:
+                correlation = 1.0 if (_std0 < 1e-8 and _std1 < 1e-8) else 0.0
+            correlation = 0.0 if not np.isfinite(correlation) else correlation
             checks["stereo"] = {"status": "pass", "lr_correlation": float(correlation)}
             if abs(correlation) > 0.999:
                 issues.append("Audio is essentially mono (L/R correlation > 0.999)")
@@ -282,7 +288,16 @@ class VocalSeparationSafetyWrapper:
         def stereo_width(audio: np.ndarray) -> float:
             if audio.shape[0] < 2:
                 return 0.0
-            corr = np.corrcoef(audio[0], audio[1])[0, 1]
+            _s0 = float(np.std(audio[0]))
+            _s1 = float(np.std(audio[1]))
+            if _s0 < 1e-8 and _s1 < 1e-8:
+                corr = 1.0  # Both constant — trivially correlated
+            elif _s0 < 1e-8 or _s1 < 1e-8:
+                corr = 0.0
+            else:
+                corr = float(np.corrcoef(audio[0], audio[1])[0, 1])
+                if not np.isfinite(corr):
+                    corr = 0.0
             return float(1.0 - abs(corr))
 
         width_original = stereo_width(original)

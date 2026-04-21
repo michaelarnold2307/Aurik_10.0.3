@@ -51,6 +51,7 @@ from typing import Any
 import numpy as np
 from scipy import signal
 
+from backend.core.audio_utils import audio_sample_count, stereo_channel_view, stereo_like
 from backend.core.defect_scanner import MaterialType
 
 from .phase_interface import PhaseCategory, PhaseInterface, PhaseMetadata, PhaseResult
@@ -215,9 +216,10 @@ class FinalEQ(PhaseInterface):
 
         # Process each channel
         if is_stereo:
-            eq_left = self._eq_channel(audio[:, 0], sample_rate, config)
-            eq_right = self._eq_channel(audio[:, 1], sample_rate, config)
-            eq_audio = np.column_stack((eq_left, eq_right))
+            left, right = stereo_channel_view(audio)
+            eq_left = self._eq_channel(left, sample_rate, config)
+            eq_right = self._eq_channel(right, sample_rate, config)
+            eq_audio = stereo_like(eq_left, eq_right, audio)
         else:
             eq_audio = self._eq_channel(audio, sample_rate, config)
 
@@ -230,7 +232,7 @@ class FinalEQ(PhaseInterface):
             clipping_prevented = False
 
         execution_time = time.time() - start_time
-        rt_factor = execution_time / (len(audio) / sample_rate)
+        rt_factor = execution_time / (audio_sample_count(audio) / sample_rate)
 
         eq_audio = np.nan_to_num(eq_audio, nan=0.0, posinf=0.0, neginf=0.0)
         eq_audio = np.clip(eq_audio, -1.0, 1.0)

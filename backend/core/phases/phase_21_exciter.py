@@ -55,6 +55,7 @@ from typing import Any
 import numpy as np
 from scipy import signal
 
+from backend.core.audio_utils import audio_sample_count, stereo_channel_view, stereo_like
 from backend.core.defect_scanner import MaterialType
 
 from .phase_interface import PhaseCategory, PhaseInterface, PhaseMetadata, PhaseResult
@@ -270,6 +271,44 @@ class Exciter(PhaseInterface):
             )
 
         is_stereo = audio.ndim == 2
+
+        # §2.51 Wide-Stereo-Guard: Stereo-Exciter auf wide-stereo / phasenverschobenen Quellen
+        # erzeugt Phase-Cancellation-Artefakte. Korrelation < 0.45 → No-Op (identisch phase_13).
+        if is_stereo:
+            try:
+                _left_ck, _right_ck = stereo_channel_view(audio)
+                _N_ck = min(len(_left_ck), 48000 * 3)
+                _c_ck = float(
+                    np.dot(_left_ck[:_N_ck], _right_ck[:_N_ck])
+                    / (np.linalg.norm(_left_ck[:_N_ck]) * np.linalg.norm(_right_ck[:_N_ck]) + 1e-10)
+                )
+                if _c_ck < 0.45:
+                    logger.info(
+                        "Phase 21: Wide-Stereo erkannt (Korrelation=%.3f < 0.45) — Exciter übersprungen "
+                        "(§2.51: M/S-Exciter auf stark entkorreliertem Material erzeugt Artefakte)",
+                        _c_ck,
+                    )
+                    audio = np.nan_to_num(audio, nan=0.0, posinf=0.0, neginf=0.0)
+                    audio = np.clip(audio, -1.0, 1.0)
+                    return PhaseResult(
+                        success=True,
+                        audio=audio,
+                        metrics={"skipped": True, "reason": "wide_stereo_guard", "lr_correlation": _c_ck},
+                        execution_time_seconds=time.time() - start_time,
+                        metadata={
+                            "algorithm": "skip_wide_stereo_guard",
+                            "lr_correlation": _c_ck,
+                            "phase_locality_factor": phase_locality_factor,
+                            "effective_strength": _effective_strength,
+                            "rms_drop_db": 0.0,
+                            "loudness_makeup_db": 0.0,
+                        },
+                        warnings=["Phase 21 übersprungen: Wide-Stereo-Material (Korrelation < 0.45)."],
+                        modifications={},
+                    )
+            except Exception as _wsg_exc:
+                logger.debug("Phase 21 Wide-Stereo-Guard non-blocking: %s", _wsg_exc)
+
         config = copy.deepcopy(self.EXCITER_CONFIG.get(material, self.EXCITER_CONFIG[MaterialType.CD_DIGITAL]))
         for band_name in self.EXCITER_BANDS:
             config[band_name]["intensity"] = float(config[band_name]["intensity"] * _effective_strength)
@@ -278,14 +317,14 @@ class Exciter(PhaseInterface):
         # §2.51: M/S domain — excite Mid only, Side untouched
         if is_stereo:
             _inv_sqrt2 = 1.0 / np.sqrt(2.0)
-            mid = (audio[:, 0] + audio[:, 1]) * _inv_sqrt2
-            side = (audio[:, 0] - audio[:, 1]) * _inv_sqrt2
+            left, right = stereo_channel_view(audio)
+            mid = (left + right) * _inv_sqrt2
+            side = (left - right) * _inv_sqrt2
             excited_mid = self._excite_channel(mid, sample_rate, config)
-            excited_audio = np.column_stack(
-                (
-                    (excited_mid + side) * _inv_sqrt2,
-                    (excited_mid - side) * _inv_sqrt2,
-                )
+            excited_audio = stereo_like(
+                (excited_mid + side) * _inv_sqrt2,
+                (excited_mid - side) * _inv_sqrt2,
+                audio,
             )
         else:
             excited_audio = self._excite_channel(audio, sample_rate, config)
@@ -299,7 +338,7 @@ class Exciter(PhaseInterface):
         hf_boost_db = 20 * np.log10((hf_energy_after + 1e-10) / (hf_energy_before + 1e-10))
 
         execution_time = time.time() - start_time
-        rt_factor = execution_time / (len(audio) / sample_rate)
+        rt_factor = execution_time / (audio_sample_count(audio) / sample_rate)
 
         excited_audio = np.nan_to_num(excited_audio, nan=0.0, posinf=0.0, neginf=0.0)
         excited_audio = np.clip(excited_audio, -1.0, 1.0)

@@ -38,6 +38,8 @@ import time
 import numpy as np
 import scipy.signal as sig
 
+from backend.core.audio_utils import to_channels_last
+
 from .phase_interface import PhaseCategory, PhaseInterface, PhaseMetadata, PhaseResult
 
 logger = logging.getLogger(__name__)
@@ -106,7 +108,9 @@ def _compute_iacc(L: np.ndarray, R: np.ndarray, max_lag_ms: float = 1.0, sr: int
     n = min(len(L), len(R), 65536)  # limit for performance
     L_n = L[:n] / (np.std(L[:n]) + 1e-10)
     R_n = R[:n] / (np.std(R[:n]) + 1e-10)
-    xcf = np.correlate(L_n, R_n, mode="full")
+    from backend.core.core_utils import fft_crosscorr
+
+    xcf = fft_crosscorr(L_n, R_n)
     center = len(xcf) // 2
     window = xcf[center - max_lag : center + max_lag + 1]
     iacc = float(np.max(np.abs(window))) / n if len(window) > 0 else 1.0
@@ -153,6 +157,7 @@ class SpatialEnhancementPhase(PhaseInterface):
         """
         sample_rate = kwargs.get("sample_rate", 48000)
         assert sample_rate == 48000, f"SR muss 48000 Hz sein, erhalten: {sample_rate}"
+        audio, _p46_transposed = to_channels_last(audio)
         self.validate_input(audio)
         t0 = time.time()
 

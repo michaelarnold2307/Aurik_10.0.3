@@ -693,9 +693,10 @@ class GermanSchlagerClassifier:
                 if len(frame) <= order:
                     continue
                 try:
-                    # Autokorrelations-LPC via Levinson-Durbin (O(order²))
-                    r_full = np.correlate(frame, frame, mode="full")
-                    r_full = r_full[len(r_full) // 2 :]
+                    # Autokorrelations-LPC via Levinson-Durbin (O(order²)) — FFT-based
+                    from backend.core.core_utils import fft_autocorr
+
+                    r_full = fft_autocorr(frame, max_lag=order)
                     if not np.isfinite(r_full).all() or r_full[0] < 1e-12:
                         continue
                     lpc_coefs = self._lpc_levinson(r_full, order)
@@ -810,9 +811,10 @@ class GermanSchlagerClassifier:
                 if len(frame) <= order:
                     continue
                 try:
-                    # Levinson-Durbin LPC — O(order²) vs O(order³) for lstsq
-                    r_full = np.correlate(frame, frame, mode="full")
-                    r_full = r_full[len(r_full) // 2 :]
+                    # Levinson-Durbin LPC — FFT-based O(N log N) autocorrelation
+                    from backend.core.core_utils import fft_autocorr
+
+                    r_full = fft_autocorr(frame, max_lag=order)
                     if not np.isfinite(r_full).all() or r_full[0] < 1e-12:
                         continue
                     lpc_coefs = self._lpc_levinson(r_full, order)

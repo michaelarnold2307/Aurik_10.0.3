@@ -62,6 +62,7 @@ import time
 import numpy as np
 from scipy import signal
 
+from backend.core.audio_utils import to_channels_last
 from backend.core.defect_scanner import MaterialType
 
 from .phase_interface import PhaseCategory, PhaseInterface, PhaseMetadata, PhaseResult
@@ -226,6 +227,7 @@ class TransparentDynamicsV1(PhaseInterface):
         """
         sample_rate = kwargs.get("sample_rate", 48000)
         assert sample_rate == 48000, f"SR muss 48000 Hz sein, erhalten: {sample_rate}"
+        audio, _p54_transposed = to_channels_last(audio)
         start_time = time.time()
 
         phase_locality_factor = float(kwargs.get("phase_locality_factor", 1.0))

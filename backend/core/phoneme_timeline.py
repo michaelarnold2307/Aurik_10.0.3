@@ -443,8 +443,9 @@ def _detect_language(mono: np.ndarray, sr: int = 16_000) -> tuple[str, float]:
                 roots = np.roots(A)
             except Exception:
                 try:
-                    r = np.correlate(frame, frame, mode="full")[len(frame) - 1 :]
-                    r = r[: lpc_order + 1]
+                    from backend.core.core_utils import fft_autocorr
+
+                    r = fft_autocorr(frame, max_lag=lpc_order)
                     R = np.array([[r[abs(ii - jj)] for jj in range(lpc_order)] for ii in range(lpc_order)])
                     r_vec = -r[1 : lpc_order + 1]
                     if np.linalg.matrix_rank(R) < lpc_order:

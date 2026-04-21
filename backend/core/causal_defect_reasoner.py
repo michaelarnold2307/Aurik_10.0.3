@@ -1515,8 +1515,10 @@ def _compute_pitch_instability(mono: np.ndarray, sr: int) -> float:
     f0_values = []
     for i in range(0, len(mono) - frame_len, hop):
         seg = mono[i : i + frame_len]
-        # Autokorrelation
-        ac = np.correlate(seg, seg, mode="full")[len(seg) - 1 :]
+        # Autokorrelation — FFT-based O(N log N)
+        from backend.core.core_utils import fft_autocorr
+
+        ac = fft_autocorr(seg)
         ac = ac / (ac[0] + 1e-9)
         # Suche Peak zwischen 2 ms und 20 ms (50 Hz – 500 Hz)
         lo = max(1, int(sr * 0.002))

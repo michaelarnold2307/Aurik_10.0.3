@@ -105,8 +105,10 @@ class HarmonicCharacterAnalyzer:
         # Convert to mono for analysis
         audio_mono = np.mean(audio, axis=0) if audio.ndim > 1 else audio
 
-        # Normalize audio for consistent analysis
-        audio_mono = audio_mono / (np.max(np.abs(audio_mono)) + 1e-10)
+        # Normalize audio for consistent analysis (§0 Peak-Guard: 99.9th percentile)
+        from backend.core.core_utils import safe_peak_amplitude
+
+        audio_mono = audio_mono / (safe_peak_amplitude(audio_mono) + 1e-10)
 
         # Analyze harmonics
         (

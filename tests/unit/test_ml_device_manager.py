@@ -45,6 +45,16 @@ def reset_singleton():
 # ---------------------------------------------------------------------------
 
 
+def _provider_names(providers: list) -> list[str]:
+    """Extrahiert Provider-Namen aus einer Providers-Liste.
+
+    get_ort_providers_fp16() gibt Tuples (name, options_dict) zurück;
+    get_ort_providers() gibt je nach fp16-Auto auch Tuples zurück.
+    Dieser Helper normalisiert beide Formate auf reine Strings.
+    """
+    return [p[0] if isinstance(p, tuple) else p for p in providers]
+
+
 def _make_manager_cpu_only() -> MLDeviceManager:
     """Erstellt einen MLDeviceManager im CPU-only-Modus (kein GPU detektiert)."""
     from backend.core.ml_device_manager import MLDeviceManager
@@ -151,9 +161,14 @@ def test_non_heavy_plugin_always_cpu():
 # ---------------------------------------------------------------------------
 
 
-def _make_manager_rocm(vram_gb: float = 8.0) -> MLDeviceManager:
+def _make_manager_rocm(vram_gb: float = 8.0, gpu_name: str = "AMD Radeon RX 7900 XTX (simulated)") -> MLDeviceManager:
     """Erstellt einen MLDeviceManager mit simuliertem ROCm-GPU."""
-    from backend.core.ml_device_manager import GPUBackend, MLDeviceManager
+    from backend.core.ml_device_manager import (
+        GPUBackend,
+        MLDeviceManager,
+        _compute_gpu_tier,
+        _detect_amd_architecture,
+    )
 
     with (
         patch("backend.core.ml_device_manager.MLDeviceManager._detect_rocm"),
@@ -167,7 +182,9 @@ def _make_manager_rocm(vram_gb: float = 8.0) -> MLDeviceManager:
     mgr._ort_gpu_providers = ["ROCMExecutionProvider", "CPUExecutionProvider"]
     mgr._vram_total_gb = vram_gb
     mgr._vram_free_gb = vram_gb
-    mgr._gpu_name = "AMD Radeon RX 7900 XTX (simulated)"
+    mgr._gpu_name = gpu_name
+    mgr._gpu_architecture = _detect_amd_architecture(gpu_name)
+    mgr._gpu_tier = _compute_gpu_tier(mgr._gpu_architecture, vram_gb)
     return mgr
 
 
@@ -182,8 +199,9 @@ def test_rocm_ort_providers_heavy():
     """Schwere Plugins bekommen ROCMExecutionProvider im ROCm-Modus."""
     mgr = _make_manager_rocm()
     providers = mgr.get_ort_providers("BSRoFormer")
-    assert "ROCMExecutionProvider" in providers
-    assert "CPUExecutionProvider" in providers  # Fallback immer dabei
+    names = _provider_names(providers)
+    assert "ROCMExecutionProvider" in names
+    assert "CPUExecutionProvider" in names  # Fallback immer dabei
 
 
 def test_rocm_ort_providers_vocoder_plugins_heavy() -> None:
@@ -355,7 +373,7 @@ def test_gpu_status_summary_structure():
 
 def _make_manager_with_gpu() -> MLDeviceManager:
     """Erstellt einen MLDeviceManager im simulierten ROCm-GPU-Modus."""
-    from backend.core.ml_device_manager import GPUBackend
+    from backend.core.ml_device_manager import AMDArchitecture, GPUBackend, GPUTier
 
     mgr = _make_manager_cpu_only()
     # Manually inject GPU state so we can test GPU-specific behaviour
@@ -365,6 +383,8 @@ def _make_manager_with_gpu() -> MLDeviceManager:
     mgr._ort_gpu_providers = ["ROCMExecutionProvider", "CPUExecutionProvider"]
     mgr._vram_total_gb = 8.0
     mgr._vram_free_gb = 8.0
+    mgr._gpu_architecture = AMDArchitecture.RDNA2
+    mgr._gpu_tier = GPUTier.TIER_2
     return mgr
 
 
@@ -423,7 +443,7 @@ def test_report_gpu_error_unsupported_disables_immediately() -> None:
     """Kernel/Provider-Inkompatibilität muss sofort auf CPU degradieren."""
     mgr = _make_manager_with_gpu()
 
-    assert mgr.get_ort_providers("BSRoFormer") == ["ROCMExecutionProvider", "CPUExecutionProvider"]
+    assert _provider_names(mgr.get_ort_providers("BSRoFormer")) == ["ROCMExecutionProvider", "CPUExecutionProvider"]
     mgr.report_gpu_error("BSRoFormer", RuntimeError("No kernel registered for op on ROCMExecutionProvider"))
 
     assert "BSRoFormer" in mgr._gpu_disabled_plugins

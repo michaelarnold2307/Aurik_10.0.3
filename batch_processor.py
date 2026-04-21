@@ -330,6 +330,18 @@ def main():
     )
     parser.add_argument("-w", "--workers", type=int, default=4, help="Number of parallel workers (default: 4)")
     parser.add_argument("-r", "--resume", action="store_true", help="Resume from previous batch")
+    parser.add_argument(
+        "--no-album-consistency",
+        action="store_true",
+        default=False,
+        help="Skip post-batch album consistency pass (LUFS + spectral tilt alignment)",
+    )
+    parser.add_argument(
+        "--album-consistency-dry-run",
+        action="store_true",
+        default=False,
+        help="Analyze album consistency without writing corrected files (report only)",
+    )
 
     args = parser.parse_args()
 
@@ -360,6 +372,41 @@ def main():
     # Process
     logger.info(f"Starting batch processing: {len(files)} files, {args.workers} workers")
     results = processor.process_batch(files, material)
+
+    # Album Consistency Pass (§ Album-Konsistenz-Pass)
+    # Runs after all songs have been individually restored.  Aligns LUFS and
+    # spectral tilt across the batch using gentle, bounded corrections so the
+    # whole album sounds coherent without touching songs already within the
+    # album median (§0 Primum non nocere).
+    if not args.no_album_consistency:
+        _output_files = [r["output"] for r in results if r.get("success") and r.get("output")]
+        if len(_output_files) >= 3:
+            try:
+                from backend.core.album_consistency import get_album_consistency_pass
+
+                _album_pass = get_album_consistency_pass()
+                _report = _album_pass.process_output_files(
+                    _output_files,
+                    sr=48000,
+                    dry_run=getattr(args, "album_consistency_dry_run", False),
+                )
+                if not _report.skipped_insufficient_songs:
+                    logger.info(
+                        "Album-Konsistenz-Pass: %d/%d Korrekturen angewendet "
+                        "(LUFS-Median=%.1f LU, Tilt-Median=%.2f dB/oct, %.1fs)",
+                        _report.corrections_applied,
+                        _report.n_songs,
+                        _report.album_lufs_median,
+                        _report.album_tilt_median,
+                        _report.elapsed_seconds,
+                    )
+            except Exception as _exc:
+                logger.warning("Album-Konsistenz-Pass fehlgeschlagen (non-critical): %s", _exc)
+        else:
+            logger.info(
+                "Album-Konsistenz-Pass: übersprungen (%d erfolgreiche Songs < 3 Minimum).",
+                len(_output_files),
+            )
 
     # Summary
     processor.print_summary(results)

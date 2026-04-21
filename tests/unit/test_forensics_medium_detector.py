@@ -461,18 +461,27 @@ class TestMediumDetector:
         assert result.is_multi_generation is True
 
     def test_33_detect_mp3_ext_weak_physical_inference_stays_digital_primary(self, monkeypatch):
-        """Weak analog physical evidence on .mp3 must not override digital-primary classification."""
+        """Truly weak analog physical evidence (rotation < 0.30, conf < 0.20) on .mp3 must
+        not override digital-primary classification.
+
+        §2.46a Fallback-Gate: (_cand_conf >= 0.20 AND rotation >= 0.30) — beide Bedingungen
+        müssen gleichzeitig verfehlt werden, damit der digitale Primär-Pfad bestehen bleibt.
+        rotation=0.20 < 0.30 UND vinyl_conf=0.15 < 0.20 → bleibt mp3_low-primär.
+
+        Hinweis: Der Vorgänger-Test verwendete rotation=0.474, was eine KLARE Vinyl-Rotation ist
+        und von §2.46a korrekt als analog erkannt wird (das ist das beabsichtigte Verhalten).
+        """
         detector = MediumDetector()
         fp = SpectralFingerprint(
             rolloff_95_hz=6400.0,
-            wow_flutter_index=0.019,  # below strong-analog threshold
+            wow_flutter_index=0.019,  # below tape threshold
             hf_energy_above_16k=0.0001,
             noise_floor_db=-36.0,
             effective_bandwidth_hz=12000.0,
             codec_artifact_score=0.35,
             codec_type_code=2.0,
             crackle_density=0.012,
-            rotation_strength=0.474,
+            rotation_strength=0.20,  # below 0.30 → Fallback-Gate schlägt fehl
             infrasonic_rms=0.0102,
         )
 
@@ -491,7 +500,8 @@ class TestMediumDetector:
         monkeypatch.setattr(
             detector,
             "_infer_analog_source_from_fingerprint",
-            lambda _fp: [("vinyl", 0.261), ("cassette", 0.22)],
+            # conf=0.15 < 0.20 → Fallback-Gate schlägt fehl; keine vinyl-Übernahme
+            lambda _fp: [("vinyl", 0.15), ("cassette", 0.10)],
         )
         monkeypatch.setattr(detector, "_is_benign_codec_source", lambda _audio, _sr, _fp: False)
 

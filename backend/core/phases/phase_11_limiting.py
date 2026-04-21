@@ -57,6 +57,7 @@ import time
 import numpy as np
 from scipy import signal
 
+from backend.core.audio_utils import to_channels_last
 from backend.core.defect_scanner import MaterialType
 
 from .phase_interface import PhaseCategory, PhaseInterface, PhaseMetadata, PhaseResult
@@ -183,6 +184,7 @@ class LimitingPhase(PhaseInterface):
         start_time = time.time()
 
         self.validate_input(audio)
+        audio, _p11_transposed = to_channels_last(audio)
 
         phase_locality_factor = float(kwargs.get("phase_locality_factor", 1.0))
         phase_locality_factor = float(np.clip(phase_locality_factor, 0.35, 1.0))

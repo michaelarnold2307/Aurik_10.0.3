@@ -65,7 +65,9 @@ logger = logging.getLogger(__name__)
 
 _PRECISE_METRICS_LOCK = threading.Lock()
 _PRECISE_METRICS: dict[str, Any] | None = None
-_PRECISE_OVERRIDE_WARN_MS: float = 200.0
+_PRECISE_OVERRIDE_WARN_MS: float = (
+    500.0  # v9.12: ArticulationMetric added MFCC per-onset (16 windows); 3 metrics × ~100ms/metric is normal.
+)
 
 
 # ---------------------------------------------------------------------------
@@ -1876,8 +1878,9 @@ def _measure_quick(
             _sw = min(5, len(rms_env) // 4)
             if _sw >= 2:
                 rms_env = np.convolve(rms_env, np.ones(_sw) / float(_sw), mode="valid")
-            autocorr = np.correlate(rms_env, rms_env, mode="full")
-            autocorr = autocorr[len(rms_env) - 1 :]
+            from backend.core.core_utils import fft_autocorr
+
+            autocorr = fft_autocorr(rms_env)
             autocorr /= autocorr[0] + 1e-12
             # Regularität: Autokorrelations-Peak bei ~0.5 s (typisch Groove)
             lag_05 = min(50, len(autocorr) - 1)  # 50 × 10 ms = 500 ms

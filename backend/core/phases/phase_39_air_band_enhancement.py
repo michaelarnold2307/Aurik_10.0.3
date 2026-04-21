@@ -41,6 +41,7 @@ import time
 import numpy as np
 from scipy import signal
 
+from backend.core.audio_utils import safe_to_mono, stereo_channel_view, stereo_like
 from backend.core.defect_scanner import MaterialType
 
 from .output_guard import evaluate_output_guard
@@ -65,7 +66,7 @@ _TILT_TOLERANCE_P39: dict[str, float] = {
 
 def _est_tilt_p39(audio: np.ndarray, sr: int) -> float:
     """Quick spectral tilt estimate in dB/octave (§2.46b)."""
-    mono = audio[:, 0] if audio.ndim == 2 else audio
+    mono = safe_to_mono(audio) if audio.ndim == 2 else audio
     n = min(len(mono), 8192)
     if n < 64:
         return 0.0
@@ -300,15 +301,13 @@ class AirBandEnhancement(PhaseInterface):
 
         # §2.51 M/S-Domain: Air Band auf Mid; Side unver\u00e4ndert
         if is_stereo:
-            mid = (audio[:, 0] + audio[:, 1]) / np.sqrt(2.0)
-            side = (audio[:, 0] - audio[:, 1]) / np.sqrt(2.0)
+            _ch0, _ch1 = stereo_channel_view(audio)
+            mid = (_ch0 + _ch1) / np.sqrt(2.0)
+            side = (_ch0 - _ch1) / np.sqrt(2.0)
             mid_enhanced = self._enhance_channel(mid, sample_rate, config)
-            enhanced_audio = np.column_stack(
-                (
-                    (mid_enhanced + side) / np.sqrt(2.0),
-                    (mid_enhanced - side) / np.sqrt(2.0),
-                )
-            )
+            out_l = (mid_enhanced + side) / np.sqrt(2.0)
+            out_r = (mid_enhanced - side) / np.sqrt(2.0)
+            enhanced_audio = stereo_like(out_l, out_r, audio)
         else:
             enhanced_audio = self._enhance_channel(audio, sample_rate, config)
 

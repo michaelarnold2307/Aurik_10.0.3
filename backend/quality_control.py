@@ -636,8 +636,15 @@ class QualityGates:
         mel_before_norm = mel_before_avg / (np.sum(mel_before_avg) + 1e-10)
         mel_after_norm = mel_after_avg / (np.sum(mel_after_avg) + 1e-10)
 
-        # Correlation
-        correlation = float(np.corrcoef(mel_before_norm, mel_after_norm)[0, 1])
+        # Correlation (NaN-safe: Mel profile could be near-constant for silence)
+        _sm = float(np.std(mel_before_norm))
+        _sa = float(np.std(mel_after_norm))
+        if _sm > 1e-10 and _sa > 1e-10:
+            correlation = float(np.corrcoef(mel_before_norm, mel_after_norm)[0, 1])
+            if not np.isfinite(correlation):
+                correlation = 0.0
+        else:
+            correlation = 1.0 if (_sm < 1e-10 and _sa < 1e-10) else 0.0
 
         # Map to 0-1 (correlation -1 to 1 → 0 to 1)
         fidelity = (correlation + 1.0) / 2.0

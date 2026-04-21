@@ -79,6 +79,8 @@ def _rms_dbfs_gated(sig: np.ndarray) -> float:
     return float(20.0 * np.log10(np.sqrt(np.mean(np.concatenate(_active) ** 2)) + 1e-10))
 
 
+from backend.core.audio_utils import to_channels_last
+
 from .phase_interface import PhaseCategory, PhaseInterface, PhaseMetadata, PhaseResult
 
 logger = logging.getLogger(__name__)
@@ -206,6 +208,7 @@ class MasteringPolishPhase(PhaseInterface):
         start_time = time.time()
 
         self.validate_input(audio)
+        audio, _p17_transposed = to_channels_last(audio)
 
         phase_locality_factor = float(kwargs.get("phase_locality_factor", 1.0))
         phase_locality_factor = float(np.clip(phase_locality_factor, 0.35, 1.0))

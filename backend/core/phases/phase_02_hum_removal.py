@@ -69,6 +69,8 @@ from typing import Any
 import numpy as np
 import scipy.signal as signal
 
+from backend.core.audio_utils import to_channels_last
+
 from .phase_interface import PhaseCategory, PhaseInterface, PhaseMetadata, PhaseResult, create_phase_result
 
 # ML-Hybrid Support
@@ -270,6 +272,7 @@ class HumRemovalPhase(PhaseInterface):
         assert sample_rate == 48000, f"SR muss 48000 Hz sein, erhalten: {sample_rate}"
         start_time = time.time()
         self.sample_rate = sample_rate
+        audio, _p02_transposed = to_channels_last(audio)
 
         # §4.6b: Pre-phase eviction — free previous phase models to prevent OOM
         try:
@@ -426,11 +429,16 @@ class HumRemovalPhase(PhaseInterface):
                 _sp_r = np.abs(np.fft.rfft(_res_mono[_s:_e]))
                 _freqs_c = np.fft.rfftfreq(_hop_chroma, 1.0 / sample_rate)
                 for _b in range(12):
-                    _f_lo = 65.41 * (2 ** (_b / 12.0))
-                    _f_hi = 65.41 * (2 ** ((_b + 1) / 12.0))
-                    _mask_c = (_freqs_c >= _f_lo) & (_freqs_c < _f_hi)
-                    _chroma_orig[_b] += np.sum(_sp_o[_mask_c] ** 2)
-                    _chroma_res[_b] += np.sum(_sp_r[_mask_c] ** 2)
+                    # Fold 5 octaves (C2 ~65 Hz → C7 ~2093 Hz) into 12 chroma bins.
+                    # Previous single-octave [65, 131] Hz had near-zero energy for most
+                    # recordings → Pearson = 0.000 → false tonal-damage detection.
+                    _chroma_mask = np.zeros(len(_freqs_c), dtype=bool)
+                    for _oct in range(5):
+                        _f_lo = 65.41 * (2.0 ** (_oct + _b / 12.0))
+                        _f_hi = 65.41 * (2.0 ** (_oct + (_b + 1) / 12.0))
+                        _chroma_mask |= (_freqs_c >= _f_lo) & (_freqs_c < _f_hi)
+                    _chroma_orig[_b] += np.sum(_sp_o[_chroma_mask] ** 2)
+                    _chroma_res[_b] += np.sum(_sp_r[_chroma_mask] ** 2)
             _norm_o = np.sqrt(np.sum(_chroma_orig**2)) + 1e-10
             _norm_r = np.sqrt(np.sum(_chroma_res**2)) + 1e-10
             _chroma_p = float(np.dot(_chroma_orig / _norm_o, _chroma_res / _norm_r))

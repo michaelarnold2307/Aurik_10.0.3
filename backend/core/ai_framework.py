@@ -509,9 +509,10 @@ class UnifiedDefectDetector:
         for i in range(0, len(audio) - chunk_size, hop):
             chunk = audio[i : i + chunk_size]
 
-            # Autocorrelation
-            autocorr = np.correlate(chunk, chunk, mode="full")
-            autocorr = autocorr[len(autocorr) // 2 :]
+            # Autocorrelation — FFT-based O(N log N)
+            from backend.core.core_utils import fft_autocorr
+
+            autocorr = fft_autocorr(chunk)
             autocorr = autocorr / (autocorr[0] + 1e-10)
 
             # Find first peak (fundamental period)

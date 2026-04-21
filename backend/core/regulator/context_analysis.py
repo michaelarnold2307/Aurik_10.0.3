@@ -218,9 +218,10 @@ class ContextAnalyzer:
             onset = np.maximum(np.diff(energy), 0.0)
             if len(onset) < 20:
                 return 0.0
-            # Autokorrelation
-            ac = np.correlate(onset, onset, mode="full")
-            ac = ac[len(ac) // 2 :]
+            # Autokorrelation — FFT-based O(N log N)
+            from backend.core.core_utils import fft_autocorr
+
+            ac = fft_autocorr(onset)
             # BPM = 60 / (lag * frame_sec)
             frame_sec = frame / sr
             min_lag = int(60.0 / (200.0 * frame_sec))  # 200 BPM

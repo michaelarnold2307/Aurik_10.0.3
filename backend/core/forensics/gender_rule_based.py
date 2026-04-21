@@ -114,9 +114,11 @@ class RuleBasedGenderDetector:
             return 0.0, 0.0
 
     def _lpc(self, x: np.ndarray[Any, Any], order: int) -> np.ndarray[Any, Any]:
-        # Autokorrelationsmethode für LPC
-        R = np.correlate(x, x, mode="full")
-        R = R[len(R) // 2 : len(R) // 2 + order + 1]
+        # Autokorrelationsmethode für LPC — FFT-based O(N log N)
+        from backend.core.core_utils import fft_autocorr
+
+        R = fft_autocorr(x, max_lag=order)
+        # R now contains r[0..order]
         a = np.zeros(order + 1)
         e = R[0]
         for i in range(1, order + 1):

@@ -71,6 +71,7 @@ import time
 import numpy as np
 from scipy import signal
 
+from backend.core.audio_utils import safe_to_mono
 from backend.core.defect_scanner import MaterialType
 
 from .phase_interface import PhaseCategory, PhaseInterface, PhaseMetadata, PhaseResult
@@ -1110,9 +1111,10 @@ class WowFlutterFix(PhaseInterface):
 
             window = audio_pyin[start:end] * np.hanning(window_samples)
 
-            # CMND function (YIN)
-            autocorr = np.correlate(window, window, mode="full")
-            autocorr = autocorr[len(autocorr) // 2 :]
+            # CMND function (YIN) — FFT-based autocorrelation O(N log N)
+            from backend.core.core_utils import fft_autocorr
+
+            autocorr = fft_autocorr(window)
             diff = 2.0 * (autocorr[0] - autocorr[:max_period])
             cmnd = np.ones(max_period)
             cumsum = np.cumsum(diff[1:])
@@ -1217,8 +1219,9 @@ class WowFlutterFix(PhaseInterface):
         estimator for speech and music\".
         ACHTUNG: Nicht als primärer Algorithmus verwenden \u2014 pYIN bevorzugen.
         """
-        autocorr = np.correlate(window, window, mode="full")
-        autocorr = autocorr[len(autocorr) // 2 :]
+        from backend.core.core_utils import fft_autocorr
+
+        autocorr = fft_autocorr(window)
         diff = 2.0 * (autocorr[0] - autocorr[:max_period])
         cmnd = np.ones(max_period)
         cumsum = np.cumsum(diff[1:])
@@ -1585,10 +1588,10 @@ class WowFlutterFix(PhaseInterface):
         audio = np.nan_to_num(audio, nan=0.0, posinf=0.0, neginf=0.0)
 
         is_stereo = audio.ndim == 2
-        n_samples = audio.shape[0]
+        n_samples = audio.shape[1] if (audio.ndim == 2 and audio.shape[0] == 2) else audio.shape[0]
 
         if is_stereo:
-            mono = audio.mean(axis=1).astype(np.float64)
+            mono = safe_to_mono(audio).astype(np.float64)
         else:
             mono = audio.astype(np.float64)
 

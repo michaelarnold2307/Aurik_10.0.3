@@ -136,7 +136,12 @@ class GoalApplicabilityFilter:
                 duration_s = arr.shape[1] / sr
                 # Stereo-Analyse
                 if arr.shape[0] >= 2:
-                    corr = float(np.corrcoef(arr[0], arr[1])[0, 1])
+                    _std0 = float(np.std(arr[0]))
+                    _std1 = float(np.std(arr[1]))
+                    if _std0 > 1e-8 and _std1 > 1e-8:
+                        corr = float(np.corrcoef(arr[0], arr[1])[0, 1])
+                    else:
+                        corr = 1.0 if (_std0 < 1e-8 and _std1 < 1e-8) else 0.0
                     # Schwellwert 0.995 (vorher 0.97 — zu strict: typische
                     # Popmusik mit zentriertem Gesang hat corr ≈ 0.97–0.99
                     # und ist dennoch kein Mono-Signal).

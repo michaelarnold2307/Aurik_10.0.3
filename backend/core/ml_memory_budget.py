@@ -76,9 +76,17 @@ _HEAVY_MODEL_PREEMPTIVE_SWAP_PCT: float = 70.0
 _HEAVY_MODEL_PREEMPTIVE_SWAP_EARLY_PCT: float = 45.0
 _HEAVY_MODEL_PREEMPTIVE_SWAP_IO_MB_S: float = 2.0
 _HEAVY_MODEL_PREEMPTIVE_AVAIL_RATIO_MAX: float = 0.30
-_HEAVY_MODEL_PREEMPTIVE_AVAIL_GB_MAX: float = 16.0
+# 6 GB free = 2.7× buffer for a 2.2 GB model; 16.0 was triggering on 32 GB systems
+# at 15.7 GB free (50% RAM) because 15.7 < 16.0 — far too aggressive.
+_HEAVY_MODEL_PREEMPTIVE_AVAIL_GB_MAX: float = 6.0
 _PRESSURE_RECOVERY_ATTEMPTS: int = 2
 _PRESSURE_RECOVERY_SLEEP_S: float = 0.35
+
+# Cooldown for is_system_thrashing() log-spam guard (BUG G).
+# Log WARNING at most once per 60 s; always return the correct bool.
+_THRASH_WARN_COOLDOWN_S: float = 60.0
+_last_thrash_warn_time: float = 0.0
+_last_thrash_warn_lock = threading.Lock()
 
 
 def _scaled_margin(size_gb: float) -> float:
@@ -182,15 +190,22 @@ def is_system_thrashing() -> bool:
 
         thrashing = swap_critical_active or swap_critical_emergency or combined_pressure or ram_emergency
         if thrashing:
-            logger.warning(
-                "ml_memory_budget: swap thrashing detected — swap %.0f %% used (%.1f GB), "
-                "swap I/O %.1f MB/s, RAM available %.1f %% (%.1f GB) — ML loads will be blocked",
-                swap_used_pct,
-                swap.used / (1024**3),
-                swap_io_rate_mb_s,
-                avail_ratio * 100,
-                vm.available / (1024**3),
-            )
+            global _last_thrash_warn_time
+            _now = time.monotonic()
+            with _last_thrash_warn_lock:
+                _emit = (_now - _last_thrash_warn_time) >= _THRASH_WARN_COOLDOWN_S
+                if _emit:
+                    _last_thrash_warn_time = _now
+            if _emit:
+                logger.warning(
+                    "ml_memory_budget: swap thrashing detected — swap %.0f %% used (%.1f GB), "
+                    "swap I/O %.1f MB/s, RAM available %.1f %% (%.1f GB) — ML loads will be blocked",
+                    swap_used_pct,
+                    swap.used / (1024**3),
+                    swap_io_rate_mb_s,
+                    avail_ratio * 100,
+                    vm.available / (1024**3),
+                )
         elif swap_used_pct > 80.0 and swap_io_rate_mb_s <= 8.0:
             logger.debug(
                 "ml_memory_budget: high swap occupancy without active paging (swap %.0f %%, I/O %.1f MB/s) "

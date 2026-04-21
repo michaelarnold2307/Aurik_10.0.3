@@ -80,6 +80,7 @@ import time
 import numpy as np
 from scipy import signal
 
+from backend.core.audio_utils import to_channels_last
 from backend.core.defect_scanner import MaterialType
 
 from .phase_interface import PhaseCategory, PhaseInterface, PhaseMetadata, PhaseResult
@@ -398,6 +399,7 @@ class DeEsserPhase(PhaseInterface):
         assert sample_rate == 48000, f"SR muss 48000 Hz sein, erhalten: {sample_rate}"
         start_time = time.time()
         self.validate_input(audio)
+        audio, _p19_transposed = to_channels_last(audio)
         quality_mode = str(kwargs.get("quality_mode", "quality")).strip().lower()
         quality_first_unleashed = bool(kwargs.get("quality_first_unleashed", quality_mode in ("quality", "maximum")))
 
@@ -1670,9 +1672,11 @@ class DeEsserPhase(PhaseInterface):
         if len(audio) > max_samples:
             audio = audio[:max_samples]
 
-        # Autocorrelation für F0-Schätzung
+        # Autocorrelation für F0-Schätzung — FFT-based O(N log N)
         n = len(audio)
-        autocorr = np.correlate(audio, audio, mode="full")[n - 1 :]
+        from backend.core.core_utils import fft_autocorr
+
+        autocorr = fft_autocorr(audio)
         # Guard: autocorr[0] == 0 bei Stille => division by zero
         if autocorr[0] == 0.0:
             return VocalGender.FEMALE  # Stille: neutraler Fallback

@@ -46,6 +46,7 @@ import time
 import numpy as np
 from scipy import ndimage, signal
 
+from backend.core.audio_utils import audio_sample_count, safe_to_mono, stereo_channel_view, stereo_like
 from backend.core.defect_scanner import MaterialType
 
 from .phase_interface import PhaseCategory, PhaseInterface, PhaseMetadata, PhaseResult
@@ -76,50 +77,92 @@ class MidSideProcessing(PhaseInterface):
     # NOTE: Thresholds are lower than typical because band signals have less energy after splitting
     MID_DYNAMICS = {
         MaterialType.SHELLAC: {
-            "bass": [-25, 2.0, 10, 100, 3.0],  # Gentle compression, boost Mid for mono-compat
-            "low_mid": [-23, 2.5, 8, 80, 3.5],  # More compression, vocal clarity
-            "mid_high": [-20, 3.0, 5, 60, 4.0],  # Stronger compression, presence
-            "high": [-25, 2.0, 3, 50, 3.0],  # Gentle, preserve air
+            "bass": [-25, 2.0, 10, 100, 1.5],
+            "low_mid": [-23, 2.2, 10, 80, 1.5],  # ratio 2.5→2.2, attack 8→10ms
+            "mid_high": [-20, 2.2, 12, 60, 1.5],  # ratio 3.0→2.2, attack 5→12ms (preserve transients)
+            "high": [-25, 1.8, 10, 50, 1.0],  # ratio 2.0→1.8, attack 3→10ms
+        },
+        MaterialType.MP3_LOW: {
+            "bass": [-35, 1.2, 15, 150, 0.5],  # Very gentle — lossy codec artefacts
+            "low_mid": [-33, 1.3, 12, 120, 1.0],
+            "mid_high": [-30, 1.4, 8, 100, 1.5],  # 1.5 dB for brillanz stability
+            "high": [-35, 1.2, 5, 80, 0.5],
+        },
+        MaterialType.MP3_HIGH: {
+            "bass": [-33, 1.3, 12, 120, 0.5],
+            "low_mid": [-30, 1.5, 10, 100, 1.0],
+            "mid_high": [-28, 1.6, 6, 80, 1.5],  # 1.5 dB for brillanz stability
+            "high": [-33, 1.3, 4, 60, 0.5],
+        },
+        MaterialType.AAC: {
+            "bass": [-33, 1.3, 12, 120, 0.5],
+            "low_mid": [-30, 1.5, 10, 100, 1.0],
+            "mid_high": [-28, 1.6, 6, 80, 1.5],
+            "high": [-33, 1.3, 4, 60, 0.5],
+        },
+        MaterialType.STREAMING: {
+            "bass": [-32, 1.4, 12, 120, 0.5],
+            "low_mid": [-30, 1.5, 10, 100, 1.0],
+            "mid_high": [-28, 1.6, 6, 80, 1.5],
+            "high": [-32, 1.4, 4, 60, 0.5],
         },
         MaterialType.WAX_CYLINDER: {
-            "bass": [-24, 2.1, 10, 110, 3.5],
-            "low_mid": [-22, 2.6, 8, 90, 3.8],
-            "mid_high": [-20, 3.0, 5, 70, 4.0],
-            "high": [-25, 2.0, 3, 60, 3.2],
+            "bass": [-24, 2.0, 10, 110, 2.5],  # ratio 2.1→2.0, makeup 3.5→2.5
+            "low_mid": [-22, 2.2, 10, 90, 2.5],  # ratio 2.6→2.2, attack 8→10ms, makeup 3.8→2.5
+            "mid_high": [-20, 2.2, 12, 70, 2.0],  # ratio 3.0→2.2, attack 5→12ms, makeup 4.0→2.0
+            "high": [-25, 1.8, 10, 60, 1.5],  # ratio 2.0→1.8, attack 3→10ms, makeup 3.2→1.5
         },
         MaterialType.VINYL: {
-            "bass": [-28, 1.8, 10, 100, 2.5],
-            "low_mid": [-25, 2.2, 8, 80, 3.0],
-            "mid_high": [-22, 2.5, 5, 60, 3.5],
-            "high": [-27, 1.8, 3, 50, 2.5],
+            "bass": [-28, 1.8, 10, 100, 2.0],  # makeup 2.5→2.0
+            "low_mid": [-25, 2.0, 10, 80, 2.0],  # ratio 2.2→2.0, attack 8→10ms, makeup 3.0→2.0
+            "mid_high": [-22, 1.8, 15, 60, 2.0],  # ratio 2.5→1.8, attack 5→15ms, makeup 3.5→2.0
+            "high": [-27, 1.5, 10, 50, 1.5],  # ratio 1.8→1.5, attack 3→10ms, makeup 2.5→1.5
         },
         MaterialType.TAPE: {
-            "bass": [-28, 1.8, 10, 100, 2.5],
-            "low_mid": [-25, 2.0, 8, 80, 3.0],
-            "mid_high": [-22, 2.2, 5, 60, 3.0],
-            "high": [-27, 1.8, 3, 50, 2.5],
+            "bass": [-28, 1.8, 10, 100, 2.0],  # makeup 2.5→2.0
+            "low_mid": [-25, 2.0, 10, 80, 2.0],  # ratio 2.0, attack 8→10ms, makeup 3.0→2.0
+            "mid_high": [-22, 1.8, 15, 60, 2.0],  # ratio 2.2→1.8, attack 5→15ms, makeup 3.0→2.0
+            "high": [-27, 1.5, 10, 50, 1.5],  # ratio 1.8→1.5, attack 3→10ms, makeup 2.5→1.5
         },
         MaterialType.CD_DIGITAL: {
             "bass": [-30, 1.5, 10, 100, 2.0],  # Minimal compression, already balanced
-            "low_mid": [-28, 1.8, 8, 80, 2.5],
-            "mid_high": [-25, 2.0, 5, 60, 2.5],
-            "high": [-30, 1.5, 3, 50, 2.0],
-        },
-        MaterialType.STREAMING: {
-            "bass": [-28, 1.8, 10, 100, 2.5],
-            "low_mid": [-25, 2.0, 8, 80, 3.0],
-            "mid_high": [-22, 2.2, 5, 60, 3.0],
-            "high": [-27, 1.8, 3, 50, 2.5],
+            "low_mid": [-28, 1.8, 10, 80, 2.0],  # attack 8→10ms, makeup 2.5→2.0
+            "mid_high": [-25, 1.8, 12, 60, 1.5],  # ratio 2.0→1.8, attack 5→12ms, makeup 2.5→1.5
+            "high": [-30, 1.5, 8, 50, 1.0],  # attack 3→8ms, makeup 2.0→1.0
         },
     }
 
     # Material-adaptive Side dynamics per band [threshold_db, ratio, attack_ms, release_ms, makeup_db]
     SIDE_DYNAMICS = {
         MaterialType.SHELLAC: {
-            "bass": [-32, 1.2, 15, 150, 0.5],  # Very gentle, preserve mono-compat
-            "low_mid": [-30, 1.3, 12, 120, 1.0],
-            "mid_high": [-28, 1.5, 8, 100, 1.5],
-            "high": [-32, 1.3, 5, 80, 1.0],
+            "bass": [-32, 1.2, 15, 150, 0.5],
+            "low_mid": [-30, 1.3, 12, 120, 0.5],  # Reduced: was 1.0
+            "mid_high": [-28, 1.5, 8, 100, 0.5],  # Reduced: was 1.5
+            "high": [-32, 1.3, 5, 80, 0.5],
+        },
+        MaterialType.MP3_LOW: {
+            "bass": [-40, 1.1, 20, 200, 0.0],
+            "low_mid": [-38, 1.1, 15, 150, 0.0],
+            "mid_high": [-36, 1.2, 10, 120, 0.0],
+            "high": [-40, 1.1, 6, 100, 0.0],
+        },
+        MaterialType.MP3_HIGH: {
+            "bass": [-38, 1.2, 18, 180, 0.0],
+            "low_mid": [-36, 1.2, 14, 140, 0.0],
+            "mid_high": [-34, 1.3, 9, 110, 0.0],
+            "high": [-38, 1.2, 5, 90, 0.0],
+        },
+        MaterialType.AAC: {
+            "bass": [-38, 1.2, 18, 180, 0.0],
+            "low_mid": [-36, 1.2, 14, 140, 0.0],
+            "mid_high": [-34, 1.3, 9, 110, 0.0],
+            "high": [-38, 1.2, 5, 90, 0.0],
+        },
+        MaterialType.STREAMING: {
+            "bass": [-36, 1.3, 15, 160, 0.0],
+            "low_mid": [-34, 1.3, 12, 130, 0.0],
+            "mid_high": [-32, 1.4, 8, 100, 0.0],
+            "high": [-36, 1.3, 5, 80, 0.0],
         },
         MaterialType.WAX_CYLINDER: {
             "bass": [-33, 1.15, 15, 160, 0.4],
@@ -129,27 +172,21 @@ class MidSideProcessing(PhaseInterface):
         },
         MaterialType.VINYL: {
             "bass": [-30, 1.5, 15, 150, 1.5],
-            "low_mid": [-28, 1.8, 12, 120, 2.0],
-            "mid_high": [-25, 2.0, 8, 100, 2.5],
-            "high": [-30, 1.8, 5, 80, 2.0],
+            "low_mid": [-28, 1.8, 12, 120, 1.5],  # makeup 2.0→1.5
+            "mid_high": [-25, 1.8, 15, 100, 1.5],  # ratio 2.0→1.8, attack 8→15ms, makeup 2.5→1.5
+            "high": [-30, 1.5, 10, 80, 1.0],  # ratio 1.8→1.5, attack 5→10ms, makeup 2.0→1.0
         },
         MaterialType.TAPE: {
             "bass": [-30, 1.5, 15, 150, 1.5],
-            "low_mid": [-28, 1.8, 12, 120, 2.0],
-            "mid_high": [-25, 2.0, 8, 100, 2.5],
-            "high": [-30, 1.8, 5, 80, 2.0],
+            "low_mid": [-28, 1.8, 12, 120, 1.5],  # makeup 2.0→1.5
+            "mid_high": [-25, 1.8, 15, 100, 1.5],  # ratio 2.0→1.8, attack 8→15ms, makeup 2.5→1.5
+            "high": [-30, 1.5, 10, 80, 1.0],  # ratio 1.8→1.5, attack 5→10ms, makeup 2.0→1.0
         },
         MaterialType.CD_DIGITAL: {
             "bass": [-28, 1.8, 15, 150, 2.0],  # More Side enhancement for width
-            "low_mid": [-25, 2.0, 12, 120, 2.5],
-            "mid_high": [-22, 2.2, 8, 100, 3.0],
-            "high": [-28, 2.0, 5, 80, 2.5],
-        },
-        MaterialType.STREAMING: {
-            "bass": [-30, 1.5, 15, 150, 1.5],
-            "low_mid": [-28, 1.8, 12, 120, 2.0],
-            "mid_high": [-25, 2.0, 8, 100, 2.5],
-            "high": [-30, 1.8, 5, 80, 2.0],
+            "low_mid": [-25, 2.0, 12, 120, 2.0],  # makeup 2.5→2.0
+            "mid_high": [-22, 1.8, 15, 100, 1.5],  # ratio 2.2→1.8, attack 8→15ms, makeup 3.0→1.5
+            "high": [-28, 1.5, 10, 80, 1.0],  # ratio 2.0→1.5, attack 5→10ms, makeup 2.5→1.0
         },
     }
 
@@ -157,10 +194,34 @@ class MidSideProcessing(PhaseInterface):
     # Controls interaction between Mid and Side signals
     CROSSFEED = {
         MaterialType.SHELLAC: {
-            "bass": [0.05, 0.15],  # More Side→Mid (mono-compat)
+            "bass": [0.05, 0.15],
             "low_mid": [0.08, 0.12],
             "mid_high": [0.10, 0.10],
             "high": [0.08, 0.12],
+        },
+        MaterialType.MP3_LOW: {
+            "bass": [0.01, 0.02],
+            "low_mid": [0.01, 0.02],
+            "mid_high": [0.01, 0.01],
+            "high": [0.01, 0.01],
+        },
+        MaterialType.MP3_HIGH: {
+            "bass": [0.02, 0.03],
+            "low_mid": [0.02, 0.03],
+            "mid_high": [0.02, 0.02],
+            "high": [0.02, 0.02],
+        },
+        MaterialType.AAC: {
+            "bass": [0.02, 0.03],
+            "low_mid": [0.02, 0.03],
+            "mid_high": [0.02, 0.02],
+            "high": [0.02, 0.02],
+        },
+        MaterialType.STREAMING: {
+            "bass": [0.03, 0.04],
+            "low_mid": [0.03, 0.04],
+            "mid_high": [0.03, 0.03],
+            "high": [0.03, 0.03],
         },
         MaterialType.WAX_CYLINDER: {
             "bass": [0.04, 0.16],
@@ -185,12 +246,6 @@ class MidSideProcessing(PhaseInterface):
             "low_mid": [0.12, 0.08],
             "mid_high": [0.15, 0.05],
             "high": [0.12, 0.08],
-        },
-        MaterialType.STREAMING: {
-            "bass": [0.08, 0.12],
-            "low_mid": [0.10, 0.10],
-            "mid_high": [0.12, 0.08],
-            "high": [0.10, 0.10],
         },
     }
 
@@ -300,6 +355,51 @@ class MidSideProcessing(PhaseInterface):
                 metrics={"mid_change_db": 0.0, "side_change_db": 0.0, "mono_compatibility": 1.0},
             )
 
+        # §2.45 Minimal-Intervention bypass: phase_34 M/S dynamics is beneficial for analog
+        # material but can cause catastrophic regression on lossy codecs or recordings where
+        # the M/S timbral balance is fragile.
+        # Bypass condition 1 (material-independent): PMGG has reduced strength below 0.45,
+        #   which is below SongCal's minimum global_scalar (0.50) → PMGG exhausted retries
+        #   and found catastrophic regression at every strength level.
+        # Bypass condition 2 (digital-codec): lossy codec material + strength < 0.55.
+        # Returning original audio triggers §2.58 passthrough: no retry, no decay.
+        _DIGITAL_LOSSY_BYPASS = frozenset(
+            {
+                "mp3_low",
+                "mp3_high",
+                "mp3_medium",
+                "mp3",
+                "aac",
+                "streaming",
+            }
+        )
+        _should_bypass = (
+            _pmgg_strength < 0.45  # PMGG detected catastrophic regression → material-independent
+            or (material_key.lower() in _DIGITAL_LOSSY_BYPASS and _pmgg_strength < 0.55)
+        )
+        if _should_bypass:
+            logger.debug(
+                "phase_34: §2.45 bypass — digital codec material=%s, "
+                "pmgg_strength=%.2f < 0.55 (PMGG regression detected) — returning original audio",
+                material_key,
+                _pmgg_strength,
+            )
+            return PhaseResult(
+                success=True,
+                audio=audio,  # identical reference — §2.58 passthrough detection
+                execution_time_seconds=time.time() - start_time,
+                metadata={
+                    "phase": "34_mid_side_processing_v2_professional",
+                    "material": material.value,
+                    "processing": "bypassed_digital_lossy_codec",
+                    "mid_side_profile": mid_side_profile,
+                    "pmgg_strength_at_bypass": _pmgg_strength,
+                    "rms_drop_db": 0.0,
+                    "loudness_makeup_db": 0.0,
+                },
+                metrics={"mid_change_db": 0.0, "side_change_db": 0.0, "mono_compatibility": 1.0},
+            )
+
         metadata = {
             "phase": "34_mid_side_processing_v2_professional",
             "material": material.value,
@@ -357,7 +457,7 @@ class MidSideProcessing(PhaseInterface):
             side_with_crossfeed = side_processed + crossfeed[1] * mid_processed
 
             # M/S encode
-            band_processed = self._ms_encode(mid_with_crossfeed, side_with_crossfeed)
+            band_processed = self._ms_encode(mid_with_crossfeed, side_with_crossfeed, band_audio)
 
             processed_bands.append(band_processed)
 
@@ -399,7 +499,7 @@ class MidSideProcessing(PhaseInterface):
         mono_compat = self._check_mono_compatibility(audio_processed)
 
         elapsed = time.time() - start_time
-        duration = len(audio) / sample_rate
+        duration = audio_sample_count(audio) / sample_rate
         realtime_factor = elapsed / duration if duration > 0 else 0
 
         metadata.update(
@@ -432,19 +532,23 @@ class MidSideProcessing(PhaseInterface):
         )
 
     def _split_bands(self, audio: np.ndarray, sr: int) -> list[np.ndarray]:
-        """Split audio into 4 frequency bands using Linkwitz-Riley filters."""
+        """Split audio into 4 frequency bands using Linkwitz-Riley filters.
+
+        Uses sosfilt (causal) — sosfiltfilt would introduce spectral reconstruction
+        artefacts at crossover frequencies that degrade natuerlichkeit and trigger
+        §2.48 STFT group-delay checks for downstream phases.
+        """
         bands = []
         current = audio.copy()
+        filter_axis = 1 if current.ndim == 2 and current.shape[0] == 2 and current.shape[1] > 2 else 0
 
         for freq in self.CROSSOVER_FREQS:
-            # Lowpass for current band (use sosfilt for speed)
-            sos_low = signal.butter(2, freq, "low", fs=sr, output="sos")  # Reduced order for speed
-            low = signal.sosfilt(sos_low, current, axis=0)
+            sos_low = signal.butter(2, freq, "low", fs=sr, output="sos")
+            low = signal.sosfilt(sos_low, current, axis=filter_axis)
             bands.append(low)
 
-            # Highpass for next iteration
-            sos_high = signal.butter(2, freq, "high", fs=sr, output="sos")  # Reduced order for speed
-            current = signal.sosfilt(sos_high, current, axis=0)
+            sos_high = signal.butter(2, freq, "high", fs=sr, output="sos")
+            current = signal.sosfilt(sos_high, current, axis=filter_axis)
 
         # Last band (highest)
         bands.append(current)
@@ -461,20 +565,21 @@ class MidSideProcessing(PhaseInterface):
             # Mono input
             return audio, np.zeros_like(audio)
 
-        mid = (audio[:, 0] + audio[:, 1]) / 2.0
-        side = (audio[:, 0] - audio[:, 1]) / 2.0
+        left, right = stereo_channel_view(audio)
+        mid = (left + right) / 2.0
+        side = (left - right) / 2.0
         return mid, side
 
-    def _ms_encode(self, mid: np.ndarray, side: np.ndarray) -> np.ndarray:
+    def _ms_encode(self, mid: np.ndarray, side: np.ndarray, template: np.ndarray) -> np.ndarray:
         """Encode Mid/Side to L/R."""
         left = mid + side
         right = mid - side
-        return np.column_stack([left, right])
+        return stereo_like(left, right, template)
 
     def _detect_transients(self, audio: np.ndarray) -> np.ndarray:
         """Detect transients using fast envelope follower."""
         # Use left channel for transient detection
-        signal_mono = audio[:, 0] if audio.ndim == 2 else audio
+        signal_mono = safe_to_mono(audio) if audio.ndim == 2 else audio
 
         # Fast envelope using absolute value
         envelope = np.abs(signal_mono)
@@ -558,8 +663,8 @@ class MidSideProcessing(PhaseInterface):
         stereo_energy = np.sum(audio**2)
 
         # Create mono fold-down
-        mono = np.mean(audio, axis=1)
-        mono_stereo = np.column_stack([mono, mono])
+        mono = safe_to_mono(audio)
+        mono_stereo = stereo_like(mono, mono, audio)
         mono_energy = np.sum(mono_stereo**2)
 
         # Ratio of mono to stereo energy (should be close to 1.0 for good compatibility)

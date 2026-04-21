@@ -255,7 +255,7 @@ class HybridMLDenoiser:
         # STFT — clamp noverlap so it is always < min(nperseg, signal_length).
         # scipy auto-reduces nperseg to signal_length for short chunks which leaves
         # the fixed noverlap=1536 >= effective nperseg → ValueError.
-        _sig_len = int(len(audio_mono))
+        _sig_len = len(audio_mono)
         _nperseg = int(min(2048, max(1, _sig_len)))
         _noverlap = int(min(1536, max(0, _nperseg - 1)))
         _f, _t, Zxx = signal.stft(audio_mono, fs=sample_rate, nperseg=_nperseg, noverlap=_noverlap)
@@ -472,8 +472,10 @@ class HybridMLDenoiser:
         snr_db = 10 * np.log10(snr + 1e-8)
         snr_quality = np.clip(snr_db / 40.0, 0, 1)  # 40 dB = excellent
 
-        # Dynamic range
-        dynamic_range = np.max(np.abs(audio)) / (np.mean(np.abs(audio)) + 1e-8)
+        # Dynamic range (§0 Peak-Guard: 99.9th percentile for impulse robustness)
+        from backend.core.core_utils import safe_peak_amplitude
+
+        dynamic_range = safe_peak_amplitude(audio) / (np.mean(np.abs(audio)) + 1e-8)
         dr_quality = np.clip(dynamic_range / 10.0, 0, 1)  # 10:1 = good
 
         # Combined quality estimate

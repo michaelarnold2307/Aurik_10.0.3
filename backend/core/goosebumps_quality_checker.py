@@ -295,8 +295,9 @@ def _measure_clarity(original: np.ndarray, restored: np.ndarray, sr: int) -> tup
         """Simple HNR estimate via autocorrelation peak."""
         n = min(len(audio), sr)  # Max 1 second
         sig = audio[:n]
-        autocorr = np.correlate(sig, sig, mode="full")
-        autocorr = autocorr[len(autocorr) // 2 :]
+        from backend.core.core_utils import fft_autocorr
+
+        autocorr = fft_autocorr(sig)
         # Skip first ~2ms (near-zero lag)
         min_lag = int(0.002 * sr)
         max_lag = int(0.020 * sr)  # Up to 50 Hz fundamental

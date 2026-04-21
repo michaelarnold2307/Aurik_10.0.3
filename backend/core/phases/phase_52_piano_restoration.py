@@ -65,6 +65,7 @@ from typing import Any
 import numpy as np
 from scipy import signal
 
+from backend.core.audio_utils import to_channels_last
 from backend.core.defect_scanner import MaterialType
 
 from .output_guard import evaluate_output_guard
@@ -261,6 +262,7 @@ class PianoRestorationV1(PhaseInterface):
         """
         start_time = time.time()
         assert sample_rate == 48000, f"SR muss 48000 Hz sein, erhalten: {sample_rate}"
+        audio, _p52_transposed = to_channels_last(audio)
 
         phase_locality_factor = float(kwargs.get("phase_locality_factor", 1.0))
         phase_locality_factor = float(np.clip(phase_locality_factor, 0.35, 1.0))

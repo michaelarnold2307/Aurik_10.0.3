@@ -144,10 +144,10 @@ def _burg_ar_predict(context: np.ndarray, order: int, n_samples: int) -> np.ndar
     if len(context) < order + 1:
         return np.zeros(n_samples)
 
-    # Autokorrelation schätzen
-    ac = np.correlate(context, context, mode="full")
-    ac = ac[len(ac) // 2 :]  # Nur positive Lags
-    ac = ac[: order + 1]
+    # Autokorrelation schätzen — FFT-based O(N log N)
+    from backend.core.core_utils import fft_autocorr
+
+    ac = fft_autocorr(context, max_lag=order)
     if ac[0] < 1e-10:
         return np.zeros(n_samples)
 
@@ -642,13 +642,37 @@ def _try_dac_token_inpainting(channel: np.ndarray, start: int, end: int, sample_
 
 
 def _is_ml_thrashing() -> bool:
-    """Return True when ML paths should be avoided due to active swap thrashing."""
-    try:
-        from backend.core.ml_memory_budget import is_system_thrashing
+    """Return True when ML paths should be avoided due to active swap thrashing.
 
-        return bool(is_system_thrashing())
-    except Exception:
-        return False
+    Result is cached for 30 s to avoid log-spam from per-channel calls (BUG H).
+    """
+    import threading as _th
+    import time as _time
+
+    _cache = getattr(_is_ml_thrashing, "_cache", None)
+    _lock = getattr(_is_ml_thrashing, "_lock", None)
+    if _lock is None:
+        _is_ml_thrashing._lock = _th.Lock()  # type: ignore[attr-defined]
+        _is_ml_thrashing._cache = (False, 0.0)  # type: ignore[attr-defined]
+        _lock = _is_ml_thrashing._lock
+        _cache = _is_ml_thrashing._cache
+
+    now = _time.monotonic()
+    _result, _ts = _cache
+    if now - _ts < 30.0:
+        return _result
+    with _lock:
+        _result, _ts = _is_ml_thrashing._cache  # type: ignore[attr-defined]
+        if now - _ts < 30.0:
+            return _result
+        try:
+            from backend.core.ml_memory_budget import is_system_thrashing
+
+            _result = bool(is_system_thrashing())
+        except Exception:
+            _result = False
+        _is_ml_thrashing._cache = (_result, now)  # type: ignore[attr-defined]
+    return _result
 
 
 def _conservative_boundary_fill(channel: np.ndarray, start: int, end: int) -> np.ndarray:

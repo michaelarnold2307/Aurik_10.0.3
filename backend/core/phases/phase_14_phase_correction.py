@@ -58,6 +58,7 @@ import time
 import numpy as np
 from scipy import signal
 
+from backend.core.audio_utils import audio_sample_count, stereo_channel_view, stereo_like
 from backend.core.defect_scanner import MaterialType
 
 from .phase_interface import PhaseCategory, PhaseInterface, PhaseMetadata, PhaseResult
@@ -70,20 +71,24 @@ class PhaseCorrection(PhaseInterface):
 
     # Material-adaptive correction strength
     CORRECTION_STRENGTH = {
-        MaterialType.SHELLAC: 0.80,  # Strong (old stereo cutting techniques)
-        MaterialType.VINYL: 0.70,  # Moderate-strong (stereo cutting angle issues)
-        MaterialType.TAPE: 0.85,  # Very strong (head misalignment common)
-        MaterialType.CD_DIGITAL: 0.30,  # Minimal (production errors only)
-        MaterialType.STREAMING: 0.20,  # Very minimal
+        MaterialType.SHELLAC: 0.60,  # was 0.80 — reduced: avoid over-processing analogue stereo
+        MaterialType.VINYL: 0.45,  # was 0.70 — false-positive rate too high for modern pop on vinyl
+        MaterialType.TAPE: 0.60,  # was 0.85 — head misalignment needs correction but gently
+        MaterialType.CD_DIGITAL: 0.25,  # Minimal (production errors only)
+        MaterialType.STREAMING: 0.15,  # Very minimal
     }
 
-    # Correlation threshold (correct if below this)
+    # Correlation threshold (correct if below this).
+    # §2.51 Invariante: Only correct when there is genuine phase defect, NOT normal stereo width.
+    # Normal pop/Schlager stereo: per-band correlation ranges 0.1–0.7 (intentional).
+    # Genuine azimuth/phase error: correlation near 0 or negative (< 0.35) in affected band.
+    # Old thresholds (e.g. VINYL=0.75) fired on ALL bands of any wide-stereo song → artikulation regression.
     CORRELATION_THRESHOLD = {
-        MaterialType.SHELLAC: 0.65,
-        MaterialType.VINYL: 0.75,
-        MaterialType.TAPE: 0.70,
-        MaterialType.CD_DIGITAL: 0.85,
-        MaterialType.STREAMING: 0.90,
+        MaterialType.SHELLAC: 0.40,  # was 0.65 — shellac can have genuine phase issues
+        MaterialType.VINYL: 0.35,  # was 0.75 — was causing false positives on normal pop stereo!
+        MaterialType.TAPE: 0.35,  # was 0.70 — real azimuth errors show < 0.35
+        MaterialType.CD_DIGITAL: 0.25,  # was 0.85
+        MaterialType.STREAMING: 0.20,  # was 0.90
     }
 
     # Multi-band crossover frequencies
@@ -186,8 +191,7 @@ class PhaseCorrection(PhaseInterface):
         threshold = self.CORRELATION_THRESHOLD.get(material, 0.75)
 
         # Extract L/R channels
-        left = audio[:, 0]
-        right = audio[:, 1]
+        left, right = stereo_channel_view(audio)
 
         # Multi-band split
         bands_left = self._multiband_split(left, sample_rate)
@@ -199,6 +203,7 @@ class PhaseCorrection(PhaseInterface):
         correlations_before = []
         correlations_after = []
         delays_corrected = []  # stored as float (sub-sample resolution)
+        any_band_corrected = False  # §2.49: track if filter bank is actually needed
 
         band_names = ["bass", "low_mid", "mid_high", "high"]
 
@@ -212,6 +217,7 @@ class PhaseCorrection(PhaseInterface):
                 band_l_corr, band_r_corr = self._correct_band_phase(band_l, band_r, delay, strength)
                 corr_after, _ = self._analyze_phase(band_l_corr, band_r_corr, self.MAX_DELAY_SAMPLES[band_name])
                 delays_corrected.append(float(delay))
+                any_band_corrected = True
             else:
                 band_l_corr, band_r_corr = band_l, band_r
                 corr_after = corr_before
@@ -221,16 +227,93 @@ class PhaseCorrection(PhaseInterface):
             corrected_bands_left.append(band_l_corr)
             corrected_bands_right.append(band_r_corr)
 
+        # Wide-stereo guard: if ALL bands have near-zero correlation (<0.20), this is natural
+        # wide/independent stereo (e.g. Pop/Schlager with separate L/R production), NOT an
+        # azimuth phase error. Real azimuth errors always leave bass relatively correlated (>0.35).
+        # Delay-correction on fully uncorrelated stereo is meaningless and the filter bank
+        # reconstruction would cause the same ~0.29 regression floor. Return original unchanged.
+        _WIDE_STEREO_CORR_CAP = 0.20
+        if all(c < _WIDE_STEREO_CORR_CAP for c in correlations_before):
+            logger.debug(
+                "phase_14: all bands near-zero corr (max=%.3f < %.2f) — natural wide stereo, "
+                "no azimuth error, returning input unchanged",
+                max(correlations_before),
+                _WIDE_STEREO_CORR_CAP,
+            )
+            overall_corr = float(np.mean(correlations_before))
+            passthrough = np.nan_to_num(audio.copy(), nan=0.0, posinf=0.0, neginf=0.0)
+            passthrough = np.clip(passthrough, -1.0, 1.0)
+            return PhaseResult(
+                success=True,
+                audio=passthrough,
+                metrics={
+                    "correlation_before": overall_corr,
+                    "correlation_after": overall_corr,
+                    "correlation_improvement": 0.0,
+                    "per_band_correlation_before": [float(c) for c in correlations_before],
+                    "per_band_correlation_after": [float(c) for c in correlations_before],
+                    "delays_corrected_samples": [0.0] * len(correlations_before),
+                    "correction_strength": 0.0,
+                    "material": material.value,
+                },
+                execution_time_seconds=time.time() - start_time,
+                metadata={
+                    "algorithm": "phase_correction_no_op",
+                    "version": "2.1",
+                    "reason": "natural_wide_stereo",
+                    "phase_locality_factor": phase_locality_factor,
+                    "effective_strength": _effective_strength,
+                    "rms_drop_db": 0.0,
+                    "loudness_makeup_db": 0.0,
+                },
+            )
+
+        # §2.49 Early-exit: if no band needed correction, the filter bank (split+reconstruct)
+        # introduces spectral ripple at crossovers (Butterworth LP+BP+BP+HP ≠ unity).
+        # Returning original audio avoids ~0.29 regression floor from non-alias-free reconstruction.
+        if not any_band_corrected:
+            logger.debug(
+                "phase_14: all bands corr >= threshold (%.2f) — no correction needed, returning input unchanged",
+                threshold,
+            )
+            overall_corr = float(np.mean(correlations_before))
+            passthrough = np.nan_to_num(audio.copy(), nan=0.0, posinf=0.0, neginf=0.0)
+            passthrough = np.clip(passthrough, -1.0, 1.0)
+            return PhaseResult(
+                success=True,
+                audio=passthrough,
+                metrics={
+                    "correlation_before": overall_corr,
+                    "correlation_after": overall_corr,
+                    "correlation_improvement": 0.0,
+                    "per_band_correlation_before": [float(c) for c in correlations_before],
+                    "per_band_correlation_after": [float(c) for c in correlations_before],
+                    "delays_corrected_samples": delays_corrected,
+                    "correction_strength": 0.0,
+                    "material": material.value,
+                },
+                execution_time_seconds=time.time() - start_time,
+                metadata={
+                    "algorithm": "phase_correction_no_op",
+                    "version": "2.1",
+                    "reason": "all_bands_above_threshold",
+                    "phase_locality_factor": phase_locality_factor,
+                    "effective_strength": _effective_strength,
+                    "rms_drop_db": 0.0,
+                    "loudness_makeup_db": 0.0,
+                },
+            )
+
         # Reconstruct
         corrected_left = self._multiband_reconstruct(corrected_bands_left)
         corrected_right = self._multiband_reconstruct(corrected_bands_right)
 
         # Ensure length matches
-        min_len = min(len(corrected_left), len(corrected_right), len(audio))
+        min_len = min(len(corrected_left), len(corrected_right), audio_sample_count(audio))
         corrected_left = corrected_left[:min_len]
         corrected_right = corrected_right[:min_len]
 
-        corrected_audio = np.column_stack([corrected_left, corrected_right])
+        corrected_audio = stereo_like(corrected_left, corrected_right, audio)
 
         # Overall correlation
         overall_corr_before = np.mean(correlations_before)

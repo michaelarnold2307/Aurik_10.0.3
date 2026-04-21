@@ -80,10 +80,11 @@ def classify_harmonic_content(audio: np.ndarray, sr: int) -> dict[str, float]:
     if audio.ndim > 1:
         audio = np.mean(audio, axis=0)
 
-    # Find fundamental frequency
-    autocorr = np.correlate(audio, audio, mode="full")
-    autocorr = autocorr[len(autocorr) // 2 :]
-    autocorr = autocorr / autocorr[0]
+    # Find fundamental frequency — FFT-based O(N log N)
+    from backend.core.core_utils import fft_autocorr
+
+    autocorr = fft_autocorr(audio)
+    autocorr = autocorr / (autocorr[0] + 1e-10)
 
     # Pitch detection
     min_lag = int(sr / 500)

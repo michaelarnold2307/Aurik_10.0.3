@@ -391,8 +391,9 @@ class ContextAwareAnalyzer:
         # Autocorrelation-based HNR estimation
         max_lag = int(sr / 50)  # Up to 50 Hz (low pitch limit)
 
-        autocorr = np.correlate(audio, audio, mode="full")
-        autocorr = autocorr[len(autocorr) // 2 :]
+        from backend.core.core_utils import fft_autocorr
+
+        autocorr = fft_autocorr(audio, max_lag=max_lag)
 
         # Normalize
         autocorr = autocorr / (autocorr[0] + 1e-10)

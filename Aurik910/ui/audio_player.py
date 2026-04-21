@@ -18,7 +18,7 @@ from __future__ import annotations
 import logging
 import math
 import threading
-from typing import Callable
+from collections.abc import Callable
 
 import numpy as np
 
@@ -416,11 +416,11 @@ class StreamingAudioPlayer:
                 channels=2,
                 dtype="float32",
                 callback=self._audio_callback,
-                latency="high",  # ~200 ms ring buffer — PulseAudio stable
-                blocksize=2048,  # ~43 ms @ 48 kHz — GIL-tolerant under ML load
+                latency=0.150,  # 150 ms explicit — PulseAudio/PipeWire L/R sync (no "high")
+                blocksize=512,  # 512 frames (~10.7 ms @ 48 kHz) — GIL-tolerant, L/R phase-safe
             )
             self._stream.start()
-            logger.debug("StreamingAudioPlayer: stream opened @ %d Hz, latency=high", dev_sr)
+            logger.debug("StreamingAudioPlayer: stream opened @ %d Hz, latency=150ms", dev_sr)
             return True
         except Exception as exc:
             logger.warning("StreamingAudioPlayer: stream creation failed: %s", exc)

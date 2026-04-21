@@ -116,9 +116,10 @@ def _find_dominant_fundamental_hz(mono: np.ndarray, sr: int) -> float | None:
         return None
 
     segment = mono[:n].astype(np.float64)
-    # Normalised autocorrelation
-    corr = np.correlate(segment, segment, mode="full")
-    corr = corr[n - 1 :]  # keep causal half
+    # Normalised autocorrelation — FFT-based O(N log N)
+    from backend.core.core_utils import fft_autocorr
+
+    corr = fft_autocorr(segment)
     if np.max(np.abs(corr)) < 1e-8:
         return None
     corr = corr / (corr[0] + 1e-12)

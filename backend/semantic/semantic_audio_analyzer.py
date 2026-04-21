@@ -599,9 +599,10 @@ class SemanticAudioAnalyzer:
         for i in range(0, len(audio) - frame_length, hop_length):
             frame = audio[i : i + frame_length]
 
-            # Autocorrelation
-            autocorr = np.correlate(frame, frame, mode="full")
-            autocorr = autocorr[len(autocorr) // 2 :]
+            # Autocorrelation — FFT-based O(N log N)
+            from backend.core.core_utils import fft_autocorr
+
+            autocorr = fft_autocorr(frame)
 
             # Normalize
             if autocorr[0] > 0:

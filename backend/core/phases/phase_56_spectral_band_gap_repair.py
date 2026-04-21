@@ -54,6 +54,8 @@ from typing import Any
 
 import numpy as np
 
+from backend.core.audio_utils import safe_to_mono, to_channels_last
+
 from .phase_interface import (
     PhaseCategory,
     PhaseInterface,
@@ -130,10 +132,9 @@ _PGHI_ITERATIONS: int = 32
 
 
 def _to_mono(audio: np.ndarray) -> np.ndarray:
-    """Stereo → Mono Mischung (float32)."""
-    if audio.ndim == 2:
-        return audio.mean(axis=1).astype(np.float32)
-    return audio.astype(np.float32)
+    """Stereo → Mono Mischung (float32). Handles both (N,2) and (2,N) layouts (§2.51)."""
+    mono = safe_to_mono(audio) if audio.ndim == 2 else audio
+    return mono.astype(np.float32)
 
 
 def _estimate_f0(mono: np.ndarray, sr: int) -> float | None:
@@ -194,10 +195,12 @@ def _estimate_f0(mono: np.ndarray, sr: int) -> float | None:
         except Exception as exc:
             logger.debug("pYIN f₀-Schätzung fehlgeschlagen: %s", exc)
 
-    # Tier-3: Autokorrelation (einfacher DSP-Fallback)
+    # Tier-3: Autokorrelation (einfacher DSP-Fallback) — FFT-based O(N log N)
     max(1, sr // 100)
-    autocorr = np.correlate(mono[: min(len(mono), sr)], mono[: min(len(mono), sr)], mode="full")
-    autocorr = autocorr[len(autocorr) // 2 :]
+    mono_seg = mono[: min(len(mono), sr)]
+    from backend.core.core_utils import fft_autocorr
+
+    autocorr = fft_autocorr(mono_seg)
     min_lag = max(1, int(sr / 1200.0))
     max_lag = int(sr / 50.0)
     if max_lag >= len(autocorr):
@@ -605,6 +608,7 @@ class SpectralBandGapRepairPhase(PhaseInterface):
         """
         sample_rate = kwargs.get("sample_rate", 48000)
         assert sample_rate == 48000, f"SR muss 48000 Hz sein, erhalten: {sample_rate}"
+        audio, _p56_transposed = to_channels_last(audio)
 
         # §4.6b: Pre-phase eviction — free previous phase models to prevent OOM
         try:

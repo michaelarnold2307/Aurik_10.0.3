@@ -759,6 +759,122 @@ Das visuelle Feedback teilt sich auf zwei Anzeigebereiche auf:
 
 ---
 
+## §11.4d [RELEASE_MUST] Tonträgerketten-Display-Invarianten (v9.11.14)
+
+Das Tonträger-Display-System in `Aurik910/ui/modern_window.py` hat **drei unabhängige Update-Pfade**, die alle auf denselben State schreiben (`detected_medium_label`, `_carrier_bg_label`). Ohne Single Source of Truth können Medien-Mappings divergieren und Anzeigen falsch oder leer werden.
+
+### Drei Update-Pfade (normativ dokumentiert)
+
+| Pfad | Trigger | Code-Ort | Update-Bedingung |
+| --- | --- | --- | --- |
+| **A — Pre-Analysis** | `_pre_analysis_bg` nach MediumDetector | ~Zeile 13640 | Immer — auch bei Einzel-Medium |
+| **B — Live (während Verarbeitung)** | `__carrier_chain__:`-Nachricht von AurikDenker | `_apply_authoritative_chain_display` | Nur wenn `len(chain_keys) >= 2` |
+| **C — Post-Processing** | `item_finished_with_result`-Signal | `_on_item_finished_with_result` | Nur wenn `len(chain_keys) >= 2` |
+
+**Invariante**: Pfad B und C überschreiben Pfad A. Pfad A ist Vorläufig-Anzeige.
+
+### Single Source of Truth — Modul-Level-Konstanten und -Helfer
+
+```python
+# Aurik910/ui/modern_window.py (Modul-Level — NUR HIER definiert)
+_CARRIER_MEDIUM_DISPLAY: dict[str, tuple[str, str]]  # (icon_stem, label) pro Medium-Key
+_CARRIER_EXT_DISPLAY: dict[str, tuple[str, str]]     # (icon_stem, label) pro Dateiendung
+_CARRIER_ANALOG_MEDIA: frozenset[str]                # analoge Materialtypen
+_CARRIER_ICONS_DIR: str                              # Icons-Verzeichnis-Pfad
+
+def _render_carrier_html(icon_stem, label, icons_dir=...) -> str: ...  # Icon oder Plaintext
+def _build_carrier_chain_html(chain_keys: list[str]) -> str: ...       # Kette kombinieren
+```
+
+**VERBOTEN**: Lokal in Methoden/Callbacks, Lambdas, Background-Threads eigene Varianten dieser Dicts oder `_html()`/`_ci_html()` Funktionen zu definieren (§UI-CARRIER-DISPLAY-INVARIANT).
+
+### State-Synchronisations-Invariante
+
+```python
+# IMMER gemeinsam schreiben:
+self.detected_medium_label.setText(html)
+self._carrier_bg_label = html  # ← CRITICAL: Era-Badge-Block liest diesen State
+
+# NIEMALS nur eines der beiden, weil:
+# Era-Badge-Block (~Zeile 15680) liest _carrier_bg_label → schreibt detected_medium_label
+# → wenn _carrier_bg_label ≠ detected_medium_label → Silent Data Loss bei Era-Badge-Update
+```
+
+### Chain-Info-Key-Invariante
+
+`KettenErgebnis.as_dict()` (in `denker/tontraegerkette_denker.py`) exportiert den Key `"chain"` — **nicht** `"transfer_chain"`. Die korrekte Verwendung in `_on_item_finished_with_result`:
+
+```python
+# KORREKT:
+_chain_keys = _chain_info.get("chain") or []
+
+# VERBOTEN:
+_chain_keys = _chain_info.get("transfer_chain") or _chain_info.get("chain") or []
+# → "transfer_chain" existiert nie → erstes get() immer None → verdeckt zukünftige Bugs
+```
+
+`as_dict()` liefert folgende Keys: `"chain"`, `"chain_string"`, `"is_multi_generation"`, `"generation_count"`, `"primary_medium"`, `"original_medium"`, `"glieder"`, `"combined_phases"`, `"chain_complexity"`, `"confidence"`, `"spectral_evidence"`, `"reasoning"`.
+
+### Debug-Logging-Pflicht bei Guard-Feuern
+
+Wenn `len(chain_keys) < 2` → Chain-Display wird nicht aktualisiert. Dieses stille Überspringen MUSS immer mit `logger.debug` protokolliert werden:
+
+```python
+logger.debug(
+    "Kettenanzeige übersprungen – len=%d < 2 (chain=%s)",
+    len(chain_keys), chain_keys
+)
+```
+
+### Icon-HTML ohne Plaintext-Fallback — Verboten
+
+`_render_carrier_html()` ist die einzige erlaubte Implementierung:
+
+- Prüft `_svg` → `_png` → `return label` (Plaintext-Fallback)
+- `except (OSError, TypeError, ValueError): return label`
+
+**VERBOTEN**: Direktes `f'<img src="file:///{path}"...'` ohne Datei-Existenz-Prüfung und ohne `try/except`.
+
+### Datenstrom-Diagramm
+
+```
+MediumDetector.detect()
+    └→ PreAnalysisResult.medium.transfer_chain
+            └→ _pre_analysis_bg [Pfad A]
+                    └→ _build_carrier_chain_html(chain_keys)
+                            └→ detected_medium_label.setText()
+                               _carrier_bg_label = html  ← State sync
+
+TontraegerketteDenker.analysiere()
+    └→ kette.chain (list)
+            └→ aurik_denker.py: _emit("__carrier_chain__:" + "|".join(kette.chain))
+                    └→ _apply_authoritative_chain_display(chain_keys) [Pfad B]
+                            └→ _build_carrier_chain_html(chain_keys)
+                                    └→ detected_medium_label.setText()
+                                       _carrier_bg_label = html  ← State sync
+
+AurikErgebnis.chain_info = kette.as_dict()
+    └→ chain_info["chain"] (list)  ← KEIN "transfer_chain"!
+            └→ _on_item_finished_with_result [Pfad C]
+                    └→ _build_carrier_chain_html(chain_keys)
+                            └→ detected_medium_label.setText()
+                               _carrier_bg_label = html  ← State sync
+
+Era-Badge-Block (nach Pfad C)
+    └→ liest: _carrier_bg_label (MUSS = detected_medium_label.text())
+    └→ schreibt: detected_medium_label.setText(_carrier_bg_label + stars + badge)
+                  _carrier_bg_label = new_html  ← State sync
+```
+
+### Testpflicht (§UI-CARRIER-DISPLAY-INVARIANT)
+
+- Test: Neues Medium in `_CARRIER_MEDIUM_DISPLAY` → erscheint in **allen drei** Pfaden korrekt (CI-Guard)
+- Test: `chain_info` mit key `"chain"` → korrekte Anzeige; `chain_info` ohne `"chain"` → Debug-Log, kein Crash
+- Test: Fehlendes Icon-Verzeichnis → Plaintext-Fallback (kein `<img>`-Tag in Output)
+- Test: `detected_medium_label.setText()` ohne `_carrier_bg_label`-Sync → nachfolgendes Era-Badge-Update überschreibt korrekt
+
+---
+
 ## §11.5 CLI (`aurik_cli.py`)
 
 ```bash
@@ -845,6 +961,38 @@ torch==2.2.2  --extra-index-url https://download.pytorch.org/whl/cpu
 # Für ROCm:   pip install torch --index-url https://download.pytorch.org/whl/rocm6.2
 # Für DirectML: pip install torch-directml
 ```
+
+### §8.7 AMD-GPU-Beschleunigung — Architektur-Erkennung & Tier-System (v9.11.14)
+
+**Singleton**: `backend/core/ml_device_manager.py` — `get_ml_device_manager()`
+
+**Architektur-Erkennung**: `_detect_amd_architecture(device_name)` matcht GPU-Marketing-Namen und
+GFX-IDs gegen `_AMD_ARCH_PATTERNS` → `AMDArchitecture` (RDNA3, RDNA2, RDNA1, GCN5, GCN4, CDNA3/2/1).
+
+**Tier-System**: `_compute_gpu_tier(arch, vram_gb)` → `GPUTier` (TIER_1..TIER_4):
+
+| Tier | Architektur | VRAM | max_usage | min_free | fp16_auto |
+| --- | --- | --- | --- | --- | --- |
+| **1** | RDNA3 (≥16 GB), RDNA2 (≥16 GB), CDNA (≥8 GB) | ≥16 GB | 85 % | 512 MB | Ja |
+| **2** | RDNA2 (8–15 GB), RDNA1 (≥8 GB), CDNA (<8 GB) | 8–15 GB | 80 % | 640 MB | Ja |
+| **3** | RDNA1/2 (4–7 GB), GCN5 (≥8 GB) | 4–7 GB | 70 % | 768 MB | Ja |
+| **4** | GCN4, <4 GB VRAM | <4 GB | 50 % | 512 MB | Nein |
+
+**Tier-basierte Plugin-Ausschlüsse**:
+
+- Tier 3: AudioSR, AudioLDM2, MERT-330M-fairseq → CPU-only (VRAM zu knapp)
+- Tier 4: + MERT-330M-HF, BSRoFormer, MDXNet, BigVGAN, CQTDiffPlus, SGMSE → CPU-only
+
+**Auto-fp16**: `get_ort_providers(plugin_name)` aktiviert auf ROCm automatisch fp16 für
+`_FP16_ELIGIBLE_PLUGINS` wenn `_TIER_VRAM_PARAMS[tier].fp16_auto == 1.0`.
+Plugins müssen `get_ort_providers_fp16()` **NICHT** explizit aufrufen.
+
+**Invarianten:**
+
+- Kein Plugin darf `CUDAExecutionProvider` oder `.to("cuda")` direkt verwenden
+- Alle GPU-Zugriffe über `get_torch_device("PluginName")` / `get_ort_providers("PluginName")`
+- Jeder GPU-Fehler → `report_gpu_error()` → automatische Session-Deaktivierung nach 3 Fehlern
+- Architektur/Tier in `gpu_status_summary()` für UI und Diagnostik verfügbar
 
 ```bash
 # Vor jedem Release:

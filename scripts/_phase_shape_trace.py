@@ -114,7 +114,7 @@ def _patched_profiled_phase_call(self, phase, audio: np.ndarray, **kwargs):
     flag = "‼️ " if anomaly else "   "
     print(
         f"{flag}{phase_id:45s} "
-        f"shape:{str(audio.shape):12s}→{str(out_audio.shape):12s} "
+        f"shape:{audio.shape!s:12s}→{out_audio.shape!s:12s} "
         f"nz:{nz_before:7.2f}s→{nz_after:7.2f}s "
         f"active:{act_before:.0%}→{act_after:.0%}" + (f"  *** {anomaly} ***" if anomaly else ""),
         flush=True,

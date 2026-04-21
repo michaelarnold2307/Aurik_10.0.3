@@ -226,10 +226,11 @@ def measure_harmonic_series_strength(audio: np.ndarray, sr: int) -> float:
     if audio.ndim > 1:
         audio = np.mean(audio, axis=0)
 
-    # Autocorrelation for pitch detection
-    autocorr = np.correlate(audio, audio, mode="full")
-    autocorr = autocorr[len(autocorr) // 2 :]
-    autocorr = autocorr / autocorr[0]  # Normalize
+    # Autocorrelation for pitch detection — FFT-based O(N log N)
+    from backend.core.core_utils import fft_autocorr
+
+    autocorr = fft_autocorr(audio)
+    autocorr = autocorr / (autocorr[0] + 1e-10)  # Normalize
 
     # Find first significant peak (indicates pitch)
     min_lag = int(sr / 500)  # Highest expected F0 (500 Hz)

@@ -63,6 +63,8 @@ from typing import Any
 import numpy as np
 from scipy.interpolate import CubicSpline
 
+from backend.core.audio_utils import safe_to_mono
+
 from .phase_interface import PhaseCategory, PhaseInterface, PhaseMetadata, PhaseResult, create_phase_result
 
 # ML-Hybrid Support
@@ -307,7 +309,7 @@ class ClickRemovalPhase(PhaseInterface):
         is_stereo = audio.ndim == 2
         if is_stereo:
             # Detect clicks on mono downmix for coherent L+R repair
-            mono_mix = np.mean(audio, axis=1)
+            mono_mix = safe_to_mono(audio)
             _mono_repaired, stats_mono = self._remove_clicks_professional(
                 mono_mix, sample_rate, thresholds, preserve_transients, use_ml
             )
@@ -320,9 +322,14 @@ class ClickRemovalPhase(PhaseInterface):
             )
             _gain_click = np.clip(_gain_click, 0.0, 10.0)
             # Apply identical gain to both channels
-            left = audio[:, 0] * _gain_click
-            right = audio[:, 1] * _gain_click
-            result_audio = np.column_stack([left, right])
+            if audio.shape[0] == 2 and audio.shape[1] > 2:
+                left = audio[0] * _gain_click
+                right = audio[1] * _gain_click
+                result_audio = np.vstack([left, right])
+            else:
+                left = audio[:, 0] * _gain_click
+                right = audio[:, 1] * _gain_click
+                result_audio = np.column_stack([left, right])
 
             # Statistics from mono detection
             total_clicks = stats_mono["total"]

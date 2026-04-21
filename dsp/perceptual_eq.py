@@ -5,7 +5,6 @@ Dieses Modul stellt ein Perceptual-EQ-Modul auf Basis von Hörmodellen als Stub 
 """
 
 import logging
-import warnings
 from typing import Any
 
 import numpy as np

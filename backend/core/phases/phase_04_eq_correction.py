@@ -96,6 +96,8 @@ else:
 
 import logging
 
+from backend.core.audio_utils import to_channels_last
+
 logger = logging.getLogger(__name__)
 
 
@@ -544,6 +546,7 @@ class EQCorrectionPhase(PhaseInterface):
         sample_rate = kwargs.get("sample_rate", 48000)
         assert sample_rate == 48000, f"SR muss 48000 Hz sein, erhalten: {sample_rate}"
         start_time = time.time()
+        audio, _p04_transposed = to_channels_last(audio)
 
         # §2.47 PMGG-Retry: locality_factor skaliert finale Intensität bei Retries
         phase_locality_factor = float(np.clip(float(kwargs.get("phase_locality_factor", 1.0)), 0.35, 1.0))
@@ -643,7 +646,13 @@ class EQCorrectionPhase(PhaseInterface):
         # ── Head-Bump compensation (tape/reel_tape) ──────────────────────────
         tape_speed_ips: float | None = kwargs.get("tape_speed_ips")
         head_bump_applied = False
-        if tape_speed_ips is not None and material_type in ("tape", "reel_tape", "cassette", "wire_recording"):
+        # §2.46a: In multi-generation chains (e.g. vinyl → tape → mp3_low) the
+        # primary material_type is vinyl, but a tape intermediate stage imprints
+        # a LF head-bump that needs compensation.  Check transfer_chain as well.
+        _tc: list[str] = list(kwargs.get("transfer_chain") or [])
+        _TAPE_FAMILY = {"tape", "reel_tape", "cassette", "wire_recording"}
+        _has_tape_in_chain = material_type in _TAPE_FAMILY or any(t in _TAPE_FAMILY for t in _tc)
+        if tape_speed_ips is not None and _has_tape_in_chain:
             result_audio = self._apply_head_bump_compensation(result_audio, tape_speed_ips)
             head_bump_applied = True
             logger.info("phase_04: head-bump compensation applied at %.3f ips", tape_speed_ips)

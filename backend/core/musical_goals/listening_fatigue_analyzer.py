@@ -129,8 +129,10 @@ class ListeningFatigueAnalyzer:
         else:
             audio_mono = audio
 
-        # Normalize audio for consistent analysis
-        audio_mono = audio_mono / (np.max(np.abs(audio_mono)) + 1e-10)
+        # Normalize audio for consistent analysis (§0 Peak-Guard: 99.9th percentile)
+        from backend.core.core_utils import safe_peak_amplitude
+
+        audio_mono = audio_mono / (safe_peak_amplitude(audio_mono) + 1e-10)
 
         # Measure individual factors
         harshness_score = self._measure_harshness(audio_mono, sr)
