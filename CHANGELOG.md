@@ -2,6 +2,15 @@
 
 > Hinweis: Dieses Dokument ist eine Versionshistorie. Ältere Versionsnummern und Kennzahlen sind hier erwartbar und keine veralteten Reststände.
 
+## Version 9.11.31 — load_audio_file do_carrier_analysis=False (Tiefenanalyse R4) (Apr 2026)
+
+- **`backend/adaptive_pipeline.py` L1883**: `audio, sr = load_audio_file(...)` — falsches Tuple-Unpacking
+  einer Dict-Rückgabe + fehlender `do_carrier_analysis=False` → 6-min Blockade im Processing-Thread.
+  Fix: dict-basiertes Unpacking + `do_carrier_analysis=False` (§VERBOTEN: load_audio_file in Threads).
+- **`backend/meta_router.py` L64**: `_load_audio_file(path)` ohne `do_carrier_analysis=False`
+  → synchrone Carrier-Analyse blockiert routing-internen Audio-Load.
+  Fix: `do_carrier_analysis=False` hinzugefügt.
+
 ## Version 9.11.30 — PLM set_active für BanquetVinyl, VERSA Default-Fix (Apr 2026)
 
 ### Änderungen

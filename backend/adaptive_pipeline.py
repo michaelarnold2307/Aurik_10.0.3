@@ -1880,7 +1880,11 @@ class AdaptiveProcessingPipelineV2:
         logger.info("Starting restoration job %s", job_id)
 
         # Load input audio — §VERBOTEN: sf.read() → load_audio_file()
-        audio, sr = load_audio_file(str(input_audio_path))
+        _load_result = load_audio_file(str(input_audio_path), do_carrier_analysis=False)
+        if _load_result is None or _load_result.get("error"):
+            raise RuntimeError(f"load_audio_file failed: {(_load_result or {}).get('error')}")
+        audio = _load_result["audio"]
+        sr = _load_result["sr"]
 
         # Create input AudioFile
         input_file_hash = self.archive_manager.calculate_file_hash(input_audio_path)

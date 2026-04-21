@@ -61,7 +61,7 @@ def _load_audio(path: str) -> tuple[np.ndarray, int]:
     try:
         from backend.file_import import load_audio_file as _load_audio_file
 
-        _res = _load_audio_file(path)
+        _res = _load_audio_file(path, do_carrier_analysis=False)
         if _res and not _res.get("error"):
             audio = _res["audio"]
             sr = _res["sr"]
