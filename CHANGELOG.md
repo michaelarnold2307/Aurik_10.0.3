@@ -2,6 +2,16 @@
 
 > Hinweis: Dieses Dokument ist eine Versionshistorie. Ältere Versionsnummern und Kennzahlen sind hier erwartbar und keine veralteten Reststände.
 
+## Version 9.11.33 — PLM set_active Guards RMVPE/FCPE/Vocos/BigVGAN/ResembleEnhance/DeepFormants (Tiefenanalyse R6) (Apr 2026)
+
+- **`plugins/rmvpe_plugin.py` `_analyze_onnx()`**: `session.run()` ohne PLM-Guard → set_active("RMVPE") try/finally
+- **`plugins/fcpe_plugin.py` `_analyze_fcpe_onnx()`**: 2× `session.run()` ohne PLM-Guard → set_active("FCPE") try/finally
+- **`plugins/vocos_plugin.py` `_synthesize_vocos_onnx()`**: `_onnx_session.run()` ohne PLM-Guard → set_active("Vocos") try/finally
+- **`plugins/bigvgan_v2_plugin.py` `_synthesize_bigvgan()`**: `session.run()` ohne PLM-Guard → set_active("bigvgan_v2") try/finally
+- **`plugins/resemble_enhance_plugin.py` `_onnx_single()`**: `session.run()` ohne PLM-Guard → set_active("ResembleEnhance") try/finally
+- **`plugins/formant_tracker.py` `_analyze_deepformants()`**: `_deepformants_session.run()` ohne PLM-Guard → set_active("DeepFormants") try/finally
+- Alle 6 Plugins: Emergency-Eviction während aktiver ONNX-Inferenz → OOM-Crash-Risiko beseitigt (§4.6b)
+
 ## Version 9.11.32 — PLM set_active Guards HiFiGAN/CREPE/SileroVAD (Tiefenanalyse R5) (Apr 2026)
 
 - **`plugins/hifigan_plugin.py` `_vocode_onnx()`**: `session.run()` im Chunk-Loop ohne PLM-Guard

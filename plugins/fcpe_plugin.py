@@ -278,6 +278,14 @@ class FcpePlugin:
             Input:  mel      (1, T, 128) float32  log-mel @ 16 kHz
             Output: salience (1, T, 360) float32  sigmoid Pitch-Klassen-Probs
         """
+        _plm = None
+        try:
+            from backend.core.plugin_lifecycle_manager import get_plugin_lifecycle_manager
+
+            _plm = get_plugin_lifecycle_manager()
+            _plm.set_active("FCPE", True)
+        except Exception:
+            pass
         try:
             import scipy.signal as sps
 
@@ -334,6 +342,12 @@ class FcpePlugin:
             if self._crepe_delegate is not None:
                 return self._crepe_delegate.analyze(audio, sr)
             return self._analyze_pyin(audio, sr)
+        finally:
+            if _plm is not None:
+                try:
+                    _plm.set_active("FCPE", False)
+                except Exception:
+                    pass
 
     def _analyze_pyin(self, audio: np.ndarray, sr: int) -> CrepeResult:
         """pYIN DSP-Fallback (Mauch & Dixon 2014)."""

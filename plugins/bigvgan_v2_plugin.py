@@ -275,6 +275,14 @@ class BigVGANv2Plugin:
         sr: int,
     ) -> tuple[np.ndarray, str, float]:
         """BigVGAN-v2 Generator-Inferenz (ONNX oder torch)."""
+        _plm = None
+        try:
+            from backend.core.plugin_lifecycle_manager import get_plugin_lifecycle_manager
+
+            _plm = get_plugin_lifecycle_manager()
+            _plm.set_active("bigvgan_v2", True)
+        except Exception:
+            pass
         try:
             mel = self._compute_mel(audio, sr)  # [n_mel, T]
 
@@ -332,6 +340,12 @@ class BigVGANv2Plugin:
                 return self._synthesize_bigvgan(audio, sr)
             logger.warning("BigVGAN-v2 Inferenz-Fehler: %s — PGHI-Fallback", exc)
             return self._synthesize_pghi_fallback(audio, sr)
+        finally:
+            if _plm is not None:
+                try:
+                    _plm.set_active("bigvgan_v2", False)
+                except Exception:
+                    pass
 
     # ------------------------------------------------------------------
     # PGHI-ISTFT Fallback

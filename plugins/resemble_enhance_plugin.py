@@ -198,6 +198,14 @@ class ResembleEnhancePlugin:
         cos = spec.real / (mag + 1e-8)
         sin_v = spec.imag / (mag + 1e-8)
         inp = lambda a: a[None].astype(np.float32)  # [1,841,F]
+        _plm = None
+        try:
+            from backend.core.plugin_lifecycle_manager import get_plugin_lifecycle_manager
+
+            _plm = get_plugin_lifecycle_manager()
+            _plm.set_active("ResembleEnhance", True)
+        except Exception:
+            pass
         try:
             outs = session.run(None, {"mag": inp(mag), "cos": inp(cos), "sin": inp(sin_v)})
             om, oc, os_ = outs[0][0], outs[1][0], outs[2][0]
@@ -208,6 +216,12 @@ class ResembleEnhancePlugin:
         except Exception as exc:
             logger.debug("Resemble-Enhance run Fehler: %s", exc)
             out_spec = spec
+        finally:
+            if _plm is not None:
+                try:
+                    _plm.set_active("ResembleEnhance", False)
+                except Exception:
+                    pass
         n_out = nf * _HOP + _N
         res = np.zeros(n_out, np.float32)
         ws = np.zeros(n_out, np.float32)

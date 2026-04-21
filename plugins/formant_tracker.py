@@ -276,7 +276,22 @@ class FormantTracker:
         # ONNX-Inferenz: [1, 128, T] → [1, 4, T]
         inp = log_mel[np.newaxis].astype(np.float32)  # [1, 128, T]
         inp_name = self._deepformants_session.get_inputs()[0].name
-        ort_out = self._deepformants_session.run(None, {inp_name: inp})
+        _plm = None
+        try:
+            from backend.core.plugin_lifecycle_manager import get_plugin_lifecycle_manager
+
+            _plm = get_plugin_lifecycle_manager()
+            _plm.set_active("DeepFormants", True)
+        except Exception:
+            pass
+        try:
+            ort_out = self._deepformants_session.run(None, {inp_name: inp})
+        finally:
+            if _plm is not None:
+                try:
+                    _plm.set_active("DeepFormants", False)
+                except Exception:
+                    pass
         formant_tracks_hz = np.asarray(ort_out[0], dtype=np.float32)  # [1, 4, T] oder [4, T]
 
         if formant_tracks_hz.ndim == 3:

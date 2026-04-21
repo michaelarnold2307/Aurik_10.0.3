@@ -356,6 +356,14 @@ class VocosPlugin:
         target_len = len(audio)
         model_sr = self._model_sr
         n_mels = self._mel_n_mels
+        _plm = None
+        try:
+            from backend.core.plugin_lifecycle_manager import get_plugin_lifecycle_manager
+
+            _plm = get_plugin_lifecycle_manager()
+            _plm.set_active("Vocos", True)
+        except Exception:
+            pass
         try:
             # 1. Resample auf Modell-SR (bei 48 kHz nativem Modell kein Resampling nötig)
             audio_model = self._resample(audio, sr, model_sr)
@@ -379,6 +387,12 @@ class VocosPlugin:
             logger.warning("Vocos ONNX-Inferenzfehler: %s — Audio-Passthrough.", exc)
             result = np.nan_to_num(audio.copy(), nan=0.0, posinf=0.0, neginf=0.0)
             return np.clip(result, -1.0, 1.0), "vocos_onnx_passthrough", 0.50
+        finally:
+            if _plm is not None:
+                try:
+                    _plm.set_active("Vocos", False)
+                except Exception:
+                    pass
 
     def _synthesize_bigvgan_v2(self, audio: np.ndarray, sr: int) -> tuple[np.ndarray, str, float]:
         """BigVGAN v2 Fallback-Synthese (Stufe 1.5, §4.4 SOTA-Matrix März 2026).

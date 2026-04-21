@@ -255,6 +255,14 @@ class RmvpePlugin:
         mono_16k = np.nan_to_num(mono_16k, nan=0.0, posinf=0.0, neginf=0.0)
         mono_16k = np.clip(mono_16k, -1.0, 1.0)
 
+        _plm = None
+        try:
+            from backend.core.plugin_lifecycle_manager import get_plugin_lifecycle_manager
+
+            _plm = get_plugin_lifecycle_manager()
+            _plm.set_active("RMVPE", True)
+        except Exception:
+            pass
         try:
             mel = self._mel_spectrogram(mono_16k)  # [T, 128]
             t_orig = mel.shape[0]
@@ -334,6 +342,12 @@ class RmvpePlugin:
         except Exception as exc:
             logger.warning("RMVPE ONNX-Inferenzfehler: %s — pYIN-Fallback.", exc)
             return self._analyze_pyin(mono_48k, sr)
+        finally:
+            if _plm is not None:
+                try:
+                    _plm.set_active("RMVPE", False)
+                except Exception:
+                    pass
 
     def _analyze_pyin(self, mono_48k: np.ndarray, sr: int) -> RmvpeResult:
         """DSP-Fallback-Kette: PESTO (Riou et al. ISMIR 2023) → pYIN (Mauch & Dixon 2014).
