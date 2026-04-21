@@ -336,12 +336,30 @@ class VersaPlugin:
             _last_exc: Exception | None = None
             _scores = None
             assert self._pseudo_mos_metric is not None  # guarded by _model_loaded check
-            for _candidate in (mono_16k[np.newaxis, :], mono_16k):
-                try:
-                    _scores = self._pseudo_mos_metric(_candidate, _MODEL_SR, self._predictor_dict, self._predictor_fs)
-                    break
-                except Exception as _shape_exc:
-                    _last_exc = _shape_exc
+            # §4.6b PLM-Active-Guard: prevent Emergency-Eviction during SingMOS inference
+            _plm_versa = None
+            try:
+                from backend.core.plugin_lifecycle_manager import get_plugin_lifecycle_manager as _get_plm_v
+
+                _plm_versa = _get_plm_v()
+                _plm_versa.set_active("VersaSingMOS", True)
+            except Exception:
+                pass
+            try:
+                for _candidate in (mono_16k[np.newaxis, :], mono_16k):
+                    try:
+                        _scores = self._pseudo_mos_metric(
+                            _candidate, _MODEL_SR, self._predictor_dict, self._predictor_fs
+                        )
+                        break
+                    except Exception as _shape_exc:
+                        _last_exc = _shape_exc
+            finally:
+                if _plm_versa is not None:
+                    try:
+                        _plm_versa.set_active("VersaSingMOS", False)
+                    except Exception:
+                        pass
 
             if _scores is None:
                 assert _last_exc is not None
