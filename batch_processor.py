@@ -159,7 +159,7 @@ class BatchProcessor:
                     "Lösung: Installation prüfen und Anwendung neu starten."
                 )
 
-            _res = _load_audio_file(str(input_file))
+            _res = _load_audio_file(str(input_file), do_carrier_analysis=False)
             if _res is None or _res.get("error"):
                 raise RuntimeError(
                     f"Audio-Import fehlgeschlagen: {(_res or {}).get('error', 'Unbekannter Fehler')}. "

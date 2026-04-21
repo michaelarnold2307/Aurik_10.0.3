@@ -245,7 +245,13 @@ class MDXNetSeparator:
         def stereo_width(audio: np.ndarray) -> float:
             if audio.shape[0] < 2:
                 return 0.0
+            _s0 = float(np.std(audio[0]))
+            _s1 = float(np.std(audio[1]))
+            if _s0 < 1e-8 or _s1 < 1e-8:
+                return 0.0  # near-constant → corr undefined, treat as mono
             corr = np.corrcoef(audio[0], audio[1])[0, 1]
+            if not np.isfinite(corr):
+                return 0.0
             return 1.0 - abs(corr)  # 0=mono, 1=wide
 
         width_original = stereo_width(original)

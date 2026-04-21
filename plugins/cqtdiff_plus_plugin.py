@@ -622,6 +622,10 @@ class CQTdiffPlusPlugin:
                 n_fft=n_fft,
                 hop_length=hop_length,
             )
+            _s1 = float(np.std(c1.ravel()))
+            _s2 = float(np.std(c2.ravel()))
+            if _s1 < 1e-8 or _s2 < 1e-8:
+                return 0.9  # near-constant chroma (silence) → neutral
             corr = float(np.corrcoef(c1.ravel(), c2.ravel())[0, 1])
             return float(np.clip(np.nan_to_num(corr), -1.0, 1.0))
         except Exception:

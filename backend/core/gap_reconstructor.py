@@ -520,10 +520,15 @@ class GapReconstructor:
             [pre[-min(ctx_smp, len(pre)) :], audio[start:end], post[: min(ctx_smp, len(post))]]
         )
         if len(context_check) > 8 and len(orig_context) == len(context_check):
-            corr = float(np.corrcoef(pre[-min(20, len(pre)) :], patch[: min(20, len(patch))])[0, 1])
+            _pre_ctx = pre[-min(20, len(pre)) :]
+            _pat_ctx = patch[: min(20, len(patch))]
+            if float(np.std(_pre_ctx)) > 1e-8 and float(np.std(_pat_ctx)) > 1e-8:
+                corr = float(np.corrcoef(_pre_ctx, _pat_ctx)[0, 1])
+            else:
+                corr = 1.0  # near-constant context (silence) → match trivially
         else:
             corr = 1.0
-        gap.context_correlation = 0.0 if np.isnan(corr) else corr
+        gap.context_correlation = 0.0 if not np.isfinite(corr) else corr
 
         # NaN/Inf-Schutz im patch
         patch = np.nan_to_num(patch, nan=0.0, posinf=0.0, neginf=0.0)
