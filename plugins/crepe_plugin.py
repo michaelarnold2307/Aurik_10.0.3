@@ -231,6 +231,14 @@ class CrepePlugin:
 
     def _analyze_onnx(self, audio: np.ndarray, sr: int) -> CrepeResult:
         """CREPE-Inferenz via onnxruntime (CPUExecutionProvider)."""
+        _plm = None
+        try:
+            from backend.core.plugin_lifecycle_manager import get_plugin_lifecycle_manager
+
+            _plm = get_plugin_lifecycle_manager()
+            _plm.set_active("CREPE", True)
+        except Exception:
+            pass
         try:
             import onnxruntime as ort
             import scipy.signal as sps
@@ -324,6 +332,12 @@ class CrepePlugin:
         except Exception as exc:
             logger.warning("CREPE-ONNX-Inferenz fehlgeschlagen (%s) — Wechsel zu pYIN", exc)
             return self._analyze_pyin(audio, sr)
+        finally:
+            if _plm is not None:
+                try:
+                    _plm.set_active("CREPE", False)
+                except Exception:
+                    pass
 
     def _analyze_pyin(self, audio: np.ndarray, sr: int) -> CrepeResult:
         """pYIN-Fallback (Mauch & Dixon 2014) — O(N²), max. 2 Sekunden.

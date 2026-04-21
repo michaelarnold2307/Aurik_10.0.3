@@ -109,26 +109,41 @@ class HifiGanPlugin:
         return np.clip(result, -1.0, 1.0)
 
     def _vocode_onnx(self, mel: np.ndarray, sr_out: int) -> np.ndarray:
-        T = mel.shape[1]
-        chunks = []
-        CHUNK = 64  # T-Frames pro Inferenz
-        for s in range(0, T, CHUNK):
-            e = min(s + CHUNK, T)
-            m = mel[:, s:e][None].astype(np.float32)  # [1,80,chunk]
-            try:
-                out = np.asarray(self._session.run(None, {"input": m})[0], dtype=np.float32)  # [1,1,2560*chunk]
-                out = np.nan_to_num(out, nan=0.0, posinf=0.0, neginf=0.0)
-                chunks.append(out[0, 0])
-            except Exception as exc:
-                logger.debug("HiFi-GAN chunk Fehler: %s", exc)
-                # Fallback: stille Ausgabe für diesen Chunk
-                chunks.append(np.zeros((e - s) * _OUT_HOP // _OUT_HOP * _OUT_HOP, np.float32))
-        wave = np.concatenate(chunks)
-        wave = np.nan_to_num(wave, nan=0.0, posinf=0.0, neginf=0.0)
-        if sr_out != _SR_MODEL:
-            wave = _resamp(wave, _SR_MODEL, sr_out)
+        _plm = None
+        try:
+            from backend.core.plugin_lifecycle_manager import get_plugin_lifecycle_manager
+
+            _plm = get_plugin_lifecycle_manager()
+            _plm.set_active("HiFiGAN", True)
+        except Exception:
+            pass
+        try:
+            T = mel.shape[1]
+            chunks = []
+            CHUNK = 64  # T-Frames pro Inferenz
+            for s in range(0, T, CHUNK):
+                e = min(s + CHUNK, T)
+                m = mel[:, s:e][None].astype(np.float32)  # [1,80,chunk]
+                try:
+                    out = np.asarray(self._session.run(None, {"input": m})[0], dtype=np.float32)  # [1,1,2560*chunk]
+                    out = np.nan_to_num(out, nan=0.0, posinf=0.0, neginf=0.0)
+                    chunks.append(out[0, 0])
+                except Exception as exc:
+                    logger.debug("HiFi-GAN chunk Fehler: %s", exc)
+                    # Fallback: stille Ausgabe für diesen Chunk
+                    chunks.append(np.zeros((e - s) * _OUT_HOP // _OUT_HOP * _OUT_HOP, np.float32))
+            wave = np.concatenate(chunks)
             wave = np.nan_to_num(wave, nan=0.0, posinf=0.0, neginf=0.0)
-        return np.clip(wave, -1.0, 1.0).astype(np.float32)
+            if sr_out != _SR_MODEL:
+                wave = _resamp(wave, _SR_MODEL, sr_out)
+                wave = np.nan_to_num(wave, nan=0.0, posinf=0.0, neginf=0.0)
+            return np.clip(wave, -1.0, 1.0).astype(np.float32)
+        finally:
+            if _plm is not None:
+                try:
+                    _plm.set_active("HiFiGAN", False)
+                except Exception:
+                    pass
 
     @staticmethod
     def _pghi_istft(mel: np.ndarray, sr_out: int) -> np.ndarray:

@@ -2,6 +2,18 @@
 
 > Hinweis: Dieses Dokument ist eine Versionshistorie. Ältere Versionsnummern und Kennzahlen sind hier erwartbar und keine veralteten Reststände.
 
+## Version 9.11.32 — PLM set_active Guards HiFiGAN/CREPE/SileroVAD (Tiefenanalyse R5) (Apr 2026)
+
+- **`plugins/hifigan_plugin.py` `_vocode_onnx()`**: `session.run()` im Chunk-Loop ohne PLM-Guard
+  → Emergency-Eviction während Inferenz möglich. Fix: `set_active("HiFiGAN", True/False)` in try/finally
+  um die gesamte Chunk-Schleife. (§4.6b)
+- **`plugins/crepe_plugin.py` `_analyze_onnx()`**: `session.run()` in CREPE-Chunk-Loop ohne PLM-Guard
+  → Emergency-Eviction während Pitch-Inferenz möglich. Fix: `set_active("CREPE", True/False)` in
+  try/finally, `finally` nach vorhandenem `except`-Block ergänzt. (§4.6b)
+- **`plugins/silero_plugin.py` `_vad_mask_single_call()` + `_vad_onnx()`**: 2× `session.run()` ohne
+  PLM-Guard → Emergency-Eviction während VAD-Inferenz möglich. Fix: `set_active("SileroVAD", True/False)`
+  in try/finally für beide Methoden. (§4.6b)
+
 ## Version 9.11.31 — load_audio_file do_carrier_analysis=False (Tiefenanalyse R4) (Apr 2026)
 
 - **`backend/adaptive_pipeline.py` L1883**: `audio, sr = load_audio_file(...)` — falsches Tuple-Unpacking

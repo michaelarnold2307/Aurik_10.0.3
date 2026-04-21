@@ -111,25 +111,40 @@ class SileroPlugin:
 
     def _vad_mask_single_call(self, mono16: np.ndarray) -> np.ndarray:
         """Run ONNX model once on entire audio and derive per-sample bool mask."""
-        inp = mono16[None].astype(np.float32)  # [1, n_samples]
-        out = self._session.run(None, {"input": inp})[0]  # [1, frames, 999]
-        out = np.nan_to_num(np.asarray(out, dtype=np.float32), nan=0.0, posinf=0.0, neginf=0.0)
-        probs = out[0]  # [frames, 999]
-        # Per-frame speech probability: max over non-silence classes
-        if probs.shape[-1] > 1:
-            frame_probs = probs[:, 1:].max(axis=-1)  # [frames]
-        else:
-            frame_probs = np.full(probs.shape[0], 0.5, dtype=np.float32)
-        frame_probs = np.clip(frame_probs, 0.0, 1.0)
-        # Expand frame-level decisions to sample-level mask
-        n_frames = len(frame_probs)
-        n_samples = len(mono16)
-        if n_frames < 1:
-            return np.ones(n_samples, dtype=bool)
-        # Map each sample to its frame
-        sample_indices = np.arange(n_samples)
-        frame_indices = np.clip((sample_indices * n_frames / n_samples).astype(int), 0, n_frames - 1)
-        return frame_probs[frame_indices] >= self._threshold
+        _plm = None
+        try:
+            from backend.core.plugin_lifecycle_manager import get_plugin_lifecycle_manager
+
+            _plm = get_plugin_lifecycle_manager()
+            _plm.set_active("SileroVAD", True)
+        except Exception:
+            pass
+        try:
+            inp = mono16[None].astype(np.float32)  # [1, n_samples]
+            out = self._session.run(None, {"input": inp})[0]  # [1, frames, 999]
+            out = np.nan_to_num(np.asarray(out, dtype=np.float32), nan=0.0, posinf=0.0, neginf=0.0)
+            probs = out[0]  # [frames, 999]
+            # Per-frame speech probability: max over non-silence classes
+            if probs.shape[-1] > 1:
+                frame_probs = probs[:, 1:].max(axis=-1)  # [frames]
+            else:
+                frame_probs = np.full(probs.shape[0], 0.5, dtype=np.float32)
+            frame_probs = np.clip(frame_probs, 0.0, 1.0)
+            # Expand frame-level decisions to sample-level mask
+            n_frames = len(frame_probs)
+            n_samples = len(mono16)
+            if n_frames < 1:
+                return np.ones(n_samples, dtype=bool)
+            # Map each sample to its frame
+            sample_indices = np.arange(n_samples)
+            frame_indices = np.clip((sample_indices * n_frames / n_samples).astype(int), 0, n_frames - 1)
+            return frame_probs[frame_indices] >= self._threshold
+        finally:
+            if _plm is not None:
+                try:
+                    _plm.set_active("SileroVAD", False)
+                except Exception:
+                    pass
 
     def _energy_mask(self, mono16: np.ndarray) -> np.ndarray:
         """Energy-based VAD fallback: chunk-wise RMS."""
@@ -143,16 +158,31 @@ class SileroPlugin:
     def _vad_onnx(self, chunk: np.ndarray) -> float:
         if len(chunk) < 1:
             return 0.0
-        inp = chunk[None].astype(np.float32)
+        _plm = None
         try:
-            out = self._session.run(None, {"input": inp})[0]  # [1,frames,999]
-            out = np.nan_to_num(np.asarray(out, dtype=np.float32), nan=0.0, posinf=0.0, neginf=0.0)
-            probs = out[0]  # [frames, 999]
-            speech_prob = float(probs[:, 1:].max(axis=-1).mean()) if probs.shape[-1] > 1 else 0.5
-            return min(max(speech_prob, 0.0), 1.0)
-        except Exception as exc:
-            logger.debug("Silero VAD ONNX run Fehler: %s", exc)
-            return self._energy_vad(chunk)
+            from backend.core.plugin_lifecycle_manager import get_plugin_lifecycle_manager
+
+            _plm = get_plugin_lifecycle_manager()
+            _plm.set_active("SileroVAD", True)
+        except Exception:
+            pass
+        try:
+            inp = chunk[None].astype(np.float32)
+            try:
+                out = self._session.run(None, {"input": inp})[0]  # [1,frames,999]
+                out = np.nan_to_num(np.asarray(out, dtype=np.float32), nan=0.0, posinf=0.0, neginf=0.0)
+                probs = out[0]  # [frames, 999]
+                speech_prob = float(probs[:, 1:].max(axis=-1).mean()) if probs.shape[-1] > 1 else 0.5
+                return min(max(speech_prob, 0.0), 1.0)
+            except Exception as exc:
+                logger.debug("Silero VAD ONNX run Fehler: %s", exc)
+                return self._energy_vad(chunk)
+        finally:
+            if _plm is not None:
+                try:
+                    _plm.set_active("SileroVAD", False)
+                except Exception:
+                    pass
 
     @staticmethod
     def _energy_vad(chunk: np.ndarray, threshold: float = 0.01) -> float:
