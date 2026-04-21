@@ -3,7 +3,8 @@ DeepFilterNetV3Plugin — Dreiteilige ONNX-Rauschunterdrückung (enc + dec + erb
 Nutzt lokale Modelle models/deepfilternet_v3_ii/enc.onnx, dec.onnx, erb_dec.onnx.
 Kein Docker, kein Netzwerk.
 
-Referenz: Schröter et al. (2022) DeepFilterNet: A Low Complexity Speech Enhancement Framework.
+Referenz: Schröter et al. (2023) DeepFilterNet3: Joint postfilter and neural vocoder for speech enhancement.
+         Hinweis: "v3.II" ist Aurik-interne Iterations-Bezeichnung (keine offizielle DeepFilterNet-Versionsnummer).
 ONNX-Interface:
   enc:     feat_erb[1,1,S,32] + feat_spec[1,2,S,96]
            → e0,e1,e2,e3,emb[1,S,512], c0[1,64,S,96], lsnr

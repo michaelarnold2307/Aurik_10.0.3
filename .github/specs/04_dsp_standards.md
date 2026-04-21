@@ -318,8 +318,8 @@ ZONES = {
 
 ```text
 4-stufige Fallback-Kaskade (Studio-2026):
-    1. Vocos 48 kHz nativ — vocos_mel_spec_48khz.onnx (CPUExecutionProvider)
-       Mel-Bins 80; True-Peak −1.0 dBTP nach Synthese
+    1. Vocos 48 kHz nativ — models/vocos_48khz/vocos_48khz.onnx (CPUExecutionProvider)
+       Mel-Bins 128; True-Peak −1.0 dBTP nach Synthese
        # VERBOTEN: vocos_mel_spec_24khz.onnx (24-kHz-Variante — SR-Mismatch zu processing_sr=48000)
     2. BigVGAN-v2 — bigvgan_v2 (0,4 GB, ONNX/PyTorch, GPU-beschleunigt via ml_device_manager)
     3. HiFi-GAN (3,6 MB ONNX) — Tertiär-Fallback

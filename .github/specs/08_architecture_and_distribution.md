@@ -590,7 +590,8 @@ plugins/demucs_v4_plugin.py           ✅ MDX23C Kim_Vocal_2/Kim_Inst (2× 64 MB
 plugins/bs_roformer_plugin.py         ✅ BS-RoFormer / Mel-RoFormer (+0.4–0.8 dB SDR)
 
 # Rauschunterdrückung & Dereverb
-plugins/deepfilternet_v3_ii_plugin.py ✅ DeepFilterNet v3.II (37 MB, 3 ONNX) — PRIMÄR NR
+plugins/deepfilternet_v3_ii_plugin.py ✅ DeepFilterNet3 (Schröter et al. 2023, 37 MB, 3 ONNX) — PRIMÄR NR
+                                          # "v3.II" = Aurik-interne Iterations-Bezeichnung (keine offizielle DeepFilterNet-Versionsnummer)
 plugins/sgmse_plugin.py               ✅ SGMSE+ (251 MB TorchScript) — PRIMÄR Dereverb/Enhancement
 plugins/mp_senet_plugin.py            ✅ MP-SENet 2023 (ONNX) — Music/Vocal Enhancement
                                       Laufzeitvertrag: segmentierte Inferenz in 32-Frame-Chunks
