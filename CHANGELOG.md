@@ -2,6 +2,28 @@
 
 > Hinweis: Dieses Dokument ist eine Versionshistorie. Ältere Versionsnummern und Kennzahlen sind hier erwartbar und keine veralteten Reststände.
 
+## Version 9.11.29 — corrcoef NaN-Guard: 11 weitere DSP/Backend-Dateien (Apr 2026)
+
+### Ziel
+
+Systematische Beseitigung aller ungeguardeten `np.corrcoef`-Aufrufe in DSP- und Backend-Modulen.
+`np.clip(np.corrcoef(...)[0,1], -1, 1)` schützt **nicht** vor NaN — NaN bleibt NaN nach clip.
+Muster: Guarded Dot-Product `dot(xc, yc) / (||xc|| · ||yc|| + guard)`.
+
+### Änderungen
+
+**`backend/ml/safety_wrappers/safety_wrapper_template.py`** — Guarded Dot-Product
+**`backend/ml/safety_wrappers/dehum_safety.py`** — Guarded Dot-Product (zentrierte Vektoren)
+**`dsp/stereo_coherence_guard.py`** — Energie-Guard war unzureichend (const-Signal → NaN)
+**`dsp/stereo_widener.py`** — kein Guard vorhanden
+**`dsp/dsp_decision_logic.py`** — nur Shape-Guard, kein Const-Signal-Guard
+**`dsp/professional_meters.py`** — kein Guard vorhanden
+**`dsp/phase_rotation.py`** — RMS-Normierung bei Zero-Energy-Signal erzeugte NaN
+**`dsp/intelligent_mastering.py`** — kein Guard vorhanden
+**`dsp/binaural_enhancer.py`** — kein Guard vorhanden
+**`backend/core/forensics/feature_extractor.py`** — `isnan`-Check durch Guarded Dot-Product ersetzt
+**`backend/core/musical_goals/musical_goals_metrics.py`** — 2x `np.clip` schützte nicht vor NaN
+
 ## Version 9.11.28 — Stereo-Slicing-Bug, Ketten-Pflichtphasen, corrcoef, GPU-Fix (Apr 2026)
 
 ### Ziel

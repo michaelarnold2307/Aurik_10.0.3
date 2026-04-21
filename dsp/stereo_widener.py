@@ -210,8 +210,15 @@ class AdaptiveStereoWidener:
         L = audio_stereo[0]
         R = audio_stereo[1]
 
-        # Phase Correlation
-        correlation = np.corrcoef(L, R)[0, 1]
+        # Guarded Pearson correlation — avoids NaN on silent/constant channels (§VERBOTEN: np.corrcoef)
+        _lc = L.astype(float) - float(np.mean(L))
+        _rc = R.astype(float) - float(np.mean(R))
+        _nl = float(np.linalg.norm(_lc))
+        _nr = float(np.linalg.norm(_rc))
+        if _nl < 1e-12 or _nr < 1e-12:
+            correlation = 1.0
+        else:
+            correlation = float(np.clip(np.dot(_lc, _rc) / (_nl * _nr), -1.0, 1.0))
 
         is_compatible = correlation > 0.3
 

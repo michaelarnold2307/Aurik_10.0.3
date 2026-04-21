@@ -273,8 +273,17 @@ def check_phase_coherence(audio: np.ndarray) -> float:
     left = audio[0]
     right = audio[1]
 
-    # Compute correlation
-    correlation = np.corrcoef(left, right)[0, 1]
+    # Guarded Pearson correlation — avoids NaN on silent/constant channels (§VERBOTEN: np.corrcoef)
+    _l = left.astype(float)
+    _r = right.astype(float)
+    _lc = _l - float(np.mean(_l))
+    _rc = _r - float(np.mean(_r))
+    _nl = float(np.linalg.norm(_lc))
+    _nr = float(np.linalg.norm(_rc))
+    if _nl < 1e-12 or _nr < 1e-12:
+        return 1.0  # Silence in one channel → treat as coherent (conservative)
+    correlation = float(np.dot(_lc, _rc) / (_nl * _nr))
+    correlation = float(np.clip(correlation, -1.0, 1.0))
 
     # Perfect correlation = 1.0 (perfect coherence)
     # Zero correlation = 0.5 (no relationship)

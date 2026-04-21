@@ -627,5 +627,10 @@ def compute_correlation(original: np.ndarray, processed: np.ndarray) -> float:
     orig_norm = (orig - np.mean(orig)) / (np.std(orig) + 1e-8)
     proc_norm = (proc - np.mean(proc)) / (np.std(proc) + 1e-8)
 
-    correlation = np.corrcoef(orig_norm, proc_norm)[0, 1]
-    return float(correlation)
+    # Guarded Pearson correlation — avoids NaN on near-constant signals (§VERBOTEN: np.corrcoef)
+    _no = float(np.linalg.norm(orig_norm))
+    _np_ = float(np.linalg.norm(proc_norm))
+    if _no < 1e-12 or _np_ < 1e-12:
+        return 0.0
+    correlation = float(np.dot(orig_norm, proc_norm) / (_no * _np_))
+    return float(np.clip(correlation, -1.0, 1.0))

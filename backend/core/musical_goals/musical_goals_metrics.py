@@ -1536,7 +1536,12 @@ class SpatialDepthMetric:
         left, right = audio[:, 0], audio[:, 1]
 
         iacc = self._compute_iacc(left, right, max_lag_ms=1.0, sr=sr)
-        correlation = float(np.clip(np.corrcoef(left, right)[0, 1], -1.0, 1.0))
+        # Guarded Pearson correlation — np.clip does NOT protect against NaN (§VERBOTEN: np.corrcoef)
+        _lc = left.astype(float) - float(np.mean(left))
+        _rc = right.astype(float) - float(np.mean(right))
+        _nl = float(np.linalg.norm(_lc))
+        _nr = float(np.linalg.norm(_rc))
+        correlation = float(np.clip(np.dot(_lc, _rc) / (_nl * _nr), -1.0, 1.0)) if _nl > 1e-12 and _nr > 1e-12 else 1.0
         side = (left - right) / 2.0
         mid = (left + right) / 2.0
         s_m_ratio = float(np.mean(side**2)) / (float(np.mean(mid**2)) + 1e-12)
@@ -1564,7 +1569,14 @@ class SpatialDepthMetric:
         # preservation of narrow vintage/mono-sourced stereo — this is NOT a defect
         # introduced by restoration. Return a neutral near-mono score above Restoration
         # threshold (0.70) but below Studio 2026 threshold (0.75).
-        correlation = float(np.clip(np.corrcoef(left, right)[0, 1], -1.0, 1.0))
+        # Guarded Pearson correlation — np.clip does NOT protect against NaN (§VERBOTEN: np.corrcoef)
+        _lc2 = left.astype(float) - float(np.mean(left))
+        _rc2 = right.astype(float) - float(np.mean(right))
+        _nl2 = float(np.linalg.norm(_lc2))
+        _nr2 = float(np.linalg.norm(_rc2))
+        correlation = (
+            float(np.clip(np.dot(_lc2, _rc2) / (_nl2 * _nr2), -1.0, 1.0)) if _nl2 > 1e-12 and _nr2 > 1e-12 else 1.0
+        )
         if iacc > 0.90 and correlation > 0.75:
             # Near-mono vintage stereo: faithful Restoration → 0.72 (passes Restoration 0.70)
             return 0.72

@@ -118,8 +118,17 @@ class DSPDecisionLogic:
         # 5. Artefakte (Delta-Energie)
         artefact_energy = float(np.mean(np.abs(after - before)))
 
-        # 6. Transparenz (Korrelation)
-        corr = float(np.corrcoef(before.flatten(), after.flatten())[0, 1]) if before.shape == after.shape else 0.0
+        # 6. Transparenz (Korrelation) — guarded dot-product (§VERBOTEN: np.corrcoef)
+        if before.shape == after.shape:
+            _b = before.flatten().astype(float)
+            _a = after.flatten().astype(float)
+            _bc = _b - float(np.mean(_b))
+            _ac = _a - float(np.mean(_a))
+            _nb = float(np.linalg.norm(_bc))
+            _na = float(np.linalg.norm(_ac))
+            corr = float(np.clip(np.dot(_bc, _ac) / (_nb * _na), -1.0, 1.0)) if _nb > 1e-12 and _na > 1e-12 else 0.0
+        else:
+            corr = 0.0
 
         # Zielwerte aus Policy oder Defaults
         pol = policy or {}

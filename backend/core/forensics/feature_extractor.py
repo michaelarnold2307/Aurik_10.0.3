@@ -364,10 +364,16 @@ class FeatureExtractor:
         side_energy = np.sum(side**2)
         features.stereo_width = side_energy / (mid_energy + 1e-10)
 
-        # Phase Correlation (Pearson correlation)
+        # Phase Correlation — guarded dot-product (§VERBOTEN: np.corrcoef on non-guarded signals)
         if len(left) == len(right):
-            correlation = np.corrcoef(left, right)[0, 1]
-            features.phase_correlation = correlation if not np.isnan(correlation) else 0.0
+            _lc = left.astype(float) - float(np.mean(left))
+            _rc = right.astype(float) - float(np.mean(right))
+            _nl = float(np.linalg.norm(_lc))
+            _nr = float(np.linalg.norm(_rc))
+            if _nl < 1e-12 or _nr < 1e-12:
+                features.phase_correlation = 0.0
+            else:
+                features.phase_correlation = float(np.clip(np.dot(_lc, _rc) / (_nl * _nr), -1.0, 1.0))
 
         # Channel Imbalance
         left_rms = np.sqrt(np.mean(left**2))

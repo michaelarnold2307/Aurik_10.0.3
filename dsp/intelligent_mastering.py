@@ -332,10 +332,14 @@ class StereoEnhancer:
         left = audio[:, 0]
         right = audio[:, 1]
 
-        # Cross-correlation at zero lag
-        correlation = np.corrcoef(left, right)[0, 1]
-
-        return correlation
+        # Guarded Pearson correlation — avoids NaN on silent/constant channels (§VERBOTEN: np.corrcoef)
+        _lc = left.astype(float) - float(np.mean(left))
+        _rc = right.astype(float) - float(np.mean(right))
+        _nl = float(np.linalg.norm(_lc))
+        _nr = float(np.linalg.norm(_rc))
+        if _nl < 1e-12 or _nr < 1e-12:
+            return 1.0
+        return float(np.clip(np.dot(_lc, _rc) / (_nl * _nr), -1.0, 1.0))
 
     def enhance(self, audio: np.ndarray, sr: int) -> tuple[np.ndarray, dict]:
         """

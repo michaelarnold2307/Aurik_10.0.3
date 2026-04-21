@@ -199,8 +199,15 @@ class PhaseRotator:
         left_norm = left / (np.sqrt(np.mean(left**2)) + 1e-10)
         right_norm = right / (np.sqrt(np.mean(right**2)) + 1e-10)
 
-        # Pearson correlation
-        correlation = np.corrcoef(left_norm, right_norm)[0, 1]
+        # Guarded Pearson correlation — avoids NaN when signals are zero-energy (§VERBOTEN: np.corrcoef)
+        _lc = left_norm - float(np.mean(left_norm))
+        _rc = right_norm - float(np.mean(right_norm))
+        _nl = float(np.linalg.norm(_lc))
+        _nr = float(np.linalg.norm(_rc))
+        if _nl < 1e-12 or _nr < 1e-12:
+            correlation = 0.0
+        else:
+            correlation = float(np.clip(np.dot(_lc, _rc) / (_nl * _nr), -1.0, 1.0))
 
         return correlation
 

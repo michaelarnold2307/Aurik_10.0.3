@@ -350,8 +350,15 @@ class PhaseCorrelationMeter:
         left = audio[0]
         right = audio[1]
 
-        # Phase correlation (Pearson correlation)
-        correlation = np.corrcoef(left, right)[0, 1]
+        # Guarded Pearson correlation — avoids NaN on silent/constant channels (§VERBOTEN: np.corrcoef)
+        _lc = left.astype(float) - float(np.mean(left))
+        _rc = right.astype(float) - float(np.mean(right))
+        _nl = float(np.linalg.norm(_lc))
+        _nr = float(np.linalg.norm(_rc))
+        if _nl < 1e-12 or _nr < 1e-12:
+            correlation = 1.0
+        else:
+            correlation = float(np.clip(np.dot(_lc, _rc) / (_nl * _nr), -1.0, 1.0))
 
         # Phase coherence (magnitude of correlation, 0 to 1)
         coherence = np.abs(correlation)
