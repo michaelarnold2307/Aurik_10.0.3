@@ -36,7 +36,7 @@ class RuleBasedGenderDetector:
     def detect_gender(self, audio_file: str) -> str:
         from backend.file_import import load_audio_file
 
-        _af_res = load_audio_file(audio_file)
+        _af_res = load_audio_file(audio_file, do_carrier_analysis=False)
         if _af_res is None or _af_res.get("error") or _af_res["audio"] is None:
             return "unknown"
         audio, sr = _af_res["audio"], int(_af_res["sr"])

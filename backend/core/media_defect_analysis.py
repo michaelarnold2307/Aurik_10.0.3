@@ -50,7 +50,7 @@ def analyze_defects_features(audio, sr):
 def detect_media_chain_and_defects(file_path):
     from backend.file_import import load_audio_file
 
-    result = load_audio_file(file_path)
+    result = load_audio_file(file_path, do_carrier_analysis=False)
     if result is None or result.get("error") or result["audio"] is None:
         logger.error("detect_media_chain_and_defects: Audio-Import fehlgeschlagen: %s", file_path)
         return [], set()

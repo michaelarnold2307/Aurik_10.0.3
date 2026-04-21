@@ -74,11 +74,22 @@ class HarmonicDetector:
 
     def _detect_f0(self, audio: np.ndarray, sr: int) -> float:
         """
-        Detect fundamental frequency using autocorrelation.
+        Detect fundamental frequency using FFT-based autocorrelation.
+
+        Limits input to 200 ms to prevent O(N²) hang on full-length audio
+        (§VERBOTEN: np.correlate mode=full on long signals).
         """
-        # Autocorrelation
-        corr = np.correlate(audio, audio, mode="full")
-        corr = corr[len(corr) // 2 :]
+        # Limit to 200 ms — sufficient for F0 estimation, prevents O(N²) hang
+        max_samples = min(len(audio), int(sr * 0.2))
+        segment = audio[:max_samples]
+        if len(segment) < 4:
+            return 0.0
+
+        # FFT-based autocorrelation: O(N log N) instead of O(N²)
+        n = len(segment)
+        fft = np.fft.rfft(segment, n=2 * n)
+        corr = np.fft.irfft(fft * np.conj(fft))[:n].real
+        corr = corr / (corr[0] + 1e-10)
 
         # Expected lag range
         min_lag = int(sr / self.f0_range[1])

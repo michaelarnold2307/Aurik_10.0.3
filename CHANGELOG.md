@@ -2,6 +2,14 @@
 
 > Hinweis: Dieses Dokument ist eine Versionshistorie. Ältere Versionsnummern und Kennzahlen sind hier erwartbar und keine veralteten Reststände.
 
+## Version 9.11.36 — O(n²)-Autokorrelation + do_carrier_analysis=False (Tiefenanalyse R9) (Apr 2026)
+
+- **`dsp/vocal_spectral_inpainting.py` `HarmonicSpectrumDetector._detect_f0()`**: `np.correlate(audio, audio, mode="full")` auf vollem Lied-Audio (bis 10 M+ Samples) → multi-minütiger Hänger möglich. Fix: Eingangs-Limit 200 ms + FFT-basierte Autokorrelation O(N log N) (§VERBOTEN: O(n²)-Autokorrelation)
+- **`backend/core/forensics/dataset_generator.py:173`**: `load_audio_file(...)` ohne `do_carrier_analysis=False` → synchroner 6-Minuten-Block bei Carrier-Analyse. Fix: `do_carrier_analysis=False`
+- **`backend/core/forensics/gender_rule_based.py:39`**: `load_audio_file(...)` ohne `do_carrier_analysis=False` → synchroner Block. Fix: `do_carrier_analysis=False`
+- **`backend/core/media_defect_analysis.py:53`**: `load_audio_file(...)` ohne `do_carrier_analysis=False` → synchroner Block. Fix: `do_carrier_analysis=False`
+- Alle load_audio_file-Fixes: Diese Funktionen benötigen keine Carrier-Chain-Info — do_carrier_analysis=False verhindert unnötige synchrone Carrier-Analyse (§VERBOTEN: load_audio_file mit synchroner Carrier-Analyse in Threads)
+
 ## Version 9.11.35 — Guarded Pearson Correlation: 7 np.corrcoef-Bugs (Tiefenanalyse R8) (Apr 2026)
 
 - **`backend/core/phases/phase_32_mono_to_stereo.py`**: `np.corrcoef(left, right)` ohne Guard → guarded dot-product (NaN/RuntimeWarning auf Stille beseitigt)
