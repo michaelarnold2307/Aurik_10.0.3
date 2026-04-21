@@ -64,7 +64,9 @@ _PHASE_REQUIRED_MODELS: dict[str, frozenset[str]] = {
     "phase_42_vocal_enhancement": frozenset({"MelBandRoformer", "MDX23C"}),
     "phase_43_ml_deesser": frozenset({"MP-SENet"}),
     "phase_49_advanced_dereverb": frozenset({"SGMSE+"}),
-    "phase_55_diffusion_inpainting": frozenset({"CQTdiff+", "FlowMatching"}),
+    "phase_55_diffusion_inpainting": frozenset(
+        {"CQTdiffPlus", "FlowMatching", "DiffWave", "ConsistencyInpaint", "DACInpaint"}
+    ),
     "phase_56_spectral_band_gap_repair": frozenset({"FCPE", "CREPE"}),
 }
 

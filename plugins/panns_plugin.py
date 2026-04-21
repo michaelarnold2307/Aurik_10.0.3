@@ -230,8 +230,8 @@ class PANNsPlugin:
                     audio,
                 ).astype(np.float32)
 
-        # Amplituden-Normalisierung
-        peak = float(np.max(np.abs(audio)))
+        # Amplituden-Normalisierung (§VERBOTEN: np.max → np.percentile 99.9 — Impuls-Artefakt darf Normalisierung nicht blockieren)
+        peak = float(np.percentile(np.abs(audio), 99.9))
         if peak > 1e-7:
             audio = (audio / peak * 0.9).astype(np.float32)
 

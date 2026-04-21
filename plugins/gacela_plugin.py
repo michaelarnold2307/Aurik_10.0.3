@@ -405,8 +405,8 @@ class GacelaPlugin:
                 gap_audio = gap_audio.astype(np.float32)
 
             gap_audio = np.nan_to_num(gap_audio, nan=0.0, posinf=0.0, neginf=0.0)
-            # Normalisierung: Peak-Normierung auf max. 0.9 (kein Clipping)
-            peak = np.max(np.abs(gap_audio))
+            # Normalisierung: Peak-Normierung auf max. 0.9 (§VERBOTEN: np.max → np.percentile 99.9 — Impuls-Artefakt darf Normalisierung nicht blockieren)
+            peak = float(np.percentile(np.abs(gap_audio), 99.9))
             if peak > 1e-6:
                 gap_audio = gap_audio / peak * 0.9
             gap_audio = np.clip(gap_audio, -1.0, 1.0)

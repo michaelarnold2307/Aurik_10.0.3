@@ -2,6 +2,20 @@
 
 > Hinweis: Dieses Dokument ist eine Versionshistorie. Ältere Versionsnummern und Kennzahlen sind hier erwartbar und keine veralteten Reststände.
 
+## Version 9.11.39 — PLM _PHASE_REQUIRED_MODELS phase_55 + Peak-Guard panns/gacela (Apr 2026)
+
+### Fixes
+- **`backend/core/plugin_lifecycle_manager.py`** — `_PHASE_REQUIRED_MODELS["phase_55_diffusion_inpainting"]`:
+  Eintrag war `{"CQTdiff+", "FlowMatching"}` (falsche PLM-Namen, fehlende Modelle).
+  Fix: `{"CQTdiffPlus", "FlowMatching", "DiffWave", "ConsistencyInpaint", "DACInpaint"}`.
+  `cqtdiff_plus_plugin.py` nutzt `_BUDGET_NAME = "CQTdiffPlus"` (nicht `"CQTdiff+"`);
+  `DiffWave`, `ConsistencyInpaint`, `DACInpaint` fehlen vollständig → PLM hätte diese Modelle
+  bei `evict_for_phase("phase_55_diffusion_inpainting")` entladen können (§4.6c).
+- **`plugins/panns_plugin.py:234`** — `np.max(np.abs(audio))` → `np.percentile(np.abs(audio), 99.9)`
+  für Amplituden-Normalisierung auf 0.9 (§VERBOTEN: Impuls-Artefakt blockiert Normalisierung).
+- **`plugins/gacela_plugin.py:409`** — `np.max(np.abs(gap_audio))` → `np.percentile(np.abs(gap_audio), 99.9)`
+  für Gap-Audio-Normalisierung auf 0.9 (§VERBOTEN: selbes Muster).
+
 ## Version 9.11.38 — PLM-Name BANQUET→BanquetVinyl + FeedbackChain Test-Fixes (Apr 2026)
 
 - **`backend/core/phases/phase_09_crackle_removal.py`**: `try_allocate("BANQUET", ...)` / `ml_release("BANQUET")` / `register("BANQUET", ...)` → `"BanquetVinyl"` — kanonischer PLM-Name konsistent mit `set_active()` und `banquet_vinyl_plugin.py` (§4.6c `_PHASE_REQUIRED_MODELS`)
