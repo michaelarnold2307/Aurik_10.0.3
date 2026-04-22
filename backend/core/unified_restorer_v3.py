@@ -2099,7 +2099,16 @@ class UnifiedRestorerV3:
         try:
             from backend.core.era_classifier import _estimate_spectral_tilt as _est_tilt
 
-            mono = audio[:, 0] if audio.ndim == 2 else audio
+            # Channel-format-aware mono extraction:
+            # (2, N) channels-first → audio[:, 0] = shape (2,) — WRONG.
+            # (N, 2) channels-last  → audio[:, 0] = shape (N,) — correct.
+            if audio.ndim == 2:
+                if audio.shape[0] == 2 and audio.shape[1] > 2:
+                    mono = audio[0]  # channels-first: row 0 = channel 0
+                else:
+                    mono = audio[:, 0]  # channels-last: column 0 = channel 0
+            else:
+                mono = audio
             # Limit to 4 s centre excerpt for speed (≤10 ms on typical 48 kHz audio).
             max_n = int(4.0 * sr)
             if len(mono) > max_n:
@@ -4944,6 +4953,40 @@ class UnifiedRestorerV3:
             logger.warning("§2.56 SongGoalImportance failed (uniform fallback): %s", _sgi_err)
             self._song_goal_importance = None
             self._song_goal_weights = None
+
+        # §09.2 [RELEASE_MUST] Per-Song Goal Targets (Era × Material × Genre Bias)
+        # Single Source of Truth: calibration_matrix.estimate_song_goal_targets()
+        try:
+            from backend.core.calibration_matrix import (
+                estimate_song_goal_targets as _estimate_sgt,
+            )
+
+            _sgt_mode_val = getattr(getattr(self.config, "mode", None), "value", "") or ""
+            _sgt_is_studio = any(kw in _sgt_mode_val.lower() for kw in ("studio", "maximum", "aggressive"))
+            _sgt_mat_str = str(getattr(material_type, "value", material_type) or "").strip().lower()
+            _sgt_chain = getattr(material_type, "transfer_chain", None)
+            _sgt_era_decade = getattr(_era_result, "decade", None) if _era_result is not None else None
+            self._song_goal_targets = _estimate_sgt(
+                is_studio_2026=_sgt_is_studio,
+                goal_weights=self._song_goal_weights,
+                restorability_score=float(_pmgg_restorability_score),
+                era_decade=_sgt_era_decade,
+                genre_label=_cal_genre_label or "",
+                material_type=_sgt_mat_str,
+                transfer_chain=_sgt_chain,
+            )
+            logger.info(
+                "§09.2 SongGoalTargets: era=%s mat=%s studio=%s rest=%.0f | %s",
+                _sgt_era_decade,
+                _sgt_mat_str,
+                _sgt_is_studio,
+                float(_pmgg_restorability_score),
+                " ".join(f"{k}={v:.3f}" for k, v in sorted(self._song_goal_targets.items())),
+            )
+        except Exception as _sgt_err:
+            logger.warning("§09.2 SongGoalTargets failed (canonical fallback): %s", _sgt_err)
+            self._song_goal_targets = None
+
         if _pass_through_mode:
             if _clean_digital_mode and not (_input_snr_db > 40.0 and _max_defect_severity < 0.15):
                 logger.info(
@@ -5034,6 +5077,20 @@ class UnifiedRestorerV3:
             logger.debug("§2.50 Source-Baseline-Messung fehlgeschlagen: %s", _sb250_exc)
         # Baseline für Pipeline speichern (Übergabe an _execute_pipeline via self)
         self._source_material_baseline = _src_baseline
+
+        # §2.60 STCG Pre-Pipeline: Correct any pre-existing inter-channel delay BEFORE the
+        # phase pipeline runs. This prevents all 64 phases from operating on mis-aligned stereo.
+        # For mono audio this is a no-op. Non-blocking: an exception never stops the pipeline.
+        if audio.ndim == 2:
+            try:
+                from backend.core.stereo_temporal_coherence_guard import (
+                    get_stereo_temporal_coherence_guard as _get_stcg_pre,
+                )
+
+                audio = _get_stcg_pre().correct_interchannel_delay(audio, sample_rate, phase_id="pre_pipeline")
+            except Exception as _stcg_pre_exc:
+                logger.debug("§2.60 STCG pre-pipeline fehlgeschlagen (non-blocking): %s", _stcg_pre_exc)
+
         try:
             _recovery_certainty_profile = UnifiedRestorerV3._compute_recovery_certainty_profile(
                 restorability_score=float(_pmgg_restorability_score),
@@ -5502,6 +5559,22 @@ class UnifiedRestorerV3:
             material_type,
             quality_mode=getattr(self, "_quality_mode", None),
         )
+
+        # §2.60 STCG Post-Pipeline: Final inter-channel verification after all 64 phases.
+        # Some phases (phase_21, phase_07, phase_35) process M/S-domain — any residual
+        # implementation error could leave a net L-R offset. This guard catches and corrects
+        # it before FeedbackChain and HPI evaluate the audio. Non-blocking.
+        if restored_audio.ndim == 2:
+            try:
+                from backend.core.stereo_temporal_coherence_guard import (
+                    get_stereo_temporal_coherence_guard as _get_stcg_post,
+                )
+
+                restored_audio = _get_stcg_post().correct_interchannel_delay(
+                    restored_audio, sample_rate, phase_id="post_pipeline"
+                )
+            except Exception as _stcg_post_exc:
+                logger.debug("§2.60 STCG post-pipeline fehlgeschlagen (non-blocking): %s", _stcg_post_exc)
 
         # §0c Graceful-Stop-Tag: wenn Watchdog die Pipeline beendet hat, Metadaten befüllen.
         # Die FeedbackChain und HPI laufen danach nicht (zu aufwändig), stattdessen direkter
@@ -6499,9 +6572,17 @@ class UnifiedRestorerV3:
         try:
             from backend.core.musical_goals.adaptive_goals_system import get_adaptive_goals_and_config
 
-            _adaptive_goals = get_adaptive_goals_and_config(audio, sample_rate, _classified_material, defect_result)
+            _adaptive_goals = get_adaptive_goals_and_config(
+                audio,
+                sample_rate,
+                _classified_material,
+                defect_result,
+                restorability_score=float(_pmgg_restorability_score),  # §2.31 SCALE_FACTORS
+            )
             logger.info(
-                "🎯 AdaptiveGoalThresholds: konfiguriert (material=%s)",
+                "🎯 AdaptiveGoalThresholds: konfiguriert (material=%s rest=%.0f)",
+                getattr(_classified_material, "value", str(_classified_material)),
+                float(_pmgg_restorability_score),
                 getattr(_classified_material, "value", str(_classified_material)),
             )
         except Exception as _agt_exc:
@@ -6543,6 +6624,21 @@ class UnifiedRestorerV3:
                             _effective_goal_thresholds[_goal_name] = float(_val)
                 except Exception as _agt_apply_exc:
                     logger.debug("AdaptiveGoalThresholds konnten nicht angewendet werden: %s", _agt_apply_exc)
+
+            # §09.2 [RELEASE_MUST] Song-Goal-Targets: Era × Material × Genre adaptive floors
+            # Computed earlier in restore() as self._song_goal_targets (calibration_matrix.estimate_song_goal_targets)
+            _sgt_local = getattr(self, "_song_goal_targets", None)
+            if isinstance(_sgt_local, dict) and _sgt_local:
+                try:
+                    for _sgt_goal, _sgt_val in _sgt_local.items():
+                        if _sgt_goal in _effective_goal_thresholds:
+                            _cur_thr = _effective_goal_thresholds[_sgt_goal]
+                            # Conservative blend: 40% SGT, 60% v8-adaptive current value.
+                            # SGT refines era/material/genre context without overriding signal-level adaptation.
+                            _blended_thr = 0.60 * _cur_thr + 0.40 * float(_sgt_val)
+                            _effective_goal_thresholds[_sgt_goal] = float(np.clip(_blended_thr, 0.30, 0.99))
+                except Exception as _sgt_apply_exc:
+                    logger.debug("§09.2 SongGoalTargets konnten nicht angewendet werden: %s", _sgt_apply_exc)
 
             # §2.31 Physical-Ceiling clamp: Zielschwellen dürfen physikalische Decke nicht überschreiten.
             if _physical_ceiling is not None:

@@ -240,8 +240,18 @@ class LoudnessNormalizationPhase(PhaseInterface):
 
         gain_linear = 10 ** (gain_db / 20)
 
-        # Apply gain
-        normalized = audio * gain_linear
+        # Apply gain — §2.45a-II: musical-frame-only when amplifying
+        # Uniform `audio * gain_linear` amplifies "silent" sections with vinyl/shellac
+        # surface noise (at -35 to -45 dBFS) by the full target-LUFS correction (+16 to
+        # +31 dB in Studio 2026 mode) → Pegelexplosion in fade-out / silence sections.
+        if gain_linear > 1.0005:
+            from backend.core.audio_utils import apply_musical_gain_envelope
+
+            normalized = apply_musical_gain_envelope(
+                audio, gain_linear, gate_dbfs=-50.0, crossfade_ms=10.0, sr=sample_rate
+            )
+        else:
+            normalized = audio * gain_linear
 
         # True Peak Limiting (ITU-R BS.1770-4 compliant)
         true_peak_before_db = self._measure_true_peak(normalized, sample_rate)

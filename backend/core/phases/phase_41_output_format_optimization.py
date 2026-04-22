@@ -385,8 +385,16 @@ class OutputFormatOptimization(PhaseInterface):
         gain_db = lufs_difference
         gain_linear = 10 ** (gain_db / 20.0)
 
-        # Apply gain
-        audio_normalized = audio * gain_linear
+        # Apply gain — §2.45a-II: musical-frame-only when amplifying to avoid
+        # boosting analog surface noise in silent/fade-out sections.
+        if gain_linear > 1.0005:
+            from backend.core.audio_utils import apply_musical_gain_envelope
+
+            audio_normalized = apply_musical_gain_envelope(
+                audio, gain_linear, gate_dbfs=-50.0, crossfade_ms=10.0, sr=sample_rate
+            )
+        else:
+            audio_normalized = audio * gain_linear
 
         # Recalculate LUFS
         lufs_after = self._measure_integrated_lufs(audio_normalized, sample_rate)

@@ -532,6 +532,20 @@ class VocalEnhancement(PhaseInterface):
             # The original vocal stem is the reference; enhanced vocal stem is the target.
             enhanced_vocals = self._apply_vocal_stem_mdem(enhanced_vocals, vocals_stem, sample_rate)
 
+            # §2.60 STCG: Compensate any latency introduced by the vocal enhancement chain
+            # (STFT rounding, ML inference, compression, formant EQ can shift the stem by
+            # sub-sample amounts). The original vocals_stem is the timing reference.
+            try:
+                from backend.core.stereo_temporal_coherence_guard import (
+                    get_stereo_temporal_coherence_guard as _get_stcg,
+                )
+
+                enhanced_vocals = _get_stcg().align_stem_to_reference(
+                    enhanced_vocals, vocals_stem, sample_rate, stem_label="vocals_enhanced"
+                )
+            except Exception as _stcg_err:
+                logger.debug("STCG Stem-Align phase_42 fehlgeschlagen (non-blocking): %s", _stcg_err)
+
             # StemRemixBalancer: LUFS-korrekter Re-Mix (§1.4 Spec)
             try:
                 from backend.core.stem_remix_balancer import StemRemixBalancer
@@ -988,7 +1002,11 @@ class VocalEnhancement(PhaseInterface):
     def _detect_vocals(self, audio: np.ndarray, sample_rate: int) -> bool:
         """Simple vocal detection based on formant energy."""
         if audio.ndim == 2:
-            audio = audio[:, 0]  # Use left channel
+            # Channel-format-aware: (2, N) channels-first → audio[:, 0] = shape (2,) — wrong.
+            if audio.shape[0] == 2 and audio.shape[1] > 2:
+                audio = audio[0]  # channels-first: take first channel row
+            else:
+                audio = audio[:, 0]  # channels-last: take first channel column
 
         # Measure energy in formant region (300-3000 Hz)
         sos_formant = signal.butter(4, self.VOCAL_BANDS["formant"], btype="band", fs=sample_rate, output="sos")
@@ -1832,7 +1850,16 @@ class VocalEnhancement(PhaseInterface):
             makeup_linear = 10.0 ** (makeup_db / 20.0)
         else:
             makeup_linear = 1.0
-        compressed = compressed * makeup_linear
+        # §2.45a-II: apply makeup gain only to musical frames (not silence) to prevent
+        # amplification of surface noise in fade-out / silent sections.
+        if makeup_linear > 1.0005:
+            from backend.core.audio_utils import apply_musical_gain_envelope
+
+            compressed = apply_musical_gain_envelope(
+                compressed, makeup_linear, gate_dbfs=-50.0, crossfade_ms=10.0, sr=sample_rate
+            )
+        else:
+            compressed = compressed * makeup_linear
 
         return compressed
 

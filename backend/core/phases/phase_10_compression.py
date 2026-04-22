@@ -479,16 +479,26 @@ class CompressionPhase(PhaseInterface):
             gain_reduction_smooth = np.roll(gain_reduction_smooth, look_ahead_samples)
             gain_reduction_smooth[:look_ahead_samples] = 0
 
-        # Convert to linear gain
-        gain_linear = 10 ** (-(gain_reduction_smooth - makeup_db) / 20)
+        # Step 1: Apply compression gain ONLY (without makeup) — per-sample (dynamic).
+        # Baking makeup_db into gain_linear caused silence frames (GR=0) to receive
+        # full makeup_db amplification uniformly → Pegelexplosion in silent sections.
+        gain_linear_comp = 10 ** (-gain_reduction_smooth / 20)
 
-        # Apply gain
+        # Apply per-sample compression gain
         if is_stereo:
-            # Apply same gain to both channels
-            gain_2d = gain_linear[:, np.newaxis]
+            gain_2d = gain_linear_comp[:, np.newaxis]
             audio_compressed = audio * gain_2d
         else:
-            audio_compressed = audio * gain_linear
+            audio_compressed = audio * gain_linear_comp
+
+        # Step 2: Apply makeup gain via §2.45a-II envelope (music-frames only)
+        if makeup_db > 0.001:
+            from backend.core.audio_utils import apply_musical_gain_envelope
+
+            makeup_lin = float(10.0 ** (makeup_db / 20.0))
+            audio_compressed = apply_musical_gain_envelope(
+                audio_compressed, makeup_lin, gate_dbfs=-50.0, crossfade_ms=10.0, sr=int(sr)
+            )
 
         return audio_compressed, gain_reduction_smooth
 

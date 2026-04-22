@@ -3182,11 +3182,22 @@ def _extract_hf_embedding(mert_plugin: object, audio: np.ndarray, sr: int) -> np
 
 def _extract_onnx_embedding(mert_plugin: object, audio: np.ndarray, sr: int) -> np.ndarray | None:
     """Extract embedding from ONNX MERT session."""
-    try:
-        session = getattr(mert_plugin, "_model", None)
-        if session is None:
-            return None
+    session = getattr(mert_plugin, "_model", None)
+    if session is None:
+        return None
 
+    # §4.6b PLM Active-Guard: prevent Emergency-Eviction from invalidating the
+    # ONNX session mid-inference → crash / OOM.
+    _plm = None
+    try:
+        from backend.core.plugin_lifecycle_manager import get_plugin_lifecycle_manager as _get_plm_mert
+
+        _plm = _get_plm_mert()
+        _plm.set_active("MERT", True)
+    except Exception:
+        pass
+
+    try:
         min_len = sr  # 1 s minimum
         if len(audio) < min_len:
             audio = np.pad(audio, (0, min_len - len(audio)))
@@ -3202,6 +3213,12 @@ def _extract_onnx_embedding(mert_plugin: object, audio: np.ndarray, sr: int) -> 
     except Exception as exc:
         logger.debug("ONNX embedding extraction failed: %s", exc)
         return None
+    finally:
+        if _plm is not None:
+            try:
+                _plm.set_active("MERT", False)
+            except Exception:
+                pass
 
 
 def _extract_dsp_embedding(audio: np.ndarray, sr: int) -> np.ndarray:

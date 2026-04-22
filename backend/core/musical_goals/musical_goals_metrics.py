@@ -2624,25 +2624,25 @@ _THRESHOLDS_RESTORATION: dict[str, float] = {
 }
 
 _THRESHOLDS_STUDIO_2026: dict[str, float] = {
-    # P1
-    "natuerlichkeit": 0.90,
-    "authentizitaet": 0.88,
+    # P1 — §2.55 normiert: identisch zu calibration_matrix.CANONICAL_THRESHOLDS_STUDIO2026
+    "natuerlichkeit": 0.92,
+    "authentizitaet": 0.90,
     # P2
-    "tonal_center": 0.97,  # Studio 2026: strengere Tonart-Erhaltung
-    "timbre_authentizitaet": 0.87,
-    "artikulation": 0.85,
+    "tonal_center": 0.96,
+    "timbre_authentizitaet": 0.89,
+    "artikulation": 0.87,
     # P3
-    "emotionalitaet": 0.87,
-    "micro_dynamics": 0.92,
-    "groove": 0.88,
+    "emotionalitaet": 0.84,
+    "micro_dynamics": 0.90,
+    "groove": 0.85,
     # P4
-    "transparenz": 0.89,
-    "waerme": 0.80,
-    "bass_kraft": 0.85,
-    "separation_fidelity": 0.82,
+    "transparenz": 0.85,
+    "waerme": 0.78,
+    "bass_kraft": 0.80,
+    "separation_fidelity": 0.80,
     # P5
-    "brillanz": 0.85,
-    "spatial_depth": 0.75,
+    "brillanz": 0.82,
+    "spatial_depth": 0.74,
 }
 
 

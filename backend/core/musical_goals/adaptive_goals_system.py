@@ -685,6 +685,7 @@ def get_adaptive_goals_and_config(
     sr: int,
     base_config: Any = None,
     medium_detection: Any = None,
+    restorability_score: float | None = None,
 ) -> tuple[AdaptiveGoalThresholds, dict, MaterialQualityAssessment]:
     """One-Stop-Shop: Analysiere Material und berechne adaptive Goals + Config.
 
@@ -719,7 +720,7 @@ def get_adaptive_goals_and_config(
 
     # 2. Calculate Adaptive Thresholds
     calculator = AdaptiveGoalsCalculator()
-    thresholds = calculator.calculate_adaptive_thresholds(quality)
+    thresholds = calculator.calculate_adaptive_thresholds(quality, restorability_score=restorability_score)
 
     # 3. Get Enhanced Processing Config
     strategy = EnhancedProcessingStrategy()
