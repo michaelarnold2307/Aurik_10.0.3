@@ -968,8 +968,16 @@ class AuthentizitaetMetric:
             min_len_centroid = min(len(centroid_current), len(centroid_reference))
             centroid_diff = np.abs(centroid_current[:min_len_centroid] - centroid_reference[:min_len_centroid])
             mean_centroid_diff = np.mean(centroid_diff)
-            # Lower diff = higher authenticity (threshold ~200 Hz)
-            formant_stability = max(0.0, 1.0 - (mean_centroid_diff / 500))
+            # §0d Carrier-Recovery-Referenzmodell: Centroid-Threshold material-adaptiv.
+            # Fester 500 Hz-Threshold bestraft BW-Extension (Phase_06/07/23) die den
+            # Centroid intentional von ~1.2 kHz (degradiert) auf ~2.0 kHz (restauriert) anhebt.
+            # Lösung: Threshold = max(500, mean_ref_centroid × 0.5) — skaliert mit dem
+            # tatsächlichen Referenz-Centroid. Bei degradiertem Input (ref_centroid ~1.2 kHz)
+            # gilt 600 Hz; bei vollwertigem Breitband-Input (ref_centroid ~2.5 kHz) gilt 1.250 Hz.
+            # Das entspricht ±50 % des Referenz-Centroids als akzeptable Drift.
+            mean_ref_centroid = float(np.mean(centroid_reference[:min_len_centroid]))
+            _formant_threshold = max(500.0, mean_ref_centroid * 0.5)
+            formant_stability = max(0.0, 1.0 - (mean_centroid_diff / _formant_threshold))
 
             # ---------- VERSA: perceptuelle Qualität (ML-basiert, §4.4) ----------
             # VERSA 2024 ersetzt CDPAM als referenzfrei MOS-Metrik.
@@ -2031,10 +2039,18 @@ class TonalCenterMetric:
             corr_score = float(np.clip((chroma_corr + 1.0) / 2.0, 0.0, 1.0))
 
             # Key-Shift-Penalty (Spec-Invariante: kein Key-Shift > 0 Cent)
+            # §0d: BW-Extension (Phase_06/07/23) verschiebt Energie-Verteilung in den
+            # 12 Pitch-Classes ohne echten Key-Shift. Guard: Penalty nur wenn
+            # corr_score < 0.85 — bei hoher Chroma-Korrelation ist ein dominanter-Pitch-Class-
+            # Wechsel ein BW-Extension-Artefakt, kein echter Tonart-Wechsel.
             ref_key = self._dominant_chroma_class(chroma_ref[:, :min_len])
             rest_key = self._dominant_chroma_class(chroma_rest[:, :min_len])
             shift = self._key_shift_semitones(ref_key, rest_key)
-            penalty = self._KEY_SHIFT_PENALTY.get(shift, self._KEY_SHIFT_PENALTY_DEFAULT)
+            if corr_score >= 0.85:
+                # Hohe Chroma-Korrelation = Tonart erhalten; kein Penalty trotz dominanter-Pitch-Shift
+                penalty = 1.0
+            else:
+                penalty = self._KEY_SHIFT_PENALTY.get(shift, self._KEY_SHIFT_PENALTY_DEFAULT)
 
             return float(np.clip(corr_score * penalty, 0.0, 1.0))
 
