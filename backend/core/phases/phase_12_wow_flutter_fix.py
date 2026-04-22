@@ -970,7 +970,6 @@ class WowFlutterFix(PhaseInterface):
         _max_rms_lift_db = 1.0
 
         # §2.45a-I: Gated RMS — only frames > -50 dBFS (kein Stille-inflationierter RMS)
-        from backend.core.audio_utils import apply_musical_gain_envelope as _amge_p12
         from backend.core.audio_utils import compute_gated_rms_linear as _grl_p12
 
         _orig_rms = float(_grl_p12(orig, gate_dbfs=-50.0))
@@ -991,10 +990,9 @@ class WowFlutterFix(PhaseInterface):
             _peak_p999 = float(np.percentile(np.abs(proc), 99.9) + 1e-12)
             if _gain > 1.0:
                 _gain = min(_gain, float(0.985 / _peak_p999))
-            # §2.45a-II: Envelope-Aware Gain — Stille-Frames unverändert (kein Pegelexplosion im Tail)
-            proc = _amge_p12(proc.astype(np.float32), _gain, gate_dbfs=-50.0, crossfade_ms=10.0, sr=48000).astype(
-                np.float64
-            )
+            # §2.45a-I: Einfache Multiplikation — kein Frame-Gate (hier globale Lautheitskorrektur,
+            # nicht UV3-Mid-Pipeline-Drift-Guard; peak_p999 schützt gegen Clipping)
+            proc = np.clip(proc * _gain, -1.0, 1.0)
 
         _out_rms = float(_grl_p12(proc, gate_dbfs=-50.0))
         _out_delta_db = float(20.0 * np.log10(max(_out_rms / _orig_rms, 1e-30)))

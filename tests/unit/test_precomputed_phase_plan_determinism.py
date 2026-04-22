@@ -312,6 +312,16 @@ def test_precomputed_plan_resets_stale_material_priority_phases(sr, short_audio)
         patch.object(uv3, "_execute_pipeline", side_effect=_capturing_execute),
         patch.object(uv3, "_collect_reporting_analytics", return_value={}),
         patch("backend.core.plugin_lifecycle_manager.cleanup_after_file", return_value=0),
+        patch("backend.core.excellence_optimizer.optimize_for_excellence", side_effect=_excellence_mock),
+        patch("backend.core.feedback_chain.FeedbackChain", return_value=_make_fc_class_mock(short_audio)),
+        patch(
+            "backend.core.musical_goals.musical_goals_metrics.MusicalGoalsChecker",
+            return_value=_make_mgc_class_mock(),
+        ),
+        patch(
+            "backend.core.holistic_perceptual_gate.get_holistic_gate",
+            return_value=_make_hpg_mock(),
+        ),
     ):
         try:
             uv3.restore(short_audio, sr=sr, **_fast_restore_kwargs(plan=plan))

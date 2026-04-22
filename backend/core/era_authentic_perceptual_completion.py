@@ -149,9 +149,6 @@ class EraAuthenticPerceptualCompletion:
 
         # Stereo-Wiederherstellung
         if is_stereo and stereo is not None:
-            # Gain-Faktor aus Mono-Lautheit
-            max(1e-8, float(np.sqrt(np.mean(mono**2))))
-            max(1e-8, float(np.sqrt(np.mean(enhanced**2))))
             # Kanal-Differenz beibehalten
             diff = stereo[0] - stereo[1]
             new_chan0 = enhanced + diff * 0.5
@@ -239,9 +236,11 @@ class EraAuthenticPerceptualCompletion:
         new_spec = extended_mag * np.exp(1j * phase)
         result = np.fft.irfft(new_spec, n=n).astype(np.float32)
 
-        # Normalisierung um originale RMS beizubehalten
-        orig_rms = max(1e-8, float(np.sqrt(np.mean(mono**2))))
-        result_rms = max(1e-8, float(np.sqrt(np.mean(result**2))))
+        # §2.45a-I: Normalisierung mit Gated-RMS (nur Frames > -50 dBFS — kein Stille-inflationierter RMS)
+        from backend.core.audio_utils import compute_gated_rms_linear as _grl_eapc
+
+        orig_rms = max(1e-8, float(_grl_eapc(mono.astype(np.float32), gate_dbfs=-50.0)))
+        result_rms = max(1e-8, float(_grl_eapc(result, gate_dbfs=-50.0)))
         result *= orig_rms / result_rms
 
         return np.clip(result, -1.0, 1.0)
