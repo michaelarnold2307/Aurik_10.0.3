@@ -7991,7 +7991,15 @@ class UnifiedRestorerV3:
                         if np.isfinite(_lufs_resc_final):
                             _resc_delta_final = abs(_lufs_resc_final - _lufs_orig_final)
                             _noise_after_final = _nf_dbfs(_rescued_final)
-                            _noise_ok = _noise_after_final <= (_noise_before_final + _noise_allowance_db)
+                            # §0c Maximal-umsetzbare Recovery: when the pipeline dropped the
+                            # signal by > 8 LU, leaving it underleveled is worse than a moderate
+                            # noise-floor rise. Relax the guard proportionally so LUFS rescue
+                            # can succeed. The +12 dB extra allowance absorbs the gain-induced
+                            # noise-floor rise (1 dB rescue gain → 1 dB noise-floor rise).
+                            _noise_allowance_eff = (
+                                _noise_allowance_db + 12.0 if _final_delta > 8.0 else _noise_allowance_db
+                            )
+                            _noise_ok = _noise_after_final <= (_noise_before_final + _noise_allowance_eff)
                             if (_resc_delta_final + 1e-6 < _final_delta) and _noise_ok:
                                 restored_audio = _rescued_final.astype(np.float32, copy=False)
                                 _lufs_delta_for_result = float(_resc_delta_final)
@@ -8004,7 +8012,7 @@ class UnifiedRestorerV3:
                             elif (_resc_delta_final + 1e-6 < _final_delta) and (not _noise_ok):
                                 # Try combined rescue: keep LUFS benefit, then attenuate only low-level floor
                                 # so both R10 (LUFS drift) and R8 (noise-floor) can pass simultaneously.
-                                _noise_limit = float(_noise_before_final + _noise_allowance_db)
+                                _noise_limit = float(_noise_before_final + _noise_allowance_eff)
                                 _excess_db = float(max(0.0, _noise_after_final - _noise_limit))
                                 _reduce_db = float(np.clip(_excess_db + 1.0, 1.5, 12.0))
 
@@ -8030,7 +8038,9 @@ class UnifiedRestorerV3:
                                 _noise_combo = _nf_dbfs(_combo_rescued)
                                 if np.isfinite(_lufs_combo):
                                     _combo_delta = abs(float(_lufs_combo) - float(_lufs_orig_final))
-                                    if (_combo_delta + 1e-6 < _final_delta) and (_noise_combo <= _noise_limit):
+                                    if (_combo_delta + 1e-6 < _final_delta) and (
+                                        _noise_combo <= float(_noise_before_final + _noise_allowance_eff)
+                                    ):
                                         restored_audio = _combo_rescued.astype(np.float32, copy=False)
                                         _lufs_delta_for_result = float(_combo_delta)
                                         logger.info(
@@ -8064,7 +8074,11 @@ class UnifiedRestorerV3:
                     # material-adaptive allowance, apply low-level downward expansion while
                     # leaving musical peaks untouched.
                     _noise_current_final = _nf_dbfs(restored_audio)
-                    _noise_limit_final = _noise_before_final + _noise_allowance_db
+                    # Use the same relaxed allowance as the main LUFS rescue above so that
+                    # the noise-floor guard here doesn't undo a successful LUFS rescue.
+                    _noise_limit_final = _noise_before_final + (
+                        _noise_allowance_db + 12.0 if _final_delta > 8.0 else _noise_allowance_db
+                    )
                     if _noise_current_final > _noise_limit_final:
                         _excess_db = float(_noise_current_final - _noise_limit_final)
                         _reduce_db = float(np.clip(_excess_db + 1.0, 1.5, 12.0))

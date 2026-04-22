@@ -406,7 +406,9 @@ class FrequencyRestorationPhase(PhaseInterface):
             if _bw_gap >= 1500.0:
                 # Scale extra boost by confidence × gap fraction (max +4 dB)
                 _gap_frac = float(min(_bw_gap / 8000.0, 1.0))
-                _extra_boost = float(min(_gap_frac * _sfr_conf * 4.0, 4.0))
+                # Cap extra boost at 2 dB to prevent narrow-band HF artefacts
+                # (§0 Primum non nocere — HF-Halluzination ist ein Artefakt).
+                _extra_boost = float(min(_gap_frac * _sfr_conf * 2.0, 2.0))
                 params["max_boost_db"] = float(params.get("max_boost_db", 8.0)) + _extra_boost
                 # Also increase extension range proportional to generation count
                 if _sfr_gen >= 3:

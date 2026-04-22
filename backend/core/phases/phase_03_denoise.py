@@ -227,7 +227,7 @@ class DenoisePhase(PhaseInterface):
         },
         "mp3_low": {
             "strength": 0.25,  # Gentle — codec artifacts must not be amplified
-            "g_floor": 0.15,  # Higher floor protects codec ringing/pre-echo
+            "g_floor": 0.25,  # Raised: 0.15→0.25 to protect vocal formants (600–1200 Hz) from over-suppression
             "bands": {
                 "low": {"threshold": -42, "reduction": 0.15},
                 "mid": {"threshold": -40, "reduction": 0.25},
