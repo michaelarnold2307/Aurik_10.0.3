@@ -1917,11 +1917,20 @@ class TimbralAuthenticityMetric:
         sc_corr = self._pearson(sc_ref, sc_deg)
         sc_score = float(np.clip((sc_corr + 1.0) / 2.0, 0.0, 1.0))
 
-        # 3. Spectral Rolloff Medianabweichung
+        # 3. Spectral Rolloff Medianabweichung — §0d Carrier-Recovery-Paradoxon-Guard:
+        # BW-Extension (phase_06/phase_23) erhöht den Rolloff-Frequenz intentional.
+        # Eine symmetrische Strafe würde BW-Extension als Fehler werten, obwohl sie
+        # klanglich eine Verbesserung ist. Asymmetrische Regel:
+        # - ro_deg > ro_ref (Extension): kein Abzug → ro_score = 1.0
+        # - ro_deg < ro_ref (BW-Verlust): proportionale Strafe wie zuvor
         ro_ref = np.median(self._spectral_rolloff(ref, sr))
         ro_deg = np.median(self._spectral_rolloff(deg, sr))
-        ro_rel = abs(ro_ref - ro_deg) / (ro_ref + 1e-12)
-        ro_score = float(np.clip(1.0 - ro_rel / 0.05, 0.0, 1.0))
+        if ro_deg >= ro_ref:
+            # BW preserved or extended — no penalty (Carrier-Recovery-Paradoxon guard)
+            ro_score = 1.0
+        else:
+            ro_rel = (ro_ref - ro_deg) / (ro_ref + 1e-12)
+            ro_score = float(np.clip(1.0 - ro_rel / 0.05, 0.0, 1.0))
 
         # §B5 ECAPA-TDNN Speaker Embedding: cosine distance as primary authenticity signal.
         # Desplanques et al. (INTERSPEECH 2020): state-of-the-art speaker representation.
@@ -2274,12 +2283,39 @@ class SeparationFidelityMetric:
         reference_t = reference[:min_len]
         residual = restored_t - reference_t
 
+        # §0d BW-Extension Guard (Carrier-Recovery-Paradoxon v9.11.70):
+        # BW-Extension (phase_06/07/23) adds HF content above the original material's
+        # bandwidth. The residual (restored − reference) is dominated by this HF, which:
+        #   1. Inflates rms_res → lowers sdr_db → falsely penalises correct BW-restoration.
+        #   2. Is harmonic/periodic → raises SIR-autocorrelation → falsely penalises added
+        #      harmonics as "spectral leakage". Both violate §0 Primum non nocere.
+        # Detection: upper-quarter HF energy ≥ 3× higher in restored than reference,
+        # AND reference has weak HF (< 30% of LF energy) → BW-Extension context.
+        _n_guard = min(min_len, 2048)
+        _ref_fft_bw = np.abs(np.fft.rfft(reference_t[:_n_guard]))
+        _rest_fft_bw = np.abs(np.fft.rfft(restored_t[:_n_guard]))
+        _n_bins_bw = len(_ref_fft_bw)
+        _hf_start_bw = _n_bins_bw * 3 // 4
+        _ref_hf_rms = float(np.sqrt(np.mean(_ref_fft_bw[_hf_start_bw:] ** 2) + 1e-10))
+        _rest_hf_rms = float(np.sqrt(np.mean(_rest_fft_bw[_hf_start_bw:] ** 2) + 1e-10))
+        _lf_ref_rms = float(np.sqrt(np.mean(_ref_fft_bw[:_hf_start_bw] ** 2) + 1e-10))
+        _bw_extended = (_rest_hf_rms > _ref_hf_rms * 3.0) and (_ref_hf_rms < _lf_ref_rms * 0.30)
+
         # SDR-Proxy — normalise against TARGET_SDR_DB (spec threshold = 8 dB)
         # Dividing by TARGET_SDR_DB: SDR ≥ 8 dB → score ≥ 1.0 (capped); SDR = 6 dB → 0.75.
         # Previous divisor 20.0 scored SDR=10 dB as only 0.50, systematically below
         # the restoration threshold 0.78 even for good separations.
-        rms_sig = float(np.sqrt(np.mean(reference_t**2)) + 1e-10)
-        rms_res = float(np.sqrt(np.mean(residual**2)) + 1e-10)
+        if _bw_extended:
+            # Restrict residual to original reference BW (lower 75% of spectrum)
+            _res_fft = np.fft.rfft(residual[:_n_guard])
+            _res_fft_lf = _res_fft.copy()
+            _res_fft_lf[_hf_start_bw:] = 0.0
+            _residual_lf = np.fft.irfft(_res_fft_lf, n=_n_guard)
+            rms_sig = float(np.sqrt(np.mean(reference_t[:_n_guard] ** 2)) + 1e-10)
+            rms_res = float(np.sqrt(np.mean(_residual_lf ** 2)) + 1e-10)
+        else:
+            rms_sig = float(np.sqrt(np.mean(reference_t**2)) + 1e-10)
+            rms_res = float(np.sqrt(np.mean(residual**2)) + 1e-10)
         sdr_db = float(20.0 * np.log10(rms_sig / rms_res))
         sdr_score = float(np.clip(sdr_db / self.TARGET_SDR_DB, 0.0, 1.0))
 
@@ -2288,6 +2324,11 @@ class SeparationFidelityMetric:
         n_frames_max = (min_len - self.N_FFT) // self.HOP + 1
         if n_frames_max < 1:
             return float(np.clip(sdr_score, 0.0, 1.0))
+
+        # BW-aware coherence: when BW-extended, restrict to the lower 75% of rfft bins
+        # (reference material's original BW). The added HF bins inflate norm(mag_p)
+        # and reduce cosine similarity even though in-band coherence is preserved.
+        _coh_bw_bins = int((self.N_FFT // 2 + 1) * 3 // 4) if _bw_extended else None
 
         cos_sims: list[float] = []
         for k in range(min(n_frames_max, 64)):  # max. 64 Frames
@@ -2298,6 +2339,9 @@ class SeparationFidelityMetric:
                 break
             mag_r = np.abs(np.fft.rfft(seg_r * win))
             mag_p = np.abs(np.fft.rfft(seg_p * win))
+            if _coh_bw_bins is not None:
+                mag_r = mag_r[:_coh_bw_bins]
+                mag_p = mag_p[:_coh_bw_bins]
             num = float(np.dot(mag_r, mag_p))
             denom = float(np.linalg.norm(mag_r) * np.linalg.norm(mag_p) + 1e-10)
             cos_sims.append(float(np.clip(num / denom, 0.0, 1.0)))
@@ -2306,21 +2350,24 @@ class SeparationFidelityMetric:
 
         # SIR proxy: periodic content in residual → interference/leakage → low SIR
         # FFT-based autocorrelation of residual; high AC peak at 1-50 ms lag = harmonic leakage
+        # §0d BW-Extension: skip SIR — added harmonic HF is correct carrier restoration,
+        # not spectral leakage. Harmonic synthesis residual would falsely trigger SIR penalty.
         sir_score = 1.0
-        residual_clip = residual[: min(len(residual), 4096)]
-        n_ac = len(residual_clip)
-        if n_ac >= 64:
-            f_ac = np.fft.rfft(residual_clip.astype(np.float32), n=2 * n_ac)
-            ac = np.fft.irfft(f_ac * np.conj(f_ac))[:n_ac]
-            zero_lag = float(ac[0])
-            if zero_lag > 1e-12:
-                ac_norm = ac / zero_lag
-                # At 48 kHz: 1 ms ≈ 48 smp, 50 ms ≈ 2400 smp (spec: internal SR = 48 000 Hz)
-                min_lag = max(1, self.N_FFT // 20)  # ≈ 51 samples
-                max_lag = min(n_ac - 1, self.N_FFT * 2)  # ≈ 2048 samples
-                if max_lag > min_lag:
-                    peak_ac = float(np.max(np.abs(ac_norm[min_lag : max_lag + 1])))
-                    sir_score = float(np.clip(1.0 - peak_ac, 0.0, 1.0))
+        if not _bw_extended:
+            residual_clip = residual[: min(len(residual), 4096)]
+            n_ac = len(residual_clip)
+            if n_ac >= 64:
+                f_ac = np.fft.rfft(residual_clip.astype(np.float32), n=2 * n_ac)
+                ac = np.fft.irfft(f_ac * np.conj(f_ac))[:n_ac]
+                zero_lag = float(ac[0])
+                if zero_lag > 1e-12:
+                    ac_norm = ac / zero_lag
+                    # At 48 kHz: 1 ms ≈ 48 smp, 50 ms ≈ 2400 smp (spec: internal SR = 48 000 Hz)
+                    min_lag = max(1, self.N_FFT // 20)  # ≈ 51 samples
+                    max_lag = min(n_ac - 1, self.N_FFT * 2)  # ≈ 2048 samples
+                    if max_lag > min_lag:
+                        peak_ac = float(np.max(np.abs(ac_norm[min_lag : max_lag + 1])))
+                        sir_score = float(np.clip(1.0 - peak_ac, 0.0, 1.0))
 
         score = float(0.40 * sdr_score + 0.35 * koh_score + 0.25 * sir_score)
         return float(np.clip(score, 0.0, 1.0))

@@ -7877,50 +7877,6 @@ class UnifiedRestorerV3:
                 _lufs_rest_final = _lufs_meter_final.integrated_loudness(_rest_final)
                 if np.isfinite(_lufs_orig_final) and np.isfinite(_lufs_rest_final):
 
-                    def _apply_music_only_gain(_x: np.ndarray, _gain: float, _gate_dbfs: float = -50.0) -> np.ndarray:
-                        if _gain <= 1.0005:
-                            return np.asarray(_x, dtype=np.float32)
-                        _arr = np.asarray(_x, dtype=np.float32)
-                        _is_2d = _arr.ndim == 2
-                        if _is_2d:
-                            if _arr.shape[0] == 2 and _arr.shape[1] != 2:
-                                _mono = np.sqrt(np.mean(_arr**2, axis=0) + 1e-12)
-                            else:
-                                _mono = np.sqrt(np.mean(_arr**2, axis=-1) + 1e-12)
-                        else:
-                            _mono = np.abs(_arr)
-
-                        _n = int(_mono.shape[0])
-                        _frame = 2048
-                        _n_frames = max(1, _n // _frame)
-                        _mask = np.zeros(_n, dtype=np.float32)
-                        for _fi in range(_n_frames):
-                            _s = _fi * _frame
-                            _e = min(_s + _frame, _n)
-                            _chunk = _mono[_s:_e]
-                            _db = float(20.0 * np.log10(float(np.sqrt(np.mean(_chunk * _chunk) + 1e-12)) + 1e-12))
-                            if _db > _gate_dbfs:
-                                _mask[_s:_e] = 1.0
-                        _tail_s = _n_frames * _frame
-                        if _tail_s < _n:
-                            _tail = _mono[_tail_s:]
-                            _tail_db = float(20.0 * np.log10(float(np.sqrt(np.mean(_tail * _tail) + 1e-12)) + 1e-12))
-                            if _tail_db > _gate_dbfs:
-                                _mask[_tail_s:] = 1.0
-
-                        _cf = max(1, int(0.010 * sample_rate))
-                        if _cf > 1:
-                            _kernel = np.ones(_cf, dtype=np.float32) / float(_cf)
-                            _mask = np.convolve(_mask, _kernel, mode="same")
-                            _mask = np.clip(_mask, 0.0, 1.0)
-
-                        _g_env = 1.0 + (_gain - 1.0) * _mask
-                        if _is_2d:
-                            if _arr.shape[0] == 2 and _arr.shape[1] != 2:
-                                return _arr * _g_env[np.newaxis, :]
-                            return _arr * _g_env[:, np.newaxis]
-                        return _arr * _g_env
-
                     def _nf_dbfs(_x: np.ndarray) -> float:
                         _arr = np.asarray(_x, dtype=np.float32)
                         if _arr.ndim == 2:
@@ -7963,8 +7919,17 @@ class UnifiedRestorerV3:
                     if _final_delta > 4.0:
                         _needed_db_final = float(np.clip(float(_lufs_orig_final - _lufs_rest_final), -12.0, 12.0))
                         _gain_final = float(10.0 ** (_needed_db_final / 20.0))
-                        _rescued_final = _apply_music_only_gain(
-                            np.asarray(restored_audio, dtype=np.float32), _gain_final
+                        # §2.45a-II + §0d Fadeout-Explosion-Fix (v9.11.70):
+                        # Vorherige Inline-Funktion verwendete fixen -50 dBFS-Gate + 2048-Sample-Frames.
+                        # Vinyl/Shellac-Rauschen bei -42 dBFS überleben den fixen Gate und bekommen
+                        # volle LUFS-Korrektur → Wellenform-Explosion im Fadeout.
+                        # _musical_gain_envelope: adaptiver P5+6dB-Gate + 480-Sample-Frames (§v9.11.62).
+                        _rescued_final = UnifiedRestorerV3._musical_gain_envelope(
+                            np.asarray(restored_audio, dtype=np.float32),
+                            _gain_final,
+                            gate_dbfs=-50.0,
+                            crossfade_ms=10.0,
+                            sr=sample_rate,
                         )
                         if _gain_final > 1.0005:
                             _p999_final = float(np.percentile(np.abs(_rescued_final), 99.9))
