@@ -30,6 +30,10 @@ cd "$SCRIPT_DIR"
 
 echo "Aurik GPU-Modus: ${_GPU_MODE} (Python: ${VENV_PYTHON##*/../../})"
 
+# Numba-JIT deaktivieren: verhindert Circular-Import-Crash in ROCm-venv-Threads
+# (numba >= 0.57 entfernt is_nonelike aus numba.core.cgutils; librosa triggert numba)
+export NUMBA_DISABLE_JIT=1
+
 # Kein Doppelstart: verhindert UI-Konflikte und wiederholte Force-Quit-Dialoge.
 if pgrep -f "$VENV_PYTHON Aurik910/main.py" >/dev/null 2>&1; then
     _pid="$(pgrep -f "$VENV_PYTHON Aurik910/main.py" | head -n 1)"

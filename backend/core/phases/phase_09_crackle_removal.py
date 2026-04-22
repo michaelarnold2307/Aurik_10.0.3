@@ -79,7 +79,7 @@ from typing import Any
 import numpy as np
 import scipy.signal as signal
 
-from backend.core.audio_utils import to_channels_last
+from backend.core.audio_utils import to_channels_last, compute_gated_rms_dbfs as _gated_rms_dbfs_09, apply_musical_gain_envelope as _amge_09
 
 from .phase_interface import PhaseCategory, PhaseInterface, PhaseMetadata, PhaseResult, create_phase_result
 
@@ -649,8 +649,9 @@ class CrackleRemovalPhase(PhaseInterface):
             )
 
         # ML-Hybrid Decision: BANQUET for Vinyl only
-        # §2.45a — capture input RMS BEFORE processing (after early-return guard passed)
-        _rms_in_09 = float(np.sqrt(np.mean(np.asarray(audio, dtype=np.float64) ** 2) + 1e-12))
+        # §2.45a-I: Gated-RMS — only musical frames (> −50 dBFS) contribute (prevents fadeout-explosion)
+        _rms_in_09_db = _gated_rms_dbfs_09(np.asarray(audio, dtype=np.float32))
+        _rms_in_09 = float(10.0 ** (_rms_in_09_db / 20.0))
 
         use_banquet = QUALITY_MODE_AVAILABLE and material_type == "vinyl" and is_phase_ml_enabled(9)
 
@@ -777,17 +778,21 @@ class CrackleRemovalPhase(PhaseInterface):
         restored = np.clip(restored, -1.0, 1.0)
 
         # §2.45a Loudness-Drift-Guard: prevent broadband crackle removal from collapsing level
-        _rms_out_09 = float(np.sqrt(np.mean(np.asarray(restored, dtype=np.float64) ** 2) + 1e-12))
-        _rms_drop_09 = 20.0 * np.log10(max(_rms_out_09 / _rms_in_09, 1e-30)) if _rms_in_09 > 1e-8 else 0.0
+        _rms_out_09_db = _gated_rms_dbfs_09(np.asarray(restored, dtype=np.float32))
+        _rms_out_09 = float(10.0 ** (_rms_out_09_db / 20.0))
+        _rms_drop_09 = (_rms_out_09_db - _rms_in_09_db) if _rms_in_09_db > -80.0 else 0.0
         _makeup_09 = 0.0
         _max_drop_09 = float(self._MAX_RMS_DROP_DB.get(material_type, self._MAX_RMS_DROP_DB["unknown"]))
         if _rms_in_09 > 1e-8 and _rms_drop_09 < -_max_drop_09:
             _req_gain_db = -_max_drop_09 - _rms_drop_09
-            # §2.45a-II fix: apply full gain — peak-headroom cap disabled (see phase_05 fix).
+            # §2.45a-II fix: apply gain ONLY to musical frames — prevents fadeout-explosion.
             # §2.45a-III: soft-limiter only when peak99 > 0.98.
             _makeup_09 = float(np.clip(_req_gain_db, 0.0, 6.0))
             if _makeup_09 > 0.0:
-                restored = np.clip(restored * (10.0 ** (_makeup_09 / 20.0)), -1.0, 1.0).astype(np.float32)
+                _gain_09 = float(10.0 ** (_makeup_09 / 20.0))
+                restored = _amge_09(restored, _gain_09, gate_dbfs=-50.0, crossfade_ms=10.0, sr=48000)
+                restored = np.clip(restored, -1.0, 1.0).astype(np.float32)
+                # §2.45a-III: soft-limiter only when real clipping risk
                 _peak_09 = float(np.percentile(np.abs(restored), 99.9))
                 if _peak_09 > 0.98:
                     _abs_09 = np.abs(restored)
@@ -798,10 +803,10 @@ class CrackleRemovalPhase(PhaseInterface):
                             _over_09, _sign_09 * (0.92 + 0.08 * np.tanh((_abs_09 - 0.92) / 0.08)), restored
                         )
                 restored = np.clip(restored, -1.0, 1.0).astype(np.float32)
-                _rms_out_09 = float(np.sqrt(np.mean(np.asarray(restored, dtype=np.float64) ** 2) + 1e-12))
-                _rms_drop_09 = 20.0 * np.log10(max(_rms_out_09 / _rms_in_09, 1e-30))
+                _rms_out_09_db = _gated_rms_dbfs_09(np.asarray(restored, dtype=np.float32))
+                _rms_drop_09 = (_rms_out_09_db - _rms_in_09_db) if _rms_in_09_db > -80.0 else 0.0
                 logger.info(
-                    "Phase 09 loudness-preservation: material=%s rms_drop=%.2f dB via makeup %.2f dB",
+                    "Phase 09 loudness-preservation: material=%s rms_drop=%.2f dB via makeup %.2f dB (frame-gated)",
                     material_type,
                     _rms_drop_09,
                     _makeup_09,

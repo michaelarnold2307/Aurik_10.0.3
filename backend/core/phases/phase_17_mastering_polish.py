@@ -79,7 +79,7 @@ def _rms_dbfs_gated(sig: np.ndarray) -> float:
     return float(20.0 * np.log10(np.sqrt(np.mean(np.concatenate(_active) ** 2)) + 1e-10))
 
 
-from backend.core.audio_utils import to_channels_last
+from backend.core.audio_utils import to_channels_last, apply_musical_gain_envelope as _amge_17
 
 from .phase_interface import PhaseCategory, PhaseInterface, PhaseMetadata, PhaseResult
 
@@ -482,11 +482,18 @@ class MasteringPolishPhase(PhaseInterface):
         wet_amount = strength
         enhanced = (1 - wet_amount) * audio + wet_amount * saturated
 
-        # Compensate Level
+        # Level compensation: keep saturation volume-neutral
+        # §2.45a-II: cap ratio at +4 dB max and apply only to musical frames to
+        # prevent fadeout sections from being disproportionately amplified.
         rms_before = np.sqrt(np.mean(audio**2))
         rms_after = np.sqrt(np.mean(enhanced**2))
         if rms_after > 1e-10:
-            enhanced = enhanced * (rms_before / rms_after)
+            _comp_ratio = float(rms_before / rms_after)
+            _comp_ratio = float(np.clip(_comp_ratio, 0.5, 1.585))  # cap: max +4 dB (1.585×)
+            if _comp_ratio > 1.0005:
+                enhanced = _amge_17(enhanced, _comp_ratio, gate_dbfs=-50.0, crossfade_ms=10.0, sr=48000)
+            elif _comp_ratio < 1.0:
+                enhanced = enhanced * _comp_ratio  # attenuation always safe uniform
 
         metrics = {"saturation_strength": float(strength), "saturation_drive": float(saturation_drive)}
 

@@ -2,6 +2,37 @@
 
 > Hinweis: Dieses Dokument ist eine Versionshistorie. Ältere Versionsnummern und Kennzahlen sind hier erwartbar und keine veralteten Reststände.
 
+## Version 9.11.51 — phase_55 Fadeout/Achsen/LogSpam-Bugfix (Apr 2026)
+
+### Bugfix §2.47 / §0 (Primum non nocere)
+
+- **`backend/core/phases/phase_55_diffusion_inpainting.py`**
+
+  **Bug A — Achsen-Orientierungs-Konflikt (Root-Cause 94 K Warnungen)**:
+  UV3 übergibt Audio intern als `(2, N)` channel-first. `process()` verarbeitete es als `(N, 2)` sample-first:
+  `for ch in range(audio.shape[1])` iterierte N-mal statt 2-mal → `_detect_gaps` auf 2-Sample-Arrays →
+  keine Gaps erkannt, aber 94.265 identische Thrashing-Warnungen pro Lauf.
+  **Fix**: Achsen-Guard zu Beginn des Stereo-Pfads — `(2,N)→(N,2)` Transposition, am Ende zurück `(N,2)→(2,N)`.
+
+  **Bug B — Musikalischer Fadeout als Dropout erkannt (→ "Stille explodiert")**:
+  In `_detect_gaps` trailing-gap-Block fehlte ein Fadeout-Slope-Check. Graduelle Pegelabsenkung
+  (Fadeout) wurde als Transport-Dropout klassifiziert. `_conservative_boundary_fill` füllte dann mit
+  dem letzten Non-Zero-Wert (`right = left` für End-of-Audio) → konstanter Pegel in der Fadeout-Stille.
+  **Fix**: Slope-Check über 0.3-s-Fenster vor gap_start: `< -0.5 dB/Frame` → als Fadeout markiert, kein Gap.
+
+  **Bug C — `_conservative_boundary_fill` trailing right = left statt 0.0**:
+  Bei End-of-Audio-Gaps: `right = float(channel[end]) if end < len(channel) else left` →
+  Cosinus-Interpolation von `left` → `left` = konstanter Nicht-Null-Wert in Stille.
+  **Fix**: `else 0.0` — Interpolation faded korrekt auf Stille ab.
+
+  **Bug D — Rate-Limiting für Thrashing-Warnung fehlte**:
+  `logger.warning("phase_55: ML-Thrashing erkannt...")` ohne Rate-Limit kombiniert mit Bug A →
+  94.265 identische Log-Einträge pro Song. **Fix**: `_is_ml_thrashing._last_warn_ts` Timestamp-Guard,
+  max. 1 Warnung pro 60 s.
+
+- **`tests/unit/test_phase55_damage_guard.py`**: 2 neue Regressions-Tests:
+  `test_fadeout_not_detected_as_dropout` und `test_phase55_stereo_channel_first_axis_guard`.
+
 ## Version 9.11.50 — do_carrier_analysis=False Output-Dateien in UI (Apr 2026)
 
 ### Bugfix (§2.47a [RELEASE_MUST])

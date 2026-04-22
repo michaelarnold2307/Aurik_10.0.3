@@ -69,7 +69,7 @@ from typing import Any
 import numpy as np
 import scipy.signal as signal
 
-from backend.core.audio_utils import to_channels_last
+from backend.core.audio_utils import to_channels_last, compute_gated_rms_dbfs as _gated_rms_dbfs_02, apply_musical_gain_envelope as _amge_02
 
 from .phase_interface import PhaseCategory, PhaseInterface, PhaseMetadata, PhaseResult, create_phase_result
 
@@ -282,8 +282,9 @@ class HumRemovalPhase(PhaseInterface):
         except Exception:
             pass
 
-        # §2.45a: RMS-Referenz vor Verarbeitung
-        _rms_in_02 = float(np.sqrt(np.mean(np.asarray(audio, dtype=np.float64) ** 2) + 1e-12))
+        # §2.45a-I: Gated-RMS — only musical frames (> −50 dBFS) contribute (prevents fadeout-explosion)
+        _rms_in_02_db = _gated_rms_dbfs_02(np.asarray(audio, dtype=np.float32))
+        _rms_in_02 = float(10.0 ** (_rms_in_02_db / 20.0))  # linear, for guard compat
 
         # Determine if ML should be used
         use_ml = False
@@ -458,20 +459,19 @@ class HumRemovalPhase(PhaseInterface):
             warnings.append(f"Chroma guard active: blended wet={_wet:.2f} (Pearson={_chroma_p:.3f})")
 
         # §2.45a Mid-Pipeline-Loudness-Drift-Guard
-        _rms_out_02 = float(np.sqrt(np.mean(np.asarray(result_audio, dtype=np.float64) ** 2) + 1e-12))
-        _rms_drop_02 = 20.0 * np.log10(max(_rms_out_02 / _rms_in_02, 1e-30)) if _rms_in_02 > 1e-8 else 0.0
+        _rms_out_02_db = _gated_rms_dbfs_02(np.asarray(result_audio, dtype=np.float32))
+        _rms_out_02 = float(10.0 ** (_rms_out_02_db / 20.0))
+        _rms_drop_02 = (_rms_out_02_db - _rms_in_02_db) if _rms_in_02_db > -80.0 else 0.0
         _max_drop_02 = float(_hum_profile.get("max_rms_drop_db", 3.0))
         _makeup_02 = 0.0
         if _rms_in_02 > 1e-8 and _rms_drop_02 < -_max_drop_02:
             _required_gain_db = -_max_drop_02 - _rms_drop_02
             _makeup_02 = float(np.clip(_required_gain_db, 0.0, 6.0))  # max +6 dB Makeup-Gain
             if _makeup_02 > 0.0:
-                # §2.45a-II: apply full makeup gain — do NOT cap by peak99-headroom before
-                # applying, because for hot signals (peak99 ≥ 0.95) the cap reduces to 1.0
-                # and no gain is applied, leaving level destroyed.
-                # §2.45a-III: apply soft-limiter ONLY when real clipping risk (peak > 0.98).
+                # §2.45a-II: apply gain ONLY to musical frames — prevents fadeout-explosion
                 _actual_gain = float(10.0 ** (_makeup_02 / 20.0))
-                result_audio = np.clip(result_audio * _actual_gain, -1.0, 1.0)
+                result_audio = _amge_02(result_audio, _actual_gain, gate_dbfs=-50.0, crossfade_ms=10.0, sr=48000)
+                result_audio = np.clip(result_audio, -1.0, 1.0)
                 _peak99_02 = float(np.percentile(np.abs(result_audio), 99.9))
                 if _peak99_02 > 0.98:
                     _abs_02 = np.abs(result_audio)
@@ -481,10 +481,10 @@ class HumRemovalPhase(PhaseInterface):
                         _soft_02 = 0.92 + 0.08 * np.tanh((_abs_02 - 0.92) / 0.08)
                         result_audio = np.where(_over_02, _sign_02 * _soft_02, result_audio)
                 result_audio = np.clip(result_audio, -1.0, 1.0)
-                _rms_out_02 = float(np.sqrt(np.mean(np.asarray(result_audio, dtype=np.float64) ** 2) + 1e-12))
-                _rms_drop_02 = 20.0 * np.log10(max(_rms_out_02 / _rms_in_02, 1e-30))
+                _rms_out_02_db = _gated_rms_dbfs_02(np.asarray(result_audio, dtype=np.float32))
+                _rms_drop_02 = (_rms_out_02_db - _rms_in_02_db) if _rms_in_02_db > -80.0 else 0.0
                 logger.info(
-                    "Phase 02 loudness-guard: hum_reduction=%.1f dB, rms_drop=%.2f dB → makeup %.2f dB",
+                    "Phase 02 loudness-guard: hum_reduction=%.1f dB, rms_drop=%.2f dB → makeup %.2f dB (frame-gated)",
                     total_reduction,
                     _rms_drop_02,
                     _makeup_02,

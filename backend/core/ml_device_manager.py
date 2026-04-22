@@ -993,7 +993,8 @@ class MLDeviceManager:
                         * 1024**3
                     ),
                     "arena_extend_strategy": "kSameAsRequested",
-                    "enable_cuda_graph": 0,
+                    # NOTE: enable_cuda_graph is a CUDA-only option — not supported by ROCMExecutionProvider
+                    # (onnxruntime >= 1.20 raises FAIL: Unknown provider option: "enable_cuda_graph")
                 },
             ),
             "CPUExecutionProvider",

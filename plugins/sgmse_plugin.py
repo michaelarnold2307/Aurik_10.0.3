@@ -136,7 +136,7 @@ class SGMSEPlusPlugin:
             for ckpt_path in _CKPT_CANDIDATES:
                 if not ckpt_path.exists():
                     continue
-                ckpt = torch.load(ckpt_path, map_location="cpu")  # nosec B614 — trusted local model bundle
+                ckpt = torch.load(ckpt_path, map_location="cpu", weights_only=False)  # nosec B614 — trusted local model bundle (fairseq checkpoint contains custom objects)
                 hyper = ckpt.get("hyper_parameters")
                 if not isinstance(hyper, dict):
                     continue
@@ -250,7 +250,7 @@ class SGMSEPlusPlugin:
             for ckpt_path in _CKPT_CANDIDATES:
                 if not ckpt_path.exists():
                     continue
-                ckpt = torch.load(ckpt_path, map_location="cpu")  # nosec B614 — trusted local model bundle
+                ckpt = torch.load(ckpt_path, map_location="cpu", weights_only=False)  # nosec B614 — trusted local model bundle (contains custom Lightning/fairseq objects)
                 hyper = ckpt.get("hyper_parameters")
                 state = ckpt.get("state_dict")
                 if not isinstance(hyper, dict) or not isinstance(state, dict):

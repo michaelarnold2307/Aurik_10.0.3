@@ -243,7 +243,21 @@ def _detect_gaps(audio: np.ndarray, sample_rate: int, min_gap_ms: float) -> list
             _pre_e = _s_fr
             _gap_db = float(np.median(frame_db[_s_fr:_e_fr]))
             _pre_db = float(np.median(frame_db[_pre_s:_pre_e])) if _pre_e > _pre_s else _gap_db
-            if _pre_db > _gap_db + 8.0:
+            # Fadeout guard (trailing gap only): check energy slope before gap_start.
+            # A musical fadeout has a sustained declining slope — NOT a sudden transport dropout.
+            # Frame hop = _HOP / sample_rate ≈ 10.7 ms; slope unit = dB/frame.
+            # Threshold: -0.5 dB/frame ≈ -47 dB/s — typical fadeout rate. True dropouts
+            # are instantaneous (slope ≈ -40 dB in 1 frame = -3733 dB/s).
+            _fade_win_start = max(0, _s_fr - max(4, int(0.3 * sample_rate / frame_size)))
+            _fade_frames_db = frame_db[_fade_win_start:_s_fr]
+            _is_fadeout = False
+            if len(_fade_frames_db) >= 4:
+                try:
+                    _slope = float(np.polyfit(np.arange(len(_fade_frames_db)), _fade_frames_db, 1)[0])
+                    _is_fadeout = _slope < -0.5  # energy was already declining → fadeout, not dropout
+                except Exception:
+                    pass
+            if _pre_db > _gap_db + 8.0 and not _is_fadeout:
                 gaps.append((gap_start, gap_end))
 
     return gaps
@@ -676,13 +690,20 @@ def _is_ml_thrashing() -> bool:
 
 
 def _conservative_boundary_fill(channel: np.ndarray, start: int, end: int) -> np.ndarray:
-    """Fill gap with a boundary-constrained cosine interpolation."""
+    """Fill gap with a boundary-constrained cosine interpolation.
+
+    For trailing gaps (end == len(channel)): fade from left boundary to 0.0 (silence).
+    Without this, the fill level stays at the pre-silence sample value, creating
+    a constant tone/hiss in what should be the fadeout silence ('explodiert').
+    """
     gap_len = max(0, end - start)
     if gap_len <= 0:
         return np.zeros(0, dtype=np.float32)
 
     left = float(channel[start - 1]) if start > 0 else 0.0
-    right = float(channel[end]) if end < len(channel) else left
+    # Trailing gap (end of audio): right boundary is silence (0.0), not left.
+    # This prevents the fadeout silence from being filled with non-zero content.
+    right = float(channel[end]) if end < len(channel) else 0.0
     t = np.linspace(0.0, 1.0, gap_len, dtype=np.float32)
     fade = 0.5 - 0.5 * np.cos(np.pi * t)
     seg = (1.0 - fade) * left + fade * right
@@ -761,7 +782,17 @@ def _process_channel(
     ml_thrashing = _is_ml_thrashing()
     if ml_thrashing:
         stats["ml_thrashing_guard"] = True
-        logger.warning("phase_55: ML-Thrashing erkannt — konservativer DSP-Pfad zum Schutz von Musik/Sprache aktiv")
+        # Rate-limit: log at most once per 60 s to prevent log-spam (BUG H extended).
+        # _is_ml_thrashing() caches the RESULT for 30 s, but NOT whether the warning
+        # was emitted — without this guard, _process_channel calls in a loop (e.g.
+        # axis-orientation bug with (2,N) audio) produce 94 K+ identical warnings.
+        _now_warn = time.monotonic()
+        _last_warn_ts = getattr(_is_ml_thrashing, "_last_warn_ts", 0.0)
+        if _now_warn - _last_warn_ts >= 60.0:
+            logger.warning(
+                "phase_55: ML-Thrashing erkannt — konservativer DSP-Pfad zum Schutz von Musik/Sprache aktiv"
+            )
+            _is_ml_thrashing._last_warn_ts = _now_warn  # type: ignore[attr-defined]
 
     for start, end in gaps:
         if wall_budget_s > 0.0 and (time.perf_counter() - _t_channel_start) > wall_budget_s:
@@ -1189,8 +1220,24 @@ class DiffusionInpaintingPhase(PhaseInterface):
             _thrash_guard_active = bool(stats.get("ml_thrashing_guard", False))
         else:
             # §2.51 Linked-Stereo: Gap-Detektion auf Mono-Mix, kohärente Reparatur
-            # Detect gaps on mono downmix to ensure identical gap regions for L+R
-            mono_mix = np.mean(audio, axis=1)
+            # Detect gaps on mono downmix to ensure identical gap regions for L+R.
+            #
+            # §VERBOTEN Axis-Orientierungs-Guard: UV3 internes Format ist channel-first (2, N).
+            # Phase_55 verarbeitet sample-first (N, 2). Falsche Orientation führt dazu, dass
+            # `for ch in range(audio.shape[1])` N-mal statt 2-mal iteriert → 94K+ Warnungen
+            # und keine Gap-Detektion (2-Sample-Arrays haben keine Gaps).
+            _was_channel_first = (
+                audio.ndim == 2
+                and audio.shape[0] in (1, 2)
+                and audio.shape[1] > audio.shape[0]
+            )
+            if _was_channel_first:
+                audio = audio.T  # (2, N) → (N, 2) für korrekte sample-first-Verarbeitung
+                logger.debug("phase_55: Axis-Orientierungs-Korrektur (2,N) → (N,2) angewendet")
+
+            n_channels = audio.shape[1]
+            # §2.51 Mono-Mix für verknüpfte Gap-Detektion
+            mono_mix = np.mean(audio, axis=1)  # (N, channels) → (N,) korrekt
             mono_gaps = _detect_gaps(mono_mix, sample_rate, min_gap_ms_eff)
 
             channels_repaired = []
@@ -1200,7 +1247,7 @@ class DiffusionInpaintingPhase(PhaseInterface):
             plugin_used = False
             quality_scores = []
 
-            for ch in range(audio.shape[1]):
+            for ch in range(n_channels):
                 ch_rep, stats = _process_channel(
                     audio[:, ch],
                     sample_rate,
@@ -1221,7 +1268,9 @@ class DiffusionInpaintingPhase(PhaseInterface):
 
                 quality_scores.append(_reconstruction_quality_score(audio[:, ch], ch_rep, mono_gaps))
 
-            repaired = np.column_stack(channels_repaired)
+            repaired = np.column_stack(channels_repaired)  # list[(N,)] → (N, channels)
+            if _was_channel_first:
+                repaired = repaired.T  # (N, 2) → (2, N) zurück in UV3-Format
             quality = float(np.mean(quality_scores)) if quality_scores else 1.0
 
         if 0.0 < safe_strength < 1.0:

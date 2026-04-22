@@ -53,6 +53,7 @@ class DetectedArtifact:
     frequency_hz: float  # centre frequency of artifact (0.0 if broadband)
     context_rms_dbfs: float  # RMS of surrounding context segment
     salience_weighted_score: float = 0.0  # after freq * context * duration weighting
+    temporal_masking_weight: float = 1.0  # §B4 temporal masking factor (1.0 = no masking)
 
 
 @dataclass
@@ -450,8 +451,12 @@ class ArtifactFreedomGate:
             except Exception as _ex:
                 logger.debug("roughness/sharpness guard failed: %s", _ex)
 
-        # Score calculation
-        weighted_sum = sum(_TYPE_WEIGHTS.get(a.artifact_type, 1.0) * a.salience_weighted_score for a in all_artifacts)
+        # Score calculation — §B4 temporal_masking_weight is kept as separate field so
+        # that _compute_salience_weight() does not silently overwrite it (bug fix).
+        weighted_sum = sum(
+            _TYPE_WEIGHTS.get(a.artifact_type, 1.0) * a.salience_weighted_score * a.temporal_masking_weight
+            for a in all_artifacts
+        )
         # §2.54 material-adaptive cumulative tolerance: older/noisier carriers contain
         # more benign residual micro-artifacts after restorative phases. A single global
         # denominator over-penalizes shellac/wax/tape vs digital material.
@@ -681,13 +686,15 @@ class ArtifactFreedomGate:
                     )
                     break  # one per frame
 
-        # §B4: Apply temporal masking — artefacts near loud transients are less perceptible
+        # §B4: Apply temporal masking — artefacts near loud transients are less perceptible.
+        # Store as temporal_masking_weight (separate field) so it is not overwritten by
+        # the outer _compute_salience_weight() loop in evaluate().
         if artifacts:
             try:
                 _rest_mono_mn = restored if restored.ndim == 1 else np.mean(restored, axis=0)
                 mask_weights = self._compute_temporal_masking_weights(_rest_mono_mn, sr, artifacts)
                 for art, mw in zip(artifacts, mask_weights):
-                    art.salience_weighted_score = getattr(art, "salience_weighted_score", 1.0) * mw
+                    art.temporal_masking_weight = float(mw)
             except Exception as _tm_exc:
                 logger.debug("§B4 temporal-masking (musical_noise) non-blocking: %s", _tm_exc)
 
@@ -1427,7 +1434,9 @@ class ArtifactFreedomGate:
         else:
             duration_factor = 1.0
 
-        return freq_factor * context_factor * duration_factor
+        # §2.49 Spec: salience_weighted_score must be ∈ [0, 1] — clamp to prevent
+        # wsum > n_artifacts (false-positive rollback cascade)
+        return float(np.clip(freq_factor * context_factor * duration_factor, 0.0, 1.0))
 
     # ── Threshold helpers ──────────────────────────────────────────────────
 

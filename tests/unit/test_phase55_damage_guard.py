@@ -62,3 +62,56 @@ def test_phase55_metadata_contains_damage_and_thrash_guards(monkeypatch):
     assert result.success is True
     assert int(result.metadata.get("damage_guard_activations", 0)) >= 1
     assert bool(result.metadata.get("ml_thrashing_guard", False)) is True
+
+
+def test_fadeout_not_detected_as_dropout():
+    """Regression: musikalischer Fadeout darf NICHT als Transport-Dropout erkannt werden.
+
+    Bug: trailing silence nach graduellem Fadeout wurde als Gap klassifiziert →
+    _conservative_boundary_fill füllte mit dem letzten non-zero Wert → 'Stille explodiert'.
+    Fix: Fadeout-Slope-Check (-0.5 dB/frame) verhindert False-Positive-Erkennung.
+    """
+    sr = 48000
+    # 0.5 s Musik (0.3 fadein auf 0.5), dann gradual fadeout über 0.3 s, dann 0.2 s Stille
+    # Typisches Fadeout-Profil: Level sinkt langsam von 0.3 auf 0.0.
+    n_music = int(0.5 * sr)
+    n_fade = int(0.3 * sr)
+    n_silence = int(0.2 * sr)
+
+    t_music = np.ones(n_music, dtype=np.float32) * 0.3
+    t_fade = np.linspace(0.3, 0.0, n_fade, dtype=np.float32)  # gradual decline
+    t_silence = np.zeros(n_silence, dtype=np.float32)
+    audio = np.concatenate([t_music, t_fade, t_silence]).astype(np.float32)
+
+    # _detect_gaps soll keine Gaps finden — die trailing silence ist ein Fadeout
+    from backend.core.phases.phase_55_diffusion_inpainting import _detect_gaps
+    gaps = _detect_gaps(audio, sr, min_gap_ms=5.0)
+
+    # Kein Dropout darf erkannt werden (die "Lücke" ist musikaler Fadeout + Stille)
+    assert len(gaps) == 0, (
+        f"Fadeout fälschlich als Dropout erkannt: gaps={gaps}. "
+        "Root-Cause: fehlender Slope-Check in _detect_gaps trailing-gap-Block."
+    )
+
+
+def test_phase55_stereo_channel_first_axis_guard():
+    """Regression: UV3 übergibt Audio als (2, N) channel-first; Phase_55 muss (N, 2) erwarten.
+
+    Bug: `for ch in range(audio.shape[1])` bei (2, N) iteriert N-mal statt 2-mal →
+    94K+ Thrashing-Warnungen + leere Gap-Detektion (2-Sample Arrays haben keine Gaps).
+    Fix: Achsen-Guard transponiert (2,N)→(N,2) am Eingang und zurück am Ausgang.
+    """
+    sr = 48000
+    n = 4800  # 0.1 s
+    # Stereo-Audio im UV3-Format: (channels, samples) = (2, N)
+    audio_channel_first = np.random.default_rng(42).random((2, n)).astype(np.float32) * 0.1
+
+    phase = phase55.DiffusionInpaintingPhase()
+    result = phase.process(audio_channel_first, sr)
+
+    assert result.success is True
+    # Output muss dieselbe Form wie Input haben: (2, N)
+    assert result.audio.shape == audio_channel_first.shape, (
+        f"Achsen-Guard-Fehler: Input {audio_channel_first.shape} → Output {result.audio.shape}. "
+        "Erwartet: (2, N) channel-first bleibt erhalten."
+    )
