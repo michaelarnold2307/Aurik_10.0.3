@@ -617,7 +617,11 @@ class PerceptualValidator:
             if S.shape[1] > 1:
                 frame_corrs = []
                 for i in range(min(S.shape[1] - 1, 50)):
-                    c = float(np.corrcoef(S[:, i], S[:, i + 1])[0, 1])
+                    _a, _b = S[:, i], S[:, i + 1]
+                    # §VERBOTEN: np.corrcoef ohne std-Guard → RuntimeWarning bei near-constant STFT-Frames.
+                    if np.std(_a) < 1e-12 or np.std(_b) < 1e-12:
+                        continue  # silent frame → skip
+                    c = float(np.corrcoef(_a, _b)[0, 1])
                     if np.isfinite(c):
                         frame_corrs.append(c)
                 score = float(np.mean(frame_corrs)) if frame_corrs else 0.7

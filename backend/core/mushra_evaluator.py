@@ -448,9 +448,13 @@ class MushraEvaluator:
         try:
             P_ref = np.abs(np.fft.rfft(ref)) ** 2
             P_test = np.abs(np.fft.rfft(test)) ** 2
+            # §VERBOTEN: np.corrcoef ohne std-Guard → RuntimeWarning bei near-constant Signalen.
+            # Guarded std-Check VOR np.corrcoef (NaN-safe, kein Warning).
+            _std_ref = float(np.std(P_ref))
+            _std_test = float(np.std(P_test))
+            if _std_ref < 1e-12 or _std_test < 1e-12:
+                return 1.0 if np.allclose(P_ref, P_test, atol=1e-10) else 0.5
             corr = float(np.corrcoef(P_ref, P_test)[0, 1])
-            # NaN guard: np.corrcoef returns nan when std of one array is 0
-            # (e.g. near-silent test signal).  np.clip does NOT filter nan.
             if not np.isfinite(corr):
                 return 0.5
             return float(np.clip(corr, 0.0, 1.0))
