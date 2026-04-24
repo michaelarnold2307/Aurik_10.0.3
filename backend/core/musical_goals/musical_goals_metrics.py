@@ -1217,11 +1217,7 @@ class TransparenzMetric:
         Noise fills each band's floor (raises p50 toward p95) -> low crest;
         after noise removal p50 drops -> crest rises -> no false regression.
         Scientific basis: Moore & Glasberg (1983); ITU-T P.862 spectral clarity.
-        Calibrat# §9.10.120: Divisor 8.8 → 7.0 — recalibriert per Moore & Glasberg (1983).
-                # Typischer Band-Crest nach NR: 4–9.  Alter Divisor kappte crest=6
-                # auf 0.55 (unterbewertet transparentes Audio).  Neuer Divisor:
-                # crest 5 → 0.54, crest 8 → 0.97 — korrekte Bewertung klarer Signale.
-                _band_crests.append(float(np.clip((_p95 / _p50 - 1.2) / 7.01.0.
+        Calibration (§9.10.120): divisor 7.0 (was 8.8); crest 5 → 0.54, crest 8 → 0.97.
 
         Args:
             audio:     Processed audio signal.
