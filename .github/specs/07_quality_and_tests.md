@@ -83,6 +83,28 @@ Für `mode="restoration"` gilt ein materialadaptives End-Gate:
 
 **Invariante**: Restoration-Modus darf Audio nie verschlechtern — wenn OQS(output) < OQS(input), MUSS Rollback auf Input erfolgen.
 
+### §8.1.1c [RELEASE_MUST] MUSHRA-Referenz-Wahl bei CCR Reference-Shift (v9.11.14)
+
+Wenn `§0d carrier_chain_recovery_ratio > 0.05` aktiv ist, wurde `original_audio_for_goals`
+auf `best_carrier_checkpoint` (z. B. post-phase_23) verschoben. MUSHRA misst dann die Ähnlichkeit
+des **finalen** Audios zum Carrier-Checkpoint — nicht zum degradierten Input. Enhancement-Phasen
+(FeedbackChain, ExzellenzDenker) entfernen sich intentional vom Checkpoint → MUSHRA bestraft
+diese korrekte Verbesserung als Degradation → OQS < anchor (bestätigt: OQS=47.9 < anchor=57.6,
+2026-04-24).
+
+**Normative Invariante**: MUSHRA misst **immer** die Qualität des restaurierten Audios relativ
+zum **degradierten Input**, nie relativ zu einem Pipeline-Zwischenstand.
+
+**Implementierung in UV3** (`_holistic_perceptual_gate`):
+
+```python
+# CCR-Referenz-Fix: Bei aktivem CCR-Shift → degradiertes audio als MUSHRA-Referenz.
+_mushra_ref_src = audio if (original_audio_for_goals is not audio) else original_audio_for_goals
+```
+
+Der LUFS-Unterschied zwischen `audio` und `restored_audio` wird durch `lufs_score` ([0, 1])
+in der MushraEvaluator-Gewichtungsmatrix bereits abgebildet und ist kein Ausschlusskriterium.
+
 ---
 
 ## §8.1.2 AMRB v1.0 — Aurik Musical Restoration Benchmark

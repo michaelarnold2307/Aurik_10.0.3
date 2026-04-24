@@ -79,12 +79,13 @@ def test_mdem_no_boost_in_quiet_zone_main_path(mdem):
     restored_outro_level = _rms_dbfs(restored[outro_start:])
     result_outro_level = _rms_dbfs(result[outro_start:])
 
-    # Kein Boost erlaubt: Ergebnis darf max. 3 dB lauter als restauriertes Eingangssignal sein
-    assert result_intro_level <= restored_intro_level + 3.0, (
-        f"morph() Intro: result={result_intro_level:.1f} dBFS > restored+3={restored_intro_level + 3:.1f} dBFS"
+    # Kein Boost erlaubt: Mit §2.30b Per-Sample Guard darf maximal +1 dB Boost auftreten
+    # (Toleranz für Frame-Randfälle an der Musik/Stille-Grenze).
+    assert result_intro_level <= restored_intro_level + 1.0, (
+        f"morph() Intro: result={result_intro_level:.1f} dBFS > restored+1={restored_intro_level + 1:.1f} dBFS"
     )
-    assert result_outro_level <= restored_outro_level + 3.0, (
-        f"morph() Outro: result={result_outro_level:.1f} dBFS > restored+3={restored_outro_level + 3:.1f} dBFS"
+    assert result_outro_level <= restored_outro_level + 1.0, (
+        f"morph() Outro: result={result_outro_level:.1f} dBFS > restored+1={restored_outro_level + 1:.1f} dBFS"
     )
 
 
@@ -139,4 +140,50 @@ def test_mdem_music_section_not_suppressed(mdem):
     assert music_result_level >= music_restored_level - 3.0, (
         f"Musiksektion wurde zu stark gedämpft: result={music_result_level:.1f} dBFS "
         f"vs restored={music_restored_level:.1f} dBFS"
+    )
+
+
+def test_mdem_no_boost_at_music_to_quiet_boundary(mdem):
+    """§2.30b Per-Sample Guard: Positiver Gain an der Musik→Quiet-Zone-Grenze.
+
+    Reproduziert die Lücke: Frame k hat Musik (+4 dB Boost), Frame k+1 hat
+    Quiet-Zone (G=0 durch Post-Smoothing Guard). linspace interpoliert von 1.585
+    auf 1.0 über HOP=9600 Samples — aber das Audio ist bereits im Quiet-Zone
+    (<-36 dBFS), während die Interpolations-Ramp noch > 1.0 ist.
+    Ohne §2.30b Per-Sample Guard: Pegelexplosion im Übergangsbereich.
+    """
+    sr = 48000
+    FSIZE = 19200  # 400 ms Frame
+
+    total = sr * 3  # 3 Sekunden
+    music_end = FSIZE  # = 19200 Samples (= 400 ms)
+
+    rng = np.random.default_rng(99)
+
+    # Original: Musik bei -18 dBFS, dann Rauschen bei -35 dBFS
+    orig = np.zeros(total, dtype=np.float32)
+    t = np.arange(music_end) / sr
+    orig[:music_end] = float(10 ** (-18 / 20)) * np.sin(2 * np.pi * 440 * t).astype(np.float32)
+    orig[music_end:] = rng.uniform(-float(10 ** (-35 / 20)), float(10 ** (-35 / 20)), total - music_end).astype(
+        np.float32
+    )
+
+    # Restauriert: Musik leicht schwächer (-24 dBFS), Quiet-Zone bei -50 dBFS
+    rest = np.zeros(total, dtype=np.float32)
+    rest[:music_end] = float(10 ** (-24 / 20)) * np.sin(2 * np.pi * 440 * t).astype(np.float32)
+    rest[music_end:] = rng.uniform(-float(10 ** (-50 / 20)), float(10 ** (-50 / 20)), total - music_end).astype(
+        np.float32
+    )
+
+    result = mdem.morph(rest, orig, sr=sr, mode="restoration")
+
+    # Quiet-Zone-Bereich (ab music_end) darf keinen positiven Boost haben
+    rest_peak = float(np.max(np.abs(rest[music_end:])) + 1e-12)
+    result_peak = float(np.max(np.abs(result[music_end:])) + 1e-12)
+    boost_db = 20.0 * math.log10(result_peak / rest_peak)
+
+    assert boost_db <= 1.0, (
+        f"§2.30b Per-Sample Guard verletzt: Pegelexplosion im Quiet-Zone-Übergang: "
+        f"+{boost_db:.1f} dB (Grenzwert: +1 dB). "
+        f"Interpolations-Ramp aus Musik-Frame noch aktiv obwohl Audio bereits -50 dBFS."
     )

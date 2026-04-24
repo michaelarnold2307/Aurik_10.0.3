@@ -1925,6 +1925,10 @@ class BatchProcessingThread(QThread):
                 _uv3_total_known: list[int] = [0]  # UV3 meldet Gesamtzahl vorab → fixer Total-Wert
                 _sp2_phase_reset: list[bool] = [False]  # set True to reset per-phase sub-bar to 0
                 _post_processing_started: list[bool] = [False]  # tracks first post-UV3 callback (pct≥86)
+                # Rate-limit for defect-correcting animations: prevents 11-defect burst when
+                # carrier-repair phases complete rapidly (short audio / fast DSP path).
+                # Two "correcting" updates within 350 ms are coalesced into one.
+                _defect_correcting_last_emit: list[float] = [0.0]
                 # NOTE: _sp_thread MUST start AFTER all closure variables above are defined.
                 # Earlier start created a theoretical NameError race: the thread's first tick
                 # (33 ms after start) accesses _uv3_total_known/_sp2_phase_reset/
@@ -2316,10 +2320,24 @@ class BatchProcessingThread(QThread):
                                             if isinstance(_current_defect_scores.get(_dk), (int, float)):
                                                 _current_defect_scores[_dk] = 0.0
                                         _defect_reduced_phase = True
+                            # Rate-limit: coalesce rapid burst of defect-green animations.
+                            # _rate_ok gates BOTH the plain "correcting" emit AND the
+                            # "_active_defects" emit below.  Without gating the active_defects
+                            # path, it would carry already-zeroed scores (from the score-zeroing
+                            # loop above) and trigger spurious greening even when the
+                            # "correcting" emit was rate-limited — bypassing the 350 ms guard.
+                            # When no defects were zeroed (_defect_reduced_phase=False), the
+                            # active_defects emit is always allowed (no greening risk).
+                            _now_defect = time.perf_counter()
+                            _rate_ok = not _defect_reduced_phase or (
+                                _now_defect - _defect_correcting_last_emit[0] >= 0.35
+                            )
                             if _defect_reduced_phase:
                                 if _current_plugin and hasattr(self, "waveform_widget"):
                                     self.waveform_widget._active_tool = _current_plugin
-                                _emit_defect_update({**_current_defect_scores, "status": "correcting"})
+                                if _rate_ok:
+                                    _defect_correcting_last_emit[0] = _now_defect
+                                    _emit_defect_update({**_current_defect_scores, "status": "correcting"})
 
                             _last_phase_key[0] = _phase_key
                             _last_raw_phase_id[0] = _raw_pid
@@ -2340,6 +2358,9 @@ class BatchProcessingThread(QThread):
                                     _sp2["target"] = _post_pct
                             # Emit defect update with "_active_defects" so the panel immediately
                             # shows which specific defects the new phase is targeting.
+                            # Gate: only fire when _rate_ok — prevents this path from carrying
+                            # already-zeroed scores and causing spurious greening when the
+                            # "correcting" emit above was rate-limited (bypass guard).
                             _active_keys: list[str] = []
                             for _pak, _padlist in _PHASE_ACTIVE_DEFECTS.items():
                                 if _pak in _msg_lower or _pak in _msg_underscored:
@@ -2350,11 +2371,11 @@ class BatchProcessingThread(QThread):
                                             and _current_defect_scores[_adk] > 0.01
                                         ):
                                             _active_keys.append(_adk)
-                            if _active_keys:
+                            if _active_keys and _rate_ok:
                                 _emit_defect_update(
                                     {**_current_defect_scores, "status": "correcting", "_active_defects": _active_keys}
                                 )
-                            else:
+                            elif not _active_keys:
                                 # No active defects for this phase: clear stale repair hint text
                                 # to avoid contradictory status lines (e.g. previous defect + new phase).
                                 self._current_repair_names = ""
@@ -2404,11 +2425,14 @@ class BatchProcessingThread(QThread):
                     elif pct < 20:
                         _d_step = 8  # Vorverarbeitung + UV3-Analyse (pct=12–19)
                         _step_desc = _step_desc or "Vorverarbeitung & Analyse"
-                    elif pct < 90 and _cur_pid:
-                        # Nur Nachrichten mit expliziter [phase_id]-Annotation werden gezählt.
-                        # Generische Nachrichten wie "Pipeline startet…" (pct=20, kein [id])
-                        # würden _uv3_count inflationieren und "Stufe 10/19" statt "Stufe 9/19"
-                        # produzieren — daher Fallback-Schlüssel bewusst NICHT mehr zählen.
+                    elif pct < 90 and _cur_pid and not _post_processing_started[0]:
+                        # Nur Nachrichten mit expliziter [phase_id]-Annotation während der
+                        # Haupt-Pipeline werden gezählt.  FeedbackChain-Phasen feuern bei
+                        # pct=87–89 (< 90) mit [phase_id] — aber _post_processing_started ist
+                        # bereits True (gesetzt bei pct=86).  Ohne diesen Guard würden die
+                        # 5 FeedbackChain-Phasen _uv3_count von 32 auf 37 springen lassen und
+                        # _d_total von 42 auf 47 → Schrittzähler springt und
+                        # "Stufe 41/42" erscheint als "Stufe 46/47" = Endoptimierung scheinbar zu früh.
                         if _cur_pid not in _uv3_seen:
                             _uv3_count[0] += 1
                             _uv3_seen[_cur_pid] = _PRE_STEPS + _uv3_count[0]

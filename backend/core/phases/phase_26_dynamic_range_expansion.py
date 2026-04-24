@@ -290,20 +290,37 @@ class DynamicRangeExpansion(PhaseInterface):
                 _dr_ceil = _dr_ceil * 1.5  # Studio 2026: Soft-Cap at 1.5×
 
             if dr_after > _dr_ceil:
-                # Blend back toward input to cap DR at ceiling
-                _cap_ratio = max(0.0, min(1.0, (_dr_ceil - dr_before) / max(dr_increase_db, 0.01)))
-                expanded_audio = audio + _cap_ratio * (expanded_audio - audio)
-                expanded_audio = np.clip(expanded_audio, -1.0, 1.0)
-                dr_after = self._measure_dynamic_range(expanded_audio)
-                dr_increase_db = dr_after - dr_before
-                _dr_ceiling_capped = True
-                logger.info(
-                    "§6.2b DR-Ceiling: dr_after=%.1f > ceil=%.1f (material=%s) → capped to %.1f dB",
-                    dr_after + dr_increase_db,
-                    _dr_ceil,
-                    _mat_key,
-                    dr_after,
-                )
+                _dr_after_uncapped = dr_after  # save before blend-back for logging
+                if dr_before >= _dr_ceil:
+                    # Input already exceeds ceiling — expansion would violate §6.2b.
+                    # Skip expansion entirely (cap_ratio=0 = full rollback to original).
+                    expanded_audio = audio.copy()
+                    dr_after = dr_before
+                    dr_increase_db = 0.0
+                    _dr_ceiling_capped = True
+                    logger.info(
+                        "§6.2b DR-Ceiling: source already exceeds ceiling "
+                        "(dr_before=%.1f >= ceil=%.1f, material=%s) → expansion skipped",
+                        dr_before,
+                        _dr_ceil,
+                        _mat_key,
+                    )
+                else:
+                    # Blend back toward input to cap DR at ceiling
+                    _cap_ratio = max(0.0, min(1.0, (_dr_ceil - dr_before) / max(_dr_after_uncapped - dr_before, 0.01)))
+                    expanded_audio = audio + _cap_ratio * (expanded_audio - audio)
+                    expanded_audio = np.clip(expanded_audio, -1.0, 1.0)
+                    dr_after = self._measure_dynamic_range(expanded_audio)
+                    dr_increase_db = dr_after - dr_before
+                    _dr_ceiling_capped = True
+                    logger.info(
+                        "§6.2b DR-Ceiling: dr_before=%.1f, uncapped=%.1f > ceil=%.1f (material=%s) → capped to %.1f dB",
+                        dr_before,
+                        _dr_after_uncapped,
+                        _dr_ceil,
+                        _mat_key,
+                        dr_after,
+                    )
         except Exception as _dr_ceil_exc:
             logger.debug("DR-Ceiling check failed (non-blocking): %s", _dr_ceil_exc)
 

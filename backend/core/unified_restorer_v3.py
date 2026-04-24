@@ -8008,17 +8008,63 @@ class UnifiedRestorerV3:
                     }.get(_mat_key_nf, 1.5)
                     _final_delta = abs(_lufs_rest_final - _lufs_orig_final)
                     if _final_delta > 4.0:
-                        _needed_db_final = float(np.clip(float(_lufs_orig_final - _lufs_rest_final), -12.0, 12.0))
+                        # §2.45a-II §0d Adaptive-LUFS-Rescue (v9.11.14):
+                        # Problem 1 — Wrong delta: integrated LUFS compares original (WITH carrier
+                        # noise at -35 dBFS throughout) vs restored (WITHOUT carrier noise → quiet
+                        # sections at -55 dBFS). The 14.75 LU delta is mostly carrier-noise removal,
+                        # NOT music signal loss. Applying 12 dB gain over-corrects massively.
+                        # Fix: compute music-gated delta — only frames where original is above the
+                        # original signal's noise floor + 6 dB (i.e., genuine music frames).
+                        #
+                        # Problem 2 — Wrong gate: _musical_gain_envelope used fixed -50 dBFS gate.
+                        # Residual carrier noise at -35 dBFS passes the gate → gets full LUFS boost →
+                        # Pegelexplosion at intro/outro.
+                        # Fix: adaptive gate = P5(original) + 6 dB → excludes carrier noise,
+                        # only boosts genuine music frames.
+
+                        # Adaptive gate: 5th percentile of original = carrier noise floor
+                        _adaptive_gate_dbfs = float(np.clip(float(_noise_before_final) + 6.0, -48.0, -18.0))
+
+                        # Music-gated delta: measure actual signal drop in music frames only
+                        # (ignores carrier-noise sections that inflate integrated LUFS delta)
+                        _hop_mg = 4800  # 100 ms @ 48 kHz
+                        _gate_lin_mg = float(10.0 ** (_adaptive_gate_dbfs / 20.0))
+                        _rest_arr_mg = np.asarray(restored_audio, dtype=np.float32)
+                        _orig_arr_mg = _orig_for_nf  # already aligned to restored length
+                        _orig_1d_mg = np.mean(_orig_arr_mg, axis=-1) if _orig_arr_mg.ndim == 2 else _orig_arr_mg.ravel()
+                        _rest_1d_mg = np.mean(_rest_arr_mg, axis=-1) if _rest_arr_mg.ndim == 2 else _rest_arr_mg.ravel()
+                        _n_mg = min(len(_orig_1d_mg), len(_rest_1d_mg))
+                        _n_frames_mg = _n_mg // _hop_mg
+                        _needed_db_music = 0.0
+                        if _n_frames_mg >= 3:
+                            _of = _orig_1d_mg[: _n_frames_mg * _hop_mg].reshape(_n_frames_mg, _hop_mg)
+                            _rf = _rest_1d_mg[: _n_frames_mg * _hop_mg].reshape(_n_frames_mg, _hop_mg)
+                            _rms_o = np.sqrt(np.mean(_of**2, axis=1) + 1e-15)
+                            _rms_r = np.sqrt(np.mean(_rf**2, axis=1) + 1e-15)
+                            _music_mask_mg = _rms_o > _gate_lin_mg
+                            if np.any(_music_mask_mg):
+                                _rms_o_music = float(np.sqrt(np.mean(_rms_o[_music_mask_mg] ** 2)))
+                                _rms_r_music = float(np.sqrt(np.mean(_rms_r[_music_mask_mg] ** 2)))
+                                _raw_music_delta = 20.0 * np.log10((_rms_o_music + 1e-15) / (_rms_r_music + 1e-15))
+                                # Only allow positive correction (restore lost signal, never attenuate)
+                                # Cap at 6 dB: genuine denoising rarely drops music by more than 6 dB
+                                _needed_db_music = float(np.clip(_raw_music_delta, 0.0, 6.0))
+                                logger.info(
+                                    "§2.45a music-gated LUFS: integrated_delta=%.2f LU → "
+                                    "music_delta=%.2f dB (gate=%.1f dBFS, music_frames=%d/%d)",
+                                    _final_delta,
+                                    _raw_music_delta,
+                                    _adaptive_gate_dbfs,
+                                    int(np.sum(_music_mask_mg)),
+                                    _n_frames_mg,
+                                )
+
+                        _needed_db_final = _needed_db_music  # Use music-gated delta, not integrated LUFS delta
                         _gain_final = float(10.0 ** (_needed_db_final / 20.0))
-                        # §2.45a-II + §0d Fadeout-Explosion-Fix (v9.11.70):
-                        # Vorherige Inline-Funktion verwendete fixen -50 dBFS-Gate + 2048-Sample-Frames.
-                        # Vinyl/Shellac-Rauschen bei -42 dBFS überleben den fixen Gate und bekommen
-                        # volle LUFS-Korrektur → Wellenform-Explosion im Fadeout.
-                        # _musical_gain_envelope: adaptiver P5+6dB-Gate + 480-Sample-Frames (§v9.11.62).
                         _rescued_final = UnifiedRestorerV3._musical_gain_envelope(
                             np.asarray(restored_audio, dtype=np.float32),
                             _gain_final,
-                            gate_dbfs=-50.0,
+                            gate_dbfs=_adaptive_gate_dbfs,  # adaptive: P5(orig)+6dB, not fixed -50 dBFS
                             crossfade_ms=10.0,
                             sr=sample_rate,
                         )
@@ -11075,11 +11121,18 @@ class UnifiedRestorerV3:
             from backend.core.mushra_evaluator import get_mushra_evaluator as _get_mushra
 
             _mushra_eval = _get_mushra()
-            # §§2.45a + §8.1 [RELEASE_MUST] MUSHRA-Referenz muss original_audio_for_goals sein,
-            # NICHT audio. §2.45a aligniert restored_audio an original_audio_for_goals; wird audio
-            # als Referenz genommen, bleibt der inherente LUFS-Unterschied (bis 10 LU) sichtbar
-            # und verfälscht OQS um ~15 Punkte (global, song-unabhängig).
-            _mushra_ref_src = original_audio_for_goals
+            # §§2.45a + §8.1 [RELEASE_MUST] MUSHRA-Referenz-Wahl:
+            # Normalfall: original_audio_for_goals (= audio, LUFS-aligned zu restored_audio).
+            # §0d CCR Reference-Shift-Ausnahme: Wenn CCR aktiv ist, wurde original_audio_for_goals
+            # auf best_carrier_checkpoint (post-Carrier-Phase) verschoben. MUSHRA würde dann
+            # die Ähnlichkeit des finalen Audios zum Carrier-Checkpoint messen — nicht die
+            # Restaurierungsqualität gegenüber dem degradierten Input. Das verfälscht OQS
+            # (finale Audio entfernt sich intentional vom Carrier-Checkpoint durch FeedbackChain
+            # Enhancement → OQS < anchor trotz objektiver Qualitätsverbesserung).
+            # Fix: Bei CCR Reference-Shift (original_audio_for_goals is not audio) → audio als
+            # MUSHRA-Referenz. Der LUFS-Unterschied (bis 10 LU) wird durch mushra_evaluator
+            # bereits in lufs_score ([0, 1]) abgebildet und ist kein Ausschlusskriterium.
+            _mushra_ref_src = audio if (original_audio_for_goals is not audio) else original_audio_for_goals
             _orig_mono_m = _mushra_ref_src if _mushra_ref_src.ndim == 1 else _mushra_ref_src.mean(axis=0)
             _rest_mono_m = restored_audio if restored_audio.ndim == 1 else restored_audio.mean(axis=0)
             _mushra_result = _mushra_eval.evaluate(
@@ -16540,23 +16593,31 @@ class UnifiedRestorerV3:
             # §Spec04 RELEASE_MUST: Pipeline-Wall-Time-Budget — verhindert 25:1-Ratio-Hänger.
             # Material-adaptive: mehr Zeit für schlechte Materialien, weniger für saubere.
             _PIPELINE_WALL_BUDGET_S: dict[str, float] = {
-                "shellac": 900.0,
-                "wax_cylinder": 900.0,
-                "wire_recording": 900.0,
-                "vinyl": 600.0,
-                "reel_tape": 600.0,
-                "tape": 600.0,
-                "cassette": 540.0,
-                "lacquer_disc": 600.0,
-                "minidisc": 480.0,
-                "mp3_low": 360.0,
-                "mp3_high": 300.0,
-                "cd_digital": 300.0,
-                "streaming": 300.0,
+                # CPU-only realistische Werte: 4-5 min Song, alle Phasen vollständig.
+                # Gemessen: vinyl non-exempt ~1372 s auf CPU-only — Budget war 600 s (zu klein).
+                # Neue Werte: ~2× gemessene Maximal-Laufzeit als Hänger-Schutz-Grenze.
+                "shellac": 3600.0,  # 1h — viele Pflicht-Phasen, ML-Pitch, AudioSR
+                "wax_cylinder": 3600.0,
+                "wire_recording": 3600.0,
+                "vinyl": 2700.0,  # 45 min — ~1372 s non-exempt gemessen + 2× Puffer
+                "reel_tape": 2700.0,
+                "tape": 2700.0,
+                "cassette": 2400.0,
+                "lacquer_disc": 2700.0,
+                "minidisc": 1800.0,
+                "mp3_low": 1800.0,
+                "mp3_high": 1200.0,
+                "cd_digital": 1200.0,
+                "streaming": 900.0,
             }
             _mat_key_budget = str(getattr(material_type, "value", str(material_type))).lower()
             _pipeline_wall_budget = float(_PIPELINE_WALL_BUDGET_S.get(_mat_key_budget, 480.0))
             _pipeline_start_time = time.time()
+            # §Wall-Time-Budget non-exempt tracker: nur nicht-exempt-Phasen zählen zum Budget.
+            # Exempt-Phasen (§6.2a: click, crackle, wow/flutter, phase_corr, dc_offset) sind
+            # Pflicht und können auf CPU lange laufen (pYIN, ML-Pitch) — sie dürfen das Budget
+            # für optionale/Enhancement-Phasen NICHT aufbrauchen.
+            _pipeline_non_exempt_elapsed_s: float = 0.0
             # §6.2a: Diese Phasen dürfen NICHT durch das Wall-Time-Budget übersprungen werden.
             _WALL_BUDGET_EXEMPT_PHASES = frozenset(
                 {
@@ -16566,6 +16627,9 @@ class UnifiedRestorerV3:
                     "phase_14_phase_correction",
                     "phase_15_stereo_balance",
                     "phase_30_dc_offset_removal",
+                    # §2.46 Carrier-Chain subtraktiv: Vinyl-Oberflächenrauschen ist Träger-Defekt,
+                    # muss wie phase_09 unabhängig vom Budget laufen.
+                    "phase_28_surface_noise_profiling",
                 }
             )
 
@@ -16602,12 +16666,15 @@ class UnifiedRestorerV3:
 
                 # §Spec04 Wall-Time-Budget: Phasen überspringen die das Budget sprengen würden.
                 # §0c: Kein harter Abbruch — verbleibende Phasen als Passthrough, nicht Skip.
+                # §non-exempt-only: Nur nicht-exempt Phasen zählen zum Budget — exempt Phasen
+                # (§6.2a mandatory: click, crackle, wow/flutter, phase_corr, dc_offset) können
+                # auf CPU-only Systemen sehr lang laufen (ML-Pitch, pYIN auf 4-min Audio) ohne
+                # dass optionale Restaurierungs- oder Enhancement-Phasen ihr Budget verlieren.
                 if phase_id not in _WALL_BUDGET_EXEMPT_PHASES:
-                    _elapsed_wall = time.time() - _pipeline_start_time
-                    if _elapsed_wall > _pipeline_wall_budget:
+                    if _pipeline_non_exempt_elapsed_s > _pipeline_wall_budget:
                         logger.warning(
-                            "§Wall-Time-Budget: %.0f s > %.0f s (material=%s) — %s als Passthrough übersprungen",
-                            _elapsed_wall,
+                            "§Wall-Time-Budget: %.0f s non-exempt > %.0f s (material=%s) — %s als Passthrough übersprungen",
+                            _pipeline_non_exempt_elapsed_s,
                             _pipeline_wall_budget,
                             _mat_key_budget,
                             phase_id,
@@ -16616,6 +16683,11 @@ class UnifiedRestorerV3:
                         continue
 
                 phase_start = self.performance_guard.start_phase(phase_id) if self.performance_guard else time.time()
+                # §Wall-Time-Budget: _wall_phase_start nutzt time.monotonic() — kompatibel
+                # mit time.perf_counter() UND time.time()-Fallback. start_phase() gibt
+                # perf_counter() zurück (Systemuptime), time.time() ist Unix-Epoch —
+                # beide sind NICHT subtrahierbar (Bug: ~1.744.900.000 s statt echte Laufzeit).
+                _wall_phase_start = time.monotonic()
                 # §OOM-Diagnose: Phase-Identity VOR Eviction loggen — damit der Phase-Name
                 # im Log erscheint, BEVOR PLM-Eviction das RAM-Niveau ändert.
                 # Ohne diesen Log kann bei einem OOM-Kill nicht mehr zurückverfolgt werden,
@@ -17445,6 +17517,13 @@ class UnifiedRestorerV3:
                     _record_oom_probe("phase_exception", phase_id, error=f"{type(e).__name__}:{e}")
                 if self.performance_guard:
                     self.performance_guard.end_phase(phase_id, phase_start)
+                # §Wall-Time-Budget: Non-exempt Phasen-Laufzeit kumulieren.
+                # Exempt-Phasen (§6.2a) werden hier NICHT gezählt — sie haben eigene
+                # interne Guards und dürfen das Enhancement-Budget nicht verbrauchen.
+                # _wall_phase_start (time.monotonic()) statt phase_start (perf_counter/time.time())
+                # um den perf_counter vs time.time() Mismatch-Bug zu vermeiden.
+                if phase_id not in _WALL_BUDGET_EXEMPT_PHASES:
+                    _pipeline_non_exempt_elapsed_s += time.monotonic() - _wall_phase_start
                 # OOM-Guard: GC nach JEDER Phase — STFT-Matrizen (je ~173 MB)
                 # und PMGG-Retries akkumulieren Speicher schneller als gc.collect
                 # alle 5 Phasen abräumen kann (OOM-Crash bei 225s Tape, 24.03.2026).

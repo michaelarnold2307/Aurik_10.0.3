@@ -52,6 +52,9 @@ from typing import Any
 
 import numpy as np
 from scipy import signal
+from scipy.ndimage import minimum_filter1d as _minimum_filter1d
+from scipy.signal import lfilter as _lfilter
+from scipy.signal import lfilter_zi as _lfilter_zi
 
 from backend.core.audio_utils import safe_to_mono, to_channels_last
 from backend.core.defect_scanner import MaterialType
@@ -404,12 +407,14 @@ class SurfaceNoiseProfiling(PhaseInterface):
         # Step 3: OMLSA-Gain
         gain = self._compute_omlsa_gain(magnitude, noise_mag, config)
 
-        # Step 4: Cappé-Gain-Glättung
+        # Step 4: Cappé-Gain-Glättung (vectorised IIR via lfilter — O(F) per col, no Python loop)
         alpha_g = 1.0 - 1.0 / max(config["smoothing_frames"], 1)
-        gain_smooth = np.zeros_like(gain)
-        gain_smooth[:, 0] = gain[:, 0]
-        for ti in range(1, gain.shape[1]):
-            gain_smooth[:, ti] = alpha_g * gain_smooth[:, ti - 1] + (1.0 - alpha_g) * gain[:, ti]
+        # First-order causal IIR: y[n] = alpha_g*y[n-1] + (1-alpha_g)*x[n], y[0] = gain[0]
+        # lfilter_zi gives steady-state zi so that y[0] = x[0] (no startup transient)
+        _b_g = [1.0 - alpha_g]
+        _a_g = [1.0, -alpha_g]
+        _zi_g = _lfilter_zi(_b_g, _a_g)[np.newaxis, :] * gain[:, 0:1]  # (F, 1)
+        gain_smooth, _ = _lfilter(_b_g, _a_g, gain, axis=1, zi=_zi_g)
         gain_smooth = np.nan_to_num(gain_smooth, nan=1.0, posinf=1.0, neginf=0.1)
         gain_smooth = np.clip(gain_smooth, 0.1, 1.0)
 
@@ -474,17 +479,26 @@ class SurfaceNoiseProfiling(PhaseInterface):
         hop_s = float(t_arr[1] - t_arr[0]) if T > 1 and len(t_arr) > 1 else 0.01
         M = max(15, round(1.5 / hop_s))
 
-        # Geglättete Leistung P_hat (F × T)
-        P_hat = magnitude**2
-        for ti in range(1, T):
-            P_hat[:, ti] = alpha_n * P_hat[:, ti - 1] + (1.0 - alpha_n) * magnitude[:, ti] ** 2
+        # Geglättete Leistung P_hat (F × T) — vectorised causal IIR via lfilter
+        # P_hat[t] = alpha_n * P_hat[t-1] + (1-alpha_n) * |Y[t]|^2, P_hat[0] = |Y[0]|^2
+        # lfilter_zi gives steady-state zi so that P_hat[0] = |Y[0]|^2 (no startup transient)
+        _b_p = [1.0 - alpha_n]
+        _a_p = [1.0, -alpha_n]
+        _zi_p = _lfilter_zi(_b_p, _a_p)[np.newaxis, :] * (magnitude[:, 0:1] ** 2)  # (F, 1)
+        P_hat, _ = _lfilter(_b_p, _a_p, magnitude**2, axis=1, zi=_zi_p)
         P_hat = np.nan_to_num(P_hat, nan=eps)
 
-        # Gleitendes Minimum über M Frames
-        noise_power = np.zeros((F, T), dtype=np.float64)
-        for ti in range(T):
-            start = max(0, ti - M)
-            noise_power[:, ti] = np.min(P_hat[:, start : ti + 1], axis=1)
+        # Gleitendes Minimum über M Frames — vectorised via minimum_filter1d
+        # origin = M//2 shifts the centered window left: causal window covers [t-M, t]
+        # mode='constant', cval=max ensures boundary frames use +inf (no wrap-around)
+        noise_power = _minimum_filter1d(
+            P_hat,
+            size=M + 1,
+            axis=1,
+            origin=M // 2,
+            mode="constant",
+            cval=np.finfo(P_hat.dtype).max,
+        )
 
         # Bias-Korrektur + Wurzel → Rauschbetrag
         noise_mag = np.sqrt(np.maximum(b_min * noise_power, eps))

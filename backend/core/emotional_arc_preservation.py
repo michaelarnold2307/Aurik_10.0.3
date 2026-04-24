@@ -563,6 +563,12 @@ class EmotionalArcPreservationMetric:
         # audible volume jump at the end of the song.
         _quiet_rms_thresh = 10.0 ** (-42.0 / 20.0)  # −42 dBFS = quiet/fade-out zone
         _noise_diff_thresh_db = 6.0
+        # §2.30b Guard 2 — Moderate quiet zone (-30 to -42 dBFS restored) combined
+        # with large Original-vs-Restored gap (> max_gain_db dB).
+        # Mirrors the identical guard in MDEM morph() G-loop. Catches cases where
+        # vinyl crackle (-20 dBFS orig) is reduced to -35 dBFS restored:
+        # diff=15 dB >> max_gain_db=6 dB → Pegelexplosion without this guard.
+        _moderate_quiet_rms_thresh = 10.0 ** (-30.0 / 20.0)  # −30 dBFS
         for _i in range(len(gain_db)):
             if gain_db[_i] > 0.0:
                 if rms_rest[_i] < _silence_rms_thresh:
@@ -571,6 +577,12 @@ class EmotionalArcPreservationMetric:
                     _diff = 20.0 * np.log10((rms_orig[_i] + eps) / (rms_rest[_i] + eps))
                     if _diff >= _noise_diff_thresh_db:
                         gain_db[_i] = 0.0  # Denoised fade-out: no boost
+                elif rms_rest[_i] < _moderate_quiet_rms_thresh:
+                    # Moderate quiet zone: only block if gap > max_gain_db
+                    # (genuine music dynamics rarely exceed max_gain_db)
+                    _diff_mod = 20.0 * np.log10((rms_orig[_i] + eps) / (rms_rest[_i] + eps))
+                    if _diff_mod > max_gain_db:
+                        gain_db[_i] = 0.0  # Carrier-noise reduction, not music dynamics
 
         # Savitzky-Golay smooth (boxcar fallback)
         if len(gain_db) >= 7:
@@ -598,6 +610,10 @@ class EmotionalArcPreservationMetric:
                     _diff_ps = 20.0 * np.log10((rms_orig[_i] + eps) / (rms_rest[_i] + eps))
                     if _diff_ps >= _noise_diff_thresh_db:
                         gain_db[_i] = 0.0  # Post-smoothing: denoised fade-out, no boost
+                elif rms_rest[_i] < _moderate_quiet_rms_thresh:
+                    _diff_ps_mod = 20.0 * np.log10((rms_orig[_i] + eps) / (rms_rest[_i] + eps))
+                    if _diff_ps_mod > max_gain_db:
+                        gain_db[_i] = 0.0  # Post-smoothing: carrier-noise reduction, no boost
 
         # ---- Interpolate to sample-level via segment centres ----
         centres = np.array([start + seg_len // 2 for start in positions], dtype=np.float64)

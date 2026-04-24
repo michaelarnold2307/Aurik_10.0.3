@@ -299,28 +299,143 @@ def validate_export_quality(result: Any) -> tuple[bool, list[str]]:
     meta = getattr(result, "metadata", {}) or {}
     goals_meta = meta.get("musical_goals", {})
     goal_scores: dict = goals_meta.get("scores", {})
-    goals_meta.get("thresholds", {})
+    # §09.2 PMGG-Blend-Invariante: adaptive_thresholds aus UV3 _effective_goal_thresholds
+    # nutzen (material/era/restorability-adaptiv). Fallback nur wenn nicht vorhanden.
+    _adaptive_thresholds: dict = goals_meta.get("thresholds", {}) or {}
+    # Auch direkt auf result.adaptive_thresholds prüfen (§2.53 Propagations-Pflicht)
+    if not _adaptive_thresholds:
+        _at_direct = getattr(result, "adaptive_thresholds", None)
+        if isinstance(_at_direct, dict):
+            _adaptive_thresholds = _at_direct
     violations: list = goals_meta.get("violations", [])
 
-    # P1/P2 goals with hard minimum thresholds (below these the result is unacceptable)
-    _P1P2_HARD_MINIMUMS = {
-        "natuerlichkeit": 0.82,  # P1: absolute Untergrenze (8% unter Zielwert 0.90)
-        "authentizitaet": 0.80,  # P1: absolute Untergrenze (8% unter Zielwert 0.88)
-        "tonal_center": 0.88,  # P2: absolute Untergrenze (7% unter Zielwert 0.95)
-        "timbre_authentizitaet": 0.79,  # P2: absolute Untergrenze (8% unter Zielwert 0.87)
-        "artikulation": 0.77,  # P2: absolute Untergrenze (8% unter Zielwert 0.85)
+    # §09.2 Material-adaptiver Fallback-Boden (wenn keine adaptive_thresholds vorhanden).
+    # Abgeleitet aus Spec §09.2b Material-Bias + §0a Physical-Ceiling — physikalisch erreichbar.
+    # Basiert auf: canonical_floor + material_bias, geclippt auf physikalisches Minimum.
+    # Getrennt nach material_type (aus Metadaten, Fallback: "unknown" = konservativ).
+    _mat_key = str(meta.get("material_type") or meta.get("primary_material") or "unknown").lower()
+    # Ultra-Analog: Shellac, Wax, Wire — physikalisch stark limitiert (§0a, §09.2b)
+    _MATERIAL_P1P2_FALLBACK: dict[str, dict[str, float]] = {
+        "shellac": {
+            "natuerlichkeit": 0.62,
+            "authentizitaet": 0.60,
+            "tonal_center": 0.65,
+            "timbre_authentizitaet": 0.60,
+            "artikulation": 0.56,
+        },
+        "wax_cylinder": {
+            "natuerlichkeit": 0.60,
+            "authentizitaet": 0.58,
+            "tonal_center": 0.62,
+            "timbre_authentizitaet": 0.57,
+            "artikulation": 0.54,
+        },
+        "wire_recording": {
+            "natuerlichkeit": 0.60,
+            "authentizitaet": 0.58,
+            "tonal_center": 0.62,
+            "timbre_authentizitaet": 0.57,
+            "artikulation": 0.54,
+        },
+        # Normal-Analog: Vinyl, Tape, Reel — moderate physikalische Limits (§09.2b MATERIAL_BIAS_ANALOG)
+        "vinyl": {
+            "natuerlichkeit": 0.72,
+            "authentizitaet": 0.70,
+            "tonal_center": 0.74,
+            "timbre_authentizitaet": 0.70,
+            "artikulation": 0.66,
+        },
+        "reel_tape": {
+            "natuerlichkeit": 0.72,
+            "authentizitaet": 0.70,
+            "tonal_center": 0.74,
+            "timbre_authentizitaet": 0.70,
+            "artikulation": 0.66,
+        },
+        "tape": {
+            "natuerlichkeit": 0.70,
+            "authentizitaet": 0.68,
+            "tonal_center": 0.72,
+            "timbre_authentizitaet": 0.68,
+            "artikulation": 0.64,
+        },
+        "cassette": {
+            "natuerlichkeit": 0.68,
+            "authentizitaet": 0.66,
+            "tonal_center": 0.70,
+            "timbre_authentizitaet": 0.66,
+            "artikulation": 0.62,
+        },
+        "lacquer_disc": {
+            "natuerlichkeit": 0.70,
+            "authentizitaet": 0.68,
+            "tonal_center": 0.72,
+            "timbre_authentizitaet": 0.68,
+            "artikulation": 0.64,
+        },
+        # Lossy-Digital: MP3 — Codec-Artefakte limitieren Timbre/Tonal (§09.2b MATERIAL_BIAS_DIGITAL partial)
+        "mp3_low": {
+            "natuerlichkeit": 0.74,
+            "authentizitaet": 0.72,
+            "tonal_center": 0.76,
+            "timbre_authentizitaet": 0.72,
+            "artikulation": 0.68,
+        },
+        "mp3_high": {
+            "natuerlichkeit": 0.78,
+            "authentizitaet": 0.76,
+            "tonal_center": 0.80,
+            "timbre_authentizitaet": 0.76,
+            "artikulation": 0.72,
+        },
+        "minidisc": {
+            "natuerlichkeit": 0.72,
+            "authentizitaet": 0.70,
+            "tonal_center": 0.74,
+            "timbre_authentizitaet": 0.70,
+            "artikulation": 0.66,
+        },
+        # Lossless-Digital: CD, Streaming — canonical-nah, geringe Einschränkung
+        "cd_digital": {
+            "natuerlichkeit": 0.82,
+            "authentizitaet": 0.80,
+            "tonal_center": 0.85,
+            "timbre_authentizitaet": 0.79,
+            "artikulation": 0.76,
+        },
+        "streaming": {
+            "natuerlichkeit": 0.78,
+            "authentizitaet": 0.76,
+            "tonal_center": 0.80,
+            "timbre_authentizitaet": 0.75,
+            "artikulation": 0.72,
+        },
     }
-    for goal_name, hard_min in _P1P2_HARD_MINIMUMS.items():
+    # Konservativer Fallback für unbekanntes Material (zwischen Analog und Digital)
+    _FALLBACK_UNKNOWN = {
+        "natuerlichkeit": 0.72,
+        "authentizitaet": 0.70,
+        "tonal_center": 0.74,
+        "timbre_authentizitaet": 0.70,
+        "artikulation": 0.66,
+    }
+    _material_fallback = _MATERIAL_P1P2_FALLBACK.get(_mat_key, _FALLBACK_UNKNOWN)
+
+    for goal_name, mat_floor in _material_fallback.items():
         score = goal_scores.get(goal_name)
-        if score is not None and float(score) < hard_min:
+        if score is None:
+            continue
+        # §09.2 adaptive Threshold hat Vorrang; Fallback = material-adaptiver Boden
+        effective_thr = float(_adaptive_thresholds.get(goal_name, mat_floor))
+        if float(score) < effective_thr:
             warnings.append(
-                f"KRITISCH: {goal_name} = {float(score):.3f} < {hard_min:.2f} — "
+                f"KRITISCH: {goal_name} = {float(score):.3f} < {effective_thr:.2f} — "
                 f"P1/P2-Mindestziel unterschritten. Restaurierung hat Kernqualität verletzt."
             )
             passed = False
 
     # P3–P5 violations: warning only (no hard-fail)
-    _p3p5_violations = [v for v in violations if v not in _P1P2_HARD_MINIMUMS]
+    _p3p5_violations = [v for v in violations if v not in _material_fallback]
     if _p3p5_violations:
         warnings.append(
             f"Qualitäts-Hinweis: {len(_p3p5_violations)} Musical Goal(s) nicht optimal: "

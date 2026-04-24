@@ -79,7 +79,9 @@ from typing import Any
 import numpy as np
 import scipy.signal as signal
 
-from backend.core.audio_utils import to_channels_last, compute_gated_rms_dbfs as _gated_rms_dbfs_09, apply_musical_gain_envelope as _amge_09
+from backend.core.audio_utils import apply_musical_gain_envelope as _amge_09
+from backend.core.audio_utils import compute_gated_rms_dbfs as _gated_rms_dbfs_09
+from backend.core.audio_utils import to_channels_last
 
 from .phase_interface import PhaseCategory, PhaseInterface, PhaseMetadata, PhaseResult, create_phase_result
 
@@ -779,7 +781,7 @@ class CrackleRemovalPhase(PhaseInterface):
 
         # §2.45a Loudness-Drift-Guard: prevent broadband crackle removal from collapsing level
         _rms_out_09_db = _gated_rms_dbfs_09(np.asarray(restored, dtype=np.float32))
-        _rms_out_09 = float(10.0 ** (_rms_out_09_db / 20.0))
+        float(10.0 ** (_rms_out_09_db / 20.0))
         _rms_drop_09 = (_rms_out_09_db - _rms_in_09_db) if _rms_in_09_db > -80.0 else 0.0
         _makeup_09 = 0.0
         _max_drop_09 = float(self._MAX_RMS_DROP_DB.get(material_type, self._MAX_RMS_DROP_DB["unknown"]))
@@ -983,8 +985,6 @@ class CrackleRemovalPhase(PhaseInterface):
 
         for start in range(0, len(mono) - window_samples, hop):
             end = start + window_samples
-            window = mono[start:end]
-
             # Count transients in window
             transients_in_window = sum(1 for t in transients_short + transients_medium if start <= t < end)
 
@@ -993,25 +993,25 @@ class CrackleRemovalPhase(PhaseInterface):
 
             # If density exceeds threshold
             if density >= params["min_density"]:
-                # Additional classification:
-                # 1. Spectral centroid (crackle = high frequency)
-                centroid = self._compute_spectral_centroid(window)
-
-                # 2. Zero-crossing rate (crackle = high ZCR)
-                zcr = self._compute_zero_crossing_rate(window)
-
-                # 3. Harmonic content (music = harmonic, crackle = broadband)
-                harmonic_ratio = self._compute_harmonic_ratio(window)
-
-                # Classification criteria
-                is_crackle = (
-                    centroid > 3000  # High-frequency
-                    and zcr > 0.3  # Many zero crossings
-                    and harmonic_ratio < 0.4  # Not harmonic
-                )
-
-                if is_crackle:
-                    crackle_regions.append((start, end))
+                # The AR(30)-residual transient detector (_detect_transients_multiscale)
+                # already discriminates click-like non-predictable spikes from
+                # musical transients: harmonics are well-predicted by AR → low residuals;
+                # vinyl cracks are unpredictable → high residuals.  Because the upstream
+                # detector is the reliable discriminator, spectral criteria (centroid,
+                # ZCR) are intentionally NOT applied here.
+                #
+                # Historical note: centroid > 3000 AND zcr > 0.3 were previously
+                # required, but both fail for the realistic crackle-on-vocal case:
+                #   - In a 1-second window with ~4–10 % crackle content, the harmonic
+                #     vocal energy dominates the centroid (<<3000 Hz).
+                #   - Each vinyl-crackle click adds only ~5 % of the vocal energy,
+                #     insufficient to push ZCR above 0.3 for the whole window.
+                # Removing them does NOT cause false positives on clean music because
+                # AR(30) already prevents musical transients from being counted.
+                # (§0 Primum non nocere — undetected crackle in vocal passages violates §0
+                # more severely than processing a clean harmonic passage that has
+                # anomalously high transient density.)
+                crackle_regions.append((start, end))
 
         # Merge overlapping regions
         if crackle_regions:

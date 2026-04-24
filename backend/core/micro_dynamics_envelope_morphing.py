@@ -158,15 +158,27 @@ class MicroDynamicsEnvelopeMorphing:
                 # phase_40 to attenuate the musical content (regression).
                 G[k] = float(np.clip(lo - lr, -_frame_max, 0.0))
                 continue
-            # §2.30 Bug-Fix: Denoised-Fade-Out-Guard — if restored frame is in the
-            # quiet/fade-out zone (< -36 dBFS), any positive gain would boost the
-            # cleaned noise floor. Original at -40 dBFS was carrier noise, not music.
-            # Applying positive gain here would cause Pegelexplosion in the fade-out.
-            # -36 dBFS covers vinyl fade-out noise floor range (-40 to -46 dBFS restored).
+            # §2.30b Guard 1: Hard quiet zone (< -36 dBFS restored) — no positive boost.
+            # Covers strongly denoised intros/outros where restored noise floor
+            # is well below carrier level.
             _FADEOUT_QUIET_LUFS = -36.0  # dBFS threshold for fade-out detection
             if lr < _FADEOUT_QUIET_LUFS:
-                # Restored is in the quiet/noise-floor zone → no positive boost allowed
+                # Restored is in the hard quiet zone → no positive boost allowed
                 G[k] = float(np.clip(lo - lr, -_frame_max, 0.0))
+                continue
+            # §2.30b Guard 2: Moderate quiet zone (-30 to -36 dBFS restored) combined
+            # with large Original-vs-Restored gap (> max_gain dB).
+            # Pattern: Original has loud vinyl crackle (-20 dBFS), Restored has
+            # reduced crackle (-34 dBFS) → diff=14 dB > 4 dB max_gain.
+            # This is a denoising artefact, NOT a music-dynamics difference.
+            # Without this guard MDEM boosts the restored crackle to match the
+            # original carrier level → Pegelexplosion at intro/outro.
+            # A genuine music-dynamics gap of > max_gain dB at moderate levels
+            # is extremely rare (it would require an impossible 4+ dB sudden drop
+            # that the Savitzky-Golay smoother would already attenuate).
+            _MODERATE_QUIET_LUFS = -30.0
+            if lr < _MODERATE_QUIET_LUFS and (lo - lr) > _frame_max:
+                G[k] = 0.0
                 continue
             G[k] = np.clip(lo - lr, -_frame_max, _frame_max)
 
@@ -197,6 +209,42 @@ class MicroDynamicsEnvelopeMorphing:
                 nxt_gain = 10.0 ** (G_smooth[k + 1] / 20.0) if k + 1 < n_frames else linear_gain
                 ramp = np.linspace(linear_gain, nxt_gain, ce - start, dtype=np.float32)
                 gain_envelope[start:ce] = ramp
+
+        # §2.30b Per-Sample Quiet-Zone Guard (Step 5 — Drei-Stufen-Invariante):
+        # linspace interpolation between a positive music frame and a zeroed quiet frame
+        # creates a positive ramp in the transition region. Clamp gain to 1.0 (0 dB)
+        # wherever res_mono is below -36 dBFS — prevents Pegelexplosion at
+        # music/fade-out boundary (e.g. +4 dB → 0 dB ramp over 9600 samples while
+        # audio is already at -40 dBFS). Mirrors the identical guard in correct_arc().
+        _quiet_thresh_ps = float(10.0 ** (-36.0 / 20.0))  # -36 dBFS linear
+        _ps_frame = 480  # 10 ms @ 48 kHz for fine-grained fade-out detection
+        _n_full_ps = n // _ps_frame
+        if _n_full_ps > 0:
+            _segs_ps = res_mono[: _n_full_ps * _ps_frame].reshape(_n_full_ps, _ps_frame)
+            _rms_ps = np.sqrt(np.mean(_segs_ps**2, axis=1) + 1e-12)
+            _quiet_mask = np.repeat(_rms_ps < _quiet_thresh_ps, _ps_frame)
+            if _n_full_ps * _ps_frame < n:
+                _tail_rms_ps2 = float(np.sqrt(np.mean(res_mono[_n_full_ps * _ps_frame :] ** 2) + 1e-12))
+                _quiet_mask = np.concatenate(
+                    [
+                        _quiet_mask,
+                        np.full(
+                            n - _n_full_ps * _ps_frame,
+                            _tail_rms_ps2 < _quiet_thresh_ps,
+                            dtype=bool,
+                        ),
+                    ]
+                )
+        else:
+            # n < 480 (sehr kurzes Segment): einfachen Gesamt-RMS als Quiet-Indikator nutzen
+            _quiet_mask = np.full(
+                n,
+                float(np.sqrt(np.mean(res_mono**2) + 1e-12)) < _quiet_thresh_ps,
+                dtype=bool,
+            )
+        _qmask = _quiet_mask[:n] & (gain_envelope[:n] > 1.0)
+        if np.any(_qmask):
+            gain_envelope[:n] = np.where(_qmask, np.float32(1.0), gain_envelope[:n])
 
         # §2.30 tail-gap fix (§9.10.119 improved): Samples nach dem letzten
         # Frame-Ende erhalten eine sanfte Rückkehr statt eines harten Wert-Kopierens.
@@ -260,11 +308,24 @@ class MicroDynamicsEnvelopeMorphing:
             out2 = np.nan_to_num(out2, nan=0.0, posinf=1.0, neginf=-1.0)
             out2 = np.clip(out2, -self.TRUE_PEAK_LIMIT, self.TRUE_PEAK_LIMIT)
             if is_stereo and res.ndim == 2:
-                gain2 = out2 / np.where(np.abs(res_mono) > 1e-8, res_mono, 1.0)
+                # Gain-Kurve aus Mono-Ergebnis zurückrechnen und auf alle Kanäle anwenden.
+                # §2.30b: gain2 kann > 1.0 sein — Per-Sample Quiet-Zone Guard auf JEDEM Kanal.
+                _safe_res_mono = np.where(np.abs(res_mono) > 1e-8, res_mono, 1.0)
+                gain2 = out2 / _safe_res_mono
+                _quiet_thresh_retry = float(10.0 ** (-36.0 / 20.0))
                 out_retry = np.zeros_like(res)
                 for ch in range(res.shape[0]):
                     n_s = min(len(res[ch]), len(gain2))
-                    out_retry[ch, :n_s] = res[ch, :n_s] * gain2[:n_s]
+                    _ch_out = res[ch, :n_s] * gain2[:n_s]
+                    # §2.30b Per-Channel Quiet-Zone Guard: supprimiere positiven Gain wo
+                    # der jeweilige Kanal in der Quiet-Zone liegt (<-36 dBFS).
+                    _ch_rms_frames = max(1, n_s // 480)
+                    _ch_seg = res[ch, : _ch_rms_frames * 480].reshape(_ch_rms_frames, 480)
+                    _ch_rms = np.sqrt(np.mean(_ch_seg**2, axis=1) + 1e-12)
+                    _ch_quiet = np.repeat(_ch_rms < _quiet_thresh_retry, 480)[:n_s]
+                    _ch_gain_pos = gain2[:n_s] > 1.0
+                    _ch_out[_ch_quiet & _ch_gain_pos] = res[ch, :n_s][_ch_quiet & _ch_gain_pos]
+                    out_retry[ch, :n_s] = _ch_out
                     out_retry[ch, n_s:] = res[ch, n_s:]
                 final = np.clip(np.nan_to_num(out_retry), -self.TRUE_PEAK_LIMIT, self.TRUE_PEAK_LIMIT).astype(
                     np.float32
@@ -351,6 +412,39 @@ class MicroDynamicsEnvelopeMorphing:
             lg = float(10.0 ** (G_smooth[k] / 20.0))
             nxt = float(10.0 ** (G_smooth[k + 1] / 20.0)) if k + 1 < n_frames else lg
             gain_envelope[start:ce] = np.linspace(lg, nxt, ce - start, dtype=np.float32)
+
+        # §2.30b Per-Sample Quiet-Zone Guard (Step 5 — Drei-Stufen-Invariante):
+        # mirrors the identical guard in morph() — prevents positive interpolated gain
+        # in the quiet/fade-out transition zone (< -36 dBFS).
+        _quiet_thresh_mi = float(10.0 ** (-36.0 / 20.0))
+        _ps_fr_mi = 480  # 10 ms @ 48 kHz
+        _n_full_mi = n // _ps_fr_mi
+        if _n_full_mi > 0:
+            _segs_mi = res_mono[: _n_full_mi * _ps_fr_mi].reshape(_n_full_mi, _ps_fr_mi)
+            _rms_mi = np.sqrt(np.mean(_segs_mi**2, axis=1) + 1e-12)
+            _quiet_mask_mi = np.repeat(_rms_mi < _quiet_thresh_mi, _ps_fr_mi)
+            if _n_full_mi * _ps_fr_mi < n:
+                _tail_rms_mi = float(np.sqrt(np.mean(res_mono[_n_full_mi * _ps_fr_mi :] ** 2) + 1e-12))
+                _quiet_mask_mi = np.concatenate(
+                    [
+                        _quiet_mask_mi,
+                        np.full(
+                            n - _n_full_mi * _ps_fr_mi,
+                            _tail_rms_mi < _quiet_thresh_mi,
+                            dtype=bool,
+                        ),
+                    ]
+                )
+        else:
+            # n < 480: Gesamt-RMS als Quiet-Indikator
+            _quiet_mask_mi = np.full(
+                n,
+                float(np.sqrt(np.mean(res_mono**2) + 1e-12)) < _quiet_thresh_mi,
+                dtype=bool,
+            )
+        _qmask_mi = _quiet_mask_mi[:n] & (gain_envelope[:n] > 1.0)
+        if np.any(_qmask_mi):
+            gain_envelope[:n] = np.where(_qmask_mi, np.float32(1.0), gain_envelope[:n])
 
         # §2.30 tail-gap fix: Samples jenseits des letzten Frame-Endes fortsetzen.
         _last_covered = min((n_frames - 1) * hop + self.FRAME_SIZE_SAMPLES, n)

@@ -567,6 +567,15 @@ Formel:  w > 1.5 → w' = 1.5 + excess/(1 + 3·excess)    // Asymptote: 1.83
 - **§9.7.13 transparenz**: Multi-Band Spectral Crest (5 Oktavbänder 250 Hz–8 kHz). Bug-fix: `TransparenzMetric.measure()` hatte kein `reference=`-Parameter → TypeError in Precise-Override.
 - **§9.7.14 waerme**: **Primär** Even-Harmonic-Ratio `THD_even / THD_total` (H2/H4), ISO 226:2003 gewichtet. **Sekundär** Sub-Band-Verhältnis E(200–800)/E(800–3000) als Tilt-Proxy. Begründung: Parametrischer EQ-Boost bei 400 Hz erhöht Sub-Band-Verhältnis ohne wahrgenommene Wärme; gerade Harmonische (H2, H4) sind Fingerabdruck von Röhren-/Bandsignalketten (Fletcher & Rossing).
 
+  **PMGG-Proxy-Kalibrierung (RELEASE_MUST)**: Der Quick-Proxy in `per_phase_musical_goals_gate.py`
+  berechnet `E(200–800 Hz) / E(800–3000 Hz)` als ungewichtetes FFT-Energieverhältnis.
+  `WaermeMetric._measure_absolute()` nutzt ISO 226:2003-Gewichtung, die 800–3000 Hz stärker
+  gewichtet → reale Vollmetrik-Scores 0.70–0.90. Typisches warmes Musik-Ratio (ungewichtet): 3–5.
+  **Normierungskonstante muss so gewählt werden, dass Ratio ≈ 4.0 → Proxy ≈ 1.0** (derzeit `/4.0`).
+  Eine Konstante `/ 1.5` lässt den Proxy permanent bei 1.0 sättigen → PMGG blind für
+  waerme-Degradation durch subtraktive Phasen (bestätigt: before=1.0000/after=1.0000 über alle
+  Phasen, 2026-04-24). Kalibrierungsprüfung: `assert 0.70 ≤ proxy(warm_signal) ≤ 1.0`.
+
 ### §9.7.16 [TARGET_2026] NatuerlichkeitMetric-Reform
 
 **Problem**: Aktuelle Sub-Metriken (Spectral Flatness, ZCR-Varianz, Spectral Contrast, Onset-Dichte) sind Signal-Statistiken, keine Wahrnehmungs-Features. Synthesizer = hoher Score, Jazz-Bar-Aufnahme = niedriger Score → Inversion.

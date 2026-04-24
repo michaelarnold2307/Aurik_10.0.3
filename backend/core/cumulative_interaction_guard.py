@@ -272,7 +272,9 @@ _PHASE_SPECIFIC_DRIFT_EXCLUSIONS: dict[str, frozenset[str]] = {
     # artikulation: synthesised HF energy fills transient profiles not in BW-limited checkpoint.
     # authentizitaet: chroma shifts as BW is extended (same class as phase_06).
     # natuerlichkeit: MFCC-smoothness of synthesised spectrum differs from BW-limited reference.
-    "phase_23": frozenset({"artikulation", "authentizitaet", "natuerlichkeit", "timbre_authentizitaet"}),
+    "phase_23": frozenset(
+        {"artikulation", "authentizitaet", "natuerlichkeit", "timbre_authentizitaet", "tonal_center", "brillanz"}
+    ),  # §2.55 sync with PMGG (2026-04-24): tonal_center — AudioSR HF synthesis shifts K-S chroma bins → false P2 (Δ=0.7893 confirmed); brillanz — PMGG excludes it (synthesised HF crest-proxy meaningless vs. band-limited reference)
     # Carrier noise / reel-splice click repair (secondary): similar to phase_01 family.
     # artikulation: click regions have altered onset energy after repair.
     "phase_26": frozenset({"artikulation"}),

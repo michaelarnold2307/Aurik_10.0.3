@@ -893,6 +893,7 @@ PHASE_GOAL_EXCLUSIONS: dict[str, set[str]] = {
         "authentizitaet",
         "artikulation",
         "timbre_authentizitaet",
+        "tonal_center",  # §9.7.11 extension (2026-04-24): AudioSR bandwidth-extension shifts K-S chroma bins — pre-repair audio (band-limited vinyl ≤12 kHz) has near-zero chroma energy in high-register bins; after AudioSR fill newly synthesised HF bins shift K-S key-template correlation → false catastrophic P2 regression (Δ=0.7893 confirmed, real-run 2026-04-24). Musical key is unchanged; only chroma-bin distribution shifts due to spectral extension. Identical mechanism to phase_55 (CQTdiff+) confirmed in prior runs (Δ=0.8333, 2026-04-10).
     },  # AudioSR spectral inpainting / gap-fill; timbre_authentizitaet: synthesised fill content has different spectral envelope than damaged reference
     # Wow/flutter correction: time-stretching/resampling shifts chroma energy
     # distribution → K-S key correlation changes despite unchanged musical key.
@@ -1842,11 +1843,19 @@ def _measure_quick(
     #     in a perceptually meaningful way.
     # Scientific basis: Moore & Glasberg (1983) auditory filter bandwidths;
     # Fletcher & Rossing vocal formant structure (warmth ≈ F1/F2 energy balance).
-    # Calibration: ratio 1.5 → score 1.0 (warm); ratio 0 → score 0.0 (thin).
+    # Calibration: ratio 4.0 → score 1.0 (very warm); ratio 1.0 → score 0.25 (neutral);
+    # ratio 0 → score 0.0 (thin).
+    # §2026-04-24: Normierungskonstante 1.5 → 4.0 korrigiert:
+    #   Typisches ungewichtetes E(200-800 Hz)/E(800-3000 Hz)-Verhältnis für warme Musik liegt
+    #   bei 3–5 (Bass/untere Mitten dominieren). Die alte Konstante 1.5 führte dazu, dass der
+    #   Proxy immer saturiert auf 1.0 war (ratio >> 1.5 → clip). WaermeMetric._measure_absolute()
+    #   nutzt ISO 226:2003 Equal-Loudness-Gewichtung, die 800–3000 Hz stärker gewichtet →
+    #   reale Werte 0.70–0.90. Mit 4.0 ist der Proxy sensitiv für Änderungen und erkennt
+    #   Warmth-Regressions durch Denoise/Dereverb-Phasen (Δ-Erkennung statt Sattigung).
     try:
         _e_low_mid = float(np.mean(fft_mag[(freqs >= 200) & (freqs < 800)] ** 2)) + 1e-9
         _e_upper_mid = float(np.mean(fft_mag[(freqs >= 800) & (freqs < 3000)] ** 2)) + 1e-9
-        scores["waerme"] = float(np.clip(_e_low_mid / _e_upper_mid / 1.5, 0.0, 1.0))
+        scores["waerme"] = float(np.clip(_e_low_mid / _e_upper_mid / 4.0, 0.0, 1.0))
     except Exception:
         scores["waerme"] = 0.5
 
