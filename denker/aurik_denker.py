@@ -1421,6 +1421,15 @@ class AurikDenker:
                 # Legacy-Fallback für Testmocks/ältere ExzellenzDenker mit messe_ziele().
                 goals = {}
                 _used_repair_path = False
+                # §2.32 bass_kraft/brillanz-Fix: inapplicable Goals aus UV3-Metadata
+                # extrahieren und an ExzellenzDenker weitergeben, damit er nur
+                # physikalisch messbare Ziele repariert (z.B. bass_kraft auf
+                # vocal-dominanter Quelle mit sehr geringem Bassanteil).
+                _gaf_map: dict = _rest_metadata.get("goal_applicability", {})
+                _inapplicable_goals: frozenset[str] = frozenset(
+                    g for g, applicable in _gaf_map.items() if not applicable
+                )
+
                 _repair_fn = getattr(exd, "messe_und_repariere", None)
                 if callable(_repair_fn):
                     _mr = _repair_fn(
@@ -1429,6 +1438,7 @@ class AurikDenker:
                         mode=effective_mode,
                         material=_exz_material,
                         reference_audio=audio,
+                        inapplicable_goals=_inapplicable_goals if _inapplicable_goals else None,
                     )
                     if isinstance(_mr, tuple) and len(_mr) == 2:
                         aktuelles_audio, goals = _mr

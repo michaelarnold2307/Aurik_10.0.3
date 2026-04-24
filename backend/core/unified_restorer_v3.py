@@ -4560,12 +4560,25 @@ class UnifiedRestorerV3:
                 _panns_merged.update(_panns_kwargs)
             if isinstance(_panns_conf, dict):
                 _panns_merged.update(_panns_conf)  # DefectScanner-Tags überschreiben kwargs
+            # §2.32 brillanz-Fix: AudioSR-Verfügbarkeit prüfen. GAF deaktiviert brillanz nur
+            # wenn BW < 8 kHz UND AudioSR nicht verfügbar. Aurik bündelt AudioSR → fast immer
+            # verfügbar; nicht-verfügbar nur bei fehlendem Modell-File.
+            _audiosr_avail = False
+            try:
+                from plugins.audio_sr_plugin import get_audiosr_plugin as _get_audiosr
+
+                _get_audiosr  # noqa: B018 — import-check only, no instantiation
+                _audiosr_avail = True
+            except Exception:
+                pass
+
             _goal_applicability = evaluate_goal_applicability(
                 audio=audio,
                 sr=sample_rate,
                 material=material_type.value if material_type else "unknown",
                 era_decade=_era_result.decade if _era_result is not None else None,
                 panns_tags=_panns_merged or None,
+                audiosr_available=_audiosr_avail,
                 mode=str(getattr(getattr(self.config, "mode", None), "value", "restoration")).lower(),
             )
             _applicable_goals = set(_goal_applicability.applicable)

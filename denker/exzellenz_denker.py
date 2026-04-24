@@ -359,6 +359,7 @@ class ExzellenzDenker:
         mode: str = "restoration",
         material: str = "auto",
         reference_audio: np.ndarray | None = None,
+        inapplicable_goals: frozenset[str] | set[str] | None = None,
     ) -> tuple[np.ndarray, dict[str, float]]:
         """Misst Goals und führt konservative Ziel-Reparatur für P3-P5-Verletzungen durch.
 
@@ -433,6 +434,12 @@ class ExzellenzDenker:
         # Goals that benefit from blend with reference (restores spectral warmth/brightness)
         _BLEND_GOALS: frozenset[str] = frozenset({"waerme", "bass_kraft", "brillanz", "transparenz"})
 
+        # §2.32 Inapplicable-Filter: Goals die GAF als physikalisch nicht messbar
+        # markiert hat (z.B. brillanz bei BW<8kHz ohne AudioSR, bass_kraft bei
+        # vocal-dominanter Quelle) aus Reparatur UND Messung ausschließen.
+        _inappl: frozenset[str] = frozenset(inapplicable_goals) if inapplicable_goals else frozenset()
+        _eff_repair_targets: frozenset[str] = _P3P5_REPAIR_TARGETS - _inappl
+
         # NaN/Inf-Schutz
         audio = np.nan_to_num(audio.astype(np.float32), nan=0.0, posinf=0.0, neginf=0.0)
         if audio.size == 0:
@@ -452,7 +459,7 @@ class ExzellenzDenker:
         _p35_violations: set[str] = {
             k
             for k, v in goals_initial.items()
-            if k in _P3P5_REPAIR_TARGETS
+            if k in _eff_repair_targets
             and math.isfinite(v)
             and v < min(_thresholds.get(k, _FALLBACK_MIN), _REPAIR_TRIGGER_FLOOR) - _MIN_DEFICIT
         }

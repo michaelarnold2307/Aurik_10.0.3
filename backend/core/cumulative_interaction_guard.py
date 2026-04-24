@@ -523,6 +523,18 @@ CRITICAL_PAIRS: list[tuple[frozenset[str], str, str, float]] = [
         -0.03,
     ),
     (
+        frozenset({"phase_29_tape_hiss_reduction", "phase_03_denoise"}),
+        "transparenz",  # HF-clarity loss: both phases reduce HF energy → cumulative crest drop
+        "Over-denoising HF clarity loss (NR + De-Hiss)",
+        -0.04,  # slightly looser — HF crest more variable per song
+    ),
+    (
+        frozenset({"phase_03_denoise", "phase_49_advanced_dereverb"}),
+        "transparenz",  # De-noise + de-reverb combination → spatial HF coloration removed
+        "Over-processing HF clarity (Denoise + Dereverb)",
+        -0.04,
+    ),
+    (
         frozenset({"phase_35_multiband_compression", "phase_40_lufs_normalization"}),
         "micro_dynamics",
         "Dynamics loss (Multiband-Comp + LUFS)",
@@ -1066,6 +1078,8 @@ class CumulativeInteractionGuard:
     ) -> float:
         """Measure 95th-percentile STFT group delay deviation in milliseconds.
 
+        Uses a 5-window median spread across the signal to avoid false positives
+        from transient-heavy single-window positions (§2.48 spatial_depth fix).
         Returns -1.0 if the signal is too short to measure.
         """
         ref_mono = reference if reference.ndim == 1 else np.mean(reference, axis=0)
@@ -1078,26 +1092,32 @@ class CumulativeInteractionGuard:
         cur_mono = cur_mono[:min_len]
 
         n_fft = 2048
-        mid = min_len // 2
-        start = max(0, mid - n_fft)
-        end = start + n_fft
-
         win = np.hanning(n_fft).astype(np.float32)
-        ref_fft = np.fft.rfft(ref_mono[start:end] * win)
-        cur_fft = np.fft.rfft(cur_mono[start:end] * win)
 
-        ref_phase = np.unwrap(np.angle(ref_fft))
-        cur_phase = np.unwrap(np.angle(cur_fft))
+        # 5 windows spread at 1/6, 2/6, 3/6, 4/6, 5/6 of signal — median over
+        # per-window 95th-percentile GDD to suppress single-transient spikes.
+        n_windows = 5
+        per_window_gdd: list[float] = []
+        for i in range(1, n_windows + 1):
+            pos = int(min_len * i / (n_windows + 1))
+            start = max(0, pos - n_fft // 2)
+            end = start + n_fft
+            if end > min_len:
+                continue
+            ref_fft = np.fft.rfft(ref_mono[start:end] * win)
+            cur_fft = np.fft.rfft(cur_mono[start:end] * win)
+            ref_phase = np.unwrap(np.angle(ref_fft))
+            cur_phase = np.unwrap(np.angle(cur_fft))
+            phase_diff = cur_phase - ref_phase
+            gd_dev = np.abs(np.diff(phase_diff)) / (2.0 * np.pi / n_fft)
+            gd_valid = gd_dev[5:-5]
+            if len(gd_valid) > 0:
+                per_window_gdd.append(float(np.percentile(gd_valid, 95)))
 
-        phase_diff = cur_phase - ref_phase
-        gd_deviation_samples = np.abs(np.diff(phase_diff)) / (2.0 * np.pi / n_fft)
-
-        gd_valid = gd_deviation_samples[5:-5]
-        if len(gd_valid) == 0:
+        if not per_window_gdd:
             return -1.0
 
-        max_deviation_samples = float(np.percentile(gd_valid, 95))
-        return 1000.0 * max_deviation_samples / sr
+        return 1000.0 * float(np.median(per_window_gdd)) / sr
 
     def _check_group_delay(
         self,
