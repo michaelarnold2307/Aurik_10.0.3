@@ -792,7 +792,7 @@ class CrackleRemovalPhase(PhaseInterface):
             _makeup_09 = float(np.clip(_req_gain_db, 0.0, 6.0))
             if _makeup_09 > 0.0:
                 _gain_09 = float(10.0 ** (_makeup_09 / 20.0))
-                restored = _amge_09(restored, _gain_09, gate_dbfs=-50.0, crossfade_ms=10.0, sr=48000)
+                restored = _amge_09(restored, _gain_09, gate_dbfs=-36.0, crossfade_ms=10.0, sr=48000)
                 restored = np.clip(restored, -1.0, 1.0).astype(np.float32)
                 # §2.45a-III: soft-limiter only when real clipping risk
                 _peak_09 = float(np.percentile(np.abs(restored), 99.9))

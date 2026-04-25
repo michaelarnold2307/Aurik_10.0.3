@@ -8354,7 +8354,7 @@ class UnifiedRestorerV3:
                             # _apply_music_only_gain was undefined — use _musical_gain_envelope
                             # (envelope-gated gain, adaptive noise-floor guard §2.45a)
                             _cand = UnifiedRestorerV3._musical_gain_envelope(
-                                _joint_base, _cand_gain, gate_dbfs=-50.0, crossfade_ms=10.0, sr=sample_rate
+                                _joint_base, _cand_gain, gate_dbfs=-36.0, crossfade_ms=10.0, sr=sample_rate
                             )
                             _cand_noise = _nf_dbfs(_cand)
                             if _cand_noise > _noise_limit_final:

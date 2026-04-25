@@ -1507,6 +1507,10 @@ Alle RMS-Messungen in Loudness-Drift-Guards MÜSSEN **gated** erfolgen:
 
 **VERBOTEN**: `np.mean(audio**2)` oder `np.sqrt(np.mean(audio**2))` in Loudness-Guards (misst Stille mit).
 
+> ⚠️ Der Gated-RMS-Schwellwert (−50 dBFS) ist der **Messgate** für die RMS-Referenz — er bestimmt,
+> welche Frames in die Pegelreferenz einfließen. Er ist NICHT identisch mit dem **Gain-Gate** von
+> `apply_musical_gain_envelope` — das Gain-Gate MUSS −36 dBFS betragen (§2.45a-V).
+
 ### §2.45a-II [RELEASE_MUST] Envelope-Aware Gain (v9.11.5)
 
 Makeup-Gain-Kompensation MUSS **musik-selektiv** (envelope-aware) erfolgen:
@@ -1550,11 +1554,66 @@ Die Pipeline implementiert 3 Ebenen Loudness-Drift-Protection:
 - Die Stufen sind redundant-sichernd konzipiert: Stufe 2 fängt kumulative Drift, die Stufe 1 nicht einzeln erkennt
 - Stufe 3 ist das finale Sicherheitsnetz (`_MAX_CUMULATIVE_LEVEL_DROP_DB ≈ 0.915 dB` = ~10 % Amplitude)
 
+### §2.45a-V [RELEASE_MUST] Makeup-Gain-Gate −36 dBFS (v9.11.16)
+
+**Das fundamentale Missverständnis**: Das Gated-RMS-Messgate (§2.45a-I, −50 dBFS) und das
+Makeup-Gain-Gate von `apply_musical_gain_envelope` (§2.45a-II) sind **zwei verschiedene Schwellwerte**
+mit unterschiedlichen Rollen:
+
+| Schwellwert | Rolle | Wo | Richtwert |
+|---|---|---|---|
+| **Mess-Gate** | Welche Frames fließen in die RMS-Referenz | `_rms_dbfs_gated()` | −50 dBFS |
+| **Gain-Gate** | Welche Frames erhalten Makeup-Gain | `apply_musical_gain_envelope(gate_dbfs=...)` | **−36 dBFS** |
+
+**Warum −36 dBFS für das Gain-Gate (nicht −50 dBFS)?**
+
+Vinyl- und Shellac-Oberflächenrauschen liegt typisch bei **−35 bis −42 dBFS**. Ein Gain-Gate von
+−50 dBFS klassifiziert dieses Oberflächenrauschen als "Musik" → bekommt Makeup-Gain →
+Pegelexplosion in Intro/Outro/Fadeout. Bestätigt in Produktion:
+
+- `phase_05_rumble_filter`: `gate_dbfs=-50.0` → stille Fadeout-Bereiche mit Vinyl-Rauschen
+  (~−40 dBFS) werden als Musikframes eingestuft → Makeup-Gain boosted Rauschboden → hörbare
+  Pegelexplosion zu Beginn und am Ende des Songs (bestätigt 2026-04-25)
+- `correct_arc()`: gleicher Mechanismus → −42 dBFS per-sample Guard fixiert auf −36 dBFS (§2.30b)
+
+**Normative Regel (bindend für alle Phasen):**
+
+```python
+# RICHTIG — Vinyl/Shellac-sicher:
+filtered = apply_musical_gain_envelope(
+    audio, gain_factor,
+    gate_dbfs=-36.0,   # ← MUSS -36.0 sein, NICHT -50.0
+    crossfade_ms=10.0,
+    sr=sample_rate,
+)
+
+# FALSCH — Pegelexplosion auf Vinyl/Shellac:
+filtered = apply_musical_gain_envelope(
+    audio, gain_factor,
+    gate_dbfs=-50.0,   # ← Rauschboden bei -40 dBFS passiert dieses Gate → VERBOTEN
+    ...
+)
+```
+
+**Ausnahme**: `apply_musical_gain_envelope` enthält einen adaptiven Gate-Mechanismus,
+der den Schwellwert automatisch anhebt wenn der 5th-Perzentil-RMS über `gate_dbfs + 12 dB`
+liegt. Dieser Mechanismus ist NICHT als alleinige Schutzmaßnahme ausreichend — er greift
+nur wenn die Noise-Floor-Evidenz eindeutig genug ist. Der Aufrufer MUSS explizit −36 dBFS
+übergeben.
+
+**Checkliste für alle Phases mit Makeup-Gain-Logik:**
+
+- [ ] `apply_musical_gain_envelope(..., gate_dbfs=-36.0, ...)` — NICHT −50.0
+- [ ] `_rms_dbfs_gated(audio)` für RMS-Messung verwendet den internen Default (−50 dBFS) — korrekt
+- [ ] Per-Sample-Guard nach `np.interp` (§2.30b) nutzt −36 dBFS
+
 ### Normativer Scope (typische Kandidaten)
 
 - Denoise / Hiss / Surface-Noise Reduction
 - Noise-Gate
 - Dereverb
+- Rumble-Filter
+- Jede Phase mit Makeup-Gain-Kompensation
 
 ### Rationale
 

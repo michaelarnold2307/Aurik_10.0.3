@@ -198,7 +198,7 @@ class AudioExporter:
                     if _gain_linear > 1.0005:
                         # §2.45a-II: Envelope-Aware Gain — NUR musikalische Frames boosten,
                         # Stille-Frames (< -50 dBFS) bleiben unverändert (kein Pegelexplosion im Tail).
-                        audio_export = _amge(audio_export, _gain_linear, gate_dbfs=-50.0, crossfade_ms=10.0, sr=sr)
+                        audio_export = _amge(audio_export, _gain_linear, gate_dbfs=-36.0, crossfade_ms=10.0, sr=sr)
                     else:
                         # Attenuation is safe to apply uniformly (reduces level, no explosion risk).
                         audio_export = np.clip(audio_export * _gain_linear, -1.0, 1.0)
@@ -208,7 +208,7 @@ class AudioExporter:
                 if 0.0 < _post_lufs_peak < 0.5:
                     _floor_gain = min(0.989 / _post_lufs_peak, 2.0)  # cap: max 2× floor-boost
                     # §2.45a-II: Floor-Boost ebenfalls nur auf musikalische Frames anwenden.
-                    audio_export = _amge(audio_export, _floor_gain, gate_dbfs=-50.0, crossfade_ms=10.0, sr=sr)
+                    audio_export = _amge(audio_export, _floor_gain, gate_dbfs=-36.0, crossfade_ms=10.0, sr=sr)
                 # TruePeak safety: ≤ -0.1 dBTP — percentile 99.9 guards against
                 # crackle/click impulses blocking normalization of the whole signal.
                 _tp_peak = float(np.percentile(np.abs(audio_export), 99.9))

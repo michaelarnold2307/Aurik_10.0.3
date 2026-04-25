@@ -248,7 +248,7 @@ class LoudnessNormalizationPhase(PhaseInterface):
             from backend.core.audio_utils import apply_musical_gain_envelope
 
             normalized = apply_musical_gain_envelope(
-                audio, gain_linear, gate_dbfs=-50.0, crossfade_ms=10.0, sr=sample_rate
+                audio, gain_linear, gate_dbfs=-36.0, crossfade_ms=10.0, sr=sample_rate
             )
         else:
             normalized = audio * gain_linear

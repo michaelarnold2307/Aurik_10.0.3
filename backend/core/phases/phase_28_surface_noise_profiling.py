@@ -352,7 +352,7 @@ class SurfaceNoiseProfiling(PhaseInterface):
                 _gain_lin = float(10.0 ** (makeup_gain_db / 20.0))
                 # §2.45a-II: gain applied ONLY to musical frames via envelope
                 processed_audio = apply_musical_gain_envelope(
-                    processed_audio, _gain_lin, gate_dbfs=-50.0, crossfade_ms=10.0, sr=48000
+                    processed_audio, _gain_lin, gate_dbfs=-36.0, crossfade_ms=10.0, sr=48000
                 )
                 processed_audio = np.clip(processed_audio, -1.0, 1.0).astype(np.float32)
                 # §2.45a-III: soft-limiter only when peak99 > 0.98

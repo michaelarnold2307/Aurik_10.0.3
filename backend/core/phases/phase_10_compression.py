@@ -497,7 +497,7 @@ class CompressionPhase(PhaseInterface):
 
             makeup_lin = float(10.0 ** (makeup_db / 20.0))
             audio_compressed = apply_musical_gain_envelope(
-                audio_compressed, makeup_lin, gate_dbfs=-50.0, crossfade_ms=10.0, sr=int(sr)
+                audio_compressed, makeup_lin, gate_dbfs=-36.0, crossfade_ms=10.0, sr=int(sr)
             )
 
         return audio_compressed, gain_reduction_smooth

@@ -69,7 +69,9 @@ from typing import Any
 import numpy as np
 import scipy.signal as signal
 
-from backend.core.audio_utils import to_channels_last, compute_gated_rms_dbfs as _gated_rms_dbfs_02, apply_musical_gain_envelope as _amge_02
+from backend.core.audio_utils import apply_musical_gain_envelope as _amge_02
+from backend.core.audio_utils import compute_gated_rms_dbfs as _gated_rms_dbfs_02
+from backend.core.audio_utils import to_channels_last
 
 from .phase_interface import PhaseCategory, PhaseInterface, PhaseMetadata, PhaseResult, create_phase_result
 
@@ -460,7 +462,7 @@ class HumRemovalPhase(PhaseInterface):
 
         # §2.45a Mid-Pipeline-Loudness-Drift-Guard
         _rms_out_02_db = _gated_rms_dbfs_02(np.asarray(result_audio, dtype=np.float32))
-        _rms_out_02 = float(10.0 ** (_rms_out_02_db / 20.0))
+        float(10.0 ** (_rms_out_02_db / 20.0))
         _rms_drop_02 = (_rms_out_02_db - _rms_in_02_db) if _rms_in_02_db > -80.0 else 0.0
         _max_drop_02 = float(_hum_profile.get("max_rms_drop_db", 3.0))
         _makeup_02 = 0.0
@@ -470,7 +472,7 @@ class HumRemovalPhase(PhaseInterface):
             if _makeup_02 > 0.0:
                 # §2.45a-II: apply gain ONLY to musical frames — prevents fadeout-explosion
                 _actual_gain = float(10.0 ** (_makeup_02 / 20.0))
-                result_audio = _amge_02(result_audio, _actual_gain, gate_dbfs=-50.0, crossfade_ms=10.0, sr=48000)
+                result_audio = _amge_02(result_audio, _actual_gain, gate_dbfs=-36.0, crossfade_ms=10.0, sr=48000)
                 result_audio = np.clip(result_audio, -1.0, 1.0)
                 _peak99_02 = float(np.percentile(np.abs(result_audio), 99.9))
                 if _peak99_02 > 0.98:

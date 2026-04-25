@@ -880,7 +880,7 @@ class ReverbReduction(PhaseInterface):
                 # silent sections (surface noise ~-40 dBFS > fixed -50 dBFS gate).
                 from backend.core.audio_utils import apply_musical_gain_envelope as _amge_20
 
-                processed_audio = _amge_20(processed_audio, _gain, gate_dbfs=-50.0, crossfade_ms=10.0, sr=48000)
+                processed_audio = _amge_20(processed_audio, _gain, gate_dbfs=-36.0, crossfade_ms=10.0, sr=48000)
                 processed_audio = np.clip(processed_audio, -1.0, 1.0).astype(np.float32)
                 current_peak = float(np.percentile(np.abs(processed_audio), 99.9))
                 if current_peak > 0.98:

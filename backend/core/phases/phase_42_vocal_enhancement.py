@@ -1856,7 +1856,7 @@ class VocalEnhancement(PhaseInterface):
             from backend.core.audio_utils import apply_musical_gain_envelope
 
             compressed = apply_musical_gain_envelope(
-                compressed, makeup_linear, gate_dbfs=-50.0, crossfade_ms=10.0, sr=sample_rate
+                compressed, makeup_linear, gate_dbfs=-36.0, crossfade_ms=10.0, sr=sample_rate
             )
         else:
             compressed = compressed * makeup_linear
