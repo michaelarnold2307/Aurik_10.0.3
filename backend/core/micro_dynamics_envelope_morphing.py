@@ -140,6 +140,18 @@ class MicroDynamicsEnvelopeMorphing:
         # Gain-Profil berechnen
         n_frames = min(len(L_orig), len(L_rest))
         G = np.zeros(n_frames, dtype=np.float32)
+
+        # §2.30b Adaptiver Quiet-Zone-Schwellwert (identisch zu correct_arc):
+        # Vinyl/Shellac-Trägerrauschen liegt bei −35 bis −25 dBFS — der feste −36-dBFS-Schwellwert
+        # lässt diese Frames durch, weil −35 dBFS > −36 dBFS.
+        # Lösung: 5th-Percentile der 400ms-LUFS-Profile (Proxy für Rauschboden) + 8 dB Margin,
+        # begrenzt auf [−36, −18] dBFS. Bei vollständig entrauschtem Material (p5 ≈ −65 dBFS)
+        # bleibt der Schwellwert bei −36 dBFS. Bei Vinyl-Rauschen (p5 ≈ −35 dBFS) → −27 dBFS.
+        _p5_L = float(np.percentile(L_rest[:n_frames], 5)) if n_frames > 2 else -36.0
+        _FADEOUT_QUIET_LUFS = float(np.clip(_p5_L + 8.0, -36.0, -18.0))
+        # Moderate quiet zone: 6 dB above quiet zone, min -30 dBFS
+        _MODERATE_QUIET_LUFS = float(max(-30.0, _FADEOUT_QUIET_LUFS + 6.0))
+
         for k in range(n_frames):
             lo = L_orig[k]
             lr = L_rest[k]
@@ -158,34 +170,19 @@ class MicroDynamicsEnvelopeMorphing:
                 # phase_40 to attenuate the musical content (regression).
                 G[k] = float(np.clip(lo - lr, -_frame_max, 0.0))
                 continue
-            # §2.30b Guard 1: Hard quiet zone (< -36 dBFS restored) — no positive boost.
-            # Covers strongly denoised intros/outros where restored noise floor
-            # is well below carrier level.
-            _FADEOUT_QUIET_LUFS = -36.0  # dBFS threshold for fade-out detection
+            # §2.30b Guard 1: Adaptive quiet zone — no positive boost.
+            # _FADEOUT_QUIET_LUFS is adaptive: p5(L_rest) + 8 dB, capped at [−36, −18] dBFS.
+            # This catches vinyl carrier noise at −35 dBFS which bypassed the fixed −36 dBFS.
             if lr < _FADEOUT_QUIET_LUFS:
-                # Restored is in the hard quiet zone → no positive boost allowed
+                # Restored is in the quiet zone → no positive boost allowed
                 G[k] = float(np.clip(lo - lr, -_frame_max, 0.0))
                 continue
-            # §2.30b Guard 2: Moderate quiet zone (-30 to -36 dBFS restored) combined
-            # with large Original-vs-Restored gap (> max_gain dB).
-            # Pattern: Original has loud vinyl crackle (-20 dBFS), Restored has
-            # reduced crackle (-34 dBFS) → diff=14 dB > 4 dB max_gain.
-            # This is a denoising artefact, NOT a music-dynamics difference.
-            # Without this guard MDEM boosts the restored crackle to match the
-            # original carrier level → Pegelexplosion at intro/outro.
-            # A genuine music-dynamics gap of > max_gain dB at moderate levels
-            # is extremely rare (it would require an impossible 4+ dB sudden drop
-            # that the Savitzky-Golay smoother would already attenuate).
-            _MODERATE_QUIET_LUFS = -30.0
+            # §2.30b Guard 2: Moderate quiet zone combined with large orig−rest gap.
             if lr < _MODERATE_QUIET_LUFS and (lo - lr) > _frame_max:
                 G[k] = 0.0
                 continue
-            # §2.30b Guard 3 — Any-level noise-removal guard (lr >= −30 dBFS):
-            # Original had noise+music (lo=-20), restored has only clean music (lr=-28).
-            # diff = 8 dB > 2 × max_gain (8 dB, using 2× to allow natural dynamics).
-            # Without this guard MDEM boosts shellac/cassette intro/outro frames
-            # that are above −30 dBFS threshold but still contain noise-removal artifacts.
-            # Genuine 400ms musical drops of > 2× max_gain are acoustically impossible.
+            # §2.30b Guard 3 — Any-level noise-removal guard (lr >= _MODERATE_QUIET_LUFS):
+            # diff > 2× max_gain is acoustically impossible for genuine 400ms dynamics.
             if (lo - lr) > 2.0 * _frame_max:
                 G[k] = 0.0
                 continue
@@ -197,11 +194,12 @@ class MicroDynamicsEnvelopeMorphing:
         # §2.30 Post-Smoothing Quiet-Zone-Clamp: SG-Glaettung kann den Boost aus
         # Musik-Frames in angrenzende Fadeout-Frames verschleppen (window=7 → 1.4 s).
         # Nach der Glaettung alle Frames nochmals auf kein-positiver-Boost prüfen.
+        # Verwendet denselben adaptiven _FADEOUT_QUIET_LUFS-Schwellwert wie oben.
         for k in range(n_frames):
             if G_smooth[k] > 0.0:
-                if L_rest[k] < -36.0:
-                    G_smooth[k] = 0.0  # Hard quiet zone: no boost
-                elif L_rest[k] < -30.0 and (L_orig[k] - L_rest[k]) > max_gain:
+                if L_rest[k] < _FADEOUT_QUIET_LUFS:
+                    G_smooth[k] = 0.0  # Adaptive quiet zone: no boost
+                elif L_rest[k] < _MODERATE_QUIET_LUFS and (L_orig[k] - L_rest[k]) > max_gain:
                     G_smooth[k] = 0.0  # Moderate quiet zone post-SG: diff too large
                 elif (L_orig[k] - L_rest[k]) > 2.0 * max_gain:
                     # §2.30b Guard 3 post-smoothing: SG may redistribute Guard-3 gain
@@ -228,10 +226,11 @@ class MicroDynamicsEnvelopeMorphing:
         # §2.30b Per-Sample Quiet-Zone Guard (Step 5 — Drei-Stufen-Invariante):
         # linspace interpolation between a positive music frame and a zeroed quiet frame
         # creates a positive ramp in the transition region. Clamp gain to 1.0 (0 dB)
-        # wherever res_mono is below -36 dBFS — prevents Pegelexplosion at
-        # music/fade-out boundary (e.g. +4 dB → 0 dB ramp over 9600 samples while
-        # audio is already at -40 dBFS). Mirrors the identical guard in correct_arc().
-        _quiet_thresh_ps = float(10.0 ** (-36.0 / 20.0))  # -36 dBFS linear
+        # wherever res_mono is below the adaptive threshold — prevents Pegelexplosion at
+        # music/fade-out boundary. Uses same adaptive threshold as correct_arc():
+        # p5(L_rest) + 8 dB, capped at [−36, −18] dBFS. Catches vinyl carrier noise
+        # at −35 dBFS which bypassed the fixed −36 dBFS threshold.
+        _quiet_thresh_ps = float(10.0 ** (_FADEOUT_QUIET_LUFS / 20.0))  # adaptive dBFS linear
         _ps_frame = 480  # 10 ms @ 48 kHz for fine-grained fade-out detection
         _n_full_ps = n // _ps_frame
         if _n_full_ps > 0:
@@ -395,7 +394,11 @@ class MicroDynamicsEnvelopeMorphing:
         L_rest = self.compute_lufs_profile(res_mono)
         n_frames = min(len(L_orig), len(L_rest))
         G = np.zeros(n_frames, dtype=np.float32)
-        _QUIET_LUFS = -36.0  # §2.30 quiet-zone threshold (vinyl fade-out / restored noise floor)
+        # §2.30b Adaptiver Quiet-Zone-Schwellwert (identisch zu morph() und correct_arc()):
+        # Vinyl/Shellac-Rauschen bei −35 dBFS liegt über dem festen −36-dBFS-Schwellwert.
+        # p5(L_rest) + 8 dB, capped [−36, −18] dBFS.
+        _p5_L_mi = float(np.percentile(L_rest[:n_frames], 5)) if n_frames > 2 else -36.0
+        _QUIET_LUFS = float(np.clip(_p5_L_mi + 8.0, -36.0, -18.0))
         for k in range(n_frames):
             lo, lr = L_orig[k], L_rest[k]
             if not (math.isfinite(lo) and math.isfinite(lr)) or lo < self.MIN_LEVEL_LUFS:
@@ -404,22 +407,16 @@ class MicroDynamicsEnvelopeMorphing:
                 # Restored near-silent: suppress positive boost (see morph() §2.30 guard)
                 G[k] = float(np.clip(lo - lr, -max_gain, 0.0))
             elif lr < _QUIET_LUFS:
-                # §2.30 quiet-zone guard: restored signal in vinyl/tape fade-out noise floor range
-                # (-36 to -60 dBFS). Any positive boost here amplifies cleaned noise at
-                # beginning/end of track. No positive gain allowed in quiet zone.
+                # §2.30 adaptive quiet-zone guard: catches carrier noise above −36 dBFS.
+                # No positive gain allowed in quiet zone.
                 G[k] = float(np.clip(lo - lr, -max_gain, 0.0))
             elif (lo - lr) > 2.0 * max_gain:
                 # §2.30b Guard 3 (_morph_internal): any-level noise-removal guard.
-                # diff > 2× max_gain is acoustically impossible for genuine 400ms dynamics.
-                # Original had noise (lo high), restored is denoised (lr lower but > -36).
-                # Without this guard _morph_internal boosts shellac/cassette intro/outro.
                 G[k] = 0.0
             else:
                 G[k] = float(np.clip(lo - lr, -max_gain, max_gain))
         G_smooth = _savgol_smooth(G)
-        # §2.30 post-smoothing quiet-zone clamp: Savitzky-Golay can distribute positive gain
-        # from music segments back into quiet regions. Clamp to 0 wherever restored is quiet
-        # OR where diff exceeds 2× max_gain (noise-removal pattern at any level).
+        # §2.30 post-smoothing quiet-zone clamp — uses adaptive _QUIET_LUFS.
         for k in range(n_frames):
             if G_smooth[k] > 0.0:
                 if L_rest[k] < _QUIET_LUFS:
@@ -440,9 +437,8 @@ class MicroDynamicsEnvelopeMorphing:
             gain_envelope[start:ce] = np.linspace(lg, nxt, ce - start, dtype=np.float32)
 
         # §2.30b Per-Sample Quiet-Zone Guard (Step 5 — Drei-Stufen-Invariante):
-        # mirrors the identical guard in morph() — prevents positive interpolated gain
-        # in the quiet/fade-out transition zone (< -36 dBFS).
-        _quiet_thresh_mi = float(10.0 ** (-36.0 / 20.0))
+        # mirrors the identical guard in morph() — uses adaptive _QUIET_LUFS threshold.
+        _quiet_thresh_mi = float(10.0 ** (_QUIET_LUFS / 20.0))
         _ps_fr_mi = 480  # 10 ms @ 48 kHz
         _n_full_mi = n // _ps_fr_mi
         if _n_full_mi > 0:
