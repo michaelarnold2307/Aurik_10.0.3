@@ -350,12 +350,12 @@ Letztes Gate vor Export. Misst **Gesamt-Hörverbesserung** statt nur Einzel-Goal
 
 Frühe subtraktive Phasen dürfen den wahrgenommenen Musikpegel nicht kollabieren lassen.
 
-- Betroffene Phasenklasse: breitbandig/subtraktiv (z. B. Denoise, Noise-Gate, Dereverb, Surface/Hiss-Reduction)
-- Invariante: material-adaptiver per-Phase-RMS-Drift-Guard muss aktiv sein
+- Betroffene Phasenklasse: **breitbandig-subtraktiv** (Denoise, Noise-Gate, Dereverb, Surface/Hiss-Reduction) — **NICHT** HPF/LPF/Notch/Bandpass (§2.45a-VI: deren Energieverlust ist beabsichtigt, UV3-Cumulative-Guard übernimmt)
+- Invariante: material-adaptiver per-Phase-RMS-Drift-Guard muss aktiv sein (nur für breitbandig-subtraktive Phasen)
 - **Gated-RMS Pflicht** (§2.45a-I): RMS-Messungen frame-basiert, nur Frames > −50 dBFS; Stille-Frames ignorieren; Stereo→Mono-Downmix vor Framing
 - **Envelope-Aware Gain** (§2.45a-II): Makeup-Gain NUR auf musikalische Frames; Stille-Frames unverändert (Gain=1.0); 10 ms Crossfade
 - **Soft-Limiter bedingt** (§2.45a-III): tanh-Shaping bei 0.92 NUR wenn peak > 0.98 (echtes Clipping-Risiko)
-- **Dreistufige Kaskade** (§2.45a-IV): Per-Phase → Mid-Pipeline (kumulativ) → End-of-Pipeline (final); jede Stufe nutzt Gated-RMS + Envelope-Gain
+- **Dreistufige Kaskade** (§2.45a-IV): Per-Phase (nur breitbandig-subtraktiv) → Mid-Pipeline (kumulativ, alle Phasen) → End-of-Pipeline (final); jede Stufe nutzt Gated-RMS + Envelope-Gain
 - Guard-Reaktion: **nicht** Phase wirkungslos machen; stattdessen begrenzte Dry/Wet-Rescue oder sichere Makeup-Gain-Kompensation
 - Peak-Guard Pflicht: Gain-Limits mit `np.percentile(np.abs(audio), 99.9)` (kein `np.max()`)
 - Telemetriepflicht: pro Phase `rms_drop_db` und `loudness_makeup_db` in Phase-Metadata; Pipeline-Metadaten führen Top-Drops

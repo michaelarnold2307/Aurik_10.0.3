@@ -1487,7 +1487,8 @@ Die finale LUFS-Invariante (`LUFS-Differenz ≤ 1 LU`) schützt den Export, aber
 
 ### Pflicht-Invarianten
 
-- Für breitbandig/subtraktive Phasen MUSS ein material-adaptiver per-Phase-RMS-Drift-Guard aktiv sein.
+- Für **breitbandig-subtraktive** Phasen (Denoise, Dereverb, Noise-Gate, Surface-Noise) MUSS ein material-adaptiver per-Phase-RMS-Drift-Guard aktiv sein.
+- **Ausnahme §2.45a-VI**: Spektralband-Filter (HPF, LPF, Notch, Bandpass) dürfen **keinen** per-Phase-Makeup-Gain-Guard haben — ihr Energieverlust ist beabsichtigt (Carrier-Inversion). Für diese Phasen übernimmt Stufe 2 (Mid-Pipeline) und Stufe 3 (End-of-Pipeline) der Kaskade die Überwachung.
 - Ein Guard darf die Phase nicht trivialisieren (`strength=0`/Bypass als Standardreaktion ist unzulässig).
 - Bei Überschreitung des material-adaptiven RMS-Drift-Limits gilt: primär Dry/Wet-Rescue (mehr Dry-Anteil), sekundär sichere Makeup-Gain-Kompensation.
 - Gain-Limits müssen den DSP-Peak-Guard nutzen: `np.percentile(np.abs(audio), 99.9)`.
@@ -1543,7 +1544,7 @@ Die Pipeline implementiert 3 Ebenen Loudness-Drift-Protection:
 
 | Stufe | Trigger | Messung | Scope |
 | --- | --- | --- | --- |
-| **1. Per-Phase** | Nach jeder subtraktiven Phase | Gated-RMS Δ vs. Phase-Eingang | Einzelphase |
+| **1. Per-Phase** | Nach jeder **breitbandig-subtraktiven** Phase (Denoise/Dereverb/Noise-Gate/Surface-Noise) — **nicht** HPF/LPF/Notch (§2.45a-VI) | Gated-RMS Δ vs. Phase-Eingang | Einzelphase |
 | **2. Mid-Pipeline** | Nach jeder Phase im Loop | Gated-RMS vs. Pipeline-Start (`_afg_pre_pipeline_audio`) | Kumulativ bis Checkpoint |
 | **3. End-of-Pipeline** | Nach Phase-Loop, vor Export-Gates | Gated-RMS vs. Pipeline-Start | Gesamt-Pipeline |
 
