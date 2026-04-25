@@ -361,23 +361,28 @@ class PhaseCorrection(PhaseInterface):
 
         # Band 1: <200 Hz (Bass)
         sos_low = signal.butter(4, self.CROSSOVER_FREQS[0] / nyquist, btype="low", output="sos")
-        bands.append(signal.sosfilt(sos_low, audio))
+        # §2.51 Anti-Zeitversatz: sosfiltfilt (Zero-Phase) statt sosfilt (kausal).
+        # sosfilt erzeugt frequenzabhängige Gruppenlatenz pro Band; nach per-Band-Korrektur des
+        # R-Kanals via np.roll entsteht ein frequenzabhängiger L/R-Zeitversatz. Zusätzlich erzeugt
+        # die Filtereinschalttransiente (Zero-Initial-State) im ersten Viertel des Audios eine
+        # Pegelexplosion und Kratzen durch Nicht-Unity-Bandrekombination (Butterworth ≠ allpass).
+        bands.append(signal.sosfiltfilt(sos_low, audio))  # Zero-Phase
 
         # Band 2: 200-1000 Hz (Low-Mid)
         sos_band2 = signal.butter(
             4, [self.CROSSOVER_FREQS[0] / nyquist, self.CROSSOVER_FREQS[1] / nyquist], btype="band", output="sos"
         )
-        bands.append(signal.sosfilt(sos_band2, audio))
+        bands.append(signal.sosfiltfilt(sos_band2, audio))  # Zero-Phase
 
         # Band 3: 1000-8000 Hz (Mid-High)
         sos_band3 = signal.butter(
             4, [self.CROSSOVER_FREQS[1] / nyquist, self.CROSSOVER_FREQS[2] / nyquist], btype="band", output="sos"
         )
-        bands.append(signal.sosfilt(sos_band3, audio))
+        bands.append(signal.sosfiltfilt(sos_band3, audio))  # Zero-Phase
 
         # Band 4: >8000 Hz (High)
         sos_high = signal.butter(4, self.CROSSOVER_FREQS[2] / nyquist, btype="high", output="sos")
-        bands.append(signal.sosfilt(sos_high, audio))
+        bands.append(signal.sosfiltfilt(sos_high, audio))  # Zero-Phase
 
         return bands
 

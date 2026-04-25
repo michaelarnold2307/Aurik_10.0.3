@@ -13197,8 +13197,12 @@ class UnifiedRestorerV3:
                 )
 
         # Phasen-/Azimuth-Fehler
+        # phase_14 nutzt sosfiltfilt (Zero-Phase) → artifact-sicher für alle Materialien.
+        # Bei digitalem Material mit false-positive PHASE_ISSUES (MP3 Joint-Stereo): phase_14
+        # findet 0 ms Delay → np.roll(0) = no-op, kein Schaden. §2.51 Stereo-Kohärenz-Invariante.
         if sev(DefectType.PHASE_ISSUES) > 0.10:
             selected.append("phase_14_phase_correction")
+        # phase_25 (Azimuth-Korrektur Magnetkopf) nur für physikalische Bandmaterialien §2.46b
         if sev(DefectType.PHASE_ISSUES) > 0.20 and material in [
             MaterialType.TAPE,
             MaterialType.REEL_TAPE,
