@@ -602,3 +602,73 @@ quality_estimate = max(0.0, min(1.0, 0.40 * (1 - defect_severity) + 0.60 * (pqs_
 ```
 
 **VERBOTEN**: `quality_estimate * 1.15`
+
+---
+
+## §1.4 Kritische Kalibrierungsfehler (v9.11.14, normiert 2026-04-25)
+
+Diese Fehler wurden in Produktion bestätigt und haben die gesamte Musical-Goals-Kette desaktiviert.
+
+### §1.4.1 TonalCenterMetric — KEY_SHIFT_PENALTY_DEFAULT (RELEASE_MUST)
+
+**Problem**: `_KEY_SHIFT_PENALTY_DEFAULT = 0.0` → Pitch-Shift-Distanzen > 3 Halbtöne liefern Penalty 0.0 → `tonal_center = 0.000` nach `phase_23_spectral_repair` / `phase_06_frequency_restoration`.
+
+**Ursache**: Spektrale Energie-Umverteilung durch Spectral Repair / BW-Extension verschiebt dominante Tonhöhe ≥ 2 Halbtöne **ohne echten Tonartwechsel**. Die Korrelations-Berechnung wertet dies als Schlüsselwechsel.
+
+**Normative Konfiguration**:
+
+```python
+_KEY_SHIFT_PENALTY: dict[int, float] = {0: 1.0, 1: 0.75, 2: 0.50, 3: 0.30}
+_KEY_SHIFT_PENALTY_DEFAULT: float = 0.20   # War: 0.0 → tonal_center = 0.000
+# Bypass-Guard: if corr_score >= 0.70 (war: 0.85 — zu restriktiv für BW-Extension)
+```
+
+**Auswirkung**: Mit `0.0` wurden alle PMGG-Retries für `phase_23` + `phase_06` ausgelöst → Pipeline-Rollback → BW-Restoration und Spectral Repair blieben inaktiv.
+
+### §1.4.2 AuthentizitaetMetric — Formant-Threshold (RELEASE_MUST)
+
+**Problem**: `_formant_threshold = max(500.0, mean_ref_centroid * 0.5)` → bei mittlerem Centroid 1200 Hz: threshold = 600 Hz. BW-Extension hebt Centroid um +600–800 Hz → `formant_stability = max(0, 1 − 1000/600) = 0.0` → `authentizitaet = 0.0`.
+
+**Ursache**: Der Centroid-Shift durch BW-Extension (phase_06/07) ist eine **korrekte Carrier-Inversion** (§2.46), kein Authentizitätsverlust. Die Formel bestrafte die Restaurierung als Fehler.
+
+**Normative Konfiguration**:
+
+```python
+_formant_threshold = max(1200.0, mean_ref_centroid * 1.5)
+# Erlaubt ±150 % Centroid-Drift als korrekte Träger-Inversion
+# War: max(500.0, ref * 0.5) → formant_stability = 0.0 bei jeder BW-Extension
+```
+
+### §1.4.3 Phase_18 Noise Gate — PMGG/CIG artikulation-Exclusion (RELEASE_MUST)
+
+**Problem**: `phase_18_noise_gate` hatte keine Goal-Exclusion für `artikulation` + `groove`. Das Noise-Gate schneidet Note-Attacks (Attack-Transienten) → `artikulation`-Proxy sinkt um 0.2901 → katastrophale PMGG-Regression → Pipeline-Rollback → Rauschen bleibt unrepariert.
+
+**Invariante (§2.55 bidirektionale Sync)**:
+
+```python
+# PMGG: backend/core/per_phase_musical_goals_gate.py
+PHASE_GOAL_EXCLUSIONS["phase_18_noise_gate"] = {"artikulation", "groove"}
+# CIG: backend/core/cumulative_interaction_guard.py
+_PHASE_SPECIFIC_DRIFT_EXCLUSIONS["phase_18_noise_gate"] = {"artikulation", "groove"}
+# Beide Tabellen MÜSSEN identisch sein — §2.55
+```
+
+### §1.4.4 adaptive_thresholds Material-Ceiling (RELEASE_MUST)
+
+**Problem**: PMGG-blended Thresholds können 0.90 für Vinyl-Natürlichkeit ergeben (canonical=0.90, SGT=0.88, blend=0.89). Export-Gate liest `adaptive_goal_thresholds` aus Metadata zuerst → lehnt physikalisch korrekte Vinyl-Restaurierung (score=0.655) bei threshold=0.90 ab, statt Material-Floor 0.72 zu verwenden.
+
+**Fix in UV3**: `_ADAPTIVE_THR_MATERIAL_CEILING` Dict nach PhysicalCeiling-Block:
+
+```python
+_ADAPTIVE_THR_MATERIAL_CEILING = {
+    "shellac":   {"natuerlichkeit": 0.68, "authentizitaet": 0.65, "tonal_center": 0.70, ...},
+    "vinyl":     {"natuerlichkeit": 0.82, "authentizitaet": 0.79, "tonal_center": 0.84, ...},
+    "reel_tape": {"natuerlichkeit": 0.82, ...},
+    "tape":      {"natuerlichkeit": 0.78, ...},
+    "mp3_low":   {"natuerlichkeit": 0.76, ...},
+}
+# for goal, thr in _effective_goal_thresholds.items():
+#     ceiling = _ADAPTIVE_THR_MATERIAL_CEILING.get(material, {}).get(goal)
+#     if ceiling and thr > ceiling:
+#         _effective_goal_thresholds[goal] = ceiling
+```

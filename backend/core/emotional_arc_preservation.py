@@ -624,20 +624,31 @@ class EmotionalArcPreservationMetric:
         # the transition region between a high-gain musical segment and a 0-gain
         # quiet segment (e.g., +4 dB at 32.5 s → 0 dB at 35 s gives +2 dB at 33.75 s).
         # Suppress positive interpolated gain wherever the restored signal itself is
-        # below the quiet-zone threshold (-42 dBFS). Fully vectorised for speed.
+        # below −36 dBFS (per-sample guard, matching MDEM morph() threshold).
+        #
+        # §2.30b Invariante: Per-Sample-Guard nutzt −36 dBFS, NICHT −42 dBFS.
+        # Begründung: Vinyl-/Shellac-Oberflächenrauschen liegt bei −35 bis −42 dBFS
+        # (RMS pro 10-ms-Frame) und liegt damit IM LÜCKENBEREICH des −42-dBFS-Guards.
+        # Arousal-Korrektur beim Intro/Outro versucht dann, dieses Rauschen zu boosten
+        # → Pegelexplosion im ersten/letzten Segment (Bestätigt 2026-04-25).
+        # Der 5-s-Segment-Guard (−42 dBFS + 6-dB-Differenz) bleibt unverändert, weil
+        # 5-s-Segmente legitime Mischung aus Musik + Stille enthalten können.
+        # Der 10-ms-per-Sample-Guard ist die letzte Verteidigungslinie und soll mit MDEM
+        # übereinstimmen (§ copilot-instructions.md §2.30b-Tabelle, normiert 2026-04-25).
+        _quiet_rms_thresh_ps = 10.0 ** (-36.0 / 20.0)  # −36 dBFS per-sample (wie MDEM)
         _frame_len_ps = 480  # 10 ms @ 48 kHz
         _n_full_ps = n // _frame_len_ps
         if _n_full_ps > 0:
             _segs_ps = rest_mono[: _n_full_ps * _frame_len_ps].reshape(_n_full_ps, _frame_len_ps)
             _rms_ps = np.sqrt(np.mean(_segs_ps**2, axis=1) + 1e-12)
-            _is_quiet_ps = _rms_ps < float(_quiet_rms_thresh)
+            _is_quiet_ps = _rms_ps < float(_quiet_rms_thresh_ps)
             _quiet_mask = np.repeat(_is_quiet_ps, _frame_len_ps)
             if _n_full_ps * _frame_len_ps < n:
                 _tail_rms_ps = float(np.sqrt(np.mean(rest_mono[_n_full_ps * _frame_len_ps :] ** 2) + 1e-12))
                 _quiet_mask = np.concatenate(
                     [
                         _quiet_mask,
-                        np.full(n - _n_full_ps * _frame_len_ps, _tail_rms_ps < float(_quiet_rms_thresh)),
+                        np.full(n - _n_full_ps * _frame_len_ps, _tail_rms_ps < float(_quiet_rms_thresh_ps)),
                     ]
                 )
             # Zero out any positive interpolated gain in the quiet zone
