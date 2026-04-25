@@ -262,8 +262,16 @@ Primär: ADMM-basierte Sparse-Recovery (Záviška et al., EUSIPCO 2021)
                                 |x_clip| >= A       (gesättigte Stellen ≥ Clipwert)
     ADMM-Parameter:
         rho     = 0.1        (Penalty, adaptiv: rho *= 1.5 wenn Residuum > 10× Dual)
-        max_iter = 200       (typisch 80–120 Konvergenz)
-        tol     = 1e-4       (Primal- und Duales Residuum unter Schwelle)
+        max_iter = längenadaptiv [RELEASE_MUST]:
+            max_iter = clamp(round(200 × min(1.0, 30.0 / duration_s)), 30, 200)
+            → Kurze Signale (≤ 30 s): 200 Iterationen (volle Qualität)
+            → Lange Signale (z. B. 225 s): 30 Iterationen (~360 s statt 2460 s)
+            Begründung: Záviška 2021 zeigt Konvergenz typisch in 30–50 Iterationen;
+            Iterationen 60–200 bringen Sub-Promille-Verbesserungen, blockieren aber
+            den UV3 Wall-Time-Budget für alle nachfolgenden Enhancement-Phasen.
+            VERBOTEN: festes max_iter=200 unabhängig von Signallänge.
+        tol     = 1e-4       (Primal- und Duales Residuum unter Schwelle — bricht früh ab)
+        Wall-Time-Guard: min(180 s, 1.5 × duration_s) als absoluter Timeout (Sicherheitsnetz)
     Wavelet-Prior (Daubechies db4, Level 5) als Sparsifying-Transform
     Frequenzband: 20 Hz – 20 kHz (keine Sub-Bass-Beschränkung)
     Transient-Guard: Attack-Bins (onset ±5 ms) erhalten rho × 3.0 → stärkerer Erhalt
