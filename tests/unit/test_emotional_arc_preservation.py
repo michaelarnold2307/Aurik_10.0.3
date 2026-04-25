@@ -13,6 +13,7 @@ import numpy as np
 from backend.core.emotional_arc_preservation import (
     EmotionalArcPreservationMetric,
     EmotionalArcResult,
+    apply_waveform_plausibility_guard,
 )
 
 # ---------------------------------------------------------------------------
@@ -368,4 +369,166 @@ class TestCorrectArc:
             f"Pegelexplosion im Fadeout: correct_emotional_arc boosted denoised fadeout "
             f"by {gain_db_applied:.2f} dB (max erlaubt: 0.5 dB). "
             f"Post-Smoothing Quiet-Zone-Clamp fehlt oder defekt."
+        )
+
+
+# ---------------------------------------------------------------------------
+# Klasse 8: WaveformPlausibilityGuard (§2.30c)
+# ---------------------------------------------------------------------------
+
+
+class TestWaveformPlausibilityGuard:
+    """§2.30c — Finale Pegelexplosions-Fangschicht vor HPI Gate."""
+
+    def test_37_explosion_in_intro_outro_corrected(self):
+        """Regression §2.30c: restored ist im Intro/Outro 12 dB lauter als original
+        (typisches MDEM/correct_arc-Artefakt). WPG muss die explodierten Fenster
+        auf ≈ orig + 2 dB klemmen.
+
+        Szenario: 30 s Musik (0 dB amp) + 12 s Intro/Outro auf beiden Seiten.
+        Original-Intro: Vinyl-Rauschen (−35 dBFS). Restored-Intro: Vinyl-Rauschen
+        durch Gain-Artefakt auf −23 dBFS hochgesetzt (+12 dB Explosion).
+        WPG muss corrected_intro_rms ≤ orig_intro_rms + 4 dB (threshold 2 dB Target
+        + 2 dB Toleranz für Interpolationsübergang) erzielen.
+        """
+        rng = np.random.default_rng(0)
+        sr = 48000
+        n_intro = sr * 12  # 12 s Intro
+        n_music = sr * 30  # 30 s Musik
+
+        vinyl_amp = 10.0 ** (-35.0 / 20.0)  # −35 dBFS
+        music = np.sin(2 * np.pi * 440 * np.linspace(0, 30.0, n_music)).astype(np.float32)
+
+        intro_orig = (rng.standard_normal(n_intro) * vinyl_amp).astype(np.float32)
+        original = np.concatenate([intro_orig, music, intro_orig])
+
+        # Explosion: Intro/Outro wurde auf −23 dBFS geboostet (+12 dB)
+        exploded_amp = 10.0 ** (-23.0 / 20.0)
+        intro_rest = (rng.standard_normal(n_intro) * exploded_amp).astype(np.float32)
+        restored = np.concatenate([intro_rest, music * 0.95, intro_rest])
+
+        corrected, meta = apply_waveform_plausibility_guard(
+            original,
+            restored,
+            sr,
+            mode="restoration",
+            material_type="vinyl",
+            restorability_score=60.0,
+        )
+
+        assert meta["explosions_found"] > 0, "WPG hat keine Explosionen erkannt"
+        assert meta["corrections_applied"] > 0, "WPG hat keine Korrektur angewendet"
+        assert meta["skipped_reason"] is None, f"WPG skip unerwartet: {meta['skipped_reason']}"
+
+        # Intro-RMS nach Korrektur muss signifikant unter der explodierten Version liegen
+        intro_corr = corrected[:n_intro]
+        intro_rest_rms_db = 20.0 * np.log10(float(np.sqrt(np.mean(intro_rest**2))) + 1e-12)
+        intro_corr_rms_db = 20.0 * np.log10(float(np.sqrt(np.mean(intro_corr**2))) + 1e-12)
+        intro_orig_rms_db = 20.0 * np.log10(float(np.sqrt(np.mean(intro_orig**2))) + 1e-12)
+
+        assert intro_corr_rms_db < intro_rest_rms_db - 3.0, (
+            f"WPG hat Explosion nicht ausreichend korrigiert: "
+            f"orig={intro_orig_rms_db:.1f} dBFS, restored={intro_rest_rms_db:.1f} dBFS, "
+            f"corrected={intro_corr_rms_db:.1f} dBFS (erwartet < {intro_rest_rms_db - 3.0:.1f})"
+        )
+        # Korrektur darf nicht über orig + 4 dB gehen
+        assert intro_corr_rms_db <= intro_orig_rms_db + 4.0, (
+            f"WPG over-korrigiert: corrected={intro_corr_rms_db:.1f} dBFS > orig+4={intro_orig_rms_db + 4.0:.1f} dBFS"
+        )
+
+    def test_38_normal_music_not_touched(self):
+        """WPG darf normale Musik ohne Explosion nicht anfassen.
+
+        Szenario: 60 s Musik. Restored ist überall nur 2 dB lauter als Original
+        (legitime Restaurierungsverbesserung, deutlich unter threshold=6 dB).
+        WPG darf corrections_applied == 0 liefern.
+        """
+        rng = np.random.default_rng(1)
+        sr = 48000
+        n = sr * 60
+
+        t = np.linspace(0.0, 60.0, n, dtype=np.float32)
+        envelope = (0.5 + 0.4 * np.sin(2 * np.pi * t / 20.0)).astype(np.float32)
+        original = (envelope * np.sin(2 * np.pi * 440.0 * t)).astype(np.float32)
+        original += (rng.standard_normal(n) * 0.01).astype(np.float32)
+
+        # Restored: legitimately 2 dB louder (well within threshold)
+        restored = original * (10.0 ** (2.0 / 20.0))
+
+        corrected, meta = apply_waveform_plausibility_guard(
+            original,
+            restored,
+            sr,
+            mode="restoration",
+            material_type="cd_digital",
+            restorability_score=80.0,
+        )
+
+        assert meta["corrections_applied"] == 0, (
+            f"WPG korrigierte falsches Positiv: corrections_applied={meta['corrections_applied']}, "
+            f"explosions_found={meta['explosions_found']} (keine Explosion in Testdaten)"
+        )
+        # Corrected muss identisch zu restored sein (kein Eingriff)
+        rms_diff = float(np.sqrt(np.mean((corrected - restored) ** 2)))
+        assert rms_diff < 1e-5, f"WPG hat Signal verändert ohne Explosion: RMS-Diff={rms_diff}"
+
+    def test_39_spectral_content_preserved_after_correction(self):
+        """§2.30c — Spektralgehalt nach Korrektur erhalten.
+
+        Defektreparatur (simuliert: Hochtonwiederherstellung) muss nach WPG-Korrektur
+        vollständig erhalten bleiben. Die WPG-Korrektur ist ein reines Gain-Multiplikation
+        → spektrale FORM (Verhältnisse zwischen Frequenzbändern) unverändert.
+
+        Szenario: Restored hat BW-Extension (HF-Energie deutlich erhöht) UND eine
+        Pegelexplosion im Intro. WPG muss Explosion korrigieren, HF-Ratio bewahren.
+        """
+        rng = np.random.default_rng(2)
+        sr = 48000
+        n_intro = sr * 10  # 10 s explodiertes Intro
+        n_music = sr * 40  # 40 s Musik
+
+        # Original: bandbegrenzt (kein HF), leise Intro
+        vinyl_amp = 10.0 ** (-35.0 / 20.0)
+        t_music = np.linspace(0.0, 40.0, n_music, dtype=np.float32)
+        music_orig = (0.5 * np.sin(2 * np.pi * 220.0 * t_music)).astype(np.float32)
+        intro_orig = (rng.standard_normal(n_intro) * vinyl_amp).astype(np.float32)
+        original = np.concatenate([intro_orig, music_orig])
+
+        # Restored: BW-Extension hat HF hinzugefügt (1/4 der Energie),
+        # Intro explodiert auf −20 dBFS (+15 dB)
+        exploded_amp = 10.0 ** (-20.0 / 20.0)
+        intro_rest = (rng.standard_normal(n_intro) * exploded_amp).astype(np.float32)
+        # HF hinzugefügt: hf_ratio im Musik-Segment erhöht
+        hf_component = (0.2 * np.sin(2 * np.pi * 12000.0 * t_music)).astype(np.float32)
+        music_rest = music_orig + hf_component
+        restored = np.concatenate([intro_rest, music_rest])
+
+        # Spektrale Ratio HF/Breitband im Musik-Segment VOR Korrektur messen
+        music_rest_segment = restored[n_intro:]
+        fft_rest = np.abs(np.fft.rfft(music_rest_segment[:sr]))  # 1 s FFT
+        bin_hz = sr / (2 * len(fft_rest))
+        hf_start = int(8000 / bin_hz)
+        hf_ratio_before = float(np.sum(fft_rest[hf_start:] ** 2) / (np.sum(fft_rest**2) + 1e-12))
+
+        corrected, meta = apply_waveform_plausibility_guard(
+            original,
+            restored,
+            sr,
+            mode="restoration",
+            material_type="vinyl",
+            restorability_score=50.0,
+        )
+
+        assert meta["corrections_applied"] > 0, "WPG sollte Explosion im Intro korrigiert haben"
+
+        # Spektrale Ratio HF/Breitband im Musik-Segment NACH Korrektur messen
+        music_corr_segment = corrected[n_intro:]
+        fft_corr = np.abs(np.fft.rfft(music_corr_segment[:sr]))
+        hf_ratio_after = float(np.sum(fft_corr[hf_start:] ** 2) / (np.sum(fft_corr**2) + 1e-12))
+
+        # HF-Ratio muss innerhalb 1 % identisch sein (pure gain-only correction)
+        assert abs(hf_ratio_after - hf_ratio_before) < 0.01, (
+            f"§2.30c: Spektralgehalt nach WPG-Korrektur verändert! "
+            f"HF-Ratio vor={hf_ratio_before:.4f}, nach={hf_ratio_after:.4f} "
+            f"(Differenz {abs(hf_ratio_after - hf_ratio_before):.4f} > 0.01)"
         )

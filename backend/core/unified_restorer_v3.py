@@ -446,11 +446,13 @@ class UnifiedRestorerV3:
         if len(frame_rms_db) >= 10:
             p5_rms_db = float(np.percentile(frame_rms_db, 5))
             # Immer noise-floor-adaptiven Gate berechnen — nur anheben, nie absenken.
-            _adaptive = p5_rms_db + 6.0
+            # Margin +10 dB (2026-04-25): mit +6 und p5=-42 gilt -36>-36 = False → kein Trigger.
+            # Vinyl-Rauschen bei -35 dBFS würde verstärkt. +10 garantiert Trigger bei p5≥-46.
+            _adaptive = p5_rms_db + 10.0
             if _adaptive > gate_dbfs:
-                # Noise-Floor liegt über dem nominalen Gate → Gate 6 dB über Noise-Floor
-                # setzen. Stille/Rausch-Frames (< Noise-Floor + 6 dB) werden NICHT
-                # verstärkt; musikalische Frames (≥ 6 dB über Noise-Floor) erhalten
+                # Noise-Floor liegt über dem nominalen Gate → Gate 10 dB über Noise-Floor
+                # setzen. Stille/Rausch-Frames (< Noise-Floor + 10 dB) werden NICHT
+                # verstärkt; musikalische Frames (≥ 10 dB über Noise-Floor) erhalten
                 # trotzdem den vollen Makeup-Gain.
                 effective_gate = min(_adaptive, gate_dbfs + 25.0)
 
@@ -7446,6 +7448,43 @@ class UnifiedRestorerV3:
                 logger.debug("EmotionalArc post-MDEM: Bogen intakt — keine Korrektur nötig")
         except Exception as _arc_corr_exc:
             logger.debug("EmotionalArc post-MDEM-Korrektur nicht verfügbar: %s", _arc_corr_exc)
+
+        # §2.30c WaveformPlausibilityGuard — finale Pegelexplosions-Fangschicht
+        # Erkennt Fenster wo restored >> original (Gain-Artefakt aus MDEM/correct_arc),
+        # korrigiert via reines Envelope-Attenuation (NIE Boost).
+        # Alle Defektreparaturen (Spektrum, Harmonik, BW-Extension) bleiben erhalten.
+        # Musical-Goals-Proxy-Check schützt P3 (Emotionalität/MikroDynamik) vor Überkorrektur.
+        try:
+            from backend.core.emotional_arc_preservation import apply_waveform_plausibility_guard as _wpg_fn
+
+            _wpg_mode = str(getattr(getattr(self.config, "mode", None), "value", "restoration")).lower()
+            _wpg_mat = str(_gp_material_key or "unknown").lower().split("_")[0]  # "vinyl_heavy" → "vinyl"
+            _wpg_out, _wpg_meta = _wpg_fn(
+                original_audio_for_goals,
+                restored_audio,
+                sample_rate,
+                mode=_wpg_mode,
+                material_type=_wpg_mat,
+                restorability_score=float(_pmgg_restorability_score),
+            )
+            if _wpg_meta.get("corrections_applied", 0) > 0:
+                restored_audio = _wpg_out
+                restored_audio = np.clip(np.nan_to_num(restored_audio, nan=0.0, posinf=0.0, neginf=0.0), -1.0, 1.0)
+                logger.info(
+                    "§2.30c WPG: %d Explosions-Fenster korrigiert, max=%.1f dB%s",
+                    _wpg_meta["corrections_applied"],
+                    _wpg_meta.get("max_attenuation_db", 0.0),
+                    " (50%%-Modus)" if _wpg_meta.get("correction_eased") else "",
+                )
+            elif _wpg_meta.get("skipped_reason"):
+                logger.debug("§2.30c WPG: Skip (%s)", _wpg_meta["skipped_reason"])
+            else:
+                logger.debug(
+                    "§2.30c WPG: Keine Explosionen erkannt (%d Fenster geprüft)",
+                    _wpg_meta.get("explosions_found", 0),
+                )
+        except Exception as _wpg_exc:
+            logger.debug("§2.30c WaveformPlausibilityGuard nicht verfügbar: %s", _wpg_exc)
 
         # --- GP-Lernzyklus: update() NACH MDEM — Spec §2.5 (normativ: letzter Schritt) ---
         # Score basiert auf PQS + Musical Goals vor MDEM (korrekt: MDEM ist Hüllkurven-Morphing,

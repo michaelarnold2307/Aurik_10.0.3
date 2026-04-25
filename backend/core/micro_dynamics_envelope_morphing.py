@@ -180,6 +180,15 @@ class MicroDynamicsEnvelopeMorphing:
             if lr < _MODERATE_QUIET_LUFS and (lo - lr) > _frame_max:
                 G[k] = 0.0
                 continue
+            # §2.30b Guard 3 — Any-level noise-removal guard (lr >= −30 dBFS):
+            # Original had noise+music (lo=-20), restored has only clean music (lr=-28).
+            # diff = 8 dB > 2 × max_gain (8 dB, using 2× to allow natural dynamics).
+            # Without this guard MDEM boosts shellac/cassette intro/outro frames
+            # that are above −30 dBFS threshold but still contain noise-removal artifacts.
+            # Genuine 400ms musical drops of > 2× max_gain are acoustically impossible.
+            if (lo - lr) > 2.0 * _frame_max:
+                G[k] = 0.0
+                continue
             G[k] = np.clip(lo - lr, -_frame_max, _frame_max)
 
         # Glaettung
@@ -187,11 +196,17 @@ class MicroDynamicsEnvelopeMorphing:
 
         # §2.30 Post-Smoothing Quiet-Zone-Clamp: SG-Glaettung kann den Boost aus
         # Musik-Frames in angrenzende Fadeout-Frames verschleppen (window=7 → 1.4 s).
-        # Nach der Glaettung alle Frames nochmals auf kein-positiver-Boost prüfen,
-        # wenn das restaurierte Signal in der Quiet-Zone (< -36 dBFS) liegt.
+        # Nach der Glaettung alle Frames nochmals auf kein-positiver-Boost prüfen.
         for k in range(n_frames):
-            if L_rest[k] < -36.0 and G_smooth[k] > 0.0:
-                G_smooth[k] = 0.0
+            if G_smooth[k] > 0.0:
+                if L_rest[k] < -36.0:
+                    G_smooth[k] = 0.0  # Hard quiet zone: no boost
+                elif L_rest[k] < -30.0 and (L_orig[k] - L_rest[k]) > max_gain:
+                    G_smooth[k] = 0.0  # Moderate quiet zone post-SG: diff too large
+                elif (L_orig[k] - L_rest[k]) > 2.0 * max_gain:
+                    # §2.30b Guard 3 post-smoothing: SG may redistribute Guard-3 gain
+                    # back into frames that passed Guard 3 pre-smoothing.
+                    G_smooth[k] = 0.0
 
         # Gain-Anwendung: frame-weise lineare Interpolation
         hop = self.HOP_SIZE_SAMPLES
@@ -393,14 +408,25 @@ class MicroDynamicsEnvelopeMorphing:
                 # (-36 to -60 dBFS). Any positive boost here amplifies cleaned noise at
                 # beginning/end of track. No positive gain allowed in quiet zone.
                 G[k] = float(np.clip(lo - lr, -max_gain, 0.0))
+            elif (lo - lr) > 2.0 * max_gain:
+                # §2.30b Guard 3 (_morph_internal): any-level noise-removal guard.
+                # diff > 2× max_gain is acoustically impossible for genuine 400ms dynamics.
+                # Original had noise (lo high), restored is denoised (lr lower but > -36).
+                # Without this guard _morph_internal boosts shellac/cassette intro/outro.
+                G[k] = 0.0
             else:
                 G[k] = float(np.clip(lo - lr, -max_gain, max_gain))
         G_smooth = _savgol_smooth(G)
         # §2.30 post-smoothing quiet-zone clamp: Savitzky-Golay can distribute positive gain
-        # from music segments back into quiet regions. Clamp to 0 wherever restored is quiet.
+        # from music segments back into quiet regions. Clamp to 0 wherever restored is quiet
+        # OR where diff exceeds 2× max_gain (noise-removal pattern at any level).
         for k in range(n_frames):
-            if L_rest[k] < _QUIET_LUFS and G_smooth[k] > 0.0:
-                G_smooth[k] = 0.0
+            if G_smooth[k] > 0.0:
+                if L_rest[k] < _QUIET_LUFS:
+                    G_smooth[k] = 0.0
+                elif (L_orig[k] - L_rest[k]) > 2.0 * max_gain:
+                    # §2.30b Guard 3 post-smoothing (_morph_internal)
+                    G_smooth[k] = 0.0
         hop = self.HOP_SIZE_SAMPLES
         n = len(res_mono)
         gain_envelope = np.ones(n, dtype=np.float32)

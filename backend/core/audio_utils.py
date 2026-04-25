@@ -196,13 +196,16 @@ def apply_musical_gain_envelope(
     effective_gate = gate_dbfs
     if len(frame_rms_db) >= 10:
         p5_rms_db = float(np.percentile(frame_rms_db, 5))
-        # Always compute the noise-floor-adaptive gate (p5 + 6 dB above noise floor).
+        # Always compute the noise-floor-adaptive gate (p5 + 10 dB above noise floor).
         # Only raise effective_gate — never lower it below the nominal.
-        _adaptive = p5_rms_db + 6.0
+        # Margin changed from +6 to +10 dB (2026-04-25):
+        # With +6 and p5=-42 dBFS: _adaptive=-36, condition -36>-36 is False → no trigger!
+        # Vinyl noise at -35 dBFS would still get amplified. +10 ensures -32 > -36 triggers.
+        _adaptive = p5_rms_db + 10.0
         if _adaptive > gate_dbfs:
-            # Noise floor is above nominal gate → set effective gate 6 dB above
+            # Noise floor is above nominal gate → set effective gate 10 dB above
             # noise floor so hiss/silence frames are NOT amplified while musical
-            # frames (≥ 6 dB above noise floor) still receive the full gain.
+            # frames (≥ 10 dB above noise floor) still receive the full gain.
             effective_gate = min(_adaptive, gate_dbfs + 25.0)
 
     # --- Pass 2: build gate envelope using adaptive threshold ---

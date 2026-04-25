@@ -583,6 +583,17 @@ class EmotionalArcPreservationMetric:
                     _diff_mod = 20.0 * np.log10((rms_orig[_i] + eps) / (rms_rest[_i] + eps))
                     if _diff_mod > max_gain_db:
                         gain_db[_i] = 0.0  # Carrier-noise reduction, not music dynamics
+                else:
+                    # §2.30b Guard 3 — Any-level noise-removal guard (rms_rest >= −30 dBFS):
+                    # Shellac/cassette/heavily-noisy-vinyl intro/outro frames land here.
+                    # Original had noise+music (-20 dBFS), restored has only clean music
+                    # (-28 dBFS) → diff = 8 dB > max_gain_db (6 dB) → noise removal,
+                    # not a real musical dynamic drop. Without this guard correct_arc
+                    # applies +8 dB to the intro/outro → Pegelexplosion.
+                    # Genuine 5-second musical dynamics rarely produce diff > max_gain_db.
+                    _diff_any = 20.0 * np.log10((rms_orig[_i] + eps) / (rms_rest[_i] + eps))
+                    if _diff_any > max_gain_db:
+                        gain_db[_i] = 0.0  # Noise-removal at any level: no boost
 
         # Savitzky-Golay smooth (boxcar fallback)
         if len(gain_db) >= 7:
@@ -614,6 +625,13 @@ class EmotionalArcPreservationMetric:
                     _diff_ps_mod = 20.0 * np.log10((rms_orig[_i] + eps) / (rms_rest[_i] + eps))
                     if _diff_ps_mod > max_gain_db:
                         gain_db[_i] = 0.0  # Post-smoothing: carrier-noise reduction, no boost
+                else:
+                    # §2.30b Guard 3 post-smoothing — mirror of pre-smoothing Guard 3:
+                    # SG-smoother can redistribute positive gain from music segments
+                    # into frames above −30 dBFS that were not guards pre-smoothing.
+                    _diff_ps_any = 20.0 * np.log10((rms_orig[_i] + eps) / (rms_rest[_i] + eps))
+                    if _diff_ps_any > max_gain_db:
+                        gain_db[_i] = 0.0  # Post-smoothing: noise-removal at any level
 
         # ---- Interpolate to sample-level via segment centres ----
         centres = np.array([start + seg_len // 2 for start in positions], dtype=np.float64)
@@ -626,16 +644,18 @@ class EmotionalArcPreservationMetric:
         # Suppress positive interpolated gain wherever the restored signal itself is
         # below −36 dBFS (per-sample guard, matching MDEM morph() threshold).
         #
-        # §2.30b Invariante: Per-Sample-Guard nutzt −36 dBFS, NICHT −42 dBFS.
-        # Begründung: Vinyl-/Shellac-Oberflächenrauschen liegt bei −35 bis −42 dBFS
-        # (RMS pro 10-ms-Frame) und liegt damit IM LÜCKENBEREICH des −42-dBFS-Guards.
-        # Arousal-Korrektur beim Intro/Outro versucht dann, dieses Rauschen zu boosten
-        # → Pegelexplosion im ersten/letzten Segment (Bestätigt 2026-04-25).
-        # Der 5-s-Segment-Guard (−42 dBFS + 6-dB-Differenz) bleibt unverändert, weil
-        # 5-s-Segmente legitime Mischung aus Musik + Stille enthalten können.
-        # Der 10-ms-per-Sample-Guard ist die letzte Verteidigungslinie und soll mit MDEM
-        # übereinstimmen (§ copilot-instructions.md §2.30b-Tabelle, normiert 2026-04-25).
-        _quiet_rms_thresh_ps = 10.0 ** (-36.0 / 20.0)  # −36 dBFS per-sample (wie MDEM)
+        # §2.30b Adaptiver Per-Sample-Guard (Schicht 6):
+        # Für Shellac/Kassette/stark verrauschtes Vinyl liegt der restaurierte Rauschboden
+        # bei −25 bis −35 dBFS (nach partieller Entrauschung). Der feste −36-dBFS-Schwellwert
+        # lässt diese Frames durch, weil −28 dBFS > −36 dBFS.
+        # Adaptiver Ansatz: 5th-Perzentil der 5-s-Segmente (Proxy für Trägerrauschboden)
+        # + 8 dB Margin, begrenzt auf [−36, −18] dBFS.
+        # Vollständig entrauschtes Material (p5 ≈ −65 dBFS): Schwellwert bleibt −36 dBFS.
+        # Shellac mit Rauschboden −30 dBFS: Schwellwert → max(−36, −22) = −22 dBFS.
+        _p5_rms_seg = float(np.percentile(rms_rest, 5)) if len(rms_rest) > 2 else 10.0 ** (-36.0 / 20.0)
+        _p5_dbfs_seg = 20.0 * np.log10(max(_p5_rms_seg, 1e-12) + 1e-12)
+        _adaptive_thresh_ps_dbfs = float(np.clip(_p5_dbfs_seg + 8.0, -36.0, -18.0))
+        _quiet_rms_thresh_ps = 10.0 ** (_adaptive_thresh_ps_dbfs / 20.0)  # adaptive per-sample
         _frame_len_ps = 480  # 10 ms @ 48 kHz
         _n_full_ps = n // _frame_len_ps
         if _n_full_ps > 0:
@@ -751,3 +771,375 @@ def correct_emotional_arc(
         (corrected_audio, EmotionalArcResult)
     """
     return get_emotional_arc_metric().correct_arc(original, restored, sr, max_gain_db=max_gain_db, damping=damping)
+
+
+# ---------------------------------------------------------------------------
+# §2.30c WaveformPlausibilityGuard — Finale Pegelexplosions-Fangschicht
+# ---------------------------------------------------------------------------
+
+
+class WaveformPlausibilityGuard:
+    """§2.30c Final waveform sanity check — last safety layer before HPI Gate.
+
+    Detects Pegelexplosion (level anomalies where restored >> original) and
+    applies targeted envelope attenuation. Operates AFTER correct_arc.
+
+    Design invariants:
+    - ONLY attenuation (gain ≤ 1.0, never boost) — spectral repair work untouched
+    - Pure envelope correction: spectral shape, harmonics, BW-extension preserved
+    - Musical Goals protection:
+        * P1/P2 (Natürlichkeit, Authentizität, Timbre, TonalCenter, Artikulation):
+          gain-only correction cannot harm spectral ratios → SAFE
+        * P3 Emotionalität: arc-Pearson proxy must not worsen by > 0.05
+        * P3 MikroDynamik: dynamic range must not collapse by > 4 dB
+        * On proxy fail: reduce correction to 50%, retry
+        * On second fail: skip correction entirely (§0 Primum non nocere)
+    - Non-blocking: any exception → return restored unchanged + log warning
+
+    References:
+        §0 Primum non nocere — kein Artefakt einführen
+        §2.30b Drei-Stufen-Invariante (prior guards; this is the final catch-all)
+        §2.45a Musical Goals preservation during envelope corrections
+    """
+
+    WINDOW_S: float = 2.0  # 2 s detection windows
+    HOP_S: float = 0.5  # 0.5 s hop → 4 windows/s
+    # After correction, aim for restored ≈ orig + CORRECTION_TARGET_DB
+    # (+2 dB headroom allows legitimate slight enhancement after denoising)
+    CORRECTION_TARGET_DB: float = 2.0
+    # Max single-window attenuation (don't over-correct; max 12 dB step)
+    MAX_ATTENUATION_DB: float = -12.0
+
+    # Mode-adaptive explosion thresholds
+    _THRESHOLD_DB: dict[str, float] = {
+        "restoration": 6.0,
+        "studio2026": 8.0,
+        "studio_2026": 8.0,
+        "default": 6.0,
+    }
+
+    # Material-adaptive threshold offset (analog sources need tighter threshold)
+    _MATERIAL_THRESHOLD_OFFSET: dict[str, float] = {
+        "shellac": -2.0,  # max +4 dB — almost no enhancement expected
+        "wax_cylinder": -2.0,
+        "wire_recording": -2.0,
+        "reel_tape": -1.0,  # max +5 dB
+        "cassette": -1.0,
+        "vinyl": 0.0,  # max +6 dB
+        "cd_digital": 1.0,  # max +7 dB — digital source tolerates more
+        "default": 0.0,
+    }
+
+    def apply(
+        self,
+        original: np.ndarray,
+        restored: np.ndarray,
+        sr: int,
+        mode: str = "restoration",
+        material_type: str = "unknown",
+        restorability_score: float = 50.0,
+    ) -> tuple[np.ndarray, dict]:
+        """Detect and correct Pegelexplosion while preserving Musical Goals.
+
+        Args:
+            original:           Pre-restoration reference audio (float32)
+            restored:           Post-correct_arc restored audio (float32)
+            sr:                 Sample rate (must be 48000)
+            mode:               "restoration" or "studio2026"
+            material_type:      Carrier material string (e.g. "vinyl", "shellac")
+            restorability_score: 0–100 restorability estimate
+
+        Returns:
+            (corrected_audio, metadata_dict)
+            corrected_audio: identical to restored if no explosion detected or guard skipped
+            metadata keys: "explosions_found" (int), "corrections_applied" (int),
+                           "max_attenuation_db" (float), "correction_eased" (bool),
+                           "skipped_reason" (str | None)
+        """
+        meta: dict = {
+            "explosions_found": 0,
+            "corrections_applied": 0,
+            "max_attenuation_db": 0.0,
+            "correction_eased": False,
+            "skipped_reason": None,
+        }
+        try:
+            return self._apply_inner(original, restored, sr, mode, material_type, restorability_score, meta)
+        except Exception as _exc:
+            logger.warning("WaveformPlausibilityGuard: unhandled exception — skip. %s", _exc)
+            meta["skipped_reason"] = f"exception:{type(_exc).__name__}"
+            return np.asarray(restored, dtype=np.float32).copy(), meta
+
+    def _apply_inner(
+        self,
+        original: np.ndarray,
+        restored: np.ndarray,
+        sr: int,
+        mode: str,
+        material_type: str,
+        restorability_score: float,
+        meta: dict,
+    ) -> tuple[np.ndarray, dict]:
+        eps = 1e-12
+        n = original.shape[-1]
+
+        # Require at least 10 s audio for meaningful window analysis
+        if n < int(sr * 10.0):
+            meta["skipped_reason"] = "audio_too_short"
+            return np.asarray(restored, dtype=np.float32).copy(), meta
+
+        orig_mono = self._to_mono(original)
+        rest_mono = self._to_mono(restored)
+
+        win = int(self.WINDOW_S * sr)
+        hop = int(self.HOP_S * sr)
+        n_frames = max(1, (n - win) // hop + 1)
+
+        # --- Adaptive threshold ---
+        base_thr = self._THRESHOLD_DB.get(mode, self._THRESHOLD_DB["default"])
+        mat_key = str(material_type or "").lower().strip()
+        mat_offset = self._MATERIAL_THRESHOLD_OFFSET.get(mat_key, 0.0)
+        # Tighter for low-restorability (heavy damage → minimal legitimate enhancement)
+        rest_offset = -1.0 if restorability_score < 40.0 else 0.0
+        threshold_db = base_thr + mat_offset + rest_offset
+
+        # --- Compute per-frame RMS ---
+        orig_rms_db = np.empty(n_frames, dtype=np.float64)
+        rest_rms_db = np.empty(n_frames, dtype=np.float64)
+        for k in range(n_frames):
+            s = k * hop
+            e = min(s + win, n)
+            orig_rms_db[k] = 20.0 * np.log10(float(np.sqrt(np.mean(orig_mono[s:e] ** 2))) + eps)
+            rest_rms_db[k] = 20.0 * np.log10(float(np.sqrt(np.mean(rest_mono[s:e] ** 2))) + eps)
+
+        delta_db = rest_rms_db - orig_rms_db
+        exploded = delta_db > threshold_db
+        meta["explosions_found"] = int(np.sum(exploded))
+
+        if meta["explosions_found"] == 0:
+            return np.asarray(restored, dtype=np.float32).copy(), meta
+
+        # --- Build per-frame correction gain (always ≤ 0 dB) ---
+        gain_db_frames = np.zeros(n_frames, dtype=np.float64)
+        for k in range(n_frames):
+            if exploded[k]:
+                target_db = orig_rms_db[k] + self.CORRECTION_TARGET_DB
+                gain_db_frames[k] = float(np.clip(target_db - rest_rms_db[k], self.MAX_ATTENUATION_DB, 0.0))
+
+        # --- Interpolate frame gains to sample level ---
+        centres = np.array([k * hop + win // 2 for k in range(n_frames)], dtype=np.float64)
+        sample_idx = np.arange(n, dtype=np.float64)
+        gain_db_interp = np.interp(sample_idx, centres, gain_db_frames).astype(np.float32)
+        # Hard invariant: this guard NEVER boosts — clamp positive interpolation ramps
+        gain_db_interp = np.minimum(gain_db_interp, 0.0)
+
+        # --- Apply full correction ---
+        corrected = self._apply_gain(restored, gain_db_interp)
+
+        # --- Musical Goals proxy check ---
+        arc_before, arc_after, dr_before, dr_after = self._measure_goals_proxy(
+            orig_mono, rest_mono, self._to_mono(corrected), sr, n_frames, hop, win, eps
+        )
+        arc_ok = arc_after >= arc_before - 0.05
+        dr_ok = dr_after >= dr_before - 4.0
+
+        if arc_ok and dr_ok:
+            meta["corrections_applied"] = int(np.sum(exploded))
+            meta["max_attenuation_db"] = float(np.min(gain_db_interp))
+            logger.info(
+                "WaveformPlausibilityGuard: %d Fenster korrigiert, max=%.1f dB "
+                "(arc: %.3f→%.3f, DR: %.1f→%.1f dB, thr=%.1f dB, mat=%s)",
+                meta["corrections_applied"],
+                meta["max_attenuation_db"],
+                arc_before,
+                arc_after,
+                dr_before,
+                dr_after,
+                threshold_db,
+                mat_key,
+            )
+            return corrected, meta
+
+        # --- Fallback: 50% correction ---
+        gain_db_half = (gain_db_frames * 0.5).astype(np.float64)
+        gain_db_half_interp = np.interp(sample_idx, centres, gain_db_half).astype(np.float32)
+        gain_db_half_interp = np.minimum(gain_db_half_interp, 0.0)
+        corrected_half = self._apply_gain(restored, gain_db_half_interp)
+
+        arc_h_b, arc_h_a, dr_h_b, dr_h_a = self._measure_goals_proxy(
+            orig_mono, rest_mono, self._to_mono(corrected_half), sr, n_frames, hop, win, eps
+        )
+        arc_half_ok = arc_h_a >= arc_h_b - 0.05
+        dr_half_ok = dr_h_a >= dr_h_b - 4.0
+
+        if arc_half_ok and dr_half_ok:
+            meta["corrections_applied"] = int(np.sum(exploded))
+            meta["max_attenuation_db"] = float(np.min(gain_db_half_interp))
+            meta["correction_eased"] = True
+            logger.info(
+                "WaveformPlausibilityGuard: 50%%-Korrektur (%d Fenster, max=%.1f dB) "
+                "— volle Korrektur wäre zu aggressiv (arc: %.3f→%.3f)",
+                meta["corrections_applied"],
+                meta["max_attenuation_db"],
+                arc_before,
+                arc_after,
+            )
+            return corrected_half, meta
+
+        # --- Both failed: §0 Primum non nocere — skip ---
+        meta["skipped_reason"] = (
+            f"musical_goals_proxy_fail("
+            f"arc_before={arc_before:.3f},arc_after={arc_after:.3f},"
+            f"dr_before={dr_before:.1f},dr_after={dr_after:.1f})"
+        )
+        logger.warning(
+            "WaveformPlausibilityGuard: %d Explosions-Fenster erkannt, "
+            "aber Korrektur verletzt Musical-Goals-Proxy → Skip. "
+            "arc: %.3f→%.3f, DR: %.1f→%.1f dB",
+            meta["explosions_found"],
+            arc_before,
+            arc_after,
+            dr_before,
+            dr_after,
+        )
+        return np.asarray(restored, dtype=np.float32).copy(), meta
+
+    # ------------------------------------------------------------------
+    # Internal helpers
+    # ------------------------------------------------------------------
+
+    def _to_mono(self, audio: np.ndarray) -> np.ndarray:
+        """Convert to mono 1D float32. Handles (channels, samples) orientation."""
+        a = np.asarray(audio, dtype=np.float32)
+        if a.ndim == 2:
+            # Canonical Aurik format: (channels, samples) — channels dim is always ≤ 2
+            if a.shape[0] <= 2:
+                return np.mean(a, axis=0)
+            else:
+                # Unexpected orientation: (samples, channels)
+                return np.mean(a, axis=1)
+        return a
+
+    def _apply_gain(self, audio: np.ndarray, gain_db_interp: np.ndarray) -> np.ndarray:
+        """Apply sample-level gain (dB) and clip output to [-1, 1]."""
+        gain_linear = (10.0 ** (gain_db_interp / 20.0)).astype(np.float32)
+        out = np.asarray(audio, dtype=np.float32).copy()
+        n = len(gain_linear)
+        if out.ndim == 2:
+            for ch in range(out.shape[0]):
+                cn = min(out.shape[1], n)
+                out[ch, :cn] *= gain_linear[:cn]
+        else:
+            cn = min(len(out), n)
+            out[:cn] *= gain_linear[:cn]
+        return np.clip(np.nan_to_num(out, nan=0.0, posinf=0.0, neginf=0.0), -1.0, 1.0)
+
+    def _measure_goals_proxy(
+        self,
+        orig_mono: np.ndarray,
+        rest_mono: np.ndarray,
+        corr_mono: np.ndarray,
+        sr: int,
+        n_frames: int,
+        hop: int,
+        win: int,
+        eps: float,
+    ) -> tuple[float, float, float, float]:
+        """Compute Musical Goals proxy metrics (arc Pearson + DR).
+
+        Returns:
+            (arc_pearson_before, arc_pearson_after, dr_before_db, dr_after_db)
+        """
+        n = len(orig_mono)
+
+        # --- Arc correlation (P3 Emotionalität proxy): 5s-window RMS Pearson ---
+        arc_win = int(5.0 * sr)
+        n_arc = max(2, n // arc_win)
+
+        def rms_curve(mono: np.ndarray) -> np.ndarray:
+            return np.array(
+                [
+                    20.0 * np.log10(float(np.sqrt(np.mean(mono[k * arc_win : (k + 1) * arc_win] ** 2))) + eps)
+                    for k in range(n_arc)
+                ]
+            )
+
+        def pearson(a: np.ndarray, b: np.ndarray) -> float:
+            a_c = a - a.mean()
+            b_c = b - b.mean()
+            denom = float(np.linalg.norm(a_c) * np.linalg.norm(b_c)) + eps
+            return float(np.dot(a_c, b_c) / denom)
+
+        orig_arc = rms_curve(orig_mono)
+        rest_arc = rms_curve(rest_mono)
+        corr_arc = rms_curve(corr_mono)
+
+        arc_before = pearson(orig_arc, rest_arc)
+        arc_after = pearson(orig_arc, corr_arc)
+
+        # --- Dynamic range (P3 MikroDynamik proxy): p95 − p5 of 2s-window RMS ---
+        rest_rms_frames = np.array(
+            [
+                20.0 * np.log10(float(np.sqrt(np.mean(rest_mono[k * hop : k * hop + win] ** 2))) + eps)
+                for k in range(n_frames)
+            ]
+        )
+        corr_rms_frames = np.array(
+            [
+                20.0 * np.log10(float(np.sqrt(np.mean(corr_mono[k * hop : k * hop + win] ** 2))) + eps)
+                for k in range(n_frames)
+            ]
+        )
+        dr_before = float(np.percentile(rest_rms_frames, 95) - np.percentile(rest_rms_frames, 5))
+        dr_after = float(np.percentile(corr_rms_frames, 95) - np.percentile(corr_rms_frames, 5))
+
+        return arc_before, arc_after, dr_before, dr_after
+
+
+# Thread-safe singleton for WaveformPlausibilityGuard
+_wpg_instance: WaveformPlausibilityGuard | None = None
+_wpg_lock = threading.Lock()
+
+
+def get_waveform_plausibility_guard() -> WaveformPlausibilityGuard:
+    """Thread-safe singleton accessor for WaveformPlausibilityGuard."""
+    global _wpg_instance
+    if _wpg_instance is None:
+        with _wpg_lock:
+            if _wpg_instance is None:
+                _wpg_instance = WaveformPlausibilityGuard()
+    return _wpg_instance
+
+
+def apply_waveform_plausibility_guard(
+    original: np.ndarray,
+    restored: np.ndarray,
+    sr: int,
+    mode: str = "restoration",
+    material_type: str = "unknown",
+    restorability_score: float = 50.0,
+) -> tuple[np.ndarray, dict]:
+    """Convenience wrapper for WaveformPlausibilityGuard.apply().
+
+    Final safety layer after correct_arc — detects Pegelexplosion and applies
+    targeted envelope attenuation while preserving all 14 Musical Goals.
+
+    Args:
+        original:           Pre-restoration reference audio (float32, SR=48000)
+        restored:           Post-correct_arc audio (float32, SR=48000)
+        sr:                 48000 (mandatory)
+        mode:               "restoration" or "studio2026"
+        material_type:      Carrier material string (e.g. "vinyl", "shellac")
+        restorability_score: 0–100 restorability estimate
+
+    Returns:
+        (corrected_audio, metadata_dict)
+    """
+    return get_waveform_plausibility_guard().apply(
+        original,
+        restored,
+        sr,
+        mode=mode,
+        material_type=material_type,
+        restorability_score=restorability_score,
+    )
