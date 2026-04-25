@@ -15816,6 +15816,22 @@ class UnifiedRestorerV3:
                     "stereo_gain_cap": 1.45,
                     "cost_stereo_w": 0.70,
                 },
+                # §2.45a-VI: HPF/Notch — Energieverlust ist BEABSICHTIGT (Carrier-Inversion).
+                # enable_loudness=False verhindert, dass _active_quality_intervention
+                # den RMS-Drop durch Rumble/Hum-Entfernung als Loudness-Kollaps fehlinterpretiert
+                # und Makeup-Gain triggert → Pegelexplosion. UV3-Cumulative-Guard (§2.45a-IV) übernimmt.
+                "phase_05_rumble_filter": {
+                    "family": "phase05_hpf",
+                    "enable_loudness": False,
+                    "enable_stereo": False,
+                    "enable_transient": False,
+                },
+                "phase_02_hum_removal": {
+                    "family": "phase02_notch",
+                    "enable_loudness": False,
+                    "enable_stereo": False,
+                    "enable_transient": False,
+                },
                 "phase_12_wow_flutter_fix": {
                     "family": "phase12_timing",
                     "enable_loudness": False,
@@ -16668,6 +16684,23 @@ class UnifiedRestorerV3:
             # §2.49 ArtifactFreedomGate: store pre-pipeline audio snapshot for per-phase checks
             _afg_pre_pipeline_audio = current_audio.copy() if _artifact_gate is not None else None
             _afg_best_clean_checkpoint = current_audio.copy() if _artifact_gate is not None else None
+
+            # §2.45a-VI Mid-Pipeline-Cumulative-Guard reference audio.
+            # HPF/Notch phases (phase_02, phase_05) remove energy INTENTIONALLY (Carrier-Inversion).
+            # After such phases the cumulative reference is reset to current_audio so the guard
+            # does not count their intentional sub-bass / hum energy removal as "loudness loss"
+            # and does NOT apply makeup gain → prevents Pegelexplosion after Rumpel/Hum-Filter.
+            _cum_rms_reference_audio: np.ndarray | None = (
+                current_audio.copy() if _afg_pre_pipeline_audio is not None else None
+            )
+            # Phases whose energy removal is intentional (HPF, Notch) — cumulative reference
+            # is reset to current_audio AFTER the phase, before the guard runs.
+            _HPF_NOTCH_CUM_RESET_PHASES: frozenset[str] = frozenset(
+                {
+                    "phase_02_hum_removal",
+                    "phase_05_rumble_filter",
+                }
+            )
             _afg_best_clean_phase: str = "__pre_pipeline__"
             # §2.49 Track minimum per-phase artifact_freedom (replaces final full-pipeline comparison)
             _min_per_phase_afg_score: float = 1.0
@@ -17777,9 +17810,17 @@ class UnifiedRestorerV3:
                 # effects accumulate unchecked: 8 phases × 2.5 dB = 20 dB total collapse.
                 # This guard checks cumulative RMS drop from PIPELINE START after each phase
                 # and applies soft-limited makeup gain when the drift exceeds material-adaptive tolerance.
-                if _afg_pre_pipeline_audio is not None and phase_id in executed:
+                #
+                # §2.45a-VI: After HPF/Notch phases (phase_02, phase_05) the cumulative reference
+                # is reset to current_audio so the guard does not compensate intentional
+                # energy removal (sub-bass / hum) with makeup gain → prevents Pegelexplosion.
+                if _cum_rms_reference_audio is not None and phase_id in executed:
+                    if phase_id in _HPF_NOTCH_CUM_RESET_PHASES:
+                        _cum_rms_reference_audio = current_audio.copy()
+                        logger.debug("§2.45a-VI cum-guard reference reset after HPF/Notch phase %s", phase_id)
+                if _cum_rms_reference_audio is not None and phase_id in executed:
                     try:
-                        _cum_rms_pipeline_start = _rms_dbfs_gated(_afg_pre_pipeline_audio)
+                        _cum_rms_pipeline_start = _rms_dbfs_gated(_cum_rms_reference_audio)
                         _cum_rms_current = _rms_dbfs_gated(current_audio)
                         _cum_total_drop = _cum_rms_pipeline_start - _cum_rms_current
                         # Material-adaptive cumulative tolerance (§2.54):
@@ -18204,10 +18245,14 @@ class UnifiedRestorerV3:
         # §2.45a [RELEASE_MUST] Cumulative Pipeline-Level-Guard — final safety net.
         # The mid-pipeline guard (above) catches most drift; this is the last check before export.
         # Uses same soft-limiter approach instead of peak-ceiling that blocked gain recovery.
+        # §2.45a-VI: Uses _cum_rms_reference_audio (not _afg_pre_pipeline_audio) so that
+        # HPF/Notch phases (phase_02, phase_05) do not trigger makeup gain for intentional
+        # energy removal — their reference reset already happened during the phase loop.
         _MAX_CUMULATIVE_LEVEL_DROP_DB: float = 0.915  # 10 % amplitude = 20*log10(0.9)
-        if _afg_pre_pipeline_audio is not None:
+        _cum_guard_ref = _cum_rms_reference_audio if _cum_rms_reference_audio is not None else _afg_pre_pipeline_audio
+        if _cum_guard_ref is not None:
             try:
-                _cum_rms_in = _rms_dbfs_gated(_afg_pre_pipeline_audio)
+                _cum_rms_in = _rms_dbfs_gated(_cum_guard_ref)
                 _cum_rms_out = _rms_dbfs_gated(current_audio)
                 _cum_drop_db = _cum_rms_in - _cum_rms_out
                 _cumulative_makeup_db: float = 0.0
