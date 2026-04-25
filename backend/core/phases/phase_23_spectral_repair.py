@@ -934,6 +934,10 @@ class SpectralRepair(PhaseInterface):
         rho_onset = rho * 3.0  # TransientGuard penalty
 
         x_prev = x.copy()
+        # §Spec04b ADMM wall-time budget: prevents 41-min hangs on long songs.
+        # Budget = min(180 s, 1.5× audio duration) — CPU-only pywt can't be GPU-accelerated.
+        _admm_t0 = time.monotonic()
+        _admm_wall_budget_s = min(180.0, float(n) / float(sr) * 1.5)
         for _iter in range(max_iter):
             # x-update: reconstruct from (z − u), then project onto constraints
             z_minus_u = [z[i] - u[i] for i in range(len(z))]
@@ -972,6 +976,14 @@ class SpectralRepair(PhaseInterface):
                 logger.debug("ADMM declip converged after %d iterations (rel=%.2e)", _iter + 1, rel)
                 break
             x_prev = x.copy()
+            # Wall-time budget check (non-convergence path)
+            if time.monotonic() - _admm_t0 > _admm_wall_budget_s:
+                logger.warning(
+                    "ADMM declip: wall-time budget %.0fs exceeded after %d iterations — early exit",
+                    _admm_wall_budget_s,
+                    _iter + 1,
+                )
+                break
 
         # Hard-clamp residual excursions > clip_level as safety net
         x = np.clip(x, -1.0, 1.0)

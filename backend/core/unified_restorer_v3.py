@@ -16802,7 +16802,28 @@ class UnifiedRestorerV3:
                 "streaming": 900.0,
             }
             _mat_key_budget = str(getattr(material_type, "value", str(material_type))).lower()
-            _pipeline_wall_budget = float(_PIPELINE_WALL_BUDGET_S.get(_mat_key_budget, 480.0))
+            _pipeline_wall_budget_base = float(_PIPELINE_WALL_BUDGET_S.get(_mat_key_budget, 480.0))
+            # Compute audio duration locally (audio is available in _execute_pipeline signature).
+            _audio_duration_s = float(audio.shape[-1] if audio.ndim >= 2 else len(audio)) / float(sample_rate)
+            # §Spec04b Duration-Scaling: budget = min(base, overhead + duration × factor).
+            # Prevents long songs from consuming all budget in one phase (e.g. ADMM 41 min
+            # on a 225s song exhausting the entire 2700s vinyl budget).
+            # 300s fixed overhead + 8s/s audio → 225s song gets min(2700, 2100) = 2100s budget.
+            _PIPELINE_BUDGET_OVERHEAD_S = 300.0
+            _PIPELINE_BUDGET_PER_SEC = 8.0
+            _pipeline_wall_budget = min(
+                _pipeline_wall_budget_base,
+                _PIPELINE_BUDGET_OVERHEAD_S + _audio_duration_s * _PIPELINE_BUDGET_PER_SEC,
+            )
+            if _pipeline_wall_budget < _pipeline_wall_budget_base:
+                logger.info(
+                    "§Spec04b Wall-Budget Duration-Scaling: %.0fs (base=%.0fs, duration=%.1fs × %.0f s/s + %.0fs overhead)",
+                    _pipeline_wall_budget,
+                    _pipeline_wall_budget_base,
+                    _audio_duration_s,
+                    _PIPELINE_BUDGET_PER_SEC,
+                    _PIPELINE_BUDGET_OVERHEAD_S,
+                )
             _pipeline_start_time = time.time()
             # §Wall-Time-Budget non-exempt tracker: nur nicht-exempt-Phasen zählen zum Budget.
             # Exempt-Phasen (§6.2a: click, crackle, wow/flutter, phase_corr, dc_offset) sind
