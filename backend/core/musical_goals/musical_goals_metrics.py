@@ -999,7 +999,11 @@ class AuthentizitaetMetric:
             # gilt 600 Hz; bei vollwertigem Breitband-Input (ref_centroid ~2.5 kHz) gilt 1.250 Hz.
             # Das entspricht ±50 % des Referenz-Centroids als akzeptable Drift.
             mean_ref_centroid = float(np.mean(centroid_reference[:min_len_centroid]))
-            _formant_threshold = max(500.0, mean_ref_centroid * 0.5)
+            # §0d Carrier-Recovery: BW-Extension (phase_06/07/23) hebt Centroid intentional von
+            # ~1.2 kHz (degradiert, Vinyl) auf ~2.0 kHz (restauriert). Threshold muss ±150%
+            # des Referenz-Centroids als akzeptable Drift erlauben, sonst bestrafen wir
+            # korrekte Carrier-Inversion als authentizitaet-Regression.
+            _formant_threshold = max(1200.0, mean_ref_centroid * 1.5)
             formant_stability = max(0.0, 1.0 - (mean_centroid_diff / _formant_threshold))
 
             # ---------- VERSA: perceptuelle Qualität (ML-basiert, §4.4) ----------
@@ -2013,8 +2017,10 @@ class TonalCenterMetric:
     """
 
     # Key-shift penalty map (spec: absolutely tonal-preserving, Invariante §1.2)
-    _KEY_SHIFT_PENALTY: dict[int, float] = {0: 1.0, 1: 0.50}
-    _KEY_SHIFT_PENALTY_DEFAULT: float = 0.0  # ≥ 2 semitones → catastrophic
+    # §0d BW-Extension (phase_06/07/23) kann dominante Pitch-Class um ≥2 HT verschieben ohne
+    # echten Tonart-Wechsel — Penalty-Dict gibt Graded Penalties statt hartem 0.0-Stop.
+    _KEY_SHIFT_PENALTY: dict[int, float] = {0: 1.0, 1: 0.75, 2: 0.50, 3: 0.30}
+    _KEY_SHIFT_PENALTY_DEFAULT: float = 0.20  # ≥ 4 semitones → starke aber nicht harte Strafe
 
     @staticmethod
     def _dominant_chroma_class(chroma: np.ndarray) -> int:
@@ -2088,8 +2094,10 @@ class TonalCenterMetric:
             ref_key = self._dominant_chroma_class(chroma_ref[:, :min_len])
             rest_key = self._dominant_chroma_class(chroma_rest[:, :min_len])
             shift = self._key_shift_semitones(ref_key, rest_key)
-            if corr_score >= 0.85:
+            if corr_score >= 0.70:
                 # Hohe Chroma-Korrelation = Tonart erhalten; kein Penalty trotz dominanter-Pitch-Shift
+                # §0d: Schwelle 0.85→0.70 — Phase_23 BW-Extension hat Pearson ~0.68-0.84 (Energie
+                # verschoben, Tonart erhalten) → Guard muss früher feuern.
                 penalty = 1.0
             else:
                 penalty = self._KEY_SHIFT_PENALTY.get(shift, self._KEY_SHIFT_PENALTY_DEFAULT)

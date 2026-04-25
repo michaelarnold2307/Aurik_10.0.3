@@ -193,8 +193,10 @@ _PHASE_SPECIFIC_DRIFT_EXCLUSIONS: dict[str, frozenset[str]] = {
         {"authentizitaet", "timbre_authentizitaet", "artikulation", "natuerlichkeit", "tonal_center"}
     ),
     # Noise gate (Silero VAD) removes low-energy carrier noise between phrases —
-    # silence insertion shifts chroma/energy fingerprint vs. noisy-floor reference:
-    "phase_18": frozenset({"authentizitaet", "timbre_authentizitaet"}),
+    # silence insertion shifts chroma/energy fingerprint vs. noisy-floor reference.
+    # §2.55-Sync: artikulation (P2) + groove (P3) added to match PMGG PHASE_GOAL_EXCLUSIONS —
+    # VAD-Gate is intentional attack-truncation; artikulation/groove drift is expected.
+    "phase_18": frozenset({"authentizitaet", "timbre_authentizitaet", "artikulation", "groove"}),
     # Groove-echo cancellation removes pre-echo artefact (vinyl inner-groove distortion) —
     # spectral fingerprint diverges from pre-echo-distorted reference checkpoint:
     "phase_61": frozenset({"authentizitaet", "timbre_authentizitaet"}),

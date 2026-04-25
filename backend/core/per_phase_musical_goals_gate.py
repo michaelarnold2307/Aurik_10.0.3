@@ -705,6 +705,7 @@ PHASE_GOAL_EXCLUSIONS: dict[str, set[str]] = {
         "emotionalitaet",
         "groove",
         "timbre_authentizitaet",  # noise gate inserts silence between phrases → spectral centroid/MFCC changes vs. continuous-noise reference — CIG sync §2.54
+        "artikulation",  # §2.55-Sync: VAD-Gate schneidet Note-Attacks ab → artikulation-Score bricht catastrophic ein (Δ>0.29). Das IST der Zweck des Gates, kein Bug. CIG sync §2.55.
     },  # Noise gate (§9.7.11 K-S: tonal_center resolved — K-S key-detection is SNR-invariant; §9.7.12/13: brillanz+transparenz crest proxies SNR-robust → removed)
     "phase_26": {
         "micro_dynamics",

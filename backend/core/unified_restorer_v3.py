@@ -4451,6 +4451,8 @@ class UnifiedRestorerV3:
             f"Top defects: {', '.join([f'{s.defect_type.value}={s.severity:.2f}' for s in defect_result.get_top_defects(3)])}"
         )
 
+        _cb(11, "Kausalanalyse …")
+
         # Kausaldiagnose: Bayesianische Ursachenermittlung
         _causal_plan = None
         try:
@@ -4515,6 +4517,8 @@ class UnifiedRestorerV3:
                 logger.debug("MusicalStructureAnalyzer: übersprungen (kein Dropout-Defekt aktiv)")
         except Exception as _msa_exc:
             logger.debug("MusicalStructureAnalyzer nicht verfügbar: %s", _msa_exc)
+
+        _cb(14, "Qualitätsprofil wird erstellt …")
 
         # §2.5 Spec: propose_pareto() als primärer GP-Vorschlag (MOO, Pareto-Front)
         _pareto_proposals = None
@@ -4760,6 +4764,8 @@ class UnifiedRestorerV3:
                 self._strict_autosetup_policy.get("phase_strength_caps", {}).get("phase_55_diffusion_inpainting", 1.0)
             ),
         )
+        _cb(15, "Klangleitplanken …")
+
         # ── §2.56 Song-Goal-Importance: Per-song goal weighting ──────────
         # Computed ONCE after all classifiers (Genre, Era, Material, Vocal)
         # and threaded through PMGG, CIG, and FeedbackChain for the entire pipeline.
@@ -6788,6 +6794,91 @@ class UnifiedRestorerV3:
                                 )
                 except Exception as _ceil_exc:
                     logger.debug("PhysicalCeiling clamp nicht verfügbar: %s", _ceil_exc)
+
+            # §0a [RELEASE_MUST] Adaptive-Threshold Material-Ceiling (v9.11.14):
+            # adaptive_thresholds dürfen das physikalisch erreichbare P1/P2-Ceiling des
+            # Quellmaterials nicht überschreiten. Degradiertes Vinyl/Shellac/Tape kann
+            # die kanonischen Böden (natuerlichkeit ≥ 0.90) physikalisch nicht erreichen.
+            # Ohne diesen Guard schlägt das Export-Gate für korrekt restauriertes analoges
+            # Material fälschlicherweise an (adaptive_threshold 0.82 > vinyl-Ceiling 0.82 ok,
+            # aber shellac 0.68 ist durch 0.82 unerreichbar → fälschlich FAIL).
+            _ADAPTIVE_THR_MATERIAL_CEILING: dict[str, dict[str, float]] = {
+                "shellac": {
+                    "natuerlichkeit": 0.68,
+                    "authentizitaet": 0.65,
+                    "tonal_center": 0.70,
+                    "timbre_authentizitaet": 0.65,
+                    "artikulation": 0.61,
+                },
+                "wax_cylinder": {
+                    "natuerlichkeit": 0.66,
+                    "authentizitaet": 0.63,
+                    "tonal_center": 0.68,
+                    "timbre_authentizitaet": 0.63,
+                    "artikulation": 0.59,
+                },
+                "wire_recording": {
+                    "natuerlichkeit": 0.66,
+                    "authentizitaet": 0.63,
+                    "tonal_center": 0.68,
+                    "timbre_authentizitaet": 0.63,
+                    "artikulation": 0.59,
+                },
+                "vinyl": {
+                    "natuerlichkeit": 0.82,
+                    "authentizitaet": 0.79,
+                    "tonal_center": 0.84,
+                    "timbre_authentizitaet": 0.79,
+                    "artikulation": 0.76,
+                },
+                "reel_tape": {
+                    "natuerlichkeit": 0.82,
+                    "authentizitaet": 0.79,
+                    "tonal_center": 0.84,
+                    "timbre_authentizitaet": 0.79,
+                    "artikulation": 0.76,
+                },
+                "tape": {
+                    "natuerlichkeit": 0.78,
+                    "authentizitaet": 0.75,
+                    "tonal_center": 0.80,
+                    "timbre_authentizitaet": 0.75,
+                    "artikulation": 0.72,
+                },
+                "cassette": {
+                    "natuerlichkeit": 0.76,
+                    "authentizitaet": 0.73,
+                    "tonal_center": 0.78,
+                    "timbre_authentizitaet": 0.73,
+                    "artikulation": 0.70,
+                },
+                "mp3_low": {
+                    "natuerlichkeit": 0.76,
+                    "authentizitaet": 0.74,
+                    "tonal_center": 0.78,
+                    "timbre_authentizitaet": 0.74,
+                    "artikulation": 0.70,
+                },
+            }
+            try:
+                _mat_str_ceil = str(getattr(material_type, "value", material_type) or "unknown").lower()
+                _mat_ceil_map = _ADAPTIVE_THR_MATERIAL_CEILING.get(_mat_str_ceil)
+                if _mat_ceil_map and _effective_goal_thresholds:
+                    _n_capped = 0
+                    for _mc_goal, _mc_ceil in _mat_ceil_map.items():
+                        if _mc_goal in _effective_goal_thresholds:
+                            _cur = float(_effective_goal_thresholds[_mc_goal])
+                            if _cur > _mc_ceil:
+                                _effective_goal_thresholds[_mc_goal] = _mc_ceil
+                                _n_capped += 1
+                    if _n_capped:
+                        logger.debug(
+                            "§0a Material-Ceiling: %d P1/P2-Threshold(s) für material=%s gekappt.",
+                            _n_capped,
+                            _mat_str_ceil,
+                        )
+            except Exception as _mc_exc:
+                logger.debug("§0a Material-Ceiling-Check fehlgeschlagen (non-blocking): %s", _mc_exc)
 
             _applicable_goal_names = (
                 set(_goal_applicability_result.applicable)
