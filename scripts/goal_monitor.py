@@ -161,11 +161,15 @@ class RunReport:
 # ---------------------------------------------------------------------------
 
 # GOAL_SCORECARD line produced by UV3 after §GOAL_MONITOR patch:
-# 🎯 GOAL_SCORECARD mat=vinyl mode=restoration excellence=0.7431 violations=7|
-#    brillanz:score=0.6891,thr=0.7800,gap=-0.0909,pass=0,app=1;waerme:...
+# Backend log:  [2026-04-26 07:09:12,123] INFO ...: 🎯 GOAL_SCORECARD mat=vinyl ...
+# CLI log:      INFO: 🎯 GOAL_SCORECARD mat=vinyl ...
+# Timestamp group is optional to support both formats.
+_TS_PAT = r"(?P<ts>\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d+)"
+_TS_OPT = r"(?:" + _TS_PAT + r".*?)?"  # optional timestamp prefix
+
 _RE_SCORECARD = re.compile(
-    r"(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d+).*"
-    r"GOAL_SCORECARD mat=(\S+) mode=(\S+) excellence=([\d.]+) violations=(\d+)\|(.+)"
+    _TS_OPT
+    + r"GOAL_SCORECARD mat=(?P<mat>\S+) mode=(?P<mode>\S+) excellence=(?P<exc>[\d.]+) violations=(?P<viol>\d+)\|(?P<goals>.+)"
 )
 _RE_GOAL_FIELD = re.compile(r"(\w+):score=([\d.]+),thr=([\d.]+),gap=([+-][\d.]+),pass=([01]),app=([01])")
 
@@ -173,44 +177,41 @@ _RE_GOAL_FIELD = re.compile(r"(\w+):score=([\d.]+),thr=([\d.]+),gap=([+-][\d.]+)
 # PMGG waerme §9.7.14  phase=phase_05_rumble_filter  before=1.0000  after=1.0000
 #   delta=+0.0000  action=passed  strength=1.00
 _RE_PMGG = re.compile(
-    r"(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d+).*"
-    r"PMGG (\w+) §[\d.]+\s+phase=(\S+)\s+before=([\d.]+)\s+after=([\d.]+)"
+    _TS_OPT + r"PMGG (\w+) §[\d.]+\s+phase=(\S+)\s+before=([\d.]+)\s+after=([\d.]+)"
     r"\s+delta=([+-][\d.]+)\s+action=(\S+)\s+strength=([\d.]+)"
 )
 
 # Pipeline start marker (used to group phases by run)
-_RE_PIPELINE_START = re.compile(r"(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d+).*Step 3/4: Executing Restoration Pipeline")
+_RE_PIPELINE_START = re.compile(_TS_OPT + r"Step 3/4: Executing Restoration Pipeline")
 
 # ML_FALLBACK line (UV3 §MONITOR):
 # 🔌 ML_FALLBACK phase=phase_06 model=AudioSR reason=OOM fallback=dsp_1
-_RE_ML_FALLBACK = re.compile(
-    r"(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d+).*"
-    r"🔌 ML_FALLBACK phase=(\S+) model=(\S+) reason=(\S+) fallback=(\S+)"
-)
+_RE_ML_FALLBACK = re.compile(_TS_OPT + r"🔌 ML_FALLBACK phase=(\S+) model=(\S+) reason=(\S+) fallback=(\S+)")
 
 # CIG_ROLLBACK line (cumulative_interaction_guard.py §MONITOR):
 # ⚠️ CIG_ROLLBACK phase=phase_23 trigger_goal=tonal_center drift=-0.0821 tolerance=-0.0500 rollback_to=...
 _RE_CIG_ROLLBACK = re.compile(
-    r"(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d+).*"
-    r"⚠️ CIG_ROLLBACK phase=(\S+) trigger_goal=(\S+) drift=([+-][\d.]+) tolerance=([+-][\d.]+) rollback_to=(\S+)"
+    _TS_OPT
+    + r"⚠️ CIG_ROLLBACK phase=(\S+) trigger_goal=(\S+) drift=([+-][\d.]+) tolerance=([+-][\d.]+) rollback_to=(\S+)"
 )
 
 # PHASE_EXEC line (UV3 §MONITOR):
 # 📊 PHASE_EXEC phase=phase_06 strength=0.300 explicit=0 vcap=0.300 conductor=None songcal=0.650
 _RE_PHASE_EXEC = re.compile(
-    r"(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d+).*"
-    r"📊 PHASE_EXEC phase=(\S+) strength=(\S+) explicit=([01]) vcap=(\S+) conductor=(\S+) songcal=([\d.]+)"
+    _TS_OPT + r"📊 PHASE_EXEC phase=(\S+) strength=(\S+) explicit=([01]) vcap=(\S+) conductor=(\S+) songcal=([\d.]+)"
 )
 
 # HPI_COMP line (UV3 extended):
 # 🎯 HPI_COMP mode=Restoration hpi=0.3421 passed=0 timbral=0.512 mert=0.891 artifact=0.987 emotional=0.743
 _RE_HPI_COMP = re.compile(
-    r"(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d+).*"
-    r"🎯 HPI_COMP mode=(\S+) hpi=([\d.]+) passed=([01]) timbral=([\d.]+) mert=([\d.]+) artifact=([\d.]+) emotional=([\d.]+)"
+    _TS_OPT
+    + r"🎯 HPI_COMP mode=(\S+) hpi=([\d.]+) passed=([01]) timbral=([\d.]+) mert=([\d.]+) artifact=([\d.]+) emotional=([\d.]+)"
 )
 
 
-def _parse_ts(ts_str: str) -> datetime:
+def _parse_ts(ts_str: str | None) -> datetime | None:
+    if ts_str is None:
+        return None
     return datetime.strptime(ts_str, "%Y-%m-%d %H:%M:%S,%f")
 
 
@@ -231,8 +232,8 @@ def parse_log(log_path: Path, since: datetime | None = None) -> list[RunReport]:
             # Detect pipeline start → reset per-run buffers
             m_start = _RE_PIPELINE_START.search(line)
             if m_start:
-                ts = _parse_ts(m_start.group(1))
-                if since and ts < since:
+                ts = _parse_ts(m_start.group("ts"))
+                if since and ts is not None and ts < since:
                     current_pmgg = defaultdict(list)
                     current_cig = []
                     current_ml = []
@@ -249,8 +250,8 @@ def parse_log(log_path: Path, since: datetime | None = None) -> list[RunReport]:
             # ML_FALLBACK
             m_ml = _RE_ML_FALLBACK.search(line)
             if m_ml:
-                ts = _parse_ts(m_ml.group(1))
-                if not since or ts >= since:
+                ts = _parse_ts(m_ml.group("ts"))
+                if not since or ts is None or ts >= since:
                     current_ml.append(
                         MlFallback(
                             phase=m_ml.group(2),
@@ -264,8 +265,8 @@ def parse_log(log_path: Path, since: datetime | None = None) -> list[RunReport]:
             # CIG_ROLLBACK
             m_cig = _RE_CIG_ROLLBACK.search(line)
             if m_cig:
-                ts = _parse_ts(m_cig.group(1))
-                if not since or ts >= since:
+                ts = _parse_ts(m_cig.group("ts"))
+                if not since or ts is None or ts >= since:
                     current_cig.append(
                         CigRollback(
                             phase_id=m_cig.group(2),
@@ -280,8 +281,8 @@ def parse_log(log_path: Path, since: datetime | None = None) -> list[RunReport]:
             # PHASE_EXEC
             m_pe = _RE_PHASE_EXEC.search(line)
             if m_pe:
-                ts = _parse_ts(m_pe.group(1))
-                if not since or ts >= since:
+                ts = _parse_ts(m_pe.group("ts"))
+                if not since or ts is None or ts >= since:
                     current_execs.append(
                         PhaseExec(
                             phase_id=m_pe.group(2),
@@ -297,8 +298,8 @@ def parse_log(log_path: Path, since: datetime | None = None) -> list[RunReport]:
             # HPI_COMP
             m_hpi = _RE_HPI_COMP.search(line)
             if m_hpi:
-                ts = _parse_ts(m_hpi.group(1))
-                if not since or ts >= since:
+                ts = _parse_ts(m_hpi.group("ts"))
+                if not since or ts is None or ts >= since:
                     current_hpi = HpiComponents(
                         mode=m_hpi.group(2),
                         hpi=float(m_hpi.group(3)),
@@ -313,8 +314,8 @@ def parse_log(log_path: Path, since: datetime | None = None) -> list[RunReport]:
             # PMGG per-phase entry → accumulate into current run buffer
             m_pmgg = _RE_PMGG.search(line)
             if m_pmgg:
-                ts = _parse_ts(m_pmgg.group(1))
-                if since and ts < since:
+                ts = _parse_ts(m_pmgg.group("ts"))
+                if since and ts is not None and ts < since:
                     continue
                 goal = m_pmgg.group(2)
                 phase_id = m_pmgg.group(3)
@@ -328,14 +329,14 @@ def parse_log(log_path: Path, since: datetime | None = None) -> list[RunReport]:
             # GOAL_SCORECARD → finalize run report
             m_sc = _RE_SCORECARD.search(line)
             if m_sc:
-                ts = _parse_ts(m_sc.group(1))
-                if since and ts < since:
+                ts = _parse_ts(m_sc.group("ts"))
+                if since and ts is not None and ts < since:
                     continue
-                material = m_sc.group(2)
-                mode = m_sc.group(3)
-                excellence = float(m_sc.group(4))
-                n_violations = int(m_sc.group(5))
-                goal_fields_raw = m_sc.group(6)
+                material = m_sc.group("mat")
+                mode = m_sc.group("mode")
+                excellence = float(m_sc.group("exc"))
+                n_violations = int(m_sc.group("viol"))
+                goal_fields_raw = m_sc.group("goals")
 
                 goals: dict[str, GoalEntry] = {}
                 for gm in _RE_GOAL_FIELD.finditer(goal_fields_raw):
@@ -361,7 +362,7 @@ def parse_log(log_path: Path, since: datetime | None = None) -> list[RunReport]:
                         worst[goal] = PhaseRegression(phase_id=worst_phase, goal=goal, delta=worst_delta)
 
                 report = RunReport(
-                    timestamp=m_sc.group(1),
+                    timestamp=m_sc.group("ts") or "unknown",
                     material=material,
                     mode=mode,
                     excellence=excellence,
