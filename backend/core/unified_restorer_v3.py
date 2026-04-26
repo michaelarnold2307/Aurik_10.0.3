@@ -203,6 +203,161 @@ def _get_noise_texture_rollback_threshold(material_key: str) -> float:
     return float(_MATERIAL_NOISE_TEXTURE_ROLLBACK_THRESHOLD.get(_k, 10.0))
 
 
+def _stereo_to_samples_channels(audio: np.ndarray) -> np.ndarray | None:
+    """Return stereo audio in (samples, 2) orientation or None for non-stereo."""
+    if not isinstance(audio, np.ndarray) or audio.ndim != 2:
+        return None
+    if audio.shape[1] == 2:
+        return audio
+    if audio.shape[0] == 2:
+        return audio.T
+    return None
+
+
+def _estimate_interchannel_delay_ms(stereo_sc: np.ndarray, sr: int) -> float:
+    """Estimate absolute L/R delay in ms using bounded cross-correlation."""
+    if stereo_sc.ndim != 2 or stereo_sc.shape[1] != 2:
+        return 0.0
+    if sr <= 0:
+        return 0.0
+
+    left = np.asarray(stereo_sc[:, 0], dtype=np.float64)
+    right = np.asarray(stereo_sc[:, 1], dtype=np.float64)
+    n = min(left.size, right.size)
+    if n < 256:
+        return 0.0
+
+    max_n = min(n, 8192)
+    start = max(0, (n - max_n) // 2)
+    stop = start + max_n
+    l_seg = left[start:stop]
+    r_seg = right[start:stop]
+    if l_seg.size < 256 or r_seg.size < 256:
+        return 0.0
+
+    l_seg = l_seg - float(np.mean(l_seg))
+    r_seg = r_seg - float(np.mean(r_seg))
+    l_std = float(np.std(l_seg))
+    r_std = float(np.std(r_seg))
+    if l_std < 1e-10 or r_std < 1e-10:
+        return 0.0
+
+    corr = np.correlate(l_seg, r_seg, mode="full")
+    center = int(l_seg.size - 1)
+    max_lag = max(1, int(round(sr * 0.002)))  # ±2 ms search window
+    lo = max(0, center - max_lag)
+    hi = min(corr.size, center + max_lag + 1)
+    if hi <= lo:
+        return 0.0
+
+    local_idx = int(np.argmax(np.abs(corr[lo:hi])))
+    best_lag = int((lo + local_idx) - center)
+    return float(abs(best_lag) * 1000.0 / float(sr))
+
+
+def _compute_stereo_safety_metrics(audio: np.ndarray, sr: int) -> dict[str, float | bool]:
+    """Compute core stereo safety metrics for no-surprises export checks."""
+    stereo_sc = _stereo_to_samples_channels(np.asarray(audio, dtype=np.float32))
+    if stereo_sc is None:
+        return {
+            "is_stereo": False,
+            "delay_ms": 0.0,
+            "imbalance_db": 0.0,
+            "mono_compat": 1.0,
+            "true_peak_dbtp": -120.0,
+            "peak_p999": 0.0,
+        }
+
+    left = np.asarray(stereo_sc[:, 0], dtype=np.float64)
+    right = np.asarray(stereo_sc[:, 1], dtype=np.float64)
+    l_rms = float(np.sqrt(np.mean(left * left)) + 1e-12)
+    r_rms = float(np.sqrt(np.mean(right * right)) + 1e-12)
+    imbalance_db = float(abs(20.0 * np.log10((l_rms + 1e-12) / (r_rms + 1e-12))))
+
+    mid = 0.5 * (left + right)
+    lr_energy = float(np.sqrt(np.mean(0.5 * (left * left + right * right))) + 1e-12)
+    mono_compat = float(np.clip((np.sqrt(np.mean(mid * mid)) + 1e-12) / lr_energy, 0.0, 1.0))
+
+    peak_p999 = float(np.percentile(np.abs(stereo_sc), 99.9))
+    true_peak_dbtp = float(20.0 * np.log10(max(peak_p999, 1e-12)))
+
+    return {
+        "is_stereo": True,
+        "delay_ms": _estimate_interchannel_delay_ms(stereo_sc, int(sr)),
+        "imbalance_db": imbalance_db,
+        "mono_compat": mono_compat,
+        "true_peak_dbtp": true_peak_dbtp,
+        "peak_p999": peak_p999,
+    }
+
+
+def _evaluate_stereo_safety_guard(
+    original_audio: np.ndarray,
+    restored_audio: np.ndarray,
+    sample_rate: int,
+) -> dict[str, Any]:
+    """Evaluate §2.51a stereo no-surprises guard (hard-fail + warning)."""
+    m_in = _compute_stereo_safety_metrics(original_audio, sample_rate)
+    m_out = _compute_stereo_safety_metrics(restored_audio, sample_rate)
+
+    if not bool(m_out.get("is_stereo", False)):
+        return {
+            "enabled": False,
+            "hard_fail": False,
+            "warning": False,
+            "reason": "non_stereo_output",
+            "input": m_in,
+            "output": m_out,
+            "hard_fail_reasons": [],
+            "warning_reasons": [],
+        }
+
+    delay_out = float(m_out.get("delay_ms", 0.0))
+    imb_in = float(m_in.get("imbalance_db", 0.0))
+    imb_out = float(m_out.get("imbalance_db", 0.0))
+    mono_in = float(m_in.get("mono_compat", 1.0))
+    mono_out = float(m_out.get("mono_compat", 1.0))
+    mono_drop = float(mono_out - mono_in)
+    tp_out = float(m_out.get("true_peak_dbtp", -120.0))
+
+    hard_fail_reasons: list[str] = []
+    warning_reasons: list[str] = []
+
+    # Hard-fail thresholds (§2.51a)
+    if delay_out > 1.0:
+        hard_fail_reasons.append("interchannel_delay_gt_1ms")
+    if imb_out > 6.0 and imb_in < 3.0:
+        hard_fail_reasons.append("lr_imbalance_gt_6db_with_balanced_input")
+    if mono_drop < -0.12:
+        hard_fail_reasons.append("mono_compatibility_drop_significant")
+    if tp_out > -1.0:
+        hard_fail_reasons.append("true_peak_gt_minus_1dbtp")
+
+    # Warning thresholds (§2.51a)
+    if 0.5 < delay_out <= 1.0:
+        warning_reasons.append("interchannel_delay_0p5_to_1ms")
+    if 3.0 < imb_out <= 6.0:
+        warning_reasons.append("lr_imbalance_3_to_6db")
+    if -0.12 <= mono_drop < -0.06:
+        warning_reasons.append("mono_compatibility_drop_moderate")
+
+    return {
+        "enabled": True,
+        "hard_fail": bool(hard_fail_reasons),
+        "warning": bool(warning_reasons),
+        "reason": "hard_fail" if hard_fail_reasons else ("warning" if warning_reasons else "ok"),
+        "input": m_in,
+        "output": m_out,
+        "delta": {
+            "mono_compat": mono_drop,
+            "imbalance_db": float(imb_out - imb_in),
+            "delay_ms": float(delay_out - float(m_in.get("delay_ms", 0.0))),
+        },
+        "hard_fail_reasons": hard_fail_reasons,
+        "warning_reasons": warning_reasons,
+    }
+
+
 def _canonicalize_quality_mode(raw: "str | None") -> str:
     """Bridge ProcessingMode strings to internal QualityMode strings.
 
@@ -443,18 +598,8 @@ class UnifiedRestorerV3:
         # Rauschframes bei -44 dBFS wurden verstärkt → Pegelexplosion. Fix: adaptiver Gate
         # greift immer wenn p5+6 über dem nominalen Gate liegt.
         effective_gate = gate_dbfs
-        if len(frame_rms_db) >= 10:
-            p5_rms_db = float(np.percentile(frame_rms_db, 5))
-            # Immer noise-floor-adaptiven Gate berechnen — nur anheben, nie absenken.
-            # Margin +10 dB (2026-04-25): mit +6 und p5=-42 gilt -36>-36 = False → kein Trigger.
-            # Vinyl-Rauschen bei -35 dBFS würde verstärkt. +10 garantiert Trigger bei p5≥-46.
-            _adaptive = p5_rms_db + 10.0
-            if _adaptive > gate_dbfs:
-                # Noise-Floor liegt über dem nominalen Gate → Gate 10 dB über Noise-Floor
-                # setzen. Stille/Rausch-Frames (< Noise-Floor + 10 dB) werden NICHT
-                # verstärkt; musikalische Frames (≥ 10 dB über Noise-Floor) erhalten
-                # trotzdem den vollen Makeup-Gain.
-                effective_gate = min(_adaptive, gate_dbfs + 25.0)
+        # REVERT v9.11.76 (2026-04-25): Adaptiver Gate via p5+6 zeigte keine
+        # Verbesserung und verursachte neue Stereo-Probleme. Kein adaptiver Gate.
 
         # --- Pass 2: Gate-Envelope mit adaptivem Schwellwert aufbauen ---
         gate_envelope = np.zeros(n, dtype=np.float32)
@@ -480,6 +625,23 @@ class UnifiedRestorerV3:
                 return (arr * per_sample_gain[np.newaxis, :]).astype(np.float32)
             return (arr * per_sample_gain[:, np.newaxis]).astype(np.float32)
         return (arr * per_sample_gain).astype(np.float32)
+
+    @staticmethod
+    def _update_positive_makeup_authority(phase_id: str, current_allowed: bool) -> tuple[bool, str | None]:
+        """Update policy that controls positive cumulative makeup gain.
+
+        §2.45a-VI: HPF/Notch energy removal is intentional and must not be
+        compensated by later cumulative loudness guards. A subsequent broadband
+        subtractive phase can re-enable positive makeup authority.
+        """
+        if phase_id in {"phase_02_hum_removal", "phase_05_rumble_filter"}:
+            return False, "locked_after_hpf_notch"
+
+        phase_prefix = "_".join(str(phase_id).split("_")[:2])
+        if phase_prefix in {"phase_03", "phase_18", "phase_20", "phase_28", "phase_29", "phase_49"}:
+            return True, f"unlocked_after_{phase_prefix}"
+
+        return current_allowed, None
 
     def _allow_experimental_feature(self, feature_name: str) -> bool:
         """Blocks experimental features in PRODUCT mode and records the decision."""
@@ -6937,6 +7099,38 @@ class UnifiedRestorerV3:
             }
             _musical_excellence_score = sum(_musical_goal_scores.values()) / max(len(_musical_goal_scores), 1)
             _mg_violations = [k for k, p in _musical_goals_passed.items() if not p and k in _applicable_goal_names]
+
+            # §GOAL_MONITOR [RELEASE_MUST] Structured per-goal scorecard for goal_monitor.py.
+            # Logs ALL 14 goals with score, effective threshold, gap, and pass/fail status
+            # in a single parseable line so post-run analysis can show exactly which goals
+            # are below threshold and by how much — without reading internal Python state.
+            try:
+                _scorecard_parts = []
+                for _sc_goal in sorted(_musical_goal_scores.keys()):
+                    _sc_score = float(_musical_goal_scores.get(_sc_goal, 0.0))
+                    _sc_thr = float(_effective_goal_thresholds.get(_sc_goal, 0.85))
+                    _sc_gap = _sc_score - _sc_thr
+                    _sc_applicable = _sc_goal in _applicable_goal_names
+                    _sc_passed = _musical_goals_passed.get(_sc_goal, True)
+                    _scorecard_parts.append(
+                        f"{_sc_goal}:"
+                        f"score={_sc_score:.4f},"
+                        f"thr={_sc_thr:.4f},"
+                        f"gap={_sc_gap:+.4f},"
+                        f"pass={'1' if _sc_passed else '0'},"
+                        f"app={'1' if _sc_applicable else '0'}"
+                    )
+                logger.info(
+                    "🎯 GOAL_SCORECARD mat=%s mode=%s excellence=%.4f violations=%d|%s",
+                    str(getattr(material_type, "value", material_type) or "unknown"),
+                    str(getattr(getattr(self.config, "mode", None), "value", "restoration")),
+                    _musical_excellence_score,
+                    len(_mg_violations),
+                    ";".join(_scorecard_parts),
+                )
+            except Exception as _sc_exc:
+                logger.debug("GOAL_SCORECARD log failed (non-blocking): %s", _sc_exc)
+
             if _mg_violations:
                 # v9.10.58: Musical Goals Re-Pass in UV3 entfernt — wissenschaftlich nicht
                 # gerechtfertigt (Ephraim & Malah 1984: cascaded identical processing amplifies
@@ -7974,6 +8168,55 @@ class UnifiedRestorerV3:
                 )
             _fallback_quality_floor["recovery_trace"] = _recovery_trace
 
+        # §2.51a [RELEASE_MUST] Stereo-Hörsicherheitsprofil (No-Surprises Export Guard)
+        _stereo_safety_guard = _evaluate_stereo_safety_guard(
+            original_audio=original_audio_for_goals,
+            restored_audio=restored_audio,
+            sample_rate=sample_rate,
+        )
+        if bool(_stereo_safety_guard.get("warning", False)):
+            logger.warning(
+                "§2.51a Stereo-Warnstufe: %s",
+                ", ".join(list(_stereo_safety_guard.get("warning_reasons", []))),
+            )
+        if bool(_stereo_safety_guard.get("hard_fail", False)):
+            _fail_reasons.append(
+                {
+                    "component": "StereoSafetyGuard",
+                    "error_code": "STEREO_SAFETY_HARD_FAIL",
+                    "severity": "failed",
+                    "detail": _stereo_safety_guard,
+                }
+            )
+            _stereo_rollback_target = getattr(self, "_hpi_best_rollback_audio", None)
+            if _stereo_rollback_target is None:
+                _stereo_rollback_target = original_audio_for_goals
+            _shape_ok = (
+                _stereo_rollback_target is not None
+                and hasattr(_stereo_rollback_target, "shape")
+                and _stereo_rollback_target.shape == restored_audio.shape
+            )
+            if _shape_ok:
+                restored_audio = np.clip(
+                    np.nan_to_num(_stereo_rollback_target, nan=0.0, posinf=0.0, neginf=0.0),
+                    -1.0,
+                    1.0,
+                )
+                logger.warning(
+                    "§2.51a Stereo-Hard-Fail → Rollback auf sicheren Checkpoint (%s)",
+                    "hpi_best_checkpoint"
+                    if getattr(self, "_hpi_best_rollback_audio", None) is not None
+                    else "original",
+                )
+            else:
+                logger.warning("§2.51a Stereo-Hard-Fail, aber kein kompatibler Rollback-Checkpoint verfügbar")
+        # Re-evaluate for telemetry after potential rollback.
+        _stereo_safety_guard = _evaluate_stereo_safety_guard(
+            original_audio=original_audio_for_goals,
+            restored_audio=restored_audio,
+            sample_rate=sample_rate,
+        )
+
         # Recompute degradation status after HPI/artifact gates
         try:
             from backend.core.pipeline_health_state import (
@@ -8635,6 +8878,8 @@ class UnifiedRestorerV3:
                     "detail": getattr(self, "_artifact_freedom_detail", {}),
                     "passed": getattr(self, "_artifact_freedom_score", 1.0) >= 0.95,
                 },
+                # §2.51a Stereo-Hörsicherheitsprofil
+                "stereo_safety_guard": _stereo_safety_guard,
                 # §0d [RELEASE_MUST] Carrier-Chain-Recovery (Pflichtfeld)
                 "carrier_chain_recovery_ratio": getattr(self, "_carrier_chain_recovery_ratio", 0.0),
                 "carrier_chain_recovery": {
@@ -16754,6 +16999,10 @@ class UnifiedRestorerV3:
                     "phase_05_rumble_filter",
                 }
             )
+            # First-stage Single-Gain-Authority (§2.45a): cumulative guards may
+            # apply positive makeup only while authority is enabled.
+            _allow_positive_makeup_gain: bool = True
+            _makeup_authority_reason: str = "initial"
             _afg_best_clean_phase: str = "__pre_pipeline__"
             # §2.49 Track minimum per-phase artifact_freedom (replaces final full-pipeline comparison)
             _min_per_phase_afg_score: float = 1.0
@@ -17889,6 +18138,19 @@ class UnifiedRestorerV3:
                 # is reset to current_audio so the guard does not compensate intentional
                 # energy removal (sub-bass / hum) with makeup gain → prevents Pegelexplosion.
                 if _cum_rms_reference_audio is not None and phase_id in executed:
+                    _next_allow_makeup, _authority_reason = self._update_positive_makeup_authority(
+                        phase_id,
+                        _allow_positive_makeup_gain,
+                    )
+                    if _authority_reason is not None:
+                        _allow_positive_makeup_gain = _next_allow_makeup
+                        _makeup_authority_reason = _authority_reason
+                        logger.debug(
+                            "§2.45a Single-Gain-Authority update after %s: allow_positive_makeup=%s (%s)",
+                            phase_id,
+                            _allow_positive_makeup_gain,
+                            _makeup_authority_reason,
+                        )
                     if phase_id in _HPF_NOTCH_CUM_RESET_PHASES:
                         _cum_rms_reference_audio = current_audio.copy()
                         logger.debug("§2.45a-VI cum-guard reference reset after HPF/Notch phase %s", phase_id)
@@ -17923,29 +18185,39 @@ class UnifiedRestorerV3:
                                 _cum_g = float(10.0 ** (_cum_needed / 20.0))
                                 _cum_g = min(_cum_g, 6.0)  # max +15.6 dB safety cap
                                 if _cum_g > 1.0005:
-                                    # Envelope-aware gain: only amplify musical frames
-                                    current_audio = self._musical_gain_envelope(
-                                        current_audio, _cum_g, gate_dbfs=-36.0, sr=sample_rate
-                                    )
-                                    # Soft-limiter only if actual clipping risk
-                                    # §v9.10.125: 99.9th-percentile — impulse artefact must not block normalisation
-                                    _cum_peak = float(np.percentile(np.abs(current_audio), 99.9))
-                                    if _cum_peak > 0.98:
-                                        _cum_abs = np.abs(current_audio)
-                                        _cum_over = _cum_abs > 0.92
-                                        if np.any(_cum_over):
-                                            _cum_sign = np.sign(current_audio)
-                                            _cum_soft = 0.92 + 0.08 * np.tanh((_cum_abs - 0.92) / 0.08)
-                                            current_audio = np.where(_cum_over, _cum_sign * _cum_soft, current_audio)
-                                    current_audio = np.clip(current_audio, -1.0, 1.0)
-                                    logger.info(
-                                        "§2.45a MID-PIPELINE cumulative guard after %s: "
-                                        "total_drop=%.2f dB (gated) > %.2f dB limit → envelope-aware makeup +%.2f dB",
-                                        phase_id,
-                                        _cum_total_drop,
-                                        _cum_max_drop_db,
-                                        float(20.0 * np.log10(max(_cum_g, 1e-9))),
-                                    )
+                                    if not _allow_positive_makeup_gain:
+                                        logger.info(
+                                            "§2.45a MID-PIPELINE cumulative guard after %s: "
+                                            "makeup skipped by Single-Gain-Authority (%s)",
+                                            phase_id,
+                                            _makeup_authority_reason,
+                                        )
+                                    else:
+                                        # Envelope-aware gain: only amplify musical frames
+                                        current_audio = self._musical_gain_envelope(
+                                            current_audio, _cum_g, gate_dbfs=-36.0, sr=sample_rate
+                                        )
+                                        # Soft-limiter only if actual clipping risk
+                                        # §v9.10.125: 99.9th-percentile — impulse artefact must not block normalisation
+                                        _cum_peak = float(np.percentile(np.abs(current_audio), 99.9))
+                                        if _cum_peak > 0.98:
+                                            _cum_abs = np.abs(current_audio)
+                                            _cum_over = _cum_abs > 0.92
+                                            if np.any(_cum_over):
+                                                _cum_sign = np.sign(current_audio)
+                                                _cum_soft = 0.92 + 0.08 * np.tanh((_cum_abs - 0.92) / 0.08)
+                                                current_audio = np.where(
+                                                    _cum_over, _cum_sign * _cum_soft, current_audio
+                                                )
+                                        current_audio = np.clip(current_audio, -1.0, 1.0)
+                                        logger.info(
+                                            "§2.45a MID-PIPELINE cumulative guard after %s: "
+                                            "total_drop=%.2f dB (gated) > %.2f dB limit → envelope-aware makeup +%.2f dB",
+                                            phase_id,
+                                            _cum_total_drop,
+                                            _cum_max_drop_db,
+                                            float(20.0 * np.log10(max(_cum_g, 1e-9))),
+                                        )
                     except Exception as _cum_mid_exc:
                         logger.debug("§2.45a mid-pipeline cumulative guard failed (non-blocking): %s", _cum_mid_exc)
 
@@ -18344,31 +18616,38 @@ class UnifiedRestorerV3:
                         # Safety cap: max +18 dB for end-of-pipeline recovery
                         _cum_gain = min(_cum_gain, 8.0)
                         if _cum_gain > 1.0005:
-                            # Envelope-aware gain: only amplify musical frames
-                            current_audio = self._musical_gain_envelope(
-                                current_audio, _cum_gain, gate_dbfs=-36.0, sr=sample_rate
-                            )
-                            # Soft-limiter only if actual clipping risk
-                            # §v9.10.125: 99.9th-percentile — impulse artefact must not block normalisation
-                            _cum_peak_final = float(np.percentile(np.abs(current_audio), 99.9))
-                            if _cum_peak_final > 0.98:
-                                _cum_abs_final = np.abs(current_audio)
-                                _cum_over_final = _cum_abs_final > 0.92
-                                if np.any(_cum_over_final):
-                                    _cum_sign_final = np.sign(current_audio)
-                                    _cum_soft_final = 0.92 + 0.08 * np.tanh((_cum_abs_final - 0.92) / 0.08)
-                                    current_audio = np.where(
-                                        _cum_over_final, _cum_sign_final * _cum_soft_final, current_audio
-                                    )
-                            current_audio = np.clip(current_audio, -1.0, 1.0)
-                            _cumulative_makeup_db = float(20.0 * np.log10(max(_cum_gain, 1e-9)))
-                            logger.info(
-                                "§2.45a CUMULATIVE level-guard (final): drop %.2f dB (gated) > %.2f dB limit "
-                                "→ envelope-aware makeup +%.2f dB applied",
-                                _cum_drop_db,
-                                _MAX_CUMULATIVE_LEVEL_DROP_DB,
-                                _cumulative_makeup_db,
-                            )
+                            if not _allow_positive_makeup_gain:
+                                logger.info(
+                                    "§2.45a CUMULATIVE level-guard (final): "
+                                    "makeup skipped by Single-Gain-Authority (%s)",
+                                    _makeup_authority_reason,
+                                )
+                            else:
+                                # Envelope-aware gain: only amplify musical frames
+                                current_audio = self._musical_gain_envelope(
+                                    current_audio, _cum_gain, gate_dbfs=-36.0, sr=sample_rate
+                                )
+                                # Soft-limiter only if actual clipping risk
+                                # §v9.10.125: 99.9th-percentile — impulse artefact must not block normalisation
+                                _cum_peak_final = float(np.percentile(np.abs(current_audio), 99.9))
+                                if _cum_peak_final > 0.98:
+                                    _cum_abs_final = np.abs(current_audio)
+                                    _cum_over_final = _cum_abs_final > 0.92
+                                    if np.any(_cum_over_final):
+                                        _cum_sign_final = np.sign(current_audio)
+                                        _cum_soft_final = 0.92 + 0.08 * np.tanh((_cum_abs_final - 0.92) / 0.08)
+                                        current_audio = np.where(
+                                            _cum_over_final, _cum_sign_final * _cum_soft_final, current_audio
+                                        )
+                                current_audio = np.clip(current_audio, -1.0, 1.0)
+                                _cumulative_makeup_db = float(20.0 * np.log10(max(_cum_gain, 1e-9)))
+                                logger.info(
+                                    "§2.45a CUMULATIVE level-guard (final): drop %.2f dB (gated) > %.2f dB limit "
+                                    "→ envelope-aware makeup +%.2f dB applied",
+                                    _cum_drop_db,
+                                    _MAX_CUMULATIVE_LEVEL_DROP_DB,
+                                    _cumulative_makeup_db,
+                                )
                     else:
                         logger.debug(
                             "§2.45a CUMULATIVE level-guard (final): drop %.2f dB — within tolerance after "
