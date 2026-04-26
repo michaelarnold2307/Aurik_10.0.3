@@ -81,6 +81,18 @@ _PHYSICALLY_BASS_LIMITED_MATERIALS = frozenset(
     }
 )
 
+# §6.2c BW-Ceiling je Material — Brillanz unerreichbar wenn Ceiling ≤ 8 kHz
+_MATERIAL_BW_CEILING_HZ: dict[str, float] = {
+    "wax_cylinder": 5000.0,
+    "wire_recording": 6000.0,
+    "shellac": 8000.0,
+    "acoustic_78": 8000.0,
+    "lacquer_disc": 12000.0,
+}
+
+# Für diese Materialien liegt der aufnehmbare Bass-Anteil strukturell unter 0.020
+_LOW_BASS_MATERIALS = frozenset({"wax_cylinder", "wire_recording", "acoustic_78"})
+
 
 class GoalApplicabilityFilter:
     """Spec §2.32: Filtert physikalisch nicht messbare Ziele.
@@ -121,6 +133,7 @@ class GoalApplicabilityFilter:
             GoalApplicabilityResult
         """
         inapplicable: dict[str, str] = {}
+        _mat_key = str(getattr(material, "value", material) or "unknown").strip().lower()
 
         # Audio-Basis-Analysen
         duration_s = 0.0
@@ -178,7 +191,7 @@ class GoalApplicabilityFilter:
 
         # REGEL: SpatialDepthMetric
         era_mono = era_decade is not None and era_decade <= 1950
-        mat_mono = material in _MONO_MATERIALS
+        mat_mono = _mat_key in _MONO_MATERIALS
         # §GoalApplicability Mono-Fix: Materialien vor 1960 die in _MONO_MATERIALS sind,
         # werden auch dann als mono behandelt, wenn die Signal-Korrelation < 0.97 liegt
         # (z. B. Schellack mit Raumambience über Stereo-A/D-Wandler).
@@ -187,7 +200,14 @@ class GoalApplicabilityFilter:
             inapplicable["spatial_depth"] = "Mono-Aufnahme — Raumtiefe nicht messbar."
 
         # REGEL: BrillanzMetric
-        if bw_hz < 8000.0 and not audiosr_available:
+        _mat_bw_ceiling = _MATERIAL_BW_CEILING_HZ.get(_mat_key, 22050.0)
+        if _mat_bw_ceiling <= 8000.0:
+            # §6.2c: Material-BW-Ceiling ≤ 8 kHz → Brillanz physikalisch unerreichbar nach BW-Cap
+            inapplicable["brillanz"] = (
+                f"Material '{_mat_key}' hat BW-Ceiling ≤ {_mat_bw_ceiling / 1000:.0f} kHz (§6.2c) — "
+                "Brillanz-Threshold nach BW-Hard-Cap unerreichbar (Restoration: nie additiv über Ceiling)."
+            )
+        elif bw_hz < 8000.0 and not audiosr_available:
             inapplicable["brillanz"] = (
                 "Hochfrequenz war nicht aufgezeichnet — Brillanz wird nach Bandbreiten-Erweiterung neu bewertet."
             )
@@ -198,7 +218,7 @@ class GoalApplicabilityFilter:
         # K-S-Invarianz-Aussage und hätte tonal_center auf stark degradiertem Material
         # blind abgeschaltet. Nur WAX_CYLINDER wird weiterhin deaktiviert (proprietäres
         # Tonleitersystem mit festen K, kein Western-Durtonart-Profil anwendbar).
-        if material == "wax_cylinder":
+        if _mat_key == "wax_cylinder":
             inapplicable["tonal_center"] = (
                 "Wachswalze — K-S-Durtonart-Profil nicht anwendbar: proprietäres Tonleitersystem, kein Western-Key."
             )
@@ -245,16 +265,18 @@ class GoalApplicabilityFilter:
                     _bass_freqs = np.fft.rfftfreq(len(_bass_seg), d=1.0 / sr)
                     _bm = (_bass_freqs >= 20) & (_bass_freqs <= 250)
                     _input_bass_ratio = float(np.sum(_bass_spec[_bm])) / float(np.sum(_bass_spec))
-                    if _input_bass_ratio < 0.015:
+                    _bass_floor = 0.010 if _mat_key in _LOW_BASS_MATERIALS else 0.015
+                    if _input_bass_ratio < _bass_floor:
                         inapplicable["bass_kraft"] = (
-                            f"Input-Bass-Anteil {_input_bass_ratio:.4f} < 0.015 — "
+                            f"Input-Bass-Anteil {_input_bass_ratio:.4f} < {_bass_floor:.3f} — "
                             "Restoration kann keinen aufnahmetypischen Bass erzeugen "
                             "(§0 Primum non nocere). "
                             "Studio-2026-Modus: Ziel bleibt aktiv (Enhancement-Phasen)."
                         )
                         logger.debug(
-                            "§2.32 bass_kraft N/A: input_bass_ratio=%.4f < 0.015 (Restoration)",
+                            "§2.32 bass_kraft N/A: input_bass_ratio=%.4f < %.3f (Restoration)",
                             _input_bass_ratio,
+                            _bass_floor,
                         )
             except Exception as _bk_exc:
                 logger.debug("§2.32 bass_kraft-Ratio-Check fehlgeschlagen: %s", _bk_exc)

@@ -96,8 +96,8 @@ _MATERIAL_THRESHOLD_BONUS: dict[str, float] = {
     "wire_recording": 0.016,
     "optical_film": 0.010,
     "vinyl": 0.009,
-    "reel_tape": 0.008,
-    "tape": 0.007,
+    "reel_tape": 0.020,
+    "tape": 0.015,
     "radio_broadcast": 0.006,
     "cassette": 0.006,
     "mp3_low": 0.005,  # codec artefacts → repair changes look regressive to proxies

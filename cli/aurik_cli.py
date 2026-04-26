@@ -95,19 +95,29 @@ def _rms_dbfs(audio: np.ndarray) -> float:
 
 
 def _resample_to_48k(audio: np.ndarray, sr: int) -> np.ndarray:
-    """Resample to 48 kHz if necessary (Lanczos via scipy)."""
+    """Resample to 48 kHz with frontend-parity path (soxr HQ, fallback scipy)."""
     if sr == _TARGET_SR:
         return audio
     try:
-        import scipy.signal as _sig
+        import soxr as _soxr_rs
 
-        int(round(audio.shape[0] * _TARGET_SR / sr))
-        return _sig.resample_poly(audio, _TARGET_SR, sr, axis=0).astype(np.float32)
-    except Exception as exc:
-        raise RuntimeError(
-            "Interne 48-kHz-Normierung fehlgeschlagen. Ursache: Resampling konnte nicht ausgefuehrt werden. "
-            "Loesung: scipy/librosa im Bundle sicherstellen oder Eingabedatei vorab auf 48 kHz konvertieren."
-        ) from exc
+        # Frontend parity: soxr HQ for deterministic quality alignment.
+        if audio.ndim == 2:
+            out = _soxr_rs.resample(audio, sr, _TARGET_SR, quality="HQ")
+        else:
+            out = _soxr_rs.resample(audio, sr, _TARGET_SR, quality="HQ")
+        return np.asarray(out, dtype=np.float32)
+    except Exception:
+        try:
+            import scipy.signal as _sig
+
+            int(round(audio.shape[0] * _TARGET_SR / sr))
+            return _sig.resample_poly(audio, _TARGET_SR, sr, axis=0).astype(np.float32)
+        except Exception as exc2:
+            raise RuntimeError(
+                "Interne 48-kHz-Normierung fehlgeschlagen. Ursache: Resampling konnte nicht ausgefuehrt werden. "
+                "Loesung: soxr/scipy im Bundle sicherstellen oder Eingabedatei vorab auf 48 kHz konvertieren."
+            ) from exc2
 
 
 def process_audio(input_path: str, output_path: str, verbose: bool = True, mode: str = "Restoration") -> object:
@@ -262,21 +272,6 @@ def process_audio(input_path: str, output_path: str, verbose: bool = True, mode:
     _in_db = _rms_dbfs(audio_48k)
     _out_db = _rms_dbfs(restored)
     _drop_db = _in_db - _out_db
-    if _drop_db > 2.5:
-        # §2.45a-II: Makeup-Gain auf Musik-Frames (capped at 6 dB) to restore
-        # input loudness lost by cumulative subtraction phases.  This is normative
-        # (§0c requires loudness_drop_db ≤ 2.5) and safe because the gain is
-        # bounded and applied after True-Peak Limiting (phase_47 / TruePeakLimiter).
-        _makeup_gain_db = min(_drop_db, 6.0)
-        _makeup_gain_lin = float(np.power(10.0, _makeup_gain_db / 20.0))
-        restored = np.clip((restored * _makeup_gain_lin).astype(np.float32), -1.0, 1.0)
-        logger.info(
-            "§0c Makeup-Gain: %.2f dB (drop=%.2f dB) applied to restore input loudness.",
-            _makeup_gain_db,
-            _drop_db,
-        )
-        _out_db = _rms_dbfs(restored)
-        _drop_db = _in_db - _out_db
     # §2.54 Material-adaptive Pegelabfall-Schwelle: Subtraktive Phasen (Denoise, Dereverb)
     # entfernen auf verlustbehafteten Trägern legitim mehr Rauschen als auf linearem Material.
     # Hardcoded 2.5 dB führt bei mp3_low/shellac immer zum False-Positive 'degraded'.

@@ -7122,14 +7122,18 @@ class UnifiedRestorerV3:
                     )
                 logger.info(
                     "🎯 GOAL_SCORECARD mat=%s mode=%s excellence=%.4f violations=%d|%s",
-                    str(getattr(material_type, "value", material_type) or "unknown"),
-                    str(getattr(getattr(self.config, "mode", None), "value", "restoration")),
+                    str(
+                        getattr(material_type, "value", material_type)
+                        or getattr(_classified_material, "value", _classified_material)
+                        or "unknown"
+                    ),
+                    "studio_2026" if self.is_studio_mode() else "restoration",
                     _musical_excellence_score,
                     len(_mg_violations),
                     ";".join(_scorecard_parts),
                 )
             except Exception as _sc_exc:
-                logger.debug("GOAL_SCORECARD log failed (non-blocking): %s", _sc_exc)
+                logger.warning("GOAL_SCORECARD log failed (non-blocking): %s", _sc_exc, exc_info=True)
 
             if _mg_violations:
                 # v9.10.58: Musical Goals Re-Pass in UV3 entfernt — wissenschaftlich nicht

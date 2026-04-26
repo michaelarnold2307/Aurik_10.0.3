@@ -1101,7 +1101,7 @@ class MediumDetector:
 
     @staticmethod
     def _crackle_density(mono: np.ndarray, sr: int) -> float:
-        """Count impulsive crackle events per second (vinyl/shellac indicator).
+        """Estimate impulsive crackle density as normalized event ratio [0, 1].
 
         Applies a stochasticity filter (Cox & Lewis 1966): genuine vinyl crackle
         follows a Poisson process (CV of inter-event intervals ≈ 1.0).  MDCT-codec
@@ -1135,7 +1135,7 @@ class MediumDetector:
 
         n_events = len(event_positions)
         if n_events < 2:
-            return n_events / max(duration_s, 0.1)
+            return float(n_events / max(float(n), 1.0))
 
         # ── Stochasticity filter (Cox & Lewis 1966) ──────────────────────────
         # CV of inter-event intervals: Poisson (vinyl) → CV ≈ 1.0,
@@ -1148,23 +1148,21 @@ class MediumDetector:
         cv = iv_std / (iv_mean + 1e-12)
 
         if cv < 0.35 and n_events >= 20:
-            # Dominant period estimated robustly via median (resistant to stochastic
-            # outliers that represent genuine crackle mixed into codec artifacts).
             dominant_period = float(np.median(intervals))
             if dominant_period > 0:
                 pos_arr = np.array(event_positions, dtype=np.float64)
                 ivs_to_prev = np.concatenate([[dominant_period], np.diff(pos_arr)])
                 ivs_to_next = np.concatenate([np.diff(pos_arr), [dominant_period]])
                 tol = dominant_period * 0.30
-                # Non-periodic events: both neighbours deviate > 30 % from dominant
-                # period — these are the stochastic (analog-source) impulses.
                 non_periodic = (np.abs(ivs_to_prev - dominant_period) > tol) & (
                     np.abs(ivs_to_next - dominant_period) > tol
                 )
                 stochastic_events = int(np.sum(non_periodic))
-                return stochastic_events / max(duration_s, 0.1)
+                # Normalized density (events per sample) keeps feature scale
+                # consistent with Gaussian model means (e.g. vinyl μ≈0.004).
+                return float(stochastic_events / max(float(n), 1.0))
 
-        return n_events / max(duration_s, 0.1)
+        return float(n_events / max(float(n), 1.0))
 
     @staticmethod
     def _snr(mono: np.ndarray, sr: int) -> float:

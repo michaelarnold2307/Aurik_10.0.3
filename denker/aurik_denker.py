@@ -1306,6 +1306,23 @@ class AurikDenker:
                 _rest_goals_passed = int(getattr(rest, "goals_passed", 0))
                 _meta_raw = getattr(rest, "metadata", None)
                 _rest_metadata = dict(_meta_raw) if isinstance(_meta_raw, dict) else {}
+                # Keep a single canonical material label across UV3 scorecards and
+                # AurikDenker final logs/exports.
+                _rest_mat_raw = getattr(rest, "material_type", None)
+                _rest_mat = str(getattr(_rest_mat_raw, "value", _rest_mat_raw) or "").strip().lower()
+                if _rest_mat and _rest_mat not in {"unknown", "materialtype.unknown"}:
+                    material = _rest_mat
+                else:
+                    _meta_mat = (
+                        str(
+                            ((_rest_metadata.get("defect_analysis") or {}).get("material") if _rest_metadata else "")
+                            or ""
+                        )
+                        .strip()
+                        .lower()
+                    )
+                    if _meta_mat and _meta_mat not in {"unknown", "materialtype.unknown"}:
+                        material = _meta_mat
                 # §Dach-Enrichment: era_decade aus RestorationResult in Globalplan übernehmen
                 # (ML-Klassifikatoren liefen in UV3 — jetzt Ergebnis in Plan einpflegen)
                 if _globalplan is not None:

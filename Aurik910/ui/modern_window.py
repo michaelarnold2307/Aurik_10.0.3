@@ -2872,10 +2872,10 @@ class BatchProcessingThread(QThread):
                         **_extra_kwargs,
                     )
                 else:
-                    # Fallback: atomic WAV write.
+                    # Fallback: atomic WAV write. subtype="PCM_24" matches CLI parity.
                     _tmp_path = item.output_file + ".wav.tmp"
                     try:
-                        sf.write(_tmp_path, write_audio, write_sr, format="WAV")
+                        sf.write(_tmp_path, write_audio, write_sr, format="WAV", subtype="PCM_24")
                         os.replace(_tmp_path, item.output_file)
                     finally:
                         if os.path.exists(_tmp_path):
