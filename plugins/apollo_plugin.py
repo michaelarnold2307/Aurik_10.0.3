@@ -321,9 +321,16 @@ class ApolloPlugin:
         # Segments shorter than 8192 samples @ 44100 Hz cause RuntimeError:
         # "Padding size should be less than the corresponding input dimension".
         _min_at_sr = int(np.ceil(8192 * sr / self._APOLLO_SR))  # ≈ 9102 @ 48 kHz
-        if len(audio) < _min_at_sr:
-            logger.debug("Apollo: Segment zu kurz (%d < %d samples) → DSP-Fallback", len(audio), _min_at_sr)
-            return self._repair_dsp_fallback(audio, sr, material)
+        _orig_len = len(audio)
+        if _orig_len < _min_at_sr:
+            # §APOLLO-SHORT-AUDIO: Zero-pad to minimum size — run ML path, then trim.
+            # Avoids default DSP fallback for short clips (transitions, song endings).
+            logger.debug(
+                "Apollo: Segment zu kurz (%d < %d samples) — zero-pad auf min-size, ML-Pfad",
+                _orig_len,
+                _min_at_sr,
+            )
+            audio = np.pad(audio.astype(np.float32), (0, _min_at_sr - _orig_len), mode="constant")
         try:
             import time
 
@@ -365,10 +372,12 @@ class ApolloPlugin:
                 chunk_end = min(pos + chunk_samples, n_total)
                 chunk = audio[pos:chunk_end]
 
-                # Skip chunks that are too short for Apollo
-                if len(chunk) < _min_at_sr:
-                    pos = chunk_end
-                    continue
+                # §APOLLO-SHORT-CHUNK: Pad short final chunks through ML instead of skipping.
+                # Previously skipped chunks left original audio untouched — suboptimal for final
+                # 0.1–0.19 s tail segments which still contain codec-compressed content.
+                _chunk_orig_len = len(chunk)
+                if _chunk_orig_len < _min_at_sr:
+                    chunk = np.pad(chunk, (0, _min_at_sr - _chunk_orig_len), mode="constant")
 
                 # 1. Resample 48000 → 44100
                 t = torch.from_numpy(chunk).float().unsqueeze(0).unsqueeze(0).to(self._device)  # [1,1,T]
@@ -388,14 +397,17 @@ class ApolloPlugin:
                 reconstructed = out.squeeze().cpu().numpy()  # [T_chunk]
                 del out
 
-                # 4. Einschreiben (Länge sichern)
-                n_chunk = min(len(chunk), len(reconstructed))
-                chunk_result = np.nan_to_num(reconstructed[:n_chunk], nan=0.0, posinf=0.0, neginf=0.0)
+                # 4. Einschreiben (Länge sichern — bei gepaddeten Chunks auf Original-Länge begrenzen)
+                _write_len = min(_chunk_orig_len, len(reconstructed))
+                chunk_result = np.nan_to_num(reconstructed[:_write_len], nan=0.0, posinf=0.0, neginf=0.0)
                 del reconstructed
-                result[pos : pos + n_chunk] = np.clip(chunk_result, -1.0, 1.0)
+                result[pos : pos + _write_len] = np.clip(chunk_result, -1.0, 1.0)
 
                 pos = chunk_end
 
+            # Trim padded short-audio result to original length
+            if _orig_len < len(result):
+                result = result[:_orig_len]
             return result.astype(np.float32)
 
         except Exception as exc:

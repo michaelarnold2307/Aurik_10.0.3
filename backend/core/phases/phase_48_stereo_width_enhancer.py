@@ -215,7 +215,20 @@ class StereoWidthEnhancerPhase(PhaseInterface):
                 metrics={"effective_strength": 0.0},
             )
 
-        width: float = float(kwargs.get("width", _DEFAULT_WIDTH))
+        # §0 Primum non nocere: STFT-basiertes HF-Side-Widening (×1.15) komprimiert
+        # das Zentrum relativ zur Side → Gesang klingt weiter entfernt.
+        # Nur Studio 2026 darf volle Stereobreite hinzufügen.
+        _p48_studio = bool(kwargs.get("is_studio_mode", False))
+        if not _p48_studio:
+            effective_strength = float(np.clip(effective_strength, 0.0, 0.25))
+            logger.debug(
+                "phase_48: Restoration-Mode — Strength auf %.2f, Width-Cap 1.08 (Gesang-Präsenz-Schutz)",
+                effective_strength,
+            )
+        _p48_width_default = _DEFAULT_WIDTH if _p48_studio else 1.08
+        width: float = float(kwargs.get("width", _p48_width_default))
+        if not _p48_studio:
+            width = float(np.clip(width, 1.0, 1.08))
         diffuse: bool = bool(kwargs.get("diffuse", True))
         iacc_guard: bool = bool(kwargs.get("iacc_guard", True))
         width = max(0.0, width) * effective_strength
@@ -238,9 +251,8 @@ class StereoWidthEnhancerPhase(PhaseInterface):
                 metrics={"effective_strength": effective_strength},
             )
 
-        x = audio.astype(np.float64)
-        L = x[:, 0]
-        R = x[:, 1]
+        L = audio[:, 0]
+        R = audio[:, 1]
         peak_in = float(np.percentile(np.abs(audio), 99.9))  # §2.49 Peak-Guard
 
         # Frequenzabhängige M/S-Breite (STFT basiert)
@@ -267,7 +279,7 @@ class StereoWidthEnhancerPhase(PhaseInterface):
         processed = np.column_stack([L_out, R_out])
 
         if 0.0 < effective_strength < 1.0:
-            processed = x + effective_strength * (processed - x)
+            processed = audio + effective_strength * (processed - audio)
 
         # Pegel-Erhalt — §2.49 Peak-Guard: percentile(99.9)
         peak_out = float(np.percentile(np.abs(processed), 99.9))

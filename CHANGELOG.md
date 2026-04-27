@@ -2,6 +2,118 @@
 
 > Hinweis: Dieses Dokument ist eine Versionshistorie. Ältere Versionsnummern und Kennzahlen sind hier erwartbar und keine veralteten Reststände.
 
+## Version 9.11.58 — Stark degradierte Aufnahmen: CCR-Anchor, lacquer_disc, ultra-analog Blend-Gate (Apr 2026)
+
+### Bugfix: §0d Ebene 3 HPI-Gate ohne CCR-Awareness (KRITISCH)
+
+**Problem:** `holistic_perceptual_gate.py` `evaluate_restoration()` ignorierte `carrier_chain_recovery_ratio`
+vollständig. Bei CCR > 0.35 (Shellac, Mehrfachkopien) wurde die MERT-Referenz weiterhin auf den
+degradierten Input gesetzt — korrekte Carrier-Chain-Inversion führte so zu HPI-Rollback.
+
+**Fix:**
+- `evaluate_restoration()` erhält neuen Parameter `carrier_chain_recovery_ratio: float = 0.0`
+- CCR > 0.35 ("massive"): `mert_sim` via `_compute_directional_restoration_quality()` berechnet;
+  timbral-Gewichtung vollständig auf `ref`-Seite verschoben (input_weight=0.0, ref_weight=1.0)
+- CCR > 0.15 ("partial"): 50/50-Blend aus raw MERT + direktionaler Qualität
+- `logger.info()` und `detail{}`-Dict loggen jetzt `ccr=`, `ccr_anchor_mode`
+- UV3 Call-Site (Zeile ~8275) übergibt `carrier_chain_recovery_ratio=getattr(self, "_carrier_chain_recovery_ratio", 0.0)`
+
+**Betroffene Dateien:** `backend/core/holistic_perceptual_gate.py`, `backend/core/unified_restorer_v3.py`
+
+### Bugfix: `lacquer_disc` fehlt in CIG `_MATERIAL_BASE` (HOCH)
+
+**Problem:** `lacquer_disc` fehlte in `compute_adaptive_drift_tolerance()` `_MATERIAL_BASE`-Dict →
+Fallback auf `unknown` (-0.06), viel zu streng für historisches Acetat-Trägermedium.
+
+**Fix:** `"lacquer_disc": -0.12` eingefügt (zwischen vinyl -0.10 und shellac -0.15;
+entspricht physikalischem Charakter der Acetat-Lackfolien 1930–1950).
+
+**Betroffene Datei:** `backend/core/cumulative_interaction_guard.py`
+
+### Bugfix: `lacquer_disc` + P4/P5-Goals fehlen in UV3 `_ADAPTIVE_THR_MATERIAL_CEILING` (HOCH)
+
+**Problem 1:** `lacquer_disc` fehlte vollständig → canonische Schwellen 0.90/0.88 physikalisch unmöglich.
+**Problem 2:** Shellac, Wachswalze, Drahtaufnahme hatten keine `brillanz`/`spatial_depth`-Ceiling-Werte
+→ brillanz 0.78 canonical für 8kHz-Bandbreite (Shellac) ist physikalisch unmöglich; AFG-Loop.
+
+**Fix:**
+- `lacquer_disc` komplett eingefügt: natuerlichkeit≤0.72, authentizitaet≤0.70, brillanz≤0.60, spatial_depth≤0.64
+- `shellac`: brillanz≤0.52, spatial_depth≤0.60 ergänzt (§0 BW-Ceiling 8kHz)
+- `wax_cylinder`: brillanz≤0.44, spatial_depth≤0.55 ergänzt (§0 BW-Ceiling 5kHz)
+- `wire_recording`: brillanz≤0.46, spatial_depth≤0.55 ergänzt (§0 BW-Ceiling 6kHz)
+
+**Betroffene Datei:** `backend/core/unified_restorer_v3.py`
+
+### Bugfix: P1/P2-Blend-Acceptance `_best_regression_count <= 1` nicht material-adaptiv (MITTEL)
+
+**Problem:** End-Gate P1/P2-Blend-Loop akzeptierte bei ultra-analog-Materialien nur ≤1 Regression
+unter P3-P5-Goals. Shellac/Wachswalze/Lackfolie/Draht können P1/P2-Verletzungen physikalisch
+nicht ohne Beeinflussung von Groove oder Emotionalität lösen → beste verfügbare Recovery verworfen.
+
+**Fix:** Material-adaptive Schwelle: ultra_analog-Set (`shellac`, `wax_cylinder`, `lacquer_disc`,
+`wire_recording`) → `_blend_max_regressions = 2`; alle anderen Materialien bleiben bei 1.
+
+**Betroffene Datei:** `backend/core/unified_restorer_v3.py`
+
+
+
+### Bugfix: Gemeinsame Ursache fuer Pegelexplosion + L/R-Zeitversatz in fruehem Laufsegment
+
+**Symptombild (Produktion):**
+
+- Bis ca. 18 % Fortschritt klang die Restaurierung stabil.
+- Danach traten abrupt gleichzeitig auf:
+  - Pegelexplosion in ruhigen Bereichen
+  - Zeitversatz zwischen linkem und rechtem Kanal
+
+**Erkenntnisse:**
+
+- Der Fingerprint trat konsistent um `phase_29_tape_hiss_reduction` auf
+  (spaeter teils mit Folge-Rollback nach `phase_49_advanced_dereverb`).
+- In `phase_29` lagen zwei relevante Risikofaktoren:
+  - fehlende kanonische Stereo-Layout-Normalisierung (`(2, N)` vs. `(N, 2)`)
+  - globaler Loudness-Rescue (direct-clip), der ruhige Tail-Segmente miterhoehen konnte
+
+**Umgesetzte Korrekturen:**
+
+- `backend/core/phases/phase_29_tape_hiss_reduction.py`
+  - Eingangsnormalisierung auf channels-last (`to_channels_last`) und Rueckgabe mit `restore_layout`
+  - Loudness-Rescue auf `apply_musical_gain_envelope(..., gate_dbfs=-36.0)` umgestellt
+  - zusaetzlicher Stereo-Lag-Sicherheitsguard:
+    - misst inter-channel lag (Input vs. Output)
+    - korrigiert neu eingefuehrten Lag > 1 ms lokal in der Phase
+    - schreibt Telemetrie in metadata (`lag_input_samples`, `lag_output_samples`, `lag_corrected`, `lag_output_corrected_samples`)
+
+**Validierung:**
+
+- `tests/unit/test_phases_mid_late.py::TestPhase29TapeHissReduction`
+  - neue Regressionen:
+    - channel-first Stereo bleibt ausgerichtet
+    - quiet tail wird durch Loudness-Rescue nicht reinflated
+    - grosser eingefuehrter L/R-Lag wird zurueck ausgerichtet
+  - Ergebnis: `10 passed`
+
+**Zusatz:**
+
+- Timeout-Fix in `tests/unit/test_precomputed_phase_plan_determinism.py`
+  - fehlende Heavy-Patches im contra-positiven Testfall nachgezogen
+  - Ergebnis: Datei laeuft wieder gruen (`6 passed`)
+
+## Version 9.11.56 — §2.51a Stereo-Hörsicherheitsprofil (Apr 2026)
+
+### Feature [RELEASE_MUST] §2.51a (No-Surprises Stereo Guardrails)
+
+Neue normative Ergänzung in `.github/copilot-instructions.md` direkt nach §2.51:
+
+- Dreistufiges Stereo-Guardrail-Profil für Exportentscheidungen:
+  - **Hard-Fail**: Interchannel-Delay > 1.0 ms, L/R-Imbalance > 6 dB (bei balanciertem Input),
+    signifikanter Mono-Kompatibilitäts-Drop, True-Peak > -1.0 dBTP
+  - **Warnstufe**: Delay 0.5–1.0 ms, Imbalance 3–6 dB, Breitenänderung ohne Qualitätsgewinn
+  - **Zielwerte**: Delay < 0.5 ms, Imbalance < 3 dB, Mono-Kompatibilität stabil, True-Peak ≤ -1.0 dBTP
+
+- Klarstellung der Invariante: **keine starre 0.0-ms-Pflicht**; entscheidend sind kohärente Stereo-Verarbeitung,
+  harte Sicherheitsgrenzen und Delta-basierte Bewertung gegen den Input.
+
 ## Version 9.11.55 — §2.45a Cumulative-Guard Decoupling + §2.30b ADMM Wall-Time Fixes (Apr 2026)
 
 ### Bugfix §2.45a-VI: `_cum_rms_reference_audio` vom ArtifactFreedomGate entkoppelt
@@ -38,7 +150,9 @@ Typ-Annotation von `np.ndarray | None` auf `np.ndarray` geändert.
 
 → 225-s-Vinyl:
 30 Iter (~360 s); ≤30-s-Signale: 200 Iter (volle Qualität)
+
 - Wall-Time-Budget innerhalb ADMM-Loop: `min(180 s, 1.5 × duration_s)` als Sicherheitsnetz
+
 - Záviška 2021: Konvergenz typisch in 30–50 Iter.; Iter 60–200 = Sub-Promille-Verbesserung
 
 **Fix** (`backend/core/unified_restorer_v3.py`):

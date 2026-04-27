@@ -298,6 +298,54 @@ def load_checkpoint_audio(checkpoint: RecoveryCheckpoint) -> np.ndarray | None:
 
     orig_exc: Exception | None = None
 
+    def _resample_to_checkpoint_sr(audio: np.ndarray, sr_in: int) -> np.ndarray:
+        """Resample loaded recovery audio to the checkpoint sample rate.
+
+        Recovery resume in UV3 uses ``checkpoint.sample_rate`` as authoritative SR.
+        If the loaded source has a different native SR (e.g. 44.1 kHz original vs
+        48 kHz checkpoint), resampling is mandatory; otherwise the waveform is
+        interpreted at the wrong SR and pitch/tempo shift occurs.
+        """
+        if sr_in == checkpoint.sample_rate:
+            return np.asarray(audio, dtype=np.float32)
+
+        import librosa
+
+        logger.warning(
+            "Recovery: Resampling resume source from %d Hz to checkpoint SR %d Hz.",
+            sr_in,
+            checkpoint.sample_rate,
+        )
+
+        x = np.asarray(audio, dtype=np.float32)
+        if x.ndim == 1:
+            return np.asarray(
+                librosa.resample(x, orig_sr=sr_in, target_sr=checkpoint.sample_rate),
+                dtype=np.float32,
+            )
+
+        # load_audio_file returns (samples, channels), but keep a robust fallback
+        # for channel-first layouts coming from future/import variants.
+        if x.shape[1] <= 8 and x.shape[0] > x.shape[1]:
+            ch = [
+                np.asarray(librosa.resample(x[:, i], orig_sr=sr_in, target_sr=checkpoint.sample_rate), dtype=np.float32)
+                for i in range(x.shape[1])
+            ]
+            return np.stack(ch, axis=1).astype(np.float32, copy=False)
+
+        if x.shape[0] <= 8 and x.shape[1] > x.shape[0]:
+            ch = [
+                np.asarray(librosa.resample(x[i], orig_sr=sr_in, target_sr=checkpoint.sample_rate), dtype=np.float32)
+                for i in range(x.shape[0])
+            ]
+            return np.stack(ch, axis=0).astype(np.float32, copy=False)
+
+        ch = [
+            np.asarray(librosa.resample(x[:, i], orig_sr=sr_in, target_sr=checkpoint.sample_rate), dtype=np.float32)
+            for i in range(x.shape[1])
+        ]
+        return np.stack(ch, axis=1).astype(np.float32, copy=False)
+
     # Primary source per §2.39: original input audio
     try:
         _res = load_audio_file(checkpoint.original_input_path, do_carrier_analysis=False)
@@ -310,6 +358,7 @@ def load_checkpoint_audio(checkpoint: RecoveryCheckpoint) -> np.ndarray | None:
                     checkpoint.sample_rate,
                     sr,
                 )
+                audio = _resample_to_checkpoint_sr(audio, sr)
             logger.info(
                 "Recovery: Original-Datei als Primärquelle geladen (Checkpoint nur Notfall-Fallback gemäß §2.39)."
             )
@@ -337,6 +386,7 @@ def load_checkpoint_audio(checkpoint: RecoveryCheckpoint) -> np.ndarray | None:
                 checkpoint.sample_rate,
                 sr,
             )
+            audio = _resample_to_checkpoint_sr(audio, sr)
         logger.info(
             "§2.39 OOM-Checkpoint-Ausnahme aktiv: Checkpoint-Audio wird verwendet, "
             "weil das Original nicht verfügbar/lesbar ist."

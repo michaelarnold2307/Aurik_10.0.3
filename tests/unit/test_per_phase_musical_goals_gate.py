@@ -1926,7 +1926,9 @@ class TestKrumhanslSchmucklerTonalCenter:
         from backend.core.per_phase_musical_goals_gate import PHASE_GOAL_EXCLUSIONS
 
         excl = PHASE_GOAL_EXCLUSIONS.get("phase_46", set())
-        expected = {"timbre_authentizitaet", "emotionalitaet", "waerme"}
+        # §0 + §2.55 (2026-04-27): raumtiefe added — cross-feed reflections boost raumtiefe;
+        # PMGG must not use this to drive phase to higher strength (Gesang-Distanz-Bug fix).
+        expected = {"timbre_authentizitaet", "emotionalitaet", "waerme", "raumtiefe"}
         assert excl == expected, f"phase_46 PHASE_GOAL_EXCLUSIONS must be exactly {expected}, got: {excl}"
 
     def test_105_phase41_not_over_excluded(self):

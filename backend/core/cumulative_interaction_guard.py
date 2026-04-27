@@ -88,7 +88,9 @@ _DEFECT_INFLATED_SUBTRACTIVE_GOALS: frozenset[str] = frozenset(
 _PHASE_SPECIFIC_DRIFT_EXCLUSIONS: dict[str, frozenset[str]] = {
     # Prefix-based keys (startswith), robust for "phase_30" and "phase_30_dc_offset_removal".
     "phase_30": frozenset({"authentizitaet", "natuerlichkeit"}),
-    "phase_05": frozenset({"authentizitaet", "natuerlichkeit"}),
+    "phase_05": frozenset(
+        {"authentizitaet", "natuerlichkeit", "bass_kraft", "waerme"}
+    ),  # §2.55 sync with PMGG (2026-04-26): HPF intentionally removes sub-bass + low-mid energy → bass_kraft/waerme DSP proxies drop as intended; not a musical regression
     # Wow/flutter correction shifts chroma AND amplitude envelope vs. defective checkpoint:
     # - authentizitaet: chromagram correlation drops because pitch-wobble artefacts are removed
     # - natuerlichkeit: spectral/temporal consistency changes vs. wow-distorted reference
@@ -257,15 +259,29 @@ _PHASE_SPECIFIC_DRIFT_EXCLUSIONS: dict[str, frozenset[str]] = {
     # authentizitaet: chroma distribution changes with EQ.
     # natuerlichkeit: MFCC-smoothness changes with EQ curve.
     # tonal_center: K-S correlation vs. pre-EQ checkpoint shifts.
-    "phase_16": frozenset({"authentizitaet", "natuerlichkeit", "timbre_authentizitaet", "tonal_center"}),
+    "phase_16": frozenset(
+        {
+            "authentizitaet",
+            "natuerlichkeit",
+            "timbre_authentizitaet",
+            "tonal_center",
+            "transparenz",
+            "brillanz",
+            "waerme",
+        }
+    ),  # §2.55 sync (2026-04-26): era-EQ redistributes spectrum → all spectral band proxies shift
     # Mastering / loudness normalisation: gain/compression shifts energy distribution.
     # artikulation: dynamic range change alters onset contrast ratio.
     # natuerlichkeit: compression smooths spectral variance → metric shift.
     # tonal_center: loudness normalisation may alter chroma bin weighting.
-    "phase_17": frozenset({"artikulation", "natuerlichkeit", "tonal_center"}),
+    "phase_17": frozenset(
+        {"artikulation", "natuerlichkeit", "tonal_center", "micro_dynamics", "groove", "emotionalitaet"}
+    ),  # §2.55 sync (2026-04-26): multiband mastering compression → RMS envelope periodicity + crest-factor false P3 regressions
     # Carrier noise gate (secondary): gate openings/closings alter spectral continuity.
     # natuerlichkeit: gated silence has different MFCC-smoothness vs. continuous carrier-noise floor.
-    "phase_19": frozenset({"natuerlichkeit", "timbre_authentizitaet"}),
+    "phase_19": frozenset(
+        {"natuerlichkeit", "timbre_authentizitaet", "micro_dynamics", "groove", "emotionalitaet"}
+    ),  # §2.55 sync (2026-04-26): vocal enhancement Stage 6 micro-compression → crest-factor + RMS periodicity false P3 regressions
     # Harmonic exciter: adds synthetic harmonics → spectral shape diverges from pre-exciter reference.
     "phase_21": frozenset({"timbre_authentizitaet"}),
     # Presence / air band EQ: HF shelving shifts spectral centroid and MFCC.
@@ -279,7 +295,9 @@ _PHASE_SPECIFIC_DRIFT_EXCLUSIONS: dict[str, frozenset[str]] = {
     ),  # §2.55 sync with PMGG (2026-04-24): tonal_center — AudioSR HF synthesis shifts K-S chroma bins → false P2 (Δ=0.7893 confirmed); brillanz — PMGG excludes it (synthesised HF crest-proxy meaningless vs. band-limited reference)
     # Carrier noise / reel-splice click repair (secondary): similar to phase_01 family.
     # artikulation: click regions have altered onset energy after repair.
-    "phase_26": frozenset({"artikulation"}),
+    "phase_26": frozenset(
+        {"artikulation", "micro_dynamics", "groove", "emotionalitaet"}
+    ),  # §2.55 sync (2026-04-26): dynamic expansion → inter-beat RMS contrast + crest-factor false P3 regressions (same mechanism as phase_18 noise gate)
     # Quantisation noise reduction (ADC artefact): dithering changes noise-floor texture → spectral fingerprint.
     # artikulation: dither changes LSB energy envelope in transient tails.
     # tonal_center: quantisation noise adds white-noise component to chroma → K-S probe shift after removal.
@@ -287,21 +305,33 @@ _PHASE_SPECIFIC_DRIFT_EXCLUSIONS: dict[str, frozenset[str]] = {
     # Stereo width / imaging: M/S processing shifts stereo-field spectral balance.
     "phase_33": frozenset({"timbre_authentizitaet"}),
     # De-esser: HF reduction in sibilant bands shifts spectral centroid.
-    "phase_34": frozenset({"timbre_authentizitaet"}),
+    "phase_34": frozenset(
+        {"timbre_authentizitaet", "micro_dynamics", "groove", "emotionalitaet"}
+    ),  # §2.55 sync (2026-04-26): M/S dynamics compression → Mid-channel RMS envelope + crest-factor false P3 regressions
+    # 4-band independent compression with upward/downward compander (§2.55 §2.54):
+    # identical mechanism to phase_17; micro_dynamics/groove/emotionalitaet all have same false P3 root causes.
+    "phase_35": frozenset(
+        {"micro_dynamics", "groove", "emotionalitaet"}
+    ),  # §2.55 sync (2026-04-26): PMGG excludes same 3 P3 goals; multiband compander → RMS envelope + crest-factor false P3 regressions (was entirely missing from CIG)
     # Transient shaper: attack/sustain shaping changes onset energy envelope and spectral shape.
     # artikulation: attack shaping directly affects onset rise-time measurements.
-    "phase_36": frozenset({"artikulation"}),
+    "phase_36": frozenset(
+        {"artikulation", "micro_dynamics", "groove", "emotionalitaet"}
+    ),  # §2.55 sync (2026-04-26): transient shaper raises attack peaks → crest-factor shift + RMS-peak timing change → false P3 regressions
     # Bass enhancement / warmth: LF boost shifts spectral centroid and MFCC low-band.
     # tonal_center: LF boost shifts chroma bin weighting → K-S template correlation changes.
-    "phase_37": frozenset({"timbre_authentizitaet", "tonal_center"}),
+    "phase_37": frozenset(
+        {"timbre_authentizitaet", "tonal_center", "waerme", "emotionalitaet"}
+    ),  # §2.55 sync (2026-04-26): bass LF boost → warmth ratio E(200-800)/E(800-3000) + crest-factor false P3/P4 regressions
     # Spectral smoothing / micro-noise reduction: fine-grained spectral changes.
-    "phase_38": frozenset({"timbre_authentizitaet"}),
+    "phase_38": frozenset(
+        {"timbre_authentizitaet", "waerme"}
+    ),  # §2.55 sync (2026-04-26): presence EQ 1-4 kHz boost raises E(800-3000) → warmth ratio E(200-800)/E(800-3000) drops → false P4 regression
     # Vocal clarity / presence enhancement: formant shaping changes spectral shape.
     "phase_39": frozenset({"timbre_authentizitaet"}),
     # Saturation / soft-clip: harmonic addition shifts spectral shape.
     "phase_40": frozenset({"timbre_authentizitaet"}),
     # Parallel compression: dynamic spectral modification.
-    # artikulation: parallel compression changes onset-to-sustain ratio.
     "phase_41": frozenset({"artikulation", "timbre_authentizitaet"}),
     # Carrier-formant decay inversion (stage 0.5): zero-phase Bell-EQ on F1-F4 →
     # spectral shape deliberately restored from carrier degradation (§2.47, §2.52 Hebel 4).
@@ -309,34 +339,58 @@ _PHASE_SPECIFIC_DRIFT_EXCLUSIONS: dict[str, frozenset[str]] = {
     "phase_42": frozenset({"artikulation", "authentizitaet", "natuerlichkeit", "timbre_authentizitaet"}),
     # MP-SENet vocal enhancement: spectral shape modified for vocal intelligibility.
     # artikulation: phone-level onset sharpening changes articulation metric vs. degraded reference.
-    "phase_43": frozenset({"artikulation", "timbre_authentizitaet"}),
+    "phase_43": frozenset(
+        {"artikulation", "timbre_authentizitaet", "emotionalitaet"}
+    ),  # §2.55 sync (2026-04-26): de-esser 4-8 kHz sibilant attenuation → local crest-factor drop at fricative peaks → false P3 emotionalitaet regression
     # Stereo enhancement / Haas effect: stereo imaging changes spectral balance per-channel.
     "phase_44": frozenset({"timbre_authentizitaet"}),
     # Mono compatibility / mid enhancement: M/S recombination shifts spectral shape.
     "phase_45": frozenset({"timbre_authentizitaet"}),
     # Loudness maximiser / brickwall limiter: gain reduction changes spectral dynamics.
-    "phase_46": frozenset({"timbre_authentizitaet"}),
+    "phase_46": frozenset(
+        {"timbre_authentizitaet", "emotionalitaet", "waerme", "raumtiefe"}
+    ),  # §2.55 sync (2026-04-27): + raumtiefe — Reflexionen erhöhen Raumtiefe-Score, CIG darf dies nicht als positiven Drift werten (Gesang-Distanz-Bug)
+    # TruePeak limiter: 4× oversampling peak-clamping clips transient peaks (§2.55 §2.54).
+    # micro_dynamics/groove/emotionalitaet all share the same false P3 mechanisms as phase_11 brickwall limiter.
+    "phase_47": frozenset(
+        {"micro_dynamics", "groove", "emotionalitaet"}
+    ),  # §2.55 sync (2026-04-26): PMGG excludes same 3 P3 goals; TruePeak peak-clamping → crest-factor drop + inter-beat peak contrast reduction (was entirely missing from CIG)
     # Mid/side EQ: deliberate spectral balance change in M/S domain.
-    "phase_48": frozenset({"timbre_authentizitaet"}),
+    "phase_48": frozenset(
+        {"timbre_authentizitaet", "raumtiefe"}
+    ),  # §2.55 sync (2026-04-27): + raumtiefe — HF-Side-Widening (×1.15) erhöht Raumtiefe-Score (Gesang-Distanz-Bug)
     # Spectral inpainting (CQTdiff+ / NMF): synthesised content fills masked regions.
     # artikulation: inpainted regions have new onset profiles not present in masked checkpoint.
     "phase_50": frozenset({"artikulation"}),
     # Vintage EQ / analogue-chain modelling: deliberate spectral colouring.
-    "phase_51": frozenset({"timbre_authentizitaet"}),
+    "phase_51": frozenset(
+        {"timbre_authentizitaet", "groove", "emotionalitaet"}
+    ),  # §2.55 sync (2026-04-26): drums/percussion transient shaping + compression → inter-beat RMS changes + crest-factor drops → false P3 regressions
     # Tape saturation / analogue warmth modelling: harmonic addition shifts spectral shape.
-    "phase_52": frozenset({"timbre_authentizitaet"}),
+    "phase_52": frozenset(
+        {"timbre_authentizitaet", "groove", "emotionalitaet"}
+    ),  # §2.55 sync (2026-04-26): piano dynamic expansion (1.2–1.3) → inter-beat RMS periodicity changes + crest-factor shifts → false P3 regressions
     # Era-style mastering chain (reference-based): all spectral proxies shift towards reference target.
+    # Psychoacoustic compression (§2.55 §2.54): genre-adaptive masking-aware compression.
+    # Mechanistically identical to phase_35/phase_17; micro_dynamics/groove/emotionalitaet false P3 root causes identical.
+    "phase_54": frozenset(
+        {"micro_dynamics", "groove", "emotionalitaet"}
+    ),  # §2.55 sync (2026-04-26): PMGG excludes same 3 P3 goals; genre-adaptive psychoacoustic compression → identical false P3 cascade as phase_17/phase_35 (was entirely missing from CIG)
     # authentizitaet: chroma-based similarity vs. pre-mastering checkpoint drops intentionally.
     # natuerlichkeit: mastering chain smooths MFCC vs. unmastered reference.
     "phase_56": frozenset({"authentizitaet", "natuerlichkeit", "timbre_authentizitaet"}),
     # Print-through reduction (reel tape): LF modulation artefact removal shifts spectral baseline.
     # authentizitaet: print-through echo phantom creates chroma artefacts; removal changes chromagram.
-    "phase_57_print_through_reduction": frozenset({"authentizitaet"}),
+    "phase_57_print_through_reduction": frozenset(
+        {"authentizitaet", "emotionalitaet"}
+    ),  # §2.55 sync (2026-04-26): echo-tail removal → quiet-segment crest-factor shifts → false P3 emotionalitaet regression (identical mechanism to phase_49 dereverb)
     # Lyrics-guided enhancement (§2.36): formant shaping guided by phoneme sequence.
     # artikulation: phone-boundary energy redistribution directly affects articulation metric.
     # timbre_authentizitaet: formant-targeted EQ changes MFCC-Pearson vs. pre-enhancement reference.
     # tonal_center: vowel formant emphasis can shift chroma bin weighting (§2.44 Reference Paradox).
-    "phase_58_lyrics_guided_enhancement": frozenset({"artikulation", "timbre_authentizitaet", "tonal_center"}),
+    "phase_58_lyrics_guided_enhancement": frozenset(
+        {"artikulation", "timbre_authentizitaet", "tonal_center", "emotionalitaet"}
+    ),  # §2.55 sync (2026-04-26): fricative ramp-gain (4-8 kHz) raises HF selectively at sibilant positions → local crest-factor ratio shifts → false P3 emotionalitaet regression
 }
 
 
@@ -408,6 +462,7 @@ def compute_adaptive_drift_tolerance(
         "tape": -0.08,
         "reel_tape": -0.09,
         "vinyl": -0.10,
+        "lacquer_disc": -0.12,  # §0d historical analog (Acetat-Lackfolien 1930–1950): zwischen vinyl und shellac
         "shellac": -0.15,
         "wax_cylinder": -0.18,
         "wire_recording": -0.15,
@@ -723,7 +778,7 @@ class CumulativeInteractionGuard:
         _drift_tolerance = state.adaptive_drift_tolerance
         _max_rollbacks = state.adaptive_max_rollbacks
         if state.pre_pipeline_goals:
-            cumulative_drift = {}
+            cumulative_drift: dict[str, float] = {}
             _phase_exclusions = _resolve_phase_specific_drift_exclusions(phase_id)
             # §2.56: Per-goal weights amplify drift for important goals
             _gw = getattr(state, "goal_weights", None)
@@ -754,7 +809,7 @@ class CumulativeInteractionGuard:
 
             worst_drift = min(cumulative_drift.values()) if cumulative_drift else 0.0
             if worst_drift < _drift_tolerance:
-                _trigger_goal = min(cumulative_drift, key=cumulative_drift.get)
+                _trigger_goal = min(cumulative_drift, key=lambda k: cumulative_drift[k])
                 logger.warning(
                     "§2.48 P1/P2 cumulative drift after %s: %s (tol=%.3f) → rollback to %s",
                     phase_id,
@@ -919,7 +974,15 @@ class CumulativeInteractionGuard:
         # No rollback — update best checkpoint if goals improved
         if not rolled_back:
             state.consecutive_rollbacks = 0  # reset on success
-            if self._is_better_checkpoint(state, current_goals):
+            # §2.29c SUBTRACTIVE-Invariante: Restorative/SUBTRACTIVE-Phasen entfernen
+            # Rauschen/Artefakte — ihre Goal-Scores erscheinen niedriger als die noise-
+            # inflationierte Baseline (Rauschen → hohe Chroma-Energie → hohe tonal_center).
+            # VERBOTEN: CIG darf die pre_pipeline-Checkpoint bevorzugen, weil rauschbehaftetes
+            # Audio zufällig hohe P1/P2-Proxy-Scores hat. Fix: SUBTRACTIVE-Phasen, die PMGG
+            # bestanden haben, aktualisieren den Checkpoint IMMER — unabhängig vom Goal-Delta.
+            _phase_type_ckpt = get_phase_type(phase_id)
+            _is_restorative_for_ckpt = _phase_type_ckpt in BASELINE_CAPPING_VALID_TYPES
+            if _is_restorative_for_ckpt or self._is_better_checkpoint(state, current_goals):
                 state.best_checkpoint = InteractionGuardCheckpoint(
                     audio=current_audio.copy(),
                     phase_id=phase_id,
@@ -927,9 +990,10 @@ class CumulativeInteractionGuard:
                     stft_phase_count=len(state.stft_phases_executed),
                 )
                 logger.debug(
-                    "§2.48 Updated best_checkpoint to %s (P1/P2 mean=%.3f)",
+                    "§2.48 Updated best_checkpoint to %s (P1/P2 mean=%.3f, restorative=%s)",
                     phase_id,
                     np.mean([current_goals.get(g, 0.0) for g in P1_P2_GOALS if g in current_goals]),
+                    _is_restorative_for_ckpt,
                 )
             # §2.44 Reference-Paradox rebase: after an accepted carrier-repair phase,
             # absorb its legitimate goal-drops into the cumulative baseline so that

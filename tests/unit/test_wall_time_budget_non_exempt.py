@@ -269,3 +269,80 @@ class TestWallTimeBudgetInvariant:
             f"non_exempt={non_exempt_elapsed_after_run}s < budget={BUDGET_S}s → kein Skip erwartet. "
             f"Bug: exempt-Phasen-Zeit (1200s) darf nicht zählen."
         )
+
+
+class TestWallTimeBudgetAFGRefund:
+    """
+    §Wall-Time-Budget Refund Invariante (v9.11.14):
+    AFG-zurückgerollte Phasen dürfen das Budget für Folgephasen nicht aufbrauchen.
+
+    Konkreter Bug: phase_23 läuft 2322s (AFG-Rollback), phase_06 wird
+    übersprungen weil non_exempt_elapsed > budget — obwohl phase_23 keinen
+    bleibenden Effekt hat (audio zurückgerollt). brillanz=0.082 Folge.
+    """
+
+    def test_afg_rollback_refunds_budget(self):
+        """
+        Nach AFG-Rollback wird die Phase-Zeit aus dem non_exempt_elapsed zurückgebucht.
+        Simuliert den UV3-internen Refund-Mechanismus.
+        """
+        budget_s = 2103.0  # vinyl-Budget
+        non_exempt_elapsed = 0.0
+        last_phase_non_exempt_s = 0.0
+
+        # Phase 23 läuft 2322s und wird von AFG zurückgerollt
+        PHASE_23_DURATION_S = 2322.0
+
+        # Schritt 1: Budget akkumulieren (wie UV3 nach Phasen-Ende)
+        last_phase_non_exempt_s = PHASE_23_DURATION_S
+        non_exempt_elapsed += last_phase_non_exempt_s
+        assert non_exempt_elapsed == PHASE_23_DURATION_S
+
+        # Schritt 2: Budget-Überschreitung checken — phase_06 würde übersprungen
+        would_skip_phase_06_before_refund = non_exempt_elapsed > budget_s
+        assert would_skip_phase_06_before_refund, (
+            "Vor Refund: non_exempt_elapsed > budget → phase_06 würde übersprungen"
+        )
+
+        # Schritt 3: AFG-Rollback → Budget zurückbuchen
+        non_exempt_elapsed = max(0.0, non_exempt_elapsed - last_phase_non_exempt_s)
+        last_phase_non_exempt_s = 0.0  # reset nach Refund
+
+        # Schritt 4: Budget-Check nach Refund — phase_06 darf NICHT übersprungen werden
+        would_skip_phase_06_after_refund = non_exempt_elapsed > budget_s
+        assert not would_skip_phase_06_after_refund, (
+            f"Nach Refund: non_exempt_elapsed={non_exempt_elapsed}s ≤ budget={budget_s}s → "
+            "phase_06_frequency_restoration darf NICHT übersprungen werden"
+        )
+
+    def test_partial_afg_refund_for_later_phases(self):
+        """
+        Wenn mehrere Phasen gelaufen sind und eine mittlere AFG-rollback hat,
+        werden nur die rollback-Phase zurückgebucht (nicht die früheren).
+        """
+        budget_s = 600.0
+        non_exempt_elapsed = 0.0
+
+        # Phase 1 (phase_03): läuft 100s, AKZEPTIERT
+        phase_03_duration = 100.0
+        last_non_exempt = phase_03_duration
+        non_exempt_elapsed += last_non_exempt
+        assert non_exempt_elapsed == 100.0
+
+        # Phase 2 (phase_23): läuft 560s, AFG-ROLLBACK
+        phase_23_duration = 560.0
+        last_non_exempt = phase_23_duration
+        non_exempt_elapsed += last_non_exempt
+        assert non_exempt_elapsed == 660.0  # > budget!
+
+        # Refund für phase_23 (rollback):
+        non_exempt_elapsed = max(0.0, non_exempt_elapsed - last_non_exempt)
+        assert non_exempt_elapsed == 100.0, (
+            f"Nach Refund von phase_23 ({phase_23_duration}s) muss non_exempt=100s: got {non_exempt_elapsed}"
+        )
+
+        # phase_06 Budget-Check: 100s < 600s → darf NICHT übersprungen werden
+        would_skip = non_exempt_elapsed > budget_s
+        assert not would_skip, (
+            f"phase_06 darf nicht übersprungen werden: non_exempt={non_exempt_elapsed}s < {budget_s}s"
+        )

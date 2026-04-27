@@ -232,18 +232,38 @@ _ERA_BIAS: dict[str, dict[str, float]] = {
 }
 
 _MATERIAL_BIAS: dict[str, dict[str, float]] = {
-    # Ultra-analog (Shellac, Wax, Wire)
+    # Ultra-analog (Shellac, Wax, Wire, Lacquer)
+    # P1/P2: Authentizität und Timbre stark richtungsgebend (Trägersignatur), aber BW stark limitiert.
+    # P3/P4: Physikalische Grenzen des Trägers — keine SGT-Kalibrierung ohne diese Biases führt
+    # dazu, dass groove/bass_kraft/sep_fidelity auf kanonischen Werten (0.83/0.78/0.78) verbleiben,
+    # die für Shellac/Wax physikalisch unerreichbar sind (§0a Material-Ceiling Ebene 1).
     "ultra_analog": {
         "brillanz": -0.24,
         "transparenz": -0.12,
         "waerme": +0.10,
         "authentizitaet": +0.10,
+        # P3 — dynamisch/rhythmisch limitiert durch Wow/Flutter, surface noise floor, limited DR
+        "groove": -0.18,  # Wow/Flutter, Crackle-Onsets maskieren rhythmische Präzision
+        "micro_dynamics": -0.14,  # Rauschboden und limitierte DR reduzieren Dynamik-Headroom
+        "emotionalitaet": -0.08,  # Begrenzte tonale + dynamische Bandbreite reduziert Arousal-Range
+        # P4 — spektral/strukturell limitiert
+        "bass_kraft": -0.22,  # LF-Rolloff: Shellac ≤ 100 Hz praktisch, Wax ≤ 80 Hz (§0 §6.2c)
+        "separation_fidelity": -0.24,  # Mono oder Mono-kompatibles Narrow-Stereo → keine Stem-Sep möglich
+        "raumtiefe": -0.15,  # Mono-Quelle: kein echtes Stereo-Feld → Raumtiefe inherent limitiert
     },
     # Normal-analog (Vinyl, Tape, Cassette)
+    # Weniger limitiert als ultra_analog, aber P3/P4 physikalisch leicht eingeschränkt:
+    # Vinyl: Schneidebeschränkungen <80 Hz (bass_kraft), leichtes Wow/Flutter (groove)
+    # Tape: Bias-Sättigung reduziert bass_kraft; Dropout/Flutter reduziert groove leicht
+    # Cassette: stärker limitiert (wow_flutter 0.06–0.10 WRMS, schmaler Frequenzgang)
     "analog": {
         "waerme": +0.10,
         "brillanz": -0.06,
         "authentizitaet": +0.08,
+        # P3/P4: milde Biases — physikalische Einschränkungen des Carriers ohne Extremwerte
+        "groove": -0.04,  # Leichtes Wow/Flutter; stärker für Kassette (via cassette-Klasse)
+        "bass_kraft": -0.06,  # Vinyl-Schneidebeschränkung LF; Tape-Bias-Sättigung
+        "separation_fidelity": -0.06,  # Narrow-Stereo, Early-Stereo-Artefakte
     },
     # Digital (CD, DAT, Streaming)
     "digital": {

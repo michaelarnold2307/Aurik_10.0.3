@@ -809,6 +809,10 @@ class WaveformPlausibilityGuard:
     CORRECTION_TARGET_DB: float = 2.0
     # Max single-window attenuation (don't over-correct; max 12 dB step)
     MAX_ATTENUATION_DB: float = -12.0
+    # Quiet-zone emergency policy (§2.30c hard catch): if explosions are concentrated
+    # in quiet/fade windows, prioritize attenuation over proxy correlation stability.
+    _QUIET_ZONE_DBFS: float = -24.0
+    _QUIET_EXPLOSION_RATIO_MIN: float = 0.80
 
     # Mode-adaptive explosion thresholds
     _THRESHOLD_DB: dict[str, float] = {
@@ -861,6 +865,8 @@ class WaveformPlausibilityGuard:
             "corrections_applied": 0,
             "max_attenuation_db": 0.0,
             "correction_eased": False,
+            "quiet_zone_emergency_applied": False,
+            "explosion_quiet_ratio": 0.0,
             "skipped_reason": None,
         }
         try:
@@ -935,6 +941,30 @@ class WaveformPlausibilityGuard:
 
         # --- Apply full correction ---
         corrected = self._apply_gain(restored, gain_db_interp)
+
+        # Quiet-zone emergency detector: if the vast majority of explosions happen in
+        # quiet/fade windows, we accept attenuation directly to avoid real-audio failures
+        # where proxy checks (arc/DR) are unstable but explosion is clearly harmful.
+        _quiet_exploded = exploded & (orig_rms_db <= self._QUIET_ZONE_DBFS)
+        _expl_count = int(np.sum(exploded))
+        _quiet_ratio = (float(np.sum(_quiet_exploded)) / float(_expl_count)) if _expl_count > 0 else 0.0
+        meta["explosion_quiet_ratio"] = _quiet_ratio
+        if _quiet_ratio >= self._QUIET_EXPLOSION_RATIO_MIN:
+            meta["corrections_applied"] = _expl_count
+            meta["max_attenuation_db"] = float(np.min(gain_db_interp))
+            meta["quiet_zone_emergency_applied"] = True
+            logger.info(
+                "WaveformPlausibilityGuard: Quiet-Zone-Notfallkorrektur aktiv "
+                "(quiet_ratio=%.2f, windows=%d, max=%.1f dB, thr=%.1f dB, mat=%s)",
+                _quiet_ratio,
+                _expl_count,
+                meta["max_attenuation_db"],
+                threshold_db,
+                mat_key,
+            )
+            return corrected, meta
+
+        # rrected = self._apply_gain(restored, gain_db_interp)
 
         # --- Musical Goals proxy check ---
         arc_before, arc_after, dr_before, dr_after = self._measure_goals_proxy(

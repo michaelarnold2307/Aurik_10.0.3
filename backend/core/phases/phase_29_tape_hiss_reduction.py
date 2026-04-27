@@ -35,6 +35,7 @@ import time
 import numpy as np
 from scipy import signal
 
+from backend.core.audio_utils import apply_musical_gain_envelope, restore_layout, to_channels_last
 from backend.core.defect_scanner import MaterialType
 
 from .phase_interface import PhaseCategory, PhaseInterface, PhaseMetadata, PhaseResult
@@ -55,7 +56,7 @@ except ImportError:
     QUALITY_MODE_AVAILABLE = False
 
 try:
-    from dsp.pghi import pghi_reconstruct_from_stft as _pghi_p29
+    pass
 
     _PGHI_AVAILABLE_P29 = True
 except ImportError:
@@ -126,7 +127,7 @@ class TapeHissReductionPhase(PhaseInterface):
 
     # Hiss reduction threshold (dB above noise floor to start gating)
     GATE_THRESHOLD_DB = {
-        MaterialType.SHELLAC: -6,  # Light gating
+        MaterialType.SHELLAC: -3,  # Extra conservative for vocal transparency
         MaterialType.VINYL: -8,
         MaterialType.TAPE: -10,  # More aggressive
         MaterialType.CD_DIGITAL: -999,  # Disabled
@@ -135,7 +136,7 @@ class TapeHissReductionPhase(PhaseInterface):
 
     # Reduction depth (dB to attenuate below threshold)
     REDUCTION_DEPTH_DB = {
-        MaterialType.SHELLAC: 6,
+        MaterialType.SHELLAC: 4,
         MaterialType.VINYL: 8,
         MaterialType.TAPE: 12,  # Aggressive for tape
         MaterialType.CD_DIGITAL: 0,
@@ -144,7 +145,7 @@ class TapeHissReductionPhase(PhaseInterface):
 
     # HF focus range (Hz) - where to apply reduction most aggressively
     HF_FOCUS_RANGE = {
-        MaterialType.SHELLAC: (6000, 12000),
+        MaterialType.SHELLAC: (7500, 12000),
         MaterialType.VINYL: (8000, 15000),
         MaterialType.TAPE: (8000, 18000),  # Tape hiss dominates 8-18 kHz
         MaterialType.CD_DIGITAL: (0, 0),
@@ -229,6 +230,33 @@ class TapeHissReductionPhase(PhaseInterface):
             "hf_floor_scale": hf_floor_scale,
         }
 
+    @staticmethod
+    def _goal_hint_strength_scalar(kwargs: dict[str, object]) -> float:
+        """Compute bounded advisory strength scalar from song goal weights (§2.56a)."""
+        goal_weights = kwargs.get("song_goal_weights")
+        if not isinstance(goal_weights, dict):
+            return 1.0
+
+        def _w(name: str, default: float = 1.0) -> float:
+            try:
+                return float(goal_weights.get(name, default))
+            except Exception:
+                return default
+
+        naturalness = float(np.clip(_w("natuerlichkeit"), 0.3, 2.0))
+        authenticity = float(np.clip(_w("authentizitaet"), 0.3, 2.0))
+        articulation = float(np.clip(_w("artikulation"), 0.3, 2.0))
+        brilliance = float(np.clip(_w("brillanz"), 0.3, 2.0))
+
+        scalar = (
+            1.0
+            + 0.10 * (brilliance - 1.0)
+            - 0.10 * (naturalness - 1.0)
+            - 0.08 * (authenticity - 1.0)
+            - 0.04 * (articulation - 1.0)
+        )
+        return float(np.clip(scalar, 0.82, 1.12))
+
     def _get_deepfilternet_plugin(self):
         """
         Lazy load DeepFilterNet v3 II Plugin.
@@ -292,6 +320,7 @@ class TapeHissReductionPhase(PhaseInterface):
         start_time = time.time()
         self.sample_rate = sample_rate
         self.validate_input(audio)
+        audio, _p29_transposed = to_channels_last(audio)
 
         # §4.6b: Pre-phase eviction — free previous phase models to prevent OOM
         try:
@@ -325,7 +354,7 @@ class TapeHissReductionPhase(PhaseInterface):
             audio = np.clip(audio, -1.0, 1.0)
             return PhaseResult(
                 success=True,
-                audio=audio.copy(),
+                audio=restore_layout(audio.copy(), _p29_transposed),
                 execution_time_seconds=time.time() - start_time,
                 metadata={
                     "material": material.name,
@@ -362,7 +391,7 @@ class TapeHissReductionPhase(PhaseInterface):
             )
             return PhaseResult(
                 success=True,
-                audio=audio.copy(),
+                audio=restore_layout(audio.copy(), _p29_transposed),
                 execution_time_seconds=time.time() - start_time,
                 metadata={
                     "material": material_key,
@@ -420,7 +449,7 @@ class TapeHissReductionPhase(PhaseInterface):
             _pass = np.clip(_pass, -1.0, 1.0)
             return PhaseResult(
                 success=True,
-                audio=_pass,
+                audio=restore_layout(_pass, _p29_transposed),
                 execution_time_seconds=time.time() - start_time,
                 metadata={
                     "material": material.name,
@@ -458,13 +487,15 @@ class TapeHissReductionPhase(PhaseInterface):
         phase_locality_factor = float(np.clip(phase_locality_factor, 0.35, 1.0))
         _pmgg_strength = float(kwargs.get("strength", 1.0))
         _effective_strength = float(np.clip(_pmgg_strength * phase_locality_factor, 0.0, 1.0))
+        _goal_hint_scalar = self._goal_hint_strength_scalar(kwargs)
+        _effective_strength = float(np.clip(_effective_strength * _goal_hint_scalar, 0.0, 1.0))
 
         if _effective_strength <= 0.0:
             passthrough = np.nan_to_num(audio.copy(), nan=0.0, posinf=0.0, neginf=0.0)
             passthrough = np.clip(passthrough, -1.0, 1.0)
             return PhaseResult(
                 success=True,
-                audio=passthrough,
+                audio=restore_layout(passthrough, _p29_transposed),
                 execution_time_seconds=time.time() - start_time,
                 metadata={
                     "material": material.name,
@@ -472,6 +503,7 @@ class TapeHissReductionPhase(PhaseInterface):
                     "omlsa_runtime_profile": omlsa_runtime_profile,
                     "phase_locality_factor": phase_locality_factor,
                     "effective_strength": _effective_strength,
+                    "goal_hint_scalar": _goal_hint_scalar,
                 },
                 warnings=["Tape hiss reduction skipped due to zero effective strength"],
             )
@@ -481,6 +513,12 @@ class TapeHissReductionPhase(PhaseInterface):
         np.logspace(np.log10(hf_low), np.log10(min(hf_high, nyquist * 0.95)), self.NUM_BANDS + 1)
 
         is_stereo = audio.ndim == 2
+        _stereo_lag_stats = {
+            "lag_input_samples": 0,
+            "lag_output_samples": 0,
+            "lag_corrected": False,
+            "lag_output_corrected_samples": 0,
+        }
 
         if is_stereo:
             # §2.51 Linked-Sidechain OMLSA: Gain-Maske aus Mid-Kanal berechnen,
@@ -595,6 +633,13 @@ class TapeHissReductionPhase(PhaseInterface):
             material,
         )
 
+        if is_stereo:
+            audio_processed, _stereo_lag_stats = self._enforce_stereo_lag_safety(
+                audio,
+                audio_processed,
+                sample_rate,
+            )
+
         execution_time = time.time() - start_time
         rt_factor = execution_time / (len(audio) / sample_rate)
 
@@ -602,7 +647,7 @@ class TapeHissReductionPhase(PhaseInterface):
         audio_processed = np.clip(audio_processed, -1.0, 1.0)
         return PhaseResult(
             success=True,
-            audio=audio_processed,
+            audio=restore_layout(audio_processed, _p29_transposed),
             execution_time_seconds=execution_time,
             metadata={
                 "material": material.name,
@@ -620,8 +665,13 @@ class TapeHissReductionPhase(PhaseInterface):
                 "rt_factor": float(rt_factor),
                 "phase_locality_factor": phase_locality_factor,
                 "effective_strength": _effective_strength,
+                "goal_hint_scalar": _goal_hint_scalar,
                 "rms_drop_db": loudness_stats["rms_drop_db"],
                 "loudness_makeup_db": loudness_stats["makeup_gain_db"],
+                "lag_input_samples": int(_stereo_lag_stats["lag_input_samples"]),
+                "lag_output_samples": int(_stereo_lag_stats["lag_output_samples"]),
+                "lag_corrected": bool(_stereo_lag_stats["lag_corrected"]),
+                "lag_output_corrected_samples": int(_stereo_lag_stats["lag_output_corrected_samples"]),
             },
             warnings=[] if rt_factor < 0.12 else [f"Performance sub-optimal: {rt_factor:.2f}× realtime"],
         )
@@ -670,15 +720,22 @@ class TapeHissReductionPhase(PhaseInterface):
             makeup_gain_db = float(np.clip(required_gain_db, 0.0, _MAKEUP_CAP_DB))
             if makeup_gain_db > 0.0:
                 _gain_lin = float(10.0 ** (makeup_gain_db / 20.0))
-                # §2.45a-II FIX: Direktes Clipping statt apply_musical_gain_envelope.
-                # apply_musical_gain_envelope versagt wenn alle Frames nach OMLSA unter
-                # Gate-Schwelle liegen (gleicher Bug wie phase_12, Fix identisch).
                 _peak_99 = float(np.percentile(np.abs(_proc_arr), 99.9))
                 if _peak_99 > 1e-8:
                     # Peak-Guard: Gain nur soweit wie Clipping-frei möglich
                     _safe_gain = min(_gain_lin, 0.999 / _peak_99)
-                    processed_audio = np.clip(_proc_arr * _safe_gain, -1.0, 1.0).astype(np.float32)
-                    # Effektiver Gain für Logging
+                    processed_audio = apply_musical_gain_envelope(
+                        _proc_arr,
+                        _safe_gain,
+                        gate_dbfs=-36.0,
+                        crossfade_ms=10.0,
+                        sr=48000,
+                    )
+                    _peak_after = float(np.percentile(np.abs(np.asarray(processed_audio, dtype=np.float32)), 99.9))
+                    if _peak_after > 0.999 and _peak_after > 1e-8:
+                        _trim_gain = 0.999 / _peak_after
+                        processed_audio = np.clip(processed_audio * _trim_gain, -1.0, 1.0).astype(np.float32)
+                        _safe_gain *= _trim_gain
                     makeup_gain_db = float(20.0 * np.log10(_safe_gain + 1e-12))
                 else:
                     processed_audio = _proc_arr  # Signal zu klein — kein Makeup
@@ -695,7 +752,7 @@ class TapeHissReductionPhase(PhaseInterface):
                     _rms_out_db = float(20.0 * np.log10(np.sqrt(np.mean(_pm.astype(np.float64) ** 2)) + 1e-12))
                 rms_drop_db = (_rms_out_db - _rms_in_db) if _rms_in_db > -90.0 else 0.0
                 logger.info(
-                    "Phase 29 loudness-preservation: material=%s rms_drop=%.2f dB via makeup %.2f dB (direct-clip)",
+                    "Phase 29 loudness-preservation: material=%s rms_drop=%.2f dB via makeup %.2f dB (envelope-aware)",
                     material_key,
                     rms_drop_db,
                     makeup_gain_db,
@@ -705,6 +762,96 @@ class TapeHissReductionPhase(PhaseInterface):
             "rms_drop_db": round(float(rms_drop_db), 3),
             "makeup_gain_db": round(float(makeup_gain_db), 3),
         }
+
+    @staticmethod
+    def _estimate_stereo_lag_samples(stereo_audio: np.ndarray, max_lag_samples: int = 960) -> int:
+        """Estimate inter-channel lag (R relative to L) for channels-last stereo."""
+        if stereo_audio.ndim != 2 or stereo_audio.shape[1] != 2:
+            return 0
+        left = np.asarray(stereo_audio[:, 0], dtype=np.float64)
+        right = np.asarray(stereo_audio[:, 1], dtype=np.float64)
+        n = min(len(left), len(right))
+        if n < 4096:
+            return 0
+        win = min(n, 48000)
+        start = max(0, (n - win) // 2)
+        left = left[start : start + win]
+        right = right[start : start + win]
+        left -= np.mean(left)
+        right -= np.mean(right)
+        denom = float(np.sqrt(np.mean(left**2) * np.mean(right**2)) + 1e-12)
+        if denom < 1e-10:
+            return 0
+        corr = signal.correlate(left, right, mode="full", method="fft")
+        lags = signal.correlation_lags(len(left), len(right), mode="full")
+        mask = np.abs(lags) <= int(max_lag_samples)
+        if not np.any(mask):
+            return 0
+        idx = int(np.argmax(corr[mask]))
+        return int(lags[mask][idx])
+
+    @staticmethod
+    def _shift_channel_no_wrap(channel: np.ndarray, shift_samples: int) -> np.ndarray:
+        """Shift channel with edge fill, never wrap samples."""
+        x = np.asarray(channel, dtype=np.float32)
+        n = len(x)
+        if n == 0 or shift_samples == 0:
+            return x.copy()
+        out = np.empty_like(x)
+        if shift_samples > 0:
+            shift = min(shift_samples, n - 1)
+            out[:shift] = x[0]
+            out[shift:] = x[:-shift]
+            return out
+        shift = min(-shift_samples, n - 1)
+        out[:-shift] = x[shift:]
+        out[-shift:] = x[-1]
+        return out
+
+    def _enforce_stereo_lag_safety(
+        self,
+        original_audio: np.ndarray,
+        processed_audio: np.ndarray,
+        sample_rate: int,
+    ) -> tuple[np.ndarray, dict[str, int | bool]]:
+        """Keep inter-channel lag close to input to prevent audible L/R desync."""
+        stats = {
+            "lag_input_samples": 0,
+            "lag_output_samples": 0,
+            "lag_corrected": False,
+            "lag_output_corrected_samples": 0,
+        }
+        if original_audio.ndim != 2 or processed_audio.ndim != 2:
+            return processed_audio, stats
+        if original_audio.shape[1] != 2 or processed_audio.shape[1] != 2:
+            return processed_audio, stats
+
+        max_lag_samples = int(min(960, max(48, sample_rate // 50)))
+        lag_in = self._estimate_stereo_lag_samples(original_audio, max_lag_samples=max_lag_samples)
+        lag_out = self._estimate_stereo_lag_samples(processed_audio, max_lag_samples=max_lag_samples)
+        stats["lag_input_samples"] = int(lag_in)
+        stats["lag_output_samples"] = int(lag_out)
+
+        # Allow up to 1 ms introduced lag; beyond that we align output back to input lag.
+        max_introduced = int(max(1, round(sample_rate * 0.001)))
+        lag_delta = int(lag_out - lag_in)
+        if abs(lag_delta) <= max_introduced:
+            stats["lag_output_corrected_samples"] = int(lag_out)
+            return processed_audio, stats
+
+        corrected = np.asarray(processed_audio, dtype=np.float32).copy()
+        corrected[:, 1] = self._shift_channel_no_wrap(corrected[:, 1], int(lag_delta))
+        lag_corr = self._estimate_stereo_lag_samples(corrected, max_lag_samples=max_lag_samples)
+        stats["lag_corrected"] = True
+        stats["lag_output_corrected_samples"] = int(lag_corr)
+        logger.warning(
+            "Phase 29 stereo-lag safety: corrected introduced lag delta=%d samples (in=%d out=%d corrected=%d)",
+            lag_delta,
+            lag_in,
+            lag_out,
+            lag_corr,
+        )
+        return np.clip(corrected, -1.0, 1.0), stats
 
     def _process_channel_omlsa(
         self,
@@ -1044,22 +1191,16 @@ class TapeHissReductionPhase(PhaseInterface):
             _dyn_floor = np.clip(_dyn_floor, _bin_floor[:, None], 0.36).astype(np.float32)
             G_combined[_hf_guard_mask, :] = np.maximum(G_combined[_hf_guard_mask, :], _dyn_floor)
 
-        # Apply gain + PGHI reconstruction
+        # Apply gain + iSTFT reconstruction.
+        # NOTE: Zxx_proc preserves the original phase from Zxx_ref (G_combined is real positive,
+        # so angle(G*Zxx_ref) == angle(Zxx_ref)).  PGHI is designed for magnitude-only STFTs
+        # where phase is unknown — using it here would DISCARD the correct phase and generate
+        # a new estimate, introducing ~38 ms STFT group-delay deviation → CIG rollback
+        # (confirmed production 2026-04-25).  Use scipy.signal.istft directly.
         Zxx_proc = G_combined * np.abs(Zxx_ref) * np.exp(1j * np.angle(Zxx_ref))
-        if _PGHI_AVAILABLE_P29:
-            try:
-                audio_out = _pghi_p29(
-                    Zxx_proc.astype(np.complex64), sr=sample_rate, win_size=REF_WIN, hop=REF_HOP, n_samples=n
-                )
-            except Exception as pghi_exc:
-                logger.warning("MRSA Phase 29: PGHI failed, iSTFT fallback: %s", pghi_exc)
-                _, audio_out = signal.istft(
-                    Zxx_proc, fs=sample_rate, nperseg=REF_WIN, noverlap=REF_NOVERLAP, window="hann", boundary=True
-                )
-        else:
-            _, audio_out = signal.istft(
-                Zxx_proc, fs=sample_rate, nperseg=REF_WIN, noverlap=REF_NOVERLAP, window="hann", boundary=True
-            )
+        _, audio_out = signal.istft(
+            Zxx_proc, fs=sample_rate, nperseg=REF_WIN, noverlap=REF_NOVERLAP, window="hann", boundary=True
+        )
 
         audio_out = np.real(audio_out)
         audio_out = audio_out[:n]

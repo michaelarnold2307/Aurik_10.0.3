@@ -449,18 +449,14 @@ class SGMSEPlusPlugin:
         _t0 = time.perf_counter()
         _audio_s = max(1e-6, n_total / float(_SR))
         # Runtime budget: keep ML path for quality, but cap pathological tails.
-        # For 225 s audio this allows ~9.4 min ML wall-time before controlled fallback.
-        # Hard-cap per channel to avoid pathological long tails on CPU TorchScript
-        # (critical for UAT real-audio paths with strict global pytest timeouts).
-        # Budget: 2× Echtzeit, min 60 s, max 300 s.
-        # Vorher: Hard-Cap 75 s → nach 1 CPU-Chunk (70 s) Projektion schlägt fehl → WPE für Rest.
-        # Jetzt: 300 s max — auf GPU (ROCm) irrelevant, auf CPU realistisch für lange Audios.
-        _base_budget_s = float(np.clip(2.0 * _audio_s, 60.0, 300.0))
+        # CPU TorchScript on long material can be much slower than 2x real-time,
+        # so the default budget must allow several chunks before fallback.
+        # Budget default: 6x Echtzeit, min 180 s, max 1200 s (20 min) per channel.
+        _base_budget_s = float(np.clip(6.0 * _audio_s, 180.0, 1200.0))
         if max_runtime_s is not None:
-            # Use the explicitly provided budget directly (no lower-bound clip) so that
-            # callers with strict timeouts (tests, UAT) get exact control.  Only cap the
-            # upper end to avoid infinite budgets (> 600 s is pathological).
-            _runtime_budget_s = min(_base_budget_s, float(min(max_runtime_s, 600.0)))
+            # Caller-provided budget is honoured exactly (upper cap only to avoid unbounded runs).
+            # Lower bound intentionally removed so callers (e.g. unit tests) can use tiny budgets.
+            _runtime_budget_s = float(min(float(max_runtime_s), 1800.0))
         else:
             _runtime_budget_s = _base_budget_s
         while pos < n_total:

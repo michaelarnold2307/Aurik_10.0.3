@@ -193,7 +193,8 @@ class TestPhaseAxisInvariance:
         from backend.core.phases.phase_53_semantic_audio import SemanticAudioPhase
 
         phase = SemanticAudioPhase()
-        result = phase.process(audio, sample_rate=48000)
+        # Axis invariance is the target; avoid expensive CLAP/BEATs inference here.
+        result = phase.process(audio, sample_rate=48000, strength=0.0)
 
         # Verify result (metadata phase, audio unchanged)
         assert np.all(np.isfinite(result.audio)), "Phase output contains NaN/Inf"

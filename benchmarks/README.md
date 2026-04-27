@@ -46,6 +46,32 @@ This directory contains tools and scripts for benchmarking Aurik 9.0 against:
 # Modes: FAST, BALANCED, MAXIMUM
 ```
 
+### 1a. Reproduzierbarer Evidenz-Run (Aurik vs RX11 vs CEDAR)
+
+```bash
+# 1) Manifest ausfuellen (gleiche Referenz/Input-Basis fuer alle Tools)
+# benchmarks/competitive/manifest_template.json
+
+# 2) Evidence-Runner starten
+"/media/michael/Software 4TB/Aurik_Standalone/.venv_aurik/bin/python" \
+  benchmarks/competitive/external_competitive_evidence.py \
+  --manifest benchmarks/competitive/manifest_template.json \
+  --output reports/competitive_external_report.json
+
+# Exitcode:
+#   0 = release_competitive_ready=True
+#   1 = Run abgeschlossen, aber Gates nicht bestanden
+#   2/3 = Input-/Validierungsfehler
+```
+
+Pflichtlogik des Runners:
+
+- OQS pro Item via `backend/core/mushra_evaluator.py` gegen die gleiche Referenz.
+- Stratifizierte Matrix-Gates pro Zelle `material × defect_class`.
+- Standardmodus verlangt die volle 5×6-Matrix (30 Zellen):
+  `tape, vinyl, shellac, digital, vocal` × `hiss, crackle, dropout, reverb, hum, codec`.
+- Vergleichsgates: Aurik vs RX11 (immer), Aurik vs CEDAR (wenn CEDAR-Dateien vorhanden bzw. nicht deaktiviert).
+
 ### 2. Real-World Validation
 
 ```bash
@@ -82,7 +108,9 @@ python3 benchmarks/test_pipeline_performance.py
 benchmarks/
 ├── README.md                          # This file
 ├── competitive/                       # Commercial tool comparison
-│   ├── benchmark_suite.py            # Automated competitive benchmarking
+│   ├── benchmark_suite.py            # Legacy competitive benchmarking
+│   ├── external_competitive_evidence.py  # Repro evidence runner (Aurik/RX11/CEDAR)
+│   ├── manifest_template.json        # Input schema for external evidence runs
 │   ├── feature_matrix.py             # Feature comparison matrix
 │   └── results/                      # Benchmark results (timestamped)
 │       └── YYYYMMDD_HHMMSS/
@@ -147,7 +175,7 @@ benchmarks/
 ### Competitive Benchmarks
 
 | Metric | Aurik 9.0 | iZotope RX 10 | CEDAR | SpectraLayers |
-|--------|-----------|---------------|-------|---------------|
+| -------- | ----------- | --------------- | ------- | --------------- |
 | Overall Quality | 0.88-0.90 | 0.90 | 0.92 | 0.87 |
 | Naturalness | 0.81 | 0.88 | 0.90 | 0.85 |
 | Material Detection | 100% | Manual | Manual | Manual |
@@ -234,8 +262,7 @@ python3 aurik_cli.py process \
 
 ### Quality Thresholds
 
-| Score | Rating | Interpretation |
-|-------|--------|----------------|
+| Score | Rating | Interpretation | -------| -------- | ---------------- |
 | 0.95+ | Excellent | World-class, professional mastering quality |
 | 0.90-0.95 | Very Good | Commercial tool quality (iZotope, CEDAR) |
 | 0.85-0.90 | **Good** | **Aurik 9.0 Target - Excellence Achieved** ✅ |
@@ -247,7 +274,7 @@ python3 aurik_cli.py process \
 ### Artifact Detection
 
 | Artifact Type | Acceptable Level | Aurik 9.0 |
-|---------------|------------------|-----------|
+| --------------- | -----------------------------|
 | Residual Clicks | < 1 per 10s | ✅ Excellent |
 | Spectral Smearing | < 3 dB deviation | ✅ Minimal |
 | Metallic Coloration | Naturalness > 0.80 | ✅ 0.81 |

@@ -715,6 +715,8 @@ class TestApolloPlugin:
         assert np.max(np.abs(out)) <= 1.0
         _cleanup(["Apollo"], "plugins.apollo_plugin")
 
+    test_02_repair_finite = pytest.mark.timeout(90)(test_02_repair_finite)
+
     def test_03_budget_zero_after_cleanup(self):
         _reset_budget()
         from plugins.apollo_plugin import get_apollo

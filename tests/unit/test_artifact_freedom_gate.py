@@ -249,7 +249,14 @@ def test_17_result_dataclass_fields():
 def test_18_type_weights_complete():
     from backend.core.artifact_freedom_gate import _TYPE_WEIGHTS
 
-    expected_types = {"musical_noise", "pre_echo", "spectral_hole", "phase_cancellation", "metallic_ringing"}
+    expected_types = {
+        "musical_noise",
+        "pre_echo",
+        "spectral_hole",
+        "phase_cancellation",
+        "metallic_ringing",
+        "crackle_impulse",
+    }
     assert set(_TYPE_WEIGHTS.keys()) == expected_types
 
 
@@ -325,6 +332,7 @@ def test_25_detail_report_keys():
         "n_spectral_holes",
         "n_phase_cancellation",
         "n_metallic_ringing",
+        "n_crackle_impulse",
         "weighted_artifact_sum",
         "noise_texture_deviation_db_oct",
     }
@@ -545,4 +553,184 @@ def test_34_near_mono_guard_still_catches_severe_collapse():
     assert result.artifact_freedom < 0.95, (
         f"Severe stereo collapse (R inverted, mono_compat ~0.10) must still trigger "
         f"even on near-mono source; got artifact_freedom={result.artifact_freedom:.3f}"
+    )
+
+
+# ── §2.49 #6 Crackle-Impuls-Wiedereinfuehrung ─────────────────────────────
+
+
+def _make_impulsive_crackle(sr: int, dur: float = 1.0, n_clicks: int = 8, amp: float = 0.5) -> np.ndarray:
+    """Helper: white-noise signal with added impulsive click spikes (crackle simulation)."""
+    n = int(dur * sr)
+    audio = (np.random.default_rng(42).standard_normal(n) * 0.05).astype(np.float32)
+    rng = np.random.default_rng(7)
+    for _ in range(n_clicks):
+        pos = int(rng.integers(sr // 10, n - sr // 10))
+        width = 3
+        audio[pos : pos + width] += amp * np.array([1.0, -0.5, 0.2], dtype=np.float32)[:width]
+    return np.clip(audio, -1.0, 1.0)
+
+
+def test_35_crackle_impulse_detected_in_spectral_phase():
+    """§2.49 #6: _detect_crackle_impulse() muss feuern, wenn eine spektrale Phase
+    impulsartige Artefakte (PGHI-Ringing-Simulation) in sauberes Audio einfuehrt.
+
+    Setup: orig = saubere Sinus-Signale (keine Clicks), restored = orig + Impuls-Spikes
+    (Phase hat durch PGHI / STFT-Diskontinuitaeten neue Knistern erzeugt).
+    Der Detektor muss mindestens 1 Artefakt erkennen.
+    """
+    from backend.core.artifact_freedom_gate import get_artifact_freedom_gate
+
+    gate = get_artifact_freedom_gate()
+    np.random.default_rng(42)
+
+    sr = 48_000
+    n = int(1.5 * sr)
+    t = np.linspace(0, 1.5, n, endpoint=False)
+
+    # Clean original: tonal signal without impulses
+    orig = (0.3 * np.sin(2 * np.pi * 440.0 * t)).astype(np.float32)
+
+    # Simulate PGHI ringing: restored has added impulsive spikes
+    restored = orig.copy()
+    click_positions = [sr // 4, sr // 2, 3 * sr // 4]
+    for pos in click_positions:
+        # Very high kurtosis spike: narrow intense peak
+        if pos + 5 < n:
+            restored[pos] += 0.6
+            restored[pos + 1] -= 0.3
+            restored[pos + 2] += 0.1
+    restored = np.clip(restored, -1.0, 1.0)
+
+    thresholds = gate._get_thresholds("digital")
+    artifacts = gate._detect_crackle_impulse(orig, restored, sr, thresholds)
+    assert len(artifacts) >= 1, (
+        f"_detect_crackle_impulse() must detect PGHI-like impulse artifacts; got {len(artifacts)} artifacts"
+    )
+    assert all(a.artifact_type == "crackle_impulse" for a in artifacts)
+
+
+def test_36_crackle_impulse_no_false_positive_on_clean_spectral():
+    """§2.49 #6: Kein False-Positive wenn eine spektrale Phase nur spektrale
+    Formen aendert (Filterung, EQ) ohne Impuls-Spitzen einzufuehren.
+
+    Setup: orig = Signal, restored = gefilterte Version (sanfte Spektral-Aenderung,
+    kein impulsiver Charakter). Detektor muss 0 Artefakte liefern.
+    """
+    from backend.core.artifact_freedom_gate import get_artifact_freedom_gate
+
+    gate = get_artifact_freedom_gate()
+    from scipy import signal as scipy_signal
+
+    sr = 48_000
+    n = int(1.5 * sr)
+    t = np.linspace(0, 1.5, n, endpoint=False)
+    orig = (0.3 * np.sin(2 * np.pi * 440.0 * t) + 0.15 * np.sin(2 * np.pi * 880.0 * t)).astype(np.float32)
+
+    # Smooth spectral change: mild LPF (no new impulses)
+    b, a = scipy_signal.butter(4, 8000 / (sr / 2), btype="low")
+    restored = scipy_signal.filtfilt(b, a, orig).astype(np.float32)
+    restored = np.clip(restored, -1.0, 1.0)
+
+    thresholds = gate._get_thresholds("digital")
+    artifacts = gate._detect_crackle_impulse(orig, restored, sr, thresholds)
+    assert len(artifacts) == 0, (
+        f"Smooth spectral filtering must not trigger crackle_impulse; got {len(artifacts)} artifacts"
+    )
+
+
+def test_37_crackle_impulse_per_phase_mode_fires_for_subtractive():
+    """§2.49 #6: evaluate() muss crackle_impulse in per-phase mode fuer
+    SUBTRACTIVE-Phase (phase_29_tape_hiss_reduction) erkennen wenn Impulse hinzukamen.
+    """
+    from backend.core.artifact_freedom_gate import get_artifact_freedom_gate
+
+    gate = get_artifact_freedom_gate()
+
+    sr = 48_000
+    n = int(1.5 * sr)
+    t = np.linspace(0, 1.5, n, endpoint=False)
+    orig = (0.3 * np.sin(2 * np.pi * 440.0 * t)).astype(np.float32)
+
+    # Simulate phase_29 PGHI ringing: dense impulse spikes introduced
+    restored = orig.copy()
+    for pos in range(sr // 6, n - 100, sr // 8):
+        if pos + 3 < n:
+            restored[pos] += 0.55
+            restored[pos + 1] -= 0.28
+            restored[pos + 2] += 0.08
+    restored = np.clip(restored, -1.0, 1.0)
+
+    result = gate.evaluate(
+        orig,
+        restored,
+        sr,
+        material_type="digital",
+        phase_id="phase_29_tape_hiss_reduction",
+    )
+    assert result.detail_report.get("n_crackle_impulse", 0) >= 1, (
+        f"per-phase mode for SUBTRACTIVE phase must detect crackle_impulse; detail={result.detail_report}"
+    )
+
+
+def test_38_crackle_impulse_not_fired_for_additive_phase():
+    """§2.49 #6: Crackle-Detektor darf fuer ADDITIVE Phase (phase_07) nicht
+    feuern, da ADDITIVE Phasen keine STFT/PGHI-Verarbeitung haben.
+    """
+    from backend.core.artifact_freedom_gate import get_artifact_freedom_gate
+
+    gate = get_artifact_freedom_gate()
+
+    sr = 48_000
+    n = int(1.5 * sr)
+    t = np.linspace(0, 1.5, n, endpoint=False)
+    orig = (0.3 * np.sin(2 * np.pi * 440.0 * t)).astype(np.float32)
+
+    # Even with added harmonics (ADDITIVE phase), crackle check must not run
+    harmonics = (0.05 * np.sin(2 * np.pi * 880.0 * t)).astype(np.float32)
+    restored = np.clip(orig + harmonics, -1.0, 1.0)
+
+    result = gate.evaluate(
+        orig,
+        restored,
+        sr,
+        material_type="digital",
+        phase_id="phase_07_harmonic_restoration",  # ADDITIVE type
+    )
+    assert result.detail_report.get("n_crackle_impulse", 0) == 0, (
+        f"Crackle detector must not run for ADDITIVE phase; detail={result.detail_report}"
+    )
+
+
+def test_39_crackle_impulse_material_adaptive_vinyl_more_tolerant():
+    """§2.49 #6: Vinyl-Material hat hoehere Kurtosis-Toleranz als Digital.
+    Ein moderates Crackle-Signal soll bei Vinyl weniger Artefakte zaehlen
+    als bei digitalem Material.
+    """
+    from backend.core.artifact_freedom_gate import get_artifact_freedom_gate
+
+    gate = get_artifact_freedom_gate()
+
+    sr = 48_000
+    n = int(1.5 * sr)
+    t = np.linspace(0, 1.5, n, endpoint=False)
+    orig = (0.3 * np.sin(2 * np.pi * 440.0 * t)).astype(np.float32)
+
+    # Moderate impulse crackle (border case)
+    restored = orig.copy()
+    for pos in range(sr // 4, n - 50, sr // 4):
+        if pos + 3 < n:
+            restored[pos] += 0.35
+            restored[pos + 1] -= 0.18
+    restored = np.clip(restored, -1.0, 1.0)
+
+    thr_digital = gate._get_thresholds("digital")
+    thr_vinyl = gate._get_thresholds("vinyl")
+    artifacts_digital = gate._detect_crackle_impulse(orig, restored, sr, thr_digital)
+    artifacts_vinyl = gate._detect_crackle_impulse(orig, restored, sr, thr_vinyl)
+
+    # Vinyl threshold is 1.4× higher kurtosis — fewer or equal flags
+    assert len(artifacts_vinyl) <= len(artifacts_digital), (
+        f"Vinyl must be <= strict as digital for borderline crackle; "
+        f"vinyl={len(artifacts_vinyl)} digital={len(artifacts_digital)}"
     )

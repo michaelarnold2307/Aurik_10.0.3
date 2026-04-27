@@ -177,6 +177,33 @@ class SurfaceNoiseProfiling(PhaseInterface):
             strength *= 0.90
         return float(np.clip(strength, 0.0, 1.0))
 
+    @staticmethod
+    def _goal_hint_strength_scalar(kwargs: dict[str, object]) -> float:
+        """Compute bounded advisory strength scalar from song goal weights (§2.56a)."""
+        goal_weights = kwargs.get("song_goal_weights")
+        if not isinstance(goal_weights, dict):
+            return 1.0
+
+        def _w(name: str, default: float = 1.0) -> float:
+            try:
+                return float(goal_weights.get(name, default))
+            except Exception:
+                return default
+
+        naturalness = float(np.clip(_w("natuerlichkeit"), 0.3, 2.0))
+        authenticity = float(np.clip(_w("authentizitaet"), 0.3, 2.0))
+        transparency = float(np.clip(_w("transparenz"), 0.3, 2.0))
+        brilliance = float(np.clip(_w("brillanz"), 0.3, 2.0))
+
+        scalar = (
+            1.0
+            + 0.10 * (transparency - 1.0)
+            + 0.06 * (brilliance - 1.0)
+            - 0.10 * (naturalness - 1.0)
+            - 0.08 * (authenticity - 1.0)
+        )
+        return float(np.clip(scalar, 0.80, 1.12))
+
     def get_metadata(self) -> PhaseMetadata:
         """Return phase metadata."""
         return PhaseMetadata(
@@ -218,6 +245,8 @@ class SurfaceNoiseProfiling(PhaseInterface):
         phase_locality_factor = float(np.clip(phase_locality_factor, 0.35, 1.0))
         _pmgg_strength = float(kwargs.get("strength", 1.0))
         _effective_strength = float(np.clip(_pmgg_strength * phase_locality_factor, 0.0, 1.0))
+        _goal_hint_scalar = self._goal_hint_strength_scalar(kwargs)
+        _effective_strength = float(np.clip(_effective_strength * _goal_hint_scalar, 0.0, 1.0))
         _material_key = str(getattr(material, "name", material)).lower()
         _panns_tags = {k: float(v) for k, v in kwargs.get("panns_tags", {}).items() if isinstance(v, (int, float, str))}
         _safe_strength = self._derive_safe_surface_strength(_effective_strength, _material_key, _panns_tags)
@@ -235,6 +264,7 @@ class SurfaceNoiseProfiling(PhaseInterface):
                     "noise_reduction_db": 0.0,
                     "phase_locality_factor": phase_locality_factor,
                     "effective_strength": _effective_strength,
+                    "goal_hint_scalar": _goal_hint_scalar,
                 },
                 warnings=[],
             )
@@ -320,6 +350,7 @@ class SurfaceNoiseProfiling(PhaseInterface):
                 "phase_locality_factor": phase_locality_factor,
                 "effective_strength": _effective_strength,
                 "safe_strength": _safe_strength,
+                "goal_hint_scalar": _goal_hint_scalar,
                 "rms_drop_db": loudness_stats["rms_drop_db"],
                 "loudness_makeup_db": loudness_stats["makeup_gain_db"],
             },

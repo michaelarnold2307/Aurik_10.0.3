@@ -1738,3 +1738,24 @@ def run_album_consistency_pass(
         "dry_run": dry_run,
         "songs": songs_out,
     }
+
+
+def get_pipeline_trace(result: Any) -> dict[str, Any]:
+    """Gibt vollständigen Pipeline-Trace als Dict zurück (für Frontend/CLI/Debug).
+
+    Delegiert an backend.api.debug_api.get_debug_summary() und ergänzt Goal-Timeline.
+    Benötigt enable_debug_trace=True beim restore()-Aufruf für vollständige Goal-Daten.
+    """
+    try:
+        from backend.api.debug_api import get_debug_summary, get_goal_fails, get_goals_timeline, get_worst_phases
+
+        summary = get_debug_summary(result)
+        summary["goal_timeline"] = get_goals_timeline(result)
+        summary["worst_phases"] = get_worst_phases(result, n=5)
+        summary["goal_fails"] = get_goal_fails(result)
+        return summary
+    except Exception as e:
+        import logging
+
+        logging.getLogger(__name__).debug("get_pipeline_trace fehlgeschlagen: %s", e)
+        return {"error": str(e)}

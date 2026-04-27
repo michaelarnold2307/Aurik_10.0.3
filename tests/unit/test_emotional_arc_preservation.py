@@ -532,3 +532,57 @@ class TestWaveformPlausibilityGuard:
             f"HF-Ratio vor={hf_ratio_before:.4f}, nach={hf_ratio_after:.4f} "
             f"(Differenz {abs(hf_ratio_after - hf_ratio_before):.4f} > 0.01)"
         )
+
+    def test_40_quiet_zone_emergency_applies_when_proxy_would_fail(self):
+        """Real-Audio-Schutz: Quiet-Zone-Explosion darf nicht wegen Proxy-Skip durchrutschen.
+
+        Erzwingt einen Proxy-Fail via Monkeypatch und verifiziert, dass die neue
+        Quiet-Zone-Notfallregel trotzdem attenuiert, wenn >80 % der Explosionen in
+        sehr leisen Original-Fenstern liegen.
+        """
+        from backend.core.emotional_arc_preservation import WaveformPlausibilityGuard
+
+        rng = np.random.default_rng(40)
+        sr = 48000
+        n_intro = sr * 12
+        n_music = sr * 30
+
+        quiet_amp = 10.0 ** (-35.0 / 20.0)
+        exploded_amp = 10.0 ** (-22.0 / 20.0)
+
+        intro_orig = (rng.standard_normal(n_intro) * quiet_amp).astype(np.float32)
+        intro_rest = (rng.standard_normal(n_intro) * exploded_amp).astype(np.float32)
+
+        t = np.linspace(0.0, 30.0, n_music, endpoint=False, dtype=np.float32)
+        music_orig = (0.35 * np.sin(2 * np.pi * 330.0 * t)).astype(np.float32)
+        music_rest = (0.34 * np.sin(2 * np.pi * 330.0 * t)).astype(np.float32)
+
+        original = np.concatenate([intro_orig, music_orig, intro_orig]).astype(np.float32)
+        restored = np.concatenate([intro_rest, music_rest, intro_rest]).astype(np.float32)
+
+        wpg = WaveformPlausibilityGuard()
+        wpg._measure_goals_proxy = lambda *args, **kwargs: (0.90, 0.50, 10.0, 2.0)  # type: ignore[method-assign]
+
+        corrected, meta = wpg.apply(
+            original,
+            restored,
+            sr,
+            mode="restoration",
+            material_type="vinyl",
+            restorability_score=55.0,
+        )
+
+        assert meta["explosions_found"] > 0
+        assert meta["quiet_zone_emergency_applied"] is True
+        assert meta["corrections_applied"] > 0
+        assert meta["skipped_reason"] is None
+        assert meta["explosion_quiet_ratio"] >= 0.80
+
+        # Intro muss hörbar abgesenkt werden, obwohl Proxy künstlich "failing" ist.
+        intro_corr = corrected[:n_intro]
+        intro_rest_db = 20.0 * np.log10(float(np.sqrt(np.mean(intro_rest**2))) + 1e-12)
+        intro_corr_db = 20.0 * np.log10(float(np.sqrt(np.mean(intro_corr**2))) + 1e-12)
+        assert intro_corr_db <= intro_rest_db - 2.0, (
+            f"Quiet-Zone-Notfallkorrektur zu schwach: restored={intro_rest_db:.2f} dBFS, "
+            f"corrected={intro_corr_db:.2f} dBFS"
+        )

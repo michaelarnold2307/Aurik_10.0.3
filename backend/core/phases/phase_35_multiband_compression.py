@@ -96,10 +96,10 @@ class MultibandCompressionPhase(PhaseInterface):
     # Format per Band: (ratio, threshold_db, knee_db, attack_ms, release_ms, makeup_db)
     COMPRESSION_CONFIG = {
         MaterialType.SHELLAC: {
-            "bass": (2.5, -18, 8, 30, 200, 2.5),  # Gentle, smooth
-            "low_mid": (3.0, -16, 10, 40, 250, 3.0),  # Optical-style slow
-            "mid_high": (2.8, -14, 10, 20, 150, 3.5),  # Tube warmth
-            "high": (2.0, -16, 6, 5, 100, 2.0),  # Gentle FET
+            "bass": (1.4, -20, 8, 35, 240, 0.4),
+            "low_mid": (1.5, -19, 10, 45, 280, 0.6),
+            "mid_high": (1.4, -17, 10, 25, 180, 0.6),
+            "high": (1.2, -18, 6, 8, 120, 0.3),
         },
         MaterialType.VINYL: {
             "bass": (3.0, -16, 8, 30, 200, 3.0),
@@ -184,6 +184,9 @@ class MultibandCompressionPhase(PhaseInterface):
         phase_locality_factor = float(np.clip(phase_locality_factor, 0.35, 1.0))
         _pmgg_strength = float(kwargs.get("strength", 1.0))
         _effective_strength = float(np.clip(_pmgg_strength * phase_locality_factor, 0.0, 1.0))
+        if material == MaterialType.SHELLAC:
+            # Shellac vocals are very sensitive to over-compression; hard-cap intensity.
+            _effective_strength = float(min(_effective_strength, 0.30))
 
         if _effective_strength <= 0.0:
             audio = np.nan_to_num(audio, nan=0.0, posinf=0.0, neginf=0.0)
@@ -202,6 +205,32 @@ class MultibandCompressionPhase(PhaseInterface):
                 },
                 metrics={"rms_change_db": 0.0, "peak_before_db": 0.0, "peak_after_db": 0.0},
                 modifications={"algorithm": "skipped_zero_strength", "bands": 4},
+            )
+
+        _analog_sensitive = {
+            MaterialType.SHELLAC,
+            MaterialType.TAPE,
+            MaterialType.REEL_TAPE,
+            MaterialType.WIRE_RECORDING,
+            MaterialType.WAX_CYLINDER,
+        }
+        if material in _analog_sensitive and _effective_strength < 0.25:
+            audio = np.nan_to_num(audio, nan=0.0, posinf=0.0, neginf=0.0)
+            audio = np.clip(audio, -1.0, 1.0)
+            return PhaseResult(
+                success=True,
+                audio=audio.copy(),
+                execution_time_seconds=time.time() - start_time,
+                metadata={
+                    "material": material.name,
+                    "algorithm": "skipped_low_strength_analog",
+                    "phase_locality_factor": phase_locality_factor,
+                    "effective_strength": _effective_strength,
+                    "rms_drop_db": 0.0,
+                    "loudness_makeup_db": 0.0,
+                },
+                metrics={"rms_change_db": 0.0, "peak_before_db": 0.0, "peak_after_db": 0.0},
+                modifications={"algorithm": "skipped_low_strength_analog", "bands": 4},
             )
 
         is_stereo = audio.ndim == 2

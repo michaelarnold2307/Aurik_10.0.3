@@ -501,6 +501,14 @@ class SpectralRepair(PhaseInterface):
 
         is_stereo = audio.ndim == 2
 
+        # §Phase-level wall-time deadline: shared across Mid + Side MRSA sub-calls.
+        # Without this, stereo audio gets 2× the per-call zone budget → 39-min runs
+        # on 225s vinyl (563s × 2 = 1126s MRSA alone, then all downstream phases skip).
+        # Budget: min(300s, max(90s, 1.3 × duration)) — for 225s: 292.5s total phase cap.
+        _p23_dur_s = float(audio.shape[0]) / float(max(1, sample_rate))
+        _phase_deadline = time.monotonic() + min(300.0, max(90.0, 1.3 * _p23_dur_s))
+        logger.info("phase_23: wall-deadline=%.0fs (audio=%.1fs)", min(300.0, max(90.0, 1.3 * _p23_dur_s)), _p23_dur_s)
+
         # Get material-specific parameters
         stft_cfg = self.STFT_CONFIG.get(material, self.STFT_CONFIG[MaterialType.CD_DIGITAL])
         thresholds = self.DETECTION_THRESHOLDS.get(material, self.DETECTION_THRESHOLDS[MaterialType.CD_DIGITAL])
@@ -643,7 +651,13 @@ class SpectralRepair(PhaseInterface):
                                 except Exception:
                                     pass
                             _ap_r = _apollo_inst.repair(audio[:, 1], sample_rate, material=self._current_material)
-                            audio = np.column_stack((_ap_l_audio, _ap_r.audio))  # (N, 2)
+                            # §2.51 L/R-Zeitversatz-Guard: Apollo kann je Kanal minimal
+                            # unterschiedliche Sample-Zahlen zurückgeben (Mamba-State-Init-Differenz).
+                            # Auf kleinere Länge trimmen, damit kein statischer L/R-Versatz entsteht.
+                            _ap_l_arr = np.asarray(_ap_l_audio, dtype=np.float32)
+                            _ap_r_arr = np.asarray(_ap_r.audio, dtype=np.float32)
+                            _ap_n = min(len(_ap_l_arr), len(_ap_r_arr))
+                            audio = np.column_stack((_ap_l_arr[:_ap_n], _ap_r_arr[:_ap_n]))  # (N, 2) length-aligned
                             _apollo_hf_gain_db = (_ap_l_hf + float(_ap_r.hf_gain_db)) / 2.0
                             del _ap_r, _ap_l_audio
                         else:
@@ -740,6 +754,7 @@ class SpectralRepair(PhaseInterface):
                         35.0 + 20.0 * float(np.clip(p, 0.0, 100.0)) / 100.0,
                         f"Spektralreparatur Mid: {lbl}",
                     ),
+                    phase_deadline=_phase_deadline,
                 )
                 # Side: minimal repair at half strength to preserve stereo field
                 _side_strength = repair_strength * 0.5
@@ -754,6 +769,7 @@ class SpectralRepair(PhaseInterface):
                         55.0 + 20.0 * float(np.clip(p, 0.0, 100.0)) / 100.0,
                         f"Spektralreparatur Side: {lbl}",
                     ),
+                    phase_deadline=_phase_deadline,
                 )
                 repaired_audio = np.column_stack(
                     (
@@ -773,6 +789,7 @@ class SpectralRepair(PhaseInterface):
                         35.0 + 40.0 * float(np.clip(p, 0.0, 100.0)) / 100.0,
                         f"Spektralreparatur: {lbl}",
                     ),
+                    phase_deadline=_phase_deadline,
                 )
 
         # Calculate metrics
@@ -1004,6 +1021,7 @@ class SpectralRepair(PhaseInterface):
         thresholds: dict[str, float],
         repair_strength: float,
         progress_cb=None,
+        phase_deadline: float = 0.0,
     ) -> np.ndarray:
         """Repair a single audio channel using spectral inpainting."""
 
@@ -1132,6 +1150,7 @@ class SpectralRepair(PhaseInterface):
                             45.0 + 50.0 * float(np.clip(p, 0.0, 100.0)) / 100.0,
                             f"MRSA: {lbl}",
                         ),
+                        phase_deadline=phase_deadline,
                     )
                     _report(98.0, "MRSA fertig")
                     return out
@@ -1150,6 +1169,82 @@ class SpectralRepair(PhaseInterface):
 
         # Blend original and repaired
         Zxx_blended = Zxx * (1 - defect_mask * repair_strength) + Zxx_repaired * (defect_mask * repair_strength)
+
+        # POCS: Iterative STFT-Konsistenz-Projektion (Siedenburg & Dörfler 2013)
+        # Motivation: Die lineare Blend-Maske produziert ein STFT das keine gültige
+        # Kurzzeitfouriertransformierte eines reellen Signals ist → Aliasing-Artefakte
+        # an Defektgrenzen. Iteratives ISTFT→STFT erhält STFT-Konsistenz:
+        #   1. ISTFT → Zeitsignal (Konsistenz-Projektion auf reelles Signal-Raum)
+        #   2. STFT → neue Phase (physikalisch konsistente Phase aus dem Zeitsignal)
+        #   3. Intakte Bins: Re-Ankern auf Original-STFT (verhindert Phasen-Drift)
+        #   4. Defekt-Bins: Inpainting-Magnitude + neue Phase aus Round-Trip
+        # Aktivierung: nur wenn Defekt-Coverage ausreichend (>0.5 %) und kein FAST-Mode.
+        # Iterationszahl: material-adaptiv — 2 Iter. bei kleinen Defektmengen,
+        # 5 Iter. bei schweren Schäden (Shellac-Dropouts, MP3-Codec-Löcher).
+        _pocs_mode = QualityModeConfig.get_mode().value.upper()
+        _pocs_min_severity = 0.005  # 0.5 % defect coverage
+        if _pocs_mode not in ("FAST",) and defect_severity >= _pocs_min_severity:
+            _pocs_n_iter = int(np.clip(round(2 + defect_severity * 15), 2, 5))
+            # Wall-time guard: lange Signale → weniger Iterationen
+            _pocs_dur_s = len(audio) / max(sample_rate, 1)
+            if _pocs_dur_s > 60.0:
+                _pocs_n_iter = min(_pocs_n_iter, 2)
+            _report(74.0, f"POCS Konsistenz ({_pocs_n_iter} Iter.)")
+            try:
+                _Zxx_pocs = Zxx_blended.copy()
+                _F_p, _T_p = _Zxx_pocs.shape
+                for _pocs_i in range(_pocs_n_iter):
+                    # Step 1: STFT → Zeitsignal (ISTFT)
+                    _, _sig_pocs = signal.istft(
+                        _Zxx_pocs,
+                        fs=sample_rate,
+                        window="hann",
+                        nperseg=stft_cfg["nperseg"],
+                        noverlap=stft_cfg["noverlap"],
+                        nfft=stft_cfg["nfft"],
+                        boundary=True,
+                    )
+                    # Länge angleichen
+                    _n_needed = len(audio)
+                    if len(_sig_pocs) >= _n_needed:
+                        _sig_pocs = _sig_pocs[:_n_needed]
+                    else:
+                        _sig_pocs = np.pad(_sig_pocs, (0, _n_needed - len(_sig_pocs)))
+                    # Step 2: Zeitsignal → neues STFT (physikalisch konsistente Phase)
+                    _, _, _Zxx_new = signal.stft(
+                        _sig_pocs,
+                        fs=sample_rate,
+                        window="hann",
+                        nperseg=stft_cfg["nperseg"],
+                        noverlap=stft_cfg["noverlap"],
+                        nfft=stft_cfg["nfft"],
+                        boundary="even",
+                    )
+                    # Step 3: Formabgleich (Randeffekte können T um ±1 verschieben)
+                    _T_new = _Zxx_new.shape[1]
+                    _T_use = min(_T_p, _T_new)
+                    _Zxx_iter = _Zxx_pocs.copy()  # Startwert: vorherige Iteration
+                    # Intakte Bins: Original-STFT re-ankern (Drift-Unterdrückung)
+                    _anchor = (~defect_mask)[:, :_T_use]
+                    _Zxx_iter[:, :_T_use][_anchor] = Zxx[:, :_T_use][_anchor]
+                    # Defekt-Bins: Inpainting-Magnitude + neue Phase aus Round-Trip
+                    _pocs_phase_new = np.angle(_Zxx_new[:, :_T_use])
+                    _defect_crop = defect_mask[:, :_T_use]
+                    _Zxx_iter[:, :_T_use][_defect_crop] = repaired_magnitude[:, :_T_use][_defect_crop] * np.exp(
+                        1j * _pocs_phase_new[_defect_crop]
+                    )
+                    _Zxx_pocs = _Zxx_iter
+                Zxx_blended = _Zxx_pocs
+                logger.debug(
+                    "phase_23 POCS: %d Iterationen abgeschlossen (defect_severity=%.2f%%, dur=%.1fs)",
+                    _pocs_n_iter,
+                    defect_severity * 100,
+                    _pocs_dur_s,
+                )
+            except Exception as _pocs_err:
+                # Vollständig non-blocking: Zxx_blended bleibt unverändert
+                logger.debug("phase_23 POCS: nicht-blockierender Fallback — %s", _pocs_err)
+            _report(80.0, "POCS fertig")
 
         # Phase-kohärente Rekonstruktion via PGHI (§2.47 VERBOTEN: direktes ISTFT nach Spektralmodifikation)
         try:
@@ -1187,6 +1282,7 @@ class SpectralRepair(PhaseInterface):
         thresholds: dict[str, float],
         repair_strength: float,
         progress_cb=None,
+        phase_deadline: float = 0.0,
     ) -> np.ndarray:
         """Repair single audio channel using 5-zone MRSA (§DSP-Spezialregeln).
 
@@ -1211,12 +1307,41 @@ class SpectralRepair(PhaseInterface):
         _zone_names = list(zone_stfts.keys())
         _n_zones = max(1, len(_zone_names))
 
+        # §Spec04b MRSA wall-time budget: 5-zone STFT on long signals can take 45+ min
+        # without a time limit. Budget = min(600 s, 2.5× audio duration).
+        # Zones beyond the budget are returned as passthrough (original audio preserved).
+        _mrsa_dur_s = float(len(audio_f32)) / float(max(sample_rate, 1))
+        # §Phase-level shared deadline: limits this MRSA call to remaining phase budget.
+        # Without this, each M/S call gets an independent 562.5s budget → 39-min total.
+        if phase_deadline > 0.0:
+            _remaining_s = max(10.0, phase_deadline - time.monotonic())
+            _mrsa_wall_budget_s = min(min(600.0, 2.5 * _mrsa_dur_s), _remaining_s)
+        else:
+            _mrsa_wall_budget_s = min(600.0, 2.5 * _mrsa_dur_s)
+        logger.info("phase_23 MRSA: wall_budget=%.0fs (dur=%.1fs)", _mrsa_wall_budget_s, _mrsa_dur_s)
+        _mrsa_t0 = time.monotonic()
+        _mrsa_budget_exceeded = False
+
         for _zi, name in enumerate(_zone_names):
             if callable(progress_cb):
                 try:
                     progress_cb(5.0 + 90.0 * (_zi / _n_zones), f"Zone {name}")
                 except Exception:
                     pass
+            # Wall-time guard: passthrough remaining zones if budget exceeded
+            if not _mrsa_budget_exceeded and (time.monotonic() - _mrsa_t0) > _mrsa_wall_budget_s:
+                logger.warning(
+                    "phase_23 MRSA: wall-time budget %.0fs exceeded after zone %d/%d — remaining zones as passthrough",
+                    _mrsa_wall_budget_s,
+                    _zi,
+                    _n_zones,
+                )
+                _mrsa_budget_exceeded = True
+            if _mrsa_budget_exceeded:
+                zone = zone_stfts[name]
+                zone_audios[name] = synthesize_zone(zone, zone.stft, len(audio_f32))
+                zone_stfts[name] = zone._replace(stft=np.empty(0, dtype=np.complex64))
+                continue
             zone = zone_stfts[name]
             magnitude = np.abs(zone.stft)
             phase = np.angle(zone.stft)

@@ -334,6 +334,27 @@ class DtwGrooveMeasurer:
         orig_onsets = detect_onsets(original, sr)
         rest_onsets = detect_onsets(restored, sr)
 
+        # Salient-Onset-Filter (§2.19 groove=0.000 Fix, 2026-04-19):
+        # Defektimpulse (Crackle, Sibilanz) erzeugen viele schwache Falsch-Onsets
+        # im Original → n_onsets_original >> n_onsets_restored → DTW-RMS >> 16 ms
+        # → groove_score=0.000. Nur Onsets ≥ Median-Stärke verwenden.
+        def _filter_salient(od: OnsetDetectionResult) -> OnsetDetectionResult:
+            if od.n_onsets < 4:
+                return od
+            thresh = float(np.median(od.onset_strengths))
+            mask = od.onset_strengths >= thresh
+            if mask.sum() < 2:
+                return od
+            return OnsetDetectionResult(
+                onset_samples=od.onset_samples[mask],
+                onset_times_ms=od.onset_times_ms[mask],
+                onset_strengths=od.onset_strengths[mask],
+                n_onsets=int(mask.sum()),
+            )
+
+        orig_onsets = _filter_salient(orig_onsets)
+        rest_onsets = _filter_salient(rest_onsets)
+
         if orig_onsets.n_onsets == 0 or rest_onsets.n_onsets == 0:
             # Keine Onsets messbar → perfektes Ergebnis
             return GrooveMeasurementResult(

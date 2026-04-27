@@ -157,3 +157,136 @@ class TestGrooveEdgeCases:
         onsets = _compute_onset_times_lf(audio, 48000)
         # DC has no transients — should find very few or zero
         assert len(onsets) <= 2
+
+
+# ---------------------------------------------------------------------------
+# v9.11.14: Bidirektionaler Onset-Guard + Catastrophic-Fallback
+# ---------------------------------------------------------------------------
+
+
+class TestGrooveMetricDTWFallbackGuards:
+    """Regression tests for bidirektionale IOI-Fallback Guards.
+
+    Bug: groove=0.000 wenn Restaurierung Crackle-Impulse einführt.
+    Fix: restore_onset_ratio > 1.5 → IOI-Fallback; catastrophic score < 0.05 → IOI-Fallback;
+         _is_noise_dominated ohne _gdur_s < 10.0 Einschränkung.
+    """
+
+    def _make_music_signal(self, sr: int = 48000, dur: float = 5.0, bpm: float = 120.0) -> np.ndarray:
+        """Rhythmisches Signal mit 4 Beats/s."""
+        n = int(sr * dur)
+        audio = np.zeros(n, dtype=np.float32)
+        beat_interval = int(60.0 / bpm * sr)
+        kick_len = min(int(0.03 * sr), beat_interval)
+        kick = np.exp(-np.linspace(0, 8, kick_len)) * 0.5
+        kick *= np.sin(2 * np.pi * 80 * np.arange(kick_len) / sr).astype(np.float32)
+        for i in range(0, n - kick_len, beat_interval):
+            audio[i : i + kick_len] += kick.astype(np.float32)
+        return np.clip(audio, -1.0, 1.0)
+
+    def _add_crackle_impulses(self, audio: np.ndarray, sr: int, rate_per_s: float = 10.0) -> np.ndarray:
+        """Fügt Crackle-Impulse mit gegebener Rate hinzu (simuliert Restaurierungs-Artefakte)."""
+        result = audio.copy()
+        n_impulses = int(len(audio) / sr * rate_per_s)
+        rng = np.random.default_rng(42)
+        positions = rng.integers(0, len(audio) - 5, size=n_impulses)
+        for pos in positions:
+            result[pos] += rng.choice([-1.0, 1.0]) * rng.uniform(0.3, 0.8)
+        return np.clip(result, -1.0, 1.0)
+
+    def test_restore_onset_ratio_guard_triggers_ioi_fallback(self):
+        """Wenn Restaurierung 2x mehr Onsets erzeugt als Original → IOI-Fallback statt grove=0.
+
+        Verifikation: GrooveMetric.measure() mit reference liefert > 0.5 (nicht 0.000).
+        """
+        from backend.core.musical_goals.musical_goals_metrics import GrooveMetric
+
+        sr = 48000
+        original = self._make_music_signal(sr=sr, dur=6.0, bpm=100.0)
+        # Restaurierung hat viele zusätzliche Crackle-Impulse (Pipeline-Artefakt)
+        restored_with_artifacts = self._add_crackle_impulses(original, sr, rate_per_s=12.0)
+
+        metric = GrooveMetric()
+        score = metric.measure(restored_with_artifacts, sr, reference=original)
+        # Ohne Guard: DTW würde 0.000 liefern (Crackle-Onsets misaligned)
+        # Mit Guard: IOI-Fallback → Score > 0.5 (rhythmische Struktur erhalten)
+        assert score > 0.5, (
+            f"Groove score {score:.3f} zu niedrig — pipeline-artifact-driven DTW-Failure "
+            f"muss via IOI-Fallback erkannt werden (restore_onset_ratio Guard)"
+        )
+
+    def test_catastrophic_dtw_score_triggers_ioi_fallback(self):
+        """Score < 0.05 ist physikalisch unmöglich für echten Groove-Verlust → immer IOI-Fallback.
+
+        Simuliert: DTW scheitert katastrophal durch Crackle auf beiden Seiten.
+        Erwartung: Groove metric gibt > 0.5 zurück (IOI-Proxy aus restauriertem Audio).
+        """
+        from backend.core.musical_goals.musical_goals_metrics import GrooveMetric
+
+        sr = 48000
+        # Original UND Restored haben Crackle → ratio ≈ 1, DTW score ≈ 0.000
+        original = self._make_music_signal(sr=sr, dur=6.0, bpm=120.0)
+        original_with_crackle = self._add_crackle_impulses(original, sr, rate_per_s=8.0)
+        restored_with_crackle = self._add_crackle_impulses(original, sr, rate_per_s=9.0)
+
+        metric = GrooveMetric()
+        score = metric.measure(restored_with_crackle, sr, reference=original_with_crackle)
+        # Ohne catastrophic guard: 0.000; mit Guard: IOI-Fallback → > 0.5
+        assert score > 0.5, f"Groove score {score:.3f} — catastrophic DTW (<0.05) muss IOI-Fallback triggern"
+
+    def test_noise_dominated_fullsong_triggers_fallback_without_duration_restriction(self):
+        """_is_noise_dominated darf nicht _gdur_s < 10.0 erfordern.
+
+        Bei 30s-Cap und > 6 Onsets/s muss Fallback greifen, auch für Vollsongs (225s → 30s).
+        """
+        from backend.core.musical_goals.musical_goals_metrics import GrooveMetric
+
+        sr = 48000
+        # 15s Signal (> 10s) mit 8 Onsets/s → noise-dominated
+        dur = 15.0
+        original = self._make_music_signal(sr=sr, dur=dur, bpm=120.0)
+        noisy = self._add_crackle_impulses(original, sr, rate_per_s=8.0)
+
+        metric = GrooveMetric()
+        score = metric.measure(noisy, sr, reference=original)
+        # Mit _gdur_s < 10.0 Restriction: Guard feuert NICHT bei 15s → 0.000
+        # Mit Fix: Guard feuert → IOI-Fallback → > 0.5
+        assert score > 0.5, (
+            f"Groove score {score:.3f} bei 15s + 8 Onsets/s — noise_dominated Guard "
+            f"darf nicht durch _gdur_s < 10.0 blockiert sein"
+        )
+
+
+class TestTonalCenterBypassGuard:
+    """Regression: tonal_center=0.131 nach Denoise durch zu hohen corr_score Bypass-Guard.
+
+    Fix: corr_score >= 0.60 statt >= 0.70 → nach Denoise (Pearson ~0.65) kein falscher Penalty.
+    """
+
+    def test_corr_score_065_no_penalty(self):
+        """Bei corr_score ~0.65 (nach Denoise) darf kein Key-Shift-Penalty angewendet werden."""
+        from backend.core.musical_goals.musical_goals_metrics import TonalCenterMetric
+
+        sr = 48000
+        # Signal in C-Dur (A4=440Hz Grundton)
+        t = np.linspace(0, 4.0, int(sr * 4.0), dtype=np.float32)
+        ref = (
+            np.sin(2 * np.pi * 261.63 * t) * 0.6  # C4
+            + np.sin(2 * np.pi * 329.63 * t) * 0.4  # E4
+            + np.sin(2 * np.pi * 392.00 * t) * 0.3
+        )  # G4
+        ref = np.clip(ref, -1.0, 1.0)
+
+        # Restauriertes Signal: leicht gedämpfter HF → Pearson-Chroma sinkt auf ~0.65
+        # aber kein echter Tonartwechsel
+        restored = ref * 0.85 + np.random.default_rng(7).normal(0, 0.03, len(ref)).astype(np.float32)
+        restored = np.clip(restored, -1.0, 1.0)
+
+        metric = TonalCenterMetric()
+        score = metric.measure(restored, sr, reference=ref)
+        # Mit altem Guard (>= 0.70): Penalty wenn corr ~0.65 → score * 0.20 → ~0.13
+        # Mit neuem Guard (>= 0.60): kein Penalty → score ≈ corr_score ~0.65
+        assert score > 0.40, (
+            f"TonalCenter score {score:.3f} nach Denoise-ähnlicher Dämpfung — "
+            f"corr_score >= 0.60 Bypass-Guard muss greifen (kein Key-Shift-Penalty)"
+        )

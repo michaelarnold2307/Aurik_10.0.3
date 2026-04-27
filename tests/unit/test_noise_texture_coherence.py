@@ -113,3 +113,71 @@ class TestSingleton:
         g1 = get_noise_texture_coherence_guard()
         g2 = get_noise_texture_coherence_guard()
         assert g1 is g2
+
+
+class TestNoiseTextureWetReduction60To80Range:
+    """§4.7 v9.11.15 — Per-Phase wet×0.85 im [0.60, 0.80)-Kohärenz-Bereich."""
+
+    def _make_guard_with_patched_coherence(self, target_coherence: float, monkeypatch):
+        """Erstellt Guard, dessen compute-Funktion eine bestimmte Kohärenz simuliert."""
+        import backend.core.noise_texture_coherence as _ntc_mod
+
+        def _fake_compute(residual, sr, material_type):
+            return NoiseTextureResult(
+                coherence=target_coherence,
+                material_type=material_type,
+                reference_slope=-3.0,
+                measured_slope=-1.5,
+                is_compliant=target_coherence >= 0.80,
+            )
+
+        monkeypatch.setattr(_ntc_mod, "compute_noise_texture_coherence", _fake_compute)
+        return NoiseTextureCoherenceGuard()
+
+    def test_coherence_070_gives_wet_085(self, monkeypatch):
+        """Kohärenz 0.70 (in [0.60,0.80)) → wet_mult = 0.85 (nicht 1.0)."""
+        guard = self._make_guard_with_patched_coherence(0.70, monkeypatch)
+        rng = np.random.default_rng(10)
+        before = rng.normal(0, 0.05, 48000).astype(np.float32)
+        after = before * 0.85
+        coh, wet = guard.check_per_phase(before, after, 48000, "vinyl")
+        assert abs(coh - 0.70) < 1e-6, f"Erwartete Kohärenz 0.70, erhalten {coh}"
+        assert abs(wet - 0.85) < 1e-6, (
+            f"Kohärenz 0.70 muss wet_mult=0.85 liefern (§4.7 v9.11.15), erhalten wet_mult={wet}"
+        )
+
+    def test_coherence_065_gives_wet_085(self, monkeypatch):
+        """Kohärenz 0.65 (in [0.60,0.80)) → wet_mult = 0.85."""
+        guard = self._make_guard_with_patched_coherence(0.65, monkeypatch)
+        rng = np.random.default_rng(11)
+        before = rng.normal(0, 0.05, 48000).astype(np.float32)
+        after = before * 0.85
+        _, wet = guard.check_per_phase(before, after, 48000, "shellac")
+        assert abs(wet - 0.85) < 1e-6, f"Erwartete wet 0.85, erhalten {wet}"
+
+    def test_coherence_079_gives_wet_085(self, monkeypatch):
+        """Kohärenz 0.79 (knapp unter 0.80) → wet_mult = 0.85."""
+        guard = self._make_guard_with_patched_coherence(0.79, monkeypatch)
+        rng = np.random.default_rng(12)
+        before = rng.normal(0, 0.05, 48000).astype(np.float32)
+        after = before * 0.90
+        _, wet = guard.check_per_phase(before, after, 48000, "tape")
+        assert abs(wet - 0.85) < 1e-6, f"Erwartete wet 0.85 bei coh=0.79, erhalten {wet}"
+
+    def test_coherence_080_gives_wet_100(self, monkeypatch):
+        """Kohärenz genau 0.80 → wet_mult = 1.0 (kein Eingriff)."""
+        guard = self._make_guard_with_patched_coherence(0.80, monkeypatch)
+        rng = np.random.default_rng(13)
+        before = rng.normal(0, 0.05, 48000).astype(np.float32)
+        after = before * 0.90
+        _, wet = guard.check_per_phase(before, after, 48000, "vinyl")
+        assert abs(wet - 1.0) < 1e-6, f"Erwartete wet 1.0 bei coh=0.80, erhalten {wet}"
+
+    def test_coherence_below_060_gives_wet_070(self, monkeypatch):
+        """Kohärenz < 0.60 → wet_mult = 0.70 (stärkere Dämpfung bleibt)."""
+        guard = self._make_guard_with_patched_coherence(0.50, monkeypatch)
+        rng = np.random.default_rng(14)
+        before = rng.normal(0, 0.05, 48000).astype(np.float32)
+        after = before * 0.85
+        _, wet = guard.check_per_phase(before, after, 48000, "vinyl")
+        assert abs(wet - 0.70) < 1e-6, f"Erwartete wet 0.70 bei coh=0.50, erhalten {wet}"

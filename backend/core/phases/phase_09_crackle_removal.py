@@ -201,6 +201,22 @@ class CrackleRemovalPhase(PhaseInterface):
             "interpolation": "spectral",  # High quality
             "background_model": True,  # Model tape saturation
         },
+        "reel_tape": {
+            "transient_threshold": 0.12,
+            "min_density": 18,
+            "texture_preserve": 0.88,
+            "spectral_floor": -60,
+            "interpolation": "spectral",
+            "background_model": True,
+        },
+        "cassette": {
+            "transient_threshold": 0.10,
+            "min_density": 15,
+            "texture_preserve": 0.85,
+            "spectral_floor": -58,
+            "interpolation": "spectral",
+            "background_model": True,
+        },
         "vinyl": {
             "transient_threshold": 0.08,  # Moderate
             "min_density": 15,
@@ -216,6 +232,33 @@ class CrackleRemovalPhase(PhaseInterface):
             "spectral_floor": -50,
             "interpolation": "hybrid",  # Balance quality/speed
             "background_model": True,  # Model mechanical noise
+        },
+        "lacquer_disc": {
+            # Acetat-Lackfolien (1930–1950): heavier surface noise than vinyl, close to shellac
+            "transient_threshold": 0.04,
+            "min_density": 10,
+            "texture_preserve": 0.72,
+            "spectral_floor": -50,
+            "interpolation": "hybrid",
+            "background_model": True,
+        },
+        "wax_cylinder": {
+            # Pre-1920: extremely heavy crackling, broadband noise floor — most aggressive profile
+            "transient_threshold": 0.02,
+            "min_density": 8,
+            "texture_preserve": 0.65,
+            "spectral_floor": -45,
+            "interpolation": "hybrid",
+            "background_model": True,
+        },
+        "wire_recording": {
+            # 1940s wire: severe crackle + wow/flutter artefacts
+            "transient_threshold": 0.03,
+            "min_density": 10,
+            "texture_preserve": 0.68,
+            "spectral_floor": -48,
+            "interpolation": "hybrid",
+            "background_model": True,
         },
         "cd_digital": {
             "transient_threshold": 0.25,  # Conservative
@@ -247,6 +290,9 @@ class CrackleRemovalPhase(PhaseInterface):
     _MAX_RMS_DROP_DB: dict[str, float] = {
         "vinyl": 2.5,
         "shellac": 3.0,  # heavier broadband crackle
+        "lacquer_disc": 3.0,  # similar to shellac — heavy surface crackle
+        "wax_cylinder": 3.5,  # most severe: extreme broadband impulsive noise
+        "wire_recording": 3.0,
         "tape": 1.5,
         "reel_tape": 1.5,
         "cassette": 1.5,
@@ -328,6 +374,33 @@ class CrackleRemovalPhase(PhaseInterface):
             "stft_nperseg_interp": nperseg_interp,
             "ar_order_texture": ar_order,
         }
+
+    @staticmethod
+    def _goal_hint_strength_scalar(kwargs: dict[str, object]) -> float:
+        """Compute a bounded advisory scalar from song goal weights (§2.56a)."""
+        goal_weights = kwargs.get("song_goal_weights")
+        if not isinstance(goal_weights, dict):
+            return 1.0
+
+        def _w(name: str, default: float = 1.0) -> float:
+            try:
+                return float(goal_weights.get(name, default))
+            except Exception:
+                return default
+
+        naturalness = float(np.clip(_w("natuerlichkeit"), 0.3, 2.0))
+        authenticity = float(np.clip(_w("authentizitaet"), 0.3, 2.0))
+        articulation = float(np.clip(_w("artikulation"), 0.3, 2.0))
+        transparency = float(np.clip(_w("transparenz"), 0.3, 2.0))
+
+        scalar = (
+            1.0
+            + 0.10 * (transparency - 1.0)
+            - 0.08 * (naturalness - 1.0)
+            - 0.06 * (authenticity - 1.0)
+            - 0.04 * (articulation - 1.0)
+        )
+        return float(np.clip(scalar, 0.82, 1.12))
 
     def _get_banquet_plugin(self):
         """Lazy load BANQUET Docker-Plugin (Fallback falls ONNX-Direktzugriff scheitert)."""
@@ -616,6 +689,10 @@ class CrackleRemovalPhase(PhaseInterface):
 
         _pmgg_strength = float(kwargs.get("strength", 1.0))
         _effective_strength = float(np.clip(_pmgg_strength * phase_locality_factor, 0.0, 1.0))
+        _goal_hint_scalar = self._goal_hint_strength_scalar(kwargs)
+        _effective_strength = float(np.clip(_effective_strength * _goal_hint_scalar, 0.0, 1.0))
+        if abs(_goal_hint_scalar - 1.0) > 1e-6:
+            logger.debug("Phase 09 goal-hint scalar applied: %.3f", _goal_hint_scalar)
 
         # §v9.10.113: Severity-adaptive dry-blend — heavy crackle needs more ML repair (less dry mix).
         # Static texture_preserve=0.85 means only 15% repair even for severity=0.9 crackle.
@@ -646,6 +723,7 @@ class CrackleRemovalPhase(PhaseInterface):
                     "material": material_type,
                     "phase_locality_factor": phase_locality_factor,
                     "effective_strength": _effective_strength,
+                    "goal_hint_scalar": _goal_hint_scalar,
                 },
                 warnings=["Crackle removal skipped due to zero effective strength"],
             )

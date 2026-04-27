@@ -97,6 +97,7 @@ class MicroDynamicsEnvelopeMorphing:
         sr: int = 48000,
         mode: str = "restoration",
         phoneme_timeline=None,
+        frisson_zones=None,
     ) -> np.ndarray:
         """Morphed restauriertes Signal auf Original-Mikrodynamik. NaN/Inf-sicher.
 
@@ -122,6 +123,26 @@ class MicroDynamicsEnvelopeMorphing:
                         _stressed_frames.add(_fi)
             except Exception as _sv_exc:
                 logger.debug("MDEM stressed_vowel_segments failed: %s", _sv_exc)
+
+        # §Frisson: pre-compute frame set where downward gain is capped at -1.0 LU
+        # (Blood & Zatorre 2001: expectation-violation peaks must not be attenuated away).
+        # frisson_zones is a list of objects with .start_s and .end_s attributes.
+        _frisson_frame_set: set[int] = set()
+        if frisson_zones:
+            try:
+                _fhop_s = self.HOP_SIZE_SAMPLES / float(sr)
+                for _fz in frisson_zones:
+                    _fz_start = float(getattr(_fz, "start_s", 0.0))
+                    _fz_end = float(getattr(_fz, "end_s", 0.0))
+                    _fi_start = max(0, int(_fz_start / _fhop_s))
+                    _fi_end = int(_fz_end / _fhop_s) + 1
+                    for _fi in range(_fi_start, _fi_end):
+                        _frisson_frame_set.add(_fi)
+                if _frisson_frame_set:
+                    logger.debug("MDEM §Frisson: %d Frames in Schutzzone", len(_frisson_frame_set))
+            except Exception as _friz_exc:
+                logger.debug("MDEM Frisson-Frame-Set fehlgeschlagen (non-blocking): %s", _friz_exc)
+                _frisson_frame_set = set()
 
         res = np.nan_to_num(np.asarray(restored, dtype=np.float32))
         orig = np.nan_to_num(np.asarray(original, dtype=np.float32))
@@ -186,10 +207,20 @@ class MicroDynamicsEnvelopeMorphing:
             if (lo - lr) > 2.0 * _frame_max:
                 G[k] = 0.0
                 continue
-            G[k] = np.clip(lo - lr, -_frame_max, _frame_max)
+            # §Frisson: in detected high-potential moments, cap downward correction
+            # at -1.0 LU so the restored peak is never attenuated more than 1 LU.
+            _atten_floor = float(-1.0 if k in _frisson_frame_set else -_frame_max)
+            G[k] = np.clip(lo - lr, _atten_floor, _frame_max)
 
         # Glaettung
         G_smooth = _savgol_smooth(G)
+
+        # §Frisson post-smooth guard: Savitzky-Golay may redistribute attenuation
+        # back into frisson frames from their neighbours. Re-apply the floor.
+        if _frisson_frame_set:
+            for _fk in _frisson_frame_set:
+                if 0 <= _fk < len(G_smooth) and G_smooth[_fk] < -1.0:
+                    G_smooth[_fk] = -1.0
 
         # §2.30 Post-Smoothing Quiet-Zone-Clamp: SG-Glaettung kann den Boost aus
         # Musik-Frames in angrenzende Fadeout-Frames verschleppen (window=7 → 1.4 s).

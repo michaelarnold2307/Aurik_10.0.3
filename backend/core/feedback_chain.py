@@ -65,7 +65,9 @@ class FeedbackChain:
         self.defect_severity_mean = float(np.clip(defect_severity_mean, 0.0, 1.0))
         self.use_mert = bool(use_mert)
         self.use_pqs_in_loop = bool(use_pqs_in_loop)
-        self.use_versa_in_loop = bool(use_versa_in_loop)
+        self.use_versa_in_loop = (
+            True  # §2.44 VERBOTEN-Invariante: VERSA MUSS immer aktiv sein — Parameter wird ignoriert
+        )
         self.goal_priority_callback: Callable[[np.ndarray, np.ndarray], tuple[bool, str]] | None = None
         self.goal_weights: dict[str, float] | None = None  # §2.56 Song-Goal-Importance
         self.adaptive_goal_thresholds: dict[str, float] | None = None  # §09.2 per-song adaptive targets
@@ -225,7 +227,13 @@ class FeedbackChain:
         elif current_mos >= 3.5:
             base_delta = _mat_delta
         else:
-            base_delta = min(_mat_delta * 3.0, 0.05)  # relax for poor-quality audio
+            # Relax for poor-quality audio, but cap inflation for heavily degraded material.
+            # Without this guard, restorability < 40 sets _mat_delta=0.002 (shellac floor)
+            # but then 3× scales it to 0.006 — undoing the protection entirely and causing
+            # premature convergence when per-iteration gains are 0.002–0.005 (§2.54-Verletzung:
+            # Shellac hat ~0.002 Verbesserungen pro Phase → fälschlich als Plateau erkannt).
+            _mos_low_scale = 2.0 if self.restorability_score < 40 else 3.0
+            base_delta = min(_mat_delta * _mos_low_scale, 0.05)
 
         # §2.56: tighten convergence for P1/P2-dominant songs at high quality
         if current_mos >= 4.0 and isinstance(self.goal_weights, dict) and self.goal_weights:
@@ -496,7 +504,11 @@ class FeedbackChain:
 
             _gpp = GoalPriorityProtocol()
         except Exception as gpp_exc:
-            logger.debug("FeedbackChain: GoalPriorityProtocol unavailable: %s", gpp_exc)
+            # §0 Primum non nocere: P1/P2-Schutz ist RELEASE_MUST. Fehler = strukturelles Problem.
+            logger.warning(
+                "§2.34 GoalPriorityProtocol NICHT VERFÜGBAR — P1/P2-Schutz deaktiviert (§0-Risiko): %s",
+                gpp_exc,
+            )
 
         _prev_goals: dict[str, float] = {}
         _goal_priority_log: list[str] = []
@@ -539,6 +551,31 @@ class FeedbackChain:
             if _phase_list_mode and i == 2 and len(_active_phases) > 1:
                 _pre_prune_audio = current.copy()
                 _base_mos = self._compute_iteration_score(_pre_prune_audio, _sr)
+                # §Goal-deficit retention: use iter-1 goal scores to make pruning more lenient
+                # when goals are still below their adaptive thresholds. This prevents pruning
+                # phases that have small MOS impact but are critical for specific goal metrics
+                # (e.g., a phase targeting bass_kraft or raumtiefe may have near-zero MOS delta
+                # while being the only FC phase nudging that goal above threshold).
+                _fc_deficit_factor = 1.0
+                if _prev_goals and isinstance(self.adaptive_goal_thresholds, dict) and self.adaptive_goal_thresholds:
+                    _agt_local = self.adaptive_goal_thresholds
+                    _deficits = [
+                        float(_agt_local[_dg] - _prev_goals[_dg])
+                        for _dg in _prev_goals
+                        if _dg in _agt_local and _prev_goals[_dg] < _agt_local[_dg]
+                    ]
+                    if _deficits:
+                        _max_deficit = max(_deficits)
+                        # Scale up to 2× more lenient: deficit=0.05→factor 1.20; 0.25→2.0 (cap)
+                        _fc_deficit_factor = float(min(2.0, 1.0 + 4.0 * _max_deficit))
+                        logger.info(
+                            "FeedbackChain §goal-deficit: %d/%d goals below threshold "
+                            "(max_deficit=%.3f) → pruning %.2f× more lenient",
+                            len(_deficits),
+                            len(_prev_goals),
+                            _max_deficit,
+                            _fc_deficit_factor,
+                        )
                 _surviving_phases = []
                 for _pid, _fn, _kw in _active_phases:
                     try:
@@ -551,29 +588,44 @@ class FeedbackChain:
                         # remove energy → MOS proxy may drop slightly vs. defect-laden
                         # reference. Use material-adaptive threshold (§2.54) to avoid
                         # pruning legitimate carrier-repair phases.
-                        _RESTORATIVE_PREFIXES = (
-                            "phase_01",
-                            "phase_02",
-                            "phase_03",
-                            "phase_05",
-                            "phase_09",
-                            "phase_12",
-                            "phase_18",
-                            "phase_20",
-                            "phase_23",
-                            "phase_24",
-                            "phase_27",
-                            "phase_28",
-                            "phase_29",
-                            "phase_30",
-                            "phase_49",
-                            "phase_50",
-                            "phase_55",
-                            "phase_56",
-                            "phase_57",
-                        )
-                        _is_restorative = any(str(_pid).startswith(rp) for rp in _RESTORATIVE_PREFIXES)
+                        # §2.55 Single Source of Truth: _RESTORATIVE_PHASES aus PMGG-Ontologie,
+                        # nicht hardcodiert — neue Phasen werden automatisch erkannt.
+                        try:
+                            from backend.core.per_phase_musical_goals_gate import _RESTORATIVE_PHASES as _RP_SET
+
+                            _is_restorative = any(str(_pid).startswith(rp) for rp in _RP_SET)
+                        except Exception:
+                            # Fallback: minimaler Kern-Set falls Import fehlschlägt
+                            _is_restorative = any(
+                                str(_pid).startswith(rp)
+                                for rp in (
+                                    "phase_01",
+                                    "phase_02",
+                                    "phase_03",
+                                    "phase_05",
+                                    "phase_09",
+                                    "phase_12",
+                                    "phase_18",
+                                    "phase_20",
+                                    "phase_23",
+                                    "phase_24",
+                                    "phase_27",
+                                    "phase_28",
+                                    "phase_29",
+                                    "phase_30",
+                                    "phase_49",
+                                    "phase_50",
+                                    "phase_55",
+                                    "phase_56",
+                                    "phase_57",
+                                )
+                            )
                         _prune_threshold = self._compute_adaptive_prune_threshold(_is_restorative)
+                        # §Goal-deficit leniency: scale threshold when goals are below target.
+                        # A phase that slightly reduces MOS but is the only one targeting a
+                        # deficit goal should not be pruned — MOS proxy doesn't capture all goals.
+                        if _fc_deficit_factor > 1.0:
+                            _prune_threshold = float(np.clip(_prune_threshold * _fc_deficit_factor, -0.30, -0.005))
                         if _delta >= _prune_threshold:
                             # §2.56 FeedbackChain Strength-Adaptation:
                             # Phasen mit klar positivem Delta (> 0.01) werden leicht geboostet;

@@ -613,6 +613,31 @@ class RumbleFilterPhase(PhaseInterface):
         # Convert to mono for onset detection
         mono = np.mean(audio, axis=1) if audio.ndim == 2 else audio
 
+        # §2.45a/§2.30b: Quiet fade-out frames must not be treated as attacks.
+        # Otherwise the transient bypass toggles the HPF on/off in low-level tails,
+        # which produces rhythmic LF pumping right where rumble removal should stay stable.
+        _mono32 = np.asarray(mono, dtype=np.float32)
+        # Quiet-zone decision must ignore the very LF energy this phase removes.
+        # Otherwise a rumble-heavy fade-out still looks "loud" and keeps transient
+        # bypass active, which reintroduces the subsonic content rhythmically.
+        _music_proxy = _mono32
+        try:
+            _quiet_sos = signal.butter(2, 80.0 / (self.sample_rate / 2.0), btype="high", output="sos")
+            _music_proxy = signal.sosfiltfilt(_quiet_sos, _mono32).astype(np.float32)
+        except Exception:
+            pass
+        _quiet_frame_len = 4800  # 100 ms @ 48 kHz
+        _quiet_n = len(_music_proxy) // _quiet_frame_len
+        if _quiet_n >= 1:
+            _quiet_frames = _music_proxy[: _quiet_n * _quiet_frame_len].reshape(_quiet_n, _quiet_frame_len)
+            _quiet_rms = np.sqrt(np.mean(_quiet_frames * _quiet_frames, axis=1) + 1e-12)
+            _quiet_db = 20.0 * np.log10(_quiet_rms + 1e-12)
+            _p5_quiet_db = float(np.percentile(_quiet_db, 5)) if len(_quiet_db) >= 4 else float(_quiet_db[0])
+        else:
+            _quiet_db = np.array([], dtype=np.float32)  # signal shorter than one frame
+            _p5_quiet_db = -36.0  # pessimistic default → no transient suppression
+        _quiet_gate_db = float(np.clip(_p5_quiet_db + 8.0, -36.0, -18.0))
+
         # Compute spectral flux (onset strength)
         hop_length = 512
         n_fft = 2048
@@ -645,6 +670,21 @@ class RumbleFilterPhase(PhaseInterface):
                 region_start = max(0, sample_idx - int(0.1 * self.sample_rate))
                 region_end = min(len(mono), sample_idx + int(0.1 * self.sample_rate))
                 onset_samples[region_start:region_end] = True
+
+        # Suppress spurious onsets in quiet/noise-floor regions so the HPF stays
+        # continuously engaged through fade-outs instead of alternating bypass/filter.
+        for _fi, _frame_db in enumerate(_quiet_db):
+            if _frame_db < _quiet_gate_db:
+                _s = _fi * _quiet_frame_len
+                _e = min(_s + _quiet_frame_len, len(onset_samples))
+                onset_samples[_s:_e] = False
+
+        _tail_start = _quiet_n * _quiet_frame_len
+        if _tail_start < len(_music_proxy):
+            _tail = _music_proxy[_tail_start:]
+            _tail_db = float(20.0 * np.log10(np.sqrt(np.mean(_tail * _tail) + 1e-12) + 1e-12))
+            if _tail_db < _quiet_gate_db:
+                onset_samples[_tail_start:] = False
 
         return onset_samples
 

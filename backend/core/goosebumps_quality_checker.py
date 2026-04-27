@@ -95,10 +95,16 @@ class GoosebumpsResult:
 
 
 def _to_mono(audio: np.ndarray) -> np.ndarray:
-    """Convert to mono for analysis."""
+    """Convert to mono for analysis.
+
+    Handles both (samples, channels) and (channels, samples) orientation by
+    averaging over the axis with fewer elements (= the channels axis).
+    """
     if audio.ndim == 1:
         return audio.astype(np.float64)
-    return np.mean(audio, axis=0).astype(np.float64)
+    # Smallest dimension = channels axis (works for stereo where n_samples >> 2)
+    ch_axis = int(np.argmin(audio.shape))
+    return np.mean(audio, axis=ch_axis).astype(np.float64)
 
 
 def _center_crop(audio: np.ndarray, sr: int, max_s: float) -> np.ndarray:
@@ -284,29 +290,54 @@ def _measure_clarity(original: np.ndarray, restored: np.ndarray, sr: int) -> tup
     n_fft = 2048
 
     def _spectral_flatness(audio: np.ndarray) -> float:
-        spec = np.abs(np.fft.rfft(audio[:n_fft]))
-        spec = spec[1:]  # Skip DC
-        spec = np.maximum(spec, 1e-12)
-        geo_mean = np.exp(np.mean(np.log(spec)))
-        arith_mean = np.mean(spec)
-        return float(geo_mean / (arith_mean + 1e-12))
+        """Multi-frame spectral flatness — averaged over 10 evenly-spaced windows.
+        Silence frames (RMS < 1e-6) are skipped to avoid flatness=1.0 on quiet segments.
+        """
+        n_windows = 10
+        step = max(n_fft, len(audio) // n_windows) if len(audio) >= n_fft else len(audio)
+        flatness_vals: list[float] = []
+        for i in range(n_windows):
+            start = i * step
+            seg = audio[start : start + n_fft]
+            if len(seg) < n_fft:
+                seg = np.pad(seg, (0, n_fft - len(seg)))
+            if np.sqrt(np.mean(seg**2)) < 1e-6:
+                continue  # Skip silence
+            spec = np.abs(np.fft.rfft(seg))[1:]  # Skip DC
+            spec = np.maximum(spec, 1e-12)
+            geo_mean = np.exp(np.mean(np.log(spec)))
+            arith_mean = np.mean(spec)
+            flatness_vals.append(float(geo_mean / (arith_mean + 1e-12)))
+        return float(np.mean(flatness_vals)) if flatness_vals else 1.0
 
     def _hnr_estimate(audio: np.ndarray) -> float:
-        """Simple HNR estimate via autocorrelation peak."""
-        n = min(len(audio), sr)  # Max 1 second
-        sig = audio[:n]
+        """Multi-frame HNR estimate via autocorrelation peak.
+        Averages over 5 evenly-spaced 1-second segments, skipping silence.
+        """
         from backend.core.core_utils import fft_autocorr
 
-        autocorr = fft_autocorr(sig)
-        # Skip first ~2ms (near-zero lag)
         min_lag = int(0.002 * sr)
         max_lag = int(0.020 * sr)  # Up to 50 Hz fundamental
-        if max_lag <= min_lag or max_lag >= len(autocorr):
+        if max_lag <= min_lag:
             return 0.0
-        peak_region = autocorr[min_lag:max_lag]
-        peak = float(np.max(peak_region))
-        total = float(autocorr[0]) + 1e-12
-        return max(0.0, peak / total)
+        win = min(sr, max(512, len(audio) // 5))
+        n_windows = 5
+        step = max(win, len(audio) // n_windows) if len(audio) >= win else len(audio)
+        hnr_vals: list[float] = []
+        for i in range(n_windows):
+            start = i * step
+            seg = audio[start : start + win]
+            if len(seg) < win // 2:
+                continue
+            if np.sqrt(np.mean(seg**2)) < 1e-6:
+                continue  # Skip silence
+            autocorr = fft_autocorr(seg)
+            if max_lag >= len(autocorr):
+                continue
+            peak = float(np.max(autocorr[min_lag:max_lag]))
+            total = float(autocorr[0]) + 1e-12
+            hnr_vals.append(max(0.0, peak / total))
+        return float(np.mean(hnr_vals)) if hnr_vals else 0.0
 
     flat_orig = _spectral_flatness(original)
     flat_rest = _spectral_flatness(restored)
@@ -347,11 +378,19 @@ def _measure_clarity(original: np.ndarray, restored: np.ndarray, sr: int) -> tup
     # For additive HF extension, fall back to absolute HNR of restored signal as baseline
     # to avoid clarity=0.000 when flatness_improvement=0 and hnr_improvement=0.
     if _hf_extension:
-        # Additive restoration: use absolute HNR (harmonicity of restored signal) as clarity.
+        # Additive restoration: use absolute HNR + restored tonality as clarity.
         # Good HF restoration adds harmonic content → hnr_rest should be moderate-to-high.
-        clarity_raw = max(0.40, min(hnr_rest * 1.5, 1.0))
+        # Floor raised to 0.65: any successful HF extension is inherently clarity-positive.
+        # (1 - flat_rest) captures how tonal/clean the restored spectrum is.
+        tonality_rest = max(0.0, min(1.0 - flat_rest * 10.0, 1.0))  # 0.0 flatness → 1.0 tonal
+        clarity_raw = max(0.65, min(hnr_rest * 1.5 + tonality_rest * 0.25, 1.0))
     else:
-        clarity_raw = 0.50 * min(flatness_improvement * 2.0, 1.0) + 0.50 * min(hnr_improvement * 3.0, 1.0)
+        # Improvement-based component (how much better vs. original)
+        improvement_component = 0.50 * min(flatness_improvement * 2.0, 1.0) + 0.50 * min(hnr_improvement * 3.0, 1.0)
+        # Absolute quality floor: a tonal/harmonic restored signal is inherently clear,
+        # regardless of how much it changed from the (possibly already-decent) input.
+        abs_quality_floor = max(0.0, min(hnr_rest * 2.0, 0.65))
+        clarity_raw = max(improvement_component, abs_quality_floor)
     # If signal was already clean (low flatness), start with high baseline
     if flat_orig < 0.05:
         clarity_raw = max(clarity_raw, 0.85)

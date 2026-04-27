@@ -1592,3 +1592,233 @@ class TestReferenceAnchorArbitration:
             )
 
         assert captured.get("era_decade") == 1980
+
+
+class TestStereoSafetyGuardBranching:
+    """Targeted branch tests for §2.51a stereo safety guard."""
+
+    @staticmethod
+    def _delayed_right(stereo_sc: np.ndarray, delay_samples: int) -> np.ndarray:
+        out = np.asarray(stereo_sc, dtype=np.float32).copy()
+        if delay_samples <= 0:
+            return out
+        right = out[:, 1]
+        delayed = np.concatenate(
+            [np.zeros(delay_samples, dtype=np.float32), right[:-delay_samples]],
+            axis=0,
+        )
+        out[:, 1] = delayed
+        return out
+
+    def test_91_hard_fail_when_interchannel_delay_exceeds_1ms(self):
+        mono = (0.45 * _sine(secs=1.0, freq=80.0)).astype(np.float32)
+        original = np.stack([mono, mono], axis=1)
+        restored = self._delayed_right(original, delay_samples=60)  # 60/48000 = 1.25 ms
+
+        result = _uv3_mod._evaluate_stereo_safety_guard(original, restored, SR)
+
+        assert result["enabled"] is True
+        assert result["hard_fail"] is True
+        assert "interchannel_delay_gt_1ms" in result["hard_fail_reasons"]
+
+    def test_92_warning_when_delay_between_0p5_and_1ms(self):
+        mono = (0.45 * _sine(secs=1.0, freq=80.0)).astype(np.float32)
+        original = np.stack([mono, mono], axis=1)
+        restored = self._delayed_right(original, delay_samples=36)  # 36/48000 = 0.75 ms
+
+        result = _uv3_mod._evaluate_stereo_safety_guard(original, restored, SR)
+
+        assert result["enabled"] is True
+        assert result["hard_fail"] is False
+        assert result["warning"] is True
+        assert "interchannel_delay_0p5_to_1ms" in result["warning_reasons"]
+
+    def test_93_ok_when_stereo_metrics_within_targets(self):
+        mono = (0.30 * _sine(secs=1.0, freq=220.0)).astype(np.float32)
+        original = np.stack([mono, mono], axis=1)
+        restored = original.copy()
+
+        result = _uv3_mod._evaluate_stereo_safety_guard(original, restored, SR)
+
+        assert result["enabled"] is True
+        assert result["hard_fail"] is False
+        assert result["warning"] is False
+        assert result["reason"] == "ok"
+
+    def test_94_hard_fail_when_true_peak_above_minus_1dbtp(self):
+        mono_in = (0.30 * _sine(secs=1.0, freq=220.0)).astype(np.float32)
+        mono_out = (0.95 * _sine(secs=1.0, freq=220.0)).astype(np.float32)
+        original = np.stack([mono_in, mono_in], axis=1)
+        restored = np.stack([mono_out, mono_out], axis=1)
+
+        result = _uv3_mod._evaluate_stereo_safety_guard(original, restored, SR)
+
+        assert result["enabled"] is True
+        assert result["hard_fail"] is True
+        assert "true_peak_gt_minus_1dbtp" in result["hard_fail_reasons"]
+
+
+class TestSingleGainAuthorityPolicy:
+    def test_95_hpf_notch_phase_locks_positive_makeup_authority(self):
+        allow, reason = UnifiedRestorerV3._update_positive_makeup_authority(
+            "phase_05_rumble_filter",
+            True,
+        )
+
+        assert allow is False
+        assert reason == "locked_after_hpf_notch"
+
+    def test_96_broadband_subtractive_phase_reenables_authority(self):
+        allow, reason = UnifiedRestorerV3._update_positive_makeup_authority(
+            "phase_29_tape_hiss_reduction",
+            False,
+        )
+
+        assert allow is True
+        assert reason == "unlocked_after_phase_29"
+
+    def test_97_non_policy_phase_keeps_state(self):
+        allow, reason = UnifiedRestorerV3._update_positive_makeup_authority(
+            "phase_42_vocal_enhancement",
+            False,
+        )
+
+        assert allow is False
+        assert reason is None
+
+
+class TestSingleGainAuthorityEndToEnd:
+    """End-to-end verification that §2.45a-VII Single-Gain-Authority blocks
+    positive makeup in cumulative guards after HPF/Notch phases.
+
+    Scenario for test_98:
+        phase_05 (HPF) → locks authority + resets cumulative reference
+        phase_35 (dynamics, non-unlock) → heavy attenuation → cumulative guard fires
+        Guard sees _allow_positive_makeup_gain=False → skips makeup
+        Output RMS stays << input RMS (no boost applied)
+
+    Scenario for test_99:
+        phase_05 → locks authority
+        phase_29 (broadband subtraktive) → re-enables authority
+        Both phases execute; output is valid (non-NaN, non-Inf, clipped)
+    """
+
+    def _build_restorer(self) -> UnifiedRestorerV3:
+        cfg = RestorationConfig(
+            enable_phase_gate=False,
+            enable_phase_skipping=False,
+            enable_performance_guard=False,
+        )
+        return UnifiedRestorerV3(cfg)
+
+    class _PhaseStub:
+        """Minimal phase stub that exposes get_metadata() with a configurable phase_id."""
+
+        def __init__(self, pid: str) -> None:
+            self._pid = pid
+
+        def get_metadata(self) -> object:
+            return types.SimpleNamespace(
+                estimated_time_factor=0.1,
+                phase_id=self._pid,
+                name=self._pid,
+            )
+
+        def process(self, audio: np.ndarray, **kwargs: object) -> np.ndarray:
+            return np.asarray(audio, dtype=np.float32)
+
+    def test_98_no_positive_makeup_after_hpf_followed_by_non_unlock_phase(self):
+        """After HPF (phase_05), authority stays locked for non-unlock subsequent phases.
+
+        phase_05 resets cumulative reference to post-HPF audio and locks authority.
+        phase_35 (multiband compression, NOT in unlock set) further attenuates,
+        causing the cumulative guard to fire. Because authority is locked, the guard
+        MUST NOT apply positive makeup — verifying §2.45a-VII Single-Gain-Authority.
+        """
+        restorer = self._build_restorer()
+
+        rng = np.random.default_rng(42)
+        input_level = 0.30  # ~ -10 dBFS — well above -36 dBFS gate
+        audio_in = np.clip(rng.standard_normal(SR * 2) * input_level, -1.0, 1.0).astype(np.float32)
+
+        _PhaseStub = TestSingleGainAuthorityEndToEnd._PhaseStub
+        restorer._get_phase = lambda pid: _PhaseStub(pid)  # type: ignore[method-assign]
+
+        def _mock_profiled_call(_phase: object, _audio: np.ndarray, **_kwargs: object) -> object:
+            pid: str = _phase.get_metadata().phase_id  # type: ignore[union-attr]
+            factor = 0.5 if "phase_05" in pid else 0.1  # HPF: -6 dB; phase_35: -20 dB
+            return types.SimpleNamespace(
+                success=True,
+                audio=np.clip(np.asarray(_audio, dtype=np.float32) * factor, -1.0, 1.0),
+                execution_time_seconds=0.001,
+                warnings=[],
+            )
+
+        restorer._profiled_phase_call = _mock_profiled_call  # type: ignore[method-assign]
+        rms_before = float(np.sqrt(np.mean(audio_in**2)))
+
+        out, executed, _sk, _def = restorer._execute_pipeline(
+            audio=audio_in,
+            sample_rate=SR,
+            material_type=MaterialType.VINYL,
+            defect_result=types.SimpleNamespace(scores={}),
+            selected_phases=["phase_05_rumble_filter", "phase_35_multiband_compression"],
+        )
+
+        rms_after = float(np.sqrt(np.mean(out**2)))
+
+        # Without authority policy: guard fires after phase_35, boosts back toward -4.5 dB
+        # from post-HPF reference → rms_after could exceed rms_before (massive overshot).
+        # WITH §2.45a-VII authority: no positive makeup → rms_after ≈ rms_in * 0.5 * 0.1
+        # (cumulative ~-26 dB from input) — well below the +3 dB assertion threshold.
+        ratio_db = 20.0 * np.log10((rms_after + 1e-12) / (rms_before + 1e-12))
+        assert ratio_db <= 3.0, (
+            f"§2.45a-VII Single-Gain-Authority violation: cumulative guard applied positive "
+            f"makeup of {ratio_db:.1f} dB after HPF + non-unlock phase chain. "
+            f"rms_before={rms_before:.5f}, rms_after={rms_after:.5f}. "
+            "No positive makeup allowed while authority is locked by phase_05_rumble_filter."
+        )
+        assert "phase_05_rumble_filter" in executed
+        assert "phase_35_multiband_compression" in executed
+
+    def test_99_authority_re_enables_after_broadband_phase_following_hpf(self):
+        """After HPF locks authority, a broadband-subtractive phase re-enables it.
+
+        phase_05 → locks authority → phase_29 (broadband subtraktive) → re-enables.
+        Both phases must execute and produce valid audio. Does not test the guard
+        triggering, only that the phase sequence completes without error and that
+        output is numerically safe (no NaN / Inf / out-of-range values).
+        """
+        restorer = self._build_restorer()
+
+        rng = np.random.default_rng(7)
+        audio_in = np.clip(rng.standard_normal(SR) * 0.15, -1.0, 1.0).astype(np.float32)
+
+        _PhaseStub = TestSingleGainAuthorityEndToEnd._PhaseStub
+        restorer._get_phase = lambda pid: _PhaseStub(pid)  # type: ignore[method-assign]
+
+        def _mock_profiled_call(_phase: object, _audio: np.ndarray, **_kwargs: object) -> object:
+            pid: str = _phase.get_metadata().phase_id  # type: ignore[union-attr]
+            factor = 0.5 if "phase_05" in pid else 0.85
+            return types.SimpleNamespace(
+                success=True,
+                audio=np.clip(np.asarray(_audio, dtype=np.float32) * factor, -1.0, 1.0),
+                execution_time_seconds=0.001,
+                warnings=[],
+            )
+
+        restorer._profiled_phase_call = _mock_profiled_call  # type: ignore[method-assign]
+
+        out, executed, _sk, _def = restorer._execute_pipeline(
+            audio=audio_in,
+            sample_rate=SR,
+            material_type=MaterialType.VINYL,
+            defect_result=types.SimpleNamespace(scores={}),
+            selected_phases=["phase_05_rumble_filter", "phase_29_tape_hiss_reduction"],
+        )
+
+        assert "phase_05_rumble_filter" in executed
+        assert "phase_29_tape_hiss_reduction" in executed
+        assert not np.any(np.isnan(out)), "Output contains NaN after HPF+broadband chain"
+        assert not np.any(np.isinf(out)), "Output contains Inf after HPF+broadband chain"
+        assert np.all(np.abs(out) <= 1.0 + 1e-6), "Output exceeds ±1.0 clip range"

@@ -371,6 +371,11 @@ class DenoisePhase(PhaseInterface):
                 except Exception:
                     pass
 
+        _primary_material = str(kwargs.get("primary_material", "")).lower()
+        if _primary_material == "shellac" and material_type in ("tape", "reel_tape", "cassette"):
+            # Shellac transfer chains may include tape intermediates; keep denoise conservative.
+            material_type = "shellac"
+
         # Get material-specific parameters
         params = self.MATERIAL_PARAMS.get(material_type, self.MATERIAL_PARAMS["unknown"])
 
@@ -652,6 +657,27 @@ class DenoisePhase(PhaseInterface):
         # Pure orchestral "Klassik" (panns_singing ≈ 0.0) must NOT trigger vocal ML.
         _is_vocal_material = _panns_singing >= 0.25 or (_genre_is_vocal and _panns_singing >= 0.10)
         _is_non_digital = material_type not in ("cd_digital", "streaming", "mp3_high")
+
+        # §4.5b-Instrumental: Rein instrumentales Material (PANNs-Gesang < 0.10) braucht
+        # erhöhten g_floor um Obertonstrukturen bei Streichern/Bläsern/Chor (harmonische
+        # Obertöne 2–8 kHz) nicht als Rauschen zu supprimieren. Sprach-trainierte Denoiser
+        # (OMLSA/DeepFilterNet) optimieren auf Sprach-SNR; musikalische Obertöne fallen
+        # in die gleiche Zeitschlitz-Energie-Schätzung wie Hintergrundgeräusche.
+        # Invariante: params ist Class-Level-Dict → shallow copy VOR Mutation.
+        if not _is_vocal_material and _panns_singing < 0.10:
+            _g_floor_old = float(params.get("g_floor", 0.10))
+            _g_floor_new = float(np.clip(_g_floor_old + 0.05, 0.10, 0.45))
+            if _g_floor_new > _g_floor_old:
+                params = dict(params)  # shallow copy — Klassen-Dict nie mutieren
+                params["g_floor"] = _g_floor_new
+                logger.info(
+                    "§4.5b-Instrumental: g_floor %.2f→%.2f (material=%s, panns_singing=%.2f) "
+                    "→ Oberton-Schutz für instrumentales Material aktiv",
+                    _g_floor_old,
+                    _g_floor_new,
+                    material_type,
+                    _panns_singing,
+                )
 
         # §4.5 / §2.47 DeepFilterNet Tier-0 PRIMARY: Vocal broadband noise
         # DeepFilterNet v3.II is the primary model for broadband noise with vocal content

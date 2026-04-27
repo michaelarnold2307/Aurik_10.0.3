@@ -123,7 +123,7 @@ _MATERIAL_THRESHOLD_BONUS: dict[str, float] = {
 _PRIORITY_MAX_RETRIES: dict[int, int] = {
     1: 4,  # P1: Natürlichkeit, Authentizität — volle Retry-Kaskade
     2: 4,  # P2: TonalCenter, Timbre, Artikulation — volle Retry-Kaskade
-    3: 2,  # P3: Emotionalität, MicroDynamics, Groove — max 2 Retries
+    3: 3,  # P3: Emotionalität, MicroDynamics, Groove — max 3 Retries (erhöht v9.11.14)
     4: 1,  # P4: Transparenz, Wärme, Bass-Kraft, SepFidelity — Recovery-Lite: 1 Retry (§0c)
     5: 1,  # P5: Brillanz, SpatialDepth — Recovery-Lite: 1 Retry (§0c)
 }
@@ -342,11 +342,9 @@ PHASE_GOAL_EXCLUSIONS: dict[str, set[str]] = {
     "phase_05": {
         "natuerlichkeit",
         "authentizitaet",
-    },  # Rumble filter: sub-sonic removal shifts MFCC-smoothness baseline + sub-bass chroma removal causes minor chromagram shift — CIG sync §2.54
-    "phase_30": {
-        "natuerlichkeit",
-        "authentizitaet",
-    },  # DC-offset removal: zero-phase highpass slightly shifts ZCR/MFCC-smoothness + minimal chromagram baseline — CIG sync §2.54
+        "bass_kraft",  # HPF intentionally removes sub-bass energy (< 20–80 Hz) → bass_kraft DSP proxy drops as intended; not a musical regression (§0 Primum non nocere: rumble removal IS the repair)
+        "waerme",  # HPF removes low-end rumble energy in 80–400 Hz range → warmth ratio E(200-800)/E(800-3000) shifts → false P4 regression; CIG sync §2.55 (2026-04-26)
+    },  # Rumble filter: sub-sonic removal shifts MFCC-smoothness baseline + sub-bass chroma removal causes minor chromagram shift — §2.55 sync: CIG updated (bass_kraft, waerme)
     # Broadband denoise: reference HF/LF correlation distinguishes noise from music
     # natuerlichkeit excluded: broadband denoising shifts spectral flatness and
     # ZCR, causing the CREPE-based NatuerlichkeitMetric to report false P1
@@ -407,6 +405,10 @@ PHASE_GOAL_EXCLUSIONS: dict[str, set[str]] = {
     # (C5-B7) while leaving low-register bins less affected → K-S correlation shifts
     # even though the musical key is unchanged. Real-run stagnation (Δ=0.000311) at
     # strength=0.78 confirms the regression is measurement-driven, not musical.
+    "phase_30": {
+        "authentizitaet",
+        "natuerlichkeit",
+    },  # DC-offset removal: near-DC energy removal shifts spectral fingerprint vs. DC-distorted reference → false P1 regression; §2.55 sync: CIG also has {authentizitaet, natuerlichkeit}
     "phase_29": {
         "artikulation",
         "authentizitaet",
@@ -1018,6 +1020,7 @@ PHASE_GOAL_EXCLUSIONS: dict[str, set[str]] = {
         "timbre_authentizitaet",
         "emotionalitaet",
         "waerme",
+        "raumtiefe",  # §2.55 + §0 2026-04-27: raumtiefe-Boost durch Reflexionen darf phase_46 nicht zu höherer Strength treiben (Gesang-Distanz-Bug)
     },  # Spatial enhancement: cross-feed early reflections modify mono sum (comb-filter in M) + add post-transient tail energy (crest-factor drop) + mid-band reflection energy (warmth ratio change) → false P2/P3/P4 regressions
     # Stereo width enhancer (STFT-based frequency-dependent M/S width:
     # LF×0.6 / MF×1.0 / HF×1.15, plus allpass decorrelation delays 17.1/19.7/23.3 ms):
@@ -1027,17 +1030,16 @@ PHASE_GOAL_EXCLUSIONS: dict[str, set[str]] = {
     # R → MFCC higher-order coefficients change vs. the unwidened reference → false P2
     # timbre regression (identical mechanism to phase_39 air band, phase_21/phase_25).
     "phase_48": {
-        "timbre_authentizitaet"
+        "timbre_authentizitaet",
+        "raumtiefe",  # §2.55 + §0 2026-04-27: HF-Side-Widening (×1.15) erhöht Raumtiefe-Score — darf PMGG nicht zu höherer Strength treiben (Gesang-Distanz-Bug)
     },  # Stereo width enhancer: STFT frequency-dependent M/S Side scaling (HF ×1.15) changes L/R spectral distribution → MFCC higher-order coefficients + centroid-CV shift → false P2 timbre regression (identical mechanism to phase_39 air band)
     # ── §2.54 CIG-PMGG-Synchronisation: Phasen ohne bisher existierende PMGG-Einträge ───────────────────
     # Groove-echo cancellation (inner-groove vinyl pre-echo): removes pre-echo artefact.
-    # authentizitaet: pre-echo creates phantom chroma artefacts; removal changes chromagram (§2.44).
     # timbre_authentizitaet: pre-echo spectral coloration is removed → MFCC-Pearson shifts vs. pre-echo-bearing reference.
     "phase_61": {
         "authentizitaet",
         "timbre_authentizitaet",
     },  # Groove-echo cancellation: pre-echo phantom chroma removed → chromagram + MFCC fingerprint change vs. pre-echo-distorted reference (§2.44)
-    # Crosstalk cancellation (early stereo channel leakage repair): removes inter-channel contamination.
     # authentizitaet: stereo-field chromagram fingerprint changes vs. crosstalk-distorted reference (§2.46).
     # timbre_authentizitaet: spectral crosstalk coloration removed → MFCC-Pearson shifts intentionally.
     "phase_62": {
@@ -1554,6 +1556,10 @@ class PhaseGateLogEntry:
     strength_used: float
     timestamp: float = field(default_factory=time.time)
     metadata: dict[str, Any] = field(default_factory=dict)  # TFS coherence, vocal_intimacy, etc.
+    # §DEBUG: Vollständige Goal-Snapshots vor/nach der Phase — für PipelineTrace / aurik-debug.
+    # Werden von wrap_phase() befüllt wenn scores_before/after verfügbar; andernfalls leer.
+    scores_before: dict[str, float] = field(default_factory=dict)
+    scores_after: dict[str, float] = field(default_factory=dict)
 
 
 @dataclass
@@ -2817,6 +2823,9 @@ class PerPhaseMusicalGoalsGate:
             goal_regressions=goal_regressions,
             strength_used=strength,
         )
+        # §DEBUG: Goal-Snapshots für PipelineTrace / aurik-debug — kein Overhead wenn nicht genutzt.
+        log_entry.scores_before = dict(scores_before) if scores_before else {}
+        log_entry.scores_after = dict(scores_after) if scores_after else {}
 
         # §0c Recovery-Lite Transparency: best_effort actions mark recovery metadata
         # so downstream (UV3, bridge, export_workflow) can detect recovery status.
@@ -3251,17 +3260,17 @@ class PerPhaseMusicalGoalsGate:
 
         # §2.31a SongCal P3-Retry-Feinjustage: restorability_tier moduliert den
         # Retry-Etat für P3-Ziele (Groove, MicroDynamics, Emotionalität).
-        # Good-Material: 2 → 3 Retries (stabil genug, um Verbesserung rauszuholen).
-        # Poor-Material:  2 → 1 Retry  (P3-Regressionen oft unabwendbar — Zeit sparen).
+        # Good-Material: 3 → 4 Retries (stabil genug, um Verbesserung rauszuholen).
+        # Poor-Material:  3 → 2 Retry  (P3-Regressionen oft unabwendbar — Zeit sparen).
         # P1/P2/P4/P5 bleiben unverändert.
         if _worst_prio == 3:
             _cal_p3 = (phase_kwargs or {}).get("song_calibration_profile", {})
             if isinstance(_cal_p3, dict) and _cal_p3:
                 _rtier = _cal_p3.get("restorability_tier", "fair")
                 if _rtier == "good":
-                    _max_retries_for_prio = min(4, _max_retries_for_prio + 1)  # 2 → 3
+                    _max_retries_for_prio = min(4, _max_retries_for_prio + 1)  # 3 → 4
                 elif _rtier == "poor":
-                    _max_retries_for_prio = max(1, _max_retries_for_prio - 1)  # 2 → 1
+                    _max_retries_for_prio = max(2, _max_retries_for_prio - 1)  # 3 → 2
 
         # Retry-Stärken relativ zur Initialstärke skalieren (§2.29):
         # initial_strength=1.0 → normale Retry-Folge [0.65, 0.50, ...]

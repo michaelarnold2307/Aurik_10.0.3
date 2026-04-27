@@ -145,12 +145,12 @@ class VocalEnhancement(PhaseInterface):
     ENHANCEMENT_CONFIG = {
         MaterialType.SHELLAC: {
             "deess_threshold_db": -15,
-            "deess_reduction_db": 8,
+            "deess_reduction_db": 6,  # Sprint-2: 8 → 6 dB (Vokal-Charakter bewahren)
             "presence_gain_db": 5.0,
             "formant_gain_db": 4.0,
             "chest_gain_db": 3.0,
             "breath_reduction_db": 6,
-            "compression_ratio": 2.5,
+            "compression_ratio": 1.8,  # Sprint-2: 2.5 → 1.8 (Primum non nocere: Vocal-Dynamik erhalten)
         },
         MaterialType.VINYL: {
             "deess_threshold_db": -18,
@@ -470,6 +470,46 @@ class VocalEnhancement(PhaseInterface):
                     )
             except Exception as _age_err:
                 logger.debug("Phase42 age-detection non-blocking: %s", _age_err)
+
+        # §4.10-VintageVoice: Bei Vintage-Material ohne erkannte Altersgruppe ist der
+        # Fallback breath_preservation=0.70 zu aggressiv für historische Stimmcharaktere
+        # (Caruso, Billie Holiday, früher Jazz, klassische Oper auf Schellack/Vinyl).
+        # Vintage-Stimmen haben inhärente Atemigkeit, Vibrato-Fluktuationen und
+        # formantbedingte Resonanzkurven, die zum Künstler-Erkennungsbild gehören.
+        # Wird nur aktiviert wenn GenderDetector keine Altersgruppe ermitteln konnte
+        # (age_group is None) — sobald eine Altersgruppe erkannt wurde, steuert
+        # _AGE_ADAPTIVE_FACTORS weiter (Senior=0.90 ist bereits korrekt).
+        _vintage_material_keys = frozenset(
+            {
+                "shellac",
+                "wax_cylinder",
+                "vinyl",
+                "lacquer_disc",
+                "wire_recording",
+                "acoustic_78",
+                "reel_tape",
+                "tape",
+                "cassette",
+            }
+        )
+        try:
+            _material_key_42 = (
+                str(material.name).lower()
+                if hasattr(material, "name")
+                else str(kwargs.get("primary_material", "")).lower()
+            )
+        except Exception:
+            _material_key_42 = ""
+        if _detected_age_group_value is None and _material_key_42 in _vintage_material_keys:
+            _old_breath_42 = _age_breath_preservation
+            _age_breath_preservation = max(_age_breath_preservation, 0.78)
+            if _age_breath_preservation > _old_breath_42:
+                logger.info(
+                    "§4.10-VintageVoice: material='%s' ohne erkannte Altersgruppe → "
+                    "breath_preservation-Boden 0.78 (war %.2f) — Vintage-Stimmidentität schützen",
+                    _material_key_42,
+                    _old_breath_42,
+                )
 
         # §2.36 Lyrics-Salienz-Timeline: per-phoneme adaptive EQ
         # When a lyrics_saliency_timeline is provided (from LyricsGuidedEnhancement),

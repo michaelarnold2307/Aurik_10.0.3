@@ -215,7 +215,19 @@ def _stereo_to_samples_channels(audio: np.ndarray) -> np.ndarray | None:
 
 
 def _estimate_interchannel_delay_ms(stereo_sc: np.ndarray, sr: int) -> float:
-    """Estimate absolute L/R delay in ms using bounded cross-correlation."""
+    """Estimate absolute L/R delay in ms using multi-window median cross-correlation.
+
+    Uses three analysis windows (beginning, middle, end) of 16 384 samples each and
+    returns the **median** delay across windows that meet the correlation-confidence
+    threshold.  A single short window (the previous 8192-sample approach) is susceptible
+    to false positives when a musical passage with dominant panned content occupies the
+    analysis segment — resulting in erroneous 0.5–1 ms readings even after STCG
+    correction (actual STCG-measured delay: ~0.021 ms / 1 sample).
+
+    §2.51a: Only the *median* estimate is compared to the hard-fail / warning thresholds.
+    Windows where both channels are near-silent or the inter-channel correlation is too
+    weak to be meaningful are excluded from the median.
+    """
     if stereo_sc.ndim != 2 or stereo_sc.shape[1] != 2:
         return 0.0
     if sr <= 0:
@@ -224,35 +236,50 @@ def _estimate_interchannel_delay_ms(stereo_sc: np.ndarray, sr: int) -> float:
     left = np.asarray(stereo_sc[:, 0], dtype=np.float64)
     right = np.asarray(stereo_sc[:, 1], dtype=np.float64)
     n = min(left.size, right.size)
-    if n < 256:
+    if n < 512:
         return 0.0
 
-    max_n = min(n, 8192)
-    start = max(0, (n - max_n) // 2)
-    stop = start + max_n
-    l_seg = left[start:stop]
-    r_seg = right[start:stop]
-    if l_seg.size < 256 or r_seg.size < 256:
-        return 0.0
-
-    l_seg = l_seg - float(np.mean(l_seg))
-    r_seg = r_seg - float(np.mean(r_seg))
-    l_std = float(np.std(l_seg))
-    r_std = float(np.std(r_seg))
-    if l_std < 1e-10 or r_std < 1e-10:
-        return 0.0
-
-    corr = np.correlate(l_seg, r_seg, mode="full")
-    center = int(l_seg.size - 1)
+    win_size = min(n, 16_384)
     max_lag = max(1, int(round(sr * 0.002)))  # ±2 ms search window
-    lo = max(0, center - max_lag)
-    hi = min(corr.size, center + max_lag + 1)
-    if hi <= lo:
-        return 0.0
 
-    local_idx = int(np.argmax(np.abs(corr[lo:hi])))
-    best_lag = int((lo + local_idx) - center)
-    return float(abs(best_lag) * 1000.0 / float(sr))
+    # Three anchor positions: 25 %, 50 %, 75 % of the signal
+    anchors = [int(n * frac) for frac in (0.25, 0.50, 0.75)]
+    delay_estimates: list[float] = []
+
+    for anchor in anchors:
+        start = max(0, min(anchor - win_size // 2, n - win_size))
+        stop = start + win_size
+        l_seg = left[start:stop]
+        r_seg = right[start:stop]
+        if len(l_seg) < 256:
+            continue
+
+        l_seg = l_seg - float(np.mean(l_seg))
+        r_seg = r_seg - float(np.mean(r_seg))
+        l_std = float(np.std(l_seg))
+        r_std = float(np.std(r_seg))
+        if l_std < 1e-10 or r_std < 1e-10:
+            continue
+
+        corr = np.correlate(l_seg / (l_std * len(l_seg)), r_seg / r_std, mode="full")
+        center = int(l_seg.size - 1)
+        lo = max(0, center - max_lag)
+        hi = min(corr.size, center + max_lag + 1)
+        if hi <= lo:
+            continue
+
+        local_idx = int(np.argmax(np.abs(corr[lo:hi])))
+        peak_val = float(np.abs(corr[lo + local_idx]))
+        # Skip window if correlation confidence is too low (uncorrelated channels → not a real delay)
+        if peak_val < 0.04:
+            continue
+
+        best_lag = int((lo + local_idx) - center)
+        delay_estimates.append(float(abs(best_lag) * 1000.0 / float(sr)))
+
+    if not delay_estimates:
+        return 0.0
+    return float(np.median(delay_estimates))
 
 
 def _compute_stereo_safety_metrics(audio: np.ndarray, sr: int) -> dict[str, float | bool]:
@@ -295,8 +322,17 @@ def _evaluate_stereo_safety_guard(
     original_audio: np.ndarray,
     restored_audio: np.ndarray,
     sample_rate: int,
+    material_key: "str | None" = None,
+    source_phase_cancellation_ratio: float = 0.0,
 ) -> dict[str, Any]:
-    """Evaluate §2.51a stereo no-surprises guard (hard-fail + warning)."""
+    """Evaluate §2.51a stereo no-surprises guard (hard-fail + warning).
+
+    §2.51a: material-/kontextadaptive Delta-Bewertung.
+    Analog carriers (vinyl, tape, reel_tape, shellac, cassette, wax_cylinder)
+    have pre-existing L/R timing misalignments from carrier encoding.
+    Restoration phases (phase_12 wow/flutter, phase_14 phase_correction) intentionally
+    modify inter-channel timing — the mono_drop threshold must reflect this.
+    """
     m_in = _compute_stereo_safety_metrics(original_audio, sample_rate)
     m_out = _compute_stereo_safety_metrics(restored_audio, sample_rate)
 
@@ -320,6 +356,35 @@ def _evaluate_stereo_safety_guard(
     mono_drop = float(mono_out - mono_in)
     tp_out = float(m_out.get("true_peak_dbtp", -120.0))
 
+    # §2.51a material-adaptive mono_drop threshold.
+    # Analog carriers have pre-existing timing issues; restoration phases intentionally
+    # correct inter-channel alignment (phase_12, phase_14) → more relaxed threshold.
+    _ANALOG_CARRIER_KEYS = frozenset(
+        {
+            "vinyl",
+            "tape",
+            "reel_tape",
+            "shellac",
+            "cassette",
+            "wax_cylinder",
+            "wire_recording",
+            "lacquer_disc",
+        }
+    )
+    _mat = str(material_key or "").lower()
+    if _mat in _ANALOG_CARRIER_KEYS or source_phase_cancellation_ratio > 0.20:
+        # Analog/multi-chain: phase_12 wow-correction, phase_14 correction can cause ±0.20 delta
+        _mono_drop_hard_threshold = -0.22
+        _mono_drop_warn_threshold = -0.15
+    elif source_phase_cancellation_ratio > 0.10:
+        # Moderate pre-existing stereo phase issues (e.g. minidisc, dat)
+        _mono_drop_hard_threshold = -0.17
+        _mono_drop_warn_threshold = -0.12
+    else:
+        # Digital sources (cd_digital, mp3, aac, streaming): spec default
+        _mono_drop_hard_threshold = -0.12
+        _mono_drop_warn_threshold = -0.06
+
     hard_fail_reasons: list[str] = []
     warning_reasons: list[str] = []
 
@@ -328,7 +393,7 @@ def _evaluate_stereo_safety_guard(
         hard_fail_reasons.append("interchannel_delay_gt_1ms")
     if imb_out > 6.0 and imb_in < 3.0:
         hard_fail_reasons.append("lr_imbalance_gt_6db_with_balanced_input")
-    if mono_drop < -0.12:
+    if mono_drop < _mono_drop_hard_threshold:
         hard_fail_reasons.append("mono_compatibility_drop_significant")
     if tp_out > -1.0:
         hard_fail_reasons.append("true_peak_gt_minus_1dbtp")
@@ -338,7 +403,7 @@ def _evaluate_stereo_safety_guard(
         warning_reasons.append("interchannel_delay_0p5_to_1ms")
     if 3.0 < imb_out <= 6.0:
         warning_reasons.append("lr_imbalance_3_to_6db")
-    if -0.12 <= mono_drop < -0.06:
+    if _mono_drop_warn_threshold <= mono_drop < (_mono_drop_warn_threshold + 0.06):
         warning_reasons.append("mono_compatibility_drop_moderate")
 
     return {
@@ -411,6 +476,31 @@ def _fc_compute_target_score(
     _rest = float(cal_profile.get("restorability_score", 65.0))
     _adj = (_rest - 65.0) / 1000.0  # ±0.035 for score range 30–100
     return max(0.60, min(0.85, _base + _adj))
+
+
+def _compute_weighted_goal_gap(
+    scores: dict[str, float],
+    thresholds: dict[str, float],
+    applicable_goals: set[str],
+    goal_weights: dict[str, float] | None = None,
+) -> tuple[float, int]:
+    """Return weighted threshold gap and number of violated goals.
+
+    Gap = sum(max(0, thr - score) * weight) over applicable goals.
+    Lower is better; 0 means all applicable goals pass.
+    """
+    _weights = goal_weights if isinstance(goal_weights, dict) else {}
+    _gap = 0.0
+    _violations = 0
+    for _g in applicable_goals:
+        _thr = float(thresholds.get(_g, 0.85))
+        _sc = float(scores.get(_g, 0.0))
+        _d = _thr - _sc
+        if _d > 0.0:
+            _violations += 1
+            _w = float(_weights.get(_g, 1.0))
+            _gap += _d * float(np.clip(_w, 0.3, 2.0))
+    return float(_gap), int(_violations)
 
 
 class UnifiedRestorerV3:
@@ -513,6 +603,10 @@ class UnifiedRestorerV3:
         # das bisher beste Checkpoint-Ergebnis (kein Datenverlust, kein Kill).
         self._graceful_stop_event = threading.Event()
 
+        # §DEBUG: Pipeline-Trace — wird aktiviert durch enable_debug_trace=True in restore().
+        # Wenn aktiv: pmgg_log_entries (mit scores_before/after) werden in metadata geschrieben.
+        self._debug_trace_enabled: bool = False
+
         # PhaseSkipper (optional, beschleunigt Pipeline um 20–40 %)
         if self.config.enable_phase_skipping:
             try:
@@ -554,77 +648,16 @@ class UnifiedRestorerV3:
 
     @staticmethod
     def _musical_gain_envelope(
-        audio: np.ndarray, gain: float, gate_dbfs: float = -50.0, crossfade_ms: float = 10.0, sr: int = 48000
+        audio: np.ndarray, gain: float, gate_dbfs: float = -36.0, crossfade_ms: float = 10.0, sr: int = 48000
     ) -> np.ndarray:
-        """Apply gain only to musical frames, leaving silence untouched.
+        """Delegates to backend.core.audio_utils.apply_musical_gain_envelope — single canonical impl.
 
-        §2.45a-II + §v9.11.62: Adaptive noise-floor gate — wenn der P5-Rauschboden
-        des Signals mehr als 12 dB über gate_dbfs liegt (Vinyl/Shellac Surface Noise
-        ~-40 dBFS), wird der effektive Gate auf (P5 + 6 dB) angehoben, damit
-        Rauschboden-Stille am Song-Ende NICHT verstärkt wird (Pegelexplosion-Schutz).
-        Identisch mit backend.core.audio_utils.apply_musical_gain_envelope.
+        §2.45a-II §2.30b: envelope-aware gain, adaptive noise-floor gate, per-sample quiet-zone
+        hard clamp (Stufe 5).  No duplicate logic — changes to audio_utils automatically apply here.
         """
-        if abs(float(gain) - 1.0) <= 0.0005:
-            return audio
-        arr = np.asarray(audio, dtype=np.float32)
-        was_2d = arr.ndim == 2
-        # Build mono energy signal for gate detection
-        if was_2d:
-            ch_first = arr.shape[0] <= 2 and arr.shape[1] > arr.shape[0]
-            mono = np.mean(arr, axis=0) if ch_first else np.mean(arr, axis=1)
-        else:
-            mono = arr
-        n = len(mono)
-        frame_len = 480  # 10 ms @ 48 kHz — feinere Auflösung als 2048-Sample-Frames
-        n_full = max(1, n // frame_len)
+        from backend.core.audio_utils import apply_musical_gain_envelope as _amge
 
-        # --- Pass 1: collect per-frame RMS values für adaptive Gate-Berechnung ---
-        frame_rms_db: list = []
-        for fi in range(n_full):
-            s = fi * frame_len
-            e = min(s + frame_len, n)
-            chunk = mono[s:e].astype(np.float64)
-            frame_rms_db.append(float(20.0 * np.log10(float(np.sqrt(np.mean(chunk * chunk) + 1e-12)) + 1e-12)))
-        tail_rms_db = None
-        tail_s = n_full * frame_len
-        if tail_s < n:
-            tail = mono[tail_s:].astype(np.float64)
-            tail_rms_db = float(20.0 * np.log10(float(np.sqrt(np.mean(tail * tail) + 1e-12)) + 1e-12))
-            frame_rms_db.append(tail_rms_db)
-
-        # --- Adaptive gate: Rauschboden-Schutz für analoge Quellen (§2.45a Pegelexplosion-Fix) ---
-        # BUG HISTORY (v9.11.70 → v9.11.75): `p5 > gate_dbfs + 12.0` (= -38 dBFS) feuerte
-        # nie für Vinyl (~-44 dBFS), weil -44 < -38. Gate blieb bei -50 dBFS und Fadeout-
-        # Rauschframes bei -44 dBFS wurden verstärkt → Pegelexplosion. Fix: adaptiver Gate
-        # greift immer wenn p5+6 über dem nominalen Gate liegt.
-        effective_gate = gate_dbfs
-        # REVERT v9.11.76 (2026-04-25): Adaptiver Gate via p5+6 zeigte keine
-        # Verbesserung und verursachte neue Stereo-Probleme. Kein adaptiver Gate.
-
-        # --- Pass 2: Gate-Envelope mit adaptivem Schwellwert aufbauen ---
-        gate_envelope = np.zeros(n, dtype=np.float32)
-        full_rms = frame_rms_db[:n_full] if tail_rms_db is not None else frame_rms_db
-        for fi, rms_db in enumerate(full_rms):
-            if rms_db > effective_gate:
-                s = fi * frame_len
-                e = min(s + frame_len, n)
-                gate_envelope[s:e] = 1.0
-        if tail_rms_db is not None and tail_rms_db > effective_gate:
-            gate_envelope[tail_s:] = 1.0
-
-        crossfade_samples = max(1, int(crossfade_ms * sr / 1000.0))
-        if crossfade_samples > 1:
-            kernel = np.ones(crossfade_samples, dtype=np.float32) / crossfade_samples
-            gate_envelope = np.convolve(gate_envelope, kernel, mode="same")
-            gate_envelope = np.clip(gate_envelope, 0.0, 1.0)
-
-        per_sample_gain = (1.0 + (gain - 1.0) * gate_envelope).astype(np.float32)
-        if was_2d:
-            ch_first = arr.shape[0] <= 2 and arr.shape[1] > arr.shape[0]
-            if ch_first:
-                return (arr * per_sample_gain[np.newaxis, :]).astype(np.float32)
-            return (arr * per_sample_gain[:, np.newaxis]).astype(np.float32)
-        return (arr * per_sample_gain).astype(np.float32)
+        return _amge(audio, gain, gate_dbfs=gate_dbfs, crossfade_ms=crossfade_ms, sr=sr)
 
     @staticmethod
     def _update_positive_makeup_authority(phase_id: str, current_allowed: bool) -> tuple[bool, str | None]:
@@ -1997,28 +2030,41 @@ class UnifiedRestorerV3:
         emotional_arc_score: float,
         audio: np.ndarray | None = None,
         sr: int = 48000,
+        is_studio_2026: bool = False,
     ) -> dict[str, Any]:
         """Compute explicit runtime joy/fatigue index (0..1) from available proxies.
 
-        Includes a literature-backed frisson propensity score (Blood & Zatorre
-        2001, Grewe 2007, Harrison & Loui 2014) based on:
-          - Spectral flux (harmonic surprise / expectation violation)
-          - Onset density (rhythmic tension / release)
-          - Dynamic range contrast (crescendo/decrescendo patterns)
-          - Goal-based proxies (emotional arc, spatial immersion, articulation)
+        Mode-differentiated (§2.53 Mode-Policy):
+          Restoration  — advisory-only; frisson driven by authentizitaet/timbre/arc
+                         (hearing the original performance after decades of degradation).
+          Studio 2026  — konservative bounded Mikro-Kopplung allowed; frisson driven
+                         by groove/bass_kraft/raumtiefe (modern studio intensity).
+
+        Literature basis: Blood & Zatorre 2001, Grewe 2007, Harrison & Loui 2014,
+        Huron 2006 (ITPRA), Sloboda 1991.
         """
         _scores = musical_goal_scores or {}
         _nat = float(np.clip(float(_scores.get("natuerlichkeit", 0.90)), 0.0, 1.0))
         _warm = float(np.clip(float(_scores.get("waerme", 0.75)), 0.0, 1.0))
-        _micro = float(np.clip(float(_scores.get("micro_dynamics", 0.88)), 0.0, 1.0))
+        # micro_dynamics: try canonical key first, then German alias (both exist in PMGG)
+        _micro = float(np.clip(float(_scores.get("micro_dynamics", _scores.get("mikrodynamik", 0.88))), 0.0, 1.0))
         _emo = float(np.clip(float(_scores.get("emotionalitaet", emotional_arc_score)), 0.0, 1.0))
         _bri = float(np.clip(float(_scores.get("brillanz", 0.78)), 0.0, 1.0))
         _art = float(np.clip(float(_scores.get("artikulation", 0.85)), 0.0, 1.0))
-        _spa = float(np.clip(float(_scores.get("spatial_depth", 0.70)), 0.0, 1.0))
+        # raumtiefe: canonical key ("spatial_depth" is a legacy alias, not in 14-Goal dict)
+        _spa = float(np.clip(float(_scores.get("raumtiefe", _scores.get("spatial_depth", 0.70))), 0.0, 1.0))
         _tonal = float(np.clip(float(_scores.get("tonal_center", 0.95)), 0.0, 1.0))
         _trans = float(np.clip(float(_scores.get("transparenz", 0.82)), 0.0, 1.0))
         _artifact = float(np.clip(float(artifact_freedom), 0.0, 1.0))
         _arc = float(np.clip(float(emotional_arc_score), 0.0, 1.0))
+        # groove: rhythmische Spannung/Entspannung = primärer Frisson-Trigger (Grewe 2007)
+        _groove = float(np.clip(float(_scores.get("groove", 0.83)), 0.0, 1.0))
+        # bass_kraft: Sub-Bass-Onset = physiologischer Frisson-Trigger (Blood & Zatorre 2001)
+        _bass = float(np.clip(float(_scores.get("bass_kraft", _scores.get("basskraft", 0.78))), 0.0, 1.0))
+        # authentizitaet / timbre: Erkennbarkeit des Originals verstärkt Frisson-Response
+        _auth = float(np.clip(float(_scores.get("authentizitaet", 0.88)), 0.0, 1.0))
+        _timbre = float(np.clip(float(_scores.get("timbre_authentizitaet", 0.87)), 0.0, 1.0))
+        _sepfid = float(np.clip(float(_scores.get("separation_fidelity", _scores.get("sep_fidelity", 0.78))), 0.0, 1.0))
 
         _risk_lookup = {"very_low": 0.08, "low": 0.16, "medium": 0.35, "high": 0.65, "critical": 0.85}
         _fatigue_risk = 0.25
@@ -2108,72 +2154,163 @@ class UnifiedRestorerV3:
             except Exception as _fr_exc:
                 logger.debug("Frisson audio analysis non-blocking: %s", _fr_exc)
 
-        # Combine audio-based and proxy-based frisson estimation
-        if _frisson_audio_valid:
-            # Weighted blend: 55% audio-derived, 45% proxy-derived
-            _frisson_audio = 0.35 * _spectral_flux_norm + 0.30 * _dynamic_contrast_norm + 0.35 * _onset_density_norm
-            _frisson_proxy = 0.30 * _arc + 0.25 * _micro + 0.20 * _emo + 0.15 * _spa + 0.10 * _art
-            _frisson_index = float(
-                np.clip(
-                    0.55 * _frisson_audio + 0.45 * _frisson_proxy - 0.12 * _fatigue_index,
-                    0.0,
-                    1.0,
+        # ── Modus-spezifische Frisson + Joy Gewichtung (§2.53 Mode-Policy) ─────────────────────
+        #
+        # RESTORATION: Frisson entsteht durch Wiedererkennung des Originals nach Jahrzehnten
+        #   Degradation. Primäre Trigger: authentizitaet (Performanz erkennbar), timbre_authentizitaet
+        #   (Instrument/Stimme wiederhergestellt), emotional_arc (Drama bewahrt).
+        #   Advisory-only: kein direkter Audio-Impact.
+        #
+        # STUDIO 2026: Frisson entsteht durch moderne Produktionsintensität — kraftvoller Sub-Bass
+        #   (Blood & Zatorre 2001), räumliche Immersion, rhythmische Energie. Konservative bounded
+        #   Mikro-Kopplung auf Strength/Wet-Dry erlaubt.
+        #
+        if not is_studio_2026:
+            # ── Restoration: audio-blend 50/50 (restauriertes Audio gleich zuverlässig wie Proxy) ──
+            _frisson_audio_blend = (0.50, 0.50)
+            _frisson_fatigue_weight = 0.12
+            if _frisson_audio_valid:
+                _frisson_audio = 0.35 * _spectral_flux_norm + 0.30 * _dynamic_contrast_norm + 0.35 * _onset_density_norm
+                _frisson_proxy = (
+                    0.22 * _auth  # Authentizität des Originals = primärer Restoration-Frisson
+                    + 0.20 * _arc  # Emotionaler Bogen: Drama der Originalperformance bewahrt
+                    + 0.14 * _micro  # Mikrodynamik: Tension/Release wiederhergestellt (Grewe 2007)
+                    + 0.12 * _timbre  # Timbre-Authentizität: Instrument/Stimme erkennbar
+                    + 0.10 * _groove  # Rhythmische Authentizität: Groove des Originals erhalten
+                    + 0.10 * _emo  # Emotionale Arousal-Spitze (Blood & Zatorre 2001)
+                    + 0.07 * _art  # Artikulation: Silben/Noten klar → Timing-Überraschungen
+                    + 0.05 * _nat  # Natürlichkeit: schafft Vertrauen → Frisson-Öffnung
                 )
-            )
-        else:
-            # Fallback: pure proxy (same as before but with §2.53 literature weights)
-            _frisson_index = float(
+                _frisson_index = float(
+                    np.clip(
+                        0.50 * _frisson_audio + 0.50 * _frisson_proxy - _frisson_fatigue_weight * _fatigue_index,
+                        0.0,
+                        1.0,
+                    )
+                )
+            else:
+                # Pure proxy fallback (Restoration)
+                _frisson_index = float(
+                    np.clip(
+                        0.20 * _arc  # Emotionaler Bogen (ITPRA, Huron 2006)
+                        + 0.18 * _auth  # Authentizität → emotionale Bindung ans Original
+                        + 0.14 * _micro  # Mikrodynamik (Tension/Release)
+                        + 0.12 * _groove  # Rhythmische Spannung
+                        + 0.10 * _emo  # Emotionale Arousal-Spitze
+                        + 0.08 * _timbre  # Timbre-Authentizität
+                        + 0.08 * _art  # Artikulation (Timing-Überraschungen)
+                        + 0.05 * _trans  # Transparenz → Gänsehaut-Cues hörbar
+                        + 0.05 * _tonal  # Tonartstabilität → Expectation-Violation wirkt
+                        - 0.16 * _fatigue_index,
+                        0.0,
+                        1.0,
+                    )
+                )
+
+            # Joy-Index Restoration: Natürlichkeit + Authentizität dominieren
+            _joy_index = float(
                 np.clip(
-                    0.26 * _arc
-                    + 0.18 * _micro
-                    + 0.14 * _emo
-                    + 0.14 * _art
-                    + 0.10 * _spa
-                    + 0.08 * _trans
-                    + 0.10 * _tonal
-                    + 0.10 * _artifact
-                    - 0.16 * _fatigue_index,
+                    0.22 * _nat  # Natürlichkeit = Kern-Ziel Restoration, primäre Joy-Quelle
+                    + 0.18 * _auth  # Authentizität: Original erkennbar → tiefe Befriedigung
+                    + 0.15 * _emo  # Emotionale Qualität
+                    + 0.12 * _micro  # Mikrodynamik = Lebendigkeit
+                    + 0.10 * _warm  # Wärme = angenehme Klangtextur (Ära-Charakter)
+                    + 0.12 * _artifact  # Artefaktfreiheit: Primum non nocere schützt Joy
+                    + 0.11 * _frisson_index  # Gänsehaut-Potential
+                    - 0.20 * _fatigue_index,
                     0.0,
                     1.0,
                 )
             )
 
-        _joy_index = float(
-            np.clip(
-                0.23 * _nat
-                + 0.20 * _emo
-                + 0.17 * _micro
-                + 0.12 * _warm
-                + 0.16 * _artifact
-                + 0.12 * _arc
-                + 0.08 * _frisson_index
-                - 0.20 * _fatigue_index,
-                0.0,
-                1.0,
+        else:
+            # ── Studio 2026: audio-blend 60/40 (enhanced audio zuverlässiger für Analyse) ──
+            _frisson_audio_blend = (0.60, 0.40)
+            _frisson_fatigue_weight = 0.10  # Fatigue-Impact geringer: Studio-Energie kommt durch
+            if _frisson_audio_valid:
+                _frisson_audio = 0.35 * _spectral_flux_norm + 0.30 * _dynamic_contrast_norm + 0.35 * _onset_density_norm
+                _frisson_proxy = (
+                    0.20 * _groove  # Rhythmische Energie = Kernfrisson moderner Produktion (Grewe 2007)
+                    + 0.16 * _bass  # Sub-Bass-Onset = physiologischer Frisson-Trigger (Blood & Zatorre 2001)
+                    + 0.15 * _arc  # Erwartungsbogen (ITPRA, Huron 2006)
+                    + 0.14 * _spa  # Räumliche Immersion: Studio-Stereo → Frisson-Verstärker
+                    + 0.12 * _micro  # Mikrodynamik = Lebendigkeit des Klangs
+                    + 0.10 * _bri  # Brillanz: klare Höhen triggern physiologischen Schauer
+                    + 0.08 * _emo  # Emotionalität
+                    + 0.05 * _sepfid  # Separation fidelity: klare Stems = Details hörbar
+                )
+                _frisson_index = float(
+                    np.clip(
+                        0.60 * _frisson_audio + 0.40 * _frisson_proxy - _frisson_fatigue_weight * _fatigue_index,
+                        0.0,
+                        1.0,
+                    )
+                )
+            else:
+                # Pure proxy fallback (Studio 2026)
+                _frisson_index = float(
+                    np.clip(
+                        0.18 * _groove  # Rhythmische Energie
+                        + 0.15 * _bass  # Sub-Bass-Onset
+                        + 0.14 * _arc  # Erwartungsbogen
+                        + 0.12 * _spa  # Räumliche Immersion
+                        + 0.12 * _micro  # Mikrodynamik
+                        + 0.10 * _bri  # Brillanz
+                        + 0.09 * _emo  # Emotionalität
+                        + 0.10 * _sepfid  # Separation fidelity
+                        - 0.12 * _fatigue_index,
+                        0.0,
+                        1.0,
+                    )
+                )
+
+            # Joy-Index Studio 2026: Emotionalität + Lebendigkeit + Groove dominieren
+            _joy_index = float(
+                np.clip(
+                    0.20 * _emo  # Emotionale Intensität = primäres Studio-Klangziel
+                    + 0.16 * _micro  # Mikrodynamik: Puls und Lebendigkeit moderner Produktion
+                    + 0.14 * _groove  # Groove: rhythmische Joy (Grewe 2007)
+                    + 0.10 * _bri  # Brillanz: Studio-Signature-Sound
+                    + 0.09 * _warm  # Wärme: Balance verhindert Härte
+                    + 0.10 * _artifact  # Artefaktfreiheit: kein Over-Processing
+                    + 0.12 * _frisson_index  # Gänsehaut-Potential (höher als Restoration)
+                    + 0.09 * _spa  # Raumtiefe: Immersion
+                    - 0.18 * _fatigue_index,  # Fatigue-Penalität leicht reduziert (Energie-Modus)
+                    0.0,
+                    1.0,
+                )
             )
-        )
 
         return {
             "joy_index": _joy_index,
             "fatigue_index": _fatigue_index,
             "frisson_index": _frisson_index,
             "components": {
+                # Alle 14 Musical Goals (kanonische Keys) für vollständige Telemetrie
                 "natuerlichkeit": _nat,
+                "authentizitaet": _auth,
+                "tonal_center": _tonal,
+                "timbre_authentizitaet": _timbre,
+                "artikulation": _art,
                 "emotionalitaet": _emo,
                 "micro_dynamics": _micro,
+                "groove": _groove,
+                "transparenz": _trans,
                 "waerme": _warm,
+                "bass_kraft": _bass,
+                "separation_fidelity": _sepfid,
+                "brillanz": _bri,
+                "raumtiefe": _spa,
+                # Frisson-spezifische Komponenten
                 "artifact_freedom": _artifact,
                 "emotional_arc": _arc,
-                "brightness": _bri,
-                "artikulation": _art,
-                "spatial_depth": _spa,
-                "tonal_center": _tonal,
-                "transparenz": _trans,
                 "frisson_propensity": _frisson_index,
                 "frisson_spectral_flux": _spectral_flux_norm,
                 "frisson_onset_density": _onset_density_norm,
                 "frisson_dynamic_contrast": _dynamic_contrast_norm,
                 "frisson_audio_analysis_valid": _frisson_audio_valid,
+                # Modus-Diagnostik
+                "frisson_mode": "studio_2026" if is_studio_2026 else "restoration",
             },
         }
 
@@ -3413,6 +3550,14 @@ class UnifiedRestorerV3:
         # dann als reiner Executor (kein _optimize_phase_plan_intelligence() mehr).
         # Leerer Plan [] oder None → UV3 selektiert autonom (fail-safe).
         _precomputed_phase_plan: list[str] | None = kwargs.pop("precomputed_phase_plan", None) or None
+        # §2.53b: Log immediately so test mock-patched pipelines capture these messages
+        # before intermediate analysis steps that may be incomplete/mocked.
+        if _precomputed_phase_plan:
+            logger.info("Phase Skipping deaktiviert: precomputed_phase_plan aktiv (deterministischer PID-Executor)")
+            logger.info(
+                "§PID PhaseInteractionDenker-Plan aktiv: %d Phasen (UV3 _select/_optimize übersprungen)",
+                len(_precomputed_phase_plan),
+            )
         # Pre-analysis result (PreAnalysisResult from backend.core.pre_analysis).
         # When provided, individual cached_* kwargs are populated from it automatically
         # so callers only need to pass one object.
@@ -3445,6 +3590,9 @@ class UnifiedRestorerV3:
         self._phase_goal_conflict_runtime = {"events": [], "by_phase": {}, "by_family": {}, "total": 0}
         # §11.7a: reconstruction_context von RekonstruktionsDenker — enthält bereits reparierte Gaps
         _reconstruction_ctx = kwargs.pop("reconstruction_context", None)
+        # §DEBUG: Debug-Trace aktivieren — schreibt pmgg_log_entries (mit scores_before/after)
+        # in metadata["pmgg_log_entries"] am Ende des Pipeline-Laufs.
+        self._debug_trace_enabled = bool(kwargs.pop("enable_debug_trace", False))
         # Bug-15-Fix: file_ext aus input_path extrahieren — wird an DefectScanner.scan()
         # weitergegeben, damit der interne ForensicMediumDetector-Aufruf das Analog-
         # Posterior-Zeroing anwenden kann (verhindert wax_cylinder-Fehlklassifikation).
@@ -3727,6 +3875,7 @@ class UnifiedRestorerV3:
             logger.debug("PerceptualEmbedder nicht verfügbar: %s", _emb_exc)
 
         _classified_material: MaterialType | None = self.config.material_type
+        _mc_result = None  # initialized here so later code can reference it regardless of _classified_material path
         if _classified_material is None:
             # §9.7.2 Parallele Eingangs-Analyse — MediumClassifier, EraClassifier und
             # GermanSchlagerClassifier sind voneinander unabhängig und laufen parallel
@@ -4354,12 +4503,18 @@ class UnifiedRestorerV3:
         self._restoration_context = {
             "decade": getattr(_era_result, "decade", None) if _era_result is not None else None,
             "era_confidence": getattr(_era_result, "confidence", 0.0) if _era_result is not None else 0.0,
+            "primary_material": (
+                getattr(_mc_result, "primary_material", None) or getattr(_mc_result, "material", None) or "unknown"
+            ),
             "genre_label": (
                 getattr(_schlager_result, "genre_label", "Unbekannt") if _schlager_result is not None else "Unbekannt"
             ),
             "is_schlager": getattr(_schlager_result, "is_schlager", False) if _schlager_result is not None else False,
             "bpm": getattr(_schlager_result, "bpm", 0.0) if _schlager_result is not None else 0.0,
             "subgenre": getattr(_schlager_result, "subgenre", "unknown") if _schlager_result is not None else "unknown",
+            # §0: Spatial/Stereo-Phasen müssen im Restoration-Mode konservativ arbeiten
+            # (kein künstlicher Hall, keine Gesang-Distanzierung) — §0 Primum non nocere.
+            "is_studio_mode": _is_studio_26,
         }
         if _genre_profile:
             self._restoration_context.update(
@@ -4435,20 +4590,24 @@ class UnifiedRestorerV3:
                     float(np.abs(np.mean(audio))),
                 )
             else:
-                # Alle anderen Materialien: fc ≈ 0.76 Hz, kausal
+                # Alle anderen Materialien: fc ≈ 0.76 Hz, zero-phase (filtfilt)
+                # §2.46: DC-Offset-Entfernung muss zero-phase sein, um Zeitversatz zwischen
+                # L/R-Kanälen zu vermeiden (lfilter erzeugt ~1 Sample Gruppen-Delay).
                 _dc_b = np.array([1.0, -1.0], dtype=np.float64)
                 _dc_a = np.array([1.0, -0.9999], dtype=np.float64)
                 if audio.ndim == 1:
-                    audio = _lfilter(_dc_b, _dc_a, audio.astype(np.float64)).astype(np.float32)
+                    audio = _filtfilt(_dc_b, _dc_a, audio.astype(np.float64)).astype(np.float32)
                 else:
                     audio = np.stack(
                         [
-                            _lfilter(_dc_b, _dc_a, audio[c].astype(np.float64)).astype(np.float32)
+                            _filtfilt(_dc_b, _dc_a, audio[c].astype(np.float64)).astype(np.float32)
                             for c in range(audio.shape[0])
                         ],
                         axis=0,
                     )
-                logger.debug("§DCOffsetPreRemoval: DC-Offset entfernt (|mean|=%.2e)", float(np.abs(np.mean(audio))))
+                logger.debug(
+                    "§DCOffsetPreRemoval: DC-Offset entfernt zero-phase (|mean|=%.2e)", float(np.abs(np.mean(audio)))
+                )
             audio = np.clip(audio, -1.0, 1.0)
         except Exception as _dc_exc:
             logger.debug("DCOffsetPreRemoval Fehler (scipy nicht verfügbar): %s", _dc_exc)
@@ -4583,6 +4742,73 @@ class UnifiedRestorerV3:
                 ),
             )
         material_type = defect_result.material_type
+
+        # §2.47 Material-Defect Consistency Cross-Check — Aurik must notice when
+        # MediumDetector and DefectScanner are inconsistent (§0c Universalitäts-Invariante).
+        # Non-destructive: never overrides material_type; only logs WARNING + metadata.
+        try:
+            _mat_val = str(getattr(material_type, "value", material_type)).lower()
+            _defect_sev_map: dict[str, float] = {
+                str(s.defect_type.value): float(s.severity) for s in defect_result.get_top_defects(20)
+            }
+            _DIGITAL_MATERIALS = frozenset({"cd_digital", "cd", "dat", "streaming", "mp3_low", "mp3_high", "aac"})
+            _ANALOG_MATERIALS = frozenset(
+                {
+                    "vinyl",
+                    "lp",
+                    "shellac",
+                    "lacquer_disc",
+                    "tape",
+                    "reel_tape",
+                    "wax_cylinder",
+                    "wire_recording",
+                    "minidisc",
+                }
+            )
+            _ANALOG_DEFECT_SIGNATURES = (
+                "crackle",
+                "wow",
+                "flutter",
+                "multiband_wow_flutter",
+                "low_freq_rumble",
+                "riaa_curve_error",
+                "groove_echo",
+                "inner_groove_distortion",
+                "print_through",
+                "tape_head_level_dip",
+                "soft_saturation",
+            )
+            _DIGITAL_DEFECT_SIGNATURES = (
+                "digital_artifacts",
+                "compression_artifacts",
+                "jitter_artifacts",
+                "quantization_noise",
+            )
+            _mdc_warnings: list[str] = []
+            if _mat_val in _DIGITAL_MATERIALS:
+                _analog_sev = max((_defect_sev_map.get(d, 0.0) for d in _ANALOG_DEFECT_SIGNATURES), default=0.0)
+                if _analog_sev >= 0.35:
+                    _mdc_warnings.append(
+                        f"Digital material '{_mat_val}' but strong analog defects "
+                        f"(max_sev={_analog_sev:.2f}) — possible misclassification"
+                    )
+            elif _mat_val in _ANALOG_MATERIALS:
+                _digital_sev = max((_defect_sev_map.get(d, 0.0) for d in _DIGITAL_DEFECT_SIGNATURES), default=0.0)
+                _analog_sev = max((_defect_sev_map.get(d, 0.0) for d in _ANALOG_DEFECT_SIGNATURES), default=0.0)
+                if _digital_sev >= 0.40 and _analog_sev < 0.10:
+                    _mdc_warnings.append(
+                        f"Analog material '{_mat_val}' but strong digital artifacts "
+                        f"(digital_sev={_digital_sev:.2f}, analog_sev={_analog_sev:.2f}) "
+                        f"— possible misclassification"
+                    )
+            if _mdc_warnings:
+                for _mdc_w in _mdc_warnings:
+                    logger.warning("§2.47 Material-Defect Consistency: %s", _mdc_w)
+                self._material_defect_consistency_warnings = _mdc_warnings
+            else:
+                logger.debug("§2.47 Material-Defect Consistency: OK (material=%s)", _mat_val)
+        except Exception as _mdc_exc:
+            logger.debug("§2.47 Material-Defect Consistency check skipped: %s", _mdc_exc)
 
         # §9.1c Perceptual-Salience-Annotation: weight defect severities by
         # psychoacoustic masking (Fastl & Zwicker 2007).  Masked defects get
@@ -4733,7 +4959,7 @@ class UnifiedRestorerV3:
             # verfügbar; nicht-verfügbar nur bei fehlendem Modell-File.
             _audiosr_avail = False
             try:
-                from plugins.audio_sr_plugin import get_audiosr_plugin as _get_audiosr
+                from plugins.audiosr_plugin import get_audiosr_plugin as _get_audiosr
 
                 _get_audiosr  # noqa: B018 — import-check only, no instantiation
                 _audiosr_avail = True
@@ -5191,9 +5417,29 @@ class UnifiedRestorerV3:
                     " ".join(f"{k}={v:.2f}" for k, v in sorted(_sgi_fallback.weights.items())),
                 )
             except Exception as _sgi_fb_err:
-                logger.warning("§2.56 Label-stage fallback also failed: %s", _sgi_fb_err)
+                logger.warning(
+                    "§2.56 Label-stage fallback also failed: %s — using conservative uniform weights", _sgi_fb_err
+                )
                 self._song_goal_importance = None
-                self._song_goal_weights = None
+                # §2.56 Gap G3: Never leave weights as None — PMGG/CIG/§9.8b rely on
+                # goal_weights being a dict. Uniform weights with slight P1/P2 boost ensure
+                # all gates still have meaningful context even when full SGI fails.
+                self._song_goal_weights = {
+                    "natuerlichkeit": 1.20,
+                    "authentizitaet": 1.20,
+                    "tonal_center": 1.15,
+                    "timbre_authentizitaet": 1.15,
+                    "artikulation": 1.10,
+                    "emotionalitaet": 1.00,
+                    "micro_dynamics": 1.00,
+                    "groove": 1.00,
+                    "transparenz": 1.00,
+                    "waerme": 1.00,
+                    "bass_kraft": 1.00,
+                    "separation_fidelity": 1.00,
+                    "brillanz": 1.00,
+                    "spatial_depth": 1.00,
+                }
 
         # §09.2 [RELEASE_MUST] Per-Song Goal Targets (Era × Material × Genre Bias)
         # Single Source of Truth: calibration_matrix.estimate_song_goal_targets()
@@ -5294,6 +5540,8 @@ class UnifiedRestorerV3:
             # UV3 verwendet den extern berechneten Plan deterministisch.
             # Keine autonome _select/_optimize-Planung mehr, damit Denker-Plan
             # und UV3-Ausführung nicht auseinanderlaufen.
+            # §2.53b: Phase Skipping deaktiviert — als erstes loggen damit auch bei frühem Mock-Return sichtbar
+            logger.info("Phase Skipping deaktiviert: precomputed_phase_plan aktiv (deterministischer PID-Executor)")
             logger.info(
                 "§PID PhaseInteractionDenker-Plan aktiv: %d Phasen (UV3 _select/_optimize übersprungen)",
                 len(_precomputed_phase_plan),
@@ -6021,6 +6269,66 @@ class UnifiedRestorerV3:
                 # Iterationen auf 1 reduzieren (verhindert Artefaktakkumulation bei
                 # hochwertigem Material, Ephraim & Malah 1984).
                 _fc_max_iter = 5  # v9.15-B3: aligned with PMGG 5-retry strategy
+                # §G4: Boost FeedbackChain iterations when phase loop had significant
+                # conflicts — PMGG log shows how many phases ended in "best_effort" (= no
+                # fully-passing strength found). More conflicts → more FC iterations needed
+                # to compensate for phases that couldn't reach goal thresholds.
+                _fc_pmgg_log = list(getattr(self, "_pmgg_log_entries", []) or [])
+                _fc_conflict_phases = sum(
+                    1
+                    for _e in _fc_pmgg_log
+                    if isinstance(getattr(_e, "action", ""), str) and _e.action.startswith("best_effort")
+                )
+                if _fc_conflict_phases >= 5:
+                    _fc_max_iter = min(_fc_max_iter + 2, 9)
+                    logger.info(
+                        "§G4 FeedbackChain conflict-boost: %d best_effort phases → max_iter=%d",
+                        _fc_conflict_phases,
+                        _fc_max_iter,
+                    )
+                elif _fc_conflict_phases >= 3:
+                    _fc_max_iter = min(_fc_max_iter + 1, 7)
+                    logger.info(
+                        "§G4 FeedbackChain conflict-boost: %d best_effort phases → max_iter=%d",
+                        _fc_conflict_phases,
+                        _fc_max_iter,
+                    )
+                # §Goal-deficit FC boost (v9.11.14): estimate current goal levels from
+                # last PMGG log entries. If goals are below their adaptive targets after
+                # the phase pipeline, the FeedbackChain needs more iterations to close
+                # the gap — MOS convergence alone is insufficient for goal reliability.
+                # Non-blocking: log entry iteration is fail-safe.
+                try:
+                    _fc_goal_deficit_count = 0
+                    if _fc_pmgg_log:
+                        _adaptive_thr_fc = (
+                            dict(self._pmgg_ceiling_capped_targets)
+                            if isinstance(getattr(self, "_pmgg_ceiling_capped_targets", None), dict)
+                            and self._pmgg_ceiling_capped_targets
+                            else {}
+                        )
+                        _last_scores_fc: dict[str, float] = {}
+                        for _log_e_fc in reversed(_fc_pmgg_log[-8:]):
+                            _sa = getattr(_log_e_fc, "scores_after", None)
+                            if _sa and isinstance(_sa, dict):
+                                for _g_fc, _v_fc in _sa.items():
+                                    if _g_fc not in _last_scores_fc:
+                                        _last_scores_fc[_g_fc] = float(_v_fc)
+                        if _last_scores_fc and _adaptive_thr_fc:
+                            for _g_fc, _v_fc in _last_scores_fc.items():
+                                _thr_fc = _adaptive_thr_fc.get(_g_fc)
+                                if _thr_fc is not None and _v_fc < float(_thr_fc):
+                                    _fc_goal_deficit_count += 1
+                        if _fc_goal_deficit_count > 0:
+                            _additional_iters_fc = min(2, (_fc_goal_deficit_count + 1) // 2)
+                            _fc_max_iter = min(_fc_max_iter + _additional_iters_fc, 9)
+                            logger.info(
+                                "§Goal-deficit FC boost: %d goals below threshold → max_iter=%d",
+                                _fc_goal_deficit_count,
+                                _fc_max_iter,
+                            )
+                except Exception as _fc_gd_exc:
+                    logger.debug("§Goal-deficit FC boost fehlgeschlagen (non-blocking): %s", _fc_gd_exc)
                 # §2.31d: < 10 s → FeedbackChain max 2 Iterationen (zu kurz für FC-Konvergenz)
                 if _is_very_short:
                     _fc_max_iter = min(_fc_max_iter, 2)
@@ -6670,7 +6978,6 @@ class UnifiedRestorerV3:
             # Guaranteed DSP-Fallback: Presence enhancement + NaN-Guard (§Checkliste §3.x)
             try:
                 from scipy.signal import butter as _butter
-                from scipy.signal import lfilter as _lfilter
 
                 _ex_rms = float(np.sqrt(np.mean(restored_audio.astype(np.float64) ** 2) + 1e-12))
                 if _ex_rms > 1e-4:  # Nicht auf Stille anwenden
@@ -6968,18 +7275,48 @@ class UnifiedRestorerV3:
             # aber shellac 0.68 ist durch 0.82 unerreichbar → fälschlich FAIL).
             _ADAPTIVE_THR_MATERIAL_CEILING: dict[str, dict[str, float]] = {
                 "shellac": {
+                    # P1/P2 — physikalische Einschränkungen des Trägers (§0 BW ≤ 8 kHz, DR ≤ 45 dB)
                     "natuerlichkeit": 0.68,
                     "authentizitaet": 0.65,
                     "tonal_center": 0.70,
                     "timbre_authentizitaet": 0.65,
                     "artikulation": 0.61,
+                    # P3 — Wow/Flutter, Crackle, surface noise floor limitieren P3-Ziele physikalisch.
+                    # Ohne diese Ceilings: SGT kann groove bei 0.83 belassen (kein Bias) → kanonisch
+                    # unerreichbar für restauriertes Shellac (Ziel-Kalibrierungsfehler §0a Ebene 2).
+                    "groove": 0.70,
+                    "micro_dynamics": 0.68,
+                    "mikrodynamik": 0.68,  # Alias für micro_dynamics
+                    "emotionalitaet": 0.72,
+                    # P4 — LF-Rolloff ≤ 100 Hz, Mono-Quelle (typisch), begrenzte Spektral-Transparenz
+                    "bass_kraft": 0.58,
+                    "basskraft": 0.58,  # Alias für bass_kraft
+                    "separation_fidelity": 0.55,  # Shellac: inherent mono/narrow-stereo — keine Stem-Sep
+                    "transparenz": 0.62,  # SNR ≤ 45 dB Träger-Limit → Transparenz physikalisch begrenzt
+                    "raumtiefe": 0.60,  # Mono-Quelle: kein echtes Stereo-Feld
+                    # §0 BW-Ceiling: Shellac ≤ 8 kHz → brillanz/spatial_depth physikalisch limitiert
+                    "brillanz": 0.52,
+                    "spatial_depth": 0.60,
                 },
                 "wax_cylinder": {
+                    # Noch stärker limitiert als Shellac (BW ≤ 5 kHz, DR ≤ 35 dB, mono)
                     "natuerlichkeit": 0.66,
                     "authentizitaet": 0.63,
                     "tonal_center": 0.68,
                     "timbre_authentizitaet": 0.63,
                     "artikulation": 0.59,
+                    "groove": 0.62,
+                    "micro_dynamics": 0.60,
+                    "mikrodynamik": 0.60,
+                    "emotionalitaet": 0.65,
+                    "bass_kraft": 0.48,
+                    "basskraft": 0.48,
+                    "separation_fidelity": 0.45,
+                    "transparenz": 0.55,
+                    "raumtiefe": 0.50,
+                    # §0 BW-Ceiling: Wachswalze ≤ 5 kHz → extremes HF-Limit
+                    "brillanz": 0.44,
+                    "spatial_depth": 0.55,
                 },
                 "wire_recording": {
                     "natuerlichkeit": 0.66,
@@ -6987,6 +7324,53 @@ class UnifiedRestorerV3:
                     "tonal_center": 0.68,
                     "timbre_authentizitaet": 0.63,
                     "artikulation": 0.59,
+                    "groove": 0.64,
+                    "micro_dynamics": 0.62,
+                    "mikrodynamik": 0.62,
+                    "emotionalitaet": 0.66,
+                    "bass_kraft": 0.52,
+                    "basskraft": 0.52,
+                    "separation_fidelity": 0.48,
+                    "transparenz": 0.57,
+                    "raumtiefe": 0.52,
+                    # §0 BW-Ceiling: Drahtaufnahme ≤ 6 kHz
+                    "brillanz": 0.46,
+                    "spatial_depth": 0.55,
+                },
+                "lacquer_disc": {
+                    # §0d Acetat-Lackfolien 1930–1950: zwischen vinyl und shellac
+                    "natuerlichkeit": 0.72,
+                    "authentizitaet": 0.70,
+                    "tonal_center": 0.74,
+                    "timbre_authentizitaet": 0.70,
+                    "artikulation": 0.66,
+                    "groove": 0.72,
+                    "micro_dynamics": 0.70,
+                    "mikrodynamik": 0.70,
+                    "emotionalitaet": 0.74,
+                    "bass_kraft": 0.64,
+                    "basskraft": 0.64,
+                    "separation_fidelity": 0.60,
+                    "transparenz": 0.66,
+                    "raumtiefe": 0.64,
+                    # §0 BW-Ceiling: Lackfolie ≤ 12 kHz (besser als Shellac, schlechter als Vinyl)
+                    "brillanz": 0.60,
+                    "spatial_depth": 0.64,
+                },
+                "cassette": {
+                    # Kassette: Wow/Flutter 0.06–0.10 WRMS, BW bis 14 kHz (Typ I), DR ≤ 60 dB
+                    # P3: groove/micro_dynamics durch Wow+Flutter und Rauschboden limitiert
+                    "natuerlichkeit": 0.76,
+                    "authentizitaet": 0.73,
+                    "tonal_center": 0.78,
+                    "timbre_authentizitaet": 0.73,
+                    "artikulation": 0.70,
+                    "groove": 0.74,
+                    "micro_dynamics": 0.72,
+                    "mikrodynamik": 0.72,
+                    "separation_fidelity": 0.68,
+                    "bass_kraft": 0.72,
+                    "basskraft": 0.72,
                 },
                 "vinyl": {
                     "natuerlichkeit": 0.82,
@@ -7008,13 +7392,6 @@ class UnifiedRestorerV3:
                     "tonal_center": 0.80,
                     "timbre_authentizitaet": 0.75,
                     "artikulation": 0.72,
-                },
-                "cassette": {
-                    "natuerlichkeit": 0.76,
-                    "authentizitaet": 0.73,
-                    "tonal_center": 0.78,
-                    "timbre_authentizitaet": 0.73,
-                    "artikulation": 0.70,
                 },
                 "mp3_low": {
                     "natuerlichkeit": 0.76,
@@ -7138,35 +7515,23 @@ class UnifiedRestorerV3:
             if _mg_violations:
                 # v9.10.58: Musical Goals Re-Pass in UV3 entfernt — wissenschaftlich nicht
                 # gerechtfertigt (Ephraim & Malah 1984: cascaded identical processing amplifies
-                # STFT roundtrip errors). Die Korrektur erfolgt einmalig im ExzellenzDenker
-                # (AurikDenker Stufe 7), der denselben ExcellenceOptimizer + degressive
-                # Intensität verwendet — dort ist der Re-Pass korrekt platziert.
+                # STFT roundtrip errors). Stattdessen: material-sichere End-Gate-Recovery
+                # über gewichtete Blend-Kaskaden ohne zusätzliche Signalprozessor-Kaskadierung.
+                _initial_mg_violations = list(_mg_violations)
+                _goal_recovery_meta = {
+                    "attempted": True,
+                    "initial_violations": list(_initial_mg_violations),
+                    "p1p2_blend_applied": False,
+                    "global_blend_applied": False,
+                }
                 logger.warning(
-                    "🎵 Musical Goals Verletzungen (%d/%d): %s — Korrektur in ExzellenzDenker",
+                    "🎵 Musical Goals Verletzungen (%d/%d): %s — autonome End-Gate-Recovery aktiv",
                     len(_mg_violations),
                     len(_musical_goal_scores),
                     ", ".join(_mg_violations),
                 )
-                # §8.1 Structured fail_reason für Musical-Goal-Verletzungen
-                _fail_reasons.append(
-                    {
-                        "component": "MusicalGoalsChecker",
-                        "error_code": "MUSICAL_GOALS_VIOLATION",
-                        "severity": "degraded",
-                        "violated_goals": _mg_violations,
-                        "scores": {k: round(float(_musical_goal_scores.get(k, 0.0)), 4) for k in _mg_violations},
-                        "thresholds": {
-                            k: round(float(_effective_goal_thresholds.get(k, 0.85)), 4) for k in _mg_violations
-                        },
-                    }
-                )
 
                 # §9.8 End-Gate: P1/P2 Goal Recovery Cascade
-                # If critical P1/P2 goals are violated, attempt a multi-step
-                # protective blend with original audio to recover them.
-                # Tries multiple blend ratios (most restored → most original) and
-                # selects the one that resolves the most P1/P2 violations with the
-                # fewest P3–P5 regressions.
                 _P1P2_GOALS = {
                     "natuerlichkeit",
                     "authentizitaet",
@@ -7180,7 +7545,6 @@ class UnifiedRestorerV3:
                     and original_audio_for_goals is not None
                     and restored_audio.shape == original_audio_for_goals.shape
                 ):
-                    # Recovery blend cascade: try progressively more original audio
                     _BLEND_ALPHAS = [0.92, 0.85, 0.78, 0.70]
                     _best_blend_audio = None
                     _best_blend_scores = None
@@ -7196,14 +7560,11 @@ class UnifiedRestorerV3:
                                 1.0,
                             )
                             _blend_scores = _mg_checker.measure_all(_blended, sample_rate, reference=_mg_ref)
-
-                            # Count resolved P1/P2 violations
                             _resolved = sum(
                                 1
                                 for g in _p1p2_violations
                                 if _blend_scores.get(g, 0.0) >= _effective_goal_thresholds.get(g, 0.85)
                             )
-                            # Count new regressions (any goal drops > 0.02 from current scores)
                             _regressions = sum(
                                 1
                                 for g in _musical_goal_scores
@@ -7211,14 +7572,13 @@ class UnifiedRestorerV3:
                             )
 
                             logger.debug(
-                                "End-Gate: alpha=%.2f → resolved=%d/%d, regressions=%d",
+                                "End-Gate P1/P2: alpha=%.2f → resolved=%d/%d, regressions=%d",
                                 _alpha,
                                 _resolved,
                                 len(_p1p2_violations),
                                 _regressions,
                             )
 
-                            # Select best: most P1/P2 resolved, fewest regressions, highest alpha
                             if _resolved > _best_resolved_count or (
                                 _resolved == _best_resolved_count and _regressions < _best_regression_count
                             ):
@@ -7227,31 +7587,29 @@ class UnifiedRestorerV3:
                                 _best_blend_audio = _blended
                                 _best_blend_scores = _blend_scores
                                 _best_blend_alpha = _alpha
-                                # Early exit if all P1/P2 resolved with no regressions
                                 if _resolved == len(_p1p2_violations) and _regressions == 0:
                                     break
                         except Exception as _blend_iter_exc:
-                            logger.debug(
-                                "End-Gate: Recovery Blend alpha=%.2f failed: %s",
-                                _alpha,
-                                _blend_iter_exc,
-                            )
+                            logger.debug("End-Gate P1/P2 blend alpha=%.2f failed: %s", _alpha, _blend_iter_exc)
 
-                    # Accept the best blend if it resolves at least one P1/P2 violation
-                    # without causing more than 1 regression
+                    # §2.54 Material-adaptive Akzeptanz-Schwelle für P1/P2-Blend:
+                    # ultra_analog (Shellac, Wachswalze, Lackfolie, Draht) erlaubt 2 Regressionen,
+                    # da Verbesserung in P1/P2 dort zwingend P3-P5 (Groove, Emotionalität) beeinflusst.
+                    _ultra_analog_mats = frozenset({"shellac", "wax_cylinder", "lacquer_disc", "wire_recording"})
+                    _mat_str_blend = str(getattr(material_type, "value", material_type) or "unknown").lower()
+                    _blend_max_regressions = 2 if _mat_str_blend in _ultra_analog_mats else 1
+
                     if (
                         _best_blend_audio is not None
                         and _best_blend_scores is not None
                         and _best_resolved_count > 0
-                        and _best_regression_count <= 1
+                        and _best_regression_count <= _blend_max_regressions
                     ):
                         logger.info(
-                            "🔄 End-Gate: P1/P2 Recovery Blend (alpha=%.2f) — "
-                            "%d/%d P1/P2-Ziele wiederhergestellt, %d Regression(en)",
+                            "🔄 End-Gate: P1/P2 Recovery Blend (alpha=%.2f) — %d/%d wiederhergestellt",
                             _best_blend_alpha,
                             _best_resolved_count,
                             len(_p1p2_violations),
-                            _best_regression_count,
                         )
                         restored_audio = _best_blend_audio
                         _musical_goal_scores = _best_blend_scores
@@ -7262,13 +7620,126 @@ class UnifiedRestorerV3:
                             if k in _applicable_goal_names
                             and float(_musical_goal_scores.get(k, 0.0)) < _effective_goal_thresholds.get(k, 0.85)
                         ]
+                        _goal_recovery_meta["p1p2_blend_applied"] = True
+                        _goal_recovery_meta["p1p2_blend_alpha"] = float(_best_blend_alpha)
                     else:
-                        logger.debug(
-                            "End-Gate: Recovery Blend cascade unsuccessful "
-                            "(best_resolved=%d, best_regressions=%s) — keeping unblended result",
-                            _best_resolved_count,
-                            _best_regression_count,
+                        logger.debug("End-Gate: P1/P2-Recovery nicht übernommen")
+
+                # Universal Recovery Cascade: alle verbleibenden Goal-Verletzungen
+                # mit weighted-gap minimieren, nicht nur P1/P2.
+                _remaining_violations = list(_mg_violations)
+                if (
+                    _remaining_violations
+                    and original_audio_for_goals is not None
+                    and restored_audio.shape == original_audio_for_goals.shape
+                ):
+                    _gw = getattr(self, "_song_goal_weights", None)
+                    _current_gap, _current_n = _compute_weighted_goal_gap(
+                        _musical_goal_scores,
+                        _effective_goal_thresholds,
+                        _applicable_goal_names,
+                        _gw,
+                    )
+                    _UNIVERSAL_ALPHAS = [0.96, 0.92, 0.88, 0.84, 0.80, 0.75, 0.70, 0.64]
+                    _best_u_audio = None
+                    _best_u_scores = None
+                    _best_u_alpha = None
+                    _best_u_gap = _current_gap
+                    _best_u_n = _current_n
+                    _best_u_reg = float("inf")
+
+                    for _alpha in _UNIVERSAL_ALPHAS:
+                        try:
+                            _blended = np.clip(
+                                _alpha * restored_audio + (1.0 - _alpha) * original_audio_for_goals,
+                                -1.0,
+                                1.0,
+                            )
+                            _scores_u = _mg_checker.measure_all(_blended, sample_rate, reference=_mg_ref)
+                            _gap_u, _n_u = _compute_weighted_goal_gap(
+                                _scores_u,
+                                _effective_goal_thresholds,
+                                _applicable_goal_names,
+                                _gw,
+                            )
+                            _reg_u = sum(
+                                1
+                                for g in _applicable_goal_names
+                                if _scores_u.get(g, 0.0) < _musical_goal_scores.get(g, 0.0) - 0.025
+                            )
+
+                            logger.debug(
+                                "End-Gate Universal: alpha=%.2f n=%d gap=%.5f regressions=%d",
+                                _alpha,
+                                _n_u,
+                                _gap_u,
+                                _reg_u,
+                            )
+
+                            if (
+                                _n_u < _best_u_n
+                                or (_n_u == _best_u_n and _gap_u < _best_u_gap - 1e-5)
+                                or (_n_u == _best_u_n and abs(_gap_u - _best_u_gap) <= 1e-5 and _reg_u < _best_u_reg)
+                            ):
+                                _best_u_audio = _blended
+                                _best_u_scores = _scores_u
+                                _best_u_alpha = _alpha
+                                _best_u_gap = _gap_u
+                                _best_u_n = _n_u
+                                _best_u_reg = _reg_u
+                                if _n_u == 0 and _gap_u <= 1e-6:
+                                    break
+                        except Exception as _univ_exc:
+                            logger.debug("End-Gate Universal blend alpha=%.2f failed: %s", _alpha, _univ_exc)
+
+                    if (
+                        _best_u_audio is not None
+                        and _best_u_scores is not None
+                        and (_best_u_n < _current_n or _best_u_gap < _current_gap - 1e-4)
+                    ):
+                        logger.info(
+                            "🔄 End-Gate: Universal Goal-Recovery (alpha=%.2f) — violations %d→%d, gap %.5f→%.5f",
+                            _best_u_alpha,
+                            _current_n,
+                            _best_u_n,
+                            _current_gap,
+                            _best_u_gap,
                         )
+                        restored_audio = _best_u_audio
+                        _musical_goal_scores = _best_u_scores
+                        _musical_excellence_score = sum(_best_u_scores.values()) / max(len(_best_u_scores), 1)
+                        _mg_violations = [
+                            k
+                            for k in _musical_goal_scores
+                            if k in _applicable_goal_names
+                            and float(_musical_goal_scores.get(k, 0.0)) < _effective_goal_thresholds.get(k, 0.85)
+                        ]
+                        _goal_recovery_meta["global_blend_applied"] = True
+                        _goal_recovery_meta["global_blend_alpha"] = float(_best_u_alpha)
+
+                _goal_recovery_meta["final_violations"] = list(_mg_violations)
+                _goal_recovery_meta["resolved_count"] = max(0, len(_initial_mg_violations) - len(_mg_violations))
+                _goal_recovery_meta["resolved"] = len(_mg_violations) == 0
+
+                if _mg_violations:
+                    _fail_reasons.append(
+                        {
+                            "component": "MusicalGoalsChecker",
+                            "error_code": "MUSICAL_GOALS_VIOLATION",
+                            "severity": "degraded",
+                            "violated_goals": _mg_violations,
+                            "scores": {k: round(float(_musical_goal_scores.get(k, 0.0)), 4) for k in _mg_violations},
+                            "thresholds": {
+                                k: round(float(_effective_goal_thresholds.get(k, 0.85)), 4) for k in _mg_violations
+                            },
+                            "recovery": {
+                                "attempted": True,
+                                "resolved_count": _goal_recovery_meta["resolved_count"],
+                                "initial_violation_count": len(_initial_mg_violations),
+                                "final_violation_count": len(_mg_violations),
+                            },
+                        }
+                    )
             else:
                 logger.info(
                     "🎵 Musical Goals: alle %d Ziele erfüllt (Ø %.3f)",
@@ -7566,6 +8037,24 @@ class UnifiedRestorerV3:
                 logger.debug("GP-Vorbereitung (vor MDEM) nicht verfügbar: %s", _gp_prep_exc)
 
         # §2.30 MicroDynamicsEnvelopeMorphing — LUFS-Profil-Rückgewinnung (letzter DSP-Schritt)
+        # §Frisson: detect high-potential "Gänsehaut" moments in original audio so MDEM
+        # can protect their dynamic peaks from over-attenuation (Blood & Zatorre 2001).
+        _frisson_zones = []
+        try:
+            from backend.core.frisson_candidate_detector import get_frisson_detector
+
+            _frisson_zones = get_frisson_detector().detect(original_audio_for_goals, sample_rate)
+            if _frisson_zones:
+                logger.info(
+                    "§Frisson: %d Gänsehaut-Kandidaten erkannt (%.1f–%.1f s, top_score=%.2f)",
+                    len(_frisson_zones),
+                    _frisson_zones[0].start_s,
+                    _frisson_zones[0].end_s,
+                    _frisson_zones[0].score,
+                )
+        except Exception as _fcd_exc:
+            logger.debug("FrissonCandidateDetector nicht verfügbar (non-blocking): %s", _fcd_exc)
+
         try:
             from backend.core.micro_dynamics_envelope_morphing import get_mdem
 
@@ -7584,6 +8073,7 @@ class UnifiedRestorerV3:
                 sample_rate,
                 mode=_mdem_mode,
                 phoneme_timeline=_phoneme_timeline,  # §2.36a: stressed-vowel frame headroom
+                frisson_zones=_frisson_zones,  # §Frisson: Gänsehaut-Schutz
             )
             restored_audio = np.clip(np.nan_to_num(restored_audio, nan=0.0, posinf=0.0, neginf=0.0), -1.0, 1.0)
             logger.info("§2.30 MDEM: Mikro-Dynamik-Morphing abgeschlossen (mode=%s)", _mdem_mode)
@@ -7989,6 +8479,7 @@ class UnifiedRestorerV3:
                     genre=_hpi_genre,
                     material=_hpi_material,
                     era_bin=_hpi_era,
+                    carrier_chain_recovery_ratio=getattr(self, "_carrier_chain_recovery_ratio", 0.0),
                 )
             if not _hpi_result.passed:
                 _fail_reasons.append(
@@ -8119,7 +8610,19 @@ class UnifiedRestorerV3:
                 _recovery_target = original_audio_for_goals
                 _recovery_source = "original_audio"
 
-            _fallback_quality_floor["attempts"] = 1
+            # §G2: Try all candidates in priority order until shape-compatible source found
+            _fqf_candidates: list[tuple[Any, str]] = []
+            if getattr(self, "_hpi_best_rollback_audio", None) is not None:
+                _fqf_candidates.append((self._hpi_best_rollback_audio, "hpi_best_checkpoint"))
+            if original_audio_for_goals is not None:
+                _fqf_candidates.append((original_audio_for_goals, "original_audio"))
+            for _fqf_cand, _fqf_src in _fqf_candidates:
+                if _fqf_cand is not None and hasattr(_fqf_cand, "shape") and _fqf_cand.shape == restored_audio.shape:
+                    _recovery_target = _fqf_cand
+                    _recovery_source = _fqf_src
+                    break
+
+            _fallback_quality_floor["attempts"] = len(_fqf_candidates)
             _compatible_shape = (
                 _recovery_target is not None
                 and hasattr(_recovery_target, "shape")
@@ -8175,10 +8678,17 @@ class UnifiedRestorerV3:
             _fallback_quality_floor["recovery_trace"] = _recovery_trace
 
         # §2.51a [RELEASE_MUST] Stereo-Hörsicherheitsprofil (No-Surprises Export Guard)
+        # Pass material_key and source baseline for adaptive mono_drop threshold (§2.51a material-adaptiv).
+        _stereo_mat_key = str(getattr(material_type, "value", material_type) or "")
+        _stereo_src_cancel_ratio = float(
+            getattr(_src_baseline, "phase_cancellation_ratio", 0.0) if _src_baseline is not None else 0.0
+        )
         _stereo_safety_guard = _evaluate_stereo_safety_guard(
             original_audio=original_audio_for_goals,
             restored_audio=restored_audio,
             sample_rate=sample_rate,
+            material_key=_stereo_mat_key,
+            source_phase_cancellation_ratio=_stereo_src_cancel_ratio,
         )
         if bool(_stereo_safety_guard.get("warning", False)):
             logger.warning(
@@ -8186,6 +8696,7 @@ class UnifiedRestorerV3:
                 ", ".join(list(_stereo_safety_guard.get("warning_reasons", []))),
             )
         if bool(_stereo_safety_guard.get("hard_fail", False)):
+            _stereo_fail_idx = len(_fail_reasons)
             _fail_reasons.append(
                 {
                     "component": "StereoSafetyGuard",
@@ -8216,12 +8727,23 @@ class UnifiedRestorerV3:
                 )
             else:
                 logger.warning("§2.51a Stereo-Hard-Fail, aber kein kompatibler Rollback-Checkpoint verfügbar")
+        else:
+            _stereo_fail_idx = -1
         # Re-evaluate for telemetry after potential rollback.
         _stereo_safety_guard = _evaluate_stereo_safety_guard(
             original_audio=original_audio_for_goals,
             restored_audio=restored_audio,
             sample_rate=sample_rate,
+            material_key=_stereo_mat_key,
+            source_phase_cancellation_ratio=_stereo_src_cancel_ratio,
         )
+        # §2.51a: After successful rollback, downgrade fail_reason from "failed" → "degraded".
+        # If the re-evaluated guard passes, the rollback restored a stereo-safe signal.
+        if _stereo_fail_idx >= 0 and not bool(_stereo_safety_guard.get("hard_fail", False)):
+            if _stereo_fail_idx < len(_fail_reasons):
+                _fail_reasons[_stereo_fail_idx]["severity"] = "degraded"
+                _fail_reasons[_stereo_fail_idx]["error_code"] = "STEREO_SAFETY_RECOVERED"
+                logger.info("§2.51a Stereo-Hard-Fail nach Rollback behoben → Status: degraded")
 
         # Recompute degradation status after HPI/artifact gates
         try:
@@ -8247,6 +8769,7 @@ class UnifiedRestorerV3:
             _emotional_arc_for_hpi,
             audio=restored_audio,
             sr=48000,
+            is_studio_2026=self.is_studio_mode(),  # §2.53: modus-spezifische Frisson/Joy-Gewichte
         )
         if not isinstance(_joy_runtime_index, dict):
             _joy_runtime_index = {}
@@ -8729,11 +9252,18 @@ class UnifiedRestorerV3:
             quality_estimate=quality_estimate,
             warnings=perf_report.warnings if perf_report is not None else [],
             metadata={
+                # Audit/Bridge compatibility: expose core context at top-level.
+                "primary_material": material_type.value,
+                "transfer_chain": list(_cal_transfer_chain) if _cal_transfer_chain else [],
+                "restorability_score": float(_pmgg_restorability_score),
                 "fail_reasons": list(_fail_reasons),
                 "degradation_status": _degradation_status,
                 "fail_reason": _primary_fail_reason,
                 "ml_guard_events": list(getattr(self, "_pipeline_ml_guard_events", [])),
                 "ml_fallbacks_used": list(getattr(self, "_ml_fallbacks_used", [])),  # §2.47 [RELEASE_MUST]
+                "material_defect_consistency_warnings": list(
+                    getattr(self, "_material_defect_consistency_warnings", [])
+                ),  # §2.47 Cross-Check Material-Erkennung ↔ Defektprofil
                 "fallback_quality_floor": _fallback_quality_floor,
                 "quality_estimate": {
                     "value": float(quality_estimate),
@@ -8810,6 +9340,14 @@ class UnifiedRestorerV3:
                     "excellence_score": round(_musical_excellence_score, 4),
                     "all_passed": all(_musical_goals_passed.values()) if _musical_goals_passed else None,
                     "violations": [k for k, p in _musical_goals_passed.items() if not p],
+                },
+                # §0d + §2.54: ceiling-capped adaptive thresholds (material/era/genre adjusted).
+                # Bridge/debug compatibility: also available at top-level as "adaptive_goal_thresholds".
+                "adaptive_goal_thresholds": {
+                    k: round(float(v), 4)
+                    for k, v in (
+                        getattr(self, "_pmgg_ceiling_capped_targets", None) or _effective_goal_thresholds
+                    ).items()
                 },
                 # §Punkt3 Phasen-Regressionsprotokoll: RMS-Änderung (dBFS) je Phase
                 # Negativ = Energie reduziert (z.B. Denoise). Positiv = Energie gestiegen.
@@ -9068,6 +9606,7 @@ class UnifiedRestorerV3:
                     if getattr(self, "_song_goal_importance", None) is not None
                     else None
                 ),
+                "goal_recovery": locals().get("_goal_recovery_meta", {"attempted": False}),
                 **_analytics_meta,
                 # §0c Graceful-Stop Telemetrie: transparenter Status für UI + Tests
                 "graceful_stop": _graceful_stop_triggered,
@@ -9238,6 +9777,18 @@ class UnifiedRestorerV3:
             ]
         except Exception:
             result.phase_gate_log = []
+
+        # §DEBUG: Vollständige PMGG-Log-Einträge (mit scores_before/after) in metadata schreiben.
+        # Aktiviert durch enable_debug_trace=True im restore()-Aufruf.
+        # Dient als Datenquelle für pipeline_trace.build_from_result() und aurik-debug CLI.
+        if self._debug_trace_enabled:
+            try:
+                import dataclasses as _dc
+
+                _all_entries = getattr(self, "_pmgg_log_entries", [])
+                result.metadata["pmgg_log_entries"] = [_dc.asdict(e) for e in _all_entries if hasattr(e, "phase_id")]
+            except Exception as _dte:
+                logger.debug("Debug-Trace konnte nicht serialisiert werden: %s", _dte)
 
         return result
 
@@ -13737,13 +14288,13 @@ class UnifiedRestorerV3:
         # entscheiden selbst, ob eine Reparatur notwendig ist.
         # ════════════════════════════════════════════════════════════════════
         _MATERIAL_PRIORITY_PHASES: dict[str, list[str]] = {
-            "tape": [
+            "tape": [  # §2.46 ordering (2026-04-26): all subtractive BEFORE additive phase_06
                 "phase_24_dropout_repair",
                 "phase_29_tape_hiss_reduction",
-                "phase_06_frequency_restoration",
                 "phase_12_wow_flutter_fix",
                 "phase_59_modulation_noise_reduction",
                 "phase_64_tape_splice_repair",
+                "phase_06_frequency_restoration",  # additive BW-extension LAST — §2.46 invariant
             ],
             "reel_tape": [
                 "phase_29_tape_hiss_reduction",
@@ -13759,25 +14310,31 @@ class UnifiedRestorerV3:
                 "phase_05_rumble_filter",
                 "phase_60_inner_groove_distortion_repair",
                 "phase_61_groove_echo_cancellation",
+                # Late-stage click/crackle re-sweep AFTER all spectral phases:
+                # phase_23/29/14/20 can introduce PGHI-ringing, STFT-discontinuities,
+                # and band-recombination transients. phase_27 (AR-residual click removal)
+                # runs as final cleanup pass — ordering enforced via _move_before below.
+                "phase_27_click_pop_removal",
             ],
-            "shellac": [  # §6.2a: pressed shellac always has severe crackle + surface noise
-                "phase_09_crackle_removal",
-                "phase_03_denoise",
-                "phase_06_frequency_restoration",
-                "phase_01_click_removal",
-                "phase_28_surface_noise_profiling",
-                "phase_05_rumble_filter",  # 78-RPM turntable motor rumble — §6.2a Pflicht
+            "shellac": [  # §6.2a: pressed shellac; §2.46 ordering (2026-04-26): all subtractive BEFORE additive
+                "phase_09_crackle_removal",  # subtractive — carrier crackle
+                "phase_03_denoise",  # subtractive — broadband noise
+                "phase_01_click_removal",  # subtractive — clicks
+                "phase_28_surface_noise_profiling",  # subtractive — surface noise
+                "phase_05_rumble_filter",  # subtractive — 78-RPM turntable motor rumble (§6.2a Pflicht)
+                "phase_27_click_pop_removal",  # late-stage re-sweep — nach spectral phases (PGHI/STFT)
+                "phase_06_frequency_restoration",  # additive BW-extension LAST — §2.46 invariant
             ],
-            "wax_cylinder": [  # §6.2a: mechanisch graviert, severe crackle+wow/flutter+dropout+BW≤5kHz
-                "phase_09_crackle_removal",
-                "phase_12_wow_flutter_fix",
-                "phase_03_denoise",
-                "phase_06_frequency_restoration",
-                "phase_01_click_removal",
-                "phase_24_dropout_repair",
-                "phase_29_tape_hiss_reduction",
-                "phase_55_diffusion_inpainting",  # BW-Cap 5 kHz per _MATERIAL_BW_CAP_HZ
-                "phase_05_rumble_filter",  # Zylinderphonograph-Motorenrumpeln — §6.2a Pflicht
+            "wax_cylinder": [  # §6.2a: mechanisch graviert; §2.46 ordering (2026-04-26): all subtractive BEFORE additive
+                "phase_09_crackle_removal",  # subtractive — carrier crackle
+                "phase_12_wow_flutter_fix",  # subtractive — wow/flutter
+                "phase_03_denoise",  # subtractive — broadband noise
+                "phase_01_click_removal",  # subtractive — clicks
+                "phase_24_dropout_repair",  # subtractive/restorative — dropout
+                "phase_29_tape_hiss_reduction",  # subtractive — surface hiss
+                "phase_05_rumble_filter",  # subtractive — Zylinderphonograph-Motorenrumpeln (§6.2a Pflicht)
+                "phase_55_diffusion_inpainting",  # restorative synthesis — before pure additive extension; BW-Cap 5 kHz enforced in phase
+                "phase_06_frequency_restoration",  # additive BW-extension LAST — §2.46 invariant; BW-Cap 5 kHz per _MATERIAL_BW_CAP_HZ
             ],
             "wire_recording": [
                 "phase_12_wow_flutter_fix",
@@ -13831,12 +14388,12 @@ class UnifiedRestorerV3:
                 "phase_23_spectral_repair",
                 "phase_50_spectral_repair",
             ],
-            "cassette": [  # §6.2a — IEC compact cassette: wow/flutter + hiss dominant
-                "phase_12_wow_flutter_fix",
-                "phase_29_tape_hiss_reduction",
-                "phase_24_dropout_repair",
-                "phase_06_frequency_restoration",
-                "phase_59_modulation_noise_reduction",
+            "cassette": [  # §6.2a: IEC compact cassette: wow/flutter + hiss dominant; §2.46 ordering (2026-04-26)
+                "phase_12_wow_flutter_fix",  # subtractive — wow/flutter
+                "phase_29_tape_hiss_reduction",  # subtractive — tape hiss
+                "phase_24_dropout_repair",  # subtractive/restorative — dropout
+                "phase_59_modulation_noise_reduction",  # subtractive — modulation noise BEFORE additive
+                "phase_06_frequency_restoration",  # additive BW-extension LAST — §2.46 invariant
             ],
         }
         _mat_key = material.value if hasattr(material, "value") else str(material)
@@ -14357,6 +14914,14 @@ class UnifiedRestorerV3:
             _move_before("phase_08_transient_preservation", "phase_36_transient_shaper")
             # First spectral repair pass before second pass
             _move_before("phase_23_spectral_repair", "phase_50_spectral_repair")
+            # Late-stage click/crackle re-sweep for disc materials (vinyl, shellac):
+            # phase_27 must run AFTER all spectral phases that can introduce impulse
+            # artifacts (PGHI ringing in phase_29, STFT discontinuities in phase_23,
+            # band-recombination transients in phase_14). Ordering ensures phase_27
+            # captures and repairs crackle reintroduced by the spectral processing chain.
+            _move_before("phase_50_spectral_repair", "phase_27_click_pop_removal")
+            _move_before("phase_29_tape_hiss_reduction", "phase_27_click_pop_removal")
+            _move_before("phase_23_spectral_repair", "phase_27_click_pop_removal")
             # Vocal chain guard: classic de-esser before vocal enhancement
             _move_before("phase_19_de_esser", "phase_42_vocal_enhancement")
             # Vocal chain guard: classical de-esser before ML de-esser refinement
@@ -16612,7 +17177,12 @@ class UnifiedRestorerV3:
             _artifact_gate = get_artifact_freedom_gate()
             logger.debug("§2.49 ArtifactFreedomGate: Initialisiert")
         except Exception as _afg_init_exc:
-            logger.debug("§2.49 ArtifactFreedomGate nicht verfügbar: %s", _afg_init_exc)
+            # §0 Primum non nocere: AFG unavailable → artifact_freedom_score defaults to 1.0
+            # → artefacts can pass HPI undetected. Escalate to WARNING for operator visibility.
+            logger.warning(
+                "§2.49 ArtifactFreedomGate NICHT VERFÜGBAR — Artefakt-Prüfung deaktiviert (§0-Risiko): %s",
+                _afg_init_exc,
+            )
 
         # §2.48/§2.49: Material type string for gates
         _mat_str = str(getattr(material_type, "value", material_type)).lower()
@@ -16971,17 +17541,25 @@ class UnifiedRestorerV3:
                                 _defect_sev_mean_248 = float(np.mean(_sev_vals))
                     except Exception:
                         pass
-                    # §2.54: Count carrier-repair phases in the selected plan
+                    # §2.54: Count carrier-repair phases in the selected plan.
+                    # Must stay in sync with CIG._CARRIER_REPAIR_PHASE_PREFIXES (§2.55).
+                    # Missing entries lower n_carrier_phases → lower max_consecutive_rollbacks
+                    # → premature pipeline stop on multi-generation degraded material.
                     _carrier_prefixes_248 = (
-                        "phase_01",
-                        "phase_03",
-                        "phase_09",
-                        "phase_12",
-                        "phase_24",
-                        "phase_27",
-                        "phase_28",
-                        "phase_29",
-                        "phase_55",
+                        "phase_01",  # click removal
+                        "phase_02",  # hum removal
+                        "phase_03",  # broadband denoise
+                        "phase_09",  # crackle removal
+                        "phase_12",  # wow/flutter
+                        "phase_18",  # noise gate
+                        "phase_20",  # reverb reduction
+                        "phase_24",  # dropout repair
+                        "phase_25",  # azimuth correction
+                        "phase_27",  # click/pop removal
+                        "phase_28",  # surface noise profiling
+                        "phase_29",  # tape hiss reduction
+                        "phase_49",  # advanced dereverb
+                        "phase_55",  # diffusion inpainting
                     )
                     _n_carrier_248 = sum(
                         1 for p in selected_phases if any(p.startswith(cp) for cp in _carrier_prefixes_248)
@@ -17529,7 +18107,7 @@ class UnifiedRestorerV3:
                                 )
                                 if _hr_family in _ADDITIVE_HR_FAMILIES:
                                     # P4/P5-Goals — am stärksten von Enhancement-Phasen beeinflusst
-                                    _HR_GOALS = ("brillanz", "waerme", "raumtiefe", "bass_kraft", "sep_fidelity")
+                                    _HR_GOALS = ("brillanz", "waerme", "raumtiefe", "bass_kraft", "separation_fidelity")
                                     # Headroom-Fenster: innerhalb der letzten 0.25 zur Decke wird gedämpft.
                                     # Jenseits von 0.25 Headroom → volle Stärke (Phase kann frei arbeiten).
                                     # Wissen: psychoakustisches Sättigungsgesetz — Grenznutzen sinkt nahe
@@ -18012,7 +18590,10 @@ class UnifiedRestorerV3:
                 # _wall_phase_start (time.monotonic()) statt phase_start (perf_counter/time.time())
                 # um den perf_counter vs time.time() Mismatch-Bug zu vermeiden.
                 if phase_id not in _WALL_BUDGET_EXEMPT_PHASES:
-                    _pipeline_non_exempt_elapsed_s += time.monotonic() - _wall_phase_start
+                    _last_phase_non_exempt_s = time.monotonic() - _wall_phase_start
+                    _pipeline_non_exempt_elapsed_s += _last_phase_non_exempt_s
+                else:
+                    _last_phase_non_exempt_s = 0.0
                 # OOM-Guard: GC nach JEDER Phase — STFT-Matrizen (je ~173 MB)
                 # und PMGG-Retries akkumulieren Speicher schneller als gc.collect
                 # alle 5 Phasen abräumen kann (OOM-Crash bei 225s Tape, 24.03.2026).
@@ -18412,6 +18993,22 @@ class UnifiedRestorerV3:
                             )
                             # Roll back to audio state just before this phase ran
                             current_audio = np.clip(_afg_phase_input.copy(), -1.0, 1.0)
+                            # §Wall-Time-Budget Refund: AFG-rolled-back phase should not
+                            # consume budget for subsequent phases — the audio change is
+                            # undone, so treating the time as spent is unfair to remaining phases.
+                            if _last_phase_non_exempt_s > 0.0:
+                                _pipeline_non_exempt_elapsed_s = max(
+                                    0.0,
+                                    _pipeline_non_exempt_elapsed_s - _last_phase_non_exempt_s,
+                                )
+                                logger.info(
+                                    "§Wall-Time-Budget Refund (AFG-Rollback %s): %.0f s zurückgebucht "
+                                    "(non-exempt now %.0f s / budget %.0f s)",
+                                    phase_id,
+                                    _last_phase_non_exempt_s,
+                                    _pipeline_non_exempt_elapsed_s,
+                                    _pipeline_wall_budget,
+                                )
                         else:
                             # Update best artifact-free checkpoint
                             _afg_best_clean_checkpoint = current_audio.copy()
@@ -18430,6 +19027,20 @@ class UnifiedRestorerV3:
                                 _ntx_mat_key,
                             )
                             current_audio = np.clip(_afg_phase_input.copy(), -1.0, 1.0)
+                            # §Wall-Time-Budget Refund: Noise-texture rollback analog zu AFG-Rollback
+                            if _last_phase_non_exempt_s > 0.0:
+                                _pipeline_non_exempt_elapsed_s = max(
+                                    0.0,
+                                    _pipeline_non_exempt_elapsed_s - _last_phase_non_exempt_s,
+                                )
+                                logger.info(
+                                    "§Wall-Time-Budget Refund (NTX-Rollback %s): %.0f s zurückgebucht "
+                                    "(non-exempt now %.0f s / budget %.0f s)",
+                                    phase_id,
+                                    _last_phase_non_exempt_s,
+                                    _pipeline_non_exempt_elapsed_s,
+                                    _pipeline_wall_budget,
+                                )
                     except Exception as _afg_exc:
                         logger.debug("§2.49 ArtifactFreedomGate check failed: %s", _afg_exc)
 

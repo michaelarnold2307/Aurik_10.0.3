@@ -336,6 +336,54 @@ class TestLoadCheckpointAudio:
         assert loaded_audio.shape == original_audio.shape
         np.testing.assert_allclose(loaded_audio, original_audio, atol=1e-5)
 
+    def test_original_audio_resampled_to_checkpoint_sr_on_mismatch(self, sessions_tmp, sample_mono_audio, tmp_path):
+        import soundfile as sf
+
+        from backend.core.recovery_checkpoint import (
+            RecoveryCheckpoint,
+            load_checkpoint_audio,
+            save_checkpoint,
+        )
+
+        checkpoint_audio, checkpoint_sr = sample_mono_audio  # 48 kHz checkpoint baseline
+        src_sr = 44100
+        t = np.linspace(0, 1.0, src_sr, endpoint=False, dtype=np.float32)
+        original_audio = (0.5 * np.sin(2 * np.pi * 880 * t)).astype(np.float32)
+
+        original_path = tmp_path / "original_source_44k1.wav"
+        sf.write(str(original_path), original_audio, src_sr, subtype="FLOAT", format="WAV")
+
+        result = save_checkpoint(
+            input_path=str(original_path),
+            output_path="/tmp/preferred_resample_out.wav",
+            current_audio=checkpoint_audio,
+            sample_rate=checkpoint_sr,
+            phases_executed=["phase_01_click_removal"],
+            phases_remaining=["phase_02_hum_removal"],
+            failure_phase="phase_02_hum_removal",
+            mode="quality",
+            defect_result=_FakeDefectResult(),
+        )
+        assert result is not None
+
+        with open(result) as f:
+            data = json.load(f)
+        cp = RecoveryCheckpoint(**{k: v for k, v in data.items() if k in RecoveryCheckpoint.__dataclass_fields__})
+
+        loaded_audio = load_checkpoint_audio(cp)
+        assert loaded_audio is not None
+
+        # 1 s at 48 kHz expected after SR alignment to checkpoint SR
+        assert abs(len(loaded_audio) - checkpoint_sr) <= 2
+
+        # Dominant frequency should remain close to 880 Hz after resampling.
+        n = min(len(loaded_audio), checkpoint_sr)
+        window = np.hanning(n).astype(np.float32)
+        spec = np.fft.rfft((loaded_audio[:n] * window).astype(np.float32))
+        freqs = np.fft.rfftfreq(n, d=1.0 / float(checkpoint_sr))
+        peak_hz = float(freqs[int(np.argmax(np.abs(spec)))])
+        assert abs(peak_hz - 880.0) < 12.0
+
 
 class TestDeleteCheckpoint:
     """Tests for delete_checkpoint()."""

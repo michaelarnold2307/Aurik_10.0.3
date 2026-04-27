@@ -182,7 +182,11 @@ class VoiceGender:
 5. PhonemeDetector + ConsonantDetector (ZCR > 0.3, Energie 4–16 kHz dominant)
 5c. ConsonantEnhancement: HF-Anhebung ≤ +6 dB, SNR_frikativ +3 dB mind.
 6. De-Esser (phase_19) + ML-De-Esser (phase_43) stimmtyp-spezifisch
-7. VocalAIEnhancement.enhance()
+7. VocalAIEnhancement.enhance(breath_preservation=_age_breath_preservation)
+   — `_age_breath_preservation` aus `_AGE_ADAPTIVE_FACTORS[age_group.value]`:
+     Senior=0.90, Mature=0.82, Adult=0.72, YoungAdult/Child=0.70–0.75
+   — GenderDetector.detect() → `VoiceAgeGroup` → skaliert zusätzlich
+     `breath_reduction_db`, `compression_ratio`, `formant_gain_db`, `chest_gain_db`
 8. Formant-Prüfung: Pearson(F1_before, F1_after) ≥ 0.95
 9. Emotionalität: emotion_preservation_score ≥ 0.87
 ```

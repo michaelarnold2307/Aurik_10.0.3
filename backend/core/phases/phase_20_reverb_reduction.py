@@ -1179,11 +1179,16 @@ class ReverbReduction(PhaseInterface):
             except Exception as pghi_exc:
                 logger.warning("MRSA Phase 20: PGHI failed, using iSTFT fallback: %s", pghi_exc)
                 _, audio_out = signal.istft(
-                    Zxx_processed, fs=sample_rate, window="hann", nperseg=REF_WIN, noverlap=REF_NOVERLAP, boundary=True
+                    Zxx_processed,
+                    fs=sample_rate,
+                    window="hann",
+                    nperseg=REF_WIN,
+                    noverlap=REF_NOVERLAP,
+                    boundary="even",
                 )
         else:
             _, audio_out = signal.istft(
-                Zxx_processed, fs=sample_rate, window="hann", nperseg=REF_WIN, noverlap=REF_NOVERLAP, boundary=True
+                Zxx_processed, fs=sample_rate, window="hann", nperseg=REF_WIN, noverlap=REF_NOVERLAP, boundary="even"
             )
 
         audio_out = np.real(audio_out).astype(np.float32)

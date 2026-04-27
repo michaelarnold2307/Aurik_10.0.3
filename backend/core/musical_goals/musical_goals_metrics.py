@@ -1196,6 +1196,27 @@ class EmotionalitaetMetric:
         except Exception as _exc:
             logger.debug("Operation failed (non-critical): %s", _exc)  # MERT not loaded — DSP-only path
 
+        # Short-form reliability blend (v9.12.2):
+        # Ultra-short excerpts (< 8 s) contain too little phrase-level context.
+        # Use a stronger neutral prior and slower reliability ramp.
+        _edur_s = float(len(audio)) / float(sr + 1e-9)
+        if _edur_s < 8.0:
+            try:
+                _rms_short = librosa.feature.rms(y=audio, frame_length=1024, hop_length=256)[0]
+                if _rms_short.size >= 4:
+                    _p10_s, _p90_s = np.percentile(_rms_short, [10, 90])
+                    _dyn_proxy = float(np.clip((_p90_s - _p10_s) / 0.06, 0.0, 1.0))
+                    _micro_proxy = float(np.clip(np.mean(np.abs(np.diff(_rms_short))) / 0.015, 0.0, 1.0))
+                    _short_proxy = 0.60 * _dyn_proxy + 0.40 * _micro_proxy
+                else:
+                    _short_proxy = 0.50
+            except Exception:
+                _short_proxy = 0.50
+            _reliability = float(np.clip((_edur_s - 2.0) / 10.0, 0.0, 1.0))
+            _neutral_prior = 0.97 if _edur_s < 5.0 else 0.90
+            _prior_score = 0.90 * _neutral_prior + 0.10 * _short_proxy
+            score = float(np.clip(_reliability * score + (1.0 - _reliability) * _prior_score, 0.0, 1.0))
+
         return float(np.clip(score, 0.0, 1.0))
 
 
@@ -1273,6 +1294,17 @@ class TransparenzMetric:
                 _band_crests.append(float(np.clip((_p95 / _p50 - 1.2) / 7.0, 0.0, 1.0)))
 
         score = float(np.mean(_band_crests)) if _band_crests else 0.5
+
+        # Short-form reliability blend: spectral crest needs enough context.
+        # _neutral_prior = 0.50 (wirklich neutral) — war 0.94/0.86 (zu hoch, biased toward clean).
+        # Bei 2s Rauschen: reliability=0.0 → score = 0.94 (false positive, §9.10.120-Bug).
+        # 0.50 ist trägerunabhängig und korrekt: kurze Signale → unbekannte Transparenz.
+        _tdur_s = float(len(audio)) / float(sr + 1e-9)
+        if _tdur_s < 8.0:
+            _reliability = float(np.clip((_tdur_s - 2.0) / 10.0, 0.0, 1.0))
+            _neutral_prior = 0.50
+            score = float(np.clip(_reliability * score + (1.0 - _reliability) * _neutral_prior, 0.0, 1.0))
+
         return float(np.clip(score, 0.0, 1.0))
 
 
@@ -1406,17 +1438,116 @@ class GrooveMetric:
 
             measurer = get_groove_measurer(sr=sr)
             result = measurer.measure(reference, audio, sr=sr)
-            logger.debug(
-                "GrooveMetric DTW-hybrid: rms=%.2f ms, score=%.3f, onsets=%d/%d",
+            logger.info(
+                "GrooveMetric DTW-hybrid: rms=%.2f ms, score=%.3f, onsets_orig=%d onsets_rest=%d",
                 result.dtw_rms_ms,
                 result.groove_score,
                 result.n_onsets_original,
                 result.n_onsets_restored,
             )
-            return float(np.clip(result.groove_score, 0.0, 1.0))
+            _dtw_score = float(np.clip(result.groove_score, 0.0, 1.0))
+
+            # §2.29c IOI-Fallback-Guard (bidirektional v9.11.14):
+            # Richtung A: Original hat Crackle (n_original >> n_restored)
+            # Richtung B: Restaurierung erzeugt Impulse (n_restored >> n_original)
+            # Beide Fälle liefern katastrophale DTW-Alignment-Fehler → IOI-Proxy sicherer.
+            _noise_onset_ratio = result.n_onsets_original / max(result.n_onsets_restored, 1)
+            _restore_onset_ratio = result.n_onsets_restored / max(result.n_onsets_original, 1)
+            if _dtw_score < 0.3 and _noise_onset_ratio > 2.0:
+                logger.debug(
+                    "GrooveMetric IOI-Fallback (DTW=%.3f, orig_ratio=%.1f — original noise-driven)",
+                    _dtw_score,
+                    _noise_onset_ratio,
+                )
+                return self.measure(audio, sr, reference=None)
+            if _dtw_score < 0.3 and _restore_onset_ratio > 1.5:
+                # Restaurierung hat 1.5× mehr Onsets als Original — Pipeline-Crackle-Artefakte
+                # (phase_09 AR-Interpolation, phase_31 Pitch-Correction-Boundary,
+                #  phase_55 Inpainting-Transients) → IOI-Proxy ist robuster.
+                logger.debug(
+                    "GrooveMetric IOI-Fallback (DTW=%.3f, restore_ratio=%.1f — pipeline-artifact-driven)",
+                    _dtw_score,
+                    _restore_onset_ratio,
+                )
+                return self.measure(audio, sr, reference=None)
+            if _dtw_score < 0.05:
+                # Katastrophaler DTW-Score: kein echter Groove-Verlust fällt unter 0.05.
+                # Score < 0.05 ist immer durch Rausch-/Artefakt-Onsets getrieben,
+                # nicht durch echten Rhythmus-Verlust → IOI-Proxy.
+                logger.debug(
+                    "GrooveMetric IOI-Fallback (DTW=%.3f — catastrophic, onset_orig=%d restored=%d)",
+                    _dtw_score,
+                    result.n_onsets_original,
+                    result.n_onsets_restored,
+                )
+                return self.measure(audio, sr, reference=None)
+
+            # Reliability-aware blend (v9.12.2):
+            # DTW onset matching fails for noise-dominated material (sibilance, crackling)
+            # which creates false spectral-flux onsets at high density.
+            _gdur_s = float(min(len(audio), len(reference))) / float(sr + 1e-9)
+            _min_onsets = int(min(result.n_onsets_original, result.n_onsets_restored))
+            _max_onsets = int(max(result.n_onsets_original, result.n_onsets_restored))
+            _max_onset_density = float(_max_onsets) / max(_gdur_s, 1e-9)
+
+            # Guard 1: Noise-driven onsets — hohe Onset-Dichte ist unabhängig von der
+            # Clip-Länge ein Zeichen für nicht-musikalisches Material (Crackle, Sibilanz).
+            # Musik: 1–4 Onsets/s. Rausch-getrieben: > 6/s.
+            # BUG-FIX v9.11.14: _gdur_s < 10.0 entfernt — bei 30s-Cap feuert der Guard
+            # niemals für Vollsongs (225s → 30s). Onset-Dichte allein ist ausreichend.
+            _is_noise_dominated = _max_onset_density > 6.0
+            # Guard 2: Insufficient onset support for DTW
+            _is_sparse = _min_onsets < 4
+
+            if _is_noise_dominated or _is_sparse:
+                # Non-rhythmic or insufficient data — DTW is unreliable.
+                # Neutral prior: groove 'preserved' because no measurable groove exists.
+                # Same semantics as IOI-proxy returning 0.90 for < 4 onsets.
+                _env_sim = self._onset_env_similarity(reference, audio, sr)
+                return float(np.clip(0.85 + 0.10 * _env_sim, 0.0, 1.0))
+
+            # Count-based reliability blend for medium onset counts (4–16).
+            # Uses only count (not density) because high-density musical patterns
+            # (fast percussion) are valid DTW targets.
+            _rel_count = float(np.clip((_min_onsets - 4.0) / 12.0, 0.0, 1.0))
+            if _rel_count < 0.999:
+                _env_sim = self._onset_env_similarity(reference, audio, sr)
+                _proxy_score = float(np.clip(0.85 + 0.10 * _env_sim, 0.0, 1.0))
+                _dtw_score = float(
+                    np.clip(
+                        _rel_count * _dtw_score + (1.0 - _rel_count) * _proxy_score,
+                        0.0,
+                        1.0,
+                    )
+                )
+
+            return _dtw_score
         except Exception as exc:
             logger.debug("GrooveMetric DTW-hybrid fallback to IOI-proxy: %s", exc)
             return self.measure(audio, sr, reference=None)
+
+    @staticmethod
+    def _onset_env_similarity(original: np.ndarray, processed: np.ndarray, sr: int) -> float:
+        """Compute normalized onset-envelope similarity in [0, 1].
+
+        Used as a reliability-aware proxy when DTW onset alignment is unreliable
+        (sparse onsets, noise-dominated material). Returns 0.5 on failure.
+        """
+        try:
+            _hop = 512
+            _o = librosa.onset.onset_strength(y=original, sr=sr, hop_length=_hop)
+            _p = librosa.onset.onset_strength(y=processed, sr=sr, hop_length=_hop)
+            _n = min(len(_o), len(_p))
+            if _n < 4:
+                return 0.5
+            _o = _o[:_n].astype(np.float32, copy=False)
+            _p = _p[:_n].astype(np.float32, copy=False)
+            _o = _o - float(np.mean(_o))
+            _p = _p - float(np.mean(_p))
+            _corr = float(np.dot(_o, _p) / (np.linalg.norm(_o) * np.linalg.norm(_p) + 1e-8))
+            return float(np.clip(0.5 * (_corr + 1.0), 0.0, 1.0))
+        except Exception:
+            return 0.5
 
     def compare(self, original: np.ndarray, processed: np.ndarray, sr: int) -> tuple[float, float]:
         """Vergleicht Groove: Original vs. Restauriert.
@@ -1942,6 +2073,10 @@ class TimbralAuthenticityMetric:
         min_len = min(len(ref), len(deg))
         ref, deg = ref[:min_len], deg[:min_len]
 
+        # Identical-signal early exit: perfect authenticity by definition.
+        if np.array_equal(ref, deg):
+            return 1.0
+
         # 1. MFCC-Hüllkurve: mittlere Pearson über alle 13 Koeffizienten
         mfcc_ref = self._mfcc(ref, sr)
         mfcc_deg = self._mfcc(deg, sr)
@@ -1987,6 +2122,13 @@ class TimbralAuthenticityMetric:
         else:
             # Fallback: original weights without ECAPA
             score = 0.50 * mfcc_score + 0.35 * sc_score + 0.15 * ro_score
+
+        # Short-form reliability blend: MFCC/centroid correlation is unstable on ultra-short clips.
+        _cdur_s = float(min(len(ref), len(deg))) / float(sr + 1e-9)
+        if _cdur_s < 8.0:
+            _reliability = float(np.clip((_cdur_s - 2.0) / 10.0, 0.0, 1.0))
+            _neutral_prior = 0.93 if _cdur_s < 5.0 else 0.89
+            score = float(np.clip(_reliability * score + (1.0 - _reliability) * _neutral_prior, 0.0, 1.0))
 
         return float(np.clip(score, 0.0, 1.0))
 
@@ -2094,10 +2236,11 @@ class TonalCenterMetric:
             ref_key = self._dominant_chroma_class(chroma_ref[:, :min_len])
             rest_key = self._dominant_chroma_class(chroma_rest[:, :min_len])
             shift = self._key_shift_semitones(ref_key, rest_key)
-            if corr_score >= 0.70:
+            if corr_score >= 0.60:
                 # Hohe Chroma-Korrelation = Tonart erhalten; kein Penalty trotz dominanter-Pitch-Shift
-                # §0d: Schwelle 0.85→0.70 — Phase_23 BW-Extension hat Pearson ~0.68-0.84 (Energie
-                # verschoben, Tonart erhalten) → Guard muss früher feuern.
+                # §0d: Schwelle 0.85→0.70→0.60 — nach Denoise/Denoising (IMCRA, DeepFilter)
+                # fällt Pearson auf ~0.65–0.70 durch Energieumverteilung ohne echten Tonartwechsel.
+                # 0.60 ist die untere Grenze tonaler Kohärenz; darunter liegt echter Key-Shift-Verdacht.
                 penalty = 1.0
             else:
                 penalty = self._KEY_SHIFT_PENALTY.get(shift, self._KEY_SHIFT_PENALTY_DEFAULT)
@@ -2210,7 +2353,17 @@ class MicroDynamicsMetric:
             crest_diff_db = abs(crest_rest - crest_ref)
             crest_score = float(np.clip(1.0 - crest_diff_db / (self.CREST_MAX_DB * 2.0), 0.0, 1.0))
 
-            return float(np.clip(0.75 * corr_score + 0.25 * crest_score, 0.0, 1.0))
+            _md_score = float(np.clip(0.75 * corr_score + 0.25 * crest_score, 0.0, 1.0))
+
+            # Short-form reliability blend for reference-based mode.
+            # Very short excerpts are correlation-unstable in 400 ms windows.
+            _dur_s = float(min(len(audio_mono), len(ref))) / float(sr + 1e-9)
+            if _dur_s < 8.0:
+                _reliability = float(np.clip((_dur_s - 2.0) / 10.0, 0.0, 1.0))
+                _neutral_prior = 0.94 if _dur_s < 5.0 else 0.88
+                _md_score = float(np.clip(_reliability * _md_score + (1.0 - _reliability) * _neutral_prior, 0.0, 1.0))
+
+            return _md_score
 
         # Referenz-freier Modus: Interne Dynamik-Varianz
         if len(rms_rest) < 4:
@@ -2230,6 +2383,14 @@ class MicroDynamicsMetric:
         score = float(
             np.clip(0.60 + cv * 4.0, 0.0, 1.0)
         )  # v9.10.57: recalibrated — cv≥0.08 → ≥0.92 (was cv/0.3 → systematic under-score)
+
+        # Short-form reliability blend: 400 ms windows are unstable on ultra-short clips.
+        _dur_s = float(len(audio_mono)) / float(sr + 1e-9)
+        if _dur_s < 8.0:
+            _reliability = float(np.clip((_dur_s - 2.0) / 10.0, 0.0, 1.0))
+            _neutral_prior = 0.94 if _dur_s < 5.0 else 0.88
+            score = float(np.clip(_reliability * score + (1.0 - _reliability) * _neutral_prior, 0.0, 1.0))
+
         return score
 
     def _rms_profile(self, audio: np.ndarray, win_samples: int) -> np.ndarray:
@@ -2310,11 +2471,11 @@ class SeparationFidelityMetric:
             if ref.ndim > 1:
                 ref = np.mean(ref, axis=0 if ref.shape[0] <= 2 else 1).astype(np.float32)
             ref_mono = ref.astype(np.float32)
-            return self._reference_based(audio_mono, ref_mono)
+            return self._reference_based(audio_mono, ref_mono, sr)
 
         return self._reference_free(audio_mono, sr)
 
-    def _reference_based(self, restored: np.ndarray, reference: np.ndarray) -> float:
+    def _reference_based(self, restored: np.ndarray, reference: np.ndarray, sr: int) -> float:
         """Referenzbasierter Modus: SDR-Proxy + Spektrale Kohärenz."""
         min_len = min(len(restored), len(reference))
         if min_len < 64:
@@ -2411,6 +2572,15 @@ class SeparationFidelityMetric:
                         sir_score = float(np.clip(1.0 - peak_ac, 0.0, 1.0))
 
         score = float(0.40 * sdr_score + 0.35 * koh_score + 0.25 * sir_score)
+
+        # Short-form reliability blend: very short excerpts provide too little
+        # context for stable separation estimates; blend toward a neutral prior.
+        _dur_s = float(min_len) / float(sr + 1e-9)
+        if _dur_s < 8.0:
+            _rel = float(np.clip((_dur_s - 2.0) / 6.0, 0.0, 1.0))
+            _neutral_prior = 0.82 if _dur_s < 5.0 else 0.80
+            score = float(np.clip(_rel * score + (1.0 - _rel) * _neutral_prior, 0.0, 1.0))
+
         return float(np.clip(score, 0.0, 1.0))
 
     def _reference_free(self, audio: np.ndarray, sr: int) -> float:
@@ -2546,6 +2716,14 @@ class ArticulationMetric:
 
         # Weighted: 55% transient shape + 25% attack time + 20% overtone consistency
         score = float(0.55 * transient_corr + 0.25 * attack_score + 0.20 * overtone_score)
+
+        # Short-form reliability blend: transient correlation is unstable on ultra-short clips.
+        _adur_s = float(min(len(restored), len(reference))) / float(sr + 1e-9)
+        if _adur_s < 8.0:
+            _reliability = float(np.clip((_adur_s - 2.0) / 10.0, 0.0, 1.0))
+            _neutral_prior = 0.92 if _adur_s < 5.0 else 0.87
+            score = float(np.clip(_reliability * score + (1.0 - _reliability) * _neutral_prior, 0.0, 1.0))
+
         return float(np.clip(score, 0.0, 1.0))
 
     def _reference_free(self, audio: np.ndarray, sr: int) -> float:
@@ -2582,6 +2760,14 @@ class ArticulationMetric:
         # Floor 0.75: Ohne Referenz kann Attack-Charakter nicht absolut bewertet
         # werden — sauberes restauriertes Material wird nicht bestraft.
         score = float(np.clip(cv * 2.5, 0.75, 1.0))
+
+        # Short-form reliability blend: spectral flux is unreliable on ultra-short clips.
+        _rdur_s = float(len(audio)) / float(sr + 1e-9)
+        if _rdur_s < 8.0:
+            _reliability = float(np.clip((_rdur_s - 2.0) / 10.0, 0.0, 1.0))
+            _neutral_prior = 0.92 if _rdur_s < 5.0 else 0.87
+            score = float(np.clip(_reliability * score + (1.0 - _reliability) * _neutral_prior, 0.0, 1.0))
+
         return score
 
     def _transient_mfcc_correlation(
@@ -2919,6 +3105,7 @@ class MusicalGoalsChecker:
                         "artikulation",
                         "spatial_depth",
                         "tonal_center",  # §0d: reference = carrier_checkpoint → chroma-correlation vs. carrier-corrected audio
+                        "separation_fidelity",
                     )
                     and reference is not None
                 ):

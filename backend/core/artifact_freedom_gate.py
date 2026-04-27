@@ -46,7 +46,9 @@ def get_artifact_freedom_gate() -> ArtifactFreedomGate:
 class DetectedArtifact:
     """Single detected artifact event."""
 
-    artifact_type: str  # musical_noise | pre_echo | spectral_hole | phase_cancellation | metallic_ringing
+    artifact_type: (
+        str  # musical_noise | pre_echo | spectral_hole | phase_cancellation | metallic_ringing | crackle_impulse
+    )
     start_sample: int
     end_sample: int
     severity_db: float  # raw severity in dB or correlation
@@ -102,6 +104,12 @@ _BASE_THRESHOLDS = {
     "spectral_hole_hz": 200.0,
     "phase_cancellation_corr": 0.3,
     "metallic_ringing_peak_db": 6.0,
+    # §2.49 Crackle-Impuls-Wiedereinfuehrung: kurtosis-Schwelle fuer Delta-Signal
+    # und Peak-zu-RMS-Verhaeltnis. PGHI-Ringing / spektrale Subtraktions-Artefakte
+    # liegen typisch bei kurtosis 15-40 und Peak/RMS > 18 dB.
+    # (Godsill & Rayner 1998; Mazur & Blok 2011)
+    "crackle_impulse_kurtosis": 10.0,  # basis: kurtosis im Delta-Signal (20ms-Fenster)
+    "crackle_peak_rms_db": 18.0,  # basis: Peak/RMS-Verhaeltnis im Delta (dB)
 }
 
 # Tolerance factors per material (multiplied with base)
@@ -112,6 +120,8 @@ _MATERIAL_FACTORS = {
         "spectral_hole_hz": 1.0,
         "phase_cancellation_corr": 1.0,
         "metallic_ringing_peak_db": 1.0,
+        "crackle_impulse_kurtosis": 1.0,  # strikte Toleranz fuer digitale Quellen
+        "crackle_peak_rms_db": 1.0,
     },
     "cd": {
         "musical_noise_peak_db": 1.0,
@@ -119,6 +129,8 @@ _MATERIAL_FACTORS = {
         "spectral_hole_hz": 1.0,
         "phase_cancellation_corr": 1.0,
         "metallic_ringing_peak_db": 1.0,
+        "crackle_impulse_kurtosis": 1.0,
+        "crackle_peak_rms_db": 1.0,
     },
     "tape": {
         "musical_noise_peak_db": 1.25,
@@ -126,6 +138,8 @@ _MATERIAL_FACTORS = {
         "spectral_hole_hz": 1.5,
         "phase_cancellation_corr": 0.667,
         "metallic_ringing_peak_db": 1.333,
+        "crackle_impulse_kurtosis": 1.2,  # Tape hat leichten Impuls-Rauschboden
+        "crackle_peak_rms_db": 1.0,
     },
     "vinyl": {
         "musical_noise_peak_db": 1.5,
@@ -133,6 +147,8 @@ _MATERIAL_FACTORS = {
         "spectral_hole_hz": 2.0,
         "phase_cancellation_corr": 0.667,
         "metallic_ringing_peak_db": 1.667,
+        "crackle_impulse_kurtosis": 1.4,  # Vinyl-Crackle-Rauschboden erhoehe Toleranz
+        "crackle_peak_rms_db": 1.1,  # etwas hoeheres Peak/RMS noetig
     },
     "shellac": {
         "musical_noise_peak_db": 1.833,
@@ -140,6 +156,8 @@ _MATERIAL_FACTORS = {
         "spectral_hole_hz": 3.0,
         "phase_cancellation_corr": 0.5,
         "metallic_ringing_peak_db": 2.333,
+        "crackle_impulse_kurtosis": 1.7,  # Shellac hat starken Crackle-Rauschboden
+        "crackle_peak_rms_db": 1.2,
     },
     "wax": {
         "musical_noise_peak_db": 1.833,
@@ -147,6 +165,8 @@ _MATERIAL_FACTORS = {
         "spectral_hole_hz": 3.0,
         "phase_cancellation_corr": 0.5,
         "metallic_ringing_peak_db": 2.333,
+        "crackle_impulse_kurtosis": 2.0,  # Wachswalze: sehr hoher Impuls-Rauschboden
+        "crackle_peak_rms_db": 1.3,
     },
 }
 
@@ -157,6 +177,7 @@ _TYPE_WEIGHTS = {
     "spectral_hole": 0.6,
     "phase_cancellation": 1.0,
     "metallic_ringing": 0.9,
+    "crackle_impulse": 1.1,  # hoeher als musical_noise: Crackle sehr salient
 }
 
 # Max tolerance (normalisation denominator for artifact_freedom)
@@ -380,6 +401,21 @@ class ArtifactFreedomGate:
         if not _per_phase_mode:
             all_artifacts.extend(self._detect_metallic_ringing(orig_mono, rest_mono, sr, thresholds))
 
+        # 6. Crackle-Impuls-Wiedereinfuehrung — per-Phase, SUBTRACTIVE/CORRECTIVE/ML_GENERATIVE.
+        # STFT/spektrale Phasen (phase_23 STFT-Diskontinuitaeten, phase_29 PGHI-Ringing,
+        # phase_14 Bandgrenzen-FIR-Transienten, phase_20 OMLSA-Ripple) koennen Impuls-
+        # Artefakte einfuehren, obwohl ihr Zweck restorativ ist. Dieses Gate ist
+        # NICHT durch _is_restorative blockiert — Crackle-Wiedereinfuehrung durch
+        # eine spektrale Phase ist ein genuines Artefakt.
+        # Kurtosis des Delta-Signals: Crackle kurtosis >> 10, normales Spektrum ~3-6.
+        _crackle_check_types = (
+            PhaseOperationType.SUBTRACTIVE,
+            PhaseOperationType.CORRECTIVE,
+            PhaseOperationType.ML_GENERATIVE,
+        )
+        if _per_phase_mode and _phase_type in _crackle_check_types:
+            all_artifacts.extend(self._detect_crackle_impulse(orig_mono, rest_mono, sr, thresholds))
+
         # Apply salience weighting
         for art in all_artifacts:
             art.salience_weighted_score = self._compute_salience_weight(art, sr)
@@ -472,6 +508,7 @@ class ArtifactFreedomGate:
             "n_spectral_holes": sum(1 for a in all_artifacts if a.artifact_type == "spectral_hole"),
             "n_phase_cancellation": sum(1 for a in all_artifacts if a.artifact_type == "phase_cancellation"),
             "n_metallic_ringing": sum(1 for a in all_artifacts if a.artifact_type == "metallic_ringing"),
+            "n_crackle_impulse": sum(1 for a in all_artifacts if a.artifact_type == "crackle_impulse"),
             "weighted_artifact_sum": round(weighted_sum, 4),
             "noise_texture_deviation_db_oct": round(noise_dev, 3),
         }
@@ -1155,6 +1192,103 @@ class ArtifactFreedomGate:
                     # Reset to avoid duplicate reports
                     peak_tracker[b] = 0
 
+        return artifacts
+
+    # ── Crackle Impulse Re-introduction Detector (§2.49 #6) ───────────────
+
+    def _detect_crackle_impulse(
+        self,
+        orig: np.ndarray,
+        restored: np.ndarray,
+        sr: int,
+        thresholds: dict,
+    ) -> list[DetectedArtifact]:
+        """Detect impulse artifacts (crackle-like) introduced by this phase.
+
+        STFT/spectral phases can introduce impulse artifacts even when their
+        primary purpose is restorative:
+        - phase_29 PGHI reconstruction: ringing at phase boundaries
+        - phase_23 spectral repair: STFT-frame discontinuities
+        - phase_14 band recombination: FIR startup transients at crossovers
+        - phase_20 OMLSA: gain ripple transients in spectral bins
+
+        Method: kurtosis of the delta signal (restored - orig) in 20ms windows.
+        Crackle/impulse artifacts have kurtosis >> 10; normal spectral processing
+        produces delta kurtosis ~3–6.
+
+        Delta-based (directional guard): only fires when restored has larger peak
+        amplitude than original — new spike was added, not merely removed content.
+
+        Scientific basis:
+          Godsill & Rayner 1998: "Digital Audio Restoration" — impulse noise
+            identification via AR-residual excess kurtosis (Cap. 3).
+          Mazur & Blok 2011: kurtosis as impulsiveness indicator in audio.
+        """
+        artifacts: list[DetectedArtifact] = []
+
+        kurtosis_threshold = thresholds.get("crackle_impulse_kurtosis", 10.0)
+        peak_rms_threshold = thresholds.get("crackle_peak_rms_db", 18.0)
+
+        delta = restored - orig  # processing delta — new impulses appear here
+
+        win_samples = max(32, int(0.020 * sr))  # 20 ms
+        hop_samples = max(16, win_samples // 2)
+        if len(delta) < win_samples:
+            return artifacts
+        n_windows = (len(delta) - win_samples) // hop_samples
+
+        for i in range(n_windows):
+            start = i * hop_samples
+            end = start + win_samples
+            delta_win = delta[start:end]
+            rest_win = restored[start:end]
+            orig_win = orig[start:end]
+
+            # Skip if delta is near-zero (phase changed nothing here)
+            delta_rms = float(np.sqrt(np.mean(delta_win**2) + 1e-12))
+            if delta_rms < 1e-8:
+                continue
+
+            # Kurtosis of normalized delta — high kurtosis = impulsive content
+            delta_norm = delta_win / (delta_rms + 1e-12)
+            kurtosis = float(np.mean(delta_norm**4))
+            if kurtosis <= kurtosis_threshold:
+                continue
+
+            # Peak-to-RMS ratio of delta (crackle: very high ratio)
+            peak_delta = float(np.max(np.abs(delta_win)))
+            peak_rms_db = 20.0 * np.log10((peak_delta + 1e-12) / (delta_rms + 1e-12))
+            if peak_rms_db <= peak_rms_threshold:
+                continue
+
+            # Directional guard: peak in restored must be larger than in orig
+            # (phase added a spike, not just removed something)
+            peak_rest = float(np.max(np.abs(rest_win)))
+            peak_orig = float(np.max(np.abs(orig_win)))
+            if peak_rest <= peak_orig * 1.15:  # 15 % tolerance
+                continue
+
+            rms_rest = float(np.sqrt(np.mean(rest_win**2) + 1e-12))
+            rms_dbfs = 20.0 * np.log10(rms_rest + 1e-12)
+
+            artifacts.append(
+                DetectedArtifact(
+                    artifact_type="crackle_impulse",
+                    start_sample=start,
+                    end_sample=end,
+                    severity_db=float(peak_rms_db),
+                    frequency_hz=0.0,  # broadband impulse
+                    context_rms_dbfs=rms_dbfs,
+                )
+            )
+
+        if artifacts:
+            logger.debug(
+                "AFG crackle_impulse: %d windows flagged (kurtosis_thr=%.1f, peak_rms_thr=%.1f dB)",
+                len(artifacts),
+                kurtosis_threshold,
+                peak_rms_threshold,
+            )
         return artifacts
 
     # ── Noise Texture Coherence (§2.49) ────────────────────────────────────

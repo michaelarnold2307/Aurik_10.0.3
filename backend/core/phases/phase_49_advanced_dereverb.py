@@ -337,8 +337,10 @@ class AdvancedDereverbPhase(PhaseInterface):
                         _plm49 = None
                     # sigma: adaptiv aus strength — stärkerer Nachhall braucht höheres sigma
                     _sigma = float(np.clip(0.25 + strength * 0.65, 0.25, 0.90))
-                    _ml_runtime_default = 120.0 if _quality_first_unleashed_49 else 60.0
-                    _ml_runtime_max = 300.0 if _quality_first_unleashed_49 else 120.0
+                    # Realistic CPU budgets for long-form music so SGMSE+ can process
+                    # more than the first chunk before runtime guard fallback.
+                    _ml_runtime_default = 480.0 if _quality_first_unleashed_49 else 240.0
+                    _ml_runtime_max = 1800.0 if _quality_first_unleashed_49 else 900.0
                     _ml_runtime_budget_s = float(
                         np.clip(kwargs.get("ml_runtime_budget_s", _ml_runtime_default), 20.0, _ml_runtime_max)
                     )

@@ -64,6 +64,12 @@ class ExzellenzErgebnis:
     """VERSA MOS-Score \u2208 [1, 5] gemessen am optimierten Audio (0.0 = nicht verfügbar).
     Wird von AurikDenker wiederverwendet, um doppelte VERSA-Inferenz zu vermeiden.
     """
+    frisson_index: float = 0.0
+    """Gänsehaut-Propensity \u2208 [0, 1] aus Goals-Proxy (Blood & Zatorre 2001, §2.53).
+    0.0 = nicht berechnet oder keine Goals verfügbar.
+    """
+    mert_proxy_used: bool = False
+    """True wenn VERSA fehlschlug und MERT als Proxy-Fallback verwendet wurde (§2.44)."""
 
     def as_dict(self) -> dict:
         """Serialisierungsformat für Logging und Persistenz."""
@@ -75,6 +81,8 @@ class ExzellenzErgebnis:
             "improvements": list(self.improvements),
             "processing_note": self.processing_note,
             "warnings": list(self.warnings),
+            "frisson_index": float(self.frisson_index),
+            "mert_proxy_used": bool(self.mert_proxy_used),
         }
 
 
@@ -139,6 +147,7 @@ class ExzellenzDenker:
 
         warnings: list[str] = []
         improvements: list[str] = []
+        _metadata: dict = {}  # §2.44 MERT-Proxy-Flag und interne Telemetrie
 
         # Schritt 1 — Excellence-Optimierung
         try:
@@ -204,12 +213,38 @@ class ExzellenzDenker:
                 improvements.append(f"VERSA MOS={versa_mos:.2f} ≥ 4.3 — Studioqualität erreicht")
         except Exception as _ve:
             logger.debug("ExzellenzDenker: VERSA MOS nicht verfügbar: %s", _ve)
+            # §2.44 VERBOTEN: MERT darf nicht primary sein wenn VERSA verfügbar.
+            # Hier: VERSA fehlgeschlagen → MERT als Proxy-Fallback (§2.44).
+            try:
+                from plugins.mert_plugin import get_mert_plugin as _get_mert
+
+                _mert = _get_mert()
+                _mono_mert = optimiertes_audio if optimiertes_audio.ndim == 1 else optimiertes_audio.mean(axis=-1)
+                _mono_mert = np.nan_to_num(_mono_mert.astype(np.float32), nan=0.0, posinf=0.0, neginf=0.0)
+                _mert_analysis = _mert.analyze(_mono_mert, sr)
+                versa_mos = float(_mert_analysis.naturalness_score) * 5.0  # MERT [0,1] → MOS-Skala
+                logger.info(
+                    "ExzellenzDenker MERT-Proxy MOS=%.3f (VERSA unavailable, §2.44 fallback)",
+                    versa_mos,
+                )
+                _metadata["mert_proxy_used"] = True  # §2.44 VERBOTEN-Invariante
+            except Exception as _mert_exc:
+                logger.debug("ExzellenzDenker: MERT-Proxy MOS nicht verfügbar: %s", _mert_exc)
 
         # Schritt 2 — Musical Goals messen
         goals = self.messe_ziele(optimiertes_audio, sr)
 
         # Excellence-Score: Mittelwert aller Goals
-        _GOAL_MIN = 0.75  # Mindest-Score je Goal (Spec §8.x)
+        # §09.2 Material-adaptive Mindest-Score (nicht hardcoded 0.75 — Shellac-Ceiling 0.70,
+        # Vinyl 0.88, CD 0.95 → 0.75 wäre für schwierige Materialien systematisch falsch).
+        try:
+            from backend.core.calibration_matrix import _MATERIAL_QUALITY_CEILING as _MQC
+
+            _mat_norm_ed = str(material or "auto").strip().lower()
+            _goal_min_raw = _MQC.get(_mat_norm_ed, _MQC.get("vinyl", 0.75)) * 0.85
+            _GOAL_MIN: float = float(np.clip(_goal_min_raw, 0.50, 0.75))
+        except Exception:
+            _GOAL_MIN = 0.75
         if goals:
             finite_vals = [v for v in goals.values() if np.isfinite(v)]
             score = float(np.mean(finite_vals)) if finite_vals else 0.0
@@ -294,9 +329,46 @@ class ExzellenzDenker:
             except Exception as _ve:
                 logger.debug("ExzellenzDenker: VERSA post-repair Messung fehlgeschlagen: %s", _ve)
 
+        # §2.53 Frisson-Index (Gänsehaut-Propensity) aus Goals-Proxy
+        # Literature: Blood & Zatorre 2001, Grewe 2007, Harrison & Loui 2014
+        # Proxy-Gewichte analog UV3 _compute_joy_runtime_index() fallback-Pfad
+        _fi_micro = float(goals.get("micro_dynamics", 0.0)) if goals else 0.0
+        _fi_emo = float(goals.get("emotionalitaet", 0.0)) if goals else 0.0
+        # emotional_arc ≈ Mittel aus emotionalitaet + micro_dynamics (kein direkter Goal)
+        _fi_arc = 0.5 * _fi_emo + 0.5 * _fi_micro
+        _fi_art = float(goals.get("artikulation", 0.0)) if goals else 0.0
+        _fi_spa = float(goals.get("spatial_depth", 0.0)) if goals else 0.0
+        _fi_trans = float(goals.get("transparenz", 0.0)) if goals else 0.0
+        _fi_tonal = float(goals.get("tonal_center", 0.0)) if goals else 0.0
+        frisson_index = float(
+            np.clip(
+                0.26 * _fi_arc
+                + 0.18 * _fi_micro
+                + 0.14 * _fi_emo
+                + 0.14 * _fi_art
+                + 0.10 * _fi_spa
+                + 0.08 * _fi_trans
+                + 0.10 * _fi_tonal,
+                0.0,
+                1.0,
+            )
+        )
+        logger.info(
+            "ExzellenzDenker frisson_index=%.3f (arc=%.2f micro=%.2f emo=%.2f art=%.2f spa=%.2f)",
+            frisson_index,
+            _fi_arc,
+            _fi_micro,
+            _fi_emo,
+            _fi_art,
+            _fi_spa,
+        )
+
         note = (
             f"Exzellenz-Optimierung abgeschlossen: Score {score:.3f}, "
-            f"{passed}/{len(goals)} Ziele erfüllt" + (f", VERSA MOS={versa_mos:.2f}" if versa_mos > 0.0 else "") + "."
+            f"{passed}/{len(goals)} Ziele erfüllt"
+            + (f", VERSA MOS={versa_mos:.2f}" if versa_mos > 0.0 else "")
+            + (f", Gänsehaut={frisson_index:.0%}" if frisson_index > 0.0 else "")
+            + "."
         )
 
         return ExzellenzErgebnis(
@@ -309,6 +381,8 @@ class ExzellenzDenker:
             processing_note=note,
             warnings=warnings,
             versa_mos=versa_mos,
+            frisson_index=frisson_index,
+            mert_proxy_used=bool(_metadata.get("mert_proxy_used", False)),
         )
 
     def messe_ziele(self, audio: np.ndarray, sr: int) -> dict[str, float]:

@@ -561,9 +561,10 @@ def compute_noise_texture_coherence(
 **Guard-Integration**:
 
 - **Per-Phase**: Nach jeder subtraktiven Phase (phase_03, phase_29, phase_28) messen.
-  Kohärenz < 0.60 → Strength-Reduktion (−30 % Wet), kein Rollback.
-  Kohärenz ∈ [0.60, 0.80) → Telemetrie-Warning, kein Eingriff.
-  Kohärenz ≥ 0.80 → OK.
+  Kohärenz < 0.60 → Strength-Reduktion (−30 % Wet, `wet_mult = 0.70`), kein Rollback.
+  Kohärenz ∈ [0.60, 0.80) → milde Reduktion (−15 % Wet, `wet_mult = 0.85`) **und** Telemetrie-Warning.
+  Kohärenz ≥ 0.80 → OK (`wet_mult = 1.0`).
+  **Rationale**: Kohärenz 0.60–0.80 ist für sensible Hörer bereits hörbar inkohärent (Vinyl klingt „digital-flach"). Eine milde Wet-Dämpfung erzwingt mehr Retention des Carrier-Profils ohne die subtraktive Wirkung zu neutralisieren. `wet_mult = 1.0` bei 0.60–0.80 ist ein normatives Defizit (v9.11.15).
 - **End-of-Pipeline**: `metadata["noise_texture_coherence"]` als Pflichtfeld.
   Restoration-Modus: Kohärenz < 0.80 → Warning im Export, Empfehlung in `auto_improvement_recommendations`.
   Studio 2026: Kein Kohärenz-Zwang (Ziel ist minimaler Rauschboden).
@@ -842,6 +843,42 @@ Für Time-Axis-Dropout-Reparatur (Pass-2) in Phase 50:
 **VERBOTEN**: Einmalige lineare Interpolation als finale Time-Axis-Dropout-Reparatur.
 
 **Testpflicht**: `tests/unit/test_literature_algorithms.py` (21 Tests, alle grün).
+
+---
+
+### §4.7c Phase-23 POCS — STFT-Konsistenz-Projektion vor PGHI (v9.11.14)
+
+Bei Spectral-Repair (phase_23) Single-STFT-Fallback (`_repair_channel`): Interpolierte/Inpainting-Spektren sind STFT-inkonsistent → PGHI rekonstruiert Phase aus widersprüchlichen Magnitudes → Aliasing an Defektgrenzen.
+
+**Kanonische Implementierung** (im `_repair_channel`-Pfad, nach `Zxx_blended`, vor PGHI):
+
+```python
+# POCS nur im Non-FAST-Modus und bei relevanter Defektabdeckung
+if quality_mode not in ("FAST",) and defect_severity >= 0.005:
+    n_iter = int(np.clip(round(2 + defect_severity * 15), 2, 5))
+    if len(audio) / sr > 60.0:       # Wall-Time-Guard für lange Signale
+        n_iter = min(n_iter, 2)
+    for _ in range(n_iter):
+        time_signal = librosa.istft(Zxx_blended, hop_length=..., win_length=...)
+        Zxx_roundtrip = librosa.stft(time_signal, ...)
+        # Re-ankern: undamaged Bins auf Original zurücksetzen
+        Zxx_blended[~defect_mask] = Zxx_original[~defect_mask]
+        # Defect-Bins: neue Phase aus Roundtrip, Original-Inpainting-Magnitude
+        Zxx_blended[defect_mask] = np.abs(Zxx_blended[defect_mask]) * np.exp(1j * np.angle(Zxx_roundtrip[defect_mask]))
+# Anschließend: PGHI-Rekonstruktion auf STFT-konsistentem Zxx_blended
+```
+
+**Parameter**:
+
+- `n_iter`: material-adaptiv 2–5 (defect_severity linear interpoliert)
+- `defect_severity >= 0.005`: Mindest-Schwelle (0.5 % Defektabdeckung)
+- Wall-Time-Guard: `>60 s Signaldauer → n_iter = min(n_iter, 2)`
+- FAST-Mode: POCS komplett übersprungen (Laufzeit-Priorität)
+- Non-blocking: Exception im POCS-Loop lässt `Zxx_blended` unverändert
+
+**Wissenschaftliche Referenz**: Siedenburg & Dörfler (2013) analog zu §4.7b.
+
+**VERBOTEN**: PGHI auf direkt interpolierten/inpainteten Spektren ohne vorherige POCS-Konsistenzprojektion (erzeugt systematisches Aliasing an Defektgrenzen).
 
 ---
 

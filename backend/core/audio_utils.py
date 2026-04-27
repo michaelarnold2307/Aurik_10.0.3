@@ -129,7 +129,7 @@ def compute_gated_rms_dbfs(sig: np.ndarray, gate_dbfs: float = -50.0) -> float:
 def apply_musical_gain_envelope(
     audio: np.ndarray,
     gain: float,
-    gate_dbfs: float = -50.0,
+    gate_dbfs: float = -36.0,
     crossfade_ms: float = 10.0,
     sr: int = 48000,
 ) -> np.ndarray:
@@ -226,9 +226,60 @@ def apply_musical_gain_envelope(
         gate_env = np.convolve(gate_env, kernel, mode="same")
         gate_env = np.clip(gate_env, 0.0, 1.0)
     per_sample_gain = (1.0 + (gain - 1.0) * gate_env).astype(np.float32)
+
+    # §2.30b Stufe 5 — Per-sample quiet-zone hard clamp (AFTER smoothing)
+    # Box-blur/crossfade smoothing bleeds positive gain into frames bordering
+    # quiet zones (fadeout, intro hiss).  Any 10 ms frame whose pre-smoothing
+    # RMS was ≤ -36 dBFS MUST NOT receive a per-sample gain > 1.0, regardless
+    # of what the smoothed gate_env says.  This prevents Pegelexplosion at the
+    # source — no rescue logic needed downstream.
+    _QUIET_ZONE_DB = -36.0
+    for _fi, _rdb in enumerate(full_rms):
+        if _rdb <= _QUIET_ZONE_DB:
+            _fs = _fi * frame_len
+            _fe = min(_fs + frame_len, n)
+            per_sample_gain[_fs:_fe] = np.minimum(per_sample_gain[_fs:_fe], 1.0)
+    if tail_rms_db is not None and tail_rms_db <= _QUIET_ZONE_DB:
+        per_sample_gain[tail_s:] = np.minimum(per_sample_gain[tail_s:], 1.0)
+
     if was_2d:
         ch_first = arr.shape[0] <= 2 and arr.shape[1] > arr.shape[0]
         if ch_first:
             return (arr * per_sample_gain[np.newaxis, :]).astype(np.float32)
         return (arr * per_sample_gain[:, np.newaxis]).astype(np.float32)
     return (arr * per_sample_gain).astype(np.float32)
+
+
+def check_gain_safety(
+    audio: np.ndarray,
+    requested_gain: float,
+    max_peak_dbfs: float = -1.0,
+) -> tuple[float, bool]:
+    """Pre-flight: compute the maximum gain that won't clip the audio.
+
+    §2.51a / §2.45a preventive approach: calculate max safe gain BEFORE
+    applying it, so Pegelexplosion can never happen in the first place.
+
+    Uses 99.9th-percentile peak (§DSP-invariant) to avoid impulse artefacts
+    (crackle, clicks) blocking normalisation of the musical content.
+
+    Args:
+        audio:          Input audio (any shape float32).
+        requested_gain: Desired linear gain factor.
+        max_peak_dbfs:  Hard ceiling in dBFS (default -1.0 dBTP, broadcast-safe).
+
+    Returns:
+        (safe_gain, was_clamped) where safe_gain ≤ requested_gain and
+        was_clamped=True iff the gain was reduced to stay under the ceiling.
+    """
+    if requested_gain <= 1.0005:
+        return float(requested_gain), False
+    arr = np.asarray(audio, dtype=np.float32)
+    peak99 = float(np.percentile(np.abs(arr), 99.9))
+    if peak99 < 1e-9:
+        return 1.0, True  # Silent — no positive gain allowed
+    max_peak_linear = float(10.0 ** (max_peak_dbfs / 20.0))
+    max_safe = max_peak_linear / peak99
+    if requested_gain <= max_safe:
+        return float(requested_gain), False
+    return float(max(1.0, max_safe)), True

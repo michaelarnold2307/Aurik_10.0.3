@@ -9,6 +9,7 @@ Aufruf-Konventionen:
 """
 
 import numpy as np
+from scipy import signal
 
 np.random.seed(42)  # §5.4 Reproduzierbarkeit
 import pytest
@@ -821,6 +822,10 @@ class TestPhase23SpectralRepair:
         _assert_phase_result(result2, long_mono, check_clipping=False)
         assert called["mrsa"] == 1
 
+    test_thrashing_relax_mrsa_attempt_cap_limits_retries = pytest.mark.timeout(90)(
+        test_thrashing_relax_mrsa_attempt_cap_limits_retries
+    )
+
 
 # ===========================================================================
 # Phase 24 – Dropout Repair
@@ -862,6 +867,66 @@ class TestPhase24DropoutRepair:
         s_sparse = float(result_sparse.modifications.get("repair_strength", 1.0))
         assert s_sparse < s_default
         assert float(result_sparse.metadata.get("phase_locality_factor", 1.0)) <= 0.4 + 1e-6
+
+    def test_channel_first_stereo_preserves_alignment(self):
+        """Channel-first stereo (2, N) muss nach phase_24 zeitlich ausgerichtet bleiben."""
+        n = SR // 2
+        t = np.arange(n, dtype=np.float32) / SR
+        mono_sig = (0.18 * np.sin(2 * np.pi * 440 * t)).astype(np.float32)
+        stereo_cf = np.stack([mono_sig, mono_sig], axis=0)  # (2, N)
+
+        result = self.phase.process(stereo_cf, SR, material_type="vinyl")
+        _assert_phase_result(result, stereo_cf, check_clipping=False)
+        assert result.audio.shape == stereo_cf.shape
+
+        left = result.audio[0].astype(np.float64)
+        right = result.audio[1].astype(np.float64)
+        import scipy.signal as _sig
+
+        corr = _sig.correlate(left, right, mode="full")
+        lag = int(np.argmax(corr) - (len(left) - 1))
+        assert abs(lag) <= 1, f"Phase 24 introduced channel lag for channel-first stereo: lag={lag} samples"
+
+    def test_quiet_tail_not_reinflated_by_loudness_guard(self):
+        """Stille Fadeout-Tails dürfen durch den Loudness-Guard nicht hochgezogen werden (§2.45a-II)."""
+        n = SR
+        t = np.linspace(0.0, 1.0, n, endpoint=False, dtype=np.float32)
+        rng = np.random.default_rng(77)
+        music = 0.18 * np.sin(2 * np.pi * 440 * t)
+        fade = np.ones_like(t)
+        fade_start = int(0.6 * SR)
+        fade[fade_start:] = np.linspace(1.0, 0.02, n - fade_start, dtype=np.float32)
+        signal_in = (music * fade + 0.01 * rng.standard_normal(n)).astype(np.float32)
+        stereo = np.column_stack([signal_in, signal_in * 0.99]).astype(np.float32)
+
+        result = self.phase.process(stereo, SR, material_type="vinyl")
+        _assert_phase_result(result, stereo, check_clipping=False)
+
+        tail = slice(int(0.85 * SR), int(0.98 * SR))
+        tail_in_rms = float(np.sqrt(np.mean(stereo[tail] ** 2) + 1e-12))
+        tail_out_rms = float(np.sqrt(np.mean(result.audio[tail] ** 2) + 1e-12))
+        # Quiet tail must not be amplified by more than 1.5× (3 dB)
+        assert (tail_out_rms / max(tail_in_rms, 1e-12)) < 1.5, (
+            f"Phase 24 loudness guard reinflated quiet tail: in={tail_in_rms:.5f} out={tail_out_rms:.5f}"
+        )
+
+    def test_stereo_lag_safety_realigns_large_introduced_delay(self):
+        """Neu eingeführter L/R-Lag > 1 ms muss vom Stereo-Lag-Guard zurückgesetzt werden."""
+        n = SR
+        t = np.arange(n, dtype=np.float32) / SR
+        left = (0.2 * np.sin(2 * np.pi * 440 * t) + 0.04 * np.sin(2 * np.pi * 3200 * t)).astype(np.float32)
+        right = left.copy()
+        original = np.column_stack([left, right]).astype(np.float32)
+
+        introduced = original.copy()
+        delay = 220  # ~4.6 ms @ 48 kHz
+        introduced[:, 1] = np.concatenate([np.full(delay, introduced[0, 1], dtype=np.float32), introduced[:-delay, 1]])
+
+        corrected, lag_stats = self.phase._enforce_stereo_lag_safety(original, introduced, SR)
+        lag_after = self.phase._estimate_stereo_lag_samples(corrected, max_lag_samples=960)
+
+        assert lag_stats["lag_corrected"] is True
+        assert abs(int(lag_after) - int(lag_stats["lag_input_samples"])) <= 1
 
 
 # ===========================================================================
@@ -1158,6 +1223,66 @@ class TestPhase29TapeHissReduction:
         stereo = 0.1 * rng.standard_normal((n, 2)).astype(np.float32)
         result = self.phase.process(stereo, sr, MaterialType.TAPE)
         assert result.audio.shape == stereo.shape
+
+    def test_channel_first_stereo_preserves_alignment(self):
+        """Channel-first stereo (2, N) must remain aligned after phase 29."""
+        sr = self._SR
+        n = sr // 2
+        t = np.arange(n, dtype=np.float32) / sr
+        mono = (0.18 * np.sin(2 * np.pi * 440 * t) + 0.01 * np.sin(2 * np.pi * 9000 * t)).astype(np.float32)
+        stereo_cf = np.stack([mono, mono], axis=0)
+
+        result = self.phase.process(stereo_cf, sr, MaterialType.TAPE)
+        _assert_phase_result(result, stereo_cf, check_clipping=False)
+        assert result.audio.shape == stereo_cf.shape
+
+        left = result.audio[0].astype(np.float64)
+        right = result.audio[1].astype(np.float64)
+        corr = signal.correlate(left, right, mode="full")
+        lag = int(np.argmax(corr) - (len(left) - 1))
+        assert abs(lag) <= 1, f"Phase 29 introduced channel lag for channel-first stereo: lag={lag} samples"
+
+    def test_quiet_tail_not_reinflated_by_loudness_preservation(self):
+        """Quiet fade-out tails must not be boosted like active music frames."""
+        sr = self._SR
+        n = sr
+        t = np.linspace(0.0, 1.0, n, endpoint=False, dtype=np.float32)
+        rng = np.random.default_rng(1234)
+
+        music = 0.18 * np.sin(2 * np.pi * 440 * t)
+        fade = np.ones_like(t)
+        fade_start = int(0.6 * sr)
+        fade[fade_start:] = np.linspace(1.0, 0.02, n - fade_start, dtype=np.float32)
+        signal_in = music * fade + 0.03 * rng.standard_normal(n).astype(np.float32)
+        stereo = np.column_stack([signal_in, signal_in * 0.99]).astype(np.float32)
+        processed = (stereo * 0.08).astype(np.float32)
+
+        restored, stats = self.phase._apply_material_loudness_preservation(stereo, processed, MaterialType.TAPE)
+
+        tail = slice(int(0.85 * sr), int(0.98 * sr))
+        tail_before = float(np.sqrt(np.mean(processed[tail] ** 2) + 1e-12))
+        tail_after = float(np.sqrt(np.mean(restored[tail] ** 2) + 1e-12))
+        assert (tail_after / max(tail_before, 1e-12)) < 1.5
+        assert float(stats["makeup_gain_db"]) >= 0.0
+
+    def test_stereo_lag_safety_realigns_large_introduced_delay(self):
+        """Phase 29 must correct newly introduced inter-channel delay spikes."""
+        sr = self._SR
+        n = sr
+        t = np.arange(n, dtype=np.float32) / sr
+        left = (0.2 * np.sin(2 * np.pi * 440 * t) + 0.04 * np.sin(2 * np.pi * 3200 * t)).astype(np.float32)
+        right = left.copy()
+        original = np.column_stack([left, right]).astype(np.float32)
+
+        introduced = original.copy()
+        delay = 220
+        introduced[:, 1] = np.concatenate([np.full(delay, introduced[0, 1], dtype=np.float32), introduced[:-delay, 1]])
+
+        corrected, lag_stats = self.phase._enforce_stereo_lag_safety(original, introduced, sr)
+        lag_after = self.phase._estimate_stereo_lag_samples(corrected, max_lag_samples=960)
+
+        assert lag_stats["lag_corrected"] is True
+        assert abs(int(lag_after) - int(lag_stats["lag_input_samples"])) <= 1
 
 
 # ===========================================================================

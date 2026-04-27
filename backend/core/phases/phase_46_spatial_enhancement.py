@@ -183,7 +183,16 @@ class SpatialEnhancementPhase(PhaseInterface):
                 metrics={"effective_strength": 0.0},
             )
 
-        dry_wet: float = float(kwargs.get("dry_wet", 0.18))
+        # §0 Primum non nocere: Frühe Reflexionen (cross-feed) rücken Gesang nach hinten.
+        # Restoration-Mode darf nur konservative Raumtiefe hinzufügen.
+        _is_studio_mode = bool(kwargs.get("is_studio_mode", False))
+        if not _is_studio_mode:
+            effective_strength = float(np.clip(effective_strength, 0.0, 0.20))
+            logger.debug(
+                "phase_46: Restoration-Mode — Strength auf %.2f gedeckelt (kein künstlicher Hall)",
+                effective_strength,
+            )
+        dry_wet: float = float(kwargs.get("dry_wet", 0.18 if _is_studio_mode else 0.05))
         diffuse: bool = bool(kwargs.get("diffuse", True))
         iacc_guard: bool = bool(kwargs.get("iacc_guard", True))
         dry_wet = float(np.clip(dry_wet, 0.0, 1.0)) * effective_strength
@@ -205,9 +214,8 @@ class SpatialEnhancementPhase(PhaseInterface):
                 metrics={"effective_strength": effective_strength},
             )
 
-        x = audio.astype(np.float64)
-        L = x[:, 0]
-        R = x[:, 1]
+        L = audio[:, 0]
+        R = audio[:, 1]
         peak_in = float(np.percentile(np.abs(audio), 99.9))  # §2.49 Peak-Guard
 
         # 1. Early reflections (psychoacoustic lateral energy)
@@ -245,7 +253,7 @@ class SpatialEnhancementPhase(PhaseInterface):
         processed = np.column_stack([L_out, R_out])
 
         if 0.0 < effective_strength < 1.0:
-            processed = x + effective_strength * (processed - x)
+            processed = audio + effective_strength * (processed - audio)
 
         # 6. Level preservation — §2.49 Peak-Guard: percentile(99.9)
         peak_out = float(np.percentile(np.abs(processed), 99.9))
@@ -276,10 +284,5 @@ class SpatialEnhancementPhase(PhaseInterface):
                 "effective_strength": effective_strength,
                 "rms_drop_db": 0.0,
                 "loudness_makeup_db": 0.0,
-            },
-            metrics={
-                "dry_wet": dry_wet,
-                "iacc": iacc_val,
-                "effective_strength": effective_strength,
             },
         )

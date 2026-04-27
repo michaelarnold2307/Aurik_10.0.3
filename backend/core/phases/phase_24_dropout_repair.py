@@ -78,7 +78,12 @@ import numpy as np
 import scipy.signal as signal
 from scipy.interpolate import CubicSpline
 
-from backend.core.audio_utils import to_channels_last
+from backend.core.audio_utils import (
+    apply_musical_gain_envelope,
+    compute_gated_rms_linear,
+    restore_layout,
+    to_channels_last,
+)
 
 from .phase_interface import PhaseCategory, PhaseInterface, PhaseMetadata, PhaseResult, create_phase_result
 
@@ -851,6 +856,7 @@ class DropoutRepairPhase(PhaseInterface):
         if _effective_strength <= 0.0:
             passthrough = np.nan_to_num(audio.copy(), nan=0.0, posinf=0.0, neginf=0.0)
             passthrough = np.clip(passthrough, -1.0, 1.0)
+            passthrough = restore_layout(passthrough, _p24_transposed)
             return create_phase_result(
                 audio=passthrough,
                 modifications={
@@ -932,6 +938,9 @@ class DropoutRepairPhase(PhaseInterface):
             repaired_audio = np.column_stack([repaired_left, repaired_right])
             all_dropouts = linked_dropouts
             ml_repaired_count = ml_count_left + ml_count_right
+
+            # §2.51 Stereo-Lag-Guard: ensure no new interchannel lag was introduced.
+            repaired_audio, _p24_lag_stats = self._enforce_stereo_lag_safety(audio, repaired_audio, sample_rate)
         else:
             all_dropouts = self._detect_dropouts_multimodal(audio, params)
             all_dropouts, _sk = _filter_pre_repaired(all_dropouts)
@@ -945,6 +954,12 @@ class DropoutRepairPhase(PhaseInterface):
                 )
             _pre_repaired_skipped += _sk
             repaired_audio, ml_repaired_count = self._repair_dropouts_professional(audio, all_dropouts, params, use_ml)
+            _p24_lag_stats: dict[str, int | bool] = {
+                "lag_input_samples": 0,
+                "lag_output_samples": 0,
+                "lag_corrected": False,
+                "lag_output_corrected_samples": 0,
+            }
 
         # Statistics
         num_dropouts = len(all_dropouts)
@@ -979,11 +994,12 @@ class DropoutRepairPhase(PhaseInterface):
 
         # Hard loudness guard (§2.45a): prevent catastrophic early-level collapse.
         # Phase 24 can over-attenuate when many dropout candidates are repaired;
-        # enforce a material-adaptive max RMS drop with peak-safe makeup and
-        # limited dry rescue.
-        def _rms_db(x: np.ndarray) -> float:
-            arr = np.asarray(x, dtype=np.float64)
-            return float(20.0 * np.log10(np.sqrt(np.mean(arr * arr) + 1e-12)))
+        # enforce a material-adaptive max RMS drop with peak-safe, envelope-aware
+        # makeup (§2.45a-I/II: gated-RMS + apply_musical_gain_envelope, gate=-36 dBFS).
+        def _rms_dbfs_gated_p24(x: np.ndarray) -> float:
+            """§2.45a-I: Frame-gated RMS in dBFS — only frames > −50 dBFS contribute."""
+            _rms_lin = compute_gated_rms_linear(x, gate_dbfs=-50.0)
+            return float(20.0 * np.log10(max(_rms_lin, 1e-12)))
 
         _max_drop_db = {
             "shellac": 2.2,
@@ -1002,22 +1018,30 @@ class DropoutRepairPhase(PhaseInterface):
             "unknown": 3.5,
         }.get(str(self._current_material), 3.5)
 
-        _rms_in = _rms_db(audio)
-        _rms_out = _rms_db(repaired_audio)
-        _drop_db = _rms_in - _rms_out
+        _rms_in_db = _rms_dbfs_gated_p24(audio)
+        _rms_out_db = _rms_dbfs_gated_p24(repaired_audio)
+        _drop_db = _rms_in_db - _rms_out_db
         if _drop_db > _max_drop_db:
-            _target_rms = _rms_in - _max_drop_db
-            _need_db = max(0.0, _target_rms - _rms_out)
+            _target_rms_db = _rms_in_db - _max_drop_db
+            _need_db = max(0.0, _target_rms_db - _rms_out_db)
             if _need_db > 0.01:
                 _g = float(10.0 ** (_need_db / 20.0))
                 _p999 = float(np.percentile(np.abs(repaired_audio), 99.9))
                 if _p999 > 1e-9:
                     _g = min(_g, float(0.995 / _p999))
                 if _g > 1.0005:
-                    repaired_audio = np.clip(repaired_audio * _g, -1.0, 1.0)
+                    # §2.45a-II: envelope-aware gain — music frames only, gate=-36 dBFS
+                    repaired_audio = apply_musical_gain_envelope(
+                        repaired_audio,
+                        _g,
+                        gate_dbfs=-36.0,
+                        crossfade_ms=10.0,
+                        sr=sample_rate,
+                    )
+                    repaired_audio = np.clip(repaired_audio, -1.0, 1.0)
 
-            _rms_after_makeup = _rms_db(repaired_audio)
-            _residual = (_rms_in - _rms_after_makeup) - _max_drop_db
+            _rms_after_makeup_db = _rms_dbfs_gated_p24(repaired_audio)
+            _residual = (_rms_in_db - _rms_after_makeup_db) - _max_drop_db
             if _residual > 0.20:
                 _alpha = float(np.clip(0.06 + (_residual / 8.0), 0.06, 0.24))
                 repaired_audio = np.clip((1.0 - _alpha) * repaired_audio + _alpha * audio, -1.0, 1.0)
@@ -1029,6 +1053,7 @@ class DropoutRepairPhase(PhaseInterface):
                     _alpha,
                 )
 
+        repaired_audio = restore_layout(repaired_audio, _p24_transposed)
         return create_phase_result(
             audio=repaired_audio,
             modifications={
@@ -1042,7 +1067,7 @@ class DropoutRepairPhase(PhaseInterface):
                 "material_type": material_type,
                 "algorithm_version": "2.0_ml_hybrid" if use_ml else "2.0_professional",
                 "pre_repaired_gaps_skipped": _pre_repaired_skipped,
-                "rms_drop_db": float(_rms_in - _rms_db(repaired_audio)),
+                "rms_drop_db": float(_rms_in_db - _rms_dbfs_gated_p24(repaired_audio)),
             },
             warnings=warnings,
             metadata={
@@ -1059,8 +1084,105 @@ class DropoutRepairPhase(PhaseInterface):
                 "ml_guard_events": list(self._ml_guard_events),
                 "deferred_for_kmv": ["phase_24_dropout_repair"] if self._ml_guard_events else [],
                 "inpainting_runtime_profile": inpainting_runtime_profile,
+                "lag_input_samples": int(_p24_lag_stats["lag_input_samples"]),
+                "lag_output_samples": int(_p24_lag_stats["lag_output_samples"]),
+                "lag_corrected": bool(_p24_lag_stats["lag_corrected"]),
+                "lag_output_corrected_samples": int(_p24_lag_stats["lag_output_corrected_samples"]),
             },
         )
+
+    # ------------------------------------------------------------------ #
+    #  §2.51 Stereo-Lag-Guard (Phase 24)                                  #
+    # ------------------------------------------------------------------ #
+    @staticmethod
+    def _estimate_stereo_lag_samples(stereo_audio: np.ndarray, max_lag_samples: int = 960) -> int:
+        """Estimate inter-channel lag (R relative to L) for channels-last stereo."""
+        if stereo_audio.ndim != 2 or stereo_audio.shape[1] != 2:
+            return 0
+        left = np.asarray(stereo_audio[:, 0], dtype=np.float64)
+        right = np.asarray(stereo_audio[:, 1], dtype=np.float64)
+        n = min(len(left), len(right))
+        if n < 4096:
+            return 0
+        win = min(n, 48000)
+        start = max(0, (n - win) // 2)
+        left = left[start : start + win]
+        right = right[start : start + win]
+        left -= np.mean(left)
+        right -= np.mean(right)
+        denom = float(np.sqrt(np.mean(left**2) * np.mean(right**2)) + 1e-12)
+        if denom < 1e-10:
+            return 0
+        corr = signal.correlate(left, right, mode="full", method="fft")
+        lags = signal.correlation_lags(len(left), len(right), mode="full")
+        mask = np.abs(lags) <= int(max_lag_samples)
+        if not np.any(mask):
+            return 0
+        idx = int(np.argmax(corr[mask]))
+        return int(lags[mask][idx])
+
+    @staticmethod
+    def _shift_channel_no_wrap(channel: np.ndarray, shift_samples: int) -> np.ndarray:
+        """Shift channel with edge fill, never wrap samples."""
+        x = np.asarray(channel, dtype=np.float32)
+        n = len(x)
+        if n == 0 or shift_samples == 0:
+            return x.copy()
+        out = np.empty_like(x)
+        if shift_samples > 0:
+            shift = min(shift_samples, n - 1)
+            out[:shift] = x[0]
+            out[shift:] = x[:-shift]
+            return out
+        shift = min(-shift_samples, n - 1)
+        out[:-shift] = x[shift:]
+        out[-shift:] = x[-1]
+        return out
+
+    def _enforce_stereo_lag_safety(
+        self,
+        original_audio: np.ndarray,
+        processed_audio: np.ndarray,
+        sample_rate: int,
+    ) -> tuple[np.ndarray, dict[str, int | bool]]:
+        """Keep inter-channel lag close to input to prevent audible L/R desync."""
+        stats: dict[str, int | bool] = {
+            "lag_input_samples": 0,
+            "lag_output_samples": 0,
+            "lag_corrected": False,
+            "lag_output_corrected_samples": 0,
+        }
+        if original_audio.ndim != 2 or processed_audio.ndim != 2:
+            return processed_audio, stats
+        if original_audio.shape[1] != 2 or processed_audio.shape[1] != 2:
+            return processed_audio, stats
+
+        max_lag_samples = int(min(960, max(48, sample_rate // 50)))
+        lag_in = self._estimate_stereo_lag_samples(original_audio, max_lag_samples=max_lag_samples)
+        lag_out = self._estimate_stereo_lag_samples(processed_audio, max_lag_samples=max_lag_samples)
+        stats["lag_input_samples"] = int(lag_in)
+        stats["lag_output_samples"] = int(lag_out)
+
+        # Allow up to 1 ms introduced lag; beyond that align output back to input lag.
+        max_introduced = int(max(1, round(sample_rate * 0.001)))
+        lag_delta = int(lag_out - lag_in)
+        if abs(lag_delta) <= max_introduced:
+            stats["lag_output_corrected_samples"] = int(lag_out)
+            return processed_audio, stats
+
+        corrected = np.asarray(processed_audio, dtype=np.float32).copy()
+        corrected[:, 1] = self._shift_channel_no_wrap(corrected[:, 1], int(lag_delta))
+        lag_corr = self._estimate_stereo_lag_samples(corrected, max_lag_samples=max_lag_samples)
+        stats["lag_corrected"] = True
+        stats["lag_output_corrected_samples"] = int(lag_corr)
+        logger.warning(
+            "Phase 24 stereo-lag safety: corrected introduced lag delta=%d samples (in=%d out=%d corrected=%d)",
+            lag_delta,
+            lag_in,
+            lag_out,
+            lag_corr,
+        )
+        return np.clip(corrected, -1.0, 1.0), stats
 
     def _detect_dropouts_multimodal(self, audio: np.ndarray, params: dict[str, Any]) -> list[tuple[int, int]]:
         """

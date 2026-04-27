@@ -62,6 +62,25 @@ def _make_tape_rumble_signal(duration_s: float = 2.0) -> np.ndarray:
     return stereo.astype(np.float32)
 
 
+def _make_fadeout_rumble_signal(duration_s: float = 2.0) -> np.ndarray:
+    """Musik mit leisem Fade-out-Tail und starkem Rumpeln für Pumping-Regressionen."""
+    rng = np.random.default_rng(7)
+    t = np.linspace(0, duration_s, int(SR * duration_s), endpoint=False)
+
+    music = 0.18 * np.sin(2 * np.pi * 220 * t) + 0.08 * np.sin(2 * np.pi * 440 * t)
+    envelope = np.ones_like(t)
+    fade_start = int(1.4 * SR)
+    envelope[fade_start:] = np.linspace(1.0, 0.02, len(t) - fade_start)
+    music *= envelope
+
+    rumble = 0.22 * np.sin(2 * np.pi * 26 * t) + 0.10 * np.sin(2 * np.pi * 52 * t)
+    tail_noise = 0.004 * rng.standard_normal(len(t))
+
+    audio = music + rumble + tail_noise
+    stereo = np.column_stack([audio, audio * 0.985 + 0.001 * rng.standard_normal(len(t))])
+    return np.clip(stereo, -1.0, 1.0).astype(np.float32)
+
+
 def _gated_rms_db(audio: np.ndarray, gate_dbfs: float = -50.0) -> float:
     """Gated RMS in dBFS — identisch zur Phase-05-Implementierung."""
     arr = np.asarray(audio, dtype=np.float32)
@@ -188,4 +207,18 @@ class TestPhase05LoudnessGuard:
 
         assert rms_change < 0.5, (
             f"CD-Material ohne Rumble wurde um {rms_change:.2f} dB verändert. Expected: < 0.5 dB Veränderung."
+        )
+
+    def test_fadeout_tail_does_not_create_spurious_transients(self):
+        """Leiser Fade-out-Tail darf den HPF-BYPASS nicht rhythmisch an/aus schalten."""
+        audio = _make_fadeout_rumble_signal(duration_s=2.0)
+
+        transient_mask = self.phase._detect_transients_professional(audio, sensitivity=0.8)
+
+        tail = transient_mask[int(1.7 * SR) :]
+        tail_ratio = float(np.mean(tail)) if len(tail) else 0.0
+
+        assert tail_ratio < 0.15, (
+            f"Quiet fade-out tail flagged as transient too often: {tail_ratio:.2%}. "
+            "Phase 05 would alternate HPF bypass/filter and pump the outro."
         )

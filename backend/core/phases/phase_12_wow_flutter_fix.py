@@ -724,6 +724,19 @@ class WowFlutterFix(PhaseInterface):
         if is_stereo:
             restored_left = _stretch_fn(audio[:, 0], stretch_factors, sample_rate)
             restored_right = _stretch_fn(audio[:, 1], stretch_factors, sample_rate)
+            # §2.51 L/R-Zeitversatz-Guard: WSOLA/PSOLA kann pro Kanal minimal
+            # unterschiedliche Sample-Zahlen liefern (Pitch-Period-Rounding).
+            # Auf kürzere Länge trimmen — kein L/R-Versatz im Export.
+            if len(restored_left) != len(restored_right):
+                _p12_n = min(len(restored_left), len(restored_right))
+                logger.debug(
+                    "phase_12: L/R-Längenangleichung: L=%d R=%d → %d",
+                    len(restored_left),
+                    len(restored_right),
+                    _p12_n,
+                )
+                restored_left = restored_left[:_p12_n]
+                restored_right = restored_right[:_p12_n]
             restored = np.column_stack([restored_left, restored_right])
         else:
             restored = _stretch_fn(audio, stretch_factors, sample_rate)

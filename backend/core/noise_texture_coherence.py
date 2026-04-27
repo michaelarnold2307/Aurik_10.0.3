@@ -225,9 +225,13 @@ class NoiseTextureCoherenceGuard:
                 material_type,
             )
         elif result.coherence < 0.80:
-            wet_mult = 1.0  # Warning only, no intervention
+            # §4.7-v9.11.15: Schwelle 0.60–0.80 → wet ×0.85 (bisher nur Warning ohne Wirkung).
+            # Rauschtextur im 0.60–0.80-Band ist für sensible Hörer bereits hörbar inkohärent
+            # (Vinyl klingt 'digital-flach'). Konservative Wet-Dämpfung erzwingt mehr Retention
+            # des Carrier-Profils ohne die subtraktive Wirkung komplett zu neutralisieren.
+            wet_mult = 0.85
             logger.info(
-                "§4.7 NoiseTexture: coherence=%.2f < 0.80 → warning (material=%s)",
+                "§4.7 NoiseTexture: coherence=%.2f in [0.60,0.80) → wet ×0.85 (material=%s)",
                 result.coherence,
                 material_type,
             )

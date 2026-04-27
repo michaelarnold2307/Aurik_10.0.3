@@ -620,7 +620,9 @@ Diese Fehler wurden in Produktion bestätigt und haben die gesamte Musical-Goals
 ```python
 _KEY_SHIFT_PENALTY: dict[int, float] = {0: 1.0, 1: 0.75, 2: 0.50, 3: 0.30}
 _KEY_SHIFT_PENALTY_DEFAULT: float = 0.20   # War: 0.0 → tonal_center = 0.000
-# Bypass-Guard: if corr_score >= 0.70 (war: 0.85 — zu restriktiv für BW-Extension)
+# Bypass-Guard: if corr_score >= 0.60 (Korrektionspfad: 0.85 → 0.70 → 0.60)
+# Nach IMCRA/DeepFilter-Denoising fällt Pearson-Chroma auf ~0.655 ohne echten
+# Tonartwechsel — 0.70 war zu restriktiv (bestätigt Produktion 2026-04-26, vinyl 225s)
 ```
 
 **Auswirkung**: Mit `0.0` wurden alle PMGG-Retries für `phase_23` + `phase_06` ausgelöst → Pipeline-Rollback → BW-Restoration und Spectral Repair blieben inaktiv.
@@ -672,3 +674,27 @@ _ADAPTIVE_THR_MATERIAL_CEILING = {
 #     if ceiling and thr > ceiling:
 #         _effective_goal_thresholds[goal] = ceiling
 ```
+
+### §1.4.5 GrooveMetric — Bidirektionaler DTW-Onset-Ratio-Guard (RELEASE_MUST)
+
+**Problem**: `noise_onset_ratio = n_original / n_restored > 2.0` prüft nur die Richtung „Original hat zu viele Defekt-Impulse". Wenn die **Restaurierung selbst** Crackle-Artefakte erzeugt (phase_09 AR-Interpolation, phase_31 Pitch-Boundary, phase_55 Inpainting), gilt `n_restored >> n_original` → Ratio ≤ 2.0 → kein Fallback → DTW-Score = 0.000 → `groove = 0.000` (bestätigt Produktion 2026-04-26, vinyl→tape→mp3_low 225s).
+
+Zusätzlich: `_is_noise_dominated = _gdur_s < 10.0 and _max_onset_density > 6.0` → greift bei gecappten 30-s-Segmenten nie (30 > 10).
+
+**Normative Konfiguration** (in `_measure_with_dtw()`):
+
+```python
+# Bidirektionaler Guard: Restaurierung hat zu viele Onsets (Pipeline-Crackle)
+_restore_onset_ratio = result.n_onsets_restored / max(result.n_onsets_original, 1)
+if _dtw_score < 0.3 and _restore_onset_ratio > 1.5:
+    return self.measure(audio, sr, reference=None)  # IOI-Fallback
+
+# Catastrophic-Guard: DTW-Score physikalisch unmöglich
+if _dtw_score < 0.05:
+    return self.measure(audio, sr, reference=None)  # immer IOI-Fallback
+
+# _is_noise_dominated ohne Längenbeschränkung:
+_is_noise_dominated = _max_onset_density > 6.0  # War: _gdur_s < 10.0 and ...
+```
+
+**Invariante**: Wenn die restaurierte Seite 1.5× mehr Onsets als das Original hat UND der DTW-Score < 0.3, liegen Pipeline-Artefakte vor — IOI-Fallback (referenzfrei). Gilt für alle Song-Längen.

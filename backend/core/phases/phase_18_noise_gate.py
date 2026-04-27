@@ -106,10 +106,10 @@ class NoiseGate(PhaseInterface):
     # Material-adaptive gate configurations
     GATE_CONFIG = {
         MaterialType.SHELLAC: {
-            "thresholds_db": [-35, -32, -30, -28],  # Per band (low to high)
-            "reductions_db": [-12, -15, -18, -20],  # Attenuation below threshold
-            "attack_ms": [20, 15, 10, 8],
-            "release_ms": [150, 120, 100, 80],
+            "thresholds_db": [-42, -40, -37, -35],  # Gentler gate to preserve vocal micro-detail
+            "reductions_db": [-8, -10, -12, -14],  # Avoid over-attenuation in short shellac vocals
+            "attack_ms": [24, 18, 12, 10],
+            "release_ms": [180, 150, 120, 100],
             "knee_db": 6,
             "look_ahead_ms": 8,
         },
