@@ -499,8 +499,14 @@ class CompressionPhase(PhaseInterface):
             from backend.core.audio_utils import apply_musical_gain_envelope
 
             makeup_lin = float(10.0 ** (makeup_db / 20.0))
+            # §2.45a-II v9.12.2: reference_for_gate=audio (pre-compression) → signal-relative gate
             audio_compressed = apply_musical_gain_envelope(
-                audio_compressed, makeup_lin, gate_dbfs=-36.0, crossfade_ms=10.0, sr=int(sr)
+                audio_compressed,
+                makeup_lin,
+                gate_dbfs=-36.0,
+                crossfade_ms=10.0,
+                sr=int(sr),
+                reference_for_gate=audio,
             )
 
         return audio_compressed, gain_reduction_smooth

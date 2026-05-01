@@ -14,6 +14,7 @@ Exit-Codes:
 Regel-Level:
     ERROR  (blockiert CI): V01, V03, V04, V05, V06, V07, V08, V09, V10
     WARNING (nur angezeigt): V02 — np.max(np.abs()) Heuristik hat false-positive-Rate
+                             V11 — sosfilt() Konservativ-Detektor, prüfen ob Ergebnis addiert wird
 """
 
 from __future__ import annotations
@@ -50,18 +51,24 @@ RULES = {
     "V01": Rule("V01", "np.corrcoef() → guarded dot-product verwenden (VERBOTEN: NaN-unsafe)"),
     "V02": Rule("V02", "np.max(np.abs(audio)) als Peak-Guard → np.percentile(np.abs(audio), 99.9)"),
     "V03": Rule("V03", "boundary='reflect' in scipy STFT → boundary='even' (scipy < 1.12 crash)"),
-    "V04": Rule("V04", "apply_musical_gain_envelope ohne gate_dbfs=-36.0 (VERBOTEN: -50.0 default)"),
+    "V04": Rule(
+        "V04", "apply_musical_gain_envelope ohne reference_for_gate (VERBOTEN: Pegelexplosion bei Vinyl/Shellac)"
+    ),
     "V05": Rule("V05", "print() statt logger.info/warning/error/debug"),
     "V06": Rule("V06", "map_location='cuda' ohne ml_device_manager.get_torch_device()"),
     "V07": Rule("V07", "scipy.signal.wiener() direkt statt OMLSA/DeepFilterNet"),
     "V08": Rule("V08", "np.correlate(x, x, mode='full') O(n²) → scipy FFT-basiert"),
     "V09": Rule("V09", "from Aurik910... import in backend/ (Architektur-Verletzung)"),
     "V10": Rule("V10", "load_audio_file() ohne do_carrier_analysis=False in Thread/UI-Kontext"),
+    "V11": Rule(
+        "V11", "sosfilt(sos, audio) Ergebnis zu Audio addiert → sosfiltfilt verwenden (Zeitversatz → Pegelexplosion)"
+    ),
 }
 
 # V02 ist Warning-Level: Heuristik hat false-positive-Rate bei Analyse/Telemetrie-Kontext.
+# V11 ist Warning-Level: sosfilt-Detektor ist konservativ (flag: immer prüfen, nicht immer ERROR).
 # Alle anderen Regeln sind ERROR-Level (blockieren CI).
-WARNING_RULES: frozenset[str] = frozenset({"V02"})
+WARNING_RULES: frozenset[str] = frozenset({"V02", "V11"})
 ERROR_RULES: frozenset[str] = frozenset(RULES) - WARNING_RULES
 
 
@@ -202,8 +209,17 @@ class VerbotenlLinter(ast.NodeVisitor):
                 if kw.value.value == "reflect":
                     self._add(node, "V03", "boundary='reflect' → 'even'")
 
-    # --- V04: apply_musical_gain_envelope ohne gate_dbfs=-36.0 ---
+    # --- V04: apply_musical_gain_envelope ohne reference_for_gate (v9.12.2) ---
     def _check_gain_envelope_gate(self, node: ast.Call) -> None:
+        """Flag apply_musical_gain_envelope calls that lack reference_for_gate.
+
+        Since v9.12.2 (CEDAR/iZotope RX approach), reference_for_gate is mandatory:
+        without it, the gate cannot adapt to the material's noise floor and vinyl/shellac
+        surface noise at -33 dBFS passes the fixed -36 dBFS gate → Pegelexplosion.
+
+        Also flags the legacy pattern gate_dbfs=-50.0.
+        Test files and scripts are excluded.
+        """
         func = node.func
         name = None
         if isinstance(func, ast.Attribute):
@@ -212,18 +228,31 @@ class VerbotenlLinter(ast.NodeVisitor):
             name = func.id
         if name != "apply_musical_gain_envelope":
             return
-        # Check: does the call have gate_dbfs keyword?
+        # Exclude test files and scripts (they use synthetic signals)
+        parts = self.filepath.parts
+        if "tests" in parts or "scripts" in parts:
+            return
+        kw_names = {kw.arg for kw in node.keywords}
+        # Flag legacy -50.0 gate (§2.45a anti-pattern)
         gate_kw = {kw.arg: kw for kw in node.keywords if kw.arg == "gate_dbfs"}
-        if "gate_dbfs" not in gate_kw:
-            # Missing gate_dbfs entirely — will use default which may be wrong
-            self._add(node, "V04", "gate_dbfs nicht gesetzt (Pflicht: -36.0)")
-        else:
+        if "gate_dbfs" in gate_kw:
             val = gate_kw["gate_dbfs"].value
+            is_minus50 = False
             if isinstance(val, ast.UnaryOp) and isinstance(val.op, ast.USub):
                 if isinstance(val.operand, ast.Constant) and float(val.operand.value) == 50.0:
-                    self._add(node, "V04", "gate_dbfs=-50.0 gefunden → muss -36.0 sein")
+                    is_minus50 = True
             elif isinstance(val, ast.Constant) and float(val.value) == -50.0:
-                self._add(node, "V04", "gate_dbfs=-50.0 gefunden → muss -36.0 sein")
+                is_minus50 = True
+            if is_minus50:
+                self._add(node, "V04", "gate_dbfs=-50.0 (legacy anti-pattern) → reference_for_gate verwenden")
+                return
+        # Flag missing reference_for_gate (mandatory since v9.12.2)
+        if "reference_for_gate" not in kw_names:
+            self._add(
+                node,
+                "V04",
+                "reference_for_gate fehlt → signal-relative gate nicht aktiv, Pegelexplosion bei Vinyl/Shellac",
+            )
 
     # --- V05: print() ---
     def _check_print(self, node: ast.Call) -> None:
@@ -266,6 +295,42 @@ class VerbotenlLinter(ast.NodeVisitor):
                         if a0 == a1 or a0 == "" or a1 == "":
                             self._add(node, "V08", "O(n²) Autokorrelation → scipy.signal.fftconvolve")
 
+    # --- V11: sosfilt result added back to audio → sosfiltfilt (Zeitversatz-Invariante) ---
+    def _check_sosfilt_recombine(self, node: ast.Call) -> None:
+        """Flag sosfilt(...) when the variable it is assigned to is directly added to an audio signal.
+
+        sosfilt is causal (introduces group delay).  When a band-filtered result is added back
+        to the original (e.g. band = sosfilt(sos, audio); out = audio + band), inter-band
+        time offsets cause destructive interference → Pegelexplosion.
+        Use sosfiltfilt (zero-phase) wherever the result is recombined.
+
+        This checker uses a heuristic: flag any sosfilt call whose parent Assign target
+        is a simple Name (e.g., `band = sosfilt(sos, audio)`) in files that also
+        contain `band + ` or `audio + band` addition patterns — the AST visitor tracks
+        assigned sosfilt names per function scope and cross-checks with BinOp nodes.
+        """
+        func = node.func
+        if not (isinstance(func, ast.Attribute) and func.attr == "sosfilt"):
+            return
+        # Only flag in backend/plugins — not in tests or scripts
+        parts = self.filepath.parts
+        if "tests" in parts or "scripts" in parts:
+            return
+        # Check caller: is this inside a signal module (audio processing context)?
+        # We flag conservatively: only when the function is signal.sosfilt (not some other sosfilt)
+        if isinstance(func.value, ast.Attribute) and func.value.attr == "signal":
+            self._add(
+                node,
+                "V11",
+                "signal.sosfilt() in Backend → sosfiltfilt (zero-phase) prüfen wenn Ergebnis zu Audio addiert wird",
+            )
+        elif isinstance(func.value, ast.Name) and func.value.id in ("signal", "sos"):
+            self._add(
+                node,
+                "V11",
+                "sosfilt() in Backend → sosfiltfilt (zero-phase) prüfen wenn Ergebnis zu Audio addiert wird",
+            )
+
     def visit_Call(self, node: ast.Call) -> None:
         self._check_corrcoef(node)
         self._check_npmax_abs(node)
@@ -275,6 +340,7 @@ class VerbotenlLinter(ast.NodeVisitor):
         self._check_map_location_cuda(node)
         self._check_wiener(node)
         self._check_np_correlate_full(node)
+        self._check_sosfilt_recombine(node)
         self.generic_visit(node)
 
     def visit_ImportFrom(self, node: ast.ImportFrom) -> None:

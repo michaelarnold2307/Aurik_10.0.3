@@ -80,7 +80,54 @@ niemals auf einen einzelnen Referenzsong optimiert werden.
 **Rationale:** Aurik ist ein universelles Restaurationssystem. "Maximale Klangtreue" bedeutet
 "maximale Treue pro Songklasse im gesamten Importraum", nicht "bestes Ergebnis für den aktuell geladenen Song".
 
-## Architektur dieser Richtlinien
+### §0f [RELEASE_MUST] KI-Agenten-Vorgehensweise: Systemisch vs. Punktuell
+
+Jeder KI-Agent (GitHub Copilot, Claude, GPT), der an Aurik arbeitet, **muss zuerst erkennen**, ob ein Problem
+punktuell (Einzelfall) oder systemisch (Muster über mehrere Stellen) ist — und dann die **korrekte Vorgehensweise** wählen.
+
+**Entscheidungsbaum (vor jeder Änderung):**
+
+```
+1. SUCHE: Wie viele Stellen im Code haben dasselbe Muster?
+   a) Nur eine Stelle → Punktuelle Korrektur zulässig
+   b) 2–4 Stellen     → Prüfe ob gemeinsame Abstraktion existiert; wenn ja: systemisch
+   c) ≥ 5 Stellen     → IMMER systemische Lösung (zentrale Funktion + alle Callsites)
+
+2. PRÜFE: Kann das Muster erneut eingeführt werden?
+   a) Ja → Linter-Regel (VERBOTEN-Tabelle + scripts/aurik_verboten_linter.py) MUSS ergänzt werden
+   b) Nein (einmaliger Edge-Case) → Punktuelle Lösung + Kommentar reicht
+
+3. ENTSCHEIDE:
+   Punktuell  → Einzelne Stelle reparieren; Tests; Commit
+   Systemisch → (1) Zentrale Funktion/Abstraktion schaffen oder verbessern
+                (2) ALLE bekannten Callsites in einem Durchgang fixen (multi_replace_string_in_file)
+                (3) Linter-Regel ergänzen (ERROR- oder WARNING-Level)
+                (4) VERBOTEN-Tabelle in copilot-instructions.md ergänzen
+                (5) Tests; Commit mit Scope-Prefix "fix §X systemic"
+```
+
+**Verbindliche Invarianten für systemische Lösungen:**
+
+1. **Keine halben Fixes**: Alle bekannten Callsites werden in **einem** Commit geschlossen — kein "fix die wichtigsten und den Rest später".
+2. **Linter-First**: Jedes systemische Anti-Pattern MUSS eine Linter-Regel bekommen, bevor der Commit erfolgt. Sonst ist die nächste Regression garantiert.
+3. **VERBOTEN-Tabelle-Pflicht**: Jede systemische Linter-Regel muss auch in der VERBOTEN-Tabelle (`copilot-instructions.md`) stehen, damit KI-Agenten sie in neuen Sessions kennen.
+4. **Kein Over-Scope**: Systemische Lösung bedeutet "alle Stellen desselben Musters", nicht "refactore das gesamte Subsystem". Nur das betroffene Muster wird geschlossen.
+
+**Erkennungsmerkmale systemischer Probleme (Checkliste):**
+
+| Signal | Bedeutung |
+|---|---|
+| Selbe Konstante (`-36.0`, `-50.0`, `gate_dbfs`) an ≥ 5 Stellen | Systemisch — zentrale Default-Änderung nötig |
+| Selbes Import-/Call-Muster in mehreren Phasendateien | Systemisch — Helper-Funktion + alle Callsites |
+| Bug tritt in "2 Sessions re-introduced" auf | Systemisch — Linter fehlt |
+| Fix löst Problem in einem Song aber nicht in anderen | Punktuell war falsch — systemisch nötig |
+| Pre-Commit schlägt fehl wegen F821/undefined in mehreren Dateien | Scope-Problem — variable war nie systemisch verfügbar |
+
+**Rationale:** Aurik hat ~11 000 Tests und 64 Phasen. Punktuelle Fixes für systemische Muster erzeugen
+wiederkehrende Regressions-Zyklen (bestätigt: `gate_dbfs=-36.0`-Anti-Pattern in 18 Dateien, 2 Sessions).
+Systemische Lösungen mit Linter-Guard unterbrechen diesen Zyklus dauerhaft.
+
+
 
 Diese Datei ist der **Slim Core** (~250 Zeilen) — wird in **jeder** Konversation geladen.
 Detailwissen liegt in den **8 normativen Specs** unter `.github/specs/` — Single Source of Truth.
@@ -188,6 +235,8 @@ logger.info("phase=%s score=%.2f", phase, score)  # kein print()
 | Loudness-Guard RMS | `np.mean(audio**2)` (globaler RMS in Guards) | `_rms_dbfs_gated()` — Frame-basiert, nur Frames > −50 dBFS, Stille ignoriert (§2.45a-I) |
 | Loudness-Guard Gain | `audio *= gain_factor` (uniformer Gain) | `_musical_gain_envelope()` — Gain nur auf Musik-Frames, Stille unverändert (§2.45a-II) |
 | Loudness-Guard Limiter | Unbedingter Soft-Limiter nach Makeup-Gain | Soft-Limiter NUR wenn `peak > 0.98` — keine Routine-Dynamik-Kompression (§2.45a-III) |
+| `gate_dbfs=-36.0` ohne `reference_for_gate` | Vinyl/Shellac Rauschboden −33 dBFS > −36 dBFS Gate → Rausch-Frames erhalten Makeup-Gain → Pegelexplosion in Intro/Outro/Fadeout (bestätigt Production 2026-04-27, 18 Dateien in 2 Sessions re-introduced) | `compute_signal_relative_gate_dbfs(ref, material_key=...)` via `reference_for_gate=pre_phase_audio` in `apply_musical_gain_envelope` (v9.12.2 — CEDAR/iZotope RX: P15+9 dB; dirty audio → hoher Gate; clean audio → Gate ≈ −36 dBFS) — `reference_for_gate` ist Pflicht-Argument (V04 Linter) |
+| `sosfilt(sos, audio)` Ergebnis zu Originalsignal addiert | Kausaler Filter → Gruppen-Zeitversatz zwischen Bändern → destruktive Interferenz → Pegelexplosion; Phase auf addiertem Band-Signal steht zeitlich versetzt zum Rest | `sosfiltfilt(sos, audio)` (zero-phase) überall wo Bandfilter-Ergebnis auf Originalsignal addiert wird; `sosfilt` nur für Analyse/Sidechain (kein Addieren) — V11 Linter warnt (WARNING-Level) |
 | FeedbackChain feste Schwellen | `_prune_threshold = -0.05` / `if history[-1] < history[-2] - 0.05` als Konstanten | `_compute_adaptive_prune_threshold(is_restorative, material, rest, severity)` — z. B. shellac 3×, vinyl 2×, clamped [-0.30, base] |
 | Carrier-Repair consecutive_rollbacks | Carrier-Repair-Rollback inkrementiert `consecutive_rollbacks` | `_CARRIER_REPAIR_PHASE_PREFIXES`-Check vor Increment: Carrier-Repair-Rollbacks niemals zählen (§2.48 v9.11.3) |
 | Spectral-Tilt-Drift in ADDITIVE-Phasen | HF-Extension ohne Tilt-Check (phase_06, phase_39) — Ära-Charakter wird zerstört ohne Goal-Verstoß | `era_result.spectral_tilt` in `kwargs` prüfen; Post-Tilt via `_estimate_spectral_tilt_quick()`; Cap wenn Deviation > material_tolerance (±1.5–±3.0 dB/oct je Material) (Spec 04 §4.7) |

@@ -390,8 +390,14 @@ class OutputFormatOptimization(PhaseInterface):
         if gain_linear > 1.0005:
             from backend.core.audio_utils import apply_musical_gain_envelope
 
+            # §2.45a-II v9.12.2: reference_for_gate=audio → signal-relative gate (P15+9 dB)
             audio_normalized = apply_musical_gain_envelope(
-                audio, gain_linear, gate_dbfs=-36.0, crossfade_ms=10.0, sr=sample_rate
+                audio,
+                gain_linear,
+                gate_dbfs=-36.0,
+                crossfade_ms=10.0,
+                sr=sample_rate,
+                reference_for_gate=audio,
             )
         else:
             audio_normalized = audio * gain_linear

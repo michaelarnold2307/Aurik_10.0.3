@@ -197,9 +197,17 @@ class AudioExporter:
                     _gain_linear = 10.0 ** (_gain_lu / 20.0)
                     if _gain_linear > 1.0005:
                         _pre_gain_peak = float(np.percentile(np.abs(audio_export), 99.9))
-                        # §2.45a-II: Envelope-Aware Gain — NUR musikalische Frames boosten,
-                        # Stille-Frames (< -50 dBFS) bleiben unverändert (kein Pegelexplosion im Tail).
-                        audio_export = _amge(audio_export, _gain_linear, gate_dbfs=-36.0, crossfade_ms=10.0, sr=sr)
+                        # §2.45a-II v9.12.2: Envelope-Aware Gain — NUR musikalische Frames boosten.
+                        # reference_for_gate=audio_export: CEDAR/RX signal-relative gate (P15+9 dB)
+                        # → vinyl noise at -33 dBFS automatically excluded (gate ≈ -24 dBFS).
+                        audio_export = _amge(
+                            audio_export,
+                            _gain_linear,
+                            gate_dbfs=-36.0,
+                            crossfade_ms=10.0,
+                            sr=sr,
+                            reference_for_gate=audio_export,
+                        )
                         _post_gain_peak = float(np.percentile(np.abs(audio_export), 99.9))
                         # If adaptive gating classified all frames as non-musical, fall back to
                         # uniform gain so normalize=True still raises level for low-level music.
@@ -213,9 +221,16 @@ class AudioExporter:
                 _post_lufs_peak = float(np.percentile(np.abs(audio_export), 99.9))
                 if 0.0 < _post_lufs_peak < 0.5:
                     _floor_gain = min(0.989 / _post_lufs_peak, 2.0)  # cap: max 2× floor-boost
-                    # §2.45a-II: Floor-Boost ebenfalls nur auf musikalische Frames anwenden.
+                    # §2.45a-II v9.12.2: Floor-Boost nur auf musikalische Frames (reference_for_gate).
                     _pre_floor_peak = _post_lufs_peak
-                    audio_export = _amge(audio_export, _floor_gain, gate_dbfs=-36.0, crossfade_ms=10.0, sr=sr)
+                    audio_export = _amge(
+                        audio_export,
+                        _floor_gain,
+                        gate_dbfs=-36.0,
+                        crossfade_ms=10.0,
+                        sr=sr,
+                        reference_for_gate=audio_export,
+                    )
                     _post_floor_peak = float(np.percentile(np.abs(audio_export), 99.9))
                     if _pre_floor_peak > 1e-9 and _post_floor_peak <= (_pre_floor_peak * 1.01):
                         audio_export = np.clip(audio_export * _floor_gain, -1.0, 1.0)

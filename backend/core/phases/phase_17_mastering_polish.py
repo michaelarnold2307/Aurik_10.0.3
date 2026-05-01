@@ -501,7 +501,10 @@ class MasteringPolishPhase(PhaseInterface):
             _comp_ratio = float(rms_before / rms_after)
             _comp_ratio = float(np.clip(_comp_ratio, 0.5, 1.585))  # cap: max +4 dB (1.585×)
             if _comp_ratio > 1.0005:
-                enhanced = _amge_17(enhanced, _comp_ratio, gate_dbfs=-36.0, crossfade_ms=10.0, sr=48000)
+                # §2.45a-II v9.12.2: reference_for_gate=audio (pre-enhancement) → signal-relative gate
+                enhanced = _amge_17(
+                    enhanced, _comp_ratio, gate_dbfs=-36.0, crossfade_ms=10.0, sr=48000, reference_for_gate=audio
+                )
             elif _comp_ratio < 1.0:
                 enhanced = enhanced * _comp_ratio  # attenuation always safe uniform
 

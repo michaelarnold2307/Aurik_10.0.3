@@ -2042,8 +2042,14 @@ class VocalEnhancement(PhaseInterface):
         if makeup_linear > 1.0005:
             from backend.core.audio_utils import apply_musical_gain_envelope
 
+            # §2.45a-II v9.12.2: reference_for_gate=compressed → signal-relative gate
             compressed = apply_musical_gain_envelope(
-                compressed, makeup_linear, gate_dbfs=-36.0, crossfade_ms=10.0, sr=sample_rate
+                compressed,
+                makeup_linear,
+                gate_dbfs=-36.0,
+                crossfade_ms=10.0,
+                sr=sample_rate,
+                reference_for_gate=compressed,
             )
         else:
             compressed = compressed * makeup_linear

@@ -1030,13 +1030,14 @@ class DropoutRepairPhase(PhaseInterface):
                 if _p999 > 1e-9:
                     _g = min(_g, float(0.995 / _p999))
                 if _g > 1.0005:
-                    # §2.45a-II: envelope-aware gain — music frames only, gate=-36 dBFS
+                    # §2.45a-II v9.12.2: reference_for_gate=audio (pre-repair) → signal-relative gate
                     repaired_audio = apply_musical_gain_envelope(
                         repaired_audio,
                         _g,
                         gate_dbfs=-36.0,
                         crossfade_ms=10.0,
                         sr=sample_rate,
+                        reference_for_gate=audio,
                     )
                     repaired_audio = np.clip(repaired_audio, -1.0, 1.0)
 

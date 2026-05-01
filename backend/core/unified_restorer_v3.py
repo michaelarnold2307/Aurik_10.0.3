@@ -656,13 +656,15 @@ class UnifiedRestorerV3:
         crossfade_ms: float = 10.0,
         sr: int = 48000,
         reference_for_gate: np.ndarray | None = None,
+        material_key: str | None = None,
     ) -> np.ndarray:
         """Delegates to backend.core.audio_utils.apply_musical_gain_envelope — single canonical impl.
 
         §2.45a-II §2.30b: envelope-aware gain, adaptive noise-floor gate, per-sample quiet-zone
         hard clamp (Stufe 5).  No duplicate logic — changes to audio_utils automatically apply here.
 
-        reference_for_gate: pre-phase audio for P5 gate estimation (v9.12.1).
+        reference_for_gate: pre-phase audio for noise-floor gate estimation (v9.12.2).
+        material_key: optional material type for floor guarantee (v9.12.2).
         """
         from backend.core.audio_utils import apply_musical_gain_envelope as _amge
 
@@ -673,6 +675,7 @@ class UnifiedRestorerV3:
             crossfade_ms=crossfade_ms,
             sr=sr,
             reference_for_gate=reference_for_gate,
+            material_key=material_key,
         )
 
     @staticmethod
@@ -16821,7 +16824,7 @@ class UnifiedRestorerV3:
                         # frames drag it to -55 dBFS) → without reference, gate at -36 includes
                         # residual vinyl noise at -35 dBFS → Pegelexplosion.
                         _work = self._musical_gain_envelope(
-                            _work, _g, gate_dbfs=-36.0, sr=sample_rate, reference_for_gate=_ref_arr
+                            _work, _g, gate_dbfs=-36.0, sr=sample_rate, reference_for_gate=_ref_arr, material_key=_mat
                         )
                         # Soft-limiter only if actual clipping risk (peak > 0.98),
                         # NOT as routine post-gain step — avoids compressing musical dynamics
@@ -18815,6 +18818,7 @@ class UnifiedRestorerV3:
                                             gate_dbfs=-36.0,
                                             sr=sample_rate,
                                             reference_for_gate=_cum_rms_reference_audio,
+                                            material_key=str(getattr(material_type, "value", material_type)).lower(),
                                         )
                                         # Soft-limiter only if actual clipping risk
                                         # §v9.10.125: 99.9th-percentile — impulse artefact must not block normalisation
@@ -19280,6 +19284,7 @@ class UnifiedRestorerV3:
                                     gate_dbfs=-36.0,
                                     sr=sample_rate,
                                     reference_for_gate=_cum_guard_ref,
+                                    material_key=str(getattr(material_type, "value", material_type)).lower(),
                                 )
                                 # Soft-limiter only if actual clipping risk
                                 # §v9.10.125: 99.9th-percentile — impulse artefact must not block normalisation
