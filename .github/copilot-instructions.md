@@ -2,9 +2,9 @@
 
 > **Systemidentität**: Aurik 9.x.x ist ein *weltweit erstmaliges intelligentes,
 > kontextbewusstes Musik- und Gesangs-Restaurations-, Reparatur- und
-> Rekonstruktions-Denkersystem.* Stand: April 2026 — Version **9.11.14**
+> Rekonstruktions-Denkersystem.* Stand: Mai 2026 — Version **9.12.0**
 >
-> **instructions_version: 7.9** — §0a DR/BW/Rauschtextur-Ceiling + §0d Carrier-Recovery-Referenzmodell + §1.2a/§4.7/§6.2b normiert 13.04.2026; §09.2 PMGG-Blend-Invariante + §2.54 Headroom-Scalar + MDEM Quiet-Zone normiert 23.04.2026; Wall-Time-Mismatch-Pegelexplosion + waerme-Proxy-Sättigung + MUSHRA-CCR-Referenz-Kontamination normiert 24.04.2026; §2.30b Per-Sample-Guard correct_arc() −36 dBFS + Musical-Goals-Kalibrierungsfehler (tonal_center KEY_SHIFT_PENALTY_DEFAULT / authentizitaet formant_threshold / phase_18 PMGG-CIG-Sync / adaptive_thresholds Material-Ceiling) normiert 25.04.2026; TonalCenter Bypass-Guard 0.70→0.60 (Denoising-Seiteneffekt) + GrooveMetric bidirektionaler DTW-Onset-Ratio-Guard normiert 26.04.2026; §2.30c WaveformPlausibilityGuard + §2.45a Music-Gated-LUFS-Delta Song-Boundary-Pegelexplosion normiert 28.04.2026; §Frisson Gänsehaut-Schutz-Pipeline (MDEM Zwei-Stufen-Invariante Pre+Post-SG) + §C10 Active Listener Calibration Bayesian EMA normiert 28.04.2026
+> **instructions_version: 9.0** — Far-beyond-SOTA-Revision: §0h Music-Death-Shield + §0g Autonomes-Entscheidungs-Doktrin + §0i Perceptual-Transparency-Guarantee + §0a Crossfire-Modus-Invariante + §2.44 HPI-Floor-Bug-Fix + §2.46e Hallucination-Guard + §2.60 Rollback-Hierarchie-Komplettierung + §4.4 SOTA-Matrix 2026-Update + §0j KI-Modell-Limitation-Awareness normiert 01.05.2026
 >
 > Aktuelle Testzahl: **~11598 `def test_`-Funktionen** (436 Testdateien; alle grün)
 >
@@ -19,6 +19,54 @@
 1. **Primum non nocere** — Füge dem Klang keinen Schaden zu. Lieber eine Beschädigung belassen als ein Artefakt einführen.
 2. **Minimal-Intervention** — Greife nur ein, wo der Defekt hörbar ist. Je weniger Phasen aktiv, desto natürlicher das Ergebnis.
 3. **Perceptuelle Verbesserung** — Der Export muss für einen Hörer näher am Original-Klang liegen als der degradierte Input. Technische Korrektheit ohne Klanggewinn ist wertlos.
+### §0h [RELEASE_MUST] Music-Death-Shield — absolute Schutzregel (v9.12.0)
+
+**Kein Eingriff darf Musik zerstören. Dies gilt absolut, ohne Ausnahme, für alle Materialtypen, alle Ären, alle Genres.**
+
+**Drei absolute Verbote** — jedes einzelne ist ein sofortiger Export-Stopp + vollständiger Rollback:
+
+1. **Kein hörbares Artefakt** im Export: Musical Noise, Phasenlöschung, Ringing, Modulationsrauschen, Stimmverfärbung, Pitch-Glitch — jede dieser Klassen löst `artifact_freedom < 0.95` aus → VETO (§2.49).
+2. **Keine Musikzerstörung** durch Over-Processing: Wenn das Ausgangssignal schlechter klingt als der degradierte Input (HPI ≤ 0), MUSS der ursprüngliche Input exportiert werden — mit Status `degraded`, nie ein über-prozessiertes Artefakt.
+3. **Keine Verfremdung** durch halluziniertes Material: Harmonics, Texturen oder räumliche Eigenschaften, die im Original nicht existierten, dürfen nicht hinzugefügt werden (§2.46e Hallucination-Guard). Ausnahme: Studio 2026, wenn MUSHRA ≥ 3.5 nachgewiesen.
+
+**Invariante**: `artifact_freedom` ist **der einzige Veto-Faktor** in §2.44 HPI — er kann allein den Export blockieren. Alle anderen Faktoren reduzieren den Score, blockieren aber nicht. Dies ist nicht verhandelbar.
+
+### §0i [RELEASE_MUST] Perceptual Transparency Guarantee (v9.12.0)
+
+**Restoration-Ziel**: Der Hörer soll **keinen Eingriff wahrnehmen** — er hört das Original wie am Tag der Aufnahme im Studio, nicht eine „restaurierte" Version. Eingriffe, die wahrnehmbar sind, gelten als Restaurierungsfehler, auch wenn sie technisch korrekt sind.
+
+**Mess-Kriterien für Perceptual Transparency**:
+- `MUSHRA-äquivalent ≥ 4.0` (im Vergleich zum besten verfügbaren Referenzpunkt)
+- Kein Hörer kann Restaurierungsartefakte identifizieren: Musical Noise ≤ Trägerprofil, TFS erhalten (§0a)
+- `timbral_fidelity ≥ 0.93` zum best_carrier_checkpoint (nicht zum degradierten Input)
+- Frisson-Zonen vollständig erhalten (§2.56/§Frisson): kein Klimax gedämpft, keine Gänsehaut-Passage geglättet
+
+**Invariante**: Aurik zeigt dem Hörer **nie** ein Ergebnis, das technisch besser aussieht aber schlechter klingt. Der MUSHRA-Score ist bindend. Wenn er < 4.0, wird Strength reduziert oder auf Checkpoint zurückgerollt.
+
+### §0g [RELEASE_MUST] Autonomes Entscheidungs-Doktrin (v9.12.0)
+
+**Aurik trifft alle Verarbeitungsentscheidungen autonom** — kein Nutzer-Eingriff, kein KI-Agenten-Eingriff zur Laufzeit erforderlich. Jede Entscheidung (Materialerkennung, Phase-Auswahl, Strength, Rollback, Export) muss Aurik selbst treffen — basierend auf messbaren Signaleigenschaften.
+
+**Verbindliche Entscheidungshierarchie** (autonome Kaskade):
+1. **Erkennen**: `MediumDetector` + `EraClassifier` + `DefectScanner` → vollständiges Defektprofil
+2. **Planen**: `GPOptimizer` + `PhaseConductor` → Phase-Plan aus Signaleigenschaften, nie aus Heuristiken
+3. **Ausführen**: UV3 führt Plan aus; jede Phase misst Vorher/Nachher und entscheidet Übernehmen/Skip/Rollback
+4. **Validieren**: PMGG + CIG + AFG + HPI → mehrstufige Absicherung; bei Fail → Recovery-Kaskade
+5. **Exportieren**: Nur wenn HPI > 0 und artifact_freedom ≥ 0.95 — sonst bestes sicheres Checkpoint
+
+**VERBOTEN**: Hartkodierte song-spezifische Entscheidungen, manuelle Phase-Tweaks ohne Signal-Evidenz, Strength-Konstanten die nicht aus `compute_adaptive_drift_tolerance()` kommen.
+
+### §0j [RELEASE_MUST] KI-Modell-Limitation-Awareness (v9.12.0)
+
+**Kein ML-Modell kennt den spezifischen Song, das Studio, den Raum oder die Aufnahme-Chain.** Alle Modelle (DeepFilterNet, SGMSE+, MelBandRoformer, AudioSR etc.) wurden auf allgemeinen Korpora trainiert, nicht auf den spezifischen Song des Nutzers.
+
+**Konsequenzen** (normativ bindend):
+
+1. **Modelle können halluzinieren**: Jeder ML-Output MUSS durch einen perceptual Gate (PMGG + AFG) validiert werden, bevor er im Mix landet. Kein blindes Übernehmen von ML-Output.
+2. **Modelle können genre-spezifisch versagen**: Ein Vocal-Enhancement-Modell, das für moderne Pop-Musik trainiert wurde, kann einen 1930er Jazz-Sänger verfremden. `EraClassifier` + `GenreClassifier` steuern die Modell-Auswahl und Stärke.
+3. **Energy-Bias-Pflicht**: Alle ML-Denoise-Modelle verwenden `energy_bias` (DeepFilterNet: −6 dB für Gesang, −9 dB für Instrumental) — verhindert, dass Harmonik als Rauschen weggedrückt wird.
+4. **ML-Fallback-Kaskade Pflicht**: Jedes ML-Plugin hat eine DSP-Fallback-Kette (Spec 04 §4.4). OOM, Timeout oder schlechter MUSHRA → automatischer Fallback, kein Crash.
+
 
 ### §0a Modus-Differenzierung
 
@@ -35,6 +83,10 @@
 | **Bandbreite** | **Material-Ceiling** — Output-BW darf physikalisches Maximum des Quellmediums nicht überschreiten (Spec 05 §6.2c BW_CEILING): Shellac ≤ 8 kHz, Vinyl ≤ 16 kHz, WaxCyl ≤ 5 kHz. Additiv-Phasen müssen BW-Hard-Cap respektieren. | Volle BW-Erweiterung bis 22 kHz, erfordert aber MUSHRA ≥ 3.5 für Extension-Band |
 | **Rauschtextur** | **Kohärent zum Trägerprofil** — spektrale Form des Restrauschens muss dem Trägermedium entsprechen (Spec 04 §4.7). Vinyl: rosa; Tape: Brown+HF-Hiss; CD: Weiß/Flat. Kohärenz-Score ≥ 0.80 Pflicht. | Minimaler Rauschboden; Textur-Kohärenz nicht erzwungen |
 | **TFS (Temporal Fine Structure)** | **Strikt erhalten** — Hilbert-Phasen-Extraktion via `tfs_preservation_guard.py`; ERB-Band-Energie-Gate (nur Voiced-Frames > 3 aktiv); ΔPhase-Grenzwert material-adaptiv. Vintage-Ära-Charakter = Original-TFS. | **Flexibel** — TFS-Modifikation in Enhancement-Phasen erlaubt, wenn MUSHRA ≥ 3.5 im betreffenden ERB-Band; kein TFS-Rollback-Trigger in Studio 2026 |
+| **Harmonic Exciter** | **VERBOTEN** — kein künstlicher Harmonik-Zusatz; Harmonik-Rekonstruktion nur via §2.46 Carrier-Inversion (was physikalisch da war) | Erlaubt, wenn MUSHRA ≥ 3.5 und `harmonic_authenticity_guard` positiv |
+| **Stem-Enhancement** | **VERBOTEN** — kein aktives Stem-Enhancement (Vocal AI, Multiband-Kompression, Reference-Mastering); nur passive Defektkorrektur pro Stem | Vollständige Enhancement-Kette (§1.5) |
+
+> **§0a Crossfire-Modus-Invariante** [RELEASE_MUST]: Eine Phase, die explizit als `mode="studio_2026"` markiert ist (Spec 06), darf **niemals** in einem `restoration`-Run aktiviert werden — auch nicht als Fallback, auch nicht wenn ihr PMGG-Score gut wäre. Dies gilt bidirektional. KI-Agenten dürfen keine Phase aus einem Modus in den anderen „portieren" ohne vollständige Spec-06-Audit.
 
 > §0 ist **normativ übergeordnet**: Wenn eine technische Regel (PMGG-Threshold, Metrik-Schwellwert, Phase-Pflicht) dem Klangergebnis schadet, ist das ein Bug in der Regel — nicht im Klang.
 
@@ -242,7 +294,6 @@ DCOffset → TDP(HPSS) → RestorabilityEstimator → SongCalibration → Era/Ge
 GoalApplicabilityFilter → DefectScanner(46) → CausalDefectReasoner → GPOptimizer →
 Phasen(01–64) [mit §2.48 Interaktions-Guard] → FeedbackChain → PhysicalCeiling → MusicalGoalsChecker → MDEM →
 **HolisticPerceptualGate** (inkl. artifact_freedom §2.49) → RestorationResult
-
 ### [RELEASE_MUST] §2.44 Holistic Perceptual Gate (v9.10.123)
 Letztes Gate vor Export. Misst **Gesamt-Hörverbesserung** statt nur Einzel-Goals.
 
@@ -253,6 +304,8 @@ Letztes Gate vor Export. Misst **Gesamt-Hörverbesserung** statt nur Einzel-Goal
 - `artifact_freedom`: Veto-Faktor (§2.49) — < 0.95 → Gate-Fail (Primum non nocere)
 - `emotional_arc_preservation`: Arousal/Valence + Makrodynamik + Lyrics-Salienz (§2.36)
 - **HPI > 0** → Export | **HPI ≤ 0** → Rollback
+
+**[BUG-FIX v9.12.0]** `MERT_similarity`-Floor: `MERT_similarity = max(raw_mert, 0.5)` — verhindert dass MERT=0 (Modell nicht verfügbar) das gesamte Gate auf 0 kollabieren lässt. Bei MERT-Ausfall MUSS `ml_fallbacks_used["mert"]` gesetzt werden.
 
 > Details (Referenz-Paradoxon, MERT-Aufbau, Gewichtungs-Semantik, Wertebereiche): Spec 02 §2.44 + Skill `fix-metric`
 
@@ -305,6 +358,20 @@ Details: Skill `fix-metric`
 6. **Mixer/Preamp + Studio-Raumklang**: BEWAHREN (Recording-Chain-Signatur = Original)
 
 **Invariante**: Subtraktive Phasen (Stufe 4) VOR additiven (Stufe 5) — sonst werden rekonstruierte Obertöne sofort entrauscht.
+
+### [RELEASE_MUST] §2.46e Hallucination-Guard (v9.12.0)
+
+**Keine additive Phase darf Material in das Ausgangssignal einbringen, das im Eingangssignal physikalisch nicht vorhanden war.** Dies gilt absolut für `restoration`-Modus.
+
+**Drei Kategorien halluzimierten Materials** (alle verboten in Restoration):
+1. **Harmonik-Halluzination**: Obertöne die über das physikalische BW-Ceiling (§6.2c) hinausgehen oder deren Amplitude das Trägerprofil überschreitet
+2. **Raum-Halluzination**: Raumklang, Reverb-Schwänze oder Stereobreite, die im degradierten Signal nicht nachweisbar sind und nicht aus der Recording-Chain stammen
+3. **Textur-Halluzination**: Spektrale Texturen (Harmonischer Hiss, Formant-Muster) die durch ML-Modelle generiert wurden und kein physikalisches Gegenstück im Source-Material haben
+
+**Mess-Gate** (`hallucination_guard.py`):
+- Pre/Post-Additive-Phase: `spectral_novelty = energy_new_bins / energy_total` — wenn > 0.08 → Phase-Score-Penalty 0.3
+- Wenn spectral_novelty > 0.15 → **Phase-Rollback** (Restoration) oder MUSHRA-Check (Studio 2026)
+- `harmonic_ceiling_violation`: wenn rekonstruierte Harmonics > material BW_CEILING → Hard-Rollback
 
 ### [RELEASE_MUST] §2.46a / §2.46b — Transfer-Chain-Vollständigkeit + Dateicontainer-Invariante
 
@@ -388,6 +455,21 @@ Feste Schwellwerte sind **Notbremsen**, nicht die Routine-Steuerung. Jede Phase:
 
 > Details + ANTI-PATTERN-Tabelle: Spec 02 §2.54
 
+### [RELEASE_MUST] §2.60 Rollback-Hierarchie (v9.12.0)
+
+**Vollständige Kaskade** — wenn ein Gate scheitert, MUSS Aurik die nächste Stufe versuchen, nie sofort exportieren:
+
+1. **Phase-Rollback**: Einzelphase zurückrollen → vorheriges Audio, Phase-Score negativ markiert
+2. **Strength-Reduktion**: Phase mit 50 % Strength wiederholen → neues PMGG-Check
+3. **Carrier-Checkpoint**: Rollback auf `best_carrier_checkpoint` (nach Stufe 1–4, vor Enhancement)
+4. **Pre-Pipeline-Checkpoint**: Rollback auf Audio direkt nach TDP (Transient-/Harmonic-Trennung), vor allen Phases
+5. **Input-Export**: Original degradierter Input wird exportiert, Status: `degraded` — **BESSER als Artefakt**
+6. **VERBOTEN**: Leerer Export, abgebrochener Prozess ohne Ausgabe, oder Export mit bekanntem Artefakt
+
+**Invariante**: Stufe 5 (Input-Export) ist immer besser als ein über-prozessiertes Artefakt. Status `degraded` ist kein Fehler — er ist die korrekte Antwort wenn alle Recovery-Versuche scheitern.
+
+> Implementierung: UV3 `_recovery_cascade()`, `RestorationResult.status ∈ {"success", "recovered", "degraded"}`
+
 ## Vintage Aesthetics
 
 **SOFT_SATURATION** = BEWAHREN. **CLIPPING** = REPARIEREN.
@@ -395,4 +477,4 @@ Feste Schwellwerte sind **Notbremsen**, nicht die Routine-Steuerung. Jede Phase:
 
 *Diese Richtlinien gelten für alle KI-Agenten (GitHub Copilot, Claude, GPT) die an Aurik 9 arbeiten.*
 *Vollständige normative Spezifikation: `.github/specs/01–09`.*
-*Stand: April 2026 — Aurik 9.11.16 — instructions_version 8.0*
+*Stand: Mai 2026 — Aurik 9.12.0 — instructions_version 9.0*
