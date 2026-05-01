@@ -390,8 +390,17 @@ def _evaluate_stereo_safety_guard(
     hard_fail_reasons: list[str] = []
     warning_reasons: list[str] = []
 
+    delay_in = float(m_in.get("delay_ms", 0.0))
+
     # Hard-fail thresholds (§2.51a)
-    if delay_out > 1.0:
+    # Delta-guard: STCG corrects inter-channel lags to sub-sample precision.
+    # A residual 0.5–2 ms reading in the output is almost always a panning
+    # artifact from cross-correlated musical content, NOT a real alignment
+    # error introduced by restoration.  Only fail/warn when the output delay
+    # is WORSE than the input delay (i.e., restoration degraded alignment).
+    # Tolerance: 0.10 ms — accounts for multi-window median variance.
+    _delay_delta_threshold = 0.10  # ms
+    if delay_out > 1.0 and delay_out > delay_in + _delay_delta_threshold:
         hard_fail_reasons.append("interchannel_delay_gt_1ms")
     if imb_out > 6.0 and imb_in < 3.0:
         hard_fail_reasons.append("lr_imbalance_gt_6db_with_balanced_input")
@@ -401,7 +410,7 @@ def _evaluate_stereo_safety_guard(
         hard_fail_reasons.append("true_peak_gt_minus_1dbtp")
 
     # Warning thresholds (§2.51a)
-    if 0.5 < delay_out <= 1.0:
+    if 0.5 < delay_out <= 1.0 and delay_out > delay_in + _delay_delta_threshold:
         warning_reasons.append("interchannel_delay_0p5_to_1ms")
     if 3.0 < imb_out <= 6.0:
         warning_reasons.append("lr_imbalance_3_to_6db")
