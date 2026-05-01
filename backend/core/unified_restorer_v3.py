@@ -8878,7 +8878,14 @@ class UnifiedRestorerV3:
                             _rf = _rest_1d_mg[: _n_frames_mg * _hop_mg].reshape(_n_frames_mg, _hop_mg)
                             _rms_o = np.sqrt(np.mean(_of**2, axis=1) + 1e-15)
                             _rms_r = np.sqrt(np.mean(_rf**2, axis=1) + 1e-15)
-                            _music_mask_mg = _rms_o > _gate_lin_mg
+                            # §2.45a-II §0 Vinyl-Noise-Gate-Fix: _gate_lin_mg uses P5 of SAMPLE amplitudes
+                            # (~-60 dBFS → clamped to -48 dBFS) — too permissive for vinyl surface
+                            # noise at -33 dBFS. Replace with P5 of FRAME RMS from original + 10 dB:
+                            # P5(frame_rms=-33 dBFS) + 10 dB → gate=-23 dBFS → noise correctly excluded.
+                            _p5_frame_rms_orig = float(np.percentile(_rms_o, 5))
+                            _frame_gate_lin = _p5_frame_rms_orig * (10.0 ** (10.0 / 20.0))  # P5 + 10 dB
+                            _music_gate_lin_mg = max(_gate_lin_mg, _frame_gate_lin)  # stricter gate
+                            _music_mask_mg = _rms_o > _music_gate_lin_mg
                             if np.any(_music_mask_mg):
                                 _rms_o_music = float(np.sqrt(np.mean(_rms_o[_music_mask_mg] ** 2)))
                                 _rms_r_music = float(np.sqrt(np.mean(_rms_r[_music_mask_mg] ** 2)))
@@ -8888,10 +8895,10 @@ class UnifiedRestorerV3:
                                 _needed_db_music = float(np.clip(_raw_music_delta, 0.0, 6.0))
                                 logger.info(
                                     "§2.45a music-gated LUFS: integrated_delta=%.2f LU → "
-                                    "music_delta=%.2f dB (gate=%.1f dBFS, music_frames=%d/%d)",
+                                    "music_delta=%.2f dB (frame_gate=%.1f dBFS, music_frames=%d/%d)",
                                     _final_delta,
                                     _raw_music_delta,
-                                    _adaptive_gate_dbfs,
+                                    float(20.0 * np.log10(max(_music_gate_lin_mg, 1e-12))),
                                     int(np.sum(_music_mask_mg)),
                                     _n_frames_mg,
                                 )
@@ -8904,6 +8911,11 @@ class UnifiedRestorerV3:
                             gate_dbfs=_adaptive_gate_dbfs,  # adaptive: P5(orig)+6dB, not fixed -50 dBFS
                             crossfade_ms=10.0,
                             sr=sample_rate,
+                            # §2.45a-II §0 reference_for_gate=original: frame-RMS P5 from original
+                            # prevents vinyl surface noise (-33 dBFS) being classified as music.
+                            # Without this, P5 of restored (denoised, ~-45 dBFS) gives gate=-35 dBFS
+                            # → noise at -33 dBFS passes gate → Pegelexplosion in intro/outro.
+                            reference_for_gate=_orig_for_nf,
                         )
                         if _gain_final > 1.0005:
                             _p999_final = float(np.percentile(np.abs(_rescued_final), 99.9))
@@ -9087,7 +9099,12 @@ class UnifiedRestorerV3:
                             # _apply_music_only_gain was undefined — use _musical_gain_envelope
                             # (envelope-gated gain, adaptive noise-floor guard §2.45a)
                             _cand = UnifiedRestorerV3._musical_gain_envelope(
-                                _joint_base, _cand_gain, gate_dbfs=-36.0, crossfade_ms=10.0, sr=sample_rate
+                                _joint_base,
+                                _cand_gain,
+                                gate_dbfs=-36.0,
+                                crossfade_ms=10.0,
+                                sr=sample_rate,
+                                reference_for_gate=_orig_for_nf,  # §2.45a-II: frame-P5 from original
                             )
                             _cand_noise = _nf_dbfs(_cand)
                             if _cand_noise > _noise_limit_final:
@@ -9123,6 +9140,38 @@ class UnifiedRestorerV3:
 
         except Exception as _lufs_final_exc:
             logger.debug("Finale LUFS-Ausrichtung übersprungen: %s", _lufs_final_exc)
+
+        # §2.30c-II [RELEASE_MUST] WaveformPlausibilityGuard — POST-LUFS-Rescue Fangschicht
+        # WPG ran once after MDEM/correct_arc (§2.30c, line ~8064). The End-of-Pipeline
+        # LUFS rescue can introduce new positive gain on carrier-noise intro/outro frames
+        # (vinyl -33 dBFS surface noise misclassified as music by sample-P5-based gate).
+        # This second WPG call catches post-rescue Pegelexplosionen before MUSHRA re-eval.
+        try:
+            from backend.core.emotional_arc_preservation import (
+                apply_waveform_plausibility_guard as _wpg_fn2,
+            )
+
+            _wpg2_mode = str(getattr(getattr(self.config, "mode", None), "value", "restoration")).lower()
+            _wpg2_mat = str(_gp_material_key or "unknown").lower().split("_")[0]
+            _wpg2_out, _wpg2_meta = _wpg_fn2(
+                original_audio_for_goals,
+                restored_audio,
+                sample_rate,
+                mode=_wpg2_mode,
+                material_type=_wpg2_mat,
+                restorability_score=float(_pmgg_restorability_score),
+            )
+            if _wpg2_meta.get("corrections_applied", 0) > 0:
+                restored_audio = _wpg2_out
+                logger.info(
+                    "§2.30c-II WPG post-LUFS-Rescue: %d corrections applied (material=%s)",
+                    int(_wpg2_meta["corrections_applied"]),
+                    _wpg2_mat,
+                )
+            else:
+                logger.debug("§2.30c-II WPG post-LUFS-Rescue: kein Eingriff nötig")
+        except Exception as _wpg2_exc:
+            logger.debug("§2.30c-II WPG post-LUFS-Rescue nicht verfügbar (non-blocking): %s", _wpg2_exc)
 
         # §8.1 [RELEASE_MUST] MUSHRA-Neubewertung mit LUFS-aligniertem Audio.
         # Die initiale MUSHRA-Messung in _collect_reporting_analytics (oben) wird mit

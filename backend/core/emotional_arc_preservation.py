@@ -563,11 +563,14 @@ class EmotionalArcPreservationMetric:
         # audible volume jump at the end of the song.
         _quiet_rms_thresh = 10.0 ** (-42.0 / 20.0)  # −42 dBFS = quiet/fade-out zone
         _noise_diff_thresh_db = 6.0
-        # §2.30b Guard 2 — Moderate quiet zone (-30 to -42 dBFS restored) combined
+        # §WPG-Quiet-Zone: frames quieter than -24 dBFS (WPG _QUIET_ZONE_DBFS) must
+        # NEVER receive positive gain. This covers vinyl surface noise at -33 to -35 dBFS
+        # restored frames (which fall in the -42 to -24 dBFS range after denoising).
+        # The moderate quiet zone check (-30 dBFS) was too permissive — it allowed a
+        # 1.2 dB boost for frames where diff (2 dB) ≤ max_gain_db (5 dB).
+        _wpg_quiet_rms_thresh = 10.0 ** (-24.0 / 20.0)  # −24 dBFS = WPG quiet zone
+        # §2.30b Guard 2 — Moderate quiet zone (-30 to -24 dBFS restored) combined
         # with large Original-vs-Restored gap (> max_gain_db dB).
-        # Mirrors the identical guard in MDEM morph() G-loop. Catches cases where
-        # vinyl crackle (-20 dBFS orig) is reduced to -35 dBFS restored:
-        # diff=15 dB >> max_gain_db=6 dB → Pegelexplosion without this guard.
         _moderate_quiet_rms_thresh = 10.0 ** (-30.0 / 20.0)  # −30 dBFS
         for _i in range(len(gain_db)):
             if gain_db[_i] > 0.0:
@@ -577,20 +580,18 @@ class EmotionalArcPreservationMetric:
                     _diff = 20.0 * np.log10((rms_orig[_i] + eps) / (rms_rest[_i] + eps))
                     if _diff >= _noise_diff_thresh_db:
                         gain_db[_i] = 0.0  # Denoised fade-out: no boost
+                elif rms_rest[_i] < _wpg_quiet_rms_thresh:
+                    # WPG quiet zone (-42 to -24 dBFS): ALWAYS block positive boost.
+                    # Catches vinyl/tape intro noise at -33 to -35 dBFS that correct_arc
+                    # would otherwise lift to match the original's noisy energy profile.
+                    gain_db[_i] = 0.0
                 elif rms_rest[_i] < _moderate_quiet_rms_thresh:
-                    # Moderate quiet zone: only block if gap > max_gain_db
-                    # (genuine music dynamics rarely exceed max_gain_db)
+                    # Moderate quiet zone (-24 to -30 dBFS): only block if gap > max_gain_db
                     _diff_mod = 20.0 * np.log10((rms_orig[_i] + eps) / (rms_rest[_i] + eps))
                     if _diff_mod > max_gain_db:
                         gain_db[_i] = 0.0  # Carrier-noise reduction, not music dynamics
                 else:
                     # §2.30b Guard 3 — Any-level noise-removal guard (rms_rest >= −30 dBFS):
-                    # Shellac/cassette/heavily-noisy-vinyl intro/outro frames land here.
-                    # Original had noise+music (-20 dBFS), restored has only clean music
-                    # (-28 dBFS) → diff = 8 dB > max_gain_db (6 dB) → noise removal,
-                    # not a real musical dynamic drop. Without this guard correct_arc
-                    # applies +8 dB to the intro/outro → Pegelexplosion.
-                    # Genuine 5-second musical dynamics rarely produce diff > max_gain_db.
                     _diff_any = 20.0 * np.log10((rms_orig[_i] + eps) / (rms_rest[_i] + eps))
                     if _diff_any > max_gain_db:
                         gain_db[_i] = 0.0  # Noise-removal at any level: no boost
@@ -621,14 +622,15 @@ class EmotionalArcPreservationMetric:
                     _diff_ps = 20.0 * np.log10((rms_orig[_i] + eps) / (rms_rest[_i] + eps))
                     if _diff_ps >= _noise_diff_thresh_db:
                         gain_db[_i] = 0.0  # Post-smoothing: denoised fade-out, no boost
+                elif rms_rest[_i] < _wpg_quiet_rms_thresh:
+                    # Post-SG WPG quiet zone: always block (mirrors pre-SG guard fix)
+                    gain_db[_i] = 0.0
                 elif rms_rest[_i] < _moderate_quiet_rms_thresh:
                     _diff_ps_mod = 20.0 * np.log10((rms_orig[_i] + eps) / (rms_rest[_i] + eps))
                     if _diff_ps_mod > max_gain_db:
                         gain_db[_i] = 0.0  # Post-smoothing: carrier-noise reduction, no boost
                 else:
                     # §2.30b Guard 3 post-smoothing — mirror of pre-smoothing Guard 3:
-                    # SG-smoother can redistribute positive gain from music segments
-                    # into frames above −30 dBFS that were not guards pre-smoothing.
                     _diff_ps_any = 20.0 * np.log10((rms_orig[_i] + eps) / (rms_rest[_i] + eps))
                     if _diff_ps_any > max_gain_db:
                         gain_db[_i] = 0.0  # Post-smoothing: noise-removal at any level
@@ -815,22 +817,25 @@ class WaveformPlausibilityGuard:
     _QUIET_EXPLOSION_RATIO_MIN: float = 0.80
 
     # Mode-adaptive explosion thresholds
+    # IMPORTANT: These must be STRICTLY below the max gain any upstream guard can apply.
+    # LUFS rescue caps at 6 dB → threshold must be < 6 dB to catch boundary frames.
+    # correct_arc() arousal boost can apply 2-4 dB → threshold 3 dB catches that too.
     _THRESHOLD_DB: dict[str, float] = {
-        "restoration": 6.0,
-        "studio2026": 8.0,
-        "studio_2026": 8.0,
-        "default": 6.0,
+        "restoration": 3.0,  # was 6.0 — LUFS rescue caps at 6 dB; WPG must use < 6 dB
+        "studio2026": 5.0,  # was 8.0
+        "studio_2026": 5.0,
+        "default": 3.0,
     }
 
     # Material-adaptive threshold offset (analog sources need tighter threshold)
     _MATERIAL_THRESHOLD_OFFSET: dict[str, float] = {
-        "shellac": -2.0,  # max +4 dB — almost no enhancement expected
-        "wax_cylinder": -2.0,
-        "wire_recording": -2.0,
-        "reel_tape": -1.0,  # max +5 dB
+        "shellac": -1.0,  # max +2 dB — almost no enhancement expected
+        "wax_cylinder": -1.0,
+        "wire_recording": -1.0,
+        "reel_tape": -1.0,  # max +2 dB
         "cassette": -1.0,
-        "vinyl": 0.0,  # max +6 dB
-        "cd_digital": 1.0,  # max +7 dB — digital source tolerates more
+        "vinyl": -1.0,  # max +2 dB — loud noise floor (-33 dBFS), tight guard
+        "cd_digital": 2.0,  # max +5 dB — digital source tolerates more
         "default": 0.0,
     }
 
@@ -919,18 +924,34 @@ class WaveformPlausibilityGuard:
             rest_rms_db[k] = 20.0 * np.log10(float(np.sqrt(np.mean(rest_mono[s:e] ** 2))) + eps)
 
         delta_db = rest_rms_db - orig_rms_db
-        exploded = delta_db > threshold_db
+        # Use >= instead of > so frames with gain exactly at threshold are caught.
+        # LUFS rescue caps at exactly 6 dB; with threshold=3 dB this is moot,
+        # but the >= prevents any future boundary bypass if thresholds are tuned.
+        exploded = delta_db >= threshold_db
         meta["explosions_found"] = int(np.sum(exploded))
 
         if meta["explosions_found"] == 0:
             return np.asarray(restored, dtype=np.float32).copy(), meta
 
         # --- Build per-frame correction gain (always ≤ 0 dB) ---
+        # CORRECTION_TARGET_DB (2 dB) applies only to MUSIC frames.
+        # Quiet-zone frames (intro/outro noise, orig ≤ _QUIET_ZONE_DBFS) must be
+        # corrected to EXACTLY original level (target=0 dB above orig) so that
+        # carrier-noise (vinyl -33 dBFS) is never lifted above its natural level.
+        # MAX_ATTENUATION_DB is also lifted for quiet-zone frames to handle
+        # extreme explosions (> 12 dB) that the default -12 dB cap would miss.
         gain_db_frames = np.zeros(n_frames, dtype=np.float64)
         for k in range(n_frames):
             if exploded[k]:
-                target_db = orig_rms_db[k] + self.CORRECTION_TARGET_DB
-                gain_db_frames[k] = float(np.clip(target_db - rest_rms_db[k], self.MAX_ATTENUATION_DB, 0.0))
+                is_quiet_frame = orig_rms_db[k] <= self._QUIET_ZONE_DBFS
+                if is_quiet_frame:
+                    # Quiet zone: correct to exactly original — no boost at all
+                    target_db = orig_rms_db[k]  # 0 dB above original
+                    max_att = -60.0  # effectively unlimited attenuation
+                else:
+                    target_db = orig_rms_db[k] + self.CORRECTION_TARGET_DB
+                    max_att = self.MAX_ATTENUATION_DB
+                gain_db_frames[k] = float(np.clip(target_db - rest_rms_db[k], max_att, 0.0))
 
         # --- Interpolate frame gains to sample level ---
         centres = np.array([k * hop + win // 2 for k in range(n_frames)], dtype=np.float64)
