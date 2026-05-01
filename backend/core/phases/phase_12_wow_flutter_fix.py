@@ -736,16 +736,24 @@ class WowFlutterFix(PhaseInterface):
             # 3. Makeup-Gain wird auf alle Frames ausgelöst, inkl. Intro-Vinyl-Rauschen
             #    und Outro-Fadeout → Pegelexplosion in Nicht-Musik-Bereichen
             #
-            # FIX: M/S-Domain:
-            #   Mid = (L+R)/2 → PSOLA oder Phase-Vocoder (vokal-gerecht)
-            #   Side = (L-R)/2 → immer Phase-Vocoder (deterministisch, kein pYIN pro Kanal)
-            #   L_out = Mid_out + Side_out, R_out = Mid_out - Side_out
-            # Beide Kanäle erhalten exakt dasselbe Timing-Framework → keine Anti-Phase.
+            # FIX (v9.11.17): Phase-Vocoder für BEIDE M/S-Kanäle erzwingen.
+            #   Mid = (L+R)/2 → Phase-Vocoder (sample-genaue Zeitkorrektur)
+            #   Side = (L-R)/2 → Phase-Vocoder (identisches src_pos-Mapping wie Mid!)
+            #   L_out = Mid_out + Side_out = L_in[src_pos[t]]  (mathematisch exakt)
+            #   R_out = Mid_out - Side_out = R_in[src_pos[t]]  (mathematisch exakt)
+            # Beide Kanäle erhalten dasselbe src_pos-Mapping → ZERO L/R Zeitversatz.
+            # PSOLA läuft ausschließlich im Mono-Pfad (unten) wo es kein L/R gibt.
             _mid_ch = (audio[:, 0].astype(np.float32) + audio[:, 1].astype(np.float32)) * 0.5
             _side_ch = (audio[:, 0].astype(np.float32) - audio[:, 1].astype(np.float32)) * 0.5
-            # Mid trägt den Vokal — nutzt den gewählten Stretch (PSOLA oder Phase-Vocoder)
-            _mid_stretched = _stretch_fn(_mid_ch, stretch_factors, sample_rate)
-            # Side: immer deterministischer Phase-Vocoder (kein pYIN → kein Kanalversatz)
+            # §2.51 L/R-Timing-Invariante (v9.11.17): BEIDE M/S-Kanäle MÜSSEN denselben
+            # Algorithmus verwenden.  PSOLA (OLA-Grain-Grenzen, pYIN-Perioden) und
+            # Phase-Vocoder (np.interp-Sample-Remapping) haben verschiedene effektive
+            # Zeitauflösungen → L = Mid+Side und R = Mid-Side erhalten zeitlich inkohärente
+            # Summanden → sichtbarer L/R Zeitversatz im Wellenformbild.
+            # Fix: Phase-Vocoder für Mid UND Side im Stereo-M/S-Pfad.
+            # PSOLA läuft ausschließlich im Mono-Pfad (where it was designed for).
+            _mid_stretched = self._phase_vocoder_timestretch(_mid_ch, stretch_factors, sample_rate)
+            # Side: Phase-Vocoder — exakt dasselbe Algorithmus/Timing wie Mid
             _side_stretched = self._phase_vocoder_timestretch(_side_ch, stretch_factors, sample_rate)
             # §2.51 Amplitudenkorrektur: PSOLA ist NICHT amplitudenerhaltend.
             # OLA-Windowing dämpft das Mid-Signal typisch um 5–8 dB → MDEM/correct_arc
@@ -2412,6 +2420,17 @@ class WowFlutterFix(PhaseInterface):
         max_period = int(np.max(period_samps))
         out_buf = np.zeros(n_input + max_period * 4, dtype=np.float32)
         weight_buf = np.zeros_like(out_buf)
+
+        # §2.54 PSOLA-Safety: hop=512 with high f0 (>187 Hz) → grain size (2*period) < hop
+        # → consecutive grains don't overlap → zero-weight gaps → silence artefacts.
+        # Guard: fall back to Phase Vocoder when median period < hop/2 (f0 > 187 Hz).
+        if int(np.median(period_samps)) < hop // 2:
+            logger.debug(
+                "phase_12 PSOLA safety: median f0=%.0f Hz > %.0f Hz threshold → Phase-Vocoder fallback",
+                float(sample_rate) / max(float(np.median(period_samps)), 1.0),
+                float(sample_rate) / max(hop // 2, 1),
+            )
+            return self._phase_vocoder_timestretch(audio, stretch_factors, sample_rate)
 
         out_write = 0
         for i in range(n_frames):
