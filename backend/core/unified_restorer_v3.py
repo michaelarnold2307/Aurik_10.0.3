@@ -9096,12 +9096,13 @@ class UnifiedRestorerV3:
                         _joint_needed_db = float(np.clip(float(_lufs_orig_final - _joint_lufs_current), -12.0, 12.0))
                         for _scale in (1.00, 0.85, 0.70, 0.55, 0.40, 0.28):
                             _cand_gain = float(10.0 ** ((_joint_needed_db * _scale) / 20.0))
-                            # _apply_music_only_gain was undefined — use _musical_gain_envelope
-                            # (envelope-gated gain, adaptive noise-floor guard §2.45a)
+                            # §0a §2.45a-II: use adaptive gate (P5(orig)+6 dB, e.g. -27 dBFS for vinyl)
+                            # instead of fixed -36.0 dBFS. Fixed gate allowed vinyl surface noise at
+                            # -33 dBFS (-33 > -36) into the gain envelope → Pegelexplosion in intro/outro.
                             _cand = UnifiedRestorerV3._musical_gain_envelope(
                                 _joint_base,
                                 _cand_gain,
-                                gate_dbfs=-36.0,
+                                gate_dbfs=_adaptive_gate_dbfs,  # adaptive: P5(orig)+6dB, not -36 fixed
                                 crossfade_ms=10.0,
                                 sr=sample_rate,
                                 reference_for_gate=_orig_for_nf,  # §2.45a-II: frame-P5 from original

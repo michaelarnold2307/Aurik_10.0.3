@@ -549,6 +549,18 @@ class EmotionalArcPreservationMetric:
         gain_db = 20.0 * np.log10((rms_orig + eps) / (rms_rest + eps))
         gain_db = np.clip(gain_db.astype(np.float64) * damping, -max_gain_db, max_gain_db)
 
+        # §0a Original-Music-Floor: frames where rms_orig is below the music floor of
+        # the original are carrier-noise frames (vinyl/tape surface noise), not music.
+        # Applying positive gain on these frames re-amplifies removed carrier noise →
+        # Pegelexplosion in intro/outro/fadeout. Compute once, use in both SG guards.
+        _orig_rms_db_all = 20.0 * np.log10(rms_orig + eps)
+        _orig_active = _orig_rms_db_all[_orig_rms_db_all > -60.0]
+        if len(_orig_active) > 4:
+            _orig_median_db = float(np.median(_orig_active))
+            _orig_music_floor_db = float(np.clip(_orig_median_db - 18.0, -48.0, -20.0))
+        else:
+            _orig_music_floor_db = -42.0
+
         # Guard: suppress positive gain on near-silent restored segments.
         # After denoising the tail is genuinely silent; applying a positive
         # gain here (to match original tape/vinyl noise floor) inflates the
@@ -574,7 +586,10 @@ class EmotionalArcPreservationMetric:
         _moderate_quiet_rms_thresh = 10.0 ** (-30.0 / 20.0)  # −30 dBFS
         for _i in range(len(gain_db)):
             if gain_db[_i] > 0.0:
-                if rms_rest[_i] < _silence_rms_thresh:
+                # §0a Guard 0: Original frame at carrier noise floor — no positive boost.
+                if _orig_rms_db_all[_i] < _orig_music_floor_db:
+                    gain_db[_i] = 0.0  # Carrier-noise frame in original — never boost
+                elif rms_rest[_i] < _silence_rms_thresh:
                     gain_db[_i] = 0.0
                 elif rms_rest[_i] < _quiet_rms_thresh:
                     _diff = 20.0 * np.log10((rms_orig[_i] + eps) / (rms_rest[_i] + eps))
@@ -582,8 +597,6 @@ class EmotionalArcPreservationMetric:
                         gain_db[_i] = 0.0  # Denoised fade-out: no boost
                 elif rms_rest[_i] < _wpg_quiet_rms_thresh:
                     # WPG quiet zone (-42 to -24 dBFS): ALWAYS block positive boost.
-                    # Catches vinyl/tape intro noise at -33 to -35 dBFS that correct_arc
-                    # would otherwise lift to match the original's noisy energy profile.
                     gain_db[_i] = 0.0
                 elif rms_rest[_i] < _moderate_quiet_rms_thresh:
                     # Moderate quiet zone (-24 to -30 dBFS): only block if gap > max_gain_db
@@ -616,14 +629,17 @@ class EmotionalArcPreservationMetric:
         # (0–30 s) causes a Pegelexplosion in a quiet fadeout at ~35 s (15.83 %).
         for _i in range(len(gain_db)):
             if gain_db[_i] > 0.0:
-                if rms_rest[_i] < _silence_rms_thresh:
+                # §0a Guard 0 post-SG: mirror of pre-SG original-music-floor guard
+                if _orig_rms_db_all[_i] < _orig_music_floor_db:
+                    gain_db[_i] = 0.0  # Original noise floor — no boost
+                elif rms_rest[_i] < _silence_rms_thresh:
                     gain_db[_i] = 0.0
                 elif rms_rest[_i] < _quiet_rms_thresh:
                     _diff_ps = 20.0 * np.log10((rms_orig[_i] + eps) / (rms_rest[_i] + eps))
                     if _diff_ps >= _noise_diff_thresh_db:
                         gain_db[_i] = 0.0  # Post-smoothing: denoised fade-out, no boost
                 elif rms_rest[_i] < _wpg_quiet_rms_thresh:
-                    # Post-SG WPG quiet zone: always block (mirrors pre-SG guard fix)
+                    # Post-SG WPG quiet zone: always block
                     gain_db[_i] = 0.0
                 elif rms_rest[_i] < _moderate_quiet_rms_thresh:
                     _diff_ps_mod = 20.0 * np.log10((rms_orig[_i] + eps) / (rms_rest[_i] + eps))

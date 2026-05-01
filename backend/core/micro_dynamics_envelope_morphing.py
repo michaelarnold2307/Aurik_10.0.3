@@ -201,6 +201,18 @@ class MicroDynamicsEnvelopeMorphing:
         # Moderate quiet zone: 6 dB above quiet zone, min -30 dBFS
         _MODERATE_QUIET_LUFS = float(max(-30.0, _FADEOUT_QUIET_LUFS + 6.0))
 
+        # §0a Original-Music-Floor: frames below median(L_orig) − 18 dB are carrier noise,
+        # not music. Positive MDEM gain on these frames boosts denoised carrier noise back
+        # to its original level, causing Pegelexplosion in intro/outro/fadeout.
+        # Median-18 dB is robust: pop music median ≈ −12 dBFS → floor = −30 dBFS;
+        # quiet folk median ≈ −25 dBFS → floor = −43 dBFS (won't block soft music).
+        _lo_active_mdem = L_orig[:n_frames][L_orig[:n_frames] > -60.0]
+        if len(_lo_active_mdem) > 4:
+            _lo_median_mdem = float(np.median(_lo_active_mdem))
+            _ORIG_MUSIC_FLOOR = float(np.clip(_lo_median_mdem - 18.0, -48.0, -20.0))
+        else:
+            _ORIG_MUSIC_FLOOR = -42.0
+
         for k in range(n_frames):
             lo = L_orig[k]
             lr = L_rest[k]
@@ -211,6 +223,13 @@ class MicroDynamicsEnvelopeMorphing:
                 continue
             if lo < self.MIN_LEVEL_LUFS:
                 G[k] = 0.0  # Original silent: no adjustment
+                continue
+            # §0a Guard 0: Original frame at carrier noise floor — no positive boost.
+            # If lo is below the estimated music floor of the original, this is a
+            # carrier-noise frame (vinyl/tape/shellac surface noise), not music.
+            # Applying positive gain would re-amplify removed carrier noise → Pegelexplosion.
+            if lo < _ORIG_MUSIC_FLOOR:
+                G[k] = float(np.clip(lo - lr, -_frame_max, 0.0))  # attenuation only
                 continue
             if lr < self.MIN_LEVEL_LUFS:
                 # Restored is near-silent (denoising removed noise floor).
@@ -256,7 +275,9 @@ class MicroDynamicsEnvelopeMorphing:
         # Verwendet denselben adaptiven _FADEOUT_QUIET_LUFS-Schwellwert wie oben.
         for k in range(n_frames):
             if G_smooth[k] > 0.0:
-                if L_rest[k] < _FADEOUT_QUIET_LUFS:
+                if L_orig[k] < _ORIG_MUSIC_FLOOR:
+                    G_smooth[k] = 0.0  # Post-SG: original noise floor — no boost
+                elif L_rest[k] < _FADEOUT_QUIET_LUFS:
                     G_smooth[k] = 0.0  # Adaptive quiet zone: no boost
                 elif L_rest[k] < _MODERATE_QUIET_LUFS and (L_orig[k] - L_rest[k]) > max_gain:
                     G_smooth[k] = 0.0  # Moderate quiet zone post-SG: diff too large
