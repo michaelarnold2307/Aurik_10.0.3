@@ -12,9 +12,13 @@ Exit-Codes:
     1 = ERROR-Verstöße gefunden (oder --strict + Warnings)
 
 Regel-Level:
-    ERROR  (blockiert CI): V01, V03, V04, V05, V06, V07, V08, V09, V10
+    ERROR  (blockiert CI): V01, V03, V04, V05, V06, V07, V08, V09, V10, V12
     WARNING (nur angezeigt): V02 — np.max(np.abs()) Heuristik hat false-positive-Rate
                              V11 — sosfilt() Konservativ-Detektor, prüfen ob Ergebnis addiert wird
+
+V12 — CAUSE_TO_PHASES/CAUSES Bidirektional-Sync (§2.59):
+    Wird nicht per AST sondern als Modul-Level-Check in scan_causal_reasoner_sync() geprüft.
+    Aufruf: python scripts/aurik_verboten_linter.py --include-module-checks
 """
 
 from __future__ import annotations
@@ -63,10 +67,15 @@ RULES = {
     "V11": Rule(
         "V11", "sosfilt(sos, audio) Ergebnis zu Audio addiert → sosfiltfilt verwenden (Zeitversatz → Pegelexplosion)"
     ),
+    "V12": Rule(
+        "V12",
+        "CAUSE_TO_PHASES/CAUSES Bidirektional-Sync verletzt (§2.59) — orphaned key oder fehlender CAUSES-Eintrag",
+    ),
 }
 
 # V02 ist Warning-Level: Heuristik hat false-positive-Rate bei Analyse/Telemetrie-Kontext.
 # V11 ist Warning-Level: sosfilt-Detektor ist konservativ (flag: immer prüfen, nicht immer ERROR).
+# V12 ist ERROR-Level: CAUSE_TO_PHASES/CAUSES-Sync wird via Modul-Level-Check geprüft (nicht AST).
 # Alle anderen Regeln sind ERROR-Level (blockieren CI).
 WARNING_RULES: frozenset[str] = frozenset({"V02", "V11"})
 ERROR_RULES: frozenset[str] = frozenset(RULES) - WARNING_RULES
@@ -353,6 +362,87 @@ class VerbotenlLinter(ast.NodeVisitor):
 
 
 # ---------------------------------------------------------------------------
+# V12: CAUSE_TO_PHASES / CAUSES Bidirektional-Sync (Modul-Level-Check)
+# ---------------------------------------------------------------------------
+
+
+def _check_cause_to_phases_sync(filepath: Path) -> list[Violation]:
+    """V12: Prüft ob CAUSE_TO_PHASES und CAUSES in causal_defect_reasoner.py synchron sind.
+
+    Wird nur auf der Datei causal_defect_reasoner.py ausgeführt.
+    Orphaned CAUSE_TO_PHASES-Schlüssel und fehlende CAUSES-Einträge sind beide Fehler (§2.59).
+    """
+    if filepath.name != "causal_defect_reasoner.py":
+        return []
+    try:
+        source = filepath.read_text(encoding="utf-8", errors="replace")
+        tree = ast.parse(source, filename=str(filepath))
+    except (OSError, SyntaxError):
+        return []
+
+    causes: list[str] = []
+    c2p_keys: list[tuple[str, int]] = []  # (key, lineno)
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Assign):
+            for t in node.targets:
+                if isinstance(t, ast.Name) and t.id == "CAUSES":
+                    if isinstance(node.value, ast.List):
+                        causes = [
+                            e.value
+                            for e in node.value.elts
+                            if isinstance(e, ast.Constant) and isinstance(e.value, str)
+                        ]
+        elif isinstance(node, ast.AnnAssign):
+            if isinstance(node.target, ast.Name) and node.target.id == "CAUSE_TO_PHASES":
+                if node.value and isinstance(node.value, ast.Dict):
+                    c2p_keys = [
+                        (k.value, k.lineno)
+                        for k in node.value.keys
+                        if isinstance(k, ast.Constant) and isinstance(k.value, str)
+                    ]
+
+    if not causes or not c2p_keys:
+        return []
+
+    causes_set = set(causes)
+    c2p_set = {k for k, _ in c2p_keys}
+    lines = source.splitlines()
+    violations: list[Violation] = []
+
+    # V12a: CAUSE_TO_PHASES key ohne CAUSES-Gegenstück
+    for key, lineno in c2p_keys:
+        if key not in causes_set:
+            snippet = lines[lineno - 1].rstrip() if 0 < lineno <= len(lines) else ""
+            violations.append(
+                Violation(
+                    filepath,
+                    lineno,
+                    0,
+                    "V12",
+                    f"CAUSE_TO_PHASES key '{key}' fehlt in CAUSES-Liste (orphaned — Bayes-Loop findet ihn nie)",
+                    snippet,
+                )
+            )
+
+    # V12b: CAUSES ohne CAUSE_TO_PHASES-Eintrag (Ursache aktiviert nie eine Phase)
+    for cause in causes:
+        if cause not in c2p_set:
+            violations.append(
+                Violation(
+                    filepath,
+                    0,
+                    0,
+                    "V12",
+                    f"CAUSES-Eintrag '{cause}' hat keinen CAUSE_TO_PHASES-Eintrag (aktiviert keine Phasen)",
+                    "",
+                )
+            )
+
+    return violations
+
+
+# ---------------------------------------------------------------------------
 # Datei scannen
 # ---------------------------------------------------------------------------
 
@@ -369,7 +459,8 @@ def scan_file(filepath: Path) -> list[Violation]:
         return []
     checker = VerbotenlLinter(filepath, lines)
     checker.visit(tree)
-    return checker.violations
+    # V12: Modul-Level-Check nur auf causal_defect_reasoner.py
+    return checker.violations + _check_cause_to_phases_sync(filepath)
 
 
 def collect_py_files(paths: Iterable[Path]) -> list[Path]:

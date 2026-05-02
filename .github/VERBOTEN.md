@@ -1,6 +1,6 @@
 # Aurik 9 — Vollständige VERBOTEN-Tabelle
 
-> **Normative Quelle** für alle `[V01–V11]`-Linter-Regeln in `scripts/aurik_verboten_linter.py`.
+> **Normative Quelle** für alle `[V01–V12]`-Linter-Regeln in `scripts/aurik_verboten_linter.py`.
 > Top-10 häufigste Regressions-Ursachen → [`.github/copilot-instructions.md`](copilot-instructions.md)
 >
 > Inhalt: Grundregeln (Teil A) + Anti-Patterns mit Produktions-Evidenz (Teil B)
@@ -76,7 +76,7 @@
 | Phase-23 Inpainting ohne POCS | Direkte PGHI aus inkonsistenten Spektren → Aliasing an Defektgrenzen | POCS-Schleife VOR PGHI in `_repair_channel` (material-adaptiv n_iter=2–5, §4.7c) |
 | `signal.lfilter` in Vocal Bell-EQ | `lfilter` in `_boost_presence`/`_enhance_chest` (phase_42) → Phasenverschiebung auf Transients | `signal.filtfilt` (zero-phase); Short-Signal-Fallback: `if len(audio) >= 9: filtfilt(...)` |
 | Festes `breath_preservation=0.70` für alle Altersgruppen | Senior/Mature-Stimmen erhalten aggressive Atemreduktion → Stimmidentitätsverlust | `_AGE_ADAPTIVE_FACTORS`: Senior=0.90, Mature=0.82, Adult=0.72, YoungAdult=0.70; GenderDetector.detect() → age_group (§VoiceAge) |
-| CausalDefectReasoner einseitige Tabellen | Neue Ursache nur in `CAUSE_TO_PHASES`, nicht in `CAUSES`/`LIKELIHOOD_FNS` | `CAUSES` + `CAUSE_TO_PHASES` bidirektional konsistent — Bayes-Loop iteriert ausschließlich `CAUSES` (§2.59) |
+| CausalDefectReasoner einseitige Tabellen [V12] | Neue Ursache nur in `CAUSE_TO_PHASES`, nicht in `CAUSES`/`LIKELIHOOD_FNS` | `CAUSES` + `CAUSE_TO_PHASES` bidirektional konsistent — Bayes-Loop iteriert ausschließlich `CAUSES` (§2.59). Linter V12 prüft automatisch. |
 | QualityGate SNR/STFT vor Musical-Goal-Check | `_check_audio_array` vor Musical-Goals-Failures | `_check_musical_goals()` zuerst; bei Failure sofort `return` — teure STFT-Analyse nur wenn Goals bestanden |
 | TFS-Guard Hilbert vor Voiced-Gate | Hilbert-Phasenextraktion für alle 12 ERB-Bänder vor Voiced-Energy-Gate | Frame-Energie zuerst prüfen; Bänder mit < 3 Voiced-Frames überspringen vor `filtfilt` + Hilbert |
 | AudioSR ohne Wall-Time-Budget | AudioSR-Zonen-Schleife zeitlich unbegrenzt | `_AUDIOSR_WALL_BUDGET_S = 900.0`; Zonen jenseits Budget als Passthrough |
@@ -131,5 +131,6 @@
 | V08 | `backend/`, `plugins/` | `np.max(np.abs(audio))` in Gain-Pfad → WARNING |
 | V09 | `backend/core/` | `consecutive_rollbacks +=` in Carrier-Repair-Phase → ERROR |
 | V11 | `backend/core/phases/` | `sosfilt(` + `+=` auf selben Signal → WARNING |
+| V12 | `backend/core/causal_defect_reasoner.py` | CAUSE_TO_PHASES-Schlüssel ohne CAUSES-Gegenstück oder CAUSES-Eintrag ohne C2P-Eintrag → ERROR |
 
 > Vollständige Linter-Implementierung: `scripts/aurik_verboten_linter.py`

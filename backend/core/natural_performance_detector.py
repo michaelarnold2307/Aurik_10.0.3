@@ -305,7 +305,10 @@ class NaturalPerformanceDetector:
             return 0.0
         # Normalisierte Autokorrelation
         seg = seg - seg.mean()
-        ac = np.correlate(seg, seg, mode="full")[n - 1 :]
+        # FFT-basierte Autokorrelation (O(n log n), VERBOTEN: np.correlate mode='full' O(n²))
+        from scipy.signal import fftconvolve
+        ac_full = fftconvolve(seg, seg[::-1], mode="full")
+        ac = ac_full[len(seg) - 1 :]
         ac_norm = ac / (ac[0] + 1e-12)
 
         lag_min = max(1, int(sr / f_hi))
