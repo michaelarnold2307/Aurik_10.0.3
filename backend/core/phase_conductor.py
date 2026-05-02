@@ -208,6 +208,8 @@ class PhaseConductor:
         material_type: str = "unknown",
         current_strength: float = 1.0,
         goal_weights: dict[str, float] | None = None,
+        song_goal_targets: dict[str, float] | None = None,
+        current_goal_scores: dict[str, float] | None = None,
     ) -> ConductorRecommendation:
         """Empfehle Stärke / Skip-Entscheidung für die nächste Phase.
 
@@ -224,6 +226,11 @@ class PhaseConductor:
         goal_weights : dict[str, float] | None
             §2.52a Per-Song Goal-Gewichte (aus SongGoalImportance §2.56).
             Moduliert Strength ±10 % basierend auf gewichteter Relevanz.
+        song_goal_targets : dict[str, float] | None
+            §2.31 Per-Song Studio-Day-Targets aus estimate_song_goal_targets().
+            Stopp-Signal: wenn aktuelle Scores ≥ Targets − 0.03 → Strength 0.0.
+        current_goal_scores : dict[str, float] | None
+            Aktuelle Musical-Goal-Scores (nach letzter Phase).
 
         Returns
         -------
@@ -273,6 +280,43 @@ class PhaseConductor:
                     recommended_strength = float(np.clip(recommended_strength + _gw_mod, 0.0, 1.0))
             except Exception:
                 pass  # Non-blocking: goal_weights integration failure → neutral
+
+        # §2.31 Per-Song Studio-Day-Target Stopp-Signal: Phasen über Ziel hinaus verhindern
+        # (Over-Processing-Schutz ohne PMGG-Notbremse).
+        if song_goal_targets and current_goal_scores and next_phase_id not in _NEVER_SKIP:
+            try:
+                _P1P2_GOALS = {"naturalness", "authenticity", "tonal_center", "timbre", "articulation"}
+                _goals_at_target = sum(
+                    1
+                    for g, target_val in song_goal_targets.items()
+                    if g in current_goal_scores and float(current_goal_scores[g]) >= float(target_val) - 0.03
+                )
+                _total_goals = len(song_goal_targets)
+                # Stopp wenn ≥ 80 % aller Ziele erreicht (inkl. P1/P2)
+                _p1p2_at_target = sum(
+                    1
+                    for g in _P1P2_GOALS
+                    if g in song_goal_targets
+                    and g in current_goal_scores
+                    and float(current_goal_scores[g]) >= float(song_goal_targets[g]) - 0.03
+                )
+                _p1p2_total = sum(1 for g in _P1P2_GOALS if g in song_goal_targets)
+                if (
+                    _total_goals > 0
+                    and _goals_at_target >= int(0.80 * _total_goals)
+                    and (_p1p2_total == 0 or _p1p2_at_target >= _p1p2_total)
+                ):
+                    recommended_strength = 0.0
+                    logger.debug(
+                        "§2.31 Studio-Day-Target Stopp: %s — %d/%d Ziele erreicht, P1/P2 %d/%d",
+                        next_phase_id,
+                        _goals_at_target,
+                        _total_goals,
+                        _p1p2_at_target,
+                        _p1p2_total,
+                    )
+            except Exception:
+                pass  # Non-blocking — Stopp-Signal-Fehler nie pipeline-blockierend
 
         # Mindest-Stärke aus Invariante
         min_str = _MIN_STRENGTH.get(next_phase_id, _DEFAULT_MIN_STRENGTH)

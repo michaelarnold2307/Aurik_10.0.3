@@ -1487,6 +1487,27 @@ class DenoisePhase(PhaseInterface):
         gain_mb_mean = float(np.mean(all_gain_mb_means)) if all_gain_mb_means else 1.0
         gain_sm_mean = float(np.mean(all_gain_sm_means)) if all_gain_sm_means else 1.0
 
+        # §2.36 LyricsGuided-Phonem-Schutz: Konsonanten-Bursts (Plosive/Frikative) → NR-Bypass
+        # VERBOTEN: NR auf Vokal-Stems ohne phonem-bewusste Maske (§2.36 Pflicht ab 9.10.x)
+        try:
+            from backend.core.lyrics_guided_enhancement import get_phoneme_mask as _get_pmask
+
+            _p36_mask = _get_pmask(audio, sr, hop_length=REF_HOP)
+            if len(_p36_mask) != n_t:
+                _t_src = np.linspace(0.0, 1.0, max(1, len(_p36_mask)))
+                _t_dst = np.linspace(0.0, 1.0, n_t)
+                _p36_mask = np.interp(_t_dst, _t_src, _p36_mask.astype(float)) > 0.5
+            if np.any(_p36_mask):
+                G_combined[:, _p36_mask] = 1.0
+                logger.debug(
+                    "§2.36 Phoneme-NR-Bypass: %d/%d frames (%.1f%%) geschützt",
+                    int(np.sum(_p36_mask)),
+                    n_t,
+                    100.0 * float(np.mean(_p36_mask)),
+                )
+        except Exception as _pmask_exc:
+            logger.debug("§2.36 Phoneme-Mask NR-Bypass (non-blocking): %s", _pmask_exc)
+
         # Apply MRSA gain with gain-gradient phase correction (Prusa & Holighaus 2017 §3.4)
         Zxx_processed = self._apply_gain_gradient_phase_correction(Zxx_ref, G_combined, REF_HOP, sr)
 

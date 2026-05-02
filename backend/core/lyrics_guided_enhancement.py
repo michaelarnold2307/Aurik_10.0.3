@@ -920,6 +920,57 @@ class LyricsGuidedEnhancement:
         _assert_no_lyrics_in_log(transcription.words)
         return transcription
 
+    def get_phoneme_mask(
+        self,
+        audio: np.ndarray,
+        sr: int,
+        hop_length: int = 512,
+    ) -> np.ndarray:
+        """§2.36 Phonem-Maske für NR-Bypass (RELEASE_MUST).
+
+        Returns bool array (n_frames,) — True = Konsonanten-Burst-Frame.
+        NR-Algorithmen MÜSSEN G[frame] = 1.0 setzen wenn consonant_mask[frame] == True.
+
+        Konsonanten-Kategorien: plosive, fricative_stressed, fricative_unstressed.
+        Geschützte Vokal-Frames: vowel_stressed, vowel_unstressed → NR × 0.4 empfohlen.
+        Silence-Frames: keine Einschränkung.
+
+        Privacy: no lyrics text. Only phoneme_type labels used.
+        """
+        assert sr == 48_000, f"SR guard: expected 48000, got {sr}"
+        audio_arr = np.asarray(audio, dtype=np.float32)
+        audio_arr = np.nan_to_num(audio_arr, nan=0.0, posinf=0.0, neginf=0.0)
+        mono = audio_arr.mean(axis=1) if audio_arr.ndim == 2 else audio_arr
+        n_samples = int(mono.shape[0])
+        n_frames = max(1, (n_samples + hop_length - 1) // hop_length)
+
+        try:
+            transcription = self._transcribe_internal(mono, sr, float(n_samples / max(1, sr)))
+        except Exception as exc:
+            logger.debug("get_phoneme_mask: transcription failed (%s) — no protection", exc)
+            return np.zeros(n_frames, dtype=bool)
+
+        _CONSONANT_TYPES = frozenset({"plosive", "fricative_stressed", "fricative_unstressed"})
+
+        mask = np.zeros(n_frames, dtype=bool)
+        frames_per_sec = float(sr) / float(hop_length)
+        for word in transcription.words:
+            if word.phoneme_type not in _CONSONANT_TYPES:
+                continue
+            f_start = max(0, int(word.start_s * frames_per_sec))
+            f_end = min(n_frames, int(np.ceil(word.end_s * frames_per_sec)) + 1)
+            if f_start < f_end:
+                mask[f_start:f_end] = True
+
+        logger.debug(
+            "get_phoneme_mask: %d/%d frames protected (%.1f%%) hop=%d",
+            int(mask.sum()),
+            n_frames,
+            100.0 * float(mask.sum()) / float(n_frames),
+            hop_length,
+        )
+        return mask
+
     def get_timeline(self) -> LyricsGuidedTimeline:
         """Return the timeline renderer used by ``_toggle_lyrics_overlay`` in the frontend."""
         return self._tl
@@ -1247,6 +1298,15 @@ def get_lyrics_guided_enhancement() -> LyricsGuidedEnhancement:
     return _lge_instance
 
 
+def get_phoneme_mask(audio: np.ndarray, sr: int, hop_length: int = 512) -> np.ndarray:
+    """§2.36 Convenience-Wrapper: phoneme mask via Singleton (RELEASE_MUST).
+
+    Returns bool ndarray (n_frames,) — True = Konsonanten-Burst-Frame → NR-Bypass.
+    Delegates to LyricsGuidedEnhancement.get_phoneme_mask().
+    """
+    return get_lyrics_guided_enhancement().get_phoneme_mask(audio, sr, hop_length=hop_length)
+
+
 __all__ = [
     "ContentAwareProcessor",
     "LyricsGuidedEnhancement",
@@ -1258,5 +1318,6 @@ __all__ = [
     "get_lyrics_guided_enhancement",
     "get_lyrics_guided_timeline",
     "get_lyrics_transcriber",
+    "get_phoneme_mask",
     "is_lyrics_guided_loaded",
 ]

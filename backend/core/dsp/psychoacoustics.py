@@ -1198,6 +1198,107 @@ def compute_erb_masking_threshold(
         return np.full(n_fft // 2 + 1, -120.0, dtype=np.float64)
 
 
+# ---------------------------------------------------------------------------
+# §2.62 Psychoakustischer Masking-Guard — ISO 11172-3 Masking Threshold
+# ---------------------------------------------------------------------------
+
+
+def compute_masking_threshold_iso11172(
+    audio: np.ndarray,
+    sr: int,
+    n_fft: int = 2048,
+    hop_length: int = 512,
+) -> np.ndarray:
+    """§2.62 — Per-Band-Maskierungsschwelle nach ISO 11172-3 (MPEG Psychoacoustic Model 1).
+
+    Berechnet die minimale wahrnehmbare Rauschschwelle für jeden Frequenzbin und Frame.
+    NR-Gain-Floor pro Band: G_floor[band] = max(0.10, masking_threshold[band] / noise_estimate[band]).
+
+    Parameters
+    ----------
+    audio : np.ndarray
+        Mono-Signal (N,) float32/float64, normalisiert ±1.
+    sr : int
+        Abtastrate in Hz.
+    n_fft : int
+        FFT-Größe (Standard: 2048).
+    hop_length : int
+        Hop-Länge in Samples (Standard: 512).
+
+    Returns
+    -------
+    np.ndarray
+        Maskierungsschwelle (n_freq_bins, n_frames), normalisiert [0, 1]:
+        1.0 = vollständige Maskierung (Rauschen unsichtbar), 0.0 = keine Maskierung.
+    """
+    import warnings
+
+    from scipy.signal import stft as _stft
+
+    # --- Mono erzwingen ---
+    if audio.ndim > 1:
+        audio = audio.mean(axis=0)
+    audio = np.asarray(audio, dtype=np.float64)
+
+    n_fft_half = n_fft // 2 + 1
+    freqs = np.linspace(0.0, sr / 2.0, n_fft_half, dtype=np.float64)  # Hz
+    f_khz = np.maximum(freqs / 1000.0, 1e-6)  # kHz, nie 0
+
+    # --- ATH (Absolute Threshold of Hearing) nach ISO 226:2003 ---
+    # Terhardt-Formel: dB SPL re 20 µPa
+    ath_db = 3.64 * np.power(f_khz, -0.8) - 6.5 * np.exp(-0.6 * (f_khz - 3.3) ** 2) + 1e-3 * np.power(f_khz, 4)
+    ath_db = np.clip(ath_db, -20.0, 80.0)
+
+    # --- Bark-Skala (Zwicker-Formel) ---
+    bark = 13.0 * np.arctan(0.76 * f_khz) + 3.5 * np.arctan((f_khz / 7.5) ** 2)
+
+    # --- STFT des Signals ---
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        _, _, Zxx = _stft(audio, fs=sr, nperseg=n_fft, noverlap=n_fft - hop_length, window="hann")
+    power = np.abs(Zxx) ** 2  # (n_freq, n_frames)
+    power_db = 10.0 * np.log10(np.maximum(power, 1e-20))  # dB
+
+    n_freq, n_frames = power_db.shape
+    masking_db = np.zeros((n_freq, n_frames), dtype=np.float64)
+
+    # --- Terhardt-Spreading-Funktion (vereinfacht, MPEG-1 Modell 1) ---
+    # S(dz) = 15.81 + 7.5*(dz+0.474) - 17.5*sqrt(1+(dz+0.474)^2) dB
+    # Für jeden Masker k wird die Schwelle in allen Bändern addiert
+    bark_diff = bark[:, np.newaxis] - bark[np.newaxis, :]  # (n_freq, n_masker)
+    dz = bark_diff + 0.474
+    spreading_db = 15.81 + 7.5 * dz - 17.5 * np.sqrt(1.0 + dz**2)
+    spreading_db = np.clip(spreading_db, -80.0, 0.0)
+
+    for t in range(n_frames):
+        masker_level = power_db[:, t]  # dB pro Bin
+        # Nur Bins über ATH sind wirksame Masker
+        active = masker_level > ath_db
+        if np.any(active):
+            # Absolute Maskierungsschwelle = Masker-Level + Spreading - Tonalitäts-Korrekturfaktor
+            # Vereinfachung: Tonalitätsfaktor = 6 dB (Sinuston-Masker)
+            spread = spreading_db[:, active] + masker_level[np.newaxis, active] - 6.0
+            # Energetische Addition: dB → Linear → Maximum → dB
+            spread_lin = np.power(10.0, spread / 10.0)
+            total_mask_lin = spread_lin.sum(axis=1)
+            masking_db[:, t] = 10.0 * np.log10(np.maximum(total_mask_lin, 1e-20))
+        else:
+            masking_db[:, t] = ath_db
+
+        # ATH als untere Schranke
+        masking_db[:, t] = np.maximum(masking_db[:, t], ath_db)
+
+    # --- Normierung auf [0, 1] ---
+    # Verhältnis Maskierungsschwelle / Signal-Power-Schätzung → [0, 1]
+    # G_floor = max(0.10, masking_threshold / noise_estimate)
+    # Ausgabe: masking_threshold_ratio (dimensionslos) für direkten Einsatz als G_floor-Untergrenze
+    signal_db = np.mean(power_db, axis=1, keepdims=True) + 3.0  # konservative Signal-Schätzung
+    ratio = np.power(10.0, (masking_db - signal_db) / 20.0)  # Amplitudenratio
+    ratio = np.clip(ratio, 0.0, 1.0)
+
+    return ratio.astype(np.float32)
+
+
 __all__ = [
     "BARK_CENTERS_HZ",
     "BARK_EDGES_HZ",
@@ -1207,6 +1308,7 @@ __all__ = [
     "compute_bark_energy_profile",
     "compute_erb_masking_threshold",
     "compute_loudness_envelope_delta",
+    "compute_masking_threshold_iso11172",
     "compute_noise_texture_profile",
     "compute_specific_loudness_array",
     "compute_specific_loudness_zwicker",

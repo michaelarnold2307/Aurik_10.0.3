@@ -5455,6 +5455,10 @@ class UnifiedRestorerV3:
                     _max_defect_severity,
                 )
 
+        # §2.45b Hochrestorabilität-Gate — Metadata-Flag für transparentes Reporting
+        if _pmgg_restorability_score > 80 and _input_snr_db > 40.0:
+            self._metadata["high_restorability_gate"] = True
+
         # Step 2: Phase Selection (basierend auf Defekten)
         _cb(16, "Phasenauswahl…")
         logger.info("Step 2/4: Phase Selection...")
@@ -17913,6 +17917,8 @@ class UnifiedRestorerV3:
                     logger.debug("psutil not available — pre-phase RAM check skipped")
                 logger.info("▶ %s startet (%d/%d)", phase_id, len(executed) + 1, len(selected_phases))
                 _record_oom_probe("phase_start", phase_id, estimated_time_s=round(float(estimated_time), 3))
+                # §2.61 Input-Länge für Output-Length-Guard festhalten
+                _phase_input_len_2_61: int = len(current_audio)
                 # §2.16 TQC mid-pipeline: Snapshot + Baseline-Messung vor zeitmodifizierenden Phasen
                 _tqc_snap: np.ndarray | None = current_audio.copy() if phase_id in _TQC_CRITICAL_PHASES_SEQ else None
                 _tqc_snap_span: float = -1.0  # Baseline max_span; -1.0 = nicht gemessen
@@ -18620,6 +18626,18 @@ class UnifiedRestorerV3:
                             current_audio = _audio_pdv_result
                         except Exception as _pdv_exc:
                             logger.debug("§7 PDV check (non-blocking): %s", _pdv_exc)
+
+                    # §2.61 Output-Length-Guard — harter Crop + Log; kein stilles Zero-Padding
+                    if hasattr(current_audio, "shape") and abs(len(current_audio) - _phase_input_len_2_61) > 64:
+                        logger.error(
+                            "§2.61 length_mismatch phase=%s delta=%d — hard crop",
+                            phase_id,
+                            len(current_audio) - _phase_input_len_2_61,
+                        )
+                        current_audio = current_audio[:_phase_input_len_2_61]
+                        if "length_corrections" not in self._metadata:
+                            self._metadata["length_corrections"] = []
+                        self._metadata["length_corrections"].append(phase_id)
 
                     # §0d Carrier-Recovery-Checkpoint: nach jeder erfolgreichen Carrier-Phase
                     # den Audio-Snapshot speichern (letzter Carrier-Checkpoint = best_carrier_checkpoint)
