@@ -48,6 +48,7 @@ Version: 3.0.0 (scipy.signal.stft/istft, kein np.fft.rfft mehr)
 
 from __future__ import annotations
 
+# pylint: disable=import-outside-toplevel,reimported
 import logging
 import time
 
@@ -111,6 +112,10 @@ class AdvancedDereverbPhase(PhaseInterface):
         "unknown": 2.0,
     }
 
+    def __init__(self) -> None:
+        super().__init__()
+        self._current_material: str = "unknown"
+
     def _adaptive_clarity_limits(self, kwargs: dict[str, object]) -> tuple[float, float, float, float]:
         """Compute song-adaptive C80/D50 guard limits.
 
@@ -135,7 +140,9 @@ class AdvancedDereverbPhase(PhaseInterface):
         _preserve_w = float(np.clip((_w_nat + _w_auth + _w_timbre) / 3.0, 0.30, 2.00))
         _clarity_w = float(np.clip((_w_trans + _w_art + _w_bril) / 3.0, 0.30, 2.00))
 
-        _rest = float(np.clip(float(kwargs.get("restorability_score", 65.0)), 0.0, 100.0))
+        _rest_raw = kwargs.get("restorability_score", 65.0)
+        _rest_num: float = _rest_raw if isinstance(_rest_raw, (int, float)) else 65.0  # type: ignore[assignment]
+        _rest = float(np.clip(_rest_num, 0.0, 100.0))
         _rest_factor = float(np.clip(1.0 + (50.0 - _rest) / 250.0, 0.85, 1.20))
 
         _ratio = float(np.sqrt(_clarity_w / max(_preserve_w, 1e-6)))
@@ -218,15 +225,22 @@ class AdvancedDereverbPhase(PhaseInterface):
             description=self.description,
         )
 
-    def process(self, audio: np.ndarray, sample_rate: int, **kwargs) -> PhaseResult:
+    def process(  # type: ignore[override]
+        self,
+        audio: np.ndarray,
+        sample_rate: int = 48000,
+        material_type: str = "unknown",
+        **kwargs,
+    ) -> PhaseResult:
         """
         Führt WPE-Dereverberation durch.
 
         Args:
-            audio:       Mono- oder Stereo-Audiodaten (float32/64, ±1 normiert)
-            sample_rate: Abtastrate in Hz
-            **kwargs:    strength (float, 0–1, Default 0.7),
-                         protect_transients (bool, Default True)
+            audio:         Mono- oder Stereo-Audiodaten (float32/64, ±1 normiert)
+            sample_rate:   Abtastrate in Hz
+            material_type: Materialtyp-String
+            **kwargs:      strength (float, 0–1, Default 0.7),
+                           protect_transients (bool, Default True)
 
         Returns:
             PhaseResult mit dereverberiertem Audio.
@@ -241,7 +255,7 @@ class AdvancedDereverbPhase(PhaseInterface):
 
         # §4.6b: Pre-phase eviction — free previous phase models to prevent OOM
         try:
-            from backend.core.plugin_lifecycle_manager import get_plugin_lifecycle_manager as _get_plm_evict49
+            from backend.core.plugin_lifecycle_manager import get_plugin_lifecycle_manager as _get_plm_evict49  # pylint: disable=import-outside-toplevel # noqa: I001
 
             _get_plm_evict49().evict_for_phase("phase_49_advanced_dereverb")
         except Exception:
@@ -267,12 +281,57 @@ class AdvancedDereverbPhase(PhaseInterface):
                 metrics={"effective_strength": 0.0},
             )
 
+        # §2.46f / §0 Primum non nocere — Reverb-Presence Gate:
+        # WPE only delivers benefit when genuine room reverberation is present.
+        # Gate is based solely on DefectScanner reverb_excess severity — not on
+        # a C80-proxy from the music signal (C80 is a room-acoustics concept for
+        # impulse responses; for continuous music early/late energy are nearly equal
+        # so the proxy always reads ~0 dB and never fires, rendering it useless).
+        # If DefectScanner finds reverb_excess < 0.15, no significant reverb is
+        # detected → phase would produce artifacts without perceptual gain → skip.
+        _dur_s_49 = float(len(audio)) / max(1, sample_rate)
+        if _dur_s_49 >= 0.5:
+            try:
+                _defect_locs_49 = kwargs.get("defect_locations") or {}
+                _reverb_sev_49 = 0.0
+                if isinstance(_defect_locs_49, dict):
+                    _reverb_sev_49 = float(
+                        _defect_locs_49.get("reverb_excess", 0.0) or _defect_locs_49.get("room_reverb", 0.0)
+                    )
+                if _reverb_sev_49 < 0.15:
+                    logger.info(
+                        "Phase 49: Reverb-Presence Gate → SKIP "
+                        "(reverb_sev=%.3f < 0.15, dur=%.1fs) "
+                        "— DefectScanner finds no significant reverb, WPE would create artifacts",
+                        _reverb_sev_49,
+                        _dur_s_49,
+                    )
+                    _clean = np.nan_to_num(audio, nan=0.0, posinf=0.0, neginf=0.0)
+                    _clean = np.clip(_clean, -1.0, 1.0)
+                    return PhaseResult(
+                        success=True,
+                        audio=restore_layout(_clean, _p49_transposed),
+                        execution_time_seconds=time.time() - t0,
+                        metadata={
+                            "algorithm": "skipped_no_reverb",
+                            "reverb_severity": float(_reverb_sev_49),
+                        },
+                        metrics={"reverb_severity": float(_reverb_sev_49)},
+                    )
+                logger.debug(
+                    "Phase 49: Reverb-Presence Gate → PROCEED (reverb_sev=%.3f, dur=%.1fs)",
+                    _reverb_sev_49,
+                    _dur_s_49,
+                )
+            except Exception as _rp_gate_err:
+                logger.debug("Phase 49: Reverb-Presence Gate failed (non-blocking): %s", _rp_gate_err)
+
         strength = effective_strength
         _quality_mode_49 = str(kwargs.get("quality_mode", "quality")).strip().lower()
         _quality_first_unleashed_49 = bool(
             kwargs.get("quality_first_unleashed", _quality_mode_49 in ("quality", "maximum"))
         )
-        self._current_material = str(kwargs.get("material_type", "unknown"))
+        self._current_material = material_type or str(kwargs.get("material_type", "unknown"))
         _wet_mix_profile_49 = self._adaptive_wet_mix_guard_profile(
             self._current_material,
             _quality_mode_49,
@@ -318,12 +377,13 @@ class AdvancedDereverbPhase(PhaseInterface):
 
         # ── Tier-0: SGMSE+ (Richter 2022) — SOTA für starken Nachhall RT60 > 0.4 s ────
         # Dereverb-Kaskade §2.47: SGMSE+ → WPE DSP-Fallback
+        processed: np.ndarray = audio.copy()  # safe fallback if all paths are skipped
         _sgmse_used = False
         _ml_model_name = "WPE-DSP"
         try:
-            from backend.core.ml_memory_budget import release as _release_49
-            from backend.core.ml_memory_budget import try_allocate as _alloc_49
-            from plugins.sgmse_plugin import get_sgmse_plus_plugin as _sgmse_factory_49
+            from backend.core.ml_memory_budget import release as _release_49  # pylint: disable=import-outside-toplevel # noqa: I001
+            from backend.core.ml_memory_budget import try_allocate as _alloc_49  # pylint: disable=import-outside-toplevel
+            from plugins.sgmse_plugin import get_sgmse_plus_plugin as _sgmse_factory_49  # pylint: disable=import-outside-toplevel
 
             if _alloc_49("SGMSE+_phase49", 0.25):
                 try:
@@ -337,16 +397,22 @@ class AdvancedDereverbPhase(PhaseInterface):
                         _plm49 = None
                     # sigma: adaptiv aus strength — stärkerer Nachhall braucht höheres sigma
                     _sigma = float(np.clip(0.25 + strength * 0.65, 0.25, 0.90))
-                    # Realistic CPU budgets for long-form music so SGMSE+ can process
-                    # more than the first chunk before runtime guard fallback.
-                    _ml_runtime_default = 480.0 if _quality_first_unleashed_49 else 240.0
-                    _ml_runtime_max = 1800.0 if _quality_first_unleashed_49 else 900.0
+                    # Realistic CPU budgets: audio-duration-adaptive, capped to prevent
+                    # wall-time dominance. SGMSE+ on CPU runs ~15× real-time; a 30 s clip
+                    # would require ~450 s per channel without a cap → unacceptable.
+                    # Cap: 2× audio_duration per channel (max 60 s normal / 90 s unleashed).
+                    # Any remaining audio after budget falls back to WPE-DSP within SGMSE+.
+                    _audio_dur_s_49 = float(len(audio)) / max(1, sample_rate)
+                    _rt_cap_default = 90.0 if _quality_first_unleashed_49 else 60.0
+                    _rt_cap_max = 120.0 if _quality_first_unleashed_49 else 90.0
+                    _ml_runtime_default = float(np.clip(2.0 * _audio_dur_s_49, 15.0, _rt_cap_default))
+                    _ml_runtime_max = float(np.clip(3.0 * _audio_dur_s_49, 20.0, _rt_cap_max))
                     _ml_runtime_budget_s = float(
                         np.clip(kwargs.get("ml_runtime_budget_s", _ml_runtime_default), 20.0, _ml_runtime_max)
                     )
                     if _plm49 is not None:
                         try:
-                            _plm49.touch_plugin("SGMSE+")
+                            _plm49.touch_plugin("SGMSE+")  # type: ignore[attr-defined]
                         except Exception:
                             pass
                     _sgmse_result = _sgmse_factory_49().enhance(
@@ -554,7 +620,7 @@ class AdvancedDereverbPhase(PhaseInterface):
         # §2.46f Natural-Performance-Artifacts-Guard — Dereverb darf Atemgeräusche
         # zwischen Phrasen und Early-Reflections des Aufnahmestudios nicht tilgen.
         try:
-            from backend.core.natural_performance_detector import get_natural_performance_detector
+            from backend.core.natural_performance_detector import get_natural_performance_detector  # pylint: disable=import-outside-toplevel # noqa: I001
 
             _npa_a49 = processed
             if _npa_a49.ndim == 2 and _npa_a49.shape[0] == 2 and _npa_a49.shape[1] > _npa_a49.shape[0]:
@@ -582,12 +648,14 @@ class AdvancedDereverbPhase(PhaseInterface):
         # glätten wenn Hüllkurven-Schätzer plosive Einsätze als Reverb-Onset klassifiziert.
         # Plosiv-Burst-Frames aus Original restaurieren (sample-level).
         try:
-            from backend.core.lyrics_guided_enhancement import get_phoneme_mask as _get_pmask_49
+            from backend.core.lyrics_guided_enhancement import get_phoneme_mask as _get_pmask_49  # pylint: disable=import-outside-toplevel # noqa: I001
 
             _hop_49 = 512
-            _mono_49 = processed.mean(axis=0) if (
-                processed.ndim == 2 and processed.shape[0] == 2 and processed.shape[1] > 2
-            ) else (processed.mean(axis=1) if processed.ndim == 2 else processed)
+            _mono_49 = (
+                processed.mean(axis=0)
+                if (processed.ndim == 2 and processed.shape[0] == 2 and processed.shape[1] > 2)
+                else (processed.mean(axis=1) if processed.ndim == 2 else processed)
+            )
             _pmask_49 = _get_pmask_49(_mono_49.astype(np.float32), sample_rate, hop_length=_hop_49)
             if np.any(_pmask_49):
                 _n_49 = _mono_49.shape[0]
@@ -771,6 +839,17 @@ class AdvancedDereverbPhase(PhaseInterface):
         )
         _, F = stft_matrix.shape
 
+        # §2.61 Wall-Time-Guard: WPE DSP must not run unbounded on long audio.
+        # Budget per channel = audio_duration × 2.0 (up to 60s cap, min 10s).
+        # Stereo calls _dereverb_channel twice (Mid + Side), so total = 2 × budget.
+        # For 30s audio: 2 × 60s = 120s total, well within pipeline wall-time budget.
+        # After budget is exhausted, we stop at the current bin and use whatever
+        # `enhanced` has been computed so far — partial WPE is still better than nothing.
+        _audio_dur_s = float(len(audio)) / max(1, sample_rate)
+        _wpe_max_runtime_s = float(np.clip(_audio_dur_s * 2.0, 10.0, 60.0))
+        _wpe_channel_start_t = time.monotonic()
+        _wpe_budget_exhausted = False
+
         for _iteration in range(_iterations):
             power = np.abs(enhanced) ** 2
             # alpha=0.90 is fast (high noise-floor reactivity) — good for vinyl/cassette
@@ -782,12 +861,29 @@ class AdvancedDereverbPhase(PhaseInterface):
 
             reverb_estimate = np.zeros_like(stft_matrix)
             for f in range(F):
+                # §2.61 Wall-Time-Guard: abort bin loop if WPE runtime exceeds budget.
+                if f % 64 == 0 and f > 0:
+                    _wpe_elapsed = time.monotonic() - _wpe_channel_start_t
+                    if _wpe_elapsed > _wpe_max_runtime_s:
+                        logger.warning(
+                            "Phase 49 WPE: budget %.1fs exhausted at bin %d/%d "
+                            "(elapsed=%.1fs, audio=%.1fs) — partial WPE result used",
+                            _wpe_max_runtime_s,
+                            f,
+                            F,
+                            _wpe_elapsed,
+                            _audio_dur_s,
+                        )
+                        _wpe_budget_exhausted = True
+                        break
                 if smoothed_power[:, f].max() < 1e-12:
                     continue
                 reverb_estimate[:, f] = self._predict_reverb_band(
                     stft_matrix[:, f], smoothed_power[:, f], D, K, strength
                 )
             enhanced = stft_matrix - reverb_estimate
+            if _wpe_budget_exhausted:
+                break
 
         # 4. Wiener-Postfilter
         enhanced = self._apply_wiener_postfilter(enhanced, stft_matrix, floor=self._WIENER_FLOOR)
@@ -861,7 +957,7 @@ class AdvancedDereverbPhase(PhaseInterface):
             # 2. Predelay via normalized autocorrelation — FFT-based O(N log N)
             max_lag = int(0.020 * sample_rate)  # Search up to 20 ms
             if len(x) > 2 * max_lag:
-                from backend.core.core_utils import fft_autocorr
+                from backend.core.core_utils import fft_autocorr  # pylint: disable=import-outside-toplevel
 
                 ac = fft_autocorr(x[: max_lag * 4])
                 ac_norm = ac / (float(ac[0]) + 1e-14)
@@ -944,7 +1040,8 @@ class AdvancedDereverbPhase(PhaseInterface):
             smoothed = sig.lfilter(b, a, power)
         else:
             smoothed = sig.lfilter(b, a, power, axis=0)
-        return smoothed + 1e-12
+        _smoothed_arr: np.ndarray = np.asarray(smoothed + 1e-12, dtype=np.float64)
+        return _smoothed_arr
 
     @staticmethod
     def _predict_reverb_band(
@@ -995,17 +1092,7 @@ class AdvancedDereverbPhase(PhaseInterface):
             return np.zeros_like(y)
 
         # Vectorized reverb prediction: r(t) = Σ_k g_k · y(t-D-k-1)
-        # The inner loop is a FIR filter (convolution) of y with g (reversed)
-        g_rev = g[::-1]  # reverse g for convolution
-        # Convolve y with g_rev: output[t] = Σ_k g_rev[k] * y[t-K+1+k] = Σ_k g[K-1-k] * y[t-K+1+k]
-        # We need: reverb[t] = Σ_k g[k] * y[t-D-k-1] for t >= D+K
-        # Shift: let s = t - D - 1, then reverb[s+D+1] = Σ_k g[k] * y[s-k]
-        # This is: convolve(y, g) at position s, valid for s >= K-1
-        np.convolve(y, g_rev, mode="full")  # length T + K - 1
-        # conv_full[s] = Σ_k g_rev[k] * y[s-k] = Σ_k g[K-1-k] * y[s-k]
-        # We want reverb[t] = Σ_k g[k] * y[t-D-k-1]
-        # Let s = t - D - 1: reverb[t] = conv_g[s] where conv_g[s] = Σ_k g[k] * y[s-k]
-        # conv_g = convolve(y, g) — use g directly (not reversed) since numpy convolve already flips
+        # np.convolve flips the kernel internally, so we pass g directly.
         conv_result = np.convolve(y, g, mode="full")  # length T + K - 1
         # conv_result[s] = Σ_k g[k] * y[s-k], valid when s >= K-1
         # reverb[t] = conv_result[t - D - 1] for t >= D + K (i.e. t-D-1 >= K-1)
@@ -1035,10 +1122,9 @@ class AdvancedDereverbPhase(PhaseInterface):
         gain = np.abs(enhanced) ** 2 / (np.abs(original) ** 2 + eps)
         gain = np.clip(gain, floor, 1.0)
         gain = median_filter(gain, size=(3, 1))
-        return enhanced * gain
+        _wiener_out: np.ndarray = np.asarray(enhanced * gain, dtype=np.float64)
+        return _wiener_out  # type: ignore[no-any-return]
 
-    # ------------------------------------------------------------------
-    # STFT / ISTFT
     # ------------------------------------------------------------------
 
     def _stft(self, audio: np.ndarray, window: np.ndarray) -> np.ndarray:
@@ -1065,7 +1151,8 @@ class AdvancedDereverbPhase(PhaseInterface):
             boundary="even",
             padded=True,
         )
-        return Zxx.T  # scipy: (F, T) → intern (T, F)
+        _stft_out: np.ndarray = np.asarray(Zxx.T, dtype=np.complex128)  # type: ignore[no-any-return]
+        return _stft_out  # scipy: (F, T) → intern (T, F)
 
     def _istft(self, stft: np.ndarray, window: np.ndarray, orig_len: int) -> np.ndarray:
         """OLA-Rücksynthese via scipy.signal.istft → Signal der Länge orig_len.
@@ -1095,7 +1182,8 @@ class AdvancedDereverbPhase(PhaseInterface):
         elif len(out) < orig_len:
             out = np.pad(out, (0, orig_len - len(out)), mode="edge")
         out = np.nan_to_num(out, nan=0.0, posinf=0.0, neginf=0.0)
-        return out
+        _istft_out: np.ndarray = np.asarray(out, dtype=np.float32)
+        return _istft_out
 
     # ------------------------------------------------------------------
     # Transientenmaske

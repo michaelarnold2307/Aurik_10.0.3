@@ -63,10 +63,12 @@ Author: Aurik Professional Team
 Version: 2.0.0 (Professional)
 Date: February 2026
 """
+# pylint: disable=import-outside-toplevel,reimported
 
 import logging
 import os
 import time
+from typing import Any
 
 import numpy as np
 from scipy import signal
@@ -143,6 +145,8 @@ class WowFlutterFix(PhaseInterface):
     def __init__(self):
         super().__init__()
         self.name = "Wow & Flutter Correction v2 Professional"
+        self._quality_mode_hint: str = "quality"
+        self._quality_first_unleashed: bool = False
 
     @staticmethod
     def _compute_adaptive_threshold_profile(
@@ -315,11 +319,13 @@ class WowFlutterFix(PhaseInterface):
             is_cpu_intensive=True,
             is_io_intensive=False,
             quality_impact=0.92,  # Professional-grade wow/flutter correction
-            description="Professional wow & flutter correction with YIN pitch detection and Phase Vocoder time-stretching",
+            description=(
+                "Professional wow & flutter correction with YIN pitch detection and Phase Vocoder time-stretching"
+            ),
         )
 
-    def process(
-        self, audio: np.ndarray, sample_rate: int, material: MaterialType = MaterialType.VINYL, **kwargs
+    def process(  # type: ignore[override]  # pyright: ignore[reportIncompatibleMethodOverride]
+        self, audio: np.ndarray, sample_rate: int = 48000, material_type: str = "unknown", **kwargs: Any
     ) -> PhaseResult:
         """
         Correct wow & flutter using professional pitch detection + Phase Vocoder.
@@ -332,6 +338,13 @@ class WowFlutterFix(PhaseInterface):
         Returns:
             PhaseResult with wow/flutter corrected audio
         """
+        material: MaterialType = (
+            material_type
+            if isinstance(material_type, MaterialType)
+            else MaterialType(material_type)
+            if material_type in {m.value for m in MaterialType}
+            else MaterialType.VINYL
+        )
         self.validate_input(audio)
         assert sample_rate == 48000, f"Interne SR muss 48000 Hz sein, erhalten: {sample_rate}"
         start_time = time.time()
@@ -391,8 +404,6 @@ class WowFlutterFix(PhaseInterface):
         self._quality_first_unleashed = bool(
             kwargs.get("quality_first_unleashed", self._quality_mode_hint in {"quality", "maximum"})
         )
-
-        # Check resource availability for ML-Hybrid (fallback to lightweight if needed)
         use_lightweight = False
         if RESOURCE_MANAGER_AVAILABLE:
             use_lightweight = adaptive_resource_manager.should_use_lightweight_mode()
@@ -401,9 +412,9 @@ class WowFlutterFix(PhaseInterface):
                 use_lightweight = False
             elif use_lightweight:
                 logger.info(
-                    f"Phase 12: Resource constraint detected, forcing DSP-only mode "
-                    f"(CPU: {adaptive_resource_manager.get_cpu_usage():.1f}%, "
-                    f"Memory: {adaptive_resource_manager.get_memory_usage():.1f}%)"
+                    "Phase 12: Resource constraint detected, forcing DSP-only mode (CPU: %.1f%%, Memory: %.1f%%)",
+                    adaptive_resource_manager.get_cpu_usage(),
+                    adaptive_resource_manager.get_memory_usage(),
                 )
 
         # Strategy routing v4.0 — Capstan-kompetitiv:
@@ -413,6 +424,8 @@ class WowFlutterFix(PhaseInterface):
         # fast / lightweight → pYIN DSP
         _poly_applied = False
         _poly_fallback = False
+        pitch_trajectory: np.ndarray = np.zeros(1)
+        confidence: np.ndarray = np.zeros(1)
 
         if quality_mode in ["quality", "maximum"] and not use_lightweight:
             try:
@@ -461,7 +474,6 @@ class WowFlutterFix(PhaseInterface):
                 detector = HybridWowFlutter(
                     config=WowFlutterConfig(
                         strategy=strategy,
-                        yin_threshold=self.YIN_THRESHOLD,
                         crepe_model="full" if quality_mode in ["quality", "maximum"] else "medium",
                         confidence_threshold=0.7,
                         enable_preprocessing=True,
@@ -471,8 +483,10 @@ class WowFlutterFix(PhaseInterface):
                 ml_result = detector.detect_pitch(mono, sample_rate=sample_rate)
 
                 logger.info(
-                    f"ML-Hybrid Pitch-Detektion abgeschlossen: pYIN={ml_result.pyin_applied}, "
-                    f"CREPE={ml_result.crepe_applied}, confidence={ml_result.mean_confidence:.3f}"
+                    "ML-Hybrid Pitch-Detektion abgeschlossen: pYIN=%s, CREPE=%s, confidence=%.3f",
+                    ml_result.pyin_applied,
+                    ml_result.crepe_applied,
+                    ml_result.mean_confidence,
                 )
 
                 # Use ML-detected pitch trajectory
@@ -481,8 +495,9 @@ class WowFlutterFix(PhaseInterface):
 
             except Exception as e:
                 logger.warning(
-                    f"ML-Hybrid Pitch-Detektion fehlgeschlagen: {e}, Fallback auf pYIN DSP. "
-                    f"Fehlertyp: {type(e).__name__}"
+                    "ML-Hybrid Pitch-Detektion fehlgeschlagen: %s, Fallback auf pYIN DSP. Fehlertyp: %s",
+                    e,
+                    type(e).__name__,
                 )
                 # Fall through to DSP path below
                 use_ml_hybrid = False
@@ -580,7 +595,7 @@ class WowFlutterFix(PhaseInterface):
 
         if not wow_flutter_detected:
             # No significant wow/flutter detected
-            metadata = {
+            metadata: dict[str, Any] = {
                 "algorithm": (
                     "polyphonic_multi_f0_consensus_v1"
                     if _poly_applied
@@ -700,7 +715,8 @@ class WowFlutterFix(PhaseInterface):
                     "loudness_makeup_db": 0.0,
                 },
                 warnings=[
-                    "Wow/flutter correction bypassed: polyphonic estimator was implausible and fallback was unsafe for vocal analog material"
+                    "Wow/flutter correction bypassed: polyphonic estimator was"
+                    " implausible and fallback was unsafe for vocal analog material"
                 ],
             )
 
@@ -913,8 +929,8 @@ class WowFlutterFix(PhaseInterface):
         wow_magnitude = np.std(wow_component[wow_component != 0])
         flutter_magnitude = np.std(flutter_component[flutter_component != 0])
 
-        # Build metadata
-        metadata = {
+        # Build metadata (wow/flutter detected path — avoid redefinition of 'metadata' from line 589)
+        _meta_detected: dict[str, Any] = {
             "algorithm": (
                 "polyphonic_multi_f0_consensus_v1"
                 if _poly_applied
@@ -944,11 +960,11 @@ class WowFlutterFix(PhaseInterface):
         }
 
         if use_ml_hybrid:
-            metadata["pyin_applied"] = ml_result.pyin_applied
-            metadata["crepe_applied"] = ml_result.crepe_applied
-            metadata["strategy_used"] = str(ml_result.strategy_used)
-            metadata["pitch_detection_time"] = ml_result.processing_time
-            metadata["ml_metadata"] = ml_result.metadata
+            _meta_detected["pyin_applied"] = ml_result.pyin_applied
+            _meta_detected["crepe_applied"] = ml_result.crepe_applied
+            _meta_detected["strategy_used"] = str(ml_result.strategy_used)
+            _meta_detected["pitch_detection_time"] = ml_result.processing_time
+            _meta_detected["ml_metadata"] = ml_result.metadata
 
         restored = np.nan_to_num(restored, nan=0.0, posinf=0.0, neginf=0.0)
         restored = np.clip(restored, -1.0, 1.0)
@@ -960,10 +976,13 @@ class WowFlutterFix(PhaseInterface):
         # darf nicht durch Wow/Flutter-Korrektur geglättet werden — Pitch-Segmente restaurieren.
         try:
             from backend.core.natural_performance_detector import get_natural_performance_detector
+
             _mono12 = _original_audio.mean(axis=0) if _original_audio.ndim == 2 else _original_audio
-            _npa_mask12 = get_natural_performance_detector().detect(
-                _mono12, sample_rate
-            ).get_protected_mask(len(_mono12), sample_rate)
+            _npa_mask12 = (
+                get_natural_performance_detector()
+                .detect(_mono12, sample_rate)
+                .get_protected_mask(len(_mono12), sample_rate)
+            )
             if _npa_mask12 is not None and _npa_mask12.any():
                 if restored.ndim == 2:
                     restored[:, _npa_mask12] = _original_audio[:, _npa_mask12]
@@ -1003,7 +1022,7 @@ class WowFlutterFix(PhaseInterface):
             },
             execution_time_seconds=processing_time,
             metadata={
-                **metadata,
+                **_meta_detected,
                 "phase_locality_factor": phase_locality_factor,
                 "effective_strength": _effective_strength,
                 "rms_drop_db": _rms_drop_db,
@@ -1059,8 +1078,9 @@ class WowFlutterFix(PhaseInterface):
         _max_rms_lift_db = 1.0
 
         # §2.45a-I: Gated RMS — only frames > -50 dBFS (kein Stille-inflationierter RMS)
-        # §V04-EXEMPT: compute_gated_rms_linear() RMS measurement, NOT apply_musical_gain_envelope() — no reference_for_gate needed
-        from backend.core.audio_utils import compute_gated_rms_linear as _grl_p12
+        # §V04-EXEMPT: compute_gated_rms_linear() RMS measurement,
+        # NOT apply_musical_gain_envelope() — no reference_for_gate needed
+        from backend.core.audio_utils import compute_gated_rms_linear as _grl_p12  # pylint: disable=import-outside-toplevel # noqa: I001
 
         _orig_rms = float(_grl_p12(orig, gate_dbfs=-50.0))
         _proc_rms = float(_grl_p12(proc, gate_dbfs=-50.0))
@@ -1754,7 +1774,7 @@ class WowFlutterFix(PhaseInterface):
 
         from scipy.ndimage import label as nd_label
 
-        labeled, n_dips_raw = nd_label(dip_mask_rms)
+        labeled, n_dips_raw = nd_label(dip_mask_rms)  # type: ignore[misc]  # type: ignore[misc]
 
         if n_dips_raw == 0:
             return audio, 0
@@ -2220,7 +2240,7 @@ class WowFlutterFix(PhaseInterface):
         return stretch_factors
 
     def _phase_vocoder_timestretch(
-        self, audio: np.ndarray, stretch_factors: np.ndarray, sample_rate: int
+        self, audio: np.ndarray, stretch_factors: np.ndarray, _sample_rate: int
     ) -> np.ndarray:
         """
         Apply time-varying WSOLA-style time mapping for wow/flutter correction.
@@ -2515,11 +2535,11 @@ class WowFlutterFix(PhaseInterface):
         safe_w = np.maximum(weight_buf[:n_input], 1e-8)
         result = out_buf[:n_input] / safe_w
         result = np.nan_to_num(result, nan=0.0, posinf=0.0, neginf=0.0)
-        return np.clip(result, -1.0, 1.0).astype(dtype)
+        return np.clip(result, -1.0, 1.0).astype(dtype)  # type: ignore[no-any-return]
 
 
 # Standalone test
-if __name__ == "__main__":
+def _run_test() -> None:  # pragma: no cover
     logging.basicConfig(level=logging.INFO, format="%(message)s")
 
     logger.debug("=" * 80)
@@ -2586,7 +2606,9 @@ if __name__ == "__main__":
             logger.debug("   Correction Strength: %s", result.metrics["correction_strength"])
             logger.debug("   Mean Confidence: %.2f", result.metrics["mean_confidence"])
             logger.debug(
-                f"   Processing time: {result.execution_time_seconds:.3f}s ({result.execution_time_seconds / duration:.2f}× realtime)"
+                "   Processing time: %.3fs (%.2f\u00d7 realtime)",
+                result.execution_time_seconds,
+                result.execution_time_seconds / duration,
             )
             logger.debug("")
         else:
@@ -2598,3 +2620,7 @@ if __name__ == "__main__":
     logger.debug("=" * 80)
     logger.debug("Test completed")
     logger.debug("=" * 80)
+
+
+if __name__ == "__main__":
+    _run_test()

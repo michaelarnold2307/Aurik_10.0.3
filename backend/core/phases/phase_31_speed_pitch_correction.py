@@ -75,13 +75,7 @@ from .phase_interface import PhaseCategory, PhaseInterface, PhaseMetadata, Phase
 logger = logging.getLogger(__name__)
 
 # PGHI phase reconstruction after spectral modification (Spec §DSP — PFLICHT)
-try:
-    pass
-
-    _PGHI_AVAILABLE_P31 = True
-except Exception:
-    _PGHI_AVAILABLE_P31 = False
-    logger.warning("PGHI not available; scipy.signal.istft fallback active for phase_31")
+# scipy.signal.istft fallback active for phase_31 (PGHI not yet integrated)
 
 # ML-Hybrid imports (Phase 31 v3.0)
 ML_HYBRID_AVAILABLE = False
@@ -186,13 +180,12 @@ class SpeedPitchCorrectionPhase(PhaseInterface):
             description="pYIN Pitch-Detection (Mauch & Dixon 2014) + WSOLA/Phase-Vocoder",
         )
 
-    def process(
+    def process(  # type: ignore[override]
         self,
         audio: np.ndarray,
-        material_type: str = "unknown",
-        reference_pitch: float | None = None,
         sample_rate: int = 48000,
-        **kwargs,
+        material_type: str = "unknown",
+        **kwargs: Any,
     ) -> PhaseResult:
         """
         Professional speed/pitch correction with WSOLA + Phase Vocoder.
@@ -212,7 +205,7 @@ class SpeedPitchCorrectionPhase(PhaseInterface):
         Returns:
             PhaseResult with corrected audio
         """
-        sample_rate = kwargs.get("sample_rate", 48000)
+        reference_pitch: float | None = float(kwargs["reference_pitch"]) if "reference_pitch" in kwargs else None
         assert sample_rate == 48000, f"SR muss 48000 Hz sein, erhalten: {sample_rate}"
         start_time = time.time()
 
@@ -240,8 +233,8 @@ class SpeedPitchCorrectionPhase(PhaseInterface):
             )
 
         # Get material-specific parameters
-        params = dict(self.MATERIAL_PARAMS.get(material_type, self.MATERIAL_PARAMS["unknown"]))
-        params["correction_strength"] = float(params["correction_strength"] * _effective_strength)
+        params: dict[str, Any] = dict(self.MATERIAL_PARAMS.get(material_type, self.MATERIAL_PARAMS["unknown"]))
+        params["correction_strength"] = float(float(params["correction_strength"]) * _effective_strength)  # type: ignore[arg-type]
 
         # Skip digital sources
         if params["max_speed_error"] == 0:
@@ -297,7 +290,7 @@ class SpeedPitchCorrectionPhase(PhaseInterface):
         # Step 2: Nearest-semitone cent-offset (SOTA — key/octave-independent)
         # offset_cents = per-frame deviation from the nearest 12-TET semitone.
         # Aggregate: probability-weighted median across all voiced frames.
-        if detected_pitch > 0 and confidence >= params["pitch_detection_confidence"]:
+        if detected_pitch > 0 and confidence >= float(params["pitch_detection_confidence"]):  # type: ignore[arg-type]
             tuning_offset_cents, speed_ratio = self._compute_tuning_offset(
                 audio, sample_rate, reference_pitch, detected_pitch
             )
@@ -335,7 +328,7 @@ class SpeedPitchCorrectionPhase(PhaseInterface):
         # The original 3% limit rejected valid cassette start corrections.  The broader
         # limit is safe because WSOLA + formant preservation handles these corrections
         # without audible artifacts.  For extreme errors (>10%), still skip.
-        if abs(speed_ratio - 1.0) > params["max_speed_error"]:
+        if abs(speed_ratio - 1.0) > float(params["max_speed_error"]):  # type: ignore[arg-type]
             audio = np.nan_to_num(audio, nan=0.0, posinf=0.0, neginf=0.0)
 
             audio = np.clip(audio, -1.0, 1.0)
@@ -344,7 +337,10 @@ class SpeedPitchCorrectionPhase(PhaseInterface):
                 audio=audio,
                 modifications={
                     "processing": "skipped",
-                    "reason": f"speed error {speed_error_percent:.2f}% exceeds max {params['max_speed_error'] * 100:.1f}%",
+                    "reason": (
+                        f"speed error {speed_error_percent:.2f}% exceeds max "
+                        f"{float(params['max_speed_error']) * 100:.1f}%"  # type: ignore[arg-type]
+                    ),
                     "detected_pitch_hz": detected_pitch,
                     "a4_reference_hz": reference_pitch,
                     "tuning_offset_cents": tuning_offset_cents,
@@ -368,7 +364,7 @@ class SpeedPitchCorrectionPhase(PhaseInterface):
         # Apply correction if error significant (>0.3%)
         if abs(speed_error_percent) > 0.3:
             # Calculate corrected ratio
-            correction_ratio = 1.0 + (speed_ratio - 1.0) * params["correction_strength"]
+            correction_ratio = 1.0 + (speed_ratio - 1.0) * float(params["correction_strength"])  # type: ignore[arg-type]
 
             # Select algorithm
             if params["algorithm"] == "wsola":
@@ -407,11 +403,16 @@ class SpeedPitchCorrectionPhase(PhaseInterface):
             # §2.46f NPA-Guard: Natürliches Vibrato/Portamento darf nicht quantisiert/geglättet
             # werden. Segmente mit F0-Modulation 4–7 Hz, ≤±50 Cent: Original zurück.
             try:
-                from backend.core.natural_performance_detector import get_natural_performance_detector
+                from backend.core.natural_performance_detector import (  # pylint: disable=import-outside-toplevel
+                    get_natural_performance_detector,
+                )
+
                 _mono31 = audio.mean(axis=0) if audio.ndim == 2 else audio
-                _npa_mask31 = get_natural_performance_detector().detect(
-                    _mono31, sample_rate
-                ).get_protected_mask(len(_mono31), sample_rate)
+                _npa_mask31 = (
+                    get_natural_performance_detector()
+                    .detect(_mono31, sample_rate)
+                    .get_protected_mask(len(_mono31), sample_rate)
+                )
                 if _npa_mask31 is not None and _npa_mask31.any():
                     if result_audio.ndim == 2:
                         result_audio[:, _npa_mask31] = audio[:, _npa_mask31]
@@ -455,37 +456,36 @@ class SpeedPitchCorrectionPhase(PhaseInterface):
                     "loudness_makeup_db": 0.0,
                 },
             )
-        else:
-            # Error too small
-            audio = np.nan_to_num(audio, nan=0.0, posinf=0.0, neginf=0.0)
+        # Error too small — fall through when |speed_error| ≤ 0.3 %
+        audio = np.nan_to_num(audio, nan=0.0, posinf=0.0, neginf=0.0)
 
-            audio = np.clip(audio, -1.0, 1.0)
+        audio = np.clip(audio, -1.0, 1.0)
 
-            return create_phase_result(
-                audio=audio,
-                modifications={
-                    "processing": "skipped",
-                    "reason": f"speed error {speed_error_percent:.2f}% below 0.3% threshold",
-                    "detected_pitch_hz": detected_pitch,
-                    "a4_reference_hz": reference_pitch,
-                    "tuning_offset_cents": tuning_offset_cents,
-                    "speed_ratio": speed_ratio,
-                    "confidence": confidence,
-                },
-                warnings=[],
-                metadata={
-                    "algorithm": params["algorithm"],
-                    "algorithm_version": "v3.0_ml_hybrid" if use_ml_hybrid else "2.0_professional",
-                    "quality_mode": quality_mode,
-                    "phase_locality_factor": phase_locality_factor,
-                    "effective_strength": _effective_strength,
-                    **ml_metadata,
-                    "material_type": material_type,
-                    "execution_time_seconds": time.time() - start_time,
-                    "rms_drop_db": 0.0,
-                    "loudness_makeup_db": 0.0,
-                },
-            )
+        return create_phase_result(
+            audio=audio,
+            modifications={
+                "processing": "skipped",
+                "reason": f"speed error {speed_error_percent:.2f}% below 0.3% threshold",
+                "detected_pitch_hz": detected_pitch,
+                "a4_reference_hz": reference_pitch,
+                "tuning_offset_cents": tuning_offset_cents,
+                "speed_ratio": speed_ratio,
+                "confidence": confidence,
+            },
+            warnings=[],
+            metadata={
+                "algorithm": params["algorithm"],
+                "algorithm_version": "v3.0_ml_hybrid" if use_ml_hybrid else "2.0_professional",
+                "quality_mode": quality_mode,
+                "phase_locality_factor": phase_locality_factor,
+                "effective_strength": _effective_strength,
+                **ml_metadata,
+                "material_type": material_type,
+                "execution_time_seconds": time.time() - start_time,
+                "rms_drop_db": 0.0,
+                "loudness_makeup_db": 0.0,
+            },
+        )
 
     def _match_reference_length(self, signal_in: np.ndarray, reference: np.ndarray) -> tuple[np.ndarray, bool]:
         """Match output length to reference length (crop/pad), preserving channel layout."""
@@ -591,7 +591,7 @@ class SpeedPitchCorrectionPhase(PhaseInterface):
 
         return out.astype(processed_audio.dtype, copy=False), meta
 
-    def _detect_pitch_pyin(self, audio: np.ndarray, params: dict[str, Any]) -> tuple[float, float]:
+    def _detect_pitch_pyin(self, audio: np.ndarray, _params: dict[str, Any]) -> tuple[float, float]:
         """pYIN Pitch-Detektion (Mauch & Dixon 2014) via librosa.pyin.
 
         Algorithmus:
@@ -667,7 +667,7 @@ class SpeedPitchCorrectionPhase(PhaseInterface):
         audio: np.ndarray,
         sample_rate: int,
         a4_hz: float,
-        rough_pitch_hz: float,
+        _rough_pitch_hz: float,
     ) -> tuple[float, float]:
         """SOTA nearest-semitone tuning-offset detection.
 
@@ -771,7 +771,7 @@ class SpeedPitchCorrectionPhase(PhaseInterface):
             logger.warning("_compute_tuning_offset failed (%s) — no correction", exc)
             return 0.0, 1.0
 
-    def _correct_wsola(self, audio: np.ndarray, ratio: float, params: dict[str, Any]) -> np.ndarray:
+    def _correct_wsola(self, audio: np.ndarray, ratio: float, _params: dict[str, Any]) -> np.ndarray:
         """
         WSOLA time-stretching (Waveform Similarity Overlap-Add).
 
@@ -805,8 +805,7 @@ class SpeedPitchCorrectionPhase(PhaseInterface):
             if _peak > 1.0:
                 result = result / _peak
             return result
-        else:
-            return self._wsola_mono(audio, window_size, hop_analysis, hop_synthesis)
+        return self._wsola_mono(audio, window_size, hop_analysis, hop_synthesis)
 
     def _wsola_mono(self, audio: np.ndarray, window_size: int, hop_analysis: int, hop_synthesis: int) -> np.ndarray:
         """WSOLA for mono signal.
@@ -826,7 +825,7 @@ class SpeedPitchCorrectionPhase(PhaseInterface):
         read_pos = 0
         write_pos = 0
 
-        for frame_idx in range(num_frames):
+        for _frame_idx in range(num_frames):
             if read_pos + window_size > len(audio):
                 break
             frame = audio[read_pos : read_pos + window_size] * window
@@ -843,7 +842,7 @@ class SpeedPitchCorrectionPhase(PhaseInterface):
 
         return output
 
-    def _correct_phase_vocoder(self, audio: np.ndarray, ratio: float, params: dict[str, Any]) -> np.ndarray:
+    def _correct_phase_vocoder(self, audio: np.ndarray, ratio: float, _params: dict[str, Any]) -> np.ndarray:
         """
         Phase Vocoder pitch-shifting.
 
@@ -909,7 +908,7 @@ class SpeedPitchCorrectionPhase(PhaseInterface):
         elif len(audio_shifted) < len(audio):
             audio_shifted = np.pad(audio_shifted, (0, len(audio) - len(audio_shifted)))
 
-        return audio_shifted
+        return audio_shifted  # type: ignore[no-any-return]
 
     def _correct_psola(
         self,
@@ -949,10 +948,12 @@ class SpeedPitchCorrectionPhase(PhaseInterface):
             left = self._psola_apply_mono(audio[:, 0].astype(np.float64), period_samps, ratio)
             right = self._psola_apply_mono(audio[:, 1].astype(np.float64), period_samps, ratio)
             n = len(audio)
-            stacked = np.column_stack([
-                np.clip(np.nan_to_num(left[:n], nan=0.0), -1.0, 1.0),
-                np.clip(np.nan_to_num(right[:n], nan=0.0), -1.0, 1.0),
-            ])
+            stacked = np.column_stack(
+                [
+                    np.clip(np.nan_to_num(left[:n], nan=0.0), -1.0, 1.0),
+                    np.clip(np.nan_to_num(right[:n], nan=0.0), -1.0, 1.0),
+                ]
+            )
             return stacked.astype(dtype)
 
         y = audio.astype(np.float64)
@@ -986,7 +987,7 @@ class SpeedPitchCorrectionPhase(PhaseInterface):
             if not voiced.any():
                 return None
             f0_safe = np.where(voiced & (f0 > 1.0), f0, 200.0)
-            return np.clip(np.round(sr / np.maximum(f0_safe, 1.0)).astype(int), 20, sr // 50)
+            return np.clip(np.round(sr / np.maximum(f0_safe, 1.0)).astype(int), 20, sr // 50)  # type: ignore[no-any-return]
         except Exception:
             return None
 
@@ -1048,7 +1049,7 @@ class SpeedPitchCorrectionPhase(PhaseInterface):
             frame_idx += 1
 
         safe_w = np.maximum(weight_buf[:n_in], 1e-8)
-        return out_buf[:n_in] / safe_w
+        return out_buf[:n_in] / safe_w  # type: ignore[no-any-return]
 
     def _correct_hybrid(self, audio: np.ndarray, ratio: float, params: dict[str, Any]) -> np.ndarray:
         """
@@ -1059,9 +1060,8 @@ class SpeedPitchCorrectionPhase(PhaseInterface):
         # For small ratios (<10%), use WSOLA (faster, good quality)
         if abs(ratio - 1.0) < 0.10:
             return self._correct_wsola(audio, ratio, params)
-        else:
-            # For larger ratios, use Phase Vocoder (better quality)
-            return self._correct_phase_vocoder(audio, ratio, params)
+        # For larger ratios, use Phase Vocoder (better quality)
+        return self._correct_phase_vocoder(audio, ratio, params)
 
     def _estimate_speed_curve_polyphonic(
         self,
@@ -1203,9 +1203,7 @@ class SpeedPitchCorrectionPhase(PhaseInterface):
             # MAXIMUM mode: §2.12 PolyphonicSpeedCurveEstimator
             # BasicPitch ONNX → confidence-weighted median ≥2 voices → Savitzky-Golay
             if quality_mode == "maximum":
-                poly_pitch, poly_conf, poly_curve, poly_times = self._estimate_speed_curve_polyphonic(
-                    audio, sample_rate
-                )
+                poly_pitch, poly_conf, poly_curve, _ = self._estimate_speed_curve_polyphonic(audio, sample_rate)
                 if poly_pitch > 0.0 and poly_conf >= 0.30:
                     logger.info(
                         "Phase 31 §2.12 PolyphonicSpeedCurveEstimator: pitch=%.2f Hz, conf=%.3f",
@@ -1234,9 +1232,7 @@ class SpeedPitchCorrectionPhase(PhaseInterface):
                 strategy = PitchDetectionStrategy.ADAPTIVE  # pYIN → CREPE wenn nötig
 
             # Create hybrid detector
-            config = SpeedPitchConfig(
-                strategy=strategy, yin_threshold=0.15, confidence_threshold=0.7, averaging_window=2.0
-            )
+            config = SpeedPitchConfig(strategy=strategy, confidence_threshold=0.7, averaging_window=2.0)
 
             detector = HybridSpeedPitch(config)
 
@@ -1244,10 +1240,13 @@ class SpeedPitchCorrectionPhase(PhaseInterface):
             result = detector.detect_global_pitch(audio, sample_rate)
 
             logger.info(
-                f"Phase 31 ML-Hybrid: pitch={result.detected_pitch:.2f} Hz, "
-                f"confidence={result.confidence:.3f}, strategy={result.strategy_used.value}, "
-                f"pYIN={result.pyin_applied}, CREPE={result.crepe_applied}, "
-                f"time={result.processing_time:.2f}s"
+                "Phase 31 ML-Hybrid: pitch=%.2f Hz, confidence=%.3f, strategy=%s, pYIN=%s, CREPE=%s, time=%.2fs",
+                result.detected_pitch,
+                result.confidence,
+                result.strategy_used.value,
+                result.pyin_applied,
+                result.crepe_applied,
+                result.processing_time,
             )
 
             metadata = {
@@ -1271,14 +1270,13 @@ class SpeedPitchCorrectionPhase(PhaseInterface):
             metadata = {"strategy": "pyin_fallback", "pyin_applied": True, "crepe_applied": False, "error": str(e)}
             return pitch, conf, metadata
 
-    def supports_material(self, material_type: str) -> bool:
+    def supports_material(self, _material_type: str) -> bool:
         """All materials supported."""
         return True
 
 
-if __name__ == "__main__":
+def _run_test() -> None:  # pragma: no cover
     """Test Professional Speed/Pitch Correction Phase."""
-
     logger.debug("=" * 80)
     logger.debug("Professional Speed/Pitch Correction Phase v2.0 - Test")
     logger.debug("=" * 80)
@@ -1322,9 +1320,11 @@ if __name__ == "__main__":
         result = phase.process(audio.copy(), material_type=material, reference_pitch=true_pitch)
 
         if result.success and result.modifications["processing"] == "applied":
-            logger.debug("✅ Processing Complete!")
+            logger.debug("Processing Complete!")
             logger.debug(
-                f"   Execution Time: {result.metadata['execution_time_seconds']:.3f}s ({result.metadata['execution_time_seconds'] / duration:.2f}× realtime)"
+                "   Execution Time: %.3fs (%.2f× realtime)",
+                result.metadata["execution_time_seconds"],
+                result.metadata["execution_time_seconds"] / duration,
             )
             logger.debug("   Detected Pitch: %.2f Hz", result.modifications["detected_pitch"])
             logger.debug("   Confidence: %.2f", result.modifications["confidence"])
@@ -1332,16 +1332,22 @@ if __name__ == "__main__":
             logger.debug("   Correction Ratio: %.4f", result.modifications["correction_ratio"])
             logger.debug("   Algorithm: %s", result.metadata["algorithm"])
             logger.debug(
-                f"   Samples: {result.modifications['samples_before']} → {result.modifications['samples_after']}"
+                "   Samples: %s → %s",
+                result.modifications["samples_before"],
+                result.modifications["samples_after"],
             )
         else:
-            logger.debug("⏭️  Processing Skipped")
+            logger.debug("Processing Skipped")
             logger.debug("   Reason: %s", result.modifications.get("reason", "unknown"))
 
     logger.debug("\n%s", "=" * 80)
-    logger.debug("✅ Professional Speed/Pitch Correction v2.0 Test Complete!")
+    logger.debug("Professional Speed/Pitch Correction v2.0 Test Complete!")
     logger.debug("%s", "=" * 80)
     logger.debug("Algorithm: %s", result.metadata["algorithm"])
     logger.debug("Scientific Reference: %s", result.metadata.get("scientific_ref", "N/A"))
     logger.debug("Benchmark: %s", result.metadata.get("benchmark", "N/A"))
     logger.debug("Quality Impact: 0.94 (Professional-Grade)")
+
+
+if __name__ == "__main__":
+    _run_test()

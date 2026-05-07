@@ -19,6 +19,7 @@ Referenz:
 
 from __future__ import annotations
 
+# pylint: disable=import-outside-toplevel,reimported
 import gc
 import importlib
 import logging
@@ -93,15 +94,15 @@ def _get_ml_model() -> object | None:
     weitere Aufruf kehrt sofort zurueck -- kein Retry, kein CUDA-Glob-Timeout
     (Sentinel-Pattern §3.2 copilot-instructions).
     """
-    global _ml_model, _ml_model_failed
+    global _ml_model, _ml_model_failed  # pylint: disable=global-statement
     # Schnellpfad ohne Lock (§3.2 Double-Checked Locking)
     if _ml_model is not None:
-        return _ml_model
+        return _ml_model  # type: ignore[no-any-return]
     if _ml_model_failed:
         return None  # Kein Retry nach erstem Fehlschlag
     with _ml_model_lock:
         if _ml_model is not None:
-            return _ml_model
+            return _ml_model  # type: ignore[no-any-return]
         if _ml_model_failed:
             return None
         if not _MODEL_SAFETENSORS.exists():
@@ -119,7 +120,7 @@ def _get_ml_model() -> object | None:
             if not _try_alloc("AudioSR", _AUDIOSR_BUDGET_GB):
                 try:
                     _release("AudioSR")
-                except Exception:
+                except Exception:  # nosec B110
                     pass
                 if not _try_alloc("AudioSR", _AUDIOSR_BUDGET_GB):
                     return None  # Budget erschöpft → DSP-Fallback
@@ -158,7 +159,7 @@ def _get_ml_model() -> object | None:
                 _reg_plm("AudioSR", size_gb=_AUDIOSR_BUDGET_GB, unload_fn=unload_audiosr)
             except Exception as _exc:
                 logger.debug("Operation failed (non-critical): %s", _exc)
-            return _ml_model
+            return _ml_model  # type: ignore[return-value,no-any-return]
         except Exception as exc:
             _ml_model_failed = True  # Sentinel setzen -- kein Retry (§3.2)
             # Budget-Slot freigeben bei Ladefehler
@@ -207,11 +208,22 @@ def _run_audiosr_ml(audio: np.ndarray, sr: int) -> np.ndarray | None:
         super_resolution = getattr(pipeline_module, "super_resolution", None)
         if super_resolution is None:
             raise ImportError("audiosr.pipeline.super_resolution nicht gefunden")
+        # §audiosr-nowav: make_batch_for_super_resolution direkt importieren um
+        # WAV-Datei-Roundtrip zu vermeiden. Alle AudioSR-Versionen die wir verwenden
+        # unterstützen den waveform-Parameter (Funktion in audiosr/pipeline.py vorhanden).
+        _make_batch_fn = getattr(pipeline_module, "make_batch_for_super_resolution", None)
 
-        # Sicherstellen: float32, 1D oder [samples, ch] fuer soundfile
+        # Sicherstellen: float32, immer samples-first (N, ch) für Zone-Loop
         audio_f32 = np.nan_to_num(audio.astype(np.float32), nan=0.0, posinf=0.0, neginf=0.0)
         if audio_f32.ndim == 2:
-            wav_data = audio_f32.T  # [samples, channels] fuer soundfile  → shape (N, ch)
+            # Shape-adaptive: Phase_06 übergibt (N, 2) nach audio.T, andere Aufrufer ggf. (2, N).
+            # Normalisierung auf samples-first (N, 2):
+            #   shape[0] < shape[1] → channels-first (2, N) → .T erforderlich
+            #   shape[0] > shape[1] → samples-first (N, 2) → kein .T
+            if audio_f32.shape[0] < audio_f32.shape[1]:
+                wav_data = audio_f32.T  # channels-first (2, N) → (N, 2)
+            else:
+                wav_data = audio_f32  # samples-first (N, 2), bereits korrekt
         else:
             wav_data = audio_f32  # shape (N,)
 
@@ -257,21 +269,67 @@ def _run_audiosr_ml(audio: np.ndarray, sr: int) -> np.ndarray | None:
                 break
             zone_wav = wav_data[z_start:z_end]
 
-            tmp_fd, tmp_path = tempfile.mkstemp(suffix=".wav")
-            os.close(tmp_fd)
             z_result_raw = None
-            try:
-                sf.write(tmp_path, zone_wav, sr)
-                z_result_raw = super_resolution(
-                    model,
-                    tmp_path,
-                    seed=42,
-                    ddim_steps=50,  # Desktop-CPU-Budget (Standard 200 zu langsam)
-                    guidance_scale=3.5,
-                )
-            finally:
-                Path(tmp_path).unlink(missing_ok=True)
+            if _make_batch_fn is not None:
+                # §audiosr-nowav: Direkt-Waveform-Pfad — kein WAV-Datei-Roundtrip.
+                # AudioSR erwartet (1, N) mono float32 numpy-Array bei 48000 Hz.
+                # Stereo-Input: Kanal-Mittelung (M/S-äquivalent, verlustlos für HF-Rekonstruktion).
+                import torch as _asr_torch
+
+                _audiosr_utils = importlib.import_module("audiosr.utils")
+                _seed_everything = getattr(_audiosr_utils, "seed_everything", None)
+                if _seed_everything is not None:
+                    _seed_everything(42)
+                # Stereo → Mono (arithmetisches Mittel der Kanäle)
+                if zone_wav.ndim > 1:
+                    zone_mono = np.mean(zone_wav, axis=1, dtype=np.float32)  # (N, ch) → (N,)
+                else:
+                    zone_mono = zone_wav.astype(np.float32)
+                zone_mono_1d = np.ascontiguousarray(zone_mono[np.newaxis, :])  # (1, N)
+                # §2.62 Safety: NaN/Inf im Signal → AudioSR lowpass() schlägt fehl (librosa valid_audio)
+                zone_mono_1d = np.nan_to_num(zone_mono_1d, nan=0.0, posinf=0.0, neginf=0.0)
+                # Zusätzlich: Clip auf [-1.0, 1.0] (Übersteuerung verhindert Instabilität in sosfiltfilt)
+                zone_mono_1d = np.clip(zone_mono_1d, -1.0, 1.0)
+                try:
+                    batch, _asr_duration = _make_batch_fn(input_file=None, waveform=zone_mono_1d)
+                    with _asr_torch.no_grad():
+                        z_result_raw = model.generate_batch(  # type: ignore[attr-defined]
+                            batch,
+                            unconditional_guidance_scale=3.5,
+                            ddim_steps=50,
+                            duration=_asr_duration,
+                        )
+                    logger.debug(
+                        "AudioSR: Zone %d/%d direkt-Waveform-Inferenz (%.1f s)",
+                        z_idx + 1,
+                        n_zones,
+                        zone_mono.shape[0] / max(1, sr),
+                    )
+                except Exception as _direct_exc:
+                    logger.warning("AudioSR direkt-Waveform fehlgeschlagen: %s — Zone Passthrough", _direct_exc)
+                    z_result_raw = None
+            else:
+                # Fallback: WAV-Datei-Pfad (Legacy, falls make_batch_for_super_resolution fehlt)
+                _asr_tmp_dir: str | None = "/tmp" if os.access("/tmp", os.W_OK) else None  # nosec B108
+                tmp_fd, tmp_path = tempfile.mkstemp(suffix=".wav", dir=_asr_tmp_dir)
+                os.close(tmp_fd)
+                try:
+                    sf.write(tmp_path, np.ascontiguousarray(zone_wav), sr)
+                    _wav_bytes = os.path.getsize(tmp_path)
+                    if _wav_bytes < 44:
+                        raise OSError(f"AudioSR WAV zu klein: {_wav_bytes} B")
+                    z_result_raw = super_resolution(model, tmp_path, seed=42, ddim_steps=50, guidance_scale=3.5)
+                finally:
+                    Path(tmp_path).unlink(missing_ok=True)
             del zone_wav  # Freigabe vor GC
+
+            # Passthrough wenn Inferenz fehlgeschlagen (z_result_raw=None)
+            if z_result_raw is None:
+                # Originale Zone unverändert übernehmen (bereits im z_start:z_end Slice)
+                _pass_zone = wav_data[z_start:z_end].astype(np.float32)
+                zone_results.append(np.ascontiguousarray(_pass_zone))
+                del _pass_zone
+                continue
 
             # Tensor -> numpy
             if hasattr(z_result_raw, "detach"):
@@ -305,7 +363,7 @@ def _run_audiosr_ml(audio: np.ndarray, sr: int) -> np.ndarray | None:
                 import ctypes as _ct
 
                 _ct.CDLL("libc.so.6").malloc_trim(0)
-            except Exception:
+            except Exception:  # nosec B110
                 pass
 
         # --- Zonen zusammenfuegen ---
@@ -328,7 +386,7 @@ def _run_audiosr_ml(audio: np.ndarray, sr: int) -> np.ndarray | None:
         try:
             if _plm_asr is not None:
                 _plm_asr.set_active("AudioSR", False)
-        except Exception:
+        except Exception:  # nosec B110
             pass
         return None
 
@@ -340,7 +398,7 @@ def allow_reset_ml_model_failed() -> None:
     Neu: Diese Funktion ermöglicht per-Phase Retry nach transienten Fehlern.
     Verwendung: Hinter-PMGG-Retry in Phase mit AudioSR-Nutzung.
     """
-    global _ml_model_failed
+    global _ml_model_failed  # pylint: disable=global-statement
     with _ml_model_lock:
         if _ml_model_failed:
             logger.debug("AudioSR: Sentinel reset für Wiederholungsversuch")
@@ -353,8 +411,7 @@ def unload_audiosr() -> None:
     Nach dem Entladen fällt jeder nachfolgende Aufruf auf DSP-Fallback zurück.
     Aufruf: direkt nach der letzten AudioSR-Phase in der Pipeline.
     """
-    global _ml_model, _ml_model_failed
-    import gc
+    global _ml_model, _ml_model_failed  # pylint: disable=global-statement
 
     with _ml_model_lock:
         if _ml_model is not None:
@@ -372,7 +429,7 @@ def unload_audiosr() -> None:
 
 def get_audiosr_plugin() -> AudioSRPlugin:
     """Thread-sicherer Singleton."""
-    global _instance
+    global _instance  # pylint: disable=global-statement
     if _instance is None:
         with _lock:
             if _instance is None:
@@ -474,7 +531,7 @@ class AudioSRPlugin:
         result = np.stack(out_ch)  # [channels, samples]
         if mono_in:
             result = result[0]
-        return np.clip(np.nan_to_num(result.astype(np.float32), nan=0.0), -1.0, 1.0)
+        return np.clip(np.nan_to_num(result.astype(np.float32), nan=0.0), -1.0, 1.0)  # type: ignore[no-any-return]
 
     # ------------------------------------------------------------------
     def _hf_extend(self, x: np.ndarray, sr: int) -> np.ndarray:
@@ -538,7 +595,7 @@ class AudioSRPlugin:
             out = out[: len(x)]
         elif len(out) < len(x):
             out = np.pad(out, (0, len(x) - len(out)))
-        return np.clip(np.nan_to_num(out, nan=0.0, posinf=0.0, neginf=0.0), -1.0, 1.0)
+        return np.clip(np.nan_to_num(out, nan=0.0, posinf=0.0, neginf=0.0), -1.0, 1.0)  # type: ignore[no-any-return]
 
     def _spectral_exciter(self, x: np.ndarray, sr: int) -> np.ndarray:
         """Spektraler Exciter via Oberton-Synthese."""
@@ -653,7 +710,7 @@ class AudioSRPlugin:
             from scipy.signal import resample_poly
 
             g = gcd(tgt, src)
-            return resample_poly(x, tgt // g, src // g).astype(np.float32)
+            return resample_poly(x, tgt // g, src // g).astype(np.float32)  # type: ignore[no-any-return]
         except ImportError:
             ratio = tgt / src
             new_n = round(len(x) * ratio)
