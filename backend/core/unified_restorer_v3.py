@@ -14185,7 +14185,7 @@ class UnifiedRestorerV3:
 
             _qc35 = _QC35()
             _qc35_check = getattr(_qc35, "check_non_destructive", None) or getattr(_qc35, "get_warnings", None)
-            if _qc35_check:  # type: ignore[truthy-function]  # pylint: disable=using-constant-test
+            if callable(_qc35_check):
                 _qc35_r = _qc35_check(restored_audio)  # type: ignore[call-arg]  # pylint: disable=no-value-for-parameter
                 _quality_control_result = (
                     _qc35_r if isinstance(_qc35_r, dict) else {"warnings": list(_qc35_r) if _qc35_r else []}
@@ -16719,7 +16719,7 @@ class UnifiedRestorerV3:
         _sub_root_cb = getattr(self, "_active_pipeline_cb_for_sub", None)
         _sub_pct_range = getattr(self, "_active_phase_pct_for_sub", None)
         if _sub_root_cb is not None and _sub_pct_range is not None and "progress_sub_callback" not in kwargs:
-            _sp_s, _sp_e = _sub_pct_range
+            _sp_s, _sp_e = _sub_pct_range  # pylint: disable=unpacking-non-sequence
 
             def _make_sub_progress(_root_cb, _pct_s, _pct_e):
                 # Monotonie-Guard: verhindert Rücksprünge wenn Heartbeat und echte
@@ -17122,7 +17122,7 @@ class UnifiedRestorerV3:
                             _mas_gaps = {
                                 g: float(_song_targets_d.get(g, 0.0)) - float(_post_snap.get(g, 0.0))
                                 for g in UnifiedRestorerV3._P1P2_MAS_GOALS
-                                if g in _song_targets_d and g in _post_snap  # type: ignore[operator]
+                                if g in _song_targets_d and g in _post_snap  # type: ignore[operator]  # pylint: disable=unsupported-membership-test
                             }
                             if _mas_gaps and all(gap <= UnifiedRestorerV3._MAS_TOLERANCE for gap in _mas_gaps.values()):
                                 self._mas_fully_achieved = True
@@ -19093,7 +19093,7 @@ class UnifiedRestorerV3:
                         1 for p in selected_phases if any(p.startswith(cp) for cp in _carrier_prefixes_248)
                     )
 
-                    _interaction_guard.set_pre_pipeline_baseline(
+                    _interaction_guard.set_pre_pipeline_baseline(  # pylint: disable=unexpected-keyword-arg
                         _interaction_guard_state,
                         current_audio,
                         _baseline_goals_248,
