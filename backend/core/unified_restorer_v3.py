@@ -8758,14 +8758,16 @@ class UnifiedRestorerV3:
                         _mdem_mode = "studio2026"
                 except Exception as _mode_exc:
                     logger.debug("MDEM Modus-Erkennung fehlgeschlagen: %s", _mode_exc)
-                restored_audio = _mdem_instance.morph(  # pylint: disable=unexpected-keyword-arg
+                restored_audio = _mdem_instance.morph(
                     restored_audio,
                     original_audio_for_goals,
                     sample_rate,
                     mode=_mdem_mode,
                     phoneme_timeline=_phoneme_timeline,  # §2.36a: stressed-vowel frame headroom
                     frisson_zones=_frisson_zones,  # §Frisson: Gänsehaut-Schutz
-                    material_key=str(getattr(material_type, "value", material_type)).lower() if material_type else None,  # type: ignore[call-arg]
+                    material_key=(  # type: ignore[call-arg]
+                        str(getattr(material_type, "value", material_type)).lower() if material_type else None
+                    ),
                 )
                 restored_audio = np.clip(np.nan_to_num(restored_audio, nan=0.0, posinf=0.0, neginf=0.0), -1.0, 1.0)
                 logger.info("§2.30 MDEM: Mikro-Dynamik-Morphing abgeschlossen (mode=%s)", _mdem_mode)
@@ -8809,14 +8811,16 @@ class UnifiedRestorerV3:
                     _arc_damping = min(0.80, _arc_damping + 0.05)
                 else:
                     _arc_damping = max(0.50, _arc_damping - 0.05)
-                restored_audio, _arc_corrected = correct_emotional_arc(  # pylint: disable=unexpected-keyword-arg
+                restored_audio, _arc_corrected = correct_emotional_arc(
                     original_audio_for_goals,
                     restored_audio,
                     sample_rate,
                     max_gain_db=_arc_max_gain_db,
                     damping=_arc_damping,
                     frisson_zones=_frisson_zones,  # §Frisson: Gänsehaut-Schutz auch in Makro-Korrektur
-                    material_key=str(getattr(material_type, "value", material_type)).lower() if material_type else None,  # type: ignore[call-arg]
+                    material_key=(  # type: ignore[call-arg]
+                        str(getattr(material_type, "value", material_type)).lower() if material_type else None
+                    ),
                 )
                 restored_audio = np.clip(
                     np.nan_to_num(restored_audio, nan=0.0, posinf=0.0, neginf=0.0),
@@ -8842,7 +8846,7 @@ class UnifiedRestorerV3:
         # This guard compares against original_audio_for_goals (true pre-pipeline reference)
         # and therefore sees accumulated explosions that individual phase guards missed.
         try:
-            _pwg_mat_key = str(_gp_material_key or "").lower().split("_")[0]
+            _pwg_mat_key = str(_gp_material_key or "").lower().split("_", maxsplit=1)[0]
             _pwg_qdbfs = float(
                 {
                     "shellac": -37.0,
@@ -8929,7 +8933,7 @@ class UnifiedRestorerV3:
             from backend.core.emotional_arc_preservation import apply_waveform_plausibility_guard as _wpg_fn
 
             _wpg_mode = str(getattr(getattr(self.config, "mode", None), "value", "restoration")).lower()
-            _wpg_mat = str(_gp_material_key or "unknown").lower().split("_")[0]  # "vinyl_heavy" → "vinyl"
+            _wpg_mat = str(_gp_material_key or "unknown").lower().split("_", maxsplit=1)[0]  # "vinyl_heavy" → "vinyl"
             _wpg_out, _wpg_meta = _wpg_fn(
                 original_audio_for_goals,
                 restored_audio,

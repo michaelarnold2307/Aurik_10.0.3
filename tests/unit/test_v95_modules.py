@@ -80,7 +80,7 @@ SR = 48000
 def mono_audio() -> np.ndarray:
     """Kurzes Mono-Testsignal (0.5 s) — einmal pro Modul erzeugt."""
     t = np.linspace(0, 0.5, int(SR * 0.5), endpoint=False, dtype=np.float32)
-    return 0.5 * np.sin(2 * np.pi * 440 * t)
+    return 0.5 * np.sin(2 * np.pi * 440 * t)  # type: ignore[no-any-return]
 
 
 @pytest.fixture(scope="module")
@@ -196,7 +196,7 @@ class TestFeedbackChain:
     @pytest.mark.parametrize(
         "key",
         [
-            "sisnr_db",
+            "spectral_corr",
             "spectral_flatness",
             "snr_db",
             "transient_score",
@@ -209,8 +209,8 @@ class TestFeedbackChain:
     def test_combined_score_in_range(self, perceptual_scores):
         assert 0.0 <= perceptual_scores["combined"] <= 1.0
 
-    def test_identical_signals_high_sisnr(self, perceptual_scores):
-        assert perceptual_scores["sisnr_db"] > 10.0
+    def test_identical_signals_perfect_spectral_corr(self, perceptual_scores):
+        assert perceptual_scores["spectral_corr"] > 0.99
 
     def test_noisy_lower_than_clean(self, mono_audio):
         noisy = mono_audio + np.random.default_rng(42).normal(0, 0.2, mono_audio.shape).astype(np.float32)
@@ -323,7 +323,7 @@ _RESTORE_MEDIUMS = {
 class TestMaterialRestorationNets:
     @pytest.mark.parametrize("name", list(_RESTORE_FUNCS))
     def test_direct_func_shape(self, mono_audio, name):
-        result = _RESTORE_FUNCS[name](mono_audio, SR)
+        result = _RESTORE_FUNCS[name](mono_audio, SR)  # type: ignore[operator]
         assert isinstance(result, RestorationResult)
         assert result.audio.shape == mono_audio.shape
 
@@ -461,7 +461,7 @@ _N = _SR // 4  # 0.25 s — schnell, aber genug für STFT
 def _sine_signal(freq: float = 440.0, n: int = _N, sr: int = _SR) -> np.ndarray:
     """Deterministisches Sinus-Testsignal."""
     t = np.arange(n) / sr
-    return (0.5 * np.sin(2 * np.pi * freq * t)).astype(np.float32)
+    return (0.5 * np.sin(2 * np.pi * freq * t)).astype(np.float32)  # type: ignore[no-any-return]
 
 
 def _stereo_signal(n: int = _N, sr: int = _SR) -> np.ndarray:
@@ -1463,5 +1463,5 @@ class TestPhase55DiffWaveBridgeIntegration:
         audio = np.random.default_rng(0).uniform(-0.5, 0.5, sr).astype(np.float32)
         audio[1000:1500] = 0.0
         result = phase.process(audio, sample_rate=sr)
-        out_audio = result.audio if hasattr(result, "audio") else result[0]
+        out_audio = result.audio  # PhaseResult always has .audio
         assert not np.any(np.isnan(out_audio))
