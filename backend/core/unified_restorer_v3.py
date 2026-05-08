@@ -685,7 +685,7 @@ class UnifiedRestorerV3:
         self._active_intervention_log: list = []
         self._pmgg_log_entries: list = []
         self._active_pipeline_cb_for_sub: object = None
-        self._active_phase_pct_for_sub: float = 0.0
+        self._active_phase_pct_for_sub: tuple[float, float] | None = None
         self._conductor_strength_hints: dict = {}
         self._team_coordination_events: list = []
         self._pipeline_ml_guard_events: list = []
@@ -2132,7 +2132,7 @@ class UnifiedRestorerV3:
         try:
             from backend.core.carrier_transfer_characteristics import (
                 get_bw_ceiling_hz,
-                get_chain_bw_ceiling_hz,
+                get_chain_bw_ceiling_hz,  # type: ignore[attr-defined]
             )
 
             _bw_mat_key = material_type.value if hasattr(material_type, "value") else str(material_type)
@@ -14185,7 +14185,7 @@ class UnifiedRestorerV3:
 
             _qc35 = _QC35()
             _qc35_check = getattr(_qc35, "check_non_destructive", None) or getattr(_qc35, "get_warnings", None)
-            if _qc35_check:  # type: ignore[truthy-function]
+            if _qc35_check:  # type: ignore[truthy-function]  # pylint: disable=using-constant-test
                 _qc35_r = _qc35_check(restored_audio)  # type: ignore[call-arg]  # pylint: disable=no-value-for-parameter
                 _quality_control_result = (
                     _qc35_r if isinstance(_qc35_r, dict) else {"warnings": list(_qc35_r) if _qc35_r else []}
@@ -17122,7 +17122,7 @@ class UnifiedRestorerV3:
                             _mas_gaps = {
                                 g: float(_song_targets_d.get(g, 0.0)) - float(_post_snap.get(g, 0.0))
                                 for g in UnifiedRestorerV3._P1P2_MAS_GOALS
-                                if g in _song_targets_d and g in _post_snap
+                                if g in _song_targets_d and g in _post_snap  # type: ignore[operator]
                             }
                             if _mas_gaps and all(gap <= UnifiedRestorerV3._MAS_TOLERANCE for gap in _mas_gaps.values()):
                                 self._mas_fully_achieved = True
