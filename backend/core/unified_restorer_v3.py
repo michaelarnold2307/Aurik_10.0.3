@@ -669,15 +669,33 @@ class UnifiedRestorerV3:
         self._last_restorability_score: float = 50.0
         self._song_goal_importance: object = None
         self._song_goal_weights: dict = {}
-        self._song_goal_targets: object = None
-        self._pmgg_ceiling_capped_targets: dict | None = None
+        self._song_goal_targets: dict | None = None  # annotated dict[str,float]|None at first use
+        self._pmgg_ceiling_capped_targets: dict[str, float] | None = None
         self._last_material_priority_phases: tuple = ()
         self._source_material_baseline: object = None
         self._vintage_phase_strength_caps: dict = {}
         self._material_phase_initial_strengths: dict = {}
-        self._recovery_ctx: dict = {}
+        self._recovery_ctx: dict[str, Any] = {}
         self._iad_artifact_fraction_penalty: float = 1.0
         self._artifact_freedom_score: float = 1.0
+        # Additional per-restore() attrs (avoid Pyright 'defined outside __init__')
+        self._detected_vocal_gender: str | None = None
+        self._phase_plan_intelligence: object = None
+        self._phase_regression_log: list = []
+        self._active_intervention_log: list = []
+        self._pmgg_log_entries: list = []
+        self._active_pipeline_cb_for_sub: object = None
+        self._active_phase_pct_for_sub: float = 0.0
+        self._conductor_strength_hints: dict = {}
+        self._team_coordination_events: list = []
+        self._pipeline_ml_guard_events: list = []
+        self._ml_fallbacks_used: dict = {}
+        self._interaction_guard_metadata: dict = {}
+        self._artifact_freedom_detail: dict = {}
+        self._hpi_best_rollback_audio: object = None
+        self._carrier_chain_recovery_ratio: float = 0.0
+        self._best_carrier_checkpoint: object = None
+        self._last_carrier_phase_id: str | None = None
 
         # PhaseSkipper (optional, beschleunigt Pipeline um 20–40 %)
         if self.config.enable_phase_skipping:
@@ -5764,7 +5782,7 @@ class UnifiedRestorerV3:
         # und Bandbreiten-basierten Goal-Obergrenzen zu ermitteln. Combined mit SGT ergibt
         # min(SGT, ceiling) pro Goal — verhindert, dass PMGG Ziele fordert die physikalisch
         # unerreichbar sind (z.B. brillanz > 0.75 für Shellac-8kHz-Signal).
-        self._pmgg_ceiling_capped_targets: dict[str, float] | None = None
+        self._pmgg_ceiling_capped_targets = None
         try:
             if isinstance(getattr(self, "_song_goal_targets", None), dict) and self._song_goal_targets:
                 from backend.core.physical_ceiling_estimator import PhysicalCeilingEstimator as _EarlyPCE
@@ -6343,7 +6361,7 @@ class UnifiedRestorerV3:
         # §2.39 OOM-Recovery: Kontext für Checkpoint-Speicherung bei MemoryError bereitstellen.
         # _execute_pipeline hat keinen Zugriff auf input_path/output_path/mode — daher hier cachen.
         _mode_str = self.config.mode.value if hasattr(self.config.mode, "value") else str(self.config.mode)
-        self._recovery_ctx: dict[str, Any] = {
+        self._recovery_ctx = {
             "input_path": kwargs.get("input_path", "") or kwargs.get("file_path", ""),
             "output_path": kwargs.get("output_path", ""),
             "mode": _mode_str,
@@ -8747,7 +8765,7 @@ class UnifiedRestorerV3:
                     mode=_mdem_mode,
                     phoneme_timeline=_phoneme_timeline,  # §2.36a: stressed-vowel frame headroom
                     frisson_zones=_frisson_zones,  # §Frisson: Gänsehaut-Schutz
-                    material_key=str(getattr(material_type, "value", material_type)).lower() if material_type else None,
+                    material_key=str(getattr(material_type, "value", material_type)).lower() if material_type else None,  # type: ignore[call-arg]  # pylint: disable=unexpected-keyword-arg
                 )
                 restored_audio = np.clip(np.nan_to_num(restored_audio, nan=0.0, posinf=0.0, neginf=0.0), -1.0, 1.0)
                 logger.info("§2.30 MDEM: Mikro-Dynamik-Morphing abgeschlossen (mode=%s)", _mdem_mode)
@@ -8798,7 +8816,7 @@ class UnifiedRestorerV3:
                     max_gain_db=_arc_max_gain_db,
                     damping=_arc_damping,
                     frisson_zones=_frisson_zones,  # §Frisson: Gänsehaut-Schutz auch in Makro-Korrektur
-                    material_key=str(getattr(material_type, "value", material_type)).lower() if material_type else None,
+                    material_key=str(getattr(material_type, "value", material_type)).lower() if material_type else None,  # type: ignore[call-arg]  # pylint: disable=unexpected-keyword-arg
                 )
                 restored_audio = np.clip(
                     np.nan_to_num(restored_audio, nan=0.0, posinf=0.0, neginf=0.0),
@@ -12574,7 +12592,7 @@ class UnifiedRestorerV3:
             _ech36 = _ECH36h()
             _ech_cap = 10 * sample_rate
             _ech_audio = restored_audio[:_ech_cap] if restored_audio.shape[-1] > _ech_cap else restored_audio
-            _eca36 = _ech36.assess_edge_cases(_ech_audio, sample_rate)  # type: ignore[call-arg]
+            _eca36 = _ech36.assess_edge_cases(_ech_audio, sample_rate)  # type: ignore[call-arg]  # pylint: disable=no-value-for-parameter
             _edge_case_result = _eca36.as_dict() if hasattr(_eca36, "as_dict") else {"severity": str(_eca36)}
             logger.debug("⚠️ EdgeCaseHandler: %s", _edge_case_result)
             return _edge_case_result
@@ -12590,15 +12608,15 @@ class UnifiedRestorerV3:
             _ge36 = _GE36i()
             _start_tracking = getattr(_ge36, "start_tracking", None)
             if callable(_start_tracking):
-                _start_tracking()  # type: ignore[call-arg]
+                _start_tracking()  # type: ignore[call-arg]  # pylint: disable=no-value-for-parameter
             _explain_simple = getattr(_ge36, "explain_simple", None)
             if not callable(_explain_simple):
                 logger.debug("GoalExplainer übersprungen: explain_simple nicht verfügbar")
                 return None
             try:
-                _ge36_exp = _explain_simple(_musical_goal_scores if _musical_goal_scores else {})  # type: ignore[call-arg]
+                _ge36_exp = _explain_simple(_musical_goal_scores if _musical_goal_scores else {})  # type: ignore[call-arg]  # pylint: disable=no-value-for-parameter
             except TypeError:
-                _ge36_exp = _explain_simple()  # type: ignore[call-arg]
+                _ge36_exp = _explain_simple()  # type: ignore[call-arg]  # pylint: disable=no-value-for-parameter
             _stop_tracking = getattr(_ge36, "stop_tracking", None)
             if callable(_stop_tracking):
                 _stop_tracking()
@@ -14076,7 +14094,7 @@ class UnifiedRestorerV3:
             )
             _lm35 = _LM35(goals=_lm35_goals)
             _lm35_snap = getattr(_lm35, "snapshot", None) or getattr(_lm35, "get_current", None)
-            _lm35_raw: Any = _lm35_snap() if callable(_lm35_snap) else {"goals": _lm35_goals}  # type: ignore[operator]
+            _lm35_raw: Any = _lm35_snap() if callable(_lm35_snap) else {"goals": _lm35_goals}  # type: ignore
             _live_monitor_result = _lm35_raw if isinstance(_lm35_raw, dict) else {"goals": _lm35_goals}
             logger.debug("📡 LiveMonitor: %d goals überwacht", len(_lm35_goals))
         except Exception as _lm_exc:
@@ -14089,7 +14107,7 @@ class UnifiedRestorerV3:
 
             _gmon35 = _GMon35()
             _gmon35_status = getattr(_gmon35, "get_status", None) or getattr(_gmon35, "status", None)
-            _gmon35_raw: Any = _gmon35_status() if callable(_gmon35_status) else {"active": True}  # type: ignore[operator]
+            _gmon35_raw: Any = _gmon35_status() if callable(_gmon35_status) else {"active": True}  # type: ignore
             _goals_monitor_result = _gmon35_raw if isinstance(_gmon35_raw, dict) else {"active": True}
             logger.debug("📈 MusicalGoalsMonitor: aktiv")
         except Exception as _gmon_exc:
@@ -14149,7 +14167,7 @@ class UnifiedRestorerV3:
             _sm35_sess = _sm35.create_session(
                 f"restore_{material_type.value if hasattr(material_type, 'value') else 'unknown'}"
             )
-            _session_result = (
+            _session_result = (  # type: ignore[misc]  # pylint: disable=using-constant-test
                 {
                     "session_id": str(_sm35_sess.session_id if hasattr(_sm35_sess, "session_id") else _sm35_sess),
                 }
@@ -14168,7 +14186,7 @@ class UnifiedRestorerV3:
             _qc35 = _QC35()
             _qc35_check = getattr(_qc35, "check_non_destructive", None) or getattr(_qc35, "get_warnings", None)
             if _qc35_check:  # type: ignore[truthy-function]
-                _qc35_r = _qc35_check(restored_audio)  # type: ignore[call-arg]
+                _qc35_r = _qc35_check(restored_audio)  # type: ignore[call-arg]  # pylint: disable=no-value-for-parameter
                 _quality_control_result = (
                     _qc35_r if isinstance(_qc35_r, dict) else {"warnings": list(_qc35_r) if _qc35_r else []}
                 )
@@ -17100,10 +17118,11 @@ class UnifiedRestorerV3:
                     if not getattr(self, "_mas_fully_achieved", False):
                         _song_targets = getattr(self, "_song_goal_targets", None)
                         if isinstance(_song_targets, dict) and _song_targets and _post_snap:
+                            _song_targets_d: dict[str, float] = _song_targets
                             _mas_gaps = {
-                                g: float(_song_targets.get(g, 0.0)) - float(_post_snap.get(g, 0.0))
+                                g: float(_song_targets_d.get(g, 0.0)) - float(_post_snap.get(g, 0.0))
                                 for g in UnifiedRestorerV3._P1P2_MAS_GOALS
-                                if g in _song_targets and g in _post_snap
+                                if g in _song_targets_d and g in _post_snap
                             }
                             if _mas_gaps and all(gap <= UnifiedRestorerV3._MAS_TOLERANCE for gap in _mas_gaps.values()):
                                 self._mas_fully_achieved = True
