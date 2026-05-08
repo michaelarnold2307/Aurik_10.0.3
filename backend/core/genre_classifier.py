@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 import numpy as np
 
 logger = logging.getLogger(__name__)
+# pylint: disable=import-outside-toplevel
 
 
 @dataclass
@@ -521,7 +522,10 @@ class GermanSchlagerClassifier:
                             continue
                         sos_s = butter(4, [lo_s, hi_s], btype="band", output="sos")
                         filt_s = sosfilt(sos_s, mono)
-                        env_s = np.abs(hilbert(np.asarray(filt_s, dtype=np.float64)))[::hop].astype(np.float32)  # type: ignore[arg-type]
+                        _filt_s64 = np.asarray(filt_s, dtype=np.float64)
+                        env_s = np.abs(hilbert(_filt_s64))[::hop].astype(  # type: ignore[arg-type]
+                            np.float32
+                        )
                         env_s = np.nan_to_num(env_s)
                         if len(env_s) < 10:
                             continue
@@ -664,8 +668,6 @@ class GermanSchlagerClassifier:
         Nur als Tie-Breaker: max. ±0.08 Einfluss auf Gesamt-Score.
         """
         try:
-            pass
-
             if len(audio) < sr // 2:
                 return 0.5  # neutral
 
@@ -1380,7 +1382,7 @@ class GermanSchlagerClassifier:
         self,
         centroid_hz: float,
         onset_rate: float,
-        hsi: float,
+        _hsi: float,
         dr_db: float,
         bpm: float,
     ) -> float:
@@ -1943,7 +1945,7 @@ class GermanSchlagerClassifier:
         except Exception:
             return "Unbekannt"
 
-    def _determine_genre_label(self, subgenre: str, bpm: float, lang_de_score: float = 0.5) -> str:
+    def _determine_genre_label(self, subgenre: str, _bpm: float, lang_de_score: float = 0.5) -> str:
         """Bestimmt das Genre-Label aus Subgenre, BPM und Sprachscore.
 
         lang_de_score >= 0.55 → Deutscher Schlager (eindeutig deutschsprachig).
@@ -1968,11 +1970,11 @@ class GermanSchlagerClassifier:
         self,
         is_schlager: bool,
         confidence: float,
-        clap: float,
+        _clap: float,  # pylint: disable=unused-argument
         accordion: float,
         hsi: float,
         rhythm: float,
-        vocal: float,
+        _vocal: float,
         melodic: float,
         n_active: int,
         subgenre: str,
@@ -2005,7 +2007,8 @@ SCHLAGER_RESTORATION_PROFILE: dict = {
     "clipping_repair_threshold_db": -3.5,  # Konservativer als Standard (−2.0)
     # TonalCenterMetric verschärft (kein Tonart-Shift bei Schlager)
     "tonal_center_threshold": 0.97,  # Statt Standard 0.95
-    # Harmonischer Exciter deaktiviert (Schlager-Timbres sind original genug)
+    # Harmonischer Exciter: im Restoration-Modus UNIVERSAL verboten (§0a, UV3 _restoration_forbidden_stem_enhancement).
+    # Dieser Flag ist dokumentarisch — die Durchsetzung erfolgt in UV3, nicht hier.
     "phase_21_exciter_enabled": False,
     # Groove-Erhalt kritisch (Schunkelrhythmus darf nicht begradigt werden)
     "groove_dtw_max_ms": 5.0,  # Strenger als Standard 8.0 ms
@@ -2291,7 +2294,7 @@ _lock = threading.Lock()
 
 def get_genre_classifier() -> GermanSchlagerClassifier:
     """Thread-sicherer Singleton-Accessor (Double-Checked Locking)."""
-    global _instance
+    global _instance  # pylint: disable=global-statement
     if _instance is None:
         with _lock:
             if _instance is None:
