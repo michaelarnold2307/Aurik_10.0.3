@@ -14094,7 +14094,7 @@ class UnifiedRestorerV3:
             )
             _lm35 = _LM35(goals=_lm35_goals)
             _lm35_snap = getattr(_lm35, "snapshot", None) or getattr(_lm35, "get_current", None)
-            _lm35_raw: Any = _lm35_snap() if callable(_lm35_snap) else {"goals": _lm35_goals}  # type: ignore
+            _lm35_raw: Any = _lm35_snap() if callable(_lm35_snap) else {"goals": _lm35_goals}  # type: ignore  # pylint: disable=not-callable
             _live_monitor_result = _lm35_raw if isinstance(_lm35_raw, dict) else {"goals": _lm35_goals}
             logger.debug("📡 LiveMonitor: %d goals überwacht", len(_lm35_goals))
         except Exception as _lm_exc:
@@ -14107,7 +14107,7 @@ class UnifiedRestorerV3:
 
             _gmon35 = _GMon35()
             _gmon35_status = getattr(_gmon35, "get_status", None) or getattr(_gmon35, "status", None)
-            _gmon35_raw: Any = _gmon35_status() if callable(_gmon35_status) else {"active": True}  # type: ignore
+            _gmon35_raw: Any = _gmon35_status() if callable(_gmon35_status) else {"active": True}  # type: ignore  # pylint: disable=not-callable
             _goals_monitor_result = _gmon35_raw if isinstance(_gmon35_raw, dict) else {"active": True}
             logger.debug("📈 MusicalGoalsMonitor: aktiv")
         except Exception as _gmon_exc:
