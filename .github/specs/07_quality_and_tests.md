@@ -577,6 +577,123 @@ Wenn alle Stellen gleich laut klingen, ist die Spannungs-Mechanik zerstört und 
 
 ---
 
+## §8.1.3 [RELEASE_MUST] FAD (Fréchet Audio Distance) — Weltklasse-Indikator (v9.12.0)
+
+**Motivation**: OQS und AMRB messen Ähnlichkeit zum Original. FAD misst **Verteilungsähnlichkeit zum Studio-Audio-Referenzset** — d.h. ob restauriertes Audio klingt wie professionelles Studio-Material, unabhängig vom konkreten Original.
+
+**FAD-Schwellwerte** (ergänzend zu AMRB):
+
+| Material/Modus | FAD-Ziel | FAD-Mindest (CI-Gate) |
+| --- | --- | --- |
+| Shellac → Restoration | ≤ 18.0 (physikalisches Limit) | ≤ 25.0 |
+| Vinyl → Restoration | ≤ 8.0 | ≤ 12.0 |
+| Tape → Restoration | ≤ 6.0 | ≤ 10.0 |
+| Digital → Restoration | ≤ 3.0 | ≤ 5.0 |
+| Studio 2026 (alle) | ≤ 2.0 | ≤ 4.0 |
+
+**FAD < 5.0** ist der allgemeine Weltklasse-Indikator für moderne Studio-Klangqualität.
+
+**Referenzset**: `benchmarks/fad_reference_set/` — 50 professionelle Studioaufnahmen (2010–2023, gemischt Genre/Ära). Referenzset darf nie durch restauriertes Audio befüllt werden.
+
+**Messung**:
+
+```python
+# benchmarks/fad_evaluator.py
+from frechet_audio_distance import FrechetAudioDistance
+fad = FrechetAudioDistance(model_name="vggish", sample_rate=16000)
+score = fad.score("benchmarks/fad_reference_set/", "output/test_batch/")
+```
+
+**CI-Gate**: `tests/normative/test_fad_gate.py` — läuft nur mit `--run-heavy-tests`. Nicht im täglichen CI.
+
+---
+
+## §8.1.4 [RELEASE_MUST] VERSA-Konfidenz-Modell (v9.12.0)
+
+**Problem**: VERSA liefert für stark degradiertes Material (SNR < 10 dB, Shellac) unzuverlässige MOS-Werte, weil es auf modernen Daten trainiert wurde. Ein niedriger VERSA-Score auf Shellac bedeutet vielleicht nur „unbekannter Klangtyp", nicht „schlechte Qualität".
+
+**VERSA-Konfidenz-Formel**:
+
+```python
+def compute_versa_confidence(snr_estimate_db: float, material_type: str) -> float:
+    """
+    Gibt confidence [0, 1] zurück.
+    Hohe Konfidenz: VERSA-Score vertrauenswürdig.
+    Niedrige Konfidenz: VERSA+MERT blenden, MERT mehr Gewicht.
+    """
+    base_confidence = {
+        "cd_digital": 0.95, "dat": 0.90, "minidisc": 0.85,
+        "mp3_high": 0.87, "mp3_low": 0.80,
+        "vinyl": 0.72, "reel_tape": 0.70, "tape": 0.68,
+        "shellac": 0.45, "wax_cylinder": 0.30,
+    }.get(material_type, 0.65)
+    # SNR-Malus
+    snr_malus = max(0.0, (15.0 - snr_estimate_db) / 50.0)
+    return max(0.10, base_confidence - snr_malus)
+```
+
+**Anwendung in HPI-Berechnung (§2.44)**:
+
+```python
+versa_confidence = compute_versa_confidence(snr_estimate_db, material_type)
+mert_weight = 1.0 - versa_confidence  # mehr MERT bei niedrigem VERSA-Vertrauen
+mos_composite = versa_score * versa_confidence + mert_score * mert_weight
+```
+
+**Protokollierung**: `metadata["versa_confidence"]`, `metadata["mos_blend_weights"]`.
+
+---
+
+## §8.1.5 [TARGET_2026] Hörertest-Protokoll (ITU-R BS.1534-3 MUSHRA)
+
+**Status**: Noch nicht durchgeführt (kein echtes Panel). Protokoll normativ definiert für zukünftige externe Validierung.
+
+**Protokoll**:
+
+1. **Material**: 10 Songs (2 pro Ära: 1920er Shellac, 1940er Vinyl, 1960er Tape, 1980er Kassette, 2000er MP3-low)
+2. **Teilnehmer**: ≥ 15 ausgebildete Hörer (Tonstudium oder ≥ 5 Jahre professionelle Hörerfahrung)
+3. **Methode**: MUSHRA — verstecktes Referenz-Anker-Design
+   - Referenz: bekanntes Studio-Master (verborgen)
+   - Anchor: 3.5 kHz Lowpass (ITU-R BS.1534-3 Standard)
+   - Kandidaten: Aurik Restoration, Aurik Studio 2026, iZotope RX 11, Manual Restoration
+4. **Skala**: 0–100 (100 = nicht unterscheidbar von Referenz)
+5. **Mindest-Score für Weltklasse-Anspruch**: Ø ≥ 80 MUSHRA über alle Materialien
+6. **Protokoll-Datei**: `docs/mushra_protocol.pdf` (nach Durchführung)
+
+**Bis zur Durchführung**: Algorithmischer OQS-Score (§8.1.1) als Proxy — klar als solcher ausgewiesen.
+
+---
+
+## §8.1.6 [RELEASE_MUST] AMRB-Regressions-Benchmark — Historisches Score-Tracking (v9.12.0)
+
+**Problem**: Es gibt keinen strukturierten Nachweis, dass Aurik über Versionen besser wird und nicht schlechter. Einzelne Fixes könnten andere Metriken verschlechtern.
+
+**Pflicht-Tracking-Datei** (`benchmarks/amrb_history.json`):
+
+```json
+{
+  "format_version": 1,
+  "entries": [
+    {
+      "version": "9.12.0",
+      "date": "2026-05-01",
+      "amrb_scores": {
+        "AMRB-01-VINYL": {"oqs": 82.3, "p1_floor_met": true},
+        "AMRB-02-TAPE":  {"oqs": 79.1, "p1_floor_met": true},
+        "AMRB-03-SHELLAC": {"oqs": 63.4, "p1_floor_met": true}
+      },
+      "notes": "VocalQualityIndex + SongStructureAnalyzer eingeführt"
+    }
+  ]
+}
+```
+
+**CI-Invariante**: Beim Release einer neuen Hauptversion (9.x.0) MUSS `benchmarks/amrb_history.json` aktualisiert werden. Wenn ein neuer Eintrag AMRB-Score verschlechtert (OQS-Delta < −2.0 vs. Vorgänger-Version), ist das ein Release-Blocker.
+
+**Automatisierung**: `benchmarks/update_amrb_history.py` — liest aktuellen Score aus AMRB-Testlauf und schreibt neuen Eintrag.
+
+---
+
 ## §5 Test-Standards
 
 ### §5.4 [RELEASE_MUST] ML-Headroom-Guard + KMV-Rueckgewinnung
@@ -977,6 +1094,9 @@ Fixtures mit `(2,N)` UND `(N,2)` testen — viele Bugs nur bei einer Orientierun
 | `test_stability_invariants.py` | 9 Stabilitäts-Punkte |
 | `test_lyrics_guided_enhancement_gate.py` | §2.36 aktiv + Modellpfade |
 | `test_external_mushra_artifact_contract.py` | Mini-MUSHRA Artefakt |
+| `tests/normative/test_spec_consistency.py` | Spec-Code-Sync: CAUSE_TO_PHASES ↔ CAUSES, §0a-Purity, V12-Bidirektional, Spec 06 vs. Code |
+| `tests/normative/test_section_0a_restoration_guard.py` | §0a Crossfire-Invariante — verbotene Phasen niemals in Restoration-Pipeline |
+| `tests/normative/test_mas_convergence.py` | §0k/§2.64/§2.65 MAS-Invarianten — Targets ≥ Floor, PHYSICAL_CEILING, Delta-Rollback-Schwelle, Early-Stop-Logik |
 
 ### OQS — Berechnung & Stufen
 

@@ -67,6 +67,26 @@
 3. **Energy-Bias-Pflicht**: Alle ML-Denoise-Modelle verwenden `energy_bias` (DeepFilterNet: −6 dB für Gesang, −9 dB für Instrumental) — verhindert, dass Harmonik als Rauschen weggedrückt wird.
 4. **ML-Fallback-Kaskade Pflicht**: Jedes ML-Plugin hat eine DSP-Fallback-Kette (Spec 04 §4.4). OOM, Timeout oder schlechter MUSHRA → automatischer Fallback, kein Crash.
 
+### §0k [RELEASE_MUST] Maximum-Achievable-Score-Prinzip (v9.12.1)
+
+**Jeder Importsong wird bis zum physikalisch erreichbaren Maximum restauriert — weder mehr noch weniger.** Das Maximum (`MAS`) ist song-spezifisch und ergibt sich aus Material × Ära × Genre × Restorability. Kanonische Schwellwerte (`CANONICAL_THRESHOLDS`) sind Mindestböden — das Ziel ist das song-spezifische Maximum.
+
+**MAS-Quelle (Pflicht)**: `SongGoalTargets.targets` aus `estimate_song_goal_targets(era, genre, material, restorability)` (`backend/core/studio_goal_targets.py`) — **primäres Optimierungsziel der gesamten Pipeline**, nicht nur Stopp-Signal für PhaseConductor.
+
+**Per-Phase-Pflicht-Messung (§2.64)**: Vor und nach jeder Phase: `_fast_goal_snapshot()` (DSP-Proxy, ≤ 200 ms, kein ML-Aufruf). Der Delta `post − pre` pro Goal entscheidet:
+1. **Delta P1/P2 < −0.03 ohne Restorative-Evidenz** → Phase-Rollback
+2. **Alle P1/P2 innerhalb `MAS_TOLERANCE=0.02` von MAS** → `_mas_fully_achieved=True` → Pipeline-Stop
+3. **Goal > MAS + `MAS_OVERSHOOT_TOLERANCE=0.03`** → Strength-Clamp auf MAS-konformen Blend
+
+**Drei Export-Konvergenzbedingungen** (alle müssen beim Export geprüft werden):
+- `all(mas_gap[g] ≤ 0.02 for g in P1P2_GOALS)` → volle MAS-Erreichung
+- `artifact_freedom ≥ 0.95` → unveränderlich Pflicht (§0h Veto-Faktor)
+- `metadata["mas_achieved_at_phase"]` gesetzt → Early-Stop-Protokoll aktiv
+- **Vierte Bedingung für Gesangsmaterial** (`panns_singing_confidence ≥ 0.35`): `metadata["vqi"] ≥ 0.72` → VQI-Gate bestanden (§2.35c); kein Veto, aber VQI-Fail löst Recovery-Kaskade aus
+
+**VERBOTEN**: Pipeline bis Phase 64 durchlaufen wenn `_mas_fully_achieved=True` bereits früher gesetzt; Phase ohne Pre/Post-Delta-Log in `metadata["phase_deltas"]`.
+
+> Implementierung: UV3 `_fast_goal_snapshot()` + `_check_mas_convergence()`; Spec 02 §2.64/§2.65; Spec 09 §09.11
 
 ### §0a Modus-Differenzierung
 
@@ -154,14 +174,14 @@ punktuell (Einzelfall) oder systemisch (Muster über mehrere Stellen) ist — un
 | Spec | Inhalt | Konsolidierte Praxis-Abschnitte |
 |---|---|---|
 | **01** Goals/PMGG | 14 Musical Goals, Schwellwerte, GoalApplicability | §1.3 Metric Recalibration & Debugging |
-| **02** Pipeline/§2.x | UV3, Denker, SongCal, KMV, FeedbackChain | §2.2c Denker-Orchestrierung & Hänger-Patterns |
+| **02** Pipeline/§2.x | UV3, Denker, SongCal, KMV, FeedbackChain | §2.2c Denker-Orchestrierung & Hänger-Patterns; §2.64 Per-Phase-Score-Delta-Loop; §2.65 MAS-Convergence-Early-Stop |
 | **03** Module/§3.x | Kognitive Module §2.1–§2.43 | — |
 | **04** DSP/SOTA | Algorithmen, SOTA-Matrix, Psychoakustik | §4.6a ML-Plugin-Workflow & ONNX-Chunking, §4.6b Material×Defect-Entscheidungsbaum |
 | **05** Material/Defekte | 15 Materialtypen, 46 DefectTypes | — |
 | **06** Phasen 01–64 | Phase-Liste, CAUSE_TO_PHASES | §7.3a Phase-Implementierung, Caching & Checkliste |
 | **07** Tests/Qualität | PQS, AMRB, OQS, MUSHRA | §8.4a Test-Patterns, 6 Pitfalls & CI-Gates |
 | **08** Architektur/Distribution | Layers, Plugins, CLI, AppImage | §11.4c UI-State-Machines & Thread-Safety, §11.5a Mermaid-Visualisierung |
-| **09** Kalibrierungsmatrix | CANONICAL_THRESHOLDS (Restoration + Studio 2026), Material-/Ära-/Genre-Bias, SongGoalTargets-API | §09.2 Zwei-Ebenen-API (Pipeline vs. Convenience) — **normativ übergeordnet für alle Schwellwerte**; material-adaptive Böden: Shellac ~0.72, Vinyl ~0.82, CD ~0.90 (bewusst verschieden — sonst werden Shellac-Restaurierungen als permanenter Fail markiert) |
+| **09** Kalibrierungsmatrix | CANONICAL_THRESHOLDS (Restoration + Studio 2026), Material-/Ära-/Genre-Bias, SongGoalTargets-API | §09.2 Zwei-Ebenen-API (Pipeline vs. Convenience) — **normativ übergeordnet für alle Schwellwerte**; material-adaptive Böden: Shellac ~0.72, Vinyl ~0.82, CD ~0.90; §09.11 MAS-Formal-Definition + PHYSICAL_CEILING |
 
 Änderungshistorie: `docs/CHANGELOG_HISTORY.md`
 
@@ -217,7 +237,7 @@ logger.info("phase=%s score=%.2f", phase, score)  # kein print()
 
 ### VERBOTEN — Häufigste Anti-Patterns (Top-10)
 
-> Vollständige Tabelle (~100 Einträge, Linter-Referenz V01–V11): [`VERBOTEN.md`](VERBOTEN.md)
+> Vollständige Tabelle (~100 Einträge, Linter-Referenz V01–V12): [`VERBOTEN.md`](VERBOTEN.md)
 
 | Verboten | Richtig | Linter |
 |---|---|---|
@@ -230,9 +250,27 @@ logger.info("phase=%s score=%.2f", phase, score)  # kein print()
 | Carrier-Repair-Rollback inkrementiert `consecutive_rollbacks` | `_CARRIER_REPAIR_PHASE_PREFIXES`-Check vor Increment | V09 |
 | `map_location="cuda"` ohne ml_device_manager | `get_torch_device("PluginName")` via ml_device_manager | V03 |
 | `griffinlim()` als Endschritt | PGHI / Vocos | V05 |
-| `CAUSE_TO_PHASES` ohne `CAUSES`-Gegenstück | Bidirektionale Sync: `CAUSES` + `CAUSE_TO_PHASES` (§2.59) | — |
-| Neue Phase ohne CAUSE_TO_PHASES-Eintrag | `CAUSES` + `CAUSE_TO_PHASES` bidirektional ergänzen — sonst findet `CausalDefectReasoner` die Phase nie | — |
+| `CAUSE_TO_PHASES` ohne `CAUSES`-Gegenstück | Bidirektionale Sync: `CAUSES` + `CAUSE_TO_PHASES` (§2.59) | V12 |
+| Neue Phase ohne CAUSE_TO_PHASES-Eintrag | `CAUSES` + `CAUSE_TO_PHASES` bidirektional ergänzen — sonst findet `CausalDefectReasoner` die Phase nie | V12 |
+| §0a-verbotene Phase in `CAUSE_TO_PHASES` (z.B. `phase_35`, `phase_42`, `phase_21` in Restoration-Cause) | §0a-verbotene Phasen (`phase_21_exciter`, `phase_35_multiband_compression`, `phase_42_vocal_enhancement`) dürfen **nie** in `CAUSE_TO_PHASES` stehen — UV3-Guard blockiert sie zwar, aber der CausalDefectReasoner soll sie gar nicht erst vorschlagen (BUG-FIX v9.12.0 §0a) | — |
 | Unabhängige ML-Reparatur für L/R + kanalweises Resampling zur Längenkorrektur | M/S- oder Linked-Stereo-Verarbeitung; deterministischer Strip/Crop/Pad ohne Time-Warp | — |
+| ADDITIVE Phase ohne `hallucination_guard.py` | `check_hallucination(pre, post)` aus `backend/core/dsp/hallucination_guard.py` nach jeder ADDITIVE-Phase; `spectral_novelty > 0.15` → Phase-Rollback (Restoration); `> 0.08` → Score-Penalty 0.3 | §2.46e |
+| BW/DR-Ceiling ignoriert (ADDITIVE: phase_06/07/23; DYNAMICS: phase_26) | `_MATERIAL_BW_CEILING_HZ[material]` (BW-Erweiterung) / `_MATERIAL_DR_CEILING_DB[material]` (DR-Expansion) VOR additivem/expansivem Output einhalten — Überschreitung = §0a-Verstoß | §6.2b/c |
+| `DeepFilterNet` ohne `energy_bias` bei ML-NR auf Vokal/Instrumental | `energy_bias=−6.0 dB` (PANNs Vocals ≥ 0.4) / `−9.0 dB` (Instrumental) — ohne diese Einstellung werden Harmonik-Regionen als Rauschen abgetragen | §0j |
+| NR-Algorithmus ohne Masking-Gain-Floor (`G_floor < 0.10`) | `G_floor[band] = max(0.10, masking_threshold[band] / noise_estimate[band])` via `compute_masking_threshold_iso11172(pre_nr_audio, sr)` VOR NR — verhindert klinisches Stille-Artefakt | §2.62 |
+| MERT als primäre Qualitätsmetrik bei verfügbarem VERSA | `use_versa_in_loop=True` (VERSA ist primär); MERT nur als Proxy-Fallback → `metadata["mert_proxy_used"] = True`; MERT-Floor: `max(raw_mert, 0.5)` | §2.44 |
+| `timbral_fidelity` gegen degradierten Input wenn `carrier_chain_recovery_ratio > 0.15` | Referenz auf `best_carrier_checkpoint` verschieben (nach Carrier-Phasen, vor Enhancement); `carrier_chain_recovery_ratio` MUSS in `metadata` gepflegt werden | §0d |
+| MDEM ohne `frisson_zones` (Gänsehaut-Passagen ungeschützt) | `frisson_zones = get_frisson_detector().detect(original, sr)` VOR MDEM-Aufruf — ohne Schutz dämpft SG Klimax-Passagen bis −8 LU; Non-blocking: Exception → `[]` | §Frisson |
+| Phase ohne Pre/Post-Score-Delta-Messung (`_fast_goal_snapshot`) | `_profiled_phase_call_with_delta()` ist Pflichtrahmen für jede Phase in UV3; Delta wird in `metadata["phase_deltas"][phase_id]` geloggt — ohne Delta kein konvergenzgesteuertes Stoppen möglich | §2.64 |
+| Pipeline läuft nach `_mas_fully_achieved=True` weiter | Nach MAS-Erreichung (alle P1/P2 ≤ MAS+0.02) SOFORT stoppen — weitere Phasen verletzen §2.45 Minimal-Intervention und riskieren Over-Processing | §2.65 |
+| Gesangsmaterial ohne VQI-Messung exportiert | Bei `panns_singing_confidence ≥ 0.35`: `compute_vqi()` aus `backend/core/musical_goals/vocal_quality_index.py` aufrufen; `VQI < 0.72` → Recovery-Kaskade; `metadata["vqi"]` MUSS gesetzt sein | §2.35c |
+| `singer_identity_cosine` nicht gemessen bei Gesang | Resemblyzer-Embedding VOR Pipeline (nach TDP) und NACH Pipeline nehmen; `cos_sim < 0.92` → Phase-Rollback der letzten Vokal-Phase; DSP-Fallback bei Resemblyzer-Ausfall Pflicht | §2.35c |
+| NR auf Vokal ohne Vokalregister-spezifischen `energy_bias` | Vokalregister (Kopf/Brust/Fry/Flüstern) via FCPE + spektrale Flachheit erkennen; energy_bias register-adaptiv setzen (Kopfstimme: −3 dB, Brust: −6 dB, Fry/Flüstern: −9 dB) | §2.35c |
+| SOTA-Matrix-Update ohne §4.4a-Evaluations-Protokoll | `benchmarks/sota_eval.py` evaluieren; alle 6 Aufnahmekriterien prüfen; CHANGELOG_HISTORY.md Eintrag `[SOTA-Update v9.x.y]` setzen — sonst ist die Matrix-Änderung ungültig | §4.4a |
+| Phasen-Reihenfolge verletzt HARD_BEFORE-Constraints | `validate_phase_order()` aus `backend/core/phase_dag.py` prüfen; kritisch: phase_03 → phase_07, phase_06 → phase_07, phase_29 → phase_07; Verletzung = Pipeline-Bug | §7.5a |
+| Segment-Stärke ignoriert (alle Segmente gleich stark) | `SongStructureAnalyzer.analyze_structure()` vor Phase-Loop aufrufen; Klimax-Segmente: NR-Strength × 0.85; Strophen: NR-Strength × 1.15; `metadata["song_structure"]` setzen | §2.52b |
+| Historisches Mikrofon-Profil nicht geprüft bei vintage Ären | `MicrophoneResponseLibrary.get_eq_curve(era_decade, genre, material)` VOR phase_38/06; EQ-Anpassung max. wet_mix = 0.35; kein hartes EQ-Match | §6.4a |
+| AMRB-History nicht aktualisiert bei Major-Release (9.x.0) | `benchmarks/update_amrb_history.py` ausführen; `benchmarks/amrb_history.json` updaten; Score-Verschlechterung OQS-Delta < −2.0 = Release-Blocker | §8.1.6 |
 
 
 

@@ -786,6 +786,133 @@ Integration:
 
 ---
 
+## §09.11 [RELEASE_MUST] Maximum-Achievable-Score (MAS) — Formale Definition (v9.12.1)
+
+MAS ist der höchste physikalisch erreichbare Goal-Score für einen konkreten Song — gegeben Material, Ära, Genre und Restorability. MAS ist **das primäre Optimierungsziel der Pipeline** — kein Bodengrenzwert, kein Stopp-Signal, sondern aktives Konvergenzziel.
+
+### MAS-Quelle und Ceiling-Clamp
+
+```python
+# Schritt 1: SongGoalTargets berechnen (§09.2 Zwei-Ebenen-API)
+mas_targets = estimate_song_goal_targets(
+    era_decade=era_decade,
+    genre_label=genre_label,
+    material_chain=material_chain,
+    restorability=restorability_score,
+).targets  # dict[str, float] — ein Wert pro der 14 Musical Goals
+
+# Schritt 2: Ceiling-Clamp — kein Goal darf physikalisches Material-Maximum überschreiten
+for goal, value in mas_targets.items():
+    ceiling = PHYSICAL_CEILING.get(material_type, {}).get(goal, 1.0)
+    mas_targets[goal] = min(value, ceiling)
+```
+
+**Invariante**: Wenn `PHYSICAL_CEILING[material][goal] < CANONICAL_THRESHOLDS[goal]`, ist MAS = PHYSICAL_CEILING — das physikalische Material-Limit hat Vorrang vor dem globalen Canonical-Floor. Dies ist kein Kalibrierungsfehler, sondern physikalische Realität (Shellac/Artikulation: Ceiling=0.78 < Floor=0.85, WaxCyl/Brillanz: Ceiling=0.55 < Floor=0.78). Die Pipeline zielt auf das Erreichbare, nicht auf das physikalisch Unmögliche.
+
+### PHYSICAL_CEILING — Physikalische Obergrenzen pro Material
+
+```python
+PHYSICAL_CEILING: dict[str, dict[str, float]] = {
+    "shellac": {
+        "brillanz":           0.72,
+        "transparenz":        0.72,
+        "spatial_depth":      0.55,
+        "artikulation":       0.78,
+        "separation_fidelity":0.60,
+    },
+    "wax_cylinder": {
+        "brillanz":           0.55,
+        "transparenz":        0.60,
+        "spatial_depth":      0.45,
+        "artikulation":       0.70,
+    },
+    "vinyl": {
+        "brillanz":           0.86,
+        "transparenz":        0.84,
+        "spatial_depth":      0.80,
+    },
+    "tape": {
+        "brillanz":           0.88,
+        "transparenz":        0.86,
+    },
+    "reel_tape": {
+        "brillanz":           0.90,
+        "transparenz":        0.88,
+    },
+    "mp3_low": {
+        "brillanz":           0.80,
+        "transparenz":        0.78,
+        "artikulation":       0.82,
+    },
+    # cd_digital, dat, mp3_high, flac: kein physikalisches Ceiling (leeres Dict)
+}
+```
+
+### MAS-Konvergenz-Metrik
+
+```python
+MAS_TOLERANCE       = 0.02   # P1/P2 "erreicht" wenn gap ≤ 0.02
+MAS_FULL_TOLERANCE  = 0.05   # P3–P5 "erreicht" wenn gap ≤ 0.05
+MAS_OVERSHOOT_TOL   = 0.03   # Strength-Clamp wenn post > MAS + 0.03
+
+def compute_mas_convergence(
+    current_scores: dict[str, float],
+    mas_targets: dict[str, float],
+) -> dict:
+    gaps = {g: mas_targets[g] - current_scores.get(g, 0.0) for g in mas_targets}
+    p1p2_achieved = all(gaps[g] <= MAS_TOLERANCE for g in P1P2_GOALS)
+    p3p5_achieved = all(gaps[g] <= MAS_FULL_TOLERANCE for g in P3P5_GOALS)
+    overshooting = [
+        g for g in mas_targets
+        if current_scores.get(g, 0.0) > mas_targets[g] + MAS_OVERSHOOT_TOL
+    ]
+    return {
+        "gaps": gaps,
+        "p1p2_achieved": p1p2_achieved,
+        "p3p5_achieved": p3p5_achieved,
+        "fully_achieved": p1p2_achieved and p3p5_achieved,
+        "overshooting_goals": overshooting,
+        "max_p1p2_gap": max(gaps[g] for g in P1P2_GOALS),
+        "mean_p1p2_gap": sum(gaps[g] for g in P1P2_GOALS) / len(P1P2_GOALS),
+    }
+```
+
+### Neue Module (zu implementieren)
+
+| Modul | Pfad | Zweck |
+| --- | --- | --- |
+| `FastGoalProxy` | `backend/core/dsp/fast_goal_proxy.py` | DSP-Proxy-Messung aller 14 Goals in ≤ 200 ms, kein ML |
+| `_fast_goal_snapshot()` | `backend/core/unified_restorer_v3.py` | Pro-Phase-Aufruf von `FastGoalProxy.measure_fast()` |
+| `_check_mas_convergence()` | `backend/core/unified_restorer_v3.py` | Pipeline-Stop-Signal wenn MAS erreicht |
+| `PHYSICAL_CEILING` | `backend/core/calibration_matrix.py` | Material-spezifische Goal-Obergrenzen |
+
+### CI-Test-Invarianten
+
+```python
+# tests/normative/test_mas_convergence.py
+def test_mas_ceiling_clamped_to_physical_material():
+    """Shellac-MAS darf physikalisches Ceiling nicht überschreiten."""
+    mas = estimate_song_goal_targets("1930s", "jazz", "shellac", 40).targets
+    for goal, ceil in PHYSICAL_CEILING["shellac"].items():
+        assert mas[goal] <= ceil
+
+def test_mas_target_at_or_above_canonical_floor():
+    """MAS muss immer ≥ CANONICAL_THRESHOLDS sein."""
+    mas = estimate_song_goal_targets("1970s", "schlager", "vinyl", 70).targets
+    for goal in P1P2_GOALS:
+        assert mas[goal] >= CANONICAL_THRESHOLDS_RESTORATION[goal]
+
+def test_compute_mas_convergence_early_stop():
+    """Wenn alle P1/P2 ≤ MAS_TOLERANCE: fully_achieved muss True sein."""
+    scores = {g: mas_targets[g] - 0.01 for g in GOAL_NAMES}  # alle knapp unter MAS
+    result = compute_mas_convergence(scores, mas_targets)
+    assert result["p1p2_achieved"] is True
+```
+
+> Integration: UV3 `_profiled_phase_call_with_delta()` (Spec 02 §2.64); Pipeline-Stop (Spec 02 §2.65); normatives Prinzip (Copilot §0k)
+
+---
+
 ## Referenzen
 
 - Spec §01: Musical Goals (14 Ziele)

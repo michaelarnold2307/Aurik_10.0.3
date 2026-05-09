@@ -162,9 +162,30 @@ def hz_to_mel(f_hz: float) -> float:
 | Music/Vocal Enhancement | ML: **MP-SENet 2023** ONNX | SGMSE+ ONNX → OMLSA DSP | ~~DCCRN/FullSubNet+~~ |
 | MOS (mit Referenz) | ML: **ViSQOL v3** (**`--audio` PFLICHT**) | PQS-DSP | ~~--speech Mode~~ |
 | Phasen-Rekonstruktion | DSP: **PGHI** | Griffin-Lim ≥ 32 Iter. | ~~Direkte ISTFT~~ |
-| Decrackle | DSP: **RBME + iterative Konsistenz** | Sparse Bayes | ~~Medianfilter~~ |
+| Decrackle | ML: **RBME-Net CNN** (ONNX, Bando et al. 2023) → DSP RBME + iterative Konsistenz | Sparse Bayes | ~~Medianfilter~~ |
 | Spektral-Matching | DSP: **Optimal Transport** | Multibänder-EQ | ~~fixe EQ-Kurve~~ |
 | Groove / Timing | DSP: **Onset-DTW (madmom RNN)** | Beat-Tracking (librosa) | ~~fixes Raster~~ |
+| Stem-Separation (Gesang, Alternativ) | ML: **HTDemucs** (Hybrid Transformer-Demucs v4, 2023) | MelBandRoformer | — |
+| Stem-Separation (dichte Mixturen) | ML: **TF-GridNet** (Time-Frequency Grid Net, ICASSP 2023) | HTDemucs | — |
+| Musik-NR (spezialisiert) | ML: **AERO** (Richter et al., ICASSP 2024) → **MP-SENet 2023** | OMLSA/IMCRA | ~~DeepFilterNet ohne energy_bias~~ |
+| Langes Inpainting / Generativ | ML: **Consistency Models** (Song et al. 2023, < 3 s Latenz) → CQTdiff+ | DiffWave → NMF-β | ~~DDPM 1000 Schritte~~ |
+| Codec-Artefakte (Streaming) | ML: **Apollo v2** (Band-Splitting Mamba v2) → Apollo v1 | Spectral Repair + PGHI | ~~EQ-Anhebung~~ |
+| Stark degradierter Gesang (SNR < 10 dB) | ML: **MIIPHER** (Google 2023, W2v-BERT-Konditionierung) | DeepFilterNet v3.II + energy_bias=−6 dB | ~~VoiceFixer~~ |
+| Latent-Space-Restaurierung / Codec | ML: **DAC** (Descript Audio Codec, Kumar et al. 2023) → EnCodec | CQTdiff+ → NMF-β | — |
+| Singer-Identity-Erhalt | ML: **Resemblyzer** (dvector, GE2E-Loss) → X-Vector | DSP Formant-Korrelation | — |
+| Vibrato-vs-Flutter-Diskriminierung | DSP: **F0-Autokorrelation** (Vibrato 4–7 Hz; Wow < 2 Hz) + FCPE | pYIN | — |
+
+**HTDemucs / AERO / MIIPHER Auswahllogik (Normativ):**
+
+- **HTDemucs** wird als alternative Vokal-Separation aktiviert wenn: `panns_singing_confidence ≥ 0.5` UND `material_type ∈ {cd_digital, mp3_low, mp3_high, dat}` UND MelBandRoformer SDR < 7 dB auf 30-s-Probe.
+- **AERO** (Musik-spezialisiertes NR, ICASSP 2024) wird für `mode="studio_2026"` bevorzugt gegenüber DeepFilterNet wenn `genre_label ∈ {classical, jazz, acoustic}` — diese Genres profitieren von musikalisch-bewusstem NR stärker als Vocal-Prior-basiertem NR.
+- **MIIPHER** ist Last-Resort für stark degradierten Gesang (SNR < 10 dB, `restorability_score < 30`). Es transformiert Vokal-Features in W2v-BERT-Latent-Raum — nur auf Vokal-Stem, nie auf Vollmix. Pflicht-Guard: `hallucination_guard.check_hallucination(pre, post)` nach MIIPHER-Anwendung.
+- **AERO/MIIPHER ONNX-Fallback**: `OMLSA/IMCRA` bei OOM oder Modell-Fehler — beide Modelle haben keinen eigenen DSP-Pass als Primär.
+
+**DAC / Consistency-Models Laufzeitvertrag (Normativ):**
+
+- **DAC** (Descript Audio Codec) wird ausschließlich für Latent-Space-Restaurierung eingesetzt (Phase 55 Inpainting-Extension, ≥ 200 ms Lücken) — kein generelles Encoding/Decoding des Gesamtsignals (Qualitätsverlust durch DAC-Kompression).
+- **Consistency Models** ersetzen CQTdiff+ bei Laufzeitbudget < 30 s verbleibend in UV3-Wall-Time-Guard. Qualitäts-Vorrang: CQTdiff+ wenn Zeit vorhanden (bessere SSDR); Consistency wenn Zeit knapp.
 
 **MP-SENet ONNX Laufzeitvertrag (Release-Must):**
 
@@ -172,6 +193,45 @@ def hz_to_mel(f_hz: float) -> float:
 - Das aktuell gebündelte ONNX-Artefakt zeigt trotz `dynamic_axes` einen faktisch festen Zeit-Shape (`time=32`) in internen Reshape-Knoten.
 - Implementierungspflicht: segmentierte Inferenz in festen 32-Frame-Chunks mit Stitching zurück auf Originallänge.
 - Bei Reshape-/Layout-Fehlern: kontrollierter Fallback (Layout-Retry, dann OMLSA-DSP), niemals Hard-Crash.
+
+---
+
+## §4.4a [RELEASE_MUST] SOTA-Evaluations-Protokoll (v9.12.0)
+
+**Problem**: Die SOTA-Matrix (§4.4) veraltete unbemerkt. Modelle aus 2023/2024 wurden nicht systematisch evaluiert; der Stand „2025/2026" war nicht durch einen definierten Prozess gedeckt.
+
+**Evaluationszyklus**: Quartalsweise (Januar/April/Juli/Oktober).
+
+**Aufnahmekriterien für neue Primärmodelle** (alle müssen erfüllt sein):
+
+| Kriterium | Mindestanforderung |
+| --- | --- |
+| Qualitätsvorteil | SDR/MOS/OQS > aktuelles Primärmodell um ≥ 0.5 dB / 0.1 MOS |
+| Offline-Fähigkeit | Vollständig offline, keine Cloud-API, kein Internet-Zugriff zur Laufzeit |
+| ONNX-Export oder PyTorch | Stables ONNX oder PyTorch `torch.jit.trace`-Export vorhanden |
+| Lizenzkompabilität | MIT / Apache 2.0 / CC BY 4.0 — kein CC NC, kein GPL ohne Ausnahme |
+| Laufzeit-Budget | ≤ 60 s / Minute Audio auf Tier-2-GPU (8–15 GB VRAM) |
+| DSP-Fallback | Fallback-Kette aus vorhandenem Bestand definierbar |
+
+**Evaluations-Pipeline (Pflicht)**:
+
+```python
+# benchmarks/sota_eval.py
+def evaluate_candidate(model_name, candidate_plugin, amrb_subset="all"):
+    results = run_benchmark(BenchmarkConfig(
+        n_items=10, min_duration_s=30,
+        override_primary={use_case: candidate_plugin},
+    ))
+    return {
+        "oqs_delta": results.overall_score - SOTA_BASELINE[use_case],
+        "latency_ms": results.avg_latency_ms,
+        "passes_criteria": results.overall_score > SOTA_BASELINE[use_case] + 0.5,
+    }
+```
+
+**Dokumentationspflicht**: Jede Änderung an §4.4 MUSS in `docs/CHANGELOG_HISTORY.md` unter `[SOTA-Update v9.x.y]` dokumentiert werden mit: Modellname, Vorgänger, AMRB-Delta, Evaluationsdatum.
+
+**VERBOTEN**: Manuelle Matrix-Aktualisierung ohne durchlaufenen Evaluations-Check.
 
 ---
 

@@ -143,8 +143,10 @@ SCHLAGER_RESTORATION_PROFILE = {
         "transient_strength":        {"mean": 0.45, "std": 0.08},   # Schlagzeug-Transienten sanft
     },
     # Pflicht-Aktivierte Phasen (unabhängig von DefectScanner-Ergebnis)
+    # §0a INVARIANTE: phase_42_vocal_enhancement ist im Restoration-Modus VERBOTEN
+    # (Stem-Enhancement). UV3 _restoration_forbidden_stem_enhancement filtert sie
+    # universal heraus — kein forced_phases-Eintrag nötig oder zulässig.
     "forced_phases": [
-        "phase_42_vocal_enhancement",    # Gesang ist Haupt-Träger im Schlager
         "phase_19_de_esser",             # Vintage-Mikrofon → Sibilanten-Spitzen
         "phase_07_harmonic_restoration", # Harmonie-Authentizität (H2/H4-Bewahren)
         "phase_08_transient_preservation",  # Orchester-Attacken
@@ -1432,7 +1434,7 @@ Die GP-Memory-Referenz-Vektoren werden **automatisch** aus dem Verarbeitungsverl
 
 **[BUG-FIX v9.12.0] Material-adaptive `timbral_fidelity` Floor** (Bug 5):
 
-`HPI > 0` allein reicht nicht als Export-Bedingung. Ein `timbral_ref` von 0.318 (Vinyl, Restoration) mit MERT=0.65 ergibt `HPI ≈ 0.32 > 0` → Export trotz massiver Klangverfärbung. 
+`HPI > 0` allein reicht nicht als Export-Bedingung. Ein `timbral_ref` von 0.318 (Vinyl, Restoration) mit MERT=0.65 ergibt `HPI ≈ 0.32 > 0` → Export trotz massiver Klangverfärbung.
 
 ```python
 # Material-adaptive timbral floors (nach §0a / Spec 09 / calibration_matrix.py):
@@ -2806,6 +2808,92 @@ Hebel 1 entscheidet **ob** eine Phase läuft; Hebel 3 entscheidet **wie stark** 
 
 ---
 
+## §2.52b [RELEASE_MUST] SongStructureAnalyzer — Segment-bewusste Pipeline (v9.12.0)
+
+**Motivation**: Ein Vers braucht aggressiveres NR als ein Klimax-Chorus. Ein Instrumentalintro benötigt kein `LyricsGuidedEnhancement`. Eine Stille-Passage benötigt keinen Dereverb. Aurik behandelte bisher alle Segmente identisch — das ist falsches Minimal-Intervention.
+
+**SongStructureAnalyzer** (`backend/core/song_structure_analyzer.py`):
+
+```python
+@dataclass
+class SongSegment:
+    start_s: float
+    end_s: float
+    label: str          # "intro", "verse", "chorus", "bridge", "outro", "instrumental"
+    energy_level: float # [0, 1] — Ø RMS normiert
+    has_vocals: bool    # PANNs Singing confidence Ø im Segment
+    is_climax: bool     # Frisson-Zone (§2.56/§Frisson) oder Energy-Peak
+
+def analyze_structure(audio: np.ndarray, sr: int) -> list[SongSegment]:
+    """
+    Librosa Boundary-Erkennung (segment.agglomerative auf MFCC + Chroma).
+    Segment-Labels via Beat-Tracking + Energy-Profil heuristisch.
+    Laufzeit: ≤ 2 s / Minute Audio.
+    """
+```
+
+**Segment-adaptive Strength-Modifikation in UV3**:
+
+| Segment-Typ | Phase-Gruppen-Anpassung |
+| --- | --- |
+| `verse` (leise, Vocals) | NR-Strength × 1.15 (aggressiver), Dereverb × 1.10 |
+| `chorus` / `is_climax=True` | NR-Strength × 0.85 (schützend), Kompression × 0.70 — Klimax nicht quetschen |
+| `intro` / `outro` | `LyricsGuidedEnhancement` nur wenn `has_vocals=True`; BW-Ceiling strenger (kein Artefakt am Rand) |
+| `instrumental` | Vokal-Phasen (phase_19, phase_58) überspringen; Groove × 1.10 |
+| Stille (< −50 dBFS) | Alle Enhancement-Phasen überspringen; nur Noise-Gate (phase_18) |
+
+**Integrationsort**: UV3 `_execute_pipeline` — nach `GPOptimizer`, vor Phase-Loop. Segment-Map wird in `_song_segments` gecacht; `_profiled_phase_call` berechnet `_segment_strength_scalar` für das Segment, in dem die aktuelle Zeit liegt.
+
+**Protokollierung**: `metadata["song_structure"]["segments"]` — Liste aller Segmente mit Labels.
+
+**Invariante**: Segment-Stärke-Skalare sind bounded [0.70, 1.30] — kein Phase kann durch Segmentierung auf Null oder über 1.3× getrieben werden. P1/P2-Phase-Schwellwerte bleiben unverändert.
+
+> Implementierung: `backend/core/song_structure_analyzer.py`
+> Tests: `tests/unit/test_song_structure_analyzer.py`
+
+---
+
+## §2.52c [RELEASE_MUST] MultiPassScheduler — Iterativer Restaurierungspfad (v9.12.0)
+
+**Motivation**: Phase 03 (NR) senkt den Rauschboden → Phase 09 (Crackle) würde danach bei niedrigerem Grundrauschen präzisere Ergebnisse erzielen. Ein einziger Durchlauf ist suboptimal. Echter Multi-Pass löst diese Sequenz-Abhängigkeit.
+
+**Zweistufiger Multi-Pass** (Pflicht-Kaskade, nicht optional):
+
+```
+Pass 1 (Carrier-Chain):  Phasen Stufe 1–4 (§2.46) — ADC/Playback/Alterung/Carrier-Subtraktiv
+                         → best_carrier_checkpoint setzen
+Pass 2 (Defekt-Refinement, konditionell):
+    BEDINGUNG: DefectScanner(restored_after_pass1) zeigt noch ≥ 2 Defekte mit severity > 0.15
+    → Nur Top-3-Defekte nochmal (adaptiv: niedrigere Strength = Pass-1-Strength × 0.6)
+    → Kein vollständiger Phase-Durchlauf — nur Defekt-spezifische Phasen
+    → Maximale 1 Refinement-Pass (kein unbegrenztes Iterieren)
+```
+
+**Wall-Time-Budget für MultiPass**:
+
+- Pass 1 darf max. `0.70 × UV3_WALL_TIME_BUDGET` verbrauchen
+- Pass 2 darf max. `0.25 × UV3_WALL_TIME_BUDGET` verbrauchen
+- Wenn Pass-1 > 0.70 × Budget → kein Pass-2 (normale Pipeline-Fertigstellung)
+
+**Aktivierungsbedingung**:
+
+```python
+if (
+    material_type in {"shellac", "wax_cylinder", "reel_tape", "lacquer_disc"}
+    OR defect_count_pass1 >= 3
+) AND wall_time_remaining > UV3_WALL_TIME_BUDGET * 0.25:
+    run_pass_2 = True
+```
+
+**Nicht aktiviert für**: digitale Quellen (`cd_digital`, `dat`), hohe Restorabilität (> 80), kurze Dateien (< 30 s).
+
+**Protokollierung**: `metadata["multipass"]["passes_run"]`, `metadata["multipass"]["pass2_defects_remaining"]`.
+
+> Implementierung: UV3 `_execute_multipass_pipeline()`
+> Tests: `tests/unit/test_multipass_scheduler.py`
+
+---
+
 ## §2.53 [RELEASE_MUST] Experience-Closed-Loop + Bridge/UI-Propagation (v9.11.1)
 
 ### Vertrag
@@ -3339,3 +3427,149 @@ processed = processed[:, ctx:ctx + n_samples]  # deterministischer Strip
 ### Invariante
 
 Restaurierung darf weder neue Intro/Outro-Peaks erzeugen noch neue L/R-Zeitverschiebung einführen.
+
+---
+
+## §2.64 [RELEASE_MUST] Per-Phase-Score-Delta-Loop (v9.12.1)
+
+**Jede Phase wird von einem bindenden Vorher/Nachher-Messrahmen eingeschlossen.** Keine Phase darf ohne Delta-Analyse ausgeführt werden. Das Ergebnis jeder Messung steuert, ob die Phase übernommen, zurückgerollt oder die Stärke gedämpft wird.
+
+### `_fast_goal_snapshot()` — DSP-Proxy-Messung (≤ 200 ms)
+
+```python
+# backend/core/unified_restorer_v3.py
+def _fast_goal_snapshot(self, audio: np.ndarray, phase_id: str) -> dict[str, float]:
+    """DSP-only proxy measurement of all 14 Musical Goals. NO ML inference.
+    timbral_ref_vector: extracted from original_audio at pipeline start;
+    shifts to best_carrier_checkpoint when carrier_chain_recovery_ratio > 0.15 (§0d).
+    Budget: ≤ 200 ms for 5-min stereo audio at SR=48000.
+    """
+    return self._proxy_goal_checker.measure_fast(
+        audio=audio,
+        reference=self._timbral_ref_vector,
+        sr=48000,
+        phase_id=phase_id,
+    )
+```
+
+**Proxy-Metrik-Mapping** (DSP-only, kein ML):
+
+| Musical Goal | DSP-Proxy | Budget |
+| --- | --- | --- |
+| `natuerlichkeit` | `1 − spectral_novelty` (§2.46e) + `artifact_freedom_heuristic` | 15 ms |
+| `authentizitaet` | MFCC-Korrelation zur `timbral_ref_vector` (13 Koeff.) | 25 ms |
+| `tonal_center` | Chroma-Kovarianz zur Referenz | 20 ms |
+| `timbre_authentizitaet` | MFCC-Distanz zur Referenz (normiert, RMS-gewichtet) | 20 ms |
+| `artikulation` | Onset-Dichte-Verhältnis (SNR-gewichtet) | 15 ms |
+| `emotionalitaet` | Spectral-Flux-Korrelation zur Referenz | 10 ms |
+| `micro_dynamics` | Crest-Factor-Verhältnis pre/post | 5 ms |
+| `groove` | Beat-Alignment-Score (madmom, gecacht aus Analyse-Phase) | 0 ms |
+| `transparenz` | HF/MF-Energie-Verhältnis (3–8 kHz / 0.3–3 kHz) | 5 ms |
+| `waerme` | LF-Energie-Anteil (ISO 226:2003, 200–2000 Hz) | 5 ms |
+| `bass_kraft` | Sub-Bass-RMS (20–250 Hz) | 5 ms |
+| `separation_fidelity` | M/S-Balance-Ratio (Stereo) / 1.0 (Mono) | 5 ms |
+| `brillanz` | HF-Energie-Anteil (8–16 kHz) | 5 ms |
+| `spatial_depth` | Cross-Correlation-Peak L/R (Stereo) / 1.0 (Mono) | 5 ms |
+
+**Implementierung**: `backend/core/dsp/fast_goal_proxy.py` — `FastGoalProxy.measure_fast()`
+
+### Delta-Analyse und Entscheidungslogik
+
+```python
+def _profiled_phase_call_with_delta(self, phase_fn, audio, phase_id, **kwargs):
+    # 1. Pre-Phase-Snapshot
+    pre_scores = self._fast_goal_snapshot(audio, phase_id)
+
+    # 2. Phase ausführen
+    post_audio, phase_result = phase_fn(audio, **kwargs)
+
+    # 3. Post-Phase-Snapshot
+    post_scores = self._fast_goal_snapshot(post_audio, phase_id)
+
+    # 4. Delta berechnen
+    delta = {g: post_scores[g] - pre_scores[g] for g in GOAL_NAMES}
+    mas_gap = {g: self._mas_targets[g] - post_scores[g] for g in GOAL_NAMES}
+
+    # 5. P1/P2-Regression-Check (außer für _RESTORATIVE_PHASES)
+    if phase_id not in _RESTORATIVE_PHASES:
+        if any(delta[g] < -0.03 for g in P1P2_GOALS):
+            logger.warning("phase=%s p1p2_regression delta=%s → rollback", phase_id, delta)
+            self._metadata["phase_deltas"][phase_id] = {"pre": pre_scores, "delta": delta, "action": "rollback"}
+            return audio, {"applied": False, "reason": "p1p2_regression"}
+
+    # 6. MAS-Overshoot: Strength-Clamp wenn Goal > MAS + 0.03
+    if any(post_scores[g] > self._mas_targets[g] + 0.03 for g in P1P2_GOALS):
+        post_audio = np.clip(audio + 0.5 * (post_audio - audio), -1.0, 1.0)
+        post_scores = self._fast_goal_snapshot(post_audio, phase_id)
+        mas_gap = {g: self._mas_targets[g] - post_scores[g] for g in GOAL_NAMES}
+
+    # 7. MAS-Konvergenz-Check → ggf. Pipeline-Stop
+    self._check_mas_convergence(post_scores, mas_gap)
+
+    # 8. Delta-Log (Pflicht)
+    self._metadata["phase_deltas"][phase_id] = {
+        "pre": pre_scores, "post": post_scores,
+        "delta": delta, "mas_gap": mas_gap,
+    }
+    return post_audio, phase_result
+```
+
+### Invarianten
+
+- `_fast_goal_snapshot()` **DARF KEIN** ML-Modell laden oder aufrufen (nur DSP-Proxies).
+- `timbral_ref_vector` wird VOR der Pipeline einmalig extrahiert und für alle Phasen wiederverwendet.
+- Delta-Log `metadata["phase_deltas"]` ist Pflicht für jeden Phasenaufruf — ohne Log kein konvergenzgesteuertes Stoppen.
+- `_RESTORATIVE_PHASES` (phase_02/03/09/18/20/23/24/29/49) sind von P1/P2-Regression-Check ausgenommen (§2.29c Baseline-Capping).
+
+---
+
+## §2.65 [RELEASE_MUST] MAS-Convergence-Early-Stop (v9.12.1)
+
+**Sobald alle P1/P2-Goals ihr song-spezifisches Maximum (`MAS`) erreicht haben, stoppt die Pipeline.** Weitere Phasen verletzen §2.45 Minimal-Intervention und riskieren Over-Processing.
+
+### MAS-Konvergenz-Check
+
+```python
+MAS_TOLERANCE        = 0.02   # P1/P2: "erreicht" wenn mas_gap[g] ≤ 0.02
+MAS_FULL_TOLERANCE   = 0.05   # P3–P5: "erreicht" wenn mas_gap[g] ≤ 0.05
+MAS_OVERSHOOT_TOL    = 0.03   # Strength-Clamp wenn post_score > MAS + 0.03
+
+def _check_mas_convergence(self, post_scores: dict, mas_gap: dict) -> None:
+    """Signal early pipeline stop when MAS achieved for all P1/P2."""
+    p1p2_achieved = all(mas_gap[g] <= MAS_TOLERANCE for g in P1P2_GOALS)
+    p3p5_achieved = all(mas_gap[g] <= MAS_FULL_TOLERANCE for g in P3P5_GOALS)
+
+    if p1p2_achieved:
+        self._metadata["mas_achieved_at_phase"] = self._current_phase_id
+        self._metadata["mas_p3p5_achieved"] = p3p5_achieved
+        if p3p5_achieved:
+            self._mas_fully_achieved = True   # → Pipeline sofort stoppen
+        # sonst: P3–P5-Phasen können noch laufen (Groove, Raumtiefe)
+```
+
+### Drei Konvergenzzustände
+
+| Zustand | Bedingung | Pipeline-Reaktion |
+| --- | --- | --- |
+| **Voll konvergiert** | Alle 14 Goals ≤ MAS_TOLERANCE/MAS_FULL_TOLERANCE | Pipeline sofort stoppen — Export |
+| **P1/P2 konvergiert** | P1/P2 konvergiert; P3–P5 noch Lücken | Nur P3–P5-Phasen (Groove, Raumtiefe) weiter |
+| **Nicht konvergiert** | P1/P2-Lücken vorhanden | Nächste Defekt-Phase gemäß Plan |
+
+### Pipeline-Loop (UV3)
+
+```python
+for phase_id in planned_phases:
+    if self._mas_fully_achieved:
+        logger.info("MAS fully achieved at phase=%s — pipeline stopped early", self._metadata.get("mas_achieved_at_phase"))
+        break
+    audio, result = self._profiled_phase_call_with_delta(phase_fn, audio, phase_id)
+```
+
+### Invarianten
+
+- **VERBOTEN**: Pipeline läuft nach `_mas_fully_achieved = True` weiter.
+- **VERBOTEN**: Phase ohne Pre/Post-Delta-Log (kein `_profiled_phase_call_with_delta()`-Aufruf).
+- `_mas_targets` = `SongGoalTargets.targets` aus `estimate_song_goal_targets()` (§0k, Spec 09 §09.11).
+- MAS-Targets sind ceiling-geclampt auf `PHYSICAL_CEILING[material]` (Spec 09 §09.11) — kein physikalisches Limit überschreiten.
+
+> Spec 09 §09.11 für MAS-Formaldefinition + PHYSICAL_CEILING; §0k für normatives Prinzip

@@ -28,7 +28,7 @@ phase_17_mastering_polish.py        Mastering-Politur
 phase_18_noise_gate.py              Noise-Gate (Stille-Segmente)
 phase_19_de_esser.py                De-Esser (Sibilanten-Reduktion)
 phase_20_reverb_reduction.py        Dereverb / Nachhall-Reduktion
-phase_21_exciter.py                 Harmonischer Exciter
+phase_21_exciter.py                 Harmonischer Exciter  ⚠ VERBOTEN in Restoration (§0a, UV3 _restoration_forbidden_stem_enhancement)
 phase_22_tape_saturation.py         Tape-Sättigungs-Emulation
 phase_23_spectral_repair.py         Spektrale Lücken-Reparatur (Apollo primär)
 phase_24_dropout_repair.py          Dropout-Interpolation
@@ -259,6 +259,8 @@ CAUSE_TO_PHASES = {
                                   "phase_04_eq_correction", "phase_40_loudness_normalization"],
     "vinyl_crackle":             ["phase_09_crackle_removal", "phase_01_click_removal",
                                   "phase_28_surface_noise_profiling", "phase_03_denoise"],
+    "vinyl_warp":                ["phase_12_wow_flutter_fix", "phase_31_speed_pitch_correction",
+                                  "phase_04_eq_correction", "phase_03_denoise"],
     "wow_flutter":                ["phase_12_wow_flutter_fix", "phase_31_speed_pitch_correction",
                                   "phase_04_eq_correction", "phase_03_denoise"],
     "wow":                        ["phase_12_wow_flutter_fix", "phase_31_speed_pitch_correction",
@@ -272,8 +274,10 @@ CAUSE_TO_PHASES = {
     "dc_offset":                 ["phase_30_dc_offset_removal", "phase_40_loudness_normalization"],
     "digital_clip":              ["phase_23_spectral_repair", "phase_06_frequency_restoration",
                                   "phase_40_loudness_normalization"],
-    "bandwidth_loss":            ["phase_06_frequency_restoration", "phase_07_harmonic_restoration",
-                                  "phase_39_air_band_enhancement"],
+    "bandwidth_loss":            ["phase_06_frequency_restoration", "phase_07_harmonic_restoration"],
+                                  # phase_39 ENTFERNT (BUG-FIX v9.12.0 §6.2c): Air-Band-Erweiterung
+                                  # über BW-Ceiling analoger Materialien erzeugt Halluzinationen
+                                  # im Restoration-Modus. Studio-2026 und digitale Quellen bleiben unberührt.
     "high_freq_noise":           ["phase_29_tape_hiss_reduction", "phase_03_denoise",
                                   "phase_18_noise_gate"],
     "stereo_imbalance":          ["phase_15_stereo_balance", "phase_33_stereo_width_limiter",
@@ -291,14 +295,15 @@ CAUSE_TO_PHASES = {
     "quantization_noise":        ["phase_23_spectral_repair", "phase_03_denoise",
                                   "phase_06_frequency_restoration"],
     "jitter_artifacts":          ["phase_23_spectral_repair", "phase_12_wow_flutter_fix"],
-    "dynamic_compression_excess":["phase_26_dynamic_range_expansion", "phase_54_transparent_dynamics",
-                                  "phase_35_multiband_compression"],
+    "dynamic_compression_excess":["phase_26_dynamic_range_expansion", "phase_54_transparent_dynamics"],
+                                  # phase_35_multiband_compression ENTFERNT (BUG-FIX v9.12.0 §0a): Stem-Enhancement VERBOTEN in Restoration
     "head_wear":                 ["phase_56_spectral_band_gap_repair", "phase_14_phase_correction",
-                                  "phase_06_frequency_restoration"],    "azimuth_error":             ["phase_14_phase_correction", "phase_25_azimuth_correction",
-                                  "phase_06_frequency_restoration", "phase_34_mid_side_processing"],
-                                  # Azimuth-Korrekturreihenfolge: phase_14 (Phasenkonsistenz L/R)
-                                  # dann phase_25 (Kopf-Ausrichtungs-EQ-Kompensation)
-                                  # dann phase_34 (M/S zur Restfehler-Kontrolle)    "soft_saturation":           [],  # BEWAHREN — kein destruktiver Eingriff
+                                  "phase_06_frequency_restoration"],
+    # BUG-FIX v9.12.0 §2.59/V12: "azimuth_error" ENTFERNT — kein CAUSES-Gegenstück in Code.
+    # "azimuth_error" ist ein DefectScanner-Messwert (Eingabe in Likelihood-Funktionen
+    # für head_misalignment/head_wear), keine eigenständige Kausalursache.
+    # Azimuth-Korrektur wird über head_misalignment + tape_start_instability getriggert.
+    "soft_saturation":           [],  # BEWAHREN — kein destruktiver Eingriff
     "pre_echo":                  ["phase_23_spectral_repair", "phase_50_spectral_repair",
                                   "phase_08_transient_preservation"],
     "low_freq_rumble":           ["phase_05_rumble_filter", "phase_03_denoise",
@@ -314,14 +319,15 @@ CAUSE_TO_PHASES = {
     "bias_error":                ["phase_04_eq_correction", "phase_03_denoise",
                                   "phase_06_frequency_restoration", "phase_29_tape_hiss_reduction"],
     # Sibilanten (§6.3 v9.10.57):
-    "sibilance":                 ["phase_19_de_esser", "phase_43_ml_deesser",
-                                  "phase_42_vocal_enhancement"],
+    "sibilance":                 ["phase_19_de_esser", "phase_43_ml_deesser"],
+                                  # phase_42_vocal_enhancement ENTFERNT (BUG-FIX v9.12.0 §0a): Stem-Enhancement VERBOTEN in Restoration
     # Transport-Bump (v9.10.57b — Kassetten-Holpern):
     "transport_bump":            ["phase_12_wow_flutter_fix", "phase_24_dropout_repair",
                                   "phase_31_speed_pitch_correction"],
     # Vocal-Harshness (v9.10.77 — Vokal-Härte/Übersteuerung/Kratzigkeit):
-    "vocal_harshness":           ["phase_42_vocal_enhancement", "phase_19_de_esser",
-                                  "phase_43_ml_deesser", "phase_23_spectral_repair"],
+    "vocal_harshness":           ["phase_19_de_esser", "phase_43_ml_deesser",
+                                  "phase_23_spectral_repair"],
+                                  # phase_42_vocal_enhancement ENTFERNT (BUG-FIX v9.12.0 §0a): Stem-Enhancement VERBOTEN in Restoration
     # Neu v9.10.97/98:
     "tape_start_instability":    ["phase_12_wow_flutter_fix", "phase_25_azimuth_correction",
                                   "phase_31_speed_pitch_correction", "phase_14_phase_correction",
@@ -447,11 +453,14 @@ Jede neue Phase **muss**:
 # □ NaN/Inf-Guard: np.clip(audio, -1.0, 1.0), nan_to_num
 # □ assert sample_rate == 48000
 # □ Export in __init__.py
-# □ Eintrag in CAUSE_TO_PHASES (wenn neuer Defekt-Typ)
+# □ CAUSES + CAUSE_TO_PHASES bidirektional ergänzen (V12 §2.59) — §0a-verbotene Phasen nie eintragen
 # □ ≥ 3 Unit-Tests (Erkennung, False-Positive-Rate, Material-Prior)
 # □ Stereo-Kohärenz (§2.51 Spec 02 / §7.1a Spec 06):
 #     Wenn Stereo-Audio verarbeitet wird: M/S-Domain ODER Linked-Stereo —
 #     KEIN unabhängiges L/R-Processing mit gain- oder zeitvarianter Operation
+# □ ADDITIVE Phase: hallucination_guard.py (§2.46e) + _MATERIAL_BW_CEILING_HZ einhalten (§6.2c)
+# □ ML-NR Phase: energy_bias=−6 dB Vokal / −9 dB Instrumental (§0j); G_floor ≥ 0.10 (§2.62)
+# □ DYNAMICS-Expansion: _MATERIAL_DR_CEILING_DB prüfen (§6.2b)
 ```
 
 ---
@@ -463,6 +472,68 @@ TIER 0 + TIER 1: IMMER sequenziell (TransientDecoupledProcessing, Click-Removal)
 TIER 2–4: Dürfen parallelisieren; Merge via np.mean NUR wenn gleiche Frequenzzone
 TIER 6:   IMMER sequenziell (EQ → Polish → LUFS → TruePeak → Format)
 ```
+
+---
+
+## §7.5a [RELEASE_MUST] Phasen-DAG — Formaler Abhängigkeitsgraph
+
+**Motivation**: Die bisherige Parallelisierungs-Invariante (§7.5) ist grob-granular. Ein formaler DAG (Directed Acyclic Graph) der Phasen-Abhängigkeiten ermöglicht:
+
+1. **Korrekte Optimierung**: Welche Phasen können wirklich parallel laufen?
+2. **Regression-Prävention**: Phasen werden nicht in falsche Reihenfolge gebracht (§2.46 Stufe-Reihenfolge)
+3. **MultiPassScheduler-Sicherheit**: Pass 2 darf nur Phasen wiederholen, die keine Vorläufer überschreiben
+
+**Abhängigkeitstypen**:
+
+| Typ | Bedeutung | Beispiel |
+| --- | --- | --- |
+| `HARD_BEFORE` | A muss vor B fertig sein | phase_03 → phase_07 (NR vor Harmonik-Erweiterung) |
+| `SOFT_BEFORE` | A sollte vor B laufen; B darf ohne A laufen | phase_09 → phase_18 (Crackle vor Noise-Gate empfohlen) |
+| `INDEPENDENT` | Keine Abhängigkeit — können parallel laufen | phase_14, phase_25 (parallel) |
+| `CONFLICT` | Nicht gemeinsam aktiv (`CONFLICT_REGISTRY` §2.29e) | phase_06 ⊗ phase_07 (nicht beide) |
+
+**Kritische HARD_BEFORE-Ketten** (normativ):
+
+```
+phase_01 (DC-Offset) → ALLE anderen Phasen
+phase_09 (Crackle)  → phase_18 (NR/Gate, damit nicht Crackle-Residuen als Rauschen bleiben)
+phase_03 (ML-NR)    → phase_06 (BW-Extension, damit nicht Rauschen = Extended-Harmonics)
+phase_03            → phase_07 (Harmonic Enhancement)
+phase_06            → phase_07 (BW vor Harmonik-Aufbau)
+phase_12 (Wow/Flutter) → phase_25 (Azimuth), Azimuth vor Bandbreite
+phase_29 (Band-NR)  → phase_07 (Harmonik-Erweiterung erst nach Bandrauschen-Entfernung)
+phase_24 (Dropout)  → phase_06 (BW-Extension überschreibt keine Dropout-Lücken)
+phase_30 (DC-ADC)   → phase_31 (Quant-NR) → alle weiteren
+```
+
+**Unabhängige Parallelisierungs-Klassen**:
+
+| Klasse | Phasen | Bedingung |
+| --- | --- | --- |
+| **Klasse A** (Stereo/Phase) | phase_14, phase_15, phase_25 | Nach phase_12; keine Frequenz-Abhängigkeiten |
+| **Klasse B** (lokale Defekte) | phase_09, phase_24, phase_31 | Nach phase_01; Defekttypen überlappen nicht |
+| **Klasse C** (Analysis-only) | phase_05, phase_21 (wenn aktiv) | Lesend; kein Audio-Write |
+
+**DAG-Validierung** (`backend/core/phase_dag.py`):
+
+```python
+def validate_phase_order(phase_list: list[str]) -> list[str]:
+    """
+    Prüft phase_list gegen HARD_BEFORE-Constraints.
+    Gibt Liste der Constraint-Verletzungen zurück (leer = korrekt).
+    VERBOTEN: phase_07 vor phase_03, phase_06 vor phase_29.
+    """
+    violations = []
+    for constraint in HARD_BEFORE_CONSTRAINTS:
+        if constraint.before in phase_list and constraint.after in phase_list:
+            if phase_list.index(constraint.before) > phase_list.index(constraint.after):
+                violations.append(f"{constraint.after} kommt vor {constraint.before}")
+    return violations
+```
+
+**CI-Invariante**: `tests/unit/test_phase_dag_validation.py` prüft `validate_phase_order()` für alle HARD_BEFORE-Constraints. Test MUSS grün sein.
+
+> Implementierung: `backend/core/phase_dag.py`
 
 ---
 
@@ -683,4 +754,8 @@ Verhindert Phase-Cancellation bei Kopfhörer.
 □ ≥ 35 Unit-Tests (Shape, NaN, Bounds, Edge, Mono, Stereo, MG, Groove-DTW, SOFT_SAT, Pass-Through, quality_est)
 □ OQS ≥ 80 nachweisbar
 □ CHANGELOG.md Eintrag
+□ CAUSES + CAUSE_TO_PHASES bidirektional ergänzen (V12 §2.59) — §0a-verbotene Phasen niemals eintragen
+□ ADDITIVE Phase: hallucination_guard.py aufrufen (§2.46e) + _MATERIAL_BW_CEILING_HZ einhalten (§6.2c)
+□ SUBTRAKTIVE ML-NR: energy_bias=−6 dB (Vokal) / −9 dB (Instrumental) + G_floor ≥ 0.10 via masking_threshold (§2.62)
+□ DYNAMICS-Expansion: _MATERIAL_DR_CEILING_DB respektieren (§6.2b) — keine Expansion über Material-Limit
 ```

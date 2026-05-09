@@ -231,6 +231,74 @@ proximity_score = (
 > Implementierung: `backend/core/musical_goals/ki_hearing_model.py` — `compute_vocal_proximity_score(audio_orig, audio_restored, sr, vocal_segments)`
 > Aufruf: `backend/core/musical_goals/musical_goals_metrics.py` — `MusicalGoalsChecker.measure_all()` wenn Vocal erkannt
 
+---
+
+## §2.35c [RELEASE_MUST] VocalQualityIndex (VQI) — Gesangs-Gesamtqualitäts-Gate (v9.12.0)
+
+**Motivation**: Die bestehenden 14 Musical Goals und §2.35/§2.35b messen jeweils Teilaspekte des Gesangs. Ein zusammengesetzter `VocalQualityIndex` liefert ein einzelnes, messbares Qualitätssignal für Gesangsmaterial — und ermöglicht damit den Anspruch „weltbeste Gesangsrestaurierung" überhaupt erst zu belegen.
+
+**Formel**:
+
+```python
+VQI = (
+    0.30 × singer_identity_cosine     # Stimmidentität erhalten
+  + 0.25 × formant_stability_score    # F1–F4 nicht verschoben
+  + 0.20 × articulation_score         # aus §2.35 (Konsonanten-Klarheit)
+  + 0.15 × proximity_score            # aus §2.35b (Intimität / Nähe)
+  + 0.10 × sibilance_naturalness      # aus §2.35 (5–10 kHz)
+)
+```
+
+**Schwellwerte**:
+
+| VQI | Bedeutung | Pipeline-Reaktion |
+| --- | --- | --- |
+| ≥ 0.88 | Weltklasse-Gesang | Export freigegeben |
+| 0.80–0.87 | Sehr gut | Export freigegeben, `metadata["vqi_tier"] = "good"` |
+| 0.72–0.79 | Akzeptabel | WARNING + Dry/Wet-Rescue empfohlen |
+| < 0.72 | Unter Schwelle | Recovery-Kaskade: Rollback auf bestes Vokal-Checkpoint |
+
+**Singer-Identity-Gate** (`singer_identity_cosine`):
+
+- Modell: **Resemblyzer** (GE2E-Loss, 256-dim d-vector) als Primär; **X-Vector** (ECAPA-TDNN) als Fallback
+- Messung: Cosinus-Ähnlichkeit des Vokal-Embeddings vor vs. nach Pipeline (nur auf Vokal-Stem)
+- Pflicht-Vorab-Messung: `singer_id_pre = resemblyzer.embed(vocal_stem_pre)` nach TDP, vor Phase 03
+- Post-Pipeline: `singer_identity_cosine = cos_sim(singer_id_pre, resemblyzer.embed(vocal_stem_post))`
+- Schwellwert: ≥ 0.92 Pflicht; < 0.88 → Phase-Rollback der letzten Vokal-bearbeitenden Phase
+- Aktivierung: `panns_singing_confidence ≥ 0.35` UND Dateilänge ≥ 10 s
+- DSP-Fallback: wenn Resemblyzer nicht verfügbar → MFCC-Pearson × Centroid-Korrelation als Proxy (`singer_identity_dsp_fallback = True` in metadata)
+
+**Formant-Stabilitäts-Score** (`formant_stability_score`):
+
+```python
+# Aus §2.35 normalisiert auf [0, 1]:
+f1_drift_hz, f2_drift_hz = measure_formant_drift(vocal_pre, vocal_post, sr)
+formant_stability_score = max(0.0, 1.0 - (f1_drift_hz + f2_drift_hz) / (2 × 35.0))
+# 35 Hz = Schwellwert aus §2.35; bei exakt 0 Hz Drift → score = 1.0
+```
+
+**Vokalregister-adaptiver NR-Modus** (§2.35c-Ergänzung zu §4.5 NR-Routing):
+
+DeepFilterNet `energy_bias=-6 dB` gilt pauschal — Vokalregister verfeinern dies:
+
+| Vokalregister | Erkennung | energy_bias Anpassung |
+| --- | --- | --- |
+| Kopfstimme / Falsett | F0 > 600 Hz, Energie 3–8 kHz dominant | −3 dB (aggressivere NR — Falsett hat wenig Harmonik unten) |
+| Bruststimme | F0 200–600 Hz, Energie < 3 kHz dominant | −6 dB (Standard) |
+| Vocal Fry / Subharmonisch | F0 < 100 Hz, unregelmäßige Perioden | −9 dB (schützend — Fry-Charakter ist keine Defekt-Rauschart) |
+| Flüstern | Spektrale Flachheit > 0.6, F0 nicht klar | −9 dB (Rauschen und Flüstern sind spektral ähnlich) |
+
+Erkennung via: FCPE F0-Tracking + spektrale Flachheit (scipy.signal) im Vokal-Segment.
+
+**Invariante**: VQI darf nie auf Kosten von P1/P2 erzwungen werden. Bei P1/P2-Konflikt haben Natürlichkeit/Authentizität Vorrang. VQI-Fail löst keine Phase-Pipeline-Unterbrechung aus — er ist post-hoc Recovery-Signal.
+
+**Protokollierung**: `RestorationResult.metadata["vqi"]`, `metadata["singer_identity_cosine"]`, `metadata["singer_id_dsp_fallback"]`.
+
+> Implementierung: `backend/core/musical_goals/vocal_quality_index.py`
+> Aufruf: `MusicalGoalsChecker.measure_all()` nach Phase-Pipeline, wenn Vocal erkannt
+
+---
+
 ## §2.36 Pareto-Tie-Break nach Hoerprioritaet
 
 Bei mehreren Pareto-aequivalenten Kandidaten gilt folgende Tie-Break-Reihenfolge:

@@ -367,6 +367,71 @@ Sauberes Nicht-Tape-Material darf durch den Fallback nicht flaggen (`severity ==
 
 ---
 
+## §6.4a [RELEASE_MUST] Historische Mikrofon-Response-Datenbank (v9.12.0)
+
+**Motivation**: §2.46 Stufe 6 fordert, die Recording-Chain-Signatur zu **bewahren**. Ohne eine Referenz für die Frequenzcharakteristik des Originalaufnahme-Mikrofons ist jede EQ-Phase reine Heuristik. Diese Datenbank macht Recording-Chain-Bewahren messbar.
+
+**Mikrofon-Response-Bibliothek** (`backend/core/microphone_response_library.py`):
+
+```python
+@dataclass
+class MicrophoneProfile:
+    name: str
+    years_active: tuple[int, int]     # z.B. (1932, 1960)
+    type: str                         # "ribbon", "condenser", "dynamic", "crystal"
+    freq_response_db: dict[int, float]  # {Hz: dB} — Referenz 1 kHz = 0 dB
+    genres: list[str]                 # typische Einsatzgebiete
+    notes: str
+```
+
+**Kanonische Datenbank (normativ)**:
+
+| Mikrofon | Baujahre | Typ | Charakteristika | Genre-Kontext |
+| --- | --- | --- | --- | --- |
+| RCA 44-BX | 1932–1955 | Ribbon | −6 dB @ 8 kHz, Hochton-Rolloff, warm | Big Band, Crooner, 1930–1950er |
+| RCA 77-DX | 1950–1965 | Ribbon | +3 dB @ 3 kHz, −8 dB @ 12 kHz | Radio, Jazz, Schlager 1950er |
+| Neumann CMV 3 (Ela M 1) | 1928–1940 | Condenser | stark -12 dB @ 10 kHz, Mittenbetonung | Klassik, Oper, früher Film |
+| Neumann U47 | 1947–1965 | Condenser | relativ flach bis 12 kHz, sanfter Rolloff | Jazz, Klassik, Pop 1950–1965 |
+| Neumann U67 | 1960–1971 | Condenser | +2 dB @ 8–12 kHz, angenehme Brillanz | Rock, Pop, Beatles-Ära |
+| AKG C12 | 1953–1963 | Condenser | +3 dB @ 10 kHz, Presence-Peak | Klassik, Jazz |
+| Shure SM57 | 1965–heute | Dynamic | −3 dB @ 15 kHz, +2 dB @ 5–8 kHz | Rock, Blues, Live |
+| Western Electric 618-A | 1929–1940 | Dynamic | −15 dB @ 8 kHz, für 78rpm optimiert | Shellac-Ära, früher Jazz |
+| Sony C37A | 1955–1965 | Condenser | +4 dB Presence 5–10 kHz | Japanischer Jazz, Pop |
+| Altec 639-B | 1942–1950 | Ribbon+Dynamic | warm, kaum HF > 10 kHz | Radio, Country, Western |
+
+**API** (`MicrophoneResponseLibrary`):
+
+```python
+def get_profile(era_decade: int, genre_label: str, material_type: str) -> MicrophoneProfile | None:
+    """
+    Gibt wahrscheinlichstes Mikrofon-Profil zurück.
+    Reihenfolge: era_decade → genre_label → material_type (BW_CEILING).
+    None wenn kein passendes Profil vorhanden (digital/moderne Ären).
+    """
+
+def get_eq_curve(era_decade: int, genre_label: str, material_type: str) -> dict[int, float]:
+    """
+    Gibt Frequenz-Response als {Hz: dB}-Dict zurück — für Recording-Chain-EQ in phase_38.
+    Kein Profil verfügbar → flat ({}). Keine Exception.
+    """
+```
+
+**Integration mit Phase-Pipeline** (§2.46 Stufe 6):
+
+- `phase_38` (SourceFidelityEQ / phase_06 Harmonic/BW) nutzt `get_eq_curve()` als **Zielkurve**, nicht als Korrektiv:
+  - Wenn restaurierter EQ von historischem Mikrofon-EQ abweicht > 2 dB in Schlüssel-Bändern → Sanft-Anpassung Richtung Zielprofil (wet_mix ≤ 0.35)
+  - **VERBOTEN**: hartes EQ-Match auf Mikrofon-Profil (Original mag mehrere Mics gehabt haben)
+- Klimax/Stille-Segmente (aus §2.52b SongStructureAnalyzer): In Klimax-Phasen EQ-Anpassung deaktivieren (wet_mix = 0)
+- `metadata["mic_profile_applied"]` = Mikrofon-Name oder `null`
+
+**Erweiterbarkeit**: `backend/data/microphone_profiles.json` enthält alle Profile als JSON-Array. Neue Profile können ohne Code-Änderung ergänzt werden.
+
+> Implementierung: `backend/core/microphone_response_library.py`
+> Daten: `backend/data/microphone_profiles.json`
+> Tests: `tests/unit/test_microphone_response_library.py`
+
+---
+
 ## §6.4 GP-Gedächtnis pro Material & Genre
 
 ```text
