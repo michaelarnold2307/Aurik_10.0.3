@@ -752,7 +752,11 @@ class FrequencyRestorationPhase(PhaseInterface):
 
                             def _apply_mic6_eq(sig: np.ndarray) -> np.ndarray:
                                 _, _, _stft6 = signal.stft(
-                                    sig, fs=sample_rate, nperseg=_m6_n_fft, noverlap=_m6_n_fft - 512, boundary="even"
+                                    sig,
+                                    fs=sample_rate,
+                                    nperseg=_m6_n_fft,
+                                    noverlap=_m6_n_fft - 512,
+                                    boundary="even",
                                 )
                                 _, _out6 = signal.istft(
                                     _stft6 * _m6_eq_interp[:, np.newaxis],
