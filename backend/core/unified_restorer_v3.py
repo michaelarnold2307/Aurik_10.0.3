@@ -681,7 +681,7 @@ class UnifiedRestorerV3:
         # Additional per-restore() attrs (avoid Pyright 'defined outside __init__')
         self._detected_vocal_gender: str | None = None
         self._phase_plan_intelligence: object = None
-        self._phase_regression_log: list = []
+        self._phase_regression_log: dict[str, float] = {}
         self._active_intervention_log: list = []
         self._pmgg_log_entries: list = []
         self._active_pipeline_cb_for_sub: object = None
