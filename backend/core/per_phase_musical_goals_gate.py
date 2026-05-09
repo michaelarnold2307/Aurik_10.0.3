@@ -3115,7 +3115,8 @@ class PerPhaseMusicalGoalsGate:
             if self._rollback_count > 3 and not self._user_warned:
                 self._user_warned = True
                 logger.warning(
-                    "ℹ️ Einige Verarbeitungsschritte wurden mit reduzierter Stärke angewendet, um den Klang zu schützen."
+                    "ℹ️ Einige Verarbeitungsschritte wurden mit reduzierter Stärke"
+                    " angewendet, um den Klang zu schützen."
                 )
 
         goal_regressions = {
