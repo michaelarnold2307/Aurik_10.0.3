@@ -694,6 +694,21 @@ class DenoisePhase(PhaseInterface):
         # §4.5 / §2.47 DeepFilterNet Tier-0 PRIMARY: Vocal broadband noise
         # DeepFilterNet v3.II is the primary model for broadband noise with vocal content
         # (Schröter et al. 2022). energy_bias = -6 dB preserves harmonics (§4.4 Spec).
+        # §2.35c Register-adaptiver energy_bias: Kopfstimme -3 dB, Brust -6 dB, Fry/Flüstern -9 dB
+        _dfn_energy_bias_db = -6.0  # Default: Bruststimme
+        if _is_vocal_material and _panns_singing >= 0.25:
+            try:
+                from backend.core.dsp.vocal_register_detector import detect_vocal_register as _det_reg
+
+                _reg_label, _reg_bias = _det_reg(audio, sample_rate, panns_singing=_panns_singing)
+                _dfn_energy_bias_db = _reg_bias
+                logger.debug(
+                    "§2.35c phase_03 VocalRegister=%s energy_bias=%.1f dB",
+                    _reg_label,
+                    _dfn_energy_bias_db,
+                )
+            except Exception as _reg_exc:
+                logger.debug("§2.35c VocalRegister Erkennung fehlgeschlagen (non-blocking): %s", _reg_exc)
         _dfn_applied = False
         _dfn_eligible = (
             _is_vocal_material
@@ -718,22 +733,30 @@ class DenoisePhase(PhaseInterface):
                 # §2.46f Context-Padding: reflect-pad 1 s on both sides before ML to prevent
                 # boundary artefacts at intro/outro (root-cause fix, §2.46f).
                 _ctx_n03_dfn = min(int(1.0 * sample_rate), (audio.shape[-1] if audio.ndim == 2 else len(audio)) // 4)
-                _dfn_use_pad = _ctx_n03_dfn > 0 and (audio.shape[-1] if audio.ndim == 2 else len(audio)) > _ctx_n03_dfn * 4
+                _dfn_use_pad = (
+                    _ctx_n03_dfn > 0 and (audio.shape[-1] if audio.ndim == 2 else len(audio)) > _ctx_n03_dfn * 4
+                )
                 if _dfn_use_pad:
-                    _dfn_padded = np.pad(audio, ((0, 0), (_ctx_n03_dfn, _ctx_n03_dfn)), mode='reflect') if audio.ndim == 2 else np.pad(audio, (_ctx_n03_dfn, _ctx_n03_dfn), mode='reflect')
-                    _dfn_result_raw = _dfn_plugin.enhance(_dfn_padded, sr=sample_rate, energy_bias_db=-6.0)
+                    _dfn_padded = (
+                        np.pad(audio, ((0, 0), (_ctx_n03_dfn, _ctx_n03_dfn)), mode="reflect")
+                        if audio.ndim == 2
+                        else np.pad(audio, (_ctx_n03_dfn, _ctx_n03_dfn), mode="reflect")
+                    )
+                    _dfn_result_raw = _dfn_plugin.enhance(
+                        _dfn_padded, sr=sample_rate, energy_bias_db=_dfn_energy_bias_db
+                    )
                     # Strip context padding deterministically to avoid residual boundary artefacts.
                     if _dfn_result_raw is not None:
                         _dfn_result_raw = np.asarray(_dfn_result_raw)
                         _dfn_target_len = audio.shape[-1] if audio.ndim == 2 else len(audio)
                         if _dfn_result_raw.ndim == 2 and _dfn_result_raw.shape[-1] >= _ctx_n03_dfn + _dfn_target_len:
-                            _dfn_result_raw = _dfn_result_raw[:, _ctx_n03_dfn:_ctx_n03_dfn + _dfn_target_len]
+                            _dfn_result_raw = _dfn_result_raw[:, _ctx_n03_dfn : _ctx_n03_dfn + _dfn_target_len]
                         elif _dfn_result_raw.ndim == 1 and len(_dfn_result_raw) >= _ctx_n03_dfn + _dfn_target_len:
-                            _dfn_result_raw = _dfn_result_raw[_ctx_n03_dfn:_ctx_n03_dfn + _dfn_target_len]
+                            _dfn_result_raw = _dfn_result_raw[_ctx_n03_dfn : _ctx_n03_dfn + _dfn_target_len]
                         logger.debug("phase_03 DFN: context-padding stripped (%d samples offset)", _ctx_n03_dfn)
                     _dfn_result = _dfn_result_raw
                 else:
-                    _dfn_result = _dfn_plugin.enhance(audio, sr=sample_rate, energy_bias_db=-6.0)
+                    _dfn_result = _dfn_plugin.enhance(audio, sr=sample_rate, energy_bias_db=_dfn_energy_bias_db)
                 if _dfn_result is not None and np.isfinite(_dfn_result).all():
                     # §8.2 Energy-preservation guard for DeepFilterNet
                     _dfn_e_in = float(np.sum(audio.astype(np.float64) ** 2))
@@ -748,7 +771,11 @@ class DenoisePhase(PhaseInterface):
                             _dfn_hop = 512
                             _dfn_mono = audio
                             if _dfn_mono.ndim == 2:
-                                _dfn_mono = np.mean(_dfn_mono, axis=0) if _dfn_mono.shape[0] == 2 else np.mean(_dfn_mono, axis=1)
+                                _dfn_mono = (
+                                    np.mean(_dfn_mono, axis=0)
+                                    if _dfn_mono.shape[0] == 2
+                                    else np.mean(_dfn_mono, axis=1)
+                                )
                             _dfn_pmask = _get_pmask_dfn(_dfn_mono.astype(np.float32), sample_rate, hop_length=_dfn_hop)
                             if np.any(_dfn_pmask):
                                 _dfn_n = len(_dfn_mono)
@@ -856,7 +883,11 @@ class DenoisePhase(PhaseInterface):
                 _ctx_n03_sg = min(int(1.0 * sample_rate), (audio.shape[-1] if audio.ndim == 2 else len(audio)) // 4)
                 _sg_use_pad = _ctx_n03_sg > 0 and (audio.shape[-1] if audio.ndim == 2 else len(audio)) > _ctx_n03_sg * 4
                 if _sg_use_pad:
-                    _sg_padded = np.pad(audio, ((0, 0), (_ctx_n03_sg, _ctx_n03_sg)), mode='reflect') if audio.ndim == 2 else np.pad(audio, (_ctx_n03_sg, _ctx_n03_sg), mode='reflect')
+                    _sg_padded = (
+                        np.pad(audio, ((0, 0), (_ctx_n03_sg, _ctx_n03_sg)), mode="reflect")
+                        if audio.ndim == 2
+                        else np.pad(audio, (_ctx_n03_sg, _ctx_n03_sg), mode="reflect")
+                    )
                     _sgmse_result = _sgmse_plugin.enhance(_sg_padded, sr=sample_rate, sigma=_sgmse_sigma)
                     if _sgmse_result is not None:
                         _sgaudio = np.asarray(_sgmse_result.audio)
@@ -864,9 +895,9 @@ class DenoisePhase(PhaseInterface):
                         _sg_out_len = _sgaudio.shape[-1] if _sgaudio.ndim == 2 else len(_sgaudio)
                         if _sg_out_len >= _ctx_n03_sg + _sg_target_len:
                             _sgmse_result.audio = (
-                                _sgaudio[:, _ctx_n03_sg:_ctx_n03_sg + _sg_target_len]
+                                _sgaudio[:, _ctx_n03_sg : _ctx_n03_sg + _sg_target_len]
                                 if _sgaudio.ndim == 2
-                                else _sgaudio[_ctx_n03_sg:_ctx_n03_sg + _sg_target_len]
+                                else _sgaudio[_ctx_n03_sg : _ctx_n03_sg + _sg_target_len]
                             )
                             logger.debug("phase_03 SGMSE+: context-padding stripped (%d samples offset)", _ctx_n03_sg)
                 else:
@@ -930,22 +961,30 @@ class DenoisePhase(PhaseInterface):
                 # §2.46f Context-Padding for OMLSA+Resemble ML-Hybrid: reflect-pad 1 s to prevent
                 # boundary artefacts — model sees interior signal at what were signal edges.
                 _ctx_n03_hyb = min(int(1.0 * sample_rate), (audio.shape[-1] if audio.ndim == 2 else len(audio)) // 4)
-                _hyb_use_pad = _ctx_n03_hyb > 0 and (audio.shape[-1] if audio.ndim == 2 else len(audio)) > _ctx_n03_hyb * 4
+                _hyb_use_pad = (
+                    _ctx_n03_hyb > 0 and (audio.shape[-1] if audio.ndim == 2 else len(audio)) > _ctx_n03_hyb * 4
+                )
                 if _hyb_use_pad:
-                    _hyb_padded = np.pad(audio, ((0, 0), (_ctx_n03_hyb, _ctx_n03_hyb)), mode='reflect') if audio.ndim == 2 else np.pad(audio, (_ctx_n03_hyb, _ctx_n03_hyb), mode='reflect')
+                    _hyb_padded = (
+                        np.pad(audio, ((0, 0), (_ctx_n03_hyb, _ctx_n03_hyb)), mode="reflect")
+                        if audio.ndim == 2
+                        else np.pad(audio, (_ctx_n03_hyb, _ctx_n03_hyb), mode="reflect")
+                    )
                     ml_result = denoiser.denoise(_hyb_padded, sample_rate=sample_rate)
                     # Strip context padding from result
-                    if ml_result is not None and hasattr(ml_result, 'audio') and ml_result.audio is not None:
+                    if ml_result is not None and hasattr(ml_result, "audio") and ml_result.audio is not None:
                         _hyb_audio = np.asarray(ml_result.audio)
                         _hyb_target_len = audio.shape[-1] if audio.ndim == 2 else len(audio)
                         _hyb_out_len = _hyb_audio.shape[-1] if _hyb_audio.ndim == 2 else len(_hyb_audio)
                         if _hyb_out_len >= _ctx_n03_hyb + _hyb_target_len:
                             ml_result.audio = (
-                                _hyb_audio[:, _ctx_n03_hyb:_ctx_n03_hyb + _hyb_target_len]
+                                _hyb_audio[:, _ctx_n03_hyb : _ctx_n03_hyb + _hyb_target_len]
                                 if _hyb_audio.ndim == 2
-                                else _hyb_audio[_ctx_n03_hyb:_ctx_n03_hyb + _hyb_target_len]
+                                else _hyb_audio[_ctx_n03_hyb : _ctx_n03_hyb + _hyb_target_len]
                             )
-                            logger.debug("phase_03 ML-Hybrid: context-padding stripped (%d samples offset)", _ctx_n03_hyb)
+                            logger.debug(
+                                "phase_03 ML-Hybrid: context-padding stripped (%d samples offset)", _ctx_n03_hyb
+                            )
                 else:
                     ml_result = denoiser.denoise(audio, sample_rate=sample_rate)
                 execution_time = time.time() - start_time
@@ -1265,12 +1304,10 @@ class DenoisePhase(PhaseInterface):
                     _ch_first_et = result_audio.shape[0] == 2 and result_audio.shape[1] > 2
                     if _ch_first_et:
                         result_audio[:, :_edge_n] = (
-                            result_audio[:, :_edge_n] * _fade
-                            + _orig_edge[:, :_edge_n] * (1.0 - _fade)
+                            result_audio[:, :_edge_n] * _fade + _orig_edge[:, :_edge_n] * (1.0 - _fade)
                         ).astype(result_audio.dtype)
                         result_audio[:, -_edge_n:] = (
-                            result_audio[:, -_edge_n:] * _fade[::-1]
-                            + _orig_edge[:, -_edge_n:] * (1.0 - _fade[::-1])
+                            result_audio[:, -_edge_n:] * _fade[::-1] + _orig_edge[:, -_edge_n:] * (1.0 - _fade[::-1])
                         ).astype(result_audio.dtype)
                     else:
                         result_audio[:_edge_n, :] = (
@@ -1548,13 +1585,17 @@ class DenoisePhase(PhaseInterface):
         _masking_freqs_ref: np.ndarray | None = None
         try:
             from backend.core.dsp.psychoacoustics import compute_masking_threshold_iso11172 as _cmask_03
+
             _mono_ref_03 = audio if audio.ndim == 1 else audio[0]  # channel-first
             _mask_ratio_03 = _cmask_03(_mono_ref_03, sr, n_fft=2048, hop_length=512)
             # Zeitliche Mittelung → (n_freq,) stabiler Boden; Spitzen könnten artefaktreich sein.
             _masking_floor_ref = np.mean(_mask_ratio_03, axis=1).astype(np.float32)  # (n_freq_2048,)
             _masking_freqs_ref = np.linspace(0.0, sr / 2.0, _mask_ratio_03.shape[0], dtype=np.float32)
-            logger.debug("§2.62 phase_03 Masking-Guard: mean_floor=%.3f max_floor=%.3f",
-                         float(np.mean(_masking_floor_ref)), float(np.max(_masking_floor_ref)))
+            logger.debug(
+                "§2.62 phase_03 Masking-Guard: mean_floor=%.3f max_floor=%.3f",
+                float(np.mean(_masking_floor_ref)),
+                float(np.max(_masking_floor_ref)),
+            )
         except Exception as _msk_exc_03:
             logger.debug("§2.62 phase_03 Masking-Guard nicht verfügbar (non-blocking): %s", _msk_exc_03)
 

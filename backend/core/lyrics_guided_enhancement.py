@@ -1331,6 +1331,63 @@ def get_phoneme_mask(audio: np.ndarray, sr: int, hop_length: int = 512) -> np.nd
     return get_lyrics_guided_enhancement().get_phoneme_mask(audio, sr, hop_length=hop_length)
 
 
+def _detect_transients_energy_proxy(
+    mono: np.ndarray,
+    sr: int,
+    hop_length: int = 512,
+    min_dur_ms: float = 5.0,
+    max_dur_ms: float = 50.0,
+    energy_threshold_dbfs: float = -40.0,
+) -> np.ndarray:
+    """§2.36 Energie-Proxy: Plosive Konsonanten-Bursts ohne Phonem-Timeline erkennen.
+
+    Identifiziert Frames mit breitbandigen Energie-Spikes, die typisch für Plosive
+    (/p/, /t/, /k/, /s/) sind. Kriterien:
+      - Frame-RMS > energy_threshold_dbfs dBFS
+      - Kurze Dauer: min_dur_ms ≤ Transient ≤ max_dur_ms
+      - Energie-Anstieg > 6 dB gegenüber Vorgänger-Frame (Onset-Charakteristik)
+
+    Returns bool ndarray (n_frames,) — True = potenzieller Konsonanten-Burst.
+    """
+    n = len(mono)
+    if n == 0:
+        return np.zeros(0, dtype=bool)
+
+    min_frames = max(1, int(min_dur_ms / 1000.0 * sr / hop_length))
+    max_frames = max(min_frames, int(max_dur_ms / 1000.0 * sr / hop_length))
+    energy_linear_threshold = float(10.0 ** (energy_threshold_dbfs / 20.0))
+
+    n_frames = (n + hop_length - 1) // hop_length
+    rms_per_frame = np.zeros(n_frames, dtype=np.float64)
+    for fi in range(n_frames):
+        s = fi * hop_length
+        e = min(n, s + hop_length)
+        rms_per_frame[fi] = float(np.sqrt(np.mean(mono[s:e].astype(np.float64) ** 2)))
+
+    mask = np.zeros(n_frames, dtype=bool)
+    for fi in range(1, n_frames):
+        rms_cur = rms_per_frame[fi]
+        rms_prev = rms_per_frame[fi - 1]
+        if rms_cur < energy_linear_threshold:
+            continue
+        # Onset: mind. 6 dB Anstieg gegenüber Vorgänger-Frame
+        if rms_prev < 1e-10:
+            continue
+        onset_db = 20.0 * float(np.log10(rms_cur / (rms_prev + 1e-12)))
+        if onset_db >= 6.0:
+            # Transient-Länge prüfen (muss kurz sein → max_frames)
+            run = 0
+            for fj in range(fi, min(n_frames, fi + max_frames + 1)):
+                if rms_per_frame[fj] >= energy_linear_threshold:
+                    run += 1
+                else:
+                    break
+            if min_frames <= run <= max_frames:
+                mask[fi : fi + run] = True
+
+    return mask
+
+
 def reconstruct_consonant_bursts(
     audio_degraded: np.ndarray,
     audio_restored: np.ndarray,
@@ -1383,13 +1440,23 @@ def reconstruct_consonant_bursts(
     # Mono-Kanal für Phonem-Maske nutzen
     deg_mono = (audio_deg[:, 0] if audio_deg.ndim == 2 else audio_deg).astype(np.float32)
     try:
-        phoneme_mask = get_phoneme_mask(deg_mono, sr, hop_length=hop_length)
+        phoneme_mask: np.ndarray = get_phoneme_mask(deg_mono, sr, hop_length=hop_length)
     except Exception as _exc_pm:
         _logger_rcb.debug("reconstruct_consonant_bursts: get_phoneme_mask fehlgeschlagen: %s", _exc_pm)
-        return audio_rest.copy()
+        phoneme_mask = np.zeros(0, dtype=bool)
 
     if not np.any(phoneme_mask):
-        return audio_rest.copy()
+        # §2.36 Energie-Proxy-Fallback: Wenn Phonem-Timeline fehlt oder leer ist,
+        # erkennt der energie-basierte Transient-Detektor plosive Konsonanten-Bursts
+        # anhand von Energie-Spikes: breitbandig > -40 dBFS, Dauer 5–50 ms.
+        phoneme_mask = _detect_transients_energy_proxy(deg_mono, sr, hop_length=hop_length)
+        if np.any(phoneme_mask):
+            _logger_rcb.debug(
+                "§2.36 reconstruct_consonant_bursts: Phonem-Fallback aktiv (%d Frames via Energie-Proxy)",
+                int(np.sum(phoneme_mask)),
+            )
+        else:
+            return audio_rest.copy()
 
     audio_out = audio_rest.copy()
     n_restored = 0

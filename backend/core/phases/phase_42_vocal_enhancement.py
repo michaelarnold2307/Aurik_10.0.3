@@ -696,7 +696,41 @@ class VocalEnhancement(PhaseInterface):
         else:
             # Fallback: process full audio without stem separation
             logger.debug("Phase42: Kein Stem-Sep — Vollbild-Verarbeitung")
-            if is_stereo:
+
+            # §2.35c Shellac-LPC-Formant-Fallback: Wenn kein Stem-Sep möglich und
+            # Material BW ≤ 8 kHz (Shellac/WaxCylinder), LPC-Formant-Tracker als
+            # primärer DSP-Pfad statt _enhance_channel (reduziert Artefakt-Risiko).
+            _is_shellac_bw_limited = str(material.value if hasattr(material, "value") else material).lower() in (
+                "shellac",
+                "wax_cylinder",
+                "waxcylinder",
+                "cyliner",
+            )
+            if _is_shellac_bw_limited:
+                try:
+                    from backend.core.dsp.lpc_formant_tracker import get_lpc_formant_tracker as _get_lfc
+
+                    _lfc_result = _get_lfc().enhance(audio, sample_rate)
+                    if _lfc_result is not None and np.isfinite(_lfc_result).all():
+                        enhanced_audio = np.clip(_lfc_result, -1.0, 1.0).astype(np.float32)
+                        logger.debug(
+                            "§2.35c phase_42 Shellac-LPC-Formant-Tracker aktiv (material=%s)",
+                            material,
+                        )
+                    else:
+                        raise ValueError("LPC-Formant-Tracker: ungültiges Ergebnis")
+                except Exception as _lfc_exc:
+                    logger.debug("§2.35c LPC-Formant-Tracker fehlgeschlagen → _enhance_channel: %s", _lfc_exc)
+                    # Fallback auf Standard-Vollbild-Enhancement
+                    enhanced_audio = self._enhance_channel(
+                        audio[:, 0] if audio.ndim == 2 and audio.shape[0] > 2 else audio,
+                        sample_rate,
+                        config,
+                        harshness_severity,
+                        _vocal_gender,
+                        material,
+                    )
+            elif is_stereo:
                 # §2.51 M/S: enhance Mid only (vocals centred), Side untouched.
                 _sqrt2_f = np.sqrt(2.0)
                 # Handle both (N,2) channels-last and (2,N) channels-first orientations

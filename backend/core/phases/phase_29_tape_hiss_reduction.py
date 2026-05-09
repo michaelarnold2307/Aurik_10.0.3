@@ -1431,8 +1431,22 @@ class TapeHissReductionPhase(PhaseInterface):
             # Vokal (panns_singing >= 0.40) → leichtere HF-Unterdrückung (post_filter=False),
             # äquivalent zu energy_bias=-6 dB (Harmonik-Schutz §0j Spec 04).
             # Instrumental → aggressivere Unterdrückung (post_filter=True), äquivalent energy_bias=-9 dB.
+            # §2.35c Register-adaptiver energy_bias: Kopfstimme -3 dB, Brust -6 dB, Fry/Flüstern -9 dB
             _is_vocal_content_p29 = float(panns_singing) >= 0.40
             _energy_bias_equiv_db = -6.0 if _is_vocal_content_p29 else -9.0
+            if _is_vocal_content_p29:
+                try:
+                    from backend.core.dsp.vocal_register_detector import detect_vocal_register as _det_reg29
+
+                    _reg29_label, _reg29_bias = _det_reg29(audio, sample_rate, panns_singing=float(panns_singing))
+                    _energy_bias_equiv_db = _reg29_bias
+                    logger.debug(
+                        "§2.35c phase_29 VocalRegister=%s energy_bias=%.1f dB",
+                        _reg29_label,
+                        _energy_bias_equiv_db,
+                    )
+                except Exception as _reg29_exc:
+                    logger.debug("§2.35c VocalRegister phase_29 fehlgeschlagen (non-blocking): %s", _reg29_exc)
             _post_filter_p29 = not _is_vocal_content_p29  # True für Instrumental
             logger.debug(
                 "§0j phase_29 energy_bias_equiv=%.1f dB (panns_singing=%.2f vocal=%s post_filter=%s)",
