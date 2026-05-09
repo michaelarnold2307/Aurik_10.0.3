@@ -63,7 +63,7 @@ Author: Aurik Professional Team
 Version: 2.0.0 (Professional)
 Date: February 2026
 """
-# pylint: disable=import-outside-toplevel,reimported
+# pylint: disable=import-outside-toplevel
 
 import logging
 import os

@@ -75,7 +75,9 @@ Author: Aurik 9.0 Development Team
 Version: 2.0.0 (Professional Upgrade)
 Date: 15. Februar 2026
 """
+# pylint: disable=import-outside-toplevel
 
+import logging
 import os
 import sys
 import time
@@ -96,9 +98,8 @@ if __name__ == "__main__":
     )
 else:
     from .phase_interface import PhaseCategory, PhaseInterface, PhaseMetadata, PhaseResult, create_phase_result
-import logging
 
-from backend.core.audio_utils import to_channels_last
+from backend.core.audio_utils import restore_layout, to_channels_last  # pylint: disable=wrong-import-position
 
 logger = logging.getLogger(__name__)
 
@@ -271,7 +272,7 @@ class HarmonicRestorationPhase(PhaseInterface):
     """
 
     # Material-adaptive Parameters (Professional-tuned)
-    MATERIAL_PARAMS = {
+    MATERIAL_PARAMS: dict[str, dict[str, Any]] = {
         "tape": {
             "saturation_mode": "tape",
             "strength": 0.55,
@@ -310,6 +311,24 @@ class HarmonicRestorationPhase(PhaseInterface):
             "target_range_hz": [16000, 20000],
             "drive": 1.1,  # Minimal drive
             "blend": 0.30,
+        },
+        "mp3_low": {
+            "saturation_mode": "transformer",
+            "strength": 0.55,  # MDCT-Codec: fehlende Harmonische oberhalb Cutoff rekonstruieren
+            "even_harmonic_ratio": 0.45,
+            "odd_harmonic_ratio": 0.55,
+            "target_range_hz": [11000, 18000],
+            "drive": 1.6,
+            "blend": 0.50,
+        },
+        "mp3_high": {
+            "saturation_mode": "transformer",
+            "strength": 0.35,
+            "even_harmonic_ratio": 0.45,
+            "odd_harmonic_ratio": 0.55,
+            "target_range_hz": [16000, 20000],
+            "drive": 1.3,
+            "blend": 0.38,
         },
         "unknown": {
             "saturation_mode": "transformer",
@@ -386,21 +405,21 @@ class HarmonicRestorationPhase(PhaseInterface):
         )
 
     def process(
-        self, audio: np.ndarray, material_type: str = "unknown", saturation_mode: str | None = None, **kwargs
+        self, audio: np.ndarray, sample_rate: int = 48000, material_type: str = "unknown", **kwargs: Any
     ) -> PhaseResult:
         """
         Professional harmonic restoration with saturation modeling.
 
         Args:
             audio: Input audio
+            sample_rate: Sample rate in Hz (must be 48000)
             material_type: Material type for adaptive processing
-            saturation_mode: Override saturation mode ('tube', 'tape', 'transformer', 'clean')
-            **kwargs: Additional parameters
+            **kwargs: Additional parameters (incl. saturation_mode, strength, ...)
 
         Returns:
             PhaseResult with harmonically enhanced audio
         """
-        sample_rate = kwargs.get("sample_rate", 48000)
+        saturation_mode: str | None = kwargs.get("saturation_mode")  # type: ignore[assignment]
         assert sample_rate == 48000, f"SR muss 48000 Hz sein, erhalten: {sample_rate}"
         audio, _p07_transposed = to_channels_last(audio)
         start_time = time.time()
@@ -427,6 +446,7 @@ class HarmonicRestorationPhase(PhaseInterface):
         if _effective_strength <= 0.0:
             passthrough = np.nan_to_num(audio.copy(), nan=0.0, posinf=0.0, neginf=0.0)
             passthrough = np.clip(passthrough, -1.0, 1.0)
+            passthrough = restore_layout(passthrough, _p07_transposed)
             return create_phase_result(
                 audio=passthrough,
                 modifications={
@@ -445,7 +465,7 @@ class HarmonicRestorationPhase(PhaseInterface):
             )
 
         # Get material-specific parameters
-        params = self.MATERIAL_PARAMS.get(material_type, self.MATERIAL_PARAMS["unknown"])
+        params: dict[str, Any] = dict(self.MATERIAL_PARAMS.get(material_type, self.MATERIAL_PARAMS["unknown"]))
 
         # Override saturation mode if specified
         if saturation_mode is not None:
@@ -454,15 +474,14 @@ class HarmonicRestorationPhase(PhaseInterface):
         else:
             params = params.copy()
 
-        params["strength"] = float(np.clip(params["strength"] * _effective_strength, 0.0, 1.0))
-        params["blend"] = float(np.clip(params["blend"] * _effective_strength, 0.0, 1.0))
+        params["strength"] = float(np.clip(float(params["strength"]) * _effective_strength, 0.0, 1.0))
+        params["blend"] = float(np.clip(float(params["blend"]) * _effective_strength, 0.0, 1.0))
 
         # Check if restoration needed
-        if params["strength"] < 0.1:
+        if float(params["strength"]) < 0.1:
             audio = np.nan_to_num(audio, nan=0.0, posinf=0.0, neginf=0.0)
-
             audio = np.clip(audio, -1.0, 1.0)
-
+            audio = restore_layout(audio, _p07_transposed)
             return create_phase_result(
                 audio=audio,
                 modifications={"harmonic_restored": False, "reason": "strength too low for restoration"},
@@ -496,7 +515,7 @@ class HarmonicRestorationPhase(PhaseInterface):
             )
             if _ddsp_audio is not None and _effective_strength >= 0.3:
                 # Blend DDSP result into main audio at conservative wet (≤ 0.35)
-                _ddsp_wet = float(np.clip(params["blend"] * 0.50, 0.0, 0.35))
+                _ddsp_wet = float(np.clip(float(params["blend"]) * 0.50, 0.0, 0.35))
                 if audio.ndim == 2:
                     _ddsp_audio_stereo = np.column_stack([_ddsp_audio, _ddsp_audio])
                     audio = np.clip(audio + _ddsp_wet * (_ddsp_audio_stereo - audio), -1.0, 1.0)
@@ -517,7 +536,7 @@ class HarmonicRestorationPhase(PhaseInterface):
             _harmonics_mid = self._extract_harmonics(_saturated_mid, _mid, params)
             # Additive synthesis on Mid only
             additive = self._synthesize_missing_overtones(_mono, f0_info, params)
-            fill_gain = params["blend"] * 0.40
+            fill_gain = float(params["blend"]) * 0.40
             # Blend harmonics into Mid, keep Side intact
             _out_mid = _mid + _harmonics_mid * params["blend"] + fill_gain * additive
             # M/S decode back to L/R
@@ -540,7 +559,7 @@ class HarmonicRestorationPhase(PhaseInterface):
             # Step 4: Blend with original (parallel processing)
             restored = audio + harmonics * params["blend"]
             # Fill-in missing overtones at 40 % of saturation blend (conservative)
-            fill_gain = params["blend"] * 0.40
+            fill_gain = float(params["blend"]) * 0.40
             restored += fill_gain * additive
 
         # Step 5: Safety clip (no peak normalization)
@@ -549,8 +568,8 @@ class HarmonicRestorationPhase(PhaseInterface):
         execution_time = time.time() - start_time
 
         # Calculate metrics
-        hf_energy_before = self._measure_hf_energy(audio, params["target_range_hz"])
-        hf_energy_after = self._measure_hf_energy(restored, params["target_range_hz"])
+        hf_energy_before = self._measure_hf_energy(audio, list(params["target_range_hz"]))
+        hf_energy_after = self._measure_hf_energy(restored, list(params["target_range_hz"]))
 
         hf_enhancement_db = 20 * np.log10(hf_energy_after / (hf_energy_before + 1e-10)) if hf_energy_before > 0 else 0.0
 
@@ -624,10 +643,11 @@ class HarmonicRestorationPhase(PhaseInterface):
             "cassette": 15000.0,
         }
         _mat_key_07 = str(material_type).lower().replace(" ", "_").replace("-", "_")
-        _bw_cap_07 = _BW_CEILING_07.get(_mat_key_07, None)
+        _bw_cap_07 = _BW_CEILING_07.get(_mat_key_07)
         if _bw_cap_07 is not None:
             try:
-                from scipy.signal import butter as _butter07, sosfiltfilt as _sosfiltfilt07
+                from scipy.signal import butter as _butter07
+                from scipy.signal import sosfiltfilt as _sosfiltfilt07
 
                 _nyq07 = sample_rate / 2.0
                 _bw_ratio07 = float(np.clip(_bw_cap_07 / _nyq07, 0.01, 0.99))
@@ -660,7 +680,11 @@ class HarmonicRestorationPhase(PhaseInterface):
             _audio_mono_07 = audio.mean(axis=0) if (
                 audio.ndim == 2 and audio.shape[0] == 2 and audio.shape[1] > 2
             ) else (audio.mean(axis=1) if audio.ndim == 2 else audio)
-            _bw_ceiling_07 = {"shellac": 8000.0, "wax_cylinder": 5000.0, "vinyl": 16000.0, "reel_tape": 18000.0, "cassette": 15000.0}.get(
+            _BW_CEILINGS_07 = {
+                "shellac": 8000.0, "wax_cylinder": 5000.0, "vinyl": 16000.0,
+                "reel_tape": 18000.0, "cassette": 15000.0,
+            }
+            _bw_ceiling_07 = _BW_CEILINGS_07.get(
                 str(material_type).lower().replace(" ", "_"), None
             )
             _, _hg_meta_07 = apply_hallucination_guard(
@@ -671,11 +695,46 @@ class HarmonicRestorationPhase(PhaseInterface):
                 mode="restoration",  # phase_07 ist immer restorative
             )
             if _hg_meta_07.get("hallucination_decision") == "rollback":
-                logger.warning("§2.46e phase_07 Hallucination-Guard rollback: %s", _hg_meta_07.get("hallucination_severity"))
+                logger.warning(
+                    "§2.46e phase_07 Hallucination-Guard rollback: %s",
+                    _hg_meta_07.get("hallucination_severity"),
+                )
                 restored = audio.copy()
         except Exception as _hg07_exc:
             logger.debug("§2.46e phase_07 Hallucination-Guard (non-blocking): %s", _hg07_exc)
 
+        # §TonalReference: era/genre/material recording-chain ceiling (Eargle 2004)
+        try:
+            from backend.core.tonal_reference_profile import get_tonal_reference_profiler
+            _era_r_07 = kwargs.get("era_result")
+            _era_d_07 = int(getattr(_era_r_07, "decade", None) or 0) or None
+            _genre_07 = str(kwargs.get("genre_label", "")).strip()
+            _rest_07 = float(kwargs.get("restorability_score", 50.0))
+            _mode_07 = str(kwargs.get("mode", kwargs.get("processing_mode", "restoration"))).lower()
+            _tonal_curve_07 = get_tonal_reference_profiler().get_curve(
+                era_decade=_era_d_07,
+                genre_label=_genre_07,
+                material_type=_mat_key_07,
+                restorability=_rest_07,
+                is_studio_2026=("studio" in _mode_07),
+            )
+            # Ceiling: verhindert Harmonik-Überschuss über Recording-Chain-Profil (SNR-adaptiv)
+            restored = _tonal_curve_07.apply_snr_adaptive_ceiling(audio, restored, sample_rate)
+            # §2.46 Target-Steering: harmonische Energie in Richtung Recording-Chain-Zielkurve
+            # (H2/H3-Profil des erkannten Geräte-Setups, z.B. Neve 1073 HF-Shelf, Röhren-Wärme).
+            # Sanfte Stärke (0.25) — Phase 07 arbeitet subtil, Phase 06 ist der primäre HF-Restorer.
+            restored = _tonal_curve_07.apply_target_steering(
+                audio, restored, sample_rate,
+                steering_strength=0.25,
+            )
+            logger.debug(
+                "Phase 07 TonalReference: era=%s genre=%s mat=%s conf=%.2f",
+                _era_d_07, _genre_07 or "?", _mat_key_07, _tonal_curve_07.confidence,
+            )
+        except Exception as _tc07_exc:
+            logger.debug("Phase 07 TonalReference ceiling (non-blocking): %s", _tc07_exc)
+
+        restored = restore_layout(restored, _p07_transposed)
         return create_phase_result(
             audio=restored,
             modifications={
@@ -702,8 +761,14 @@ class HarmonicRestorationPhase(PhaseInterface):
                 "target_range_hz": params["target_range_hz"],
                 "hf_energy_before": hf_energy_before,
                 "hf_energy_after": hf_energy_after,
-                "scientific_ref": "Arfib (1979), Yeh (2008), Välimäki (2011), Parker & Esquef (DAFx 2006), Hurchalla (2019), Klapuri (2006), Terhardt (1982)",
-                "benchmark": "Waves Aphex Vintage Warmer, SPL Vitalizer, iZotope Ozone Exciter, Softube Saturation Knob",
+                "scientific_ref": (
+                    "Arfib (1979), Yeh (2008), Välimäki (2011), Parker & Esquef (DAFx 2006),"
+                    " Hurchalla (2019), Klapuri (2006), Terhardt (1982)"
+                ),
+                "benchmark": (
+                    "Waves Aphex Vintage Warmer, SPL Vitalizer,"
+                    " iZotope Ozone Exciter, Softube Saturation Knob"
+                ),
                 "algorithm_version": "3.0_multi_pitch",
                 "execution_time_seconds": execution_time,
                 "phase_locality_factor": phase_locality_factor,
@@ -716,7 +781,7 @@ class HarmonicRestorationPhase(PhaseInterface):
             },
         )
 
-    def _analyze_missing_harmonics(self, audio: np.ndarray, params: dict[str, Any]) -> list[int]:
+    def _analyze_missing_harmonics(self, audio: np.ndarray, _params: dict[str, Any]) -> list[int]:
         """
         Analyze which harmonics are missing via spectral analysis.
 
@@ -803,7 +868,7 @@ class HarmonicRestorationPhase(PhaseInterface):
         # Zero out harmonics beyond the FFT grid
         valid = (harmonic_freqs <= freqs[-1]).astype(np.float64)
         mag_at_harmonics = magnitude[bin_indices] * valid  # (n_f0, n_harm)
-        return mag_at_harmonics @ weights  # (n_f0,)
+        return np.asarray(mag_at_harmonics @ weights)  # (n_f0,)
 
     def _detect_multi_pitch_f0s_with_analysis(
         self, mono: np.ndarray, n_max: int = 4
@@ -1021,7 +1086,7 @@ class HarmonicRestorationPhase(PhaseInterface):
 
         def _log_cosh(x: np.ndarray) -> np.ndarray:
             ax = np.abs(x)
-            return ax + np.log1p(np.exp(-2.0 * ax)) - np.log(2.0)
+            return np.asarray(ax + np.log1p(np.exp(-2.0 * ax)) - np.log(2.0))
 
         midpoint = np.tanh(0.5 * (x0 + x1))  # fallback for near-identical samples
         adaa = (_log_cosh(x0) - _log_cosh(x1)) / np.where(close, 1.0, dX)
@@ -1069,7 +1134,7 @@ class HarmonicRestorationPhase(PhaseInterface):
         # Hard limit at ±1.5
         saturated = np.clip(saturated, -1.5, 1.5)
 
-        return saturated
+        return np.asarray(saturated)
 
     def _transformer_saturation(self, audio: np.ndarray) -> np.ndarray:
         """Transformer saturation (symmetric, balanced harmonics) with ADAA.
@@ -1100,7 +1165,7 @@ class HarmonicRestorationPhase(PhaseInterface):
 
         # Ensure valid range
         if low_norm >= high_norm or low_norm >= 1.0:
-            return harmonics * 0.0  # Return silence
+            return np.zeros_like(harmonics)  # Return silence
 
         try:
             sos = signal.butter(4, [low_norm, high_norm], btype="band", output="sos")
@@ -1114,7 +1179,7 @@ class HarmonicRestorationPhase(PhaseInterface):
         except Exception:
             filtered = harmonics * 0.0
 
-        return filtered
+        return np.asarray(filtered)
 
     def _measure_hf_energy(self, audio: np.ndarray, freq_range: list[int]) -> float:
         """
@@ -1138,7 +1203,7 @@ class HarmonicRestorationPhase(PhaseInterface):
         except Exception:
             rms = 0.0
 
-        return rms
+        return float(rms)
 
     def _calculate_thd(self, original: np.ndarray, processed: np.ndarray) -> float:
         """
@@ -1161,67 +1226,73 @@ class HarmonicRestorationPhase(PhaseInterface):
 
         return thd
 
-    def supports_material(self, material_type: str) -> bool:
+    def supports_material(self, _material_type: str) -> bool:
         """All materials supported."""
         return True
 
 
 if __name__ == "__main__":
-    """Test Professional Harmonic Restoration Phase."""
+    # Test Professional Harmonic Restoration Phase.
 
     logger.debug("=" * 80)
     logger.debug("Professional Harmonic Restoration Phase v2.0 - Test")
     logger.debug("=" * 80)
 
     # Generate test audio (pure sine - no harmonics)
-    sr = 44100
-    duration = 3
-    t = np.linspace(0, duration, sr * duration)
+    _sr = 44100
+    _duration = 3
+    _t = np.linspace(0, _duration, _sr * _duration)
 
     # Pure 440 Hz sine wave (no harmonics initially)
-    fundamental = 0.4 * np.sin(2 * np.pi * 440 * t)
+    _fundamental = 0.4 * np.sin(2 * np.pi * 440 * _t)
 
     # Make stereo
-    audio = np.column_stack([fundamental, fundamental * 0.98])
+    _audio = np.column_stack([_fundamental, _fundamental * 0.98])
 
-    logger.debug("\nTest Audio: %ss @ %s Hz (stereo)", duration, sr)
+    logger.debug("\nTest Audio: %ss @ %s Hz (stereo)", _duration, _sr)
     logger.debug("Pure 440 Hz sine wave (no harmonics)")
 
     # Test with different materials
-    materials = ["shellac", "vinyl", "tape", "cd_digital"]
+    _materials = ["shellac", "vinyl", "tape", "cd_digital"]
 
-    for material in materials:
+    for _material in _materials:
         logger.debug("\n%s", "-" * 80)
-        logger.debug("Testing with material: %s", material.upper())
+        logger.debug("Testing with material: %s", _material.upper())
         logger.debug("%s", "-" * 80)
 
-        phase = HarmonicRestorationPhase(sample_rate=sr)
-        result = phase.process(audio.copy(), material_type=material)
+        _phase = HarmonicRestorationPhase(sample_rate=_sr)
+        _result = _phase.process(_audio.copy(), material_type=_material)
 
-        if result.success and result.modifications.get("harmonic_restored"):
-            logger.debug("✅ Processing Complete!")
+        if _result.success and _result.modifications.get("harmonic_restored"):
+            logger.debug("\u2705 Processing Complete!")
             logger.debug(
-                f"   Execution Time: {result.metadata['execution_time_seconds']:.3f}s ({result.metadata['execution_time_seconds'] / duration:.2f}× realtime)"
+                "   Execution Time: %.3fs (%.2f\u00d7 realtime)",
+                _result.metadata["execution_time_seconds"],
+                _result.metadata["execution_time_seconds"] / _duration,
             )
-            logger.debug("   Saturation Mode: %s", result.modifications["saturation_mode"])
-            logger.debug("   Drive: %.1f×", result.modifications["drive"])
-            logger.debug("   Blend: %.2f", result.modifications["blend"])
+            logger.debug("   Saturation Mode: %s", _result.modifications["saturation_mode"])
+            logger.debug("   Drive: %.1f\u00d7", _result.modifications["drive"])
+            logger.debug("   Blend: %.2f", _result.modifications["blend"])
             logger.debug(
-                f"   Even/Odd Ratio: {result.modifications['even_harmonic_ratio']:.1f}/{result.modifications['odd_harmonic_ratio']:.1f}"
+                "   Even/Odd Ratio: %.1f/%.1f",
+                _result.modifications["even_harmonic_ratio"],
+                _result.modifications["odd_harmonic_ratio"],
             )
-            logger.debug("   HF Enhancement: %.1f dB", result.modifications["hf_enhancement_db"])
-            logger.debug("   THD: %.2f%%", result.modifications["thd_percent"])
-            logger.debug("   Missing Harmonics: %s", result.metadata["missing_harmonics"])
-            logger.debug("   Target Range: %s Hz", result.metadata["target_range_hz"])
-            logger.debug("   Warnings: %s", result.warnings if result.warnings else "None")
+            logger.debug("   HF Enhancement: %.1f dB", _result.modifications["hf_enhancement_db"])
+            logger.debug("   THD: %.2f%%", _result.modifications["thd_percent"])
+            logger.debug("   Missing Harmonics: %s", _result.metadata["missing_harmonics"])
+            logger.debug("   Target Range: %s Hz", _result.metadata["target_range_hz"])
+            logger.debug("   Warnings: %s", _result.warnings if _result.warnings else "None")
         else:
-            logger.debug("⏭️  Harmonic Restoration Skipped")
-            logger.debug("   Reason: %s", result.modifications.get("reason", "unknown"))
+            logger.debug("\u23ed\ufe0f  Harmonic Restoration Skipped")
+            logger.debug("   Reason: %s", _result.modifications.get("reason", "unknown"))
 
     logger.debug("\n%s", "=" * 80)
-    logger.debug("✅ Professional Harmonic Restoration v2.0 Test Complete!")
+    logger.debug("\u2705 Professional Harmonic Restoration v2.0 Test Complete!")
     logger.debug("%s", "=" * 80)
-    logger.debug("Algorithm: %s", result.metadata.get("algorithm", "N/A"))
-    logger.debug("Scientific Reference: %s", result.metadata.get("scientific_ref", "N/A"))
-    logger.debug("Benchmark: %s", result.metadata.get("benchmark", "N/A"))
+    logger.debug("Algorithm: %s", _result.metadata.get("algorithm", "N/A"))  # type: ignore[possibly-undefined]
+    logger.debug(  # type: ignore[possibly-undefined]
+        "Scientific Reference: %s", _result.metadata.get("scientific_ref", "N/A")
+    )
+    logger.debug("Benchmark: %s", _result.metadata.get("benchmark", "N/A"))  # type: ignore[possibly-undefined]
     logger.debug("Quality Impact: 0.94 (Professional-Grade)")

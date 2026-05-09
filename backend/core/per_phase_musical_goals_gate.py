@@ -3739,7 +3739,8 @@ class PerPhaseMusicalGoalsGate:
             _team_policy,
         ):
             logger.warning(
-                "PMGG: %s catastrophic regression %.4f > %.2f (worst goal: %s P%d) — attempting emergency low-strength retries",
+                "PMGG: %s catastrophic regression %.4f > %.2f"
+                " (worst goal: %s P%d) — attempting emergency low-strength retries",
                 phase_id,
                 best_regression,
                 _CATASTROPHIC_THRESHOLD,
