@@ -1467,6 +1467,25 @@ class TestPhase40LoudnessNormalization:
         assert "output_guard_fallback" in result.metadata
         assert "output_guard_reason" in result.metadata
 
+    def test_quiet_edge_gain_is_limited(self):
+        intro = np.sin(2 * np.pi * 220.0 * np.linspace(0.0, 1.0, SR, endpoint=False)).astype(np.float32) * 0.015
+        middle = np.sin(2 * np.pi * 440.0 * np.linspace(0.0, 2.0, SR * 2, endpoint=False)).astype(np.float32) * 0.18
+        outro = np.sin(2 * np.pi * 220.0 * np.linspace(0.0, 1.0, SR, endpoint=False)).astype(np.float32) * 0.015
+        signal = np.concatenate([intro, middle, outro]).astype(np.float32)
+
+        result = self.phase.process(signal, SR, MaterialType.VINYL, quality_mode="studio2026", strength=1.0)
+        _assert_phase_result(result, signal, check_clipping=False)
+
+        out = np.asarray(result.audio, dtype=np.float32)
+        edge_len = SR
+        in_edge_peak = float(np.percentile(np.abs(signal[:edge_len]), 99.9))
+        out_edge_peak = float(np.percentile(np.abs(out[:edge_len]), 99.9))
+        in_mid_peak = float(np.percentile(np.abs(signal[edge_len:-edge_len]), 99.9))
+        out_mid_peak = float(np.percentile(np.abs(out[edge_len:-edge_len]), 99.9))
+
+        assert out_mid_peak > in_mid_peak
+        assert out_edge_peak <= (in_edge_peak * (10.0 ** (2.05 / 20.0)))
+
 
 # ===========================================================================
 # Phase 41 – Output Format Optimization
@@ -1518,6 +1537,25 @@ class TestPhase41OutputFormatOptimization:
         assert "output_guard_enabled" in result.metadata
         assert "output_guard_fallback" in result.metadata
         assert "output_guard_reason" in result.metadata
+
+    def test_loudness_normalization_protects_quiet_edges(self):
+        intro = np.sin(2 * np.pi * 220.0 * np.linspace(0.0, 1.0, SR, endpoint=False)).astype(np.float32) * 0.015
+        middle = np.sin(2 * np.pi * 440.0 * np.linspace(0.0, 2.0, SR * 2, endpoint=False)).astype(np.float32) * 0.18
+        outro = np.sin(2 * np.pi * 220.0 * np.linspace(0.0, 1.0, SR, endpoint=False)).astype(np.float32) * 0.015
+        signal = np.concatenate([intro, middle, outro]).astype(np.float32)
+
+        out, lufs_before, lufs_after = self.phase._normalize_loudness(signal, SR, -14.0)
+
+        edge_len = SR
+        in_edge_peak = float(np.percentile(np.abs(signal[:edge_len]), 99.9))
+        out_edge_peak = float(np.percentile(np.abs(out[:edge_len]), 99.9))
+        in_mid_peak = float(np.percentile(np.abs(signal[edge_len:-edge_len]), 99.9))
+        out_mid_peak = float(np.percentile(np.abs(out[edge_len:-edge_len]), 99.9))
+
+        assert np.isfinite(lufs_before)
+        assert np.isfinite(lufs_after)
+        assert out_mid_peak > in_mid_peak
+        assert out_edge_peak <= (in_edge_peak * (10.0 ** (2.05 / 20.0)))
 
     def test_pipeline_preserves_sr_and_float_audio(self, stereo):
         result = self.phase.process(stereo, SR, MaterialType.VINYL)

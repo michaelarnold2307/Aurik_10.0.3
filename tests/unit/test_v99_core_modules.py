@@ -105,12 +105,34 @@ class TestAudioExporter:
         assert isinstance(result, Path)
 
     def test_06_normalize_flag(self, exporter, tmp_path):
-        loud = _sine(440.0, 0.5, amp=0.1)  # leises Signal
+        t = np.linspace(0.0, 2.0, int(SR * 2.0), endpoint=False)
+        env = 0.15 + 0.85 * (0.5 * (1.0 + np.sin(2 * np.pi * 2.3 * t)))
+        loud = (0.1 * np.sin(2 * np.pi * 440.0 * t) * env).astype(np.float32)
         out = exporter.export(loud, SR, tmp_path / "norm.wav", normalize=True)
         import soundfile as sf
 
         audio, _ = sf.read(str(out))
         assert np.max(np.abs(audio)) > 0.5  # Normalisierung hat gewirkt
+
+    def test_06b_normalize_protects_quiet_intro_outro(self, exporter, tmp_path):
+        intro = _sine(220.0, 1.0, amp=0.015)
+        middle = _sine(440.0, 2.0, amp=0.18)
+        outro = _sine(220.0, 1.0, amp=0.015)
+        signal = np.concatenate([intro, middle, outro]).astype(np.float32)
+
+        out = exporter.export(signal, SR, tmp_path / "quiet_edges_norm.wav", normalize=True)
+
+        import soundfile as sf
+
+        audio, _ = sf.read(str(out))
+        edge_len = SR
+        in_edge_peak = float(np.percentile(np.abs(signal[:edge_len]), 99.9))
+        out_edge_peak = float(np.percentile(np.abs(audio[:edge_len]), 99.9))
+        in_mid_peak = float(np.percentile(np.abs(signal[edge_len:-edge_len]), 99.9))
+        out_mid_peak = float(np.percentile(np.abs(audio[edge_len:-edge_len]), 99.9))
+
+        assert out_mid_peak > in_mid_peak
+        assert out_edge_peak <= (in_edge_peak * (10.0 ** (2.05 / 20.0)))
 
     def test_07_stereo_export(self, exporter, tmp_path):
         stereo = _stereo(_sine(440.0, 1.0))

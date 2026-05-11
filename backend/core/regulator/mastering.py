@@ -3,30 +3,56 @@ SOTA-Mastering-Chain für AURIK: Modular, erweiterbar, produktiv.
 Enthält: LUFS-Normalisierung, Multiband-Kompression, adaptives EQing, Limiter, Stereo-Enhancement.
 """
 
-from typing import Any
+from collections.abc import Callable
+from typing import Any, cast
 
 import librosa
 import numpy as np
+from scipy.signal import butter, sosfilt, sosfiltfilt
+
+from backend.core.audio_utils import apply_musical_gain_envelope, limit_quiet_edge_boost
+
+try:
+    import pyloudnorm as pyln
+except ImportError:
+    pyln = None
+
+pghi_reconstruct: Callable[..., np.ndarray] | None
+try:
+    from dsp.pghi import pghi_reconstruct as _pghi_reconstruct
+
+    pghi_reconstruct = _pghi_reconstruct
+except ImportError:
+    pghi_reconstruct = None
 
 
 def lufs_normalize(audio: np.ndarray, sr: int, target_lufs: float = -14.0) -> np.ndarray:
-    try:
-        import pyloudnorm as pyln
-    except ImportError as e:
-        raise RuntimeError("pyloudnorm muss installiert sein für LUFS-Normalisierung.") from e
+    """Normalize program loudness while protecting intentionally quiet edges."""
+    if pyln is None:
+        raise RuntimeError("pyloudnorm muss installiert sein für LUFS-Normalisierung.")
     meter = pyln.Meter(sr)
     loudness = meter.integrated_loudness(audio)
     gain = target_lufs - loudness
-    audio = audio * (10 ** (gain / 20))
-    return audio
+    gain_linear = 10 ** (gain / 20)
+    if gain_linear > 1.0005:
+        normalized = apply_musical_gain_envelope(
+            audio,
+            gain_linear,
+            gate_dbfs=-36.0,
+            crossfade_ms=10.0,
+            sr=sr,
+            reference_for_gate=audio,
+        )
+        return limit_quiet_edge_boost(audio, normalized, sr=sr)
+    out = cast(np.ndarray, np.asarray(audio * gain_linear, dtype=np.float32))
+    return out
 
 
 def multiband_compress(
     audio: np.ndarray, sr: int, bands=((20, 250), (250, 4000), (4000, 20000)), ratio=2.0
 ) -> np.ndarray:
+    """Apply a simple three-band downward compression pass."""
     # Einfache Multiband-Kompression (SOTA: für Produktion durch spezialisierte Module ersetzen)
-    from scipy.signal import butter, sosfilt
-
     out = np.zeros_like(audio)
     for low, high in bands:
         sos = butter(2, [low / (sr / 2), high / (sr / 2)], btype="band", output="sos")
@@ -43,6 +69,7 @@ def multiband_compress(
 
 
 def adaptive_eq(audio: np.ndarray, sr: int) -> np.ndarray:
+    """Apply spectral-balancing EQ with phase-preserving reconstruction."""
     # SOTA: spectral smoothing EQ — phase reconstruction via PGHI (§4.5 RELEASE_MUST)
     n_fft = 2048
     hop = n_fft // 4
@@ -54,10 +81,9 @@ def adaptive_eq(audio: np.ndarray, sr: int) -> np.ndarray:
     S_eq = S_orig * gain[:, None]
     # PGHI phase reconstruction (§4.5 — Griffin-Lim als Fallback verboten: zerstört Phasenkohärenz)
     try:
-        from dsp.pghi import reconstruct_phase  # type: ignore[import]
-
-        result = reconstruct_phase(S_eq, window_size=n_fft, hop_size=hop, sr=sr)
-        audio_eq = result.audio
+        if pghi_reconstruct is None:
+            raise ImportError("dsp.pghi.pghi_reconstruct unavailable")
+        audio_eq = pghi_reconstruct(S_eq, sr=sr, win_size=n_fft, hop=hop, initial_phase=np.angle(stft_full))
     except Exception:
         # Phase-preserving iSTFT fallback — original phases aus stft_full beibehalten
         Zxx_eq = S_eq * np.exp(1j * np.angle(stft_full))
@@ -66,6 +92,7 @@ def adaptive_eq(audio: np.ndarray, sr: int) -> np.ndarray:
 
 
 def limiter(audio: np.ndarray, threshold: float = 0.98) -> np.ndarray:
+    """Apply attenuation-only peak limiting against the 99.9th percentile peak."""
     # True Peak Limiter (vereinfachte Version) — §2.45a Peak-Guard Conformity
     # Use percentile(99.9) to prevent single transient from blocking limiting
     # Only reduce gain if needed (never amplify - that would be compression, not limiting)
@@ -77,6 +104,7 @@ def limiter(audio: np.ndarray, threshold: float = 0.98) -> np.ndarray:
 
 
 def stereo_enhance(audio: np.ndarray, width: float = 1.1) -> np.ndarray:
+    """Widen stereo side content while leaving mono material untouched."""
     # Stereo-Enhancement (nur für Stereo)
     if audio.ndim == 1:
         return audio
@@ -147,8 +175,6 @@ def simple_eq(
 ) -> np.ndarray:
     """Einfacher EQ: Bass absenken, Höhen anheben (Butterworth-Shelf-Filter)."""
     # §2.51 zero-phase: sosfiltfilt statt sosfilt — Filterbänder werden zu audio addiert
-    from scipy.signal import butter, sosfilt, sosfiltfilt
-
     _n = audio.shape[-1] if hasattr(audio, "shape") else len(audio)
     sos_low = butter(2, 200 / (sr / 2), btype="low", output="sos")
     bass = sosfiltfilt(sos_low, audio) if _n >= 15 else sosfilt(sos_low, audio)

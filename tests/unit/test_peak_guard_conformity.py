@@ -10,11 +10,31 @@ Validates that:
 import numpy as np
 import pytest
 
-from backend.core.regulator.mastering import limiter
+from backend.core.regulator.mastering import limiter, lufs_normalize
 
 
 class TestPeakGuardConformity:
     """Unit tests for peak-guard compliance across pipeline."""
+
+    def test_lufs_normalize_limits_quiet_edges(self):
+        pytest.importorskip("pyloudnorm")
+
+        sr = 48_000
+        intro = np.sin(2 * np.pi * 220.0 * np.linspace(0.0, 1.0, sr, endpoint=False)).astype(np.float32) * 0.015
+        middle = np.sin(2 * np.pi * 440.0 * np.linspace(0.0, 2.0, sr * 2, endpoint=False)).astype(np.float32) * 0.18
+        outro = np.sin(2 * np.pi * 220.0 * np.linspace(0.0, 1.0, sr, endpoint=False)).astype(np.float32) * 0.015
+        audio = np.concatenate([intro, middle, outro]).astype(np.float32)
+
+        out = lufs_normalize(audio, sr, target_lufs=-14.0)
+
+        edge_len = sr
+        in_edge_peak = float(np.percentile(np.abs(audio[:edge_len]), 99.9))
+        out_edge_peak = float(np.percentile(np.abs(out[:edge_len]), 99.9))
+        in_mid_peak = float(np.percentile(np.abs(audio[edge_len:-edge_len]), 99.9))
+        out_mid_peak = float(np.percentile(np.abs(out[edge_len:-edge_len]), 99.9))
+
+        assert out_mid_peak > in_mid_peak
+        assert out_edge_peak <= (in_edge_peak * (10.0 ** (2.05 / 20.0)))
 
     def test_limiter_percentile_not_absolute_max(self):
         """

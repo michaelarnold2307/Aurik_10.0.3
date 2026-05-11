@@ -284,6 +284,7 @@ müssen zusätzlich folgende Nachweise liefern:
 1. **Keine Intro/Outro-Pegelexplosion**:
     - Der restaurierte Output darf in Intro/Outro-Zonen keine neu eingeführten Peak-Explosionen gegenüber dem Input erzeugen.
     - Präventive Ursache-Fixes (Kontext-Padding, deterministischer Strip) sind Pflicht; reiner Post-hoc-Fade reicht nicht als alleiniger Fix.
+    - Dasselbe gilt für positive Gain-Pfade ohne Boundary-Änderung: Loudness-, Export- und Mastering-Stufen müssen einen relativen Intro/Outro-Regressionscheck gegen das Eingangs-Audio nachweisen.
 2. **Keine neue L/R-Zeitverschiebung**:
     - Interchannel-Delay nach Verarbeitung darf nicht über den Input hinaus regressieren.
     - §2.51a Hard-Fail (> 1 ms) bleibt bindend.
@@ -292,6 +293,10 @@ müssen zusätzlich folgende Nachweise liefern:
     - Für `phase_23` gilt zusätzlich: Stereo-ML-Pfade müssen M/S- oder Linked-Stereo laufen; separate L/R-ML-Inferenz ist nicht release-fähig.
 
 **Release-Kriterium**: Ohne grüne Nachweise für Edge-Peak- und Lag-Invariante ist ein Merge in release-relevante Branches unzulässig.
+
+**Pflicht für Gain-nahe Regressionstests:** Wenn ein Patch positiven Gain in Loudness-/Export-/Mastering-Pfaden verändert,
+reicht ein globaler Peak- oder LUFS-Test nicht aus. Es MUSS zusätzlich mindestens ein Test existieren, der zeigt,
+dass der Mittelteil angehoben wird, während Intro/Outro-Peaks relativ zur Referenz innerhalb des Quiet-Edge-Limits bleiben.
 
 **CI-Contract-Test**: `tests/normative/test_edge_lag_no_regress_contract.py` muss grün sein.
 

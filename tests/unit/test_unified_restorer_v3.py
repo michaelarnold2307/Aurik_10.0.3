@@ -138,6 +138,123 @@ class TestRestorationResult:
         result = _make_restoration_result(audio)
         assert result.audio.shape == audio.shape
 
+
+class TestPreventFirstQuietEdges:
+    def test_40f_quiet_edge_prevention_profile_detects_intro_outro(self):
+        audio = _sine(secs=8.0) * 0.18
+        audio[: int(1.0 * SR)] *= 0.10
+        audio[-int(1.0 * SR) :] *= 0.08
+
+        profile = UnifiedRestorerV3._compute_quiet_edge_prevention_profile(audio.astype(np.float32), SR)
+
+        assert profile["has_quiet_edges"] is True
+        assert profile["intro_quiet"] is True
+        assert profile["outro_quiet"] is True
+        assert int(profile["edge_count"]) == 2
+
+    def test_40g_autosetup_policy_caps_risky_positive_phases_for_quiet_edges(self):
+        profile = {
+            "family_scalars": {"dynamics_eq": 1.0, "vocal": 1.0, "reconstruction": 1.0},
+            "material": "vinyl",
+            "restorability_tier": "fair",
+        }
+
+        out = UnifiedRestorerV3._apply_song_autosetup_policy(
+            profile,
+            defect_scores={},
+            transfer_chain=["vinyl", "tape"],
+            max_defect_severity=0.25,
+            quiet_edge_profile={
+                "has_quiet_edges": True,
+                "intro_quiet": True,
+                "outro_quiet": True,
+                "edge_count": 2,
+                "intro_depth_db": 12.0,
+                "outro_depth_db": 10.0,
+            },
+        )
+
+        assert out["family_scalars"]["dynamics_eq"] < 1.0
+        assert out["family_scalars"]["vocal"] < 1.0
+        caps = out["strict_conflict_policy"]["phase_strength_caps"]
+        assert float(caps["phase_40_loudness_normalization"]) <= 0.3001
+        assert float(caps["phase_10_compression"]) <= 0.39
+        assert out["strict_conflict_policy"]["quiet_edge_prevention"]["has_quiet_edges"] is True
+
+    def test_40h_build_song_calibration_profile_persists_vocal_presence(self):
+        profile = UnifiedRestorerV3._build_song_calibration_profile(
+            material_type=MaterialType.VINYL,
+            mode=QualityMode.QUALITY,
+            restorability_score=62.0,
+            input_snr_db=28.0,
+            max_defect_severity=0.25,
+            pipeline_confidence=0.9,
+            panns_tags={"Singing voice": 0.82, "Vocals": 0.78},
+        )
+
+        assert float(profile["vocal_presence"]) >= 0.82
+
+    def test_40i_autosetup_policy_caps_vocal_enhancement_for_vocal_material(self):
+        profile = {
+            "family_scalars": {"dynamics_eq": 1.0, "vocal": 1.0, "reconstruction": 1.0},
+            "material": "vinyl",
+            "restorability_tier": "fair",
+            "vocal_presence": 0.82,
+        }
+
+        out = UnifiedRestorerV3._apply_song_autosetup_policy(
+            profile,
+            defect_scores={},
+            transfer_chain=["vinyl"],
+            max_defect_severity=0.20,
+            quiet_edge_profile={"has_quiet_edges": False},
+        )
+
+        assert out["family_scalars"]["vocal"] < 1.0
+        assert out["family_scalars"]["dynamics_eq"] < 1.0
+        caps = out["strict_conflict_policy"]["phase_strength_caps"]
+        assert float(caps["phase_42_vocal_enhancement"]) <= 0.31
+        assert float(caps["phase_43_ml_deesser"]) <= 0.36
+        assert out["strict_conflict_policy"]["vocal_prevention"]["active"] is True
+
+    def test_40j_build_song_calibration_profile_persists_frisson_sensitivity(self):
+        profile = UnifiedRestorerV3._build_song_calibration_profile(
+            material_type=MaterialType.VINYL,
+            mode=QualityMode.QUALITY,
+            restorability_score=62.0,
+            input_snr_db=28.0,
+            max_defect_severity=0.25,
+            pipeline_confidence=0.9,
+            panns_tags={"Singing voice": 0.80},
+            is_schlager=False,
+            genre_label="opera",
+        )
+
+        assert float(profile["frisson_sensitivity"]) >= 0.60
+
+    def test_40k_autosetup_policy_caps_flattening_phases_for_frisson_sensitive_material(self):
+        profile = {
+            "family_scalars": {"dynamics_eq": 1.0, "vocal": 1.0, "reconstruction": 1.0, "reverb": 1.0},
+            "material": "vinyl",
+            "restorability_tier": "fair",
+            "frisson_sensitivity": 0.72,
+        }
+
+        out = UnifiedRestorerV3._apply_song_autosetup_policy(
+            profile,
+            defect_scores={},
+            transfer_chain=["vinyl"],
+            max_defect_severity=0.20,
+            quiet_edge_profile={"has_quiet_edges": False},
+        )
+
+        assert out["family_scalars"]["dynamics_eq"] < 1.0
+        assert out["family_scalars"]["reverb"] < 1.0
+        caps = out["strict_conflict_policy"]["phase_strength_caps"]
+        assert float(caps["phase_17_mastering_polish"]) <= 0.315
+        assert float(caps["phase_20_reverb_reduction"]) <= 0.232
+        assert out["strict_conflict_policy"]["frisson_prevention"]["active"] is True
+
     def test_11_quality_estimate_in_range(self):
         audio = _sine(secs=1.0)
         result = _make_restoration_result(audio)
@@ -593,6 +710,37 @@ class TestRestoreMocked:
                 )
 
         assert calls["sr"] == 44100
+
+    def test_40d_quiet_edge_rescue_guard_rejects_boosted_intro_outro(self):
+        n_edge = int(2.0 * SR)
+        n_mid = int(6.0 * SR)
+        t_edge = np.linspace(0.0, 2.0, n_edge, endpoint=False, dtype=np.float32)
+        t_mid = np.linspace(0.0, 6.0, n_mid, endpoint=False, dtype=np.float32)
+
+        quiet_edge = 0.010 * np.sin(2 * np.pi * 330.0 * t_edge).astype(np.float32)
+        music_mid = 0.180 * np.sin(2 * np.pi * 440.0 * t_mid).astype(np.float32)
+        original = np.concatenate([quiet_edge, music_mid, quiet_edge]).astype(np.float32)
+
+        candidate = original.copy()
+        candidate[:n_edge] *= 2.4
+        candidate[-n_edge:] *= 2.4
+
+        assert not UnifiedRestorerV3._quiet_edge_rescue_ok(original, candidate, SR, material_key="unknown")
+
+    def test_40e_quiet_edge_rescue_guard_allows_center_focused_candidate(self):
+        n_edge = int(2.0 * SR)
+        n_mid = int(6.0 * SR)
+        t_edge = np.linspace(0.0, 2.0, n_edge, endpoint=False, dtype=np.float32)
+        t_mid = np.linspace(0.0, 6.0, n_mid, endpoint=False, dtype=np.float32)
+
+        quiet_edge = 0.010 * np.sin(2 * np.pi * 330.0 * t_edge).astype(np.float32)
+        music_mid = 0.180 * np.sin(2 * np.pi * 440.0 * t_mid).astype(np.float32)
+        original = np.concatenate([quiet_edge, music_mid, quiet_edge]).astype(np.float32)
+
+        candidate = original.copy()
+        candidate[n_edge : n_edge + n_mid] *= 1.4
+
+        assert UnifiedRestorerV3._quiet_edge_rescue_ok(original, candidate, SR, material_key="unknown")
 
     def test_40d_pre_analysis_medium_handoff_reaches_scanner(self):
         """UV3.restore() must forward pre_analysis_result.medium to scanner as forensic_medium_result."""

@@ -11,6 +11,8 @@ Normative Anforderungen (§2.50):
 - Gate darf Eigenschaften des Quellmaterials nicht bestrafen (§0 Primum non nocere).
 """
 
+from typing import cast
+
 import numpy as np
 import pytest
 
@@ -30,7 +32,8 @@ def sr():
 def _make_stereo(left: np.ndarray, right: np.ndarray) -> np.ndarray:
     """Erstellt 2xN Stereo-Array."""
     n = min(len(left), len(right))
-    return np.stack([left[:n], right[:n]], axis=0).astype(np.float32)
+    stereo = np.asarray(np.stack([left[:n], right[:n]], axis=0), dtype=np.float32)
+    return cast(np.ndarray, stereo)
 
 
 # ── Grundlegende Rückgabe-Invarianten ─────────────────────────────────────

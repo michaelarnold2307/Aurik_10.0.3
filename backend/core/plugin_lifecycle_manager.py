@@ -20,6 +20,7 @@ import logging
 import threading
 import time
 from collections.abc import Callable
+from importlib import import_module
 
 logger = logging.getLogger(__name__)
 
@@ -79,6 +80,17 @@ _PHASE_REQUIRED_MODELS: dict[str, frozenset[str]] = {
 }
 
 
+def _release_ml_memory_budget(plugin_name: str) -> None:
+    """Release ML memory-budget accounting for an evicted plugin if available."""
+    try:
+        ml_memory_budget = import_module("backend.core.ml_memory_budget")
+        release_fn = getattr(ml_memory_budget, "release", None)
+        if callable(release_fn):
+            release_fn(plugin_name)
+    except ImportError:
+        pass
+
+
 # ---------------------------------------------------------------------------
 # Registry-Eintrag
 # ---------------------------------------------------------------------------
@@ -104,18 +116,19 @@ class _PluginEntry:
 # Singleton
 # ---------------------------------------------------------------------------
 
-_instance: PluginLifecycleManager | None = None
+_INSTANCE_HOLDER: dict[str, PluginLifecycleManager | None] = {"manager": None}
 _singleton_lock = threading.Lock()
 
 
 def get_plugin_lifecycle_manager() -> PluginLifecycleManager:
     """Gibt den PluginLifecycleManager-Singleton zurück (Double-Checked Locking)."""
-    global _instance
-    if _instance is None:
+    if _INSTANCE_HOLDER["manager"] is None:
         with _singleton_lock:
-            if _instance is None:
-                _instance = PluginLifecycleManager()
-    return _instance
+            if _INSTANCE_HOLDER["manager"] is None:
+                _INSTANCE_HOLDER["manager"] = PluginLifecycleManager()
+    manager = _INSTANCE_HOLDER["manager"]
+    assert manager is not None
+    return manager
 
 
 # ---------------------------------------------------------------------------
@@ -305,12 +318,7 @@ class PluginLifecycleManager:
                     phase_id,
                 )
                 entry.unload_fn()
-                try:
-                    from backend.core.ml_memory_budget import release as _release
-
-                    _release(entry.name)
-                except ImportError:
-                    pass
+                _release_ml_memory_budget(entry.name)
                 with self._lock:
                     self._entries.pop(entry.name, None)
                 evicted += 1
@@ -342,6 +350,7 @@ class PluginLifecycleManager:
         force_all: bool = False,
     ) -> int:
         """Führt die eigentliche Eviction durch (LRU-Reihenfolge)."""
+        required_free_mb = max(_MIN_FREE_MB_HARD, float(required_mb))
         with self._lock:
             # LRU-Sortierung: ältester Zugriff zuerst; aktive ausgenommen
             candidates: list[_PluginEntry] = sorted(
@@ -355,11 +364,7 @@ class PluginLifecycleManager:
                 ram_pct = self._ram_percent()
                 free_mb = self._free_mb()
                 swap_pct = self._swap_percent()
-                if (
-                    ram_pct <= target_pct
-                    and free_mb >= _MIN_FREE_MB_HARD
-                    and swap_pct <= _SWAP_EVICT_THRESHOLD_PCT
-                ):
+                if ram_pct <= target_pct and free_mb >= required_free_mb and swap_pct <= _SWAP_EVICT_THRESHOLD_PCT:
                     break
             try:
                 logger.info(
@@ -369,13 +374,7 @@ class PluginLifecycleManager:
                     time.monotonic() - entry.last_used_ts,
                 )
                 entry.unload_fn()
-                # Budget-Freigabe
-                try:
-                    from backend.core.ml_memory_budget import release as _release
-
-                    _release(entry.name)
-                except ImportError:
-                    pass
+                _release_ml_memory_budget(entry.name)
                 with self._lock:
                     self._entries.pop(entry.name, None)
                 evicted += 1
@@ -455,6 +454,7 @@ class PluginLifecycleManager:
     # ------------------------------------------------------------------
 
     def status(self) -> dict:
+        """Return a lightweight snapshot of current RAM pressure and registered plugins."""
         with self._lock:
             return {
                 "ram_pct": round(self._ram_percent(), 1),

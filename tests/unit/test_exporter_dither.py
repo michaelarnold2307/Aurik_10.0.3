@@ -15,12 +15,15 @@ Tests cover:
   - Amplitude of dither ≈ 1 LSB (not catastrophically larger)
 """
 
+from typing import cast
+
 import numpy as np
 
 from backend.exporter import (
     _POWR3_COEFFS,
     _apply_powr3_dither,
     _apply_tpdf_dither,
+    _export_nuance_guard,
     apply_dither,
 )
 
@@ -32,7 +35,8 @@ from backend.exporter import (
 def _sine(n: int = 4800, amp: float = 0.5, sr: int = 48000) -> np.ndarray:
     """Mono sine at 1 kHz, float32."""
     t = np.arange(n) / sr
-    return (amp * np.sin(2 * np.pi * 1000 * t)).astype(np.float32)
+    out = np.asarray((amp * np.sin(2 * np.pi * 1000 * t)), dtype=np.float32)
+    return cast(np.ndarray, out)
 
 
 def _stereo(n: int = 4800) -> np.ndarray:
@@ -267,3 +271,22 @@ class TestApplyDither:
         diff24 = np.mean(np.abs(apply_dither(a, 24) - a))
         # 16-bit dither must add more noise energy than 24-bit
         assert diff16 > diff24 * 10
+
+
+class TestExportNuanceGuard:
+    def test_balance_guard_never_boosts_quieter_channel(self):
+        left = _sine(n=48000, amp=0.40)
+        right = _sine(n=48000, amp=0.08)
+        stereo = np.stack([left, right], axis=1).astype(np.float32)
+        stereo_in = stereo.copy()
+
+        out = _export_nuance_guard(stereo, 48000)
+
+        centre = slice(1024, -1024)
+        in_left_rms = float(np.sqrt(np.mean(stereo_in[centre, 0].astype(np.float64) ** 2) + 1e-12))
+        in_right_rms = float(np.sqrt(np.mean(stereo_in[centre, 1].astype(np.float64) ** 2) + 1e-12))
+        out_left_rms = float(np.sqrt(np.mean(out[centre, 0].astype(np.float64) ** 2) + 1e-12))
+        out_right_rms = float(np.sqrt(np.mean(out[centre, 1].astype(np.float64) ** 2) + 1e-12))
+
+        assert out_left_rms < in_left_rms
+        assert out_right_rms <= in_right_rms * 1.001

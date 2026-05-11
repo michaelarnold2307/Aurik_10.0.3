@@ -193,3 +193,37 @@ def test_11_uv3_quiet_zone_also_clamped():
     assert rms_after <= rms_before + 0.5, (
         f"UV3 delegation: fadeout Pegelexplosion {rms_before:.1f} → {rms_after:.1f} dBFS"
     )
+
+
+def test_12_quiet_edge_reference_clamps_intentionally_quiet_intro_outro():
+    """Boost protection must compare processed edges against the original song edges."""
+    n = int(8.0 * SR)
+    t = np.linspace(0.0, 8.0, n, endpoint=False)
+    music = (0.18 * np.sin(2.0 * np.pi * 220.0 * t)).astype(np.float32)
+
+    reference = music.copy()
+    reference[: int(1.0 * SR)] *= 0.10
+    reference[-int(1.0 * SR) :] *= 0.08
+
+    processed = music.copy()
+    processed[: int(1.0 * SR)] *= 0.35
+    processed[-int(1.0 * SR) :] *= 0.32
+
+    out = apply_musical_gain_envelope(
+        processed,
+        gain=2.5,
+        gate_dbfs=-36.0,
+        sr=SR,
+        reference_for_gate=reference,
+    )
+
+    intro_ref = _rms_dbfs(reference[: int(1.0 * SR)])
+    intro_out = _rms_dbfs(out[: int(1.0 * SR)])
+    outro_ref = _rms_dbfs(reference[-int(1.0 * SR) :])
+    outro_out = _rms_dbfs(out[-int(1.0 * SR) :])
+    body_ref = _rms_dbfs(reference[int(2.0 * SR) : int(6.0 * SR)])
+    body_out = _rms_dbfs(out[int(2.0 * SR) : int(6.0 * SR)])
+
+    assert intro_out <= intro_ref + 2.05, f"Quiet intro was over-boosted: {intro_out - intro_ref:.1f} dB"
+    assert outro_out <= outro_ref + 2.05, f"Quiet outro was over-boosted: {outro_out - outro_ref:.1f} dB"
+    assert body_out >= body_ref + 2.0, "Music body should still receive meaningful gain"

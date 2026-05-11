@@ -2,20 +2,13 @@ from typing import Any
 
 import numpy as np
 
-try:
-    from resemblyzer import VoiceEncoder, preprocess_wav  # type: ignore[import]
-
-    _RESEMBLYZER_AVAILABLE = True
-except ImportError:
-    VoiceEncoder = None  # type: ignore[assignment]
-    preprocess_wav = None  # type: ignore[assignment]
-    _RESEMBLYZER_AVAILABLE = False
-
 
 class GenderDetector:
     def __init__(self, use_auth_token: Any = None) -> None:
         del use_auth_token
-        self.encoder = VoiceEncoder() if _RESEMBLYZER_AVAILABLE and VoiceEncoder is not None else None
+        from plugins.resemblyzer_plugin import get_resemblyzer_plugin  # pylint: disable=import-outside-toplevel
+
+        self._plugin = get_resemblyzer_plugin()
 
     def detect_gender(self, audio_file) -> str:
         """
@@ -23,13 +16,23 @@ class GenderDetector:
         Verwendet Resemblyzer für robuste, offlinefähige Stimmtyperkennung.
         """
         try:
-            if not _RESEMBLYZER_AVAILABLE or preprocess_wav is None or self.encoder is None:
+            if not self._plugin.available:
                 return "unknown"
-            wav = preprocess_wav(audio_file)
-            self.encoder.embed_utterance(wav)
-            # Placeholder: Nutze die mittlere Fundamental-Frequenz als grobe Gender-Schätzung
-            # Für professionelle Nutzung sollte ein SVM/KNN auf Embeddings trainiert werden
-            f0 = self._estimate_pitch(wav)
+            import soundfile as _sf  # pylint: disable=import-outside-toplevel
+
+            wav, _sr = _sf.read(audio_file, dtype="float32", always_2d=False)
+            emb = self._plugin.embed(wav, _sr)
+            if emb is None:
+                return "unknown"
+            # Pitch-basierte Grobklassifikation auf 16 kHz-Mono
+            import librosa as _librosa  # pylint: disable=import-outside-toplevel
+
+            mono_16k = _librosa.resample(
+                wav if wav.ndim == 1 else wav.mean(axis=-1),
+                orig_sr=_sr,
+                target_sr=16000,
+            )
+            f0 = self._estimate_pitch(mono_16k)
             if f0 < 170:
                 return "male"
             elif f0 < 300:

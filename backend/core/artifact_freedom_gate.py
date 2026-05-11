@@ -14,6 +14,7 @@ import threading
 from dataclasses import dataclass, field
 
 import numpy as np
+from scipy.signal import hilbert
 
 from backend.core.phase_ontology import (
     NOISE_TEXTURE_VALID_TYPES,
@@ -21,22 +22,24 @@ from backend.core.phase_ontology import (
     PhaseOperationType,
     get_phase_type,
 )
+from backend.core.pipeline_health_state import make_fail_reason
 
 logger = logging.getLogger(__name__)
 
 # ── Singleton ──────────────────────────────────────────────────────────────
-_instance: ArtifactFreedomGate | None = None
+_INSTANCE_HOLDER: dict[str, ArtifactFreedomGate | None] = {"gate": None}
 _lock = threading.Lock()
 
 
 def get_artifact_freedom_gate() -> ArtifactFreedomGate:
     """Thread-safe Singleton accessor (§ Pflicht-Pattern)."""
-    global _instance
-    if _instance is None:
+    if _INSTANCE_HOLDER["gate"] is None:
         with _lock:
-            if _instance is None:
-                _instance = ArtifactFreedomGate()
-    return _instance
+            if _INSTANCE_HOLDER["gate"] is None:
+                _INSTANCE_HOLDER["gate"] = ArtifactFreedomGate()
+    gate = _INSTANCE_HOLDER["gate"]
+    assert gate is not None
+    return gate
 
 
 # ── Data classes ───────────────────────────────────────────────────────────
@@ -534,16 +537,15 @@ class ArtifactFreedomGate:
         artifact_freedom = artifact_freedom + _rs_penalty  # §2.49c roughness/sharpness penalty
         artifact_freedom = float(np.clip(artifact_freedom, 0.0, 1.0))
 
-        detail = {
-            "n_musical_noise": sum(1 for a in all_artifacts if a.artifact_type == "musical_noise"),
-            "n_pre_echo": sum(1 for a in all_artifacts if a.artifact_type == "pre_echo"),
-            "n_spectral_holes": sum(1 for a in all_artifacts if a.artifact_type == "spectral_hole"),
-            "n_phase_cancellation": sum(1 for a in all_artifacts if a.artifact_type == "phase_cancellation"),
-            "n_metallic_ringing": sum(1 for a in all_artifacts if a.artifact_type == "metallic_ringing"),
-            "n_crackle_impulse": sum(1 for a in all_artifacts if a.artifact_type == "crackle_impulse"),
-            "weighted_artifact_sum": round(weighted_sum, 4),
-            "noise_texture_deviation_db_oct": round(noise_dev, 3),
-        }
+        detail: dict[str, object] = {}
+        detail["n_musical_noise"] = sum(1 for a in all_artifacts if a.artifact_type == "musical_noise")
+        detail["n_pre_echo"] = sum(1 for a in all_artifacts if a.artifact_type == "pre_echo")
+        detail["n_spectral_holes"] = sum(1 for a in all_artifacts if a.artifact_type == "spectral_hole")
+        detail["n_phase_cancellation"] = sum(1 for a in all_artifacts if a.artifact_type == "phase_cancellation")
+        detail["n_metallic_ringing"] = sum(1 for a in all_artifacts if a.artifact_type == "metallic_ringing")
+        detail["n_crackle_impulse"] = sum(1 for a in all_artifacts if a.artifact_type == "crackle_impulse")
+        detail["weighted_artifact_sum"] = round(weighted_sum, 4)
+        detail["noise_texture_deviation_db_oct"] = round(noise_dev, 3)
         # §2.49c: populate roughness/sharpness detail when guard fired
         if _rs_penalty < 0.0:
             if _roughness_delta > _ROUGHNESS_FLAG_ASPER:
@@ -554,8 +556,6 @@ class ArtifactFreedomGate:
         # §1.4a FailReason when artifact_freedom < 0.95
         _afg_fr = None
         if artifact_freedom < 0.95:
-            from backend.core.pipeline_health_state import make_fail_reason
-
             _afg_fr = make_fail_reason(
                 "ArtifactFreedomGate",
                 "ARTIFACT_VETO",
@@ -1453,11 +1453,10 @@ class ArtifactFreedomGate:
             return 0.0
 
         try:
-            from scipy.signal import hilbert
-
             # Temporal envelope via Hilbert transform
-            analytic = hilbert(audio.astype(np.float32))
-            envelope = np.abs(analytic).astype(np.float64)
+            audio_arr = np.asarray(audio, dtype=np.float64)
+            analytic = np.asarray(hilbert(audio_arr), dtype=np.complex128)
+            envelope = np.asarray(np.abs(analytic), dtype=np.float64)
 
             # Normalise envelope to remove DC (absolute level)
             envelope -= np.mean(envelope)

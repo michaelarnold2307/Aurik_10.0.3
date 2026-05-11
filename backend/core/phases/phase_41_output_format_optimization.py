@@ -61,10 +61,12 @@ Date: February 2026
 
 import logging
 import time
+from math import gcd
 
 import numpy as np
 from scipy import signal
 
+from backend.core.audio_utils import apply_musical_gain_envelope, limit_quiet_edge_boost
 from backend.core.defect_scanner import MaterialType
 
 try:
@@ -149,7 +151,11 @@ class OutputFormatOptimization(PhaseInterface):
         )
 
     def process(
-        self, audio: np.ndarray, sample_rate: int, material: MaterialType = MaterialType.VINYL, **kwargs
+        self,
+        audio: np.ndarray,
+        sample_rate: int = 48000,
+        material_type: str = "unknown",
+        **kwargs,
     ) -> PhaseResult:
         """
         Apply output format optimization.
@@ -157,7 +163,7 @@ class OutputFormatOptimization(PhaseInterface):
         Args:
             audio: Audio samples (mono or stereo)
             sample_rate: Input sample rate in Hz
-            material: Material type
+            material_type: Material type
 
         Returns:
             PhaseResult with optimized audio
@@ -166,6 +172,14 @@ class OutputFormatOptimization(PhaseInterface):
         assert sample_rate == 48000, f"SR muss 48000 Hz sein, erhalten: {sample_rate}"
         self.validate_input(audio)
         start_time = time.time()
+        phase_material: MaterialType
+        if isinstance(material_type, MaterialType):
+            phase_material = material_type
+        else:
+            try:
+                phase_material = MaterialType(str(material_type).lower())
+            except ValueError:
+                phase_material = MaterialType.UNKNOWN
 
         phase_locality_factor = float(kwargs.get("phase_locality_factor", 1.0))
         phase_locality_factor = float(np.clip(phase_locality_factor, 0.35, 1.0))
@@ -189,7 +203,7 @@ class OutputFormatOptimization(PhaseInterface):
                     "dithered": False,
                     "dither_type": "none",
                     "snr_improvement_db": 0.0,
-                    "material": material.value,
+                    "material": phase_material.value,
                 },
                 execution_time_seconds=time.time() - start_time,
                 metadata={
@@ -202,11 +216,11 @@ class OutputFormatOptimization(PhaseInterface):
                 },
             )
 
-        intended_output_sr = self.OUTPUT_SAMPLE_RATE.get(material, 44100)
-        intended_output_bit_depth = self.OUTPUT_BIT_DEPTH.get(material, 16)
-        lufs_target = self.LUFS_TARGET.get(material, -16.0)
-        true_peak_ceiling = self.TRUE_PEAK_CEILING.get(material, -1.0)
-        dither_type = self.DITHER_TYPE.get(material, "tpdf")
+        intended_output_sr = self.OUTPUT_SAMPLE_RATE.get(phase_material, 44100)
+        intended_output_bit_depth = self.OUTPUT_BIT_DEPTH.get(phase_material, 16)
+        lufs_target = self.LUFS_TARGET.get(phase_material, -16.0)
+        true_peak_ceiling = self.TRUE_PEAK_CEILING.get(phase_material, -1.0)
+        dither_type = self.DITHER_TYPE.get(phase_material, "tpdf")
 
         # Phase 41 runs inside the fixed 48 kHz restoration pipeline.
         # Delivery-format conversion belongs to the export layer, not to an
@@ -332,7 +346,7 @@ class OutputFormatOptimization(PhaseInterface):
                 "dithered": dithered,
                 "dither_type": dither_type,
                 "snr_improvement_db": float(snr_improvement_db),
-                "material": material.value,
+                "material": phase_material.value,
                 "rms_delta_db": float(guard.rms_delta_db),
                 "stereo_side_ratio": float(guard.stereo_side_ratio),
             },
@@ -361,8 +375,6 @@ class OutputFormatOptimization(PhaseInterface):
         """
         if input_sr == output_sr:
             return audio.copy()
-        from math import gcd
-
         g = gcd(input_sr, output_sr)
         up, down = output_sr // g, input_sr // g
         # axis=-1 = time axis for channels-first (2,N) and samples-first (N,) alike.
@@ -388,8 +400,6 @@ class OutputFormatOptimization(PhaseInterface):
         # Apply gain — §2.45a-II: musical-frame-only when amplifying to avoid
         # boosting analog surface noise in silent/fade-out sections.
         if gain_linear > 1.0005:
-            from backend.core.audio_utils import apply_musical_gain_envelope
-
             # §2.45a-II v9.12.2: reference_for_gate=audio → signal-relative gate (P15+9 dB)
             audio_normalized = apply_musical_gain_envelope(
                 audio,
@@ -399,6 +409,7 @@ class OutputFormatOptimization(PhaseInterface):
                 sr=sample_rate,
                 reference_for_gate=audio,
             )
+            audio_normalized = limit_quiet_edge_boost(audio, audio_normalized, sr=sample_rate)
         else:
             audio_normalized = audio * gain_linear
 
@@ -417,8 +428,8 @@ class OutputFormatOptimization(PhaseInterface):
             try:
                 meter = LUFSMeter(sr=sample_rate)
                 meter_audio = audio_arr.T if audio_arr.ndim == 2 else audio_arr
-                result = meter.measure(meter_audio, sample_rate)
-                return float(result.get("integrated_lufs", -70.0))
+                meter_result = meter.measure(meter_audio, sample_rate)
+                return float(meter_result.get("integrated_lufs", -70.0))
             except Exception as _exc:
                 logger.debug("Operation failed (non-critical): %s", _exc)
 
@@ -507,10 +518,10 @@ class OutputFormatOptimization(PhaseInterface):
             return out
 
         if audio.ndim == 2:
-            result = np.empty_like(audio, dtype=np.float64)
+            shaped_audio = np.empty_like(audio, dtype=np.float64)
             for c in range(audio.shape[1]):
-                result[:, c] = _shape_channel(audio[:, c])
-            return result.astype(np.float32)
+                shaped_audio[:, c] = _shape_channel(audio[:, c])
+            return shaped_audio.astype(np.float32)
         return _shape_channel(audio).astype(np.float32)
 
     def _apply_tpdf_dither(self, audio: np.ndarray, bit_depth: int = 16) -> np.ndarray:
@@ -618,9 +629,9 @@ if __name__ == "__main__":
 
     # Generate test audio
     duration = 2.0
-    sample_rate = 48000  # Input at 48kHz
+    demo_sr = 48000  # Input at 48kHz
 
-    t = np.linspace(0, duration, int(sample_rate * duration))
+    t = np.linspace(0, duration, int(demo_sr * duration))
 
     # Test signal: 1kHz sine + noise
     test_signal = 0.3 * np.sin(2 * np.pi * 1000 * t)
@@ -629,7 +640,7 @@ if __name__ == "__main__":
     # Stereo
     test_signal_stereo = np.column_stack([test_signal, test_signal * 0.95])
 
-    logger.debug("Generated %ss test audio @ %s Hz", duration, sample_rate)
+    logger.debug("Generated %ss test audio @ %s Hz", duration, demo_sr)
     logger.debug("Signal: 1kHz sine + noise (stereo)")
     logger.debug("")
 
@@ -640,29 +651,36 @@ if __name__ == "__main__":
         (MaterialType.STREAMING, "STREAMING"),
     ]
 
-    for material, material_name in materials:
+    for demo_material, material_name in materials:
         logger.debug("─" * 80)
         logger.debug("Material: %s", material_name)
         logger.debug("─" * 80)
         logger.debug("")
 
         phase = OutputFormatOptimization()
-        result = phase.process(test_signal_stereo, sample_rate, material)
+        demo_result = phase.process(test_signal_stereo, demo_sr, demo_material)
 
         logger.debug("✅ Professional Output Format Optimization:")
-        logger.debug("   Input: %s Hz", result.metrics["input_sample_rate"])
+        logger.debug("   Input: %s Hz", demo_result.metrics["input_sample_rate"])
         logger.debug(
-            "   Output: %s Hz, %s-bit", result.metrics["output_sample_rate"], result.metrics["output_bit_depth"]
+            "   Output: %s Hz, %s-bit",
+            demo_result.metrics["output_sample_rate"],
+            demo_result.metrics["output_bit_depth"],
         )
-        logger.debug("   Resampled: %s", result.metrics["resampled"])
+        logger.debug("   Resampled: %s", demo_result.metrics["resampled"])
         logger.debug(
-            f"   LUFS: {result.metrics['lufs_before']:.1f} → {result.metrics['lufs_after']:.1f} (target: {phase.LUFS_TARGET[material]:.1f})"
+            "   LUFS: %.1f -> %.1f (target: %.1f)",
+            demo_result.metrics["lufs_before"],
+            demo_result.metrics["lufs_after"],
+            phase.LUFS_TARGET[demo_material],
         )
-        logger.debug("   Peak Reduction: %.2f dB", result.metrics["peak_reduction_db"])
-        logger.debug("   Dithered: %s (%s)", result.metrics["dithered"], result.metrics["dither_type"])
-        logger.debug("   SNR Improvement: %.2f dB", result.metrics["snr_improvement_db"])
+        logger.debug("   Peak Reduction: %.2f dB", demo_result.metrics["peak_reduction_db"])
+        logger.debug("   Dithered: %s (%s)", demo_result.metrics["dithered"], demo_result.metrics["dither_type"])
+        logger.debug("   SNR Improvement: %.2f dB", demo_result.metrics["snr_improvement_db"])
         logger.debug(
-            f"   Processing time: {result.execution_time_seconds:.3f}s ({result.execution_time_seconds / duration:.2f}× realtime)"
+            "   Processing time: %.3fs (%.2fx realtime)",
+            demo_result.execution_time_seconds,
+            demo_result.execution_time_seconds / duration,
         )
         logger.debug("")
 

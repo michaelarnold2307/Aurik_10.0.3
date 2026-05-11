@@ -800,6 +800,31 @@ class UnifiedRestorerV3:
         )
 
     @staticmethod
+    def _quiet_edge_rescue_ok(
+        reference_audio: np.ndarray,
+        candidate_audio: np.ndarray,
+        sr: int,
+        *,
+        material_key: str | None = None,
+        max_edge_boost_db: float = 2.0,
+    ) -> bool:
+        """Reject late gain rescue when it inflates quiet intro/outro zones."""
+        try:
+            from backend.core.audio_utils import quiet_edge_boost_ok
+
+            return bool(
+                quiet_edge_boost_ok(
+                    reference_audio,
+                    candidate_audio,
+                    sr,
+                    material_key=material_key,
+                    max_edge_boost_db=max_edge_boost_db,
+                )
+            )
+        except Exception:
+            return True
+
+    @staticmethod
     def _update_positive_makeup_authority(phase_id: str, current_allowed: bool) -> tuple[bool, str | None]:
         """Update policy that controls positive cumulative makeup gain.
 
@@ -1230,6 +1255,8 @@ class UnifiedRestorerV3:
         # Strong vocal → push vocal family harder.
         _panns_vocal_boost = 1.0
         _panns_instrument_boost = 1.0
+        _vocal_prob = 0.0
+        _inst_prob = 0.0
         if isinstance(panns_tags, dict) and panns_tags:
             _vocal_prob = max(
                 float(panns_tags.get("Singing voice", 0.0) or 0),
@@ -1252,6 +1279,18 @@ class UnifiedRestorerV3:
                 _panns_vocal_boost = float(np.clip(0.90 + 0.22 * _vocal_prob, 0.90, 1.10))
             if _inst_prob >= 0.35:
                 _panns_instrument_boost = float(np.clip(0.90 + 0.22 * _inst_prob, 0.90, 1.10))
+
+        _genre_norm = str(genre_label or "").strip().lower()
+        _frisson_sensitivity = 0.0
+        if _genre_norm in {"oper", "opera", "klassik", "classical", "choral", "soundtrack", "ambient"}:
+            _frisson_sensitivity += 0.45
+        elif _genre_norm in {"jazz", "blues", "soul", "schlager"}:
+            _frisson_sensitivity += 0.22
+        if bool(is_schlager):
+            _frisson_sensitivity += 0.10
+        if _vocal_prob >= 0.35:
+            _frisson_sensitivity += float(np.clip((_vocal_prob - 0.35) / 0.65, 0.0, 1.0)) * 0.28
+        _frisson_sensitivity = float(np.clip(_frisson_sensitivity, 0.0, 1.0))
 
         # §Spectral-Fingerprint-Kalibrierung: direkte Messgrößen aus DefectScanner nutzen.
         # rolloff_95_hz < 8 kHz → Bandbreitenverlust → reconstruction-Familie hochskalieren.
@@ -1584,6 +1623,9 @@ class UnifiedRestorerV3:
             "genre_label": genre_label,
             "global_scalar": _global,
             "family_scalars": _family,
+            "vocal_presence": float(np.clip(_vocal_prob, 0.0, 1.0)),
+            "instrument_presence": float(np.clip(_inst_prob, 0.0, 1.0)),
+            "frisson_sensitivity": _frisson_sensitivity,
             "cluster_policy": _cluster_policy,
             "cluster_key": _cluster_policy.get("cluster_key", "unknown:unknown:general:fair"),
             # §2.41 Source-Fidelity-Felder für Phase 06 und ExcellenceOptimizer:
@@ -1699,12 +1741,157 @@ class UnifiedRestorerV3:
         return "general"
 
     @staticmethod
+    def _compute_quiet_edge_prevention_profile(
+        audio: np.ndarray,
+        sr: int,
+        *,
+        material_key: str | None = None,
+    ) -> dict[str, Any]:
+        """Detect quiet song edges so risky positive-gain phases can be capped early."""
+        try:
+            from backend.core.audio_utils import compute_gated_rms_dbfs, compute_signal_relative_gate_dbfs, safe_to_mono
+
+            mono = safe_to_mono(np.asarray(audio, dtype=np.float32))
+            n = len(mono)
+            if n < max(int(sr * 2.0), 4_800):
+                return {"has_quiet_edges": False}
+
+            edge_len = min(int(sr * 4.0), max(int(sr * 1.0), int(n * 0.10)))
+            centre_len = min(int(sr * 4.0), max(int(sr * 1.0), int(n * 0.20)))
+            centre_start = max(0, (n - centre_len) // 2)
+            gate_dbfs = compute_signal_relative_gate_dbfs(
+                mono,
+                fallback_gate_dbfs=-36.0,
+                material_key=material_key,
+            )
+            centre_db = compute_gated_rms_dbfs(mono[centre_start : centre_start + centre_len], gate_dbfs=gate_dbfs)
+            intro_db = compute_gated_rms_dbfs(mono[:edge_len], gate_dbfs=gate_dbfs)
+            outro_db = compute_gated_rms_dbfs(mono[-edge_len:], gate_dbfs=gate_dbfs)
+
+            intro_quiet = bool((intro_db <= gate_dbfs + 3.0) or (intro_db <= centre_db - 6.0))
+            outro_quiet = bool((outro_db <= gate_dbfs + 3.0) or (outro_db <= centre_db - 6.0))
+            intro_depth_db = float(max(0.0, centre_db - intro_db))
+            outro_depth_db = float(max(0.0, centre_db - outro_db))
+            edge_count = int(intro_quiet) + int(outro_quiet)
+
+            return {
+                "has_quiet_edges": bool(edge_count > 0),
+                "intro_quiet": intro_quiet,
+                "outro_quiet": outro_quiet,
+                "edge_count": edge_count,
+                "gate_dbfs": float(gate_dbfs),
+                "centre_dbfs": float(centre_db),
+                "intro_dbfs": float(intro_db),
+                "outro_dbfs": float(outro_db),
+                "intro_depth_db": intro_depth_db,
+                "outro_depth_db": outro_depth_db,
+            }
+        except Exception:
+            return {"has_quiet_edges": False}
+
+    @staticmethod
+    def _apply_prevent_first_policy(
+        family_scalars: dict[str, float],
+        phase_caps: dict[str, float],
+        *,
+        quiet_edge_profile: dict[str, Any] | None,
+        vocal_presence: float,
+        frisson_sensitivity: float,
+    ) -> tuple[dict[str, float], dict[str, float], dict[str, Any]]:
+        """Apply early preventive caps for positive-gain risk classes.
+
+        This helper centralizes bounded preventive policy shaping for quiet song
+        edges, vocal-dominant material and frisson-sensitive material.
+        """
+        _family = {str(k): float(v) for k, v in family_scalars.items()}
+        _phase_caps = {str(k): float(v) for k, v in phase_caps.items()}
+        _quiet_profile = quiet_edge_profile if isinstance(quiet_edge_profile, dict) else {}
+        _vocal_presence = float(np.clip(vocal_presence, 0.0, 1.0))
+        _frisson_sensitivity = float(np.clip(frisson_sensitivity, 0.0, 1.0))
+
+        if bool(_quiet_profile.get("has_quiet_edges", False)):
+            _edge_count = int(np.clip(_quiet_profile.get("edge_count", 0), 0, 2))
+            _max_depth_db = float(
+                np.clip(
+                    max(
+                        float(_quiet_profile.get("intro_depth_db", 0.0)),
+                        float(_quiet_profile.get("outro_depth_db", 0.0)),
+                    ),
+                    0.0,
+                    24.0,
+                )
+            )
+            _edge_severity = float(np.clip(0.85 + 0.07 * _edge_count + 0.01 * _max_depth_db, 0.88, 1.10))
+            _family["dynamics_eq"] = float(
+                np.clip(_family.get("dynamics_eq", 1.0) * (1.0 - 0.10 * _edge_severity), 0.30, 1.80)
+            )
+            _family["vocal"] = float(np.clip(_family.get("vocal", 1.0) * (1.0 - 0.05 * _edge_severity), 0.30, 1.80))
+
+            for _pid, _cap in {
+                "phase_10_compression": float(np.clip(0.42 - 0.03 * (_edge_count - 1), 0.34, 0.42)),
+                "phase_17_mastering_polish": float(np.clip(0.38 - 0.03 * (_edge_count - 1), 0.30, 0.38)),
+                "phase_26_dynamic_range_expansion": float(np.clip(0.40 - 0.03 * (_edge_count - 1), 0.32, 0.40)),
+                "phase_40_loudness_normalization": float(np.clip(0.34 - 0.04 * (_edge_count - 1), 0.26, 0.34)),
+                "phase_41_output_format_optimization": float(np.clip(0.38 - 0.04 * (_edge_count - 1), 0.30, 0.38)),
+            }.items():
+                _phase_caps[_pid] = min(float(_phase_caps.get(_pid, 1.0)), float(_cap))
+
+        if _vocal_presence >= 0.35:
+            _vocal_severity = float(np.clip((_vocal_presence - 0.35) / 0.65, 0.0, 1.0))
+            _family["vocal"] = float(np.clip(_family.get("vocal", 1.0) * (1.0 - 0.08 * _vocal_severity), 0.30, 1.80))
+            _family["dynamics_eq"] = float(
+                np.clip(_family.get("dynamics_eq", 1.0) * (1.0 - 0.04 * _vocal_severity), 0.30, 1.80)
+            )
+
+            for _pid, _cap in {
+                "phase_10_compression": float(np.clip(0.42 - 0.02 * _vocal_severity, 0.36, 0.42)),
+                "phase_17_mastering_polish": float(np.clip(0.37 - 0.03 * _vocal_severity, 0.31, 0.37)),
+                "phase_42_vocal_enhancement": float(np.clip(0.34 - 0.05 * _vocal_severity, 0.28, 0.34)),
+                "phase_43_ml_deesser": float(np.clip(0.38 - 0.04 * _vocal_severity, 0.31, 0.38)),
+            }.items():
+                _phase_caps[_pid] = min(float(_phase_caps.get(_pid, 1.0)), float(_cap))
+
+        if _frisson_sensitivity >= 0.25:
+            _family["dynamics_eq"] = float(
+                np.clip(_family.get("dynamics_eq", 1.0) * (1.0 - 0.06 * _frisson_sensitivity), 0.30, 1.80)
+            )
+            _family["reverb"] = float(
+                np.clip(_family.get("reverb", 1.0) * (1.0 - 0.04 * _frisson_sensitivity), 0.30, 1.80)
+            )
+
+            for _pid, _cap in {
+                "phase_10_compression": float(np.clip(0.40 - 0.04 * _frisson_sensitivity, 0.34, 0.40)),
+                "phase_17_mastering_polish": float(np.clip(0.35 - 0.05 * _frisson_sensitivity, 0.29, 0.35)),
+                "phase_20_reverb_reduction": float(np.clip(0.26 - 0.04 * _frisson_sensitivity, 0.20, 0.26)),
+                "phase_26_dynamic_range_expansion": float(np.clip(0.38 - 0.04 * _frisson_sensitivity, 0.31, 0.38)),
+                "phase_49_advanced_dereverb": float(np.clip(0.24 - 0.04 * _frisson_sensitivity, 0.18, 0.24)),
+            }.items():
+                _phase_caps[_pid] = min(float(_phase_caps.get(_pid, 1.0)), float(_cap))
+
+        return (
+            _family,
+            _phase_caps,
+            {
+                "quiet_edge_prevention": dict(_quiet_profile) if _quiet_profile else {"has_quiet_edges": False},
+                "vocal_prevention": {
+                    "active": bool(_vocal_presence >= 0.35),
+                    "vocal_presence": float(_vocal_presence),
+                },
+                "frisson_prevention": {
+                    "active": bool(_frisson_sensitivity >= 0.25),
+                    "frisson_sensitivity": float(_frisson_sensitivity),
+                },
+            },
+        )
+
+    @staticmethod
     def _apply_song_autosetup_policy(
         profile: dict[str, Any],
         *,
         defect_scores: dict[str, float] | None,
         transfer_chain: list[str] | None,
         max_defect_severity: float,
+        quiet_edge_profile: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Apply strict per-song autosetup policy for fidelity/defect/carrier restoration.
 
@@ -1725,6 +1912,7 @@ class UnifiedRestorerV3:
         _max_def = float(np.clip(max_defect_severity, 0.0, 1.0))
         _mat = str(_out.get("material", "unknown") or "unknown").lower()
         _tier = str(_out.get("restorability_tier", "fair") or "fair").lower()
+        _quiet_profile = quiet_edge_profile if isinstance(quiet_edge_profile, dict) else {}
 
         # Carrier-chain awareness: deeper transfer chains need stronger subtractive +
         # reconstruction handling while keeping transients protected.
@@ -1800,11 +1988,22 @@ class UnifiedRestorerV3:
             ),
         }
 
+        _vocal_presence = float(np.clip(_out.get("vocal_presence", 0.0) or 0.0, 0.0, 1.0))
+        _frisson_sensitivity = float(np.clip(_out.get("frisson_sensitivity", 0.0) or 0.0, 0.0, 1.0))
+        _family, _phase_caps, _prevent_meta = UnifiedRestorerV3._apply_prevent_first_policy(
+            _family,
+            _phase_caps,
+            quiet_edge_profile=_quiet_profile,
+            vocal_presence=_vocal_presence,
+            frisson_sensitivity=_frisson_sensitivity,
+        )
+
         _strict_policy = {
             "enabled": True,
             "policy_id": "strict_phase_goal_conflict_v1",
             "transfer_chain_depth": int(_chain_depth),
             "phase_strength_caps": _phase_caps,
+            **_prevent_meta,
             "rollback_decay_per_family": {
                 "denoise": 0.90,
                 "transient": 0.92,
@@ -5507,6 +5706,11 @@ class UnifiedRestorerV3:
             defect_scores=_cal_defect_sev if _cal_defect_sev else None,
             transfer_chain=_cal_transfer_chain,
             max_defect_severity=_max_defect_severity,
+            quiet_edge_profile=UnifiedRestorerV3._compute_quiet_edge_prevention_profile(
+                _analysis_audio,
+                sample_rate,
+                material_key=str(getattr(material_type, "value", material_type)).lower() if material_type else None,
+            ),
         )
         # §9.11.1 Restorability-Ceiling: persist for access during phase loop
         self._last_restorability_score = float(_pmgg_restorability_score)
@@ -10097,7 +10301,13 @@ class UnifiedRestorerV3:
                                 _noise_allowance_db + 12.0 if _final_delta > 8.0 else _noise_allowance_db
                             )
                             _noise_ok = _noise_after_final <= (_noise_before_final + _noise_allowance_eff)
-                            if (_resc_delta_final + 1e-6 < _final_delta) and _noise_ok:
+                            _edge_ok_final = UnifiedRestorerV3._quiet_edge_rescue_ok(
+                                _orig_for_nf,
+                                _rescued_final,
+                                sample_rate,
+                                material_key=_mat_key_nf,
+                            )
+                            if (_resc_delta_final + 1e-6 < _final_delta) and _noise_ok and _edge_ok_final:
                                 restored_audio = _rescued_final.astype(np.float32, copy=False)
                                 _lufs_delta_for_result = float(_resc_delta_final)
                                 logger.info(
@@ -10105,6 +10315,14 @@ class UnifiedRestorerV3:
                                     float(_final_delta),
                                     float(_resc_delta_final),
                                     _needed_db_final,
+                                )
+                            elif (_resc_delta_final + 1e-6 < _final_delta) and (not _edge_ok_final):
+                                logger.info(
+                                    "§2.45a final LUFS rescue skipped by quiet-edge guard: "
+                                    "material=%s delta=%.2f->%.2f LU",
+                                    _mat_key_nf,
+                                    float(_final_delta),
+                                    float(_resc_delta_final),
                                 )
                             elif (_resc_delta_final + 1e-6 < _final_delta) and (not _noise_ok):
                                 # Try combined rescue: keep LUFS benefit, then attenuate only low-level floor
@@ -10135,8 +10353,16 @@ class UnifiedRestorerV3:
                                 _noise_combo = _nf_dbfs(_combo_rescued)
                                 if np.isfinite(_lufs_combo):
                                     _combo_delta = abs(float(_lufs_combo) - float(_lufs_orig_final))
-                                    if (_combo_delta + 1e-6 < _final_delta) and (
-                                        _noise_combo <= float(_noise_before_final + _noise_allowance_eff)
+                                    _combo_edge_ok = UnifiedRestorerV3._quiet_edge_rescue_ok(
+                                        _orig_for_nf,
+                                        _combo_rescued,
+                                        sample_rate,
+                                        material_key=_mat_key_nf,
+                                    )
+                                    if (
+                                        (_combo_delta + 1e-6 < _final_delta)
+                                        and (_noise_combo <= float(_noise_before_final + _noise_allowance_eff))
+                                        and _combo_edge_ok
                                     ):
                                         restored_audio = _combo_rescued.astype(np.float32, copy=False)
                                         _lufs_delta_for_result = float(_combo_delta)
@@ -10148,6 +10374,12 @@ class UnifiedRestorerV3:
                                             float(_noise_before_final),
                                             float(_noise_combo),
                                             _noise_limit,
+                                            _mat_key_nf,
+                                        )
+                                    elif (_combo_delta + 1e-6 < _final_delta) and (not _combo_edge_ok):
+                                        _lufs_delta_for_result = float(_final_delta)
+                                        logger.info(
+                                            "§2.45a final LUFS+noise rescue skipped by quiet-edge guard: material=%s",
                                             _mat_key_nf,
                                         )
                                     else:
@@ -10266,7 +10498,17 @@ class UnifiedRestorerV3:
                                 continue
                             _cand_delta = abs(float(_cand_lufs) - float(_lufs_orig_final))
                             _cand_noise = _nf_dbfs(_cand)
-                            _cand_ok = (_cand_delta <= 4.0 + 1e-6) and (_cand_noise <= _noise_limit_final + 1e-6)
+                            _cand_edge_ok = UnifiedRestorerV3._quiet_edge_rescue_ok(
+                                _orig_for_nf,
+                                _cand,
+                                sample_rate,
+                                material_key=_mat_key_nf,
+                            )
+                            _cand_ok = (
+                                (_cand_delta <= 4.0 + 1e-6)
+                                and (_cand_noise <= _noise_limit_final + 1e-6)
+                                and _cand_edge_ok
+                            )
                             if _cand_ok:
                                 if (
                                     _best_joint_audio is None
@@ -10774,9 +11016,9 @@ class UnifiedRestorerV3:
             goal_applicability=(
                 {
                     g: (g in (frozenset(getattr(_goal_applicability_result, "applicable", ()) or ())))
-                    for g in (
-                        frozenset(getattr(_goal_applicability_result, "applicable", ()) or ())
-                    ).union(frozenset(getattr(_goal_applicability_result, "inapplicable", ()) or ()))
+                    for g in (frozenset(getattr(_goal_applicability_result, "applicable", ()) or ())).union(
+                        frozenset(getattr(_goal_applicability_result, "inapplicable", ()) or ())
+                    )
                 }
                 if _goal_applicability_result is not None
                 else {}

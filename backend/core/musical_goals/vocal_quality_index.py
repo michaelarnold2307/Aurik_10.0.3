@@ -105,24 +105,20 @@ def _compute_singer_identity(
     vocal_post: np.ndarray,
     sr: int,
 ) -> tuple[float, bool]:
-    """Resemblyzer (primär) oder DSP-Proxy (Fallback). Gibt (cosine, dsp_used) zurück."""
+    """ResemblyzerPlugin (primär) oder DSP-Proxy (Fallback). Gibt (cosine, dsp_used) zurück."""
     try:
-        from resemblyzer import VoiceEncoder, preprocess_wav  # type: ignore[import]  # pylint: disable=import-outside-toplevel  # noqa: I001
+        from plugins.resemblyzer_plugin import get_resemblyzer_plugin  # pylint: disable=import-outside-toplevel
 
-        encoder = VoiceEncoder("cpu")
-        # Resemblyzer erwartet 16 kHz mono float32
-        import librosa as _librosa  # pylint: disable=import-outside-toplevel
+        plugin = get_resemblyzer_plugin()
+        if not plugin.available:
+            raise RuntimeError("ResemblyzerPlugin nicht verfügbar")
 
-        pre_16k = _librosa.resample(vocal_pre, orig_sr=sr, target_sr=16000)
-        post_16k = _librosa.resample(vocal_post, orig_sr=sr, target_sr=16000)
+        emb_pre = plugin.embed(vocal_pre, sr)
+        emb_post = plugin.embed(vocal_post, sr)
+        if emb_pre is None or emb_post is None:
+            raise RuntimeError("embed() lieferte None")
 
-        pre_16k = np.nan_to_num(pre_16k, nan=0.0).astype(np.float32)
-        post_16k = np.nan_to_num(post_16k, nan=0.0).astype(np.float32)
-
-        # preprocess_wav erwartet float32 bei 16 kHz
-        emb_pre = encoder.embed_utterance(preprocess_wav(pre_16k, source_sr=16000))
-        emb_post = encoder.embed_utterance(preprocess_wav(post_16k, source_sr=16000))
-        cosine = _safe_cosine(emb_pre, emb_post)
+        cosine = plugin.cosine_similarity(emb_pre, emb_post)
         return float(np.clip(cosine, 0.0, 1.0)), False
     except Exception as exc:
         logger.debug("Resemblyzer nicht verfügbar (%s) — DSP-Fallback", exc)

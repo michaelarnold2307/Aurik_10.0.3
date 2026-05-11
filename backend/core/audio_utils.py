@@ -1,3 +1,5 @@
+from typing import cast
+
 import numpy as np
 
 
@@ -231,6 +233,158 @@ def compute_signal_relative_gate_dbfs(
         return _floor
 
 
+def _quiet_edge_guard_profile(
+    reference_audio: np.ndarray,
+    sr: int,
+    *,
+    material_key: str | None = None,
+) -> dict[str, float | int | bool] | None:
+    """Measure whether original intro/outro should be treated as quiet edges."""
+    ref = safe_to_mono(np.asarray(reference_audio, dtype=np.float32))
+    n = len(ref)
+    if n < max(int(sr * 2.0), 4_800):
+        return None
+
+    edge_len = min(int(sr * 4.0), max(int(sr * 1.0), int(n * 0.10)))
+    centre_len = min(int(sr * 4.0), max(int(sr * 1.0), int(n * 0.20)))
+    centre_start = max(0, (n - centre_len) // 2)
+    gate_dbfs = compute_signal_relative_gate_dbfs(
+        ref,
+        fallback_gate_dbfs=-36.0,
+        material_key=material_key,
+    )
+    centre_ref_db = compute_gated_rms_dbfs(ref[centre_start : centre_start + centre_len], gate_dbfs=gate_dbfs)
+
+    intro_ref_db = compute_gated_rms_dbfs(ref[:edge_len], gate_dbfs=gate_dbfs)
+    outro_ref_db = compute_gated_rms_dbfs(ref[-edge_len:], gate_dbfs=gate_dbfs)
+
+    return {
+        "n": n,
+        "edge_len": edge_len,
+        "gate_dbfs": gate_dbfs,
+        "intro_quiet": bool((intro_ref_db <= gate_dbfs + 3.0) or (intro_ref_db <= centre_ref_db - 6.0)),
+        "outro_quiet": bool((outro_ref_db <= gate_dbfs + 3.0) or (outro_ref_db <= centre_ref_db - 6.0)),
+    }
+
+
+def quiet_edge_boost_ok(
+    reference_audio: np.ndarray,
+    candidate_audio: np.ndarray,
+    sr: int,
+    *,
+    material_key: str | None = None,
+    max_edge_boost_db: float = 2.0,
+) -> bool:
+    """Reject candidates that inflate intentionally quiet song edges."""
+    profile = _quiet_edge_guard_profile(reference_audio, sr, material_key=material_key)
+    if profile is None:
+        return True
+
+    ref = safe_to_mono(np.asarray(reference_audio, dtype=np.float32))
+    cand = safe_to_mono(np.asarray(candidate_audio, dtype=np.float32))
+    n = min(int(profile["n"]), len(cand))
+    if n < max(int(sr * 2.0), 4_800):
+        return True
+
+    ref = ref[:n]
+    cand = cand[:n]
+    edge_len = int(profile["edge_len"])
+    gate_dbfs = float(profile["gate_dbfs"])
+
+    def _p995_dbfs(x: np.ndarray) -> float:
+        return float(20.0 * np.log10(float(np.percentile(np.abs(x.astype(np.float64)), 99.5)) + 1e-12))
+
+    for ref_edge, cand_edge, is_quiet in (
+        (ref[:edge_len], cand[:edge_len], bool(profile["intro_quiet"])),
+        (ref[-edge_len:], cand[-edge_len:], bool(profile["outro_quiet"])),
+    ):
+        if not is_quiet:
+            continue
+        ref_edge_db = compute_gated_rms_dbfs(ref_edge, gate_dbfs=gate_dbfs)
+        cand_edge_db = compute_gated_rms_dbfs(cand_edge, gate_dbfs=gate_dbfs)
+        if cand_edge_db > ref_edge_db + max_edge_boost_db:
+            return False
+
+        ref_edge_peak_db = _p995_dbfs(ref_edge)
+        cand_edge_peak_db = _p995_dbfs(cand_edge)
+        if cand_edge_peak_db > ref_edge_peak_db + max_edge_boost_db + 1.0:
+            return False
+    return True
+
+
+def _scale_audio_region(
+    audio: np.ndarray,
+    start: int,
+    end: int,
+    scale: float,
+) -> np.ndarray:
+    if scale >= 0.9999 or end <= start:
+        return audio
+    out = np.array(audio, dtype=np.float32, copy=True)
+    if out.ndim == 1:
+        out[start:end] *= np.float32(scale)
+        return out
+    ch_first = out.shape[0] <= 2 and out.shape[1] > out.shape[0]
+    if ch_first:
+        out[:, start:end] *= np.float32(scale)
+        return out
+    out[start:end, :] *= np.float32(scale)
+    return out
+
+
+def limit_quiet_edge_boost(
+    reference_audio: np.ndarray,
+    candidate_audio: np.ndarray,
+    sr: int,
+    *,
+    material_key: str | None = None,
+    max_edge_boost_db: float = 2.0,
+) -> np.ndarray:
+    """Scale quiet intro/outro regions back toward the original edge level."""
+    profile = _quiet_edge_guard_profile(reference_audio, sr, material_key=material_key)
+    if profile is None:
+        return np.asarray(candidate_audio, dtype=np.float32)
+
+    ref = safe_to_mono(np.asarray(reference_audio, dtype=np.float32))
+    out = np.asarray(candidate_audio, dtype=np.float32)
+    cand_mono = safe_to_mono(out)
+    n = min(int(profile["n"]), len(cand_mono))
+    if n < max(int(sr * 2.0), 4_800):
+        return out
+
+    ref = ref[:n]
+    edge_len = int(profile["edge_len"])
+    gate_dbfs = float(profile["gate_dbfs"])
+
+    def _p995_dbfs(x: np.ndarray) -> float:
+        return float(20.0 * np.log10(float(np.percentile(np.abs(x.astype(np.float64)), 99.5)) + 1e-12))
+
+    for start, end, is_quiet in (
+        (0, edge_len, bool(profile["intro_quiet"])),
+        (n - edge_len, n, bool(profile["outro_quiet"])),
+    ):
+        if not is_quiet:
+            continue
+        cand_mono = safe_to_mono(out)[:n]
+        ref_edge = ref[start:end]
+        cand_edge = cand_mono[start:end]
+        ref_edge_db = compute_gated_rms_dbfs(ref_edge, gate_dbfs=gate_dbfs)
+        cand_edge_db = compute_gated_rms_dbfs(cand_edge, gate_dbfs=gate_dbfs)
+        ref_edge_peak_db = _p995_dbfs(ref_edge)
+        cand_edge_peak_db = _p995_dbfs(cand_edge)
+
+        scale = 1.0
+        if cand_edge_db > ref_edge_db + max_edge_boost_db:
+            scale = min(scale, float(10.0 ** ((ref_edge_db + max_edge_boost_db - cand_edge_db) / 20.0)))
+        if cand_edge_peak_db > ref_edge_peak_db + max_edge_boost_db + 1.0:
+            scale = min(
+                scale,
+                float(10.0 ** ((ref_edge_peak_db + max_edge_boost_db + 1.0 - cand_edge_peak_db) / 20.0)),
+            )
+        out = _scale_audio_region(out, start, end, max(scale, 0.0))
+    return out
+
+
 def apply_musical_gain_envelope(
     audio: np.ndarray,
     gain: float,
@@ -358,12 +512,36 @@ def apply_musical_gain_envelope(
     if tail_rms_db is not None and tail_rms_db <= _QUIET_ZONE_DB:
         per_sample_gain[tail_s:] = np.minimum(per_sample_gain[tail_s:], 1.0)
 
-    if was_2d:
-        ch_first = arr.shape[0] <= 2 and arr.shape[1] > arr.shape[0]
-        if ch_first:
-            return (arr * per_sample_gain[np.newaxis, :]).astype(np.float32)
-        return (arr * per_sample_gain[:, np.newaxis]).astype(np.float32)
-    return (arr * per_sample_gain).astype(np.float32)
+    def _render(gain_env: np.ndarray) -> np.ndarray:
+        if was_2d:
+            ch_first = arr.shape[0] <= 2 and arr.shape[1] > arr.shape[0]
+            if ch_first:
+                return cast(np.ndarray, np.asarray(arr * gain_env[np.newaxis, :], dtype=np.float32))
+            return cast(np.ndarray, np.asarray(arr * gain_env[:, np.newaxis], dtype=np.float32))
+        return cast(np.ndarray, np.asarray(arr * gain_env, dtype=np.float32))
+
+    out = _render(per_sample_gain)
+    edge_reference = reference_for_gate if reference_for_gate is not None else arr
+    edge_profile = _quiet_edge_guard_profile(edge_reference, sr, material_key=material_key)
+    if edge_profile is not None and not quiet_edge_boost_ok(
+        edge_reference,
+        out,
+        sr,
+        material_key=material_key,
+    ):
+        edge_len = int(edge_profile["edge_len"])
+        if bool(edge_profile["intro_quiet"]):
+            per_sample_gain[:edge_len] = np.minimum(per_sample_gain[:edge_len], 1.0)
+        if bool(edge_profile["outro_quiet"]):
+            per_sample_gain[-edge_len:] = np.minimum(per_sample_gain[-edge_len:], 1.0)
+        out = _render(per_sample_gain)
+        out = limit_quiet_edge_boost(
+            edge_reference,
+            out,
+            sr,
+            material_key=material_key,
+        )
+    return out
 
 
 def check_gain_safety(

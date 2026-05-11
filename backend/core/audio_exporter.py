@@ -19,13 +19,27 @@ Features:
 
 from __future__ import annotations
 
+import json
 import logging
 import threading
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 import soundfile as sf
+
+from backend.core.audio_utils import apply_musical_gain_envelope as _amge
+from backend.core.audio_utils import limit_quiet_edge_boost as _limit_quiet_edge_boost
+
+try:
+    import pyloudnorm as _pyln
+except ImportError:
+    _pyln = None
+
+try:
+    from scipy.signal import lfilter as _scipy_lfilter
+except ImportError:
+    _scipy_lfilter = None
 
 logger = logging.getLogger(__name__)
 
@@ -51,8 +65,8 @@ def _apply_dither_16bit(audio: np.ndarray) -> np.ndarray:
     n = audio.shape[0]
 
     try:
-        from scipy.signal import lfilter as _lfilter
-
+        if _scipy_lfilter is None:
+            raise ImportError("scipy.signal.lfilter unavailable")
         # POW-r Type 3 noise-shaping FIR coefficients.
         # Dual-set: 48 kHz primary (Aurik processing SR), 44.1 kHz secondary.
         # 48 kHz coefficients re-optimised following Wannamaker, Lipshitz &
@@ -77,10 +91,11 @@ def _apply_dither_16bit(audio: np.ndarray) -> np.ndarray:
             # TPDF base noise: two uniform distributions → triangular ±1 LSB RMS
             tpdf = np.random.uniform(-LSB, LSB, n) + np.random.uniform(-LSB, LSB, n)
             # Apply POW-r Type 3 spectral shaping to the dither noise
-            shaped = _lfilter(_POWR3_FIR, [1.0], tpdf)
+            shaped = _scipy_lfilter(_POWR3_FIR, [1.0], tpdf)
             # Add shaped dither, quantise, re-normalise to float
             dithered = ch.astype(np.float64) + shaped
-            return (np.round(np.clip(dithered, -1.0, 1.0) * 32767.0) / 32767.0).astype(np.float32)
+            out = np.asarray((np.round(np.clip(dithered, -1.0, 1.0) * 32767.0) / 32767.0), dtype=np.float32)
+            return cast(np.ndarray, out)
 
         if audio.ndim == 1:
             return _shape_channel(audio)
@@ -96,11 +111,12 @@ def _apply_dither_16bit(audio: np.ndarray) -> np.ndarray:
         if audio.ndim == 2:
             tpdf = tpdf[:, np.newaxis]
         dithered = audio.astype(np.float64) + tpdf
-        return (np.round(np.clip(dithered, -1.0, 1.0) * 32767.0) / 32767.0).astype(np.float32)
+        out = np.asarray((np.round(np.clip(dithered, -1.0, 1.0) * 32767.0) / 32767.0), dtype=np.float32)
+        return cast(np.ndarray, out)
 
 
-_instance: AudioExporter | None = None
 _lock = threading.Lock()
+_INSTANCE_HOLDER: dict[str, AudioExporter | None] = {"instance": None}
 
 
 def get_audio_exporter() -> AudioExporter:
@@ -109,12 +125,11 @@ def get_audio_exporter() -> AudioExporter:
     Returns:
         AudioExporter singleton instance
     """
-    global _instance
-    if _instance is None:
+    if _INSTANCE_HOLDER["instance"] is None:
         with _lock:
-            if _instance is None:
-                _instance = AudioExporter()
-    return _instance
+            if _INSTANCE_HOLDER["instance"] is None:
+                _INSTANCE_HOLDER["instance"] = AudioExporter()
+    return cast(AudioExporter, _INSTANCE_HOLDER["instance"])
 
 
 class AudioExporter:
@@ -183,14 +198,11 @@ class AudioExporter:
         # Normalize if requested — LUFS ITU-R BS.1770 (pyloudnorm) + TruePeak safety limiter.
         # For very quiet material we apply a small post-LUFS floor boost so that
         # normalize=True still audibly raises level in legacy workflows.
-        if normalize:
+        if normalize and _pyln is not None:
             try:
-                import pyloudnorm as _pyln
-
-                from backend.core.audio_utils import apply_musical_gain_envelope as _amge
-
                 _meter = _pyln.Meter(sr)  # ITU-R BS.1770-4
                 _lufs_target = -14.0  # EBU R128 Streaming-Standard
+                _normalize_reference = np.asarray(audio_export, dtype=np.float32).copy()
                 _measured_lufs = float(_meter.integrated_loudness(audio_export))
                 if np.isfinite(_measured_lufs):
                     _gain_lu = _lufs_target - _measured_lufs
@@ -222,6 +234,7 @@ class AudioExporter:
                                 _post_gain_peak,
                                 _gain_linear,
                             )
+                        audio_export = _limit_quiet_edge_boost(_normalize_reference, audio_export, sr=sr)
                     else:
                         # Attenuation is safe to apply uniformly (reduces level, no explosion risk).
                         audio_export = np.clip(audio_export * _gain_linear, -1.0, 1.0)
@@ -250,6 +263,7 @@ class AudioExporter:
                             _post_floor_peak,
                             _floor_gain,
                         )
+                    audio_export = _limit_quiet_edge_boost(_normalize_reference, audio_export, sr=sr)
                 # TruePeak safety: ≤ -0.1 dBTP — percentile 99.9 guards against
                 # crackle/click impulses blocking normalization of the whole signal.
                 _tp_peak = float(np.percentile(np.abs(audio_export), 99.9))
@@ -379,8 +393,6 @@ class AudioExporter:
 
         if not written_via_sf:
             # JSON-Sidecar als Fallback
-            import json
-
             sidecar = file_path.with_suffix(".metadata.json")
             try:
                 with open(sidecar, "w", encoding="utf-8") as f:
@@ -489,22 +501,27 @@ def batch_export_audio(
 if __name__ == "__main__":
     # np already imported at module level
     # Generate test audio (1s sine wave @ 440Hz)
-    sr = 44100
-    duration = 1.0
-    t = np.linspace(0, duration, int(sr * duration))
-    audio = np.sin(2 * np.pi * 440 * t) * 0.5
+    demo_sr = 44100
+    demo_duration = 1.0
+    t = np.linspace(0, demo_duration, int(demo_sr * demo_duration))
+    demo_audio = np.sin(2 * np.pi * 440 * t) * 0.5
 
     # Export to various formats
-    exporter = AudioExporter()
+    demo_exporter = AudioExporter()
 
-    logger.debug("Available formats: %s", exporter.list_supported_formats())
+    logger.debug("Available formats: %s", demo_exporter.list_supported_formats())
 
     # Single export
-    wav_path = exporter.export(audio, sr, Path("test_output.wav"), bit_depth=24)
+    wav_path = demo_exporter.export(demo_audio, demo_sr, Path("test_output.wav"), bit_depth=24)
     logger.debug("Exported WAV: %s", wav_path)
 
     # Batch export
-    results = exporter.batch_export(
-        audio, sr, Path("test_output"), formats=[".wav", ".flac", ".ogg"], bit_depth=16, normalize=True
+    demo_results = demo_exporter.batch_export(
+        demo_audio,
+        demo_sr,
+        Path("test_output"),
+        formats=[".wav", ".flac", ".ogg"],
+        bit_depth=16,
+        normalize=True,
     )
-    logger.debug("Batch exported: %s", results)
+    logger.debug("Batch exported: %s", demo_results)

@@ -68,12 +68,12 @@ import time
 import numpy as np
 from scipy import signal
 
-logger = logging.getLogger(__name__)
-
-from backend.core.audio_utils import to_channels_last
+from backend.core.audio_utils import apply_musical_gain_envelope, limit_quiet_edge_boost, to_channels_last
 from backend.core.defect_scanner import MaterialType
 
 from .phase_interface import PhaseCategory, PhaseInterface, PhaseMetadata, PhaseResult
+
+logger = logging.getLogger(__name__)
 
 
 class LoudnessNormalizationPhase(PhaseInterface):
@@ -121,7 +121,7 @@ class LoudnessNormalizationPhase(PhaseInterface):
         self,
         audio: np.ndarray,
         sample_rate: int,
-        material: MaterialType,
+        material_type: MaterialType,
         platform: str | None = None,  # Optional platform preset
         preserve_dynamics: bool = False,  # Preserve DR (minimal compression)
         **kwargs,
@@ -132,7 +132,7 @@ class LoudnessNormalizationPhase(PhaseInterface):
         Args:
             audio: Eingabe-Audio (mono oder stereo)
             sample_rate: Sample-Rate
-            material: Material-Typ
+            material_type: Material-Typ
             platform: Optional Platform-Preset ('spotify', 'youtube', etc.)
             preserve_dynamics: Ob Dynamic Range erhalten werden soll
 
@@ -142,6 +142,7 @@ class LoudnessNormalizationPhase(PhaseInterface):
         sample_rate = kwargs.get("sample_rate", 48000)
         assert sample_rate == 48000, f"SR muss 48000 Hz sein, erhalten: {sample_rate}"
         start_time = time.time()
+        material = material_type
 
         self.validate_input(audio)
         audio, _p40_transposed = to_channels_last(audio)
@@ -232,9 +233,11 @@ class LoudnessNormalizationPhase(PhaseInterface):
         max_safe_gain_db = max_true_peak_db - 20.0 * np.log10(current_peak) + 2.0
         if gain_db > max_safe_gain_db:
             logger.debug(
-                f"Phase 40: Headroom-capping gain {gain_db:.1f} → {max_safe_gain_db:.1f} dB "
-                f"(peak={20.0 * np.log10(current_peak):.1f} dBFS, "
-                f"tp_limit={max_true_peak_db} dBTP)"
+                "Phase 40: Headroom-capping gain %.1f -> %.1f dB (peak=%.1f dBFS, tp_limit=%.1f dBTP)",
+                gain_db,
+                max_safe_gain_db,
+                20.0 * np.log10(current_peak),
+                max_true_peak_db,
             )
             gain_db = max_safe_gain_db
 
@@ -245,8 +248,6 @@ class LoudnessNormalizationPhase(PhaseInterface):
         # surface noise (at -35 to -45 dBFS) by the full target-LUFS correction (+16 to
         # +31 dB in Studio 2026 mode) → Pegelexplosion in fade-out / silence sections.
         if gain_linear > 1.0005:
-            from backend.core.audio_utils import apply_musical_gain_envelope
-
             # §2.45a-II v9.12.2: reference_for_gate=audio → signal-relative gate (P15+9 dB)
             normalized = apply_musical_gain_envelope(
                 audio,
@@ -256,6 +257,7 @@ class LoudnessNormalizationPhase(PhaseInterface):
                 sr=sample_rate,
                 reference_for_gate=audio,
             )
+            normalized = limit_quiet_edge_boost(audio, normalized, sr=sample_rate)
         else:
             normalized = audio * gain_linear
 
@@ -549,7 +551,7 @@ class LoudnessNormalizationPhase(PhaseInterface):
 
         return max_loudness
 
-    def _measure_true_peak(self, audio: np.ndarray, sample_rate: int) -> float:
+    def _measure_true_peak(self, audio: np.ndarray, _sample_rate: int) -> float:
         """
         True Peak Measurement (ITU-R BS.1770-4).
         4× Oversampling for inter-sample peak detection.
@@ -636,15 +638,15 @@ class LoudnessNormalizationPhase(PhaseInterface):
 
 
 if __name__ == "__main__":
-    """Test der LoudnessNormalizationPhase."""
+    # Manual smoke test for LoudnessNormalizationPhase.
 
     logger.debug("=" * 80)
     logger.debug("Phase 40: Professional Loudness Normalization v2.0")
     logger.debug("=" * 80)
 
-    sample_rate = 44100
-    duration = 5.0
-    t = np.linspace(0, duration, int(sample_rate * duration), endpoint=False)
+    demo_sr = 44100
+    demo_duration = 5.0
+    t = np.linspace(0, demo_duration, int(demo_sr * demo_duration), endpoint=False)
 
     # Test-Audio: Zu leise (simuliert pre-mastered Audio)
     # Multi-Frequenz mit moderatem Level
@@ -663,7 +665,7 @@ if __name__ == "__main__":
     rms_before = np.sqrt(np.mean(test_audio_stereo**2))
     peak_before = np.abs(test_audio_stereo).max()
 
-    logger.debug("\nGeneriert %ss Test-Audio @ %s Hz", duration, sample_rate)
+    logger.debug("\nGeneriert %ss Test-Audio @ %s Hz", demo_duration, demo_sr)
     logger.debug("Multi-Frequenz: 100 Hz, 1000 Hz, 5000 Hz")
     logger.debug("Stereo (zu leise für Production)")
     logger.debug("RMS: %.1f dBFS", 20 * np.log10(rms_before))
@@ -679,16 +681,16 @@ if __name__ == "__main__":
         (MaterialType.STREAMING, "broadcast", "Platform: EBU R128 Broadcast (-23 LUFS)"),
     ]
 
-    for material, platform, description in test_configs:
+    for demo_material, demo_platform, description in test_configs:
         logger.debug("\n%s", "─" * 80)
         logger.debug("%s", description)
         logger.debug("%s", "─" * 80)
 
-        result = phase.process(test_audio_stereo, sample_rate, material, platform=platform)
+        demo_result = phase.process(test_audio_stereo, demo_sr, demo_material, platform=demo_platform)
 
-        if result.success:
-            m = result.metrics
-            meta = result.metadata
+        if demo_result.success:
+            m = demo_result.metrics
+            meta = demo_result.metadata
 
             logger.debug("\n✅ Professional Loudness Normalization:")
             logger.debug("   Target: %.1f LUFS", meta["target_lufs"])
@@ -716,7 +718,9 @@ if __name__ == "__main__":
             logger.debug("\n   Processing:")
             logger.debug("     Gain Applied: %.2f dB", m["gain_applied_db"])
             logger.debug(
-                f"     Time: {result.execution_time_seconds:.3f}s ({result.execution_time_seconds / duration:.2f}× realtime)"
+                "     Time: %.3fs (%.2fx realtime)",
+                demo_result.execution_time_seconds,
+                demo_result.execution_time_seconds / demo_duration,
             )
 
     logger.debug("\n%s", "=" * 80)

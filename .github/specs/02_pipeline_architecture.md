@@ -1637,6 +1637,17 @@ nur wenn die Noise-Floor-Evidenz eindeutig genug ist. Der Aufrufer MUSS explizit
 - [ ] `self._musical_gain_envelope(..., gate_dbfs=-36.0, ...)` (UV3-intern) — NICHT −50.0
 - [ ] `_rms_dbfs_gated(audio)` für RMS-Messung verwendet den internen Default (−50 dBFS) — korrekt
 - [ ] Per-Sample-Guard nach `np.interp` (§2.30b) nutzt −36 dBFS
+- [ ] Bei positivem Loudness-/Export-/Mastering-Gain mit Quiet-Edge-Risiko: Referenzvergleich Intro/Outro gegen Eingangs-Audio und post-gain Quiet-Edge-Clamp (`limit_quiet_edge_boost(reference_audio, candidate_audio, sr)`) anwenden
+
+**Zusatzinvariante für positive Gain-Pfade (v9.12.0):**
+
+Music-gated Gain allein ist nicht hinreichend, wenn ein Signal bewusst leise Intro-/Outro-Zonen enthält.
+Sobald ein Pfad Programm-Lautheit aktiv anhebt (z. B. LUFS-Normalisierung, Floor-Boost, Export-Normalisierung,
+Mastering-LUFS, späte Dynamics-Polish), MUSS nach dem positiven Gain ein Referenzvergleich gegen das Eingangs-
+signal stattfinden. Die kanonische Umsetzung ist `limit_quiet_edge_boost(reference_audio, candidate_audio, sr)`.
+
+**Zielinvariante:** Der Mittelteil darf angehoben werden, aber intentional leise Intro-/Outro-Zonen dürfen gegenüber
+der Referenz nicht neu explodieren.
 
 **UV3-intern betroffene Stellen (alle drei benötigen −36.0):**
 

@@ -69,6 +69,11 @@ class IntroducedArtifactDetector:
     MUSICAL_NOISE_THRESHOLD_DB: float = 3.0
     SILENCE_THRESHOLD_DBFS: float = -40.0
     HARMONICITY_THRESHOLD: float = 0.70
+    # §2.46e Relative-Harmonicity-Guard (v9.12.1):
+    # Residuum-Harmonizität muss HALLUCINATION_RELATIVE_MARGIN über Original-Harmonizität liegen.
+    # Verhindert False-Positives: Restaurierungs-Delta auf vokalen/harmonischen Content erbt
+    # die Harmonizität des Originals → kein Hallucination-Flag.
+    HALLUCINATION_RELATIVE_MARGIN: float = 0.20
     # Min. Residuum-RMS für echte ML-Halluzination (≈ −30 dBFS):
     # Unterhalb dieser Schwelle ist das Residuum zu leise für eine wahrnehmbare Halluzination.
     HALLUCINATION_MIN_RMS: float = 0.032
@@ -105,7 +110,7 @@ class IntroducedArtifactDetector:
         for a in self._detect_musical_noise(orig_mono, residuum, sr):
             artifacts.append(a)
             artifact_mask[a.start_sample : a.end_sample] = True
-        for a in self._detect_ml_hallucinations(residuum, sr):
+        for a in self._detect_ml_hallucinations(orig_mono, residuum, sr):
             artifacts.append(a)
             artifact_mask[a.start_sample : a.end_sample] = True
         for a in self._detect_pvoc_smearing(orig_mono, rest_mono, sr):
@@ -173,7 +178,20 @@ class IntroducedArtifactDetector:
                     artifacts.append(ArtifactRegion("musical_noise", s, e, sev, 0.70))
         return artifacts
 
-    def _detect_ml_hallucinations(self, residuum: np.ndarray, sr: int) -> list[ArtifactRegion]:
+    def _detect_ml_hallucinations(self, orig: np.ndarray, residuum: np.ndarray, sr: int) -> list[ArtifactRegion]:
+        """§2.46e Relative-Harmonicity-Guard (v9.12.1).
+
+        Detects truly hallucinated harmonic content introduced by ML restoration.
+        The residuum (restored − original) of any vocal/musical restoration inherits
+        harmonic structure from the underlying music signal — this is NOT a hallucination.
+        A true hallucination requires the residuum to be SIGNIFICANTLY MORE harmonic
+        than the original at the same location (new harmonic content was added).
+
+        Gate: h_res > HARMONICITY_THRESHOLD AND h_res > h_orig + HALLUCINATION_RELATIVE_MARGIN.
+        Effective threshold: max(0.70, h_orig + 0.20) — scales with original harmonicity.
+        - Vocal (h_orig ≈ 0.80): effective threshold ≈ 1.00 → never fires on vocal restoration ✓
+        - Noise section (h_orig ≈ 0.10): effective threshold ≈ 0.30 → fires at 0.70 (original gate) ✓
+        """
         win = max(1, int(2.0 * sr))
         hop = max(1, int(1.0 * sr))
         artifacts: list[ArtifactRegion] = []
@@ -205,9 +223,20 @@ class IntroducedArtifactDetector:
                 frame_eval = frame
                 sr_eval = sr
 
-            h = self._harmonicity(frame_eval, sr_eval)
-            if h > self.HARMONICITY_THRESHOLD:
-                artifacts.append(ArtifactRegion("ml_hallucination", s, s + win, float(np.clip(h, 0.0, 1.0)), float(h)))
+            h_res = self._harmonicity(frame_eval, sr_eval)
+            if h_res > self.HARMONICITY_THRESHOLD:
+                # §2.46e Relative-Harmonicity-Guard:
+                # Only flag if residuum is significantly MORE harmonic than the original.
+                # Musical restoration modifies existing harmonics → residuum inherits their
+                # harmonicity → NOT a hallucination (artifact_freedom = 0.95 adhesion fix).
+                orig_frame = orig[s : s + win]
+                orig_eval = orig_frame[::2] if (len(orig_frame) >= 8192 and sr >= 32000) else orig_frame
+                h_orig = self._harmonicity(orig_eval, sr_eval)
+                if h_res <= h_orig + self.HALLUCINATION_RELATIVE_MARGIN:
+                    continue  # Restoration delta on existing harmonic content — not a hallucination
+                artifacts.append(
+                    ArtifactRegion("ml_hallucination", s, s + win, float(np.clip(h_res, 0.0, 1.0)), float(h_res))
+                )
         return artifacts
 
     def _detect_pvoc_smearing(self, orig: np.ndarray, rest: np.ndarray, sr: int) -> list[ArtifactRegion]:

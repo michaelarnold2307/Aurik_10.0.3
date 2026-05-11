@@ -1,10 +1,14 @@
 import io
 import logging
 import math
-from typing import Any
+import os
+import tempfile
+from typing import Any, cast
 
 import numpy as np
 import soundfile as sf
+
+from backend.core.metadata_preserver import get_metadata_preserver
 
 try:
     import ffmpeg
@@ -27,8 +31,6 @@ def _transfer_metadata(source_path: str, target_path: str) -> None:
     if not source_path:
         return
     try:
-        from backend.core.metadata_preserver import get_metadata_preserver
-
         get_metadata_preserver().transfer(source_path, target_path, aurik_version="9.10")
     except Exception as exc:
         logger.debug("metadata transfer skipped: %s", exc)
@@ -102,7 +104,8 @@ def _apply_powr3_dither(audio: np.ndarray, bit_depth: int) -> np.ndarray:
         shaped[:, ch] = scipy_signal.lfilter(_POWR3_COEFFS, [1.0], raw_dither[:, ch])
 
     result = np.clip((a + shaped).astype(np.float32), -1.0, 1.0)
-    return result[:, 0] if mono_input else result
+    out = result[:, 0] if mono_input else result
+    return cast(np.ndarray, out)
 
 
 def _apply_tpdf_dither(audio: np.ndarray, bit_depth: int) -> np.ndarray:
@@ -127,7 +130,8 @@ def _apply_tpdf_dither(audio: np.ndarray, bit_depth: int) -> np.ndarray:
     lsb = 2.0 / (2**bit_depth)
     rng = np.random.default_rng()
     noise = (rng.random(audio.shape) + rng.random(audio.shape) - 1.0) * lsb
-    return np.clip((audio + noise).astype(np.float32), -1.0, 1.0)
+    out = np.clip((audio + noise).astype(np.float32), -1.0, 1.0)
+    return cast(np.ndarray, out)
 
 
 def apply_dither(audio: np.ndarray, bit_depth: int = 16) -> np.ndarray:
@@ -219,9 +223,13 @@ def _export_nuance_guard(audio: np.ndarray, sr: int) -> np.ndarray:
         r_rms = float(np.sqrt(np.mean(r**2) + 1e-12))
         bal_db = 20.0 * math.log10((l_rms + 1e-12) / (r_rms + 1e-12))
         if abs(bal_db) > 7.0:
-            target = 0.5 * (l_rms + r_rms)
-            g_l = float(np.clip(target / (l_rms + 1e-12), 0.80, 1.25))
-            g_r = float(np.clip(target / (r_rms + 1e-12), 0.80, 1.25))
+            max_ratio = 10.0 ** (7.0 / 20.0)
+            g_l = 1.0
+            g_r = 1.0
+            if l_rms > (r_rms * max_ratio):
+                g_l = float(np.clip((r_rms * max_ratio) / (l_rms + 1e-12), 0.80, 1.0))
+            elif r_rms > (l_rms * max_ratio):
+                g_r = float(np.clip((l_rms * max_ratio) / (r_rms + 1e-12), 0.80, 1.0))
             a[:, 0] = np.clip(a[:, 0] * g_l, -1.0, 1.0)
             a[:, 1] = np.clip(a[:, 1] * g_r, -1.0, 1.0)
             logger.info("Export-NuanceGuard: Stereo-Balance korrigiert (%.2f dB, gL=%.3f gR=%.3f)", bal_db, g_l, g_r)
@@ -451,10 +459,11 @@ def validate_export_quality(result: Any) -> tuple[bool, list[str]]:
 def export_audio(
     audio_bytes,
     export_path: str,
-    format: str = "wav",
+    export_format: str = "wav",
     bit_depth: int = 24,
     *,
     source_path: str = "",
+    **kwargs: Any,
 ) -> bool:
     """Export audio bytes to a file on disk.
 
@@ -472,7 +481,7 @@ def export_audio(
         Raw audio bytes (any format readable by soundfile).
     export_path : str
         Destination file path.
-    format : str
+    export_format : str
         Output container/codec (wav, flac, mp3, …).
     bit_depth : int
         Target integer bit depth for lossless formats (16 or 24).
@@ -485,6 +494,13 @@ def export_audio(
     bool
         ``True`` on success.
     """
+    legacy_format = kwargs.pop("format", None)
+    if legacy_format is not None:
+        export_format = str(legacy_format)
+    if kwargs:
+        unexpected = ", ".join(sorted(str(key) for key in kwargs))
+        raise TypeError(f"Unerwartete Export-Parameter: {unexpected}")
+
     _SUBTYPE_MAP = {16: "PCM_16", 24: "PCM_24", 32: "FLOAT"}
 
     # 1. Decode incoming bytes
@@ -497,7 +513,7 @@ def export_audio(
     logger.info(
         "Export gestartet: path=%s, format=%s, bit_depth=%d, sr=%d, shape=%s, duration=%.1fs",
         export_path,
-        format,
+        export_format,
         bit_depth,
         sr,
         audio.shape,
@@ -511,43 +527,38 @@ def export_audio(
     audio = _export_nuance_guard(audio, sr)
 
     # 3. Dithering before integer quantisation (spec §DSP-Spezialregeln)
-    if bit_depth < 32 and format.lower() not in ("mp3", "aac", "m4a", "opus"):
+    if bit_depth < 32 and export_format.lower() not in ("mp3", "aac", "m4a", "opus"):
         audio = apply_dither(audio, bit_depth=bit_depth)
 
     subtype = _SUBTYPE_MAP.get(bit_depth)
 
     # 4. WAV, FLAC, OGG, AIFF direkt mit soundfile — atomic write via .tmp → os.replace
-    if format.lower() in ["wav", "flac", "ogg", "aiff", "aif", "alac", "caf"]:
-        import os
-
+    if export_format.lower() in ["wav", "flac", "ogg", "aiff", "aif", "alac", "caf"]:
         tmp_path = export_path + ".tmp"
         try:
-            write_kwargs: dict = {"format": format.upper()}
-            if subtype and format.lower() in ("wav", "flac", "aiff", "aif"):
+            write_kwargs: dict = {"format": export_format.upper()}
+            if subtype and export_format.lower() in ("wav", "flac", "aiff", "aif"):
                 write_kwargs["subtype"] = subtype
             sf.write(tmp_path, audio, sr, **write_kwargs)
             os.replace(tmp_path, export_path)
             _transfer_metadata(source_path, export_path)
             _size_mb = os.path.getsize(export_path) / (1024 * 1024)
             logger.info(
-                "Export abgeschlossen: %s (%.1f MB, %s %d-bit)", export_path, _size_mb, format.upper(), bit_depth
+                "Export abgeschlossen: %s (%.1f MB, %s %d-bit)", export_path, _size_mb, export_format.upper(), bit_depth
             )
             return True
         except Exception as e:
             # Cleanup orphaned tmp on failure
-            logger.error("Export fehlgeschlagen (%s): %s", format, e)
+            logger.error("Export fehlgeschlagen (%s): %s", export_format, e)
             try:
                 os.remove(tmp_path)
             except OSError as _exc:
                 logger.debug("Operation failed (non-critical): %s", _exc)
-            raise RuntimeError(f"Fehler beim Export als {format}: {e}") from e
+            raise RuntimeError(f"Fehler beim Export als {export_format}: {e}") from e
     # MP3, AAC, M4A, OPUS nur mit ffmpeg
-    elif format.lower() in ["mp3", "aac", "m4a", "opus"]:
+    elif export_format.lower() in ["mp3", "aac", "m4a", "opus"]:
         if ffmpeg is None:
             raise RuntimeError("ffmpeg-python nicht installiert. Export nicht möglich.")
-        import os
-        import tempfile
-
         tmp_wav = None
         tmp_out = export_path + ".tmp"
         try:
@@ -555,8 +566,8 @@ def export_audio(
                 tmp_wav = tmp.name
                 # Export Guard already applied above; write guarded audio to temp WAV
                 sf.write(tmp_wav, audio, sr, format="WAV")
-            out_args = {"format": format.lower()}
-            if format.lower() == "mp3":
+            out_args = {"format": export_format.lower()}
+            if export_format.lower() == "mp3":
                 # LAME VBR V0 — perceptually transparent, adaptive bitrate (~245 kbps Ø).
                 # Avoids CBR pre-echo on transients restored by TDP/MDEM (spec §DSP / §8.3).
                 out_args["q:a"] = "0"
@@ -564,17 +575,17 @@ def export_audio(
             os.replace(tmp_out, export_path)
             _transfer_metadata(source_path, export_path)
             _size_mb = os.path.getsize(export_path) / (1024 * 1024)
-            logger.info("Export abgeschlossen: %s (%.1f MB, %s)", export_path, _size_mb, format.upper())
+            logger.info("Export abgeschlossen: %s (%.1f MB, %s)", export_path, _size_mb, export_format.upper())
             return True
         except Exception as e:
             # Cleanup orphaned tmp files
-            logger.error("Export fehlgeschlagen (%s via ffmpeg): %s", format, e)
+            logger.error("Export fehlgeschlagen (%s via ffmpeg): %s", export_format, e)
             for _p in (tmp_out,):
                 try:
                     os.remove(_p)
                 except OSError as _exc:
                     logger.debug("Operation failed (non-critical): %s", _exc)
-            raise RuntimeError(f"Fehler beim {format.upper()}-Export: {e}") from e
+            raise RuntimeError(f"Fehler beim {export_format.upper()}-Export: {e}") from e
         finally:
             # Always clean up the intermediate WAV temp file
             if tmp_wav:
@@ -583,4 +594,4 @@ def export_audio(
                 except OSError as _exc:
                     logger.debug("Operation failed (non-critical): %s", _exc)
     else:
-        raise ValueError(f"Nicht unterstütztes Exportformat: {format}")
+        raise ValueError(f"Nicht unterstütztes Exportformat: {export_format}")

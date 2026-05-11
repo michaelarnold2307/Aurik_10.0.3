@@ -161,6 +161,7 @@ logger.info("phase=%s score=%.2f", phase, score)  # kein print()
 | Verboten | Richtig | Linter |
 |---|---|---|
 | `gate_dbfs=-36.0` ohne `reference_for_gate` | `compute_signal_relative_gate_dbfs(ref, material_key=...)` via `reference_for_gate=pre_phase_audio` | V04 |
+| Positiver Loudness-/Export-/Mastering-Gain nur music-gated | Nach positivem Gain zusätzlich Referenz-Quiet-Edge-Clamp gegen das Eingangssignal (`limit_quiet_edge_boost(reference, candidate, sr)`) | — |
 | `sosfilt(sos, audio)` addiert zu Original | `sosfiltfilt` (zero-phase) überall wo Bandfilter auf Signal addiert | V11 |
 | `np.max(np.abs(audio))` als Peak-Guard | `np.percentile(np.abs(audio), 99.9)` | V08 |
 | `print(...)` | `logger.info(...)` | V01 |

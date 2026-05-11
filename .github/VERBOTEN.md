@@ -48,6 +48,7 @@
 | --- | --- | --- |
 | Loudness-Guard RMS | `np.mean(audio**2)` (globaler RMS in Guards) | `_rms_dbfs_gated()` — Frame-basiert, nur Frames > −50 dBFS, Stille ignoriert (§2.45a-I) |
 | Loudness-Guard Gain | `audio *= gain_factor` (uniformer Gain) | `_musical_gain_envelope()` — Gain nur auf Musik-Frames, Stille unverändert (§2.45a-II) |
+| Positiver Gain ohne Quiet-Edge-Referenzclamp | Music-gated Loudness-/Export-/Mastering-Gain hebt Mittelteil korrekt an, kann aber intentional leise Intro/Outro-Zonen trotzdem nach oben ziehen | Nach positivem Gain Referenzvergleich gegen Eingangs-Audio und `limit_quiet_edge_boost(reference_audio, candidate_audio, sr)` als kanonische Fangschicht |
 | Loudness-Guard Limiter | Unbedingter Soft-Limiter nach Makeup-Gain | Soft-Limiter NUR wenn `peak > 0.98` — keine Routine-Dynamik-Kompression (§2.45a-III) |
 | `gate_dbfs=-36.0` ohne `reference_for_gate` [V04] | Vinyl/Shellac Rauschboden −33 dBFS > −36 dBFS Gate → Rausch-Frames erhalten Makeup-Gain → Pegelexplosion (bestätigt 2026-04-27, 18 Dateien in 2 Sessions re-introduced) | `compute_signal_relative_gate_dbfs(ref, material_key=...)` via `reference_for_gate=pre_phase_audio` in `apply_musical_gain_envelope` — `reference_for_gate` ist Pflicht-Argument |
 | `sosfilt(sos, audio)` addiert zu Signal [V11] | Kausaler Filter → Gruppen-Zeitversatz → destruktive Interferenz → Pegelexplosion | `sosfiltfilt(sos, audio)` (zero-phase) überall wo Bandfilter-Ergebnis auf Originalsignal addiert wird; `sosfilt` nur für Analyse/Sidechain |
@@ -116,6 +117,7 @@
 | §2.30c WPG fehlt oder kann positiven Gain auslösen | Keine finale Fangschicht nach MDEM/correct_arc → Pegelexplosion unkontrolliert im Export; `np.interp` erzeugt positive Übergangswerte | `apply_waveform_plausibility_guard()` MUSS nach correct_arc. WPG-Invarianten: (1) `gain_db_interp = np.minimum(gain_db_interp, 0.0)` — NIE Boost |
 | MDEM ohne `frisson_zones` | MDEM dämpft Gänsehaut-Momente auf `−frame_max` LU | `get_frisson_detector().detect(original, sr)` → `frisson_zones` VOR MDEM-Aufruf; Zwei-Stufen-Invariante Pre+Post-SG |
 | §C10 `SongGoalFeedbackStore` ohne EMA-Blend | Listener-Feedback gespeichert aber nicht in `estimate_goal_importance()` eingeblendet | `_nudges = get_feedback_store().get_nudges()`; 15 %-Blend in Stufe 7 (§C10) |
+| `_detect_ml_hallucinations` absoluter Harmonizitäts-Check ohne Original-Vergleich | `h > HARMONICITY_THRESHOLD` auf Residuum allein → Vokal-Restaurierungs-Delta erbt harmonische Struktur des Originals → immer ~5 % Kontamination → `artifact_freedom = 0.95` Adhesion-Bug (bestätigt v9.12.1) | `h_res > HARMONICITY_THRESHOLD AND h_res > h_orig + HALLUCINATION_RELATIVE_MARGIN (0.20)`: Nur flaggen wenn Residuum signifikant harmonischer als Original. `orig` als Parameter zu `_detect_ml_hallucinations` übergeben; in `detect()` `orig_mono` weitergeben (§2.46e v9.12.1) |
 
 ---
 
