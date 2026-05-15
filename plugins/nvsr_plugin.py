@@ -211,6 +211,7 @@ class NvsrPlugin:
 
         # Hallucination guard (§2.46e): ADDITIVE Phase, spec-conform check
         try:
+            # pylint: disable-next=import-outside-toplevel
             from backend.core.dsp.hallucination_guard import check_hallucination
 
             hg_result = check_hallucination(audio, result_audio, sr=sr, mode="restoration")
@@ -369,7 +370,7 @@ class NvsrPlugin:
                 return
             self._onnx_load_attempted = True
             try:
-                import onnxruntime as ort
+                import onnxruntime as ort  # pylint: disable=import-outside-toplevel
 
                 self._onnx_session = ort.InferenceSession(
                     str(_NVSR_ONNX_PATH),
