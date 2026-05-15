@@ -94,6 +94,23 @@ class VFAResult:
     vibrato_zones: list[tuple[float, float]] = field(default_factory=list)
     """Vibrato-geschützte Passagen (F0-Modulation 4–7 Hz). Leer wenn nicht erkannt."""
 
+    # §Gap1 Emotional Context — Tension/Release/Climax/Whisper (v9.12.x)
+    tension_zones: list[tuple[float, float]] = field(default_factory=list)
+    """Spannungs-Passagen (start_s, end_s): steigende Energie + hoher Spectral Centroid.
+    DSP-Schutz: Strength-Reduktion in Tension-Zonen um 20 % (kein Over-NR vor Klimax)."""
+
+    release_zones: list[tuple[float, float]] = field(default_factory=list)
+    """Entspannungs-Passagen (start_s, end_s): nach Tension-Peak oder Frisson-Abfall.
+    Schutz: Keine additive Verstärkung in Release-Zonen (§0p Emotionale Authentizität)."""
+
+    whisper_zones: list[tuple[float, float]] = field(default_factory=list)
+    """Flüster-Passagen (start_s, end_s): niedrige Energie + hohe Spectral Flatness.
+    §0p Atemgeschützte Segmente: Spectral Flatness > 0.35, RMS < −35 dBFS."""
+
+    climax_type: str = "none"
+    """Klimax-Charakter: "none" | "peak" | "sustained" | "dynamic".
+    Beeinflusst MDEM-Stärke-Entscheidung und frisson_zone-Schutz."""
+
     vqi_gate_active: bool = False
     """True wenn panns_singing ≥ 0.35 → VQI-Gate in HolisticPerceptualGate aktiv."""
 
@@ -113,6 +130,10 @@ class VFAResult:
             "formant_stable": self.formant_stable,
             "passaggio_zones": list(self.passaggio_zones),
             "vibrato_zones": list(self.vibrato_zones),
+            "tension_zones": list(self.tension_zones),
+            "release_zones": list(self.release_zones),
+            "whisper_zones": list(self.whisper_zones),
+            "climax_type": self.climax_type,
             "vqi_gate_active": self.vqi_gate_active,
             "analysis_duration_s": self.analysis_duration_s,
         }
@@ -197,10 +218,23 @@ class VocalFocusAnalyzer:
         # 5. Vibrato-Zonen (F0-Modulation 4–7 Hz, §0p Vibrato-Schutz)
         result.vibrato_zones = self._detect_vibrato(mono_seg, sr)
 
+        # 6. Tension-Zonen (steigende Energie + Spectral Centroid, §Gap1)
+        result.tension_zones = self._detect_tension_zones(mono_seg, sr)
+
+        # 7. Release-Zonen (nach Tension-Peak oder Frisson-Abfall, §Gap1)
+        result.release_zones = self._detect_release_zones(mono_seg, sr, result.tension_zones, result.frisson_zones)
+
+        # 8. Whisper-Zonen (niedrige Energie + hohe Spectral Flatness, §0p §Gap1)
+        result.whisper_zones = self._detect_whisper_zones(mono_seg, sr)
+
+        # 9. Klimax-Typ (beeinflusst MDEM + Frisson-Schutz, §Gap1)
+        result.climax_type = self._detect_climax_type(result.frisson_zones, result.tension_zones, mono_seg, sr)
+
         elapsed = time.perf_counter() - _t0
         logger.info(
             "VocalFocusAnalyzer: panns_singing=%.2f register=%s energy_bias=%.1fdB "
-            "frisson_zones=%d formant_f1=%.0fHz stable=%s passaggio=%d vibrato=%d zones in %.2fs",
+            "frisson=%d formant_f1=%.0fHz stable=%s passaggio=%d vibrato=%d "
+            "tension=%d release=%d whisper=%d climax=%s zones in %.2fs",
             panns_singing,
             result.dominant_register,
             result.energy_bias_db,
@@ -209,6 +243,10 @@ class VocalFocusAnalyzer:
             result.formant_stable,
             len(result.passaggio_zones),
             len(result.vibrato_zones),
+            len(result.tension_zones),
+            len(result.release_zones),
+            len(result.whisper_zones),
+            result.climax_type,
             elapsed,
         )
         return result
@@ -374,6 +412,214 @@ class VocalFocusAnalyzer:
         except Exception as exc:
             logger.debug("VFA._detect_vibrato fallback: %s", exc)
             return []
+
+    # ------------------------------------------------------------------
+    # §Gap1 Emotional Context — Tension/Release/Whisper/Climax
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _detect_tension_zones(mono: np.ndarray, sr: int) -> list[tuple[float, float]]:
+        """Erkennt Spannungsaufbau-Passagen: steigende RMS-Energie + hoher Spectral Centroid.
+
+        Algorithm:
+        - Frame-weise RMS + Spectral Centroid (hop 512 Samples)
+        - tension_value[t] = 0.5 * rms_norm[t] + 0.5 * centroid_norm[t]
+        - Threshold ≥ 0.60 → Tension-Zone (mind. 1.0 s Dauer)
+        Non-blocking: Fehler → [].
+        """
+        try:
+            _hop = 512
+            _frame = 2048
+            n = len(mono)
+            if n < _frame:
+                return []
+
+            n_frames = (n - _frame) // _hop + 1
+            rms_frames = np.empty(n_frames, dtype=np.float32)
+            centroid_frames = np.empty(n_frames, dtype=np.float32)
+
+            for i in range(n_frames):
+                seg = mono[i * _hop : i * _hop + _frame]
+                rms_frames[i] = float(np.sqrt(np.mean(seg**2) + 1e-10))
+                # Weighted spectral centroid via FFT magnitude
+                mag = np.abs(np.fft.rfft(seg * np.hanning(_frame)))
+                freqs = np.fft.rfftfreq(_frame, d=1.0 / sr)
+                denom = float(np.sum(mag) + 1e-10)
+                centroid_frames[i] = float(np.sum(freqs * mag) / denom)
+
+            # Normalize to [0, 1]
+            rms_min, rms_max = rms_frames.min(), rms_frames.max()
+            c_min, c_max = centroid_frames.min(), centroid_frames.max()
+            rms_norm = (rms_frames - rms_min) / max(rms_max - rms_min, 1e-10)
+            c_norm = (centroid_frames - c_min) / max(c_max - c_min, 1e-10)
+
+            tension_val = 0.5 * rms_norm + 0.5 * c_norm
+            _thr = 0.60
+            _min_dur_frames = max(1, int(1.0 * sr / _hop))
+
+            zones: list[tuple[float, float]] = []
+            in_zone = False
+            zone_start = 0
+            for i, tv in enumerate(tension_val):
+                if tv >= _thr and not in_zone:
+                    in_zone = True
+                    zone_start = i
+                elif tv < _thr and in_zone:
+                    in_zone = False
+                    dur = i - zone_start
+                    if dur >= _min_dur_frames:
+                        zones.append((zone_start * _hop / sr, i * _hop / sr))
+            if in_zone:
+                dur = n_frames - zone_start
+                if dur >= _min_dur_frames:
+                    zones.append((zone_start * _hop / sr, n_frames * _hop / sr))
+
+            return zones
+        except Exception as exc:
+            logger.debug("VFA._detect_tension_zones fallback: %s", exc)
+            return []
+
+    @staticmethod
+    def _detect_release_zones(
+        mono: np.ndarray,
+        sr: int,
+        tension_zones: list[tuple[float, float]],
+        frisson_zones: list[tuple[float, float]],
+    ) -> list[tuple[float, float]]:
+        """Erkennt Release-Passagen: 1–3 s nach Tension-Peak oder Frisson-Ende.
+
+        Algorithm:
+        - Für jede Tension-Zone: Ende + 0.1 s → Fenster [end, end+3.0 s]
+        - Für jede Frisson-Zone: [frisson_end, frisson_end+2.5 s]
+        - Merged, max. 3.0 s Dauer, überlappend zusammengefasst.
+        Non-blocking: Fehler → [].
+        """
+        try:
+            total_s = len(mono) / max(sr, 1)
+            candidates: list[tuple[float, float]] = []
+            for _start, _end in tension_zones:
+                rel_s = _end + 0.1
+                rel_e = min(rel_s + 3.0, total_s)
+                if rel_e > rel_s:
+                    candidates.append((rel_s, rel_e))
+            for _start, _end in frisson_zones:
+                rel_s = _end + 0.05
+                rel_e = min(rel_s + 2.5, total_s)
+                if rel_e > rel_s:
+                    candidates.append((rel_s, rel_e))
+            if not candidates:
+                return []
+            # Merge overlapping
+            candidates.sort(key=lambda x: x[0])
+            merged: list[tuple[float, float]] = [candidates[0]]
+            for s, e in candidates[1:]:
+                ms, me = merged[-1]
+                if s <= me:
+                    merged[-1] = (ms, max(me, e))
+                else:
+                    merged.append((s, e))
+            return merged
+        except Exception as exc:
+            logger.debug("VFA._detect_release_zones fallback: %s", exc)
+            return []
+
+    @staticmethod
+    def _detect_whisper_zones(mono: np.ndarray, sr: int) -> list[tuple[float, float]]:
+        """Erkennt Flüster-Passagen: niedrige Energie (< −35 dBFS) + hohe Spectral Flatness.
+
+        Algorithm:
+        - Frames (hop 512, frame 2048): RMS in dBFS + Spectral Flatness
+        - Whisper: rms_dbfs < −35 AND flatness > 0.35
+        - Mindestdauer 0.3 s, max. Stille-Cutoff: rms < −60 dBFS → übersprungen
+        Non-blocking: Fehler → [].
+        """
+        try:
+            _hop = 512
+            _frame = 2048
+            n = len(mono)
+            if n < _frame:
+                return []
+
+            n_frames = (n - _frame) // _hop + 1
+            _min_dur_frames = max(1, int(0.3 * sr / _hop))
+            zones: list[tuple[float, float]] = []
+            in_zone = False
+            zone_start = 0
+
+            for i in range(n_frames):
+                seg = mono[i * _hop : i * _hop + _frame]
+                rms = float(np.sqrt(np.mean(seg**2) + 1e-10))
+                rms_db = 20.0 * np.log10(rms + 1e-10)
+                if rms_db < -60.0:
+                    # Pure silence — nicht Flüstern
+                    if in_zone:
+                        in_zone = False
+                        dur = i - zone_start
+                        if dur >= _min_dur_frames:
+                            zones.append((zone_start * _hop / sr, i * _hop / sr))
+                    continue
+
+                # Spectral flatness via geometric mean / arithmetic mean
+                mag = np.abs(np.fft.rfft(seg * np.hanning(_frame))) + 1e-10
+                geo_mean = float(np.exp(np.mean(np.log(mag))))
+                arith_mean = float(np.mean(mag))
+                flatness = float(np.clip(geo_mean / (arith_mean + 1e-10), 0.0, 1.0))
+
+                is_whisper = rms_db < -35.0 and flatness > 0.35
+                if is_whisper and not in_zone:
+                    in_zone = True
+                    zone_start = i
+                elif not is_whisper and in_zone:
+                    in_zone = False
+                    dur = i - zone_start
+                    if dur >= _min_dur_frames:
+                        zones.append((zone_start * _hop / sr, i * _hop / sr))
+
+            if in_zone:
+                dur = n_frames - zone_start
+                if dur >= _min_dur_frames:
+                    zones.append((zone_start * _hop / sr, n_frames * _hop / sr))
+
+            return zones
+        except Exception as exc:
+            logger.debug("VFA._detect_whisper_zones fallback: %s", exc)
+            return []
+
+    @staticmethod
+    def _detect_climax_type(
+        frisson_zones: list[tuple[float, float]],
+        tension_zones: list[tuple[float, float]],
+        mono: np.ndarray,
+        sr: int,
+    ) -> str:
+        """Klassifiziert den Klimax-Charakter für MDEM-Stärke-Entscheidung.
+
+        Typen:
+        - "none"       → keine Frisson-Zonen
+        - "peak"       → einzelne kurze Frisson-Zone (< 5 s), hohe Intensität
+        - "sustained"  → einzelne lange Frisson-Zone (≥ 5 s) oder dominante Tension
+        - "dynamic"    → mehrere Frisson-Zonen oder Tension-Frisson-Wechsel
+        Non-blocking: Fehler → "none".
+        """
+        try:
+            if not frisson_zones:
+                return "none"
+            if len(frisson_zones) >= 3:
+                return "dynamic"
+            if len(frisson_zones) == 2:
+                # Weit getrennte Klimax-Passagen = dynamisch
+                gap = frisson_zones[1][0] - frisson_zones[0][1]
+                return "dynamic" if gap > 5.0 else "sustained"
+            # Einzelne Zone
+            _s, _e = frisson_zones[0]
+            dur = _e - _s
+            if dur >= 5.0:
+                return "sustained"
+            # Viele Tension-Zonen mit kurzer Frisson = peak
+            return "peak"
+        except Exception as exc:
+            logger.debug("VFA._detect_climax_type fallback: %s", exc)
+            return "none"
 
 
 # ---------------------------------------------------------------------------

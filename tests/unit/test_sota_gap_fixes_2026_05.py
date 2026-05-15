@@ -1202,3 +1202,387 @@ class TestConsoleCharacterStudio2026:
 
         src = inspect.getsource(HarmonicRestorationPhase.process)
         assert "console_character_applied" in src, "phase_07 return metadata must include 'console_character_applied'"
+
+
+# ===========================================================================
+# §Gap1 VocalFocusAnalyzer — Emotional Context (v9.12.x)
+# ===========================================================================
+
+
+class TestVFAEmotionalContext:
+    """Tests for VFAResult emotional context fields + analyze() steps 6-9."""
+
+    def _make_audio(self, sr: int = 48000, duration: float = 4.0, rng_seed: int = 42) -> np.ndarray:
+        rng = np.random.default_rng(rng_seed)
+        return rng.standard_normal(int(sr * duration)).astype(np.float32) * 0.3
+
+    def test_vfa_result_has_new_fields(self):
+        """VFAResult must have tension_zones, release_zones, whisper_zones, climax_type."""
+        from backend.core.vocal_focus_analyzer import VFAResult
+
+        r = VFAResult()
+        assert hasattr(r, "tension_zones"), "VFAResult missing tension_zones"
+        assert hasattr(r, "release_zones"), "VFAResult missing release_zones"
+        assert hasattr(r, "whisper_zones"), "VFAResult missing whisper_zones"
+        assert hasattr(r, "climax_type"), "VFAResult missing climax_type"
+        assert r.climax_type == "none"
+        assert isinstance(r.tension_zones, list)
+        assert isinstance(r.release_zones, list)
+        assert isinstance(r.whisper_zones, list)
+
+    def test_vfa_to_dict_contains_new_fields(self):
+        """VFAResult.to_dict() must export all new emotional context fields."""
+        from backend.core.vocal_focus_analyzer import VFAResult
+
+        r = VFAResult(tension_zones=[(1.0, 2.0)], release_zones=[(2.5, 3.5)], whisper_zones=[], climax_type="peak")
+        d = r.to_dict()
+        assert "tension_zones" in d, "to_dict missing tension_zones"
+        assert "release_zones" in d, "to_dict missing release_zones"
+        assert "whisper_zones" in d, "to_dict missing whisper_zones"
+        assert "climax_type" in d, "to_dict missing climax_type"
+        assert d["climax_type"] == "peak"
+        assert d["tension_zones"] == [(1.0, 2.0)]
+
+    def test_detect_tension_zones_returns_list(self):
+        """_detect_tension_zones must return a list of (float, float) tuples."""
+        from backend.core.vocal_focus_analyzer import VocalFocusAnalyzer
+
+        sr = 48000
+        audio = self._make_audio(sr=sr, duration=3.0)
+        zones = VocalFocusAnalyzer._detect_tension_zones(audio, sr)
+        assert isinstance(zones, list)
+        for z in zones:
+            assert len(z) == 2
+            assert z[0] < z[1]
+
+    def test_detect_tension_zones_short_audio(self):
+        """_detect_tension_zones with very short audio must return [] without crash."""
+        from backend.core.vocal_focus_analyzer import VocalFocusAnalyzer
+
+        zones = VocalFocusAnalyzer._detect_tension_zones(np.zeros(128, dtype=np.float32), 48000)
+        assert zones == []
+
+    def test_detect_release_zones_from_frisson(self):
+        """_detect_release_zones must produce zones after frisson end times."""
+        from backend.core.vocal_focus_analyzer import VocalFocusAnalyzer
+
+        frisson_zones = [(2.0, 3.0), (7.0, 8.0)]
+        tension_zones: list = []
+        mono = np.zeros(int(48000 * 12), dtype=np.float32)
+        zones = VocalFocusAnalyzer._detect_release_zones(mono, 48000, tension_zones, frisson_zones)
+        assert len(zones) >= 2
+        # First release zone must start at or after frisson end
+        starts = [z[0] for z in zones]
+        assert any(s >= 3.0 for s in starts)
+
+    def test_detect_whisper_zones_silent_audio(self):
+        """Very quiet audio should be detected as whisper (or empty if below silence threshold)."""
+        from backend.core.vocal_focus_analyzer import VocalFocusAnalyzer
+
+        sr = 48000
+        # Level between -50 dBFS and -35 dBFS → whisper territory
+        # -40 dBFS = 10^(-40/20) = 0.01
+        audio = np.ones(sr * 3, dtype=np.float32) * 0.01  # ~−40 dBFS
+        zones = VocalFocusAnalyzer._detect_whisper_zones(audio, sr)
+        assert isinstance(zones, list)
+        # constant tone = low flatness, may not trigger whisper — that's acceptable
+        # Just assert no crash
+
+    def test_detect_climax_type_none_no_frisson(self):
+        """climax_type must be 'none' when frisson_zones is empty."""
+        from backend.core.vocal_focus_analyzer import VocalFocusAnalyzer
+
+        mono = np.zeros(48000, dtype=np.float32)
+        ct = VocalFocusAnalyzer._detect_climax_type([], [], mono, 48000)
+        assert ct == "none"
+
+    def test_detect_climax_type_peak(self):
+        """Single short frisson zone → 'peak'."""
+        from backend.core.vocal_focus_analyzer import VocalFocusAnalyzer
+
+        mono = np.zeros(48000, dtype=np.float32)
+        ct = VocalFocusAnalyzer._detect_climax_type([(2.0, 3.5)], [], mono, 48000)
+        assert ct == "peak"
+
+    def test_detect_climax_type_sustained(self):
+        """Single long frisson zone (≥ 5 s) → 'sustained'."""
+        from backend.core.vocal_focus_analyzer import VocalFocusAnalyzer
+
+        mono = np.zeros(48000, dtype=np.float32)
+        ct = VocalFocusAnalyzer._detect_climax_type([(0.0, 7.0)], [], mono, 48000)
+        assert ct == "sustained"
+
+    def test_detect_climax_type_dynamic(self):
+        """Three frisson zones → 'dynamic'."""
+        from backend.core.vocal_focus_analyzer import VocalFocusAnalyzer
+
+        mono = np.zeros(48000, dtype=np.float32)
+        ct = VocalFocusAnalyzer._detect_climax_type([(1.0, 2.0), (5.0, 6.0), (9.0, 10.0)], [], mono, 48000)
+        assert ct == "dynamic"
+
+    def test_vfa_analyze_returns_emotional_fields(self):
+        """VocalFocusAnalyzer.analyze() must populate emotional context fields."""
+        from backend.core.vocal_focus_analyzer import get_vocal_focus_analyzer
+
+        sr = 48000
+        audio = self._make_audio(sr=sr, duration=5.0)
+        vfa = get_vocal_focus_analyzer()
+        result = vfa.analyze(audio, sr, panns_singing=0.6)
+        assert hasattr(result, "tension_zones")
+        assert hasattr(result, "release_zones")
+        assert hasattr(result, "whisper_zones")
+        assert hasattr(result, "climax_type")
+        assert result.climax_type in ("none", "peak", "sustained", "dynamic")
+
+
+# ===========================================================================
+# §Gap2 SongCoherenceMonitor
+# ===========================================================================
+
+
+class TestSongCoherenceMonitor:
+    """Tests for song-wide timbral coherence analysis."""
+
+    def _make_audio(self, sr: int = 48000, duration: float = 15.0, seed: int = 99) -> np.ndarray:
+        rng = np.random.default_rng(seed)
+        return rng.standard_normal(int(sr * duration)).astype(np.float32) * 0.2
+
+    def test_import(self):
+        """SongCoherenceMonitor must be importable."""
+        from backend.core.song_coherence_monitor import SongCoherenceMonitor
+
+        assert SongCoherenceMonitor is not None
+
+    def test_singleton(self):
+        """get_song_coherence_monitor() must return same instance."""
+        from backend.core.song_coherence_monitor import get_song_coherence_monitor
+
+        a = get_song_coherence_monitor()
+        b = get_song_coherence_monitor()
+        assert a is b
+
+    def test_analyze_short_audio(self):
+        """Very short audio must return coherence_score=1.0 (no check possible)."""
+        from backend.core.song_coherence_monitor import get_song_coherence_monitor
+
+        audio = np.zeros(4800, dtype=np.float32)
+        result = get_song_coherence_monitor().analyze(audio, 48000)
+        assert result.coherence_score == 1.0
+        assert result.n_sections_analyzed == 0
+
+    def test_analyze_sufficient_length(self):
+        """Sufficient-length audio must produce coherence_score in [0, 1]."""
+        from backend.core.song_coherence_monitor import get_song_coherence_monitor
+
+        audio = self._make_audio(duration=35.0)
+        result = get_song_coherence_monitor().analyze(audio, 48000)
+        assert 0.0 <= result.coherence_score <= 1.0
+        assert result.n_sections_analyzed >= _MIN_SECTIONS_FOR_CHECK_PROXY
+        assert isinstance(result.inconsistent_sections, list)
+
+    def test_to_dict_has_required_keys(self):
+        """SongCoherenceResult.to_dict() must have coherence_score and inconsistent_sections."""
+        from backend.core.song_coherence_monitor import get_song_coherence_monitor
+
+        audio = self._make_audio(duration=35.0)
+        d = get_song_coherence_monitor().analyze(audio, 48000).to_dict()
+        assert "coherence_score" in d
+        assert "inconsistent_sections" in d
+        assert "reference_timbre" in d
+        assert "n_sections_analyzed" in d
+
+    def test_consistent_audio_high_score(self):
+        """Uniform noise (same statistics everywhere) should yield high coherence."""
+        from backend.core.song_coherence_monitor import get_song_coherence_monitor
+
+        sr = 48000
+        rng = np.random.default_rng(0)
+        audio = rng.standard_normal(sr * 40).astype(np.float32) * 0.2
+        result = get_song_coherence_monitor().analyze(audio, sr)
+        assert result.coherence_score >= 0.50, f"Uniform noise should be consistent, got {result.coherence_score}"
+
+    def test_stereo_audio_accepted(self):
+        """Stereo input must be handled without error."""
+        from backend.core.song_coherence_monitor import get_song_coherence_monitor
+
+        sr = 48000
+        audio = np.random.default_rng(3).standard_normal((2, sr * 30)).astype(np.float32) * 0.2
+        result = get_song_coherence_monitor().analyze(audio, sr)
+        assert result.coherence_score >= 0.0
+
+
+# Proxy constant for tests (mirrors _MIN_SECTIONS_FOR_CHECK in module)
+_MIN_SECTIONS_FOR_CHECK_PROXY: int = 3
+
+
+# ===========================================================================
+# §Gap3 PhraseBoundaryGuard
+# ===========================================================================
+
+
+class TestPhraseBoundaryGuard:
+    """Tests for phrase boundary detection and taper application."""
+
+    def test_import(self):
+        """PhraseBoundaryGuard functions must be importable."""
+        from backend.core.dsp.phrase_boundary_guard import (
+            apply_phrase_boundary_taper,
+            detect_phrase_boundaries,
+        )
+
+        assert detect_phrase_boundaries is not None
+        assert apply_phrase_boundary_taper is not None
+
+    def test_detect_short_audio_empty(self):
+        """Short audio must return empty boundary list."""
+        from backend.core.dsp.phrase_boundary_guard import detect_phrase_boundaries
+
+        boundaries = detect_phrase_boundaries(np.zeros(100, dtype=np.float32), 48000)
+        assert boundaries == []
+
+    def test_detect_silence_between_phrases(self):
+        """Audio with a silence gap must detect at least one boundary."""
+        from backend.core.dsp.phrase_boundary_guard import detect_phrase_boundaries
+
+        sr = 48000
+        rng = np.random.default_rng(5)
+        phrase = rng.standard_normal(sr).astype(np.float32) * 0.3
+        silence = np.zeros(int(0.5 * sr), dtype=np.float32)
+        audio = np.concatenate([phrase, silence, phrase])
+        boundaries = detect_phrase_boundaries(audio, sr)
+        assert len(boundaries) >= 1, "Should detect boundary in silence gap"
+
+    def test_taper_all_ones_no_boundaries(self):
+        """With no boundaries, taper must return all-ones envelope."""
+        from backend.core.dsp.phrase_boundary_guard import apply_phrase_boundary_taper
+
+        audio = np.zeros(48000, dtype=np.float32)
+        env = apply_phrase_boundary_taper(audio, [], 48000)
+        assert np.allclose(env, 1.0), "No boundaries → all-ones envelope"
+
+    def test_taper_zero_at_boundary(self):
+        """Envelope must be 0 exactly at boundary position."""
+        from backend.core.dsp.phrase_boundary_guard import apply_phrase_boundary_taper
+
+        audio = np.zeros(48000, dtype=np.float32)
+        b = 24000  # midpoint
+        env = apply_phrase_boundary_taper(audio, [b], 48000, taper_ms=20.0)
+        assert abs(env[b]) < 1e-6, f"Env at boundary must be 0, got {env[b]}"
+
+    def test_taper_shape_and_dtype(self):
+        """Taper must return float32 1-D array of same length as audio."""
+        from backend.core.dsp.phrase_boundary_guard import apply_phrase_boundary_taper
+
+        audio = np.zeros(48000, dtype=np.float32)
+        env = apply_phrase_boundary_taper(audio, [12000, 36000], 48000)
+        assert env.dtype == np.float32
+        assert len(env) == len(audio)
+        assert np.all(env >= 0.0) and np.all(env <= 1.0)
+
+    def test_boundaries_sorted_and_valid(self):
+        """All returned boundary indices must be within audio range."""
+        from backend.core.dsp.phrase_boundary_guard import detect_phrase_boundaries
+
+        sr = 48000
+        audio = np.random.default_rng(7).standard_normal(sr * 5).astype(np.float32) * 0.2
+        boundaries = detect_phrase_boundaries(audio, sr)
+        n = len(audio)
+        for b in boundaries:
+            assert 0 <= b < n, f"Boundary {b} out of range [0, {n})"
+        assert boundaries == sorted(boundaries), "Boundaries must be sorted"
+
+
+# ===========================================================================
+# §Gap5 BlindInternalReference
+# ===========================================================================
+
+
+class TestBlindInternalReference:
+    """Tests for blind cleanest-segment detection."""
+
+    def test_import(self):
+        """BlindInternalReference must be importable."""
+        from backend.core.blind_internal_reference import BlindInternalReference
+
+        assert BlindInternalReference is not None
+
+    def test_singleton(self):
+        """get_blind_internal_reference() must return same instance."""
+        from backend.core.blind_internal_reference import get_blind_internal_reference
+
+        a = get_blind_internal_reference()
+        b = get_blind_internal_reference()
+        assert a is b
+
+    def test_find_short_audio(self):
+        """Very short audio must return empty segments list."""
+        from backend.core.blind_internal_reference import get_blind_internal_reference
+
+        audio = np.zeros(480, dtype=np.float32)
+        result = get_blind_internal_reference().find(audio, 48000)
+        assert result.segments == []
+        assert result.best_score == 0.0
+
+    def test_find_returns_top_n_segments(self):
+        """Must return at most top_n segments for long audio."""
+        from backend.core.blind_internal_reference import get_blind_internal_reference
+
+        sr = 48000
+        audio = np.random.default_rng(11).standard_normal(sr * 30).astype(np.float32) * 0.2
+        result = get_blind_internal_reference().find(audio, sr, top_n=3)
+        assert len(result.segments) <= 3
+        assert len(result.segments) >= 1
+
+    def test_find_segments_sorted_by_score(self):
+        """Returned segments must be sorted descending by score."""
+        from backend.core.blind_internal_reference import get_blind_internal_reference
+
+        sr = 48000
+        audio = np.random.default_rng(12).standard_normal(sr * 25).astype(np.float32) * 0.2
+        result = get_blind_internal_reference().find(audio, sr)
+        scores = [s.score for s in result.segments]
+        assert scores == sorted(scores, reverse=True)
+
+    def test_best_score_in_range(self):
+        """best_score must be in [0, 1]."""
+        from backend.core.blind_internal_reference import get_blind_internal_reference
+
+        sr = 48000
+        audio = np.random.default_rng(13).standard_normal(sr * 20).astype(np.float32) * 0.2
+        result = get_blind_internal_reference().find(audio, sr)
+        assert 0.0 <= result.best_score <= 1.0
+
+    def test_to_dict_structure(self):
+        """BlindReferenceResult.to_dict() must have segments, global_snr_proxy_db, best_score."""
+        from backend.core.blind_internal_reference import get_blind_internal_reference
+
+        sr = 48000
+        audio = np.random.default_rng(14).standard_normal(sr * 20).astype(np.float32) * 0.2
+        d = get_blind_internal_reference().find(audio, sr).to_dict()
+        assert "segments" in d
+        assert "global_snr_proxy_db" in d
+        assert "best_score" in d
+
+    def test_segment_times_valid(self):
+        """Segment start_s must be < end_s and within audio duration."""
+        from backend.core.blind_internal_reference import get_blind_internal_reference
+
+        sr = 48000
+        duration = 20.0
+        audio = np.random.default_rng(15).standard_normal(int(sr * duration)).astype(np.float32) * 0.2
+        result = get_blind_internal_reference().find(audio, sr)
+        for seg in result.segments:
+            assert seg.start_s >= 0.0
+            assert seg.end_s > seg.start_s
+            assert seg.end_s <= duration + 0.1  # +0.1 s tolerance for rounding
+
+    def test_score_segment_range(self):
+        """_score_segment must return (score [0,1], snr_db, clarity [0,1])."""
+        from backend.core.blind_internal_reference import BlindInternalReference
+
+        sr = 48000
+        seg = np.random.default_rng(16).standard_normal(sr * 5).astype(np.float32) * 0.2
+        score, snr_db, clarity = BlindInternalReference._score_segment(seg, sr)
+        assert 0.0 <= score <= 1.0
+        assert -20.0 <= snr_db <= 60.0
+        assert 0.0 <= clarity <= 1.0

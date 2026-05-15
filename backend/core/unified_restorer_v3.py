@@ -5338,13 +5338,23 @@ class UnifiedRestorerV3:
             self._restoration_context["passaggio_zones"] = _vfa_result.passaggio_zones
             # Vibrato-Zonen für §0p Strength-Cap (4–7 Hz F0-Modulation)
             self._restoration_context["vibrato_zones"] = _vfa_result.vibrato_zones
+            # §Gap1 Emotional Context (v9.12.x)
+            self._restoration_context["tension_zones"] = _vfa_result.tension_zones
+            self._restoration_context["release_zones"] = _vfa_result.release_zones
+            self._restoration_context["whisper_zones"] = _vfa_result.whisper_zones
+            self._restoration_context["climax_type"] = _vfa_result.climax_type
             logger.info(
-                "§0p VocalFocusAnalyzer: singing=%.2f register=%s bias=%.1fdB frisson=%d passaggio=%d vqi_gate=%s",
+                "§0p VocalFocusAnalyzer: singing=%.2f register=%s bias=%.1fdB "
+                "frisson=%d passaggio=%d tension=%d release=%d whisper=%d climax=%s vqi_gate=%s",
                 _vfa_panns,
                 _vfa_result.dominant_register,
                 _vfa_result.energy_bias_db,
                 len(_vfa_result.frisson_zones),
                 len(_vfa_result.passaggio_zones),
+                len(_vfa_result.tension_zones),
+                len(_vfa_result.release_zones),
+                len(_vfa_result.whisper_zones),
+                _vfa_result.climax_type,
                 _vfa_result.vqi_gate_active,
             )
         except Exception as _vfa_exc:
@@ -5355,6 +5365,10 @@ class UnifiedRestorerV3:
             self._restoration_context.setdefault("frisson_zones", [])
             self._restoration_context.setdefault("passaggio_zones", [])
             self._restoration_context.setdefault("vibrato_zones", [])
+            self._restoration_context.setdefault("tension_zones", [])
+            self._restoration_context.setdefault("release_zones", [])
+            self._restoration_context.setdefault("whisper_zones", [])
+            self._restoration_context.setdefault("climax_type", "none")
 
         # §2.46f [RELEASE_MUST] Room-Acoustics-Fingerprint — nach VFA, vor Phasen.
         # Schätzt RT60, DRR und Schutz-Cap für phase_20 + phase_49.
@@ -5373,6 +5387,34 @@ class UnifiedRestorerV3:
         except Exception as _raf_exc:
             logger.debug("§2.46f RoomAcousticsFingerprinter non-blocking: %s", _raf_exc)
             self._restoration_context.setdefault("room_acoustics_fingerprint", {})
+
+        # §Gap2 Song-Wide Coherence Monitor — nach VFA + Room-Acoustics, vor Phasen.
+        # Liefert coherence_score + inconsistent_sections für phasenseitige Timbral-Korrektur.
+        try:
+            from backend.core.song_coherence_monitor import (  # pylint: disable=import-outside-toplevel
+                get_song_coherence_monitor as _get_scm,
+            )
+
+            _scm_result = _get_scm().analyze(audio, sample_rate)
+            self._restoration_context["song_coherence"] = _scm_result.to_dict()
+        except Exception as _scm_exc:
+            logger.debug("§Gap2 SongCoherenceMonitor non-blocking: %s", _scm_exc)
+            self._restoration_context.setdefault(
+                "song_coherence", {"coherence_score": 1.0, "inconsistent_sections": []}
+            )
+
+        # §Gap5 Blind Internal Reference — sauberste Segmente als interner Qualitätsanker.
+        # Kalibriert timbral_fidelity-Gating (§0d best_carrier_checkpoint) und Wiener-Filter.
+        try:
+            from backend.core.blind_internal_reference import (  # pylint: disable=import-outside-toplevel
+                get_blind_internal_reference as _get_bir,
+            )
+
+            _bir_result = _get_bir().find(audio, sample_rate)
+            self._restoration_context["blind_reference"] = _bir_result.to_dict()
+        except Exception as _bir_exc:
+            logger.debug("§Gap5 BlindInternalReference non-blocking: %s", _bir_exc)
+            self._restoration_context.setdefault("blind_reference", {"segments": [], "best_score": 0.0})
 
         logger.info(
             "📋 RestorationContext: decade=%s genre=%s bpm=%.0f subgenre=%s transfer_chain=%s",
