@@ -69,7 +69,7 @@ class FrameFeatures:
 
 def detect_phoneme_boundaries_dsp(
     audio: np.ndarray,
-    sr: int,  # pylint: disable=unused-argument  # kept for API consistency
+    sr: int,  # kept for API consistency
     hop_length: int = 512,
 ) -> np.ndarray:
     """ZCR/Energie-basierte Phonem-Grenzerkennung (Stufe-2 LGE Fallback).
