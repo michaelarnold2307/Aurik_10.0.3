@@ -83,7 +83,7 @@ def restore_carrier_noise_texture(
         return audio_post_nr
 
     try:
-        from backend.core.dsp.psychoacoustics import (
+        from backend.core.dsp.psychoacoustics import (  # pylint: disable=import-outside-toplevel
             compute_noise_texture_profile,
             get_material_noise_texture,
             synthesize_comfort_noise,
@@ -94,15 +94,28 @@ def restore_carrier_noise_texture(
 
     try:
         audio_out = np.asarray(audio_post_nr, dtype=np.float64)
-        stereo = audio_out.ndim == 2 and audio_out.shape[0] == 2
+        # Detect stereo in both formats: channels-first (2, N) and channels-last (N, 2)
+        _ch_first = audio_out.ndim == 2 and audio_out.shape[0] == 2 and audio_out.shape[1] > 2
+        _ch_last = audio_out.ndim == 2 and audio_out.shape[1] == 2 and audio_out.shape[0] > 2
+        stereo = _ch_first or _ch_last
 
         # Stereo: getrennte Kanalverarbeitung, dann zusammenführen
         if stereo:
-            ch_pre = [
-                audio_pre_nr[0] if audio_pre_nr.ndim == 2 else audio_pre_nr,
-                audio_pre_nr[1] if audio_pre_nr.ndim == 2 else audio_pre_nr,
-            ]
-            ch_post = [audio_out[0], audio_out[1]]
+            _pre = np.asarray(audio_pre_nr, dtype=np.float64)
+            _pre_ch_first = _pre.ndim == 2 and _pre.shape[0] == 2 and _pre.shape[1] > 2
+            _pre_ch_last = _pre.ndim == 2 and _pre.shape[1] == 2 and _pre.shape[0] > 2
+            if _ch_first:
+                ch_pre = [
+                    _pre[0] if _pre_ch_first else (_pre[:, 0] if _pre_ch_last else _pre),
+                    _pre[1] if _pre_ch_first else (_pre[:, 1] if _pre_ch_last else _pre),
+                ]
+                ch_post = [audio_out[0], audio_out[1]]
+            else:  # _ch_last: (N, 2)
+                ch_pre = [
+                    _pre[:, 0] if _pre_ch_last else (_pre[0] if _pre_ch_first else _pre),
+                    _pre[:, 1] if _pre_ch_last else (_pre[1] if _pre_ch_first else _pre),
+                ]
+                ch_post = [audio_out[:, 0], audio_out[:, 1]]
             corrected = [
                 _restore_channel(
                     ch_pre[i],
@@ -117,7 +130,10 @@ def restore_carrier_noise_texture(
                 )
                 for i in range(2)
             ]
-            result = np.stack(corrected, axis=0)
+            if _ch_first:
+                result = np.stack(corrected, axis=0)  # (2, N)
+            else:
+                result = np.column_stack(corrected)  # (N, 2)
         else:
             pre_mono = np.asarray(audio_pre_nr, dtype=np.float64)
             if pre_mono.ndim == 2:
