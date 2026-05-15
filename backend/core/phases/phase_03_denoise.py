@@ -696,17 +696,23 @@ class DenoisePhase(PhaseInterface):
         _dfn_energy_bias_db = -6.0  # Default: Bruststimme
         if _is_vocal_material and _panns_singing >= 0.25:
             try:
-                from backend.core.dsp.vocal_register_detector import detect_vocal_register as _det_reg  # pylint: disable=import-outside-toplevel  # noqa: I001
+                from backend.core.dsp.vocal_register_detector import detect_vocal_register_temporal as _dvrt_p03  # pylint: disable=import-outside-toplevel  # noqa: I001
 
-                _reg_label, _reg_bias = _det_reg(audio, sample_rate, panns_singing=_panns_singing)
-                _dfn_energy_bias_db = _reg_bias
+                # §0p Passaggio-Schutz [RELEASE_MUST]: Temporal register detection mit ±5-Frame-Glättung.
+                # Übergangszonen (Brust→Kopf): energy_bias = max der Zonen-Biases = -3.0 dB.
+                # Verhindert aggressives DFN-NR genau in Passaggio → kein Timbre-Knick.
+                _reg_seq_p03 = _dvrt_p03(audio, sample_rate, panns_singing=_panns_singing)
+                _zone_biases_p03 = [_b for _, _, _, _b in _reg_seq_p03]
+                _dfn_energy_bias_db = max(_zone_biases_p03) if _zone_biases_p03 else -6.0
+                _has_passaggio_p03 = len({_r for _, _, _r, _ in _reg_seq_p03}) > 1
                 logger.debug(
-                    "§2.35c phase_03 VocalRegister=%s energy_bias=%.1f dB",
-                    _reg_label,
+                    "§0p phase_03 Passaggio=%s energy_bias=%.1f dB zones=%d",
+                    _has_passaggio_p03,
                     _dfn_energy_bias_db,
+                    len(_reg_seq_p03),
                 )
             except Exception as _reg_exc:
-                logger.debug("§2.35c VocalRegister Erkennung fehlgeschlagen (non-blocking): %s", _reg_exc)
+                logger.debug("§0p Passaggio temporal phase_03 (non-blocking): %s", _reg_exc)
         _dfn_applied = False
         _dfn_eligible = (
             _is_vocal_material

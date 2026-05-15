@@ -60,6 +60,19 @@ from backend.core.defect_scanner import DefectType
 
 logger = logging.getLogger(__name__)
 
+# ---------------------------------------------------------------------------
+# §0a: Studio-2026-only phases — NEVER suggested in Restoration mode
+# (BUG-FIX v9.12.0 §0a — UV3-Guard blocks them anyway, but CausalDefectReasoner
+# and DefectPhaseMapper must not even propose them for restoration runs)
+# ---------------------------------------------------------------------------
+_RESTORATION_FORBIDDEN_PHASES: frozenset[str] = frozenset(
+    {
+        "phase_21_exciter",
+        "phase_35_multiband_compression",
+        "phase_42_vocal_enhancement",
+    }
+)
+
 
 # ---------------------------------------------------------------------------
 # Datenstruktur: PhaseAssignment
@@ -1591,17 +1604,36 @@ class DefectPhaseMapper:
         """Gibt PhaseAssignment für defect_type zurück, oder None wenn unbekannt."""
         return _PHASE_MAP.get(defect_type)
 
-    def get_primary_phases(self, defect_type: DefectType) -> list[str]:
-        """Gibt Primary-Phase-IDs für defect_type zurück."""
-        a = _PHASE_MAP.get(defect_type)
-        return a.primary_phases if a is not None else []
+    def get_primary_phases(self, defect_type: DefectType, mode: str = "restoration") -> list[str]:
+        """Gibt Primary-Phase-IDs für defect_type zurück.
 
-    def get_all_phases(self, defect_type: DefectType) -> list[str]:
-        """Gibt Primary + Secondary Phase-IDs zurück (geordnet nach Priorität)."""
+        Args:
+            defect_type: Der zu behandelnde Defekttyp.
+            mode: Verarbeitungsmodus — "restoration" filtert §0a-verbotene Phasen
+                  (phase_21_exciter, phase_35_multiband_compression, phase_42_vocal_enhancement).
+        """
         a = _PHASE_MAP.get(defect_type)
         if a is None:
             return []
-        return a.primary_phases + a.secondary_phases
+        phases = a.primary_phases
+        if mode == "restoration":
+            phases = [p for p in phases if p not in _RESTORATION_FORBIDDEN_PHASES]
+        return phases
+
+    def get_all_phases(self, defect_type: DefectType, mode: str = "restoration") -> list[str]:
+        """Gibt Primary + Secondary Phase-IDs zurück (geordnet nach Priorität).
+
+        Args:
+            defect_type: Der zu behandelnde Defekttyp.
+            mode: Verarbeitungsmodus — "restoration" filtert §0a-verbotene Phasen.
+        """
+        a = _PHASE_MAP.get(defect_type)
+        if a is None:
+            return []
+        phases = a.primary_phases + a.secondary_phases
+        if mode == "restoration":
+            phases = [p for p in phases if p not in _RESTORATION_FORBIDDEN_PHASES]
+        return phases
 
     def build_specialist_config(
         self,

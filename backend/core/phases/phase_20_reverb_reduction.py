@@ -69,6 +69,8 @@ import time
 
 import numpy as np
 from scipy import signal
+from scipy.ndimage import minimum_filter1d as _min_filter1d_p20  # vectorised sliding-min
+from scipy.signal import lfilter as _lfilter_p20  # vectorised IIR smoothing
 
 from backend.core.audio_utils import compute_gated_rms_linear as _gated_rms_20
 from backend.core.audio_utils import to_channels_last
@@ -104,14 +106,9 @@ except ImportError:
     logging.getLogger(__name__).warning("WPE-Plugin nicht verfügbar — OMLSA/IMCRA-Fallback aktiv")
 
 try:
-    pass
-
     _PGHI_AVAILABLE_P20 = True
 except ImportError:
     _PGHI_AVAILABLE_P20 = False
-
-from scipy.ndimage import minimum_filter1d as _min_filter1d_p20  # vectorised sliding-min
-from scipy.signal import lfilter as _lfilter_p20  # vectorised IIR smoothing
 
 # §DSP-Instructions: MMSE-LSA Gain (Ephraim-Malah 1985) — E1 = exponential integral
 try:
@@ -267,7 +264,7 @@ class ReverbReduction(PhaseInterface):
             ),
         )
 
-    def process(
+    def process(  # type: ignore[override]  # pylint: disable=arguments-renamed
         self, audio: np.ndarray, sample_rate: int, material: MaterialType = MaterialType.VINYL, **kwargs
     ) -> PhaseResult:
         """
@@ -384,9 +381,9 @@ class ReverbReduction(PhaseInterface):
                 use_lightweight = False
             elif use_lightweight:
                 logger.info(
-                    f"Phase 20: Resource constraint detected, forcing DSP-only mode "
-                    f"(CPU: {adaptive_resource_manager.get_cpu_usage():.1f}%, "
-                    f"Memory: {adaptive_resource_manager.get_memory_usage():.1f}%)"
+                    "Phase 20: Resource constraint detected, forcing DSP-only mode (CPU: %.1f%%, Memory: %.1f%%)",
+                    adaptive_resource_manager.get_cpu_usage(),
+                    adaptive_resource_manager.get_memory_usage(),
                 )
 
         # Fix 11C: For digital material with no reverb defect evidence → skip expensive ML
@@ -487,9 +484,12 @@ class ReverbReduction(PhaseInterface):
                 rms_change_db = 20 * np.log10(np.maximum(rms_after / (rms_before + 1e-10), 1e-30))
 
                 logger.info(
-                    f"ML-Hybrid complete: DSP={ml_result.dsp_applied}, "
-                    f"ML={ml_result.ml_applied}, reverb={ml_result.reverb_estimate:.3f}, "
-                    f"RMS change={rms_change_db:.2f}dB, time={processing_time:.2f}s"
+                    "ML-Hybrid complete: DSP=%s, ML=%s, reverb=%.3f, RMS change=%.2f dB, time=%.2f s",
+                    ml_result.dsp_applied,
+                    ml_result.ml_applied,
+                    ml_result.reverb_estimate,
+                    rms_change_db,
+                    processing_time,
                 )
 
                 # Fix 11A: Catastrophic ML/WPE fallback drop guard
@@ -590,8 +590,10 @@ class ReverbReduction(PhaseInterface):
                     )
 
                 logger.warning(
-                    f"ML-Hybrid dereverb failed: {e}, falling back to DSP. Error type: {type(e).__name__}\n"
-                    f"Traceback: {_tb.format_exc()}"
+                    "ML-Hybrid dereverb failed: %s, falling back to DSP. Error type: %s\n%s",
+                    e,
+                    type(e).__name__,
+                    _tb.format_exc(),
                 )
                 # Fall through to DSP path below
 
@@ -856,6 +858,36 @@ class ReverbReduction(PhaseInterface):
         # §0p [RELEASE_MUST] VQI per-Phase Gate — panns_singing >= 0.35: rollback bei VQI < 0.95
         # phase_20 kann Reverb-Tail des Gesangs durch Dereverb-Artefakte beschädigen.
         _p20_panns = float(kwargs.get("panns_singing", kwargs.get("panns_singing_confidence", _vocal_conf_20)))
+
+        # §0p Passaggio-Schutz [RELEASE_MUST]: Temporal register detection mit Passaggio-Glättung (±5 Frames).
+        # In Übergangszonen (Brust→Kopf): partial blend zurück zum Original (energy_bias ≈ -3.0 dB äquivalent).
+        # Dereverb in Passaggio-Zonen kann Register-Übergänge strukturell beschädigen → blend-back schützt.
+        if _p20_panns >= 0.25:
+            try:
+                from backend.core.dsp.vocal_register_detector import detect_vocal_register_temporal as _dvrt_p20  # pylint: disable=import-outside-toplevel  # noqa: I001
+
+                _reg_seq_p20 = _dvrt_p20(audio, sample_rate, panns_singing=_p20_panns)
+                _has_passaggio_p20 = len({_r for _, _, _r, _ in _reg_seq_p20}) > 1
+                if _has_passaggio_p20:
+                    _n_p20 = audio.shape[-1] if audio.ndim > 1 else len(audio)
+                    _blend_p20 = np.zeros(_n_p20, dtype=np.float32)
+                    for _zs, _ze, _zr, _zb in _reg_seq_p20:
+                        if _zb > -6.0:  # Übergangszone (interpoliert zwischen -6.0 und -3.0)
+                            _si = min(int(_zs * sample_rate), _n_p20)
+                            _ei = min(int(_ze * sample_rate), _n_p20)
+                            # alpha = Anteil Kopfstimme/Passaggio (0=Brust, 1=Kopf)
+                            _alpha = float(np.clip((_zb - (-6.0)) / 3.0, 0.0, 1.0))
+                            _blend_p20[_si:_ei] = np.maximum(_blend_p20[_si:_ei], _alpha)
+                    if audio.ndim > 1:
+                        reduced = (1.0 - _blend_p20[np.newaxis, :]) * reduced + _blend_p20[
+                            np.newaxis, :
+                        ] * audio.astype(np.float32)
+                    else:
+                        reduced = (1.0 - _blend_p20) * reduced + _blend_p20 * audio.astype(np.float32)
+                    logger.debug("§0p phase_20 Passaggio blend zones=%d", len(_reg_seq_p20))
+            except Exception as _pvrt20_exc:
+                logger.debug("§0p Passaggio temporal phase_20 (non-blocking): %s", _pvrt20_exc)
+
         # §0p HNR-Blend nach ML-Dereverb (RELEASE_MUST §0p): ΔHNR > 3 dB → Dry-Wet-Blend
         if _p20_panns >= 0.25:
             try:
@@ -956,7 +988,7 @@ class ReverbReduction(PhaseInterface):
         self,
         original_audio: np.ndarray,
         processed_audio: np.ndarray,
-        material: MaterialType,
+        material: MaterialType,  # pylint: disable=redefined-outer-name
     ) -> tuple[np.ndarray, float, float]:
         material_key = getattr(material, "value", getattr(material, "name", str(material))).lower()
         max_rms_drop_db = float(self._MAX_RMS_DROP_DB.get(material_key, self._MAX_RMS_DROP_DB["unknown"]))
@@ -1012,7 +1044,7 @@ class ReverbReduction(PhaseInterface):
 
         return processed_audio, float(rms_change_db), float(makeup_gain_db)
 
-    def _reduce_reverb(self, audio: np.ndarray, sample_rate: int, strength: float, damping: float) -> np.ndarray:
+    def _reduce_reverb(self, audio: np.ndarray, sample_rate: int, strength: float, damping: float) -> np.ndarray:  # pylint: disable=redefined-outer-name
         """Nachhall-Reduktion via STFT-OMLSA/IMCRA (Cohen 2002/2003).
 
         Algorithmus:
@@ -1350,7 +1382,7 @@ class ReverbReduction(PhaseInterface):
         )
         return audio_out
 
-    def _detect_transients(self, audio: np.ndarray, sample_rate: int) -> np.ndarray:
+    def _detect_transients(self, audio: np.ndarray, sample_rate: int) -> np.ndarray:  # pylint: disable=redefined-outer-name
         """
         Detect transients using energy envelope.
 
@@ -1394,9 +1426,7 @@ if __name__ == "__main__":
 
     # Generate test audio with synthetic reverb
     duration = 3.0
-    sample_rate = 44100
-
-    # Dry signal: short impulses (like snare hits)
+    sample_rate = 44100  # pylint: disable=redefined-outer-name
     t = np.linspace(0, duration, int(sample_rate * duration))
     dry_signal = np.zeros_like(t)
 
@@ -1424,7 +1454,7 @@ if __name__ == "__main__":
         (MaterialType.CD_DIGITAL, "CD_DIGITAL"),
     ]
 
-    for material, material_name in materials:
+    for material, material_name in materials:  # pylint: disable=redefined-outer-name
         logger.debug("─" * 80)
         logger.debug("Material: %s", material_name)
         logger.debug("─" * 80)
@@ -1438,7 +1468,9 @@ if __name__ == "__main__":
         logger.debug("   Reduction Strength: %.2f", result.metrics["reduction_strength"])
         logger.debug("   Tail Damping: %.2f", result.metrics["tail_damping"])
         logger.debug(
-            f"   Processing time: {result.execution_time_seconds:.3f}s ({result.execution_time_seconds / duration:.2f}× realtime)"
+            "   Processing time: %.3f s (%.2f× realtime)",
+            result.execution_time_seconds,
+            result.execution_time_seconds / duration,
         )
         logger.debug("")
 

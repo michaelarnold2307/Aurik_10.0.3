@@ -619,3 +619,73 @@ class TestSyntheticGeneratorSosfiltfilt:
 
         assert "sosfiltfilt" in src, "§V11 Verletzung: sosfilt statt sosfiltfilt in synthetic_generator.py"
         assert "sosfilt(" not in src.replace("sosfiltfilt", ""), "§V11: sosfilt() (kausal) wird noch verwendet"
+
+
+# ===========================================================================
+# §0a Gap-Fix: _RESTORATION_FORBIDDEN_PHASES in DefectPhaseMapper
+# ===========================================================================
+
+
+class TestDefectPhaseMapperRestorationFilter:
+    """§0a RELEASE_MUST — DefectPhaseMapper darf phase_21/35/42 in Restoration
+    nicht vorschlagen (BUG-FIX v9.12.0 §0a)."""
+
+    def test_forbidden_phases_constant_exists(self):
+        """_RESTORATION_FORBIDDEN_PHASES muss die drei §0a-Phasen enthalten."""
+        from backend.core.defect_phase_mapper import _RESTORATION_FORBIDDEN_PHASES
+
+        assert "phase_21_exciter" in _RESTORATION_FORBIDDEN_PHASES
+        assert "phase_35_multiband_compression" in _RESTORATION_FORBIDDEN_PHASES
+        assert "phase_42_vocal_enhancement" in _RESTORATION_FORBIDDEN_PHASES
+
+    def test_get_primary_phases_restoration_filters_forbidden(self):
+        """get_primary_phases(mode='restoration') darf §0a-Phasen nicht zurückgeben."""
+        from backend.core.defect_phase_mapper import _RESTORATION_FORBIDDEN_PHASES, DefectPhaseMapper
+        from backend.core.defect_scanner import DefectType
+
+        mapper = DefectPhaseMapper()
+        for defect_type in DefectType:
+            phases = mapper.get_primary_phases(defect_type, mode="restoration")
+            forbidden_found = set(phases) & _RESTORATION_FORBIDDEN_PHASES
+            assert not forbidden_found, (
+                f"§0a Verletzung: {forbidden_found} in primary_phases für {defect_type.value} im Restoration-Modus"
+            )
+
+    def test_get_all_phases_restoration_filters_forbidden(self):
+        """get_all_phases(mode='restoration') darf §0a-Phasen nicht zurückgeben."""
+        from backend.core.defect_phase_mapper import _RESTORATION_FORBIDDEN_PHASES, DefectPhaseMapper
+        from backend.core.defect_scanner import DefectType
+
+        mapper = DefectPhaseMapper()
+        for defect_type in DefectType:
+            phases = mapper.get_all_phases(defect_type, mode="restoration")
+            forbidden_found = set(phases) & _RESTORATION_FORBIDDEN_PHASES
+            assert not forbidden_found, (
+                f"§0a Verletzung: {forbidden_found} in all_phases für {defect_type.value} im Restoration-Modus"
+            )
+
+    def test_get_all_phases_studio_2026_allows_forbidden(self):
+        """get_all_phases(mode='studio_2026') darf §0a-Phasen enthalten (Studio 2026)."""
+        from backend.core.defect_phase_mapper import _RESTORATION_FORBIDDEN_PHASES, DefectPhaseMapper
+        from backend.core.defect_scanner import DefectType
+
+        mapper = DefectPhaseMapper()
+        # Prüfe: mindestens eine DefectType hat eine §0a-Phase in studio_2026
+        found_studio_phase = False
+        for defect_type in DefectType:
+            phases_studio = mapper.get_all_phases(defect_type, mode="studio_2026")
+            if set(phases_studio) & _RESTORATION_FORBIDDEN_PHASES:
+                found_studio_phase = True
+                break
+        assert found_studio_phase, "Studio 2026 sollte mindestens eine §0a-Phase (phase_35/42) enthalten"
+
+    def test_get_primary_phases_no_mode_defaults_to_restoration(self):
+        """Kein mode-Argument → default 'restoration' → Filterung aktiv."""
+        from backend.core.defect_phase_mapper import _RESTORATION_FORBIDDEN_PHASES, DefectPhaseMapper
+        from backend.core.defect_scanner import DefectType
+
+        mapper = DefectPhaseMapper()
+        for defect_type in DefectType:
+            phases = mapper.get_primary_phases(defect_type)  # kein mode-Argument
+            forbidden_found = set(phases) & _RESTORATION_FORBIDDEN_PHASES
+            assert not forbidden_found, f"§0a Default-Filter fehlt: {forbidden_found} in {defect_type.value}"

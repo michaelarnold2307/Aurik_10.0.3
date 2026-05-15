@@ -726,8 +726,8 @@ class AutonomousRestorationEngine:
             is_restoration_mode=(base_mode == ProcessingMode.RESTORATION),
         )
 
-        # Primary Phase-IDs für Logging
-        primary_phases = self._phase_mapper.get_primary_phases(defect_type)
+        # Primary Phase-IDs für Logging (§0a: Restoration-verbotene Phasen gefiltert)
+        primary_phases = self._phase_mapper.get_primary_phases(defect_type, mode=base_mode.value)
         description = (
             f"Defekt-Spezialist für {defect_type.value} (Severity={severity:.2f}, Phasen={primary_phases[:2]})"
         )

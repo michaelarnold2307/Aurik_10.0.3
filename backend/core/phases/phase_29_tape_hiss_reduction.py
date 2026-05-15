@@ -1533,17 +1533,22 @@ class TapeHissReductionPhase(PhaseInterface):
             _energy_bias_equiv_db = -6.0 if _is_vocal_content_p29 else -9.0
             if _is_vocal_content_p29:
                 try:
-                    from backend.core.dsp.vocal_register_detector import detect_vocal_register as _det_reg29
+                    from backend.core.dsp.vocal_register_detector import detect_vocal_register_temporal as _dvrt_p29  # noqa: I001
 
-                    _reg29_label, _reg29_bias = _det_reg29(audio, sample_rate, panns_singing=float(panns_singing))
-                    _energy_bias_equiv_db = _reg29_bias
+                    # §0p Passaggio-Schutz [RELEASE_MUST]: Temporal register detection mit Passaggio-Glättung.
+                    # Bei Registerübergang (Brust→Kopf): energy_bias = max der Zonen (-3.0 dB) → schützt Übergänge.
+                    _reg_seq_p29 = _dvrt_p29(audio, sample_rate, panns_singing=float(panns_singing))
+                    _zone_biases_p29 = [_b for _, _, _, _b in _reg_seq_p29]
+                    _energy_bias_equiv_db = max(_zone_biases_p29) if _zone_biases_p29 else -6.0
+                    _has_passaggio_p29 = len({_r for _, _, _r, _ in _reg_seq_p29}) > 1
                     logger.debug(
-                        "§2.35c phase_29 VocalRegister=%s energy_bias=%.1f dB",
-                        _reg29_label,
+                        "§0p phase_29 Passaggio=%s energy_bias=%.1f dB zones=%d",
+                        _has_passaggio_p29,
                         _energy_bias_equiv_db,
+                        len(_reg_seq_p29),
                     )
                 except Exception as _reg29_exc:
-                    logger.debug("§2.35c VocalRegister phase_29 fehlgeschlagen (non-blocking): %s", _reg29_exc)
+                    logger.debug("§0p Passaggio temporal phase_29 (non-blocking): %s", _reg29_exc)
             _post_filter_p29 = not _is_vocal_content_p29  # True für Instrumental
             logger.debug(
                 "§0j phase_29 energy_bias_equiv=%.1f dB (panns_singing=%.2f vocal=%s post_filter=%s)",
