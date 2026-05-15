@@ -357,7 +357,7 @@ class VocalFocusAnalyzer:
         Non-blocking: Fehler → [].
         """
         try:
-            from backend.core.dsp.natural_performance_detector import (
+            from backend.core.dsp.natural_performance_detector import (  # pylint: disable=import-outside-toplevel
                 detect_vibrato_zones as _dvz,
             )
 
