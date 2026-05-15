@@ -1533,7 +1533,7 @@ class TapeHissReductionPhase(PhaseInterface):
             _energy_bias_equiv_db = -6.0 if _is_vocal_content_p29 else -9.0
             if _is_vocal_content_p29:
                 try:
-                    from backend.core.dsp.vocal_register_detector import detect_vocal_register_temporal as _dvrt_p29  # noqa: I001
+                    from backend.core.dsp.vocal_register_detector import detect_vocal_register_temporal as _dvrt_p29
 
                     # §0p Passaggio-Schutz [RELEASE_MUST]: Temporal register detection mit Passaggio-Glättung.
                     # Bei Registerübergang (Brust→Kopf): energy_bias = max der Zonen (-3.0 dB) → schützt Übergänge.
