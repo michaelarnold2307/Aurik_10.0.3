@@ -825,6 +825,29 @@ class VocalEnhancement(PhaseInterface):
 
         enhanced_audio = np.nan_to_num(enhanced_audio, nan=0.0, posinf=0.0, neginf=0.0)
         enhanced_audio = np.clip(enhanced_audio, -1.0, 1.0)
+
+        # §0p [RELEASE_MUST] VQI per-Phase Gate — phase_42 ist die aggressivste Vokal-Phase
+        # (Formant-Enhancement, Harshness-Reduction, Stem-Separation). VQI < 0.95 → Rollback
+        # damit Überprozessierung nicht die Stimmidentität zerstört.
+        _p42_panns = float(kwargs.get("panns_singing", kwargs.get("panns_singing_confidence", 0.0)))
+        if _p42_panns >= 0.35:
+            try:
+                from backend.core.musical_goals.vocal_quality_index import (  # pylint: disable=import-outside-toplevel
+                    compute_vqi as _compute_vqi_p42,
+                )
+
+                _vqi_result_p42 = _compute_vqi_p42(audio_orig=audio, audio_restored=enhanced_audio, sr=sample_rate)
+                _vqi_p42 = float(_vqi_result_p42.get("vqi", 1.0))
+                if _vqi_p42 < 0.95:
+                    logger.info(
+                        "phase_42: VQI per-phase rollback (vqi=%.3f < 0.95, panns=%.2f) — Enhancement zurückgesetzt",
+                        _vqi_p42,
+                        _p42_panns,
+                    )
+                    enhanced_audio = audio.copy()
+            except Exception as _vqi_exc_p42:
+                logger.debug("VQI per-phase phase_42 (non-blocking): %s", _vqi_exc_p42)
+
         return PhaseResult(
             success=True,
             audio=enhanced_audio,

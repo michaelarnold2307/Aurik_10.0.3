@@ -853,6 +853,27 @@ class ReverbReduction(PhaseInterface):
         except Exception as _pm20_exc:
             logger.debug("§2.36 phase_20 Phonem-Mask (non-blocking): %s", _pm20_exc)
 
+        # §0p [RELEASE_MUST] VQI per-Phase Gate — panns_singing >= 0.35: rollback bei VQI < 0.95
+        # phase_20 kann Reverb-Tail des Gesangs durch Dereverb-Artefakte beschädigen.
+        _p20_panns = float(kwargs.get("panns_singing", kwargs.get("panns_singing_confidence", _vocal_conf_20)))
+        if _p20_panns >= 0.35:
+            try:
+                from backend.core.musical_goals.vocal_quality_index import (  # pylint: disable=import-outside-toplevel
+                    compute_vqi as _compute_vqi_p20,
+                )
+
+                _vqi_result_p20 = _compute_vqi_p20(audio_orig=audio, audio_restored=reduced, sr=sample_rate)
+                _vqi_p20 = float(_vqi_result_p20.get("vqi", 1.0))
+                if _vqi_p20 < 0.95:
+                    logger.info(
+                        "phase_20: VQI per-phase rollback (vqi=%.3f < 0.95, panns=%.2f) — pre-dereverb bewahrt",
+                        _vqi_p20,
+                        _p20_panns,
+                    )
+                    reduced = audio.copy()
+            except Exception as _vqi_exc_p20:
+                logger.debug("VQI per-phase phase_20 (non-blocking): %s", _vqi_exc_p20)
+
         return PhaseResult(
             success=True,
             audio=reduced,

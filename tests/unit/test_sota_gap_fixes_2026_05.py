@@ -290,3 +290,71 @@ class TestStudioConsoleCharacter:
         curve = profiler.get_studio_console_curve("neutral")
         gains = [g for _, g in curve]
         assert all(g == 0.0 for g in gains), "Neutral muss komplett flat (0 dB) sein"
+
+
+# ===========================================================================
+# VQI per-Phase Gates: phase_20 und phase_42
+# ===========================================================================
+
+
+class TestVqiPerPhaseGates:
+    """§0p VQI per-Phase-Rollback — phase_20_reverb_reduction, phase_42_vocal_enhancement."""
+
+    def _make_audio(self, n: int = 24000, seed: int = 7) -> np.ndarray:
+        rng = np.random.default_rng(seed)
+        return (rng.standard_normal(n) * 0.1).astype(np.float32)
+
+    def test_phase20_process_returns_phaseresult(self):
+        """phase_20.process() gibt PhaseResult zurück (Smoke-Test)."""
+        from backend.core.defect_scanner import MaterialType
+        from backend.core.phases.phase_20_reverb_reduction import ReverbReduction
+
+        phase = ReverbReduction()
+        audio = self._make_audio()
+        result = phase.process(audio, 48000, MaterialType.VINYL, strength=0.2)
+        assert result is not None
+        assert hasattr(result, "audio")
+        assert result.audio.shape == audio.shape
+
+    def test_phase20_vqi_gate_inserted(self):
+        """phase_20.py enthält den VQI per-Phase Rollback-Block."""
+        import inspect
+
+        from backend.core.phases.phase_20_reverb_reduction import ReverbReduction
+
+        src = inspect.getsource(ReverbReduction.process)
+        assert "compute_vqi" in src or "vocal_quality_index" in src, "§0p VQI per-phase gate fehlt in phase_20"
+        assert "_vqi_p20" in src or "_vqi_result_p20" in src, "VQI-Variable _vqi_p20 nicht gefunden"
+
+    def test_phase42_process_returns_phaseresult(self):
+        """phase_42.process() gibt PhaseResult zurück (Smoke-Test)."""
+        from backend.core.defect_scanner import MaterialType
+        from backend.core.phases.phase_42_vocal_enhancement import VocalEnhancement
+
+        phase = VocalEnhancement()
+        audio = self._make_audio()
+        result = phase.process(audio, 48000, MaterialType.CD_DIGITAL, strength=0.2)
+        assert result is not None
+        assert hasattr(result, "audio")
+        assert result.audio.shape == audio.shape
+
+    def test_phase42_vqi_gate_inserted(self):
+        """phase_42.py enthält den VQI per-Phase Rollback-Block."""
+        import inspect
+
+        from backend.core.phases.phase_42_vocal_enhancement import VocalEnhancement
+
+        src = inspect.getsource(VocalEnhancement.process)
+        assert "compute_vqi" in src or "vocal_quality_index" in src, "§0p VQI per-phase gate fehlt in phase_42"
+        assert "_vqi_p42" in src or "_vqi_result_p42" in src, "VQI-Variable _vqi_p42 nicht gefunden"
+
+    def test_uv3_phase50_in_hnr_blend_set(self):
+        """UV3: phase_50_spectral_repair muss im _NR_PHASES_HNR-Set sein."""
+        import inspect
+
+        from backend.core.unified_restorer_v3 import UnifiedRestorerV3
+
+        src = inspect.getsource(UnifiedRestorerV3._profiled_phase_call)
+        assert "phase_50_spectral_repair" in src, (
+            "§0p HNR-Blend: phase_50_spectral_repair fehlt in _NR_PHASES_HNR (UV3)"
+        )

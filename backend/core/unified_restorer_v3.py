@@ -17939,6 +17939,7 @@ class UnifiedRestorerV3:
                 "phase_20_reverb_reduction",
                 "phase_29_tape_hiss_reduction",
                 "phase_49_advanced_dereverb",  # §0p BUG-FIX v9.12.5: HNR-Blend nach Dereverb auf Vokal
+                "phase_50_spectral_repair",  # §0p v9.12.7: HNR-Blend nach Spektral-Inpainting — Vokal-HNR schützen
                 "phase_55_diffusion_inpainting",  # §0p v9.12.6: HNR-Blend nach Inpainting — verhindert Over-Harmonisierung
             }
         )
