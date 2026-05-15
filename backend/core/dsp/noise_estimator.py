@@ -44,7 +44,7 @@ _lock = threading.Lock()
 
 def get_noise_estimator() -> ImcraNoisEstimator:
     """Thread-safe singleton accessor."""
-    global _instance
+    global _instance  # pylint: disable=global-statement
     if _instance is None:
         with _lock:
             if _instance is None:
@@ -214,9 +214,7 @@ def compute_imcra_noise_estimate(
         # Fallback: simple sliding-minimum noise floor (1D averaged over time)
         n_overlap = n_fft - hop_length
         try:
-            from scipy.signal import stft as _stft
-
-            _, _, Zxx = _stft(audio, fs=sr, nperseg=n_fft, noverlap=n_overlap, window="hann", boundary="even")
+            _, _, Zxx = _scipy_stft(audio, fs=sr, nperseg=n_fft, noverlap=n_overlap, window="hann", boundary="even")
             power = (np.abs(Zxx) ** 2).astype(np.float32)
             noise_floor = np.median(power, axis=1, keepdims=True)
             return np.broadcast_to(noise_floor, power.shape).copy()

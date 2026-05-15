@@ -767,8 +767,8 @@ class FrequencyRestorationPhase(PhaseInterface):
         if _mic6_era is not None:
             try:
                 if int(_mic6_era) <= 1970:
-                    from backend.core.microphone_response_library import (
-                        get_microphone_response_library,  # pylint: disable=import-outside-toplevel
+                    from backend.core.microphone_response_library import (  # pylint: disable=import-outside-toplevel
+                        get_microphone_response_library,
                     )
 
                     _mic6_result = get_microphone_response_library().get_eq_curve(
@@ -854,12 +854,10 @@ class FrequencyRestorationPhase(PhaseInterface):
                     _c06_gain_lin = np.power(10.0, _c06_gain_db / 20.0).astype(np.float32)
 
                     def _apply_console_eq_06(sig: np.ndarray) -> np.ndarray:
-                        from scipy import signal as _sig_c06  # pylint: disable=import-outside-toplevel
-
-                        _, _, _stft_c06 = _sig_c06.stft(
+                        _, _, _stft_c06 = signal.stft(
                             sig, fs=sample_rate, nperseg=_c06_n_fft, noverlap=_c06_n_fft - 512, boundary="even"
                         )
-                        _, _out_c06 = _sig_c06.istft(
+                        _, _out_c06 = signal.istft(
                             _stft_c06 * _c06_gain_lin[:, np.newaxis],
                             fs=sample_rate,
                             nperseg=_c06_n_fft,

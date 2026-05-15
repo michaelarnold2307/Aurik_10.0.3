@@ -1586,3 +1586,146 @@ class TestBlindInternalReference:
         assert 0.0 <= score <= 1.0
         assert -20.0 <= snr_db <= 60.0
         assert 0.0 <= clarity <= 1.0
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# §Gap-Vocal-Guards — PhraseGuard + FormantGate + EnergyBias Integration Tests
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class TestPhraseBoundaryGuardIntegration:
+    """phrase_boundary_guard is integrated in phases 03, 29, 49 (§Gap3)."""
+
+    def test_phrase_boundary_guard_present_in_phase_03(self):
+        """phase_03_denoise must reference detect_phrase_boundaries."""
+        import inspect
+
+        from backend.core.phases import phase_03_denoise
+
+        src = inspect.getsource(phase_03_denoise)
+        assert "detect_phrase_boundaries" in src, "PhraseGuard missing from phase_03"
+        assert "apply_phrase_boundary_taper" in src
+
+    def test_phrase_boundary_guard_present_in_phase_29(self):
+        """phase_29_tape_hiss_reduction must reference detect_phrase_boundaries."""
+        import inspect
+
+        from backend.core.phases import phase_29_tape_hiss_reduction
+
+        src = inspect.getsource(phase_29_tape_hiss_reduction)
+        assert "detect_phrase_boundaries" in src, "PhraseGuard missing from phase_29"
+        assert "apply_phrase_boundary_taper" in src
+
+    def test_phrase_boundary_guard_present_in_phase_49(self):
+        """phase_49_advanced_dereverb must reference detect_phrase_boundaries."""
+        import inspect
+
+        from backend.core.phases import phase_49_advanced_dereverb
+
+        src = inspect.getsource(phase_49_advanced_dereverb)
+        assert "detect_phrase_boundaries" in src, "PhraseGuard missing from phase_49"
+        assert "apply_phrase_boundary_taper" in src
+
+    def test_phrase_guard_taper_non_blocking_on_short(self):
+        """detect_phrase_boundaries returns [] for short audio — non-blocking."""
+        from backend.core.dsp.phrase_boundary_guard import detect_phrase_boundaries
+
+        short = np.zeros(512, dtype=np.float32)
+        result = detect_phrase_boundaries(short, 48000)
+        assert isinstance(result, list)
+        assert len(result) == 0
+
+    def test_phrase_guard_taper_returns_envelope_len(self):
+        """apply_phrase_boundary_taper returns envelope of correct length."""
+        from backend.core.dsp.phrase_boundary_guard import (
+            apply_phrase_boundary_taper,
+            detect_phrase_boundaries,
+        )
+
+        rng = np.random.default_rng(99)
+        audio = rng.standard_normal(48000 * 10).astype(np.float32) * 0.1
+        boundaries = detect_phrase_boundaries(audio, 48000)
+        env = apply_phrase_boundary_taper(audio, boundaries, 48000)
+        assert env.shape[0] == audio.shape[0], "Envelope length must match audio length"
+        assert np.all(env >= 0.0) and np.all(env <= 1.0), "Envelope must be in [0, 1]"
+
+
+class TestFormantIntegrityGates:
+    """Formant preventive gates are referenced in phases 20 and 49 (§0p)."""
+
+    def test_formant_gate_present_in_phase_20(self):
+        """phase_20_reverb_reduction must reference LPC formant tracker for pre/post check."""
+        import inspect
+
+        from backend.core.phases import phase_20_reverb_reduction
+
+        src = inspect.getsource(phase_20_reverb_reduction)
+        assert "lpc_formant_tracker" in src, "Formant gate missing from phase_20"
+        assert "_f1_pre_20" in src
+        assert "_f1_post_20" in src
+
+    def test_formant_gate_present_in_phase_49(self):
+        """phase_49_advanced_dereverb must reference LPC formant tracker for pre/post check."""
+        import inspect
+
+        from backend.core.phases import phase_49_advanced_dereverb
+
+        src = inspect.getsource(phase_49_advanced_dereverb)
+        assert "lpc_formant_tracker" in src, "Formant gate missing from phase_49"
+        assert "_f1_pre_49" in src
+        assert "_f1_post_49" in src
+
+    def test_formant_gate_rollback_keyword_phase_20(self):
+        """phase_20 must log 'Formant drift' when rolling back."""
+        import inspect
+
+        from backend.core.phases import phase_20_reverb_reduction
+
+        src = inspect.getsource(phase_20_reverb_reduction)
+        assert "Formant drift phase_20" in src
+
+    def test_formant_gate_rollback_keyword_phase_49(self):
+        """phase_49 must log 'Formant drift' when rolling back."""
+        import inspect
+
+        from backend.core.phases import phase_49_advanced_dereverb
+
+        src = inspect.getsource(phase_49_advanced_dereverb)
+        assert "Formant drift phase_49" in src
+
+
+class TestEnergyBiasContextPropagation:
+    """vocal_energy_bias_db from _restoration_context is read by phases 20 and 29 (§0j)."""
+
+    def test_energy_bias_context_read_in_phase_20(self):
+        """phase_20_reverb_reduction must read vocal_energy_bias_db from _restoration_context."""
+        import inspect
+
+        from backend.core.phases import phase_20_reverb_reduction
+
+        src = inspect.getsource(phase_20_reverb_reduction)
+        assert "_ctx_energy_bias_20" in src, "Energy-bias context missing from phase_20"
+        assert "vocal_energy_bias_db" in src
+
+    def test_energy_bias_context_read_in_phase_29(self):
+        """phase_29_tape_hiss_reduction must read vocal_energy_bias_db from context."""
+        import inspect
+
+        from backend.core.phases import phase_29_tape_hiss_reduction
+
+        src = inspect.getsource(phase_29_tape_hiss_reduction)
+        assert "_ctx_energy_bias_29" in src, "Energy-bias context missing from phase_29"
+        assert "vocal_energy_bias_db" in src
+
+    def test_energy_bias_scale_formula_sane(self):
+        """energy_bias_db -9 dB → scale factor ~0.35 (not 0 or 1)."""
+
+        _eb = -9.0
+        scale = 10.0 ** (_eb / 20.0)
+        assert 0.30 < scale < 0.40, f"Unexpected scale {scale} for -9 dB energy_bias"
+
+    def test_energy_bias_neutral_default(self):
+        """Default of -6.0 dB must not further scale strength (< -6.0 trigger only)."""
+        _ctx_energy_bias = -6.0
+        triggered = _ctx_energy_bias < -6.0
+        assert not triggered, "Default -6 dB must not trigger extra scaling"

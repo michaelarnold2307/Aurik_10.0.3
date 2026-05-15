@@ -342,6 +342,19 @@ class AdvancedDereverbPhase(PhaseInterface):
         _vocal_conf_49 = float(kwargs.get("vocal_confidence", kwargs.get("panns_singing_confidence", 0.0)))
         _vocal_detected_49 = bool(kwargs.get("vocal_detected", False)) or (_vocal_conf_49 >= 0.35)
 
+        # §0p Formant-Integrity pre-snapshot — §0p: F1–F4 dürfen durch keine Phase um mehr als ±15% verschoben werden
+        _f1_pre_49 = None
+        if _vocal_conf_49 >= 0.35:
+            try:
+                from backend.core.dsp.lpc_formant_tracker import get_lpc_formant_tracker as _get_lfc_49  # pylint: disable=import-outside-toplevel  # noqa: I001
+
+                _ft_in_49 = audio.mean(axis=0) if audio.ndim == 2 else audio
+                _f1_pre_49 = (
+                    float(_get_lfc_49().track(_ft_in_49.astype(np.float32), sample_rate).get("f1_mean", 0.0)) or None
+                )
+            except Exception:
+                pass
+
         # §2.20 Genre-adaptive dereverb hardcap (defense-in-depth — SongCal is primary guard).
         _genre_label_49 = str(kwargs.get("genre_label", ""))
         if _genre_label_49 == "Reggae":
@@ -704,6 +717,47 @@ class AdvancedDereverbPhase(PhaseInterface):
                     processed = _hnr_blended_p49
             except Exception as _hnr_exc_p49:
                 logger.debug("§0p HNR-Blend phase_49 (non-blocking): %s", _hnr_exc_p49)
+
+        # §0p Formant-Integrity post-check — rollback if F1 shifted >±15%
+        if _f1_pre_49 is not None:
+            try:
+                from backend.core.dsp.lpc_formant_tracker import get_lpc_formant_tracker as _get_lfc_49_post  # pylint: disable=import-outside-toplevel  # noqa: I001
+
+                _ft_out_49 = processed.mean(axis=0) if processed.ndim == 2 else processed
+                _f1_post_49 = float(
+                    _get_lfc_49_post().track(_ft_out_49.astype(np.float32), sample_rate).get("f1_mean", 0.0)
+                )
+                if _f1_post_49 > 0 and abs(_f1_post_49 - _f1_pre_49) > _f1_pre_49 * 0.15:
+                    logger.warning(
+                        "§0p Formant drift phase_49 (F1 %.0f→%.0f Hz, delta=%.0f Hz) — rollback",
+                        _f1_pre_49,
+                        _f1_post_49,
+                        abs(_f1_post_49 - _f1_pre_49),
+                    )
+                    processed = audio.copy()
+            except Exception:
+                pass
+
+        # §Gap3 PhraseBoundaryGuard — taper artifacts at phrase transitions (§0p Vocal-Supremacy)
+        try:
+            from backend.core.dsp.phrase_boundary_guard import (  # pylint: disable=import-outside-toplevel  # noqa: I001
+                detect_phrase_boundaries as _detect_pbg_49,
+                apply_phrase_boundary_taper as _apply_pbg_49,
+            )
+
+            _pbg_bounds_49 = _detect_pbg_49(audio, sample_rate)
+            if _pbg_bounds_49:
+                _pbg_env_49 = _apply_pbg_49(audio, _pbg_bounds_49, sample_rate, taper_ms=20.0).astype(np.float32)
+                if processed.ndim == 1:
+                    processed = audio + (processed - audio) * _pbg_env_49
+                elif processed.ndim == 2 and processed.shape[0] == 2 and processed.shape[1] > 2:
+                    processed = audio + (processed - audio) * _pbg_env_49[np.newaxis, :]
+                else:
+                    processed = audio + (processed - audio) * _pbg_env_49[:, np.newaxis]
+                processed = np.clip(np.nan_to_num(processed, nan=0.0), -1.0, 1.0).astype(np.float32)
+                logger.debug("§Gap3 PhraseBoundaryGuard phase_49: %d boundaries", len(_pbg_bounds_49))
+        except Exception as _pbg_exc_49:
+            logger.debug("PhraseBoundaryGuard phase_49 (non-blocking): %s", _pbg_exc_49)
 
         return PhaseResult(
             success=True,

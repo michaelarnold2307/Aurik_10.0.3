@@ -451,10 +451,10 @@ class MertMushraProxy:
         """
         # Try PANNs first (no model load — only if already in memory)
         try:
-            from plugins.panns_plugin import get_panns_plugin
+            from plugins.panns_plugin import get_panns_plugin  # pylint: disable=import-outside-toplevel
 
             panns = get_panns_plugin()
-            if panns._session is not None:
+            if panns._session is not None:  # pylint: disable=protected-access
                 tags = panns.get_tags(ref, sr)
                 return float(
                     max(
@@ -814,9 +814,9 @@ class MertMushraProxy:
         Returns:
             Optimized weight dict (24 keys, sum = 1.0, all ≥ 0).
         """
-        global _calibrated_weights, _calibrated_confidence
+        global _calibrated_weights, _calibrated_confidence  # pylint: disable=global-statement
 
-        from sklearn.linear_model import Ridge
+        from sklearn.linear_model import Ridge  # pylint: disable=import-outside-toplevel
 
         # Normalize MUSHRA to [0, 1]
         y = mushra_scores / 100.0
@@ -835,7 +835,7 @@ class MertMushraProxy:
         optimized = {k: float(raw_w[i] / total) for i, k in enumerate(keys)}
 
         # Cross-validation correlation estimate
-        from sklearn.model_selection import cross_val_score
+        from sklearn.model_selection import cross_val_score  # pylint: disable=import-outside-toplevel
 
         r2_scores = cross_val_score(model, component_matrix, y, cv=min(5, len(y)), scoring="r2")
         r_est = float(np.sqrt(np.clip(np.mean(r2_scores), 0.0, 1.0)))
@@ -865,7 +865,7 @@ class MertMushraProxy:
         Falls back to 3.0 (neutral MOS) on error.
         """
         try:
-            from plugins.visqol_plugin import get_visqol_plugin
+            from plugins.visqol_plugin import get_visqol_plugin  # pylint: disable=import-outside-toplevel
 
             mos = get_visqol_plugin().score(ref, test, sr)
             return float(np.clip(mos, 1.0, 5.0))
@@ -1019,7 +1019,7 @@ class MertMushraProxy:
         Higher = better.
         """
         try:
-            import librosa
+            import librosa  # pylint: disable=import-outside-toplevel
 
             seg_len = int(segment_dur * sr)
             if seg_len < sr // 4:
@@ -1114,7 +1114,7 @@ class MertMushraProxy:
         rolloff, ZCR, spectral contrast). L2-normalized → cosine similarity.
         """
         try:
-            from backend.core.clap_reference_matcher import compute_dsp_embedding
+            from backend.core.clap_reference_matcher import compute_dsp_embedding  # pylint: disable=import-outside-toplevel
 
             emb_ref = compute_dsp_embedding(ref, sr)
             emb_test = compute_dsp_embedding(test, sr)
@@ -1216,7 +1216,7 @@ class MertMushraProxy:
         Returns NaN if MERT is not already loaded in process.
         """
         try:
-            from plugins.mert_plugin import get_loaded_mert_plugin
+            from plugins.mert_plugin import get_loaded_mert_plugin  # pylint: disable=import-outside-toplevel
 
             mert = get_loaded_mert_plugin()
             if mert is None:
@@ -1247,7 +1247,7 @@ class MertMushraProxy:
         For DSP fallback: 512-dim DSP feature vector (MFCCs + chroma + spectral).
         """
         try:
-            import scipy.signal as spsig
+            import scipy.signal as spsig  # pylint: disable=import-outside-toplevel
 
             # Prepare audio: mono, float32, resample to MERT target SR
             mono = audio.astype(np.float32)
@@ -1282,7 +1282,7 @@ class MertMushraProxy:
     def _compute_nsim(ref: np.ndarray, test: np.ndarray, sr: int) -> float:
         """Mel-spectrogram SSIM (structural similarity)."""
         try:
-            import librosa
+            import librosa  # pylint: disable=import-outside-toplevel
 
             n_fft = _safe_fft_size(min(len(ref), len(test)), target=2048, minimum=64)
             hop = max(16, n_fft // 4)
@@ -1313,7 +1313,7 @@ class MertMushraProxy:
     def _compute_mcd(ref: np.ndarray, test: np.ndarray, sr: int) -> float:
         """Mel-Cepstral Distortion in dB (lower = better)."""
         try:
-            import librosa
+            import librosa  # pylint: disable=import-outside-toplevel
 
             mfcc_ref = librosa.feature.mfcc(y=ref, sr=sr, n_mfcc=13).T
             mfcc_test = librosa.feature.mfcc(y=test, sr=sr, n_mfcc=13).T
@@ -1328,7 +1328,7 @@ class MertMushraProxy:
     def _compute_chroma_corr(ref: np.ndarray, test: np.ndarray, sr: int) -> float:
         """Chromagram Pearson correlation — tonal center preservation."""
         try:
-            import librosa
+            import librosa  # pylint: disable=import-outside-toplevel
 
             n_fft = _safe_fft_size(min(len(ref), len(test)), target=2048, minimum=64)
             hop = max(16, n_fft // 4)
@@ -1427,7 +1427,7 @@ class MertMushraProxy:
             if ref_2d.shape[0] < 2 or test_2d.shape[0] < 2:
                 return 0.5  # Mono — neutral contribution
 
-            from backend.core.musical_goals.musical_goals_metrics import SpatialDepthMetric
+            from backend.core.musical_goals.musical_goals_metrics import SpatialDepthMetric  # pylint: disable=import-outside-toplevel
 
             # Length-align stereo channels
             min_len = min(ref_2d.shape[1], test_2d.shape[1])
@@ -1442,8 +1442,8 @@ class MertMushraProxy:
             metric = SpatialDepthMetric()
 
             # IACC comparison (interaural cross-correlation)
-            iacc_ref = metric._compute_iacc(ref_left, ref_right, max_lag_ms=1.0, sr=sr)
-            iacc_test = metric._compute_iacc(test_left, test_right, max_lag_ms=1.0, sr=sr)
+            iacc_ref = metric._compute_iacc(ref_left, ref_right, max_lag_ms=1.0, sr=sr)  # pylint: disable=protected-access
+            iacc_test = metric._compute_iacc(test_left, test_right, max_lag_ms=1.0, sr=sr)  # pylint: disable=protected-access
             iacc_preservation = 1.0 - min(abs(iacc_ref - iacc_test), 1.0)
 
             # Stereo width (L-R correlation drift)
@@ -1479,7 +1479,7 @@ class MertMushraProxy:
         and compares sharpness ratios.
         """
         try:
-            from backend.core.authenticity_metrics import AuthenticityMetrics
+            from backend.core.authenticity_metrics import AuthenticityMetrics  # pylint: disable=import-outside-toplevel
 
             metric = AuthenticityMetrics()
             preservation_rate, _orig_events, _proc_events = metric.compute_transient_preservation(ref, test, sr)
@@ -1512,7 +1512,7 @@ class MertMushraProxy:
         > 0 dB means noise is audible above the masking threshold.
         """
         try:
-            from backend.core.psychoacoustic_masking_model import (
+            from backend.core.psychoacoustic_masking_model import (  # pylint: disable=import-outside-toplevel
                 PsychoacousticMaskingModel,
             )
 
@@ -1571,7 +1571,7 @@ class MertMushraProxy:
             if duration_s < 10.0:
                 return 1.0  # Too short for meaningful arc analysis
 
-            from backend.core.emotional_arc_preservation import (
+            from backend.core.emotional_arc_preservation import (  # pylint: disable=import-outside-toplevel
                 EmotionalArcPreservationMetric,
             )
 
@@ -1642,14 +1642,14 @@ class MertMushraProxy:
                         continue  # Skip silence
                     windowed = frame * np.hanning(frame_len)
                     # Autocorrelation LPC via Levinson-Durbin — FFT-based
-                    from backend.core.core_utils import fft_autocorr
+                    from backend.core.core_utils import fft_autocorr  # pylint: disable=import-outside-toplevel
 
                     r = fft_autocorr(windowed, max_lag=order)
                     if r[0] < 1e-12 or not np.isfinite(r[: order + 1]).all():
                         continue
                     try:
                         # Toeplitz solve for LPC coefficients
-                        from scipy.linalg import solve_toeplitz
+                        from scipy.linalg import solve_toeplitz  # pylint: disable=import-outside-toplevel
 
                         a = solve_toeplitz(r[:order], r[1 : order + 1])
                     except Exception:
@@ -3174,7 +3174,7 @@ class MertMushraProxy:
 def _extract_hf_embedding(mert_plugin: object, audio: np.ndarray, sr: int) -> np.ndarray | None:
     """Extract temporal-mean 768-dim embedding from HuggingFace MERT model."""
     try:
-        import torch
+        import torch  # pylint: disable=import-outside-toplevel
 
         processor = getattr(mert_plugin, "_processor", None)
         model = getattr(mert_plugin, "_model", None)
@@ -3204,7 +3204,7 @@ def _extract_onnx_embedding(mert_plugin: object, audio: np.ndarray, sr: int) -> 
     # ONNX session mid-inference → crash / OOM.
     _plm = None
     try:
-        from backend.core.plugin_lifecycle_manager import get_plugin_lifecycle_manager as _get_plm_mert
+        from backend.core.plugin_lifecycle_manager import get_plugin_lifecycle_manager as _get_plm_mert  # pylint: disable=import-outside-toplevel
 
         _plm = _get_plm_mert()
         _plm.set_active("MERT", True)
@@ -3243,7 +3243,7 @@ def _extract_dsp_embedding(audio: np.ndarray, sr: int) -> np.ndarray:
     (ZCR, RMS × 4 stats) into a fixed-size vector.
     """
     try:
-        import librosa
+        import librosa  # pylint: disable=import-outside-toplevel
 
         features = []
 
@@ -3432,7 +3432,7 @@ _lock = threading.Lock()
 
 def get_proxy_evaluator() -> MertMushraProxy:
     """Thread-safe singleton accessor for MERT MUSHRA proxy evaluator."""
-    global _instance
+    global _instance  # pylint: disable=global-statement
     if _instance is None:
         with _lock:
             if _instance is None:

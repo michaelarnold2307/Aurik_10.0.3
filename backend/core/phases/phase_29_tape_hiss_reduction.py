@@ -761,6 +761,28 @@ class TapeHissReductionPhase(PhaseInterface):
             except Exception as _vqi_exc_p29:
                 logger.debug("VQI per-phase phase29 (non-blocking): %s", _vqi_exc_p29)
 
+        # §Gap3 PhraseBoundaryGuard — taper artifacts at phrase transitions (§0p Vocal-Supremacy)
+        try:
+            from backend.core.dsp.phrase_boundary_guard import (  # pylint: disable=import-outside-toplevel  # noqa: I001
+                detect_phrase_boundaries as _detect_pbg_29,
+                apply_phrase_boundary_taper as _apply_pbg_29,
+            )
+
+            _pbg_bounds_29 = _detect_pbg_29(audio, sample_rate)
+            if _pbg_bounds_29:
+                _pbg_env_29 = _apply_pbg_29(audio, _pbg_bounds_29, sample_rate, taper_ms=20.0).astype(np.float32)
+                _pbg_aud_29 = audio if audio.ndim == audio_processed.ndim else np.asarray(audio, dtype=np.float32)
+                if audio_processed.ndim == 1:
+                    audio_processed = _pbg_aud_29 + (audio_processed - _pbg_aud_29) * _pbg_env_29
+                elif audio_processed.ndim == 2 and audio_processed.shape[0] == 2 and audio_processed.shape[1] > 2:
+                    audio_processed = _pbg_aud_29 + (audio_processed - _pbg_aud_29) * _pbg_env_29[np.newaxis, :]
+                else:
+                    audio_processed = _pbg_aud_29 + (audio_processed - _pbg_aud_29) * _pbg_env_29[:, np.newaxis]
+                audio_processed = np.clip(np.nan_to_num(audio_processed, nan=0.0), -1.0, 1.0).astype(np.float32)
+                logger.debug("§Gap3 PhraseBoundaryGuard phase_29: %d boundaries", len(_pbg_bounds_29))
+        except Exception as _pbg_exc_29:
+            logger.debug("PhraseBoundaryGuard phase_29 (non-blocking): %s", _pbg_exc_29)
+
         return PhaseResult(
             success=True,
             audio=restore_layout(audio_processed, _p29_transposed),
@@ -1557,6 +1579,12 @@ class TapeHissReductionPhase(PhaseInterface):
                 _is_vocal_content_p29,
                 _post_filter_p29,
             )
+
+            # §0j vocal_energy_bias_db from VFA context — override local estimate
+            _ctx_energy_bias_29 = float(kwargs.get("_restoration_context", {}).get("vocal_energy_bias_db", 0.0))
+            if _ctx_energy_bias_29 < -6.0 and _is_vocal_content_p29:
+                _energy_bias_equiv_db = _ctx_energy_bias_29
+                logger.debug("§0j phase_29 energy_bias from context=%.1f dB", _ctx_energy_bias_29)
 
             # Process with DeepFilterNet
             returncode, _stdout, _stderr = plugin.process(

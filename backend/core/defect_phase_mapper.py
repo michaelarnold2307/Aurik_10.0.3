@@ -1763,7 +1763,7 @@ def get_reverse_phase_map() -> dict[str, list[DefectType]]:
         Dict mapping phase_id → list of DefectTypes this phase primarily targets.
         Enhancement phases (not in _PHASE_MAP as primary) are absent.
     """
-    global _REVERSE_PHASE_MAP
+    global _REVERSE_PHASE_MAP  # pylint: disable=global-statement
     if _REVERSE_PHASE_MAP is None:
         with _REVERSE_LOCK:
             if _REVERSE_PHASE_MAP is None:
@@ -1816,7 +1816,7 @@ def get_phase_defect_severity(phase_id: str, defect_scores: dict) -> float:
 
 def get_phase_locality_factor(
     phase_id: str,
-    defect_scores: dict,
+    defect_scores: dict,  # pylint: disable=unused-argument
     defect_location_coverage_map: dict[str, float] | None,
 ) -> float:
     """Returns locality factor ∈ [0.35, 1.0] for a given phase.

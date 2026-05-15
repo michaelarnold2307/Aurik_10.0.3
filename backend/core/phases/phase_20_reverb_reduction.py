@@ -293,6 +293,19 @@ class ReverbReduction(PhaseInterface):
         except Exception as _npa_exc_20:
             logger.debug("§2.46f NPA detection non-blocking: %s", _npa_exc_20)
 
+        # §0p Formant-Integrity pre-snapshot — §0p: F1–F4 dürfen durch keine Phase um mehr als ±15% verschoben werden
+        _f1_pre_20 = None
+        _p20_panns_fgt = float(kwargs.get("panns_singing", kwargs.get("panns_singing_confidence", 0.0)))
+        if _p20_panns_fgt >= 0.35:
+            try:
+                from backend.core.dsp.lpc_formant_tracker import get_lpc_formant_tracker as _get_lfc_20  # pylint: disable=import-outside-toplevel  # noqa: I001
+
+                _ft_in_20 = audio.mean(axis=0) if audio.ndim == 2 else audio
+                _lfc_res_20 = _get_lfc_20().track(_ft_in_20.astype(np.float32), sample_rate)
+                _f1_pre_20 = float(_lfc_res_20.get("f1_mean", 0.0)) or None
+            except Exception:
+                pass
+
         strength = self.REDUCTION_STRENGTH.get(material, 0.4)
         damping = self.TAIL_DAMPING.get(material, 0.6)
 
@@ -361,6 +374,18 @@ class ReverbReduction(PhaseInterface):
                     _vocal_cap_20,
                 )
                 strength = _vocal_cap_20
+
+        # §0j vocal_energy_bias_db from VFA context — §0j: energy_bias from UV3 VocalFocusAnalyzer
+        _ctx_energy_bias_20 = float(kwargs.get("_restoration_context", {}).get("vocal_energy_bias_db", -6.0))
+        if _ctx_energy_bias_20 < -6.0 and _vocal_detected_20:
+            # Convert energy_bias_db to additional strength reduction (more negative = less aggressive)
+            _eb_scale_20 = float(10.0 ** (_ctx_energy_bias_20 / 20.0))  # e.g. -9 dB → 0.355
+            strength = float(np.clip(strength * max(_eb_scale_20, 0.20), 0.05, strength))
+            logger.debug(
+                "§0j phase_20 vocal_energy_bias_db=%.1f dB → strength scaled to %.3f",
+                _ctx_energy_bias_20,
+                strength,
+            )
 
         # §2.14+ Era-adaptive: older recordings (pre-1960) often have room ambience
         # integral to the character — reduce dereverb strength.
@@ -913,8 +938,29 @@ class ReverbReduction(PhaseInterface):
                 )
                 if _hnr_diag_p20.get("over_cleaned"):
                     reduced = _hnr_blended_p20
+
             except Exception as _hnr_exc_p20:
                 logger.debug("§0p HNR-Blend phase_20 (non-blocking): %s", _hnr_exc_p20)
+
+        # §0p Formant-Integrity post-check — rollback if F1 shifted >±15%
+        if _f1_pre_20 is not None:
+            try:
+                from backend.core.dsp.lpc_formant_tracker import get_lpc_formant_tracker as _get_lfc_20_post  # pylint: disable=import-outside-toplevel  # noqa: I001
+
+                _ft_out_20 = reduced.mean(axis=0) if reduced.ndim == 2 else reduced
+                _f1_post_20 = float(
+                    _get_lfc_20_post().track(_ft_out_20.astype(np.float32), sample_rate).get("f1_mean", 0.0)
+                )
+                if _f1_post_20 > 0 and abs(_f1_post_20 - _f1_pre_20) > _f1_pre_20 * 0.15:
+                    logger.warning(
+                        "§0p Formant drift phase_20 (F1 %.0f→%.0f Hz, delta=%.0f Hz) — rollback",
+                        _f1_pre_20,
+                        _f1_post_20,
+                        abs(_f1_post_20 - _f1_pre_20),
+                    )
+                    reduced = audio.copy()
+            except Exception:
+                pass
         if _p20_panns >= 0.35:
             try:
                 from backend.core.musical_goals.vocal_quality_index import (  # pylint: disable=import-outside-toplevel
