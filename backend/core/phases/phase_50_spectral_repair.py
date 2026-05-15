@@ -89,7 +89,7 @@ def _repair_channel(
         remains active everywhere: it works on whole-frame RMS, not per-bin ratios, and
         is insensitive to isolated harmonic additions.
     """
-    from scipy.ndimage import uniform_filter1d
+    from scipy.ndimage import uniform_filter1d  # pylint: disable=import-outside-toplevel
 
     _f, _t, Zxx = sig.stft(
         channel,
@@ -296,7 +296,7 @@ class SpectralRepairPhase(PhaseInterface):
             "side_multiplier": float(np.clip(side_multiplier, 1.60, 2.40)),
         }
 
-    def process(self, audio: np.ndarray, sample_rate: int, **kwargs) -> PhaseResult:
+    def process(self, audio: np.ndarray, sample_rate: int, **kwargs) -> PhaseResult:  # pylint: disable=arguments-differ
         """
         Repariert spektrale Artefakte via STFT Inpainting.
 
@@ -443,6 +443,7 @@ class SpectralRepairPhase(PhaseInterface):
 
         # §4.5 Psychoacoustic Masking Clamp — only repair where audible (§0 Primum non nocere)
         try:
+            # pylint: disable-next=import-outside-toplevel
             from backend.core.dsp.psychoacoustics import apply_psychoacoustic_masking_clamp
 
             repaired_audio = apply_psychoacoustic_masking_clamp(
@@ -460,6 +461,7 @@ class SpectralRepairPhase(PhaseInterface):
 
         # §2.46e Hallucination-Guard: Additive Spectral-Reparatur kann Energie über Ceiling hinzufügen
         try:
+            # pylint: disable-next=import-outside-toplevel
             from backend.core.hallucination_guard import apply_hallucination_guard
 
             _material_50 = kwargs.get("material_type", "unknown")
