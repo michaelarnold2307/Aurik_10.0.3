@@ -856,6 +856,18 @@ class ReverbReduction(PhaseInterface):
         # §0p [RELEASE_MUST] VQI per-Phase Gate — panns_singing >= 0.35: rollback bei VQI < 0.95
         # phase_20 kann Reverb-Tail des Gesangs durch Dereverb-Artefakte beschädigen.
         _p20_panns = float(kwargs.get("panns_singing", kwargs.get("panns_singing_confidence", _vocal_conf_20)))
+        # §0p HNR-Blend nach ML-Dereverb (RELEASE_MUST §0p): ΔHNR > 3 dB → Dry-Wet-Blend
+        if _p20_panns >= 0.25:
+            try:
+                from backend.core.dsp.hnr_guard import apply_hnr_blend as _apply_hnr_p20  # pylint: disable=import-outside-toplevel  # noqa: I001
+
+                _hnr_blended_p20, _hnr_diag_p20 = _apply_hnr_p20(
+                    audio.astype(np.float32), reduced.astype(np.float32), sample_rate
+                )
+                if _hnr_diag_p20.get("over_cleaned"):
+                    reduced = _hnr_blended_p20
+            except Exception as _hnr_exc_p20:
+                logger.debug("§0p HNR-Blend phase_20 (non-blocking): %s", _hnr_exc_p20)
         if _p20_panns >= 0.35:
             try:
                 from backend.core.musical_goals.vocal_quality_index import (  # pylint: disable=import-outside-toplevel

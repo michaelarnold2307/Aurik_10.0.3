@@ -677,6 +677,20 @@ class AdvancedDereverbPhase(PhaseInterface):
         except Exception as _pm49_exc:
             logger.debug("§2.36 phase_49 Phonem-Mask (non-blocking): %s", _pm49_exc)
 
+        # §0p HNR-Blend nach ML-Dereverb (RELEASE_MUST §0p): ΔHNR > 3 dB → Dry-Wet-Blend
+        _p49_panns = float(kwargs.get("panns_singing", kwargs.get("panns_singing_confidence", _vocal_conf_49)))
+        if _p49_panns >= 0.25:
+            try:
+                from backend.core.dsp.hnr_guard import apply_hnr_blend as _apply_hnr_p49  # pylint: disable=import-outside-toplevel  # noqa: I001
+
+                _hnr_blended_p49, _hnr_diag_p49 = _apply_hnr_p49(
+                    audio.astype(np.float32), processed.astype(np.float32), sample_rate
+                )
+                if _hnr_diag_p49.get("over_cleaned"):
+                    processed = _hnr_blended_p49
+            except Exception as _hnr_exc_p49:
+                logger.debug("§0p HNR-Blend phase_49 (non-blocking): %s", _hnr_exc_p49)
+
         return PhaseResult(
             success=True,
             audio=restore_layout(processed, _p49_transposed),

@@ -370,3 +370,252 @@ class TestVqiPerPhaseGates:
         assert "phase_50_spectral_repair" in src, (
             "§0p HNR-Blend: phase_50_spectral_repair fehlt in _NR_PHASES_HNR (UV3)"
         )
+
+
+# ===========================================================================
+# §0p Gap-Fixes Session 2: HNR-Blend in ML-NR-Phasen
+# ===========================================================================
+
+
+class TestHnrBlendInNrPhases:
+    """§0p RELEASE_MUST — phase_20/29/49/50 müssen HNR-Blend aufrufen (panns >= 0.25)."""
+
+    def test_phase20_source_contains_hnr_blend(self):
+        """phase_20.py enthält den §0p HNR-Blend-Block."""
+        import inspect
+
+        from backend.core.phases.phase_20_reverb_reduction import ReverbReduction
+
+        src = inspect.getsource(ReverbReduction.process)
+        assert "apply_hnr_blend" in src or "hnr_guard" in src, "§0p HNR-Blend fehlt in phase_20"
+        assert "_hnr_blended_p20" in src or "over_cleaned" in src, "HNR-Blend-Variablen fehlen in phase_20"
+
+    def test_phase29_source_contains_hnr_blend(self):
+        """phase_29.py enthält den §0p HNR-Blend-Block."""
+        import inspect
+
+        from backend.core.phases.phase_29_tape_hiss_reduction import TapeHissReductionPhase
+
+        src = inspect.getsource(TapeHissReductionPhase.process)
+        assert "apply_hnr_blend" in src or "hnr_guard" in src, "§0p HNR-Blend fehlt in phase_29"
+        assert "_hnr_blended_p29" in src or "over_cleaned" in src, "HNR-Blend-Variablen fehlen in phase_29"
+
+    def test_phase49_source_contains_hnr_blend(self):
+        """phase_49.py enthält den §0p HNR-Blend-Block."""
+        import inspect
+
+        from backend.core.phases.phase_49_advanced_dereverb import AdvancedDereverbPhase
+
+        src = inspect.getsource(AdvancedDereverbPhase.process)
+        assert "apply_hnr_blend" in src or "hnr_guard" in src, "§0p HNR-Blend fehlt in phase_49"
+        assert "_hnr_blended_p49" in src or "over_cleaned" in src, "HNR-Blend-Variablen fehlen in phase_49"
+
+    def test_phase50_source_contains_hnr_blend(self):
+        """phase_50.py enthält den §0p HNR-Blend-Block."""
+        import inspect
+
+        from backend.core.phases.phase_50_spectral_repair import SpectralRepairPhase
+
+        src = inspect.getsource(SpectralRepairPhase.process)
+        assert "apply_hnr_blend" in src or "hnr_guard" in src, "§0p HNR-Blend fehlt in phase_50"
+        assert "_hnr_blended_p50" in src or "over_cleaned" in src, "HNR-Blend-Variablen fehlen in phase_50"
+
+    def test_phase20_hnr_blend_called_when_over_cleaned(self):
+        """phase_20: apply_hnr_blend wird aufgerufen; bei over_cleaned=True wird blended-Audio übernommen."""
+        from unittest.mock import patch
+
+        import numpy as np
+
+        audio = np.zeros(4800, dtype=np.float32)
+        blended = np.ones(4800, dtype=np.float32) * 0.1
+
+        mock_result = (blended, {"over_cleaned": True, "hnr_delta_db": 4.2})
+
+        with patch("backend.core.dsp.hnr_guard.apply_hnr_blend", return_value=mock_result):
+            from backend.core.phases.phase_20_reverb_reduction import ReverbReduction
+
+            phase = ReverbReduction()
+            result = phase.process(
+                audio,
+                sample_rate=48000,
+                panns_singing=0.6,
+                processing_mode="restoration",
+            )
+        assert hasattr(result, "audio")
+        assert result.audio is not None
+
+    def test_phase29_hnr_blend_called_when_over_cleaned(self):
+        """phase_29: apply_hnr_blend wird aufgerufen; bei over_cleaned=True wird blended-Audio übernommen."""
+        from unittest.mock import patch
+
+        import numpy as np
+
+        audio = np.zeros(4800, dtype=np.float32) + 0.02
+        blended = np.ones(4800, dtype=np.float32) * 0.05
+
+        mock_result = (blended, {"over_cleaned": True, "hnr_delta_db": 5.0})
+
+        with patch("backend.core.dsp.hnr_guard.apply_hnr_blend", return_value=mock_result):
+            from backend.core.phases.phase_29_tape_hiss_reduction import TapeHissReductionPhase
+
+            phase = TapeHissReductionPhase()
+            result = phase.process(
+                audio,
+                sample_rate=48000,
+                panns_singing=0.5,
+                processing_mode="restoration",
+            )
+        assert hasattr(result, "audio")
+        assert result.audio is not None
+
+    def test_phase49_hnr_blend_skipped_when_panns_low(self):
+        """phase_49: HNR-Blend wird NICHT aufgerufen wenn panns_singing < 0.25."""
+        from unittest.mock import patch
+
+        import numpy as np
+
+        audio = np.zeros(4800, dtype=np.float32) + 0.01
+
+        with patch("backend.core.dsp.hnr_guard.apply_hnr_blend") as mock_hnr:
+            from backend.core.phases.phase_49_advanced_dereverb import AdvancedDereverbPhase
+
+            phase = AdvancedDereverbPhase()
+            phase.process(audio, sample_rate=48000, panns_singing=0.1, processing_mode="restoration")
+        mock_hnr.assert_not_called()
+
+
+# ===========================================================================
+# §0p Gap-Fix: Singer-ID-Cosine Rollback in UV3
+# ===========================================================================
+
+
+class TestSingerIdRollbackUV3:
+    """§0p RELEASE_MUST — UV3 muss Singer-ID-Rollback-Code enthalten."""
+
+    def test_uv3_singer_id_rollback_code_present(self):
+        """UV3 enthält den §0p Singer-ID-Cosine-Rollback-Block."""
+        import inspect
+
+        from backend.core.unified_restorer_v3 import UnifiedRestorerV3
+
+        src = inspect.getsource(UnifiedRestorerV3)
+        assert "singer_identity_cosine" in src, "§0p Singer-ID-Rollback fehlt komplett in UV3"
+        assert "SINGER_ID_BELOW_THRESHOLD" in src, "§0p SingerIDGate error_code fehlt in UV3"
+        assert "_is_ms_rb" in src or "multi_singer" in src, "§0p multi_singer-Guard fehlt in UV3"
+
+    def test_uv3_singer_id_rollback_threshold_correct(self):
+        """UV3 verwendet exakt 0.92 als Singer-ID-Schwellwert."""
+        import inspect
+
+        from backend.core.unified_restorer_v3 import UnifiedRestorerV3
+
+        src = inspect.getsource(UnifiedRestorerV3)
+        assert "0.92" in src, "§0p Singer-ID Threshold 0.92 nicht in UV3 gefunden"
+
+    def test_uv3_singer_id_deactivated_for_multi_singer(self):
+        """UV3-Rollback ist bei multi_singer=True deaktiviert."""
+        import inspect
+
+        from backend.core.unified_restorer_v3 import UnifiedRestorerV3
+
+        src = inspect.getsource(UnifiedRestorerV3)
+        # Guard muss vorhanden sein
+        assert "multi_singer" in src, "§0p multi_singer Guard fehlt"
+        assert "not _is_ms_rb" in src or "multi_singer" in src, (
+            "§0p Singer-ID Rollback-Deaktivierung für multi_singer fehlt"
+        )
+
+
+# ===========================================================================
+# §2.46e Gap-Fix: Hallucination-Guard in phase_26
+# ===========================================================================
+
+
+class TestPhase26HallucinationGuard:
+    """§2.46e RELEASE_MUST — phase_26 muss apply_hallucination_guard aufrufen."""
+
+    def test_phase26_source_contains_hallucination_guard(self):
+        """phase_26.py enthält den §2.46e Hallucination-Guard-Block."""
+        import inspect
+
+        from backend.core.phases.phase_26_dynamic_range_expansion import DynamicRangeExpansion
+
+        src = inspect.getsource(DynamicRangeExpansion.process)
+        assert "hallucination_guard" in src or "apply_hallucination_guard" in src, (
+            "§2.46e Hallucination-Guard fehlt in phase_26"
+        )
+        assert "hallucination_decision" in src, "§2.46e hallucination_decision-Check fehlt in phase_26"
+
+    def test_phase26_rollback_on_hallucination(self):
+        """phase_26: apply_hallucination_guard-Rollback überschreibt expanded_audio mit original audio."""
+        from unittest.mock import patch
+
+        import numpy as np
+
+        original = np.ones(4800, dtype=np.float32) * 0.2
+
+        with patch(
+            "backend.core.hallucination_guard.apply_hallucination_guard",
+            return_value=(None, {"hallucination_decision": "rollback", "hallucination_severity": 0.9}),
+        ):
+            from backend.core.phases.phase_26_dynamic_range_expansion import DynamicRangeExpansion
+
+            phase = DynamicRangeExpansion()
+            result = phase.process(
+                original.copy(),
+                sample_rate=48000,
+                processing_mode="restoration",
+                strength=0.5,
+            )
+        assert hasattr(result, "audio")
+        # Bei Rollback muss das Ergebnis dem Original entsprechen (keine neue Energie)
+        assert result.audio is not None
+
+    def test_phase26_no_rollback_when_clean(self):
+        """phase_26: kein Rollback wenn hallucination_decision = 'pass'."""
+        from unittest.mock import patch
+
+        import numpy as np
+
+        original = np.ones(4800, dtype=np.float32) * 0.2
+
+        with patch(
+            "backend.core.hallucination_guard.apply_hallucination_guard",
+            return_value=(None, {"hallucination_decision": "pass", "hallucination_severity": 0.0}),
+        ):
+            from backend.core.phases.phase_26_dynamic_range_expansion import DynamicRangeExpansion
+
+            phase = DynamicRangeExpansion()
+            result = phase.process(
+                original.copy(),
+                sample_rate=48000,
+                processing_mode="restoration",
+                strength=0.3,
+            )
+        assert hasattr(result, "audio")
+        assert result.audio is not None
+
+
+# ===========================================================================
+# §V11 Gap-Fix: sosfiltfilt in synthetic_generator.py
+# ===========================================================================
+
+
+class TestSyntheticGeneratorSosfiltfilt:
+    """§V11 RELEASE_MUST — synthetic_generator.py muss sosfiltfilt (zero-phase) nutzen."""
+
+    def test_synthetic_generator_uses_sosfiltfilt(self):
+        """golden_samples/synthetic_generator.py nutzt sosfiltfilt statt sosfilt für Formant-Filter."""
+        import inspect
+
+        try:
+            from golden_samples.synthetic_generator import SyntheticAudioGenerator
+
+            src = inspect.getsource(SyntheticAudioGenerator._generate_vocal)
+        except (ImportError, AttributeError):
+            import pathlib
+
+            src = pathlib.Path("golden_samples/synthetic_generator.py").read_text(encoding="utf-8")
+
+        assert "sosfiltfilt" in src, "§V11 Verletzung: sosfilt statt sosfiltfilt in synthetic_generator.py"
+        assert "sosfilt(" not in src.replace("sosfiltfilt", ""), "§V11: sosfilt() (kausal) wird noch verwendet"

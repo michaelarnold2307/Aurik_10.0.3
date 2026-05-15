@@ -463,15 +463,23 @@ class SpectralRepairPhase(PhaseInterface):
             from backend.core.hallucination_guard import apply_hallucination_guard
 
             _material_50 = kwargs.get("material_type", "unknown")
-            _mono_50 = repaired_audio.mean(axis=0) if (
-                repaired_audio.ndim == 2 and repaired_audio.shape[0] == 2 and repaired_audio.shape[1] > 2
-            ) else (repaired_audio.mean(axis=1) if repaired_audio.ndim == 2 else repaired_audio)
-            _audio_mono_50 = audio.mean(axis=0) if (
-                audio.ndim == 2 and audio.shape[0] == 2 and audio.shape[1] > 2
-            ) else (audio.mean(axis=1) if audio.ndim == 2 else audio)
-            _bw_ceiling_50 = {"shellac": 8000.0, "wax_cylinder": 5000.0, "vinyl": 16000.0, "reel_tape": 18000.0, "cassette": 15000.0}.get(
-                str(_material_50).lower().replace(" ", "_"), None
+            _mono_50 = (
+                repaired_audio.mean(axis=0)
+                if (repaired_audio.ndim == 2 and repaired_audio.shape[0] == 2 and repaired_audio.shape[1] > 2)
+                else (repaired_audio.mean(axis=1) if repaired_audio.ndim == 2 else repaired_audio)
             )
+            _audio_mono_50 = (
+                audio.mean(axis=0)
+                if (audio.ndim == 2 and audio.shape[0] == 2 and audio.shape[1] > 2)
+                else (audio.mean(axis=1) if audio.ndim == 2 else audio)
+            )
+            _bw_ceiling_50 = {
+                "shellac": 8000.0,
+                "wax_cylinder": 5000.0,
+                "vinyl": 16000.0,
+                "reel_tape": 18000.0,
+                "cassette": 15000.0,
+            }.get(str(_material_50).lower().replace(" ", "_"))
             _, _hg_meta_50 = apply_hallucination_guard(
                 _audio_mono_50.astype(np.float32),
                 _mono_50.astype(np.float32),
@@ -480,10 +488,26 @@ class SpectralRepairPhase(PhaseInterface):
                 mode="restoration",  # phase_50 ist immer restorative
             )
             if _hg_meta_50.get("hallucination_decision") == "rollback":
-                logger.warning("§2.46e phase_50 Hallucination-Guard rollback: %s", _hg_meta_50.get("hallucination_severity"))
+                logger.warning(
+                    "§2.46e phase_50 Hallucination-Guard rollback: %s", _hg_meta_50.get("hallucination_severity")
+                )
                 repaired_audio = audio.copy()
         except Exception as _hg50_exc:
             logger.debug("§2.46e phase_50 Hallucination-Guard (non-blocking): %s", _hg50_exc)
+
+        # §0p HNR-Blend nach STFT-Inpainting (RELEASE_MUST §0p): ΔHNR > 3 dB → Dry-Wet-Blend
+        _p50_panns = float(kwargs.get("panns_singing", kwargs.get("panns_singing_confidence", 0.0)))
+        if _p50_panns >= 0.25:
+            try:
+                from backend.core.dsp.hnr_guard import apply_hnr_blend as _apply_hnr_p50  # pylint: disable=import-outside-toplevel  # noqa: I001
+
+                _hnr_blended_p50, _hnr_diag_p50 = _apply_hnr_p50(
+                    audio.astype(np.float32), repaired_audio.astype(np.float32), sample_rate
+                )
+                if _hnr_diag_p50.get("over_cleaned"):
+                    repaired_audio = _hnr_blended_p50
+            except Exception as _hnr_exc_p50:
+                logger.debug("§0p HNR-Blend phase_50 (non-blocking): %s", _hnr_exc_p50)
 
         _rms_in_50 = float(np.sqrt(np.mean(np.asarray(audio, dtype=np.float64) ** 2) + 1e-12))
         _rms_out_50 = float(np.sqrt(np.mean(np.asarray(repaired_audio, dtype=np.float64) ** 2) + 1e-12))

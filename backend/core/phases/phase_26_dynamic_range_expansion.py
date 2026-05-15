@@ -357,6 +357,37 @@ class DynamicRangeExpansion(PhaseInterface):
         if 0.0 < _effective_strength < 1.0:
             expanded_audio = audio + _effective_strength * (expanded_audio - audio)
             expanded_audio = np.clip(expanded_audio, -1.0, 1.0)
+
+        # §2.46e Hallucination-Guard: DR-Expansion kann neue spektrale Energie einführen
+        try:
+            from backend.core.hallucination_guard import apply_hallucination_guard  # pylint: disable=import-outside-toplevel  # noqa: I001
+
+            _mono_26 = (
+                expanded_audio.mean(axis=0)
+                if (expanded_audio.ndim == 2 and expanded_audio.shape[0] == 2 and expanded_audio.shape[1] > 2)
+                else (expanded_audio.mean(axis=1) if expanded_audio.ndim == 2 else expanded_audio)
+            )
+            _audio_mono_26 = (
+                audio.mean(axis=0)
+                if (audio.ndim == 2 and audio.shape[0] == 2 and audio.shape[1] > 2)
+                else (audio.mean(axis=1) if audio.ndim == 2 else audio)
+            )
+            _mode_26 = str(kwargs.get("processing_mode", kwargs.get("mode", "restoration"))).lower()
+            _, _hg_meta_26 = apply_hallucination_guard(
+                _audio_mono_26.astype(np.float32),
+                _mono_26.astype(np.float32),
+                sr=sample_rate,
+                mode="restoration" if "studio" not in _mode_26 else "studio_2026",
+            )
+            if _hg_meta_26.get("hallucination_decision") == "rollback":
+                logger.warning(
+                    "§2.46e phase_26 Hallucination-Guard rollback: %s",
+                    _hg_meta_26.get("hallucination_severity"),
+                )
+                expanded_audio = audio.copy()
+        except Exception as _hg26_exc:
+            logger.debug("§2.46e phase_26 Hallucination-Guard (non-blocking): %s", _hg26_exc)
+
         return PhaseResult(
             success=True,
             audio=expanded_audio,

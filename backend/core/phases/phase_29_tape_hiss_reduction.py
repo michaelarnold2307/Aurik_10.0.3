@@ -730,6 +730,19 @@ class TapeHissReductionPhase(PhaseInterface):
         except Exception as _ntr_exc_p29:
             logger.debug("§TimbralCoherence noise_texture_resynth phase29 (non-blocking): %s", _ntr_exc_p29)
 
+        # §0p HNR-Blend nach OMLSA-NR (RELEASE_MUST §0p): ΔHNR > 3 dB → Dry-Wet-Blend
+        if _p29_panns >= 0.25:
+            try:
+                from backend.core.dsp.hnr_guard import apply_hnr_blend as _apply_hnr_p29  # pylint: disable=import-outside-toplevel  # noqa: I001
+
+                _hnr_blended_p29, _hnr_diag_p29 = _apply_hnr_p29(
+                    audio.astype(np.float32), audio_processed.astype(np.float32), sample_rate
+                )
+                if _hnr_diag_p29.get("over_cleaned"):
+                    audio_processed = _hnr_blended_p29
+            except Exception as _hnr_exc_p29:
+                logger.debug("§0p HNR-Blend phase_29 (non-blocking): %s", _hnr_exc_p29)
+
         # §0p VQI per-Phase Gate: Stimmqualität nach Tape-NR messen.
         # Over-aggressive OMLSA kann Formanten beschädigen → Rollback auf Original.
         if _p29_panns >= 0.35:

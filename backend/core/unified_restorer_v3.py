@@ -10180,6 +10180,27 @@ class UnifiedRestorerV3:
                     _vqi_result.get("formant_stability_score", 0.0),
                     _vqi_result.get("articulation_score", 0.0),
                 )
+                # §0p Singer-ID-Rollback (RELEASE_MUST §0p): cosine < 0.92 → Rollback auf letzten Checkpoint
+                _singer_id_val = float(_vqi_result.get("singer_identity_cosine", 0.85))
+                _is_ms_rb = bool((self._phase_metadata_accumulator or {}).get("multi_singer", False))
+                if not _is_ms_rb and _singer_id_val < 0.92:
+                    _sid_rb = getattr(self, "_hpi_best_rollback_audio", None)
+                    if _sid_rb is None:
+                        _sid_rb = getattr(self, "_best_carrier_checkpoint", None)
+                    if _sid_rb is not None:
+                        restored_audio = _sid_rb
+                        logger.warning(
+                            "§0p Singer-ID Rollback: cosine=%.3f < 0.92 → letzter Checkpoint",
+                            _singer_id_val,
+                        )
+                        _fail_reasons.append(
+                            {
+                                "component": "SingerIDGate",
+                                "error_code": "SINGER_ID_BELOW_THRESHOLD",
+                                "severity": "warning",
+                                "singer_identity_cosine": _singer_id_val,
+                            }
+                        )
                 from backend.core.musical_goals.vocal_quality_index import get_vqi_material_floor as _get_vqi_floor
 
                 _vqi_mat_str = str(getattr(material_type, "value", material_type)).lower()

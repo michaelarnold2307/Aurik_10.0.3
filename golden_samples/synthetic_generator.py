@@ -223,11 +223,11 @@ class SyntheticGoldenSampleGenerator:
         # Formant 1: 800 Hz (vowel "ah")
         # Formant 2: 1200 Hz
         # Formant 3: 2600 Hz
-        from scipy.signal import butter, sosfilt
+        from scipy.signal import butter, sosfiltfilt
 
         for formant_freq in [800, 1200, 2600]:
             sos = butter(4, [formant_freq - 50, formant_freq + 50], btype="band", fs=self.sample_rate, output="sos")
-            formant_signal = sosfilt(sos, audio)
+            formant_signal = sosfiltfilt(sos, audio)
             audio += 0.3 * formant_signal
 
         # Apply amplitude envelope (breath-like)
