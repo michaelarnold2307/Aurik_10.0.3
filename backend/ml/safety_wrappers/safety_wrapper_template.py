@@ -204,7 +204,9 @@ class BaseSafetyWrapper:
         # Decide processing strategy based on confidence
         if confidence < self.confidence_threshold:
             self.logger.warning(
-                f"Low confidence ({confidence:.2f} < {self.confidence_threshold}). Aborting processing."
+                "Low confidence (%.2f < %.2f). Aborting processing.",
+                confidence,
+                self.confidence_threshold,
             )
             pre_check.warnings.append(f"Insufficient epistemic confidence: {confidence:.2f}")
             self.aborted_calls += 1
@@ -253,7 +255,9 @@ class BaseSafetyWrapper:
 
         if quality_score < self.quality_threshold:
             self.logger.warning(
-                f"Quality score ({quality_score:.2f}) below threshold ({self.quality_threshold}). Returning original."
+                "Quality score (%.2f) below threshold (%.2f). Returning original.",
+                quality_score,
+                self.quality_threshold,
             )
             self.aborted_calls += 1
             return self._create_abort_response(
@@ -308,6 +312,8 @@ class BaseSafetyWrapper:
         Returns:
             PreCheckResult with validation outcome
         """
+        if params:
+            self.logger.debug("_validate_pre_conditions: params=%s (Basisimplementierung)", list(params.keys()))
         reasons: list = []
         warnings_list: list = []
         # NaN/Inf-Guard
@@ -343,6 +349,9 @@ class BaseSafetyWrapper:
         Returns:
             Confidence score (0.0-1.0)
         """
+        self.logger.debug("_assess_epistemic_confidence: sr=%d (Basisimplementierung)", sr)
+        if params:
+            self.logger.debug("_assess_epistemic_confidence: params=%s (Basisimplementierung)", list(params.keys()))
         if not pre_check.passed:
             return ConfidenceLevel.VERY_LOW.value
         if not np.all(np.isfinite(audio)) or audio.size == 0:
@@ -372,6 +381,9 @@ class BaseSafetyWrapper:
         Returns:
             PostCheckResult with validation outcome
         """
+        self.logger.debug("_validate_post_conditions: sr=%d (Basisimplementierung)", sr)
+        if params:
+            self.logger.debug("_validate_post_conditions: params=%s (Basisimplementierung)", list(params.keys()))
         issues: list = []
         # NaN/Inf in processed output
         if not np.all(np.isfinite(processed)):
@@ -406,6 +418,7 @@ class BaseSafetyWrapper:
         Returns:
             Quality score (0.0-1.0)
         """
+        self.logger.debug("_compute_quality_score: sr=%d (Basisimplementierung)", sr)
         if not post_check.passed:
             return 0.0
         # Component 1: post_check quality score (energy preservation)
@@ -429,7 +442,7 @@ class BaseSafetyWrapper:
         """
         log_file = self.log_dir / f"{self.module_name}_audit.jsonl"
 
-        with open(log_file, "a") as f:
+        with open(log_file, "a", encoding="utf-8") as f:
             # Convert report to dict (simplified)
             log_entry = {
                 "timestamp": report.timestamp,
@@ -463,7 +476,13 @@ class BaseSafetyWrapper:
         Optional override for module-specific fallback.
         Default: Return original audio
         """
-        self.logger.info("Applying fallback: returning original audio")
+        self.logger.info(
+            "Applying fallback: returning original audio (sr=%d, post_check.passed=%s)",
+            sr,
+            post_check.passed,
+        )
+        if params:
+            self.logger.debug("_apply_fallback_processing: params=%s (Basisimplementierung)", list(params.keys()))
         return audio
 
     def _adjust_params_for_confidence(self, params: dict[str, Any], confidence: float) -> dict[str, Any]:
