@@ -3,9 +3,13 @@ from __future__ import annotations
 import threading
 from dataclasses import dataclass, field
 
+# pylint: disable=too-many-positional-arguments
+
 
 @dataclass(frozen=True)
 class ConflictResolutionResult:
+    """Ergebnis einer Goal-Konflikt-Auflösung mit Gewinner, Verlierer und Begründung."""
+
     winner: str
     loser: str
     reason: str
@@ -15,18 +19,23 @@ class ConflictResolutionResult:
 
 @dataclass(frozen=True)
 class IterationAbortResult:
+    """Ergebnis der Iterationsabbruch-Prüfung mit Status und degradierten Goals."""
+
     should_abort: bool
     reason: str
     degraded_goals: list[str] = field(default_factory=list)
 
 
 class GoalPriorityProtocol:
+    """Priorisiert und vermittelt zwischen konkurrierenden Musical Goals (§2.29)."""
+
     PRIORITY_MAP: dict[str, int] = {
         "natuerlichkeit": 1,
         "authentizitaet": 1,
         "tonal_center": 2,
         "timbre_authentizitaet": 2,
         "artikulation": 2,
+        "transient_energie": 2,
         "emotionalitaet": 3,
         "micro_dynamics": 3,
         "groove": 3,
@@ -53,6 +62,7 @@ class GoalPriorityProtocol:
         headroom_b: float = 0.0,
         goal_weights: dict[str, float] | None = None,
     ) -> ConflictResolutionResult:
+        """Löst einen Konflikt zwischen zwei Goals nach Priorität, Headroom und Delta auf."""
         prio_a = self.priority_of(goal_a)
         prio_b = self.priority_of(goal_b)
 
@@ -89,6 +99,7 @@ class GoalPriorityProtocol:
         scores_after: dict[str, float],
         goal_weights: dict[str, float] | None = None,
     ) -> IterationAbortResult:
+        """Prüft ob eine FeedbackChain-Iteration abgebrochen werden soll (kritische Goal-Regression)."""
         degraded: list[str] = []
         for goal, before in scores_before.items():
             after = scores_after.get(goal, before)
@@ -103,18 +114,23 @@ class GoalPriorityProtocol:
         return IterationAbortResult(False, "ok", [])
 
     def priority_of(self, goal: str) -> int:
+        """Gibt die Prioritätsstufe eines Goals zurück (1 = höchste, 5 = niedrigste)."""
         return int(self.PRIORITY_MAP.get(goal, 5))
 
     def sort_goals_by_priority(self, goals: list[str]) -> list[str]:
+        """Sortiert Goals aufsteigend nach Prioritätsstufe."""
         return sorted(goals, key=self.priority_of)
 
     def goals_at_priority(self, level: int) -> list[str]:
+        """Gibt alle Goals einer bestimmten Prioritätsstufe zurück."""
         return [g for g, p in self.PRIORITY_MAP.items() if p == level]
 
     def would_violate_priority(self, improving_goal: str, at_cost_of: str) -> bool:
+        """Gibt True zurück wenn Verbesserung von improving_goal auf Kosten eines höherprioren Goals geht."""
         return self.priority_of(improving_goal) > self.priority_of(at_cost_of)
 
     def user_message_for_failure(self, goal: str) -> str:
+        """Gibt eine deutschsprachige Fehlermeldung für ein nicht erreichtes Goal zurück."""
         if self.priority_of(goal) <= 2:
             return (
                 "Die Restaurierung konnte zentrale Klangziele nicht voll erreichen. "
@@ -131,7 +147,8 @@ _lock = threading.Lock()
 
 
 def get_goal_priority_protocol() -> GoalPriorityProtocol:
-    global _instance
+    """Thread-sicherer Singleton-Accessor für GoalPriorityProtocol."""
+    global _instance  # pylint: disable=global-statement
     if _instance is None:
         with _lock:
             if _instance is None:
@@ -148,6 +165,7 @@ def resolve_goal_conflict(
     headroom_b: float = 0.0,
     goal_weights: dict[str, float] | None = None,
 ) -> ConflictResolutionResult:
+    """Convenience-Wrapper: löst einen Goal-Konflikt über den Singleton."""
     return get_goal_priority_protocol().resolve_conflict(
         goal_a, goal_b, delta_a, delta_b, headroom_a, headroom_b, goal_weights=goal_weights
     )
@@ -158,6 +176,7 @@ def check_iteration_abort(
     scores_after: dict[str, float],
     goal_weights: dict[str, float] | None = None,
 ) -> IterationAbortResult:
+    """Convenience-Wrapper: prüft FeedbackChain-Iterationsabbruch über den Singleton."""
     return get_goal_priority_protocol().should_abort_iteration(scores_before, scores_after, goal_weights=goal_weights)
 
 

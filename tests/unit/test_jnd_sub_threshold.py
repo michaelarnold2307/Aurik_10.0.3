@@ -22,7 +22,7 @@ SR = 48000
 
 
 class TestJNDMinDeltaConstants:
-    """JND_MIN_DELTA dict must contain normative values for all 14 goals."""
+    """JND_MIN_DELTA dict must contain normative values for all 15 goals."""
 
     EXPECTED_GOALS = {
         "natuerlichkeit",
@@ -30,6 +30,7 @@ class TestJNDMinDeltaConstants:
         "tonal_center",
         "timbre_authentizitaet",
         "artikulation",
+        "transient_energie",
         "emotionalitaet",
         "micro_dynamics",
         "groove",
@@ -41,7 +42,7 @@ class TestJNDMinDeltaConstants:
         "spatial_depth",
     }
 
-    def test_all_14_goals_present(self):
+    def test_all_15_goals_present(self):
         for goal in self.EXPECTED_GOALS:
             assert goal in JND_MIN_DELTA, f"Missing JND entry for '{goal}'"
 

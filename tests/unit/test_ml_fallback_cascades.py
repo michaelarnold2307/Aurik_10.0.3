@@ -187,20 +187,11 @@ class TestCREPEFallback:
 
     def test_crepe_plugin_exists_or_integrated(self):
         """CREPE must be available as plugin or integrated in pitch tracker."""
-        has_crepe = False
-        try:
-            pass
+        import importlib.util
 
-            has_crepe = True
-        except ImportError:
-            pass
+        has_crepe = importlib.util.find_spec("plugins.crepe_plugin") is not None
         if not has_crepe:
-            try:
-                pass
-
-                has_crepe = True  # FCPE is the CREPE successor
-            except ImportError:
-                pass
+            has_crepe = importlib.util.find_spec("plugins.fcpe_plugin") is not None  # FCPE is the CREPE successor
         assert has_crepe, "CREPE or FCPE plugin must be available"
 
 

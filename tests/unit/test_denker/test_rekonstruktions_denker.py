@@ -254,14 +254,14 @@ class TestRekonstruktionsDenkerRekonstruiere:
         """Stereo-Eingabe (2-kanaliges Array) führt zu keinem Absturz."""
         mono = _sine(1.0)
         stereo = np.stack([mono, mono], axis=0)
-        self._run_with_mock(stereo)
-        assert True  # kein Absturz
+        res = self._run_with_mock(stereo)
+        assert res is None or hasattr(res, "audio")
 
     def test_17_short_audio_no_crash(self):
         """Sehr kurzes Audio (512 Samples) führt zu keinem Absturz."""
         short = np.zeros(512, dtype=np.float32)
-        self._run_with_mock(short)
-        assert True  # kein Absturz
+        res = self._run_with_mock(short)
+        assert res is None or hasattr(res, "audio")
 
     def test_18_silence_input_no_crash(self):
         """Stilles Audio (Nullen) führt zu keinem Absturz."""
@@ -269,7 +269,7 @@ class TestRekonstruktionsDenkerRekonstruiere:
         result = self._run_with_mock(silence)
         if result is not None:
             assert np.isfinite(result.audio).all()
-        assert True
+        assert result is None or np.isfinite(result.audio).all()
 
     def test_19_clipped_input_no_crash(self):
         """Hard-geclipptes Audio (Amplitude 1.5) führt zu keinem Absturz."""
@@ -277,7 +277,7 @@ class TestRekonstruktionsDenkerRekonstruiere:
         result = self._run_with_mock(clipped)
         if result is not None:
             assert isinstance(result.audio, np.ndarray)
-        assert True
+        assert result is None or hasattr(result, "audio")
 
     def test_20_phases_applied_list_of_strings(self):
         """phases_applied enthält nur Strings."""

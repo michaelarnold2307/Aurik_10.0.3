@@ -246,9 +246,9 @@ class TestReparaturDenkerRepariere:
         """Stereo-Eingabe (2-kanaliges Array) führt zu keinem Absturz."""
         mono = _sine(1.0)
         stereo = np.stack([mono, mono], axis=0)
-        self._run_with_mock(stereo)
-        # Kein Absturz = Test bestanden
-        assert True
+        res = self._run_with_mock(stereo)
+        # Kein Absturz = Test bestanden; akzeptiere None oder gültiges Ergebnis
+        assert res is None or hasattr(res, "audio")
 
     def test_17_short_audio_no_crash(self):
         """Sehr kurzes Audio (≤ 512 Samples) führt zu keinem Absturz."""
@@ -256,8 +256,8 @@ class TestReparaturDenkerRepariere:
         # Notfalls noch kürzer
         if len(short) == 0:
             short = np.zeros(512, dtype=np.float32)
-        self._run_with_mock(short)
-        assert True  # kein Absturz
+        res = self._run_with_mock(short)
+        assert res is None or hasattr(res, "audio")
 
     def test_18_clipped_input_output_bounded(self):
         """Bei Hard-Clipping im Eingang ist der Ausgang auf ≤ 1.0 begrenzt."""
@@ -290,7 +290,7 @@ class TestReparaturDenkerRepariere:
         if result is not None:
             assert np.isfinite(result.audio).all()
         # kein Absturz = Test bestanden
-        assert True
+        assert result is None or np.isfinite(result.audio).all()
 
     def test_21_samples_first_stereo_shape_preserved(self):
         """(N, ch) Stereo-Eingabe: Ausgabe hat dieselbe Form (N, ch)."""

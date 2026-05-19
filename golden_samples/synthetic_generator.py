@@ -149,7 +149,7 @@ class SyntheticGoldenSampleGenerator:
         reference_path = self.output_dir / "references" / filename
         sf.write(reference_path, audio, self.sample_rate)
 
-        # Quality baseline: measure actual 14 Musical Goals on generated audio
+        # Quality baseline: measure actual 15 Musical Goals on generated audio
         try:
             # pylint: disable-next=import-outside-toplevel
             from backend.core.musical_goals.musical_goals_metrics import MusicalGoalsChecker
@@ -157,7 +157,7 @@ class SyntheticGoldenSampleGenerator:
             checker = MusicalGoalsChecker()
             quality_baseline = {k: round(v, 4) for k, v in checker.measure_all(audio, self.sample_rate).items()}
         except Exception:
-            # Fallback: nominal values for all 14 goals
+            # Fallback: nominal values for all 15 goals
             quality_baseline = {
                 "brillanz": 0.85,
                 "waerme": 0.80,
@@ -173,6 +173,7 @@ class SyntheticGoldenSampleGenerator:
                 "micro_dynamics": 0.92,
                 "separation_fidelity": 0.82,
                 "artikulation": 0.85,
+                "transient_energie": 0.88,
             }
 
         spec = GoldenSampleSpec(
@@ -407,7 +408,7 @@ class SyntheticGoldenSampleGenerator:
         for spec in specs:
             category_counts[spec.category] = category_counts.get(spec.category, 0) + 1
 
-        # Calculate average quality baseline (14 Musical Goals)
+        # Calculate average quality baseline (15 Musical Goals)
         all_goal_keys = set()
         for s in specs:
             all_goal_keys.update(s.quality_baseline.keys())

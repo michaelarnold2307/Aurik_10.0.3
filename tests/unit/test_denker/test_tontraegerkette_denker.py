@@ -235,21 +235,21 @@ class TestTontraegerketteDenkerAnalysiere:
     def test_17_mono_sine_no_crash(self):
         """Mono-Sinuston: kein Absturz."""
         audio = _sine(1.0)
-        self._run(audio)
-        assert True  # kein Absturz
+        res = self._run(audio)
+        assert res is None or hasattr(res, "chain_string") or hasattr(res, "combined_phases")
 
     def test_18_stereo_no_crash(self):
         """Stereo-Eingabe (2 × N): kein Absturz."""
         mono = _sine(1.0)
         stereo = np.stack([mono, mono], axis=0)
-        self._run(stereo)
-        assert True
+        res = self._run(stereo)
+        assert res is None or hasattr(res, "chain_string") or hasattr(res, "combined_phases")
 
     def test_19_short_audio_no_crash(self):
         """Sehr kurzes Audio (256 Samples): kein Absturz."""
         short = np.random.RandomState(42).randn(256).astype(np.float32) * 0.1
-        self._run(short)
-        assert True
+        res = self._run(short)
+        assert res is None or hasattr(res, "chain_string") or hasattr(res, "combined_phases")
 
     def test_20_silence_no_crash_and_valid(self):
         """Stilles Audio (Nullen): kein Absturz, Ergebnis valide wenn vorhanden."""

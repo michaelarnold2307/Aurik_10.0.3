@@ -1011,7 +1011,7 @@ python -m pip install --dry-run -r requirements/requirements_aurik.txt
 □ @dataclass-Ergebnisse (kein raw dict)
 □ logger(__name__) — kein print()
 □ ≥ 35 Unit-Tests in tests/unit/test_v<x>_<name>.py
-□ Musical Goals (alle 14): kein Ziel nach dem Modul schlechter
+□ Musical Goals (alle 15): kein Ziel nach dem Modul schlechter; Pipeline-Ende erfüllt alle effektiven Zielwerte oder dokumentiert physikalische Limitierung
 □ GrooveMetric: kein Timing-Flattening (DTW ≤ 8 ms RMS)
 □ SOFT_SATURATION: nicht als CLIPPING fehldetektiert
 □ Beide Modi (restoration + studio2026) getestet

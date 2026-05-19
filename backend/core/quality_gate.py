@@ -30,7 +30,7 @@ class QualityGate:
     SNR_MIN_DB: float = 15.0
 
     # §1.2 — Musical Goals Pflicht-Schwellwerte
-    # §1.2 — Musical Goals Pflicht-Schwellwerte (spec-konform gem. copilot-instructions §14 Musical Goals)
+    # §1.2 — Musical Goals Pflicht-Schwellwerte (spec-konform gem. copilot-instructions §15 Musical Goals)
     MUSICAL_GOAL_MIN: dict = {
         # P1
         "natuerlichkeit": 0.90,
@@ -106,7 +106,7 @@ class QualityGate:
 
         # SNR-Schätzung via STFT-Perzentil (Post-2018-DSP, IMCRA-Minima-Basis)
         try:
-            from scipy.signal import stft as _stft  # lazy import (optionale Abhängigkeit)
+            from scipy.signal import stft as _stft  # pylint: disable=import-outside-toplevel
 
             flat = audio.flatten()[: 48000 * 10]
             if len(flat) >= 2048:

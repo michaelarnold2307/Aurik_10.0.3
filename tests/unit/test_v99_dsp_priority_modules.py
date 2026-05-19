@@ -326,9 +326,7 @@ class TestAdaptiveMelSpectrogram:
 
         obj = AdaptiveMelSpectrogram(sr=SR)
         # Entweder __call__ oder transform-Methode
-        callable(obj)
-        hasattr(obj, "transform") or hasattr(obj, "compute") or hasattr(obj, "process")
-        assert True  # Instanziierung genügt als Mindesttest
+        assert callable(obj) or hasattr(obj, "transform") or hasattr(obj, "compute") or hasattr(obj, "process")
 
     def test_04_public_methods_exist(self):
         from dsp.multiresolution_stft import AdaptiveMelSpectrogram
@@ -2158,7 +2156,9 @@ class TestInstrumentFormantDriftCorrector:
     # ── 01: Import & instantiation ─────────────────────────────────────────
 
     def test_01_import(self):
-        pass
+        from dsp.instrument_formant_corrector import InstrumentFormantDriftCorrector
+
+        assert InstrumentFormantDriftCorrector is not None
 
     def test_02_instantiate(self):
         c = self._corrector()
@@ -2402,7 +2402,9 @@ class TestSubStemProcessor:
     # ── 01: Import & instantiation ────────────────────────────────────────
 
     def test_01_import(self):
-        pass
+        from backend.core.sub_stem_processor import SubStemProcessor
+
+        assert SubStemProcessor is not None
 
     def test_02_instantiate(self):
         p = self._proc()
@@ -2647,7 +2649,9 @@ class TestPhysicsResonanceEnhancer:
     # ── 01: Import & instantiation ────────────────────────────────────────
 
     def test_01_import(self):
-        pass
+        from backend.core.physics_resonance_enhancer import PhysicsResonanceEnhancer
+
+        assert PhysicsResonanceEnhancer is not None
 
     def test_02_instantiate(self):
         e = self._enh()

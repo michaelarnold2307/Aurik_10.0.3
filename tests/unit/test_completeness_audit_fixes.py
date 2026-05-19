@@ -217,9 +217,9 @@ class TestPhase03DeepFilterNetTier:
         """The DeepFilterNet Tier-1 code block must be importable in phase_03."""
         import importlib
 
-        importlib.import_module("backend.core.phases.phase_03_denoise")
+        mod = importlib.import_module("backend.core.phases.phase_03_denoise")
         # If this passes, the module parses without errors after our changes
-        assert True  # module parses without errors after our changes
+        assert mod is not None
 
     def test_deepfilternet_plugin_importable(self):
         """The DeepFilterNet v3 II plugin must be importable."""

@@ -271,32 +271,35 @@ class TestMicroDynamicsMetric:
 
 
 # ===========================================================================
-# 3. MusicalGoalsChecker — 12 Ziele
+# 3. MusicalGoalsChecker — 15 Ziele
 # ===========================================================================
 
 
-class TestMusicalGoalsChecker14:
-    """Sicherstellt, dass MusicalGoalsChecker 14 Ziele misst."""
+class TestMusicalGoalsChecker15:
+    """Sicherstellt, dass MusicalGoalsChecker 15 Ziele misst."""
 
-    def test_01_has_14_metrics(self):
+    def test_01_has_15_metrics(self):
         from backend.core.musical_goals.musical_goals_metrics import MusicalGoalsChecker
 
         c = MusicalGoalsChecker()
-        assert len(c.metrics) == 14, f"Erwartet 14 Metriken, got {len(c.metrics)}"
+        assert "artikulation" in c.metrics
+        assert "transient_energie" not in c.metrics
+        assert "transient_energie" in c.measure_all(np.zeros(48000, dtype=np.float32), 48000)
 
-    def test_02_has_14_thresholds(self):
+    def test_02_has_15_thresholds(self):
         from backend.core.musical_goals.musical_goals_metrics import MusicalGoalsChecker
 
         c = MusicalGoalsChecker()
-        assert len(c.thresholds) == 14
+        assert len(c.thresholds) == 15
 
-    def test_03_measure_all_returns_14_scores(self):
+    def test_03_measure_all_returns_15_scores(self):
         from backend.core.musical_goals.musical_goals_metrics import MusicalGoalsChecker
 
         c = MusicalGoalsChecker()
         audio = _sine(440.0, 5.0)
         scores = c.measure_all(audio, SR)
-        assert len(scores) == 14, f"Erwartet 14 Scores, got {len(scores)}: {list(scores.keys())}"
+        assert len(scores) == 15, f"Erwartet 15 Scores, got {len(scores)}: {list(scores.keys())}"
+        assert "transient_energie" in scores
 
     def test_04_tonal_center_in_scores(self):
         from backend.core.musical_goals.musical_goals_metrics import MusicalGoalsChecker

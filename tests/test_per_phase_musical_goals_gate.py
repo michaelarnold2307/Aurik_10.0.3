@@ -23,6 +23,7 @@ Alle Signale: synthetisch, np.random.seed(42), SR = 48 000 Hz.
 from __future__ import annotations
 
 import threading
+from typing import Any
 
 import numpy as np
 import pytest
@@ -54,13 +55,15 @@ def _tone(duration_s: float = 8.0, freq: float = 440.0) -> np.ndarray:
     """Synthetischer Sinuston, float32, mono."""
     np.random.seed(42)
     t = np.linspace(0, duration_s, int(duration_s * SR), endpoint=False)
-    return (np.sin(2 * np.pi * freq * t) * 0.5).astype(np.float32)
+    tone: np.ndarray[Any, Any] = np.asarray(np.sin(2 * np.pi * freq * t) * 0.5, dtype=np.float32)
+    return tone
 
 
 def _noise(duration_s: float = 8.0, amp: float = 0.1) -> np.ndarray:
     """Weißes Rauschen, float32, mono."""
     np.random.seed(42)
-    return np.random.randn(int(duration_s * SR)).astype(np.float32) * amp
+    noise: np.ndarray[Any, Any] = np.asarray(np.random.randn(int(duration_s * SR)) * amp, dtype=np.float32)
+    return noise
 
 
 def _vocal_like(duration_s: float = 8.0, f0: float = 220.0) -> np.ndarray:
@@ -70,7 +73,8 @@ def _vocal_like(duration_s: float = 8.0, f0: float = 220.0) -> np.ndarray:
     harmonics = sum((1.0 / idx) * np.sin(2 * np.pi * f0 * idx * t) for idx in range(1, 7))
     formant_tilt = 0.65 * np.sin(2 * np.pi * 900.0 * t) + 0.35 * np.sin(2 * np.pi * 2500.0 * t)
     signal = 0.18 * envelope * harmonics + 0.04 * formant_tilt
-    return np.clip(signal, -1.0, 1.0).astype(np.float32)
+    vocal_like: np.ndarray[Any, Any] = np.asarray(np.clip(signal, -1.0, 1.0), dtype=np.float32)
+    return vocal_like
 
 
 class _PhaseResult:
@@ -110,11 +114,15 @@ def _silence_phase(audio: np.ndarray, strength: float = 1.0, **kw) -> np.ndarray
 def _noisy_phase(audio: np.ndarray, strength: float = 1.0, **kw) -> np.ndarray:
     """Addiert starkes Rauschen — verändert Spektrum erheblich."""
     np.random.seed(99)
-    return np.clip(
-        audio + np.random.randn(*audio.shape).astype(np.float32) * 0.8,
-        -1.0,
-        1.0,
+    noisy: np.ndarray[Any, Any] = np.asarray(
+        np.clip(
+            audio + np.random.randn(*audio.shape).astype(np.float32) * 0.8,
+            -1.0,
+            1.0,
+        ),
+        dtype=np.float32,
     )
+    return noisy
 
 
 def _nan_phase(audio: np.ndarray, strength: float = 1.0, **kw) -> np.ndarray:
@@ -190,7 +198,7 @@ class TestConstants:
         assert MAX_RETRIES == 5  # v9.15-B3: 5-Retry-Strategie
 
     def test_06_fast_goals_subset_length(self):
-        assert len(FAST_GOALS_SUBSET) == 14  # v9.10.57: alle 14 Musical Goals per-Phase geprüft
+        assert len(FAST_GOALS_SUBSET) == 15  # v9.12.13: alle 15 Musical Goals per-Phase geprüft
 
     def test_07_fast_goals_contains_brillanz(self):
         assert "brillanz" in FAST_GOALS_SUBSET
@@ -475,9 +483,9 @@ class TestCanonicalKeyAlignment:
             "scores_after must contain 'natuerlichkeit' when it is in applicable_goals"
         )
 
-    def test_45_all_14_canonical_goals_in_fast_goals_subset(self):
-        """FAST_GOALS_SUBSET must contain exactly the 14 canonical Goal keys."""
-        canonical_14 = {
+    def test_45_all_15_canonical_goals_in_fast_goals_subset(self):
+        """FAST_GOALS_SUBSET must contain exactly the 15 canonical Goal keys."""
+        canonical_15 = {
             "brillanz",
             "waerme",
             "natuerlichkeit",
@@ -492,11 +500,12 @@ class TestCanonicalKeyAlignment:
             "micro_dynamics",
             "separation_fidelity",
             "artikulation",
+            "transient_energie",
         }
-        assert set(FAST_GOALS_SUBSET) == canonical_14, (
+        assert set(FAST_GOALS_SUBSET) == canonical_15, (
             f"FAST_GOALS_SUBSET key mismatch.\n"
-            f"  Missing: {canonical_14 - set(FAST_GOALS_SUBSET)}\n"
-            f"  Extra:   {set(FAST_GOALS_SUBSET) - canonical_14}"
+            f"  Missing: {canonical_15 - set(FAST_GOALS_SUBSET)}\n"
+            f"  Extra:   {set(FAST_GOALS_SUBSET) - canonical_15}"
         )
 
 
@@ -504,7 +513,7 @@ class TestFFTScopeRobustness:
     """_measure_quick FFT pre-computation must be independent of per-metric try-blocks (§2.29)."""
 
     def test_46_measure_quick_all_goals_non_neutral_on_tonal_signal(self):
-        """On a clean tone, all 14 metrics should return a definite value (not all == 0.5).
+        """On a clean tone, all 15 metrics should return a definite value (not all == 0.5).
 
         Pre-fix: if brillanz try-block raised, 6 metrics silently fell back to 0.5.
         Post-fix: FFT is pre-computed; individual metric failures are isolated.
@@ -513,7 +522,7 @@ class TestFFTScopeRobustness:
 
         audio = _tone(5.0, freq=440.0)
         scores = _measure_quick(audio, SR)
-        # Verify all 14 canonical keys are present and finite
+        # Verify all 15 canonical keys are present and finite
         for k in FAST_GOALS_SUBSET:
             assert k in scores, f"Key '{k}' missing from _measure_quick output"
             assert math.isfinite(scores[k]), f"Score for '{k}' is not finite: {scores[k]}"
@@ -540,7 +549,7 @@ class TestFFTScopeRobustness:
         # Very short audio that could theoretically stress FFT edge cases
         audio = np.ones(64, dtype=np.float32) * 0.001  # 64 samples, near-zero
         scores = _measure_quick(audio, SR)
-        # All 14 goals must have a valid value — no cascading NaN
+        # All 15 goals must have a valid value — no cascading NaN
         neutral_count = sum(1 for k in FAST_GOALS_SUBSET if scores.get(k, -1) == 0.5)
         # It's acceptable for some to be 0.5 (fallback), but all must be present and finite
         for k in FAST_GOALS_SUBSET:

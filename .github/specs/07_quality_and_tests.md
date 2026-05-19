@@ -53,7 +53,7 @@ Erlaubte Musikmetriken: **PEAQ, FAD, PQS-MOS, ViSQOL v3 (`--audio` Mode), Musica
 > ⚠ **Wichtig**: `core/mushra_evaluator.py` ist eine algorithmische Approximation
 > (PEAQ-ähnlich). Es ist **kein** ITU-R BS.1534-3-konformer MUSHRA-Hörertest.
 > In externen Berichten: „OQS (algorithmisch)" — niemals „MUSHRA-Score".
-> Die 14 Musical-Goal-Schwellwerte sind aus AMRB-Daten hergeleitet („best engineering estimate“).
+> Die 15 Musical-Goal-Schwellwerte sind aus AMRB-Daten hergeleitet („best engineering estimate“).
 > Externe Validierung durch subjektiven Hörertest (ITU-R BS.1534-3) steht aus.
 > Änderungen an Schwellwerten erfordern dokumentierten Hörertest als Präzedenz.
 
@@ -199,6 +199,7 @@ item_seed = _sid_offset(scenario_id)  # RICHTIG
 | **HF-Kumulativ-Limit** | Presence + Air kumulativ ≤ +4 dB (Listening-Fatigue) |
 | **BW-Material-Ceiling (Restoration)** | Output-BW ≤ `_MATERIAL_BW_CEILING_HZ[material]` (§6.2c) |
 | **DR-Material-Ceiling (Restoration)** | Dynamic Range ≤ `_MATERIAL_DR_CEILING_DB[material]` (§6.2b) |
+| **Musical-Goal-Erreichung** | Alle 15 anwendbaren Goals erfüllen `final_score ≥ effective_target`; nicht erreichbare Ziele müssen durch `metadata["goal_target_limitations"]` physikalisch begründet und als `degraded`/`recovered_with_limitations` ausgewiesen werden (§1.2b, §09.2b) |
 | **Carrier-Recovery-Ratio vorhanden** | `metadata["carrier_chain_recovery_ratio"]` existiert (Pflichtfeld §0d) |
 | Mikro-Dynamik-Erhalt | Pearson LUFS-Profil (400 ms) ≥ 0.92, Crest-Faktor ≤ 1.5 dB |
 | Tests grün | Alle bestehenden Pytest-IDs (CI: `pytest --collect-only -q \| tail -1`) |

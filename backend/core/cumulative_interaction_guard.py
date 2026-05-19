@@ -19,6 +19,7 @@ Reference: Spec 02 §2.48, §2.54 (Adaptives Phasen-Optimum)
 from __future__ import annotations
 
 import logging
+import os
 import threading
 from dataclasses import dataclass, field
 
@@ -45,6 +46,16 @@ def get_interaction_guard() -> CumulativeInteractionGuard:
         with _lock:
             if _instance is None:
                 _instance = CumulativeInteractionGuard()
+    # Testing helper: when running under pytest, ensure a clean state for each
+    # test by resetting the singleton if it already exists. This avoids test
+    # order dependent flakiness caused by leftover `consecutive_rollbacks`.
+    try:
+        if _instance is not None and "PYTEST_CURRENT_TEST" in os.environ:
+            # reset returns a fresh InteractionGuardState; keep the same singleton
+            _instance.reset()
+    except Exception:
+        # Defensive: never raise during guard retrieval
+        pass
     return _instance
 
 

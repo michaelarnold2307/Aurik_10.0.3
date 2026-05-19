@@ -826,7 +826,7 @@ class TestSourceFidelityExportAuditTrail:
 
 
 class TestMusicalGoalsCheckerIntegration:
-    """Test MusicalGoalsChecker measures all 14 goals on real audio."""
+    """Test MusicalGoalsChecker measures all 15 goals on real audio."""
 
     _EXPECTED_GOALS = {
         "bass_kraft",
@@ -843,11 +843,12 @@ class TestMusicalGoalsCheckerIntegration:
         "micro_dynamics",
         "separation_fidelity",
         "artikulation",
+        "transient_energie",
     }
 
     @pytest.mark.timeout(_INT_TIMEOUT)
-    def test_measure_all_returns_14_goals(self, audio_48k_mono):
-        """measure_all() must return scores for all 14 musical goals."""
+    def test_measure_all_returns_15_goals(self, audio_48k_mono):
+        """measure_all() must return scores for all 15 musical goals."""
         audio, sr = audio_48k_mono
         from backend.core.musical_goals.musical_goals_metrics import MusicalGoalsChecker
 
@@ -860,7 +861,7 @@ class TestMusicalGoalsCheckerIntegration:
 
     @pytest.mark.timeout(_INT_TIMEOUT)
     def test_all_scores_in_valid_range(self, audio_48k_mono):
-        """All 14 goal scores must be in [0.0, 1.0]."""
+        """All 15 goal scores must be in [0.0, 1.0]."""
         audio, sr = audio_48k_mono
         from backend.core.musical_goals.musical_goals_metrics import MusicalGoalsChecker
 

@@ -4,8 +4,9 @@
 Verbesserungen gegenüber run28/29:
 - Pre-Analysis EINMALIG berechnet, direkt an AurikDenker weitergereicht (§2.47a)
 - no_rt_limit=True → keine Qualitätsdegradation durch Runtime-Timeouts
-- Vollständige Metriken-Ausgabe (alle 14 Musical Goals, timbral_detail, Experience)
+- Vollständige Metriken-Ausgabe (alle 15 Musical Goals, timbral_detail, Experience)
 """
+# pylint: disable=wrong-import-position
 
 import logging
 import os
@@ -120,9 +121,9 @@ logger.info(
     det.get("ref_weight", 0),
 )
 
-# Musical Goals: alle 14
+# Musical Goals: alle 15
 passed = mg.get("passed_count", mg.get("passed", "?"))
-total = mg.get("total", 14)
+total = mg.get("total", 15)
 violations = mg.get("violations", [])
 logger.info("Musical Goals: %s/%s passed | violations=%s", passed, total, violations)
 

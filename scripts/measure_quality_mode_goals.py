@@ -4,6 +4,7 @@ Vergleicht gemessene Goal-Scores gegen kanonische §0-Schwellen.
 Aurik 9.11.14 — 2026-04-19
 """
 
+# pylint: disable=wrong-import-position
 import sys
 import time
 from pathlib import Path
@@ -15,36 +16,21 @@ sys.path.insert(0, str(ROOT))
 
 AUDIO_PATH = ROOT / "test_audio" / "Elke Best - Du wolltest nur ein Abenteuer, aber ich suchte einen Freund.mp3"
 
-# Kanonische P1–P5-Schwellen (§0 / Spec 01)
-CANONICAL = {
-    "natuerlichkeit": 0.90,
-    "authentizitaet": 0.88,
-    "tonal_center": 0.95,
-    "timbre_authentizitaet": 0.87,
-    "artikulation": 0.85,
-    "emotionalitaet": 0.82,
-    "micro_dynamics": 0.88,
-    "groove": 0.83,
-    "transparenz": 0.82,
-    "waerme": 0.75,
-    "bass_kraft": 0.78,
-    "sep_fidelity": 0.78,
-    "brillanz": 0.78,
-    "raumtiefe": 0.70,
-}
+from backend.core.calibration_matrix import CANONICAL_THRESHOLDS_RESTORATION as CANONICAL
 
 PRIO = {
     "P1": ["natuerlichkeit", "authentizitaet"],
-    "P2": ["tonal_center", "timbre_authentizitaet", "artikulation"],
+    "P2": ["tonal_center", "timbre_authentizitaet", "artikulation", "transient_energie"],
     "P3": ["emotionalitaet", "micro_dynamics", "groove"],
-    "P4": ["transparenz", "waerme", "bass_kraft", "sep_fidelity"],
-    "P5": ["brillanz", "raumtiefe"],
+    "P4": ["transparenz", "waerme", "bass_kraft", "separation_fidelity"],
+    "P5": ["brillanz", "spatial_depth"],
 }
 
 
 def _lufs(audio, sr):
+    """Berechnet die integrierte Lautheit (LUFS) des Audio-Arrays."""
     try:
-        import pyloudnorm as pyln
+        import pyloudnorm as pyln  # pylint: disable=import-outside-toplevel
 
         meter = pyln.Meter(sr)
         mono = audio[:, 0] if audio.ndim == 2 else audio
@@ -55,6 +41,7 @@ def _lufs(audio, sr):
 
 
 def main():
+    """Führt die Qualitätsmessung durch und gibt die Ergebnisse auf der Konsole aus."""
     print("=" * 70)
     print("Aurik 9.11.14 — QualityMode.QUALITY Messung")
     print(f"Song: {AUDIO_PATH.name}")
@@ -64,13 +51,18 @@ def main():
         print(f"FEHLER: Audio-Datei nicht gefunden: {AUDIO_PATH}")
         sys.exit(1)
 
+    # pylint: disable=import-outside-toplevel
     from backend.core.musical_goals.musical_goals_metrics import MusicalGoalsChecker
     from backend.core.performance_guard import QualityMode
     from backend.core.unified_restorer_v3 import RestorationConfig, UnifiedRestorerV3
     from backend.file_import import load_audio_file
+    # pylint: enable=import-outside-toplevel
 
     print("\n[1/4] Lade Audio...")
     loaded = load_audio_file(str(AUDIO_PATH), target_sr=None, mono=False, do_carrier_analysis=False)
+    if loaded is None:
+        print("FEHLER: Audio-Datei konnte nicht geladen werden.")
+        sys.exit(1)
     audio = np.asarray(loaded["audio"], dtype=np.float32)
     sr = int(loaded.get("sr") or 48_000)
 
@@ -87,7 +79,7 @@ def main():
         audio = audio[start : start + max_n]
 
     if sr != 48_000:
-        import librosa
+        import librosa  # pylint: disable=import-outside-toplevel
 
         audio = librosa.resample(audio.T, orig_sr=sr, target_sr=48_000).T.astype(np.float32)
         sr = 48_000
@@ -135,7 +127,7 @@ def main():
 
     # ── Auswertung ──────────────────────────────────────────────────────────
     print("\n" + "=" * 70)
-    print("ERGEBNISSE — Musical Goals (14 Ziele)")
+    print("ERGEBNISSE — Musical Goals (15 Ziele)")
     print("=" * 70)
     print(f"{'Goal':<28} {'Vorher':>8} {'Nachher':>8} {'Kanon.':>8} {'∆':>7}  Status")
     print("-" * 70)
@@ -162,7 +154,8 @@ def main():
     print(f"\n  LUFS: {lufs_before:.1f} → {lufs_after:.1f} LUFS  (Δ {lufs_after - lufs_before:+.1f})")
     print(f"  Material: {getattr(getattr(result, 'material_type', 'unknown'), 'value', 'unknown')}")
     print(f"  Laufzeit: {elapsed:.1f}s")
-    print(f"\n  Goals erfüllt: {passed}/14  (kanonische §0-Schwellen)")
+    total_goals = len(CANONICAL)
+    print(f"\n  Goals erfüllt: {passed}/{total_goals}  (kanonische §0-Schwellen)")
 
     if failed_goals:
         print("\n  Nicht erfüllt:")
@@ -176,12 +169,12 @@ def main():
     print(f"  Clipping im Export: {'JA ⚠️' if has_clip else 'Nein ✅'}")
 
     print("\n" + "=" * 70)
-    if passed == 14:
-        print("🎯 ALLE 14 GOALS ERFÜLLT — Studio-Klangtreue erreicht")
+    if passed == total_goals:
+        print("🎯 ALLE 15 GOALS ERFÜLLT — Studio-Klangtreue erreicht")
     elif passed >= 10:
-        print(f"⚠️  {14 - passed} Goal(s) unter Schwelle — gute Restaurierung, aber nicht vollständig")
+        print(f"⚠️  {total_goals - passed} Goal(s) unter Schwelle — gute Restaurierung, aber nicht vollständig")
     else:
-        print(f"❌ {14 - passed} Goals unter Schwelle — weitere Arbeit nötig")
+        print(f"❌ {total_goals - passed} Goals unter Schwelle — weitere Arbeit nötig")
     print("=" * 70)
 
 

@@ -1033,7 +1033,7 @@ def get_musical_goals_checker() -> type:
         checker = get_musical_goals_checker()()
         scores = checker.measure_all(audio, sr)  # Dict[str, float]
 
-    14 Musical Goals mit AMRB-kalibrierten Schwellwerten (§8.1).
+    15 Musical Goals mit AMRB-kalibrierten Schwellwerten (§8.1).
     Adaptive Schwellwerte via ``get_adaptive_goals_fn()`` — nicht statisch!
     """
     from backend.core.musical_goals.musical_goals_metrics import MusicalGoalsChecker  # type: ignore[import]
@@ -1614,7 +1614,7 @@ def get_micro_dynamics_em():
 def get_goal_applicability_filter():
     """Gibt the ``GoalApplicabilityFilter`` singleton (lazy, §2.31) zurück.
 
-    Determines which of the 14 Musical Goals are applicable for a given
+    Determines which of the 15 Musical Goals are applicable for a given
     audio fragment based on material, era, and content type.
     Mono-era recordings have SpatialDepthMetric deactivated automatically.
 

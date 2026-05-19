@@ -183,13 +183,13 @@ class TestBrillanzProxy:
 
 
 # ---------------------------------------------------------------------------
-# Test 5: Vollständigkeit — alle 14 Goal-Schlüssel vorhanden
+# Test 5: Vollständigkeit — alle 15 Goal-Schlüssel vorhanden
 # ---------------------------------------------------------------------------
 
 
 class TestSnapshotCompleteness:
     def test_all_goals_present(self):
-        """_fast_goal_snapshot muss alle 14 Musical-Goal-Schlüssel liefern."""
+        """_fast_goal_snapshot muss alle 15 Musical-Goal-Schlüssel liefern."""
         sig = _make_tonal_audio()
         s = _snap(sig, _SR)
         required_keys = {
@@ -199,6 +199,7 @@ class TestSnapshotCompleteness:
             "timbre",  # §2.64 v9.12.8: Alias für timbre_authentizitaet
             "tonal_center",
             "artikulation",
+            "transient_energie",
             "emotionalitaet",
             "micro_dynamics",  # kanonischer Key (nicht "mikrodynamik")
             "groove",

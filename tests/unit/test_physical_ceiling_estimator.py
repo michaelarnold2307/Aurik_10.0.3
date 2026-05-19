@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import math
 import threading
+from typing import Any
 
 import numpy as np
 
@@ -22,7 +23,7 @@ from backend.core.physical_ceiling_estimator import (
 SR = 48_000
 RNG = np.random.default_rng(42)
 
-ALL_14_GOALS = [
+ALL_15_GOALS = [
     "bass_kraft",
     "brillanz",
     "waerme",
@@ -37,20 +38,23 @@ ALL_14_GOALS = [
     "micro_dynamics",
     "separation_fidelity",
     "artikulation",
+    "transient_energie",
 ]
 
 
 def _sine(freq: float = 440.0, dur: float = 3.0) -> np.ndarray:
     t = np.linspace(0, dur, int(dur * SR), endpoint=False)
-    return np.sin(2 * np.pi * freq * t).astype(np.float32)
+    sine: np.ndarray[Any, Any] = np.asarray(np.sin(2 * np.pi * freq * t), dtype=np.float32)
+    return sine
 
 
 def _noise(dur: float = 3.0, amp: float = 0.1) -> np.ndarray:
-    return (RNG.standard_normal(int(dur * SR)) * amp).astype(np.float32)
+    noise: np.ndarray[Any, Any] = np.asarray(RNG.standard_normal(int(dur * SR)) * amp, dtype=np.float32)
+    return noise
 
 
 def _current_scores(value: float = 0.70) -> dict:
-    return dict.fromkeys(ALL_14_GOALS, value)
+    return dict.fromkeys(ALL_15_GOALS, value)
 
 
 # ---------------------------------------------------------------------------
@@ -64,16 +68,16 @@ class TestResultStructure:
         result = estimate_physical_ceiling(audio, SR, _current_scores())
         assert isinstance(result, PhysicalCeilingResult)
 
-    def test_ceiling_has_all_14_goals(self):
+    def test_ceiling_has_all_15_goals(self):
         audio = _sine()
         result = estimate_physical_ceiling(audio, SR, _current_scores())
-        for g in ALL_14_GOALS:
+        for g in ALL_15_GOALS:
             assert g in result.ceiling
 
-    def test_headroom_has_all_14_goals(self):
+    def test_headroom_has_all_15_goals(self):
         audio = _sine()
         result = estimate_physical_ceiling(audio, SR, _current_scores())
-        for g in ALL_14_GOALS:
+        for g in ALL_15_GOALS:
             assert g in result.headroom_per_goal
 
     def test_snr_profile_shape(self):
@@ -237,7 +241,7 @@ class TestNanSafety:
 
     def test_nan_scores_handled(self):
         audio = _sine()
-        scores = {g: float("nan") for g in ALL_14_GOALS}
+        scores = {g: float("nan") for g in ALL_15_GOALS}
         result = estimate_physical_ceiling(audio, SR, scores)
         assert isinstance(result, PhysicalCeilingResult)
 

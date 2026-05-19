@@ -1,7 +1,7 @@
 """
 Aurik 9 — ArtifaktFreiheitsGate §2.49 [RELEASE_MUST]
 ======================================================
-Dediziertes Gate für Artefakt-Erkennung — unabhängig von den 14 Musical Goals.
+Dediziertes Gate für Artefakt-Erkennung — unabhängig von den 15 Musical Goals.
 5 Artefakttypen mit material-adaptiven Schwellwerten und perzeptueller Salienz-Gewichtung.
 
 Referenz: Spec 02 §2.49, Spec 02 §2.44 (HPI-Integration)
@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import logging
 import threading
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -231,15 +232,17 @@ _ROUGHNESS_APPLICABLE_TYPES: frozenset = frozenset(
 
 
 def _as_membership_tuple(values: object) -> tuple[object, ...]:
-    """Normalisiert membership sources so runtime checks survive scalar misconfiguration."""
+    """Normalisiert membership sources so runtime checks survive scalar misconfiguration.
+
+    Accepts scalars, iterables, or None and returns a tuple for safe membership checks.
+    """
     if values is None:
         return ()
     if isinstance(values, (str, bytes)):
         return (values,)
-    try:
+    if isinstance(values, Iterable):
         return tuple(values)
-    except TypeError:
-        return (values,)
+    return (values,)
 
 
 def _safe_contains(values: object, candidate: object) -> bool:

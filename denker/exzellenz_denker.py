@@ -4,10 +4,11 @@ denker/exzellenz_denker.py — Exzellenz-Denker für Aurik 9
 
 Verbessert restauriertes Audio bis an die physikalische Qualitätsgrenze:
   • ExcellenceOptimizer: Spectral Continuity, Micro-Dynamics, Harmonic Boost, OLA
-  • MusicalGoalsChecker: Messung aller 14 musikalischen Qualitätsziele
+    • MusicalGoalsChecker: Messung aller 15 musikalischen Qualitätsziele
 
 Spec §1.2, §2.5, §2.29, §8.1 — v9.10.45
 """
+# pylint: disable=import-outside-toplevel
 
 from __future__ import annotations
 
@@ -117,9 +118,9 @@ class ExzellenzDenker:
         sr: int = 48_000,
         *,
         material: str = "auto",
-        messe_ziele_vorab: bool = True,
+        _messe_ziele_vorab: bool = True,
     ) -> ExzellenzErgebnis:
-        """Optimiert Audio auf CEDAR Cambridge-Niveau und misst alle 14 Goals.
+        """Optimiert Audio auf CEDAR Cambridge-Niveau und misst alle 15 Goals.
 
         Ablauf:
             1. NaN/Inf-Schutz
@@ -386,7 +387,7 @@ class ExzellenzDenker:
         )
 
     def messe_ziele(self, audio: np.ndarray, sr: int) -> dict[str, float]:
-        """Misst alle 14 Musical Goals für das übergebene Audio.
+        """Misst alle 15 Musical Goals für das übergebene Audio.
 
         Args:
             audio: Audio-Signal (mono/stereo, float32)
@@ -408,7 +409,7 @@ class ExzellenzDenker:
             checker = self._get_checker()
             # Bug-Fix §10c: thread-based timeout — prevents O(N²) or deadlock
             # in any metric from blocking the pipeline forever.  120 s covers
-            # all 14 metrics even on long tracks; normal run < 30 s.
+            # all 15 metrics even on long tracks; normal run < 30 s.
             with _cf_mz.ThreadPoolExecutor(max_workers=1) as _exec_mz:
                 _fut_mz = _exec_mz.submit(checker.measure_all, audio, sr)
                 try:
@@ -655,7 +656,7 @@ class ExzellenzDenker:
         sr: int,
         *,
         defect_result: object | None = None,
-        material: str = "auto",
+        _material: str = "auto",
     ) -> dict[str, float]:
         """Schätzt Goal-Risikowahrscheinlichkeiten VOR der Restaurierung.
 
@@ -852,7 +853,7 @@ _lock = threading.Lock()
 
 def get_exzellenz_denker() -> ExzellenzDenker:
     """Thread-sicherer Singleton-Accessor für den ExzellenzDenker."""
-    global _instance
+    global _instance  # pylint: disable=global-statement
     if _instance is None:
         with _lock:
             if _instance is None:

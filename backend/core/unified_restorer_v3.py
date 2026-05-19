@@ -3,7 +3,7 @@ Unified Restorer V3 for Aurik 9.12 - Defect-First Architecture
 ===============================================================
 
 Hauptklasse für Audio-Restoration mit Defect-First Architektur und
-Vocal-Supremacy-Doktrin (§0p) — 64 Phasen, 46 DefectTypes, 14 Musical Goals.
+Vocal-Supremacy-Doktrin (§0p) — 64 Phasen, 46 DefectTypes, 15 Musical Goals.
 
 Key Features:
 - Defect-First + §GOAL_BASELINE_CHECK: Defekte + Goal-Defizite erkannt, bevor Phasen starten
@@ -124,7 +124,7 @@ class RestorationResult:
     metadata: dict[str, Any]
     # --- Spec-Pflichtfelder (optional, mit sicherem Default) ---
     pqs_result: Any | None = None  # PQS-MOS-Objekt (§2.6)
-    musical_goals: dict[str, float] | None = None  # 14 Musical Goals (§1.2)
+    musical_goals: dict[str, float] | None = None  # 15 Musical Goals (§1.2)
     excellence: Any | None = None  # ExcellenceResult (§2.1)
     temporal_coherence: Any | None = None  # TemporalCoherenceResult (§2.16)
     emotional_arc: Any | None = None  # EmotionalArcResult (§8.2)
@@ -3257,7 +3257,7 @@ class UnifiedRestorerV3:
     def _fast_goal_snapshot(audio: np.ndarray, sr: int, material_type: str = "unknown") -> dict[str, float]:
         """§2.64 DSP-Proxy for per-phase goal measurement (≤200ms, no ML).
 
-        Computes lightweight proxies for all 14 Musical Goals using only
+        Computes lightweight proxies for all 15 Musical Goals using only
         DSP operations — no ML inference. Used as pre/post snapshot in
         _profiled_phase_call to compute per-phase deltas.
         material_type: §9.12.7 — tape/cassette use lower natuerlichkeit floor
@@ -3382,6 +3382,34 @@ class UnifiedRestorerV3:
                 result["artikulation"] = float(_np.clip(_onsets * 4.0, 0.0, 1.0))
             else:
                 result["artikulation"] = 0.5
+            if len(_rms_frames) >= 4:
+                _rms_arr_te = _np.array(_rms_frames, dtype=_np.float64)
+                _diff_te = _np.maximum(_np.diff(_rms_arr_te), 0.0)
+                if _diff_te.size and float(_np.max(_diff_te)) > _eps:
+                    _onset_energy = float(_np.percentile(_diff_te, 90))
+                    _steady_energy = float(_np.percentile(_rms_arr_te, 50)) + _eps
+                    result["transient_energie"] = float(_np.clip((_onset_energy / _steady_energy) * 2.0, 0.0, 1.0))
+                else:
+                    result["transient_energie"] = 0.5
+            else:
+                result["transient_energie"] = 0.5
+
+            result["formant_fidelity"] = float(
+                _np.clip(
+                    0.65 * result.get("timbre_authentizitaet", 0.5) + 0.35 * result.get("authentizitaet", 0.5),
+                    0.0,
+                    1.0,
+                )
+            )
+            result["vocal_quality"] = float(
+                _np.clip(
+                    0.45 * result.get("authentizitaet", 0.5)
+                    + 0.35 * result.get("formant_fidelity", 0.5)
+                    + 0.20 * result.get("artikulation", 0.5),
+                    0.0,
+                    1.0,
+                )
+            )
 
             # --- P3: MikroDynamik proxy — micro-dynamic range (10th/90th percentile ratio)
             _abs_mono = _np.abs(mono)
@@ -3408,24 +3436,23 @@ class UnifiedRestorerV3:
             else:
                 result["groove"] = 0.5
 
-            # --- P4: Transparenz proxy — multi-band spectral crest factor (§2.64 v9.12.3 FIX)
-            # §2.64 v9.12.3 BUG-FIX: The previous proxy (wideband SNR: 5th/95th time-domain
-            # percentile) measured dynamic range, not transparency. For dynamic music (Schlager/
-            # pop) with low noise floor, it yielded proxy≈0.85 while the actual TransparenzMetric
-            # (multi-band crest factor in frequency domain) was 0.433 due to MP3/carrier artifacts.
-            # Fix: mirror TransparenzMetric algorithm — use per-octave-band p95/p50 crest factor
-            # on the already-computed averaged spectrum _spec. Same calibration as the real metric.
-            _oct_bands_t = [(250, 500), (500, 1000), (1000, 2000), (2000, 4000)]
-            _band_crests_t: list[float] = []
+            # --- P4: Transparenz proxy — §9.7.25 spectral flatness, aligned with PMGG/final metric
+            _oct_bands_t = [(250, 500), (500, 1000), (1000, 2000), (2000, 4000), (4000, 8000)]
+            _band_energies_t: list[float] = []
             for _fl_t, _fh_t in _oct_bands_t:
                 _mask_t = (_freqs >= _fl_t) & (_freqs < _fh_t)
                 _bins_t = _spec[_mask_t]
                 if len(_bins_t) > 5:
-                    _p95_t = float(_np.percentile(_bins_t, 95))
-                    _p50_t = float(_np.median(_bins_t)) + _eps
-                    _crest_t = float(_np.clip((_p95_t / _p50_t - 1.2) / 7.0, 0.0, 1.0))
-                    _band_crests_t.append(_crest_t)
-            _transp = float(_np.mean(_band_crests_t)) if _band_crests_t else 0.5
+                    _band_energies_t.append(float(_np.mean(_bins_t**2)))
+            if len(_band_energies_t) >= 3:
+                _be_arr_t = _np.array(_band_energies_t, dtype=_np.float64)
+                _be_norm_t = _be_arr_t / (float(_np.sum(_be_arr_t)) + _eps)
+                _geom_t = float(_np.exp(_np.mean(_np.log(_be_norm_t + _eps))))
+                _arith_t = float(_np.mean(_be_norm_t)) + _eps
+                _flat_t = float(_np.clip(_geom_t / _arith_t, 0.0, 1.0))
+                _transp = float(_np.clip(1.0 - _flat_t * 2.0, 0.0, 1.0))
+            else:
+                _transp = 0.5
             result["transparenz"] = float(_np.clip(_transp, 0.0, 1.0))
 
             # --- P4: Waerme proxy — low-mid energy ratio (200–2000 Hz)
@@ -7086,6 +7113,7 @@ class UnifiedRestorerV3:
                     "tonal_center": 1.15,
                     "timbre_authentizitaet": 1.15,
                     "artikulation": 1.10,
+                    "transient_energie": 1.10,
                     "emotionalitaet": 1.00,
                     "micro_dynamics": 1.00,
                     "groove": 1.00,
@@ -7107,7 +7135,7 @@ class UnifiedRestorerV3:
             _sgt_mode_val = getattr(getattr(self.config, "mode", None), "value", "") or ""
             _sgt_is_studio = any(kw in _sgt_mode_val.lower() for kw in ("studio", "maximum", "aggressive"))
             _sgt_mat_str = str(getattr(material_type, "value", material_type) or "").strip().lower()
-            _sgt_chain = getattr(material_type, "transfer_chain", None)
+            _sgt_chain = list(_cal_transfer_chain) if _cal_transfer_chain else []
             _sgt_era_decade = getattr(_era_result, "decade", None) if _era_result is not None else None
             self._song_goal_targets = _estimate_sgt(
                 is_studio_2026=_sgt_is_studio,
@@ -7177,31 +7205,39 @@ class UnifiedRestorerV3:
         self._pmgg_ceiling_capped_targets = None
         try:
             if isinstance(getattr(self, "_song_goal_targets", None), dict) and self._song_goal_targets:
+                from backend.core.calibration_matrix import resolve_effective_goal_targets as _resolve_egt
                 from backend.core.physical_ceiling_estimator import PhysicalCeilingEstimator as _EarlyPCE
 
                 _pce_mat_key = _sgt_mat_str if "_sgt_mat_str" in dir() else ""
                 _pce_audio = _analysis_audio if _analysis_audio.ndim <= 2 else _analysis_audio[:2]  # max stereo
                 _pce_result = _EarlyPCE().estimate(_pce_audio, sample_rate, {}, _pce_mat_key)
                 _pce_ceiling = _pce_result.ceiling  # dict[str, float]
-                # min(SGT, ceiling) per goal — ceiling-cap only when ceiling < SGT
-                self._pmgg_ceiling_capped_targets = {
-                    g: float(min(v, _pce_ceiling[g]) if g in _pce_ceiling else v)
-                    for g, v in self._song_goal_targets.items()
-                }
+                self._pmgg_ceiling_capped_targets = _resolve_egt(
+                    is_studio_2026=_sgt_is_studio,
+                    goal_weights=self._song_goal_weights,
+                    restorability_score=float(_pmgg_restorability_score),
+                    era_decade=_sgt_era_decade,
+                    genre_label=_cal_genre_label or "",
+                    material_type=_pce_mat_key,
+                    transfer_chain=_sgt_chain,
+                    physical_ceiling=_pce_ceiling,
+                    applicable_goals=set(_applicable_goals or self._song_goal_targets.keys()),
+                )
+                if isinstance(getattr(self, "_restoration_context", None), dict):
+                    self._restoration_context["effective_goal_targets"] = dict(self._pmgg_ceiling_capped_targets)
                 _capped_log = [
                     f"{g}:{self._song_goal_targets[g]:.3f}→{self._pmgg_ceiling_capped_targets[g]:.3f}"
                     for g in self._pmgg_ceiling_capped_targets
-                    if abs(self._pmgg_ceiling_capped_targets[g] - self._song_goal_targets[g]) > 0.005
+                    if g in self._song_goal_targets
+                    and abs(self._pmgg_ceiling_capped_targets[g] - self._song_goal_targets[g]) > 0.005
                 ]
                 if _capped_log:
                     logger.info(
-                        "§2.54 PrePipelineCeiling: mat=%s bw=%.0f Hz → ceiling caps: %s",
+                        "§2.54 EffectiveTargets: mat=%s bw=%.0f Hz → target caps: %s",
                         _pce_mat_key,
                         _pce_result.effective_bandwidth_hz,
                         ", ".join(_capped_log[:6]),
                     )
-                else:
-                    self._pmgg_ceiling_capped_targets = dict(self._song_goal_targets)
         except Exception as _ppc_err:
             logger.debug("§2.54 PrePipelineCeiling fehlgeschlagen (SGT-Fallback): %s", _ppc_err)
             self._pmgg_ceiling_capped_targets = (
@@ -8043,10 +8079,10 @@ class UnifiedRestorerV3:
         else:
             self._restoration_context.setdefault("stem_nr_done", False)
 
-        # §GOAL_BASELINE_CHECK [RELEASE_MUST] (v9.12.7): Pre-pipeline goal-deficit recovery.
-        # Measures all 14 goal proxies on the input audio using _fast_goal_snapshot() (DSP-only,
-        # ≤200ms). For any applicable goal that is measurably below its material-adaptive floor
-        # (5% margin), the primary recovery phase is added to selected_phases if not already
+        # §GOAL_BASELINE_CHECK [RELEASE_MUST] (v9.12.13): Pre-pipeline goal-deficit recovery.
+        # Measures all 15 goal proxies on the input audio using _fast_goal_snapshot() (DSP-only,
+        # ≤200ms). For any applicable goal that is measurably below its effective target
+        # (3% proxy margin), the primary recovery phase is added to selected_phases if not already
         # present — guaranteeing the pipeline has a targeted path to improve that goal.
         #
         # This closes the "silent gap": when DefectScanner finds NO matching defect, the
@@ -8062,7 +8098,7 @@ class UnifiedRestorerV3:
         try:
             from backend.core.calibration_matrix import (  # noqa: I001
                 get_goal_recovery_phases as _get_grp,
-                get_effective_material_floor as _gbc_get_eff_mat_floor,
+                resolve_effective_goal_targets as _gbc_resolve_egt,
             )
 
             _gbc_mat_str = str(material_type.value if material_type else "unknown").lower()
@@ -8076,26 +8112,34 @@ class UnifiedRestorerV3:
                     self._restoration_context["degraded_restorability"] = True
             _gbc_snapshot = UnifiedRestorerV3._fast_goal_snapshot(audio, sample_rate, _gbc_mat_str)
             if _gbc_snapshot and _applicable_goals:
+                _gbc_targets = getattr(self, "_pmgg_ceiling_capped_targets", None)
+                if not isinstance(_gbc_targets, dict) or not _gbc_targets:
+                    _gbc_targets = _gbc_resolve_egt(
+                        is_studio_2026=_gbc_is_studio,
+                        goal_weights=getattr(self, "_song_goal_weights", None),
+                        restorability_score=_gbc_restorability,
+                        era_decade=getattr(_era_result, "decade", None) if _era_result is not None else None,
+                        genre_label=_cal_genre_label or "",
+                        material_type=_gbc_mat_str,
+                        transfer_chain=list(_cal_transfer_chain) if _cal_transfer_chain else [],
+                        physical_ceiling={},
+                        applicable_goals=set(_applicable_goals),
+                    )
                 _gbc_added: list[str] = []
                 _gbc_selected_set: set[str] = set(selected_phases)
                 for _gbc_goal, _gbc_proxy in _gbc_snapshot.items():
                     if _gbc_goal not in _applicable_goals:
                         continue
-                    # §09.12 [RELEASE_MUST]: get_effective_material_floor() statt get_material_floor()
-                    # skaliert den Floor mit restorability_score → vermeidet unmöglich hohe Ziele
-                    # bei hoffnungslosen Tracks (restorability < 30 → scale = RESTORABILITY_SCALE_MIN)
-                    _gbc_floor = _gbc_get_eff_mat_floor(
-                        _gbc_mat_str, _gbc_goal, _gbc_restorability, is_studio_2026=_gbc_is_studio
-                    )
-                    if _gbc_proxy < _gbc_floor * 0.97:  # v9.12.8: 0.95→0.97 (Proxy ±2-3% Unsicherheit)
-                        # Goal is measurably below material floor — add primary recovery phase
+                    _gbc_target = float(_gbc_targets.get(_gbc_goal, 0.70))
+                    if _gbc_proxy < _gbc_target * 0.97:  # Proxy ±2-3% uncertainty
+                        # Goal is measurably below effective target — add primary recovery phase
                         _gbc_candidates = _get_grp(_gbc_goal, is_studio_2026=_gbc_is_studio)
                         for _gbc_phase in _gbc_candidates:
                             if _gbc_phase not in _gbc_selected_set:
                                 selected_phases.append(_gbc_phase)
                                 _gbc_selected_set.add(_gbc_phase)
                                 _gbc_added.append(
-                                    f"{_gbc_goal}(proxy={_gbc_proxy:.2f}<floor={_gbc_floor:.2f})→{_gbc_phase}"
+                                    f"{_gbc_goal}(proxy={_gbc_proxy:.2f}<target={_gbc_target:.2f})→{_gbc_phase}"
                                 )
                                 break  # §2.45: primary recovery phase only (minimal-intervention)
                 if _gbc_added:
@@ -9566,7 +9610,7 @@ class UnifiedRestorerV3:
         except Exception as _pce_exc:
             logger.debug("PhysicalCeilingEstimator nicht verfügbar: %s", _pce_exc)
 
-        # --- Musikalische Exzellenz: 14-Ziele-Messung (§1.2 Spec) ---
+        # --- Musikalische Exzellenz: 15-Ziele-Messung (§1.2 Spec) ---
         _musical_goal_scores: dict = {}
         _musical_goals_passed: dict = {}
         _musical_excellence_score: float = 0.0
@@ -9586,13 +9630,25 @@ class UnifiedRestorerV3:
                 except Exception as _agt_apply_exc:
                     logger.debug("AdaptiveGoalThresholds konnten nicht angewendet werden: %s", _agt_apply_exc)
 
+            _resolved_targets_local = None
+            if isinstance(getattr(self, "_restoration_context", None), dict):
+                _resolved_targets_local = self._restoration_context.get("effective_goal_targets")
+            if not isinstance(_resolved_targets_local, dict) or not _resolved_targets_local:
+                _resolved_targets_local = getattr(self, "_pmgg_ceiling_capped_targets", None)
+            if isinstance(_resolved_targets_local, dict) and _resolved_targets_local:
+                for _goal_name, _val in _resolved_targets_local.items():
+                    if _goal_name in _effective_goal_thresholds and math.isfinite(float(_val)):
+                        _effective_goal_thresholds[_goal_name] = float(np.clip(float(_val), 0.20, 0.99))
+
             # §09.2 [RELEASE_MUST] Song-Goal-Targets: Era × Material × Genre adaptive floors
             # Computed earlier in restore() as self._song_goal_targets (calibration_matrix.estimate_song_goal_targets)
             # §2.54 Material-adaptive blend: large canonical-vs-SGT delta → weight strongly toward SGT.
             # Same logic as PMGG per-phase (§09.2 adaptive blend) so pipeline-end threshold
             # is consistent with what PMGG accepted during the phase loop.
-            _sgt_local = getattr(self, "_pmgg_ceiling_capped_targets", None) or getattr(
-                self, "_song_goal_targets", None
+            _sgt_local = (
+                None
+                if isinstance(_resolved_targets_local, dict) and _resolved_targets_local
+                else (getattr(self, "_pmgg_ceiling_capped_targets", None) or getattr(self, "_song_goal_targets", None))
             )
             if isinstance(_sgt_local, dict) and _sgt_local:
                 try:
@@ -9629,180 +9685,11 @@ class UnifiedRestorerV3:
                 except Exception as _ceil_exc:
                     logger.debug("PhysicalCeiling clamp nicht verfügbar: %s", _ceil_exc)
 
-            # §0a [RELEASE_MUST] Adaptive-Threshold Material-Ceiling (v9.11.14):
-            # adaptive_thresholds dürfen das physikalisch erreichbare P1/P2-Ceiling des
-            # Quellmaterials nicht überschreiten. Degradiertes Vinyl/Shellac/Tape kann
-            # die kanonischen Böden (natuerlichkeit ≥ 0.90) physikalisch nicht erreichen.
-            # Ohne diesen Guard schlägt das Export-Gate für korrekt restauriertes analoges
-            # Material fälschlicherweise an (adaptive_threshold 0.82 > vinyl-Ceiling 0.82 ok,
-            # aber shellac 0.68 ist durch 0.82 unerreichbar → fälschlich FAIL).
-            _ADAPTIVE_THR_MATERIAL_CEILING: dict[str, dict[str, float]] = {
-                "shellac": {
-                    "natuerlichkeit": 0.68,
-                    "authentizitaet": 0.65,
-                    "tonal_center": 0.70,
-                    "timbre_authentizitaet": 0.65,
-                    "artikulation": 0.61,
-                    "waerme": 0.62,
-                    "brillanz": 0.52,  # BW ≤ 8 kHz → HF crest physically low
-                    "transparenz": 0.55,
-                    "separation_fidelity": 0.60,
-                },
-                "wax_cylinder": {
-                    "natuerlichkeit": 0.66,
-                    "authentizitaet": 0.63,
-                    "tonal_center": 0.68,
-                    "timbre_authentizitaet": 0.63,
-                    "artikulation": 0.59,
-                    "waerme": 0.60,
-                    "brillanz": 0.40,  # BW ≤ 5 kHz
-                    "transparenz": 0.50,
-                    "separation_fidelity": 0.55,
-                },
-                "wire_recording": {
-                    "natuerlichkeit": 0.66,
-                    "authentizitaet": 0.63,
-                    "tonal_center": 0.68,
-                    "timbre_authentizitaet": 0.63,
-                    "artikulation": 0.59,
-                    "waerme": 0.60,
-                    "brillanz": 0.44,  # BW ≤ 6 kHz
-                    "transparenz": 0.52,
-                    "separation_fidelity": 0.56,
-                },
-                "vinyl": {
-                    "natuerlichkeit": 0.82,
-                    "authentizitaet": 0.79,
-                    "tonal_center": 0.84,
-                    "timbre_authentizitaet": 0.79,
-                    "artikulation": 0.76,
-                    "waerme": 0.74,
-                    "brillanz": 0.82,  # Vinyl BW ≤ 16 kHz; crest achievable post-phase_06
-                    "transparenz": 0.78,
-                    "separation_fidelity": 0.76,
-                },
-                "reel_tape": {
-                    "natuerlichkeit": 0.82,
-                    "authentizitaet": 0.79,
-                    "tonal_center": 0.84,
-                    "timbre_authentizitaet": 0.79,
-                    "artikulation": 0.76,
-                    "waerme": 0.74,
-                    "brillanz": 0.82,
-                    "transparenz": 0.78,
-                    "separation_fidelity": 0.76,
-                },
-                "tape": {
-                    "natuerlichkeit": 0.78,
-                    "authentizitaet": 0.75,
-                    "tonal_center": 0.80,
-                    "timbre_authentizitaet": 0.75,
-                    "artikulation": 0.72,
-                    "waerme": 0.72,
-                    "brillanz": 0.78,
-                    "transparenz": 0.74,
-                    "separation_fidelity": 0.72,
-                },
-                "cassette": {
-                    "natuerlichkeit": 0.76,
-                    "authentizitaet": 0.73,
-                    "tonal_center": 0.78,
-                    "timbre_authentizitaet": 0.73,
-                    "artikulation": 0.70,
-                    "waerme": 0.70,
-                    "brillanz": 0.72,
-                    "transparenz": 0.68,
-                    "separation_fidelity": 0.68,
-                },
-                "mp3_low": {
-                    # MP3 128kbps or lower: severe HF codec artefacts, BW ~15.5 kHz.
-                    # brillanz (HF crest 2-16 kHz): achievable ~0.20-0.35 after Apollo repair;
-                    # transparenz and separation_fidelity similarly constrained.
-                    # These ceilings prevent false FAIL against canonical 0.78/0.82 thresholds
-                    # that assume clean 20 kHz audio (§0a Material-Ceiling, §0d).
-                    "natuerlichkeit": 0.76,
-                    "authentizitaet": 0.74,
-                    "tonal_center": 0.78,
-                    "timbre_authentizitaet": 0.74,
-                    "artikulation": 0.70,
-                    "waerme": 0.70,
-                    "brillanz": 0.45,  # MP3 codec destroys HF crest; crest <2.5 even post-Apollo
-                    "transparenz": 0.60,  # Codec masking residuals floor transparenz
-                    "separation_fidelity": 0.62,  # Stem-sep on lossy source physically limited
-                },
-                # §0a §2.44 [RELEASE_MUST] Defensive fallback ceilings for materials not in the
-                # primary adaptive chain above. Without these, if adaptive_goals_system, SGT-blend
-                # and PhysicalCeiling all fail (exceptions), _effective_goal_thresholds stays at
-                # canonical CD-level → false FAIL + unnecessary Recovery cascade for valid output.
-                "lacquer_disc": {
-                    # Acetat-Lackfolie (1930–1950): BW ≤ 8 kHz like shellac, SNR ~20–25 dB.
-                    # Slightly better than shellac but still physically far below canonical.
-                    "natuerlichkeit": 0.69,
-                    "authentizitaet": 0.66,
-                    "tonal_center": 0.71,
-                    "timbre_authentizitaet": 0.66,
-                    "artikulation": 0.62,
-                    "waerme": 0.63,
-                    "brillanz": 0.50,  # BW ≤ 8 kHz; marginally better than shellac
-                    "transparenz": 0.56,
-                    "separation_fidelity": 0.60,
-                },
-                "mp3_high": {
-                    # MP3 ≥ 128 kbps: moderate codec artefacts, BW ~16–17 kHz.
-                    # HF crest reduced but not destroyed; separability limited by codec masking.
-                    "natuerlichkeit": 0.82,
-                    "authentizitaet": 0.80,
-                    "tonal_center": 0.84,
-                    "timbre_authentizitaet": 0.80,
-                    "artikulation": 0.76,
-                    "waerme": 0.74,
-                    "brillanz": 0.65,  # BW ~16–17 kHz; moderate HF crest degradation
-                    "transparenz": 0.70,
-                    "separation_fidelity": 0.70,
-                },
-                "aac": {
-                    # AAC/M4A: modern codec, generally better quality than MP3 at same bitrate.
-                    # HF preservation better than mp3_high; pre-echo artefacts minor.
-                    "natuerlichkeit": 0.84,
-                    "authentizitaet": 0.82,
-                    "tonal_center": 0.86,
-                    "timbre_authentizitaet": 0.82,
-                    "artikulation": 0.78,
-                    "waerme": 0.76,
-                    "brillanz": 0.72,
-                    "transparenz": 0.74,
-                    "separation_fidelity": 0.74,
-                },
-                "minidisc": {
-                    # MiniDisc (ATRAC-1): lossy codec, BW ~17 kHz, characteristic pre-echo.
-                    # HF quality similar to mp3_high; ATRAC pumping may reduce separation.
-                    "natuerlichkeit": 0.80,
-                    "authentizitaet": 0.78,
-                    "tonal_center": 0.82,
-                    "timbre_authentizitaet": 0.78,
-                    "artikulation": 0.74,
-                    "waerme": 0.72,
-                    "brillanz": 0.64,
-                    "transparenz": 0.68,
-                    "separation_fidelity": 0.68,
-                },
-                "dat": {
-                    # Digital Audio Tape: near-CD quality; jitter and minor dropout are main issues.
-                    # Almost canonical, only minimal HF/separation ceiling needed.
-                    "natuerlichkeit": 0.88,
-                    "authentizitaet": 0.86,
-                    "tonal_center": 0.92,
-                    "timbre_authentizitaet": 0.86,
-                    "artikulation": 0.84,
-                    "waerme": 0.80,
-                    "brillanz": 0.82,
-                    "transparenz": 0.82,
-                    "separation_fidelity": 0.82,
-                },
-            }
             try:
+                from backend.core.calibration_matrix import estimate_chain_end_goal_ceiling as _estimate_chain_ceiling
+
                 _mat_str_ceil = str(getattr(material_type, "value", material_type) or "unknown").lower()
-                _mat_ceil_map = _ADAPTIVE_THR_MATERIAL_CEILING.get(_mat_str_ceil)
+                _mat_ceil_map = _estimate_chain_ceiling([_mat_str_ceil])
                 if _mat_ceil_map and _effective_goal_thresholds:
                     _n_capped = 0
                     for _mc_goal, _mc_ceil in _mat_ceil_map.items():
@@ -9837,7 +9724,7 @@ class UnifiedRestorerV3:
                             _chain_list = [str(s).lower() for s in _cl]
                     if len(_chain_list) >= 2:
                         _chain_end = _chain_list[-1]
-                        _chain_end_map = _ADAPTIVE_THR_MATERIAL_CEILING.get(_chain_end, {})
+                        _chain_end_map = _estimate_chain_ceiling(_chain_list)
                         _n_chain_capped = 0
                         for _hf_goal in _chain_end_hf_goals:
                             if _hf_goal in _chain_end_map and _hf_goal in _effective_goal_thresholds:
@@ -9927,7 +9814,7 @@ class UnifiedRestorerV3:
             _mg_violations = [k for k, p in _musical_goals_passed.items() if not p and k in _applicable_goal_names]
 
             # §GOAL_MONITOR [RELEASE_MUST] Structured per-goal scorecard for goal_monitor.py.
-            # Logs ALL 14 goals with score, effective threshold, gap, and pass/fail status
+            # Logs ALL 15 goals with score, effective threshold, gap, and pass/fail status
             # in a single parseable line so post-run analysis can show exactly which goals
             # are below threshold and by how much — without reading internal Python state.
             try:
@@ -10769,7 +10656,7 @@ class UnifiedRestorerV3:
                         logger.debug("Era-GP-Warmstart nicht verfügbar: %s", _era_ws_exc)
                 _gp_upd_proposal_ref = _gp_opt_ref.propose(
                     material=_gp_material_key,
-                    embedding=_original_embedding.vector if _original_embedding is not None else None,
+                    embedding_vec=_original_embedding.vector if _original_embedding is not None else None,
                     era_warmstart=_era_ws,
                 )
                 # goal_scores für echten MOO vorberechnen (§2.5 Spec 03)

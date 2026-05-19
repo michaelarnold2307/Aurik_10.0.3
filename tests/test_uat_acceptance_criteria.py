@@ -116,7 +116,7 @@ RESTORATION_CRITERIA = [
     {
         "id": "R11",
         "name": "Musikalische Ziele nicht verschlechtert",
-        "description": "Sämtliche 14 Musikalischen Ziele ≥ Threshold nach Phase-Ausführung",
+        "description": "Sämtliche 15 Musikalischen Ziele ≥ Threshold nach Phase-Ausführung",
         "category": "Audio Quality",
         "severity": "MUST",
         "test_type": "functional_test",

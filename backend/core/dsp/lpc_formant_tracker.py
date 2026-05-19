@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import logging
 import threading
+from typing import Any
 
 import numpy as np
 
@@ -140,7 +141,7 @@ def lpc_formant_enhance(
     frame_len_ms: float = 30.0,
     hop_len_ms: float = 10.0,
     min_voiced_frames: int = 3,
-) -> np.ndarray:
+) -> np.ndarray[Any, Any]:
     """
     §2.35c LPC-Formant-Enhancement für Shellac (DSP-Fallback).
 
@@ -158,7 +159,7 @@ def lpc_formant_enhance(
     Returns:
         audio mit Formant-Enhancement (gleiche Form/Länge wie Input)
     """
-    audio_in = np.asarray(audio, dtype=np.float32)
+    audio_in: np.ndarray[Any, Any] = np.asarray(audio, dtype=np.float32)
     if audio_in.ndim == 2:
         mono = np.mean(audio_in, axis=1 if audio_in.shape[0] <= 8 else 0).astype(np.float64)
     else:
@@ -289,7 +290,8 @@ def check_formant_shift_db(
         def _to_mono(a: np.ndarray) -> np.ndarray:
             a = np.asarray(a, dtype=np.float32)
             if a.ndim == 2:
-                return np.mean(a, axis=0) if a.shape[0] == 2 and a.shape[1] > 2 else np.mean(a, axis=1)
+                result = np.mean(a, axis=0) if a.shape[0] == 2 and a.shape[1] > 2 else np.mean(a, axis=1)
+                return np.asarray(result, dtype=np.float32)
             return a
 
         pre_m = _to_mono(audio_pre)
@@ -309,8 +311,12 @@ def check_formant_shift_db(
         pre_ds = pre_seg[::ds]
         sr_ds = sr // ds
 
-        # Get formant frequencies from pre-NR signal using internal helper
-        formants_hz = _lpc_to_formants(pre_ds, sr_ds, max_formants=max_formants)
+        # Estimate LPC coefficients on the pre-segment and extract formants
+        try:
+            a = _burg_lpc(pre_ds * np.hanning(len(pre_ds)), _LPC_ORDER)
+            formants_hz = _lpc_to_formants(a, sr_ds, max_formants=max_formants)
+        except Exception:
+            return False, 0.0
         if not formants_hz:
             return False, 0.0
 
@@ -365,10 +371,24 @@ class _LPCFormantTracker:
             mono = np.asarray(audio, dtype=np.float32)
             if mono.ndim == 2:
                 mono = np.mean(mono, axis=0) if mono.shape[0] == 2 and mono.shape[1] > 2 else np.mean(mono, axis=1)
+            if mono.size < 64:
+                return {"f1_mean": 0.0, "f2_mean": 0.0, "f3_mean": 0.0, "f4_mean": 0.0}
+
+            # Bound analysis cost: use a centered max-2s window before LPC estimation.
+            max_win = min(mono.size, int(max(sr, 1) * 2.0))
+            mid = mono.size // 2
+            start = max(0, mid - max_win // 2)
+            mono_win = mono[start : start + max_win]
+
             ds = max(1, sr // 16000)
-            mono_ds = mono[::ds].astype(np.float64)
-            sr_ds = sr // ds
-            formants = _lpc_to_formants(mono_ds, sr_ds, max_formants=4)
+            mono_ds = mono_win[::ds].astype(np.float64)
+            sr_ds = max(1, sr // ds)
+            if mono_ds.size <= (_LPC_ORDER + 1):
+                return {"f1_mean": 0.0, "f2_mean": 0.0, "f3_mean": 0.0, "f4_mean": 0.0}
+
+            windowed = mono_ds * np.hanning(len(mono_ds))
+            lpc_a = _burg_lpc(windowed, _LPC_ORDER)
+            formants = _lpc_to_formants(lpc_a, sr_ds, max_formants=4)
             keys = ["f1_mean", "f2_mean", "f3_mean", "f4_mean"]
             result = dict.fromkeys(keys, 0.0)
             for i, f in enumerate(formants[:4]):

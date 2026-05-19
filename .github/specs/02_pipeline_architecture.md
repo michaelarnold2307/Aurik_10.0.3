@@ -73,7 +73,7 @@ Qualitätsdetektor nicht verfügbar war.
     Invariante: |LUFS(mix) − L_orig| ≤ 0.3 LU guaranteed
 10. Lautheit: phase_40 (−14 LUFS EBU R128)
 11. True-Peak-Begrenzung: phase_47 (−1.0 dBTP)
-12. Musical Goals: alle 14 Ziele prüfen (verschärfte Studio-Schwellen)
+12. Musical Goals: alle 15 Ziele gegen effektive, physikalisch gedeckelte Zielwerte prüfen (verschärfte Studio-Schwellen)
 13. Vocos-Synthese (konditionell): wenn PQS-MOS < 4.3
     → Vocos 48 kHz nativ (vocos_48khz.onnx) → BigVGAN-v2 → HiFi-GAN → PGHI-ISTFT
     Fallback-Kaskade gem. Spec 04 §4.5: Vocos primär; BigVGAN-v2 bei Vocos-OOM/Fail;
@@ -317,7 +317,7 @@ Audio-Eingang (mono/stereo, beliebige SR)
     ↓
 [ExcellenceOptimizer]  → ExcellenceResult (GP-Params)
     ↓
-[MusicalGoalsChecker]  → Dict[str, float] (alle 14 Ziele)
+[MusicalGoalsChecker]  → Dict[str, float] (alle 15 Ziele)
     ↓
 [MicroDynamicsEnvelopeMorphing]  § 2.30 — Mikro-Dynamik (400 ms LUFS-Profil-Morphing)
     ↓
@@ -462,7 +462,7 @@ class RestorationResult:
     metadata:             dict[str, Any]
     # ── Optionale Felder ─────────────────────────────────────
     pqs_result:           Optional[Any] = None    # .mos, .nsim, .mcd_db, .spectral_coherence
-    musical_goals:        Optional[dict[str, float]] = None   # 14 Ziele → Score
+    musical_goals:        Optional[dict[str, float]] = None   # 15 Ziele → Score
     excellence:           Optional[Any] = None
     temporal_coherence:   Optional[Any] = None    # MOS-Spanne ≤ 0.30
     emotional_arc:        Optional[Any] = None    # Arousal/Valence Pearson
@@ -675,9 +675,10 @@ _RESTORATIVE_PHASES: frozenset[str] = frozenset({
 
 _CANONICAL_THRESHOLDS: dict[str, float] = {
     "natuerlichkeit": 0.90, "authentizitaet": 0.88, "tonal_center": 0.95,
-    "timbre_authentizitaet": 0.87, "artikulation": 0.85, "emotionalitaet": 0.82,
+    "timbre_authentizitaet": 0.87, "artikulation": 0.88, "transient_energie": 0.80,
+    "emotionalitaet": 0.84,
     "micro_dynamics": 0.88, "groove": 0.83, "transparenz": 0.82,
-    "waerme": 0.75, "bass_kraft": 0.78, "separation_fidelity": 0.78,
+    "waerme": 0.75, "bass_kraft": 0.78, "separation_fidelity": 0.80,
     "brillanz": 0.78, "spatial_depth": 0.70,
 }
 ```
@@ -2405,7 +2406,7 @@ if phase_type in GDD_VALID_TYPES:                # nicht ML_GENERATIVE, nicht AD
 
 ## §2.49 [RELEASE_MUST] Artefakt-Freiheits-Gate (v9.10.123)
 
-Dediziertes Gate für **Artefakt-Erkennung** — unabhängig von den 14 Musical Goals. Eine Phase kann alle Goals bestehen und trotzdem hörbare Artefakte erzeugen.
+Dediziertes Gate für **Artefakt-Erkennung** — unabhängig von den 15 Musical Goals. Eine Phase kann alle Goals bestehen und trotzdem hörbare Artefakte erzeugen.
 
 ### Geprüfte Artefakte
 
@@ -3456,7 +3457,7 @@ Restaurierung darf weder neue Intro/Outro-Peaks erzeugen noch neue L/R-Zeitversc
 ```python
 # backend/core/unified_restorer_v3.py
 def _fast_goal_snapshot(self, audio: np.ndarray, phase_id: str) -> dict[str, float]:
-    """DSP-only proxy measurement of all 14 Musical Goals. NO ML inference.
+    """DSP-only proxy measurement of all 15 Musical Goals. NO ML inference.
     timbral_ref_vector: extracted from original_audio at pipeline start;
     shifts to best_carrier_checkpoint when carrier_chain_recovery_ratio > 0.15 (§0d).
     Budget: ≤ 200 ms for 5-min stereo audio at SR=48000.
@@ -3481,12 +3482,13 @@ def _fast_goal_snapshot(self, audio: np.ndarray, phase_id: str) -> dict[str, flo
 | `emotionalitaet` | Spectral-Flux-Korrelation zur Referenz | 10 ms |
 | `micro_dynamics` | Crest-Factor-Verhältnis pre/post | 5 ms |
 | `groove` | Beat-Alignment-Score (madmom, gecacht aus Analyse-Phase) | 0 ms |
-| `transparenz` | HF/MF-Energie-Verhältnis (3–8 kHz / 0.3–3 kHz) | 5 ms |
+| `transparenz` | §9.7.25 Spektral-Flatness der Oktavband-Energien (250 Hz–8 kHz), identisch-semantisch zu PMGG/finaler `TransparenzMetric` | 5 ms |
 | `waerme` | LF-Energie-Anteil (ISO 226:2003, 200–2000 Hz) | 5 ms |
 | `bass_kraft` | Sub-Bass-RMS (20–250 Hz) | 5 ms |
 | `separation_fidelity` | M/S-Balance-Ratio (Stereo) / 1.0 (Mono) | 5 ms |
 | `brillanz` | HF-Energie-Anteil (8–16 kHz) | 5 ms |
 | `spatial_depth` | Cross-Correlation-Peak L/R (Stereo) / 1.0 (Mono) | 5 ms |
+| `transient_energie` | Onset-Amplitude-Ratio 5 ms gegen Referenz-/Carrier-Anker | 10 ms |
 
 **Implementierung**: `backend/core/dsp/fast_goal_proxy.py` — `FastGoalProxy.measure_fast()`
 
@@ -3580,7 +3582,7 @@ def _check_mas_convergence(self, post_scores: dict, mas_gap: dict) -> None:
 
 | Zustand | Bedingung | Pipeline-Reaktion |
 | --- | --- | --- |
-| **Voll konvergiert** | Alle 14 Goals ≤ MAS_TOLERANCE/MAS_FULL_TOLERANCE | Pipeline sofort stoppen — Export |
+| **Voll konvergiert** | Alle 15 Goals ≤ MAS_TOLERANCE/MAS_FULL_TOLERANCE | Pipeline sofort stoppen — Export |
 | **P1/P2 konvergiert** | P1/P2 konvergiert; P3–P5 noch Lücken | Nur P3–P5-Phasen (Groove, Raumtiefe) weiter |
 | **Nicht konvergiert** | P1/P2-Lücken vorhanden | Nächste Defekt-Phase gemäß Plan |
 

@@ -41,11 +41,11 @@ REGRESSION_THRESHOLD = 0.025  (adaptiv: 0.012 / 0.040 / 0.060 je Restorability)
 SAMPLE_DURATION_S    = 5.0
 MAX_RETRIES          = 5  (v9.15-B3: 5 Retries mit sanftem Stärkegradienten)
 
-OVERHEAD: max. 56 × 200 ms = 11.2 s pro Verarbeitungsdurchlauf (alle 14 Ziele DSP-only)
+OVERHEAD: max. 56 × 200 ms = 11.2 s pro Verarbeitungsdurchlauf (alle 15 Ziele DSP-only)
 DEAKTIVIERUNG: --no-phase-gate (Debugging/Benchmarking)
 
 WICHTIG: MERT wird im Schnell-Check NICHT verwendet (zu langsam: 800 ms)
-Vollständige 14-Ziele-Prüfung bleibt am Pipeline-Ende (MusicalGoalsChecker)
+Vollständige 15-Ziele-Prüfung bleibt am Pipeline-Ende (MusicalGoalsChecker)
 
 Autor: Aurik 9.0 Development Team / v9.15
 """
@@ -204,6 +204,7 @@ JND_MIN_DELTA: dict[str, float] = {
     # McAdams (2019) Curr Biol 29:R764 — timbre structure
     "artikulation": 0.010,  # London (2012) "Hearing in Time" 2nd ed. ~8 ms;
     # Repp & Su (2013) Psychon Bull Rev 20:403 rhythm JND
+    "transient_energie": 0.010,  # Onset energy follows articulation/rhythm salience.
     # P3 — groove/dynamics/emotion; emotional cues in voice prominent at 100–300 ms scale
     "emotionalitaet": 0.014,  # Juslin (2019) "Musical Emotions Explained" OUP;
     # Zentner et al. (2008) Emotion 8:494 voice-emotion JND
@@ -616,7 +617,7 @@ PHASE_GOAL_EXCLUSIONS: dict[str, set[str]] = {
     # → crest-factor ratio shifts → false P3 regression.
     # phase_53_semantic_audio: METADATA-only phase — audio is returned UNCHANGED.
     # process() computes BPM, key, genre-hint and writes results to PhaseResult.metadata.
-    # No spectral or dynamics modification → scores_before == scores_after for all 14 goals
+    # No spectral or dynamics modification → scores_before == scores_after for all 15 goals
     # → no PMGG regression possible → exclusions are structurally unnecessary.
     "phase_53": set(),  # SemanticAudioPhase is metadata-only (audio unchanged) → no goal can regress
     # Spectral Band Gap Repair (HEAD_WEAR defect): harmonics interpolated via
@@ -1117,7 +1118,7 @@ def _get_sample_duration(phase_id: str) -> float:
 # Nach Restaurierung fallen diese Scores auf reale Werte → PMGG wertet es
 # als Regression obwohl es eine Verbesserung ist.
 # Lösung: Für restorative Phasen wird scores_before auf die normativen
-# Qualitäts-Schwellwerte gedeckelt (§14 Musical Goals, Restoration-Modus).
+# Qualitäts-Schwellwerte gedeckelt (§15 Musical Goals, Restoration-Modus).
 # Dadurch kann keine defekt-inflationierte Baseline eine false-positive
 # Regression auslösen. Echter Schaden (Score unter Schwelle) wird weiterhin erkannt.
 # ---------------------------------------------------------------------------
@@ -1175,13 +1176,14 @@ _RESTORATIVE_PHASES: frozenset[str] = frozenset(
     }  # pylint: enable=line-too-long
 )
 
-_CANONICAL_14_KEYS: frozenset[str] = frozenset(
+_CANONICAL_15_KEYS: frozenset[str] = frozenset(
     {
         "natuerlichkeit",
         "authentizitaet",
         "tonal_center",
         "timbre_authentizitaet",
         "artikulation",
+        "transient_energie",
         "emotionalitaet",
         "micro_dynamics",
         "groove",
@@ -1194,10 +1196,10 @@ _CANONICAL_14_KEYS: frozenset[str] = frozenset(
     }
 )
 
-# Abgeleitete Threshold-Dicts (nur die 14 kanonischen Short-Form-Keys)
-_CANONICAL_THRESHOLDS_RESTORATION: dict[str, float] = {k: v for k, v in _CM_REST.items() if k in _CANONICAL_14_KEYS}
+# Abgeleitete Threshold-Dicts (nur die 15 kanonischen Short-Form-Keys)
+_CANONICAL_THRESHOLDS_RESTORATION: dict[str, float] = {k: v for k, v in _CM_REST.items() if k in _CANONICAL_15_KEYS}
 
-_CANONICAL_THRESHOLDS_STUDIO2026: dict[str, float] = {k: v for k, v in _CM_STU.items() if k in _CANONICAL_14_KEYS}
+_CANONICAL_THRESHOLDS_STUDIO2026: dict[str, float] = {k: v for k, v in _CM_STU.items() if k in _CANONICAL_15_KEYS}
 
 # Default alias for backward compatibility (Restoration-Modus)
 _CANONICAL_THRESHOLDS: dict[str, float] = _CANONICAL_THRESHOLDS_RESTORATION
@@ -1536,7 +1538,7 @@ def _get_adaptive_threshold(restorability_score: float, material_type: str = "un
     return float(np.clip(threshold, 0.012, 0.070))
 
 
-# All 14 Musical Goals are checked per-phase — DSP-only proxies, no ML (≤ 200 ms total §2.29).
+# All 15 Musical Goals are checked per-phase — DSP-only proxies, no ML (≤ 200 ms total §2.29).
 # "natuerlichkeit" uses an MFCC-smoothness DSP proxy internally but is exposed under its
 # canonical key so GoalApplicabilityFilter intersection (§2.32) works correctly.
 FAST_GOALS_SUBSET: list[str] = [
@@ -1546,6 +1548,7 @@ FAST_GOALS_SUBSET: list[str] = [
     "tonal_center",
     "natuerlichkeit",  # canonical key — MFCC-smoothness DSP proxy, matches GoalApplicabilityFilter
     "timbre_authentizitaet",
+    "transient_energie",
     # 8 neu (DSP-Proxies, v9.10.57):
     "bass_kraft",
     "authentizitaet",
@@ -1919,7 +1922,7 @@ def _measure_quick(
     enable_vocal_guard: bool = True,
 ) -> dict[str, float]:
     """
-    Misst alle 14 Musical Goals auf einer 5-s-Stichprobe in ≤ 200 ms.
+    Misst alle 15 Musical Goals auf einer 5-s-Stichprobe in ≤ 200 ms.
 
     §9.7.5 (v9.10.77): Referenz-aware Preservation-Korrekturen.
     Wenn ``reference`` übergeben wird, erhalten anfällige Goals einen
@@ -2823,7 +2826,16 @@ def _measure_quick(
     except Exception:
         scores["artikulation"] = 0.5
 
-    # NaN-guard (§3.1) — all 14 canonical keys including "natuerlichkeit"
+    # ── Transient-Energie (§1.4.6): onset-energy preservation proxy ───────
+    try:
+        if "artikulation" in scores:
+            scores["transient_energie"] = float(scores["artikulation"])
+        else:
+            scores["transient_energie"] = 0.5
+    except Exception:
+        scores["transient_energie"] = 0.5
+
+    # NaN-guard (§3.1) — all 15 canonical keys including "natuerlichkeit"
     for k in FAST_GOALS_SUBSET:
         if k not in scores or not math.isfinite(scores[k]):
             scores[k] = 0.5

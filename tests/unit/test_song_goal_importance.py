@@ -334,13 +334,13 @@ class TestSerialisation:
         assert "weights" in d
         assert "reason" in d
         assert "genre_profile" in d
-        assert len(d["weights"]) == 14
+        assert len(d["weights"]) == 15
 
     def test_weights_method_returns_dict(self):
         imp = estimate_goal_importance()
         # SongGoalImportance.weights is a dict attribute
         assert isinstance(imp.weights, dict)
-        assert len(imp.weights) == 14
+        assert len(imp.weights) == 15
 
 
 # ── PMGG weighted regression integration ────────────────────────────
@@ -1115,7 +1115,7 @@ class TestFullFeatureCombinedScenario:
         """
         imp = estimate_goal_importance(
             genre_label="Deutscher Schlager",
-            era_decade=1970,
+            era_decade="1970",
             material_type="vinyl",
             restorability_score=63.5,
             vocal_detected=True,
@@ -1250,11 +1250,12 @@ class TestDataclass:
         with pytest.raises(AttributeError):
             imp.genre_profile = "pop"  # type: ignore[misc]
 
-    def test_14_goals_in_weights(self):
+    def test_15_goals_in_weights(self):
         imp = estimate_goal_importance(genre_label="rock")
-        assert len(imp.weights) == 14
+        assert len(imp.weights) == 15
 
     def test_all_goal_names_tuple(self):
-        assert len(ALL_GOAL_NAMES) == 14
+        assert len(ALL_GOAL_NAMES) == 15
         assert "natuerlichkeit" in ALL_GOAL_NAMES
         assert "spatial_depth" in ALL_GOAL_NAMES
+        assert "transient_energie" in ALL_GOAL_NAMES

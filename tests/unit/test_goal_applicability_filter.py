@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import math
 import threading
+from typing import Any
 
 import numpy as np
 
@@ -26,7 +27,8 @@ RNG = np.random.default_rng(42)
 
 def _sine(freq: float = 440.0, dur: float = 5.0, sr: int = SR) -> np.ndarray:
     t = np.linspace(0, dur, int(dur * sr), endpoint=False)
-    return np.sin(2 * np.pi * freq * t).astype(np.float32)
+    sine: np.ndarray[Any, Any] = np.asarray(np.sin(2 * np.pi * freq * t), dtype=np.float32)
+    return sine
 
 
 def _stereo(dur: float = 5.0) -> np.ndarray:
@@ -45,7 +47,7 @@ def _stereo(dur: float = 5.0) -> np.ndarray:
 
 class TestConstants:
     def test_all_goals_count(self):
-        assert len(ALL_GOALS) == 14
+        assert len(ALL_GOALS) == 15
 
     def test_always_applicable_count(self):
         assert len(ALWAYS_APPLICABLE) == 6
@@ -318,7 +320,8 @@ def _vocal_dominant(dur: float = 5.0, sr: int = SR) -> np.ndarray:
         + 0.30 * np.sin(2 * np.pi * 800 * t)
         + 0.04 * np.sin(2 * np.pi * 90 * t)  # ~1 % bass contribution
     ).astype(np.float32)
-    return audio
+    vocal: np.ndarray[Any, Any] = np.asarray(audio, dtype=np.float32)
+    return vocal
 
 
 def _bass_heavy(dur: float = 5.0, sr: int = SR) -> np.ndarray:
@@ -329,7 +332,8 @@ def _bass_heavy(dur: float = 5.0, sr: int = SR) -> np.ndarray:
         + 0.40 * np.sin(2 * np.pi * 90 * t)  # strong bass
         + 0.30 * np.sin(2 * np.pi * 55 * t)  # sub-bass
     ).astype(np.float32)
-    return audio
+    bass: np.ndarray[Any, Any] = np.asarray(audio, dtype=np.float32)
+    return bass
 
 
 class TestBassKraftApplicability:

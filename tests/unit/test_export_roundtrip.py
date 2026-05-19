@@ -7,6 +7,7 @@ mit definiertem max. Verlust zurückgelesen werden können.
 
 from __future__ import annotations
 
+import importlib.util
 import math
 import pathlib
 import tempfile
@@ -22,12 +23,7 @@ try:
 except ImportError:
     HAS_SOUNDFILE = False
 
-try:
-    pass
-
-    HAS_EXPORTER = True
-except ImportError:
-    HAS_EXPORTER = False
+HAS_EXPORTER = importlib.util.find_spec("backend.core.audio_exporter") is not None
 
 
 np.random.seed(42)

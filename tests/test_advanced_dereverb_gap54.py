@@ -491,8 +491,10 @@ class TestAdvancedDereverb:
             assert diff_mild > 0
             assert diff_aggressive > 0
         else:
-            # If both skip, that's also valid
-            assert True
+            # If both skip or one skips, ensure metrics keys are present and boolean
+            assert isinstance(metrics_mild.get("processed"), bool) and isinstance(
+                metrics_aggressive.get("processed"), bool
+            )
 
     def test_three_stage_pipeline(self):
         """Test that all three stages are applied."""

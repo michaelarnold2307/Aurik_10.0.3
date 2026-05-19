@@ -1,7 +1,7 @@
 """Tests für core/goal_priority_protocol.py — Spec §2.34.
 
 ≥ 25 Unit-Tests: Prioritätsregeln, Konfliktlösung, Iterations-Abbruch,
-Singleton-Thread-Safety, alle 14 Goals abgedeckt.
+Singleton-Thread-Safety, alle 15 Goals abgedeckt.
 """
 
 from __future__ import annotations
@@ -17,7 +17,7 @@ from backend.core.goal_priority_protocol import (
     resolve_goal_conflict,
 )
 
-ALL_14_GOALS = [
+ALL_15_GOALS = [
     "bass_kraft",
     "brillanz",
     "waerme",
@@ -32,10 +32,11 @@ ALL_14_GOALS = [
     "micro_dynamics",
     "separation_fidelity",
     "artikulation",
+    "transient_energie",
 ]
 
 PRIORITY_1 = ["natuerlichkeit", "authentizitaet"]
-PRIORITY_2 = ["tonal_center", "timbre_authentizitaet", "artikulation"]
+PRIORITY_2 = ["tonal_center", "timbre_authentizitaet", "artikulation", "transient_energie"]
 PRIORITY_5 = ["brillanz", "spatial_depth"]
 
 
@@ -49,9 +50,9 @@ def _gpp() -> GoalPriorityProtocol:
 
 
 class TestPriorityMap:
-    def test_all_14_goals_in_map(self):
+    def test_all_15_goals_in_map(self):
         gpp = _gpp()
-        for g in ALL_14_GOALS:
+        for g in ALL_15_GOALS:
             assert g in gpp.PRIORITY_MAP, f"Missing goal: {g}"
 
     def test_priority_levels_range(self):
@@ -176,7 +177,7 @@ class TestResolveConflict:
 
 class TestShouldAbortIteration:
     def _constant(self, value: float = 0.80) -> dict:
-        return dict.fromkeys(ALL_14_GOALS, value)
+        return dict.fromkeys(ALL_15_GOALS, value)
 
     def test_returns_dataclass(self):
         result = check_iteration_abort(self._constant(0.80), self._constant(0.80))
@@ -193,21 +194,21 @@ class TestShouldAbortIteration:
         assert result.should_abort is False
 
     def test_abort_on_level1_regression(self):
-        before = dict.fromkeys(ALL_14_GOALS, 0.8)
+        before = dict.fromkeys(ALL_15_GOALS, 0.8)
         after = dict(before)
         after["natuerlichkeit"] = 0.78  # Regression 0.02 > epsilon 0.012
         result = check_iteration_abort(before, after)
         assert result.should_abort is True
 
     def test_abort_on_priority2_regression(self):
-        before = dict.fromkeys(ALL_14_GOALS, 0.85)
+        before = dict.fromkeys(ALL_15_GOALS, 0.85)
         after = dict(before)
         after["tonal_center"] = 0.83  # Regression 0.02 > epsilon 0.012
         result = check_iteration_abort(before, after)
         assert result.should_abort is True
 
     def test_no_abort_on_level5_only_regression(self):
-        before = dict.fromkeys(ALL_14_GOALS, 0.8)
+        before = dict.fromkeys(ALL_15_GOALS, 0.8)
         after = dict(before)
         after["brillanz"] = 0.75  # level 5 — kein Abbruch
         after["spatial_depth"] = 0.70  # level 5 — kein Abbruch
@@ -215,14 +216,14 @@ class TestShouldAbortIteration:
         assert result.should_abort is False
 
     def test_degraded_goals_listed(self):
-        before = dict.fromkeys(ALL_14_GOALS, 0.8)
+        before = dict.fromkeys(ALL_15_GOALS, 0.8)
         after = dict(before)
         after["natuerlichkeit"] = 0.75
         result = check_iteration_abort(before, after)
         assert "natuerlichkeit" in result.degraded_goals
 
     def test_abort_reason_nonempty(self):
-        before = dict.fromkeys(ALL_14_GOALS, 0.8)
+        before = dict.fromkeys(ALL_15_GOALS, 0.8)
         after = dict(before)
         after["authentizitaet"] = 0.78
         result = check_iteration_abort(before, after)
@@ -231,7 +232,7 @@ class TestShouldAbortIteration:
             assert len(result.reason) > 0
 
     def test_epsilon_boundary_no_abort(self):
-        before = dict.fromkeys(ALL_14_GOALS, 0.8)
+        before = dict.fromkeys(ALL_15_GOALS, 0.8)
         after = dict(before)
         gpp = _gpp()
         # Änderung exakt auf Epsilon-Grenze: sollte KEIN Abbruch sein
@@ -320,7 +321,7 @@ class TestSingleton:
         assert all(i is instances[0] for i in instances)
 
     def test_convenience_wrappers_consistent(self):
-        scores_before = dict.fromkeys(ALL_14_GOALS, 0.8)
+        scores_before = dict.fromkeys(ALL_15_GOALS, 0.8)
         scores_after = dict(scores_before)
         scores_after["brillanz"] = 0.75
 

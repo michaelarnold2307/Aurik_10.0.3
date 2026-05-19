@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Pre-commit hook: verify 14 Musical Goals are configured."""
+"""Pre-commit hook: verify 15 Musical Goals are configured."""
+# pylint: disable=wrong-import-position
 
 import sys
 

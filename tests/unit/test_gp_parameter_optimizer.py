@@ -370,7 +370,7 @@ class TestNoDoubleCounting:
 
 
 def _make_goal_scores(seed: int = 0) -> dict:
-    """Hilfsfunktion: gültige 14 Musical-Goal-Scores erzeugen."""
+    """Hilfsfunktion: gültige 15 Musical-Goal-Scores erzeugen."""
     rng = np.random.default_rng(seed)
     return {obj: float(rng.uniform(0.75, 1.0)) for obj in PARETO_OBJECTIVES}
 
@@ -378,9 +378,9 @@ def _make_goal_scores(seed: int = 0) -> dict:
 class TestParetoObjectives:
     def test_44_pareto_objectives_constant_exists(self):
         assert isinstance(PARETO_OBJECTIVES, list)
-        assert len(PARETO_OBJECTIVES) == 14
+        assert len(PARETO_OBJECTIVES) == 15
 
-    def test_45_pareto_objectives_contains_all_14_goals(self):
+    def test_45_pareto_objectives_contains_all_15_goals(self):
         expected = {
             "brillanz",
             "waerme",
@@ -396,6 +396,7 @@ class TestParetoObjectives:
             "timbre_authentizitaet",
             "separation_fidelity",
             "artikulation",
+            "transient_energie",
         }
         assert set(PARETO_OBJECTIVES) == expected
 
@@ -444,7 +445,7 @@ class TestUpdateWithGoalScores:
 
         memory = _load_memory("tape")
         assert len(memory) >= 1
-        assert len(memory[-1].goal_scores) == 14
+        assert len(memory[-1].goal_scores) == 15
 
     def test_51_update_filters_nan_goal_scores(self, tmp_path, monkeypatch):
         import backend.core.gp_parameter_optimizer as gp_mod

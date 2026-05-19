@@ -43,12 +43,14 @@ Performance: Pure NumPy/SciPy, ≤ 500 ms for 3-minute stereo audio at 48 kHz.
 Author: Aurik Development Team
 Version: 1.0.0
 """
+# pylint: disable=import-outside-toplevel
 
 from __future__ import annotations
 
 import logging
 import threading
 from dataclasses import dataclass, field
+from typing import Any
 
 import numpy as np
 
@@ -81,9 +83,10 @@ class GoosebumpsResult:
     clarity: float  # Noise removal quality ∈ [0.0, 1.0]
     authenticity: float  # Timbral fidelity ∈ [0.0, 1.0]
     artifact_penalty: float  # Detected artifacts ∈ [0.0, 1.0]
-    details: dict[str, float] = field(default_factory=dict)
+    details: dict[str, float | str | bool] = field(default_factory=dict)
 
     def summary(self) -> str:
+        """Gibt eine einzeilige Zusammenfassung aller Gänsehaut-Dimensionen zurück."""
         return (
             f"GoosebumpsScore={self.goosebumps_score:.3f} "
             f"(transient={self.transient_integrity:.3f} "
@@ -101,10 +104,11 @@ def _to_mono(audio: np.ndarray) -> np.ndarray:
     averaging over the axis with fewer elements (= the channels axis).
     """
     if audio.ndim == 1:
-        return audio.astype(np.float64)
+        return np.asarray(audio, dtype=np.float64)
     # Smallest dimension = channels axis (works for stereo where n_samples >> 2)
     ch_axis = int(np.argmin(audio.shape))
-    return np.mean(audio, axis=ch_axis).astype(np.float64)
+    mono: np.ndarray[Any, Any] = np.asarray(np.mean(audio, axis=ch_axis), dtype=np.float64)
+    return mono
 
 
 def _center_crop(audio: np.ndarray, sr: int, max_s: float) -> np.ndarray:
@@ -116,7 +120,7 @@ def _center_crop(audio: np.ndarray, sr: int, max_s: float) -> np.ndarray:
     return audio[start : start + max_samples]
 
 
-def _onset_envelope(audio: np.ndarray, sr: int, hop: int = _ONSET_ENV_HOP) -> np.ndarray:
+def _onset_envelope(audio: np.ndarray, _sr: int, hop: int = _ONSET_ENV_HOP) -> np.ndarray:
     """Berechnet onset strength envelope via spectral flux (half-wave rectified)."""
     n_fft = 2048
     hop_size = hop
@@ -234,9 +238,10 @@ def _measure_micro_dynamics(original: np.ndarray, restored: np.ndarray, sr: int)
     def _rms_profile(audio: np.ndarray) -> np.ndarray:
         n_frames = len(audio) // window_samples
         if n_frames < 2:
-            return np.array([float(np.sqrt(np.mean(audio**2) + 1e-12))])
+            return np.asarray([float(np.sqrt(np.mean(audio**2) + 1e-12))], dtype=np.float64)
         shaped = audio[: n_frames * window_samples].reshape(n_frames, window_samples)
-        return np.sqrt(np.mean(shaped**2, axis=1) + 1e-12)
+        rms_profile: np.ndarray[Any, Any] = np.asarray(np.sqrt(np.mean(shaped**2, axis=1) + 1e-12), dtype=np.float64)
+        return rms_profile
 
     profile_orig = _rms_profile(original)
     profile_rest = _rms_profile(restored)
@@ -616,7 +621,7 @@ def measure_goosebumps(
         original:  Original audio (float64, any shape)
         restored:  Restored audio (float64, same shape)
         sr:        Sample rate
-        musical_goal_scores:  Optional 14 Musical Goals dict to boost precision
+        musical_goal_scores:  Optional 15 Musical Goals dict to boost precision
 
     Returns:
         GoosebumpsResult with all dimension scores and final holistic score
@@ -746,7 +751,7 @@ class GoosebumpsQualityChecker:
 
 def get_goosebumps_checker() -> GoosebumpsQualityChecker:
     """Thread-safe singleton accessor for GoosebumpsQualityChecker."""
-    global _instance
+    global _instance  # pylint: disable=global-statement
     if _instance is None:
         with _lock:
             if _instance is None:

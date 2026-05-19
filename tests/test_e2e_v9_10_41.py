@@ -615,7 +615,7 @@ class TestE2EStudio2026Balanced:
 @pytest.mark.e2e
 @pytest.mark.timeout(600)
 class TestE2EMusicalGoals:
-    """Musical Goals validation — all 14 goals (current spec baseline)."""
+    """Musical Goals validation — all 15 goals (current spec baseline)."""
 
     def test_01_musical_goals_nach_quality_mode(self) -> None:
         """Nach Restaurierung (QUALITY) müssen Musical Goals messbar sein."""
@@ -631,9 +631,9 @@ class TestE2EMusicalGoals:
         scores = checker.measure_all(result.audio, sr=48_000)
 
         assert isinstance(scores, dict), "measure_all muss dict zurückgeben"
-        # Current spec baseline: exactly 14 Musical Goals
-        assert len(scores) == 14, (
-            f"Erwartet 14 Musical Goals (aktueller Spec-Stand), erhalten {len(scores)}: {sorted(scores.keys())}"
+        # Current spec baseline: exactly 15 Musical Goals
+        assert len(scores) == 15, (
+            f"Erwartet 15 Musical Goals (aktueller Spec-Stand), erhalten {len(scores)}: {sorted(scores.keys())}"
         )
 
         for goal, score in scores.items():
@@ -756,6 +756,6 @@ class TestE2ESystemInfo:
             config = RestorationConfig(mode=QualityMode.QUALITY)
             restorer = UnifiedRestorerV3(config=config)
             # Kein Fehler = V3 ist vollständig autonom
-            assert True
+            assert isinstance(restorer, UnifiedRestorerV3)
         except ImportError as e:
             pytest.fail(f"UnifiedRestorerV3 nicht importierbar: {e}")

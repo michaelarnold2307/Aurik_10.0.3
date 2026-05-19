@@ -2,7 +2,7 @@
 """goal_monitor.py — Aurik 9 Musical-Goals-Diagnose-Monitor.
 
 Liest `logs/aurik_backend.log` und zeigt für jeden abgeschlossenen Lauf:
-  • Alle 14 Ziel-Scores mit effektivem Schwellwert, Gap und Pass/Fail
+    • Alle 15 Ziel-Scores mit effektivem Schwellwert, Gap und Pass/Fail
   • Welche Phasen den größten Rückgang pro Ziel verursacht haben (PMGG-Trajektorie)
   • Zusammenfassung: Welche Ziele scheitern systematisch und warum
 
@@ -33,9 +33,9 @@ from pathlib import Path
 
 DEFAULT_LOG = Path(__file__).parent.parent / "logs" / "aurik_backend.log"
 
-# Priority groups per spec §14 Musical Goals
+# Priority groups per spec §15 Musical Goals
 _P1 = {"natuerlichkeit", "authentizitaet"}
-_P2 = {"tonal_center", "timbre_authentizitaet", "artikulation"}
+_P2 = {"tonal_center", "timbre_authentizitaet", "artikulation", "transient_energie"}
 _P3 = {"emotionalitaet", "mikro_dynamik", "groove"}
 _P4 = {"transparenz", "waerme", "bass_kraft", "separation_fidelity"}
 _P5 = {"brillanz", "raumtiefe"}
@@ -62,6 +62,7 @@ def _c(code: str, text: str) -> str:
     return f"\033[{code}m{text}\033[0m"
 
 
+# pylint: disable=unnecessary-lambda-assignment
 RED = lambda t: _c("31", t)
 GRN = lambda t: _c("32", t)
 YLW = lambda t: _c("33", t)
@@ -69,6 +70,7 @@ BLD = lambda t: _c("1", t)
 DIM = lambda t: _c("2", t)
 CYN = lambda t: _c("36", t)
 MGN = lambda t: _c("35", t)
+# pylint: enable=unnecessary-lambda-assignment
 
 # ---------------------------------------------------------------------------
 # Data structures
@@ -77,6 +79,8 @@ MGN = lambda t: _c("35", t)
 
 @dataclass
 class GoalEntry:
+    """Score-Eintrag eines Musical Goals für einen Restaurierungs-Lauf."""
+
     score: float = 0.0
     threshold: float = 0.85
     gap: float = 0.0
@@ -86,6 +90,8 @@ class GoalEntry:
 
 @dataclass
 class PhaseRegression:
+    """Größter Einzelphasen-Rückgang eines Musical Goals."""
+
     phase_id: str = ""
     goal: str = ""
     delta: float = 0.0
@@ -93,6 +99,8 @@ class PhaseRegression:
 
 @dataclass
 class CigRollback:
+    """CIG-Rollback-Ereignis aus der Pipeline."""
+
     phase_id: str = ""
     trigger_goal: str = ""
     drift: float = 0.0
@@ -102,6 +110,8 @@ class CigRollback:
 
 @dataclass
 class MlFallback:
+    """ML-Modell-Fallback-Ereignis aus der Pipeline."""
+
     phase: str = ""
     model: str = ""
     reason: str = ""
@@ -110,6 +120,8 @@ class MlFallback:
 
 @dataclass
 class PhaseExec:
+    """Ausführungsparameter einer Phase aus der Pipeline."""
+
     phase_id: str = ""
     strength: str = "None"
     explicit: bool = False
@@ -120,6 +132,8 @@ class PhaseExec:
 
 @dataclass
 class HpiComponents:
+    """HPI-Komponentenwerte aus dem Holistic Perceptual Gate."""
+
     mode: str = ""
     hpi: float = 0.0
     passed: bool = False
@@ -131,6 +145,8 @@ class HpiComponents:
 
 @dataclass
 class RunReport:
+    """Vollständiger Bericht eines Restaurierungs-Laufs."""
+
     timestamp: str
     material: str
     mode: str
@@ -150,9 +166,11 @@ class RunReport:
     hpi: HpiComponents | None = None
 
     def violated_goals(self) -> list[str]:
+        """Gibt alle nicht erfüllten und anwendbaren Ziel-Namen zurück."""
         return [g for g, e in self.goals.items() if not e.passed and e.applicable]
 
     def passed_goals(self) -> list[str]:
+        """Gibt alle erfüllten und anwendbaren Ziel-Namen zurück."""
         return [g for g, e in self.goals.items() if e.passed and e.applicable]
 
 
@@ -168,8 +186,8 @@ _TS_PAT = r"(?P<ts>\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d+)"
 _TS_OPT = r"(?:" + _TS_PAT + r".*?)?"  # optional timestamp prefix
 
 _RE_SCORECARD = re.compile(
-    _TS_OPT
-    + r"GOAL_SCORECARD mat=(?P<mat>\S+) mode=(?P<mode>\S+) excellence=(?P<exc>[\d.]+) violations=(?P<viol>\d+)\|(?P<goals>.+)"
+    _TS_OPT + r"GOAL_SCORECARD mat=(?P<mat>\S+) mode=(?P<mode>\S+)"
+    r" excellence=(?P<exc>[\d.]+) violations=(?P<viol>\d+)\|(?P<goals>.+)"
 )
 _RE_GOAL_FIELD = re.compile(r"(\w+):score=([\d.]+),thr=([\d.]+),gap=([+-][\d.]+),pass=([01]),app=([01])")
 
@@ -204,8 +222,8 @@ _RE_PHASE_EXEC = re.compile(
 # HPI_COMP line (UV3 extended):
 # 🎯 HPI_COMP mode=Restoration hpi=0.3421 passed=0 timbral=0.512 mert=0.891 artifact=0.987 emotional=0.743
 _RE_HPI_COMP = re.compile(
-    _TS_OPT
-    + r"🎯 HPI_COMP mode=(\S+) hpi=([\d.]+) passed=([01]) timbral=([\d.]+) mert=([\d.]+) artifact=([\d.]+) emotional=([\d.]+)"
+    _TS_OPT + r"🎯 HPI_COMP mode=(\S+) hpi=([\d.]+) passed=([01])"
+    r" timbral=([\d.]+) mert=([\d.]+) artifact=([\d.]+) emotional=([\d.]+)"
 )
 
 
@@ -398,6 +416,7 @@ _GOAL_ORDER = [
     "tonal_center",
     "timbre_authentizitaet",
     "artikulation",
+    "transient_energie",
     "emotionalitaet",
     "mikro_dynamik",
     "groove",
@@ -424,7 +443,7 @@ def _goal_row(goal: str, entry: GoalEntry) -> str:
 
 
 def _phase_trajectory_table(goal: str, entries: list[tuple]) -> list[str]:
-    lines = []
+    lines: list[str] = []
     if not entries:
         return lines
     lines.append(f"    {DIM('Phase trajectory for')} {CYN(goal)}:")
@@ -436,6 +455,7 @@ def _phase_trajectory_table(goal: str, entries: list[tuple]) -> list[str]:
 
 
 def print_run(report: RunReport, show_trajectories: bool = False, filter_goal: str | None = None) -> None:
+    """Gibt einen formatierten Bericht eines Restaurierungs-Laufs auf der Konsole aus."""
     n_passed = len(report.passed_goals())
     n_total = sum(1 for e in report.goals.values() if e.applicable)
     header = (
@@ -485,7 +505,8 @@ def print_run(report: RunReport, show_trajectories: bool = False, filter_goal: s
             wr = report.worst_regression.get(goal)
             worst_str = f"  ← worst phase: {YLW(wr.phase_id)} Δ={RED(f'{wr.delta:+.4f}')}" if wr else ""
             print(
-                f"    {prio:2s}  {goal:<25s}  gap={gap_str}  score={entry.score:.4f}  thr={entry.threshold:.4f}{worst_str}"
+                f"    {prio:2s}  {goal:<25s}  gap={gap_str}"
+                f"  score={entry.score:.4f}  thr={entry.threshold:.4f}{worst_str}"
             )
 
     # Phase impact ranking: which phases caused the most cumulative regression?
@@ -561,6 +582,7 @@ def print_run(report: RunReport, show_trajectories: bool = False, filter_goal: s
 
 
 def runs_to_json(runs: list[RunReport]) -> dict:
+    """Serialisiert eine Liste von Lauf-Berichten als JSON-kompatibles Dict."""
     out = []
     for r in runs:
         goals_dict = {}
@@ -594,6 +616,7 @@ def runs_to_json(runs: list[RunReport]) -> dict:
 
 
 def main() -> None:
+    """Einstiegspunkt des CLI-Diagnose-Monitors."""
     parser = argparse.ArgumentParser(
         description="Aurik 9 Musical-Goals-Diagnose-Monitor",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -691,16 +714,16 @@ def _print_cross_run_summary(runs: list[RunReport], filter_goal: str | None) -> 
     for goal, count in ranked:
         prio = _PRIORITY.get(goal, "  ")
         avg_gap = gap_sum[goal] / len(runs)
-        bar = RED("█" * count) + DIM("░" * (len(runs) - count))
+        progress_bar = RED("█" * count) + DIM("░" * (len(runs) - count))
         print(
             f"  {prio:2s}  {goal:<25s}  fail={RED(str(count))}/{len(runs)}  "
-            f"avgGap={RED(f'{avg_gap:+.4f}') if avg_gap < 0 else GRN(f'{avg_gap:+.4f}')}  [{bar}]"
+            f"avgGap={RED(f'{avg_gap:+.4f}') if avg_gap < 0 else GRN(f'{avg_gap:+.4f}')}  [{progress_bar}]"
         )
 
 
 def _watch_mode(log_path: Path, args: argparse.Namespace) -> None:
     """Tail the log file and print new GOAL_SCORECARD entries as they appear."""
-    import time
+    import time  # pylint: disable=import-outside-toplevel
 
     print(f"{BLD('Aurik 9 — Goal Monitor LIVE')}  {DIM(f'(watching {log_path.name})')}")
     print(DIM("Warte auf neuen Lauf... (Ctrl+C zum Beenden)"))

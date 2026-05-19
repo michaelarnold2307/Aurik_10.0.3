@@ -212,7 +212,7 @@ class TestObjectiveScorer:
         test_score = ObjectiveScore(
             cdpam_score=0.2,  # Good (niedrig) — CDPAM als Musik-Wahrnehmungsmetrik (§4.4)
             dnsmos_score=0.0,  # §10.2: DNSMOS VERBOTEN für Musik — kein Beitrag zum Composite
-            musical_goals_avg=0.8,  # Good (hoch) — 14 Musical Goals (§1.2)
+            musical_goals_avg=0.8,  # Good (hoch) — 15 Musical Goals (§1.2)
             snr_db=30.0,  # Good (hoch)
             thd_percent=0.5,  # Good (niedrig)
         )

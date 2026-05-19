@@ -14,6 +14,7 @@ Aurik 9.0 Compliance:
 - Following Aurik 9.0 testing best practices
 """
 
+import importlib.util
 from pathlib import Path
 from unittest.mock import MagicMock, Mock, patch
 
@@ -21,11 +22,8 @@ import numpy as np
 import pytest
 
 # Check if onnxruntime is available
-try:
-    pass
-
-    ONNX_AVAILABLE = True
-except ImportError:
+ONNX_AVAILABLE = importlib.util.find_spec("onnxruntime") is not None
+if not ONNX_AVAILABLE:
     ONNX_AVAILABLE = False
     pytest.skip("onnxruntime not installed", allow_module_level=True)
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Golden Case Audit: Musikalische Ziele bei echtem Gesang.
 
-Testet: Werden alle 14 musikalischen Ziele bei einer Restaurierung
+Testet: Werden alle 15 musikalischen Ziele bei einer Restaurierung
 mit echter Musik + Gesang auf ihre Schwellwerte erreicht?
 
 Testdatei: test_audio/vocals/opera_sibilance.wav (Opernsänger mit Sibilanz-Artefakt)
@@ -72,7 +72,7 @@ def run_audit():
     print("   ✓ Restoration complete")
 
     # Measure Musical Goals
-    print("\n📊 Measuring 14 Musical Goals...")
+    print("\n📊 Measuring 15 Musical Goals...")
     checker = MusicalGoalsChecker()
     # Measure at the restoration output sample rate to avoid metric distortion.
     out_sr = int(_meta_get(result.metadata, "sample_rate", "output", default=sr) or sr)

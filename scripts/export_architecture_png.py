@@ -3,11 +3,17 @@ Aurik 9.x.x — Systemarchitektur-Übersicht als hochauflösende PNG.
 Ausgabe: docs/aurik_architecture.png  (300 dpi, 7680×4320 px bei 25.6"×14.4")
 """
 
+import pathlib
+
 import matplotlib
 
 matplotlib.use("Agg")
-import matplotlib.pyplot as plt
-from matplotlib.patches import FancyBboxPatch
+import matplotlib.pyplot as plt  # pylint: disable=wrong-import-position
+from matplotlib.patches import FancyBboxPatch  # pylint: disable=wrong-import-position
+
+# Standalone rendering script; helper signatures intentionally use short drawing names.
+# pylint: disable=redefined-outer-name
+# pylint: disable=too-many-positional-arguments
 
 # ---------------------------------------------------------------------------
 # Layout-Konstanten
@@ -40,12 +46,14 @@ COLORS = {
 
 
 def rgba(hex_str, alpha=1.0):
+    """Wandelt einen Hex-Farbstring in ein RGBA-Tupel um."""
     h = hex_str.lstrip("#")
     r, g, b = (int(h[i : i + 2], 16) / 255 for i in (0, 2, 4))
     return (r, g, b, alpha)
 
 
 def draw_box(ax, x, y, w, h, label, sublabel="", color_key="fe", fontsize=7.5, corner_radius=0.012, alpha_bg=0.88):
+    """Zeichnet eine abgerundete Box mit optionalem Unter-Label auf die Achse."""
     fc, ec = COLORS[color_key]
     fancy = FancyBboxPatch(
         (x, y),
@@ -102,7 +110,8 @@ def draw_box(ax, x, y, w, h, label, sublabel="", color_key="fe", fontsize=7.5, c
 
 
 def draw_section_label(ax, x, y, w, h, label, color_key="fe", fontsize=8):
-    fc, ec = COLORS[color_key]
+    """Zeichnet einen farbigen Header-Streifen mit Beschriftung für einen Abschnitt."""
+    _fc, ec = COLORS[color_key]
     # Header-Streifen
     header = FancyBboxPatch(
         (x, y + h - 0.022),
@@ -130,6 +139,7 @@ def draw_section_label(ax, x, y, w, h, label, color_key="fe", fontsize=8):
 
 
 def draw_section(ax, x, y, w, h, label, color_key="fe"):
+    """Zeichnet einen Abschnitts-Rahmen mit Hintergrund und Header-Label."""
     fc, ec = COLORS[color_key]
     bg = FancyBboxPatch(
         (x, y),
@@ -146,6 +156,7 @@ def draw_section(ax, x, y, w, h, label, color_key="fe"):
 
 
 def arrow(ax, x0, y0, x1, y1, color="#64748b", lw=0.7, style="->"):
+    """Zeichnet einen geraden Pfeil zwischen zwei Koordinaten."""
     ax.annotate(
         "",
         xy=(x1, y1),
@@ -161,6 +172,7 @@ def arrow(ax, x0, y0, x1, y1, color="#64748b", lw=0.7, style="->"):
 
 
 def curved_arrow(ax, x0, y0, x1, y1, color="#64748b", lw=0.6, rad=0.2):
+    """Zeichnet einen gebogenen Pfeil zwischen zwei Koordinaten."""
     ax.annotate(
         "",
         xy=(x1, y1),
@@ -203,7 +215,7 @@ ax.text(
 ax.text(
     0.5,
     0.960,
-    "Desktop Audio-Restaurierung · Psychoakustische DSP + ML · 14 Musical Goals · 56 Phasen",
+    "Desktop Audio-Restaurierung · Psychoakustische DSP + ML · 15 Musical Goals · 56 Phasen",
     ha="center",
     va="top",
     fontsize=8,
@@ -807,8 +819,6 @@ ax.text(
 
 
 # ==================== SPEICHERN ====================
-import pathlib
-
 out_path = pathlib.Path("/media/michael/Software 4TB/Aurik_Standalone/docs/aurik_architecture.png")
 out_path.parent.mkdir(parents=True, exist_ok=True)
 

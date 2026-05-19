@@ -388,11 +388,11 @@ class TestMusicalGoalsChecker:
     def test_measure_all_returns_all_goals(
         self, checker: MusicalGoalsChecker, test_audio: tuple[NDArray[floating[Any]], Literal[48000]]
     ):
-        """Test that measure_all returns all 14 goals (current spec baseline)."""
+        """Test that measure_all returns all 15 goals (current spec baseline)."""
         audio, sr = test_audio
         scores = checker.measure_all(audio, sr)
 
-        # 14 Musical Goals gemäß Spec §1.2 / §8.1 — deutsche Schlüssel
+        # 15 Musical Goals gemäß Spec §1.2 / §8.1 — deutsche Schlüssel
         expected_goals = {
             "bass_kraft",
             "brillanz",

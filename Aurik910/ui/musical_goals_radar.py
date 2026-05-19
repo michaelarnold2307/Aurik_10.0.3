@@ -1,30 +1,82 @@
 """
 Musical Goals Bar Chart Widget für Aurik 9
-Zeigt alle 14 musikalischen Qualitätsziele als lesbares Balkendiagramm.
+Zeigt alle 15 musikalischen Qualitätsziele als lesbares Balkendiagramm.
 
 Rein PyQt5-basiert (kein Matplotlib) — CPU-leicht, sofort responsiv.
 Vollständig laienfreundlich: Deutsche Labels, Farb-Kodierung, Prozentwerte, Tooltips.
 """
+# pylint: disable=c-extension-no-member
 
 from __future__ import annotations
 
+import copy
 from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any
 
-from PyQt5.QtCore import QPointF, QRectF, QSize, Qt, QTimer
-from PyQt5.QtGui import (
-    QBrush,
-    QColor,
-    QFont,
-    QMouseEvent,
-    QPainter,
-    QPaintEvent,
-    QPen,
-    QPolygonF,
-)
-from PyQt5.QtWidgets import QSizePolicy, QToolTip, QWidget
+if TYPE_CHECKING:
+    # isort: skip
+    # Type-only imports for static analysis
+    from PyQt5.QtCore import QPointF, QRectF, QSize, Qt, QTimer  # type: ignore
+    from PyQt5.QtGui import (
+        QBrush,
+        QColor,
+        QFont,
+        QMouseEvent,
+        QPainter,
+        QPaintEvent,
+        QPen,
+        QPolygonF,
+    )  # type: ignore
+    from PyQt5.QtWidgets import QScrollArea, QSizePolicy, QToolTip, QWidget  # type: ignore
+else:  # pyright: ignore[reportUnreachable]
+    try:
+        from PyQt5 import QtCore as _QtCore
+        from PyQt5 import QtGui as _QtGui
+        from PyQt5 import QtWidgets as _QtWidgets
+
+        QPointF = _QtCore.QPointF
+        QRectF = _QtCore.QRectF
+        QSize = _QtCore.QSize
+        Qt = _QtCore.Qt
+        QTimer = _QtCore.QTimer
+
+        QBrush = _QtGui.QBrush
+        QColor = _QtGui.QColor
+        QFont = _QtGui.QFont
+        QMouseEvent = _QtGui.QMouseEvent
+        QPainter = _QtGui.QPainter
+        QPaintEvent = _QtGui.QPaintEvent
+        QPen = _QtGui.QPen
+        QPolygonF = _QtGui.QPolygonF
+
+        QSizePolicy = _QtWidgets.QSizePolicy
+        QToolTip = _QtWidgets.QToolTip
+        QWidget = _QtWidgets.QWidget
+        QScrollArea = _QtWidgets.QScrollArea
+    except Exception:
+        # Fall back to Any so static type-checkers stop emitting assignment/type errors
+        QPointF = Any
+        QRectF = Any
+        QSize = Any
+        Qt = Any
+        QTimer = Any
+
+        QBrush = Any
+        QColor = Any
+        QFont = Any
+        QMouseEvent = Any
+        QPainter = Any
+        QPaintEvent = Any
+        QPen = Any
+        QPolygonF = Any
+
+        QSizePolicy = Any
+        QToolTip = Any
+        QWidget = Any
+        QScrollArea = Any
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Datmodell: Die 14 Musical Goals
+# Datmodell: Die 15 Musical Goals
 # ─────────────────────────────────────────────────────────────────────────────
 
 
@@ -59,6 +111,7 @@ DEFAULT_GOALS: list[GoalEntry] = [
     GoalEntry("micro_dynamics", "Fein-Dynamik", 0.92),
     GoalEntry("separation_fidelity", "Trennschärfe", 0.82),
     GoalEntry("artikulation", "Artikulation", 0.85),
+    GoalEntry("transient_energie", "Transienten-Energie", 0.88),
 ]
 
 # Farb-Konstanten
@@ -86,7 +139,7 @@ _BAR_BG_NA = QColor(60, 70, 90, 60)
 
 class MusicalGoalsRadarWidget(QWidget):
     """
-    Horizontales Balkendiagramm für die 14 Musical Goals.
+    Horizontales Balkendiagramm für die 15 Musical Goals.
 
     Zeigt pro Ziel:
     - Vollständiger deutscher Name
@@ -116,198 +169,16 @@ class MusicalGoalsRadarWidget(QWidget):
         self.setMouseTracking(True)
         self.setAttribute(Qt.WA_OpaquePaintEvent, False)
 
-        import copy
-
         self._goals: list[GoalEntry] = copy.deepcopy(DEFAULT_GOALS)
         self._hovered_idx: int = -1
         self._has_data: bool = False  # False = vor erster Restaurierung
 
         # Animation
-        self._anim_scores: dict[str, float] = {g.key: 0.0 for g in DEFAULT_GOALS}
-        self._target_scores: dict[str, float] = {g.key: 0.0 for g in DEFAULT_GOALS}
-        self._anim_timer: QTimer | None = None
-        self._anim_step: int = 0
-        self._ANIM_STEPS: int = 28  # 28 × 20 ms ≈ 560 ms
-
-    # ──────────────────────────── Public API ──────────────────────────────
-
-    def update_scores(
-        self,
-        scores: dict[str, float],
-        adaptive_thresholds: dict[str, float] | None = None,
-        applicable_goals: set[str] | None = None,
-        inapplicable_reasons: dict[str, str] | None = None,
-        synthesized_goals: set[str] | None = None,
-        adaptation_reasons: dict[str, str] | None = None,
-    ) -> None:
-        """Aktualisiert alle Score-Werte und löst ein Neuzeichnen aus."""
-        adaptive_thresholds = adaptive_thresholds or {}
-        applicable = applicable_goals
-        inapplicable_reasons = inapplicable_reasons or {}
-        synthesized = synthesized_goals or set()
-        adapt_reasons = adaptation_reasons or {}
-
-        has_any = any(v > 0.001 for v in scores.values())
-        self._has_data = has_any
-
-        for g in self._goals:
-            g.applicable = (applicable is None) or (g.key in applicable)
-            g.inapplicable_reason = inapplicable_reasons.get(g.key, "")
-            g.synthesized = g.key in synthesized
-            g.adaptive_threshold = float(adaptive_thresholds[g.key]) if g.key in adaptive_thresholds else -1.0
-            g.adaptation_reason = adapt_reasons.get(g.key, "")
-            self._target_scores[g.key] = float(scores.get(g.key, 0.0))
-            self._anim_scores[g.key] = g.score
-
-        self._anim_step = 0
-        if self._anim_timer is not None:
-            self._anim_timer.stop()
-        self._anim_timer = QTimer(self)
-        self._anim_timer.timeout.connect(self._anim_tick)
-        self._anim_timer.start(20)
-
-    def _anim_tick(self) -> None:
-        """EaseOutCubic animation step."""
-        self._anim_step += 1
-        t_norm = self._anim_step / self._ANIM_STEPS
-        eased = 1.0 - (1.0 - min(t_norm, 1.0)) ** 3
-        done = self._anim_step >= self._ANIM_STEPS
-        for g in self._goals:
-            start = self._anim_scores[g.key]
-            target = self._target_scores[g.key]
-            g.score = target if done else start + (target - start) * eased
-        if done:
-            if self._anim_timer is not None:
-                self._anim_timer.stop()
-            self._anim_timer = None
-        self.update()
-
-    def reset(self) -> None:
-        """Setzt alle Scores zurück (vor erster Restaurierung)."""
-        import copy
-
-        self._goals = copy.deepcopy(DEFAULT_GOALS)
-        self._has_data = False
-        self.update()
-
-    # ──────────────────────────── Vektor-Icons ────────────────────────────
-
-    @staticmethod
-    def _draw_icon(painter: QPainter, cx: float, cy: float, r: float, kind: str, color: QColor) -> None:
-        """Draw a crisp vector status icon centered at (cx, cy) with radius r.
-
-        kind: 'pass' | 'warn' | 'fail' | 'na' | 'synth'
-        """
-        painter.save()
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-
-        if kind == "pass":
-            # Filled circle + white checkmark
-            bg = QColor(color)
-            bg.setAlpha(210)
-            painter.setBrush(QBrush(bg))
-            painter.setPen(Qt.PenStyle.NoPen)
-            painter.drawEllipse(QPointF(cx, cy), r, r)
-            pen = QPen(QColor(255, 255, 255, 240), max(1.2, r * 0.3))
-            pen.setCapStyle(Qt.PenCapStyle.RoundCap)
-            pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
-            painter.setPen(pen)
-            painter.setBrush(Qt.BrushStyle.NoBrush)
-            # Checkmark path  ✓
-            painter.drawLine(
-                QPointF(cx - r * 0.38, cy + r * 0.05),
-                QPointF(cx - r * 0.08, cy + r * 0.38),
-            )
-            painter.drawLine(
-                QPointF(cx - r * 0.08, cy + r * 0.38),
-                QPointF(cx + r * 0.42, cy - r * 0.32),
-            )
-
-        elif kind == "warn":
-            # Filled rounded triangle + white exclamation mark
-            bg = QColor(color)
-            bg.setAlpha(210)
-            tri = QPolygonF(
-                [
-                    QPointF(cx, cy - r * 0.92),
-                    QPointF(cx - r * 0.88, cy + r * 0.62),
-                    QPointF(cx + r * 0.88, cy + r * 0.62),
-                ]
-            )
-            painter.setBrush(QBrush(bg))
-            painter.setPen(Qt.PenStyle.NoPen)
-            painter.drawPolygon(tri)
-            pen = QPen(QColor(255, 255, 255, 240), max(1.2, r * 0.28))
-            pen.setCapStyle(Qt.PenCapStyle.RoundCap)
-            painter.setPen(pen)
-            painter.drawLine(
-                QPointF(cx, cy - r * 0.28),
-                QPointF(cx, cy + r * 0.12),
-            )
-            painter.drawPoint(QPointF(cx, cy + r * 0.35))
-
-        elif kind == "fail":
-            # Filled circle + white X
-            bg = QColor(color)
-            bg.setAlpha(210)
-            painter.setBrush(QBrush(bg))
-            painter.setPen(Qt.PenStyle.NoPen)
-            painter.drawEllipse(QPointF(cx, cy), r, r)
-            pen = QPen(QColor(255, 255, 255, 240), max(1.2, r * 0.3))
-            pen.setCapStyle(Qt.PenCapStyle.RoundCap)
-            painter.setPen(pen)
-            d = r * 0.35
-            painter.drawLine(QPointF(cx - d, cy - d), QPointF(cx + d, cy + d))
-            painter.drawLine(QPointF(cx + d, cy - d), QPointF(cx - d, cy + d))
-
-        elif kind == "synth":
-            # Diamond shape (rotated square) with inner glow
-            bg = QColor(color)
-            bg.setAlpha(200)
-            diamond = QPolygonF(
-                [
-                    QPointF(cx, cy - r),
-                    QPointF(cx + r * 0.72, cy),
-                    QPointF(cx, cy + r),
-                    QPointF(cx - r * 0.72, cy),
-                ]
-            )
-            painter.setBrush(QBrush(bg))
-            painter.setPen(Qt.PenStyle.NoPen)
-            painter.drawPolygon(diamond)
-            # Inner star dot
-            painter.setBrush(QBrush(QColor(255, 255, 255, 200)))
-            painter.drawEllipse(QPointF(cx, cy), r * 0.22, r * 0.22)
-
-        else:  # na / default — grey circle with horizontal dash
-            bg = QColor(color)
-            bg.setAlpha(120)
-            painter.setBrush(QBrush(bg))
-            painter.setPen(Qt.PenStyle.NoPen)
-            painter.drawEllipse(QPointF(cx, cy), r, r)
-            pen = QPen(QColor(255, 255, 255, 180), max(1.0, r * 0.28))
-            pen.setCapStyle(Qt.PenCapStyle.RoundCap)
-            painter.setPen(pen)
-            painter.drawLine(QPointF(cx - r * 0.4, cy), QPointF(cx + r * 0.4, cy))
-
-        painter.restore()
-
-    # ──────────────────────────── Geometrie ───────────────────────────────
-
-    def _row_y(self, idx: int) -> float:
-        """Y-Koordinate der Oberkante von Zeile idx."""
-        return self._PAD_TOP + idx * (self._ROW_H + self._ROW_GAP)
-
-    def _bar_rect(self, idx: int) -> QRectF:
-        """Rechteck für den Balkenbereich (Hintergrund) von Zeile idx."""
-        x = self._PAD_X + self._ICON_W + self._LABEL_W + 4
-        bar_w = self.width() - x - self._SCORE_W - self._PAD_X
-        y = self._row_y(idx) + 2
-        return QRectF(x, y, max(bar_w, 40), self._ROW_H - 4)
-
-    # ──────────────────────────── Zeichnen ───────────────────────────────
+        # inner imports were consolidated to module top to satisfy linters
 
     def paintEvent(self, event: QPaintEvent) -> None:
+        """Zeichnet das Balkendiagramm oder den Platzhaltertext."""
+        _ = event
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
         p.setRenderHint(QPainter.RenderHint.TextAntialiasing)
@@ -352,7 +223,7 @@ class MusicalGoalsRadarWidget(QWidget):
         painter.drawText(
             QRectF(10, h / 2 + 10, w - 20, 36),
             Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignTop,
-            "Nach der Restaurierung werden hier\nalle 14 Klangziele bewertet.",
+            "Nach der Restaurierung werden hier\nalle 15 Klangziele bewertet.",
         )
 
         # Goal-Namen als gedimmte Vorschau
@@ -417,7 +288,7 @@ class MusicalGoalsRadarWidget(QWidget):
         painter.drawLine(QPointF(self._PAD_X, self._PAD_TOP - 4), QPointF(w - self._PAD_X, self._PAD_TOP - 4))
 
     def _draw_bars(self, painter: QPainter) -> None:
-        """Zeichnet alle 14 Goal-Balken."""
+        """Zeichnet alle 15 Goal-Balken."""
         font_label = QFont(self.font().family(), 6, QFont.Weight.Bold)
         font_score = QFont(self.font().family(), 6)
 
@@ -540,6 +411,7 @@ class MusicalGoalsRadarWidget(QWidget):
     # ──────────────────────────── Tooltip / Hover ─────────────────────────
 
     def mouseMoveEvent(self, event: QMouseEvent) -> None:
+        """Aktualisiert den Hover-Index und zeigt den Tooltip für das ausgewählte Goal."""
         if not self._has_data:
             super().mouseMoveEvent(event)
             return
@@ -564,6 +436,7 @@ class MusicalGoalsRadarWidget(QWidget):
         super().mouseMoveEvent(event)
 
     def leaveEvent(self, event) -> None:
+        """Setzt den Hover-Index zurück wenn die Maus das Widget verlässt."""
         self._hovered_idx = -1
         self.update()
         super().leaveEvent(event)
@@ -587,6 +460,7 @@ class MusicalGoalsRadarWidget(QWidget):
             "micro_dynamics": "Lautstärke-Feinstruktur — Atemzüge, Pianissimo-Stellen.",
             "separation_fidelity": "Stimme und Instrumente bleiben getrennt (kein Matsch).",
             "artikulation": "Ansätze, Transienten und Konsonanten bleiben scharf.",
+            "transient_energie": "Attack und Einschwingenergie bleiben erhalten.",
         }
         lines: list[str] = [f"<b>{g.label}</b>"]
         if _desc := _DESCRIPTIONS.get(g.key, ""):
@@ -628,12 +502,57 @@ class MusicalGoalsRadarWidget(QWidget):
         return "".join(lines)
 
     def sizeHint(self) -> QSize:
+        """Gibt die bevorzugte Widget-Größe basierend auf der Zeilenzahl zurück."""
         total_h = self._PAD_TOP + len(DEFAULT_GOALS) * (self._ROW_H + self._ROW_GAP) + self._PAD_BOT
         return QSize(300, total_h)
 
     def minimumSizeHint(self) -> QSize:
+        """Gibt die minimale Widget-Größe zurück."""
         total_h = self._PAD_TOP + len(DEFAULT_GOALS) * (self._ROW_H + self._ROW_GAP) + self._PAD_BOT
         return QSize(220, total_h)
+
+    def update_scores(
+        self,
+        scores: dict[str, float] | None = None,
+        adaptive_thresholds: dict[str, float] | None = None,
+        applicable_goals: set[str] | None = None,
+        inapplicable_reasons: dict[str, str] | None = None,
+        synthesized_goals: set[str] | None = None,
+        adaptation_reasons: dict[str, str] | None = None,
+    ) -> None:
+        """Aktualisiert die internen Goal-Entries und triggert ein Repaint.
+
+        Diese Methode wird von `apply_restoration_result` verwendet. Felder
+        werden nur gesetzt, wenn sie im übergebenen Dict vorhanden sind (graceful).
+        """
+        scores = scores or {}
+        adaptive_thresholds = adaptive_thresholds or {}
+        inapplicable_reasons = inapplicable_reasons or {}
+        adaptation_reasons = adaptation_reasons or {}
+        synthesized_goals = synthesized_goals or set()
+
+        key_to_goal = {g.key: g for g in self._goals}
+        for key, goal in key_to_goal.items():
+            if key in scores:
+                # clamp to [0,1]
+                goal.score = float(max(0.0, min(1.0, float(scores[key]))))
+            if key in adaptive_thresholds:
+                goal.adaptive_threshold = float(adaptive_thresholds[key])
+            if applicable_goals is not None:
+                goal.applicable = key in applicable_goals
+            if key in inapplicable_reasons:
+                goal.inapplicable_reason = inapplicable_reasons.get(key, "") or ""
+            goal.synthesized = key in synthesized_goals
+            if key in adaptation_reasons:
+                goal.adaptation_reason = adaptation_reasons.get(key, "") or ""
+
+        # Update anim state immediately (no animation smoothing here)
+        for k, v in scores.items():
+            if k in self._anim_scores:
+                self._anim_scores[k] = float(max(0.0, min(1.0, float(v))))
+
+        self._has_data = True
+        self.update()
 
 
 def apply_restoration_result(
@@ -686,6 +605,27 @@ def apply_restoration_result(
         if hasattr(at, "adaptations"):
             adapt_reasons = at.adaptations or {}
 
+    # Merge common MUSHRA-style fields if present (graceful support)
+    possible_mushra_fields = [
+        "mushra",
+        "mushra_scores",
+        "per_goal_mushra",
+        "musical_goals_mushra",
+    ]
+    for f in possible_mushra_fields:
+        if hasattr(result, f) and getattr(result, f):
+            ms = getattr(result, f)
+            if isinstance(ms, dict):
+                # Convert percent-like values (>1) to [0,1]
+                for k, v in ms.items():
+                    try:
+                        val = float(v)
+                    except Exception:
+                        continue
+                    if val > 1.0:
+                        val = max(0.0, min(100.0, val)) / 100.0
+                    scores[k] = val
+
     widget.update_scores(
         scores=scores,
         adaptive_thresholds=adaptive if adaptive else None,
@@ -694,3 +634,18 @@ def apply_restoration_result(
         synthesized_goals=synthesized if synthesized else None,
         adaptation_reasons=adapt_reasons if adapt_reasons else None,
     )
+
+
+def create_musical_goals_radar_scrollarea(parent: QWidget | None = None) -> QScrollArea:
+    """Hilfsfunktion: Wrappt ein `MusicalGoalsRadarWidget` in eine `QScrollArea`.
+
+    Verwenden wenn das Widget in begrenzten Fensterbereichen platziert wird und
+    vertikal gescrollt werden soll (z.B. bei kleinen Dialogen). Minimal-invasiv
+    — erzeugt kein neues Layout, gibt nur das ScrollArea-Objekt zurück.
+    """
+    area = QScrollArea(parent)
+    widget = MusicalGoalsRadarWidget(parent=area)
+    widget.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+    area.setWidget(widget)
+    area.setWidgetResizable(True)
+    return area

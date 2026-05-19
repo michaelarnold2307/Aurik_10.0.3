@@ -288,10 +288,10 @@ def test_post_check_mode_specific_thresholds(quality_gate, sample_audio):
     audio, sr = sample_audio
 
     # STUDIO_2026 hat höhere Schwellenwerte als RESTORATION
-    quality_gate.post_check(audio, audio, sr, ProcessingMode.STUDIO_2026)
-    quality_gate.post_check(audio, audio, sr, ProcessingMode.RESTORATION)
-    # Beide Modi validieren mit ihren jeweiligen Schwellenwerten
-    assert True
+    r1 = quality_gate.post_check(audio, audio, sr, ProcessingMode.STUDIO_2026)
+    r2 = quality_gate.post_check(audio, audio, sr, ProcessingMode.RESTORATION)
+    # Beide Modi sollten ein Ergebnis liefern (oder kontrolliert None)
+    assert r1 is not None and r2 is not None
 
 
 def test_post_check_with_baseline_scores(quality_gate, sample_audio):

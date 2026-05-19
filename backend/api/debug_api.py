@@ -10,6 +10,7 @@ Usage:
     print(format_full_report(result))
     summary = get_debug_summary(result)
 """
+# pylint: disable=import-outside-toplevel
 
 from __future__ import annotations
 
@@ -29,9 +30,16 @@ def get_debug_summary(result: Any) -> dict[str, Any]:
     config = getattr(result, "config", None)
     material = getattr(result, "material_type", None)
 
+    # robusten Zugriff auf material/value (vermeidet AttributeError für None)
+    if material is None:
+        _material_str = ""
+    else:
+        _mat_val = getattr(material, "value", None)
+        _material_str = str(_mat_val) if _mat_val is not None else str(material)
+
     summary: dict[str, Any] = {
         # --- Grundinfos ---
-        "material": str(material.value if hasattr(material, "value") else material or ""),
+        "material": _material_str,
         "mode": str(getattr(config, "mode", None) or ""),
         "era_decade": str(getattr(result, "era_decade", "") or ""),
         "restorability": _safe_float(getattr(result, "restorability", 0)),
@@ -80,7 +88,7 @@ def get_debug_summary(result: Any) -> dict[str, Any]:
 
 def get_goals_timeline(result: Any) -> dict[str, list[float]]:
     """
-    Gibt die 14 Musical-Goals als Zeitreihe über alle Phasen zurück.
+    Gibt die 15 Musical-Goals als Zeitreihe über alle Phasen zurück.
 
     Benötigt enable_debug_trace=True im restore()-Aufruf (sonst leer).
     """
@@ -112,7 +120,7 @@ def get_phase_decisions(result: Any) -> list[dict[str, Any]]:
 
 def format_goals_table(result: Any) -> str:
     """
-    Gibt die ASCII Goal-Matrix zurück: 14 Goals × Phasen.
+    Gibt die ASCII Goal-Matrix zurück: 15 Goals × Phasen.
     Benötigt enable_debug_trace=True für vollständige Daten.
     """
     try:

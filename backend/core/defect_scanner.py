@@ -4422,6 +4422,13 @@ class DefectScanner:
         rt60 = float(np.median(rt60_values))
         tdr = float(np.median(tdr_values))
 
+        # If all segments are effectively silent (very low RMS) then guard
+        # against false positives by marking the result as silence_guarded.
+        # Use a small tolerance to be robust against tiny numerical noise
+        silence_guarded = all(abs(float(v)) < 1e-8 for v in rt60_values) and all(
+            abs(float(v)) < 1e-8 for v in tdr_values
+        )
+
         # Severity aus RT60 + TDR kombinieren
         # RT60 > 1.5s = severity 1.0; alles unter 0.4s = 0.0
         rt60_severity = min(1.0, max(0.0, (rt60 - 0.4) / 1.1))
@@ -4442,6 +4449,7 @@ class DefectScanner:
                 "rt60_severity": rt60_severity,
                 "tdr_severity": tdr_severity,
                 "n_segments_used": len(candidate_segs),
+                "silence_guarded": bool(silence_guarded),
             },
         )
 

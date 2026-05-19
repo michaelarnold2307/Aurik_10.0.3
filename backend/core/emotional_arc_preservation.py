@@ -1250,7 +1250,7 @@ def apply_waveform_plausibility_guard(
     """Convenience wrapper for WaveformPlausibilityGuard.apply().
 
     Final safety layer after correct_arc — detects Pegelexplosion and applies
-    targeted envelope attenuation while preserving all 14 Musical Goals.
+    targeted envelope attenuation while preserving all 15 Musical Goals.
 
     Args:
         original:           Pre-restoration reference audio (float32, SR=48000)

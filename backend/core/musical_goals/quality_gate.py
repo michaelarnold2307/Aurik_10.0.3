@@ -35,6 +35,7 @@ Quelle: Excellence Roadmap Strategy #2 - Perceptual Quality Gates
 Autor: AI Team
 Datum: 8. Februar 2026
 """
+# pylint: disable=import-outside-toplevel
 
 import hashlib
 import logging
@@ -161,7 +162,9 @@ class MusicalGoalsQualityGate:
         self._score_cache_max_entries: int = 64
 
         logger.info(
-            f"MusicalGoalsQualityGate initialized (strict_mode={strict_mode}, critical_threshold={critical_threshold})"
+            "MusicalGoalsQualityGate initialized (strict_mode=%s, critical_threshold=%s)",
+            strict_mode,
+            critical_threshold,
         )
 
     def _make_score_cache_key(self, audio: np.ndarray, sr: int) -> tuple[Any, ...]:
@@ -414,12 +417,19 @@ class MusicalGoalsQualityGate:
                 if achieved < _goal_critical:
                     critical_violations.append(goal_name)
                     logger.error(
-                        f"CRITICAL VIOLATION: {goal_name} = {achieved:.3f} "
-                        f"< {_goal_critical:.2f} (threshold: {threshold:.3f})"
+                        "CRITICAL VIOLATION: %s = %.3f < %.2f (threshold: %.3f)",
+                        goal_name,
+                        achieved,
+                        _goal_critical,
+                        threshold,
                     )
                 else:
                     logger.warning(
-                        f"Violation: {goal_name} = {achieved:.3f} < {threshold:.3f} (baseline: {baseline:.3f})"
+                        "Violation: %s = %.3f < %.3f (baseline: %.3f)",
+                        goal_name,
+                        achieved,
+                        threshold,
+                        baseline,
                     )
 
             # Track improvements/degradations
@@ -473,9 +483,12 @@ class MusicalGoalsQualityGate:
 
         decision_str = decision.value if hasattr(decision, "value") else str(decision)
         logger.info(
-            f"Post-Check complete: passed={passed}, "
-            f"violations={len(violations)}, critical={len(critical_violations)}, "
-            f"improvements={len(improvements)}, decision={decision_str}"
+            "Post-Check complete: passed=%s, violations=%d, critical=%d, improvements=%d, decision=%s",
+            passed,
+            len(violations),
+            len(critical_violations),
+            len(improvements),
+            decision_str,
         )
 
         return result
@@ -579,10 +592,10 @@ class MusicalGoalsQualityGate:
             report.final_decision.value if hasattr(report.final_decision, "value") else str(report.final_decision)
         )
         logger.info(
-            f"Full validation complete: "
-            f"pre_passed={pre_check.passed}, "
-            f"post_passed={post_check.passed}, "
-            f"final_decision={final_decision_str}"
+            "Full validation complete: pre_passed=%s, post_passed=%s, final_decision=%s",
+            pre_check.passed,
+            post_check.passed,
+            final_decision_str,
         )
 
         return report
@@ -622,13 +635,13 @@ class MusicalGoalsQualityGate:
 
         return edge_cases
 
-    def _is_extremely_degraded(self, audio: np.ndarray, sr: int, baseline: dict[str, float]) -> bool:
+    def _is_extremely_degraded(self, _audio: np.ndarray, _sr: int, baseline: dict[str, float]) -> bool:
         """Prüft if audio is extremely degraded (SNR < 30 dB or Goals < 50%)."""
         # Simple heuristic: If multiple goals are < 0.50, likely extreme degradation
         low_goals = sum(1 for score in baseline.values() if score < 0.50)
         return low_goals >= 3  # 3+ goals < 50%
 
-    def _has_spectrum_conflict(self, audio: np.ndarray, sr: int, baseline: dict[str, float]) -> bool:
+    def _has_spectrum_conflict(self, _audio: np.ndarray, _sr: int, baseline: dict[str, float]) -> bool:
         """Prüft for spectrum-goals conflicts (e.g., no HF but brillanz required)."""
         # Check if bass-kraft is low but required
         if baseline.get("bass-kraft", 0) < 0.30 and baseline.get("bass-kraft", 0) < 1.0:
@@ -638,7 +651,7 @@ class MusicalGoalsQualityGate:
         return bool(baseline.get("brillanz", 0) < 0.3 and baseline.get("brillanz", 0) < 1.0)
 
     def _check_spectrum_conflicts(
-        self, audio: np.ndarray, sr: int, baseline: dict[str, float], mode: ProcessingMode
+        self, _audio: np.ndarray, _sr: int, baseline: dict[str, float], mode: ProcessingMode
     ) -> list[str]:
         """
         Erkennt spectrum-goals conflicts and generate warnings.
@@ -722,7 +735,7 @@ class MusicalGoalsQualityGate:
         }
 
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(output_path, "w") as f:
+        with open(output_path, "w", encoding="utf-8") as f:
             json.dump(report_dict, f, indent=2)
 
         logger.info("Report exported to %s", output_path)
@@ -800,7 +813,7 @@ class EnhancedQualityGate:
     Enhanced Quality Gate mit Multi-Metric Validation + Auto-Reprocessing.
 
     Excellence Strategy #2: Perceptual Quality Gates
-    - Combines Musical Goals (14 Dimensionen §1.2) + Perceptual Metrics (ViSQOL v3, VERSA §4.4)
+    - Combines Musical Goals (15 Dimensionen §1.2) + Perceptual Metrics (ViSQOL v3, VERSA §4.4)
     - Weighted decision logic: configurable metric importance
     - Automatic reprocessing on failure with intelligent fallback strategies
     - Target: False Accept Rate <2% (from 15%)
@@ -883,10 +896,10 @@ class EnhancedQualityGate:
         self._reprocessing_engine = None
 
         logger.info(
-            f"EnhancedQualityGate initialized: "
-            f"perceptual={enable_perceptual_metrics}, "
-            f"auto_reprocessing={enable_auto_reprocessing}, "
-            f"weights={metric_weights}"
+            "EnhancedQualityGate initialized: perceptual=%s, auto_reprocessing=%s, weights=%s",
+            enable_perceptual_metrics,
+            enable_auto_reprocessing,
+            metric_weights,
         )
 
     def _get_nisqa_plugin(self):
@@ -996,21 +1009,19 @@ class EnhancedQualityGate:
             versa = self._get_versa_plugin()
             if versa is not None:
                 try:
-                    import numpy as _np
-
                     from backend.file_import import load_audio_file as _load_af
 
                     _af_result = _load_af(str(audio_path))
                     if _af_result is None or _af_result.get("error") or _af_result["audio"] is None:
                         raise RuntimeError(f"Audio-Import fehlgeschlagen: {audio_path}")
-                    audio_arr = _np.asarray(_af_result["audio"], dtype=_np.float32)
+                    audio_arr = np.asarray(_af_result["audio"], dtype=np.float32)
                     sr_v = int(_af_result["sr"])
                     if audio_arr.ndim == 2:
                         audio_arr = audio_arr.mean(axis=1)
-                    audio_arr = _np.nan_to_num(audio_arr, nan=0.0, posinf=0.0, neginf=0.0)
+                    audio_arr = np.nan_to_num(audio_arr, nan=0.0, posinf=0.0, neginf=0.0)
                     versa_result = versa.score(audio_arr, sr_v)
                     # MOS [1,5] → [0,100] für PerceptualMetrics.versa_score
-                    versa_score = float(_np.clip((versa_result.mos - 1.0) / 4.0 * 100.0, 0.0, 100.0))
+                    versa_score = float(np.clip((versa_result.mos - 1.0) / 4.0 * 100.0, 0.0, 100.0))
                 except Exception as e:
                     logger.warning("VERSA failed: %s", e)
 
@@ -1155,7 +1166,7 @@ class EnhancedQualityGate:
         )
 
     def _calculate_weighted_quality_score(
-        self, musical_scores: dict[str, float], perceptual: PerceptualMetrics | None, mode: ProcessingMode
+        self, musical_scores: dict[str, float], perceptual: PerceptualMetrics | None, _mode: ProcessingMode
     ) -> float:
         """
         Calculate weighted quality score combining Musical Goals + Perceptual Metrics.
@@ -1168,7 +1179,8 @@ class EnhancedQualityGate:
 
         # Perceptual metrics average (normalize MOS 1-5 → 0-1, VERSA 0-100 → 0-1)
         if perceptual:
-            # nisqa_mos / dnsmos_ovrl entfernt — verboten §4.4+§10.2 (Sprach-Metriken, immer 0.0 → würden Mittelwert auf -0.25 ziehen)
+            # nisqa_mos / dnsmos_ovrl entfernt — verboten §4.4+§10.2
+            # (Sprach-Metriken, immer 0.0 → würden Mittelwert auf -0.25 ziehen)
             perceptual_avg = np.mean(
                 [
                     (perceptual.visqol_mos_lqo - 1.0) / 4.0,
@@ -1190,7 +1202,7 @@ class EnhancedQualityGate:
         self,
         musical_result: PostCheckResult,
         perceptual: PerceptualMetrics | None,
-        perceptual_degradations: dict[str, float],
+        _perceptual_degradations: dict[str, float],
         weighted_score: float,
     ) -> tuple[QualityGateDecision, str | None, str | None]:
         """
@@ -1289,8 +1301,10 @@ class EnhancedQualityGate:
         session_id = session_id or f"eqg_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
 
         logger.info(
-            f"Enhanced validation started (session={session_id}, "
-            f"mode={mode.value}, auto_reprocessing={self.enable_auto_reprocessing})"
+            "Enhanced validation started (session=%s, mode=%s, auto_reprocessing=%s)",
+            session_id,
+            mode.value,
+            self.enable_auto_reprocessing,
         )
 
         # Pre-check
@@ -1357,10 +1371,10 @@ class EnhancedQualityGate:
             )
 
             logger.info(
-                f"Auto-reprocessing complete: "
-                f"success={reprocessing_result.success}, "
-                f"attempts={reprocessing_result.total_attempts}, "
-                f"strategy={reprocessing_result.strategy_used.value}"
+                "Auto-reprocessing complete: success=%s, attempts=%d, strategy=%s",
+                reprocessing_result.success,
+                reprocessing_result.total_attempts,
+                reprocessing_result.strategy_used.value,
             )
 
             # Validate best result from reprocessing
@@ -1389,7 +1403,8 @@ class EnhancedQualityGate:
                 return processed, post_check
             else:
                 logger.warning(
-                    f"Quality gates failed but auto-reprocessing disabled. Decision: {post_check.decision.value}"
+                    "Quality gates failed but auto-reprocessing disabled. Decision: %s",
+                    post_check.decision.value,
                 )
 
                 # Rollback to original if critical

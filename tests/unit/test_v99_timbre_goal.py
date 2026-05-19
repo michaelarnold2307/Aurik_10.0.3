@@ -341,10 +341,11 @@ class TestConsistency:
 class TestMusicalGoalsIntegration:
     """Tests 33–40: 10. Ziel im MusicalGoalsChecker."""
 
-    def test_33_checker_has_14_goals(self) -> None:
+    def test_33_checker_has_14_explicit_metric_classes(self) -> None:
         checker = MusicalGoalsChecker()
-        # SeparationFidelityMetric + ArticulationMetric -> 14 goals
-        assert len(checker.metrics) == 14
+        assert "timbre_authentizitaet" in checker.metrics
+        assert "artikulation" in checker.metrics
+        assert "transient_energie" not in checker.metrics
 
     def test_34_timbre_in_checker_metrics(self) -> None:
         checker = MusicalGoalsChecker()
@@ -354,12 +355,12 @@ class TestMusicalGoalsIntegration:
         checker = MusicalGoalsChecker()
         assert checker.thresholds["timbre_authentizitaet"] == pytest.approx(0.87)
 
-    def test_36_measure_all_returns_14_keys(self) -> None:
+    def test_36_measure_all_returns_15_keys(self) -> None:
         checker = MusicalGoalsChecker()
         audio = _noise(1.0)
         scores = checker.measure_all(audio, SR)
-        # SeparationFidelityMetric + ArticulationMetric -> 14 goals
-        assert len(scores) == 14
+        assert len(scores) == 15
+        assert "transient_energie" in scores
 
     def test_37_timbre_in_measure_all(self) -> None:
         checker = MusicalGoalsChecker()

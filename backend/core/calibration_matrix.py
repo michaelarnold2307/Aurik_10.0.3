@@ -845,6 +845,205 @@ def get_effective_material_floor(
     return float(np.clip(floor_base * scale, 0.20, 0.99))
 
 
+_CHAIN_END_GOAL_CEILINGS: dict[str, dict[str, float]] = {
+    "shellac": {
+        "natuerlichkeit": 0.68,
+        "authentizitaet": 0.65,
+        "tonal_center": 0.70,
+        "timbre_authentizitaet": 0.65,
+        "artikulation": 0.61,
+        "waerme": 0.62,
+        "brillanz": 0.52,
+        "transparenz": 0.55,
+        "separation_fidelity": 0.60,
+    },
+    "wax_cylinder": {
+        "natuerlichkeit": 0.66,
+        "authentizitaet": 0.63,
+        "tonal_center": 0.68,
+        "timbre_authentizitaet": 0.63,
+        "artikulation": 0.59,
+        "waerme": 0.60,
+        "brillanz": 0.40,
+        "transparenz": 0.50,
+        "separation_fidelity": 0.55,
+    },
+    "wire_recording": {
+        "natuerlichkeit": 0.66,
+        "authentizitaet": 0.63,
+        "tonal_center": 0.68,
+        "timbre_authentizitaet": 0.63,
+        "artikulation": 0.59,
+        "waerme": 0.60,
+        "brillanz": 0.44,
+        "transparenz": 0.52,
+        "separation_fidelity": 0.56,
+    },
+    "lacquer_disc": {
+        "natuerlichkeit": 0.69,
+        "authentizitaet": 0.66,
+        "tonal_center": 0.71,
+        "timbre_authentizitaet": 0.66,
+        "artikulation": 0.62,
+        "waerme": 0.63,
+        "brillanz": 0.50,
+        "transparenz": 0.56,
+        "separation_fidelity": 0.60,
+    },
+    "vinyl": {
+        "natuerlichkeit": 0.82,
+        "authentizitaet": 0.79,
+        "tonal_center": 0.84,
+        "timbre_authentizitaet": 0.79,
+        "artikulation": 0.76,
+        "waerme": 0.74,
+        "brillanz": 0.82,
+        "transparenz": 0.78,
+        "separation_fidelity": 0.76,
+    },
+    "reel_tape": {
+        "natuerlichkeit": 0.82,
+        "authentizitaet": 0.79,
+        "tonal_center": 0.84,
+        "timbre_authentizitaet": 0.79,
+        "artikulation": 0.76,
+        "waerme": 0.74,
+        "brillanz": 0.82,
+        "transparenz": 0.78,
+        "separation_fidelity": 0.76,
+    },
+    "tape": {
+        "natuerlichkeit": 0.78,
+        "authentizitaet": 0.75,
+        "tonal_center": 0.80,
+        "timbre_authentizitaet": 0.75,
+        "artikulation": 0.72,
+        "waerme": 0.72,
+        "brillanz": 0.78,
+        "transparenz": 0.74,
+        "separation_fidelity": 0.72,
+    },
+    "cassette": {
+        "natuerlichkeit": 0.76,
+        "authentizitaet": 0.73,
+        "tonal_center": 0.78,
+        "timbre_authentizitaet": 0.73,
+        "artikulation": 0.70,
+        "waerme": 0.70,
+        "brillanz": 0.72,
+        "transparenz": 0.68,
+        "separation_fidelity": 0.68,
+    },
+    "mp3_low": {
+        "natuerlichkeit": 0.76,
+        "authentizitaet": 0.74,
+        "tonal_center": 0.78,
+        "timbre_authentizitaet": 0.74,
+        "artikulation": 0.70,
+        "waerme": 0.70,
+        "brillanz": 0.45,
+        "transparenz": 0.60,
+        "separation_fidelity": 0.62,
+    },
+    "mp3_high": {
+        "natuerlichkeit": 0.82,
+        "authentizitaet": 0.80,
+        "tonal_center": 0.84,
+        "timbre_authentizitaet": 0.80,
+        "artikulation": 0.76,
+        "waerme": 0.74,
+        "brillanz": 0.65,
+        "transparenz": 0.70,
+        "separation_fidelity": 0.70,
+    },
+    "aac": {
+        "natuerlichkeit": 0.84,
+        "authentizitaet": 0.82,
+        "tonal_center": 0.86,
+        "timbre_authentizitaet": 0.82,
+        "artikulation": 0.78,
+        "waerme": 0.76,
+        "brillanz": 0.72,
+        "transparenz": 0.74,
+        "separation_fidelity": 0.74,
+    },
+    "minidisc": {
+        "natuerlichkeit": 0.80,
+        "authentizitaet": 0.78,
+        "tonal_center": 0.82,
+        "timbre_authentizitaet": 0.78,
+        "artikulation": 0.74,
+        "waerme": 0.72,
+        "brillanz": 0.64,
+        "transparenz": 0.68,
+        "separation_fidelity": 0.68,
+    },
+    "dat": {
+        "natuerlichkeit": 0.88,
+        "authentizitaet": 0.86,
+        "tonal_center": 0.92,
+        "timbre_authentizitaet": 0.86,
+        "artikulation": 0.84,
+        "waerme": 0.80,
+        "brillanz": 0.82,
+        "transparenz": 0.82,
+        "separation_fidelity": 0.82,
+    },
+}
+
+
+def estimate_chain_end_goal_ceiling(transfer_chain: list[str] | tuple[str, ...] | None) -> dict[str, float]:
+    """Gibt Goal-Ceilings des letzten Tonträgerketten-Glieds zurück (§2.46a)."""
+    chain = [str(stage).strip().lower() for stage in (transfer_chain or []) if str(stage).strip()]
+    if not chain:
+        return {}
+    return dict(_CHAIN_END_GOAL_CEILINGS.get(chain[-1], {}))
+
+
+def resolve_effective_goal_targets(
+    *,
+    is_studio_2026: bool = False,
+    goal_weights: dict[str, float] | None = None,
+    restorability_score: float = 70.0,
+    era_decade: int | None = None,
+    genre_label: str | None = None,
+    material_type: str | None = None,
+    transfer_chain: list[str] | tuple[str, ...] | None = None,
+    physical_ceiling: dict[str, float] | None = None,
+    applicable_goals: set[str] | list[str] | tuple[str, ...] | None = None,
+    production_profile: object | None = None,
+) -> dict[str, float]:
+    """Berechnet effektive, physikalisch gedeckelte Goal-Zielwerte (§1.2b/§09.2b)."""
+    canonical = CANONICAL_THRESHOLDS_STUDIO2026 if is_studio_2026 else CANONICAL_THRESHOLDS_RESTORATION
+    mat = str(material_type or "").strip().lower() or (
+        str((transfer_chain or [""])[0]).strip().lower() if transfer_chain else "unknown"
+    )
+    song_targets = estimate_song_goal_targets(
+        is_studio_2026=is_studio_2026,
+        goal_weights=goal_weights,
+        restorability_score=restorability_score,
+        era_decade=era_decade,
+        genre_label=genre_label,
+        material_type=mat,
+        transfer_chain=list(transfer_chain or []),
+        production_profile=production_profile,
+    )
+    physical = dict(physical_ceiling or {})
+    chain_cap = estimate_chain_end_goal_ceiling(transfer_chain)
+    goals = list(applicable_goals) if applicable_goals else list(canonical.keys())
+
+    resolved: dict[str, float] = {}
+    for raw_goal in goals:
+        goal = str(raw_goal or "").strip().lower()
+        if not goal:
+            continue
+        floor_eff = get_effective_material_floor(mat, goal, restorability_score, is_studio_2026=is_studio_2026)
+        target = max(floor_eff, float(song_targets.get(goal, canonical.get(goal, 0.70))))
+        target = min(target, float(physical.get(goal, 0.99)), float(chain_cap.get(goal, 0.99)))
+        resolved[goal] = float(np.clip(target, 0.20, 0.99))
+    return resolved
+
+
 # ---------------------------------------------------------------------------
 # §09.9 Material-adaptive phase strength ranges — get_phase_strength_range
 # ---------------------------------------------------------------------------
@@ -1000,7 +1199,7 @@ def predict_quality_score(
 # ---------------------------------------------------------------------------
 # §09.10 Goal-to-Recovery-Phases mapping — get_goal_recovery_phases [RELEASE_MUST]
 # ---------------------------------------------------------------------------
-# Maps each of the 14 Musical Goals to its primary recovery phase(s).
+# Maps each of the 15 Musical Goals to its primary recovery phase(s).
 # Used by UV3 §GOAL_BASELINE_CHECK to ensure recovery phases are in
 # selected_phases when a goal proxy is below its material floor BEFORE the
 # phase pipeline runs.
@@ -1233,11 +1432,13 @@ __all__ = [
     "compute_reference_confidence",
     "compute_retry_temperature",
     "compute_tcci",
+    "estimate_chain_end_goal_ceiling",
     "estimate_song_goal_targets",
     "get_effective_material_floor",
     "get_goal_recovery_phases",
     "get_material_floor",
     "get_phase_strength_range",
     "predict_quality_score",
+    "resolve_effective_goal_targets",
     "RESTORABILITY_SCALE_MIN",
 ]

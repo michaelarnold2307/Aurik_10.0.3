@@ -536,7 +536,7 @@ class FeedbackChain:
 
                 _gp_opt = _get_gp_opt()
                 _mat = self.material if self.material != "auto" else "unknown"
-                # §Hebel1: MOO Pareto-Proposals für alle 14 Goals simultan
+                # §Hebel1: MOO Pareto-Proposals für alle 15 Goals simultan
                 _pareto_prop_list = None
                 try:
                     _pareto_prop_list = _gp_opt.propose_pareto(material=_mat, n_init=5)

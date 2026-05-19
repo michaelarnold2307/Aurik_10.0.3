@@ -6,7 +6,7 @@ Computes per-song goal weights based on genre, era, material, and audio features
 These weights modulate PMGG regression thresholds, CIG drift tolerance,
 FeedbackChain abort logic, and GPOptimizer scalarization.
 
-The 14 Musical Goals form a Pareto front — physically, not all can be maximised
+The 15 Musical Goals form a Pareto front — physically, not all can be maximised
 simultaneously (e.g. Brillanz↔Wärme, Transparenz↔Bass_Kraft).  For each song,
 the optimal point on this front depends on the musical context.  This module
 computes WHERE on the Pareto front the restoration should aim.
@@ -29,7 +29,10 @@ Design principles:
 
 from __future__ import annotations
 
+import json
 import logging
+import math
+import os
 import threading
 from dataclasses import dataclass, field
 from typing import Any
@@ -38,13 +41,14 @@ import numpy as np
 
 logger = logging.getLogger(__name__)
 
-# All 14 canonical goal names
+# All 15 canonical goal names
 ALL_GOAL_NAMES: tuple[str, ...] = (
     "natuerlichkeit",
     "authentizitaet",
     "tonal_center",
     "timbre_authentizitaet",
     "artikulation",
+    "transient_energie",
     "emotionalitaet",
     "micro_dynamics",
     "groove",
@@ -76,7 +80,7 @@ class SongGoalImportance:
     """Per-song goal importance weights.
 
     Attributes:
-        weights: Dict mapping each of the 14 goal names to a float ∈ [0.3, 2.0].
+        weights: Dict mapping each of the 15 goal names to a float ∈ [0.3, 2.0].
                  1.0 = neutral.  Higher = more important for THIS song.
         reason: Human-readable description of why these weights were chosen.
         genre_profile: Genre label that contributed to the weights.
@@ -436,9 +440,6 @@ _MATERIAL_WEIGHT_MODIFIERS: dict[str, dict[str, float]] = {
 # §C10 Active Listener Calibration — Bayesian EMA Feedback Store (v9.12.1)
 # ---------------------------------------------------------------------------
 
-import json as _json
-import os as _os
-
 
 @dataclass
 class UserFeedbackEntry:
@@ -477,8 +478,8 @@ class SongGoalFeedbackStore:
         self._loaded = False
 
     def _persist_path(self) -> str:
-        base = _os.path.join(_os.path.dirname(__file__), "..", "..", self._PERSIST_PATH_REL)
-        return _os.path.normpath(base)
+        base = os.path.join(os.path.dirname(__file__), "..", "..", self._PERSIST_PATH_REL)
+        return os.path.normpath(base)
 
     def _load(self) -> None:
         """Lädt persisted nudges from disk (idempotent)."""
@@ -486,9 +487,9 @@ class SongGoalFeedbackStore:
             return
         try:
             p = self._persist_path()
-            if _os.path.isfile(p):
+            if os.path.isfile(p):
                 with open(p, encoding="utf-8") as fh:
-                    data = _json.load(fh)
+                    data = json.load(fh)
                 if isinstance(data, dict):
                     nudges = data.get("nudges", {})
                     for g in ALL_GOAL_NAMES:
@@ -510,7 +511,7 @@ class SongGoalFeedbackStore:
         """Persist current nudges + entries to disk (non-blocking)."""
         try:
             p = self._persist_path()
-            _os.makedirs(_os.path.dirname(p), exist_ok=True)
+            os.makedirs(os.path.dirname(p), exist_ok=True)
             payload = {
                 "nudges": {k: round(float(v), 6) for k, v in self._nudges.items()},
                 "entries": [
@@ -526,7 +527,7 @@ class SongGoalFeedbackStore:
                 ],
             }
             with open(p, "w", encoding="utf-8") as fh:
-                _json.dump(payload, fh, indent=2)
+                json.dump(payload, fh, indent=2)
         except Exception as _save_exc:
             logger.debug("§C10 FeedbackStore save skipped: %s", _save_exc)
 
@@ -569,7 +570,7 @@ _feedback_store_lock = threading.Lock()
 
 def get_feedback_store() -> SongGoalFeedbackStore:
     """Gibt the global SongGoalFeedbackStore singleton (thread-safe) zurück."""
-    global _feedback_store
+    global _feedback_store  # pylint: disable=global-statement
     if _feedback_store is None:
         with _feedback_store_lock:
             if _feedback_store is None:
@@ -657,7 +658,7 @@ def estimate_goal_importance(
         transient_density: Onset events per second.  High (>5) = percussive.
 
     Returns:
-        SongGoalImportance with 14 weights.
+        SongGoalImportance with 15 weights.
     """
     weights: dict[str, float] = dict.fromkeys(ALL_GOAL_NAMES, 1.0)
 
@@ -1273,10 +1274,8 @@ def estimate_goal_importance(
     # input feature (roughness, HNR, coherence, carrier-chain conf) is NaN/Inf.
     # NaN weights make PMGG's weighted_reg = raw_reg * NaN → NaN → all retries
     # pass silently (NaN > threshold == False), effectively disabling PMGG.
-    import math as _math_sgi
-
     for goal in ALL_GOAL_NAMES:
-        if not _math_sgi.isfinite(weights[goal]):
+        if not math.isfinite(weights[goal]):
             weights[goal] = 1.0  # reset to neutral; partial result > no result
 
     # --- Step 7: Diminishing returns for multiplicative stacking ---
@@ -1348,7 +1347,7 @@ _lock = threading.Lock()
 
 def get_default_importance() -> SongGoalImportance:
     """Gibt a neutral (uniform) importance — for use when no song context is available zurück."""
-    global _instance
+    global _instance  # pylint: disable=global-statement
     if _instance is None:
         with _lock:
             if _instance is None:

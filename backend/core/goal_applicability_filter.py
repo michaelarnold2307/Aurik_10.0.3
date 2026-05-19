@@ -61,6 +61,7 @@ _ALL_GOALS: frozenset[str] = frozenset(
         "micro_dynamics",
         "separation_fidelity",
         "artikulation",
+        "transient_energie",
     }
 )
 
@@ -308,7 +309,7 @@ _lock = threading.Lock()
 
 def get_goal_filter() -> GoalApplicabilityFilter:
     """Thread-sicherer Singleton (§3.2)."""
-    global _instance
+    global _instance  # pylint: disable=global-statement
     if _instance is None:
         with _lock:
             if _instance is None:

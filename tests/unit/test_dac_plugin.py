@@ -36,7 +36,10 @@ def _stereo(dur_s: float = 0.5) -> np.ndarray:
 
 class TestDacPluginImport:
     def test_01_module_importable(self):
-        pass
+        from plugins.dac_plugin import DacPlugin, get_dac_plugin
+
+        assert DacPlugin is not None
+        assert get_dac_plugin is not None
 
     def test_02_singleton_returns_same_instance(self):
         from plugins.dac_plugin import get_dac_plugin

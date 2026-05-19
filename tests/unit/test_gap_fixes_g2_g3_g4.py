@@ -7,6 +7,8 @@ G4: PMGG best_effort Phasen → FeedbackChain _fc_max_iter boost
 
 from __future__ import annotations
 
+from typing import Any
+
 import numpy as np
 import pytest
 
@@ -17,7 +19,8 @@ import pytest
 
 def _make_audio(shape=(48000,)) -> np.ndarray:
     rng = np.random.default_rng(42)
-    return rng.uniform(-0.3, 0.3, shape).astype(np.float32)
+    audio: np.ndarray[Any, Any] = np.asarray(rng.uniform(-0.3, 0.3, shape), dtype=np.float32)
+    return audio
 
 
 # ---------------------------------------------------------------------------
@@ -29,7 +32,7 @@ class TestG3ConservativeGoalWeights:
     """§2.56 Gap G3: wenn SGI und Label-Fallback beide fehlschlagen,
     darf self._song_goal_weights NICHT None sein."""
 
-    def _extract_conservative_weights(self) -> dict[str, float] | None:
+    def _extract_conservative_weights(self) -> bool:
         """Import UV3 module and read the conservative defaults from source."""
         import pathlib
 
@@ -41,13 +44,14 @@ class TestG3ConservativeGoalWeights:
         assert '"natuerlichkeit": 1.20' in src, "G3-Fix fehlt: conservative weights-Block nicht in UV3 gefunden"
         assert '"authentizitaet": 1.20' in src
         assert '"tonal_center": 1.15' in src
-        # All 14 goals must be present
+        # All 15 goals must be present
         all_goals = [
             "natuerlichkeit",
             "authentizitaet",
             "tonal_center",
             "timbre_authentizitaet",
             "artikulation",
+            "transient_energie",
             "emotionalitaet",
             "micro_dynamics",
             "groove",
@@ -63,7 +67,7 @@ class TestG3ConservativeGoalWeights:
         return True
 
     def test_conservative_weights_present_in_source(self):
-        """UV3-Quelltext enthält alle 14 Goals im konservativen Fallback-Block."""
+        """UV3-Quelltext enthält alle 15 Goals im konservativen Fallback-Block."""
         result = self._extract_conservative_weights()
         assert result is True
 

@@ -2,10 +2,11 @@
 backend/core/studio_goal_targets.py
 Aurik 9 — Per-song studio-day goal targets for phase steering.
 
-Computes target values for all 14 musical goals so PMGG can evaluate whether a
+Computes target values for all 15 musical goals so PMGG can evaluate whether a
 phase moves toward or away from the intended studio-day profile instead of only
 checking absolute score drops.
 """
+# pylint: disable=import-outside-toplevel
 
 from __future__ import annotations
 
@@ -14,7 +15,6 @@ from dataclasses import dataclass
 import numpy as np
 
 from backend.core.calibration_matrix import (
-    blend_targets_with_confidence,
     compute_ibs,
     compute_tcci,
 )
@@ -220,92 +220,47 @@ def estimate_song_goal_targets(
     material_type: object = None,
     transfer_chain: list[str] | None = None,
 ) -> SongGoalTargets:
-    """Schätzt per-song targets for all goals.
+    """Kompatibilitäts-Fassade für die kanonische Goal-Target-Berechnung.
 
-    Formula:
-        target = clip(
-            floor + kappa * max(0, weight-1) * (upper-floor),
-            floor,
-            upper,
-        )
-
-    Where:
-        floor = canonical restoration threshold
-        upper = min(0.97, studio_threshold + 0.06)
-        kappa = 0.45 (restoration), 0.65 (studio_2026)
+    Neue Produktionslogik nutzt ``backend.core.calibration_matrix`` als Single
+    Source of Truth. Dieses Modul bleibt nur erhalten, damit ältere Imports den
+    bisherigen ``SongGoalTargets``-Container bekommen.
     """
-    from backend.core.per_phase_musical_goals_gate import (  # pylint: disable=import-outside-toplevel
-        _CANONICAL_THRESHOLDS_STUDIO2026,
-        _get_canonical_thresholds,
+    from backend.core.calibration_matrix import (
+        CANONICAL_THRESHOLDS_RESTORATION,
     )
-
-    floors = dict(_get_canonical_thresholds(False))
-    studio = dict(_CANONICAL_THRESHOLDS_STUDIO2026)
-    weights = {_canonical_goal_key(k): v for k, v in (goal_weights or {}).items()}
-    era_i = _safe_int(era_decade, None)
-    _bias_era = _goal_bias_from_era(era_i)
-    _bias_genre = _goal_bias_from_genre(genre_label)
-    _bias_material = _goal_bias_from_material(material_type)
-    _chain_depth = len(transfer_chain or [])
-
-    kappa = 0.65 if is_studio_2026 else 0.45
-    context_blend = 0.45 if is_studio_2026 else 0.60
-    targets: dict[str, float] = {}
-
-    for g, floor in floors.items():
-        upper = float(min(0.97, _safe_float(studio.get(g, floor), floor) + 0.06))
-        w = float(np.clip(_safe_float(weights.get(g, 1.0), 1.0), 0.30, 2.00))
-        extra = max(0.0, w - 1.0)
-        t = floor + kappa * extra * (upper - floor)
-        _bias = float(
-            _lookup_goal_value(_bias_era, g)
-            + _lookup_goal_value(_bias_genre, g)
-            + _lookup_goal_value(_bias_material, g)
-        )
-        t += context_blend * _bias * (upper - floor)
-        targets[g] = float(np.clip(t, floor, upper))
+    from backend.core.calibration_matrix import (
+        estimate_song_goal_targets as _estimate_canonical_targets,
+    )
 
     rest = float(np.clip(_safe_float(restorability_score, 50.0), 0.0, 100.0))
-    tcci = compute_tcci(transfer_chain)
+    chain = list(transfer_chain or [])
+    tcci = compute_tcci(chain)
     defect_proxy = float(np.clip(1.0 - (rest / 100.0), 0.0, 1.0))
     ibs = compute_ibs(rest, defect_proxy, tcci)
-
-    # Guard against over-driving targets on hard material: high intervention budget
-    # softly pulls target deltas back toward canonical floors.
-    if ibs > 0.60:
-        pullback = float(np.clip((ibs - 0.60) / 0.35, 0.0, 1.0))
-        for g, floor in floors.items():
-            tg = float(targets.get(g, floor))
-            targets[g] = float((1.0 - 0.35 * pullback) * tg + (0.35 * pullback) * float(floor))
-
-    # Conservative confidence envelope to allow fallback in edge-cases.
     conf = float(np.clip(0.55 + 0.40 * (rest / 100.0), 0.55, 0.95))
-    if _chain_depth >= 3:
-        conf = float(np.clip(conf - 0.05 - min(0.08, 0.02 * float(_chain_depth - 3)), 0.45, 0.95))
+    if len(chain) >= 3:
+        conf = float(np.clip(conf - 0.05 - min(0.08, 0.02 * float(len(chain) - 3)), 0.45, 0.95))
     conf = float(np.clip(conf - 0.10 * tcci, 0.35, 0.95))
 
-    # Target-Confidence-Blend (§09.10c): uncertain context falls back to canonical floors.
-    targets = blend_targets_with_confidence(
-        canonical=floors,
-        song_targets=targets,
-        medium_conf=conf,
-        era_conf=conf,
-        genre_conf=conf,
+    targets = _estimate_canonical_targets(
+        is_studio_2026=is_studio_2026,
+        goal_weights={_canonical_goal_key(k): v for k, v in (goal_weights or {}).items()},
+        restorability_score=rest,
+        era_decade=_safe_int(era_decade, None),
+        genre_label=genre_label,
+        material_type=canonical_material_key(material_type),
+        transfer_chain=chain,
     )
-
-    for alias, canonical in _GOAL_KEY_ALIASES.items():
-        if canonical in targets:
-            targets[alias] = float(targets[canonical])
-
-    # §09.11 PHYSICAL_CEILING-Clamp: Restoration targets must not exceed the
-    # physically achievable maximum for the carrier material.
-    # Studio 2026 is exempt (deliberate enhancement beyond carrier limits is allowed).
     if not is_studio_2026:
-        mk = canonical_material_key(material_type)
-        material_ceiling = _PHYSICAL_CEILING.get(mk, {})
-        for g, ceiling_val in material_ceiling.items():
-            if g in targets and targets[g] > ceiling_val:
-                targets[g] = float(ceiling_val)
+        material_ceiling = _PHYSICAL_CEILING.get(canonical_material_key(material_type), {})
+        for goal, floor in CANONICAL_THRESHOLDS_RESTORATION.items():
+            if goal in targets:
+                effective_floor = min(float(floor), float(material_ceiling.get(goal, floor)))
+                targets[goal] = max(float(targets[goal]), effective_floor)
+        for goal, ceiling_val in material_ceiling.items():
+            if goal in targets:
+                targets[goal] = min(float(targets[goal]), float(ceiling_val))
 
     return SongGoalTargets(
         targets=targets,

@@ -377,12 +377,12 @@ class TestRestorationResultDeterminismFields:
         """phases_executed-Default muss list sein (kein None)."""
         from backend.core.unified_restorer_v3 import RestorationResult
 
-        field_obj = RestorationResult.__dataclass_fields__["phases_executed"]
+        RestorationResult.__dataclass_fields__["phases_executed"]
         # The annotation must resolve to a list type
-        str(field_obj.type if hasattr(field_obj, "type") else "")
-        # We just check it's defined; the actual default comes from the field
-        # Check via direct instantiation pattern: must accept list[str]
-        assert True  # structural presence is enough
+        import dataclasses
+
+        fi = RestorationResult.__dataclass_fields__["phases_executed"]
+        assert fi.default is not dataclasses.MISSING or fi.default_factory is not dataclasses.MISSING
 
     def test_deferred_phases_default_factory_is_list(self):
         """deferred_phases muss mit default_factory=list initialisiert werden."""

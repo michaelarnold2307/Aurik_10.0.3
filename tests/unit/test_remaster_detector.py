@@ -53,8 +53,9 @@ def _digital_silence_with_hiss(
 
 def test_00_import():
     """Modul importierbar ohne Fehler."""
+    from backend.core.remaster_detector import analyse_remaster
 
-    assert True
+    assert callable(analyse_remaster)
 
 
 # ---------------------------------------------------------------------------

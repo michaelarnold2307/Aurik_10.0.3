@@ -532,8 +532,9 @@ class TestPerformance:
         for _ in range(10):
             calculator.compute_all(audio)
 
-        # If no crash, memory is managed OK
-        assert True
+        # Verify we can obtain a result object and it is a dict
+        res = calculator.compute_all(audio)
+        assert isinstance(res, dict)
 
 
 # ============================================================

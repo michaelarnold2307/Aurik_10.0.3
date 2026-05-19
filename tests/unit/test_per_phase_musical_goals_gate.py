@@ -1467,7 +1467,7 @@ class TestKrumhanslSchmucklerTonalCenter:
         return _measure_quick(audio, sr)["tonal_center"]
 
     def _measure(self, audio: "np.ndarray", sr: int) -> "dict[str, float]":
-        """Returns all 14 quick-proxy scores for the given signal."""
+        """Returns all 15 quick-proxy scores for the given signal."""
         from backend.core.per_phase_musical_goals_gate import _measure_quick
 
         return _measure_quick(audio, sr)
@@ -2133,7 +2133,7 @@ class TestKrumhanslSchmucklerTonalCenter:
         """phase_53_semantic_audio must have NO exclusions (set()).
 
         SemanticAudioPhase.process() returns audio UNCHANGED (metadata-only phase).
-        Since scores_before == scores_after for all 14 goals on identical audio,
+        Since scores_before == scores_after for all 15 goals on identical audio,
         no PMGG regression is structurally possible → exclusion set must be empty.
         """
         from backend.core.per_phase_musical_goals_gate import PHASE_GOAL_EXCLUSIONS
@@ -2264,8 +2264,8 @@ class TestRestorativeBaselineCapping:
                 f"{phase} must be in _RESTORATIVE_PHASES — it removes defects that may inflate baselines"
             )
 
-    def test_110_canonical_thresholds_restoration_has_all_14_goals(self):
-        """_CANONICAL_THRESHOLDS_RESTORATION must define all 14 Musical Goals (§14 spec)."""
+    def test_110_canonical_thresholds_restoration_has_all_15_goals(self):
+        """_CANONICAL_THRESHOLDS_RESTORATION must define all 15 Musical Goals (§14 spec)."""
         from backend.core.per_phase_musical_goals_gate import _CANONICAL_THRESHOLDS_RESTORATION
 
         required_goals = {
@@ -2274,6 +2274,7 @@ class TestRestorativeBaselineCapping:
             "tonal_center",
             "timbre_authentizitaet",
             "artikulation",
+            "transient_energie",
             "emotionalitaet",
             "micro_dynamics",
             "groove",
@@ -2288,12 +2289,12 @@ class TestRestorativeBaselineCapping:
             assert goal in _CANONICAL_THRESHOLDS_RESTORATION, (
                 f"Goal '{goal}' missing from _CANONICAL_THRESHOLDS_RESTORATION"
             )
-        assert len(_CANONICAL_THRESHOLDS_RESTORATION) == 14, (
-            f"Expected exactly 14 goals, got {len(_CANONICAL_THRESHOLDS_RESTORATION)}"
+        assert len(_CANONICAL_THRESHOLDS_RESTORATION) == 15, (
+            f"Expected exactly 15 goals, got {len(_CANONICAL_THRESHOLDS_RESTORATION)}"
         )
 
     def test_111_canonical_thresholds_match_spec_p1_p2(self):
-        """P1/P2 thresholds must exactly match §14 Musical Goals spec values."""
+        """P1/P2 thresholds must exactly match §15 Musical Goals spec values."""
         from backend.core.per_phase_musical_goals_gate import _CANONICAL_THRESHOLDS_RESTORATION
 
         assert _CANONICAL_THRESHOLDS_RESTORATION["natuerlichkeit"] == pytest.approx(0.90, abs=1e-9)

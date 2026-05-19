@@ -109,7 +109,7 @@ class MaskingProfile:
     @property
     def shape(self) -> tuple[int, int]:
         """Gibt (freq_bins, time_frames) zurück."""
-        return self.masking_threshold_db.shape
+        return (self.masking_threshold_db.shape[0], self.masking_threshold_db.shape[1])
 
     def get_audible_mask(self, threshold_db: float = 0.0) -> np.ndarray:
         """
@@ -132,7 +132,7 @@ class MaskingProfile:
         """
         masked = np.sum(self.masking_ratio_db <= 0)
         total = self.masking_ratio_db.size
-        return masked / total
+        return int(masked) / total
 
 
 @dataclass
@@ -195,8 +195,9 @@ class MaskingAnalyzer:
         """
         self.config = config or MaskingConfig()
         logger.debug(
-            f"MaskingAnalyzer initialized (simultaneous={self.config.enable_simultaneous}, "
-            f"temporal={self.config.enable_temporal})"
+            "MaskingAnalyzer initialized (simultaneous=%s, temporal=%s)",
+            self.config.enable_simultaneous,
+            self.config.enable_temporal,
         )
 
     def analyze(self, audio: np.ndarray, sr: int) -> MaskingProfile:
@@ -273,7 +274,7 @@ class MaskingAnalyzer:
 
         return threshold_db
 
-    def _compute_simultaneous_masking(self, power_db: np.ndarray, frequencies: np.ndarray, sr: int) -> np.ndarray:
+    def _compute_simultaneous_masking(self, power_db: np.ndarray, _frequencies: np.ndarray, _sr: int) -> np.ndarray:
         """
         Berechnet simultaneous (frequency) masking threshold.
 
@@ -341,7 +342,7 @@ class MaskingAnalyzer:
 
         return masking_threshold
 
-    def _compute_temporal_masking(self, power_db: np.ndarray, times: np.ndarray, sr: int) -> np.ndarray:
+    def _compute_temporal_masking(self, power_db: np.ndarray, times: np.ndarray, _sr: int) -> np.ndarray:
         """
         Berechnet temporal (pre/post) masking threshold.
 
@@ -423,7 +424,8 @@ class MaskingAnalyzer:
         Zxx_filtered = Zxx * audible
 
         # ISTFT
-        _, audio_filtered = istft(Zxx_filtered, sr, nperseg=nperseg, noverlap=noverlap)
+        _, _af_raw = istft(Zxx_filtered, sr, nperseg=nperseg, noverlap=noverlap)
+        audio_filtered: np.ndarray = np.asarray(_af_raw)
 
         # Handle potential NaN/Inf
         if np.any(~np.isfinite(audio_filtered)):
@@ -432,11 +434,11 @@ class MaskingAnalyzer:
 
         # Match length
         if len(audio_filtered) < len(audio):
-            audio_filtered = np.pad(audio_filtered, (0, len(audio) - len(audio_filtered)))
+            audio_filtered = np.asarray(np.pad(audio_filtered, (0, len(audio) - len(audio_filtered))))
         elif len(audio_filtered) > len(audio):
             audio_filtered = audio_filtered[: len(audio)]
 
-        return audio_filtered
+        return np.asarray(audio_filtered)
 
     def compute_smr(self, audio: np.ndarray, sr: int) -> float:
         """
@@ -506,54 +508,59 @@ def compute_smr(audio: np.ndarray, sr: int) -> float:
     return analyzer.compute_smr(audio, sr)
 
 
-if __name__ == "__main__":
-    """Demo masking analyzer"""
-    logger.debug("\n" + "=" * 70)
+def _demo() -> None:
+    # Demo masking analyzer
+    _sep = "=" * 70
+    logger.debug("\n%s", _sep)
     logger.debug("MASKING ANALYZER - Demo")
-    logger.debug("=" * 70 + "\n")
+    logger.debug("%s\n", _sep)
 
     # Generate test signal
-    sr = 48000
-    duration = 1.0
-    t = np.linspace(0, duration, int(sr * duration))
+    _sr = 48000
+    _duration = 1.0
+    _t = np.linspace(0, _duration, int(_sr * _duration))
 
     # Signal: Strong 1 kHz tone + weak 1.2 kHz tone (should be masked)
-    audio = 1.0 * np.sin(2 * np.pi * 1000 * t) + 0.05 * np.sin(  # Strong masker
-        2 * np.pi * 1200 * t
+    _audio = 1.0 * np.sin(2 * np.pi * 1000 * _t) + 0.05 * np.sin(  # Strong masker
+        2 * np.pi * 1200 * _t
     )  # Weak tone (masked)
-    audio = audio / np.abs(audio).max()
+    _audio = _audio / np.abs(_audio).max()
 
     # Analyze
-    analyzer = MaskingAnalyzer()
-    profile = analyzer.analyze(audio, sr)
+    _analyzer = MaskingAnalyzer()
+    _profile = _analyzer.analyze(_audio, _sr)
 
     logger.debug("Masking Profile Analysis:")
-    logger.debug("  STFT Shape: %s freq bins × %s time frames", profile.shape[0], profile.shape[1])
-    logger.debug("  Frequency Range: %.0f - %.0f Hz", profile.frequencies[0], profile.frequencies[-1])
-    logger.debug("  Time Range: %.3f - %.3f s", profile.times[0], profile.times[-1])
+    logger.debug("  STFT Shape: %s freq bins x %s time frames", _profile.shape[0], _profile.shape[1])
+    logger.debug("  Frequency Range: %.0f - %.0f Hz", _profile.frequencies[0], _profile.frequencies[-1])
+    logger.debug("  Time Range: %.3f - %.3f s", _profile.times[0], _profile.times[-1])
 
-    masked_ratio = profile.get_masked_components_ratio()
-    logger.debug("\n  Masked Components: %.1f%%", masked_ratio * 100)
+    _masked_ratio = _profile.get_masked_components_ratio()
+    logger.debug("\n  Masked Components: %.1f%%", _masked_ratio * 100)
 
-    avg_smr = analyzer.compute_smr(audio, sr)
-    logger.debug("  Average SMR: %.1f dB", avg_smr)
+    _avg_smr = _analyzer.compute_smr(_audio, _sr)
+    logger.debug("  Average SMR: %.1f dB", _avg_smr)
 
     # Check if 1.2 kHz is masked
-    freq_1200_idx = np.argmin(np.abs(profile.frequencies - 1200))
-    smr_at_1200 = np.mean(profile.masking_ratio_db[freq_1200_idx, :])
-    logger.debug("\n  SMR at 1.2 kHz: %.1f dB", smr_at_1200)
-    if smr_at_1200 < 0:
-        logger.debug("  → 1.2 kHz tone is MASKED (inaudible)")
+    _freq_1200_idx = np.argmin(np.abs(_profile.frequencies - 1200))
+    _smr_at_1200 = float(np.mean(_profile.masking_ratio_db[_freq_1200_idx, :]))
+    logger.debug("\n  SMR at 1.2 kHz: %.1f dB", _smr_at_1200)
+    if _smr_at_1200 < 0:
+        logger.debug("  -> 1.2 kHz tone is MASKED (inaudible)")
     else:
-        logger.debug("  → 1.2 kHz tone is AUDIBLE")
+        logger.debug("  -> 1.2 kHz tone is AUDIBLE")
 
     # Apply masking (remove inaudible components)
     logger.debug("\n  Applying masking filter...")
-    audio_filtered = analyzer.apply_masking(audio, sr, profile)
+    _audio_filtered = _analyzer.apply_masking(_audio, _sr, _profile)
 
-    logger.debug("    Original RMS: %.4f", np.sqrt(np.mean(audio**2)))
-    logger.debug("    Filtered RMS: %.4f", np.sqrt(np.mean(audio_filtered**2)))
+    logger.debug("    Original RMS: %.4f", np.sqrt(np.mean(_audio**2)))
+    logger.debug("    Filtered RMS: %.4f", np.sqrt(np.mean(_audio_filtered**2)))
 
-    logger.debug("\n" + "=" * 70)
+    logger.debug("\n%s", _sep)
     logger.debug("Demo complete!")
-    logger.debug("=" * 70 + "\n")
+    logger.debug("%s\n", _sep)
+
+
+if __name__ == "__main__":
+    _demo()

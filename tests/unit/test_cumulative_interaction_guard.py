@@ -132,7 +132,7 @@ def test_06_consecutive_rollbacks_stop_pipeline():
         "phase_07_harmonic_restoration",  # CIG: artikulation+timbre only → nat rollback
         "phase_10_multiband_compression",  # CIG: no entry → nat rollback
         "phase_11_limiter",  # CIG: no entry → nat rollback
-        "phase_40_saturation",  # CIG: timbre only → nat rollback
+        "phase_35_multiband_compression",  # CIG: no entry → nat rollback
         "phase_44_stereo_enhancement",  # CIG: timbre only → nat rollback
     ]
     for i, ph in enumerate(rollback_phases):

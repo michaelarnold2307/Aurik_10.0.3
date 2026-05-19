@@ -942,7 +942,9 @@ class DenoisePhase(PhaseInterface):
         if _dfn_eligible:
             _plm03_dfn = None
             try:
-                from plugins.deepfilternet_v3_ii_plugin import get_deepfilternet_plugin  # pylint: disable=import-outside-toplevel  # noqa: I001
+                from plugins.deepfilternet_v3_ii_plugin import (  # pylint: disable=import-outside-toplevel
+                    get_deepfilternet_plugin,
+                )
 
                 try:
                     # pylint: disable=import-outside-toplevel

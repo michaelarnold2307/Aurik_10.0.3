@@ -74,7 +74,7 @@ class RestaurierErgebnis:
     """Übersprungene Phasen (Budget, Defekte)."""
 
     musical_goals: dict[str, float] | None = None
-    """14 Musical Goals (falls gemessen)."""
+    """15 Musical Goals (falls gemessen)."""
 
     warnings: list[str] = field(default_factory=list)
     """Warnmeldungen aus der Pipeline."""

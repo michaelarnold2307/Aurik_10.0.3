@@ -8,7 +8,7 @@ Konkreter Bug den dieser Test verhindert:
 - Phase_12 wow/flutter (EXEMPT) läuft 1200s auf CPU-only
 - Budget = 600s → _elapsed_wall = 1372s > 600s
 - ALLE 30+ Non-Exempt-Phasen werden übersprungen
-- 7/14 Musical Goals verletzt → Export-Gate FAILED
+- 7/15 Musical Goals verletzt → Export-Gate FAILED
 
 Nach Fix: _pipeline_non_exempt_elapsed_s startet bei 0.0, zählt nur
 Non-Exempt-Phasen → exempt Phasen verbrauchen das Budget nicht.
@@ -35,8 +35,8 @@ class _FakePhaseResult:
 def _make_audio(duration_s: float = 3.0, sr: int = 48000) -> np.ndarray:
     """Mono float32 Testsignal."""
     n = int(duration_s * sr)
-    t = np.linspace(0, duration_s, n, dtype=np.float32)
-    return (0.1 * np.sin(2 * np.pi * 440 * t)).reshape(-1)
+    t: np.ndarray = np.asarray(np.linspace(0, duration_s, n, dtype=np.float32), dtype=np.float32)
+    return np.asarray((0.1 * np.sin(2 * np.pi * 440 * t)).reshape(-1), dtype=np.float32)
 
 
 # ── Kern-Tests ───────────────────────────────────────────────────────────────

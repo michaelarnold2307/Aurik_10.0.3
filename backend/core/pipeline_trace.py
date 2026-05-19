@@ -2,7 +2,7 @@
 pipeline_trace.py — Strukturierte Debug-Telemetrie für die Aurik-Pipeline.
 
 Vollständige Sicht auf jeden Phasen-Durchlauf ohne Raten:
-- 14 Musical-Goals vor/nach jeder Phase (Zeitreihe)
+- 15 Musical-Goals vor/nach jeder Phase (Zeitreihe)
 - Gate-Entscheidungen (accepted / rolled_back / skipped / best_effort)
 - Phase-Timing, Stärke, Wet/Dry-Faktoren
 - CIG-Rollbacks, ML-Fallbacks, Fail-Reasons
@@ -20,6 +20,7 @@ Usage:
     with open("trace.json", "w") as f:
         f.write(trace.to_json())
 """
+# pylint: disable=import-outside-toplevel
 
 from __future__ import annotations
 
@@ -31,20 +32,21 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-# Kanonische Reihenfolge der 14 Musical Goals (Prio P1 → P5)
+# Kanonische Reihenfolge der 15 Musical Goals (Prio P1 → P5)
 CANONICAL_GOALS: list[str] = [
     "natuerlichkeit",  # P1
     "authentizitaet",  # P1
     "tonal_center",  # P2
     "timbre_authentizitaet",  # P2
     "artikulation",  # P2
+    "transient_energie",  # P2/P3
     "emotionalitaet",  # P3
     "micro_dynamics",  # P3 (alias: mikrodynamik)
     "groove",  # P3
     "transparenz",  # P4
     "waerme",  # P4
     "bass_kraft",  # P4 (alias: basskraft)
-    "sep_fidelity",  # P4
+    "separation_fidelity",  # P4
     "brillanz",  # P5
     "spatial_depth",  # P5 (alias: raumtiefe)
 ]
@@ -56,6 +58,7 @@ GOAL_ABBREV: dict[str, str] = {
     "tonal_center": "TONAL",
     "timbre_authentizitaet": "TIMBRE",
     "artikulation": "ARTIK",
+    "transient_energie": "TRANSENG",
     "emotionalitaet": "EMOTION",
     "micro_dynamics": "MIKRODYN",
     "mikrodynamik": "MIKRODYN",  # backward-compat alias
@@ -64,6 +67,7 @@ GOAL_ABBREV: dict[str, str] = {
     "waerme": "WAERME",
     "bass_kraft": "BASSKR",
     "basskraft": "BASSKR",  # backward-compat alias
+    "separation_fidelity": "SEPFID",
     "sep_fidelity": "SEPFID",
     "brillanz": "BRILLANZ",
     "spatial_depth": "RAUMTF",
@@ -141,6 +145,7 @@ class PhaseTrace:
     notes: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
+        """Serialisiert den Phasen-Snapshot als JSON-kompatibles Dict."""
         return {
             "phase_id": self.phase_id,
             "phase_index": self.phase_index,
@@ -196,6 +201,7 @@ class PipelineTrace:
     data_source: str = "post_hoc"  # "post_hoc" | "live"
 
     def to_dict(self) -> dict[str, Any]:
+        """Serialisiert den Pipeline-Trace als JSON-kompatibles Dict."""
         return {
             "run_id": self.run_id,
             "timestamp": self.timestamp,
@@ -227,6 +233,7 @@ class PipelineTrace:
         }
 
     def to_json(self, indent: int = 2) -> str:
+        """Serialisiert den Pipeline-Trace als formatierter JSON-String."""
         return json.dumps(self.to_dict(), ensure_ascii=False, indent=indent)
 
 
@@ -258,7 +265,11 @@ def build_from_result(result: Any) -> PipelineTrace:
 
     # --- Grundinfos ---
     _material = getattr(result, "material_type", None)
-    trace.material = str(_material.value if hasattr(_material, "value") else _material or "")
+    if _material is None:
+        trace.material = ""
+    else:
+        _mat_val = getattr(_material, "value", None)
+        trace.material = str(_mat_val) if _mat_val is not None else str(_material)
     trace.era = str(getattr(result, "era_decade", "") or "")
     trace.restorability = float(getattr(result, "restorability", 0) or 0)
     trace.total_duration_s = float(getattr(result, "total_time_seconds", 0) or 0)
@@ -281,7 +292,11 @@ def build_from_result(result: Any) -> PipelineTrace:
     _config = getattr(result, "config", None)
     if _config:
         _m = getattr(_config, "mode", None)
-        trace.mode = str(_m.value if hasattr(_m, "value") else _m or "")
+        if _m is None:
+            trace.mode = ""
+        else:
+            _mval = getattr(_m, "value", None)
+            trace.mode = str(_mval) if _mval is not None else str(_m)
 
     # --- Metadata ---
     meta = getattr(result, "metadata", {}) or {}
@@ -369,7 +384,7 @@ def build_from_result(result: Any) -> PipelineTrace:
                     _retries = 1
             elif "best_effort_r" in _action:
                 try:
-                    _retries = int(_action.split("_r")[-1])
+                    _retries = int(_action.rsplit("_r", maxsplit=1)[-1])
                 except ValueError:
                     _retries = 0
 
@@ -462,7 +477,7 @@ def _now_iso() -> str:
 
 def format_goals_table(trace: PipelineTrace, mode: str | None = None) -> str:
     """
-    Erstellt eine ASCII-Matrix: 14 Musical Goals × Phasen.
+    Erstellt eine ASCII-Matrix: 15 Musical Goals × Phasen.
 
     Zeigt für jede Phase den Goal-Score nach der Phase.
     Regressionen (<Schwellwert) werden mit [!] markiert.
@@ -569,7 +584,8 @@ def format_phase_decisions(trace: PipelineTrace) -> str:
         hint = pt.team_policy_reason[:30] if pt.team_policy_reason else ""
         if pt.goal_regressions:
             worst = min(pt.goal_regressions.values())
-            worst_goal = min(pt.goal_regressions, key=pt.goal_regressions.get)
+            # select goal with minimal regression value
+            worst_goal = min(pt.goal_regressions.items(), key=lambda kv: kv[1])[0]
             hint = hint or f"{worst_goal}: {worst:+.3f}"
         lines.append(
             f"{i + 1:<4} {pt.phase_id:<35} {decision_sym:<15} {pt.strength_used:>8.3f}  {pt.pmgg_retries:>7}  {hint}"
@@ -691,6 +707,6 @@ def get_last_trace() -> PipelineTrace | None:
 
 def store_trace(trace: PipelineTrace) -> None:
     """Speichert Trace als letzten bekannten Trace (thread-sicher)."""
-    global _last_trace
+    global _last_trace  # pylint: disable=global-statement
     with _trace_lock:
         _last_trace = trace

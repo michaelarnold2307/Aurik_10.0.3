@@ -311,7 +311,7 @@ def test_safety_post_check(sample_audio):
 
     # Should have correlation metric
     assert "correlation" in post_result.metrics
-    assert "intelligibility_preservation" in post_result.metrics or True  # May not be computed if no baseline
+    assert "intelligibility_preservation" in post_result.metrics  # May not be computed if no baseline
 
 
 @pytest.mark.skipif(not CONTEXT_AWARE_DEESSER_AVAILABLE, reason="Context-Aware De-Esser not available")
@@ -423,12 +423,15 @@ def test_memory_usage(sample_audio):
     deesser = ContextAwareDeEsser()
 
     # Process should not leak memory
+    audio_out = None
+    last_audio_out = None
     for _ in range(3):
         audio_out, _ = deesser.process(audio, sr)
+        last_audio_out = audio_out
         del audio_out  # Cleanup
 
-    # If we got here without OOM, test passes
-    assert True
+    # If we got here without OOM, ensure output exists and is an array
+    assert isinstance(last_audio_out, np.ndarray)
 
 
 # ============================================================================

@@ -1,16 +1,16 @@
-# Aurik 9 — Spec 01: 14 Musikalische Ziele
+# Aurik 9 — Spec 01: 15 Musikalische Ziele
 
 > **Einzige normative Quelle** für alle Goal-Schwellwerte, Prioritäten, Adaptive Thresholds
 > und Applicability-Regeln. Alle anderen Dateien **referenzieren** hierher.
 >
-> **Zweck**: Die 14 Ziele operationalisieren §0 — sie messen, ob Aurik bei jeder Importdatei
+> **Zweck**: Die 15 Ziele operationalisieren §0 — sie messen, ob Aurik bei jeder Importdatei
 > unter Berücksichtigung der Quelldatei und der physikalischen Grenzen das maximal mögliche
 > Ergebnis erreicht. Ihre Schwellwerte sind so kalibriert, dass sie die qualitativ hochwertigsten
 > automatisierten Restaurierungsergebnisse für Musik mit Gesang weltweit ermöglichen.
 
 ## §1.0a [RELEASE_MUST] Universaler Zielraum (All-Import Contract)
 
-Die 14 Musical Goals sind **nicht** auf einen einzelnen Song oder ein Einzelgenre optimiert,
+Die 15 Musical Goals sind **nicht** auf einen einzelnen Song oder ein Einzelgenre optimiert,
 sondern auf den vollständigen Importraum von Aurik (Material × Ära × Genre × Defektschwere).
 
 **Verbindlich:**
@@ -25,7 +25,7 @@ Diese Invariante konkretisiert §0 Klangwahrheit für den gesamten Produktbetrie
 
 ---
 
-## §1.2 Die 14 Musikalischen Ziele (Musical Goals) — vollständige Tabelle
+## §1.2 Die 15 Musikalischen Ziele (Musical Goals) — vollständige Tabelle
 
 Implementiert in `backend/core/musical_goals/musical_goals_metrics.py`,
 aufgerufen via `MusicalGoalsChecker.measure_all(audio, sr)`.
@@ -36,20 +36,20 @@ aufgerufen via `MusicalGoalsChecker.measure_all(audio, sr)`.
 | **Authentizität** (`AuthentizitaetMetric`) | Voice Identity, spektraler Fingerabdruck | **1** | ≥ **0.88** | ≥ **0.90** |
 | **Tonales Zentrum** (`TonalCenterMetric`) | Chroma-Korrelation Original↔Restauriert, kein Key-Shift > 0 Cent | **2** | ≥ **0.95** | ≥ **0.96** |
 | **Timbre-Authentizität** (`TimbralAuthenticityMetric`) | MFCC-Pearson ≥ 0.95, Spectral-Centroid-Korrelation ≥ 0.93, Rolloff-Abw. ≤ 5 % | **2** | ≥ **0.87** | ≥ **0.89** |
-| **Artikulation** (`ArticulationMetric`) | Attack-Charakter-Erhalt (Staccato vs. Legato): Transient-Shape-Korrelation ≥ 0.90, Attack-Time-Abweichung ≤ 10 ms | **2** | ≥ **0.85** | ≥ **0.87** |
-| **Transient-Energie** (`TransientEnergyMetric`) | Onset-Amplitude-Ratio: E(attack_restored, 5 ms) / E(attack_original, 5 ms) ≥ 0.85 per Onset (geometrisches Mittel aller erkannten Onsets via HPSS + librosa.onset_detect) | **2** | ≥ **0.83** | ≥ **0.85** |
-| **Emotionalität** (`EmotionalitaetMetric`) | Dynamik, Ausdruck, Modulationstiefe | **3** | ≥ **0.82** | ≥ **0.84** |
+| **Artikulation** (`ArticulationMetric`) | Attack-Charakter-Erhalt (Staccato vs. Legato): Transient-Shape-Korrelation ≥ 0.90, Attack-Time-Abweichung ≤ 10 ms | **2** | ≥ **0.88** | ≥ **0.90** |
+| **Transient-Energie** (`TransientEnergyMetric`) | Onset-Amplitude-Ratio: E(attack_restored, 5 ms) / E(attack_original, 5 ms) ≥ 0.85 per Onset (geometrisches Mittel aller erkannten Onsets via HPSS + librosa.onset_detect) | **2** | ≥ **0.80** | ≥ **0.83** |
+| **Emotionalität** (`EmotionalitaetMetric`) | Dynamik, Ausdruck, Modulationstiefe | **3** | ≥ **0.84** | ≥ **0.87** |
 | **Mikro-Dynamik** (`MicroDynamicsMetric`) | Momentane LUFS-Profil-Korrelation (400 ms-Fenster), Crest-Faktor-Erhalt ≤ 1.5 dB | **3** | ≥ **0.88** | ≥ **0.90** |
 | **Groove** (`GrooveMetric`) | Mikro-Timing, Swing, Event-Onset-Präzision (DTW ≤ 8 ms RMS) | **3** | ≥ **0.83** | ≥ **0.85** |
 | **Transparenz** (`TransparenzMetric`) | Klarheit, Trennung der Klangelemente | **4** | ≥ **0.82** | ≥ **0.85** |
-| **Wärme** (`WaermeMetric`) | Primär: Even-Harmonic-Ratio (H2/H4 THD_even/THD_total, ISO 226:2003 gewichtet) — misst wahrgenommene Röhren-/Band-Wärme; Sekundär: Warmth Ratio E(200–800)/E(800–3000) als Spektral-Tilt-Proxy (§9.7.14) | **4** | ≥ **0.75** | ≥ **0.80** |
+| **Wärme** (`WaermeMetric`) | Primär: Even-Harmonic-Ratio (H2/H4 THD_even/THD_total, ISO 226:2003 gewichtet) — misst wahrgenommene Röhren-/Band-Wärme; Sekundär: Warmth Ratio E(200–800)/E(800–3000) als Spektral-Tilt-Proxy (§9.7.14) | **4** | ≥ **0.75** | ≥ **0.78** |
 | **Bass-Kraft** (`BassKraftMetric`) | Bassenergie 20–250 Hz + Virtual Pitch (Missing Fundamental, Obertöne 120–500 Hz) | **4** | ≥ **0.78** | ≥ **0.80** |
-| **Separation-Treue** (`SeparationFidelityMetric`) | SDR ≥ 8 dB / SIR ≥ 12 dB nach NMF-Dekomposition | **4** | ≥ **0.78** | ≥ **0.80** |
+| **Separation-Treue** (`SeparationFidelityMetric`) | SDR ≥ 8 dB / SIR ≥ 12 dB nach NMF-Dekomposition | **4** | ≥ **0.80** | ≥ **0.83** |
 | **Brillanz** (`BrillanzMetric`) | HF-Klarheit, 8–20 kHz — Sparkle & Air | **5** | ≥ **0.78** | ≥ **0.82** |
 | **Raumtiefe** (`SpatialDepthMetric`) | IACC (Interaural Cross-Correlation, Blauert 1997) + Stereobreite + Phantom-Center-Stabilität; IACC < 0.70 → wahrnehmb. Zusammenbruch | **5** | ≥ **0.70** | ≥ **0.74** |
 
 > **v9.10.77 / Spec 09 Pareto-Differenzierung**: Restoration-Modus senkt P3–P5-Böden auf physikalisch erreichbare Werte (Pareto-Konflikte: Bass↔Transparenz [0.7], Brillanz↔Wärme [0.6]). P1/P2 bleiben identisch. Studio 2026 setzt höhere P1/P2-Böden (Enhancement braucht stärkere Naturalness-Guardrails) und niedrigere P3–P5-Böden (materialadaptiv kalibriert aus AMRB).
-> **Kanonische Böden**: Die Werte in dieser Tabelle sind `CANONICAL_THRESHOLDS` — implementiert in `backend/core/calibration_matrix.py` (Single Source of Truth: Spec 09, normativ übergeordnet). Song-spezifische Ziele berechnet die adaptive Schicht §2.31 + §09.2 + §2.56 (Material, Ära, Genre, Restorability) — effektive Targets können je nach Song über oder unter diesen Böden liegen.
+> **Kanonische Böden**: Die Werte in dieser Tabelle sind `CANONICAL_THRESHOLDS` — implementiert in `backend/core/calibration_matrix.py` (Single Source of Truth: Spec 09, normativ übergeordnet). Song-spezifische Ziele berechnet die adaptive Schicht §1.2b + §2.31 + §09.2 + §2.56 (Material, Ära, Genre, Tonträgerkette, Restorability, Physical Ceiling) — **garantiert wird immer der effektive Zielwert**, nicht der rohe kanonische Boden.
 > **Schwellwert-Validierung**: Die Schwellwerte wurden algorithmisch aus AMRB-Benchmarkdaten (10 Szenarien, Ø OQS-Kalibrierung) abgeleitet. Ein ITU-R BS.1534-3 MUSHRA-Hörertest steht als externe Validierung aus (geplant). Bis zur Validierung gelten die Werte als „best engineering estimate“. Änderungen ausschließlich in `calibration_matrix.py` + Spec 09 (Single Source of Truth).
 
 ```python
@@ -57,11 +57,12 @@ from backend.core.musical_goals.musical_goals_metrics import MusicalGoalsChecker
 
 checker = MusicalGoalsChecker(mode="restoration")  # oder "studio_2026"
 scores = checker.measure_all(audio, sr)  # Dict[str, float]
+effective_targets = resolve_effective_goal_targets(song_context, physical_ceiling)
 # Pflicht-Check nach jeder Restaurierung:
-assert all(scores[g] >= t for g, t in checker.thresholds.items()), scores
+assert all(scores[g] >= effective_targets[g] for g in applicable_goals), scores
 ```
 
-**Invariante (§2.54-konform)**: Am **Pipeline-Ende** müssen alle 14 Ziele ≥ Schwellwert liegen.
+**Invariante (§2.54-konform)**: Am **Pipeline-Ende** müssen alle 15 anwendbaren Ziele ≥ effektivem Zielwert liegen.
 Einzelphasen dürfen Proxy-Werte vorübergehend senken, wenn:
 
 - **Carrier-Repair** (§2.44 Referenz-Paradoxon): Tonträgerschaden-Inversion verändert Chroma/Centroid intentional
@@ -111,6 +112,54 @@ metadata["best_carrier_checkpoint"] = current_audio.copy()
 | **3. HPI Export-Gate** | Referenz-Paradoxon | Spec 02 §2.44 | Restorability-abhängiger Referenz-Anker (GP-Memory MERT bei Restorability ≤ 50) |
 
 Alle drei Ebenen MÜSSEN konsistent implementiert sein. Ein Gate (PMGG, CIG, HPI, AFG) darf den Export nie blockieren, weil sich das Signal vom **degradierten** Input entfernt hat — solange es sich dem **physikalischen Ceiling** des erkannten Materials nähert.
+
+### §1.2b [RELEASE_MUST] Effektiver Zielwert und Erreichens-Garantie (v9.12.13)
+
+Für jedes Importstück MUSS Aurik pro anwendbarem Musical Goal genau einen **effektiven Zielwert** berechnen. Dieser Wert ist der einzige harte Zielwert, den Pipeline, PMGG, FeedbackChain, End-Gate, UI und Report verwenden dürfen.
+
+**Definition:**
+
+```python
+canonical_floor = CANONICAL_THRESHOLDS[goal]
+material_floor = get_material_floor(material_type, goal, is_studio_2026)
+song_target = estimate_song_goal_targets(
+    is_studio_2026=is_studio_2026,
+    goal_weights=song_goal_importance,
+    restorability_score=restorability_score,
+    era_decade=era_decade,
+    genre_label=genre_label,
+    material_type=material_type,
+    transfer_chain=transfer_chain,
+    production_profile=production_profile,
+)[goal]
+restorability_floor = get_effective_material_floor(
+    material_type, goal, restorability_score, is_studio_2026
+)
+physical_cap = physical_ceiling.ceiling.get(goal, 0.99)
+chain_cap = get_chain_end_goal_ceiling(transfer_chain, goal)
+
+effective_target = min(
+    max(restorability_floor, song_target),
+    physical_cap,
+    chain_cap,
+)
+effective_target = clip(effective_target, 0.20, 0.99)
+```
+
+**Garantie:** Nach Abschluss der Restaurierung MUSS für jedes anwendbare Ziel gelten:
+
+```python
+final_scores[goal] >= effective_target[goal]
+```
+
+Falls diese Bedingung nicht erfüllt ist, ist ein normaler Export verboten. UV3 MUSS dann in dieser Reihenfolge reagieren:
+
+1. `§GOAL_BASELINE_CHECK`/FeedbackChain-Recovery mit `get_goal_recovery_phases(goal)` erneut anstoßen, sofern eine nicht ausgeschöpfte, §0a-konforme Phase existiert.
+2. Stärke reduzieren oder auf `best_carrier_checkpoint` zurückrollen, wenn Recovery Artefakte, VQI-Abfall oder HPI-Verlust erzeugt.
+3. Wenn `effective_target` trotz zulässiger Recovery physikalisch nicht erreichbar ist, MUSS `effective_target` durch `physical_ceiling`/`chain_cap` begründet abgesenkt und in `metadata["goal_target_limitations"]` dokumentiert werden.
+4. Wenn auch der abgesenkte Zielwert nicht artefaktfrei erreichbar ist, MUSS der Exportstatus `degraded` sein und der beste artefaktfreie Checkpoint oder das Original exportiert werden. Ein überprozessiertes Ergebnis ist verboten (§0h).
+
+**Wichtig:** Die Garantie bezieht sich auf den effektiv berechneten, physikalisch gedeckelten Zielwert. Sie darf niemals als Pflicht verstanden werden, ein Shellac-, Kassetten- oder MP3-low-Signal über seine Material- oder Tonträgerketten-Grenze hinaus zu erzwingen.
 
 ---
 
@@ -182,7 +231,7 @@ conflict_result = gpp.resolve_conflict(goal_a, goal_b, delta_a, delta_b)
 
 ## §2.35 Vocal-Exzellenz-Zusatzmetriken (PFLICHT fuer Gesangsmaterial)
 
-Wenn PANNs/Gender/Vocal-Detektoren Gesang erkennen, werden zusaetzlich zu den 14 Musical Goals folgende Vocal-Zielwerte geprueft:
+Wenn PANNs/Gender/Vocal-Detektoren Gesang erkennen, werden zusaetzlich zu den 15 Musical Goals folgende Vocal-Zielwerte geprueft:
 
 | Ziel | Messgroesse | Mindestwert |
 | --- | --- | --- |
@@ -241,7 +290,7 @@ proximity_score = (
 
 ## §2.35c [RELEASE_MUST] VocalQualityIndex (VQI) — Gesangs-Gesamtqualitäts-Gate (v9.12.0)
 
-**Motivation**: Die bestehenden 14 Musical Goals und §2.35/§2.35b messen jeweils Teilaspekte des Gesangs. Ein zusammengesetzter `VocalQualityIndex` liefert ein einzelnes, messbares Qualitätssignal für Gesangsmaterial — und ermöglicht damit, einen extern belegbaren Spitzenanspruch für Gesangsrestaurierung überhaupt erst zu prüfen.
+**Motivation**: Die bestehenden 15 Musical Goals und §2.35/§2.35b messen jeweils Teilaspekte des Gesangs. Ein zusammengesetzter `VocalQualityIndex` liefert ein einzelnes, messbares Qualitätssignal für Gesangsmaterial — und ermöglicht damit, einen extern belegbaren Spitzenanspruch für Gesangsrestaurierung überhaupt erst zu prüfen.
 
 **Formel**:
 
@@ -456,7 +505,7 @@ Die Stufenwerte 1.00 / 0.93 / 0.85 / 0.75 sind aus dem PhysicalCeilingEstimator 
 
 ```python
 # Formale Herleitung (normativ): scale_factor = ceiling(goal) / baseline_threshold
-# Die Stufen approximieren den integralen Ø der Ceiling-Kurven über alle 14 Goals
+# Die Stufen approximieren den integralen Ø der Ceiling-Kurven über alle 15 Goals
 # pro Restorability-Klasse (gemessen auf 500 AMRB-Testdateien):
 # ≥ 70: ceiling_avg = 0.97 → scale = 1.00
 # 50–69: ceiling_avg = 0.90 → scale = 0.93
@@ -509,7 +558,7 @@ Nutzer-Meldung wenn Decke erreicht (Deutsch):
 4. **Transientenerhalt**: Attack-Zeiten ≤ ±2 ms Änderung
 5. **Tonale Stabilität**: Chroma-Pearson ≥ 0.95
 6. **Groove**: Event-Onset-DTW ≤ 8 ms RMS — kein Begradigen von Swing/Rubato
-7. **Pass-Through-Invariante** (SNR > 40 dB): PQS-MOS-Verlust ≤ 0.05, alle 14 Goals ±0.02, LUFS ≤ 0.3 LU, Chroma ≥ 0.99
+7. **Pass-Through-Invariante** (SNR > 40 dB): PQS-MOS-Verlust ≤ 0.05, alle 15 Goals ±0.02, LUFS ≤ 0.3 LU, Chroma ≥ 0.99
 8. **Rauschboden** (modus-differenziert):
    - **Restoration**: Material-adaptiv — Rauschboden des originalen Aufnahmemediums anstreben. Ein Studio-Tape von 1965 hatte ≈ −60 dBFS; erzwungene −72 dBFS entfernt Studio-Ambience und zerstört Raumklang. Richtgrößen: Shellac ≤ −45 dBFS, Vinyl ≤ −55 dBFS, Tape ≤ −60 dBFS, Digital ≤ −72 dBFS.
    - **Studio 2026**: ≤ −72 dBFS, A-gew. ≤ −75 dB(A), 0 Musical-Noise-Events in Stille
@@ -527,7 +576,7 @@ Nutzer-Meldung wenn Decke erreicht (Deutsch):
 
 ## §2.56 Song-Goal-Importance — Per-Song Goal Weighting (v9.12.0) [RELEASE_MUST]
 
-Die 14 Musical Goals bilden eine Pareto-Front: nicht alle können gleichzeitig vollständig erfüllt werden,
+Die 15 Musical Goals bilden eine Pareto-Front: nicht alle können gleichzeitig vollständig erfüllt werden,
 da sie sich physikalisch teilweise ausschließen (z.B. Brillanz vs. Wärme, Transparenz vs. Raumtiefe).
 Für jedes Stück muss die richtige Gewichtung aus dem musikalischen Kontext berechnet werden.
 

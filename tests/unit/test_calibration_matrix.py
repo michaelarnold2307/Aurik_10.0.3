@@ -13,11 +13,13 @@ import numpy as np
 from backend.core.calibration_matrix import (
     CANONICAL_THRESHOLDS_RESTORATION,
     CANONICAL_THRESHOLDS_STUDIO2026,
+    estimate_chain_end_goal_ceiling,
     estimate_song_goal_targets,
     get_goal_recovery_phases,
     get_material_floor,
     get_phase_strength_range,
     predict_quality_score,
+    resolve_effective_goal_targets,
 )
 
 # ---------------------------------------------------------------------------
@@ -29,13 +31,14 @@ _P2_GOALS = {"tonal_center", "timbre_authentizitaet", "artikulation"}
 
 
 def test_canonical_thresholds_restoration_has_all_goals():
-    """All 14 goals must be present in CANONICAL_THRESHOLDS_RESTORATION."""
+    """All 15 goals must be present in CANONICAL_THRESHOLDS_RESTORATION."""
     expected = {
         "natuerlichkeit",
         "authentizitaet",
         "tonal_center",
         "timbre_authentizitaet",
         "artikulation",
+        "transient_energie",
         "emotionalitaet",
         "mikrodynamik",
         "groove",
@@ -197,14 +200,20 @@ def test_targets_keys_match_restoration_canonical():
 
 def test_studio_2026_mode_raises_targets():
     """Studio 2026 mode targets must be ≥ Restoration targets for P3–P5 goals."""
-    common_kwargs = {
-        "material_type": "vinyl",
-        "era_decade": 1975,
-        "genre_label": "pop",
-        "restorability_score": 70,
-    }
-    t_rest = estimate_song_goal_targets(is_studio_2026=False, **common_kwargs)
-    t_s26 = estimate_song_goal_targets(is_studio_2026=True, **common_kwargs)
+    t_rest = estimate_song_goal_targets(
+        is_studio_2026=False,
+        material_type="vinyl",
+        era_decade=1975,
+        genre_label="pop",
+        restorability_score=70,
+    )
+    t_s26 = estimate_song_goal_targets(
+        is_studio_2026=True,
+        material_type="vinyl",
+        era_decade=1975,
+        genre_label="pop",
+        restorability_score=70,
+    )
     # P3-P5 floor is higher in Studio 2026 → targets must be higher or equal
     for g in ("transparenz", "brillanz", "groove", "mikrodynamik"):
         assert t_s26.get(g, 0) >= t_rest.get(g, 0) - 0.02, (
@@ -423,7 +432,7 @@ def test_get_phase_strength_range_unknown_phase_uses_default():
 
 
 # ---------------------------------------------------------------------------
-# §09.8 Material-floor ordering — materials added to UV3 _ADAPTIVE_THR_MATERIAL_CEILING
+# §09.8 Material-floor ordering — materials formerly mirrored in UV3 material ceiling tables
 # (§0a §2.44 defensive ceiling for lacquer_disc, mp3_high, aac, minidisc, dat)
 # ---------------------------------------------------------------------------
 
@@ -526,7 +535,7 @@ def test_pmgg_canonical_thresholds_match_calibration_matrix():
 # §09.10 get_goal_recovery_phases — GOAL_BASELINE_CHECK backing data
 # ---------------------------------------------------------------------------
 
-_ALL_14_GOALS = {
+_ALL_15_GOALS = {
     "brillanz",
     "waerme",
     "natuerlichkeit",
@@ -534,6 +543,7 @@ _ALL_14_GOALS = {
     "tonal_center",
     "groove",
     "artikulation",
+    "transient_energie",
     "micro_dynamics",
     "emotionalitaet",
     "bass_kraft",
@@ -558,10 +568,10 @@ def test_get_goal_recovery_phases_returns_list_of_strings():
     assert all(isinstance(p, str) for p in result)
 
 
-def test_get_goal_recovery_phases_all_14_goals_have_entries():
+def test_get_goal_recovery_phases_all_15_goals_have_entries():
     """Every canonical Musical Goal must have at least one restoration recovery phase."""
     missing = []
-    for goal in _ALL_14_GOALS:
+    for goal in _ALL_15_GOALS:
         phases = get_goal_recovery_phases(goal, is_studio_2026=False)
         if not phases:
             missing.append(goal)
@@ -574,7 +584,7 @@ def test_get_goal_recovery_phases_all_14_goals_have_entries():
 def test_get_goal_recovery_phases_no_forbidden_in_restoration():
     """§0a: phase_21/35/42 must NEVER appear in restoration mode recovery lists."""
     violations = []
-    for goal in _ALL_14_GOALS:
+    for goal in _ALL_15_GOALS:
         phases = get_goal_recovery_phases(goal, is_studio_2026=False)
         bad = set(phases) & _FORBIDDEN_RESTORATION_PHASES
         if bad:
@@ -584,7 +594,7 @@ def test_get_goal_recovery_phases_no_forbidden_in_restoration():
 
 def test_get_goal_recovery_phases_studio_extras_add_phases():
     """Studio 2026 mode must return at least as many phases as restoration for all goals."""
-    for goal in _ALL_14_GOALS:
+    for goal in _ALL_15_GOALS:
         rest_phases = get_goal_recovery_phases(goal, is_studio_2026=False)
         studio_phases = get_goal_recovery_phases(goal, is_studio_2026=True)
         assert len(studio_phases) >= len(rest_phases), (
@@ -614,15 +624,50 @@ def test_get_goal_recovery_phases_alias_normalisation():
 
 def test_get_goal_recovery_phases_no_duplicates():
     """Returned phase list must have no duplicate entries for any goal or mode."""
-    for goal in _ALL_14_GOALS:
+    for goal in _ALL_15_GOALS:
         for studio in (False, True):
             phases = get_goal_recovery_phases(goal, is_studio_2026=studio)
             assert len(phases) == len(set(phases)), f"Duplicate phases for goal='{goal}' studio={studio}: {phases}"
 
 
+def test_estimate_chain_end_goal_ceiling_uses_last_transfer_stage():
+    """Transferketten-Ende muss HF-sensitive Goals begrenzen (§2.46a)."""
+    caps = estimate_chain_end_goal_ceiling(["vinyl", "cassette", "mp3_low"])
+    assert caps["brillanz"] == 0.45
+    assert caps["transparenz"] == 0.60
+
+
+def test_resolve_effective_goal_targets_caps_by_physical_and_chain_ceiling():
+    """Effective targets dürfen weder PhysicalCeiling noch Chain-End-Ceiling überschreiten."""
+    targets = resolve_effective_goal_targets(
+        is_studio_2026=False,
+        restorability_score=90.0,
+        era_decade=1990,
+        genre_label="pop",
+        material_type="vinyl",
+        transfer_chain=["vinyl", "mp3_low"],
+        physical_ceiling={"brillanz": 0.70, "transparenz": 0.90},
+        applicable_goals={"brillanz", "transparenz"},
+    )
+    assert targets["brillanz"] <= 0.45
+    assert targets["transparenz"] <= 0.60
+
+
+def test_resolve_effective_goal_targets_respects_restorability_floor():
+    """Extrem niedrige Restorability darf targets nur bis RESTORABILITY_SCALE_MIN senken."""
+    targets = resolve_effective_goal_targets(
+        is_studio_2026=False,
+        restorability_score=10.0,
+        material_type="mp3_low",
+        applicable_goals={"natuerlichkeit"},
+        physical_ceiling={"natuerlichkeit": 0.99},
+    )
+    assert targets["natuerlichkeit"] >= get_material_floor("mp3_low", "natuerlichkeit") * 0.72 - 1e-6
+
+
 def test_get_goal_recovery_phases_primary_phase_is_string():
-    """Primary recovery phase (index 0) must be a non-empty string for all 14 goals."""
-    for goal in _ALL_14_GOALS:
+    """Primary recovery phase (index 0) must be a non-empty string for all 15 goals."""
+    for goal in _ALL_15_GOALS:
         phases = get_goal_recovery_phases(goal)
         assert phases and phases[0], f"Primary recovery phase for '{goal}' is empty/None: {phases}"
 

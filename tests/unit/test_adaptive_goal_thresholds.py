@@ -100,7 +100,7 @@ class TestMaterialQualityEnum:
 
 
 class TestAdaptiveGoalThresholdsDataclass:
-    """Prüft die Dataclass-Struktur (§2.31, 9 Felder)."""
+    """Prüft die Dataclass-Struktur (§2.31, 15 Ziele plus Kontextfelder)."""
 
     def _make(self, level=MaterialQuality.GOOD, relax=0.3) -> AdaptiveGoalThresholds:
         return AdaptiveGoalThresholds(
@@ -115,30 +115,16 @@ class TestAdaptiveGoalThresholdsDataclass:
             relaxation_factor=relax,
         )
 
-    def test_05_all_nine_fields_present(self):
+    def test_05_all_fields_present(self):
         obj = self._make()
-        assert hasattr(obj, "brillanz")
-        assert hasattr(obj, "waerme")
-        assert hasattr(obj, "natuerlichkeit")
-        assert hasattr(obj, "authentizitaet")
-        assert hasattr(obj, "emotionalitaet")
-        assert hasattr(obj, "transparenz")
-        assert hasattr(obj, "bass_kraft")
+        for field_name in GOAL_ALIASES:
+            assert hasattr(obj, field_name), field_name
         assert hasattr(obj, "quality_level")
         assert hasattr(obj, "relaxation_factor")
 
     def test_06_threshold_fields_are_floats(self):
         obj = self._make()
-        for field_name in (
-            "brillanz",
-            "waerme",
-            "natuerlichkeit",
-            "authentizitaet",
-            "emotionalitaet",
-            "transparenz",
-            "bass_kraft",
-            "relaxation_factor",
-        ):
+        for field_name in (*GOAL_ALIASES, "relaxation_factor"):
             assert isinstance(getattr(obj, field_name), float), field_name
 
     def test_07_quality_level_field_is_enum(self):
@@ -147,16 +133,7 @@ class TestAdaptiveGoalThresholdsDataclass:
 
     def test_08_all_thresholds_finite(self):
         obj = self._make()
-        for field_name in (
-            "brillanz",
-            "waerme",
-            "natuerlichkeit",
-            "authentizitaet",
-            "emotionalitaet",
-            "transparenz",
-            "bass_kraft",
-            "relaxation_factor",
-        ):
+        for field_name in (*GOAL_ALIASES, "relaxation_factor"):
             val = getattr(obj, field_name)
             assert math.isfinite(val), f"NaN/Inf in {field_name}"
 
@@ -420,9 +397,9 @@ from backend.core.musical_goals.adaptive_goal_resolver import (
 class TestAdaptiveGoalResolverModule:
     """Tests für backend.core.musical_goals.adaptive_goal_resolver (P1-2)."""
 
-    def test_33_all_14_aliases_defined(self):
-        """GOAL_ALIASES muss alle 14 kanonischen Zielschlüssel enthalten."""
-        assert len(GOAL_ALIASES) == 14
+    def test_33_all_15_aliases_defined(self):
+        """GOAL_ALIASES muss alle 15 kanonischen Zielschlüssel enthalten."""
+        assert len(GOAL_ALIASES) == 15
         expected = {
             "bass_kraft",
             "brillanz",
@@ -438,6 +415,7 @@ class TestAdaptiveGoalResolverModule:
             "micro_dynamics",
             "separation_fidelity",
             "artikulation",
+            "transient_energie",
         }
         assert set(GOAL_ALIASES.keys()) == expected
 

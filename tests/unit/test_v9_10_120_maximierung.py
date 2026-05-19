@@ -357,8 +357,8 @@ class TestPQSRecalibration:
 class TestHarmonization:
     """Verify that recalibrated metrics harmonize — no single metric dominates."""
 
-    def test_31_all_14_goals_produce_valid_scores(self):
-        """All 14 Musical Goals must return valid [0, 1] scores."""
+    def test_31_direct_metric_goals_produce_valid_scores(self):
+        """Direct scalar Musical Goal metrics must return valid [0, 1] scores."""
         from backend.core.musical_goals.musical_goals_metrics import (
             ArticulationMetric,
             AuthentizitaetMetric,

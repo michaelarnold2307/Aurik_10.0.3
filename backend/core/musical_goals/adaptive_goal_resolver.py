@@ -6,7 +6,7 @@ to make it independently importable, testable and reusable outside UV3.
 Spec references:
     §2.31 AdaptiveGoalThresholds — Material- und Ära-adaptiv
     §2.33 PhysicalCeilingEstimator
-    §1.2  14 Musical Goals
+    §1.2  15 Musical Goals
 
 Usage:
     from backend.core.musical_goals.adaptive_goal_resolver import resolve_adaptive_goal_thresholds
@@ -34,11 +34,12 @@ GOAL_ALIASES: dict[str, tuple[str, ...]] = {
     "micro_dynamics": ("micro_dynamics",),
     "separation_fidelity": ("separation_fidelity",),
     "artikulation": ("artikulation",),
+    "transient_energie": ("transient_energie",),
 }
 
 
 def resolve_adaptive_goal_thresholds(adaptive_goals_payload: Any) -> dict[str, float]:
-    """Extrahiert canonical adaptive thresholds for all 14 musical goals from mixed payloads.
+    """Extrahiert canonical adaptive thresholds for all 15 musical goals from mixed payloads.
 
     Supported payload shapes:
     - ``tuple`` / ``list``: e.g. the 3-tuple returned by

@@ -24,6 +24,7 @@ Referenzen:
     - Snoek et al., Practical Bayesian Optimization of ML Algorithms (NeurIPS 2012)
     - Brochu et al., A Tutorial on Bayesian Optimization (2010)
 """
+# pylint: disable=import-outside-toplevel
 
 from __future__ import annotations
 
@@ -87,7 +88,7 @@ _KERNEL_AMPLITUDE = 1.0  # GP-Kernel Amplitude σ_f
 _N_RANDOM_CANDIDATES = 512  # Zufällige Kandidaten für UCB-Suche
 
 # ---------------------------------------------------------------------------
-# Pareto-Objectives (§2.5 Spec 03) — 14 Musical Goals
+# Pareto-Objectives (§2.5 Spec 03) — 15 Musical Goals
 # ---------------------------------------------------------------------------
 
 PARETO_OBJECTIVES: list[str] = [
@@ -105,6 +106,7 @@ PARETO_OBJECTIVES: list[str] = [
     "timbre_authentizitaet",
     "separation_fidelity",
     "artikulation",
+    "transient_energie",
 ]
 
 
@@ -256,6 +258,7 @@ class ParameterProposal:
     param_names: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
+        """Serialisiert den Vorschlag als JSON-kompatibles Dict."""
         return {
             "parameters": self.parameters,
             "expected_quality": round(self.expected_quality, 4),
@@ -274,7 +277,7 @@ class MemoryEntry:
     score: float  # Qualitätsscore [0,1] oder MOS o.ä.
     material: str
     timestamp: float = field(default_factory=time.time)
-    goal_scores: dict[str, float] = field(default_factory=dict)  # 14 Musical Goals (§2.5)
+    goal_scores: dict[str, float] = field(default_factory=dict)  # 15 Musical Goals (§2.5)
 
 
 # ---------------------------------------------------------------------------
@@ -299,7 +302,11 @@ def _rbf_kernel(
     Y2 = np.sum(Y**2, axis=1, keepdims=True)  # (m,1)
     XY = X @ Y.T  # (n,m)
     dist_sq = np.maximum(X2 + Y2.T - 2.0 * XY, 0.0)
-    return (amplitude**2) * np.exp(-0.5 * dist_sq / (length**2 + 1e-12))
+    kernel: np.ndarray[Any, Any] = np.asarray(
+        (amplitude**2) * np.exp(-0.5 * dist_sq / (length**2 + 1e-12)),
+        dtype=np.float64,
+    )
+    return kernel
 
 
 # ---------------------------------------------------------------------------
@@ -372,10 +379,12 @@ class GaussianProcess:
     def ucb(self, X_star: np.ndarray, kappa: float = _UCB_KAPPA) -> np.ndarray:
         """UCB-Akquisitionswerte für Kandidaten X_star."""
         mu, sigma = self.predict(X_star)
-        return mu + kappa * sigma
+        ucb_vals: np.ndarray[Any, Any] = np.asarray(mu + kappa * sigma, dtype=np.float64)
+        return ucb_vals
 
     @property
     def n_observations(self) -> int:
+        """Anzahl der aktuell gefitteten Beobachtungen."""
         return len(self._y) if self._y is not None else 0
 
 
@@ -384,12 +393,19 @@ class GaussianProcess:
 # ---------------------------------------------------------------------------
 
 
-def _param_names_sorted(space: dict = PARAMETER_SPACE) -> list[str]:
+def _param_names_sorted(space: dict[str, tuple[float, float, str]] | None = None) -> list[str]:
+    if space is None:
+        space = PARAMETER_SPACE
     return sorted(space.keys())
 
 
-def _normalize_params(params: dict[str, float], space: dict = PARAMETER_SPACE) -> np.ndarray:
+def _normalize_params(
+    params: dict[str, float],
+    space: dict[str, tuple[float, float, str]] | None = None,
+) -> np.ndarray:
     """Parameter-Dict → normierter Vektor [0,1]^d."""
+    if space is None:
+        space = PARAMETER_SPACE
     names = _param_names_sorted(space)
     v = []
     for name in names:
@@ -407,10 +423,15 @@ def _normalize_params(params: dict[str, float], space: dict = PARAMETER_SPACE) -
     return np.clip(np.array(v, dtype=np.float64), 0.0, 1.0)
 
 
-def _denormalize_params(vec: np.ndarray, space: dict = PARAMETER_SPACE) -> dict[str, Any]:
+def _denormalize_params(
+    vec: np.ndarray,
+    space: dict[str, tuple[float, float, str]] | None = None,
+) -> dict[str, float]:
     """Normierter Vektor → Parameter-Dict."""
+    if space is None:
+        space = PARAMETER_SPACE
     names = _param_names_sorted(space)
-    result = {}
+    result: dict[str, float] = {}
     for i, name in enumerate(names):
         lo, hi, mode = space[name]
         x = float(np.clip(vec[i], 0.0, 1.0))
@@ -420,7 +441,7 @@ def _denormalize_params(vec: np.ndarray, space: dict = PARAMETER_SPACE) -> dict[
         else:
             raw = lo + x * (hi - lo)
         if mode == "int":
-            result[name] = round(raw)
+            result[name] = float(round(raw))
         else:
             result[name] = round(raw, 4)
     return result
@@ -580,7 +601,7 @@ class GPParameterOptimizer:
         self,
         material: str = "unknown",
         n_init: int = 5,
-        embedding: np.ndarray | None = None,
+        embedding_vec: np.ndarray | None = None,
         era_warmstart: dict[str, float] | None = None,
     ) -> ParameterProposal:
         """
@@ -628,7 +649,7 @@ class GPParameterOptimizer:
 
         if n_obs < n_init:
             # Zufällige Exploration oder Defaults
-            params, mu, sig = self._random_or_default(material, n_obs)
+            params, mu_scalar, sig_scalar = self._random_or_default(material, n_obs)
             # Era-Warmstart: Ära-Prior überschreibt Default-Parameter beim Cold-Start (§2.14)
             # Gültige Bounds-geclampte Werte aus EraClassifier.get_gp_warmstart() werden
             # direkt in den Parametervorschlag eingebracht, bevor GP-Daten vorliegen.
@@ -644,9 +665,9 @@ class GPParameterOptimizer:
             self._iterations[material] = it + 1
             return ParameterProposal(
                 parameters=params,
-                expected_quality=mu,
-                uncertainty=sig,
-                ucb_value=mu + self._kappa * sig,
+                expected_quality=mu_scalar,
+                uncertainty=sig_scalar,
+                ucb_value=mu_scalar + self._kappa * sig_scalar,
                 from_memory=(n_obs > 0),
                 iteration=it,
                 param_names=_param_names_sorted(self._space),
@@ -674,9 +695,9 @@ class GPParameterOptimizer:
         best_cand = int(np.argmax(ucb_vals))
         x_star = candidates[best_cand]
 
-        mu, sigma = self._gp.predict(x_star[None, :])
-        mu_real = float(y_min + mu[0] * y_range)
-        sigma_real = float(sigma[0] * y_range)
+        mu_arr, sigma_arr = self._gp.predict(x_star[None, :])
+        mu_real = float(y_min + mu_arr[0] * y_range)
+        sigma_real = float(sigma_arr[0] * y_range)
 
         params = _denormalize_params(x_star, self._space)
         # Material-Defaults überlappen mit GP nur für nicht optimierte Params
@@ -703,10 +724,10 @@ class GPParameterOptimizer:
         n_init: int = 5,
         era_warmstart: dict[str, float] | None = None,
     ) -> list[ParameterProposal]:
-        """True multi-objective Pareto-front proposals over 14 Musical Goals (§2.5).
+        """True multi-objective Pareto-front proposals over 15 Musical Goals (§2.5).
 
         Uses one GP per Musical Goal objective. Samples *_N_RANDOM_CANDIDATES*
-        candidates in the DSP parameter space, predicts all 14 objective
+        candidates in the DSP parameter space, predicts all 15 objective
         posteriors, computes the non-dominated (Pareto) front via dominance
         check, and selects up to *n_candidates* diverse representatives via
         crowding-distance selection.
@@ -749,10 +770,10 @@ class GPParameterOptimizer:
                 era_warmstart=era_warmstart,
             )
 
-        # ── 14 separate GPs eine pro Objective ───────────────────────────
+        # ── One separate GP per objective ─────────────────────────────────
         X_obs = np.array([e.params_normalized for e in moo_entries])  # (n, d)
 
-        # Objective-Matrix: (n, 14)
+        # Objective-Matrix: (n, len(PARETO_OBJECTIVES))
         obj_matrix = np.zeros((len(moo_entries), len(PARETO_OBJECTIVES)), dtype=np.float64)
         for row_i, entry in enumerate(moo_entries):
             for col_j, obj in enumerate(PARETO_OBJECTIVES):
@@ -762,7 +783,7 @@ class GPParameterOptimizer:
         # Kandidaten im normierten Parameterraum samplen
         candidates = _sample_random_candidates(_N_RANDOM_CANDIDATES, self._dim, self._rng)
 
-        # Posterior-Means für alle 14 Objectives vorhersagen: (n_cands, 14)
+        # Posterior-Means für alle Objectives vorhersagen: (n_cands, n_objectives)
         pred_means = np.zeros((len(candidates), len(PARETO_OBJECTIVES)), dtype=np.float64)
         pred_sigma = np.zeros((len(candidates), len(PARETO_OBJECTIVES)), dtype=np.float64)
         for col_j in range(len(PARETO_OBJECTIVES)):
@@ -909,7 +930,7 @@ class GPParameterOptimizer:
             List of selected candidate indices (subset of pareto_indices)
         """
         if len(pareto_indices) <= n_select:
-            return pareto_indices.tolist()
+            return [int(i) for i in pareto_indices.tolist()]
 
         n_obj = pred_means.shape[1]
         front = pred_means[pareto_indices]  # (|front|, n_obj)
@@ -944,7 +965,7 @@ class GPParameterOptimizer:
             parameters:  Parameter-Dict (wie von propose() zurückgegeben)
             score:       Gesamt-Qualitätsscore (z.B. PQS-MOS normiert [0,1])
             material:    Trägermaterial
-            goal_scores: Optionales Dict der 14 Musical-Goals-Scores
+            goal_scores: Optionales Dict der 15 Musical-Goals-Scores
                          (Keys = PARETO_OBJECTIVES). Wird für echten MOO
                          in propose_pareto() benötigt. NaN/Inf-Werte werden
                          gefiltert; fehlende Keys bleiben leer.
@@ -1116,7 +1137,7 @@ _optimizer_lock = threading.Lock()
 
 def get_optimizer() -> GPParameterOptimizer:
     """Globaler Singleton-Optimierer."""
-    global _optimizer
+    global _optimizer  # pylint: disable=global-statement
     if _optimizer is None:
         with _optimizer_lock:
             if _optimizer is None:

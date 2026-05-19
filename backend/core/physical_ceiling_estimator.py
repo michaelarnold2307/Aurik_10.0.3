@@ -181,10 +181,11 @@ class PhysicalCeilingEstimator:
 
         return bark_snr
 
-    def _effective_bandwidth(self, mono: np.ndarray, sr: int, snr_profile: np.ndarray) -> float:
+    def _effective_bandwidth(self, mono: np.ndarray, _sr: int, snr_profile: np.ndarray) -> float:
         """Effektive Bandbreite: hoechstes Bark-Band mit SNR >= -10 dB."""
         edges = self.BARK_EDGES_HZ
-        bw = edges[1]  # Minimum
+        _ = mono
+        bw: float = float(edges[1])  # Minimum
         for b in range(24):
             if snr_profile[b] >= -10.0:
                 bw = float(edges[b + 1])
@@ -195,7 +196,7 @@ class PhysicalCeilingEstimator:
         mean_snr: float,
         bw_hz: float,
         mono: np.ndarray,
-        sr: int,
+        _sr: int,
         material: str,
     ) -> dict[str, float]:
         """Musical-Goal-Ceiling-Mapping (Spec §2.33)."""
@@ -243,6 +244,7 @@ class PhysicalCeilingEstimator:
             "micro_dynamics": 0.99,
             "separation_fidelity": 0.99,
             "artikulation": 0.99,
+            "transient_energie": 0.99,
         }
 
         # Shellac/Wachswalze: kuenstliche Deckel (physikalische Limitierung)

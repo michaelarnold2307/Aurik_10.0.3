@@ -20,6 +20,7 @@ Edge Cases:
 Autor: AURIK AI Team
 Datum: 12. Februar 2026
 """
+# pylint: disable=import-outside-toplevel
 
 import logging
 from dataclasses import dataclass
@@ -123,11 +124,19 @@ class AdaptiveGoalThresholds:
 
     quality_level: MaterialQuality
     relaxation_factor: float  # Wie stark wurden Thresholds relaxiert (0.0 - 1.0)
+    groove: float = 0.83
+    spatial_depth: float = 0.70
+    timbre_authentizitaet: float = 0.87
+    tonal_center: float = 0.95
+    micro_dynamics: float = 0.88
+    separation_fidelity: float = 0.80
+    artikulation: float = 0.88
+    transient_energie: float = 0.88
 
 
 @dataclass
 class AdaptiveThresholdResult:
-    """Pro-Restaurierung adaptierte Schwellwerte für alle 14 Musical Goals (§2.31).
+    """Pro-Restaurierung adaptierte Schwellwerte für alle 15 Musical Goals (§2.31).
 
     Enthält die angepassten Zielwerte, die Original-Schwellwerte zum Vergleich,
     deutschsprachige Begründungen für jede Anpassung sowie die physikalischen
@@ -220,8 +229,10 @@ class MaterialQualityAnalyzer:
         )
 
         self.logger.info(
-            f"Material Quality: {quality_level.value.upper()} "
-            f"(Degradation: {degradation_score:.2f}, Confidence: {confidence:.2f})"
+            "Material Quality: %s (Degradation: %.2f, Confidence: %.2f)",
+            quality_level.value.upper(),
+            degradation_score,
+            confidence,
         )
 
         return assessment
@@ -372,7 +383,7 @@ class MaterialQualityAnalyzer:
 
         return float(np.clip(limitation, 0.0, 1.0))
 
-    def _measure_artifact_density(self, audio: np.ndarray, sr: int) -> float:
+    def _measure_artifact_density(self, audio: np.ndarray, _sr: int) -> float:
         """
         Messe Artefakt-Dichte (0.0 = keine, 1.0 = viele Artefakte)
 
@@ -470,7 +481,7 @@ class MaterialQualityAnalyzer:
     def _classify_quality_level(
         self,
         degradation_score: float,
-        medium_chain: list[str],
+        _medium_chain: list[str],
     ) -> tuple[MaterialQuality, float]:
         """
         Klassifiziere Quality Level basierend auf Degradation Score
@@ -498,7 +509,7 @@ class MaterialQualityAnalyzer:
 
     def _calculate_processing_strength(
         self,
-        degradation_score: float,
+        _degradation_score: float,
         quality_level: MaterialQuality,
     ) -> float:
         """
@@ -543,6 +554,14 @@ class AdaptiveGoalsCalculator:
         "emotionalitaet": 0.87,
         "transparenz": 0.89,
         "bass_kraft": 0.85,
+        "groove": 0.83,
+        "spatial_depth": 0.70,
+        "timbre_authentizitaet": 0.87,
+        "tonal_center": 0.95,
+        "micro_dynamics": 0.88,
+        "separation_fidelity": 0.80,
+        "artikulation": 0.88,
+        "transient_energie": 0.88,
     }
 
     def calculate_adaptive_thresholds(
@@ -601,6 +620,14 @@ class AdaptiveGoalsCalculator:
             bass_kraft=thresholds["bass_kraft"],
             quality_level=quality.quality_level,
             relaxation_factor=relaxation_factor,
+            groove=thresholds["groove"],
+            spatial_depth=thresholds["spatial_depth"],
+            timbre_authentizitaet=thresholds["timbre_authentizitaet"],
+            tonal_center=thresholds["tonal_center"],
+            micro_dynamics=thresholds["micro_dynamics"],
+            separation_fidelity=thresholds["separation_fidelity"],
+            artikulation=thresholds["artikulation"],
+            transient_energie=thresholds["transient_energie"],
         )
 
         logger.info(
