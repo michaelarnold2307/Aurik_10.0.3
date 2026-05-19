@@ -1,9 +1,12 @@
 from typing import Any
 
 import numpy as np
+from scipy.signal import correlate
 
 
 class GenderDetector:
+    """Erkennt das dominante Geschlecht einer Gesangsstimme via Resemblyzer + Pitch-Analyse."""
+
     def __init__(self, use_auth_token: Any = None) -> None:
         del use_auth_token
         from plugins.resemblyzer_plugin import get_resemblyzer_plugin  # pylint: disable=import-outside-toplevel
@@ -18,9 +21,13 @@ class GenderDetector:
         try:
             if not self._plugin.available:
                 return "unknown"
-            import soundfile as _sf  # pylint: disable=import-outside-toplevel
+            from backend.file_import import load_audio_file as _laf  # pylint: disable=import-outside-toplevel  # noqa: I001
 
-            wav, _sr = _sf.read(audio_file, dtype="float32", always_2d=False)
+            _ld = _laf(audio_file)
+            if _ld is None or _ld.get("audio") is None:
+                return "unknown"
+            wav = _ld["audio"].astype("float32")
+            _sr = int(_ld["sr"])
             emb = self._plugin.embed(wav, _sr)
             if emb is None:
                 return "unknown"
@@ -44,8 +51,6 @@ class GenderDetector:
 
     def _estimate_pitch(self, wav, sr=16000) -> float:
         # Einfache Pitch-Schätzung (Median der Autokorrelationsmethode)
-        from scipy.signal import correlate
-
         wav = wav.astype(np.float32)
         corr = correlate(wav, wav)
         corr = corr[len(corr) // 2 :]

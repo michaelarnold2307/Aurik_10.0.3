@@ -863,6 +863,18 @@ class DenoisePhase(PhaseInterface):
                         np.asarray(_miipher_out, dtype=np.float32), nan=0.0, posinf=0.0, neginf=0.0
                     )
                     _miipher_out = np.clip(_miipher_out, -1.0, 1.0)
+                    # §MIIPHER_QUALITY_GATE [RELEASE_MUST]: dsp_fallback ist kein SOTA-Ergebnis.
+                    # Wenn SGMSE+ und DFN beide nicht verfügbar waren, liefert MIIPHER nur
+                    # einen einfachen Wiener-Filter — DFN-Kette bietet gleichwertige oder
+                    # bessere Qualität. Ablehnen → outer-except → _miipher_applied=False
+                    # → _dfn_eligible greift als Fallback (siehe unten).
+                    _miipher_route = _miipher_plugin.route_metadata.get("capability_status", "sota_fallback")
+                    if _miipher_route == "dsp_fallback":
+                        logger.info(
+                            "§4.4 MIIPHER_QUALITY_GATE: dsp_fallback route erkannt — "
+                            "DFN-Kette übernimmt Vokal-NR (kein SGMSE+/DFN verfügbar)",
+                        )
+                        raise RuntimeError("miipher_dsp_fallback")  # outer try-except fängt; _miipher_applied=False
                     # §0p HNR-Blend [RELEASE_MUST]
                     try:
                         from backend.core.dsp.hnr_guard import (  # pylint: disable=import-outside-toplevel
@@ -917,7 +929,12 @@ class DenoisePhase(PhaseInterface):
             and _panns_singing >= 0.25
             and quality_mode in ("quality", "maximum")
             and not use_lightweight
-            and _era_nr_routing in ("dfn_primary", "dfn_restricted")  # §4.4 era-aware
+            and _era_nr_routing
+            in (
+                "dfn_primary",
+                "dfn_restricted",
+                "miipher_primary",
+            )  # §4.4 era-aware; miipher_primary wenn MIIPHER rejected
             and not _miipher_applied  # skip when MIIPHER already applied
         )
         # For dfn_restricted (early-electrical shellac): capture pre-DFN audio for 30% wet blend

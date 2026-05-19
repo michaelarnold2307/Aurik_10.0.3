@@ -4,7 +4,7 @@
 >
 > **instructions_version: 9.3** — SOTA-Science-Update Mai 2026: Ephraim-Malah MMSE-LSA für NR-Gain + Bark/ERB-Skalenklarheit + IMCRA/OMLSA-Noise-Estimation + PGHI-Parameter + Vocos-Option + RIAA-Zeitkonstanten-Spezifikation + MP3-Pre-Echo-Taxonomie + Digitale-Carrier-Reihenfolge + SBR/AudioSR-Entscheidungsbaum für BW-Erweiterung + VERSA-Metrik-Spezifikation + MERT-Implementierungsdetails + artifact_freedom-Komponenten-Vollspezifikation + emotional_arc-Präzisierung + Groove/Warmth/TonalCenter-Algorithmen + DNSMOS/SingMOS als Naturalness-Proxy + Era-spezifische Verarbeitungsrichtlinien + **Runde 2+3 Konsistenz-Audit** (VQI-Recovery-Trigger durchgängig, §0k _NEVER_SKIP, Studio-VQI-Schwelle 0.87 überall) + **§GOAL_BASELINE_CHECK [RELEASE_MUST] (v9.12.7)**: garantierter Goal-Recovery-Pfad vor Pipeline — schließt CAUSE_TO_PHASES-Lücke für undetektierte Goal-Defizite; `get_goal_recovery_phases()` in `calibration_matrix`
 >
-> Aktuelle Testzahl: **~11598 `def test_`-Funktionen** (436 Testdateien; alle grün)
+> Aktuelle Testzahl: **~13.662 `def test_`-Funktionen** (614 Testdateien; alle grün)
 >
 > **§2.36 `LyricsGuidedEnhancement` (Spec 03 §2.36)** ist ab Version **9.10.x Pflicht**.
 
@@ -118,7 +118,7 @@ Keine song-spezifischen Sonderregeln im Produktionscode. Allgemeingültigkeit vo
 | **02** | Pipeline/§2.x — UV3, Denker, SongCal, KMV, FeedbackChain, §2.64/§2.65 |
 | **03** | Module — Kognitive Module §2.1–§2.43 |
 | **04** | DSP/SOTA — Algorithmen, SOTA-Matrix, Psychoakustik |
-| **05** | Material/Defekte — 15 Materialtypen, 46 DefectTypes |
+| **05** | Material/Defekte — 15 Materialtypen, 47 DefectTypes |
 | **06** | Phasen 01–64 — Phase-Liste, CAUSE_TO_PHASES |
 | **07** | Tests/Qualität — PQS, AMRB, OQS, MUSHRA |
 | **08** | Architektur — Layers, Plugins, CLI, AppImage |

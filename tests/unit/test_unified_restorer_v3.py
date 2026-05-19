@@ -611,14 +611,16 @@ class TestNoRtLimitPhaseDeferralBypass:
         defect_result = types.SimpleNamespace(scores={})
         material = list(MaterialType)[0]
 
-        out, executed, skipped, deferred = restorer._execute_pipeline(
-            audio=audio,
-            sample_rate=SR,
-            material_type=material,
-            defect_result=defect_result,
-            selected_phases=["phase_99_dummy"],
-            no_rt_limit=True,
-        )
+        _fake_vm = types.SimpleNamespace(available=8 * 1024 * 1024 * 1024, percent=20.0, total=16 * 1024 * 1024 * 1024)
+        with patch("psutil.virtual_memory", return_value=_fake_vm):
+            out, executed, skipped, deferred = restorer._execute_pipeline(
+                audio=audio,
+                sample_rate=SR,
+                material_type=material,
+                defect_result=defect_result,
+                selected_phases=["phase_99_dummy"],
+                no_rt_limit=True,
+            )
 
         assert isinstance(out, np.ndarray)
         assert "phase_99_dummy" in executed
@@ -998,7 +1000,11 @@ class TestRestoreMocked:
         )
         cached_restorability = types.SimpleNamespace(restorability_score=70.0, grade="FAIR", predicted_mos=(3.5, 4.1))
 
-        with patch("backend.core.unified_restorer_v3.librosa.resample", side_effect=lambda y, **_: y):
+        _fake_vm = types.SimpleNamespace(available=8 * 1024 * 1024 * 1024, percent=20.0, total=16 * 1024 * 1024 * 1024)
+        with (
+            patch("psutil.virtual_memory", return_value=_fake_vm),
+            patch("backend.core.unified_restorer_v3.librosa.resample", side_effect=lambda y, **_: y),
+        ):
             with pytest.raises(RuntimeError, match="stop_after_scan"):
                 restorer.restore(
                     audio,
@@ -1076,9 +1082,13 @@ class TestRestoreMocked:
             restorability=types.SimpleNamespace(restorability_score=70.0, grade="FAIR", predicted_mos=(3.5, 4.1)),
         )
 
-        with patch(
-            "forensics.medium_detector.get_medium_detector",
-            side_effect=AssertionError("get_medium_detector must not be called on cached-medium path"),
+        _fake_vm = types.SimpleNamespace(available=8 * 1024 * 1024 * 1024, percent=20.0, total=16 * 1024 * 1024 * 1024)
+        with (
+            patch("psutil.virtual_memory", return_value=_fake_vm),
+            patch(
+                "forensics.medium_detector.get_medium_detector",
+                side_effect=AssertionError("get_medium_detector must not be called on cached-medium path"),
+            ),
         ):
             with pytest.raises(RuntimeError, match="stop_after_scan"):
                 restorer.restore(
@@ -1120,7 +1130,9 @@ class TestRestoreMocked:
         _md.detect.side_effect = RuntimeError("detector down")
         _legacy = MagicMock(side_effect=AssertionError("legacy MediumClassifier must stay unused"))
 
+        _fake_vm = types.SimpleNamespace(available=8 * 1024 * 1024 * 1024, percent=20.0, total=16 * 1024 * 1024 * 1024)
         with (
+            patch("psutil.virtual_memory", return_value=_fake_vm),
             patch("forensics.medium_detector.get_medium_detector", return_value=_md),
             patch("backend.core.medium_classifier.classify_medium", _legacy),
             pytest.raises(RuntimeError, match="stop_after_scan"),
@@ -2031,6 +2043,9 @@ class TestReferenceAnchorArbitration:
         cached_rest = types.SimpleNamespace(restorability_score=70.0, grade="FAIR", predicted_mos=(3.5, 4.1))
         gp = types.SimpleNamespace(portrait=types.SimpleNamespace(decade=1930, era_confidence=0.92))
 
+        _fake_vm = types.SimpleNamespace(available=8 * 1024 * 1024 * 1024, percent=20.0, total=16 * 1024 * 1024 * 1024)
+        monkeypatch.setattr("psutil.virtual_memory", lambda: _fake_vm)
+
         with pytest.raises(RuntimeError, match="stop_after_anchor"):
             restorer.restore(
                 audio,
@@ -2103,6 +2118,9 @@ class TestReferenceAnchorArbitration:
         )
         cached_rest = types.SimpleNamespace(restorability_score=70.0, grade="FAIR", predicted_mos=(3.5, 4.1))
         gp = types.SimpleNamespace(portrait=types.SimpleNamespace(decade=1970, era_confidence=0.20, material="vinyl"))
+
+        _fake_vm = types.SimpleNamespace(available=8 * 1024 * 1024 * 1024, percent=20.0, total=16 * 1024 * 1024 * 1024)
+        monkeypatch.setattr("psutil.virtual_memory", lambda: _fake_vm)
 
         with pytest.raises(RuntimeError, match="stop_after_anchor"):
             restorer.restore(
@@ -2283,13 +2301,15 @@ class TestSingleGainAuthorityEndToEnd:
         restorer._profiled_phase_call = _mock_profiled_call  # type: ignore[method-assign]
         rms_before = float(np.sqrt(np.mean(audio_in**2)))
 
-        out, executed, _sk, _def = restorer._execute_pipeline(
-            audio=audio_in,
-            sample_rate=SR,
-            material_type=MaterialType.VINYL,
-            defect_result=types.SimpleNamespace(scores={}),
-            selected_phases=["phase_05_rumble_filter", "phase_17_mastering_polish"],
-        )
+        _fake_vm = types.SimpleNamespace(available=8 * 1024 * 1024 * 1024, percent=20.0, total=16 * 1024 * 1024 * 1024)
+        with patch("psutil.virtual_memory", return_value=_fake_vm):
+            out, executed, _sk, _def = restorer._execute_pipeline(
+                audio=audio_in,
+                sample_rate=SR,
+                material_type=MaterialType.VINYL,
+                defect_result=types.SimpleNamespace(scores={}),
+                selected_phases=["phase_05_rumble_filter", "phase_17_mastering_polish"],
+            )
 
         rms_after = float(np.sqrt(np.mean(out**2)))
 
@@ -2335,13 +2355,15 @@ class TestSingleGainAuthorityEndToEnd:
 
         restorer._profiled_phase_call = _mock_profiled_call  # type: ignore[method-assign]
 
-        out, executed, _sk, _def = restorer._execute_pipeline(
-            audio=audio_in,
-            sample_rate=SR,
-            material_type=MaterialType.VINYL,
-            defect_result=types.SimpleNamespace(scores={}),
-            selected_phases=["phase_05_rumble_filter", "phase_29_tape_hiss_reduction"],
-        )
+        _fake_vm = types.SimpleNamespace(available=8 * 1024 * 1024 * 1024, percent=20.0, total=16 * 1024 * 1024 * 1024)
+        with patch("psutil.virtual_memory", return_value=_fake_vm):
+            out, executed, _sk, _def = restorer._execute_pipeline(
+                audio=audio_in,
+                sample_rate=SR,
+                material_type=MaterialType.VINYL,
+                defect_result=types.SimpleNamespace(scores={}),
+                selected_phases=["phase_05_rumble_filter", "phase_29_tape_hiss_reduction"],
+            )
 
         assert "phase_05_rumble_filter" in executed
         assert "phase_29_tape_hiss_reduction" in executed
@@ -2602,4 +2624,120 @@ class TestPhase65VqiRecoveryTrigger:
         assert "_vqi_score < 0.74" in src, (
             "§H4: UV3 prüft VQI < 0.74 Schwelle nicht — "
             "VERBOTEN-Regel 'VQI-Abfall nach NR ohne DSP-Korrektiv-Recovery' verletzt."
+        )
+
+
+class TestChoirVqiGateZeroPanns:
+    """§0p v9.12.11 — Chor-VQI-Gate auch bei PANNs-Gesamtconfidence = 0.
+
+    Regressions-Guard: Wenn PANNs für eine Choraufnahme gar keine Vokal-Tags
+    zurückgibt (confidence = 0.0), darf der VQI-Gate NICHT still deaktiviert
+    bleiben. Chor ist definitional Vokalmusik — die Schwelle '≥ 0.10' aus §M1
+    (v9.12.9) war zu hoch und ließ Fälle ohne jeglichen PANNs-Hinweis durch.
+    """
+
+    def test_choir_genre_zero_panns_activates_floor(self) -> None:
+        """genre_label='choir' + PANNs-Confidence = 0.0 → floor 0.35 (§0p v9.12.11)."""
+        from backend.core.unified_restorer_v3 import UnifiedRestorerV3
+
+        conf = UnifiedRestorerV3._compute_vocal_presence_confidence(
+            {},  # keine PANNs-Tags
+            panns_vocals_confidence=0.0,
+            genre_label="choir",
+        )
+        assert conf >= 0.35, (
+            f"§0p v9.12.11: genre_label='choir' + keine PANNs-Tags muss floor 0.35 aktivieren, "
+            f"bekommen: {conf:.3f}. VQI-Gate würde für Chor-Material stumm bleiben."
+        )
+
+    def test_choral_zero_panns_activates_floor(self) -> None:
+        """genre_label='choral' + PANNs = 0.0 → floor 0.35."""
+        from backend.core.unified_restorer_v3 import UnifiedRestorerV3
+
+        conf = UnifiedRestorerV3._compute_vocal_presence_confidence(
+            {},
+            panns_vocals_confidence=0.0,
+            genre_label="choral",
+        )
+        assert conf >= 0.35, f"'choral' ohne PANNs-Signal: floor fehlt, bekommen {conf:.3f}"
+
+    def test_kantate_zero_panns_activates_floor(self) -> None:
+        """genre_label='kantate' + PANNs = 0.0 → floor 0.35."""
+        from backend.core.unified_restorer_v3 import UnifiedRestorerV3
+
+        conf = UnifiedRestorerV3._compute_vocal_presence_confidence(
+            {},
+            panns_vocals_confidence=0.0,
+            genre_label="kantate",
+        )
+        assert conf >= 0.35, f"'kantate' ohne PANNs-Signal: floor fehlt, bekommen {conf:.3f}"
+
+    def test_non_choir_genre_zero_panns_unchanged(self) -> None:
+        """genre_label='jazz' + PANNs = 0.0 bleibt bei 0.0 — kein False-Positive (§0p)."""
+        from backend.core.unified_restorer_v3 import UnifiedRestorerV3
+
+        conf = UnifiedRestorerV3._compute_vocal_presence_confidence(
+            {},
+            panns_vocals_confidence=0.0,
+            genre_label="jazz",
+        )
+        assert conf < 0.35, f"Non-vocal genre 'jazz' ohne PANNs-Signal darf NICHT floor 0.35 erhalten: {conf:.3f}"
+
+    def test_existing_choir_tag_still_activates_floor(self) -> None:
+        """Bereits in §M1 getesteter Fall bleibt grün — Chor-Tag mit PANNs 0.12."""
+        from backend.core.unified_restorer_v3 import UnifiedRestorerV3
+
+        conf = UnifiedRestorerV3._compute_vocal_presence_confidence(
+            {"Choir": 0.12, "Music": 0.65},
+            panns_vocals_confidence=0.12,
+            genre_label="choir",
+        )
+        assert conf >= 0.35, f"Regressions-Guard §M1 fehlgeschlagen nach §0p v9.12.11-Patch: {conf:.3f}"
+
+
+class TestSection0aRestCauseGuards:
+    """§0a v9.12.11 — CAUSE_TO_PHASES Restoration-Pfad: verbotene Phasen nicht vorschlagen.
+
+    Regressions-Guard: phase_42_vocal_enhancement, phase_35_multiband_compression
+    dürfen in UV3 nie in selected_phases landen wenn is_studio_mode()=False —
+    weder über VOCAL_HARSHNESS-Pfad noch TIER-4-vocals_detected-Pfad.
+    """
+
+    def test_uv3_source_vocal_harshness_uses_phase65_in_restoration(self) -> None:
+        """VOCAL_HARSHNESS-Pfad ruft im Restoration-Zweig phase_65 statt phase_42 auf."""
+        import pathlib
+
+        src = (pathlib.Path(__file__).parents[2] / "backend" / "core" / "unified_restorer_v3.py").read_text()
+        # Schlüsselphrase: der Restoration-Kommentar und der phase_65-Append im Harshness-Block
+        assert "phase_65_vocal_naturalness_restoration" in src, (
+            "§0a: VOCAL_HARSHNESS-Pfad enthält keine phase_65 als §0a-konformes DSP-Korrektiv. "
+            "Harshness in Restoration-Modus würde unbehandelt bleiben (phase_42 wird durch Guard entfernt)."
+        )
+        assert "is_studio_mode" in src, "§0a: is_studio_mode()-Check fehlt in UV3"
+
+    def test_uv3_source_tier4_vocals_guards_phase42(self) -> None:
+        """TIER-4-Vokal-Enhancement-Block enthält is_studio_mode()-Guard für phase_42."""
+        import pathlib
+
+        src = (pathlib.Path(__file__).parents[2] / "backend" / "core" / "unified_restorer_v3.py").read_text()
+        # TIER 4 Kommentar erscheint direkt vor dem if vocals_detected: Block
+        tier4_idx = src.find("TIER 4 — Instrument- / Vokal-Enhancement")
+        assert tier4_idx >= 0, "§0a: TIER-4-Block nicht gefunden in UV3"
+        tier4_section = src[tier4_idx : tier4_idx + 1500]
+        assert "is_studio_mode" in tier4_section, (
+            "§0a: TIER-4-Block enthält keinen is_studio_mode()-Guard. "
+            "phase_42 würde in Restoration-Modus in selected_phases gelangen."
+        )
+
+    def test_uv3_source_multiband_compression_guards_phase35(self) -> None:
+        """Multiband-Kompression-Block enthält is_studio_mode()-Guard für phase_35."""
+        import pathlib
+
+        src = (pathlib.Path(__file__).parents[2] / "backend" / "core" / "unified_restorer_v3.py").read_text()
+        multiband_idx = src.find("Multiband-Kompression")
+        assert multiband_idx >= 0, "§0a: Multiband-Kompression-Block nicht gefunden"
+        multiband_section = src[multiband_idx : multiband_idx + 300]
+        assert "is_studio_mode" in multiband_section, (
+            "§0a: Multiband-Kompression-Block enthält keinen is_studio_mode()-Guard. "
+            "phase_35 würde in Restoration-Modus in selected_phases gelangen."
         )

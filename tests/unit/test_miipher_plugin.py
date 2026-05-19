@@ -39,7 +39,7 @@ def test_miipher_adapter_uses_loaded_sgmse_plus(monkeypatch):
         _model_loaded = True
 
         @staticmethod
-        def enhance(audio: np.ndarray, sr: int):  # pylint: disable=unused-argument
+        def enhance(audio: np.ndarray, sr: int, **kwargs):  # pylint: disable=unused-argument
             return _FakeSgmseResult(audio)
 
     fake_sgmse_mod = types.SimpleNamespace(get_sgmse_plus_plugin=lambda: _FakeSgmsePlus())
@@ -72,7 +72,7 @@ def test_miipher_adapter_falls_back_to_dfn_when_sgmse_unloaded(monkeypatch):
 
     class _FakeDfn:
         @staticmethod
-        def enhance(audio: np.ndarray, sr: int, energy_bias_db: float = -6.0):  # pylint: disable=unused-argument
+        def enhance(audio: np.ndarray, sr: int, energy_bias_db: float = -6.0, **kwargs):  # pylint: disable=unused-argument
             return (audio * 0.7).astype(np.float32)
 
     fake_sgmse_mod = types.SimpleNamespace(get_sgmse_plus_plugin=lambda: _FakeSgmsePlus())
@@ -81,6 +81,17 @@ def test_miipher_adapter_falls_back_to_dfn_when_sgmse_unloaded(monkeypatch):
     monkeypatch.setitem(sys_modules, "plugins.sgmse_plugin", fake_sgmse_mod)
     monkeypatch.setitem(sys_modules, "plugins.deepfilternet_v3_ii_plugin", fake_dfn_mod)
     monkeypatch.setattr(plugins, "sgmse_plugin", fake_sgmse_mod, raising=False)
+    # OMLSA post-filter (compute_imcra_noise_estimate) im DFN-Fallback umgehen,
+    # damit der rohe DFN-Ausgang (audio * 0.7) unverändert zurückkommt.
+
+    def _raise_omlsa(*a, **k):
+        raise ImportError("omlsa disabled in test")
+
+    monkeypatch.setitem(
+        sys_modules,
+        "backend.core.dsp.noise_estimator",
+        types.SimpleNamespace(compute_imcra_noise_estimate=_raise_omlsa),
+    )
 
     plugin = MiipherPlugin()
     audio = np.linspace(-0.2, 0.2, 4800, dtype=np.float32)

@@ -1391,6 +1391,23 @@ class UnifiedRestorerV3:
             confidence = max(confidence, 0.35)
 
         genre_key = str(genre_label or "").strip().lower()
+        # §0p v9.12.11 — choir/a-cappella genres are definitionally 100% vocal:
+        # floor to 0.35 unconditionally (PANNs under-detects ensemble singing).
+        _CHOIR_KEYS = (
+            "choir",
+            "choral",
+            "chormusik",
+            "chor",
+            "kantate",
+            "oratorium",
+            "motette",
+            "a cappella",
+            "a_cappella",
+        )
+        _is_strict_choir = any(c in genre_key for c in _CHOIR_KEYS)
+        if _is_strict_choir:
+            confidence = max(confidence, 0.35)
+
         # §0p v9.12.8 — expanded schlager_like covers all definitionally-vocal genres
         schlager_like = (
             bool(is_schlager)
@@ -5583,6 +5600,27 @@ class UnifiedRestorerV3:
             kwargs.get("vocal_material_prior", False) or kwargs.get("requires_vocal_gate", False)
         )
         _multi_singer_prior = bool(kwargs.get("multi_singer_prior", False))
+        # §0p [RELEASE_MUST]: Chor/A-Cappella-Genres sind definitional Multi-Singer — PANNs
+        # unter-detektiert Ensemble-Gesang systematisch. Genre-Label setzt multi_singer_prior
+        # unabhängig von PANNs, damit singer_identity_cosine-Gate für Chor-Material deaktiviert
+        # wird (§0p: "Gate deaktiviert bei multi_singer=True") und falsche Rollbacks verhindert.
+        _schlager_genre_key_ms = (
+            str(getattr(_schlager_result, "genre_label", "") if _schlager_result is not None else "").strip().lower()
+        )
+        _choir_kw = (
+            "choir",
+            "choral",
+            "chormusik",
+            "chor",
+            "kantate",
+            "oratorium",
+            "motette",
+            "a cappella",
+            "a_cappella",
+        )
+        if not _multi_singer_prior and any(c in _schlager_genre_key_ms for c in _choir_kw):
+            _multi_singer_prior = True
+            logger.info("§0p multi_singer_prior=True (Chor-Genre: %s)", _schlager_genre_key_ms)
 
         # §2.14+ Kontextfluss: Ära, Genre, BPM und Genre-Profil auf self speichern,
         # damit _profiled_phase_call sie zentral in ALLE Phase-kwargs injizieren kann.
@@ -17707,7 +17745,12 @@ class UnifiedRestorerV3:
         # Vibrato-Guard: Operatic Vibrato erzeugt HF-Modulationen, die false-positive Harshness triggern.
         _harsh_threshold = 0.30 if _operatic_vibrato else 0.12
         if sev(DefectType.VOCAL_HARSHNESS) > _harsh_threshold:
-            selected.append("phase_42_vocal_enhancement")  # Vocal-Enhancement mit Harshness-Absenkung
+            # §0a: phase_42_vocal_enhancement ist in Restoration VERBOTEN.
+            # Restoration nutzt phase_65 (DSP-Korrektiv: HNR-Blend + Spektral-Tilt + Formant-Tilt).
+            if self.is_studio_mode():
+                selected.append("phase_42_vocal_enhancement")  # Vocal-Enhancement mit Harshness-Absenkung (Studio only)
+            else:
+                selected.append("phase_65_vocal_naturalness_restoration")  # §0a-konformes DSP-Korrektiv für Harshness
             selected.append("phase_19_de_esser")  # De-Esser reduziert obere Härte-Frequenzen
             selected.append("phase_43_ml_deesser")  # ML-De-Esser (Frikativ-Kontrolle)
 
@@ -18203,18 +18246,26 @@ class UnifiedRestorerV3:
         # ════════════════════════════════════
 
         if vocals_detected:
-            # Vibrato-Guard: Bei operatischem/klassischem Vibrato De-Esser nur bei
-            # wirklich exzessiver Sibilanz aktivieren (Threshold ×2.5), da HF-Vibrato-
-            # Obertöne sonst fälschlich als Sibilanz unterdrückt werden.
-            if _operatic_vibrato:
-                selected.append("phase_42_vocal_enhancement")  # Formant, Klarheit, Präsenz (vibrato-safe)
-                # De-Esser-Phasen nur bei extremer Sibilance (bereits über Severity-Gate oben)
+            # §0a: phase_42_vocal_enhancement (Presence/Formant Enhancement) ist in Restoration VERBOTEN.
+            # In Studio 2026 ist es der richtige Weg. In Restoration übernimmt phase_65 die §0a-konforme
+            # DSP-Korrektiv-Funktion (HNR-Blend + Spektral-Tilt) — nur wenn VQI < 0.74 aktiv.
+            if self.is_studio_mode():
+                # Vibrato-Guard: Bei operatischem/klassischem Vibrato De-Esser nur bei
+                # wirklich exzessiver Sibilanz aktivieren (Threshold ×2.5), da HF-Vibrato-
+                # Obertöne sonst fälschlich als Sibilanz unterdrückt werden.
+                if _operatic_vibrato:
+                    selected.append("phase_42_vocal_enhancement")  # Formant, Klarheit, Präsenz (vibrato-safe)
+                    # De-Esser-Phasen nur bei extremer Sibilance (bereits über Severity-Gate oben)
+                else:
+                    selected += [
+                        "phase_19_de_esser",  # Sibilant-Kontrolle (stimmtyp-adaptiv)
+                        "phase_42_vocal_enhancement",  # Formant, Klarheit, Präsenz
+                        "phase_43_ml_deesser",  # ML-De-Esser (zweiter Pass)
+                    ]
             else:
-                selected += [
-                    "phase_19_de_esser",  # Sibilant-Kontrolle (stimmtyp-adaptiv)
-                    "phase_42_vocal_enhancement",  # Formant, Klarheit, Präsenz
-                    "phase_43_ml_deesser",  # ML-De-Esser (zweiter Pass)
-                ]
+                # Restoration: nur De-Esser für Sibilanz-Kontrolle, kein Presence/Formant-Enhancement
+                if not _operatic_vibrato:
+                    selected.append("phase_19_de_esser")  # Sibilant-Kontrolle (§0a-konform)
         if guitar_detected:
             selected.append("phase_44_guitar_enhancement")
         if brass_detected:
@@ -18266,7 +18317,11 @@ class UnifiedRestorerV3:
         # Phoneme-class saliency boosts (fricative/plosive/vowel) für Vokal-Intimität.
         # Aktivierung nur bei erkannten Vocals — Phase hat zusätzlichen internen
         # vocal_probability-Gate (< 0.30 → passthrough).
-        if vocals_detected:
+        # §2.36 v9.12.9: Auch bei vocal_presence_confidence ≥ 0.25 (VQI-Gate-Schwelle)
+        # aktivieren — deckt Chor/Ensemble-Material ab, das PANNs unter-detektiert
+        # (raw PANNs-Tags unter 0.40, aber _compute_vocal_presence_confidence floor-to-0.35).
+        _lge_vocal_active = vocals_detected or float(getattr(self, "_panns_singing", 0.0)) >= 0.25
+        if _lge_vocal_active:
             selected.append("phase_58_lyrics_guided_enhancement")
 
         # ════════════════════════════════════
@@ -18325,8 +18380,8 @@ class UnifiedRestorerV3:
             ):
                 selected.append("phase_54_transparent_dynamics")
 
-        # Multiband-Kompression (wenn nicht über-komprimiert)
-        if sev(DefectType.COMPRESSION_ARTIFACTS) < 0.40 and not _loudness_war_victim:
+        # Multiband-Kompression (§0a: nur in Studio 2026 — Restoration hat kein Enhancement-Ziel)
+        if self.is_studio_mode() and sev(DefectType.COMPRESSION_ARTIFACTS) < 0.40 and not _loudness_war_victim:
             selected.append("phase_35_multiband_compression")
 
         # Transient-Shaper (nach Drums-Enhancement)

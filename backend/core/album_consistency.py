@@ -29,6 +29,7 @@ Author: Aurik Development Team
 
 from __future__ import annotations
 
+import json
 import logging
 import threading
 import time
@@ -37,7 +38,10 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
+import soundfile as sf
 from scipy.signal import sosfiltfilt
+
+from backend.file_import import load_audio_file as _load_audio_file
 
 logger = logging.getLogger(__name__)
 
@@ -116,7 +120,7 @@ class AlbumConsistencyPass:
         Returns -70.0 for silence.
         """
         try:
-            from dsp.loudness_matching import AiLoudnessMatching
+            from dsp.loudness_matching import AiLoudnessMatching  # pylint: disable=import-outside-toplevel
 
             return AiLoudnessMatching().measure_lufs(audio, sr)
         except Exception as _exc:
@@ -138,7 +142,7 @@ class AlbumConsistencyPass:
         Reuses the canonical implementation from era_classifier.py.
         """
         try:
-            from backend.core.era_classifier import _estimate_spectral_tilt
+            from backend.core.era_classifier import _estimate_spectral_tilt  # pylint: disable=import-outside-toplevel
 
             if audio.ndim == 2:
                 mono = audio.mean(axis=0 if audio.shape[0] <= 2 else 1)
@@ -404,7 +408,7 @@ class AlbumConsistencyPass:
     def process_output_files(
         self,
         output_files: list[str],
-        sr: int = 48000,
+        sr: int = 48000,  # pylint: disable=unused-argument
         dry_run: bool = False,
     ) -> AlbumConsistencyReport:
         """Full album consistency pass over a list of already-written output files.
@@ -420,8 +424,6 @@ class AlbumConsistencyPass:
         Returns:
             AlbumConsistencyReport with all corrections documented.
         """
-        import soundfile as sf
-
         t0 = time.monotonic()
         audio_list: list[np.ndarray] = []
         sr_list: list[int] = []
@@ -429,7 +431,11 @@ class AlbumConsistencyPass:
 
         for fp in output_files:
             try:
-                data, file_sr = sf.read(fp, dtype="float32", always_2d=False)
+                _ld = _load_audio_file(fp)
+                if _ld is None or _ld.get("audio") is None:
+                    raise ValueError(f"Cannot load output file: {fp}")
+                data = _ld["audio"].astype(np.float32)
+                file_sr = int(_ld["sr"])
                 audio_list.append(data)
                 sr_list.append(file_sr)
                 valid_files.append(fp)
@@ -482,10 +488,8 @@ class AlbumConsistencyPass:
                 # Sidecar metadata update
                 _sidecar_path = Path(profile.file_path).with_suffix(".metadata.json")
                 if _sidecar_path.exists():
-                    import json
-
                     try:
-                        with open(_sidecar_path) as _f:
+                        with open(_sidecar_path, encoding="utf-8") as _f:
                             _sidecar = json.load(_f)
                     except Exception:
                         _sidecar = {}
@@ -494,7 +498,7 @@ class AlbumConsistencyPass:
                         "album_tilt_median": report.album_tilt_median,
                         **corr_meta,
                     }
-                    with open(_sidecar_path, "w") as _f:
+                    with open(_sidecar_path, "w", encoding="utf-8") as _f:
                         json.dump(_sidecar, _f, indent=2)
 
                 report.corrections_applied += 1
@@ -531,7 +535,7 @@ _lock = threading.Lock()
 
 def get_album_consistency_pass() -> AlbumConsistencyPass:
     """Thread-safe singleton accessor (Double-Checked Locking)."""
-    global _instance
+    global _instance  # pylint: disable=global-statement
     if _instance is None:
         with _lock:
             if _instance is None:
