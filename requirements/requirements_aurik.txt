@@ -42,6 +42,8 @@ soxr==1.0.0
 resampy==0.4.3
 audioread==3.1.0
 pyloudnorm==0.2.0
+webrtcvad==2.0.10         # Abhängigkeit von models/rezemblyzer (Resemblyzer VAD — §2.35c Singer-Identity)
+# resemblyzer — LOKAL: pip install models/rezemblyzer/  (§2.35c Singer-Identity d-Vector 256-dim, pretrained.pt gebündelt)
 pyFFTW>=0.15.0            # Benötigt libfftw3 (apt: libfftw3-dev); Fallback: numpy.fft (automatisch wenn nicht installiert)
 
 # --- ONNX-Runtime (GPU-Variante je Plattform wählen — mutually exclusive!) ---

@@ -283,6 +283,15 @@ Zusätzlich zur Song-Selbstkalibrierung sind folgende Tests verpflichtend:
 Telemetrie oder PMGG/CIG-Exclusions betreffen, dürfen ohne diese Testklassen
 nicht als release-fähig gelten.
 
+### §8.3.2a Era-/VFA-/GP-Prior-Regressionspflicht [RELEASE_MUST]
+
+Jede Änderung an Vokal-Gates, VFA-Zonen, GP-Priors oder RecordingChainProfiler-Integration MUSS fokussierte Unit-Tests enthalten:
+
+- `EraVocalProfile`: Mapping der Ären und `resolve_formant_tolerance_db()` inklusive historisch > modern.
+- `GPParameterOptimizer`: `chain_hint` skaliert Strength-/Boost-/Ratio-Parameter; `memory_prior` blendet bekannte Parameter bounds-geclampt; `propose_pareto()` akzeptiert beide Priors.
+- UV3/VFA: `vocal_zone_strength_policy` wird vor `wrap_phase()` gebildet und an Phasen-kwargs weitergereicht.
+- Formant-Gates: neue Vokalphasen dürfen keinen fixen `threshold_db=2.0` verwenden, wenn Era-Kontext verfügbar ist.
+
 ### §8.3.3 [RELEASE_MUST] Edge-Peak- und Stereo-Lag-Regressionstestpflicht (v9.12.0)
 
 Änderungen an Boundary-anfälligen Phasen (insb. `phase_03`, `phase_23`, STFT/ISTFT-, Chunk- oder ML-Routen)

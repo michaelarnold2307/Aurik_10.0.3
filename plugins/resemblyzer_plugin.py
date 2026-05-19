@@ -26,6 +26,8 @@ DSP-Fallback:
 from __future__ import annotations
 
 import logging
+import os
+import sys
 import threading
 from collections.abc import Callable
 from typing import Any, cast
@@ -36,6 +38,16 @@ try:
     import librosa as _librosa
 except Exception:
     _librosa = None
+
+# Lokales Resemblyzer-Paket aus models/rezemblyzer/ einbinden (offline-fähig,
+# kein pip install nötig). Pfad wird nur einmalig in sys.path eingetragen.
+_LOCAL_RESEMBLYZER_DIR = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+    "models",
+    "rezemblyzer",
+)
+if os.path.isdir(_LOCAL_RESEMBLYZER_DIR) and _LOCAL_RESEMBLYZER_DIR not in sys.path:
+    sys.path.insert(0, _LOCAL_RESEMBLYZER_DIR)
 
 try:
     from resemblyzer import VoiceEncoder as _ResemblyzerVoiceEncoder

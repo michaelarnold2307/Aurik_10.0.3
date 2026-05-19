@@ -29,7 +29,7 @@ SR = 48000
 
 def _sine(freq: float = 440.0, secs: float = 1.0) -> np.ndarray:
     t = np.linspace(0, secs, int(SR * secs), endpoint=False)
-    return np.sin(2 * np.pi * freq * t).astype(np.float32)
+    return np.asarray(np.sin(2 * np.pi * freq * t), dtype=np.float32)
 
 
 def _noise(secs: float = 1.0, amp: float = 0.05) -> np.ndarray:
@@ -57,7 +57,9 @@ class TestImportAndConstants:
         assert CausalDefectReasoner is not None
 
     def test_02_causes_list_length(self):
-        assert len(CAUSES) == 53  # v9.12.2: +clicks, +dolby_nr_mismatch, +tape_head_level_dip (was 50 after v9.12.1)
+        assert (
+            len(CAUSES) == 62
+        )  # v9.12.9: +9 neue Kausal-Ursachen (proximity_effect_excess…wire_recording_specific); war 53
 
     def test_03_causes_contains_soft_saturation(self):
         assert "soft_saturation" in CAUSES

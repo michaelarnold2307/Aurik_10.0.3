@@ -28,6 +28,7 @@ Referenzen:
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import math
@@ -220,6 +221,57 @@ _MATERIAL_SIMILARITY_MATRIX: list[list[float]] = [
 
 # Minimale Ähnlichkeit für Cross-Material-Transfer
 _CROSS_MATERIAL_MIN_SIM: float = 0.30
+
+
+def _apply_context_priors(
+    params: dict[str, Any],
+    space: dict[str, tuple[float, float, str]],
+    chain_hint: dict[str, Any] | None = None,
+    memory_prior: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Blend chain and RestorationMemory priors into bounded DSP parameters."""
+    adjusted = dict(params)
+
+    if isinstance(memory_prior, dict):
+        prior_params = memory_prior.get("phase_params", {})
+        hpi_prev = float(memory_prior.get("hpi_achieved", 0.0) or 0.0)
+        flat_prior: dict[str, float] = {}
+        if isinstance(prior_params, dict):
+            for key, value in prior_params.items():
+                if key in space:
+                    with contextlib.suppress(Exception):
+                        flat_prior[key] = float(value)
+                elif isinstance(value, dict):
+                    for nested_key, nested_value in value.items():
+                        if nested_key in space:
+                            with contextlib.suppress(Exception):
+                                flat_prior[nested_key] = float(nested_value)
+        prior_weight = float(np.clip(0.15 + 0.20 * hpi_prev, 0.15, 0.35)) if flat_prior else 0.0
+        for key, prior_value in flat_prior.items():
+            lo, hi, mode = space[key]
+            base_value = float(adjusted.get(key, prior_value))
+            blended = (1.0 - prior_weight) * base_value + prior_weight * prior_value
+            if mode == "int":
+                blended = float(round(blended))
+            adjusted[key] = float(np.clip(blended, lo, hi))
+
+    if isinstance(chain_hint, dict):
+        strength_scale = float(np.clip(chain_hint.get("strength_scale", 1.0), 0.25, 1.0))
+        if strength_scale < 0.999:
+            scalable_tokens = ("strength", "boost", "ratio")
+            for key, value in list(adjusted.items()):
+                if key not in space or not any(token in key for token in scalable_tokens):
+                    continue
+                lo, hi, mode = space[key]
+                try:
+                    scaled = float(value) * strength_scale
+                except (TypeError, ValueError):
+                    continue
+                if mode == "int":
+                    scaled = float(round(scaled))
+                adjusted[key] = float(np.clip(scaled, lo, hi))
+
+    return adjusted
 
 
 def _material_similarity(m1: str, m2: str) -> float:
@@ -426,12 +478,12 @@ def _normalize_params(
 def _denormalize_params(
     vec: np.ndarray,
     space: dict[str, tuple[float, float, str]] | None = None,
-) -> dict[str, float]:
+) -> dict[str, Any]:
     """Normierter Vektor → Parameter-Dict."""
     if space is None:
         space = PARAMETER_SPACE
     names = _param_names_sorted(space)
-    result: dict[str, float] = {}
+    result: dict[str, Any] = {}
     for i, name in enumerate(names):
         lo, hi, mode = space[name]
         x = float(np.clip(vec[i], 0.0, 1.0))
@@ -441,7 +493,7 @@ def _denormalize_params(
         else:
             raw = lo + x * (hi - lo)
         if mode == "int":
-            result[name] = float(round(raw))
+            result[name] = int(round(raw))
         else:
             result[name] = round(raw, 4)
     return result
@@ -603,6 +655,8 @@ class GPParameterOptimizer:
         n_init: int = 5,
         embedding_vec: np.ndarray | None = None,
         era_warmstart: dict[str, float] | None = None,
+        chain_hint: dict[str, Any] | None = None,
+        memory_prior: dict[str, Any] | None = None,
     ) -> ParameterProposal:
         """
         Schlägt die nächsten zu testenden Parameter vor.
@@ -669,6 +723,7 @@ class GPParameterOptimizer:
                             params[_era_k] = float(np.clip(_era_v_f, _lo, _hi))
                     except (TypeError, ValueError) as _exc:
                         logger.debug("Operation failed (non-critical): %s", _exc)
+            params = _apply_context_priors(params, self._space, chain_hint=chain_hint, memory_prior=memory_prior)
             self._iterations[material] = it + 1
             return ParameterProposal(
                 parameters=params,
@@ -712,6 +767,7 @@ class GPParameterOptimizer:
         for param, val in defaults.items():
             if param not in params:
                 params[param] = val
+        params = _apply_context_priors(params, self._space, chain_hint=chain_hint, memory_prior=memory_prior)
 
         self._iterations[material] = it + 1
         return ParameterProposal(
@@ -730,6 +786,8 @@ class GPParameterOptimizer:
         n_candidates: int = 5,
         n_init: int = 5,
         era_warmstart: dict[str, float] | None = None,
+        chain_hint: dict[str, Any] | None = None,
+        memory_prior: dict[str, Any] | None = None,
     ) -> list[ParameterProposal]:
         """True multi-objective Pareto-front proposals over 15 Musical Goals (§2.5).
 
@@ -775,6 +833,8 @@ class GPParameterOptimizer:
                 n_init=n_init,
                 memory=memory,
                 era_warmstart=era_warmstart,
+                chain_hint=chain_hint,
+                memory_prior=memory_prior,
             )
 
         # ── One separate GP per objective ─────────────────────────────────
@@ -825,6 +885,7 @@ class GPParameterOptimizer:
         it = self._iterations.get(material, 0)
         for sel_idx in selected_indices:
             params = _denormalize_params(candidates[sel_idx], self._space)
+            params = _apply_context_priors(params, self._space, chain_hint=chain_hint, memory_prior=memory_prior)
             mean_quality = float(np.mean(pred_means[sel_idx]))
             mean_uncertainty = float(np.mean(pred_sigma[sel_idx]))
             proposals.append(
@@ -840,7 +901,15 @@ class GPParameterOptimizer:
             )
 
         if not proposals:
-            proposals.append(self.propose(material=material, n_init=n_init, era_warmstart=era_warmstart))
+            proposals.append(
+                self.propose(
+                    material=material,
+                    n_init=n_init,
+                    era_warmstart=era_warmstart,
+                    chain_hint=chain_hint,
+                    memory_prior=memory_prior,
+                )
+            )
 
         self._iterations[material] = it + 1
         logger.debug(
@@ -858,6 +927,8 @@ class GPParameterOptimizer:
         n_init: int,
         memory: list[MemoryEntry],
         era_warmstart: dict[str, float] | None,
+        chain_hint: dict[str, Any] | None = None,
+        memory_prior: dict[str, Any] | None = None,
     ) -> list[ParameterProposal]:
         """UCB kappa-diversity fallback when insufficient MOO goal_scores data."""
         proposals: list[ParameterProposal] = []
@@ -866,7 +937,13 @@ class GPParameterOptimizer:
         kappa_values = [0.5, 1.0, 2.0, 3.0, 4.5][:n_c]
 
         if len(all_X) < 2:
-            base = self.propose(material=material, n_init=n_init, era_warmstart=era_warmstart)
+            base = self.propose(
+                material=material,
+                n_init=n_init,
+                era_warmstart=era_warmstart,
+                chain_hint=chain_hint,
+                memory_prior=memory_prior,
+            )
             for k in range(n_c):
                 varied_params = dict(base.parameters)
                 rng_shift = self._rng.uniform(-0.05, 0.05, size=self._dim)
@@ -877,6 +954,9 @@ class GPParameterOptimizer:
                     if mode == "int":
                         shifted = float(round(shifted))
                     varied_params[pname] = shifted
+                varied_params = _apply_context_priors(
+                    varied_params, self._space, chain_hint=chain_hint, memory_prior=memory_prior
+                )
                 proposals.append(
                     ParameterProposal(
                         parameters=varied_params,
@@ -905,6 +985,7 @@ class GPParameterOptimizer:
             ucb_vals = mu_real + kappa * sig_real
             best_idx = int(np.argmax(ucb_vals))
             params = _denormalize_params(cands[best_idx], self._space)
+            params = _apply_context_priors(params, self._space, chain_hint=chain_hint, memory_prior=memory_prior)
             proposals.append(
                 ParameterProposal(
                     parameters=params,
@@ -917,7 +998,15 @@ class GPParameterOptimizer:
                 )
             )
         if not proposals:
-            proposals.append(self.propose(material=material, n_init=n_init, era_warmstart=era_warmstart))
+            proposals.append(
+                self.propose(
+                    material=material,
+                    n_init=n_init,
+                    era_warmstart=era_warmstart,
+                    chain_hint=chain_hint,
+                    memory_prior=memory_prior,
+                )
+            )
         return proposals
 
     @staticmethod

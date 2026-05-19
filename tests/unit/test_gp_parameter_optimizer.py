@@ -842,3 +842,42 @@ class TestProposeParetaMOO:
         proposal = opt.propose(material="shellac", n_init=5)
         assert isinstance(proposal, ParameterProposal)
         assert proposal.parameters  # nicht leer
+
+
+class TestContextPriors:
+    def test_81_chain_hint_scales_strength_parameters(self, tmp_path, monkeypatch):
+        import backend.core.gp_parameter_optimizer as gp_mod
+
+        monkeypatch.setattr(gp_mod, "_MEMORY_DIR", tmp_path)
+        opt = GPParameterOptimizer(rng_seed=34)
+        proposal = opt.propose(
+            material="tape",
+            chain_hint={"strength_scale": 0.5, "dominant_cluster": "tape_transport"},
+        )
+        assert proposal.parameters["noise_reduction_strength"] == pytest.approx(0.30, abs=1e-6)
+
+    def test_82_memory_prior_blends_known_parameter(self, tmp_path, monkeypatch):
+        import backend.core.gp_parameter_optimizer as gp_mod
+
+        monkeypatch.setattr(gp_mod, "_MEMORY_DIR", tmp_path)
+        opt = GPParameterOptimizer(rng_seed=35)
+        proposal = opt.propose(
+            material="tape",
+            memory_prior={"phase_params": {"noise_reduction_strength": 0.20}, "hpi_achieved": 1.0},
+        )
+        assert proposal.parameters["noise_reduction_strength"] < MATERIAL_DEFAULTS["tape"]["noise_reduction_strength"]
+
+    def test_83_pareto_accepts_context_priors(self, tmp_path, monkeypatch):
+        import backend.core.gp_parameter_optimizer as gp_mod
+
+        monkeypatch.setattr(gp_mod, "_MEMORY_DIR", tmp_path)
+        opt = GPParameterOptimizer(rng_seed=36)
+        proposals = opt.propose_pareto(
+            material="tape",
+            n_candidates=2,
+            chain_hint={"strength_scale": 0.7},
+            memory_prior={"phase_params": {"harmonic_boost_db": 0.0}, "hpi_achieved": 0.8},
+        )
+        assert proposals
+        for proposal in proposals:
+            assert isinstance(proposal, ParameterProposal)

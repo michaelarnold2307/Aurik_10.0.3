@@ -461,6 +461,164 @@ Reihenfolge nach §2.46-Carrier-Chain: subtraktiv vor additiv, mechanisch vor di
 
 > Kanonische Quelle: `backend/core/calibration_matrix.py` → `get_goal_recovery_phases()` + `_GOAL_TO_RECOVERY_PHASES_RESTORATION`. Studio-2026-Extras in `_GOAL_TO_RECOVERY_PHASES_STUDIO_EXTRAS`. Tests: `tests/unit/test_calibration_matrix.py` (§09.10-Tests, 8 Testfunktionen).
 
+## §2.66 RecordingChainProfiler — Träger-Ketten-Kopplung [RELEASE_MUST v9.13]
+
+**Problem**: Aurik behandelt 54 Defekttypen als unabhängige Signale. Physikalisch ist eine historische Aufnahme jedoch eine **kausale Kette** (Mikrofon → Vorstufe → Band → Presswerk → Abspielkette), deren Stufen gekoppelte Degradationen erzeugen. Wenn 8 Symptome aus derselben physikalischen Quelle stammen, aktiviert der CausalDefectReasoner 8 separate Phasen-Cluster — mit Over-Processing und sich überlappenden Korrekturen.
+
+**Lösung**: `RecordingChainProfiler` gruppiert gemeinsam auftretende Causes in **Ketten-Cluster** und liefert einen `chain_hint` an den GPOptimizer. Phasen desselben Clusters werden koordiniert aktiviert statt einzeln.
+
+```python
+# Einhängepunkt: UV3 restore(), nach CausalDefectReasoner.reason(), vor GPOptimizer
+from backend.core.recording_chain_profiler import RecordingChainProfiler
+
+chain_profile = RecordingChainProfiler().profile_chain(
+    causes=restoration_plan.top_causes,   # Liste aktiver Causes (Posterior > 0.15)
+    material=material_type.value,
+    era=era_decade,
+)
+# chain_profile.dominant_cluster: str ("tape_aging" | "vinyl_wear" | "azimuth_chain" | None)
+# chain_profile.cluster_weight: float [0,1] — Konfidenz der Cluster-Zuordnung
+# chain_profile.suppress_causes: list[str] — redundante Causes, die nicht einzeln aktiviert werden
+
+# GPOptimizer erhält chain_hint als Prior-Bias:
+gp_result = gp_optimizer.optimize(
+    defect_scores=defect_scores_norm,
+    material=material,
+    chain_hint=chain_profile,   # NEU: koordiniert Phasen-Stärken innerhalb Cluster
+)
+```
+
+**VERBOTEN**: `RecordingChainProfiler` auf weniger als 3 aktiven Causes aufrufen — zu wenig Evidenz für Cluster-Erkennung; `chain_hint=None` zurückgeben.
+
+**Kanonische Cluster**:
+
+| Cluster | Enthaltene Causes | Primäre Integrierte Korrektur |
+|---|---|---|
+| `tape_aging` | tape_dropout, tape_hiss, hf_remanence_loss, print_through, generation_loss | phase_29 + phase_24 + phase_03 als Koalition (§2.67) |
+| `vinyl_wear` | vinyl_crackle, stylus_damage, inner_groove_distortion, surface_noise | phase_01 + phase_09 + phase_05 als Koalition |
+| `azimuth_chain` | head_misalignment, azimuth_error, bandwidth_loss | phase_25 + phase_04 + phase_06 als Koalition |
+| `shellac_degradation` | lacquer_disc_degradation, surface_noise, bandwidth_loss, vinyl_crackle | phase_03 + phase_09 + phase_06 als Koalition |
+| `mechanical_wow` | wow, flutter, flutter_spectral_sidebands, speed_calibration_error | phase_12 + phase_31 als Koalition |
+
+> Quelle: `backend/core/recording_chain_profiler.py`. Neue Cluster über `_CHAIN_CLUSTERS`-Dict erweiterbar.
+
+## §2.67 Phase-Koalitions-Evaluation — globale Optimierung statt lokaler Gates [RELEASE_MUST v9.13]
+
+**Problem**: §2.45 (Minimal-Intervention) erzwingt `perceptual_delta > 0` **pro Phase**. Das verhindert jede Korrektursequenz, die durch ein lokales Minimum führt. Schwere Restaurierungsfälle (gekoppelte Defekte, tief-analoge Carrier) sind genau die Fälle, die mutige mehrstufige Eingriffe benötigen.
+
+**Lösung**: Vordefinierte **Phasen-Koalitionen** werden als Gruppe evaluiert. `perceptual_delta` wird erst nach der gesamten Koalition gemessen; innerhalb der Koalition dürfen einzelne Phasen negative Deltas haben.
+
+```python
+# In UV3, Klassen-Konstante:
+_PHASE_COALITIONS: dict[str, list[str]] = {
+    "tape_repair":     ["phase_29_tape_hiss_reduction", "phase_12_wow_flutter_fix", "phase_24_dropout_repair"],
+    "vinyl_surface":   ["phase_01_click_removal", "phase_09_crackle_removal", "phase_05_rumble_filter"],
+    "carrier_invert":  ["phase_04_eq_correction", "phase_03_denoise", "phase_06_frequency_restoration"],
+    "shellac_repair":  ["phase_03_denoise", "phase_09_crackle_removal", "phase_01_click_removal"],
+    "mechanical_fix":  ["phase_12_wow_flutter_fix", "phase_31_speed_pitch_correction", "phase_25_azimuth_correction"],
+}
+
+# Koalitions-Ausführung in _profiled_phase_call_with_delta():
+if coalition_id := _get_coalition_for_phase(phase_id):
+    pre_coalition = audio.copy()
+    for coalition_phase in _PHASE_COALITIONS[coalition_id]:
+        audio = _run_phase(coalition_phase, audio)
+    # Delta-Gate erst JETZT — nach der gesamten Koalition:
+    if perceptual_delta(pre_coalition, audio) < 0:
+        audio = pre_coalition  # Rollback auf Koalitions-Eingang
+        metadata["coalition_rollback"] = coalition_id
+    else:
+        metadata["coalition_applied"] = coalition_id
+    continue  # Einzelphasen der Koalition nicht nochmals einzeln ausführen
+```
+
+**Invarianten**:
+
+- Koalitions-Phasen müssen §2.46-Carrier-Chain-Reihenfolge (subtraktiv vor additiv) einhalten.
+- §0a-verbotene Phasen dürfen nie in einer Koalition für Restoration stehen.
+- `_NEVER_SKIP`-Phasen laufen immer einzeln — keine Koalitions-Wrapping.
+- Zeitbudget einer Koalition = Summe der Einzel-Budgets (§ Per-Phase-Zeitbudgets).
+- Koalition wird nur aktiviert wenn `chain_hint.dominant_cluster` die Koalition bestätigt.
+
+## §2.69 TemporalContinuityGuard — Zeitliche Diskontinuität [RELEASE_MUST v9.13]
+
+**Problem**: Frame-by-frame-Processing erzeugt Mikro-Diskontinuitäten zwischen Verarbeitungsblöcken. Diese erscheinen in keiner Metrik und in keinem Test (synthetische Signale haben keine natürlichen Phrasengrenzen). Hörer nehmen sie als "da stimmt was nicht" wahr.
+
+**Lösung**: Post-Phase-Hook misst Frame-RMS-Varianz-Ratio und protokolliert Überschreitungen in `metadata`.
+
+```python
+# Einhängepunkt: Ende von _profiled_phase_call_with_delta(), nach perceptual_delta-Gate
+from backend.core.temporal_continuity_guard import check_temporal_continuity
+
+tc_result = check_temporal_continuity(pre=pre_phase_audio, post=audio, phase_id=phase_id, sr=sr)
+metadata.setdefault("temporal_continuity", {})[phase_id] = {
+    "variance_ratio": tc_result.variance_ratio,
+    "ok": tc_result.ok,
+}
+# KEIN Veto — nur Protokollierung. Warnung ab variance_ratio > 2.5:
+if not tc_result.ok:
+    logger.warning("temporal_continuity phase=%s variance_ratio=%.2f", phase_id, tc_result.variance_ratio)
+```
+
+**`TemporalContinuityResult`-Felder**: `ok: bool`, `variance_ratio: float`, `phase_id: str`.
+
+**Schwellwert**: `variance_ratio > 2.5` = Warnung (kein Rollback). `variance_ratio > 8.0` = zusätzlich `metadata["temporal_continuity_critical"].append(phase_id)`.
+
+**Implementierung**:
+
+```python
+# backend/core/temporal_continuity_guard.py:
+def check_temporal_continuity(pre, post, phase_id, sr):
+    frame_rms_pre  = librosa.feature.rms(y=np.mean(pre, axis=0) if pre.ndim==2 else pre,
+                                          frame_length=2048, hop_length=512)[0]
+    frame_rms_post = librosa.feature.rms(y=np.mean(post, axis=0) if post.ndim==2 else post,
+                                          frame_length=2048, hop_length=512)[0]
+    variance_ratio = float(np.var(frame_rms_post) / (np.var(frame_rms_pre) + 1e-8))
+    return TemporalContinuityResult(ok=variance_ratio < 2.5, variance_ratio=variance_ratio, phase_id=phase_id)
+```
+
+> Langfristig: `variance_ratio`-Daten aus `metadata` aggregieren → Era/Material-adaptive Schwellwerte.
+
+## §2.70 RestorationMemory — Persistenter GPOptimizer-Prior [RELEASE_MUST v9.13]
+
+**Problem**: GPOptimizer startet jeden Lauf mit uniformem Prior — kein Gedächtnis über erfolgreiche Lösungsstrategien aus vergangenen Läufen. Erfahrene Toningenieure haben dieses Gedächtnis; Aurik hat es nicht.
+
+**Lösung**: `RestorationMemory` persistiert Bayesianische Priors in `~/.aurik/restoration_memory.json`, gehasht nach `(era, material, defect_cluster_signature)`.
+
+```python
+# Einhängepunkt: GPOptimizer.__init__() + optimize()-Rückgabe
+from backend.core.restoration_memory import RestorationMemory
+
+# Vor GPOptimizer-Aufruf: gespeicherten Prior laden
+_rm = RestorationMemory()
+_rm_key = (era_decade, material_type.value, _defect_cluster_hash(top_causes))
+prior_data = _rm.get_prior(_rm_key)  # None wenn neu; dict{"X_init": ..., "Y_init": ...} wenn bekannt
+
+gp_result = gp_optimizer.optimize(
+    ...,
+    x_init=prior_data.get("X_init") if prior_data else None,
+    y_init=prior_data.get("Y_init") if prior_data else None,
+)
+
+# Nach erfolgreichem Export (HPI > 0 AND artifact_freedom >= 0.95):
+if export_hpi > 0 and metadata.get("artifact_freedom", 0) >= 0.95:
+    _rm.save_result(
+        key=_rm_key,
+        phase_params=gp_result.best_params,
+        hpi_achieved=export_hpi,
+    )
+```
+
+**Sicherheits-Invarianten**:
+
+- `~/.aurik/restoration_memory.json` darf maximal 10 MB groß werden (LRU-Eviction).
+- Nur Erfolge (`HPI > 0`) werden gespeichert — kein Lernen aus schlechten Läufen.
+- Read ist non-blocking (`try/except`, JSON-Parsing-Fehler → `None`).
+- Write ist atomic (write to `.tmp`, dann `os.replace`).
+- **VERBOTEN**: `RestorationMemory` auf Cloudspeicher oder Netzwerkpfade schreiben — rein lokal.
+
+> Datei-Pfad: `~/.aurik/restoration_memory.json`. Konfigurierbar via `AURIK_MEMORY_PATH`-Env-Variable (Desktop-Offline-Pflicht beachten).
+
 ## §6.2a Material-Pflicht-Phasen
 
 | Material | Pflicht-Phasen (unabhängig von DefectScanner-Score) |

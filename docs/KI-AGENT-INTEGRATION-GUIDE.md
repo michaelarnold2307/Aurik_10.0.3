@@ -35,7 +35,7 @@ Dieses Dokument liefert **praktische Ergänzungen** zu den Richtlinien.
 | `GPParameterOptimizer` | `core/gp_parameter_optimizer.py` | RBF-GP + UCB, lernt dauerhaft pro Material |
 | `PerceptualQualityScorer` | `core/perceptual_quality_scorer.py` | Gammatone-NSIM + MCD + LUFS + MOS |
 | `MusicalGoalsChecker` | `backend/core/musical_goals/musical_goals_metrics.py` | 14 Ziele, `measure_all(audio, sr)` |
-| `DefectScanner` | `core/defect_scanner.py` | 47 DefectTypes, material-adaptive Klassifikation |
+| `DefectScanner` | `core/defect_scanner.py` | 54 DefectTypes, material-adaptive Klassifikation |
 | `UnifiedRestorerV3` | `core/unified_restorer_v3.py` | 64-Phasen-Pipeline-Orchestrator |
 | `VocalAIEnhancement` | `core/vocal_ai_enhancement.py` | `VoiceGender` (MALE/FEMALE/CHILD/ANDROGYNOUS) |
 | `ExcellenceOptimizer` | `core/excellence_optimizer.py` | `optimize_for_excellence()` |
@@ -48,7 +48,7 @@ Eingang (beliebige SR, mono/stereo)
     │
     ▼ auf 48 kHz resampeln (Lanczos-4)
     │
-    ▼ [DefectScanner.scan()] → DefectAnalysisResult (47 DefectTypes, material-adaptiv)
+    ▼ [DefectScanner.scan()] → DefectAnalysisResult (54 DefectTypes, material-adaptiv)
     │
     ▼ [CausalDefectReasoner.reason_about_defects()] → RestorationPlan
     │   .primary_cause, .recommended_phases, .phase_parameters, .reasoning
@@ -174,7 +174,7 @@ tape · reel_tape · vinyl · shellac · wax_cylinder · wire_recording · lacqu
 dat · cd_digital · mp3_low · mp3_high · aac · minidisc · streaming · unknown
 ```
 
-**47 DefectTypes (vollständig, Stand v9.12.8):**
+**54 DefectTypes (vollständig, Stand v9.12.9):**
 
 ```
 CLICKS · CRACKLE · HUM · WOW · FLUTTER · LOW_FREQ_RUMBLE · DROPOUTS

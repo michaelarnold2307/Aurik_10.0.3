@@ -9,7 +9,7 @@ applyTo: "backend/core/musical_goals/*.py"
 | Prio | Goal | Restoration-Boden | Studio-2026-Boden |
 |---|---|---|---|
 | **P0** ⚠️ | **vocal_quality** | ≥ 0.85 (wenn `panns_singing ≥ 0.35`); VQI-Recovery-Trigger < 0.72 | ≥ 0.90; VQI-Recovery-Trigger < 0.87 |
-| **P0** ⚠️ | **formant_fidelity** | ≥ 0.88 (F1–F4 LPC-Track); Überschreitung ±2 dB → Rollback | ≥ 0.92 |
+| **P0** ⚠️ | **formant_fidelity** | ≥ 0.88 (F1–F4 LPC-Track); Überschreitung `resolve_formant_tolerance_db()` → Rollback | ≥ 0.92 |
 | **P1** | natuerlichkeit | ≥ 0.90 | ≥ 0.92 |
 | **P1** | authentizitaet | ≥ 0.88 | ≥ 0.90 |
 | **P2** | tonal_center | ≥ 0.95 | ≥ 0.96 |
@@ -208,6 +208,92 @@ vqi_score = result["vqi"]  # float [0, 1]
 # hier. UV3 liest result["vqi"] und entscheidet über Recovery. Vollständige UV3-Gate-Logik:
 # → pipeline.instructions.md, Abschnitt "VQI-Gate (Gesangsmaterial)"
 ```
+
+## EraVocalProfile — Ära-adaptive VQI-Kalibrierung [RELEASE_MUST v9.13]
+
+**Problem**: `compute_vqi()` verwendet feste Formant-Toleranz (±2 dB für F1–F4). Ein Falsett-Sänger von 1932 hat physikalisch andere Vibrato-Charakteristika und eine höhere nasale Resonanz als ein Popsänger von 1985. Die feste Toleranz erzeugt systematisch falsch-negative VQI-Scores für historisches Material und falsch-positive Recovery-Kaskaden, die gar nicht notwendig sind.
+
+**Lösung**: `EraVocalProfile` übergibt ära-spezifische Toleranzwerte an `compute_vqi()`.
+
+```python
+# backend/core/musical_goals/era_vocal_profile.py
+from dataclasses import dataclass
+from typing import Tuple
+
+@dataclass(frozen=True)
+class EraVocalProfile:
+    vibrato_hz_range: Tuple[float, float]  # typische Vibrato-Frequenz dieser Ära
+    f1_tolerance_db: float                  # F1-Abweichungstoleranz in dB
+    f2_f4_tolerance_db: float               # F2–F4-Abweichungstoleranz in dB (meist enger)
+    nasality_expected: bool                 # Nasalität als Stilmittel dieser Ära
+    dynamic_range_typical_lu: float         # typisches Dynamikfenster (für emotional_arc)
+
+ERA_VOCAL_PROFILES: dict[str, EraVocalProfile] = {
+    "1900_1925": EraVocalProfile(
+        vibrato_hz_range=(5.0, 10.0), f1_tolerance_db=4.0, f2_f4_tolerance_db=3.5,
+        nasality_expected=True,  dynamic_range_typical_lu=8.0,
+    ),
+    "1925_1945": EraVocalProfile(
+        vibrato_hz_range=(5.5, 9.0),  f1_tolerance_db=3.5, f2_f4_tolerance_db=2.5,
+        nasality_expected=True,  dynamic_range_typical_lu=10.0,
+    ),
+    "1945_1960": EraVocalProfile(
+        vibrato_hz_range=(5.0, 7.5),  f1_tolerance_db=3.0, f2_f4_tolerance_db=2.0,
+        nasality_expected=False, dynamic_range_typical_lu=12.0,
+    ),
+    "1960_1975": EraVocalProfile(
+        vibrato_hz_range=(4.5, 7.0),  f1_tolerance_db=2.5, f2_f4_tolerance_db=2.0,
+        nasality_expected=False, dynamic_range_typical_lu=14.0,
+    ),
+    "1975_plus": EraVocalProfile(
+        vibrato_hz_range=(4.0, 7.0),  f1_tolerance_db=2.0, f2_f4_tolerance_db=2.0,
+        nasality_expected=False, dynamic_range_typical_lu=16.0,
+    ),
+}
+
+def get_era_vocal_profile(era_decade: int) -> EraVocalProfile:
+    """Gibt das passende EraVocalProfile für ein Jahrzehnt zurück."""
+    if era_decade < 1925:   return ERA_VOCAL_PROFILES["1900_1925"]
+    if era_decade < 1945:   return ERA_VOCAL_PROFILES["1925_1945"]
+    if era_decade < 1960:   return ERA_VOCAL_PROFILES["1945_1960"]
+    if era_decade < 1975:   return ERA_VOCAL_PROFILES["1960_1975"]
+    return ERA_VOCAL_PROFILES["1975_plus"]
+```
+
+**Übergabe an `compute_vqi()`** — Signatur-Update:
+
+```python
+def compute_vqi(
+    audio_orig:     np.ndarray,
+    audio_restored: np.ndarray,
+    sr:             int,
+    era_profile:    "EraVocalProfile | None" = None,  # NEU — era_profile=None → bisheriges Verhalten
+) -> dict[str, float]:
+    # Wenn era_profile gegeben:
+    #   f1_tol         = era_profile.f1_tolerance_db        (statt fix 2.0 dB)
+    #   f2_f4_tol      = era_profile.f2_f4_tolerance_db     (statt fix 2.0 dB)
+    #   vibrato_range  = era_profile.vibrato_hz_range        (Vibrato-Gate-Anpassung)
+    #   nasality_penalty_factor = 0.0 if era_profile.nasality_expected else 1.0
+    # Wenn era_profile=None: bisheriges Verhalten (Toleranz 2.0 dB fix, Vibrato 4–7 Hz fix)
+```
+
+**Kanonischer Aufruf (UV3, VQI-Gate)**:
+
+```python
+from backend.core.musical_goals.era_vocal_profile import get_era_vocal_profile
+
+era_profile = get_era_vocal_profile(era_decade)  # aus SongCalibration/EraClassifier
+result = compute_vqi(
+    audio_orig=original_audio,
+    audio_restored=restored_audio,
+    sr=sr,
+    era_profile=era_profile,
+)
+```
+
+**VERBOTEN**: `compute_vqi()` auf Material mit `era_decade < 1960` ohne `era_profile` aufrufen — festes ±2 dB erzeugt systematisch falsch-negative VQI-Scores für historische Vokalstile.
+
+**Tests**: `tests/unit/test_era_vocal_profile.py` — mind. 5 Tests: `get_era_vocal_profile`-Grenzwerte (1900, 1924, 1925, 1975+), `compute_vqi`-Aufruf mit und ohne era_profile (Rückgabe-Struktur), Toleranz-Wirkung auf formant_fidelity (Mock-Formant-Abweichung 3.0 dB → je nach era_profile: fail/pass).
 
 ## Frisson-Schutz (§Frisson)
 

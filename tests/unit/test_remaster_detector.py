@@ -17,7 +17,7 @@ import numpy as np
 
 def _sine(sr: int = 48_000, duration: float = 2.0, freq: float = 440.0) -> np.ndarray:
     t = np.linspace(0, duration, int(sr * duration), endpoint=False)
-    return np.sin(2 * np.pi * freq * t).astype(np.float32)
+    return np.asarray(np.sin(2 * np.pi * freq * t), dtype=np.float32)
 
 
 def _wideband_noise(sr: int = 48_000, duration: float = 2.0, seed: int = 42) -> np.ndarray:

@@ -717,8 +717,10 @@ for fn in range(4):
                                    center_hz=formants_post[fn].freq,
                                    gain_db=np.clip(-delta_db, -2.5, +2.5),
                                    q=6.0)
-# Limit: max ±2.5 dB pro Formant — §0p Formant-Integrität-Guard bleibt aktiv
+# Limit: max resolve_formant_tolerance_db(...) pro Formant — §0p Formant-Integrität-Guard bleibt aktiv
 ```
+
+**Phasenpflicht für Vokal-Formant-Gates** [RELEASE_MUST]: Lokale Formant-Guards in Vokal-/NR-/Dereverb-Phasen dürfen keinen festen `2.0 dB`-Schwellwert hardcoden. Die Toleranz kommt aus `resolve_formant_tolerance_db(era_decade, era_profile)`, optional über `kwargs["formant_tolerance_db"]` von UV3 injiziert. Neue Phasen müssen `era_vocal_profile`, `vocal_zone_strength_policy` und `passaggio_energy_bias_db` akzeptieren, wenn sie Vokalregionen verändern.
 
 ### §7.10b Invarianten
 

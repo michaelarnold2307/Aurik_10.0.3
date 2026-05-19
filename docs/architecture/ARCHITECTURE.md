@@ -13,7 +13,7 @@
 | Komponente | Datei | Zweck |
 | --- | --- | --- |
 | `UnifiedRestorerV3` | `core/unified_restorer_v3.py` | Haupt-Pipeline-Orchestrator |
-| `DefectScanner` | `core/defect_scanner.py` | 47 DefectTypes, material-adaptive Priors |
+| `DefectScanner` | `core/defect_scanner.py` | 54 DefectTypes, material-adaptive Priors |
 | `CausalDefectReasoner` | `core/causal_defect_reasoner.py` | 34 Kausal-Ursachen (Bayes) |
 | `GPParameterOptimizer` | `core/gp_parameter_optimizer.py` | RBF-GP + UCB, MOO-Pareto |
 | `MusicalGoalsChecker` | `backend/core/musical_goals/musical_goals_metrics.py` | 14 Ziele |

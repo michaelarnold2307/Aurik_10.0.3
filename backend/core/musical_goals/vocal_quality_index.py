@@ -216,8 +216,12 @@ def _compute_formant_stability(
     vocal_pre: np.ndarray,
     vocal_post: np.ndarray,
     sr: int,
+    era_profile: object = None,
 ) -> float:
-    """Schätzt F1 drift via LPC (linear approximation). Score = max(0, 1 - drift/70Hz)."""
+    """Schätzt F1 drift via LPC.
+
+    Score = max(0, 1 - drift/max_drift_hz); ära-adaptiv via era_profile (§EraVocalProfile).
+    """
     try:
         import librosa  # pylint: disable=import-outside-toplevel
 
@@ -254,8 +258,11 @@ def _compute_formant_stability(
 
         min_len = min(len(f1_pre), len(f1_post))
         drift = float(np.mean(np.abs(np.array(f1_pre[:min_len]) - np.array(f1_post[:min_len]))))
-        # 35 Hz = threshold (§2.35c): 0 Hz drift → 1.0; 70 Hz drift → 0.5
-        score = float(np.clip(1.0 - drift / 70.0, 0.0, 1.0))
+        # §EraVocalProfile: Historische Vokalstile haben höhere F1-Drift-Toleranz.
+        # Modern (default): f1_tolerance_db=2.0 → max_drift_hz=70.0; 1900-1925: 4.0 → 140.0 Hz.
+        _f1_tol = float(getattr(era_profile, "f1_tolerance_db", 2.0)) if era_profile is not None else 2.0
+        _max_drift_hz = 70.0 * (_f1_tol / 2.0)
+        score = float(np.clip(1.0 - drift / _max_drift_hz, 0.0, 1.0))
         return score
     except Exception as exc:
         logger.debug("formant_stability failed: %s", exc)
@@ -354,6 +361,7 @@ def compute_vqi(  # pylint: disable=too-many-positional-arguments
     reference_audio: np.ndarray | None = None,
     genre: str | None = None,
     reference_singer_id: str | None = None,
+    era_profile: object = None,
 ) -> dict[str, float]:
     """Berechnet the VocalQualityIndex (§2.35c).
 
@@ -493,8 +501,8 @@ def compute_vqi(  # pylint: disable=too-many-positional-arguments
         if not _srl_singer_identity_done:
             singer_cosine, dsp_fallback = _compute_singer_identity(_id_anchor, rest_m, sr)
 
-    # Component 2: Formant Stability
-    formant_score = _compute_formant_stability(orig_m, rest_m, sr)
+    # Component 2: Formant Stability (§EraVocalProfile: era_profile skaliert max_drift_hz)
+    formant_score = _compute_formant_stability(orig_m, rest_m, sr, era_profile=era_profile)
 
     # Component 3: Articulation
     articulation = _compute_articulation_score(orig_m, rest_m, sr)

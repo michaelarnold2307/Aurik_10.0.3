@@ -2,7 +2,7 @@
 
 > **Systemidentität**: Aurik 9.x.x ist ein **hybrider Toningenieur mit menschlichen Fähigkeiten und allen Vorteilen der maschinellen Verarbeitung** — entwickelt, um die **qualitativ hochwertigsten Restaurierungsergebnisse für Musik mit Gesang zu erzielen, die weltweit jemals automatisiert erzeugt wurden**. Meisterhaft in der Restauration, Reparatur und Rekonstruktion gesanglicher Aufnahmen **aller Ären, Genres, Tonträgerketten und Tonträgerkettenkombinationen** — kein Träger zu alt, kein Genre zu selten, keine Kombination zu komplex. Bei jeder Importdatei wird unter Berücksichtigung der Quelldatei und der physikalischen Grenzen das maximal mögliche Ergebnis erzielt. **Kein Nutzereingriff erforderlich, kein manueller Parameter, keine Nachkorrektur** — das musikalische Urteilsvermögen eines erfahrenen Toningenieurs ist systematisch in die Verarbeitungslogik eingebettet. Stand: Mai 2026 — Version **9.12.8**
 >
-> **instructions_version: 9.3** — SOTA-Science-Update Mai 2026: Ephraim-Malah MMSE-LSA für NR-Gain + Bark/ERB-Skalenklarheit + IMCRA/OMLSA-Noise-Estimation + PGHI-Parameter + Vocos-Option + RIAA-Zeitkonstanten-Spezifikation + MP3-Pre-Echo-Taxonomie + Digitale-Carrier-Reihenfolge + SBR/AudioSR-Entscheidungsbaum für BW-Erweiterung + VERSA-Metrik-Spezifikation + MERT-Implementierungsdetails + artifact_freedom-Komponenten-Vollspezifikation + emotional_arc-Präzisierung + Groove/Warmth/TonalCenter-Algorithmen + DNSMOS/SingMOS als Naturalness-Proxy + Era-spezifische Verarbeitungsrichtlinien + **Runde 2+3 Konsistenz-Audit** (VQI-Recovery-Trigger durchgängig, §0k _NEVER_SKIP, Studio-VQI-Schwelle 0.87 überall) + **§GOAL_BASELINE_CHECK [RELEASE_MUST] (v9.12.7)**: garantierter Goal-Recovery-Pfad vor Pipeline — schließt CAUSE_TO_PHASES-Lücke für undetektierte Goal-Defizite; `get_goal_recovery_phases()` in `calibration_matrix`
+> **instructions_version: 9.4** — SOTA-Science-Update Mai 2026 (v9.3) + Architektur-Update v9.12.9: RecordingChainProfiler (§2.66), Phase-Koalitions-Evaluation (§2.67), TemporalContinuityGuard (§2.69), RestorationMemory (§2.70), EraVocalProfile (§EraVocalProfile in musical_goals.instructions.md) + DefectScanner(54) + 62 CAUSES in CausalDefectReasoner
 >
 > Aktuelle Testzahl: **~13.662 `def test_`-Funktionen** (614 Testdateien; alle grün)
 >
@@ -118,7 +118,7 @@ Keine song-spezifischen Sonderregeln im Produktionscode. Allgemeingültigkeit vo
 | **02** | Pipeline/§2.x — UV3, Denker, SongCal, KMV, FeedbackChain, §2.64/§2.65 |
 | **03** | Module — Kognitive Module §2.1–§2.43 |
 | **04** | DSP/SOTA — Algorithmen, SOTA-Matrix, Psychoakustik |
-| **05** | Material/Defekte — 15 Materialtypen, 47 DefectTypes |
+| **05** | Material/Defekte — 15 Materialtypen, 54 DetectionTypes (DefectScanner), 62 Kausal-Ursachen (CausalDefectReasoner) |
 | **06** | Phasen 01–64 — Phase-Liste, CAUSE_TO_PHASES |
 | **07** | Tests/Qualität — PQS, AMRB, OQS, MUSHRA |
 | **08** | Architektur — Layers, Plugins, CLI, AppImage |
@@ -128,10 +128,10 @@ Keine song-spezifischen Sonderregeln im Produktionscode. Allgemeingültigkeit vo
 
 | Datei | Gilt für | Inhalt |
 |---|---|---|
-| [pipeline.instructions.md](instructions/pipeline.instructions.md) | `backend/core/unified_restorer_v3.py` | §2.44 HPI, §2.45 Minimal-Intervention, §2.48 CIG, §2.49 AFG, §2.51 Stereo, §2.60 Rollback, §2.61 Length, §2.64 Per-Phase-Delta, §2.65 MAS-Stop |
+| [pipeline.instructions.md](instructions/pipeline.instructions.md) | `backend/core/unified_restorer_v3.py` | §2.44 HPI, §2.45 Minimal-Intervention, §2.48 CIG, §2.49 AFG, §2.51 Stereo, §2.60 Rollback, §2.61 Length, §2.64 Per-Phase-Delta, §2.65 MAS-Stop, **§2.66 RecordingChainProfiler**, **§2.67 Phase-Koalitionen**, **§2.69 TemporalContinuityGuard**, **§2.70 RestorationMemory** |
 | [phases.instructions.md](instructions/phases.instructions.md) | `backend/core/phases/phase_*.py` | §2.46 Carrier-Chain-Reihenfolge, §2.46e Hallucination-Guard, §2.46f Natural-Artifacts, §2.63 Reflect-Padding, HPF/Notch-Checkliste, BW/DR-Ceiling |
 | [dsp.instructions.md](instructions/dsp.instructions.md) | `backend/core/dsp/*.py`, `plugins/*.py` | ML-Device-Manager, Energy-Bias, HNR-Guard, Masking-Guard, MIIPHER-Fallback, Singleton-Pattern, Timbral-Coherence |
-| [musical_goals.instructions.md](instructions/musical_goals.instructions.md) | `backend/core/musical_goals/*.py` | 14-Goals-Tabelle, material-adaptive Böden, `estimate_song_goal_targets()`, VQI, Frisson-Schutz |
+| [musical_goals.instructions.md](instructions/musical_goals.instructions.md) | `backend/core/musical_goals/*.py` | 14-Goals-Tabelle, material-adaptive Böden, `estimate_song_goal_targets()`, VQI, Frisson-Schutz, **EraVocalProfile** |
 | [tests.instructions.md](instructions/tests.instructions.md) | `tests/**/*.py` | GC-Konventionen, Mock-Patterns, Budget-Tests, AMRB-Update |
 
 Änderungshistorie: `docs/CHANGELOG_HISTORY.md`
@@ -163,6 +163,10 @@ Keine song-spezifischen Sonderregeln im Produktionscode. Allgemeingültigkeit vo
 | Audio-Import | `from backend.file_import import load_audio_file` |
 | GUI-Launcher | `./run_aurik.sh` (Legacy: `start_aurik_90.py` delegiert auf `Aurik910/main.py`) |
 | CLI-Entry | `cli/aurik_cli.py` via Bridge (`get_load_audio_fn`, `run_pre_analysis`, `get_aurik_denker_instance`) |
+| RecordingChainProfiler | `backend/core/recording_chain_profiler.py` (Singleton, `get_recording_chain_profiler()`) |
+| TemporalContinuityGuard | `backend/core/temporal_continuity_guard.py` (Dataclass `TemporalContinuityResult`, Funktion `check_temporal_continuity`) |
+| RestorationMemory | `backend/core/restoration_memory.py` (Singleton, `get_restoration_memory()`, Datei `~/.aurik/restoration_memory.json`) |
+| EraVocalProfile | `backend/core/musical_goals/era_vocal_profile.py` (`get_era_vocal_profile(era_decade)`, `ERA_VOCAL_PROFILES`) |
 
 ## Universelle Codierregeln (immer gültig)
 
@@ -243,6 +247,11 @@ logger.info("phase=%s score=%.2f", phase, score)  # kein print()
 | VQI-Abfall nach NR ohne DSP-Korrektiv-Recovery (Restoration) | Wenn `VQI < 0.74` + `panns_singing ≥ 0.25` + Restoration-Modus: `phase_65_vocal_naturalness_restoration` triggern; **VERBOTEN**: phase_42_vocal_enhancement als Recovery in Restoration (§0a) — phase_65 ist der §0a-konforme Ersatz (HNR-Blend + Spektral-Tilt + Formant-Tilt) | §0a, Spec 06 §7.10 |
 | `get_material_floor()` in §GOAL_BASELINE_CHECK ohne Restorability-Skalierung | `get_effective_material_floor(material_type, goal_name, restorability_score)` verwenden (§09.12); `restorability < 30` → `metadata["degraded_restorability"] = True`; `get_material_floor()` bleibt für PMGG + UI + Tests unverändert | §09.12 |
 | `TransientEnergyMetric` fehlt nach subraktiver Phase (`transient_energie`-Goal) | `get_transient_energy_metric().measure_transient_energy(input, restored, sr)`; bei Score < `material_floor`: `_blend_onset_regions()` (Onset-selektiv, 5 ms Fenster); PHASE_GOAL_EXCLUSIONS für phase_18 + phase_26 ergänzen (§1.4.6) | §1.4.6 |
+| `CausalDefectReasoner.reason()` ohne nachgelagerten `RecordingChainProfiler` (≥3 aktive Causes) | `RecordingChainProfiler().profile_chain(causes, material, era)` → `chain_hint` an GPOptimizer übergeben; ohne Profiler werden 8 Ursachen derselben physikalischen Kette als unabhängige Phasen-Cluster aktiviert → Over-Processing (§2.66) | §2.66 |
+| Phase-Gruppe aus physikalisch gekoppelten Defekten einzeln per `perceptual_delta` gegated | Koalitions-Phasen via `_PHASE_COALITIONS` gruppieren; `perceptual_delta` erst nach der gesamten Koalition messen; §0a-verbotene Phasen dürfen nie Koalitions-Mitglied sein (§2.67) | §2.67 |
+| `_profiled_phase_call_with_delta()` ohne `TemporalContinuityGuard`-Hook | `check_temporal_continuity(pre, post, phase_id, sr)` am Ende jeder Phase; `variance_ratio > 2.5` → WARNING in `metadata["temporal_continuity"]`; kein Veto (§2.69) | §2.69 |
+| GPOptimizer startet ohne Prior aus erfolgreichem Vorrun | `RestorationMemory().get_prior((era, material, defect_cluster_hash))` vor GPOptimizer-Aufruf; nach HPI > 0 + artifact_freedom ≥ 0.95: `save_result(...)` — kein Lernen aus schlechten Läufen (§2.70) | §2.70 |
+| `compute_vqi()` auf historischem Material (era_decade < 1960) ohne `era_profile` | `get_era_vocal_profile(era_decade)` → `era_profile` an `compute_vqi()` übergeben; fixes ±2 dB ist falsch für historische Vokalstile → falsch-negative VQI-Scores + unnötige Recovery-Kaskaden (§EraVocalProfile) | §EraVocalProfile |
 
 > DSP-/Phase-spezifische VERBOTEN-Regeln (energy_bias, HNR-Guard, LPC-Ordnung, Passaggio, Timbral Coherence etc.): → [dsp.instructions.md](instructions/dsp.instructions.md) / [phases.instructions.md](instructions/phases.instructions.md)
 
@@ -321,12 +330,18 @@ Mixed-Mode: Heavy-Plugins → GPU, DSP/Light → CPU. Linux: ROCm 6.x; Windows: 
 `AurikDenker.denke()` → ReparaturDenker → RekonstruktionsDenker → RestaurierDenker → UV3:
 DCOffset → TDP(HPSS) → RestorabilityEstimator → SongCalibration → Era/Genre/Medium-Classifier →
 **VocalFocusAnalyzer** (PANNs-Singing ≥ 0.25 → VQI-Gate-Init + FormantTrack + FrissonDetect + RegisterDetect) →
-GoalApplicabilityFilter → DefectScanner(46) → CausalDefectReasoner → GPOptimizer →
+GoalApplicabilityFilter → DefectScanner(54) → CausalDefectReasoner →
+**RecordingChainProfiler** (§2.66: Causes → Ketten-Cluster → `chain_hint` für GPOptimizer; ≥3 aktive Causes; non-blocking) →
+**RestorationMemory-Load** (§2.70: `(era, material, defect_cluster_hash)` → `X_init/Y_init` Prior für GPOptimizer) →
+GPOptimizer →
 **§GOAL_BASELINE_CHECK** (`_fast_goal_snapshot` auf Input → goal < `get_material_floor()` × 0.95 → `get_goal_recovery_phases()` → `selected_phases` ergänzt; ≤200ms DSP-Proxy; §0a-guard; §2.45 minimal-intervention; non-blocking) →
 **§2.68 SSIP** (`detect_structural_silence_zones()` aus ORIGINAL-Audio → `_restoration_context["structural_silence_zones"]`; alle generativen Phasen erhalten Zones via kwargs; V14–V18 Linter-Guards) →
-Phasen(01–64) [mit §2.48 Interaktions-Guard + **§0p Vocal-Invarianten**] → FeedbackChain → PhysicalCeiling → MusicalGoalsChecker → MDEM →
-**HolisticPerceptualGate** (inkl. artifact_freedom §2.49 + **VQI-Gate §0p**) → RestorationResult
-> **Pipeline-Details** (§2.44–§2.65): [pipeline.instructions.md](instructions/pipeline.instructions.md)
+Phasen(01–64) [mit §2.48 Interaktions-Guard + **§0p Vocal-Invarianten** + **§2.67 Phase-Koalitionen** + **§2.69 TemporalContinuityGuard** als Post-Phase-Hook] →
+FeedbackChain → PhysicalCeiling → MusicalGoalsChecker → MDEM →
+**HolisticPerceptualGate** (inkl. artifact_freedom §2.49 + **VQI-Gate §0p**) →
+**RestorationMemory-Save** (§2.70: HPI > 0 AND artifact_freedom ≥ 0.95 → Priors persistieren) →
+RestorationResult
+> **Pipeline-Details** (§2.44–§2.70): [pipeline.instructions.md](instructions/pipeline.instructions.md)
 
 ### §2.44 HPI — Formeln
 **Restoration** (Instrumental): `HPI = MERT_similarity × timbral_fidelity × artifact_freedom × emotional_arc_preservation`  
@@ -336,7 +351,7 @@ Phasen(01–64) [mit §2.48 Interaktions-Guard + **§0p Vocal-Invarianten**] →
 `artifact_freedom < 0.95` → Gate-Fail (primärer Veto-Faktor). `VQI < 0.72` bei `panns_singing ≥ 0.35` → Recovery-Kaskade (kein sofortiger Veto; §0p). VERSA primär (`use_versa_in_loop=True`); MERT nur Fallback; `MERT_floor = max(raw_mert, 0.5)`.
 
 ### §2.45/§2.45b Minimal-Intervention
-`perceptual_delta > 0` Pflicht je Phase in Restoration. `restorability > 80 AND SNR > 40 dB` → Near-Passthrough (Strength ≤ 0.30, `metadata["high_restorability_gate"] = True`).
+`perceptual_delta > 0` Pflicht je Phase in Restoration — **Ausnahme: Phase-Koalitionen** (§2.67): zusammengehörige Phasen werden als Gruppe evaluiert, `perceptual_delta` gilt für die gesamte Koalition nach dem letzten Koalitions-Schritt. `restorability > 80 AND SNR > 40 dB` → Near-Passthrough (Strength ≤ 0.30, `metadata["high_restorability_gate"] = True`).
 
 ### §2.46 Carrier-Chain-Stufen (1→6)
 Subtraktive Stufe 4 (NR) **vor** additiver Stufe 5 (Harmonik/BW-Erweiterung). → [phases.instructions.md](instructions/phases.instructions.md)

@@ -45,7 +45,7 @@ def generate_reverb_impulse(sr: int, rt60: float = 0.5, length_sec: float = 2.0)
         pos = np.random.randint(1, early_samples)
         ir[pos] += np.random.rand() * 0.3
 
-    return ir / np.max(np.abs(ir))
+    return np.asarray(ir / float(np.max(np.abs(ir))), dtype=np.float64)
 
 
 def apply_reverb(audio: np.ndarray, sr: int, rt60: float = 0.5) -> np.ndarray:
@@ -92,7 +92,7 @@ def generate_test_signal(sr: int, duration: float = 1.0, freq: float = 440.0) ->
 
     signal = np.sin(2 * np.pi * freq * t) * envelope * 0.5
 
-    return signal
+    return np.asarray(signal, dtype=np.float64)
 
 
 # --- WienerDereverb Tests ---

@@ -917,12 +917,27 @@ class VocalEnhancement(PhaseInterface):
                 from backend.core.dsp.lpc_formant_tracker import (  # pylint: disable=import-outside-toplevel
                     check_formant_shift_db as _check_formant_p42,
                 )
+                from backend.core.musical_goals.era_vocal_profile import (  # pylint: disable=import-outside-toplevel
+                    resolve_formant_tolerance_db as _rft_p42,
+                )
 
-                _fg_rollback, _fg_max_shift_db = _check_formant_p42(audio, enhanced_audio, sample_rate)
+                _fg_tol_p42 = float(
+                    kwargs.get(
+                        "formant_tolerance_db",
+                        _rft_p42(
+                            era_decade=int(_era_decade) if _era_decade is not None else None,
+                            era_profile=kwargs.get("era_vocal_profile"),
+                        ),
+                    )
+                )
+                _fg_rollback, _fg_max_shift_db = _check_formant_p42(
+                    audio, enhanced_audio, sample_rate, threshold_db=_fg_tol_p42
+                )
                 if _fg_rollback:
                     logger.warning(
-                        "§0p phase_42 Formant-Gate: max_shift=%.1f dB > 2 dB → Rollback (panns=%.2f)",
+                        "§0p phase_42 Formant-Gate: max_shift=%.1f dB > %.1f dB → Rollback (panns=%.2f)",
                         _fg_max_shift_db,
+                        _fg_tol_p42,
                         _p42_panns,
                     )
                     enhanced_audio = audio.copy()

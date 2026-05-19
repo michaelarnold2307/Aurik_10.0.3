@@ -191,10 +191,11 @@ Drei Dicts führen physikalische Materialgrenzen: `_MATERIAL_BW_CEILING_HZ` (§6
 
 ---
 
-## §6.3 DefectType-Vollkatalog (46 Defekte)
+## §6.3 DefectType-Vollkatalog (54 DefectTypes) + §6.3b CAUSES (62 Kausal-Ursachen)
 
 ```python
-# core/defect_scanner.py — DefectType (Enum, 46 Werte)
+# core/defect_scanner.py — DefectType (Enum, 47 Werte, Stand v9.12.x)
+# Kanonische Kausal-Ursachen (CAUSES in causal_defect_reasoner.py): 53 Einträge
 
 # Analoge Kerndefekte:
 CLICKS, CRACKLE, HUM, LOW_FREQ_RUMBLE, DROPOUTS
@@ -874,7 +875,7 @@ AUTHENTIC_CHARACTER = {
 ### §6.5c Era-spezifische Charakter-Profile (normative Verarbeitungsrichtlinien)
 
 | Ära | Authentischer Charakter | Maßnahme bei Fehlklassifikation |
-|---|---|---|
+| --- | --- | --- |
 | 1900–1925 | Trichterresonanz 300–600 Hz, BW-Ceiling ≤ 3 kHz, mono | Kein EQ unter 300 Hz; keine BW-Extension |
 | 1925–1945 | Röhren-H2/H4, AGC-Drift, elektrische Brumm-Teppiche | H2/H4 PRESERVE; Brumm nur bei f ≤ 120 Hz reparieren |
 | 1945–1965 | RIAA-Wärme, Raumdiffusion Aufnahmestudio, Nadelgeräusch | RIAA-Kurve NIE als Defekt klassifizieren |

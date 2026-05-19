@@ -169,14 +169,16 @@ if noise_snr_db < 10.0 and panns_singing >= 0.35:
 ```python
 # KANONISCH — nach jeder DSP-Phase auf Gesangsmaterial:
 from backend.core.dsp.formant_guard import check_formant_integrity
+from backend.core.musical_goals.era_vocal_profile import resolve_formant_tolerance_db
 
 pre_formants = check_formant_integrity(audio_pre, sr)  # F1–F4 via LPC
 post_formants = check_formant_integrity(audio_post, sr)
+threshold_db = resolve_formant_tolerance_db(era_decade=era_decade, era_profile=era_profile)
 
 for f_idx in range(4):  # F1, F2, F3, F4
     shift_db = abs(post_formants[f_idx] - pre_formants[f_idx])
-    if shift_db > 2.0:  # > ±2 dB = sofortiger Rollback
-        logger.warning("formant_shift F%d = %.1f dB > 2.0 → rollback", f_idx+1, shift_db)
+    if shift_db > threshold_db:
+        logger.warning("formant_shift F%d = %.1f dB > %.1f → rollback", f_idx+1, shift_db, threshold_db)
         return audio_pre  # keine Ausnahmen
 ```
 

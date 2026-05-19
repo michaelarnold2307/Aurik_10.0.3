@@ -22,7 +22,7 @@ TransientDecoupledProcessing (TDP)           ← Schritt 0: Trennung
   -> EraClassifier (1890–2025)                ← Dekaden-Prior
   -> GermanSchlagerClassifier                 ← Zero-Shot Genre
     -> MediumDetector (transfer-chain-aware)    ← Träger-Erkennung
-    -> DefectScanner (47 DefectTypes)           ← Defekt-Erkennung
+    -> DefectScanner (54 DefectTypes)           ← Defekt-Erkennung
     -> CausalDefectReasoner (34 Kausal-Ursachen)← Ursachen-Inferenz
   -> UncertaintyQuantifier                    ← Konfidenz
   -> GPParameterOptimizer (MOO-Pareto)        ← Parameter-Vorschlag

@@ -132,6 +132,37 @@ class TestRestorationConfig:
         assert cfg.studio_2026 is True
 
 
+class TestPhaseCoalitions:
+    def test_tape_transport_coalition_requires_two_members(self):
+        active = UnifiedRestorerV3.get_active_phase_coalitions(
+            ["phase_12_wow_flutter_fix", "phase_29_tape_hiss_reduction"],
+            is_studio_2026=False,
+        )
+        assert active["tape_transport"] == ("phase_12_wow_flutter_fix", "phase_29_tape_hiss_reduction")
+
+    def test_single_member_does_not_activate_coalition(self):
+        active = UnifiedRestorerV3.get_active_phase_coalitions(
+            ["phase_29_tape_hiss_reduction"],
+            is_studio_2026=False,
+        )
+        assert "tape_transport" not in active
+
+    def test_restoration_filters_studio_only_vocal_member(self):
+        active = UnifiedRestorerV3.get_active_phase_coalitions(
+            ["phase_20_reverb_reduction", "phase_42_vocal_enhancement", "phase_49_advanced_dereverb"],
+            is_studio_2026=False,
+        )
+        assert active["vocal_production"] == ("phase_20_reverb_reduction", "phase_49_advanced_dereverb")
+        assert "phase_42_vocal_enhancement" not in active["vocal_production"]
+
+    def test_studio_keeps_vocal_enhancement_in_coalition(self):
+        active = UnifiedRestorerV3.get_active_phase_coalitions(
+            ["phase_20_reverb_reduction", "phase_42_vocal_enhancement", "phase_49_advanced_dereverb"],
+            is_studio_2026=True,
+        )
+        assert "phase_42_vocal_enhancement" in active["vocal_production"]
+
+
 # ---------------------------------------------------------------------------
 # Klasse 2: RestorationResult
 # ---------------------------------------------------------------------------

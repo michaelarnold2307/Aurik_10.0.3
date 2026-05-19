@@ -24,7 +24,8 @@
 > Wettbewerbsführung oder formaler Hörtest-Nähe sind intern als Ziel- und Steuerungsrahmen
 > zu verstehen und werden erst durch externe Blindtests und reproduzierbare Vergleichsstudien
 > belastbar.
-| DefectTypes | **47** erkennbare Defektarten |
+| DefectTypes | **47** erkennbare Defektarten (DetectionTypes in DefectScanner) |
+| Kausal-Ursachen | **53** Behandlungs-Ursachen (CAUSES in CausalDefectReasoner) |
 | Hardware | CPU-only, Desktop (Linux AppImage & Windows 10/11) |
 | Netzwerk | Keine Cloud, keine Serverabhängigkeiten — 100 % offline |
 
@@ -40,7 +41,7 @@
 | `PerceptualQualityScorer` | `core/perceptual_quality_scorer.py` | ✅ |
 | `MusicalGoalsChecker` (14 Ziele) | `backend/core/musical_goals/musical_goals_metrics.py` | ✅ |
 | `MediumDetector` | `forensics/medium_detector.py` | ✅ |
-| `DefectScanner` (47 DefectTypes) | `core/defect_scanner.py` | ✅ |
+| `DefectScanner` (54 DefectTypes) | `core/defect_scanner.py` | ✅ |
 | `VocalAIEnhancement` | `core/vocal_ai_enhancement.py` | ✅ |
 | `ExcellenceOptimizer` | `core/excellence_optimizer.py` | ✅ |
 | `FeedbackChain` | `core/feedback_chain.py` | ✅ |
@@ -111,7 +112,7 @@ DCOffset-Removal
 -> RestorabilityEstimator -> SongCalibrationProfile
 -> EraClassifier + GermanSchlagerClassifier + MediumDetector (parallel)
 -> GoalApplicabilityFilter -> AdaptiveGoalThresholds
--> DefectScanner (47 Defekte) -> CausalDefectReasoner
+-> DefectScanner (54 DetectionTypes) -> CausalDefectReasoner (62 CAUSES)
 -> GPParameterOptimizer -> HarmonicPreservationGuard
 -> PerPhaseMusicalGoalsGate (umhüllt jede Phase)
 -> Phasen-Ausführung (01–64)

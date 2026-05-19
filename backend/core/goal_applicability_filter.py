@@ -172,21 +172,16 @@ class GoalApplicabilityFilter:
                 is_mono_signal = True
                 mono = arr
 
-            # SNR-Schätzung
             if len(mono) >= 512:
                 spec = np.abs(np.fft.rfft(mono[: min(len(mono), 8192)])) ** 2 + 1e-15
                 freqs = np.fft.rfftfreq(min(len(mono), 8192), d=1.0 / sr)
-                sorted_e = np.sort(spec)
-                n_floor = max(1, len(sorted_e) // 10)
-                noise_e = float(np.mean(sorted_e[:n_floor]))
-                signal_e = float(np.mean(sorted_e[-n_floor:]))
-                10.0 * math.log10(max(signal_e / max(noise_e, 1e-15), 1e-15))
 
                 # Effektive Bandbreite: höchste Frequenz mit Energie > Rauschboden + 20 dB.
                 # Vorheriger Algorithmus (99th-Perzentil-Energie-Schwerpunkt) unterschätzte
                 # die BW für typische Musik systematisch: Bassenergie dominiert →
                 # 99 % der Energie unterhalb ~2–4 kHz → brillanz fälschlich deaktiviert.
-                noise_floor_db = 10.0 * math.log10(float(np.percentile(spec, 10)) + 1e-15)
+                noise_floor_power = float(np.percentile(spec, 10)) + 1e-15
+                noise_floor_db = 10.0 * math.log10(noise_floor_power)
                 bw_hz = 0.0
                 for _bi in range(len(freqs) - 1, 0, -1):
                     _e_db = 10.0 * math.log10(float(spec[_bi]) + 1e-15)

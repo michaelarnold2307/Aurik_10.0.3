@@ -16,7 +16,7 @@ applyTo: "backend/core/phases/phase_*.py"
 7. Neue HPF/Notch-Phase: 4-stufige Checkliste (s. unten)
 8. Wenn panns_singing ≥ 0.25: apply_hnr_blend() nach jeder ML-NR-Phase (§0p)
 9. Wenn panns_singing ≥ 0.25: Formant-Delta via lpc_formant_tracker prüfen (§0p)
-   → ΔF1–F4 > ±2 dB: sofortiger Rollback auf Phase-Input — keine Ausnahme
+    → ΔF1–F4 > resolve_formant_tolerance_db(era_decade, era_profile): sofortiger Rollback auf Phase-Input — fixer 2-dB-Wert nur als moderner Fallback
 10. Vibrato-Zonen (4–7 Hz F0): strength = min(strength, 0.20) (§0p)
     → detect_performance_artifacts() VOR der Phase ausführen
 11. Alle Instanzattribute MÜSSEN in __init__ deklariert werden (W0201)

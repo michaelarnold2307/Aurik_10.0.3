@@ -27,7 +27,7 @@ CausalReasoner), dann optimiert intervenieren (GP-Optimizer), dann verifizieren
 [Restorability 0-100] + [Ära 1890-2025] + [Genre: Schlager?]
     |
     v
-[Material: material-adaptiv] + [47 DefectTypes] + [34 Kausal-Ursachen]
+[Material: material-adaptiv] + [54 DetectionTypes (DefectScanner)] + [62 Kausal-Ursachen (CausalDefectReasoner)]
     |
     v
 [GP-Optimizer: 10 Parameter, MOO-Pareto über 14 Ziele]

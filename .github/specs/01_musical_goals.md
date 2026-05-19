@@ -332,6 +332,8 @@ formant_stability_score = max(0.0, 1.0 - (f1_drift_hz + f2_drift_hz) / (2 × 35.
 # 35 Hz = Schwellwert aus §2.35; bei exakt 0 Hz Drift → score = 1.0
 ```
 
+**Era-adaptive Formant-Toleranz** [RELEASE_MUST]: Alle Formant-Rollback-Gates (UV3, `VocalNoHarmGate`, `phase_03`, `phase_29`, `phase_42` und jede neue Vokalphase) MÜSSEN die Toleranz über `resolve_formant_tolerance_db()` aus `backend/core/musical_goals/era_vocal_profile.py` beziehen. Ein fixer `threshold_db=2.0` ist nur noch der moderne Fallback für Material ohne Ära-Kontext. Historische Profile dürfen höhere F1/F2-F4-Toleranzen nutzen, damit historische Vokalästhetik nicht als Defekt klassifiziert wird.
+
 **Vokalregister-adaptiver NR-Modus** (§2.35c-Ergänzung zu §4.5 NR-Routing):
 
 DeepFilterNet `energy_bias=-6 dB` gilt pauschal — Vokalregister verfeinern dies:

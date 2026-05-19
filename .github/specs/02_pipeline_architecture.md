@@ -254,7 +254,7 @@ Audio-Eingang (mono/stereo, beliebige SR)
     ↓
 [DefectScanner]  → DefectAnalysisResult (46 DefectTypes)
     ↓
-[CausalDefectReasoner]  → RestorationPlan (49 Kausal-Ursachen)
+[CausalDefectReasoner]  → RestorationPlan (62 Kausal-Ursachen)
     ↓
 [UncertaintyQuantifier]  → confidence → GP-Bounds adj.
     ↓
@@ -3679,6 +3679,15 @@ else:
 - Non-blocking: Exception in CREPE → `shared_f0 = None` → lokaler Fallback in betroffener Phase.
 - `voiced_ratio < 0.05`: Instrumentalstück — `shared_f0` leer befüllt, keine F0-abhängige Verarbeitung.
 
+### §2.66e RecordingChainProfiler- und RestorationMemory-Priors [RELEASE_MUST]
+
+`RecordingChainProfiler.profile_chain()` und `RestorationMemory.get_prior()` dürfen nicht nur Metadaten erzeugen. Ihre Ausgaben MÜSSEN direkt in `GPParameterOptimizer.propose_pareto(..., chain_hint=..., memory_prior=...)` eingehen.
+
+- `chain_hint["strength_scale"]` skaliert konfliktträchtige Strength-/Boost-/Ratio-Parameter konservativ, wenn mehrere Causes derselben physikalischen Aufnahmekette aktiv sind.
+- `memory_prior["phase_params"]` wird bounds-geclampt in den Kandidaten geblendet, gewichtet durch `hpi_achieved`.
+- Beide Priors sind non-blocking. Fehlende oder korrupte Daten fallen auf den normalen GP-/UCB-Pfad zurück.
+- VERBOTEN: `chain_hint` nur in `_restoration_context` speichern, ohne den GP-Kandidatenraum zu beeinflussen.
+
 ---
 
 ## §2.67 [RELEASE_MUST] DynamicArcProtection — Schutzmechanismus für den Dynamikbogen (v9.12.0)
@@ -3753,6 +3762,17 @@ if _arc_correlation < 0.80:
 - `arc_correlation ≥ 0.80` per Phase; `emotional_arc_score ≥ 0.88` nach Pipeline (Studio 2026: ≥ 0.90).
 - Gilt für Restoration UND Studio 2026 — der Dynamikbogen ist heilig in beiden Modi.
 - Laufzeit: ≤ 500 ms/min Audio (nur LUFS-Berechnung, kein ML).
+
+### §2.67e Phase-Koalitionen und VFA-Zonen-Steuerung [RELEASE_MUST]
+
+Phasen, die eine gemeinsame physikalische Ursache behandeln, dürfen nicht so bewertet werden, als sei jede einzelne Phase ein unabhängiger Eingriff. UV3 MUSS Koalitions- und VFA-Kontext vor `PMGG.wrap_phase()` wirksam machen:
+
+- Koalitionskandidaten: Tape-Transport (`phase_12`, `phase_25`, `phase_29`), Vinyl-Träger (`phase_04`, `phase_09`, `phase_28`), Reverb/Vokalproduktion (`phase_19`, `phase_20`, `phase_42`, `phase_49`). §0a-verbotene Phasen dürfen in Restoration nie Koalitionsmitglied sein.
+- `frisson_zones`, `vibrato_zones`, `passaggio_zones`, `breath_segments` aus `VocalFocusAnalyzer` sind Steuerdaten. Sie müssen Strength-Caps, Energy-Bias oder Dry/Wet-Schutz beeinflussen, nicht nur Logging.
+- Vibrato-Zonen: NR/Dereverb/Gate-Phasen max. `strength=0.20`.
+- Frisson-Zonen: NR/Dynamics/Inpainting/Dereverb max. `strength=0.45`.
+- Passaggio-Zonen: Vocal-/De-Esser-/NR-Phasen max. `strength=0.35` und `passaggio_energy_bias_db=-3.0`.
+- Phasen erhalten `vocal_zone_strength_policy` und dürfen diese Policy weiter segmental verfeinern; globale Caps in UV3 sind die Mindestschutzschicht.
 
 ---
 

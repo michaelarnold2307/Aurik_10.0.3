@@ -199,6 +199,7 @@ def resolve_effective_goal_targets(
 - `restorability_score < 30` senkt den Zielwert nur über `get_effective_material_floor()` und MUSS in `metadata["degraded_restorability"]` sichtbar sein.
 - Inapplicable Goals werden nicht als Fail gewertet, aber mit `applicability_reason` dokumentiert.
 - P0-Vokal-Ziele (`vocal_quality`, `formant_fidelity`, VQI) bleiben zusätzliche Vocal-Gates und dürfen die 15 Musical Goals nicht ersetzen.
+- Formant-Rollback-Toleranzen sind global kalibriert über `EraVocalProfile` und `resolve_formant_tolerance_db()`. Feste `2.0 dB`-Werte sind nur der moderne Fallback, nicht die Pipeline-Referenz.
 
 ### §09.2 Zwei-Ebenen-API (normativ)
 

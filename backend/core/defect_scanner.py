@@ -87,7 +87,7 @@ def _audio_scan_cache_key(audio: np.ndarray, sr: int, material: object | None) -
 
 
 class DefectType(Enum):
-    """32 Defekttypen für weltklasse Audio-restoration.
+    """54 Defekttypen für weltklasse Audio-restoration.
 
     Kern-Defekte (alle analogen/digitalen Quellen):
       CLIPPING        — Amplituden-Übersteuerung (Hard/Soft Clipping)
@@ -172,6 +172,21 @@ class DefectType(Enum):
     # --- v9.12.x: Amplitude Drift (47. DefectType) ---
     AMPLITUDE_DRIFT = "amplitude_drift"  # Gradueller Pegelanstieg/-abfall über den Song:
     # Träger-AGC, Oxid-Drift → phase_40
+    # --- v9.12.9: 7 neue DefectTypes — Carrier-Ursachen-Lücken geschlossen (54 gesamt) ---
+    # Nahbesprechungseffekt (Richtmikrofon ≤30 cm): LF +6–12 dB ≤250 Hz; Olson (1948) → phase_04.
+    PROXIMITY_EFFECT_EXCESS = "proximity_effect_excess"
+    # Stehwellen-Raumresonanz 40–200 Hz ≠ diffuser Hall; Salter et al. (2003) → phase_05 + phase_04.
+    ROOM_MODE_RESONANCE = "room_mode_resonance"
+    # Dolby/dbx NR Pumpen/Atmen (korrekt dekodiert); Dolby (1967) → phase_03 Gain-Smoothing.
+    NR_BREATHING_ARTIFACT = "nr_breathing_artifact"
+    # Flutter-Seitenbänder ±flutter_rate Hz um Spektralpeaks → phase_12 Ergänzung + phase_23.
+    FLUTTER_SPECTRAL_SIDEBANDS = "flutter_spectral_sidebands"
+    # Systematischer fester Geschwindigkeitsfehler ≠ pitch_drift; IEC 60386 §5 → phase_12/phase_31.
+    SPEED_CALIBRATION_ERROR = "speed_calibration_error"
+    # Analoger Preamp/Console-Klirr: asymm. Verzerrung, H3/H5-dominant → phase_23/phase_63.
+    OVERLOAD_DISTORTION = "overload_distortion"
+    # Acetat-Zersetzung: Substrat-Rissbildung, Lackschicht-Oxidation; Hess (1988) → phase_03 + phase_09.
+    LACQUER_DISC_DEGRADATION = "lacquer_disc_degradation"
 
 
 class MaterialType(Enum):
@@ -1490,6 +1505,21 @@ class DefectScanner:
         _tail_tick("Generationsverlust")
         scores[DefectType.MOTOR_INTERFERENCE] = self._detect_motor_interference(audio_mono)
         _tail_tick("Motor-Interferenz")
+        # v9.12.9: 7 neue DefectType-Detektionen
+        scores[DefectType.PROXIMITY_EFFECT_EXCESS] = self._detect_proximity_effect_excess(audio_mono)
+        _tail_tick("Proximity-Effekt")
+        scores[DefectType.ROOM_MODE_RESONANCE] = self._detect_room_mode_resonance(audio_mono)
+        _tail_tick("Raum-Resonanz")
+        scores[DefectType.NR_BREATHING_ARTIFACT] = self._detect_nr_breathing_artifact(audio_mono)
+        _tail_tick("NR-Atmen")
+        scores[DefectType.FLUTTER_SPECTRAL_SIDEBANDS] = self._detect_flutter_spectral_sidebands(audio_mono)
+        _tail_tick("Flutter-Seitenbänder")
+        scores[DefectType.SPEED_CALIBRATION_ERROR] = self._detect_speed_calibration_error(audio_mono)
+        _tail_tick("Geschwindigkeitsfehler")
+        scores[DefectType.OVERLOAD_DISTORTION] = self._detect_overload_distortion(audio_mono)
+        _tail_tick("Übersteuerungs-Klirr")
+        scores[DefectType.LACQUER_DISC_DEGRADATION] = self._detect_lacquer_disc_degradation(audio_mono)
+        _tail_tick("Lackfolien-Degradierung")
 
         # §9.1a — TRANSPORT_BUMP is non-stationary (impulsive micro-speed jumps).
         # MUST run on FULL audio, same as DROPOUTS.
@@ -6625,7 +6655,7 @@ class DefectScanner:
                             s1 = np.abs(np.fft.rfft(trans_seg[:min_l]))
                             s2 = np.abs(np.fft.rfft(ghost_seg[:min_l]))
                             if len(s1) > 4:
-                                # Stable correlation without np.corrcoef warnings on
+                                # Stable correlation without unguarded correlation warnings on
                                 # near-constant spectra (important for -W error test runs).
                                 s1c = s1 - float(np.mean(s1))
                                 s2c = s2 - float(np.mean(s2))
@@ -7469,6 +7499,711 @@ class DefectScanner:
             )
         except Exception:
             return DefectScore(DefectType.MOTOR_INTERFERENCE, 0.0, 0.3)
+
+    # ── v9.12.9: 7 neue Detektionsmethoden ───────────────────────────────────
+
+    def _detect_proximity_effect_excess(self, audio: np.ndarray) -> DefectScore:
+        """Erkennt Nahbesprechungseffekt (proximity effect) bei Richtmikrofonen.
+
+        Typisch für Vokalaufnahmen mit RCA 44-BX, U47, C12 bei < 30 cm Abstand (1940–1970).
+        Erzeugt LF-Überhöhung +6–12 dB unterhalb ~250 Hz.  Olson (1948) JASAS 20:22.
+
+        Algorithmus:
+            1. LF-Energie (80–250 Hz) vs. Mittenlage (500–2000 Hz) messen
+            2. Anti-Rumble-Guard: Sub-Bass (20–60 Hz) darf nicht stärker als LF-Band sein
+            3. Spektralsteigung 250→500 Hz prüfen (Proximity: sanft fallend, ≤ +3 dB)
+        """
+        n = len(audio)
+        sr = self.sample_rate
+        if n < int(sr * 1.5):
+            return DefectScore(DefectType.PROXIMITY_EFFECT_EXCESS, 0.0, 0.3)
+        try:
+            n_fft = min(8192, n)
+            freqs = np.fft.rfftfreq(n_fft, 1.0 / sr)
+            spec = np.abs(np.fft.rfft(audio[:n_fft])) ** 2
+            spec_db = 10.0 * np.log10(spec + 1e-20)
+
+            lf_mask = (freqs >= 80.0) & (freqs <= 250.0)
+            ref_mask = (freqs >= 500.0) & (freqs <= 2000.0)
+            sub_mask = (freqs >= 20.0) & (freqs <= 60.0)
+
+            if not (lf_mask.any() and ref_mask.any() and sub_mask.any()):
+                return DefectScore(DefectType.PROXIMITY_EFFECT_EXCESS, 0.0, 0.3)
+
+            lf_mean = float(np.mean(spec_db[lf_mask]))
+            ref_mean = float(np.mean(spec_db[ref_mask]))
+            sub_mean = float(np.mean(spec_db[sub_mask]))
+            lf_excess = lf_mean - ref_mean
+
+            # Anti-Rumble-Guard: Sub-Bass stärker als LF-Band → Rumble, nicht Proximity
+            if sub_mean > lf_mean + 3.0:
+                return DefectScore(DefectType.PROXIMITY_EFFECT_EXCESS, 0.0, 0.5)
+
+            # Proximity-Effekt: typisch +4 bis +16 dB im LF-Band
+            if lf_excess < 4.0:
+                return DefectScore(DefectType.PROXIMITY_EFFECT_EXCESS, 0.0, 0.5)
+
+            raw_sev = float(np.clip((lf_excess - 4.0) / 12.0, 0.0, 1.0))
+
+            # Spektralsteigung 250→500 Hz: Proximity = sanfter Abfall
+            hz250_mask = (freqs >= 200.0) & (freqs <= 300.0)
+            hz500_mask = (freqs >= 450.0) & (freqs <= 600.0)
+            if hz250_mask.any() and hz500_mask.any():
+                slope = float(np.mean(spec_db[hz500_mask]) - np.mean(spec_db[hz250_mask]))
+                if slope > 3.0:  # LF setzt sich über 500 Hz fort → kein Proximity-Muster
+                    raw_sev *= 0.4
+
+            threshold = self.thresholds.get(DefectType.PROXIMITY_EFFECT_EXCESS, 0.5)
+            if raw_sev < threshold * 0.1:
+                return DefectScore(DefectType.PROXIMITY_EFFECT_EXCESS, 0.0, 0.5)
+
+            confidence = float(np.clip(0.4 + raw_sev * 0.35, 0.3, 0.85))
+            return DefectScore(
+                DefectType.PROXIMITY_EFFECT_EXCESS,
+                float(np.clip(raw_sev, 0.0, 1.0)),
+                confidence,
+                metadata={
+                    "lf_excess_db": round(lf_excess, 2),
+                    "lf_mean_db": round(lf_mean, 2),
+                    "ref_mean_db": round(ref_mean, 2),
+                },
+            )
+        except Exception:
+            return DefectScore(DefectType.PROXIMITY_EFFECT_EXCESS, 0.0, 0.3)
+
+    def _detect_room_mode_resonance(self, audio: np.ndarray) -> DefectScore:
+        """Erkennt stehende Wellenmodi (Room Modes) in 40–200 Hz.
+
+        Unterschied zu REVERB_EXCESS (diffuser Hall) und ELECTRICAL_HUM (exakte 50/60 Hz
+        Harmonische): Room Modes sind schmalbandige Peaks Q > 8 in 40–200 Hz, deren
+        Abstände Raumabmessungen entsprechen.  Salter et al. (2003).
+
+        Algorithmus:
+            1. Hochauflösendes FFT (32768 Punkte) für schmalbandige Peak-Detektion
+            2. Peaks mit Q > 5 in 40–200 Hz identifizieren
+            3. Brumm-Frequenzen (50/60 Hz Harmonische ±3 Hz) ausschließen
+            4. ≥ 2 Non-Brumm-Peaks mit signifikanter Prominenz → Room Mode
+        """
+        n = len(audio)
+        sr = self.sample_rate
+        if n < int(sr * 2):
+            return DefectScore(DefectType.ROOM_MODE_RESONANCE, 0.0, 0.3)
+        try:
+            n_fft = min(32768, n)
+            freqs = np.fft.rfftfreq(n_fft, 1.0 / sr)
+            spec = np.abs(np.fft.rfft(audio[:n_fft])) ** 2
+            spec_db = 10.0 * np.log10(spec + 1e-20)
+            freq_res = float(freqs[1] - freqs[0]) if len(freqs) > 1 else 1.0
+
+            mode_mask = (freqs >= 40.0) & (freqs <= 200.0)
+            mode_freqs = freqs[mode_mask]
+            mode_db = spec_db[mode_mask]
+
+            if len(mode_db) < 10:
+                return DefectScore(DefectType.ROOM_MODE_RESONANCE, 0.0, 0.3)
+
+            baseline = float(np.percentile(mode_db, 40))
+            mode_peaks: list[tuple[float, float]] = []
+            for i in range(2, len(mode_db) - 2):
+                if mode_db[i] > mode_db[i - 1] and mode_db[i] > mode_db[i + 1] and mode_db[i] > baseline + 6.0:
+                    level_3db = mode_db[i] - 3.0
+                    left = i
+                    while left > 0 and mode_db[left] > level_3db:
+                        left -= 1
+                    right = i
+                    while right < len(mode_db) - 1 and mode_db[right] > level_3db:
+                        right += 1
+                    bandwidth_hz = float((right - left) * freq_res)
+                    q = float(mode_freqs[i]) / max(bandwidth_hz, freq_res)
+                    if q > 5.0:
+                        mode_peaks.append((float(mode_freqs[i]), float(mode_db[i] - baseline)))
+
+            if len(mode_peaks) < 2:
+                return DefectScore(DefectType.ROOM_MODE_RESONANCE, 0.0, 0.5)
+
+            hum_freqs = {50.0, 60.0, 100.0, 120.0, 150.0, 180.0, 200.0, 240.0}
+            non_hum_peaks = [(f, p) for f, p in mode_peaks if all(abs(f - h) > 3.0 for h in hum_freqs)]
+            if len(non_hum_peaks) < 2:
+                return DefectScore(DefectType.ROOM_MODE_RESONANCE, 0.0, 0.5)
+
+            mean_prominence = float(np.mean([p for _, p in non_hum_peaks]))
+            raw_sev = float(
+                np.clip(
+                    (len(non_hum_peaks) / 4.0) * (mean_prominence / 15.0),
+                    0.0,
+                    1.0,
+                )
+            )
+
+            threshold = self.thresholds.get(DefectType.ROOM_MODE_RESONANCE, 0.5)
+            if raw_sev < threshold * 0.1:
+                return DefectScore(DefectType.ROOM_MODE_RESONANCE, 0.0, 0.5)
+
+            confidence = float(np.clip(0.35 + raw_sev * 0.30, 0.3, 0.80))
+            return DefectScore(
+                DefectType.ROOM_MODE_RESONANCE,
+                float(np.clip(raw_sev, 0.0, 1.0)),
+                confidence,
+                metadata={
+                    "n_room_mode_peaks": len(non_hum_peaks),
+                    "mean_prominence_db": round(mean_prominence, 2),
+                },
+            )
+        except Exception:
+            return DefectScore(DefectType.ROOM_MODE_RESONANCE, 0.0, 0.3)
+
+    def _detect_nr_breathing_artifact(self, audio: np.ndarray) -> DefectScore:
+        """Erkennt NR-System-Pumpen/Atmen (korrekt decodiertes Dolby/dbx).
+
+        Unterschied zu DOLBY_NR_MISMATCH (falsch decodiert): Korrekt decodiertes Band
+        mit sichtbarer Gain-Modulation des Rauschbodens im Takt des Signals.
+        Dolby (1967) US Patent 3,846,719; Woodford (1982).
+
+        Algorithmus:
+            1. 100 ms Frames: Signal-RMS-Hüllkurve + HF-Rauschboden (> 3 kHz, Perzentile 20)
+            2. Pearson-Korrelation zwischen Hüllkurve und Rauschboden messen
+            3. NR-Atmen → negative Korrelation (Signal hoch → Rauschboden gepumpt)
+        """
+        n = len(audio)
+        sr = self.sample_rate
+        if n < int(sr * 3.0):
+            return DefectScore(DefectType.NR_BREATHING_ARTIFACT, 0.0, 0.3)
+        try:
+            frame_len = max(1, int(sr * 0.1))
+            use_frames = min(n // frame_len, 300)
+            if use_frames < 4:
+                return DefectScore(DefectType.NR_BREATHING_ARTIFACT, 0.0, 0.3)
+
+            signal_envelopes = np.zeros(use_frames, dtype=np.float32)
+            noise_floors = np.zeros(use_frames, dtype=np.float32)
+
+            for fi in range(use_frames):
+                start = fi * frame_len
+                frame = audio[start : start + frame_len]
+                if len(frame) < frame_len // 2:
+                    use_frames = fi
+                    break
+                rms = float(np.sqrt(np.mean(frame**2)) + 1e-12)
+                signal_envelopes[fi] = float(20.0 * np.log10(rms))
+
+                n_fft_small = min(1024, len(frame))
+                if n_fft_small < 64:
+                    noise_floors[fi] = signal_envelopes[fi] - 40.0
+                    continue
+                spec = np.abs(np.fft.rfft(frame[:n_fft_small])) ** 2
+                freqs_f = np.fft.rfftfreq(n_fft_small, 1.0 / sr)
+                hf_mask = freqs_f > 3000.0
+                if hf_mask.any():
+                    hf_noise = float(np.percentile(spec[hf_mask], 20))
+                    noise_floors[fi] = float(10.0 * np.log10(hf_noise + 1e-20))
+                else:
+                    noise_floors[fi] = signal_envelopes[fi] - 40.0
+
+            valid = max(4, use_frames)
+            env = signal_envelopes[:valid]
+            nf = noise_floors[:valid]
+
+            env_std = float(np.std(env))
+            nf_std = float(np.std(nf))
+            if env_std < 1.0 or nf_std < 0.5:
+                return DefectScore(DefectType.NR_BREATHING_ARTIFACT, 0.0, 0.4)
+
+            env_centered = env - float(np.mean(env))
+            nf_centered = nf - float(np.mean(nf))
+            corr_den = float(np.linalg.norm(env_centered) * np.linalg.norm(nf_centered) + 1e-12)
+            corr = float(np.clip(float(np.dot(env_centered, nf_centered)) / corr_den, -1.0, 1.0))
+            nf_modulation = nf_std
+
+            # Negative Korrelation → NR-Breathing (Signal hoch → Noise gepumpt runter)
+            corr_sev = float(np.clip((-corr - 0.2) / 0.6, 0.0, 0.6))
+            mod_sev = float(np.clip((nf_modulation - 2.0) / 8.0, 0.0, 0.4))
+            raw_sev = float(np.clip(corr_sev + mod_sev, 0.0, 1.0))
+
+            threshold = self.thresholds.get(DefectType.NR_BREATHING_ARTIFACT, 0.5)
+            if raw_sev < threshold * 0.1:
+                return DefectScore(DefectType.NR_BREATHING_ARTIFACT, 0.0, 0.5)
+
+            confidence = float(np.clip(0.35 + abs(corr) * 0.30, 0.3, 0.80))
+            return DefectScore(
+                DefectType.NR_BREATHING_ARTIFACT,
+                float(np.clip(raw_sev, 0.0, 1.0)),
+                confidence,
+                metadata={
+                    "signal_env_corr": round(corr, 3),
+                    "nf_modulation_db": round(nf_modulation, 2),
+                },
+            )
+        except Exception:
+            return DefectScore(DefectType.NR_BREATHING_ARTIFACT, 0.0, 0.3)
+
+    def _detect_flutter_spectral_sidebands(self, audio: np.ndarray) -> DefectScore:
+        """Erkennt Flutter-Seitenbänder um dominante Spektralpeaks.
+
+        Flutter-Modulation erzeugt Seitenbänder ±N×flutter_rate Hz um starke Spektralpeaks.
+        Hörbar als metallisches Schimmern auf Sustained Notes (Streicher, Orgel, Gesang).
+        IEC 60386:1972; Arcs & Faller (2006).
+
+        Algorithmus:
+            1. Hochauflösendes FFT (65536 Punkte) für Seitenband-Detektion
+            2. Dominanten tonalen Peak (200–4000 Hz, > 15 dB über Rauschboden) finden
+            3. Seitenbänder bei ±[2, 4, 6, 8] Hz auf Prominenz prüfen
+            4. ≥ 3 detektierte Seitenbänder → Flutter-Seitenband-Defekt
+        """
+        n = len(audio)
+        sr = self.sample_rate
+        if n < int(sr * 2):
+            return DefectScore(DefectType.FLUTTER_SPECTRAL_SIDEBANDS, 0.0, 0.3)
+        try:
+            n_fft = min(65536, n)
+            freqs = np.fft.rfftfreq(n_fft, 1.0 / sr)
+            spec = np.abs(np.fft.rfft(audio[:n_fft])) ** 2
+            spec_db = 10.0 * np.log10(spec + 1e-20)
+            freq_res = float(freqs[1] - freqs[0]) if len(freqs) > 1 else 1.0
+
+            tonal_mask = (freqs >= 200.0) & (freqs <= 4000.0)
+            if not tonal_mask.any():
+                return DefectScore(DefectType.FLUTTER_SPECTRAL_SIDEBANDS, 0.0, 0.3)
+
+            tonal_db = spec_db[tonal_mask]
+            peak_idx_local = int(np.argmax(tonal_db))
+            tonal_freqs_arr = freqs[tonal_mask]
+            peak_freq = float(tonal_freqs_arr[peak_idx_local])
+            peak_db = float(tonal_db[peak_idx_local])
+            noise_floor = float(np.percentile(spec_db, 20))
+
+            if peak_db - noise_floor < 15.0:  # Kein dominanter Ton → Seitenbänder nicht messbar
+                return DefectScore(DefectType.FLUTTER_SPECTRAL_SIDEBANDS, 0.0, 0.4)
+
+            sideband_prominences: list[float] = []
+            for rate in [2.0, 4.0, 6.0, 8.0]:
+                for sign in [-1.0, 1.0]:
+                    sb_freq = peak_freq + sign * rate
+                    if sb_freq <= 0.0 or sb_freq >= sr / 2.0:
+                        continue
+                    sb_idx = int(round(sb_freq / freq_res))
+                    if 0 < sb_idx < len(spec_db) - 1:
+                        sb_level = float(np.max(spec_db[max(0, sb_idx - 1) : sb_idx + 2]))
+                        prominence = sb_level - noise_floor
+                        if prominence > 3.0:
+                            sideband_prominences.append(prominence)
+
+            if len(sideband_prominences) < 3:
+                return DefectScore(DefectType.FLUTTER_SPECTRAL_SIDEBANDS, 0.0, 0.5)
+
+            mean_sb_prom = float(np.mean(sideband_prominences))
+            raw_sev = float(
+                np.clip(
+                    (len(sideband_prominences) / 6.0) * (mean_sb_prom / 20.0),
+                    0.0,
+                    1.0,
+                )
+            )
+
+            threshold = self.thresholds.get(DefectType.FLUTTER_SPECTRAL_SIDEBANDS, 0.5)
+            if raw_sev < threshold * 0.1:
+                return DefectScore(DefectType.FLUTTER_SPECTRAL_SIDEBANDS, 0.0, 0.5)
+
+            confidence = float(np.clip(0.35 + len(sideband_prominences) * 0.05, 0.3, 0.80))
+            return DefectScore(
+                DefectType.FLUTTER_SPECTRAL_SIDEBANDS,
+                float(np.clip(raw_sev, 0.0, 1.0)),
+                confidence,
+                metadata={
+                    "peak_freq_hz": round(peak_freq, 1),
+                    "n_sidebands_detected": len(sideband_prominences),
+                    "mean_sideband_prominence_db": round(mean_sb_prom, 2),
+                },
+            )
+        except Exception:
+            return DefectScore(DefectType.FLUTTER_SPECTRAL_SIDEBANDS, 0.0, 0.3)
+
+    def _detect_speed_calibration_error(self, audio: np.ndarray) -> DefectScore:
+        """Erkennt systematischen festen Geschwindigkeitsfehler (≠ zeitvarianter pitch_drift).
+
+        Konstanter Versatz durch falsche Motorkalibrierung (50/60 Hz Verwechslung, rpm-Fehler,
+        Band-Kalibrierfehler). Pitch-Versatz ist stabil über die gesamte Aufnahme.
+        Katz (2002) "Mastering Audio"; IEC 60386:1972 §5.
+
+        Algorithmus:
+            1. 100 ms Frames → Zero-Crossing-Rate als Pitch-Proxy
+            2. Nur aktive (nicht stille) Frames verwenden
+            3. Stabilität = 1 − std/median: Hoch = stabiler Versatz (Kalibrierungsfehler)
+            4. Abweichung vom erwarteten ZCR-Bereich (100–350 Hz) + Stabilität → Severity
+        """
+        n = len(audio)
+        sr = self.sample_rate
+        if n < int(sr * 3):
+            return DefectScore(DefectType.SPEED_CALIBRATION_ERROR, 0.0, 0.3)
+        try:
+            frame_len = max(1, int(sr * 0.1))
+            use_samples = min(n, int(sr * 30))
+            n_frames = max(4, use_samples // frame_len)
+
+            zcr_rates = np.zeros(n_frames, dtype=np.float32)
+            rms_vals = np.zeros(n_frames, dtype=np.float32)
+            for fi in range(n_frames):
+                start = fi * frame_len
+                frame = audio[start : start + frame_len]
+                if len(frame) < 16:
+                    n_frames = fi
+                    break
+                zcr_rates[fi] = float(np.sum(np.abs(np.diff(np.sign(frame)))) / (2.0 * len(frame))) * sr
+                rms_vals[fi] = float(np.sqrt(np.mean(frame**2)))
+
+            rms_thresh = float(np.percentile(rms_vals[:n_frames], 30))
+            active_mask = rms_vals[:n_frames] > rms_thresh * 0.5
+            if active_mask.sum() < 4:
+                return DefectScore(DefectType.SPEED_CALIBRATION_ERROR, 0.0, 0.3)
+
+            active_zcr = zcr_rates[:n_frames][active_mask]
+            median_zcr = float(np.median(active_zcr))
+            std_zcr = float(np.std(active_zcr))
+
+            # Stabilität: hoch = stabiler Versatz, niedrig = zeitvariant (Wow/Flutter)
+            stability = float(1.0 - np.clip(std_zcr / (median_zcr + 1e-6), 0.0, 1.0))
+
+            expected_lo, expected_hi = 100.0, 350.0
+            if median_zcr < expected_lo:
+                deviation_factor = float((expected_lo - median_zcr) / expected_lo)
+            elif median_zcr > expected_hi:
+                deviation_factor = float((median_zcr - expected_hi) / expected_hi)
+            else:
+                deviation_factor = 0.0
+
+            if deviation_factor < 0.03:
+                return DefectScore(DefectType.SPEED_CALIBRATION_ERROR, 0.0, 0.5)
+
+            raw_sev = float(np.clip(deviation_factor * stability * 1.5, 0.0, 1.0))
+            threshold = self.thresholds.get(DefectType.SPEED_CALIBRATION_ERROR, 0.5)
+            if raw_sev < threshold * 0.1:
+                return DefectScore(DefectType.SPEED_CALIBRATION_ERROR, 0.0, 0.5)
+
+            confidence = float(np.clip(0.30 + stability * 0.30, 0.25, 0.75))
+            return DefectScore(
+                DefectType.SPEED_CALIBRATION_ERROR,
+                float(np.clip(raw_sev, 0.0, 1.0)),
+                confidence,
+                metadata={
+                    "median_zcr_hz": round(median_zcr, 1),
+                    "zcr_stability": round(stability, 3),
+                    "deviation_factor": round(deviation_factor, 3),
+                },
+            )
+        except Exception:
+            return DefectScore(DefectType.SPEED_CALIBRATION_ERROR, 0.0, 0.3)
+
+    def _detect_overload_distortion(self, audio: np.ndarray) -> DefectScore:
+        """Erkennt analogen Preamp/Console-Klirr (≠ SOFT_SATURATION, ≠ CLIPPING).
+
+        Analoger Eingangsverstärker-Klirr: asymmetrische Verzerrung mit H3/H5-dominantem
+        Spektrum, 5–15 % THD, nur in lauten Passagen. Unterschied zu SOFT_SATURATION
+        (gerade H2/H4, minimal) und CLIPPING (harte Amplitude).
+        Temme (1993) AES Conv. 95; Olsen & Hawksford (1995).
+
+        Algorithmus:
+            1. Laute Passagen (obere 30 % RMS) isolieren
+            2. Fundamental (100–2000 Hz) + H2–H5 messen
+            3. Odd-Dominanz: (H3+H5)/(H2+H3+H4+H5) → Overload ≥ 0.5
+            4. Waveform-Asymmetrie als weiteres Merkmal
+        """
+        n = len(audio)
+        sr = self.sample_rate
+        if n < int(sr * 2):
+            return DefectScore(DefectType.OVERLOAD_DISTORTION, 0.0, 0.3)
+        try:
+            frame_len = max(1, int(sr * 0.05))
+            n_frames = min(n // frame_len, 400)
+            frame_rms = np.array(
+                [float(np.sqrt(np.mean(audio[fi * frame_len : (fi + 1) * frame_len] ** 2))) for fi in range(n_frames)],
+                dtype=np.float32,
+            )
+
+            rms_threshold = float(np.percentile(frame_rms, 70))
+            loud_idxs = [fi for fi in range(n_frames) if frame_rms[fi] >= rms_threshold]
+            if len(loud_idxs) < 3:
+                return DefectScore(DefectType.OVERLOAD_DISTORTION, 0.0, 0.4)
+
+            loud_audio = np.concatenate([audio[fi * frame_len : (fi + 1) * frame_len] for fi in loud_idxs[:60]])
+
+            n_fft = min(8192, len(loud_audio))
+            freqs = np.fft.rfftfreq(n_fft, 1.0 / sr)
+            spec = np.abs(np.fft.rfft(loud_audio[:n_fft])) ** 2
+            spec_db = 10.0 * np.log10(spec + 1e-20)
+            freq_res = float(freqs[1] - freqs[0]) if len(freqs) > 1 else 1.0
+            noise_floor = float(np.percentile(spec_db, 15))
+
+            fund_mask = (freqs >= 100.0) & (freqs <= 2000.0)
+            if not fund_mask.any():
+                return DefectScore(DefectType.OVERLOAD_DISTORTION, 0.0, 0.3)
+            fund_idxs_all = np.where(fund_mask)[0]
+            fund_local = int(np.argmax(spec_db[fund_mask]))
+            if fund_local >= len(fund_idxs_all):
+                return DefectScore(DefectType.OVERLOAD_DISTORTION, 0.0, 0.3)
+            f0 = float(freqs[fund_idxs_all[fund_local]])
+
+            def _harmonic_db(k: int) -> float:
+                hf = k * f0
+                if hf >= sr / 2.0:
+                    return noise_floor
+                hi = int(round(hf / freq_res))
+                lo = max(0, hi - 2)
+                hi2 = min(len(spec_db) - 1, hi + 3)
+                return float(np.max(spec_db[lo : hi2 + 1]))
+
+            h1 = _harmonic_db(1)
+            h2 = max(_harmonic_db(2) - noise_floor, 0.0)
+            h3 = max(_harmonic_db(3) - noise_floor, 0.0)
+            h4 = max(_harmonic_db(4) - noise_floor, 0.0)
+            h5 = max(_harmonic_db(5) - noise_floor, 0.0)
+
+            if (h3 + h5) < 2.0:
+                return DefectScore(DefectType.OVERLOAD_DISTORTION, 0.0, 0.5)
+
+            odd_dominance = float((h3 + h5) / (h2 + h3 + h4 + h5 + 1e-3))
+            pos_peak = float(np.max(loud_audio[:n_fft]))
+            neg_peak = float(abs(np.min(loud_audio[:n_fft])))
+            asymmetry = float(abs(pos_peak - neg_peak) / (pos_peak + neg_peak + 1e-6))
+            thd_proxy = float(np.sqrt(h2**2 + h3**2 + h4**2 + h5**2) / (h1 - noise_floor + 1e-3))
+
+            thd_sev = float(np.clip((thd_proxy - 0.05) / 0.25, 0.0, 0.50))
+            odd_sev = float(np.clip((odd_dominance - 0.5) / 0.40, 0.0, 0.30))
+            asym_sev = float(np.clip((asymmetry - 0.05) / 0.20, 0.0, 0.20))
+            raw_sev = float(np.clip(thd_sev + odd_sev + asym_sev, 0.0, 1.0))
+
+            threshold = self.thresholds.get(DefectType.OVERLOAD_DISTORTION, 0.5)
+            if raw_sev < threshold * 0.1:
+                return DefectScore(DefectType.OVERLOAD_DISTORTION, 0.0, 0.5)
+
+            confidence = float(np.clip(0.35 + thd_sev * 0.30, 0.3, 0.80))
+            return DefectScore(
+                DefectType.OVERLOAD_DISTORTION,
+                float(np.clip(raw_sev, 0.0, 1.0)),
+                confidence,
+                metadata={
+                    "odd_dominance": round(odd_dominance, 3),
+                    "asymmetry": round(asymmetry, 3),
+                    "thd_proxy": round(thd_proxy, 3),
+                    "f0_hz": round(f0, 1),
+                },
+            )
+        except Exception:
+            return DefectScore(DefectType.OVERLOAD_DISTORTION, 0.0, 0.3)
+
+    def _detect_lacquer_disc_degradation(self, audio: np.ndarray) -> DefectScore:
+        """Erkennt Acetat-Lackfolien-Substrat-Degradierung (Material: LACQUER_DISC).
+
+        Acetat-Zersetzung erzeugt: (1) Substrat-Rissbildung → periodische Clicks,
+        (2) Lackschicht-Oxidation → HF-Verlust ≥ 8 kHz, (3) breitbandiges, nicht-stationäres
+        Basis-Material-Rauschen. Hess (1988) "Lacquer Disc Recording".
+
+        Algorithmus:
+            1. Material-Gate: nur LACQUER_DISC (sonst Confidence 0.95, Score 0.0)
+            2. Click-Dichte (10 ms Frames, Peak/RMS > 6) → Substrat-Rissbildung
+            3. HF-Verlust 7–12 kHz vs. 1–5 kHz → Lackschicht-Oxidation
+            4. Rauschboden-Modulation (std unter Signalschwelle) → Substrat-Rauschen
+        """
+        n = len(audio)
+        sr = self.sample_rate
+        if self.material_type is not None and self.material_type != MaterialType.LACQUER_DISC:
+            return DefectScore(DefectType.LACQUER_DISC_DEGRADATION, 0.0, 0.95)
+        if n < int(sr * 1.5):
+            return DefectScore(DefectType.LACQUER_DISC_DEGRADATION, 0.0, 0.3)
+        try:
+            n_fft = min(8192, n)
+            freqs = np.fft.rfftfreq(n_fft, 1.0 / sr)
+            spec = np.abs(np.fft.rfft(audio[:n_fft])) ** 2
+            spec_db = 10.0 * np.log10(spec + 1e-20)
+
+            # 1. Click-Dichte (Substrat-Rissbildung)
+            frame_len = max(1, int(sr * 0.01))
+            n_frames = min(n // frame_len, 500)
+            click_frames = 0
+            for fi in range(n_frames):
+                start = fi * frame_len
+                frame = audio[start : start + frame_len]
+                if len(frame) < 4:
+                    break
+                rms_f = float(np.sqrt(np.mean(frame**2)) + 1e-12)
+                peak_f = float(np.max(np.abs(frame)))
+                if peak_f / rms_f > 6.0:
+                    click_frames += 1
+            click_density = float(click_frames) / max(n_frames, 1)
+
+            # 2. HF-Verlust (Lackschicht-Oxidation: ≥ 8 kHz)
+            hf_mask = (freqs >= 7000.0) & (freqs <= 12000.0)
+            mf_mask = (freqs >= 1000.0) & (freqs <= 5000.0)
+            hf_loss = 0.0
+            if hf_mask.any() and mf_mask.any():
+                hf_loss = float(np.mean(spec_db[mf_mask]) - np.mean(spec_db[hf_mask]))
+
+            # 3. Rauschboden-Modulation (Substrat-Rauschen: nicht-stationär)
+            noise_floor = float(np.percentile(spec_db, 10))
+            noise_band = spec_db[spec_db < (noise_floor + 10.0)]
+            noise_mod = float(np.std(noise_band)) if len(noise_band) > 4 else 0.0
+
+            click_sev = float(np.clip(click_density * 4.0, 0.0, 0.4))
+            hf_sev = float(np.clip((hf_loss - 15.0) / 20.0, 0.0, 0.4))
+            noise_sev = float(np.clip((noise_mod - 3.0) / 8.0, 0.0, 0.2))
+            raw_sev = float(np.clip(click_sev + hf_sev + noise_sev, 0.0, 1.0))
+
+            threshold = self.thresholds.get(DefectType.LACQUER_DISC_DEGRADATION, 0.5)
+            if raw_sev < threshold * 0.1:
+                return DefectScore(DefectType.LACQUER_DISC_DEGRADATION, 0.0, 0.5)
+
+            confidence = float(np.clip(0.40 + raw_sev * 0.30, 0.35, 0.85))
+            return DefectScore(
+                DefectType.LACQUER_DISC_DEGRADATION,
+                float(np.clip(raw_sev, 0.0, 1.0)),
+                confidence,
+                metadata={
+                    "click_density": round(click_density, 4),
+                    "hf_loss_db": round(hf_loss, 2),
+                    "noise_modulation": round(noise_mod, 2),
+                },
+            )
+        except Exception:
+            return DefectScore(DefectType.LACQUER_DISC_DEGRADATION, 0.0, 0.3)
+
+
+# ========== v9.12.9: MATERIAL_SENSITIVITY Defaults für neue DefectTypes ==========
+# Setzt Schwellwerte für alle 7 neuen DefectTypes via setdefault (keine Überschreibung bestehender Werte).
+# Analoge Träger: niedrigere Schwelle (empfindlicher). Digitale: 0.80–1.0 (kaum relevant).
+
+_NEW_DEFECT_SENSITIVITY_DEFAULTS: dict[DefectType, dict[str, float]] = {
+    DefectType.PROXIMITY_EFFECT_EXCESS: {
+        # Häufig bei Ribbon-/Kondensator-Mikrofon ≤30 cm: Shellac/Reel/Lacquer am häufigsten
+        "shellac": 0.25,
+        "vinyl": 0.40,
+        "tape": 0.30,
+        "cassette": 0.28,
+        "reel_tape": 0.22,
+        "lacquer_disc": 0.20,
+        "wax_cylinder": 0.22,
+        "wire_recording": 0.25,
+        "dat": 0.70,
+        "minidisc": 0.80,
+        "cd_digital": 0.90,
+        "mp3_low": 0.90,
+        "mp3_high": 0.90,
+        "aac": 0.90,
+        "streaming": 0.90,
+    },
+    DefectType.ROOM_MODE_RESONANCE: {
+        # Stehwellen: analoge Ären mit unbehandelten Aufnahmeräumen
+        "shellac": 0.28,
+        "vinyl": 0.35,
+        "tape": 0.30,
+        "cassette": 0.35,
+        "reel_tape": 0.25,
+        "lacquer_disc": 0.28,
+        "wax_cylinder": 0.25,
+        "wire_recording": 0.30,
+        "dat": 0.60,
+        "minidisc": 0.70,
+        "cd_digital": 0.80,
+        "mp3_low": 0.90,
+        "mp3_high": 0.90,
+        "aac": 0.90,
+        "streaming": 0.90,
+    },
+    DefectType.NR_BREATHING_ARTIFACT: {
+        # Nur bei Dolby/dbx NR Systemen: Kassette primär, Reel-Tape sekundär
+        "cassette": 0.20,
+        "tape": 0.25,
+        "reel_tape": 0.28,
+        "wire_recording": 0.50,
+        "shellac": 1.0,
+        "vinyl": 1.0,
+        "lacquer_disc": 1.0,
+        "wax_cylinder": 1.0,
+        "dat": 0.90,
+        "minidisc": 0.90,
+        "cd_digital": 1.0,
+        "mp3_low": 1.0,
+        "mp3_high": 1.0,
+        "aac": 1.0,
+        "streaming": 1.0,
+    },
+    DefectType.FLUTTER_SPECTRAL_SIDEBANDS: {
+        # Erfordert Flutter + gehaltene Töne: Wire-Recording + Kassette empfindlichste
+        "cassette": 0.22,
+        "tape": 0.25,
+        "reel_tape": 0.28,
+        "wire_recording": 0.20,
+        "shellac": 0.38,
+        "vinyl": 0.40,
+        "lacquer_disc": 0.35,
+        "wax_cylinder": 0.30,
+        "dat": 0.90,
+        "minidisc": 0.90,
+        "cd_digital": 1.0,
+        "mp3_low": 1.0,
+        "mp3_high": 1.0,
+        "aac": 1.0,
+        "streaming": 1.0,
+    },
+    DefectType.SPEED_CALIBRATION_ERROR: {
+        # Motor-Kalibrierungsfehler: Wax Cylinder/Shellac/Lacquer am häufigsten
+        "shellac": 0.25,
+        "vinyl": 0.30,
+        "tape": 0.25,
+        "cassette": 0.22,
+        "reel_tape": 0.32,
+        "lacquer_disc": 0.24,
+        "wax_cylinder": 0.20,
+        "wire_recording": 0.18,
+        "dat": 0.90,
+        "minidisc": 0.90,
+        "cd_digital": 1.0,
+        "mp3_low": 1.0,
+        "mp3_high": 1.0,
+        "aac": 1.0,
+        "streaming": 1.0,
+    },
+    DefectType.OVERLOAD_DISTORTION: {
+        # Preamp-Klirr: tritt auch bei digitalen Signalketten auf (CD/MP3 aus verzerrter Quelle)
+        "shellac": 0.35,
+        "vinyl": 0.38,
+        "tape": 0.30,
+        "cassette": 0.30,
+        "reel_tape": 0.28,
+        "lacquer_disc": 0.32,
+        "wax_cylinder": 0.30,
+        "wire_recording": 0.30,
+        "dat": 0.70,
+        "minidisc": 0.70,
+        "cd_digital": 0.55,
+        "mp3_low": 0.65,
+        "mp3_high": 0.65,
+        "aac": 0.65,
+        "streaming": 0.65,
+    },
+    DefectType.LACQUER_DISC_DEGRADATION: {
+        # Material-Gate in _detect_lacquer_disc_degradation: nur LACQUER_DISC aktiv
+        "lacquer_disc": 0.15,
+        "shellac": 1.0,
+        "vinyl": 1.0,
+        "tape": 1.0,
+        "cassette": 1.0,
+        "reel_tape": 1.0,
+        "wax_cylinder": 1.0,
+        "wire_recording": 1.0,
+        "dat": 1.0,
+        "minidisc": 1.0,
+        "cd_digital": 1.0,
+        "mp3_low": 1.0,
+        "mp3_high": 1.0,
+        "aac": 1.0,
+        "streaming": 1.0,
+    },
+}
+# Initialisierung: nur setdefault — bestehende Einträge bleiben unverändert
+for _new_dt_v9129, _mat_defaults_v9129 in _NEW_DEFECT_SENSITIVITY_DEFAULTS.items():
+    for _mat_type_v9129 in MaterialType:
+        if _mat_type_v9129 not in DefectScanner.MATERIAL_SENSITIVITY:
+            continue
+        _threshold_v9129 = _mat_defaults_v9129.get(_mat_type_v9129.value, 0.70)
+        DefectScanner.MATERIAL_SENSITIVITY[_mat_type_v9129].setdefault(_new_dt_v9129, _threshold_v9129)
 
 
 # ========== Singleton ==========

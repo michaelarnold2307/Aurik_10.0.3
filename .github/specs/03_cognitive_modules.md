@@ -10,7 +10,7 @@
 | Modul | Datei | Zweck |
 | --- | --- | --- |
 | `PerceptualEmbedder` | `backend/core/perceptual_embedder.py` | 256-dim L2-normalisierter Einbettungsraum |
-| `CausalDefectReasoner` | `backend/core/causal_defect_reasoner.py` | Bayesianisch: 46 DefectTypes → 49 Kausal-Ursachen |
+| `CausalDefectReasoner` | `backend/core/causal_defect_reasoner.py` | Bayesianisch: 54 DefectTypes → 62 Kausal-Ursachen |
 | `GPParameterOptimizer` | `backend/core/gp_parameter_optimizer.py` | RBF-GP + UCB + MOO Pareto-Front |
 | `PerceptualQualityScorer` | `backend/core/perceptual_quality_scorer.py` | Gammatone-NSIM+MCD+LUFS+MOS |
 | `MusicalGoalsChecker` | `backend/core/musical_goals/musical_goals_metrics.py` | 14 Qualitätsziele |
@@ -84,7 +84,7 @@ sim = embedding.cosine_similarity(other)  # ∈ [-1, 1]
 ## §2.4 CausalDefectReasoner
 
 ```python
-# 49 Kausal-Ursachen (≠ 46 DefectTypes des DefectScanners):
+# 62 Kausal-Ursachen (≠ 54 DefectTypes des DefectScanners):
 # Hinweis: transport_bump (v9.10.57b) und vocal_harshness (v9.10.77) als
 # eigenständige Ursachen ergänzt; Gruppe Pitch/Dynamik dadurch 4→5.
 #
@@ -105,7 +105,7 @@ sim = embedding.cosine_similarity(other)  # ∈ [-1, 1]
 #   dynamic_compression_excess
 #
 # Gesamtzahl: 10+4+2+9+2+2+5+1 = 35 dokumentierte Ursachen.
-# Die Spec-Header-Aussage "49 Kausal-Ursachen" schließt 14 weitere Ursachen ein,
+# Die Spec-Header-Aussage "62 Kausal-Ursachen" schließt alle weiteren Ursachen ein,
 # die ausschließlich in der Code-Implementierung (causal_defect_reasoner.py)
 # und in CAUSES/CAUSE_TO_PHASES definiert sind und hier nicht einzeln aufgeführt werden
 # (u.a. erweiterte Codec-, Raumakustik- und Mehrstufenketten-Ursachen).
@@ -954,6 +954,17 @@ _restoration_context["phrase_boundaries"] = _phrases
 _restoration_context["phrase_count"] = len(_phrases)
 # Laufzeit-Budget: ≤ 3 s/min Audio
 ```
+
+### VocalFocusAnalyzer als Steuerfläche [RELEASE_MUST]
+
+`VocalFocusAnalyzer`-Outputs sind keine reinen Analysemetadaten. Sobald `panns_singing >= 0.25`, müssen diese Felder downstream wirksam werden:
+
+- `frisson_zones` schützt Klimax- und Gänsehautpassagen vor NR-, Dynamics-, Dereverb- und Inpainting-Übergriff.
+- `vibrato_zones` begrenzt alle zeit-/spektralglättenden Phasen auf maximal `strength=0.20`.
+- `passaggio_zones` setzt `passaggio_energy_bias_db=-3.0` und begrenzt Vokal-/De-Esser-/NR-Phasen.
+- `breath_segments` werden als Naturalness-Marker behandelt; mechanische Pops dürfen ausgenommen werden, emotionale Atemsegmente nicht.
+
+UV3 MUSS vor `PMGG.wrap_phase()` eine `vocal_zone_strength_policy` erzeugen und an Phasen weitergeben. Phasen dürfen diese Policy strenger, aber nie lockerer auslegen.
 
 **Invarianten**:
 

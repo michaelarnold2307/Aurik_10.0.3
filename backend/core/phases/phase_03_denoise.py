@@ -1788,13 +1788,23 @@ class DenoisePhase(PhaseInterface):
         if _is_vocal_material and _panns_singing >= 0.25:
             try:
                 from backend.core.dsp.lpc_formant_tracker import check_formant_shift_db as _cfs_p03  # pylint: disable=import-outside-toplevel  # noqa: I001
+                from backend.core.musical_goals.era_vocal_profile import (  # pylint: disable=import-outside-toplevel
+                    resolve_formant_tolerance_db as _rft_p03,
+                )
 
-                _fg_rollback_p03, _fg_shift_p03 = _cfs_p03(audio, result_audio, sample_rate, threshold_db=2.0)
+                _fg_tol_p03 = float(
+                    kwargs.get(
+                        "formant_tolerance_db",
+                        _rft_p03(era_decade=_era_decade_p03, era_profile=kwargs.get("era_vocal_profile")),
+                    )
+                )
+                _fg_rollback_p03, _fg_shift_p03 = _cfs_p03(audio, result_audio, sample_rate, threshold_db=_fg_tol_p03)
                 if _fg_rollback_p03:
                     result_audio = audio.copy()
                     logger.warning(
-                        "§G1 FormantGuard phase_03: max F-shift %.2f dB > 2.0 dB → Rollback",
+                        "§G1 FormantGuard phase_03: max F-shift %.2f dB > %.1f dB → Rollback",
                         _fg_shift_p03,
+                        _fg_tol_p03,
                     )
                 else:
                     logger.debug("§G1 FormantGuard phase_03: max F-shift %.2f dB — OK", _fg_shift_p03)

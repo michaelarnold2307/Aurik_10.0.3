@@ -12,7 +12,7 @@ import logging
 import threading
 from dataclasses import dataclass, field
 from importlib import import_module
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 
@@ -88,6 +88,8 @@ class VocalNoHarmGate:
         goal_weights: dict[str, float] | None = None,
         restorability_score: float | None = None,
         breath_segments: list[Any] | None = None,
+        era_decade: int | None = None,
+        era_vocal_profile: Any | None = None,
     ) -> VocalNoHarmResult:
         """Bewertet whether a vocal processing result is safe to keep.
 
@@ -142,7 +144,7 @@ class VocalNoHarmGate:
             failures,
         )
         self._evaluate_hnr(pre, post, sr, scores, checks, warnings, failures)
-        self._evaluate_formants(pre, post, sr, scores, checks, warnings, failures)
+        self._evaluate_formants(pre, post, sr, scores, checks, warnings, failures, era_decade, era_vocal_profile)
         self._evaluate_breath_preservation(pre, post, sr, breath_segments, scores, checks, failures)
         if reference_audio is not None:
             reference = np.nan_to_num(
@@ -323,16 +325,29 @@ class VocalNoHarmGate:
         checks: dict[str, bool],
         warnings: list[str],
         failures: list[str],
+        era_decade: int | None = None,
+        era_vocal_profile: Any | None = None,
     ) -> None:
         try:
             check_formant_shift_db = _load_symbol("backend.core.dsp.lpc_formant_tracker", "check_formant_shift_db")
+            resolve_formant_tolerance_db = _load_symbol(
+                "backend.core.musical_goals.era_vocal_profile", "resolve_formant_tolerance_db"
+            )
+            threshold_db = float(
+                resolve_formant_tolerance_db(
+                    era_decade=era_decade,
+                    era_profile=era_vocal_profile,
+                    fallback_db=_FORMANT_SHIFT_MAX_DB,
+                )
+            )
             rollback_needed, max_shift_db = check_formant_shift_db(
                 pre,
                 post,
                 sr,
-                threshold_db=_FORMANT_SHIFT_MAX_DB,
+                threshold_db=threshold_db,
             )
             scores["max_formant_shift_db"] = float(max_shift_db)
+            scores["formant_tolerance_db"] = float(threshold_db)
             checks["formant_ok"] = not bool(rollback_needed)
             if rollback_needed:
                 failures.append("formant_shift")
@@ -432,9 +447,9 @@ class VocalNoHarmGate:
         if arr.ndim == 1:
             return arr
         if arr.ndim == 2 and arr.shape[0] <= 8:
-            return np.mean(arr, axis=0).astype(np.float32)
+            return cast(np.ndarray, np.asarray(np.mean(arr, axis=0), dtype=np.float32))
         if arr.ndim == 2:
-            return np.mean(arr, axis=1).astype(np.float32)
+            return cast(np.ndarray, np.asarray(np.mean(arr, axis=1), dtype=np.float32))
         return arr.reshape(-1).astype(np.float32)
 
     @staticmethod

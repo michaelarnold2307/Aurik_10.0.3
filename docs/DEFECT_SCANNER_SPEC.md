@@ -57,7 +57,7 @@ The **DefectScanner** is the entry point for Aurik 9’s **Defect-First** restor
 
 ## 3. Defect Types
 
-### 3.1 Enum Definition (47 DefectTypes, Stand v9.12.8)
+### 3.1 Enum Definition (54 DefectTypes, Stand v9.12.9)
 
 ```python
 class DefectType(Enum):

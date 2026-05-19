@@ -47,7 +47,7 @@ logger = logging.getLogger(__name__)
 # Typ-Definitionen
 # ---------------------------------------------------------------------------
 
-# 49 Kausal-Ursachen (Spec §2.4): 10 Magnetband + 4 Vinyl + 2 Elektrik + 9 Digital/Codec
+# 62 Kausal-Ursachen (Spec §2.4): 10 Magnetband + 4 Vinyl + 2 Elektrik + 9 Digital/Codec + 9 v9.12.9
 # + 2 Spektral + 2 Stereo + 5 Pitch/Dynamik/Vokal + 1 Vintage + 2 Transport + 12 v9.10.98
 CAUSES = [
     # ── Analoge Magnetband-Ursachen ──────────────────────────────────────────
@@ -116,6 +116,24 @@ CAUSES = [
     "dolby_nr_mismatch",  # DefectType.DOLBY_NR_MISMATCH → phase_04 HF-Shelf-Korrektur
     # (Dolby B/C/S encode ohne Dekodierung)
     "tape_head_level_dip",  # DefectType.TAPE_HEAD_LEVEL_DIP → phase_12/phase_24 (Bandkopf-Kontaktdruckvariation)
+    # ── v9.12.9: 9 neue Kausal-Ursachen — Carrier-Lücken geschlossen ─────────
+    # Nahbesprechungseffekt (Richtmikrofon ≤30 cm) → LF +6–12 dB ≤250 Hz; häufig Vokal 1940–1970.
+    "proximity_effect_excess",
+    # Raumresonanz-Stehwellen 40–200 Hz ≠ diffuser Hall → schmalbandige Q>8-Peaks.
+    "room_mode_resonance",
+    # Dolby/dbx NR Pumpen/Atmen (korrekt dekodiert) → pulsierender Rauschboden.
+    "nr_breathing_artifact",
+    "flutter_spectral_sidebands",  # Flutter-Seitenbänder um Spektralpeaks (metallisch) → phase_12 + phase_23
+    # Fester Geschwindigkeitsfehler (Motor 50/60 Hz, rpm-Verwechslung) ≠ zeitvarianter pitch_drift.
+    "speed_calibration_error",
+    # Analoger Preamp/Console-Klirr: H3/H5-dominant, asymmetrisch (5–15 % THD).
+    "overload_distortion",
+    # Acetat-Zersetzung: Substrat-Rissbildung + Lackschicht-Oxidation.
+    "lacquer_disc_degradation",
+    # Kassetten-Shell-Azimuth-Toleranz → HF-Kammfilterung 8–14 kHz.
+    "cassette_azimuth_tolerance",
+    # Drahtband: Draht-Knoten-Clicks + Wicklungs-Wow + nichtlinearer Magnetisierungsverlauf.
+    "wire_recording_specific",
 ]
 
 # Material-Typen — Priors für alle 34 Kausal-Ursachen (v9.10.77b)
@@ -990,6 +1008,204 @@ for _new_cause, _new_priors in [
     for _priors in MATERIAL_PRIORS.values():
         _priors.setdefault(_new_cause, 0.01)
 
+# v9.12.9: 9 neue Kausal-Ursachen — Material-Priors
+_PROXIMITY_EFFECT_MATERIAL_PRIORS: dict[str, float] = {
+    # Nahbesprechungseffekt: häufig bei Ribbon/Kondensator-Mikrofonen ≤30 cm
+    "shellac": 0.15,  # Richtmikrofone 1930–1950 bei Rundfunk
+    "vinyl": 0.08,  # Studio-Vinyl: weniger problematisch
+    "tape": 0.18,  # Kassette: Heimaufnahmen mit zu nahem Mikrofon häufig
+    "cassette": 0.20,  # Heimkassette: Nahbesprechung sehr häufig
+    "reel_tape": 0.22,  # Profi-Studio 1940–1970: häufig bei Röhren-Mikrofonen
+    "lacquer_disc": 0.25,  # Heimschnitt: primitivere Technik, Mikrofon-Nahaufstellung
+    "wax_cylinder": 0.12,  # Trichteraufnahme: Nahbesprechung bauartbedingt
+    "wire_recording": 0.18,  # Wire: Nahbesprechung bei Feldaufnahmen
+    "dat": 0.05,
+    "minidisc": 0.06,
+    "cd_digital": 0.04,  # Moderne Produktion: bewusste Entscheidung, keine Fehler
+    "mp3_low": 0.03,
+    "mp3_high": 0.03,
+    "aac": 0.03,
+    "streaming": 0.03,
+    "digital": 0.03,
+    "unknown": 0.10,
+}
+_ROOM_MODE_MATERIAL_PRIORS: dict[str, float] = {
+    # Stehwellen-Raumresonanzen: Aufnahmestudios 1930–1970 mit parallelen Wänden
+    "shellac": 0.14,
+    "vinyl": 0.10,
+    "tape": 0.12,
+    "cassette": 0.10,
+    "reel_tape": 0.18,  # Profi-Studios 1940–1970: oft problematische Akustik
+    "lacquer_disc": 0.15,  # Heimaufnahme: keine akustische Behandlung
+    "wax_cylinder": 0.16,  # Frühe Studios: kaum akustische Behandlung
+    "wire_recording": 0.14,
+    "dat": 0.06,
+    "minidisc": 0.06,
+    "cd_digital": 0.05,
+    "mp3_low": 0.04,
+    "mp3_high": 0.04,
+    "aac": 0.04,
+    "streaming": 0.04,
+    "digital": 0.04,
+    "unknown": 0.08,
+}
+_NR_BREATHING_MATERIAL_PRIORS: dict[str, float] = {
+    # NR Pumpen/Atmen: nur bei korrekt dekodierten Analog-NR-Systemen
+    "cassette": 0.22,  # Dolby B/C/S Consumer-Kassette 1975–2000
+    "tape": 0.12,  # Consumer Reel mit Dolby B
+    "reel_tape": 0.14,  # Profi-Reel mit Dolby A/SR
+    "wire_recording": 0.06,  # AGC-Interaktion, nicht echtes NR-System
+    "shellac": 0.001,  # vor Dolby NR (1966)
+    "vinyl": 0.001,
+    "lacquer_disc": 0.001,
+    "wax_cylinder": 0.001,
+    "cd_digital": 0.001,
+    "dat": 0.001,
+    "minidisc": 0.001,
+    "mp3_low": 0.001,
+    "mp3_high": 0.001,
+    "aac": 0.001,
+    "streaming": 0.001,
+    "digital": 0.001,
+    "unknown": 0.05,
+}
+_FLUTTER_SIDEBANDS_MATERIAL_PRIORS: dict[str, float] = {
+    # Flutter-Seitenbänder: bei > 3 Hz Flutter auf Tonträgern mit Sustained-Tönen
+    "cassette": 0.16,
+    "tape": 0.14,
+    "reel_tape": 0.10,
+    "wire_recording": 0.22,  # Drahtband: starkes Flutter durch Drahtgeometrie
+    "shellac": 0.08,
+    "vinyl": 0.06,
+    "lacquer_disc": 0.08,
+    "wax_cylinder": 0.10,
+    "dat": 0.001,
+    "cd_digital": 0.001,
+    "mp3_low": 0.001,
+    "mp3_high": 0.001,
+    "aac": 0.001,
+    "streaming": 0.001,
+    "minidisc": 0.001,
+    "digital": 0.001,
+    "unknown": 0.06,
+}
+_SPEED_CALIB_MATERIAL_PRIORS: dict[str, float] = {
+    # Fester Geschwindigkeitsfehler: Motorfrequenz-Verwechslung, rpm-Fehler
+    "shellac": 0.18,  # 78 rpm: 50/60 Hz Motor-Verwechslung sehr häufig
+    "vinyl": 0.12,  # 33⅓/45 rpm Verwechslung
+    "tape": 0.10,
+    "cassette": 0.10,
+    "reel_tape": 0.08,  # Professionell: besser kalibriert
+    "lacquer_disc": 0.18,  # Heimschnitt: billige Motoren
+    "wax_cylinder": 0.20,  # Sehr frühe Aufnahmen: keine Standardisierung
+    "wire_recording": 0.16,
+    "dat": 0.001,
+    "cd_digital": 0.001,
+    "mp3_low": 0.001,
+    "mp3_high": 0.001,
+    "aac": 0.001,
+    "streaming": 0.001,
+    "minidisc": 0.001,
+    "digital": 0.001,
+    "unknown": 0.08,
+}
+_OVERLOAD_DISTORTION_MATERIAL_PRIORS: dict[str, float] = {
+    # Analoger Preamp/Console-Klirr: Live-Aufnahmen 1960–1980, Broadcast
+    "shellac": 0.12,
+    "vinyl": 0.14,
+    "tape": 0.16,
+    "cassette": 0.14,
+    "reel_tape": 0.18,  # Profi-Live-Aufnahmen: Eingangsstufen oft übersteuert
+    "lacquer_disc": 0.10,
+    "wax_cylinder": 0.08,
+    "wire_recording": 0.12,
+    "dat": 0.08,  # Analog-Eingang kann übersteuern
+    "cd_digital": 0.06,  # Mastering-Overload aus analoger Kette
+    "mp3_low": 0.04,
+    "mp3_high": 0.04,
+    "aac": 0.04,
+    "streaming": 0.04,
+    "minidisc": 0.06,
+    "digital": 0.05,
+    "unknown": 0.08,
+}
+_LACQUER_DEGRADATION_MATERIAL_PRIORS: dict[str, float] = {
+    # Acetat-Zersetzung: nur Lacquer Disc
+    "lacquer_disc": 0.55,  # primäres Target — Acetat-Zersetzung nach Jahrzehnten
+    "shellac": 0.001,
+    "vinyl": 0.001,
+    "tape": 0.001,
+    "cassette": 0.001,
+    "reel_tape": 0.001,
+    "wax_cylinder": 0.001,
+    "wire_recording": 0.001,
+    "dat": 0.001,
+    "cd_digital": 0.001,
+    "mp3_low": 0.001,
+    "mp3_high": 0.001,
+    "aac": 0.001,
+    "streaming": 0.001,
+    "minidisc": 0.001,
+    "digital": 0.001,
+    "unknown": 0.05,
+}
+_CASSETTE_AZIMUTH_MATERIAL_PRIORS: dict[str, float] = {
+    # Kassetten-Shell-Azimuth-Toleranz: nur Kassetten-Format
+    "cassette": 0.20,
+    "tape": 0.08,  # Consumer Open-Reel: etwas besser
+    "reel_tape": 0.04,  # Profi: gute Toleranzen
+    "shellac": 0.001,
+    "vinyl": 0.001,
+    "lacquer_disc": 0.001,
+    "wax_cylinder": 0.001,
+    "wire_recording": 0.001,
+    "dat": 0.001,
+    "cd_digital": 0.001,
+    "mp3_low": 0.001,
+    "mp3_high": 0.001,
+    "aac": 0.001,
+    "streaming": 0.001,
+    "minidisc": 0.001,
+    "digital": 0.001,
+    "unknown": 0.04,
+}
+_WIRE_SPECIFIC_MATERIAL_PRIORS: dict[str, float] = {
+    # Drahtband-spezifische Defekte: nur Wire Recording
+    "wire_recording": 0.45,  # primäres Target
+    "tape": 0.001,
+    "cassette": 0.001,
+    "reel_tape": 0.001,
+    "shellac": 0.001,
+    "vinyl": 0.001,
+    "lacquer_disc": 0.001,
+    "wax_cylinder": 0.001,
+    "dat": 0.001,
+    "cd_digital": 0.001,
+    "mp3_low": 0.001,
+    "mp3_high": 0.001,
+    "aac": 0.001,
+    "streaming": 0.001,
+    "minidisc": 0.001,
+    "digital": 0.001,
+    "unknown": 0.05,
+}
+for _new_cause_v9129, _new_priors_v9129 in [
+    ("proximity_effect_excess", _PROXIMITY_EFFECT_MATERIAL_PRIORS),
+    ("room_mode_resonance", _ROOM_MODE_MATERIAL_PRIORS),
+    ("nr_breathing_artifact", _NR_BREATHING_MATERIAL_PRIORS),
+    ("flutter_spectral_sidebands", _FLUTTER_SIDEBANDS_MATERIAL_PRIORS),
+    ("speed_calibration_error", _SPEED_CALIB_MATERIAL_PRIORS),
+    ("overload_distortion", _OVERLOAD_DISTORTION_MATERIAL_PRIORS),
+    ("lacquer_disc_degradation", _LACQUER_DEGRADATION_MATERIAL_PRIORS),
+    ("cassette_azimuth_tolerance", _CASSETTE_AZIMUTH_MATERIAL_PRIORS),
+    ("wire_recording_specific", _WIRE_SPECIFIC_MATERIAL_PRIORS),
+]:
+    for _mat, _prior in _new_priors_v9129.items():
+        if _mat in MATERIAL_PRIORS:
+            MATERIAL_PRIORS[_mat].setdefault(_new_cause_v9129, _prior)
+    for _priors in MATERIAL_PRIORS.values():
+        _priors.setdefault(_new_cause_v9129, 0.01)
+
 # Phase-Empfehlungen pro Ursache (kanonische phase_id = Dateiname ohne .py)
 CAUSE_TO_PHASES: dict[str, list[str]] = {
     # ── Magnetband ────────────────────────────────────────────────────────────
@@ -1251,6 +1467,51 @@ CAUSE_TO_PHASES: dict[str, list[str]] = {
         "phase_24_dropout_repair",  # Deep dips cross dropout threshold
         "phase_40_loudness_normalization",  # Slow level drift correction
     ],
+    # ── v9.12.9: 9 neue Kausal-Ursachen → Phase-Mappings ────────────────────
+    "proximity_effect_excess": [
+        "phase_04_eq_correction",  # Primary: LF-Shelf-Absenkung ~150–250 Hz (−4 bis −8 dB, material-adaptiv)
+        "phase_05_rumble_filter",  # Sekundär: Sub-Bass-Begleiterscheinung ausfiltern
+    ],
+    "room_mode_resonance": [
+        "phase_05_rumble_filter",  # Primary: adaptive Notch-Filter auf schmalbandige 40–200 Hz Peaks
+        "phase_04_eq_correction",  # Sekundär: parametrischer EQ für verbleibende Resonanzspitzen
+        "phase_03_denoise",  # Tertiär: Rauschboden-Bereinigung nach Notch-Eingriff
+    ],
+    "nr_breathing_artifact": [
+        "phase_03_denoise",  # Primary: zeitlich adaptives Gain-Smoothing an NR-Übergangszonen (OMLSA)
+        "phase_29_tape_hiss_reduction",  # Sekundär: stationärer Rauschboden-Rest nach Breathing-Korrektur
+    ],
+    "flutter_spectral_sidebands": [
+        "phase_12_wow_flutter_fix",  # Primary: PSOLA-Korrektur eliminiert Seitenband-Quelle (Pitch-Instabilität)
+        "phase_23_spectral_repair",  # Sekundär: spektrale Inpainting der Seitenband-Energie um Peaks
+        "phase_08_transient_preservation",  # Tertiär: Transienten-Integrität nach Pitch-Korrektur
+    ],
+    "speed_calibration_error": [
+        "phase_12_wow_flutter_fix",  # Primary: globale Pitch-Verschiebung (Constant-Rate-Mode)
+        "phase_31_speed_pitch_correction",  # Sekundär: Feinabstimmung nach Grob-Korrektur
+    ],
+    "overload_distortion": [
+        "phase_63_intermodulation_reduction",  # Primary: Volterra-basierte IMD-Entfernung (H3/H5)
+        "phase_23_spectral_repair",  # Sekundär: Spektral-Inpainting der Klirr-Produkte
+        "phase_09_crackle_removal",  # Tertiär: asymmetrische Wellenform-Reparatur
+    ],
+    "lacquer_disc_degradation": [
+        "phase_03_denoise",  # Primary: Substrat-Rauschen + Breitband-HF-Verlust
+        "phase_09_crackle_removal",  # Sekundär: Rissbildungs-Clicks (dicht, periodisch)
+        "phase_01_click_removal",  # Tertiär: einzelne scharfe Riss-Events
+        "phase_06_frequency_restoration",  # Quartär: HF-Wiederherstellung (Lackschicht-Oxidation ≥ 8 kHz)
+    ],
+    "cassette_azimuth_tolerance": [
+        "phase_14_phase_correction",  # Primary: Shell-Toleranz-bedingter HF-Phasen-Slope L/R
+        "phase_25_azimuth_correction",  # Sekundär: residualer Azimuth-Drift nach Shell-Korrektur
+        "phase_06_frequency_restoration",  # Tertiär: HF-Kammfilterung kompensieren (8–14 kHz)
+    ],
+    "wire_recording_specific": [
+        "phase_12_wow_flutter_fix",  # Primary: Draht-Wicklungs-Wow + Knoten-Geschwindigkeitsspitzen
+        "phase_24_dropout_repair",  # Sekundär: Draht-Knoten-Signalunterbrechungen
+        "phase_03_denoise",  # Tertiär: Drahtband-Rauschen (nichtlinear, breitbandig)
+        "phase_01_click_removal",  # Quartär: Draht-Knoten-Clicks
+    ],
 }
 
 # §6.2b/c Era-Verarbeitungsrichtlinien: Materialspezifische Phasen-Ausschlüsse.
@@ -1476,6 +1737,57 @@ CAUSE_PARAMS: dict[str, dict[str, Any]] = {
         "dip_duration_ms": 500.0,
         "level_smoothing_ms": 200.0,
         "noise_reduction_strength": 0.25,
+    },
+    # ── v9.12.9: CAUSE_PARAMS für neue Kausal-Ursachen ───────────────────────
+    "proximity_effect_excess": {
+        "lf_shelf_hz": 250.0,  # Proximty-Übergangsfrequenz (Olson 1948)
+        "lf_shelf_gain_db": -6.0,  # Adaptive: −4 bis −8 dB basierend auf Severity
+        "sub_bass_protect_hz": 60.0,  # Sub-Bass unter 60 Hz nicht anrühren (Rumble-Schutz)
+        "eq_slope_db_per_octave": 6.0,  # Sanfter Low-Shelf-Abfall
+    },
+    "room_mode_resonance": {
+        "notch_q": 12.0,  # Schmalbandiger Notch (Q=12 für Raumresonanz)
+        "notch_depth_db": -8.0,
+        "freq_range_lo_hz": 40.0,
+        "freq_range_hi_hz": 200.0,
+        "min_peak_prominence_db": 6.0,
+    },
+    "nr_breathing_artifact": {
+        "gain_smooth_ms": 200.0,  # Dolby B charakteristische Release-Zeit
+        "modulation_depth_threshold": 0.25,  # Mindest-Modulationstiefe für Aktivierung
+        "noise_reduction_strength": 0.35,
+    },
+    "flutter_spectral_sidebands": {
+        "sideband_search_radius_hz": 12.0,  # Suchradius um Peak für Seitenbänder
+        "min_sideband_prominence_db": 3.0,
+        "min_sideband_count": 3,
+    },
+    "speed_calibration_error": {
+        "pitch_correction_range_semitones": 3.0,  # Maximal 3 HT Korrektur (>3 = anderes Problem)
+        "constant_mode": True,  # Kein zeitvarianter Modus — globale Korrektur
+        "confidence_threshold": 0.60,
+    },
+    "overload_distortion": {
+        "thd_target_percent": 1.0,  # Ziel nach Korrektur: < 1 % THD
+        "odd_harmonic_gate_db": 4.0,  # Mindest H3/H5 über Noise Floor
+        "min_loud_frames_percent": 0.30,  # Nur wenn ≥ 30 % der Frames übersteuert
+    },
+    "lacquer_disc_degradation": {
+        "click_threshold_sigma": 4.0,
+        "hf_extension_target_hz": 8000.0,  # Lacquer-Ceiling (Acetat degradiert ≥ 8 kHz)
+        "noise_reduction_strength": 0.55,  # Stärkere NR für Substrat-Rauschen
+        "material_specific": True,  # Nur für MaterialType.LACQUER_DISC
+    },
+    "cassette_azimuth_tolerance": {
+        "azimuth_tolerance_degrees": 0.5,  # Kassetten-Shell-Toleranz ≈ ±0.5°
+        "hf_comb_notch_hz": 10000.0,  # Kammfilter-Nullstelle bei 10 kHz (typisch)
+        "phase_correction_strength": 0.70,
+    },
+    "wire_recording_specific": {
+        "knot_click_interval_ms": 200.0,  # Typischer Drahtknoten-Abstand bei Heimformat
+        "flutter_rate_hz": 5.0,  # Wire-Wicklungs-Flutter ≈ 4–7 Hz
+        "noise_reduction_strength": 0.50,
+        "material_specific": True,  # Nur für MaterialType.WIRE_RECORDING
     },
 }
 
@@ -2383,6 +2695,144 @@ def _likelihood_tape_head_level_dip(sf: SpectralFeatures, defect_scores: dict[st
     return float(np.clip(p, 0.0, 1.0))
 
 
+# ── v9.12.9: Likelihood-Funktionen für 9 neue Kausal-Ursachen ────────────────
+
+
+def _likelihood_proximity_effect_excess(sf: SpectralFeatures, defect_scores: dict[str, float]) -> float:
+    """P(features | proximity_effect_excess) — Nahbesprechungseffekt bei Richtmikrofonen. v9.12.9"""
+    p = 0.0
+    # Primary: direct DefectScanner score
+    prox_sev = float(defect_scores.get("proximity_effect_excess", 0.0))
+    p += _sigmoid_score(prox_sev, k=10, x0=0.25) * 0.60
+    # Secondary: low spectral rolloff (HF absent, LF dominant)
+    p += _gaussian_score(sf.spectral_rolloff_hz, mu=3500.0, sigma=2000.0) * 0.20
+    # Tertiary: low HF energy (proximity shifts energy down)
+    hf_absence = float(1.0 - np.clip(sf.hf_energy_ratio * 4.0, 0.0, 1.0))
+    p += hf_absence * 0.20
+    return float(np.clip(p, 0.0, 1.0))
+
+
+def _likelihood_room_mode_resonance(sf: SpectralFeatures, defect_scores: dict[str, float]) -> float:
+    """P(features | room_mode_resonance) — Stehwellen-Resonanzen 40–200 Hz. v9.12.9"""
+    p = 0.0
+    # Primary: direct DefectScanner score
+    mode_sev = float(defect_scores.get("room_mode_resonance", 0.0))
+    p += _sigmoid_score(mode_sev, k=10, x0=0.20) * 0.60
+    # Secondary: low spectral rolloff (room modes → energy accumulates in LF)
+    p += _gaussian_score(sf.spectral_rolloff_hz, mu=4000.0, sigma=2500.0) * 0.25
+    # Tertiary: non-zero RMS (room modes only audible in signal-bearing material)
+    p += _sigmoid_score(sf.rms, k=15, x0=0.05) * 0.15
+    return float(np.clip(p, 0.0, 1.0))
+
+
+def _likelihood_nr_breathing_artifact(sf: SpectralFeatures, defect_scores: dict[str, float]) -> float:
+    """P(features | nr_breathing_artifact) — Dolby/dbx NR Pumpen/Atmen. v9.12.9"""
+    p = 0.0
+    # Primary: direct DefectScanner score
+    breath_sev = float(defect_scores.get("nr_breathing_artifact", 0.0))
+    p += _sigmoid_score(breath_sev, k=10, x0=0.20) * 0.70
+    # Secondary: Dolby NR mismatch score (related phenomenon)
+    dolby_sev = float(defect_scores.get("dolby_nr_mismatch", 0.0))
+    p += _sigmoid_score(dolby_sev, k=8, x0=0.30) * 0.20
+    # Tertiary: high-frequency noise pattern (NR breathing affects HF region)
+    p += _sigmoid_score(sf.hf_energy_ratio, k=8, x0=0.3) * 0.10
+    return float(np.clip(p, 0.0, 1.0))
+
+
+def _likelihood_flutter_spectral_sidebands(sf: SpectralFeatures, defect_scores: dict[str, float]) -> float:
+    """P(features | flutter_spectral_sidebands) — Flutter-Seitenbänder um tonale Peaks. v9.12.9"""
+    p = 0.0
+    # Primary: direct DefectScanner score
+    sb_sev = float(defect_scores.get("flutter_spectral_sidebands", 0.0))
+    p += _sigmoid_score(sb_sev, k=10, x0=0.20) * 0.60
+    # Secondary: flutter score (sidebands require flutter source)
+    flutter_sev = float(defect_scores.get("flutter", 0.0))
+    p += _sigmoid_score(flutter_sev, k=8, x0=0.25) * 0.25
+    # Tertiary: pitch instability (correlated with flutter mechanism)
+    p += _sigmoid_score(sf.pitch_instability, k=8, x0=0.20) * 0.15
+    return float(np.clip(p, 0.0, 1.0))
+
+
+def _likelihood_speed_calibration_error(sf: SpectralFeatures, defect_scores: dict[str, float]) -> float:
+    """P(features | speed_calibration_error) — Konstanter Geschwindigkeitsfehler. v9.12.9"""
+    p = 0.0
+    # Primary: direct DefectScanner score
+    speed_sev = float(defect_scores.get("speed_calibration_error", 0.0))
+    p += _sigmoid_score(speed_sev, k=10, x0=0.20) * 0.65
+    # Secondary: pitch drift (speed error presents as flat offset in pitch)
+    pitch_drift = float(defect_scores.get("pitch_drift", 0.0))
+    p += _sigmoid_score(pitch_drift, k=8, x0=0.30) * 0.25
+    # Tertiary: pitch instability (low for speed error vs high for wow/flutter)
+    # Speed calib: globally offset but temporally stable → lower instability
+    p += _gaussian_score(sf.pitch_instability, mu=0.05, sigma=0.10) * 0.10
+    return float(np.clip(p, 0.0, 1.0))
+
+
+def _likelihood_overload_distortion(sf: SpectralFeatures, defect_scores: dict[str, float]) -> float:
+    """P(features | overload_distortion) — Analoger Preamp/Console-Klirr H3/H5. v9.12.9"""
+    _ = sf.rms
+    p = 0.0
+    # Primary: direct DefectScanner score
+    over_sev = float(defect_scores.get("overload_distortion", 0.0))
+    p += _sigmoid_score(over_sev, k=10, x0=0.20) * 0.55
+    # Secondary: intermodulation distortion (shares harmonic distortion mechanism)
+    imd_sev = float(defect_scores.get("intermodulation_distortion", 0.0))
+    p += _sigmoid_score(imd_sev, k=8, x0=0.25) * 0.25
+    # Tertiary: clipping (analog overload often co-occurs with near-clipping levels)
+    clip_sev = float(defect_scores.get("clipping", 0.0))
+    p += _sigmoid_score(clip_sev, k=8, x0=0.20) * 0.20
+    return float(np.clip(p, 0.0, 1.0))
+
+
+def _likelihood_lacquer_disc_degradation(sf: SpectralFeatures, defect_scores: dict[str, float]) -> float:
+    """P(features | lacquer_disc_degradation) — Acetat-Zersetzung (LACQUER_DISC). v9.12.9"""
+    _ = sf.rms
+    p = 0.0
+    # Primary: direct DefectScanner score
+    lacquer_sev = float(defect_scores.get("lacquer_disc_degradation", 0.0))
+    p += _sigmoid_score(lacquer_sev, k=10, x0=0.15) * 0.60
+    # Secondary: click density (substrate cracking)
+    click_sev = float(defect_scores.get("clicks", 0.0))
+    p += _sigmoid_score(click_sev, k=8, x0=0.30) * 0.20
+    # Tertiary: bandwidth loss (HF oxidation)
+    bw_sev = float(defect_scores.get("bandwidth_loss", 0.0))
+    p += _sigmoid_score(bw_sev, k=8, x0=0.35) * 0.20
+    return float(np.clip(p, 0.0, 1.0))
+
+
+def _likelihood_cassette_azimuth_tolerance(sf: SpectralFeatures, defect_scores: dict[str, float]) -> float:
+    """P(features | cassette_azimuth_tolerance) — Kassetten-Shell-HF-Kammfilterung. v9.12.9"""
+    _ = sf.rms
+    p = 0.0
+    # Primary: azimuth error (shell tolerance manifests as azimuth-like HF loss)
+    azimuth_sev = float(defect_scores.get("azimuth_error", 0.0))
+    p += _sigmoid_score(azimuth_sev, k=10, x0=0.20) * 0.55
+    # Secondary: bandwidth loss (azimuth→comb filter → HF cancellation)
+    bw_sev = float(defect_scores.get("bandwidth_loss", 0.0))
+    p += _sigmoid_score(bw_sev, k=8, x0=0.30) * 0.25
+    # Tertiary: phase issues (comb filter creates inter-channel phase divergence)
+    phase_sev = float(defect_scores.get("phase_issues", 0.0))
+    p += _sigmoid_score(phase_sev, k=8, x0=0.25) * 0.20
+    return float(np.clip(p, 0.0, 1.0))
+
+
+def _likelihood_wire_recording_specific(sf: SpectralFeatures, defect_scores: dict[str, float]) -> float:
+    """P(features | wire_recording_specific) — Drahtband: Knoten, Wicklungs-Wow. v9.12.9"""
+    p = 0.0
+    # Primary: click density (wire knots create impulsive events)
+    click_sev = float(defect_scores.get("clicks", 0.0))
+    p += _sigmoid_score(click_sev, k=10, x0=0.20) * 0.35
+    # Secondary: wow/flutter (wire winding irregularities)
+    wow_sev = float(defect_scores.get("wow", 0.0))
+    flutter_sev = float(defect_scores.get("flutter", 0.0))
+    p += _sigmoid_score(max(wow_sev, flutter_sev), k=8, x0=0.25) * 0.30
+    # Tertiary: dropout density (magnetization loss at wire nodes)
+    p += _sigmoid_score(sf.dropout_density, k=8, x0=0.20) * 0.20
+    # Quaternary: high-frequency noise (non-linear magnetization of wire)
+    p += _sigmoid_score(sf.hf_energy_ratio, k=6, x0=0.35) * 0.15
+    return float(np.clip(p, 0.0, 1.0))
+
+
 LIKELIHOOD_FNS = {
     # ── Original 12 ──────────────────────────────────────────────────────────
     "tape_dropout": _likelihood_tape_dropout,
@@ -2442,6 +2892,16 @@ LIKELIHOOD_FNS = {
     "clicks": _likelihood_clicks,
     "dolby_nr_mismatch": _likelihood_dolby_nr_mismatch,
     "tape_head_level_dip": _likelihood_tape_head_level_dip,
+    # ── v9.12.9: 9 neue Kausal-Ursachen ──────────────────────────────────────
+    "proximity_effect_excess": _likelihood_proximity_effect_excess,
+    "room_mode_resonance": _likelihood_room_mode_resonance,
+    "nr_breathing_artifact": _likelihood_nr_breathing_artifact,
+    "flutter_spectral_sidebands": _likelihood_flutter_spectral_sidebands,
+    "speed_calibration_error": _likelihood_speed_calibration_error,
+    "overload_distortion": _likelihood_overload_distortion,
+    "lacquer_disc_degradation": _likelihood_lacquer_disc_degradation,
+    "cassette_azimuth_tolerance": _likelihood_cassette_azimuth_tolerance,
+    "wire_recording_specific": _likelihood_wire_recording_specific,
 }
 
 

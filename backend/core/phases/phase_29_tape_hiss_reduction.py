@@ -795,13 +795,30 @@ class TapeHissReductionPhase(PhaseInterface):
         if _p29_panns >= 0.25:
             try:
                 from backend.core.dsp.lpc_formant_tracker import check_formant_shift_db as _cfs_p29  # pylint: disable=import-outside-toplevel  # noqa: I001
+                from backend.core.musical_goals.era_vocal_profile import (  # pylint: disable=import-outside-toplevel
+                    resolve_formant_tolerance_db as _rft_p29,
+                )
 
-                _fg_rollback_p29, _fg_shift_p29 = _cfs_p29(audio, audio_processed, sample_rate, threshold_db=2.0)
+                _ctx_p29 = kwargs.get("_restoration_context", {}) if hasattr(kwargs, "get") else {}
+                _era_p29 = kwargs.get("decade") or kwargs.get("era_decade") or _ctx_p29.get("decade")
+                _fg_tol_p29 = float(
+                    kwargs.get(
+                        "formant_tolerance_db",
+                        _rft_p29(
+                            era_decade=int(_era_p29) if _era_p29 is not None else None,
+                            era_profile=kwargs.get("era_vocal_profile"),
+                        ),
+                    )
+                )
+                _fg_rollback_p29, _fg_shift_p29 = _cfs_p29(
+                    audio, audio_processed, sample_rate, threshold_db=_fg_tol_p29
+                )
                 if _fg_rollback_p29:
                     audio_processed = audio.copy()
                     logger.warning(
-                        "§G5 FormantGuard phase_29: max F-shift %.2f dB > 2.0 dB → Rollback",
+                        "§G5 FormantGuard phase_29: max F-shift %.2f dB > %.1f dB → Rollback",
                         _fg_shift_p29,
+                        _fg_tol_p29,
                     )
                 else:
                     logger.debug("§G5 FormantGuard phase_29: max F-shift %.2f dB — OK", _fg_shift_p29)

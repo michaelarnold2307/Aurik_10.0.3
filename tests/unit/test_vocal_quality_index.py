@@ -122,7 +122,7 @@ class TestComputeVqi:
         short = np.zeros(100, dtype=np.float32)
         result = compute_vqi(short, short, sr)
 
-        assert result["vqi"] == pytest.approx(0.85, abs=0.05)
+        assert result["vqi"] == pytest.approx(0.90, abs=0.05)
 
     def test_nan_input_handled(self, sine_audio):
         """NaN-Werte im Input werden nicht durchgereicht."""

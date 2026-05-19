@@ -1254,8 +1254,179 @@ _PHASE_MAP: dict[DefectType, PhaseAssignment] = {
             "preserve_analog_character": True,
         },
     ),
+    # ------------------------------------------------------------------
+    # AMPLITUDE_DRIFT — langsame Pegeländerungen durch Bandoxid/AGC-Drift
+    # ------------------------------------------------------------------
+    DefectType.AMPLITUDE_DRIFT: PhaseAssignment(
+        defect_type=DefectType.AMPLITUDE_DRIFT,
+        primary_phases=[
+            "phase_40_loudness_normalization",
+        ],
+        secondary_phases=[
+            "phase_12_wow_flutter_fix",
+            "phase_29_tape_hiss_reduction",
+        ],
+        description=(
+            "Korrigiert langsame Amplitudendriften durch adaptive Pegelanpassung. "
+            "Tritt bei Bandoxid-Degradation, AGC-Schaltungsalterung und Temperatureinflüssen auf."
+        ),
+        config_delta={
+            "denoise_strength": 0.10,
+            "preserve_analog_character": True,
+        },
+    ),
+    # ------------------------------------------------------------------
+    # PROXIMITY_EFFECT_EXCESS — Nahbesprechungseffekt (Richtmikrofon, LF-Überhöhung)
+    # ------------------------------------------------------------------
+    DefectType.PROXIMITY_EFFECT_EXCESS: PhaseAssignment(
+        defect_type=DefectType.PROXIMITY_EFFECT_EXCESS,
+        primary_phases=[
+            "phase_04_eq_correction",
+            "phase_05_rumble_filter",
+        ],
+        secondary_phases=[
+            "phase_03_denoise",
+        ],
+        description=(
+            "Korrigiert tieffrequente Überhöhung durch Nahbesprechungseffekt bei Richtmikrofonen. "
+            "Tieftonabsenkung < 200 Hz, Frequenzgang-Restaurierung."
+        ),
+        config_delta={
+            "low_freq_rolloff_hz": 80,
+            "preserve_analog_character": True,
+        },
+    ),
+    # ------------------------------------------------------------------
+    # ROOM_MODE_RESONANCE — Stehwellen-Resonanzen 40–200 Hz
+    # ------------------------------------------------------------------
+    DefectType.ROOM_MODE_RESONANCE: PhaseAssignment(
+        defect_type=DefectType.ROOM_MODE_RESONANCE,
+        primary_phases=[
+            "phase_05_rumble_filter",
+            "phase_04_eq_correction",
+        ],
+        secondary_phases=[
+            "phase_03_denoise",
+        ],
+        description=(
+            "Reduziert Raummodenresonanzen durch selektive Tieftonkorrektur und Frequenzgang-Entzerrung. "
+            "Schmalbandige Kerbfilter im 40–200 Hz Bereich."
+        ),
+        config_delta={
+            "low_freq_rolloff_hz": 50,
+            "preserve_analog_character": True,
+        },
+    ),
+    # ------------------------------------------------------------------
+    # NR_BREATHING_ARTIFACT — Dolby/dbx NR Pumpen-/Atemgeräusche
+    # ------------------------------------------------------------------
+    DefectType.NR_BREATHING_ARTIFACT: PhaseAssignment(
+        defect_type=DefectType.NR_BREATHING_ARTIFACT,
+        primary_phases=[
+            "phase_03_denoise",
+            "phase_29_tape_hiss_reduction",
+        ],
+        secondary_phases=[
+            "phase_08_transient_preservation",
+        ],
+        description=(
+            "Entfernt Pumpen- und Atemgeräusche aus falsch eingestellten oder deaktivierten NR-Systemen "
+            "(Dolby B/C/S, dbx). Reduzierte Stärke zur Vermeidung von Artefakten."
+        ),
+        config_delta={
+            "denoise_strength": 0.25,
+            "preserve_analog_character": True,
+        },
+    ),
+    # ------------------------------------------------------------------
+    # FLUTTER_SPECTRAL_SIDEBANDS — Flutter-Seitenbänder um tonale Peaks
+    # ------------------------------------------------------------------
+    DefectType.FLUTTER_SPECTRAL_SIDEBANDS: PhaseAssignment(
+        defect_type=DefectType.FLUTTER_SPECTRAL_SIDEBANDS,
+        primary_phases=[
+            "phase_12_wow_flutter_fix",
+            "phase_23_spectral_repair",
+        ],
+        secondary_phases=[
+            "phase_08_transient_preservation",
+        ],
+        description=(
+            "Entfernt Flutter-induzierte Seitenbänder um tonale Frequenzanteile. "
+            "Kombiniert Wow/Flutter-Korrektur mit spektraler Reparatur."
+        ),
+        config_delta={
+            "wow_flutter_strength": 0.55,
+            "preserve_analog_character": True,
+        },
+    ),
+    # ------------------------------------------------------------------
+    # SPEED_CALIBRATION_ERROR — konstanter Geschwindigkeitsfehler
+    # ------------------------------------------------------------------
+    DefectType.SPEED_CALIBRATION_ERROR: PhaseAssignment(
+        defect_type=DefectType.SPEED_CALIBRATION_ERROR,
+        primary_phases=[
+            "phase_12_wow_flutter_fix",
+            "phase_31_speed_pitch_correction",
+        ],
+        secondary_phases=[
+            "phase_25_pitch_correction",
+        ],
+        description=(
+            "Korrigiert konstanten Geschwindigkeitsfehler durch globale Pitch-Verschiebung. "
+            "Erkennbar durch global verschobene Grundtonlage bei stabilem Pitch."
+        ),
+        config_delta={
+            "pitch_shift_semitones": 0.0,
+            "preserve_analog_character": True,
+        },
+    ),
+    # ------------------------------------------------------------------
+    # OVERLOAD_DISTORTION — analoger Preamp/Console-Klirr H3/H5
+    # ------------------------------------------------------------------
+    DefectType.OVERLOAD_DISTORTION: PhaseAssignment(
+        defect_type=DefectType.OVERLOAD_DISTORTION,
+        primary_phases=[
+            "phase_63_intermodulation_reduction",
+            "phase_23_spectral_repair",
+        ],
+        secondary_phases=[
+            "phase_09_crackle_removal",
+            "phase_47_phase_correction",
+        ],
+        description=(
+            "Reduziert analoge Übersteuerungsverzerrung (H3/H5 Harmonische). "
+            "IMD-Reduktion und spektrale Reparatur der verzerrten Obertöne."
+        ),
+        config_delta={
+            "denoise_strength": 0.10,
+            "declip_strength": 0.20,
+            "preserve_analog_character": True,
+        },
+    ),
+    # ------------------------------------------------------------------
+    # LACQUER_DISC_DEGRADATION — Acetat-Zersetzung, Substrate-Cracking
+    # ------------------------------------------------------------------
+    DefectType.LACQUER_DISC_DEGRADATION: PhaseAssignment(
+        defect_type=DefectType.LACQUER_DISC_DEGRADATION,
+        primary_phases=[
+            "phase_01_click_removal",
+            "phase_09_crackle_removal",
+            "phase_03_denoise",
+        ],
+        secondary_phases=[
+            "phase_06_frequency_restoration",
+        ],
+        description=(
+            "Restauriert Lacquer-Disc-Degradation: Acetat-Zersetzung, Substrat-Risse, Oxidation. "
+            "Klickentfernung + Kratzbereinigung + Hochtonwiederherstellung."
+        ),
+        config_delta={
+            "click_removal_sensitivity": 0.75,
+            "denoise_strength": 0.55,
+            "preserve_analog_character": True,
+        },
+    ),
 }
-
 
 # ---------------------------------------------------------------------------
 # Material-adaptive Phase-Initialstärken (§2.29 / §2.31)
