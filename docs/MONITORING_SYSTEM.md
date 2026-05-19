@@ -238,6 +238,6 @@ python scripts/orchestrate_quality_monitoring.py --audio song.mp3
 
 ---
 
-**Version**: Aurik 9.11.14+  
+**Version**: Aurik 9.12.8  
 **Stand**: Mai 2026  
 **Autor**: Aurik Engineering Team

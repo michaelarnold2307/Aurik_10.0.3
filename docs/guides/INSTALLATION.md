@@ -1,7 +1,7 @@
 # Aurik 9.x.x — Installation Guide
 
 **Version:** 9.12.8  
-**Datum:** März 2026  
+**Datum:** Mai 2026  
 **Status:** ✅ Production Ready
 
 > **Hinweis**: Aurik 9.x.x ist eine **Desktop-App** für **Linux** (AppImage) und **Windows 10/11** (.exe).

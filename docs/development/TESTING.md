@@ -1,7 +1,7 @@
 # Aurik 9.x.x — Testing Guide
 
 **Version:** 9.12.8  
-**Datum:** März 2026  
+**Datum:** Mai 2026  
 **Status:** ✅ Production Ready
 
 > Hinweis: Verbindlicher Stand der Testinvarianten ist in `.github/specs/07_quality_and_tests.md` dokumentiert.

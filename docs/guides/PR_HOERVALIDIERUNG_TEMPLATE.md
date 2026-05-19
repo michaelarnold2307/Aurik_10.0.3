@@ -1,6 +1,6 @@
 # PR Hoervalidierung Template (Mini-MUSHRA / Blindtest)
 
-Version: v9.10.130
+Version: v9.12.8
 Datum:
 PR/Commit:
 Autor:

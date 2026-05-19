@@ -1,7 +1,7 @@
 # Aurik 9.x.x — Configuration Guide
 
 **Version:** 9.12.8  
-**Datum:** 13. Februar 2026  
+**Datum:** 19. Mai 2026  
 **Status:** ✅ Production Ready
 
 ---
