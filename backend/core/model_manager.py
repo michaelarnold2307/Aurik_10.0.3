@@ -73,13 +73,15 @@ class ModelManager:
     def analyze_voice_health(self, audio: Any, context: dict[str, Any]) -> dict[str, Any]:
         """Analysiert Stimmgesundheit (Erschöpfung, Heiserkeit) via VoiceHealthNet."""
         if self.voicehealthnet is not None:
-            return self.voicehealthnet.analyze(audio, context)
+            result: dict[str, Any] = self.voicehealthnet.analyze(audio, context)
+            return result
         return {"fatigue": False, "hoarseness": False, "recommendation": "unknown"}
 
     def detect_language(self, audio: Any, context: dict[str, Any]) -> dict[str, str]:
         """Erkennt Sprache und Dialekt des Audiomaterials via LanguageNet."""
         if self.languagenet is not None:
-            return self.languagenet.detect(audio, context)
+            lang_result: dict[str, str] = self.languagenet.detect(audio, context)
+            return lang_result
         return {"language": "unknown", "dialect": "unknown"}
 
     def __init__(self) -> None:
@@ -88,8 +90,8 @@ class ModelManager:
         self.voice_profile: dict[str, Any] | None = None
         self.user_feedback: list[dict[str, Any]] = []
         self.audit_log: list[dict[str, Any]] = []
-        self.voicehealthnet: Any | None = None
-        self.languagenet: Any | None = None
+        self.voicehealthnet: Any | None = None  # type: ignore[no-redef]
+        self.languagenet: Any | None = None  # type: ignore[no-redef]
         logger.info("ModelManager initialized")
 
     def list_models(self) -> dict[str, dict[str, Any]]:

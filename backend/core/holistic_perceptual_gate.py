@@ -357,19 +357,19 @@ class HolisticPerceptualGate:
         era_entries = [self._ref_memory[k] for k in self._ref_memory if k[2] == era_bin and k[0] == genre]
         if era_entries:
             embeddings = np.stack([e.embedding for e in era_entries])
-            return np.mean(embeddings, axis=0)
+            return np.asarray(np.mean(embeddings, axis=0))
 
         # Stufe 3: Same genre, any material, any era
         genre_entries = [self._ref_memory[k] for k in self._ref_memory if k[0] == genre]
         if genre_entries:
             embeddings = np.stack([e.embedding for e in genre_entries])
-            return np.mean(embeddings, axis=0)
+            return np.asarray(np.mean(embeddings, axis=0))
 
         # Stufe 4: Genre-agnostischer Ära-Median
         all_era = [self._ref_memory[k] for k in self._ref_memory if k[2] == era_bin]
         if all_era:
             embeddings = np.stack([e.embedding for e in all_era])
-            return np.mean(embeddings, axis=0)
+            return np.asarray(np.mean(embeddings, axis=0))
 
         # Stufe 5: Kein Referenz-Vektor
         return None
@@ -413,7 +413,7 @@ class HolisticPerceptualGate:
 
         embedding = np.log1p(np.mean(mel_frames, axis=0)).astype(np.float32)
         norm = float(np.linalg.norm(embedding) + 1e-12)
-        return embedding / norm
+        return np.asarray(embedding / norm, dtype=np.float32)
 
     @staticmethod
     def _cosine_similarity(a: np.ndarray, b: np.ndarray) -> float:

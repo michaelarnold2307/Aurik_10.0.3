@@ -727,16 +727,20 @@ def get_experience_insights(result: Any) -> dict[str, Any]:
     if not isinstance(_meta, dict):
         _meta = {}
 
-    _joy = _meta.get("joy_runtime_index") if isinstance(_meta.get("joy_runtime_index"), dict) else {}
-    _auto = (
-        _meta.get("auto_improvement_recommendations")
+    _joy: dict[str, Any] = _meta.get("joy_runtime_index") if isinstance(_meta.get("joy_runtime_index"), dict) else {}  # type: ignore[assignment]
+    _auto: dict[str, Any] = (
+        _meta.get("auto_improvement_recommendations")  # type: ignore[assignment]
         if isinstance(_meta.get("auto_improvement_recommendations"), dict)
         else {}
     )
-    _song_cal = _meta.get("song_calibration") if isinstance(_meta.get("song_calibration"), dict) else {}
-    _cluster = _song_cal.get("cluster_policy") if isinstance(_song_cal.get("cluster_policy"), dict) else {}
-    _fqf = _meta.get("fallback_quality_floor") if isinstance(_meta.get("fallback_quality_floor"), dict) else {}
-    _rc = _meta.get("recovery_certainty") if isinstance(_meta.get("recovery_certainty"), dict) else {}
+    _song_cal: dict[str, Any] = _meta.get("song_calibration") if isinstance(_meta.get("song_calibration"), dict) else {}  # type: ignore[assignment]
+    _cluster: dict[str, Any] = (
+        _song_cal.get("cluster_policy") if isinstance(_song_cal.get("cluster_policy"), dict) else {}
+    )  # type: ignore[assignment]
+    _fqf: dict[str, Any] = (
+        _meta.get("fallback_quality_floor") if isinstance(_meta.get("fallback_quality_floor"), dict) else {}
+    )  # type: ignore[assignment]
+    _rc: dict[str, Any] = _meta.get("recovery_certainty") if isinstance(_meta.get("recovery_certainty"), dict) else {}  # type: ignore[assignment]
     _stage_notes = getattr(result, "stage_notes", None)
     if not isinstance(_stage_notes, dict):
         _stage_notes = {}
@@ -782,7 +786,7 @@ def get_experience_insights(result: Any) -> dict[str, Any]:
         _cnt = len(_normalized_recommendations)
     _cnt = max(_cnt, len(_normalized_recommendations), 0)
 
-    _tc = _meta.get("team_coordination") if isinstance(_meta.get("team_coordination"), dict) else {}
+    _tc: dict[str, Any] = _meta.get("team_coordination") if isinstance(_meta.get("team_coordination"), dict) else {}  # type: ignore[assignment]
     _tc_events_raw_val = _tc.get("events")
     _tc_events_raw: list[Any] = list(_tc_events_raw_val) if isinstance(_tc_events_raw_val, list) else []
     _tc_events: list[dict[str, Any]] = []
@@ -901,7 +905,7 @@ def get_experience_insights(result: Any) -> dict[str, Any]:
             ),
             "hf_loss_db": (
                 _safe_float(_rc.get("hf_loss_db", 0.0), 0.0)
-                if isinstance(_rc.get("hf_loss_db", None), (int, float))
+                if isinstance(_rc.get("hf_loss_db"), (int, float))
                 else None
             ),
         },
@@ -1207,10 +1211,12 @@ def build_export_quality_gate_payload(result: object) -> dict[str, Any]:
     if not isinstance(meta, dict):
         meta = {}
 
-    fail_reasons = meta.get("fail_reasons") if isinstance(meta.get("fail_reasons"), list) else []
+    fail_reasons: list[Any] = meta.get("fail_reasons") if isinstance(meta.get("fail_reasons"), list) else []  # type: ignore[assignment]
     primary_fail_reason = str(meta.get("fail_reason", "") or "")
     degradation_status = str(meta.get("degradation_status", "") or "")
-    fqf = meta.get("fallback_quality_floor") if isinstance(meta.get("fallback_quality_floor"), dict) else {}
+    fqf: dict[str, Any] = (
+        meta.get("fallback_quality_floor") if isinstance(meta.get("fallback_quality_floor"), dict) else {}
+    )  # type: ignore[assignment]
 
     _degradation_norm = degradation_status.strip().lower()
     _has_structured_gate_issue = _degradation_norm not in {"", "ok"} or bool(fail_reasons)
@@ -1798,3 +1804,30 @@ def get_pipeline_trace(result: Any) -> dict[str, Any]:
     except Exception as e:
         logger.debug("get_pipeline_trace fehlgeschlagen: %s", e)
         return {"error": str(e)}
+
+
+def limit_quiet_edge_boost(
+    reference_audio: Any,
+    candidate_audio: Any,
+    sr: int,
+    *,
+    material_key: str | None = None,
+    max_edge_boost_db: float = 2.0,
+) -> Any:
+    """Bridge-Wrapper für backend.core.audio_utils.limit_quiet_edge_boost (§11 Spec 08).
+
+    Skaliert quiet intro/outro regions back toward the original edge level.
+    """
+    try:
+        from backend.core.audio_utils import limit_quiet_edge_boost as _fn
+
+        return _fn(
+            reference_audio,
+            candidate_audio,
+            sr,
+            material_key=material_key,
+            max_edge_boost_db=max_edge_boost_db,
+        )
+    except Exception as _e:
+        logger.debug("limit_quiet_edge_boost bridge fallback: %s", _e)
+        return candidate_audio

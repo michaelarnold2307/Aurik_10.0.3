@@ -68,7 +68,7 @@ except Exception:
     _direct_load_audio_file = None  # type: ignore[assignment]
 
 try:
-    from backend.core.audio_utils import limit_quiet_edge_boost as _limit_quiet_edge_boost
+    from backend.api.bridge import limit_quiet_edge_boost as _limit_quiet_edge_boost
 except Exception:
     _limit_quiet_edge_boost = None  # type: ignore[assignment]
 

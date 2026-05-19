@@ -743,9 +743,9 @@ class DenoisePhase(PhaseInterface):
                 _vhm = build_vocal_harmonic_mask(audio, sample_rate)
                 if _vhm is not None and _vhm.voiced_fraction > 0.15:
                     _g_floor_harmonic = 0.35
-                    _g_floor_nonharm = float(params.get("g_floor", 0.10))
+                    _g_floor_nonharm = float(params.get("g_floor", 0.10))  # type: ignore[arg-type]
                     _g_floor_map = _vhm.apply_g_floor_adjustment(
-                        g_floor_map=None,
+                        g_floor_map=None,  # type: ignore[arg-type]
                         harm_g_floor=_g_floor_harmonic,
                         nonharm_g_floor=_g_floor_nonharm,
                     )
@@ -776,7 +776,7 @@ class DenoisePhase(PhaseInterface):
                     material_type=str(getattr(material_type, "value", material_type)),
                 )
                 if _thf.protect_harmonic_bins and _thf.g_floor_boost_harmonic > 0.0:
-                    _old_gfloor = float(params.get("g_floor", 0.10))
+                    _old_gfloor = float(params.get("g_floor", 0.10))  # type: ignore[arg-type]
                     params = dict(params)  # shallow copy
                     params["g_floor"] = float(np.clip(_old_gfloor + _thf.g_floor_boost_harmonic, 0.10, 0.55))
                     logger.info(
@@ -796,7 +796,7 @@ class DenoisePhase(PhaseInterface):
         # in die gleiche Zeitschlitz-Energie-Schätzung wie Hintergrundgeräusche.
         # Invariante: params ist Class-Level-Dict → shallow copy VOR Mutation.
         if not _is_vocal_material and _panns_singing < 0.10:
-            _g_floor_old = float(params.get("g_floor", 0.10))
+            _g_floor_old = float(params.get("g_floor", 0.10))  # type: ignore[arg-type]
             _g_floor_new = float(np.clip(_g_floor_old + 0.05, 0.10, 0.45))
             if _g_floor_new > _g_floor_old:
                 params = dict(params)  # shallow copy — Klassen-Dict nie mutieren
@@ -873,7 +873,7 @@ class DenoisePhase(PhaseInterface):
                         if _miipher_hnr.get("over_cleaned"):
                             logger.debug(
                                 "§0p MIIPHER HNR-Blend: ΔHNR=%.1f dB -> blend applied",
-                                float(_miipher_hnr.get("hnr_delta_db", 0.0)),
+                                float(_miipher_hnr.get("hnr_delta_db", 0.0)),  # type: ignore[arg-type]
                             )
                     except Exception as _miipher_hnr_exc:
                         logger.debug("MIIPHER HNR-Blend (non-blocking): %s", _miipher_hnr_exc)
@@ -1122,7 +1122,7 @@ class DenoisePhase(PhaseInterface):
                 _sgmse_sigma = float(np.clip(_sigma_from_snr + _material_sigma_bonus, 0.25, 0.75))
                 if _plm03_sgmse is not None:
                     try:
-                        _plm03_sgmse.touch_plugin("SGMSE+")
+                        _plm03_sgmse.touch_plugin("SGMSE+")  # type: ignore[attr-defined]
                     except Exception:
                         pass
                 # §2.46f Context-Padding for SGMSE+: reflect-pad 1 s to prevent boundary artefacts
@@ -2421,7 +2421,7 @@ class DenoisePhase(PhaseInterface):
             smoothed[:, t] = a * smoothed[:, t - 1] + (1 - a) * sigma2[:, t]
 
         noise_mag = np.sqrt(np.maximum(smoothed, 1e-10))
-        return np.nan_to_num(noise_mag, nan=1e-6, posinf=1.0, neginf=1e-6)
+        return np.nan_to_num(noise_mag, nan=1e-6, posinf=1.0, neginf=1e-6)  # type: ignore[no-any-return]
 
     def _compute_omlsa_gain(
         self,
@@ -2690,7 +2690,7 @@ class DenoisePhase(PhaseInterface):
         mag_out = G_combined.astype(np.float64) * np.abs(Zxx_ref)
         phase_out = np.angle(Zxx_ref) + delta_phi
         Zxx_corrected = mag_out * np.exp(1j * phase_out)
-        return np.nan_to_num(Zxx_corrected, nan=0.0, posinf=0.0, neginf=0.0).astype(np.complex64)
+        return np.nan_to_num(Zxx_corrected, nan=0.0, posinf=0.0, neginf=0.0).astype(np.complex64)  # type: ignore[no-any-return]
 
     @staticmethod
     def _compute_erb_bands(n_bins: int, sr: int) -> np.ndarray:
@@ -2714,7 +2714,7 @@ class DenoisePhase(PhaseInterface):
         freqs = np.linspace(0.0, float(sr) / 2.0, n_bins, endpoint=True)
 
         def _hz_to_cam(f: np.ndarray) -> np.ndarray:
-            return 21.4 * np.log10(4.37 * np.maximum(f, 1.0) / 1000.0 + 1.0)
+            return 21.4 * np.log10(4.37 * np.maximum(f, 1.0) / 1000.0 + 1.0)  # type: ignore[no-any-return]
 
         N_ERB = 38
         e_min = float(_hz_to_cam(np.array([100.0]))[0])
@@ -2755,7 +2755,7 @@ class DenoisePhase(PhaseInterface):
         end_frame = max(start_frame + 1, min(end_frame, magnitude.shape[1]))
         noise_frames = magnitude[:, start_frame:end_frame]
         noise_profile = np.median(noise_frames, axis=1)
-        return np.nan_to_num(noise_profile, nan=1e-6)
+        return np.nan_to_num(noise_profile, nan=1e-6)  # type: ignore[no-any-return]
 
     def _apply_multiband_gate(
         self, gain: np.ndarray, freqs: np.ndarray, band_params: dict[str, dict[str, float]]
@@ -2828,7 +2828,7 @@ class DenoisePhase(PhaseInterface):
         gate = np.sqrt(np.minimum(1.0, output_power / (masking_threshold + 1e-20)))
         gate = np.clip(gate, 0.1, 1.0)  # floor -20 dB, never mute
 
-        return np.clip(gain.astype(np.float64) * gate, 0.1, 1.0).astype(np.float32)
+        return np.clip(gain.astype(np.float64) * gate, 0.1, 1.0).astype(np.float32)  # type: ignore[no-any-return]
 
     def _suppress_musical_noise(
         self, gain: np.ndarray, suppression_strength: float, smoothing_time: int, smoothing_freq: int
@@ -2909,7 +2909,7 @@ class DenoisePhase(PhaseInterface):
 
         reduction_db = 10 * np.log10(energy_before / energy_after)
 
-        return max(0, reduction_db)  # Clamp to non-negative
+        return max(0, reduction_db)  # type: ignore[no-any-return]  # Clamp to non-negative
 
     def supports_material(self, material_type: str) -> bool:  # pylint: disable=unused-argument
         """All materials supported."""

@@ -164,10 +164,10 @@ class MusicalStructureAnalyzer:
             return audio.reshape(-1)
         rows, cols = audio.shape
         if rows <= 8 and cols > rows:
-            return audio.mean(axis=0)
+            return audio.mean(axis=0)  # type: ignore[no-any-return]
         if cols <= 8 and rows > cols:
-            return audio.mean(axis=1)
-        return audio.mean(axis=0)
+            return audio.mean(axis=1)  # type: ignore[no-any-return]
+        return audio.mean(axis=0)  # type: ignore[no-any-return]
 
     def _ssm_segment(self, mono: np.ndarray, sr: int, duration_s: float) -> tuple[list[int], float]:
         """Self-Similarity-Matrix novelty segmentation.
@@ -341,7 +341,7 @@ class MusicalStructureAnalyzer:
             pc = int(round(12 * np.log2(f / 440.0 + 1e-12))) % 12
             chroma[pc] += mag[k]
         col_max = np.max(chroma, axis=0, keepdims=True)
-        return chroma / (col_max + 1e-8)
+        return chroma / (col_max + 1e-8)  # type: ignore[no-any-return]
 
     @classmethod
     def _uniform_segment(cls, n: int, sr: int, duration_s: float) -> tuple[list[int], float]:

@@ -361,6 +361,14 @@ CAUSE_TO_PHASES = {
                                   "phase_23_spectral_repair", "phase_04_eq_correction"],
     "motor_interference":        ["phase_02_hum_removal", "phase_03_denoise",
                                   "phase_29_tape_hiss_reduction", "phase_04_eq_correction"],
+    # ── v9.12.1: Pegelveränderung ──────────────────────────────────────────────
+    "amplitude_drift":           ["phase_40_loudness_normalization"],
+    # ── v9.12.2: DefectType→CAUSE-Lücken ───────────────────────────────────────
+    "clicks":                    ["phase_01_click_removal", "phase_09_crackle_removal"],
+    "dolby_nr_mismatch":         ["phase_04_eq_correction", "phase_29_tape_hiss_reduction",
+                                  "phase_03_denoise"],
+    "tape_head_level_dip":       ["phase_12_wow_flutter_fix", "phase_24_dropout_repair",
+                                  "phase_40_loudness_normalization"],
 }
 # PFLICHT: Jede neue Ursache → Eintrag hier UND in allen Material-Prior-Tabellen des DefectScanners.
 

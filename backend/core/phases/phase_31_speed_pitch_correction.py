@@ -827,7 +827,7 @@ class SpeedPitchCorrectionPhase(PhaseInterface):
             logger.warning("_compute_tuning_offset failed (%s) — no correction", exc)
             return 0.0, 1.0
 
-    def _correct_wsola(self, audio: np.ndarray, ratio: float, _params: dict[str, Any]) -> np.ndarray:
+    def _correct_wsola(self, audio: np.ndarray, ratio: float, params: dict[str, Any]) -> np.ndarray:
         """
         WSOLA time-stretching (Waveform Similarity Overlap-Add).
 

@@ -52,6 +52,11 @@ MATERIAL_PRIORITY_PHASES: dict[str, list[str]] = {
     "aac": ["phase_23_spectral_repair", "phase_38_presence_boost", "phase_06_frequency_restoration"],
     "minidisc": ["phase_23_spectral_repair", "phase_06_frequency_restoration", "phase_07_harmonic_restoration"],
     "streaming": ["phase_24_dropout_repair", "phase_23_spectral_repair", "phase_50_spectral_repair"],
+    "cassette": [  # §6.2a: IEC compact cassette: wow/flutter + hiss dominant
+        "phase_12_wow_flutter_fix",
+        "phase_29_tape_hiss_reduction",
+        "phase_24_dropout_repair",
+    ],
 }
 
 

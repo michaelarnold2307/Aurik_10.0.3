@@ -341,16 +341,16 @@ def _to_mono(audio: np.ndarray) -> np.ndarray:
         return a
     if a.ndim == 2:
         if a.shape[0] <= 2:
-            return a.mean(axis=0)
-        return a.mean(axis=1)
-    return a.flatten()
+            return np.asarray(a.mean(axis=0))
+        return np.asarray(a.mean(axis=1))
+    return np.asarray(a.flatten())
 
 
 def _frames_to_energy_db(mag: np.ndarray) -> np.ndarray:
     """Berechnet dBFS-Energie pro STFT-Frame aus Magnitude-Spektrogramm."""
     # mag: [freq_bins, n_frames]
     energy = np.mean(mag**2, axis=0) + 1e-12
-    return 10.0 * np.log10(energy)
+    return np.asarray(10.0 * np.log10(energy))
 
 
 def _detect_onsets_energy_flux(

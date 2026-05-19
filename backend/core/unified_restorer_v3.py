@@ -778,7 +778,7 @@ class UnifiedRestorerV3:
         self._conductor_strength_hints: dict = {}
         self._team_coordination_events: list = []
         self._pipeline_ml_guard_events: list = []
-        self._ml_fallbacks_used: dict = {}
+        self._ml_fallbacks_used: list[dict[str, str]] = []
         self._interaction_guard_metadata: dict = {}
         self._artifact_freedom_detail: dict = {}
         self._hpi_best_rollback_audio: object = None
@@ -794,9 +794,9 @@ class UnifiedRestorerV3:
                 self.phase_skipper = PhaseSkipper()
             except Exception as e:
                 logger.debug("PhaseSkipper nicht verfügbar: %s — Phase-Skipping deaktiviert", e)
-                self.phase_skipper = None
+                self.phase_skipper = None  # type: ignore[assignment]
         else:
-            self.phase_skipper = None
+            self.phase_skipper = None  # type: ignore[assignment]
 
     def is_studio_mode(self) -> bool:
         """Gibt True if running in Studio 2026 mode zurück.
@@ -2897,7 +2897,7 @@ class UnifiedRestorerV3:
             _fatigue_risk = float(_risk_lookup.get(_risk_level, _fatigue_risk))
             if "risk_score" in fatigue_result:
                 try:
-                    _fatigue_risk = float(np.clip(float(fatigue_result.get("risk_score")), 0.0, 1.0))
+                    _fatigue_risk = float(np.clip(float(fatigue_result.get("risk_score") or 0.0), 0.0, 1.0))
                 except Exception:
                     pass
 
@@ -3232,7 +3232,7 @@ class UnifiedRestorerV3:
 
         _raw = _family_scalars.get(_family, profile.get("global_scalar", 1.0))
         try:
-            _scalar = float(_raw)
+            _scalar = float(_raw or 1.0)
         except Exception:
             _scalar = 1.0
         # [RELEASE_MUST] Lücke-G-Fix v9.10.100: family_scalars ∈ [0.30, 1.80]
@@ -4521,7 +4521,7 @@ class UnifiedRestorerV3:
             try:
                 phase_instance = meta["class"]()
                 self._phase_cache[phase_id] = phase_instance
-                return phase_instance
+                return phase_instance  # type: ignore[return-value]
             except Exception as exc:
                 self._warnings.append(f"Phase {phase_id} nicht geladen: {type(exc).__name__}: {exc}")
                 logger.warning("Phase %s übersprungen: %s", phase_id, exc)
@@ -4865,7 +4865,7 @@ class UnifiedRestorerV3:
                 "UV3: pre_repair_reference als Goal-Referenz übernommen (shape=%s)", original_audio_for_goals.shape
             )
         else:
-            original_audio_for_goals: np.ndarray = audio.copy()
+            original_audio_for_goals: np.ndarray = audio.copy()  # type: ignore[no-redef]
 
         _cb(5, "Restaurierbarkeit wird geprüft…")
         # §2.26 RestorabilityEstimator — Vor-Assessment der Restaurierbarkeit (DSP-only, < 5 s)
@@ -4901,7 +4901,7 @@ class UnifiedRestorerV3:
             from backend.core.batch_session_learner import BatchSessionLearner as _BSL
 
             _source_paths = [kwargs.get("source_path")] if kwargs.get("source_path") else []
-            _batch_session_id = _BSL().start_session(_source_paths)
+            _batch_session_id = _BSL().start_session(_source_paths)  # type: ignore[arg-type]
             logger.info("📦 BatchSessionLearner: session_id=%s", _batch_session_id)
         except Exception as _bsl_exc:
             logger.debug("BatchSessionLearner nicht verfügbar: %s", _bsl_exc)
@@ -5229,7 +5229,9 @@ class UnifiedRestorerV3:
                             decade=int(_gp_decade),
                             era_label=f"{_gp_decade}er",
                             confidence=_gp_era_conf,
-                            material_prior=_gp_material or getattr(_era_result, "material_prior", "unknown"),
+                            material_prior=str(
+                                _gp_material or getattr(_era_result, "material_prior", "unknown") or "unknown"
+                            ),
                             noise_profile=(
                                 _existing_noise
                                 if _existing_noise is not None
@@ -5350,7 +5352,9 @@ class UnifiedRestorerV3:
                             decade=int(_gp_decade_e),
                             era_label=f"{_gp_decade_e}er",
                             confidence=_gp_era_conf_e,
-                            material_prior=_gp_mat_e or getattr(_era_result, "material_prior", "unknown"),
+                            material_prior=str(
+                                _gp_mat_e or getattr(_era_result, "material_prior", "unknown") or "unknown"
+                            ),
                             noise_profile=getattr(_era_result, "noise_profile", None)
                             or __import__("numpy").zeros(24, dtype="float32"),
                             tier_used=0,
@@ -5631,7 +5635,7 @@ class UnifiedRestorerV3:
         # (Hauptpfad: PMGG wrap_phase).
         _active_chain_list: list[str] = []
         if isinstance(getattr(self, "_active_chain_info", None), dict):
-            _raw_chain = self._active_chain_info.get("chain", [])
+            _raw_chain = self._active_chain_info.get("chain", [])  # type: ignore[attr-defined]
             _active_chain_list = [str(c).lower() for c in _raw_chain if c] if isinstance(_raw_chain, list) else []
         if _active_chain_list:
             self._restoration_context["transfer_chain"] = _active_chain_list
@@ -5999,7 +6003,7 @@ class UnifiedRestorerV3:
 
         # §2.32 GoalApplicabilityFilter — Filterung physikalisch nicht-messbarer Musikziele
         # QualityAnalyzer: Eingangsqualität messen (Vorher-Baseline) (§9.5 Quality-Tracking)
-        _quality_before: object | None = None
+        _quality_before: Any = None
         try:
             from backend.core.quality_prediction import QualityAnalyzer as _QualityAnalyzer
 
@@ -6462,8 +6466,8 @@ class UnifiedRestorerV3:
                 from backend.core.musical_structure_analyzer import analyze_musical_structure
 
                 _musical_structure = analyze_musical_structure(_analysis_audio, sample_rate)
-                _n_chorus = sum(1 for s in _musical_structure.segments if s.segment_type == "chorus")
-                _n_verse = sum(1 for s in _musical_structure.segments if s.segment_type == "verse")
+                _n_chorus = sum(1 for s in _musical_structure.segments if s.segment_type == "chorus")  # type: ignore[attr-defined, misc]
+                _n_verse = sum(1 for s in _musical_structure.segments if s.segment_type == "verse")  # type: ignore[attr-defined, misc]
                 logger.info(
                     "🎵 MusicalStructure: %d Segmente (Chorus×%d Verse×%d) confidence=%.2f",
                     len(_musical_structure.segments),
@@ -7114,7 +7118,7 @@ class UnifiedRestorerV3:
                 _ram_adjusted = 0
                 for _ram_goal in list(self._song_goal_targets.keys()):
                     _ram_floor = _ram_anchor.goal_floor(_ram_goal)
-                    if _ram_floor > 0.0:
+                    if _ram_floor is not None and _ram_floor > 0.0:
                         _ram_old = self._song_goal_targets[_ram_goal]
                         # Nur absenken (nie anheben) — verhindert unmögliche Ziele für Vintage
                         _ram_new = min(_ram_old, _ram_floor)
@@ -7167,7 +7171,9 @@ class UnifiedRestorerV3:
         except Exception as _ppc_err:
             logger.debug("§2.54 PrePipelineCeiling fehlgeschlagen (SGT-Fallback): %s", _ppc_err)
             self._pmgg_ceiling_capped_targets = (
-                dict(self._song_goal_targets) if isinstance(getattr(self, "_song_goal_targets", None), dict) else None
+                dict(self._song_goal_targets or {})
+                if isinstance(getattr(self, "_song_goal_targets", None), dict)
+                else None
             )
 
         if _pass_through_mode:
@@ -7191,9 +7197,7 @@ class UnifiedRestorerV3:
 
         # §2.45b Hochrestorabilität-Gate — Metadata-Flag für transparentes Reporting
         if _pmgg_restorability_score > 80 and _input_snr_db > 40.0:
-            self._metadata["high_restorability_gate"] = True
-
-        # Step 2: Phase Selection (basierend auf Defekten)
+            self._metadata["high_restorability_gate"] = True  # type: ignore[attr-defined] (basierend auf Defekten)
         _cb(16, "Phasenauswahl…")
         logger.info("Step 2/4: Phase Selection...")
         if _precomputed_phase_plan:
@@ -7378,7 +7382,7 @@ class UnifiedRestorerV3:
                 restorability_score=float(_pmgg_restorability_score),
                 source_material_baseline=_src_baseline,
                 transfer_generation_count=(
-                    int(_sgi_gen_count) if isinstance(locals().get("_sgi_gen_count", None), (int, float)) else None
+                    int(_sgi_gen_count) if isinstance(locals().get("_sgi_gen_count", None), (int, float)) else None  # type: ignore[arg-type]
                 ),
                 material_key=str(getattr(material_type, "value", material_type)),
             )
@@ -8269,7 +8273,7 @@ class UnifiedRestorerV3:
                 "phase_17_mastering_polish",
                 "phase_40_loudness_normalization",
             ]
-            _fc_phases_list = []
+            _fc_phases_list: list[Any] = []
             for _fc_pid in _fc_phase_ids:
                 _fc_phase_obj = self._get_phase(_fc_pid)
                 if _fc_phase_obj is not None:
@@ -8828,10 +8832,10 @@ class UnifiedRestorerV3:
                 _lge = _get_lge()
                 if _lge_trans_pre is not None and not getattr(_lge_trans_pre, "fallback_used", True):
                     # §2.36 Phase-Gate-Anbindung: Saliency aus Pre-Phase-Transkription (Originalaudio)
-                    _cap = _get_cap()
+                    _content_processor = _get_cap()
                     _n_smp = restored_audio.shape[-1] if restored_audio.ndim == 2 else len(restored_audio)
                     _base_sal = np.ones(_n_smp, dtype=np.float32)
-                    _lge_saliency = _cap.compute_lyrics_saliency(_base_sal, _lge_trans_pre, sample_rate)
+                    _lge_saliency = _content_processor.compute_lyrics_saliency(_base_sal, _lge_trans_pre, sample_rate)
                     _lge_saliency_for_eap = _lge_saliency  # §2.36/§2.44: für measure_emotional_arc()
                     if restored_audio.ndim == 2 and restored_audio.shape[0] <= 2:
                         _lge_audio = restored_audio * _lge_saliency[np.newaxis, :]
@@ -10019,7 +10023,7 @@ class UnifiedRestorerV3:
                             and float(_musical_goal_scores.get(k, 0.0)) < _effective_goal_thresholds.get(k, 0.85)
                         ]
                         _goal_recovery_meta["p1p2_blend_applied"] = True
-                        _goal_recovery_meta["p1p2_blend_alpha"] = float(_best_blend_alpha)
+                        _goal_recovery_meta["p1p2_blend_alpha"] = float(_best_blend_alpha or 0.0)
                     else:
                         logger.debug("End-Gate: P1/P2-Recovery nicht übernommen")
 
@@ -10123,7 +10127,7 @@ class UnifiedRestorerV3:
                             and float(_musical_goal_scores.get(k, 0.0)) < _effective_goal_thresholds.get(k, 0.85)
                         ]
                         _goal_recovery_meta["global_blend_applied"] = True
-                        _goal_recovery_meta["global_blend_alpha"] = float(_best_u_alpha)
+                        _goal_recovery_meta["global_blend_alpha"] = float(_best_u_alpha or 0.0)
 
                 # Final Goal-Directed Candidate Ranking: compare the current recovery
                 # against safe rollback/checkpoint candidates and only switch when the
@@ -10131,7 +10135,7 @@ class UnifiedRestorerV3:
                 # layer: it favors a musically valid candidate over a merely last-run one.
                 try:
                     _ranking_weights = getattr(self, "_song_goal_weights", None)
-                    _scan_meta = {}
+                    _scan_meta: dict[str, Any] = {}
                     if isinstance(getattr(self, "_restoration_context", None), dict):
                         _scan_meta = self._restoration_context.get("defect_scan_metadata", {}) or {}
                     _chain_override_count = int(_scan_meta.get("chain_threshold_override_count", 0) or 0)
@@ -13027,12 +13031,12 @@ class UnifiedRestorerV3:
                 # §2.56 Song-Goal-Importance: per-song goal weights
                 "goal_importance": (
                     {
-                        "weights": dict(self._song_goal_importance.weights),
-                        "genre_profile": self._song_goal_importance.genre_profile,
-                        "era_profile": self._song_goal_importance.era_profile,
-                        "material_profile": self._song_goal_importance.material_profile,
-                        "vocal_detected": self._song_goal_importance.vocal_detected,
-                        "reason": self._song_goal_importance.reason,
+                        "weights": dict(self._song_goal_importance.weights),  # type: ignore[attr-defined]
+                        "genre_profile": self._song_goal_importance.genre_profile,  # type: ignore[attr-defined]
+                        "era_profile": self._song_goal_importance.era_profile,  # type: ignore[attr-defined]
+                        "material_profile": self._song_goal_importance.material_profile,  # type: ignore[attr-defined]
+                        "vocal_detected": self._song_goal_importance.vocal_detected,  # type: ignore[attr-defined]
+                        "reason": self._song_goal_importance.reason,  # type: ignore[attr-defined]
                     }
                     if getattr(self, "_song_goal_importance", None) is not None
                     else None
@@ -13061,7 +13065,9 @@ class UnifiedRestorerV3:
                 else {}
             ),
             goal_priority_log=(
-                list(_fc_chain_result.metadata.get("goal_priority_log", [])) if _fc_chain_result is not None else []
+                list(_fc_chain_result.metadata.get("goal_priority_log", []))  # type: ignore[call-overload]
+                if _fc_chain_result is not None
+                else []
             )
             + (
                 [f"Post-pipeline GPP: {_goal_abort.reason}"]
@@ -14183,7 +14189,7 @@ class UnifiedRestorerV3:
             _ems_vinyl_chain = _emh27.get_chain_for_media("VINYL")
             _ems_result = {
                 "media_types": list(_EMT27.keys()),
-                "n_exotic_defects": len(_EDF27),
+                "n_exotic_defects": len(_EDF27),  # type: ignore[arg-type]
                 "vinyl_chain": _ems_vinyl_chain,
             }
             logger.debug("✅ ExoticMediaHandler: %d Medientypen", len(_ems_result["media_types"]))
@@ -14286,7 +14292,7 @@ class UnifiedRestorerV3:
         try:
             from backend.core.autonomous_restoration_engine import AutonomousRestorationEngine as _ARE29
 
-            _are29 = _ARE29(mode=mode_value, enable_self_learning=False)  # v9.14-D3
+            _are29 = _ARE29(mode=mode_value, enable_self_learning=False)  # v9.14-D3  # type: ignore[arg-type]
             _are_result = {
                 "mode": str(getattr(_are29, "mode", "restoration")),
                 "self_learning": bool(getattr(_are29, "enable_self_learning", False)),
@@ -14303,7 +14309,7 @@ class UnifiedRestorerV3:
         try:
             from backend.core.pipeline_main import AurikAutonomousPipeline as _PAP29
 
-            _pap29 = _PAP29(mode=mode_value, enable_self_learning=False)  # v9.14-D3
+            _pap29 = _PAP29(mode=mode_value, enable_self_learning=False)  # v9.14-D3  # type: ignore[arg-type]
             _pmain_result = {
                 "pipeline_mode": str(getattr(_pap29, "mode", "restoration")),
                 "available": True,
@@ -14355,7 +14361,7 @@ class UnifiedRestorerV3:
 
             _mcm29 = _MCM29()
             _mcm_result = {
-                "shellac_eq_curves": list(getattr(_mcm29, "SHELLAC_EQ_CURVES", {}).keys()),
+                "shellac_eq_curves": list(getattr(_mcm29, "SHELLAC_EQ_CURVES", {}).keys()),  # type: ignore[call-overload]
                 "available": True,
             }
             logger.debug("✅ PhysicalMediumChainModel: %d EQ-Kurven", len(_mcm_result["shellac_eq_curves"]))
@@ -14414,7 +14420,7 @@ class UnifiedRestorerV3:
             _er_audio30 = (restored_audio if restored_audio.ndim == 1 else np.mean(restored_audio, axis=0)).astype(
                 np.float32
             )
-            _da_assess30 = _da30.analyze(_er_audio30, sample_rate)
+            _da_assess30 = _da30.analyze(_er_audio30, sample_rate)  # type: ignore[attr-defined]
             _er_result = {
                 "severity": str(getattr(_da_assess30, "severity", "unknown")),
                 "overall_damage": round(float(getattr(_da_assess30, "overall_damage_ratio", 0.0)), 4),
@@ -14450,7 +14456,7 @@ class UnifiedRestorerV3:
             _aex30 = _AEX30()
             _aex_fmts = getattr(_aex30, "supported_formats", getattr(_aex30, "formats", None))
             _aex_result = {
-                "supported_formats": list(_aex_fmts) if _aex_fmts else ["flac", "wav"],
+                "supported_formats": list(_aex_fmts) if _aex_fmts else ["flac", "wav"],  # type: ignore[call-overload]
                 "available": True,
             }
             logger.debug("✅ AudioExporter: %d Formate", len(_aex_result["supported_formats"]))
@@ -14818,7 +14824,7 @@ class UnifiedRestorerV3:
                 "modes": [m.name for m in ProcessingMode] if hasattr(ProcessingMode, "__members__") else [],
                 "active": True,
             }
-            logger.debug("🎚️ ProcessingMode: %d Modi", len(_processing_modes_result["modes"]))
+            logger.debug("🎚️ ProcessingMode: %d Modi", len(_processing_modes_result["modes"]))  # type: ignore[arg-type]
             return _processing_modes_result
         except Exception as _e37f:
             logger.debug("ProcessingMode übersprungen: %s", _e37f)
@@ -15503,15 +15509,15 @@ class UnifiedRestorerV3:
         sample_rate: int,
         material_type: "MaterialType",
         *,
-        _era_result: object | None = None,
-        _quality_before: object | None = None,
+        _era_result: Any = None,
+        _quality_before: Any = None,
         quality_estimate: float = 0.0,
-        _pipeline_confidence: object | None = None,
+        _pipeline_confidence: Any = None,
         _musical_goal_scores: dict | None = None,
         _musical_goals_passed: dict | None = None,
-        defect_result: object | None = None,
-        executed_phases: list | None = None,
-        _pqs_result: object | None = None,
+        defect_result: Any = None,
+        executed_phases: Any = None,
+        _pqs_result: Any = None,
     ) -> dict:
         """
         Sammelt all post-restore reporting analytics for RestorationResult.metadata.
@@ -15661,7 +15667,7 @@ class UnifiedRestorerV3:
             logger.debug("PsychoacousticArtifactDetector nicht verfügbar: %s", _pad_exc)
 
         # QualityAnalyzer: Ausgangsqualität messen (Nachher) — Vergleich mit Vorher-Baseline
-        _quality_after: object | None = None
+        _quality_after: Any = None
         try:
             from backend.core.quality_prediction import QualityAnalyzer as _QualityAnalyzerPost
 
@@ -15831,7 +15837,7 @@ class UnifiedRestorerV3:
                 sample_rate,
                 _mqa_medium,
                 _mqa_mode,
-                list(executed_phases),
+                list(executed_phases or []),
             )
             _mqa_result = {
                 "quality_guaranteed": bool(_mqa_report.quality_guaranteed),
@@ -16215,7 +16221,7 @@ class UnifiedRestorerV3:
                 "temporal_smoothness": round(float(_pam.calculate_temporal_smoothness(_pam_audio)), 4),
                 "harmonic_coherence": round(float(_pam.calculate_harmonic_coherence(_pam_audio)), 4),
                 "noise_floor_consistency": round(float(_pam.calculate_noise_floor_consistency(_pam_audio)), 4),
-                "naturalness_score": round(float(_pam.calculate_naturalness_score(_pam_audio)), 4),
+                "naturalness_score": round(float(_pam.calculate_naturalness_score(_pam_audio)), 4),  # type: ignore[arg-type]
             }
             logger.debug("🎵 PsychoAcousticMetrics: %s", _pam_result)
         except Exception as _pam_exc:
@@ -20031,7 +20037,7 @@ class UnifiedRestorerV3:
                             _cstc_result.get("coherence_score", 0.0),
                         )
                     if hasattr(result, "metadata") and isinstance(result.metadata, dict):
-                        result.metadata["cstc_coherence"] = round(float(_cstc_result.get("coherence_score", 1.0)), 3)
+                        result.metadata["cstc_coherence"] = round(float(_cstc_result.get("coherence_score", 1.0)), 3)  # type: ignore[arg-type]
             except Exception as _cstc_exc:
                 logger.debug("§CSTC post-phase check non-blocking: %s", _cstc_exc)
 
@@ -20185,7 +20191,7 @@ class UnifiedRestorerV3:
                     }
                     # Accumulate in _phase_deltas
                     if not hasattr(self, "_phase_deltas"):
-                        self._phase_deltas: dict[str, dict] = {}
+                        self._phase_deltas: dict[str, dict] = {}  # type: ignore[no-redef]
                     self._phase_deltas[_phase_delta_pid] = {
                         "pre": {g: round(v, 4) for g, v in _pre_snap.items()},
                         "post": {g: round(v, 4) for g, v in _post_snap.items()},
@@ -20497,9 +20503,9 @@ class UnifiedRestorerV3:
             "material_type": str(material_type.value if hasattr(material_type, "value") else material_type),
             "executed_phase_ids": [],
         }
-        executed = []
-        skipped = []
-        deferred = []  # §2.38 KMV: phases skipped by PerformanceGuard for Stage 2 refinement
+        executed: list[str] = []
+        skipped: list[str] = []
+        deferred: list[str] = []  # §2.38 KMV: phases skipped by PerformanceGuard for Stage 2 refinement
         # Defensive defaults for end-of-pipeline guards (may be read on early exits).
         _afg_pre_pipeline_audio: np.ndarray | None = None
         _afg_best_clean_checkpoint: np.ndarray | None = None
@@ -22103,8 +22109,8 @@ class UnifiedRestorerV3:
             _gap_details = getattr(reconstruction_context, "gap_details", [])
             for _gi in _gap_details:
                 if getattr(_gi, "repaired", False):
-                    _s = getattr(_gi, "start_sample", None)
-                    _e = getattr(_gi, "end_sample", None)
+                    _s = getattr(_gi, "start_sample", None)  # type: ignore[assignment]
+                    _e = getattr(_gi, "end_sample", None)  # type: ignore[assignment]
                     if _s is not None and _e is not None:
                         _repaired_gap_samples.append((int(_s), int(_e)))
             if _repaired_gap_samples:
@@ -22162,7 +22168,7 @@ class UnifiedRestorerV3:
             # Parallele Ausführung mit Profiling
             results = {}
             with ThreadPoolExecutor(max_workers=self.config.num_cores) as executor:
-                future_map = {}
+                future_map: dict[str, Any] = {}
                 for phase_id in selected_phases:
                     phase = self._get_phase(phase_id)
                     if not phase:
@@ -22415,14 +22421,11 @@ class UnifiedRestorerV3:
             # apply positive makeup only while authority is enabled.
             _allow_positive_makeup_gain: bool = True
             _makeup_authority_reason: str = "initial"
-            _afg_best_clean_phase: str = "__pre_pipeline__"
-            # §2.49 Track minimum per-phase artifact_freedom (replaces final full-pipeline comparison)
-            _min_per_phase_afg_score: float = 1.0
-
-            # §0d [RELEASE_MUST] Carrier-Recovery-Tracking: pre-carrier snapshot + checkpoint
-            _pre_carrier_audio: np.ndarray = current_audio.copy()
-            _best_carrier_checkpoint: np.ndarray | None = None
-            _last_carrier_phase_id: str | None = None
+            _afg_best_clean_phase: str = "__pre_pipeline__"  # type: ignore[no-redef] (replaces final full-pipeline comparison)
+            _min_per_phase_afg_score: float = 1.0  # type: ignore[no-redef]: pre-carrier snapshot + checkpoint
+            _pre_carrier_audio: np.ndarray = current_audio.copy()  # type: ignore[no-redef]
+            _best_carrier_checkpoint: np.ndarray | None = None  # type: ignore[no-redef]
+            _last_carrier_phase_id: str | None = None  # type: ignore[no-redef]
             _CARRIER_PHASE_PREFIXES_0d: tuple[str, ...] = (
                 "phase_01",
                 "phase_02",
@@ -23670,9 +23673,9 @@ class UnifiedRestorerV3:
                             len(current_audio) - _phase_input_len_2_61,
                         )
                         current_audio = current_audio[:_phase_input_len_2_61]
-                        if "length_corrections" not in self._metadata:
-                            self._metadata["length_corrections"] = []
-                        self._metadata["length_corrections"].append(phase_id)
+                        if "length_corrections" not in self._metadata:  # type: ignore[attr-defined]
+                            self._metadata["length_corrections"] = []  # type: ignore[attr-defined]
+                        self._metadata["length_corrections"].append(phase_id)  # type: ignore[attr-defined]
 
                     # §0d Carrier-Recovery-Checkpoint: nach jeder erfolgreichen Carrier-Phase
                     # den Audio-Snapshot speichern (letzter Carrier-Checkpoint = best_carrier_checkpoint)

@@ -49,7 +49,7 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Optional
+from typing import Any, Optional
 
 import numpy as np
 import scipy.fft as fft
@@ -1948,7 +1948,7 @@ class DefectScanner:
         # übergeben hat (forensic_medium_result), wird KEIN zweiter Detector-Aufruf
         # ausgeführt — Redundanz-Fix (Erkennung einmalig nach Import, nicht nochmals beim
         # Klick auf Restoration / Studio 2026).
-        _fmd_result: object = {}
+        _fmd_result: Any = {}
         if forensic_medium_result is not None and hasattr(forensic_medium_result, "transfer_chain"):
             _fmd_result = forensic_medium_result
             logger.debug(
@@ -4268,21 +4268,21 @@ class DefectScanner:
         if len(frequencies) < 3:
             return DefectScore(DefectType.PITCH_DRIFT, 0.0, 0.3)
 
-        frequencies = np.array(frequencies)
-        time_centers = np.array(time_centers)
+        freq_arr: np.ndarray = np.array(frequencies)
+        tc_arr: np.ndarray = np.array(time_centers)
 
         # --- Linear regression to find monotonic drift trend ---
         # Normalize time to [0, 1]
-        t_norm = (time_centers - time_centers[0]) / (time_centers[-1] - time_centers[0] + 1e-6)
+        t_norm = (tc_arr - tc_arr[0]) / (tc_arr[-1] - tc_arr[0] + 1e-6)
         # Linear fit: f(t) = a*t + b
-        coeffs = np.polyfit(t_norm, frequencies, 1)
+        coeffs = np.polyfit(t_norm, freq_arr, 1)
         slope = coeffs[0]  # Hz change over full duration
         intercept = coeffs[1]
 
         # Predicted values and residuals
         f_predicted = np.polyval(coeffs, t_norm)
-        residuals = frequencies - f_predicted
-        r_squared = 1.0 - float(np.sum(residuals**2) / (np.sum((frequencies - np.mean(frequencies)) ** 2) + 1e-12))
+        residuals = freq_arr - f_predicted
+        r_squared = 1.0 - float(np.sum(residuals**2) / (np.sum((freq_arr - np.mean(freq_arr)) ** 2) + 1e-12))
 
         # --- Drift in cents ---
         f_start = float(intercept)
@@ -4292,20 +4292,18 @@ class DefectScanner:
         drift_cents = abs(1200 * np.log2(max(f_end, f_start) / min(f_end, f_start)))
 
         # --- Monotonicity check: is drift consistently in one direction? ---
-        diffs = np.diff(frequencies)
+        diffs = np.diff(freq_arr)
         if len(diffs) > 0:
-            n_positive = np.sum(diffs > 0)
-            n_negative = np.sum(diffs < 0)
+            n_positive = int(np.sum(diffs > 0))
+            n_negative = int(np.sum(diffs < 0))
             monotonicity = abs(n_positive - n_negative) / max(len(diffs), 1)
         else:
             monotonicity = 0.0
 
         # --- Anti-FP: key changes produce sudden jumps, not gradual drift ---
         max_jump_cents = 0.0
-        for i in range(len(frequencies) - 1):
-            jump = abs(
-                1200 * np.log2(max(frequencies[i + 1], frequencies[i]) / min(frequencies[i + 1], frequencies[i]) + 1e-8)
-            )
+        for i in range(len(freq_arr) - 1):
+            jump = abs(1200 * np.log2(max(freq_arr[i + 1], freq_arr[i]) / min(freq_arr[i + 1], freq_arr[i]) + 1e-8))
             max_jump_cents = max(max_jump_cents, jump)
         # If largest single jump is > 50% of total drift → likely key change, not drift
         key_change_penalty = 0.0
@@ -6221,7 +6219,7 @@ class DefectScanner:
             for idx in transient_idxs[1:]:
                 if idx - deduped[-1] > min_gap:
                     deduped.append(idx)
-            transient_idxs = deduped
+            transient_idxs = np.array(deduped, dtype=np.intp)
 
             # Material check for analysis routing
             _mat = getattr(self, "material_type", None)
@@ -6594,7 +6592,7 @@ class DefectScanner:
             for p in peaks[1:]:
                 if p - deduped[-1] > min_gap:
                     deduped.append(p)
-            peaks = deduped
+            peaks = np.array(deduped, dtype=np.intp)
 
             best_ratios = []
             best_corrs = []
@@ -7436,9 +7434,9 @@ class DefectScanner:
                 if not 70.0 <= f0 <= 180.0:
                     continue
                 matched = 0
-                for f in peak_freqs:
-                    k = max(1, int(round(f / f0)))
-                    if abs(f - k * f0) <= 6.0:
+                for fpeak in peak_freqs:
+                    k = max(1, int(round(fpeak / f0)))
+                    if abs(fpeak - k * f0) <= 6.0:
                         matched += 1
                 harmonic_fit_ratio = max(harmonic_fit_ratio, matched / max(1, len(peak_freqs)))
             if harmonic_fit_ratio >= 0.75 and len(peak_freqs) >= 4:

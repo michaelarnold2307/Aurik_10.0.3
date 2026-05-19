@@ -408,6 +408,7 @@ class TestMusicalGoalsChecker:
             "micro_dynamics",  # Micro dynamics
             "separation_fidelity",  # Separation fidelity
             "artikulation",  # Articulation
+            "transient_energie",  # §1.4.6 v9.12.9: Transient-Energie-Ziel
         }
         assert set(scores.keys()) == expected_goals, (
             f"Missing or extra goals. \nGot: {sorted(scores.keys())}\nExpected: {sorted(expected_goals)}"

@@ -22,6 +22,7 @@ import importlib.util
 import logging
 import threading
 from dataclasses import dataclass, field
+from typing import Any
 
 import numpy as np
 from scipy.signal import correlate as _scipy_correlate
@@ -79,7 +80,7 @@ class StyleIntentDetector:
         self._fcpe_available: bool = importlib.util.find_spec("torchfcpe") is not None
         self._pyin_available: bool = importlib.util.find_spec("librosa") is not None
         self._fcpe_initialized: bool = False
-        self._fcpe_model: object | None = None  # lazy-init in _extract_f0_fcpe
+        self._fcpe_model: Any = None  # lazy-init in _extract_f0_fcpe
         if self._fcpe_available:
             logger.debug("StyleIntentDetector: FCPE verfügbar (primär)")
         if self._pyin_available:

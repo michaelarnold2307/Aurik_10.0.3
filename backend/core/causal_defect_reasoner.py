@@ -1235,7 +1235,6 @@ CAUSE_TO_PHASES: dict[str, list[str]] = {
     "amplitude_drift": [
         "phase_40_loudness_normalization",  # Primary: time-varying inverse gain envelope
         # (amplitude_drift_correction=True)
-        "phase_17_dynamics_processing",  # Secondary: dynamic range stabilization
     ],
     # ── v9.12.2: DefectType→CAUSE-Lücken ─────────────────────────────────────
     "clicks": [

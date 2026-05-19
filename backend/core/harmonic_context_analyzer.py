@@ -415,9 +415,9 @@ class HarmonicContextAnalyzer:
 
         mask_f = mask.astype(np.float32)
         mask_f = uniform_filter1d(mask_f, size=self.MASK_SMOOTHING_FRAMES, axis=1)
-        mask = mask_f > 0.0
+        mask = np.asarray(mask_f > 0.0)
 
-        return mask
+        return mask  # type: ignore[no-any-return]
 
 
 # ---------------------------------------------------------------------------

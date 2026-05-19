@@ -12,6 +12,7 @@ import time
 import numpy as np
 
 from backend.defect_detection.base import (
+    DefectDetector,
     DefectInstance,
     DefectReport,
     SeverityLevel,
@@ -143,8 +144,8 @@ class UnifiedDefectDetector:
                 tolerances[key] = ctx[key]
         # Get detectors to run
         if detector_names:
-            detectors = [self.registry.get(name) for name in detector_names]
-            detectors = [d for d in detectors if d is not None]
+            _raw: list[DefectDetector | None] = [self.registry.get(name) for name in detector_names]
+            detectors: list[DefectDetector] = [d for d in _raw if d is not None]
         else:
             detectors = self.registry.get_all()
         # Run all detectors mit kontextbewussten Toleranzen

@@ -730,7 +730,7 @@ class FrequencyRestorationPhase(PhaseInterface):
                     if NVSR_AVAILABLE and _get_nvsr_plugin is not None:
                         _nvsr_p06 = _get_nvsr_plugin()
                         if _nvsr_p06 is not None:
-                            _nvsr_result_06 = _nvsr_p06.enhance(audio.copy(), sr=sample_rate)
+                            _nvsr_result_06 = _nvsr_p06.enhance(audio.copy(), sr=sample_rate)  # type: ignore[attr-defined]
                             if _nvsr_result_06 is not None and np.isfinite(_nvsr_result_06).all():
                                 _nvsr_f32_06 = np.clip(np.asarray(_nvsr_result_06, dtype=np.float32), -1.0, 1.0)
                                 # Nochmal Hallucination-Guard auf NVSR-Ergebnis (nur score, kein rollback)
@@ -849,7 +849,7 @@ class FrequencyRestorationPhase(PhaseInterface):
                                     boundary=True,
                                 )
                                 _out6 = np.asarray(_out6[: len(sig)], dtype=np.float32)
-                                return np.nan_to_num(_out6, nan=0.0, posinf=0.0, neginf=0.0)
+                                return np.nan_to_num(_out6, nan=0.0, posinf=0.0, neginf=0.0)  # type: ignore[no-any-return]
 
                             _m6_wet = 0.35  # §6.4a: max. wet_mix = 0.35
                             if restored.ndim == 2:
@@ -907,7 +907,7 @@ class FrequencyRestorationPhase(PhaseInterface):
                             boundary=True,
                         )
                         _out_c06 = np.asarray(_out_c06[: len(sig)], dtype=np.float32)
-                        return np.nan_to_num(_out_c06, nan=0.0, posinf=0.0, neginf=0.0)
+                        return np.nan_to_num(_out_c06, nan=0.0, posinf=0.0, neginf=0.0)  # type: ignore[no-any-return]
 
                     _c06_wet = 0.25  # §Gap5: subtle console coloration
                     if restored.ndim == 2 and restored.shape[0] == 2:

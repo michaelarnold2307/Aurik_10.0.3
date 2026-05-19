@@ -176,6 +176,7 @@ CANONICAL_THRESHOLDS_RESTORATION: dict[str, float] = {
     "brillanz": 0.78,
     "raumtiefe": 0.70,
     "spatial_depth": 0.70,
+    "transient_energie": 0.80,  # §§1.4.6 v9.12.9: Transient-Energie-Ziel (P3)
 }
 
 CANONICAL_THRESHOLDS_STUDIO2026: dict[str, float] = {
@@ -197,6 +198,7 @@ CANONICAL_THRESHOLDS_STUDIO2026: dict[str, float] = {
     "brillanz": 0.82,
     "raumtiefe": 0.74,
     "spatial_depth": 0.74,
+    "transient_energie": 0.83,  # §§1.4.6 v9.12.9: Transient-Energie-Ziel (P3, Studio 2026)
 }
 
 # ---------------------------------------------------------------------------

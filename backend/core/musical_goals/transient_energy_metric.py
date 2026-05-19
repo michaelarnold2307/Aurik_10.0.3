@@ -360,8 +360,8 @@ def _to_mono_float32(audio: np.ndarray) -> np.ndarray:
     if a.ndim == 2:
         if a.shape[0] <= 2 and a.shape[1] > a.shape[0]:
             # [C, T] — nach to_channels_last
-            return a.mean(axis=0)
-        return a.mean(axis=1)
+            return a.mean(axis=0)  # type: ignore[no-any-return]
+        return a.mean(axis=1)  # type: ignore[no-any-return]
     return a.flatten()
 
 
@@ -377,7 +377,7 @@ def _hpss_percussive(
         import librosa  # type: ignore[import]  # pylint: disable=import-outside-toplevel
 
         _, perc = librosa.effects.hpss(mono, margin=_HPSS_MARGIN)
-        return np.asarray(perc, dtype=np.float32)
+        return np.asarray(perc, dtype=np.float32)  # type: ignore[no-any-return]
     except Exception:
         pass
 
@@ -409,7 +409,7 @@ def _hpss_percussive(
         perc_audio = perc_audio[: len(mono)]
         if len(perc_audio) < len(mono):
             perc_audio = np.pad(perc_audio, (0, len(mono) - len(perc_audio)))
-        return perc_audio.astype(np.float32)
+        return perc_audio.astype(np.float32)  # type: ignore[no-any-return]
     except Exception:
         return mono.copy()
 

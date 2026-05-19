@@ -29,7 +29,7 @@ from typing import Any
 
 import librosa
 import numpy as np
-import yaml
+import yaml  # type: ignore[import-untyped]
 
 logger = logging.getLogger(__name__)
 
@@ -110,7 +110,7 @@ def hz_to_bark(f: float) -> float:
 
     Zwicker & Terhardt (1980): Bark = 13 * arctan(0.00076 * f) + 3.5 * arctan((f / 7500)^2)
     """
-    return 13.0 * np.arctan(0.00076 * f) + 3.5 * np.arctan((f / 7500.0) ** 2)
+    return float(13.0 * np.arctan(0.00076 * f) + 3.5 * np.arctan((f / 7500.0) ** 2))
 
 
 def bark_to_hz(bark: float) -> float:
@@ -375,7 +375,7 @@ class PermanentAudioMonitor:
             logger.warning("end_module() called without start_module()")
             return
 
-        processing_time_ms = (time.time() - self.current_module_start_time) * 1000
+        processing_time_ms = (time.time() - (self.current_module_start_time or 0.0)) * 1000
 
         module_log = ModuleLog(
             module_name=self.current_module,

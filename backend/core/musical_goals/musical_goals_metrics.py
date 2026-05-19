@@ -3432,6 +3432,7 @@ _CANONICAL_14_KEYS: frozenset[str] = frozenset(
         "separation_fidelity",
         "brillanz",
         "spatial_depth",
+        "transient_energie",  # §1.4.6 v9.12.9: 15. Ziel (Transient-Energie-Erhalt)
     }
 )
 

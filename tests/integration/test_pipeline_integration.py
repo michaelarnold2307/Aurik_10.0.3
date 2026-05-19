@@ -1211,7 +1211,7 @@ class TestCrossModuleDataFlow:
         checker = MusicalGoalsChecker(mode="restoration")
         scores = checker.measure_all(audio, sr)
 
-        assert len(scores) == 14
+        assert len(scores) == 15
         for goal, score in scores.items():
             assert 0.0 <= score <= 1.0
 

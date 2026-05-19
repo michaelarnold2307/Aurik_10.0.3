@@ -174,7 +174,7 @@ def _apply_gain_riding(
         int(np.sum(active_mask)),
         _mean_gain_db,
     )
-    return result.astype(np.float32)
+    return np.asarray(result, dtype=np.float32)
 
 
 def _lowpass_smooth(signal: np.ndarray, sample_rate: float, cutoff_hz: float) -> np.ndarray:
