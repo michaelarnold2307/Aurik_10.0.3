@@ -83,35 +83,52 @@ und übergeben es.
 #### Snyk-Sicherheitsfixes (14. Mai 2026) — OWASP Top-10
 
 **requirements/requirements_optimization.txt:**
+
 - `torch==2.2.2+cpu → torch==2.7.0+cpu`: CVE-2025-32434 (CRITICAL: arbitrary code execution
+
   via `torch.load()` deserialization), CVE-2024-31580 (HIGH: heap-based buffer overflow
   in `nn.functional.pad()`), CVE-2024-31583 (HIGH: use-after-free). Minimum sicher: ≥2.6.0.
+
 - `torchaudio==2.2.2+cpu → torchaudio==2.7.0+cpu`: muss torch-Version matchen.
 - `sympy>=1.13.0 → sympy>=1.13.1,<1.14.0`: Behebt Infinite-Loop/ReDoS in 1.13.0;
+
   schließt Code-Injection (Eval-Injection) in 1.14.x aus; behält PyTorch-Kompatibilitäts-
   Ausschluss (1.14.0 inkompatibel mit PyTorch 2.x).
 
 **requirements/requirements_aurik.txt:**
+
 - `setuptools>=60,<80 → setuptools>=70.3.0,<81`: CVE-2024-6345 (HIGH: arbitrary code execution
+
   via präparierte Wheel-Pakete in setuptools<70.0). Untergrenze 70.3.0 = erster stabiler Patch.
+
 - `pillow>=10.0.0 → pillow>=11.0.0`: Behebt zahlreiche CVEs in Pillow 10.x:
+
   heap-based buffer overflow, arbitrary code execution, XML-Injection, Windows Device Name
   Handling, Highly Compressed Data Amplification (zip-bomb), Improper Resource Release.
+
 - Kommentar aktualisiert: torch/torchaudio 2.2.2 → 2.7.0 als Referenz.
 
 **scripts/install_aurik.sh:**
+
 - `torch==2.2.2+cpu / torchaudio==2.2.2+cpu` → `torch==2.7.0+cpu / torchaudio==2.7.0+cpu`
+
   in Installationslogik und Versions-Check angepasst.
 
 **configs/package.json:**
+
 - `recharts ^3.7.0 → recharts ^3.8.0`: Behebt Uncontrolled Recursion (M) in recharts 3.7.x
+
   via `es-toolkit` Transitivabhängigkeit.
+
 - `overrides.es-toolkit: >=1.40.0` hinzugefügt: direkte Absicherung gegen Uncontrolled
+
   Recursion im transitiven `es-toolkit`-Paket. **Wichtig:** `npm install` im `configs/`-
   Verzeichnis ausführen, um package-lock.json zu regenerieren.
 
 **dsp/aurik_deesser_pro/requirements.txt:**
+
 - Pinning `==` → `>=` für numpy, scipy, librosa, soundfile: erlaubt automatische
+
   Security-Patch-Releases. Low-Severity-CVEs (NULL Pointer Dereference, Buffer Overflow, DoS)
   in soundfile sind von libsndfile (System-C-Bibliothek) geerbt; Systembehebung:
   `sudo apt-get upgrade libsndfile1`.
@@ -205,8 +222,11 @@ bisheriges Verhalten beibehalten (Blend zurück zum Original für STFT-Boundary-
 Alle drei Audio-Orientierungen abgedeckt: channels-first 2D, channels-last 2D, 1D mono.
 
 **Dateien:**
+
 - `backend/core/unified_restorer_v3.py` — L~6045 (panns_singing injection), L~15450 (fallback),
+
   L~17829 (_NR_PHASES_HNR), L~15775 (Doppel-Dereverb guard)
+
 - `backend/core/phases/phase_03_denoise.py` — Edge-Taper silence detection
 
 **Tests:** 148 Unit-Tests (betroffene Module) → alle grün. Keine Regressionen.
@@ -272,6 +292,7 @@ Harmoniken lieferte der Crest ≈ 2.1 für alle Bänder unabhängig vom NR-Ergeb
 Per-band RMS-Guard fehlte → leere Bänder (BW-Ceiling) flossen in Mittelung ein.
 
 **Fix:**  
+
 1. Per-band content guard: `if _band_rms < _all_rms * 0.015: continue`  
 2. Sekundäre HC-Metrik: top-5%-Bins-Energie / Gesamtenergie pro Band.
 
@@ -381,7 +402,9 @@ Aktivierung: `panns_singing ≥ 0.25`. Alle Teilanalysen non-blocking (Exception
 **Erkenntnisse:**
 
 - Der Fingerprint trat konsistent um `phase_29_tape_hiss_reduction` auf
+
   (spaeter teils mit Folge-Rollback nach `phase_49_advanced_dereverb`).
+
 - In `phase_29` lagen zwei relevante Risikofaktoren:
   - fehlende kanonische Stereo-Layout-Normalisierung (`(2, N)` vs. `(N, 2)`)
   - globaler Loudness-Rescue (direct-clip), der ruhige Tail-Segmente miterhoehen konnte
@@ -419,11 +442,14 @@ Neue normative Ergänzung in `.github/copilot-instructions.md` direkt nach §2.5
 
 - Dreistufiges Stereo-Guardrail-Profil für Exportentscheidungen:
   - **Hard-Fail**: Interchannel-Delay > 1.0 ms, L/R-Imbalance > 6 dB (bei balanciertem Input),
+
     signifikanter Mono-Kompatibilitäts-Drop, True-Peak > -1.0 dBTP
+
   - **Warnstufe**: Delay 0.5–1.0 ms, Imbalance 3–6 dB, Breitenänderung ohne Qualitätsgewinn
   - **Zielwerte**: Delay < 0.5 ms, Imbalance < 3 dB, Mono-Kompatibilität stabil, True-Peak ≤ -1.0 dBTP
 
 - Klarstellung der Invariante: **keine starre 0.0-ms-Pflicht**; entscheidend sind kohärente Stereo-Verarbeitung,
+
   harte Sicherheitsgrenzen und Delta-basierte Bewertung gegen den Input.
 
 ## Version 9.11.55 — §2.45a Cumulative-Guard Decoupling + §2.30b ADMM Wall-Time Fixes (Apr 2026)
@@ -493,11 +519,13 @@ per-Phase PMGG-Gates nie. Phasen bewerteten sich gegen unrealistische 1980s-CD-S
 - **`backend/core/per_phase_musical_goals_gate.py`**:
   - `wrap_phase()` und `_run_with_retry()` erhalten neuen Parameter `adaptive_goal_thresholds: dict[str, float] | None`.
   - In `_run_with_retry()`: Nach `_get_canonical_thresholds()` wird ein song-adaptiver 60/40-Blend angewendet
+
     (60 % kanonisch / 40 % adaptiv), geclippt auf [0.30, 0.99]. Konsistent mit `_effective_goal_thresholds`
     am Pipeline-Ende. Restorative Baseline-Capping nutzt dann die gemischten (nicht die starren kanonischen) Schwellen.
 
 - **`backend/core/unified_restorer_v3.py`**:
   - `_pmgg_gate.wrap_phase()` erhält `adaptive_goal_thresholds=dict(self._song_goal_targets)` injiziert,
+
     sofern `_song_goal_targets` befüllt ist (nach `estimate_song_goal_targets()` aus §09.2).
 
 **Auswirkung**: Phasen auf 1920s-Shellac-Material tolerieren jetzt `brillanz`-Werte ~0.65–0.69 (statt 0.78).
@@ -535,6 +563,7 @@ Phasen auf klassischen Genres erlauben höhere `raumtiefe`-Schwellen. Schlager-S
   max. 1 Warnung pro 60 s.
 
 - **`tests/unit/test_phase55_damage_guard.py`**: 2 neue Regressions-Tests:
+
   `test_fadeout_not_detected_as_dropout` und `test_phase55_stereo_channel_first_axis_guard`.
 
 ## Version 9.11.50 — do_carrier_analysis=False Output-Dateien in UI (Apr 2026)
@@ -582,10 +611,13 @@ lädt Output-WAV
 ### Bugfix (§4.6b PLM-Active-Guard)
 
 - **`backend/core/lyrics_guided_enhancement.py`**: `_transcribe_onnx()` — Whisper
+
   `_ort_session.run()` ohne `set_active` Guard. Emergency-Eviction konnte Modell während
   aktiver Inferenz entladen → Crash. Fix: `set_active("lyrics_transcriber_whisper", True/False)`
   mit `try/finally` um Encoder-Inferenz.
+
 - **`backend/core/musical_goals/perceptual_validator.py`**: `_predict_psychoacoustic_score()` —
+
   AST `onnx_session.run()` ohne `set_active` Guard obwohl `try_allocate` vorhanden.
   Fix: `set_active("ASTPerceptualONNX", True/False)` mit `try/finally` um ONNX-Inferenz.
 
@@ -607,14 +639,21 @@ UV3 ruft `evict_for_phase(phase_id)` vor jeder Phase auf. Fehlende Fallback-Mode
 bevor die Phase sie benötigte — kostenintensiver Reload (performance) oder Inferenz-Gap (stability).
 
 - **`phase_31_speed_pitch_correction`**: `BasicPitch` → `{BasicPitch, FCPE, RMVPE, CREPE}`.
+
   `HybridSpeedPitch` lädt FCPE → RMVPE → CREPE Kaskade (§4.4); fehlende 3 Modelle wurden vor phase_31
   evictiert und mussten on-demand neu geladen werden.
+
 - **`phase_42_vocal_enhancement`**: `{MelBandRoformer, MDX23C_vocals, MDX23C_inst}` → zusätzlich
+
   `DemucsV4`. Stem-Sep-Kaskade fällt von BSRoFormer → MDX23C → DemucsV4 zurück; DemucsV4 wurde
   vor phase_42 evictiert obwohl als Fallback benötigt.
+
 - **`phase_20_reverb_reduction`**: `{SGMSE+}` → `{SGMSE+, ResembleEnhance}`. `HybridDereverb`
+
   nutzt ResembleEnhance als Fallback-1 wenn SGMSE+ OOM/fehlt; Modell wurde unnötig evictiert.
+
 - **`phase_56_spectral_band_gap_repair`**: `{FCPE, CREPE}` → `{FCPE, RMVPE, CREPE}`. f0-Kaskade
+
   ist FCPE → RMVPE → CREPE → pYIN; RMVPE fehlte und wurde vor phase_56 evictiert.
 
 **Datei:** `backend/core/plugin_lifecycle_manager.py` — `_PHASE_REQUIRED_MODELS`
@@ -635,19 +674,32 @@ Systematischer Scan aller Phasen mit ML-Inferenz hat 7 Stellen ohne `set_active(
 Emergency-Eviction hätte diese Modelle während aktiver Inferenz entladen können → Crash / OOM.
 
 - **`backend/core/phases/phase_01_click_removal.py`** — `_repair_clicks_ml()`: PLM-Guard
+
   `set_active("DeepFilterNetV3", True/False)` um `plugin.process()` DeepFilterNet-Aufruf.
+
 - **`backend/core/phases/phase_02_hum_removal.py`** — `_ml_refine_with_deepfilternet()`: PLM-Guard
+
   `set_active("DeepFilterNetV3", True/False)` um `plugin.process()` Aufruf.
+
 - **`backend/core/phases/phase_29_tape_hiss_reduction.py`** — `_ml_refine_hf_with_deepfilternet()`:
+
   PLM-Guard `set_active("DeepFilterNetV3", True/False)` im `finally:` Block (neben `_dfn_release`).
+
 - **`backend/core/hybrid/hybrid_dereverb.py`** — `_apply_dccrn()`: PLM-Guard
+
   `set_active("SGMSE+"|"ResembleEnhance", True/False)` — Modellname dynamisch je `_sgmse_active`.
   Betrifft phase_20 und phase_49 die HybridDereverb nutzen.
+
 - **`backend/core/phases/phase_24_dropout_repair.py`** — `_repair_with_audiosr()`: PLM-Guard
+
   `set_active("AudioSR", True/False)` vor der Dropout-Schleife und an beiden Return-Stellen.
+
 - **`backend/core/phases/phase_43_ml_deesser.py`** — `_try_mp_senet_refine()`: PLM-Guard
+
   `set_active("MP-SENet", True/False)` im `finally:` Block (neben `_dfn_release`).
+
 - **`backend/core/phases/phase_56_spectral_band_gap_repair.py`** — `_estimate_f0()`:
+
   PLM-Guards für FCPE (Tier-1) und RMVPE (Tier-2) als `try/finally` um jeweilige Analyse-Calls.
 
 ### Fixes
@@ -659,7 +711,9 @@ Emergency-Eviction hätte diese Modelle während aktiver Inferenz entladen könn
   Fix: `{"MelBandRoformer", "MDX23C_vocals", "MDX23C_inst"}`.
   Ohne Fix: `evict_for_phase("phase_42_vocal_enhancement")` hätte `MDX23C_vocals`/`MDX23C_inst`
   entladen können, bevor phase_42 sie benötigt (§4.6c VERBOTEN).
+
 - **`backend/core/phases/phase_42_vocal_enhancement.py`** — `set_active("MDX23C", ...)` →
+
   `set_active("MDX23C_vocals", ...)` + `set_active("MDX23C_inst", ...)` (beide Stem-Keys).
   Ebenso `touch_plugin("MDX23C")` → `touch_plugin("MDX23C_vocals")` + `touch_plugin("MDX23C_inst")`.
   Ohne Fix: `set_active("MDX23C", True)` war No-Op (kein PLM-Eintrag unter `"MDX23C"`) —
@@ -677,9 +731,13 @@ Emergency-Eviction hätte diese Modelle während aktiver Inferenz entladen könn
   `cqtdiff_plus_plugin.py` nutzt `_BUDGET_NAME = "CQTdiffPlus"` (nicht `"CQTdiff+"`);
   `DiffWave`, `ConsistencyInpaint`, `DACInpaint` fehlen vollständig → PLM hätte diese Modelle
   bei `evict_for_phase("phase_55_diffusion_inpainting")` entladen können (§4.6c).
+
 - **`plugins/panns_plugin.py:234`** — `np.max(np.abs(audio))` → `np.percentile(np.abs(audio), 99.9)`
+
   für Amplituden-Normalisierung auf 0.9 (§VERBOTEN: Impuls-Artefakt blockiert Normalisierung).
+
 - **`plugins/gacela_plugin.py:409`** — `np.max(np.abs(gap_audio))` → `np.percentile(np.abs(gap_audio), 99.9)`
+
   für Gap-Audio-Normalisierung auf 0.9 (§VERBOTEN: selbes Muster).
 
 ## Version 9.11.38 — PLM-Name BANQUET→BanquetVinyl + FeedbackChain Test-Fixes (Apr 2026)
@@ -735,21 +793,29 @@ Emergency-Eviction hätte diese Modelle während aktiver Inferenz entladen könn
 ## Version 9.11.32 — PLM set_active Guards HiFiGAN/CREPE/SileroVAD (Tiefenanalyse R5) (Apr 2026)
 
 - **`plugins/hifigan_plugin.py` `_vocode_onnx()`**: `session.run()` im Chunk-Loop ohne PLM-Guard
+
   → Emergency-Eviction während Inferenz möglich. Fix: `set_active("HiFiGAN", True/False)` in try/finally
   um die gesamte Chunk-Schleife. (§4.6b)
+
 - **`plugins/crepe_plugin.py` `_analyze_onnx()`**: `session.run()` in CREPE-Chunk-Loop ohne PLM-Guard
+
   → Emergency-Eviction während Pitch-Inferenz möglich. Fix: `set_active("CREPE", True/False)` in
   try/finally, `finally` nach vorhandenem `except`-Block ergänzt. (§4.6b)
+
 - **`plugins/silero_plugin.py` `_vad_mask_single_call()` + `_vad_onnx()`**: 2× `session.run()` ohne
+
   PLM-Guard → Emergency-Eviction während VAD-Inferenz möglich. Fix: `set_active("SileroVAD", True/False)`
   in try/finally für beide Methoden. (§4.6b)
 
 ## Version 9.11.31 — load_audio_file do_carrier_analysis=False (Tiefenanalyse R4) (Apr 2026)
 
 - **`backend/adaptive_pipeline.py` L1883**: `audio, sr = load_audio_file(...)` — falsches Tuple-Unpacking
+
   einer Dict-Rückgabe + fehlender `do_carrier_analysis=False` → 6-min Blockade im Processing-Thread.
   Fix: dict-basiertes Unpacking + `do_carrier_analysis=False` (§VERBOTEN: load_audio_file in Threads).
+
 - **`backend/meta_router.py` L64**: `_load_audio_file(path)` ohne `do_carrier_analysis=False`
+
   → synchrone Carrier-Analyse blockiert routing-internen Audio-Load.
   Fix: `do_carrier_analysis=False` hinzugefügt.
 
@@ -799,13 +865,16 @@ Insbesondere §VERBOTEN-Muster für Stereo-Kanal-Slicing und Carrier-Chain-Pflic
 **Stereo-Kanal-Slicing `audio[0]` → `audio[:, 0]`** — §VERBOTEN-Verletzung:
 
 - `backend/core/authenticity_metrics_extended.py` L673, L772: `audio[0]` →
+
   `audio[:, 0]` (bei Shape `samples×channels` gab `audio[0]` nur 2 Samples zurück;
   alle Authentizitäts-Metriken lieferten 0.0 für Stereo-Songs)
+
 - `backend/core/genre_classifier.py` L337: gleiches Muster korrigiert
 
 **UV3 `_MATERIAL_PRIORITY_PHASES` auf volle Kette erweitert** — §6.2a / §2.46a:
 
 - `backend/core/unified_restorer_v3.py`: §6.2a Pflichtphasen wurden bisher nur für
+
   `primary_material` aktiviert. Bei Kette `vinyl→cassette→mp3` blieben Kassetten-Pflichtphasen
   aus, wenn Kassette nicht Primary war. Jetzt: alle `chain_info["chain"]`-Stufen werden
   gegen `_MATERIAL_PRIORITY_PHASES` geprüft.
@@ -818,7 +887,9 @@ Insbesondere §VERBOTEN-Muster für Stereo-Kanal-Slicing und Carrier-Chain-Pflic
 **`ml_device_manager.py` GPU-Memory-Budget tier-adaptiv** — §VERBOTEN-Muster:
 
 - L988: `gpu_mem_limit` war hardcoded `vram_total × 0.80` — jetzt
+
   `vram_total × _TIER_VRAM_PARAMS[gpu_tier]["max_usage_ratio"]` (Tier1: 0.85, Tier2: 0.80, ...)
+
 - `_VRAM_MAX_USAGE_RATIO` als tote Konstante mit Kommentar dokumentiert (→ `_TIER_VRAM_PARAMS`)
 
 ## Version 9.11.27 — Tiefenanalyse-Fixes: PLM-Guards, Korrelation, Pegelexplosion (Apr 2026)
@@ -833,6 +904,7 @@ GPU-Beschleunigung, DSP-Korrektheit und Mid-Pipeline-Loudness-Guard.
 **PLM-Active-Guard (7 Plugins)** — `plugins/`:
 
 - `bs_roformer_plugin.py`, `mdx23c_plugin.py`, `demucs_v4_plugin.py`,
+
   `banquet_vinyl_plugin.py`, `panns_plugin.py`, `mp_senet_plugin.py`,
   `laion_clap_plugin.py`: `set_active(budget_name, True/False)` um `session.run()`/`model()`
   eingefügt (§4.6b — verhindert Emergency-Eviction während aktiver Inferenz)
@@ -846,7 +918,9 @@ GPU-Beschleunigung, DSP-Korrektheit und Mid-Pipeline-Loudness-Guard.
 **O(n²)-Autokorrelation → O(n·order)** — `dsp/`:
 
 - `vocal_presence_enhancer.py` L119: `np.correlate(audio, audio, mode="full")` →
+
   Frame-basierte Lag-Berechnung `[np.dot(s[:n-k], s[k:]) for k in range(max_lag+1)]`
+
 - `bass_enhancement.py` L182: gleiche Ersetzung
 
 **Pegel-Explosion bei stillen Phasen** — `backend/core/phases/phase_49_advanced_dereverb.py`:
@@ -876,26 +950,37 @@ falschen Key-Lookup (`"transfer_chain"` → `"chain"`).
 **`Aurik910/ui/modern_window.py`**:
 
 - Neue Modul-Level-Konstanten:
+
 `_CARRIER_MEDIUM_DISPLAY`, `_CARRIER_EXT_DISPLAY`,
   `_CARRIER_ANALOG_MEDIA`, `_CARRIER_ICONS_DIR`
+
 - Neue Modul-Level-Helper: `_render_carrier_html(icon_stem, label)` mit try/except
+
   und Plaintext-Fallback; `_build_carrier_chain_html(chain_keys)` als SSOT-Kombinator
+
 - Pfad A (`_pre_analysis_bg`): lokale `_html()`/`_MEDIUM_DATA`/`_EXT_DATA`/`_ANALOG_MEDIA`
+
   durch Modul-Level-Konstanten ersetzt; redundanten Doppel-Block bereinigt
+
 - Pfad B (`_apply_authoritative_chain_display`): lokale `_CI_MEDIUM_DATA`/`_ci_html()`
+
   durch `_build_carrier_chain_html()` ersetzt; Debug-Logging bei `len < 2` Guard hinzugefügt
+
 - Pfad C (`_on_item_finished_with_result`): lokale `_CI_MEDIUM_DATA`/`_ci_html()`
+
   durch `_build_carrier_chain_html()` ersetzt; falscher Key `"transfer_chain"` →
   korrekter Key `"chain"` (§UI-CARRIER-DISPLAY-INVARIANT); Debug-Logging bei Skip
 
 **`.github/copilot-instructions.md`**:
 
 - 6 neue VERBOTEN-Einträge: Inline-Dict-Duplizierung, `"transfer_chain"`-Key,
+
   fehlender `_carrier_bg_label`-Sync, len<2-Guard ohne Logging, Icon-HTML ohne Fallback
 
 **`.github/specs/08_architecture_and_distribution.md`**:
 
 - Neuer normativer Abschnitt `§11.4d [RELEASE_MUST] Tonträgerketten-Display-Invarianten`
+
   mit vollständigem Drei-Pfade-Diagramm, SSOT-Dokumentation, Key-Invariante, Testpflicht
 
 ---
@@ -1113,14 +1198,20 @@ korrekt in Tier 1–4 eingestuft. 120 Unit-Tests grün, 11424 gesamt grün.
 
   - `phase_06_frequency_restoration`:
     - Quality-First-Short-Clip-Guard explizit auf
+
       `quality_mode not in ("quality", "maximum")` gehärtet.
+
     - Timeout-Policy enthält expliziten Branch
+
       `if quality_mode in ("quality", "maximum"):` (inkl. studio_2026-Branch).
+
     - Schließt den Policy-Regressionstest `test_quality_first_time_gates_all_phases`.
 
   - `pitch_detector` (`backend/ml/inference_only/pitch_correction/pitch_detector.py`):
     - Step-Error-Schätzung erweitert: bei jump-dominierten Regionen wird zusätzlich eine
+
       kontextbasierte Vorher/Nachher-Median-Abweichung berechnet.
+
     - Verhindert Verdünnung diskreter 100-Cent-Sprünge auf ~50 Cent.
     - Schließt `tests/pitch_correction/test_pitch_correction_v8.py::test_pitch_error_detection`.
 
@@ -1158,6 +1249,7 @@ korrekt in Tier 1–4 eingestuft. 120 Unit-Tests grün, 11424 gesamt grün.
 ### Ziel
 
 - Das hohe Qualitaetsniveau soll nicht nur punktuell gelten, sondern auf den zentralen
+
   zeitlimitierenden High-End-Pfaden konsistent abgesichert werden.
 
 ### Aenderungen
@@ -1326,7 +1418,9 @@ Zwei produktionsrelevante Stabilitäts- und Transparenz-Fixes aus dem Realbetrie
   - Harte Notlagen bleiben blockierend (kein Risky-Mode).
 - `ml_memory_budget`:
   - Tiny-Modelle (bis 0.12 GB) können in einem engen Sicherheitsfenster trotz Druck zugelassen werden,
+
     um unnötige Qualitätskaskaden zu vermeiden.
+
   - Große Modelle bleiben unter Thrashing weiterhin strikt blockiert.
 
 **Wirkung:**
@@ -1678,17 +1772,25 @@ Vollständige GPU-Unterstützung für alle 11 Heavy-ML-Plugins mit dreistufiger 
 **Team-Telemetrie** (§2.53 RELEASE_MUST):
 
 - `PhaseGateLogEntry.metadata` in PMGG erhält `team_policy_reason`, `team_excluded_goals`,
+
   `team_threshold_mult`, `team_strength_cap` — nur wenn Team-Policy aktiv war.
+
 - UV3 extrahiert nach der Pipeline `_team_coordination_events` aus allen PMGG-Log-Entries
+
   mit gesetztem `team_policy_reason`.
+
 - `RestorationResult.metadata["team_coordination"]` enthält:
+
   `event_count`, `events`, `phase_type_summary`.
+
 - `bridge.get_experience_insights()` gibt `team_coordination` als eigenes Feld zurück.
 
 **CONFLICT_REGISTRY** (`backend/core/phase_ontology.py`, §2.29e):
 
 - Neues `CONFLICT_REGISTRY: dict[str, frozenset[str]]` — explizite Paare, bei denen Phase B
+
   die Arbeit von Phase A nicht neutralisieren darf:
+
   - `phase_09 → {phase_50}` (Crackle-Reparatur schützt Spectral-Repair-Bins)
   - `phase_07 → {phase_50, phase_03, phase_29}` (Harmonik-Restauration)
   - `phase_06 → {phase_28, phase_29, phase_50}` (Bandbreiten-Erweiterung)
@@ -1699,6 +1801,7 @@ Vollständige GPU-Unterstützung für alle 11 Heavy-ML-Plugins mit dreistufiger 
   - `phase_56 → {phase_29, phase_03}` (Bandlücken-Reparatur)
 - Neue Funktion `get_conflict_phases(completed_phase_id)` mit startswith-Matching.
 - UV3 `_profiled_phase_call` injiziert `conflict_with_prior_phases` in Phase-kwargs
+
   wenn CONFLICT_REGISTRY einen Treffer für die aktuelle Phase liefert.
 
 **Hörbasierte Abnahmetests** (`tests/unit/test_team_coordination_telemetry.py`):
@@ -1716,7 +1819,9 @@ Vollständige GPU-Unterstützung für alle 11 Heavy-ML-Plugins mit dreistufiger 
 - `backend/core/phase_ontology.py` — CONFLICT_REGISTRY + get_conflict_phases()
 - `backend/core/per_phase_musical_goals_gate.py` — team_policy_* in PhaseGateLogEntry.metadata
 - `backend/core/unified_restorer_v3.py` — _team_coordination_events, metadata["team_coordination"],
+
 conflict_with_prior_phases-Injektion in_profiled_phase_call
+
 - `backend/api/bridge.py` — team_coordination in get_experience_insights()
 - `tests/unit/test_team_coordination_telemetry.py` — 30 neue Tests (neu erstellt)
 - `.github/specs/02_pipeline_architecture.md` — §2.29e erweitert
@@ -1729,13 +1834,17 @@ conflict_with_prior_phases-Injektion in_profiled_phase_call
 
 - **PMGG Team-Policy** (`backend/core/per_phase_musical_goals_gate.py`):
   - Neue Helper-Funktion `_resolve_team_context_policy(phase_id, phase_kwargs)` liest
+
     `prior_phase_context` aus UV3 und erzeugt kontextabhängige PMGG-Policy.
+
   - Für `phase_50` nach HF-Restaurationskette (`phase_06`/`phase_07`/`phase_23`):
     - Goal-Exclusions erweitert um `brillanz`, `transparenz`, `timbre_authentizitaet`
     - Retry-Threshold wird moderat gelockert (`×1.15`, capped)
     - Initial-Strength wird konservativ gedeckelt (`≤ 0.80`)
   - Ziel: Folgephasen kooperieren mit Vorphasen statt deren restaurierte HF-Anteile
+
     indirekt über PMGG-Retry-Druck wieder abzubauen.
+
 - **Tests** (`tests/unit/test_per_phase_musical_goals_gate.py`):
   - `TestPMGGTeamContextPolicy::test_35b_phase50_policy_enabled_after_hf_restoration`
   - `TestPMGGTeamContextPolicy::test_35c_phase50_policy_disabled_without_prior_context`
@@ -1748,18 +1857,28 @@ conflict_with_prior_phases-Injektion in_profiled_phase_call
 
 - **Catastrophic/Emergency-Pfad ebenfalls team-kohärent**:
   - Neuer Helper `_allow_emergency_retries(...)` entscheidet, ob PMGG-Notfall-Retries
+
     tatsächlich sinnvoll sind.
+
   - Für `phase_50` mit Team-Kontext `phase50_after_hf_restoration` werden
+
     Notfall-Retries blockiert (Proxy-Artefakt statt realer Schaden).
+
   - `catastrophic_threshold` wird team-policy-bewusst skaliert (`threshold_multiplier`),
+
     damit der Notfallpfad nicht durch intentionalen Vorphasen-Kontext fehlgetriggert wird.
 
 - **Vollständige Ausweitung auf alle Phasenfamilien (01–64) über Ontologie**:
   - UV3 schreibt für jede erfolgreiche Phase generische Team-Semantik in den Kontext
+
     (`last_phase_type`, `phase_type_counts`, Typ-Flags).
+
   - PMGG leitet daraus eine zentrale Übergangs-Policy für alle Phasen ab
+
     (z. B. ADDITIVE→SUBTRACTIVE, ML_GENERATIVE→SUBTRACTIVE, ADDITIVE→DYNAMICS).
+
   - Ergebnis: keine punktuelle Einzelregel mehr, sondern systemweite Team-Koordination
+
     über Module und Phasen hinweg.
 
 ## Version 9.11.4 — Phase_50 §PriorPhase-Guard: HF-Spike-Schutz für Phase_07/06-Harmoniken (Apr 2026)
@@ -1779,7 +1898,9 @@ d.h. die Harmonik-Restaurierung der Vorphasen wurde rückgängig gemacht.
 - Bins ≥ `hf_protected_bin_start` werden aus Pass-1 (Spike-Detection) ausgeschlossen.
 - Pass-2 (Frame-Energy-Dropout) bleibt global aktiv — Frame-RMS reagiert nicht auf isolierte HF-Peaks.
 - `process()` berechnet `_hf_protected_bin_start` = `material_rolloff × 0.85 / bin_hz` aus einer Lookup-Tabelle
+
   für alle analogen Materialtypen (wax_cylinder/shellac/lacquer_disc/wire_recording/cassette/vinyl/tape/reel_tape).
+
 - Digitale Materialien (cd_digital, mp3, dat, aac, streaming): keine Schutzzone (kein analoger Rolloff).
 - Metadata-Felder: `hf_protected_bin_start`, `hf_protection_rolloff_hz` für Audit.
 
@@ -1798,9 +1919,13 @@ d.h. die Harmonik-Restaurierung der Vorphasen wurde rückgängig gemacht.
 
 - **PMGG Passthrough-Erkennung** (`per_phase_musical_goals_gate.py`):
   - Phasen die ihr Audio unverändert zurückgeben (z.B. `phase_31` bei CREPE confidence=0.0)
+
     werden jetzt via `np.array_equal` erkannt.
+
   - Konsequenz: kein Goal-Scoring, kein Retry (3× CREPE/pYIN), kein `StrictConflictDecay`
+
     auf der `dynamics_eq`-Familie mehr.
+
   - Einsparung: ~51 s überflüssige Inferenz pro Song mit confidence=0.0 Pitch.
 - **AudioSR Wall-Time-Budget** (`plugins/audiosr_plugin.py`):
   - Neues `_AUDIOSR_WALL_BUDGET_S = 900.0` (15 min) vor der Zonen-Schleife.
@@ -1842,10 +1967,12 @@ d.h. die Harmonik-Restaurierung der Vorphasen wurde rückgängig gemacht.
 Reduziert die Pipeline-Laufzeit durch zwei gezielte Performance-Fixes:
 
 1. **Audio-Cap-Reduktion** in `NatuerlichkeitMetric` (15 s → 5 s) und `BassKraftMetric` (30 s → 5 s):
+
    — `natuerlichkeit` pro `measure_all`: 14–17 s → **~2 s** (8×). `bass_kraft`: 5 s → **~0.4 s** (13×).
    — Gesamtes `measure_all` (14 Goals, 3:45-min-Track): 27 s → **~11 s**.
 
 2. **FeedbackChain GPP-Callback**: `MusicalGoalsChecker.measure_all()` (CREPE/librosa, 14–17 s/Iter.)
+
    ersetzt durch `_measure_quick()` (DSP-Proxy, < 0.5 s/Iter.).
    — `check_iteration_abort` prüft nur P1/P2-Ziele — alle davon korrekt in `_measure_quick` abgebildet.
    — Einsparung bei 10 FC-Iterationen: ~140 s → ~5 s.
@@ -3513,7 +3640,9 @@ Katastrophale PMGG-Regressions aus Produktionslogs 2026-03-30:
     - Absolut-Modus (ohne Referenz): Max K-S-Korrelation normiert auf [0, 1] als Tonalitätsstärke.
     - Fallback bei Stille/zu kurzem Signal → `0.5`.
   - Profile (Krumhansl & Schmuckler 1990, Table 1): `_KS_MAJOR`, `_KS_MINOR` — normiert zu
+
     zero-mean, unit-variance für Pearson-Äquivalenz via `np.dot`.
+
 - PHASE_GOAL_EXCLUSIONS — tonal_center aus 7 Phasen **entfernt** (K-S macht diese Workarounds obsolet):
   - `phase_02`: `"groove", "tonal_center",` → `"groove",` (K-S robust gegen G-Pitch-Notches)
   - `phase_03`: tonal_center entfernt (Denoising ändert Tonart nicht)
@@ -4072,6 +4201,7 @@ Code 14.0, Tests prüften noch 10.0; `LIMIT_MAXIMUM` war 20.0, Tests prüften 15
 - `target_rt_factor == 10.0` (quality_guard) → `16.0`
 - `test_absolute_30min_limit` → `test_absolute_90min_limit` (5401 s Schwelle statt 1801 s)
 - `test_quality_mode_can_skip_low_priority_near_budget`: Simulierter Elapsed 99.5 s → 158.0 s
+
   (entspricht 15.8× RT, nahe am neuen 16.0-Limit)
 
 **`tests/test_full_chain_ml_hybrid.py`** — Alle `<= 20.0`-Assertionen → `<= 32.0`,
@@ -4121,18 +4251,22 @@ BsRoformer, wenn keine externen Stems übergeben werden.
 **`backend/core/unified_restorer_v3.py`** — 4 Fixes:
 
 1. **QualityMode-Bug (L168)**: `QualityMode.BALANCED` → `QualityMode.MAXIMUM` wenn
+
    `enable_performance_guard=False` AND `studio_2026=True`. Zuvor wurde Studio 2026 auf
    3× RT degradiert statt 15× RT Budget zu nutzen.
 
 2. **Matchering-Gate entfernt (L1826)**: `self._allow_experimental_feature(...)` Guard für
+
    `matchering_reference_mastering` entfernt. Studio 2026 ist ein Production-Feature (§9.5);
    das `try/except` bietet transparenten DSP-Fallback.
 
 3. **Vocos-Gate entfernt (L2667)**: `self._allow_experimental_feature("vocos_finisher")`
+
    Guard entfernt. MOS < 4.3-Bedingung + `try/except`-Fallback bleiben erhalten.
    Vocos-Finisher aktiviert sich jetzt in Production bei `QualityMode.MAXIMUM`.
 
 4. **Auto-Stem-Separation (L1778)**: Neuer Block vor StemRemixBalancer — wenn `_is_studio_26`
+
    und keine externen Stems in `kwargs`, automatische Trennung via `bs_roformer_plugin`
    (`separate_stems(..., stems=["vocals","instruments"])`). BsRoformer verwaltet Budget
    intern (0.90 GB, LRU); Exception → silent skip, StemRemixBalancer weiter verfügbar
@@ -4206,9 +4340,12 @@ Löst das grundlegende Problem, dass RT-Limit-Überschreitungen bisher zu dauerh
 **Kern-Idee — Zweistufiger Export:**
 
 - **Stufe 1 (BatchProcessingThread)**: RT-limitiert (`LIMIT_BALANCED/QUALITY/MAXIMUM`). Bei RT-Überschreitung:
+
   DSP-Fallback PLUS Phase in `deferred_phases` eintragen (kein endgültiger Abbruch).
   Atomischer Sofort-Export nach Phase-Pipeline — der Nutzer erhält _sofort_ eine hörbare Exportdatei.
+
 - **Stufe 2 (MLRefinementThread)**: Startet automatisch wenn `len(deferred_phases) > 0` und ≥ 4 GB RAM frei.
+
   `LIMIT_BACKGROUND = float("inf")` — kein RT-Limit. `QThread.LowPriority` + `os.nice(10)` auf Linux.
   Vollständige UV3-Pipeline mit gecachten Analyse-Ergebnissen aus Stufe 1 (kein Neustart von
   DefectScanner, EraClassifier, MediumClassifier). Nach Abschluss: atomischer Overwrite der Exportdatei
@@ -4227,8 +4364,10 @@ davon wie lange die Verarbeitung dauert. Stufe 2 läuft vollständig im Hintergr
 
 - PerformanceGuard-Sektion: neue Semantik "Überschreitung → DSP-Fallback + `deferred_phases`" statt hartem Abbruch
 - Neuer [RELEASE_MUST]-Block `§2.38 Kontinuierliche ML-Veredelung (KMV)` mit vollständiger Spec:
+
   Stufe-1/Stufe-2-Tabelle, RAM-Guard, `DeferredRefinementJob`-Pflichtfelder, Signalkontrakt, UI-Spec,
   RestorationResult-Pflichtfelder, Memory-Guard, Verbote
+
 - Checkliste neues Kernmodul: `deferred_phases in RestorationResult` (list[str], default=[]) ergänzt
 
 **`.github/specs/02_pipeline_architecture.md`**:
@@ -4240,6 +4379,7 @@ davon wie lange die Verarbeitung dauert. Stufe 2 läuft vollständig im Hintergr
 **`.github/specs/08_architecture_and_distribution.md`**:
 
 - Softwareschichten-Diagramm erweitert: `BatchProcessingThread` + `MLRefinementThread` in UI-Schicht,
+
   `PerformanceGuard (BALANCED/QUALITY/MAXIMUM/∞)` + `MLRefinementQueue` in Backend-Core-Schicht
 
 ### Neue Pflicht-Signals (`MLRefinementThread`)
@@ -4526,6 +4666,7 @@ Fix: Short-Clip-Gate RMS-Threshold (ML-Modelle für Rausch-Audio)
 - Verhindert falsche "benign silence" Klassifikation für degradiertes Audio
 - ML-Phasen werden jetzt für realistische Rausch-Samples aktiviert
 - Integration-Test mit Boundary-Cases
+
 ```
 
 ---
@@ -5170,17 +5311,22 @@ fünf kritische Laien-Features, die aus Nutzerperspektive als Pflicht gelten:
 ### Verbessert
 
 - `_show_settings()`: War "Coming Soon"-Stub → jetzt echter Dialog mit Standard-Export-Format
+
   und Standard-Restaurierungs-Modus (gespeichert als Instanz-Variablen `_default_export_fmt`,
   `_default_mode`)
+
 - `_open_file()`: Vereinfacht zu 10 Zeilen, delegiert an `_load_file()`
 - `_batch_import()`: Datei-Filter erweitert um `.aiff`, `.m4a`, `.wma`
 - `_export_all()`: Ersetzt naives `shutil.copy2` durch `AudioExporter` mit echten
+
   Format-/Bittiefe-Optionen und Hintergrund-Thread
 
 ### Technische Details
 
 - `_load_file(file_path)` — einheitliche Laderoutine (Carrier-Detection, Waveform,
+
   `_orig_audio` / `_orig_sr` speichern, A/B-Player aktivieren)
+
 - `_play_audio(audio, sr)` — `threading.Thread` + `sounddevice.play()`, thread-safe
 - `_compute_and_show_quality(output_path)` — Hintergrund-Thread, Pearson ρ → MOS-Scaling
 - A/B-Player-State-Management via `_update_ab_player_state()`
@@ -5583,7 +5729,9 @@ perceptuell kalibrierte Bewertungen. PANNs-Genre-adaptives Weighting als Bonus.
 **Datei**: `plugins/crepe_plugin.py` — vollständiger Rewrite (337 → 350 Zeilen)
 
 - **Kein Docker mehr**: Inferenz über `models/crepe/crepe/model-full.onnx` via ONNX-Runtime
+
   (CPUExecutionProvider — konform §9.5)
+
 - **Bugfix F0-Formel**: Korrekte Frequenzbins nach Kim et al. (2018):
 
   ```python
@@ -5592,6 +5740,7 @@ perceptuell kalibrierte Bewertungen. PANNs-Genre-adaptives Weighting als Bonus.
   ```
 
   (vorher falsche Formel: `10.0*(2**...)*32.703195` → Offset-Fehler von Oktaven)
+
 - **Rückwärtskompatibilität**: `CREPEPlugin = CrepePlugin` Alias für bestehende Importer
 - **Fallback**: `librosa.pyin()` bei fehlendem ONNX (max. 2 s, DSP-Standard post-2014)
 - **Thread-sicherer Singleton**: Double-Checked Locking (§3.2)
@@ -5602,7 +5751,9 @@ perceptuell kalibrierte Bewertungen. PANNs-Genre-adaptives Weighting als Bonus.
 **Datei**: `plugins/cdpam_plugin.py` — vollständiger Rewrite (~270 Zeilen)
 
 - **Kein Docker mehr**: Lädt `models/cdpam/cdpam/CDPAM_trained/scratchJNDdefault_best_model.pth`
+
   via `sys.path.insert` + `from cdpam.cdpam import CDPAM`; device=cpu (§9.5)
+
 - **Tau-Kalibrierung**: Empirisch kalibriert auf CDPAM-Distanzskala [0, 0.002]:
   - `tau=0.0003` → `similarity = exp(-dist/0.0003)` ∈ (0, 1]
   - Identisch: dist≈0 → sim≈1.0; starkes Rauschen: dist≈0.000135 → sim≈0.64
@@ -5619,11 +5770,14 @@ perceptuell kalibrierte Bewertungen. PANNs-Genre-adaptives Weighting als Bonus.
 **Datei**: `backend/core/musical_goals/musical_goals_metrics.py`
 
 1. **`BassKraftMetric`**: F0-Detektion via CREPE statt pyin (präzisere Grundton-Erkennung
+
    in 20–120 Hz-Bereich für Bassanalyse)
 
 2. **`NatuerlichkeitMetric`**: CREPE-Voicing-Indikator mit adaptivem Gewicht:
    - **Guard-Logik**: CREPE nur bei klar stimmhaften/stimmfreien Signalen (voiced_clear ≥ 0.30
+
      OR unvoiced_clear ≥ 0.30) → Gewichte: 0.30/0.25/0.25/**0.20**
+
    - Bei Instrumentalsignalen (hohe Ambiguität): reines DSP → Gewichte: 0.375/0.3125/0.3125
    - `ambiguity = 1 - voiced_clear - unvoiced_clear`; `crepe_nat = 1 - ambiguity*1.5`
 
@@ -5646,13 +5800,20 @@ perceptuell kalibrierte Bewertungen. PANNs-Genre-adaptives Weighting als Bonus.
 ### Bugfixes (Pre-existing, jetzt behoben)
 
 - **`dsp/tonal_balance_restorer.py`**: Stereo-Format-Bug (`(samples,channels)` vs `(channels,samples)`)
+
   in allen 4 `process()`-Methoden (AdaptiveTonalBalanceRestorer, LowEndClarityEnhancer,
   FrequencyDeMasker, TonalBalanceRestorer). Fix: Format-Erkennung via Shape-Vergleich.
+
 - **`tests/unit/test_phases_mid_late.py`**: Phase29-Tests verwenden jetzt SR_48=48000 Hz
+
   (Phase 29 erzwingt 48 kHz via `validate_input()`).
+
 - **`tests/musical_goals/test_musical_goals_metrics.py`**: Test-Set auf 10 Goals erweitert
+
   (v9.9: groove, spatial_depth, timbre_authenticity).
+
 - **Import-Kaskaden-Fix**: `CREPEPlugin = CrepePlugin` Alias verhindert, dass Import-Fehler
+
   die gesamte `adaptive_pipeline.py`-Importgruppe abbricht (→ GACELAPlugin et al. wieder
   korrekt geladen; Anzahl laufender Tests: 287 → 1620+).
 
@@ -5675,6 +5836,7 @@ perceptuell kalibrierte Bewertungen. PANNs-Genre-adaptives Weighting als Bonus.
 Zwei kritische Kernkomponenten gemäß §2.1 und §1.2 implementiert:
 
 - **`core/medium_classifier.py`** — `MediumClassifier`: automatische Trägermedien-Erkennung
+
   (12 `MaterialType`-Werte) via 2-Tier-System (CLAP-ML → DSP-Fingerprint → UNKNOWN).
   11 spektrale Features: Bandbreite, SNR, Rauschfarbe (β-Exponent), Crackle-Dichte,
   Wow/Flutter, Block-Artefakt, Pre-Echo, HF-Rolloff, Dynamikbereich, Flat-Top-Ratio, RIAA-Score.
@@ -5683,6 +5845,7 @@ Zwei kritische Kernkomponenten gemäß §2.1 und §1.2 implementiert:
   MaterialType-Prior bei Konfidenz ≥ 0.35 (gem. §2.2 Pipeline-Spezifikation).
 
 - **`TimbralAuthenticityMetric`** (10. Musical Goal, §1.2) — in
+
   `backend/core/musical_goals/musical_goals_metrics.py` ergänzt.
   3 Dimensionen: MFCC-Hüllkurve Pearson ≥ 0.95 (13 Koeff.), Spectral Centroid Pearson ≥ 0.93,
   Spectral Rolloff Median-Abweichung ≤ 5 %. Schwellwert ≥ 0.87. Referenz-basierter Modus
@@ -5831,17 +5994,22 @@ Letzte zwei verbleibende Testfehler der Unit-Testsuite behoben.
 #### 1. `tests/unit/test_streaming_optimized.py` — `test_signal_preserved_approx` NaN-Korrelation
 
 - **Problem:** `np.corrcoef(audio[SR // 4:], out[SR // 4:])` lieferte NaN, weil
+
   `len(audio) == _N == SR // 4 = 11025` → `audio[11025:]` ist ein leeres Array.
   `np.corrcoef` von Leervektoren ergibt NaN → `assert nan > 0.3` schlägt fehl.
+
 - **Fix:** Slice auf `audio[len(audio) // 4:]` umgestellt (relative Länge, nie leer).
+
   Kommentar erklärt den Grund, damit der Fehler nicht erneut eingeführt wird.
 
 #### 2. `dsp/streaming_optimized.py` — `StreamingDenoiser.process()` — `ValueError` bei Kurzpuffern
 
 - **Problem:** Bei Eingabe mit `n < nperseg=256` Samples reduziert scipy intern
+
   `nperseg` auf `n` (z. B. 100), aber `noverlap = win_len - hop = 192` bleibt unverändert.
   Da `noverlap (192) >= nperseg (100)`, wirft `scipy.signal.stft` einen
   `ValueError: noverlap must be less than nperseg`. Test `test_short_buffer` schlug fehl.
+
 - **Fix:** Adaptiver Guard vor dem STFT-Aufruf:
   - `win_len = min(n_fft, n)` (begrenzt auf Eingangslänge)
   - `hop = min(hop, max(1, win_len // 4))` (garantiert `hop < win_len`)
@@ -5867,71 +6035,98 @@ Außerdem: Erstellung des fehlenden `dsp/hybrid_ml_denoiser.py`-Moduls.
 #### 1. `core/phases/phase_01_click_removal.py` — `scipy.signal.lpc` entfernt
 
 - **Problem:** `from scipy.signal import lpc` → `ImportError` in scipy ≥ 1.12
+
   (`lpc` wurde entfernt, nicht mehr Teil von scipy.signal)
+
 - **Fix:** `librosa.lpc(signal.astype(np.float32), order=N)` (librosa 0.11 stellt dies bereit)
 - **Details:** Betraf `_inpaint_ar_segment()` für AR-basiertes Dropout-Inpainting
 
 #### 2. `core/phases/phase_24_dropout_repair.py` — savgol_filter Bound-Overflow
 
 - **Problem:** `ref_window += 1` (Aufrunden auf ungerade Zahl) konnte
+
   `ref_window > len(energy_smooth)` erzeugen wenn STFT-Frames ≤ 20 (gerade Zahl)
+
 - **Fix:** `ref_window -= 1` (Abrunden statt Aufrunden) + Guard `ref_window <= len(energy_smooth)`
 - **Symptom:** `ValueError: window_length must be less than or equal to the size of x`
 
 #### 3. `core/comprehensive_metrics.py` — Spektrale SNR-Berechnung
 
 - **Problem:** Perzentil-Methode (`75. Perzentil / 10. Perzentil` der Frame-Energien)
+
   ergab ≈0 dB für reinen Sinus (alle Frames gleiche Energie → kein Kontrast)
+
 - **Fix:** Spektrale FFT-Methode: Top-5% Frequenzbins = Signal, Bottom-95% = Rauschboden
+
   → Reiner 440 Hz-Sinus: ≈100 dB SNR ✅
+
 - **Code:** `np.sort(spectrum)[split_idx:].mean() / np.sort(spectrum)[:split_idx].mean()`
 
 #### 4. `dsp/hybrid_ml_denoiser.py` — Fehlendes Modul erstellt
 
 - **Problem:** `ModuleNotFoundError: No module named 'dsp.hybrid_ml_denoiser'`
 - **Fix:** Vollständiges Modul mit `DenoiseStrategy`, `DenoiseConfig`, `DenoiseResult`,
+
   `HybridMLDenoiser`, sowie `denoise_fast()`, `denoise_balanced()`, `denoise_maximum()`
+
 - **Architektur:** OMLSA-DSP als Primär-Denoiser, optionaler Resemble-Enhance ML-Pfad,
+
   automatischer Stereo-Support, OMLSA via bestehenden `SpectralDenoiser`
 
 #### 5. `usability/cli_accessibility.py` — get_theme() Prioritätslogik
 
 - **Problem:** `AURIK_HIGH_CONTRAST` wurde NACH `sys.stdout.isatty()` geprüft;
+
   in pytest/CI gibt `isatty()` immer False zurück → high_contrast wurde nie verwendet
+
 - **Fix:** `AURIK_HIGH_CONTRAST` wird innerhalb des `auto`-Pfads VOR `isatty()` geprüft;
+
   explizite Themes (`plain`, `colorful`, `high_contrast`) umgehen den tty-Check vollständig
 
 #### 6. `usability/cli_accessibility.py` — logging → print() Konversion (AccessibleCLI)
 
 - **Problem:** Alle `AccessibleCLI`-Ausgabemethoden nutzten `logging.info()` statt `print()`;
+
   pytest's `capsys`-Fixture erfasst nur stdout (`print()`), nicht logging-Ausgaben
+
 - **Fix:** `_print()`, `header()`, `success()`, `error()`, `warning()`, `info()`,
+
   `dim()`, `separator()`, `list_options()`, `progress()` → vollständig auf `print()` umgestellt
+
 - **Prefixe:** `[SUCCESS]`, `[ERROR]`, `[WARNING]`, `[INFO]` im screen_reader_mode (plain theme)
 
 #### 7. `usability/cli_accessibility.py` — colorama.init() entfernt (xdist-Fix)
 
 - **Problem:** `colorama.init(autoreset=True)` auf Modulebene wrapped `sys.stdout`
+
   in einen `StreamWrapper` VOR pytest's capsys-Capture; der Wrapper schreibt auf den
   gespeicherten Original-fd, bypassing capsys → pytest-xdist worker Tests schlugen fehl
+
 - **Fix:** `colorama.init()` entfernt. Auf Linux arbeiten ANSI-Codes nativ im Terminal;
+
   im Screen-Reader-Mode (`plain` theme) werden ohnehin keine Farbcodes erzeugt.
   Die ANSI-Stringkonstanten (`Fore.RED`, `Style.BRIGHT` etc.) funktionieren ohne init().
 
 #### 8. `core/comprehensive_metrics.py` — harmonic_clarity Algorithmus ersetzt
 
 - **Problem:** HPS-Algorithmus (`signal.decimate` auf Spektrum + Normalisierung `/100`)
+
   lieferte für bestimmte Rauschwerte zu ähnliche scores wie für Harmonik-Signale
+
 - **Fix:** Oberton-Energie-Methode: Identifiziert dominanten Peak, sucht Obertöne (1–6×),
+
   summiert Energie in ±3-Bin-Fenster, normalisiert auf Gesamtenergie × 8
+
   - Harmonik-Signal: `harmonic_clarity ≈ 1.000` (alle Energie in Obertönen)
   - Weißes Rauschen: `harmonic_clarity ≈ 0.006` (Energie breit verteilt)
 
 #### 9. `core/comprehensive_metrics.py` — O(N²) → O(N log N) Performance-Fix
 
 - **Problem:** `np.correlate(audio, audio, mode='full')` in `_compute_hnr()`,
+
   `_compute_fundamental_stability()`, `_compute_tonality()`: O(N²) Komplexität!
   Für 5s @ 48kHz = 240k Samples: 57 Mrd. Operationen → `test_computation_time` scheiterte
+
 - **Fix:** FFT-basierte Autokorrelation: `R(τ) = IFFT(|FFT(x)|²)` — O(N log N)
 - **`_compute_spectral_features()`:** Python-Loops → vollständig vektorisiertes numpy
 - **Speedup:** 5.09s → 0.44s für 5s Audio (**11.6× schneller**)
@@ -6055,9 +6250,13 @@ und vollständige copilot-instructions-Überarbeitung (Sektion 4, 12, 13).
   - Artefakt: Z-Score über IMCRA-Floor via MAD (1.4826-Faktor, robust)
   - Phasensprung: unverändert
 - `_inpaint_magnitude()`: O(F+T) vektorisiert — scipy.interpolate.interp1d
+
   per Frequenzband bzw. Zeitframe, Blend 0.6 horizontal + 0.4 vertikal (Smaragdis 2003)
+
 - `_inpaint_phase()`: Phase-Velocity-Fortsetzung δφ(f,t) = φ(t-1) − φ(t-2)
+
   (instantane Frequenz-Extrapolation, Laroche & Dolson 1999)
+
 - Dead Code entfernt: `_interpolate_horizontal()` und `_interpolate_vertical()` (nach Vektorisierung obsolet)
 - Phase-ID: `phase_23_spectral_repair_v3_imcra`, Version: `3.0.0`
 - Funktionstest: VINYL 71.1% / CD 69.8% Defekt-Reduktion, Stereo OK ✅
@@ -6100,9 +6299,13 @@ und vollständige copilot-instructions-Überarbeitung (Sektion 4, 12, 13).
 
 - `scipy.signal.stft()` — phasenkonsistente OLA-Analyse (kein rfft-Loop mehr)
 - **IMCRA-Sliding-Minimum**: `noise_floor[:, t] = mag[:, max(0,t-W):t+1].min(axis=1)`, W = max(8, n_frames//4)
+
   Cohen (2003): "Noise Spectrum Estimation in Adverse Environments"
+
 - **MMSE-Wiener-Gain**: `G = ξ/(1+ξ)`, `ξ = max(mag/noise_floor − 1, 0)`, `G_floor = 0.1`
+
   Le Roux & Vincent (2013): "Consistent Wiener Filtering"
+
 - `scipy.signal.istft()` — phasenkonsistente OLA-Synthese (kein irfft-Loop mehr)
 - NaN/Inf-Schutz: `np.nan_to_num()` + `np.clip(-1, 1)` nach Rekonstruktion
 
@@ -6131,7 +6334,9 @@ und vollständige copilot-instructions-Überarbeitung (Sektion 4, 12, 13).
 
 - **IMCRA-Sliding-Minimum**: wie StreamingDenoiser — gleitendes Min. der letzten W Frames
 - **MMSE-Wiener-Gain**: `G = snr/(snr+1)`, `snr = max(mag/noise_mag - 1, 0)`
+
   — entspricht MMSE-LSA-Gain (ξ/(1+ξ)), nicht dem verbotenen Ephraim-Malah-STSA
+
 - Gain-Floor `min_gain = 10^(-reduction_db/20)` erhalten
 - `scipy.signal.stft/istft` war bereits vorhanden (nicht verändert)
 
@@ -6233,6 +6438,7 @@ Neue Implementierung in `_detect_transients_scale`:
 - Residuum r[n] = x[n] − x_hat[n] → Outlier wenn |r[n]| > k·σ_lokal
 - Adaptive lokale Varianz: gleitendes 20ms-Fenster
 - `_interpolate_spectral` → konsistente Wiener-Interpolation (Le Roux 2013)
+
   via STFT-Betragsspektrum + lineare Phaseninterpolation + ISTFT
 
 Referenz: Cemgil et al. (2006), Le Roux & Vincent (2013)
@@ -6258,8 +6464,11 @@ Referenz: Mauch & Dixon (2014) pYIN
 **Nachher**:
 
 - `_repair_tonal` → STFT + Top-K-Sinusoide + PGHI-Phasenpropagation
+
   phi[n+1] = phi[n] + 2π·f·hop/sr (Perraudin 2013 Prinzip)
+
 - `_repair_atonal` → NMF mit β-Divergenz (β=1, Itakura-Saito), 8 Komponenten,
+
   30 IS-NMF-Iterationen, Aktivierungen interpoliert, Energienormalisierung
 
 Referenz: Févotte & Idier (2011) NMF-β, Perraudin et al. (2013) PGHI
@@ -6284,6 +6493,7 @@ Referenz: Févotte & Idier (2011) NMF-β, Perraudin et al. (2013) PGHI
 - **Sektion 9.1**: 6 neue Installer-Checkboxen
 - **Sektion 12**: 20+ moderne Referenzen, Pflicht-Refs mit (*)
 - **Sektion 13** (neu): Vollständige Out-of-the-Box-Installer-Spezifikation
+
   (AppImage/NSIS, PyInstaller-Spec, ModelDownloader, QWizard, CI/CD)
 
 ---
@@ -6297,16 +6507,27 @@ in allen Dokumenten durch korrekte Werte ersetzt.
 ### Geänderte Dokumente
 
 - **`README.md`**: Komplett überarbeitet — v9.7.0, 55 Phasen, 12 Materialien,
+
   206 Tests, 7 Musical Goals, korrekte CLI-Syntax, CPU-only, kein GitHub-CI
+
 - **`docs/INDEX.md`**: Auf v9.7.0 aktualisiert — Phasenzahl, KI-Richtlinien-Links,
+
   neue Dokumentstruktur
+
 - **`docs/PROJECT_STATUS.md`**: Komplett überarbeitet mit v9.7.0-Status,
+
   55 Phasen, 12 Materialien, 7 Musical Goals, Roadmap
+
 - **`docs/KI-AGENT-INTEGRATION-GUIDE.md`**: Von AURIK 8.0 auf AURIK 9.7 aktualisiert —
+
   kognitive Architektur, 5 Arbeitsregeln, Singleton-Pattern, 6 Fallstricke
+
 - **`.github/copilot-instructions.md`**: Magic-Button-Sektion, Software-Schichten
+
   (Sektion 11.1–11.5) ergänzt
+
 - **`aurik_90/ui/modern_window.py`**: Magic-Buttons als vollflächige Bild-Buttons
+
   (`border-image`, `restoration.png` / `studio.png`)
 
 ### Korrekturen
@@ -6458,8 +6679,11 @@ MOS `math.isfinite(z)` Schutz
 ### KI-Programmierrichtlinien
 
 - `.github/copilot-instructions.md` erstellt: vollständige Aurik-9-Richtlinien
+
   für GitHub Copilot, Claude und alle KI-Assistenten
+
 - Dokumentiert: kognitive Architektur, DSP-Standards, Qualitätsziele,
+
   psychoakustische Fundierung, Test-Standards, Material-System
 
 ---
@@ -6494,7 +6718,9 @@ sodass der Plugin-Pfad in Phase 55 erstmals aktiv genutzt wird.
 #### Phase 55 in `core/unified_restorer_v3.py`
 
 - Neue TIER-3b-Phase: `"phase_55_diffusion_inpainting"` wird aktiviert wenn
+
   `DefectType.DROPOUTS`-Severity > 0.3
+
 - Logger-Meldung: `🩹 Phase 55 Diffusion-Inpainting aktiviert (dropout_severity=X.XX)`
 
 ### Tests (Sektion 16, 16 neue Tests)
@@ -6689,7 +6915,9 @@ Flux Continuity, Micro-Dynamic Variation), FeedbackChain Excellence-Modus.
 #### test_parameter_optimization — MockTapeSpecialist akzeptiert keine ML-Parameter-Keywords (`tests/test_module_coordinator.py`)
 
 - ML-Parameter-Optimierung injiziert `{'strategy': 'default', 'confidence': 0.0}` in Modul-Parameter;
+
   `MockTapeSpecialist.process(audio, sr, strength=0.5)` warf `TypeError: unexpected keyword argument 'strategy'`.
+
 - Fix: `**kwargs` zu `MockTapeSpecialist.process()` hinzugefügt (realistisches Mock — echte Module akzeptieren extra Parameter).
 
 ### 📊 Statistik
@@ -6709,7 +6937,9 @@ Flux Continuity, Micro-Dynamic Variation), FeedbackChain Excellence-Modus.
 #### Phase 13 ZeroDivisionError bei stillem Signal (`core/phases/phase_13_stereo_enhancement.py`)
 
 - `process()`: `width_increase_percent = (final_width / initial_width - 1) * 100` warf bei
+
   stillem Eingangssignal einen `ZeroDivisionError`, da `initial_width == 0.0`.
+
 - Fix: Guard `if initial_width > 0.0` hinzugefügt, sonst `width_increase_percent = 0.0`.
 
 ### 🧪 Neue Unit-Tests (+119 Tests, jetzt 595 gesamt)
@@ -6777,16 +7007,21 @@ Vollständige Abdeckung aller mittleren und späten Phasen:
 #### StreamingDenoiser Klassen-Fehler (`dsp/streaming_optimized.py`)
 
 - **Kritischer Strukturfehler behoben**: `StreamingDenoiser` hatte keine `class`-Deklaration —
+
   die Methoden `log_contract()` und `process()` waren fälschlicherweise innerhalb von
   `StreamingLimiter` eingebettet (lediglich ein docstring-Ausdruck ohne `class StreamingDenoiser:`).
+
 - Fix: `class StreamingDenoiser:` als eigenständige Top-Level-Klasse hinzugefügt.  
+
   Jetzt korrekt importierbar und instanziierbar.
 
 #### StreamingLimiter Leere-Slice-Bug (`dsp/streaming_optimized.py`)
 
 - `process()`: Frame-Comprehension `range(len// frame + 1)` erzeugte bei bestimmten
+
   Sample-Raten (z. B. 8 kHz) einen leeren Slice → `numpy.ValueError: zero-size array to
   reduction operation maximum`.
+
 - Fix: Ceil-Division + explizite `size > 0`-Prüfung für jeden Frame-Chunk.
 
 ### 🧪 Neue Unit-Tests (+92 Tests, jetzt 476 gesamt)
@@ -6794,25 +7029,36 @@ Vollständige Abdeckung aller mittleren und späten Phasen:
 #### `tests/unit/test_streaming_optimized.py` (25 Tests)
 
 - `TestStreamingLimiter` (9 Tests): Shape, Dtype, Ceiling -1 dBFS, Quiet-Signal unverändert,
+
   Stille, Short-Buffer, verschiedene Sample-Raten, Stereo-Fallback.
+
 - `TestStreamingDenoiser` (8 Tests): Shape, Dtype, Rauschreduzierung, Signalerhaltung
+
   (Korrelation > 0.3), Stille nahe Null, Anti-Clipping, Short-Buffer, Sample-Raten.
+
 - `TestStreamingGate` (8 Tests): Shape, Dtype, Lautes Signal passiert, Stilles Signal
+
   stumm, Kein Gain-Increase, Hysterese kein Chattern, Sample-Raten.
 
 #### `tests/unit/test_ultra_low_latency.py` (27 Tests)
 
 - `TestUltraLowLatencyLimiter` (9 Tests): Shape, Dtype, Ceiling 0.9 (tanh), Monotonie,
+
   Quiet unverändert, Stille, Short-Buffer, Zero-Latency-Nachweis, Sample-Raten.
+
 - `TestUltraLowLatencyDenoiser` (8 Tests): Shape, Dtype, Anti-Clipping, Stille,
+
   Rauschreduzierung, Short-Buffer-Fallback, Latenznachweis (128 Samples), Sample-Raten.
+
 - `TestUltraLowLatencyGate` (10 Tests): Shape, Dtype, Lautes Signal passiert, Sehr
+
   leises Signal stumm, Stille, Kein Gain-Increase, Sample-genaues Trigger-Timing
   (6 ms nach Onset), Attack/Release-Timing, Sample-Raten.
 
 #### `tests/unit/test_bwf_metadata_writer.py` (14 Tests)
 
 - EBU Tech 3285 BEXT-Chunk-Struktur vollständig verifiziert:
+
   `True`-Return, BEXT in WAV vorhanden, RIFF-Header intakt, RIFF-Größe korrekt
   berechnet, `data`-Chunk erhalten, BEXT vor `data`, Description/Originator kodiert,
   Description auf 256 Bytes begrenzt, Chunk-Größe gerade (RIFF alignment), WAV noch
@@ -6822,11 +7068,14 @@ Vollständige Abdeckung aller mittleren und späten Phasen:
 #### `tests/unit/test_omlsa_and_stem_processor.py` (26 Tests)
 
 - `TestAdaptiveOMLSA` (12 Tests): OMLSA Output-Shape, Rauschreduzierung,
+
   Signal-Preservation (SNR >> 1), Nicht-Negativ, 2D-Input, auto_optimize None-Return,
   alpha in [0.85, 0.99], noise_floor in [1e-8, 1e-5], Hohes SNR → hohe alpha,
   Niedriges SNR → niedrigere alpha, Hoher SNR → kleiner Rauschboden, Idempotenz,
   auto_optimize → omlsa konsistent.
+
 - `TestStemBasedProcessorMethods` (14 Tests): `_enhance_transients` Shape/Clipping/Boost,
+
   `_intelligent_click_removal` Shape/Clipping/Klick-Entfernung, `_bass_enhancement`
   Shape/Clipping/LF-Boost, `_gentle_noise_reduction` Shape/Clipping/Rauschreduzierung,
   `_compute_quality` Bereich [1.0, 5.0], Stille-Score.
@@ -7806,6 +8055,7 @@ Zwei neue wissenschaftlich begründete kausale Kanten:
 ### Fixed
 
 - **`plugins/mert_plugin.py`** — `_analyze_hf()` und `_analyze_onnx()` führten
+
   `model(**inputs)` bzw. `self._model.run()` ohne PLM-Active-Guard durch.
   Emergency-Eviction konnte Modellgewichte während aktiver Inferenz entladen
   → Crash / OOM. Fix: `set_active("MERT-330M-HF")` und `set_active("MERT-ONNX")`
@@ -7816,6 +8066,7 @@ Zwei neue wissenschaftlich begründete kausale Kanten:
 ### Fixed
 
 - **`plugins/versa_plugin.py`** — `_score_singmos_pro()` rief `_pseudo_mos_metric()`
+
   (wav2vec2-large SingMOS PyTorch-Inferenz) ohne PLM-Active-Guard auf. Emergency-
   Eviction konnte VersaSingMOS während Scoring entladen → Crash. Fix:
   `set_active("VersaSingMOS", True/False)` mit fehlertoleranten try/finally-Blöcken
@@ -7826,8 +8077,11 @@ Zwei neue wissenschaftlich begründete kausale Kanten:
 ### Fixed
 
 - **`plugins/artifact_detection_plugin.py`** — `model(mel)` (TorchScript CPU-Inferenz)
+
   ohne PLM-Active-Guard. Fix: `set_active("ArtifactDetection", True/False)` try/finally
   um `torch.no_grad()` block (§4.6b).
+
 - **`plugins/deepfilternet_v3_ii_plugin.py`** — `_enhance_channel()` rief `_infer_onnx()`
+
   (3× ONNX-Inferenz: Enc + ERB-Dec + Dec) ohne PLM-Active-Guard. Fix:
   `set_active("DeepFilterNetV3", True/False)` try/finally um `_infer_onnx()`-Aufruf (§4.6b).
