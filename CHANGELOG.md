@@ -4,6 +4,16 @@
 > Historische Qualitäts- und Marketingformulierungen bleiben zur Nachvollziehbarkeit erhalten
 > und sind nicht automatisch als aktueller, normativ bindender Außenclaim zu verstehen.
 
+## Version 9.12.9-hotfix.2 — Canonical Contract Drift Gate (19. Mai 2026)
+
+### release: Bridge-/Denker-/Exporter-Vertrag als Release-Gate verankert
+
+- **Vorgaben/Specs**: `Canonical Contract Drift Gate` als `[RELEASE_MUST]` in `.github/copilot-instructions.md`, Spec 08 und Spec 07 ergänzt.
+- **Normativer Gate**: `tests/normative/test_canonical_contract_drift_gate.py` blockiert GUI/CLI/Batch-Parallelpfade, Export-Bypässe und unmarkierte REST-Legacy-Pfade.
+- **CLI/Frontend-Parität**: bestehende CLI-Frontend-Exportverträge bleiben verpflichtend; Release-Oberfläche bleibt auf `Restoration` und `Studio 2026` begrenzt.
+- **Legacy-REST**: historische REST-Batch-Dateien als `LEGACY_NON_RELEASE` markiert und statische Analysefehler bereinigt.
+- **Spec-Evidence**: `docs/reports/spec_evidence/2026-05-19_canonical_contract_drift_gate.md` dokumentiert Gate-Hypothese, Risikoanalyse und Maintainer-Sign-off.
+
 ## Version 9.12.9 — Pylint/Pyright-Bereinigung: statische Analyse vollständig grün (19. Mai 2026)
 
 ### fix: Statische Analyse (Pylint 10/10, Pyright 0 errors) — alle gemeldeten Warnungen behoben

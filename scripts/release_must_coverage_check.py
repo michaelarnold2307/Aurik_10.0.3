@@ -23,6 +23,37 @@ REPORT_PATH = ROOT / "reports" / "release_must_coverage.json"
 # Hard traceability anchors for headings that are semantically broad and cannot
 # be matched reliably by keyword heuristics alone.
 FORCED_TRACEABILITY: dict[str, list[str]] = {
+    "### §0h [RELEASE_MUST] Music-Death-Shield — absolute Schutzregel (v9.12.0)": [
+        "tests/unit/test_artifact_freedom_gate.py",
+        "tests/unit/test_edge_taper_no_intro_outro_artifacts.py",
+        "tests/unit/test_silence_mask.py",
+    ],
+    "### §0j [RELEASE_MUST] KI-Modell-Limitation-Awareness": [
+        "tests/test_ml_policy_engine.py",
+        "tests/unit/test_ml_fallback_cascades.py",
+        "tests/unit/test_ml_device_manager.py",
+    ],
+    "### §0k [RELEASE_MUST] Maximum-Achievable-Score-Prinzip": [
+        "tests/normative/test_mas_convergence.py",
+        "tests/unit/test_goal_baseline_check_optimizations.py",
+    ],
+    "### §0p [RELEASE_MUST] Vocal-Supremacy-Doktrin (v9.12.1)": [
+        "tests/normative/test_vocal_excellence_contract.py",
+        "tests/unit/test_vocal_chain_invariants.py",
+        "tests/unit/test_vocal_quality_index.py",
+    ],
+    "### §0d [RELEASE_MUST] Carrier-Recovery-Referenzmodell": [
+        "tests/normative/test_carrier_recovery_reference_model_contract.py",
+        "tests/unit/test_carrier_chain_recovery.py",
+    ],
+    "### §0f [RELEASE_MUST] KI-Agenten-Vorgehensweise: Systemisch vs. Punktuell": [
+        "tests/normative/test_spec_consistency.py",
+        "tests/unit/test_verboten_linter_compliance.py",
+    ],
+    "### [RELEASE_MUST] AMD-GPU-Beschleunigung (v9.11.14)": [
+        "tests/unit/test_ml_device_manager_amd.py",
+        "tests/unit/test_ml_device_manager.py",
+    ],
     "### §0c [RELEASE_MUST] Universalitäts-Invariante — alle Importsongs": [
         "tests/test_uat_acceptance_criteria.py",
         "tests/normative/test_competitive_stratified_gate.py",
