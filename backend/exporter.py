@@ -31,7 +31,7 @@ def _transfer_metadata(source_path: str, target_path: str) -> None:
     if not source_path:
         return
     try:
-        get_metadata_preserver().transfer(source_path, target_path, aurik_version="9.12.8")
+        get_metadata_preserver().transfer(source_path, target_path, aurik_version="9.12.9")
     except Exception as exc:
         logger.debug("metadata transfer skipped: %s", exc)
 

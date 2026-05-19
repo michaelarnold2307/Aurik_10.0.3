@@ -16,4 +16,4 @@ from .rollback_manager import AudioSnapshot, RollbackDecision, RollbackManager
 
 __all__ = ["AudioSnapshot", "RollbackDecision", "RollbackManager"]
 
-__version__ = "9.12.8"
+__version__ = "9.12.9"

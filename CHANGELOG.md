@@ -4,6 +4,23 @@
 > Historische Qualitäts- und Marketingformulierungen bleiben zur Nachvollziehbarkeit erhalten
 > und sind nicht automatisch als aktueller, normativ bindender Außenclaim zu verstehen.
 
+## Version 9.12.9 — Pylint/Pyright-Bereinigung: statische Analyse vollständig grün (19. Mai 2026)
+
+### fix: Statische Analyse (Pylint 10/10, Pyright 0 errors) — alle gemeldeten Warnungen behoben
+
+#### Behobene Warnungen (session-übergreifend)
+
+- **W0613 embedding_vec** (`gp_parameter_optimizer.py`): `embedding_vec` per Docstring-Vorgabe via `logger.debug()` geloggt (Input-Warping-Reservierung)
+- **W0212 protected-access** (`exzellenz_denker.py`): `_modulation_strength`-Zugriff mit `# pylint: disable=protected-access` inline abgesichert
+- **Pyright object→Any** (`exzellenz_denker.py`): `_optimizer`/`_checker` und alle vier Getter-Return-Typen von `object` auf `Any` geändert; `from typing import Any` ergänzt
+- **Pyright misc** (`exzellenz_denker.py`): `# type: ignore[assignment,misc]` → `# type: ignore[assignment]` (Pyright erkennt `misc` nicht als Suppressions-Code)
+- **attr-defined warnings** (`test_context_aware_deesser.py`): `post_result.warnings` → `post_result.issues` (korrektes Feld von `PostCheckResult`)
+- **W1203 (2×)** (`safety_wrapper_template.py`): f-string-Interpolation in `logger.warning()` → lazy `%`-Formatierung
+- **W0613 (6×)** (`safety_wrapper_template.py`): Ungenutzte Argumente `params`/`sr`/`post_check` in Template-Methoden über `logger.debug()` referenziert
+- **W1514** (`safety_wrapper_template.py`): `open(log_file, "a")` → `open(log_file, "a", encoding="utf-8")`
+
+---
+
 ## Version 9.12.8 — §0p Vocal-Supremacy-Invarianten vollständig implementiert (14. Mai 2026)
 
 ### fix §0p: Vibrato-Schutz, Formant-Wächter, HNR-Blend phase_55, vibrato_zones-Propagation
