@@ -136,3 +136,27 @@ class TestIntegration:
         r_fast = phase.process(audio, sr, material=MaterialType.VINYL, quality_mode="fast")
         r_max = phase.process(audio, sr, material=MaterialType.VINYL, quality_mode="maximum")
         assert r_fast.metadata["click_repair_profile"]["ar_order"] < r_max.metadata["click_repair_profile"]["ar_order"]
+
+    def test_phase27_uses_lge_singleton_accessor(self, monkeypatch):
+        phase = ClickPopRemoval()
+        sr = 48000
+        t = np.linspace(0, 0.2, int(sr * 0.2), dtype=np.float32)
+        audio = (0.3 * np.sin(2 * np.pi * 440 * t)).astype(np.float32)
+
+        calls = {"count": 0}
+
+        class _LgeStub:
+            def get_phoneme_mask(self, audio, sr, hop_length=512):
+                return np.zeros(max(1, len(audio) // hop_length), dtype=bool)
+
+        def _get_lge():
+            calls["count"] += 1
+            return _LgeStub()
+
+        monkeypatch.setattr("backend.core.lyrics_guided_enhancement.get_lyrics_guided_enhancement", _get_lge)
+
+        result = phase.process(
+            audio, sr, material=MaterialType.VINYL, quality_mode="balanced", restorability_score=60.0
+        )
+        assert result.success is True
+        assert calls["count"] >= 1

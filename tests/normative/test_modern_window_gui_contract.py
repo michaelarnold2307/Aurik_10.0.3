@@ -6,6 +6,7 @@ copilot-instructions/specs for the modern frontend path.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -208,7 +209,9 @@ def test_worldclass_gate_and_threshold_evidence_are_visible_in_quality_banner() 
     assert 'ctx["_xp_threshold_evidence"] = dict(_te_raw)' in src
     assert "xp_threshold_evidence: dict" in src
     assert 'qg_wcs = xp_quality_gate.get("worldclass_composite_gate", {})' in src
+    assert 'qg_psy = xp_quality_gate.get("psychoacoustic_naturalness_gate", {})' in src
     assert "🏁  Worldclass-Gate:" in src
+    assert "🎧  Psychoakustik-Gate:" in src
     assert "📚  Gate-Evidenz:" in src
 
 
@@ -220,8 +223,46 @@ def test_worldclass_and_evidence_are_forwarded_in_export_metadata() -> None:
     assert "quality_gate_worldclass_passed" in src
     assert "quality_gate_worldclass_profile" in src
     assert "quality_gate_worldclass_artifact_veto" in src
+    assert "quality_gate_hybrid_engineer_vector" in src
+    assert "json.dumps(" in src
+    assert "quality_gate_psycho_score" in src
+    assert "quality_gate_psycho_threshold" in src
+    assert "quality_gate_psycho_per_metric_floor" in src
+    assert "quality_gate_psycho_passed" in src
+    assert "quality_gate_psycho_profile" in src
     assert "quality_gate_evidence_worldclass_source_class" in src
     assert "quality_gate_evidence_worldclass_revalidate_by" in src
+    assert "quality_gate_evidence_psycho_source_class" in src
+    assert "quality_gate_evidence_psycho_revalidate_by" in src
+
+
+@pytest.mark.normative
+def test_hybrid_engineer_vector_export_metadata_is_json_parseable() -> None:
+    src = _read_gui_source()
+    assert '"quality_gate_hybrid_engineer_vector": json.dumps(' in src
+
+    vector_payload = {
+        "artifact_freedom": 0.98,
+        "vocal_identity_preservation": 0.93,
+        "goal_team_balance": 0.87,
+    }
+    serialized = json.dumps(vector_payload, sort_keys=True, ensure_ascii=True)
+    parsed = json.loads(serialized)
+
+    assert parsed["artifact_freedom"] == pytest.approx(0.98)
+    assert parsed["vocal_identity_preservation"] == pytest.approx(0.93)
+    assert parsed["goal_team_balance"] == pytest.approx(0.87)
+
+
+@pytest.mark.normative
+def test_quality_banner_has_psycho_ampel_style_logic() -> None:
+    src = _read_gui_source()
+    assert '_psy_present = any("🎧  Psychoakustik-Gate:" in _s for _s in banner_sections)' in src
+    assert '_psy_risk = any("klinisch-risiko" in _s for _s in banner_sections)' in src
+    assert "_degraded_hint = any(" in src
+    assert "#F0B8B8" in src  # Rot: klinisch-risiko
+    assert "#CFE8D9" in src  # Gruen: natuerlich
+    assert "#F2DAB3" in src  # Gelb: Vorsicht
 
 
 @pytest.mark.normative

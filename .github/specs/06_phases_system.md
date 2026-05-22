@@ -502,6 +502,10 @@ CAUSE_TO_PHASES = {
                                   "phase_03_denoise"],
     "tape_head_level_dip":       ["phase_12_wow_flutter_fix", "phase_24_dropout_repair",
                                   "phase_40_loudness_normalization"],
+    "scrape_flutter":            ["phase_12_wow_flutter_fix", "phase_31_speed_pitch_correction",
+                                  "phase_08_transient_preservation"],
+    "tape_head_clog":            ["phase_56_spectral_band_gap_repair", "phase_25_azimuth_correction",
+                                  "phase_24_dropout_repair"],
     # ── v9.12.9: Erweiterte Kausal-Ursachen ───────────────────────────────────
     "proximity_effect_excess":   ["phase_04_eq_correction", "phase_05_rumble_filter"],
     "room_mode_resonance":       ["phase_04_eq_correction", "phase_16_final_eq",

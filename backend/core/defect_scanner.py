@@ -187,6 +187,10 @@ class DefectType(Enum):
     OVERLOAD_DISTORTION = "overload_distortion"
     # Acetat-Zersetzung: Substrat-Rissbildung, Lackschicht-Oxidation; Hess (1988) → phase_03 + phase_09.
     LACQUER_DISC_DEGRADATION = "lacquer_disc_degradation"
+    # Hochfrequentes Tape-Scrape-Flutter (typ. 40–120 Hz) → phase_12 mit transport-spezifischer Korrektur.
+    SCRAPE_FLUTTER = "scrape_flutter"
+    # Temporäre Hochton-Auslöschung durch zugesetzten/verschmutzten Magnetkopf → phase_56 + phase_25.
+    TAPE_HEAD_CLOG = "tape_head_clog"
 
 
 class MaterialType(Enum):
@@ -1032,6 +1036,47 @@ class DefectScanner:
         },
     }
 
+    _SCRAPE_FLUTTER_SENSITIVITY: dict[MaterialType, float] = {
+        MaterialType.SHELLAC: 0.85,
+        MaterialType.VINYL: 0.75,
+        MaterialType.TAPE: 0.18,
+        MaterialType.CASSETTE: 0.16,
+        MaterialType.CD_DIGITAL: 1.0,
+        MaterialType.REEL_TAPE: 0.14,
+        MaterialType.DAT: 1.0,
+        MaterialType.MP3_LOW: 1.0,
+        MaterialType.MP3_HIGH: 1.0,
+        MaterialType.AAC: 1.0,
+        MaterialType.MINIDISC: 1.0,
+        MaterialType.STREAMING: 1.0,
+        MaterialType.UNKNOWN: 0.55,
+        MaterialType.WAX_CYLINDER: 0.70,
+        MaterialType.WIRE_RECORDING: 0.20,
+        MaterialType.LACQUER_DISC: 0.78,
+    }
+    _TAPE_HEAD_CLOG_SENSITIVITY: dict[MaterialType, float] = {
+        MaterialType.SHELLAC: 1.0,
+        MaterialType.VINYL: 1.0,
+        MaterialType.TAPE: 0.18,
+        MaterialType.CASSETTE: 0.16,
+        MaterialType.CD_DIGITAL: 1.0,
+        MaterialType.REEL_TAPE: 0.14,
+        MaterialType.DAT: 1.0,
+        MaterialType.MP3_LOW: 1.0,
+        MaterialType.MP3_HIGH: 1.0,
+        MaterialType.AAC: 1.0,
+        MaterialType.MINIDISC: 1.0,
+        MaterialType.STREAMING: 1.0,
+        MaterialType.UNKNOWN: 0.55,
+        MaterialType.WAX_CYLINDER: 1.0,
+        MaterialType.WIRE_RECORDING: 0.20,
+        MaterialType.LACQUER_DISC: 1.0,
+    }
+    for _material_type, _scrape_threshold in _SCRAPE_FLUTTER_SENSITIVITY.items():
+        MATERIAL_SENSITIVITY.setdefault(_material_type, {})[DefectType.SCRAPE_FLUTTER] = _scrape_threshold
+    for _material_type, _clog_threshold in _TAPE_HEAD_CLOG_SENSITIVITY.items():
+        MATERIAL_SENSITIVITY.setdefault(_material_type, {})[DefectType.TAPE_HEAD_CLOG] = _clog_threshold
+
     # Location caps are disabled (0 = uncapped) to avoid losing valid events
     # on long recordings with very dense defect activity.
     _LOCATION_CAP_UNCAPPED = 0
@@ -1568,6 +1613,48 @@ class DefectScanner:
         else:
             scores[DefectType.TAPE_HEAD_LEVEL_DIP] = DefectScore(DefectType.TAPE_HEAD_LEVEL_DIP, 0.0, 0.95)
         _tail_tick("Tape-Head-Level-Dip")
+
+        _SCRAPE_FLUTTER_MATERIALS: frozenset[MaterialType] = frozenset(
+            {
+                MaterialType.TAPE,
+                MaterialType.CASSETTE,
+                MaterialType.REEL_TAPE,
+                MaterialType.WIRE_RECORDING,
+            }
+        )
+        _scrape_flutter_score = self._detect_scrape_flutter(_audio_mono_full)
+        if material_type in _SCRAPE_FLUTTER_MATERIALS:
+            scores[DefectType.SCRAPE_FLUTTER] = _scrape_flutter_score
+        elif self._should_keep_cross_material_scrape_flutter(_scrape_flutter_score):
+            _scrape_flutter_score.severity = float(np.clip(_scrape_flutter_score.severity * 0.80, 0.0, 1.0))
+            _scrape_flutter_score.confidence = float(np.clip(min(_scrape_flutter_score.confidence, 0.78), 0.05, 0.95))
+            _scrape_flutter_score.metadata["cross_material_fallback"] = True
+            _scrape_flutter_score.metadata["fallback_material_gate_bypassed"] = material_type.value
+            scores[DefectType.SCRAPE_FLUTTER] = _scrape_flutter_score
+        else:
+            scores[DefectType.SCRAPE_FLUTTER] = DefectScore(DefectType.SCRAPE_FLUTTER, 0.0, 0.95)
+        _tail_tick("Scrape-Flutter")
+
+        _TAPE_HEAD_CLOG_MATERIALS: frozenset[MaterialType] = frozenset(
+            {
+                MaterialType.TAPE,
+                MaterialType.CASSETTE,
+                MaterialType.REEL_TAPE,
+                MaterialType.WIRE_RECORDING,
+            }
+        )
+        _tape_head_clog_score = self._detect_tape_head_clog(_audio_mono_full)
+        if material_type in _TAPE_HEAD_CLOG_MATERIALS:
+            scores[DefectType.TAPE_HEAD_CLOG] = _tape_head_clog_score
+        elif self._should_keep_cross_material_tape_head_clog(_tape_head_clog_score):
+            _tape_head_clog_score.severity = float(np.clip(_tape_head_clog_score.severity * 0.75, 0.0, 1.0))
+            _tape_head_clog_score.confidence = float(np.clip(min(_tape_head_clog_score.confidence, 0.76), 0.05, 0.95))
+            _tape_head_clog_score.metadata["cross_material_fallback"] = True
+            _tape_head_clog_score.metadata["fallback_material_gate_bypassed"] = material_type.value
+            scores[DefectType.TAPE_HEAD_CLOG] = _tape_head_clog_score
+        else:
+            scores[DefectType.TAPE_HEAD_CLOG] = DefectScore(DefectType.TAPE_HEAD_CLOG, 0.0, 0.95)
+        _tail_tick("Tape-Head-Clog")
 
         # §9.1c — AMPLITUDE_DRIFT: Gradual level rise/fall over entire song.
         # Distinguishes artistic crescendo (preserve) from carrier drift (correct).
@@ -3084,11 +3171,25 @@ class DefectScanner:
 
         confidence = float(np.clip(0.55 + 0.30 * min(1.0, dom_ratio), 0.3, 0.92))
 
+        locations: list[tuple[float, float]] = []
+        if severity > 0.0 and len(rms_series) >= 4:
+            wow_dev = np.abs(rms_series - 1.0)
+            wow_thr = float(max(np.percentile(wow_dev, 80.0), 0.05))
+            wow_mask_frames = wow_dev >= wow_thr
+            if np.any(wow_mask_frames):
+                starts = np.where(np.diff(np.concatenate(([0], wow_mask_frames.astype(np.int8), [0]))) == 1)[0]
+                ends = np.where(np.diff(np.concatenate(([0], wow_mask_frames.astype(np.int8), [0]))) == -1)[0]
+                for s_f, e_f in zip(starts, ends):
+                    t0 = max(0.0, float(s_f * hop) / self.sample_rate - 0.05)
+                    t1 = min(float(n) / self.sample_rate, float(e_f * hop + win_len) / self.sample_rate + 0.05)
+                    if t1 > t0:
+                        locations.append((t0, t1))
+
         return DefectScore(
             defect_type=DefectType.WOW,
             severity=severity,
             confidence=confidence,
-            locations=[],
+            locations=locations,
             metadata={
                 "wow_energy_ratio_rms": wow_ratio_rms,
                 "wow_energy_ratio_if": wow_ratio_if,
@@ -3461,11 +3562,25 @@ class DefectScanner:
 
         confidence = float(np.clip(0.50 + 0.35 * min(1.0, periodicity), 0.3, 0.90))
 
+        locations: list[tuple[float, float]] = []
+        if severity > 0.0 and len(centroid_norm) >= 8:
+            flutter_dev = np.abs(centroid_norm)
+            flutter_thr = float(max(np.percentile(flutter_dev, 80.0), 0.015))
+            flutter_mask_frames = flutter_dev >= flutter_thr
+            if np.any(flutter_mask_frames):
+                starts = np.where(np.diff(np.concatenate(([0], flutter_mask_frames.astype(np.int8), [0]))) == 1)[0]
+                ends = np.where(np.diff(np.concatenate(([0], flutter_mask_frames.astype(np.int8), [0]))) == -1)[0]
+                for s_f, e_f in zip(starts, ends):
+                    t0 = max(0.0, float(s_f * hop) / self.sample_rate - 0.02)
+                    t1 = min(float(n) / self.sample_rate, float(e_f * hop + win_len) / self.sample_rate + 0.02)
+                    if t1 > t0:
+                        locations.append((t0, t1))
+
         return DefectScore(
             defect_type=DefectType.FLUTTER,
             severity=severity,
             confidence=confidence,
-            locations=[],
+            locations=locations,
             metadata={
                 "flutter_energy_ratio": flutter_ratio,
                 "dominant_source": dom_source,
@@ -3488,9 +3603,50 @@ class DefectScanner:
         flutter = self._detect_flutter(
             audio if audio.ndim == 1 else audio.mean(axis=1 if audio.shape[1] > audio.shape[0] else 0)
         )
-        if wow.severity >= flutter.severity:
-            return wow
-        return flutter
+        severity = float(max(float(wow.severity), float(flutter.severity)))
+        confidence = float(max(float(wow.confidence), float(flutter.confidence)))
+
+        merged_locations: list[tuple[float, float]] = []
+        if wow.locations:
+            merged_locations.extend(wow.locations)
+        if flutter.locations:
+            merged_locations.extend(flutter.locations)
+        if merged_locations:
+            merged_locations.sort(key=lambda p: (float(p[0]), float(p[1])))
+            merged: list[tuple[float, float]] = []
+            for start, end in merged_locations:
+                s = float(start)
+                e = float(end)
+                if not merged:
+                    merged.append((s, e))
+                    continue
+                ps, pe = merged[-1]
+                if s <= pe + 0.02:  # 20 ms Merge-Puffer
+                    merged[-1] = (ps, max(pe, e))
+                else:
+                    merged.append((s, e))
+            merged_locations = merged
+
+        metadata = {
+            "wow_severity": float(wow.severity),
+            "flutter_severity": float(flutter.severity),
+            "wow_confidence": float(wow.confidence),
+            "flutter_confidence": float(flutter.confidence),
+            "wow_locations": len(wow.locations),
+            "flutter_locations": len(flutter.locations),
+        }
+        for key, value in (wow.metadata or {}).items():
+            metadata[f"wow_{key}"] = value
+        for key, value in (flutter.metadata or {}).items():
+            metadata[f"flutter_{key}"] = value
+
+        return DefectScore(
+            defect_type=DefectType.WOW if wow.severity >= flutter.severity else DefectType.FLUTTER,
+            severity=severity,
+            confidence=confidence,
+            locations=merged_locations,
+            metadata=metadata,
+        )
 
     def _detect_azimuth_error(self, audio: np.ndarray) -> DefectScore:
         """Erkennt AZIMUTH_ERROR: playback-head tilt causing HF L/R phase slope > 20°/kHz.
@@ -3598,30 +3754,99 @@ class DefectScanner:
         )
 
     def _detect_digital_artifacts(self, audio: np.ndarray) -> DefectScore:
-        """Erkennt Digital-Artifacts (Quantisierungs-Rauschen, Clipping, Aliasing)."""
-        # Clipping-Detection
-        clipping_count = np.sum(np.abs(audio) > 0.99)
-        clipping_ratio = clipping_count / len(audio)
+        """Erkennt Digital-Artifacts (Sammelklasse) via robuste Subscores.
 
-        # Quantisierungs-Rauschen: Analyse der LSBs
-        # Bei 16-bit Audio sollten die untersten Bits zufällig sein
-        audio_int = (audio * 32767).astype(np.int16)
+        Diese Sammelklasse wird bewusst konservativ gehalten und aggregiert
+        mehrere Indikatoren (Clipping, Quantisierungs-Granularität,
+        Near-Nyquist-Mirrorenergie). Defekt-spezifische Pfade (z. B. PRE_ECHO,
+        ALIASING, JITTER_ARTIFACTS) bleiben separat verantwortlich.
+        """
+        n = len(audio)
+        if n <= 16:
+            return DefectScore(DefectType.DIGITAL_ARTIFACTS, 0.0, 0.0)
+
+        # --- 1) Hard-clip Anteil + Lokalisierung ---
+        clip_mask = np.abs(audio) > 0.995
+        clipping_count = int(np.sum(clip_mask))
+        clipping_ratio = float(clipping_count / max(n, 1))
+        clipping_subscore = float(np.clip(clipping_ratio / 0.020, 0.0, 1.0))
+
+        clip_locations: list[tuple[float, float]] = []
+        if clipping_count > 0:
+            clip_idxs = np.where(clip_mask)[0]
+            starts = [int(clip_idxs[0])]
+            ends: list[int] = []
+            for i in range(1, len(clip_idxs)):
+                if int(clip_idxs[i]) != int(clip_idxs[i - 1]) + 1:
+                    ends.append(int(clip_idxs[i - 1]))
+                    starts.append(int(clip_idxs[i]))
+            ends.append(int(clip_idxs[-1]))
+            for s, e in zip(starts, ends):
+                if e - s + 1 >= 2:
+                    clip_locations.append((float(s / self.sample_rate), float(e / self.sample_rate)))
+
+        # --- 2) LSB-Granularität / Requantisierung ---
+        audio_int = np.clip(audio * 32767.0, -32768.0, 32767.0).astype(np.int16)
         lsb = np.abs(audio_int % 2)
-        lsb_randomness = np.std(lsb)  # Sollte ~0.5 sein für echte Aufnahmen
+        lsb_randomness = float(np.std(lsb))
+        quantization_subscore = float(np.clip((0.42 - lsb_randomness) / 0.22, 0.0, 1.0))
 
-        quantization_artifact = 1.0 - min(1.0, lsb_randomness / 0.5)
+        # --- 3) Near-Nyquist-Spiegelenergie (codec/sampler chain residue) ---
+        near_nyq_subscore = 0.0
+        try:
+            freqs, psd = signal.welch(audio, self.sample_rate, nperseg=min(4096, n))
+            nyq = self.sample_rate / 2.0
+            near_mask = (freqs >= nyq * 0.85) & (freqs <= nyq * 0.98)
+            mid_mask = (freqs >= 10000.0) & (freqs < nyq * 0.85)
+            near_e = float(np.sum(psd[near_mask]) + 1e-20)
+            mid_e = float(np.sum(psd[mid_mask]) + 1e-20)
+            near_ratio = near_e / mid_e
+            near_nyq_subscore = float(np.clip((near_ratio - 0.60) / 1.20, 0.0, 1.0))
+        except Exception:
+            near_ratio = 0.0
 
-        # Kombinierte Severity
-        severity = max(clipping_ratio * 10, quantization_artifact)
+        # --- 4) Frameweise Spektral-Blockigkeit (grobes Codec-Indiz) ---
+        blockiness_subscore = 0.0
+        try:
+            _f, _t, zxx = signal.stft(audio, self.sample_rate, nperseg=1024, boundary="even")
+            mag = np.abs(zxx)
+            if mag.shape[1] > 4:
+                frame_energy = np.mean(mag**2, axis=0)
+                # Hohe Frame-zu-Frame-Sprunghaftigkeit bei niedriger Varianz im Mittel
+                d = np.abs(np.diff(frame_energy))
+                blockiness = float(np.mean(d) / (np.mean(frame_energy) + 1e-12))
+                blockiness_subscore = float(np.clip((blockiness - 0.20) / 0.80, 0.0, 1.0))
+        except Exception:
+            pass
+
+        # Konservatives Aggregat: Clipping darf dominieren, sonst gewichteter Mix.
+        aggregate = max(
+            0.90 * clipping_subscore,
+            0.42 * quantization_subscore + 0.34 * near_nyq_subscore + 0.24 * blockiness_subscore,
+        )
         threshold = self.thresholds[DefectType.DIGITAL_ARTIFACTS]
-        severity = min(1.0, severity / threshold)
+        severity = float(np.clip(aggregate / max(threshold, 1e-6), 0.0, 1.0))
+
+        dominant = max(clipping_subscore, quantization_subscore, near_nyq_subscore, blockiness_subscore)
+        confidence = float(np.clip(0.58 + 0.30 * dominant, 0.45, 0.90))
 
         return DefectScore(
             defect_type=DefectType.DIGITAL_ARTIFACTS,
             severity=severity,
-            confidence=0.8,
-            locations=[],
-            metadata={"clipping_ratio": clipping_ratio, "quantization_score": quantization_artifact},
+            confidence=confidence,
+            locations=clip_locations if clipping_subscore > 0.10 else [],
+            metadata={
+                "clipping_ratio": clipping_ratio,
+                "quantization_score": quantization_subscore,
+                "near_nyquist_ratio": near_ratio,
+                "blockiness_score": blockiness_subscore,
+                "subscores": {
+                    "clipping": clipping_subscore,
+                    "quantization": quantization_subscore,
+                    "near_nyquist": near_nyq_subscore,
+                    "blockiness": blockiness_subscore,
+                },
+            },
         )
 
     def _detect_low_freq_rumble(self, audio: np.ndarray) -> DefectScore:
@@ -3746,11 +3971,31 @@ class DefectScanner:
         elif hf_penalty >= 0.9 and sfm_std < 0.06:
             confidence = 0.85  # HF loss confirmed + stable SFM → confident
 
+        locations: list[tuple[float, float]] = []
+        if severity > 0.0 and spectrogram.shape[1] >= 4:
+            frame_energy = np.mean(spectrogram**2, axis=0)
+            blockiness_frame = np.abs(np.diff(frame_energy, prepend=frame_energy[0])) / (frame_energy + 1e-12)
+            sfm_thr = float(np.percentile(sfm, 30.0))
+            blk_thr = float(np.percentile(blockiness_frame, 75.0))
+            codec_mask = (sfm <= min(0.45, sfm_thr)) & ((blockiness_frame >= max(0.25, blk_thr)) | (sfm <= 0.25))
+            if np.any(codec_mask):
+                starts = np.where(np.diff(np.concatenate(([0], codec_mask.astype(np.int8), [0]))) == 1)[0]
+                ends = np.where(np.diff(np.concatenate(([0], codec_mask.astype(np.int8), [0]))) == -1)[0]
+                frame_half = float(1024.0 / max(1.0, 2.0 * self.sample_rate))
+                max_time = float(len(audio)) / float(self.sample_rate)
+                for s_f, e_f in zip(starts, ends):
+                    t0 = max(0.0, float(_t[s_f]) - frame_half)
+                    t1 = min(max_time, float(_t[max(0, e_f - 1)]) + frame_half)
+                    if t1 > t0:
+                        locations.append((t0, t1))
+        if severity > 0.0 and not locations:
+            locations = [(0.0, float(len(audio)) / float(self.sample_rate))]
+
         return DefectScore(
             defect_type=DefectType.COMPRESSION_ARTIFACTS,
             severity=severity,
             confidence=confidence,
-            locations=[],
+            locations=locations,
             metadata={
                 "spectral_flatness_mean": float(np.mean(sfm)),
                 "sfm_std": sfm_std,
@@ -4877,11 +5122,40 @@ class DefectScanner:
 
         confidence = float(np.clip(0.55 + 0.25 * min(1.0, sev_if + sev_hf), 0.45, 0.85))
 
+        locations: list[tuple[float, float]] = []
+        if severity > 0.0 and n >= int(0.10 * self.sample_rate):
+            win = max(64, int(0.020 * self.sample_rate))
+            hop = max(1, win // 2)
+            n_frames = max(0, (n - win) // hop)
+            if n_frames >= 3:
+                instability = np.zeros(n_frames, dtype=np.float64)
+                for i in range(n_frames):
+                    s = i * hop
+                    frame = audio[s : s + win].astype(np.float64)
+                    d1 = np.diff(frame)
+                    d2 = np.diff(d1)
+                    instability[i] = (float(np.std(d1)) + 0.5 * float(np.std(d2))) / (
+                        float(np.mean(np.abs(frame))) + 1e-6
+                    )
+
+                i_thr = float(max(np.percentile(instability, 80.0), np.median(instability) * 1.25))
+                jitter_mask = instability >= i_thr
+                if np.any(jitter_mask):
+                    starts = np.where(np.diff(np.concatenate(([0], jitter_mask.astype(np.int8), [0]))) == 1)[0]
+                    ends = np.where(np.diff(np.concatenate(([0], jitter_mask.astype(np.int8), [0]))) == -1)[0]
+                    for s_f, e_f in zip(starts, ends):
+                        t0 = max(0.0, float(s_f * hop) / self.sample_rate - 0.01)
+                        t1 = min(float(n) / self.sample_rate, float(e_f * hop + win) / self.sample_rate + 0.01)
+                        if t1 > t0:
+                            locations.append((t0, t1))
+        if severity > 0.0 and not locations:
+            locations = [(0.0, float(n) / float(self.sample_rate))]
+
         return DefectScore(
             defect_type=DefectType.JITTER_ARTIFACTS,
             severity=severity,
             confidence=confidence,
-            locations=[],
+            locations=locations,
             metadata={
                 "zc_regularity": round(zc_regularity, 3),
                 "if_variance": round(if_variance, 3),
@@ -4952,11 +5226,43 @@ class DefectScanner:
         if severity < threshold * 0.5:
             severity = 0.0
 
+        locations: list[tuple[float, float]] = []
+        if severity > 0.0:
+            loc_win = max(1, int(0.200 * self.sample_rate))
+            loc_hop = max(1, loc_win // 2)
+            n_loc_wins = max(1, (n - loc_win) // loc_hop)
+            compressed_indicator = np.zeros(n_loc_wins, dtype=np.float64)
+            for i in range(n_loc_wins):
+                s = i * loc_hop
+                w = audio_norm[s : s + loc_win]
+                if len(w) < 32:
+                    continue
+                w_rms = float(np.sqrt(np.mean(w**2) + 1e-12))
+                w_peak = float(np.percentile(np.abs(w), 99.9))
+                w_crest_db = 20.0 * np.log10((w_peak + 1e-10) / (w_rms + 1e-10))
+                w_hi = float(np.mean(np.abs(w) >= 0.89))
+                i_crest = float(np.clip((7.0 - w_crest_db) / 5.0, 0.0, 1.0))
+                i_hi = float(np.clip((w_hi - 0.05) / 0.20, 0.0, 1.0))
+                compressed_indicator[i] = 0.65 * i_crest + 0.35 * i_hi
+
+            c_thr = float(max(np.percentile(compressed_indicator, 70.0), 0.45))
+            compressed_mask = compressed_indicator >= c_thr
+            if np.any(compressed_mask):
+                starts = np.where(np.diff(np.concatenate(([0], compressed_mask.astype(np.int8), [0]))) == 1)[0]
+                ends = np.where(np.diff(np.concatenate(([0], compressed_mask.astype(np.int8), [0]))) == -1)[0]
+                for s_f, e_f in zip(starts, ends):
+                    t0 = max(0.0, float(s_f * loc_hop) / self.sample_rate)
+                    t1 = min(float(n) / self.sample_rate, float(e_f * loc_hop + loc_win) / self.sample_rate)
+                    if t1 > t0:
+                        locations.append((t0, t1))
+            elif severity >= 0.35:
+                locations = [(0.0, float(n) / float(self.sample_rate))]
+
         return DefectScore(
             defect_type=DefectType.DYNAMIC_COMPRESSION_EXCESS,
             severity=severity,
             confidence=0.72,  # Crest Factor + LRA sind gut kalibrierte Metriken
-            locations=[],
+            locations=locations,
             metadata={
                 "crest_factor_db": crest_db,
                 "high_amplitude_ratio": high_amp_ratio,
@@ -5709,6 +6015,142 @@ class DefectScanner:
         event_rate = float(score.metadata.get("event_rate_per_s", 0.0))
         return severity >= 0.12 and dip_count >= 2 and mean_depth_db >= 6.0 and event_rate >= 0.15
 
+    def _detect_tape_head_clog(self, audio: np.ndarray) -> DefectScore:
+        """Erkennt temporäre HF-Auslöschungen durch verschmutzten oder zugesetzten Magnetkopf.
+
+        Anders als HEAD_WEAR ist Tape-Head-Clog lokal und zeitlich begrenzt: der Mittelbandanteil
+        bleibt erhalten, während 4.5–12 kHz abrupt einbrechen. Das klingt dumpf, aber nicht leise.
+        """
+        n = len(audio)
+        sr = self.sample_rate
+        if n < int(sr * 2):
+            return DefectScore(DefectType.TAPE_HEAD_CLOG, 0.0, 0.4)
+
+        try:
+            nyquist = sr / 2.0
+            hf_lo = 4500.0
+            hf_hi = min(12000.0, nyquist * 0.94)
+            mid_lo = 500.0
+            mid_hi = min(2500.0, nyquist * 0.45)
+            if hf_hi <= hf_lo + 300.0 or mid_hi <= mid_lo + 100.0:
+                return DefectScore(DefectType.TAPE_HEAD_CLOG, 0.0, 0.4)
+
+            hf_sos = signal.butter(4, [hf_lo, hf_hi], btype="bandpass", fs=sr, output="sos")
+            mid_sos = signal.butter(4, [mid_lo, mid_hi], btype="bandpass", fs=sr, output="sos")
+            hf_band = signal.sosfiltfilt(hf_sos, audio).astype(np.float64)
+            mid_band = signal.sosfiltfilt(mid_sos, audio).astype(np.float64)
+
+            frame_len = max(1, int(0.050 * sr))
+            hop = max(1, int(0.020 * sr))
+            n_frames = max(0, (n - frame_len) // hop)
+            if n_frames < 12:
+                return DefectScore(DefectType.TAPE_HEAD_CLOG, 0.0, 0.45)
+
+            hf_rms = np.array(
+                [np.sqrt(np.mean(hf_band[i * hop : i * hop + frame_len] ** 2) + 1e-15) for i in range(n_frames)],
+                dtype=np.float64,
+            )
+            mid_rms = np.array(
+                [np.sqrt(np.mean(mid_band[i * hop : i * hop + frame_len] ** 2) + 1e-15) for i in range(n_frames)],
+                dtype=np.float64,
+            )
+            hf_db = 20.0 * np.log10(hf_rms + 1e-15)
+            mid_db = 20.0 * np.log10(mid_rms + 1e-15)
+
+            from scipy.ndimage import label as nd_label  # pylint: disable=import-outside-toplevel
+            from scipy.ndimage import percentile_filter  # pylint: disable=import-outside-toplevel
+
+            ref_size = max(5, int(0.8 / 0.020))
+            if ref_size % 2 == 0:
+                ref_size += 1
+            hf_ref_db = percentile_filter(hf_db, percentile=80, size=ref_size, mode="reflect")
+            hf_drop_db = hf_ref_db - hf_db
+            active_mid = mid_db > max(-42.0, float(np.percentile(mid_db, 35)))
+            clog_mask = (hf_drop_db > 6.0) & active_mid
+
+            _label_result: tuple[np.ndarray, int] = nd_label(clog_mask)  # type: ignore[assignment]
+            labeled, n_regions = _label_result
+            locations: list[tuple[float, float]] = []
+            hf_drop_events: list[float] = []
+            preserved_mid_events: list[float] = []
+            for region_id in range(1, n_regions + 1):
+                frames = np.where(labeled == region_id)[0]
+                if len(frames) < 3:
+                    continue
+                duration_s = float((frames[-1] - frames[0] + 1) * hop / sr)
+                if duration_s < 0.05 or duration_s > 0.60:
+                    continue
+                start_s = float(frames[0] * hop / sr)
+                end_s = float((frames[-1] + 1) * hop / sr)
+                # Filter-Initialtransienten an Datei-Rändern nicht als Kopf-Clog interpretieren.
+                if start_s < 0.25 or end_s > (n / sr - 0.25):
+                    continue
+                mean_mid_db = float(np.mean(mid_db[frames]))
+                if mean_mid_db < -45.0:
+                    continue
+                mean_hf_drop_db = float(np.mean(hf_drop_db[frames]))
+                if mean_hf_drop_db < 6.0:
+                    continue
+                locations.append((start_s, end_s))
+                hf_drop_events.append(mean_hf_drop_db)
+                preserved_mid_events.append(mean_mid_db)
+
+            if not locations:
+                return DefectScore(
+                    DefectType.TAPE_HEAD_CLOG,
+                    0.0,
+                    0.70,
+                    metadata={"clog_event_count": 0},
+                )
+
+            event_rate = len(locations) / max(n / sr, 1e-6)
+            mean_hf_drop_db = float(np.mean(hf_drop_events))
+            severity = float(
+                np.clip(
+                    0.45 * min(1.0, event_rate / 0.8) + 0.55 * min(1.0, (mean_hf_drop_db - 6.0) / 10.0),
+                    0.0,
+                    1.0,
+                )
+            )
+            threshold = self.thresholds.get(DefectType.TAPE_HEAD_CLOG, 0.5)
+            if severity < threshold * 0.10:
+                return DefectScore(DefectType.TAPE_HEAD_CLOG, 0.0, 0.60)
+
+            confidence = float(np.clip(0.56 + 0.05 * len(locations) + 0.02 * min(mean_hf_drop_db, 10.0), 0.45, 0.94))
+            return DefectScore(
+                DefectType.TAPE_HEAD_CLOG,
+                severity,
+                confidence,
+                locations=self._sample_locations_evenly(locations, self._LOCATION_CAP_UNCAPPED),
+                metadata={
+                    "clog_event_count": len(locations),
+                    "event_rate_per_s": round(event_rate, 3),
+                    "mean_hf_drop_db": round(mean_hf_drop_db, 2),
+                    "max_hf_drop_db": round(float(np.max(hf_drop_events)), 2),
+                    "mean_mid_band_db": round(float(np.mean(preserved_mid_events)), 2),
+                },
+            )
+        except Exception:
+            return DefectScore(DefectType.TAPE_HEAD_CLOG, 0.0, 0.3)
+
+    @staticmethod
+    def _should_keep_cross_material_scrape_flutter(score: "DefectScore") -> bool:
+        """Behält sehr starke Scrape-Flutter-Hinweise trotz fehlerhafter Materialklassifikation."""
+        severity = float(np.clip(score.severity, 0.0, 1.0))
+        pair_count = int(score.metadata.get("n_scrape_sideband_pairs", 0))
+        dominant_rate = float(score.metadata.get("dominant_scrape_rate_hz", 0.0))
+        prominence = float(score.metadata.get("strongest_sideband_prominence_db", 0.0))
+        return severity >= 0.16 and pair_count >= 2 and 35.0 <= dominant_rate <= 130.0 and prominence >= 4.0
+
+    @staticmethod
+    def _should_keep_cross_material_tape_head_clog(score: "DefectScore") -> bool:
+        """Behält starke Kopf-Clog-Evidenz wenn Tape-Transfers falsch als non-tape gelabelt wurden."""
+        severity = float(np.clip(score.severity, 0.0, 1.0))
+        event_count = int(score.metadata.get("clog_event_count", 0))
+        mean_hf_drop_db = float(score.metadata.get("mean_hf_drop_db", 0.0))
+        event_rate = float(score.metadata.get("event_rate_per_s", 0.0))
+        return severity >= 0.14 and event_count >= 2 and mean_hf_drop_db >= 7.0 and event_rate >= 0.08
+
     @staticmethod
     def _chain_contains_tape(fmd_result: object) -> bool:
         """Gibt True if the transfer chain contains any tape-based medium zurück.
@@ -6425,11 +6867,34 @@ class DefectScanner:
             if severity < threshold * 0.15:
                 severity = 0.0
 
+            locations: list[tuple[float, float]] = []
+            if severity > 0.0:
+                _f_t, _t_t, _z_t = signal.stft(audio, self.sample_rate, nperseg=2048, noverlap=1536, boundary="even")
+                _p_t = np.abs(_z_t) ** 2
+                _near_mask_t = (_f_t >= nyquist * 0.85) & (_f_t <= nyquist * 0.97)
+                _mid_mask_t = (_f_t >= 10000.0) & (_f_t < nyquist * 0.85)
+                if _near_mask_t.any() and _mid_mask_t.any() and _p_t.shape[1] > 0:
+                    _near_t = np.sum(_p_t[_near_mask_t, :], axis=0)
+                    _mid_t = np.sum(_p_t[_mid_mask_t, :], axis=0) + 1e-12
+                    _ratio_t = _near_t / _mid_t
+                    _r_thr = float(max(np.percentile(_ratio_t, 75.0), 1.05))
+                    _mask_t = _ratio_t >= _r_thr
+                    if np.any(_mask_t):
+                        _starts = np.where(np.diff(np.concatenate(([0], _mask_t.astype(np.int8), [0]))) == 1)[0]
+                        _ends = np.where(np.diff(np.concatenate(([0], _mask_t.astype(np.int8), [0]))) == -1)[0]
+                        _half = 2048.0 / (2.0 * self.sample_rate)
+                        _max_t = float(len(audio)) / float(self.sample_rate)
+                        for _s_f, _e_f in zip(_starts, _ends):
+                            _t0 = max(0.0, float(_t_t[_s_f]) - _half)
+                            _t1 = min(_max_t, float(_t_t[max(0, _e_f - 1)]) + _half)
+                            if _t1 > _t0:
+                                locations.append((_t0, _t1))
+
             return DefectScore(
                 defect_type=DefectType.ALIASING,
                 severity=severity,
                 confidence=0.55,
-                locations=[],
+                locations=locations,
                 metadata={"near_nyquist_ratio": near_nyq_ratio, "nyquist_hz": nyquist},
             )
         except Exception:
@@ -7816,6 +8281,92 @@ class DefectScanner:
             )
         except Exception:
             return DefectScore(DefectType.FLUTTER_SPECTRAL_SIDEBANDS, 0.0, 0.3)
+
+    def _detect_scrape_flutter(self, audio: np.ndarray) -> DefectScore:
+        """Erkennt Tape-Scrape-Flutter als hochfrequente Seitenbänder um Sustained-Peaks.
+
+        Scrape flutter ist eine spezielle Transportstörung von Bandmaschinen und Kassetten:
+        Kopf/Band-Reibung oder Bandführung erzeugen schnelle FM-Modulationen typischerweise
+        im Bereich 40–120 Hz. Im Spektrum erscheinen deshalb Seitenbänder deutlich weiter
+        entfernt als klassisches Flutter (2–8 Hz) und bevorzugt auf sustained vocals/strings.
+        """
+        n = len(audio)
+        sr = self.sample_rate
+        if n < int(sr * 2):
+            return DefectScore(DefectType.SCRAPE_FLUTTER, 0.0, 0.3)
+        try:
+            n_fft = min(131072, n)
+            freqs = np.fft.rfftfreq(n_fft, 1.0 / sr)
+            spec = np.abs(np.fft.rfft(audio[:n_fft] * np.hanning(n_fft))) ** 2
+            spec_db = 10.0 * np.log10(spec + 1e-20)
+            freq_res = float(freqs[1] - freqs[0]) if len(freqs) > 1 else 1.0
+
+            tonal_mask = (freqs >= 250.0) & (freqs <= min(6000.0, sr / 2.0 - 150.0))
+            if not tonal_mask.any():
+                return DefectScore(DefectType.SCRAPE_FLUTTER, 0.0, 0.3)
+
+            tonal_db = spec_db[tonal_mask]
+            tonal_freqs_arr = freqs[tonal_mask]
+            peak_idx_local = int(np.argmax(tonal_db))
+            peak_freq = float(tonal_freqs_arr[peak_idx_local])
+            peak_db = float(tonal_db[peak_idx_local])
+            noise_floor = float(np.percentile(spec_db, 20))
+            if peak_db - noise_floor < 18.0:
+                return DefectScore(DefectType.SCRAPE_FLUTTER, 0.0, 0.4)
+
+            rate_hits: list[tuple[float, float]] = []
+            for rate in [40.0, 55.0, 70.0, 85.0, 100.0, 120.0]:
+                signed_levels: dict[float, float] = {}
+                for sign in (-1.0, 1.0):
+                    sb_freq = peak_freq + sign * rate
+                    if sb_freq <= 0.0 or sb_freq >= sr / 2.0:
+                        continue
+                    sb_idx = int(round(sb_freq / freq_res))
+                    if 1 <= sb_idx < len(spec_db) - 1:
+                        sb_level = float(np.max(spec_db[max(0, sb_idx - 1) : sb_idx + 2]))
+                        prominence = sb_level - noise_floor
+                        attenuation_vs_peak = peak_db - sb_level
+                        # Echte FM-Seitenbänder sind deutlich über Noisefloor, aber klar unter dem Carrier.
+                        if prominence > 5.0 and 3.0 <= attenuation_vs_peak <= 30.0:
+                            signed_levels[sign] = sb_level
+                if -1.0 in signed_levels and 1.0 in signed_levels:
+                    # FM-Paare sind in der Regel annähernd symmetrisch; starke Asymmetrie deutet auf Musikpeaks.
+                    symmetry_delta_db = abs(signed_levels[-1.0] - signed_levels[1.0])
+                    if symmetry_delta_db <= 4.0:
+                        rate_hits.append((rate, float((signed_levels[-1.0] + signed_levels[1.0]) * 0.5 - noise_floor)))
+
+            if len(rate_hits) < 1:
+                return DefectScore(DefectType.SCRAPE_FLUTTER, 0.0, 0.55, metadata={"peak_freq_hz": round(peak_freq, 1)})
+
+            strongest_rate_hz, strongest_prom_db = max(rate_hits, key=lambda item: item[1])
+            mean_prom_db = float(np.mean([prom for _, prom in rate_hits]))
+            raw_sev = float(
+                np.clip(
+                    0.55 * min(1.0, len(rate_hits) / 4.0) + 0.45 * min(1.0, strongest_prom_db / 16.0),
+                    0.0,
+                    1.0,
+                )
+            )
+
+            threshold = self.thresholds.get(DefectType.SCRAPE_FLUTTER, 0.5)
+            if raw_sev < threshold * 0.12:
+                return DefectScore(DefectType.SCRAPE_FLUTTER, 0.0, 0.55)
+
+            confidence = float(np.clip(0.45 + 0.08 * len(rate_hits) + 0.01 * strongest_prom_db, 0.35, 0.92))
+            return DefectScore(
+                DefectType.SCRAPE_FLUTTER,
+                raw_sev,
+                confidence,
+                metadata={
+                    "peak_freq_hz": round(peak_freq, 1),
+                    "n_scrape_sideband_pairs": len(rate_hits),
+                    "dominant_scrape_rate_hz": round(strongest_rate_hz, 1),
+                    "strongest_sideband_prominence_db": round(strongest_prom_db, 2),
+                    "mean_sideband_prominence_db": round(mean_prom_db, 2),
+                },
+            )
+        except Exception:
+            return DefectScore(DefectType.SCRAPE_FLUTTER, 0.0, 0.3)
 
     def _detect_speed_calibration_error(self, audio: np.ndarray) -> DefectScore:
         """Erkennt systematischen festen Geschwindigkeitsfehler (≠ zeitvarianter pitch_drift).

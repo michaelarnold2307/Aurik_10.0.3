@@ -2,7 +2,11 @@
 
 import numpy as np
 
-from backend.core.phases.phase_57_print_through_reduction import PrintThroughReductionPhase
+from backend.core.phases.phase_57_print_through_reduction import (
+    PrintThroughReductionPhase,
+    _find_delays,
+    _spectral_coherence,
+)
 
 
 def _profile(material: str, qm: str = "balanced", rest: float = 50.0) -> dict:
@@ -59,3 +63,37 @@ def test_process_metadata_contains_profile():
     assert "print_through_profile" in result.metadata
     assert "min_print_through_score" in result.metadata
     assert "coherence_floor" in result.metadata
+
+
+def test_find_delays_detects_synthetic_post_echo():
+    sr = 48000
+    n = sr
+    x = np.zeros(n, dtype=np.float64)
+    x[5000:5010] = 1.0
+    delay = int(0.040 * sr)
+    x[5000 + delay : 5010 + delay] += 0.25
+
+    d_pre, d_post = _find_delays(x, max_delay=int(0.100 * sr))
+    assert d_post > 0
+    assert abs(d_post - delay) < int(0.010 * sr)
+    assert d_pre >= 0
+
+
+def test_spectral_coherence_band_focus_penalizes_midband_damage():
+    sr = 48000
+    t = np.linspace(0.0, 1.0, sr, endpoint=False)
+    clean = 0.5 * np.sin(2 * np.pi * 1000.0 * t)
+
+    rng = np.random.default_rng(1234)
+    noise = rng.normal(0.0, 1.0, size=clean.shape[0])
+    # Bandbegrenzter Midband-Schaden (80 Hz-12 kHz Fokus der Kohärenzmetrik).
+    from scipy import signal as sps
+
+    sos = sps.butter(4, [800.0, 3200.0], btype="band", fs=sr, output="sos")
+    band_noise = sps.sosfiltfilt(sos, noise)
+    band_noise = 0.45 * band_noise / (np.max(np.abs(band_noise)) + 1e-9)
+    damaged = clean + band_noise
+
+    coh = _spectral_coherence(clean.astype(np.float64), damaged.astype(np.float64), sr)
+    assert 0.0 <= coh <= 1.0
+    assert coh < 0.90

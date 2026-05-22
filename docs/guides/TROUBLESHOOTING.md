@@ -4,6 +4,10 @@
 **Datum:** Mai 2026  
 **Status:** ✅ Production Ready
 
+> **Normativer Hinweis (Release):** Fuer produktive Desktop-Pfade gilt der kanonische Vertrag
+> Bridge -> `AurikDenker.denke(...)` -> `export_guard()`.
+> Legacy-v2/Server-Beispiele in diesem Dokument sind nicht release-normativ (`LEGACY_NON_RELEASE`).
+
 ---
 
 ## Inhaltsverzeichnis
@@ -411,8 +415,8 @@ torch.cuda.empty_cache()
 
 ```python
 # Plugins sollten lazy-loaded sein (nur bei Bedarf)
-restorer = UnifiedRestorerV2()  # Lädt NICHT alle Modelle
-# Modelle werden erst bei restore() geladen
+denker = get_aurik_denker_instance()  # Lädt nicht blind alle Modelle vorab
+# Modelle/Plugins werden bedarfsorientiert ueber die Laufzeitlogik aktiviert
 
 ```
 
@@ -792,20 +796,20 @@ restored = restorer.restore(audio, sr, mode=ProcessingMode.VINTAGE_WARMTH)
 
 ## API & Entwicklung
 
-### #19: UnifiedRestorerV2 import schlägt fehl
+### #19: Bridge-/Denker-Import schlägt fehl
 
 **Symptom:**
 
 ```python
-ImportError: cannot import name 'UnifiedRestorerV2' from 'core.unified_restorer_v2'
+ImportError: cannot import name 'get_aurik_denker_instance' from 'backend.api.bridge'
 
 ```
 
 **Lösung:**
 
 ```bash
-# Check ob File existiert
-ls -la core/unified_restorer_v2.py
+# Check ob Bridge-Datei existiert
+ls -la backend/api/bridge.py
 
 # Check Python Path
 python -c "import sys; print(sys.path)"
@@ -817,12 +821,12 @@ export PYTHONPATH="${PYTHONPATH}:/path/to/Aurik_Standalone"
 
 ---
 
-### #20: ProcessingMode Enum nicht gefunden
+### #20: Modus-Konstante oder Bridge-Import nicht gefunden
 
 **Symptom:**
 
 ```text
-AttributeError: module 'core.unified_restorer_v2' has no attribute 'ProcessingMode'
+ImportError oder AttributeError bei Modus-/Bridge-Nutzung
 
 ```
 
@@ -830,11 +834,14 @@ AttributeError: module 'core.unified_restorer_v2' has no attribute 'ProcessingMo
 
 ```python
 # Correct Import
-from core.unified_restorer_v2 import UnifiedRestorerV2, ProcessingMode
+from backend.api.bridge import get_aurik_denker_instance, get_load_audio_fn
 
 # NOT:
-# from core import unified_restorer_v2
-# mode = unified_restorer_v2.ProcessingMode.RESTORATION  # WRONG
+# direkter Legacy-v2-Import im Releasepfad
+
+denker = get_aurik_denker_instance()
+audio, sr = get_load_audio_fn()("input.wav")
+result = denker.denke(audio, sr, mode="restoration")
 
 ```
 

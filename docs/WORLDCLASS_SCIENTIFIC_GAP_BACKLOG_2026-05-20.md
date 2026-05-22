@@ -21,6 +21,38 @@ Es gibt relevante Luecken mit hohem Hebel. Besonders kritisch sind:
 | P2 | Artefaktgrenzen (Musical Noise, Pre-Echo, Stereo-Cancellation) | Gute technische Regeln vorhanden | Musik-spezifische, reproduzierbare Grenzvalidierung fehlt teilweise | Instabile Gate-Reaktionen je Material |
 | P3 | Hallucination-Guard fuer generative Audio-Pfade | Technisch abgesichert | Einheitliche wissenschaftliche Benchmark fuer Audio-Halluzinationsdetektion fehlt | Versteckte Artefakte oder zu harte Ruecknahmen |
 
+## Lueckenstatus-Update (Stand 2026-05-21)
+
+Folgende P1-Luecken sind als geschlossen in den Vorgaben/Specs verankert:
+
+- P1 HPI/AFG/VQI Schwellen: geschlossen durch
+  `policy/scientific_threshold_evidence_registry.yaml` +
+  `.github/specs/07_quality_and_tests.md` §8.6f + UV3-`threshold_evidence`
+  mit wissenschaftlichen Quellenachsen (DOI/Norm).
+- P1 Musik-Restoration-Metrikvaliditaet: geschlossen auf Governance-Ebene durch
+  verpflichtende Quellenklassifikation je Gate-Schwelle (A/B/C) und
+  Registry-basierte Nachweispflicht inklusive Revalidierungsdatum fuer Klasse C.
+- P1 Vocal Formant/Vibrato Grenzwerte: geschlossen auf Evidenzebene durch
+  explizite Quellenachsen im Registry-Eintrag `vqi_gate`
+  (Miller 1992, Prame 2004, Jones 2022 + vokalakustische Basisliteratur).
+
+Hinweis: P2/P3 bleiben als wissenschaftliche Vertiefungsachsen aktiv, sind aber
+nicht mehr Blocker fuer die P1-Governance-Luecken der Vorgaben/Specs.
+
+### Psychoakustik-Integrationsstatus (Stand 2026-05-21)
+
+Folgende psychoakustischen Kernmassnahmen sind umgesetzt und normativ verankert:
+
+- End-Gate `psychoacoustic_naturalness_gate` (Anti-klinisch)
+- Adaptive Recovery vor finaler Degradation via sichere Referenz-Blends
+- Phasenweise Anti-Klinik-Strength-Scalar (rein daempfend)
+- Laufender Runtime-Delta-Loop (`_psycho_runtime_state`) aus Per-Phase-Goal-Delten
+- UI-Sichtbarkeit inkl. Ampel-Status und Evidenzfelder
+
+Konsolidierte Erkenntnisse/DoD:
+
+- `docs/PSYCHOACOUSTIC_ENGINEERING_INSIGHTS_2026-05-21.md`
+
 ## Bereits verifizierte starke Quellenachsen
 
 - Lautheit/True Peak: ITU-R BS.1770-5, EBU R128 (stark)

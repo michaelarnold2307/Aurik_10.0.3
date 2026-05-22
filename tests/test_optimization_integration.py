@@ -167,7 +167,25 @@ def test_cli_export_helper_applies_mono_guard_and_forwards_musiclover_metadata(m
             -np.ones(64, dtype=np.float32),
         ]
     )
-    result = SimpleNamespace(audio=restored.copy(), metadata={})
+    result = SimpleNamespace(
+        audio=restored.copy(),
+        metadata={
+            "hybrid_engineer_vector": {
+                "vocal_identity_preservation": 0.93,
+                "formant_integrity": 0.89,
+                "vibrato_depth_preservation": 0.88,
+                "breath_naturalness": 0.91,
+                "micro_dynamic_correlation": 0.92,
+                "transient_articulation": 0.90,
+                "stereo_scene_stability": 0.86,
+                "noise_texture_authenticity": 0.94,
+                "spectral_color_preservation": 0.89,
+                "emotional_arc_preservation": 0.93,
+                "artifact_freedom": 0.98,
+                "goal_team_balance": 0.87,
+            }
+        },
+    )
     ok, warnings, payload = aurik_cli._export_audio_frontend_parity(
         result,
         str(tmp_path / "ok.wav"),
@@ -193,5 +211,52 @@ def test_cli_export_helper_applies_mono_guard_and_forwards_musiclover_metadata(m
     assert md["quality_gate_worldclass_threshold"] == "0.85"
     assert md["quality_gate_worldclass_passed"] == "True"
     assert md["quality_gate_worldclass_profile"] == "instrumental"
+    assert '"artifact_freedom": 0.98' in md["quality_gate_hybrid_engineer_vector"]
+    assert '"vocal_identity_preservation": 0.93' in md["quality_gate_hybrid_engineer_vector"]
     assert md["quality_gate_evidence_worldclass_source_class"] == "C"
     assert md["quality_gate_evidence_worldclass_revalidate_by"] == "2026-09-30"
+
+
+def test_batch_processor_forwards_worldclass_and_hybrid_metadata(monkeypatch, tmp_path):
+    """Batch-Results sollen den 9.12.10-Weltklasse-Contract in metadata weiterreichen."""
+    import batch_processor as bp
+
+    class _FakeSf:
+        @staticmethod
+        def write(_path, _audio, _sr):
+            return None
+
+    class _FakeDenker:
+        def denke(self, _audio, _sr, **_kwargs):
+            return SimpleNamespace(
+                audio=np.zeros((8, 2), dtype=np.float32),
+                total_time_seconds=1.2,
+                quality_estimate=0.91,
+                musical_goals_scores={"natuerlichkeit": 0.95, "authentizitaet": 0.92, "tonal_center": 0.97},
+                metadata={
+                    "worldclass_composite_gate": {"wcs": 0.89},
+                    "hybrid_engineer_vector": {
+                        "artifact_freedom": 0.98,
+                        "vocal_identity_preservation": 0.93,
+                    },
+                },
+            )
+
+    monkeypatch.setattr(bp, "sf", _FakeSf)
+    monkeypatch.setattr(bp, "_get_aurik_denker", lambda: _FakeDenker())
+    monkeypatch.setattr(
+        bp,
+        "_load_audio_file",
+        lambda *_args, **_kwargs: {"audio": np.zeros((8, 2), dtype=np.float32), "sr": 48_000},
+    )
+
+    processor = bp.BatchProcessor(output_dir=tmp_path, workers=1, resume=False)
+    input_file = tmp_path / "input.wav"
+    input_file.write_bytes(b"fake")
+
+    res = processor.process_file(input_file, {"mode": "restoration"})
+
+    assert res["success"] is True
+    assert res["metadata"]["quality_gate_worldclass_score"] == "0.89"
+    assert '"artifact_freedom": 0.98' in res["metadata"]["quality_gate_hybrid_engineer_vector"]
+    assert '"vocal_identity_preservation": 0.93' in res["metadata"]["quality_gate_hybrid_engineer_vector"]

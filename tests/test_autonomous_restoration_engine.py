@@ -559,6 +559,8 @@ class TestDefectPhaseMapper:
             (DefectType.INNER_GROOVE_DISTORTION, "phase_60_inner_groove_distortion_repair"),
             (DefectType.TAPE_SPLICE_ARTIFACT, "phase_64_tape_splice_repair"),
             (DefectType.MODULATION_NOISE, "phase_59_modulation_noise_reduction"),
+            (DefectType.SCRAPE_FLUTTER, "phase_12_wow_flutter_fix"),
+            (DefectType.TAPE_HEAD_CLOG, "phase_56_spectral_band_gap_repair"),
         ],
     )
     def test_new_sota_defects_have_target_primary_phase(self, defect_type: DefectType, expected_primary_phase: str):

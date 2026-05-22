@@ -1,0 +1,77 @@
+"""[RELEASE_MUST] Batch-Contract fuer Worldclass-/Hybrid-Metadaten.
+
+Sichert, dass der Batch-Pfad die 9.12.10-Metadaten
+`quality_gate_worldclass_score` und `quality_gate_hybrid_engineer_vector`
+im Ergebnisobjekt fuehrt.
+"""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+from types import SimpleNamespace
+
+import numpy as np
+import pytest
+
+
+@pytest.mark.normative
+@pytest.mark.timeout(10)
+def test_batch_source_declares_worldclass_and_hybrid_metadata_contract() -> None:
+    src = Path("batch_processor.py").read_text(encoding="utf-8")
+    assert '"quality_gate_worldclass_score"' in src
+    assert '"quality_gate_hybrid_engineer_vector"' in src
+    assert "json.dumps(" in src
+
+
+@pytest.mark.normative
+@pytest.mark.timeout(10)
+def test_batch_process_file_forwards_worldclass_and_hybrid_metadata(monkeypatch, tmp_path: Path) -> None:
+    import batch_processor as bp
+
+    class _FakeSf:
+        @staticmethod
+        def write(_path: str, _audio: np.ndarray, _sr: int) -> None:
+            return None
+
+    class _FakeDenker:
+        def denke(self, _audio: np.ndarray, _sr: int, **_kwargs):
+            return SimpleNamespace(
+                audio=np.zeros((8, 2), dtype=np.float32),
+                total_time_seconds=1.0,
+                quality_estimate=0.93,
+                musical_goals_scores={
+                    "natuerlichkeit": 0.95,
+                    "authentizitaet": 0.92,
+                    "tonal_center": 0.97,
+                },
+                metadata={
+                    "worldclass_composite_gate": {"wcs": 0.91},
+                    "hybrid_engineer_vector": {
+                        "artifact_freedom": 0.98,
+                        "vocal_identity_preservation": 0.94,
+                    },
+                },
+            )
+
+    monkeypatch.setattr(bp, "sf", _FakeSf)
+    monkeypatch.setattr(bp, "_get_aurik_denker", lambda: _FakeDenker())
+    monkeypatch.setattr(
+        bp,
+        "_load_audio_file",
+        lambda *_args, **_kwargs: {"audio": np.zeros((8, 2), dtype=np.float32), "sr": 48_000},
+    )
+
+    processor = bp.BatchProcessor(output_dir=tmp_path, workers=1, resume=False)
+    input_file = tmp_path / "case.wav"
+    input_file.write_bytes(b"fake")
+
+    result = processor.process_file(input_file, {"mode": "restoration"})
+
+    assert result["success"] is True
+    assert result["metadata"]["quality_gate_worldclass_score"] == "0.91"
+
+    vector_json = result["metadata"]["quality_gate_hybrid_engineer_vector"]
+    vector = json.loads(vector_json)
+    assert vector["artifact_freedom"] == pytest.approx(0.98)
+    assert vector["vocal_identity_preservation"] == pytest.approx(0.94)

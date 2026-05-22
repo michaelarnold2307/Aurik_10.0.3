@@ -4,6 +4,30 @@
 > Historische Qualitäts- und Marketingformulierungen bleiben zur Nachvollziehbarkeit erhalten
 > und sind nicht automatisch als aktueller, normativ bindender Außenclaim zu verstehen.
 
+## Version 9.12.10 — Contract-Härtung: GUI/CLI/Batch-Metadaten-Konsistenz + Lint/Scope-Fixes (22. Mai 2026)
+
+### Code
+
+- GUI-Exportmetadaten in `Aurik910/ui/modern_window.py` gegen Scope-Drift gehärtet
+  (`_restoration_result` Alias am Denker-Ergebnis), damit `quality_gate_hybrid_engineer_vector`
+  in allen Ausführungszweigen stabil serialisiert wird.
+- Root-Skript `_aurik_run_excellence.py` auf strict-lint-konforme Import-/Fallback-Kaskade
+  und saubere Export-Metadaten-Version angehoben.
+- `batch_processor.py` C0301-Bereinigung ohne Verhaltensänderung; Weltklasse-Metadatenpfad
+  bleibt unverändert normativ.
+
+### Tests
+
+- Normativ: `tests/normative/test_modern_window_gui_contract.py` grün.
+- Normativ: `tests/normative/test_batch_processor_worldclass_contract.py` grün.
+- Integration: `tests/test_optimization_integration.py` grün.
+
+### Release-Status
+
+- Versionsanker auf `9.12.10` gesetzt (`README.md`, `pyproject.toml`,
+  `batch_processor.py`, `_aurik_run_excellence.py`, GUI-Fallback-Version in
+  `Aurik910/ui/modern_window.py`).
+
 ## Version 9.12.9-hotfix.7 — Proxy-Fixes: primary_material Enum + spatial_depth M/S (20. Mai 2026)
 
 ## Version 9.12.9-hotfix.11 — Weltklasse: Transfer-Chain-aware Per-Phase-Oracle + Regelwerk-Sync (20. Mai 2026)

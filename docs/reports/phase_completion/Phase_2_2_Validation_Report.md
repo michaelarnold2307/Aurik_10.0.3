@@ -1,5 +1,9 @@
 # AURIK Phase 2.2 Validation Report
 
+> Legacy-Hinweis: Historischer Bericht aus 2026-02.
+> Inhalte mit historischem Restorer-Integrationsstand oder damaligen Weltklasse-Claims sind nicht normativer
+> Release-Vertrag. Verbindlich sind `.github/specs/01-08` und `docs/CHANGELOG_HISTORY.md`.
+
 ## Advanced Vocal Enhancement (90-95% World-Class Quality)
 
 **Report Date:** 2026-02-02  
@@ -19,14 +23,14 @@ beyond industry leaders (iZotope RX10 + Waves Clarity + Antares Auto-Tune combin
 ### Implementation Metrics
 
 - **Code Volume:** 2,862 lines (114% of 2,500-line target)
-- **Components:** 5 Elite modules + full UnifiedRestorerV2 integration
+- **Components:** 5 Elite modules + full historical restorer integration
 - **Development Time:** ~8 hours (planned: 3-4 days - significantly ahead of schedule)
 - **Quality Target:** 90-95% world-class (achieved)
 - **CPU-Only:** ✅ No GPU requirements (layperson accessible)
 
 ### Integration Success
 
-All 5 Phase 2.2 components successfully integrated into UnifiedRestorerV2:
+All 5 Phase 2.2 components successfully integrated into the historical restorer runtime:
 
 - ✅ Stage 0: De-Esser v2.0 (Phase 2.1 - Sibilance Control)
 - ✅ Stage 1: Breath Intelligence (Genre-aware breath processing)
@@ -473,7 +477,7 @@ except Exception as e:
 
 1. **Code Volume:** 2,862 lines (114% of target)
 2. **Component Count:** 5 Elite modules (100% complete)
-3. **Integration:** Seamless into UnifiedRestorerV2 (✅ complete)
+3. **Integration:** Seamless into the historical restorer runtime (✅ complete)
 4. **Competitive Position:** Beyond iZotope + Waves + Antares combined
 5. **Unique Features:** 3 world-first capabilities (genre-aware breath, singer's formant, harmonic inpainting)
 6. **Performance:** < 650ms for 3.0s audio (4.6× real-time)
@@ -516,7 +520,7 @@ except Exception as e:
 | Harmonic-Aware Inpainting              | +1.5   | ML-inspired, CPU-only gap filling                       |
 | Syllable-Level Micro-Compression       | +1.5   | 5ms attack, surgical precision                          |
 | Broadcast-Quality Presence             | +1.0   | +21.84 dB presence boost confirmed                      |
-| Unified API Integration                | +1.0   | Seamless UnifiedRestorerV2 integration                  |
+| Unified API Integration                | +1.0   | Seamless historical restorer integration                |
 | CPU-Only (No GPU Requirements)         | +1.0   | Accessible to all users                                 |
 | Comprehensive CLI Interfaces           | +0.5   | All 5 components have CLI                               |
 | Graceful Degradation                   | +0.5   | Robust error handling                                   |
@@ -615,7 +619,7 @@ except Exception as e:
 1. ✅ **90-95% Weltspitze quality achieved** (target met)
 2. ✅ **2,862 lines of professional code** (114% of target)
 3. ✅ **5 Elite components implemented** (100% complete)
-4. ✅ **Seamless UnifiedRestorerV2 integration** (lazy-loading, graceful degradation)
+4. ✅ **Seamless historical restorer integration** (lazy-loading, graceful degradation)
 5. ✅ **3 world-first features** (genre-aware breath, singer's formant, harmonic inpainting)
 6. ✅ **Beyond industry leaders** (exceeds iZotope + Waves + Antares combined)
 7. ✅ **CPU-only, accessible to all** (no GPU barriers)

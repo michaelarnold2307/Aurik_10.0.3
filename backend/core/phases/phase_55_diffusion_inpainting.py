@@ -771,6 +771,19 @@ def _gap_candidate_is_damaging(candidate: np.ndarray, channel: np.ndarray, start
     return bool(seg_p99 > ctx_p99 * 2.5)
 
 
+def _apply_shared_stereo_ratio(
+    audio_stereo: np.ndarray,
+    mono_reference: np.ndarray,
+    mono_repaired: np.ndarray,
+) -> np.ndarray:
+    """Wendet eine gemeinsame signed Mono-Ratio konsistent auf beide Stereokanaele an."""
+    _den = np.where(np.abs(mono_reference) > 1e-10, mono_reference, np.sign(mono_reference + 1e-30) * 1e-10)
+    _ratio = mono_repaired / _den
+    _ratio = np.clip(_ratio, -10.0, 10.0)
+    _out = np.column_stack([audio_stereo[:, 0] * _ratio, audio_stereo[:, 1] * _ratio])
+    return np.clip(np.nan_to_num(_out, nan=0.0, posinf=0.0, neginf=0.0), -1.0, 1.0).astype(np.float32)
+
+
 def _process_channel(
     channel: np.ndarray,
     sample_rate: int,
@@ -1157,10 +1170,7 @@ class DiffusionInpaintingPhase(PhaseInterface):
         _repaired_mono = np.clip(_repaired_mono, -1.0, 1.0)
 
         if _is_stereo:
-            _ratio = _repaired_mono / (_mono + np.sign(_mono + 1e-30) * 1e-10)
-            _ratio = np.clip(_ratio, 0.0, 10.0)
-            _out = np.column_stack([audio[:, 0] * _ratio, audio[:, 1] * _ratio])
-            return np.clip(np.nan_to_num(_out, nan=0.0, posinf=0.0, neginf=0.0), -1.0, 1.0).astype(np.float32)
+            return _apply_shared_stereo_ratio(audio, _mono, _repaired_mono)
 
         return _repaired_mono.astype(np.float32)
 
@@ -1288,19 +1298,36 @@ class DiffusionInpaintingPhase(PhaseInterface):
         _n_repaired_skipped = 0
         _damage_guard_hits = 0
         _thrash_guard_active = False
+        _channel_failures = 0
+        _channel_total = 1
+        _full_nmf_fallback_used = False
 
         if audio.ndim == 1:
             # Mono
-            repaired, stats = _process_channel(
-                audio,
-                sample_rate,
-                min_gap_ms_eff,
-                _repaired_gaps,
-                _bw_cap_hz,
-                wall_budget_s=wall_budget_s,
-                goal_weights=_goal_weights,
-                restorability_score=_restorability_score,
-            )
+            try:
+                repaired, stats = _process_channel(
+                    audio,
+                    sample_rate,
+                    min_gap_ms_eff,
+                    _repaired_gaps,
+                    _bw_cap_hz,
+                    wall_budget_s=wall_budget_s,
+                    goal_weights=_goal_weights,
+                    restorability_score=_restorability_score,
+                )
+            except Exception as _ch55_exc:
+                logger.warning("phase_55 mono channel processing failed, using passthrough candidate: %s", _ch55_exc)
+                repaired = audio.copy()
+                stats = {
+                    "n_gaps": 0,
+                    "total_gap_ms": 0.0,
+                    "max_gap_ms": 0.0,
+                    "plugin_used": False,
+                    "pre_repaired_skipped": 0,
+                    "damage_guard_activations": 0,
+                    "ml_thrashing_guard": False,
+                }
+                _channel_failures = 1
             gaps = _detect_gaps(audio, sample_rate, min_gap_ms_eff)
             quality = _reconstruction_quality_score(audio, repaired, gaps)
             n_gaps = stats["n_gaps"]
@@ -1324,6 +1351,7 @@ class DiffusionInpaintingPhase(PhaseInterface):
                 logger.debug("phase_55: Axis-Orientierungs-Korrektur (2,N) → (N,2) angewendet")
 
             n_channels = audio.shape[1]
+            _channel_total = n_channels
             # §2.51 Mono-Mix für verknüpfte Gap-Detektion
             mono_mix = np.mean(audio, axis=1)  # (N, channels) → (N,) korrekt
             mono_gaps = _detect_gaps(mono_mix, sample_rate, min_gap_ms_eff)
@@ -1336,17 +1364,35 @@ class DiffusionInpaintingPhase(PhaseInterface):
             quality_scores = []
 
             for ch in range(n_channels):
-                ch_rep, stats = _process_channel(
-                    audio[:, ch],
-                    sample_rate,
-                    min_gap_ms_eff,
-                    _repaired_gaps,
-                    _bw_cap_hz,
-                    precomputed_gaps=mono_gaps,
-                    wall_budget_s=wall_budget_s,
-                    goal_weights=_goal_weights,
-                    restorability_score=_restorability_score,
-                )
+                try:
+                    ch_rep, stats = _process_channel(
+                        audio[:, ch],
+                        sample_rate,
+                        min_gap_ms_eff,
+                        _repaired_gaps,
+                        _bw_cap_hz,
+                        precomputed_gaps=mono_gaps,
+                        wall_budget_s=wall_budget_s,
+                        goal_weights=_goal_weights,
+                        restorability_score=_restorability_score,
+                    )
+                except Exception as _ch55_exc:
+                    logger.warning(
+                        "phase_55 stereo channel %d processing failed, using passthrough candidate: %s",
+                        ch,
+                        _ch55_exc,
+                    )
+                    ch_rep = audio[:, ch].copy()
+                    stats = {
+                        "n_gaps": 0,
+                        "total_gap_ms": 0.0,
+                        "max_gap_ms": 0.0,
+                        "plugin_used": False,
+                        "pre_repaired_skipped": 0,
+                        "damage_guard_activations": 0,
+                        "ml_thrashing_guard": False,
+                    }
+                    _channel_failures += 1
                 channels_repaired.append(ch_rep)
                 n_gaps = max(n_gaps, stats["n_gaps"])
                 total_gap_ms += stats["total_gap_ms"]
@@ -1362,6 +1408,18 @@ class DiffusionInpaintingPhase(PhaseInterface):
             if _was_channel_first:
                 repaired = repaired.T  # (N, 2) → (2, N) zurück in UV3-Format
             quality = float(np.mean(quality_scores)) if quality_scores else 1.0
+
+        if _channel_failures >= _channel_total:
+            logger.warning(
+                "phase_55: all channel paths failed (%d/%d) — invoking full-spectrum NMF fallback",
+                _channel_failures,
+                _channel_total,
+            )
+            _fallback_input = audio
+            repaired = self._nmf_spectral_inpainting_fallback(_fallback_input, sample_rate, strength=safe_strength)
+            if audio.ndim == 2 and "_was_channel_first" in locals() and _was_channel_first:
+                repaired = repaired.T
+            _full_nmf_fallback_used = True
 
         if 0.0 < safe_strength < 1.0:
             repaired = source_audio + safe_strength * (repaired - source_audio)
@@ -1419,10 +1477,10 @@ class DiffusionInpaintingPhase(PhaseInterface):
             # Artikulation schlägt Lücken-Filling (§2.36 RELEASE_MUST).
             try:
                 from backend.core.lyrics_guided_enhancement import (  # pylint: disable=import-outside-toplevel
-                    LyricsGuidedEnhancement,
+                    get_lyrics_guided_enhancement,
                 )
 
-                _lge55 = LyricsGuidedEnhancement()
+                _lge55 = get_lyrics_guided_enhancement()
                 _phon_mask55 = _lge55.get_phoneme_mask(_mono55, sample_rate, hop_length=512)
                 if _phon_mask55 is not None and len(_phon_mask55) > 0:
                     hop55 = 512
@@ -1481,6 +1539,8 @@ class DiffusionInpaintingPhase(PhaseInterface):
                 "wall_budget_seconds": wall_budget_s,
                 "inpainting_profile": dict(_inpainting_profile),
                 "reconstruction_quality": round(quality, 4),
+                "channel_failures": int(_channel_failures),
+                "full_nmf_fallback_used": bool(_full_nmf_fallback_used),
                 "diffusion_steps": f"{_DIFFUSION_STEPS}/{_DIFFUSION_STEPS_MED}/{_DIFFUSION_STEPS_LONG} (adaptive)",
                 "min_gap_ms": min_gap_ms,
                 "min_gap_ms_effective": round(min_gap_ms_eff, 2),

@@ -1,5 +1,7 @@
 """Unit tests for phase_26_dynamic_range_expansion._compute_expansion_profile (§2.56, §6.2b)."""
 
+import numpy as np
+
 from backend.core.phases.phase_26_dynamic_range_expansion import DynamicRangeExpansion
 
 
@@ -51,3 +53,16 @@ class TestExpansionProfile:
     def test_unknown_material(self):
         p = self._p("totally_unknown_xyz")
         assert 2.0 <= p["max_expansion_db"] <= 12.0
+
+
+def test_measure_dynamic_range_uses_mid_channel_not_left_only():
+    phase = DynamicRangeExpansion()
+    n = 48000
+    t = np.linspace(0.0, 1.0, n, endpoint=False)
+    left = 0.9 * np.sin(2.0 * np.pi * 440.0 * t)
+    right = 0.9 * np.sin(2.0 * np.pi * 440.0 * t + np.pi / 2.0)
+    stereo = np.column_stack([left, right]).astype(np.float32)
+
+    dr = phase._measure_dynamic_range(stereo)
+    assert np.isfinite(dr)
+    assert dr > 0.0

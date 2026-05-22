@@ -488,6 +488,48 @@ class TestMultiPassEngine:
         assert calls[2] == "restoration", f"balanced expected restoration, got {calls[2]}"
         assert calls[3] == "maximum", f"strong_dynamics expected maximum, got {calls[3]}"
 
+    def test_default_process_func_uses_full_program_length(self, mock_audio):
+        """MultiPass default processing must evaluate full program, not only first 10s."""
+
+        class _FakeResult:
+            def __init__(self, audio: np.ndarray) -> None:
+                self.audio = audio
+
+        class _FakeRestorer:
+            def __init__(self) -> None:
+                self.lengths: list[int] = []
+
+            def restore(self, audio, sample_rate, mode="restoration", **kwargs):
+                self.lengths.append(len(audio))
+                return _FakeResult(audio)
+
+        audio, sr = mock_audio
+        long_audio = np.tile(audio, 8)  # deutlich länger als 10 s
+
+        engine = MultiPassEngine()
+        engine._restorer = _FakeRestorer()
+
+        _ = engine._default_process_func(long_audio, sr, ProcessingVariant.create_balanced().config)
+        assert engine._restorer.lengths[0] == len(long_audio)  # type: ignore[union-attr]
+
+    def test_default_process_func_raises_on_missing_audio_payload(self, mock_audio):
+        """A variant without audio payload must fail hard (no silent original fallback)."""
+
+        class _FakeResult:
+            def __init__(self) -> None:
+                self.audio = None
+
+        class _FakeRestorer:
+            def restore(self, audio, sample_rate, mode="restoration", **kwargs):
+                return _FakeResult()
+
+        audio, sr = mock_audio
+        engine = MultiPassEngine()
+        engine._restorer = _FakeRestorer()
+
+        with pytest.raises(RuntimeError, match="MultiPass default processing failed"):
+            _ = engine._default_process_func(audio, sr, ProcessingVariant.create_balanced().config)
+
 
 class TestCreateDefaultVariants:
     """Test create_default_variants helper function."""

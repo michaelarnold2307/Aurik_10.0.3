@@ -20,7 +20,7 @@ TERMINFO_DIRS ?= /usr/share/terminfo:/lib/terminfo:/etc/terminfo
 export TERM TERMINFO TERMINFO_DIRS
 
 # Verzeichnisse für Code-Qualität
-SRC_DIRS := core dsp plugins backend denker Aurik910 aurik_cli.py
+SRC_DIRS := dsp plugins backend denker Aurik910 cli/aurik_cli.py
 EXCLUDE_DIRS := models .venv_aurik build dist output_audio sessions logs __pycache__
 
 # Farben für Terminal-Ausgabe
@@ -120,7 +120,7 @@ typecheck: mypy
 mypy:
 	@echo "$(YELLOW)⚙ mypy: Statische Typprüfung...$(RESET)"
 	$(PYMODULE) mypy \
-		core dsp plugins denker \
+		backend dsp plugins denker \
 		--ignore-missing-imports \
 		--show-error-codes \
 		2>&1 | tee reports/mypy_report.txt || true

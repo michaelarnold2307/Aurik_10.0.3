@@ -6,6 +6,7 @@ Mit integrierter Audio-Verarbeitung (Backend V2)
 
 import contextlib
 import gc
+import json
 import logging
 import math
 import os
@@ -507,7 +508,7 @@ QSvgRenderer = QtSvg.QSvgRenderer
 try:
     from Aurik910 import __version__ as _AURIK_VERSION
 except Exception:
-    _AURIK_VERSION = "9.12.9-hotfix.2"
+    _AURIK_VERSION = "9.12.10"
 
 # SVG-Phasen-Icons (2.5D mystisch-profi)
 try:
@@ -2784,6 +2785,7 @@ class BatchProcessingThread(QThread):
                     sr,
                     **_denke_kwargs,
                 )
+                _restoration_result = result
                 # §3.9.2: Clear emergency state after successful completion
                 self._emergency_audio = None
                 self._emergency_input_path = None
@@ -3050,6 +3052,16 @@ class BatchProcessingThread(QThread):
                         if isinstance(_evidence_payload.get("worldclass_composite_gate", {}), dict)
                         else {}
                     )
+                    _psy_payload = (
+                        _eq_payload.get("psychoacoustic_naturalness_gate", {})
+                        if isinstance(_eq_payload.get("psychoacoustic_naturalness_gate", {}), dict)
+                        else {}
+                    )
+                    _psy_evidence = (
+                        _evidence_payload.get("psychoacoustic_naturalness_gate", {})
+                        if isinstance(_evidence_payload.get("psychoacoustic_naturalness_gate", {}), dict)
+                        else {}
+                    )
                     _meta_for_export = {
                         "quality_gate_passed": str(bool(_eq_payload.get("passed", _eq_passed))),
                         "quality_gate_degradation_status": str(_eq_payload.get("degradation_status", "ok")),
@@ -3075,12 +3087,30 @@ class BatchProcessingThread(QThread):
                         "quality_gate_worldclass_passed": str(bool(_wcs_payload.get("passed", False))),
                         "quality_gate_worldclass_profile": str(_wcs_payload.get("profile", "") or ""),
                         "quality_gate_worldclass_artifact_veto": str(bool(_wcs_payload.get("artifact_veto", False))),
+                        "quality_gate_hybrid_engineer_vector": json.dumps(
+                            (
+                                getattr(_restoration_result, "metadata", {})
+                                if isinstance(getattr(_restoration_result, "metadata", {}), dict)
+                                else {}
+                            ).get("hybrid_engineer_vector", {}),
+                            sort_keys=True,
+                            ensure_ascii=True,
+                        ),
+                        "quality_gate_psycho_score": str(float(_psy_payload.get("psycho_score", 0.0) or 0.0)),
+                        "quality_gate_psycho_threshold": str(float(_psy_payload.get("threshold", 0.0) or 0.0)),
+                        "quality_gate_psycho_per_metric_floor": str(
+                            float(_psy_payload.get("per_metric_floor", 0.0) or 0.0)
+                        ),
+                        "quality_gate_psycho_passed": str(bool(_psy_payload.get("passed", False))),
+                        "quality_gate_psycho_profile": str(_psy_payload.get("profile", "") or ""),
                         "quality_gate_evidence_worldclass_source_class": str(
                             _wcs_evidence.get("source_class", "") or ""
                         ),
                         "quality_gate_evidence_worldclass_revalidate_by": str(
                             _wcs_evidence.get("revalidate_by", "") or ""
                         ),
+                        "quality_gate_evidence_psycho_source_class": str(_psy_evidence.get("source_class", "") or ""),
+                        "quality_gate_evidence_psycho_revalidate_by": str(_psy_evidence.get("revalidate_by", "") or ""),
                         "quality_gate_musiclover_vqi": str(float(_ml_vocal.get("vqi", 0.0) or 0.0)),
                         "quality_gate_musiclover_sid": str(float(_ml_vocal.get("singer_identity_cosine", 0.0) or 0.0)),
                         "quality_gate_musiclover_temporal_hotspots": str(int(_ml_hotspots)),
@@ -17407,6 +17437,11 @@ class ModernMainWindow(QMainWindow):
             "is_sota_run": True,
             "sota_warning_reason": "",
             "preventive_actions": [],
+            "spec_upgrade": False,
+            "goal_upgrade_decision": {},
+            "phase_upgrade_candidate": [],
+            "goal_threshold_source": "",
+            "decision_authority": "",
         }
 
         if restoration_result is None:
@@ -17616,6 +17651,13 @@ class ModernMainWindow(QMainWindow):
 
         _mg_meta = _meta.get("musical_goals") or {}
         ctx["musical_violations"] = list(_mg_meta.get("violations") or [])
+        ctx["spec_upgrade"] = bool(_meta.get("spec_upgrade", False))
+        _sug_decision = _meta.get("goal_upgrade_decision")
+        ctx["goal_upgrade_decision"] = dict(_sug_decision) if isinstance(_sug_decision, dict) else {}
+        _sug_phases = _meta.get("phase_upgrade_candidate")
+        ctx["phase_upgrade_candidate"] = list(_sug_phases) if isinstance(_sug_phases, list) else []
+        ctx["goal_threshold_source"] = str(_meta.get("goal_threshold_source") or "")
+        ctx["decision_authority"] = str(_meta.get("decision_authority") or "")
         ctx["fail_reason"] = _bridge_resolve_pipeline_fail_reason(
             typed_fail_reason=getattr(r, "fail_reason", None),
             metadata=_meta,
@@ -17675,6 +17717,8 @@ class ModernMainWindow(QMainWindow):
         *,
         is_sota_run: bool,
         sota_warning_reason: str,
+        spec_upgrade: bool,
+        goal_upgrade_decision: dict,
         mos_est: float,
         restorability_grade: str,
         restorability_mos_min: float,
@@ -17734,6 +17778,16 @@ class ModernMainWindow(QMainWindow):
             _reason = sota_warning_reason.strip() if isinstance(sota_warning_reason, str) else ""
             score_lines.append("SOTA-Status: eingeschränkt" + (f"  ·  {_reason}" if _reason else ""))
 
+        _sug_reason = (
+            str(goal_upgrade_decision.get("reason", "") or "").strip()
+            if isinstance(goal_upgrade_decision, dict)
+            else ""
+        )
+        if _sug_reason and _sug_reason != "not_evaluated":
+            _ampel = "🟢" if spec_upgrade else "🟡"
+            _status_de = "promoted" if spec_upgrade else "pending"
+            score_lines.append(f"Spec-Upgrade: {_ampel} {_status_de}  ·  {_sug_reason}")
+
         return "\n".join(score_lines)
 
     def _build_quality_banner_sections(
@@ -17788,6 +17842,11 @@ class ModernMainWindow(QMainWindow):
         xp_ml_fallbacks: list[dict],
         xp_team_coord: dict,
         preventive_actions: list[str],
+        spec_upgrade: bool,
+        goal_upgrade_decision: dict,
+        phase_upgrade_candidate: list[str],
+        goal_threshold_source: str,
+        decision_authority: str,
     ) -> list[str]:
         """Erstellt info banner sections for post-processing quality UI."""
         banner_sections: list[str] = []
@@ -17798,6 +17857,38 @@ class ModernMainWindow(QMainWindow):
                 banner_sections.append(f"⚠️  Nicht-SOTA-Ausführung: {_reason}")
             else:
                 banner_sections.append("⚠️  Nicht-SOTA-Ausführung erkannt")
+
+        if isinstance(goal_upgrade_decision, dict) and goal_upgrade_decision:
+            _sug_reason_raw = str(goal_upgrade_decision.get("reason", "") or "").strip()
+            _sug_reason_de = {
+                "promote_to_spec": "Upgrade freigegeben",
+                "safety_fail_artifact_freedom": "abgelehnt (Artifact-Freedom)",
+                "vqi_regression_or_missing": "abgelehnt (VQI fehlt/Regression)",
+                "too_many_goal_regressions": "abgelehnt (zu viele Ziel-Regressionen)",
+                "no_goal_improvement": "abgelehnt (keine Zielverbesserung)",
+                "not_evaluated": "nicht bewertet",
+            }.get(_sug_reason_raw, _sug_reason_raw or "unbekannt")
+            _sug_improved = int(goal_upgrade_decision.get("improved_goals_count", 0) or 0)
+            _sug_non_deg = int(goal_upgrade_decision.get("non_degraded_goals_count", 0) or 0)
+            _sug_degraded = int(goal_upgrade_decision.get("degraded_goals_count", 0) or 0)
+            _sug_prefix = "🚀" if spec_upgrade else "🧪"
+            _sug_line = (
+                f"{_sug_prefix}  Spec-Upgrade: {_sug_reason_de}"
+                f"  ·  +{_sug_improved} verbessert"
+                f"  ·  {_sug_non_deg} stabil"
+                f"  ·  {_sug_degraded} regressiv"
+            )
+            _sug_meta_parts = []
+            if goal_threshold_source:
+                _sug_meta_parts.append(f"Quelle: {goal_threshold_source}")
+            if decision_authority:
+                _sug_meta_parts.append(f"Authority: {decision_authority}")
+            if _sug_meta_parts:
+                _sug_line += "\n   " + "  ·  ".join(_sug_meta_parts)
+            if phase_upgrade_candidate:
+                _phase_preview = ", ".join(str(p) for p in phase_upgrade_candidate[:4])
+                _sug_line += f"\n   Kandidat-Phasen: {_phase_preview}"
+            banner_sections.append(_sug_line)
 
         if fail_reason and fail_reason not in ("None", "none", ""):
             banner_sections.append(f"🚫  Export blockiert: {fail_reason}")
@@ -18052,20 +18143,57 @@ class ModernMainWindow(QMainWindow):
                 _wcs_parts.append("Artifact-Veto")
             banner_sections.append("🏁  Worldclass-Gate: " + "  ·  ".join(_wcs_parts))
 
+        qg_psy = xp_quality_gate.get("psychoacoustic_naturalness_gate", {}) if isinstance(xp_quality_gate, dict) else {}
+        if isinstance(qg_psy, dict) and qg_psy:
+            try:
+                _psy = float(qg_psy.get("psycho_score", 0.0) or 0.0)
+            except Exception:
+                _psy = 0.0
+            try:
+                _psy_thr = float(qg_psy.get("threshold", 0.0) or 0.0)
+            except Exception:
+                _psy_thr = 0.0
+            try:
+                _psy_floor = float(qg_psy.get("per_metric_floor", 0.0) or 0.0)
+            except Exception:
+                _psy_floor = 0.0
+            _psy_passed = bool(qg_psy.get("passed", False))
+            _psy_prof = str(qg_psy.get("profile", "") or "")
+            _psy_parts = [
+                f"Score {_psy:.2f}",
+                f"Schwelle {_psy_thr:.2f}",
+                f"Achsen-Floor {_psy_floor:.2f}",
+                ("natuerlich" if _psy_passed else "klinisch-risiko"),
+            ]
+            if _psy_prof:
+                _psy_parts.append(f"Profil {_psy_prof}")
+            banner_sections.append("🎧  Psychoakustik-Gate: " + "  ·  ".join(_psy_parts))
+
         if isinstance(xp_threshold_evidence, dict) and xp_threshold_evidence:
             _wcs_ev = (
                 xp_threshold_evidence.get("worldclass_composite_gate", {})
                 if isinstance(xp_threshold_evidence.get("worldclass_composite_gate", {}), dict)
                 else {}
             )
-            if _wcs_ev:
-                _src_class = str(_wcs_ev.get("source_class", "") or "")
-                _reval = str(_wcs_ev.get("revalidate_by", "") or "")
+            _psy_ev = (
+                xp_threshold_evidence.get("psychoacoustic_naturalness_gate", {})
+                if isinstance(xp_threshold_evidence.get("psychoacoustic_naturalness_gate", {}), dict)
+                else {}
+            )
+            if _wcs_ev or _psy_ev:
                 _ev_parts = []
-                if _src_class:
-                    _ev_parts.append(f"Evidenzklasse {_src_class}")
-                if _reval:
-                    _ev_parts.append(f"Revalidierung bis {_reval}")
+                _wcs_src_class = str(_wcs_ev.get("source_class", "") or "")
+                _wcs_reval = str(_wcs_ev.get("revalidate_by", "") or "")
+                if _wcs_src_class:
+                    _ev_parts.append(f"WCS-Klasse {_wcs_src_class}")
+                if _wcs_reval:
+                    _ev_parts.append(f"WCS-Revalidierung bis {_wcs_reval}")
+                _psy_src_class = str(_psy_ev.get("source_class", "") or "")
+                _psy_reval = str(_psy_ev.get("revalidate_by", "") or "")
+                if _psy_src_class:
+                    _ev_parts.append(f"Psycho-Klasse {_psy_src_class}")
+                if _psy_reval:
+                    _ev_parts.append(f"Psycho-Revalidierung bis {_psy_reval}")
                 if _ev_parts:
                     banner_sections.append("📚  Gate-Evidenz: " + "  ·  ".join(_ev_parts))
 
@@ -18155,13 +18283,45 @@ class ModernMainWindow(QMainWindow):
             logger.debug("Qualitaetsanzeige: MOS-Gauge-Animation fehlgeschlagen", exc_info=True)
 
         if banner_sections:
+            _psy_present = any("🎧  Psychoakustik-Gate:" in _s for _s in banner_sections)
+            _psy_risk = any("klinisch-risiko" in _s for _s in banner_sections)
+            _degraded_hint = any(
+                (_k in _s)
+                for _s in banner_sections
+                for _k in (
+                    "Export blockiert:",
+                    "Degradation-Status:",
+                    "Laufzeit-Fallback:",
+                )
+            )
+
+            # Ampel-Visualisierung fuer psychoakustische Natuerlichkeit.
+            # Gruen: natuerlich bestaetigt, Gelb: Vorsicht/fehlende Psycho-Metrik,
+            # Rot: klinisch-risiko erkannt.
+            if _psy_risk:
+                _banner_color = "#F0B8B8"
+                _banner_bg = "rgba(120, 40, 48, 0.84)"
+                _banner_border = "rgba(216, 88, 100, 0.65)"
+            elif _psy_present:
+                _banner_color = "#CFE8D9"
+                _banner_bg = "rgba(34, 72, 52, 0.82)"
+                _banner_border = "rgba(109, 184, 146, 0.58)"
+            elif _degraded_hint:
+                _banner_color = "#F2DAB3"
+                _banner_bg = "rgba(84, 60, 28, 0.82)"
+                _banner_border = "rgba(208, 156, 82, 0.58)"
+            else:
+                _banner_color = "#B0BEC5"
+                _banner_bg = "rgba(30, 40, 55, 0.80)"
+                _banner_border = "rgba(96, 125, 139, 0.35)"
+
             self.info_banner.setText("\n".join(banner_sections))
-            self.info_banner.setStyleSheet("""
-                color: #B0BEC5; font-size: 8pt; padding: 10px;
-                background: rgba(30, 40, 55, 0.80);
-                border-radius: 8px; border: 1px solid rgba(96, 125, 139, 0.35);
-                line-height: 155%;
-            """)
+            self.info_banner.setStyleSheet(
+                f"color: {_banner_color}; font-size: 8pt; padding: 10px;"
+                f" background: {_banner_bg};"
+                f" border-radius: 8px; border: 1px solid {_banner_border};"
+                " line-height: 155%;"
+            )
             self.info_banner.setVisible(True)
         else:
             self.info_banner.setVisible(False)
@@ -18463,6 +18623,11 @@ class ModernMainWindow(QMainWindow):
                 runtime_fallback_original: bool = bool(_ctx["runtime_fallback_original"])
                 is_sota_run: bool = bool(_ctx["is_sota_run"])
                 sota_warning_reason: str = str(_ctx["sota_warning_reason"])
+                spec_upgrade: bool = bool(_ctx["spec_upgrade"])
+                goal_upgrade_decision: dict = _ctx["goal_upgrade_decision"]
+                phase_upgrade_candidate: list[str] = _ctx["phase_upgrade_candidate"]
+                goal_threshold_source: str = str(_ctx["goal_threshold_source"])
+                decision_authority: str = str(_ctx["decision_authority"])
 
                 if not musical_goals:
                     musical_goals, synthesized_goals = self._synthesize_goals_from_mos(corr, mos_est)
@@ -18470,6 +18635,8 @@ class ModernMainWindow(QMainWindow):
                 mos_text = self._build_quality_score_text(
                     is_sota_run=is_sota_run,
                     sota_warning_reason=sota_warning_reason,
+                    spec_upgrade=spec_upgrade,
+                    goal_upgrade_decision=goal_upgrade_decision,
                     mos_est=mos_est,
                     restorability_grade=restorability_grade,
                     restorability_mos_min=restorability_mos_min,
@@ -18537,6 +18704,11 @@ class ModernMainWindow(QMainWindow):
                     xp_ml_fallbacks=_xp_ml_fallbacks,
                     xp_team_coord=_xp_team_coord,
                     preventive_actions=preventive_actions,
+                    spec_upgrade=spec_upgrade,
+                    goal_upgrade_decision=goal_upgrade_decision,
+                    phase_upgrade_candidate=phase_upgrade_candidate,
+                    goal_threshold_source=goal_threshold_source,
+                    decision_authority=decision_authority,
                 )
 
                 def _update_gui():

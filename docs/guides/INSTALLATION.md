@@ -4,6 +4,8 @@
 **Datum:** Mai 2026  
 **Status:** ✅ Production Ready
 
+> **Normativer Hinweis (Release):** Endnutzer-Standard ist Desktop-Distribution (AppImage/.exe) mit One-Button-Workflow.
+> Entwicklerpfade mit manuellen Paket- und Python-Schritten sind keine produktive Laufzeitvorgabe.
 > **Hinweis**: Aurik 9.x.x ist eine **Desktop-App** für **Linux** (AppImage) und **Windows 10/11** (.exe).
 > Es wird kein Python, kein Terminal und keine Internetverbindung benötigt.
 > macOS wird **nicht** unterstützt.
@@ -34,15 +36,15 @@
 | **RAM** | 8 GB | 16 GB+ |
 | **CPU** | 4 Cores (2.5 GHz) | 8+ Cores (3.5 GHz) |
 | **Storage** | 10 GB | 20 GB SSD |
-| **GPU** | Nicht benötigt (CPU-only) | — |
+| **GPU** | Optional | AMD-GPU fuer ROCm/DirectML, sonst CPU-Fallback |
 
 ### Software-Abhängigkeiten
 
 **Python-Bibliotheken** (automatisch installiert):
 
-- PyTorch 2.2.x **+cpu** (CPU-only, kein CUDA erforderlich)
+- PyTorch / ONNX Runtime gemanagt durch den produktiven Laufzeitpfad
 - NumPy, SciPy, Librosa, SoundFile
-- onnxruntime (CPUExecutionProvider)
+- onnxruntime
 - PyQt5 (GUI)
 - tqdm, pyyaml, requests
 
@@ -146,79 +148,28 @@ sudo dnf install libsndfile ffmpeg
 
 ```bash
 # Test Import
-python -c "from core.unified_restorer_v2 import UnifiedRestorerV2; print('✅ Aurik installed successfully!')"
+python -c "from backend.api.bridge import get_aurik_denker_instance, get_load_audio_fn, run_pre_analysis; print('✅ Aurik bridge imports available')"
 ```
 
 **Expected Output:**
 
 ```text
-✅ Aurik installed successfully!
+✅ Aurik bridge imports available
 ```
 
 ---
 
 ### 2. GPU-Support
 
-> **Aurik 9 ist CPU-only** — GPU/CUDA wird nicht unterstützt und ist nicht geplant.
-> Alle ONNX-Sessions laufen mit `providers=["CPUExecutionProvider"]`.
-> Torch-Modelle werden mit `model.to("cpu")` ausgeführt.
->
-> Leistungserwartung auf Ryzen 7 (8C/16T, 32 GB RAM):
->
-> - Standard-Modus (Balanced): 8× Echtzeit-Budget
-> - Quality-Modus: 10× Echtzeit-Budget
-> - Maximum-Modus: 15× Echtzeit-Budget
+> GPU-Beschleunigung ist optional und wird im Releasepfad automatisch verwaltet.
+> Linux nutzt ROCm-faeige AMD-GPUs, Windows DirectML; bei Inkompatibilitaet faellt Aurik
+> transparent auf CPU zurueck. Endnutzer muessen keinen manuellen CUDA-/PyTorch-Sonderpfad pflegen.
 
-```bash
-sudo dpkg -i cuda-keyring_1.1-1_all.deb
-sudo apt-get update
-# Install CUDA Toolkit 12.8
-sudo apt-get install cuda-toolkit-12-8
-```
+**Wichtig:**
 
-**Windows:**
-
-- Download CUDA Toolkit 12.8 von [https://developer.nvidia.com/cuda-downloads](https://developer.nvidia.com/cuda-downloads)
-- Installer ausführen (wähle "Custom Installation" → nur CUDA Runtime & Libraries)
-
-#### Schritt 3: PyTorch mit CUDA installieren
-
-```bash
-# Aktiviere Virtual Environment
-
-source .venv_aurik/bin/activate  # Linux/macOS
-# ODER
-
-.venv_aurik\Scripts\activate     # Windows
-
-# Deinstalliere CPU-Version (falls vorhanden)
-
-pip uninstall torch torchaudio
-
-# Installiere CUDA-Version (CUDA 12.8)
-
-pip install torch==2.10.0 torchaudio==2.10.0 --index-url https://download.pytorch.org/whl/cu128
-```
-
-#### Schritt 4: Verifizierung
-
-```bash
-python -c "import torch; print(f'CUDA available: {torch.cuda.is_available()}'); print(f'GPU: {torch.cuda.get_device_name(0) if torch.cuda.is_available() else \"None\"}')"
-```
-
-**Expected Output (mit GPU):**
-
-```text
-CUDA available: True
-GPU: NVIDIA GeForce RTX 3090
-```
-
-**Expected Output (ohne GPU/CPU-only):**
-
-```text
-CUDA available: False
-GPU: None
-```
+- CPU-Betrieb ist immer zulaessig.
+- GPU-Nutzung wird ueber die produktive Laufzeitlogik gesteuert, nicht ueber eigene Endnutzer-Skripte.
+- Der Releasepfad bleibt One-Button, unabhaengig davon, ob GPU verfuegbar ist.
 
 ---
 
@@ -269,7 +220,7 @@ pre-commit>=3.8.0
 ### Test 1: Import-Test
 
 ```bash
-python -c "from core.unified_restorer_v2 import UnifiedRestorerV2; print('✅ Import successful')"
+python -c "from backend.api.bridge import get_aurik_denker_instance; print('✅ Import successful')"
 ```
 
 ### Test 2: Quick-Test mit Demo-Audio
@@ -292,13 +243,15 @@ print('✅ Test audio created: test_audio.wav')
 # Restore with Aurik
 
 python -c "
-from core.unified_restorer_v2 import UnifiedRestorerV2
+from backend.api.bridge import get_aurik_denker_instance, get_load_audio_fn, run_pre_analysis
 import soundfile as sf
 
-audio, sr = sf.read('test_audio.wav')
-restorer = UnifiedRestorerV2()
-restored = restorer.restore(audio, sr)
-sf.write('test_audio_restored.wav', restored, 48000)
+load_audio = get_load_audio_fn()
+audio, sr = load_audio('test_audio.wav')
+run_pre_analysis(audio, sr)
+denker = get_aurik_denker_instance()
+result = denker.denke(audio, sr, mode='restoration')
+sf.write('test_audio_restored.wav', result.audio, 48000)
 print('✅ Restoration successful: test_audio_restored.wav')
 "
 ```
@@ -347,7 +300,7 @@ pip install torch torchaudio
 
 ---
 
-### Problem 2: CUDA not available (GPU vorhanden)
+### Problem 2: GPU-Beschleunigung nicht aktiv
 
 **Symptom:**
 
@@ -358,44 +311,18 @@ print(torch.cuda.is_available())  # False
 
 **Ursachen & Lösungen:**
 
-**1. PyTorch CPU-Version installiert:**
+**1. CPU-Fallback ist aktiv:**
 
-```bash
-# Check PyTorch version
+Das ist zulaessig. Aurik bleibt produktiv nutzbar und faellt transparent auf CPU zurueck.
 
-pip show torch
+**2. Linux/Windows GPU-Support pruefen:**
 
-# Reinstall CUDA version
+- Linux: kompatible AMD-ROCm-Umgebung
+- Windows: DirectML-faehige GPU-Umgebung
 
-pip uninstall torch torchaudio
-pip install torch==2.10.0 torchaudio==2.10.0 --index-url https://download.pytorch.org/whl/cu128
-```
+**3. Keine manuellen CUDA-Sonderpfade als Endnutzerstandard pflegen:**
 
-**2. NVIDIA Driver nicht installiert:**
-
-```bash
-# Check driver
-
-nvidia-smi
-
-# If error: Install driver
-
-sudo ubuntu-drivers autoinstall
-sudo reboot
-```
-
-**3. CUDA Version Mismatch:**
-
-```bash
-# Check CUDA version
-
-nvcc --version
-
-# PyTorch requires CUDA 12.x
-
-# Install CUDA Toolkit 12.8 (siehe oben)
-
-```
+Die Release-Laufzeit entscheidet automatisch ueber GPU oder CPU.
 
 ---
 
@@ -440,7 +367,7 @@ RuntimeError: CUDA out of memory
 ```python
 # Process in smaller chunks
 
-from core.unified_restorer_v2 import UnifiedRestorerV2
+from backend.api.bridge import get_aurik_denker_instance
 import soundfile as sf
 
 audio, sr = sf.read('large_file.wav')
@@ -450,14 +377,14 @@ audio, sr = sf.read('large_file.wav')
 chunk_size = 30 * sr
 audio_chunks = [audio[i:i+chunk_size] for i in range(0, len(audio), chunk_size)]
 
-restorer = UnifiedRestorerV2()
-restored_chunks = [restorer.restore(chunk, sr) for chunk in audio_chunks]
+denker = get_aurik_denker_instance()
+restored_chunks = [denker.denke(chunk, sr, mode='restoration').audio for chunk in audio_chunks]
 restored = np.concatenate(restored_chunks)
 
 sf.write('output.wav', restored, 48000)
 ```
 
-**2. Verwende CPU-only:**
+**2. Verwende CPU-Fallback:**
 
 ```bash
 # Force CPU processing
@@ -474,7 +401,7 @@ python restore_audio.py
 
 ---
 
-### Problem 5: Slow Processing (CPU-only)
+### Problem 5: Langsame Verarbeitung im CPU-Fallback
 
 **Symptom:**
 
@@ -581,10 +508,8 @@ rm -rf .venv_aurik
 cd ..
 rm -rf Aurik_Standalone
 
-# Remove CUDA (optional, Linux)
-
-sudo apt-get remove cuda-toolkit-12-8
-sudo apt-get autoremove
+# GPU-Runtimes nur entfernen, wenn sie explizit als Entwicklungs-/Testumgebung
+# manuell installiert wurden und nicht mehr benoetigt werden.
 ```
 
 ---

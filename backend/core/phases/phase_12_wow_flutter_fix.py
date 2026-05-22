@@ -766,6 +766,13 @@ class WowFlutterFix(PhaseInterface):
             _timing_safe_strength,
             max_stretch_delta=_max_stretch_delta,
         )
+        _locality_coverage = 0.0
+        stretch_factors, _locality_coverage = self._apply_defect_locality_to_stretch_factors(
+            stretch_factors,
+            audio_length_samples=int(audio.shape[0] if audio.ndim == 2 else len(audio)),
+            sample_rate=sample_rate,
+            defect_locations=kwargs.get("defect_locations"),
+        )
 
         # Step 5: Apply time-stretching – PSOLA für Vokal-Segmente, WSOLA sonst
         # Moulines & Charpentier (1990): PSOLA ist formanterhaltend bei Gesangsmaterial;
@@ -1063,6 +1070,7 @@ class WowFlutterFix(PhaseInterface):
             metadata={
                 **_meta_detected,
                 "phase_locality_factor": phase_locality_factor,
+                "stretch_locality_coverage": _locality_coverage,
                 "effective_strength": _effective_strength,
                 "rms_drop_db": _rms_drop_db,
                 "loudness_makeup_db": _makeup_db,
@@ -2333,6 +2341,58 @@ class WowFlutterFix(PhaseInterface):
 
         return stretch_factors
 
+    @staticmethod
+    def _apply_defect_locality_to_stretch_factors(
+        stretch_factors: np.ndarray,
+        *,
+        audio_length_samples: int,
+        sample_rate: int,
+        defect_locations: dict[str, list[tuple[float, float]]] | None,
+    ) -> tuple[np.ndarray, float]:
+        """Begrenzt Stretch-Faktoren auf erkannte Wow/Flutter-nahe Defektsegmente."""
+        sf = np.asarray(stretch_factors, dtype=np.float32)
+        if sf.size == 0 or audio_length_samples <= 0 or sample_rate <= 0:
+            return sf, 0.0
+        if not isinstance(defect_locations, dict) or not defect_locations:
+            return sf, 0.0
+
+        location_keys = (
+            "wow",
+            "flutter",
+            "wow_flutter",
+            "multiband_wow_flutter",
+            "scrape_flutter",
+            "flutter_spectral_sidebands",
+        )
+        merged_locations: list[tuple[float, float]] = []
+        for key in location_keys:
+            for loc in defect_locations.get(key) or []:
+                if not isinstance(loc, tuple) or len(loc) != 2:
+                    continue
+                try:
+                    start_s = max(0.0, float(loc[0]))
+                    end_s = max(start_s, float(loc[1]))
+                except Exception:
+                    continue
+                merged_locations.append((start_s, end_s))
+
+        if not merged_locations:
+            return sf, 0.0
+
+        n_frames = int(sf.size)
+        duration_s = float(audio_length_samples) / float(sample_rate)
+        frame_centers_s = ((np.arange(n_frames, dtype=np.float32) + 0.5) / max(float(n_frames), 1.0)) * duration_s
+        active_mask = np.zeros(n_frames, dtype=bool)
+        pad_s = 0.05
+        for start_s, end_s in merged_locations:
+            active_mask |= (frame_centers_s >= max(0.0, start_s - pad_s)) & (frame_centers_s <= end_s + pad_s)
+
+        if not np.any(active_mask):
+            return np.ones_like(sf), 0.0
+
+        masked = np.where(active_mask, sf, 1.0).astype(np.float32)
+        return masked, float(np.mean(active_mask.astype(np.float32)))
+
     def _phase_vocoder_timestretch(
         self, audio: np.ndarray, stretch_factors: np.ndarray, _sample_rate: int
     ) -> np.ndarray:
@@ -2468,8 +2528,9 @@ class WowFlutterFix(PhaseInterface):
             incoherent_mask = coherence < 0.50
             n_incoherent = int(np.sum(incoherent_mask))
             if n_incoherent == 0 or n_incoherent > 0.80 * coherence.size:
-                # All coherent (already OK) or all incoherent (don't trust repair)
-                return audio.copy()
+                # All coherent (already OK) or all incoherent (PGHI propagation becomes unstable).
+                # Use a conservative temporal STFT coherence smoothing fallback instead of passthrough.
+                return self._phase_coherence_emergency_smoothing(audio, sample_rate)
 
             # Step 4: PGHI-inspired phase propagation — vectorised inner loop
             # Instantaneous frequency estimation via log-magnitude gradient
@@ -2517,6 +2578,68 @@ class WowFlutterFix(PhaseInterface):
 
         except Exception as _c3_exc:
             logger.debug("§C3 Neural Phase Coherence non-blocking: %s", _c3_exc)
+            return self._phase_coherence_emergency_smoothing(audio, sample_rate)
+
+    def _phase_coherence_emergency_smoothing(self, audio: np.ndarray, sample_rate: int) -> np.ndarray:
+        """Konservativer Notfallpfad fuer C3: leichte STFT-Temporalglättung statt Pass-Through."""
+        try:
+            if sample_rate <= 0:
+                return audio.copy()
+
+            if len(audio) < 1024:
+                # Kurzsignal-Notfallpfad: leichte zeitliche Kohärenzglättung statt No-op.
+                audio_f = np.asarray(audio, dtype=np.float64)
+                if len(audio_f) < 3:
+                    return np.nan_to_num(audio_f, nan=0.0, posinf=0.0, neginf=0.0).astype(audio.dtype, copy=False)
+                kernel = np.array([0.25, 0.5, 0.25], dtype=np.float64)
+                smooth = np.convolve(audio_f, kernel, mode="same")
+                blend = 0.12
+                result = (1.0 - blend) * audio_f + blend * smooth
+                result = np.clip(np.nan_to_num(result, nan=0.0, posinf=0.0, neginf=0.0), -1.0, 1.0)
+                return result.astype(audio.dtype, copy=False)
+
+            n_fft = 1024
+            hop = n_fft // 4
+            win = np.hanning(n_fft).astype(np.float64)
+            audio_f = np.asarray(audio, dtype=np.float64)
+            n = len(audio_f)
+
+            n_frames = 1 + max(0, (n - n_fft) // hop)
+            if n_frames < 3:
+                kernel = np.array([0.25, 0.5, 0.25], dtype=np.float64)
+                smooth = np.convolve(audio_f, kernel, mode="same")
+                blend = 0.12
+                result = (1.0 - blend) * audio_f + blend * smooth
+                result = np.clip(np.nan_to_num(result, nan=0.0, posinf=0.0, neginf=0.0), -1.0, 1.0)
+                return result.astype(audio.dtype, copy=False)
+
+            frames = np.lib.stride_tricks.sliding_window_view(audio_f, n_fft)[::hop][:n_frames]
+            stft = np.fft.rfft(frames * win, axis=1)
+
+            # Leichte zeitliche Kohärenzglättung im komplexen Spektrum.
+            stft_smooth = stft.copy()
+            stft_smooth[1:-1] = 0.70 * stft[1:-1] + 0.15 * stft[:-2] + 0.15 * stft[2:]
+
+            frames_out = np.fft.irfft(stft_smooth, n=n_fft, axis=1) * win[np.newaxis, :]
+            out = np.zeros(n, dtype=np.float64)
+            norm = np.zeros(n, dtype=np.float64)
+            win_sq = win**2
+            for i in range(n_frames):
+                s = i * hop
+                out[s : s + n_fft] += frames_out[i]
+                norm[s : s + n_fft] += win_sq
+
+            norm = np.where(norm > 1e-10, norm, 1.0)
+            out = out / norm
+            out = np.nan_to_num(out, nan=0.0, posinf=0.0, neginf=0.0)
+
+            # Sehr konservativer Blend, um Transienten zu schonen.
+            blend = 0.18
+            result = (1.0 - blend) * audio_f + blend * out
+            result = np.clip(result, -1.0, 1.0)
+            return result.astype(audio.dtype, copy=False)
+        except Exception as _c3_fallback_exc:
+            logger.debug("§C3 emergency smoothing fallback failed: %s", _c3_fallback_exc)
             return audio.copy()
 
     def _psola_timestretch(

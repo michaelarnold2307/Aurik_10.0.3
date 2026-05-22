@@ -7,8 +7,8 @@ applyTo: "backend/core/phases/phase_*.py"
 ## Pflicht-Checkliste bei jeder neuen Phase
 
 ```
-1. process()-Signatur: (audio, sr, material_type, strength, **kwargs) → np.ndarray
-2. assert sr == 48000 am Eingang
+1. process()-Signatur: (audio, sample_rate=48000, material_type="unknown", **kwargs) → PhaseResult
+2. assert sample_rate == 48000 am Eingang
 3. audio = np.clip(audio, -1.0, 1.0) am Ausgang
 4. result = np.nan_to_num(result, nan=0.0, posinf=0.0, neginf=0.0) vor Return
 5. logger.info("phase=%s score=%.2f", phase_id, score) — kein print()
@@ -31,6 +31,11 @@ applyTo: "backend/core/phases/phase_*.py"
     → Beispiel: CASSETTE braucht eigene DETECTION_THRESHOLD-Schwelle basierend auf IEC 60094-1
       (≤ 0,2 % WRMS Capstan/Pinch-Roller); Vinyl-Default 0.5 % übersieht Kassetten-Transport-Bumps
     → Pflicht-Test: test_phase_XX_all_material_types_in_DICT() für jede Phase mit material-indizierten Dicts
+
+Hinweis zur Strength-Übergabe (kanonisch):
+        - `strength` wird aus `kwargs` gelesen (z. B. `strength = float(kwargs.get("strength", 0.7))`).
+        - `strength` darf NICHT als dritter Positionsparameter die `material_type`-Position ersetzen.
+        - Contract-Referenz ist `backend/core/phases/phase_interface.py`.
 ```
 
 ## §2.46 Carrier-Chain-Inversion — Stufenreihenfolge (HARD)
@@ -274,6 +279,69 @@ from backend.core.dsp.vocal_register_detector import detect_vocal_register_tempo
 register_sequence = detect_vocal_register_temporal(audio, sr)
 # glättet Brust→Kopf-Übergänge ±5 Frames linear
 # verhindert Timbre-Knick bei Passaggio-Sprüngen
+```
+
+## §PH-SSOT Keine lokalen Parallel-Gates [RELEASE_MUST]
+
+Phasenmodule dürfen keine eigenen globalen Qualitäts-Gates etablieren.
+Sie liefern Signal + Telemetrie; die finale Exportentscheidung liegt ausschließlich bei UV3.
+
+```python
+# VERBOTEN in Phase-Dateien:
+# - Eigene globale Goal-Schwellen (z. B. natuerlichkeit >= 0.90 hardcoded)
+# - Eigene Export-Veto-Logik außerhalb klarer Per-Phase-Rollback-Invarianten
+# - Eigene alternative "final audio"-Pfade
+
+# ERLAUBT:
+# - Per-Phase-Safety-Rollback (z. B. Formant/Vibrato/Hallucination)
+# - Telemetrie in metadata
+# - Vorschlag für Recovery-Hinweis (non-binding)
+```
+
+Pflicht bei jeder Phase:
+
+```python
+metadata["phase_decision_scope"] = "local_only"
+metadata["final_authority"] = "UV3"
+```
+
+## §PH-NAT Natürlichkeits-Priorität ohne Übersteuerung
+
+Für das Ziel "klingt wie ohne Eingriff" muss jede Phase im Zweifel konservativ werden,
+statt Zielmetriken aggressiv zu erzwingen.
+
+```python
+# KANONISCH:
+# Wenn Phase-Delta mehrere Goals gleichzeitig verschlechtert,
+# dann strength dämpfen und lokalen Blend wählen statt weiterer Aggression.
+if n_regressive_goals >= 2:
+    strength = max(0.0, strength * 0.7)
+    metadata["multi_goal_conservative_blend"] = True
+```
+
+**VERBOTEN**: Ein Einzelziel lokal maximieren, wenn dadurch Natuerlichkeit/Authentizitaet sinkt.
+
+## §PH-UPG Lokale Qualitäts-Upgrades konservieren [RELEASE_MUST]
+
+Wenn eine Phase lokal nachweisbar bessere Ergebnisse liefert (bei erfüllten Safety-Grenzen),
+darf diese Verbesserung nicht auf ein älteres Spezifikationsniveau zurückgenommen werden.
+Die Spezifikation ist stattdessen anzupassen.
+
+```python
+# KANONISCH pro Phase:
+local_upgrade = (
+    perceptual_delta > 0.0
+    and artifact_freedom_proxy_not_worse
+    and not violates_formant_vibrato_hallucination_guards
+)
+
+if local_upgrade:
+    metadata["phase_upgrade_candidate"] = True
+    metadata["phase_upgrade_reason"] = "better_local_quality_with_safety"
+
+# VERBOTEN:
+# - strength künstlich zu reduzieren, nur um historisches Verhalten zu reproduzieren
+# - Upgrade ohne Telemetrie/Begründung stillschweigend einzubauen
 ```
 
 ## §2.8b De-Esser-Aktivierungsinvariante (phase_43)

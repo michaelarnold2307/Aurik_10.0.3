@@ -119,7 +119,6 @@ class EraAuthenticPerceptualCompletion:
         physikalisch erlaubt (§2.46e Hallucination-Guard).
         """
         # inf-sicher: erst nan_to_num, dann clip — verhindert Overflow in FFT
-        _ = anchor  # reserved: guided HF-synthesis reference — §2.35 TODO
         arr = np.clip(
             np.nan_to_num(np.asarray(audio, dtype=np.float32)),
             -1.0,
@@ -133,6 +132,24 @@ class EraAuthenticPerceptualCompletion:
             mono = arr.copy()
             stereo = None
             is_stereo = False
+
+        anchor_mono: np.ndarray | None = None
+        if anchor is not None:
+            try:
+                _anchor_arr = np.clip(np.nan_to_num(np.asarray(anchor, dtype=np.float32)), -1.0, 1.0)
+                if _anchor_arr.ndim == 2:
+                    anchor_mono = _anchor_arr.mean(axis=0)
+                else:
+                    anchor_mono = _anchor_arr
+                if anchor_mono is not None and anchor_mono.shape[-1] != mono.shape[-1]:
+                    if anchor_mono.shape[-1] > mono.shape[-1]:
+                        anchor_mono = anchor_mono[: mono.shape[-1]]
+                    else:
+                        _pad = int(mono.shape[-1] - anchor_mono.shape[-1])
+                        anchor_mono = np.pad(anchor_mono, (0, _pad), mode="edge")
+            except Exception as exc:
+                logger.debug("EAPC Anchor-Normalisierung fehlgeschlagen (non-blocking): %s", exc)
+                anchor_mono = None
 
         src_bw = self._estimate_bandwidth(mono, sr)
         # §9.12.7 §2.46e: era-ceiling wird durch material_ceiling nach unten begrenzt.
@@ -156,7 +173,7 @@ class EraAuthenticPerceptualCompletion:
 
         # HF-Ergaenzung via harmonische Extrapolation + aera-typisches HF-Rauschen
         try:
-            enhanced = self._synthesize_era_hf(mono, sr, era, ceiling)
+            enhanced = self._synthesize_era_hf(mono, sr, era, ceiling, anchor=anchor_mono)
         except Exception as exc:
             logger.warning("EraCompletion Synthese fehlgeschlagen: %s", exc)
             enhanced = mono
@@ -212,6 +229,7 @@ class EraAuthenticPerceptualCompletion:
         sr: int,
         era: int | None,
         ceiling: float,
+        anchor: np.ndarray | None = None,
     ) -> np.ndarray:
         """HF-Ergaenzung: harmonische Extrapolation + era-typisches Rauschen."""
         n = len(mono)
@@ -245,6 +263,30 @@ class EraAuthenticPerceptualCompletion:
                 noise_mag[i] = extended_mag[i] * 0.15 * _rng.rand()
 
         extended_mag = extended_mag + noise_mag
+
+        # Optionales Anchor-Guidance: konservative Profilfuehrung der ergaenzten
+        # HF-Bins, ohne das Material-/Era-Ceiling aufzuweichen.
+        if isinstance(anchor, np.ndarray) and anchor.size > 0:
+            try:
+                _anc = np.clip(np.nan_to_num(anchor.astype(np.float32)), -1.0, 1.0)
+                if _anc.shape[-1] != n:
+                    _n_min = min(_anc.shape[-1], n)
+                    _anc = _anc[:_n_min]
+                _anc_n = len(_anc)
+                if _anc_n >= 512:
+                    _anc_spec = np.abs(np.fft.rfft(_anc, n=_anc_n))
+                    _anc_freqs = np.fft.rfftfreq(_anc_n, d=1.0 / sr)
+                    _hf_idx = freqs > src_bw
+                    if np.any(_hf_idx):
+                        _src_ref_idx = int(np.clip(src_bw * _anc_n / sr, 0, len(_anc_spec) - 1))
+                        _src_ref = float(_anc_spec[_src_ref_idx] + 1e-10)
+                        _anchor_interp = np.interp(freqs[_hf_idx], _anc_freqs, _anc_spec, left=0.0, right=0.0)
+                        _anchor_profile = np.clip(_anchor_interp / _src_ref, 0.05, 2.0)
+                        _target = np.clip(mag[_hf_idx] * _anchor_profile * ceiling, 0.0, np.max(extended_mag) + 1e-6)
+                        _guide_alpha = 0.35
+                        extended_mag[_hf_idx] = (1.0 - _guide_alpha) * extended_mag[_hf_idx] + _guide_alpha * _target
+            except Exception as exc:
+                logger.debug("EAPC Anchor-Guidance fehlgeschlagen (non-blocking): %s", exc)
 
         # Phase beibehalten (PGHI-Naherung)
         new_spec = extended_mag * np.exp(1j * phase)

@@ -3,12 +3,9 @@ EraClassifier — Ära-/Dekaden-adaptives Processing (§2.14 Spec)
 ===============================================================
 
 Erkennt das Aufnahme-Jahrzehnt (1890–2025) automatisch und leitet
-material- und epochenspezifische Verarbeitungspriors ab.
 
-Erkennungs-Kaskade (3 Stufen):
+
     Tier-1: LAION-CLAP-Embeddings → Nearest-Neighbor zu Ära-Referenz-Ankern
-    Tier-2: DSP-Fingerprint (HF-Rolloff + Bandbreiten-Kurve)
-    Tier-3: Mikrofon-Typ-Heuristik
 
 Referenz: §2.14 Aurik-9-Spec (v9.9.5)
 Autor: Aurik Development Team
@@ -18,19 +15,48 @@ Datum: 20. Februar 2026
 from __future__ import annotations
 
 import hashlib
+import importlib
 import itertools
 import logging
 import math
 import threading
 from dataclasses import asdict, dataclass, field
 from dataclasses import replace as dc_replace
+from functools import lru_cache
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 
 logger = logging.getLogger(__name__)
 
+
+@lru_cache(maxsize=1)
+def _get_remaster_detector_factory() -> Any:
+    """Lädt den RemasterDetector-Factory-Call lazy und gecacht."""
+    module = importlib.import_module("backend.core.remaster_detector")
+    return module.get_remaster_detector
+
+
+@lru_cache(maxsize=1)
+def _get_laion_clap_factory() -> Any:
+    """Lädt den LAION-CLAP-Factory-Call lazy und gecacht."""
+    module = importlib.import_module("plugins.laion_clap_plugin")
+    return module.get_laion_clap
+
+
+@lru_cache(maxsize=1)
+def _get_resample_poly() -> Any | None:
+    """Gibt scipy.signal.resample_poly zurück oder None, falls SciPy fehlt."""
+    try:
+        module = importlib.import_module("scipy.signal")
+        return module.resample_poly
+    except Exception:
+        return None
+
+
 # --------------- Dekaden-Definition ----------------------------------------
+
 
 VALID_DECADES: list[int] = [
     1890,
@@ -469,8 +495,6 @@ def _dsp_hf_rolloff(audio_mono: np.ndarray, sr: int) -> float:
     # Real bass-heavy Schlager/hip-hop typically has E90 < 1.2 kHz.
     if edge_30db is not None and e90 < 1500.0 and edge_30db > 5000.0:
         # Compute gap fraction (already accepted by the 0.15 guard above)
-        mask_music_loc = freqs >= 200.0
-        float(np.max(avg_spec[mask_music_loc])) if np.any(mask_music_loc) else 1e-20
         _edge_cand = edge_30db
         _tail = float(np.sum(avg_spec[idx90:])) + 1e-30
         _gap = float(np.sum(avg_spec[(freqs > e90) & (freqs <= _edge_cand)]))
@@ -1018,7 +1042,9 @@ def _dsp_fingerprint_decade(
         conf = max(conf, 0.75)  # Full-bandwidth analog clearly ≥ 1980
 
     logger.debug(
-        "DSP-Fingerprint: bw=%.1fkHz snr=%.1fdB stereo=%s width=%.3f tilt=%.1fdB/oct dr=%.1fdB mod=%.2f lf=%.2f hb=%.2f ts=%.2f → decade=%d conf=%.2f",
+        "DSP-Fingerprint: bw=%.1fkHz snr=%.1fdB stereo=%s width=%.3f "
+        "tilt=%.1fdB/oct dr=%.1fdB mod=%.2f lf=%.2f hb=%.2f ts=%.2f "
+        "→ decade=%d conf=%.2f",
         bw_khz,
         snr_db,
         is_stereo,
@@ -1306,8 +1332,7 @@ class EraClassifier:
 
         # RemasterDetector-Guard (§2.14): verhindert falsche Ära-Zuweisung bei Remasters
         try:
-            from backend.core.remaster_detector import get_remaster_detector
-
+            get_remaster_detector = _get_remaster_detector_factory()
             _rm = get_remaster_detector().analyse(audio_mono, sr)
             if _rm is not None and _rm.is_remaster:
                 result = dc_replace(result, is_remaster_suspected=True)
@@ -1373,14 +1398,13 @@ class EraClassifier:
         sr: int,
         bark: np.ndarray,
         rolloff_hz: float,
-        snr_db: float,
+        _snr_db: float,
     ) -> EraResult | None:
         """Tier-1: LAION-CLAP-basierte Ära-Erkennung (optional)."""
         try:
             with self._clap_lock:
                 if not self._clap_loaded:
-                    from plugins.laion_clap_plugin import get_laion_clap  # type: ignore[import]
-
+                    get_laion_clap = _get_laion_clap_factory()
                     self._clap_plugin = get_laion_clap()
                     self._clap_loaded = True
             if self._clap_plugin is None:
@@ -1394,11 +1418,11 @@ class EraClassifier:
             _sr_clap = sr
             if sr != 48000:
                 try:
-                    import math as _math
-
-                    from scipy.signal import resample_poly as _rspoly
-
-                    _g = _math.gcd(48000, sr)
+                    _rspoly = _get_resample_poly()
+                    if _rspoly is None:
+                        logger.debug("EraClassifier Tier-1: scipy.signal.resample_poly nicht verfügbar")
+                        return None
+                    _g = math.gcd(48000, sr)
                     _audio_clap = _rspoly(audio_mono, 48000 // _g, sr // _g).astype(np.float32)
                     _sr_clap = 48000
                     logger.debug("EraClassifier Tier-1: resampled %d → 48000 Hz for CLAP embed", sr)
@@ -1460,7 +1484,7 @@ class EraClassifier:
             hf_rolloff_hz=rolloff_hz,
         )
 
-    def _tier3(self, bark: np.ndarray, rolloff_hz: float, snr_db: float) -> EraResult:
+    def _tier3(self, bark: np.ndarray, rolloff_hz: float, _snr_db: float) -> EraResult:
         """Tier-3: Mikrofon-Typ-Heuristik."""
         decade, conf = _microphone_type_decade(bark)
         material = DECADE_MATERIAL_PRIOR.get(decade, "unknown")
@@ -1531,18 +1555,19 @@ class EraClassifier:
 # Singleton (Thread-sicher, Double-Checked Locking §3.2)
 # ---------------------------------------------------------------------------
 
-_instance: EraClassifier | None = None
 _lock = threading.Lock()
+_INSTANCE_HOLDER: dict[str, EraClassifier | None] = {"instance": None}
 
 
 def get_era_classifier() -> EraClassifier:
     """Thread-sicherer Singleton-Accessor für EraClassifier."""
-    global _instance
-    if _instance is None:
+    if _INSTANCE_HOLDER["instance"] is None:
         with _lock:
-            if _instance is None:
-                _instance = EraClassifier()
-    return _instance
+            if _INSTANCE_HOLDER["instance"] is None:
+                _INSTANCE_HOLDER["instance"] = EraClassifier()
+    classifier = _INSTANCE_HOLDER["instance"]
+    assert classifier is not None
+    return classifier
 
 
 def _apply_codec_bw_plausibility_gate(

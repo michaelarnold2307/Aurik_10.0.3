@@ -193,6 +193,18 @@ Telemetry     → metadata mit fail_reason / degradation_status / quality_gate_p
 
 **VERBOTEN in Release-Pfaden:** direkter `sf.read(path)`, direkter `librosa.load(path)`, direkter `UnifiedRestorerV3.restore()`-Bypass, eigener Export ohne `export_guard()`, eigene Quality-Gate-Schwellen ohne Bridge-Payload, nicht dokumentierte Legacy-Serverpfade. Legacy-/REST-Dateien sind nur zulässig, wenn sie klar als `LEGACY_NON_RELEASE` markiert sind und nicht als Desktop-Release-Einstieg beworben werden.
 
+## [RELEASE_MUST] Frontend-Version-Anzeige-Invariante
+
+Bei jedem Release-Bump MUSS die sichtbare Frontend-Version konsistent mit der Paketversion sein.
+
+- Kanonische Quelle: `Aurik910/__init__.py::__version__`
+- Fenstertitel: `Aurik910/ui/modern_window.py` (`setWindowTitle(f"AURIK Professional v{_AURIK_VERSION}")`)
+- Splashscreen-Badge: `Aurik910/ui/splash_screen.py` (`_VERSION`)
+- App-Metadaten für About/Update-Dialog: `Aurik910/main.py` (`app.setApplicationVersion(__version__)`)
+
+Release-Regel: Ein neuer Versionsstand gilt erst als fertig, wenn alle vier Pfade denselben
+Wert anzeigen bzw. aus derselben Quelle ableiten. Abweichungen sind Release-Blocker.
+
 ## Pfad-Mapping (verbindlich)
 
 | Logischer Pfad | Physischer Pfad |
@@ -311,6 +323,8 @@ logger.info("phase=%s score=%.2f", phase, score)  # kein print()
 | `OVERLOAD_DISTORTION` → `phase_63_intermodulation_reduction` als Primary | Analoge Übersteuerung erzeugt Harmonische (H2/H3/H5); `phase_63` ist Volterra-IMD-Reduktion für Intermodulationsprodukte (f₁±f₂) — physikalisch falsche Algorithmus-Familie | `phase_09_crackle_removal` + `phase_23_spectral_repair`; KEIN `phase_63` für Harmonic Distortion | V29 |
 | `ALIASING` → `phase_03_denoise` in Phasen-Selektion (UV3 oder Mapper) | Alias-Spiegelfrequenzen sind kohärente Signalspiegelungen (deterministisch); NR behandelt sie als Rauschen → entfernt Musikinhalt in der Alias-Zone, lässt Spiegelfrequenzen stehen | `phase_23_spectral_repair` + `phase_50_spectral_repair` für spektrale Chirurgie; KEIN `phase_03` | V30 |
 | `ROOM_MODE_RESONANCE` → `phase_05_rumble_filter` als alleiniger Primary ohne Notch-EQ | Raumresonanzen (40–200 Hz) brauchen schmalbandige parametrische Notch-Filter (Q=12); `phase_05` ist Hochpass-Rolloff — `notch_q`/`notch_depth_db`-Config aus CausalReasoner erreicht `phase_05` nie | `phase_04_eq_correction` (Notch-EQ) als Primary; `phase_16_final_eq` als Sekundär; `phase_05` nur als Tertiär (Sub-Bass) | V31 |
+| Strict-Conflict nutzt nur Event-Counts (ohne Reason/Priority/Vocal-Schwere) | Gleichbehandlung von P1/P2 und P4/P5 sowie vokalkritischen Fällen verwässert psychoakustische Prioritäten; führt zu falsch-kalibriertem ConflictScore/Decay | §2.58a: `reason_decay_weight` + `reason_cap_tighten_weight` + dynamische Schwere aus `goal_regressions` (GoalPriorityProtocol) + Vocal-Supremacy (`panns_singing`/`vocal_presence`) + Runtime-Severity-Telemetrie (`severity_score`, `severity_bucket`, `severity_fingerprint`) + Report-Felder (`regressive_weight_sum`, `runtime_severity_sum`, `runtime_severity_max`) | V34 |
+| `pmgg_best_effort` wird bei hoher Reason-Diversität immer gleich hart bestraft (ohne Unsicherheitsdämpfung) | Inkonsistente Konfliktsignale (mehrere unterschiedliche weiche Gründe) werden überinterpretiert und provozieren Over-Damping; Folge: unnötige Strength-Reduktion trotz unsicherer Kausalität | §2.58a Disagreement-Guard: jüngste Family-Reason-Diversität (`>=3`) → `disagreement_brake_applied`; bei jüngstem Hard-Reason (`artifact_freedom_rollback`, `noise_texture_rollback`, `vocal_no_harm_rollback`, `hf_hallucination_rescue`) Guard zwingend aus | V35 |
 
 > DSP-/Phase-spezifische VERBOTEN-Regeln (energy_bias, HNR-Guard, LPC-Ordnung, Passaggio, Timbral Coherence etc.): → [dsp.instructions.md](instructions/dsp.instructions.md) / [phases.instructions.md](instructions/phases.instructions.md)
 

@@ -61,6 +61,7 @@ from dataclasses import dataclass
 import numpy as np
 from scipy import signal
 
+from backend.core.core_utils import fft_crosscorr
 from backend.core.defect_scanner import MaterialType
 
 from .phase_interface import PhaseCategory, PhaseInterface, PhaseMetadata, PhaseResult
@@ -159,14 +160,59 @@ class AzimuthCorrectionPhaseV2(PhaseInterface):
 
         return {"xcorr_window_samples": power}
 
-    def process(self, audio: np.ndarray, sample_rate: int, material: MaterialType, **kwargs) -> PhaseResult:
+    @staticmethod
+    def _build_locality_profile(
+        n_samples: int,
+        sample_rate: int,
+        defect_locations: dict[str, list[tuple[float, float]]] | None,
+    ) -> tuple[np.ndarray, float]:
+        """Erzeugt lokale Blendmaske aus scanner-locations für Azimuth-Korrektur."""
+        if n_samples <= 0 or sample_rate <= 0:
+            return np.zeros(0, dtype=np.float32), 0.0
+        if not isinstance(defect_locations, dict) or not defect_locations:
+            return np.ones(n_samples, dtype=np.float32), 0.0
+
+        keys = ("azimuth_error", "stereo_imbalance", "phase_issues", "crosstalk")
+        mask = np.zeros(n_samples, dtype=np.float32)
+        pad = int(0.05 * sample_rate)
+        for key in keys:
+            for loc in defect_locations.get(key) or []:
+                if not isinstance(loc, tuple) or len(loc) != 2:
+                    continue
+                try:
+                    s = int(max(0.0, float(loc[0])) * sample_rate)
+                    e = int(max(0.0, float(loc[1])) * sample_rate)
+                except Exception:
+                    continue
+                if e <= s:
+                    continue
+                s = max(0, s - pad)
+                e = min(n_samples, e + pad)
+                if e > s:
+                    mask[s:e] = 1.0
+
+        if float(np.mean(mask)) <= 1e-6:
+            return np.ones(n_samples, dtype=np.float32), 0.0
+
+        smooth = max(16, int(0.02 * sample_rate))
+        mask = np.convolve(mask, np.ones(smooth, dtype=np.float32) / float(smooth), mode="same")
+        mask = np.clip(mask, 0.0, 1.0).astype(np.float32)
+        return mask, float(np.mean(mask))
+
+    def process(
+        self,
+        audio: np.ndarray,
+        sample_rate: int = 48000,
+        material_type: str = "unknown",
+        **kwargs,
+    ) -> PhaseResult:
         """
         Wendet an: professional-grade azimuth correction.
 
         Args:
             audio: Stereo audio [samples, 2]
             sample_rate: Sample rate in Hz
-            material: Material type (only processes TAPE)
+            material_type: Material type (only processes TAPE)
 
         Returns:
             PhaseResult with azimuth-corrected audio
@@ -174,6 +220,13 @@ class AzimuthCorrectionPhaseV2(PhaseInterface):
         sample_rate = kwargs.get("sample_rate", 48000)
         assert sample_rate == 48000, f"SR muss 48000 Hz sein, erhalten: {sample_rate}"
         start_time = time.time()
+
+        if isinstance(material_type, MaterialType):
+            material_enum = material_type
+        else:
+            _mat_norm = str(material_type or "unknown").strip().upper().replace("-", "_").replace(" ", "_")
+            material_enum = getattr(MaterialType, _mat_norm, MaterialType.CD_DIGITAL)
+        material_name = material_enum.name
 
         self.validate_input(audio)
 
@@ -185,12 +238,12 @@ class AzimuthCorrectionPhaseV2(PhaseInterface):
 
         quality_mode = kwargs.get("quality_mode")
         restorability_score = kwargs.get("restorability_score", 50.0)
-        material_key = str(getattr(material, "value", material) or "unknown")
+        material_key = str(getattr(material_enum, "value", material_enum) or "unknown")
         azimuth_profile = self._compute_azimuth_profile(material_key, quality_mode, restorability_score)
         self._xcorr_window_samples_current = int(azimuth_profile["xcorr_window_samples"])
 
         # Only applicable to TAPE
-        if material != MaterialType.TAPE:
+        if material_enum != MaterialType.TAPE:
             audio = np.nan_to_num(audio, nan=0.0, posinf=0.0, neginf=0.0)
             audio = np.clip(audio, -1.0, 1.0)
             return PhaseResult(
@@ -198,7 +251,7 @@ class AzimuthCorrectionPhaseV2(PhaseInterface):
                 audio=audio.copy(),
                 execution_time_seconds=time.time() - start_time,
                 metadata={
-                    "material": material.name,
+                    "material": material_name,
                     "azimuth_correction_applied": False,
                     "reason": "not_applicable",
                     "azimuth_runtime_profile": azimuth_profile,
@@ -207,7 +260,7 @@ class AzimuthCorrectionPhaseV2(PhaseInterface):
                     "rms_drop_db": 0.0,
                     "loudness_makeup_db": 0.0,
                 },
-                warnings=[f"Azimuth Correction not applicable for {material.name}"],
+                warnings=[f"Azimuth Correction not applicable for {material_name}"],
             )
 
         # Check Stereo
@@ -219,7 +272,7 @@ class AzimuthCorrectionPhaseV2(PhaseInterface):
                 audio=audio,
                 execution_time_seconds=time.time() - start_time,
                 metadata={
-                    "material": material.name,
+                    "material": material_name,
                     "azimuth_correction_applied": False,
                     "reason": "mono_audio",
                     "azimuth_runtime_profile": azimuth_profile,
@@ -239,7 +292,7 @@ class AzimuthCorrectionPhaseV2(PhaseInterface):
                 audio=passthrough,
                 execution_time_seconds=time.time() - start_time,
                 metadata={
-                    "material": material.name,
+                    "material": material_name,
                     "azimuth_correction_applied": False,
                     "algorithm": "skipped_zero_strength",
                     "azimuth_runtime_profile": azimuth_profile,
@@ -281,8 +334,9 @@ class AzimuthCorrectionPhaseV2(PhaseInterface):
 
         if not needs_correction:
             logger.debug(
-                f"No significant azimuth error (max phase shift = {max_phase_shift:.1f} samples, "
-                f"HF loss = {hf_loss_db:.1f} dB)"
+                "No significant azimuth error (max phase shift = %.1f samples, HF loss = %.1f dB)",
+                max_phase_shift,
+                hf_loss_db,
             )
             audio = np.nan_to_num(audio, nan=0.0, posinf=0.0, neginf=0.0)
             audio = np.clip(audio, -1.0, 1.0)
@@ -291,7 +345,7 @@ class AzimuthCorrectionPhaseV2(PhaseInterface):
                 audio=audio.copy(),
                 execution_time_seconds=time.time() - start_time,
                 metadata={
-                    "material": material.name,
+                    "material": material_name,
                     "azimuth_correction_applied": False,
                     "reason": "below_threshold",
                     "azimuth_runtime_profile": azimuth_profile,
@@ -348,12 +402,25 @@ class AzimuthCorrectionPhaseV2(PhaseInterface):
         execution_time = time.time() - start_time
 
         logger.info(
-            f"Azimuth correction: Phase shift {max_phase_shift:.1f} → {max_phase_shift_after:.1f} samples "
-            f"(reduced {phase_shift_reduction:.1f} samples), HF loss {hf_loss_db:.1f} → {hf_loss_after:.1f} dB"
+            "Azimuth correction: Phase shift %.1f → %.1f samples (reduced %.1f samples), HF loss %.1f → %.1f dB",
+            max_phase_shift,
+            max_phase_shift_after,
+            phase_shift_reduction,
+            hf_loss_db,
+            hf_loss_after,
         )
 
         corrected_audio = np.nan_to_num(corrected_audio, nan=0.0, posinf=0.0, neginf=0.0)
         corrected_audio = np.clip(corrected_audio, -1.0, 1.0)
+        _locality_profile, _locality_coverage = self._build_locality_profile(
+            n_samples=corrected_audio.shape[0],
+            sample_rate=sample_rate,
+            defect_locations=kwargs.get("defect_locations"),
+        )
+        if _locality_profile.size > 0:
+            _profile_2d = _locality_profile[:, np.newaxis]
+            corrected_audio = audio + _profile_2d * (corrected_audio - audio)
+            corrected_audio = np.clip(corrected_audio, -1.0, 1.0)
         if 0.0 < _effective_strength < 1.0:
             corrected_audio = audio + _effective_strength * (corrected_audio - audio)
             corrected_audio = np.clip(corrected_audio, -1.0, 1.0)
@@ -362,12 +429,13 @@ class AzimuthCorrectionPhaseV2(PhaseInterface):
             audio=corrected_audio,
             execution_time_seconds=execution_time,
             metadata={
-                "material": material.name,
+                "material": material_name,
                 "azimuth_correction_applied": True,
                 "algorithm": "multiband_phase_alignment_v2",
                 "azimuth_runtime_profile": azimuth_profile,
                 "num_bands": 3,
                 "band_splits_hz": self.BAND_SPLITS,
+                "repair_locality_coverage": float(_locality_coverage),
                 "phase_locality_factor": phase_locality_factor,
                 "effective_strength": _effective_strength,
                 "rms_drop_db": 0.0,
@@ -431,6 +499,7 @@ class AzimuthCorrectionPhaseV2(PhaseInterface):
 
         Uses cross-correlation to detect L/R phase shift.
         """
+        del sample_rate
         left = band_audio[:, 0]
         right = band_audio[:, 1]
 
@@ -442,8 +511,6 @@ class AzimuthCorrectionPhaseV2(PhaseInterface):
         right_window = right[:window_samples]
 
         # Compute cross-correlation — FFT-based O(N log N)
-        from backend.core.core_utils import fft_crosscorr
-
         correlation = fft_crosscorr(left_window, right_window)
         center = len(correlation) // 2
 
@@ -472,6 +539,7 @@ class AzimuthCorrectionPhaseV2(PhaseInterface):
 
         Uses fractional delay (linear interpolation) for sub-sample precision.
         """
+        del sample_rate, band_index
         phase_shift = azimuth_error.phase_shift_samples
         confidence = azimuth_error.confidence
 
@@ -564,8 +632,6 @@ class AzimuthCorrectionPhaseV2(PhaseInterface):
         while pos + win_n <= n_samples:
             lw = left[pos : pos + win_n]
             rw = right[pos : pos + win_n]
-            from backend.core.core_utils import fft_crosscorr
-
             corr = fft_crosscorr(lw, rw)
             mid = len(corr) // 2
             sr_range = min(search, mid)
@@ -690,6 +756,7 @@ class AzimuthCorrectionPhaseV2(PhaseInterface):
 
         Applies adaptive HF boost to compensate for destructive interference.
         """
+        del original_audio
         if hf_loss_db < 5.0:  # Minimal loss, skip restoration
             return corrected_audio
 
@@ -702,8 +769,6 @@ class AzimuthCorrectionPhaseV2(PhaseInterface):
             boost_db = self.HF_RESTORATION_GAIN["high"]
 
         # Apply HF shelf boost (above 5 kHz)
-        nyquist = sample_rate / 2.0
-        5000 / nyquist
 
         try:
             # Use SOS form to keep scipy typing unambiguous in strict mode.
@@ -747,44 +812,46 @@ class AzimuthCorrectionPhaseV2(PhaseInterface):
         )
 
 
-# Standalone test
-if __name__ == "__main__":
+def _run_standalone_test() -> None:
+    """Führt einen lokalen Azimuth-Korrektur-Testlauf aus."""
     logging.basicConfig(level=logging.INFO, format="%(message)s")
 
     logger.debug("=" * 80)
     logger.debug("Professional Azimuth Correction v2.0 - Test")
     logger.debug("=" * 80)
 
-    sample_rate = 44100
-    duration = 3.0
-    t = np.linspace(0, duration, int(sample_rate * duration), endpoint=False)
+    demo_sample_rate = 44100
+    demo_duration = 3.0
+    t = np.linspace(0, demo_duration, int(demo_sample_rate * demo_duration), endpoint=False)
 
     # Generate test audio with artificial azimuth error
     # Multi-frequency content (Bass, Mid, High)
-    left = 0.2 * np.sin(2 * np.pi * 100 * t)  # Bass: 100 Hz
-    left += 0.3 * np.sin(2 * np.pi * 1000 * t)  # Mid: 1 kHz
-    left += 0.4 * np.sin(2 * np.pi * 8000 * t)  # High: 8 kHz
-    left += 0.3 * np.sin(2 * np.pi * 12000 * t)  # High: 12 kHz
-    left += 0.1 * np.random.randn(len(t))  # Add noise for realism
+    demo_left = 0.2 * np.sin(2 * np.pi * 100 * t)  # Bass: 100 Hz
+    demo_left += 0.3 * np.sin(2 * np.pi * 1000 * t)  # Mid: 1 kHz
+    demo_left += 0.4 * np.sin(2 * np.pi * 8000 * t)  # High: 8 kHz
+    demo_left += 0.3 * np.sin(2 * np.pi * 12000 * t)  # High: 12 kHz
+    demo_left += 0.1 * np.random.randn(len(t))  # Add noise for realism
 
     # Right channel: Copy left (simulates near-identical tape playback)
     # In real tape azimuth error, L/R are nearly identical but time-shifted
-    right = left.copy()
+    demo_right = demo_left.copy()
 
     # Simulate azimuth error (time delay)
     # The destructive interference at HF happens AUTOMATICALLY due to phase cancellation
-    azimuth_error_samples = 25  # ~0.57ms @ 44.1kHz
-    right = np.roll(right, azimuth_error_samples)
-    right[:azimuth_error_samples] = 0
+    demo_azimuth_error_samples = 25  # ~0.57ms @ 44.1kHz
+    demo_right = np.roll(demo_right, demo_azimuth_error_samples)
+    demo_right[:demo_azimuth_error_samples] = 0
 
-    audio = np.column_stack([left, right])
+    demo_audio = np.column_stack([demo_left, demo_right])
 
-    logger.debug("\nTest Audio: %ss @ %s Hz (stereo)", duration, sample_rate)
+    logger.debug("\nTest Audio: %ss @ %s Hz (stereo)", demo_duration, demo_sample_rate)
     logger.debug("Multi-frequency content with simulated azimuth error:")
     logger.debug("  Left: 100Hz + 1kHz + 8kHz + 12kHz + noise")
     logger.debug("  Right: Copy of left with time delay")
     logger.debug(
-        f"  Time delay: {azimuth_error_samples} samples (~{azimuth_error_samples / sample_rate * 1000:.2f} ms)"
+        "  Time delay: %d samples (~%.2f ms)",
+        demo_azimuth_error_samples,
+        demo_azimuth_error_samples / demo_sample_rate * 1000,
     )
     logger.debug("Simulates: Tape head azimuth misalignment")
     logger.debug("Note: HF loss occurs automatically via phase cancellation")
@@ -796,12 +863,14 @@ if __name__ == "__main__":
     logger.debug("Testing with material: TAPE")
     logger.debug("%s", "─" * 80)
 
-    result = phase.process(audio, sample_rate, MaterialType.TAPE)
+    result = phase.process(demo_audio, demo_sample_rate, MaterialType.TAPE)
 
     if result.success:
         logger.debug("✅ Processing Complete!")
         logger.debug(
-            f"   Execution Time: {result.execution_time_seconds:.3f}s ({result.execution_time_seconds / duration:.2f}× realtime)"
+            "   Execution Time: %.3fs (%.2fx realtime)",
+            result.execution_time_seconds,
+            result.execution_time_seconds / demo_duration,
         )
         logger.debug("   Correction Applied: %s", result.metadata["azimuth_correction_applied"])
         if result.metadata.get("azimuth_correction_applied"):
@@ -812,20 +881,27 @@ if __name__ == "__main__":
             logger.debug("   HF Loss After: %.2f dB", result.metrics["hf_loss_after_db"])
             logger.debug("\n   Per-Band Phase Shifts (Before → After):")
             logger.debug(
-                f"     Band 0 (Bass):  {result.metrics['band_0_phase_shift_before_samples']:.1f} → {result.metrics['band_0_phase_shift_after_samples']:.1f} samples"
+                "     Band 0 (Bass):  %.1f → %.1f samples",
+                result.metrics["band_0_phase_shift_before_samples"],
+                result.metrics["band_0_phase_shift_after_samples"],
             )
             logger.debug(
-                f"     Band 1 (Mid):   {result.metrics['band_1_phase_shift_before_samples']:.1f} → {result.metrics['band_1_phase_shift_after_samples']:.1f} samples"
+                "     Band 1 (Mid):   %.1f → %.1f samples",
+                result.metrics["band_1_phase_shift_before_samples"],
+                result.metrics["band_1_phase_shift_after_samples"],
             )
             logger.debug(
-                f"     Band 2 (High):  {result.metrics['band_2_phase_shift_before_samples']:.1f} → {result.metrics['band_2_phase_shift_after_samples']:.1f} samples"
+                "     Band 2 (High):  %.1f → %.1f samples",
+                result.metrics["band_2_phase_shift_before_samples"],
+                result.metrics["band_2_phase_shift_after_samples"],
             )
             logger.debug("   HF Restoration Applied: %s", result.modifications["hf_restoration_applied"])
         else:
             logger.debug("   Reason: %s", result.metadata.get("reason", "unknown"))
             if "max_phase_shift_samples" in result.metadata:
                 logger.debug(
-                    f"   Max Phase Shift: {result.metadata['max_phase_shift_samples']:.1f} samples (below threshold)"
+                    "   Max Phase Shift: %.1f samples (below threshold)",
+                    result.metadata["max_phase_shift_samples"],
                 )
             if "hf_loss_db" in result.metadata:
                 logger.debug("   HF Loss: %.2f dB", result.metadata["hf_loss_db"])
@@ -835,7 +911,7 @@ if __name__ == "__main__":
     logger.debug("Testing with material: VINYL (should skip)")
     logger.debug("%s", "─" * 80)
 
-    result_vinyl = phase.process(audio, sample_rate, MaterialType.VINYL)
+    result_vinyl = phase.process(demo_audio, demo_sample_rate, MaterialType.VINYL)
 
     if result_vinyl.success:
         logger.debug("✅ As expected: Azimuth Correction skipped for VINYL")
@@ -852,3 +928,8 @@ if __name__ == "__main__":
     logger.debug("Benchmark: iZotope RX, Cedar Azimuth Corrector, Waves X-Click,")
     logger.debug("           Steinberg SpectraLayers, Sonic Solutions NoNOISE")
     logger.debug("Quality Impact: 0.87 (Professional-Grade)")
+
+
+# Standalone test
+if __name__ == "__main__":
+    _run_standalone_test()

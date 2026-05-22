@@ -27,10 +27,13 @@ Invarianten:
 
 from __future__ import annotations
 
+import importlib
 import logging
 import math
 import threading
 from dataclasses import dataclass
+from functools import lru_cache
+from pathlib import Path
 
 import numpy as np
 
@@ -56,10 +59,24 @@ GAP_FRACTION_THRESHOLD: float = GAP_PHRASE_RATIO_MAX  # = 0.50, abwärtskompatib
 PHRASE_CONTEXTS_DIR = None  # Lazy-Initialisierung via _get_phrase_contexts_dir()
 
 
+@lru_cache(maxsize=1)
+def _get_fft_autocorr_fn():
+    """Lädt fft_autocorr lazy und gecacht."""
+    module = importlib.import_module("backend.core.core_utils")
+    return module.fft_autocorr
+
+
+@lru_cache(maxsize=1)
+def _get_madmom_module():
+    """Lädt madmom optional lazy; gibt None zurück, falls nicht verfügbar."""
+    try:
+        return importlib.import_module("madmom")
+    except Exception:
+        return None
+
+
 def _get_phrase_contexts_dir():
     """Gibt das Persistenz-Verzeichnis für Phrasen-Kontexte zurück (lazy)."""
-    from pathlib import Path
-
     return Path.home() / ".aurik" / "phrase_contexts"
 
 
@@ -95,6 +112,7 @@ class PhraseContext:
     is_fallback: bool = False
 
     def as_dict(self) -> dict:
+        """Serialisiert den Phrasenkontext für Logging und Telemetrie."""
         return {
             "phrase_start_s": self.phrase_start_s,
             "phrase_end_s": self.phrase_end_s,
@@ -119,8 +137,8 @@ class PhraseBoundary:
 # Singleton
 # ---------------------------------------------------------------------------
 
-_instance: MusicalPhraseContextExtractor | None = None
 _lock = threading.Lock()
+_INSTANCE_HOLDER: dict[str, object | None] = {"instance": None}
 
 
 class MusicalPhraseContextExtractor:
@@ -287,6 +305,18 @@ class MusicalPhraseContextExtractor:
 
         return np.clip(gap_audio, -1.0, 1.0).astype(np.float32)
 
+    def estimate_tempo(self, audio: np.ndarray, sr: int) -> float:
+        """Öffentliche Tempo-Schätzung für externe Aufrufer.
+
+        Diese Methode kapselt die interne Tempoanalyse und bietet eine
+        stabile API für Komponenten wie den musikalischen Globalplan.
+        """
+        audio_arr = np.asarray(audio, dtype=np.float32)
+        audio_arr = np.nan_to_num(audio_arr, nan=0.0, posinf=0.0, neginf=0.0)
+        if audio_arr.ndim == 2:
+            audio_arr = np.mean(audio_arr, axis=0).astype(np.float32)
+        return float(self._estimate_tempo(audio_arr, sr))
+
     # ------------------------------------------------------------------
     # Hilfsmethoden
     # ------------------------------------------------------------------
@@ -299,7 +329,9 @@ class MusicalPhraseContextExtractor:
         """
         # Versuche madmom
         try:
-            import madmom  # type: ignore[import]
+            madmom = _get_madmom_module()
+            if madmom is None:
+                raise ImportError("madmom nicht installiert")
 
             proc = madmom.features.tempo.TempoEstimationProcessor(method="acf", fps=100)
             act = madmom.features.beats.RNNBeatProcessor()(audio.astype(np.float32))
@@ -333,8 +365,7 @@ class MusicalPhraseContextExtractor:
         if lag_hi <= lag_lo:
             return 120.0
 
-        from backend.core.core_utils import fft_autocorr
-
+        fft_autocorr = _get_fft_autocorr_fn()
         acf = fft_autocorr(onset_env)
         peak_lag = int(np.argmax(acf[lag_lo : lag_hi + 1])) + lag_lo
         if peak_lag == 0:
@@ -349,7 +380,9 @@ class MusicalPhraseContextExtractor:
         Madmom (RNN) wenn verfügbar, sonst Gleichabstand aus Tempo.
         """
         try:
-            import madmom  # type: ignore[import]
+            madmom = _get_madmom_module()
+            if madmom is None:
+                raise ImportError("madmom nicht installiert")
 
             proc = madmom.features.beats.BeatTrackingProcessor(fps=100)
             act = madmom.features.beats.RNNBeatProcessor()(audio.astype(np.float32))
@@ -371,8 +404,8 @@ class MusicalPhraseContextExtractor:
         self,
         audio: np.ndarray,
         sr: int,
-        beat_samples: list[int],
-        tempo_bpm: float,
+        _beat_samples: list[int],
+        _tempo_bpm: float,
     ) -> list[int]:
         """Erkennt Phrasen-Grenzen via harmonischen und dynamischen Sprüngen.
 
@@ -422,7 +455,7 @@ class MusicalPhraseContextExtractor:
         boundaries: list[int],
         gap_start: int,
         gap_end: int,
-        n: int,
+        _n: int,
     ) -> tuple[int, int] | None:
         """Findet die Phrase, die die Dropout-Lücke enthält."""
         for i in range(len(boundaries) - 1):
@@ -440,8 +473,8 @@ class MusicalPhraseContextExtractor:
         self,
         boundaries: list[int],
         p_start: int,
-        p_end: int,
-        n: int,
+        _p_end: int,
+        _n: int,
     ) -> tuple[int, int] | None:
         """Gibt eine benachbarte Phrase zurück (Vorgänger oder Nachfolger)."""
         for i in range(len(boundaries) - 1):
@@ -537,12 +570,13 @@ class MusicalPhraseContextExtractor:
 
 def get_phrase_extractor() -> MusicalPhraseContextExtractor:
     """Thread-sicherer Singleton-Accessor (Double-Checked Locking)."""
-    global _instance
-    if _instance is None:
+    if _INSTANCE_HOLDER["instance"] is None:
         with _lock:
-            if _instance is None:
-                _instance = MusicalPhraseContextExtractor()
-    return _instance
+            if _INSTANCE_HOLDER["instance"] is None:
+                _INSTANCE_HOLDER["instance"] = MusicalPhraseContextExtractor()
+    instance = _INSTANCE_HOLDER["instance"]
+    assert isinstance(instance, MusicalPhraseContextExtractor)
+    return instance
 
 
 def extract_phrase_context(

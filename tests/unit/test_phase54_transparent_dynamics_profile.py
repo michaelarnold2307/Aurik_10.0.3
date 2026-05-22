@@ -167,3 +167,55 @@ class TestTransparentDynamicsCompressionPressure:
         assert result.success
         assert result.metadata["hard_intervention_active"] is False
         assert result.metadata["control_floor"] == pytest.approx(0.0)
+
+
+def test_masking_curve_robust_against_spike_outlier():
+    phase = TransparentDynamicsPhase(sample_rate=48000)
+    audio = np.zeros(48000, dtype=np.float32)
+    audio[12000] = 1.0
+
+    masking = phase._detect_psychoacoustic_masking(audio)
+    assert masking.shape == audio.shape
+    assert np.all(np.isfinite(masking))
+    assert float(np.min(masking)) >= 0.0
+    assert float(np.max(masking)) <= 1.0
+
+
+def test_transient_detector_finds_impulses_without_false_allmask():
+    phase = TransparentDynamicsPhase(sample_rate=48000)
+    audio = np.zeros(48000, dtype=np.float32)
+    audio[8000] = 0.9
+    audio[24000] = 0.8
+    audio[36000] = 0.7
+
+    transient_mask = phase._detect_transients(audio)
+    assert transient_mask.shape == audio.shape
+    assert np.all(np.isfinite(transient_mask))
+    assert float(np.max(transient_mask)) > 0.5
+    assert float(np.mean(transient_mask)) < 0.2
+
+
+def test_apply_compression_short_buffer_no_index_error():
+    phase = TransparentDynamicsPhase(sample_rate=48000)
+    audio = np.array([0.1], dtype=np.float32)
+    masking_curve = np.array([0.0], dtype=np.float32)
+    transient_mask = np.array([0.0], dtype=np.float32)
+
+    out = phase._apply_compression(
+        audio,
+        ratio=2.0,
+        threshold_db=-20.0,
+        knee_db=6.0,
+        attack_ms=10.0,
+        release_ms=100.0,
+        masking_curve=masking_curve,
+        transient_mask=transient_mask,
+        compression_pressure=0.0,
+    )
+
+    assert out.shape == audio.shape
+    assert np.all(np.isfinite(out))
+
+    masking_short = phase._detect_psychoacoustic_masking(audio)
+    assert masking_short.shape == audio.shape
+    assert np.all(np.isfinite(masking_short))

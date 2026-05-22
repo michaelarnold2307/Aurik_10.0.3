@@ -34,6 +34,7 @@ class TestEvidenceClassMetadataContract:
         assert '"vqi_gate": {' in content
         assert '"hpi_gate": {' in content
         assert '"worldclass_composite_gate": {' in content
+        assert '"psychoacoustic_naturalness_gate": {' in content
 
     def test_uv3_worldclass_gate_uses_class_c_with_revalidation_deadline(self) -> None:
         content = _UV3.read_text(encoding="utf-8")

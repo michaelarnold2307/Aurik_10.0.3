@@ -1,8 +1,8 @@
-# 🎵 Aurik 9.12.9 — Intelligentes Musik-Restaurierungs- und Rekonstruktionssystem
+# 🎵 Aurik 9.12.10 — Intelligentes Musik-Restaurierungs- und Rekonstruktionssystem
 
-**Version:** 9.12.9 | **Status:** ✅ Produktionsbereit | **Stand:** 20. Mai 2026
+**Version:** 9.12.10 | **Status:** ✅ Produktionsbereit | **Stand:** 22. Mai 2026
 
-> Normativer Ist-Stand: `.github/copilot-instructions.md`, `.github/instructions/*.instructions.md`, `docs/CHANGELOG_HISTORY.md` und `CHANGELOG.md`.
+> Normativer Ist-Stand: `.github/specs/01-08`, `.github/copilot-instructions.md`, `docs/CHANGELOG_HISTORY.md` und `CHANGELOG.md`.
 
 ![Tests](https://img.shields.io/badge/tests-13662%2B%20passing-brightgreen)
 ![Musical Goals](https://img.shields.io/badge/Musical%20Goals-14%2F14-brightgreen)
@@ -25,7 +25,14 @@ Gaussianische Prozess-Optimierung und perceptuelle Qualitätsbewertung zu einer
 kognitiven Restaurierungs-Intelligenz — für Desktop (Linux & Windows 10/11),
 vollständig offline, ohne Cloud- oder Netzwerkabhängigkeiten.
 
-**Aktuelle Ergebnisse (v9.12.9):**
+**Produktvertrag (Release-Must):**
+
+- Desktop-only: Linux AppImage, Windows 10/11 Installer
+- 100 % offline nach Installation
+- Endnutzer-Workflow: genau eine Entscheidung pro Datei, `Restoration` oder `Studio 2026`
+- Kanonischer Laufzeitpfad: Bridge -> `AurikDenker.denke(...)` -> `export_guard()`
+
+**Aktuelle Ergebnisse (v9.12.10):**
 
 - ✅ **~13662 `def test_`-Funktionen** — grün (zzgl. weitere Test-Suites)
 - ✅ **64 Phasen** — Defect-First-Pipeline inkl. §0p Vocal-Supremacy, SSIP, GOAL_BASELINE_CHECK
@@ -117,27 +124,36 @@ und produziert das vollständige `AurikErgebnis` (17 Felder, `@dataclass`).
 **Tests:** `tests/unit/test_denker/` (10 Dateien) ·
 **Doku:** [`denker/README.md`](denker/README.md)
 
+> Hinweis: `denker/` ist die interne Orchestrierungsschicht. Release-faehige Oberflaechen
+> (GUI, CLI, Desktop-Pfade) laufen normativ ueber die Bridge und nachgelagerte Exportgates.
+
 ---
 
 ## 🚀 Quick Start
 
 ### 🎵 Für Einsteiger — Aurik in 3 Schritten starten
 
-> **Kein Python, kein Terminal notwendig.** Aurik läuft direkt auf Ihrem Desktop.
+> **Kein Python, kein Terminal, keine Cloud nötig.** Aurik läuft direkt auf Ihrem Desktop.
 
 | Schritt | Aktion | Was passiert |
 | --- | --- | --- |
 | **1** | **Datei öffnen** — Doppelklick auf `AURIK910.AppImage` (Linux) oder `AURIK910.exe` (Windows) | Das Programm startet. Alle KI-Modelle sind bereits enthalten — keine Internetverbindung nötig. |
 | **2** | **Aufnahme laden** — Klick auf **📂 Datei öffnen** oder die Audiodatei ins Fenster ziehen | Aurik erkennt automatisch den Tonträger (Vinyl, Kassette, Shellac …) und analysiert alle Defekte. |
-| **3** | **Restaurieren** — Klick auf **📀 Restoration** | Die restaurierte Datei wird im Ordner `output/` neben der Originaldatei gespeichert. |
+| **3** | **Modus wählen und starten** — Klick auf **📀 Restoration** oder **🎯 Studio 2026** | Die bearbeitete Datei wird im Ordner `output/` gespeichert; Qualitäts- und Exportgates laufen automatisch. |
 
 **Unterstützte Formate:** WAV, FLAC, MP3, AIFF, OGG, M4A, WMA, AAC — Mono & Stereo
 
 **Tastenkurzbefehle:** `A` = Original anhören, `B` = Restauriert anhören, `Leertaste` = Play/Pause
 
+### Dokumentation
+
+- Anwender- und Entwicklerdokumentation: [docs/INDEX.md](docs/INDEX.md)
+- Benutzerpfad: [docs/guides/USER_GUIDE.md](docs/guides/USER_GUIDE.md)
+- Kanonische Entwickler-API: [docs/api/PYTHON_API.md](docs/api/PYTHON_API.md)
+
 ---
 
-### Installation (Entwickler)
+### Fuer Entwicklung im Repository
 
 ```bash
 # Clone Repository
@@ -149,12 +165,11 @@ python3 -m venv .venv_aurik
 source .venv_aurik/bin/activate  # Linux/macOS
 # .venv_aurik\Scripts\activate  # Windows
 
-# Install Dependencies
+# Install Dependencies fuer Entwicklung/Tests
 pip install -r requirements/requirements.txt
-
-# Optional: Install ML Plugins (für ML-Hybrid Modes)
-bash scripts/install_ml_plugins.sh
 ```
+
+> Hinweis: Diese Schritte sind nur fuer Entwicklung im Repository. Endnutzer verwenden die gebuendelte Desktop-App.
 
 ### GUI starten
 
@@ -183,6 +198,9 @@ PYTHONPATH=. ./.venv_aurik/bin/python cli/aurik_cli.py \
 # Optionale Parameter: -q/--quiet
 ```
 
+> Der Endnutzervertrag bleibt identisch: Modus waehlen, starten, Export automatisch pruefen.
+> Intern mappt die Laufzeit den Modus auf den kanonischen Verarbeitungspfad.
+
 **Exit-Codes (CLI):**
 0 = Erfolg · 1 = Argumentfehler · 2 = Input fehlt · 3 = Importfehler · 4 = Pipelinefehler ·
 5 = Exportfehler · 6 = Resamplingfehler · 10 = Pre-Analysis-Fehler. Quality-Gate-,
@@ -191,17 +209,29 @@ P1/P2- und Pegelabweichungen werden spec-konform als `degraded` exportiert, nich
 ### Python API
 
 ```python
-from cli.aurik_cli import process_audio
-
-result = process_audio(
-  "input.wav",
-  "output.wav",
-  mode="Restoration",  # oder "Studio 2026"
+from backend.api.bridge import (
+    get_aurik_denker_instance,
+    get_load_audio_fn,
+    run_pre_analysis,
 )
 
+load_audio = get_load_audio_fn()
+audio, sr = load_audio("input.wav")
+
+# Voranalyse genau einmal pro Datei
+pre_analysis = run_pre_analysis(audio, sr)
+
+denker = get_aurik_denker_instance()
+result = denker.denke(audio, sr, mode="restoration")
+
+print(pre_analysis)
 print(f"Quality: {result.quality_estimate:.2f}")
 print(f"RT Factor: {result.rt_factor:.2f}×")
+print(result.metadata.get("quality_gate_payload", {}))
 ```
+
+> Fuer produktive Exporte ueber GUI/CLI laufen zusaetzlich `export_guard()` und
+> `validate_export_quality()` im kanonischen Releasepfad.
 
 ---
 
@@ -209,7 +239,7 @@ print(f"RT Factor: {result.rt_factor:.2f}×")
 
 ### 🎼 Restaurierungs-Pipeline (64 Phasen)
 
-**Pipeline-Reihenfolge (v9.12.9 — kanonisch):**
+**Pipeline-Reihenfolge (v9.12.10 — kanonisch):**
 
 ```text
 TransientDecoupledProcessing → RestorabilityEstimator → EraClassifier
@@ -236,7 +266,7 @@ TransientDecoupledProcessing → RestorabilityEstimator → EraClassifier
 - Phase 48: Stereo-Width · Phase 49: Advanced Dereverb (Blind-RIR)
 - Phase 55: DiffWave/Flow-Matching-Inpainting · + Instrumental- und Vocal-Phasen
 
-**Aktuelle Erweiterungen (v9.12.9):**
+**Aktuelle Erweiterungen (v9.12.10):**
 
 - §2.66 RecordingChainProfiler
 - §2.67 Phase-Koalitions-Evaluation
@@ -492,4 +522,4 @@ Aurik 9 steht unter der **Apache-2.0-Lizenz** — siehe [LICENSE](LICENSE).
 
 ---
 
-Aurik 9.12.9 — Mai 2026
+Aurik 9.12.10 — Mai 2026

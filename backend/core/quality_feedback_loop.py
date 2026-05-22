@@ -25,7 +25,7 @@ from typing import Any
 
 import numpy as np
 
-from backend.core.phases.phase_interface import PhaseInterface, PhaseResult
+from backend.core.phases.phase_interface import PhaseCategory, PhaseInterface, PhaseMetadata, PhaseResult
 from backend.core.psychoacoustic_metrics import PsychoAcousticMetrics
 
 logger = logging.getLogger(__name__)
@@ -73,8 +73,10 @@ class QualityFeedbackLoop:
             PhaseResult with best quality achieved
         """
         original_audio = audio.copy()
+        original_kwargs = dict(kwargs)
         best_result = None
         best_naturalness = 0.0
+        prev_naturalness: float | None = None
 
         # Update metrics sample rate
         self.metrics.sample_rate = sample_rate
@@ -93,7 +95,10 @@ class QualityFeedbackLoop:
                 naturalness = naturalness_scores["naturalness_overall"]
 
                 logger.info(
-                    f"Iteration {iteration + 1}: Naturalness {naturalness:.3f} (target: {self.target_naturalness:.3f})"
+                    "Iteration %s: Naturalness %.3f (target: %.3f)",
+                    iteration + 1,
+                    naturalness,
+                    self.target_naturalness,
                 )
 
                 # Store if best so far
@@ -112,9 +117,11 @@ class QualityFeedbackLoop:
                     break
 
                 # Check if improvement is too small to continue
-                if iteration > 0 and (naturalness - best_naturalness) < self.min_improvement:
-                    logger.info("⚠️  Improvement too small (%.3f), stopping", naturalness - best_naturalness)
+                if prev_naturalness is not None and (naturalness - prev_naturalness) < self.min_improvement:
+                    logger.info("⚠️  Improvement too small (%.3f), stopping", naturalness - prev_naturalness)
                     break
+
+                prev_naturalness = naturalness
 
                 # Adapt parameters for next iteration
                 if iteration < self.max_iterations - 1:
@@ -133,7 +140,7 @@ class QualityFeedbackLoop:
         if best_result is None:
             # Fallback: return original processing result
             logger.warning("No valid result achieved, returning original processing")
-            return phase.process(original_audio, sample_rate, **kwargs)
+            return phase.process(original_audio, sample_rate, **original_kwargs)
 
         return best_result
 
@@ -258,7 +265,8 @@ class QualityFeedbackLoop:
         # If naturalness is already high, feedback not needed
         if initial_quality["naturalness_overall"] > 0.85:
             logger.debug(
-                f"Audio quality already high ({initial_quality['naturalness_overall']:.2f}), skipping feedback"
+                "Audio quality already high (%.2f), skipping feedback",
+                initial_quality["naturalness_overall"],
             )
             return False
 
@@ -331,7 +339,9 @@ class QualityGating:
                 temporal_smoothness = quality.get("temporal_smoothness", 1.0)
                 if temporal_smoothness > 0.90:
                     logger.info(
-                        f"⏭️  Skipping {metadata.name}: No crackle detected (smoothness: {temporal_smoothness:.2f})"
+                        "⏭️  Skipping %s: No crackle detected (smoothness: %.2f)",
+                        metadata.name,
+                        temporal_smoothness,
                     )
                     return False
 
@@ -356,43 +366,43 @@ class QualityGating:
 
 if __name__ == "__main__":
     # Test feedback loop
-    logger.debug("\n" + "=" * 70)
+    logger.debug("\n%s", "=" * 70)
     logger.debug("Quality Feedback Loop Test")
-    logger.debug("=" * 70)
+    logger.debug("%s", "=" * 70)
 
     # Create synthetic audio with defects
     sr = 44100
     duration = 2.0
     t = np.linspace(0, duration, int(duration * sr))
 
-    audio = np.sin(2 * np.pi * 440 * t) * 0.3
-    audio += np.random.randn(len(audio)) * 0.05
+    demo_audio = np.sin(2 * np.pi * 440 * t) * 0.3
+    demo_audio += np.random.randn(len(demo_audio)) * 0.05
 
     # Add clicks
     for _ in range(20):
-        pos = np.random.randint(0, len(audio))
-        audio[pos] += 0.5
+        pos = np.random.randint(0, len(demo_audio))
+        demo_audio[pos] += 0.5
 
     # Test metrics
     metrics = PsychoAcousticMetrics(sr)
-    initial_quality = metrics.calculate_naturalness_score(audio)
+    demo_initial_quality = metrics.calculate_naturalness_score(demo_audio)
 
     logger.debug("\nInitial Audio Quality:")
-    for key, val in initial_quality.items():
+    for key, val in demo_initial_quality.items():
         logger.debug("  %s: %.3f", key, val)
 
     # Test quality gating
-    logger.debug("\n" + "=" * 70)
+    logger.debug("\n%s", "=" * 70)
     logger.debug("Quality Gating Test")
-    logger.debug("=" * 70)
+    logger.debug("%s", "=" * 70)
 
     gating = QualityGating()
 
     # Mock phase
     class MockPhase(PhaseInterface):
-        def get_metadata(self):
-            from backend.core.phases.phase_interface import PhaseCategory, PhaseMetadata
+        """Einfacher Mock für den Gating-Selbsttest."""
 
+        def get_metadata(self):
             return PhaseMetadata(
                 phase_id="test_denoise",
                 name="Test Denoise",
@@ -412,8 +422,8 @@ if __name__ == "__main__":
             raise NotImplementedError("MockPhase wird nur für Gating-Tests verwendet — process wird nicht aufgerufen")
 
     mock_phase = MockPhase()
-    should_process = gating.should_process_phase(mock_phase, audio, sr)
+    should_process = gating.should_process_phase(mock_phase, demo_audio, sr)
     logger.debug("\nShould process phase: %s", should_process)
 
-    logger.debug("\n" + "=" * 70)
+    logger.debug("\n%s", "=" * 70)
     logger.debug("✅ Quality Feedback Loop Module operational")

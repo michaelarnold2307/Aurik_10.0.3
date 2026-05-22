@@ -473,15 +473,15 @@ class TransparentDynamicsV1(PhaseInterface):
         Returns masking curve: 0.0 = no masking (preserve), 1.0 = full masking (compress freely)
         """
         # RMS envelope (100ms window for masking detection)
-        window_size = int(0.100 * self.sample_rate)
+        window_size = min(len(audio), max(1, int(0.100 * self.sample_rate)))
         audio_squared = audio**2
         window = np.ones(window_size) / window_size
         rms_envelope = np.sqrt(np.convolve(audio_squared, window, mode="same"))
 
         # Normalize RMS to 0-1 range
-        rms_max = np.max(rms_envelope)
-        if rms_max > 0:
-            rms_envelope = rms_envelope / rms_max
+        rms_norm_ref = float(np.percentile(rms_envelope, 99.0))
+        if rms_norm_ref > 0:
+            rms_envelope = rms_envelope / rms_norm_ref
 
         # Masking curve: quiet = high masking, loud = low masking
         # Use inverted RMS (quiet passages have high masking)
@@ -489,7 +489,11 @@ class TransparentDynamicsV1(PhaseInterface):
 
         # Smooth masking curve (avoid abrupt changes)
         nyquist = self.sample_rate / 2
-        masking_curve = signal.sosfilt(signal.butter(2, 5 / nyquist, output="sos"), masking_curve)  # 5 Hz lowpass
+        _sos_lp = signal.butter(2, 5 / nyquist, output="sos")
+        try:
+            masking_curve = signal.sosfiltfilt(_sos_lp, masking_curve)
+        except Exception:
+            masking_curve = signal.sosfilt(_sos_lp, masking_curve)
 
         # Clip to 0-1 range
         masking_curve = np.clip(masking_curve, 0, 1)
@@ -505,14 +509,23 @@ class TransparentDynamicsV1(PhaseInterface):
         # High-pass filter to emphasize transients
         nyquist = self.sample_rate / 2
         sos = signal.butter(4, 80 / nyquist, btype="high", output="sos")
-        audio_hp = signal.sosfilt(sos, audio)
+        try:
+            audio_hp = signal.sosfiltfilt(sos, audio)
+        except Exception:
+            audio_hp = signal.sosfilt(sos, audio)
 
         # Envelope detection
         envelope = np.abs(audio_hp)
-        envelope = signal.sosfilt(signal.butter(2, 50 / nyquist, output="sos"), envelope)
+        _sos_env = signal.butter(2, 50 / nyquist, output="sos")
+        try:
+            envelope = signal.sosfiltfilt(_sos_env, envelope)
+        except Exception:
+            envelope = signal.sosfilt(_sos_env, envelope)
 
         # Find transient peaks
-        threshold = np.mean(envelope) + 2 * np.std(envelope)
+        _med = float(np.median(envelope))
+        _mad = float(np.median(np.abs(envelope - _med))) + 1e-9
+        threshold = _med + 6.0 * _mad
         peak_indices, _ = signal.find_peaks(
             envelope,
             height=threshold,
@@ -560,7 +573,7 @@ class TransparentDynamicsV1(PhaseInterface):
         threshold_linear = 10 ** (threshold_db / 20)
 
         # RMS detection (10ms window)
-        window_size = int(0.010 * self.sample_rate)
+        window_size = min(len(audio), max(1, int(0.010 * self.sample_rate)))
         audio_squared = audio**2
         window = np.ones(window_size) / window_size
         rms = np.sqrt(np.convolve(audio_squared, window, mode="same"))
@@ -609,6 +622,14 @@ class TransparentDynamicsV1(PhaseInterface):
 
         # Preserve transients (bypass compression at transient locations)
         gain_smooth = transient_mask + (1.0 - transient_mask) * gain_smooth
+
+        # Kurzer Lookahead schützt Attack-Phasen vor Overshoot.
+        lookahead = int(np.clip(int(0.003 * self.sample_rate), 1, max(1, len(gain_smooth) - 1)))
+        gain_smooth = np.roll(gain_smooth, -lookahead)
+        # Short-buffer guard: bei sehr kurzen Segmenten darf kein negativer
+        # Out-of-Bounds-Index entstehen (z.B. len==1).
+        _tail_ref_idx = max(0, int(len(gain_smooth) - lookahead - 1))
+        gain_smooth[-lookahead:] = gain_smooth[_tail_ref_idx]
 
         # Harte Kompressions-Artefakte: zusätzliche Envelope-Glättung gegen Pumpen.
         if compression_pressure >= 0.45:

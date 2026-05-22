@@ -4,6 +4,10 @@
 **Datum:** 19. Mai 2026  
 **Status:** ✅ Production Ready
 
+> **Normativer Hinweis (Release):** Verbindlicher Produktpfad ist Bridge -> `AurikDenker.denke(...)` -> `export_guard()`.
+> Historische Beispiele mit direktem Legacy-Restore, alten Runtime-Pfaden oder erweiterten manuellen Parametern
+> sind als `LEGACY_NON_RELEASE` zu behandeln.
+
 ---
 
 ## Inhaltsverzeichnis
@@ -31,25 +35,33 @@ Aurik bietet **5 vordefinierte Processing Modes** plus **Custom Configuration** 
 3. Auto-Detection (Adaptive)
 ```
 
-**Beispiel:**
+**Beispiel (kanonischer Produktpfad):**
 
 ```python
-from core.unified_restorer_v2 import UnifiedRestorerV2
-from core.processing_modes import ProcessingConfig, ProcessingMode
-
-# 1. Mode only (verwendet alle Defaults)
-restorer = UnifiedRestorerV2()
-restored = restorer.restore(audio, sr, mode=ProcessingMode.RESTORATION)
-
-# 2. Mode + Custom Config (Override selected parameters)
-config = ProcessingConfig(
-    mode=ProcessingMode.RESTORATION,
-    denoise_strength=0.4  # Override: Weniger aggressiv
+from backend.api.bridge import (
+    get_aurik_denker_instance,
+    get_load_audio_fn,
+    run_pre_analysis,
 )
-restored = restorer.restore(audio, sr, config=config)
 
-# 3. Full Auto (Aurik entscheidet basierend auf Audio-Analyse)
-restored = restorer.restore(audio, sr)  # Mode=RESTORATION (default)
+load_audio = get_load_audio_fn()
+audio, sr = load_audio("input.wav")
+
+# Voranalyse genau einmal pro Datei
+pre_analysis = run_pre_analysis(audio, sr)
+
+denker = get_aurik_denker_instance()
+
+# 1. Standardpfad: Restoration
+result_restoration = denker.denke(audio, sr, mode="restoration")
+
+# 2. Alternative: Studio 2026
+result_studio = denker.denke(audio, sr, mode="studio2026")
+
+# Ergebnisobjekt traegt Metadaten fuer Export-/Qualitaetsgate
+print(pre_analysis)
+print(result_restoration.metadata.get("quality_gate_payload", {}))
+print(result_studio.metadata.get("quality_gate_payload", {}))
 ```
 
 ---
@@ -311,8 +323,9 @@ config = ProcessingConfig(
     enable_multiband_compression=False,  # Studio Mode only
 )
 
-restorer = UnifiedRestorerV2()
-restored = restorer.restore(audio, sr, config=config)
+denker = get_aurik_denker_instance()
+result = denker.denke(audio, sr, mode="restoration")
+restored = result.audio
 ```
 
 ---
@@ -611,19 +624,16 @@ config = ProcessingConfig(
 **Lösung:**
 
 ```python
-from core.unified_restorer_v2 import UnifiedRestorerV2
-from core.processing_modes import ProcessingMode
+from backend.api.bridge import get_aurik_denker_instance, get_load_audio_fn
 import soundfile as sf
 
-audio, sr = sf.read('vinyl_rip.wav')
+load_audio = get_load_audio_fn()
+audio, sr = load_audio("vinyl_rip.wav")
 
-restorer = UnifiedRestorerV2()
-restored = restorer.restore(
-    audio, sr,
-    mode=ProcessingMode.RESTORATION  # Preserve Vinyl Warmth
-)
+denker = get_aurik_denker_instance()
+result = denker.denke(audio, sr, mode="restoration")
 
-sf.write('vinyl_restored.wav', restored, 48000, subtype='PCM_24')
+sf.write("vinyl_restored.wav", result.audio, 48000, subtype="PCM_24")
 ```
 
 **Ergebnis:**

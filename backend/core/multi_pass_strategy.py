@@ -16,7 +16,10 @@ Version: 1.0
 Date: 2026-02-10
 """
 
+import copy
 import logging
+import time
+import traceback as _tb
 from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from enum import Enum
@@ -25,7 +28,7 @@ from typing import Any
 import numpy as np
 
 from backend.core.intrinsic_audio_quality_scorer import IntrinsicAudioQualityScorer
-from backend.core.processing_modes import ProcessingConfig, ProcessingMode
+from backend.core.processing_modes import ProcessingConfig, ProcessingMode, get_processing_config
 
 logger = logging.getLogger(__name__)
 
@@ -99,10 +102,6 @@ class ProcessingVariant:
         - Maximale Authentizität gefragt
         - Archival/Forensic use cases
         """
-        import copy
-
-        from backend.core.processing_modes import get_processing_config
-
         config = copy.deepcopy(get_processing_config(base_mode))
 
         # Ultra-conservative adjustments
@@ -132,10 +131,6 @@ class ProcessingVariant:
         - Balance zwischen Quality und Authenticity
         - Default Ansatz
         """
-        import copy
-
-        from backend.core.processing_modes import get_processing_config
-
         config = copy.deepcopy(get_processing_config(base_mode))
 
         # Balanced = use base config as-is
@@ -158,10 +153,6 @@ class ProcessingVariant:
         - Maximum Quality improvement gefragt
         - Competitive sound
         """
-        import copy
-
-        from backend.core.processing_modes import get_processing_config
-
         config = copy.deepcopy(get_processing_config(base_mode))
 
         # Aggressive adjustments
@@ -194,10 +185,6 @@ class ProcessingVariant:
         - Preservation kritisch
         - Vintage recordings
         """
-        import copy
-
-        from backend.core.processing_modes import get_processing_config
-
         config = copy.deepcopy(get_processing_config(base_mode))
 
         # Focus on gentle denoising
@@ -227,10 +214,6 @@ class ProcessingVariant:
         - Competitive loudness
         - Modern streaming
         """
-        import copy
-
-        from backend.core.processing_modes import get_processing_config
-
         config = copy.deepcopy(get_processing_config(base_mode))
 
         # Focus on dynamics
@@ -264,10 +247,6 @@ class ProcessingVariant:
         - Raum-Ton, Atem, Analogcharakter vollständig erhalten
         - Kompression fast abgeschaltet (natürliche Dynamik)
         """
-        import copy
-
-        from backend.core.processing_modes import get_processing_config
-
         config = copy.deepcopy(get_processing_config(base_mode))
 
         # Naturalness: so wenig Eingriff wie möglich
@@ -422,7 +401,7 @@ class ObjectiveScorer:
 
         if enable_versa:
             try:
-                from plugins.versa_plugin import get_versa_plugin
+                from plugins.versa_plugin import get_versa_plugin  # pylint: disable=import-outside-toplevel
 
                 self.versa_plugin = get_versa_plugin()
                 logger.info("✓ VERSA Plugin loaded (§4.4, non-reference MOS)")
@@ -453,14 +432,14 @@ class ObjectiveScorer:
         Returns:
             ObjectiveScore mit allen Metriken
         """
+        # Non-reference-Scorer: Parameter bleibt für API-Kompatibilität erhalten.
+        del reference_audio
         score = ObjectiveScore(variant_name=variant_name, processing_time_sec=processing_time_sec)
 
         # === 1. VERSA: non-reference MOS (§4.4 VERSA §4.4) ===
         if self.enable_versa and self.versa_plugin is not None:
             try:
-                import numpy as _np
-
-                proc_arr = _np.asarray(audio, dtype=_np.float32)
+                proc_arr = np.asarray(audio, dtype=np.float32)
                 if proc_arr.ndim == 2:
                     # Accept both layouts: [N, C] and [C, N].
                     if proc_arr.shape[0] <= 2 and proc_arr.shape[1] > proc_arr.shape[0]:
@@ -469,10 +448,10 @@ class ObjectiveScorer:
                         proc_arr = proc_arr.mean(axis=1)
                     else:
                         proc_arr = proc_arr.mean(axis=-1)
-                proc_arr = _np.nan_to_num(proc_arr, nan=0.0, posinf=0.0, neginf=0.0)
+                proc_arr = np.nan_to_num(proc_arr, nan=0.0, posinf=0.0, neginf=0.0)
                 versa_result = self.versa_plugin.score(proc_arr, sample_rate)
                 # MOS [1,5] → [0,1] skaliert → versa_score (§4.4)
-                score.versa_score = float(_np.clip((versa_result.mos - 1.0) / 4.0, 0.0, 1.0))
+                score.versa_score = float(np.clip((versa_result.mos - 1.0) / 4.0, 0.0, 1.0))
                 score.versa_active = True
 
             except Exception as e:
@@ -486,7 +465,9 @@ class ObjectiveScorer:
         if self.enable_musical_goals:
             _mg_loaded = False
             try:
-                from backend.core.musical_goals.musical_goals_metrics import MusicalGoalsChecker
+                from backend.core.musical_goals.musical_goals_metrics import (  # pylint: disable=import-outside-toplevel
+                    MusicalGoalsChecker,
+                )
 
                 checker = MusicalGoalsChecker()
                 goals_scores = checker.measure_all(audio, sample_rate)
@@ -527,7 +508,7 @@ class ObjectiveScorer:
             logger.warning("IAQS Signal statistics failed: %s", e)
             # Letzter Fallback: EnhancedMetrics Backend
             try:
-                from backend.core.enhanced_metrics import EnhancedMetrics
+                from backend.core.enhanced_metrics import EnhancedMetrics  # pylint: disable=import-outside-toplevel
 
                 metrics = EnhancedMetrics()
                 try:
@@ -740,8 +721,6 @@ class MultiPassEngine:
             - "all_scores": Liste aller ObjectiveScores
             - "processing_times": Dict variant_name -> time_sec
         """
-        import time
-
         if len(variants) == 0:
             raise ValueError("Mindestens 1 ProcessingVariant erforderlich")
 
@@ -852,8 +831,10 @@ class MultiPassEngine:
         best_score.confidence = confidence
 
         logger.info(
-            f"✅ Best variant: '{best_variant.name}' "
-            f"(score={best_score.composite_score:.3f}, confidence={confidence:.2f})"
+            "✅ Best variant: '%s' (score=%.3f, confidence=%.2f)",
+            best_variant.name,
+            best_score.composite_score,
+            confidence,
         )
 
         return {
@@ -918,24 +899,21 @@ class MultiPassEngine:
         """
 
         try:
-            from backend.core.unified_restorer_v3 import UnifiedRestorerV3
+            from backend.core.unified_restorer_v3 import UnifiedRestorerV3  # pylint: disable=import-outside-toplevel
 
             # Einmalig laden — alle Varianten nutzen dieselbe Instanz
             if self._restorer is None:
                 logger.info("Initialisiere UnifiedRestorerV3 (einmalig)...")
                 self._restorer = UnifiedRestorerV3()
 
-            # Für Varianten-Bewertung: max. 10 s Audio (Geschwindigkeit)
-            _max_eval = sample_rate * 10
-            _eval_audio = audio[:_max_eval] if len(audio) > _max_eval else audio
             _restore_mode = self._derive_restore_mode(config)
             logger.debug(
-                "[MPASS] restore(mode=%s) auf %.0fs Excerpt …",
+                "[MPASS] restore(mode=%s) auf voller Programmlänge (%.0fs) …",
                 _restore_mode,
-                len(_eval_audio) / sample_rate,
+                len(audio) / sample_rate,
             )
             result = self._restorer.restore(
-                audio=_eval_audio,
+                audio=audio,
                 sample_rate=sample_rate,
                 mode=_restore_mode,
                 progress_callback=progress_callback,
@@ -944,14 +922,11 @@ class MultiPassEngine:
             # V3 gibt RestorationResult zurück — audio-Array extrahieren
             if hasattr(result, "audio") and result.audio is not None:
                 return result.audio
-            return audio
+            raise RuntimeError("UnifiedRestorerV3 returned no audio payload for variant evaluation")
 
         except Exception as e:
-            import traceback as _tb
-
             logger.error("Default processing failed: %s\n%s", e, _tb.format_exc())
-            # Fallback: return original
-            return audio
+            raise RuntimeError("MultiPass default processing failed") from e
 
 
 def create_default_variants(
@@ -987,29 +962,36 @@ def create_default_variants(
         raise ValueError(f"num_variants muss 3 oder 5 sein, nicht {num_variants}")
 
 
-# === Example Usage ===
-if __name__ == "__main__":
-    import soundfile as sf
+def _run_demo() -> None:
+    """Lokaler Demo-Entrypoint für manuelle Multi-Pass-Validierung."""
+    import soundfile as sf  # pylint: disable=import-outside-toplevel
 
-    from backend.file_import import load_audio_file
+    from backend.file_import import load_audio_file  # pylint: disable=import-outside-toplevel
 
     # Load test audio
     _res = load_audio_file("test_audio/test_input.wav")
-    audio, sr = np.asarray(_res["audio"], dtype=np.float32), int(_res["sr"])
+    if _res is None:
+        raise RuntimeError("test_audio/test_input.wav konnte nicht geladen werden")
+    demo_audio, demo_sr = np.asarray(_res["audio"], dtype=np.float32), int(_res["sr"])
 
     # Create variants
-    variants = create_default_variants(base_mode=ProcessingMode.RESTORATION, num_variants=3)
+    demo_variants = create_default_variants(base_mode=ProcessingMode.RESTORATION, num_variants=3)
 
     # Run Multi-Pass
     engine = MultiPassEngine()
-    result = engine.process_with_variants(audio=audio, sample_rate=sr, variants=variants)
+    demo_result = engine.process_with_variants(audio=demo_audio, sample_rate=demo_sr, variants=demo_variants)
 
     # Save best result
-    sf.write("test_output/multipass_best.wav", result["audio"], sr)
+    sf.write("test_output/multipass_best.wav", demo_result["audio"], demo_sr)
 
-    logger.debug("\n✅ Best Variant: %s", result["variant_name"])
-    logger.debug("   Composite Score: %.3f", result["composite_score"])
-    logger.debug("   Confidence: %.2f", result["confidence"])
+    logger.debug("\n✅ Best Variant: %s", demo_result["variant_name"])
+    logger.debug("   Composite Score: %.3f", demo_result["composite_score"])
+    logger.debug("   Confidence: %.2f", demo_result["confidence"])
     logger.debug("\n📊 All Scores:")
-    for score in result["all_scores"]:
-        logger.debug("   %s", score)
+    for variant_score in demo_result["all_scores"]:
+        logger.debug("   %s", variant_score)
+
+
+# === Example Usage ===
+if __name__ == "__main__":
+    _run_demo()

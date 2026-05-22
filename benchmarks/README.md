@@ -217,7 +217,7 @@ cat ./validation_results/metrics_summary.json
 
 ```bash
 # Process same file with Aurik and compare with iZotope RX
-python3 aurik_cli.py process \
+python3 cli/aurik_cli.py process \
     --input test_audio/vinyl/jazz_1950s.wav \
     --output output_aurik.wav \
     --quality BALANCED

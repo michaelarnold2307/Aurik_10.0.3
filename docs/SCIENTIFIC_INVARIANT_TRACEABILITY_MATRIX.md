@@ -1,6 +1,6 @@
 # Scientific Invariant Traceability Matrix
 
-Stand: 2026-05-20
+Stand: 2026-05-21
 
 Ziel: 1:1-Nachweis fuer zentrale Invarianten in Aurik gegen wissenschaftliche
 Primaerquellen und konkrete Mess-/Validierungsprotokolle im Projekt.
@@ -46,6 +46,9 @@ Primaerquellen und konkrete Mess-/Validierungsprotokolle im Projekt.
 | Zeit-Frequenz-Rekonstruktion/Phase-Konsistenz | `S12`, `S13` | Spektrale Reparaturpfade + konsistente Rekonstruktion in Reparaturketten | Spektral-Repair- und Konsistenztests | Wissenschaftlich motiviert + kalibriert |
 | Artifact-Freedom fuer Musical-Noise/Pre-Echo | `S14`, `S15` | AFG-Detektoren und Recovery-Trigger fuer artefaktkritische Faelle (`artifact_freedom < 0.95`) | Gate-Regressionen + materialadaptive AFG-Audits | Wissenschaftlich motiviert + kalibriert |
 | Formant-/Vibrato-Grenzen im Gesangspfad | `S16`, `S17`, `S18` | Formant-Toleranz, Vibrato-Tiefenschutz und Vokal-Recovery im §0p-Pfad | Vocal-Gate-Tests + De-Esser-/Vibrato-Regressionen | Wissenschaftlich motiviert + kalibriert |
+| Gate-Schwellen-Evidenzvertrag (HPI/AFG/VQI/WCS) | `S06`, `S07`, `S14`, `S15`, `S16`, `S17`, `S18` | Zentrale Registry `policy/scientific_threshold_evidence_registry.yaml` + Runtime-Metadaten `threshold_evidence` | Normative Contracts: `test_evidence_class_metadata_contract.py`, `test_scientific_threshold_registry_contract.py` | Direkt (Governance) |
+| Psychoakustischer Natuerlichkeits-Guard + Adaptive Recovery | `S14`, `S15` | End-Gate `psychoacoustic_naturalness_gate` + konservative Referenz-Blend-Recovery bei Fail | `tests/normative/test_psychoacoustic_naturalness_gate.py` | Wissenschaftlich motiviert + kalibriert |
+| Phasenweise Anti-Klinik-Scalar + Runtime-Delta-Loop | `S14`, `S15`, `S16`, `S17`, `S18` | Vor-Phase Strength-Daempfung aus Risikosignalen + `_psycho_runtime_state` aus Per-Phase-Delten | `tests/normative/test_psychoacoustic_naturalness_gate.py` + Pipeline-Contracts | Wissenschaftlich motiviert + kalibriert |
 | Multi-Goal Teamwork statt Single-Goal Dominanz | Multi-Objective Optimization Grundlagen (Pareto/weighted gap) | 15-Goal Weighted-Gap-Closure + Dominanz-Guard im Oracle | Oracle-Unit-Tests inkl. dominant_goal_guard | Wissenschaftlich motiviert + kalibriert |
 | Transfer-chain-aware Strength-Konditionierung | Kaskadierte Degradationsmodelle in Audio-Restoration-Literatur; robuste Unsicherheitsgewichtung | Deterministischer `chain_factor` aus `material_key`, `transfer_chain`, `chain_confidence` skaliert Driver und Hard-Caps | `tests/unit/test_phase_strength_oracle.py` (chain-factor Tests) + Chain-aware Audit | Wissenschaftlich motiviert + kalibriert |
 | Material-/Traegeradaptive Zielschwellen | Restaurationspraxis + materialphysikalische Grenzen (Carrier ceilings/floors) | PMGG/effective targets + material-adaptive Floors | Goal-baseline-Checks, PMGG/CIG/AFG Gates | Wissenschaftlich motiviert + kalibriert |

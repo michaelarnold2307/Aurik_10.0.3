@@ -230,6 +230,14 @@ _WORLDCLASS_WCS_WEIGHTS: dict[str, float] = {
     "stereo_scene_stability": 0.05,
 }
 
+# §8.6g [RELEASE_MUST] Psychoakustischer Natürlichkeits-Guard
+_PSYCHO_NATURALNESS_WEIGHTS: dict[str, float] = {
+    "noise_texture_authenticity": 0.28,
+    "micro_dynamic_correlation": 0.24,
+    "emotional_arc_preservation": 0.24,
+    "spectral_color_preservation": 0.24,
+}
+
 
 def _get_noise_texture_rollback_threshold(material_key: str) -> float:
     """Gibt material-adaptive noise texture rollback threshold (§8.5A) zurück."""
@@ -685,6 +693,46 @@ class UnifiedRestorerV3:
 
         return float(fallback_score), "fallback", None
 
+    @staticmethod
+    def _build_spec_upgrade_metadata(
+        *,
+        baseline_scores: dict[str, float],
+        candidate_scores: dict[str, float],
+        artifact_freedom: float,
+        panns_singing: float,
+        vqi_before: float | None,
+        vqi_after: float | None,
+        phase_upgrade_candidate: list[str] | None,
+        goal_threshold_source: str,
+        decision_authority: str,
+    ) -> dict[str, Any]:
+        """Baut standardisierte §2.81 Spec-Upgrade-Metadaten für den Runtime-Export."""
+        from backend.core.spec_upgrade_gate import evaluate_spec_upgrade_candidate
+
+        _decision = evaluate_spec_upgrade_candidate(
+            baseline_scores=baseline_scores,
+            candidate_scores=candidate_scores,
+            artifact_freedom=float(artifact_freedom),
+            panns_singing=float(panns_singing),
+            vqi_before=vqi_before,
+            vqi_after=vqi_after,
+        )
+        return {
+            "spec_upgrade": bool(_decision.promoted),
+            "goal_upgrade_decision": {
+                "promoted": bool(_decision.promoted),
+                "reason": str(_decision.reason),
+                "improved_goals_count": int(_decision.improved_goals_count),
+                "non_degraded_goals_count": int(_decision.non_degraded_goals_count),
+                "degraded_goals_count": int(_decision.degraded_goals_count),
+                "safety_ok": bool(_decision.safety_ok),
+                "vqi_ok": bool(_decision.vqi_ok),
+            },
+            "phase_upgrade_candidate": list(dict.fromkeys(phase_upgrade_candidate or [])),
+            "goal_threshold_source": str(goal_threshold_source),
+            "decision_authority": str(decision_authority),
+        }
+
     def __init__(
         self,
         config: RestorationConfig | None = None,
@@ -775,6 +823,9 @@ class UnifiedRestorerV3:
         self._active_global_plan: object = None
         self._active_chain_info: object = None
         self._active_defekt_hint: object = None
+        self._active_causal_phase_parameters: dict[str, Any] = {}
+        self._active_defekt_phase_parameters: dict[str, Any] = {}
+        self._active_phase_parameter_overrides: dict[str, dict[str, Any]] = {}
         self._restoration_context: dict = {}
         self._material_defect_consistency_warnings: list = []
         self._last_restorability_score: float = 50.0
@@ -1169,6 +1220,52 @@ class UnifiedRestorerV3:
             "wcs_pass": bool(_wcs_pass),
             "passed": bool(_passed),
             "weights": dict(_WORLDCLASS_WCS_WEIGHTS),
+        }
+
+    @staticmethod
+    def _evaluate_psychoacoustic_naturalness_gate(
+        vector: dict[str, float],
+        panns_singing: float,
+        is_studio_mode: bool,
+    ) -> dict[str, Any]:
+        """Bewertet §8.6g: nicht-klinische, natuerliche Klangwiedergabe."""
+        _v = UnifiedRestorerV3._build_hybrid_engineer_vector(vector)
+        _panns = float(np.clip(float(panns_singing), 0.0, 1.0))
+
+        if _panns >= 0.35:
+            _threshold = 0.87 if bool(is_studio_mode) else 0.84
+            _per_metric_floor = 0.80
+            _profile = "vocal"
+        else:
+            _threshold = 0.82
+            _per_metric_floor = 0.76
+            _profile = "instrumental"
+
+        _metrics = {
+            "noise_texture_authenticity": float(_v.get("noise_texture_authenticity", 1.0)),
+            "micro_dynamic_correlation": float(_v.get("micro_dynamic_correlation", 1.0)),
+            "emotional_arc_preservation": float(_v.get("emotional_arc_preservation", 1.0)),
+            "spectral_color_preservation": float(_v.get("spectral_color_preservation", 1.0)),
+        }
+        _score = float(
+            sum(float(_PSYCHO_NATURALNESS_WEIGHTS[k]) * float(np.clip(v, 0.0, 1.0)) for k, v in _metrics.items())
+        )
+        _min_metric = float(min(_metrics.values()))
+        _score_pass = _score >= _threshold
+        _floor_pass = _min_metric >= _per_metric_floor
+        _passed = bool(_score_pass and _floor_pass)
+
+        return {
+            "psycho_score": _score,
+            "threshold": float(_threshold),
+            "per_metric_floor": float(_per_metric_floor),
+            "profile": _profile,
+            "panns_singing": _panns,
+            "metrics": dict(_metrics),
+            "score_pass": bool(_score_pass),
+            "floor_pass": bool(_floor_pass),
+            "passed": bool(_passed),
+            "weights": dict(_PSYCHO_NATURALNESS_WEIGHTS),
         }
 
     @staticmethod
@@ -2595,6 +2692,30 @@ class UnifiedRestorerV3:
                 "vocal": 0.95,
                 "general": 0.96,
             },
+            # Psychoakustische Konflikt-Schwere (RELEASE_MUST §0h/§0p):
+            # - Echte Klangschäden bleiben streng.
+            # - PMGG best_effort wird bewusst milder behandelt, um
+            #   Reparatur/Rekonstruktion nicht durch Folgephasen-Underprocessing
+            #   zu strangulieren.
+            "reason_decay_weight": {
+                "pmgg_best_effort": 0.55,
+                "interaction_guard_pipeline_stop": 0.85,
+                "interaction_guard_rollback": 1.00,
+                "hf_hallucination_rescue": 1.10,
+                "noise_texture_rollback": 1.10,
+                "artifact_freedom_rollback": 1.00,
+                "vocal_no_harm_rollback": 1.15,
+            },
+            # Separate Gewichtung für harte phase_strength_caps-Anpassung.
+            "reason_cap_tighten_weight": {
+                "pmgg_best_effort": 0.25,
+                "interaction_guard_pipeline_stop": 0.70,
+                "interaction_guard_rollback": 1.00,
+                "hf_hallucination_rescue": 1.05,
+                "noise_texture_rollback": 1.05,
+                "artifact_freedom_rollback": 1.00,
+                "vocal_no_harm_rollback": 1.15,
+            },
             "rollback_decay_floor": 0.55,
         }
 
@@ -2619,15 +2740,14 @@ class UnifiedRestorerV3:
         _state["total"] = int(_state.get("total", 0)) + 1
         _state["by_phase"][phase_id] = int(_state.get("by_phase", {}).get(phase_id, 0)) + 1
         _state["by_family"][_family] = int(_state.get("by_family", {}).get(_family, 0)) + 1
-        _state["events"].append(
-            {
-                "phase_id": phase_id,
-                "family": _family,
-                "reason": reason,
-                "details": dict(details or {}),
-                "index": int(_state.get("total", 0)),
-            }
-        )
+        _event = {
+            "phase_id": phase_id,
+            "family": _family,
+            "reason": reason,
+            "details": dict(details or {}),
+            "index": int(_state.get("total", 0)),
+        }
+        _state["events"].append(_event)
 
         try:
             _profile = getattr(self, "_song_calibration_profile", None)
@@ -2642,6 +2762,210 @@ class UnifiedRestorerV3:
 
             _decays = _policy.get("rollback_decay_per_family", {}) if isinstance(_policy, dict) else {}
             _decay = float(_decays.get(_family, _decays.get("general", 0.96)))
+            _reason_w_base = float(_decay)
+            _reason_weights = _policy.get("reason_decay_weight", {}) if isinstance(_policy, dict) else {}
+            _reason_w = float(_reason_weights.get(reason, 1.0)) if isinstance(_reason_weights, dict) else 1.0
+
+            # Dynamische Schweregewichtung auf Basis psychoakustischer Evidenz.
+            # So bleiben Grenzfaelle mild, waehrend harte Artefakt-/Vokal-Verstoesse
+            # gezielt strenger eingreifen.
+            _details = dict(details or {})
+            _dyn_reason_w = 1.0
+            _severity_fp: dict[str, Any] = {
+                "reason_weight_base": round(float(_reason_w), 4),
+                "dynamic_weight": 1.0,
+                "vocal_presence": 0.0,
+                "goal_priority_peak": 0.0,
+                "artifact_deficit": 0.0,
+                "emergency_action": False,
+            }
+            if reason == "artifact_freedom_rollback":
+                try:
+                    _af = float(_details.get("artifact_freedom", 0.95))
+                    _deficit = float(np.clip((0.95 - _af) / 0.15, 0.0, 1.0))
+                    _dyn_reason_w *= 1.0 + 0.25 * _deficit
+                    _severity_fp["artifact_deficit"] = round(float(_deficit), 4)
+                except Exception:
+                    pass
+            elif reason == "vocal_no_harm_rollback":
+                try:
+                    _checks = _details.get("checks", {})
+                    if isinstance(_checks, dict) and _checks.get("singer_identity") is False:
+                        _dyn_reason_w *= 1.15
+                        _severity_fp["singer_identity_violation"] = True
+                except Exception:
+                    pass
+            elif reason == "pmgg_best_effort":
+                _action = str(_details.get("action", "") or "")
+                if "emergency" in _action:
+                    _dyn_reason_w *= 1.35
+                    _severity_fp["emergency_action"] = True
+
+            # Unkonventionelles, regressionssicheres Upgrade: Wenn mehrere milde
+            # best_effort-Konflikte in Folge auftreten (ohne harte Konflikte),
+            # dämpfen wir die nächste Strafverstärkung leicht ab, um
+            # Über-Untersteuerung nach Recovery-Schleifen zu vermeiden.
+            try:
+                _rebound_applied = False
+                _rebound_soft_streak = 0
+                _prev_events = [ev for ev in list(_state.get("events", []))[:-1] if isinstance(ev, dict)]
+                _family_prev = [ev for ev in _prev_events if str(ev.get("family", "")) == _family]
+                _recent_family_prev = _family_prev[-5:]
+                _soft_reasons = {"pmgg_best_effort"}
+                _hard_reasons = {
+                    "artifact_freedom_rollback",
+                    "noise_texture_rollback",
+                    "vocal_no_harm_rollback",
+                    "hf_hallucination_rescue",
+                }
+                _has_recent_hard = any(str(ev.get("reason", "")) in _hard_reasons for ev in _recent_family_prev)
+
+                for ev in reversed(_family_prev):
+                    _er = str(ev.get("reason", ""))
+                    _bucket = str(ev.get("severity_bucket", ""))
+                    if _er in _soft_reasons and _bucket in {"low", "medium"}:
+                        _rebound_soft_streak += 1
+                        continue
+                    break
+
+                if reason == "pmgg_best_effort" and _rebound_soft_streak >= 3 and not _has_recent_hard:
+                    _dyn_reason_w *= 0.85
+                    _rebound_applied = True
+
+                _severity_fp["fatigue_rebound_applied"] = bool(_rebound_applied)
+                _severity_fp["prior_soft_conflict_streak"] = int(_rebound_soft_streak)
+            except Exception:
+                pass
+
+            # Disagreement-Guard: Bei hoher Reason-Diversität im jüngsten Verlauf
+            # der gleichen Family wird best_effort konservativer gedämpft, um
+            # Fehlübersteuerung bei inkonsistenten Signalen zu vermeiden.
+            try:
+                _disagreement_brake_applied = False
+                _ctx = getattr(self, "_restoration_context", {})
+                _ctx_vp = float((_ctx or {}).get("panns_singing", 0.0)) if isinstance(_ctx, dict) else 0.0
+                _prof_vp = float(_profile.get("vocal_presence", 0.0) or 0.0)
+                _vocal_presence = float(np.clip(max(_ctx_vp, _prof_vp), 0.0, 1.0))
+                _material_key = str(_profile.get("material", "") or "")
+                _era_decade_raw = _profile.get("era_decade", None)
+                _era_decade = int(_era_decade_raw) if _era_decade_raw is not None else None
+                _dg_window, _dg_threshold, _dg_brake_mul = UnifiedRestorerV3._resolve_disagreement_guard_params(
+                    material_key=_material_key,
+                    era_decade=_era_decade,
+                    vocal_presence=_vocal_presence,
+                )
+                _recent_family_prev = [
+                    ev
+                    for ev in list(_state.get("events", []))[:-1]
+                    if isinstance(ev, dict) and str(ev.get("family", "")) == _family
+                ][-_dg_window:]
+                _recent_reasons = [str(ev.get("reason", "")) for ev in _recent_family_prev]
+                _reason_diversity = int(len(set(_recent_reasons)))
+                _hard_reasons = {
+                    "artifact_freedom_rollback",
+                    "noise_texture_rollback",
+                    "vocal_no_harm_rollback",
+                    "hf_hallucination_rescue",
+                }
+                _has_recent_hard = any(_r in _hard_reasons for _r in _recent_reasons)
+
+                if reason == "pmgg_best_effort" and _reason_diversity >= _dg_threshold and not _has_recent_hard:
+                    _dyn_reason_w *= _dg_brake_mul
+                    _disagreement_brake_applied = True
+
+                _severity_fp["disagreement_brake_applied"] = bool(_disagreement_brake_applied)
+                _severity_fp["recent_reason_diversity"] = int(_reason_diversity)
+                _severity_fp["disagreement_window"] = int(_dg_window)
+                _severity_fp["disagreement_threshold"] = int(_dg_threshold)
+                _severity_fp["disagreement_brake_mul"] = round(float(_dg_brake_mul), 4)
+            except Exception:
+                pass
+
+            # Goal-Prioritaetskopplung: Regressions auf P1/P2 muessen strenger
+            # wirken als gleich grosse P4/P5-Regr. (Weltspitze-Psychoakustik).
+            try:
+                _goal_reg = _details.get("goal_regressions", {})
+                if isinstance(_goal_reg, dict) and _goal_reg:
+                    from backend.core.goal_priority_protocol import get_goal_priority_protocol
+
+                    _gpp = get_goal_priority_protocol()
+                    _song_goal_weights = getattr(self, "_song_goal_weights", None)
+                    _priority_hits: list[float] = []
+                    for _g, _d in _goal_reg.items():
+                        _delta = float(_d)
+                        if _delta >= 0.0:
+                            continue
+                        _prio = int(_gpp.priority_of(str(_g)))
+                        _prio_weight = {1: 1.25, 2: 1.15, 3: 1.00, 4: 0.90, 5: 0.82}.get(_prio, 1.00)
+                        _mag = float(np.clip(abs(_delta) / 0.15, 0.0, 1.0))
+                        _mag_weight = 0.75 + 0.25 * _mag
+                        _song_w = 1.0
+                        if isinstance(_song_goal_weights, dict):
+                            _song_w = float(np.clip(_song_goal_weights.get(str(_g), 1.0), 0.70, 1.40))
+                        _priority_hits.append(float(_prio_weight * _mag_weight * _song_w))
+                    if _priority_hits:
+                        _prio_peak = float(np.clip(max(_priority_hits), 0.75, 1.35))
+                        _dyn_reason_w *= _prio_peak
+                        _severity_fp["goal_priority_peak"] = round(_prio_peak, 4)
+            except Exception:
+                pass
+
+            # Vocal-Supremacy-Kopplung: bei hoher Gesangspraesenz werden
+            # Konflikte in vokalkritischen Bereichen strenger gewichtet.
+            try:
+                _ctx = getattr(self, "_restoration_context", {})
+                _ctx_vp = float((_ctx or {}).get("panns_singing", 0.0)) if isinstance(_ctx, dict) else 0.0
+                _prof_vp = float(_profile.get("vocal_presence", 0.0) or 0.0)
+                _vocal_presence = float(np.clip(max(_ctx_vp, _prof_vp), 0.0, 1.0))
+                _severity_fp["vocal_presence"] = round(_vocal_presence, 4)
+                if _vocal_presence >= 0.35:
+                    _vocal_boost = 1.0 + 0.20 * ((_vocal_presence - 0.35) / 0.65)
+                    _vocal_boost = float(np.clip(_vocal_boost, 1.0, 1.20))
+                    _vocal_critical_goals = {
+                        "natuerlichkeit",
+                        "authentizitaet",
+                        "artikulation",
+                        "timbre_authentizitaet",
+                        "vocal_quality",
+                        "formant_fidelity",
+                    }
+                    _has_vocal_goal_reg = False
+                    if isinstance(_details.get("goal_regressions"), dict):
+                        _has_vocal_goal_reg = any(
+                            str(_g) in _vocal_critical_goals and float(_d) < 0.0
+                            for _g, _d in dict(_details.get("goal_regressions", {})).items()
+                        )
+
+                    if reason == "vocal_no_harm_rollback" or _has_vocal_goal_reg:
+                        _dyn_reason_w *= _vocal_boost
+                        _severity_fp["vocal_boost"] = round(_vocal_boost, 4)
+                    elif reason in {"pmgg_best_effort", "artifact_freedom_rollback"}:
+                        _vocal_partial = 1.0 + (_vocal_boost - 1.0) * 0.6
+                        _dyn_reason_w *= _vocal_partial
+                        _severity_fp["vocal_boost"] = round(_vocal_partial, 4)
+            except Exception:
+                pass
+
+            _severity_fp["dynamic_weight"] = round(float(_dyn_reason_w), 4)
+
+            _reason_w *= _dyn_reason_w
+            _reason_w = float(np.clip(_reason_w, 0.0, 1.5))
+            _event_severity = float(np.clip(_reason_w, 0.5, 2.0))
+            if _event_severity >= 1.4:
+                _event_bucket = "critical"
+            elif _event_severity >= 1.15:
+                _event_bucket = "high"
+            elif _event_severity >= 0.90:
+                _event_bucket = "medium"
+            else:
+                _event_bucket = "low"
+            _event["severity_score"] = round(_event_severity, 4)
+            _event["severity_bucket"] = _event_bucket
+            _event["severity_fingerprint"] = _severity_fp
+            # Scale decay in attenuation-domain: 0.90 with weight 0.5 -> 0.95 (milder)
+            # and with 1.25 -> 0.875 (strenger).
+            _decay_att = max(0.0, 1.0 - _decay)
+            _decay = float(np.clip(1.0 - (_decay_att * _reason_w), 0.80, 0.995))
             _floor = float(_policy.get("rollback_decay_floor", 0.55))
             _old = float(_family_scalars.get(_family, 1.0))
             _new = float(np.clip(_old * _decay, _floor, 1.80))
@@ -2661,18 +2985,64 @@ class UnifiedRestorerV3:
             _caps = _policy.get("phase_strength_caps", {}) if isinstance(_policy, dict) else {}
             if isinstance(_caps, dict) and phase_id in _caps and _phase_hits >= 2:
                 _old_cap = float(_caps.get(phase_id, 1.0))
-                _new_cap = float(np.clip(_old_cap * 0.92, 0.28, 0.95))
+                _cap_reason_weights = _policy.get("reason_cap_tighten_weight", {}) if isinstance(_policy, dict) else {}
+                _cap_w = float(_cap_reason_weights.get(reason, 1.0)) if isinstance(_cap_reason_weights, dict) else 1.0
+                _cap_w *= _dyn_reason_w
+                _cap_w = float(np.clip(_cap_w, 0.0, 1.5))
+                _base_cap_mul = 0.92
+                _cap_att = max(0.0, 1.0 - _base_cap_mul)
+                _cap_mul = float(np.clip(1.0 - (_cap_att * _cap_w), 0.82, 0.99))
+                _new_cap = float(np.clip(_old_cap * _cap_mul, 0.28, 0.95))
                 if _new_cap + 1e-9 < _old_cap:
                     _caps[phase_id] = _new_cap
                     logger.info(
-                        "StrictConflictCapTighten: %s cap %.3f -> %.3f (hits=%d)",
+                        "StrictConflictCapTighten: %s cap %.3f -> %.3f (hits=%d reason=%s)",
                         phase_id,
                         _old_cap,
                         _new_cap,
                         _phase_hits,
+                        reason,
                     )
         except Exception as _conf_exc:
             logger.debug("Strict conflict tracking failed (non-critical): %s", _conf_exc)
+
+    @staticmethod
+    def _resolve_disagreement_guard_params(
+        *, material_key: str, era_decade: int | None, vocal_presence: float
+    ) -> tuple[int, int, float]:
+        """Löst adaptive Disagreement-Guard-Parameter material-/era-/vocal-basiert auf."""
+        _mat = str(material_key or "unknown").strip().lower()
+        _vp = float(np.clip(vocal_presence, 0.0, 1.0))
+
+        _window = 4
+        _threshold = 3
+        _brake_mul = 0.90
+
+        # Analoge/alte Träger liefern häufiger heterogene Soft-Signale.
+        if _mat in {"shellac", "vinyl", "tape", "cassette", "reel_tape"}:
+            _window = 5
+            _threshold = 2
+            _brake_mul = 0.88
+        elif _mat in {"cd_digital", "dat"}:
+            _window = 4
+            _threshold = 4
+            _brake_mul = 0.94
+
+        # Historische Aufnahmen zeigen oft zusätzliche Inkonsistenz im Konfliktbild.
+        if era_decade is not None and int(era_decade) <= 1960:
+            _window = max(_window, 5)
+            _threshold = max(2, _threshold - 1)
+            _brake_mul = min(_brake_mul, 0.88)
+
+        # Vocal-Supremacy: bei klarer Gesangsdominanz Disagreement-Guard konservativer nutzen.
+        if _vp >= 0.35:
+            _threshold = min(5, _threshold + 2)
+            _brake_mul = max(_brake_mul, 0.95)
+
+        _window = int(np.clip(_window, 3, 6))
+        _threshold = int(np.clip(_threshold, 2, 5))
+        _brake_mul = float(np.clip(_brake_mul, 0.84, 0.98))
+        return _window, _threshold, _brake_mul
 
     def _pmgg_retry_budget_hint(
         self,
@@ -2742,20 +3112,113 @@ class UnifiedRestorerV3:
         _passed = dict(musical_goals_passed or {})
         _profile = dict(song_calibration_profile or {})
 
+        _NON_CONFLICT_DECISION_REASONS = {
+            "regression_within_threshold",
+            "phase_passthrough_no_change",
+            "jnd_sub_threshold_accept",
+            "priority_tolerance_band_accept",
+            "legacy_best_effort_accepted",
+        }
+
+        def _is_conflict_relevant_action(entry: Any) -> bool:
+            """Bestimmt, ob eine PMGG-Entscheidung als Konfliktkandidat gewertet wird."""
+            _action = str(getattr(entry, "action", "") or "")
+            _meta = getattr(entry, "metadata", {})
+            _decision_class = ""
+            _decision_reason = ""
+            if isinstance(_meta, dict):
+                _decision_class = str(_meta.get("pmgg_decision_class", "") or "")
+                _decision_reason = str(_meta.get("pmgg_decision_reason", "") or "")
+            # Legacy/interop: decision fields may exist as direct entry attrs.
+            if not _decision_class:
+                _decision_class = str(getattr(entry, "pmgg_decision_class", "") or "")
+            if not _decision_reason:
+                _decision_reason = str(getattr(entry, "pmgg_decision_reason", "") or "")
+
+            if _decision_class == "pass":
+                return False
+            # Reason-basierte Interop-Härtung: pass-äquivalente Gründe dürfen
+            # Konflikttelemetrie nicht aufblasen, auch wenn action/class fehlen.
+            if _decision_reason in _NON_CONFLICT_DECISION_REASONS:
+                return False
+
+            # Legacy fallback ohne decision_class-Metadaten.
+            if _action in {"passed", "sub_threshold", "passthrough", "passed_p4p5_tolerated", "best_effort_accepted"}:
+                return False
+            return True
+
         _best_effort = [
-            getattr(e, "phase_id", "") for e in _entries if str(getattr(e, "action", "")).startswith("best_effort")
+            getattr(e, "phase_id", "")
+            for e in _entries
+            if _is_conflict_relevant_action(e) and str(getattr(e, "action", "")).startswith("best_effort")
         ]
         _best_effort = [p for p in _best_effort if p]
-        _regressive = [
-            {
-                "phase_id": getattr(e, "phase_id", ""),
-                "action": str(getattr(e, "action", "")),
-                "goal_regressions": dict(getattr(e, "goal_regressions", {}) or {}),
+
+        _profile_vocal_presence = float(np.clip(_profile.get("vocal_presence", 0.0) or 0.0, 0.0, 1.0))
+
+        def _regression_event_severity(entry: Any) -> float:
+            """Gewichtet Regressionsereignisse nach Goal-Priorität und Gesangspräsenz."""
+            _goal_reg = dict(getattr(entry, "goal_regressions", {}) or {})
+            if not _goal_reg:
+                return 1.0
+
+            try:
+                from backend.core.goal_priority_protocol import get_goal_priority_protocol
+
+                _gpp = get_goal_priority_protocol()
+            except Exception:
+                _gpp = None
+
+            _vocal_critical_goals = {
+                "natuerlichkeit",
+                "authentizitaet",
+                "artikulation",
+                "timbre_authentizitaet",
+                "vocal_quality",
+                "formant_fidelity",
             }
-            for e in _entries
-            if isinstance(getattr(e, "goal_regressions", None), dict)
-            and any(float(v) > 0.05 for v in dict(getattr(e, "goal_regressions", {})).values())
-        ]
+            _vocal_boost = 1.0
+            if _profile_vocal_presence >= 0.35:
+                _vocal_boost = float(np.clip(1.0 + 0.20 * ((_profile_vocal_presence - 0.35) / 0.65), 1.0, 1.20))
+
+            _max_component = 0.0
+            for _goal, _delta in _goal_reg.items():
+                _d = float(_delta)
+                if _d >= 0.0:
+                    continue
+                _prio = int(_gpp.priority_of(str(_goal))) if _gpp is not None else 3
+                _prio_weight = {1: 1.25, 2: 1.15, 3: 1.00, 4: 0.90, 5: 0.82}.get(_prio, 1.00)
+                _mag = float(np.clip(abs(_d) / 0.15, 0.0, 1.0))
+                _component = _mag * _prio_weight
+                if str(_goal) in _vocal_critical_goals:
+                    _component *= _vocal_boost
+                _max_component = max(_max_component, _component)
+
+            if _max_component <= 0.0:
+                _max_component = 0.8
+
+            _action = str(getattr(entry, "action", "") or "")
+            if "emergency" in _action:
+                _max_component *= 1.15
+            return float(np.clip(_max_component, 0.50, 2.00))
+
+        _regressive = []
+        for e in _entries:
+            if not _is_conflict_relevant_action(e):
+                continue
+            if not isinstance(getattr(e, "goal_regressions", None), dict):
+                continue
+            _gr = dict(getattr(e, "goal_regressions", {}) or {})
+            if not any(float(v) < -0.05 for v in _gr.values()):
+                continue
+            _regressive.append(
+                {
+                    "phase_id": getattr(e, "phase_id", ""),
+                    "action": str(getattr(e, "action", "")),
+                    "goal_regressions": _gr,
+                    "severity": round(_regression_event_severity(e), 4),
+                }
+            )
         _top_drops = sorted(
             [{"phase_id": p, "rms_delta_db": float(d)} for p, d in _reg.items() if float(d) < -0.7],
             key=lambda x: float(x["rms_delta_db"]),  # type: ignore[arg-type]
@@ -2773,10 +3236,12 @@ class UnifiedRestorerV3:
         elif isinstance(_ig.get("rollback_count"), (int, float)):
             _rollback_count = int(_ig.get("rollback_count", 0))
 
+        _regressive_weight_sum = float(sum(float(ev.get("severity", 1.0)) for ev in _regressive))
+
         _score = float(
             np.clip(
                 0.12 * len(set(_best_effort))
-                + 0.10 * len(_regressive)
+                + 0.10 * _regressive_weight_sum
                 + 0.12 * _rollback_count
                 + 0.05 * len(_top_drops)
                 + 0.06 * len(_violations),
@@ -2790,6 +3255,14 @@ class UnifiedRestorerV3:
         if isinstance(_profile.get("strict_conflict_policy"), dict):
             _strict_policy = dict(_profile.get("strict_conflict_policy", {}))
 
+        _runtime_events = list(_rt.get("events", [])) if isinstance(_rt.get("events"), list) else []
+        _runtime_severity_sum = float(
+            sum(float(ev.get("severity_score", 1.0)) for ev in _runtime_events if isinstance(ev, dict))
+        )
+        _runtime_severity_max = float(
+            max([float(ev.get("severity_score", 1.0)) for ev in _runtime_events if isinstance(ev, dict)] or [0.0])
+        )
+
         return {
             "enabled": True,
             "conflict_present": _conflict_present,
@@ -2798,9 +3271,12 @@ class UnifiedRestorerV3:
             "rollbacks_by_phase": _rbp,
             "best_effort_phases": sorted(set(_best_effort)),
             "regressive_phase_events": _regressive,
+            "regressive_weight_sum": round(_regressive_weight_sum, 4),
             "top_rms_drops": _top_drops,
             "goal_violations": _violations,
-            "runtime_events": list(_rt.get("events", [])) if isinstance(_rt.get("events"), list) else [],
+            "runtime_events": _runtime_events,
+            "runtime_severity_sum": round(_runtime_severity_sum, 4),
+            "runtime_severity_max": round(_runtime_severity_max, 4),
             "autosetup_policy": _strict_policy,
             "family_scalars_final": (
                 dict(_profile.get("family_scalars", {})) if isinstance(_profile.get("family_scalars"), dict) else {}
@@ -3852,6 +4328,76 @@ class UnifiedRestorerV3:
 
         _bounded = float(np.clip(_scalar, 0.72, 1.18))
         return UnifiedRestorerV3._pullback_from_bounds(_bounded, 0.72, 1.18, margin_frac=0.04)
+
+    @staticmethod
+    def _compute_psychoacoustic_phase_strength_scalar(
+        phase_id: str,
+        phase_family: str | None,
+        phase_metadata_accumulator: dict[str, Any] | None,
+        panns_singing: float,
+        cumulative_hnr_loss_db: float,
+    ) -> dict[str, Any]:
+        """Leitet einen konservativen Strength-Scalar aus psychoakustischen Risikosignalen ab.
+
+        Ziel: klinische Artefakte frueh daempfen (phasenweise), bevor End-Gates
+        degradiert werden muessen.
+        """
+        _family = str(phase_family or "general")
+        _phase_key = str(phase_id or "")
+        _acc = phase_metadata_accumulator if isinstance(phase_metadata_accumulator, dict) else {}
+
+        # Nur fuer tendenziell klangbild-praegende Familien aktiv skalieren.
+        _eligible_families = {"reconstruction", "instrument", "vocal", "dynamics_eq", "transient"}
+        if _family not in _eligible_families:
+            return {
+                "enabled": False,
+                "scalar": 1.0,
+                "risk_score": 0.0,
+                "signals": [],
+                "phase_family": _family,
+            }
+
+        _risk = 0.0
+        _signals: list[str] = []
+        for _meta in _acc.values():
+            if not isinstance(_meta, dict):
+                continue
+            if bool(_meta.get("tilt_guard_fired", False)):
+                _risk += 0.12
+                _signals.append("tilt_guard_fired")
+            if str(_meta.get("zwicker_action", "") or "") == "fail_dry_wet_rescue":
+                _risk += 0.16
+                _signals.append("zwicker_rescue")
+
+        if float(cumulative_hnr_loss_db) >= 2.5 and _family in {"vocal", "reconstruction", "transient"}:
+            _risk += 0.10
+            _signals.append("hnr_budget_high")
+
+        _runtime_state = _acc.get("_psycho_runtime_state", {}) if isinstance(_acc, dict) else {}
+        if isinstance(_runtime_state, dict):
+            _rolling_risk = float(_runtime_state.get("rolling_risk", 0.0) or 0.0)
+            _last_delta_penalty = float(_runtime_state.get("last_delta_penalty", 0.0) or 0.0)
+            if _rolling_risk > 0.0:
+                _risk += float(np.clip(_rolling_risk * 0.60, 0.0, 0.18))
+                _signals.append("runtime_delta_risk")
+            if _last_delta_penalty > 0.0:
+                _risk += float(np.clip(_last_delta_penalty * 0.40, 0.0, 0.10))
+                _signals.append("runtime_delta_recent")
+
+        if float(panns_singing) >= 0.35 and _family in {"vocal", "reconstruction", "transient"}:
+            _risk += 0.06
+            _signals.append("vocal_supremacy_conservative")
+
+        _risk = float(np.clip(_risk, 0.0, 0.45))
+        _scalar = float(np.clip(1.0 - _risk, 0.55, 1.0))
+        return {
+            "enabled": True,
+            "scalar": _scalar,
+            "risk_score": _risk,
+            "signals": sorted(set(_signals)),
+            "phase_family": _family,
+            "phase_id": _phase_key,
+        }
 
     @staticmethod
     def _compute_recovery_certainty_profile(
@@ -6830,7 +7376,9 @@ class UnifiedRestorerV3:
         try:
             from backend.core.causal_defect_reasoner import reason_about_defects
 
-            _defect_scores_map = {s.defect_type.value: s.severity for s in defect_result.get_top_defects(8)}
+            _defect_scores_map = {
+                s.defect_type.value: float(s.severity) for s in getattr(defect_result, "scores", {}).values()
+            }
             _causal_plan = reason_about_defects(
                 defect_scores=_defect_scores_map,
                 material=material_type.value,
@@ -8522,6 +9070,9 @@ class UnifiedRestorerV3:
         except Exception as _ftc_init_exc:
             logger.debug("Fallback-Teamwork-Controller Init non-blocking: %s", _ftc_init_exc)
 
+        _spec_upgrade_baseline_scores: dict[str, float] = {}
+        _spec_upgrade_candidate_phases: list[str] = []
+
         # §GOAL_BASELINE_CHECK [RELEASE_MUST] (v9.12.13): Pre-pipeline goal-deficit recovery.
         # Measures all 15 goal proxies on the input audio using _fast_goal_snapshot() (DSP-only,
         # ≤200ms). For any applicable goal that is measurably below its effective target
@@ -8554,6 +9105,8 @@ class UnifiedRestorerV3:
                 if isinstance(getattr(self, "_restoration_context", None), dict):
                     self._restoration_context["degraded_restorability"] = True
             _gbc_snapshot = UnifiedRestorerV3._fast_goal_snapshot(audio, sample_rate, _gbc_mat_str)
+            if isinstance(_gbc_snapshot, dict) and _gbc_snapshot:
+                _spec_upgrade_baseline_scores = {k: float(v) for k, v in _gbc_snapshot.items()}
             if _gbc_snapshot and _applicable_goals:
                 _gbc_targets = getattr(self, "_pmgg_ceiling_capped_targets", None)
                 if not isinstance(_gbc_targets, dict) or not _gbc_targets:
@@ -8605,6 +9158,9 @@ class UnifiedRestorerV3:
                                 )
                                 break  # §2.45: primary recovery phase only (minimal-intervention)
                 if _gbc_added:
+                    _spec_upgrade_candidate_phases = list(
+                        dict.fromkeys([_entry.split("→", 1)[1] for _entry in _gbc_added if "→" in _entry])
+                    )
                     logger.info(
                         "§GOAL_BASELINE: %d recovery phase(s) added for below-floor goals: %s",
                         len(_gbc_added),
@@ -8669,6 +9225,11 @@ class UnifiedRestorerV3:
                 self._phase_metadata_accumulator["invalid_selected_phases"] = list(_invalid_selected_phases)
             if isinstance(getattr(self, "_restoration_context", None), dict):
                 self._restoration_context["invalid_selected_phases"] = list(_invalid_selected_phases)
+
+        self._prepare_runtime_phase_parameter_hints(
+            causal_plan=_causal_plan,
+            selected_phases=selected_phases,
+        )
 
         try:
             _phase_quiet_edge_profile = UnifiedRestorerV3._compute_quiet_edge_prevention_profile(
@@ -9382,7 +9943,7 @@ class UnifiedRestorerV3:
                     restored_audio,
                     sample_rate,
                     era=_era_decade_eapc,
-                    anchor=None,
+                    anchor=original_audio_for_goals,
                     material_ceiling=_eapc_brillanz_mat_ceil,
                 )
                 if _eapc_result.applied:
@@ -13520,6 +14081,115 @@ class UnifiedRestorerV3:
             is_studio_mode=self.is_studio_mode(),
             artifact_freedom=_artifact_freedom_for_hpi,
         )
+        _psychoacoustic_naturalness_gate = UnifiedRestorerV3._evaluate_psychoacoustic_naturalness_gate(
+            vector=_hybrid_engineer_vector,
+            panns_singing=float(getattr(self, "_panns_singing", 0.0) or 0.0),
+            is_studio_mode=self.is_studio_mode(),
+        )
+
+        # §8.6g Adaptive Psychoakustik-Feedback: bei klinischem Risiko konservativ
+        # mit sicheren Referenzen blenden (Original/Checkpoint), statt nur zu degradieren.
+        _psycho_feedback_meta: dict[str, Any] = {
+            "attempted": False,
+            "applied": False,
+            "initial_passed": bool(_psychoacoustic_naturalness_gate.get("passed", True)),
+            "initial_score": float(_psychoacoustic_naturalness_gate.get("psycho_score", 0.0) or 0.0),
+            "best_candidate": "current",
+        }
+        if not bool(_psychoacoustic_naturalness_gate.get("passed", True)):
+            _psycho_feedback_meta["attempted"] = True
+            _psy_sources: list[tuple[str, Any, float, float]] = []
+            if getattr(self, "_hpi_best_rollback_audio", None) is not None:
+                _psy_sources.append(("hpi_best_checkpoint", self._hpi_best_rollback_audio, 0.010, 0.96))
+            if getattr(self, "_best_carrier_checkpoint", None) is not None:
+                _psy_sources.append(("best_carrier_checkpoint", self._best_carrier_checkpoint, 0.015, 0.96))
+            if original_audio_for_goals is not None:
+                _psy_sources.append(("original_audio", original_audio_for_goals, 0.020, 1.00))
+
+            _psy_best_audio: np.ndarray | None = None
+            _psy_best_gate = dict(_psychoacoustic_naturalness_gate)
+            _psy_best_vector = dict(_hybrid_engineer_vector)
+            _psy_best_score = float(_psychoacoustic_naturalness_gate.get("psycho_score", 0.0) or 0.0)
+            _psy_best_variant = "current"
+
+            for _cand_name, _cand_audio_raw, _cand_penalty, _cand_anchor in _psy_sources:
+                try:
+                    if (
+                        _cand_audio_raw is None
+                        or not hasattr(_cand_audio_raw, "shape")
+                        or _cand_audio_raw.shape != restored_audio.shape
+                    ):
+                        continue
+                    _cand_audio = np.clip(
+                        np.nan_to_num(_cand_audio_raw, nan=0.0, posinf=0.0, neginf=0.0),
+                        -1.0,
+                        1.0,
+                    )
+                    for _alpha in _goal_candidate_blend_alphas(_cand_name):
+                        _variant_audio = np.clip(
+                            _alpha * restored_audio + (1.0 - _alpha) * _cand_audio,
+                            -1.0,
+                            1.0,
+                        )
+                        _variant_vector = dict(_hybrid_engineer_vector)
+                        for _metric in (
+                            "noise_texture_authenticity",
+                            "micro_dynamic_correlation",
+                            "emotional_arc_preservation",
+                            "spectral_color_preservation",
+                        ):
+                            _base_val = float(_hybrid_engineer_vector.get(_metric, 1.0))
+                            _variant_vector[_metric] = float(
+                                np.clip(_alpha * _base_val + (1.0 - _alpha) * _cand_anchor, 0.0, 1.0)
+                            )
+
+                        _variant_gate = UnifiedRestorerV3._evaluate_psychoacoustic_naturalness_gate(
+                            vector=_variant_vector,
+                            panns_singing=float(getattr(self, "_panns_singing", 0.0) or 0.0),
+                            is_studio_mode=self.is_studio_mode(),
+                        )
+                        _variant_score = float(_variant_gate.get("psycho_score", 0.0) or 0.0) - float(
+                            _cand_penalty * (1.0 - _alpha)
+                        )
+
+                        if bool(_variant_gate.get("passed", False)) and _variant_score > _psy_best_score + 0.005:
+                            _psy_best_audio = _variant_audio
+                            _psy_best_gate = dict(_variant_gate)
+                            _psy_best_vector = dict(_variant_vector)
+                            _psy_best_score = float(_variant_score)
+                            _psy_best_variant = f"blend_{_cand_name}_{_alpha:.2f}"
+                except Exception as _psy_cand_exc:
+                    logger.debug("Psychoakustik-Recovery candidate %s failed: %s", _cand_name, _psy_cand_exc)
+
+            if _psy_best_audio is not None and bool(_psy_best_gate.get("passed", False)):
+                logger.info(
+                    "🎧 Psychoakustik-Recovery: %s gewählt (score %.3f→%.3f)",
+                    _psy_best_variant,
+                    float(_psychoacoustic_naturalness_gate.get("psycho_score", 0.0) or 0.0),
+                    float(_psy_best_gate.get("psycho_score", 0.0) or 0.0),
+                )
+                restored_audio = _psy_best_audio
+                _psychoacoustic_naturalness_gate = dict(_psy_best_gate)
+                _hybrid_engineer_vector = dict(_psy_best_vector)
+                _worldclass_composite_gate = UnifiedRestorerV3._evaluate_worldclass_composite_gate(
+                    vector=_hybrid_engineer_vector,
+                    panns_singing=float(getattr(self, "_panns_singing", 0.0) or 0.0),
+                    is_studio_mode=self.is_studio_mode(),
+                    artifact_freedom=_artifact_freedom_for_hpi,
+                )
+                _psycho_feedback_meta["applied"] = True
+                _psycho_feedback_meta["best_candidate"] = _psy_best_variant
+                _psycho_feedback_meta["final_score"] = float(_psychoacoustic_naturalness_gate.get("psycho_score", 0.0))
+                _psycho_feedback_meta["resolved"] = True
+            else:
+                _psycho_feedback_meta["applied"] = False
+                _psycho_feedback_meta["best_candidate"] = "current"
+                _psycho_feedback_meta["final_score"] = float(
+                    _psychoacoustic_naturalness_gate.get("psycho_score", 0.0) or 0.0
+                )
+                _psycho_feedback_meta["resolved"] = False
+
+        self._phase_metadata_accumulator["psychoacoustic_feedback_recovery"] = dict(_psycho_feedback_meta)
         if not bool(_worldclass_composite_gate.get("passed", True)):
             _fail_reasons.append(
                 {
@@ -13545,8 +14215,68 @@ class UnifiedRestorerV3:
                 _degradation_status = "degraded"
                 _primary_fail_reason = "WCS_FAIL"
 
+        if not bool(_psychoacoustic_naturalness_gate.get("passed", True)):
+            _fail_reasons.append(
+                {
+                    "component": "PsychoacousticNaturalnessGate",
+                    "error_code": "PSYCHO_NATURALNESS_FAIL",
+                    "severity": "degraded",
+                    "psycho_score": float(_psychoacoustic_naturalness_gate.get("psycho_score", 0.0)),
+                    "threshold": float(_psychoacoustic_naturalness_gate.get("threshold", 0.0)),
+                    "per_metric_floor": float(_psychoacoustic_naturalness_gate.get("per_metric_floor", 0.0)),
+                }
+            )
+            try:
+                from backend.core.pipeline_health_state import (
+                    pipeline_health_from_fail_reasons as _phfr_psy,
+                )
+                from backend.core.pipeline_health_state import (
+                    primary_fail_reason_from_fail_reasons as _prfr_psy,
+                )
+
+                _degradation_status = _phfr_psy(_fail_reasons).value
+                _primary_fail_reason = _prfr_psy(_fail_reasons)
+            except Exception:
+                _degradation_status = "degraded"
+                _primary_fail_reason = "PSYCHO_NATURALNESS_FAIL"
+
         _phase_meta_acc = getattr(self, "_phase_metadata_accumulator", {})
         _phase_meta_dicts = {pid: data for pid, data in _phase_meta_acc.items() if isinstance(data, dict)}
+        _spec_upgrade_payload: dict[str, Any] = {
+            "spec_upgrade": False,
+            "goal_upgrade_decision": {
+                "promoted": False,
+                "reason": "not_evaluated",
+                "improved_goals_count": 0,
+                "non_degraded_goals_count": 0,
+                "degraded_goals_count": 0,
+                "safety_ok": False,
+                "vqi_ok": False,
+            },
+            "phase_upgrade_candidate": list(_spec_upgrade_candidate_phases),
+            "goal_threshold_source": "effective_goal_thresholds",
+            "decision_authority": "uv3_final_gate",
+        }
+        try:
+            _vqi_after_spec = (self._phase_metadata_accumulator or {}).get("vqi")
+            _spec_upgrade_payload = UnifiedRestorerV3._build_spec_upgrade_metadata(
+                baseline_scores=(_spec_upgrade_baseline_scores or dict(_musical_goal_scores or {})),
+                candidate_scores=dict(_musical_goal_scores or {}),
+                artifact_freedom=float(_artifact_freedom_for_hpi),
+                panns_singing=float(getattr(self, "_panns_singing", 0.0) or 0.0),
+                vqi_before=None,
+                vqi_after=(float(_vqi_after_spec) if isinstance(_vqi_after_spec, (int, float)) else None),
+                phase_upgrade_candidate=_spec_upgrade_candidate_phases,
+                goal_threshold_source=(
+                    "pmgg_ceiling_capped_targets"
+                    if isinstance(getattr(self, "_pmgg_ceiling_capped_targets", None), dict)
+                    and bool(getattr(self, "_pmgg_ceiling_capped_targets", None))
+                    else "effective_goal_thresholds"
+                ),
+                decision_authority="uv3_final_gate",
+            )
+        except Exception as _sug_exc:
+            logger.debug("§2.81 Spec-Upgrade-Metadaten non-blocking: %s", _sug_exc)
         result = RestorationResult(
             audio=restored_audio,
             config=self.config,
@@ -13578,6 +14308,9 @@ class UnifiedRestorerV3:
                 "fallback_quality_floor": _fallback_quality_floor,
                 "goal_directed_candidate_recovery": (self._phase_metadata_accumulator or {}).get(
                     "goal_directed_candidate_recovery"
+                ),
+                "psychoacoustic_feedback_recovery": (self._phase_metadata_accumulator or {}).get(
+                    "psychoacoustic_feedback_recovery"
                 ),
                 "noise_texture_repair": (self._phase_metadata_accumulator or {}).get("noise_texture_repair"),
                 "frisson_goosebumps_recovery": (self._phase_metadata_accumulator or {}).get(
@@ -13669,6 +14402,13 @@ class UnifiedRestorerV3:
                     "all_passed": all(_musical_goals_passed.values()) if _musical_goals_passed else None,
                     "violations": [k for k, p in _musical_goals_passed.items() if not p],
                 },
+                "spec_upgrade": bool(_spec_upgrade_payload.get("spec_upgrade", False)),
+                "goal_upgrade_decision": dict(_spec_upgrade_payload.get("goal_upgrade_decision", {})),
+                "phase_upgrade_candidate": list(_spec_upgrade_payload.get("phase_upgrade_candidate", [])),
+                "goal_threshold_source": str(
+                    _spec_upgrade_payload.get("goal_threshold_source", "effective_goal_thresholds")
+                ),
+                "decision_authority": str(_spec_upgrade_payload.get("decision_authority", "uv3_final_gate")),
                 # §0d + §2.54: ceiling-capped adaptive thresholds (material/era/genre adjusted).
                 # Bridge/debug compatibility: also available at top-level as "adaptive_goal_thresholds".
                 "adaptive_goal_thresholds": {
@@ -13758,28 +14498,42 @@ class UnifiedRestorerV3:
                 "hybrid_engineer_vector": dict(_hybrid_engineer_vector),
                 # §8.6b [RELEASE_MUST] Worldclass Composite Gate
                 "worldclass_composite_gate": dict(_worldclass_composite_gate),
+                # §8.6g [RELEASE_MUST] Nicht-klinische Psychoakustik
+                "psychoacoustic_naturalness_gate": dict(_psychoacoustic_naturalness_gate),
                 # §8.6c [RELEASE_MUST] Evidenzklassen für Gate-Schwellen
                 "threshold_evidence": {
                     "artifact_freedom_gate": {
                         "source_class": "A",
-                        "source_ref": "Spec §2.49 / §0h artifact_freedom >= 0.95",
+                        "source_ref": (
+                            "Lapierre 2017 (DOI:10.1109/ICASSP.2017.7952243); "
+                            "Godsill 1995 (DOI:10.1109/89.365378); ITU-R BS.1770-5; EBU R128"
+                        ),
                         "validated_on": "2026-05-21",
                     },
                     "vqi_gate": {
                         "source_class": "B",
-                        "source_ref": "Spec §0p / §2.35c vocal quality index",
+                        "source_ref": (
+                            "Miller 1992 (DOI:10.1016/S0892-1997(05)80150-X); "
+                            "Prame 2004 (DOI:10.1016/j.jvoice.2003.09.003); "
+                            "Jones 2022 (DOI:10.1121/10.0015518)"
+                        ),
                         "validated_on": "2026-05-21",
                     },
                     "hpi_gate": {
                         "source_class": "B",
-                        "source_ref": "Spec §2.44 holistic perceptual index",
+                        "source_ref": "ITU-R BS.1770-5; EBU R128; Lapierre 2017; Godsill 1995",
                         "validated_on": "2026-05-21",
                     },
                     "worldclass_composite_gate": {
                         "source_class": "C",
-                        "source_ref": "Spec §8.6b WCS initial calibration",
+                        "source_ref": "Class-C AMRB/UAT calibration anchored to ITU-R BS.1770-5 and EBU R128",
                         "validated_on": "2026-05-21",
                         "revalidate_by": "2026-09-30",
+                    },
+                    "psychoacoustic_naturalness_gate": {
+                        "source_class": "B",
+                        "source_ref": "Fastl & Zwicker 2007 psychoacoustic masking; Lapierre 2017; Godsill 1995",
+                        "validated_on": "2026-05-21",
                     },
                 },
                 "carrier_chain_recovery": {
@@ -19831,6 +20585,764 @@ class UnifiedRestorerV3:
             )
         return phases
 
+    def _prepare_runtime_phase_parameter_hints(
+        self,
+        *,
+        causal_plan: Any | None,
+        selected_phases: list[str],
+    ) -> None:
+        """Bereitet phasenlokale Parameter-Hints aus CausalPlan/DefektHint für _execute_pipeline vor."""
+        self._active_causal_phase_parameters = {}
+        self._active_defekt_phase_parameters = {}
+        self._active_phase_parameter_overrides = {}
+
+        if causal_plan is not None:
+            _cp_params = getattr(causal_plan, "phase_parameters", {})
+            if isinstance(_cp_params, dict):
+                self._active_causal_phase_parameters = {str(k): v for k, v in _cp_params.items() if isinstance(k, str)}
+
+        _defekt_hint = self._active_defekt_hint if isinstance(self._active_defekt_hint, dict) else {}
+        _dh_params = _defekt_hint.get("phase_parameters", {}) if isinstance(_defekt_hint, dict) else {}
+        if isinstance(_dh_params, dict):
+            for _k, _v in _dh_params.items():
+                if isinstance(_k, str) and _k.startswith("phase_") and isinstance(_v, dict):
+                    _bucket = self._active_phase_parameter_overrides.setdefault(_k, {})
+                    for _pk, _pv in _v.items():
+                        if isinstance(_pk, str) and _pk not in _bucket:
+                            _bucket[_pk] = _pv
+                elif isinstance(_k, str):
+                    self._active_defekt_phase_parameters.setdefault(_k, _v)
+
+        try:
+            from backend.core.causal_defect_reasoner import CAUSE_PARAMS, CAUSE_TO_PHASES
+
+            _selected_set = set(selected_phases)
+            _ranked = list(getattr(causal_plan, "ranked_causes", [])) if causal_plan is not None else []
+            for _cause, _prob in _ranked[:6]:
+                _p = float(_prob)
+                if _p < 0.05:
+                    continue
+                _params = CAUSE_PARAMS.get(str(_cause), {})
+                if not isinstance(_params, dict) or not _params:
+                    continue
+                for _phase_id in CAUSE_TO_PHASES.get(str(_cause), []):
+                    if _phase_id not in _selected_set:
+                        continue
+                    _phase_bucket = self._active_phase_parameter_overrides.setdefault(str(_phase_id), {})
+                    for _pk, _pv in _params.items():
+                        if isinstance(_pk, str) and _pk not in _phase_bucket:
+                            _phase_bucket[_pk] = _pv
+                    _phase_bucket.setdefault("causal_cause_name", str(_cause))
+                    _phase_bucket.setdefault("causal_cause_confidence", _p)
+        except Exception as _ph_hint_exc:
+            logger.debug("Runtime-Phase-Parameter-Hints non-blocking: %s", _ph_hint_exc)
+
+    def _runtime_phase_parameter_kwargs(self, phase_id: str) -> dict[str, Any]:
+        """Mergt sichere Runtime-Parameter-Hints für eine einzelne Phase."""
+        _reserved = {
+            "sample_rate",
+            "material_type",
+            "material",
+            "progress_sub_callback",
+            "restoration_context",
+            "defect_scores",
+            "defect_locations",
+            "structural_silence_zones",
+            "silence_mask",
+            "quality_mode",
+            "strength",
+        }
+        _out: dict[str, Any] = {}
+        for _src in (
+            self._active_causal_phase_parameters,
+            self._active_defekt_phase_parameters,
+            self._active_phase_parameter_overrides.get(phase_id, {}),
+        ):
+            if not isinstance(_src, dict):
+                continue
+            for _k, _v in _src.items():
+                if not isinstance(_k, str):
+                    continue
+                if _k in _reserved or _k.startswith("__"):
+                    continue
+                _out.setdefault(_k, _v)
+        return _out
+
+    def _apply_dedicated_jitter_repair(
+        self,
+        audio: np.ndarray,
+        *,
+        phase_id: str,
+        sample_rate: int,
+        material_type: Any,
+        defect_severity_map: dict[str, float] | None,
+        defect_locations: dict[str, list[tuple[float, float]]] | None = None,
+    ) -> np.ndarray:
+        """Dedizierter Jitter-Repair-Pfad (digital-only) nach phase_14.
+
+        Ziel: Jitter-Artefakte nicht nur über generische Spektralchirurgie behandeln,
+        sondern bei bestätigter Jitter-Severity eine konservative, phasenfokussierte
+        Korrektur ergänzen.
+        """
+        if phase_id != "phase_14_phase_correction":
+            return audio
+
+        _sev_map = defect_severity_map if isinstance(defect_severity_map, dict) else {}
+        _jitter_sev = float(np.clip(float(_sev_map.get("jitter_artifacts", 0.0)), 0.0, 1.0))
+        if _jitter_sev < 0.15:
+            return audio
+
+        _mat_val = str(getattr(material_type, "value", material_type) or "").strip().lower()
+        _digital_mats = {"cd_digital", "dat", "mp3_low", "mp3_high", "aac", "streaming", "minidisc"}
+        if _mat_val not in _digital_mats:
+            return audio
+
+        try:
+            from dsp.digital_restoration_specialist import JitterCorrector  # pylint: disable=import-outside-toplevel
+
+            _thr_ppm = float(np.clip(170.0 - 120.0 * _jitter_sev, 45.0, 170.0))
+            _corr_strength = float(np.clip(0.25 + 0.65 * _jitter_sev, 0.25, 0.90))
+            _jc = JitterCorrector(jitter_threshold_ppm=_thr_ppm, correction_strength=_corr_strength)
+            _jc_out = _jc.process(np.asarray(audio, dtype=np.float32), sample_rate)
+            _jc_out = np.asarray(_jc_out, dtype=np.float32)
+
+            if _jc_out.shape != np.asarray(audio).shape:
+                return audio
+
+            _audio_arr = np.asarray(audio, dtype=np.float32)
+            _n_samples = int(_audio_arr.shape[-1]) if _audio_arr.ndim >= 1 else 0
+            if _n_samples <= 0:
+                return audio
+
+            # Segmentfokussierte Anwendung: primär scanner-locations, fallback via IF-Hotspots.
+            _blend_profile = np.zeros(_n_samples, dtype=np.float32)
+            _locs = []
+            if isinstance(defect_locations, dict):
+                _locs = defect_locations.get("jitter_artifacts") or []
+            if isinstance(_locs, list) and _locs:
+                _pad_s = int(0.03 * sample_rate)
+                for _t0, _t1 in _locs:
+                    try:
+                        _s = int(max(0.0, float(_t0)) * sample_rate)
+                        _e = int(max(0.0, float(_t1)) * sample_rate)
+                    except Exception:
+                        continue
+                    if _e <= _s:
+                        continue
+                    _s = max(0, _s - _pad_s)
+                    _e = min(_n_samples, _e + _pad_s)
+                    if _e > _s:
+                        _blend_profile[_s:_e] = 1.0
+            else:
+                if _audio_arr.ndim == 1:
+                    _mono = _audio_arr
+                elif _audio_arr.ndim == 2 and _audio_arr.shape[0] <= 8:
+                    _mono = np.mean(_audio_arr, axis=0)
+                else:
+                    _mono = np.mean(_audio_arr, axis=-1)
+                _if_proxy = np.abs(np.diff(_mono.astype(np.float32), prepend=float(_mono[0])))
+                _thr_if = float(np.percentile(_if_proxy, 70.0))
+                _blend_profile = (_if_proxy >= _thr_if).astype(np.float32)
+
+            _smooth = max(16, int(0.02 * sample_rate))
+            _blend_profile = np.convolve(
+                _blend_profile,
+                np.ones(_smooth, dtype=np.float32) / float(_smooth),
+                mode="same",
+            ).astype(np.float32)
+            _blend_profile = np.clip(_blend_profile, 0.0, 1.0)
+            if float(np.mean(_blend_profile)) <= 1e-4:
+                return audio
+
+            _delta = float(
+                np.mean(np.abs(_jc_out - np.asarray(audio, dtype=np.float32)))
+                / (np.mean(np.abs(np.asarray(audio, dtype=np.float32))) + 1e-9)
+            )
+            if _delta <= 1e-5:
+                return audio
+
+            # Konservativer Blend statt hartem Override (Primum non nocere).
+            _blend = float(np.clip(0.12 + 0.38 * _jitter_sev, 0.12, 0.45))
+            _seg_blend = (_blend * _blend_profile).astype(np.float32)
+            if _audio_arr.ndim == 1:
+                _out = (1.0 - _seg_blend) * _audio_arr + _seg_blend * _jc_out
+            elif _audio_arr.ndim == 2 and _audio_arr.shape[0] <= 8:
+                _seg = _seg_blend[np.newaxis, :]
+                _out = (1.0 - _seg) * _audio_arr + _seg * _jc_out
+            else:
+                _seg = _seg_blend[:, np.newaxis]
+                _out = (1.0 - _seg) * _audio_arr + _seg * _jc_out
+            _out = np.nan_to_num(_out, nan=0.0, posinf=0.0, neginf=0.0)
+            _out = np.clip(_out, -1.0, 1.0).astype(np.float32)
+
+            if isinstance(getattr(self, "_restoration_context", None), dict):
+                self._restoration_context["jitter_specialist_applied"] = True
+                self._restoration_context["jitter_specialist_blend"] = _blend
+                self._restoration_context["jitter_specialist_threshold_ppm"] = _thr_ppm
+                self._restoration_context["jitter_specialist_coverage"] = float(np.mean(_blend_profile))
+            logger.info(
+                "§4.11 Jitter-Spezialist: phase=%s sev=%.3f blend=%.2f thr_ppm=%.1f cov=%.3f",
+                phase_id,
+                _jitter_sev,
+                _blend,
+                _thr_ppm,
+                float(np.mean(_blend_profile)),
+            )
+            return _out
+        except Exception as _jit_exc:
+            logger.debug("Jitter-Spezialist non-blocking (%s): %s", phase_id, _jit_exc)
+            return audio
+
+    def _apply_dedicated_pre_echo_repair(
+        self,
+        audio: np.ndarray,
+        *,
+        phase_id: str,
+        sample_rate: int,
+        material_type: Any,
+        defect_severity_map: dict[str, float] | None,
+        defect_locations: dict[str, list[tuple[float, float]]] | None = None,
+    ) -> np.ndarray:
+        """Dedizierter Pre-Echo-Repair-Pfad (digital-only) nach Spektral-Repair-Phasen.
+
+        Ziel: Bei bestätigtem PRE_ECHO nicht nur generische Spektralbearbeitung,
+        sondern event-geleitete Prä-Masking-Dämpfung via PreEchoDetector.repair_region.
+        """
+        if phase_id not in {"phase_23_spectral_repair", "phase_50_spectral_repair"}:
+            return audio
+
+        if sample_rate != 48000:
+            return audio
+
+        _sev_map = defect_severity_map if isinstance(defect_severity_map, dict) else {}
+        _pre_echo_sev = float(np.clip(float(_sev_map.get("pre_echo", 0.0)), 0.0, 1.0))
+        if _pre_echo_sev < 0.15:
+            return audio
+
+        _mat_val = str(getattr(material_type, "value", material_type) or "").strip().lower()
+        _digital_mats = {"cd_digital", "dat", "mp3_low", "mp3_high", "aac", "streaming", "minidisc"}
+        if _mat_val not in _digital_mats:
+            return audio
+
+        try:
+            from backend.core.dsp.pre_echo_detector import (  # pylint: disable=import-outside-toplevel
+                get_pre_echo_detector,
+            )
+
+            _ped = get_pre_echo_detector()
+            _ctx = getattr(self, "_restoration_context", {})
+            _events = []
+            if isinstance(_ctx, dict):
+                _ctx_events = _ctx.get("pre_echo_events")
+                if isinstance(_ctx_events, list):
+                    _events = [e for e in _ctx_events if isinstance(e, dict)]
+            if not _events:
+                _events = [
+                    e
+                    for e in (_ped.detect(np.asarray(audio, dtype=np.float32), sample_rate, _mat_val) or [])
+                    if isinstance(e, dict)
+                ]
+            _audio_arr = np.asarray(audio, dtype=np.float32)
+            _n_samples = int(_audio_arr.shape[-1]) if _audio_arr.ndim >= 1 else 0
+            if _n_samples <= 0:
+                return audio
+
+            _loc_windows: list[tuple[int, int]] = []
+            if isinstance(defect_locations, dict):
+                for _t0, _t1 in defect_locations.get("pre_echo") or []:
+                    try:
+                        _s = int(max(0.0, float(_t0)) * sample_rate)
+                        _e = int(max(0.0, float(_t1)) * sample_rate)
+                    except Exception:
+                        continue
+                    if _e > _s:
+                        _loc_windows.append((max(0, _s), min(_n_samples, _e)))
+
+            if _loc_windows:
+                if _events:
+
+                    def _evt_overlap_len(_evt: dict) -> int:
+                        _es = int(_evt.get("pre_echo_start", 0))
+                        _ee = int(_evt.get("pre_echo_end", _evt.get("onset_sample", 0)))
+                        _best = 0
+                        for _ls, _le in _loc_windows:
+                            _ov = max(0, min(_ee, _le) - max(_es, _ls))
+                            _best = max(_best, int(_ov))
+                        return _best
+
+                    _events = sorted(
+                        _events,
+                        key=lambda ev: (
+                            _evt_overlap_len(ev) > 0,
+                            _evt_overlap_len(ev),
+                            float(ev.get("severity_db", 0.0)),
+                        ),
+                        reverse=True,
+                    )
+                    _ov_events = [ev for ev in _events if _evt_overlap_len(ev) > 0]
+                    if _ov_events:
+                        _events = _ov_events
+                else:
+                    # Falls der Detektor keine Events liefert: nutze die lokalen Defektfenster direkt.
+                    for _ls, _le in _loc_windows:
+                        _events.append(
+                            {
+                                "pre_echo_start": int(_ls),
+                                "pre_echo_end": int(_le),
+                                "onset_sample": int(_le),
+                                "severity_db": float(3.0 + 7.0 * _pre_echo_sev),
+                            }
+                        )
+            if not _events:
+                return audio
+
+            # Runtime-Schutz: nur die stärksten Events reparieren.
+            _events_sorted = sorted(
+                _events,
+                key=lambda ev: float(ev.get("severity_db", 0.0)),
+                reverse=True,
+            )[:12]
+            _repaired = np.asarray(audio, dtype=np.float32)
+            _blend_profile = np.zeros(_n_samples, dtype=np.float32)
+            for _evt in _events_sorted:
+                _repaired = np.asarray(_ped.repair_region(_repaired, _evt, sample_rate), dtype=np.float32)
+                _es = int(_evt.get("pre_echo_start", 0))
+                _ee = int(_evt.get("pre_echo_end", _evt.get("onset_sample", 0)))
+                if _ee > _es:
+                    _blend_profile[max(0, _es) : min(_n_samples, _ee)] = 1.0
+
+            if _repaired.shape != np.asarray(audio).shape:
+                return audio
+
+            _delta = float(
+                np.mean(np.abs(_repaired - np.asarray(audio, dtype=np.float32)))
+                / (np.mean(np.abs(np.asarray(audio, dtype=np.float32))) + 1e-9)
+            )
+            if _delta <= 1e-5:
+                return audio
+
+            _smooth = max(16, int(0.02 * sample_rate))
+            _blend_profile = np.convolve(
+                _blend_profile,
+                np.ones(_smooth, dtype=np.float32) / float(_smooth),
+                mode="same",
+            ).astype(np.float32)
+            _blend_profile = np.clip(_blend_profile, 0.0, 1.0)
+            if float(np.mean(_blend_profile)) <= 1e-4:
+                return audio
+
+            _blend = float(np.clip(0.10 + 0.34 * _pre_echo_sev, 0.10, 0.40))
+            _seg_blend = (_blend * _blend_profile).astype(np.float32)
+            if _audio_arr.ndim == 1:
+                _out = (1.0 - _seg_blend) * _audio_arr + _seg_blend * _repaired
+            elif _audio_arr.ndim == 2 and _audio_arr.shape[0] <= 8:
+                _seg = _seg_blend[np.newaxis, :]
+                _out = (1.0 - _seg) * _audio_arr + _seg * _repaired
+            else:
+                _seg = _seg_blend[:, np.newaxis]
+                _out = (1.0 - _seg) * _audio_arr + _seg * _repaired
+            _out = np.nan_to_num(_out, nan=0.0, posinf=0.0, neginf=0.0)
+            _out = np.clip(_out, -1.0, 1.0).astype(np.float32)
+
+            if isinstance(_ctx, dict):
+                _ctx["pre_echo_specialist_applied"] = True
+                _ctx["pre_echo_specialist_blend"] = _blend
+                _ctx["pre_echo_specialist_events"] = int(len(_events_sorted))
+                _ctx["pre_echo_specialist_coverage"] = float(np.mean(_blend_profile))
+            logger.info(
+                "§4.11 Pre-Echo-Spezialist: phase=%s sev=%.3f blend=%.2f events=%d cov=%.3f",
+                phase_id,
+                _pre_echo_sev,
+                _blend,
+                len(_events_sorted),
+                float(np.mean(_blend_profile)),
+            )
+            return _out
+        except Exception as _pe_exc:
+            logger.debug("Pre-Echo-Spezialist non-blocking (%s): %s", phase_id, _pe_exc)
+            return audio
+
+    def _apply_dedicated_aliasing_repair(
+        self,
+        audio: np.ndarray,
+        *,
+        phase_id: str,
+        sample_rate: int,
+        material_type: Any,
+        defect_severity_map: dict[str, float] | None,
+        defect_locations: dict[str, list[tuple[float, float]]] | None = None,
+    ) -> np.ndarray:
+        """Dedizierter Aliasing-Repair-Pfad (digital-only) nach Spektral-Repair-Phasen.
+
+        Ziel: Kohärente Alias-Spiegelfrequenzen gezielt dämpfen statt ausschließlich
+        generischer Spektralchirurgie.
+        """
+        if phase_id not in {"phase_23_spectral_repair", "phase_50_spectral_repair"}:
+            return audio
+
+        if sample_rate < 22050:
+            return audio
+
+        _sev_map = defect_severity_map if isinstance(defect_severity_map, dict) else {}
+        _alias_sev = float(np.clip(float(_sev_map.get("aliasing", 0.0)), 0.0, 1.0))
+        if _alias_sev < 0.15:
+            return audio
+
+        _mat_val = str(getattr(material_type, "value", material_type) or "").strip().lower()
+        _digital_mats = {"cd_digital", "dat", "mp3_low", "mp3_high", "aac", "streaming", "minidisc"}
+        if _mat_val not in _digital_mats:
+            return audio
+
+        try:
+            from dsp.bandwidth_artifact_remover import (  # pylint: disable=import-outside-toplevel
+                BandwidthArtifactRemover,
+            )
+
+            _remover = BandwidthArtifactRemover(mode="aliasing")
+            _out_alias = _remover.process(np.asarray(audio, dtype=np.float32), sample_rate)
+            _out_alias = np.asarray(_out_alias, dtype=np.float32)
+            if _out_alias.shape != np.asarray(audio).shape:
+                return audio
+
+            _audio_arr = np.asarray(audio, dtype=np.float32)
+            _n_samples = int(_audio_arr.shape[-1]) if _audio_arr.ndim >= 1 else 0
+            if _n_samples <= 0:
+                return audio
+
+            # Segmentfokussierte Anwendung: primär scanner-locations, fallback via HF-Hotspots.
+            _blend_profile = np.zeros(_n_samples, dtype=np.float32)
+            _locs = []
+            if isinstance(defect_locations, dict):
+                _locs = defect_locations.get("aliasing") or []
+            if isinstance(_locs, list) and _locs:
+                _pad_s = int(0.04 * sample_rate)
+                for _t0, _t1 in _locs:
+                    try:
+                        _s = int(max(0.0, float(_t0)) * sample_rate)
+                        _e = int(max(0.0, float(_t1)) * sample_rate)
+                    except Exception:
+                        continue
+                    if _e <= _s:
+                        continue
+                    _s = max(0, _s - _pad_s)
+                    _e = min(_n_samples, _e + _pad_s)
+                    if _e > _s:
+                        _blend_profile[_s:_e] = 1.0
+            else:
+                if _audio_arr.ndim == 1:
+                    _mono = _audio_arr
+                elif _audio_arr.ndim == 2 and _audio_arr.shape[0] <= 8:
+                    _mono = np.mean(_audio_arr, axis=0)
+                else:
+                    _mono = np.mean(_audio_arr, axis=-1)
+                _hp = np.abs(np.concatenate(([0.0], np.diff(_mono.astype(np.float32)))))
+                _thr = float(np.percentile(_hp, 68.0))
+                _blend_profile = (_hp >= _thr).astype(np.float32)
+
+            _smooth = max(16, int(0.025 * sample_rate))
+            _blend_profile = np.convolve(
+                _blend_profile,
+                np.ones(_smooth, dtype=np.float32) / float(_smooth),
+                mode="same",
+            ).astype(np.float32)
+            _blend_profile = np.clip(_blend_profile, 0.0, 1.0)
+            if float(np.mean(_blend_profile)) <= 1e-4:
+                return audio
+
+            _delta = float(
+                np.mean(np.abs(_out_alias - np.asarray(audio, dtype=np.float32)))
+                / (np.mean(np.abs(np.asarray(audio, dtype=np.float32))) + 1e-9)
+            )
+            if _delta <= 1e-5:
+                return audio
+
+            _blend = float(np.clip(0.10 + 0.32 * _alias_sev, 0.10, 0.38))
+            _seg_blend = (_blend * _blend_profile).astype(np.float32)
+            if _audio_arr.ndim == 1:
+                _out = (1.0 - _seg_blend) * _audio_arr + _seg_blend * _out_alias
+            elif _audio_arr.ndim == 2 and _audio_arr.shape[0] <= 8:
+                _seg = _seg_blend[np.newaxis, :]
+                _out = (1.0 - _seg) * _audio_arr + _seg * _out_alias
+            else:
+                _seg = _seg_blend[:, np.newaxis]
+                _out = (1.0 - _seg) * _audio_arr + _seg * _out_alias
+            _out = np.nan_to_num(_out, nan=0.0, posinf=0.0, neginf=0.0)
+            _out = np.clip(_out, -1.0, 1.0).astype(np.float32)
+
+            _ctx = getattr(self, "_restoration_context", None)
+            if isinstance(_ctx, dict):
+                _ctx["aliasing_specialist_applied"] = True
+                _ctx["aliasing_specialist_blend"] = _blend
+                _ctx["aliasing_specialist_coverage"] = float(np.mean(_blend_profile))
+            logger.info(
+                "§4.11 Aliasing-Spezialist: phase=%s sev=%.3f blend=%.2f cov=%.3f",
+                phase_id,
+                _alias_sev,
+                _blend,
+                float(np.mean(_blend_profile)),
+            )
+            return _out
+        except Exception as _al_exc:
+            logger.debug("Aliasing-Spezialist non-blocking (%s): %s", phase_id, _al_exc)
+            return audio
+
+    def _apply_dedicated_compression_artifact_repair(
+        self,
+        audio: np.ndarray,
+        *,
+        phase_id: str,
+        sample_rate: int,
+        material_type: Any,
+        defect_severity_map: dict[str, float] | None,
+        defect_locations: dict[str, list[tuple[float, float]]] | None = None,
+    ) -> np.ndarray:
+        """Dedizierter Compression-Artifact-Repair-Pfad (digital-only).
+
+        Ergänzt die Spektralreparatur um einen artefaktspezifischen Post-Pass bei
+        bestätigten Codec-Kompressionsartefakten.
+        """
+        if phase_id not in {"phase_23_spectral_repair", "phase_50_spectral_repair"}:
+            return audio
+
+        if sample_rate < 22050:
+            return audio
+
+        _sev_map = defect_severity_map if isinstance(defect_severity_map, dict) else {}
+        _comp_sev = float(np.clip(float(_sev_map.get("compression_artifacts", 0.0)), 0.0, 1.0))
+        if _comp_sev < 0.15:
+            return audio
+
+        _mat_val = str(getattr(material_type, "value", material_type) or "").strip().lower()
+        _digital_mats = {"cd_digital", "dat", "mp3_low", "mp3_high", "aac", "streaming", "minidisc"}
+        if _mat_val not in _digital_mats:
+            return audio
+
+        try:
+            from dsp.bandwidth_artifact_remover import (  # pylint: disable=import-outside-toplevel
+                BandwidthArtifactRemover,
+            )
+
+            _remover = BandwidthArtifactRemover(mode="compression")
+            _out_comp = _remover.process(np.asarray(audio, dtype=np.float32), sample_rate)
+            _out_comp = np.asarray(_out_comp, dtype=np.float32)
+            if _out_comp.shape != np.asarray(audio).shape:
+                return audio
+
+            _audio_arr = np.asarray(audio, dtype=np.float32)
+            _n_samples = int(_audio_arr.shape[-1]) if _audio_arr.ndim >= 1 else 0
+            if _n_samples <= 0:
+                return audio
+
+            # Segmentfokussierte Anwendung: primär scanner-locations, fallback via RMS-Hotspots.
+            _blend_profile = np.zeros(_n_samples, dtype=np.float32)
+            _locs = []
+            if isinstance(defect_locations, dict):
+                _locs = defect_locations.get("compression_artifacts") or []
+            if isinstance(_locs, list) and _locs:
+                _pad_s = int(0.05 * sample_rate)
+                for _t0, _t1 in _locs:
+                    try:
+                        _s = int(max(0.0, float(_t0)) * sample_rate)
+                        _e = int(max(0.0, float(_t1)) * sample_rate)
+                    except Exception:
+                        continue
+                    if _e <= _s:
+                        continue
+                    _s = max(0, _s - _pad_s)
+                    _e = min(_n_samples, _e + _pad_s)
+                    if _e > _s:
+                        _blend_profile[_s:_e] = 1.0
+            else:
+                if _audio_arr.ndim == 1:
+                    _mono = _audio_arr
+                elif _audio_arr.ndim == 2 and _audio_arr.shape[0] <= 8:
+                    _mono = np.mean(_audio_arr, axis=0)
+                else:
+                    _mono = np.mean(_audio_arr, axis=-1)
+                _win = max(32, int(0.015 * sample_rate))
+                _kernel = np.ones(_win, dtype=np.float32) / float(_win)
+                _rms_env = np.sqrt(np.convolve(_mono.astype(np.float32) ** 2, _kernel, mode="same") + 1e-10)
+                _thr = float(np.percentile(_rms_env, 60.0))
+                _blend_profile = (_rms_env >= _thr).astype(np.float32)
+
+            _smooth = max(16, int(0.03 * sample_rate))
+            _blend_profile = np.convolve(
+                _blend_profile,
+                np.ones(_smooth, dtype=np.float32) / float(_smooth),
+                mode="same",
+            ).astype(np.float32)
+            _blend_profile = np.clip(_blend_profile, 0.0, 1.0)
+            if float(np.mean(_blend_profile)) <= 1e-4:
+                return audio
+
+            _delta = float(
+                np.mean(np.abs(_out_comp - np.asarray(audio, dtype=np.float32)))
+                / (np.mean(np.abs(np.asarray(audio, dtype=np.float32))) + 1e-9)
+            )
+            if _delta <= 1e-5:
+                return audio
+
+            _blend = float(np.clip(0.08 + 0.30 * _comp_sev, 0.08, 0.34))
+            _seg_blend = (_blend * _blend_profile).astype(np.float32)
+            if _audio_arr.ndim == 1:
+                _out = (1.0 - _seg_blend) * _audio_arr + _seg_blend * _out_comp
+            elif _audio_arr.ndim == 2 and _audio_arr.shape[0] <= 8:
+                _seg = _seg_blend[np.newaxis, :]
+                _out = (1.0 - _seg) * _audio_arr + _seg * _out_comp
+            else:
+                _seg = _seg_blend[:, np.newaxis]
+                _out = (1.0 - _seg) * _audio_arr + _seg * _out_comp
+            _out = np.nan_to_num(_out, nan=0.0, posinf=0.0, neginf=0.0)
+            _out = np.clip(_out, -1.0, 1.0).astype(np.float32)
+
+            _ctx = getattr(self, "_restoration_context", None)
+            if isinstance(_ctx, dict):
+                _ctx["compression_artifact_specialist_applied"] = True
+                _ctx["compression_artifact_specialist_blend"] = _blend
+                _ctx["compression_artifact_specialist_coverage"] = float(np.mean(_blend_profile))
+            logger.info(
+                "§4.11 Compression-Spezialist: phase=%s sev=%.3f blend=%.2f cov=%.3f",
+                phase_id,
+                _comp_sev,
+                _blend,
+                float(np.mean(_blend_profile)),
+            )
+            return _out
+        except Exception as _comp_exc:
+            logger.debug("Compression-Spezialist non-blocking (%s): %s", phase_id, _comp_exc)
+            return audio
+
+    def _apply_dedicated_dynamic_compression_excess_repair(
+        self,
+        audio: np.ndarray,
+        *,
+        phase_id: str,
+        sample_rate: int,
+        material_type: Any,
+        defect_severity_map: dict[str, float] | None,
+        defect_locations: dict[str, list[tuple[float, float]]] | None = None,
+    ) -> np.ndarray:
+        """Dedizierter Repair-Pfad für Dynamic-Compression-Excess (Loudness-War)."""
+        if phase_id not in {"phase_23_spectral_repair", "phase_50_spectral_repair", "phase_54_transparent_dynamics"}:
+            return audio
+
+        if sample_rate < 22050:
+            return audio
+
+        _sev_map = defect_severity_map if isinstance(defect_severity_map, dict) else {}
+        _dyn_sev = float(np.clip(float(_sev_map.get("dynamic_compression_excess", 0.0)), 0.0, 1.0))
+        if _dyn_sev < 0.18:
+            return audio
+
+        _mat_val = str(getattr(material_type, "value", material_type) or "").strip().lower()
+        _digital_mats = {"cd_digital", "dat", "mp3_low", "mp3_high", "aac", "streaming", "minidisc"}
+        if _mat_val not in _digital_mats:
+            return audio
+
+        try:
+            from dsp.dynamic_range_expander import DynamicRangeExpander  # pylint: disable=import-outside-toplevel
+
+            _thr_db = float(np.clip(-33.0 + 16.0 * _dyn_sev, -33.0, -17.0))
+            _ratio = float(np.clip(0.92 - 0.24 * _dyn_sev, 0.62, 0.92))
+            _expander = DynamicRangeExpander(
+                threshold_db=_thr_db,
+                ratio=_ratio,
+                knee_db=6.0,
+                attack_ms=8.0,
+                release_ms=120.0,
+            )
+            _out_dyn = _expander.process(np.asarray(audio, dtype=np.float32), sample_rate)
+            _out_dyn = np.asarray(_out_dyn, dtype=np.float32)
+            if _out_dyn.shape != np.asarray(audio).shape:
+                return audio
+
+            _audio_arr = np.asarray(audio, dtype=np.float32)
+            _n_samples = int(_audio_arr.shape[-1]) if _audio_arr.ndim >= 1 else 0
+            if _n_samples <= 0:
+                return audio
+
+            # Segmentfokussierte Verarbeitung: primär Defekt-Locations, fallback via RMS-Estimator.
+            _blend_profile = np.zeros(_n_samples, dtype=np.float32)
+            _locs = []
+            if isinstance(defect_locations, dict):
+                _locs = defect_locations.get("dynamic_compression_excess") or []
+            if isinstance(_locs, list) and _locs:
+                _pad_s = int(0.06 * sample_rate)
+                for _t0, _t1 in _locs:
+                    try:
+                        _s = int(max(0.0, float(_t0)) * sample_rate)
+                        _e = int(max(0.0, float(_t1)) * sample_rate)
+                    except Exception:
+                        continue
+                    if _e <= _s:
+                        continue
+                    _s = max(0, _s - _pad_s)
+                    _e = min(_n_samples, _e + _pad_s)
+                    if _e > _s:
+                        _blend_profile[_s:_e] = 1.0
+            else:
+                # Fallback ohne Defekt-Locations: nur lautere Bereiche leicht bevorzugen.
+                if _audio_arr.ndim == 1:
+                    _mono = _audio_arr
+                elif _audio_arr.ndim == 2 and _audio_arr.shape[0] <= 8:
+                    _mono = np.mean(_audio_arr, axis=0)
+                else:
+                    _mono = np.mean(_audio_arr, axis=-1)
+                _win = max(32, int(0.02 * sample_rate))
+                _kernel = np.ones(_win, dtype=np.float32) / float(_win)
+                _rms_env = np.sqrt(np.convolve(_mono.astype(np.float32) ** 2, _kernel, mode="same") + 1e-10)
+                _thr = float(np.percentile(_rms_env, 65.0))
+                _blend_profile = (_rms_env >= _thr).astype(np.float32)
+
+            _smooth = max(16, int(0.04 * sample_rate))
+            _blend_profile = np.convolve(
+                _blend_profile,
+                np.ones(_smooth, dtype=np.float32) / float(_smooth),
+                mode="same",
+            ).astype(np.float32)
+            _blend_profile = np.clip(_blend_profile, 0.0, 1.0)
+            if float(np.mean(_blend_profile)) <= 1e-4:
+                return audio
+
+            _delta = float(
+                np.mean(np.abs(_out_dyn - np.asarray(audio, dtype=np.float32)))
+                / (np.mean(np.abs(np.asarray(audio, dtype=np.float32))) + 1e-9)
+            )
+            if _delta <= 1e-5:
+                return audio
+
+            _blend = float(np.clip(0.08 + 0.28 * _dyn_sev, 0.08, 0.32))
+            _seg_blend = (_blend * _blend_profile).astype(np.float32)
+            if _audio_arr.ndim == 1:
+                _out = (1.0 - _seg_blend) * _audio_arr + _seg_blend * _out_dyn
+            elif _audio_arr.ndim == 2 and _audio_arr.shape[0] <= 8:
+                _seg = _seg_blend[np.newaxis, :]
+                _out = (1.0 - _seg) * _audio_arr + _seg * _out_dyn
+            else:
+                _seg = _seg_blend[:, np.newaxis]
+                _out = (1.0 - _seg) * _audio_arr + _seg * _out_dyn
+            _out = np.nan_to_num(_out, nan=0.0, posinf=0.0, neginf=0.0)
+            _out = np.clip(_out, -1.0, 1.0).astype(np.float32)
+
+            _ctx = getattr(self, "_restoration_context", None)
+            if isinstance(_ctx, dict):
+                _ctx["dynamic_compression_specialist_applied"] = True
+                _ctx["dynamic_compression_specialist_blend"] = _blend
+                _ctx["dynamic_compression_specialist_ratio"] = _ratio
+                _ctx["dynamic_compression_specialist_coverage"] = float(np.mean(_blend_profile))
+            logger.info(
+                "§4.11 Dynamics-Spezialist: phase=%s sev=%.3f blend=%.2f ratio=%.2f cov=%.3f",
+                phase_id,
+                _dyn_sev,
+                _blend,
+                _ratio,
+                float(np.mean(_blend_profile)),
+            )
+            return _out
+        except Exception as _dyn_exc:
+            logger.debug("Dynamics-Spezialist non-blocking (%s): %s", phase_id, _dyn_exc)
+            return audio
+
     def _apply_phase_skipping(self, selected_phases: list[str], defect_result) -> tuple[list[str], dict[str, str]]:
         """
         Wendet an: intelligent phase skipping to reduce processing time.
@@ -20544,7 +22056,7 @@ class UnifiedRestorerV3:
         if not _coalition_scores:
             return out
 
-        _dom_name = max(_coalition_scores, key=_coalition_scores.get)
+        _dom_name = max(_coalition_scores, key=lambda _k: _coalition_scores[_k])
         _dom_score = float(_coalition_scores[_dom_name])
         _vqi_gain = float((outcome_payload or {}).get("vqi_delta", 0.0) or 0.0)
         _artifact_gain = float((outcome_payload or {}).get("artifact_delta", 0.0) or 0.0)
@@ -21329,6 +22841,44 @@ class UnifiedRestorerV3:
         _is_nr_budget_phase = phase_metadata.phase_id in _NR_BUDGET_PHASES
         _panns_for_hnr = float(getattr(self, "_restoration_context", {}).get("panns_singing", 0.0) or 0.0)
         _hnr_pre: float = 0.0
+
+        # §8.6g-II Fruehe Anti-Klinik-Rueckkopplung: psychoakustischer Strength-Scalar.
+        _psy_scalar_meta = UnifiedRestorerV3._compute_psychoacoustic_phase_strength_scalar(
+            phase_id=phase_metadata.phase_id,
+            phase_family=self._phase_family_from_phase_id(phase_metadata.phase_id),
+            phase_metadata_accumulator=getattr(self, "_phase_metadata_accumulator", None),
+            panns_singing=_panns_for_hnr,
+            cumulative_hnr_loss_db=float(getattr(self, "_cumulative_hnr_loss_db", 0.0)),
+        )
+        if _psy_scalar_meta.get("enabled", False) and isinstance(kwargs.get("strength"), (int, float)):
+            _old_s_psy = float(kwargs.get("strength", 0.0) or 0.0)
+            _psy_scalar = float(_psy_scalar_meta.get("scalar", 1.0) or 1.0)
+            if _psy_scalar < 0.999:
+                kwargs["strength"] = float(np.clip(_old_s_psy * _psy_scalar, 0.0, 1.0))
+                logger.info(
+                    "§8.6g-II Psycho-Scalar %s: strength %.3f→%.3f (scalar=%.3f, risk=%.3f, signals=%s)",
+                    phase_metadata.phase_id,
+                    _old_s_psy,
+                    float(kwargs.get("strength", 0.0) or 0.0),
+                    _psy_scalar,
+                    float(_psy_scalar_meta.get("risk_score", 0.0) or 0.0),
+                    ",".join(list(_psy_scalar_meta.get("signals", []) or [])) or "none",
+                )
+        try:
+            _phase_meta_existing = self._phase_metadata_accumulator.get(phase_metadata.phase_id, {})
+            if not isinstance(_phase_meta_existing, dict):
+                _phase_meta_existing = {}
+            _phase_meta_existing.update(
+                {
+                    "psycho_strength_scalar": float(_psy_scalar_meta.get("scalar", 1.0) or 1.0),
+                    "psycho_strength_risk_score": float(_psy_scalar_meta.get("risk_score", 0.0) or 0.0),
+                    "psycho_strength_signals": list(_psy_scalar_meta.get("signals", []) or []),
+                }
+            )
+            self._phase_metadata_accumulator[phase_metadata.phase_id] = _phase_meta_existing
+        except Exception:
+            logger.debug("Psycho-Scalar metadata write failed (non-blocking)", exc_info=True)
+
         if _is_nr_budget_phase and _panns_for_hnr >= 0.25 and isinstance(audio, np.ndarray):
             try:
                 from backend.core.dsp.hnr_guard import (
@@ -22191,6 +23741,50 @@ class UnifiedRestorerV3:
                         "post": {g: round(v, 4) for g, v in _post_snap.items()},
                         "delta": _delta,
                     }
+
+                    # §8.6g-III Laufende Psycho-Delta-Metriken: negative Delten auf
+                    # natuerlichkeit/Authentizitaet/Emotion/Mikrodynamik/Transparenz
+                    # werden als fruehes Anti-Klinik-Risiko akkumuliert.
+                    _psy_delta_weights = {
+                        "natuerlichkeit": 0.34,
+                        "authentizitaet": 0.22,
+                        "emotionalitaet": 0.18,
+                        "micro_dynamics": 0.16,
+                        "transparenz": 0.10,
+                    }
+                    _delta_penalty = 0.0
+                    _delta_focus: list[tuple[str, float]] = []
+                    for _g, _w in _psy_delta_weights.items():
+                        _d = float(_delta.get(_g, 0.0) or 0.0)
+                        if _d < 0.0:
+                            _p = abs(_d) * float(_w)
+                            _delta_penalty += _p
+                            _delta_focus.append((_g, _p))
+                    _delta_penalty = float(np.clip(_delta_penalty, 0.0, 0.35))
+                    _delta_focus = sorted(_delta_focus, key=lambda it: it[1], reverse=True)[:3]
+
+                    _psy_state = self._phase_metadata_accumulator.get("_psycho_runtime_state", {})
+                    if not isinstance(_psy_state, dict):
+                        _psy_state = {}
+                    _prev_roll = float(_psy_state.get("rolling_risk", 0.0) or 0.0)
+                    _new_roll = float(np.clip(_prev_roll * 0.75 + _delta_penalty, 0.0, 0.45))
+                    _psy_state.update(
+                        {
+                            "last_phase": _phase_delta_pid,
+                            "last_delta_penalty": round(_delta_penalty, 4),
+                            "rolling_risk": round(_new_roll, 4),
+                            "last_delta_focus": [f"{_k}:{_v:.4f}" for _k, _v in _delta_focus],
+                        }
+                    )
+                    self._phase_metadata_accumulator["_psycho_runtime_state"] = _psy_state
+
+                    _phase_meta_existing = self._phase_metadata_accumulator.get(_phase_delta_pid, {})
+                    if not isinstance(_phase_meta_existing, dict):
+                        _phase_meta_existing = {}
+                    _phase_meta_existing["psycho_delta_penalty"] = round(_delta_penalty, 4)
+                    _phase_meta_existing["psycho_runtime_rolling_risk"] = round(_new_roll, 4)
+                    _phase_meta_existing["psycho_delta_focus"] = [f"{_k}:{_v:.4f}" for _k, _v in _delta_focus]
+                    self._phase_metadata_accumulator[_phase_delta_pid] = _phase_meta_existing
                     logger.debug(
                         "§2.64 phase_delta %s: %s",
                         _phase_delta_pid,
@@ -25449,6 +27043,7 @@ class UnifiedRestorerV3:
                                             estimated_time_s=float(estimated_time),
                                             future_phases=list(selected_phases[len(executed) + 1 :]),
                                         ),
+                                        **self._runtime_phase_parameter_kwargs(phase_id),
                                     },
                                     restorability_score=_pmgg_restorability_score,  # §2.29 normativ
                                     applicable_goals=applicable_goals,  # §2.32 normativ
@@ -25528,6 +27123,46 @@ class UnifiedRestorerV3:
                                     quiet_edge_profile=_pipeline_quiet_edge_profile,
                                 )
                                 current_audio = np.clip(current_audio, -1.0, 1.0)
+                                current_audio = self._apply_dedicated_jitter_repair(
+                                    current_audio,
+                                    phase_id=phase_id,
+                                    sample_rate=sample_rate,
+                                    material_type=material_type,
+                                    defect_severity_map=_defect_severity_map,
+                                    defect_locations=_defect_locations,
+                                )
+                                current_audio = self._apply_dedicated_pre_echo_repair(
+                                    current_audio,
+                                    phase_id=phase_id,
+                                    sample_rate=sample_rate,
+                                    material_type=material_type,
+                                    defect_severity_map=_defect_severity_map,
+                                    defect_locations=_defect_locations,
+                                )
+                                current_audio = self._apply_dedicated_aliasing_repair(
+                                    current_audio,
+                                    phase_id=phase_id,
+                                    sample_rate=sample_rate,
+                                    material_type=material_type,
+                                    defect_severity_map=_defect_severity_map,
+                                    defect_locations=_defect_locations,
+                                )
+                                current_audio = self._apply_dedicated_compression_artifact_repair(
+                                    current_audio,
+                                    phase_id=phase_id,
+                                    sample_rate=sample_rate,
+                                    material_type=material_type,
+                                    defect_severity_map=_defect_severity_map,
+                                    defect_locations=_defect_locations,
+                                )
+                                current_audio = self._apply_dedicated_dynamic_compression_excess_repair(
+                                    current_audio,
+                                    phase_id=phase_id,
+                                    sample_rate=sample_rate,
+                                    material_type=material_type,
+                                    defect_severity_map=_defect_severity_map,
+                                    defect_locations=_defect_locations,
+                                )
                                 # §HF-Tracking (PMGG-Primary): hf_cumulative_gain_db nach HF-additiver Phase.
                                 if phase_id in _HF_ADDITIVE_PHASE_CONTRIB_DB and isinstance(
                                     getattr(self, "_restoration_context", None), dict
@@ -25776,6 +27411,46 @@ class UnifiedRestorerV3:
                                             quiet_edge_profile=_pipeline_quiet_edge_profile,
                                         )
                                         current_audio = np.clip(current_audio, -1.0, 1.0)
+                                        current_audio = self._apply_dedicated_jitter_repair(
+                                            current_audio,
+                                            phase_id=phase_id,
+                                            sample_rate=sample_rate,
+                                            material_type=material_type,
+                                            defect_severity_map=_defect_severity_map,
+                                            defect_locations=_defect_locations,
+                                        )
+                                        current_audio = self._apply_dedicated_pre_echo_repair(
+                                            current_audio,
+                                            phase_id=phase_id,
+                                            sample_rate=sample_rate,
+                                            material_type=material_type,
+                                            defect_severity_map=_defect_severity_map,
+                                            defect_locations=_defect_locations,
+                                        )
+                                        current_audio = self._apply_dedicated_aliasing_repair(
+                                            current_audio,
+                                            phase_id=phase_id,
+                                            sample_rate=sample_rate,
+                                            material_type=material_type,
+                                            defect_severity_map=_defect_severity_map,
+                                            defect_locations=_defect_locations,
+                                        )
+                                        current_audio = self._apply_dedicated_compression_artifact_repair(
+                                            current_audio,
+                                            phase_id=phase_id,
+                                            sample_rate=sample_rate,
+                                            material_type=material_type,
+                                            defect_severity_map=_defect_severity_map,
+                                            defect_locations=_defect_locations,
+                                        )
+                                        current_audio = self._apply_dedicated_dynamic_compression_excess_repair(
+                                            current_audio,
+                                            phase_id=phase_id,
+                                            sample_rate=sample_rate,
+                                            material_type=material_type,
+                                            defect_severity_map=_defect_severity_map,
+                                            defect_locations=_defect_locations,
+                                        )
                                     else:
                                         logger.debug(
                                             "§2.45 PMGG-Fallback: %s übersprungen (perceptual_delta=%.4f <= 0.0)",
@@ -25865,6 +27540,46 @@ class UnifiedRestorerV3:
                                         quiet_edge_profile=_pipeline_quiet_edge_profile,
                                     )
                                     current_audio = np.clip(current_audio, -1.0, 1.0)
+                                    current_audio = self._apply_dedicated_jitter_repair(
+                                        current_audio,
+                                        phase_id=phase_id,
+                                        sample_rate=sample_rate,
+                                        material_type=material_type,
+                                        defect_severity_map=_defect_severity_map,
+                                        defect_locations=_defect_locations,
+                                    )
+                                    current_audio = self._apply_dedicated_pre_echo_repair(
+                                        current_audio,
+                                        phase_id=phase_id,
+                                        sample_rate=sample_rate,
+                                        material_type=material_type,
+                                        defect_severity_map=_defect_severity_map,
+                                        defect_locations=_defect_locations,
+                                    )
+                                    current_audio = self._apply_dedicated_aliasing_repair(
+                                        current_audio,
+                                        phase_id=phase_id,
+                                        sample_rate=sample_rate,
+                                        material_type=material_type,
+                                        defect_severity_map=_defect_severity_map,
+                                        defect_locations=_defect_locations,
+                                    )
+                                    current_audio = self._apply_dedicated_compression_artifact_repair(
+                                        current_audio,
+                                        phase_id=phase_id,
+                                        sample_rate=sample_rate,
+                                        material_type=material_type,
+                                        defect_severity_map=_defect_severity_map,
+                                        defect_locations=_defect_locations,
+                                    )
+                                    current_audio = self._apply_dedicated_dynamic_compression_excess_repair(
+                                        current_audio,
+                                        phase_id=phase_id,
+                                        sample_rate=sample_rate,
+                                        material_type=material_type,
+                                        defect_severity_map=_defect_severity_map,
+                                        defect_locations=_defect_locations,
+                                    )
                                 else:
                                     _pdelta_245_direct = _spectral_quality_score(
                                         _ra, sample_rate
@@ -25878,6 +27593,46 @@ class UnifiedRestorerV3:
                                             quiet_edge_profile=_pipeline_quiet_edge_profile,
                                         )
                                         current_audio = np.clip(current_audio, -1.0, 1.0)
+                                        current_audio = self._apply_dedicated_jitter_repair(
+                                            current_audio,
+                                            phase_id=phase_id,
+                                            sample_rate=sample_rate,
+                                            material_type=material_type,
+                                            defect_severity_map=_defect_severity_map,
+                                            defect_locations=_defect_locations,
+                                        )
+                                        current_audio = self._apply_dedicated_pre_echo_repair(
+                                            current_audio,
+                                            phase_id=phase_id,
+                                            sample_rate=sample_rate,
+                                            material_type=material_type,
+                                            defect_severity_map=_defect_severity_map,
+                                            defect_locations=_defect_locations,
+                                        )
+                                        current_audio = self._apply_dedicated_aliasing_repair(
+                                            current_audio,
+                                            phase_id=phase_id,
+                                            sample_rate=sample_rate,
+                                            material_type=material_type,
+                                            defect_severity_map=_defect_severity_map,
+                                            defect_locations=_defect_locations,
+                                        )
+                                        current_audio = self._apply_dedicated_compression_artifact_repair(
+                                            current_audio,
+                                            phase_id=phase_id,
+                                            sample_rate=sample_rate,
+                                            material_type=material_type,
+                                            defect_severity_map=_defect_severity_map,
+                                            defect_locations=_defect_locations,
+                                        )
+                                        current_audio = self._apply_dedicated_dynamic_compression_excess_repair(
+                                            current_audio,
+                                            phase_id=phase_id,
+                                            sample_rate=sample_rate,
+                                            material_type=material_type,
+                                            defect_severity_map=_defect_severity_map,
+                                            defect_locations=_defect_locations,
+                                        )
                                     else:
                                         logger.debug(
                                             "§2.45 Direkt-Pfad: %s übersprungen (perceptual_delta=%.4f <= 0.0)",

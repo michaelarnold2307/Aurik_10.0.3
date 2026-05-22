@@ -5,11 +5,16 @@
 **Status:** ✅ Production Ready (16/16 Tests Passing)  
 **Impact:** +2.0 points (121.0 → 123.0/100)
 
+> **Normativer Hinweis (Release):** Dieses Dokument enthaelt historische v8/v2-Beispiele.
+> Fuer den produktiven Vertrag gilt Bridge -> `AurikDenker.denke(...)` -> `export_guard()`.
+> Abweichende Altpfade sind `LEGACY_NON_RELEASE`.
+
 ---
 
 ## Executive Summary
 
 Das **ProcessingLogger System** ist die kritische Infrastruktur für:
+
 - ✅ **Transparenz**: Jeder Processing-Schritt wird systematisch dokumentiert
 - ✅ **A/B Testing**: Vergleich verschiedener Parameter-Sets möglich
 - ✅ **Parameter-Tuning**: Optimale Threshold-Werte basierend auf Metriken
@@ -17,6 +22,7 @@ Das **ProcessingLogger System** ist die kritische Infrastruktur für:
 - ✅ **Adaptive Learning Foundation**: Basis für Innovation #10 (zukünftig +5 Punkte)
 
 **Komponenten (444 Zeilen, 16 Tests):**
+
 - `core/processing_logger.py`: Kern-System
 - `tests/test_processing_logger.py`: Umfassende Tests
 - `docs/PROCESSING_LOGGER_SPECIFICATION.md`: Detaillierte Spezifikation
@@ -28,6 +34,7 @@ Das **ProcessingLogger System** ist die kritische Infrastruktur für:
 ProcessingLogger ist Teil von AURIK v8. Keine zusätzliche Installation erforderlich.
 
 **Abhängigkeiten:**
+
 - `numpy`: Numerische Berechnungen
 - `soundfile`: Audio I/O
 - `librosa`: Spectral Centroid Berechnung
@@ -102,6 +109,7 @@ print(f"Logs saved to: {logger.output_dir}")
 ```
 
 **Output:**
+
 ```
 📊 ProcessingLogger initialized: my_test_session
    Output: logs/processing/my_test_session
@@ -119,12 +127,12 @@ print(f"Logs saved to: {logger.output_dir}")
 
 ---
 
-## Integration with UnifiedRestorerV2
+## Integration with Historical Restorer Runtime
 
 ### Recommended Integration Pattern
 
 ```python
-class UnifiedRestorerV2:
+class HistoricalRestorerRuntime:
     def __init__(self, enable_logging=False, log_dir="logs/processing"):
         """Enable ProcessingLogger via flag (backward-compatible)."""
         self.enable_logging = enable_logging
@@ -201,7 +209,7 @@ class UnifiedRestorerV2:
 
 ```python
 # orchestrator_and_cli.py
-from core.unified_restorer_v2 import UnifiedRestorerV2
+from backend.api.bridge import get_aurik_denker_instance
 
 parser.add_argument('--enable-logging', action='store_true',
                    help='Enable ProcessingLogger for transparency')
@@ -210,15 +218,12 @@ parser.add_argument('--log-dir', default='logs/processing',
 
 args = parser.parse_args()
 
-restorer = UnifiedRestorerV2(
-    enable_logging=args.enable_logging,
-    log_dir=args.log_dir
-)
-
-audio_restored = restorer.restore(audio, sr, mode='restoration', input_file=args.input)
+denker = get_aurik_denker_instance()
+audio_restored = denker.denke(audio, sr, mode='restoration').audio
 ```
 
 **Usage:**
+
 ```bash
 python orchestrator_and_cli.py --input my_audio.wav --enable-logging
 ```
@@ -313,6 +318,7 @@ Nach `logger.end_session()` werden folgende Dateien erstellt:
 ### 3. Audio Snapshots (Optional)
 
 Wenn `save_audio_snapshots=True`:
+
 ```
 logs/processing/session_1739020800000/
 ├── phase_1f_declipping_before.wav  # Audio vor Declipping
@@ -332,6 +338,7 @@ logs/processing/session_1739020800000/
 **Definition:** Verhältnis Signal/Rauschen in dB  
 **Berechnung:** Schätzung via Highpass-Filterung (100 Hz cutoff)  
 **Interpretation:**
+
 - `SNR > 40 dB`: Sehr sauberes Signal
 - `SNR 20-40 dB`: Gute Qualität
 - `SNR < 20 dB`: Deutliches Rauschen
@@ -343,6 +350,7 @@ logs/processing/session_1739020800000/
 **Definition:** Verzerrung durch Harmonische in %  
 **Berechnung:** FFT-basierte Schätzung (Fundamental vs Harmonics)  
 **Interpretation:**
+
 - `THD < 1%`: Sehr sauber
 - `THD 1-5%`: Akzeptabel
 - `THD > 5%`: Deutliche Verzerrungen
@@ -354,6 +362,7 @@ logs/processing/session_1739020800000/
 **Definition:** Wahrgenommene Lautheit nach ITU-R BS.1770  
 **Berechnung:** K-weighted RMS (mit Fallback)  
 **Interpretation:**
+
 - `LUFS -23`: Broadcast-Standard
 - `LUFS -14`: Streaming-Standard (Spotify, YouTube)
 - `LUFS -6 to -9`: Mastering-Level
@@ -365,6 +374,7 @@ logs/processing/session_1739020800000/
 **Definition:** "Schwerpunkt" des Frequenzspektrums in Hz  
 **Berechnung:** Librosa Spectral Centroid  
 **Interpretation:**
+
 - `< 1000 Hz`: Dunkler, bassiger Sound
 - `1000-3000 Hz`: Ausgewogener Sound
 - `> 3000 Hz`: Heller, brillanter Sound
@@ -462,11 +472,13 @@ for step in trace.steps:
 ### Disk Usage Estimation
 
 **With Audio Snapshots:**
+
 - Mono @ 44.1 kHz, 1 second: ~176 KB (WAV) / ~88 KB (FLAC)
 - 10-second audio, 20 steps: ~70 MB (WAV) / ~35 MB (FLAC)
 - **Recommendation:** Use `compress_audio=True` für längere Audio-Files
 
 **Without Audio Snapshots:**
+
 - JSON + Markdown: <1 MB
 - **Recommendation:** Für Production mit `save_audio_snapshots=False` laufen
 
@@ -492,15 +504,16 @@ for session_dir in log_dir.iterdir():
 
 ### Benchmark (10-second audio @ 44.1 kHz)
 
-| Configuration | Overhead | Total Time |
-|---------------|----------|------------|
-| Logging disabled | 0% | 12.5s |
-| JSON only (no audio) | +2% | 12.7s |
-| JSON + Markdown | +3% | 12.9s |
-| + Audio snapshots (WAV) | +8% | 13.5s |
-| + Audio snapshots (FLAC) | +10% | 13.8s |
+| Configuration            | Overhead | Total Time |
+|--------------------------|----------|------------|
+| Logging disabled         | 0%       | 12.5s      |
+| JSON only (no audio)     | +2%      | 12.7s      |
+| JSON + Markdown          | +3%      | 12.9s      |
+| + Audio snapshots (WAV)  | +8%      | 13.5s      |
+| + Audio snapshots (FLAC) | +10%     | 13.8s      |
 
 **Recommendation:**
+
 - Development/Testing: Enable all features
 - Production: `save_audio_snapshots=False` für <3% overhead
 
@@ -515,6 +528,7 @@ pytest tests/test_processing_logger.py -v
 ```
 
 **Expected Output:**
+
 ```
 tests/test_processing_logger.py::TestQualityMetrics::test_compute_metrics PASSED
 tests/test_processing_logger.py::TestQualityMetrics::test_snr_comparison PASSED
@@ -543,6 +557,7 @@ python core/processing_logger.py input.wav --analyze
 ```
 
 **Output:**
+
 ```
 Loaded: input.wav ((176400,), 44100 Hz)
 
@@ -589,6 +604,7 @@ RMS:       -12.3 dBFS
 ### Issue: "Module 'pyloudnorm' not found"
 
 **Solution:** LUFS uses fallback RMS-based approximation. Install optional dependency:
+
 ```bash
 pip install pyloudnorm
 ```
@@ -596,6 +612,7 @@ pip install pyloudnorm
 ### Issue: Logs directory full
 
 **Solution:** Enable compression or disable audio snapshots:
+
 ```python
 logger = ProcessingLogger(
     compress_audio=True,        # Use FLAC instead of WAV
@@ -612,6 +629,7 @@ logger = ProcessingLogger(
 
 **Cause:** Called `log_step()` before `start_session()`  
 **Solution:** Always initialize session first:
+
 ```python
 logger.start_session(input_file="test.wav", sample_rate=sr)
 logger.log_step(...)  # Now OK
@@ -632,13 +650,14 @@ logger.log_step(...)  # Now OK
 ## Conclusion
 
 ProcessingLogger ist die **Foundation für Weltspitze-Qualität** durch:
+
 - ✅ Vollständige Transparenz über Processing-Entscheidungen
 - ✅ Datenbasierte Parameter-Optimierung
 - ✅ Regression-Detection für Qualitäts-Sicherung
 - ✅ Basis für zukünftiges Adaptive Learning (+5 Punkte)
 
 **Status:** Production Ready (16/16 Tests, +2.0 Punkte)  
-**Next Steps:** Integration in UnifiedRestorerV2 (optional, backward-compatible)
+**Next Steps:** Integration in den aktuellen Bridge-/Denker-Produktpfad (optional)
 
 ---
 

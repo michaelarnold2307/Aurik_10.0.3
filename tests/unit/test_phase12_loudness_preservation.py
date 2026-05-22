@@ -129,3 +129,62 @@ def test_phase12_loudness_guard_caps_percentile_peak() -> None:
     corrected, _delta_db, _makeup_db = phase._preserve_phase_loudness(original, processed, MaterialType.TAPE)
     peak99 = float(np.percentile(np.abs(corrected), 99.9))
     assert peak99 <= 0.986, f"p99.9-Peak zu hoch nach Guard: {peak99:.4f}"
+
+
+def test_phase12_stretch_locality_mask_neutralizes_outside_segments() -> None:
+    stretch = np.array([0.97, 1.03, 1.02, 0.98, 1.04, 0.96, 1.01, 0.99], dtype=np.float32)
+
+    masked, coverage = WowFlutterFix._apply_defect_locality_to_stretch_factors(
+        stretch,
+        audio_length_samples=48_000,
+        sample_rate=48_000,
+        defect_locations={"wow": [(0.20, 0.40)]},
+    )
+
+    assert np.isfinite(masked).all()
+    assert 0.0 < coverage < 1.0
+    assert np.allclose(masked[:1], 1.0)
+    assert np.allclose(masked[-2:], 1.0)
+    assert np.any(np.abs(masked - 1.0) > 1e-4)
+
+
+def test_phase12_process_applies_defect_locality_before_timestretch(monkeypatch) -> None:
+    phase = WowFlutterFix()
+    sr = 48_000
+    t = np.linspace(0.0, 1.0, sr, endpoint=False, dtype=np.float64)
+    audio = (0.2 * np.sin(2.0 * np.pi * 220.0 * t)).astype(np.float32)
+
+    monkeypatch.setattr(phase, "_estimate_pitch_yin", lambda _a, _sr: (np.full(32, 220.0), np.full(32, 0.9)))
+    monkeypatch.setattr(phase, "_separate_wow_flutter", lambda _p, _sr: (np.zeros_like(_p), np.zeros_like(_p)))
+    monkeypatch.setattr(phase, "_detect_wow_flutter", lambda _p, _c, _thr: (True, 0.8))
+    monkeypatch.setattr(
+        phase,
+        "_calculate_stretch_factors",
+        lambda _p, _c, _s, max_stretch_delta=0.05: np.linspace(0.97, 1.03, 32, dtype=np.float32),
+    )
+    monkeypatch.setattr(phase, "_calculate_max_deviation", lambda _p, _c: 0.2)
+    monkeypatch.setattr(phase, "_preserve_phase_loudness", lambda orig, proc, material: (proc, 0.0, 0.0))
+    monkeypatch.setattr(phase, "_apply_neural_phase_coherence", lambda audio_in, _sr, reference=None: audio_in)
+
+    captured: dict[str, np.ndarray] = {}
+
+    def _fake_stretch(x: np.ndarray, stretch_factors: np.ndarray, _sample_rate: int) -> np.ndarray:
+        captured["stretch_factors"] = np.asarray(stretch_factors, dtype=np.float32).copy()
+        return np.asarray(x, dtype=np.float32).copy()
+
+    monkeypatch.setattr(phase, "_phase_vocoder_timestretch", _fake_stretch)
+
+    result = phase.process(
+        audio,
+        sr,
+        MaterialType.VINYL,
+        strength=1.0,
+        defect_locations={"wow": [(0.20, 0.35)]},
+    )
+
+    stretch_used = captured["stretch_factors"]
+    assert np.isfinite(stretch_used).all()
+    assert np.allclose(stretch_used[:4], 1.0)
+    assert np.any(np.abs(stretch_used[7:13] - 1.0) > 1e-4)
+    assert np.allclose(stretch_used[-6:], 1.0)
+    assert float(result.metadata.get("stretch_locality_coverage", 0.0)) > 0.0

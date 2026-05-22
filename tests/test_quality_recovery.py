@@ -298,6 +298,33 @@ class TestRecoveryExecution:
         print(f"  Delta: {after_quality.overall_score - before_quality.overall_score:+.1f}")
 
 
+class TestBypassModuleRecovery:
+    """Tests für den BYPASS_MODULE-Pfad mit echtem processed-Eingang."""
+
+    def test_reprocess_without_modules_uses_processed_signal(self, recovery_system, vinyl_audio):
+        """Bypass-Recovery darf nicht stillschweigend auf reines Original kollabieren."""
+        original, _sr = vinyl_audio
+        processed = np.clip(original * 0.65, -1.0, 1.0).astype(np.float32)
+
+        recovered = recovery_system._reprocess_without_modules(
+            original,
+            processed,
+            48000,
+            ["Enhancer", "Compressor"],
+            ["Enhancer"],
+        )
+
+        assert recovered.shape == original.shape
+        assert np.all(np.isfinite(recovered))
+
+        # Der Recovery-Output soll zwischen Original und Processed liegen,
+        # nicht exakt auf das Original zurueckfallen.
+        dist_to_orig = float(np.mean(np.abs(recovered - original)))
+        dist_to_proc = float(np.mean(np.abs(recovered - processed)))
+        assert dist_to_orig > 1e-6
+        assert dist_to_proc > 1e-6
+
+
 # === Tests: Integration ===
 
 

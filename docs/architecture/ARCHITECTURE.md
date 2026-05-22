@@ -1,84 +1,65 @@
-# Aurik 9.x.x — Architektur-Überblick
+# Aurik 9.x.x - Architektur-Ueberblick
 
 **Stand:** Mai 2026  
 **Version:** 9.12.8  
-**Status:** ✅ Produktionsbereit
+**Status:** RELEASE_MUST-konform
 
-> Hinweis: Verbindlicher Ist-Stand ist in `.github/specs/01-08` und `docs/CHANGELOG_HISTORY.md` dokumentiert.
+Verbindlicher Wahrheitsstand: `.github/specs/01-08` und `docs/CHANGELOG_HISTORY.md`.
 
----
+## Kernzahlen (aktuell)
+
+- 64 Phasen (01-64)
+- 54 DetectionTypes (DefectScanner)
+- 62 Kausal-Ursachen (CausalDefectReasoner)
+- 14 Musical Goals
+
+## Kanonischer Release-Vertrag
+
+```text
+Audio-Import  -> backend.api.bridge.get_load_audio_fn()
+Voranalyse    -> backend.api.bridge.run_pre_analysis() genau einmal
+Pipeline      -> get_aurik_denker_instance().denke(...)
+Modus         -> restoration | studio2026
+Export        -> export_guard() + validate_export_quality() + AudioExporter
+```
 
 ## Zentrale Komponenten
 
-| Komponente | Datei | Zweck |
-| --- | --- | --- |
-| `UnifiedRestorerV3` | `core/unified_restorer_v3.py` | Haupt-Pipeline-Orchestrator |
-| `DefectScanner` | `core/defect_scanner.py` | 54 DefectTypes, material-adaptive Priors |
-| `CausalDefectReasoner` | `core/causal_defect_reasoner.py` | 34 Kausal-Ursachen (Bayes) |
-| `GPParameterOptimizer` | `core/gp_parameter_optimizer.py` | RBF-GP + UCB, MOO-Pareto |
-| `MusicalGoalsChecker` | `backend/core/musical_goals/musical_goals_metrics.py` | 14 Ziele |
-| `MediumDetector` | `forensics/medium_detector.py` | Autoritative Tonträgerketten-Erkennung |
-| `PerPhaseMusicalGoalsGate` | `core/per_phase_musical_goals_gate.py` | Rollback-Gate pro Phase |
-| `AurikDenker` | `denker/aurik_denker.py` | Kognitive Orchestrierung |
-| `MusikalischerGlobalplanDienst` | `backend/core/musikalischer_globalplan.py` | Cross-Phase-Globalplan, 13 Ära-Profile, 17 Phase-Adjustments (v9.10.50) |
+| Komponente | Zweck |
+| --- | --- |
+| `AurikDenker` | Kognitive Orchestrierung der Gesamtpipeline |
+| `UnifiedRestorerV3` | Phase-Orchestrierung und Kontextsteuerung |
+| `DefectScanner` | Defekt-Detektion (54 Typen) |
+| `CausalDefectReasoner` | Kausalkette und Mapping auf Phasen (62 Ursachen) |
+| `GPOptimizer` | Adaptive Staerke-/Parameteroptimierung |
+| `MusicalGoalsChecker` | 14-goal Bewertung |
+| `HolisticPerceptualGate` | HPI/AFG/VQI-basierte Freigabelogik |
 
-## Datenfluss
+## Datenfluss (vereinfacht)
 
 ```mermaid
 flowchart TD
-    IN[Audio-Eingang] --> TDP[TransientDecoupledProcessing]
-    TDP --> RE[RestorabilityEstimator]
-    RE --> ERA[EraClassifier]
-    ERA --> SCHLAGER[GermanSchlagerClassifier]
-    SCHLAGER --> MC[MediumDetector]
-    MC --> DS[DefectScanner]
+    IN[Audio Eingang] --> PRE[run_pre_analysis]
+    PRE --> DENKER[AurikDenker.denke]
+    DENKER --> DS[DefectScanner]
     DS --> CDR[CausalDefectReasoner]
-    CDR --> GP[GPParameterOptimizer]
-    GP --> HPG[HarmonicPreservationGuard]
-    HPG --> PHASES[Phasen 01-56 via PMGG]
-    PHASES --> IAD[IntroducedArtifactDetector]
-    IAD --> FC[FeedbackChain]
-    FC --> EO[ExcellenceOptimizer]
-    EO --> MGC[MusicalGoalsChecker 14 Ziele]
-    MGC --> MDEM[MicroDynamicsEnvelopeMorphing]
-    MDEM --> OUT[RestorationResult]
+    CDR --> GP[GPOptimizer]
+    GP --> PHASES[Phasen 01-64]
+    PHASES --> FC[FeedbackChain]
+    FC --> HPG[HolisticPerceptualGate]
+    HPG --> EX[export_guard + validate_export_quality]
+    EX --> OUT[RestorationResult]
 ```
 
-## RestorationResult (normatives Ausgabeformat)
+## Qualitäts- und Sicherheitsinvarianten
 
-```python
-@dataclass
-class RestorationResult:
-    # Pflichtfelder:
-    audio:               np.ndarray
-    config:              RestorationConfig
-    material_type:       MaterialType
-    defect_scores:       dict[DefectType, float]
-    phases_executed:     list[str]
-    phases_skipped:      list[str]
-    total_time_seconds:  float
-    rt_factor:           float
-    quality_estimate:    float  # 0.40*(1-defect_sev) + 0.60*(pqs_mos-1)/4
-    warnings:            list[str]
-    metadata:            dict[str, Any]
-    # Optionale Felder:
-    pqs_result:          Optional[Any] = None
-    musical_goals:       Optional[dict[str, float]] = None
-    confidence:          float = 1.0
-    era_decade:          Optional[int] = None
-    # ... weitere Felder (harmonic_fingerprint, phase_gate_log, etc.)
-```
+- `artifact_freedom < 0.95` blockiert Freigabe.
+- Vokalpfad nutzt VQI als zusaetzlichen Recovery-Trigger.
+- Kein paralleler Produktpfad ausserhalb des kanonischen Vertrags.
 
-## Musical Goals Prioritätsstufen
+## Produktgrenzen
 
-| Stufe | Goals | Verhalten bei Verfehlung |
-| --- | --- | --- |
-| 1 (Unverhandelbar) | Natürlichkeit, Authentizität | Sofortiger Rollback |
-| 2 (Kritisch) | TonalCenter, Timbre-Authentizität, Artikulation | Priorisiert in MOO |
-| 3 (Wichtig) | Emotionalität, MicroDynamics, Groove | Nach Stufe 1+2 |
-| 4 (Wertvoll) | Transparenz, Wärme, Bass-Kraft, SeparationFidelity | Kann entfallen |
-| 5 (Best-effort) | Brillanz, SpatialDepth | Kein Misserfolg |
-
----
-
-_Aurik 9.12.8 — Mai 2026_
+- Desktop-only
+- Offline-first
+- Mono/Stereo als produktiver Zielpfad
+- Keine Cloud-/Serverpflicht im Endnutzerbetrieb

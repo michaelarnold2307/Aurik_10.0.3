@@ -22,4 +22,4 @@ from .mdx_net_wrapper import MDXNetSeparator
 
 __all__ = ["DemucsV5Separator", "HybridVocalSeparator", "MDXNetSeparator"]
 
-__version__ = "9.12.9"
+__version__ = "9.12.10"

@@ -116,6 +116,8 @@ CAUSES = [
     "dolby_nr_mismatch",  # DefectType.DOLBY_NR_MISMATCH → phase_04 HF-Shelf-Korrektur
     # (Dolby B/C/S encode ohne Dekodierung)
     "tape_head_level_dip",  # DefectType.TAPE_HEAD_LEVEL_DIP → phase_12/phase_24 (Bandkopf-Kontaktdruckvariation)
+    "scrape_flutter",  # DefectType.SCRAPE_FLUTTER → phase_12/phase_31 (hochfrequente Bandführungsmodulation)
+    "tape_head_clog",  # DefectType.TAPE_HEAD_CLOG → phase_56/phase_25 (temporäre HF-Auslöschung)
     # ── v9.12.9: 9 neue Kausal-Ursachen — Carrier-Lücken geschlossen ─────────
     # Nahbesprechungseffekt (Richtmikrofon ≤30 cm) → LF +6–12 dB ≤250 Hz; häufig Vokal 1940–1970.
     "proximity_effect_excess",
@@ -997,10 +999,50 @@ _TAPE_HEAD_LEVEL_DIP_MATERIAL_PRIORS: dict[str, float] = {
     "digital": 0.001,
     "unknown": 0.05,
 }
+_SCRAPE_FLUTTER_MATERIAL_PRIORS: dict[str, float] = {
+    "cassette": 0.17,
+    "tape": 0.15,
+    "reel_tape": 0.12,
+    "wire_recording": 0.18,
+    "shellac": 0.01,
+    "vinyl": 0.02,
+    "lacquer_disc": 0.01,
+    "wax_cylinder": 0.02,
+    "cd_digital": 0.001,
+    "dat": 0.001,
+    "minidisc": 0.001,
+    "mp3_low": 0.001,
+    "mp3_high": 0.001,
+    "aac": 0.001,
+    "streaming": 0.001,
+    "digital": 0.001,
+    "unknown": 0.04,
+}
+_TAPE_HEAD_CLOG_MATERIAL_PRIORS: dict[str, float] = {
+    "cassette": 0.16,
+    "tape": 0.14,
+    "reel_tape": 0.13,
+    "wire_recording": 0.10,
+    "shellac": 0.001,
+    "vinyl": 0.001,
+    "lacquer_disc": 0.001,
+    "wax_cylinder": 0.001,
+    "cd_digital": 0.001,
+    "dat": 0.001,
+    "minidisc": 0.001,
+    "mp3_low": 0.001,
+    "mp3_high": 0.001,
+    "aac": 0.001,
+    "streaming": 0.001,
+    "digital": 0.001,
+    "unknown": 0.04,
+}
 for _new_cause, _new_priors in [
     ("clicks", _CLICKS_MATERIAL_PRIORS),
     ("dolby_nr_mismatch", _DOLBY_NR_MISMATCH_MATERIAL_PRIORS),
     ("tape_head_level_dip", _TAPE_HEAD_LEVEL_DIP_MATERIAL_PRIORS),
+    ("scrape_flutter", _SCRAPE_FLUTTER_MATERIAL_PRIORS),
+    ("tape_head_clog", _TAPE_HEAD_CLOG_MATERIAL_PRIORS),
 ]:
     for _mat, _prior in _new_priors.items():
         if _mat in MATERIAL_PRIORS:
@@ -1468,6 +1510,16 @@ CAUSE_TO_PHASES: dict[str, list[str]] = {
         "phase_24_dropout_repair",  # Deep dips cross dropout threshold
         "phase_40_loudness_normalization",  # Slow level drift correction
     ],
+    "scrape_flutter": [
+        "phase_12_wow_flutter_fix",  # Primary: transport-/reibungsbedingte FM-Modulation korrigieren
+        "phase_31_speed_pitch_correction",  # Fine correction for fast scrape-induced pitch wobble
+        "phase_08_transient_preservation",  # Sustain shimmer glätten ohne Attack-Verlust
+    ],
+    "tape_head_clog": [
+        "phase_56_spectral_band_gap_repair",  # Primary: lokale HF-Bandlücken rekonstruieren
+        "phase_25_azimuth_correction",  # Head geometry / spacing cleanup
+        "phase_24_dropout_repair",  # tiefe Clogs können dropout-artig erscheinen
+    ],
     # ── v9.12.9: 9 neue Kausal-Ursachen → Phase-Mappings ────────────────────
     "proximity_effect_excess": [
         "phase_04_eq_correction",  # Primary: LF-Shelf-Absenkung ~150–250 Hz (−4 bis −8 dB, material-adaptiv)
@@ -1740,6 +1792,20 @@ CAUSE_PARAMS: dict[str, dict[str, Any]] = {
         "dip_duration_ms": 500.0,
         "level_smoothing_ms": 200.0,
         "noise_reduction_strength": 0.25,
+    },
+    "scrape_flutter": {
+        "scrape_rate_hz_min": 40.0,
+        "scrape_rate_hz_max": 120.0,
+        "wow_flutter_filter_hz": 85.0,
+        "pitch_correction_semitones": 0.12,
+        "transient_protect_strength": 0.80,
+    },
+    "tape_head_clog": {
+        "band_gap_lo_hz": 4500.0,
+        "band_gap_hi_hz": 12000.0,
+        "spectral_repair_strength": 0.55,
+        "azimuth_correction_deg": 0.0,
+        "dropout_assist_threshold_db": 6.0,
     },
     # ── v9.12.9: CAUSE_PARAMS für neue Kausal-Ursachen ───────────────────────
     "proximity_effect_excess": {
@@ -2698,6 +2764,30 @@ def _likelihood_tape_head_level_dip(sf: SpectralFeatures, defect_scores: dict[st
     return float(np.clip(p, 0.0, 1.0))
 
 
+def _likelihood_scrape_flutter(sf: SpectralFeatures, defect_scores: dict[str, float]) -> float:
+    """P(features | scrape_flutter) — hochfrequente Bandführungsmodulation. v9.12.9"""
+    p = 0.0
+    scrape_sev = float(defect_scores.get("scrape_flutter", 0.0))
+    p += _sigmoid_score(scrape_sev, k=10, x0=0.20) * 0.60
+    flutter_sev = float(defect_scores.get("flutter", 0.0))
+    sideband_sev = float(defect_scores.get("flutter_spectral_sidebands", 0.0))
+    p += _sigmoid_score(max(flutter_sev, sideband_sev), k=8, x0=0.18) * 0.25
+    p += _gaussian_score(sf.spectral_rolloff_hz, mu=6500.0, sigma=3000.0) * 0.15
+    return float(np.clip(p, 0.0, 1.0))
+
+
+def _likelihood_tape_head_clog(sf: SpectralFeatures, defect_scores: dict[str, float]) -> float:
+    """P(features | tape_head_clog) — lokale HF-Auslöschung durch zugesetzten Magnetkopf. v9.12.9"""
+    p = 0.0
+    clog_sev = float(defect_scores.get("tape_head_clog", 0.0))
+    p += _sigmoid_score(clog_sev, k=10, x0=0.20) * 0.65
+    p += _sigmoid_score(float(defect_scores.get("head_wear", 0.0)), k=8, x0=0.30) * 0.15
+    hf_absence = float(1.0 - np.clip(sf.hf_energy_ratio / 0.08, 0.0, 1.0))
+    p += hf_absence * 0.10
+    p += _sigmoid_score(sf.dropout_density, k=8, x0=0.08) * 0.10
+    return float(np.clip(p, 0.0, 1.0))
+
+
 # ── v9.12.9: Likelihood-Funktionen für 9 neue Kausal-Ursachen ────────────────
 
 
@@ -2895,6 +2985,8 @@ LIKELIHOOD_FNS = {
     "clicks": _likelihood_clicks,
     "dolby_nr_mismatch": _likelihood_dolby_nr_mismatch,
     "tape_head_level_dip": _likelihood_tape_head_level_dip,
+    "scrape_flutter": _likelihood_scrape_flutter,
+    "tape_head_clog": _likelihood_tape_head_clog,
     # ── v9.12.9: 9 neue Kausal-Ursachen ──────────────────────────────────────
     "proximity_effect_excess": _likelihood_proximity_effect_excess,
     "room_mode_resonance": _likelihood_room_mode_resonance,

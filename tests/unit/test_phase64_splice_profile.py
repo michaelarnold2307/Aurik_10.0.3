@@ -62,3 +62,40 @@ def test_process_metadata_contains_profile():
     assert "splice_profile" in result.metadata
     assert "min_splice_score" in result.metadata
     assert "crossfade_ms" in result.metadata
+
+
+def test_process_applies_defect_locations_locality(monkeypatch):
+    from backend.core.phases import phase_64_tape_splice_repair as m
+
+    phase = m.TapeSpliceRepairPhase()
+    sr = 48000
+    t = np.arange(sr, dtype=np.float32) / sr
+    audio = (0.25 * np.sin(2.0 * np.pi * 330.0 * t)).astype(np.float32)
+
+    def _fake_apply(
+        audio: np.ndarray,
+        sample_rate: int,
+        strength: float = 0.7,
+        defect_scores: dict | None = None,
+        min_splice_score: float = 0.1,
+        crossfade_ms: float = 15.0,
+    ) -> np.ndarray:
+        del sample_rate, strength, defect_scores, min_splice_score, crossfade_ms
+        return (audio * 0.08).astype(np.float32)
+
+    monkeypatch.setattr(m, "apply", _fake_apply)
+
+    result = phase.process(
+        audio,
+        sample_rate=sr,
+        strength=1.0,
+        defect_scores={"tape_splice_artifact": 0.5},
+        defect_locations={"tape_splice_artifact": [(0.20, 0.30)]},
+    )
+    assert result.success is True
+
+    diff = np.abs(result.audio - audio)
+    in_region = float(np.mean(diff[int(0.21 * sr) : int(0.29 * sr)]))
+    out_region = float(np.mean(diff[int(0.70 * sr) : int(0.85 * sr)]))
+    assert in_region > out_region * 2.0
+    assert float(result.metadata.get("repair_locality_coverage", 0.0)) > 0.0

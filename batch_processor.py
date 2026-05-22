@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Batch Processing System for Aurik 9.0
-===============================================
+Batch Processing System for Aurik 9.12.10
+========================================
 
 Process multiple audio files in parallel with progress tracking.
 
@@ -12,8 +12,8 @@ Features:
 - Resume capability
 - Detailed logging
 
-Author: Aurik 9.0 Team
-Date: February 15, 2026
+Author: Aurik Team
+Date: May 2026
 """
 
 import argparse
@@ -38,12 +38,6 @@ try:
 except Exception:
     _load_audio_file = None  # type: ignore[assignment]
 
-try:
-    from backend.api.bridge import get_medium_type_enum as _get_medium_type_enum
-
-    MaterialType = _get_medium_type_enum()
-except Exception:
-    MaterialType = None  # type: ignore[assignment,misc]
 try:
     from denker.aurik_denker import get_aurik_denker as _get_aurik_denker
 except ImportError:
@@ -180,7 +174,7 @@ class BatchProcessor:
                 )
             # §2.2 Canonical Singleton-Einstiegspunkt (No-Competing-Instances-Protokoll)
             denker = _get_aurik_denker()
-            mode = (config or {}).pop("mode", "restoration")
+            mode = str((config or {}).get("mode", "restoration"))
             denker_result = denker.denke(
                 audio_data,
                 file_sr,
@@ -246,6 +240,20 @@ class BatchProcessor:
                 "output": str(output_file),
                 "elapsed": elapsed,
                 "total_time": restorer_result.total_time_seconds,
+                "metadata": {},
+            }
+            _meta = getattr(denker_result, "metadata", {})
+            if not isinstance(_meta, dict):
+                _meta = {}
+            _wcs_raw = _meta.get("worldclass_composite_gate", {})
+            _wcs_gate = _wcs_raw if isinstance(_wcs_raw, dict) else {}
+            _result_dict["metadata"] = {
+                "quality_gate_worldclass_score": str(float(_wcs_gate.get("wcs", 0.0) or 0.0)),
+                "quality_gate_hybrid_engineer_vector": json.dumps(
+                    _meta.get("hybrid_engineer_vector", {}),
+                    sort_keys=True,
+                    ensure_ascii=True,
+                ),
             }
             if _export_degraded:
                 _result_dict["degraded"] = True
@@ -321,7 +329,7 @@ class BatchProcessor:
 
 def main():
     """Parse CLI arguments and run batch processing."""
-    parser = argparse.ArgumentParser(description="Batch process audio files with Aurik 9.0")
+    parser = argparse.ArgumentParser(description="Batch process audio files with Aurik 9.12.10")
     parser.add_argument("inputs", nargs="+", help="Input files or directories")
     parser.add_argument("-o", "--output", required=True, help="Output directory")
     parser.add_argument(
@@ -329,7 +337,13 @@ def main():
         "--material",
         default="vinyl",
         choices=["shellac", "vinyl", "tape", "cd", "streaming"],
-        help="Material type (default: vinyl)",
+        help="Legacy-Kompatibilitaetsoption. Das Medium wird produktiv automatisch erkannt.",
+    )
+    parser.add_argument(
+        "--mode",
+        default="Restoration",
+        choices=["Restoration", "Studio 2026"],
+        help="Verarbeitungsmodus (default: Restoration)",
     )
     parser.add_argument("-w", "--workers", type=int, default=4, help="Number of parallel workers (default: 4)")
     parser.add_argument("-r", "--resume", action="store_true", help="Resume from previous batch")
@@ -348,20 +362,6 @@ def main():
 
     args = parser.parse_args()
 
-    # Material mapping
-    if MaterialType is None:
-        logger.error("MaterialType not available - backend module not imported")
-        return
-
-    material_map = {
-        "shellac": MaterialType.SHELLAC,
-        "vinyl": MaterialType.VINYL,
-        "tape": MaterialType.TAPE,
-        "cd": MaterialType.CD_DIGITAL,
-        "streaming": MaterialType.STREAMING,
-    }
-    material = material_map[args.material]
-
     # Initialize processor
     processor = BatchProcessor(output_dir=Path(args.output), workers=args.workers, resume=args.resume)
 
@@ -372,9 +372,15 @@ def main():
         logger.warning("No audio files found")
         return
 
+    mode = "studio2026" if args.mode == "Studio 2026" else "restoration"
+    logger.info(
+        "Hinweis: --material=%s bleibt aus Kompatibilitaetsgruenden erhalten; das Medium wird automatisch erkannt.",
+        args.material,
+    )
+
     # Process
     logger.info("Starting batch processing: %d files, %d workers", len(files), args.workers)
-    results = processor.process_batch(files, material)
+    results = processor.process_batch(files, {"mode": mode})
 
     # Album Consistency Pass (§ Album-Konsistenz-Pass)
     # Runs after all songs have been individually restored.  Aligns LUFS and

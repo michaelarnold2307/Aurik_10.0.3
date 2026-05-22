@@ -2,7 +2,7 @@
 PerPhaseMusicalGoalsGate (PMGG) — Aurik 9.0 §2.29.
 
 Prüft Musical Goals nach JEDER Phase via 5-s-Stichprobe.
-Verhindert kumulative Degradation über 56 Phasen.
+Verhindert kumulative Degradation über 64 Phasen.
 
 PROBLEM:
 --------
@@ -1741,16 +1741,37 @@ def _apply_precise_metric_overrides(
     # §9.7.7 Audio length cap: 2.5 s is sufficient for all precise metrics and
     # avoids long NMF/onset-detection runs in SeparationFidelityMetric /
     # ArticulationMetric on long audio samples.
+    # Use start/middle/end slices to avoid first-segment bias on long tracks.
     _cap = int(2.5 * sr)
-    if audio.ndim == 1 and len(audio) > _cap:
-        audio = audio[:_cap]
-    elif audio.ndim == 2 and audio.shape[-1] > _cap:
-        audio = audio[..., :_cap]
+
+    def _cap_multisegment(arr: np.ndarray, cap: int) -> np.ndarray:
+        if arr.ndim == 1:
+            n = len(arr)
+            if n <= cap:
+                return arr
+            seg = max(1, cap // 3)
+            starts = [0, max(0, (n - seg) // 2), max(0, n - seg)]
+            parts = [arr[s : s + seg] for s in starts]
+            return np.concatenate(parts, axis=0)
+
+        if arr.ndim == 2:
+            is_channel_first = arr.shape[0] <= 2 and arr.shape[1] > arr.shape[0]
+            time_len = arr.shape[1] if is_channel_first else arr.shape[0]
+            if time_len <= cap:
+                return arr
+            seg = max(1, cap // 3)
+            starts = [0, max(0, (time_len - seg) // 2), max(0, time_len - seg)]
+            if is_channel_first:
+                parts = [arr[:, s : s + seg] for s in starts]
+                return np.concatenate(parts, axis=1)
+            parts = [arr[s : s + seg, :] for s in starts]
+            return np.concatenate(parts, axis=0)
+
+        return arr
+
+    audio = _cap_multisegment(audio, _cap)
     if reference is not None:
-        if reference.ndim == 1 and len(reference) > _cap:
-            reference = reference[:_cap]
-        elif reference.ndim == 2 and reference.shape[-1] > _cap:
-            reference = reference[..., :_cap]
+        reference = _cap_multisegment(reference, _cap)
 
     refined = dict(scores)
     for goal_name, metric in precise_metrics.items():
@@ -3485,6 +3506,9 @@ class PerPhaseMusicalGoalsGate:
             goal_regressions=goal_regressions,
             strength_used=strength,
         )
+        _decision_class, _decision_reason = self._classify_action_decision(action)
+        log_entry.metadata["pmgg_decision_class"] = _decision_class
+        log_entry.metadata["pmgg_decision_reason"] = _decision_reason
         # §DEBUG: Goal-Snapshots für PipelineTrace / aurik-debug — kein Overhead wenn nicht genutzt.
         log_entry.scores_before = dict(scores_before) if scores_before else {}
         log_entry.scores_after = dict(scores_after) if scores_after else {}
@@ -4230,7 +4254,7 @@ class PerPhaseMusicalGoalsGate:
         strength: float,
         phase_kwargs: dict[str, Any] | None = None,
     ) -> np.ndarray:
-        """Führt Phase aus mit Wet/Dry-Modulation; gibt bei Fehler das Original zurück.
+        """Führt Phase aus mit Wet/Dry-Modulation; nutzt bei Fehlern sicheren Audio-Fallback.
 
         CRITICAL FIX (v9.10.64): Ruft phase.process() statt phase() auf.
         PhaseInterface definiert kein __call__; der vorherige Code erzeugte
@@ -4245,6 +4269,13 @@ class PerPhaseMusicalGoalsGate:
         """
         if phase_kwargs is None:
             phase_kwargs = {}
+
+        def _safe_audio_fallback(x: np.ndarray) -> np.ndarray:
+            """NaN-safe, clipped fallback that preserves input shape/layout."""
+            _x = np.nan_to_num(np.asarray(x), nan=0.0, posinf=0.0, neginf=0.0)
+            _x = np.clip(_x, -1.0, 1.0).astype(np.float32, copy=False)
+            return np.asarray(_x)
+
         # Timing-modifizierende Phasen: kein Wet/Dry (Phasen-Artefakte)
         _TIMING_PHASES = frozenset(
             {
@@ -4265,10 +4296,12 @@ class PerPhaseMusicalGoalsGate:
             elif isinstance(result, np.ndarray):
                 out = result
             else:
-                return audio
+                logger.debug("PMGG: Phase-Ausgabe kein ndarray/Result-Objekt; fallback auf safe audio")
+                return _safe_audio_fallback(audio)
 
             if out is None or not isinstance(out, np.ndarray):
-                return audio
+                logger.debug("PMGG: Phase-Ausgabe ungueltig (None/Typfehler); fallback auf safe audio")
+                return _safe_audio_fallback(audio)
 
             out = np.nan_to_num(out, nan=0.0, posinf=0.0, neginf=0.0)
             out = np.clip(out, -1.0, 1.0).astype(np.float32)
@@ -4349,7 +4382,7 @@ class PerPhaseMusicalGoalsGate:
             return np.asarray(out)
         except Exception as exc:
             logger.debug("PMGG: Phase-Ausführung fehlgeschlagen: %s", exc)
-            return audio
+            return _safe_audio_fallback(audio)
 
     @staticmethod
     def _wet_dry_blend(
@@ -4366,7 +4399,7 @@ class PerPhaseMusicalGoalsGate:
         Originalphase.
 
         Wissensch. Basis: Wiener-Filtertheorie — Magnitude-Blending bei
-        erhaltener Phase minimiert perceptual distortion (Ephraim & Malah
+        erhaltener Dry-Phase minimiert perceptual distortion (Ephraim & Malah
         1984).  Lineare Interpolation bleibt bei strength >= 0.30 (Kammfilter
         dort vernachlässigbar da Wet-Anteil dominiert).
 
@@ -4477,13 +4510,13 @@ class PerPhaseMusicalGoalsGate:
                 _, _, Zxx_wet = _stft(wet, fs=48000, nperseg=win_size, noverlap=win_size - hop)
 
                 # §2.43 Phase-Preserved Wet/Dry-Blend:
-                # M_blend = (1−α)·M_dry + α·M_wet, Phase vom Wet-Signal
+                # M_blend = (1−α)·M_dry + α·M_wet, Phase vom Dry-Signal
                 mag_dry = np.abs(Zxx_dry)
                 mag_wet = np.abs(Zxx_wet)
-                phase_wet = np.angle(Zxx_wet)
+                phase_dry = np.angle(Zxx_dry)
 
                 mag_blend = mag_dry + strength * (mag_wet - mag_dry)
-                Zxx_blend = mag_blend * np.exp(1j * phase_wet)
+                Zxx_blend = mag_blend * np.exp(1j * phase_dry)
 
                 _, out = _istft(Zxx_blend, fs=48000, nperseg=win_size, noverlap=win_size - hop)
                 # Length matching
@@ -4582,6 +4615,30 @@ class PerPhaseMusicalGoalsGate:
             return getattr(meta, "phase_id", type(phase).__name__)
         except Exception:
             return type(phase).__name__
+
+    @staticmethod
+    def _classify_action_decision(action: str) -> tuple[str, str]:
+        """Mappt PMGG-Action auf stabile Klasse + Grundcode für Telemetrie."""
+        a = str(action or "")
+        if a == "passed":
+            return "pass", "regression_within_threshold"
+        if a == "passthrough":
+            return "pass", "phase_passthrough_no_change"
+        if a == "sub_threshold":
+            return "pass", "jnd_sub_threshold_accept"
+        if a == "passed_p4p5_tolerated":
+            return "pass", "priority_tolerance_band_accept"
+        if a.startswith("retry"):
+            return "retry", "regression_over_threshold_retry_success"
+        if a.startswith("emergency_s"):
+            return "emergency", "catastrophic_regression_emergency_success"
+        if a == "best_effort_emergency":
+            return "best_effort", "catastrophic_regression_unresolved"
+        if a == "best_effort_accepted":
+            return "best_effort", "legacy_best_effort_accepted"
+        if a.startswith("best_effort"):
+            return "best_effort", "retry_exhausted_best_effort"
+        return "other", "unclassified_action"
 
 
 # ---------------------------------------------------------------------------

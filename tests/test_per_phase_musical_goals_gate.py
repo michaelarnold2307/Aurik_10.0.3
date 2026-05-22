@@ -750,3 +750,117 @@ class TestWetDryBlendStereoSafety:
         # Last segment must not collapse to all-zero due to invalid 2D padding.
         tail = out[-500:, :]
         assert float(np.sqrt(np.mean(tail**2))) > 1e-5
+
+    def test_55_wet_dry_blend_low_strength_preserves_dry_phase_on_inverted_wet(self):
+        gate = PerPhaseMusicalGoalsGate()
+        t = np.linspace(0.0, 0.2, int(0.2 * SR), endpoint=False, dtype=np.float32)
+        dry = (0.25 * np.sin(2.0 * np.pi * 440.0 * t)).astype(np.float32)
+        wet = -dry  # volle Polaritaetsinversion
+
+        out = gate._wet_dry_blend(dry, wet, strength=0.10)
+
+        assert out.shape == dry.shape
+        assert np.all(np.isfinite(out))
+        # Bei niedriger Strength darf der Output nicht in Richtung -dry kippen.
+        corr_dry = float(np.dot(out, dry) / ((np.linalg.norm(out) * np.linalg.norm(dry)) + 1e-8))
+        corr_wet = float(np.dot(out, wet) / ((np.linalg.norm(out) * np.linalg.norm(wet)) + 1e-8))
+        assert corr_dry > 0.7
+        assert corr_wet < 0.0
+
+
+class TestDecisionReasonTelemetry:
+    def test_56_wrap_phase_sets_decision_reason_for_sub_threshold(self, monkeypatch):
+        audio = _tone(4.0)
+        gate = PerPhaseMusicalGoalsGate()
+
+        def _stub_run_with_retry(
+            self,
+            phase,
+            audio_in,
+            sr,
+            scores_before,
+            phase_id,
+            phase_kwargs=None,
+            **kwargs,
+        ):
+            return audio_in.copy(), dict(scores_before), "sub_threshold", 0.55
+
+        monkeypatch.setattr(PerPhaseMusicalGoalsGate, "_run_with_retry", _stub_run_with_retry)
+
+        _, _, log_entry = gate.wrap_phase(_StrengthCapturingPhase(), audio, SR, phase_id="phase_03_denoise")
+
+        assert log_entry.metadata["pmgg_decision_class"] == "pass"
+        assert log_entry.metadata["pmgg_decision_reason"] == "jnd_sub_threshold_accept"
+
+    def test_57_wrap_phase_sets_decision_reason_for_best_effort_emergency(self, monkeypatch):
+        audio = _tone(4.0)
+        gate = PerPhaseMusicalGoalsGate()
+
+        def _stub_run_with_retry(
+            self,
+            phase,
+            audio_in,
+            sr,
+            scores_before,
+            phase_id,
+            phase_kwargs=None,
+            **kwargs,
+        ):
+            scores_after = dict(scores_before)
+            scores_after["natuerlichkeit"] = max(0.0, scores_after.get("natuerlichkeit", 0.5) - 0.15)
+            return audio_in.copy(), scores_after, "best_effort_emergency", 0.15
+
+        monkeypatch.setattr(PerPhaseMusicalGoalsGate, "_run_with_retry", _stub_run_with_retry)
+
+        _, _, log_entry = gate.wrap_phase(_StrengthCapturingPhase(), audio, SR, phase_id="phase_29_tape_hiss_reduction")
+
+        assert log_entry.metadata["pmgg_decision_class"] == "best_effort"
+        assert log_entry.metadata["pmgg_decision_reason"] == "catastrophic_regression_unresolved"
+
+    def test_58_wrap_phase_sets_decision_reason_for_passthrough(self, monkeypatch):
+        audio = _tone(3.0)
+        gate = PerPhaseMusicalGoalsGate()
+
+        def _stub_run_with_retry(
+            self,
+            phase,
+            audio_in,
+            sr,
+            scores_before,
+            phase_id,
+            phase_kwargs=None,
+            **kwargs,
+        ):
+            return audio_in.copy(), dict(scores_before), "passthrough", 1.0
+
+        monkeypatch.setattr(PerPhaseMusicalGoalsGate, "_run_with_retry", _stub_run_with_retry)
+
+        _, _, log_entry = gate.wrap_phase(
+            _StrengthCapturingPhase(), audio, SR, phase_id="phase_31_speed_pitch_correction"
+        )
+
+        assert log_entry.metadata["pmgg_decision_class"] == "pass"
+        assert log_entry.metadata["pmgg_decision_reason"] == "phase_passthrough_no_change"
+
+    def test_59_wrap_phase_sets_decision_reason_for_best_effort_accepted(self, monkeypatch):
+        audio = _tone(3.0)
+        gate = PerPhaseMusicalGoalsGate()
+
+        def _stub_run_with_retry(
+            self,
+            phase,
+            audio_in,
+            sr,
+            scores_before,
+            phase_id,
+            phase_kwargs=None,
+            **kwargs,
+        ):
+            return audio_in.copy(), dict(scores_before), "best_effort_accepted", 0.2
+
+        monkeypatch.setattr(PerPhaseMusicalGoalsGate, "_run_with_retry", _stub_run_with_retry)
+
+        _, _, log_entry = gate.wrap_phase(_StrengthCapturingPhase(), audio, SR, phase_id="phase_03_denoise")
+
+        assert log_entry.metadata["pmgg_decision_class"] == "best_effort"
+        assert log_entry.metadata["pmgg_decision_reason"] == "legacy_best_effort_accepted"

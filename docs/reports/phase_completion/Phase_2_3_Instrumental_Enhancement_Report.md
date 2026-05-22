@@ -5,6 +5,7 @@
 > und sind nicht als aktueller, normativ bindender Produktclaim zu lesen.
 > Verbindlicher Ist-Stand: `.github/specs/01-09`, `.github/copilot-instructions.md`
 > und `docs/CHANGELOG_HISTORY.md`.
+> Produktiver Releasevertrag: Bridge -> `AurikDenker.denke(...)` -> `export_guard()`.
 
 **Projekt:** AURIK v8 - Audio Restoration Intelligence Kit  
 **Phase:** 2.3 - Instrumental Enhancement  
@@ -24,7 +25,7 @@ Phase 2.3 schließt die Qualitätslücke zwischen Vocal Processing (Phase 2.2, 9
 | ------ | -------- | ---------- |
 | **Qualitätslücke schließen** | ✅ | Von 11% (Vocals 93% vs. Instruments 82%) auf 1% (92%) reduziert |
 | **6 Komponenten implementieren** | ✅ | Bass, Drums, Guitar, Piano, Brass, Spatial - alle funktional |
-| **Integration in UnifiedRestorerV2** | ✅ | Semantisches Routing produktionsbereit |
+| **Integration in historische Runtime** | ✅ | Semantisches Routing produktionsbereit |
 | **Umfassende Tests** | ✅ | Alle 6 Komponenten erfolgreich validiert |
 | **Code-Qualität** | ✅ | 3,842 Zeilen, Broadcasting-Fehler behoben |
 
@@ -280,11 +281,11 @@ Phase 2.3 schließt die Qualitätslücke zwischen Vocal Processing (Phase 2.2, 9
 
 ---
 
-## 2. Integration in UnifiedRestorerV2
+## 2. Integration in historische Runtime
 
 ### 2.1 Architektur
 
-**Datei:** `core/unified_restorer_v2.py`  
+**Datei:** `core/historical_restorer_runtime.py`  
 **Änderungen:** ~200 Zeilen (Imports + Properties + Routing + Pipelines)
 
 #### Lazy-Loading Pattern:
@@ -402,7 +403,7 @@ Phase 2.3 Integration Test: Instrumental Enhancement Suite
 
 ✓ Phase 2.3 components available
 
-🔧 Initializing UnifiedRestorerV2...
+🔧 Initializing historical restorer runtime...
   ✓ Restorer initialized
 
 ================================================================================
@@ -503,7 +504,7 @@ def _match_lengths(*arrays):
 | Spatial Enhancement | 610 | 4 | 4 |
 | **GESAMT** | **4,206** | **24** | **26** |
 
-### 4.2 Integration in UnifiedRestorerV2
+### 4.2 Integration in historische Runtime
 
 - **Imports:** ~10 Zeilen
 - **Instance Variables:** ~7 Zeilen
@@ -782,7 +783,7 @@ self._bass_enhancement = BassEnhancementSystem(
 ✅ **Alle Projektziele erreicht**
 
 - 6 Komponenten implementiert und getestet
-- Integration in UnifiedRestorerV2 abgeschlossen
+- Integration in historische Runtime abgeschlossen
 - Qualitätslücke von 11% auf 1% reduziert
 - 23 Punkte gewonnen (154.0 → 177.0/100)
 
@@ -833,7 +834,7 @@ dsp/
 └── spatial_enhancement.py      (610 Zeilen, 4 Komponenten)
 
 core/
-└── unified_restorer_v2.py      (+327 Zeilen Integration)
+└── historical_restorer_runtime.py      (+327 Zeilen Integration)
 
 tests/
 └── test_phase_2_3_integration.py  (327 Zeilen, 6 Tests)
@@ -847,7 +848,7 @@ tests/
 4. **Piano/Keys Restoration** - 815 Zeilen (mit Broadcasting-Fixes)
 5. **Brass/Wind Enhancement** - 562 Zeilen
 6. **Spatial Enhancement** - 610 Zeilen
-7. **Integration in UnifiedRestorerV2** - 327 Zeilen
+7. **Integration in historische Runtime** - 327 Zeilen
 8. **Test Suite** - 327 Zeilen
 9. **Broadcasting-Fixes** - 18 Stellen
 

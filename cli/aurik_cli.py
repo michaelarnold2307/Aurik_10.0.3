@@ -1,4 +1,5 @@
 import importlib
+import json
 import logging
 import os
 import sys
@@ -298,6 +299,17 @@ def _export_audio_frontend_parity(
         if isinstance(eq_payload.get("worldclass_composite_gate", {}), dict)
         else {}
     )
+    _result_metadata = getattr(result, "metadata", None)
+    _hybrid_engineer_vector = (
+        _result_metadata.get("hybrid_engineer_vector", {}) if isinstance(_result_metadata, dict) else {}
+    )
+    _hybrid_engineer_vector_json = json.dumps(
+        {str(k): float(v) for k, v in _hybrid_engineer_vector.items()}
+        if isinstance(_hybrid_engineer_vector, dict)
+        else {},
+        sort_keys=True,
+        ensure_ascii=True,
+    )
     _evidence_payload = (
         eq_payload.get("threshold_evidence", {}) if isinstance(eq_payload.get("threshold_evidence", {}), dict) else {}
     )
@@ -362,6 +374,7 @@ def _export_audio_frontend_parity(
         "quality_gate_worldclass_passed": str(bool(_wcs_payload.get("passed", False))),
         "quality_gate_worldclass_profile": str(_wcs_payload.get("profile", "") or ""),
         "quality_gate_worldclass_artifact_veto": str(bool(_wcs_payload.get("artifact_veto", False))),
+        "quality_gate_hybrid_engineer_vector": _hybrid_engineer_vector_json,
         "quality_gate_evidence_worldclass_source_class": str(_wcs_evidence.get("source_class", "") or ""),
         "quality_gate_evidence_worldclass_revalidate_by": str(_wcs_evidence.get("revalidate_by", "") or ""),
         "quality_gate_musiclover_vqi": str(float(_ml_vocal.get("vqi", 0.0) or 0.0)),

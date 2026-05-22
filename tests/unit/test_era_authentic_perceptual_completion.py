@@ -255,6 +255,31 @@ class TestStereoInput:
         assert np.max(np.abs(result.audio)) <= 1.0
 
 
+class TestAnchorGuidance:
+    def test_anchor_guidance_path_runs_and_stays_finite(self):
+        comp = get_era_authentic_perceptual_completion()
+        audio = _bandlimited_signal(cutoff_hz=3500.0)
+        anchor = _sine(freq=6000.0, dur=2.0)
+
+        result = comp.complete(audio, SR, era=1960, anchor=anchor)
+
+        assert isinstance(result, EraCompletionResult)
+        assert result.audio.shape == audio.shape
+        assert np.all(np.isfinite(result.audio))
+        assert np.max(np.abs(result.audio)) <= 1.0
+
+    def test_short_anchor_keeps_output_length(self):
+        comp = get_era_authentic_perceptual_completion()
+        audio = _bandlimited_signal(cutoff_hz=3200.0, dur=2.0)
+        anchor_short = _sine(freq=5500.0, dur=0.5)
+
+        result = comp.complete(audio, SR, era=1950, anchor=anchor_short)
+
+        assert isinstance(result, EraCompletionResult)
+        assert result.audio.shape == audio.shape
+        assert np.all(np.isfinite(result.audio))
+
+
 # ---------------------------------------------------------------------------
 # 7. Singleton & Thread-Safety
 # ---------------------------------------------------------------------------

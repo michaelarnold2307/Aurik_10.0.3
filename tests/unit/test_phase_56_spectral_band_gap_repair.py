@@ -131,6 +131,27 @@ class TestPhase56Process:
         assert 0.0 < eff < 1.0
         assert float(result.metadata.get("phase_locality_factor", 1.0)) <= 0.4 + 1e-6
 
+    def test_defect_locations_localize_repair(self, phase, sine_440_2s, monkeypatch):
+        def _fake_process_channel(channel, sr, instrument_tag, gap_fraction_min=None):
+            return (channel * 0.10).astype(np.float32)
+
+        monkeypatch.setattr(phase, "_process_channel", _fake_process_channel)
+        monkeypatch.setattr(phase, "_mrsa_gain_refinement", lambda pre, post, sr: post)
+
+        result = phase.process(
+            sine_440_2s,
+            sample_rate=SR,
+            confidence=1.0,
+            strength=1.0,
+            defect_locations={"head_wear": [(0.20, 0.30)]},
+        )
+        assert result.success is True
+        diff = np.abs(result.audio - sine_440_2s)
+        in_region = float(np.mean(diff[int(0.21 * SR) : int(0.29 * SR)]))
+        out_region = float(np.mean(diff[int(1.40 * SR) : int(1.70 * SR)]))
+        assert in_region > out_region * 2.0
+        assert float(result.metadata.get("repair_locality_coverage", 0.0)) > 0.0
+
 
 # ---------------------------------------------------------------------------
 # Tests: Stereo-Eingabe

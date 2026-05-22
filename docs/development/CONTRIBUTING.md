@@ -2,6 +2,10 @@
 
 **Vielen Dank für dein Interesse an Aurik!**
 
+> **Normativer Hinweis:** Release-faehige Pfade muessen den kanonischen Vertrag
+> Bridge -> `AurikDenker.denke(...)` -> `export_guard()` einhalten.
+> Historische v2- und direkte Restore-Beispiele in alten Abschnitten sind `LEGACY_NON_RELEASE`.
+
 Dieses Dokument hilft dir bei deinen ersten Beiträgen zum Projekt.
 
 ---
@@ -307,7 +311,7 @@ import torch
 from transformers import AutoModel
 
 # Local
-from core.unified_restorer_v2 import UnifiedRestorerV2
+from backend.api.bridge import get_aurik_denker_instance
 from dsp.denoiser import Denoiser
 ```
 
@@ -414,7 +418,7 @@ logger.debug(f"Audio shape: {audio.shape}, SR: {sr}")
 ```
 Aurik_Standalone/
 ├── core/                     # Core processing logic
-│   ├── unified_restorer_v2.py
+│   ├── unified_restorer_v3.py
 │   ├── processing_modes.py
 │   └── ...
 ├── dsp/                      # DSP modules
@@ -454,7 +458,7 @@ Aurik_Standalone/
 pytest tests/ -v
 
 # Specific test file
-pytest tests/test_unified_restorer.py -v
+pytest tests/unit/test_spec_upgrade_gate.py -v
 
 # Specific test
 pytest tests/test_unified_restorer.py::test_restore_basic_noise_removal -v
@@ -476,17 +480,17 @@ pytest tests/ --cov=core --cov=dsp --cov-report=html
 # tests/test_my_feature.py
 import pytest
 import numpy as np
-from core.unified_restorer_v2 import UnifiedRestorerV2
+from backend.api.bridge import get_aurik_denker_instance
 
 def test_restore_basic():
     """Test basic restoration."""
     # Arrange
     sr = 48000
     audio = np.random.randn(sr * 3).astype(np.float32) * 0.1  # 3s noise
-    restorer = UnifiedRestorerV2()
+    denker = get_aurik_denker_instance()
 
     # Act
-    restored = restorer.restore(audio, sr)
+    restored = denker.denke(audio, sr, mode="restoration").audio
 
     # Assert
     assert restored is not None
@@ -496,10 +500,10 @@ def test_restore_basic():
 
 def test_restore_invalid_input():
     """Test error handling for invalid input."""
-    restorer = UnifiedRestorerV2()
+    denker = get_aurik_denker_instance()
 
     with pytest.raises(ValueError):
-        restorer.restore(None, 48000)  # Should raise ValueError
+        denker.denke(None, 48000, mode="restoration")  # Should raise ValueError
 ```
 
 **Best Practices:**

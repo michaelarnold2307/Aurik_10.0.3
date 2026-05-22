@@ -836,6 +836,7 @@ class SpeedPitchCorrectionPhase(PhaseInterface):
         ratio > 1.0: speed up
         ratio < 1.0: slow down
         """
+        del params
         # [RELEASE_MUST] §2.51 Stereo-Simultaneous-Processing-Invariante:
         # hop_analysis und hop_synthesis werden EINMAL aus ratio berechnet und
         # identisch auf L und R angewendet. Per-Kanal-Parameterberechnung ist VERBOTEN.
@@ -852,16 +853,39 @@ class SpeedPitchCorrectionPhase(PhaseInterface):
         # A single combined stereo peak guard preserves L/R balance.
         # Per-channel normalization is VERBOTEN (destroys stereo image — up to 6 dB mismatch).
         if audio.ndim == 2:
-            left = self._wsola_mono(audio[:, 0], window_size, hop_analysis, hop_synthesis)
-            right = self._wsola_mono(audio[:, 1], window_size, hop_analysis, hop_synthesis)
-            min_len = min(len(left), len(right))
-            result = np.column_stack([left[:min_len], right[:min_len]])
+            n_target = int(audio.shape[0])
+            left = np.asarray(self._wsola_mono(audio[:, 0], window_size, hop_analysis, hop_synthesis), dtype=np.float64)
+            right = np.asarray(
+                self._wsola_mono(audio[:, 1], window_size, hop_analysis, hop_synthesis),
+                dtype=np.float64,
+            )
+
+            if len(left) > n_target:
+                left = left[:n_target]
+            elif len(left) < n_target:
+                left = np.pad(left, (0, n_target - len(left)))
+
+            if len(right) > n_target:
+                right = right[:n_target]
+            elif len(right) < n_target:
+                right = np.pad(right, (0, n_target - len(right)))
+
+            result = np.column_stack([left, right])
+            result = np.nan_to_num(result, nan=0.0, posinf=0.0, neginf=0.0)
             # Single combined peak guard — preserves L/R amplitude relationship
             _peak = float(np.percentile(np.abs(result), 99.9)) + 1e-10
             if _peak > 1.0:
                 result = result / _peak
-            return result
-        return self._wsola_mono(audio, window_size, hop_analysis, hop_synthesis)
+            return np.clip(result, -1.0, 1.0)
+
+        mono = np.asarray(self._wsola_mono(audio, window_size, hop_analysis, hop_synthesis), dtype=np.float64)
+        n_target = int(len(audio))
+        if len(mono) > n_target:
+            mono = mono[:n_target]
+        elif len(mono) < n_target:
+            mono = np.pad(mono, (0, n_target - len(mono)))
+        mono = np.nan_to_num(mono, nan=0.0, posinf=0.0, neginf=0.0)
+        return np.clip(mono, -1.0, 1.0)
 
     def _wsola_mono(self, audio: np.ndarray, window_size: int, hop_analysis: int, hop_synthesis: int) -> np.ndarray:
         """WSOLA for mono signal.
@@ -915,14 +939,32 @@ class SpeedPitchCorrectionPhase(PhaseInterface):
         )
         # STFT parameters
         nperseg = 2048
-        noverlap = nperseg // 2
+        # §2.63 Konsistenz: 75% Overlap reduziert Spektrallücken bei Pitch-Shift.
+        noverlap = (nperseg * 3) // 4
 
         # §2.51 Linked-Stereo: Phase-Vocoder kohärent auf L+R
         if audio.ndim == 2:
-            left = self._phase_vocoder_mono(audio[:, 0], ratio, nperseg, noverlap)
-            right = self._phase_vocoder_mono(audio[:, 1], ratio, nperseg, noverlap)
-            min_len = min(len(left), len(right))
-            return np.column_stack([left[:min_len], right[:min_len]])
+            n_target = int(audio.shape[0])
+            left = np.asarray(self._phase_vocoder_mono(audio[:, 0], ratio, nperseg, noverlap), dtype=np.float64)
+            right = np.asarray(self._phase_vocoder_mono(audio[:, 1], ratio, nperseg, noverlap), dtype=np.float64)
+
+            if len(left) > n_target:
+                left = left[:n_target]
+            elif len(left) < n_target:
+                left = np.pad(left, (0, n_target - len(left)))
+
+            if len(right) > n_target:
+                right = right[:n_target]
+            elif len(right) < n_target:
+                right = np.pad(right, (0, n_target - len(right)))
+
+            stacked = np.column_stack([left, right])
+            stacked = np.nan_to_num(stacked, nan=0.0, posinf=0.0, neginf=0.0)
+            # §2.51 Linked-Stereo: ein gemeinsamer Peak-Guard bewahrt die L/R-Balance.
+            _peak = float(np.percentile(np.abs(stacked), 99.9)) + 1e-10
+            if _peak > 1.0:
+                stacked = stacked / _peak
+            return np.clip(stacked, -1.0, 1.0)
         else:
             return self._phase_vocoder_mono(audio, ratio, nperseg, noverlap)
 
@@ -935,14 +977,20 @@ class SpeedPitchCorrectionPhase(PhaseInterface):
         magnitude = np.abs(Zxx)
         phase = np.angle(Zxx)
 
-        # Shift frequency bins
+        # Shift frequency bins mit fraktionaler Interpolation.
         num_bins = len(f)
         Zxx_shifted = np.zeros_like(Zxx)
 
         for i in range(num_bins):
-            new_bin = int(i / ratio)
-            if 0 <= new_bin < num_bins:
-                Zxx_shifted[i, :] = magnitude[new_bin, :] * np.exp(1j * phase[new_bin, :])
+            src_bin = i / ratio
+            b0 = int(np.floor(src_bin))
+            b1 = b0 + 1
+            if 0 <= b0 < (num_bins - 1):
+                frac = float(np.clip(src_bin - b0, 0.0, 1.0))
+                mag_interp = (1.0 - frac) * magnitude[b0, :] + frac * magnitude[b1, :]
+                # Phase von dominanter Nachbar-Bin übernehmen, um Phasenrauschen zu begrenzen.
+                phase_sel = phase[b0, :] if magnitude[b0, :].mean() >= magnitude[b1, :].mean() else phase[b1, :]
+                Zxx_shifted[i, :] = mag_interp * np.exp(1j * phase_sel)
 
         # Direct ISTFT — Zxx_shifted retains full phase from original STFT.
         # ISTFT is semantically correct and 50-100× faster than PGHI.
@@ -955,8 +1003,13 @@ class SpeedPitchCorrectionPhase(PhaseInterface):
                 boundary=True,
             )
         except Exception as _istft_p31_exc:
-            logger.debug("phase_31 istft failed, passthrough: %s", _istft_p31_exc)
-            audio_shifted = audio.copy()
+            logger.debug("phase_31 istft failed, switching to OLA fallback: %s", _istft_p31_exc)
+            audio_shifted = self._istft_fallback_ola(
+                np.asarray(Zxx_shifted, dtype=np.complex64),
+                nperseg=nperseg,
+                noverlap=noverlap,
+                original_audio=np.asarray(audio, dtype=np.float64),
+            )
 
         # Match original length
         if len(audio_shifted) > len(audio):
@@ -964,7 +1017,50 @@ class SpeedPitchCorrectionPhase(PhaseInterface):
         elif len(audio_shifted) < len(audio):
             audio_shifted = np.pad(audio_shifted, (0, len(audio) - len(audio_shifted)))
 
-        return audio_shifted  # type: ignore[no-any-return]
+        audio_shifted = np.nan_to_num(np.asarray(audio_shifted, dtype=np.float64), nan=0.0, posinf=0.0, neginf=0.0)
+        _peak = float(np.percentile(np.abs(audio_shifted), 99.9)) + 1e-10
+        if _peak > 1.0:
+            audio_shifted = audio_shifted / _peak
+        return audio_shifted.astype(audio.dtype, copy=False)
+
+    def _istft_fallback_ola(
+        self,
+        zxx: np.ndarray,
+        nperseg: int,
+        noverlap: int,
+        original_audio: np.ndarray | None = None,
+    ) -> np.ndarray:
+        """Robuste iSTFT-Notfallrekonstruktion via OLA wenn scipy.signal.istft fehlschlaegt."""
+        hop = max(1, int(nperseg - noverlap))
+        if zxx.ndim != 2 or zxx.shape[1] == 0:
+            if isinstance(original_audio, np.ndarray) and original_audio.size > 0:
+                return np.nan_to_num(np.asarray(original_audio, dtype=np.float64), nan=0.0, posinf=0.0, neginf=0.0)
+            return np.zeros(max(nperseg, hop), dtype=np.float64)
+
+        try:
+            frames = np.fft.irfft(zxx, n=nperseg, axis=0).astype(np.float64)
+            window = np.hanning(nperseg).astype(np.float64)
+            frames *= window[:, np.newaxis]
+
+            n_frames = frames.shape[1]
+            out_len = int((n_frames - 1) * hop + nperseg)
+            output = np.zeros(out_len, dtype=np.float64)
+            norm = np.zeros(out_len, dtype=np.float64)
+            win_sq = window**2
+
+            for i in range(n_frames):
+                s = i * hop
+                output[s : s + nperseg] += frames[:, i]
+                norm[s : s + nperseg] += win_sq
+
+            norm = np.where(norm > 1e-10, norm, 1.0)
+            output = output / norm
+            return np.nan_to_num(output, nan=0.0, posinf=0.0, neginf=0.0)
+        except Exception as _ola_exc:
+            logger.debug("phase_31 OLA fallback failed, returning original audio: %s", _ola_exc)
+            if isinstance(original_audio, np.ndarray) and original_audio.size > 0:
+                return np.nan_to_num(np.asarray(original_audio, dtype=np.float64), nan=0.0, posinf=0.0, neginf=0.0)
+            return np.zeros(max(nperseg, hop), dtype=np.float64)
 
     def _correct_psola(
         self,

@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """
-_aurik_run_excellence.py — Aurik maximale Exzellenz-Restaurierung
-==================================================================
-Lädt die MP3 aus dem Hauptverzeichnis, restauriert mit mode="maximum"
-(Studio 2026 / maximal mögliche Exzellenz) und exportiert nach output/.
+_aurik_run_excellence.py — Internes Studio-2026-Hilfsskript
+============================================================
+Lädt eine Audiodatei aus dem Arbeitsverzeichnis, restauriert sie mit
+mode="studio2026" und exportiert nach output/.
 
-Nutzt kanonischen Einstieg AurikDenker.denke() — kein UV3-Bypass.
+Nutzt den kanonischen Einstieg AurikDenker.denke() — kein UV3-Bypass.
 
 Aufruf: .venv_aurik/bin/python _aurik_run_excellence.py [datei.mp3]
 """
@@ -18,6 +18,36 @@ import time
 from pathlib import Path
 
 import numpy as np
+
+try:
+    import soundfile as _sf
+except Exception:  # optional dependency
+    _sf = None
+
+try:
+    from pedalboard.io import AudioFile as _PedalboardAudioFile
+except Exception:  # optional dependency
+    _PedalboardAudioFile = None
+
+try:
+    import librosa as _librosa
+except Exception:  # optional dependency
+    _librosa = None
+
+try:
+    import soxr as _soxr
+except Exception:  # optional dependency
+    _soxr = None
+
+try:
+    from denker.aurik_denker import get_aurik_denker as _get_aurik_denker
+except Exception:  # optional dependency
+    _get_aurik_denker = None
+
+try:
+    from backend.core.audio_exporter import AudioExporter as _AudioExporter
+except Exception:  # optional dependency
+    _AudioExporter = None
 
 # ─── Logging konfigurieren ───────────────────────────────────────────────────
 logging.basicConfig(
@@ -32,7 +62,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 # ─── Konstanten ─────────────────────────────────────────────────────────────
 TARGET_SR: int = 48_000
-MODE: str = "maximum"  # 8× RT-Budget, maximalste Exzellenz
+MODE: str = "studio2026"
 OUTPUT_DIR: Path = Path("output")
 OUTPUT_DIR.mkdir(exist_ok=True)
 
@@ -41,9 +71,9 @@ def _load_audio(path: Path) -> tuple[np.ndarray, int]:
     """Dreistufige Audio-Lade-Kaskade (Spec §11.4)."""
     # Stufe 1: soundfile
     try:
-        import soundfile as sf
-
-        audio, sr = sf.read(str(path), dtype="float32", always_2d=True)
+        if _sf is None:
+            raise ImportError("soundfile nicht verfügbar")
+        audio, sr = _sf.read(str(path), dtype="float32", always_2d=True)
         audio = audio.T  # (channels, samples)
         logger.info("Audio geladen via soundfile: %s Hz, %d Kanäle, %.2f s", sr, audio.shape[0], audio.shape[1] / sr)
         return audio, sr
@@ -52,20 +82,24 @@ def _load_audio(path: Path) -> tuple[np.ndarray, int]:
 
     # Stufe 2: pedalboard
     try:
-        from pedalboard.io import AudioFile
-
-        with AudioFile(str(path)) as f:
+        if _PedalboardAudioFile is None:
+            raise ImportError("pedalboard nicht verfügbar")
+        f = _PedalboardAudioFile(str(path))
+        try:
             audio = f.read(f.frames)  # (channels, samples) float32
             sr = f.samplerate
+        finally:
+            f.close()
         logger.info("Audio geladen via pedalboard: %s Hz, %d Kanäle, %.2f s", sr, audio.shape[0], audio.shape[1] / sr)
         return audio, sr
     except Exception as e2:
         logger.debug("pedalboard fehlgeschlagen: %s", e2)
 
     # Stufe 3: librosa
-    import librosa
+    if _librosa is None:
+        raise RuntimeError("Kein Loader verfügbar: soundfile, pedalboard und librosa fehlen.")
 
-    audio_mono, sr = librosa.load(str(path), sr=None, mono=False, dtype=np.float32)
+    audio_mono, sr = _librosa.load(str(path), sr=None, mono=False, dtype=np.float32)
     if audio_mono.ndim == 1:
         audio_mono = audio_mono[np.newaxis, :]
     logger.info(
@@ -79,23 +113,25 @@ def _resample_to_48k(audio: np.ndarray, sr: int) -> np.ndarray:
     if sr == TARGET_SR:
         return audio
     try:
-        import soxr
+        if _soxr is None:
+            raise ImportError("soxr nicht verfügbar")
 
         if audio.ndim == 1:
-            resampled = soxr.resample(audio, sr, TARGET_SR, quality="VHQ")
+            resampled = _soxr.resample(audio, sr, TARGET_SR, quality="VHQ")
         else:
-            resampled = np.stack([soxr.resample(ch, sr, TARGET_SR, quality="VHQ") for ch in audio])
+            resampled = np.stack([_soxr.resample(ch, sr, TARGET_SR, quality="VHQ") for ch in audio])
         logger.info("Resampling %d → %d Hz via soxr VHQ", sr, TARGET_SR)
         return resampled
     except ImportError:
         pass
-    import librosa
+    if _librosa is None:
+        raise RuntimeError("Resampling nicht möglich: soxr und librosa sind nicht verfügbar.")
 
     if audio.ndim == 1:
-        resampled = librosa.resample(audio, orig_sr=sr, target_sr=TARGET_SR, res_type="kaiser_best")
+        resampled = _librosa.resample(audio, orig_sr=sr, target_sr=TARGET_SR, res_type="kaiser_best")
     else:
         resampled = np.stack(
-            [librosa.resample(ch, orig_sr=sr, target_sr=TARGET_SR, res_type="kaiser_best") for ch in audio]
+            [_librosa.resample(ch, orig_sr=sr, target_sr=TARGET_SR, res_type="kaiser_best") for ch in audio]
         )
     logger.info("Resampling %d → %d Hz via librosa", sr, TARGET_SR)
     return resampled
@@ -114,21 +150,23 @@ def _to_pipeline_format(audio: np.ndarray) -> np.ndarray:
 
 
 def _progress_cb(pct: int, msg: str, elapsed_s: float = 0.0) -> None:
+    """Zeigt den Fortschritt als Terminal-Balken mit ETA an."""
     bar_len = 40
     filled = int(bar_len * pct / 100)
-    bar = "█" * filled + "░" * (bar_len - filled)
+    progress_bar = "█" * filled + "░" * (bar_len - filled)
     eta = ""
     if pct > 5 and elapsed_s > 0:
         total_est = elapsed_s / (pct / 100)
         remaining = total_est - elapsed_s
         _m, _s = divmod(int(remaining), 60)
         eta = f"  noch ca. {_m}:{_s:02d}" if _m > 0 else f"  noch ca. {_s}s"
-    print(f"\r[{bar}] {pct:3d}%{eta}  {msg[:60]}", end="", flush=True)
+    print(f"\r[{progress_bar}] {pct:3d}%{eta}  {msg[:60]}", end="", flush=True)
     if pct >= 100:
         print()
 
 
 def main() -> int:
+    """Führt einen vollständigen Studio-2026-Exzellenzlauf mit Export aus."""
     # ── Datei bestimmen ──────────────────────────────────────────────────────
     if len(sys.argv) > 1:
         input_path = Path(sys.argv[1])
@@ -145,9 +183,9 @@ def main() -> int:
         return 1
 
     logger.info("═" * 70)
-    logger.info("Aurik 9 — Maximale Exzellenz-Restaurierung")
+    logger.info("Aurik 9 — Studio-2026-Exzellenzlauf")
     logger.info("Eingabe : %s", input_path.name)
-    logger.info("Modus   : %s  (8× RT-Budget)", MODE)
+    logger.info("Modus   : %s", MODE)
     logger.info("═" * 70)
 
     # ── Audio laden und vorbereiten ──────────────────────────────────────────
@@ -163,9 +201,10 @@ def main() -> int:
     audio_in = np.clip(audio_in, -1.0, 1.0)
 
     # ── AurikDenker instantiieren ─────────────────────────────────────────────
-    from denker.aurik_denker import get_aurik_denker
-
-    denker = get_aurik_denker()
+    if _get_aurik_denker is None:
+        logger.error("AurikDenker konnte nicht importiert werden.")
+        return 3
+    denker = _get_aurik_denker()
     logger.info("AurikDenker bereit. Restaurierung startet …")
 
     # ── Restaurierung durchführen ─────────────────────────────────────────────
@@ -210,18 +249,21 @@ def main() -> int:
 
     # Quality-Gate prüfen
     if ergebnis.quality_estimate < 0.55:
-        logger.warning("⚠ quality_estimate=%.3f < 0.55 — Export-Gate NICHT bestanden!", ergebnis.quality_estimate)
         logger.warning(
-            "Export wird abgebrochen — Ursache: Qualitäts-Gate verfehlt. Lösung: Pipeline/Gating vor Export korrigieren."
+            "⚠ quality_estimate=%.3f < 0.55 — Export-Gate NICHT bestanden!",
+            ergebnis.quality_estimate,
+        )
+        logger.warning(
+            "Export wird abgebrochen — Ursache: Qualitäts-Gate verfehlt. "
+            "Lösung: Pipeline/Gating vor Export korrigieren."
         )
         return 2
-    else:
-        logger.info("✓ Export-Gate bestanden (quality_estimate=%.3f ≥ 0.55)", ergebnis.quality_estimate)
+    logger.info("✓ Export-Gate bestanden (quality_estimate=%.3f ≥ 0.55)", ergebnis.quality_estimate)
 
     # ── Export ───────────────────────────────────────────────────────────────
     stem = input_path.stem
-    out_wav = OUTPUT_DIR / f"{stem}_aurik_maximum.wav"
-    out_flac = OUTPUT_DIR / f"{stem}_aurik_maximum.flac"
+    out_wav = OUTPUT_DIR / f"{stem}_aurik_studio2026.wav"
+    out_flac = OUTPUT_DIR / f"{stem}_aurik_studio2026.flac"
 
     audio_out = ergebnis.audio
     # NaN/Inf-Guard vor Export
@@ -230,9 +272,10 @@ def main() -> int:
 
     # Exportformat: AudioExporter
     try:
-        from backend.core.audio_exporter import AudioExporter
+        if _AudioExporter is None:
+            raise ImportError("AudioExporter nicht verfügbar")
 
-        exp = AudioExporter()
+        exp = _AudioExporter()
         # WAV 24-bit
         out_wav_final = exp.export(
             audio_out,
@@ -242,8 +285,8 @@ def main() -> int:
             quality="high",
             metadata={
                 "title": stem,
-                "comment": f"Aurik 9 Maximum Restoration | quality={ergebnis.quality_estimate:.3f}",
-                "software": "Aurik 9.10.57",
+                "comment": f"Aurik 9 Studio 2026 | quality={ergebnis.quality_estimate:.3f}",
+                "software": "Aurik 9.12.10",
             },
         )
         logger.info("✓ WAV exportiert: %s", out_wav_final)
@@ -257,18 +300,20 @@ def main() -> int:
             quality="high",
             metadata={
                 "title": stem,
-                "comment": f"Aurik 9 Maximum Restoration | quality={ergebnis.quality_estimate:.3f}",
-                "software": "Aurik 9.10.57",
+                "comment": f"Aurik 9 Studio 2026 | quality={ergebnis.quality_estimate:.3f}",
+                "software": "Aurik 9.12.10",
             },
         )
         logger.info("✓ FLAC exportiert: %s", out_flac_final)
 
     except Exception as exp_err:
         logger.warning("AudioExporter fehlgeschlagen (%s) — Fallback auf soundfile", exp_err)
-        import soundfile as sf
+        if _sf is None:
+            logger.error("Fallback fehlgeschlagen: soundfile ist nicht verfügbar.")
+            return 4
 
         # (samples, channels) oder (samples,) für soundfile
-        sf.write(str(out_wav), audio_out, TARGET_SR, subtype="PCM_24")
+        _sf.write(str(out_wav), audio_out, TARGET_SR, subtype="PCM_24")
         logger.info("✓ WAV exportiert (soundfile-Fallback): %s", out_wav)
 
     logger.info("═" * 70)

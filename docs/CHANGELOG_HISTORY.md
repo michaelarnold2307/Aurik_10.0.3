@@ -22,6 +22,57 @@
 - **phase_55 HNR-Blend (§0p v9.12.6)**: `phase_55_diffusion_inpainting` zu `_NR_PHASES_HNR`
   hinzugefügt — Diffusions-Inpainting kann Stimmharmonik nicht mehr ohne ΔHNR-Guard halluzinieren.
 
+## v9.12.9 (21. Mai 2026) — Strict-Conflict: Psychoakustische Severity-Orchestrierung + Telemetrie-Kohärenz
+
+- **Tape-Spezialdefekte produktiv verdrahtet (SOTA-Lückenschluss)**:
+  - Neuer DefectType `SCRAPE_FLUTTER` inkl. materialadaptiver Scanner-Thresholds, Full-Audio-Detektion,
+    Cross-Material-Fallback-Gate und End-to-End-Routing über CausalDefectReasoner + DefectPhaseMapper.
+  - Neuer DefectType `TAPE_HEAD_CLOG` inkl. lokaler HF-Bandlücken-Detektion, Randtransienten-Guard,
+    Cross-Material-Fallback-Gate und End-to-End-Routing über CausalDefectReasoner + DefectPhaseMapper.
+  - Primäre Phasenrouten:
+    - `scrape_flutter` → `phase_12_wow_flutter_fix` (+ `phase_31_speed_pitch_correction`)
+    - `tape_head_clog` → `phase_56_spectral_band_gap_repair` (+ `phase_25_azimuth_correction`)
+  - Neue Regressionstests: `tests/unit/test_tape_specialist_defects.py` sowie Mapper-Absicherung
+    in `tests/test_autonomous_restoration_engine.py`.
+
+- **Strict-Conflict-Relevanzfilter (UV3 Report)**:
+  - Pass-äquivalente Entscheidungen werden konsistent ignoriert (`passed`, `passthrough`,
+    `sub_threshold`, `passed_p4p5_tolerated`, `best_effort_accepted` sowie
+    `pmgg_decision_reason`-basierte Pass-Gründe).
+  - `best_effort_phases` berücksichtigt nur konfliktrelevante Aktionen.
+- **Reason-gewichtete Runtime-Adaption** (`_register_phase_goal_conflict_event`):
+  - `reason_decay_weight` und `reason_cap_tighten_weight` steuern Family-Decay und Cap-Tightening.
+  - `pmgg_best_effort` gezielt milder; `best_effort_emergency` gezielt strenger.
+  - `artifact_freedom_rollback` skaliert streng nach Defizit (`0.95 - artifact_freedom`).
+  - `vocal_no_harm_rollback` mit `singer_identity=False` bekommt Zusatzgewicht.
+- **Goal-Prioritätskopplung**:
+  - P1/P2-Regr. werden bei gleicher Magnitude strenger gewichtet als P4/P5-Regr.
+  - optionaler Song-Weight-Einfluss (`_song_goal_weights`) in der Severity-Bildung.
+- **Vocal-Supremacy-Kopplung**:
+  - bei `panns_singing >= 0.35` zusätzliche Schärfung für vokalkritische Goals
+    (`natuerlichkeit`, `authentizitaet`, `artikulation`, `timbre_authentizitaet`,
+    `vocal_quality`, `formant_fidelity`).
+- **Strict-Report-Upgrade** (`_build_strict_phase_goal_conflict_report`):
+  - `regressive_phase_events[*].severity` neu.
+  - `regressive_weight_sum` neu; `conflict_score` nutzt gewichtete statt reine Event-Anzahl.
+  - `runtime_severity_sum` und `runtime_severity_max` neu.
+- **Severity-Fingerprint-Telemetrie** pro Runtime-Event:
+  - `severity_score`, `severity_bucket`, `severity_fingerprint`
+  - Fingerprint-Felder: `reason_weight_base`, `dynamic_weight`, `vocal_presence`,
+    `goal_priority_peak`, `artifact_deficit`, `emergency_action`.
+- **Unkonventioneller Disagreement-Guard (neu)**:
+  - Bei hoher Reason-Diversität im jüngsten Family-Verlauf (`>=3`) wird
+    `pmgg_best_effort` adaptiv gedämpft (`disagreement_brake_applied=True`),
+    um Fehlübersteuerung bei unsicheren Konfliktsignalen zu vermeiden.
+  - Guard wird bei jüngstem harten Reason automatisch deaktiviert
+    (`artifact_freedom_rollback`, `noise_texture_rollback`,
+    `vocal_no_harm_rollback`, `hf_hallucination_rescue`).
+- **Test-/Security-Status für den gesamten Maßnahmenblock**:
+  - `tests/unit/test_strict_conflict_artifact_feedback.py` sukzessive erweitert (bis 24 Tests grün)
+  - PMGG/UV3-Cluster zuletzt: **556 passed**
+  - Pyright auf Kernpfaden: **0 Fehler**
+  - Snyk (`backend/core`): **issueCount=0**
+
 ## v9.12.7 (14. Mai 2026) — Musical-Goals-Metriken: 6 Metadaten-Propagierungslücken + Snyk-Sicherheitsfixes
 
 - **BrillanzMetric**: Material-adaptive HF-Crest-Formel (tape/cassette offset=0.10/divisor=1.20;

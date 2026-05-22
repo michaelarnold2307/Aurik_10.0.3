@@ -312,6 +312,51 @@ class TestPMGGAudioQuality:
         assert out.shape == audio_cf.shape
         assert np.isfinite(out).all()
 
+    def test_18d_run_phase_safe_fallback_on_exception(self):
+        """Bei Phase-Exception muss _run_phase NaN-safe/clip-safe fallbacken."""
+        from backend.core.per_phase_musical_goals_gate import PerPhaseMusicalGoalsGate
+
+        audio = np.array([np.nan, 2.5, -3.0, 0.2], dtype=np.float32)
+
+        class _MockProcessPhaseFail:
+            def process(self, _audio, **_kwargs):
+                raise RuntimeError("forced-fail")
+
+            def get_metadata(self):
+                import types
+
+                m = types.SimpleNamespace()
+                m.phase_id = "phase_03_denoise"
+                return m
+
+        out = PerPhaseMusicalGoalsGate._run_phase(_MockProcessPhaseFail(), audio, 0.7)
+        assert out.shape == audio.shape
+        assert np.isfinite(out).all()
+        assert float(np.max(np.abs(out))) <= 1.0 + 1e-6
+        assert float(out[0]) == 0.0
+
+    def test_18e_run_phase_safe_fallback_on_invalid_result_type(self):
+        """Ungueltiger Phase-Rueckgabetyp darf nicht raw durchgereicht werden."""
+        from backend.core.per_phase_musical_goals_gate import PerPhaseMusicalGoalsGate
+
+        audio = np.array([1.3, -1.4, 0.1], dtype=np.float32)
+
+        class _MockProcessPhaseInvalid:
+            def process(self, _audio, **_kwargs):
+                return {"invalid": True}
+
+            def get_metadata(self):
+                import types
+
+                m = types.SimpleNamespace()
+                m.phase_id = "phase_29_tape_hiss_reduction"
+                return m
+
+        out = PerPhaseMusicalGoalsGate._run_phase(_MockProcessPhaseInvalid(), audio, 0.4)
+        assert out.shape == audio.shape
+        assert np.isfinite(out).all()
+        assert float(np.max(np.abs(out))) <= 1.0 + 1e-6
+
 
 # ---------------------------------------------------------------------------
 # Tests: Regressions-Behandlung
@@ -1321,6 +1366,32 @@ class TestPMGGSongCalIntegration:
         assert PHASE_GOAL_EXCLUSIONS["phase_29"] == expected, (
             f"phase_29 exclusions: {PHASE_GOAL_EXCLUSIONS['phase_29']} != {expected}"
         )
+
+
+def test_precise_overrides_use_multisegment_sampling(monkeypatch):
+    """Lange Audios dürfen nicht nur über den Anfang bewertet werden."""
+    import backend.core.per_phase_musical_goals_gate as pmgg
+
+    class _MeanMetric:
+        def measure(self, audio, sr, reference=None):
+            arr = np.asarray(audio, dtype=np.float32)
+            return float(np.mean(arr))
+
+    monkeypatch.setattr(pmgg, "_get_precise_metric_instances", lambda: {"micro_dynamics": _MeanMetric()})
+
+    sr = 48000
+    # 9s Signal: Start=0, Mitte=1, Ende=0. Reiner Kopf-Crop wäre ~0.0.
+    audio = np.concatenate(
+        [
+            np.zeros(sr * 3, dtype=np.float32),
+            np.ones(sr * 3, dtype=np.float32),
+            np.zeros(sr * 3, dtype=np.float32),
+        ],
+        axis=0,
+    )
+
+    refined = pmgg._apply_precise_metric_overrides({"micro_dynamics": 0.0}, audio, sr)
+    assert refined["micro_dynamics"] > 0.2
 
 
 # ---------------------------------------------------------------------------

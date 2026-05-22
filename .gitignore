@@ -154,3 +154,6 @@ grep_results.txt
 todo_results.txt
 ausnahmen_results.txt
 reports/
+!docs/reports/
+!docs/reports/spec_evidence/
+!docs/reports/spec_evidence/*.md

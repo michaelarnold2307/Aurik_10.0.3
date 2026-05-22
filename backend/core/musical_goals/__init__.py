@@ -58,4 +58,4 @@ __all__ = [
     "measure_all",
 ]
 
-__version__ = "9.12.9"
+__version__ = "9.12.10"

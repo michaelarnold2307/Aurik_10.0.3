@@ -121,7 +121,7 @@ python scripts/orchestrate_quality_monitoring.py --audio song2.mp3 --headless
 Läuft vollständig in CLI. Ergebnisse in:
 
 - `analysis_results/analysis_*.json`
-- `monitoring_status.json`
+- `temp_repro/monitoring_status.json`
 - `orchestrator_runtime.log`
 - `pegelexplosion_monitor.log`
 
@@ -171,7 +171,7 @@ Wenn kritische Anomalien erkannt werden:
 }
 ```
 
-### `monitoring_status.json`
+### `temp_repro/monitoring_status.json`
 
 ```json
 {

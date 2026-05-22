@@ -53,7 +53,8 @@ class QualityMonitoringOrchestrator:
         self.config = config
         self.processes: dict[str, subprocess.Popen] = {}
         self.shutdown_event = Event()
-        self._status_file = Path("monitoring_status.json")
+        self._status_file = _WORKSPACE_ROOT / "temp_repro" / "monitoring_status.json"
+        self._status_file.parent.mkdir(parents=True, exist_ok=True)
 
     def start_all(self) -> int:
         """Startet alle Komponenten."""

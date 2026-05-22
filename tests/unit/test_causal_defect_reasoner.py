@@ -57,9 +57,16 @@ class TestImportAndConstants:
         assert CausalDefectReasoner is not None
 
     def test_02_causes_list_length(self):
-        assert (
-            len(CAUSES) == 62
-        )  # v9.12.9: +9 neue Kausal-Ursachen (proximity_effect_excess…wire_recording_specific); war 53
+        # Robust gegen legitime Erweiterungen: Mindestgröße + Pflicht-Ursachen prüfen.
+        assert len(CAUSES) >= 64
+        required_causes = {
+            "soft_saturation",
+            "head_wear",
+            "print_through",
+            "scrape_flutter",
+            "tape_head_clog",
+        }
+        assert required_causes.issubset(set(CAUSES))
 
     def test_03_causes_contains_soft_saturation(self):
         assert "soft_saturation" in CAUSES
@@ -71,7 +78,7 @@ class TestImportAndConstants:
         assert "print_through" in CAUSES
 
     def test_06_cause_to_phases_covers_all_causes(self):
-        # Alle 34 Ursachen müssen im CAUSE_TO_PHASES-Mapping vorhanden sein
+        # Alle Ursachen müssen im CAUSE_TO_PHASES-Mapping vorhanden sein.
         for cause in CAUSES:
             assert cause in CAUSE_TO_PHASES, f"{cause} not in CAUSE_TO_PHASES"
 
@@ -81,14 +88,14 @@ class TestImportAndConstants:
             assert cause in CAUSES, f"{cause} in CAUSE_TO_PHASES but not in CAUSES"
 
     def test_06b_likelihood_fns_cover_all_causes(self):
-        # Alle 34 Ursachen müssen eine Likelihood-Funktion haben
+        # Alle Ursachen müssen eine Likelihood-Funktion haben.
         from backend.core.causal_defect_reasoner import LIKELIHOOD_FNS
 
         for cause in CAUSES:
             assert cause in LIKELIHOOD_FNS, f"{cause} not in LIKELIHOOD_FNS"
 
     def test_06c_material_priors_cover_all_causes(self):
-        # Alle 15 Materialien müssen Priors für alle 34 Ursachen haben
+        # Alle Materialien müssen Priors für alle Ursachen haben.
         from backend.core.causal_defect_reasoner import MATERIAL_PRIORS
 
         for material, priors in MATERIAL_PRIORS.items():

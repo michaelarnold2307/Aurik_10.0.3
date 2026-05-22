@@ -6,7 +6,7 @@ Der fehlende "Dach"-Layer zwischen Denker-Schicht und Pipeline-Schicht.
 
 KONZEPT
 -------
-Vor Ausführung der 56-Phasen-Pipeline erzeugt dieser Dienst einen
+Vor Ausführung der 64-Phasen-Pipeline erzeugt dieser Dienst einen
 *stilbewussten Restaurierungsplan*. Der Plan kodiert musikalisches Wissen
 über Ära, Genre, Materialcharakter und emotionale Intention in konkreten
 Per-Phasen-Parametern — kein nachträgliches Messen, sondern *planmäßiges
@@ -30,7 +30,7 @@ ARCHITEKTUR (Cross-Phase-Reasoning)
                 └───────────┬─────────────────────-┘
                             │  wird in RestorationConfig.globalplan gesetzt
                             ▼
-                   UnifiedRestorerV3 (56 Phasen)
+                   UnifiedRestorerV3 (64 Phasen)
                    — jede Phase kann plan.get(phase_id) lesen
 
 SINGLETON-PATTERN (§3.x)
@@ -49,6 +49,21 @@ from dataclasses import dataclass, field
 from typing import Any
 
 import numpy as np
+
+from backend.core.era_classifier import (
+    EraClassifier,
+)
+from backend.core.era_classifier import (
+    _dsp_fingerprint_decade as dsp_fingerprint_decade,
+)
+from backend.core.era_classifier import (
+    _dsp_hf_rolloff as dsp_hf_rolloff,
+)
+from backend.core.era_classifier import (
+    _estimate_snr as dsp_estimate_snr,
+)
+from backend.core.genre_classifier import GermanSchlagerClassifier
+from backend.core.musical_phrase_context import get_phrase_extractor
 
 logger = logging.getLogger(__name__)
 
@@ -303,6 +318,7 @@ class MusikalischesPortrait:
     material: str  # z.B. "shellac", "tape"
 
     def as_dict(self) -> dict[str, Any]:
+        """Serialisiert das Portrait in ein kompakt gerundetes Dict."""
         return {
             "decade": self.decade,
             "era_label": self.era_label,
@@ -378,6 +394,7 @@ class StilbewussterRestaurierungsplan:
         return self.phase_adjustments.get("phase_03_denoise", {}).get("aggressiveness", 0.75)
 
     def as_dict(self) -> dict[str, Any]:
+        """Serialisiert den Plan inklusive Portrait und Phase-Parametern."""
         return {
             "portrait": self.portrait.as_dict(),
             "authenticity_target": round(self.authenticity_target, 3),
@@ -561,6 +578,38 @@ def _build_semantic_description(
     return f"{genre_str}{subgenre_str} aus den {decade_str}, aufgenommen auf {material_str}{bpm_str}. Stimmung: {mood}."
 
 
+def _estimate_era_via_dsp_classifier(mono: np.ndarray, sr: int) -> tuple[int, float, float, float]:
+    """Schätzt Dekade via EraClassifier-DSP-Helferfunktionen.
+
+    Returns:
+        tuple(decade, confidence, rolloff_hz, snr_db)
+    """
+    rolloff_hz = float(dsp_hf_rolloff(mono, sr))
+    snr_db = float(dsp_estimate_snr(mono, sr))
+    decade, era_conf = dsp_fingerprint_decade(rolloff_hz, snr_db)
+    return int(decade), float(era_conf), rolloff_hz, snr_db
+
+
+def _estimate_bpm_with_phrase_extractor(mono: np.ndarray, sr: int) -> float | None:
+    """Liest BPM aus dem Phrase-Extractor, falls eine öffentliche API verfügbar ist."""
+    extractor = get_phrase_extractor()
+    try:
+        tempo_fn = extractor.estimate_tempo
+    except AttributeError:
+        return None
+
+    bpm = float(tempo_fn(mono, sr))
+    return bpm if np.isfinite(bpm) and bpm > 0.0 else None
+
+
+def _estimate_bpm_heuristic(mono: np.ndarray, sr: int) -> float:
+    """Einfache BPM-Heuristik als robuster DSP-Fallback."""
+    diff = np.diff(np.abs(mono))
+    onsets = np.sum(diff > diff.std() * 2.5)
+    duration_s = max(len(mono) / sr, 1.0)
+    return float(np.clip(onsets / duration_s * 0.5 * 60.0, 60.0, 200.0))
+
+
 # ---------------------------------------------------------------------------
 # Kern-Klasse: MusikalischerGlobalplanDienst
 # ---------------------------------------------------------------------------
@@ -570,7 +619,7 @@ class MusikalischerGlobalplanDienst:
     """Erzeugt stilbewusste Restaurierungspläne — das Dach über der Pipeline.
 
     Verbindet EraClassifier + GermanSchlagerClassifier + CLAP-Embedding
-    mit konkreten Per-Phasen-Parametern, die die gesamte 56-Phasen-Pipeline
+    mit konkreten Per-Phasen-Parametern, die die gesamte 64-Phasen-Pipeline
     stilkohärent steuern.
 
     Algorithmus (§2.2 Globalplan-Ausführungsreihenfolge):
@@ -588,20 +637,18 @@ class MusikalischerGlobalplanDienst:
         self._genre_classifier: Any = None
 
     def _get_era_classifier(self) -> Any:
+        """Gibt den EraClassifier als lazy initialisierte Instanz zurück."""
         if self._era_classifier is None:
             try:
-                from backend.core.era_classifier import EraClassifier
-
                 self._era_classifier = EraClassifier()
             except Exception as exc:
                 logger.debug("EraClassifier nicht verfügbar: %s", exc)
         return self._era_classifier
 
     def _get_genre_classifier(self) -> Any:
+        """Gibt den GermanSchlagerClassifier als lazy Instanz zurück."""
         if self._genre_classifier is None:
             try:
-                from backend.core.genre_classifier import GermanSchlagerClassifier
-
                 self._genre_classifier = GermanSchlagerClassifier()
             except Exception as exc:
                 logger.debug("GermanSchlagerClassifier nicht verfügbar: %s", exc)
@@ -696,15 +743,7 @@ class MusikalischerGlobalplanDienst:
             # which overestimates modern bandwidth on bass-heavy music and pushes tape→MP3
             # transfers into the 1990s.
             try:
-                from backend.core.era_classifier import (
-                    _dsp_fingerprint_decade,
-                    _dsp_hf_rolloff,
-                    _estimate_snr,
-                )
-
-                rolloff_hz = _dsp_hf_rolloff(mono, sr)
-                snr_db = _estimate_snr(mono, sr)
-                decade, era_conf = _dsp_fingerprint_decade(rolloff_hz, snr_db)
+                decade, era_conf, rolloff_hz, snr_db = _estimate_era_via_dsp_classifier(mono, sr)
                 bw_khz = rolloff_hz / 1000.0
                 reasoning.append(f"Era-DSP-Heuristik: BW={bw_khz:.1f} kHz, SNR={snr_db:.1f} dB → {decade}er")
             except Exception:
@@ -791,18 +830,17 @@ class MusikalischerGlobalplanDienst:
         # BPM-Schätzung via DSP wenn nicht bekannt
         if bpm <= 0.0:
             try:
-                from backend.core.musical_phrase_context import get_phrase_extractor
-
-                extractor = get_phrase_extractor()
-                bpm = extractor._estimate_tempo(mono, sr)
-                reasoning.append(f"BPM via PhraseExtractor: {bpm:.1f}")
+                bpm_from_phrase = _estimate_bpm_with_phrase_extractor(mono, sr)
+                if bpm_from_phrase is not None:
+                    bpm = bpm_from_phrase
+                    reasoning.append(f"BPM via PhraseExtractor: {bpm:.1f}")
+                else:
+                    bpm = _estimate_bpm_heuristic(mono, sr)
+                    reasoning.append(f"BPM-Heuristik: {bpm:.1f}")
             except Exception:
                 # Einfache Onset-Heuristik als Fallback
                 try:
-                    diff = np.diff(np.abs(mono))
-                    onsets = np.sum(diff > diff.std() * 2.5)
-                    duration_s = max(len(mono) / sr, 1.0)
-                    bpm = float(np.clip(onsets / duration_s * 0.5 * 60.0, 60.0, 200.0))
+                    bpm = _estimate_bpm_heuristic(mono, sr)
                     reasoning.append(f"BPM-Heuristik: {bpm:.1f}")
                 except Exception:
                     bpm = 100.0
@@ -1055,18 +1093,19 @@ class MusikalischerGlobalplanDienst:
 # Singleton (§3.x — Thread-sicher, Double-Checked Locking)
 # ---------------------------------------------------------------------------
 
-_instance: MusikalischerGlobalplanDienst | None = None
 _lock = threading.Lock()
+_INSTANCE_HOLDER: dict[str, MusikalischerGlobalplanDienst | None] = {"instance": None}
 
 
 def get_musikalischer_globalplan_dienst() -> MusikalischerGlobalplanDienst:
     """Thread-safe Singleton-Zugriff auf den Globalplan-Dienst."""
-    global _instance
-    if _instance is None:
+    if _INSTANCE_HOLDER["instance"] is None:
         with _lock:
-            if _instance is None:
-                _instance = MusikalischerGlobalplanDienst()
-    return _instance
+            if _INSTANCE_HOLDER["instance"] is None:
+                _INSTANCE_HOLDER["instance"] = MusikalischerGlobalplanDienst()
+    dienst = _INSTANCE_HOLDER["instance"]
+    assert dienst is not None
+    return dienst
 
 
 def erstelle_globalplan(

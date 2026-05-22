@@ -2,6 +2,7 @@
 
 > **Aurik 9 ist ein intelligentes, kontextbewusstes Musik- und Gesangs-Restaurierungs-, Reparatur- und Rekonstruktions-System. Aktuelle Version: 9.10.102 (April 2026), 64 Phasen, ~11.023 Tests.**
 > Hinweis: Diese Roadmap bildet überwiegend einen historischen Planungsstand ab. Für den aktuellen normativen Zustand gelten `.github/specs/01-08` und `docs/CHANGELOG_HISTORY.md`.
+> Releasepfad-Norm: Bridge -> `AurikDenker.denke(...)` -> `export_guard()`. Aeltere v2-/Server-/Docker-Planpunkte sind `LEGACY_NON_RELEASE`.
 
 ## Abgeschlossene Versionen (Highlights)
 

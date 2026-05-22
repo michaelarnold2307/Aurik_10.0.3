@@ -5,7 +5,8 @@
 > **Reason:** Licensing independence preferred over third-party dependencies  
 > **Alternative:** Professional Desktop Application (Phase 2.4) - fully functional  
 >
-> This document remains for reference purposes only.
+> This document remains for reference purposes only (`LEGACY_NON_RELEASE`).
+> Normativer Releasevertrag: Bridge -> `AurikDenker.denke(...)` -> `export_guard()`.
 
 ---
 
@@ -74,7 +75,7 @@ After analysis of VST3 licensing terms (Steinberg) and dependency risks, the dec
                      │
 ┌────────────────────▼────────────────────────────────────────┐
 │          AURIK Core (Python)                                │
-│  - UnifiedRestorerV2                                        │
+│  - Historical Restorer Runtime                              │
 │  - Phase 2.3 Instrumental Enhancement                       │
 │  - Musical Goals Metrics                                    │
 │  - All existing DSP modules                                 │
@@ -107,7 +108,7 @@ After analysis of VST3 licensing terms (Steinberg) and dependency risks, the dec
 
 - [ ] Implement `processBlock()` method
 - [ ] Convert JUCE AudioBuffer → NumPy array
-- [ ] Call AURIK's UnifiedRestorerV2
+- [ ] Call AURIK's historical restorer runtime
 - [ ] Convert result back to AudioBuffer
 
 **Deliverable:** Working plugin that processes audio through AURIK
@@ -139,6 +140,7 @@ After analysis of VST3 licensing terms (Steinberg) and dependency risks, the dec
 - [ ] Undo/Redo buttons
 
 **Tools:**
+
 - JUCE GUI Components
 - OpenGL for real-time visualization
 - Custom LookAndFeel for branding
@@ -259,12 +261,12 @@ pip install pybind11
 
 ### Plugin Formats
 
-| Format | Platform | Priority | Status |
-|--------|----------|----------|--------|
+| Format | Platform | Priority | Status      |
+|--------|----------|----------|-------------|
 | VST3   | All      | P0       | 🔄 Planning |
 | AU     | macOS    | P0       | 🔄 Planning |
-| AAX    | All      | P1       | ⏳ Later |
-| LV2    | Linux    | P2       | ⏳ Later |
+| AAX    | All      | P1       | ⏳ Later    |
+| LV2    | Linux    | P2       | ⏳ Later    |
 
 ---
 
@@ -381,13 +383,16 @@ cmake --build . --config Release
 ### Installation Paths
 
 **macOS:**
+
 - VST3: `~/Library/Audio/Plug-Ins/VST3/AURIK.vst3`
 - AU: `~/Library/Audio/Plug-Ins/Components/AURIK.component`
 
 **Windows:**
+
 - VST3: `C:\Program Files\Common Files\VST3\AURIK.vst3`
 
 **Linux:**
+
 - VST3: `~/.vst3/AURIK.vst3`
 
 ---
@@ -398,6 +403,7 @@ cmake --build . --config Release
 
 **Risk:** Python GIL causes latency spikes  
 **Mitigation:**
+
 - Use separate processing thread
 - Cache Python objects
 - Consider ONNX for ML models
@@ -407,6 +413,7 @@ cmake --build . --config Release
 
 **Risk:** Memory leaks in Python/C++ bridge  
 **Mitigation:**
+
 - Use smart pointers (std::unique_ptr)
 - RAII patterns
 - Valgrind / ASAN testing
@@ -416,6 +423,7 @@ cmake --build . --config Release
 
 **Risk:** Different Python versions per OS  
 **Mitigation:**
+
 - Bundle Python runtime with plugin
 - Use relative paths
 - Test on all platforms
@@ -425,6 +433,7 @@ cmake --build . --config Release
 
 **Risk:** Processing too slow for real-time  
 **Mitigation:**
+
 - Report latency accurately to DAW
 - Use look-ahead buffer
 - Implement bypass during heavy processing
@@ -434,26 +443,26 @@ cmake --build . --config Release
 
 ## 📈 Success Metrics
 
-| Metric | Target | Measurement |
-|--------|--------|-------------|
-| Latency | < 10ms | DAW latency reporting |
-| CPU Usage | < 20% (single core) | Activity Monitor |
-| Memory | < 500MB RAM | Profiler |
-| Load Time | < 2 seconds | User testing |
-| Crash Rate | < 0.1% | Telemetry |
-| User Rating | > 4.5/5 | App Store reviews |
+| Metric      | Target              | Measurement           |
+|-------------|---------------------|-----------------------|
+| Latency     | < 10ms              | DAW latency reporting |
+| CPU Usage   | < 20% (single core) | Activity Monitor      |
+| Memory      | < 500MB RAM         | Profiler              |
+| Load Time   | < 2 seconds         | User testing          |
+| Crash Rate  | < 0.1%              | Telemetry             |
+| User Rating | > 4.5/5             | App Store reviews     |
 
 ---
 
 ## 🗓️ Timeline
 
-| Week | Focus | Deliverable |
-|------|-------|-------------|
-| 1 | JUCE Setup + Python Bridge | Basic audio passthrough |
-| 2 | Core Processing Integration | AURIK processing works |
-| 3 | UI + Parameters | Full control interface |
-| 4 | Optimization + Testing | Real-time performance |
-| 5 | Presets + Polish | Production release |
+| Week | Focus                       | Deliverable             |
+|------|-----------------------------|-------------------------|
+| 1    | JUCE Setup + Python Bridge  | Basic audio passthrough |
+| 2    | Core Processing Integration | AURIK processing works  |
+| 3    | UI + Parameters             | Full control interface  |
+| 4    | Optimization + Testing      | Real-time performance   |
+| 5    | Presets + Polish            | Production release      |
 
 **Est. Completion:** 5 weeks (part-time) / 2-3 weeks (full-time)
 

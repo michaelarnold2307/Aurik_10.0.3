@@ -38,11 +38,15 @@ import logging
 import time
 from typing import Any
 
+import librosa
 import numpy as np
 from scipy import interpolate
+from scipy.signal import lfilter
 
 from backend.core.audio_utils import audio_sample_count, stereo_channel_view, stereo_like
 from backend.core.defect_scanner import MaterialType
+from backend.core.lyrics_guided_enhancement import get_lyrics_guided_enhancement
+from backend.core.natural_performance_detector import get_natural_performance_detector
 
 from .phase_interface import PhaseCategory, PhaseInterface, PhaseMetadata, PhaseResult
 
@@ -215,7 +219,11 @@ class ClickPopRemoval(PhaseInterface):
         )
 
     def process(
-        self, audio: np.ndarray, sample_rate: int, material: MaterialType = MaterialType.CD_DIGITAL, **kwargs
+        self,
+        audio: np.ndarray,
+        sample_rate: int = 48000,
+        material_type: str = "unknown",
+        **kwargs,
     ) -> PhaseResult:
         """
         Erkennt and remove clicks/pops from audio.
@@ -223,7 +231,7 @@ class ClickPopRemoval(PhaseInterface):
         Args:
             audio: Input audio (mono or stereo)
             sample_rate: Sample rate in Hz
-            material: Material type for adaptive processing
+            material_type: Material type for adaptive processing
 
         Returns:
             PhaseResult with cleaned audio
@@ -233,8 +241,15 @@ class ClickPopRemoval(PhaseInterface):
         start_time = time.time()
         self.validate_input(audio)
 
+        if isinstance(material_type, MaterialType):
+            material_enum = material_type
+        else:
+            _mat_norm = str(material_type or "unknown").strip().upper().replace("-", "_").replace(" ", "_")
+            material_enum = getattr(MaterialType, _mat_norm, MaterialType.CD_DIGITAL)
+        material_name = material_enum.name
+
         is_stereo = audio.ndim == 2
-        config = dict(self.DETECTION_CONFIG.get(material, self.DETECTION_CONFIG[MaterialType.CD_DIGITAL]))
+        config = dict(self.DETECTION_CONFIG.get(material_enum, self.DETECTION_CONFIG[MaterialType.CD_DIGITAL]))
 
         # Locality-aware intensity control from UV3.
         # Sparse click/pop coverage should preserve unaffected transients.
@@ -242,7 +257,7 @@ class ClickPopRemoval(PhaseInterface):
         phase_locality_factor = float(np.clip(phase_locality_factor, 0.35, 1.0))
         _pmgg_strength = float(kwargs.get("strength", 1.0))
         _effective_strength = float(np.clip(_pmgg_strength * phase_locality_factor, 0.0, 1.0))
-        _material_key = str(getattr(material, "name", material)).lower()
+        _material_key = str(getattr(material_enum, "name", material_enum)).lower()
         _panns_tags = {k: float(v) for k, v in kwargs.get("panns_tags", {}).items() if isinstance(v, (int, float, str))}
         _quality_mode = kwargs.get("quality_mode")
         _restorability_score = kwargs.get("restorability_score", 50.0)
@@ -259,7 +274,7 @@ class ClickPopRemoval(PhaseInterface):
                 audio=passthrough,
                 execution_time_seconds=time.time() - start_time,
                 metadata={
-                    "material": material.name,
+                    "material": material_name,
                     "clicks_removed": 0,
                     "clicks_per_second": 0.0,
                     "rt_factor": 0.0,
@@ -297,15 +312,12 @@ class ClickPopRemoval(PhaseInterface):
         # dem AR-Residual-Profil eines Clicks ähnlich. Frame-Restore für Konsonanten-Bursts.
         # §2.46f NPA-Guard: Atemgeräusche (50–500 ms, dumpf) dürfen nicht als Click gelöscht werden.
         try:
-            from backend.core.lyrics_guided_enhancement import LyricsGuidedEnhancement
-            from backend.core.natural_performance_detector import get_natural_performance_detector
-
             _mono27 = cleaned_audio.mean(axis=0) if cleaned_audio.ndim == 2 else cleaned_audio
             _orig27 = audio.mean(axis=0) if audio.ndim == 2 else audio
             n_samples27 = _mono27.shape[0]
             # §2.36 Phonem-Schutz
             try:
-                _lge27 = LyricsGuidedEnhancement()
+                _lge27 = get_lyrics_guided_enhancement()
                 _phon_mask27 = _lge27.get_phoneme_mask(_orig27, sample_rate, hop_length=512)
                 if _phon_mask27 is not None and len(_phon_mask27) > 0:
                     hop27 = 512
@@ -341,7 +353,7 @@ class ClickPopRemoval(PhaseInterface):
             audio=cleaned_audio,
             execution_time_seconds=execution_time,
             metadata={
-                "material": material.name,
+                "material": material_name,
                 "clicks_removed": int(total_clicks),
                 "clicks_per_second": float(total_clicks / (audio_sample_count(audio) / sample_rate)),
                 "rt_factor": float(rt_factor),
@@ -358,6 +370,7 @@ class ClickPopRemoval(PhaseInterface):
 
     def _process_channel(self, audio: np.ndarray, sample_rate: int, config: dict[str, Any]) -> tuple[np.ndarray, int]:
         """Verarbeitet a single channel for click/pop removal."""
+        del sample_rate
         # Step 1: Detect clicks via AR-Residual + Z-Score (Godsill & Rayner 1998)
         click_locations = self._detect_clicks_multiband(audio, config)
 
@@ -401,9 +414,6 @@ class ClickPopRemoval(PhaseInterface):
         Returns:
             Sortierte Liste detektierter Ausreißer-Indices (Sample-Ebene).
         """
-        import librosa
-        from scipy.signal import lfilter
-
         ar_orders = config["ar_orders"]
         z_threshold = config["z_score_threshold"]
         all_detections: set = set()

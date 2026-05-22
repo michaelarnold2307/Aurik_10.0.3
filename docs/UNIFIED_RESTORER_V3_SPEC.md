@@ -4,6 +4,9 @@
 **Status:** ✅ Production-Ready (laufend aktualisiert, Delta-Stand 20. Mai 2026)  
 **Location:** `backend/core/unified_restorer_v3.py`
 
+> **Normativer Einstieg:** Releasepfade laufen ueber Bridge + `AurikDenker.denke(...)`.
+> Direkte UV3-Aufrufe ohne den kanonischen Vertragsrahmen sind `LEGACY_NON_RELEASE`.
+
 ---
 
 ## 0. Delta-Stand 2026-05-20 (normativ)

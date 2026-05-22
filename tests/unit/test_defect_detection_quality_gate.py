@@ -128,7 +128,7 @@ def test_defect_scanner_worldclass_audit_fixtures_pass_gate() -> None:
 
     result, cases = run_gate(seconds=1.6)
 
-    assert len(cases) == 5
+    assert len(cases) == 8
     assert result.passed is True
     assert result.recall == 1.0
     assert result.precision == 1.0

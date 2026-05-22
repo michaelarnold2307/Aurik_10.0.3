@@ -990,6 +990,52 @@ _PHASE_MAP: dict[DefectType, PhaseAssignment] = {
         },
     ),
     # ------------------------------------------------------------------
+    # SCRAPE_FLUTTER — hochfrequente Bandführungs-/Reibungsmodulation
+    # ------------------------------------------------------------------
+    DefectType.SCRAPE_FLUTTER: PhaseAssignment(
+        defect_type=DefectType.SCRAPE_FLUTTER,
+        primary_phases=[
+            "phase_12_wow_flutter_fix",
+            "phase_31_speed_pitch_correction",
+        ],
+        secondary_phases=[
+            "phase_08_transient_preservation",
+        ],
+        description=(
+            "Korrigiert hochfrequente Transportmodulationen aus Bandführung, Reibung oder Kopfkontakt über "
+            "flutter-spezifische Zeitachsenstabilisierung mit nachgelagerter Feinkalibrierung."
+        ),
+        config_delta={
+            "denoise_strength": 0.0,
+            "declip_strength": 0.0,
+            "preserve_analog_character": True,
+            "timing_correction_strength": 0.40,
+        },
+    ),
+    # ------------------------------------------------------------------
+    # TAPE_HEAD_CLOG — temporäre HF-Auslöschung durch verschmutzten Kopf
+    # ------------------------------------------------------------------
+    DefectType.TAPE_HEAD_CLOG: PhaseAssignment(
+        defect_type=DefectType.TAPE_HEAD_CLOG,
+        primary_phases=[
+            "phase_56_spectral_band_gap_repair",
+            "phase_25_azimuth_correction",
+        ],
+        secondary_phases=[
+            "phase_24_dropout_repair",
+        ],
+        description=(
+            "Repariert lokale Hochton-Auslöschungen durch zugesetzte oder verschmutzte Magnetköpfe mit "
+            "bandgap-orientierter Spektralrekonstruktion und Kopfgeometrie-Nachkorrektur."
+        ),
+        config_delta={
+            "denoise_strength": 0.0,
+            "declip_strength": 0.0,
+            "preserve_analog_character": True,
+            "spectral_repair_strength": 0.55,
+        },
+    ),
+    # ------------------------------------------------------------------
     # MODULATION_NOISE — signalabhängiges Bandrauschen
     # ------------------------------------------------------------------
     DefectType.MODULATION_NOISE: PhaseAssignment(

@@ -604,12 +604,14 @@ class DynamicRangeExpansion(PhaseInterface):
     def _measure_dynamic_range(self, audio: np.ndarray) -> float:
         """Misst dynamic range (dB)."""
         if audio.ndim == 2:
-            audio = audio[:, 0]  # Use left channel
+            # Linked-Stereo-konforme Messung auf Mid-Kanal statt nur linker Spur.
+            left, right = stereo_channel_view(audio)
+            audio = ((left + right) / np.sqrt(2.0)).astype(np.float64)
 
         # Use percentile-based measurement (more robust than peak/RMS)
         audio_abs = np.abs(audio)
-        p95 = np.percentile(audio_abs, 95)  # Loud passages
-        p5 = np.percentile(audio_abs, 5)  # Quiet passages
+        p95 = np.percentile(audio_abs, 97)  # Loud passages
+        p5 = np.percentile(audio_abs, 3)  # Quiet passages
 
         if p5 > 1e-10:
             dr_db = 20 * np.log10(p95 / p5)

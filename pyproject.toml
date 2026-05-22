@@ -4,7 +4,7 @@
 
 [project]
 name = "aurik9"
-version = "9.12.9"
+version = "9.12.10"
 description = "Intelligentes Musik-Restaurierungssystem — weltweite Erstimplementierung"
 readme = "README.md"
 license = { file = "LICENSE" }
@@ -244,7 +244,7 @@ dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+_*)|dummy|unused|ignored)
 "**/__init__.py" = ["F401", "F403"]
 # Scripts: print() erlaubt
 "scripts/**/*.py" = ["T201"]
-"aurik_cli.py" = ["T201"]
+"cli/aurik_cli.py" = ["T201"]
 # Benchmarks: komplexe Logik erlaubt
 "benchmarks/**/*.py" = ["PLR2004", "N806"]
 # Migrations / Legacy-Code

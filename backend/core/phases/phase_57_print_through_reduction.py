@@ -20,9 +20,15 @@ from __future__ import annotations
 
 import logging
 import math
+import time as _time
 
 import numpy as np
 import scipy.signal as sps
+
+from .phase_interface import PhaseCategory, PhaseInterface, PhaseMetadata, PhaseResult
+
+# Optionale Guards/Features werden bewusst lazy geladen.
+# pylint: disable=import-outside-toplevel
 
 logger = logging.getLogger(__name__)
 
@@ -170,6 +176,9 @@ def _find_delays(x: np.ndarray, max_delay: int) -> tuple[int, int]:
     # Energie-normierte Kreuzkorrelation auf kurzen Segment (max 10 s)
     seg_len = min(n, 480000)  # 10 s @ 48 kHz
     x_seg = x[:seg_len]
+    x_seg = x_seg - np.mean(x_seg)
+    if seg_len > 4:
+        x_seg = x_seg * np.hanning(seg_len)
 
     # FFT-basierte Autokorrelation
     n_fft = int(2 ** math.ceil(math.log2(2 * seg_len - 1)))
@@ -181,7 +190,9 @@ def _find_delays(x: np.ndarray, max_delay: int) -> tuple[int, int]:
     acorr_norm = acorr / (acorr[0] + 1e-10)
 
     # Signifikanter Peak: > 5 % der Energie, exklusive lag=0
-    threshold = 0.05
+    _tail = np.abs(acorr_norm[10:])
+    _noise_floor = float(np.median(_tail)) if _tail.size else 0.0
+    threshold = max(0.03, 3.0 * _noise_floor)
     acorr_norm[0] = 0.0  # Nulllag ausschließen
 
     # Post-Echo: höchster Peak ≥ 10 Samples (≥ 0.2 ms)
@@ -227,6 +238,8 @@ def _lms_bilateral_subtraction(
     n = len(x)
     out = x.copy()
     mu = _LMS_MU
+    leak = 0.9995
+    eps = 1e-8
 
     # Post-Echo LMS (Rückwärtswicklung — stärker, zuerst verarbeiten)
     if delay_post > 0:
@@ -234,7 +247,7 @@ def _lms_bilateral_subtraction(
         for t in range(delay_post, n):
             echo_post = x[t - delay_post]
             e = out[t] - alpha_post * echo_post
-            alpha_post += mu * e * echo_post
+            alpha_post = leak * alpha_post + (mu * e * echo_post) / (echo_post * echo_post + eps)
             alpha_post = float(np.clip(alpha_post, 0.0, alpha_post_max))
             out[t] = e
 
@@ -244,7 +257,7 @@ def _lms_bilateral_subtraction(
         for t in range(0, n - delay_pre):
             echo_pre = x[t + delay_pre]
             e = out[t] - alpha_pre * echo_pre
-            alpha_pre += mu * e * echo_pre
+            alpha_pre = leak * alpha_pre + (mu * e * echo_pre) / (echo_pre * echo_pre + eps)
             alpha_pre = float(np.clip(alpha_pre, 0.0, alpha_pre_max))
             out[t] = e
 
@@ -281,6 +294,9 @@ def _spectral_coherence(x_orig: np.ndarray, x_clean: np.ndarray, sr: int) -> flo
         if n_fft < 64:
             return 1.0
         _f, coh = sps.coherence(x_orig.astype(np.float64), x_clean.astype(np.float64), fs=sr, nperseg=n_fft)
+        _band = (_f >= 80.0) & (_f <= 12000.0)
+        if np.any(_band):
+            return float(np.mean(coh[_band]))
         return float(np.mean(coh))
     except Exception as _coh_exc:
         logger.debug("Spectral-Coherence-Berechnung fehlgeschlagen: %s", _coh_exc)
@@ -288,10 +304,6 @@ def _spectral_coherence(x_orig: np.ndarray, x_clean: np.ndarray, sr: int) -> flo
 
 
 # ─── PhaseInterface-Klasse (normativ für test_all_phases_normative.py) ─────────
-
-import time as _time
-
-from .phase_interface import PhaseCategory, PhaseInterface, PhaseMetadata, PhaseResult
 
 
 class PrintThroughReductionPhase(PhaseInterface):
@@ -368,17 +380,19 @@ class PrintThroughReductionPhase(PhaseInterface):
         self,
         audio: np.ndarray,
         sample_rate: int = 48000,
-        strength: float = 0.8,
-        defect_scores: dict | None = None,
+        material_type: str = "unknown",
         **kwargs,
     ) -> PhaseResult:
         sample_rate = kwargs.get("sample_rate", sample_rate)
         t0 = _time.perf_counter()
         assert sample_rate == 48000, f"SR muss 48000 Hz sein, erhalten: {sample_rate}"
 
+        strength = float(kwargs.get("strength", 0.8))
+        defect_scores = kwargs.get("defect_scores")
+
         _defect_scores = defect_scores or kwargs.get("defect_analysis", {})
         _profile_57 = self._compute_print_through_profile(
-            str(kwargs.get("material_type", kwargs.get("material", "unknown"))).lower(),
+            str(material_type or kwargs.get("material_type", kwargs.get("material", "unknown"))).lower(),
             str(kwargs.get("quality_mode", "balanced")),
             float(kwargs.get("restorability_score", 50.0)),
         )
@@ -428,9 +442,7 @@ class PrintThroughReductionPhase(PhaseInterface):
                 mode="subtractive",
             )
         except Exception as _pm_exc:
-            import logging as _log57
-
-            _log57.getLogger(__name__).debug("Phase57 masking clamp non-blocking: %s", _pm_exc)
+            logger.debug("Phase57 masking clamp non-blocking: %s", _pm_exc)
 
         # §2.46f Natural-Performance-Artifacts-Guard — Print-Through-Reduktion darf
         # Atemgeräusche und Vibrato-Zonen nicht durch Subtraktionsfilter tilgen.
@@ -456,15 +468,11 @@ class PrintThroughReductionPhase(PhaseInterface):
                 elif result_audio.ndim == 1 and audio.ndim == 1:
                     result_audio[_npa_m57] = audio[_npa_m57]
         except Exception as _npa57_exc:
-            import logging as _log57n
-
-            _log57n.getLogger(__name__).debug("§2.46f phase_57 NPA-Guard (non-blocking): %s", _npa57_exc)
+            logger.debug("§2.46f phase_57 NPA-Guard (non-blocking): %s", _npa57_exc)
 
         # §2.36 Phonem-Schutz: Print-Through-Reduktion subtrahiert Vor-/Nachhall-Energie.
         # Plosive Burst-Transienten haben ähnliche Burst-Energie — Plosiv-Frames schützen.
         try:
-            pass
-
             from backend.core.lyrics_guided_enhancement import get_phoneme_mask as _get_pmask_57
 
             _hop_57 = 512

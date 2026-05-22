@@ -232,6 +232,40 @@ Ausnahme (harte Guards):
 
 In diesen Faellen bleibt sofortiger Rollback/Veto verpflichtend.
 
+## §8.6g-II/III Psychoakustische Anti-Klinik-Rueckkopplung [RELEASE_MUST]
+
+```python
+# End-Gate Recovery Pflicht:
+# Wenn psychoacoustic_naturalness_gate FAIL, MUSS vor finaler Degradation
+# ein konservativer Recovery-Versuch laufen (Blend mit sicheren Referenzen):
+# - hpi_best_checkpoint
+# - best_carrier_checkpoint
+# - original_audio
+# Uebernahme nur wenn psychoacoustic_naturalness_gate danach PASS ist.
+
+# Phasenweise Rueckkopplung Pflicht:
+# Vor phase.process() MUSS ein psychoakustischer Strength-Scalar berechnet
+# werden und nur daempfend wirken (<= 1.0).
+
+# Runtime-Delta-Loop Pflicht:
+# Negative Per-Phase-Delten fuer natuerlichkeit/authentizitaet/
+# emotionalitaet/micro_dynamics/transparenz akkumulieren und als
+# _psycho_runtime_state in den naechsten Scalar einspeisen.
+
+# Pflicht-Telemetrie:
+# metadata["psychoacoustic_feedback_recovery"]
+# phase_meta["psycho_strength_scalar"]
+# phase_meta["psycho_strength_risk_score"]
+# phase_meta["psycho_strength_signals"]
+# _phase_metadata_accumulator["_psycho_runtime_state"]
+```
+
+VERBOTEN:
+
+- Psycho-Scalar > 1.0 (aggressiver machen) als Teil dieses Loops.
+- Recovery-Blend ohne nachgelagerten Gate-Recheck.
+- Runtime-Delta-State nicht in Metadata schreiben (unsichtbare Steuerlogik).
+
 ## §1.2c Teamwork-Invariante fuer 15 Musical Goals [RELEASE_MUST]
 
 Jede Phase traegt mit phasenspezifischer, adaptiv berechneter Staerke zur Zielerreichung bei.
@@ -283,6 +317,165 @@ versa_score = versa_result["composite_score"]  # [0, 1]
 # Cosine-Similarity zwischen Original- und Restaurierungs-Embeddings
 # Fallback: metadata["mert_proxy_used"] = True; MERT_floor = max(raw_mert, 0.5)
 ```
+
+## §2.78 Single-Source-Orchestrierung (Anti-Parallelwelt) [RELEASE_MUST]
+
+**Source-Traceability**: `[SRC:T1,T2]`
+
+**Ziel**: UV3, Goal-System und Phasen dürfen niemals konkurrierende Entscheidungen treffen.
+Bei Konflikt gilt eine eindeutige Prioritätskette; nur **ein** Pfad darf den finalen Export steuern.
+
+```python
+# Verbindliche Entscheidungsreihenfolge (höchste Priorität zuerst):
+# 1) Safety-Hard-Gates (artifact_freedom, Stereo-Hard-Fails, Export-Safety)
+# 2) Vocal-Integrität (VQI-Recovery, Formant/Vibrato-Hard-Invarianten)
+# 3) FeasibilityController (physikalische Erreichbarkeit pro Goal)
+# 4) PMGG/CIG/AFG lokale Phase-Entscheidungen
+# 5) MusicalGoals-Optimierung (15-Goal-Teamwork)
+# 6) Reporting/Analytics (nie steuernd)
+
+# VERBOTEN:
+# - Zweiter unabhängiger Exportpfad außerhalb UV3-Hauptpfad
+# - Goal-Schwellen in Phasenmodulen überschreiben
+# - Recovery-Entscheidung in Reporting-Modulen treffen
+```
+
+**Pflicht-Metadaten** (für Drift-Erkennung):
+
+```python
+metadata["decision_authority"] = {
+    "hard_gate": "UV3",
+    "vocal_gate": "UV3",
+    "feasibility": "FeasibilityController",
+    "phase_local": "PMGG/CIG/AFG",
+    "final_export": "UV3",
+}
+```
+
+## §2.79 FeasibilityController für 15 Ziele [RELEASE_MUST]
+
+**Source-Traceability**: `[SRC:T1,T3]`
+
+**Wissenschaftliche Begründung**: Nicht jedes degradierte Signal erlaubt vollständige Zielerreichung
+(Irreversibilität von Informationsverlust; siehe ITU-R BS.1116, ITU-R BS.1534, Zwicker/Fastl).
+Deshalb muss der Controller vor der Zieljagd die song-spezifische Erreichbarkeit berechnen.
+
+```python
+# Vor _execute_pipeline() (nach SongCalibration + GoalApplicability):
+feasibility = estimate_goal_feasibility(
+    audio=audio,
+    sr=sample_rate,
+    material=material_type,
+    restorability=restorability_score,
+    transfer_chain=_cal_transfer_chain,
+)
+
+# Ergebnisformat:
+# feasibility[goal] = {
+#   "reachable": bool,
+#   "confidence": float,   # [0,1]
+#   "max_achievable": float,
+# }
+
+# Effektive Zielschwelle (niemals höher als max_achievable):
+effective_goal_thresholds[goal] = min(
+    effective_goal_thresholds[goal],
+    feasibility[goal]["max_achievable"],
+)
+
+# Wenn Goal physikalisch nicht erreichbar: kein Hard-Fail, aber transparentes degraded-Flag.
+if not feasibility[goal]["reachable"]:
+    metadata.setdefault("goal_feasibility_limits", {})[goal] = dict(feasibility[goal])
+```
+
+**VERBOTEN**:
+
+- Unerreichbare Ziele mit aggressiven Eingriffen erzwingen (führt zu unnatürlichem Klang).
+- Feasibility-Ergebnis ignorieren und trotzdem harte Zielerfüllung erzwingen.
+
+## §2.80 Transparenz-Objektiv "kein hörbarer Eingriff" [RELEASE_MUST]
+
+**Source-Traceability**: `[SRC:T2,T4]`
+
+Export-Selektion muss explizit das Ziel "klingt wie ohne Eingriff" optimieren.
+Dies ist ein zusammengesetztes Soft-Objektiv, **kein** neues Hard-Gate.
+
+```python
+transparency_objective = weighted_mean({
+    "artifact_freedom": artifact_freedom,                # hoch
+    "timbral_fidelity": timbral_fidelity,                # hoch
+    "emotional_arc_preservation": emotional_arc,         # mittel-hoch
+    "micro_dynamics_preservation": micro_dyn_corr,       # mittel
+})
+
+# Kandidatenauswahl (current/hpi_best/best_carrier/original):
+# Primär nach Hard-Gates filtern, dann höchsten transparency_objective wählen.
+```
+
+**Normativ**:
+
+- Goosebumps/Frisson bleibt Soft-Faktor (Recovery + Score-Penalty), kein eigenständiger Hard-Veto.
+- Reporting darf `degraded` markieren, aber keine autonome Export-Blockade auslösen.
+
+## §2.81 Spec-Upgrade-Doktrin (Upgrade vor Downgrade) [RELEASE_MUST]
+
+Wenn produktiver Code für denselben Scope nachweisbar bessere Restaurierungs-, Reparatur-
+oder Rekonstruktionsqualität liefert, MUSS die Spezifikation auf dieses höhere Niveau
+angehoben werden. Ein Rückbau auf schwächere Spezifikationsstände ist unzulässig.
+
+```python
+# Zulässige Richtung bei Konflikt Code vs. Spec:
+# 1) Hard-Safety-Invarianten bleiben unveränderlich (artifact_freedom, Export-Safety, Vocal-No-Harm)
+# 2) Innerhalb der Safety-Hülle gewinnt die nachweisbar bessere Klanglösung
+# 3) Spezifikation wird auf den besseren Zustand aktualisiert (nicht umgekehrt)
+
+if implementation_quality > spec_quality and safety_invariants_passed:
+    action = "upgrade_spec"
+else:
+    action = "keep_or_fix_impl"
+
+# VERBOTEN:
+# - bessere Lösung abschwächen, nur um alte Spec-Formulierung zu erfüllen
+# - neue Qualitätsgewinne ohne Spec-/Test-Traceability belassen
+```
+
+Pflicht-Traceability bei jedem Upgrade:
+
+```python
+metadata["spec_upgrade"] = {
+    "section": "§2.81",
+    "reason": "implementation_outperforms_previous_spec",
+    "evidence": {
+        "artifact_freedom_delta": delta_af,
+        "vqi_delta": delta_vqi,
+        "goal_vector_delta": goal_delta_summary,
+    },
+}
+```
+
+## Quellenmatrix für §2.78–§2.80
+
+`[SRC:T1]` Subjektive Qualitätsbewertung und kleine Beeinträchtigungen (Ground Truth):
+
+- ITU-R BS.1116-3 (2015), Methods for the subjective assessment of small impairments in audio systems: <https://www.itu.int/rec/R-REC-BS.1116>
+- ITU-R BS.1534-3 (2015), MUSHRA method for intermediate audio quality: <https://www.itu.int/rec/R-REC-BS.1534>
+
+`[SRC:T2]` Robuste, standardisierte Sicherheits-/Loudness- und Objektivmetriken:
+
+- ITU-R BS.1770-5 (2023), Algorithms to measure audio programme loudness and true-peak audio level: <https://www.itu.int/rec/R-REC-BS.1770>
+- EBU R128 (v5.0, 2023), Loudness normalisation and permitted maximum level: <https://tech.ebu.ch/publications/r128>
+- ITU-R BS.1387-2 (2023), Method for objective measurements of perceived audio quality (PEAQ): <https://www.itu.int/rec/R-REC-BS.1387>
+
+`[SRC:T3]` Feasibility-Limitierung / keine absolute Zielerfüllungsgarantie:
+
+- ITU-R BS.1116-3: kleine, hörbare Beeinträchtigungen müssen subjektiv validiert werden; impliziert material-/programmabhängige Erreichbarkeitsgrenzen.
+- ITU-R BS.1534-3: Qualitätsurteile sind signal- und kontextabhängig; globale Einzelmetrik ersetzt keine segment-/kontextbezogene Bewertung.
+
+`[SRC:T4]` Frisson/Goosebumps als emotionaler, interindividuell variabler Marker (Soft-Faktor):
+
+- Blood AJ, Zatorre RJ (2001), Intensely pleasurable responses to music correlate with activity in brain regions implicated in reward and emotion, PNAS, DOI: 10.1073/pnas.191355898
+- Salimpoor VN et al. (2011), Anatomically distinct dopamine release during anticipation and experience of peak emotion to music, Nat Neurosci, DOI: 10.1038/nn.2726
+- Grewe O et al. (2007), Chills in response to music: psychophysiological and neurophysiological findings, Proc. R. Soc. B, DOI: 10.1098/rspb.2006.3664
 
 ## emotional_arc_preservation — Messung
 

@@ -4,6 +4,10 @@
 **Datum:** Mai 2026  
 **Status:** ✅ Production Ready
 
+> **Normativer Hinweis (Release):** Produktive Pfade werden ueber Bridge + `AurikDenker.denke(...)`
+> und nachgelagertes `export_guard()` abgesichert. Historische v2-Testbeispiele in diesem
+> Dokument sind als `LEGACY_NON_RELEASE` einzuordnen.
+
 ---
 
 ## 📖 Inhaltsverzeichnis
@@ -65,19 +69,15 @@ def test_restore_musical_goals():
     audio = generate_harmonic_test_signal(sr, duration=3.0)
 
     # Process
-    restorer = UnifiedRestorerV2()
-    restored = restorer.restore(audio, sr, mode=ProcessingMode.RESTORATION)
+    denker = get_aurik_denker_instance()
+    restored = denker.denke(audio, sr, mode="restoration").audio
 
     # Measure Musical Goals
     checker = MusicalGoalsChecker()
     goals = checker.measure_all(restored, sr)
 
     # Use Adaptive Thresholds (Material Quality-aware)
-    if hasattr(restorer, '_adaptive_thresholds') and restorer._adaptive_thresholds:
-        thresholds = restorer._adaptive_thresholds
-    else:
-        # Fallback: Standard thresholds
-        thresholds = checker.thresholds
+    thresholds = checker.thresholds
 
     # Validate
     for goal_name, score in goals.items():
@@ -151,16 +151,11 @@ def test_adaptive_thresholds_degraded_material():
     audio = generate_degraded_signal(sr, noise_level=0.15, bandwidth_limit=0.7)
 
     # Process
-    restorer = UnifiedRestorerV2()
-    restored = restorer.restore(audio, sr)
+    denker = get_aurik_denker_instance()
+    restored = denker.denke(audio, sr, mode="restoration").audio
 
-    # Validate Adaptive Thresholds
-    assert hasattr(restorer, '_adaptive_thresholds'), \
-        "Adaptive Thresholds should be available"
-    assert hasattr(restorer, '_material_quality'), \
-        "Material Quality should be assessed"
-
-    material = restorer._material_quality
+    # Validate on degraded material without assuming legacy internals
+    material = analyze_material(audio, sr)
 
     # Material should be identified as degraded
     assert material.quality_level in [
@@ -866,14 +861,11 @@ def test_restore():
 
 ```python
 def test_restore():
-    restorer = UnifiedRestorerV2()
-    restored = restorer.restore(audio, sr)
+    denker = get_aurik_denker_instance()
+    restored = denker.denke(audio, sr, mode="restoration").audio
 
     # Use Adaptive Thresholds
-    if hasattr(restorer, '_adaptive_thresholds'):
-        thresholds = restorer._adaptive_thresholds
-    else:
-        thresholds = MusicalGoalsChecker().thresholds
+    thresholds = MusicalGoalsChecker().thresholds
 
     checker = MusicalGoalsChecker()
     goals = checker.measure_all(restored, sr)
@@ -920,8 +912,8 @@ def test_restore():
 
 ```python
 def test_restore():
-    restorer = UnifiedRestorerV2()
-    restored = restorer.restore(audio, sr)
+    denker = get_aurik_denker_instance()
+    restored = denker.denke(audio, sr, mode="restoration").audio
 
     # Technical validation
     assert restored.shape == audio.shape
@@ -930,7 +922,7 @@ def test_restore():
     checker = MusicalGoalsChecker()
     goals = checker.measure_all(restored, sr)
 
-    thresholds = restorer._adaptive_thresholds if hasattr(restorer, '_adaptive_thresholds') else checker.thresholds
+    thresholds = checker.thresholds
 
     for goal_name, score in goals.items():
         assert score >= thresholds.get(goal_name, 0.0), \

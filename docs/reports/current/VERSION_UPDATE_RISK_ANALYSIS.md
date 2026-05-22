@@ -1,5 +1,9 @@
 # Risiko-Analyse: Major Version Updates (13. Februar 2026)
 
+> Legacy-Hinweis: Diese Analyse bezieht sich auf historische Docker-basierte Evaluationspfade.
+> Der produktive Releasepfad bleibt Desktop-only und folgt dem kanonischen Vertrag
+> Bridge -> `AurikDenker.denke(...)` -> `export_guard()`.
+
 ## Zusammenfassung
 
 **EMPFEHLUNG: ⚠️ SELEKTIVES ROLLBACK ERFORDERLICH**

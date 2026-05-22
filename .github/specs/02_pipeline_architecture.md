@@ -3358,6 +3358,80 @@ Passthrough ist kein Qualitätsmangel — die Phase hat einfach keinen Eingriff 
 
 **VERBOTEN**: Passthrough-Audio durch alle Goal-Scoring-Pfade schicken.
 
+### §2.58a [RELEASE_MUST] Strict-Conflict Severity-Orchestrierung (v9.12.9)
+
+Strict-Conflict-Decays und Cap-Tightening dürfen nicht mehr rein zählbasiert sein.
+Die Schwere muss reason-, psychoakustik- und zielprioritätsbasiert gewichtet werden.
+
+**Kanonische Policy-Felder** (`song_calibration_profile.strict_conflict_policy`):
+
+- `reason_decay_weight: dict[str, float]`
+- `reason_cap_tighten_weight: dict[str, float]`
+- `rollback_decay_per_family: dict[str, float]`
+- `rollback_decay_floor: float`
+
+**Normative Invarianten**:
+
+1. `pmgg_best_effort` wird milder gewichtet als harte Klangschäden.
+2. `best_effort_emergency` wird strenger gewichtet als reguläres `best_effort_rX`.
+3. `artifact_freedom_rollback` muss mit wachsendem Defizit (`0.95 - artifact_freedom`) strenger werden.
+4. `vocal_no_harm_rollback` mit `checks.singer_identity=False` muss strenger gewichtet werden.
+5. Goal-Prioritäten müssen in die Schwere einfließen:
+     - P1/P2-Regressionen strenger als P4/P5 bei gleicher Magnitude.
+6. Vocal-Supremacy-Kopplung:
+     - bei `panns_singing >= 0.35` müssen vokalkritische Regressionsziele
+         (`natuerlichkeit`, `authentizitaet`, `artikulation`, `timbre_authentizitaet`,
+         `vocal_quality`, `formant_fidelity`) zusätzlich verstärkt werden.
+7. Disagreement-Guard (Unsicherheitsdämpfung):
+         - wenn die letzten Family-Konflikte hohe Reason-Diversität zeigen (`>= 3` unterschiedliche
+             Gründe in der jüngsten Verlaufsscheibe) und kein harter Reason vorliegt,
+             MUSS `pmgg_best_effort` temporär konservativer gedämpft werden.
+         - sobald ein harter Grund im jüngsten Verlauf enthalten ist
+             (`artifact_freedom_rollback`, `noise_texture_rollback`,
+             `vocal_no_harm_rollback`, `hf_hallucination_rescue`), MUSS diese
+             Unsicherheitsdämpfung deaktiviert bleiben.
+
+**Schwere-Normalisierung**:
+
+- Runtime-Decay-Gewicht: Clip auf `[0.0, 1.5]`
+- Event-Severity-Score: Clip auf `[0.5, 2.0]`
+- Bucket-Mapping:
+  - `critical` ab `>= 1.4`
+  - `high` ab `>= 1.15`
+  - `medium` ab `>= 0.90`
+  - sonst `low`
+
+**Runtime-Event-Pflichtfelder** (`_phase_goal_conflict_runtime.events[*]`):
+
+- `severity_score: float`
+- `severity_bucket: str`
+- `severity_fingerprint: dict`
+
+**Mindestinhalt von `severity_fingerprint`**:
+
+- `reason_weight_base`
+- `dynamic_weight`
+- `vocal_presence`
+- `goal_priority_peak`
+- `artifact_deficit`
+- `emergency_action`
+- `fatigue_rebound_applied`
+- `prior_soft_conflict_streak`
+- `disagreement_brake_applied`
+- `recent_reason_diversity`
+
+**Strict-Report-Aggregation** (`_build_strict_phase_goal_conflict_report`):
+
+- `regressive_phase_events[*].severity` MUSS befüllt sein.
+- `regressive_weight_sum` MUSS statt reinem Event-Count in `conflict_score` einfließen.
+- `runtime_severity_sum` und `runtime_severity_max` MUSS im Report enthalten sein.
+
+**VERBOTEN**:
+
+- reines Zählschema für `conflict_score` ohne Severity-Gewichtung.
+- Vocal-Pfade als ungewichtete Standardkonflikte zu behandeln.
+- Priority-Pfade (P1/P2 vs. P4/P5) gleich zu behandeln.
+
 ---
 
 ## §2.59 [RELEASE_MUST] CausalDefectReasoner Bidirektionale Konsistenz (v9.11.14)

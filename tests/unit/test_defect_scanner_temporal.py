@@ -7,7 +7,7 @@ Prüft zeitliche Verortung aller location-fähigen Detektoren:
   - _detect_dropouts      ✅ bereits implementiert
   - _detect_clipping      ✅ bereits implementiert
   - _detect_print_through ✅ soeben implementiert (§C)
-sowie Abwesenheit von locations bei globalen Detektoren.
+sowie Konsistenz zwischen Severity und locations bei global/segmentalen Detektoren.
 """
 
 from __future__ import annotations
@@ -316,30 +316,38 @@ def test_13_quantization_noise_no_locations():
 
 
 # ---------------------------------------------------------------------------
-# T14: _detect_jitter_artifacts → locations=[] (global)
+# T14: _detect_jitter_artifacts → bei Severity>0 mit gültigen locations
 # ---------------------------------------------------------------------------
 
 
-def test_14_jitter_no_locations():
-    """Jitter-Artefakte sind ein globales Phänomen."""
+def test_14_jitter_locations_follow_severity_semantics():
+    """Jitter liefert bei erkannten Artefakten valide Zeitfenster."""
     sc = _scanner()
     audio = _white(amp=0.1)
     score = sc._detect_jitter_artifacts(audio)
-    assert score.locations == []
+    if score.severity > 0.01:
+        assert len(score.locations) > 0
+        assert _locations_valid(score.locations)
+    else:
+        assert score.locations == []
 
 
 # ---------------------------------------------------------------------------
-# T15: _detect_dynamic_compression_excess → locations=[]
+# T15: _detect_dynamic_compression_excess → bei Severity>0 mit locations
 # ---------------------------------------------------------------------------
 
 
-def test_15_dynamic_compression_no_locations():
-    """Überkomprimierung ist global — keine Zeitmarken."""
+def test_15_dynamic_compression_locations_follow_severity_semantics():
+    """Überkomprimierung liefert bei Erkennung zeitliche Marker."""
     sc = _scanner()
     # Stark komprimiertes Signal (konstante Amplitude)
     audio = np.full(SR * 3, 0.5, dtype=np.float32)
     score = sc._detect_dynamic_compression_excess(audio)
-    assert score.locations == []
+    if score.severity > 0.01:
+        assert len(score.locations) > 0
+        assert _locations_valid(score.locations)
+    else:
+        assert score.locations == []
 
 
 # ---------------------------------------------------------------------------
@@ -578,3 +586,108 @@ def test_24_pre_echo_dense_transients_not_limited_to_20_candidates():
     assert score.metadata.get("n_short_events", 0) > 20
     assert len(score.locations) > 20
     assert score.severity > 0.0
+
+
+def test_25_compression_artifacts_provide_locations_when_detected():
+    """Codec-ähnliche Bursts sollen bei positiver Severity lokalisierbar sein."""
+    sc = _scanner()
+    rng = np.random.default_rng(7)
+    audio = (rng.standard_normal(4 * SR) * 0.06).astype(np.float32)
+
+    burst_len = int(0.030 * SR)
+    for k in range(60):
+        s = int((0.20 + 0.055 * k) * SR)
+        e = min(len(audio), s + burst_len)
+        if e > s:
+            audio[s:e] *= 0.18
+
+    score = sc._detect_compression_artifacts(audio)
+    if score.severity > 0.01:
+        assert len(score.locations) > 0
+        assert _locations_valid(score.locations)
+
+
+def test_26_aliasing_provides_locations_when_detected_with_bypass():
+    """Near-Nyquist-Aliasing soll bei Bypass-Gate zeitlich markiert werden."""
+    from backend.core.defect_scanner import DefectScanner, MaterialType
+
+    sc = DefectScanner(sample_rate=SR, material_type=MaterialType.TAPE)
+    t = np.linspace(0.0, 4.0, int(4.0 * SR), endpoint=False, dtype=np.float32)
+    audio = (0.06 * np.sin(2.0 * np.pi * 1000.0 * t)).astype(np.float32)
+    audio += (0.12 * np.sin(2.0 * np.pi * (SR * 0.48) * t)).astype(np.float32)
+    audio = np.clip(audio, -1.0, 1.0)
+
+    score = sc._detect_aliasing(audio, _bypass_material_gate=True)
+    if score.severity > 0.01:
+        assert len(score.locations) > 0
+        assert _locations_valid(score.locations)
+
+
+def test_27_wow_flutter_combined_merges_locations(monkeypatch):
+    """Combined Wow/Flutter darf keine Locations aus dem schwächeren Zweig verlieren."""
+    from backend.core.defect_scanner import DefectScore, DefectType
+
+    sc = _scanner()
+
+    def _fake_wow(_audio):
+        return DefectScore(
+            defect_type=DefectType.WOW,
+            severity=0.40,
+            confidence=0.70,
+            locations=[(0.10, 0.20)],
+            metadata={"wow_marker": 1},
+        )
+
+    def _fake_flutter(_audio):
+        return DefectScore(
+            defect_type=DefectType.FLUTTER,
+            severity=0.62,
+            confidence=0.85,
+            locations=[(0.60, 0.70)],
+            metadata={"flutter_marker": 1},
+        )
+
+    monkeypatch.setattr(sc, "_detect_wow", _fake_wow)
+    monkeypatch.setattr(sc, "_detect_flutter", _fake_flutter)
+
+    score = sc._detect_wow_flutter(_sine(duration=1.0))
+    assert score.severity == 0.62
+    assert score.confidence == 0.85
+    assert len(score.locations) == 2
+    assert _locations_valid(score.locations)
+    assert score.metadata.get("wow_locations") == 1
+    assert score.metadata.get("flutter_locations") == 1
+
+
+def test_28_wow_flutter_combined_merges_overlapping_locations(monkeypatch):
+    """Nahe/überlappende Combined-Locations werden zusammengeführt."""
+    from backend.core.defect_scanner import DefectScore, DefectType
+
+    sc = _scanner()
+
+    def _fake_wow(_audio):
+        return DefectScore(
+            defect_type=DefectType.WOW,
+            severity=0.50,
+            confidence=0.70,
+            locations=[(0.100, 0.200)],
+            metadata={},
+        )
+
+    def _fake_flutter(_audio):
+        return DefectScore(
+            defect_type=DefectType.FLUTTER,
+            severity=0.48,
+            confidence=0.72,
+            locations=[(0.205, 0.280)],
+            metadata={},
+        )
+
+    monkeypatch.setattr(sc, "_detect_wow", _fake_wow)
+    monkeypatch.setattr(sc, "_detect_flutter", _fake_flutter)
+
+    score = sc._detect_wow_flutter(_sine(duration=1.0))
+    assert score.severity == 0.50
+    assert len(score.locations) == 1
+    assert score.locations[0][0] <= 0.100
+    assert score.locations[0][1] >= 0.280

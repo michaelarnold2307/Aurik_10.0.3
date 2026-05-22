@@ -379,3 +379,104 @@ except Exception:
 # Pre-SG + Post-SG: Frisson-Floor -1.0 LU
 # SG verteilt sonst Dämpfung in Klimax-Passagen bis -8 LU zurück
 ```
+
+## §MG-SSOT Einheitliche Ziel-Schwellenquelle [RELEASE_MUST]
+
+Musical-Goal-Schwellen dürfen nur aus **einer** Quelle stammen, um Parallelwelten zu verhindern.
+
+```python
+# Einzige zulässige Schwellenquellen:
+# 1) calibration_matrix.get_material_floor(...)
+# 2) estimate_song_goal_targets(...)
+# 3) FeasibilityController (max_achievable-Cap)
+
+# VERBOTEN:
+# - Goal-Schwellen in einzelnen Goal-Modulen hardcoden
+# - Goal-Schwellen in Phasenmodulen überschreiben
+# - Abweichende Schwellenpfade zwischen UV3 und MusicalGoalsChecker
+```
+
+Pflicht-Traceability:
+
+```python
+metadata["goal_threshold_source"] = {
+    goal_name: {
+        "material_floor": material_floor,
+        "song_target": song_target,
+        "feasibility_cap": feasibility_cap,
+        "effective_threshold": effective_threshold,
+    }
+}
+```
+
+## §MG-LOCAL Locality-Closing für Zielerfüllung [RELEASE_MUST]
+
+Zur robusten Zielerfüllung pro Song müssen Goals lokal (segmentweise) validiert werden,
+nicht nur als globaler Mittelwert.
+
+```python
+# KANONISCH: mindestens 3 Segmente (25/50/75 Prozent) plus Frisson-Zonen
+segments = build_goal_segments(audio, sr, include_frisson=True)
+segment_scores = measure_goals_per_segment(audio, sr, segments)
+
+# Goal gilt nur als erfüllt, wenn:
+# - global >= threshold
+# - und kein kritisches Segment deutlich darunter liegt
+goal_pass = (
+    global_score >= threshold
+    and min(segment_scores[goal]) >= threshold - 0.05
+)
+```
+
+**VERBOTEN**: Goal als "passed" markieren, wenn globale Mittelung lokale Ausreißer verdeckt.
+
+## §MG-FEAS Erreichbarkeits-Invariante [RELEASE_MUST]
+
+15/15 Zielschwellen sind ein **Optimierungsziel**, keine physikalisch absolute Zusage für jedes Signal.
+Die finale Schwelle pro Goal MUSS den Feasibility-Cap respektieren (siehe §2.79 in pipeline.instructions.md).
+
+```python
+# KANONISCH:
+effective_threshold = min(song_target_threshold, feasibility_max_achievable)
+
+# VERBOTEN:
+# - Zielschwellen über feasibility_max_achievable erzwingen
+# - Failed markieren, wenn nur die physikalische Unerreichbarkeit Ursache ist
+```
+
+Quellenbasis: ITU-R BS.1116-3 und ITU-R BS.1534-3 (subjektive Qualitätsbewertung ist signal-/kontextabhängig).
+
+## §MG-UPG Goal-Upgrade-Invariante [RELEASE_MUST]
+
+Für die 15 musikalischen Ziele gilt: Nachweisbar bessere Zielerreichung innerhalb
+der Safety-Grenzen führt zu Spezifikations-Upgrade, niemals zu Funktions-Downgrade.
+
+```python
+# KANONISCH:
+candidate_better = (
+    improved_goals_count >= 1
+    and non_degraded_goals_count >= 14
+    and artifact_freedom >= 0.95
+    and (panns_singing < 0.35 or vqi_not_worse)
+)
+
+if candidate_better:
+    decision = "promote_to_spec"
+else:
+    decision = "do_not_promote"
+
+# VERBOTEN:
+# - bessere Goal-Balance zurückdrehen, um alte statische Schwellen zu behalten
+# - einzelne Goal-Maximierung akzeptieren, wenn Teamwork-Balance der 15 Ziele sinkt
+```
+
+Pflicht bei Promotion:
+
+```python
+metadata["goal_upgrade_decision"] = {
+    "promoted": True,
+    "improved_goals": improved_goals,
+    "non_regression_goals": non_regression_goals,
+    "safety_ok": safety_ok,
+}
+```

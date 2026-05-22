@@ -26,6 +26,7 @@ from enum import Enum
 from typing import Any
 
 import numpy as np
+from scipy import signal
 
 from backend.core.musical_quality_assurance import (
     IntegrityViolation,
@@ -289,6 +290,7 @@ class QualityRecoverySystem:
         logger.info("=" * 60)
         logger.info("QUALITY RECOVERY: Diagnosing Problem")
         logger.info("=" * 60)
+        del audio, sample_rate
 
         # Analyze what went wrong
         problems = self._identify_problems(quality_report, medium_type)
@@ -376,7 +378,11 @@ class QualityRecoverySystem:
                 elif action.strategy == RecoveryStrategy.BYPASS_MODULE:
                     # Simulated: Re-process without problematic modules
                     recovered_audio = self._reprocess_without_modules(
-                        original_audio, modules_applied, action.parameters.get("module_names", [])
+                        original_audio,
+                        current_audio,
+                        sample_rate,
+                        modules_applied,
+                        action.parameters.get("module_names", []),
                     )
 
                 elif action.strategy == RecoveryStrategy.SWITCH_MODE:
@@ -404,8 +410,18 @@ class QualityRecoverySystem:
                     )
 
                 else:
-                    logger.warning("  Strategy %s not implemented yet", action.strategy.value)
-                    continue
+                    logger.warning(
+                        "  Unbekannte Strategy '%s' — verwende MAXIMIZE_QUALITY Fallback",
+                        action.strategy.value,
+                    )
+                    recovered_audio = self._maximize_quality(
+                        original_audio,
+                        current_audio,
+                        {"max_iterations": 6},
+                        medium_type,
+                        processing_mode,
+                        sample_rate,
+                    )
 
                 # Check if recovery worked
                 recovered_quality = self.analyzer.analyze_quality(recovered_audio, sample_rate)
@@ -470,6 +486,7 @@ class QualityRecoverySystem:
 
     def _identify_problems(self, quality_report: MusicalQualityReport, medium_type: MediumType) -> list[ProblemType]:
         """Identify specific problems from quality report."""
+        del medium_type
         problems = []
 
         # Check SNR
@@ -510,6 +527,7 @@ class QualityRecoverySystem:
         processing_mode: ProcessingMode,
     ) -> list[RecoveryAction]:
         """Generiert recovery actions for specific problem."""
+        del quality_report, medium_type, processing_mode
         # Get template actions
         actions = self._strategy_templates.get(problem_type, []).copy()
 
@@ -539,10 +557,16 @@ class QualityRecoverySystem:
         """Generiert human-readable problem description."""
         descriptions = {
             ProblemType.LOW_SNR: f"SNR too low ({quality_report.output_quality.snr_db:.1f} dB)",
-            ProblemType.OVERBRIGHTENING: f"Over-brightened (brightness {quality_report.output_quality.brightness:.2f})",
-            ProblemType.CHARACTER_LOSS: f"Analog character lost (authenticity {quality_report.output_quality.authenticity:.2f})",
-            ProblemType.UNNATURAL_SOUND: f"Unnatural sound (naturalness {quality_report.output_quality.naturalness:.2f})",
-            ProblemType.DYNAMIC_LOSS: f"Dynamic range lost ({quality_report.output_quality.dynamic_range_db:.1f} dB)",
+            ProblemType.OVERBRIGHTENING: (
+                f"Over-brightened (brightness {quality_report.output_quality.brightness:.2f})"
+            ),
+            ProblemType.CHARACTER_LOSS: (
+                f"Analog character lost (authenticity {quality_report.output_quality.authenticity:.2f})"
+            ),
+            ProblemType.UNNATURAL_SOUND: (
+                f"Unnatural sound (naturalness {quality_report.output_quality.naturalness:.2f})"
+            ),
+            ProblemType.DYNAMIC_LOSS: (f"Dynamic range lost ({quality_report.output_quality.dynamic_range_db:.1f} dB)"),
         }
 
         return descriptions.get(problem_type, "Unknown problem")
@@ -592,7 +616,10 @@ class QualityRecoverySystem:
                 best_score = candidate_score
                 best_gate_passed = True
                 logger.info(
-                    f"    Iteration {i + 1}: Quality {candidate_score:.1f} (intensity {intensity:.2f}) ✓ GATE PASSED"
+                    "    Iteration %s: Quality %.1f (intensity %.2f) ✓ GATE PASSED",
+                    i + 1,
+                    candidate_score,
+                    intensity,
                 )
             elif not best_gate_passed and candidate_score > best_score:
                 # Still better than what we had, and we haven't found a gate-passing solution yet
@@ -619,7 +646,12 @@ class QualityRecoverySystem:
         return blended.astype(np.float32)
 
     def _reprocess_without_modules(
-        self, original: np.ndarray, modules_applied: list[str], modules_to_skip: list[str]
+        self,
+        original: np.ndarray,
+        processed: np.ndarray,
+        sample_rate: int,
+        modules_applied: list[str],
+        modules_to_skip: list[str],
     ) -> np.ndarray:
         """Approximate reprocessing without the given modules via STFT-domain blending.
 
@@ -641,8 +673,8 @@ class QualityRecoverySystem:
         """
         logger.info("  → Would skip modules: %s", ", ".join(modules_to_skip))
 
-        if original.shape[0] == 0 or not modules_to_skip:
-            return original.copy()
+        if original.shape[0] == 0 or processed.shape[0] == 0 or not modules_to_skip:
+            return processed.copy()
 
         # ── Module-category lookup ───────────────────────────────────────────
         _NR_KEYWORDS = {"noise", "denoise", "deepnoise", "noisereduction", "hiss"}
@@ -670,11 +702,9 @@ class QualityRecoverySystem:
 
         # Start from a simple time-domain blend
         try:
-            from scipy.signal import istft as _istft
-            from scipy.signal import stft as _stft
-
             nperseg = 1024
             ORIG = original.astype(np.float32)
+            PROC = processed.astype(np.float32)
 
             # Work mono; handle stereo by processing per channel
             if ORIG.ndim == 2:
@@ -683,6 +713,8 @@ class QualityRecoverySystem:
                     channels.append(
                         self._reprocess_without_modules(
                             ORIG[:, ch : ch + 1].squeeze(),
+                            PROC[:, ch : ch + 1].squeeze(),
+                            sample_rate,
                             modules_applied,
                             modules_to_skip,
                         )
@@ -690,29 +722,45 @@ class QualityRecoverySystem:
                 result = np.stack(channels, axis=1)
                 return np.clip(result, -1.0, 1.0).astype(np.float32)
 
-            _, _, Zxx_orig = _stft(ORIG, nperseg=nperseg, noverlap=nperseg // 2)
-            mag_orig = np.abs(Zxx_orig)
-            phase_orig = np.angle(Zxx_orig)
+            if len(PROC) != len(ORIG):
+                n_min = min(len(PROC), len(ORIG))
+                ORIG = ORIG[:n_min]
+                PROC = PROC[:n_min]
 
-            # Corrected spectrum starts as the original spectrum (fully bypassed)
-            mag_corr = mag_orig.copy()
+            _, _, Zxx_orig = signal.stft(ORIG, nperseg=nperseg, noverlap=nperseg // 2)
+            _, _, Zxx_proc = signal.stft(PROC, nperseg=nperseg, noverlap=nperseg // 2)
+            mag_orig = np.abs(Zxx_orig)
+            mag_proc = np.abs(Zxx_proc)
+            phase_proc = np.angle(Zxx_proc)
+
+            # Start from processed spectrum and steer only where the skipped
+            # module categories likely caused damage.
+            mag_corr = mag_proc.copy()
 
             if "enhance" in skip_cats:
-                # Attenuate bins where original has less energy than processed
-                # → approximate de-brightening without the enhancer
-                # (we have no processed STFT here; use 3 dB headroom as proxy)
-                mag_corr = np.minimum(mag_corr, mag_orig * (10 ** (3.0 / 20.0)))
+                # Attenuate HF over-emphasis when processed magnitude exceeds original.
+                _sr = max(int(sample_rate), 1)
+                hf_start_bin = max(1, int(6000.0 * nperseg / float(_sr)))
+                hf_start_bin = min(hf_start_bin, mag_corr.shape[0] - 1)
+                if hf_start_bin > 0:
+                    _ratio = (mag_orig[hf_start_bin:, :] + 1e-9) / (mag_proc[hf_start_bin:, :] + 1e-9)
+                    _ratio = np.clip(_ratio, 0.35, 1.0)
+                    mag_corr[hf_start_bin:, :] *= _ratio
 
             if "compress" in skip_cats:
                 # Restore crest factor: scale each frame so its peak ≈ original's
-                frame_peak_orig = np.max(mag_orig, axis=0, keepdims=True) + 1e-12
+                frame_peak_orig = np.percentile(mag_orig, 99.9, axis=0, keepdims=True) + 1e-12
                 frame_peak_corr = np.max(mag_corr, axis=0, keepdims=True) + 1e-12
                 scale = frame_peak_orig / frame_peak_corr
-                mag_corr = mag_corr * scale
+                mag_corr = mag_corr * np.clip(scale, 0.60, 1.60)
 
-            # Reconstruct with original phase (PGHI-compatible)
-            Zxx_corr = mag_corr * np.exp(1j * phase_orig)
-            _, audio_corr = _istft(Zxx_corr, nperseg=nperseg, noverlap=nperseg // 2)
+            if "nr" in skip_cats:
+                # Bring back part of suppressed low-level texture from original.
+                mag_corr = 0.70 * mag_corr + 0.30 * mag_orig
+
+            # Reconstruct with processed phase to preserve current time alignment.
+            Zxx_corr = mag_corr * np.exp(1j * phase_proc)
+            _, audio_corr = signal.istft(Zxx_corr, nperseg=nperseg, noverlap=nperseg // 2)
             audio_corr = np.nan_to_num(audio_corr[: len(ORIG)], nan=0.0, posinf=0.0, neginf=0.0)
 
             # NR case: for NR modules blend corr signal back toward original
@@ -732,7 +780,7 @@ class QualityRecoverySystem:
 
         except Exception as exc:
             logger.warning("  → STFT correction failed (%s), using time-domain blend.", exc)
-            blended = blend_orig * original + blend_proc * original  # safe fallback
+            blended = blend_orig * original + blend_proc * processed
             return np.clip(blended, -1.0, 1.0).astype(np.float32)
 
     def _incremental_processing(
@@ -768,9 +816,6 @@ class QualityRecoverySystem:
         All operations are M/S-aware: stereo input is processed as M/S and
         adjustments are applied to Mid only (§2.51).
         """
-        from scipy.signal import istft as _istft
-        from scipy.signal import stft as _stft
-
         hf_red = float(parameters.get("high_freq_reduction", 0.0))
         comp_rat = float(parameters.get("compression_ratio", 0.0))
         lf_boost = float(parameters.get("low_freq_boost", 0.0))
@@ -795,8 +840,8 @@ class QualityRecoverySystem:
         noverlap = min(nperseg * 3 // 4, nperseg - 1)
 
         try:
-            _, _, Zxx = _stft(mid, fs=sample_rate, nperseg=nperseg, noverlap=noverlap)
-            _, _, Zxx_orig = _stft(mid_orig, fs=sample_rate, nperseg=nperseg, noverlap=noverlap)
+            _, _, Zxx = signal.stft(mid, fs=sample_rate, nperseg=nperseg, noverlap=noverlap)
+            _, _, Zxx_orig = signal.stft(mid_orig, fs=sample_rate, nperseg=nperseg, noverlap=noverlap)
 
             freqs = np.linspace(0, sample_rate / 2, Zxx.shape[0])
             mag = np.abs(Zxx)
@@ -828,7 +873,7 @@ class QualityRecoverySystem:
                 gain[lf_mask, :] *= lf_scale
 
             Zxx_out = mag * gain * np.exp(1j * phase)
-            _, mid_out = _istft(Zxx_out, fs=sample_rate, nperseg=nperseg, noverlap=noverlap)
+            _, mid_out = signal.istft(Zxx_out, fs=sample_rate, nperseg=nperseg, noverlap=noverlap)
             n = len(mid)
             mid_out = mid_out[:n] if len(mid_out) >= n else np.pad(mid_out, (0, n - len(mid_out)))
             mid_out = np.nan_to_num(mid_out, nan=0.0, posinf=0.0, neginf=0.0)
@@ -877,8 +922,7 @@ class QualityRecoverySystem:
 
         Always adds a limiting step to prevent clipping.
         """
-        from scipy.signal import istft as _istft
-        from scipy.signal import stft as _stft
+        del medium_type, processing_mode
 
         lf_blend = float(parameters.get("lf_blend", 0.40))
         low_mid_blend = float(parameters.get("low_mid_blend", 0.55))
@@ -902,8 +946,8 @@ class QualityRecoverySystem:
         noverlap = min(nperseg * 3 // 4, nperseg - 1)
 
         try:
-            _, _, Zxx_proc = _stft(mid, fs=sample_rate, nperseg=nperseg, noverlap=noverlap)
-            _, _, Zxx_orig = _stft(mid_orig, fs=sample_rate, nperseg=nperseg, noverlap=noverlap)
+            _, _, Zxx_proc = signal.stft(mid, fs=sample_rate, nperseg=nperseg, noverlap=noverlap)
+            _, _, Zxx_orig = signal.stft(mid_orig, fs=sample_rate, nperseg=nperseg, noverlap=noverlap)
 
             freqs = np.linspace(0, sample_rate / 2, Zxx_proc.shape[0])
 
@@ -917,7 +961,7 @@ class QualityRecoverySystem:
             alpha = alpha[:, np.newaxis]  # broadcast over frames
             Zxx_alt = alpha * Zxx_orig + (1.0 - alpha) * Zxx_proc
 
-            _, mid_out = _istft(Zxx_alt, fs=sample_rate, nperseg=nperseg, noverlap=noverlap)
+            _, mid_out = signal.istft(Zxx_alt, fs=sample_rate, nperseg=nperseg, noverlap=noverlap)
             n = len(mid)
             mid_out = mid_out[:n] if len(mid_out) >= n else np.pad(mid_out, (0, n - len(mid_out)))
             mid_out = np.nan_to_num(mid_out, nan=0.0, posinf=0.0, neginf=0.0)
@@ -963,41 +1007,52 @@ if __name__ == "__main__":
 
     # Example: Recover from failed quality gate
     _res1 = load_audio_file("input/vinyl.wav")
-    original, sr = np.asarray(_res1["audio"], dtype=np.float32), int(_res1["sr"])
+    if not isinstance(_res1, dict) or "audio" not in _res1 or "sr" not in _res1:
+        raise RuntimeError("load_audio_file('input/vinyl.wav') lieferte kein gueltiges Payload")
+    demo_original_audio = np.asarray(_res1["audio"], dtype=np.float32)
+    demo_sample_rate = int(_res1["sr"])
     _res2 = load_audio_file("output/over_processed.wav")
-    processed = np.asarray(_res2["audio"], dtype=np.float32)
+    if not isinstance(_res2, dict) or "audio" not in _res2:
+        raise RuntimeError("load_audio_file('output/over_processed.wav') lieferte kein gueltiges Payload")
+    demo_processed_audio = np.asarray(_res2["audio"], dtype=np.float32)
 
     # Create systems
     mqa = MusicalQualityAssurance()
     recovery = QualityRecoverySystem()
 
     # Validate and detect problem
-    report = mqa.validate_final_quality(
-        original,
-        processed,
-        sr,
+    demo_quality_report = mqa.validate_final_quality(
+        demo_original_audio,
+        demo_processed_audio,
+        demo_sample_rate,
         MediumType.VINYL_33,
         ProcessingMode.RESTORATION,
         ["NoiseReduction", "DeEsser", "Enhancer"],
     )
 
-    if not report.quality_guaranteed:
+    if not demo_quality_report.quality_guaranteed:
         # Generate recovery plan
-        plan = recovery.diagnose_problem(processed, sr, report, MediumType.VINYL_33, ProcessingMode.RESTORATION)
+        demo_recovery_plan = recovery.diagnose_problem(
+            demo_processed_audio,
+            demo_sample_rate,
+            demo_quality_report,
+            MediumType.VINYL_33,
+            ProcessingMode.RESTORATION,
+        )
 
         # Execute recovery
-        result = recovery.execute_recovery(
-            original,
-            processed,
-            sr,
-            plan,
+        demo_recovery_result = recovery.execute_recovery(
+            demo_original_audio,
+            demo_processed_audio,
+            demo_sample_rate,
+            demo_recovery_plan,
             ["NoiseReduction", "DeEsser", "Enhancer"],
             MediumType.VINYL_33,
             ProcessingMode.RESTORATION,
         )
 
-        if result.success:
-            logger.debug("✓ Quality recovered: %+.1f points", result.improvement)
-            sf.write("output/recovered.wav", result.recovered_audio, sr)
+        if demo_recovery_result.success:
+            logger.debug("✓ Quality recovered: %+.1f points", demo_recovery_result.improvement)
+            sf.write("output/recovered.wav", demo_recovery_result.recovered_audio, demo_sample_rate)
         else:
             logger.debug("❌ Recovery failed - using original")

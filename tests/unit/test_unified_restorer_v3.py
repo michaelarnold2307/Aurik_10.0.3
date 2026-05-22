@@ -159,6 +159,56 @@ class TestStrengthOracleRollout:
         assert UnifiedRestorerV3._is_phase_strength_oracle_enabled_for_phase(phase_id, "all") is True
 
 
+class TestSpecUpgradeMetadata:
+    def test_40zzf_build_spec_upgrade_metadata_promotes_candidate(self):
+        from backend.core.song_goal_importance import ALL_GOAL_NAMES
+
+        baseline = dict.fromkeys(ALL_GOAL_NAMES, 0.7)
+        candidate = dict(baseline)
+        candidate[ALL_GOAL_NAMES[0]] = 0.73
+
+        payload = UnifiedRestorerV3._build_spec_upgrade_metadata(
+            baseline_scores=baseline,
+            candidate_scores=candidate,
+            artifact_freedom=0.97,
+            panns_singing=0.10,
+            vqi_before=None,
+            vqi_after=None,
+            phase_upgrade_candidate=["phase_03_denoise", "phase_03_denoise", "phase_29_tape_hiss_reduction"],
+            goal_threshold_source="pmgg_ceiling_capped_targets",
+            decision_authority="uv3_final_gate",
+        )
+
+        assert payload["spec_upgrade"] is True
+        assert payload["goal_upgrade_decision"]["reason"] == "promote_to_spec"
+        assert payload["goal_upgrade_decision"]["improved_goals_count"] >= 1
+        assert payload["goal_threshold_source"] == "pmgg_ceiling_capped_targets"
+        assert payload["decision_authority"] == "uv3_final_gate"
+        assert payload["phase_upgrade_candidate"] == ["phase_03_denoise", "phase_29_tape_hiss_reduction"]
+
+    def test_40zzg_build_spec_upgrade_metadata_blocks_vocal_without_vqi(self):
+        from backend.core.song_goal_importance import ALL_GOAL_NAMES
+
+        baseline = dict.fromkeys(ALL_GOAL_NAMES, 0.7)
+        candidate = dict.fromkeys(ALL_GOAL_NAMES, 0.71)
+
+        payload = UnifiedRestorerV3._build_spec_upgrade_metadata(
+            baseline_scores=baseline,
+            candidate_scores=candidate,
+            artifact_freedom=0.98,
+            panns_singing=0.50,
+            vqi_before=None,
+            vqi_after=None,
+            phase_upgrade_candidate=[],
+            goal_threshold_source="effective_goal_thresholds",
+            decision_authority="uv3_final_gate",
+        )
+
+        assert payload["spec_upgrade"] is False
+        assert payload["goal_upgrade_decision"]["reason"] == "vqi_regression_or_missing"
+        assert payload["goal_upgrade_decision"]["vqi_ok"] is False
+
+
 class TestFallbackTeamworkController:
     def test_40zzd_initialize_controller_uses_capability_and_stem_signals(self):
         restorer = object.__new__(UnifiedRestorerV3)
@@ -2547,6 +2597,530 @@ class TestSingleGainAuthorityEndToEnd:
         assert not np.any(np.isnan(out)), "Output contains NaN after HPF+broadband chain"
         assert not np.any(np.isinf(out)), "Output contains Inf after HPF+broadband chain"
         assert np.all(np.abs(out) <= 1.0 + 1e-6), "Output exceeds ±1.0 clip range"
+
+
+class TestDedicatedJitterRepairHook:
+    def test_applies_for_digital_phase14_with_jitter_severity(self, monkeypatch: pytest.MonkeyPatch):
+        restorer = UnifiedRestorerV3()
+        restorer._restoration_context = {}
+        audio = _sine(0.5, freq=1000.0)
+
+        class _DummyJitterCorrector:
+            def __init__(self, jitter_threshold_ppm: float, correction_strength: float):
+                self.threshold = float(jitter_threshold_ppm)
+                self.strength = float(correction_strength)
+
+            def process(self, x: np.ndarray, sample_rate: int) -> np.ndarray:
+                assert sample_rate == SR
+                return (np.asarray(x, dtype=np.float32) * 0.90).astype(np.float32)
+
+        monkeypatch.setattr("dsp.digital_restoration_specialist.JitterCorrector", _DummyJitterCorrector)
+
+        out = restorer._apply_dedicated_jitter_repair(
+            audio,
+            phase_id="phase_14_phase_correction",
+            sample_rate=SR,
+            material_type=MaterialType.CD_DIGITAL,
+            defect_severity_map={"jitter_artifacts": 0.8},
+        )
+
+        assert out.shape == audio.shape
+        assert not np.array_equal(out, audio)
+        assert restorer._restoration_context.get("jitter_specialist_applied") is True
+        assert 0.12 <= float(restorer._restoration_context.get("jitter_specialist_blend", 0.0)) <= 0.45
+
+    def test_applies_locally_when_defect_locations_are_provided(self, monkeypatch: pytest.MonkeyPatch):
+        restorer = UnifiedRestorerV3()
+        restorer._restoration_context = {}
+        audio = _sine(0.5, freq=1000.0)
+
+        class _DummyJitterCorrector:
+            def __init__(self, jitter_threshold_ppm: float, correction_strength: float):
+                _ = (jitter_threshold_ppm, correction_strength)
+
+            def process(self, x: np.ndarray, sample_rate: int) -> np.ndarray:
+                assert sample_rate == SR
+                return (np.asarray(x, dtype=np.float32) * 0.5).astype(np.float32)
+
+        monkeypatch.setattr("dsp.digital_restoration_specialist.JitterCorrector", _DummyJitterCorrector)
+
+        out = restorer._apply_dedicated_jitter_repair(
+            audio,
+            phase_id="phase_14_phase_correction",
+            sample_rate=SR,
+            material_type=MaterialType.CD_DIGITAL,
+            defect_severity_map={"jitter_artifacts": 0.9},
+            defect_locations={"jitter_artifacts": [(0.10, 0.20)]},
+        )
+
+        n = audio.shape[-1]
+        pre = slice(0, int(0.05 * n))
+        mid = slice(int(0.14 * n), int(0.18 * n))
+        pre_diff = float(np.mean(np.abs(out[pre] - audio[pre])))
+        mid_diff = float(np.mean(np.abs(out[mid] - audio[mid])))
+
+        assert mid_diff > pre_diff * 2.0
+        assert float(restorer._restoration_context.get("jitter_specialist_coverage", 0.0)) > 0.0
+
+    def test_skips_for_non_digital_or_non_phase14(self, monkeypatch: pytest.MonkeyPatch):
+        restorer = UnifiedRestorerV3()
+        restorer._restoration_context = {}
+        audio = _sine(0.5, freq=800.0)
+
+        class _FailIfCalled:
+            def __init__(self, *args, **kwargs):
+                raise AssertionError("JitterCorrector darf hier nicht instanziiert werden")
+
+        monkeypatch.setattr("dsp.digital_restoration_specialist.JitterCorrector", _FailIfCalled)
+
+        out_a = restorer._apply_dedicated_jitter_repair(
+            audio,
+            phase_id="phase_14_phase_correction",
+            sample_rate=SR,
+            material_type=MaterialType.VINYL,
+            defect_severity_map={"jitter_artifacts": 0.9},
+        )
+        out_b = restorer._apply_dedicated_jitter_repair(
+            audio,
+            phase_id="phase_23_spectral_repair",
+            sample_rate=SR,
+            material_type=MaterialType.CD_DIGITAL,
+            defect_severity_map={"jitter_artifacts": 0.9},
+        )
+
+        assert np.array_equal(out_a, audio)
+        assert np.array_equal(out_b, audio)
+
+
+class TestDedicatedPreEchoRepairHook:
+    def test_applies_for_digital_phase50_with_pre_echo_severity(self, monkeypatch: pytest.MonkeyPatch):
+        restorer = UnifiedRestorerV3()
+        restorer._restoration_context = {
+            "pre_echo_events": [
+                {
+                    "pre_echo_start": 100,
+                    "pre_echo_end": 220,
+                    "severity_db": 8.0,
+                }
+            ]
+        }
+        audio = _sine(0.5, freq=1500.0)
+
+        class _DummyPreEchoDetector:
+            def detect(self, x: np.ndarray, sr: int, material_key: str):
+                assert sr == SR
+                return []
+
+            def repair_region(self, x: np.ndarray, event: dict, sr: int) -> np.ndarray:
+                _ = event
+                assert sr == SR
+                y = np.asarray(x, dtype=np.float32).copy()
+                y[100:220] *= 0.75
+                return y
+
+        monkeypatch.setattr(
+            "backend.core.dsp.pre_echo_detector.get_pre_echo_detector",
+            lambda: _DummyPreEchoDetector(),
+        )
+
+        out = restorer._apply_dedicated_pre_echo_repair(
+            audio,
+            phase_id="phase_50_spectral_repair",
+            sample_rate=SR,
+            material_type=MaterialType.MP3_LOW,
+            defect_severity_map={"pre_echo": 0.7},
+        )
+
+        assert out.shape == audio.shape
+        assert not np.array_equal(out, audio)
+        assert restorer._restoration_context.get("pre_echo_specialist_applied") is True
+        assert 0.10 <= float(restorer._restoration_context.get("pre_echo_specialist_blend", 0.0)) <= 0.40
+        assert int(restorer._restoration_context.get("pre_echo_specialist_events", 0)) >= 1
+
+    def test_applies_locally_when_defect_locations_are_provided(self, monkeypatch: pytest.MonkeyPatch):
+        restorer = UnifiedRestorerV3()
+        restorer._restoration_context = {
+            "pre_echo_events": [
+                {"pre_echo_start": 100, "pre_echo_end": 220, "severity_db": 8.0},
+                {"pre_echo_start": 9000, "pre_echo_end": 9200, "severity_db": 9.0},
+            ]
+        }
+        audio = _sine(0.5, freq=1500.0)
+
+        class _DummyPreEchoDetector:
+            def detect(self, x: np.ndarray, sr: int, material_key: str):
+                assert sr == SR
+                _ = (x, material_key)
+                return []
+
+            def repair_region(self, x: np.ndarray, event: dict, sr: int) -> np.ndarray:
+                assert sr == SR
+                y = np.asarray(x, dtype=np.float32).copy()
+                start = int(event.get("pre_echo_start", 0))
+                end = int(event.get("pre_echo_end", start))
+                y[max(0, start) : min(y.shape[-1], end)] *= 0.5
+                return y
+
+        monkeypatch.setattr(
+            "backend.core.dsp.pre_echo_detector.get_pre_echo_detector",
+            lambda: _DummyPreEchoDetector(),
+        )
+
+        out = restorer._apply_dedicated_pre_echo_repair(
+            audio,
+            phase_id="phase_50_spectral_repair",
+            sample_rate=SR,
+            material_type=MaterialType.MP3_LOW,
+            defect_severity_map={"pre_echo": 0.9},
+            defect_locations={"pre_echo": [(0.0015, 0.006)]},
+        )
+
+        n = audio.shape[-1]
+        pre = slice(int(0.18 * n), int(0.22 * n))
+        mid = slice(int(0.004 * n), int(0.007 * n))
+        pre_diff = float(np.mean(np.abs(out[pre] - audio[pre])))
+        mid_diff = float(np.mean(np.abs(out[mid] - audio[mid])))
+
+        assert mid_diff > pre_diff * 2.0
+        assert float(restorer._restoration_context.get("pre_echo_specialist_coverage", 0.0)) > 0.0
+
+    def test_skips_for_non_digital_or_non_spectral_phase(self, monkeypatch: pytest.MonkeyPatch):
+        restorer = UnifiedRestorerV3()
+        restorer._restoration_context = {}
+        audio = _sine(0.5, freq=1200.0)
+
+        class _FailIfCalled:
+            def detect(self, *args, **kwargs):
+                raise AssertionError("PreEchoDetector darf hier nicht verwendet werden")
+
+            def repair_region(self, *args, **kwargs):
+                raise AssertionError("PreEchoDetector darf hier nicht verwendet werden")
+
+        monkeypatch.setattr(
+            "backend.core.dsp.pre_echo_detector.get_pre_echo_detector",
+            lambda: _FailIfCalled(),
+        )
+
+        out_a = restorer._apply_dedicated_pre_echo_repair(
+            audio,
+            phase_id="phase_50_spectral_repair",
+            sample_rate=SR,
+            material_type=MaterialType.VINYL,
+            defect_severity_map={"pre_echo": 0.9},
+        )
+        out_b = restorer._apply_dedicated_pre_echo_repair(
+            audio,
+            phase_id="phase_14_phase_correction",
+            sample_rate=SR,
+            material_type=MaterialType.MP3_LOW,
+            defect_severity_map={"pre_echo": 0.9},
+        )
+
+        assert np.array_equal(out_a, audio)
+        assert np.array_equal(out_b, audio)
+
+
+class TestDedicatedAliasingRepairHook:
+    def test_applies_for_digital_phase23_with_aliasing_severity(self, monkeypatch: pytest.MonkeyPatch):
+        restorer = UnifiedRestorerV3()
+        restorer._restoration_context = {}
+        audio = _sine(0.5, freq=3800.0)
+
+        class _DummyBandwidthArtifactRemover:
+            def __init__(self, mode: str = "auto"):
+                assert mode == "aliasing"
+
+            def process(self, x: np.ndarray, sr: int) -> np.ndarray:
+                assert sr == SR
+                return (np.asarray(x, dtype=np.float32) * 0.88).astype(np.float32)
+
+        monkeypatch.setattr(
+            "dsp.bandwidth_artifact_remover.BandwidthArtifactRemover",
+            _DummyBandwidthArtifactRemover,
+        )
+
+        out = restorer._apply_dedicated_aliasing_repair(
+            audio,
+            phase_id="phase_23_spectral_repair",
+            sample_rate=SR,
+            material_type=MaterialType.CD_DIGITAL,
+            defect_severity_map={"aliasing": 0.75},
+        )
+
+        assert out.shape == audio.shape
+        assert not np.array_equal(out, audio)
+        assert restorer._restoration_context.get("aliasing_specialist_applied") is True
+        assert 0.10 <= float(restorer._restoration_context.get("aliasing_specialist_blend", 0.0)) <= 0.38
+
+    def test_applies_locally_when_defect_locations_are_provided(self, monkeypatch: pytest.MonkeyPatch):
+        restorer = UnifiedRestorerV3()
+        restorer._restoration_context = {}
+        audio = _sine(0.5, freq=3800.0)
+
+        class _DummyBandwidthArtifactRemover:
+            def __init__(self, mode: str = "auto"):
+                assert mode == "aliasing"
+
+            def process(self, x: np.ndarray, sr: int) -> np.ndarray:
+                assert sr == SR
+                return (np.asarray(x, dtype=np.float32) * 0.5).astype(np.float32)
+
+        monkeypatch.setattr(
+            "dsp.bandwidth_artifact_remover.BandwidthArtifactRemover",
+            _DummyBandwidthArtifactRemover,
+        )
+
+        out = restorer._apply_dedicated_aliasing_repair(
+            audio,
+            phase_id="phase_23_spectral_repair",
+            sample_rate=SR,
+            material_type=MaterialType.CD_DIGITAL,
+            defect_severity_map={"aliasing": 0.9},
+            defect_locations={"aliasing": [(0.10, 0.20)]},
+        )
+
+        n = audio.shape[-1]
+        pre = slice(0, int(0.05 * n))
+        mid = slice(int(0.14 * n), int(0.18 * n))
+        pre_diff = float(np.mean(np.abs(out[pre] - audio[pre])))
+        mid_diff = float(np.mean(np.abs(out[mid] - audio[mid])))
+
+        assert mid_diff > pre_diff * 2.0
+        assert float(restorer._restoration_context.get("aliasing_specialist_coverage", 0.0)) > 0.0
+
+    def test_skips_for_non_digital_or_non_spectral_phase(self, monkeypatch: pytest.MonkeyPatch):
+        restorer = UnifiedRestorerV3()
+        restorer._restoration_context = {}
+        audio = _sine(0.5, freq=2600.0)
+
+        class _FailIfCalled:
+            def __init__(self, *args, **kwargs):
+                raise AssertionError("Aliasing-Spezialist darf hier nicht instanziiert werden")
+
+        monkeypatch.setattr(
+            "dsp.bandwidth_artifact_remover.BandwidthArtifactRemover",
+            _FailIfCalled,
+        )
+
+        out_a = restorer._apply_dedicated_aliasing_repair(
+            audio,
+            phase_id="phase_23_spectral_repair",
+            sample_rate=SR,
+            material_type=MaterialType.VINYL,
+            defect_severity_map={"aliasing": 0.9},
+        )
+        out_b = restorer._apply_dedicated_aliasing_repair(
+            audio,
+            phase_id="phase_14_phase_correction",
+            sample_rate=SR,
+            material_type=MaterialType.CD_DIGITAL,
+            defect_severity_map={"aliasing": 0.9},
+        )
+
+        assert np.array_equal(out_a, audio)
+        assert np.array_equal(out_b, audio)
+
+
+class TestDedicatedCompressionArtifactRepairHook:
+    def test_applies_for_digital_phase50_with_compression_severity(self, monkeypatch: pytest.MonkeyPatch):
+        restorer = UnifiedRestorerV3()
+        restorer._restoration_context = {}
+        audio = _sine(0.5, freq=3000.0)
+
+        class _DummyBandwidthArtifactRemover:
+            def __init__(self, mode: str = "auto"):
+                assert mode == "compression"
+
+            def process(self, x: np.ndarray, sr: int) -> np.ndarray:
+                assert sr == SR
+                y = np.asarray(x, dtype=np.float32).copy()
+                y *= 0.92
+                return y
+
+        monkeypatch.setattr(
+            "dsp.bandwidth_artifact_remover.BandwidthArtifactRemover",
+            _DummyBandwidthArtifactRemover,
+        )
+
+        out = restorer._apply_dedicated_compression_artifact_repair(
+            audio,
+            phase_id="phase_50_spectral_repair",
+            sample_rate=SR,
+            material_type=MaterialType.AAC,
+            defect_severity_map={"compression_artifacts": 0.8},
+        )
+
+        assert out.shape == audio.shape
+        assert not np.array_equal(out, audio)
+        assert restorer._restoration_context.get("compression_artifact_specialist_applied") is True
+        assert 0.08 <= float(restorer._restoration_context.get("compression_artifact_specialist_blend", 0.0)) <= 0.34
+
+    def test_applies_locally_when_defect_locations_are_provided(self, monkeypatch: pytest.MonkeyPatch):
+        restorer = UnifiedRestorerV3()
+        restorer._restoration_context = {}
+        audio = _sine(0.5, freq=3000.0)
+
+        class _DummyBandwidthArtifactRemover:
+            def __init__(self, mode: str = "auto"):
+                assert mode == "compression"
+
+            def process(self, x: np.ndarray, sr: int) -> np.ndarray:
+                assert sr == SR
+                return (np.asarray(x, dtype=np.float32) * 0.5).astype(np.float32)
+
+        monkeypatch.setattr(
+            "dsp.bandwidth_artifact_remover.BandwidthArtifactRemover",
+            _DummyBandwidthArtifactRemover,
+        )
+
+        out = restorer._apply_dedicated_compression_artifact_repair(
+            audio,
+            phase_id="phase_50_spectral_repair",
+            sample_rate=SR,
+            material_type=MaterialType.AAC,
+            defect_severity_map={"compression_artifacts": 0.9},
+            defect_locations={"compression_artifacts": [(0.10, 0.20)]},
+        )
+
+        n = audio.shape[-1]
+        pre = slice(0, int(0.05 * n))
+        mid = slice(int(0.14 * n), int(0.18 * n))
+        pre_diff = float(np.mean(np.abs(out[pre] - audio[pre])))
+        mid_diff = float(np.mean(np.abs(out[mid] - audio[mid])))
+
+        assert mid_diff > pre_diff * 2.0
+        assert float(restorer._restoration_context.get("compression_artifact_specialist_coverage", 0.0)) > 0.0
+
+    def test_skips_for_non_digital_or_non_spectral_phase(self, monkeypatch: pytest.MonkeyPatch):
+        restorer = UnifiedRestorerV3()
+        restorer._restoration_context = {}
+        audio = _sine(0.5, freq=2400.0)
+
+        class _FailIfCalled:
+            def __init__(self, *args, **kwargs):
+                raise AssertionError("Compression-Spezialist darf hier nicht instanziiert werden")
+
+        monkeypatch.setattr(
+            "dsp.bandwidth_artifact_remover.BandwidthArtifactRemover",
+            _FailIfCalled,
+        )
+
+        out_a = restorer._apply_dedicated_compression_artifact_repair(
+            audio,
+            phase_id="phase_50_spectral_repair",
+            sample_rate=SR,
+            material_type=MaterialType.VINYL,
+            defect_severity_map={"compression_artifacts": 0.9},
+        )
+        out_b = restorer._apply_dedicated_compression_artifact_repair(
+            audio,
+            phase_id="phase_14_phase_correction",
+            sample_rate=SR,
+            material_type=MaterialType.AAC,
+            defect_severity_map={"compression_artifacts": 0.9},
+        )
+
+        assert np.array_equal(out_a, audio)
+        assert np.array_equal(out_b, audio)
+
+
+class TestDedicatedDynamicCompressionExcessRepairHook:
+    def test_applies_for_digital_phase54_with_dynamic_compression_severity(self, monkeypatch: pytest.MonkeyPatch):
+        restorer = UnifiedRestorerV3()
+        restorer._restoration_context = {}
+        audio = _sine(0.5, freq=900.0)
+
+        class _DummyDynamicRangeExpander:
+            def __init__(self, threshold_db: float, ratio: float, knee_db: float, attack_ms: float, release_ms: float):
+                _ = (threshold_db, knee_db, attack_ms, release_ms)
+                self.ratio = float(ratio)
+
+            def process(self, x: np.ndarray, sr: int) -> np.ndarray:
+                assert sr == SR
+                return (np.asarray(x, dtype=np.float32) * 0.93).astype(np.float32)
+
+        monkeypatch.setattr(
+            "dsp.dynamic_range_expander.DynamicRangeExpander",
+            _DummyDynamicRangeExpander,
+        )
+
+        out = restorer._apply_dedicated_dynamic_compression_excess_repair(
+            audio,
+            phase_id="phase_54_transparent_dynamics",
+            sample_rate=SR,
+            material_type=MaterialType.STREAMING,
+            defect_severity_map={"dynamic_compression_excess": 0.75},
+        )
+
+        assert out.shape == audio.shape
+        assert not np.array_equal(out, audio)
+        assert restorer._restoration_context.get("dynamic_compression_specialist_applied") is True
+        assert 0.08 <= float(restorer._restoration_context.get("dynamic_compression_specialist_blend", 0.0)) <= 0.32
+
+    def test_applies_locally_when_defect_locations_are_provided(self, monkeypatch: pytest.MonkeyPatch):
+        restorer = UnifiedRestorerV3()
+        restorer._restoration_context = {}
+        audio = _sine(0.5, freq=700.0)
+
+        class _DummyDynamicRangeExpander:
+            def __init__(self, threshold_db: float, ratio: float, knee_db: float, attack_ms: float, release_ms: float):
+                _ = (threshold_db, ratio, knee_db, attack_ms, release_ms)
+
+            def process(self, x: np.ndarray, sr: int) -> np.ndarray:
+                assert sr == SR
+                return (np.asarray(x, dtype=np.float32) * 0.5).astype(np.float32)
+
+        monkeypatch.setattr("dsp.dynamic_range_expander.DynamicRangeExpander", _DummyDynamicRangeExpander)
+
+        out = restorer._apply_dedicated_dynamic_compression_excess_repair(
+            audio,
+            phase_id="phase_54_transparent_dynamics",
+            sample_rate=SR,
+            material_type=MaterialType.STREAMING,
+            defect_severity_map={"dynamic_compression_excess": 0.9},
+            defect_locations={"dynamic_compression_excess": [(0.10, 0.20)]},
+        )
+
+        n = audio.shape[-1]
+        pre = slice(0, int(0.05 * n))
+        mid = slice(int(0.14 * n), int(0.18 * n))
+        pre_diff = float(np.mean(np.abs(out[pre] - audio[pre])))
+        mid_diff = float(np.mean(np.abs(out[mid] - audio[mid])))
+
+        assert mid_diff > pre_diff * 2.0
+        assert float(restorer._restoration_context.get("dynamic_compression_specialist_coverage", 0.0)) > 0.0
+
+    def test_skips_for_non_digital_or_unlisted_phase(self, monkeypatch: pytest.MonkeyPatch):
+        restorer = UnifiedRestorerV3()
+        restorer._restoration_context = {}
+        audio = _sine(0.5, freq=1100.0)
+
+        class _FailIfCalled:
+            def __init__(self, *args, **kwargs):
+                raise AssertionError("DynamicRangeExpander darf hier nicht instanziiert werden")
+
+        monkeypatch.setattr(
+            "dsp.dynamic_range_expander.DynamicRangeExpander",
+            _FailIfCalled,
+        )
+
+        out_a = restorer._apply_dedicated_dynamic_compression_excess_repair(
+            audio,
+            phase_id="phase_54_transparent_dynamics",
+            sample_rate=SR,
+            material_type=MaterialType.VINYL,
+            defect_severity_map={"dynamic_compression_excess": 0.9},
+        )
+        out_b = restorer._apply_dedicated_dynamic_compression_excess_repair(
+            audio,
+            phase_id="phase_14_phase_correction",
+            sample_rate=SR,
+            material_type=MaterialType.STREAMING,
+            defect_severity_map={"dynamic_compression_excess": 0.9},
+        )
+
+        assert np.array_equal(out_a, audio)
+        assert np.array_equal(out_b, audio)
 
 
 class TestCIGRollbackNoMakeupGain:

@@ -5,7 +5,7 @@ Definiert:
   - PhaseCategory  (Enum): Kategorisierung der Phasen
   - PhaseMetadata  (dataclass): Beschreibende Metadaten einer Phase
   - PhaseResult    (dataclass): Ausgabe einer Phase
-  - PhaseInterface (ABC): Abstrakte Basisklasse für alle 56 Phasen
+    - PhaseInterface (ABC): Abstrakte Basisklasse für alle 64 Phasen
   - create_phase_result(): Convenience-Factory
 
 Aurik 9.10.46 — Kanonische Implementierung (core/phases/phase_interface.py)
@@ -169,7 +169,7 @@ def create_phase_result(
 
 
 # ---------------------------------------------------------------------------
-# PhaseInterface — Abstrakte Basisklasse für alle 56 Phasen (§7.1)
+# PhaseInterface — Abstrakte Basisklasse für alle 64 Phasen (§7.1)
 # ---------------------------------------------------------------------------
 class PhaseInterface(abc.ABC):
     """Abstrakte Basisklasse für alle Aurik-Verarbeitungsphasen.

@@ -4,6 +4,8 @@
 **Datum:** Mai 2026  
 **Status:** ✅ Production Ready
 
+> **Normativer Hinweis (Release):** Produktive Laufzeitvertraege werden ueber Bridge + `AurikDenker.denke(...)`
+> und nachgelagertes `export_guard()` validiert. Historische v2-Beispiele sind nur `LEGACY_NON_RELEASE`.
 > Hinweis: Verbindlicher Stand der Testinvarianten ist in `.github/specs/07_quality_and_tests.md` dokumentiert.
 
 ---
@@ -100,13 +102,13 @@ Fuer reproduzierbare CI-Laeufe mit minimalen vermeidbaren Skips:
 
 ```bash
 # Nur einen Test-File
-pytest tests/test_unified_restorer.py
+pytest tests/unit -k "restoration"
 
 # Nur eine Test-Klasse
-pytest tests/test_unified_restorer.py::TestUnifiedRestorerV2
+pytest tests/unit -k "spec_upgrade or modern_window"
 
 # Nur eine Test-Methode
-pytest tests/test_unified_restorer.py::TestUnifiedRestorerV2::test_restore_basic
+pytest tests/unit/test_spec_upgrade_gate.py -k test_promote
 
 # Mit Pattern Matching
 pytest -k "test_restoration"  # Alle Tests mit "restoration" im Namen
@@ -253,16 +255,16 @@ class TestAdaptiveDenoiser:
 # tests/integration/test_pipeline_flow.py
 import pytest
 import numpy as np
-from core.unified_restorer_v2 import UnifiedRestorerV2, ProcessingMode
+from backend.api.bridge import get_aurik_denker_instance
 
 @pytest.mark.integration
 class TestPipelineFlow:
     """Integration Tests für vollständige Pipeline"""
 
     @pytest.fixture
-    def restorer(self):
-        """UnifiedRestorerV2 Fixture"""
-        return UnifiedRestorerV2()
+    def denker(self):
+        """AurikDenker Fixture"""
+        return get_aurik_denker_instance()
 
     @pytest.fixture
     def vinyl_audio(self):
@@ -284,17 +286,14 @@ class TestPipelineFlow:
 
         return audio, sr
 
-    def test_restoration_mode_full_pipeline(self, restorer, vinyl_audio):
+    def test_restoration_mode_full_pipeline(self, denker, vinyl_audio):
         """Test: RESTORATION Mode vollständige Pipeline"""
         # Arrange
         audio, sr = vinyl_audio
 
         # Act
-        restored = restorer.restore(
-            audio, sr,
-            mode=ProcessingMode.RESTORATION,
-            enable_logging=True
-        )
+        result = denker.denke(audio, sr, mode="restoration")
+        restored = result.audio
 
         # Assert
         assert restored.shape == audio.shape
@@ -308,27 +307,24 @@ class TestPipelineFlow:
         assert noise_floor_after < noise_floor_before
 
     @pytest.mark.slow
-    def test_all_modes_produce_valid_output(self, restorer, vinyl_audio):
+    def test_all_modes_produce_valid_output(self, denker, vinyl_audio):
         """Test: Alle Modi produzieren valides Audio"""
         audio, sr = vinyl_audio
 
         modes = [
-            ProcessingMode.RESTORATION,
-            ProcessingMode.STUDIO_2026,
-            ProcessingMode.FORENSIC,
-            ProcessingMode.VINTAGE_WARMTH,
-            ProcessingMode.ARCHIVAL
+            "restoration",
+            "studio2026",
         ]
 
         for mode in modes:
             # Act
-            restored = restorer.restore(audio, sr, mode=mode)
+            restored = denker.denke(audio, sr, mode=mode).audio
 
             # Assert
             assert restored.shape == audio.shape
             assert restored.dtype == np.float32
-            assert not np.isnan(restored).any(), f"NaN in {mode.name}"
-            assert not np.isinf(restored).any(), f"Inf in {mode.name}"
+            assert not np.isnan(restored).any(), f"NaN in {mode}"
+            assert not np.isinf(restored).any(), f"Inf in {mode}"
 ```
 
 ---
@@ -341,7 +337,7 @@ import pytest
 import numpy as np
 import soundfile as sf
 from pathlib import Path
-from core.unified_restorer_v2 import UnifiedRestorerV2, ProcessingMode
+from backend.api.bridge import get_aurik_denker_instance
 
 @pytest.mark.e2e
 class TestMagicButtonE2E:
@@ -369,14 +365,10 @@ class TestMagicButtonE2E:
             pytest.skip("Test audio file not found")
 
         audio, sr = sf.read(input_file)
-        restorer = UnifiedRestorerV2()
+        denker = get_aurik_denker_instance()
 
         # Act: Magic Button (RESTORATION)
-        restored = restorer.restore(
-            audio, sr,
-            mode=ProcessingMode.RESTORATION,
-            enable_logging=True
-        )
+        restored = denker.denke(audio, sr, mode="restoration").audio
 
         # Save Output
         sf.write(output_file, restored, sr)
@@ -524,8 +516,8 @@ pytest tests/test_e2e_magicbutton.py -v
 **Was wird getestet:**
 
 1. Audio einlesen (WAV/FLAC/MP3)
-2. UnifiedRestorerV2 initialisieren
-3. .restore() mit RESTORATION/STUDIO_2026
+2. Bridge-/Denker-Pfad initialisieren
+3. `AurikDenker.denke()` mit `restoration` oder `studio2026`
 4. Output speichern
 5. Output validieren (Clipping, Silence, DC-Offset)
 
@@ -579,7 +571,7 @@ bash run_e2e_magic_button_tests.sh
 import pytest
 import time
 import numpy as np
-from core.unified_restorer_v2 import UnifiedRestorerV2, ProcessingMode
+from backend.api.bridge import get_aurik_denker_instance
 
 @pytest.mark.benchmark
 class TestProcessingBenchmarks:
@@ -591,11 +583,11 @@ class TestProcessingBenchmarks:
         sr = 48000
         duration = 180.0  # 3 minutes
         audio = np.random.randn(int(sr * duration)) * 0.1
-        restorer = UnifiedRestorerV2()
+        denker = get_aurik_denker_instance()
 
         # Act (measure time)
         start = time.time()
-        restored = restorer.restore(audio, sr, mode=ProcessingMode.RESTORATION)
+        restored = denker.denke(audio, sr, mode="restoration").audio
         elapsed = time.time() - start
 
         # Assert
@@ -635,8 +627,8 @@ def test_memory_usage_within_limits():
     sr = 48000
     duration = 180.0
     audio = np.random.randn(int(sr * duration))
-    restorer = UnifiedRestorerV2()
-    restored = restorer.restore(audio, sr)
+    denker = get_aurik_denker_instance()
+    restored = denker.denke(audio, sr, mode="restoration").audio
 
     # Check Memory
     current, peak = tracemalloc.get_traced_memory()
@@ -779,15 +771,12 @@ class TestDenoiser:
 
 ```python
 @pytest.mark.parametrize("mode", [
-    ProcessingMode.RESTORATION,
-    ProcessingMode.STUDIO_2026,
-    ProcessingMode.FORENSIC,
-    ProcessingMode.VINTAGE_WARMTH,
-    ProcessingMode.ARCHIVAL
+    "restoration",
+    "studio2026",
 ])
 def test_all_modes_produce_valid_output(mode):
-    restorer = UnifiedRestorerV2()
-    restored = restorer.restore(audio, sr, mode=mode)
+    denker = get_aurik_denker_instance()
+    restored = denker.denke(audio, sr, mode=mode).audio
     assert restored.shape == audio.shape
 ```
 

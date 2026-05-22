@@ -22,6 +22,8 @@ import time as _time
 
 import numpy as np
 
+from .phase_interface import PhaseCategory, PhaseInterface, PhaseMetadata, PhaseResult
+
 
 def _rms_dbfs_gated(sig: np.ndarray) -> float:
     """§2.45a-I: Frame-basierter RMS in dBFS, ignoriert Frames < −50 dBFS (Stille).
@@ -194,11 +196,46 @@ def apply(
 
 # ─── PhaseInterface ────────────────────────────────────────────────────────────
 
-from .phase_interface import PhaseCategory, PhaseInterface, PhaseMetadata, PhaseResult
-
 
 class TapeSpliceRepairPhase(PhaseInterface):
     """Phase 64: Tape splice artifact repair (click + level + phase discontinuity)."""
+
+    @staticmethod
+    def _build_locality_profile(
+        n_samples: int,
+        sample_rate: int,
+        defect_locations: dict[str, list[tuple[float, float]]] | None,
+    ) -> tuple[np.ndarray, float]:
+        """Erzeugt lokale Blendmaske aus Tape-Splice-Locations."""
+        if n_samples <= 0 or sample_rate <= 0:
+            return np.zeros(0, dtype=np.float32), 0.0
+        if not isinstance(defect_locations, dict) or not defect_locations:
+            return np.ones(n_samples, dtype=np.float32), 0.0
+
+        mask = np.zeros(n_samples, dtype=np.float32)
+        pad = int(0.05 * sample_rate)
+        for loc in defect_locations.get("tape_splice_artifact") or []:
+            if not isinstance(loc, tuple) or len(loc) != 2:
+                continue
+            try:
+                s = int(max(0.0, float(loc[0])) * sample_rate)
+                e = int(max(0.0, float(loc[1])) * sample_rate)
+            except Exception:
+                continue
+            if e <= s:
+                continue
+            s = max(0, s - pad)
+            e = min(n_samples, e + pad)
+            if e > s:
+                mask[s:e] = 1.0
+
+        if float(np.mean(mask)) <= 1e-6:
+            return np.ones(n_samples, dtype=np.float32), 0.0
+
+        smooth = max(16, int(0.02 * sample_rate))
+        mask = np.convolve(mask, np.ones(smooth, dtype=np.float32) / float(smooth), mode="same")
+        mask = np.clip(mask, 0.0, 1.0).astype(np.float32)
+        return mask, float(np.mean(mask))
 
     def get_metadata(self) -> PhaseMetadata:
         return PhaseMetadata(
@@ -257,20 +294,22 @@ class TapeSpliceRepairPhase(PhaseInterface):
         self,
         audio: np.ndarray,
         sample_rate: int = 48000,
-        strength: float = 0.7,
-        defect_scores: dict | None = None,
+        material_type: str = "unknown",
         **kwargs,
     ) -> PhaseResult:
         sample_rate = kwargs.get("sample_rate", sample_rate)
         t0 = _time.perf_counter()
         assert sample_rate == 48000, f"SR must be 48000 Hz, got: {sample_rate}"
 
+        strength = float(kwargs.get("strength", 0.7))
+        defect_scores = kwargs.get("defect_scores")
+
         _defect_scores = defect_scores or kwargs.get("defect_analysis", {})
         phase_locality_factor = float(np.clip(float(kwargs.get("phase_locality_factor", 1.0)), 0.35, 1.0))
         _pmgg_strength = float(kwargs.get("strength", strength))
         _effective_strength = float(np.clip(_pmgg_strength * phase_locality_factor, 0.0, 1.0))
         _profile_64 = self._compute_splice_profile(
-            str(kwargs.get("material_type") or kwargs.get("material") or "unknown"),
+            str(material_type or kwargs.get("material_type") or kwargs.get("material") or "unknown"),
             str(kwargs.get("quality_mode", "balanced")),
             float(kwargs.get("restorability_score", 50.0)),
         )
@@ -302,6 +341,23 @@ class TapeSpliceRepairPhase(PhaseInterface):
             min_splice_score=_profile_64["min_splice_score"],
             crossfade_ms=_profile_64["crossfade_ms"],
         )
+        _n_samples_64 = int(result_audio.shape[-1]) if result_audio.ndim == 2 else int(result_audio.shape[0])
+        _locality_profile, _locality_coverage = self._build_locality_profile(
+            n_samples=_n_samples_64,
+            sample_rate=sample_rate,
+            defect_locations=kwargs.get("defect_locations"),
+        )
+        if _locality_profile.size > 0:
+            if result_audio.ndim == 2:
+                if result_audio.shape[0] <= 2 and result_audio.shape[1] >= result_audio.shape[0]:
+                    _mask = _locality_profile[np.newaxis, :]
+                else:
+                    _mask = _locality_profile[:, np.newaxis]
+                result_audio = audio + _mask * (result_audio - audio)
+            else:
+                result_audio = audio + _locality_profile * (result_audio - audio)
+            result_audio = np.nan_to_num(result_audio, nan=0.0, posinf=0.0, neginf=0.0)
+            result_audio = np.clip(result_audio, -1.0, 1.0).astype(np.float32)
         elapsed = _time.perf_counter() - t0
 
         _rms_out_db = _rms_dbfs_gated(result_audio)
@@ -318,6 +374,7 @@ class TapeSpliceRepairPhase(PhaseInterface):
                 "splice_profile": dict(_profile_64),
                 "min_splice_score": float(_profile_64["min_splice_score"]),
                 "crossfade_ms": float(_profile_64["crossfade_ms"]),
+                "repair_locality_coverage": float(_locality_coverage),
                 "rms_drop_db": round(float(min(0.0, _rms_drop)), 3),
                 "loudness_makeup_db": 0.0,
                 "phase_locality_factor": phase_locality_factor,

@@ -48,11 +48,13 @@ Autor: Aurik 9.0 Development Team / v9.9.8
 
 from __future__ import annotations
 
+import importlib
 import logging
 import math
 from typing import Any
 
 import numpy as np
+from scipy import signal
 
 from backend.core.audio_utils import safe_to_mono, to_channels_last
 
@@ -64,11 +66,15 @@ from .phase_interface import (
     create_phase_result,
 )
 
+# Optionale Imports werden in dieser Phase bewusst lazy geladen.
+# pylint: disable=import-outside-toplevel
+
 try:
-    pass
+    from dsp.pghi import PghiReconstructor as _PGHIRec_P56  # type: ignore
 
     _PGHI_AVAILABLE_P56 = True
 except ImportError:
+    _PGHIRec_P56 = None
     _PGHI_AVAILABLE_P56 = False
 
 
@@ -198,7 +204,8 @@ def _estimate_f0(mono: np.ndarray, sr: int) -> float | None:
 
     # Tier-3: PESTO
     try:
-        from plugins.pesto_plugin import get_pesto_plugin  # pylint: disable=no-name-in-module
+        _pesto_mod = importlib.import_module("plugins.pesto_plugin")
+        get_pesto_plugin = getattr(_pesto_mod, "get_pesto_plugin")
 
         result = get_pesto_plugin().analyze(mono, sr)
         voiced_mask = result.voiced_prob >= 0.55
@@ -224,7 +231,6 @@ def _estimate_f0(mono: np.ndarray, sr: int) -> float | None:
             logger.debug("pYIN f₀-Schätzung fehlgeschlagen: %s", exc)
 
     # Tier-3: Autokorrelation (einfacher DSP-Fallback) — FFT-based O(N log N)
-    max(1, sr // 100)
     mono_seg = mono[: min(len(mono), sr)]
     from backend.core.core_utils import fft_autocorr
 
@@ -259,9 +265,10 @@ def _detect_band_gaps(
     n_bins, _n_frames = stft_mag.shape
     freq_resolution = sr / n_fft  # Hz pro Bin
 
-    # Energie pro Bin (logarithmisch)
+    # Energie pro Bin (logarithmisch): mittlere Bandenergie als zweites Gate,
+    # damit sporadische Bursts kein dauerhaftes Gap vortaeuschen.
     energy_per_bin = np.mean(stft_mag**2, axis=1)
-    10.0 * np.log10(energy_per_bin + 1e-12)
+    energy_per_bin_db = 10.0 * np.log10(energy_per_bin + 1e-12)
 
     # Rollender Median über 30 Frames für Stabilisierung
     frame_medians = np.median(stft_mag, axis=1)
@@ -274,7 +281,11 @@ def _detect_band_gaps(
     # Bins die dauerhaft extrem leise und weit unter dem Schwellwert sind
     # Optionaler Override erlaubt konservativeres Side-Processing ohne globale Mutation.
     _gap_fraction = float(gap_fraction_min) if gap_fraction_min is not None else _GAP_FRACTION_MIN
-    gap_bins = (empty_fraction >= _gap_fraction) & (frame_median_db <= _GAP_ENERGY_THRESHOLD_DBFS)
+    gap_bins = (
+        (empty_fraction >= _gap_fraction)
+        & (frame_median_db <= _GAP_ENERGY_THRESHOLD_DBFS)
+        & (energy_per_bin_db <= _GAP_ENERGY_THRESHOLD_DBFS)
+    )
 
     # Kontinuierliche Bereiche identifizieren
     gaps: list[tuple[int, int]] = []
@@ -362,16 +373,15 @@ def _harmonic_interpolate_gap(
                     mag_out[b_fill] = np.maximum(
                         mag_out[b_fill], amp_interp * gauss_weight * np.ones(stft_mag.shape[1], dtype=np.float32)
                     )
-                    # Zufällige Phase — PGHI wird danach aufgerufen
-                    # §2.40 Determinismus: seed from current partial bin + magnitude context
-                    _ph_seed56 = int(
-                        abs(float(np.sum(np.abs(stft_mag[bin_n, : min(stft_mag.shape[1], 4)])))) * 1e5 + bin_n
-                    ) % (2**31)
-                    phase_out[b_fill] = (
-                        np.random.default_rng(seed=_ph_seed56)
-                        .uniform(-np.pi, np.pi, size=stft_mag.shape[1])
-                        .astype(np.float32)
-                    )
+                    # Phasenkonsistente Initialisierung aus Nachbar-Bins; PGHI folgt danach.
+                    if 0 <= bin_prev < stft_phase.shape[0] and 0 <= bin_next < stft_phase.shape[0]:
+                        phase_out[b_fill] = (0.5 * stft_phase[bin_prev] + 0.5 * stft_phase[bin_next]).astype(np.float32)
+                    elif 0 <= bin_prev < stft_phase.shape[0]:
+                        phase_out[b_fill] = stft_phase[bin_prev].astype(np.float32)
+                    elif 0 <= bin_next < stft_phase.shape[0]:
+                        phase_out[b_fill] = stft_phase[bin_next].astype(np.float32)
+                    else:
+                        phase_out[b_fill] = np.zeros(stft_mag.shape[1], dtype=np.float32)
 
         n_partial += 1
         if n_partial > 40:  # Sicherheits-Stop
@@ -405,9 +415,9 @@ def _pghi_phase_reconstruction(mag: np.ndarray, n_fft: int, hop: int) -> np.ndar
     """
     # Primary: PGHIReconstructor (dsp/pghi.py — vollständige Implementierung)
     try:
-        from dsp.pghi import PghiReconstructor as _PGHIRec
-
-        _pghi_rec = _PGHIRec(sr=48000, win_size=n_fft, hop=hop)
+        if _PGHIRec_P56 is None:
+            raise ImportError("PghiReconstructor nicht verfügbar")
+        _pghi_rec = _PGHIRec_P56(sr=48000, win_size=n_fft, hop=hop)
         # reconstruct() returns PghiResult with .audio field; we derive phase from STFT of audio
         _result = _pghi_rec.reconstruct(magnitude=mag, win_size=n_fft, hop=hop)
         # Extract phase from the reconstructed STFT (stored in PghiResult)
@@ -415,9 +425,7 @@ def _pghi_phase_reconstruction(mag: np.ndarray, n_fft: int, hop: int) -> np.ndar
             _phase_out = np.angle(_result.stft).astype(np.float32)
         else:
             # fallback: compute phase from reconstructed audio via STFT
-            import scipy.signal as _sps
-
-            _, _, _stft_r = _sps.stft(_result.audio, fs=48000, nperseg=n_fft, noverlap=n_fft - hop)
+            _, _, _stft_r = signal.stft(_result.audio, fs=48000, nperseg=n_fft, noverlap=n_fft - hop)
             _phase_out = np.angle(_stft_r).astype(np.float32)
         # Ensure shape matches input
         if _phase_out.shape == mag.shape:
@@ -551,6 +559,7 @@ class SpectralBandGapRepairPhase(PhaseInterface):
         self.n_fft: int = kwargs.get("n_fft", 2048)
         self.hop_length: int = kwargs.get("hop_length", 512)
         self.instrument_tag: str = kwargs.get("instrument_tag", "unknown")
+        self._current_phoneme_timeline: Any = None
         super().__init__(sample_rate=sample_rate, **kwargs)
 
     def get_metadata(self) -> PhaseMetadata:
@@ -621,7 +630,52 @@ class SpectralBandGapRepairPhase(PhaseInterface):
             "side_gap_fraction_min": float(np.clip(side_gap_fraction_min, 0.85, 0.995)),
         }
 
-    def process(self, audio: np.ndarray, **kwargs: Any) -> PhaseResult:
+    @staticmethod
+    def _build_locality_profile(
+        n_samples: int,
+        sample_rate: int,
+        defect_locations: dict[str, list[tuple[float, float]]] | None,
+    ) -> tuple[np.ndarray, float]:
+        """Erzeugt lokale Blendmaske für HEAD_WEAR/TAPE_HEAD_CLOG-Reparatur."""
+        if n_samples <= 0 or sample_rate <= 0:
+            return np.zeros(0, dtype=np.float32), 0.0
+        if not isinstance(defect_locations, dict) or not defect_locations:
+            return np.ones(n_samples, dtype=np.float32), 0.0
+
+        keys = ("head_wear", "tape_head_clog", "tape_head_level_dip")
+        mask = np.zeros(n_samples, dtype=np.float32)
+        pad = int(0.05 * sample_rate)
+        for key in keys:
+            for loc in defect_locations.get(key) or []:
+                if not isinstance(loc, tuple) or len(loc) != 2:
+                    continue
+                try:
+                    s = int(max(0.0, float(loc[0])) * sample_rate)
+                    e = int(max(0.0, float(loc[1])) * sample_rate)
+                except Exception:
+                    continue
+                if e <= s:
+                    continue
+                s = max(0, s - pad)
+                e = min(n_samples, e + pad)
+                if e > s:
+                    mask[s:e] = 1.0
+
+        if float(np.mean(mask)) <= 1e-6:
+            return np.ones(n_samples, dtype=np.float32), 0.0
+
+        smooth = max(16, int(0.02 * sample_rate))
+        mask = np.convolve(mask, np.ones(smooth, dtype=np.float32) / float(smooth), mode="same")
+        mask = np.clip(mask, 0.0, 1.0).astype(np.float32)
+        return mask, float(np.mean(mask))
+
+    def process(
+        self,
+        audio: np.ndarray,
+        sample_rate: int = 48000,
+        material_type: str = "unknown",
+        **kwargs: Any,
+    ) -> PhaseResult:
         """
         Hauptverarbeitung: Detektion + Reparatur spektraler Bandlücken.
 
@@ -634,7 +688,7 @@ class SpectralBandGapRepairPhase(PhaseInterface):
         Returns:
             PhaseResult mit repariertem Audio und Metadata
         """
-        sample_rate = kwargs.get("sample_rate", 48000)
+        sample_rate = int(kwargs.get("sample_rate", sample_rate))
         assert sample_rate == 48000, f"SR muss 48000 Hz sein, erhalten: {sample_rate}"
         audio, _p56_transposed = to_channels_last(audio)
 
@@ -664,13 +718,47 @@ class SpectralBandGapRepairPhase(PhaseInterface):
                 },
             )
 
-        _material_key_56 = str(kwargs.get("material_type", kwargs.get("material", "unknown"))).lower()
+        _material_key_56 = str(material_type or kwargs.get("material_type", kwargs.get("material", "unknown"))).lower()
         _band_gap_profile = self._compute_band_gap_profile(
             _material_key_56,
             str(kwargs.get("quality_mode", "balanced")),
             float(kwargs.get("restorability_score", 50.0)),
         )
         confidence: float = float(kwargs.get("confidence", 1.0))
+        _clog_severity = 0.0
+        _clog_confidence = 0.0
+        _defect_scores_obj = kwargs.get("defect_scores")
+        if isinstance(_defect_scores_obj, dict):
+            _clog_score_obj = _defect_scores_obj.get("tape_head_clog")
+            if _clog_score_obj is None:
+                try:
+                    from backend.core.defect_scanner import DefectType as _DS_DefectType
+
+                    _clog_score_obj = _defect_scores_obj.get(_DS_DefectType.TAPE_HEAD_CLOG)
+                except Exception:
+                    _clog_score_obj = None
+            if _clog_score_obj is not None:
+                _clog_severity = float(np.clip(float(getattr(_clog_score_obj, "severity", 0.0)), 0.0, 1.0))
+                _clog_confidence = float(np.clip(float(getattr(_clog_score_obj, "confidence", 0.0)), 0.0, 1.0))
+
+        # TAPE_HEAD_CLOG ist lokal/zeitvariabel (kein globaler HEAD_WEAR-Dauerzustand).
+        # Bei starker Clog-Evidenz Confidence-Gate konservativ absenken und Gap-Schwellen lockern,
+        # damit die Reparatur in realen Kopfverschmutzungssegmenten zuverlässig triggert.
+        if _clog_severity >= 0.10:
+            confidence = max(confidence, float(np.clip(0.30 + 0.55 * _clog_confidence, 0.30, 0.90)))
+            _band_gap_profile["min_head_wear_confidence"] = float(
+                min(
+                    _band_gap_profile["min_head_wear_confidence"],
+                    np.clip(0.50 - 0.16 * _clog_severity, 0.34, 0.50),
+                )
+            )
+            _band_gap_profile["mid_gap_fraction_min"] = float(
+                np.clip(_band_gap_profile["mid_gap_fraction_min"] - 0.08 * _clog_severity, 0.66, 0.97)
+            )
+            _band_gap_profile["side_gap_fraction_min"] = float(
+                np.clip(_band_gap_profile["side_gap_fraction_min"] - 0.05 * _clog_severity, 0.82, 0.995)
+            )
+
         if confidence < _band_gap_profile["min_head_wear_confidence"]:
             logger.debug(
                 "SpectralBandGapRepair: confidence=%.2f < %.2f, übersprungen",
@@ -685,6 +773,8 @@ class SpectralBandGapRepairPhase(PhaseInterface):
                     "min_head_wear_confidence": float(_band_gap_profile["min_head_wear_confidence"]),
                     "mid_gap_fraction_min": float(_band_gap_profile["mid_gap_fraction_min"]),
                     "side_gap_fraction_min": float(_band_gap_profile["side_gap_fraction_min"]),
+                    "tape_head_clog_severity": float(_clog_severity),
+                    "tape_head_clog_confidence": float(_clog_confidence),
                     "phase_locality_factor": phase_locality_factor,
                     "effective_strength": effective_strength,
                     "rms_drop_db": 0.0,
@@ -739,6 +829,17 @@ class SpectralBandGapRepairPhase(PhaseInterface):
 
         if 0.0 < effective_strength < 1.0:
             out = audio + effective_strength * (out - audio)
+
+        _locality_profile, _locality_coverage = self._build_locality_profile(
+            n_samples=int(out.shape[0]),
+            sample_rate=sample_rate,
+            defect_locations=kwargs.get("defect_locations"),
+        )
+        if _locality_profile.size > 0:
+            if out.ndim == 2:
+                out = audio + _locality_profile[:, np.newaxis] * (out - audio)
+            else:
+                out = audio + _locality_profile * (out - audio)
 
         # NaN/Inf-Guard (§3.1)
         out = np.nan_to_num(out, nan=0.0, posinf=0.0, neginf=0.0)
@@ -811,6 +912,9 @@ class SpectralBandGapRepairPhase(PhaseInterface):
                 "min_head_wear_confidence": float(_band_gap_profile["min_head_wear_confidence"]),
                 "mid_gap_fraction_min": float(_band_gap_profile["mid_gap_fraction_min"]),
                 "side_gap_fraction_min": float(_band_gap_profile["side_gap_fraction_min"]),
+                "tape_head_clog_severity": float(_clog_severity),
+                "tape_head_clog_confidence": float(_clog_confidence),
+                "repair_locality_coverage": float(_locality_coverage),
                 "phase_locality_factor": phase_locality_factor,
                 "effective_strength": effective_strength,
                 "execution_time_seconds": elapsed,
@@ -841,17 +945,14 @@ class SpectralBandGapRepairPhase(PhaseInterface):
         Returns:
             Refined output audio (mono, float64, same length as audio_in).
         """
-        from scipy.signal import istft as _istft_fn
-        from scipy.signal import stft as _stft_fn
-
         REF_WIN = 2048
         REF_HOP = 512
         nyq = sr / 2.0
         n = len(audio_in)
 
         try:
-            _, _, Zxx_in = _stft_fn(audio_in, sr, nperseg=REF_WIN, noverlap=REF_WIN - REF_HOP)
-            _, _, Zxx_out = _stft_fn(audio_out, sr, nperseg=REF_WIN, noverlap=REF_WIN - REF_HOP)
+            _, _, Zxx_in = signal.stft(audio_in, sr, nperseg=REF_WIN, noverlap=REF_WIN - REF_HOP)
+            _, _, Zxx_out = signal.stft(audio_out, sr, nperseg=REF_WIN, noverlap=REF_WIN - REF_HOP)
         except Exception:
             return audio_out
 
@@ -869,8 +970,8 @@ class SpectralBandGapRepairPhase(PhaseInterface):
                 continue
 
             try:
-                _, _, Zxx_in_z = _stft_fn(audio_in, sr, nperseg=win_z, noverlap=win_z - hop_z)
-                _, _, Zxx_out_z = _stft_fn(audio_out, sr, nperseg=win_z, noverlap=win_z - hop_z)
+                _, _, Zxx_in_z = signal.stft(audio_in, sr, nperseg=win_z, noverlap=win_z - hop_z)
+                _, _, Zxx_out_z = signal.stft(audio_out, sr, nperseg=win_z, noverlap=win_z - hop_z)
             except Exception:
                 continue
 
@@ -910,7 +1011,7 @@ class SpectralBandGapRepairPhase(PhaseInterface):
         # Direct ISTFT — Zxx_refined retains phase info from input STFT.
         # ISTFT is semantically correct and 50-100× faster than PGHI.
         try:
-            _, result = _istft_fn(
+            _, result = signal.istft(
                 np.asarray(Zxx_refined, dtype=np.complex64), sr, nperseg=REF_WIN, noverlap=REF_WIN - REF_HOP
             )
         except Exception:
@@ -1036,9 +1137,14 @@ class SpectralBandGapRepairPhase(PhaseInterface):
         elif len(audio_out) < len(mono):
             audio_out = np.pad(audio_out, (0, len(mono) - len(audio_out)))
 
-        # AuthentizitaetMetric garantie: kein Eingriff wenn nur minimale Unterschiede
-        # Weich überblenden: 95 % repariert + 5 % Original bei wenig Energie
-        blend = 0.95
+        # Adaptiver Blend: breite/verlässliche Lücken stärker, schmale Lücken konservativer.
+        if gaps:
+            _widths = [max(0, gh - gl) for gl, gh in gaps]
+            _avg_width = float(np.mean(_widths)) if _widths else 0.0
+            _conf_norm = float(np.clip((_avg_width / max(stft_mag.shape[0], 1)) * 6.0, 0.0, 1.0))
+        else:
+            _conf_norm = 0.0
+        blend = float(np.clip(0.65 + 0.30 * _conf_norm, 0.65, 0.95))
         audio_out = blend * audio_out + (1.0 - blend) * mono.astype(np.float32)
 
         return audio_out.astype(np.float32)

@@ -85,6 +85,7 @@ def test_fadeout_not_detected_as_dropout():
 
     # _detect_gaps soll keine Gaps finden — die trailing silence ist ein Fadeout
     from backend.core.phases.phase_55_diffusion_inpainting import _detect_gaps
+
     gaps = _detect_gaps(audio, sr, min_gap_ms=5.0)
 
     # Kein Dropout darf erkannt werden (die "Lücke" ist musikaler Fadeout + Stille)
@@ -115,3 +116,54 @@ def test_phase55_stereo_channel_first_axis_guard():
         f"Achsen-Guard-Fehler: Input {audio_channel_first.shape} → Output {result.audio.shape}. "
         "Erwartet: (2, N) channel-first bleibt erhalten."
     )
+
+
+def test_phase55_full_nmf_fallback_when_all_channel_paths_fail(monkeypatch):
+    """Wenn alle Kanalpfade ausfallen, muss der Ganzsignal-NMF-Fallback greifen."""
+    sr = 48000
+    audio = np.zeros(2048, dtype=np.float32)
+
+    def _raise_channel(*_args, **_kwargs):
+        raise RuntimeError("forced channel failure")
+
+    monkeypatch.setattr(phase55, "_process_channel", _raise_channel)
+
+    called = {"count": 0}
+
+    def _fake_full_fallback(self, signal, _sr, strength=0.5):
+        called["count"] += 1
+        return np.asarray(signal, dtype=np.float32)
+
+    monkeypatch.setattr(phase55.DiffusionInpaintingPhase, "_nmf_spectral_inpainting_fallback", _fake_full_fallback)
+
+    phase = phase55.DiffusionInpaintingPhase()
+    result = phase.process(audio, sr)
+
+    assert result.success is True
+    assert called["count"] == 1
+    assert bool(result.metadata.get("full_nmf_fallback_used", False)) is True
+    assert int(result.metadata.get("channel_failures", 0)) >= 1
+
+
+def test_phase55_nmf_fallback_stereo_preserves_signed_ratio():
+    """Stereo-Ratio darf negative Rekonstruktion nicht auf 0 wegclippen."""
+    t = np.linspace(0.0, 0.1, int(0.1 * 48000), endpoint=False, dtype=np.float32)
+    left = 0.2 * np.sin(2.0 * np.pi * 220.0 * t)
+    right = 0.2 * np.sin(2.0 * np.pi * 330.0 * t)
+    audio = np.column_stack([left, right]).astype(np.float32)
+
+    mono = np.mean(audio, axis=1).astype(np.float32)
+    mono_repaired = -mono  # explizit negatives Verhaeltnis
+    repaired = phase55._apply_shared_stereo_ratio(audio, mono, mono_repaired)
+
+    assert repaired.shape == audio.shape
+    assert np.all(np.isfinite(repaired))
+    # Beide Kanaele werden mit demselben signed ratio skaliert; Verhaeltnis bleibt stabil.
+    mask = np.abs(audio[:, 0]) > 1e-4
+    ratio_left = repaired[mask, 0] / audio[mask, 0]
+    ratio_right = repaired[mask, 1] / audio[mask, 1]
+    assert np.all(np.isfinite(ratio_left))
+    assert np.all(np.isfinite(ratio_right))
+    assert float(np.median(np.abs(ratio_left - ratio_right))) < 1e-3
+    # Ohne signed clipping waere ein harter Null-Abschnitt zu erwarten.
+    assert float(np.max(np.abs(repaired))) > 1e-4

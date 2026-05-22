@@ -3,6 +3,10 @@
 **Aurik 9.0 Continuous Integration & Deployment**  
 Letzte Aktualisierung: 16. Februar 2026
 
+> **Normativer Hinweis (Release-Scope):** Aurik ist als Desktop-Produkt releasefaehig
+> (Linux AppImage, Windows .exe). Historische CI-Hinweise zu Docker/Server gelten nur,
+> wenn sie explizit nicht den Desktop-Releasepfad betreffen (`LEGACY_NON_RELEASE`).
+
 ---
 
 ## 📋 Overview
@@ -53,6 +57,7 @@ Führt vollständige Testsuite mit Coverage aus.
 ```
 
 **Features:**
+
 - Parallele Testausführung (`-n auto`)
 - Coverage-Reporting (XML, HTML, Terminal)
 - Automatische Coverage-Comments auf Pull Requests
@@ -111,6 +116,7 @@ Automatisierte Multi-Platform Builds und Release-Erstellung.
 ### Trigger
 
 1. **Git Tags:** Pushe einen Tag mit Format `v*.*.*` (z.B. `v9.0.0`)
+
    ```bash
    git tag v9.0.1
    git push origin v9.0.1
@@ -179,6 +185,7 @@ Automatisierte Multi-Platform Builds und Release-Erstellung.
 #### Running CI Locally
 
 **Quality Gate:**
+
 ```bash
 # Formatting check
 black --check --line-length 120 .
@@ -194,6 +201,7 @@ bandit -r . -ll -x './.venv_*,./build,./dist,./models'
 ```
 
 **Test Suite:**
+
 ```bash
 # Run all tests with coverage
 pytest tests/ --cov=. --cov-report=term-missing -n auto
@@ -206,6 +214,7 @@ pytest benchmarks/ --benchmark-only
 ```
 
 **Dependency Audit:**
+
 ```bash
 # Safety check
 pip install safety
@@ -219,6 +228,7 @@ pip-audit
 #### Creating a Release
 
 1. **Update CHANGELOG.md**
+
    ```markdown
    ## [9.0.1] - 2026-02-17
    ### Added
@@ -228,6 +238,7 @@ pip-audit
    ```
 
 2. **Commit and Tag**
+
    ```bash
    git add CHANGELOG.md
    git commit -m "Release 9.0.1"
@@ -242,6 +253,7 @@ pip-audit
    - Check: Releases page for artifacts
 
 4. **Verify Assets**
+
    ```
    ✅ Aurik_90_Windows_x64.zip
    ✅ Aurik_90_Linux_x64.tar.gz
@@ -254,6 +266,7 @@ pip-audit
 #### Workflow Configuration
 
 **Environment Variables:**
+
 ```yaml
 env:
   PYTHON_VERSION: "3.10"
@@ -262,6 +275,7 @@ env:
 ```
 
 **Secrets Required:**
+
 - `GITHUB_TOKEN` (automatic, no setup needed)
 - `DOCKER_USERNAME` (optional, for Docker Hub push)
 - `DOCKER_PASSWORD` (optional, for Docker Hub push)
@@ -269,6 +283,7 @@ env:
 #### Caching Strategy
 
 **pip cache:**
+
 ```yaml
 - uses: actions/setup-python@v5
   with:
@@ -277,6 +292,7 @@ env:
 ```
 
 **Docker cache:**
+
 ```yaml
 - uses: docker/build-push-action@v5
   with:
@@ -287,6 +303,7 @@ env:
 #### Artifact Management
 
 **Artifacts Retention:**
+
 - Coverage reports: 30 days
 - Benchmark results: 30 days
 - Security reports: 90 days
@@ -299,23 +316,27 @@ env:
 ### GitHub Actions UI
 
 **View Workflow Runs:**
+
 - Repository → Actions tab
 - Filter by workflow, branch, status
 - Click run for detailed logs
 
 **Artifacts:**
+
 - Run details → Artifacts section
 - Download: coverage-reports, benchmark-results, security-reports
 
 ### Status Badges
 
 **In README.md:**
+
 ```markdown
 [![CI/CD Pipeline](https://github.com/YOUR_USERNAME/Aurik_Standalone/actions/workflows/ci_enhanced.yml/badge.svg)](...)
 [![Release Build](https://github.com/YOUR_USERNAME/Aurik_Standalone/actions/workflows/release.yml/badge.svg)](...)
 ```
 
 **Badge Colors:**
+
 - 🟢 Green: All checks passed
 - 🔴 Red: Failures detected
 - 🟡 Yellow: Running or pending
@@ -323,10 +344,12 @@ env:
 ### Notifications
 
 **Default Notifications:**
+
 - Email on workflow failures (repository contributors)
 - In-app GitHub notifications
 
 **Custom Notifications:**
+
 - Extend workflows with Slack/Discord webhooks
 - Add notification jobs to workflows
 
@@ -378,6 +401,7 @@ Solution:
 ### Debug Workflows
 
 **Enable debug logging:**
+
 ```bash
 # In repository → Settings → Secrets and variables → Actions
 # Add repository variable:
@@ -386,6 +410,7 @@ ACTIONS_RUNNER_DEBUG = true
 ```
 
 **Re-run failed jobs:**
+
 - Workflow run → Re-run failed jobs button
 - Or: Re-run all jobs (if needed)
 
@@ -435,22 +460,22 @@ pytest benchmarks/ --benchmark-only
 
 ### CI Pipeline Speed
 
-| Job | Typical Duration | Timeout |
-|-----|------------------|---------|
-| Quality Gate | 2-3 min | 10 min |
-| Test Suite | 5-8 min | 30 min |
-| Dependency Audit | 1-2 min | 10 min |
-| Docker Build | 3-5 min | 20 min |
-| Performance Benchmark | 2-4 min | 15 min |
-| **Total Pipeline** | **~15-20 min** | **60 min** |
+| Job                   | Typical Duration | Timeout    |
+|-----------------------|------------------|------------|
+| Quality Gate          | 2-3 min          | 10 min     |
+| Test Suite            | 5-8 min          | 30 min     |
+| Dependency Audit      | 1-2 min          | 10 min     |
+| Docker Build          | 3-5 min          | 20 min     |
+| Performance Benchmark | 2-4 min          | 15 min     |
+| **Total Pipeline**    | **~15-20 min**   | **60 min** |
 
 ### Release Build Speed
 
-| Platform | Build Time | Size |
-|----------|------------|------|
-| Windows | 8-12 min | ~200 MB |
-| Linux | 6-10 min | ~180 MB |
-| macOS | 10-15 min | ~220 MB |
+| Platform  | Build Time     | Size        |
+|-----------|----------------|-------------|
+| Windows   | 8-12 min       | ~200 MB     |
+| Linux     | 6-10 min       | ~180 MB     |
+| macOS     | 10-15 min      | ~220 MB     |
 | **Total** | **~25-35 min** | **~600 MB** |
 
 ---

@@ -44,6 +44,12 @@ def _clean_music_like(seconds: float) -> np.ndarray:
     audio = 0.18 * np.sin(2.0 * np.pi * 220.0 * t)
     audio += 0.08 * np.sin(2.0 * np.pi * 440.0 * t)
     audio += 0.04 * np.sin(2.0 * np.pi * 880.0 * t)
+    # Smooth edges to avoid detector-side boundary impulses on synthetic fixtures.
+    edge = max(16, int(0.02 * SR))
+    if edge * 2 < len(audio):
+        ramp = np.linspace(0.0, 1.0, edge, dtype=np.float32)
+        audio[:edge] *= ramp
+        audio[-edge:] *= ramp[::-1]
     return audio.astype(np.float32)
 
 
@@ -71,6 +77,47 @@ def _with_dropout(audio: np.ndarray) -> np.ndarray:
 
 def _with_clipping(audio: np.ndarray) -> np.ndarray:
     return np.clip(audio * 5.0, -1.0, 1.0).astype(np.float32)
+
+
+def _with_pre_echo(audio: np.ndarray) -> np.ndarray:
+    """Inject short pre-echo events ahead of synthetic transients."""
+    out = np.zeros_like(audio)
+    for pos_s in (0.46, 0.91, 1.27):
+        trans = min(len(out) - 4, int(pos_s * SR))
+        pre_start = max(0, trans - int(0.030 * SR))
+        pre_end = max(pre_start + 1, trans - int(0.005 * SR))
+        out[pre_start:pre_end] += 0.40
+        out[trans : trans + int(0.080 * SR)] += 1.0
+    return np.clip(out, -1.0, 1.0).astype(np.float32)
+
+
+def _with_quantization_noise(audio: np.ndarray) -> np.ndarray:
+    """Apply coarse re-quantization to create granular digital noise."""
+    levels = 32.0
+    out = np.round(audio * levels) / levels
+    return np.clip(out, -1.0, 1.0).astype(np.float32)
+
+
+def _with_jitter(seconds: float) -> np.ndarray:
+    """Synthesize a jitter-like high-frequency FM sideband pattern."""
+    t = _timebase(seconds)
+    carrier_hz = 4200.0
+    jitter_hz = 650.0
+    beta = 0.22
+    phase = 2.0 * np.pi * carrier_hz * t + beta * np.sin(2.0 * np.pi * jitter_hz * t)
+    tone = 0.38 * np.sin(phase)
+    return np.clip(tone, -1.0, 1.0).astype(np.float32)
+
+
+def _with_aliasing(seconds: float) -> np.ndarray:
+    """Synthesize near-Nyquist mirror energy typical for bad AA/SRC chains."""
+    t = _timebase(seconds)
+    # Strong near-Nyquist components (20.8-22.6 kHz at 48 kHz SR)
+    hf = 0.24 * np.sin(2.0 * np.pi * 20800.0 * t)
+    hf += 0.22 * np.sin(2.0 * np.pi * 22600.0 * t)
+    # Small musical bed so ratio is dominated by mirror-zone energy.
+    bed = 0.05 * np.sin(2.0 * np.pi * 700.0 * t)
+    return np.clip(hf + bed, -1.0, 1.0).astype(np.float32)
 
 
 def _scan_case(
@@ -113,7 +160,8 @@ def _scan_case(
 
 def run_gate(seconds: float = 1.6) -> tuple[object, list[DefectBenchmarkCaseResult]]:
     """Run deterministic fixture scans and evaluate the world-class gate."""
-    base = _clean_music_like(seconds)
+    effective_seconds = max(3.2, float(seconds))
+    base = _clean_music_like(effective_seconds)
     os.environ.setdefault("AURIK_DISABLE_CREPE", "1")
     cases = [
         _scan_case(
@@ -150,6 +198,27 @@ def run_gate(seconds: float = 1.6) -> tuple[object, list[DefectBenchmarkCaseResu
             material=MaterialType.CD_DIGITAL,
             expected=(DefectExpectation("clipping", min_severity=0.10, min_confidence=0.45, require_locations=True),),
             forbidden=("clicks", "dropouts"),
+        ),
+        _scan_case(
+            case_id="digital_quantization_noise",
+            audio=_with_quantization_noise(base),
+            material=MaterialType.MINIDISC,
+            expected=(DefectExpectation("quantization_noise", min_severity=0.08, min_confidence=0.45),),
+            forbidden=("riaa_curve_error",),
+        ),
+        _scan_case(
+            case_id="digital_jitter_artifacts",
+            audio=_with_jitter(effective_seconds),
+            material=MaterialType.CD_DIGITAL,
+            expected=(DefectExpectation("jitter_artifacts", min_severity=0.08, min_confidence=0.45),),
+            forbidden=("riaa_curve_error",),
+        ),
+        _scan_case(
+            case_id="digitization_aliasing",
+            audio=_with_aliasing(effective_seconds),
+            material=MaterialType.VINYL,
+            expected=(DefectExpectation("aliasing", min_severity=0.08, min_confidence=0.45),),
+            forbidden=("riaa_curve_error",),
         ),
     ]
     thresholds = DefectDetectionGateThresholds(

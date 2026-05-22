@@ -13,6 +13,7 @@ Datum: 14. Februar 2026
 
 import argparse
 import logging
+import re
 import sys
 from pathlib import Path
 
@@ -21,6 +22,9 @@ import torch
 import yaml
 from torch.utils.data import DataLoader, Dataset
 
+from backend.core.optimization.e2e_optimizer import E2EOptimizationFramework
+from backend.core.optimization.hyperparameter_optimizer import MaterialSpecificOptimizer, MultiMaterialOptimizer
+
 # Setup logging
 logging.basicConfig(
     level=logging.INFO,
@@ -28,12 +32,6 @@ logging.basicConfig(
     handlers=[logging.StreamHandler(sys.stdout), logging.FileHandler("training_e2e.log")],
 )
 logger = logging.getLogger(__name__)
-
-# Add project root to path
-sys.path.insert(0, str(Path(__file__).parent.parent.parent))
-
-from backend.core.optimization.e2e_optimizer import E2EOptimizationFramework
-from backend.core.optimization.hyperparameter_optimizer import MaterialSpecificOptimizer, MultiMaterialOptimizer
 
 
 class AudioRestorationDataset(Dataset):
@@ -198,7 +196,7 @@ def train_e2e_optimization(
     final_params = framework.export_optimized_parameters()
 
     params_file = output_path / "optimized_dsp_parameters.yaml"
-    with open(params_file, "w") as f:
+    with open(params_file, "w", encoding="utf-8") as f:
         yaml.dump(final_params, f, default_flow_style=False)
 
     logger.info("\nOptimized parameters saved: %s", params_file)
@@ -237,7 +235,9 @@ def train_hyperparameter_optimization(
     eval_dataset = [(np.random.randn(48000 * 2), np.random.randn(48000 * 2)) for _ in range(20)]
 
     # Dummy process function (would use actual Aurik pipeline)
-    def process_audio(audio, config) -> np.ndarray:
+    def process_audio(audio: np.ndarray, config: dict[str, object]) -> np.ndarray:
+        # Interface-Vertrag des Optimizers erwartet (audio, config).
+        del config
         # Simulate processing
         return audio * 0.9
 
@@ -261,6 +261,7 @@ def train_all_materials(dataset_path: Path, output_path: Path, n_trials: int = 1
     logger.info("=" * 80)
     logger.info("Starting Multi-Material Optimization")
     logger.info("=" * 80)
+    logger.info("Dataset root: %s", dataset_path)
 
     # Create multi-material optimizer
     optimizer = MultiMaterialOptimizer(storage_path=output_path, n_trials_per_material=n_trials)
@@ -319,8 +320,48 @@ def main() -> None:
 
     args = parser.parse_args()
 
-    dataset_path = Path(args.dataset)
-    output_path = Path(args.output)
+    def _validate_cli_path_text(raw: str, param_name: str) -> str:
+        """Validiert rohe CLI-Pfade gegen Traversal-/Steuerzeichenmuster."""
+        if not isinstance(raw, str) or not raw.strip():
+            raise ValueError(f"{param_name} must be a non-empty path string")
+        if "\x00" in raw:
+            raise ValueError(f"{param_name} contains forbidden null byte")
+        # Erlaubt u.a. Leerzeichen, verhindert aber Steuerzeichen und Pipes.
+        if not re.fullmatch(r"[\w\-./\\ :]+", raw):
+            raise ValueError(f"{param_name} contains forbidden characters")
+        return raw
+
+    def _resolve_dataset_path(raw: str) -> Path:
+        raw = _validate_cli_path_text(raw, "--dataset")
+        return Path(raw).expanduser().resolve(strict=False)
+
+    def _resolve_output_path(raw: str, workspace_root: Path) -> Path:
+        raw = _validate_cli_path_text(raw, "--output")
+        if any(part == ".." for part in Path(raw).parts):
+            raise ValueError("--output must not contain parent traversal ('..')")
+
+        raw_path = Path(raw).expanduser()
+        candidate = (
+            raw_path.resolve(strict=False)
+            if raw_path.is_absolute()
+            else (workspace_root / raw_path).resolve(strict=False)
+        )
+
+        # Sicherheitsgrenze: Output bleibt innerhalb des aktuellen Workspace-Roots.
+        try:
+            candidate.relative_to(workspace_root)
+        except ValueError as exc:
+            raise ValueError("--output must resolve inside the current workspace") from exc
+
+        return candidate
+
+    workspace_root = Path.cwd().resolve(strict=False)
+    try:
+        dataset_path = _resolve_dataset_path(args.dataset)
+        output_path = _resolve_output_path(args.output, workspace_root)
+    except ValueError as exc:
+        logger.error("Ungültiger Pfadparameter: %s", exc)
+        sys.exit(1)
 
     if not dataset_path.exists():
         logger.error("Dataset path does not exist: %s", dataset_path)

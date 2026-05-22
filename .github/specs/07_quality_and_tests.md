@@ -1272,6 +1272,78 @@ Pflichtmetadaten pro Schwelle:
 - `validated_on`
 - `revalidate_by` (bei Klasse C)
 
+#### §8.6f [RELEASE_MUST] Scientific Threshold Evidence Registry
+
+Die Gate-Schwellen fuer `artifact_freedom_gate`, `vqi_gate`, `hpi_gate` und
+`worldclass_composite_gate` muessen zentral in
+`policy/scientific_threshold_evidence_registry.yaml` gepflegt werden.
+
+Verbindliche Regeln:
+
+- Runtime-Metadaten (`threshold_evidence` in UV3) muessen fachlich auf den
+    Registry-Eintraegen basieren.
+- Jede Gate-Schwelle braucht mindestens eine wissenschaftliche Quellenachse:
+    DOI-Quelle, ITU/EBU-Norm oder gleichwertige Primarquelle.
+- `source_class: C` ist nur mit `revalidate_by` zulaessig.
+- Aenderungen an Gate-Schwellen ohne Update der Registry sind Release-Blocker.
+
+#### §8.6g [RELEASE_MUST] Psychoakustischer Natuerlichkeits-Guard (Anti-klinisch)
+
+Restaurierungen duerfen nicht klinisch-steril klingen. Deshalb ist zusaetzlich zum
+WCS ein psychoakustischer Natuerlichkeits-Guard verpflichtend.
+
+Guard-Signalachsen:
+
+- `noise_texture_authenticity`
+- `micro_dynamic_correlation`
+- `emotional_arc_preservation`
+- `spectral_color_preservation`
+
+Bewertung:
+
+```text
+PSYCHO = 0.28 * noise_texture_authenticity
+    + 0.24 * micro_dynamic_correlation
+    + 0.24 * emotional_arc_preservation
+    + 0.24 * spectral_color_preservation
+```
+
+Mindestziele:
+
+- Restoration mit Gesang (`panns_singing >= 0.35`): `PSYCHO >= 0.84` und jede Achse `>= 0.80`
+- Studio 2026 mit Gesang (`panns_singing >= 0.35`): `PSYCHO >= 0.87` und jede Achse `>= 0.80`
+- Instrumental: `PSYCHO >= 0.82` und jede Achse `>= 0.76`
+
+Pflichtmetadaten:
+
+- `metadata["psychoacoustic_naturalness_gate"]`
+- `metadata["threshold_evidence"]["psychoacoustic_naturalness_gate"]`
+
+Adaptive Recovery-Pflicht:
+
+- Falls `psychoacoustic_naturalness_gate.passed == False`, MUSS UV3 vor finaler
+    Degradation einen konservativen Recovery-Versuch ausfuehren (Blend mit sicheren
+    Referenzen wie Original/Checkpoint).
+- Recovery darf nur uebernommen werden, wenn das Psychoakustik-Gate danach
+    nachweislich besteht.
+- Recovery-Telemetrie ist verpflichtend unter
+    `metadata["psychoacoustic_feedback_recovery"]`.
+
+Phasenweise Rueckkopplung (fruehe Anti-Klinik-Steuerung):
+
+- UV3 MUSS fuer klangpraegende Phasen einen psychoakustischen Strength-Scalar
+    ableiten und konservativ anwenden, wenn Risikosignale auftreten
+    (z. B. Tilt-Guard-Trigger, Zwicker-Rescue, hohes HNR-Budget).
+- Zusaetzlich MUSS UV3 laufende Psycho-Delta-Metriken aus den Per-Phase-Goal-
+    Delten akkumulieren (insb. natuerlichkeit, authentizitaet, emotionalitaet,
+    micro_dynamics, transparenz) und in den naechsten Strength-Scalar einspeisen.
+- Die Skalierung ist rein daempfend (`<= 1.0`) und darf harte Safety-Gates
+    nicht umgehen.
+- Pro Phase sind Telemetrie-Felder in der Metadata-Akkumulation zu fuehren:
+    `psycho_strength_scalar`, `psycho_strength_risk_score`,
+    `psycho_strength_signals`, sowie Runtime-Status unter
+    `_psycho_runtime_state`.
+
 #### §8.6d Human-vs-Machine-Kooperationsinvariante
 
 Maschinelle Gewinne (SNR, Rauschreduktion, BW-Recovery) duerfen nie auf Kosten
@@ -1296,6 +1368,13 @@ Fallback-Kaskaden, Vokalpfade) ist nur release-faehig mit:
 1. `tests/normative/test_worldclass_hybrid_engineer_vector.py`
 2. `tests/normative/test_worldclass_composite_score_gate.py`
 3. `tests/normative/test_evidence_class_metadata_contract.py`
-4. mindestens einem Real-Audio-Gate-Lauf auf vokalem Material
+4. `tests/normative/test_psychoacoustic_naturalness_gate.py`
+5. mindestens einem Real-Audio-Gate-Lauf auf vokalem Material
 
 Fehlt einer dieser Nachweise, ist der Weltspitzen-Claim fuer den Patch nicht gueltig.
+
+#### §8.6h Operative Erkenntnisbasis (Psychoakustik)
+
+Fuer psychoakustische Kern-Changes ist die konsolidierte Engineering-Basis in
+`docs/PSYCHOACOUSTIC_ENGINEERING_INSIGHTS_2026-05-21.md` normativ zu nutzen
+(Architektur, Telemetrie, DoD, offene Risiken).
