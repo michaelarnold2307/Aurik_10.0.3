@@ -6,6 +6,9 @@ on:
       - main
   workflow_dispatch:
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
 jobs:
   solo-spec-evidence-gate:
     name: Solo Spec Evidence Gate
@@ -85,6 +88,8 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements/requirements_dev.txt
           pip install numpy==1.26.4 scipy==1.15.3
+          # backend/file_import.py importiert soundfile bereits beim UV3-Import.
+          pip install soundfile==0.13.1
 
       - name: Run compliance and drift checks
         run: |
