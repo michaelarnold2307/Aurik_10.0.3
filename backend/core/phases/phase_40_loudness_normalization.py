@@ -93,6 +93,7 @@ class LoudnessNormalizationPhase(PhaseInterface):
         MaterialType.SHELLAC: -18.0,  # Gentle (historical preservation)
         MaterialType.VINYL: -16.0,  # Moderate (vinyl warmth)
         MaterialType.TAPE: -15.0,  # Balanced
+        MaterialType.CASSETTE: -15.0,  # v9.12.9: IEC 60094-1 — gleiche Capstan-Physik wie TAPE
         MaterialType.CD_DIGITAL: -14.0,  # Modern CD standard
         MaterialType.STREAMING: -14.0,  # Default streaming
     }

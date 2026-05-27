@@ -246,6 +246,113 @@ def _compute_voice_guard_risk(panns_singing: float, vocal_guard_metrics: dict[st
     return float(np.clip(risk, 0.0, 1.0))
 
 
+# ---------------------------------------------------------------------------
+# §0l Phase-ID-spezifische Strength-Override-Tabelle (Lücke-A-Fix v9.12.9)
+# ---------------------------------------------------------------------------
+# Die Family-basierte Orakel-Klasse (O1–O10) gibt grobe Grundparameter vor.
+# Für Phasen mit stark unterschiedlichem physikalischem Eingriff innerhalb
+# derselben Familie überschreibt diese Tabelle die Policy-Parameter.
+#
+# Erlaubte Override-Schlüssel:
+#   oracle_class_override  → Erzwingt andere Orakel-Klasse (z. B. O7 für Vokal-Phasen)
+#   max_strength_cap       → Absoluter Hard-Cap unabhängig von Restorability
+#   threshold_db_min       → Obergrenze für threshold_db (weniger tief = konservativer)
+#   eq_gain_db_cap         → Hard-Cap für eq_gain_db (additive Phasen)
+#   drive_cap              → Hard-Cap für drive (generative/harmonische Phasen)
+#   driver_gain_override   → Überschreibt _ORACLE_CLASS_DRIVER_GAIN für diese Phase
+#
+# Physikalische Begründung pro Gruppe:
+#   Subtraktive NR-Phasen (phase_03/29/49/20): Carrier-Rauschboden muss erhalten
+#     bleiben (V19/V21). threshold_db darf nicht zu tief; max_strength konservativ.
+#   Additive BW-Phasen (phase_06/07/23): Hallucination-Guard (§2.46e) begrenzt.
+#     eq_gain_db und drive konservativ gedeckelt.
+#   Vokal-Phasen (phase_42/65): erzwingen O7-Klasse für korrekte Vokal-Parametrisierung.
+#   Zeit/Pitch-Phasen (phase_12): mechanischer Defekt → aggressiver als generisches O4.
+_PHASE_ID_STRENGTH_OVERRIDES: dict[str, dict[str, Any]] = {
+    # --- Subtraktive Carrier-NR-Phasen ---
+    "phase_29_tape_hiss_reduction": {
+        # Tape-Hiss-Entfernung: Carrier-Chain-Inversion (§2.46 Stufe 4).
+        # Coalition mit phase_07 (tape_transport, §2.67) — nicht zu aggressiv.
+        "max_strength_cap": 0.78,
+        "threshold_db_min": -28.0,  # V21: nie tiefer als −28 dB
+        "driver_gain_override": 0.82,
+    },
+    "phase_03_denoise": {
+        # Breitband-NR: breites Spektrum → konservativ; phase_06 folgt in Coalition.
+        "max_strength_cap": 0.72,
+        "threshold_db_min": -26.0,
+        "driver_gain_override": 0.78,
+    },
+    "phase_49_advanced_dereverb": {
+        # Hallentfernung: irreversibel, spatial_depth-Verlust intentional (V19).
+        "max_strength_cap": 0.62,
+        "threshold_db_min": -22.0,
+        "driver_gain_override": 0.70,
+    },
+    "phase_02_hum_removal": {
+        # Schmalbandige Notch-Operation: präzise, nicht zu breit.
+        "max_strength_cap": 0.84,
+        "driver_gain_override": 0.88,
+    },
+    "phase_20_reverb_reduction": {
+        # Leichter als phase_49 (einfachere Reverb-Typen).
+        "max_strength_cap": 0.70,
+        "threshold_db_min": -24.0,
+        "driver_gain_override": 0.74,
+    },
+    # --- Additive / BW-Erweiterungs-Phasen ---
+    "phase_07_harmonic_restoration": {
+        # Komplementärphase zu phase_29 (Coalition tape_transport, §2.67).
+        # Muss Hallucination-Guard-konform bleiben (§2.46e).
+        "max_strength_cap": 0.72,
+        "eq_gain_db_cap": 2.0,
+        "drive_cap": 0.62,
+        "driver_gain_override": 0.86,
+    },
+    "phase_06_frequency_restoration": {
+        # BW-Erweiterung: Material-BW-Ceiling (§6.2b) entscheidend.
+        # Coalition broadband_nr_restoration mit phase_03.
+        "max_strength_cap": 0.68,
+        "eq_gain_db_cap": 1.8,
+        "drive_cap": 0.58,
+        "driver_gain_override": 0.80,
+    },
+    "phase_23_spectral_repair": {
+        # Inpainting/ADMM: generativ, SSIP-geschützt (§2.68), konservativ.
+        # Kein max_strength_cap hier: O8-Formel liefert bereits chain-aware Dynamic-Cap
+        # (0.78 × (0.75 + 0.25 × chain_factor) ≤ 0.78) — statischer Override wäre redundant.
+        "eq_gain_db_cap": 1.6,
+        "drive_cap": 0.52,
+        "driver_gain_override": 0.72,
+    },
+    # --- Vokal-spezifische Phasen ---
+    "phase_42_vocal_enhancement": {
+        # Studio 2026 only (§0a). VQI-Gate steuert; O7-Klasse für korrekte Parametrisierung.
+        "oracle_class_override": "O7_vocal_articulation",
+        "max_strength_cap": 0.76,
+        "driver_gain_override": 0.90,
+    },
+    "phase_65_vocal_naturalness_restoration": {
+        # §0a-konformer Vokal-Recovery in Restoration (HNR-Blend + Formant-Tilt).
+        "oracle_class_override": "O7_vocal_articulation",
+        "max_strength_cap": 0.60,
+        "driver_gain_override": 0.72,
+    },
+    # --- Zeit/Pitch-Phasen ---
+    "phase_12_wow_flutter_fix": {
+        # Mechanischer Defekt: klarere physikalische Zielfunktion → aggressiver als O4.
+        "max_strength_cap": 0.88,
+        "drive_cap": 0.82,
+        "driver_gain_override": 0.92,
+    },
+    "phase_25_azimuth_correction": {
+        # Geometrische Korrektur: deterministisch, mittlere Stärke.
+        "max_strength_cap": 0.82,
+        "driver_gain_override": 0.84,
+    },
+}
+
+
 def resolve_phase_strength_oracle(
     *,
     phase_id: str,
@@ -264,8 +371,13 @@ def resolve_phase_strength_oracle(
     chain_confidence: float | None = None,
 ) -> PhaseStrengthOracleProfile:
     """Berechnet ein robustes, bounds-sicheres Steuerprofil je Phase."""
-    _ = phase_id, song_calibration_profile, panns_singing
+    _ = song_calibration_profile  # §0l: phase_id und panns_singing aktiv genutzt (Lücke-A-Fix)
+    # §0l Lücke-A-Fix: Phase-ID-spezifische Overrides laden.
+    _ph_override: dict[str, Any] = _PHASE_ID_STRENGTH_OVERRIDES.get(str(phase_id or "").strip(), {})
     oracle_class = _ORACLE_CLASS_BY_FAMILY.get(str(phase_family or "").strip().lower(), "O1_general_repair")
+    # oracle_class_override: Erzwingt andere Klasse (z. B. phase_42 → O7_vocal_articulation).
+    if "oracle_class_override" in _ph_override:
+        oracle_class = str(_ph_override["oracle_class_override"])
     policy = _ORACLE_CLASS_POLICY.get(oracle_class, _ORACLE_CLASS_POLICY["O1_general_repair"])
     base = float(np.clip(current_strength, 0.0, 1.0))
     sev = _extract_max_severity(defect_scores)
@@ -280,7 +392,8 @@ def resolve_phase_strength_oracle(
 
     # Teamwork-orientierter Eingriffsfaktor: Defektlast + Goal-Luecken treiben hoch,
     # hohe Restorability bremst (Minimal-Intervention).
-    _driver_gain = float(_ORACLE_CLASS_DRIVER_GAIN.get(oracle_class, 0.80))
+    # §0l driver_gain_override: Phasenspezifisches Antriebsniveau (Lücke-A-Fix).
+    _driver_gain = float(_ph_override.get("driver_gain_override", _ORACLE_CLASS_DRIVER_GAIN.get(oracle_class, 0.80)))
     driver = float(
         np.clip(
             (0.58 * sev + 0.32 * weighted_gap + 0.10 * (1.0 - rest / 100.0)) * _driver_gain * chain_factor,
@@ -313,6 +426,9 @@ def resolve_phase_strength_oracle(
         ratio = float(np.clip(1.0 + 1.4 * control_strength, 1.0, 2.6))
     elif oracle_class == "O2_subtractive":
         threshold_db = float(np.clip(-18.0 - 16.0 * control_strength, -36.0, -18.0))
+        # §0l threshold_db_min: Phase-ID-spezifische Obergrenze (weniger tief = konservativer, V21-Boden).
+        if "threshold_db_min" in _ph_override:
+            threshold_db = float(max(threshold_db, float(_ph_override["threshold_db_min"])))
         ratio = float(np.clip(1.0 + 2.2 * control_strength, 1.0, 3.4))
     elif oracle_class == "O7_vocal_articulation":
         threshold_db = float(np.clip(-16.0 - 14.0 * control_strength, -34.0, -14.0))
@@ -341,6 +457,12 @@ def resolve_phase_strength_oracle(
             "high": float(np.clip(0.85 + 0.55 * control_strength, 0.70, 1.35)),
         }
 
+    # §0l Phase-ID Hard-Caps für additive Parameter (Lücke-A-Fix).
+    if eq_gain_db is not None and "eq_gain_db_cap" in _ph_override:
+        eq_gain_db = float(min(eq_gain_db, float(_ph_override["eq_gain_db_cap"])))
+    if drive is not None and "drive_cap" in _ph_override:
+        drive = float(min(drive, float(_ph_override["drive_cap"])))
+
     hard_caps = {
         "max_strength": float(
             np.clip(
@@ -358,6 +480,11 @@ def resolve_phase_strength_oracle(
     }
     control_strength = float(min(control_strength, hard_caps["max_strength"]))
     wet_mix = float(min(wet_mix, hard_caps["max_wet_mix"]))
+    # §0l max_strength_cap: Phase-ID-spezifischer absoluter Hard-Cap (Lücke-A-Fix).
+    if "max_strength_cap" in _ph_override:
+        _ph_max_str = float(np.clip(float(_ph_override["max_strength_cap"]), 0.0, 1.0))
+        control_strength = float(min(control_strength, _ph_max_str))
+        hard_caps["max_strength"] = float(min(hard_caps["max_strength"], _ph_max_str))
 
     # Dominanz-Guard: kein einzelnes Ziel darf >65% Teamanteil tragen.
     dominant_goal_guard = True

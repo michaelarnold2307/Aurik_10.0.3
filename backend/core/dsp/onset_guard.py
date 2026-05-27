@@ -53,6 +53,13 @@ def apply_onset_protection_mask(
         if pre.shape != post.shape:
             return post
 
+        # §2.51 Stereo-Axis-Invariante: channels-last (N, 2) → channels-first (2, N)
+        _was_transposed = False
+        if pre.ndim == 2 and pre.shape[1] == 2 and pre.shape[0] > 2:
+            pre = pre.T
+            post = post.T
+            _was_transposed = True
+
         n = pre.shape[-1] if pre.ndim == 2 else len(pre)
 
         # Onset-Maske bestimmen
@@ -128,7 +135,10 @@ def apply_onset_protection_mask(
                     wet = float(np.clip(1.0 - abs(ratio - 1.0) / (abs(ratio - 1.0) + 0.5), 0.1, 0.9))
                     result[start:end] = wet * post[start:end] + (1.0 - wet) * pre[start:end]
 
-        return np.clip(result, -1.0, 1.0).astype(np.float32)
+        result = np.clip(result, -1.0, 1.0).astype(np.float32)
+        if _was_transposed:
+            result = result.T
+        return result
 
     except Exception as exc:
         logger.debug("apply_onset_protection_mask non-blocking: %s", exc)

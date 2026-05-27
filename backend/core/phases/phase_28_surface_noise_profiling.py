@@ -65,8 +65,6 @@ logger = logging.getLogger(__name__)
 
 # PGHI phase reconstruction after spectral gain application (Spec §DSP — PFLICHT)
 try:
-    pass
-
     _PGHI_AVAILABLE = True
 except Exception:
     _PGHI_AVAILABLE = False
@@ -121,6 +119,13 @@ class SurfaceNoiseProfiling(PhaseInterface):
             "smoothing_frames": 12,
             "noise_learn_duration_s": 1.0,
         },
+        MaterialType.CASSETTE: {
+            "over_subtraction_alpha": 1.55,  # v9.12.9: NR ≈ TAPE×0.85 — Cassette-Rauschen hat anderes Spektralprofil
+            "spectral_floor": 0.10,  # §2.62 hard min
+            "vad_threshold_db": -46,  # v9.12.9: etwas höher als TAPE (Cassette-Hiss höherer Pegel)
+            "smoothing_frames": 13,  # v9.12.9: minimal mehr Glättung
+            "noise_learn_duration_s": 1.0,
+        },  # v9.12.9: IEC 60094-1 — Cassette-Hiss-Profil angepasst
         MaterialType.CD_DIGITAL: {
             "over_subtraction_alpha": 1.3,
             "spectral_floor": 0.10,  # §2.62 hard min
@@ -243,7 +248,11 @@ class SurfaceNoiseProfiling(PhaseInterface):
         )
 
     def process(
-        self, audio: np.ndarray, sample_rate: int, material: MaterialType = MaterialType.CD_DIGITAL, **kwargs
+        self,
+        audio: np.ndarray,
+        sample_rate: int = 48000,
+        material_type: MaterialType = MaterialType.CD_DIGITAL,
+        **kwargs,
     ) -> PhaseResult:
         """
         Wendet an: spectral noise profiling and removal.
@@ -256,6 +265,7 @@ class SurfaceNoiseProfiling(PhaseInterface):
         Returns:
             PhaseResult with denoised audio
         """
+        material = material_type  # interner Alias
         sample_rate = kwargs.get("sample_rate", 48000)
         assert sample_rate == 48000, f"SR muss 48000 Hz sein, erhalten: {sample_rate}"
         audio, _p28_transposed = to_channels_last(audio)
@@ -265,7 +275,9 @@ class SurfaceNoiseProfiling(PhaseInterface):
         # §2.46f Natural-Performance-Artifacts-Guard — detect protected breath/vibrato zones before NR
         _npa_result_28 = None
         try:
-            from backend.core.natural_performance_detector import get_natural_performance_detector
+            from backend.core.natural_performance_detector import (
+                get_natural_performance_detector,  # pylint: disable=import-outside-toplevel
+            )
 
             _npa_result_28 = get_natural_performance_detector().detect(audio, sample_rate)
         except Exception as _npa_exc_28:
@@ -334,7 +346,9 @@ class SurfaceNoiseProfiling(PhaseInterface):
         # §4.5 Psychoacoustic Masking Clamp: protect musically masked regions
         # from unnecessary surface-noise removal (§0 Primum non nocere).
         try:
-            from backend.core.dsp.psychoacoustics import apply_psychoacoustic_masking_clamp
+            from backend.core.dsp.psychoacoustics import (
+                apply_psychoacoustic_masking_clamp,  # pylint: disable=import-outside-toplevel
+            )
 
             _mono_orig = safe_to_mono(audio)
             _mono_proc = safe_to_mono(denoised_audio)
@@ -384,6 +398,99 @@ class SurfaceNoiseProfiling(PhaseInterface):
 
         denoised_audio = np.nan_to_num(denoised_audio, nan=0.0, posinf=0.0, neginf=0.0)
         denoised_audio = np.clip(denoised_audio, -1.0, 1.0)
+
+        # §0p/V19/V20/V21/V26/§2.72 Vokal- + Textur-Guards nach Surface-Noise-NR (RELEASE_MUST §0p V19-V26)
+        _p28_panns = float(kwargs.get("panns_singing", kwargs.get("panns_singing_confidence", 0.0)))
+        if _p28_panns >= 0.25:
+            try:
+                from backend.core.dsp.hnr_guard import apply_hnr_blend as _apply_hnr_28  # pylint: disable=import-outside-toplevel  # noqa: I001
+
+                _hnr_blended_28, _hnr_diag_28 = _apply_hnr_28(
+                    audio.astype(np.float32), denoised_audio.astype(np.float32), sample_rate
+                )
+                if _hnr_diag_28.get("over_cleaned"):
+                    denoised_audio = _hnr_blended_28
+            except Exception as _hnr_28_exc:
+                logger.debug("§0p HNR-Blend phase_28 (non-blocking): %s", _hnr_28_exc)
+
+        _nt28_residual = audio - denoised_audio
+        try:
+            from backend.core.dsp.noise_texture_guard import (  # pylint: disable=import-outside-toplevel
+                compute_noise_texture_distance as _nt28_dist_fn,
+            )
+
+            if _nt28_residual.shape == audio.shape:
+                _nt28_d = _nt28_dist_fn(_nt28_residual, _material_key, sr=sample_rate)
+                if _nt28_d > 0.25:
+                    denoised_audio = (0.5 * denoised_audio + 0.5 * audio).astype(np.float32)
+                    logger.warning("§V19 phase_28: noise_texture_dist=%.3f > 0.25 → 50%% dry-blend", _nt28_d)
+        except Exception as _nt28_exc:
+            logger.debug("§V19 phase_28 noise_texture non-blocking: %s", _nt28_exc)
+
+        if _p28_panns >= 0.25:
+            try:
+                from backend.core.dsp.mikrodynamik_guard import (  # pylint: disable=import-outside-toplevel
+                    frame_energy_correlation as _fec28,
+                )
+
+                _corr28 = _fec28(audio, denoised_audio, sample_rate, frame_ms=10.0)
+                if _corr28 < 0.97:
+                    _wet28 = float(np.clip((_corr28 - 0.90) / 0.07, 0.0, 1.0))
+                    denoised_audio = (_wet28 * denoised_audio + (1.0 - _wet28) * audio).astype(np.float32)
+                    logger.warning("§V20 phase_28: mikrodynamik_corr=%.4f < 0.97 → wet=%.3f", _corr28, _wet28)
+            except Exception as _v20_28_exc:
+                logger.debug("§V20 phase_28 mikrodynamik non-blocking: %s", _v20_28_exc)
+
+        if any(x in _material_key for x in ("shellac", "vinyl", "tape", "analog")):
+            try:
+                from backend.core.dsp.noise_floor_guard import (  # pylint: disable=import-outside-toplevel
+                    apply_noise_floor_minimum as _nfmin28,
+                )
+
+                denoised_audio = _nfmin28(denoised_audio, sample_rate, _material_key, original_audio=audio)
+            except Exception as _v21_28_exc:
+                logger.debug("§V21 phase_28 noise_floor non-blocking: %s", _v21_28_exc)
+
+        # §V24 Spektralfarbe-Prüfung nach NR (§2.74, non-blocking WARNING)
+        try:
+            from backend.core.dsp.spectral_color_guard import (  # pylint: disable=import-outside-toplevel
+                check_spectral_color_preservation as _scg_28,
+            )
+
+            _sc_result_28 = _scg_28(audio, denoised_audio, sample_rate)
+            if not _sc_result_28.ok:
+                _sc_wet_28 = 0.70  # Phase-Strength −30 % (§V24)
+                denoised_audio = (_sc_wet_28 * denoised_audio + (1.0 - _sc_wet_28) * audio).astype(np.float32)
+        except Exception as _sc_exc_28:  # pylint: disable=broad-except
+            logger.debug("§V24 phase_28 spectral_color non-blocking: %s", _sc_exc_28)
+
+        try:
+            from backend.core.dsp.onset_guard import (  # pylint: disable=import-outside-toplevel
+                apply_onset_protection_mask as _opm28,
+            )
+
+            denoised_audio = _opm28(audio, denoised_audio, None, max_delta_db=1.5)
+        except Exception as _v26_28_exc:
+            logger.debug("§V26 phase_28 onset_guard non-blocking: %s", _v26_28_exc)
+
+        if _p28_panns >= 0.25:
+            try:
+                from backend.core.dsp.vibrato_guard import (  # pylint: disable=import-outside-toplevel
+                    check_vibrato_depth_preservation as _vib28_fn,
+                )
+
+                _vibr28 = _vib28_fn(audio, denoised_audio, sample_rate)
+                if not _vibr28.ok:
+                    denoised_audio = (0.5 * denoised_audio + 0.5 * audio).astype(np.float32)
+                    logger.warning(
+                        "§2.72 phase_28: vibrato_reduction=%.1f%% → 50%% dry-blend",
+                        _vibr28.depth_reduction_pct,
+                    )
+            except Exception as _vib28_exc:
+                logger.debug("§2.72 phase_28 vibrato non-blocking: %s", _vib28_exc)
+
+        denoised_audio = np.nan_to_num(denoised_audio, nan=0.0, posinf=0.0, neginf=0.0)
+        denoised_audio = np.clip(denoised_audio, -1.0, 1.0)
         return PhaseResult(
             success=True,
             audio=denoised_audio,
@@ -409,7 +516,7 @@ class SurfaceNoiseProfiling(PhaseInterface):
         processed_audio: np.ndarray,
         material: MaterialType,
     ) -> tuple[np.ndarray, dict[str, float]]:
-        from backend.core.audio_utils import (
+        from backend.core.audio_utils import (  # pylint: disable=import-outside-toplevel
             apply_musical_gain_envelope,
             compute_gated_rms_dbfs,
             compute_signal_relative_gate_dbfs,
@@ -502,7 +609,9 @@ class SurfaceNoiseProfiling(PhaseInterface):
 
         # §2.62 Psychoakustischer Masking-Guard (ISO 11172-3) — per-Band Floor (non-blocking)
         try:
-            from backend.core.dsp.psychoacoustics import compute_masking_threshold_iso11172 as _cmask_p28
+            from backend.core.dsp.psychoacoustics import (
+                compute_masking_threshold_iso11172 as _cmask_p28,  # pylint: disable=import-outside-toplevel
+            )
 
             _mask_ratio_p28 = _cmask_p28(audio, sample_rate, n_fft=self.FRAME_SIZE, hop_length=self.HOP_SIZE)
             _mfloor_p28 = np.mean(_mask_ratio_p28, axis=1).astype(np.float32)  # (n_freq,)
@@ -530,7 +639,9 @@ class SurfaceNoiseProfiling(PhaseInterface):
         # Breitbandige Energie-Spikes von Plosiven/Frikativen haben dasselbe spektrale Profil
         # wie Surface-Noise → OMLSA würde Artikulation zerstören. (VERBOTEN §2.36)
         try:
-            from backend.core.lyrics_guided_enhancement import get_phoneme_mask as _get_pmask_p28
+            from backend.core.lyrics_guided_enhancement import (
+                get_phoneme_mask as _get_pmask_p28,  # pylint: disable=import-outside-toplevel
+            )
 
             _pmask_p28 = _get_pmask_p28(audio.astype(np.float32), sample_rate, hop_length=self.HOP_SIZE)
             if np.any(_pmask_p28):
@@ -584,7 +695,7 @@ class SurfaceNoiseProfiling(PhaseInterface):
 
         return denoised, noise_reduction_db
 
-    def _estimate_noise_imcra(self, magnitude: np.ndarray, t_arr: np.ndarray, config: dict[str, Any]) -> np.ndarray:
+    def _estimate_noise_imcra(self, magnitude: np.ndarray, t_arr: np.ndarray, _config: dict[str, Any]) -> np.ndarray:
         """IMCRA-Rauschschätzung: Bias-korrigiertes gleitendes Minimum (Cohen & Berdugo 2002).
 
         Algorithmus:
@@ -599,7 +710,7 @@ class SurfaceNoiseProfiling(PhaseInterface):
         Returns:
             noise_mag: Rauschbetrag (F × T), NaN-frei
         """
-        F, T = magnitude.shape
+        _, T = magnitude.shape
         b_min = 1.66  # Bias-Korrekturfaktor (Cohen 2003)
         alpha_n = 0.85  # Glättungskoeffizient für Rauschleistung
         eps = 1e-10

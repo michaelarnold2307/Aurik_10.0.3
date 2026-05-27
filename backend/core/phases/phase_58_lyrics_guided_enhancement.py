@@ -17,11 +17,6 @@ from typing import Any
 
 import numpy as np
 
-from backend.core.lyrics_guided_enhancement import (
-    get_content_aware_processor,
-    get_lyrics_guided_enhancement,
-)
-
 from .phase_interface import (
     PhaseCategory,
     PhaseInterface,
@@ -142,7 +137,10 @@ class Phase58LyricsGuidedEnhancement(PhaseInterface):
             load_attempts = attempt + 1
             retry_attempted = retry_attempted or attempt > 0
             try:
-                lge = get_lyrics_guided_enhancement()
+                import importlib as _importlib  # pylint: disable=import-outside-toplevel
+
+                _lge_mod = _importlib.import_module("backend.core.lyrics_guided_enhancement")
+                lge = _lge_mod.get_lyrics_guided_enhancement()
                 break
             except Exception as exc:
                 load_error = exc
@@ -173,7 +171,10 @@ class Phase58LyricsGuidedEnhancement(PhaseInterface):
         try:
             if pre_transcription is not None and not getattr(pre_transcription, "fallback_used", True):
                 # Fast path: use pre-computed transcription from original audio (§2.36 Phase-Gate).
-                cap = get_content_aware_processor()
+                import importlib as _importlib  # pylint: disable=import-outside-toplevel
+
+                _lge_mod2 = _importlib.import_module("backend.core.lyrics_guided_enhancement")
+                cap = _lge_mod2.get_content_aware_processor()
                 n_smp = audio.shape[-1] if audio.ndim == 2 else len(audio)
                 base_sal = np.ones(n_smp, dtype=np.float32)
                 saliency = cap.compute_lyrics_saliency(base_sal, pre_transcription, sample_rate)

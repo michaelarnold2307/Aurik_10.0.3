@@ -205,7 +205,12 @@ def apply(
 
 # ─── PhaseInterface ────────────────────────────────────────────────────────────
 
-from .phase_interface import PhaseCategory, PhaseInterface, PhaseMetadata, PhaseResult
+from .phase_interface import (  # pylint: disable=wrong-import-position
+    PhaseCategory,
+    PhaseInterface,
+    PhaseMetadata,
+    PhaseResult,
+)
 
 
 class CrosstalkCancellationPhase(PhaseInterface):
@@ -278,20 +283,19 @@ class CrosstalkCancellationPhase(PhaseInterface):
         self,
         audio: np.ndarray,
         sample_rate: int = 48000,
-        strength: float = 0.5,
-        defect_scores: dict | None = None,
+        material_type: str = "unknown",
         **kwargs,
     ) -> PhaseResult:
         sample_rate = kwargs.get("sample_rate", sample_rate)
         t0 = _time.perf_counter()
         assert sample_rate == 48000, f"SR must be 48000 Hz, got: {sample_rate}"
 
-        _defect_scores = defect_scores or kwargs.get("defect_analysis", {})
+        _defect_scores = kwargs.get("defect_scores") or kwargs.get("defect_analysis", {})
         phase_locality_factor = float(np.clip(float(kwargs.get("phase_locality_factor", 1.0)), 0.35, 1.0))
-        _pmgg_strength = float(kwargs.get("strength", strength))
+        _pmgg_strength = float(kwargs.get("strength", 0.5))
         _effective_strength = float(np.clip(_pmgg_strength * phase_locality_factor, 0.0, 1.0))
         _profile_62 = self._compute_crosstalk_profile(
-            str(kwargs.get("material_type") or kwargs.get("material") or "unknown"),
+            str(material_type or kwargs.get("material") or "unknown"),
             str(kwargs.get("quality_mode", "balanced")),
             float(kwargs.get("restorability_score", 50.0)),
         )
@@ -304,7 +308,7 @@ class CrosstalkCancellationPhase(PhaseInterface):
                 execution_time_seconds=_time.perf_counter() - t0,
                 metrics={
                     "crosstalk_score": float((_defect_scores or {}).get("crosstalk", 0.0)),
-                    "strength": strength,
+                    "strength": _pmgg_strength,
                     "effective_strength": 0.0,
                 },
                 metadata={
@@ -326,9 +330,43 @@ class CrosstalkCancellationPhase(PhaseInterface):
         )
         elapsed = _time.perf_counter() - t0
 
+        # V20 Mikrodynamik-Korrelation (§2.75): Crosstalk-Inversion darf voiced Frames
+        # nicht in ihrer Frame-Energie degradieren (panns_singing ≥ 0.25).
+        _panns62 = float(kwargs.get("panns_singing", kwargs.get("panns_singing_confidence", 0.0)))
+        if _panns62 >= 0.25:
+            try:
+                from backend.core.dsp.mikrodynamik_guard import (
+                    frame_energy_correlation,  # pylint: disable=import-outside-toplevel
+                )
+
+                _corr62 = frame_energy_correlation(audio, result_audio, sample_rate, frame_ms=10.0)
+                if _corr62 < 0.97:
+                    _wet62 = min(1.0, (_corr62 - 0.90) / 0.07) if _corr62 > 0.90 else 0.0
+                    result_audio = (_wet62 * result_audio + (1.0 - _wet62) * audio).astype(np.float32)
+                    logger.warning(
+                        "Phase62 V20 Mikrodynamik-Korr=%.3f < 0.97 → wet=%.3f Blend",
+                        _corr62,
+                        _wet62,
+                    )
+            except Exception as _dyn62_exc:
+                logger.debug("Phase62 V20 Mikrodynamik-Guard (non-blocking): %s", _dyn62_exc)
+
+        # V26 Onset-Guard (§2.77): Matrix-Inversion darf Transient-Energie in Onset-
+        # Fenstern (0–20 ms nach Transient) nicht um mehr als 1.5 dB verschieben.
+        try:
+            from backend.core.dsp.onset_guard import (
+                apply_onset_protection_mask,  # pylint: disable=import-outside-toplevel
+            )
+
+            result_audio = apply_onset_protection_mask(audio, result_audio, None, max_delta_db=1.5)
+        except Exception as _on62_exc:
+            logger.debug("Phase62 V26 Onset-Guard (non-blocking): %s", _on62_exc)
+
         # §2.46f NPA-Guard: Atemgeräusche und Early-Reflections vor Crosstalk-Subtraktion schützen.
         try:
-            from backend.core.natural_performance_detector import get_natural_performance_detector
+            from backend.core.natural_performance_detector import (
+                get_natural_performance_detector,  # pylint: disable=import-outside-toplevel
+            )
 
             _mono62 = audio.mean(axis=0) if audio.ndim == 2 else audio
             _npa_mask62 = (
@@ -347,7 +385,9 @@ class CrosstalkCancellationPhase(PhaseInterface):
         # §2.62 Psychoakustischer Masking-Guard: Crosstalk-Subtraktion entfernt
         # keine vom Musiksignal maskierten Komponenten (G_floor ≥ 0.10).
         try:
-            from backend.core.dsp.psychoacoustics import apply_psychoacoustic_masking_clamp
+            from backend.core.dsp.psychoacoustics import (
+                apply_psychoacoustic_masking_clamp,  # pylint: disable=import-outside-toplevel
+            )
 
             result_audio = apply_psychoacoustic_masking_clamp(audio, result_audio, sample_rate, mode="restoration")
         except Exception as _pmask62_exc:
@@ -361,7 +401,7 @@ class CrosstalkCancellationPhase(PhaseInterface):
             execution_time_seconds=elapsed,
             metrics={
                 "crosstalk_score": float((_defect_scores or {}).get("crosstalk", 0.0)),
-                "strength": strength,
+                "strength": _pmgg_strength,
                 "effective_strength": _effective_strength,
             },
             metadata={

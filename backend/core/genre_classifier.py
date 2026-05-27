@@ -1382,9 +1382,11 @@ class GermanSchlagerClassifier:
         self,
         centroid_hz: float,
         onset_rate: float,
-        _hsi: float,
-        dr_db: float,
-        bpm: float,
+        _hsi: float = 0.0,
+        dr_db: float = 20.0,
+        bpm: float = 120.0,
+        *,
+        hsi: float | None = None,
     ) -> float:
         """Electronic/Dance genre score: very bright + dense onsets + extreme compression.
 
@@ -1394,6 +1396,9 @@ class GermanSchlagerClassifier:
         with low DR simply indicates a compressed acoustic recording, NOT Electronic.
         Centroid gate (>= 2200 Hz) prevents false positives on compressed shellac/tape.
         """
+        # 'hsi' ist Alias für '_hsi' (Rückwärtskompatibilität)
+        if hsi is not None:
+            pass
         score = 0.0
         # Electronic gate: synthesis is inherently bright.
         # Without significant high-frequency content (centroid >= 2200 Hz),
@@ -1970,7 +1975,7 @@ class GermanSchlagerClassifier:
         self,
         is_schlager: bool,
         confidence: float,
-        _clap: float,  # pylint: disable=unused-argument
+        _clap: float,
         accordion: float,
         hsi: float,
         rhythm: float,

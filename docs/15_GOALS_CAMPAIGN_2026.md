@@ -1,8 +1,9 @@
-# 14 Musikalische Ziele — Kampagne 2026
+# 15 Musikalische Ziele — Kampagne 2026
 
 **Stand**: 19. Mai 2026  
+**Hinweis**: Historische Mess-Snapshots in diesem Dokument stammen teils aus einem 14-Goals-Zwischenstand; der aktuelle normative Standard im System sind 15 Goals.  
 **Baseline**: 5/14 Ziele erfüllt (opera_sibilance.wav, Restoration-Mode)  
-**Ziel**: Alle 14 Ziele konsistent erfüllen bei echter Musik+Gesang  
+**Ziel**: Alle 15 Ziele konsistent erfüllen bei echter Musik+Gesang  
 
 ## Executive Summary
 
@@ -45,6 +46,14 @@ authentizitaet, emotionalitaet, transparenz, groove, timbre_authentizitaet, tona
 - Audit nutzt jetzt den kanonischen Pfad `metadata["defect_analysis"]["material"]`.
 - Für `restorability_score` wurde eine Fallback-Kette ergänzt:
   `defect_analysis.restorability_score` → `song_calibration.restorability_score` → `recovery_certainty.restorability_score`.
+
+**Reporting-Delta (24. Mai 2026)**:
+
+- UV3 liefert jetzt zusätzlich `metadata["restorability_source"]` mit Quelle `cached|estimated|fallback`.
+- Bei Restorability-Fallback wird `metadata["quality_risk_flags"]` um `PMGG_RESTORABILITY_FALLBACK` ergänzt.
+- Aktivierte Budget-Schutzfälle für qualitätskritische Phasen werden in
+  `metadata["wall_budget_quality_guard_events"]` dokumentiert.
+- Audit-Parser sollen diese Felder als Risiko-/Erklärkontext lesen, nicht als Hard-Fail.
 
 ---
 

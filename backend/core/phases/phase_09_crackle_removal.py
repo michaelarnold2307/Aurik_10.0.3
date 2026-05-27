@@ -103,7 +103,7 @@ logger = logging.getLogger(__name__)
 # BANQUET ONNX-Session Singleton (thread-safe, no Docker overhead)
 # Model: models/banquet/banquet_vinyl_final.onnx + .onnx.data (External Data)
 # ---------------------------------------------------------------------------
-_BANQUET_ONNX_SESSION: object = None  # onnxruntime.InferenceSession | False | None
+_BANQUET_ONNX_STATE: dict = {"session": None}  # session: onnxruntime.InferenceSession | False | None
 _BANQUET_ONNX_LOCK = threading.Lock()
 
 
@@ -117,10 +117,9 @@ def _get_banquet_onnx_session():
     Returns:
         ort.InferenceSession | None
     """
-    global _BANQUET_ONNX_SESSION  # pylint: disable=global-statement
-    if _BANQUET_ONNX_SESSION is None:
+    if _BANQUET_ONNX_STATE["session"] is None:
         with _BANQUET_ONNX_LOCK:
-            if _BANQUET_ONNX_SESSION is None:
+            if _BANQUET_ONNX_STATE["session"] is None:
                 try:
                     import onnxruntime as ort  # pylint: disable=import-outside-toplevel
 
@@ -130,7 +129,7 @@ def _get_banquet_onnx_session():
                             "ML budget exhausted — BANQUET ONNX cannot be loaded. "
                             "Activating DSP fallback (SpectralDecrackler)."
                         )
-                        _BANQUET_ONNX_SESSION = False
+                        _BANQUET_ONNX_STATE["session"] = False
                         return None
 
                     _model_path = (
@@ -145,10 +144,10 @@ def _get_banquet_onnx_session():
                         except Exception as _load_exc:
                             _ml_release("BanquetVinyl")
                             logger.warning("BANQUET ONNX-Session load error: %s — DSP fallback active.", _load_exc)
-                            _BANQUET_ONNX_SESSION = False
+                            _BANQUET_ONNX_STATE["session"] = False
                             return None
 
-                        _BANQUET_ONNX_SESSION = sess
+                        _BANQUET_ONNX_STATE["session"] = sess
                         try:
                             from backend.core.plugin_lifecycle_manager import (  # pylint: disable=import-outside-toplevel
                                 get_plugin_lifecycle_manager,
@@ -169,11 +168,11 @@ def _get_banquet_onnx_session():
                             "BANQUET ONNX model not found: %s — DSP fallback active",
                             _model_path,
                         )
-                        _BANQUET_ONNX_SESSION = False
+                        _BANQUET_ONNX_STATE["session"] = False
                 except Exception as exc:
                     logger.warning("BANQUET ONNX-Session could not be initialized: %s", exc)
-                    _BANQUET_ONNX_SESSION = False
-    return _BANQUET_ONNX_SESSION if _BANQUET_ONNX_SESSION is not False else None
+                    _BANQUET_ONNX_STATE["session"] = False
+    return _BANQUET_ONNX_STATE["session"] if _BANQUET_ONNX_STATE["session"] is not False else None
 
 
 class CrackleRemovalPhase(PhaseInterface):
@@ -1358,7 +1357,7 @@ class CrackleRemovalPhase(PhaseInterface):
 
         return restored
 
-    def _interpolate_spectral(  # pylint: disable=too-many-positional-arguments
+    def _interpolate_spectral(
         self,
         audio: np.ndarray,
         before_start: int,
@@ -1459,7 +1458,7 @@ class CrackleRemovalPhase(PhaseInterface):
             logger.debug("Spectral interpolation failed (%s), using linear.", exc)
             return self._interpolate_linear(audio, gap_start, gap_end)
 
-    def _interpolate_hybrid(  # pylint: disable=too-many-positional-arguments
+    def _interpolate_hybrid(
         self, audio: np.ndarray, before_start: int, gap_start: int, gap_end: int, after_end: int
     ) -> np.ndarray:
         """LPC-based AR gap interpolation (Lagrange & Marchand 2007, Godsill & Rayner 1998).
@@ -1487,7 +1486,7 @@ class CrackleRemovalPhase(PhaseInterface):
             logger.debug("AR interpolation failed (%s), falling back to linear.", exc)
             return self._interpolate_linear(audio, gap_start, gap_end)
 
-    def _ar_fill_channel(  # pylint: disable=too-many-positional-arguments
+    def _ar_fill_channel(
         self,
         ch: np.ndarray,
         gap_start: int,

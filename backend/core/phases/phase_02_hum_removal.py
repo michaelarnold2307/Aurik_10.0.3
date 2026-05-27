@@ -116,7 +116,7 @@ class HumRemovalPhase(PhaseInterface):
             "q_factor": 35,  # Narrow notches (aggressive)
             "max_harmonics": 8,  # Up to 8th harmonic
             "threshold_db": -60,  # Sensitive detection
-            "side_chain_ratio": 0.5,  # Preserve 50% if musical content (was 0.3 — too aggressive for Schlager/Akkordeon)
+            "side_chain_ratio": 0.5,  # 50% musical content preservation (0.3 too aggressive for Schlager/Akkordeon)
             "transient_preserve": 0.9,  # Strong preserve
         },
         "vinyl": {
@@ -151,6 +151,7 @@ class HumRemovalPhase(PhaseInterface):
 
     def __init__(self):
         """Initialisiert Phase 2 Hum Removal."""
+        super().__init__()
         self._deepfilternet_plugin = None
         self.sample_rate = 48000  # Default, will be updated in process()
 
@@ -165,7 +166,9 @@ class HumRemovalPhase(PhaseInterface):
             return self._deepfilternet_plugin
 
         try:
-            from plugins.deepfilternet_v3_ii_plugin import DeepFilterNetV3IIPlugin
+            from plugins.deepfilternet_v3_ii_plugin import (
+                DeepFilterNetV3IIPlugin,  # pylint: disable=import-outside-toplevel
+            )
 
             self._deepfilternet_plugin = DeepFilterNetV3IIPlugin()
             logger.info("✅ DeepFilterNet v3 II Plugin loaded for Hum Removal")
@@ -271,13 +274,16 @@ class HumRemovalPhase(PhaseInterface):
         """
         sample_rate = kwargs.get("sample_rate", 48000)
         assert sample_rate == 48000, f"SR muss 48000 Hz sein, erhalten: {sample_rate}"
+        _ = auto_detect  # Pflichtparameter PhaseInterface-Vertrag; Funktion erkennt immer auto
         start_time = time.time()
         self.sample_rate = sample_rate
         audio, _p02_transposed = to_channels_last(audio)
 
         # §4.6b: Pre-phase eviction — free previous phase models to prevent OOM
         try:
-            from backend.core.plugin_lifecycle_manager import get_plugin_lifecycle_manager as _get_plm_evict02
+            from backend.core.plugin_lifecycle_manager import (
+                get_plugin_lifecycle_manager as _get_plm_evict02,  # pylint: disable=import-outside-toplevel
+            )
 
             _get_plm_evict02().evict_for_phase("phase_02_hum_removal")
         except Exception:
@@ -555,7 +561,9 @@ class HumRemovalPhase(PhaseInterface):
         # §4.6b: PLM active-guard — prevents emergency-eviction during DeepFilterNet inference
         _plm02_dfn = None
         try:
-            from backend.core.plugin_lifecycle_manager import get_plugin_lifecycle_manager as _get_plm02
+            from backend.core.plugin_lifecycle_manager import (
+                get_plugin_lifecycle_manager as _get_plm02,  # pylint: disable=import-outside-toplevel
+            )
 
             _plm02_dfn = _get_plm02()
             _plm02_dfn.set_active("DeepFilterNetV3", True)
@@ -582,9 +590,12 @@ class HumRemovalPhase(PhaseInterface):
 
             if returncode == 0 and os.path.exists(output_path):
                 # Read refined audio
-                from backend.file_import import load_audio_file
+                from backend.file_import import load_audio_file  # pylint: disable=import-outside-toplevel
 
                 _res = load_audio_file(output_path, do_carrier_analysis=False)
+                if _res is None:
+                    logger.warning("load_audio_file gab None zurück für %s", output_path)
+                    return False
                 refined = np.asarray(_res["audio"], dtype=np.float32)
 
                 # Update audio in-place
@@ -683,7 +694,6 @@ class HumRemovalPhase(PhaseInterface):
 
         # Apply notch filter for each harmonic
         for hum_info in harmonic_data:
-            hum_info["fundamental"]
             harmonics = hum_info["harmonics"]
 
             for harmonic_freq in harmonics:
@@ -793,13 +803,13 @@ class HumRemovalPhase(PhaseInterface):
 
         return self._measure_band_energy(spectrum, freqs, freq - 2, freq + 2)
 
-    def supports_material(self, material_type: str) -> bool:
+    def supports_material(self, material_type: str) -> bool:  # pylint: disable=unused-argument
         """All materials supported."""
         return True
 
 
 if __name__ == "__main__":
-    """Test Professional Hum Removal Phase."""
+    # Test Professional Hum Removal Phase.
 
     logger.debug("=" * 80)
     logger.debug("Professional Hum Removal Phase v2.0 - Test")
@@ -811,9 +821,9 @@ if __name__ == "__main__":
     t = np.linspace(0, duration, sr * duration)
 
     # Clean music signal
-    audio = 0.4 * np.sin(2 * np.pi * 440 * t)  # A4 note
-    audio += 0.2 * np.sin(2 * np.pi * 880 * t)  # A5 (harmonic)
-    audio += 0.1 * np.sin(2 * np.pi * 1320 * t)  # Harmonic
+    _clean_sig = 0.4 * np.sin(2 * np.pi * 440 * t)  # A4 note
+    _clean_sig += 0.2 * np.sin(2 * np.pi * 880 * t)  # A5 (harmonic)
+    _clean_sig += 0.1 * np.sin(2 * np.pi * 1320 * t)  # Harmonic
 
     # Add 50 Hz hum + harmonics
     hum_50hz = 0.15 * np.sin(2 * np.pi * 50 * t)  # Fundamental
@@ -826,7 +836,7 @@ if __name__ == "__main__":
     hum_60hz += 0.02 * np.sin(2 * np.pi * 120 * t)
 
     # Combine
-    audio_with_hum = audio + hum_50hz + hum_60hz
+    audio_with_hum = _clean_sig + hum_50hz + hum_60hz
 
     # Make stereo
     audio_with_hum = np.column_stack([audio_with_hum, audio_with_hum * 0.95])
@@ -838,36 +848,35 @@ if __name__ == "__main__":
     # Test with different materials
     materials = ["tape", "vinyl", "cd_digital"]
 
-    for material in materials:
+    for _test_mat in materials:
         logger.debug("\n%s", "-" * 80)
-        logger.debug("Testing with material: %s", material.upper())
+        logger.debug("Testing with material: %s", _test_mat.upper())
         logger.debug("%s", "-" * 80)
 
         phase = HumRemovalPhase()
-        result = phase.process(audio_with_hum.copy(), material_type=material)
+        _test_result = phase.process(audio_with_hum.copy(), material_type=_test_mat)
 
-        if result.success:
+        if _test_result.success:
             logger.debug("✅ Processing Complete!")
-            logger.debug(
-                f"   Execution Time: {result.metadata['execution_time_seconds']:.3f}s ({result.metadata['execution_time_seconds'] / duration:.2f}× realtime)"
-            )
-            logger.debug("   Hum Detected: %s", result.modifications["hum_detected"])
+            _exec_t02 = _test_result.metadata["execution_time_seconds"]
+            logger.debug("   Execution Time: %.3fs (%.2f\u00d7 realtime)", _exec_t02, _exec_t02 / duration)
+            logger.debug("   Hum Detected: %s", _test_result.modifications["hum_detected"])
 
-            if result.modifications["hum_detected"]:
-                logger.debug("   Fundamentals: %s Hz", result.modifications["fundamentals"])
-                logger.debug("   Total Harmonics Removed: %s", result.modifications["total_harmonics_removed"])
-                logger.debug("   Hum Reduction: %.1f dB", result.modifications["hum_reduction_db"])
-                logger.debug("   Side-Chain Active: %s", result.metadata["side_chain_active"])
-                logger.debug("   Q-Factor: %s", result.metadata["q_factor"])
+            if _test_result.modifications["hum_detected"]:
+                logger.debug("   Fundamentals: %s Hz", _test_result.modifications["fundamentals"])
+                logger.debug("   Total Harmonics Removed: %s", _test_result.modifications["total_harmonics_removed"])
+                logger.debug("   Hum Reduction: %.1f dB", _test_result.modifications["hum_reduction_db"])
+                logger.debug("   Side-Chain Active: %s", _test_result.metadata["side_chain_active"])
+                logger.debug("   Q-Factor: %s", _test_result.metadata["q_factor"])
 
-            logger.debug("   Warnings: %s", result.warnings if result.warnings else "None")
+            logger.debug("   Warnings: %s", _test_result.warnings if _test_result.warnings else "None")
         else:
             logger.debug("❌ Processing Failed!")
 
     logger.debug("\n%s", "=" * 80)
     logger.debug("✅ Professional Hum Removal v2.0 Test Complete!")
     logger.debug("%s", "=" * 80)
-    logger.debug("Algorithm: %s", result.metadata["algorithm"])
-    logger.debug("Scientific Reference: %s", result.metadata["scientific_ref"])
-    logger.debug("Benchmark: %s", result.metadata["benchmark"])
+    logger.debug("Algorithm: %s", _test_result.metadata["algorithm"])
+    logger.debug("Scientific Reference: %s", _test_result.metadata["scientific_ref"])
+    logger.debug("Benchmark: %s", _test_result.metadata["benchmark"])
     logger.debug("Quality Impact: 0.92 (Professional-Grade)")

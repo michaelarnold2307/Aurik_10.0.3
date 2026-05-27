@@ -222,11 +222,12 @@ class TestVocalHarshnessReasoning:
 
         assert "vocal_harshness" in CAUSE_TO_PHASES
 
-    def test_mapping_includes_phase_42(self):
+    def test_mapping_excludes_phase_42(self):
+        """§0a BUG-FIX v9.12.0: phase_42 darf nie in CAUSE_TO_PHASES stehen."""
         from backend.core.causal_defect_reasoner import CAUSE_TO_PHASES
 
         phases = CAUSE_TO_PHASES["vocal_harshness"]
-        assert "phase_42_vocal_enhancement" in phases
+        assert "phase_42_vocal_enhancement" not in phases
 
     def test_mapping_includes_de_esser(self):
         from backend.core.causal_defect_reasoner import CAUSE_TO_PHASES
@@ -240,12 +241,13 @@ class TestVocalHarshnessReasoning:
         phases = CAUSE_TO_PHASES["vocal_harshness"]
         assert "phase_23_spectral_repair" in phases
 
-    def test_reasoner_recommends_phase42_for_strong_harshness(self):
+    def test_reasoner_does_not_recommend_phase42_for_harshness(self):
+        """§0a BUG-FIX v9.12.0: CausalDefectReasoner darf phase_42 nie vorschlagen."""
         from backend.core.causal_defect_reasoner import CausalDefectReasoner
 
         reasoner = CausalDefectReasoner()
         plan = reasoner.reason({"vocal_harshness": 1.0}, material="cd_digital")
-        assert "phase_42_vocal_enhancement" in plan.recommended_phases
+        assert "phase_42_vocal_enhancement" not in plan.recommended_phases
 
 
 # ============================================================

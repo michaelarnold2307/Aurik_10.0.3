@@ -1218,6 +1218,26 @@ class TestGlobalBudgetInvariants:
         finally:
             plm.shutdown()
 
+    def test_plm_does_not_evict_on_stale_swap_with_high_free_ram(self):
+        """Hoher Swap-Stand allein darf bei viel freiem RAM keine Eviction erzwingen."""
+        from backend.core.plugin_lifecycle_manager import PluginLifecycleManager
+
+        plm = PluginLifecycleManager()
+        evicted: list[str] = []
+        try:
+            plm.register("StaleSwapVictim", 0.5, lambda: evicted.append("StaleSwapVictim"))
+
+            plm._ram_percent = lambda: 50.0  # type: ignore[method-assign]
+            plm._free_mb = lambda: 16_000.0  # type: ignore[method-assign]
+            plm._swap_percent = lambda: 84.0  # type: ignore[method-assign]
+
+            count = plm.evict_if_needed()
+
+            assert count == 0
+            assert evicted == []
+        finally:
+            plm.shutdown()
+
     def test_cleanup_after_all_plugins_budget_stays_zero(self):
         """Nach komplettem Cleanup aller Plugin-Budget-Slots ist _total_gb==0."""
         from backend.core import ml_memory_budget as _bud

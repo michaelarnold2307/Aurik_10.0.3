@@ -109,6 +109,12 @@ class DCOffsetRemoval(PhaseInterface):
             "filter_type": "iir",
             "q_factor": 0.7,
         },
+        MaterialType.CASSETTE: {
+            "cutoff_hz": 5,
+            "filter_order": 2,
+            "filter_type": "iir",
+            "q_factor": 0.7,
+        },  # v9.12.9: IEC 60094-1 — gleiche Capstan-Physik wie TAPE
         MaterialType.CD_DIGITAL: {
             "cutoff_hz": 4,
             "filter_order": 2,
@@ -163,7 +169,11 @@ class DCOffsetRemoval(PhaseInterface):
         )
 
     def process(
-        self, audio: np.ndarray, sample_rate: int, material: MaterialType = MaterialType.VINYL, **kwargs
+        self,
+        audio: np.ndarray,
+        sample_rate: int = 48000,
+        material_type: MaterialType = MaterialType.VINYL,
+        **kwargs,
     ) -> PhaseResult:
         """
         Verarbeitet audio to remove DC offset and rumble.
@@ -176,6 +186,7 @@ class DCOffsetRemoval(PhaseInterface):
         Returns:
             PhaseResult with cleaned audio
         """
+        material = material_type  # interner Alias
         sample_rate = kwargs.get("sample_rate", 48000)
         assert sample_rate == 48000, f"SR muss 48000 Hz sein, erhalten: {sample_rate}"
         start_time = time.time()
@@ -296,7 +307,7 @@ class DCOffsetRemoval(PhaseInterface):
         # For audio < minimum window size, passthrough instead of crashing
         MIN_AUDIO_SAMPLES = 512  # 10 ms @ 48 kHz — minimum safe for any filter
         if len(audio) < MIN_AUDIO_SAMPLES:
-            logger.debug(f"phase_30: audio too short ({len(audio)} < {MIN_AUDIO_SAMPLES}), passthrough")
+            logger.debug("phase_30: audio too short (%d < %d), passthrough", len(audio), MIN_AUDIO_SAMPLES)
             return np.asarray(audio, dtype=np.float32)
 
         # Stage 1: always remove static DC bias directly.
@@ -365,8 +376,10 @@ class DCOffsetRemoval(PhaseInterface):
         max_lift_db = 0.6
 
         # §2.45a-I: Gated RMS — nur Frames > -50 dBFS (kein Stille-inflationierter RMS)
-        # §V04-EXEMPT: compute_gated_rms_linear() RMS measurement, NOT apply_musical_gain_envelope() — no reference_for_gate needed
-        from backend.core.audio_utils import compute_gated_rms_linear as _grl_p30
+        # §V04-EXEMPT: compute_gated_rms_linear() — reines RMS-Measurement, kein Gain-Envelope
+        from backend.core.audio_utils import (
+            compute_gated_rms_linear as _grl_p30,  # pylint: disable=import-outside-toplevel
+        )
 
         orig_rms = float(_grl_p30(orig, gate_dbfs=-50.0))
         proc_rms = float(_grl_p30(proc, gate_dbfs=-50.0))
@@ -423,8 +436,8 @@ if __name__ == "__main__":
         MaterialType.CD_DIGITAL,
     ]
 
-    for material in test_materials:
-        logger.debug("Testing %s:", material.value.upper())
+    for mat in test_materials:
+        logger.debug("Testing %s:", mat.value.upper())
 
         # Create test signal: music + DC offset + rumble
         sr = 44100
@@ -446,7 +459,7 @@ if __name__ == "__main__":
 
         # Process
         start = time.time()
-        result = processor.process(corrupted, sr, material)
+        result = processor.process(corrupted, sr, mat)
         elapsed = time.time() - start
 
         # Display results

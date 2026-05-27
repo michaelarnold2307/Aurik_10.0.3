@@ -550,6 +550,84 @@ class SpectralRepairPhase(PhaseInterface):
             except Exception as _hnr_exc_p50:
                 logger.debug("§0p HNR-Blend phase_50 (non-blocking): %s", _hnr_exc_p50)
 
+        # §V19/V20/V21/V26/§2.72 Vokal- + Textur-Guards nach STFT-Inpainting (RELEASE_MUST §0p V19-V26)
+        _mat50_guards = str(kwargs.get("material_type", _material_50) or "unknown").lower()
+        _nt50_residual = audio - repaired_audio
+        try:
+            from backend.core.dsp.noise_texture_guard import (  # pylint: disable=import-outside-toplevel
+                compute_noise_texture_distance as _nt50_dist_fn,
+            )
+
+            if _nt50_residual.shape == audio.shape:
+                _nt50_d = _nt50_dist_fn(_nt50_residual, _mat50_guards, sr=sample_rate)
+                if _nt50_d > 0.25:
+                    repaired_audio = (0.5 * repaired_audio + 0.5 * audio).astype(np.float32)
+                    logger.warning("§V19 phase_50: noise_texture_dist=%.3f > 0.25 → 50%% dry-blend", _nt50_d)
+        except Exception as _nt50_exc:
+            logger.debug("§V19 phase_50 noise_texture non-blocking: %s", _nt50_exc)
+
+        if _p50_panns >= 0.25:
+            try:
+                from backend.core.dsp.mikrodynamik_guard import (  # pylint: disable=import-outside-toplevel
+                    frame_energy_correlation as _fec50,
+                )
+
+                _corr50 = _fec50(audio, repaired_audio, sample_rate, frame_ms=10.0)
+                if _corr50 < 0.97:
+                    _wet50 = float(np.clip((_corr50 - 0.90) / 0.07, 0.0, 1.0))
+                    repaired_audio = (_wet50 * repaired_audio + (1.0 - _wet50) * audio).astype(np.float32)
+                    logger.warning("§V20 phase_50: mikrodynamik_corr=%.4f < 0.97 → wet=%.3f", _corr50, _wet50)
+            except Exception as _v20_50_exc:
+                logger.debug("§V20 phase_50 mikrodynamik non-blocking: %s", _v20_50_exc)
+
+        if any(x in _mat50_guards for x in ("shellac", "vinyl", "tape", "analog")):
+            try:
+                from backend.core.dsp.noise_floor_guard import (  # pylint: disable=import-outside-toplevel
+                    apply_noise_floor_minimum as _nfmin50,
+                )
+
+                repaired_audio = _nfmin50(repaired_audio, sample_rate, _mat50_guards, original_audio=audio)
+            except Exception as _v21_50_exc:
+                logger.debug("§V21 phase_50 noise_floor non-blocking: %s", _v21_50_exc)
+
+        # §V24 Spektralfarbe-Prüfung nach NR (§2.74, non-blocking WARNING)
+        try:
+            from backend.core.dsp.spectral_color_guard import (  # pylint: disable=import-outside-toplevel
+                check_spectral_color_preservation as _scg_50,
+            )
+
+            _sc_result_50 = _scg_50(audio, repaired_audio, sample_rate)
+            if not _sc_result_50.ok:
+                _sc_wet_50 = 0.70  # Phase-Strength −30 % (§V24)
+                repaired_audio = (_sc_wet_50 * repaired_audio + (1.0 - _sc_wet_50) * audio).astype(np.float32)
+        except Exception as _sc_exc_50:  # pylint: disable=broad-except
+            logger.debug("§V24 phase_50 spectral_color non-blocking: %s", _sc_exc_50)
+
+        try:
+            from backend.core.dsp.onset_guard import (  # pylint: disable=import-outside-toplevel
+                apply_onset_protection_mask as _opm50,
+            )
+
+            repaired_audio = _opm50(audio, repaired_audio, None, max_delta_db=1.5)
+        except Exception as _v26_50_exc:
+            logger.debug("§V26 phase_50 onset_guard non-blocking: %s", _v26_50_exc)
+
+        if _p50_panns >= 0.25:
+            try:
+                from backend.core.dsp.vibrato_guard import (  # pylint: disable=import-outside-toplevel
+                    check_vibrato_depth_preservation as _vib50_fn,
+                )
+
+                _vibr50 = _vib50_fn(audio, repaired_audio, sample_rate)
+                if not _vibr50.ok:
+                    repaired_audio = (0.5 * repaired_audio + 0.5 * audio).astype(np.float32)
+                    logger.warning(
+                        "§2.72 phase_50: vibrato_reduction=%.1f%% → 50%% dry-blend",
+                        _vibr50.depth_reduction_pct,
+                    )
+            except Exception as _vib50_exc:
+                logger.debug("§2.72 phase_50 vibrato non-blocking: %s", _vib50_exc)
+
         _rms_in_50 = float(np.sqrt(np.mean(np.asarray(audio, dtype=np.float64) ** 2) + 1e-12))
         _rms_out_50 = float(np.sqrt(np.mean(np.asarray(repaired_audio, dtype=np.float64) ** 2) + 1e-12))
         _rms_drop_50 = 20.0 * np.log10(max(_rms_out_50 / _rms_in_50, 1e-30)) if _rms_in_50 > 1e-8 else 0.0

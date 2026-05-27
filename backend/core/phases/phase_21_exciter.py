@@ -111,6 +111,12 @@ class Exciter(PhaseInterface):
             "high": {"intensity": 0.38, "harmonics": "odd", "saturation": "soft"},
             "mix": 0.32,
         },
+        MaterialType.CASSETTE: {
+            "low_mid": {"intensity": 0.18, "harmonics": "even", "saturation": "tube"},
+            "high_mid": {"intensity": 0.25, "harmonics": "mixed", "saturation": "soft"},  # v9.12.9: leicht reduziert
+            "high": {"intensity": 0.30, "harmonics": "odd", "saturation": "soft"},  # v9.12.9: BW-Ceiling 12 kHz
+            "mix": 0.28,
+        },  # v9.12.9: IEC 60094-1 — gleiche Capstan-Physik wie TAPE, HF konservativ
         MaterialType.CD_DIGITAL: {
             "low_mid": {"intensity": 0.10, "harmonics": "even", "saturation": "tube"},
             "high_mid": {"intensity": 0.15, "harmonics": "mixed", "saturation": "soft"},
@@ -191,7 +197,11 @@ class Exciter(PhaseInterface):
         )
 
     def process(
-        self, audio: np.ndarray, sample_rate: int, material: MaterialType = MaterialType.CD_DIGITAL, **kwargs
+        self,
+        audio: np.ndarray,
+        sample_rate: int = 48000,
+        material_type: MaterialType = MaterialType.CD_DIGITAL,
+        **kwargs,
     ) -> PhaseResult:
         """
         Wendet an: multi-band harmonic excitation to audio.
@@ -204,6 +214,7 @@ class Exciter(PhaseInterface):
         Returns:
             PhaseResult with excited audio
         """
+        material = material_type  # interner Alias
         sample_rate = kwargs.get("sample_rate", 48000)
         assert sample_rate == 48000, f"SR muss 48000 Hz sein, erhalten: {sample_rate}"
         start_time = time.time()
@@ -345,7 +356,9 @@ class Exciter(PhaseInterface):
 
         # §4.5 Psychoacoustic Masking Clamp — fulfill docstring: harmonic excitation only where audible
         try:
-            from backend.core.dsp.psychoacoustics import apply_psychoacoustic_masking_clamp
+            from backend.core.dsp.psychoacoustics import (
+                apply_psychoacoustic_masking_clamp,  # pylint: disable=import-outside-toplevel
+            )
 
             excited_audio = apply_psychoacoustic_masking_clamp(
                 audio,

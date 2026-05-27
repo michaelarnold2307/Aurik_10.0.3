@@ -633,6 +633,16 @@ class TestPhase50SpectralRepair:
 # Phase 53 – Semantic Audio
 # ===========================================================================
 class TestPhase53SemanticAudio:
+    @pytest.fixture(autouse=True)
+    def _patch_ml_budget(self, monkeypatch):
+        """ML-Modelle (CLAP, BEATs) in Unit-Tests deaktivieren — try_allocate → False
+        verhindert torch-Modell-Loading (>20 s Timeout in Unit-Suite). DSP-Fallback läuft."""
+        monkeypatch.setattr(
+            "backend.core.ml_memory_budget.try_allocate",
+            lambda *_a, **_kw: False,
+            raising=False,
+        )
+
     def setup_method(self):
         from backend.core.phases.phase_53_semantic_audio import SemanticAudioPhase
 

@@ -391,5 +391,9 @@ def test_uv3_profiled_phase_call_rolls_back_when_vocal_no_harm_gate_fails(
     assert result.metadata["vocal_no_harm_rollback"] is True
     assert result.metadata["vocal_no_harm_reason"] == "vqi;formant_shift"
     assert result.metadata["vocal_no_harm_gate"]["requires_rollback"] is True
-    assert uv3._song_calibration_profile["family_scalars"]["denoise"] == pytest.approx(0.90, abs=1e-9)
+    # §2.58a Vocal-Supremacy-Kopplung: panns_singing=0.90 → vocal_boost angewendet auf Decay
+    # _vocal_boost = 1.0 + 0.20 * ((0.90 - 0.35) / 0.65) ≈ 1.16923
+    # _decay_att = 1.0 - 0.90 = 0.10
+    # effective_decay = 1.0 - (0.10 * 1.16923) ≈ 0.88308
+    assert uv3._song_calibration_profile["family_scalars"]["denoise"] == pytest.approx(0.8830769230769231, abs=1e-6)
     assert uv3._phase_goal_conflict_runtime["events"][-1]["reason"] == "vocal_no_harm_rollback"

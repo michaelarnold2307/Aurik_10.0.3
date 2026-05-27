@@ -934,6 +934,34 @@ class FrequencyRestorationPhase(PhaseInterface):
             except Exception as _c06_exc:
                 logger.debug("§Gap5 ConsoleCharacter non-blocking: %s", _c06_exc)
 
+        # §V22 Pre-Echo-Prevention — Additive BW-Extension auf Transient-Shifts prüfen (§2.73, non-blocking)
+        try:
+            from backend.core.dsp.transient_guard import (
+                detect_transient_shifts as _dts_06,  # pylint: disable=import-outside-toplevel
+            )
+
+            _pre_v22_06 = (
+                audio.mean(axis=-1 if audio.ndim == 2 and audio.shape[-1] <= 8 else 0).astype(np.float32)
+                if audio.ndim == 2
+                else audio.astype(np.float32)
+            )
+            _post_v22_06 = (
+                restored.mean(axis=-1 if restored.ndim == 2 and restored.shape[-1] <= 8 else 0).astype(np.float32)
+                if restored.ndim == 2
+                else restored.astype(np.float32)
+            )
+            _ts_06 = _dts_06(_pre_v22_06, _post_v22_06, sample_rate)
+            if not _ts_06.ok:
+                _wet_ts_06 = max(0.0, 1.0 - _ts_06.blend_reduction)
+                restored = (_wet_ts_06 * restored + (1.0 - _wet_ts_06) * audio).astype(np.float32)
+                logger.warning(
+                    "§V22 phase_06: onset_shift=%.2f ms → blend_reduction=%.2f",
+                    _ts_06.max_shift_ms,
+                    _ts_06.blend_reduction,
+                )
+        except Exception as _v22_06_exc:
+            logger.debug("§V22 phase_06 transient_guard non-blocking: %s", _v22_06_exc)
+
         return create_phase_result(
             audio=restored,
             modifications={

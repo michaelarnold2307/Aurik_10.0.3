@@ -171,6 +171,15 @@ class VocalEnhancement(PhaseInterface):
             "breath_reduction_db": 4,
             "compression_ratio": 1.8,
         },
+        MaterialType.CASSETTE: {  # v9.12.9: IEC 60094-1 — gleiche Capstan-Physik wie TAPE
+            "deess_threshold_db": -20,
+            "deess_reduction_db": 5,
+            "presence_gain_db": 3.5,
+            "formant_gain_db": 3.0,
+            "chest_gain_db": 2.0,
+            "breath_reduction_db": 4,
+            "compression_ratio": 1.8,
+        },
         MaterialType.CD_DIGITAL: {
             "deess_threshold_db": -20,
             "deess_reduction_db": 6,
@@ -251,6 +260,7 @@ class VocalEnhancement(PhaseInterface):
         MaterialType.SHELLAC: 0.06,
         MaterialType.VINYL: 0.05,
         MaterialType.TAPE: 0.045,
+        MaterialType.CASSETTE: 0.045,  # v9.12.9: IEC 60094-1 — gleiche Capstan-Physik wie TAPE
         MaterialType.CD_DIGITAL: 0.04,
         MaterialType.STREAMING: 0.04,
     }
@@ -258,6 +268,7 @@ class VocalEnhancement(PhaseInterface):
         MaterialType.SHELLAC: 0.60,
         MaterialType.VINYL: 0.55,
         MaterialType.TAPE: 0.50,
+        MaterialType.CASSETTE: 0.50,  # v9.12.9: IEC 60094-1 — gleiche Capstan-Physik wie TAPE
         MaterialType.CD_DIGITAL: 0.45,
         MaterialType.STREAMING: 0.45,
     }
@@ -917,8 +928,20 @@ class VocalEnhancement(PhaseInterface):
         enhanced_audio = np.nan_to_num(enhanced_audio, nan=0.0, posinf=0.0, neginf=0.0)
         enhanced_audio = np.clip(enhanced_audio, -1.0, 1.0)
 
-        # §0p panns_singing — wird von Formant-Gate und VQI-Gate geteilt
+        # §0p panns_singing — wird von Formant-Gate, HNR-Blend und VQI-Gate geteilt
         _p42_panns = float(kwargs.get("panns_singing", kwargs.get("panns_singing_confidence", 0.0)))
+
+        # §0p [RELEASE_MUST] HNR-Blend — nach ML-Enhancement bei Gesangsmaterial (§0p, non-blocking)
+        # Pflicht: apply_hnr_blend() nach ML-NR/Enhancement bei panns_singing >= 0.25 (ΔHNR > 3 dB → Dry-Wet-Blend).
+        if _p42_panns >= 0.25:
+            try:
+                from backend.core.dsp.hnr_guard import (
+                    apply_hnr_blend as _hnr_blend_p42,  # pylint: disable=import-outside-toplevel
+                )
+
+                enhanced_audio = _hnr_blend_p42(audio, enhanced_audio, sample_rate)
+            except Exception as _hnr_exc_p42:
+                logger.debug("§0p HNR-Blend phase_42 (non-blocking): %s", _hnr_exc_p42)
 
         # §0p [RELEASE_MUST] Formant-Gate v9.12.9 — F1–F4 dürfen max. ±2 dB verschoben werden.
         # `check_formant_shift_db()` misst Spektral-Energie an F1–F4-Formantfrequenzen pre/post.
@@ -1056,10 +1079,10 @@ class VocalEnhancement(PhaseInterface):
             return 0.5
 
     @staticmethod
-    def _wiener_stereo_from_mono(  # pylint: disable=unused-argument
+    def _wiener_stereo_from_mono(
         audio_stereo: np.ndarray,
         voc_mono: np.ndarray,
-        sr: int,
+        sr: int,  # pylint: disable=unused-argument
     ) -> "tuple[np.ndarray, np.ndarray]":
         """Wendet an: Wiener-style soft masking to preserve stereo field (§9.10.118).
 

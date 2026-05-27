@@ -102,7 +102,7 @@ def _estimate_bpm(mono: np.ndarray, sr: int) -> float:
     onset = np.array([float(np.sqrt(np.mean(mono[i * hop : i * hop + frame] ** 2))) for i in range(n_frames)])
     # Auto-Korrelation — FFT-based O(N log N)
     onset -= onset.mean()
-    from backend.core.core_utils import fft_autocorr
+    from backend.core.core_utils import fft_autocorr  # pylint: disable=import-outside-toplevel
 
     ac = fft_autocorr(onset)
     # Suchbereich: 60–180 BPM → Periode in Frames
@@ -260,7 +260,9 @@ class SemanticAudioPhase(PhaseInterface):
             description=self.PHASE_DESCRIPTION,
         )
 
-    def process(self, audio: np.ndarray, sample_rate: int, **kwargs) -> PhaseResult:
+    def process(
+        self, audio: np.ndarray, sample_rate: int = 48000, material_type: str = "unknown", **kwargs
+    ) -> PhaseResult:
         """
         Analysiert Audio semantisch, gibt unverändertes Audio zurück.
 
@@ -333,9 +335,13 @@ class SemanticAudioPhase(PhaseInterface):
         _clap_confidence = 0.0
         _clap_succeeded = False
         try:
-            from backend.core.ml_memory_budget import release as _release_c53
-            from backend.core.ml_memory_budget import try_allocate as _alloc_c53
-            from plugins.laion_clap_plugin import get_laion_clap as _clap_factory
+            from backend.core.ml_memory_budget import release as _release_c53  # pylint: disable=import-outside-toplevel
+            from backend.core.ml_memory_budget import (
+                try_allocate as _alloc_c53,  # pylint: disable=import-outside-toplevel
+            )
+            from plugins.laion_clap_plugin import (
+                get_laion_clap as _clap_factory,  # pylint: disable=import-outside-toplevel
+            )
 
             if _alloc_c53("CLAP_phase53", 0.40):
                 try:
@@ -374,9 +380,13 @@ class SemanticAudioPhase(PhaseInterface):
         _beats_embedding: list[float] = []
         _beats_top_k: list[tuple[str, float]] = []
         try:
-            from backend.core.ml_memory_budget import release as _release_53
-            from backend.core.ml_memory_budget import try_allocate as _alloc_53
-            from plugins.beats_plugin import get_beats_plugin as _beats_factory
+            from backend.core.ml_memory_budget import release as _release_53  # pylint: disable=import-outside-toplevel
+            from backend.core.ml_memory_budget import (
+                try_allocate as _alloc_53,  # pylint: disable=import-outside-toplevel
+            )
+            from plugins.beats_plugin import (
+                get_beats_plugin as _beats_factory,  # pylint: disable=import-outside-toplevel
+            )
 
             if _alloc_53("BEATs_phase53", 0.09):
                 try:

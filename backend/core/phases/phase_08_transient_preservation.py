@@ -100,9 +100,9 @@ if __name__ == "__main__":
 else:
     from .phase_interface import PhaseCategory, PhaseInterface, PhaseMetadata, PhaseResult, create_phase_result
 
-import logging
+import logging  # pylint: disable=wrong-import-position
 
-from backend.core.audio_utils import to_channels_last
+from backend.core.audio_utils import to_channels_last  # pylint: disable=wrong-import-position
 
 logger = logging.getLogger(__name__)
 
@@ -267,22 +267,22 @@ class TransientPreservationPhase(PhaseInterface):
         )
 
     def process(
-        self, audio: np.ndarray, material_type: str = "unknown", attack_boost_db: float | None = None, **kwargs
+        self, audio: np.ndarray, sample_rate: int = 48000, material_type: str = "unknown", **kwargs
     ) -> PhaseResult:
         """
         Professional transient preservation with multi-band shaping.
 
         Args:
             audio: Input audio
+            sample_rate: Sample rate (muss 48000 Hz sein)
             material_type: Material type for adaptive processing
-            attack_boost_db: Override attack boost (global, all bands)
-            **kwargs: Additional parameters
+            **kwargs: attack_boost_db (float|None) override; additional parameters
 
         Returns:
             PhaseResult with transient-enhanced audio
         """
-        sample_rate = kwargs.get("sample_rate", 48000)
         assert sample_rate == 48000, f"SR muss 48000 Hz sein, erhalten: {sample_rate}"
+        attack_boost_db: float | None = float(kwargs["attack_boost_db"]) if "attack_boost_db" in kwargs else None
         start_time = time.time()
         audio, _p08_transposed = to_channels_last(audio)
 
@@ -444,7 +444,9 @@ class TransientPreservationPhase(PhaseInterface):
                 "sustain_gain_db_per_band": params["sustain_gain_db"],
                 "release_gain_db_per_band": params["release_gain_db"],
                 "scientific_ref": "Bello (2005), Duxbury (2006), Zölzer (2011), Dixon (2006), SPL Patent DE 10124407",
-                "benchmark": "SPL Transient Designer, Waves Trans-X, iZotope Neutron Transient Shaper, Softube Transient Shaper",
+                "benchmark": (
+                    "SPL Transient Designer, Waves Trans-X, iZotope Neutron Transient Shaper, Softube Transient Shaper"
+                ),
                 "algorithm_version": "2.0_professional",
                 "execution_time_seconds": execution_time,
                 "phase_locality_factor": phase_locality_factor,
@@ -558,7 +560,7 @@ class TransientPreservationPhase(PhaseInterface):
 
         return bands
 
-    def _recombine_multiband(self, bands: list[np.ndarray], split_freqs: list[int]) -> np.ndarray:
+    def _recombine_multiband(self, bands: list[np.ndarray], split_freqs: list[int]) -> np.ndarray:  # pylint: disable=unused-argument
         """
         Recombine frequency bands into full-spectrum audio.
         """
@@ -591,7 +593,7 @@ class TransientPreservationPhase(PhaseInterface):
         # Create gain envelope
         gain_envelope = np.ones(len(band_audio))
 
-        for onset_time, onset_strength in zip(onset_times, onset_strengths):
+        for onset_time, _onset_strength in zip(onset_times, onset_strengths):
             onset_sample = int(onset_time * self.sample_rate)
 
             # Attack phase
@@ -695,22 +697,22 @@ class TransientPreservationPhase(PhaseInterface):
         else:
             return 0.0
 
-    def supports_material(self, material_type: str) -> bool:
+    def supports_material(self, material_type: str) -> bool:  # pylint: disable=unused-argument
         """All materials supported."""
         return True
 
 
 if __name__ == "__main__":
-    """Test Professional Transient Preservation Phase."""
+    # Test Professional Transient Preservation Phase.
 
     logger.debug("=" * 80)
     logger.debug("Professional Transient Preservation Phase v2.0 - Test")
     logger.debug("=" * 80)
 
     # Generate test audio (percussion + sustained tone)
-    sr = 44100
+    _test_sr = 44100
     duration = 3
-    t = np.linspace(0, duration, sr * duration)
+    t = np.linspace(0, duration, _test_sr * duration)
 
     # Sustained tone (background)
     background = 0.1 * np.sin(2 * np.pi * 440 * t)
@@ -720,27 +722,28 @@ if __name__ == "__main__":
     hit_times = [0.5, 1.0, 1.5, 2.0, 2.5]
 
     for hit_time in hit_times:
-        hit_sample = int(hit_time * sr)
+        hit_sample = int(hit_time * _test_sr)
         # Exponential decay envelope
-        decay_samples = int(0.1 * sr)
+        decay_samples = int(0.1 * _test_sr)
         if hit_sample + decay_samples < len(t):
             envelope = np.exp(-10 * np.arange(decay_samples) / decay_samples)
             # Drum: 200Hz sine + noise
             drum = envelope * (
-                0.5 * np.sin(2 * np.pi * 200 * np.arange(decay_samples) / sr) + 0.3 * np.random.randn(decay_samples)
+                0.5 * np.sin(2 * np.pi * 200 * np.arange(decay_samples) / _test_sr)
+                + 0.3 * np.random.randn(decay_samples)
             )
             transients[hit_sample : hit_sample + decay_samples] += drum
 
     # Combined + dampen (simulate restoration softening)
-    audio = background + transients
+    _test_audio = background + transients
 
     # Dampen transients (smooth)
-    audio = signal.savgol_filter(audio, 101, 3)
+    _test_audio = signal.savgol_filter(_test_audio, 101, 3)
 
     # Make stereo
-    audio = np.column_stack([audio, audio * 0.98])
+    _test_audio = np.column_stack([_test_audio, _test_audio * 0.98])
 
-    logger.debug("\nTest Audio: %ss @ %s Hz (stereo)", duration, sr)
+    logger.debug("\nTest Audio: %ss @ %s Hz (stereo)", duration, _test_sr)
     logger.debug("Background: 440 Hz sustained tone")
     logger.debug("Transients: 5 drum hits @ %s seconds (dampened)", hit_times)
 
@@ -752,29 +755,28 @@ if __name__ == "__main__":
         logger.debug("Testing with material: %s", material.upper())
         logger.debug("%s", "-" * 80)
 
-        phase = TransientPreservationPhase(sample_rate=sr)
-        result = phase.process(audio.copy(), material_type=material)
+        phase = TransientPreservationPhase(sample_rate=_test_sr)
+        _test_result = phase.process(_test_audio.copy(), material_type=material)
 
-        if result.success and result.modifications.get("transient_preserved"):
+        if _test_result.success and _test_result.modifications.get("transient_preserved"):
             logger.debug("✅ Processing Complete!")
-            logger.debug(
-                f"   Execution Time: {result.metadata['execution_time_seconds']:.3f}s ({result.metadata['execution_time_seconds'] / duration:.2f}× realtime)"
-            )
-            logger.debug("   Transients Detected: %s", result.modifications["num_transients"])
-            logger.debug("   Transient Density: %.1f/sec", result.modifications["transient_density_per_sec"])
-            logger.debug("   Peak Enhancement: %.1f dB", result.modifications["peak_enhancement_db"])
-            logger.debug("   Num Bands: %s", result.modifications["num_bands"])
-            logger.debug("   Band Splits: %s Hz", result.modifications["band_splits_hz"])
-            logger.debug("   Attack Gain (per band): %s dB", result.metadata["attack_gain_db_per_band"])
-            logger.debug("   Warnings: %s", result.warnings if result.warnings else "None")
+            _exec_t08 = _test_result.metadata["execution_time_seconds"]
+            logger.debug("   Execution Time: %.3fs (%.2f× realtime)", _exec_t08, _exec_t08 / duration)
+            logger.debug("   Transients Detected: %s", _test_result.modifications["num_transients"])
+            logger.debug("   Transient Density: %.1f/sec", _test_result.modifications["transient_density_per_sec"])
+            logger.debug("   Peak Enhancement: %.1f dB", _test_result.modifications["peak_enhancement_db"])
+            logger.debug("   Num Bands: %s", _test_result.modifications["num_bands"])
+            logger.debug("   Band Splits: %s Hz", _test_result.modifications["band_splits_hz"])
+            logger.debug("   Attack Gain (per band): %s dB", _test_result.metadata["attack_gain_db_per_band"])
+            logger.debug("   Warnings: %s", _test_result.warnings if _test_result.warnings else "None")
         else:
             logger.debug("⏭️  Transient Preservation Skipped")
-            logger.debug("   Reason: %s", result.modifications.get("reason", "unknown"))
+            logger.debug("   Reason: %s", _test_result.modifications.get("reason", "unknown"))
 
     logger.debug("\n%s", "=" * 80)
     logger.debug("✅ Professional Transient Preservation v2.0 Test Complete!")
     logger.debug("%s", "=" * 80)
-    logger.debug("Algorithm: %s", result.metadata.get("algorithm", "N/A"))
-    logger.debug("Scientific Reference: %s", result.metadata.get("scientific_ref", "N/A"))
-    logger.debug("Benchmark: %s", result.metadata.get("benchmark", "N/A"))
+    logger.debug("Algorithm: %s", _test_result.metadata.get("algorithm", "N/A"))
+    logger.debug("Scientific Reference: %s", _test_result.metadata.get("scientific_ref", "N/A"))
+    logger.debug("Benchmark: %s", _test_result.metadata.get("benchmark", "N/A"))
     logger.debug("Quality Impact: 0.92 (Professional-Grade)")

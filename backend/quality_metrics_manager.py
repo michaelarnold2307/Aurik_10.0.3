@@ -76,13 +76,30 @@ class QualityMetricsManager:
 
     def _init_plugins(self):
         """Initialisiert all plugins."""
+        _versa_loaded = False
         try:
             if _VERSA_IMPORT_OK and _get_versa_plugin_fn is not None:
                 self._versa = _get_versa_plugin_fn()
                 self._cdpam = self._versa
+                _versa_loaded = True
                 logger.info("✓ VERSA Plugin loaded (§4.4 CDPAM-Nachfolger)")
         except Exception as e:
             logger.warning("VERSA Plugin nicht verfügbar: %s — PQS-DSP Fallback.", e)
+
+        if not _versa_loaded:
+            # §4.4 [RELEASE_MUST]: VERSA ist primäre Qualitätsmetrik (Spec §4.4).
+            # Ohne VERSA laufen ALLE Quality-Gates auf PQS-DSP-Fallback — potentiell
+            # reduzierte Restaurierungsqualität. Operator muss diesen Zustand kennen.
+            logger.error(
+                "§4.4 KRITISCH: VERSA nicht verfügbar (Import: %s, Fn: %s) — "
+                "alle Quality-Gates (HPI, PMGG, AFG) laufen auf PQS-DSP-Proxy-Fallback. "
+                "Prüfe versa_plugin.py und Abhängigkeiten. Restaurierungsqualität möglicherweise reduziert.",
+                _VERSA_IMPORT_OK,
+                _get_versa_plugin_fn is not None,
+            )
+            self._versa_unavailable_logged = True
+        else:
+            self._versa_unavailable_logged = False
 
         try:
             self._visqol = ViSQOLPlugin()
@@ -489,7 +506,7 @@ class QualityMetricsManager:
 
         # Save to file if requested
         if output_file:
-            with open(output_file, "w") as f:
+            with open(output_file, "w", encoding="utf-8") as f:
                 json.dump(results, f, indent=2)
             logger.info("✓ Report saved: %s", output_file)
 
@@ -560,14 +577,14 @@ if __name__ == "__main__":
 
     logger.info(str("\n" + "=" * 80))
     logger.info("QUALITY METRICS MANAGER TEST")
-    logger.info("=" * 80 + "\n")
+    logger.info("%s", "=" * 80)
 
     # Check if audio file provided
     if len(sys.argv) > 1:
-        audio_file = sys.argv[1]
-        reference_file = sys.argv[2] if len(sys.argv) > 2 else None
+        _audio_file = sys.argv[1]
+        _reference_file = sys.argv[2] if len(sys.argv) > 2 else None
 
-        comprehensive_assessment(audio_file, reference_file)
+        comprehensive_assessment(_audio_file, _reference_file)
     else:
         logger.info("Usage: python quality_metrics_manager.py <audio_file> [reference_file]")
         logger.info("\nExample:")

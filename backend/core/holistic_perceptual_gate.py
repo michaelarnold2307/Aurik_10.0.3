@@ -162,16 +162,22 @@ class HolisticPerceptualGate:
             hpi = hpi * _vqi_clamped
             logger.debug("§2.44 VQI-Faktor angewendet: vqi=%.3f panns_singing=%.2f", _vqi_clamped, panns_singing)
 
-        # §B3 NORESQA integration: Non-intrusive MOS proxy modulates HPI weakly
-        # (Manocha & Kumar 2022, INTERSPEECH). Acts as a soft quality sanity check.
-        # Weight 0.15 keeps it advisory: noresqa_ensemble ∈ [0.85, 1.00]
+        # §B3 NORESQA integration: Non-intrusive MOS proxy — Advisory-Metadatum.
+        # (Manocha & Kumar 2022, INTERSPEECH)
+        # v9.12.9: noresqa_ensemble wird NICHT mehr als multiplikativer HPI-Faktor eingesetzt.
+        # VERSA ist der primäre perceptuelle Qualitätsmesser (referenzfrei, MOS-kalibriert).
+        # Ein zweiter perceptueller Multiplikator (noresqa) erzeugt systematische HPI-Kompression
+        # ohne zusätzlichen Informationsgehalt — entfernt als Produktterm.
+        # noresqa_ensemble bleibt für Telemetrie/Debugging erhalten.
         noresqa_score = self._compute_noresqa_score(restored, sr)
-        noresqa_ensemble = 0.85 + 0.15 * noresqa_score
-        hpi = hpi * noresqa_ensemble
+        noresqa_ensemble = 0.85 + 0.15 * noresqa_score  # Advisory only — kein HPI-Multiplikator
 
-        # §2.44: RestorabilityEstimator > 0.85 → stricter gate
-        if restorability_score > 85.0:
-            hpi = hpi * 0.95
+        # §2.44 v9.12.9: restorability-Penalty entfernt.
+        # hpi *= 0.95 bei restorability > 85 war ein inkorrekter Penalty auf hochwertiges Material:
+        # Hohe Restorability (CD, FLAC) bedeutet besser restaurierbares Signal — kein Penaltygrund.
+        # Der Effekt war: exzellente Restaurierungen fallen unter den hpi > 0.5 P1/P2-Gate-Schwellwert.
+        # Korrekte Mechanik: hohe Restorability → höhere Erwartungen via _gbc_targets (§09.12),
+        # nicht via nachträglichen HPI-Abzug.
 
         passed = hpi > 0.0 and artifact_freedom >= 0.95
 
@@ -544,20 +550,19 @@ class HolisticPerceptualGate:
             _versa = _get_versa()
             _versa_result = _versa.score(rest_clean, sr)
             _versa_mos = float(np.clip(_versa_result.mos, 1.0, 5.0))
-            # Nonnalisierung: MOS 1→0.0, MOS 3→0.5, MOS 5→1.0
-            _versa_sim = float(np.clip((_versa_mos - 1.0) / 4.0, 0.0, 1.0))
-            # Blend: 70% VERSA (referenzfrei) + 30% klassische spektrale Kohärenz
-            _spectral_coh = self._compute_mert_similarity_spectral_proxy(orig_clean, rest_clean, sr)
-            _blended = float(np.clip(0.70 * _versa_sim + 0.30 * _spectral_coh, 0.0, 1.0))
+            # v9.12.9: Power-Law-Normalisierung: MOS 4.0→0.83, 4.5→0.92, 5.0→1.0.
+            # Frühere lineare ÷4-Skalierung komprimierte den Exzellenz-Bereich (4.0→0.75).
+            # Power 0.65 expandiert 4.0-5.0 MOS auf 0.83-1.0 (perceptuell kalibrierter).
+            # Kein spectral_coh-Blend: VERSA ist referenzfrei — spectral_coh(orig, rest)
+            # ist Input-Similarity-Bias und bestraft korrekte Carrier-Chain-Inversion (§0d).
+            _versa_sim = float(np.clip(((_versa_mos - 1.0) / 4.0) ** 0.65, 0.0, 1.0))
             logger.debug(
-                "§2.44 VERSA-primary: mos=%.2f → versa_sim=%.3f spectral_coh=%.3f blended=%.3f",
+                "§2.44 VERSA-primary (v9.12.9): mos=%.2f → versa_sim=%.3f (power-law 0.65)",
                 _versa_mos,
                 _versa_sim,
-                _spectral_coh,
-                _blended,
             )
             self._mert_proxy_used = False  # VERSA succeeded
-            return _blended
+            return _versa_sim
         except Exception as _versa_exc:
             logger.debug("§2.44 VERSA primary failed → MERT proxy fallback: %s", _versa_exc)
             self._mert_proxy_used = True  # VERSA failed, MERT is proxy
@@ -648,13 +653,16 @@ class HolisticPerceptualGate:
             orig_log = np.log1p(orig_spec)
             rest_log = np.log1p(rest_spec)
 
-            orig_norm = orig_log - np.mean(orig_log)
-            rest_norm = rest_log - np.mean(rest_log)
+            # Cosine-Ähnlichkeit auf L2-normierten Log-Spektren.
+            # Mean-Centering führt zu falsch-hoher Ähnlichkeit bei
+            # schmalbandigen Signalen (440 Hz vs. 880 Hz → ~0.9998), da das
+            # gemeinsame Energielo-Background die Korrelation dominiert.
+            # L2-Norm bildet Spektral-Peak-Position ab → diskriminiert Frequenzen.
+            orig_norm = orig_log / (float(np.linalg.norm(orig_log)) + 1e-12)
+            rest_norm = rest_log / (float(np.linalg.norm(rest_log)) + 1e-12)
 
-            denom = float(np.sqrt(np.sum(orig_norm**2) * np.sum(rest_norm**2)) + 1e-12)
-            if denom > 1e-12:
-                corr = float(np.sum(orig_norm * rest_norm) / denom)
-                correlations.append(max(0.0, corr))
+            corr = float(np.clip(float(np.dot(orig_norm, rest_norm)), 0.0, 1.0))
+            correlations.append(corr)
 
         if correlations:
             return float(np.clip(float(np.mean(correlations)), 0.0, 1.0))

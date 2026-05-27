@@ -102,6 +102,12 @@ class TransientShaper(PhaseInterface):
             "attack_window_ms": 10,
             "release_window_ms": 70,
         },
+        MaterialType.CASSETTE: {  # v9.12.9: IEC 60094-1 — gleiche Capstan-Physik wie TAPE
+            "attack_gain_db": [4.0, 3.5, 3.0, 2.0],
+            "sustain_gain_db": [-2.0, -2.5, -2.0, -0.5],
+            "attack_window_ms": 10,
+            "release_window_ms": 70,
+        },
         MaterialType.CD_DIGITAL: {
             "attack_gain_db": [5.0, 4.5, 4.0, 3.0],  # Aggressive (restore punch)
             "sustain_gain_db": [-3.0, -3.5, -3.0, -1.0],

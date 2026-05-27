@@ -106,6 +106,13 @@ class BassEnhancement(PhaseInterface):
             "saturation_drive": 0.28,
             "mix": 0.50,  # v9.10.114: ↑0.35→0.50
         },
+        MaterialType.CASSETTE: {  # v9.12.9: IEC 60094-1 — gleiche Capstan-Physik wie TAPE
+            "harmonic_2_gain": 0.35,
+            "harmonic_3_gain": 0.22,
+            "sub_harmonic_gain": 0.18,
+            "saturation_drive": 0.28,
+            "mix": 0.50,
+        },
         MaterialType.CD_DIGITAL: {
             "harmonic_2_gain": 0.50,  # Restore life from over-limiting  v9.10.114: ↑0.45→0.50
             "harmonic_3_gain": 0.32,
@@ -285,6 +292,34 @@ class BassEnhancement(PhaseInterface):
                 )
         except Exception as _hg37_exc:
             logger.debug("phase_37: hallucination_guard failed (non-blocking): %s", _hg37_exc)
+
+        # §V22 Pre-Echo-Prevention — Additive Bass-Enhancement auf Transient-Shifts prüfen (§2.73, non-blocking)
+        try:
+            from backend.core.dsp.transient_guard import (
+                detect_transient_shifts as _dts_37,  # pylint: disable=import-outside-toplevel
+            )
+
+            _ax_v22_37 = -1 if audio.ndim == 2 and audio.shape[-1] <= 8 else 0
+            _pre_v22_37 = (
+                audio.mean(axis=_ax_v22_37).astype(np.float32) if audio.ndim == 2 else audio.astype(np.float32)
+            )
+            _ax_post_37 = -1 if enhanced_audio.ndim == 2 and enhanced_audio.shape[-1] <= 8 else 0
+            _post_v22_37 = (
+                enhanced_audio.mean(axis=_ax_post_37).astype(np.float32)
+                if enhanced_audio.ndim == 2
+                else enhanced_audio.astype(np.float32)
+            )
+            _ts_37 = _dts_37(_pre_v22_37, _post_v22_37, sample_rate)
+            if not _ts_37.ok:
+                _wet_ts_37 = max(0.0, 1.0 - _ts_37.blend_reduction)
+                enhanced_audio = (_wet_ts_37 * enhanced_audio + (1.0 - _wet_ts_37) * audio).astype(np.float32)
+                logger.warning(
+                    "§V22 phase_37: onset_shift=%.2f ms → blend_reduction=%.2f",
+                    _ts_37.max_shift_ms,
+                    _ts_37.blend_reduction,
+                )
+        except Exception as _v22_37_exc:
+            logger.debug("§V22 phase_37 transient_guard non-blocking: %s", _v22_37_exc)
         return PhaseResult(
             success=True,
             audio=enhanced_audio,
@@ -327,7 +362,8 @@ class BassEnhancement(PhaseInterface):
         enhanced = audio + harmonics * config["mix"]
 
         # High-pass filter to remove excessive sub-bass
-        enhanced = signal.sosfilt(cached["hp"], enhanced)
+        # §2.51 Anti-Zeitversatz: sosfiltfilt — Ausgabe wird nicht zu Original addiert (V11).
+        enhanced = signal.sosfiltfilt(cached["hp"], enhanced)
 
         return enhanced
 
@@ -442,7 +478,11 @@ class BassEnhancement(PhaseInterface):
     def _measure_bass_energy(self, audio: np.ndarray, sample_rate: int) -> float:
         """Misst bass energy (20-250 Hz RMS)."""
         if audio.ndim == 2:
-            audio = audio[:, 0]  # Use left channel
+            # §2.51 Stereo-Axis-Invariante: channels-first (2, N) oder channels-last (N, 2)
+            if audio.shape[0] == 2 and audio.shape[1] > 2:
+                audio = audio[0]  # channels-first → Kanal 0
+            else:
+                audio = audio[:, 0]  # channels-last → Kanal 0
 
         # Extract bass (use cached filter)
         with self._sos_cache_lock:
@@ -452,7 +492,8 @@ class BassEnhancement(PhaseInterface):
                     "hp": signal.butter(2, 25, btype="high", fs=sample_rate, output="sos"),
                 }
             bass_sos = self._sos_cache[sample_rate]["bass_band"]
-        bass = signal.sosfilt(bass_sos, audio)
+        # Zero-Phase-Messung: sosfiltfilt verhindert Phasenversatz bei Energieberechnung.
+        bass = signal.sosfiltfilt(bass_sos, audio)
 
         # RMS energy
         rms = np.sqrt(np.mean(bass**2))

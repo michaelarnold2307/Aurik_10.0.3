@@ -236,6 +236,11 @@ class SpectralRepair(PhaseInterface):
             "noverlap": 1536,
             "nfft": 4096,
         },
+        MaterialType.CASSETTE: {
+            "nperseg": 2048,
+            "noverlap": 1536,
+            "nfft": 4096,
+        },  # v9.12.9: IEC 60094-1 — gleiche Capstan-Physik wie TAPE
         MaterialType.CD_DIGITAL: {
             "nperseg": 2048,
             "noverlap": 1024,  # 50% overlap (less processing needed)
@@ -265,6 +270,11 @@ class SpectralRepair(PhaseInterface):
             "energy_floor_db": -65,
             "phase_jump_threshold": np.pi * 0.5,
         },
+        MaterialType.CASSETTE: {
+            "outlier_z_score": 3.5,
+            "energy_floor_db": -63,  # v9.12.9: leicht höher als TAPE (Cassette-Hiss-Boden)
+            "phase_jump_threshold": np.pi * 0.5,
+        },  # v9.12.9: IEC 60094-1 — gleiche Capstan-Physik wie TAPE
         MaterialType.CD_DIGITAL: {
             "outlier_z_score": 3.0,  # More sensitive
             "energy_floor_db": -70,
@@ -282,6 +292,7 @@ class SpectralRepair(PhaseInterface):
         MaterialType.SHELLAC: 0.60,  # Moderate (preserve character)
         MaterialType.VINYL: 0.70,
         MaterialType.TAPE: 0.75,
+        MaterialType.CASSETTE: 0.64,  # v9.12.9: NR ≈ TAPE×0.85 — Cassette-Rauschen hat anderes Spektralprofil
         MaterialType.CD_DIGITAL: 0.85,  # Aggressive (digital artifacts obvious)
         MaterialType.STREAMING: 0.90,  # Very aggressive (codec artifacts)
     }
@@ -589,6 +600,7 @@ class SpectralRepair(PhaseInterface):
         stft_cfg = self.STFT_CONFIG.get(material, self.STFT_CONFIG[MaterialType.CD_DIGITAL])
         thresholds = self.DETECTION_THRESHOLDS.get(material, self.DETECTION_THRESHOLDS[MaterialType.CD_DIGITAL])
         repair_strength = self.REPAIR_STRENGTH.get(material, 0.75)
+        _material_meta_key23 = self._material_key(material)
 
         # Locality-aware modulation from UV3.
         # Sparse defect coverage -> lower inpainting intensity to preserve unaffected texture.
@@ -608,7 +620,7 @@ class SpectralRepair(PhaseInterface):
                 audio=passthrough,
                 execution_time_seconds=time.time() - start_time,
                 metadata={
-                    "material": material.name,
+                    "material": _material_meta_key23,
                     "defect_reduction_percent": 0.0,
                     "spectral_coherence": 1.0,
                     "repair_strength": 0.0,
@@ -632,7 +644,7 @@ class SpectralRepair(PhaseInterface):
                 audio=passthrough,
                 execution_time_seconds=time.time() - start_time,
                 metadata={
-                    "material": material.name,
+                    "material": _material_meta_key23,
                     "defect_reduction_percent": 0.0,
                     "spectral_coherence": 1.0,
                     "repair_strength": 0.0,
@@ -645,6 +657,24 @@ class SpectralRepair(PhaseInterface):
                 },
                 warnings=["Repair skipped due to zero effective strength"],
             )
+
+        # §2.68d [RELEASE_MUST] SSIP: Stille-Zonen aus ORIGINAL-Audio ermitteln.
+        # _get_structural_silence_zones() liefert immer eine Liste — niemals None (V16).
+        _ssip_zones_p23: list[tuple[int, int]] = []
+        _mat23_ssip_key = str(getattr(material, "value", str(material_type) or "unknown") or "unknown").lower()
+        try:
+            from backend.core.dsp.structural_silence_isolation import (  # pylint: disable=import-outside-toplevel
+                _get_structural_silence_zones as _ssip_get_zones_p23,
+            )
+
+            _ssip_zones_p23 = _ssip_get_zones_p23(kwargs, audio, sample_rate, _mat23_ssip_key)
+            if _ssip_zones_p23:
+                logger.debug(
+                    "§2.68 SSIP phase_23: %d strukturelle Stille-Zone(n) erkannt",
+                    len(_ssip_zones_p23),
+                )
+        except Exception as _ssip_init_exc23:
+            logger.debug("SSIP phase_23 init non-blocking: %s", _ssip_init_exc23)
 
         # --- Apollo pre-processing for lossy-codec materials ---
         # Apollo TorchScript handles MDCT-specific artefacts (pre-echo, spectral staircase,
@@ -1070,11 +1100,58 @@ class SpectralRepair(PhaseInterface):
                     material_bw_ceiling_hz=_bw23,
                 )
                 if _hg_result23.requires_rollback:
-                    logger.debug(
-                        "§2.46e Phase23 Hallucination rollback: spectral_novelty=%.3f",
-                        _hg_result23.spectral_novelty,
+                    _salvaged23 = False
+                    _rollback_reason23 = (
+                        "harmonic_ceiling_violation"
+                        if bool(getattr(_hg_result23, "harmonic_ceiling_violation", False))
+                        else "spectral_novelty"
                     )
-                    repaired_audio = audio.copy()
+
+                    # Defense-in-depth: vor Hard-Rollback einen konservativen Blend versuchen,
+                    # der das Träger-Ceiling respektiert und den Hallucination-Guard erneut prüft.
+                    for _blend23 in (0.40, 0.25, 0.12):
+                        _candidate23 = audio + (repaired_audio - audio) * float(_blend23)
+                        _candidate23 = np.nan_to_num(_candidate23, nan=0.0, posinf=0.0, neginf=0.0)
+                        _candidate23 = np.clip(_candidate23, -1.0, 1.0)
+
+                        try:
+                            _candidate23, _, _ = self._apply_material_bw_ceiling(
+                                _candidate23,
+                                sample_rate,
+                                material,
+                                mode=_mode23,
+                            )
+                        except Exception:
+                            # non-blocking: Blend dennoch gegen Guard prüfen
+                            pass
+
+                        _cand_mono23 = _candidate23.mean(axis=-1) if _candidate23.ndim == 2 else _candidate23
+                        _cand_mono23 = _cand_mono23 if _cand_mono23.ndim == 1 else _cand_mono23.ravel()
+                        _cand_hg23 = check_hallucination(
+                            _mono_orig23,
+                            _cand_mono23,
+                            sr=sample_rate,
+                            mode=_mode23,
+                            material_bw_ceiling_hz=_bw23,
+                        )
+                        if not _cand_hg23.requires_rollback:
+                            repaired_audio = _candidate23
+                            _salvaged23 = True
+                            logger.info(
+                                "§2.46e Phase23 Hallucination Rescue: reason=%s blend=%.2f novelty=%.3f",
+                                _rollback_reason23,
+                                float(_blend23),
+                                float(_cand_hg23.spectral_novelty),
+                            )
+                            break
+
+                    if not _salvaged23:
+                        logger.debug(
+                            "§2.46e Phase23 Hallucination rollback: reason=%s novelty=%.3f",
+                            _rollback_reason23,
+                            float(_hg_result23.spectral_novelty),
+                        )
+                        repaired_audio = audio.copy()
                 if _hg_result23.score_penalty > 0:
                     logger.info(
                         "§2.46e Phase23 score_penalty=%.1f (spectral_novelty=%.3f)",
@@ -1124,12 +1201,62 @@ class SpectralRepair(PhaseInterface):
         if _was_channels_first and repaired_audio.ndim == 2:
             repaired_audio = repaired_audio.T  # (N, 2) → (2, N)
 
+        # §2.68 SSIP Post-Inpainting-Audit: Hard-Reset in Stille-Zonen (V17, §2.68d).
+        # Muss nach channels-first-Restore laufen damit Layout-Format korrekt ist.
+        if _ssip_zones_p23:
+            try:
+                from backend.core.dsp.structural_silence_isolation import (  # pylint: disable=import-outside-toplevel
+                    get_structural_silence_isolator as _get_ssip_audit23,
+                )
+
+                _orig23_ssip = audio.T if (_was_channels_first and audio.ndim == 2) else audio
+                repaired_audio = _get_ssip_audit23().post_inpainting_silence_audit(
+                    audio_before_inpainting=_orig23_ssip,
+                    audio_after_inpainting=repaired_audio,
+                    silence_zones=_ssip_zones_p23,
+                    sr=sample_rate,
+                )
+            except Exception as _ssip_audit_exc23:
+                logger.debug(
+                    "SSIP post_inpainting_silence_audit phase_23 (non-blocking): %s",
+                    _ssip_audit_exc23,
+                )
+
+        # §V22 Pre-Echo-Prevention — Generative Spektralreparatur auf Transient-Shifts prüfen (§2.73, non-blocking)
+        try:
+            from backend.core.dsp.transient_guard import (
+                detect_transient_shifts as _dts_23,  # pylint: disable=import-outside-toplevel
+            )
+
+            _pre_v22_23 = (
+                audio.mean(axis=-1 if audio.ndim == 2 and audio.shape[-1] <= 8 else 0).astype(np.float32)
+                if audio.ndim == 2
+                else audio.astype(np.float32)
+            )
+            _ax_v22_23 = -1 if repaired_audio.ndim == 2 and repaired_audio.shape[-1] <= 8 else 0
+            _post_v22_23 = (
+                repaired_audio.mean(axis=_ax_v22_23).astype(np.float32)
+                if repaired_audio.ndim == 2
+                else repaired_audio.astype(np.float32)
+            )
+            _ts_23 = _dts_23(_pre_v22_23, _post_v22_23, sample_rate)
+            if not _ts_23.ok:
+                _wet_ts_23 = max(0.0, 1.0 - _ts_23.blend_reduction)
+                repaired_audio = (_wet_ts_23 * repaired_audio + (1.0 - _wet_ts_23) * audio).astype(np.float32)
+                logger.warning(
+                    "§V22 phase_23: onset_shift=%.2f ms → blend_reduction=%.2f",
+                    _ts_23.max_shift_ms,
+                    _ts_23.blend_reduction,
+                )
+        except Exception as _v22_23_exc:
+            logger.debug("§V22 phase_23 transient_guard non-blocking: %s", _v22_23_exc)
+
         _result = PhaseResult(
             success=True,
             audio=repaired_audio,
             execution_time_seconds=execution_time,
             metadata={
-                "material": material.name,
+                "material": _material_meta_key23,
                 "defect_reduction_percent": float(defect_reduction * 100),
                 "spectral_coherence": float(spectral_coherence),
                 "repair_strength": float(repair_strength),

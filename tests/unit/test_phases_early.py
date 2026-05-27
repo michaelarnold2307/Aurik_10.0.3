@@ -22,8 +22,8 @@ import pytest
 
 from backend.core.phases.phase_interface import PhaseResult
 
-SR = 44100
-N = SR // 10  # 4410 Samples ≈ 0.1s für schnelle Tests
+SR = 48000
+N = SR // 10  # 4800 Samples ≈ 0.1s für schnelle Tests
 
 
 # ---------------------------------------------------------------------------

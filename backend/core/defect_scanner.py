@@ -3432,7 +3432,10 @@ class DefectScanner:
                 _interval_std_s = float(np.std(_intervals))
                 _interval_cv = _interval_std_s / max(_interval_mean_s, 1e-6)
                 _beat_like = 0.35 <= _interval_mean_s <= 0.75 and _interval_cv < 0.25
-                _too_dense_low_mag = bump_density > 20.0 and max_mag < 1.5
+                # _too_dense_low_mag: Nur wenn die Bumps eine semi-reguläre Zeitstruktur haben
+                # (CV < 0.40), also auf Drum-Muster hindeuten. Kassetten-Laufwerk-Bumps sind
+                # zeitlich unregelmäßig (CV > 0.40) — diese darf der Guard nicht unterdrücken.
+                _too_dense_low_mag = bump_density > 20.0 and max_mag < 1.5 and _interval_cv < 0.40
                 if _beat_like or _too_dense_low_mag:
                     severity *= 0.25
                     confidence = float(np.clip(confidence * 0.70, 0.45, 0.85))

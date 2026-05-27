@@ -96,6 +96,10 @@ class LimitingPhase(PhaseInterface):
             "ceiling_db": -0.3,  # Standard
             "oversample": 2,
         },
+        MaterialType.CASSETTE: {
+            "ceiling_db": -0.5,  # v9.12.9: IEC 60094-1 — etwas konservativer (Cassette-Headroom)
+            "oversample": 2,
+        },  # v9.12.9: IEC 60094-1 — gleiche Capstan-Physik wie TAPE
         MaterialType.CD_DIGITAL: {
             "ceiling_db": -0.1,  # Aggressiv (mehr Lautheit)
             "oversample": 4,  # True Peak Detection wichtig!
@@ -112,6 +116,7 @@ class LimitingPhase(PhaseInterface):
         MaterialType.SHELLAC: [300, 250, 200, 250],  # Langsam, natürlich
         MaterialType.VINYL: [250, 200, 150, 200],  # Moderat
         MaterialType.TAPE: [200, 150, 100, 150],  # Schneller
+        MaterialType.CASSETTE: [200, 150, 100, 150],  # v9.12.9: IEC 60094-1 — gleiche Capstan-Physik wie TAPE
         MaterialType.CD_DIGITAL: [120, 80, 50, 80],  # Sehr schnell (transparent)
         MaterialType.STREAMING: [350, 300, 250, 300],  # Sehr langsam (kein Pumping)
     }
@@ -121,6 +126,7 @@ class LimitingPhase(PhaseInterface):
         MaterialType.SHELLAC: 0.5,  # Sanfter Übergang
         MaterialType.VINYL: 0.3,  # Moderat
         MaterialType.TAPE: 0.3,  # Moderat
+        MaterialType.CASSETTE: 0.3,  # v9.12.9: IEC 60094-1 — gleiche Capstan-Physik wie TAPE
         MaterialType.CD_DIGITAL: 0.2,  # Minimaler Soft-Clip
         MaterialType.STREAMING: 0.5,  # Sanfter Übergang
     }

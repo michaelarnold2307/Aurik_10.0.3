@@ -51,7 +51,13 @@ _NEEDS_LONG_AUDIO: frozenset = frozenset({"phase_24_dropout_repair"})
 
 # Phasen mit schwerem ML-Singleton (LAION-CLAP, BEATs, SGMSE+) — try_allocate wird auf
 # False gemockt, damit der DSP-Fallback greift und kein echtes Modell geladen wird (Unit-Test).
-_HEAVY_ML_PHASES: frozenset = frozenset({"phase_53_semantic_audio", "phase_49_advanced_dereverb"})
+_HEAVY_ML_PHASES: frozenset = frozenset(
+    {
+        "phase_53_semantic_audio",
+        "phase_49_advanced_dereverb",
+        "phase_03_denoise",  # Resemble Enhance: nicht-deterministisch zwischen Aufrufen (§2.51)
+    }
+)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Phase-Registry: (modul, klassenname, stereo_input, skip_shape_check)

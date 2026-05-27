@@ -675,6 +675,42 @@ def test_get_goal_recovery_phases_alias_normalisation():
         )
 
 
+def test_get_goal_recovery_phases_brillanz_includes_spectral_repair_after_bw_extension():
+    """Brillanz-Recovery muss phase_23 zwischen BW-Extension und Harmonic-Restore fuehren."""
+    phases = get_goal_recovery_phases("brillanz", is_studio_2026=False)
+    assert "phase_06_frequency_restoration" in phases
+    assert "phase_23_spectral_repair" in phases
+    assert "phase_07_harmonic_restoration" in phases
+
+    idx_06 = phases.index("phase_06_frequency_restoration")
+    idx_23 = phases.index("phase_23_spectral_repair")
+    idx_07 = phases.index("phase_07_harmonic_restoration")
+    assert idx_06 < idx_23 < idx_07, f"Unerwartete Reihenfolge fuer brillanz recovery: {phases}"
+
+
+def test_get_goal_recovery_phases_transient_energie_includes_spectral_repair_tail():
+    """Transient-Energie-Recovery muss codec-smear Reparatur als dritten Schritt enthalten."""
+    phases = get_goal_recovery_phases("transient_energie", is_studio_2026=False)
+    assert phases[:2] == ["phase_26_dynamic_range_expansion", "phase_08_transient_preservation"]
+    assert "phase_23_spectral_repair" in phases
+    assert phases.index("phase_08_transient_preservation") < phases.index("phase_23_spectral_repair")
+
+
+def test_get_goal_recovery_phases_lossy_chain_injects_phase50_for_brillanz():
+    """Bei lossy chain-end soll phase_50 fuer brillanz nach phase_06 eingefuegt werden."""
+    phases = get_goal_recovery_phases("brillanz", transfer_chain=["cassette", "mp3_low"])
+    assert "phase_50_spectral_repair" in phases
+    assert phases.index("phase_06_frequency_restoration") < phases.index("phase_50_spectral_repair")
+
+
+def test_get_goal_recovery_phases_lossy_chain_injects_phase50_for_transient_energie():
+    """Bei lossy chain-end soll transient_energie codec-smear repair via phase_50 priorisieren."""
+    phases = get_goal_recovery_phases("transient_energie", transfer_chain=["vinyl", "aac"])
+    assert phases[:2] == ["phase_26_dynamic_range_expansion", "phase_08_transient_preservation"]
+    assert "phase_50_spectral_repair" in phases
+    assert phases.index("phase_08_transient_preservation") < phases.index("phase_50_spectral_repair")
+
+
 def test_get_goal_recovery_phases_no_duplicates():
     """Returned phase list must have no duplicate entries for any goal or mode."""
     for goal in _ALL_15_GOALS:
@@ -687,6 +723,7 @@ def test_estimate_chain_end_goal_ceiling_uses_last_transfer_stage():
     """Transferketten-Ende muss HF-sensitive Goals begrenzen (§2.46a)."""
     caps = estimate_chain_end_goal_ceiling(["vinyl", "cassette", "mp3_low"])
     assert caps["brillanz"] == 0.45
+    assert caps["transient_energie"] == 0.70
     assert caps["transparenz"] == 0.60
 
 
@@ -699,10 +736,11 @@ def test_resolve_effective_goal_targets_caps_by_physical_and_chain_ceiling():
         genre_label="pop",
         material_type="vinyl",
         transfer_chain=["vinyl", "mp3_low"],
-        physical_ceiling={"brillanz": 0.70, "transparenz": 0.90},
-        applicable_goals={"brillanz", "transparenz"},
+        physical_ceiling={"brillanz": 0.70, "transparenz": 0.90, "transient_energie": 0.95},
+        applicable_goals={"brillanz", "transparenz", "transient_energie"},
     )
     assert targets["brillanz"] <= 0.45
+    assert targets["transient_energie"] <= 0.70
     assert targets["transparenz"] <= 0.60
 
 
@@ -765,7 +803,7 @@ def test_get_effective_material_floor_restorability_100():
     from backend.core.calibration_matrix import get_effective_material_floor
 
     base = get_material_floor("cd_digital", "natuerlichkeit")
-    eff = get_effective_material_floor("cd_digital", "natuerlichkeit", 100.0)
+    eff = get_effective_material_floor("cd_digital", "natuerlichkeit", restorability_score=100.0)
     assert abs(eff - base) < 1e-6, f"restorability=100 Abweichung: base={base} eff={eff}"
 
 
@@ -777,7 +815,7 @@ def test_get_effective_material_floor_restorability_50():
     )
 
     base = get_material_floor("vinyl", "natuerlichkeit")
-    eff = get_effective_material_floor("vinyl", "natuerlichkeit", 50.0)
+    eff = get_effective_material_floor("vinyl", "natuerlichkeit", restorability_score=50.0)
     # scale = max(0.72, 0.50) = 0.72
     expected = float(np.clip(base * RESTORABILITY_SCALE_MIN, 0.20, 0.99))
     assert abs(eff - expected) < 1e-6, f"Expected {expected}, got {eff}"
@@ -791,7 +829,7 @@ def test_get_effective_material_floor_restorability_10():
     )
 
     base = get_material_floor("shellac", "natuerlichkeit")
-    eff = get_effective_material_floor("shellac", "natuerlichkeit", 10.0)
+    eff = get_effective_material_floor("shellac", "natuerlichkeit", restorability_score=10.0)
     expected = float(np.clip(base * RESTORABILITY_SCALE_MIN, 0.20, 0.99))
     assert abs(eff - expected) < 1e-6
 
@@ -800,7 +838,7 @@ def test_get_effective_material_floor_restorability_0():
     """restorability=0 → clamp auf RESTORABILITY_SCALE_MIN (kein negativer Floor)."""
     from backend.core.calibration_matrix import get_effective_material_floor
 
-    eff = get_effective_material_floor("unknown", "groove", 0.0)
+    eff = get_effective_material_floor("unknown", "groove", restorability_score=0.0)
     assert eff >= 0.20, "Floor darf nicht unter 0.20 fallen"
 
 
@@ -837,3 +875,210 @@ def test_restorability_scale_min_in_all_list():
     import backend.core.calibration_matrix as _cm
 
     assert "RESTORABILITY_SCALE_MIN" in _cm.__all__
+
+
+# ---------------------------------------------------------------------------
+# §0d groove-Timing-Fix (v9.13) — Normative Guard-Tests
+# ---------------------------------------------------------------------------
+
+
+def test_emotionalitaet_recovery_primary_is_phase_54():
+    """§0d v9.13: emotionalitaet primary recovery phase MUSS phase_54_transparent_dynamics sein.
+
+    Grund: DFN/SGMSE+/OMLSA glätten alle 4 Dynamik-Komponenten (crest, variance, micro, range).
+    phase_26 (Dynamic Range Expansion) behebt nur crest_score; phase_54 wirkt auf alle Komponenten.
+    """
+    phases = get_goal_recovery_phases("emotionalitaet", is_studio_2026=False)
+    assert phases, "emotionalitaet recovery list ist leer"
+    assert phases[0] == "phase_54_transparent_dynamics", (
+        f"Primary recovery phase für emotionalitaet muss phase_54_transparent_dynamics sein, "
+        f"got '{phases[0]}' — §0d v9.13 Envelope-Re-Smoothing-Fix (NR-Glättung betrifft alle 4 Dynamik-Komponenten)"
+    )
+    # phase_26 muss weiterhin in der Liste stehen (als sekundäre Phase)
+    assert "phase_26_dynamic_range_expansion" in phases, (
+        "phase_26_dynamic_range_expansion muss als sekundäre Phase in emotionalitaet-Recovery stehen"
+    )
+
+
+def test_emotionalitaet_recovery_phase54_before_phase26():
+    """phase_54 muss vor phase_26 in der emotionalitaet-Recovery-Liste stehen (§2.46 Carrier-Hierarchie)."""
+    phases = get_goal_recovery_phases("emotionalitaet", is_studio_2026=False)
+    idx_54 = phases.index("phase_54_transparent_dynamics")
+    idx_26 = phases.index("phase_26_dynamic_range_expansion")
+    assert idx_54 < idx_26, (
+        f"phase_54 (idx={idx_54}) muss vor phase_26 (idx={idx_26}) stehen — "
+        "Envelope-Re-Smoothing vor Dynamic Range Expansion (subtraktiv vor additiv)"
+    )
+
+
+def test_groove_recovery_includes_phase12():
+    """groove primary recovery muss phase_12_wow_flutter_fix enthalten (physikalische Ursache)."""
+    phases = get_goal_recovery_phases("groove", is_studio_2026=False)
+    assert phases[0] == "phase_12_wow_flutter_fix", (
+        f"groove primary recovery muss phase_12_wow_flutter_fix sein (Wow/Flutter = direkte physikalische Ursache), "
+        f"got '{phases[0]}'"
+    )
+
+
+# ---------------------------------------------------------------------------
+# §2.70 RestorationMemory-Prior als kappa-Modulator
+# ---------------------------------------------------------------------------
+
+
+class TestRestorationPriorKappaBoost:
+    """estimate_song_goal_targets() — restoration_prior erhöht kappa bei hpi_achieved > 0.75."""
+
+    def test_no_prior_returns_baseline(self):
+        """Ohne Prior liefert die Funktion die Baseline-Targets (kein Boost)."""
+        base = estimate_song_goal_targets(
+            restorability_score=70.0,
+            era_decade=1970,
+            material_type="vinyl",
+        )
+        assert isinstance(base, dict)
+        assert len(base) > 0
+
+    def test_prior_below_threshold_no_boost(self):
+        """hpi_achieved=0.70 (< 0.75) → kein kappa-Boost → gleich wie ohne Prior."""
+        base = estimate_song_goal_targets(
+            restorability_score=70.0,
+            era_decade=1970,
+            material_type="vinyl",
+        )
+        with_prior_low = estimate_song_goal_targets(
+            restorability_score=70.0,
+            era_decade=1970,
+            material_type="vinyl",
+            restoration_prior={"hpi_achieved": 0.70},
+        )
+        for goal in base:
+            assert base[goal] == with_prior_low.get(goal, base[goal]), (
+                f"Goal '{goal}' sollte ohne Boost identisch sein: {base[goal]} != {with_prior_low.get(goal)}"
+            )
+
+    def test_prior_above_threshold_amplifies_biases(self):
+        """hpi_achieved=0.90 → kappa-Boost verstärkt Biases in beide Richtungen.
+
+        vinyl hat waerme=+0.10 (positiver Bias → Goal steigt)
+        vinyl hat natuerlichkeit=-0.30 (negativer Bias → Goal sinkt).
+        """
+        base = estimate_song_goal_targets(
+            restorability_score=70.0,
+            era_decade=1970,
+            material_type="vinyl",
+        )
+        boosted = estimate_song_goal_targets(
+            restorability_score=70.0,
+            era_decade=1970,
+            material_type="vinyl",
+            restoration_prior={"hpi_achieved": 0.90},
+        )
+        # waerme hat positiven Bias (+0.10) → muss steigen oder gleich bleiben
+        assert boosted.get("waerme", 0) >= base.get("waerme", 0) - 1e-9, (
+            f"waerme (pos. Bias) sollte steigen: {base.get('waerme')} → {boosted.get('waerme')}"
+        )
+        # natuerlichkeit hat negativen Bias (-0.30) → sinkt oder bleibt gleich
+        assert boosted.get("natuerlichkeit", 1) <= base.get("natuerlichkeit", 1) + 1e-9, (
+            f"natuerlichkeit (neg. Bias) sollte sinken: {base.get('natuerlichkeit')} → {boosted.get('natuerlichkeit')}"
+        )
+        # Alle Targets in erlaubten Grenzen
+        for goal, val in boosted.items():
+            assert 0.30 <= val <= 0.99, f"Goal '{goal}' außerhalb Grenzen: {val}"
+
+    def test_prior_hpi_1_boost_capped_at_kappa_base(self):
+        """hpi_achieved=1.0 → maximaler Boost, aber kappa nicht über kappa_base."""
+        base = estimate_song_goal_targets(restorability_score=70.0, material_type="vinyl")
+        boosted = estimate_song_goal_targets(
+            restorability_score=70.0,
+            material_type="vinyl",
+            restoration_prior={"hpi_achieved": 1.0},
+        )
+        # Targets müssen im erlaubten Bereich bleiben [0.30, 0.99]
+        for goal, val in boosted.items():
+            assert 0.30 <= val <= 0.99, f"Goal '{goal}' außerhalb Grenzen: {val}"
+
+    def test_prior_none_backward_compat(self):
+        """restoration_prior=None → identisch mit fehlendem Parameter."""
+        without = estimate_song_goal_targets(restorability_score=50.0)
+        with_none = estimate_song_goal_targets(
+            restorability_score=50.0,
+            restoration_prior=None,
+        )
+        assert without == with_none
+
+    def test_prior_boost_monotone_for_positive_bias_goal(self):
+        """Höherer hpi_achieved → waerme (pos. Bias) steigt monoton."""
+        targets_low = estimate_song_goal_targets(
+            restorability_score=60.0,
+            material_type="vinyl",
+            restoration_prior={"hpi_achieved": 0.80},
+        )
+        targets_high = estimate_song_goal_targets(
+            restorability_score=60.0,
+            material_type="vinyl",
+            restoration_prior={"hpi_achieved": 0.95},
+        )
+        # waerme hat positiven Bias (+0.10) → höherer kappa → höherer Wert
+        assert targets_high.get("waerme", 0) >= targets_low.get("waerme", 0) - 1e-9, (
+            f"waerme (pos. Bias) sollte monoton mit hpi steigen: "
+            f"{targets_low.get('waerme')} → {targets_high.get('waerme')}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# §Lücke5 kappa S-Kurve
+# ---------------------------------------------------------------------------
+
+
+class TestKappaSCurve:
+    """estimate_song_goal_targets() — kappa wird via logistischer S-Kurve moduliert."""
+
+    def test_kappa_monotone_with_restorability(self):
+        """Ziel mit positivem Bias (waerme=+0.10 bei vinyl) muss mit rest monoton steigen."""
+        vals = [
+            estimate_song_goal_targets(
+                restorability_score=float(r),
+                material_type="vinyl",
+            ).get("waerme", 0.0)
+            for r in range(0, 101, 10)
+        ]
+        for i in range(len(vals) - 1):
+            assert vals[i] <= vals[i + 1] + 1e-9, f"waerme nicht monoton bei rest={i * 10}: {vals[i]} > {vals[i + 1]}"
+
+    def test_extremes_differ_from_midpoint(self):
+        """S-Kurve: mittlerer Bereich (25→75) reagiert stärker als Extrembereiche (0→25, 75→100)."""
+
+        def _waerme(rest: float) -> float:
+            return estimate_song_goal_targets(restorability_score=rest, material_type="vinyl").get("waerme", 0.0)
+
+        delta_low = _waerme(25.0) - _waerme(0.0)  # 0→25: flaches Plateau
+        delta_mid = _waerme(75.0) - _waerme(25.0)  # 25→75: steile Phase
+        delta_high = _waerme(100.0) - _waerme(75.0)  # 75→100: flaches Plateau
+
+        assert delta_mid > delta_low, (
+            f"Mittlere Phase ({delta_mid:.4f}) sollte steiler als unteres Plateau ({delta_low:.4f})"
+        )
+        assert delta_mid > delta_high, (
+            f"Mittlere Phase ({delta_mid:.4f}) sollte steiler als oberes Plateau ({delta_high:.4f})"
+        )
+
+    def test_boundary_rest0_kappa_near_minimum(self):
+        """rest=0 → kappa nahe Minimum (ca. 0.60·kappa_base); Restoration kappa_base=0.45."""
+        # waerme bei rest=0 und rest=100 sollten sich durch kappa unterscheiden
+        t0 = estimate_song_goal_targets(restorability_score=0.0, material_type="vinyl")
+        t100 = estimate_song_goal_targets(restorability_score=100.0, material_type="vinyl")
+        # waerme(+0.10 Bias): rest=100 muss höher sein als rest=0
+        assert t100.get("waerme", 0) > t0.get("waerme", 0), (
+            f"waerme bei rest=100 ({t100.get('waerme')}) sollte > rest=0 ({t0.get('waerme')})"
+        )
+
+    def test_targets_in_bounds_for_all_restorability_levels(self):
+        """Alle Targets bleiben in [0.30, 0.99] für alle Restorability-Werte."""
+        for rest in [0, 10, 25, 50, 75, 90, 100]:
+            targets = estimate_song_goal_targets(
+                restorability_score=float(rest),
+                material_type="shellac",
+                era_decade=1930,
+            )
+            for goal, val in targets.items():
+                assert 0.30 <= val <= 0.99, f"rest={rest} goal='{goal}' außerhalb [0.30, 0.99]: {val}"

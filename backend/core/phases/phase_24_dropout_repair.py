@@ -124,7 +124,7 @@ class DropoutRepairPhase(PhaseInterface):
 
     @staticmethod
     def _compute_inpainting_runtime_profile(
-        material: str,  # pylint: disable=redefined-outer-name
+        material: str,
         quality_mode: str,
         restorability_score: float,
     ) -> dict[str, float]:
@@ -324,7 +324,7 @@ class DropoutRepairPhase(PhaseInterface):
 
     def _has_sufficient_ml_headroom(
         self,
-        audio: np.ndarray,  # pylint: disable=redefined-outer-name
+        audio: np.ndarray,
         sample_rate: int,
     ) -> bool:
         """Gibt True when enough physical RAM is available for AudioSR dropout repair zurück.
@@ -503,8 +503,8 @@ class DropoutRepairPhase(PhaseInterface):
     @staticmethod
     def _build_audioldm2_prompt(
         context_audio: np.ndarray,
-        sr: int,  # pylint: disable=redefined-outer-name
-        material: str,  # pylint: disable=redefined-outer-name
+        sr: int,
+        material: str,
         panns_tags: dict[str, float] | None = None,
     ) -> str:
         """Erstellt a descriptive text prompt for AudioLDM2 from context audio.
@@ -583,7 +583,7 @@ class DropoutRepairPhase(PhaseInterface):
 
     def _repair_with_audioldm2(
         self,
-        audio: np.ndarray,  # pylint: disable=redefined-outer-name
+        audio: np.ndarray,
         dropouts: list[tuple[int, int]],
     ) -> list[tuple[int, int]]:
         """Repariert very-long dropouts (> 3 s) via AudioLDM2 text-conditioned generative synthesis.
@@ -664,7 +664,7 @@ class DropoutRepairPhase(PhaseInterface):
                 # Apply cosine crossfades
                 fade_n = max(2, int(self.sample_rate * _CROSSFADE_S))
                 if fade_n * 2 < target_samples:
-                    t = np.linspace(0.0, np.pi / 2, fade_n, dtype=np.float32)  # pylint: disable=redefined-outer-name
+                    t = np.linspace(0.0, np.pi / 2, fade_n, dtype=np.float32)
                     fade_in = np.sin(t)
                     fade_out = np.cos(t)
                     # Entry crossfade
@@ -693,7 +693,7 @@ class DropoutRepairPhase(PhaseInterface):
 
     def _repair_with_gacela(
         self,
-        audio: np.ndarray,  # pylint: disable=redefined-outer-name
+        audio: np.ndarray,
         dropouts: list[tuple[int, int]],
     ) -> list[tuple[int, int]]:
         """Repariert 50–750 ms dropouts via GACELA musical inpainting GAN (§4.4).
@@ -797,7 +797,7 @@ class DropoutRepairPhase(PhaseInterface):
 
     def process(
         self,
-        audio: np.ndarray,  # pylint: disable=redefined-outer-name
+        audio: np.ndarray,
         sample_rate: int = 48000,
         material_type: str = "unknown",
         quality_mode: str | None = None,
@@ -1261,7 +1261,7 @@ class DropoutRepairPhase(PhaseInterface):
 
     def _detect_dropouts_multimodal(
         self,
-        audio: np.ndarray,  # pylint: disable=redefined-outer-name
+        audio: np.ndarray,
         params: dict[str, Any],
     ) -> list[tuple[int, int]]:
         """
@@ -1292,7 +1292,7 @@ class DropoutRepairPhase(PhaseInterface):
 
     def _detect_amplitude_dropouts(
         self,
-        audio: np.ndarray,  # pylint: disable=redefined-outer-name
+        audio: np.ndarray,
         params: dict[str, Any],
     ) -> list[tuple[int, int]]:
         """Erkennt dropouts via amplitude/energy drop."""
@@ -1347,7 +1347,7 @@ class DropoutRepairPhase(PhaseInterface):
                 start_idx = i
                 in_dropout = True
             elif not is_dropout and in_dropout:
-                duration = i - start_idx  # pylint: disable=redefined-outer-name
+                duration = i - start_idx
                 if min_samples <= duration <= max_samples:
                     dropouts.append((start_idx, i))
                 in_dropout = False
@@ -1361,7 +1361,7 @@ class DropoutRepairPhase(PhaseInterface):
 
     def _detect_spectral_gaps(
         self,
-        audio: np.ndarray,  # pylint: disable=redefined-outer-name
+        audio: np.ndarray,
         params: dict[str, Any],
     ) -> list[tuple[int, int]]:
         """
@@ -1476,7 +1476,7 @@ class DropoutRepairPhase(PhaseInterface):
 
     def _sanitize_dropout_regions(
         self,
-        audio: np.ndarray,  # pylint: disable=redefined-outer-name
+        audio: np.ndarray,
         dropouts: list[tuple[int, int]],
         params: dict[str, Any],
     ) -> list[tuple[int, int]]:
@@ -1549,7 +1549,7 @@ class DropoutRepairPhase(PhaseInterface):
 
     def _repair_dropouts_professional(
         self,
-        audio: np.ndarray,  # pylint: disable=redefined-outer-name
+        audio: np.ndarray,
         dropouts: list[tuple[int, int]],
         params: dict[str, Any],
         use_ml: bool = False,
@@ -1685,7 +1685,7 @@ class DropoutRepairPhase(PhaseInterface):
 
     def _repair_with_audiosr(
         self,
-        audio: np.ndarray,  # pylint: disable=redefined-outer-name
+        audio: np.ndarray,
         dropouts: list[tuple[int, int]],
     ) -> bool:
         """
@@ -1850,7 +1850,7 @@ class DropoutRepairPhase(PhaseInterface):
         else:
             return "mixed"
 
-    def _compute_harmonic_ratio(self, audio: np.ndarray) -> float:  # pylint: disable=redefined-outer-name
+    def _compute_harmonic_ratio(self, audio: np.ndarray) -> float:
         """Berechnet harmonic-to-total ratio."""
         audio_1d = np.asarray(audio, dtype=np.float64).reshape(-1)
         spectrum = np.abs(np.fft.rfft(audio_1d))
@@ -1877,7 +1877,7 @@ class DropoutRepairPhase(PhaseInterface):
         audio_fill: np.ndarray,
         before: np.ndarray,
         after: np.ndarray,
-        sr: int,  # pylint: disable=redefined-outer-name
+        sr: int,
     ) -> np.ndarray:
         """MRSA zone-specific refinement for tonal gap fill.
 
@@ -1993,7 +1993,7 @@ class DropoutRepairPhase(PhaseInterface):
         # Normalise blended result; fall back to original fill where no zone contributed
         with np.errstate(invalid="ignore", divide="ignore"):
             mask_valid = weight_sum > 1e-9
-            result = np.where(mask_valid, blended / np.where(mask_valid, weight_sum, 1.0), audio_fill)  # pylint: disable=redefined-outer-name
+            result = np.where(mask_valid, blended / np.where(mask_valid, weight_sum, 1.0), audio_fill)
 
         return np.clip(np.nan_to_num(result), -1.0, 1.0)
 
@@ -2219,61 +2219,61 @@ if __name__ == "__main__":
     logger.debug("=" * 80)
 
     # Generate test audio
-    sr = 44100
-    duration = 3
-    t = np.linspace(0, duration, sr * duration)
+    _test_sr = 44100
+    _test_dur = 3
+    _test_t = np.linspace(0, _test_dur, _test_sr * _test_dur)
 
     # Tonal content (440 Hz)
-    audio = 0.4 * np.sin(2 * np.pi * 440 * t)
-    audio += 0.2 * np.sin(2 * np.pi * 880 * t)
+    _test_audio = 0.4 * np.sin(2 * np.pi * 440 * _test_t)
+    _test_audio += 0.2 * np.sin(2 * np.pi * 880 * _test_t)
 
     # Add dropouts
-    dropout1 = (int(0.5 * sr), int(0.52 * sr))  # 20ms
-    dropout2 = (int(1.5 * sr), int(1.56 * sr))  # 60ms
-    dropout3 = (int(2.2 * sr), int(2.205 * sr))  # 5ms
+    dropout1 = (int(0.5 * _test_sr), int(0.52 * _test_sr))  # 20ms
+    dropout2 = (int(1.5 * _test_sr), int(1.56 * _test_sr))  # 60ms
+    dropout3 = (int(2.2 * _test_sr), int(2.205 * _test_sr))  # 5ms
 
-    audio[dropout1[0] : dropout1[1]] *= 0.05  # 95% energy loss
-    audio[dropout2[0] : dropout2[1]] *= 0.02  # 98% energy loss
-    audio[dropout3[0] : dropout3[1]] = 0  # Complete dropout
+    _test_audio[dropout1[0] : dropout1[1]] *= 0.05  # 95% energy loss
+    _test_audio[dropout2[0] : dropout2[1]] *= 0.02  # 98% energy loss
+    _test_audio[dropout3[0] : dropout3[1]] = 0  # Complete dropout
 
     # Make stereo
-    audio = np.column_stack([audio, audio * 0.95])
+    _test_audio = np.column_stack([_test_audio, _test_audio * 0.95])
 
-    logger.debug("\nTest Audio: %ss @ %s Hz (stereo)", duration, sr)
+    logger.debug("\nTest Audio: %ss @ %s Hz (stereo)", _test_dur, _test_sr)
     logger.debug("Content: 440 Hz tone + harmonics")
     logger.debug("Dropouts: 3 injected (5ms, 20ms, 60ms)")
 
     # Test with different materials
     materials = ["shellac", "vinyl", "cd_digital"]
 
-    for material in materials:
+    for _test_material in materials:
         logger.debug("\n%s", "-" * 80)
-        logger.debug("Testing with material: %s", material.upper())
+        logger.debug("Testing with material: %s", _test_material.upper())
         logger.debug("%s", "-" * 80)
 
         phase = DropoutRepairPhase()
-        result = phase.process(audio.copy(), sample_rate=sr, material_type=material)
+        _test_result = phase.process(_test_audio.copy(), sample_rate=_test_sr, material_type=_test_material)
 
-        if result.success:
+        if _test_result.success:
             logger.debug("✅ Processing Complete!")
             logger.debug(
                 "   Execution Time: %.3fs (%.2f× realtime)",
-                result.metadata["execution_time_seconds"],
-                result.metadata["execution_time_seconds"] / duration,
+                _test_result.metadata["execution_time_seconds"],
+                _test_result.metadata["execution_time_seconds"] / _test_dur,
             )
-            logger.debug("   Dropouts Repaired: %s", result.modifications["dropouts_repaired"])
-            logger.debug("   Avg Duration: %.1fms", result.modifications["avg_dropout_duration_ms"])
-            logger.debug("   Max Duration: %.1fms", result.modifications["max_dropout_duration_ms"])
-            logger.debug("   Repair Strength: %.2f", result.modifications["repair_strength"])
-            logger.debug("   Phase Continuity: %.2f", result.metadata["phase_continuity"])
-            logger.debug("   Warnings: %s", result.warnings if result.warnings else "None")
+            logger.debug("   Dropouts Repaired: %s", _test_result.modifications["dropouts_repaired"])
+            logger.debug("   Avg Duration: %.1fms", _test_result.modifications["avg_dropout_duration_ms"])
+            logger.debug("   Max Duration: %.1fms", _test_result.modifications["max_dropout_duration_ms"])
+            logger.debug("   Repair Strength: %.2f", _test_result.modifications["repair_strength"])
+            logger.debug("   Phase Continuity: %.2f", _test_result.metadata["phase_continuity"])
+            logger.debug("   Warnings: %s", _test_result.warnings if _test_result.warnings else "None")
         else:
             logger.debug("❌ Processing Failed!")
 
     logger.debug("\n%s", "=" * 80)
     logger.debug("✅ Professional Dropout Repair v2.0 Test Complete!")
     logger.debug("%s", "=" * 80)
-    logger.debug("Algorithm: %s", result.metadata["algorithm"])
-    logger.debug("Scientific Reference: %s", result.metadata["scientific_ref"])
-    logger.debug("Benchmark: %s", result.metadata["benchmark"])
+    logger.debug("Algorithm: %s", _test_result.metadata["algorithm"])
+    logger.debug("Scientific Reference: %s", _test_result.metadata["scientific_ref"])
+    logger.debug("Benchmark: %s", _test_result.metadata["benchmark"])
     logger.debug("Quality Imp: 0.94 (Professional-Grade)")

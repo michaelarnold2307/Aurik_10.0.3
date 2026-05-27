@@ -108,7 +108,7 @@ def _compute_iacc(L: np.ndarray, R: np.ndarray, max_lag_ms: float = 1.0, sr: int
     n = min(len(L), len(R), 65536)  # limit for performance
     L_n = L[:n] / (np.std(L[:n]) + 1e-10)
     R_n = R[:n] / (np.std(R[:n]) + 1e-10)
-    from backend.core.core_utils import fft_crosscorr
+    from backend.core.core_utils import fft_crosscorr  # pylint: disable=import-outside-toplevel
 
     xcf = fft_crosscorr(L_n, R_n)
     center = len(xcf) // 2
@@ -144,7 +144,9 @@ class SpatialEnhancementPhase(PhaseInterface):
             ),
         )
 
-    def process(self, audio: np.ndarray, sample_rate: int, **kwargs) -> PhaseResult:
+    def process(
+        self, audio: np.ndarray, sample_rate: int = 48000, material_type: str = "unknown", **kwargs
+    ) -> PhaseResult:
         """
         Räumliche Erweiterung via Early Reflections + M/S Diffusion.
 

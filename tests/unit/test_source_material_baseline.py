@@ -110,8 +110,10 @@ def test_critical_stereo_issue_when_interchannel_lag_exceeds_1ms(gate, sr):
     """§2.51a: Bereits > 1 ms Quell-L/R-Lag muss den Stereo-Hard-Fail triggern."""
     n = sr * 3
     lag_samples = int(sr * 0.079)
-    t = np.arange(n, dtype=np.float32) / float(sr)
-    sig = (0.5 * np.sin(2 * np.pi * 440.0 * t)).astype(np.float32)
+    rng = np.random.default_rng(42)
+    # Breitbandiges Rauschen statt Sinus: GCC-PHAT ist für Einzeltöne ungeeignet
+    # (periodische Kreuzkorrelation → kein eindeutiger Peak).
+    sig = rng.standard_normal(n).astype(np.float32) * 0.5
     delayed = np.concatenate([np.zeros(lag_samples, dtype=np.float32), sig[:-lag_samples]])
     audio = _make_stereo(sig, delayed)
 

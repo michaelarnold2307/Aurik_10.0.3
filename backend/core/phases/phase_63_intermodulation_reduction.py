@@ -178,7 +178,7 @@ def _build_imd_notch_mask(
 def _apply_stft_mask(
     x: np.ndarray,
     gain_mask: np.ndarray,
-    sample_rate: int,
+    sample_rate: int,  # pylint: disable=unused-argument
 ) -> np.ndarray:
     """Wendet eine Frequenzbereichs-Gain-Maske via STFT-Overlap-Add an (vektorisiert)."""
     n = len(x)
@@ -275,7 +275,12 @@ def apply(
 
 # ─── PhaseInterface ────────────────────────────────────────────────────────────
 
-from .phase_interface import PhaseCategory, PhaseInterface, PhaseMetadata, PhaseResult
+from .phase_interface import (  # pylint: disable=wrong-import-position
+    PhaseCategory,
+    PhaseInterface,
+    PhaseMetadata,
+    PhaseResult,
+)
 
 
 class IntermodulationReductionPhase(PhaseInterface):
@@ -344,20 +349,19 @@ class IntermodulationReductionPhase(PhaseInterface):
         self,
         audio: np.ndarray,
         sample_rate: int = 48000,
-        strength: float = 0.55,
-        defect_scores: dict | None = None,
+        material_type: str = "unknown",
         **kwargs,
     ) -> PhaseResult:
         sample_rate = kwargs.get("sample_rate", sample_rate)
         t0 = _time.perf_counter()
         assert sample_rate == 48000, f"SR must be 48000 Hz, got: {sample_rate}"
 
-        _defect_scores = defect_scores or kwargs.get("defect_analysis", {})
+        _defect_scores = kwargs.get("defect_scores") or kwargs.get("defect_analysis", {})
         phase_locality_factor = float(np.clip(float(kwargs.get("phase_locality_factor", 1.0)), 0.35, 1.0))
-        _pmgg_strength = float(kwargs.get("strength", strength))
+        _pmgg_strength = float(kwargs.get("strength", 0.55))
         _effective_strength = float(np.clip(_pmgg_strength * phase_locality_factor, 0.0, 1.0))
         _profile_63 = self._compute_imd_profile(
-            str(kwargs.get("material_type") or kwargs.get("material") or "unknown"),
+            str(material_type or kwargs.get("material") or "unknown"),
             str(kwargs.get("quality_mode", "balanced")),
             float(kwargs.get("restorability_score", 50.0)),
         )
@@ -370,7 +374,7 @@ class IntermodulationReductionPhase(PhaseInterface):
                 execution_time_seconds=_time.perf_counter() - t0,
                 metrics={
                     "imd_score": float((_defect_scores or {}).get("intermodulation_distortion", 0.0)),
-                    "strength": strength,
+                    "strength": _pmgg_strength,
                     "effective_strength": 0.0,
                 },
                 metadata={
@@ -383,7 +387,7 @@ class IntermodulationReductionPhase(PhaseInterface):
             )
         _imd_score_63 = float((_defect_scores or {}).get("intermodulation_distortion", 0.0))
         _imd_threshold_63 = float(_profile_63["min_imd_score"])
-        _mat_63 = kwargs.get("material_type") or kwargs.get("material")
+        _mat_63 = material_type or kwargs.get("material")
         _mat_str_63 = str(_mat_63).lower() if _mat_63 is not None else ""
         if _imd_score_63 < _imd_threshold_63:
             _passthrough_63 = np.clip(np.nan_to_num(audio.copy(), nan=0.0, posinf=0.0, neginf=0.0), -1.0, 1.0)
@@ -397,7 +401,7 @@ class IntermodulationReductionPhase(PhaseInterface):
                 audio=_passthrough_63,
                 success=True,
                 execution_time_seconds=_time.perf_counter() - t0,
-                metrics={"imd_score": _imd_score_63, "strength": strength, "effective_strength": 0.0},
+                metrics={"imd_score": _imd_score_63, "strength": _pmgg_strength, "effective_strength": 0.0},
                 metadata={
                     "phase_locality_factor": phase_locality_factor,
                     "effective_strength": 0.0,
@@ -420,7 +424,9 @@ class IntermodulationReductionPhase(PhaseInterface):
 
         # §4.5 Psychoacoustic Masking Clamp — only reduce audible intermodulation
         try:
-            from backend.core.dsp.psychoacoustics import apply_psychoacoustic_masking_clamp
+            from backend.core.dsp.psychoacoustics import (
+                apply_psychoacoustic_masking_clamp,  # pylint: disable=import-outside-toplevel
+            )
 
             result_audio = apply_psychoacoustic_masking_clamp(
                 audio,
@@ -430,14 +436,46 @@ class IntermodulationReductionPhase(PhaseInterface):
                 mode="subtractive",
             )
         except Exception as _pm_exc:
-            import logging as _log63
+            logger.debug("Phase63 masking clamp non-blocking: %s", _pm_exc)
 
-            _log63.getLogger(__name__).debug("Phase63 masking clamp non-blocking: %s", _pm_exc)
+        # V20 Mikrodynamik-Korrelation (§2.75): IMD-Notch-Filterung darf voiced Frames
+        # nicht in ihrer Frame-Energie degradieren (panns_singing ≥ 0.25).
+        _panns63 = float(kwargs.get("panns_singing", kwargs.get("panns_singing_confidence", 0.0)))
+        if _panns63 >= 0.25:
+            try:
+                from backend.core.dsp.mikrodynamik_guard import (
+                    frame_energy_correlation,  # pylint: disable=import-outside-toplevel
+                )
+
+                _corr63 = frame_energy_correlation(audio, result_audio, sample_rate, frame_ms=10.0)
+                if _corr63 < 0.97:
+                    _wet63 = min(1.0, (_corr63 - 0.90) / 0.07) if _corr63 > 0.90 else 0.0
+                    result_audio = (_wet63 * result_audio + (1.0 - _wet63) * audio).astype(np.float32)
+                    logger.warning(
+                        "Phase63 V20 Mikrodynamik-Korr=%.3f < 0.97 → wet=%.3f Blend",
+                        _corr63,
+                        _wet63,
+                    )
+            except Exception as _dyn63_exc:
+                logger.debug("Phase63 V20 Mikrodynamik-Guard (non-blocking): %s", _dyn63_exc)
+
+        # V26 Onset-Guard (§2.77): IMD-Notch-Filterung darf Transient-Energie in Onset-
+        # Fenstern (0–20 ms nach Transient) nicht um mehr als 1.5 dB verschieben.
+        try:
+            from backend.core.dsp.onset_guard import (
+                apply_onset_protection_mask,  # pylint: disable=import-outside-toplevel
+            )
+
+            result_audio = apply_onset_protection_mask(audio, result_audio, None, max_delta_db=1.5)
+        except Exception as _on63_exc:
+            logger.debug("Phase63 V26 Onset-Guard (non-blocking): %s", _on63_exc)
 
         # §2.46f Natural-Performance-Artifacts-Guard — IMD-Notch-Filtering darf
         # Atemgeräusche (Inter-Phrasen-Energie) und Vibrato-Segmente nicht tilgen.
         try:
-            from backend.core.natural_performance_detector import get_natural_performance_detector
+            from backend.core.natural_performance_detector import (
+                get_natural_performance_detector,  # pylint: disable=import-outside-toplevel
+            )
 
             _npa_a63 = audio
             if _npa_a63.ndim == 2 and _npa_a63.shape[0] == 2 and _npa_a63.shape[1] > _npa_a63.shape[0]:
@@ -458,9 +496,7 @@ class IntermodulationReductionPhase(PhaseInterface):
                 elif result_audio.ndim == 1 and audio.ndim == 1:
                     result_audio[_npa_m63] = audio[_npa_m63]
         except Exception as _npa63_exc:
-            import logging as _log63n
-
-            _log63n.getLogger(__name__).debug("§2.46f phase_63 NPA-Guard (non-blocking): %s", _npa63_exc)
+            logger.debug("§2.46f phase_63 NPA-Guard (non-blocking): %s", _npa63_exc)
 
         _rms_out_db = _rms_dbfs_gated(result_audio)
         _rms_drop = (_rms_out_db - _rms_in_db) if _rms_in_db > -80.0 else 0.0
@@ -470,7 +506,7 @@ class IntermodulationReductionPhase(PhaseInterface):
             execution_time_seconds=elapsed,
             metrics={
                 "imd_score": float((_defect_scores or {}).get("intermodulation_distortion", 0.0)),
-                "strength": strength,
+                "strength": _pmgg_strength,
                 "effective_strength": _effective_strength,
             },
             metadata={

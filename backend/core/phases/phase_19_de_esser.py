@@ -332,14 +332,16 @@ class DeEsserPhase(PhaseInterface):
         lookahead_ms = float(np.clip(_base + _mode_adj + _rest_adj, 2.0, 10.0))
         return {"lookahead_ms": lookahead_ms}
 
-    def __init__(self, gender_type: str = VocalGender.AUTO):
+    def __init__(self, gender_type: str = VocalGender.AUTO, *, gender: str | None = None):
         super().__init__()
         self.name = "Gender-Aware De-Esser v4.0"
-        self.gender = gender_type
+        # 'gender' ist Alias für 'gender_type' (Rückwärtskompatibilität)
+        _resolved_gender = gender if gender is not None else gender_type
+        self.gender = _resolved_gender
 
         # Load Gender-Profile
-        if gender_type in [VocalGender.FEMALE, VocalGender.MALE, VocalGender.CHILD]:
-            self.vocal_profile = VOCAL_PROFILES[gender_type]
+        if _resolved_gender in [VocalGender.FEMALE, VocalGender.MALE, VocalGender.CHILD]:
+            self.vocal_profile = VOCAL_PROFILES[_resolved_gender]
         else:
             # Fallback: FEMALE (statistisch häufiger + mittlere Parameter)
             self.vocal_profile = VOCAL_PROFILES[VocalGender.FEMALE]

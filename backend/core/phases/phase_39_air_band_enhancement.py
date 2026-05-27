@@ -131,6 +131,12 @@ class AirBandEnhancement(PhaseInterface):
             "exciter_mix": 0.28,  # v9.10.114: ↑0.20→0.28
             "saturation_drive": 0.20,  # v9.10.114: ↑0.15→0.20
         },
+        MaterialType.CASSETTE: {  # v9.12.9: §6.2c BW-Ceiling 12 kHz (IEC 60094-1 Type I) — konservativ
+            "shelf_gain_db": 3.0,  # ≤ 0.35 Stärke — kein HF über 12 kHz synthetisieren
+            "shelf_freq_hz": 10000,  # Unter 12-kHz-Ceiling bleiben
+            "exciter_mix": 0.18,
+            "saturation_drive": 0.15,
+        },
         MaterialType.CD_DIGITAL: {
             "shelf_gain_db": 5.0,  # v9.10.114: ↑3.5→5.0 — CD hat klare HF-Basis
             "shelf_freq_hz": 12000,
@@ -245,6 +251,8 @@ class AirBandEnhancement(PhaseInterface):
                     "algorithm": "skipped_restoration_analog_material",
                     "material": _mat_name_39,
                     "mode": _proc_mode_39,
+                    "phase_locality_factor": phase_locality_factor,
+                    "effective_strength": _effective_strength,
                     "rms_drop_db": 0.0,
                     "loudness_makeup_db": 0.0,
                 },
@@ -508,6 +516,34 @@ class AirBandEnhancement(PhaseInterface):
                     _hg_score_penalty_39 = float(_hg_result39.score_penalty)
             except Exception as _hg39_exc:
                 logger.debug("Phase 39 HallucinationGuard (non-blocking): %s", _hg39_exc)
+
+        # §V22 Pre-Echo-Prevention — Additive Air-Band auf Transient-Shifts prüfen (§2.73, non-blocking)
+        try:
+            from backend.core.dsp.transient_guard import (
+                detect_transient_shifts as _dts_39,  # pylint: disable=import-outside-toplevel
+            )
+
+            _ax_v22_39 = -1 if audio.ndim == 2 and audio.shape[-1] <= 8 else 0
+            _pre_v22_39 = (
+                audio.mean(axis=_ax_v22_39).astype(np.float32) if audio.ndim == 2 else audio.astype(np.float32)
+            )
+            _ax_post_39 = -1 if enhanced_audio.ndim == 2 and enhanced_audio.shape[-1] <= 8 else 0
+            _post_v22_39 = (
+                enhanced_audio.mean(axis=_ax_post_39).astype(np.float32)
+                if enhanced_audio.ndim == 2
+                else enhanced_audio.astype(np.float32)
+            )
+            _ts_39 = _dts_39(_pre_v22_39, _post_v22_39, sample_rate)
+            if not _ts_39.ok:
+                _wet_ts_39 = max(0.0, 1.0 - _ts_39.blend_reduction)
+                enhanced_audio = (_wet_ts_39 * enhanced_audio + (1.0 - _wet_ts_39) * audio).astype(np.float32)
+                logger.warning(
+                    "§V22 phase_39: onset_shift=%.2f ms → blend_reduction=%.2f",
+                    _ts_39.max_shift_ms,
+                    _ts_39.blend_reduction,
+                )
+        except Exception as _v22_39_exc:
+            logger.debug("§V22 phase_39 transient_guard non-blocking: %s", _v22_39_exc)
 
         return PhaseResult(
             success=True,

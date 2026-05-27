@@ -53,20 +53,13 @@ def _get_aurik_version() -> str:
     4. "unknown" as last-resort fallback
     """
     try:
-        from importlib.metadata import PackageNotFoundError  # Python 3.8+
-        from importlib.metadata import version as _pkg_version
+        from importlib.metadata import PackageNotFoundError  # Python 3.8+  # pylint: disable=import-outside-toplevel
+        from importlib.metadata import version as _pkg_version  # pylint: disable=import-outside-toplevel
 
         return _pkg_version("aurik9")
     except PackageNotFoundError:
         # Typischer Desktop-Fall: Aurik läuft aus dem Repo ohne pip-Installation.
         pass
-    except Exception as _exc:
-        logger.debug("Operation failed (non-critical): %s", _exc)
-    try:
-        from Aurik910 import __version__ as _app_version
-
-        if isinstance(_app_version, str) and _app_version.strip():
-            return _app_version.strip()
     except Exception as _exc:
         logger.debug("Operation failed (non-critical): %s", _exc)
     try:
@@ -176,7 +169,7 @@ def save_checkpoint(
 
         # 1. Write audio to WAV (atomic: .tmp → rename)
         try:
-            import soundfile as sf
+            import soundfile as sf  # pylint: disable=import-outside-toplevel
         except ImportError:
             logger.error("Recovery: soundfile not available — cannot save checkpoint")
             return None
@@ -306,7 +299,7 @@ def load_checkpoint_audio(checkpoint: RecoveryCheckpoint) -> np.ndarray | None:
 
     Returns ``None`` only if both paths fail.
     """
-    from backend.file_import import load_audio_file
+    from backend.file_import import load_audio_file  # pylint: disable=import-outside-toplevel
 
     orig_exc: Exception | None = None
 
@@ -321,7 +314,7 @@ def load_checkpoint_audio(checkpoint: RecoveryCheckpoint) -> np.ndarray | None:
         if sr_in == checkpoint.sample_rate:
             return np.asarray(audio, dtype=np.float32)
 
-        import librosa
+        import librosa  # pylint: disable=import-outside-toplevel
 
         logger.warning(
             "Recovery: Resampling resume source from %d Hz to checkpoint SR %d Hz.",

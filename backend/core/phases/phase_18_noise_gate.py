@@ -210,6 +210,14 @@ class NoiseGate(PhaseInterface):
             "knee_db": 12,
             "look_ahead_ms": 10,
         },
+        MaterialType.CASSETTE: {
+            "thresholds_db": [-36, -36, -33, -28],  # v9.12.9: etwas höher als TAPE (Cassette-Hiss)
+            "reductions_db": [-10, -13, -18, -16],  # v9.12.9: etwas sanfter — erhält Hiss-Textur
+            "attack_ms": [10, 8, 8, 6],
+            "release_ms": [130, 110, 105, 85],  # v9.12.9: minimal länger (pumping-Schutz)
+            "knee_db": 12,
+            "look_ahead_ms": 10,
+        },  # v9.12.9: IEC 60094-1 — gleiche Capstan-Physik wie TAPE, Hiss-Profil angepasst
         MaterialType.CD_DIGITAL: {
             "thresholds_db": [-55, -53, -50, -48],
             "reductions_db": [-30, -35, -40, -50],
@@ -523,6 +531,97 @@ class NoiseGate(PhaseInterface):
                 )
         except Exception as _npa18_exc:
             logger.debug("§2.46f phase_18 NPA-Guard (non-blocking): %s", _npa18_exc)
+
+        # §0p/V19/V20/V21/V26/§2.72 Vokal- + Textur-Guards nach Noise-Gate (RELEASE_MUST §0p V19-V26)
+        _p18_panns = float(kwargs.get("panns_singing", kwargs.get("panns_singing_confidence", 0.0)))
+        _mat18_guards = str(getattr(material, "name", str(material)) or "unknown").lower()
+        if _p18_panns >= 0.25:
+            try:
+                from backend.core.dsp.hnr_guard import apply_hnr_blend as _apply_hnr_18  # pylint: disable=import-outside-toplevel  # noqa: I001
+
+                _hnr_blended_18, _hnr_diag_18 = _apply_hnr_18(
+                    audio.astype(np.float32), gated_audio.astype(np.float32), sample_rate
+                )
+                if _hnr_diag_18.get("over_cleaned"):
+                    gated_audio = _hnr_blended_18
+            except Exception as _hnr_18_exc:
+                logger.debug("§0p HNR-Blend phase_18 (non-blocking): %s", _hnr_18_exc)
+
+        _nt18_residual = audio - gated_audio
+        try:
+            from backend.core.dsp.noise_texture_guard import (  # pylint: disable=import-outside-toplevel
+                compute_noise_texture_distance as _nt18_dist_fn,
+            )
+
+            if _nt18_residual.shape == audio.shape:
+                _nt18_d = _nt18_dist_fn(_nt18_residual, _mat18_guards, sr=sample_rate)
+                if _nt18_d > 0.25:
+                    gated_audio = (0.5 * gated_audio + 0.5 * audio).astype(np.float32)
+                    logger.warning("§V19 phase_18: noise_texture_dist=%.3f > 0.25 → 50%% dry-blend", _nt18_d)
+        except Exception as _nt18_exc:
+            logger.debug("§V19 phase_18 noise_texture non-blocking: %s", _nt18_exc)
+
+        if _p18_panns >= 0.25:
+            try:
+                from backend.core.dsp.mikrodynamik_guard import (  # pylint: disable=import-outside-toplevel
+                    frame_energy_correlation as _fec18,
+                )
+
+                _corr18 = _fec18(audio, gated_audio, sample_rate, frame_ms=10.0)
+                if _corr18 < 0.97:
+                    _wet18 = float(np.clip((_corr18 - 0.90) / 0.07, 0.0, 1.0))
+                    gated_audio = (_wet18 * gated_audio + (1.0 - _wet18) * audio).astype(np.float32)
+                    logger.warning("§V20 phase_18: mikrodynamik_corr=%.4f < 0.97 → wet=%.3f", _corr18, _wet18)
+            except Exception as _v20_18_exc:
+                logger.debug("§V20 phase_18 mikrodynamik non-blocking: %s", _v20_18_exc)
+
+        if any(x in _mat18_guards for x in ("shellac", "vinyl", "tape", "analog")):
+            try:
+                from backend.core.dsp.noise_floor_guard import (  # pylint: disable=import-outside-toplevel
+                    apply_noise_floor_minimum as _nfmin18,
+                )
+
+                gated_audio = _nfmin18(gated_audio, sample_rate, _mat18_guards, original_audio=audio)
+            except Exception as _v21_18_exc:
+                logger.debug("§V21 phase_18 noise_floor non-blocking: %s", _v21_18_exc)
+
+        # §V24 Spektralfarbe-Prüfung nach NR (§2.74, non-blocking WARNING)
+        try:
+            from backend.core.dsp.spectral_color_guard import (  # pylint: disable=import-outside-toplevel
+                check_spectral_color_preservation as _scg_18,
+            )
+
+            _sc_result_18 = _scg_18(audio, gated_audio, sample_rate)
+            if not _sc_result_18.ok:
+                _sc_wet_18 = 0.70  # Phase-Strength −30 % (§V24)
+                gated_audio = (_sc_wet_18 * gated_audio + (1.0 - _sc_wet_18) * audio).astype(np.float32)
+        except Exception as _sc_exc_18:  # pylint: disable=broad-except
+            logger.debug("§V24 phase_18 spectral_color non-blocking: %s", _sc_exc_18)
+
+        try:
+            from backend.core.dsp.onset_guard import (  # pylint: disable=import-outside-toplevel
+                apply_onset_protection_mask as _opm18,
+            )
+
+            gated_audio = _opm18(audio, gated_audio, None, max_delta_db=1.5)
+        except Exception as _v26_18_exc:
+            logger.debug("§V26 phase_18 onset_guard non-blocking: %s", _v26_18_exc)
+
+        if _p18_panns >= 0.25:
+            try:
+                from backend.core.dsp.vibrato_guard import (  # pylint: disable=import-outside-toplevel
+                    check_vibrato_depth_preservation as _vib18_fn,
+                )
+
+                _vibr18 = _vib18_fn(audio, gated_audio, sample_rate)
+                if not _vibr18.ok:
+                    gated_audio = (0.5 * gated_audio + 0.5 * audio).astype(np.float32)
+                    logger.warning(
+                        "§2.72 phase_18: vibrato_reduction=%.1f%% → 50%% dry-blend",
+                        _vibr18.depth_reduction_pct,
+                    )
+            except Exception as _vib18_exc:
+                logger.debug("§2.72 phase_18 vibrato non-blocking: %s", _vib18_exc)
 
         # Metrics — §2.45a-I: gated RMS, ignoriert Stille-Frames
         _rms_orig_db = _rms_dbfs_gated(audio)

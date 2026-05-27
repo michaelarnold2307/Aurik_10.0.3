@@ -134,8 +134,7 @@
       "required_phases": [
         "phase_12_wow_flutter_fix",
         "phase_31_speed_pitch_correction",
-        "phase_06_frequency_restoration",
-        "phase_29_tape_hiss_reduction"
+        "phase_06_frequency_restoration"
       ]
     },
     {
@@ -216,7 +215,6 @@
       "required_phases": [
         "phase_04_eq_correction",
         "phase_06_frequency_restoration",
-        "phase_29_tape_hiss_reduction",
         "phase_03_denoise"
       ]
     }

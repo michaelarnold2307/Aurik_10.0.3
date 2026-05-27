@@ -109,6 +109,7 @@ class MonoToStereoPhaseV2(PhaseInterface):
         MaterialType.SHELLAC: [0.2, 0.35, 0.50, 0.60, 0.40],  # Conservative (early mono)
         MaterialType.VINYL: [0.25, 0.40, 0.60, 0.70, 0.50],  # Moderate
         MaterialType.TAPE: [0.15, 0.30, 0.45, 0.55, 0.35],  # Light (rare for mono tape)
+        MaterialType.CASSETTE: [0.15, 0.30, 0.45, 0.55, 0.35],  # v9.12.9: IEC 60094-1 — gleiche Capstan-Physik wie TAPE
         MaterialType.CD_DIGITAL: [0.0, 0.0, 0.0, 0.0, 0.0],  # Skip
         MaterialType.STREAMING: [0.0, 0.0, 0.0, 0.0, 0.0],
     }
@@ -119,6 +120,7 @@ class MonoToStereoPhaseV2(PhaseInterface):
         MaterialType.SHELLAC: [15, 10, 7, 5, 3],  # Conservative
         MaterialType.VINYL: [18, 12, 8, 5, 3],  # Moderate
         MaterialType.TAPE: [12, 8, 5, 3, 2],  # Light
+        MaterialType.CASSETTE: [12, 8, 5, 3, 2],  # v9.12.9: IEC 60094-1 — gleiche Capstan-Physik wie TAPE
         MaterialType.CD_DIGITAL: [0, 0, 0, 0, 0],
         MaterialType.STREAMING: [0, 0, 0, 0, 0],
     }
@@ -134,6 +136,7 @@ class MonoToStereoPhaseV2(PhaseInterface):
         MaterialType.SHELLAC: 1.5,  # Subtle "air"
         MaterialType.VINYL: 2.0,  # Vinyl "sheen"
         MaterialType.TAPE: 1.0,  # Tape "warmth" (less HF)
+        MaterialType.CASSETTE: 1.0,  # v9.12.9: IEC 60094-1 — gleiche Capstan-Physik wie TAPE
         MaterialType.CD_DIGITAL: 0.0,
         MaterialType.STREAMING: 0.0,
     }

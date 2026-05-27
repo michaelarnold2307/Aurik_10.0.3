@@ -167,11 +167,27 @@ class HybridMLDenoiser:
 
         # Stage 2: Resemble Enhancement (if needed)
         if strategy in [DenoiseStrategy.RESEMBLE_ONLY, DenoiseStrategy.HYBRID]:
-            if self._has_sufficient_ml_headroom(audio, sample_rate) and self.resemble is not None:
+            # try_allocate-Gate: erlaubt Tests Resemble per Mock zu deaktivieren (§2.51 Determinismus)
+            _resemble_budget_ok = True
+            try:
+                from backend.core.ml_memory_budget import (
+                    try_allocate as _ml_try_allocate,  # pylint: disable=import-outside-toplevel
+                )
+
+                _resemble_budget_ok = _ml_try_allocate("ResembleEnhance", size_gb=0.5)
+            except Exception:
+                pass
+            if (
+                _resemble_budget_ok
+                and self._has_sufficient_ml_headroom(audio, sample_rate)
+                and self.resemble is not None
+            ):
                 logger.info("Stage 2: Applying Resemble Enhance refinement...")
                 # Protect ResembleEnhance from PLM eviction during inference
                 try:
-                    from backend.core.plugin_lifecycle_manager import get_plugin_lifecycle_manager
+                    from backend.core.plugin_lifecycle_manager import (
+                        get_plugin_lifecycle_manager,  # pylint: disable=import-outside-toplevel
+                    )
 
                     _plm = get_plugin_lifecycle_manager()
                     _plm.set_active("ResembleEnhance", True)
@@ -206,7 +222,7 @@ class HybridMLDenoiser:
             metadata=metadata,
         )
 
-    def _determine_strategy(self, audio: np.ndarray, sample_rate: int) -> DenoiseStrategy:
+    def _determine_strategy(self, audio: np.ndarray, _sample_rate: int) -> DenoiseStrategy:
         """Bestimmt optimal denoising strategy."""
         if self.config.strategy != DenoiseStrategy.ADAPTIVE:
             return self.config.strategy
@@ -231,7 +247,7 @@ class HybridMLDenoiser:
         self, audio: np.ndarray, sample_rate: int, noise_profile: np.ndarray | None = None
     ) -> tuple[np.ndarray, dict[str, Any]]:
         """Wendet an: OMLSA spectral subtraction."""
-        import scipy.signal as signal
+        from scipy import signal  # pylint: disable=import-outside-toplevel
 
         metadata = {}
 
@@ -302,7 +318,7 @@ class HybridMLDenoiser:
 
     def _apply_resemble(self, audio: np.ndarray, sample_rate: int) -> tuple[np.ndarray, dict[str, Any]]:
         """Wendet an: Resemble Enhance ML refinement."""
-        import soundfile as sf
+        import soundfile as sf  # pylint: disable=import-outside-toplevel
 
         metadata = {}
 
@@ -330,9 +346,11 @@ class HybridMLDenoiser:
 
             if returncode == 0:
                 # Load processed audio
-                from backend.file_import import load_audio_file
+                from backend.file_import import load_audio_file  # pylint: disable=import-outside-toplevel
 
                 _res = load_audio_file(output_path, do_carrier_analysis=False)
+                if _res is None:
+                    raise RuntimeError("load_audio_file returned None für Resemble-Output")
                 audio_enhanced = np.asarray(_res["audio"], dtype=np.float32)
 
                 # Ensure same shape as input
@@ -341,15 +359,23 @@ class HybridMLDenoiser:
                 elif audio.ndim == 1 and audio_enhanced.ndim == 2:
                     audio_enhanced = np.mean(audio_enhanced, axis=0)
 
+                # §2.51: Layout normalisieren — output muss input-Layout entsprechen
+                # load_audio_file gibt soundfile-Default (N, channels) zurück;
+                # wenn Input channels-first (2, N) war, muss Output auch (2, N) sein.
+                if audio.ndim == 2 and audio_enhanced.ndim == 2:
+                    _in_cf = audio.shape[0] <= 2 and audio.shape[1] > 2
+                    _out_cf = audio_enhanced.shape[0] <= 2 and audio_enhanced.shape[1] > 2
+                    if _in_cf != _out_cf:
+                        audio_enhanced = audio_enhanced.T
+
                 metadata["success"] = True
                 metadata["returncode"] = returncode
 
                 return audio_enhanced, metadata
-            else:
-                logger.error("Resemble processing failed: %s", stderr)
-                metadata["success"] = False
-                metadata["error"] = stderr
-                return audio, metadata
+            logger.error("Resemble processing failed: %s", stderr)
+            metadata["success"] = False
+            metadata["error"] = stderr
+            return audio, metadata
 
         finally:
             # Cleanup temp files
@@ -367,9 +393,9 @@ class HybridMLDenoiser:
         threshold and reclaim memory before entering the ML stage.
         """
         try:
-            import gc
+            import gc  # pylint: disable=import-outside-toplevel
 
-            import psutil
+            import psutil  # pylint: disable=import-outside-toplevel
         except Exception:
             return True
 
@@ -397,14 +423,16 @@ class HybridMLDenoiser:
                 required_gb,
             )
             try:
-                from backend.core.plugin_lifecycle_manager import evict_stale_plugins
+                from backend.core.plugin_lifecycle_manager import (
+                    evict_stale_plugins,  # pylint: disable=import-outside-toplevel
+                )
 
                 evict_stale_plugins(required_mb=int(required_gb * 1024))
             except Exception as _exc:
                 logger.debug("Operation failed (non-critical): %s", _exc)
             gc.collect()
             try:
-                import ctypes as _ct
+                import ctypes as _ct  # pylint: disable=import-outside-toplevel
 
                 _ct.CDLL("libc.so.6").malloc_trim(0)
             except Exception as _exc:
@@ -413,7 +441,8 @@ class HybridMLDenoiser:
 
         if avail_gb < required_gb:
             logger.warning(
-                "Denoise RAM guard: %.1f GB frei, benötigt >= %.1f GB (dauer=%.1fs, kanaele=%d) — Resemble-Stufe übersprungen, OMLSA-Ergebnis behalten",
+                "Denoise RAM guard: %.1f GB frei, benötigt >= %.1f GB"
+                " (dauer=%.1fs, kanaele=%d) — Resemble-Stufe übersprungen, OMLSA-Ergebnis behalten",
                 avail_gb,
                 required_gb,
                 duration_s,
@@ -430,7 +459,7 @@ class HybridMLDenoiser:
             audio = np.mean(audio, axis=0)
 
         # High-pass filter to isolate noise
-        from scipy.signal import butter, filtfilt
+        from scipy.signal import butter, filtfilt  # pylint: disable=import-outside-toplevel
 
         b, a = cast(tuple[np.ndarray, np.ndarray], butter(4, 0.3, btype="high", output="ba"))
         # filtfilt requires at least padlen+1 = 15+1 samples; fall back to RMS on short clips
@@ -448,7 +477,7 @@ class HybridMLDenoiser:
 
         return float(np.clip(noise_ratio, 0, 1))
 
-    def _estimate_quality(self, audio: np.ndarray, sample_rate: int) -> float:
+    def _estimate_quality(self, audio: np.ndarray, _sample_rate: int) -> float:
         """
         Schätzt audio quality (0-1 scale).
 
@@ -473,7 +502,7 @@ class HybridMLDenoiser:
         snr_quality = np.clip(snr_db / 40.0, 0, 1)  # 40 dB = excellent
 
         # Dynamic range (§0 Peak-Guard: 99.9th percentile for impulse robustness)
-        from backend.core.core_utils import safe_peak_amplitude
+        from backend.core.core_utils import safe_peak_amplitude  # pylint: disable=import-outside-toplevel
 
         dynamic_range = safe_peak_amplitude(audio) / (np.mean(np.abs(audio)) + 1e-8)
         dr_quality = np.clip(dynamic_range / 10.0, 0, 1)  # 10:1 = good
@@ -519,8 +548,6 @@ def denoise_maximum(audio: np.ndarray, sample_rate: int = 48000) -> np.ndarray:
 
 # Module test
 if __name__ == "__main__":
-    pass
-
     logger.debug("=" * 80)
     logger.debug("Hybrid ML Denoiser - Test")
     logger.debug("=" * 80)
@@ -528,39 +555,39 @@ if __name__ == "__main__":
 
     # Test with synthetic noisy audio
     logger.debug("Generating test audio...")
-    sample_rate = 48000
-    duration = 5.0
-    t = np.linspace(0, duration, int(sample_rate * duration))
+    _sr_main = 48000
+    _dur_main = 5.0
+    _t_main = np.linspace(0, _dur_main, int(_sr_main * _dur_main))
 
     # Pure tone + noise
-    signal = np.sin(2 * np.pi * 440 * t)  # 440 Hz
-    noise = 0.1 * np.random.randn(len(t))
-    noisy_audio = signal + noise
+    _sig_main = np.sin(2 * np.pi * 440 * _t_main)  # 440 Hz
+    _nse_main = 0.1 * np.random.randn(len(_t_main))
+    _noisy_main = _sig_main + _nse_main
 
-    logger.debug("Test audio: %ss @ %s Hz", duration, sample_rate)
-    logger.debug("SNR: %.1f dB", 10 * np.log10(np.mean(signal**2) / np.mean(noise**2)))
+    logger.debug("Test audio: %ss @ %s Hz", _dur_main, _sr_main)
+    logger.debug("SNR: %.1f dB", 10 * np.log10(np.mean(_sig_main**2) / np.mean(_nse_main**2)))
     logger.debug("")
 
     # Test different strategies
-    strategies = [
+    _strategies_main = [
         (DenoiseStrategy.OMLSA_ONLY, "OMLSA Only (Fast)"),
         (DenoiseStrategy.HYBRID, "Hybrid (Balanced)"),
     ]
 
-    for strategy, name in strategies:
-        logger.debug("Testing: %s", name)
+    for _strat_main, _name_main in _strategies_main:
+        logger.debug("Testing: %s", _name_main)
         logger.debug("-" * 40)
 
-        config = DenoiseConfig(strategy=strategy)
-        denoiser = HybridMLDenoiser(config)
+        _cfg_main = DenoiseConfig(strategy=_strat_main)
+        _dsr_main = HybridMLDenoiser(_cfg_main)
 
-        result = denoiser.denoise(noisy_audio, sample_rate)
+        _res_main = _dsr_main.denoise(_noisy_main, _sr_main)
 
-        logger.debug("✅ Strategy: %s", result.strategy_used.value)
-        logger.debug("✅ OMLSA applied: %s", result.omlsa_applied)
-        logger.debug("✅ Resemble applied: %s", result.resemble_applied)
-        logger.debug("✅ Processing time: %.2fs", result.processing_time)
-        logger.debug("✅ Quality estimate: %.3f", result.quality_estimate)
+        logger.debug("✅ Strategy: %s", _res_main.strategy_used.value)
+        logger.debug("✅ OMLSA applied: %s", _res_main.omlsa_applied)
+        logger.debug("✅ Resemble applied: %s", _res_main.resemble_applied)
+        logger.debug("✅ Processing time: %.2fs", _res_main.processing_time)
+        logger.debug("✅ Quality estimate: %.3f", _res_main.quality_estimate)
         logger.debug("")
 
     logger.debug("=" * 80)

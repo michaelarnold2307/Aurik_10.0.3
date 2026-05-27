@@ -40,7 +40,6 @@ Date: 16. Februar 2026
 
 import logging
 import time
-from typing import Any
 
 import numpy as np
 
@@ -62,10 +61,10 @@ except ImportError:
 try:
     from dsp.formant_system import FormantSystem as _FormantSystemCls
 
-    _FORMANT_SYSTEM_DRUMS: Any = None
+    _FORMANT_SYSTEM_DRUMS_STATE: dict = {"instance": None}
 except Exception:
     _FormantSystemCls = None  # type: ignore[assignment,misc]
-    _FORMANT_SYSTEM_DRUMS = None
+    _FORMANT_SYSTEM_DRUMS_STATE = {"instance": None}
 
 try:
     from dsp.instrument_formant_corrector import (
@@ -135,6 +134,14 @@ class DrumsEnhancementV1(PhaseInterface):
             "cymbal_shimmer_db": 1.5,
             "transient_enhancement": 0.5,
             "mix": 0.40,  # 40% enhancement
+        },
+        MaterialType.CASSETTE: {  # v9.12.9: IEC 60094-1 — gleiche Capstan-Physik wie TAPE
+            "kick_gain_db": 2.5,
+            "snare_articulation": 0.6,
+            "hihat_clarity_db": 2.0,
+            "cymbal_shimmer_db": 1.5,
+            "transient_enhancement": 0.5,
+            "mix": 0.40,
         },
         MaterialType.CD_DIGITAL: {
             "kick_gain_db": 2.0,  # Subtle
@@ -340,13 +347,11 @@ class DrumsEnhancementV1(PhaseInterface):
             # Instrument-guided formant enhancement (drums resonance targets: Rossing 1992)
             igt_frames = 0
             try:
-                # pylint: disable-next=global-statement
-                global _FORMANT_SYSTEM_DRUMS
                 if _FormantSystemCls is not None:
-                    if _FORMANT_SYSTEM_DRUMS is None:
-                        _FORMANT_SYSTEM_DRUMS = _FormantSystemCls(enhance_singers_formant=False)
+                    if _FORMANT_SYSTEM_DRUMS_STATE["instance"] is None:
+                        _FORMANT_SYSTEM_DRUMS_STATE["instance"] = _FormantSystemCls(enhance_singers_formant=False)
                     formant_strength = float(np.clip(0.15 * hq_scale, 0.10, 0.22))
-                    enhanced, igt_report = _FORMANT_SYSTEM_DRUMS.instrument_guided_enhance(
+                    enhanced, igt_report = _FORMANT_SYSTEM_DRUMS_STATE["instance"].instrument_guided_enhance(
                         enhanced,
                         self.sample_rate,
                         instrument="drums",

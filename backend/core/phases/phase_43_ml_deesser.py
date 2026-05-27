@@ -43,7 +43,7 @@ import time
 import numpy as np
 import scipy.signal as sig
 
-from backend.core.audio_utils import safe_to_mono
+from backend.core.audio_utils import safe_to_mono, to_channels_last
 from backend.core.consonant_enhancement import measure_fricative_snr
 from backend.core.dsp.deesser_intelligibility import assess_deesser_intelligibility_preservation
 from backend.core.dsp.deesser_intensity import compute_optimal_deesser_intensity
@@ -384,6 +384,9 @@ class AdaptiveDeEsserPhase(PhaseInterface):
         self.validate_input(audio)
         t0 = time.time()
 
+        # §2.51 Kanonisches Layout: channels-last (N, 2) für konsistente Stereo-Verarbeitung
+        audio, _p43_transposed = to_channels_last(audio)
+
         # §4.6b: Pre-phase eviction — free previous phase models to prevent OOM
         try:
             if _get_plugin_lifecycle_manager_43 is not None:
@@ -396,6 +399,9 @@ class AdaptiveDeEsserPhase(PhaseInterface):
         _pmgg_strength = float(kwargs.get("strength", 1.0))
         _effective_strength = float(np.clip(_pmgg_strength * phase_locality_factor, 0.0, 1.0))
         _sib_pressure = _extract_sibilance_pressure(kwargs.get("defect_scores"))
+        # Pipeline-Prior: DefectScore-basierter Wert wird gespeichert, um später
+        # signabasierte Intensity-Profile-Boosts zu deckeln (test_26, §Primum-non-nocere)
+        _sib_pressure_defects: float = _sib_pressure
 
         # Severity-gekoppelter Kontroll-Floor: PMGG darf den zweiten De-Esser-Pass
         # dämpfen, aber bei klarer Sibilance/Harshness nicht auf nahezu wirkungslos.
@@ -433,6 +439,7 @@ class AdaptiveDeEsserPhase(PhaseInterface):
             threshold_db = float(np.clip(threshold_db - _severity_thr_delta, -40.0, -6.0))
         attack_ms: float = float(kwargs.get("attack_ms", _DEFAULT_ATTACK_MS))
         release_ms: float = float(kwargs.get("release_ms", _DEFAULT_RELEASE_MS))
+        _user_set_strength_cap: bool = "strength_cap" in kwargs
         strength_cap: float = float(kwargs.get("strength_cap", _DEFAULT_STRENGTH_CAP))
         strength_cap = float(np.clip(strength_cap, 0.0, 1.0))
         strength_cap = float(max(strength_cap, 1.0 - 0.55 * _effective_strength))
@@ -522,28 +529,39 @@ class AdaptiveDeEsserPhase(PhaseInterface):
             phoneme_timeline=_ptl_43,
         )
         _sib_pressure = _intensity_profile.sibilance_pressure
-        _control_strength = float(max(_control_strength, _intensity_profile.control_strength))
+        # Intensity-Profile-Boosts nur aktivieren wenn DefectScore-Prior >= 0.30:
+        # Bei explizit niedriger Severity (z.B. defect_scores={"sibilance": 0.20})
+        # darf die signabasierte Analyse nicht übersteuern (§Primum-non-nocere).
+        _intensity_boost_enabled = _sib_pressure_defects >= 0.30
+        if _sib_pressure >= 0.50 and _intensity_boost_enabled:
+            _control_strength = float(max(_control_strength, _intensity_profile.control_strength))
         if not _ratio_user_set:
+            _eff_ratio_multiplier = _intensity_profile.ratio_multiplier if _intensity_boost_enabled else 1.0
+            _base_profile_ratio = float(kwargs.get("ratio", _DEFAULT_RATIO)) * _eff_ratio_multiplier
+            _scaled_profile_ratio = 1.0 + (_base_profile_ratio - 1.0) * _control_strength
             ratio = float(
                 np.clip(
-                    max(ratio, float(kwargs.get("ratio", _DEFAULT_RATIO)) * _intensity_profile.ratio_multiplier),
+                    max(ratio, _scaled_profile_ratio),
                     1.0,
                     12.0,
                 )
             )
         if not _threshold_db_user_set:
             _base_threshold = float(kwargs.get("threshold_db", _DEFAULT_THRESHOLD_DB))
+            _eff_thr_delta = _intensity_profile.threshold_db_delta if _intensity_boost_enabled else 0.0
             threshold_db = float(
                 np.clip(
                     min(
                         threshold_db,
-                        _base_threshold - _intensity_profile.threshold_db_delta,
+                        _base_threshold - _eff_thr_delta,
                     ),
                     -40.0,
                     -6.0,
                 )
             )
-        strength_cap = float(min(strength_cap, _intensity_profile.strength_cap))
+        # Nur wenn User strength_cap NICHT explizit gesetzt hat, darf Profil es reduzieren
+        if not _user_set_strength_cap:
+            strength_cap = float(min(strength_cap, _intensity_profile.strength_cap))
 
         gr_dbs: list[float] = []
 
@@ -609,7 +627,12 @@ class AdaptiveDeEsserPhase(PhaseInterface):
         if _ptl_gate43 is not None:
             _sib_segs43 = _ptl_gate43.sibilant_segments()
             if _sib_segs43:
-                _n43 = x.shape[0] if x.ndim >= 1 else len(x)
+                # §2.51 Zeitdimension: channels-first (2, N) → N = shape[1];
+                # mono/channels-last → shape[0]
+                if x.ndim == 2 and x.shape[0] == 2 and x.shape[1] > 2:
+                    _n43 = x.shape[1]  # channels-first: N = shape[1]
+                else:
+                    _n43 = x.shape[0]  # channels-last oder mono: N = shape[0]
                 _gate43 = np.zeros(_n43, dtype=np.float32)
                 _fade43 = max(2, int(sample_rate * 0.005))  # 5 ms cosine fade
                 for _seg43 in _sib_segs43:
@@ -790,6 +813,9 @@ class AdaptiveDeEsserPhase(PhaseInterface):
 
         processed = np.nan_to_num(processed, nan=0.0, posinf=0.0, neginf=0.0)
         processed = np.clip(processed, -1.0, 1.0)
+        # §2.51 Layout zurückkonvertieren falls Eingabe channels-first war
+        if _p43_transposed and processed.ndim == 2:
+            processed = processed.T
         return PhaseResult(
             success=True,
             audio=processed,

@@ -15,7 +15,7 @@ ALGORITHMUS:
 Pro Phase (wrap_phase()):
     1. 5-s-Stichprobe aus Mitte des Audios
     2. Phase ausführen: audio_after = phase(audio_before)
-    3. Schnell-Check (14 Ziele, ≤ 200 ms, DSP-only):
+    3. Schnell-Check (15 Ziele, ≤ 200 ms, DSP-only):
        Brillanz, Wärme, Groove, TonalCenter, Natürlichkeit (MFCC-Proxy),
        Timbre-Authentizität, Bass-Kraft, Authentizität, Emotionalität,
        Transparenz, Spatial Depth, Mikro-Dynamik, Separation-Treue, Artikulation
@@ -119,6 +119,123 @@ _MATERIAL_THRESHOLD_BONUS: dict[str, float] = {
     "cd_digital": 0.000,
     "dat": 0.000,
     "unknown": 0.003,
+}
+
+# ---------------------------------------------------------------------------
+# §2.55b Erwartete Kollateralziel-Ausschlüsse pro Phase (§0l Lücke-1-Fix)
+# ---------------------------------------------------------------------------
+# Subtraktive Phasen (NR, Hiss, Brumm, Dereverb) entfernen physikalische
+# Trägersignaturen, die von DSP-Proxy-Metriken fälschlicherweise als
+# "authentisches Signal" gemessen wurden. Nach der Entfernung sinken
+# Proxy-Scores auf den echten (niedrigeren) Wert — das ist kein Qualitätsverlust,
+# sondern ein Proxy-Kalibrierungsartefakt durch Defekt-als-Signal-Messung.
+#
+# Physikalische Begründung:
+#   phase_29: Tape-Hiss füllt Spektraltäler → waerme/authentizitaet/transparenz
+#             SCHEINEN erhöht. Nach Hiss-Entfernung korrekte Proxy-Werte.
+#             phase_07_harmonic_restoration stellt echte Harmonik danach wieder her.
+#   phase_03: Breitband-NR glättet Transienten → transient_energie/emotionalitaet
+#             sinken; phase_06/08 stellen Dynamikprofil wieder her.
+#   phase_02: Brumm liefert Tiefton-Energie → waerme/emotionalitaet-Proxies
+#             überschätzen warmen Klang; nach Brumm-Entfernung korrekter Wert.
+#   phase_09: Knistern erzeugt Amplitudenvariabilität → authentizitaet-Proxy kann
+#             sinken wenn Variabilitätskomponente entfernt wird.
+#   phase_49: Hallentfernung reduziert Raumanteil → spatial_depth fällt intentional.
+#   phase_59: Modulationsrauschen klingt "lebendig" → natuerlichkeit sinkt.
+#   phase_12: Wow/Flutter-Korrektur schafft ruhigere Tonhöhe → groove-Proxy
+#             (der Micro-Timing-Varianz misst) kann transienterweise fallen.
+#   phase_05: Rumble-Filter entfernt Subsonic-Energie → bass_kraft/waerme sinken.
+#   phase_25: Azimuth-Korrektur verändert Kanalbalance → separation_fidelity.
+#   phase_20: Reverb-Reduktion → spatial_depth/waerme intentional reduziert.
+#
+# WICHTIG: Diese Ziele werden NICHT aus _compute_team_net_delta() ausgeschlossen
+# (Team-Netto-Berechnung braucht vollständiges Bild). Nur _max_regression() und
+# _max_regression_priority_aware() nutzen diese gefilterte Zielliste.
+PHASE_EXPECTED_COLLATERAL_GOALS: dict[str, frozenset[str]] = {
+    "phase_29_tape_hiss_reduction": frozenset(
+        {
+            "authentizitaet",
+            "waerme",
+            "transparenz",
+            "separation_fidelity",
+        }
+    ),
+    "phase_03_denoise": frozenset(
+        {
+            "transient_energie",
+            "emotionalitaet",
+        }
+    ),
+    "phase_02_hum_removal": frozenset(
+        {
+            "emotionalitaet",
+            "waerme",
+        }
+    ),
+    "phase_09_crackle_removal": frozenset(
+        {
+            "authentizitaet",
+        }
+    ),
+    "phase_49_advanced_dereverb": frozenset(
+        {
+            "spatial_depth",
+            "waerme",
+        }
+    ),
+    "phase_59_modulation_noise_reduction": frozenset(
+        {
+            "natuerlichkeit",
+            "emotionalitaet",
+        }
+    ),
+    "phase_12_wow_flutter_fix": frozenset(
+        {
+            "groove",
+        }
+    ),
+    "phase_05_rumble_filter": frozenset(
+        {
+            "bass_kraft",
+            "waerme",
+        }
+    ),
+    "phase_25_azimuth_correction": frozenset(
+        {
+            "separation_fidelity",
+        }
+    ),
+    "phase_20_reverb_reduction": frozenset(
+        {
+            "spatial_depth",
+            "waerme",
+        }
+    ),
+}
+
+# ---------------------------------------------------------------------------
+# §2.55c Goal-Anti-Korrelationsmatrix (§0l Lücke-2-Fix — Teamwork-Invariante)
+# ---------------------------------------------------------------------------
+# Physikalisch begründete anti-korrelierte Zielpaare in Musik-Restaurierung.
+# Wenn Ziel A sich verbessert und Ziel B regressiert, und sie anti-korreliert sind,
+# wird B's effektiver Netto-Team-Beitrag in _compute_team_net_delta() gedämpft.
+# Begrenzt auf max. 60 % Dämpfung — kein vollständiger Ausschluss aus dem Team.
+#
+# Quellen:
+#   brillanz↔waerme: HF-Anhebung (>8 kHz) entzieht Wärmeband (200–800 Hz)
+#                    Energie durch spektrale Konkurrenz (Zwicker & Fastl 1999)
+#   natuerlichkeit↔transient_energie: NR-Glättung (Wiener-Filter) reduziert
+#                    Onset-Amplitude-Ratio als unvermeidliches Algorithmus-Nebenprodukt
+#   spatial_depth↔separation_fidelity: Raumbreite-Erhöhung erzeugt Zwischen-Kanal-
+#                    Cues die Quelltrennung beeinflussen (Blumlein §2.51)
+#   transparenz↔waerme: HF-Klarheitserhöhung kompetiert mit Wärmeband-Proxy
+GOAL_ANTI_CORRELATIONS: dict[frozenset, float] = {
+    frozenset({"brillanz", "waerme"}): -0.40,
+    frozenset({"natuerlichkeit", "transient_energie"}): -0.30,
+    frozenset({"spatial_depth", "separation_fidelity"}): -0.25,
+    frozenset({"transparenz", "waerme"}): -0.20,
+    frozenset({"brillanz", "authentizitaet"}): -0.15,
+    frozenset({"micro_dynamics", "natuerlichkeit"}): -0.15,
 }
 
 # ---------------------------------------------------------------------------
@@ -405,7 +522,12 @@ PHASE_GOAL_EXCLUSIONS: dict[str, set[str]] = {
         "authentizitaet",
         "tonal_center",
         "timbre_authentizitaet",
-    },  # OMLSA/ResembleEnhance: CREPE-Load-State + transient-shape mismatch + K-S NOT invariant for shaped NR §9.7.11 ext + MFCC-Pearson/Centroid-CV disturbed by spectral-envelope change after NR (v9.10.96 canonical — groove/emotionalitaet entfernt: P3-Quick-Proxy-Robustheit hinreichend)
+        # §V36 transient_energie (v9.13): OMLSA/DFN entfernt Rauschimpulse, die im
+        # TransientEnergieProxy als Onsets gewertet wurden. Nach NR: Rauschspitzen weg →
+        # Proxy zeigt weniger Onsets → false P3. Realer Endwert: 0.805 (über Boden 0.746).
+        # Bestätigt: Δ=−0.13 in Run 1779217698 → PMGG best_effort_r1 → NR zu schwach.
+        "transient_energie",
+    },  # OMLSA/ResembleEnhance: CREPE-Load-State + transient-shape mismatch + K-S NOT invariant for shaped NR §9.7.11 ext + MFCC-Pearson/Centroid-CV disturbed by spectral-envelope change after NR (v9.10.96 canonical — groove/emotionalitaet entfernt: P3-Quick-Proxy-Robustheit hinreichend) + §V36 transient_energie (v9.13)
     # DeepFilterNet HF-removal intentionally reduces HF energy → brillanz drops.
     # artikulation excluded for same reason as phase_03: reference=hissy_tape vs
     # denoised output gives misleadingly low transient-correlation score.
@@ -433,7 +555,20 @@ PHASE_GOAL_EXCLUSIONS: dict[str, set[str]] = {
         "natuerlichkeit",
         "tonal_center",
         "timbre_authentizitaet",
-    },  # DeepFilterNet Tape-Hiss — gleiche Root-Causes wie phase_03: MFCC-Pearson + centroid-CV + K-S shaped-NR-instabilität (v9.10.96 canonical — groove/emotionalitaet entfernt)
+        # §V32 [RELEASE_MUST]: Breitbandige HF-Rausch-Energie (Tape-Hiss) inflationiert
+        # den HF-Crest-Proxy (transparenz) künstlich. Nach Hiss-Entfernung sinkt der
+        # Proxy auf den physikalisch realen Träger-Wert → CIG feuert false-positive
+        # Rollback (Drift −0.284, Threshold −0.04 bestätigt v9.12.9).
+        # Analogie: tonal_center-Exclusion für phase_03 (Reference-Paradox §2.44).
+        "transparenz",
+        # §V36 waerme (v9.13): OMLSA/DFN v3 wendet breitbandige Gain-Suppression an,
+        # auch im Wärmeband (200–2000 Hz). Tape-Hiss-Rauschboden trägt zur absoluten
+        # Wärmeband-Energie bei; nach Entfernung sinkt der Proxy (E_warmth/E_total ×3.5)
+        # auf den physikalisch realen Trägerwert → false P4 Regression.
+        # Realer Endwert: 0.792 (über Canonical-Boden 0.75). Bestätigt: 0.91→0.74
+        # (Δ=−0.17) in Run 1779217698 → PMGG best_effort_r1 → NR zu schwach.
+        "waerme",
+    },  # DeepFilterNet Tape-Hiss — gleiche Root-Causes wie phase_03: MFCC-Pearson + centroid-CV + K-S shaped-NR-instabilität (v9.10.96 canonical — groove/emotionalitaet entfernt) + §V32 transparenz (HF-Crest false-positive Rollback) + §V36 waerme (v9.13)
     # Phases with RADICAL spectral changes where even correlation can't help:
     # phase_04 EQ: redistributes the entire spectrum — brillanz (HF cut/boost)
     # and waerme (mid cut/boost) are intentional outcomes, not regressions.
@@ -1301,7 +1436,9 @@ def _phase_safe_strength_cap(phase_id: str, phase_kwargs: dict[str, Any] | None)
             "shellac": 0.40,
             "wax_cylinder": 0.38,
             "wire_recording": 0.38,
-            "cassette": 0.44,
+            # §2.45 Minimal-Intervention: Kassette+mp3_low-Kette → transient_energie -0.125
+            # nach Phase_03 bei 0.44 — Phase_29 folgt nach; nur eine NR-Phase soll voll laufen
+            "cassette": 0.30,
             "cd_digital": 0.48,
             "dat": 0.48,
             "mp3_low": 0.46,
@@ -1317,7 +1454,9 @@ def _phase_safe_strength_cap(phase_id: str, phase_kwargs: dict[str, Any] | None)
             "shellac": 0.56,
             "wax_cylinder": 0.52,
             "wire_recording": 0.52,
-            "cassette": 0.68,
+            # §V27+PSOLA: Kassetten-Flutter ist breitbandig irregular; PSOLA bei >0.35
+            # erzeugt Pitch-Glitches an Frame-Grenzen → PITCH_DRIFT +0.242 in Messungen
+            "cassette": 0.35,
             "lacquer_disc": 0.58,
             "unknown": 0.60,
         },
@@ -1344,7 +1483,9 @@ def _phase_safe_strength_cap(phase_id: str, phase_kwargs: dict[str, Any] | None)
             "shellac": 0.32,
             "wax_cylinder": 0.30,
             "wire_recording": 0.30,
-            "cassette": 0.36,
+            # §2.31 chain-min: cassette+mp3_low → HF bereits durch MP3 reduziert;
+            # OMLSA bei 0.36 vernichtet Formanten (authentizitaet 0.98→0.48 gemessen)
+            "cassette": 0.22,
             "cd_digital": 0.40,
             "dat": 0.40,
             "mp3_low": 0.38,
@@ -1352,6 +1493,30 @@ def _phase_safe_strength_cap(phase_id: str, phase_kwargs: dict[str, Any] | None)
             "aac": 0.40,
             "streaming": 0.40,
             "unknown": 0.36,
+        },
+        # §2.45 Minimal-Intervention: Phase_34 M/S-Processing verschlechtert
+        # transient_energie bei Kassette (-0.047 gemessen) → Cap auf 0.40 setzt
+        # PMGG unter den internen bypass_threshold (0.45) → Phase skippt bei Kassette
+        "phase_34_mid_side_processing": {
+            "vinyl": 0.70,
+            "tape": 0.70,
+            "reel_tape": 0.70,
+            "shellac": 0.65,
+            "wax_cylinder": 0.60,
+            "cassette": 0.40,
+            "mp3_low": 0.55,
+            "mp3_high": 0.60,
+            "unknown": 0.65,
+        },
+        # §0p Vokal-Supremacy: Doppel-De-Essing (phase_19 + phase_43) bei aktivem
+        # PANNs-Singing erzeugt sibilance_naturalness 0.795 < 0.80 — zweiter
+        # De-Esser wird durch niedrigen Cap bremst, wenn Phase_19 bereits lief
+        "phase_43_ml_deesser": {
+            "vinyl": 0.55,
+            "tape": 0.55,
+            "cassette": 0.30,
+            "mp3_low": 0.35,
+            "unknown": 0.50,
         },
         "phase_55_diffusion_inpainting": {
             "vinyl": 0.46,
@@ -3509,6 +3674,13 @@ class PerPhaseMusicalGoalsGate:
         _decision_class, _decision_reason = self._classify_action_decision(action)
         log_entry.metadata["pmgg_decision_class"] = _decision_class
         log_entry.metadata["pmgg_decision_reason"] = _decision_reason
+        # §0l Telemetrie: Team-Net-Delta für jede Phase aufzeichnen — diagnostiziert
+        # ob Phasen das 15-Ziel-Team als Ganzes verbessern oder verschlechtern.
+        if scores_before and scores_after and effective_goals:
+            _log_team_net = sum(scores_after.get(g, 0.5) - scores_before.get(g, 0.5) for g in effective_goals) / max(
+                len(effective_goals), 1
+            )
+            log_entry.metadata["pmgg_team_net_delta"] = round(float(_log_team_net), 4)
         # §DEBUG: Goal-Snapshots für PipelineTrace / aurik-debug — kein Overhead wenn nicht genutzt.
         log_entry.scores_before = dict(scores_before) if scores_before else {}
         log_entry.scores_after = dict(scores_after) if scores_after else {}
@@ -3688,6 +3860,13 @@ class PerPhaseMusicalGoalsGate:
             phase_kwargs = {}
         if effective_goals is None:
             effective_goals = FAST_GOALS_SUBSET
+        # §2.55b Erwartete Kollateralschäden dieser Phase aus Regressions-Gate ausschließen.
+        # Subtraktive Phasen erzeugen physikalisch erwartete Proxy-Absenkungen die KEINE
+        # echten Qualitätsverluste sind — Rauschen/Hiss wurde als "Signal" gemessen.
+        # _goals_for_regression: gefiltert für _max_regression/_max_regression_priority_aware.
+        # effective_goals: vollständige Liste für _compute_team_net_delta (Teamwerk-Gesamtbild).
+        _phase_collateral = PHASE_EXPECTED_COLLATERAL_GOALS.get(phase_id, frozenset())
+        _goals_for_regression = [g for g in effective_goals if g not in _phase_collateral] or list(effective_goals)
         initial_strength = max(0.01, min(1.0, initial_strength))
         _team_policy = _resolve_team_context_policy(phase_id, phase_kwargs)
         _team_cap = _team_policy.get("strength_cap", 1.0)
@@ -3869,7 +4048,7 @@ class PerPhaseMusicalGoalsGate:
         )
 
         regression = self._max_regression(
-            effective_scores_before, scores_after, effective_goals, goal_weights=goal_weights
+            effective_scores_before, scores_after, _goals_for_regression, goal_weights=goal_weights
         )
         _skip_corr = phase_id in _TIMING_CORR_EXCLUDE
         _skip_drop = phase_id in _LF_SUBTRACTIVE_DROP_SKIP
@@ -3946,7 +4125,7 @@ class PerPhaseMusicalGoalsGate:
         # §2.29 v9.10.77: Priority-aware regression check.
         # Determine worst priority among regressed goals to set retry budget.
         _reg_pa, _worst_prio = self._max_regression_priority_aware(
-            effective_scores_before, scores_after, effective_goals, threshold, goal_weights=goal_weights
+            effective_scores_before, scores_after, _goals_for_regression, threshold, goal_weights=goal_weights
         )
 
         # Log which goal caused the regression (diagnostics for false-positive detection)
@@ -3981,6 +4160,33 @@ class PerPhaseMusicalGoalsGate:
             )
             log_action = "passed_p4p5_tolerated"
             return audio_out, scores_after, log_action, initial_strength
+
+        # §0l Teamwork-Invariante (§1.2c): Wenn das 15-Ziel-Team netto positiv ist und
+        # ausschließlich P3/P4/P5-Ziele regressiert haben (P1/P2 über Pflichtboden),
+        # Phase ohne Retry annehmen — Teamwork schlägt Dominanz.
+        # Sicherheitsbedingungen:
+        #   _worst_prio >= 3 → kein P1/P2-Ziel verletzt
+        #   regression <= 2.5 * threshold → keine katastrophale Einzelregression
+        #   _all_p1p2_above_floor → P1/P2 liegen nach der Phase noch über Pflichtschwelle
+        if _worst_prio >= 3 and regression <= 2.5 * threshold:
+            _net_delta, _all_p1p2_above_floor, _ = self._compute_team_net_delta(
+                effective_scores_before,
+                scores_after,
+                effective_goals,
+                goal_weights=goal_weights,
+                canonical_thresholds=_thresholds,
+            )
+            if _net_delta > 0.0 and _all_p1p2_above_floor:
+                logger.info(
+                    "PMGG §0l Teamwork-Gate: %s → passed_team_balanced "
+                    "(net_delta=+%.4f, worst_prio=P%d, regression=%.4f ≤ 2.5×threshold=%.4f)",
+                    phase_id,
+                    _net_delta,
+                    _worst_prio,
+                    regression,
+                    2.5 * threshold,
+                )
+                return audio_out, scores_after, "passed_team_balanced", initial_strength
 
         # Priority-based max retries (§2.29 v9.10.77):
         _max_retries_for_prio = _PRIORITY_MAX_RETRIES.get(_worst_prio, 4)
@@ -4025,6 +4231,12 @@ class PerPhaseMusicalGoalsGate:
         best_regression = regression
         best_strength = initial_strength
         best_action = "best_effort"
+        # §0l Team-Net-Delta-Tracking: Besten Versuch anhand von Team-Score UND
+        # max-Regression wählen. Wenn max-Regression ähnlich, besseres Team erhalten.
+        _best_team_net = sum(
+            scores_after.get(g, 0.5) - effective_scores_before.get(g, 0.5) for g in effective_goals
+        ) / max(len(effective_goals), 1)
+        _prev_team_net = _best_team_net
 
         # §2.29a Fix: ML-deterministische Timing-Phasen (phase_12, phase_31)
         # können NICHT per Wet/Dry retried werden, da Timing-Phasen kein Blending
@@ -4103,7 +4315,7 @@ class PerPhaseMusicalGoalsGate:
             )
             scores_retry = _measure_quick(_retry_sample, sr, reference=_ref_sample, precise_override=False)
             regression_retry = self._max_regression(
-                effective_scores_before, scores_retry, effective_goals, goal_weights=goal_weights
+                effective_scores_before, scores_retry, _goals_for_regression, goal_weights=goal_weights
             )
             _ci_penalty_retry, _ci_meta_retry = _content_integrity_penalty(audio, audio_retry)
             if _ci_penalty_retry > 0.0:
@@ -4120,29 +4332,47 @@ class PerPhaseMusicalGoalsGate:
                 # Apply precise overrides once for accurate score propagation to next phase
                 scores_retry = _apply_precise_metric_overrides(scores_retry, _retry_sample, sr, reference=_ref_sample)
                 return audio_retry, scores_retry, action_label, strength
-            # Track best attempt (lowest regression)
-            if regression_retry < best_regression:
+            # §0l Track best attempt: prefer lowest regression; bei ähnlicher Regression
+            # denjenigen Versuch bevorzugen der das gesamte 15-Ziel-Team besser stellt.
+            _net_retry = sum(
+                scores_retry.get(g, 0.5) - effective_scores_before.get(g, 0.5) for g in effective_goals
+            ) / max(len(effective_goals), 1)
+            _is_better_attempt = regression_retry < best_regression or (
+                abs(regression_retry - best_regression) < threshold * 0.15 and _net_retry > _best_team_net
+            )
+            if _is_better_attempt:
                 best_audio = audio_retry
                 best_scores = scores_retry
                 best_regression = regression_retry
                 best_strength = strength
                 best_action = f"best_effort_r{attempt + 1}"
+                _best_team_net = _net_retry
 
             # Stagnation guard: if regression barely changes across consecutive
             # retries despite strength variation, further retries are wasted.
             # §2.31a: Stagnation-Delta proportional zum Threshold — armes Material
             # (höherer Threshold) bricht früher ab; gutes Material (niedriger Threshold)
             # ist geduldiger (wartet auf kleinere Verbesserungen).
+            # §0l: Stagnation nur wenn BEIDE — max-Regression UND Team-Net — stagnieren.
+            # Wenn das Team sich noch verbessert, weitere Retries zulassen.
             _stagnation_delta = max(0.002, threshold * 0.15)
-            if abs(regression_retry - _prev_regression) < _stagnation_delta and attempt >= 1:
+            _team_still_improving = (_net_retry - _prev_team_net) > threshold * 0.05
+            if (
+                abs(regression_retry - _prev_regression) < _stagnation_delta
+                and attempt >= 1
+                and not _team_still_improving
+            ):
                 logger.info(
-                    "PMGG: %s stagnation detected at retry %d (Δregression=%.6f) — skipping remaining retries",
+                    "PMGG: %s stagnation detected at retry %d "
+                    "(Δregression=%.6f, Δteam=%.6f) — skipping remaining retries",
                     phase_id,
                     attempt + 1,
                     abs(regression_retry - _prev_regression),
+                    _net_retry - _prev_team_net,
                 )
                 break
             _prev_regression = regression_retry
+            _prev_team_net = _net_retry
 
         # §2.31b Dynamic catastrophic threshold (v9.10.85):
         # Proportional to adaptive threshold so Good material (0.020) triggers
@@ -4155,12 +4385,36 @@ class PerPhaseMusicalGoalsGate:
             _CATASTROPHIC_THRESHOLD = min(0.25, _CATASTROPHIC_THRESHOLD * float(_team_thr_mult))
 
         _EMERGENCY_STRENGTHS = [0.15 * initial_strength, 0.10 * initial_strength]
-        if (not self._last_retry_budget_policy) and _allow_emergency_retries(
-            phase_id,
-            _worst_prio,
-            best_regression,
-            _CATASTROPHIC_THRESHOLD,
-            _team_policy,
+        # §0l: Emergency-Retries nur wenn Team netto negativ (oder nahe null) ist.
+        # Wenn best_scores bereits Team-Net-Positiv sind und Regression unter
+        # 1.5×_CATASTROPHIC_THRESHOLD liegt, würden Emergency-Retries Over-Processing
+        # bei einer Phase riskieren, die im Team schon funktioniert hat.
+        _pre_em_team_net = sum(
+            best_scores.get(g, 0.5) - effective_scores_before.get(g, 0.5) for g in effective_goals
+        ) / max(len(effective_goals), 1)
+        _skip_emergency_team_gate = (
+            _pre_em_team_net > 0.02 and best_regression < _CATASTROPHIC_THRESHOLD * 1.5 and _worst_prio >= 3
+        )
+        if _skip_emergency_team_gate:
+            logger.info(
+                "PMGG §0l: %s Emergency-Retries übersprungen — Team-Net=+%.4f positiv "
+                "(best_regression=%.4f < 1.5×catastrophic=%.4f, worst_prio=P%d)",
+                phase_id,
+                _pre_em_team_net,
+                best_regression,
+                _CATASTROPHIC_THRESHOLD * 1.5,
+                _worst_prio,
+            )
+        if (
+            (not _skip_emergency_team_gate)
+            and (not self._last_retry_budget_policy)
+            and _allow_emergency_retries(
+                phase_id,
+                _worst_prio,
+                best_regression,
+                _CATASTROPHIC_THRESHOLD,
+                _team_policy,
+            )
         ):
             logger.warning(
                 "PMGG: %s catastrophic regression %.4f > %.2f"
@@ -4190,7 +4444,7 @@ class PerPhaseMusicalGoalsGate:
                 )
                 scores_em = _measure_quick(_em_sample, sr, reference=_ref_sample, precise_override=False)
                 regression_em = self._max_regression(
-                    effective_scores_before, scores_em, effective_goals, goal_weights=goal_weights
+                    effective_scores_before, scores_em, _goals_for_regression, goal_weights=goal_weights
                 )
                 _ci_penalty_em, _ci_meta_em = _content_integrity_penalty(audio, audio_em)
                 if _ci_penalty_em > 0.0:
@@ -4207,12 +4461,19 @@ class PerPhaseMusicalGoalsGate:
                         del audio_full
                     scores_em = _apply_precise_metric_overrides(scores_em, _em_sample, sr, reference=_ref_sample)
                     return audio_em, scores_em, f"emergency_s{_em_strength:.2f}", _em_strength
-                if regression_em < best_regression:
+                _net_em = sum(
+                    scores_em.get(g, 0.5) - effective_scores_before.get(g, 0.5) for g in effective_goals
+                ) / max(len(effective_goals), 1)
+                _is_better_em = regression_em < best_regression or (
+                    abs(regression_em - best_regression) < threshold * 0.15 and _net_em > _best_team_net
+                )
+                if _is_better_em:
                     best_audio = audio_em
                     best_scores = scores_em
                     best_regression = regression_em
                     best_strength = _em_strength
                     best_action = "best_effort_emergency"
+                    _best_team_net = _net_em
         elif best_regression > _CATASTROPHIC_THRESHOLD and _worst_prio <= 2:
             logger.info(
                 "PMGG: %s catastrophic path skipped by team policy (reason=%s, regression=%.4f, threshold=%.3f)",
@@ -4608,6 +4869,85 @@ class PerPhaseMusicalGoalsGate:
         return max_reg, worst_prio
 
     @staticmethod
+    def _compute_team_net_delta(
+        before: dict[str, float],
+        after: dict[str, float],
+        goals: list[str] | None = None,
+        goal_weights: dict[str, float] | None = None,
+        canonical_thresholds: dict[str, float] | None = None,
+    ) -> tuple[float, bool, int]:
+        """Gewichteter Netto-Team-Delta über alle effektiven Ziele (§0l §1.2c Teamwork-Invariante).
+
+        Misst, ob das 15-Ziel-Team als Ganzes vom Phaseneinsatz profitiert hat —
+        unabhängig davon, ob ein einzelnes Ziel leicht regressiert.
+        Positiv = Team hat sich netto verbessert; negativ = Team hat sich verschlechtert.
+
+        Args:
+            before: Scores vor der Phase.
+            after: Scores nach der Phase.
+            goals: Subset zu prüfender Ziele. None = alle FAST_GOALS_SUBSET.
+            goal_weights: §2.56 song-spezifische Gewichtungen ∈ [0.3, 2.0].
+            canonical_thresholds: Normative Pflichtschwellen (Restoration oder Studio 2026).
+                Wenn übergeben: P1/P2-Ziele werden gegen diese Schwellen geprüft
+                um sicherzustellen, dass kein P1/P2-Ziel unter seinen absoluten Boden fällt.
+
+        Returns:
+            (net_delta, all_p1p2_above_floor, min_regressed_priority)
+            - net_delta: Gewichteter Durchschnitt aller Ziel-Deltas.
+              Positiv = Team verbessert, negativ = Team verschlechtert.
+            - all_p1p2_above_floor: True wenn kein P1/P2-Ziel unter seinem kanonischen
+              Schwellwert liegt (canonical_thresholds erforderlich; True wenn nicht übergeben).
+            - min_regressed_priority: Niedrigste Priorität (1=kritisch, 5=peripher)
+              eines Ziels das regressiert hat. 99 = kein Ziel regressiert.
+        """
+        from backend.core.goal_priority_protocol import get_goal_priority_protocol
+
+        gpp = get_goal_priority_protocol()
+        check_goals = goals if goals is not None else FAST_GOALS_SUBSET
+
+        total_weight = 0.0
+        weighted_delta_sum = 0.0
+        all_p1p2_above_floor = True
+        min_regressed_priority = 99
+
+        for g in check_goals:
+            b_val = before.get(g, 0.5)
+            a_val = after.get(g, 0.5)
+            delta = a_val - b_val
+            w = (goal_weights or {}).get(g, 1.0)
+            # §2.55c Anti-Korrelationsdämpfung: Wenn Goal G regressiert und ein physikalisch
+            # anti-korreliertes Ziel sich gleichzeitig verbessert, ist die Regression erwartet
+            # und wird im Team-Net-Beitrag gedämpft (nicht im Regressions-Gate, nur hier).
+            # Quelle: GOAL_ANTI_CORRELATIONS (§2.55c). Max. 60 % Dämpfung pro Paar.
+            team_delta = delta
+            if delta < 0:
+                for _anti_pair, _anti_factor in GOAL_ANTI_CORRELATIONS.items():
+                    if g in _anti_pair:
+                        _partner = next((x for x in _anti_pair if x != g), None)
+                        if _partner and _partner in check_goals:
+                            _partner_delta = after.get(_partner, 0.5) - before.get(_partner, 0.5)
+                            if _partner_delta > 0.0:
+                                # Partner verbessert sich → physikalisch erwartete Regression dämpfen.
+                                _dampening = min(abs(_anti_factor) * 0.6, 0.60)
+                                team_delta = delta * (1.0 - _dampening)
+                                break
+            weighted_delta_sum += team_delta * w
+            total_weight += w
+
+            if delta < 0:
+                prio = gpp.priority_of(g)
+                min_regressed_priority = min(min_regressed_priority, prio)
+                # P1/P2-Bodenkontrolle: Wenn kanonische Schwellen übergeben wurden,
+                # prüfen ob der Score NACH der Phase noch über dem Pflichtboden liegt.
+                if canonical_thresholds is not None and prio <= 2:
+                    floor = float(canonical_thresholds.get(g, 0.0))
+                    if a_val < floor:
+                        all_p1p2_above_floor = False
+
+        net_delta = weighted_delta_sum / max(total_weight, 1e-9)
+        return net_delta, all_p1p2_above_floor, min_regressed_priority
+
+    @staticmethod
     def _get_phase_id(phase: Any) -> str:
         """Extrahiert Phase-ID aus MetaDaten oder Klassennamen."""
         try:
@@ -4628,6 +4968,8 @@ class PerPhaseMusicalGoalsGate:
             return "pass", "jnd_sub_threshold_accept"
         if a == "passed_p4p5_tolerated":
             return "pass", "priority_tolerance_band_accept"
+        if a == "passed_team_balanced":
+            return "pass", "team_net_positive_balance_accept"
         if a.startswith("retry"):
             return "retry", "regression_over_threshold_retry_success"
         if a.startswith("emergency_s"):

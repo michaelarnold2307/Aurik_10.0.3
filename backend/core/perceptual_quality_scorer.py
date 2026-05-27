@@ -97,9 +97,7 @@ class PerceptualQualityScorer:
         dürfen abweichende SRs übergeben (§5.4 copilot-instructions.md).
         """
         if sr != 48000:
-            import logging
-
-            logging.getLogger(__name__).debug("score_audio: SR=%d (erwartet 48000) — weiterverarbeitung trotzdem", sr)
+            logger.debug("score_audio: SR=%d (erwartet 48000) — weiterverarbeitung trotzdem", sr)
 
         # Channels-first (2, N) → Mono-Mix (N,) für konsistente Längenberechnung.
         # len() auf (2, N) liefert 2 (Kanäle), nicht Samples → würde Stub auslösen.
@@ -126,8 +124,24 @@ class PerceptualQualityScorer:
         _n_fft_pqs = min(2048, len(ref))
         if _n_fft_pqs < 64:
             _n_fft_pqs = 64
-        _ref_mag = np.abs(np.fft.rfft(ref[:_n_fft_pqs], n=_n_fft_pqs))
-        _deg_mag = np.abs(np.fft.rfft(deg[:_n_fft_pqs], n=_n_fft_pqs))
+        # §fix-pqs-nsim v9.12.9: Kassetten-/Vinyl-Leader kann erste 2048 Samples zur
+        # Stille machen → _std_r=1e-12, _std_d=1e-12 → NSIM=0 (0/0-Artefakt).
+        # Scanne das Audio in Schritten von n_fft_pqs und wähle das erste nicht-stille
+        # Fenster (Energie > -80 dBFS ≈ 1e-8). Fallback auf Position 0 wenn kein
+        # aktives Fenster gefunden wird (z.B. reine Stille-Dateien).
+        _pqs_win_start = 0
+        if len(ref) > _n_fft_pqs:
+            _ENERGY_FLOOR_NSIM = 1e-8  # -80 dBFS
+            _step = _n_fft_pqs
+            _scan_end = len(ref) - _n_fft_pqs
+            _pos = 0
+            while _pos <= _scan_end:
+                if float(np.mean(ref[_pos : _pos + _n_fft_pqs] ** 2)) > _ENERGY_FLOOR_NSIM:
+                    _pqs_win_start = _pos
+                    break
+                _pos += _step
+        _ref_mag = np.abs(np.fft.rfft(ref[_pqs_win_start : _pqs_win_start + _n_fft_pqs], n=_n_fft_pqs))
+        _deg_mag = np.abs(np.fft.rfft(deg[_pqs_win_start : _pqs_win_start + _n_fft_pqs], n=_n_fft_pqs))
         _freqs_pqs = np.fft.rfftfreq(_n_fft_pqs, d=1.0 / sr)
         # ERB-weighted: W(f) = 1 / (1 + (f/1500)^2) × (f/200)^0.5
         # Peaks at ~800–2000 Hz, rolls off gently above 4 kHz and below 200 Hz
@@ -156,8 +170,8 @@ class PerceptualQualityScorer:
             _deg_mel = np.dot(_mel_basis, _deg_stft) + 1e-10
             from scipy.fft import dct
 
-            _ref_mfcc = dct(np.log(_ref_mel), type=2, axis=0, norm="ortho")[:13, :]  # type: ignore[index]
-            _deg_mfcc = dct(np.log(_deg_mel), type=2, axis=0, norm="ortho")[:13, :]  # type: ignore[index]
+            _ref_mfcc = np.asarray(dct(np.log(_ref_mel), type=2, axis=0, norm="ortho"))[:13, :]
+            _deg_mfcc = np.asarray(dct(np.log(_deg_mel), type=2, axis=0, norm="ortho"))[:13, :]
             _min_t = min(_ref_mfcc.shape[1], _deg_mfcc.shape[1])
             _mcd_frames = np.sqrt(np.sum((_ref_mfcc[:, :_min_t] - _deg_mfcc[:, :_min_t]) ** 2, axis=0))
             # MCD in dB: (10/ln10) × sqrt(2) × mean_euclidean ≈ 6.14 × mean
@@ -212,11 +226,7 @@ class PerceptualQualityScorer:
         Akzeptiert beliebige Sample-Raten (siehe score_audio-Docstring).
         """
         if sr != 48000:
-            import logging
-
-            logging.getLogger(__name__).debug(
-                "score_audio_absolute: SR=%d (erwartet 48000) — weiterverarbeitung trotzdem", sr
-            )
+            logger.debug("score_audio_absolute: SR=%d (erwartet 48000) — weiterverarbeitung trotzdem", sr)
 
         # Channels-first (2, N) → Mono-Mix für korrekte Berechnung
         if audio.ndim == 2:
@@ -263,7 +273,7 @@ class PerceptualQualityScorer:
 
 def get_perceptual_quality_scorer() -> PerceptualQualityScorer:
     """Thread-sicherer Singleton-Accessor (§3.2)."""
-    global _instance
+    global _instance  # pylint: disable=global-statement  # §3.2 Singleton-Pattern (normativ vorgeschrieben)
     if _instance is None:
         with _lock:
             if _instance is None:

@@ -56,7 +56,7 @@ def _apply_groove_echo_mono(
     x_mono: np.ndarray,
     sample_rate: int,
     strength: float,
-    defect_scores: dict | None,
+    defect_scores: dict | None,  # pylint: disable=unused-argument
     spectral_subtraction_floor_db: float,
 ) -> np.ndarray:
     """Echo-Cancellation auf einem Mono-Kanal. Interne Hilfsfunktion für §2.51."""
@@ -204,7 +204,12 @@ def apply(
 
 # ─── PhaseInterface ────────────────────────────────────────────────────────────
 
-from .phase_interface import PhaseCategory, PhaseInterface, PhaseMetadata, PhaseResult
+from .phase_interface import (  # pylint: disable=wrong-import-position
+    PhaseCategory,
+    PhaseInterface,
+    PhaseMetadata,
+    PhaseResult,
+)
 
 
 class GrooveEchoCancellationPhase(PhaseInterface):
@@ -272,20 +277,19 @@ class GrooveEchoCancellationPhase(PhaseInterface):
         self,
         audio: np.ndarray,
         sample_rate: int = 48000,
-        strength: float = 0.6,
-        defect_scores: dict | None = None,
+        material_type: str = "unknown",
         **kwargs,
     ) -> PhaseResult:
         sample_rate = kwargs.get("sample_rate", sample_rate)
         t0 = _time.perf_counter()
         assert sample_rate == 48000, f"SR must be 48000 Hz, got: {sample_rate}"
 
-        _defect_scores = defect_scores or kwargs.get("defect_analysis", {})
+        _defect_scores = kwargs.get("defect_scores") or kwargs.get("defect_analysis", {})
         phase_locality_factor = float(np.clip(float(kwargs.get("phase_locality_factor", 1.0)), 0.35, 1.0))
-        _pmgg_strength = float(kwargs.get("strength", strength))
+        _pmgg_strength = float(kwargs.get("strength", 0.6))
         _effective_strength = float(np.clip(_pmgg_strength * phase_locality_factor, 0.0, 1.0))
         _profile_61 = self._compute_groove_echo_profile(
-            str(kwargs.get("material_type") or kwargs.get("material") or "unknown"),
+            str(material_type or kwargs.get("material") or "unknown"),
             str(kwargs.get("quality_mode", "balanced")),
             float(kwargs.get("restorability_score", 50.0)),
         )
@@ -298,7 +302,7 @@ class GrooveEchoCancellationPhase(PhaseInterface):
                 execution_time_seconds=_time.perf_counter() - t0,
                 metrics={
                     "groove_echo_score": float((_defect_scores or {}).get("groove_echo", 0.0)),
-                    "strength": strength,
+                    "strength": _pmgg_strength,
                     "effective_strength": 0.0,
                 },
                 metadata={
@@ -320,10 +324,75 @@ class GrooveEchoCancellationPhase(PhaseInterface):
         )
         elapsed = _time.perf_counter() - t0
 
+        # V19 Noise-Textur-Invariante (§NTI): Residual aus Spektral-Subtraktion darf kein
+        # material-fremdes Spektralprofil (Whitening) aufweisen (§2.75 VERBOTEN-V19).
+        try:
+            from backend.core.dsp.noise_texture_guard import (
+                compute_noise_texture_distance,  # pylint: disable=import-outside-toplevel
+            )
+
+            _nt61_residual = audio.astype(np.float32) - result_audio.astype(np.float32)
+            _nt61_dist = compute_noise_texture_distance(_nt61_residual, str(material_type or "unknown"), sr=sample_rate)
+            if _nt61_dist > 0.25:
+                result_audio = (0.5 * result_audio + 0.5 * audio).astype(np.float32)
+                logger.warning(
+                    "Phase61 V19 Noise-Textur-Dist=%.3f > 0.25 → 50%%-Blend (Träger-Textur bewahrt)",
+                    _nt61_dist,
+                )
+        except Exception as _nt61_exc:
+            logger.debug("Phase61 V19 Noise-Textur-Guard (non-blocking): %s", _nt61_exc)
+
+        # V20 Mikrodynamik-Korrelation (§2.75): voiced Frames dürfen durch Spektral-
+        # Subtraktion nicht in ihrer Frame-Energie degradiert werden.
+        _panns61 = float(kwargs.get("panns_singing", kwargs.get("panns_singing_confidence", 0.0)))
+        if _panns61 >= 0.25:
+            try:
+                from backend.core.dsp.mikrodynamik_guard import (
+                    frame_energy_correlation,  # pylint: disable=import-outside-toplevel
+                )
+
+                _corr61 = frame_energy_correlation(audio, result_audio, sample_rate, frame_ms=10.0)
+                if _corr61 < 0.97:
+                    _wet61 = min(1.0, (_corr61 - 0.90) / 0.07) if _corr61 > 0.90 else 0.0
+                    result_audio = (_wet61 * result_audio + (1.0 - _wet61) * audio).astype(np.float32)
+                    logger.warning(
+                        "Phase61 V20 Mikrodynamik-Korr=%.3f < 0.97 → wet=%.3f Blend",
+                        _corr61,
+                        _wet61,
+                    )
+            except Exception as _dyn61_exc:
+                logger.debug("Phase61 V20 Mikrodynamik-Guard (non-blocking): %s", _dyn61_exc)
+
+        # V21 Mindestrauschboden (§2.76): Analog-Material darf nach Subtraktion keine
+        # digitale Stille (-∞ dBFS) aufweisen — Rauschboden ist Naturalness-Marker.
+        _mat61_str = str(material_type or "unknown").lower()
+        if any(t in _mat61_str for t in ("shellac", "vinyl", "tape", "analog")):
+            try:
+                from backend.core.dsp.noise_floor_guard import (
+                    apply_noise_floor_minimum,  # pylint: disable=import-outside-toplevel
+                )
+
+                result_audio = apply_noise_floor_minimum(result_audio, sample_rate, _mat61_str)
+            except Exception as _nf61_exc:
+                logger.debug("Phase61 V21 Noise-Floor-Guard (non-blocking): %s", _nf61_exc)
+
+        # V26 Onset-Guard (§2.77): HPSS-Onset-Fenster (0–20 ms nach Transient) dürfen
+        # durch Groove-Echo-Subtraktion nicht energetisch beeinflusst werden.
+        try:
+            from backend.core.dsp.onset_guard import (
+                apply_onset_protection_mask,  # pylint: disable=import-outside-toplevel
+            )
+
+            result_audio = apply_onset_protection_mask(audio, result_audio, None, max_delta_db=1.5)
+        except Exception as _on61_exc:
+            logger.debug("Phase61 V26 Onset-Guard (non-blocking): %s", _on61_exc)
+
         # §2.46f NPA-Guard: Early-Reflections (0-50 ms nach Onset) sind Recording-Chain-Signatur
         # und dürfen nicht durch Groove-Echo-Subtraktion entfernt werden (§2.46f Kategorie 3).
         try:
-            from backend.core.natural_performance_detector import get_natural_performance_detector
+            from backend.core.natural_performance_detector import (
+                get_natural_performance_detector,  # pylint: disable=import-outside-toplevel
+            )
 
             _mono61 = audio.mean(axis=0) if audio.ndim == 2 else audio
             _npa_mask61 = (
@@ -342,7 +411,9 @@ class GrooveEchoCancellationPhase(PhaseInterface):
         # §2.62 Psychoakustischer Masking-Guard: Spektral-Subtraktion entfernt
         # keine Komponenten die vom Musiksignal maskiert werden (G_floor ≥ 0.10).
         try:
-            from backend.core.dsp.psychoacoustics import apply_psychoacoustic_masking_clamp
+            from backend.core.dsp.psychoacoustics import (
+                apply_psychoacoustic_masking_clamp,  # pylint: disable=import-outside-toplevel
+            )
 
             result_audio = apply_psychoacoustic_masking_clamp(audio, result_audio, sample_rate, mode="restoration")
         except Exception as _pmask61_exc:
@@ -355,7 +426,10 @@ class GrooveEchoCancellationPhase(PhaseInterface):
             audio=result_audio,
             success=True,
             execution_time_seconds=elapsed,
-            metrics={"groove_echo_score": float((_defect_scores or {}).get("groove_echo", 0.0)), "strength": strength},
+            metrics={
+                "groove_echo_score": float((_defect_scores or {}).get("groove_echo", 0.0)),
+                "strength": _pmgg_strength,
+            },
             metadata={
                 "groove_echo_profile": dict(_profile_61),
                 "min_groove_echo_score": float(_profile_61["min_groove_echo_score"]),
@@ -364,6 +438,6 @@ class GrooveEchoCancellationPhase(PhaseInterface):
                 "effective_strength": _effective_strength,
                 "rms_drop_db": round(float(min(0.0, _rms_drop)), 3),
                 "loudness_makeup_db": 0.0,  # Targeted, kein Makeup-Gain nötig
-                "strength": strength,
+                "strength": _pmgg_strength,
             },
         )

@@ -37,6 +37,9 @@ _RAM_TARGET_PCT: float = 65.0  # RAM% auf die wir evicten wollen
 _MIN_FREE_MB_HARD: float = 3000.0  # immer mind. 3 GB frei halten
 _PIPELINE_EMERGENCY_PCT: float = 70.0  # RAM% ab der auch WÄHREND Pipeline evicted wird (gesenkt von 78%)
 _SWAP_EVICT_THRESHOLD_PCT: float = 80.0  # Swap% ab der Eviction erzwungen wird (unabhängig von RAM-%).
+_SWAP_EVICT_FORCE_PCT: float = 95.0  # Harte Swap-Notlage: immer evicten (Crash-Prävention)
+_SWAP_RELAX_RAM_PCT: float = 70.0  # Unterhalb davon gilt hoher Swap nicht automatisch als akut
+_SWAP_RELAX_FREE_MB: float = 12_000.0  # Mit viel freiem RAM sind alte Swap-Reste oft unkritisch
 # Rationale: Crash 2026-04-14 — swap=99 %, avail=18.79 GB → OOM-Killer wegen
 # Apollo-TorchScript-Allokation. RAM-only-Guards erkannten die Gefahr nicht.
 _MONITOR_JOIN_TIMEOUT_S: float = 1.0  # Shutdown darf Tests/App-Ende nicht unbounded blockieren
@@ -236,16 +239,13 @@ class PluginLifecycleManager:
         ram_pct = self._ram_percent()
         free_mb = self._free_mb()
         swap_pct = self._swap_percent()
+        swap_emergency = self._swap_pressure_requires_evict(ram_pct=ram_pct, free_mb=free_mb, swap_pct=swap_pct)
         # §Safety: Während Pipeline-Ausführung normalerweise keine automatische
         # Eviction — ONNX-Session-Destruktoren können mit laufender Inferenz
         # kollidieren. ABER: bei kritischem RAM-Druck (>= 82%) MUSS trotzdem
         # evicted werden, sonst killt systemd-oomd den gesamten Prozess.
         if self._pipeline_active > 0 and required_mb <= 0:
-            if (
-                ram_pct < _PIPELINE_EMERGENCY_PCT
-                and free_mb >= _MIN_FREE_MB_HARD
-                and swap_pct <= _SWAP_EVICT_THRESHOLD_PCT
-            ):
+            if ram_pct < _PIPELINE_EMERGENCY_PCT and free_mb >= _MIN_FREE_MB_HARD and not swap_emergency:
                 return 0
             logger.warning(
                 "PLM: Pipeline aktiv, aber Speicher kritisch (RAM=%.0f %%, frei=%.0f MB, swap=%.0f %%) "
@@ -260,11 +260,9 @@ class PluginLifecycleManager:
             ram_pct > _RAM_EVICT_THRESHOLD_PCT
             or free_mb < _MIN_FREE_MB_HARD
             or (required_mb > 0 and free_mb < required_mb)
-            or swap_pct > _SWAP_EVICT_THRESHOLD_PCT  # Swap-Druck allein reicht für Eviction
+            or swap_emergency
         )
-        if swap_pct > _SWAP_EVICT_THRESHOLD_PCT and not (
-            ram_pct > _RAM_EVICT_THRESHOLD_PCT or free_mb < _MIN_FREE_MB_HARD
-        ):
+        if swap_emergency and not (ram_pct > _RAM_EVICT_THRESHOLD_PCT or free_mb < _MIN_FREE_MB_HARD):
             logger.warning(
                 "PLM: Swap-Druck kritisch (%.0f %%) — erzwinge Eviction inaktiver Plugins (RAM=%.0f %%, frei=%.0f MB)",
                 swap_pct,
@@ -364,7 +362,8 @@ class PluginLifecycleManager:
                 ram_pct = self._ram_percent()
                 free_mb = self._free_mb()
                 swap_pct = self._swap_percent()
-                if ram_pct <= target_pct and free_mb >= required_free_mb and swap_pct <= _SWAP_EVICT_THRESHOLD_PCT:
+                swap_emergency = self._swap_pressure_requires_evict(ram_pct=ram_pct, free_mb=free_mb, swap_pct=swap_pct)
+                if ram_pct <= target_pct and free_mb >= required_free_mb and not swap_emergency:
                     break
             try:
                 logger.info(
@@ -448,6 +447,22 @@ class PluginLifecycleManager:
             except Exception:
                 return 0.0
         return 0.0
+
+    @staticmethod
+    def _swap_pressure_requires_evict(*, ram_pct: float, free_mb: float, swap_pct: float) -> bool:
+        """Bewertet, ob Swap-Druck akut genug fuer erzwungene Eviction ist.
+
+        Hohe Swap-Belegung allein kann ein historischer Restzustand sein.
+        Eviction wird daher nur bei echter Notlage erzwungen:
+        - swap >= _SWAP_EVICT_FORCE_PCT (harte Notlage), oder
+        - swap > _SWAP_EVICT_THRESHOLD_PCT UND gleichzeitig hoher RAM-Druck
+          oder knappes freies RAM.
+        """
+        if swap_pct >= _SWAP_EVICT_FORCE_PCT:
+            return True
+        if swap_pct <= _SWAP_EVICT_THRESHOLD_PCT:
+            return False
+        return bool(ram_pct >= _SWAP_RELAX_RAM_PCT or free_mb < _SWAP_RELAX_FREE_MB)
 
     # ------------------------------------------------------------------
     # Status (Logging/Debug)

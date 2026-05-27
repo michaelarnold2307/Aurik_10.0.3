@@ -74,7 +74,8 @@ def test_cassette_bw_ceiling_is_material_adaptive() -> None:
 
 def test_phase23_uses_npd_singleton_accessor(monkeypatch) -> None:
     phase = SpectralRepair()
-    audio = np.random.uniform(-0.02, 0.02, 48_000).astype(np.float32)
+    # Keep test lightweight: this test verifies NPD accessor wiring, not MRSA quality.
+    audio = np.random.uniform(-0.02, 0.02, 8_192).astype(np.float32)
     calls = {"count": 0}
 
     class _NpdResultStub:
@@ -91,6 +92,11 @@ def test_phase23_uses_npd_singleton_accessor(monkeypatch) -> None:
     monkeypatch.setattr(
         "backend.core.phases.phase_23_spectral_repair._get_phase23_npd",
         lambda: _NpdStub(),
+    )
+    monkeypatch.setattr(
+        phase,
+        "_repair_channel",
+        lambda signal_in, *_, **__: np.asarray(signal_in, dtype=np.float32).copy(),
     )
 
     result = phase.process(

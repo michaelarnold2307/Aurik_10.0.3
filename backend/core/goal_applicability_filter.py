@@ -62,6 +62,10 @@ _ALL_GOALS: frozenset[str] = frozenset(
         "separation_fidelity",
         "artikulation",
         "transient_energie",
+        # §0p P0-Goals: nur applicable wenn panns_singing ≥ 0.35
+        # (Guard in evaluate() via panns_singing-Parameter)
+        "vocal_quality",
+        "formant_fidelity",
     }
 )
 
@@ -122,6 +126,7 @@ class GoalApplicabilityFilter:
         panns_tags: dict[str, float] | None = None,
         audiosr_available: bool = False,
         mode: str = "restoration",
+        panns_singing: float = 0.0,
     ) -> GoalApplicabilityResult:
         """Spec §2.32: Wertet aus, welche Goals anwendbar sind.
 
@@ -288,6 +293,23 @@ class GoalApplicabilityFilter:
         for g in _ALWAYS_APPLICABLE:
             inapplicable.pop(g, None)
 
+        # §0p P0-Goals (vocal_quality, formant_fidelity):
+        # Nur applicable wenn panns_singing >= 0.35 (Gesangsmaterial erkannt).
+        # Unterhalb des Schwellwerts physikalisch nicht sinnvoll messbar
+        # (VQI/Formant-Tracking auf Instrumental-Material liefert false-negatives).
+        _p0_vocal_goals = frozenset({"vocal_quality", "formant_fidelity"})
+        _panns_singing_f = float(panns_singing if panns_singing is not None else 0.0)
+        if _panns_singing_f < 0.35:
+            for _p0g in _p0_vocal_goals:
+                inapplicable[_p0g] = (
+                    f"panns_singing={_panns_singing_f:.3f} < 0.35 "
+                    "— P0-Vokalziele nur bei erkanntem Gesangsmaterial anwendbar."
+                )
+        else:
+            # Gesang erkannt: P0-Goals sicherstellen (nie durch andere Regeln deaktivierbar)
+            for _p0g in _p0_vocal_goals:
+                inapplicable.pop(_p0g, None)
+
         applicable = _ALL_GOALS - frozenset(inapplicable.keys())
 
         return GoalApplicabilityResult(
@@ -323,6 +345,7 @@ def evaluate_goal_applicability(
     panns_tags: dict[str, float] | None = None,
     audiosr_available: bool = False,
     mode: str = "restoration",
+    panns_singing: float = 0.0,
 ) -> GoalApplicabilityResult:
     """Convenience-Funktion."""
     return get_goal_filter().evaluate(
@@ -333,6 +356,7 @@ def evaluate_goal_applicability(
         panns_tags=panns_tags,
         audiosr_available=audiosr_available,
         mode=mode,
+        panns_singing=panns_singing,
     )
 
 

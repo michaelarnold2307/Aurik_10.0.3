@@ -64,6 +64,12 @@ class PhaseCheckpoint:
     pegelexplosion_detected: bool = False
     pegelexplosion_severity: str = "none"
     pegelexplosion_cause: str | None = None
+    # §2.44 HPI-Komponenten — nur im finalen Checkpoint gesetzt (nach HPG-Auswertung)
+    vqi: float | None = None
+    mert_similarity: float | None = None
+    timbral_fidelity: float | None = None
+    emotional_arc_preservation: float | None = None
+    hpi_ceiling: float | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize checkpoint data into a JSON-safe dictionary."""
@@ -301,6 +307,8 @@ class ContinuousDeepAnalyzer:
             "anomalies": self.anomalies_detected,
             "summary": self._generate_summary(),
         }
+        # §Fix-Blocker4: quality_status auch auf Top-Ebene propagieren (bisher nur in "summary").
+        result_dict["quality_status"] = result_dict["summary"].get("quality_status")
 
         result_file = Path(output_dir) / f"analysis_{Path(audio_path).stem}_{mode}_{int(time.time())}.json"
         with open(result_file, "w", encoding="utf-8") as f:
@@ -340,6 +348,19 @@ class ContinuousDeepAnalyzer:
             ("carrier_chain_recovery_ratio", "score", "value"),
         )
 
+        # §2.44 HPI-Komponenten — aus holistic_perceptual_gate (nur nach finaler HPG-Auswertung bekannt)
+        final_mert = self._metric_to_float(_hpg.get("mert_similarity"), ("mert_similarity", "score", "value"))
+        final_timbral = self._metric_to_float(_hpg.get("timbral_fidelity"), ("timbral_fidelity", "score", "value"))
+        final_eap = self._metric_to_float(
+            _hpg.get("emotional_arc_preservation"), ("emotional_arc_preservation", "score", "value")
+        )
+        # VQI liegt separat in metadata["vqi"] (§2.35c)
+        final_vqi = self._metric_to_float(metadata.get("vqi"), ("vqi", "score", "value"))
+        # Material-adaptives HPI-Ceiling (§0k) — aus metadata wenn vorhanden
+        final_hpi_ceiling = self._metric_to_float(
+            metadata.get("hpi_material_ceiling"), ("hpi_material_ceiling", "ceiling", "score", "value")
+        )
+
         for entry in entries:
             if not isinstance(entry, dict):
                 continue
@@ -377,6 +398,9 @@ class ContinuousDeepAnalyzer:
                 pre_result,
                 str(entry.get("action") or ""),
             )
+            # HPI-Komponenten werden als finale Werte an alle Checkpoints angehängt;
+            # intermediate Phasen erhalten None, da HPG erst am Ende ausgewertet wird.
+            _is_last_entry = entry is entries[-1]
             cp = PhaseCheckpoint(
                 phase_id=phase_id,
                 wall_time_s=float(entry.get("timestamp") or time.time()),
@@ -387,6 +411,12 @@ class ContinuousDeepAnalyzer:
                 noise_floor_db=None,
                 defects_remaining=None,
                 anomalies=anomalies,
+                # §2.44 Komponenten nur im finalen Checkpoint — verhindert Verwechslung mit per-Phase-Werten
+                vqi=final_vqi if _is_last_entry else None,
+                mert_similarity=final_mert if _is_last_entry else None,
+                timbral_fidelity=final_timbral if _is_last_entry else None,
+                emotional_arc_preservation=final_eap if _is_last_entry else None,
+                hpi_ceiling=final_hpi_ceiling if _is_last_entry else None,
             )
             self.checkpoints.append(cp)
 
@@ -566,6 +596,24 @@ class ContinuousDeepAnalyzer:
         if isinstance(_restorer_state.get("_carrier_chain_recovery_ratio"), (int, float)):
             ccr = float(_restorer_state["_carrier_chain_recovery_ratio"])
 
+        # §2.44 HPI-Komponenten aus phase_metadata_accumulator (Realtime-Pfad)
+        _pma = _restorer_state.get("_phase_metadata_accumulator") or {}
+        vqi = self._metric_to_float(_pma.get("vqi"), ("vqi", "score", "value"))
+        mert_sim = None
+        timbral = None
+        eap = None
+        hpi_ceiling = self._metric_to_float(
+            _restorer_state.get("_hpi_material_ceiling"), ("hpi_material_ceiling", "ceiling", "score", "value")
+        )
+        # HPG-Komponenten sind erst nach finaler HPG-Auswertung bekannt
+        _hpg_state = _restorer_state.get("_last_hpg_result")
+        if isinstance(_hpg_state, dict):
+            mert_sim = self._metric_to_float(_hpg_state.get("mert_similarity"), ("mert_similarity", "score", "value"))
+            timbral = self._metric_to_float(_hpg_state.get("timbral_fidelity"), ("timbral_fidelity", "score", "value"))
+            eap = self._metric_to_float(
+                _hpg_state.get("emotional_arc_preservation"), ("emotional_arc_preservation", "score", "value")
+            )
+
         # Anomalien prüfen
         anomalies = self._check_anomalies(phase_id, goals, hpi, afg, pre_result)
 
@@ -579,6 +627,11 @@ class ContinuousDeepAnalyzer:
             noise_floor_db=noise_db,
             defects_remaining=defects_left,
             anomalies=anomalies,
+            vqi=vqi,
+            mert_similarity=mert_sim,
+            timbral_fidelity=timbral,
+            emotional_arc_preservation=eap,
+            hpi_ceiling=hpi_ceiling,
         )
 
     def _check_anomalies(

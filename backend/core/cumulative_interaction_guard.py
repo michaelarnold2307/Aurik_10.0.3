@@ -175,7 +175,10 @@ _PHASE_SPECIFIC_DRIFT_EXCLUSIONS: dict[str, frozenset[str]] = {
     # Surface noise profiling/reduction changes broadband energy floor → spectral
     # fingerprint shifts vs. noisy reference (same as tonal_center inflation §2.29c):
     # natuerlichkeit: uniform noise-floor → metric sees "broadband = natural"; clean audio scores lower (Reference Paradox §2.44)
-    "phase_28": frozenset({"authentizitaet", "artikulation", "timbre_authentizitaet", "natuerlichkeit"}),
+    # transparenz (§V32 v9.12.10): Oberflächenrauschen-Entfernung reduziert breitbandige HF-Energie intentional →
+    #   HF-Crest-Proxy (transparenz) sinkt auf physikalisch realen Träger-Wert — Reference Paradox §2.44 (identisch phase_29).
+    #   PMGG prüft transparenz bereits per-Phase; CIG-Pair-Exclusion verhindert redundanten false-positive Rollback (§2.55).
+    "phase_28": frozenset({"authentizitaet", "artikulation", "timbre_authentizitaet", "natuerlichkeit", "transparenz"}),
     # Tape hiss reduction removes broadband carrier noise → spectral divergence
     # from noisy checkpoint is intentional.
     # artikulation: silence-between-notes energy envelope changes as noise floor drops.
@@ -189,15 +192,45 @@ _PHASE_SPECIFIC_DRIFT_EXCLUSIONS: dict[str, frozenset[str]] = {
     #   is the correct carrier-chain inversion (§2.46 §0d). PMGG already guards transparenz per-phase;
     #   CIG pair-check exclusion prevents the redundant false-positive rollback.
     "phase_29": frozenset(
-        {"authentizitaet", "timbre_authentizitaet", "artikulation", "natuerlichkeit", "tonal_center", "transparenz"}
+        {
+            "authentizitaet",
+            "timbre_authentizitaet",
+            "artikulation",
+            "natuerlichkeit",
+            "tonal_center",
+            "transparenz",
+            # §V36 waerme (§2.55-Sync v9.13): OMLSA/DFN breitbandige Gain-Suppression
+            # reduziert Rauschboden im Wärmeband (200–2000 Hz) → Wärme-Proxy sinkt
+            # auf physikalisch realen Trägerwert → false P4 CIG-Drift (Reference-Paradox §2.44).
+            # Gespiegelt aus PMGG-Exclusion (§2.55-Sync).
+            "waerme",
+        }
     ),
     # Denoise (broadband) — same reference-paradoxon as tape hiss:
     # artikulation: silence regions become quieter after noise removal → onset gap detectability changes.
     # natuerlichkeit: broadband noise creates artificially uniform spectrum → metric scores it as "natural" (Reference Paradox §2.44).
     # tonal_center: broadband noise adds uniform energy across chroma bins → K-S template correlation
     #   vs. noisy checkpoint artificially elevated; after denoising chromagram converges to clean key estimate.
+    # transparenz (§V32-Komplement v9.12.10): CRITICAL_PAIR {phase_29, phase_03} + transparenz feuert
+    #   auch wenn phase_03 NACH phase_29 läuft — _check_critical_pairs() nutzt Exclusions des aktuellen
+    #   phase_id. Ohne transparenz hier würde der HF-Crest-Proxy-Abfall nach phase_29→phase_03 als
+    #   false-positive Pair-Rollback klassifiziert (Reference Paradox §2.44 symmetrisch für beide
+    #   Ausführungsreihenfolgen). PMGG-Exclusion für phase_03 bleibt unverändert (transparenz weiter aktiv
+    #   in PMGG per-phase-check — hier nur CIG-Pair-Schutz).
     "phase_03": frozenset(
-        {"authentizitaet", "timbre_authentizitaet", "artikulation", "natuerlichkeit", "tonal_center"}
+        {
+            "authentizitaet",
+            "timbre_authentizitaet",
+            "artikulation",
+            "natuerlichkeit",
+            "tonal_center",
+            "transparenz",
+            # §V36 transient_energie (§2.55-Sync v9.13): OMLSA/DFN entfernt Rauschimpulse,
+            # die im TransientEnergieProxy als Onsets gezählt wurden. Nach NR: Proxy sinkt
+            # auf physikalisch realen Wert → false P3 CIG-Drift (Reference-Paradox §2.44).
+            # Gespiegelt aus PMGG-Exclusion (§2.55-Sync).
+            "transient_energie",
+        }
     ),
     # Hum removal changes spectral fingerprint (notch series) vs. hum-distorted reference.
     # artikulation: harmonic energy in hum bands is removed → onset rise-time changes.
@@ -209,8 +242,13 @@ _PHASE_SPECIFIC_DRIFT_EXCLUSIONS: dict[str, frozenset[str]] = {
     # artikulation: note decay envelope shortened intentionally (reverb tails removed).
     # natuerlichkeit: room-air / early reflections in degraded recording score as "natural" before dereverb (Reference Paradox §2.44).
     # tonal_center: reverb smears chroma bins → K-S template inflated vs. reverberant checkpoint; after derev key estimate sharpens.
+    # transparenz (§V32 v9.12.10): SGMSE+ Deconvolution entfernt breitbandige Hallfahne → HF-Crest-Proxy
+    #   (transparenz) sinkt intentional auf den physikalisch realen Wert des Trägers. Ohne diese Exclusion
+    #   feuert CRITICAL_PAIR phase_20 + transparenz als false-positive Rollback — analoge Mechanik wie
+    #   phase_29 Tape-Hiss (§V32). PMGG prüft transparenz bereits per-phase; CIG-Exclusion verhindert
+    #   redundanten false-positive (§2.55).
     "phase_20": frozenset(
-        {"authentizitaet", "timbre_authentizitaet", "artikulation", "natuerlichkeit", "tonal_center"}
+        {"authentizitaet", "timbre_authentizitaet", "artikulation", "natuerlichkeit", "tonal_center", "transparenz"}
     ),
     # Noise gate (Silero VAD) removes low-energy carrier noise between phrases —
     # silence insertion shifts chroma/energy fingerprint vs. noisy-floor reference.
@@ -220,7 +258,17 @@ _PHASE_SPECIFIC_DRIFT_EXCLUSIONS: dict[str, frozenset[str]] = {
     # not regressions. Without this exclusion CIG accumulates P3 drift from phase_18 and may
     # trigger a false rollback at a later restorative phase — RELEASE_MUST-Verletzung §2.55.
     "phase_18": frozenset(
-        {"authentizitaet", "timbre_authentizitaet", "artikulation", "groove", "micro_dynamics", "emotionalitaet"}
+        {
+            "authentizitaet",
+            "timbre_authentizitaet",
+            "artikulation",
+            "groove",
+            "micro_dynamics",
+            "emotionalitaet",
+            # transparenz (§V32 v9.12.10): VAD-Gate/Noise-Gate entfernt HF-Rauschboden zwischen Phrasen →
+            # HF-Crest-Proxy (transparenz) sinkt intentional — Reference Paradox §2.44 (identisch phase_28/29).
+            "transparenz",
+        }
     ),
     # Groove-echo cancellation removes pre-echo artefact (vinyl inner-groove distortion) —
     # spectral fingerprint diverges from pre-echo-distorted reference checkpoint:
@@ -229,8 +277,10 @@ _PHASE_SPECIFIC_DRIFT_EXCLUSIONS: dict[str, frozenset[str]] = {
     # artikulation: reverb-tail removal shortens perceived note decay vs. reverberant checkpoint.
     # natuerlichkeit: same Reference Paradox as phase_20 (reverberant room = "natural" to metric before dereverb).
     # tonal_center: reverb smears chroma bins → cumulative K-S template shift (same mechanism as phase_20 tonal_center).
+    # transparenz: §V32 — reverb removal reduces HF crest-factor proxy → false-positive CRITICAL_PAIR rollback
+    #              (identical mechanism to phase_20 transparenz exclusion; reverb-tail has HF energy that vanishes after removal).
     "phase_49": frozenset(
-        {"authentizitaet", "timbre_authentizitaet", "artikulation", "natuerlichkeit", "tonal_center"}
+        {"authentizitaet", "timbre_authentizitaet", "artikulation", "natuerlichkeit", "tonal_center", "transparenz"}
     ),
     # Azimuth correction (phase_25) shifts spectral balance vs. mis-aligned reference:
     "phase_25": frozenset({"authentizitaet", "timbre_authentizitaet"}),
@@ -264,8 +314,11 @@ _PHASE_SPECIFIC_DRIFT_EXCLUSIONS: dict[str, frozenset[str]] = {
     # Modulation noise reduction (phase_59) — same carrier-noise class as phase_29 (tape hiss):
     # signal-adaptive spectral gating G(f)=max(G_floor, 1−α·N(f)/S(f)) changes all P1/P2 spectral proxies
     # identically to broadband NR (OMLSA/DeepFilterNet) — same §2.44 Reference-Paradoxon mechanisms.
+    # transparenz (§V32 v9.12.10): Modulationsrauschen-Entfernung reduziert HF-Modulationsenergie intentional →
+    #   HF-Crest-Proxy (transparenz) sinkt auf physikalisch realen Wert — Reference Paradox §2.44 (identisch phase_29).
+    #   PMGG prüft transparenz bereits per-Phase; CIG-Pair-Exclusion verhindert redundanten false-positive Rollback (§2.55).
     "phase_59": frozenset(
-        {"authentizitaet", "natuerlichkeit", "timbre_authentizitaet", "tonal_center", "artikulation"}
+        {"authentizitaet", "natuerlichkeit", "timbre_authentizitaet", "tonal_center", "artikulation", "transparenz"}
     ),
     # Inner groove distortion repair (phase_60): position-adaptive H3+ harmonic suppression.
     # Identical scope to phase_61/phase_62 (narrow-band spectral fingerprint change vs. distorted ref).

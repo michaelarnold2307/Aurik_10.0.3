@@ -94,6 +94,12 @@ class CompressionPhase(PhaseInterface):
             "mid_high": [-14, 3.8, 10, 100, 10, 4.8],
             "high": [-16, 2.2, 5, 80, 6, 2.8],
         },
+        MaterialType.CASSETTE: {
+            "bass": [-18, 2.8, 30, 200, 6, 2.8],
+            "low_mid": [-16, 3.2, 20, 150, 8, 3.8],
+            "mid_high": [-14, 3.8, 10, 100, 10, 4.8],
+            "high": [-16, 2.2, 5, 80, 6, 2.8],
+        },  # v9.12.9: IEC 60094-1 — gleiche Capstan-Physik wie TAPE
         MaterialType.CD_DIGITAL: {
             "bass": [-24, 2.0, 30, 200, 4, 2.0],  # Light compression
             "low_mid": [-22, 2.5, 20, 150, 6, 2.5],
@@ -106,6 +112,12 @@ class CompressionPhase(PhaseInterface):
             "mid_high": [-22, 2.5, 10, 100, 6, 2.5],
             "high": [-24, 1.5, 5, 80, 3, 1.5],
         },
+        MaterialType.UNKNOWN: {  # Vinyl-ähnliche Defaults (konservativ)
+            "bass": [-22, 2.5, 30, 200, 6, 2.5],
+            "low_mid": [-20, 3.0, 20, 150, 8, 3.5],
+            "mid_high": [-18, 3.5, 10, 100, 10, 4.5],
+            "high": [-20, 2.0, 5, 80, 6, 2.5],
+        },
     }
 
     # Parallel compression blend (wet %)
@@ -113,8 +125,10 @@ class CompressionPhase(PhaseInterface):
         MaterialType.SHELLAC: 0.50,  # 50% parallel compression
         MaterialType.VINYL: 0.40,  # 40%
         MaterialType.TAPE: 0.45,  # 45%
+        MaterialType.CASSETTE: 0.45,  # v9.12.9: IEC 60094-1 — gleiche Capstan-Physik wie TAPE
         MaterialType.CD_DIGITAL: 0.30,  # 30% (light)
         MaterialType.STREAMING: 0.20,  # 20% (minimal)
+        MaterialType.UNKNOWN: 0.30,  # Vinyl-ähnlich
     }
 
     # Detection mode: 'rms' or 'peak'
@@ -122,8 +136,10 @@ class CompressionPhase(PhaseInterface):
         MaterialType.SHELLAC: "rms",  # RMS for natural sound
         MaterialType.VINYL: "rms",
         MaterialType.TAPE: "rms",
+        MaterialType.CASSETTE: "rms",  # v9.12.9: IEC 60094-1 — gleiche Capstan-Physik wie TAPE
         MaterialType.CD_DIGITAL: "peak",  # Peak for precision
         MaterialType.STREAMING: "peak",
+        MaterialType.UNKNOWN: "rms",  # Vinyl-ähnlich
     }
 
     # Look-ahead buffer (ms)

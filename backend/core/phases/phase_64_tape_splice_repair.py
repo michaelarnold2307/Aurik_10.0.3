@@ -105,19 +105,53 @@ def _detect_splice_points(x: np.ndarray, sample_rate: int, crossfade_samples: in
 
 
 def _apply_splice_repair(
-    out: np.ndarray, original: np.ndarray, splice_points: list[int], crossfade_samples: int, strength: float
+    out: np.ndarray,
+    original: np.ndarray,
+    splice_points: list[int],
+    crossfade_samples: int,
+    strength: float,
+    protected_zones: list | None = None,
+    sample_rate: int = 48000,
 ) -> np.ndarray:
-    """Wendet Click-Entfernung und Pegel-Überblendung an jedem Schnittunkt an.
+    """Wendet Click-Entfernung und Pegel-Überblendung an jedem Schnittpunkt an.
 
     Args:
         out:             Working copy of the signal (modified in place).
         original:        Read-only original signal for stable RMS measurements.
         splice_points:   Sample indices of detected splices.
         crossfade_samples: Crossfade region length in samples.
-        strength:        Processing strength [0, 1].
+        strength:        Basis-Verarbeitungsstärke [0, 1].
+        protected_zones: [(start_s, end_s, max_strength), ...] — VFA-Schutzzonen.
+        sample_rate:     Sample-Rate in Hz (für Zeitberechnung der Schutzzonen).
     """
     n = len(out)
+    _sr = max(int(sample_rate), 1)
     for sp in splice_points:
+        # Per-Splice individuelle Stärke aus lokalem Pegelsprung (§0l Strength-Orakel)
+        _pre_len = min(crossfade_samples, sp)
+        _post_len = min(crossfade_samples, n - sp)
+        _pre_r = float(np.sqrt(np.mean(original[sp - _pre_len : sp] ** 2) + 1e-12)) if _pre_len > 0 else 1e-10
+        _post_r = float(np.sqrt(np.mean(original[sp : sp + _post_len] ** 2) + 1e-12)) if _post_len > 0 else 1e-10
+        if _pre_r > 1e-8 and _post_r > 1e-8:
+            _level_ratio = max(_pre_r, _post_r) / (min(_pre_r, _post_r) + 1e-12)
+            _level_jump_db = float(20.0 * np.log10(max(1.0, _level_ratio)))
+            # Stärke proportional zum Pegelsprung: 35% bei 2 dB, maximal bei 10 dB
+            _jump_factor = float(np.clip(0.35 + 0.65 * (_level_jump_db - 2.0) / 8.0, 0.30, 1.0))
+            _local_str = strength * _jump_factor
+        else:
+            _local_str = strength * 0.50
+        # Schutzzone: VFA-Vibrato/Frisson/Flüster/Passaggio-Zonen reduzieren Stärke
+        if protected_zones:
+            _sp_s = sp / float(_sr)
+            for _pz in protected_zones:
+                try:
+                    if float(_pz[0]) <= _sp_s <= float(_pz[1]):
+                        _local_str = min(_local_str, float(_pz[2]))
+                        break
+                except Exception:
+                    continue
+        _local_str = float(np.clip(_local_str, 0.05, 1.0))
+
         # Sub-step 2a: Remove click impulse (short interpolation)
         click_half = min(32, crossfade_samples // 2)
         cl = max(0, sp - click_half)
@@ -125,7 +159,7 @@ def _apply_splice_repair(
         if cr - cl < 4:
             continue
         interp = np.linspace(out[cl], out[min(cr, n - 1)], cr - cl)
-        click_weight = float(np.clip(strength, 0.0, 1.0))
+        click_weight = float(np.clip(_local_str, 0.0, 1.0))
         out[cl:cr] = out[cl:cr] * (1.0 - click_weight) + interp * click_weight
 
         # Sub-step 2b: Level crossfade (measured against unmodified original)
@@ -139,7 +173,7 @@ def _apply_splice_repair(
             fade_len = min(crossfade_samples, post_end - sp)
             if fade_len > 0:
                 fade = np.linspace(gain_ratio, 1.0, fade_len)
-                blend = float(np.clip(strength * 0.5, 0.0, 0.5))
+                blend = float(np.clip(_local_str * 0.5, 0.0, 0.5))
                 out[sp : sp + fade_len] *= (1.0 - blend) + blend * fade
 
     return out
@@ -152,6 +186,7 @@ def apply(
     defect_scores: dict | None = None,
     min_splice_score: float = _MIN_SPLICE_SCORE,
     crossfade_ms: float = _CROSSFADE_MS,
+    protected_zones: list | None = None,
 ) -> np.ndarray:
     """Haupt-entry point for Phase 64."""
     assert sample_rate == 48000, f"SR must be 48000 Hz, got: {sample_rate}"
@@ -175,10 +210,22 @@ def apply(
         if not splice_points:
             return np.clip(audio, -1.0, 1.0).astype(np.float32)
         left_out = _apply_splice_repair(
-            audio[0].astype(np.float32), audio[0].astype(np.float32), splice_points, crossfade_samples, strength
+            audio[0].astype(np.float32),
+            audio[0].astype(np.float32),
+            splice_points,
+            crossfade_samples,
+            strength,
+            protected_zones=protected_zones,
+            sample_rate=sample_rate,
         )
         right_out = _apply_splice_repair(
-            audio[1].astype(np.float32), audio[1].astype(np.float32), splice_points, crossfade_samples, strength
+            audio[1].astype(np.float32),
+            audio[1].astype(np.float32),
+            splice_points,
+            crossfade_samples,
+            strength,
+            protected_zones=protected_zones,
+            sample_rate=sample_rate,
         )
         left_out = np.nan_to_num(left_out, nan=0.0, posinf=0.0, neginf=0.0)
         right_out = np.nan_to_num(right_out, nan=0.0, posinf=0.0, neginf=0.0)
@@ -189,7 +236,15 @@ def apply(
     if not splice_points:
         return np.clip(audio, -1.0, 1.0).astype(np.float32)
 
-    out = _apply_splice_repair(np.copy(x), x, splice_points, crossfade_samples, strength)
+    out = _apply_splice_repair(
+        np.copy(x),
+        x,
+        splice_points,
+        crossfade_samples,
+        strength,
+        protected_zones=protected_zones,
+        sample_rate=sample_rate,
+    )
     result = np.nan_to_num(out, nan=0.0, posinf=0.0, neginf=0.0)
     return np.clip(result, -1.0, 1.0).astype(np.float32)
 
@@ -333,6 +388,30 @@ class TapeSpliceRepairPhase(PhaseInterface):
                 warnings=["Tape splice repair skipped due to zero effective strength"],
             )
         _rms_in_db = _rms_dbfs_gated(audio)
+        # Schutzzonen für per-Splice individuelle Stärke zusammenstellen (§0p Vocal-Supremacy + §0l)
+        _p64_zones: list = []
+        for _z in kwargs.get("vibrato_zones") or []:
+            try:
+                _p64_zones.append((float(_z[0]), float(_z[1]), 0.20))  # §0p Vibrato-Schutz
+            except Exception:
+                pass
+        for _z in kwargs.get("frisson_zones") or []:
+            try:
+                _fz_s = float(getattr(_z, "start_s", None) or _z[0])
+                _fz_e = float(getattr(_z, "end_s", None) or _z[1])
+                _p64_zones.append((_fz_s, _fz_e, 0.30))  # Frisson sakrosankt
+            except Exception:
+                pass
+        for _z in kwargs.get("whisper_zones") or []:
+            try:
+                _p64_zones.append((float(_z[0]), float(_z[1]), 0.25))  # Flüsterpassagen
+            except Exception:
+                pass
+        for _z in kwargs.get("passaggio_zones") or []:
+            try:
+                _p64_zones.append((float(_z[0]), float(_z[1]), 0.35))  # Passaggio-Übergänge
+            except Exception:
+                pass
         result_audio = apply(
             audio,
             sample_rate,
@@ -340,6 +419,7 @@ class TapeSpliceRepairPhase(PhaseInterface):
             defect_scores=_defect_scores,
             min_splice_score=_profile_64["min_splice_score"],
             crossfade_ms=_profile_64["crossfade_ms"],
+            protected_zones=_p64_zones or None,
         )
         _n_samples_64 = int(result_audio.shape[-1]) if result_audio.ndim == 2 else int(result_audio.shape[0])
         _locality_profile, _locality_coverage = self._build_locality_profile(

@@ -208,7 +208,8 @@ class GuitarEnhancementPhase(PhaseInterface):
         # 1. Genre-Klassifikation via Spektralzentroid + Crest Factor
         centroid = _spectral_centroid(audio)
         rms = float(np.sqrt(np.mean(mono**2)))
-        peak = float(np.max(np.abs(mono)))
+        # V08: np.percentile statt np.max — robust gegen Einzel-Sample-Spikes im Crest-Factor.
+        peak = float(np.percentile(np.abs(mono), 99.9))
         crest_db = 20.0 * np.log10(peak / (rms + 1e-10) + 1e-10)
         # Rock: bright centroid + moderate crest (distorted pickups)
         # Jazz: dark centroid + high crest (clean dynamics)

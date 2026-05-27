@@ -103,11 +103,14 @@ def check_temporal_continuity(
         ok = ratio <= _VARIANCE_RATIO_WARN
         critical = ratio > _VARIANCE_RATIO_CRITICAL
 
-        # §2.69 v9.5: Gain-Sprung an Phasengrenze messen (abrupter RMS-Anstieg/-Abfall).
-        # Vergleicht die letzten 3 pre-Frames mit den ersten 3 post-Frames.
-        _n_boundary_frames = 3
-        pre_boundary_rms = float(np.mean(rms_pre[-_n_boundary_frames:]) + 1e-12)
-        post_boundary_rms = float(np.mean(rms_post[:_n_boundary_frames]) + 1e-12)
+        # §2.69 v9.5: Gain-Sprung einer Phase messen (abrupter RMS-Anstieg/-Abfall).
+        # FIX v9.12.9c: Vergleich MITTLERER RMS (pre vs. post) — nicht rms_pre[-N:] vs.
+        # rms_post[:N] (Lied-Ende vs. Lied-Anfang). Bei Fade-out-Material lieferte die
+        # alte Logik immer ~120 dB (Near-Stille vs. Vollpegel) → systematisches false-
+        # positive für JEDE Phase, doppelter Rescue-Aufruf, nie hilfreich. Korrekte
+        # Messung: Gesamtpegel-Änderung durch die Phase (mean-RMS pre vs. mean-RMS post).
+        pre_boundary_rms = float(np.mean(rms_pre) + 1e-12)
+        post_boundary_rms = float(np.mean(rms_post) + 1e-12)
         gain_step_db = float(abs(20.0 * np.log10(post_boundary_rms / pre_boundary_rms)))
         gain_step_db = float(np.nan_to_num(gain_step_db, nan=0.0, posinf=0.0, neginf=0.0))
         if gain_step_db > 1.5:

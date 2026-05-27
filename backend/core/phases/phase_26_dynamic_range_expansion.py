@@ -108,6 +108,15 @@ class DynamicRangeExpansion(PhaseInterface):
             "attack_ms": 20,
             "release_ms": 100,
         },
+        MaterialType.CASSETTE: {
+            "upward_ratio": 1.3,
+            "upward_threshold_db": -15,
+            "downward_ratio": 2.5,
+            "downward_threshold_db": -50,
+            "knee_width_db": 6,
+            "attack_ms": 20,
+            "release_ms": 100,
+        },  # v9.12.9: IEC 60094-1 — gleiche Capstan-Physik wie TAPE
         MaterialType.CD_DIGITAL: {
             "upward_ratio": 1.5,  # Aggressive (restore from brick-wall limiting)
             "upward_threshold_db": -12,
@@ -422,6 +431,9 @@ class DynamicRangeExpansion(PhaseInterface):
                 "rms_drop_db": 0.0,
                 "loudness_makeup_db": 0.0,
                 "dr_ceiling_capped": _dr_ceiling_capped,
+                "hallucination_decision": (
+                    "rollback" if ("_hg_result26" in dir() and _hg_result26.requires_rollback) else "ok"
+                ),
             },
             warnings=[] if rt_factor < 0.3 else [f"Performance sub-optimal: {rt_factor:.2f}× realtime"],
         )

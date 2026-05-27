@@ -690,8 +690,8 @@ class EQCorrectionPhase(PhaseInterface):
         dolby_nr_applied = False
         if dolby_nr_type and dolby_nr_type != "none":
             try:
-                from backend.core.dolby_nr_detector import (
-                    apply_inverse_filter as _dolby_inv,  # pylint: disable=import-outside-toplevel
+                from backend.core.dolby_nr_detector import (  # pylint: disable=import-outside-toplevel
+                    apply_inverse_filter as _dolby_inv,
                 )
 
                 result_audio = _dolby_inv(  # type: ignore[arg-type]
@@ -720,8 +720,8 @@ class EQCorrectionPhase(PhaseInterface):
 
         # §4.5 Psychoacoustic Masking Compensation — fulfill the docstring promise (L27-46)
         try:
-            from backend.core.dsp.psychoacoustics import (
-                apply_psychoacoustic_masking_clamp,  # pylint: disable=import-outside-toplevel
+            from backend.core.dsp.psychoacoustics import (  # pylint: disable=import-outside-toplevel
+                apply_psychoacoustic_masking_clamp,
             )
 
             result_audio = apply_psychoacoustic_masking_clamp(
@@ -749,6 +749,29 @@ class EQCorrectionPhase(PhaseInterface):
                 _sot_applied = True
         except Exception as _sot_exc:
             logger.debug("§C7 Spectral-OT non-blocking: %s", _sot_exc)
+
+        # §V24 Spektralfarbe-Prüfung nach EQ (§2.74, non-blocking WARNING)
+        try:
+            from backend.core.dsp.spectral_color_guard import (  # pylint: disable=import-outside-toplevel
+                check_spectral_color_preservation as _scg_p04,
+            )
+
+            _sc_result_p04 = _scg_p04(audio, result_audio, sample_rate)
+            if not _sc_result_p04.ok:
+                _sc_wet_p04 = 0.70  # Phase-Strength −30 % (§V24)
+                result_audio = (_sc_wet_p04 * result_audio + (1.0 - _sc_wet_p04) * audio).astype(np.float32)
+        except Exception as _sc_exc_p04:
+            logger.debug("§V24 phase_04 spectral_color non-blocking: %s", _sc_exc_p04)
+
+        # §V26 Onset-Schutz nach EQ (§2.77, non-blocking)
+        try:
+            from backend.core.dsp.onset_guard import (  # pylint: disable=import-outside-toplevel
+                apply_onset_protection_mask as _opm_p04,
+            )
+
+            result_audio = _opm_p04(audio, result_audio, None, max_delta_db=1.5)
+        except Exception as _opm_exc_p04:
+            logger.debug("§V26 phase_04 onset_guard non-blocking: %s", _opm_exc_p04)
 
         return create_phase_result(
             audio=result_audio,

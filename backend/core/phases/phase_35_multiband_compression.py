@@ -113,6 +113,12 @@ class MultibandCompressionPhase(PhaseInterface):
             "mid_high": (3.5, -13, 10, 20, 150, 4.5),  # Mehr Tube-Character
             "high": (2.2, -15, 6, 5, 100, 2.2),
         },
+        MaterialType.CASSETTE: {
+            "bass": (2.8, -17, 8, 30, 200, 2.8),
+            "low_mid": (3.2, -15, 10, 40, 250, 3.2),
+            "mid_high": (3.2, -13, 10, 20, 150, 4.0),  # v9.12.9: leicht reduziert (BW-Ceiling 12 kHz)
+            "high": (2.0, -15, 6, 5, 100, 2.0),  # v9.12.9: HF konservativ
+        },  # v9.12.9: IEC 60094-1 — gleiche Capstan-Physik wie TAPE
         MaterialType.CD_DIGITAL: {
             "bass": (2.5, -20, 6, 25, 180, 2.0),  # Transparent
             "low_mid": (3.0, -18, 8, 35, 220, 2.5),
@@ -143,6 +149,12 @@ class MultibandCompressionPhase(PhaseInterface):
             "mid_high": (1.15, -52),
             "high": (1.1, -58),
         },
+        MaterialType.CASSETTE: {
+            "bass": (1.2, -42),
+            "low_mid": (1.15, -48),
+            "mid_high": (1.15, -52),
+            "high": (1.1, -58),
+        },  # v9.12.9: IEC 60094-1 — gleiche Capstan-Physik wie TAPE
         MaterialType.CD_DIGITAL: {
             "bass": (1.4, -45),  # Stärkeres Upward (digital clean)
             "low_mid": (1.3, -50),
@@ -161,19 +173,24 @@ class MultibandCompressionPhase(PhaseInterface):
         super().__init__()
         self.name = "Professional Multiband Compression"
 
-    def process(self, audio: np.ndarray, sample_rate: int, material: MaterialType, **kwargs) -> PhaseResult:
+    def process(  # type: ignore[override]  # pylint: disable=signature-differs
+        self,
+        audio: np.ndarray,
+        sample_rate: int,
+        material_type: MaterialType,
+        **kwargs,
+    ) -> PhaseResult:
         """
         Wendet Professional Multiband Compression an.
 
         Args:
             audio: Eingabe-Audio (mono oder stereo)
             sample_rate: Sample-Rate
-            material: Material-Typ
+            material_type: Material-Typ
 
         Returns:
             PhaseResult mit compressed Audio
         """
-        sample_rate = kwargs.get("sample_rate", 48000)
         assert sample_rate == 48000, f"SR muss 48000 Hz sein, erhalten: {sample_rate}"
         audio, _p35_transposed = to_channels_last(audio)
         start_time = time.time()
@@ -184,7 +201,7 @@ class MultibandCompressionPhase(PhaseInterface):
         phase_locality_factor = float(np.clip(phase_locality_factor, 0.35, 1.0))
         _pmgg_strength = float(kwargs.get("strength", 1.0))
         _effective_strength = float(np.clip(_pmgg_strength * phase_locality_factor, 0.0, 1.0))
-        if material == MaterialType.SHELLAC:
+        if material_type == MaterialType.SHELLAC:
             # Shellac vocals are very sensitive to over-compression; hard-cap intensity.
             _effective_strength = float(min(_effective_strength, 0.30))
 
@@ -196,7 +213,7 @@ class MultibandCompressionPhase(PhaseInterface):
                 audio=audio.copy(),
                 execution_time_seconds=time.time() - start_time,
                 metadata={
-                    "material": material.name,
+                    "material": material_type.name,
                     "algorithm": "skipped_zero_strength",
                     "phase_locality_factor": phase_locality_factor,
                     "effective_strength": _effective_strength,
@@ -214,7 +231,7 @@ class MultibandCompressionPhase(PhaseInterface):
             MaterialType.WIRE_RECORDING,
             MaterialType.WAX_CYLINDER,
         }
-        if material in _analog_sensitive and _effective_strength < 0.25:
+        if material_type in _analog_sensitive and _effective_strength < 0.25:
             audio = np.nan_to_num(audio, nan=0.0, posinf=0.0, neginf=0.0)
             audio = np.clip(audio, -1.0, 1.0)
             return PhaseResult(
@@ -222,7 +239,7 @@ class MultibandCompressionPhase(PhaseInterface):
                 audio=audio.copy(),
                 execution_time_seconds=time.time() - start_time,
                 metadata={
-                    "material": material.name,
+                    "material": material_type.name,
                     "algorithm": "skipped_low_strength_analog",
                     "phase_locality_factor": phase_locality_factor,
                     "effective_strength": _effective_strength,
@@ -236,13 +253,13 @@ class MultibandCompressionPhase(PhaseInterface):
         is_stereo = audio.ndim == 2
 
         # Get compression config
-        comp_config_raw = self.COMPRESSION_CONFIG.get(material, self.COMPRESSION_CONFIG[MaterialType.VINYL])
+        comp_config_raw = self.COMPRESSION_CONFIG.get(material_type, self.COMPRESSION_CONFIG[MaterialType.VINYL])
         comp_config = {k: list(v) for k, v in comp_config_raw.items()}
         for band_name in comp_config:
             comp_config[band_name][0] = float(1.0 + (comp_config[band_name][0] - 1.0) * _effective_strength)
             comp_config[band_name][5] = float(comp_config[band_name][5] * _effective_strength)
 
-        upward_raw = self.UPWARD_COMPRESSION.get(material, None)
+        upward_raw = self.UPWARD_COMPRESSION.get(material_type, None)
         upward_config = None
         if upward_raw is not None:
             upward_config = {k: list(v) for k, v in upward_raw.items()}
@@ -275,7 +292,9 @@ class MultibandCompressionPhase(PhaseInterface):
 
         # §4.5 Psychoacoustic Masking Clamp — protect masked dynamics regions
         try:
-            from backend.core.dsp.psychoacoustics import apply_psychoacoustic_masking_clamp
+            from backend.core.dsp.psychoacoustics import (
+                apply_psychoacoustic_masking_clamp,  # pylint: disable=import-outside-toplevel
+            )
 
             compressed = apply_psychoacoustic_masking_clamp(
                 audio,
@@ -290,7 +309,9 @@ class MultibandCompressionPhase(PhaseInterface):
         # §2.46f Natural-Performance-Artifacts-Guard — MB-Kompressor kann Atemgeräusche
         # in einem Frequenzband gaten wenn die Schwelle zu aggressiv ist.
         try:
-            from backend.core.natural_performance_detector import get_natural_performance_detector
+            from backend.core.natural_performance_detector import (
+                get_natural_performance_detector,  # pylint: disable=import-outside-toplevel
+            )
 
             _npa_a35 = compressed
             if _npa_a35.ndim == 2 and _npa_a35.shape[0] == 2 and _npa_a35.shape[1] > _npa_a35.shape[0]:
@@ -319,7 +340,7 @@ class MultibandCompressionPhase(PhaseInterface):
             audio=compressed,
             execution_time_seconds=execution_time,
             metadata={
-                "material": material.name,
+                "material": material_type.name,
                 "num_bands": 4,
                 "band_characters": self.BAND_CHARACTERS,
                 "upward_compression_enabled": upward_config is not None,
@@ -558,7 +579,7 @@ class MultibandCompressionPhase(PhaseInterface):
         band_metrics = {}
         band_names = ["Bass", "Low-Mid", "Mid-High", "High"]
 
-        for i, (band, band_name, character) in enumerate(zip(bands, band_names, self.BAND_CHARACTERS)):
+        for _, (band, band_name, character) in enumerate(zip(bands, band_names, self.BAND_CHARACTERS)):
             ratio, threshold_db, knee_db, attack_ms, release_ms, makeup_db = comp_config[
                 band_name.lower().replace("-", "_")
             ]
@@ -567,7 +588,7 @@ class MultibandCompressionPhase(PhaseInterface):
             if upward_config is not None:
                 upward_band_config = upward_config.get(band_name.lower().replace("-", "_"))
 
-            compressed_band, metrics = self._compress_band_with_character(
+            compressed_band, band_m = self._compress_band_with_character(
                 band,
                 sample_rate,
                 character,
@@ -582,7 +603,7 @@ class MultibandCompressionPhase(PhaseInterface):
             )
 
             compressed_bands.append(compressed_band)
-            band_metrics[band_name] = metrics
+            band_metrics[band_name] = band_m
 
         # Summiere Bänder
         compressed_audio = np.sum(compressed_bands, axis=0)
@@ -601,7 +622,7 @@ class MultibandCompressionPhase(PhaseInterface):
         band_metrics = {}
         band_names = ["Bass", "Low-Mid", "Mid-High", "High"]
 
-        for i, (band, band_name, character) in enumerate(zip(bands, band_names, self.BAND_CHARACTERS)):
+        for _, (band, band_name, character) in enumerate(zip(bands, band_names, self.BAND_CHARACTERS)):
             ratio, threshold_db, knee_db, attack_ms, release_ms, makeup_db = comp_config[
                 band_name.lower().replace("-", "_")
             ]
@@ -610,7 +631,7 @@ class MultibandCompressionPhase(PhaseInterface):
             if upward_config is not None:
                 upward_band_config = upward_config.get(band_name.lower().replace("-", "_"))
 
-            compressed_band, metrics = self._compress_band_with_character(
+            compressed_band, band_m = self._compress_band_with_character(
                 band,
                 sample_rate,
                 character,
@@ -625,7 +646,7 @@ class MultibandCompressionPhase(PhaseInterface):
             )
 
             compressed_bands.append(compressed_band)
-            band_metrics[band_name] = metrics
+            band_metrics[band_name] = band_m
 
         # Summiere Bänder
         compressed_audio = np.sum(compressed_bands, axis=0)
@@ -651,15 +672,14 @@ class MultibandCompressionPhase(PhaseInterface):
 
 
 if __name__ == "__main__":
-    """Test der MultibandCompressionPhase."""
-
+    # Test der MultibandCompressionPhase.
     logger.debug("=" * 80)
     logger.debug("Phase 35: Professional Multiband Compression v2.0")
     logger.debug("=" * 80)
 
-    sample_rate = 44100
-    duration = 3.0
-    t = np.linspace(0, duration, int(sample_rate * duration), endpoint=False)
+    _test_sr: int = 44100
+    _test_dur: float = 3.0
+    t = np.linspace(0, _test_dur, int(_test_sr * _test_dur), endpoint=False)
 
     # Test-Audio: Multi-Frequenz mit unterschiedlichen Levels
     # - Bass (100 Hz): Stark
@@ -667,30 +687,30 @@ if __name__ == "__main__":
     # - Mid-High (2000 Hz): Moderat
     # - High (8000 Hz): Leise
 
-    test_audio_left = (
+    _test_left = (
         0.60 * np.sin(2 * np.pi * 100 * t)  # Bass (stark)
         + 0.40 * np.sin(2 * np.pi * 500 * t)  # Low-Mid
         + 0.35 * np.sin(2 * np.pi * 2000 * t)  # Mid-High
         + 0.15 * np.sin(2 * np.pi * 8000 * t)  # High (leise)
     )
 
-    test_audio_right = (
+    _test_right = (
         0.58 * np.sin(2 * np.pi * 100 * t + 0.1)
         + 0.38 * np.sin(2 * np.pi * 500 * t + 0.05)
         + 0.33 * np.sin(2 * np.pi * 2000 * t + 0.08)
         + 0.17 * np.sin(2 * np.pi * 8000 * t + 0.12)
     )
 
-    test_audio_stereo = np.column_stack((test_audio_left, test_audio_right))
+    test_audio_stereo = np.column_stack((_test_left, _test_right))
 
-    rms_before = np.sqrt(np.mean(test_audio_stereo**2))
-    peak_before = np.abs(test_audio_stereo).max()
+    _test_rms_before = np.sqrt(np.mean(test_audio_stereo**2))
+    _test_peak_before = np.abs(test_audio_stereo).max()
 
-    logger.debug("\nGeneriert %ss Test-Audio @ %s Hz", duration, sample_rate)
+    logger.debug("\nGeneriert %ss Test-Audio @ %s Hz", _test_dur, _test_sr)
     logger.debug("Multi-Frequenz: 100 Hz (Bass, stark), 500 Hz (Low-Mid), 2000 Hz (Mid-High), 8000 Hz (High, leise)")
     logger.debug("Stereo mit leichter Phasenverschiebung")
-    logger.debug("RMS vor Compression: %.1f dBFS", 20 * np.log10(rms_before))
-    logger.debug("Peak vor Compression: %.1f dBFS", 20 * np.log10(peak_before))
+    logger.debug("RMS vor Compression: %.1f dBFS", 20 * np.log10(_test_rms_before))
+    logger.debug("Peak vor Compression: %.1f dBFS", 20 * np.log10(_test_peak_before))
 
     phase = MultibandCompressionPhase()
 
@@ -702,37 +722,48 @@ if __name__ == "__main__":
         logger.debug("Material: %s", material.name)
         logger.debug("%s", "─" * 80)
 
-        result = phase.process(test_audio_stereo, sample_rate, material)
+        result = phase.process(test_audio_stereo, _test_sr, material)
 
         if result.success:
             logger.debug("\n✅ Professional Multiband Compression:")
             logger.debug("   RMS Change: %.2f dB", result.metrics["rms_change_db"])
             logger.debug(
-                f"   Peak: {result.metrics['peak_before_db']:.1f} → {result.metrics['peak_after_db']:.1f} dBFS"
+                "   Peak: %.1f \u2192 %.1f dBFS",
+                result.metrics["peak_before_db"],
+                result.metrics["peak_after_db"],
             )
             logger.debug(
-                f"   Upward Compression: {'Enabled' if result.metadata['upward_compression_enabled'] else 'Disabled'}"
+                "   Upward Compression: %s",
+                "Enabled" if result.metadata["upward_compression_enabled"] else "Disabled",
             )
 
             logger.debug("\n   Per-Band Compression (Character Modeling):")
-            for band_name, metrics in result.metadata["band_metrics"].items():
-                char = metrics["character"]
-                ratio = metrics["ratio"]
-                threshold = metrics["threshold_db"]
-                max_gr = metrics["max_gr_db"]
-                avg_gr = metrics["avg_gr_db"]
-                upward = metrics["max_upward_db"]
-                makeup = metrics["makeup_db"]
-
-                upward_str = f", Upward +{upward:.1f} dB" if upward > 0.1 else ""
+            for _bn, _bm in result.metadata["band_metrics"].items():
+                _char = _bm["character"]
+                _ratio = _bm["ratio"]
+                _thresh = _bm["threshold_db"]
+                _max_gr = _bm["max_gr_db"]
+                _avg_gr = _bm["avg_gr_db"]
+                _upward = _bm["max_upward_db"]
+                _makeup = _bm["makeup_db"]
+                _upward_str = f", Upward +{_upward:.1f} dB" if _upward > 0.1 else ""
                 logger.debug(
-                    f"     {band_name:10s} ({char:8s}): Ratio {ratio:.1f}:1, Thresh {threshold:.1f} dB, "
-                    f"Max GR {max_gr:.1f} dB, Avg GR {avg_gr:.1f} dB, Makeup +{makeup:.1f} dB{upward_str}"
+                    "     %-10s (%-8s): Ratio %.1f:1, Thresh %.1f dB, "
+                    "Max GR %.1f dB, Avg GR %.1f dB, Makeup +%.1f dB%s",
+                    _bn,
+                    _char,
+                    _ratio,
+                    _thresh,
+                    _max_gr,
+                    _avg_gr,
+                    _makeup,
+                    _upward_str,
                 )
 
             logger.debug(
-                f"\n   Verarbeitungszeit: {result.execution_time_seconds:.3f}s "
-                f"({result.execution_time_seconds / duration:.2f}× realtime)"
+                "\n   Verarbeitungszeit: %.3fs (%.2f\u00d7 realtime)",
+                result.execution_time_seconds,
+                result.execution_time_seconds / _test_dur,
             )
 
     logger.debug("\n%s", "=" * 80)

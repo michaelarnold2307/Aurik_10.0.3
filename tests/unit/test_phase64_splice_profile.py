@@ -79,8 +79,9 @@ def test_process_applies_defect_locations_locality(monkeypatch):
         defect_scores: dict | None = None,
         min_splice_score: float = 0.1,
         crossfade_ms: float = 15.0,
+        protected_zones: list | None = None,
     ) -> np.ndarray:
-        del sample_rate, strength, defect_scores, min_splice_score, crossfade_ms
+        del sample_rate, strength, defect_scores, min_splice_score, crossfade_ms, protected_zones
         return (audio * 0.08).astype(np.float32)
 
     monkeypatch.setattr(m, "apply", _fake_apply)

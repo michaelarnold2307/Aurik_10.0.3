@@ -75,7 +75,16 @@ class TestVFAResult:
             "formant_f2_mean",
             "formant_stable",
             "passaggio_zones",
+            "vibrato_zones",
+            "tension_zones",
+            "release_zones",
+            "whisper_zones",
+            "climax_type",
             "vqi_gate_active",
+            "style_intent_zones",
+            "style_confidence",
+            "singer_school",
+            "phoneme_protection_level",
             "analysis_duration_s",
         }
         assert expected_keys == set(d.keys())

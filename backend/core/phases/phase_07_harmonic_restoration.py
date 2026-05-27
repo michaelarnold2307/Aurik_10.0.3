@@ -881,6 +881,38 @@ class HarmonicRestorationPhase(PhaseInterface):
                 logger.debug("§Gap5 Console-Character (non-blocking): %s", _con_exc)
 
         restored = restore_layout(restored, _p07_transposed)
+
+        # §V22 Pre-Echo-Prevention — Additive Harmonik auf Transient-Shifts prüfen (§2.73, non-blocking)
+        try:
+            from backend.core.dsp.transient_guard import (
+                detect_transient_shifts as _dts_07,  # pylint: disable=import-outside-toplevel
+            )
+
+            _audio_07_orig = restore_layout(audio.copy(), _p07_transposed)
+            _pre_v22_07 = (
+                _audio_07_orig.mean(
+                    axis=-1 if _audio_07_orig.ndim == 2 and _audio_07_orig.shape[-1] <= 8 else 0
+                ).astype(np.float32)
+                if _audio_07_orig.ndim == 2
+                else _audio_07_orig.astype(np.float32)
+            )
+            _post_v22_07 = (
+                restored.mean(axis=-1 if restored.ndim == 2 and restored.shape[-1] <= 8 else 0).astype(np.float32)
+                if restored.ndim == 2
+                else restored.astype(np.float32)
+            )
+            _ts_07 = _dts_07(_pre_v22_07, _post_v22_07, sample_rate)
+            if not _ts_07.ok:
+                _wet_ts_07 = max(0.0, 1.0 - _ts_07.blend_reduction)
+                restored = (_wet_ts_07 * restored + (1.0 - _wet_ts_07) * _audio_07_orig).astype(np.float32)
+                logger.warning(
+                    "§V22 phase_07: onset_shift=%.2f ms → blend_reduction=%.2f",
+                    _ts_07.max_shift_ms,
+                    _ts_07.blend_reduction,
+                )
+        except Exception as _v22_07_exc:
+            logger.debug("§V22 phase_07 transient_guard non-blocking: %s", _v22_07_exc)
+
         return create_phase_result(
             audio=restored,
             modifications={
@@ -1429,7 +1461,7 @@ class HarmonicRestorationPhase(PhaseInterface):
                 return audio
             result = np.nan_to_num(result, nan=0.0, posinf=0.0, neginf=0.0)
             return np.clip(result, -1.0, 1.0).astype(np.float32)
-        except Exception:  # pylint: disable=broad-except
+        except Exception:
             return audio
 
     @staticmethod
@@ -1487,7 +1519,7 @@ class HarmonicRestorationPhase(PhaseInterface):
             if not h1_vals:
                 return 0.0
             return float(np.mean(h2_vals)) / max(float(np.mean(h1_vals)), 1e-10)
-        except Exception:  # pylint: disable=broad-except
+        except Exception:
             return 0.0
 
     def supports_material(self, _material_type: str) -> bool:

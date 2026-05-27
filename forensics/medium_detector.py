@@ -1396,6 +1396,8 @@ class MediumDetector:
         # Dateien noch nachweisbar.  Diese Features werden genutzt, um den analogen
         # Ursprungsträger unabhängig vom Bayesian-Scoring zu rekonstruieren.
         _physical_analog_sources: list[tuple[str, float]] = []
+        _primary_vinyl_forced_by_rotation_gate: bool = False
+        _best_analog_set_by_physical_gate: bool = False  # §6.1b: Physical-Gate-Primary bleibt Primary
         # Default-Fallback für §6.7f Vorläufer-Gate (falls _pa_conf_thresh durch den
         # physical-inference-Pfad nicht gesetzt wurde — z.B. wenn best_analog direkt
         # via Bayesian-Posterior gefunden wurde und _analog_zeroed=False).
@@ -1429,6 +1431,12 @@ class MediumDetector:
                 # Copeland 2008) UND conf >= 0.20 UND Infrasonic-Bestätigung vorhanden.
                 # Fallback-Gate B (Kassette): BW-Rolloff ~12–15 kHz ist kein Codec-Artefakt.
                 for _cand_analog, _cand_conf in _physical_analog_sources:
+                    _via_rotation_gate = (
+                        _cand_analog == "vinyl"
+                        and _cand_conf >= 0.20
+                        and fp.rotation_strength >= 0.30
+                        and fp.infrasonic_rms >= 0.008
+                    )
                     _strong_physical_analog = (
                         (_cand_conf >= _pa_conf_thresh and _feature_ok)
                         or (
@@ -1442,6 +1450,14 @@ class MediumDetector:
                     )
                     if _strong_physical_analog:
                         best_analog, best_analog_score = _cand_analog, _cand_conf
+                        _best_analog_set_by_physical_gate = True
+                        if _via_rotation_gate:
+                            # §2.46a Rotation-Fallback-Gate: vinyl als Primary erkannt —
+                            # §6.1b darf diesen Primary NICHT durch spätere Tape-Stufen überschreiben.
+                            pass
+                        elif _cand_analog != "vinyl":
+                            # Spätere Nicht-Vinyl-Kandidaten heben vinyl-Force zurück.
+                            pass
                         logger.info(
                             "MediumDetector: physical-feature analog inference — "
                             "primary=%s (conf=%.3f) chain=%s "
@@ -1456,6 +1472,7 @@ class MediumDetector:
                         )
                         # Kein break — wir überschreiben mit jedem späteren Gate-Positiv.
                         # Letzter Treffer in _MEDIUM_ORDER-Reihenfolge = closest-to-codec.
+                        # Ausnahme: vinyl via Rotation-Gate bleibt Primary (_primary_vinyl_forced_by_rotation_gate).
 
                 if best_analog is None:
                     logger.info(
@@ -1714,7 +1731,12 @@ class MediumDetector:
         # Beispiel: vinyl→cassette→mp3_low → primary = "cassette"
         _analog_in_chain = [m for m in chain if m in self._ANALOG_MATERIALS]
         if _analog_in_chain:
-            primary = _analog_in_chain[-1]
+            # §6.1b [RELEASE_MUST]: Letzter-Analog-Träger = Primary — AUSNAHME:
+            # Wenn best_analog durch Physical-Gate gesetzt wurde (Primär- oder Rotation-
+            # Fallback-Gate), bleibt dieser Primary unverändert. Physical-Gate-Evidence
+            # ist direkter als Bayesian-Posterior-basiertes §6.1b-Prinzip.
+            if not _best_analog_set_by_physical_gate:
+                primary = _analog_in_chain[-1]
         is_multi = len(chain) > 1
         # Weakest-link principle: a transfer chain is only as confident as its
         # least certain component.  Using sum() caused multi-link chains (e.g.

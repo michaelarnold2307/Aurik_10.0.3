@@ -70,7 +70,7 @@ from backend.core.defect_scanner import MaterialType
 
 from .phase_interface import PhaseCategory, PhaseInterface, PhaseMetadata, PhaseResult
 
-# pylint: disable=import-outside-toplevel,redefined-outer-name
+# pylint: disable=import-outside-toplevel
 # ML-Hybrid Support
 try:
     import soundfile as sf
@@ -565,21 +565,41 @@ class TapeHissReductionPhase(PhaseInterface):
                 # FFT magnitude spectrum
                 _p29_fft = np.abs(np.fft.rfft(_p29_chunk))
                 _p29_freqs = np.fft.rfftfreq(len(_p29_chunk), d=1.0 / sample_rate)
-                # Signal band: 200 Hz – 5 kHz (musical content)
-                _p29_sig_mask = (_p29_freqs >= 200.0) & (_p29_freqs <= 5000.0)
-                # Hiss band: 8 kHz – Nyquist (tape hiss focus range)
-                _p29_hiss_mask = _p29_freqs >= 8000.0
+                # §2.31 Materialadaptive Hiss-Band-Definition:
+                # Kassette+MP3: MP3 entfernt Energie >8 kHz → Kassetten-Hiss liegt in
+                # 4–8 kHz; Signalband 200–4 kHz. Reines Kassettenband: 5–12 kHz Hiss.
+                # Digital: 8 kHz–Nyquist (klassische Hiss-Region).
+                _p29_transfer_chain = kwargs.get("transfer_chain") or []
+                _p29_mat_key = getattr(material, "value", str(material)).lower()
+                _p29_chain_has_mp3 = any("mp3" in str(c).lower() for c in _p29_transfer_chain)
+                _p29_is_tape_mat = _p29_mat_key in ("cassette", "tape", "reel_tape")
+                if _p29_is_tape_mat and _p29_chain_has_mp3:
+                    # Kassette+MP3: Hiss in 4–8 kHz (MP3 schneidet 8kHz+ weg)
+                    _p29_sig_mask = (_p29_freqs >= 200.0) & (_p29_freqs <= 4000.0)
+                    _p29_hiss_mask = (_p29_freqs >= 4000.0) & (_p29_freqs <= 8000.0)
+                    _p29_snr_threshold = 36.0  # Kassetten-Hiss in 4–8 kHz ist immer hörbar
+                elif _p29_is_tape_mat:
+                    # Reines Kassettenband: Hiss 5–12 kHz
+                    _p29_sig_mask = (_p29_freqs >= 200.0) & (_p29_freqs <= 5000.0)
+                    _p29_hiss_mask = (_p29_freqs >= 5000.0) & (_p29_freqs <= 12000.0)
+                    _p29_snr_threshold = 35.0
+                else:
+                    # Digital/Vinyl: klassisch 8 kHz–Nyquist
+                    _p29_sig_mask = (_p29_freqs >= 200.0) & (_p29_freqs <= 5000.0)
+                    _p29_hiss_mask = _p29_freqs >= 8000.0
+                    _p29_snr_threshold = 35.0
                 if _p29_sig_mask.any() and _p29_hiss_mask.any():
                     _p29_sig_pwr = float(np.mean(_p29_fft[_p29_sig_mask] ** 2))
                     _p29_hiss_pwr = float(np.mean(_p29_fft[_p29_hiss_mask] ** 2))
                     if _p29_hiss_pwr > 1e-30 and _p29_sig_pwr > 1e-30:
                         _p29_est_snr = 10.0 * np.log10(_p29_sig_pwr / _p29_hiss_pwr)
-                        if _p29_est_snr > 35.0:
+                        if _p29_est_snr > _p29_snr_threshold:
                             _p29_snr_bypass = True
                             logger.info(
-                                "§2.47 Phase 29: spectral HF-SNR=%.1f dB > 35 dB → "
+                                "§2.47 Phase 29: spectral HF-SNR=%.1f dB > %.1f dB → "
                                 "Dry-Signal bypass (hiss band negligible, OMLSA skipped)",
                                 _p29_est_snr,
+                                _p29_snr_threshold,
                             )
         except Exception as _p29_snr_exc:
             logger.debug("Phase 29 SNR bypass estimation failed (non-blocking): %s", _p29_snr_exc)
@@ -599,7 +619,7 @@ class TapeHissReductionPhase(PhaseInterface):
                     "rms_drop_db": 0.0,
                     "loudness_makeup_db": 0.0,
                 },
-                warnings=["SNR > 35 dB: clean tape signal, hiss reduction bypassed"],
+                warnings=[f"SNR > {_p29_snr_threshold:.0f} dB: clean tape signal, hiss reduction bypassed"],
             )
 
         # Get material-specific parameters
@@ -629,6 +649,54 @@ class TapeHissReductionPhase(PhaseInterface):
         _effective_strength = float(np.clip(_pmgg_strength * phase_locality_factor, 0.0, 1.0))
         _goal_hint_scalar = self._goal_hint_strength_scalar(kwargs)
         _effective_strength = float(np.clip(_effective_strength * _goal_hint_scalar, 0.0, 1.0))
+
+        # §K-2 Pre-Phase ACF-Authentizitaet-Cap (§2.45b Minimal-Intervention):
+        # Wenn das Input-Audio bereits hohe ACF-Periodizität zeigt (hochwertiges Signal),
+        # wird _effective_strength gekappt — verhindert Over-Processing.
+        # Non-blocking; Variablen werden vom Post-Delta-Guard weiter unten wiederverwendet.
+        _p29_auth_proxy: float = 0.5
+        _p29_acf_start: int = 0
+        _p29_acf_len: int = 0
+        _p29_lag_min: int = 1
+        _p29_lag_max: int = 2
+        try:
+            _p29_mono_in = audio.mean(axis=1) if audio.ndim == 2 else audio
+            _p29_n = int(len(_p29_mono_in))
+            _p29_acf_start = max(0, _p29_n // 3)
+            _p29_acf_len = min(8192, _p29_n - _p29_acf_start)
+            _p29_lag_min = max(1, int(sample_rate / 1000))
+            _p29_lag_max = min(int(sample_rate / 50), _p29_acf_len)
+            if _p29_acf_len >= 512 and _p29_lag_max > _p29_lag_min:
+                _p29_seg_in = _p29_mono_in[_p29_acf_start : _p29_acf_start + _p29_acf_len].astype(np.float64)
+                # V08-konform: FFT-basierte Autokorrelation statt O(n²) np.correlate
+                _p29_acf_in = signal.fftconvolve(_p29_seg_in, _p29_seg_in[::-1], mode="full")
+                _p29_acf_in = _p29_acf_in[len(_p29_acf_in) // 2 :]
+                _p29_acf_in /= float(_p29_acf_in[0]) + 1e-12
+                _p29_auth_proxy = float(
+                    np.clip(
+                        (float(np.max(_p29_acf_in[_p29_lag_min:_p29_lag_max])) + 1.0) / 2.0,
+                        0.0,
+                        1.0,
+                    )
+                )
+                if _p29_auth_proxy >= 0.90:
+                    _p29_acf_cap_f = 0.25
+                elif _p29_auth_proxy >= 0.80:
+                    _p29_acf_cap_f = 0.45
+                elif _p29_auth_proxy >= 0.70:
+                    _p29_acf_cap_f = 0.65
+                else:
+                    _p29_acf_cap_f = 1.0
+                if _p29_acf_cap_f < 1.0:
+                    _effective_strength = float(np.clip(_effective_strength * _p29_acf_cap_f, 0.0, 1.0))
+                    logger.info(
+                        "Phase29 §2.45b ACF-Pre-Cap: auth_proxy=%.3f → cap=%.2f → eff_str=%.3f",
+                        _p29_auth_proxy,
+                        _p29_acf_cap_f,
+                        _effective_strength,
+                    )
+        except Exception as _p29_cap_exc:  # pylint: disable=broad-except
+            logger.debug("Phase29 ACF-Pre-Cap (non-blocking): %s", _p29_cap_exc)
 
         if _effective_strength <= 0.0:
             passthrough = np.nan_to_num(audio.copy(), nan=0.0, posinf=0.0, neginf=0.0)
@@ -728,7 +796,9 @@ class TapeHissReductionPhase(PhaseInterface):
             "REEL_TAPE": 10.5,
             "VINYL": 9.5,
             "SHELLAC": 8.5,
-            "CASSETTE": 9.5,  # §SibilantProtect: Kassette = wie Vinyl (HF-Schutz Sibilanten)
+            # §SibilantProtect: Kassette+mp3_low-Kette → HF durch MP3 bereits reduziert;
+            # 9.5 dB Ceiling ließ OMLSA Formanten abtragen (authentizitaet 0.98→0.48)
+            "CASSETTE": 7.0,
         }.get(_mat_name, 10.0)
         if hf_reduction_db > _hf_ceiling_db and _effective_strength > 0.0:
             _excess_db = float(hf_reduction_db - _hf_ceiling_db)
@@ -955,6 +1025,135 @@ class TapeHissReductionPhase(PhaseInterface):
         except Exception as _pbg_exc_29:
             logger.debug("PhraseBoundaryGuard phase_29 (non-blocking): %s", _pbg_exc_29)
 
+        # V19 Noise-Textur-Invariante (§NTI): Residual nach Tape-Hiss-NR darf kein
+        # material-fremdes Spektralprofil (Whitening) aufweisen (VERBOTEN-V19).
+        try:
+            from backend.core.dsp.noise_texture_guard import (  # pylint: disable=import-outside-toplevel
+                compute_noise_texture_distance as _nt29_dist_fn,
+            )
+
+            _nt29_residual = audio.astype(np.float32) - audio_processed.astype(np.float32)
+            _nt29_dist = _nt29_dist_fn(_nt29_residual, str(material_key or "unknown"), sr=sample_rate)
+            if _nt29_dist > 0.25:
+                audio_processed = (0.5 * audio_processed + 0.5 * audio).astype(np.float32)
+                logger.warning(
+                    "Phase29 V19 Noise-Textur-Dist=%.3f > 0.25 → 50%%-Blend (Träger-Textur bewahrt)",
+                    _nt29_dist,
+                )
+        except Exception as _nt29_exc:
+            logger.debug("Phase29 V19 Noise-Textur-Guard (non-blocking): %s", _nt29_exc)
+
+        # V20 Mikrodynamik-Korrelation (§2.75): Frame-Energie auf voiced-Zonen ≥ 0.97
+        # nach Tape-Hiss-NR (VERBOTEN-V20).
+        if _p29_panns >= 0.25:
+            try:
+                from backend.core.dsp.mikrodynamik_guard import (  # pylint: disable=import-outside-toplevel
+                    frame_energy_correlation as _fec29,
+                )
+
+                _corr29 = _fec29(audio, audio_processed, sample_rate, frame_ms=10.0)
+                if _corr29 < 0.97:
+                    _wet29 = min(1.0, (_corr29 - 0.90) / 0.07) if _corr29 > 0.90 else 0.0
+                    audio_processed = (_wet29 * audio_processed + (1.0 - _wet29) * audio).astype(np.float32)
+                    logger.warning(
+                        "Phase29 V20 Mikrodynamik-Korr=%.3f < 0.97 → wet=%.3f Blend",
+                        _corr29,
+                        _wet29,
+                    )
+            except Exception as _dyn29_exc:
+                logger.debug("Phase29 V20 Mikrodynamik-Guard (non-blocking): %s", _dyn29_exc)
+
+        # V21 Mindestrauschboden (§2.76): Analog-Material darf nach Tape-Hiss-NR keine
+        # digitale Stille aufweisen — Rauschboden ist Naturalness-Marker (VERBOTEN-V21).
+        _mat29_str = str(material_key or "unknown").lower()
+        if any(t in _mat29_str for t in ("shellac", "vinyl", "tape", "analog")):
+            try:
+                from backend.core.dsp.noise_floor_guard import (  # pylint: disable=import-outside-toplevel
+                    apply_noise_floor_minimum as _nfg29,
+                )
+
+                audio_processed = _nfg29(audio_processed, sample_rate, _mat29_str, original_audio=audio)
+            except Exception as _nf29_exc:
+                logger.debug("Phase29 V21 Noise-Floor-Guard (non-blocking): %s", _nf29_exc)
+
+        # §V24 Spektralfarbe-Prüfung nach NR (§2.74, non-blocking WARNING)
+        try:
+            from backend.core.dsp.spectral_color_guard import (  # pylint: disable=import-outside-toplevel
+                check_spectral_color_preservation as _scg_29,
+            )
+
+            _sc_result_29 = _scg_29(audio, audio_processed, sample_rate)
+            if not _sc_result_29.ok:
+                _sc_wet_29 = 0.70  # Phase-Strength −30 % (§V24)
+                audio_processed = (_sc_wet_29 * audio_processed + (1.0 - _sc_wet_29) * audio).astype(np.float32)
+        except Exception as _sc_exc_29:  # pylint: disable=broad-except
+            logger.debug("§V24 phase_29 spectral_color non-blocking: %s", _sc_exc_29)
+
+        # V26 Onset-Guard (§2.77): HPSS-Onset-Fenster (0–20 ms nach Transient) dürfen durch
+        # Tape-Hiss-NR nicht energetisch beeinflusst werden (VERBOTEN-V26).
+        try:
+            from backend.core.dsp.onset_guard import (  # pylint: disable=import-outside-toplevel
+                apply_onset_protection_mask as _opg29,
+            )
+
+            audio_processed = _opg29(audio, audio_processed, None, max_delta_db=1.5)
+        except Exception as _on29_exc:
+            logger.debug("Phase29 V26 Onset-Guard (non-blocking): %s", _on29_exc)
+
+        # §2.72 Vibrato-Tiefe-Guard (§0p Vocal-Supremacy RELEASE_MUST): F0-Modulationstiefe
+        # darf durch Tape-Hiss-NR nicht mehr als ±10 % reduziert werden → 50 %-Blend.
+        if _p29_panns >= 0.25:
+            try:
+                from backend.core.dsp.vibrato_guard import (  # pylint: disable=import-outside-toplevel
+                    check_vibrato_depth_preservation as _vib29,
+                )
+
+                _vib29_result = _vib29(audio, audio_processed, sample_rate)
+                if not _vib29_result.ok:
+                    audio_processed = (0.5 * audio_processed + 0.5 * audio).astype(np.float32)
+                    logger.warning(
+                        "Phase29 §2.72 Vibrato-Tiefe: reduction=%.1f%% > 10%% → 50%%-Blend",
+                        _vib29_result.depth_reduction_pct,
+                    )
+            except Exception as _vib29_exc:
+                logger.debug("Phase29 §2.72 Vibrato-Guard (non-blocking): %s", _vib29_exc)
+
+        # §K-2 Post-Processing ACF-Delta-Guard (§Primum-non-nocere):
+        # Vergleicht Authentizitaet-Proxy vor und nach Verarbeitung. Wenn die
+        # Periodizität um mehr als 0.20 sinkt → proportionaler Dry-Wet-Blend-Rollback.
+        # Non-blocking; nutzt Messvariablen aus dem Pre-Cap-Block.
+        try:
+            if _p29_acf_len >= 512 and _p29_lag_max > _p29_lag_min:
+                _p29_mono_out = audio_processed.mean(axis=1) if audio_processed.ndim == 2 else audio_processed
+                _p29_seg_out = _p29_mono_out[_p29_acf_start : _p29_acf_start + _p29_acf_len].astype(np.float64)
+                # V08-konform: FFT-basierte Autokorrelation statt O(n²) np.correlate
+                _p29_acf_out = signal.fftconvolve(_p29_seg_out, _p29_seg_out[::-1], mode="full")
+                _p29_acf_out = _p29_acf_out[len(_p29_acf_out) // 2 :]
+                _p29_acf_out /= float(_p29_acf_out[0]) + 1e-12
+                _p29_auth_out = float(
+                    np.clip(
+                        (float(np.max(_p29_acf_out[_p29_lag_min:_p29_lag_max])) + 1.0) / 2.0,
+                        0.0,
+                        1.0,
+                    )
+                )
+                _p29_auth_delta = _p29_auth_out - _p29_auth_proxy
+                if _p29_auth_delta < -0.20:
+                    # 0.20-Einbruch → 50% dry; 0.40-Einbruch → vollständig dry (max 0.75 blend)
+                    _p29_post_blend = float(np.clip(1.0 + _p29_auth_delta / 0.40, 0.0, 0.75))
+                    audio_processed = (_p29_post_blend * audio_processed + (1.0 - _p29_post_blend) * audio).astype(
+                        np.float32
+                    )
+                    logger.warning(
+                        "Phase29 §K-2 ACF-Delta-Guard: auth_delta=%.3f (%.3f→%.3f) → blend=%.2f",
+                        _p29_auth_delta,
+                        _p29_auth_proxy,
+                        _p29_auth_out,
+                        _p29_post_blend,
+                    )
+        except Exception as _p29_delta_exc:  # pylint: disable=broad-except
+            logger.debug("Phase29 ACF-Delta-Guard (non-blocking): %s", _p29_delta_exc)
+
         audio_processed, _quiet_zone_stats_p29 = self._limit_quiet_zone_boost(
             audio,
             audio_processed,
@@ -989,6 +1188,7 @@ class TapeHissReductionPhase(PhaseInterface):
                 "phase_locality_factor": phase_locality_factor,
                 "effective_strength": _effective_strength,
                 "goal_hint_scalar": _goal_hint_scalar,
+                "acf_auth_proxy_pre": round(float(_p29_auth_proxy), 4),
                 "rms_drop_db": loudness_stats["rms_drop_db"],
                 "loudness_makeup_db": loudness_stats["makeup_gain_db"],
                 "lag_input_samples": int(_stereo_lag_stats["lag_input_samples"]),
@@ -1223,6 +1423,9 @@ class TapeHissReductionPhase(PhaseInterface):
             "VINYL": 0.10,
             "TAPE": 0.08,
             "REEL_TAPE": 0.07,
+            # §SibilantProtect: Kassette benötigt höheren G_floor — für Formant-Schutz
+            # (mp3_low-Kette: HF bereits komprimiert, OMLSA überätz Formanten bei G_floor=0.10)
+            "CASSETTE": 0.20,
             "DAT": 0.06,
         }
         mat_name = getattr(material, "name", str(material)).upper()
@@ -1267,7 +1470,10 @@ class TapeHissReductionPhase(PhaseInterface):
             _ = masking_result  # unused — iso11172 recomputes from channel directly
             from backend.core.dsp.psychoacoustics import compute_masking_threshold_iso11172 as _cmask_p29_td
 
-            _pmm_arr = _cmask_p29_td(channel.astype(np.float32), sample_rate, n_fft=2048, hop_length=512)
+            # §2.51 Stereo-Kohärenz: Masking aus Mid-Sidechain berechnen,
+            # damit L und R identische Gain-Maske erhalten (kanalasymmetrisches Rauschen).
+            _pmm_source = linked_sidechain if linked_sidechain is not None else channel
+            _pmm_arr = _cmask_p29_td(_pmm_source.astype(np.float32), sample_rate, n_fft=2048, hop_length=512)
             # _pmm_arr: (n_freq_bins, n_frames), values ∈ [0,1]: 1.0 = full masking
             # max over freq axis → (n_frames,): if ANY band has signal, frame is unmasked (gain=1).
             _pmm_gain_t = np.max(_pmm_arr, axis=0).astype(np.float32)
@@ -1353,7 +1559,7 @@ class TapeHissReductionPhase(PhaseInterface):
         eps = 1e-10
 
         # Material-adaptive G_floor — §2.62: absolute minimum 0.10 (VERBOTEN: G_floor < 0.10)
-        G_floor_map = {"SHELLAC": 0.12, "VINYL": 0.10, "TAPE": 0.10, "REEL_TAPE": 0.10, "DAT": 0.10}
+        G_floor_map = {"SHELLAC": 0.12, "VINYL": 0.10, "TAPE": 0.10, "REEL_TAPE": 0.10, "CASSETTE": 0.20, "DAT": 0.10}
         mat_name = getattr(material, "name", str(material)).upper()
         G_floor = G_floor_map.get(mat_name, 0.10)
         intensity_scale = float(np.clip(intensity_scale, 0.0, 1.0))
@@ -1380,6 +1586,23 @@ class TapeHissReductionPhase(PhaseInterface):
         # If no sidechain is provided, gain is computed from the channel itself (mono path).
         _gain_source = linked_sidechain if linked_sidechain is not None else channel
 
+        # §2.51 Linked-Sidechain: HF-Salienz-Guard und Masking-Floor MÜSSEN ebenfalls aus dem
+        # Mid-Sidechain berechnet werden, damit L und R identische Gain-Modifikationen erhalten.
+        # Nur der Rekonstruktions-STFT (Zxx_ref) bleibt kanal-spezifisch (Phase-Information).
+        if linked_sidechain is not None:
+            _, _, _Zxx_ref_for_guard = signal.stft(
+                linked_sidechain,
+                fs=sample_rate,
+                nperseg=REF_WIN,
+                noverlap=REF_NOVERLAP,
+                window="hann",
+                boundary="even",
+            )
+            _channel_for_masking = linked_sidechain
+        else:
+            _Zxx_ref_for_guard = Zxx_ref
+            _channel_for_masking = channel
+
         G_acc = np.zeros((n_bins, n_t), dtype=np.float64)
         w_acc = np.zeros(n_bins, dtype=np.float64)
 
@@ -1391,7 +1614,7 @@ class TapeHissReductionPhase(PhaseInterface):
         try:
             from backend.core.dsp.psychoacoustics import compute_masking_threshold_iso11172 as _cmask_p29
 
-            _mask_ratio_p29 = _cmask_p29(channel, sample_rate, n_fft=2048, hop_length=512)
+            _mask_ratio_p29 = _cmask_p29(_channel_for_masking, sample_rate, n_fft=2048, hop_length=512)
             _mask_arr_p29 = np.asarray(_mask_ratio_p29, dtype=np.float32)
             _masking_floor_p29 = _mask_arr_p29.mean(axis=1)  # (n_freq_2048,)
             _masking_freqs_p29 = np.linspace(0.0, sample_rate / 2.0, _mask_arr_p29.shape[0], dtype=np.float32)
@@ -1634,7 +1857,7 @@ class TapeHissReductionPhase(PhaseInterface):
         _hf_guard_high = min(float(hf_high), 18000.0)
         _hf_guard_mask = (f_ref >= _hf_guard_low) & (f_ref <= _hf_guard_high)
         if np.any(_hf_guard_mask):
-            _mag_hf = np.abs(Zxx_ref[_hf_guard_mask, :]).astype(np.float64)
+            _mag_hf = np.abs(_Zxx_ref_for_guard[_hf_guard_mask, :]).astype(np.float64)
             _bin_sal = np.median(_mag_hf, axis=1)
             _bin_den = float(np.percentile(_bin_sal, 95) + eps)
             _bin_sal_n = np.clip(_bin_sal / _bin_den, 0.0, 1.0)
@@ -1986,8 +2209,8 @@ if __name__ == "__main__":
         MaterialType.SHELLAC,
     ]
 
-    for material in test_materials:
-        logger.debug("Testing %s:", material.value.upper())
+    for _test_material in test_materials:
+        logger.debug("Testing %s:", _test_material.value.upper())
 
         # Create test signal: music + tape hiss
         sr = 44100
@@ -2008,19 +2231,19 @@ if __name__ == "__main__":
         noisy = music + hiss
 
         # Create stereo
-        audio = np.column_stack([noisy, noisy])
+        _test_audio = np.column_stack([noisy, noisy])
 
         # Process
-        start = time.time()
-        result = processor.process(audio, sr, material)
-        processed = result.audio
+        _test_start = time.time()
+        result = processor.process(_test_audio, sr, _test_material)
+        _test_processed = result.audio
         meta = result.metadata or {}
-        elapsed = time.time() - start
+        elapsed = time.time() - _test_start
 
         # Calculate HF noise reduction
         sos_hf = signal.butter(4, 8000, "high", fs=sr, output="sos")
-        hf_orig = signal.sosfilt(sos_hf, audio[:, 0])
-        hf_proc = signal.sosfilt(sos_hf, processed[:, 0])
+        hf_orig = signal.sosfilt(sos_hf, _test_audio[:, 0])
+        hf_proc = signal.sosfilt(sos_hf, _test_processed[:, 0])
 
         hf_reduction = 20 * np.log10(np.std(hf_orig) / (np.std(hf_proc) + 1e-10))
 

@@ -111,6 +111,7 @@ class StereoWidthLimiterPhaseV2(PhaseInterface):
         MaterialType.WAX_CYLINDER: [0.35, 0.5, 0.7, 0.6],  # Very conservative (mono-like historical media)
         MaterialType.VINYL: [0.5, 0.7, 0.9, 0.8],  # Moderate
         MaterialType.TAPE: [0.45, 0.65, 0.85, 0.75],  # Slightly conservative
+        MaterialType.CASSETTE: [0.45, 0.65, 0.85, 0.75],  # v9.12.9: IEC 60094-1 — gleiche Capstan-Physik wie TAPE
         MaterialType.CD_DIGITAL: [0.6, 0.8, 1.0, 0.9],  # Allow wider
         MaterialType.STREAMING: [0.5, 0.75, 0.95, 0.85],
     }

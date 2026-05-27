@@ -267,6 +267,7 @@ def _inpaint_gap_dsp(
     audio: np.ndarray,
     start: int,
     end: int,
+    _sample_rate: int = 48000,
     n_steps: int = _DIFFUSION_STEPS,
 ) -> np.ndarray:
     """

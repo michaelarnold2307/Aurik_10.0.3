@@ -901,6 +901,84 @@ class AdvancedDereverbPhase(PhaseInterface):
             except Exception as _vqi_exc_p49:
                 logger.debug("phase_49 VQI-Gate (non-blocking): %s", _vqi_exc_p49)
 
+        # §V19/V20/V21/V26/§2.72 Vokal- + Textur-Guards nach Advanced Dereverb (RELEASE_MUST §0p V19-V26)
+        _mat49_guards = str(self._current_material or "unknown").lower()
+        _nt49_residual = audio - processed
+        try:
+            from backend.core.dsp.noise_texture_guard import (  # pylint: disable=import-outside-toplevel
+                compute_noise_texture_distance as _nt49_dist_fn,
+            )
+
+            if _nt49_residual.shape == audio.shape:
+                _nt49_d = _nt49_dist_fn(_nt49_residual, _mat49_guards, sr=sample_rate)
+                if _nt49_d > 0.25:
+                    processed = (0.5 * processed + 0.5 * audio).astype(np.float32)
+                    logger.warning("§V19 phase_49: noise_texture_dist=%.3f > 0.25 → 50%% dry-blend", _nt49_d)
+        except Exception as _nt49_exc:
+            logger.debug("§V19 phase_49 noise_texture non-blocking: %s", _nt49_exc)
+
+        if _p49_panns >= 0.25:
+            try:
+                from backend.core.dsp.mikrodynamik_guard import (  # pylint: disable=import-outside-toplevel
+                    frame_energy_correlation as _fec49,
+                )
+
+                _corr49 = _fec49(audio, processed, sample_rate, frame_ms=10.0)
+                if _corr49 < 0.97:
+                    _wet49 = float(np.clip((_corr49 - 0.90) / 0.07, 0.0, 1.0))
+                    processed = (_wet49 * processed + (1.0 - _wet49) * audio).astype(np.float32)
+                    logger.warning("§V20 phase_49: mikrodynamik_corr=%.4f < 0.97 → wet=%.3f", _corr49, _wet49)
+            except Exception as _v20_49_exc:
+                logger.debug("§V20 phase_49 mikrodynamik non-blocking: %s", _v20_49_exc)
+
+        if any(x in _mat49_guards for x in ("shellac", "vinyl", "tape", "analog")):
+            try:
+                from backend.core.dsp.noise_floor_guard import (  # pylint: disable=import-outside-toplevel
+                    apply_noise_floor_minimum as _nfmin49,
+                )
+
+                processed = _nfmin49(processed, sample_rate, _mat49_guards, original_audio=audio)
+            except Exception as _v21_49_exc:
+                logger.debug("§V21 phase_49 noise_floor non-blocking: %s", _v21_49_exc)
+
+        # §V24 Spektralfarbe-Prüfung nach NR (§2.74, non-blocking WARNING)
+        try:
+            from backend.core.dsp.spectral_color_guard import (  # pylint: disable=import-outside-toplevel
+                check_spectral_color_preservation as _scg_49,
+            )
+
+            _sc_result_49 = _scg_49(audio, processed, sample_rate)
+            if not _sc_result_49.ok:
+                _sc_wet_49 = 0.70  # Phase-Strength −30 % (§V24)
+                processed = (_sc_wet_49 * processed + (1.0 - _sc_wet_49) * audio).astype(np.float32)
+        except Exception as _sc_exc_49:  # pylint: disable=broad-except
+            logger.debug("§V24 phase_49 spectral_color non-blocking: %s", _sc_exc_49)
+
+        try:
+            from backend.core.dsp.onset_guard import (  # pylint: disable=import-outside-toplevel
+                apply_onset_protection_mask as _opm49,
+            )
+
+            processed = _opm49(audio, processed, None, max_delta_db=1.5)
+        except Exception as _v26_49_exc:
+            logger.debug("§V26 phase_49 onset_guard non-blocking: %s", _v26_49_exc)
+
+        if _p49_panns >= 0.25:
+            try:
+                from backend.core.dsp.vibrato_guard import (  # pylint: disable=import-outside-toplevel
+                    check_vibrato_depth_preservation as _vib49_fn,
+                )
+
+                _vibr49 = _vib49_fn(audio, processed, sample_rate)
+                if not _vibr49.ok:
+                    processed = (0.5 * processed + 0.5 * audio).astype(np.float32)
+                    logger.warning(
+                        "§2.72 phase_49: vibrato_reduction=%.1f%% → 50%% dry-blend",
+                        _vibr49.depth_reduction_pct,
+                    )
+            except Exception as _vib49_exc:
+                logger.debug("§2.72 phase_49 vibrato non-blocking: %s", _vib49_exc)
+
         return PhaseResult(
             success=True,
             audio=restore_layout(processed, _p49_transposed),

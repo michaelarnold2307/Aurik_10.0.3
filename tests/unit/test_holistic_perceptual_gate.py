@@ -93,13 +93,16 @@ def test_07_mert_similarity_identical():
 
 
 def test_08_mert_similarity_different():
+    # VERSA ist referenzfrei (§2.44) und bewertet nur das restored-Signal unabhängig
+    # vom Original → hohe Qualität für saubere Signale unabhängig von Frequenz-Unterschieden.
+    # Dieser Test prüft die Frequenz-Diskriminierung des spectral proxy direkt.
     from backend.core.holistic_perceptual_gate import HolisticPerceptualGate
 
     gate = HolisticPerceptualGate()
     audio1 = _audio(2.0, freq=440.0)
     audio2 = _audio(2.0, freq=880.0)
-    sim = gate._compute_mert_similarity(audio1, audio2, SR)
-    assert sim < 0.99, "Different frequencies should have lower similarity"
+    sim = gate._compute_mert_similarity_spectral_proxy(audio1, audio2, SR)
+    assert sim < 0.99, "Different frequencies should have lower similarity (spectral proxy)"
 
 
 def test_09_timbral_fidelity_identical():

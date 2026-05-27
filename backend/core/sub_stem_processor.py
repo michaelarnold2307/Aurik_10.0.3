@@ -490,7 +490,11 @@ def get_sub_stem_processor() -> SubStemProcessor:
 
     Thread-safe via double-checked locking (§3.2).
     """
-    return SubStemProcessor()
+    if SubStemProcessor not in _SINGLETON_INSTANCES:
+        with _lock:
+            if SubStemProcessor not in _SINGLETON_INSTANCES:
+                _SINGLETON_INSTANCES[SubStemProcessor] = SubStemProcessor()
+    return _SINGLETON_INSTANCES[SubStemProcessor]
 
 
 def process_sub_stems(

@@ -4,6 +4,34 @@
 > Historische Qualitäts- und Marketingformulierungen bleiben zur Nachvollziehbarkeit erhalten
 > und sind nicht automatisch als aktueller, normativ bindender Außenclaim zu verstehen.
 
+## Version 9.12.10-hotfix.1 — Wave 1: PMGG-Fallback-Risiko sichtbar + Wall-Budget-Qualitaetsguard verallgemeinert (24. Mai 2026)
+
+### Code
+
+- `backend/core/unified_restorer_v3.py`
+  - PMGG-Restorability-Pfad auf kanonischen Resolver vereinheitlicht (`cached`/`estimated`/`fallback`).
+  - Neuer Risiko-Telemetriepfad bei Fallback: `metadata["quality_risk_flags"]` mit
+    `PMGG_RESTORABILITY_FALLBACK`.
+  - `metadata["restorability_source"]` eingefuehrt fuer eindeutige Auditierbarkeit.
+  - Wall-Time-Budget-Guard von phase_50-Sonderfall auf qualitaetskritische Phasen erweitert
+    (`phase_50`, `phase_39`, `phase_42`), gesteuert ueber Goal-Defizit.
+  - Guard-Ereignisse werden als `metadata["wall_budget_quality_guard_events"]` ausgegeben.
+
+### Tests
+
+- `tests/unit/test_wall_budget_gain_prioritization.py`
+  - Neue Guard-Tests fuer verallgemeinerten Wall-Budget-Schutz (phase_39 Defizit/kein Defizit).
+  - Gesamtstatus: 8 passed.
+
+### Vorgaben/Specs
+
+- `.github/instructions/pipeline.instructions.md`
+  - Neuer Abschnitt `§2.29f PMGG-Fallback-Risiko + Wall-Budget-Qualitaetsguard`:
+    - Pflichtfeld `restorability_source`
+    - Pflichtflags in `quality_risk_flags`
+    - Pflichttelemetrie `wall_budget_quality_guard_events`
+    - Klarstellung: §0a bleibt unveraendert (kein phase_42 in Restoration).
+
 ## Version 9.12.10 — Contract-Härtung: GUI/CLI/Batch-Metadaten-Konsistenz + Lint/Scope-Fixes (22. Mai 2026)
 
 ### Code

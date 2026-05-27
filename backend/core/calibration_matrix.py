@@ -208,19 +208,36 @@ CANONICAL_THRESHOLDS_STUDIO2026: dict[str, float] = {
 # ---------------------------------------------------------------------------
 
 _ERA_BIAS: dict[str, dict[str, float]] = {
-    "1920s": {
-        "brillanz": -0.28,
-        "transparenz": -0.18,
-        "raumtiefe": -0.14,
-        "waerme": +0.14,
-        "authentizitaet": +0.10,
-        "natuerlichkeit": +0.08,
-        # Acoustic recording technique (era, not medium): horn diffraction + no click track.
-        # These are independent of material degradation (even a perfect transfer still has these).
-        "groove": -0.12,  # Tempo instability from acoustic horn recording sessions
-        "micro_dynamics": -0.10,  # Horn funnel limits DR to ~30–35 dB (recording technique)
-        "emotionalitaet": -0.06,  # Limited tonal + dynamic bandwidth constrains arousal range
-        "artikulation": -0.06,  # Horn diffraction degrades onset precision (era technique)
+    # Pre-1926: Rein akustische Trichteraufnahme — kein Mikrofon, kein Verstärker.
+    # BW typisch 150–3000 Hz; Bass < 200 Hz physikalisch abgeschnitten.
+    # Horn-Diffraktion verfärbt Einsätze; keine Raumkontrolle möglich.
+    "acoustic_era": {
+        "brillanz": -0.38,  # BW-Hartgrenze ~3 kHz durch Trichtermechanik
+        "transparenz": -0.24,  # Kein Elektronikrauschen, aber physik. Oberflächenrauschen dominant
+        "raumtiefe": -0.18,  # Mono-Pflicht; Aufnahmeraum auf Trichterwirkung optimiert
+        "waerme": +0.12,  # Mittenbetonter Charakter klingt warm durch Tiefpasswirkung
+        "authentizitaet": +0.12,  # Historische Authentizität ist inhärent; Erwartung niedriger
+        "natuerlichkeit": +0.06,  # Akustisch, aber stark durch Trichterfarbe geprägt
+        "bass_kraft": -0.30,  # Horn schneidet Bass unter ~200 Hz physikalisch ab
+        "groove": -0.18,  # Kein Click-Track; physische Trägheit der Trichter-Sessions
+        "micro_dynamics": -0.14,  # Trichter: DR < 30 dB, schwere Dynamikkompression
+        "emotionalitaet": -0.08,  # Stark limitiertes Frequenz- und Dynamikfenster
+        "artikulation": -0.10,  # Horn-Diffraktion + Schneidstichel: Onset-Verschmierung
+        "separation_fidelity": -0.20,  # Mono; keine Quellentrennung möglich
+    },
+    # 1926–1949: Frühelektrische Aufnahme — Kondensator-/Bändchenmikrofon, Röhrenverstärker.
+    # BW typisch 50–7000 Hz; AGC-Schaltungen; Schellack-Presswerk; kein Magnetband.
+    "early_electric": {
+        "brillanz": -0.20,  # BW ~7 kHz besser als akustisch, aber noch stark begrenzt
+        "transparenz": -0.12,  # Röhrenrauschen + Schellack-Oberflächenrauschen
+        "raumtiefe": -0.10,  # Überwiegend Mono; Stereo-Experimente 1930s kaum verbreitet
+        "waerme": +0.14,  # Röhrenverstärkung: ausgeprägte 2.-Harmonische-Wärme
+        "authentizitaet": +0.10,  # Historische Authentizität; Epoche-Erwartung angepasst
+        "natuerlichkeit": +0.08,  # Elektrisches Mikrofon gibt natürlicheres Timbre als Trichter
+        "groove": -0.08,  # Schellack-Schnitt instabil; kein Magnetband; Rest-Gleichlaufschwankung
+        "micro_dynamics": -0.08,  # Frühe AGC/Kompressoren: reduzierter Dynamikbereich
+        "emotionalitaet": -0.04,  # Begrenzt, aber signifikant besser als akustische Ära
+        "artikulation": -0.06,  # Frühe-Scheibenaufnahme: Onset-Unschärfe reduziert
     },
     "1950s": {
         "brillanz": -0.14,
@@ -561,15 +578,124 @@ _GENRE_BIAS: dict[str, dict[str, float]] = {
         "micro_dynamics": -0.04,  # Light compression typical for dancefloor
     },
     "funk": {"groove": +0.12, "bass_kraft": +0.10, "spatial_depth": +0.04, "micro_dynamics": +0.04},
+    # Reggae / Dancehall — Off-Beat-Skank, prominenter Bass, jamaikanische Raumästhetik
+    "reggae": {
+        "groove": +0.10,  # Off-Beat-Skank ist präzise definiert; rhythmisches Kern-Feature
+        "bass_kraft": +0.14,  # Riddim-Bass führt melodisch wie rhythmisch — zentrales Element
+        "waerme": +0.12,  # Kingston-Studio-Akustik: warmer Raum, analoge Röhrengeräte
+        "authentizitaet": +0.10,  # Produktions-Ästhetik darf nicht sterilisiert werden
+        "natuerlichkeit": +0.08,  # Organische Aufnahmen; Raum-Ambience ist Stilmerkmal
+        "spatial_depth": +0.06,  # Dub-Tradition: Raum und Echo sind kompositorische Mittel
+        "brillanz": -0.06,  # Dunkler, bassbetonter Klangcharakter; keine HF-Überhöhung
+    },
+    "dancehall": {"groove": +0.10, "bass_kraft": +0.14, "waerme": +0.08, "authentizitaet": +0.08, "brillanz": -0.06},
+    # Country — Nashville Sound / Bakersfield / Outlaw; Vokal-Artikulation primär
+    "country": {
+        "authentizitaet": +0.12,  # Authentizität ist Genre-definierend (kein Overproducing)
+        "artikulation": +0.10,  # Textverständlichkeit ist primäres Vokal-Ziel
+        "waerme": +0.10,  # Warmer Vokal-Mix, natürliche Instrumente
+        "natuerlichkeit": +0.08,  # Live-Raum, minimale Elektronik (außer 1980s Nashville)
+        "spatial_depth": +0.04,  # Moderat; Nashville-Raum-Ästhetik erwartet
+        "micro_dynamics": +0.04,  # Expressive Vocals brauchen Dynamikspielraum
+        "brillanz": -0.04,  # Warmer, nicht heller Mix-Charakter
+    },
+    # Gospel — Vokal-Supremacy maximal; Chor-Ensemble; emotionale Intensität ist das Produkt
+    "gospel": {
+        "emotionalitaet": +0.16,  # Emotionale Intensität ist das einzige Ziel — höchste Prio
+        "authentizitaet": +0.14,  # Sterilisierung zerstört Genre-Essenz
+        "natuerlichkeit": +0.12,  # Kirchen-Raumakustik und organischer Chor-Blend
+        "spatial_depth": +0.10,  # Kirchenhall ist kompositorisches Stilmittel
+        "micro_dynamics": +0.10,  # Vokal-Swells und Chor-Crescendos: Dynamik ist Sprache
+        "waerme": +0.08,  # Warmer Kirchenraum, keine kalte Elektronik
+        "groove": +0.06,  # Call-and-Response-Rhythmik; Swing-Gospel-Feel
+        "bass_kraft": -0.06,  # Gospel-Mix ist vokalzentriert, nicht bassbetont
+    },
+    # Metal (Heavy, Thrash, Death, Doom) — Transient-Energie und Dichte primär
+    "metal": {
+        "transient_energie": +0.12,  # Schlagzeug-Attack und Gitarren-Chug sind das Produkt
+        "brillanz": +0.10,  # Präsenz-Boost für Gitarren-Attack (2–5 kHz)
+        "bass_kraft": +0.08,  # Tiefe Stimmen und Downtuned-Gitarren: Boden-Fundament
+        "groove": +0.08,  # Rhythmische Präzision (Blast-Beat bis Groove-Metal)
+        "micro_dynamics": -0.08,  # Typisch stärker komprimiert als Rock; bewusster Stil
+        "natuerlichkeit": -0.10,  # Stark prozessiert by design (Gate, Trigger, Amp-Sim)
+        "waerme": -0.06,  # Kühler, präsenzbetonter Klangcharakter dominiert
+    },
+    "heavy_metal": {
+        "transient_energie": +0.12,
+        "brillanz": +0.10,
+        "bass_kraft": +0.08,
+        "groove": +0.08,
+        "micro_dynamics": -0.08,
+        "natuerlichkeit": -0.10,
+    },
+    # Latin (Salsa, Cumbia, Bolero) — Afro-Kubanische Groove-Perkussion, warme Aufnahmen
+    "latin": {
+        "groove": +0.14,  # Afro-kubanische Rhythmik: Clave-Präzision ist Genre-definierend
+        "authentizitaet": +0.12,  # Aufnahme-Ästhetik (Havanna, NYC, Bogotá) erhalten
+        "waerme": +0.10,  # Warme analoge Studioakustik (1940s–1970s)
+        "spatial_depth": +0.08,  # Live-Raumambience; Salsa-Sessions in großen Studios
+        "artikulation": +0.08,  # Perkussions-Onset-Präzision ist rhythmisches Signal
+        "natuerlichkeit": +0.06,  # Organische Live-Aufnahmen; keine Sterilisierung
+    },
+    "salsa": {
+        "groove": +0.14,
+        "authentizitaet": +0.12,
+        "waerme": +0.10,
+        "spatial_depth": +0.08,
+        "artikulation": +0.08,
+        "natuerlichkeit": +0.06,
+    },
+    # Bossa Nova — Kammermusik-Dichte, intimem Vokal-Gitarren-Dialog, São Paulo-Studioästhetik
+    "bossa_nova": {
+        "natuerlichkeit": +0.14,  # Intime Akustik-Ästhetik; über-prozessieren ist ein Sakrileg
+        "authentizitaet": +0.12,  # João Gilberto-Estetik: Stille und Subtilität bewahren
+        "waerme": +0.10,  # Warme analoge Gitarren-Vokal-Balance
+        "micro_dynamics": +0.10,  # Flüstergesang und Pianissimo-Gitarre: Dynamik ist Stilmerkmal
+        "groove": +0.08,  # Samba-abgeleiteter Puls; subtil aber präzise
+        "brillanz": -0.08,  # Dunkler, intimer Klang; keine HF-Überbetonung
+        "spatial_depth": -0.04,  # Enge, intime Raumdarstellung ist Stilmerkmal
+    },
+    "bossa nova": {
+        "natuerlichkeit": +0.14,
+        "authentizitaet": +0.12,
+        "waerme": +0.10,
+        "micro_dynamics": +0.10,
+        "groove": +0.08,
+        "brillanz": -0.08,
+        "spatial_depth": -0.04,
+    },
+    # Oper / Klassischer Gesang — Saalakustik, Vokal-Projektion, Artikulation als Kunst
+    "oper": {
+        "spatial_depth": +0.22,  # Opernsaal: Hallradius und Diffusivität sind Klangerlebnis-Kern
+        "natuerlichkeit": +0.14,  # Akustische Aufnahme ohne Elektronik-Verfremdung
+        "emotionalitaet": +0.12,  # Dramatische Intensität ist das Produkt
+        "artikulation": +0.10,  # Textverständlichkeit: Libretto-Dikton ist künstlerisches Ziel
+        "brillanz": +0.06,  # Opernsopran/tenor trägt über Orchester: HF-Präsenz nötig
+        "micro_dynamics": +0.10,  # Pianissimo bis Fortissimo: DR-Bandbreite ist Kunststilmittel
+        "authentizitaet": +0.08,  # Historische Aufnahme-Ästhetik (1930s–1960s) bewahren
+        "waerme": -0.04,  # Kühler Saal-Charakter (Stein/Holz) vs. Studio-Wärme
+    },
+    "opera": {
+        "spatial_depth": +0.22,
+        "natuerlichkeit": +0.14,
+        "emotionalitaet": +0.12,
+        "artikulation": +0.10,
+        "brillanz": +0.06,
+        "micro_dynamics": +0.10,
+        "authentizitaet": +0.08,
+        "waerme": -0.04,
+    },
 }
 
 
 def _era_key(decade: int | None) -> str:
-    """Map decade to bias bucket (8 buckets, 1920s–2010s)."""
+    """Map decade to bias bucket (10 Buckets: acoustic_era, early_electric, 1950s–2010s)."""
     if decade is None:
         return "1970s"
+    if decade < 1926:
+        return "acoustic_era"  # Rein akustische Trichteraufnahme (pre-Mikrofon)
     if decade < 1950:
-        return "1920s"
+        return "early_electric"  # Frühelektrisch: Mikrofon + Röhre, kein Magnetband
     if decade < 1960:
         return "1950s"
     if decade < 1970:
@@ -595,10 +721,11 @@ def estimate_song_goal_targets(
     material_type: str | None = None,
     transfer_chain: list[str] | None = None,
     production_profile: object | None = None,
+    restoration_prior: dict | None = None,
 ) -> dict[str, float]:
     """Berechnet per-song goal targets as studio-day reconstruction targets.
 
-    Returns a dict mapping each goal name to its target value ∈ [0.30, 0.99].
+    Returns a dict mapping each goal name to its target value in [0.30, 0.99].
     Targets are blended from canonical floors (§09.1), era-/material-/genre-biases
     (§09.2), goal importance weights (§2.56) and restorability.
 
@@ -617,6 +744,11 @@ def estimate_song_goal_targets(
         production_profile: Optional ProductionProfile from RecordingProductionKB.
                             Its goal_adjustments are applied as 4th bias layer
                             with kappa_provenance=0.30 (conservative).
+        restoration_prior:  Optional Prior aus RestorationMemory (§2.70).
+                            Wenn hpi_achieved > 0.75, wird kappa leicht erhöht
+                            (max +0.10, gedeckelt auf kappa_base) — adaptive
+                            Annäherung an das bekannte Optimum dieser Era/Material-
+                            Kombination.
 
     Returns:
         dict[str, float]: Per-goal targets, same keys as CANONICAL_THRESHOLDS.
@@ -679,9 +811,25 @@ def estimate_song_goal_targets(
             bias[old_k] = bias[new_k]
 
     # kappa: how strongly biases are applied (low restorability → more conservative)
-    # Restoration: 0.45; Studio 2026: 0.65; modulated by restorability
+    # Restoration: 0.45; Studio 2026: 0.65; modulated by restorability.
+    # §Lücke5 S-Kurve: logistische Funktion statt linearer Interpolation.
+    # Gleiche Grenzen [0.60·kappa_base, kappa_base] wie zuvor, aber mittlere
+    # Restorability-Bereiche reagieren stärker (steile Kurvenphase), Extreme flacher.
+    # Formel: sigmoid(x) = 1 / (1 + exp(-k*(x-0.5))); k=10 ergibt [0.007, 0.993] für x in [0,1].
+    # Skaliert auf [0.60, 1.0] → mit kappa_base multipliziert: [0.27, 0.65] Restoration.
     kappa_base = 0.65 if is_studio_2026 else 0.45
-    kappa = kappa_base * (0.60 + 0.40 * rest_norm)  # range: [0.27, 0.65] Restoration
+    _sigmoid = 1.0 / (1.0 + float(np.exp(-10.0 * (rest_norm - 0.5))))
+    kappa = float(np.clip(kappa_base * (0.60 + 0.40 * _sigmoid), 0.0, kappa_base))
+
+    # §2.70 RestorationMemory-Prior als kappa-Modulator:
+    # Bekannte gute Ergebnisse (hpi_achieved > 0.75) für diese Era/Material/Defect-
+    # Kombination → kappa leicht anheben, damit Targets dichter am nachgewiesen
+    # erreichbaren Niveau liegen. Deckel: kappa_base (kein Über-Boost).
+    if restoration_prior is not None:
+        _prior_hpi = float(restoration_prior.get("hpi_achieved", 0.0))
+        if _prior_hpi > 0.75:
+            _kappa_memory_boost = float(np.clip((_prior_hpi - 0.75) * 0.40, 0.0, 0.10))
+            kappa = float(np.clip(kappa + _kappa_memory_boost, 0.0, kappa_base))
 
     # Provenance bias (4th layer) — kappa_provenance is fixed at 0.30 (conservative).
     # RecordingProductionKB adjustments are more specific but also more uncertain
@@ -969,6 +1117,9 @@ _CHAIN_END_GOAL_CEILINGS: dict[str, dict[str, float]] = {
         "artikulation": 0.70,
         "waerme": 0.70,
         "brillanz": 0.45,
+        # MP3-low: Pre-Echo + MDCT smear begrenzen attack-klarheit; transient target cappen
+        # damit §2.54 keine ueberphysikalischen Sollwerte auf alten Kassetten-MP3-Rips fordert.
+        "transient_energie": 0.70,
         "transparenz": 0.60,
         "separation_fidelity": 0.62,
     },
@@ -980,6 +1131,7 @@ _CHAIN_END_GOAL_CEILINGS: dict[str, dict[str, float]] = {
         "artikulation": 0.76,
         "waerme": 0.74,
         "brillanz": 0.65,
+        "transient_energie": 0.76,
         "transparenz": 0.70,
         "separation_fidelity": 0.70,
     },
@@ -991,6 +1143,7 @@ _CHAIN_END_GOAL_CEILINGS: dict[str, dict[str, float]] = {
         "artikulation": 0.78,
         "waerme": 0.76,
         "brillanz": 0.72,
+        "transient_energie": 0.79,
         "transparenz": 0.74,
         "separation_fidelity": 0.74,
     },
@@ -1002,6 +1155,7 @@ _CHAIN_END_GOAL_CEILINGS: dict[str, dict[str, float]] = {
         "artikulation": 0.74,
         "waerme": 0.72,
         "brillanz": 0.64,
+        "transient_energie": 0.74,
         "transparenz": 0.68,
         "separation_fidelity": 0.68,
     },
@@ -1303,9 +1457,12 @@ _GOAL_TO_RECOVERY_PHASES_RESTORATION: dict[str, list[str]] = {
     ],
     # P3 — Emotional / dynamic / rhythmic
     "emotionalitaet": [
-        "phase_26_dynamic_range_expansion",  # dynamic contrast is the principal carrier of emotion;
-        # over-compressed dynamics → flat emotional response
-        "phase_08_transient_preservation",  # transient sharpness intensifies emotional peaks
+        "phase_54_transparent_dynamics",  # §V28 primär: Envelope-Re-Smoothing stellt Mikrodynamik-
+        # Profil nach NR-Glättung (DFN/SGMSE+/OMLSA) wieder her — kein neues Compression-Artefakt;
+        # wirkt auf variance + micro + range, nicht nur auf crest (Gegensatz zu phase_26)
+        "phase_26_dynamic_range_expansion",  # sekundär: Dynamic-Contrast-Erweiterung wenn Glättung
+        # allein nicht ausreicht — hebt hauptsächlich crest_score
+        "phase_08_transient_preservation",  # tertiär: Transient-Schärfe für emotionale Peaks
     ],
     "micro_dynamics": [
         "phase_26_dynamic_range_expansion",  # over-compression is the primary cause of
@@ -1349,6 +1506,7 @@ _GOAL_TO_RECOVERY_PHASES_RESTORATION: dict[str, list[str]] = {
     "brillanz": [
         "phase_06_frequency_restoration",  # BW extension (AudioSR) — primary path for HF content
         # lost across all analog carriers
+        "phase_23_spectral_repair",  # codec/pre-echo spectral smear recovery before harmonic lift
         "phase_07_harmonic_restoration",  # harmonic HF reconstruction for material where HF was
         # never captured (era guards handle 1900–1925 exclusion)
     ],
@@ -1382,6 +1540,7 @@ _GOAL_TO_RECOVERY_PHASES_RESTORATION: dict[str, list[str]] = {
     "transient_energie": [
         "phase_26_dynamic_range_expansion",  # §1.4.6 primär: Onset-Energie via Dynamikbearbeitung
         "phase_08_transient_preservation",  # sekundär: Transient-Erhalt als fallback
+        "phase_23_spectral_repair",  # codec/pre-echo smear recovery fuer attack-klarheit
     ],
 }
 
@@ -1418,7 +1577,11 @@ _GOAL_TO_RECOVERY_PHASES_STUDIO_EXTRAS: dict[str, list[str]] = {
 }
 
 
-def get_goal_recovery_phases(goal: str, is_studio_2026: bool = False) -> list[str]:
+def get_goal_recovery_phases(
+    goal: str,
+    is_studio_2026: bool = False,
+    transfer_chain: list[str] | tuple[str, ...] | None = None,
+) -> list[str]:
     """Gibt ordered list of recovery phase IDs for a failing Musical Goal zurück.
 
     Used by UV3 §GOAL_BASELINE_CHECK (pre-pipeline) to add missing phases
@@ -1428,6 +1591,8 @@ def get_goal_recovery_phases(goal: str, is_studio_2026: bool = False) -> list[st
         goal: canonical goal name (e.g. "brillanz", "natuerlichkeit").
               Aliases "raumtiefe", "mikrodynamik", "basskraft" are normalised.
         is_studio_2026: if True, also include Studio 2026 enhancement extras.
+        transfer_chain: Optional transfer chain (e.g. ["cassette", "mp3_low"]).
+            Used for chain-aware codec recovery prioritisation.
 
     Returns:
         Deduplicated list of phase IDs, most effective first.
@@ -1446,6 +1611,22 @@ def get_goal_recovery_phases(goal: str, is_studio_2026: bool = False) -> list[st
     goal_key = _alias_map.get(str(goal or "").strip().lower(), str(goal or "").strip().lower())
 
     phases: list[str] = list(_GOAL_TO_RECOVERY_PHASES_RESTORATION.get(goal_key, []))
+
+    # Chain-aware codec recovery: if the chain ends in lossy coding, pre-echo/smear repair
+    # should be considered for HF/detail-sensitive goals before additive HF synthesis.
+    _chain_norm = [str(s).strip().lower() for s in (transfer_chain or []) if str(s).strip()]
+    _lossy_chain = bool(_chain_norm and _chain_norm[-1] in {"mp3_low", "mp3_high", "aac", "streaming", "minidisc"})
+    if _lossy_chain and goal_key in {"brillanz", "transient_energie", "transparenz", "artikulation"}:
+        if "phase_50_spectral_repair" not in phases:
+            if "phase_06_frequency_restoration" in phases:
+                _i06 = phases.index("phase_06_frequency_restoration")
+                phases.insert(_i06 + 1, "phase_50_spectral_repair")
+            elif goal_key == "transient_energie" and "phase_08_transient_preservation" in phases:
+                _i08 = phases.index("phase_08_transient_preservation")
+                phases.insert(_i08 + 1, "phase_50_spectral_repair")
+            else:
+                phases.insert(0, "phase_50_spectral_repair")
+
     if is_studio_2026:
         for _p in _GOAL_TO_RECOVERY_PHASES_STUDIO_EXTRAS.get(goal_key, []):
             if _p not in phases:

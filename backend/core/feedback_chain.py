@@ -147,8 +147,9 @@ class FeedbackChain:
     def _apply_vqi_dual_objective(self, audio: np.ndarray, sr: int, base_mos: float) -> float:
         """§0p: Dual-Objective VQI-Gewichtung wenn panns_singing ≥ 0.35.
 
-        Loop-Score = VERSA_MOS × VQI^0.3 — sanfte Gewichtung verhindert VQI-Dominanz,
-        aber stellt sicher dass Vokal-Verschlechterungen den Score reduzieren.
+        Loop-Score = VERSA_MOS × VQI^0.5 — sqrt-Gewichtung verhindert VQI-Dominanz,
+        aber stellt sicher dass Vokal-Verschlechterungen den Score deutlich reduzieren
+        (F-06 v9.12.10: Exponent 0.3→0.5 für stärkere Penalty bei VQI < 0.82).
         Zusätzlich: §Frisson-Gewichtung — Energy-Abfall in Frisson-Zonen (Gänsehaut-Passagen)
         reduziert den Loop-Score, damit FeedbackChain diese Klimax-Momente nicht wegoptimiert.
         Non-blocking: Exception → base_mos unverändert zurückgeben.
@@ -160,15 +161,30 @@ class FeedbackChain:
                 compute_vqi,
             )
 
-            vqi_result = compute_vqi(self._vqi_orig_audio, audio, sr)
+            # §EraVocalProfile: era_decade für korrekte historische Formant-Toleranzen
+            _era_profile = None
+            try:
+                from backend.core.musical_goals.era_vocal_profile import (  # pylint: disable=import-outside-toplevel
+                    get_era_vocal_profile,
+                )
+
+                _era_profile = get_era_vocal_profile(int(getattr(self, "era_decade", 1975) or 1975))
+            except Exception as _ep_exc:
+                logger.debug("FeedbackChain era_profile nicht geladen: %s", _ep_exc)
+
+            vqi_result = compute_vqi(self._vqi_orig_audio, audio, sr, era_profile=_era_profile)
             vqi_score = float(np.clip(vqi_result.get("vqi", 1.0), 0.01, 1.0))
-            # VQI^0.3 = sanfte Penalty (VQI=0.72 → Faktor 0.90; VQI=0.50 → Faktor 0.79)
-            loop_score = float(np.clip(base_mos * (vqi_score**0.3), 1.0, 5.0))
+            # §0p F-06: VQI^0.5 (sqrt) — stärkere Penalty bei sub-threshold VQI.
+            # VQI=0.60 → Faktor 0.775 (war 0.849); VQI=0.72 → 0.849 (war 0.906).
+            # Verhindert, dass VERSA-MOS-Gewinn (+0.15) die VQI-Penalty neutralisiert
+            # → FeedbackChain konvergiert nicht mehr in VQI < 0.72 Region.
+            loop_score = float(np.clip(base_mos * (vqi_score**0.5), 1.0, 5.0))
             logger.debug(
-                "FeedbackChain §0p VQI-Dual-Objective: base_mos=%.3f vqi=%.3f loop_score=%.3f",
+                "FeedbackChain §0p VQI-Dual-Objective: base_mos=%.3f vqi=%.3f loop_score=%.3f era=%d",
                 base_mos,
                 vqi_score,
                 loop_score,
+                int(getattr(self, "era_decade", 1975) or 1975),
             )
             # §Frisson [RELEASE_MUST]: Energie in Gänsehaut-Zonen überwachen.
             # Signifikanter Energie-Abfall in Frisson-Passagen → Loop-Score-Penalty.
@@ -227,9 +243,11 @@ class FeedbackChain:
             return base_mos
 
     def _compute_versa_segmented_score(self, audio: np.ndarray, sr: int) -> float:
-        """Berechnet VERSA MOS on up to 5 representative segments, aggregate via min.
+        """Berechnet VERSA MOS on up to 5 representative segments, energie-gewichtet aggregiert.
 
-        Motivation: avoid local quality collapses being hidden by a single global MOS.
+        Motivation: avoid local quality collapses being hidden by a single global MOS,
+        but also avoid silence/fade segments dominating and masking good content quality.
+        Stille-Segmente (RMS < −48 dBFS) werden vor der Aggregation ausgeschlossen.
         """
         if self._versa_score_fn is None:
             return float("nan")
@@ -254,7 +272,11 @@ class FeedbackChain:
         half = win // 2
         centers = np.linspace(half, mono.size - half, n_segments, dtype=int)
 
+        # RMS-Schwelle für Stille-Ausschluss: −48 dBFS ≈ 0.004
+        _SILENCE_RMS_FLOOR: float = 10.0 ** (-48.0 / 20.0)
+
         seg_scores: list[float] = []
+        seg_rms: list[float] = []
         for c in centers:
             s = int(max(0, c - half))
             e = int(min(mono.size, s + win))
@@ -265,13 +287,28 @@ class FeedbackChain:
             mos = float(getattr(versa, "mos", np.nan))
             if np.isfinite(mos):
                 seg_scores.append(float(np.clip(mos, 1.0, 5.0)))
+                seg_rms.append(float(np.sqrt(np.mean(seg.astype(np.float64) ** 2) + 1e-14)))
 
         if not seg_scores:
             versa = self._versa_score_fn(mono, sr)
             return float(getattr(versa, "mos", np.nan))
 
-        # Conservative aggregation: bottleneck quality dominates listener perception.
-        return float(np.min(seg_scores))
+        # Stille-Segmente (Intro/Outro/Fade) ausschließen — sie verzerren den Qualitätsscore.
+        # Fallback: alle Segmente wenn alle unter Schwelle liegen.
+        _active_scores = [s for s, r in zip(seg_scores, seg_rms) if r >= _SILENCE_RMS_FLOOR]
+        _active_rms = [r for r in seg_rms if r >= _SILENCE_RMS_FLOOR]
+        if not _active_scores:
+            _active_scores = seg_scores
+            _active_rms = seg_rms
+
+        # Energie-gewichtetes Mittel: laute Segmente repräsentieren Musikinhalt stärker.
+        # Konservative Untergrenze: 20 % Gewicht auf Minimum verhindert dass ein schlechtes
+        # Segment komplett ignoriert wird (Qualitätskollapsse sind noch sichtbar).
+        _rms_weights = [max(r, 1e-10) for r in _active_rms]
+        _total_w = sum(_rms_weights)
+        _weighted_mean = sum(s * w for s, w in zip(_active_scores, _rms_weights)) / _total_w
+        _min_score = min(_active_scores)
+        return float(np.clip(0.20 * _min_score + 0.80 * _weighted_mean, 1.0, 5.0))
 
     def _adaptive_convergence_delta(self, current_mos: float) -> float:
         """Adaptive convergence threshold based on current MOS level and §2.56 goal_weights.
@@ -925,6 +962,21 @@ class FeedbackChain:
                 converged = True
                 break
 
+            # §2.54 Target-Score-Gate: Qualitätsziel erreicht → frühzeitig beenden
+            # Verhindert unnötige Iterationen wenn das Ziel schon erfüllt ist.
+            # Mapping: target_score [0,1] → MOS-Skala [1,5]
+            _mos_target = 1.0 + self.target_score * 4.0
+            if best_mos >= _mos_target:
+                converged = True
+                logger.info(
+                    "FeedbackChain: Qualitätsziel erreicht (target=%.2f → MOS≥%.2f, erreicht=%.3f) nach %d Iterationen",
+                    self.target_score,
+                    _mos_target,
+                    best_mos,
+                    i,
+                )
+                break
+
             # §Hebel2: Oszillationsdetection — n und n-2 nahezu identisch → Loop oszilliert
             # JND-Schwelle: 0.010 MOS (kaum wahrnehmbar). Bei ≥ 3 Iterationen prüfbar.
             if len(history) >= 4:
@@ -1067,6 +1119,12 @@ def compute_perceptual_score(
     else:
         transient_score = 0.5
 
+    # — Spectral Correlation (Kosinus-Ähnlichkeit der Magnitude-Spektren) ——————
+    spec_o = np.abs(np.fft.rfft(orig, n=n_fft)) + 1e-12
+    _norm_so = float(np.linalg.norm(spec_o))
+    _norm_sd = float(np.linalg.norm(spec))
+    spectral_corr = float(np.clip(np.dot(spec_o, spec) / (_norm_so * _norm_sd + 1e-12), 0.0, 1.0))
+
     # — Combined ———————————————————————————————————————————————————————
     sisnr_norm = float(np.clip((sisnr + 20.0) / 80.0, 0.0, 1.0))
     combined = float(
@@ -1082,6 +1140,7 @@ def compute_perceptual_score(
         "spectral_flatness": spectral_flatness,
         "snr_db": snr_db,
         "transient_score": transient_score,
+        "spectral_corr": spectral_corr,
         "combined": combined,
     }
 

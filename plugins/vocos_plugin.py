@@ -70,7 +70,7 @@ class VocosResult:
     audio: np.ndarray  # Synthetisiertes Audio, float32 ∈ [-1, 1]
     sr: int  # Ausgabe-Samplerate
     pqs_mos: float  # Perceptual Quality Score MOS ∈ [1.0, 5.0]
-    model_used: str  # z.B. "vocos_onnx", "hifigan_fallback", "griffin_lim_fallback"
+    model_used: str  # z.B. "vocos_onnx", "hifigan_fallback", "istft_phase_coherent_fallback"
     confidence: float  # Modell-Konfidenz ∈ [0, 1]
     mel_snr_db: float = 0.0  # Mel-Spektrogramm-SNR in dB
     model_sr: int = 0  # Interne Modell-SR (z.B. 24000)
@@ -120,7 +120,7 @@ class VocosPlugin:
         self._vocos_pypi = None
         self._onnx_session = None
         self._model_loaded: bool = False
-        self._fallback_mode: str = "griffin_lim_fallback"
+        self._fallback_mode: str = "istft_phase_coherent_fallback"
         if model_path:
             self._try_load(model_path)
         else:
@@ -200,20 +200,7 @@ class VocosPlugin:
             try:
                 from backend.core.plugin_lifecycle_manager import get_plugin_lifecycle_manager
 
-                _self_ref = self
-
-                def _vocos_unload() -> None:
-                    _self_ref._onnx_session = None
-                    _self_ref._model_loaded = False
-                    _self_ref._fallback_mode = "griffin_lim_fallback"
-                    try:
-                        from backend.core.ml_memory_budget import release as _ml_release
-
-                        _ml_release("Vocos")
-                    except ImportError:
-                        pass
-
-                get_plugin_lifecycle_manager().register("Vocos", size_gb=0.12, unload_fn=_vocos_unload)
+                get_plugin_lifecycle_manager().register("Vocos", size_gb=0.12, unload_fn=self._do_unload)
             except ImportError as _plm_exc:
                 logger.debug("Vocos: PluginLifecycleManager nicht verfügbar, LRU-Tracking deaktiviert: %s", _plm_exc)
         except Exception as exc:
@@ -240,6 +227,18 @@ class VocosPlugin:
         """True wenn ein neuronales Modell geladen wurde."""
         return self._model_loaded
 
+    def _do_unload(self) -> None:
+        """Entlädt das ONNX-Modell (PLM-Callback, §5.1 OOM-Schutz)."""
+        self._onnx_session = None
+        self._model_loaded = False
+        self._fallback_mode = "istft_phase_coherent_fallback"
+        try:
+            from backend.core.ml_memory_budget import release as _ml_release
+
+            _ml_release("Vocos")
+        except ImportError:
+            pass
+
     # ------------------------------------------------------------------
     # Statische Hilfsmethoden (auch ohne Instanz nutzbar, §3.2)
     # ------------------------------------------------------------------
@@ -258,7 +257,7 @@ class VocosPlugin:
         return np.nan_to_num(result.astype(np.float32), nan=0.0, posinf=0.0, neginf=0.0)
 
     @staticmethod
-    def _build_mel_filterbank(n_mels: int, n_freq_bins: int, sr: int, n_fft: int) -> np.ndarray:
+    def _build_mel_filterbank(n_mels: int, n_freq_bins: int, sr: int, _n_fft: int) -> np.ndarray:
         """Baut Mel-Filterbank [n_mels, n_freq_bins], float32, non-negative.
 
         Formel: Hz ↔ Mel via 2595 * log10(1 + f/700)
@@ -461,7 +460,7 @@ class VocosPlugin:
             from plugins.bigvgan_v2_plugin import BigVGANv2Plugin  # Lazy-Import
 
             _bvg = BigVGANv2Plugin()
-            if not _bvg._model_loaded:
+            if not getattr(_bvg, "_model_loaded", False):
                 return np.clip(audio.astype(np.float32), -1.0, 1.0), "bigvgan_v2_unavailable", 0.0
             result_obj = _bvg.synthesize(audio, sr, mode="studio2026")
             out = self._match_length(result_obj.audio, target_len)
@@ -491,7 +490,7 @@ class VocosPlugin:
             from plugins.hifigan_plugin import HifiGanPlugin  # Lazy-Import
 
             _hg = HifiGanPlugin()
-            if not _hg._session:
+            if not getattr(_hg, "_session", None):
                 raise ImportError("HiFi-GAN Modell nicht verfügbar")
             out = _hg.reconstruct(audio, sr)
             out = self._match_length(out, target_len)
@@ -504,7 +503,9 @@ class VocosPlugin:
             result = np.nan_to_num(audio.astype(np.float32), nan=0.0, posinf=0.0, neginf=0.0)
             return np.clip(result, -1.0, 1.0), "hifigan_unavailable", 0.40
 
-    def _synthesize_griffin_lim(self, audio: np.ndarray, sr: int, n_iter: int = 32) -> tuple[np.ndarray, str, float]:
+    def _synthesize_istft_phase_coherent(
+        self, audio: np.ndarray, sr: int, _n_iter: int = 32
+    ) -> tuple[np.ndarray, str, float]:
         """Phase-coherent iSTFT fallback synthesis (Stufe 3 — last resort).
 
         Replaces former Griffin-Lim: uses original-phase iSTFT for transparent,
@@ -521,7 +522,7 @@ class VocosPlugin:
         audio = np.nan_to_num(audio.astype(np.float32), nan=0.0, posinf=0.0, neginf=0.0)
         target_len = len(audio)
         if target_len < 2:
-            return np.zeros(target_len, np.float32), "griffin_lim_fallback", 0.30
+            return np.zeros(target_len, np.float32), "istft_phase_coherent_fallback", 0.30
 
         try:
             nperseg = min(_WIN, target_len)
@@ -539,7 +540,7 @@ class VocosPlugin:
             logger.warning("Phase-coherent iSTFT Fallback Fehler: %s", e)
             result = np.clip(audio.copy(), -1.0, 1.0)
 
-        return result, "griffin_lim_fallback", 0.60
+        return result, "istft_phase_coherent_fallback", 0.60
 
     def _estimate_pqs_mos(self, original: np.ndarray, restored: np.ndarray, sr: int) -> float:
         """Schätzt PQS-MOS ∈ [1.0, 5.0].
@@ -574,7 +575,7 @@ class VocosPlugin:
         except Exception:
             return 3.0
 
-    def _mel_snr(self, original: np.ndarray, restored: np.ndarray, sr: int) -> float:
+    def _mel_snr(self, original: np.ndarray, restored: np.ndarray, _sr: int) -> float:
         """Berechnet Signal-Rausch-Abstand in dB.
 
         Invariante: Identisches Audio → SNR ≥ 20 dB
@@ -634,7 +635,7 @@ class VocosPlugin:
                 out_audio, model_name, confidence = self._synthesize_hifigan(audio, sr)
                 # Stufe 3: Phase-coherent iSTFT wenn alle neuronalen Modelle fehlen (§4.5)
                 if model_name == "hifigan_unavailable":
-                    out_audio, model_name, confidence = self._synthesize_griffin_lim(audio, sr)
+                    out_audio, model_name, confidence = self._synthesize_istft_phase_coherent(audio, sr)
                     logger.warning(
                         "Vocos + BigVGAN v2 + HiFi-GAN nicht verfügbar — Phase-coherent iSTFT aktiv (Stufe 3, §4.5)."
                     )
@@ -661,7 +662,7 @@ _lock = threading.Lock()
 
 def get_vocos_plugin() -> VocosPlugin:
     """Thread-sicherer Singleton-Accessor (Double-Checked Locking)."""
-    global _instance
+    global _instance  # pylint: disable=global-statement  # §3.2 Singleton-Pattern (normativ vorgeschrieben)
     if _instance is None:
         with _lock:
             if _instance is None:

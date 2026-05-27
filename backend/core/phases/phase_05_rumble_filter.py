@@ -88,7 +88,7 @@ if __name__ == "__main__":
     )
 else:
     from .phase_interface import PhaseCategory, PhaseInterface, PhaseMetadata, PhaseResult, create_phase_result
-import logging
+import logging  # pylint: disable=wrong-import-position
 
 logger = logging.getLogger(__name__)
 
@@ -256,29 +256,22 @@ class RumbleFilterPhase(PhaseInterface):
         )
 
     def process(
-        self, audio: np.ndarray, material_type: str = "unknown", use_fir: bool = False, **kwargs
+        self, audio: np.ndarray, sample_rate: int = 48000, material_type: str = "unknown", **kwargs
     ) -> PhaseResult:
         """
         Professional rumble removal with transient preservation.
 
         Args:
             audio: Input audio
+            sample_rate: Samplerate (48000 Hz, Pflicht)
             material_type: Material type for adaptive processing
-            use_fir: Use FIR filter (linear phase, higher latency)
-            **kwargs: Additional parameters
+            **kwargs: Additional parameters (use_fir=False: FIR-Modus aktivieren)
 
         Returns:
             PhaseResult with rumble-filtered audio
         """
-        # Backward-compatible call handling:
-        # some callers pass process(audio, sample_rate) positionally.
-        if isinstance(material_type, (int, float, np.integer, np.floating)):
-            kwargs = dict(kwargs)
-            kwargs["sample_rate"] = int(material_type)
-            material_type = str(kwargs.get("material_type", "unknown"))
-
-        sample_rate = kwargs.get("sample_rate", 48000)
         assert sample_rate == 48000, f"SR muss 48000 Hz sein, erhalten: {sample_rate}"
+        use_fir: bool = bool(kwargs.get("use_fir", False))
         self.sample_rate = int(sample_rate)
         start_time = time.time()
 
@@ -445,14 +438,16 @@ class RumbleFilterPhase(PhaseInterface):
                 "rumble_reduction_db": rumble_reduction_db,
                 "material_type": material_type,
             },
-            warnings=[f"High rumble energy: {rumble_energy_ratio:.1%}"] if rumble_energy_ratio > 0.30 else [],
+            warnings=([f"High rumble energy: {rumble_energy_ratio:.1%}"] if rumble_energy_ratio > 0.30 else []),
             metadata={
                 "algorithm": "transient_preserving_highpass_v2",
                 "rumble_energy_before": rumble_energy_ratio,
                 "rumble_energy_after": rumble_energy_after,
                 "rumble_frequencies_hz": rumble_freqs,
                 "transient_locations": int(np.sum(transient_mask)),
-                "scientific_ref": "Julius O. Smith III (2007), Zölzer (2011), Välimäki (2016), Bello (2005), Valente (2005)",
+                "scientific_ref": (
+                    "Julius O. Smith III (2007), Zölzer (2011), Välimäki (2016), Bello (2005), Valente (2005)"
+                ),
                 "benchmark": "iZotope RX De-rumble, Waves X-Rumble, WaveArts MR Hum",
                 "algorithm_version": "2.0_professional",
                 "phase_locality_factor": phase_locality_factor,
@@ -588,7 +583,7 @@ class RumbleFilterPhase(PhaseInterface):
 
         return has_rumble, energy_ratio, rumble_freqs
 
-    def _adapt_cutoff_dynamic(
+    def _adapt_cutoff_dynamic(  # pylint: disable=unused-argument
         self, audio: np.ndarray, base_cutoff: float, rumble_energy: float, adapt_strength: float
     ) -> float:
         """
@@ -619,7 +614,7 @@ class RumbleFilterPhase(PhaseInterface):
         filtfilt applies filter forward+backward (zero phase, no settling artefact).
         Replaces previous causal Python-loop (α=0.995 → ~38 Hz, slow, causal artefact).
         """
-        from scipy.signal import filtfilt as _filtfilt_dc
+        from scipy.signal import filtfilt as _filtfilt_dc  # pylint: disable=import-outside-toplevel
 
         alpha = 0.9995  # 1 Hz cutoff @ 48 kHz
         b, a = [1.0, -1.0], [1.0, -alpha]
@@ -828,22 +823,22 @@ class RumbleFilterPhase(PhaseInterface):
 
         return filtered
 
-    def supports_material(self, material_type: str) -> bool:
+    def supports_material(self, material_type: str) -> bool:  # pylint: disable=unused-argument
         """All materials supported."""
         return True
 
 
 if __name__ == "__main__":
-    """Test Professional Rumble Filter Phase."""
+    # Test Professional Rumble Filter Phase.
 
     logger.debug("=" * 80)
     logger.debug("Professional Rumble Filter Phase v2.0 - Test")
     logger.debug("=" * 80)
 
     # Generate test audio
-    sr = 44100
+    _test_sr = 44100
     duration = 5
-    t = np.linspace(0, duration, sr * duration)
+    t = np.linspace(0, duration, _test_sr * duration)
 
     # Music signal (kick drum at 80 Hz, melody at 500 Hz)
     kick = 0.4 * np.sin(2 * np.pi * 80 * t) * (np.sin(2 * np.pi * 2 * t) > 0)  # Pulsing kick
@@ -853,47 +848,46 @@ if __name__ == "__main__":
     rumble = 0.5 * np.sin(2 * np.pi * 33 * t) + 0.3 * np.sin(2 * np.pi * 66 * t)
 
     # Combined signal (stereo)
-    audio = kick + melody + rumble
-    audio = np.column_stack([audio, audio * 0.95])
+    _test_audio = kick + melody + rumble
+    _test_audio = np.column_stack([_test_audio, _test_audio * 0.95])
 
-    logger.debug("\nTest Audio: %ss @ %s Hz (stereo)", duration, sr)
+    logger.debug("\nTest Audio: %ss @ %s Hz (stereo)", duration, _test_sr)
     logger.debug("Music: 80 Hz kick (pulsing) + 500 Hz melody")
     logger.debug("Rumble: 33 Hz motor + 66 Hz harmonic (strong!)")
 
     # Test with different materials
     materials = ["shellac", "vinyl", "tape", "cd_digital"]
 
-    for material in materials:
+    for _test_mat in materials:
         logger.debug("\n%s", "-" * 80)
-        logger.debug("Testing with material: %s", material.upper())
+        logger.debug("Testing with material: %s", _test_mat.upper())
         logger.debug("%s", "-" * 80)
 
-        phase = RumbleFilterPhase(sample_rate=sr)
-        result = phase.process(audio.copy(), material_type=material)
+        phase = RumbleFilterPhase(sample_rate=_test_sr)
+        _test_result = phase.process(_test_audio.copy(), material_type=_test_mat)
 
-        if result.success and result.modifications.get("rumble_filtered"):
+        if _test_result.success and _test_result.modifications.get("rumble_filtered"):
             logger.debug("✅ Processing Complete!")
-            logger.debug(
-                f"   Execution Time: {result.metadata['execution_time_seconds']:.3f}s ({result.metadata['execution_time_seconds'] / duration:.2f}× realtime)"
-            )
-            logger.debug("   Cutoff: %.1f Hz", result.modifications["cutoff_hz"])
-            logger.debug("   Filter Order: %s", result.modifications["filter_order"])
-            logger.debug("   Phase Mode: %s", result.modifications["phase_mode"])
-            logger.debug("   Transient Preserved: %s", result.modifications["transient_preserved"])
-            logger.debug("   Rumble Reduction: %.1f dB", result.modifications["rumble_reduction_db"])
-            logger.debug("   Rumble Energy Before: %.3f", result.metadata["rumble_energy_before"])
-            logger.debug("   Rumble Energy After: %.3f", result.metadata["rumble_energy_after"])
-            logger.debug("   Rumble Frequencies: %s Hz", result.metadata["rumble_frequencies_hz"])
-            logger.debug("   Transient Locations: %s", result.metadata["transient_locations"])
-            logger.debug("   Warnings: %s", result.warnings if result.warnings else "None")
+            _exec_t05 = _test_result.metadata["execution_time_seconds"]
+            logger.debug("   Execution Time: %.3fs (%.2f\u00d7 realtime)", _exec_t05, _exec_t05 / duration)
+            logger.debug("   Cutoff: %.1f Hz", _test_result.modifications["cutoff_hz"])
+            logger.debug("   Filter Order: %s", _test_result.modifications["filter_order"])
+            logger.debug("   Phase Mode: %s", _test_result.modifications["phase_mode"])
+            logger.debug("   Transient Preserved: %s", _test_result.modifications["transient_preserved"])
+            logger.debug("   Rumble Reduction: %.1f dB", _test_result.modifications["rumble_reduction_db"])
+            logger.debug("   Rumble Energy Before: %.3f", _test_result.metadata["rumble_energy_before"])
+            logger.debug("   Rumble Energy After: %.3f", _test_result.metadata["rumble_energy_after"])
+            logger.debug("   Rumble Frequencies: %s Hz", _test_result.metadata["rumble_frequencies_hz"])
+            logger.debug("   Transient Locations: %s", _test_result.metadata["transient_locations"])
+            logger.debug("   Warnings: %s", _test_result.warnings if _test_result.warnings else "None")
         else:
             logger.debug("⏭️  Rumble Filter Skipped")
-            logger.debug("   Reason: %s", result.modifications.get("reason", "unknown"))
+            logger.debug("   Reason: %s", _test_result.modifications.get("reason", "unknown"))
 
     logger.debug("\n%s", "=" * 80)
     logger.debug("✅ Professional Rumble Filter v2.0 Test Complete!")
     logger.debug("%s", "=" * 80)
-    logger.debug("Algorithm: %s", result.metadata.get("algorithm", "N/A"))
-    logger.debug("Scientific Reference: %s", result.metadata.get("scientific_ref", "N/A"))
-    logger.debug("Benchmark: %s", result.metadata.get("benchmark", "N/A"))
+    logger.debug("Algorithm: %s", _test_result.metadata.get("algorithm", "N/A"))
+    logger.debug("Scientific Reference: %s", _test_result.metadata.get("scientific_ref", "N/A"))
+    logger.debug("Benchmark: %s", _test_result.metadata.get("benchmark", "N/A"))
     logger.debug("Quality Impact: 0.93 (Professional-Grade)")

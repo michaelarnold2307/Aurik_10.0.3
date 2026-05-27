@@ -49,7 +49,7 @@ def test_polyphonic_reestimate_logs_info_not_warning(monkeypatch, caplog) -> Non
         result = phase.process(audio, sample_rate=48000, material_type=MaterialType.VINYL, quality_mode="maximum")
 
     assert result.success is True
-    assert result.metrics["skipped_reason"] == "low_confidence"
+    assert result.metrics["skipped_reason"] == "low_confidence_fallback"
     assert any(
         rec.levelno == logging.INFO and "Polyphoner Konsensus unzureichend" in rec.message for rec in caplog.records
     )

@@ -345,13 +345,18 @@ peak = np.percentile(np.abs(audio), 99.9)
 
 ## §NTI Noise-Textur-Invariante (V19) [RELEASE_MUST v9.5]
 
-**Regel**: Residualrauschen nach NR muss das Spektralprofil des Trägers behalten — kein Whitening.
+**Regel**: Das durch NR entfernte Material (`residual = pre − post`) muss dem erwarteten
+Defektprofil des Trägers entsprechen — kein Whitening (NR hat Musikinhalt entfernt).
+
+**Semantik**: `_residual` ist der _entfernte Inhalt_, nicht das verbleibende Rauschen.
+Sein Spektral-Slope wird gegen die Residual-Erwartungsrange des Trägers geprüft.
+Liegt der Slope außerhalb → NR hat Träger-fremdes Material entfernt → Whitening-Warnung.
 
 ```python
 # PFLICHT nach jeder NR-Phase (DFN, OMLSA, SGMSE+, MIIPHER):
 from backend.core.dsp.noise_texture_guard import compute_noise_texture_distance
 
-_residual = audio_pre_nr - audio_post_nr  # Entferntes Rauschen isolieren
+_residual = audio_pre_nr - audio_post_nr  # Entfernter Inhalt (kein in-situ Rauschen!)
 _ntd = compute_noise_texture_distance(_residual, material=material_type)
 if _ntd > 0.25:
     # Rauschtextur zu weit vom Träger entfernt → Strength halbieren, nicht voll anwenden
@@ -360,11 +365,14 @@ if _ntd > 0.25:
     logger.warning("noise_texture_guard: ntd=%.3f > 0.25 → strength x0.5 (V19)", _ntd)
     metadata["noise_texture_distance"] = _ntd
 
-# Referenzprofile per Material (backend/core/dsp/noise_texture_guard.py):
-# SHELLAC: spektrale Steigung -3 dB/oct (200-8000 Hz) + Rumpelkomponente 50-200 Hz
-# VINYL:   rosa Rauschen 1/f; HF-Hiss Anstieg 8-16 kHz
-# TAPE:    Brown-Rauschen tief + HF-Hiss um 6-10 kHz
-# CD:      Weißes Rauschen, flat -96 dBFS; Jitter-Artefakt 15-18 kHz
+# Residual-Slope-Ranges per Material (_MATERIAL_RESIDUAL_SLOPE_RANGES, 100–8000 Hz):
+# SHELLAC:      (-2.0, +8.0) dB/oct  — entferntes Kratz/Knistern ist HF-reich
+# VINYL:        (-4.5, +1.5) dB/oct  — entferntes Rauschen leicht LF-betont (1/f)
+# TAPE/REEL:    (-4.0, +2.0) dB/oct  — Band-Hiss leicht breitbandig
+# CASSETTE:     (-4.0, +2.0) dB/oct  — ähnlich Tape
+# CD/DAT:       (-2.5, +2.5) dB/oct  — digitales Quantisierungsrauschen flat
+# WAX_CYLINDER: (-1.5, +9.0) dB/oct  — extremes HF-Kratzen
+# Scope außerhalb Range → NR hat musik-ähnlichen LF-Inhalt entfernt → Whitening
 # VERBOTEN: NR die reines Stille-Fundament (-100 dBFS) auf analog-Material erzeugt
 ```
 

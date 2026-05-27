@@ -145,6 +145,16 @@ class PianoRestorationV1(PhaseInterface):
             "pedal_threshold_db": -45,
             "mix": 0.45,  # 45% processed
         },
+        MaterialType.CASSETTE: {  # v9.12.9: IEC 60094-1 — gleiche Capstan-Physik wie TAPE
+            "hammer_enhancement": 0.50,
+            "string_resonance": 0.50,
+            "pedal_reduction": 0.40,
+            "dynamics_expansion": 1.15,
+            "attack_gain_db": 2.5,
+            "resonance_decay_factor": 1.2,
+            "pedal_threshold_db": -45,
+            "mix": 0.45,
+        },
         MaterialType.CD_DIGITAL: {
             "hammer_enhancement": 0.35,  # Subtle (digital is clean)
             "string_resonance": 0.40,
@@ -187,6 +197,7 @@ class PianoRestorationV1(PhaseInterface):
             **kwargs: Override parameters
         """
         super().__init__(sample_rate, **kwargs)
+        self._formant_system_piano: Any = None  # lazy Singleton-Initialisierung (W0201)
 
     def _fletcher_partial_correction(
         self,
@@ -395,12 +406,11 @@ class PianoRestorationV1(PhaseInterface):
         # Instrument-guided formant enhancement (Young 1952 / Weinreich 1977 piano resonances)
         igt_frames = 0
         try:
-            global _FORMANT_SYSTEM_PIANO
             if _FormantSystemCls is not None:
-                if _FORMANT_SYSTEM_PIANO is None:
-                    _FORMANT_SYSTEM_PIANO = _FormantSystemCls(enhance_singers_formant=False)
+                if self._formant_system_piano is None:
+                    self._formant_system_piano = _FormantSystemCls(enhance_singers_formant=False)
                 formant_strength = float(np.clip(0.20 * hq_scale, 0.15, 0.28))
-                audio_out, igt_report = _FORMANT_SYSTEM_PIANO.instrument_guided_enhance(
+                audio_out, igt_report = self._formant_system_piano.instrument_guided_enhance(
                     audio_out,
                     self.sample_rate,
                     instrument="keys",
@@ -413,7 +423,9 @@ class PianoRestorationV1(PhaseInterface):
 
         # Formant-Drift-Korrektur via DTW (Schritt 3)
         try:
-            from dsp.instrument_formant_corrector import correct_instrument_formant_drift
+            from dsp.instrument_formant_corrector import (
+                correct_instrument_formant_drift,  # pylint: disable=import-outside-toplevel
+            )
 
             drift_result = correct_instrument_formant_drift(audio_out, self.sample_rate, instrument="keys")
             audio_out = drift_result.audio
@@ -429,7 +441,7 @@ class PianoRestorationV1(PhaseInterface):
 
         # Sub-Stem-Verarbeitung (Schritt 4)
         try:
-            from backend.core.sub_stem_processor import process_sub_stems
+            from backend.core.sub_stem_processor import process_sub_stems  # pylint: disable=import-outside-toplevel
 
             sub_stem_strength = float(np.clip(0.30 * hq_scale, 0.25, 0.42))
             ss_result = process_sub_stems(
@@ -442,7 +454,9 @@ class PianoRestorationV1(PhaseInterface):
 
         # Physics-Resonanz (Schritt 5 — Biquad Body Resonance)
         try:
-            from backend.core.physics_resonance_enhancer import enhance_physics_resonance
+            from backend.core.physics_resonance_enhancer import (
+                enhance_physics_resonance,  # pylint: disable=import-outside-toplevel
+            )
 
             physics_strength = float(np.clip(0.40 * hq_scale, 0.35, 0.55))
             pr_result = enhance_physics_resonance(
@@ -733,7 +747,10 @@ class PianoRestorationV1(PhaseInterface):
             is_cpu_intensive=True,
             is_io_intensive=False,
             quality_impact=0.90,  # High impact on piano content
-            description="Professional piano restoration: hammer transients, string resonance, pedal noise reduction, dynamic range restoration",
+            description=(
+                "Professional piano restoration: hammer transients, string resonance, "
+                "pedal noise reduction, dynamic range restoration"
+            ),
         )
 
     def supports_material(self, material_type: MaterialType) -> bool:
@@ -815,12 +832,13 @@ if __name__ == "__main__":
         logger.debug("      Shape: %s", result.audio.shape)
         logger.debug("      Max: %.3f", np.max(np.abs(result.audio)))
         logger.debug(
-            f"      Config: hammer={result.metadata['hammer_enhancement']:.2f}, "
-            f"resonance={result.metadata['string_resonance']:.2f}, "
-            f"pedal_reduction={result.metadata['pedal_reduction']:.2f}"
+            "      Config: hammer=%.2f, resonance=%.2f, pedal_reduction=%.2f",
+            result.metadata["hammer_enhancement"],
+            result.metadata["string_resonance"],
+            result.metadata["pedal_reduction"],
         )
 
-    logger.debug("\n" + "=" * 70)
+    logger.debug("\n%s", "=" * 70)
     logger.debug("✅ PIANO RESTORATION TEST COMPLETE")
     logger.debug("=" * 70)
     logger.debug("\n🎯 Next Steps:")

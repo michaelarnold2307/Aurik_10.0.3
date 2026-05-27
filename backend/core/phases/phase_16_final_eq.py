@@ -113,6 +113,12 @@ class FinalEQ(PhaseInterface):
             "high_mid": {"type": "bell", "freq": 3500, "gain_db": 1.5, "q": 1.0},
             "high": {"type": "shelf", "freq": 10000, "gain_db": 2.0, "q": 0.7},
         },
+        MaterialType.CASSETTE: {
+            "low": {"type": "shelf", "freq": 80, "gain_db": 1.0, "q": 0.7},
+            "low_mid": {"type": "bell", "freq": 300, "gain_db": 0.5, "q": 0.9},
+            "high_mid": {"type": "bell", "freq": 3500, "gain_db": 1.5, "q": 1.0},
+            "high": {"type": "shelf", "freq": 8000, "gain_db": 1.5, "q": 0.7},  # v9.12.9: BW-Ceiling 12 kHz
+        },  # v9.12.9: IEC 60094-1 — gleiche Capstan-Physik wie TAPE
         MaterialType.CD_DIGITAL: {
             "low": {"type": "shelf", "freq": 50, "gain_db": 0.5, "q": 0.7},
             "low_mid": {"type": "bell", "freq": 200, "gain_db": 0.0, "q": 1.0},
@@ -267,6 +273,29 @@ class FinalEQ(PhaseInterface):
                 )
             except Exception as _pm_exc:
                 logger.debug("Phase16 masking clamp non-blocking: %s", _pm_exc)
+
+        # §V24 Spektralfarbe-Prüfung nach EQ (§2.74, non-blocking WARNING)
+        try:
+            from backend.core.dsp.spectral_color_guard import (  # pylint: disable=import-outside-toplevel
+                check_spectral_color_preservation as _scg_p16,
+            )
+
+            _sc_result_p16 = _scg_p16(audio, eq_audio, sample_rate)
+            if not _sc_result_p16.ok:
+                _sc_wet_p16 = 0.70  # Phase-Strength −30 % (§V24)
+                eq_audio = (_sc_wet_p16 * eq_audio + (1.0 - _sc_wet_p16) * audio).astype(np.float32)
+        except Exception as _sc_exc_p16:
+            logger.debug("§V24 phase_16 spectral_color non-blocking: %s", _sc_exc_p16)
+
+        # §V26 Onset-Schutz nach EQ (§2.77, non-blocking)
+        try:
+            from backend.core.dsp.onset_guard import (  # pylint: disable=import-outside-toplevel
+                apply_onset_protection_mask as _opm_p16,
+            )
+
+            eq_audio = _opm_p16(audio, eq_audio, None, max_delta_db=1.5)
+        except Exception as _opm_exc_p16:
+            logger.debug("§V26 phase_16 onset_guard non-blocking: %s", _opm_exc_p16)
 
         return PhaseResult(
             success=True,

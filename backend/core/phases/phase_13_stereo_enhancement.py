@@ -94,6 +94,7 @@ class StereoEnhancementPhaseV2(PhaseInterface):
         MaterialType.SHELLAC: [0.7, 1.0, 1.2, 1.3],  # Bass reduced, conservative HF
         MaterialType.VINYL: [0.7, 1.1, 1.4, 1.5],  # Bass reduced, full mid-width
         MaterialType.TAPE: [0.8, 1.2, 1.4, 1.5],  # Full-range width
+        MaterialType.CASSETTE: [0.8, 1.2, 1.4, 1.5],  # v9.12.9: IEC 60094-1 — gleiche Capstan-Physik wie TAPE
         MaterialType.CD_DIGITAL: [0.9, 1.3, 1.5, 1.8],  # Maximum width
         MaterialType.STREAMING: [0.7, 1.0, 1.2, 1.3],  # Conservative (already optimized)
     }
@@ -104,6 +105,7 @@ class StereoEnhancementPhaseV2(PhaseInterface):
         MaterialType.SHELLAC: [0.75, 0.65, 0.55, 0.50],  # Conservative
         MaterialType.VINYL: [0.70, 0.60, 0.50, 0.45],  # Moderate
         MaterialType.TAPE: [0.65, 0.55, 0.45, 0.40],  # Aggressive
+        MaterialType.CASSETTE: [0.65, 0.55, 0.45, 0.40],  # v9.12.9: IEC 60094-1 — gleiche Capstan-Physik wie TAPE
         MaterialType.CD_DIGITAL: [0.60, 0.50, 0.40, 0.35],  # Maximum
         MaterialType.STREAMING: [0.70, 0.60, 0.50, 0.45],
     }
@@ -113,6 +115,7 @@ class StereoEnhancementPhaseV2(PhaseInterface):
         MaterialType.SHELLAC: [0, 5, 10, 15],  # Conservative
         MaterialType.VINYL: [0, 8, 15, 20],  # Moderate
         MaterialType.TAPE: [0, 10, 18, 25],  # Aggressive
+        MaterialType.CASSETTE: [0, 10, 18, 25],  # v9.12.9: IEC 60094-1 — gleiche Capstan-Physik wie TAPE
         MaterialType.CD_DIGITAL: [0, 12, 20, 30],  # Maximum
         MaterialType.STREAMING: [0, 5, 10, 15],
     }
@@ -122,6 +125,7 @@ class StereoEnhancementPhaseV2(PhaseInterface):
         MaterialType.SHELLAC: [0, 2, 4, 6],  # Conservative
         MaterialType.VINYL: [0, 4, 6, 8],  # Moderate
         MaterialType.TAPE: [0, 4, 6, 8],  # Aggressive
+        MaterialType.CASSETTE: [0, 4, 6, 8],  # v9.12.9: IEC 60094-1 — gleiche Capstan-Physik wie TAPE
         MaterialType.CD_DIGITAL: [0, 6, 8, 10],  # Maximum
         MaterialType.STREAMING: [0, 2, 4, 6],
     }
@@ -130,19 +134,24 @@ class StereoEnhancementPhaseV2(PhaseInterface):
         super().__init__()
         self.name = "Stereo Enhancement v2.0 (Professional)"
 
-    def process(self, audio: np.ndarray, sample_rate: int, material: MaterialType, **kwargs) -> PhaseResult:
+    def process(  # type: ignore[override]
+        self,
+        audio: np.ndarray,
+        sample_rate: int = 48000,
+        material_type: MaterialType = MaterialType.VINYL,
+        **kwargs,
+    ) -> PhaseResult:
         """
         Wendet an: professional-grade stereo enhancement.
 
         Args:
             audio: Input audio (must be stereo: [samples, 2])
             sample_rate: Sample rate in Hz
-            material: Material type for adaptive parameters
+            material_type: Material type for adaptive parameters
 
         Returns:
             PhaseResult with enhanced stereo audio
         """
-        sample_rate = kwargs.get("sample_rate", 48000)
         assert sample_rate == 48000, f"SR muss 48000 Hz sein, erhalten: {sample_rate}"
         start_time = time.time()
 
@@ -180,7 +189,7 @@ class StereoEnhancementPhaseV2(PhaseInterface):
                 audio=passthrough,
                 execution_time_seconds=time.time() - start_time,
                 metadata={
-                    "material": material.name,
+                    "material": material_type.name,
                     "enhancement_applied": False,
                     "algorithm": "skipped_zero_strength",
                     "phase_locality_factor": phase_locality_factor,
@@ -198,11 +207,11 @@ class StereoEnhancementPhaseV2(PhaseInterface):
             )
 
         # Get material-specific parameters
-        width_factors = list(self.WIDTH_FACTORS.get(material, self.WIDTH_FACTORS[MaterialType.VINYL]))
+        width_factors = list(self.WIDTH_FACTORS.get(material_type, self.WIDTH_FACTORS[MaterialType.VINYL]))
         width_factors = [float(1.0 + (w - 1.0) * _effective_strength) for w in width_factors]
-        min_correlations = self.MIN_CORRELATION.get(material, self.MIN_CORRELATION[MaterialType.VINYL])
-        haas_delays = self.HAAS_DELAY_MS.get(material, self.HAAS_DELAY_MS[MaterialType.VINYL])
-        decorr_orders = self.DECORRELATION_ORDER.get(material, self.DECORRELATION_ORDER[MaterialType.VINYL])
+        min_correlations = self.MIN_CORRELATION.get(material_type, self.MIN_CORRELATION[MaterialType.VINYL])
+        haas_delays = self.HAAS_DELAY_MS.get(material_type, self.HAAS_DELAY_MS[MaterialType.VINYL])
+        decorr_orders = self.DECORRELATION_ORDER.get(material_type, self.DECORRELATION_ORDER[MaterialType.VINYL])
 
         # Measure initial stereo width and correlation
         initial_width = self._measure_stereo_width(audio)
@@ -228,7 +237,7 @@ class StereoEnhancementPhaseV2(PhaseInterface):
                 audio=passthrough,
                 execution_time_seconds=time.time() - start_time,
                 metadata={
-                    "material": material.name,
+                    "material": material_type.name,
                     "enhancement_applied": False,
                     "algorithm": "stereo_enhancement_no_op",
                     "reason": "already_wide_stereo",
@@ -298,7 +307,7 @@ class StereoEnhancementPhaseV2(PhaseInterface):
             audio=enhanced_audio,
             execution_time_seconds=execution_time,
             metadata={
-                "material": material.name,
+                "material": material_type.name,
                 "enhancement_applied": True,
                 "algorithm": "multiband_ms_processing_v2",
                 "num_bands": 4,
@@ -598,26 +607,26 @@ if __name__ == "__main__":
     logger.debug("Professional Stereo Enhancement Phase v2.0 - Test")
     logger.debug("=" * 80)
 
-    sample_rate = 44100
-    duration = 3.0
-    t = np.linspace(0, duration, int(sample_rate * duration), endpoint=False)
+    _test_sr: int = 44100
+    _test_dur: float = 3.0
+    t = np.linspace(0, _test_dur, int(_test_sr * _test_dur), endpoint=False)
 
     # Generate test stereo audio with moderate stereo image
     # Left channel: Multiple frequency components
-    left = 0.3 * np.sin(2 * np.pi * 440 * t)  # 440 Hz (A4)
-    left += 0.2 * np.sin(2 * np.pi * 880 * t)  # 880 Hz (A5)
-    left += 0.15 * np.sin(2 * np.pi * 1760 * t)  # 1760 Hz (A6)
-    left += 0.1 * np.sin(2 * np.pi * 3520 * t)  # 3520 Hz (A7)
+    _test_left = 0.3 * np.sin(2 * np.pi * 440 * t)  # 440 Hz (A4)
+    _test_left += 0.2 * np.sin(2 * np.pi * 880 * t)  # 880 Hz (A5)
+    _test_left += 0.15 * np.sin(2 * np.pi * 1760 * t)  # 1760 Hz (A6)
+    _test_left += 0.1 * np.sin(2 * np.pi * 3520 * t)  # 3520 Hz (A7)
 
     # Right channel: Same frequencies but with phase/amplitude differences
-    right = 0.3 * np.sin(2 * np.pi * 440 * t + 0.2)  # 440 Hz (slightly out of phase)
-    right += 0.15 * np.sin(2 * np.pi * 880 * t + 0.5)  # 880 Hz (different amplitude + phase)
-    right += 0.2 * np.sin(2 * np.pi * 1760 * t - 0.3)  # 1760 Hz (different amplitude + phase)
-    right += 0.12 * np.sin(2 * np.pi * 3520 * t + 0.8)  # 3520 Hz (different amplitude + phase)
+    _test_right = 0.3 * np.sin(2 * np.pi * 440 * t + 0.2)  # 440 Hz (slightly out of phase)
+    _test_right += 0.15 * np.sin(2 * np.pi * 880 * t + 0.5)  # 880 Hz (different amplitude + phase)
+    _test_right += 0.2 * np.sin(2 * np.pi * 1760 * t - 0.3)  # 1760 Hz (different amplitude + phase)
+    _test_right += 0.12 * np.sin(2 * np.pi * 3520 * t + 0.8)  # 3520 Hz (different amplitude + phase)
 
-    test_audio = np.column_stack((left, right))
+    test_audio = np.column_stack((_test_left, _test_right))
 
-    logger.debug("\nTest Audio: %ss @ %s Hz (stereo)", duration, sample_rate)
+    logger.debug("\nTest Audio: %ss @ %s Hz (stereo)", _test_dur, _test_sr)
     logger.debug("Multi-frequency stereo with phase/amplitude differences")
     logger.debug("440 Hz (A4), 880 Hz (A5), 1760 Hz (A6), 3520 Hz (A7)")
     logger.debug("Moderate initial stereo image")
@@ -632,12 +641,14 @@ if __name__ == "__main__":
         logger.debug("Testing with material: %s", material.name)
         logger.debug("%s", "─" * 80)
 
-        result = phase.process(test_audio, sample_rate, material)
+        result = phase.process(test_audio, _test_sr, material)
 
         if result.success:
             logger.debug("✅ Processing Complete!")
             logger.debug(
-                f"   Execution Time: {result.execution_time_seconds:.3f}s ({result.execution_time_seconds / duration:.2f}× realtime)"
+                "   Execution Time: %.3fs (%.2f\u00d7 realtime)",
+                result.execution_time_seconds,
+                result.execution_time_seconds / _test_dur,
             )
             logger.debug("   Stereo Width Before: %.3f", result.metrics["stereo_width_before"])
             logger.debug("   Stereo Width After: %.3f", result.metrics["stereo_width_after"])

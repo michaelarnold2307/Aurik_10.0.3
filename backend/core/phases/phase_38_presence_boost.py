@@ -97,6 +97,11 @@ class PresenceBoost(PhaseInterface):
             "upper_gain_db": 4.0,  # v9.10.114: ↑3.0→4.0
             "q_factor": 2.0,
         },
+        MaterialType.CASSETTE: {  # v9.12.9: IEC 60094-1 — gleiche Capstan-Physik wie TAPE
+            "lower_gain_db": 3.0,
+            "upper_gain_db": 4.0,
+            "q_factor": 2.0,
+        },
         MaterialType.CD_DIGITAL: {
             "lower_gain_db": 4.5,  # v9.10.114: ↑3.5→4.5
             "upper_gain_db": 5.5,  # v9.10.114: ↑4.5→5.5
@@ -326,6 +331,34 @@ class PresenceBoost(PhaseInterface):
                 )
         except Exception as _hg38_exc:
             logger.debug("phase_38: hallucination_guard failed (non-blocking): %s", _hg38_exc)
+
+        # §V22 Pre-Echo-Prevention — Additive Presence-Boost auf Transient-Shifts prüfen (§2.73, non-blocking)
+        try:
+            from backend.core.dsp.transient_guard import (
+                detect_transient_shifts as _dts_38,  # pylint: disable=import-outside-toplevel
+            )
+
+            _ax_v22_38 = -1 if audio.ndim == 2 and audio.shape[-1] <= 8 else 0
+            _pre_v22_38 = (
+                audio.mean(axis=_ax_v22_38).astype(np.float32) if audio.ndim == 2 else audio.astype(np.float32)
+            )
+            _ax_post_38 = -1 if enhanced_audio.ndim == 2 and enhanced_audio.shape[-1] <= 8 else 0
+            _post_v22_38 = (
+                enhanced_audio.mean(axis=_ax_post_38).astype(np.float32)
+                if enhanced_audio.ndim == 2
+                else enhanced_audio.astype(np.float32)
+            )
+            _ts_38 = _dts_38(_pre_v22_38, _post_v22_38, sample_rate)
+            if not _ts_38.ok:
+                _wet_ts_38 = max(0.0, 1.0 - _ts_38.blend_reduction)
+                enhanced_audio = (_wet_ts_38 * enhanced_audio + (1.0 - _wet_ts_38) * audio).astype(np.float32)
+                logger.warning(
+                    "§V22 phase_38: onset_shift=%.2f ms → blend_reduction=%.2f",
+                    _ts_38.max_shift_ms,
+                    _ts_38.blend_reduction,
+                )
+        except Exception as _v22_38_exc:
+            logger.debug("§V22 phase_38 transient_guard non-blocking: %s", _v22_38_exc)
         return PhaseResult(
             success=True,
             audio=enhanced_audio,

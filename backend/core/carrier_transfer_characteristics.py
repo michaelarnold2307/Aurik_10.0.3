@@ -134,25 +134,32 @@ def spectral_correlation(audio1: np.ndarray, audio2: np.ndarray, sr: int = 48000
 def compute_carrier_recovery_ratio(audio_pre: np.ndarray, audio_post: np.ndarray, sr: int = 48000) -> float:
     """§0d — NR-aware carrier-chain recovery ratio.
 
-    Kombiniert zwei Messgrössen:
+    Kombiniert drei Messgrössen:
 
     1. **Spectral-shape ratio** (1 − spectral_correlation):
        Sensitiv für grosse Spektralveränderungen: BW-Extension (phase_06/07),
        RIAA-Inversion (phase_04), Heavy-EQ (phase_16).
 
-    2. **Noise-floor-delta ratio**:
+    2. **Noise-floor-delta ratio** (Gesamt-PSD, 5. Perzentil):
        ``spectral_correlation`` nutzt log-PSD — Musikinhalt dominiert absolut.
        Hiss-Entfernung (phase_03/29, cassette/tape) ändert die Spektralform
        kaum (Hiss-Leistung ≈ 10⁻⁶ relativ zu Musikpegel → corr ≈ 0.997).
-       Das Noise-Floor-Delta detektiert NR-Recovery, die ``spectral_correlation``
-       ignoriert:
        - 5. Perzentil der Welch-PSD ≈ Rauschboden-Schätzung
        - SNR-Verbesserung ≥ 12 dB → ratio ≥ 0.15 → §0d aktiviert
+       Limitation: bei musikdominiertem Signal entspricht das 5. Perzentil
+       musikalischen Null-Bins, nicht dem Tape-Hiss-Pegel.
+
+    3. **HF-Band-Noise-Floor-Delta** (4–16 kHz, 10. Perzentil):
+       Tape/Cassette-Hiss ist HF-konzentriert; im 4–16 kHz-Band ist das SNR
+       zwischen Hiss und Musik am niedrigsten → 10. Perzentil dort sensitiv
+       für OMLSA/phase_29-NR-Recovery, die Component 2 nicht erkennt.
+       - 10 dB HF-NR → _hf_ratio ≈ 0.25 → §0d sicher aktiviert
+       - < 3.5 dB Änderung → kein Trigger
 
     Kalibrierung (§0d-Schwelle 0.15):
-       * 12 dB NR-Improvement → _nr_ratio = 0.15 → §0d aktiviert
-       * 20 dB NR-Improvement → _nr_ratio = 0.25 → §0d sicher aktiv
-       * < 6 dB Änderung → kein §0d-Trigger
+       * Component 1: BW-Extension/Heavy-EQ → spectral_shape ≥ 0.02 → §0d
+       * Component 2: 12 dB globale NR → ratio 0.15 → §0d
+       * Component 3: 10 dB HF-NR (Tape/Cassette) → ratio 0.25 → §0d sicher
 
     Returns:
         ratio in [0.0, 1.0]: > 0.15 → §0d carrier-reference shift aktiviert.
@@ -160,7 +167,7 @@ def compute_carrier_recovery_ratio(audio_pre: np.ndarray, audio_post: np.ndarray
     # Component 1: spectral-shape change
     _spec_ratio = float(np.clip(1.0 - spectral_correlation(audio_pre, audio_post, sr=sr), 0.0, 1.0))
 
-    # Component 2: noise-floor change (NR-sensitive)
+    # Component 2+3: noise-floor change (global + HF-Band)
     def _to_mono(a: np.ndarray) -> np.ndarray:
         if a.ndim == 2:
             if a.shape[0] == 2:
@@ -173,19 +180,35 @@ def compute_carrier_recovery_ratio(audio_pre: np.ndarray, audio_post: np.ndarray
     min_len = min(len(m_pre), len(m_post))
 
     _nr_ratio = 0.0
+    _hf_ratio = 0.0
     if min_len >= 4096:
         try:
             nperseg = min(4096, min_len)
-            _, psd_pre = _welch(m_pre[:min_len], fs=sr, nperseg=nperseg)
+            freqs, psd_pre = _welch(m_pre[:min_len], fs=sr, nperseg=nperseg)
             _, psd_post = _welch(m_post[:min_len], fs=sr, nperseg=nperseg)
-            # 5th-percentile PSD ≈ noise floor estimate (below musical peaks)
+
+            # Component 2: 5th-percentile PSD ≈ global noise floor estimate
             _floor_pre = float(np.percentile(psd_pre + 1e-30, 5))
             _floor_post = float(np.percentile(psd_post + 1e-30, 5))
             if _floor_pre > _floor_post * 1.5:  # floor dropped ≥ 3.5 dB
-                # Scale: 12 dB NR → ratio 0.15 (§0d threshold); 80 dB → 1.0 (capped 0.40)
+                # Scale: 12 dB NR → ratio 0.15 (§0d threshold); 80 dB → capped 0.40
                 _nr_db = float(10.0 * np.log10(_floor_pre / (_floor_post + 1e-30)))
                 _nr_ratio = float(np.clip(_nr_db / 80.0, 0.0, 0.40))
-        except Exception:
-            pass  # non-blocking: spectral_correlation fallback is sufficient
 
-    return float(np.clip(_spec_ratio + _nr_ratio, 0.0, 1.0))
+            # Component 3: HF-Band (4–16 kHz) — Tape/Cassette-Hiss-Detektion (v9.12.9)
+            # Tape-Hiss ist im HF-Band relativ zum Musikinhalt am stärksten; das 10. Perzentil
+            # der HF-PSD-Bins misst den Hiss-Boden sensitiver als das globale 5. Perzentil.
+            _hf_lo = 4000.0
+            _hf_hi = min(16000.0, float(sr) / 2.0 * 0.92)
+            _hf_mask = (freqs >= _hf_lo) & (freqs <= _hf_hi)
+            if int(_hf_mask.sum()) >= 8:
+                _hf_floor_pre = float(np.percentile(psd_pre[_hf_mask] + 1e-30, 10))
+                _hf_floor_post = float(np.percentile(psd_post[_hf_mask] + 1e-30, 10))
+                if _hf_floor_pre > _hf_floor_post * 1.5:  # HF-Boden sank ≥ 3.5 dB
+                    # Scale: 10 dB HF-NR → 0.25; 20 dB → 0.50 (capped 0.40)
+                    _hf_db = float(10.0 * np.log10(_hf_floor_pre / (_hf_floor_post + 1e-30)))
+                    _hf_ratio = float(np.clip(_hf_db / 40.0, 0.0, 0.40))
+        except Exception:
+            pass  # non-blocking: spectral_correlation fallback ist ausreichend
+
+    return float(np.clip(_spec_ratio + _nr_ratio + _hf_ratio, 0.0, 1.0))

@@ -13,6 +13,8 @@ logger = logging.getLogger(__name__)
 
 
 class AdaptiveSTFT:
+    """Adaptive STFT/ISTFT-Klasse mit automatischer Parameteroptimierung."""
+
     def __init__(
         self,
         n_fft: int = 2048,
@@ -29,7 +31,7 @@ class AdaptiveSTFT:
         self.center = center
         self.pad_mode = pad_mode
 
-    def stft(self, y: np.ndarray, sr: int | None = None, **kwargs: Any) -> np.ndarray:
+    def stft(self, y: np.ndarray, sr: int | None = None, **kwargs: Any) -> np.ndarray:  # pylint: disable=unused-argument
         """
         Normkonform: Quality-Gate, Audit-Logging, robuste Fehlerbehandlung
         Berechnet die STFT adaptiv mit aktuellen Parametern.
@@ -57,7 +59,7 @@ class AdaptiveSTFT:
             self._audit_log({"func": "stft", "error": str(e)})
             return np.zeros((self.n_fft // 2 + 1, 1))
 
-    def istft(self, D: np.ndarray, sr: int | None = None, **kwargs: Any) -> np.ndarray:
+    def istft(self, D: np.ndarray, sr: int | None = None, **kwargs: Any) -> np.ndarray:  # pylint: disable=unused-argument
         """
         Normkonform: Quality-Gate, Audit-Logging, robuste Fehlerbehandlung
         Inverse STFT mit adaptiven Parametern.
@@ -87,7 +89,7 @@ class AdaptiveSTFT:
     def _audit_log(self, result: dict[str, Any]):
         logger.info("[AuditLog][AdaptiveSTFT] Ergebnis: %s", result)
 
-    def auto_optimize(self, y: np.ndarray, sr: int) -> None:
+    def auto_optimize(self, y: np.ndarray, sr: int) -> None:  # pylint: disable=unused-argument
         """Automatische Anpassung der Parameter je nach Signal (SOTA-Ansatz)."""
         # Beispiel: Passe n_fft an die Signal-Länge an
         if len(y) < 4096:
@@ -104,6 +106,8 @@ class AdaptiveSTFT:
 
 
 class AdaptiveMelSpectrogram:
+    """Adaptive Mel-Spektrogramm-Klasse mit automatischer Parameteroptimierung."""
+
     def __init__(
         self,
         n_fft: int = 2048,
@@ -154,7 +158,11 @@ class AdaptiveMelSpectrogram:
     def _audit_log(self, result: dict[str, Any]):
         logger.info("[AuditLog][AdaptiveMelSpectrogram] Ergebnis: %s", result)
 
-    def auto_optimize(self, y: np.ndarray, sr: int) -> None:
+    def transform(self, y: np.ndarray, sr: int | None = None, **kwargs: Any) -> np.ndarray:
+        """Alias für mel_spectrogram — ermöglicht einheitliche transform()-Schnittstelle."""
+        return self.mel_spectrogram(y, sr=sr, **kwargs)
+
+    def auto_optimize(self, y: np.ndarray, sr: int) -> None:  # pylint: disable=unused-argument
         """Automatische Anpassung der Mel-Parameter je nach Signal."""
         if sr < 16000:
             self.n_mels = 64

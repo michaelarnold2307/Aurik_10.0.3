@@ -221,3 +221,109 @@ def test_run_analysis_resets_state_between_runs(monkeypatch, tmp_path) -> None:
     assert result["final_musical_goals"] == {}
     assert result["final_vocal_metrics"] == {}
     assert result["summary"] == {"status": "no_checkpoints"}
+
+
+def test_collect_checkpoints_hpi_components_in_final_checkpoint_only() -> None:
+    """§2.44: MERT, timbral, VQI, EAP erscheinen nur im finalen Checkpoint."""
+    analyzer = ContinuousDeepAnalyzer(realtime=False)
+
+    metadata = {
+        "holistic_perceptual_gate": {
+            "hpi": 0.55,
+            "artifact_freedom": 0.99,
+            "mert_similarity": 0.84,
+            "timbral_fidelity": 0.72,
+            "emotional_arc_preservation": 0.93,
+        },
+        "vqi": 0.81,
+        "artifact_freedom": {"score": 0.99},
+        "carrier_chain_recovery_ratio": 0.20,
+        "hpi_material_ceiling": 0.61,
+        "pmgg_log_entries": [
+            {
+                "phase_id": "phase_03_denoise",
+                "timestamp": 1.0,
+                "scores_before": {"natuerlichkeit": 0.88},
+                "scores_after": {"natuerlichkeit": 0.90},
+            },
+            {
+                "phase_id": "phase_65_vocal_naturalness_restoration",
+                "timestamp": 2.0,
+                "scores_before": {"natuerlichkeit": 0.90},
+                "scores_after": {"natuerlichkeit": 0.91},
+            },
+        ],
+    }
+    analyzer._collect_checkpoints_from_restore_result(SimpleNamespace(metadata=metadata), pre_result=None)
+
+    assert len(analyzer.checkpoints) == 2
+    # Intermediate-Checkpoint: keine HPI-Komponenten
+    first = analyzer.checkpoints[0]
+    assert first.mert_similarity is None
+    assert first.timbral_fidelity is None
+    assert first.vqi is None
+    assert first.emotional_arc_preservation is None
+    assert first.hpi_ceiling is None
+    # Finaler Checkpoint: alle HPI-Komponenten gesetzt
+    last = analyzer.checkpoints[-1]
+    assert last.mert_similarity == 0.84
+    assert last.timbral_fidelity == 0.72
+    assert last.vqi == 0.81
+    assert last.emotional_arc_preservation == 0.93
+    assert last.hpi_ceiling == 0.61
+
+
+def test_hpi_components_in_to_dict_serializable() -> None:
+    """PhaseCheckpoint.to_dict() serialisiert HPI-Komponenten korrekt (JSON-safe)."""
+    cp = PhaseCheckpoint(
+        phase_id="phase_65_vocal_naturalness_restoration",
+        wall_time_s=1_000_000.0,
+        musical_goals={"natuerlichkeit": 0.91},
+        hpi_score=0.55,
+        artifact_freedom=0.99,
+        carrier_recovery_ratio=0.20,
+        noise_floor_db=None,
+        defects_remaining=None,
+        anomalies=[],
+        vqi=0.81,
+        mert_similarity=0.84,
+        timbral_fidelity=0.72,
+        emotional_arc_preservation=0.93,
+        hpi_ceiling=0.61,
+    )
+    d = cp.to_dict()
+    assert d["vqi"] == 0.81
+    assert d["mert_similarity"] == 0.84
+    assert d["timbral_fidelity"] == 0.72
+    assert d["emotional_arc_preservation"] == 0.93
+    assert d["hpi_ceiling"] == 0.61
+
+
+def test_compute_hpi_material_ceiling_cassette_mp3_low_vocal() -> None:
+    """§0k: HPI-Ceiling für Cassette+mp3_low mit Gesang (SGMSE+ Chain ohne MIIPHER)."""
+    from backend.core.unified_restorer_v3 import _compute_hpi_material_ceiling_uv3
+
+    ceiling = _compute_hpi_material_ceiling_uv3(
+        material_type="cassette",
+        transfer_chain=["mp3_low"],
+        panns_singing=0.6,
+        is_studio_mode=False,
+    )
+    # cassette: timbral=0.72, mert=0.82, vqi=0.78; mp3_low: timbral=0.82, mert=0.86, vqi=0.82
+    # worst-case: timbral=0.72, mert=0.82, vqi=0.78
+    # ceiling ≈ 0.82 × 0.72 × 0.78 × 0.98 × 0.95 ≈ 0.437
+    assert 0.35 < ceiling < 0.60, f"Unerwartet: {ceiling}"
+
+
+def test_compute_hpi_material_ceiling_cd_instrumental() -> None:
+    """§0k: HPI-Ceiling für CD-Material ohne Gesang."""
+    from backend.core.unified_restorer_v3 import _compute_hpi_material_ceiling_uv3
+
+    ceiling = _compute_hpi_material_ceiling_uv3(
+        material_type="cd",
+        transfer_chain=[],
+        panns_singing=0.1,
+        is_studio_mode=False,
+    )
+    # Ohne VQI-Faktor, CD-timbral=0.97, MERT=0.97 → Ceiling sehr hoch
+    assert ceiling > 0.85, f"CD-Instrumental-Ceiling sollte > 0.85 sein: {ceiling}"

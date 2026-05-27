@@ -131,7 +131,7 @@ def test_execute_pipeline_skips_phase_when_budget_helper_requests_passthrough() 
         if phase_id == "phase_17_mastering_polish":
             return {
                 "reason": "reserve_for_priority_followup",
-                "future_priority_phase": "phase_42_vocal_enhancement",
+                "future_priority_phase": "phase_39_air_band_enhancement",
             }
         return None
 
@@ -145,12 +145,60 @@ def test_execute_pipeline_skips_phase_when_budget_helper_requests_passthrough() 
         selected_phases=[
             "phase_03_denoise",
             "phase_17_mastering_polish",
-            "phase_42_vocal_enhancement",
+            "phase_39_air_band_enhancement",
         ],
         no_rt_limit=True,
     )
 
     assert isinstance(out, np.ndarray)
-    assert executed == ["phase_03_denoise", "phase_42_vocal_enhancement"]
+    assert executed == ["phase_03_denoise", "phase_39_air_band_enhancement"]
     assert "phase_17_mastering_polish" in skipped
     assert deferred == []
+
+
+def test_phase50_wall_budget_protection_triggers_on_lossy_chain_goal_deficit() -> None:
+    restorer = _build_restorer()
+    protected = restorer._should_protect_phase50_from_wall_budget(
+        phase_id="phase_50_spectral_repair",
+        transfer_chain=["cassette", "mp3_low"],
+        baseline_scores={"brillanz": 0.20},
+        effective_targets={"brillanz": 0.45},
+        applicable_goals={"brillanz", "transient_energie"},
+    )
+    assert protected is True
+
+
+def test_phase50_wall_budget_protection_off_for_non_lossy_chain() -> None:
+    restorer = _build_restorer()
+    protected = restorer._should_protect_phase50_from_wall_budget(
+        phase_id="phase_50_spectral_repair",
+        transfer_chain=["vinyl", "tape"],
+        baseline_scores={"brillanz": 0.20},
+        effective_targets={"brillanz": 0.45},
+        applicable_goals={"brillanz"},
+    )
+    assert protected is False
+
+
+def test_general_wall_budget_protection_triggers_for_phase39_goal_deficit() -> None:
+    restorer = _build_restorer()
+    protected = restorer._should_protect_phase_from_wall_budget(
+        phase_id="phase_39_air_band_enhancement",
+        transfer_chain=["vinyl", "tape"],
+        baseline_scores={"brillanz": 0.58, "transparenz": 0.61},
+        effective_targets={"brillanz": 0.76, "transparenz": 0.74},
+        applicable_goals={"brillanz", "transparenz", "artikulation"},
+    )
+    assert protected is True
+
+
+def test_general_wall_budget_protection_ignores_phase39_without_goal_deficit() -> None:
+    restorer = _build_restorer()
+    protected = restorer._should_protect_phase_from_wall_budget(
+        phase_id="phase_39_air_band_enhancement",
+        transfer_chain=["vinyl", "tape"],
+        baseline_scores={"brillanz": 0.81, "transparenz": 0.80},
+        effective_targets={"brillanz": 0.76, "transparenz": 0.74},
+        applicable_goals={"brillanz", "transparenz", "artikulation"},
+    )
+    assert protected is False

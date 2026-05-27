@@ -168,6 +168,7 @@ class ReverbReduction(PhaseInterface):
         MaterialType.SHELLAC: 0.50,  # Moderate (often dry already)
         MaterialType.VINYL: 0.40,  # Light (preserve natural ambience)
         MaterialType.TAPE: 0.65,  # Strong (analog reverb artifacts)
+        MaterialType.CASSETTE: 0.65,  # v9.12.9: IEC 60094-1 — gleiche Capstan-Physik wie TAPE
         MaterialType.CD_DIGITAL: 0.30,  # Minimal (production choice)
         MaterialType.STREAMING: 0.25,  # Very minimal
     }
@@ -177,6 +178,7 @@ class ReverbReduction(PhaseInterface):
         MaterialType.SHELLAC: 0.70,
         MaterialType.VINYL: 0.60,
         MaterialType.TAPE: 0.80,
+        MaterialType.CASSETTE: 0.80,  # v9.12.9: IEC 60094-1 — gleiche Capstan-Physik wie TAPE
         MaterialType.CD_DIGITAL: 0.50,
         MaterialType.STREAMING: 0.40,
     }
@@ -265,7 +267,7 @@ class ReverbReduction(PhaseInterface):
             ),
         )
 
-    def process(  # type: ignore[override]  # pylint: disable=arguments-renamed,redefined-outer-name
+    def process(  # type: ignore[override]  # pylint: disable=arguments-renamed
         self, audio: np.ndarray, sample_rate: int, material: MaterialType = MaterialType.VINYL, **kwargs
     ) -> PhaseResult:
         """
@@ -1029,6 +1031,99 @@ class ReverbReduction(PhaseInterface):
             except Exception as _g2_p20_exc:
                 logger.debug("§G2 BreathProtect phase_20 non-blocking: %s", _g2_p20_exc)
 
+        # V19 Noise-Textur-Invariante (§NTI): Residual nach Reverb-Reduction darf kein
+        # material-fremdes Spektralprofil (Whitening) aufweisen (VERBOTEN-V19).
+        _mat20_str = str(getattr(material, "value", str(material) or "unknown") or "unknown").lower()
+        try:
+            from backend.core.dsp.noise_texture_guard import (  # pylint: disable=import-outside-toplevel
+                compute_noise_texture_distance as _nt20_dist_fn,
+            )
+
+            _nt20_residual = audio.astype(np.float32) - reduced.astype(np.float32)
+            _nt20_dist = _nt20_dist_fn(_nt20_residual, _mat20_str, sr=sample_rate)
+            if _nt20_dist > 0.25:
+                reduced = (0.5 * reduced + 0.5 * audio).astype(np.float32)
+                logger.warning(
+                    "Phase20 V19 Noise-Textur-Dist=%.3f > 0.25 → 50%%-Blend (Träger-Textur bewahrt)",
+                    _nt20_dist,
+                )
+        except Exception as _nt20_exc:
+            logger.debug("Phase20 V19 Noise-Textur-Guard (non-blocking): %s", _nt20_exc)
+
+        # V20 Mikrodynamik-Korrelation (§2.75): Frame-Energie auf voiced-Zonen ≥ 0.97
+        # nach Reverb-Reduction (VERBOTEN-V20).
+        if _p20_panns >= 0.25:
+            try:
+                from backend.core.dsp.mikrodynamik_guard import (  # pylint: disable=import-outside-toplevel
+                    frame_energy_correlation as _fec20,
+                )
+
+                _corr20 = _fec20(audio, reduced, sample_rate, frame_ms=10.0)
+                if _corr20 < 0.97:
+                    _wet20 = min(1.0, (_corr20 - 0.90) / 0.07) if _corr20 > 0.90 else 0.0
+                    reduced = (_wet20 * reduced + (1.0 - _wet20) * audio).astype(np.float32)
+                    logger.warning(
+                        "Phase20 V20 Mikrodynamik-Korr=%.3f < 0.97 → wet=%.3f Blend",
+                        _corr20,
+                        _wet20,
+                    )
+            except Exception as _dyn20_exc:
+                logger.debug("Phase20 V20 Mikrodynamik-Guard (non-blocking): %s", _dyn20_exc)
+
+        # V21 Mindestrauschboden (§2.76): Analog-Material darf nach Reverb-Reduction keine
+        # digitale Stille aufweisen — Rauschboden ist Naturalness-Marker (VERBOTEN-V21).
+        if any(t in _mat20_str for t in ("shellac", "vinyl", "tape", "analog")):
+            try:
+                from backend.core.dsp.noise_floor_guard import (  # pylint: disable=import-outside-toplevel
+                    apply_noise_floor_minimum as _nfg20,
+                )
+
+                reduced = _nfg20(reduced, sample_rate, _mat20_str, original_audio=audio)
+            except Exception as _nf20_exc:
+                logger.debug("Phase20 V21 Noise-Floor-Guard (non-blocking): %s", _nf20_exc)
+
+        # §V24 Spektralfarbe-Prüfung nach NR (§2.74, non-blocking WARNING)
+        try:
+            from backend.core.dsp.spectral_color_guard import (  # pylint: disable=import-outside-toplevel
+                check_spectral_color_preservation as _scg_20,
+            )
+
+            _sc_result_20 = _scg_20(audio, reduced, sample_rate)
+            if not _sc_result_20.ok:
+                _sc_wet_20 = 0.70  # Phase-Strength −30 % (§V24)
+                reduced = (_sc_wet_20 * reduced + (1.0 - _sc_wet_20) * audio).astype(np.float32)
+        except Exception as _sc_exc_20:  # pylint: disable=broad-except
+            logger.debug("§V24 phase_20 spectral_color non-blocking: %s", _sc_exc_20)
+
+        # V26 Onset-Guard (§2.77): HPSS-Onset-Fenster (0–20 ms nach Transient) dürfen durch
+        # Reverb-Reduction nicht energetisch beeinflusst werden (VERBOTEN-V26).
+        try:
+            from backend.core.dsp.onset_guard import (  # pylint: disable=import-outside-toplevel
+                apply_onset_protection_mask as _opg20,
+            )
+
+            reduced = _opg20(audio, reduced, None, max_delta_db=1.5)
+        except Exception as _on20_exc:
+            logger.debug("Phase20 V26 Onset-Guard (non-blocking): %s", _on20_exc)
+
+        # §2.72 Vibrato-Tiefe-Guard (§0p Vocal-Supremacy RELEASE_MUST): F0-Modulationstiefe
+        # darf durch Reverb-Reduction nicht mehr als ±10 % reduziert werden → 50 %-Blend.
+        if _p20_panns >= 0.25:
+            try:
+                from backend.core.dsp.vibrato_guard import (  # pylint: disable=import-outside-toplevel
+                    check_vibrato_depth_preservation as _vib20,
+                )
+
+                _vib20_result = _vib20(audio, reduced, sample_rate)
+                if not _vib20_result.ok:
+                    reduced = (0.5 * reduced + 0.5 * audio).astype(np.float32)
+                    logger.warning(
+                        "Phase20 §2.72 Vibrato-Tiefe: reduction=%.1f%% > 10%% → 50%%-Blend",
+                        _vib20_result.depth_reduction_pct,
+                    )
+            except Exception as _vib20_exc:
+                logger.debug("Phase20 §2.72 Vibrato-Guard (non-blocking): %s", _vib20_exc)
+
         return PhaseResult(
             success=True,
             audio=reduced,
@@ -1099,7 +1194,7 @@ class ReverbReduction(PhaseInterface):
         self,
         original_audio: np.ndarray,
         processed_audio: np.ndarray,
-        material: MaterialType,  # pylint: disable=redefined-outer-name
+        material: MaterialType,
     ) -> tuple[np.ndarray, float, float]:
         material_key = getattr(material, "value", getattr(material, "name", str(material))).lower()
         max_rms_drop_db = float(self._MAX_RMS_DROP_DB.get(material_key, self._MAX_RMS_DROP_DB["unknown"]))
@@ -1155,7 +1250,7 @@ class ReverbReduction(PhaseInterface):
 
         return processed_audio, float(rms_change_db), float(makeup_gain_db)
 
-    def _reduce_reverb(self, audio: np.ndarray, sample_rate: int, strength: float, damping: float) -> np.ndarray:  # pylint: disable=redefined-outer-name
+    def _reduce_reverb(self, audio: np.ndarray, sample_rate: int, strength: float, damping: float) -> np.ndarray:
         """Nachhall-Reduktion via STFT-OMLSA/IMCRA (Cohen 2002/2003).
 
         Algorithmus:
@@ -1203,7 +1298,7 @@ class ReverbReduction(PhaseInterface):
 
         return audio_out
 
-    def _reduce_reverb_mrsa(self, audio: np.ndarray, sample_rate: int, strength: float, damping: float) -> np.ndarray:  # pylint: disable=redefined-outer-name,unused-argument
+    def _reduce_reverb_mrsa(self, audio: np.ndarray, sample_rate: int, strength: float, damping: float) -> np.ndarray:  # pylint: disable=unused-argument
         """MRSA 5-zone OMLSA/IMCRA reverb reduction with PGHI phase reconstruction.
 
         Multi-Resolution Spectral Analysis (MRSA): each frequency zone is processed
@@ -1514,7 +1609,7 @@ class ReverbReduction(PhaseInterface):
         )
         return audio_out  # type: ignore[no-any-return]
 
-    def _detect_transients(self, audio: np.ndarray, sample_rate: int) -> np.ndarray:  # pylint: disable=redefined-outer-name
+    def _detect_transients(self, audio: np.ndarray, sample_rate: int) -> np.ndarray:
         """
         Erkennt transients using energy envelope.
 
@@ -1558,13 +1653,13 @@ if __name__ == "__main__":
 
     # Generate test audio with synthetic reverb
     duration = 3.0
-    sample_rate = 44100
-    t = np.linspace(0, duration, int(sample_rate * duration))
+    _test_sr = 44100
+    t = np.linspace(0, duration, int(_test_sr * duration))
     dry_signal = np.zeros_like(t)
 
     # Add impulses at 0.5s intervals
     for impulse_time in np.arange(0, duration, 0.5):
-        impulse_sample = int(impulse_time * sample_rate)
+        impulse_sample = int(impulse_time * _test_sr)
         if impulse_sample < len(dry_signal):
             dry_signal[impulse_sample : impulse_sample + 100] = 0.8 * np.exp(-np.arange(100) / 20)
 
@@ -1575,7 +1670,7 @@ if __name__ == "__main__":
     reverb_tail = signal.lfilter([1], [1, -0.7], dry_signal)  # Simple comb filter
     reverbed_signal = dry_signal + 0.4 * reverb_tail
 
-    logger.debug("Generated %ss test audio @ %s Hz", duration, sample_rate)
+    logger.debug("Generated %ss test audio @ %s Hz", duration, _test_sr)
     logger.debug("Dry signal + synthetic reverb tail")
     logger.debug("")
 
@@ -1586,14 +1681,14 @@ if __name__ == "__main__":
         (MaterialType.CD_DIGITAL, "CD_DIGITAL"),
     ]
 
-    for material, material_name in materials:
+    for _test_material, material_name in materials:
         logger.debug("─" * 80)
         logger.debug("Material: %s", material_name)
         logger.debug("─" * 80)
         logger.debug("")
 
         phase = ReverbReduction()
-        result = phase.process(reverbed_signal, sample_rate, material)
+        result = phase.process(reverbed_signal, _test_sr, _test_material)
 
         logger.debug("✅ Professional Reverb Reduction:")
         logger.debug("   RMS Change: %.2f dB", result.metrics["rms_change_db"])

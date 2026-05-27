@@ -47,7 +47,8 @@ def _stereo(dur: float = 5.0) -> np.ndarray:
 
 class TestConstants:
     def test_all_goals_count(self):
-        assert len(ALL_GOALS) == 15
+        # §0p v9.12.10: vocal_quality + formant_fidelity hinzugefügt (P0-Goals)
+        assert len(ALL_GOALS) == 17
 
     def test_always_applicable_count(self):
         assert len(ALWAYS_APPLICABLE) == 6

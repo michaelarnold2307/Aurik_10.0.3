@@ -73,6 +73,14 @@ _RESTORATION_FORBIDDEN_PHASES: frozenset[str] = frozenset(
     }
 )
 
+# ---------------------------------------------------------------------------
+# Digitale Codec-Materialien: Kratzentferner physikalisch sinnlos (V29, §4.11)
+# phase_09_crackle_removal wird für diese Materialien stets ausgeblendet.
+# ---------------------------------------------------------------------------
+_DIGITAL_CODEC_MATERIALS: frozenset[str] = frozenset(
+    {"mp3_low", "mp3_high", "aac", "cd_digital", "dat", "streaming", "minidisc"}
+)
+
 
 # ---------------------------------------------------------------------------
 # Datenstruktur: PhaseAssignment
@@ -1351,15 +1359,16 @@ _PHASE_MAP: dict[DefectType, PhaseAssignment] = {
     ),
     # ------------------------------------------------------------------
     # ROOM_MODE_RESONANCE — Stehwellen-Resonanzen 40–200 Hz
+    # §V31: phase_04_eq_correction (Notch-EQ) MUSS Primary sein; phase_05 nur Tertiary (Sub-Bass)
     # ------------------------------------------------------------------
     DefectType.ROOM_MODE_RESONANCE: PhaseAssignment(
         defect_type=DefectType.ROOM_MODE_RESONANCE,
         primary_phases=[
-            "phase_05_rumble_filter",
-            "phase_04_eq_correction",
+            "phase_04_eq_correction",  # §V31: Notch-EQ first — schmalbandige Kerbfilter für Raumresonanzen
         ],
         secondary_phases=[
-            "phase_03_denoise",
+            "phase_16_final_eq",  # §V31: Secondary EQ-Korrektur
+            "phase_05_rumble_filter",  # §V31: nur Tertiary (Sub-Bass-Rolloff)
         ],
         description=(
             "Reduziert Raummodenresonanzen durch selektive Tieftonkorrektur und Frequenzgang-Entzerrung. "
@@ -1935,6 +1944,8 @@ class DefectPhaseMapper:
         self,
         defects: list,
         max_phases: int = 10,
+        mode: str = "restoration",
+        material: str | None = None,
     ) -> list[str]:
         """
         Gibt eine de-duplizierte, priorisierte Phase-Liste für mehrere Defekte zurück.
@@ -1942,6 +1953,10 @@ class DefectPhaseMapper:
         Args:
             defects:    Liste von DefectScore-Objekten (mit .defect_type, .severity)
             max_phases: Maximale Anzahl zurückgegebener Phasen
+            mode:       Verarbeitungsmodus — "restoration" filtert §0a-verbotene Phasen
+                        (phase_21_exciter, phase_35_multiband_compression, phase_42_vocal_enhancement).
+            material:   Optionaler MaterialType.value-String. Für digitale Codec-Materialien
+                        wird phase_09_crackle_removal ausgeblendet (V29, §4.11).
 
         Returns:
             Geordnete Phase-ID-Liste (primary first, dann secondary, dann de-dup)
@@ -1959,6 +1974,15 @@ class DefectPhaseMapper:
                 seen[phase_id] = max(seen.get(phase_id, 0.0), severity * 1.0)
             for phase_id in assignment.secondary_phases:
                 seen[phase_id] = max(seen.get(phase_id, 0.0), severity * 0.6)
+
+        # §0a: Verbotene Phasen im Restoration-Modus herausfiltern
+        if mode == "restoration":
+            seen = {p: s for p, s in seen.items() if p not in _RESTORATION_FORBIDDEN_PHASES}
+
+        # V29/§4.11: Kratzentferner ist physikalisch falsch für digitale Codec-Materialien
+        # (Codec-Artefakte sind keine Vinyl/Shellac-Kratzer — KEIN phase_09 für MP3/AAC/CD)
+        if material and material in _DIGITAL_CODEC_MATERIALS:
+            seen.pop("phase_09_crackle_removal", None)
 
         # Sortieren: primäre (severity×1.0) zuerst, sekundäre danach
         sorted_phases = sorted(seen.items(), key=lambda kv: kv[1], reverse=True)

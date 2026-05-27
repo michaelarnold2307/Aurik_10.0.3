@@ -796,7 +796,7 @@ if self._mas_fully_achieved and phase_id not in _NEVER_SKIP:
 
 **Problem (CAUSE_TO_PHASES-Lücke)**: Wenn DefectScanner keinen Defekt-Cause für ein Musical Goal findet, trägt `CAUSE_TO_PHASES` keine Recovery-Phasen für dieses Goal ein. Der HolisticPerceptualGate-Blend kann Goals nur durch Rollback in Richtung Original bewegen — er kann ein Goal **nicht über das Original-Niveau heben**. Das bedeutet: Goals, die strukturell unter dem materialadaptiven Floor liegen, aber kein erkennbares Defekt-Signal erzeugen, würden nie erreicht.
 
-**Lösung**: §GOAL_BASELINE_CHECK läuft im UV3 `restore()`-Pfad **nach** GPOptimizer (`selected_phases` ist fertig) und **vor** `_execute_pipeline()`. Er misst alle 14 Goal-Proxies auf dem Eingangssignal via `_fast_goal_snapshot()` (DSP-only, ≤200 ms) und fügt für jedes Goal, das unter `material_floor × 0.95` liegt, die primäre Recovery-Phase in `selected_phases` ein.
+**Lösung**: §GOAL_BASELINE_CHECK läuft im UV3 `restore()`-Pfad **nach** GPOptimizer (`selected_phases` ist fertig) und **vor** `_execute_pipeline()`. Er misst alle 15 Goal-Proxies auf dem Eingangssignal via `_fast_goal_snapshot()` (DSP-only, ≤200 ms) und fügt für jedes Goal, das unter `material_floor × 0.95` liegt, die primäre Recovery-Phase in `selected_phases` ein.
 
 ```python
 # KANONISCH — UV3 restore(), nach SLR, vor _execute_pipeline():
@@ -1183,6 +1183,49 @@ audio = apply_onset_protection_mask(
 
 > `cassette` → intern immer als `tape` in `_MATERIAL_PRIORITY_PHASES`
 
+## §2.78 AdaptivePhaseRescheduler — Geschlossener Regelkreis [RELEASE_MUST v9.12.9]
+
+**Funktion**: Nach jeder Phase werden Goal-Lücken (`song_goal_targets[g] − post_snap[g]`) berechnet. Für Goals mit `gap > 0.05` injiziert der Rescheduler die Primär-Recovery-Phase (aus `get_goal_recovery_phases()`) ans Ende von `selected_phases`. Python's `for`-Loop besucht neu angehängte Elemente — kein Loop-Refactoring nötig.
+
+**Modul**: `backend/core/adaptive_phase_rescheduler.py` (Singleton `get_adaptive_phase_rescheduler()`)
+
+**Invarianten**:
+
+- §0a: `_RESTORATION_FORBIDDEN = {phase_21_exciter, phase_35_multiband_compression, phase_42_vocal_enhancement}` — nie in Restoration injiziert
+- §2.45 Minimal-Intervention: nur Primär-Phase (Index 0) aus `get_goal_recovery_phases()` injiziert
+- §2.52 _NEVER_SKIP: diese Phasen nie injiziert (laufen immer)
+- §2.65 MAS: `_mas_fully_achieved=True` → Rescheduler nicht aufgerufen (UV3-Guard)
+- §_SELF_MANAGED_GOALS: `vocal_quality`, `formant_fidelity` haben eigene Recovery-Pfade (VQI-Gate §0p) → kein Rescheduler-Override
+- Max 3 Injektionen pro Song-Session (`MAX_INJECTIONS_PER_SESSION`); `reset_session()` nach Song
+
+**Integration in UV3 (§Hebel-3 Block)**:
+
+```python
+# Nach _conductor.measure_state() / recommend():
+_cl_post_snap = dict(self._phase_deltas.get(phase_id, {}).get("post", {}))
+_cl_song_targets = getattr(self, "_song_goal_targets", None)
+if _cl_post_snap and isinstance(_cl_song_targets, dict) and not getattr(self, "_mas_fully_achieved", False):
+    _apr = get_adaptive_phase_rescheduler()
+    _apr_result = _apr.reschedule(
+        current_goal_scores=_cl_post_snap,
+        song_goal_targets=_cl_song_targets,
+        selected_phases=selected_phases,
+        executed=set(executed) | set(skipped),
+        is_studio_2026=self.is_studio_mode(),
+        transfer_chain=list((self._restoration_context or {}).get("transfer_chain") or []),
+        material_type=_mat_str_cond,
+    )
+    for _inj_pid in _apr_result.new_phases_to_append:
+        if _inj_pid not in set(selected_phases):
+            selected_phases.append(_inj_pid)
+```
+
+**Goal-Score-Quelle**: `self._phase_deltas[phase_id]["post"]` (kein Extra-DSP-Aufwand — Snapshot läuft ohnehin via §2.64).
+
+**Conductor-Integration**: `_conductor.recommend()` erhält jetzt `song_goal_targets` + `current_goal_scores` → Stopp-Signal (80 % Ziele erreicht) ist jetzt aktiv (war zuvor tot).
+
+---
+
 ## §2.29c Restorative-Baseline-Capping
 
 ```python
@@ -1203,6 +1246,33 @@ effective_before[g] = min(measured_before[g], canonical_threshold[g] + 0.05)
 #   Goal-Exclusion: brillanz, transparenz, timbre
 #   Emergency-Retries unterdrückt
 # CONFLICT_REGISTRY: get_conflict_phases() aus phase_ontology.py
+```
+
+## §2.29f PMGG-Fallback-Risiko + Wall-Budget-Qualitaetsguard
+
+```python
+# PMGG-Restorability-Quelle MUSS im Ergebnis sichtbar sein:
+# metadata["restorability_source"] in {"cached", "estimated", "fallback"}
+# Bei fallback MUSS ein Quality-Risk-Flag gesetzt werden:
+# metadata["quality_risk_flags"] += [{"code": "PMGG_RESTORABILITY_FALLBACK", ...}]
+
+# Wall-Budget-Guard darf nicht nur phase_50 betreffen.
+# Qualitaetskritische Phasen mit aktivem Goal-Defizit duerfen trotz Budgetdruck laufen,
+# wenn _should_protect_phase_from_wall_budget(...) == True.
+# Mindest-Guard-Set in UV3:
+#   - phase_50_spectral_repair (lossy chain-end + HF/Transient-Defizit)
+#   - phase_39_air_band_enhancement (brillanz/transparenz/artikulation Defizit)
+#   - phase_42_vocal_enhancement (nur Studio; vocal/formant/artikulation Defizit)
+
+# Guard-Ereignisse muessen in Metadata landen:
+# metadata["wall_budget_quality_guard_events"] = [
+#   {"phase_id": ..., "reason": "goal_deficit_quality_guard", "transfer_chain": [...]},
+# ]
+
+# WICHTIG §0a:
+# phase_42 bleibt in Restoration verboten.
+# Der Guard aktiviert keine Modus-verbotenen Phasen, er verhindert nur Budget-Passthrough
+# fuer bereits legal selektierte qualitaetskritische Phasen.
 ```
 
 ## §2.55 PMGG-CIG-Sync-Invariante

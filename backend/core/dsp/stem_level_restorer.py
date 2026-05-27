@@ -230,6 +230,7 @@ class StemLevelRestorer:
                 genre=str(ctx.get("genre", "")) or None,
                 reference_audio=ctx.get("reference_audio"),
                 reference_singer_id=ctx.get("reference_singer_id"),
+                era_profile=ctx.get("era_vocal_profile"),  # §EraVocalProfile: historisches Material
             )
             _vqi_after = float(_vqi_result.get("vqi", 1.0))
             _singer_cosine = float(_vqi_result.get("singer_identity_cosine", 1.0))

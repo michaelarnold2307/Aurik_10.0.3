@@ -189,6 +189,19 @@ class ERBAuditoryMaskingModel:
     # Signal-to-masker ratio for threshold (Moore & Glasberg 1997)
     _SMR_ABSOLUTE_DB = 5.0  # defect must be ≥5 dB above masked threshold to be salient
 
+    def __init__(self) -> None:
+        # §Perf: Caches für centres und Spreading-Matrix — identisch pro SR, nur einmal berechnen.
+        self._centres_cache: dict[float, np.ndarray] = {}
+        self._spreading_matrix_cache: dict[bytes, np.ndarray] = {}
+        # §Perf: Mono-Cache — _to_mono_f64 auf demselben Audio-Objekt 500× aufgerufen.
+        # Jeder perceptual_salience-Durchlauf übergibt dasselbe Array → einmalige Konversion reicht.
+        # Key: (id(audio), shape) — ausreichend eindeutig für eine Pipeline-Session.
+        self._mono_cache: dict[tuple, np.ndarray] = {}
+        # §Perf: ERB-Band-Masken-Cache — pro (n_fft, sr) vorberechnet.
+        # Ersetzt 24× Python-Schleife mit mask/mean durch einen einzigen Matmul.
+        # Key: (n_fft, sr, centres_bytes) → (mask_matrix (n_bands, n_rfft), band_sizes (n_bands,))
+        self._band_mask_cache: dict[tuple, tuple[np.ndarray, np.ndarray]] = {}
+
     def compute_masking_threshold(
         self,
         audio: np.ndarray,
@@ -215,7 +228,11 @@ class ERBAuditoryMaskingModel:
         -------
         ERBMaskingResult with per-band thresholds and aggregate salience.
         """
-        mono = self._to_mono_f64(audio)
+        # §Perf: Mono-Cache — teures nan_to_num auf vollem Array nur einmal pro Audio-Objekt.
+        _mono_key = (id(audio), audio.shape)
+        if _mono_key not in self._mono_cache:
+            self._mono_cache[_mono_key] = self._to_mono_f64(audio)
+        mono = self._mono_cache[_mono_key]
         n_samples = len(mono)
         duration_s = n_samples / sr
         nyquist = sr / 2.0
@@ -255,92 +272,96 @@ class ERBAuditoryMaskingModel:
         dt_forward_ms = max(0.0, (defect_start_s - ctx_before_start) * 1000.0 * 0.5)
         dt_backward_ms = max(0.0, (ctx_after_end - defect_end_s) * 1000.0 * 0.5)
 
+        # Skalare Decay-Werte (identisch für alle Bänder — einmal berechnen)
+        fwd_decay = _forward_masking_decay_db(dt_forward_ms)
+        bwd_decay = _backward_masking_decay_db(dt_backward_ms)
+
         # Tonality estimate for informational masking
         tonality = self._estimate_tonality(mono, sr, defect_start_s, defect_end_s)
+        info_bonus = 3.0 * tonality if tonality > 0.5 else 0.0
 
         band_thresholds: list[ERBMaskingThreshold] = []
+        band_indices: list[int] = []  # §Perf: Band-Index für vektorisierten defect_levels-Block
         max_masking_db = -100.0
         dominant_type = "none"
+
+        # §Perf: Vektorisierter Simultaneous-Masking-Block.
+        # Spreading-Matrix (N×N) nur einmal pro SR berechnet/gecacht.
+        # Ersetzt O(N²) Schleife mit 288.000 skalaren Aufrufen durch einen Numpy-Broadcast.
+        spread_mat = self._get_spreading_matrix(centres)  # (n_masker, n_signal)
+        # §Perf: Vektorisiertes _power_to_db — ersetzt 48+48 skalare np.log10-Aufrufe.
+        ctx_before_db = np.where(
+            ctx_power_before > 0,
+            10.0 * np.log10(np.maximum(ctx_power_before, 1e-15)),
+            -150.0,
+        )  # (n,)
+        ctx_after_db = np.where(
+            ctx_power_after > 0,
+            10.0 * np.log10(np.maximum(ctx_power_after, 1e-15)),
+            -150.0,
+        )  # (n,)
+        ctx_levels_db = np.maximum(ctx_before_db, ctx_after_db)  # (n,)
+        # simul_mask_db[i] = max_j( ctx_levels_db[j] + spread_mat[j,i] )
+        simul_mask_db_vec = (ctx_levels_db[:, np.newaxis] + spread_mat).max(axis=0)  # (n,)
+        fwd_mask_db_vec = ctx_before_db + fwd_decay  # (n,)
+        bwd_mask_db_vec = ctx_after_db + bwd_decay  # (n,)
+        threshold_db_vec = np.maximum(simul_mask_db_vec, np.maximum(fwd_mask_db_vec, bwd_mask_db_vec))
+        if info_bonus > 0.0:
+            threshold_db_vec = threshold_db_vec + info_bonus
+
+        # §Perf: nan_to_num einmalig vektorisiert statt 24× im Per-Band-Loop (13501 Calls/0.349s).
+        threshold_db_vec_clean = np.where(np.isnan(threshold_db_vec), -100.0, threshold_db_vec)
 
         for i, fc in enumerate(centres):
             if defect_freq_range is not None:
                 f_lo, f_hi = defect_freq_range
                 ew = erb_hz(fc)
                 if fc + 0.5 * ew < f_lo or fc - 0.5 * ew > f_hi:
-                    continue  # defect doesn't occupy this band
+                    continue  # Defekt belegt dieses Band nicht
 
             ew = erb_hz(fc)
+            thr_db = float(threshold_db_vec_clean[i])
+            simul_i = float(simul_mask_db_vec[i])
+            fwd_i = float(fwd_mask_db_vec[i])
+            bwd_i = float(bwd_mask_db_vec[i])
 
-            # Simultaneous masking: spreading from all context bands
-            simul_mask_db = -100.0
-            for j, fc_ctx in enumerate(centres):
-                spread = _spreading_function_db(fc_ctx, fc)
-                ctx_level = max(
-                    self._power_to_db(ctx_power_before[j]),
-                    self._power_to_db(ctx_power_after[j]),
-                )
-                mask_at_band = ctx_level + spread
-                simul_mask_db = max(simul_mask_db, mask_at_band)
-
-            # Forward temporal masking from pre-defect content
-            fwd_decay = _forward_masking_decay_db(dt_forward_ms)
-            fwd_mask_db = self._power_to_db(ctx_power_before[i]) + fwd_decay
-
-            # Backward temporal masking from post-defect content
-            bwd_decay = _backward_masking_decay_db(dt_backward_ms)
-            bwd_mask_db = self._power_to_db(ctx_power_after[i]) + bwd_decay
-
-            # Combined threshold: maximum of all masking contributions
-            threshold_db = max(simul_mask_db, fwd_mask_db, bwd_mask_db)
-
-            # Informational masking bonus for tonal content (Brungart 2001)
-            info_bonus = 0.0
-            if tonality > 0.5:
-                info_bonus = 3.0 * tonality  # up to +3 dB extra masking
-                threshold_db += info_bonus
-
-            # Determine dominant masking type
-            if threshold_db == simul_mask_db or (info_bonus > 0 and simul_mask_db >= max(fwd_mask_db, bwd_mask_db)):
+            if simul_i >= max(fwd_i, bwd_i):
                 m_type = "simultaneous"
-            elif fwd_mask_db >= bwd_mask_db:
+            elif fwd_i >= bwd_i:
                 m_type = "temporal_forward"
             else:
                 m_type = "temporal_backward"
 
-            if threshold_db > max_masking_db:
-                max_masking_db = threshold_db
+            if thr_db > max_masking_db:
+                max_masking_db = thr_db
                 dominant_type = m_type
 
             band_thresholds.append(
                 ERBMaskingThreshold(
                     centre_freq_hz=float(fc),
                     erb_width_hz=float(ew),
-                    threshold_db=float(np.nan_to_num(threshold_db, nan=-100.0)),
+                    threshold_db=thr_db,  # §Perf: bereits NaN-bereinigt via threshold_db_vec_clean
                     masking_type=m_type,
                     informational_bonus_db=float(info_bonus),
                 )
             )
+            band_indices.append(i)
 
         if not band_thresholds:
             return ERBMaskingResult(salience=1.0, dominant_masking_type="none")
 
-        thresholds_arr = np.array([bt.threshold_db for bt in band_thresholds])
-        mean_thresh = float(np.mean(thresholds_arr))
-        max_thresh = float(np.max(thresholds_arr))
-
         # Compute aggregate salience
-        # Defect is salient if its power exceeds masking threshold + SMR
-        defect_levels = []
-        for i, bt in enumerate(band_thresholds):
-            idx = list(centres).index(bt.centre_freq_hz) if bt.centre_freq_hz in centres else i
-            if idx < len(defect_power):
-                dl = self._power_to_db(defect_power[idx])
-                defect_levels.append(dl - bt.threshold_db)
-
-        if defect_levels:
-            # How much defect exceeds masking threshold on average
-            excess = np.mean(defect_levels)
-            # Map excess to salience: <0 dB → masked, >SMR → fully salient
+        # §Perf: Vektorisiert — kein O(n) list.index()-Lookup, kein skalarer _power_to_db-Loop
+        if band_thresholds:
+            valid_idx = np.array(band_indices, dtype=np.intp)
+            dp_valid = defect_power[valid_idx]
+            defect_power_db = np.where(
+                dp_valid > 0,
+                10.0 * np.log10(np.maximum(dp_valid, 1e-15)),
+                -150.0,
+            )
+            thresholds_for_salience = threshold_db_vec[valid_idx]
+            excess = float(np.mean(defect_power_db - thresholds_for_salience))
             salience = float(
                 np.clip(
                     (excess + self._SMR_ABSOLUTE_DB) / (2.0 * self._SMR_ABSOLUTE_DB),
@@ -348,8 +369,12 @@ class ERBAuditoryMaskingModel:
                     1.0,
                 )
             )
+            mean_thresh = float(np.mean(thresholds_for_salience))
+            max_thresh = float(np.max(thresholds_for_salience))
         else:
             salience = 1.0
+            mean_thresh = -100.0
+            max_thresh = -100.0
 
         salience = float(np.nan_to_num(salience, nan=0.5))
 
@@ -402,12 +427,68 @@ class ERBAuditoryMaskingModel:
     # ------------------------------------------------------------------
 
     def _erb_centres(self, f_max: float) -> np.ndarray:
-        """Generiert ERB centre frequencies up to *f_max*."""
-        f_high = min(self._F_HIGH, f_max)
-        n_low = erb_rate(self._F_LOW)
-        n_high = erb_rate(f_high)
-        n_vals = np.linspace(n_low, n_high, self._N_BANDS)
-        return (10.0 ** (n_vals / 21.4) - 1.0) / 0.00437
+        """Generiert ERB centre frequencies up to *f_max*. Cached per f_max."""
+        key = round(f_max, 1)
+        if key not in self._centres_cache:
+            f_high = min(self._F_HIGH, f_max)
+            n_low = erb_rate(self._F_LOW)
+            n_high = erb_rate(f_high)
+            n_vals = np.linspace(n_low, n_high, self._N_BANDS)
+            self._centres_cache[key] = (10.0 ** (n_vals / 21.4) - 1.0) / 0.00437
+        return self._centres_cache[key]
+
+    def _get_spreading_matrix(self, centres: np.ndarray) -> np.ndarray:
+        """Precomputed N×N Spreading-Matrix. spread_mat[j, i] = spreading von Masker j zu Signal i.
+
+        Ergebnis gecacht per centres-Fingerprint — wird nur einmal pro SR berechnet.
+        Reduziert 288.000 skalare _spreading_function_db-Aufrufe auf einen einzigen
+        Numpy-Broadcast (roex-Formel vektorisiert nach Moore & Glasberg 1997).
+        """
+        key = centres.tobytes()
+        if key not in self._spreading_matrix_cache:
+            erb_rates = np.array([erb_rate(fc) for fc in centres])  # shape (n,)
+            # delta_erb[j, i] = erb_rate(signal_i) - erb_rate(masker_j)
+            delta_erb = erb_rates[np.newaxis, :] - erb_rates[:, np.newaxis]  # (n_masker, n_signal)
+            mat = np.where(
+                np.abs(delta_erb) < 0.01,
+                0.0,
+                np.where(
+                    delta_erb > 0,
+                    -10.0 * delta_erb,  # Signal über Masker: flache Flanke
+                    24.0 * delta_erb,  # Signal unter Masker: steile Flanke (-24*|delta|)
+                ),
+            )
+            self._spreading_matrix_cache[key] = mat
+        return self._spreading_matrix_cache[key]
+
+    def _get_band_masks(
+        self,
+        n_fft: int,
+        sr: int,
+        centres: np.ndarray,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """Vorberechnete ERB-Band-Masken als dichte Matrix. Gecacht per (n_fft, sr).
+
+        Returns
+        -------
+        mask_mat : np.ndarray, shape (n_bands, n_rfft)
+            Boolean-Matrix: mask_mat[i, k] = True wenn FFT-Bin k in Band i liegt.
+        band_sizes : np.ndarray, shape (n_bands,)
+            Anzahl Bins pro Band (für Mittelwert-Normierung). Mindestens 1.
+        """
+        key = (n_fft, sr, centres.tobytes())
+        if key not in self._band_mask_cache:
+            freqs = np.fft.rfftfreq(n_fft, 1.0 / sr)  # (n_rfft,)
+            n_rfft = len(freqs)
+            mask_mat = np.zeros((len(centres), n_rfft), dtype=bool)
+            for i, fc in enumerate(centres):
+                ew = erb_hz(fc)
+                f_lo = max(0.0, fc - 0.5 * ew)
+                f_hi = fc + 0.5 * ew
+                mask_mat[i] = (freqs >= f_lo) & (freqs <= f_hi)
+            band_sizes = np.maximum(1, mask_mat.sum(axis=1)).astype(np.float64)  # (n_bands,)
+            self._band_mask_cache[key] = (mask_mat.astype(np.float64), band_sizes)
+        return self._band_mask_cache[key]
 
     def _band_power_at_time(
         self,
@@ -433,17 +514,15 @@ class ERBAuditoryMaskingModel:
         if len(segment) < n_fft:
             segment = np.pad(segment, (0, n_fft - len(segment)))
 
-        spectrum = np.abs(np.fft.rfft(segment[:n_fft])) ** 2
-        freqs = np.fft.rfftfreq(n_fft, 1.0 / sr)
+        # §Perf: rfft.real²+rfft.imag² vermeidet sqrt in np.abs() (Leistungsspektrum).
+        _rfft_out = np.fft.rfft(segment[:n_fft])
+        spectrum = _rfft_out.real**2 + _rfft_out.imag**2
 
-        powers = np.full(len(centres), 1e-15, dtype=np.float64)
-        for i, fc in enumerate(centres):
-            ew = erb_hz(fc)
-            f_lo = max(0.0, fc - 0.5 * ew)
-            f_hi = fc + 0.5 * ew
-            mask = (freqs >= f_lo) & (freqs <= f_hi)
-            if np.any(mask):
-                powers[i] = max(1e-15, float(np.mean(spectrum[mask])))
+        # §Perf: Vektorisierte Band-Power-Berechnung via vorberechneter Masken-Matrix.
+        # Ersetzt 24× Python-Schleife (mask + mean) durch einen einzigen Matrix-Vektor-Produkt.
+        mask_mat, band_sizes = self._get_band_masks(n_fft, sr, centres)
+        # mask_mat @ spectrum = Summe der Spektral-Energie pro Band (n_bands,)
+        powers = np.maximum(1e-15, (mask_mat @ spectrum) / band_sizes)
 
         return powers
 
@@ -509,7 +588,7 @@ _lock = threading.Lock()
 
 def get_erb_auditory_masking_model() -> ERBAuditoryMaskingModel:
     """Gibt thread-safe singleton ERBAuditoryMaskingModel zurück."""
-    global _instance
+    global _instance  # pylint: disable=global-statement
     if _instance is None:
         with _lock:
             if _instance is None:

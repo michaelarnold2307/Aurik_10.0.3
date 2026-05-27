@@ -689,7 +689,7 @@ class MiipherPlugin:
         out = np.nan_to_num(out, nan=0.0, posinf=0.0, neginf=0.0)
         out = np.clip(out, -1.0, 1.0).astype(np.float32)
 
-        logger.debug("MIIPHER-Stub: Wiener-Filter DSP-Fallback angewendet")
+        logger.debug("MIIPHER: Wiener-Filter Last-Resort DSP-Fallback angewendet")
 
         if is_stereo:
             # Signal-Ratio Stereo-Rekonstruktion

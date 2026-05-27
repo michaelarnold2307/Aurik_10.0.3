@@ -196,16 +196,20 @@ class DenoisePhase(PhaseInterface):
             "transient_preserve": 0.92,
         },
         "cassette": {
-            "strength": 0.80,  # Slightly gentler than generic tape for thin-tape SNR
+            "strength": 0.80,  # Durch PMGG-Cap (0.30) effektiv auf Kassetten+mp3-Kette begrenzt
+            "g_floor": 0.20,  # §2.62: schützt Vokal-Grundton + Formant F1 (200–800 Hz)
             "bands": {
-                "low": {"threshold": -55, "reduction": 0.30},
-                "mid": {"threshold": -50, "reduction": 0.65},
-                "high": {"threshold": -45, "reduction": 0.88},
+                "low": {"threshold": -55, "reduction": 0.25},
+                "mid": {"threshold": -50, "reduction": 0.55},
+                # §SibilantProtect: mp3_low+cassette → HF durch mp3 bereits komprimiert;
+                # hohe Reduktion würde Sibilanten und Formant F3/F4 abtragen
+                "high": {"threshold": -45, "reduction": 0.65},
             },
-            "musical_noise_suppression": 0.75,
+            "musical_noise_suppression": 0.60,
             "smoothing_time": 3,
             "smoothing_freq": 5,
-            "transient_preserve": 0.88,
+            # transient_preserve 0.88→0.97: verhindert transient_energie -0.125 pro Phase
+            "transient_preserve": 0.97,
         },
         "vinyl": {
             "strength": 0.65,
@@ -522,6 +526,19 @@ class DenoisePhase(PhaseInterface):
         sample_rate = kwargs.get("sample_rate", 48000)
         assert sample_rate == 48000, f"SR muss 48000 Hz sein, erhalten: {sample_rate}"
 
+        # §2.51 Layout-Normalisierung: phase_03 erwartet intern channels-first (2, N) oder mono (N,).
+        # channels-last (N, 2) → channels-first (2, N) für die gesamte Phase; am Ende zurückkonvertieren.
+        _p03_was_channels_last = False
+        if audio.ndim == 2 and audio.shape[1] == 2 and audio.shape[0] > 2:
+            audio = audio.T
+            _p03_was_channels_last = True
+
+        def _p03_out(a: np.ndarray) -> np.ndarray:
+            """Rückkonversion zu channels-last (N, 2) wenn nötig."""
+            if _p03_was_channels_last and a.ndim == 2 and a.shape[0] == 2 and a.shape[1] > 2:
+                return a.T
+            return a
+
         # §2.46f Natural-Performance-Artifacts-Guard — detect protected zones before NR
         _npa_result_03 = None
         try:
@@ -589,7 +606,7 @@ class DenoisePhase(PhaseInterface):
         if _snr_bypass:
             execution_time = time.time() - start_time
             return create_phase_result(
-                audio=np.clip(audio, -1.0, 1.0),
+                audio=_p03_out(np.clip(audio, -1.0, 1.0)),
                 modifications={
                     "noise_reduction_db": 0.0,
                     "strength": effective_strength,
@@ -663,23 +680,39 @@ class DenoisePhase(PhaseInterface):
             try:
                 _proc = np.nan_to_num(np.asarray(processed_audio, dtype=np.float32), nan=0.0, posinf=0.0, neginf=0.0)
                 if _proc.ndim == 2 and _tdp_percussive.ndim == 2:
-                    _n = _proc.shape[0]
+                    # §2.51: channels-first (2, N) → N = shape[1]; channels-last (N, 2) → N = shape[0]
+                    _proc_ch_first = _proc.shape[0] == 2 and _proc.shape[1] > 2
+                    _n = _proc.shape[1] if _proc_ch_first else _proc.shape[0]
                     _perc = _tdp_percussive
-                    if _perc.shape[0] != _n:
-                        if _perc.shape[0] > _n:
+                    _perc_ch_first = _perc.shape[0] == 2 and _perc.shape[1] > 2
+                    _perc.shape[1] if _perc_ch_first else _perc.shape[0]
+                    # Normalise _perc zu channels-last (N, 2) für einheitliche Verarbeitung
+                    if _perc_ch_first:
+                        _perc = _perc.T  # (2, N) → (N, 2)
+                    if _proc_ch_first:
+                        _proc_for_tdp = _proc.T  # (2, N) → (N, 2)
+                    else:
+                        _proc_for_tdp = _proc
+                    _perc_n_new = _perc.shape[0]
+                    if _perc_n_new != _n:
+                        if _perc_n_new > _n:
                             _perc = _perc[:_n, :]
                         else:
-                            _pad = np.zeros((_n - _perc.shape[0], _perc.shape[1]), dtype=np.float32)
+                            _pad = np.zeros((_n - _perc_n_new, _perc.shape[1]), dtype=np.float32)
                             _perc = np.vstack([_perc, _pad])
-                    _out = np.zeros_like(_proc)
-                    for _ch in range(_proc.shape[1]):
+                    _out = np.zeros_like(_proc_for_tdp)
+                    for _ch in range(_proc_for_tdp.shape[1]):
                         _out[:, _ch] = _tdp_processor.recombine(
                             _perc[:, _ch],
-                            _proc[:, _ch],
+                            _proc_for_tdp[:, _ch],
                             sample_rate,
                             original_perc=_perc[:, _ch],
                         )
-                    return np.clip(_out, -1.0, 1.0).astype(np.float32), True
+                    _out = np.clip(_out, -1.0, 1.0).astype(np.float32)
+                    # Rückkonversion wenn channels-first
+                    if _proc_ch_first:
+                        _out = _out.T  # (N, 2) → (2, N)
+                    return _out, True
 
                 if _proc.ndim == 1 and _tdp_percussive.ndim == 1:
                     _n = len(_proc)
@@ -1206,6 +1239,12 @@ class DenoisePhase(PhaseInterface):
             try:
                 logger.info("Phase 03 ML-Hybrid: mode=%s, material=%s", quality_mode, material_type)
 
+                # §2.51: audio re-normalisieren — DFN/MIIPHER/SGMSE können layout geändert haben.
+                # Sicherheits-Re-Normalisierung zu channels-first (2, N) direkt vor ML-Hybrid.
+                if audio.ndim == 2 and audio.shape[1] == 2 and audio.shape[0] > 2:
+                    audio = audio.T  # (N, 2) → (2, N)
+                _mlhyb_audio = audio
+
                 # Configure ML denoiser strategy
                 if quality_mode in ["quality", "maximum"]:
                     strategy = DenoiseStrategy.HYBRID  # Full OMLSA + Resemble
@@ -1225,21 +1264,20 @@ class DenoisePhase(PhaseInterface):
                 _report_progress(55.0, "ML-Hybrid Entrauschung (OMLSA+Resemble)...")
                 # §2.46f Context-Padding for OMLSA+Resemble ML-Hybrid: reflect-pad 1 s to prevent
                 # boundary artefacts — model sees interior signal at what were signal edges.
-                _ctx_n03_hyb = min(int(1.0 * sample_rate), (audio.shape[-1] if audio.ndim == 2 else len(audio)) // 4)
-                _hyb_use_pad = (
-                    _ctx_n03_hyb > 0 and (audio.shape[-1] if audio.ndim == 2 else len(audio)) > _ctx_n03_hyb * 4
-                )
+                _mlhyb_len = _mlhyb_audio.shape[-1] if _mlhyb_audio.ndim == 2 else len(_mlhyb_audio)
+                _ctx_n03_hyb = min(int(1.0 * sample_rate), _mlhyb_len // 4)
+                _hyb_use_pad = _ctx_n03_hyb > 0 and _mlhyb_len > _ctx_n03_hyb * 4
                 if _hyb_use_pad:
                     _hyb_padded = (
-                        np.pad(audio, ((0, 0), (_ctx_n03_hyb, _ctx_n03_hyb)), mode="reflect")
-                        if audio.ndim == 2
-                        else np.pad(audio, (_ctx_n03_hyb, _ctx_n03_hyb), mode="reflect")
+                        np.pad(_mlhyb_audio, ((0, 0), (_ctx_n03_hyb, _ctx_n03_hyb)), mode="reflect")
+                        if _mlhyb_audio.ndim == 2
+                        else np.pad(_mlhyb_audio, (_ctx_n03_hyb, _ctx_n03_hyb), mode="reflect")
                     )
                     ml_result = denoiser.denoise(_hyb_padded, sample_rate=sample_rate)
                     # Strip context padding from result
                     if ml_result is not None and hasattr(ml_result, "audio") and ml_result.audio is not None:
                         _hyb_audio = np.asarray(ml_result.audio)
-                        _hyb_target_len = audio.shape[-1] if audio.ndim == 2 else len(audio)
+                        _hyb_target_len = _mlhyb_audio.shape[-1] if _mlhyb_audio.ndim == 2 else len(_mlhyb_audio)
                         _hyb_out_len = _hyb_audio.shape[-1] if _hyb_audio.ndim == 2 else len(_hyb_audio)
                         if _hyb_out_len >= _ctx_n03_hyb + _hyb_target_len:
                             ml_result.audio = (
@@ -1251,7 +1289,18 @@ class DenoisePhase(PhaseInterface):
                                 "phase_03 ML-Hybrid: context-padding stripped (%d samples offset)", _ctx_n03_hyb
                             )
                 else:
-                    ml_result = denoiser.denoise(audio, sample_rate=sample_rate)
+                    ml_result = denoiser.denoise(_mlhyb_audio, sample_rate=sample_rate)
+                # §2.51 Redundanz-Guard: ml_result.audio zu channels-first normalisieren,
+                # falls HybridMLDenoiser/Resemble channels-last zurückgegeben hat.
+                if (
+                    ml_result is not None
+                    and hasattr(ml_result, "audio")
+                    and ml_result.audio is not None
+                    and ml_result.audio.ndim == 2
+                    and ml_result.audio.shape[1] == 2
+                    and ml_result.audio.shape[0] > 2
+                ):
+                    ml_result.audio = ml_result.audio.T
                 execution_time = time.time() - start_time
                 _report_progress(85.0, "ML-Hybrid Entrauschung: abgeschlossen")
 
@@ -1349,8 +1398,9 @@ class DenoisePhase(PhaseInterface):
 
                 _report_progress(93.0, "Entrauschung: Lautheitskorrektur (ML-Pfad)")
 
+                # §2.51 Rückkonversion via globale _p03_out() Normalisierung
                 return create_phase_result(
-                    audio=ml_result.audio,
+                    audio=_p03_out(ml_result.audio),
                     modifications={
                         "noise_reduction_db": noise_reduction_db,
                         "strength": params["strength"],
@@ -1876,8 +1926,101 @@ class DenoisePhase(PhaseInterface):
         except Exception as _pbg_exc_03:
             logger.debug("PhraseBoundaryGuard phase_03 (non-blocking): %s", _pbg_exc_03)
 
+        # V19 Noise-Textur-Invariante (§NTI): Residual nach NR darf kein material-fremdes
+        # Spektralprofil (Whitening) aufweisen — Textur des Trägers bewahren (VERBOTEN-V19).
+        _mat03_str = str(material_type or "unknown").lower()
+        try:
+            from backend.core.dsp.noise_texture_guard import (  # pylint: disable=import-outside-toplevel
+                compute_noise_texture_distance as _nt03_dist_fn,
+            )
+
+            _nt03_residual = audio.astype(np.float32) - result_audio.astype(np.float32)
+            _nt03_dist = _nt03_dist_fn(_nt03_residual, _mat03_str, sr=sample_rate)
+            if _nt03_dist > 0.25:
+                result_audio = (0.5 * result_audio + 0.5 * audio).astype(np.float32)
+                logger.warning(
+                    "Phase03 V19 Noise-Textur-Dist=%.3f > 0.25 → 50%%-Blend (Träger-Textur bewahrt)",
+                    _nt03_dist,
+                )
+        except Exception as _nt03_exc:
+            logger.debug("Phase03 V19 Noise-Textur-Guard (non-blocking): %s", _nt03_exc)
+
+        # V20 Mikrodynamik-Korrelation (§2.75): Frame-Energie auf voiced-Zonen ≥ 0.97.
+        # NR darf Vokal-Mikrodynamik nicht degradieren (VERBOTEN-V20).
+        if _panns_singing >= 0.25:
+            try:
+                from backend.core.dsp.mikrodynamik_guard import (  # pylint: disable=import-outside-toplevel
+                    frame_energy_correlation as _fec03,
+                )
+
+                _corr03 = _fec03(audio, result_audio, sample_rate, frame_ms=10.0)
+                if _corr03 < 0.97:
+                    _wet03 = min(1.0, (_corr03 - 0.90) / 0.07) if _corr03 > 0.90 else 0.0
+                    result_audio = (_wet03 * result_audio + (1.0 - _wet03) * audio).astype(np.float32)
+                    logger.warning(
+                        "Phase03 V20 Mikrodynamik-Korr=%.3f < 0.97 → wet=%.3f Blend",
+                        _corr03,
+                        _wet03,
+                    )
+            except Exception as _dyn03_exc:
+                logger.debug("Phase03 V20 Mikrodynamik-Guard (non-blocking): %s", _dyn03_exc)
+
+        # V21 Mindestrauschboden (§2.76): Analog-Material darf nach NR keine digitale
+        # Stille (−∞ dBFS) aufweisen — Rauschboden ist Naturalness-Marker (VERBOTEN-V21).
+        if any(t in _mat03_str for t in ("shellac", "vinyl", "tape", "analog")):
+            try:
+                from backend.core.dsp.noise_floor_guard import (  # pylint: disable=import-outside-toplevel
+                    apply_noise_floor_minimum as _nfg03,
+                )
+
+                result_audio = _nfg03(result_audio, sample_rate, _mat03_str, original_audio=audio)
+            except Exception as _nf03_exc:
+                logger.debug("Phase03 V21 Noise-Floor-Guard (non-blocking): %s", _nf03_exc)
+
+        # §V24 Spektralfarbe-Prüfung nach NR (§2.74, non-blocking WARNING)
+        try:
+            from backend.core.dsp.spectral_color_guard import (  # pylint: disable=import-outside-toplevel
+                check_spectral_color_preservation as _scg_03,
+            )
+
+            _sc_result_03 = _scg_03(audio, result_audio, sample_rate)
+            if not _sc_result_03.ok:
+                _sc_wet_03 = 0.70  # Phase-Strength −30 % (§V24)
+                result_audio = (_sc_wet_03 * result_audio + (1.0 - _sc_wet_03) * audio).astype(np.float32)
+        except Exception as _sc_exc_03:  # pylint: disable=broad-except
+            logger.debug("§V24 phase_03 spectral_color non-blocking: %s", _sc_exc_03)
+
+        # V26 Onset-Guard (§2.77): HPSS-Onset-Fenster (0–20 ms nach Transient) dürfen durch
+        # NR nicht energetisch beeinflusst werden (VERBOTEN-V26).
+        try:
+            from backend.core.dsp.onset_guard import (  # pylint: disable=import-outside-toplevel
+                apply_onset_protection_mask as _opg03,
+            )
+
+            result_audio = _opg03(audio, result_audio, None, max_delta_db=1.5)
+        except Exception as _on03_exc:
+            logger.debug("Phase03 V26 Onset-Guard (non-blocking): %s", _on03_exc)
+
+        # §2.72 Vibrato-Tiefe-Guard (§0p Vocal-Supremacy RELEASE_MUST): F0-Modulationstiefe
+        # darf durch NR nicht mehr als ±10 % reduziert werden → 50 %-Blend (VERBOTEN-§2.72).
+        if _panns_singing >= 0.25:
+            try:
+                from backend.core.dsp.vibrato_guard import (  # pylint: disable=import-outside-toplevel
+                    check_vibrato_depth_preservation as _vib03,
+                )
+
+                _vib03_result = _vib03(audio, result_audio, sample_rate)
+                if not _vib03_result.ok:
+                    result_audio = (0.5 * result_audio + 0.5 * audio).astype(np.float32)
+                    logger.warning(
+                        "Phase03 §2.72 Vibrato-Tiefe: reduction=%.1f%% > 10%% → 50%%-Blend",
+                        _vib03_result.depth_reduction_pct,
+                    )
+            except Exception as _vib03_exc:
+                logger.debug("Phase03 §2.72 Vibrato-Guard (non-blocking): %s", _vib03_exc)
+
         return create_phase_result(
-            audio=result_audio,
+            audio=_p03_out(result_audio),
             modifications={
                 "noise_reduction_db": noise_reduction_db,
                 "strength": effective_strength,
@@ -2753,10 +2896,10 @@ class DenoisePhase(PhaseInterface):
         band_idx = np.clip(np.searchsorted(erb_edges[1:], _hz_to_cam(freqs)), 0, N_ERB - 1).astype(np.int32)
         return band_idx
 
-    def _estimate_noise_profile_adaptive(
+    def _estimate_noise_profile_adaptive(  # pylint: disable=unused-argument
         self,
         Zxx: np.ndarray,
-        freqs: np.ndarray,  # pylint: disable=unused-argument
+        freqs: np.ndarray,
         times: np.ndarray,
         noise_start: float,
         noise_end: float,

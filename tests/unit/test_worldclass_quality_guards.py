@@ -67,17 +67,47 @@ def _out_of_phase_stereo(audio: np.ndarray) -> np.ndarray:
 
 
 class TestNoiseTextureGuard:
-    """compute_noise_texture_distance — Residualrauschen vs. Materialprofil."""
+    """compute_noise_texture_distance — Residual-Defektprofil vs. Materialerwartung (v9.12.9).
 
-    def test_white_noise_residual_shellac_high_distance(self):
-        """Weißes Rauschen hat flacheres Spektrum als Shellac-Rauschen → Distanz > 0.25."""
+    Das Residual = entfernter Inhalt (pre − post). V19 prüft ob dieser Inhalt zum
+    erwarteten Defektprofil des Materials passt.
+    Shellac-Residual nach korrekter NR: HF-betont (Oberflächen-Kratzen) → Slope 0..+6 = OK.
+    Whitening-Indikator: Residual musikähnlich (Slope < −5) = NR hat Musik entfernt.
+    """
+
+    def test_hf_rich_residual_shellac_low_distance(self):
+        """HF-betontes Residual auf Shellac = korrekt entferntes Oberflächen-Rauschen → Distanz ≈ 0."""
         from backend.core.dsp.noise_texture_guard import compute_noise_texture_distance
 
-        residual = _white_noise(amp=0.03)
+        # HF-reichen Residual simulieren: Hochpass-gefilterte rosa Rauschen
+        rng = np.random.default_rng(42)
+        white = rng.standard_normal(SR).astype(np.float32) * 0.02
+        # Hohe Frequenzen betonen (HF-Boost) — simuliert entferntes Oberflächen-Kratzen
+        freqs = np.fft.rfftfreq(len(white), 1.0 / SR)
+        spec = np.fft.rfft(white)
+        boost = np.where(freqs > 2000.0, 3.0, 1.0)
+        residual = np.fft.irfft(spec * boost, n=len(white)).astype(np.float32)
         dist = compute_noise_texture_distance(residual, "shellac", SR)
         assert isinstance(dist, float), "Muss float zurückgeben"
         assert 0.0 <= dist <= 1.0, f"Distanz nicht in [0,1]: {dist}"
-        assert dist > 0.15, f"Weißes Rauschen auf Shellac sollte hohe Distanz haben, got {dist:.3f}"
+        assert dist < 0.30, f"HF-reiches Shellac-Residual sollte niedrige Distanz haben, got {dist:.3f}"
+
+    def test_music_like_residual_shellac_high_distance(self):
+        """Musikähnliches Residual (LF-betont) auf Shellac = Whitening-Warnung → Distanz > 0.25."""
+        from backend.core.dsp.noise_texture_guard import compute_noise_texture_distance
+
+        # LF-betontes Residual simulieren: Slope ≈ −10 dB/oct (typisch für Musikinhalt)
+        rng = np.random.default_rng(99)
+        noise = rng.standard_normal(SR).astype(np.float32) * 0.02
+        freqs = np.fft.rfftfreq(len(noise), 1.0 / SR)
+        spec = np.fft.rfft(noise)
+        # Starker LF-Boost: 20 Hz bekommt 10× Amplitude gegenüber 10 kHz
+        lf_weight = np.where(freqs > 0, np.maximum(1.0, 20000.0 / np.maximum(freqs, 20.0)) ** 0.5, 1.0)
+        residual = np.fft.irfft(spec * lf_weight, n=len(noise)).astype(np.float32)
+        dist = compute_noise_texture_distance(residual, "shellac", SR)
+        assert isinstance(dist, float), "Muss float zurückgeben"
+        assert 0.0 <= dist <= 1.0, f"Distanz nicht in [0,1]: {dist}"
+        assert dist > 0.15, f"Musikähnliches Residual auf Shellac sollte Whitening-Warnung, got {dist:.3f}"
 
     def test_zero_residual_returns_low_distance(self):
         """Null-Residual → keine Textur messbar → Distanz nahe 0."""
@@ -378,14 +408,22 @@ class TestSpectralColorGuard:
 
     def test_heavy_eq_reduces_correlation(self):
         """Stark geentzte Version → niedrigere Korrelation."""
-        from backend.core.dsp.spectral_color_guard import check_spectral_color_preservation
-
-        audio = _white_noise(amp=0.3)  # weiß = flach
-        # HP-gefiltert (nur HF) vs. Original
+        # Musik-ähnliches farbiges Signal (Pink-Noise-Approximation via Tiefpass-gefärbtes
+        # weißes Rauschen) — weißes Rauschen ist spektral flach und hat keine definierbare
+        # Spektralfarbe, daher für V24 ungeeignet (Pre-Profil wäre std≈0 → undefined 0/0).
         from scipy.signal import butter, sosfiltfilt
 
-        sos = butter(8, 4000.0 / (SR / 2.0), btype="high", output="sos")
-        filtered = sosfiltfilt(sos, audio).astype(np.float32)
+        from backend.core.dsp.spectral_color_guard import check_spectral_color_preservation
+
+        rng = np.random.default_rng(42)
+        base_noise = rng.standard_normal(SR * 3).astype(np.float32) * 0.3
+        # LP-Färbung (Bass-betont) → spektral gefärbtes "musik-ähnliches" Pre-Signal
+        sos_lp = butter(4, 2000.0 / (SR / 2.0), btype="low", output="sos")
+        audio = sosfiltfilt(sos_lp, base_noise).astype(np.float32)
+        audio = np.clip(audio / (np.max(np.abs(audio)) + 1e-9) * 0.5, -1.0, 1.0).astype(np.float32)
+        # Starker HP-Filter entfernt Bassregion → drastische Spektralfarbe-Änderung
+        sos_hp = butter(8, 4000.0 / (SR / 2.0), btype="high", output="sos")
+        filtered = sosfiltfilt(sos_hp, audio).astype(np.float32)
         result = check_spectral_color_preservation(audio, filtered, SR)
         assert result.correlation < 0.99, (
             f"Stark EQ'd Signal sollte niedrige Korrelation haben: {result.correlation:.3f}"
@@ -396,6 +434,26 @@ class TestSpectralColorGuard:
 
         with pytest.raises(AssertionError):
             check_spectral_color_preservation(_sine(), _sine(), 44100)
+
+    def test_flat_pre_profile_returns_ok(self):
+        """Flat pre-Profil (weißes Rauschen) → Guard undefiniert → fallback ok=True.
+
+        Regression-Test für Bug: Pearson-Korrelation liefert 0.000 wenn pre-Profil
+        spektral flach ist (std≈0 → 0/epsilon = 0.000, false-positive Warnung V24).
+        Fix §spectral_color_guard.py: pre_std < 0.5 → return fallback(correlation=1.0).
+        """
+        from backend.core.dsp.spectral_color_guard import check_spectral_color_preservation
+
+        # Weißes Rauschen hat flaches Spektrum → pre_std ≈ 0 → Guard soll fallback ok=True
+        audio = _white_noise(amp=0.3)
+        result = check_spectral_color_preservation(audio, audio, SR)
+        assert result.ok, (
+            f"Flaches Pre-Profil (weißes Rauschen): Guard soll ok=True liefern, "
+            f"got correlation={result.correlation:.3f}"
+        )
+        assert result.correlation >= 0.99, (
+            f"Fallback-Korrelation bei flachem Pre soll ≈ 1.0 sein: {result.correlation:.3f}"
+        )
 
     def teardown_method(self, _method):
         gc.collect(0)

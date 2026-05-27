@@ -485,8 +485,8 @@ class ExzellenzDenker:
         _MIN_DEFICIT: float = 0.03  # Reparatur nur wenn Score < threshold − 0.03
         _REPAIR_TRIGGER_FLOOR: float = 0.75  # §2.45: Borderline nahe 0.75 nicht nachbearbeiten
 
-        # P3-P5 goals addressable by time-domain or blend repair (not P1/P2 — those
-        # are already protected by UV3's P1/P2 blend cascade §9.8)
+        # P3-P5 goals addressable by time-domain or blend repair.
+        # P1/P2 goals werden in Step 4 via ultra-konservativem Blend (α=0.98/0.96) abgedeckt.
         _P3P5_REPAIR_TARGETS: frozenset[str] = frozenset(
             {
                 # P3 — time-domain micro_dynamics helps directly
@@ -507,14 +507,29 @@ class ExzellenzDenker:
         _MICRO_DYN_GOALS: frozenset[str] = frozenset({"micro_dynamics", "groove", "emotionalitaet"})
         # Goals that benefit from OLA-crossfade edge smoothing (time-domain)
         _OLA_GOALS: frozenset[str] = frozenset({"artikulation", "natuerlichkeit"})
-        # Goals that benefit from blend with reference (restores spectral warmth/brightness)
-        _BLEND_GOALS: frozenset[str] = frozenset({"waerme", "bass_kraft", "brillanz", "transparenz"})
+        # Goals that benefit from blend with reference (restores spectral warmth/brightness/spatiality)
+        # spatial_depth: Blend zurück mit Original stellt übergetrocknete Raumcues wieder her
+        # (phase_49 over-drying); Gate: _is_improvement() verhindert jede Regression (§0).
+        # separation_fidelity: Blend mit Original stellt spektrales Gleichgewicht wieder her,
+        # das Kreuz-Kontamination zwischen Komponenten durch Over-Processing reduziert.
+        _BLEND_GOALS: frozenset[str] = frozenset(
+            {"waerme", "bass_kraft", "brillanz", "transparenz", "spatial_depth", "separation_fidelity"}
+        )
+        # P1/P2 goals addressable by ultra-conservative blend only (≤ 4 % Originalanteil).
+        # Letztes Sicherheitsnetz nach UV3+APR — keine STFT, keine Dynamik-Änderung.
+        # Nur aktiv wenn: reference_audio vorhanden + Shape-Match + kein Hochrausch-Träger.
+        # timbre (P2): strukturell identisch mit timbre_authentizitaet — konservativer Blend
+        # stellt spektrale Formidentität wieder her, ohne harmonische Anteile hinzuzufügen.
+        _P1P2_BLEND_GOALS: frozenset[str] = frozenset(
+            {"authentizitaet", "timbre_authentizitaet", "timbre", "tonal_center", "transient_energie"}
+        )
 
         # §2.32 Inapplicable-Filter: Goals die GAF als physikalisch nicht messbar
         # markiert hat (z.B. brillanz bei BW<8kHz ohne AudioSR, bass_kraft bei
         # vocal-dominanter Quelle) aus Reparatur UND Messung ausschließen.
         _inappl: frozenset[str] = frozenset(inapplicable_goals) if inapplicable_goals else frozenset()
         _eff_repair_targets: frozenset[str] = _P3P5_REPAIR_TARGETS - _inappl
+        _eff_p1p2_blend_targets: frozenset[str] = _P1P2_BLEND_GOALS - _inappl
 
         # NaN/Inf-Schutz
         audio = np.nan_to_num(audio.astype(np.float32), nan=0.0, posinf=0.0, neginf=0.0)
@@ -539,16 +554,29 @@ class ExzellenzDenker:
             and math.isfinite(v)
             and v < min(_thresholds.get(k, _FALLBACK_MIN), _REPAIR_TRIGGER_FLOOR) - _MIN_DEFICIT
         }
-        if not _p35_violations:
+        # P1/P2 violations für ultra-konservativen Blend-Fallback (Step 4)
+        _p12_violations: set[str] = {
+            k
+            for k, v in goals_initial.items()
+            if k in _eff_p1p2_blend_targets
+            and math.isfinite(v)
+            and v < min(_thresholds.get(k, _FALLBACK_MIN), _REPAIR_TRIGGER_FLOOR) - _MIN_DEFICIT
+        }
+        if not _p35_violations and not _p12_violations:
             # §2.45: Minimal-Intervention — kein Eingriff wenn Goals erfüllt / Grenzfall
             return audio, goals_initial
 
         logger.info(
-            "ExzellenzDenker messe_und_repariere: %d/%d Goals | %d P3-P5-Verletzungen: %s",
+            "ExzellenzDenker messe_und_repariere: %d/%d Goals | %d P3-P5-Verletzungen: %s%s",
             _passed_initial,
             _total,
             len(_p35_violations),
             ", ".join(sorted(_p35_violations)),
+            (
+                f" | {len(_p12_violations)} P1/P2-Verletzungen: {', '.join(sorted(_p12_violations))}"
+                if _p12_violations
+                else ""
+            ),
         )
 
         _best_audio: np.ndarray = audio
@@ -650,6 +678,46 @@ class ExzellenzDenker:
                         break  # Erste Verbesserung genügt (§2.45 Minimal-Intervention)
             except Exception as _bl_exc:
                 logger.debug("ExzellenzDenker Goal-Repair (Blend) fehlgeschlagen: %s", _bl_exc)
+
+        # Step 4: Ultra-konservativer P1/P2-Blend (max 4 % Originalanteil)
+        # Letztes Sicherheitsnetz für authentizitaet/timbre_authentizitaet/tonal_center/
+        # transient_energie wenn UV3+APR nicht ausreichten.
+        # §2.45: alpha ∈ {0.98, 0.96} → max. 4 % Original. Kein STFT, kein Dynamik-Eingriff.
+        # §0: Primum non nocere — _is_improvement() blockiert jede Regression.
+        # §0h: Hochrausch-Träger (shellac/wax/wire) ausgeschlossen — Rausch-Reinmix wäre hörbar.
+        _needs_p12_blend = (
+            bool(_p12_violations)
+            and reference_audio is not None
+            and reference_audio.shape == _best_audio.shape
+            and str(material).lower() not in _HIGH_NOISE_MATERIALS
+        )
+        if _needs_p12_blend:
+            try:
+                _ref_f32_p12 = np.nan_to_num(reference_audio.astype(np.float32), nan=0.0, posinf=0.0, neginf=0.0)
+                for _alpha_p12 in (0.98, 0.96):
+                    _p12_blended = np.clip(
+                        _alpha_p12 * _best_audio + (1.0 - _alpha_p12) * _ref_f32_p12,
+                        -1.0,
+                        1.0,
+                    )
+                    _p12_goals = self.messe_ziele(_p12_blended, sr)
+                    if not _p12_goals:
+                        continue
+                    _p12_passed = sum(1 for v in _p12_goals.values() if math.isfinite(v) and v >= _FALLBACK_MIN)
+                    if _is_improvement(_p12_goals) and _p12_passed > _best_passed:
+                        _best_audio = _p12_blended
+                        _best_goals = _p12_goals
+                        _best_passed = _p12_passed
+                        logger.info(
+                            "ExzellenzDenker P1/P2-Blend (α=%.2f): %d → %d Goals bestanden (%s)",
+                            _alpha_p12,
+                            _passed_initial,
+                            _best_passed,
+                            ", ".join(sorted(_p12_violations)),
+                        )
+                        break
+            except Exception as _p12_exc:
+                logger.debug("ExzellenzDenker P1/P2-Blend fehlgeschlagen: %s", _p12_exc)
 
         return _best_audio, _best_goals
 

@@ -1509,7 +1509,10 @@ class EmotionalitaetMetric:
                 # Keep MERT advisory-only and bounded: use a representative center
                 # excerpt so optional refinement never dominates runtime.
                 mert_audio = audio
-                max_mert_seconds = 8
+                # §perf-emotionalitaet v9.12.9: max_mert_seconds 8→3 — spart ~65 s in
+                # End-Gate-Recovery (22+ measure_all()-Aufrufe × 5 s → × 2 s).
+                # 3 s genügen für MERT-Naturalness-Advisory (Expressivitäts-Proxy).
+                max_mert_seconds = 3
                 max_mert_samples = int(sr * max_mert_seconds)
                 if len(audio) > max_mert_samples:
                     start = (len(audio) - max_mert_samples) // 2
@@ -2858,8 +2861,8 @@ class MicroDynamicsMetric:
         return profile
 
     def _crest_factor_db(self, audio: np.ndarray) -> float:
-        """Crest-Faktor in dB: peak / RMS."""
-        peak = float(np.max(np.abs(audio)) + 1e-10)
+        """Crest-Faktor in dB: robuster Peak (p99.9) / RMS (§V08)."""
+        peak = float(np.percentile(np.abs(audio), 99.9) + 1e-10)
         rms = float(np.sqrt(np.mean(audio**2)) + 1e-10)
         return float(20.0 * np.log10(peak / rms))
 

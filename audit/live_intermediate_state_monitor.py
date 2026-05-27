@@ -369,6 +369,7 @@ def _has_offtrack_trigger(spec_gaps: list[dict[str, str]]) -> bool:
 
 
 def main() -> int:
+    """Liest Aurik-Run-Log von stdin und schreibt Zwischenstands-Snapshots in JSON/JSONL."""
     parser = argparse.ArgumentParser(description="Live Zwischenstands-Audit fuer Aurik-Runs")
     parser.add_argument("--workspace", default=".")
     parser.add_argument("--snapshot-jsonl", default="audit/intermediate_runtime_snapshots.jsonl")
@@ -533,9 +534,9 @@ def main() -> int:
 if __name__ == "__main__":
     try:
         raise SystemExit(main())
-    except KeyboardInterrupt:
+    except KeyboardInterrupt as exc:
         # Ctrl+C soll den Monitor sauber beenden (ohne Traceback) und
         # einen evtl. aktiven OffTrack-Stop-Request zurücksetzen.
         _clear_offtrack_stop_request(Path("audit/offtrack_stop_request.json"), "keyboard_interrupt")
         print("[intermediate-audit] monitor durch Benutzerabbruch beendet.")
-        raise SystemExit(130)
+        raise SystemExit(130) from exc

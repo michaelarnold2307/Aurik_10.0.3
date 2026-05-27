@@ -218,18 +218,44 @@ def _compute_formant_stability(
     sr: int,
     era_profile: object = None,
 ) -> float:
-    """Schätzt F1 drift via LPC.
+    """Schätzt F1-Drift via LPC im Vokal-Formant-Band (200–3400 Hz).
 
     Score = max(0, 1 - drift/max_drift_hz); ära-adaptiv via era_profile (§EraVocalProfile).
+
+    Bandpass 200–3400 Hz vor LPC isoliert F1/F2 vom vollen Mix.
+    Verhindert, dass HF-Boost durch Restaurierung (Centroid-Shift > 50 %)
+    oder Instrumentalspektren die LPC-Resonanzberechnung verfälschen
+    (Messartefakt formant≈0.0 statt echter Formant-Drift).
+    LPC-Order 14 statt sr/1000+2 (=50 bei 48 kHz) — Standard für 200–3400 Hz.
     """
     try:
         import librosa  # pylint: disable=import-outside-toplevel
+        from scipy.signal import butter, sosfiltfilt  # pylint: disable=import-outside-toplevel
 
-        frame_len = int(sr * 0.025)  # 25 ms frames
+        # Bandpass 200–3400 Hz: isoliert F1/F2-Range vor LPC.
+        # sr/1000+2 = 50 bei sr=48000 erfasst alle Spektralspitzen im vollen Mix
+        # (inkl. Instrumentalbegleitung) — nach HF-Boost entspricht das einer
+        # drastisch verschobenen "F1"-Schätzung → formant≈0.0 als Messartefakt.
+        nyq = sr / 2.0
+        _bp_lo = 200.0 / nyq
+        _bp_hi = min(3400.0, nyq * 0.95) / nyq
+        if _bp_lo < _bp_hi:
+            try:
+                _sos_bp = butter(4, [_bp_lo, _bp_hi], btype="bandpass", output="sos")
+                _pre_bp = sosfiltfilt(_sos_bp, vocal_pre)
+                _post_bp = sosfiltfilt(_sos_bp, vocal_post)
+            except Exception:
+                _pre_bp, _post_bp = vocal_pre, vocal_post
+        else:
+            _pre_bp, _post_bp = vocal_pre, vocal_post
+
+        frame_len = int(sr * 0.025)  # 25 ms Frames
         hop = frame_len // 2
 
-        # LPC order: ~sr/1000 + 2 (rule of thumb for speech formants)
-        lpc_order = max(8, sr // 1000 + 2)
+        # LPC-Order 30: §0p Formant-Integrität — Spec fordert Ord. 30–40 @ 48 kHz.
+        # Ord. 14 wäre für 8 kHz-Telefonsignal ausreichend; bei 48 kHz wird mit Ord. 14
+        # nur jede dritte Partial-Resonanz erfasst, F3/F4 gehen verloren.
+        lpc_order = 30
 
         def _lpc_f1_frames(audio: np.ndarray) -> list[float]:
             frames = librosa.util.frame(audio, frame_length=frame_len, hop_length=hop)
@@ -242,22 +268,37 @@ def _compute_formant_stability(
                     roots = roots[np.imag(roots) >= 0]
                     angles = np.angle(roots)
                     freqs = sorted(angles * (sr / (2 * np.pi)))
-                    # F1: first resonance > 100 Hz
-                    valid = [f for f in freqs if f > 100]
+                    # F1: erste Resonanz > 200 Hz (nach Bandpass zuverlässiger als > 100 Hz)
+                    valid = [f for f in freqs if f > 200]
                     if valid:
                         f1_list.append(valid[0])
                 except Exception:
                     pass
             return f1_list
 
-        f1_pre = _lpc_f1_frames(vocal_pre)
-        f1_post = _lpc_f1_frames(vocal_post)
+        f1_pre = _lpc_f1_frames(_pre_bp)
+        f1_post = _lpc_f1_frames(_post_bp)
 
         if not f1_pre or not f1_post:
-            return 0.85  # cannot measure → conservative
+            return 0.85  # Messung nicht möglich → konservativer Fallback
 
-        min_len = min(len(f1_pre), len(f1_post))
-        drift = float(np.mean(np.abs(np.array(f1_pre[:min_len]) - np.array(f1_post[:min_len]))))
+        # Median-Filter auf F1-Zeitreihen: eliminiert Wow/Flutter-induzierte Ausreißer
+        # in der degradierten Eingabe. Ohne Filter: Kassetten-Flutter verursacht F1-Spikes
+        # im Input; restauriertes Audio hat stabilere F1 → scheinbar hohe "Drift" trotz
+        # korrekter Restaurierung (score≈0.14 bei echter Drift=0.0 wäre reines Messartefakt).
+        # 5-Frame-Median entspricht 62.5 ms Glättung (25 ms Frame, 12.5 ms Hop) — glättet
+        # Wow (0.1–1 Hz) und Flutter (0–20 Hz) vollständig ohne echte Formantdrift zu maskieren.
+        _kernel = min(5, len(f1_pre) if len(f1_pre) % 2 == 1 else len(f1_pre) - 1)
+        if _kernel >= 3:
+            from scipy.ndimage import median_filter as _mf  # pylint: disable=import-outside-toplevel
+
+            _f1_pre_sm = list(_mf(np.array(f1_pre, dtype=np.float64), size=_kernel, mode="nearest"))
+            _f1_post_sm = list(_mf(np.array(f1_post, dtype=np.float64), size=_kernel, mode="nearest"))
+        else:
+            _f1_pre_sm, _f1_post_sm = f1_pre, f1_post
+
+        min_len = min(len(_f1_pre_sm), len(_f1_post_sm))
+        drift = float(np.mean(np.abs(np.array(_f1_pre_sm[:min_len]) - np.array(_f1_post_sm[:min_len]))))
         # §EraVocalProfile: Historische Vokalstile haben höhere F1-Drift-Toleranz.
         # Modern (default): f1_tolerance_db=2.0 → max_drift_hz=70.0; 1900-1925: 4.0 → 140.0 Hz.
         _f1_tol = float(getattr(era_profile, "f1_tolerance_db", 2.0)) if era_profile is not None else 2.0
@@ -502,7 +543,14 @@ def compute_vqi(  # pylint: disable=too-many-positional-arguments
             singer_cosine, dsp_fallback = _compute_singer_identity(_id_anchor, rest_m, sr)
 
     # Component 2: Formant Stability (§EraVocalProfile: era_profile skaliert max_drift_hz)
-    formant_score = _compute_formant_stability(orig_m, rest_m, sr, era_profile=era_profile)
+    # §MultiSinger: Bei Duett/Chor überlagern sich mehrere Formant-Tracks im Mix.
+    # LPC-F1-Analyse liefert dann unzuverlässige Resonanzschätzungen (falsch-niedrige Scores).
+    # Gleiche Gate-Logik wie singer_identity: konservativer Fallback statt Fehlmessung.
+    if skip_singer_identity:
+        formant_score = 0.85  # neutral fallback — Multi-Singer-Interferenz verhindert valide F1-Analyse
+        logger.debug("§MultiSinger: formant_stability gate skipped (duet/choir) → fallback=0.85")
+    else:
+        formant_score = _compute_formant_stability(orig_m, rest_m, sr, era_profile=era_profile)
 
     # Component 3: Articulation
     articulation = _compute_articulation_score(orig_m, rest_m, sr)

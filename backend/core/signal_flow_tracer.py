@@ -295,7 +295,15 @@ class SignalFlowTracer:
             rms_post = _to_db_rms(post)
             rms_delta = rms_post - rms_pre
 
-            # ── Spektrale Neuheit vs. Original ───────────────────────────────
+            # ── Spektrale Neuheit ────────────────────────────────────────────
+            # v9.12.9c FIX: Per-Phase-Novelty (post vs. pre) für NOVELTY_CRIT-Flag.
+            # VORHER: novelty = post vs. orig_psd → nach BW-Extension zeigten phase_14/16
+            # dauerhaft ~0.50 Novelty, obwohl sie selbst nichts Neues hinzufügen
+            # (alle HF-Bins >12 kHz vom Original abweichend durch frühere phase_07-Arbeit).
+            # FIX: CRIT-Flag basiert auf Delta dieser Phase (post vs. pre). Die
+            # session-globale Novelty (vs. orig) bleibt in spectral_novelty für Telemetrie.
+            _pre_psd_nov, _pre_freqs_nov = _compute_psd_fingerprint(pre, sr)
+            novelty_delta = _compute_spectral_novelty_fast(post, sr, _pre_psd_nov, _pre_freqs_nov)
             novelty = _compute_spectral_novelty_fast(post, sr, self._orig_psd, self._orig_freqs)
 
             # ── HNR (nur bei Vokal-Material, schnell via ACF) ────────────────
@@ -325,10 +333,10 @@ class SignalFlowTracer:
             elif peak_ratio >= _PEGEL_WARN_DB:
                 flags.append(f"PEGELEXPLOSION_WARN (+{peak_ratio:.1f} dB)")
 
-            if novelty >= _NOVELTY_CRIT:
-                flags.append(f"NOVELTY_CRIT ({novelty:.3f})")
-            elif novelty >= _NOVELTY_WARN:
-                flags.append(f"NOVELTY_WARN ({novelty:.3f})")
+            if novelty_delta >= _NOVELTY_CRIT:
+                flags.append(f"NOVELTY_CRIT ({novelty_delta:.3f})")
+            elif novelty_delta >= _NOVELTY_WARN:
+                flags.append(f"NOVELTY_WARN ({novelty_delta:.3f})")
 
             if hnr_delta is not None and hnr_post is not None:
                 if hnr_delta <= -_HNR_CRIT_DB:
@@ -743,7 +751,7 @@ def _check_silence_contamination(
     pre: np.ndarray,
     post: np.ndarray,
     silence_zones: list,
-    sr: int,
+    _sr: int,  # für künftige frequenzgewichtete Analyse reserviert
 ) -> float | None:
     """Prüft ob Stille-Zonen durch die Phase Energie hinzubekommen haben.
 
@@ -881,7 +889,7 @@ _instance_lock = threading.Lock()
 
 def get_signal_flow_tracer() -> SignalFlowTracer:
     """Thread-sicherer Singleton-Zugriff."""
-    global _instance
+    global _instance  # pylint: disable=global-statement  # §3.2 Singleton-Pattern (normativ vorgeschrieben)
     if _instance is None:
         with _instance_lock:
             if _instance is None:

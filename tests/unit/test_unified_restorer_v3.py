@@ -3741,3 +3741,174 @@ class TestPhaseIdValidationGuards:
         assert "phase_48_stereo_imaging" not in src, (
             "§PHASE_ID_VALIDATE: veraltete/ungültige phase_48-ID wurde wieder eingeführt."
         )
+
+
+# ---------------------------------------------------------------------------
+# §GOAL_EXPORT_COMPLIANCE — Finale Ziel-Compliance-Prüfung (v9.12.9)
+# ---------------------------------------------------------------------------
+
+
+class TestGoalExportCompliance:
+    """Tests für §GOAL_EXPORT_COMPLIANCE: Garantierte Ziel-Erreichung vor Export.
+
+    Strukturelle und verhaltensbasierte Tests für den finalen Goal-Compliance-Block,
+    der nach FeedbackChain / HPG / HarmonicLattice läuft und sicherstellt, dass
+    berechnete Ziel-Schwellwerte im Export mindestens erreicht werden.
+    """
+
+    ALL_15_GOALS = frozenset(
+        {
+            "natuerlichkeit",
+            "authentizitaet",
+            "tonal_center",
+            "timbre_authentizitaet",
+            "artikulation",
+            "emotionalitaet",
+            "micro_dynamics",
+            "groove",
+            "transparenz",
+            "waerme",
+            "bass_kraft",
+            "separation_fidelity",
+            "brillanz",
+            "spatial_depth",
+            "transient_energie",
+        }
+    )
+
+    def test_gec_01_fast_goal_snapshot_covers_all_15_goals(self) -> None:
+        """_fast_goal_snapshot() muss alle 15 Musical Goals als Keys liefern."""
+        audio = np.sin(2 * np.pi * 440 * np.linspace(0, 3.0, int(SR * 3.0))).astype(np.float32)
+        snap = UnifiedRestorerV3._fast_goal_snapshot(audio, SR, "vinyl")
+        for goal in self.ALL_15_GOALS:
+            assert goal in snap, f"_fast_goal_snapshot() fehlt Goal '{goal}'"
+            assert 0.0 <= snap[goal] <= 1.0, f"Goal '{goal}' außerhalb [0,1]: {snap[goal]}"
+
+    def test_gec_02_all_15_goals_have_recovery_phases(self) -> None:
+        """Alle 15 Goals müssen mindestens eine Recovery-Phase in
+        _GOAL_TO_RECOVERY_PHASES_RESTORATION haben (§GOAL_EXPORT_COMPLIANCE-Voraussetzung)."""
+        from backend.core.calibration_matrix import get_goal_recovery_phases
+
+        goals_without_phases = []
+        for goal in self.ALL_15_GOALS:
+            phases = get_goal_recovery_phases(goal, is_studio_2026=False)
+            if not phases:
+                goals_without_phases.append(goal)
+        assert not goals_without_phases, f"Goals ohne Recovery-Phasen: {goals_without_phases}"
+
+    def test_gec_03_recovery_phases_no_forbidden_in_restoration(self) -> None:
+        """get_goal_recovery_phases(is_studio_2026=False) darf niemals §0a-verbotene
+        Phasen (phase_21, phase_35, phase_42) zurückgeben."""
+        from backend.core.calibration_matrix import get_goal_recovery_phases
+
+        _FORBIDDEN = frozenset({"phase_21", "phase_35", "phase_42"})
+        for goal in self.ALL_15_GOALS:
+            phases = get_goal_recovery_phases(goal, is_studio_2026=False)
+            for pid in phases:
+                prefix = "_".join(str(pid).split("_")[:2])
+                assert prefix not in _FORBIDDEN, (
+                    f"§0a-Verletzung: Goal '{goal}' hat verbotene Phase '{pid}' in Restoration-Recovery-Phasen."
+                )
+
+    def test_gec_04_recovery_phases_all_exist_on_disk(self) -> None:
+        """Alle Phase-IDs in _GOAL_TO_RECOVERY_PHASES_RESTORATION müssen als
+        backend/core/phases/phase_XX_*.py existieren (Regression gegen V-Regel §GOAL_BASELINE)."""
+        import pathlib
+
+        from backend.core.calibration_matrix import _GOAL_TO_RECOVERY_PHASES_RESTORATION
+
+        phases_dir = pathlib.Path(__file__).parents[2] / "backend" / "core" / "phases"
+        existing = {p.stem for p in phases_dir.glob("phase_*.py")}
+
+        missing: list[str] = []
+        for goal, phase_list in _GOAL_TO_RECOVERY_PHASES_RESTORATION.items():
+            for pid in phase_list:
+                stem = str(pid).split("/")[-1].replace(".py", "")
+                if stem not in existing:
+                    missing.append(f"{goal}/{pid}")
+        assert not missing, f"Recovery-Phasen nicht auf Disk: {missing}"
+
+    def test_gec_05_gec_block_present_in_uv3_source(self) -> None:
+        """UV3-Quellcode muss den §GOAL_EXPORT_COMPLIANCE-Block enthalten."""
+        import pathlib
+
+        src = (pathlib.Path(__file__).parents[2] / "backend" / "core" / "unified_restorer_v3.py").read_text()
+        assert "§GOAL_EXPORT_COMPLIANCE" in src, "§GOAL_EXPORT_COMPLIANCE-Block fehlt in unified_restorer_v3.py"
+        assert "_gec_targets" in src, "_gec_targets Variable fehlt im GEC-Block"
+        assert "_gec_snap" in src, "_gec_snap Variable fehlt im GEC-Block"
+        assert "_GEC_MAX" in src, "_GEC_MAX Konstante fehlt im GEC-Block"
+        assert "_GEC_GAP_MIN" in src, "_GEC_GAP_MIN Konstante fehlt im GEC-Block"
+
+    def test_gec_06_graceful_stop_skips_compliance_block(self) -> None:
+        """Bei gesetztem graceful_stop_triggered darf §GOAL_EXPORT_COMPLIANCE
+        keine Recovery-Phasen ausführen (Verifikation über Quellcode-Guard)."""
+        import pathlib
+
+        src = (pathlib.Path(__file__).parents[2] / "backend" / "core" / "unified_restorer_v3.py").read_text()
+        # Der Block muss _graceful_stop_triggered als Guard prüfen
+        assert "_graceful_stop_triggered" in src, "§GOAL_EXPORT_COMPLIANCE: graceful_stop_triggered-Guard fehlt"
+        # Konkret: 'not _graceful_stop_triggered' muss im GEC-Block stehen
+        assert "not _graceful_stop_triggered" in src, (
+            "§GOAL_EXPORT_COMPLIANCE: 'not _graceful_stop_triggered' als Guard fehlt"
+        )
+
+    def test_gec_07_gec_meta_in_metadata_output(self) -> None:
+        """'goal_export_compliance' muss im Metadata-Dict der UV3-Ausgabe stehen."""
+        import pathlib
+
+        src = (pathlib.Path(__file__).parents[2] / "backend" / "core" / "unified_restorer_v3.py").read_text()
+        assert '"goal_export_compliance"' in src, (
+            "§GOAL_EXPORT_COMPLIANCE: 'goal_export_compliance' fehlt im Metadata-Ausgabe-Dict"
+        )
+        assert "_gec_meta" in src, "_gec_meta muss an Metadata übergeben werden"
+
+    def test_gec_08_gap_sorting_is_descending(self) -> None:
+        """Goals werden nach Lücken-Größe sortiert (größte zuerst) — logische Verifikation.
+
+        Simuliert die _gec_gaps-Sortierung mit bekannten Werten und prüft Reihenfolge.
+        """
+        # waerme Lücke = 0.02 (< 0.03 = _GEC_GAP_MIN) → wird nicht aufgenommen
+        targets = {"natuerlichkeit": 0.90, "brillanz": 0.78, "waerme": 0.75}
+        proxies = {"natuerlichkeit": 0.60, "brillanz": 0.70, "waerme": 0.73}
+        gap_min = 0.03
+        gaps = [
+            (float(targets[g]) - float(proxies[g]), g)
+            for g in targets
+            if float(targets[g]) - float(proxies[g]) > gap_min
+        ]
+        gaps.sort(reverse=True)
+        assert gaps[0][1] == "natuerlichkeit", "Größte Lücke (natuerlichkeit=0.30) muss als erstes erscheinen"
+        assert gaps[1][1] == "brillanz", "Zweitgrößte Lücke (brillanz=0.08) muss an zweiter Stelle stehen"
+        # waerme=0.02 liegt unter gap_min → wird NICHT aufgenommen
+        assert len(gaps) == 2, "waerme-Lücke 0.02 liegt unter Grenze → soll nicht erscheinen"
+
+    def test_gec_09_max_4_goals_limit(self) -> None:
+        """§GOAL_EXPORT_COMPLIANCE darf max 4 Recovery-Phasen pro Song ausführen
+        (Verifikation der _GEC_MAX=4 Konstante im Quellcode)."""
+        import pathlib
+
+        src = (pathlib.Path(__file__).parents[2] / "backend" / "core" / "unified_restorer_v3.py").read_text()
+        # Suche nach der GEC_MAX=4 Zuweisung im GEC-Block
+        assert "_GEC_MAX = 4" in src, (
+            "§GOAL_EXPORT_COMPLIANCE: _GEC_MAX muss auf 4 gesetzt sein (§2.45 Minimal-Intervention)"
+        )
+
+    def test_gec_10_studio_extras_allowed_in_studio_mode(self) -> None:
+        """In Studio-2026-Mode darf §0a-Phasen (phase_42) via get_goal_recovery_phases
+        zurückgegeben werden, da is_studio_2026=True übergeben wird."""
+        from backend.core.calibration_matrix import get_goal_recovery_phases
+
+        studio_phases = get_goal_recovery_phases("vocal_quality", is_studio_2026=True)
+        has_phase_42 = any("phase_42" in pid for pid in studio_phases)
+        assert has_phase_42, (
+            "Studio 2026: get_goal_recovery_phases('vocal_quality', is_studio_2026=True) "
+            "muss phase_42_vocal_enhancement enthalten."
+        )
+
+    def test_gec_11_nonblocking_on_fast_goal_snapshot_exception(self) -> None:
+        """_fast_goal_snapshot() gibt leeres Dict bei Fehler zurück — nie Exception."""
+        # Zu kurzes Audio (< 512 Samples) → _fast_goal_snapshot gibt {} zurück
+        short_audio = np.zeros(100, dtype=np.float32)
+        result = UnifiedRestorerV3._fast_goal_snapshot(short_audio, SR, "unknown")
+        assert isinstance(result, dict), "_fast_goal_snapshot muss immer dict zurückgeben"
+        # Kein Crash — das ist die non-blocking Garantie

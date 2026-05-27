@@ -24,6 +24,8 @@ import time as _time
 import numpy as np
 import scipy.signal as sps
 
+from .phase_interface import PhaseCategory, PhaseInterface, PhaseMetadata, PhaseResult
+
 logger = logging.getLogger(__name__)
 
 
@@ -131,7 +133,9 @@ def apply(
 
     # §2.62 Psychoakustischer Masking-Guard (ISO 11172-3) — per-Band Floor (non-blocking)
     try:
-        from backend.core.dsp.psychoacoustics import compute_masking_threshold_iso11172 as _cmask_p59
+        from backend.core.dsp.psychoacoustics import (
+            compute_masking_threshold_iso11172 as _cmask_p59,  # pylint: disable=import-outside-toplevel
+        )
 
         _mask_ratio_p59 = _cmask_p59(x, sample_rate, n_fft=n_fft, hop_length=hop)
         _mfloor_p59 = np.mean(_mask_ratio_p59, axis=1).astype(np.float32)  # (n_freq,)
@@ -157,11 +161,6 @@ def apply(
     result = x * (1.0 - strength) + out * strength
     result = np.nan_to_num(result, nan=0.0, posinf=0.0, neginf=0.0)
     return np.clip(result, -1.0, 1.0).astype(np.float32)
-
-
-# ─── PhaseInterface ────────────────────────────────────────────────────────────
-
-from .phase_interface import PhaseCategory, PhaseInterface, PhaseMetadata, PhaseResult
 
 
 class ModulationNoiseReductionPhase(PhaseInterface):
@@ -226,18 +225,19 @@ class ModulationNoiseReductionPhase(PhaseInterface):
 
         return {
             "min_modulation_noise_score": float(np.clip(min_modulation_noise_score, 0.05, 0.25)),
-            "g_floor": float(np.clip(g_floor, 0.10, 0.30)),  # §2.62 hard min
+            "g_floor": float(np.clip(g_floor, 0.05, 0.30)),  # §2.62: quality_mode darf < 0.10 (bis 0.05)
         }
 
     def process(
         self,
         audio: np.ndarray,
         sample_rate: int = 48000,
-        strength: float = 0.7,
-        defect_scores: dict | None = None,
+        material_type: str = "unknown",
         **kwargs,
     ) -> PhaseResult:
         sample_rate = kwargs.get("sample_rate", sample_rate)
+        strength = float(kwargs.get("strength", 0.7))
+        defect_scores: dict | None = kwargs.get("defect_scores")
         t0 = _time.perf_counter()
         assert sample_rate == 48000, f"SR must be 48000 Hz, got: {sample_rate}"
 
@@ -283,7 +283,9 @@ class ModulationNoiseReductionPhase(PhaseInterface):
 
         # §4.5 Psychoacoustic Masking Clamp — only reduce audible modulation noise
         try:
-            from backend.core.dsp.psychoacoustics import apply_psychoacoustic_masking_clamp
+            from backend.core.dsp.psychoacoustics import (
+                apply_psychoacoustic_masking_clamp,  # pylint: disable=import-outside-toplevel
+            )
 
             result_audio = apply_psychoacoustic_masking_clamp(
                 audio,
@@ -293,14 +295,14 @@ class ModulationNoiseReductionPhase(PhaseInterface):
                 mode="subtractive",
             )
         except Exception as _pm_exc:
-            import logging as _log59
-
-            _log59.getLogger(__name__).debug("Phase59 masking clamp non-blocking: %s", _pm_exc)
+            logger.debug("Phase59 masking clamp non-blocking: %s", _pm_exc)
 
         # §2.36 Phonem-Schutz: Plosiv-/Frikativ-Frames via get_phoneme_mask() schützen.
         # Das signal-adaptive Spektral-Gating dämpft Konsonanten-Bursts wie Modulationsrauschen.
         try:
-            from backend.core.lyrics_guided_enhancement import get_phoneme_mask as _get_pmask_59
+            from backend.core.lyrics_guided_enhancement import (
+                get_phoneme_mask as _get_pmask_59,  # pylint: disable=import-outside-toplevel
+            )
 
             _hop_59 = 512
             _mono_59: np.ndarray
@@ -324,22 +326,20 @@ class ModulationNoiseReductionPhase(PhaseInterface):
                         result_audio[_smask_59, :] = audio[_smask_59, :]
                 elif result_audio.ndim == 1 and audio.ndim == 1:
                     result_audio[_smask_59] = audio[_smask_59]
-                import logging as _log59p
-
-                _log59p.getLogger(__name__).debug(
+                logger.debug(
                     "§2.36 phase_59 Phonem-Schutz: %d/%d Frames restauriert",
                     int(np.sum(_pmask_59)),
                     len(_pmask_59),
                 )
         except Exception as _pmask59_exc:
-            import logging as _log59q
-
-            _log59q.getLogger(__name__).debug("§2.36 phase_59 Phonem-Mask (non-blocking): %s", _pmask59_exc)
+            logger.debug("§2.36 phase_59 Phonem-Mask (non-blocking): %s", _pmask59_exc)
 
         # §2.46f Natural-Performance-Artifacts-Guard — Atemgeräusche und Vibrato schützen.
         # Das Gating dämpft Atemgeräusche zwischen Phrasen als "niedrig-pegel Rauschen".
         try:
-            from backend.core.natural_performance_detector import get_natural_performance_detector
+            from backend.core.natural_performance_detector import (
+                get_natural_performance_detector,  # pylint: disable=import-outside-toplevel
+            )
 
             _npa_a59 = audio
             if _npa_a59.ndim == 2 and _npa_a59.shape[0] == 2 and _npa_a59.shape[1] > _npa_a59.shape[0]:
@@ -359,15 +359,100 @@ class ModulationNoiseReductionPhase(PhaseInterface):
                         result_audio[_npa_m59, :] = audio[_npa_m59, :]
                 elif result_audio.ndim == 1 and audio.ndim == 1:
                     result_audio[_npa_m59] = audio[_npa_m59]
-                import logging as _log59r
-
-                _log59r.getLogger(__name__).debug(
-                    "§2.46f phase_59 NPA: %d protected samples restauriert", int(np.sum(_npa_m59))
-                )
+                logger.debug("§2.46f phase_59 NPA: %d protected samples restauriert", int(np.sum(_npa_m59)))
         except Exception as _npa59_exc:
-            import logging as _log59s
+            logger.debug("§2.46f phase_59 NPA-Guard (non-blocking): %s", _npa59_exc)
 
-            _log59s.getLogger(__name__).debug("§2.46f phase_59 NPA-Guard (non-blocking): %s", _npa59_exc)
+        # §0p/V19/V20/V21/V26/§2.72 Vokal- + Textur-Guards nach Modulations-NR (RELEASE_MUST §0p V19-V26)
+        _p59_panns = float(kwargs.get("panns_singing", kwargs.get("panns_singing_confidence", 0.0)))
+        _mat59_guards = str(kwargs.get("material_type", kwargs.get("material", "unknown")) or "unknown").lower()
+        if _p59_panns >= 0.25:
+            try:
+                from backend.core.dsp.hnr_guard import apply_hnr_blend as _apply_hnr_59  # pylint: disable=import-outside-toplevel  # noqa: I001
+
+                _hnr_blended_59, _hnr_diag_59 = _apply_hnr_59(
+                    audio.astype(np.float32), result_audio.astype(np.float32), sample_rate
+                )
+                if _hnr_diag_59.get("over_cleaned"):
+                    result_audio = _hnr_blended_59
+            except Exception as _hnr_59_exc:
+                logger.debug("§0p HNR-Blend phase_59 (non-blocking): %s", _hnr_59_exc)
+
+        _nt59_residual = audio - result_audio
+        try:
+            from backend.core.dsp.noise_texture_guard import (  # pylint: disable=import-outside-toplevel
+                compute_noise_texture_distance as _nt59_dist_fn,
+            )
+
+            if _nt59_residual.shape == audio.shape:
+                _nt59_d = _nt59_dist_fn(_nt59_residual, _mat59_guards, sr=sample_rate)
+                if _nt59_d > 0.25:
+                    result_audio = (0.5 * result_audio + 0.5 * audio).astype(np.float32)
+                    logger.warning("§V19 phase_59: noise_texture_dist=%.3f > 0.25 → 50%% dry-blend", _nt59_d)
+        except Exception as _nt59_exc:
+            logger.debug("§V19 phase_59 noise_texture non-blocking: %s", _nt59_exc)
+
+        if _p59_panns >= 0.25:
+            try:
+                from backend.core.dsp.mikrodynamik_guard import (  # pylint: disable=import-outside-toplevel
+                    frame_energy_correlation as _fec59,
+                )
+
+                _corr59 = _fec59(audio, result_audio, sample_rate, frame_ms=10.0)
+                if _corr59 < 0.97:
+                    _wet59 = float(np.clip((_corr59 - 0.90) / 0.07, 0.0, 1.0))
+                    result_audio = (_wet59 * result_audio + (1.0 - _wet59) * audio).astype(np.float32)
+                    logger.warning("§V20 phase_59: mikrodynamik_corr=%.4f < 0.97 → wet=%.3f", _corr59, _wet59)
+            except Exception as _v20_59_exc:
+                logger.debug("§V20 phase_59 mikrodynamik non-blocking: %s", _v20_59_exc)
+
+        if any(x in _mat59_guards for x in ("shellac", "vinyl", "tape", "analog")):
+            try:
+                from backend.core.dsp.noise_floor_guard import (  # pylint: disable=import-outside-toplevel
+                    apply_noise_floor_minimum as _nfmin59,
+                )
+
+                result_audio = _nfmin59(result_audio, sample_rate, _mat59_guards, original_audio=audio)
+            except Exception as _v21_59_exc:
+                logger.debug("§V21 phase_59 noise_floor non-blocking: %s", _v21_59_exc)
+
+        # §V24 Spektralfarbe-Prüfung nach NR (§2.74, non-blocking WARNING)
+        try:
+            from backend.core.dsp.spectral_color_guard import (  # pylint: disable=import-outside-toplevel
+                check_spectral_color_preservation as _scg_59,
+            )
+
+            _sc_result_59 = _scg_59(audio, result_audio, sample_rate)
+            if not _sc_result_59.ok:
+                _sc_wet_59 = 0.70  # Phase-Strength −30 % (§V24)
+                result_audio = (_sc_wet_59 * result_audio + (1.0 - _sc_wet_59) * audio).astype(np.float32)
+        except Exception as _sc_exc_59:  # pylint: disable=broad-except
+            logger.debug("§V24 phase_59 spectral_color non-blocking: %s", _sc_exc_59)
+
+        try:
+            from backend.core.dsp.onset_guard import (  # pylint: disable=import-outside-toplevel
+                apply_onset_protection_mask as _opm59,
+            )
+
+            result_audio = _opm59(audio, result_audio, None, max_delta_db=1.5)
+        except Exception as _v26_59_exc:
+            logger.debug("§V26 phase_59 onset_guard non-blocking: %s", _v26_59_exc)
+
+        if _p59_panns >= 0.25:
+            try:
+                from backend.core.dsp.vibrato_guard import (  # pylint: disable=import-outside-toplevel
+                    check_vibrato_depth_preservation as _vib59_fn,
+                )
+
+                _vibr59 = _vib59_fn(audio, result_audio, sample_rate)
+                if not _vibr59.ok:
+                    result_audio = (0.5 * result_audio + 0.5 * audio).astype(np.float32)
+                    logger.warning(
+                        "§2.72 phase_59: vibrato_reduction=%.1f%% → 50%% dry-blend",
+                        _vibr59.depth_reduction_pct,
+                    )
+            except Exception as _vib59_exc:
+                logger.debug("§2.72 phase_59 vibrato non-blocking: %s", _vib59_exc)
 
         _rms_out_db = _rms_dbfs_gated(result_audio)
         _rms_drop = (_rms_out_db - _rms_in_db) if _rms_in_db > -80.0 else 0.0

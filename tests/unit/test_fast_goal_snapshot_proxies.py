@@ -247,7 +247,7 @@ class TestSpatialDepthProxyMSRatio:
     def _make_cassette_stereo(self, side_factor: float = 0.3) -> np.ndarray:
         """Simuliert Kassetten-Audio: stereo, hauptsächlich bass/mid, kein HF (BW <= 12 kHz).
         side_factor: Verhältnis Side/Mid-Amplitude (0=mono, 0.3=moderate, 1.0=pure side).
-        side_factor=0.3 → Side-Energie ≈ 8% von Gesamt → spatial_depth ≈ 0.33 (via M/S-Proxy).
+        side_factor=0.3 → Side-Energie ≈ 8% von Gesamt → spatial_depth ≈ 0.97 (via Log-M/S-Proxy).
         """
         n = _SR * 4
         t = np.arange(n) / _SR

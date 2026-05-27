@@ -139,7 +139,12 @@ def apply(
 
 # ─── PhaseInterface ────────────────────────────────────────────────────────────
 
-from .phase_interface import PhaseCategory, PhaseInterface, PhaseMetadata, PhaseResult
+from .phase_interface import (  # pylint: disable=wrong-import-position
+    PhaseCategory,
+    PhaseInterface,
+    PhaseMetadata,
+    PhaseResult,
+)
 
 
 class InnerGrooveDistortionRepairPhase(PhaseInterface):
@@ -202,20 +207,19 @@ class InnerGrooveDistortionRepairPhase(PhaseInterface):
         self,
         audio: np.ndarray,
         sample_rate: int = 48000,
-        strength: float = 0.6,
-        defect_scores: dict | None = None,
+        material_type: str = "unknown",
         **kwargs,
     ) -> PhaseResult:
         sample_rate = kwargs.get("sample_rate", sample_rate)
         t0 = _time.perf_counter()
         assert sample_rate == 48000, f"SR must be 48000 Hz, got: {sample_rate}"
 
-        _defect_scores = defect_scores or kwargs.get("defect_analysis", {})
+        _defect_scores = kwargs.get("defect_scores") or kwargs.get("defect_analysis", {})
         phase_locality_factor = float(np.clip(float(kwargs.get("phase_locality_factor", 1.0)), 0.35, 1.0))
-        _pmgg_strength = float(kwargs.get("strength", strength))
+        _pmgg_strength = float(kwargs.get("strength", 0.6))
         _effective_strength = float(np.clip(_pmgg_strength * phase_locality_factor, 0.0, 1.0))
         _profile_60 = self._compute_igd_profile(
-            str(kwargs.get("material_type") or kwargs.get("material") or "unknown"),
+            str(material_type or kwargs.get("material") or "unknown"),
             str(kwargs.get("quality_mode", "balanced")),
             float(kwargs.get("restorability_score", 50.0)),
         )
@@ -228,7 +232,7 @@ class InnerGrooveDistortionRepairPhase(PhaseInterface):
                 execution_time_seconds=_time.perf_counter() - t0,
                 metrics={
                     "igd_score": float((_defect_scores or {}).get("inner_groove_distortion", 0.0)),
-                    "strength": strength,
+                    "strength": _pmgg_strength,
                     "effective_strength": 0.0,
                 },
                 metadata={
@@ -252,7 +256,9 @@ class InnerGrooveDistortionRepairPhase(PhaseInterface):
 
         # §4.5 Psychoacoustic Masking Clamp — nur hörbare Verzerrungsprodukte reduzieren.
         try:
-            from backend.core.dsp.psychoacoustics import apply_psychoacoustic_masking_clamp
+            from backend.core.dsp.psychoacoustics import (
+                apply_psychoacoustic_masking_clamp,  # pylint: disable=import-outside-toplevel
+            )
 
             result_audio = apply_psychoacoustic_masking_clamp(
                 audio,
@@ -262,15 +268,15 @@ class InnerGrooveDistortionRepairPhase(PhaseInterface):
                 mode="subtractive",
             )
         except Exception as _pm60_exc:
-            import logging as _log60m
-
-            _log60m.getLogger(__name__).debug("Phase60 masking clamp non-blocking: %s", _pm60_exc)
+            logger.debug("Phase60 masking clamp non-blocking: %s", _pm60_exc)
 
         # §2.46f Natural-Performance-Artifacts-Guard — THD-Reduktion darf Atemgeräusche
         # und Vibrato-Zonen nicht modifizieren (Notch-Filtering trifft harmonische
         # Atemgeräusch-Obertöne genauso wie IGD-Verzerrungsprodukte).
         try:
-            from backend.core.natural_performance_detector import get_natural_performance_detector
+            from backend.core.natural_performance_detector import (
+                get_natural_performance_detector,  # pylint: disable=import-outside-toplevel
+            )
 
             _npa_a60 = audio
             if _npa_a60.ndim == 2 and _npa_a60.shape[0] == 2 and _npa_a60.shape[1] > _npa_a60.shape[0]:
@@ -291,9 +297,7 @@ class InnerGrooveDistortionRepairPhase(PhaseInterface):
                 elif result_audio.ndim == 1 and audio.ndim == 1:
                     result_audio[_npa_m60] = audio[_npa_m60]
         except Exception as _npa60_exc:
-            import logging as _log60n
-
-            _log60n.getLogger(__name__).debug("§2.46f phase_60 NPA-Guard (non-blocking): %s", _npa60_exc)
+            logger.debug("§2.46f phase_60 NPA-Guard (non-blocking): %s", _npa60_exc)
 
         _rms_out_db = _rms_dbfs_gated(result_audio)
         _rms_drop = (_rms_out_db - _rms_in_db) if _rms_in_db > -80.0 else 0.0

@@ -55,8 +55,6 @@ Date: 15. Februar 2026
 """
 
 import logging
-import os
-import tempfile
 import time
 from typing import Any
 
@@ -68,7 +66,6 @@ from scipy.signal import lfilter
 from backend.core.audio_utils import limit_quiet_edge_boost, safe_to_mono
 from backend.core.dsp.silence_mask import apply_silence_preservation
 from backend.core.plugin_lifecycle_manager import get_plugin_lifecycle_manager
-from backend.file_import import load_audio_file
 
 from .phase_interface import PhaseCategory, PhaseInterface, PhaseMetadata, PhaseResult, create_phase_result
 
@@ -88,13 +85,8 @@ except ImportError:
     DeepFilterNetV3IIPlugin = None
     DEEPFILTERNET_PLUGIN_AVAILABLE = False
 
-# ML-Hybrid Support
-try:
-    import soundfile as sf
-
-    SOUNDFILE_AVAILABLE = True
-except ImportError:
-    SOUNDFILE_AVAILABLE = False
+# ML-Hybrid Support: DFN Plugin (enhance() API, kein subprocess)
+# SOUNDFILE_AVAILABLE wird nach Umstieg auf enhance() nicht mehr benötigt.
 
 try:
     from backend.core.quality_mode import QualityMode, should_use_ml
@@ -144,7 +136,15 @@ class ClickRemovalPhase(PhaseInterface):
             "long": 0.25,
             "transient_preserve": 0.9,  # Strong preservation
         },
-        "cd_digital": {"short": 0.25, "medium": 0.30, "long": 0.35, "transient_preserve": 0.95},  # Very conservative
+        # §V33 MaterialType-Vollständigkeit: Kassette → explizit statt Unknown-Fallback
+        # Kassetten-Klicks sind kürzer als Tape-Klicks (Bandrisse, Aussetzer);
+        # transient_preserve höher als Tape zum Schutz vokal-adjacenter Transienten
+        "cassette": {
+            "short": 0.18,
+            "medium": 0.22,
+            "long": 0.28,
+            "transient_preserve": 0.92,
+        },
         "unknown": {"short": 0.10, "medium": 0.15, "long": 0.20, "transient_preserve": 0.85},  # Balanced default
     }
 
@@ -409,6 +409,9 @@ class ClickRemovalPhase(PhaseInterface):
             except Exception as _exc:
                 logger.debug("Operation failed (non-critical): %s", _exc)
 
+        # §0j energy_bias: panns_singing für DFN-Vokal-Schutz
+        _panns_singing = float(kwargs.get("panns_singing", kwargs.get("panns_singing_confidence", 0.0)))
+
         # Get material-specific thresholds
         thresholds = dict(self.MATERIAL_THRESHOLDS.get(material_type, self.MATERIAL_THRESHOLDS["unknown"]))
 
@@ -442,6 +445,7 @@ class ClickRemovalPhase(PhaseInterface):
                 progress_callback=progress_sub_callback,
                 silence_mask=silence_mask,
                 start_time=start_time,
+                panns_singing=_panns_singing,
             )
             # Compute gain envelope from mono repair
             _eps_click = 1e-10
@@ -481,6 +485,7 @@ class ClickRemovalPhase(PhaseInterface):
                 progress_callback=progress_sub_callback,
                 silence_mask=silence_mask,
                 start_time=start_time,
+                panns_singing=_panns_singing,
             )
             total_clicks = stats["total"]
             ml_repaired_count = stats.get("ml_repaired", 0)
@@ -592,6 +597,7 @@ class ClickRemovalPhase(PhaseInterface):
         thresholds: dict[str, float],
         preserve_transients: bool,
         use_ml: bool,
+        panns_singing: float = 0.0,
         progress_callback: Any = None,
         silence_mask: np.ndarray | None = None,
         start_time: float | None = None,
@@ -652,7 +658,7 @@ class ClickRemovalPhase(PhaseInterface):
                 "Starke Knackser werden repariert",
                 time.time() - (start_time or time.time()),
             )
-            ml_success = self._repair_clicks_ml(audio_cleaned, sample_rate, severe_clicks)
+            ml_success = self._repair_clicks_ml(audio_cleaned, sample_rate, severe_clicks, panns_singing=panns_singing)
             if ml_success:
                 stats["ml_repaired"] = len(severe_clicks)
                 # Count by duration for stats
@@ -726,28 +732,31 @@ class ClickRemovalPhase(PhaseInterface):
 
         return audio_cleaned, stats
 
-    def _repair_clicks_ml(self, audio: np.ndarray, sample_rate: int, clicks: list[dict[str, Any]]) -> bool:
-        """
-        Repariert severe clicks using DeepFilterNet v3 II.
-
-        Strategy: Process entire audio with DeepFilterNet which excels
-        at removing transient distortions while preserving musical content.
+    def _repair_clicks_ml(
+        self,
+        audio: np.ndarray,
+        sample_rate: int,
+        clicks: list[dict[str, Any]],
+        *,
+        panns_singing: float = 0.0,
+    ) -> bool:
+        """Repariert severe clicks via DeepFilterNet v3 II enhance() (in-memory, §0j energy_bias).
 
         Args:
-            audio: Audio array (mono, will be modified in-place)
-            sample_rate: Sample rate
-            clicks: List of click dictionaries with 'start', 'end', 'severity'
+            audio: Audio-Array (mono, wird in-place modifiziert)
+            sample_rate: Sample-Rate
+            clicks: Liste der Click-Dicts mit 'start', 'end', 'severity'
+            panns_singing: PANNs-Singing-Score für energy_bias-Wahl (§0j)
 
         Returns:
-            True if successful, False otherwise
+            True wenn erfolgreich, False sonst
         """
-        if not SOUNDFILE_AVAILABLE:
-            logger.warning("soundfile not available for ML click repair")
-            return False
-
         plugin = self._get_deepfilternet_plugin()
         if plugin is None:
             return False
+
+        # §0j energy_bias: -6 dB für Vokal (panns_singing >= 0.4), -9 dB für Instrumental
+        _dfn_energy_bias = -6.0 if float(panns_singing) >= 0.4 else -9.0
 
         # §4.6b: PLM active-guard — prevents emergency-eviction during DeepFilterNet inference
         _plm01_dfn = None
@@ -758,57 +767,28 @@ class ClickRemovalPhase(PhaseInterface):
             pass
 
         try:
-            # Create temporary files
-            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as input_temp:
-                input_path = input_temp.name
-
-            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as output_temp:
-                output_path = output_temp.name
-
-            # Write audio to temp file
-            sf.write(input_path, audio, sample_rate)
-
-            # Process with DeepFilterNet
-            returncode, _stdout, _stderr = plugin.process(
-                input_path,
-                output_path,
-                post_filter=True,  # Enable post-filter for better quality
-            )
-
-            if returncode == 0 and os.path.exists(output_path):
-                # Read repaired audio
-                _res = load_audio_file(output_path, do_carrier_analysis=False)
-                if not isinstance(_res, dict) or _res.get("audio") is None:
-                    logger.warning("DeepFilterNet output could not be loaded")
-                    return False
-                repaired = np.asarray(_res.get("audio"), dtype=np.float32)
-
-                # Update audio in-place
-                if len(repaired) == len(audio):
-                    audio[:] = repaired
-                    logger.info("✅ ML click repair successful (%s severe clicks)", len(clicks))
-                    return True
-                else:
-                    logger.warning("Length mismatch: %s vs %s", len(repaired), len(audio))
-                    return False
+            # In-memory enhance() statt Subprocess-Datei-API (§V05: kein griffinlim, kein process())
+            repaired = plugin.enhance(audio, sr=sample_rate, energy_bias_db=_dfn_energy_bias)
+            repaired = np.asarray(repaired, dtype=np.float32)
+            n = min(len(repaired), len(audio))
+            if n == len(audio):
+                audio[:] = repaired[:n]
+                logger.info(
+                    "ML click repair erfolgreich (%s Knackser, energy_bias=%.1f dB)",
+                    len(clicks),
+                    _dfn_energy_bias,
+                )
+                return True
             else:
-                logger.warning("DeepFilterNet failed (returncode=%s)", returncode)
+                logger.warning("Längen-Mismatch: %s vs %s", len(repaired), len(audio))
                 return False
 
         except Exception as e:
-            logger.error("ML click repair error: %s", e)
+            logger.error("ML click repair Fehler: %s", e)
             return False
 
         finally:
-            # Cleanup temp files
-            try:
-                if os.path.exists(input_path):
-                    os.unlink(input_path)
-                if os.path.exists(output_path):
-                    os.unlink(output_path)
-            except Exception as _exc:
-                logger.debug("Operation failed (non-critical): %s", _exc)
-            # §4.6b: release PLM active-guard
+            # §4.6b: PLM active-guard freigeben
             if _plm01_dfn is not None:
                 try:
                     _plm01_dfn.set_active("DeepFilterNetV3", False)

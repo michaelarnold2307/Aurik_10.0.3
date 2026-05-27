@@ -30,4 +30,4 @@ def test_phase_intervention_registry_covers_all_phase_modules() -> None:
 
 def test_phase_intervention_registry_targets_64_phases() -> None:
     registry = UnifiedRestorerV3.get_phase_intervention_registry()
-    assert len(registry) == 64, f"Expected 64 registered phases, got {len(registry)}"
+    assert len(registry) == 65, f"Expected 65 registered phases, got {len(registry)}"

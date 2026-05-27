@@ -5,7 +5,7 @@ Abgedeckte Phasen:
   Phase 10  — Multi-Band Parallel Compression (PhaseResult-Return-Fix)
   Phase 34  — Mid/Side Processing (PhaseResult-Return-Fix)
 
-Alle Tests laufen auf synthetischen Arrays (44100 Hz).
+Alle Tests laufen auf synthetischen Arrays (48000 Hz).
 Phasen 43–53 werden kanonisch in test_phases_late_ext.py getestet.
 """
 
@@ -21,8 +21,8 @@ from backend.core.phases.phase_interface import PhaseResult
 # Fixtures
 # ---------------------------------------------------------------------------
 
-SR = 44100
-_N = SR // 4  # 11025 Samples (0.25s) — statt 1s vermeidet unnötige DSP-Arbeit
+SR = 48000
+_N = SR // 4  # 12000 Samples (0.25s) — statt 1s vermeidet unnötige DSP-Arbeit
 
 
 @pytest.fixture(scope="class")

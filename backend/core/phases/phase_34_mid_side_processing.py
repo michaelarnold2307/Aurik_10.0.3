@@ -126,6 +126,12 @@ class MidSideProcessing(PhaseInterface):
             "mid_high": [-22, 1.8, 15, 60, 2.0],  # ratio 2.2→1.8, attack 5→15ms, makeup 3.0→2.0
             "high": [-27, 1.5, 10, 50, 1.5],  # ratio 1.8→1.5, attack 3→10ms, makeup 2.5→1.5
         },
+        MaterialType.CASSETTE: {
+            "bass": [-28, 1.8, 10, 100, 2.0],
+            "low_mid": [-25, 2.0, 10, 80, 2.0],
+            "mid_high": [-22, 1.8, 15, 60, 2.0],
+            "high": [-27, 1.5, 10, 50, 1.5],
+        },  # v9.12.9: IEC 60094-1 — gleiche Capstan-Physik wie TAPE
         MaterialType.CD_DIGITAL: {
             "bass": [-30, 1.5, 10, 100, 2.0],  # Minimal compression, already balanced
             "low_mid": [-28, 1.8, 10, 80, 2.0],  # attack 8→10ms, makeup 2.5→2.0
@@ -184,6 +190,12 @@ class MidSideProcessing(PhaseInterface):
             "mid_high": [-25, 1.8, 15, 100, 1.5],  # ratio 2.0→1.8, attack 8→15ms, makeup 2.5→1.5
             "high": [-30, 1.5, 10, 80, 1.0],  # ratio 1.8→1.5, attack 5→10ms, makeup 2.0→1.0
         },
+        MaterialType.CASSETTE: {
+            "bass": [-30, 1.5, 15, 150, 1.5],
+            "low_mid": [-28, 1.8, 12, 120, 1.5],
+            "mid_high": [-25, 1.8, 15, 100, 1.5],
+            "high": [-30, 1.5, 10, 80, 1.0],
+        },  # v9.12.9: IEC 60094-1 — gleiche Capstan-Physik wie TAPE
         MaterialType.CD_DIGITAL: {
             "bass": [-28, 1.8, 15, 150, 2.0],  # More Side enhancement for width
             "low_mid": [-25, 2.0, 12, 120, 2.0],  # makeup 2.5→2.0
@@ -243,6 +255,12 @@ class MidSideProcessing(PhaseInterface):
             "mid_high": [0.12, 0.08],
             "high": [0.10, 0.10],
         },
+        MaterialType.CASSETTE: {
+            "bass": [0.08, 0.12],
+            "low_mid": [0.10, 0.10],
+            "mid_high": [0.12, 0.08],
+            "high": [0.10, 0.10],
+        },  # v9.12.9: IEC 60094-1 — gleiche Capstan-Physik wie TAPE
         MaterialType.CD_DIGITAL: {
             "bass": [0.10, 0.08],  # More Mid→Side (width)
             "low_mid": [0.12, 0.08],
@@ -550,6 +568,17 @@ class MidSideProcessing(PhaseInterface):
                 "quality_impact": 0.92,
             }
         )
+
+        # §V26 Onset-Schutz: M/S-Dynamik darf Transient-Frames nicht mehr als 1.5 dB dämpfen.
+        # Verhindert transient_energie-Verlust durch M/S-Kompression an Onset-Positionen.
+        try:
+            from backend.core.dsp.onset_guard import (
+                apply_onset_protection_mask as _opm34,  # pylint: disable=import-outside-toplevel
+            )
+
+            audio_processed = _opm34(audio, audio_processed, None, max_delta_db=1.5)
+        except Exception as _v26_exc34:
+            logger.debug("Phase34 V26 Onset-Schutz (non-blocking): %s", _v26_exc34)
 
         audio_processed = np.nan_to_num(audio_processed, nan=0.0, posinf=0.0, neginf=0.0)
         audio_processed = np.clip(audio_processed, -1.0, 1.0)

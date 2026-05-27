@@ -113,17 +113,34 @@ def check_spectral_color_preservation(
         if pre.shape != post.shape or pre.size < 256:
             return _fallback
 
-        pre_mono = pre.mean(axis=0) if pre.ndim == 2 else pre
-        post_mono = post.mean(axis=0) if post.ndim == 2 else post
+        # §2.51 Stereo-Axis-Invariante: channels-last (N,2) korrekt behandeln
+        if pre.ndim == 2:
+            _ax = 0 if pre.shape[0] <= 2 else 1
+            pre_mono = pre.mean(axis=_ax)
+        else:
+            pre_mono = pre
+        if post.ndim == 2:
+            _ax = 0 if post.shape[0] <= 2 else 1
+            post_mono = post.mean(axis=_ax)
+        else:
+            post_mono = post
 
         pre_profile = _third_octave_profile(pre_mono, sr)
         post_profile = _third_octave_profile(post_mono, sr)
 
         # Pearson-Korrelation über 1/3-Oktav-Profil
-        pre_std = float(np.std(pre_profile) + 1e-9)
-        post_std = float(np.std(post_profile) + 1e-9)
+        pre_std = float(np.std(pre_profile))
+        post_std = float(np.std(post_profile))
+
+        # Guard: Wenn pre-Profil spektral flach ist (z.B. weißes Rauschen / Tape-Hiss),
+        # ist die Pearson-Korrelation mathematisch undefiniert (0/0) → fallback ok=True.
+        # Physikalisch: ein flaches Pre-Spektrum hat keine definierbare Spektralfarbe,
+        # daher ist die Preservierungs-Prüfung nicht sinnvoll anwendbar.
+        if pre_std < 0.5:
+            return _fallback
+
         corr = float(np.mean((pre_profile - np.mean(pre_profile)) * (post_profile - np.mean(post_profile))))
-        corr /= pre_std * post_std
+        corr /= (pre_std + 1e-9) * (post_std + 1e-9)
         corr = float(np.clip(np.nan_to_num(corr, nan=1.0), -1.0, 1.0))
 
         ok = corr >= SPECTRAL_COLOR_THRESHOLD

@@ -1334,10 +1334,9 @@ class TestPMGGSongCalIntegration:
         )
         assert result is not None
 
-    def test_72_phase03_has_five_goals_excluded_v9_10_96(self):
-        """phase_03 must exclude exactly 5 goals per v9.10.96 canonical PHASE_GOAL_EXCLUSIONS
-        (groove/emotionalitaet removed: P3-Quick-Proxy-Robustheit hinreichend;
-        K-S SNR-invarianz + MFCC/centroid-CV disruption durch shaped-NR bleiben relevant)."""
+    def test_72_phase03_has_six_goals_excluded_v9_13(self):
+        """phase_03 muss genau 6 Goals ausschließen (§V36 v9.13: transient_energie hinzugefügt).
+        OMLSA/DFN entfernt Rauschimpulse → TransientEnergieProxy false P3 (Δ=-0.13)."""
         from backend.core.per_phase_musical_goals_gate import PHASE_GOAL_EXCLUSIONS
 
         expected = {
@@ -1346,14 +1345,15 @@ class TestPMGGSongCalIntegration:
             "authentizitaet",
             "tonal_center",
             "timbre_authentizitaet",
+            "transient_energie",  # §V36 v9.13
         }
         assert PHASE_GOAL_EXCLUSIONS["phase_03"] == expected, (
             f"phase_03 exclusions: {PHASE_GOAL_EXCLUSIONS['phase_03']} != {expected}"
         )
 
-    def test_73_phase29_has_five_goals_excluded_v9_10_96(self):
-        """phase_29 must exclude exactly 5 goals per v9.10.96 canonical PHASE_GOAL_EXCLUSIONS
-        (groove/emotionalitaet removed: identisch mit phase_03 — P3-Proxy hinreichend robust)."""
+    def test_73_phase29_has_seven_goals_excluded_v9_13(self):
+        """phase_29 muss genau 7 Goals ausschließen (§V36 v9.13: waerme hinzugefügt).
+        OMLSA/DFN-Suppression im Wärmeband (200-2000 Hz) → false P4 (Δ=-0.17)."""
         from backend.core.per_phase_musical_goals_gate import PHASE_GOAL_EXCLUSIONS
 
         expected = {
@@ -1362,6 +1362,8 @@ class TestPMGGSongCalIntegration:
             "natuerlichkeit",
             "tonal_center",
             "timbre_authentizitaet",
+            "transparenz",  # §V32: Tape-Hiss-Carrier inflationiert HF-Crest-Proxy
+            "waerme",  # §V36 v9.13: Wärmeband-Rauschboden → false P4
         }
         assert PHASE_GOAL_EXCLUSIONS["phase_29"] == expected, (
             f"phase_29 exclusions: {PHASE_GOAL_EXCLUSIONS['phase_29']} != {expected}"
@@ -1741,16 +1743,23 @@ class TestKrumhanslSchmucklerTonalCenter:
         )
 
     def test_87_transparenz_not_excluded_from_denoise_phases(self):
-        """\u00a79.7.13: transparenz must NOT appear in exclusions for phases where
-        the multi-band crest-factor proxy is now SNR-robust."""
+        """§9.7.13: transparenz must NOT appear in exclusions for phases where
+        the multi-band crest-factor proxy is now SNR-robust.
+        Exception: phase_29 (Tape-Hiss Carrier-NR) — §V32 normativ übergeordnet:
+        Breitband-HF-Rauschen inflationiert Crest-Proxy → transparenz ausgeschlossen."""
         from backend.core.per_phase_musical_goals_gate import PHASE_GOAL_EXCLUSIONS
 
-        phases_fixed = ["phase_03", "phase_18", "phase_20", "phase_29", "phase_49"]
+        # phase_29 ist §V32-Ausnahme: Tape-Hiss = Carrier-NR mit HF-Broadband-Rauschen
+        phases_fixed = ["phase_03", "phase_18", "phase_20", "phase_49"]
         for phase in phases_fixed:
             excl = PHASE_GOAL_EXCLUSIONS.get(phase, set())
             assert "transparenz" not in excl, (
-                f"{phase}: transparenz must NOT be excluded after \u00a79.7.13 multi-band crest proxy fix"
+                f"{phase}: transparenz must NOT be excluded after §9.7.13 multi-band crest proxy fix"
             )
+        # phase_29 MUSS transparenz ausschließen (§V32)
+        assert "transparenz" in PHASE_GOAL_EXCLUSIONS.get("phase_29", set()), (
+            "phase_29: transparenz MUSS ausgeschlossen sein (§V32 Tape-Hiss Carrier-NR)"
+        )
 
     def test_88_transparenz_bounded_and_finite(self):
         """transparenz proxy must return \u2208 [0, 1] and non-NaN for 8 diverse signals."""
@@ -1859,10 +1868,9 @@ class TestKrumhanslSchmucklerTonalCenter:
 
     # \u2500\u2500 Combined exclusion invariants \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
 
-    def test_92_phase03_exclusions_v9_10_96(self):
-        """phase_03 must exclude exactly 5 goals per v9.10.96 canonical spec.
-        groove/emotionalitaet entfernt: P3-Quick-Proxy-Robustheit hinreichend;
-        K-S shaped-NR + MFCC/centroid-CV Root-Causes bleiben massgeblich."""
+    def test_92_phase03_exclusions_v9_13(self):
+        """phase_03 muss genau 6 Goals ausschließen (§V36 v9.13: transient_energie).
+        OMLSA/DFN entfernt Rauschimpulse → TransientEnergieProxy false P3."""
         from backend.core.per_phase_musical_goals_gate import PHASE_GOAL_EXCLUSIONS
 
         expected = {
@@ -1871,13 +1879,13 @@ class TestKrumhanslSchmucklerTonalCenter:
             "authentizitaet",
             "tonal_center",
             "timbre_authentizitaet",
+            "transient_energie",  # §V36 v9.13
         }
         excl = PHASE_GOAL_EXCLUSIONS.get("phase_03", set())
         assert excl == expected, f"phase_03: {excl} != {expected}"
 
-    def test_93_phase29_exclusions_v9_10_96(self):
-        """phase_29 must exclude exactly 5 goals per v9.10.96 canonical spec.
-        groove/emotionalitaet entfernt: gleiche Begruendung wie phase_03."""
+    def test_93_phase29_exclusions_v9_13(self):
+        """phase_29 muss genau 7 Goals ausschließen (§V36 v9.13: waerme + §V32: transparenz)."""
         from backend.core.per_phase_musical_goals_gate import PHASE_GOAL_EXCLUSIONS
 
         expected = {
@@ -1886,6 +1894,8 @@ class TestKrumhanslSchmucklerTonalCenter:
             "natuerlichkeit",
             "tonal_center",
             "timbre_authentizitaet",
+            "transparenz",  # §V32
+            "waerme",  # §V36 v9.13
         }
         excl = PHASE_GOAL_EXCLUSIONS.get("phase_29", set())
         assert excl == expected, f"phase_29: {excl} != {expected}"
@@ -2286,6 +2296,59 @@ class TestKrumhanslSchmucklerTonalCenter:
             assert goal not in excl, (
                 f"{goal} must NOT be in phase_41 exclusions (TruePeak -1 dBTP too light), got: {excl}"
             )
+
+
+# ---------------------------------------------------------------------------
+# §V36 Reference-Paradox NR-Exclusion Guard (v9.13)
+# ---------------------------------------------------------------------------
+
+
+class TestV36NRExclusionGuard:
+    """§V36 (v9.13): transient_energie in phase_03 + waerme in phase_29 müssen
+    aus PHASE_GOAL_EXCLUSIONS ausgeschlossen sein (Reference Paradox §2.44):
+    NR entfernt Rauschimpulse/Rauschenergie, die Proxies falsch inflationierten."""
+
+    def test_123_phase03_pmgg_excludes_transient_energie(self):
+        """§V36: transient_energie MUSS in PHASE_GOAL_EXCLUSIONS['phase_03'] stehen.
+        OMLSA/DFN entfernt Rauschimpulse → TransientEnergieProxy sieht weniger Onsets
+        → false P3-Regression (Δ=-0.13 in Run 1779217698 → PMGG best_effort_r1).
+        Realer Endwert: 0.805 (über Boden 0.746)."""
+        from backend.core.per_phase_musical_goals_gate import PHASE_GOAL_EXCLUSIONS
+
+        excl = PHASE_GOAL_EXCLUSIONS.get("phase_03", set())
+        assert "transient_energie" in excl, (
+            "phase_03: transient_energie MUSS ausgeschlossen sein (§V36 v9.13): "
+            "OMLSA/DFN entfernt Rauschimpulse → TransientEnergie-Proxy false-positive P3."
+        )
+
+    def test_124_phase29_pmgg_excludes_waerme(self):
+        """§V36: waerme MUSS in PHASE_GOAL_EXCLUSIONS['phase_29'] stehen.
+        OMLSA/DFN-Breitband-Suppression reduziert Rauschboden im Wärmeband (200-2000 Hz)
+        → Proxy zeigt false P4-Regression (Δ=-0.17 in Run 1779217698 → PMGG best_effort_r1).
+        Realer Endwert: 0.792 (über Canonical-Boden 0.75)."""
+        from backend.core.per_phase_musical_goals_gate import PHASE_GOAL_EXCLUSIONS
+
+        excl = PHASE_GOAL_EXCLUSIONS.get("phase_29", set())
+        assert "waerme" in excl, (
+            "phase_29: waerme MUSS ausgeschlossen sein (§V36 v9.13): "
+            "OMLSA/DFN-Suppression im Wärmeband → Proxy false-positive P4."
+        )
+
+    def test_125_phase03_cig_excludes_transient_energie(self):
+        """§2.55-Sync §V36: transient_energie MUSS in CIG-Exclusions für phase_03."""
+        from backend.core.cumulative_interaction_guard import _PHASE_SPECIFIC_DRIFT_EXCLUSIONS
+
+        excl = _PHASE_SPECIFIC_DRIFT_EXCLUSIONS.get("phase_03", frozenset())
+        assert "transient_energie" in excl, (
+            "CIG phase_03: transient_energie MUSS ausgeschlossen sein (§2.55-Sync §V36 v9.13)."
+        )
+
+    def test_126_phase29_cig_excludes_waerme(self):
+        """§2.55-Sync §V36: waerme MUSS in CIG-Exclusions für phase_29."""
+        from backend.core.cumulative_interaction_guard import _PHASE_SPECIFIC_DRIFT_EXCLUSIONS
+
+        excl = _PHASE_SPECIFIC_DRIFT_EXCLUSIONS.get("phase_29", frozenset())
+        assert "waerme" in excl, "CIG phase_29: waerme MUSS ausgeschlossen sein (§2.55-Sync §V36 v9.13)."
 
 
 # ---------------------------------------------------------------------------

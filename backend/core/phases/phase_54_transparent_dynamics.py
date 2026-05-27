@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Phase 53: Transparent Dynamics v1.0 - Tier 1 ML-Hybrid.
+Phase 54: Transparent Dynamics v1.0 - Tier 1 ML-Hybrid.
 Psychoacoustic-aware compression that adapts to musical genre and content.
 
 Algorithm Overview:
@@ -183,6 +183,12 @@ class TransparentDynamicsV1(PhaseInterface):
             "knee_db": 9,
             "mix": 0.65,  # 65% wet
         },
+        MaterialType.CASSETTE: {  # v9.12.9: IEC 60094-1 — gleiche Capstan-Physik wie TAPE
+            "ratio": 2.8,
+            "threshold_db": -16,
+            "knee_db": 9,
+            "mix": 0.65,
+        },
         MaterialType.CD_DIGITAL: {
             "ratio": 3.0,
             "threshold_db": -15,
@@ -208,7 +214,7 @@ class TransparentDynamicsV1(PhaseInterface):
         "shellac": MaterialType.SHELLAC,
         "vinyl": MaterialType.VINYL,
         "tape": MaterialType.TAPE,
-        "cassette": MaterialType.TAPE,
+        "cassette": MaterialType.CASSETTE,  # v9.12.9: Bug fix — war fälschlicherweise MaterialType.TAPE
         "cd": MaterialType.CD_DIGITAL,
         "cd_digital": MaterialType.CD_DIGITAL,
         "digital": MaterialType.CD_DIGITAL,

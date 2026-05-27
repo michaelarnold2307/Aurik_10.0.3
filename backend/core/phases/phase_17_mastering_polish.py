@@ -56,7 +56,12 @@ import time
 import numpy as np
 from scipy import signal
 
+from backend.core.audio_utils import apply_musical_gain_envelope as _amge_17
+from backend.core.audio_utils import compute_gated_rms_linear as _gated_rms_17
+from backend.core.audio_utils import to_channels_last
 from backend.core.defect_scanner import MaterialType
+
+from .phase_interface import PhaseCategory, PhaseInterface, PhaseMetadata, PhaseResult
 
 
 def _rms_dbfs_gated(sig: np.ndarray) -> float:
@@ -78,12 +83,6 @@ def _rms_dbfs_gated(sig: np.ndarray) -> float:
         return -96.0
     return float(20.0 * np.log10(np.sqrt(np.mean(np.concatenate(_active) ** 2)) + 1e-10))
 
-
-from backend.core.audio_utils import apply_musical_gain_envelope as _amge_17
-from backend.core.audio_utils import compute_gated_rms_linear as _gated_rms_17
-from backend.core.audio_utils import to_channels_last
-
-from .phase_interface import PhaseCategory, PhaseInterface, PhaseMetadata, PhaseResult
 
 logger = logging.getLogger(__name__)
 
@@ -124,6 +123,12 @@ class MasteringPolishPhase(PhaseInterface):
             "mid_high": (4000, +1.0, 1.5),
             "high": (10000, +1.5, 1.0),
         },
+        MaterialType.CASSETTE: {
+            "bass": (70, +2.5, 0.8),
+            "low_mid": (450, -0.5, 1.2),
+            "mid_high": (4000, +1.0, 1.5),
+            "high": (8000, +1.0, 1.0),  # v9.12.9: BW-Ceiling 12 kHz
+        },  # v9.12.9: IEC 60094-1 — gleiche Capstan-Physik wie TAPE
         MaterialType.CD_DIGITAL: {
             "bass": (50, +1.0, 0.8),  # Moderater Bass
             "low_mid": (600, -0.5, 1.2),
@@ -152,6 +157,10 @@ class MasteringPolishPhase(PhaseInterface):
             "attack": [1.10, 1.15, 1.20, 1.10],  # Sanfter (Tape Smoothness)
             "sustain": [1.10, 1.10, 1.10, 1.10],  # Mehr Sustain
         },
+        MaterialType.CASSETTE: {
+            "attack": [1.10, 1.15, 1.20, 1.10],
+            "sustain": [1.10, 1.10, 1.10, 1.10],
+        },  # v9.12.9: IEC 60094-1 — gleiche Capstan-Physik wie TAPE
         MaterialType.CD_DIGITAL: {
             "attack": [1.25, 1.30, 1.35, 1.25],  # Sehr punchig
             "sustain": [1.05, 1.05, 1.05, 1.05],
@@ -167,6 +176,7 @@ class MasteringPolishPhase(PhaseInterface):
         MaterialType.SHELLAC: 0.35,  # Viel Coloration (Vintage)
         MaterialType.VINYL: 0.25,  # Moderat
         MaterialType.TAPE: 0.40,  # Starke Tape Saturation
+        MaterialType.CASSETTE: 0.35,  # v9.12.9: IEC 60094-1 — BW-Ceiling 12 kHz (leicht konservativer)
         MaterialType.CD_DIGITAL: 0.15,  # Minimal (Transparent)
         MaterialType.STREAMING: 0.20,  # Leicht
     }
@@ -176,6 +186,7 @@ class MasteringPolishPhase(PhaseInterface):
         MaterialType.SHELLAC: 1.15,  # Leicht breiter (Vintage Stereo)
         MaterialType.VINYL: 1.20,  # Breiter
         MaterialType.TAPE: 1.10,  # Konservativ (Mono-Kompatibilität)
+        MaterialType.CASSETTE: 1.10,  # v9.12.9: IEC 60094-1 — gleiche Capstan-Physik wie TAPE
         MaterialType.CD_DIGITAL: 1.25,  # Sehr breit (Modern)
         MaterialType.STREAMING: 1.20,  # Breit
     }
@@ -185,6 +196,7 @@ class MasteringPolishPhase(PhaseInterface):
         MaterialType.SHELLAC: -1.0,
         MaterialType.VINYL: -0.5,
         MaterialType.TAPE: -0.5,
+        MaterialType.CASSETTE: -0.5,  # v9.12.9: IEC 60094-1 — gleiche Capstan-Physik wie TAPE
         MaterialType.CD_DIGITAL: -0.1,
         MaterialType.STREAMING: -1.5,
     }
@@ -297,12 +309,22 @@ class MasteringPolishPhase(PhaseInterface):
         mastered, eq_metrics = self._apply_mastering_eq(mastered, sample_rate, material, _strength)
         pipeline_metrics["eq"] = eq_metrics
 
+        # §0p v9.12.9: panns_singing aus kwargs lesen — wird via UV3-Injection automatisch
+        # aus _restoration_context["panns_singing"] befüllt (setdefault-Block). Fallback 0.0
+        # deaktiviert alle Vokal-Guards sicher, ohne das Phasen-Verhalten für Nicht-Vokal-Material
+        # zu verändern.
+        _panns_singing_17 = float(kwargs.get("panns_singing", 0.0))
+
         # 2. Multi-Band Transient Enhancement
-        mastered, transient_metrics = self._apply_transient_enhancement(mastered, sample_rate, material, _strength)
+        mastered, transient_metrics = self._apply_transient_enhancement(
+            mastered, sample_rate, material, _strength, panns_singing=_panns_singing_17
+        )
         pipeline_metrics["transient"] = transient_metrics
 
         # 3. Harmonic Enhancement
-        mastered, harmonic_metrics = self._apply_harmonic_enhancement(mastered, material, _strength)
+        mastered, harmonic_metrics = self._apply_harmonic_enhancement(
+            mastered, material, _strength, panns_singing=_panns_singing_17
+        )
         pipeline_metrics["harmonic"] = harmonic_metrics
 
         # 4. Stereo Enhancement
@@ -452,7 +474,12 @@ class MasteringPolishPhase(PhaseInterface):
         return eq_audio, metrics
 
     def _apply_transient_enhancement(
-        self, audio: np.ndarray, sample_rate: int, material: MaterialType, strength: float = 1.0
+        self,
+        audio: np.ndarray,
+        sample_rate: int,
+        material: MaterialType,
+        strength: float = 1.0,
+        panns_singing: float = 0.0,
     ) -> tuple[np.ndarray, dict]:
         """
         Wendet Multi-Band Transient Enhancement an (Attack/Sustain Shaping).
@@ -466,10 +493,18 @@ class MasteringPolishPhase(PhaseInterface):
 
         enhanced_bands = []
 
-        for band, attack_mult, sustain_mult in zip(bands, attack_multipliers, sustain_multipliers):
+        for i, (band, attack_mult, sustain_mult) in enumerate(zip(bands, attack_multipliers, sustain_multipliers)):
             # Scale multipliers towards 1.0 (neutral) by strength
             attack_mult = 1.0 + (attack_mult - 1.0) * strength
             sustain_mult = 1.0 + (sustain_mult - 1.0) * strength
+            # §0p v9.12.9: Trill-Guard — Band-Index 2 (800–5000 Hz) ist das Haupt-Energieband
+            # des deutschen "R"-Trill (Trill-Frequenz ~20–30 Hz, Periode ~38 ms).
+            # Der kausal-rekursive lfilter (τ≈2 ms) erkennt jeden Trill-Zyklus als neue
+            # "Transiente" → attack_mult 1.20 erzeugt periodische Pegelspitzen (~38 ms Periode)
+            # → SFT flaggt als ECHO_ARTIFACT → VocalNoHarmGate-Rollback.
+            # Fix: attack_mult in Band 2 bei Vokal-Material auf max. 1.05 begrenzen.
+            if panns_singing >= 0.25 and i == 2:
+                attack_mult = min(attack_mult, 1.05)
             # Envelope Detection (Attack/Sustain)
             envelope = np.abs(band)
 
@@ -507,7 +542,11 @@ class MasteringPolishPhase(PhaseInterface):
         return enhanced_audio, metrics
 
     def _apply_harmonic_enhancement(
-        self, audio: np.ndarray, material: MaterialType, strength_scale: float = 1.0
+        self,
+        audio: np.ndarray,
+        material: MaterialType,
+        strength_scale: float = 1.0,
+        panns_singing: float = 0.0,
     ) -> tuple[np.ndarray, dict]:
         """
         Wendet Harmonic Excitation (Saturation) an.
@@ -522,6 +561,25 @@ class MasteringPolishPhase(PhaseInterface):
         # Soft Saturation (Tanh-Kurve)
         # Tanh fügt Odd+Even Harmonics hinzu
         saturation_drive = 1.0 + strength * 2.0  # 1.0-3.0 Range
+
+        # §0p v9.12.9: Vocal-Saturation-Cap — verhindert hörbare Verzerrung auf laut
+        # gesungenen Konsonanten (bes. deutsches "R"-Trill, Amplituden 0.7–0.9).
+        # Ohne Cap: tanh(0.8 × 1.70) erzeugt −3.8 dB Amplitude-Kompression auf Peaks
+        # → markante Odd-Harmonics im 2–6 kHz-Band → klingt als Rauheit/Buzzing.
+        # Mit Cap (panns=0.35 → drive≤1.28; panns=1.0 → drive≤1.10):
+        # tanh(0.8 × 1.10) → −1.8 dB Kompression = perceptuell transparent.
+        # wet_amount wird proportional angepasst: wet = (drive - 1.0) / 2.0.
+        if panns_singing >= 0.35:
+            _vocal_drive_cap = float(
+                np.clip(
+                    1.28 - 0.18 * min(1.0, (panns_singing - 0.35) / 0.65),
+                    1.08,
+                    1.28,
+                )
+            )
+            if saturation_drive > _vocal_drive_cap:
+                saturation_drive = _vocal_drive_cap
+                strength = (_vocal_drive_cap - 1.0) / 2.0
 
         saturated = np.tanh(audio * saturation_drive)
 

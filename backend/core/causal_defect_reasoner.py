@@ -136,6 +136,9 @@ CAUSES = [
     "cassette_azimuth_tolerance",
     # Drahtband: Draht-Knoten-Clicks + Wicklungs-Wow + nichtlinearer Magnetisierungsverlauf.
     "wire_recording_specific",
+    # Vokal-Naturalness-Degradierung: VQI-Abfall durch kumulative NR/Kompressor-Eingriffe →
+    # DSP-Korrektiv (HNR-Blend + Spektral-Tilt + Formant-Tilt) via phase_65 (§0a-konform).
+    "vocal_quality_degradation",
 ]
 
 # Material-Typen — Priors für alle 34 Kausal-Ursachen (v9.10.77b)
@@ -1248,6 +1251,33 @@ for _new_cause_v9129, _new_priors_v9129 in [
     for _priors in MATERIAL_PRIORS.values():
         _priors.setdefault(_new_cause_v9129, 0.01)
 
+# v9.12.10: vocal_quality_degradation — Vokal-Naturalness-Degradierung durch
+# kumulative NR/Kompressor-Eingriffe. Korrektiv: phase_65 (§0a-konform).
+_VOCAL_QUALITY_DEGRADATION_MATERIAL_PRIORS: dict[str, float] = {
+    "mp3_low": 0.13,  # Codec-Artefakte degradieren Stimmqualität stark
+    "minidisc": 0.11,  # ATRAC-Codec: bekannt für Stimm-Artefakte
+    "cassette": 0.12,  # Schlechte Aufnahmequalität + aggressive NR
+    "streaming": 0.09,  # Variable Codec-Qualität
+    "tape": 0.08,  # Häufige aggressive NR-Anwendung
+    "reel_tape": 0.09,  # Professionelle NR (Dolby A/SR)
+    "aac": 0.08,  # AAC-Codec-Artefakte in Vokalregion
+    "mp3_high": 0.07,  # Weniger Codec-Degradierung
+    "shellac": 0.07,  # Aggressive NR nötig
+    "wax_cylinder": 0.07,  # Schwere Verarbeitungskette
+    "lacquer_disc": 0.06,  # Ähnlich Shellac
+    "wire_recording": 0.05,  # Unübliche Verarbeitungskette
+    "vinyl": 0.05,  # Moderate NR
+    "digital": 0.04,  # Wenig NR nötig
+    "unknown": 0.06,
+    "dat": 0.03,  # Hohe Qualität, minimale Verarbeitung
+    "cd_digital": 0.02,  # Minimale Verarbeitung nötig
+}
+for _mat, _prior in _VOCAL_QUALITY_DEGRADATION_MATERIAL_PRIORS.items():
+    if _mat in MATERIAL_PRIORS:
+        MATERIAL_PRIORS[_mat].setdefault("vocal_quality_degradation", _prior)
+for _priors in MATERIAL_PRIORS.values():
+    _priors.setdefault("vocal_quality_degradation", 0.04)
+
 # Phase-Empfehlungen pro Ursache (kanonische phase_id = Dateiname ohne .py)
 CAUSE_TO_PHASES: dict[str, list[str]] = {
     # ── Magnetband ────────────────────────────────────────────────────────────
@@ -1566,6 +1596,14 @@ CAUSE_TO_PHASES: dict[str, list[str]] = {
         "phase_24_dropout_repair",  # Sekundär: Draht-Knoten-Signalunterbrechungen
         "phase_03_denoise",  # Tertiär: Drahtband-Rauschen (nichtlinear, breitbandig)
         "phase_01_click_removal",  # Quartär: Draht-Knoten-Clicks
+    ],
+    # §0p Vocal-Supremacy + §0a-Invariante: VQI-Abfall durch kumulative Phasen-Eingriffe.
+    # phase_65 ist das einzige §0a-konforme Korrektiv in Restoration (DSP: HNR-Blend +
+    # Spektral-Tilt + Formant-Tilt). phase_42_vocal_enhancement VERBOTEN in Restoration (§0a).
+    "vocal_quality_degradation": [
+        "phase_65_vocal_naturalness_restoration",  # Primary: §0a DSP-Korrektiv (§7.10)
+        "phase_03_denoise",  # Sekundär: Rausch-Basis absenken → VQI stabilisieren
+        "phase_19_de_esser",  # Tertiär: Sibilanten-Harshness als VQI-Treiber dämpfen
     ],
 }
 
@@ -2926,6 +2964,27 @@ def _likelihood_wire_recording_specific(sf: SpectralFeatures, defect_scores: dic
     return float(np.clip(p, 0.0, 1.0))
 
 
+def _likelihood_vocal_quality_degradation(sf: SpectralFeatures, defect_scores: dict[str, float]) -> float:
+    """P(Merkmale | vocal_quality_degradation) — Vokal-Qualitätsverlust durch
+    kumulative NR/Kompressor-Eingriffe (VQI-Abfall). Korrektiv: phase_65. v9.12.10"""
+    p = 0.0
+    # Primär: Vokalhärte (NR-Überbearbeitung erzeugt Harshness in der Stimme)
+    harsh_sev = float(defect_scores.get("vocal_harshness", 0.0))
+    p += _sigmoid_score(harsh_sev, k=8, x0=0.15) * 0.45
+    # Sekundär: NR-Pumpeffekt/Atemartefakt (NR-Nebeneffekt auf Stimm-Textur)
+    nr_breath = float(defect_scores.get("nr_breathing_artifact", defect_scores.get("nr_breathing", 0.0)))
+    p += _sigmoid_score(nr_breath, k=8, x0=0.20) * 0.25
+    # Tertiär: Kompressionsartefakte (dynamische Kompression zerstört Vokal-Mikrodynamik)
+    comp_sev = float(defect_scores.get("compression_artifacts", 0.0))
+    p += _sigmoid_score(comp_sev, k=6, x0=0.20) * 0.15
+    # Quartär: niedriger Crest-Factor (Kompression reduziert Vokal-Peaks)
+    low_crest = float(np.clip(1.0 - sf.crest_factor_db / 10.0, 0.0, 1.0))
+    p += low_crest * 0.10
+    # Quinär: keine physischen Träger-Defekte (Verarbeitungsartefakt, keine Clicks)
+    p += float(np.clip(1.0 - sf.click_density / 5.0, 0.0, 1.0)) * 0.05
+    return float(np.clip(p, 0.0, 1.0))
+
+
 LIKELIHOOD_FNS = {
     # ── Original 12 ──────────────────────────────────────────────────────────
     "tape_dropout": _likelihood_tape_dropout,
@@ -2997,6 +3056,8 @@ LIKELIHOOD_FNS = {
     "lacquer_disc_degradation": _likelihood_lacquer_disc_degradation,
     "cassette_azimuth_tolerance": _likelihood_cassette_azimuth_tolerance,
     "wire_recording_specific": _likelihood_wire_recording_specific,
+    # ── v9.12.10: vocal_quality_degradation ──────────────────────────────────
+    "vocal_quality_degradation": _likelihood_vocal_quality_degradation,
 }
 
 

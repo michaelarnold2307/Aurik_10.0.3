@@ -1803,7 +1803,7 @@ class BatchProcessingThread(QThread):
                 #   time, self-calibrating after the first two phase transitions.
                 _SP_INTERVAL = 0.033  # ~30 fps
                 _SP_MAX_STEP = 0.6  # max step per frame for catch-up easing
-                _SP_MIN_VELOCITY = 0.012  # min pts/frame ≈ 0.36 pts/s — bar always moves
+                _SP_MIN_VELOCITY = 0.020  # min pts/frame ≈ 0.60 pts/s — bar visibly moves
                 _sp: dict = {
                     "current": 9.0,  # sync with last hardcoded emit (900 = 9 %)
                     "target": 9.0,
@@ -2515,13 +2515,17 @@ class BatchProcessingThread(QThread):
                         with _sp_lock:
                             _sp2["target"] = min(100.0, max(0.0, float(pct)))
                     else:
-                        # Build phase key from display message for transition detection
-                        _phase_key = _display_msg.strip()[:45] if _display_msg else ""
                         # Extract raw phase_id from bracket annotation in the original msg.
                         # UV3 sends "Phase Label [phase_XX_name]" — no ✓ prefix.
                         _pid_match = re.search(r"\[([a-z0-9_]+)\]", msg)
                         _raw_pid = _pid_match.group(1) if _pid_match else ""
-                        _is_new_phase = _phase_key != _last_phase_key[0]
+                        # Build phase key from display message for transition detection.
+                        # Prefer raw phase_id whenever available; this avoids false "same phase"
+                        # decisions when display labels repeat across multiple backend phases.
+                        _phase_key = _raw_pid or (_display_msg.strip()[:45] if _display_msg else "")
+                        _is_new_phase = bool(
+                            (_raw_pid and _raw_pid != _last_raw_phase_id[0]) or (_phase_key != _last_phase_key[0])
+                        )
 
                         # PRE_STEPS (pct 1..19): untere Bar stufenlokal treiben.
                         # Ohne diese Stufenlokik bleibt Stufe 8 visuell oft stehen,
@@ -2564,6 +2568,13 @@ class BatchProcessingThread(QThread):
 
                             _last_phase_key[0] = _phase_key
                             _last_raw_phase_id[0] = _raw_pid
+                            if pct >= 20 and not _post_processing_started[0]:
+                                # Sichtbarer Hauptbalken-Fortschritt bei Phasenwechseln,
+                                # auch wenn UV3 im selben Prozentpunkt mehrere Phasen startet.
+                                with _sp_lock:
+                                    _phase_change_floor = min(96.0, max(_new_tgt + 0.45, _sp["current"] + 0.45))
+                                    if _phase_change_floor > _sp["target"]:
+                                        _sp["target"] = _phase_change_floor
                             if pct >= 20 and not _post_processing_started[0]:
                                 # Normale Phase (pct 20–85): orangenen Balken auf 0 zurücksetzen.
                                 # The smooth emitter detects _sp2_phase_reset and adjusts _last_phase_pct.
@@ -10654,6 +10665,10 @@ class ModernMainWindow(QMainWindow):
         self._phase_overlay_fade_anim = None
         self._bridge_unavailable_warning_shown: bool = False
         self._runtime_health_state: str = "unknown"
+        self._in_tick_heartbeat: bool = False  # W0201 §11 — Reentrancy-Guard _tick_heartbeat()
+        self._progress_log_state: dict[str, Any] = {}  # W0201 §11 — Batch-Fortschritts-Log-State
+        self._in_update_phase: bool = False  # W0201 §11 — Reentrancy-Guard _update_phase()
+        self._phase_heartbeat_refresh_pending: bool = False  # W0201 §11 — Heartbeat-Refresh-Pending
 
         self.setWindowTitle(f"AURIK Professional v{_AURIK_VERSION}")
 

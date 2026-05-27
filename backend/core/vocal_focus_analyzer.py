@@ -442,11 +442,24 @@ class VocalFocusAnalyzer:
         """
         try:
             hop = 512
+            # Für pyin: auf 16 kHz heruntersampeln — F0-Bereich C2–C7 (65–2093 Hz)
+            # liegt weit unter Nyquist 8 kHz. 48 kHz × 30 s = 1,44 M Samples → zu langsam.
+            # 16 kHz × max 8 s = 128 K Samples → schnell und ausreichend für Passaggio-Erkennung.
+            _PYIN_TARGET_SR = 16000
+            _PYIN_MAX_S = 8.0
+            mono_f = mono.astype(np.float32)
+            _pyin_sr = sr
+            if _librosa is not None and sr != _PYIN_TARGET_SR:
+                mono_f = _librosa.resample(mono_f, orig_sr=sr, target_sr=_PYIN_TARGET_SR)  # type: ignore[union-attr]
+                _pyin_sr = _PYIN_TARGET_SR
+            _max_samp = int(_PYIN_MAX_S * _pyin_sr)
+            if len(mono_f) > _max_samp:
+                mono_f = mono_f[:_max_samp]
             f0, voiced_flag, _ = _librosa.pyin(  # type: ignore[union-attr]
-                mono.astype(np.float32),
+                mono_f,
                 fmin=_librosa.note_to_hz("C2"),  # type: ignore[union-attr]
                 fmax=_librosa.note_to_hz("C7"),  # type: ignore[union-attr]
-                sr=sr,
+                sr=_pyin_sr,
                 frame_length=2048,
                 hop_length=hop,
             )
@@ -454,7 +467,7 @@ class VocalFocusAnalyzer:
                 return []
 
             zones: list[tuple[float, float]] = []
-            times = _librosa.frames_to_time(np.arange(len(f0)), sr=sr, hop_length=hop)  # type: ignore[union-attr]
+            times = _librosa.frames_to_time(np.arange(len(f0)), sr=_pyin_sr, hop_length=hop)  # type: ignore[union-attr]
             # Halbtöne-Differenz zwischen aufeinanderfolgenden voiced Frames
             prev_f0: float | None = None
             prev_t: float = 0.0

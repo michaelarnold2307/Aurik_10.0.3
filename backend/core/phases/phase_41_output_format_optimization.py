@@ -90,6 +90,7 @@ class OutputFormatOptimization(PhaseInterface):
         MaterialType.SHELLAC: 44100,  # Archival standard (CD quality)
         MaterialType.VINYL: 96000,  # Hi-res (preserve analog fidelity)
         MaterialType.TAPE: 48000,  # Studio standard
+        MaterialType.CASSETTE: 48000,  # v9.12.9: IEC 60094-1 — gleiche Capstan-Physik wie TAPE
         MaterialType.CD_DIGITAL: 44100,  # CD Red Book
         MaterialType.STREAMING: 48000,  # Streaming standard
     }
@@ -99,6 +100,7 @@ class OutputFormatOptimization(PhaseInterface):
         MaterialType.SHELLAC: 16,  # Sufficient for archival noise floor
         MaterialType.VINYL: 24,  # Preserve dynamic range
         MaterialType.TAPE: 24,  # Studio standard
+        MaterialType.CASSETTE: 24,  # v9.12.9: IEC 60094-1 — gleiche Capstan-Physik wie TAPE
         MaterialType.CD_DIGITAL: 16,  # CD Red Book
         MaterialType.STREAMING: 16,  # Streaming standard
     }
@@ -108,6 +110,7 @@ class OutputFormatOptimization(PhaseInterface):
         MaterialType.SHELLAC: -18.0,  # Conservative (archival)
         MaterialType.VINYL: -16.0,  # Moderate
         MaterialType.TAPE: -16.0,  # Moderate
+        MaterialType.CASSETTE: -16.0,  # v9.12.9: IEC 60094-1 — gleiche Capstan-Physik wie TAPE
         MaterialType.CD_DIGITAL: -14.0,  # CD standard
         MaterialType.STREAMING: -16.0,  # Spotify/YouTube standard
     }
@@ -117,6 +120,7 @@ class OutputFormatOptimization(PhaseInterface):
         MaterialType.SHELLAC: -1.0,
         MaterialType.VINYL: -0.5,  # Mastering headroom
         MaterialType.TAPE: -0.5,
+        MaterialType.CASSETTE: -0.5,  # v9.12.9: IEC 60094-1 — gleiche Capstan-Physik wie TAPE
         MaterialType.CD_DIGITAL: -0.1,  # CD Red Book
         MaterialType.STREAMING: -1.0,  # Codec headroom
     }
@@ -126,6 +130,7 @@ class OutputFormatOptimization(PhaseInterface):
         MaterialType.SHELLAC: "pow_r_3",
         MaterialType.VINYL: "pow_r_3",
         MaterialType.TAPE: "pow_r_3",
+        MaterialType.CASSETTE: "pow_r_3",  # v9.12.9: IEC 60094-1 — gleiche Capstan-Physik wie TAPE
         MaterialType.CD_DIGITAL: "pow_r_3",
         MaterialType.STREAMING: "pow_r_3",
     }

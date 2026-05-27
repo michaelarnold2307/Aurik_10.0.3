@@ -167,7 +167,9 @@ def _scan_strategy_case(raw_case: dict[str, Any], repo_root: Path, target_sr: in
     defect_result = scanner.scan(audio, sr, material_type=material, file_ext=path.suffix)
     defect_scores = {score.defect_type.value: score.severity for score in defect_result.get_top_defects(8)}
     plan = reason_about_defects(defect_scores, material=material.value, audio=audio, sample_rate=sr)
-    mapper_phases = DefectPhaseMapper().phases_for_defect_profile(list(defect_result.scores.values()), max_phases=12)
+    mapper_phases = DefectPhaseMapper().phases_for_defect_profile(
+        list(defect_result.scores.values()), max_phases=12, material=material.value
+    )
     runtime_seconds = float(time.time() - start_time)
 
     reasoner_phases = [str(phase) for phase in plan.recommended_phases]

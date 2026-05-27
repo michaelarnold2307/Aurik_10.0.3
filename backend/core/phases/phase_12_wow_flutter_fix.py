@@ -567,8 +567,8 @@ class WowFlutterFix(PhaseInterface):
         _valid_conf = confidence[confidence > 0]
         _mean_conf = float(np.mean(_valid_conf)) if len(_valid_conf) > 0 else 0.0
         _MIN_CONFIDENCE_FOR_CORRECTION = 0.40
-        if material == MaterialType.TAPE:
-            _MIN_CONFIDENCE_FOR_CORRECTION = 0.25  # tape-start-aware lower threshold
+        if material in (MaterialType.TAPE, MaterialType.CASSETTE):
+            _MIN_CONFIDENCE_FOR_CORRECTION = 0.25  # tape/cassette: transport-start-aware lower threshold
         if _mean_conf < _MIN_CONFIDENCE_FOR_CORRECTION:
             logger.info(
                 "Phase 12: konservativer Fallback aktiv (Konfidenz %.3f < %.2f) — "
@@ -889,12 +889,44 @@ class WowFlutterFix(PhaseInterface):
                 )
             )
             if len(bump_locations) > 120:
-                _bump_strength *= 0.85
+                # Bei vielen Bumps: Kassette/Tape-Material eher stärker reparieren
+                # (viele echte Laufwerks-Events), nicht abschwächen.
+                _material_for_bump = kwargs.get("material_type")
+                _mat_val_bump = getattr(_material_for_bump, "value", str(_material_for_bump)).lower()
+                if "cassette" in _mat_val_bump or "tape" in _mat_val_bump:
+                    _bump_strength = min(_bump_strength * 1.20, max(0.15, _timing_safe_strength))
+                else:
+                    _bump_strength *= 0.85
+            # Schutzzonen für per-Bump individuelle Stärke zusammenstellen (§0p Vocal-Supremacy)
+            _p12_protected_zones: list[tuple[float, float, float]] = []
+            for _z in kwargs.get("vibrato_zones") or []:
+                try:
+                    _p12_protected_zones.append((float(_z[0]), float(_z[1]), 0.20))  # §0p Vibrato-Schutz
+                except Exception:
+                    pass
+            for _z in kwargs.get("frisson_zones") or []:
+                try:
+                    _fz_s = float(getattr(_z, "start_s", None) or _z[0])
+                    _fz_e = float(getattr(_z, "end_s", None) or _z[1])
+                    _p12_protected_zones.append((_fz_s, _fz_e, 0.30))  # Frisson sakrosankt
+                except Exception:
+                    pass
+            for _z in kwargs.get("whisper_zones") or []:
+                try:
+                    _p12_protected_zones.append((float(_z[0]), float(_z[1]), 0.25))  # Flüsterpassagen
+                except Exception:
+                    pass
+            for _z in kwargs.get("passaggio_zones") or []:
+                try:
+                    _p12_protected_zones.append((float(_z[0]), float(_z[1]), 0.35))  # Passaggio-Übergänge
+                except Exception:
+                    pass
             restored, n_bumps_repaired = self._repair_transport_bumps(
                 restored,
                 sample_rate,
                 bump_locations,
                 _bump_strength,
+                protected_zones=_p12_protected_zones or None,
             )
             restored_mono = np.mean(restored, axis=1) if is_stereo else restored
             logger.info(
@@ -1474,12 +1506,77 @@ class WowFlutterFix(PhaseInterface):
         conf = max(0.0, 1.0 - min_cmnd)
         return pitch_hz, conf
 
+    @staticmethod
+    def _compute_bump_local_strength(
+        mono_audio: np.ndarray,
+        bump_start: int,
+        bump_end: int,
+        sample_rate: int,
+        base_strength: float,
+        protected_zones: list,
+    ) -> float:
+        """Berechnet die individuelle Korrekturstärke für einen einzelnen Transport-Bump.
+
+        Je größer die lokale Energieanomalie, desto stärker die Korrektur.
+        In Vibrato- (§0p), Frisson-, Flüster- und Passaggio-Schutzzonen wird
+        die Stärke auf ein Zone-spezifisches Cap begrenzt.
+
+        Args:
+            mono_audio:      Mono-Signal für Kontext-RMS-Messung
+            bump_start:      Start-Sample des Bumps
+            bump_end:        End-Sample des Bumps
+            sample_rate:     Sample-Rate in Hz
+            base_strength:   Basis-Stärke (Material/Confidence-adaptiv)
+            protected_zones: [(start_s, end_s, max_strength), ...] — Schutzzonen
+
+        Returns:
+            Individuelle Korrekturstärke ∈ [0.10, 1.0]
+        """
+        ctx_pad = int(0.250 * max(sample_rate, 1))
+        n = len(mono_audio)
+        bump_region = mono_audio[bump_start:bump_end]
+        if len(bump_region) < 4:
+            return float(np.clip(base_strength, 0.10, 1.0))
+        ctx_pre = mono_audio[max(0, bump_start - ctx_pad) : bump_start]
+        ctx_post = mono_audio[bump_end : min(n, bump_end + ctx_pad)]
+        ctx_parts = [a for a in (ctx_pre, ctx_post) if len(a) >= 4]
+        if not ctx_parts:
+            return float(np.clip(base_strength, 0.10, 1.0))
+        ctx_audio = np.concatenate(ctx_parts)
+        bump_rms = float(np.sqrt(np.mean(bump_region**2) + 1e-12))
+        ctx_rms = float(np.sqrt(np.mean(ctx_audio**2) + 1e-12))
+        energy_ratio = bump_rms / (ctx_rms + 1e-12)
+        if energy_ratio < 1.0:
+            # Energie-Einbruch: typischer Kassetten-/Bandhopper (tape-head-lift)
+            local_severity = float(np.clip(1.0 - energy_ratio, 0.0, 1.0))
+        else:
+            # Energie-Spike: mechanischer Schlag (selten)
+            local_severity = float(np.clip((energy_ratio - 1.0) / 1.5, 0.0, 1.0))
+        # Magnitude-Faktor: Mindest 0.40 — auch leichte Bumps werden sicher repariert
+        mag_factor = float(np.clip(0.40 + 0.60 * local_severity, 0.40, 1.0))
+        local_strength = base_strength * mag_factor
+        # Schutzzone: Stärke auf Zone-spezifisches Cap begrenzen
+        if protected_zones:
+            bump_center_s = float(bump_start + bump_end) * 0.5 / float(max(sample_rate, 1))
+            for _zone in protected_zones:
+                try:
+                    pz_start, pz_end, pz_cap = float(_zone[0]), float(_zone[1]), float(_zone[2])
+                    if pz_start <= bump_center_s <= pz_end:
+                        local_strength = min(local_strength, pz_cap)
+                        break
+                except Exception:
+                    continue
+        if base_strength < 1e-6:
+            return 0.0
+        return float(np.clip(local_strength, 0.10, 1.0))
+
     def _repair_transport_bumps(
         self,
         audio: np.ndarray,
         sample_rate: int,
         bump_locations: list[tuple[float, float]],
         strength: float = 0.85,
+        protected_zones: list | None = None,
     ) -> tuple[np.ndarray, int]:
         """Repariert impulsive transport bumps at known locations.
 
@@ -1507,12 +1604,17 @@ class WowFlutterFix(PhaseInterface):
         margin_samples = int(margin_s * sample_rate)
         n_repaired = 0
 
+        _mono_ref = np.mean(result, axis=1) if is_stereo else result
         for bump_start_s, bump_end_s in bump_locations:
             bump_start = int(bump_start_s * sample_rate)
             bump_end = int(bump_end_s * sample_rate)
 
             if bump_start < 0 or bump_end > n_samples or bump_end <= bump_start:
                 continue
+            # Per-Bump individuelle Stärke: lokale Energieanomalie + Schutzzonen-Check (§0l/§0p)
+            _per_bump_s = self._compute_bump_local_strength(
+                _mono_ref, bump_start, bump_end, sample_rate, strength, protected_zones or []
+            )
 
             region_start = max(0, bump_start - margin_samples)
             region_end = min(n_samples, bump_end + margin_samples)
@@ -1542,14 +1644,14 @@ class WowFlutterFix(PhaseInterface):
                         result[region_start:region_end, ch],
                         ref_rms,
                         margin_samples,
-                        strength,
+                        _per_bump_s,
                     )
             else:
                 result[region_start:region_end] = self._smooth_bump_envelope(
                     result[region_start:region_end],
                     ref_rms,
                     margin_samples,
-                    strength,
+                    _per_bump_s,
                 )
 
             # 3. Local pitch correction
@@ -1562,7 +1664,7 @@ class WowFlutterFix(PhaseInterface):
                             mono_ctx_before,
                             mono_ctx_after,
                             sample_rate,
-                            strength,
+                            _per_bump_s,
                         )
                 else:
                     result[bump_start:bump_end] = self._local_pitch_flatten(
@@ -1570,7 +1672,7 @@ class WowFlutterFix(PhaseInterface):
                         mono_ctx_before,
                         mono_ctx_after,
                         sample_rate,
-                        strength,
+                        _per_bump_s,
                     )
 
             # 4. Spectral context interpolation — remove LF thump and timbral disruption
@@ -1586,14 +1688,14 @@ class WowFlutterFix(PhaseInterface):
                                 else np.zeros(1)
                             ),
                             result[region_end:ctx_after_end, ch] if region_end < ctx_after_end else np.zeros(1),
-                            strength,
+                            _per_bump_s,
                         )
                 else:
                     result[bump_start:bump_end] = self._spectral_context_blend(
                         result[bump_start:bump_end],
                         result[ctx_before_start:region_start] if ctx_before_start < region_start else np.zeros(1),
                         result[region_end:ctx_after_end] if region_end < ctx_after_end else np.zeros(1),
-                        strength,
+                        _per_bump_s,
                     )
 
             n_repaired += 1

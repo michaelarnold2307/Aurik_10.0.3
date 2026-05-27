@@ -128,6 +128,7 @@ class TapeSaturation(PhaseInterface):
         MaterialType.VINYL: 0.30,  # Moderate analog warmth
         MaterialType.TAPE: 0.55,  # Strong (authentic cassette tape)
         MaterialType.REEL_TAPE: 0.45,  # Professional reel-to-reel (slightly less than cassette)
+        MaterialType.CASSETTE: 0.55,  # v9.12.9: IEC 60094-1 — gleiche Capstan-Physik wie TAPE
         MaterialType.CD_DIGITAL: 0.20,  # Subtle analogizing
         MaterialType.STREAMING: 0.25,  # Light warmth
     }
@@ -138,6 +139,7 @@ class TapeSaturation(PhaseInterface):
         MaterialType.VINYL: 0.40,  # 40% saturated
         MaterialType.TAPE: 0.60,  # 60% saturated (cassette)
         MaterialType.REEL_TAPE: 0.50,  # 50% -- pro tape, fuller sound
+        MaterialType.CASSETTE: 0.60,  # v9.12.9: IEC 60094-1 — gleiche Capstan-Physik wie TAPE
         MaterialType.CD_DIGITAL: 0.25,  # 25%
         MaterialType.STREAMING: 0.30,  # 30%
     }
@@ -148,6 +150,7 @@ class TapeSaturation(PhaseInterface):
         MaterialType.VINYL: "7.5_ips",  # Standard
         MaterialType.TAPE: "3.75_ips",  # Cassette tape: significant HF roll-off
         MaterialType.REEL_TAPE: "15_ips",  # Professional studio reel-to-reel
+        MaterialType.CASSETTE: "3.75_ips",  # v9.12.9: IEC 60094-1 — Kassette läuft auf 3,75 ips (4,75 cm/s)
         MaterialType.CD_DIGITAL: "15_ips",
         MaterialType.STREAMING: "7.5_ips",
     }
@@ -183,6 +186,7 @@ class TapeSaturation(PhaseInterface):
         MaterialType.VINYL: 0.12,
         MaterialType.TAPE: 0.25,  # Tape-typical (cassette)
         MaterialType.REEL_TAPE: 0.20,  # Professional reel: wider tape, less hysteresis
+        MaterialType.CASSETTE: 0.25,  # v9.12.9: IEC 60094-1 — gleiche Capstan-Physik wie TAPE
         MaterialType.CD_DIGITAL: 0.08,
         MaterialType.STREAMING: 0.10,
     }
@@ -208,7 +212,11 @@ class TapeSaturation(PhaseInterface):
         )
 
     def process(
-        self, audio: np.ndarray, sample_rate: int, material: MaterialType = MaterialType.VINYL, **kwargs
+        self,
+        audio: np.ndarray,
+        sample_rate: int = 48000,
+        material_type: MaterialType = MaterialType.VINYL,
+        **kwargs,
     ) -> PhaseResult:
         """
         Wendet an: tape saturation.
@@ -221,6 +229,8 @@ class TapeSaturation(PhaseInterface):
         Returns:
             PhaseResult with saturated audio
         """
+        # Interner Alias; unterstützt auch legacy-kwarg "material=" (UV3 nutzt material=)
+        material = kwargs.get("material", material_type) or material_type
         sample_rate = kwargs.get("sample_rate", 48000)
         assert sample_rate == 48000, f"SR muss 48000 Hz sein, erhalten: {sample_rate}"
         self.validate_input(audio)
@@ -690,14 +700,14 @@ if __name__ == "__main__":
 
     # Generate test audio (pure sine for THD measurement)
     duration = 2.0
-    sample_rate = 44100
+    _sr = 48000
 
-    t = np.linspace(0, duration, int(sample_rate * duration))
+    t = np.linspace(0, duration, int(_sr * duration))
 
     # Pure 440 Hz sine (A4) at moderate level
     test_signal = 0.5 * np.sin(2 * np.pi * 440 * t)
 
-    logger.debug("Generated %ss test audio @ %s Hz", duration, sample_rate)
+    logger.debug("Generated %ss test audio @ %s Hz", duration, _sr)
     logger.debug("Signal: Pure 440 Hz sine (A4)")
     logger.debug("Purpose: Measure THD and harmonic addition")
     logger.debug("")
@@ -709,14 +719,14 @@ if __name__ == "__main__":
         (MaterialType.CD_DIGITAL, "CD_DIGITAL"),
     ]
 
-    for material, material_name in materials:
+    for _test_mat, material_name in materials:
         logger.debug("─" * 80)
         logger.debug("Material: %s", material_name)
         logger.debug("─" * 80)
         logger.debug("")
 
         phase = TapeSaturation()
-        result = phase.process(test_signal, sample_rate, material)
+        result = phase.process(test_signal, _sr, _test_mat)
 
         logger.debug("✅ Professional Tape Saturation:")
         logger.debug("   THD: %.2f%%", result.metrics["thd_percent"])
@@ -726,7 +736,9 @@ if __name__ == "__main__":
         logger.debug("   Tape Speed: %s", result.metrics["tape_speed"])
         logger.debug("   Hysteresis: %.2f", result.metrics["hysteresis"])
         logger.debug(
-            f"   Processing time: {result.execution_time_seconds:.3f}s ({result.execution_time_seconds / duration:.2f}× realtime)"
+            "   Processing time: %.3fs (%.2f\u00d7 realtime)",
+            result.execution_time_seconds,
+            result.execution_time_seconds / duration,
         )
         logger.debug("")
 

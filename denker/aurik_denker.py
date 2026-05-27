@@ -34,7 +34,9 @@ from types import SimpleNamespace
 from typing import Any, cast
 
 import numpy as np
+from scipy.signal import butter, sosfiltfilt
 
+from backend.core.calibration_matrix import get_material_floor
 from backend.core.pipeline_health_state import PipelineHealthState, pipeline_health_from_fail_reasons
 
 logger = logging.getLogger(__name__)
@@ -2205,6 +2207,136 @@ class AurikDenker:
             except Exception as _ve_budget:
                 logger.debug("VERSA MOS nach Budget-Limit: %s", _ve_budget)
 
+        # ── §APR: Adaptive Post-Repair — zielgerichtete Nachbesserung nach ExzellenzDenker ─────
+        # §0a Crossfire-Modus-Invariante: §APR darf NUR in Studio 2026 laufen.
+        # Restoration = Minimal-Intervention (nur Trägerverluste invertieren) — kein Bandpass-EQ-Boost.
+        # Studio 2026 = Enhancement erlaubt — waerme/brillanz-Boost ist korrekte Studio-Operation.
+        # Aktivierung: Studio 2026 + goals vorhanden + P3-P5-Gap > 2 % unter Material-Floor + Budget ok.
+        # Methode: Zeit-Domain-Bandpass-Blend (sosfiltfilt, zero-phase) für waerme/brillanz.
+        # Gate: VERSA MOS darf nicht um mehr als 0.05 MOS-Punkte fallen (non-blocking, kein Veto).
+        # §0: Primum non nocere — kein Artefakt; kein STFT-Roundtrip (Ephraim 1984).
+        _apr_is_studio = effective_mode in ("studio2026", "studio_2026", "studio")
+        if _apr_is_studio and not _rest_rollback and musical_goals and _budget_ok():
+            try:
+                _apr_get_floor = get_material_floor
+                _apr_butter = butter
+                _apr_sosfiltfilt = sosfiltfilt
+
+                # Material-BW-Ceiling für §6.2b-Konformität (Kassette: 12 kHz, Shellac: 7 kHz, …)
+                _apr_bw_ceiling: float = float(
+                    _rest_metadata.get("bw_ceiling_hz")
+                    or {
+                        "cassette": 12000.0,
+                        "tape": 15000.0,
+                        "vinyl": 16000.0,
+                        "shellac": 7000.0,
+                        "acetate": 7000.0,
+                    }.get(_exz_material, 20000.0)
+                )
+                # P3-P5 Goals die durch Zeit-Domain-Bandpass-EQ direkt verbesserbar sind:
+                #   bass_kraft → 60–200 Hz (+1.0 dB) — Sub-Bassband der musikalischen Wärme
+                #   waerme     → 200–800 Hz (+1.5 dB additive blend)
+                #   brillanz   → 2 kHz–min(6 kHz, BW-Ceiling×0.90) (+1.0 dB additive blend)
+                # §6.2b-Konformität: Shellac/Wax 200 Hz Sub-Ceiling bereits durch BW-Ceiling garantiert.
+                _APR_GOALS: dict[str, dict] = {
+                    "bass_kraft": {"lo": 60.0, "hi": 200.0, "gain_db": 1.0},
+                    "waerme": {"lo": 200.0, "hi": 800.0, "gain_db": 1.5},
+                    "brillanz": {"lo": 2000.0, "hi": min(6000.0, _apr_bw_ceiling * 0.90), "gain_db": 1.0},
+                }
+                _apr_nyq = float(sr) / 2.0
+                _apr_targets: list[str] = []
+                for _apr_g, _apr_cfg in _APR_GOALS.items():
+                    if _apr_g not in musical_goals:
+                        continue
+                    try:
+                        _apr_floor = float(_apr_get_floor(_exz_material, _apr_g))
+                    except Exception:
+                        _apr_floor = 0.78
+                    _apr_score = float(musical_goals.get(_apr_g) or 0.0)
+                    _hi_safe = min(_apr_cfg["hi"], _apr_nyq * 0.95)
+                    if _apr_score < _apr_floor - 0.02 and _apr_cfg["lo"] < _hi_safe:
+                        _apr_targets.append(_apr_g)
+
+                if _apr_targets:
+                    _apr_candidate = np.array(aktuelles_audio, dtype=np.float32)
+                    for _apr_g in _apr_targets:
+                        _apr_cfg = _APR_GOALS[_apr_g]
+                        _hi_safe = min(_apr_cfg["hi"], _apr_nyq * 0.95)
+                        try:
+                            _sos_apr = _apr_butter(
+                                2,
+                                [_apr_cfg["lo"] / _apr_nyq, _hi_safe / _apr_nyq],
+                                btype="bandpass",
+                                output="sos",
+                            )
+                            _gain_add = float(10.0 ** (_apr_cfg["gain_db"] / 20.0)) - 1.0
+                            if _apr_candidate.ndim == 1:
+                                _apr_band = _apr_sosfiltfilt(_sos_apr, _apr_candidate)
+                            elif _apr_candidate.ndim == 2:
+                                if _apr_candidate.shape[0] <= 2 < _apr_candidate.shape[1]:
+                                    # (channels, samples)
+                                    _apr_band = np.stack(
+                                        [
+                                            _apr_sosfiltfilt(_sos_apr, _apr_candidate[i])
+                                            for i in range(_apr_candidate.shape[0])
+                                        ]
+                                    )
+                                else:
+                                    # (samples, channels)
+                                    _apr_band = np.stack(
+                                        [
+                                            _apr_sosfiltfilt(_sos_apr, _apr_candidate[:, i])
+                                            for i in range(_apr_candidate.shape[1])
+                                        ],
+                                        axis=1,
+                                    )
+                            else:
+                                continue
+                            _apr_candidate = np.clip(_apr_candidate + _apr_band * _gain_add, -1.0, 1.0)
+                        except Exception as _apr_band_exc:
+                            logger.debug("§APR Bandpass-EQ %s: %s", _apr_g, _apr_band_exc)
+
+                    # VERSA Gate: §APR nur übernehmen wenn MOS nicht um mehr als 0.05 fällt
+                    _apr_mos_before = _exz_versa_mos
+                    _apr_mos_after = _apr_mos_before
+                    try:
+                        if _apr_candidate.ndim == 2 and _apr_candidate.shape[0] <= 2 < _apr_candidate.shape[1]:
+                            _mono_apr = _apr_candidate.mean(axis=0)
+                        elif _apr_candidate.ndim == 2:
+                            _mono_apr = _apr_candidate.mean(axis=1)
+                        else:
+                            _mono_apr = _apr_candidate
+                        _mono_apr = np.nan_to_num(_mono_apr.astype(np.float32), nan=0.0, posinf=0.0, neginf=0.0)
+                        _vr_apr = _score_versa_mos(_mono_apr, sr)
+                        _apr_mos_after = float(_vr_apr.mos)
+                    except Exception as _apr_mos_exc:
+                        logger.debug("§APR VERSA Gate nicht verfügbar: %s", _apr_mos_exc)
+                        _apr_mos_after = _apr_mos_before - 0.10  # kein Gate-Bypass bei VERSA-Fehler
+
+                    if _apr_mos_after >= _apr_mos_before - 0.05:
+                        aktuelles_audio = np.clip(
+                            np.nan_to_num(_apr_candidate, nan=0.0, posinf=0.0, neginf=0.0), -1.0, 1.0
+                        )
+                        _exz_versa_mos = max(_exz_versa_mos, _apr_mos_after)
+                        stage_notes["apr"] = (
+                            f"§APR: {', '.join(_apr_targets)} nachgebessert — "
+                            f"VERSA vor={_apr_mos_before:.3f} nach={_apr_mos_after:.3f}"
+                        )
+                        logger.info(
+                            "§APR Adaptive Post-Repair: %s — VERSA vor=%.3f nach=%.3f",
+                            ", ".join(_apr_targets),
+                            _apr_mos_before,
+                            _apr_mos_after,
+                        )
+                    else:
+                        logger.debug(
+                            "§APR Rollback: VERSA vor=%.3f nach=%.3f — §APR nicht übernommen",
+                            _apr_mos_before,
+                            _apr_mos_after,
+                        )
+            except Exception as _apr_exc:
+                logger.debug("§APR Adaptive Post-Repair non-blocking: %s", _apr_exc)
+
         # ── Stufe 10: VERSA MOS — finales Qualitätsurteil (§4.4) ────────────
         _emit(97, "VERSA MOS-Qualitätsbewertung läuft …")
         # M-8b: VERSA-MOS-Cache aus ExzellenzDenker übernehmen um doppelte
@@ -2474,7 +2606,10 @@ class AurikDenker:
                     _pd = _rest_metadata.get("phase_deltas")
                     if isinstance(_pd, dict):
                         _ssc_phase_deltas = {k: float(v) for k, v in _pd.items() if isinstance(v, (int, float))}
-                _ssc_vqi = float(_rest_metadata.get("vqi", 0.0)) if isinstance(_rest_metadata, dict) else 0.0
+                # §SSC-1 VQI — None-safe: dict.get("vqi", 0.0) gibt None zurück wenn Key
+                # vorhanden aber Value=None → float(None) → TypeError → gesamter Block bricht ab.
+                _ssc_vqi_raw = _rest_metadata.get("vqi") if isinstance(_rest_metadata, dict) else None
+                _ssc_vqi = float(_ssc_vqi_raw) if isinstance(_ssc_vqi_raw, (int, float)) and _ssc_vqi_raw > 0.0 else 0.0
                 _ssc_entry = _build_song_strategy_entry_from_result(
                     song_id=_ssc_song_id,
                     mode=effective_mode,

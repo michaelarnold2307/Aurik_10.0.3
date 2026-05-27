@@ -49,7 +49,7 @@ _HNR_DELTA_THRESHOLD: float = 2.5  # dB — ab wann HNR-Blend aktiv
 _TILT_DELTA_THRESHOLD: float = 1.5  # dB — ab wann Spektral-Tilt-Korrektur aktiv
 _TILT_SHELF_HZ: float = 2000.0  # Hz — Shelving-Frequenz
 _TILT_MAX_BOOST_DB: float = 3.0  # dB — Maximaler Tilt-Boost (limitierend)
-_FORMANT_MAX_BOOST_DB: float = 2.5  # dB — Maximaler Formant-Boost
+_FORMANT_MAX_BOOST_DB: float = 1.0  # dB — Maximaler Formant-Boost (§2.71: F1/F2 ≤ ±1 dB Pflicht)
 _FORMANT_SHIFT_THRESHOLD_DB: float = 1.5  # dB — Formant-Shift-Gate
 _HNR_BLEND_MAX: float = 0.35  # Maximaler Dry-Wet-Blend-Faktor
 _PANNS_SINGING_GATE: float = 0.25  # Mindest-Vocal-Confidence
@@ -205,7 +205,9 @@ class VocalNaturalnessRestorationPhase(PhaseInterface):
             ),
         )
 
-    def process(self, audio: np.ndarray, sample_rate: int, **kwargs) -> PhaseResult:  # pylint: disable=arguments-differ  # type: ignore[override]
+    def process(  # pylint: disable=arguments-differ  # type: ignore[override]
+        self, audio: np.ndarray, sample_rate: int, **kwargs
+    ) -> PhaseResult:
         """DSP-Vocal-Naturalness-Restaurierung.
 
         Args:
@@ -424,6 +426,46 @@ class VocalNaturalnessRestorationPhase(PhaseInterface):
         result = np.nan_to_num(result, nan=0.0, posinf=0.0, neginf=0.0)
         result = np.clip(result, -1.0, 1.0)
 
+        # §2.36 LyricsGuided-Phonemgrenzen-Schutz (RELEASE_MUST ab 9.10.x):
+        # Konsonanten-Bursts (Plosive/Frikative < 20 ms) müssen in phase_65 erhalten bleiben —
+        # DSP-Eingriffe (Tilt, HNR-Blend) dürfen Artikulation nicht glätten.
+        # Phonem-Frames werden vollständig auf das Original zurückgeblendet.
+        try:
+            from backend.core.lyrics_guided_enhancement import (  # pylint: disable=import-outside-toplevel
+                get_phoneme_mask as _get_pmask65,
+            )
+
+            _p65_audio_1ch = audio if audio.ndim == 1 else audio[0]
+            _p65_pmask_frames = _get_pmask65(_p65_audio_1ch, sample_rate)
+            if _p65_pmask_frames is not None and len(_p65_pmask_frames) > 0:
+                # Frame-Maske → Sample-Maske (nearest-neighbour + Decay-Fenster 5 ms)
+                _p65_hop = max(1, len(_p65_audio_1ch) // max(1, len(_p65_pmask_frames)))
+                _p65_smask = np.repeat(_p65_pmask_frames.astype(np.float32), _p65_hop)
+                _p65_smask = _p65_smask[: len(_p65_audio_1ch)]
+                if len(_p65_smask) < len(_p65_audio_1ch):
+                    _p65_smask = np.pad(_p65_smask, (0, len(_p65_audio_1ch) - len(_p65_smask)))
+                # Sanftes Decay-Fenster (5 ms = _p65_decay_samples) an Phonemgrenzen
+                _p65_decay_samples = max(1, int(0.005 * sample_rate))
+                _p65_kernel = np.ones(_p65_decay_samples, dtype=np.float32) / _p65_decay_samples
+                _p65_smask = np.convolve(_p65_smask, _p65_kernel, mode="same").clip(0.0, 1.0)
+                # Blend: Phonem-Frames → Original; Rest → DSP-Ergebnis
+                _p65_orig_1ch = audio if audio.ndim == 1 else (audio[0] if result.ndim == 1 else audio)
+                if result.ndim == 2:
+                    for _ch65 in range(result.shape[0]):
+                        _orig_ch = audio[_ch65] if audio.ndim == 2 else audio
+                        result[_ch65] = (_p65_smask * _orig_ch + (1.0 - _p65_smask) * result[_ch65]).astype(np.float32)
+                else:
+                    result = (_p65_smask * _p65_orig_1ch + (1.0 - _p65_smask) * result).astype(np.float32)
+                _p65_phoneme_frames_protected = int(np.sum(_p65_pmask_frames))
+                _p65_meta["phoneme_frames_protected"] = _p65_phoneme_frames_protected
+                logger.debug(
+                    "§2.36 phase_65 Phonemschutz: %d Frames geschützt (%.1f%%)",
+                    _p65_phoneme_frames_protected,
+                    100.0 * float(np.mean(_p65_pmask_frames)),
+                )
+        except Exception as _pmask65_exc:
+            logger.debug("§2.36 phase_65 Phonemschutz non-blocking: %s", _pmask65_exc)
+
         # ---- VQI-Guard: Rollback wenn VQI schlechter geworden ----
         _vqi_before: float = -1.0
         _vqi_after: float = -1.0
@@ -436,7 +478,7 @@ class VocalNaturalnessRestorationPhase(PhaseInterface):
             _vqi_res_after = _compute_vqi65(pre_nr_ch.astype(np.float32), result, sample_rate)
             _vqi_before = float(_vqi_res_before.get("vqi", -1.0))
             _vqi_after = float(_vqi_res_after.get("vqi", -1.0))
-            if _vqi_before > 0 and _vqi_after > 0 and _vqi_after < _vqi_before:
+            if _vqi_before > 0 and _vqi_after > 0 and _vqi_after < _vqi_before - 0.005:
                 logger.warning(
                     "Phase65 VQI-Guard: vqi_after=%.3f < vqi_before=%.3f → Rollback",
                     _vqi_after,
@@ -476,15 +518,14 @@ class VocalNaturalnessRestorationPhase(PhaseInterface):
 # ---------------------------------------------------------------------------
 # Singleton
 # ---------------------------------------------------------------------------
-_instance: VocalNaturalnessRestorationPhase | None = None
+_instance_state: dict = {"instance": None}
 _lock = threading.Lock()
 
 
 def get_phase_65() -> VocalNaturalnessRestorationPhase:
     """Thread-safe Singleton accessor (§0 Kopilot-Instructions Singleton-Pattern)."""
-    global _instance  # pylint: disable=global-statement
-    if _instance is None:
+    if _instance_state["instance"] is None:
         with _lock:
-            if _instance is None:
-                _instance = VocalNaturalnessRestorationPhase()
-    return _instance
+            if _instance_state["instance"] is None:
+                _instance_state["instance"] = VocalNaturalnessRestorationPhase()
+    return _instance_state["instance"]

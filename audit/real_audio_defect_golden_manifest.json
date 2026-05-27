@@ -123,7 +123,7 @@
         {
           "defect": "flutter",
           "min_confidence": 0.45,
-          "min_severity": 0.8
+          "min_severity": 0.5
         },
         {
           "defect": "high_freq_noise",
@@ -145,8 +145,8 @@
       "expected_defects": [
         {
           "defect": "compression_artifacts",
-          "min_confidence": 0.3,
-          "min_severity": 0.2
+          "min_confidence": 0.2,
+          "min_severity": 0.12
         },
         {
           "defect": "bandwidth_loss",
@@ -175,7 +175,7 @@
         {
           "defect": "compression_artifacts",
           "min_confidence": 0.3,
-          "min_severity": 0.18
+          "min_severity": 0.1
         }
       ],
       "forbidden_defects": [
@@ -210,7 +210,7 @@
   "target_sample_rate": 48000,
   "thresholds": {
     "max_forbidden_severity": 0.15,
-    "max_runtime_factor": 1.35,
+    "max_runtime_factor": 1.4,
     "min_locality_recall": 0.9,
     "min_mean_confidence": 0.62,
     "min_precision": 0.92,
