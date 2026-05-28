@@ -76,9 +76,9 @@ def estimate_goal_feasibility(
         Leeres Dict bei Fehler (non-blocking).
     """
     try:
-        from backend.core.calibration_matrix import get_material_floor
-        from backend.core.physical_ceiling_estimator import estimate_physical_ceiling
-        from backend.core.song_goal_importance import ALL_GOAL_NAMES
+        from backend.core.calibration_matrix import get_material_floor  # pylint: disable=import-outside-toplevel  # noqa: I001
+        from backend.core.physical_ceiling_estimator import estimate_physical_ceiling  # pylint: disable=import-outside-toplevel
+        from backend.core.song_goal_importance import ALL_GOAL_NAMES  # pylint: disable=import-outside-toplevel
 
         # Physikalische Decke ohne aktuelle Scores (reine SNR/BW-Schätzung auf Input-Audio)
         pce = estimate_physical_ceiling(

@@ -19,7 +19,8 @@ HOP = 512
 def _white_noise(duration_s: float = 1.0, rms: float = 0.2, seed: int = 42) -> np.ndarray:
     rng = np.random.default_rng(seed)
     sig = rng.standard_normal(int(duration_s * SR)).astype(np.float32)
-    return (sig / (np.sqrt(np.mean(sig**2)) + 1e-9) * rms).astype(np.float32)
+    out: np.ndarray = (sig / (np.sqrt(np.mean(sig**2)) + 1e-9) * rms).astype(np.float32)
+    return out
 
 
 def _silence(duration_s: float = 1.0) -> np.ndarray:
@@ -28,7 +29,8 @@ def _silence(duration_s: float = 1.0) -> np.ndarray:
 
 def _clean_sine(freq_hz: float = 440.0, duration_s: float = 1.0, amplitude: float = 0.5) -> np.ndarray:
     t = np.linspace(0, duration_s, int(duration_s * SR), endpoint=False)
-    return (amplitude * np.sin(2 * np.pi * freq_hz * t)).astype(np.float32)
+    out: np.ndarray = (amplitude * np.sin(2 * np.pi * freq_hz * t)).astype(np.float32)
+    return out
 
 
 class TestNMRResult:

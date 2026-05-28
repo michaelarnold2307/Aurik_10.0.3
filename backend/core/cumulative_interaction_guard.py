@@ -368,8 +368,19 @@ _PHASE_SPECIFIC_DRIFT_EXCLUSIONS: dict[str, frozenset[str]] = {
     # Carrier noise gate (secondary): gate openings/closings alter spectral continuity.
     # natuerlichkeit: gated silence has different MFCC-smoothness vs. continuous carrier-noise floor.
     "phase_19": frozenset(
-        {"natuerlichkeit", "timbre_authentizitaet", "micro_dynamics", "groove", "emotionalitaet"}
-    ),  # §2.55 sync (2026-04-26): vocal enhancement Stage 6 micro-compression → crest-factor + RMS periodicity false P3 regressions
+        {
+            "natuerlichkeit",
+            "timbre_authentizitaet",
+            "micro_dynamics",
+            "groove",
+            "emotionalitaet",
+            # §V32-Analogie Sibilanz (§2.55-Sync v9.13): identischer Mechanismus wie phase_43.
+            # Sibilant-HF inflationiert brillanz + transparenz → nach De-Essing false P4/P5
+            # CIG-Drift-Rollback (Reference-Paradox §2.44).
+            "brillanz",
+            "transparenz",
+        }
+    ),  # §2.55 sync (2026-04-26): vocal enhancement Stage 6 micro-compression → crest-factor + RMS periodicity false P3 regressions + brillanz/transparenz §V32-Analogie Sibilanz v9.13
     # Harmonic exciter: adds synthetic harmonics → spectral shape diverges from pre-exciter reference.
     "phase_21": frozenset({"timbre_authentizitaet"}),
     # Presence / air band EQ: HF shelving shifts spectral centroid and MFCC.
@@ -428,8 +439,19 @@ _PHASE_SPECIFIC_DRIFT_EXCLUSIONS: dict[str, frozenset[str]] = {
     # MP-SENet vocal enhancement: spectral shape modified for vocal intelligibility.
     # artikulation: phone-level onset sharpening changes articulation metric vs. degraded reference.
     "phase_43": frozenset(
-        {"artikulation", "timbre_authentizitaet", "emotionalitaet"}
-    ),  # §2.55 sync (2026-04-26): de-esser 4-8 kHz sibilant attenuation → local crest-factor drop at fricative peaks → false P3 emotionalitaet regression
+        {
+            "artikulation",
+            "timbre_authentizitaet",
+            "emotionalitaet",
+            # §V32-Analogie Sibilanz (§2.55-Sync v9.13): Sibilant-Energie (4–8 kHz)
+            # inflationiert brillanz (HF-Crest-Proxy) und transparenz (HF-Rolloff-Proxy)
+            # auf Kassetten-/Vinyl-Vokal-Material. Nach De-Essing sinken beide auf
+            # physikalisch reale Trägerwerte → false P4/P5 CIG-Drift-Rollback
+            # (Reference-Paradox §2.44, identisch phase_29/transparenz V32).
+            "brillanz",
+            "transparenz",
+        }
+    ),  # §2.55 sync (2026-04-26): de-esser 4-8 kHz sibilant attenuation → local crest-factor drop at fricative peaks → false P3 emotionalitaet regression + brillanz/transparenz §V32-Analogie Sibilanz v9.13
     # Stereo enhancement / Haas effect: stereo imaging changes spectral balance per-channel.
     "phase_44": frozenset({"timbre_authentizitaet"}),
     # Mono compatibility / mid enhancement: M/S recombination shifts spectral shape.

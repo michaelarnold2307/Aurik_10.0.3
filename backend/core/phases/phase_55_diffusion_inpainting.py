@@ -859,7 +859,8 @@ def _process_channel(
                 if _p55_gs < _pz55_e and _p55_ge > _pz55_s:
                     _p55_vfa_boundary = True
                     logger.debug(
-                        "§V38 phase_55: Gap [%.3f\u2013%.3f s] in VFA-Schutzzone [%.3f\u2013%.3f s, cap=%.2f] \u2192 Boundary-Fill",
+                        "§V38 phase_55: Gap [%.3f\u2013%.3f s] in VFA-Schutzzone"
+                        " [%.3f\u2013%.3f s, cap=%.2f] \u2192 Boundary-Fill",
                         _p55_gs,
                         _p55_ge,
                         _pz55_s,

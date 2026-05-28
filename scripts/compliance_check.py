@@ -56,6 +56,8 @@ EXCLUDE_DIRS = {
 
 @dataclass
 class Rule:
+    """Compliance-Regel (VERBOTEN-Eintrag) mit Regex-Pattern und Schwere."""
+
     id: str
     description: str
     # Regex-Pattern (compiled), bei Match = Verletzung
@@ -165,13 +167,16 @@ RULES: list[Rule] = [
     Rule(
         id="R13",
         description="RMS/Peak-Normalisierung verboten — LUFS ITU-R BS.1770-5 verwenden",
-        pattern=re.compile(r"normalize_rms\s*\(|normalize_peak\s*\(|rms_normalize\s*\(" r"|peak_normalize\s*\("),
+        pattern=re.compile(r"normalize_rms\s*\(|normalize_peak\s*\(|rms_normalize\s*\(|peak_normalize\s*\("),
         severity="warning",
     ),
     # R15 — MediumClassifier.classify_medium() (statt MediumDetector.detect())
     Rule(
         id="R15",
-        description="MediumClassifier.classify_medium() verboten — MediumDetector.detect(audio, sr, file_ext=...) verwenden (§6.7)",
+        description=(
+            "MediumClassifier.classify_medium() verboten — "
+            "MediumDetector.detect(audio, sr, file_ext=...) verwenden (§6.7)"
+        ),
         pattern=re.compile(r"\bMediumClassifier\(\)|\bmedium_classifier\s*\.\s*classify_medium\s*\("),
         allow_in=["backend/core/medium_classifier.py"],  # Implementierungs-Datei ausgeschlossen
         severity="error",
@@ -182,7 +187,10 @@ RULES: list[Rule] = [
     # verwendet 30–40. Schwelle auf 10 gesenkt um beide Anwendungsfälle zu erlauben.
     Rule(
         id="R16",
-        description="LPC-Ordnung < 10 verboten — für Breitband-LPC (0–24 kHz) Ord. 30–40 verwenden; Schmalband-Formant-Analyse (ITU-T P.501) min. 12",
+        description=(
+            "LPC-Ordnung < 10 verboten — für Breitband-LPC (0–24 kHz) Ord. 30–40 verwenden; "
+            "Schmalband-Formant-Analyse (ITU-T P.501) min. 12"
+        ),
         pattern=re.compile(r"\blpc_order\s*=\s*[1-9]\b|order\s*=\s*[1-9]\b.*lpc"),
         severity="error",
     ),
@@ -228,6 +236,8 @@ RULES: list[Rule] = [
 
 @dataclass
 class Violation:
+    """Einzelner Compliance-Verstoß mit Datei, Zeilennummer und Regelreferenz."""
+
     rule_id: str
     severity: str
     file: str
@@ -242,7 +252,7 @@ def _get_string_literal_lines(source: str) -> set[int]:
     string_lines: set[int] = set()
     try:
         tokens = tokenize.generate_tokens(_io.StringIO(source).readline)
-        for tok_type, tok_string, tok_start, tok_end, _ in tokens:
+        for tok_type, _, tok_start, tok_end, _tok_line in tokens:
             if tok_type == tokenize.STRING:
                 for lineno in range(tok_start[0], tok_end[0] + 1):
                     string_lines.add(lineno)
@@ -265,11 +275,13 @@ def _is_in_comment_or_string(line: str, match_start: int) -> bool:
 
 
 def _should_skip_file(path: Path, allow_in: list[str]) -> bool:
+    """Gibt True zurück, wenn der Pfad in der Ausnahmeliste (allow_in) enthalten ist."""
     path_str = path.as_posix()
     return any(allowed in path_str for allowed in allow_in)
 
 
 def scan_file(path: Path, rules: list[Rule], check_fstrings: bool = True) -> list[Violation]:
+    """Scannt eine einzelne Python-Datei auf VERBOTEN-Regelverstöße und gibt alle Violations zurück."""
     violations: list[Violation] = []
     try:
         content = path.read_text(encoding="utf-8", errors="replace")
@@ -321,6 +333,7 @@ def scan_file(path: Path, rules: list[Rule], check_fstrings: bool = True) -> lis
 
 
 def collect_python_files(roots: list[Path]) -> list[Path]:
+    """Sammelt alle Python-Dateien in den Wurzelverzeichnissen (ohne EXCLUDE_DIRS)."""
     files: list[Path] = []
     for root in roots:
         if not root.exists():
@@ -349,6 +362,7 @@ BOLD = "\033[1m"
 
 
 def report(violations: list[Violation], show_warnings: bool = True) -> int:
+    """Gibt Verstöße farbig aus und gibt den Exit-Code zurück (0 = clean, 1 = Errors)."""
     errors = [v for v in violations if v.severity == "error"]
     warnings = [v for v in violations if v.severity == "warning"]
 
@@ -389,6 +403,7 @@ def report(violations: list[Violation], show_warnings: bool = True) -> int:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
+    """Einstiegspunkt: Parst Argumente, scannt Quelldateien und gibt den Exit-Code zurück."""
     parser = argparse.ArgumentParser(description="Aurik 9 Compliance-Check (VERBOTEN-Regeln)")
     parser.add_argument(
         "paths",

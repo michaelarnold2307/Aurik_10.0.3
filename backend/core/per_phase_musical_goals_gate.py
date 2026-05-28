@@ -730,7 +730,14 @@ PHASE_GOAL_EXCLUSIONS: dict[str, set[str]] = {
         "timbre_authentizitaet",
         "artikulation",
         "emotionalitaet",
-    },  # De-esser: 4-8 kHz sibilant attenuation → artikulation (fricative transients attenuated) + timbre (centroid-CV + MFCC) + emotionalitaet (crest-factor drop) false regressions
+        # §V32-Analogie Sibilanz (§2.55-Sync v9.13): Sibilant-Energie (4–8 kHz) inflationiert
+        # den HF-Crest-Proxy (brillanz) und HF-Rolloff-Proxy (transparenz) auf Kassetten-/
+        # Vinyl-Vokal-Material. Nach De-Essing sinken beide auf reale Trägerwerte →
+        # false P4/P5 Regression (Reference-Paradox §2.44). Identischer Mechanismus
+        # wie phase_29/transparenz (V32). Bestätigt: PMGG best_effort bei strength<0.15.
+        "brillanz",
+        "transparenz",
+    },  # De-esser: 4-8 kHz sibilant attenuation → artikulation (fricative transients attenuated) + timbre (centroid-CV + MFCC) + emotionalitaet (crest-factor drop) + brillanz/transparenz (§V32-Analogie Sibilanz v9.13) false regressions
     # Guitar enhancement: spectral shaping for guitar timbre (distortion, presence).
     # timbre_authentizitaet: guitar-specific spectral shaping intentionally changes
     # the MFCC-Pearson + centroid-CV profile → false P2 vs. pre-enhancement.
@@ -946,7 +953,12 @@ PHASE_GOAL_EXCLUSIONS: dict[str, set[str]] = {
         "micro_dynamics",
         "groove",
         "emotionalitaet",
-    },  # Vocal enhancement: Stage 6 micro-compression shifts crest-factor + Stage 2 breath-gating changes inter-beat RMS periodicity → false P3 regressions (same mechanisms as phase_17/phase_18)
+        # §V32-Analogie Sibilanz (§2.55-Sync v9.13): identischer Mechanismus wie phase_43.
+        # Sibilant-HF (4–8 kHz) inflationiert brillanz + transparenz auf Kassetten-/
+        # Vinyl-Vokal-Material → nach De-Essing false P4/P5 Regression (Reference-Paradox §2.44).
+        "brillanz",
+        "transparenz",
+    },  # Vocal enhancement: Stage 6 micro-compression shifts crest-factor + Stage 2 breath-gating changes inter-beat RMS periodicity → false P3 regressions (same mechanisms as phase_17/phase_18) + brillanz/transparenz (§V32-Analogie Sibilanz v9.13)
     # BSRoFormer vocal stem separation + vocal enhancement with micro-compression
     # (syllable-level, ratio 1.8–2.5) + envelope shaping + FormantSystem enhancement.
     # Mechanistically similar to phase_19 (compression/breathing) + phase_23 (synthesis).

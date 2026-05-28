@@ -175,7 +175,8 @@ class DefectType(Enum):
     # --- v9.12.9: 7 neue DefectTypes — Carrier-Ursachen-Lücken geschlossen (54 gesamt) ---
     # Nahbesprechungseffekt (Richtmikrofon ≤30 cm): LF +6–12 dB ≤250 Hz; Olson (1948) → phase_04.
     PROXIMITY_EFFECT_EXCESS = "proximity_effect_excess"
-    # Stehwellen-Raumresonanz 40–200 Hz ≠ diffuser Hall; Salter et al. (2003) → phase_04 (Notch-Primary) + phase_16 + phase_05 (Tertiär).
+    # Stehwellen-Raumresonanz 40–200 Hz ≠ diffuser Hall; Salter et al. (2003)
+    # → phase_04 (Notch-Primary) + phase_16 + phase_05 (Tertiär).
     # VERBOTEN: phase_05 allein als Primary — schmalbandige Resonanzen brauchen parametrischen Notch-EQ (§4.11, V31).
     ROOM_MODE_RESONANCE = "room_mode_resonance"
     # Dolby/dbx NR Pumpen/Atmen (korrekt dekodiert); Dolby (1967) → phase_54 Envelope-Re-Smoothing + phase_08.

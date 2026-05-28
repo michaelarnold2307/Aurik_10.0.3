@@ -572,8 +572,8 @@ class MidSideProcessing(PhaseInterface):
         # §V26 Onset-Schutz: M/S-Dynamik darf Transient-Frames nicht mehr als 1.5 dB dämpfen.
         # Verhindert transient_energie-Verlust durch M/S-Kompression an Onset-Positionen.
         try:
-            from backend.core.dsp.onset_guard import (
-                apply_onset_protection_mask as _opm34,  # pylint: disable=import-outside-toplevel
+            from backend.core.dsp.onset_guard import (  # pylint: disable=import-outside-toplevel
+                apply_onset_protection_mask as _opm34,
             )
 
             audio_processed = _opm34(audio, audio_processed, None, max_delta_db=1.5)

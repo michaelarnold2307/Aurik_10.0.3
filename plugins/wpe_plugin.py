@@ -80,14 +80,12 @@ def _wpe_numpy(
     _y_del_mb = _y_del_bytes / (1024**2)
     if _y_del_mb > 800:  # Nur bei > 800 MB Y_del ist ein RAM-Check sinnvoll
         try:
-            import psutil as _psutil_wpe
+            import psutil as _psutil_wpe  # pylint: disable=import-outside-toplevel
 
             _avail_mb = _psutil_wpe.virtual_memory().available / (1024**2)
             _needed_mb = _y_del_mb * 3.0 + 2048  # 3× Peak + 2 GB Overhead
             if _avail_mb < _needed_mb:
-                import logging as _log_wpe
-
-                _log_wpe.getLogger(__name__).warning(
+                logger.warning(
                     "WPE §OOM-Guard: Y_del=%.0f MB, Einsum-Peak=%.0f MB total, "
                     "nur %.0f MB frei — WPE übersprungen, OMLSA-Fallback aktiv.",
                     _y_del_mb,
@@ -144,7 +142,7 @@ def _wpe_stft(
 
     strength: 0.0 = no-op, 1.0 = volle WPE-Subtraktion (lineares Mischen).
     """
-    from scipy.signal import istft, stft
+    from scipy.signal import istft, stft  # pylint: disable=import-outside-toplevel
 
     # Ensure 1-D: if a 2-D array slips through, len() returns the channel count
     # (e.g. 2) rather than the sample count, making _sig_len falsely tiny and
@@ -170,7 +168,7 @@ def _wpe_stft(
     return out[: len(mono)]
 
 
-def _wpe_nara(mono: np.ndarray, sr: int) -> np.ndarray | None:
+def _wpe_nara(mono: np.ndarray, _sr: int) -> np.ndarray | None:
     """nara_wpe-Bibliothek als Tier-1 (falls installiert).
 
     Timeout-Guard: nara_wpe.wpe() kann bei fast-singulaeren Kovarianzmatrizen
@@ -195,9 +193,8 @@ def _wpe_nara(mono: np.ndarray, sr: int) -> np.ndarray | None:
 
     def _run() -> None:
         try:
-            from nara_wpe.utils import istft as nwpe_istft  # type: ignore[import-untyped]
-            from nara_wpe.utils import stft as nwpe_stft
-            from nara_wpe.wpe import wpe  # type: ignore[import-untyped]
+            from nara_wpe.utils import istft as nwpe_istft, stft as nwpe_stft  # type: ignore[import-untyped]  # pylint: disable=import-outside-toplevel  # noqa: I001
+            from nara_wpe.wpe import wpe  # type: ignore[import-untyped]  # pylint: disable=import-outside-toplevel
 
             Y = nwpe_stft(mono, size=_N_FFT, shift=_HOP)  # [T, K]
             Y_e = wpe(Y.T[..., np.newaxis])  # [K, T, 1]
@@ -226,8 +223,8 @@ def _omlsa_fallback(
     strength: float = 0.7,
 ) -> np.ndarray:
     """OMLSA-naher Wiener-Filter als absoluter Letzfall (nur Rauschreduktion)."""
-    from scipy.ndimage import uniform_filter
-    from scipy.signal import istft, stft
+    from scipy.ndimage import uniform_filter  # pylint: disable=import-outside-toplevel
+    from scipy.signal import istft, stft  # pylint: disable=import-outside-toplevel
 
     # Guard: 2-D array → len() gives channel count, not sample count.
     if mono.ndim != 1:
@@ -329,7 +326,7 @@ class WpePlugin:
 
 def get_wpe_plugin() -> WpePlugin:
     """Thread-sicherer Singleton (Double-Checked Locking)."""
-    global _inst
+    global _inst  # pylint: disable=global-statement
     if _inst is None:
         with _lock:
             if _inst is None:

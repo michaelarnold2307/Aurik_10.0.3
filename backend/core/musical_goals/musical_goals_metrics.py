@@ -1465,9 +1465,7 @@ class _VATEmotionEstimator:
                 "tension": float(np.clip(tension, 0.0, 1.0)),
             }
         except Exception as exc:
-            import logging as _log  # pylint: disable=import-outside-toplevel
-
-            _log.getLogger(__name__).debug("VAT-Schätzung fehlgeschlagen (non-critical): %s", exc)
+            logger.debug("VAT-Schätzung fehlgeschlagen (non-critical): %s", exc)
             return _neutral
 
     def _compute_valence(self, audio: np.ndarray, sr: int) -> float:

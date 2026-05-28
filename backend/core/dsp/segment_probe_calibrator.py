@@ -14,9 +14,9 @@ from __future__ import annotations
 import logging
 import math
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
-from collections.abc import Callable
 
 import numpy as np
 
@@ -267,9 +267,11 @@ def run_segment_probe(
 
     # _fast_goal_snapshot importieren (zirkulärer Import: lazy)
     try:
-        from backend.core.unified_restorer_v3 import UnifiedRestorerV3 as _UV3
+        from backend.core.unified_restorer_v3 import (
+            UnifiedRestorerV3 as _UV3,  # pylint: disable=import-outside-toplevel
+        )
 
-        _snapshot_fn = _UV3._fast_goal_snapshot
+        _snapshot_fn = _UV3._fast_goal_snapshot  # pylint: disable=protected-access
     except Exception as _imp_err:
         return SegmentProbeResult(
             confirmed_strength=oracle_strength,
