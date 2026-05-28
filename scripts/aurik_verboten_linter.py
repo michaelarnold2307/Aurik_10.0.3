@@ -138,6 +138,35 @@ RULES = {
         "phase_42_vocal_enhancement) als CAUSE_TO_PHASES-Eintrag f\u00fcr Restoration-Cause "
         "— CDR soll diese Phasen nie vorschlagen (\u00a70a Crossfire-Invariante)",
     ),
+    "V40": Rule(
+        "V40",
+        "NR-Phase ohne compute_nmr_score()-Aufruf (wenn FeedbackChain aktiv) — "
+        "recommended_nr_strength_delta fehlt → NR-Stärke nicht psychoakustisch justiert (§2.62+)",
+    ),
+    "V41": Rule(
+        "V41",
+        "Additive Phase ohne ForwardMaskingGuard (get_forward_masking_guard) bei panns_singing ≥ 0.25 — "
+        "NR-Stärke in post-transienten Fenstern wird nicht erhöht (§V41)",
+    ),
+    "V42": Rule(
+        "V42",
+        "NR-Phase (phase_03/phase_29) ohne check_roughness_regression() nach NR — "
+        "Zwicker-Roughness-Regression/Pumpen wird nicht korrigiert (§2.62)",
+    ),
+    "V43": Rule(
+        "V43",
+        "Formant-Guard mit uniformem Literal-dB-Threshold (±1.0 / ±2.0) statt resolve_jnd_tolerance_db() — "
+        "uniforme Toleranz erlaubt hörbare F3/F4-Verschiebungen (§V43)",
+    ),
+    "V44": Rule(
+        "V44",
+        "spatial_depth_score ohne compute_iacc() — nur M/S-Proxy statt IACC-basierter Raumtiefe (§V44)",
+    ),
+    "V45": Rule(
+        "V45",
+        "EmotionalitaetMetric.measure() ohne _VATEmotionEstimator-Blend — "
+        "Valence/Arousal/Tension-Schätzung fehlt (§V45 advisory 15%-Blend)",
+    ),
 }
 
 # V02 ist Warning-Level: Heuristik hat false-positive-Rate bei Analyse/Telemetrie-Kontext.
@@ -148,8 +177,14 @@ RULES = {
 # V16 ist ERROR-Level: structural_silence_zones=None bedeutet deaktivierter Stille-Schutz.
 # V31 ist WARNING-Level: room-mode mapping ohne notch-EQ ist gefährlich, aber bewusst konservativ.
 # V39 ist ERROR-Level: §0a-verbotene Phasen in CAUSE_TO_PHASES sind ein CDR-Architekturbruch.
+# V40 ist ERROR-Level: NR ohne NMR-Feedback verletzt §2.62+ psychoakustische Justierung.
+# V41 ist WARNING-Level: ForwardMasking-Guard fehlt — Stärkeerhöhung in maskierten Zonen fehlt.
+# V42 ist ERROR-Level: Roughness-Regression ohne Korrektur → hörbare Artefakte nach NR.
+# V43 ist ERROR-Level: Uniforme Formant-Toleranz statt JND → hörbare F3/F4-Verschiebungen.
+# V44 ist WARNING-Level: M/S-Proxy statt IACC — Raumtiefe ungenau gemessen.
+# V45 ist WARNING-Level: VAT-Blend fehlt — Emotionalitätsmessung ohne Valence/Arousal/Tension.
 # Alle anderen Regeln sind ERROR-Level (blockieren CI).
-WARNING_RULES: frozenset[str] = frozenset({"V02", "V11", "V31"})
+WARNING_RULES: frozenset[str] = frozenset({"V02", "V11", "V31", "V41", "V44", "V45"})
 ERROR_RULES: frozenset[str] = frozenset(RULES) - WARNING_RULES
 
 
@@ -1194,6 +1229,191 @@ class _V16SilenceZonesNoneChecker(ast.NodeVisitor):
 
 
 # ---------------------------------------------------------------------------
+# V40–V45: Psychoakustische Guard-Presence-Checks
+# ---------------------------------------------------------------------------
+
+
+def _check_v40_nmr_feedback(filepath: Path) -> list[Violation]:
+    """V40: UV3 (_profiled_phase_call) muss compute_nmr_score als zentralen NR-Hook bereitstellen.
+
+    Kanonische Location ist unified_restorer_v3.py (Post/Pre-Phase-Hook in _profiled_phase_call).
+    Individuelle NR-Phase-Dateien werden NICHT geprüft — UV3-zentraler Guard reicht.
+    """
+    if filepath.stem != "unified_restorer_v3":
+        return []
+    try:
+        source = filepath.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return []
+    if "compute_nmr_score" not in source:
+        return [
+            Violation(
+                filepath,
+                1,
+                0,
+                "V40",
+                "[V40] unified_restorer_v3.py: compute_nmr_score() fehlt in _profiled_phase_call — "
+                "NR-Stärke nicht psychoakustisch justiert (§2.62+). "
+                "Pflicht: from backend.core.dsp.nmr_feedback import compute_nmr_score",
+                "",
+            )
+        ]
+    return []
+
+
+def _check_v41_forward_masking(filepath: Path) -> list[Violation]:
+    """V41: UV3 muss get_forward_masking_guard für additive Phasen bereitstellen."""
+    if filepath.stem != "unified_restorer_v3":
+        return []
+    try:
+        source = filepath.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return []
+    if "get_forward_masking_guard" not in source:
+        return [
+            Violation(
+                filepath,
+                1,
+                0,
+                "V41",
+                "[V41] unified_restorer_v3.py: get_forward_masking_guard fehlt — "
+                "ForwardMaskingGuard für additive Phasen bei panns_singing ≥ 0.25 fehlt (§V41).",
+                "",
+            )
+        ]
+    return []
+
+
+def _check_v42_roughness(filepath: Path) -> list[Violation]:
+    """V42: UV3 (_profiled_phase_call) muss check_roughness_regression als zentralen Post-Phase-Hook bereitstellen.
+
+    Kanonische Location ist unified_restorer_v3.py (Post-Phase-Hook nach ZwickerGuard).
+    Individuelle NR-Phase-Dateien werden NICHT geprüft — UV3-zentraler Guard reicht.
+    """
+    if filepath.stem != "unified_restorer_v3":
+        return []
+    try:
+        source = filepath.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return []
+    if "check_roughness_regression" not in source:
+        return [
+            Violation(
+                filepath,
+                1,
+                0,
+                "V42",
+                "[V42] unified_restorer_v3.py: check_roughness_regression() fehlt nach NR-Phasen — "
+                "Zwicker-Roughness-Regression/Pumpen wird nicht korrigiert (§2.62). "
+                "Pflicht: from backend.core.dsp.zwicker_metrics import check_roughness_regression",
+                "",
+            )
+        ]
+    return []
+
+
+def _check_v43_jnd_tolerance(filepath: Path) -> list[Violation]:
+    """V43: Formant-Guard-Code soll resolve_jnd_tolerance_db() verwenden, nicht Literal 1.0/2.0 dB."""
+    stem = filepath.stem
+    # Prüfung nur in Phasen die Formant-Checks durchführen und in UV3
+    _FORMANT_STEMS_PREFIX = ("phase_03", "phase_07", "phase_20", "phase_29", "phase_42", "phase_49")
+    _UV3 = "unified_restorer_v3"
+    if not (any(stem.startswith(p) for p in _FORMANT_STEMS_PREFIX) or stem == _UV3):
+        return []
+    try:
+        source = filepath.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return []
+    lines = source.splitlines()
+    violations: list[Violation] = []
+    for i, line in enumerate(lines, start=1):
+        # Erkenne: Formant-Guard-Kommentar oder F1/F2/F3 Variablennamen + hartkodiertes Limit
+        # Muster: `formant` oder `F1/F2/F3/F4` + Literal `1.0` oder `2.0` als dB-Grenzwert
+        # OHNE resolve_jnd_tolerance_db in derselben Zeile
+        stripped = line.lower()
+        if (
+            ("formant" in stripped or " f1" in stripped or " f2" in stripped or " f3" in stripped)
+            and "resolve_jnd_tolerance_db" not in stripped
+            and ("1.0" in line or "2.0" in line)
+            and ">=" in line
+            and "db" in stripped
+            and "import" not in stripped
+            and "#" not in line[: line.find("1.0") if "1.0" in line else len(line)]
+        ):
+            violations.append(
+                Violation(
+                    filepath,
+                    i,
+                    0,
+                    "V43",
+                    "[V43] Formant-Limit als Literal-dB (1.0/2.0) statt resolve_jnd_tolerance_db(formant_hz) — "
+                    "uniforme Toleranz erlaubt hörbare F3/F4-Verschiebungen (§V43)",
+                    line.rstrip(),
+                )
+            )
+    return violations
+
+
+def _check_v44_iacc(filepath: Path) -> list[Violation]:
+    """V44: spatial_depth_score-Zuweisung ohne compute_iacc in derselben Funktion."""
+    stem = filepath.stem
+    _RELEVANT = ("unified_restorer_v3", "stereo_guard", "spatial_depth")
+    if not any(stem == r or stem.startswith(r) for r in _RELEVANT):
+        return []
+    try:
+        source = filepath.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return []
+    if "spatial_depth_score" not in source:
+        return []
+    if "compute_iacc" in source:
+        return []  # Guard vorhanden
+    lines = source.splitlines()
+    violations: list[Violation] = []
+    for i, line in enumerate(lines, start=1):
+        if "spatial_depth_score" in line and "=" in line and "import" not in line and "#" not in line.lstrip()[:1]:
+            violations.append(
+                Violation(
+                    filepath,
+                    i,
+                    0,
+                    "V44",
+                    "[V44] spatial_depth_score ohne compute_iacc() — nur M/S-Proxy statt IACC-basierter Raumtiefe. "
+                    "Pflicht: from backend.core.dsp.stereo_guard import compute_iacc (§V44)",
+                    line.rstrip(),
+                )
+            )
+    return violations
+
+
+def _check_v45_vat_blend(filepath: Path) -> list[Violation]:
+    """V45: EmotionalitaetMetric in musical_goals_metrics.py muss _VATEmotionEstimator enthalten."""
+    stem = filepath.stem
+    if stem != "musical_goals_metrics":
+        return []
+    try:
+        source = filepath.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return []
+    if "EmotionalitaetMetric" not in source:
+        return []
+    if "_VATEmotionEstimator" in source:
+        return []
+    return [
+        Violation(
+            filepath,
+            1,
+            0,
+            "V45",
+            "[V45] musical_goals_metrics.py: EmotionalitaetMetric ohne _VATEmotionEstimator — "
+            "Valence/Arousal/Tension-Blend (15%, advisory) fehlt in measure() (§V45). "
+            "Pflicht: _VATEmotionEstimator().estimate(audio, sr)",
+            "",
+        )
+    ]
+
+
+# ---------------------------------------------------------------------------
 # Datei scannen
 # ---------------------------------------------------------------------------
 
@@ -1230,6 +1450,12 @@ def scan_file(filepath: Path) -> list[Violation]:
         + _check_transparenz_exclusion_for_subtractive_noise_phases(filepath)  # V32
         + _check_phase_materialtype_dict_completeness(filepath)  # V33
         + _check_section0a_crossfire_cause_to_phases(filepath)  # V39
+        + _check_v40_nmr_feedback(filepath)  # V40
+        + _check_v41_forward_masking(filepath)  # V41
+        + _check_v42_roughness(filepath)  # V42
+        + _check_v43_jnd_tolerance(filepath)  # V43
+        + _check_v44_iacc(filepath)  # V44
+        + _check_v45_vat_blend(filepath)  # V45
     )
     return checker.violations + v16_checker.violations + module_violations
 

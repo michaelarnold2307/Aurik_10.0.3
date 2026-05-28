@@ -24427,6 +24427,81 @@ class UnifiedRestorerV3:
                     _probe_exc,
                 )
 
+        # §V40 [RELEASE_MUST] NMR-Feedback vor subtraktiven NR-Phasen (wenn FeedbackChain aktiv).
+        # recommended_nr_strength_delta wird auf aktuelle Stärke addiert (non-blocking).
+        # result.ok=False → §2.45 Minimal-Intervention WARNING.
+        _NR_PHASES_NMR: frozenset[str] = frozenset(
+            {
+                "phase_03_denoise",
+                "phase_18_noise_gate",
+                "phase_29_tape_hiss_reduction",
+            }
+        )
+        if phase_metadata.phase_id in _NR_PHASES_NMR:
+            try:
+                from backend.core.dsp.nmr_feedback import (
+                    compute_nmr_score as _compute_nmr,  # pylint: disable=import-outside-toplevel
+                )
+
+                _sr_nmr = int(kwargs.get("sample_rate", 48000) or 48000)
+                _nmr_result = _compute_nmr(audio, _sr_nmr)
+                if not _nmr_result.ok:
+                    logger.info(
+                        "§V40 NMR low %s: nmr_ratio=%.3f delta=%.3f → §2.45 Minimal-Intervention",
+                        phase_metadata.phase_id,
+                        _nmr_result.nmr_ratio,
+                        _nmr_result.recommended_nr_strength_delta,
+                    )
+                _nmr_delta = float(_nmr_result.recommended_nr_strength_delta)
+                if abs(_nmr_delta) > 1e-4:
+                    _cur_s_nmr = float(kwargs.get("strength", 0.5) or 0.5)
+                    kwargs["strength"] = float(np.clip(_cur_s_nmr + _nmr_delta, 0.05, 1.0))
+                    logger.debug(
+                        "§V40 NMR strength adj %s: %.3f → %.3f (delta=%.4f)",
+                        phase_metadata.phase_id,
+                        _cur_s_nmr,
+                        float(kwargs["strength"]),
+                        _nmr_delta,
+                    )
+            except Exception as _nmr_pre_exc:
+                logger.debug("§V40 NMR pre-phase non-blocking: %s", _nmr_pre_exc)
+
+        # §V41 [RELEASE_MUST] ForwardMaskingGuard für additive Phasen bei panns_singing ≥ 0.25.
+        # Berechnet Vorwärtsmaskierungs-Zonen und übergibt sie als kwargs an die Phase.
+        # Phasen die forward_masking_zones nicht unterstützen, ignorieren den kwarg.
+        _ADDITIVE_PHASES_FM: frozenset[str] = frozenset(
+            {
+                "phase_06_bandwidth_extension",
+                "phase_07_harmonic_restoration",
+                "phase_23_spectral_repair",
+                "phase_26_dynamic_range_restoration",
+                "phase_37_dynamic_enhancement",
+                "phase_38_stereo_widening",
+                "phase_39_brilliance_enhancer",
+            }
+        )
+        _panns_for_fm = float(
+            kwargs.get("panns_singing") or getattr(self, "_restoration_context", {}).get("panns_singing", 0.0) or 0.0
+        )
+        if phase_metadata.phase_id in _ADDITIVE_PHASES_FM and _panns_for_fm >= 0.25:
+            try:
+                from backend.core.dsp.temporal_masking import (
+                    get_forward_masking_guard as _get_fm_guard,  # pylint: disable=import-outside-toplevel
+                )
+
+                _sr_fm = int(kwargs.get("sample_rate", 48000) or 48000)
+                _fm_zones = _get_fm_guard().compute_zones(audio, _sr_fm)
+                if _fm_zones:
+                    kwargs.setdefault("forward_masking_zones", _fm_zones)
+                    logger.debug(
+                        "§V41 ForwardMaskingGuard %s: %d Zonen (panns=%.2f)",
+                        phase_metadata.phase_id,
+                        len(_fm_zones),
+                        _panns_for_fm,
+                    )
+            except Exception as _fm_exc:
+                logger.debug("§V41 ForwardMaskingGuard pre-phase non-blocking: %s", _fm_exc)
+
         try:
             result = phase.process(audio, **kwargs)
         finally:
@@ -24729,6 +24804,51 @@ class UnifiedRestorerV3:
                         result.metadata["zwicker_rescue_wet"] = round(float(_rescue_wet), 3)
             except Exception as _zw_exc:
                 logger.debug("§4.1b ZwickerGuard non-blocking error %s: %s", phase_metadata.phase_id, _zw_exc)
+
+        # §V42 [RELEASE_MUST] Roughness-Regression nach NR-Phasen (Zwicker asper-Metrik).
+        # roughness_regression=True → Dry/Wet-Blend ×0.90; pumping_detected=True → ×0.80.
+        # Non-blocking WARNING; kein Veto. (§2.62)
+        _ROUGHNESS_CHECK_PHASES: frozenset[str] = frozenset(
+            {
+                "phase_03_denoise",
+                "phase_29_tape_hiss_reduction",
+            }
+        )
+        if (
+            phase_metadata.phase_id in _ROUGHNESS_CHECK_PHASES
+            and hasattr(result, "audio")
+            and isinstance(result.audio, np.ndarray)
+            and result.audio.shape == audio.shape
+        ):
+            try:
+                from backend.core.dsp.zwicker_metrics import (
+                    check_roughness_regression as _check_roughness,  # pylint: disable=import-outside-toplevel
+                )
+
+                _sr_rough = int(kwargs.get("sample_rate", 48000) or 48000)
+                _rough_result = _check_roughness(audio, result.audio, _sr_rough)
+                if _rough_result.roughness_regression or _rough_result.pumping_detected:
+                    _rough_blend = 0.90 if _rough_result.roughness_regression else 1.0
+                    if _rough_result.pumping_detected:
+                        _rough_blend = min(_rough_blend, 0.80)
+                    result.audio = np.clip(
+                        (_rough_blend * result.audio + (1.0 - _rough_blend) * audio).astype(np.float32),
+                        -1.0,
+                        1.0,
+                    )
+                    logger.info(
+                        "§V42 RoughnessGuard %s: roughness_regression=%s pumping=%s → blend=%.2f",
+                        phase_metadata.phase_id,
+                        _rough_result.roughness_regression,
+                        _rough_result.pumping_detected,
+                        _rough_blend,
+                    )
+                    if hasattr(result, "metadata") and isinstance(result.metadata, dict):
+                        result.metadata["roughness_guard_blend"] = round(_rough_blend, 3)
+                        result.metadata["roughness_regression"] = _rough_result.roughness_regression
+                        result.metadata["pumping_detected"] = _rough_result.pumping_detected
+            except Exception as _rough_exc:
+                logger.debug("§V42 RoughnessGuard non-blocking: %s", _rough_exc)
 
         # §HNR [RELEASE_MUST]: apply_hnr_blend after NR phases on vocal material (UV3 hook)
         # phase_03_denoise already has its own internal HNR blend — skip to avoid double-blend.
