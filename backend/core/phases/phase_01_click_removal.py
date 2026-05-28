@@ -412,6 +412,31 @@ class ClickRemovalPhase(PhaseInterface):
         # §0j energy_bias: panns_singing für DFN-Vokal-Schutz
         _panns_singing = float(kwargs.get("panns_singing", kwargs.get("panns_singing_confidence", 0.0)))
 
+        # §V38 Per-Event-Strength-Oracle: VFA-Schutzzonen aufbauen (start_s, end_s, max_severity_cap).
+        _p01_protected_zones: list[tuple[float, float, float]] = []
+        _vfa_p01 = kwargs.get("vfa_result") or {}
+        if isinstance(_vfa_p01, dict):
+            for _z in _vfa_p01.get("vibrato_zones", []):
+                try:
+                    _p01_protected_zones.append((float(_z[0]), float(_z[1]), 0.20))
+                except (TypeError, IndexError):
+                    pass
+            for _z in _vfa_p01.get("frisson_zones", []):
+                try:
+                    _p01_protected_zones.append((float(_z[0]), float(_z[1]), 0.30))
+                except (TypeError, IndexError):
+                    pass
+            for _z in _vfa_p01.get("whisper_zones", []):
+                try:
+                    _p01_protected_zones.append((float(_z[0]), float(_z[1]), 0.25))
+                except (TypeError, IndexError):
+                    pass
+            for _z in _vfa_p01.get("passaggio_zones", []):
+                try:
+                    _p01_protected_zones.append((float(_z[0]), float(_z[1]), 0.35))
+                except (TypeError, IndexError):
+                    pass
+
         # Get material-specific thresholds
         thresholds = dict(self.MATERIAL_THRESHOLDS.get(material_type, self.MATERIAL_THRESHOLDS["unknown"]))
 
@@ -446,6 +471,7 @@ class ClickRemovalPhase(PhaseInterface):
                 silence_mask=silence_mask,
                 start_time=start_time,
                 panns_singing=_panns_singing,
+                protected_zones=_p01_protected_zones or None,
             )
             # Compute gain envelope from mono repair
             _eps_click = 1e-10
@@ -486,6 +512,7 @@ class ClickRemovalPhase(PhaseInterface):
                 silence_mask=silence_mask,
                 start_time=start_time,
                 panns_singing=_panns_singing,
+                protected_zones=_p01_protected_zones or None,
             )
             total_clicks = stats["total"]
             ml_repaired_count = stats.get("ml_repaired", 0)
@@ -601,6 +628,7 @@ class ClickRemovalPhase(PhaseInterface):
         progress_callback: Any = None,
         silence_mask: np.ndarray | None = None,
         start_time: float | None = None,
+        protected_zones: list[tuple[float, float, float]] | None = None,
     ) -> tuple[np.ndarray, dict[str, int]]:
         """
         Professional click removal with multi-scale detection and ML-Hybrid support.
@@ -644,6 +672,15 @@ class ClickRemovalPhase(PhaseInterface):
                 continue  # Skip musical transients
 
             severity = click.get("severity", 0.5)
+
+            # §V38 Schutzzonen-Cap: Click-Severity in VFA-Schutzzonen begrenzen → DSP statt ML.
+            if protected_zones:
+                _ck_s = click["start"] / sample_rate
+                _ck_e = (click["end"] + 1) / sample_rate
+                for _pz_s, _pz_e, _pz_cap in protected_zones:
+                    if _ck_s < _pz_e and _ck_e > _pz_s:
+                        severity = min(severity, _pz_cap)
+                        break
 
             if use_ml and severity > self.ML_SEVERITY_THRESHOLD:
                 severe_clicks.append(click)

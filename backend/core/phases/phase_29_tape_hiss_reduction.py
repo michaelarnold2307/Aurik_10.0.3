@@ -698,6 +698,32 @@ class TapeHissReductionPhase(PhaseInterface):
         except Exception as _p29_cap_exc:  # pylint: disable=broad-except
             logger.debug("Phase29 ACF-Pre-Cap (non-blocking): %s", _p29_cap_exc)
 
+        # §V40 NMR-Feedback: NR-Stärke adaptiv anpassen (FeedbackChain-aware).
+        try:
+            from backend.core.dsp.nmr_feedback import (
+                compute_nmr_score as _nmr_fn_29,  # pylint: disable=import-outside-toplevel
+            )
+
+            _nmr_result_29 = _nmr_fn_29(audio, sample_rate)
+            if not _nmr_result_29.ok:
+                logger.warning(
+                    "Phase29 §V40 NMR: nmr_above_masking → §2.45 Minimal-Intervention prüfen",
+                )
+            _effective_strength = float(
+                np.clip(
+                    _effective_strength + _nmr_result_29.recommended_nr_strength_delta,
+                    0.0,
+                    1.0,
+                )
+            )
+            logger.debug(
+                "Phase29 §V40 NMR: delta=%.3f → eff_str=%.3f",
+                _nmr_result_29.recommended_nr_strength_delta,
+                _effective_strength,
+            )
+        except Exception as _nmr_exc_29:  # pylint: disable=broad-except
+            logger.debug("Phase29 §V40 NMR non-blocking: %s", _nmr_exc_29)
+
         if _effective_strength <= 0.0:
             passthrough = np.nan_to_num(audio.copy(), nan=0.0, posinf=0.0, neginf=0.0)
             passthrough = np.clip(passthrough, -1.0, 1.0)

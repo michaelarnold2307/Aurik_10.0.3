@@ -353,6 +353,32 @@ class NoiseGate(PhaseInterface):
         _pmgg_strength = float(kwargs.get("strength", 1.0))
         _effective_strength = float(np.clip(_pmgg_strength * phase_locality_factor, 0.0, 1.0))
 
+        # §V40 NMR-Feedback: NR-Stärke adaptiv anpassen (FeedbackChain-aware).
+        try:
+            from backend.core.dsp.nmr_feedback import (
+                compute_nmr_score as _nmr_fn_18,  # pylint: disable=import-outside-toplevel
+            )
+
+            _nmr_result_18 = _nmr_fn_18(audio, sample_rate)
+            if not _nmr_result_18.ok:
+                logger.warning(
+                    "Phase18 §V40 NMR: nmr_above_masking → §2.45 Minimal-Intervention prüfen",
+                )
+            _effective_strength = float(
+                np.clip(
+                    _effective_strength + _nmr_result_18.recommended_nr_strength_delta,
+                    0.0,
+                    1.0,
+                )
+            )
+            logger.debug(
+                "Phase18 §V40 NMR: delta=%.3f → eff_str=%.3f",
+                _nmr_result_18.recommended_nr_strength_delta,
+                _effective_strength,
+            )
+        except Exception as _nmr_exc_18:  # pylint: disable=broad-except
+            logger.debug("Phase18 §V40 NMR non-blocking: %s", _nmr_exc_18)
+
         is_stereo = audio.ndim == 2
         config = dict(self.GATE_CONFIG.get(material, self.GATE_CONFIG[MaterialType.CD_DIGITAL]))
         config["reductions_db"] = [float(r * _effective_strength) for r in config["reductions_db"]]

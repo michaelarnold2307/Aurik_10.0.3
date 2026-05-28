@@ -526,6 +526,32 @@ class DenoisePhase(PhaseInterface):
         sample_rate = kwargs.get("sample_rate", 48000)
         assert sample_rate == 48000, f"SR muss 48000 Hz sein, erhalten: {sample_rate}"
 
+        # §V40 NMR-Feedback: NR-Stärke adaptiv anpassen (FeedbackChain-aware).
+        try:
+            from backend.core.dsp.nmr_feedback import (
+                compute_nmr_score as _nmr_fn_03,  # pylint: disable=import-outside-toplevel
+            )
+
+            _nmr_result_03 = _nmr_fn_03(audio, sample_rate)
+            if not _nmr_result_03.ok:
+                logger.warning(
+                    "Phase03 §V40 NMR: nmr_above_masking → §2.45 Minimal-Intervention prüfen",
+                )
+            effective_strength = float(
+                np.clip(
+                    effective_strength + _nmr_result_03.recommended_nr_strength_delta,
+                    0.0,
+                    1.0,
+                )
+            )
+            logger.debug(
+                "Phase03 §V40 NMR: delta=%.3f → eff_str=%.3f",
+                _nmr_result_03.recommended_nr_strength_delta,
+                effective_strength,
+            )
+        except Exception as _nmr_exc_03:  # pylint: disable=broad-except
+            logger.debug("Phase03 §V40 NMR non-blocking: %s", _nmr_exc_03)
+
         # §2.51 Layout-Normalisierung: phase_03 erwartet intern channels-first (2, N) oder mono (N,).
         # channels-last (N, 2) → channels-first (2, N) für die gesamte Phase; am Ende zurückkonvertieren.
         _p03_was_channels_last = False

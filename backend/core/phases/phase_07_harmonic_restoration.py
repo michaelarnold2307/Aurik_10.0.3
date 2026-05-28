@@ -454,6 +454,31 @@ class HarmonicRestorationPhase(PhaseInterface):
                 _effective_strength,
             )
 
+        # §V41 ForwardMaskingGuard: Stärke in post-transienten Masking-Fenstern erhöhen.
+        _panns_s_07 = float(kwargs.get("panns_singing", 0.0))
+        if _panns_s_07 >= 0.25 and _effective_strength > 0.0:
+            try:
+                from backend.core.dsp.temporal_masking import (
+                    get_forward_masking_guard as _fmg_fn_07,  # pylint: disable=import-outside-toplevel
+                )
+
+                _fmg_07 = _fmg_fn_07()
+                _fmz_07 = _fmg_07.compute_zones(audio, sample_rate)
+                if _fmz_07:
+                    _n_s_07 = audio.shape[-1] if audio.ndim > 1 else len(audio)
+                    _zone_samples_07 = sum(z.end_sample - z.start_sample for z in _fmz_07)
+                    _zone_frac_07 = float(np.clip(_zone_samples_07 / max(1, _n_s_07), 0.0, 1.0))
+                    _boost_07 = _zone_frac_07 * 0.15
+                    _effective_strength = float(np.clip(_effective_strength + _boost_07, 0.0, 1.0))
+                    logger.debug(
+                        "Phase07 §V41 ForwardMasking: zone_frac=%.2f boost=%.3f → eff_str=%.3f",
+                        _zone_frac_07,
+                        _boost_07,
+                        _effective_strength,
+                    )
+            except Exception as _fmg_exc_07:  # pylint: disable=broad-except
+                logger.debug("Phase07 §V41 ForwardMaskingGuard non-blocking: %s", _fmg_exc_07)
+
         if _effective_strength <= 0.0:
             passthrough = np.nan_to_num(audio.copy(), nan=0.0, posinf=0.0, neginf=0.0)
             passthrough = np.clip(passthrough, -1.0, 1.0)
