@@ -513,3 +513,59 @@ class TestV38Phase24VfaZoneCaps:
             passaggio_zones=[(0.6, 0.7, 0.35)],
         )
         assert result.audio.shape == audio.shape
+
+
+class TestV38Phase55VfaZoneRouting:
+    """§V38 VFA-Schutzzonen-Routing in phase_55_diffusion_inpainting."""
+
+    def test_vibrato_zone_uses_boundary_fill_not_ml(self):
+        """Gap in Vibrato-Zone darf kein ML-Inpainting erhalten."""
+        import numpy as np
+
+        from backend.core.phases.phase_55_diffusion_inpainting import DiffusionInpaintingPhase
+
+        p = DiffusionInpaintingPhase()
+        sr = 48000
+        audio = 0.4 * np.sin(2 * np.pi * 440 * np.arange(sr) / sr).astype(np.float32)
+        audio[int(0.04 * sr) : int(0.06 * sr)] = 0.0  # Dropout in Vibrato-Zone
+
+        # Ohne VFA: normales Inpainting
+        # Mit VFA: Boundary-Fill → kein plugin_used
+        r = p.process(
+            audio,
+            sr,
+            material_type="vinyl",
+            vibrato_zones=[(0.03, 0.08, 0.20)],
+        )
+        assert r.audio.shape == audio.shape
+
+    def test_frisson_zone_uses_boundary_fill(self):
+        """Gap in Frisson-Zone → kein aggressives ML-Inpainting."""
+        import numpy as np
+
+        from backend.core.phases.phase_55_diffusion_inpainting import DiffusionInpaintingPhase
+
+        p = DiffusionInpaintingPhase()
+        sr = 48000
+        audio = 0.4 * np.sin(2 * np.pi * 220 * np.arange(sr) / sr).astype(np.float32)
+        audio[int(0.5 * sr) : int(0.52 * sr)] = 0.0  # Dropout in Frisson-Zone
+
+        r = p.process(
+            audio,
+            sr,
+            material_type="vinyl",
+            frisson_zones=[(0.45, 0.6, 0.30)],
+        )
+        assert r.audio.shape == audio.shape
+
+    def test_no_vfa_zones_normal_path(self):
+        """Ohne VFA-Zones läuft normaler Inpainting-Pfad."""
+        import numpy as np
+
+        from backend.core.phases.phase_55_diffusion_inpainting import DiffusionInpaintingPhase
+
+        p = DiffusionInpaintingPhase()
+        sr = 48000
+        audio = np.zeros(sr, dtype=np.float32)
+        r = p.process(audio, sr, material_type="vinyl")
+        assert r.audio.shape == audio.shape

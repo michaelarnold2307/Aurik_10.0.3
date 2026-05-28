@@ -795,6 +795,7 @@ def _process_channel(
     wall_budget_s: float = _PHASE55_WALL_BUDGET_S,
     goal_weights: dict[str, float] | None = None,
     restorability_score: float = 65.0,
+    protected_zones: list[tuple[float, float, float]] | None = None,
 ) -> tuple[np.ndarray, dict]:
     """Inpainting für einen Mono-Kanal. Returns (repaired, stats)."""
     result = channel.copy()
@@ -847,6 +848,38 @@ def _process_channel(
             break
 
         gap_ms = (end - start) / sample_rate * 1000
+
+        # §V38 VFA-Schutzzonen: ML-Inpainting in Vibrato/Frisson/Flüster/Passaggio-Zonen
+        # → konservativer Boundary-Fill (ML-Synthese würde falschen Pitch-Verlauf erzeugen → VQI-Degradation)
+        _p55_vfa_boundary = False
+        if protected_zones:
+            _p55_gs = start / sample_rate
+            _p55_ge = end / sample_rate
+            for _pz55_s, _pz55_e, _pz55_cap in protected_zones:
+                if _p55_gs < _pz55_e and _p55_ge > _pz55_s:
+                    _p55_vfa_boundary = True
+                    logger.debug(
+                        "§V38 phase_55: Gap [%.3f\u2013%.3f s] in VFA-Schutzzone [%.3f\u2013%.3f s, cap=%.2f] \u2192 Boundary-Fill",
+                        _p55_gs,
+                        _p55_ge,
+                        _pz55_s,
+                        _pz55_e,
+                        _pz55_cap,
+                    )
+                    break
+        if _p55_vfa_boundary:
+            candidate = _conservative_boundary_fill(channel, start, end)
+            result[start:end] = np.clip(
+                np.nan_to_num(candidate[: end - start], nan=0.0, posinf=0.0, neginf=0.0),
+                -1.0,
+                1.0,
+            )
+            if bw_cap_hz is not None:
+                gap_segment = result[start:end]
+                result[start:end] = _apply_bw_cap(gap_segment, sample_rate, bw_cap_hz)
+            stats["total_gap_ms"] += gap_ms
+            stats["max_gap_ms"] = max(stats["max_gap_ms"], gap_ms)
+            continue
 
         # Long "gaps" are usually musical low-energy passages or detection drift,
         # not true transport dropouts. Full AR/diffusion on these regions can stall
@@ -1296,6 +1329,37 @@ class DiffusionInpaintingPhase(PhaseInterface):
             except Exception as _sil_exc_p55:
                 logger.debug("§silence-guarantee phase_55: non-blocking error: %s", _sil_exc_p55)
 
+        # §V38 VFA-Schutzzonen für _process_channel sammeln (§0p Vocal-Supremacy)
+        _p55_protected_zones: list[tuple[float, float, float]] = []
+        for _z in kwargs.get("vibrato_zones") or []:
+            try:
+                _p55_protected_zones.append((float(_z[0]), float(_z[1]), 0.20))  # §0p Vibrato
+            except Exception:
+                pass
+        for _z in kwargs.get("frisson_zones") or []:
+            try:
+                _fz_s = float(getattr(_z, "start_s", None) or _z[0])
+                _fz_e = float(getattr(_z, "end_s", None) or _z[1])
+                _p55_protected_zones.append((_fz_s, _fz_e, 0.30))  # Frisson sakrosankt
+            except Exception:
+                pass
+        for _z in kwargs.get("whisper_zones") or []:
+            try:
+                _p55_protected_zones.append((float(_z[0]), float(_z[1]), 0.25))  # Flüsterpassagen
+            except Exception:
+                pass
+        for _z in kwargs.get("passaggio_zones") or []:
+            try:
+                _p55_protected_zones.append((float(_z[0]), float(_z[1]), 0.35))  # Passaggio-Übergänge
+            except Exception:
+                pass
+        if _p55_protected_zones:
+            logger.debug(
+                "§V38 phase_55: %d VFA-Schutzzone(n) aktiv (Vibrato/Frisson/Flüster/Passaggio)",
+                len(_p55_protected_zones),
+            )
+        _p55_pz = _p55_protected_zones or None
+
         _n_repaired_skipped = 0
         _damage_guard_hits = 0
         _thrash_guard_active = False
@@ -1315,6 +1379,7 @@ class DiffusionInpaintingPhase(PhaseInterface):
                     wall_budget_s=wall_budget_s,
                     goal_weights=_goal_weights,
                     restorability_score=_restorability_score,
+                    protected_zones=_p55_pz,
                 )
             except Exception as _ch55_exc:
                 logger.warning("phase_55 mono channel processing failed, using passthrough candidate: %s", _ch55_exc)
@@ -1376,6 +1441,7 @@ class DiffusionInpaintingPhase(PhaseInterface):
                         wall_budget_s=wall_budget_s,
                         goal_weights=_goal_weights,
                         restorability_score=_restorability_score,
+                        protected_zones=_p55_pz,
                     )
                 except Exception as _ch55_exc:
                     logger.warning(

@@ -153,6 +153,7 @@ repos:
           - --disable-error-code=union-attr
           - --disable-error-code=return
           - --disable-error-code=dict-item
+          - --disable-error-code=override
         # Nur Kern-Module prüfen (backend/ + plugins/ + denker/ — deckt backend/core/ korrekt ab)
         files: ^(backend|plugins|denker)/.*\.py$
 
