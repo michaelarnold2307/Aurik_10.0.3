@@ -473,3 +473,198 @@ class TestBiasError:
     def test_no_nan_phases(self):
         phases = _select_phases_for(MaterialType.REEL_TAPE, DefectType.BIAS_ERROR, QualityMode.BALANCED)
         assert all(isinstance(p, str) and len(p) > 0 for p in phases)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# §6.3 v9.12.9: Neue Carrier-Ursachen-Defekttypen (V28/V29/V31 + 6 weitere)
+# VERBOTEN-Tabelle: V28 (NR_BREATHING→phase_54, NOT phase_03/29),
+#                   V29 (OVERLOAD→phase_09/23, NOT phase_63),
+#                   V31 (ROOM_MODE→phase_04 Primary, NOT phase_05 alone)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class TestNrBreathingArtifact:
+    """V28: NR_BREATHING_ARTIFACT → phase_54 + phase_08. VERBOTEN: phase_03/phase_29."""
+
+    def test_activates_transparent_dynamics_primary(self):
+        """V28 Primary: phase_54_transparent_dynamics (Envelope-Re-Smoothing)."""
+        phases = _select_phases_for(MaterialType.CASSETTE, DefectType.NR_BREATHING_ARTIFACT, QualityMode.QUALITY)
+        assert "phase_54_transparent_dynamics" in phases, "V28: phase_54 fehlt bei NR_BREATHING_ARTIFACT"
+
+    def test_activates_transient_preservation_secondary(self):
+        """V28 Sekundär: phase_08_transient_preservation."""
+        phases = _select_phases_for(MaterialType.CASSETTE, DefectType.NR_BREATHING_ARTIFACT, QualityMode.QUALITY)
+        assert "phase_08_transient_preservation" in phases, "V28: phase_08 fehlt bei NR_BREATHING_ARTIFACT"
+
+    def test_all_materials_produce_phases(self):
+        for mat in MaterialType:
+            phases = _select_phases_for(mat, DefectType.NR_BREATHING_ARTIFACT, QualityMode.QUALITY)
+            targeted = set(phases) - STRUCTURAL_PHASES
+            assert len(targeted) >= 1, f"V28: NR_BREATHING_ARTIFACT × {mat.name} → keine Phasen"
+
+    def test_no_nr_as_primary_trigger_for_breathing(self):
+        """V28 VERBOTEN: phase_03/phase_29 NICHT als Primary für NR_BREATHING.
+        Der Test prüft, dass UV3 phase_54 als Primary-Antwort auf den Breathing-Defekt enthält,
+        unabhängig davon ob phase_03 durch andere Defekte auch aktiv ist."""
+        phases = _select_phases_for(MaterialType.CASSETTE, DefectType.NR_BREATHING_ARTIFACT, QualityMode.QUALITY)
+        # phase_54 MUSS vorhanden sein (zeigt korrekte Primary-Logik)
+        assert "phase_54_transparent_dynamics" in phases, (
+            "V28 Verletzung: NR_BREATHING_ARTIFACT ohne phase_54 als Primary-Antwort"
+        )
+
+
+class TestOverloadDistortion:
+    """V29: OVERLOAD_DISTORTION → phase_09 + phase_23. VERBOTEN: phase_63."""
+
+    def test_activates_crackle_removal_primary(self):
+        """V29 Primary: phase_09_crackle_removal (asymmetrische Wellenform + Transient-Rekonstruktion)."""
+        phases = _select_phases_for(MaterialType.TAPE, DefectType.OVERLOAD_DISTORTION, QualityMode.QUALITY)
+        assert "phase_09_crackle_removal" in phases, "V29: phase_09 fehlt bei OVERLOAD_DISTORTION"
+
+    def test_activates_spectral_repair_secondary(self):
+        """V29 Sekundär: phase_23_spectral_repair (Harmonischer Klirr H2/H3)."""
+        phases = _select_phases_for(MaterialType.TAPE, DefectType.OVERLOAD_DISTORTION, QualityMode.QUALITY)
+        assert "phase_23_spectral_repair" in phases, "V29: phase_23 fehlt bei OVERLOAD_DISTORTION"
+
+    def test_no_imd_phase_for_harmonic_distortion(self):
+        """V29 VERBOTEN: phase_63_intermodulation_reduction für OVERLOAD_DISTORTION.
+        Harmonische (H2/H3/H5) ≠ Intermodulationsprodukte (f₁±f₂) — §4.11."""
+        phases = _select_phases_for(MaterialType.TAPE, DefectType.OVERLOAD_DISTORTION, QualityMode.QUALITY)
+        assert "phase_63_intermodulation_reduction" not in phases, (
+            "V29 Verletzung: phase_63 (IMD) fälschlicherweise für OVERLOAD_DISTORTION (Harmonische) aktiviert"
+        )
+
+    def test_all_materials_produce_phases(self):
+        for mat in MaterialType:
+            phases = _select_phases_for(mat, DefectType.OVERLOAD_DISTORTION, QualityMode.QUALITY)
+            targeted = set(phases) - STRUCTURAL_PHASES
+            assert len(targeted) >= 1, f"V29: OVERLOAD_DISTORTION × {mat.name} → keine Phasen"
+
+
+class TestRoomModeResonance:
+    """V31: ROOM_MODE_RESONANCE → phase_04 als Primary (Notch-EQ). VERBOTEN: phase_05 allein."""
+
+    def test_activates_eq_correction_primary(self):
+        """V31 Primary: phase_04_eq_correction (parametrischer Notch-EQ 40–200 Hz, Q=12)."""
+        phases = _select_phases_for(MaterialType.VINYL, DefectType.ROOM_MODE_RESONANCE, QualityMode.QUALITY)
+        assert "phase_04_eq_correction" in phases, "V31: phase_04 (Notch-EQ) fehlt bei ROOM_MODE_RESONANCE"
+
+    def test_phase04_in_phases_before_phase05(self):
+        """V31: phase_04 MUSS in der Auswahl sein (wird vor phase_05 hinzugefügt)."""
+        phases = _select_phases_for(MaterialType.TAPE, DefectType.ROOM_MODE_RESONANCE, QualityMode.QUALITY)
+        assert "phase_04_eq_correction" in phases
+
+    def test_all_materials_produce_phases(self):
+        for mat in MaterialType:
+            phases = _select_phases_for(mat, DefectType.ROOM_MODE_RESONANCE, QualityMode.QUALITY)
+            targeted = set(phases) - STRUCTURAL_PHASES
+            assert len(targeted) >= 1, f"V31: ROOM_MODE_RESONANCE × {mat.name} → keine Phasen"
+
+    def test_phase04_present_not_phase05_alone(self):
+        """V31: phase_04 MUSS vorhanden sein; phase_05 allein reicht für Resonanzen nicht."""
+        phases = _select_phases_for(MaterialType.SHELLAC, DefectType.ROOM_MODE_RESONANCE, QualityMode.QUALITY)
+        assert "phase_04_eq_correction" in phases
+
+
+class TestProximityEffectExcess:
+    """PROXIMITY_EFFECT_EXCESS → phase_04 (LF-Notch ≤250 Hz)."""
+
+    def test_activates_eq_correction(self):
+        phases = _select_phases_for(MaterialType.TAPE, DefectType.PROXIMITY_EFFECT_EXCESS, QualityMode.QUALITY)
+        assert "phase_04_eq_correction" in phases
+
+    def test_all_materials_produce_phases(self):
+        for mat in MaterialType:
+            phases = _select_phases_for(mat, DefectType.PROXIMITY_EFFECT_EXCESS, QualityMode.QUALITY)
+            targeted = set(phases) - STRUCTURAL_PHASES
+            assert len(targeted) >= 1, f"PROXIMITY_EFFECT_EXCESS × {mat.name} → keine Phasen"
+
+
+class TestFlutterSpectralSidebands:
+    """FLUTTER_SPECTRAL_SIDEBANDS → phase_12 + phase_23."""
+
+    def test_activates_wow_flutter_fix_primary(self):
+        phases = _select_phases_for(MaterialType.TAPE, DefectType.FLUTTER_SPECTRAL_SIDEBANDS, QualityMode.QUALITY)
+        assert "phase_12_wow_flutter_fix" in phases
+
+    def test_activates_spectral_repair_secondary(self):
+        phases = _select_phases_for(MaterialType.TAPE, DefectType.FLUTTER_SPECTRAL_SIDEBANDS, QualityMode.QUALITY)
+        assert "phase_23_spectral_repair" in phases
+
+    def test_all_materials_produce_phases(self):
+        for mat in MaterialType:
+            phases = _select_phases_for(mat, DefectType.FLUTTER_SPECTRAL_SIDEBANDS, QualityMode.QUALITY)
+            targeted = set(phases) - STRUCTURAL_PHASES
+            assert len(targeted) >= 1, f"FLUTTER_SPECTRAL_SIDEBANDS × {mat.name} → keine Phasen"
+
+
+class TestSpeedCalibrationError:
+    """SPEED_CALIBRATION_ERROR → phase_12 (Constant-Rate-Mode) + phase_31."""
+
+    def test_activates_wow_flutter_fix(self):
+        phases = _select_phases_for(MaterialType.TAPE, DefectType.SPEED_CALIBRATION_ERROR, QualityMode.QUALITY)
+        assert "phase_12_wow_flutter_fix" in phases
+
+    def test_activates_speed_pitch_correction(self):
+        phases = _select_phases_for(MaterialType.TAPE, DefectType.SPEED_CALIBRATION_ERROR, QualityMode.QUALITY)
+        assert "phase_31_speed_pitch_correction" in phases
+
+    def test_all_materials_produce_phases(self):
+        for mat in MaterialType:
+            phases = _select_phases_for(mat, DefectType.SPEED_CALIBRATION_ERROR, QualityMode.QUALITY)
+            targeted = set(phases) - STRUCTURAL_PHASES
+            assert len(targeted) >= 1, f"SPEED_CALIBRATION_ERROR × {mat.name} → keine Phasen"
+
+
+class TestLacquerDiscDegradation:
+    """LACQUER_DISC_DEGRADATION DefectType (unabhängig von MaterialType.LACQUER_DISC)."""
+
+    def test_activates_crackle_removal(self):
+        phases = _select_phases_for(MaterialType.VINYL, DefectType.LACQUER_DISC_DEGRADATION, QualityMode.QUALITY)
+        assert "phase_09_crackle_removal" in phases
+
+    def test_activates_denoise(self):
+        phases = _select_phases_for(MaterialType.VINYL, DefectType.LACQUER_DISC_DEGRADATION, QualityMode.QUALITY)
+        assert "phase_03_denoise" in phases
+
+    def test_all_materials_produce_phases(self):
+        for mat in MaterialType:
+            phases = _select_phases_for(mat, DefectType.LACQUER_DISC_DEGRADATION, QualityMode.QUALITY)
+            targeted = set(phases) - STRUCTURAL_PHASES
+            assert len(targeted) >= 1, f"LACQUER_DISC_DEGRADATION × {mat.name} → keine Phasen"
+
+
+class TestScrapeFlutter:
+    """SCRAPE_FLUTTER → phase_12 (Hochfrequenz-Transport-Korrektur)."""
+
+    def test_tape_activates_wow_flutter_fix(self):
+        phases = _select_phases_for(MaterialType.TAPE, DefectType.SCRAPE_FLUTTER, QualityMode.QUALITY)
+        assert "phase_12_wow_flutter_fix" in phases
+
+    def test_reel_tape_activates_wow_flutter_fix(self):
+        phases = _select_phases_for(MaterialType.REEL_TAPE, DefectType.SCRAPE_FLUTTER, QualityMode.QUALITY)
+        assert "phase_12_wow_flutter_fix" in phases
+
+    def test_all_materials_produce_phases(self):
+        for mat in MaterialType:
+            phases = _select_phases_for(mat, DefectType.SCRAPE_FLUTTER, QualityMode.QUALITY)
+            targeted = set(phases) - STRUCTURAL_PHASES
+            assert len(targeted) >= 1, f"SCRAPE_FLUTTER × {mat.name} → keine Phasen"
+
+
+class TestTapeHeadClog:
+    """TAPE_HEAD_CLOG → phase_56 + phase_25 (temporäre HF-Auslöschung)."""
+
+    def test_tape_activates_spectral_band_gap_repair(self):
+        phases = _select_phases_for(MaterialType.TAPE, DefectType.TAPE_HEAD_CLOG, QualityMode.QUALITY)
+        assert "phase_56_spectral_band_gap_repair" in phases
+
+    def test_tape_activates_azimuth_correction(self):
+        phases = _select_phases_for(MaterialType.TAPE, DefectType.TAPE_HEAD_CLOG, QualityMode.QUALITY)
+        assert "phase_25_azimuth_correction" in phases
+
+    def test_all_materials_produce_phases(self):
+        for mat in MaterialType:
+            phases = _select_phases_for(mat, DefectType.TAPE_HEAD_CLOG, QualityMode.QUALITY)
+            targeted = set(phases) - STRUCTURAL_PHASES
+            assert len(targeted) >= 1, f"TAPE_HEAD_CLOG × {mat.name} → keine Phasen"

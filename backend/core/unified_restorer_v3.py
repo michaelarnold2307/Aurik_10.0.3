@@ -20750,6 +20750,78 @@ class UnifiedRestorerV3:
         if sev(DefectType.MOTOR_INTERFERENCE) > 0.30:
             selected.append("phase_04_eq_correction")  # Frequenzgang-Kompensation nach Motor-Tilgung
 
+        # ── §6.3 v9.12.9 Neue Carrier-Ursachen-Defekttypen (7 Typen) ─────────────────────────
+        # Alle 9 neuen DefectTypes aus v9.12.9 ohne direktes Tier-1-Mapping werden hier
+        # zur Phasenauswahl ergänzt — CausalReasoner Tier 1.5 allein reicht nicht,
+        # wenn der Defekt rank 4+ in den ranked_causes ist. (VERBOTEN-Tabelle V28/V29/V31)
+
+        # Nahbesprechungseffekt (Richtmikrofon ≤30 cm): +6–12 dB LF ≤250 Hz; Olson (1948)
+        if sev(DefectType.PROXIMITY_EFFECT_EXCESS) > 0.15:
+            selected.append("phase_04_eq_correction")  # LF-Notch ≤250 Hz (parametrisch, Olson-Kurve)
+        if sev(DefectType.PROXIMITY_EFFECT_EXCESS) > 0.35:
+            selected.append("phase_05_rumble_filter")  # Sub-Bass-Rolloff unter Grundton
+
+        # Stehwellen-Raumresonanz 40–200 Hz ≠ diffuser Hall — V31
+        # §4.11 ROOM_MODE_RESONANCE: phase_04 (Notch-EQ, Q=12) MUSS Primary sein;
+        # phase_05 (Hochpass-Rolloff) allein reicht für schmalbandige Resonanzen nicht. (V31)
+        if sev(DefectType.ROOM_MODE_RESONANCE) > 0.12:
+            selected.append("phase_04_eq_correction")  # Primary: parametrischer Notch-EQ 40–200 Hz (Q=12)
+        if sev(DefectType.ROOM_MODE_RESONANCE) > 0.25:
+            selected.append("phase_16_final_eq")  # Sekundär: Feinkorrektur verbleibender Resonanzspitzen
+        if sev(DefectType.ROOM_MODE_RESONANCE) > 0.40:
+            selected.append("phase_05_rumble_filter")  # Tertiär: Sub-Bass-Begleitenergie (Rolloff)
+
+        # NR-Pumpen/Atmen-Artefakt (Dolby B/C/S/dbx NR nach korrekter Dekodierung) — V28
+        # §4.11 VERBOTEN: phase_03_denoise / phase_29_tape_hiss_reduction als Primary.
+        # Weiteres NR auf NR-Artefakt verstärkt das Pumpen; Envelope-Re-Smoothing + Transienten fix.
+        if sev(DefectType.NR_BREATHING_ARTIFACT) > 0.15:
+            selected.append("phase_54_transparent_dynamics")  # Primary: Envelope-Re-Smoothing (gain_smooth_ms=200)
+            selected.append("phase_08_transient_preservation")  # Sekundär: Transienten-Integrität an Pumping-Grenzen
+
+        # Flutter-Seitenbänder (±flutter_rate Hz um Spektralpeaks — Kopfspalt-Geometrie-Effekt)
+        if sev(DefectType.FLUTTER_SPECTRAL_SIDEBANDS) > 0.15:
+            selected.append("phase_12_wow_flutter_fix")  # Primary: PSOLA-Korrektur eliminiert Seitenband-Quelle
+            selected.append("phase_23_spectral_repair")  # Sekundär: spektrale Inpainting der Seitenband-Energie
+        if sev(DefectType.FLUTTER_SPECTRAL_SIDEBANDS) > 0.35:
+            selected.append("phase_08_transient_preservation")  # Transienten nach Pitch-Korrektur
+
+        # Systematischer Geschwindigkeitsfehler (≠ Pitch-Drift; IEC 60386 §5 Constante Abweichung)
+        if sev(DefectType.SPEED_CALIBRATION_ERROR) > 0.15:
+            selected.append("phase_12_wow_flutter_fix")  # Primary: globale Pitch-Verschiebung (Constant-Rate-Mode)
+            selected.append("phase_31_speed_pitch_correction")  # Sekundär: Feinabstimmung nach Grob-Korrektur
+
+        # Analoger Preamp/Console-Klirr: asymm. Verzerrung, H3/H5-dominant — V29
+        # §4.11 VERBOTEN: phase_63_intermodulation_reduction als Primary.
+        # Harmonische ≠ Intermodulationsprodukte (f₁±f₂) — phase_63 ist Volterra-IMD. (V29)
+        if sev(DefectType.OVERLOAD_DISTORTION) > 0.15:
+            selected.append("phase_09_crackle_removal")  # Primary: asymmetrische Wellenform + Transient-Rekonstruktion
+            selected.append("phase_23_spectral_repair")  # Sekundär: Spektral-Inpainting harmonischer Klirr-Produkte
+        if sev(DefectType.OVERLOAD_DISTORTION) > 0.35:
+            selected.append("phase_14_phase_correction")  # Tertiär: Phasenverzerrung durch nichtlineares Overload
+
+        # Acetat-Zersetzung (Substrat-Rissbildung + Lackoxidation — Hess 1988)
+        # Hinweis: LACQUER_DISC Material-Block (oben) deckt die MaterialType-Seite ab.
+        # Dieser Block reagiert auf den DetectionType auch bei nicht erkanntem Material-Label.
+        if sev(DefectType.LACQUER_DISC_DEGRADATION) > 0.15:
+            selected.append("phase_09_crackle_removal")  # Rissbildungs-Clicks (dicht, periodisch)
+            selected.append("phase_03_denoise")  # Substrat-Rauschen + Breitband-HF-Verlust
+        if sev(DefectType.LACQUER_DISC_DEGRADATION) > 0.30:
+            selected.append("phase_01_click_removal")  # Einzelne scharfe Riss-Events
+            selected.append("phase_06_frequency_restoration")  # HF-Wiederherstellung (Lackschicht-Oxidation ≥8 kHz)
+
+        # Hochfrequentes Tape-Scrape-Flutter (typ. 40–120 Hz — Bandführungs-Geometrie)
+        if sev(DefectType.SCRAPE_FLUTTER) > 0.12 and (material in _tape_materials or _has_tape_like_chain):
+            selected.append("phase_12_wow_flutter_fix")  # Transport-spezifische Hochfrequenz-Scrape-Korrektur
+        if sev(DefectType.SCRAPE_FLUTTER) > 0.35:
+            selected.append("phase_08_transient_preservation")  # Transienten-Integrität nach Scrape-Fix
+
+        # Temporäre Hochton-Auslöschung durch zugesetzten/verschmutzten Magnetkopf
+        if sev(DefectType.TAPE_HEAD_CLOG) > 0.15 and (material in _tape_materials or _has_tape_like_chain):
+            selected.append("phase_56_spectral_band_gap_repair")  # Frequenzband-Lückenfüllung (ML-basiert)
+            selected.append("phase_25_azimuth_correction")  # Residualer Azimuth-Slope nach Kopfreinigung
+
+        # ── Ende §6.3 v9.12.9 Neue Carrier-Defekttypen ───────────────────────────────────────
+
         # §9.1c AMPLITUDE_DRIFT: Gradueller Pegelanstieg/-abfall (Träger-AGC, Oxid-Drift)
         # Nur wenn NICHT künstlerisch (Crescendo/Decrescendo vom Künstler gewollt).
         if sev(DefectType.AMPLITUDE_DRIFT) > 0.30:

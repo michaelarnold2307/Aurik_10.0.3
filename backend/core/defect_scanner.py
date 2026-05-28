@@ -175,15 +175,18 @@ class DefectType(Enum):
     # --- v9.12.9: 7 neue DefectTypes — Carrier-Ursachen-Lücken geschlossen (54 gesamt) ---
     # Nahbesprechungseffekt (Richtmikrofon ≤30 cm): LF +6–12 dB ≤250 Hz; Olson (1948) → phase_04.
     PROXIMITY_EFFECT_EXCESS = "proximity_effect_excess"
-    # Stehwellen-Raumresonanz 40–200 Hz ≠ diffuser Hall; Salter et al. (2003) → phase_05 + phase_04.
+    # Stehwellen-Raumresonanz 40–200 Hz ≠ diffuser Hall; Salter et al. (2003) → phase_04 (Notch-Primary) + phase_16 + phase_05 (Tertiär).
+    # VERBOTEN: phase_05 allein als Primary — schmalbandige Resonanzen brauchen parametrischen Notch-EQ (§4.11, V31).
     ROOM_MODE_RESONANCE = "room_mode_resonance"
-    # Dolby/dbx NR Pumpen/Atmen (korrekt dekodiert); Dolby (1967) → phase_03 Gain-Smoothing.
+    # Dolby/dbx NR Pumpen/Atmen (korrekt dekodiert); Dolby (1967) → phase_54 Envelope-Re-Smoothing + phase_08.
+    # VERBOTEN: phase_03_denoise / phase_29 als Primary — weiteres NR verstärkt Pumpen (§4.11, V28).
     NR_BREATHING_ARTIFACT = "nr_breathing_artifact"
     # Flutter-Seitenbänder ±flutter_rate Hz um Spektralpeaks → phase_12 Ergänzung + phase_23.
     FLUTTER_SPECTRAL_SIDEBANDS = "flutter_spectral_sidebands"
     # Systematischer fester Geschwindigkeitsfehler ≠ pitch_drift; IEC 60386 §5 → phase_12/phase_31.
     SPEED_CALIBRATION_ERROR = "speed_calibration_error"
-    # Analoger Preamp/Console-Klirr: asymm. Verzerrung, H3/H5-dominant → phase_23/phase_63.
+    # Analoger Preamp/Console-Klirr: asymm. Verzerrung, H3/H5-dominant → phase_09/phase_23.
+    # VERBOTEN: phase_63_intermodulation_reduction — Harmonische ≠ Intermodulationsprodukte (§4.11, V29).
     OVERLOAD_DISTORTION = "overload_distortion"
     # Acetat-Zersetzung: Substrat-Rissbildung, Lackschicht-Oxidation; Hess (1988) → phase_03 + phase_09.
     LACQUER_DISC_DEGRADATION = "lacquer_disc_degradation"
