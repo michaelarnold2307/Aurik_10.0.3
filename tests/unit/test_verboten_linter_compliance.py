@@ -410,3 +410,106 @@ class TestVerbotenLinterExtendedRules:
 
         violations = _linter.scan_file(file_path)
         assert not any(v.rule == "V33" for v in violations)
+
+
+class TestV38Phase24VfaZoneCaps:
+    """§V38 Per-Event-Strength-Oracle in phase_24_dropout_repair."""
+
+    def test_vfa_vibrato_cap_applied(self):
+        """Dropout in Vibrato-Zone muss auf max 0.20 gecappt werden."""
+        import numpy as np
+
+        from backend.core.phases.phase_24_dropout_repair import DropoutRepairPhase
+
+        p = DropoutRepairPhase()
+        sr = 48000
+        audio = 0.5 * np.sin(2 * np.pi * 440 * np.arange(sr) / sr).astype(np.float32)
+        d_start = int(0.04 * sr)
+        d_end = int(0.05 * sr)
+        audio[d_start:d_end] = 0.0
+        p._current_panns_tags = {"Singing voice": 0.8}
+        p._current_material = "vinyl"
+        p.sample_rate = sr
+
+        base = p._content_adaptive_repair_strength(0.95, "tonal", 10.0)
+        local_s = p._compute_dropout_local_strength(audio, d_start, d_end, sr, base, [(0.03, 0.08, 0.20)])
+        assert local_s <= 0.20 + 1e-6, f"Vibrato-Cap nicht aktiv: {local_s:.4f}"
+
+    def test_vfa_frisson_cap_applied(self):
+        """Dropout in Frisson-Zone muss auf max 0.30 gecappt werden."""
+        import numpy as np
+
+        from backend.core.phases.phase_24_dropout_repair import DropoutRepairPhase
+
+        p = DropoutRepairPhase()
+        sr = 48000
+        audio = 0.4 * np.sin(2 * np.pi * 220 * np.arange(sr) / sr).astype(np.float32)
+        d_start = int(0.15 * sr)
+        d_end = int(0.17 * sr)
+        audio[d_start:d_end] = 0.0
+        p._current_panns_tags = {"Singing voice": 0.9}
+        p._current_material = "shellac"
+        p.sample_rate = sr
+
+        base = p._content_adaptive_repair_strength(0.95, "tonal", 20.0)
+        local_s = p._compute_dropout_local_strength(audio, d_start, d_end, sr, base, [(0.10, 0.20, 0.30)])
+        assert local_s <= 0.30 + 1e-6, f"Frisson-Cap nicht aktiv: {local_s:.4f}"
+
+    def test_outside_zone_no_cap(self):
+        """Dropout ausserhalb aller Schutzzonen darf volle Staerke erhalten."""
+        import numpy as np
+
+        from backend.core.phases.phase_24_dropout_repair import DropoutRepairPhase
+
+        p = DropoutRepairPhase()
+        sr = 48000
+        audio = 0.5 * np.sin(2 * np.pi * 440 * np.arange(sr) / sr).astype(np.float32)
+        d_start = int(0.50 * sr)
+        d_end = int(0.51 * sr)
+        audio[d_start:d_end] = 0.0
+        p._current_panns_tags = {}
+        p._current_material = "vinyl"
+        p.sample_rate = sr
+
+        base = p._content_adaptive_repair_strength(0.95, "mixed", 10.0)
+        local_s = p._compute_dropout_local_strength(
+            audio, d_start, d_end, sr, base, [(0.03, 0.08, 0.20), (0.10, 0.20, 0.30)]
+        )
+        assert local_s > 0.20, f"VFA-Cap feuerte falsch-positiv ausserhalb Zone: {local_s:.4f}"
+
+    def test_zero_base_strength_returns_zero(self):
+        """base_strength < 1e-6 muss 0.0 zurueckgeben."""
+        import numpy as np
+
+        from backend.core.phases.phase_24_dropout_repair import DropoutRepairPhase
+
+        p = DropoutRepairPhase()
+        sr = 48000
+        audio = np.zeros(sr, dtype=np.float32)
+        p._current_panns_tags = {}
+        p._current_material = "unknown"
+        p.sample_rate = sr
+
+        local_s = p._compute_dropout_local_strength(audio, 0, 100, sr, 0.0, [])
+        assert local_s == 0.0, f"Erwartete 0.0, erhalten: {local_s}"
+
+    def test_process_accepts_vfa_zone_kwargs(self):
+        """process() muss vibrato_zones/frisson_zones kwargs verarbeiten ohne Fehler."""
+        import numpy as np
+
+        from backend.core.phases.phase_24_dropout_repair import DropoutRepairPhase
+
+        p = DropoutRepairPhase()
+        sr = 48000
+        audio = 0.3 * np.sin(2 * np.pi * 440 * np.arange(sr) / sr).astype(np.float32)
+        audio[1000:1100] = 0.0
+        result = p.process(
+            audio,
+            sr,
+            material_type="vinyl",
+            vibrato_zones=[(0.01, 0.05, 0.20)],
+            frisson_zones=[(0.5, 0.8, 0.30)],
+            whisper_zones=[(0.2, 0.3, 0.25)],
+            passaggio_zones=[(0.6, 0.7, 0.35)],
+        )
+        assert result.audio.shape == audio.shape

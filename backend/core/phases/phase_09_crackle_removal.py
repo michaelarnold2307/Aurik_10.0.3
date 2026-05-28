@@ -365,6 +365,7 @@ class CrackleRemovalPhase(PhaseInterface):
         effective_strength: float,
         sample_rate: int,
         fallback_to_global_when_no_regions: bool = False,
+        protected_zones: list | None = None,
     ) -> np.ndarray:
         """Region-selektives Dry/Wet-Blending fuer Crackle-Processing.
 
@@ -396,7 +397,20 @@ class CrackleRemovalPhase(PhaseInterface):
             ss = int(np.clip(s, 0, n))
             ee = int(np.clip(e, 0, n))
             if ee > ss:
-                alpha[ss:ee] = eff
+                # §V38 Per-Region VFA-Schutzzonen-Cap (Vibrato 0.20, Frisson 0.30 etc.)
+                _alpha_val = eff
+                if protected_zones:
+                    _start_s = ss / max(sample_rate, 1)
+                    _end_s = ee / max(sample_rate, 1)
+                    for _zone in protected_zones:
+                        try:
+                            _zs, _ze, _cap = float(_zone[0]), float(_zone[1]), float(_zone[2])
+                            if _start_s < _ze and _end_s > _zs:
+                                _alpha_val = min(_alpha_val, _cap)
+                                break
+                        except Exception:
+                            pass
+                alpha[ss:ee] = _alpha_val
 
         # Weiche Uebergaenge vermeiden Kantenartefakte an Regionsgrenzen.
         pad = max(1, int(0.0008 * sample_rate))
@@ -768,10 +782,10 @@ class CrackleRemovalPhase(PhaseInterface):
         phase_locality_factor = float(np.clip(phase_locality_factor, 0.35, 1.0))
         if phase_locality_factor < 0.999:
             inv = 1.0 / max(phase_locality_factor, 1e-6)
-            params["transient_threshold"] = float(np.clip(params["transient_threshold"] * inv, 0.005, 1.0))
+            params["transient_threshold"] = float(np.clip(float(params["transient_threshold"]) * inv, 0.005, 1.0))
             # Higher preserve value => lower global intervention outside defect locations.
             params["texture_preserve"] = float(
-                np.clip(params.get("texture_preserve", 0.85) + 0.10 * (1.0 - phase_locality_factor), 0.0, 0.99)
+                np.clip(float(params.get("texture_preserve", 0.85)) + 0.10 * (1.0 - phase_locality_factor), 0.0, 0.99)
             )
 
         _pmgg_strength = float(kwargs.get("strength", 1.0))
@@ -805,9 +819,40 @@ class CrackleRemovalPhase(PhaseInterface):
         except Exception as _sev_exc:
             logger.debug("Crackle severity lookup failed, using default 0.0: %s", _sev_exc)
         if _crackle_sev_p09 >= 0.60:  # heavy crackle → +35 % more ML output, min preserve 0.30
-            params["texture_preserve"] = float(np.clip(params["texture_preserve"] - 0.35, 0.30, 1.0))
+            params["texture_preserve"] = float(np.clip(float(params["texture_preserve"]) - 0.35, 0.30, 1.0))
         elif _crackle_sev_p09 >= 0.35:  # moderate crackle → +15 % more ML output, min preserve 0.40
-            params["texture_preserve"] = float(np.clip(params["texture_preserve"] - 0.15, 0.40, 1.0))
+            params["texture_preserve"] = float(np.clip(float(params["texture_preserve"]) - 0.15, 0.40, 1.0))
+
+        # §V38 VFA-Schutzzonen für per-Region-Strength-Cap sammeln (§0p Vocal-Supremacy)
+        _p09_protected_zones: list[tuple[float, float, float]] = []
+        for _z in kwargs.get("vibrato_zones") or []:
+            try:
+                _p09_protected_zones.append((float(_z[0]), float(_z[1]), 0.20))  # §0p Vibrato-Schutz
+            except Exception:
+                pass
+        for _z in kwargs.get("frisson_zones") or []:
+            try:
+                _fz_s = float(getattr(_z, "start_s", None) or _z[0])
+                _fz_e = float(getattr(_z, "end_s", None) or _z[1])
+                _p09_protected_zones.append((_fz_s, _fz_e, 0.30))  # Frisson sakrosankt
+            except Exception:
+                pass
+        for _z in kwargs.get("whisper_zones") or []:
+            try:
+                _p09_protected_zones.append((float(_z[0]), float(_z[1]), 0.25))  # Flüsterpassagen
+            except Exception:
+                pass
+        for _z in kwargs.get("passaggio_zones") or []:
+            try:
+                _p09_protected_zones.append((float(_z[0]), float(_z[1]), 0.35))  # Passaggio-Übergänge
+            except Exception:
+                pass
+        if _p09_protected_zones:
+            logger.debug(
+                "§V38 phase_09: %d VFA-Schutzzone(n) aktiv (Vibrato/Frisson/Flüster/Passaggio)",
+                len(_p09_protected_zones),
+            )
+        _p09_pz = _p09_protected_zones or None
 
         if _effective_strength <= 0.0:
             passthrough = np.nan_to_num(audio.copy(), nan=0.0, posinf=0.0, neginf=0.0)
@@ -853,6 +898,7 @@ class CrackleRemovalPhase(PhaseInterface):
                         effective_strength=_effective_strength,
                         sample_rate=sample_rate,
                         fallback_to_global_when_no_regions=True,
+                        protected_zones=_p09_pz,
                     )
                 _onnx_ok = True
                 execution_time = time.time() - start_time
@@ -898,6 +944,7 @@ class CrackleRemovalPhase(PhaseInterface):
                                 effective_strength=_effective_strength,
                                 sample_rate=sample_rate,
                                 fallback_to_global_when_no_regions=True,
+                                protected_zones=_p09_pz,
                             )
                         execution_time = time.time() - start_time
                         crackle_reduction_db = self._measure_crackle_reduction(audio, restored)
@@ -953,6 +1000,7 @@ class CrackleRemovalPhase(PhaseInterface):
                 crackle_regions=crackle_regions,
                 effective_strength=_effective_strength,
                 sample_rate=sample_rate,
+                protected_zones=_p09_pz,
             )
 
         execution_time = time.time() - start_time
