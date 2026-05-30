@@ -1,33 +1,32 @@
-"""ERB-scaled auditory masking model for frequency-dependent salience estimation.
+"""ERB-skaliertes Auditory-Masking-Modell für frequenzabhängige Salienz-Schätzung.
 
-Replaces fixed broadband masking thresholds with a psychoacoustically correct
-frequency-dependent model based on Equivalent Rectangular Bandwidth (ERB)
-critical-band filters and the power-spectrum model of masking.
+Ersetzt feste Breitband-Masking-Schwellen durch ein psychoakustisch korrektes
+frequenzabhängiges Modell auf Basis von Equivalent Rectangular Bandwidth (ERB)
+Kritischband-Filtern und dem Power-Spektrum-Modell des Maskierens.
 
-Scientific basis:
+Wissenschaftliche Grundlage:
 - Glasberg, B.R. & Moore, B.C.J. (1990). "Derivation of auditory filter
-  shapes from notched-noise data". *Hearing Research* 47, 103-138.
+  shapes from notched-noise data". *Hearing Research* 47, 103–138.
 - Moore, B.C.J. & Glasberg, B.R. (1983). "Suggested formulae for calculating
-  auditory-filter bandwidths and excitation patterns". *JASA* 74(3), 750-753.
+  auditory-filter bandwidths and excitation patterns". *JASA* 74(3), 750–753.
 - Moore, B.C.J., Glasberg, B.R. & Baer, T. (1997). "A model for the prediction
-  of thresholds, loudness, and partial loudness". *JAES* 45(4), 224-240.
+  of thresholds, loudness, and partial loudness". *JAES* 45(4), 224–240.
 - Brungart, D.S. (2001). "Informational and energetic masking effects in the
-  perception of two simultaneous talkers". *JASA* 109(3), 1101-1109.
+  perception of two simultaneous talkers". *JASA* 109(3), 1101–1109.
 
-Key improvements over fixed-threshold model:
-1. **Frequency-dependent masking spread** via ERB excitation patterns
-   (low frequencies mask wider than high frequencies — critical-ratio asymmetry)
-2. **Exponential temporal decay** (not step function) for forward masking
-   with 3:1 forward/backward asymmetry (Jesteadt, Bacon & Lehman 1982)
-3. **Informational masking bonus** for harmonically related content
-   (Brungart 2001; reduces salience for defects in tonal passages)
+Verbesserungen gegenüber dem Festschwellen-Modell:
+1. **Frequenzabhängige Masking-Ausbreitung** über ERB-Erregungsmuster
+   (tiefe Frequenzen maskieren breiter als hohe — asymmetrische Critical-Ratio)
+2. **Exponentieller Zeitzerfall** (kein Stufenmodell) für Forward-Masking
+   mit 3:1 Forward/Backward-Asymmetrie (Jesteadt, Bacon & Lehman 1982)
+3. **Informational-Masking-Bonus** für harmonisch strukturierte Inhalte
+   (Brungart 2001; senkt Salienz für Defekte in tonalen Passagen)
 
-Module invariants (§3.x compliant):
-- Thread-safe singleton via double-checked locking
-- NaN/Inf guard on all numeric outputs
-- No audio modification — produces masking thresholds only
-- No sample-rate assertion (analysis module — works at native import SR)
-- English docstrings and log messages
+Modul-Invarianten (§3.x konform):
+- Thread-sicheres Singleton via Double-Checked-Locking
+- NaN/Inf-Guard auf allen numerischen Ausgaben
+- Keine Audio-Veränderung — liefert nur Masking-Schwellen
+- Kein Sample-Rate-Assert (Analyse-Modul — läuft bei nativem Import-SR)
 """
 
 from __future__ import annotations
@@ -167,26 +166,24 @@ class ERBMaskingResult:
 
 
 class ERBAuditoryMaskingModel:
-    """Frequency-dependent masking model using ERB critical-band filters.
+    """Frequenzabhängiges Masking-Modell auf Basis von ERB-Kritischband-Filtern.
 
-    Replaces the fixed broadband thresholds (-12/-8/-6 dB) in
-    PerceptualSalienceEstimator with a psychoacoustically correct model
-    that accounts for:
+    Ersetzt die festen Breitband-Schwellen (−12/−8/−6 dB) im
+    PerceptualSalienceEstimator durch ein psychoakustisch korrektes Modell
+    das berücksichtigt:
 
-    1.  Frequency-dependent critical bandwidth (narrow at low frequencies,
-        wide at high frequencies)
-    2.  Asymmetric spreading (upward masking stronger than downward)
-    3.  Exponential temporal decay (not step function)
-    4.  Informational masking for harmonically structured content
+    1.  Frequenzabhängige Kritische Bandbreite (eng bei tiefen, weit bei hohen Frequenzen)
+    2.  Asymmetrische Ausbreitung (Aufwärts-Masking stärker als Abwärts-Masking)
+    3.  Exponentieller Zeitzerfall (kein Stufenmodell)
+    4.  Informational-Masking für harmonisch strukturierte Inhalte
     """
 
-    _N_BANDS = 24  # ERB bands spanning 50 Hz – 16 kHz
+    _N_BANDS = 24  # ERB-Bänder von 50 Hz bis 16 kHz
     _F_LOW = 50.0
     _F_HIGH = 16000.0
-    _CONTEXT_WINDOW_S = 0.4  # ±400 ms context for simultaneous masking
-    _FRAME_HOP_S = 0.050  # 50 ms hop for spectral analysis
+    _CONTEXT_WINDOW_S = 0.4  # ±400 ms Kontext für simultanes Masking
 
-    # Signal-to-masker ratio for threshold (Moore & Glasberg 1997)
+    # Signal-zu-Masker-Abstand für Schwelle (Moore & Glasberg 1997)
     _SMR_ABSOLUTE_DB = 5.0  # defect must be ≥5 dB above masked threshold to be salient
 
     def __init__(self) -> None:
@@ -210,27 +207,30 @@ class ERBAuditoryMaskingModel:
         defect_end_s: float,
         defect_freq_range: tuple[float, float] | None = None,
     ) -> ERBMaskingResult:
-        """Berechnet frequency-dependent masking threshold at a defect location.
+        """Berechnet frequenzabhängige Masking-Schwelle an einer Defektstelle.
 
-        Parameters
+        Parameter
         ----------
         audio : np.ndarray
-            Mono or stereo audio at native sample rate.
+            Mono- oder Stereo-Audio bei nativem Sample-Rate.
         sr : int
-            Sample rate in Hz.
+            Sample-Rate in Hz.
         defect_start_s, defect_end_s : float
-            Temporal location of the defect in seconds.
+            Zeitliche Position des Defekts in Sekunden.
         defect_freq_range : tuple[float, float] | None
-            If known, the frequency range of the defect (Hz).
-            If None, all ERB bands are evaluated.
+            Falls bekannt, der Frequenzbereich des Defekts (Hz).
+            Bei None werden alle ERB-Bänder ausgewertet.
 
-        Returns
+        Rückgabe
         -------
-        ERBMaskingResult with per-band thresholds and aggregate salience.
+        ERBMaskingResult mit bandweisen Schwellen und aggregierter Salienz.
         """
         # §Perf: Mono-Cache — teures nan_to_num auf vollem Array nur einmal pro Audio-Objekt.
         _mono_key = (id(audio), audio.shape)
         if _mono_key not in self._mono_cache:
+            if len(self._mono_cache) >= 2:
+                # Cache auf max 2 Einträge begrenzen — große Audio-Arrays (≥80 MB) nicht unbegrenzt halten
+                del self._mono_cache[next(iter(self._mono_cache))]
             self._mono_cache[_mono_key] = self._to_mono_f64(audio)
         mono = self._mono_cache[_mono_key]
         n_samples = len(mono)
@@ -387,7 +387,7 @@ class ERBAuditoryMaskingModel:
         )
 
         logger.debug(
-            "ERB masking: %.0f–%.0f Hz, %d bands, mean_thresh=%.1f dB, salience=%.3f, dominant=%s, tonality=%.2f",
+            "ERB-Masking: %.0f–%.0f Hz, %d Bänder, Schwelle=%.1f dB, Salienz=%.3f, dominant=%s, Tonalität=%.2f",
             centres[0] if len(centres) > 0 else 0,
             centres[-1] if len(centres) > 0 else 0,
             len(band_thresholds),
@@ -403,6 +403,14 @@ class ERBAuditoryMaskingModel:
     # Convenience: salience for broadband defect
     # ------------------------------------------------------------------
 
+    def clear_session_caches(self) -> None:
+        """Leert Sitzungs-Caches nach DefectScanner-Phase (Speicher-Freigabe).
+
+        Sollte vom PerceptualSalienceEstimator nach Abschluss des Scans aufgerufen
+        werden, um große Audio-Arrays (≥80 MB) aus dem Singleton-Speicher zu entfernen.
+        """
+        self._mono_cache.clear()
+
     def estimate_salience(
         self,
         audio: np.ndarray,
@@ -410,9 +418,9 @@ class ERBAuditoryMaskingModel:
         defect_start_s: float,
         defect_end_s: float,
     ) -> float:
-        """Quick salience estimate (0.0–1.0) for a broadband defect.
+        """Schnelle Salienz-Schätzung (0.0–1.0) für einen breitbandigen Defekt.
 
-        Convenience wrapper around compute_masking_threshold.
+        Vereinfachter Wrapper um compute_masking_threshold.
         """
         result = self.compute_masking_threshold(
             audio,
@@ -427,7 +435,7 @@ class ERBAuditoryMaskingModel:
     # ------------------------------------------------------------------
 
     def _erb_centres(self, f_max: float) -> np.ndarray:
-        """Generiert ERB centre frequencies up to *f_max*. Cached per f_max."""
+        """Generiert ERB-Mittenfrequenzen bis *f_max*. Gecacht pro f_max."""
         key = round(f_max, 1)
         if key not in self._centres_cache:
             f_high = min(self._F_HIGH, f_max)
@@ -557,18 +565,18 @@ class ERBAuditoryMaskingModel:
 
     @staticmethod
     def _power_to_db(power: float) -> float:
-        """Konvertiert power to dB with floor."""
+        """Konvertiert Leistung nach dB mit unterem Grenzwert."""
         return float(10.0 * np.log10(max(power, 1e-15)))
 
     @staticmethod
     def _to_mono_f64(audio: np.ndarray) -> np.ndarray:
-        """Konvertiert to mono float64 with NaN/Inf guard.
+        """Konvertiert nach Mono float64 mit NaN/Inf-Guard.
 
-        Aurik canonical shape is (N, channels) — axis 1 is the channel dimension.
-        For (N, 2): shape[0]=N >> shape[1]=2 → mean(axis=1) → N-element mono.
-        For (2, N): shape[0]=2 <  shape[1]=N  → mean(axis=0) → N-element mono.
-        WRONG: mean(axis=0) on (N,2) returns a 2-element vector → all downstream
-        FFT/band-power computations collapse → salience=0.000 on every call.
+        Kanonisches Aurik-Format: (N, Kanäle) — Achse 1 ist die Kanal-Dimension.
+        Für (N, 2): shape[0]=N >> shape[1]=2 → mean(axis=1) → N-elementiger Mono-Vektor.
+        Für (2, N): shape[0]=2 <  shape[1]=N  → mean(axis=0) → N-elementiger Mono-Vektor.
+        FALSCH: mean(axis=0) auf (N,2) liefert einen 2-elementigen Vektor → alle nachgelagerten
+        FFT/Band-Power-Berechnungen kollabieren → salience=0.000 bei jedem Aufruf.
         """
         arr = np.asarray(audio, dtype=np.float64)
         if arr.ndim == 2:
@@ -587,7 +595,7 @@ _lock = threading.Lock()
 
 
 def get_erb_auditory_masking_model() -> ERBAuditoryMaskingModel:
-    """Gibt thread-safe singleton ERBAuditoryMaskingModel zurück."""
+    """Gibt thread-sicheres Singleton-ERBAuditoryMaskingModel zurück."""
     global _instance  # pylint: disable=global-statement
     if _instance is None:
         with _lock:

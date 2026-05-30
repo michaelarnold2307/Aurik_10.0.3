@@ -39,7 +39,7 @@ _PIPELINE_EMERGENCY_PCT: float = 70.0  # RAM% ab der auch WÄHREND Pipeline evic
 _SWAP_EVICT_THRESHOLD_PCT: float = 80.0  # Swap% ab der Eviction erzwungen wird (unabhängig von RAM-%).
 _SWAP_EVICT_FORCE_PCT: float = 95.0  # Harte Swap-Notlage: immer evicten (Crash-Prävention)
 _SWAP_RELAX_RAM_PCT: float = 70.0  # Unterhalb davon gilt hoher Swap nicht automatisch als akut
-_SWAP_RELAX_FREE_MB: float = 12_000.0  # Mit viel freiem RAM sind alte Swap-Reste oft unkritisch
+_SWAP_RELAX_FREE_MB: float = 10_000.0  # Mit viel freiem RAM sind alte Swap-Reste oft unkritisch (10 GB Schwelle — 11–12 GB frei ist kein Notfall)
 # Rationale: Crash 2026-04-14 — swap=99 %, avail=18.79 GB → OOM-Killer wegen
 # Apollo-TorchScript-Allokation. RAM-only-Guards erkannten die Gefahr nicht.
 _MONITOR_JOIN_TIMEOUT_S: float = 1.0  # Shutdown darf Tests/App-Ende nicht unbounded blockieren
@@ -156,6 +156,9 @@ class PluginLifecycleManager:
         self._auto_evict_thread: threading.Thread | None = None
         self._stop_event = threading.Event()
         self._pipeline_active: int = 0  # Refcount: >0 suppresses auto-eviction during pipeline
+        self._last_swap_warn_ts: float = (
+            0.0  # Cooldown für Swap-Druck-Warnungen (min. 60 s zwischen identischen Meldungen)
+        )
         self._start_auto_evict_monitor()
         logger.info("PluginLifecycleManager: initialized (RAM eviction threshold %.0f %%)", _RAM_EVICT_THRESHOLD_PCT)
 
@@ -247,13 +250,16 @@ class PluginLifecycleManager:
         if self._pipeline_active > 0 and required_mb <= 0:
             if ram_pct < _PIPELINE_EMERGENCY_PCT and free_mb >= _MIN_FREE_MB_HARD and not swap_emergency:
                 return 0
-            logger.warning(
-                "PLM: Pipeline aktiv, aber Speicher kritisch (RAM=%.0f %%, frei=%.0f MB, swap=%.0f %%) "
-                "— erzwinge Notfall-Eviction inaktiver Plugins",
-                ram_pct,
-                free_mb,
-                swap_pct,
-            )
+            _now = time.monotonic()
+            if _now - self._last_swap_warn_ts >= 60.0:
+                logger.warning(
+                    "PLM: Pipeline aktiv, aber Speicher kritisch (RAM=%.0f %%, frei=%.0f MB, swap=%.0f %%) "
+                    "— erzwinge Notfall-Eviction inaktiver Plugins",
+                    ram_pct,
+                    free_mb,
+                    swap_pct,
+                )
+                self._last_swap_warn_ts = _now
         # required_mb kommt bereits MIT Margin aus ml_memory_budget._preflight_system_memory.
         # Keine doppelte Margin (war 1.25×) — direkt prüfen ob genug frei ist.
         needs_evict = (
@@ -263,12 +269,15 @@ class PluginLifecycleManager:
             or swap_emergency
         )
         if swap_emergency and not (ram_pct > _RAM_EVICT_THRESHOLD_PCT or free_mb < _MIN_FREE_MB_HARD):
-            logger.warning(
-                "PLM: Swap-Druck kritisch (%.0f %%) — erzwinge Eviction inaktiver Plugins (RAM=%.0f %%, frei=%.0f MB)",
-                swap_pct,
-                ram_pct,
-                free_mb,
-            )
+            _now_s = time.monotonic()
+            if _now_s - self._last_swap_warn_ts >= 60.0:
+                logger.warning(
+                    "PLM: Swap-Druck kritisch (%.0f %%) — erzwinge Eviction inaktiver Plugins (RAM=%.0f %%, frei=%.0f MB)",
+                    swap_pct,
+                    ram_pct,
+                    free_mb,
+                )
+                self._last_swap_warn_ts = _now_s
         if not needs_evict:
             return 0
         return self._do_evict(target_pct=_RAM_TARGET_PCT, required_mb=required_mb)
