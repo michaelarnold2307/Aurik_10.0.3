@@ -869,3 +869,96 @@ def test_53_evaluate_restoration_cassette_timbral_bw_ceiling_passed():
         f"Kassetten-BW-Ceiling soll HPI nicht verschlechtern vs digital: "
         f"cassette.hpi={result_cassette.hpi:.4f} vs digital.hpi={result_digital.hpi:.4f}"
     )
+
+
+# ── §2.44 Persistenz-Tests (test_54–test_57) ───────────────────────────────
+
+
+def test_54_ref_memory_saves_and_loads_from_disk(tmp_path):
+    """update_reference_memory() persistiert Eintrag; neuer Gate-Singleton lädt ihn."""
+
+    import backend.core.holistic_perceptual_gate as hpg_mod
+
+    mem_path = tmp_path / "hpg_reference_memory.json"
+    with patch.object(hpg_mod, "_HPG_REF_MEMORY_PATH", mem_path):
+        gate1 = hpg_mod.HolisticPerceptualGate()
+        audio = _audio(dur=2.0, amp=0.4, freq=440.0)
+        # Qualitäts-Gate-Bedingungen erfüllen
+        gate1.update_reference_memory(
+            restored=audio,
+            sr=SR,
+            hpi=0.75,
+            artifact_freedom=0.97,
+            p1_p2_passed=True,
+            genre="pop",
+            material="cassette",
+            era_bin="era_1970",
+        )
+        assert mem_path.exists(), "JSON-Datei muss nach update_reference_memory existieren"
+        # Neuer Gate-Singleton lädt von Disk
+        gate2 = hpg_mod.HolisticPerceptualGate()
+        assert len(gate2._ref_memory) == 1, "Neuer Singleton muss 1 Eintrag geladen haben"
+        key = ("pop", "cassette", "era_1970")
+        assert key in gate2._ref_memory
+        assert gate2._ref_memory[key].obs_count == 1
+
+
+def test_55_ref_memory_not_saved_below_quality_gate(tmp_path):
+    """update_reference_memory() darf bei HPI < 0.5 NICHT speichern."""
+    import backend.core.holistic_perceptual_gate as hpg_mod
+
+    mem_path = tmp_path / "hpg_reference_memory.json"
+    with patch.object(hpg_mod, "_HPG_REF_MEMORY_PATH", mem_path):
+        gate = hpg_mod.HolisticPerceptualGate()
+        audio = _audio(dur=1.0, amp=0.2, freq=440.0)
+        gate.update_reference_memory(
+            restored=audio,
+            sr=SR,
+            hpi=0.3,
+            artifact_freedom=0.97,
+            p1_p2_passed=True,
+            genre="pop",
+            material="cassette",
+            era_bin="era_1970",
+        )
+        assert not mem_path.exists(), "Keine Datei bei HPI < 0.5"
+
+
+def test_56_ref_memory_ema_update_persists(tmp_path):
+    """Mehrfache Updates akkumulieren obs_count und persistieren korrekt."""
+    import backend.core.holistic_perceptual_gate as hpg_mod
+
+    mem_path = tmp_path / "hpg_reference_memory.json"
+    with patch.object(hpg_mod, "_HPG_REF_MEMORY_PATH", mem_path):
+        gate = hpg_mod.HolisticPerceptualGate()
+        audio = _audio(dur=2.0, amp=0.4, freq=440.0)
+        for _ in range(4):
+            gate.update_reference_memory(
+                restored=audio,
+                sr=SR,
+                hpi=0.80,
+                artifact_freedom=0.97,
+                p1_p2_passed=True,
+                genre="jazz",
+                material="vinyl",
+                era_bin="era_1960",
+            )
+        key = ("jazz", "vinyl", "era_1960")
+        assert gate._ref_memory[key].obs_count == 4
+        assert gate._ref_memory[key].calibrated, "Nach 3+ Obs muss calibrated=True sein"
+
+        # Laden → obs_count muss erhalten bleiben
+        gate2 = hpg_mod.HolisticPerceptualGate()
+        assert gate2._ref_memory[key].obs_count == 4
+        assert gate2._ref_memory[key].calibrated
+
+
+def test_57_ref_memory_load_corrupt_file_safe(tmp_path):
+    """Beschädigte JSON-Datei führt zu leerem Memory (keine Exception)."""
+    import backend.core.holistic_perceptual_gate as hpg_mod
+
+    mem_path = tmp_path / "hpg_reference_memory.json"
+    mem_path.write_text("{ UNGÜLTIGES JSON }", encoding="utf-8")
+    with patch.object(hpg_mod, "_HPG_REF_MEMORY_PATH", mem_path):
+        gate = hpg_mod.HolisticPerceptualGate()
+        assert len(gate._ref_memory) == 0, "Beschädigtes File → leeres Memory, kein Crash"

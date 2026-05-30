@@ -20,7 +20,10 @@ Reference: Spec 02 §2.44, §2.49 (artifact_freedom)
 
 from __future__ import annotations
 
+import json
 import logging
+import os
+import pathlib
 import threading
 from dataclasses import dataclass, field
 
@@ -54,6 +57,11 @@ _MATERIAL_BW_CEILING_HZ: dict[str, int] = {
     "aac": 18000,  # AAC HE/LC typisch
     "unknown": 22050,  # keine Einschränkung
 }
+
+# ── Persistenz-Pfad für HPG-Referenz-Memory (§2.44, analog §2.70 RestorationMemory) ─────
+_HPG_REF_MEMORY_PATH: pathlib.Path = (
+    pathlib.Path(os.environ.get("AURIK_DATA_DIR", str(pathlib.Path.home() / ".aurik"))) / "hpg_reference_memory.json"
+)
 
 # ── Singleton ──────────────────────────────────────────────────────────────
 _instance: HolisticPerceptualGate | None = None
@@ -109,6 +117,8 @@ class HolisticPerceptualGate:
         # §2.44 VERBOTEN: MERT darf nicht primary sein wenn VERSA verfügbar.
         # _mert_proxy_used = True → VERSA fehlgeschlagen, MERT als Fallback aktiv.
         self._mert_proxy_used: bool = False
+        # §2.44 Persistenz: Referenz-Memory von Disk laden (analog §2.70 RestorationMemory).
+        self._load_ref_memory_from_disk()
 
     def evaluate_restoration(
         self,
@@ -380,6 +390,68 @@ class HolisticPerceptualGate:
             self._ref_memory[key].obs_count,
             self._ref_memory[key].calibrated,
         )
+        # §2.44 Persistenz: nach jedem Quality-Gate-konformen Update speichern.
+        self._save_ref_memory_to_disk()
+
+    def _load_ref_memory_from_disk(self) -> None:
+        """§2.44 Lädt persistiertes Referenz-Memory von ~/.aurik/hpg_reference_memory.json.
+
+        Exception-safe: Bei fehlendem/beschädigtem File startet das System mit leerem Memory.
+        Wird nur für Einträge mit obs_count >= 1 geladen (kein Garbage-Import).
+        """
+        try:
+            if not _HPG_REF_MEMORY_PATH.exists():
+                return
+            with _HPG_REF_MEMORY_PATH.open("r", encoding="utf-8") as fh:
+                raw = json.load(fh)
+            loaded = 0
+            for k_str, v in raw.items():
+                parts = k_str.split("|")
+                if len(parts) != 3:
+                    continue
+                if not isinstance(v, dict) or "embedding" not in v:
+                    continue
+                obs = int(v.get("obs_count", 1))
+                if obs < 1:
+                    continue  # Kein Garbage-Import
+                emb = np.asarray(v["embedding"], dtype=np.float32)
+                key = (parts[0], parts[1], parts[2])
+                self._ref_memory[key] = _RefEntry(
+                    embedding=emb,
+                    obs_count=obs,
+                    calibrated=bool(v.get("calibrated", False)),
+                )
+                loaded += 1
+            logger.info("§2.44 ReferenceMemory: %d Einträge von Disk geladen (%s)", loaded, _HPG_REF_MEMORY_PATH)
+        except Exception as exc:  # pylint: disable=broad-except
+            logger.warning("§2.44 ReferenceMemory: Disk-Load fehlgeschlagen — starte mit leerem Memory: %s", exc)
+
+    def _save_ref_memory_to_disk(self) -> None:
+        """§2.44 Speichert aktuelles Referenz-Memory nach ~/.aurik/hpg_reference_memory.json.
+
+        Exception-safe: Fehler beim Schreiben darf nie einen Lauf unterbrechen.
+        Format: {"genre|material|era_bin": {embedding: [...], obs_count: N, calibrated: bool}}
+        Nur Einträge mit obs_count >= 1 werden geschrieben.
+        """
+        try:
+            _HPG_REF_MEMORY_PATH.parent.mkdir(parents=True, exist_ok=True)
+            with self._ref_lock:
+                payload: dict[str, dict] = {}
+                for (genre, material, era_bin), entry in self._ref_memory.items():
+                    if entry.obs_count < 1:
+                        continue
+                    payload[f"{genre}|{material}|{era_bin}"] = {
+                        "embedding": entry.embedding.tolist(),
+                        "obs_count": entry.obs_count,
+                        "calibrated": entry.calibrated,
+                    }
+            tmp_path = _HPG_REF_MEMORY_PATH.with_suffix(".tmp")
+            with tmp_path.open("w", encoding="utf-8") as fh:
+                json.dump(payload, fh, separators=(",", ":"))
+            tmp_path.replace(_HPG_REF_MEMORY_PATH)
+            logger.debug("§2.44 ReferenceMemory: %d Einträge auf Disk gespeichert", len(payload))
+        except Exception as exc:  # pylint: disable=broad-except
+            logger.warning("§2.44 ReferenceMemory: Disk-Save fehlgeschlagen (non-blocking): %s", exc)
 
     def _get_reference_vector(self, genre: str, material: str, era_bin: str) -> np.ndarray | None:
         """§2.44 Fallback-Kaskade (5 Stufen).
