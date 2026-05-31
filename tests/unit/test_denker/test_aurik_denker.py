@@ -8,9 +8,10 @@ np.random.seed(42) für Reproduzierbarkeit.
 
 from __future__ import annotations
 
+import ast
 import math
 import sys
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 from unittest.mock import MagicMock, patch
 
 import numpy as np
@@ -27,7 +28,22 @@ SR = 48_000
 def _sine(duration_s: float = 1.0, freq: float = 440.0) -> np.ndarray:
     np.random.seed(42)
     t = np.linspace(0, duration_s, int(SR * duration_s), dtype=np.float32)
-    return (np.sin(2 * np.pi * freq * t) * 0.5).astype(np.float32)
+    y = np.sin(2 * np.pi * freq * t) * 0.5
+    return np.asarray(y, dtype=np.float32)
+
+
+def _normalized_fail_reasons(stage_notes: dict[str, Any]) -> list[dict[str, Any]]:
+    raw = stage_notes.get("fail_reasons", [])
+    if isinstance(raw, list):
+        return cast(list[dict[str, Any]], raw)
+    if isinstance(raw, str):
+        try:
+            parsed = ast.literal_eval(raw)
+        except (SyntaxError, ValueError):
+            return []
+        if isinstance(parsed, list):
+            return cast(list[dict[str, Any]], parsed)
+    return []
 
 
 def _make_toni_mock(material: str = "tape", confidence: float = 0.85) -> MagicMock:
@@ -562,6 +578,94 @@ class TestAurikDenkerDigitalExcellenceGuard:
         # v9.10.72: ExzellenzDenker ruft messe_ziele() statt optimiere() auf
         assert exz_denker_m.messe_ziele.called, "ExzellenzDenker.messe_ziele() wurde nicht aufgerufen"
 
+    def test_prefers_messe_und_repariere_when_available(self):
+        audio = _sine()
+
+        class _RealExz:
+            def __init__(self):
+                self.repair_called = False
+                self.legacy_called = False
+                self.last_mode: str | None = None
+                self.last_material: str | None = None
+                self.last_reference = None
+
+            def messe_und_repariere(
+                self,
+                audio_in,
+                sr,
+                *,
+                mode="restoration",
+                material="auto",
+                reference_audio=None,
+            ):
+                self.repair_called = True
+                self.last_mode = str(mode)
+                self.last_material = str(material)
+                self.last_reference = reference_audio
+                return audio_in, {"brillanz": 0.87, "waerme": 0.81}
+
+            def messe_ziele(self, audio_in, sr):
+                self.legacy_called = True
+                return {"brillanz": 0.40}
+
+        exz_real = _RealExz()
+        versa_result_m = MagicMock(mos=4.6, model_used="mock_versa")
+        rest_result = MagicMock()
+        rest_result.audio = audio.copy()
+        rest_result.phases_executed = []
+        rest_result.warnings = []
+        rest_result.quality_estimate = 0.8
+        rest_result.rt_factor = 0.5
+        rest_result.confidence = 0.9
+        rest_result.rollback_triggered = False
+        rest_result.winning_variant = "balanced"
+        rest_result.musical_goals = {}
+        rest_result.goals_passed = 0
+        rest_result.metadata = {}
+
+        with (
+            patch(
+                "denker.aurik_denker.get_tontraeger_denker",
+                MagicMock(return_value=MagicMock(erkenne=MagicMock(return_value=_make_toni_mock("tape")))),
+            ),
+            patch(
+                "denker.aurik_denker.get_tontraegerkette_denker",
+                MagicMock(return_value=MagicMock(analysiere=MagicMock(return_value=_make_kette_mock("tape→mp3_high")))),
+            ),
+            patch(
+                "denker.aurik_denker.get_defekt_denker",
+                MagicMock(return_value=MagicMock(analysiere=MagicMock(return_value=_make_defekt_mock()))),
+            ),
+            patch("denker.aurik_denker.get_strategie_denker", MagicMock(return_value=_make_strategie_mock())),
+            patch(
+                "denker.aurik_denker.get_restaurier_denker",
+                MagicMock(return_value=MagicMock(restauriere=MagicMock(return_value=rest_result))),
+            ),
+            patch(
+                "denker.aurik_denker.get_reparatur_denker",
+                MagicMock(return_value=MagicMock(repariere=MagicMock(return_value=MagicMock(audio=audio.copy())))),
+            ),
+            patch(
+                "denker.aurik_denker.get_rekonstruktions_denker",
+                MagicMock(return_value=MagicMock(rekonstruiere=MagicMock(return_value=MagicMock(audio=audio.copy())))),
+            ),
+            patch("denker.aurik_denker.get_exzellenz_denker", MagicMock(return_value=exz_real)),
+            patch(
+                "denker.aurik_denker.AurikDenker._should_skip_excellence_for_clean_digital",
+                MagicMock(return_value=(False, {"material": "tape"})),
+            ),
+            patch("plugins.versa_plugin.score_mos", MagicMock(return_value=versa_result_m)),
+        ):
+            from denker.aurik_denker import AurikDenker
+
+            AurikDenker().denke(audio, SR, no_rt_limit=True)
+
+        assert exz_real.repair_called, "ExzellenzDenker.messe_und_repariere() wurde nicht genutzt"
+        assert not exz_real.legacy_called, "Legacy-Path messe_ziele() darf bei verfügbarem Repair-Pfad nicht laufen"
+        assert exz_real.last_mode == "restoration"
+        assert exz_real.last_material in {"mp3_low", "mp3_high"}
+        assert exz_real.last_reference is not None
+
 
 class TestAurikDenkerMaterialMosGate:
     def test_material_mos_gate_clamps_quality_when_target_is_missed(self):
@@ -868,9 +972,9 @@ class TestAurikDenkerDegradationSignals:
         assert result.stage_notes.get("degradation_status") == "degraded"
         assert "kette" in result.stage_notes.get("degradation_failures", "")
         assert "STAGE_KETTE_FAILED" in result.stage_notes.get("degradation_error_codes", "")
-        assert isinstance(result.stage_notes.get("fail_reasons"), list)
-        assert result.stage_notes.get("fail_reasons")
-        assert result.stage_notes["fail_reasons"][0]["error_code"] == "STAGE_KETTE_FAILED"
+        fail_reasons = _normalized_fail_reasons(result.stage_notes)
+        assert fail_reasons
+        assert fail_reasons[0]["error_code"] == "STAGE_KETTE_FAILED"
         assert result.fail_reason is None
         assert result.degradation_status == "degraded"
 
@@ -1170,8 +1274,9 @@ class TestAurikErgebnisInvarianten:
         assert fb.degradation_status == "blocked"
         assert isinstance(fb.fail_reason, str)
         assert fb.fail_reason.startswith("pipeline_blocked:")
-        assert isinstance(fb.stage_notes.get("fail_reasons"), list)
-        assert fb.stage_notes["fail_reasons"][0]["error_code"] == "PIPELINE_BLOCKED"
+        fail_reasons = _normalized_fail_reasons(fb.stage_notes)
+        assert fail_reasons
+        assert fail_reasons[0]["error_code"] == "PIPELINE_BLOCKED"
 
 
 # ─── Vollständig gemockte Orchestrierung (alle 10 Stufen) ───────────────────

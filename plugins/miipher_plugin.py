@@ -158,10 +158,14 @@ class MiipherPlugin:
             try:
                 _reg = _load_symbol("backend.core.plugin_lifecycle_manager", "register_plugin")
 
+                def _miipher_unload(s: MiipherPlugin = self) -> None:
+                    s._model_session = None
+                    s._model_loaded = False
+
                 _reg(
                     "MIIPHER",
                     size_gb=0.8,
-                    unload_fn=lambda s=self: setattr(s, "_model_session", None) or setattr(s, "_model_loaded", False),
+                    unload_fn=_miipher_unload,
                 )
             except Exception as _exc:
                 logger.debug("PLM-Registrierung MIIPHER (non-critical): %s", _exc)

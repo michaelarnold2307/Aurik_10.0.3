@@ -1,6 +1,7 @@
 """Unit tests for the productive MIIPHER vocal SOTA adapter."""
 
 import types
+from typing import Any, cast
 
 import numpy as np
 
@@ -471,7 +472,7 @@ def test_run_native_miipher_onnx_uses_model_session_and_sets_path(monkeypatch):
 
     plugin = MiipherPlugin()
     plugin._model_loaded = True
-    plugin._model_session = _FakeOrtSession()
+    plugin._model_session = cast(Any, _FakeOrtSession())
 
     audio = np.linspace(-0.3, 0.3, 4800, dtype=np.float32)
     result = plugin._run_native_miipher_onnx(audio, sr=48000)
@@ -511,7 +512,7 @@ def test_enhance_routes_to_native_onnx_when_model_loaded(monkeypatch):
 
     plugin = MiipherPlugin()
     plugin._model_loaded = True
-    plugin._model_session = _FakeOrtSession()
+    plugin._model_session = cast(Any, _FakeOrtSession())
 
     audio = np.linspace(-0.2, 0.2, 4800, dtype=np.float32)
     result = plugin.enhance(audio, 48000, noise_snr_db=3.0, panns_singing=0.7)

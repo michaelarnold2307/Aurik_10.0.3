@@ -72,7 +72,7 @@ logger = logging.getLogger(__name__)
 # §Perf: Session-scoped Cache für _fast_goal_snapshot — wird zu Beginn jedes restore()-Aufrufs
 # geleert. Schlüssel = (id(audio), shape, sr, material_type); id() ist innerhalb einer
 # restore()-Session sicher (Arrays werden nie in-place ersetzt, nur reassigned → neue id).
-_FAST_GOAL_SNAP_CACHE: dict = {}
+_FAST_GOAL_SNAP_CACHE: dict[tuple[Any, tuple[int, ...], int, str, tuple[float, float, float]], dict[str, float]] = {}
 
 
 @dataclass
@@ -2411,7 +2411,7 @@ class UnifiedRestorerV3:
         classified_material: MaterialType | None,
         scanned_material: MaterialType | None,
         mc_result: Any | None,
-    ) -> MaterialType | None:
+    ) -> MaterialType:
         """Bewahrt ein spezifisches Transport-Material nach dem DefectScanner-Rueckfluss.
 
         Der DefectScanner darf fuer interne Familienheuristiken auf generisches Tape
@@ -2420,7 +2420,7 @@ class UnifiedRestorerV3:
         "tape" zurueckfaellt.
         """
         if scanned_material is None:
-            return classified_material
+            return classified_material if classified_material is not None else MaterialType.UNKNOWN
 
         _scanned = str(getattr(scanned_material, "value", scanned_material) or "").strip().lower()
         if classified_material is not None and cls._should_preserve_specific_transport_material(
@@ -2429,7 +2429,7 @@ class UnifiedRestorerV3:
             mc_result,
         ):
             return classified_material
-        return scanned_material
+        return scanned_material if scanned_material is not None else MaterialType.UNKNOWN
 
     @classmethod
     def _phase_has_musical_budget_priority(cls, phase_id: str) -> bool:
@@ -3471,7 +3471,13 @@ class UnifiedRestorerV3:
         elif isinstance(_ig.get("rollback_count"), (int, float)):
             _rollback_count = int(_ig.get("rollback_count", 0))
 
-        _regressive_weight_sum = float(sum(float(ev.get("severity", 1.0)) for ev in _regressive))
+        _regressive_weight_sum = 0.0
+        for _reg_ev in _regressive:
+            if not isinstance(_reg_ev, dict):
+                continue
+            _sev_raw = _reg_ev.get("severity", 1.0)
+            if isinstance(_sev_raw, (int, float)):
+                _regressive_weight_sum += float(_sev_raw)
 
         _score = float(
             np.clip(
@@ -4128,7 +4134,8 @@ class UnifiedRestorerV3:
         )
         _snap_key = (id(audio), audio.shape, sr, material_type, _fp_snap)
         if _snap_key in _FAST_GOAL_SNAP_CACHE:
-            return _FAST_GOAL_SNAP_CACHE[_snap_key]
+            _cached = _FAST_GOAL_SNAP_CACHE[_snap_key]
+            return {str(_k): float(_v) for _k, _v in _cached.items() if isinstance(_v, (int, float))}
 
         result: dict[str, float] = {}
         try:
@@ -6003,7 +6010,7 @@ class UnifiedRestorerV3:
         # §Perf: Snapshot-Cache für diese Session leeren (verhindert id()-Wiederverwendungs-Kollisionen).
         _FAST_GOAL_SNAP_CACHE.clear()
         # §Perf: Bereits von APR/FC-SECONDARY behandelte Goals — verhindert Multi-Mechanismus-Doppelarbeit.
-        self._session_recovered_goals: set[str] = set()
+        self._session_recovered_goals = set()
 
         def _cb(pct: int, phase: str) -> None:
             """Sendet Progress-Update, falls Callback registriert."""
@@ -7662,6 +7669,8 @@ class UnifiedRestorerV3:
                 _tdp_proc = get_transient_decoupled_processor()
 
             if not _tdp_vocal_bypass:
+                if _tdp_proc is None:
+                    raise RuntimeError("TransientDecoupledProcessor nicht verfügbar")
                 _tdp_audio_percussive, _tdp_audio_harmonic = _tdp_proc.separate(audio, sample_rate)
                 _tdp_percussive = _tdp_audio_percussive.copy()  # Original-Transienten sichern
                 audio = _tdp_audio_harmonic  # Pipeline ab jetzt auf harm. Anteil
@@ -8838,7 +8847,7 @@ class UnifiedRestorerV3:
             from backend.core.feasibility_controller import estimate_goal_feasibility as _est_feasibility
 
             _fc_mat = str(getattr(material_type, "value", material_type) or "unknown").lower()
-            _fc_chain = list(_cal_transfer_chain) if _cal_transfer_chain else []
+            _fc_transfer_chain = list(_cal_transfer_chain) if _cal_transfer_chain else []
             _fc_restorability = float(getattr(self, "_last_restorability_score", 65.0))
             _fc_raw = _analysis_audio if "_analysis_audio" in dir() else audio
             _fc_audio = (
@@ -8849,7 +8858,7 @@ class UnifiedRestorerV3:
                 sr=sample_rate,
                 material=_fc_mat,
                 restorability=_fc_restorability,
-                transfer_chain=_fc_chain,
+                transfer_chain=_fc_transfer_chain,
             )
             if _goal_feasibility:
                 _fc_limits = {g: v.to_dict() for g, v in _goal_feasibility.items() if not v.reachable}
@@ -13056,12 +13065,12 @@ class UnifiedRestorerV3:
                 if _sig.ndim <= 1:
                     return _sig.reshape(-1)
                 if _sig.shape[0] <= 2 and _sig.shape[1] > 2:
-                    return np.mean(_sig, axis=0, dtype=np.float32)
+                    return np.asarray(np.mean(_sig, axis=0, dtype=np.float32), dtype=np.float32)
                 if _sig.shape[1] <= 2 and _sig.shape[0] > 2:
-                    return np.mean(_sig, axis=1, dtype=np.float32)
+                    return np.asarray(np.mean(_sig, axis=1, dtype=np.float32), dtype=np.float32)
                 if _sig.shape[0] >= _sig.shape[1]:
-                    return np.mean(_sig, axis=1, dtype=np.float32)
-                return np.mean(_sig, axis=0, dtype=np.float32)
+                    return np.asarray(np.mean(_sig, axis=1, dtype=np.float32), dtype=np.float32)
+                return np.asarray(np.mean(_sig, axis=0, dtype=np.float32), dtype=np.float32)
 
             def _pwg_apply_time_gain(_arr: np.ndarray, _gain: np.ndarray, _n: int) -> np.ndarray:
                 """Wendet sample-genauen Gain entlang der Zeitachse auf Mono/Stereo an."""
@@ -15203,10 +15212,14 @@ class UnifiedRestorerV3:
                 _v23_result = _v23_check(restored_audio, sample_rate)
                 if not _v23_result.ok:
                     logger.warning(
-                        "§V23 Mono-Kompatibilität: Phasenlöschung=%.1f dB > 3.0 dB → "
-                        "metadata[mono_compatibility_warning]=True",
-                        _v23_result.phase_cancellation_db,
+                        "§V23 MKI warning: phase_cancellation_db=%.2f (>3.0 dB) — metadata[mono_compatibility_warning]=True",
+                        float(getattr(_v23_result, "phase_cancellation_db", 0.0) or 0.0),
                     )
+                    if isinstance(self._phase_metadata_accumulator, dict):
+                        self._phase_metadata_accumulator["mono_compatibility_warning"] = True
+                        self._phase_metadata_accumulator["mono_phase_cancellation_db"] = float(
+                            getattr(_v23_result, "phase_cancellation_db", 0.0) or 0.0
+                        )
         except Exception as _v23_exc:
             logger.debug("§V23 MKI pre-export non-blocking: %s", _v23_exc)
 
@@ -16401,10 +16414,11 @@ class UnifiedRestorerV3:
                     if isinstance(_phase_id, str):
                         _phase_to_coalition[_phase_id] = str(_coalition_name)
             _coalition_counts: dict[str, int] = {}
-            for _phase_id in _dpm_phases:
-                _coalition_name = _phase_to_coalition.get(_phase_id)
-                if _coalition_name:
-                    _coalition_counts[_coalition_name] = _coalition_counts.get(_coalition_name, 0) + 1
+            for _phase_id_raw in _dpm_phases:
+                _phase_id = str(_phase_id_raw)
+                _mapped_coalition: str | None = _phase_to_coalition.get(_phase_id)
+                if _mapped_coalition:
+                    _coalition_counts[_mapped_coalition] = _coalition_counts.get(_mapped_coalition, 0) + 1
             _dom_coalition: str = ""
             _dom_count = 0
             if _coalition_counts:
@@ -22141,7 +22155,7 @@ class UnifiedRestorerV3:
                 _thr_ppm,
                 float(np.mean(_blend_profile)),
             )
-            return _out
+            return np.asarray(_out, dtype=np.float32)
         except Exception as _jit_exc:
             logger.debug("Jitter-Spezialist non-blocking (%s): %s", phase_id, _jit_exc)
             return audio
@@ -22310,7 +22324,7 @@ class UnifiedRestorerV3:
                 len(_events_sorted),
                 float(np.mean(_blend_profile)),
             )
-            return _out
+            return np.asarray(_out, dtype=np.float32)
         except Exception as _pe_exc:
             logger.debug("Pre-Echo-Spezialist non-blocking (%s): %s", phase_id, _pe_exc)
             return audio
@@ -22434,7 +22448,7 @@ class UnifiedRestorerV3:
                 _blend,
                 float(np.mean(_blend_profile)),
             )
-            return _out
+            return np.asarray(_out, dtype=np.float32)
         except Exception as _al_exc:
             logger.debug("Aliasing-Spezialist non-blocking (%s): %s", phase_id, _al_exc)
             return audio
@@ -22560,7 +22574,7 @@ class UnifiedRestorerV3:
                 _blend,
                 float(np.mean(_blend_profile)),
             )
-            return _out
+            return np.asarray(_out, dtype=np.float32)
         except Exception as _comp_exc:
             logger.debug("Compression-Spezialist non-blocking (%s): %s", phase_id, _comp_exc)
             return audio
@@ -24227,8 +24241,9 @@ class UnifiedRestorerV3:
         _sub_pct_range = getattr(self, "_active_phase_pct_for_sub", None)
         if _sub_root_cb is not None and _sub_pct_range is not None and "progress_sub_callback" not in kwargs:
             if isinstance(_sub_pct_range, (tuple, list)) and len(_sub_pct_range) == 2:
-                _sp_s = float(_sub_pct_range[0])
-                _sp_e = float(_sub_pct_range[1])
+                _sp_s_raw, _sp_e_raw = tuple(_sub_pct_range)
+                _sp_s = float(_sp_s_raw)
+                _sp_e = float(_sp_e_raw)
             else:
                 _sp_s, _sp_e = 0.0, 1.0
 
@@ -24532,9 +24547,9 @@ class UnifiedRestorerV3:
                 _nmr_result = _compute_nmr(audio, _sr_nmr)
                 if not _nmr_result.ok:
                     logger.info(
-                        "§V40 NMR low %s: nmr_ratio=%.3f delta=%.3f → §2.45 Minimal-Intervention",
+                        "§V40 NMR low %s: above_masking=%.3f delta=%.3f → §2.45 Minimal-Intervention",
                         phase_metadata.phase_id,
-                        _nmr_result.nmr_ratio,
+                        _nmr_result.nmr_above_masking_fraction,
                         _nmr_result.recommended_nr_strength_delta,
                     )
                 _nmr_delta = float(_nmr_result.recommended_nr_strength_delta)
@@ -25048,11 +25063,24 @@ class UnifiedRestorerV3:
                         if isinstance(getattr(self, "_restoration_context", {}), dict)
                         else {}
                     )
+
+                    def _safe_optional_int(_val: Any) -> int | None:
+                        if isinstance(_val, bool):
+                            return int(_val)
+                        if isinstance(_val, (int, float)):
+                            return int(_val)
+                        if isinstance(_val, str) and _val.strip():
+                            try:
+                                return int(float(_val.strip()))
+                            except ValueError:
+                                return None
+                        return None
+
                     _FORMANT_DB_LIMIT = float(
                         kwargs.get(
                             "formant_tolerance_db",
                             _rft_uv3(
-                                era_decade=(int(_ctx_fg.get("decade")) if _ctx_fg.get("decade") is not None else None),
+                                era_decade=_safe_optional_int(_ctx_fg.get("decade")),
                                 era_profile=kwargs.get("era_vocal_profile") or _ctx_fg.get("era_vocal_profile"),
                             ),
                         )
@@ -25146,9 +25174,7 @@ class UnifiedRestorerV3:
                             getattr(self, "_last_restorability_score", None),
                         ),
                         breath_segments=_vnh_context.get("breath_segments"),
-                        era_decade=(
-                            int(_vnh_context.get("decade")) if _vnh_context.get("decade") is not None else None
-                        ),
+                        era_decade=_safe_optional_int(_vnh_context.get("decade")),
                         era_vocal_profile=kwargs.get("era_vocal_profile") or _vnh_context.get("era_vocal_profile"),
                     )
                     _vnh_payload = _vnh_result.to_dict() if hasattr(_vnh_result, "to_dict") else {}
@@ -28434,12 +28460,18 @@ class UnifiedRestorerV3:
                     _guard_applicable_goals = set(
                         (getattr(self, "_restoration_context", {}) or {}).get("applicable_goals") or []
                     )
-                _guard_effective_targets = (
-                    dict(self._pmgg_ceiling_capped_targets)
-                    if isinstance(getattr(self, "_pmgg_ceiling_capped_targets", None), dict)
-                    and bool(getattr(self, "_pmgg_ceiling_capped_targets", None))
-                    else dict(getattr(self, "_song_goal_targets", {}) or {})
-                )
+                _raw_capped_targets = getattr(self, "_pmgg_ceiling_capped_targets", None)
+                _raw_song_targets = getattr(self, "_song_goal_targets", None)
+                if isinstance(_raw_capped_targets, dict) and _raw_capped_targets:
+                    _guard_effective_targets = {
+                        str(_k): float(_v) for _k, _v in _raw_capped_targets.items() if isinstance(_v, (int, float))
+                    }
+                elif isinstance(_raw_song_targets, dict):
+                    _guard_effective_targets = {
+                        str(_k): float(_v) for _k, _v in _raw_song_targets.items() if isinstance(_v, (int, float))
+                    }
+                else:
+                    _guard_effective_targets = {}
                 _guard_baseline_scores: dict[str, float] = {}
                 if isinstance(getattr(self, "_restoration_context", None), dict):
                     _guard_baseline_scores = {
@@ -31085,7 +31117,9 @@ class UnifiedRestorerV3:
             _p1p2_goals = ["natuerlichkeit", "authentizitaet", "tonal_center", "timbre_authentizitaet", "artikulation"]
             _all_goals_in_log: set[str] = set()
             for _e in _pmgg_log_entries:
-                _all_goals_in_log.update(_e.goal_regressions.keys())
+                _goal_reg = getattr(_e, "goal_regressions", None)
+                if isinstance(_goal_reg, dict):
+                    _all_goals_in_log.update(str(_k) for _k in _goal_reg.keys())
             _tracked = [g for g in _p1p2_goals if g in _all_goals_in_log] + [
                 g for g in sorted(_all_goals_in_log) if g not in _p1p2_goals
             ]
@@ -31094,9 +31128,13 @@ class UnifiedRestorerV3:
                 _header = f"{'Phase':<40}" + "".join(f"{g:>{_col_w}}" for g in _tracked)
                 _rows = [_header, "-" * len(_header)]
                 for _e in _pmgg_log_entries:
-                    _row = f"{_e.phase_id:<40}"
+                    _goal_reg = getattr(_e, "goal_regressions", None)
+                    if not isinstance(_goal_reg, dict):
+                        continue
+                    _row = f"{str(getattr(_e, 'phase_id', '')):<40}"
                     for _g in _tracked:
-                        _delta = _e.goal_regressions.get(_g)
+                        _delta_raw = _goal_reg.get(_g)
+                        _delta = float(_delta_raw) if isinstance(_delta_raw, (int, float)) else None
                         if _delta is None:
                             _row += f"{'—':>{_col_w}}"
                         else:

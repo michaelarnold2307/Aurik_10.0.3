@@ -18,6 +18,7 @@ import numpy as np
 import pytest
 
 from benchmarks.musical_restoration_benchmark import (
+    _SCENARIO_MATERIAL_TYPE,
     AMRB_BASELINES,
     BenchmarkConfig,
     BenchmarkReport,
@@ -27,17 +28,22 @@ from benchmarks.musical_restoration_benchmark import (
 logger = logging.getLogger(__name__)
 
 _SCENARIO_DEFAULT_HINTS: dict[str, tuple[str, str]] = {
-    "AMRB-01-TAPE": ("reel_tape", "reel_tape"),
-    "AMRB-02-VINYL": ("vinyl", "vinyl"),
-    "AMRB-03-SHELLAC": ("shellac", "shellac"),
-    "AMRB-04-DIGITAL": ("cd_digital", "cd_digital"),
-    "AMRB-05-CODEC": ("mp3_low", "mp3_low"),
-    "AMRB-06-VOCAL": ("tape", "tape"),  # v9.12.9 fix: WOW ±1.5% braucht tape-Threshold 0.3% statt cd_digital 2.0%
-    "AMRB-07-REVERB": ("reel_tape", "reel_tape"),
-    "AMRB-08-HUM": ("tape", "tape"),
-    "AMRB-09-DROPOUT": ("tape", "tape"),
-    "AMRB-10-COMPOSITE": ("tape", "vinyl>tape"),
+    sid: (
+        str(material),
+        "vinyl>tape" if sid == "AMRB-10-COMPOSITE" else str(material),
+    )
+    for sid, material in _SCENARIO_MATERIAL_TYPE.items()
 }
+
+
+def test_amrb_scenario_hints_follow_benchmark_material_map() -> None:
+    """Schützt vor Drift: erster Hint-Wert muss der kanonischen Benchmark-Zuordnung folgen."""
+    for sid, expected_material in _SCENARIO_MATERIAL_TYPE.items():
+        assert sid in _SCENARIO_DEFAULT_HINTS, f"Fehlender AMRB-Hint für Szenario: {sid}"
+        actual_material = _SCENARIO_DEFAULT_HINTS[sid][0]
+        assert actual_material == str(expected_material), (
+            f"Material-Hint-Drift für {sid}: erwartet {expected_material}, erhalten {actual_material}"
+        )
 
 
 def _build_cached_medium_hint(sid: str | None):

@@ -332,7 +332,7 @@ _SCENARIO_MATERIAL_TYPE: dict[str, str] = {
     "AMRB-03-SHELLAC": "shellac",
     "AMRB-04-DIGITAL": "cd_digital",
     "AMRB-05-CODEC": "mp3_low",
-    "AMRB-06-VOCAL": "cd_digital",
+    "AMRB-06-VOCAL": "tape",
     "AMRB-07-REVERB": "reel_tape",
     "AMRB-08-HUM": "tape",
     "AMRB-09-DROPOUT": "tape",

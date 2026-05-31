@@ -70,6 +70,7 @@ class FeedbackChain:
         self.use_pqs_in_loop = bool(use_pqs_in_loop)
         self.use_versa_in_loop = bool(use_versa_in_loop)
         self.panns_singing: float = float(np.clip(panns_singing, 0.0, 1.0))  # §0p VQI-Gate
+        self.era_decade: int = 1975  # §EraVocalProfile: optional von UV3 überschrieben
         self._vqi_orig_audio: np.ndarray | None = None  # gesetzt in run() — §0p Dual-Objective
         self.frisson_zones: list | None = None  # §Frisson: gesetzt von UV3 vor FC-Loop
         self.frisson_orig_audio: np.ndarray | None = None  # §Frisson: Original-Audio-Referenz
@@ -537,7 +538,11 @@ class FeedbackChain:
         # Phases that degrade MOS (Δ < -0.01) are pruned from subsequent iterations.
         # This prevents a harmful phase from cancelling gains of helpful ones.
         _phase_list_mode = isinstance(phases_or_fn, list)
-        _active_phases: list = list(phases_or_fn) if _phase_list_mode else []
+        _active_phases: list
+        if isinstance(phases_or_fn, list):
+            _active_phases = list(phases_or_fn)
+        else:
+            _active_phases = []
         _pruned_phases: list[str] = []
         _phase_deltas: dict[str, float] = {}  # phase_id → MOS delta from first iteration
 

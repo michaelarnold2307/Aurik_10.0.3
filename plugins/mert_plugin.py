@@ -455,7 +455,11 @@ class MertPlugin:
             self._processor = Wav2Vec2FeatureExtractor.from_pretrained(
                 str(hf_dir), trust_remote_code=True, local_files_only=True
             )
-            self._model = AutoModel.from_pretrained(str(hf_dir), trust_remote_code=True, local_files_only=True)  # nosec B615 — lokales, SHA256-verifiziertes Modell
+            self._model = AutoModel.from_pretrained(
+                str(hf_dir),
+                trust_remote_code=True,
+                local_files_only=True,
+            )  # nosec B615 — lokales, SHA256-verifiziertes Modell
             self._model.eval()
             self._model.to(_mert_device)
             self._device = _mert_device
@@ -497,7 +501,8 @@ class MertPlugin:
         except Exception as _exc:
             # §OOM-Guard fail-safe: Exception im Budget-Check → Laden verweigern.
             logger.warning(
-                "MERT-330M-fairseq: Budget-Check fehlgeschlagen (%s) — Laden verweigert (OOM-Fail-safe).", _exc
+                "MERT-330M-fairseq: Budget-Check fehlgeschlagen (%s) — Laden verweigert (OOM-Fail-safe).",
+                _exc,
             )
             return
         try:
@@ -505,7 +510,11 @@ class MertPlugin:
                 return
             torch.set_num_threads(os.cpu_count() or 4)  # §2.37 CPU-Thread-Budget
             _mert_fs_dev = get_torch_device("MERT-330M-fairseq")
-            checkpoint = torch.load(pt_path, map_location=_mert_fs_dev, weights_only=False)  # nosec B614 — lokaler, SHA256-verifizierter fairseq Checkpoint
+            checkpoint = torch.load(
+                pt_path,
+                map_location=_mert_fs_dev,
+                weights_only=False,
+            )  # nosec B614 — lokaler, SHA256-verifizierter fairseq Checkpoint
             state_dict = checkpoint.get("model", checkpoint)
             self._model = state_dict
             self._model_type = "mert_fairseq"
@@ -538,7 +547,11 @@ class MertPlugin:
                 trust_remote_code=True,
                 local_files_only=True,  # nosec B615 — local_files_only=True, kein Download
             )
-            self._model = AutoModel.from_pretrained(str(hf_dir), trust_remote_code=True, local_files_only=True)  # nosec B615
+            self._model = AutoModel.from_pretrained(
+                str(hf_dir),
+                trust_remote_code=True,
+                local_files_only=True,
+            )  # nosec B615
             self._model.eval()
             self._model_type = "mert_hf"
             logger.info("MERT-v1-95M (HuggingFace) geladen: %s", hf_dir)
@@ -572,7 +585,11 @@ class MertPlugin:
             if torch is None:
                 return
             torch.set_num_threads(os.cpu_count() or 4)  # §2.37 CPU-Thread-Budget
-            checkpoint = torch.load(pt_path, map_location="cpu", weights_only=False)  # nosec B614 — lokaler, SHA256-verifizierter fairseq Checkpoint
+            checkpoint = torch.load(
+                pt_path,
+                map_location="cpu",
+                weights_only=False,
+            )  # nosec B614 — lokaler, SHA256-verifizierter fairseq Checkpoint
             state_dict = checkpoint.get("model", checkpoint)
             self._model = state_dict
             self._model_type = "mert_fairseq"

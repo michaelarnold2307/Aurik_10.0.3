@@ -174,7 +174,7 @@
     {
       "label": "pytest: Full Spec Gate (integration + normative, ungefiltert)",
       "type": "shell",
-      "command": "\"${workspaceFolder}/scripts/pytest_clean.sh\" tests/integration tests/normative -p no:xdist --run-heavy-tests --run-gui-tests --override-ini=\"addopts=--strict-markers --import-mode=importlib\" --timeout=90 --tb=line -q --disable-warnings --no-header --show-capture=no --maxfail=5",
+      "command": "AURIK_MEM_GB=16 AURIK_SWAP_MB=4096 AURIK_STREAM_TO_TERMINAL=0 AURIK_TERMINAL_LINE_BUDGET=300 \"${workspaceFolder}/scripts/pytest_clean.sh\" tests/integration tests/normative -p no:xdist --run-heavy-tests --run-gui-tests --override-ini=\"addopts=--strict-markers --import-mode=importlib\" --timeout=90 --tb=line -q --disable-warnings --no-header --show-capture=no --maxfail=5",
       "args": [],
       "isBackground": false,
       "problemMatcher": [],
@@ -204,7 +204,7 @@
     {
       "label": "pytest: AMRB Gate (separat, langlaufend)",
       "type": "shell",
-      "command": "QT_QPA_PLATFORM=offscreen \"${workspaceFolder}/scripts/pytest_clean.sh\" tests/normative/test_amrb_ci_gate.py -p no:xdist --run-heavy-tests --run-gui-tests --timeout=600 --tb=short -q --disable-warnings --no-header --show-capture=no --maxfail=1",
+      "command": "QT_QPA_PLATFORM=offscreen AURIK_MEM_GB=16 AURIK_SWAP_MB=4096 AURIK_STREAM_TO_TERMINAL=0 AURIK_TERMINAL_LINE_BUDGET=250 \"${workspaceFolder}/scripts/pytest_clean.sh\" tests/normative/test_amrb_ci_gate.py -p no:xdist --run-heavy-tests --run-gui-tests --timeout=600 --tb=short -q --disable-warnings --no-header --show-capture=no --maxfail=1",
       "args": [],
       "isBackground": false,
       "problemMatcher": [],
@@ -219,7 +219,7 @@
     {
       "label": "pytest: Competitive Gate (separat, langlaufend)",
       "type": "shell",
-      "command": "AURIK_COMPETITIVE_BENCHMARK_TIMEOUT_S=180 QT_QPA_PLATFORM=offscreen \"${workspaceFolder}/scripts/pytest_clean.sh\" tests/normative/test_competitive_ci_gate.py -p no:xdist --run-heavy-tests --run-gui-tests --timeout=1200 --tb=short -q --disable-warnings --no-header --show-capture=no --maxfail=1",
+      "command": "AURIK_COMPETITIVE_BENCHMARK_TIMEOUT_S=180 QT_QPA_PLATFORM=offscreen AURIK_MEM_GB=16 AURIK_SWAP_MB=4096 AURIK_STREAM_TO_TERMINAL=0 AURIK_TERMINAL_LINE_BUDGET=250 \"${workspaceFolder}/scripts/pytest_clean.sh\" tests/normative/test_competitive_ci_gate.py -p no:xdist --run-heavy-tests --run-gui-tests --timeout=1200 --tb=short -q --disable-warnings --no-header --show-capture=no --maxfail=1",
       "args": [],
       "isBackground": false,
       "problemMatcher": [],

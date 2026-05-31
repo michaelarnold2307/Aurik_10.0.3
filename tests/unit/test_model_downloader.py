@@ -27,7 +27,6 @@ from unittest.mock import patch
 
 import pytest
 
-# Pflicht: Singleton vor jedem Test zurücksetzen
 import backend.core.model_downloader as _md_module
 from backend.core.model_downloader import (
     ModelDownloader,
@@ -65,7 +64,7 @@ def _make_manifest(models: list, tmp_path: Path) -> Path:
 def _reset_singleton() -> None:
     """Setzt ModelDownloader-Singleton zurück (Isolation zwischen Tests)."""
     ModelDownloader._instance = None
-    _md_module._downloader_instance = None
+    _md_module._DOWNLOADER_INSTANCE_HOLDER[0] = None
 
 
 # ──────────────────────────────────────────────────────────────────────────────

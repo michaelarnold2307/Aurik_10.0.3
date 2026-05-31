@@ -22,6 +22,7 @@ Spec §2.1, §2.2, §9.5 — v9.10.45
 
 from __future__ import annotations
 
+import inspect
 import logging
 import math
 import os
@@ -2026,18 +2027,44 @@ class AurikDenker:
                 # Goals messen + konservative P3-P5-Reparatur (Zeit-Domain-first, §0 + §2.45).
                 # Legacy-Fallback für Testmocks/ältere ExzellenzDenker mit messe_ziele().
                 _used_repair_path = False
-                # §2.32 bass_kraft/brillanz-Fix: inapplicable Goals aus UV3-Metadata
-                # extrahieren und an ExzellenzDenker weitergeben, damit er nur
-                _legacy_fn = getattr(exd, "messe_ziele", None)
-                if not callable(_legacy_fn):
-                    raise RuntimeError("ExzellenzDenker liefert weder messe_und_repariere() noch messe_ziele()")
-                _legacy_call = cast(Callable[..., Any], _legacy_fn)
-                _legacy_out = _legacy_call(aktuelles_audio, sr, material=_exz_material)
-                if isinstance(_legacy_out, tuple) and len(_legacy_out) == 2:
-                    aktuelles_audio = _legacy_out[0]
-                    goals = _normalize_goal_scores(_legacy_out[1])
+                _repair_fn = None
+                _repair_attr = getattr(type(exd), "messe_und_repariere", None)
+                if callable(_repair_attr):
+                    _repair_fn = getattr(exd, "messe_und_repariere", None)
+                if callable(_repair_fn):
+                    _repair_call = cast(Callable[..., Any], _repair_fn)
+                    _repair_sig = inspect.signature(_repair_call)
+                    _repair_kwargs: dict[str, Any] = {}
+                    if "mode" in _repair_sig.parameters:
+                        _repair_kwargs["mode"] = effective_mode
+                    if "material" in _repair_sig.parameters:
+                        _repair_kwargs["material"] = _exz_material
+                    if "reference_audio" in _repair_sig.parameters and audio is not None:
+                        _repair_kwargs["reference_audio"] = audio
+
+                    _repair_out = _repair_call(aktuelles_audio, sr, **_repair_kwargs)
+                    _used_repair_path = True
+                    if isinstance(_repair_out, tuple) and len(_repair_out) == 2:
+                        aktuelles_audio = np.asarray(_repair_out[0], dtype=np.float32)
+                        goals = _normalize_goal_scores(_repair_out[1])
+                    else:
+                        goals = _normalize_goal_scores(_repair_out)
                 else:
-                    goals = _normalize_goal_scores(_legacy_out)
+                    # §2.32 bass_kraft/brillanz-Fix: Legacy-Pfad für ältere ExzellenzDenker.
+                    _legacy_fn = getattr(exd, "messe_ziele", None)
+                    if not callable(_legacy_fn):
+                        raise RuntimeError("ExzellenzDenker liefert weder messe_und_repariere() noch messe_ziele()")
+                    _legacy_call = cast(Callable[..., Any], _legacy_fn)
+                    _legacy_sig = inspect.signature(_legacy_call)
+                    if "material" in _legacy_sig.parameters:
+                        _legacy_out = _legacy_call(aktuelles_audio, sr, material=_exz_material)
+                    else:
+                        _legacy_out = _legacy_call(aktuelles_audio, sr)
+                    if isinstance(_legacy_out, tuple) and len(_legacy_out) == 2:
+                        aktuelles_audio = np.asarray(_legacy_out[0], dtype=np.float32)
+                        goals = _normalize_goal_scores(_legacy_out[1])
+                    else:
+                        goals = _normalize_goal_scores(_legacy_out)
                 if goals:
                     try:
                         _exz_thresholds = _get_canonical_thresholds_for_mode(

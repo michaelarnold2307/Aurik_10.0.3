@@ -13,6 +13,7 @@ import inspect
 import math
 import types
 from dataclasses import fields
+from typing import Any, cast
 from unittest.mock import MagicMock, patch
 
 import numpy as np
@@ -1097,9 +1098,10 @@ def test_57_phase_skipper_medium_map_covers_extended_legacy_media(
 ) -> None:
     """_apply_phase_skipping must map legacy media to concrete SourceMedium values."""
     restorer = UnifiedRestorerV3(RestorationConfig(enable_phase_skipping=False))
-    restorer.phase_skipper = (
-        object()
-    )  # only truthy check is required in _apply_phase_skipping  # type: ignore[assignment]
+    restorer.phase_skipper = cast(
+        Any,
+        object(),
+    )  # only truthy check is required in _apply_phase_skipping
 
     captured: dict[str, object] = {}
 
