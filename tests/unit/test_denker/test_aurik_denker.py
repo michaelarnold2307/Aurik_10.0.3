@@ -1321,6 +1321,90 @@ class TestAurikDenkerExcellenceRecoveryProfile:
         assert "beibehalten" in result.stage_notes.get("autopilot", "")
         assert "Schutzmaßnahmen" in result.stage_notes.get("autopilot", "")
 
+    def test_explicit_studio_2026_release_alias_respects_user_choice_on_risk(self):
+        audio = _sine()
+
+        toni_m = _make_toni_mock("tape")
+        kette_m = _make_kette_mock("tape→tape")
+        kette_m.as_dict.return_value = {
+            "chain_string": "tape→tape",
+            "chain_complexity": 0.5,
+            "is_multi_generation": False,
+            "generation_count": 1,
+            "chain": ["tape"],
+            "primary_medium": "tape",
+        }
+
+        defekt_m = _make_defekt_mock()
+        defekt_m.overall_severity = 0.75
+        defekt_m.primary_defect = "dropout"
+
+        strat_result = MagicMock(quality_mode="studio2026", max_processing_s=30.0)
+        strat_m = MagicMock()
+        strat_m.plan.return_value = strat_result
+        strat_m.starte_timer.return_value = None
+
+        rep_result = MagicMock(
+            audio=audio.copy(), warnings=[], clicks_removed=False, hum_removed=False, clipping_repaired=False
+        )
+        rek_result = MagicMock(audio=audio.copy(), warnings=[], gaps_found=0, gaps_repaired=0, total_repaired_ms=0.0)
+
+        rest_result = MagicMock(
+            audio=audio.copy(),
+            phases_executed=[],
+            warnings=[],
+            quality_estimate=0.8,
+            rt_factor=0.4,
+            confidence=0.9,
+            rollback_triggered=False,
+            winning_variant="balanced",
+            musical_goals={},
+            goals_passed=0,
+        )
+        rest_m = MagicMock()
+        rest_m.restauriere.return_value = rest_result
+
+        exz_denker_m = MagicMock(return_value=MagicMock(optimiere=MagicMock(return_value=_make_exzellenz_mock(audio))))
+        versa_result_m = MagicMock(mos=4.2, model_used="mock_versa")
+
+        with (
+            patch(
+                "denker.aurik_denker.get_tontraeger_denker",
+                MagicMock(return_value=MagicMock(erkenne=MagicMock(return_value=toni_m))),
+            ),
+            patch(
+                "denker.aurik_denker.get_tontraegerkette_denker",
+                MagicMock(return_value=MagicMock(analysiere=MagicMock(return_value=kette_m))),
+            ),
+            patch(
+                "denker.aurik_denker.get_defekt_denker",
+                MagicMock(return_value=MagicMock(analysiere=MagicMock(return_value=defekt_m))),
+            ),
+            patch("denker.aurik_denker.get_strategie_denker", MagicMock(return_value=strat_m)),
+            patch(
+                "denker.aurik_denker.get_reparatur_denker",
+                MagicMock(return_value=MagicMock(repariere=MagicMock(return_value=rep_result))),
+            ),
+            patch(
+                "denker.aurik_denker.get_rekonstruktions_denker",
+                MagicMock(return_value=MagicMock(rekonstruiere=MagicMock(return_value=rek_result))),
+            ),
+            patch("denker.aurik_denker.get_restaurier_denker", MagicMock(return_value=rest_m)),
+            patch("denker.aurik_denker.get_exzellenz_denker", exz_denker_m),
+            patch(
+                "denker.aurik_denker.AurikDenker._should_skip_excellence_for_clean_digital",
+                MagicMock(return_value=(False, {"material": "tape"})),
+            ),
+            patch("plugins.versa_plugin.score_mos", MagicMock(return_value=versa_result_m)),
+        ):
+            from denker.aurik_denker import AurikDenker
+
+            result = AurikDenker().denke(audio, SR, mode="Studio 2026")
+
+        assert rest_m.restauriere.call_args.kwargs["mode"] == "studio2026"
+        assert "beibehalten" in result.stage_notes.get("autopilot", "")
+        assert "Schutzmaßnahmen" in result.stage_notes.get("autopilot", "")
+
 
 # ─── AurikErgebnis Audio-Invarianten ─────────────────────────────────────────
 
