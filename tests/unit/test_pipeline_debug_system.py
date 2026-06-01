@@ -419,7 +419,6 @@ def test_uv3_debug_trace_enabled_by_kwarg(monkeypatch):
 
     # early-exit path (< 4800 samples) → restore() setzt trotzdem _debug_trace_enabled
     # Wir prüfen, dass das Flag gesetzt wird bevor der early-exit feuert
-    r.restore.__func__
     _trace_seen = []
 
     def _patched(self, audio, sample_rate=44100, progress_callback=None, **kwargs):
