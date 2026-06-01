@@ -82,7 +82,7 @@
         "phase_09_crackle_removal",
         "phase_01_click_removal",
         "phase_28_surface_noise_profiling",
-        "phase_29_tape_hiss_reduction",
+        "phase_06_frequency_restoration",
         "phase_03_denoise"
       ]
     },
