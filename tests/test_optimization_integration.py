@@ -261,3 +261,48 @@ def test_batch_processor_forwards_worldclass_and_hybrid_metadata(monkeypatch, tm
     assert res["metadata"]["quality_gate_worldclass_score"] == "0.89"
     assert '"artifact_freedom": 0.98' in res["metadata"]["quality_gate_hybrid_engineer_vector"]
     assert '"vocal_identity_preservation": 0.93' in res["metadata"]["quality_gate_hybrid_engineer_vector"]
+
+
+def test_batch_processor_normalizes_release_alias_mode(monkeypatch, tmp_path):
+    """Batch muss Release-Aliase via Bridge normalisieren (maximum -> Studio 2026)."""
+    import batch_processor as bp
+
+    mode_calls: dict[str, str] = {}
+
+    class _FakeSf:
+        @staticmethod
+        def write(_path, _audio, _sr):
+            return None
+
+    class _FakeDenker:
+        def denke(self, _audio, _sr, **kwargs):
+            mode_calls["mode"] = str(kwargs.get("mode", ""))
+            return SimpleNamespace(
+                audio=np.zeros((8, 2), dtype=np.float32),
+                total_time_seconds=1.0,
+                metadata={"worldclass_composite_gate": {"wcs": 0.9}, "hybrid_engineer_vector": {}},
+            )
+
+    monkeypatch.setattr(bp, "sf", _FakeSf)
+    monkeypatch.setattr(bp, "_get_aurik_denker", lambda: _FakeDenker())
+    monkeypatch.setattr(bp, "_run_pre_analysis", lambda **_kwargs: None)
+    monkeypatch.setattr(bp, "_validate_export_quality", lambda _result: (True, []))
+    monkeypatch.setattr(
+        bp,
+        "_build_export_quality_gate_payload",
+        lambda _result: {"passed": True, "degradation_status": "ok", "fail_reason": ""},
+    )
+    monkeypatch.setattr(
+        bp,
+        "_load_audio_file",
+        lambda *_args, **_kwargs: {"audio": np.zeros((8, 2), dtype=np.float32), "sr": 48_000},
+    )
+
+    processor = bp.BatchProcessor(output_dir=tmp_path, workers=1, resume=False)
+    input_file = tmp_path / "input.wav"
+    input_file.write_bytes(b"fake")
+
+    res = processor.process_file(input_file, {"mode": "maximum"})
+
+    assert res["success"] is True
+    assert mode_calls["mode"] == "Studio 2026"
