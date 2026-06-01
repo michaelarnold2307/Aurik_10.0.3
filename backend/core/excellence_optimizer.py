@@ -317,8 +317,9 @@ if "ExcellenceResult" not in globals():
 def _to_mono(audio: np.ndarray) -> np.ndarray:
     """Konvertiert zu Mono (Mittelkanal); gibt Originalform zurück wenn mono."""
     if audio.ndim == 1:
-        return audio
-    return np.mean(audio, axis=1) if audio.shape[1] <= audio.shape[0] else np.mean(audio, axis=0)
+        return np.asarray(audio)
+    mono = np.mean(audio, axis=1) if audio.shape[1] <= audio.shape[0] else np.mean(audio, axis=0)
+    return np.asarray(mono)
 
 
 def _stft(audio: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -336,17 +337,17 @@ def _istft(Zxx: np.ndarray, orig_len: int) -> np.ndarray:
 def _match_length(a: np.ndarray, target_len: int) -> np.ndarray:
     """Passt Array-Länge an target_len an (Pad oder Trim)."""
     if len(a) >= target_len:
-        return a[:target_len]
-    return np.pad(a, (0, target_len - len(a)))
+        return np.asarray(a[:target_len])
+    return np.asarray(np.pad(a, (0, target_len - len(a))))
 
 
 def _frame_rms(audio: np.ndarray, frame_size: int = 512) -> np.ndarray:
     """RMS-Verlauf als 1D-Array (ein Wert pro Frame)."""
     n_frames = len(audio) // frame_size
     if n_frames == 0:
-        return np.array([np.sqrt(np.mean(audio**2))])
+        return np.asarray([np.sqrt(np.mean(audio**2))])
     shaped = audio[: n_frames * frame_size].reshape(n_frames, frame_size)
-    return np.sqrt(np.mean(shaped**2, axis=1)) + 1e-10
+    return np.asarray(np.sqrt(np.mean(shaped**2, axis=1)) + 1e-10)
 
 
 # ─── Kontext-Analyse ─────────────────────────────────────────────────────────
@@ -409,7 +410,7 @@ def analyze_context(audio: np.ndarray, sample_rate: int) -> ExcellenceContext:
         try:
             from backend.core.transient_decoupled_processor import separate_transients
 
-            perc, harm = separate_transients(mono, sample_rate)
+            perc, _harm = separate_transients(mono, sample_rate)
             perc_energy = float(np.sum(perc**2))
             total_energy = float(np.sum(mono**2)) + 1e-10
             transient_density = float(np.clip(perc_energy / total_energy, 0.0, 1.0))
@@ -589,12 +590,14 @@ def _inject_micro_dynamics(
             modulation[_fs - _xf // 2 : _fs - _xf // 2 + _xf] = _fade
 
     if audio.ndim == 1:
-        return (audio * modulation).astype(audio.dtype)
-    else:
-        # Stereo: gleiche Modulation auf beide Kanäle
-        return (
+        return np.asarray((audio * modulation).astype(audio.dtype))
+
+    # Stereo: gleiche Modulation auf beide Kanäle
+    return np.asarray(
+        (
             audio * modulation[:, np.newaxis] if audio.shape[1] <= audio.shape[0] else audio * modulation[np.newaxis, :]
         ).astype(audio.dtype)
+    )
 
 
 def _reinforce_harmonics(
@@ -640,8 +643,6 @@ def _reinforce_harmonics(
         t_end = t_start + _WIN_LEN
         if t_end > len(mono):
             break
-        mono[t_start:t_end]
-
         # F0-Detektion: stärkste Komponente unter F0_FREQ_MAX
         frame_mag = mag[:, t]
         low_mask = freqs < _F0_FREQ_MAX

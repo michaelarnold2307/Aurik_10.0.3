@@ -55,7 +55,11 @@ def _load_audio(path: str) -> tuple[np.ndarray, int]:
 
 
 def _normalize_mode(mode: str) -> str:
-    return normalize_user_mode(mode)
+    normalized = normalize_user_mode(mode)
+    if isinstance(normalized, str):
+        return normalized
+    # Defensive Fallback: Bridge-Vertrag liefert String, aber CLI bleibt robust.
+    return str(mode)
 
 
 def _normalize_phase_strength_oracle_rollout(mode: str | None) -> str | None:

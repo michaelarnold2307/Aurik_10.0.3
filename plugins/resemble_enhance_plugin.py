@@ -60,7 +60,10 @@ class ResembleEnhancePlugin:
             try:
                 from backend.core.plugin_lifecycle_manager import register_plugin as _reg_plm
 
-                _reg_plm("ResembleEnhance", size_gb=0.72, unload_fn=lambda s=self: setattr(s, "_session", None))
+                def _unload_session() -> None:
+                    self._session = None
+
+                _reg_plm("ResembleEnhance", size_gb=0.72, unload_fn=_unload_session)
             except Exception as _exc:
                 logger.debug("Operation failed (non-critical): %s", _exc)
         except Exception as exc:
@@ -96,7 +99,7 @@ class ResembleEnhancePlugin:
                 result = np.nan_to_num(result, nan=0.0, posinf=0.0, neginf=0.0)
                 if audio.ndim == 2:
                     result = np.stack([result, result], axis=0 if _was_channels_first else 1)
-                return np.clip(result, -1.0, 1.0).astype(np.float32)
+                return np.asarray(np.clip(result, -1.0, 1.0).astype(np.float32))
         except ImportError:
             pass
         m44 = _resamp(mono, sr, _SR)
@@ -106,7 +109,7 @@ class ResembleEnhancePlugin:
         result = np.nan_to_num(result, nan=0.0, posinf=0.0, neginf=0.0)
         if audio.ndim == 2:
             result = np.stack([result, result], axis=0 if _was_channels_first else 1)
-        return np.clip(result, -1.0, 1.0).astype(np.float32)
+        return np.asarray(np.clip(result, -1.0, 1.0).astype(np.float32))
 
     def process(self, input_path: str, output_path: str, denoise_level: float = 0.5, enhance_level: float = 1.0):
         """Datei-basierte Verarbeitung für hybrid_ml_denoiser Kompatibilität.
@@ -114,13 +117,17 @@ class ResembleEnhancePlugin:
         Returns:
             (returncode, stdout, stderr) Tuple — 0 bei Erfolg
         """
-        import numpy as np
         import soundfile as sf
 
         from backend.file_import import load_audio_file
 
         try:
-            _res = load_audio_file(input_path)
+            del denoise_level, enhance_level
+            # Interner Plugin-Read: keine Carrier-Analyse triggern (vermeidet teure
+            # CLAP/Medium-Classifier-Pfade und hält Hybrid-Denoise deterministisch).
+            _res = load_audio_file(input_path, do_carrier_analysis=False)
+            if not isinstance(_res, dict) or _res.get("audio") is None or _res.get("sr") is None:
+                raise RuntimeError("load_audio_file lieferte kein valides Ergebnis")
             audio = np.asarray(_res["audio"], dtype=np.float32)
             sr = int(_res["sr"])
             audio_mono = audio.mean(axis=1) if audio.ndim == 2 else audio
@@ -237,18 +244,18 @@ class ResembleEnhancePlugin:
         return (res / np.where(ws < 1e-8, 1.0, ws))[: len(mono)].astype(np.float32)
 
 
-def _resamp(x, src, dst):
+def _resamp(x: np.ndarray, src: int, dst: int) -> np.ndarray:
     if src == dst:
-        return x
+        return np.asarray(x)
     from math import gcd
 
     from scipy.signal import resample_poly
 
     g = gcd(src, dst)
-    return resample_poly(x, dst // g, src // g).astype(np.float32)
+    return np.asarray(resample_poly(x, dst // g, src // g).astype(np.float32))
 
 
-def _wiener(mono, sr):
+def _wiener(mono: np.ndarray, sr: int) -> np.ndarray:
     from scipy.ndimage import uniform_filter
     from scipy.signal import istft, stft
 
@@ -269,7 +276,7 @@ def _wiener(mono, sr):
         noverlap=_noverlap,
         window="hann",
     )
-    return o[: len(mono)].astype(np.float32)
+    return np.asarray(o[: len(mono)].astype(np.float32))
 
 
 def get_resemble_enhance_plugin() -> ResembleEnhancePlugin:
@@ -282,4 +289,4 @@ def get_resemble_enhance_plugin() -> ResembleEnhancePlugin:
 
 
 def enhance_audio(audio: np.ndarray, sr: int) -> np.ndarray:
-    return get_resemble_enhance_plugin().enhance(audio, sr)
+    return np.asarray(get_resemble_enhance_plugin().enhance(audio, sr))

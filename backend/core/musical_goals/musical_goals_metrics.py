@@ -34,6 +34,7 @@ import sys
 import threading
 import time
 import types
+import importlib
 import warnings
 from dataclasses import dataclass
 from pathlib import Path
@@ -108,7 +109,7 @@ _COMPUTE_IACC: Any = _COMPUTE_IACC_IMPL
 def _get_compute_iacc_callable() -> Any:
     """Liefert compute_iacc dynamisch, damit Monkeypatches zur Laufzeit greifen."""
     try:
-        from backend.core.dsp import stereo_guard as _stereo_guard
+        _stereo_guard = importlib.import_module("backend.core.dsp.stereo_guard")
 
         return getattr(_stereo_guard, "compute_iacc", _COMPUTE_IACC)
     except Exception:
