@@ -25264,9 +25264,26 @@ class UnifiedRestorerV3:
                     _vnh_material_raw = kwargs.get("material_type") or kwargs.get("material")
                     _vnh_material = str(getattr(_vnh_material_raw, "value", _vnh_material_raw) or "unknown")
                     _vnh_context = getattr(self, "_restoration_context", {})
+
+                    def _safe_optional_int_vnh(_val: Any) -> int | None:
+                        if isinstance(_val, bool):
+                            return int(_val)
+                        if isinstance(_val, (int, float)):
+                            return int(_val)
+                        if isinstance(_val, str) and _val.strip():
+                            try:
+                                return int(float(_val.strip()))
+                            except ValueError:
+                                return None
+                        return None
+
                     _vnh_reference_audio = _vnh_context.get("vocal_no_harm_reference_audio")
                     _vnh_carrier_checkpoint = getattr(self, "_best_carrier_checkpoint", None)
-                    if isinstance(_vnh_carrier_checkpoint, np.ndarray) and _vnh_carrier_checkpoint.shape == audio.shape:
+                    if (
+                        not (isinstance(_vnh_reference_audio, np.ndarray) and _vnh_reference_audio.shape == audio.shape)
+                        and isinstance(_vnh_carrier_checkpoint, np.ndarray)
+                        and _vnh_carrier_checkpoint.shape == audio.shape
+                    ):
                         _vnh_reference_audio = _vnh_carrier_checkpoint
                     _vnh_result = _vnh_mod.evaluate_vocal_no_harm(
                         audio,
@@ -25299,7 +25316,7 @@ class UnifiedRestorerV3:
                             getattr(self, "_last_restorability_score", None),
                         ),
                         breath_segments=_vnh_context.get("breath_segments"),
-                        era_decade=_safe_optional_int(_vnh_context.get("decade")),
+                        era_decade=_safe_optional_int_vnh(_vnh_context.get("decade")),
                         era_vocal_profile=kwargs.get("era_vocal_profile") or _vnh_context.get("era_vocal_profile"),
                     )
                     _vnh_payload = _vnh_result.to_dict() if hasattr(_vnh_result, "to_dict") else {}
