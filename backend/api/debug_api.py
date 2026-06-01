@@ -1,6 +1,10 @@
 """
 debug_api.py — Hochrangige Debug-API für Aurik Pipeline-Telemetrie.
 
+LEGACY_NON_RELEASE: Debug-/Forensik-API für Telemetrie-Auswertung. Diese Datei
+ist kein Release-Einstieg und darf den kanonischen Bridge/Denker/Exporter-
+Vertrag der Desktop-Produktpfade nicht umgehen.
+
 Einheitlicher Zugriffspunkt für alle Debug-Daten aus einem RestorationResult.
 
 Usage:

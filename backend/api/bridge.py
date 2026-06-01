@@ -135,6 +135,7 @@ __all__ = [
     "get_plugin_lifecycle_manager",
     "get_processing_mode_enum",
     # Enums / Konfigurationsklassen
+    "normalize_user_mode",
     "get_quality_mode",
     "get_restorability_estimator_class",
     # Kern-Einstiegspunkte
@@ -550,6 +551,25 @@ def get_processing_mode_enum() -> type:
     from backend.core.enums import ProcessingMode  # type: ignore[import]
 
     return ProcessingMode
+
+
+def normalize_user_mode(mode: str | None) -> str:
+    """Normalisiert Nutzer-Mode-Aliase auf die kanonischen Release-Modi.
+
+    Canonical Contract:
+      - ``"Restoration"``
+      - ``"Studio 2026"``
+
+    Unbekannte Eingaben fallen fail-safe auf ``"Restoration"`` zurück.
+    """
+    raw = str(mode or "Restoration").strip().lower().replace("_", "").replace(" ", "")
+    aliases = {
+        "restoration": "Restoration",
+        "quality": "Restoration",
+        "studio2026": "Studio 2026",
+        "studio": "Studio 2026",
+    }
+    return aliases.get(raw, "Restoration")
 
 
 def get_restorer_classes() -> tuple[type, type]:

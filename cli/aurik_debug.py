@@ -1,6 +1,12 @@
 #!/usr/bin/env python3
+# pylint: disable=import-outside-toplevel
 """
 aurik_debug.py — Standalone Debug-CLI für die Aurik-Pipeline.
+
+LEGACY_NON_RELEASE: Dieser Debug-CLI nutzt absichtlich einen direkten UV3-Bypass
+(`UnifiedRestorerV3.restore(...)`) für Telemetrie-Diagnosen. Er ist kein
+Desktop-Release-Einstieg und darf den Canonical Contract der Release-Pfade
+nicht ersetzen.
 
 Läuft die vollständige Restaurierungs-Pipeline mit aktiviertem Debug-Trace
 und gibt einen strukturierten Bericht aus — ohne Raten, ohne Suchen in Logs.
@@ -35,6 +41,7 @@ import logging
 import sys
 import time
 from pathlib import Path
+from typing import Any
 
 # Logging frühzeitig einrichten
 logging.basicConfig(
@@ -54,19 +61,33 @@ def _setup_workspace() -> bool:
     return True
 
 
-def _load_audio(path: str) -> tuple:
+def _load_audio(path: str) -> tuple[Any, int]:
     """Lädt Audio mit Aurik-konformem load_audio_file()."""
     try:
         from backend.file_import import load_audio_file
 
-        audio, sr = load_audio_file(path, do_carrier_analysis=False)
-        return audio, sr
+        payload = load_audio_file(path, do_carrier_analysis=False)
+        if payload is None:
+            raise RuntimeError("Audio-Import lieferte kein Ergebnisobjekt")
+        if not isinstance(payload, dict):
+            raise RuntimeError(f"Unerwartetes Import-Ergebnis: {type(payload)!r}")
+
+        err = payload.get("error")
+        if err:
+            raise RuntimeError(str(err))
+
+        audio = payload.get("audio")
+        sr = payload.get("sr")
+        if audio is None or sr is None:
+            raise RuntimeError("Audio-Import unvollständig: 'audio' oder 'sr' fehlt")
+
+        return audio, int(sr)
     except Exception as e:
         logger.error("Audio-Import fehlgeschlagen (%s): %s", path, e)
         raise
 
 
-def _run_restore(audio, sr: int, mode: str, verbose: bool) -> any:
+def _run_restore(audio: Any, sr: int, mode: str, verbose: bool) -> Any:
     """Führt Pipeline mit aktiviertem Debug-Trace aus."""
     try:
         from backend.core.unified_restorer_v3 import UnifiedRestorerV3
@@ -109,7 +130,7 @@ def _print_header(audio_path: str, mode: str) -> None:
     print(f"{'═' * 80}")
 
 
-def _print_summary(result: any) -> None:
+def _print_summary(result: Any) -> None:
     """Kurzübersicht ohne Trace-Import."""
     mat = getattr(result, "material_type", None)
     cfg = getattr(result, "config", None)
@@ -130,6 +151,7 @@ def _print_summary(result: any) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
+    """CLI-Einstieg für den Legacy-Debug-Bypass mit strukturierter Telemetrie."""
     parser = argparse.ArgumentParser(
         prog="aurik_debug",
         description="Aurik Pipeline Debug-CLI — vollständige Telemetrie ohne Raten",

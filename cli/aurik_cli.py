@@ -29,6 +29,7 @@ export_guard = _bridge.export_guard
 get_audio_exporter_class = _bridge.get_audio_exporter_class
 get_aurik_denker_instance = _bridge.get_aurik_denker_instance
 get_load_audio_fn = _bridge.get_load_audio_fn
+normalize_user_mode = _bridge.normalize_user_mode
 run_pre_analysis = _bridge.run_pre_analysis
 validate_export_quality = _bridge.validate_export_quality
 
@@ -54,12 +55,7 @@ def _load_audio(path: str) -> tuple[np.ndarray, int]:
 
 
 def _normalize_mode(mode: str) -> str:
-    raw = str(mode or "Restoration").strip().lower().replace("_", "").replace(" ", "")
-    if raw in {"restoration", "quality"}:
-        return "Restoration"
-    if raw in {"studio2026", "studio"}:
-        return "Studio 2026"
-    return "Restoration"
+    return normalize_user_mode(mode)
 
 
 def _normalize_phase_strength_oracle_rollout(mode: str | None) -> str | None:
@@ -643,7 +639,7 @@ def process_audio(
             },
         }
     )
-    setattr(result, "metadata", _meta_dict)
+    result.metadata = _meta_dict
     if _drop_db > _pegel_threshold:
         _export_degraded = True
         _export_degraded_reasons.append(f"Pegelabfall={_drop_db:.2f}dB>{_pegel_threshold:.1f}dB")

@@ -20,6 +20,10 @@ _REST_LEGACY = [
     _ROOT / "backend" / "api" / "rest" / "batch_api.py",
     _ROOT / "backend" / "api" / "rest" / "batch_endpoints.py",
 ]
+_DEBUG_LEGACY = [
+    _ROOT / "cli" / "aurik_debug.py",
+    _ROOT / "backend" / "api" / "debug_api.py",
+]
 
 
 @pytest.mark.normative
@@ -102,6 +106,19 @@ def test_legacy_rest_server_paths_are_explicitly_non_release() -> None:
 
 @pytest.mark.normative
 @pytest.mark.timeout(20)
+def test_legacy_debug_paths_are_explicitly_non_release() -> None:
+    """Debug-Bypasspfade muessen klar als LEGACY_NON_RELEASE markiert bleiben."""
+    for path in _DEBUG_LEGACY:
+        assert path.exists(), f"{path} fehlt."
+        src = path.read_text(encoding="utf-8")
+        assert "LEGACY_NON_RELEASE" in src, (
+            f"{path} ist ein Debug-/Bypasspfad und muss als LEGACY_NON_RELEASE markiert sein, "
+            "damit keine Release-Parallelwelt entsteht."
+        )
+
+
+@pytest.mark.normative
+@pytest.mark.timeout(20)
 def test_release_mode_surface_remains_two_button_only() -> None:
     """Release-Oberflaechen duerfen nur Restoration und Studio 2026 als Nutzerentscheidung anbieten."""
     cli_src = _CLI.read_text(encoding="utf-8")
@@ -111,3 +128,21 @@ def test_release_mode_surface_remains_two_button_only() -> None:
     assert "--strength" not in cli_src
     assert "--phase" not in cli_src
     assert "--policy" not in cli_src
+
+
+@pytest.mark.normative
+@pytest.mark.timeout(20)
+def test_cli_mode_aliases_use_bridge_normalizer() -> None:
+    """Mode-Alias-Normalisierung darf nicht parallel in der CLI driften."""
+    cli_src = _CLI.read_text(encoding="utf-8")
+    bridge_src = (_ROOT / "backend" / "api" / "bridge.py").read_text(encoding="utf-8")
+
+    assert "def normalize_user_mode(" in bridge_src, (
+        "Bridge muss den zentralen normalize_user_mode()-Resolver bereitstellen."
+    )
+    assert "normalize_user_mode = _bridge.normalize_user_mode" in cli_src, (
+        "CLI muss den Bridge-Resolver für Mode-Aliase verwenden."
+    )
+    assert "return normalize_user_mode(mode)" in cli_src, (
+        "CLI _normalize_mode() muss an die Bridge delegieren, statt eigene Alias-Tabellen zu pflegen."
+    )
