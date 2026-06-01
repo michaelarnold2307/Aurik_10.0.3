@@ -17,7 +17,7 @@ from backend.core.audio_utils import safe_to_mono
 
 logger = logging.getLogger(__name__)
 _lock = threading.Lock()
-_inst: ResembleEnhancePlugin | None = None
+_inst_holder: list[ResembleEnhancePlugin | None] = [None]
 _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _MODEL = os.path.join(_ROOT, "models", "resemble_enhance", "model.onnx")
 _SR = 44_100
@@ -241,7 +241,7 @@ class ResembleEnhancePlugin:
             frame = np.fft.irfft(full[:, i], n=_N).real.astype(np.float32)
             res[i * _HOP : i * _HOP + _N] += frame * win
             ws[i * _HOP : i * _HOP + _N] += win**2
-        return (res / np.where(ws < 1e-8, 1.0, ws))[: len(mono)].astype(np.float32)
+        return np.asarray((res / np.where(ws < 1e-8, 1.0, ws))[: len(mono)].astype(np.float32))
 
 
 def _resamp(x: np.ndarray, src: int, dst: int) -> np.ndarray:
@@ -280,12 +280,11 @@ def _wiener(mono: np.ndarray, sr: int) -> np.ndarray:
 
 
 def get_resemble_enhance_plugin() -> ResembleEnhancePlugin:
-    global _inst
-    if _inst is None:
+    if _inst_holder[0] is None:
         with _lock:
-            if _inst is None:
-                _inst = ResembleEnhancePlugin()
-    return _inst
+            if _inst_holder[0] is None:
+                _inst_holder[0] = ResembleEnhancePlugin()
+    return _inst_holder[0]
 
 
 def enhance_audio(audio: np.ndarray, sr: int) -> np.ndarray:
