@@ -264,6 +264,33 @@ class BatchProcessor:
             _meta = getattr(denker_result, "metadata", {})
             if not isinstance(_meta, dict):
                 _meta = {}
+            _wcs_payload = eq_payload.get("worldclass_composite_gate", {}) or {}
+            if not isinstance(_wcs_payload, dict):
+                _wcs_payload = {}
+            _threshold_evidence = eq_payload.get("threshold_evidence", {}) or {}
+            if not isinstance(_threshold_evidence, dict):
+                _threshold_evidence = {}
+            _wcs_evidence = _threshold_evidence.get("worldclass_composite_gate", {}) or {}
+            if not isinstance(_wcs_evidence, dict):
+                _wcs_evidence = {}
+            _musiclover = eq_payload.get("musiclover", {}) or {}
+            if not isinstance(_musiclover, dict):
+                _musiclover = {}
+            _ml_vocal = _musiclover.get("vocal_integrity", {}) or {}
+            if not isinstance(_ml_vocal, dict):
+                _ml_vocal = {}
+            _ml_temporal = _musiclover.get("temporal_risk", {}) or {}
+            if not isinstance(_ml_temporal, dict):
+                _ml_temporal = {}
+            _ml_stereo = _musiclover.get("stereo_integrity", {}) or {}
+            if not isinstance(_ml_stereo, dict):
+                _ml_stereo = {}
+            _ml_goals = _musiclover.get("goal_attainment", {}) or {}
+            if not isinstance(_ml_goals, dict):
+                _ml_goals = {}
+            _ml_decision = _musiclover.get("decision_trace", {}) or {}
+            if not isinstance(_ml_decision, dict):
+                _ml_decision = {}
             _wcs_raw = _meta.get("worldclass_composite_gate", {})
             _wcs_gate = _wcs_raw if isinstance(_wcs_raw, dict) else {}
             _hybrid_engineer_vector_json = json.dumps(
@@ -281,8 +308,34 @@ class BatchProcessor:
                 "quality_gate_profile": str(eq_payload.get("profile", "")),
                 "quality_gate_material": str(eq_payload.get("material", "")),
                 "quality_gate_preserve_signal": str(float(eq_payload.get("preserve_signal", 0.0) or 0.0)),
+                "fallback_quality_floor_status": str(
+                    (eq_payload.get("fallback_quality_floor", {}) or {}).get("status", "passed")
+                ),
+                "quality_gate_threshold_qe": str(
+                    float((eq_payload.get("thresholds", {}) or {}).get("quality_estimate", 0.0) or 0.0)
+                ),
+                "quality_gate_threshold_level_drop_db": str(
+                    float((eq_payload.get("thresholds", {}) or {}).get("level_drop_db", 0.0) or 0.0)
+                ),
                 "quality_gate_worldclass_score": str(float(_wcs_gate.get("wcs", 0.0) or 0.0)),
+                "quality_gate_worldclass_threshold": str(float(_wcs_payload.get("threshold", 0.0) or 0.0)),
+                "quality_gate_worldclass_passed": str(bool(_wcs_payload.get("passed", False))),
+                "quality_gate_worldclass_profile": str(_wcs_payload.get("profile", "") or ""),
+                "quality_gate_worldclass_artifact_veto": str(bool(_wcs_payload.get("artifact_veto", False))),
                 "quality_gate_hybrid_engineer_vector": _hybrid_engineer_vector_json,
+                "quality_gate_evidence_worldclass_source_class": str(_wcs_evidence.get("source_class", "") or ""),
+                "quality_gate_evidence_worldclass_revalidate_by": str(_wcs_evidence.get("revalidate_by", "") or ""),
+                "quality_gate_musiclover_vqi": str(float(_ml_vocal.get("vqi", 0.0) or 0.0)),
+                "quality_gate_musiclover_sid": str(float(_ml_vocal.get("singer_identity_cosine", 0.0) or 0.0)),
+                "quality_gate_musiclover_temporal_hotspots": str(int(_ml_temporal.get("hotspot_count", 0) or 0)),
+                "quality_gate_musiclover_mono_warning": str(bool(_ml_stereo.get("mono_compatibility_warning", False))),
+                "quality_gate_musiclover_remaining_goals": str(
+                    int((_ml_goals.get("remaining_count", 0) if isinstance(_ml_goals, dict) else 0) or 0)
+                ),
+                "quality_gate_musiclover_all_sota_real": str(bool(_ml_decision.get("all_sota_real", True))),
+                "quality_gate_musiclover_sota_reason": str(
+                    _ml_decision.get("vocal_restoration_capability_status", "") or ""
+                ),
             }
             if eq_warnings:
                 export_metadata["quality_gate_warnings"] = json.dumps(list(eq_warnings), ensure_ascii=True)

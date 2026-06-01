@@ -20,7 +20,11 @@ import pytest
 def test_batch_source_declares_worldclass_and_hybrid_metadata_contract() -> None:
     src = Path("batch_processor.py").read_text(encoding="utf-8")
     assert '"quality_gate_worldclass_score"' in src
+    assert '"quality_gate_worldclass_threshold"' in src
+    assert '"quality_gate_worldclass_passed"' in src
     assert '"quality_gate_hybrid_engineer_vector"' in src
+    assert '"quality_gate_evidence_worldclass_source_class"' in src
+    assert '"quality_gate_musiclover_vqi"' in src
     assert "json.dumps(" in src
 
 
@@ -57,6 +61,38 @@ def test_batch_process_file_forwards_worldclass_and_hybrid_metadata(monkeypatch,
     monkeypatch.setattr(bp, "sf", _FakeSf)
     monkeypatch.setattr(bp, "_get_aurik_denker", lambda: _FakeDenker())
     monkeypatch.setattr(bp, "_run_pre_analysis", lambda **_kwargs: None)
+    monkeypatch.setattr(bp, "_validate_export_quality", lambda _result: (True, []))
+    monkeypatch.setattr(
+        bp,
+        "_build_export_quality_gate_payload",
+        lambda _result: {
+            "passed": True,
+            "degradation_status": "ok",
+            "fail_reason": "",
+            "worldclass_composite_gate": {
+                "wcs": 0.91,
+                "threshold": 0.85,
+                "profile": "instrumental",
+                "artifact_veto": False,
+                "passed": True,
+            },
+            "threshold_evidence": {
+                "worldclass_composite_gate": {
+                    "source_class": "C",
+                    "revalidate_by": "2026-09-30",
+                }
+            },
+            "musiclover": {
+                "vocal_integrity": {"vqi": 0.88, "singer_identity_cosine": 0.95},
+                "temporal_risk": {"hotspot_count": 1},
+                "stereo_integrity": {"mono_compatibility_warning": False},
+                "decision_trace": {
+                    "all_sota_real": True,
+                    "vocal_restoration_capability_status": "all_real",
+                },
+            },
+        },
+    )
     monkeypatch.setattr(
         bp,
         "_load_audio_file",
@@ -71,6 +107,10 @@ def test_batch_process_file_forwards_worldclass_and_hybrid_metadata(monkeypatch,
 
     assert result["success"] is True
     assert result["metadata"]["quality_gate_worldclass_score"] == "0.91"
+    assert result["metadata"]["quality_gate_worldclass_threshold"] == "0.85"
+    assert result["metadata"]["quality_gate_worldclass_passed"] == "True"
+    assert result["metadata"]["quality_gate_evidence_worldclass_source_class"] == "C"
+    assert result["metadata"]["quality_gate_musiclover_vqi"] == "0.88"
 
     vector_json = result["metadata"]["quality_gate_hybrid_engineer_vector"]
     vector = json.loads(vector_json)

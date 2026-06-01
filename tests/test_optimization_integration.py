@@ -245,6 +245,43 @@ def test_batch_processor_forwards_worldclass_and_hybrid_metadata(monkeypatch, tm
     monkeypatch.setattr(bp, "sf", _FakeSf)
     monkeypatch.setattr(bp, "_get_aurik_denker", lambda: _FakeDenker())
     monkeypatch.setattr(bp, "_run_pre_analysis", lambda **_kwargs: None)
+    monkeypatch.setattr(bp, "_validate_export_quality", lambda _result: (True, []))
+    monkeypatch.setattr(
+        bp,
+        "_build_export_quality_gate_payload",
+        lambda _result: {
+            "passed": True,
+            "degradation_status": "ok",
+            "fail_reason": "",
+            "recovery_attempted": False,
+            "best_possible_reached": False,
+            "fallback_quality_floor": {"status": "passed"},
+            "thresholds": {"quality_estimate": 0.55, "level_drop_db": 3.0},
+            "worldclass_composite_gate": {
+                "wcs": 0.89,
+                "threshold": 0.85,
+                "profile": "instrumental",
+                "artifact_veto": False,
+                "passed": True,
+            },
+            "threshold_evidence": {
+                "worldclass_composite_gate": {
+                    "source_class": "C",
+                    "revalidate_by": "2026-09-30",
+                }
+            },
+            "musiclover": {
+                "vocal_integrity": {"vqi": 0.87, "singer_identity_cosine": 0.95},
+                "temporal_risk": {"hotspot_count": 2},
+                "stereo_integrity": {"mono_compatibility_warning": True},
+                "goal_attainment": {"remaining_count": 1},
+                "decision_trace": {
+                    "all_sota_real": False,
+                    "vocal_restoration_capability_status": "sota_fallback",
+                },
+            },
+        },
+    )
     monkeypatch.setattr(
         bp,
         "_load_audio_file",
@@ -259,8 +296,18 @@ def test_batch_processor_forwards_worldclass_and_hybrid_metadata(monkeypatch, tm
 
     assert res["success"] is True
     assert res["metadata"]["quality_gate_worldclass_score"] == "0.89"
+    assert res["metadata"]["quality_gate_worldclass_threshold"] == "0.85"
+    assert res["metadata"]["quality_gate_worldclass_passed"] == "True"
+    assert res["metadata"]["quality_gate_worldclass_profile"] == "instrumental"
     assert '"artifact_freedom": 0.98' in res["metadata"]["quality_gate_hybrid_engineer_vector"]
     assert '"vocal_identity_preservation": 0.93' in res["metadata"]["quality_gate_hybrid_engineer_vector"]
+    assert res["metadata"]["quality_gate_evidence_worldclass_source_class"] == "C"
+    assert res["metadata"]["quality_gate_evidence_worldclass_revalidate_by"] == "2026-09-30"
+    assert res["metadata"]["quality_gate_musiclover_vqi"] == "0.87"
+    assert res["metadata"]["quality_gate_musiclover_temporal_hotspots"] == "2"
+    assert res["metadata"]["quality_gate_musiclover_mono_warning"] == "True"
+    assert res["metadata"]["quality_gate_musiclover_all_sota_real"] == "False"
+    assert res["metadata"]["quality_gate_musiclover_sota_reason"] == "sota_fallback"
 
 
 def test_batch_processor_normalizes_release_alias_mode(monkeypatch, tmp_path):
