@@ -522,7 +522,7 @@ QSvgRenderer = QtSvg.QSvgRenderer
 try:
     from Aurik910 import __version__ as _AURIK_VERSION
 except Exception:
-    _AURIK_VERSION = "9.12.10"
+    _AURIK_VERSION = "9.15.0"
 
 # SVG-Phasen-Icons (2.5D mystisch-profi)
 try:
@@ -17497,7 +17497,11 @@ class ModernMainWindow(QMainWindow):
             return
 
         mode = (getattr(item, "settings", None) or {}).get("mode", "RESTORATION")
-        aurik_mode = "studio2026" if mode == "STUDIO_2026" else "restoration"
+        if mode == "STUDIO_2026":
+            _aurik_mode = "studio2026"
+        else:
+            _aurik_mode = "restoration"
+        aurik_mode = _aurik_mode
 
         stufe1_quality = float(getattr(restoration_result, "quality_estimate", 0.0) or 0.0)
 

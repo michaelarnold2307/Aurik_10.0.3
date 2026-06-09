@@ -184,6 +184,32 @@ def _is_fast_validation_context() -> bool:
     return _is_pytest_context()
 
 
+def _get_mert_plugin_loader() -> Any:
+    """Liefert den aktuellen get_mert_plugin-Loader (patch-freundlich)."""
+    try:
+        from plugins import mert_plugin as _mert_mod
+
+        _loader = getattr(_mert_mod, "get_mert_plugin", None)
+        if callable(_loader):
+            return _loader
+    except Exception:
+        pass
+    return _GET_MERT_PLUGIN
+
+
+def _get_loaded_mert_plugin_loader() -> Any:
+    """Liefert den aktuellen get_loaded_mert_plugin-Loader (patch-freundlich)."""
+    try:
+        from plugins import mert_plugin as _mert_mod
+
+        _loader = getattr(_mert_mod, "get_loaded_mert_plugin", None)
+        if callable(_loader):
+            return _loader
+    except Exception:
+        pass
+    return _GET_LOADED_MERT_PLUGIN
+
+
 def _safe_fft_size(length: int, target: int = 2048, minimum: int = 64) -> int:
     """Gibt power-of-two FFT size capped by signal length zurück."""
     if length <= minimum:
@@ -831,9 +857,10 @@ class WaermeMetric:
         # NOTE: Use module-level attribute lookup (plugins.mert_plugin.get_mert_plugin) so
         # that unittest.mock.patch("plugins.mert_plugin.get_mert_plugin") is effective.
         try:
-            if _GET_MERT_PLUGIN is None:
+            _mert_loader = _get_mert_plugin_loader()
+            if _mert_loader is None:
                 raise ImportError("mert_plugin unavailable")
-            mert = _GET_MERT_PLUGIN()
+            mert = _mert_loader()
             _mert_is_mock = type(mert).__module__.startswith("unittest.mock") if mert is not None else False
             if (
                 mert is not None
@@ -1760,9 +1787,10 @@ class EmotionalitaetMetric:
         # never triggers a lazy MERT load.  One-directional: MERT can only raise the
         # score (never reduce a high-dynamic DSP score for synthetic audio).
         try:
-            if _GET_LOADED_MERT_PLUGIN is None:
+            _loaded_mert_loader = _get_loaded_mert_plugin_loader()
+            if _loaded_mert_loader is None:
                 raise ImportError("mert_plugin unavailable")
-            mert = _GET_LOADED_MERT_PLUGIN()
+            mert = _loaded_mert_loader()
             # Pytest runs this metric in large acceptance matrices; keep the
             # optional MERT advisory path disabled there to avoid timeout-driven
             # false negatives while preserving production behavior.
@@ -2522,8 +2550,11 @@ class SpatialDepthMetric:
             center_score = mid_ratio / 0.50 * 0.80
 
         # Combine: IACC is the primary criterion (Blauert 1997), others secondary.
-        # Weights: IACC 40 %, Stereo Width 25 %, Depth (S/M) 20 %, Center 15 %
-        score = 0.40 * iacc_score + 0.25 * width_score + 0.20 * depth_score + 0.15 * center_score
+        # Weights: IACC 55 % (Blauert 1997: dominant perceptual cue for spatial depth),
+        # Stereo Width 20 %, Depth (S/M) 15 %, Center 10 %
+        # Rationale: raising IACC weight closes the gap for near-mono vintage material where
+        # width/depth secondary proxies underestimate perceived spatial depth.
+        score = 0.55 * iacc_score + 0.20 * width_score + 0.15 * depth_score + 0.10 * center_score
         return float(np.clip(score, 0.0, 1.0))
 
 

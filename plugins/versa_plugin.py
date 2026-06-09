@@ -520,6 +520,11 @@ def get_versa_plugin() -> VersaPlugin:
     return _instance
 
 
+def get_loaded_versa_plugin() -> VersaPlugin | None:
+    """Gibt nur eine bereits geladene VERSA-Instanz zurück, ohne Lazy-Load."""
+    return _instance
+
+
 def score_mos(audio: np.ndarray, sr: int) -> VersaResult:
     """Convenience-Wrapper für get_versa_plugin().score()."""
     return get_versa_plugin().score(audio, sr)

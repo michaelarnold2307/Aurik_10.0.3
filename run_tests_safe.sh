@@ -38,6 +38,8 @@ MEM_KB=$(( MEM_GB * 1024 * 1024 ))
 SWAP_MB="${AURIK_SWAP_MB:-2048}"
 LOG_FILE="${AURIK_LOG_FILE:-${SCRIPT_DIR}/logs/pytest_safe.log}"
 RSS_LIMIT_MB="${AURIK_TEST_RSS_LIMIT_MB:-$(( MEM_GB * 1024 * 85 / 100 ))}"
+STATUS_FILE="${AURIK_STATUS_FILE:-${SCRIPT_DIR}/logs/pytest_safe.status}"
+REPORT_FILE="${AURIK_REPORT_FILE:-${SCRIPT_DIR}/logs/pytest_safe.mini_report.txt}"
 STREAM_MODE_RAW="${AURIK_STREAM_TO_TERMINAL:-auto}"
 STREAM_TO_TERMINAL="0"
 TERMINAL_LINE_BUDGET="${AURIK_TERMINAL_LINE_BUDGET:-400}"
@@ -82,6 +84,129 @@ export TERMINFO_DIRS="${TERMINFO_DIRS:-/usr/share/terminfo:/lib/terminfo:/etc/te
 export AURIK_TEST_RSS_LIMIT_MB="$RSS_LIMIT_MB"
 
 mkdir -p "$(dirname "$LOG_FILE")"
+mkdir -p "${SCRIPT_DIR}/logs/locks"
+
+_is_heavy_invocation() {
+    local arg
+    local joined=" $* "
+
+    for arg in "$@"; do
+        case "$arg" in
+            --run-heavy-tests|--run-gui-tests)
+                return 0
+                ;;
+        esac
+    done
+
+    if [[ "$joined" == *" -m "* ]]; then
+        if [[ "$joined" == *" ml "* || "$joined" == *" slow "* || "$joined" == *" e2e "* || "$joined" == *" competitive "* || "$joined" == *" amrb "* ]]; then
+            return 0
+        fi
+    fi
+
+    for arg in "$@"; do
+        local low="${arg,,}"
+        case "$low" in
+            *tests/test_uat_acceptance_criteria.py*|*tests/normative/test_amrb_ci_gate.py*|*tests/normative/test_competitive_ci_gate.py*|*tests/integration*|*tests/normative*)
+                return 0
+                ;;
+        esac
+    done
+
+    return 1
+}
+
+_classify_exit() {
+    local rc="$1"
+    case "$rc" in
+        0) echo "PASS" ;;
+        124) echo "TIMEOUT" ;;
+        137) echo "OOM_OR_SIGKILL" ;;
+        143) echo "SIGTERM_ABORT" ;;
+        98) echo "DUPLICATE_RUN_BLOCKED" ;;
+        *)
+            if [[ "$rc" -gt 128 ]]; then
+                echo "SIGNAL_$((rc - 128))"
+            else
+                echo "FAIL"
+            fi
+            ;;
+    esac
+}
+
+_write_status_and_report() {
+    local rc="$1"
+    shift
+    local args_text
+    local cls
+    local now
+    local summary
+    local first_fail
+    cls="$(_classify_exit "$rc")"
+    now="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+    args_text="$*"
+    summary="$(grep -E "=+ .* in [0-9.]+s|[0-9]+ passed" "$LOG_FILE" | tail -n 1 || true)"
+    first_fail="$(grep -m1 -E "^FAILED |^ERROR |^E   |AssertionError|Traceback" "$LOG_FILE" || true)"
+
+    {
+        echo "timestamp=${now}"
+        echo "exit_code=${rc}"
+        echo "classification=${cls}"
+        echo "args=${args_text}"
+    } > "$STATUS_FILE"
+
+    {
+        echo "Aurik Pytest Mini Report"
+        echo "timestamp_utc: ${now}"
+        echo "classification: ${cls}"
+        echo "exit_code: ${rc}"
+        echo "memory_cap_gb: ${MEM_GB}"
+        echo "swap_cap_mb: ${SWAP_MB}"
+        echo "args: ${args_text}"
+        if [[ -n "$summary" ]]; then
+            echo "summary: ${summary}"
+        fi
+        if [[ -n "$first_fail" ]]; then
+            echo "first_failure_hint: ${first_fail}"
+        fi
+        echo "top_warnings:"
+        grep -E "WARNING|⚠️|WARN" "$LOG_FILE" | head -n 5 || true
+    } > "$REPORT_FILE"
+}
+
+# Duplicate-Run-Guard: blockiert nur wirklich identische gleichzeitige Aufrufe.
+# Wichtige Runtime-Parameter (Memory/Swap/Stream/Log) gehen in den Fingerprint ein,
+# damit unterschiedliche Profile nicht faelschlich als Duplikat gelten.
+_run_fingerprint="$(
+    printf '%s\0' \
+        "$@" \
+        "mem_gb=${MEM_GB}" \
+        "swap_mb=${SWAP_MB}" \
+        "rss_limit_mb=${RSS_LIMIT_MB}" \
+        "stream_mode=${STREAM_TO_TERMINAL}" \
+        "log_file=${LOG_FILE}" \
+        "python=${PYTHON}" \
+        "cwd=${SCRIPT_DIR}" \
+    | sha256sum | awk '{print $1}'
+)"
+_lock_file="${SCRIPT_DIR}/logs/locks/pytest_${_run_fingerprint}.lock"
+if command -v flock &>/dev/null; then
+    exec 9>"$_lock_file"
+    if ! flock -n 9; then
+        echo "[safe-runner] Abbruch: identischer Testlauf ist bereits aktiv (${_lock_file})." >&2
+        _write_status_and_report 98 "$@"
+        exit 98
+    fi
+fi
+
+_HEAVY_SERIAL_LOCK_ACTIVE=0
+if command -v flock &>/dev/null && _is_heavy_invocation "$@"; then
+    _heavy_lock_file="${SCRIPT_DIR}/logs/locks/pytest_heavy_global.lock"
+    exec 8>"$_heavy_lock_file"
+    _HEAVY_SERIAL_LOCK_ACTIVE=1
+    echo "[safe-runner] Heavy-Serialisierung aktiv: warte auf globalen Heavy-Lock (${_heavy_lock_file})."
+    flock 8
+fi
 
 echo "══════════════════════════════════════════════════════"
 echo " Aurik Safe Test Runner"
@@ -90,6 +215,9 @@ echo " Swap-Cap     : ${SWAP_MB} MB"
 echo " RSS-Watchdog : ${RSS_LIMIT_MB} MB"
 echo " Log          : ${LOG_FILE}"
 echo " Terminal-Budget: ${TERMINAL_LINE_BUDGET} Zeilen (live)"
+if [[ "$_HEAVY_SERIAL_LOCK_ACTIVE" -eq 1 ]]; then
+    echo " Heavy-Lock   : global serialisiert"
+fi
 if [[ "$STREAM_TO_TERMINAL" == "1" ]]; then
     if [[ "${STREAM_MODE_RAW,,}" == "auto" || -z "$STREAM_MODE_RAW" ]]; then
         echo " Terminal-I/O : live (auto)"
@@ -108,16 +236,24 @@ echo "════════════════════════�
 
 _print_quiet_summary() {
     local rc="$1"
+    local cls
+    cls="$(_classify_exit "$rc")"
     if [[ "$rc" -eq 0 ]]; then
         local summary
         summary="$(grep -E "=+ .* in [0-9.]+s|[0-9]+ passed" "$LOG_FILE" | tail -n 1 || true)"
         if [[ -n "$summary" ]]; then
-            echo "[safe-runner] Erfolg: ${summary}"
+            echo "[safe-runner] Erfolg (${cls}): ${summary}"
         else
-            echo "[safe-runner] Erfolg (Details: ${LOG_FILE})"
+            echo "[safe-runner] Erfolg (${cls}) (Details: ${LOG_FILE})"
         fi
     else
-        echo "[safe-runner] Fehler (Exit ${rc}). Letzte 120 Log-Zeilen:" >&2
+        if [[ ! -s "$LOG_FILE" ]]; then
+            {
+                echo "[safe-runner] WARN: Keine Pytest-Ausgabe im Log erfasst (Datei leer)."
+                echo "[safe-runner] Hinweis: Prozess könnte vor erster Ausgabe beendet worden sein."
+            } >> "$LOG_FILE"
+        fi
+        echo "[safe-runner] Fehler (${cls}, Exit ${rc}). Letzte 120 Log-Zeilen:" >&2
         tail -n 120 "$LOG_FILE" >&2 || true
     fi
 }
@@ -182,6 +318,11 @@ if [[ "$_SYSTEMD_OK" -eq 1 ]]; then
             2>&1 | tee "$LOG_FILE" | _stream_with_budget
         _rc=${PIPESTATUS[0]}
     else
+        {
+            echo "[safe-runner] start_utc=$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+            echo "[safe-runner] mode=systemd-run quiet"
+            echo "[safe-runner] pytest_args=$*"
+        } > "$LOG_FILE"
         systemd-run \
             --user \
             --scope \
@@ -200,10 +341,11 @@ if [[ "$_SYSTEMD_OK" -eq 1 ]]; then
             -p no:xdist \
             --disable-warnings \
             --no-header \
-            > "$LOG_FILE" 2>&1
+            >> "$LOG_FILE" 2>&1
         _rc=$?
         _print_quiet_summary "$_rc"
     fi
+    _write_status_and_report "$_rc" "$@"
     set -e
     exit "$_rc"
 fi
@@ -228,6 +370,11 @@ echo "[safe-runner] Methode: setsid + ulimit -v ${MEM_MB}M"
             " -- "$@" 2>&1 | tee "$LOG_FILE" | _stream_with_budget
     else
         set +e
+        {
+            echo "[safe-runner] start_utc=$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+            echo "[safe-runner] mode=setsid quiet"
+            echo "[safe-runner] pytest_args=$*"
+        } > "$LOG_FILE"
         setsid bash -c "
             ulimit -v $MEM_KB 2>/dev/null || true
             ulimit -m $MEM_KB 2>/dev/null || true
@@ -236,10 +383,11 @@ echo "[safe-runner] Methode: setsid + ulimit -v ${MEM_MB}M"
                 -p no:xdist \
                 --disable-warnings \
                 --no-header
-        " -- "$@" > "$LOG_FILE" 2>&1
+        " -- "$@" >> "$LOG_FILE" 2>&1
         _rc=$?
         set -e
         _print_quiet_summary "$_rc"
+        _write_status_and_report "$_rc" "$@"
         exit "$_rc"
     fi
 )

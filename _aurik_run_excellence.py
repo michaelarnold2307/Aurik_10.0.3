@@ -286,7 +286,7 @@ def main() -> int:
             metadata={
                 "title": stem,
                 "comment": f"Aurik 9 Studio 2026 | quality={ergebnis.quality_estimate:.3f}",
-                "software": "Aurik 9.12.10",
+                "software": "Aurik 9.15.0",
             },
         )
         logger.info("✓ WAV exportiert: %s", out_wav_final)
@@ -301,7 +301,7 @@ def main() -> int:
             metadata={
                 "title": stem,
                 "comment": f"Aurik 9 Studio 2026 | quality={ergebnis.quality_estimate:.3f}",
-                "software": "Aurik 9.12.10",
+                "software": "Aurik 9.15.0",
             },
         )
         logger.info("✓ FLAC exportiert: %s", out_flac_final)

@@ -205,7 +205,12 @@ def test_shape_preserved_stereo():
 
 def test_phase_locality_factor_scales_effective_strength(monkeypatch):
     """phase_locality_factor MUSS die Eingriffsstaerke in Phase 65 reduzieren."""
+    import backend.core.dsp.hnr_guard as _hnr_guard_mod
     import backend.core.phases.phase_65_vocal_naturalness_restoration as p65
+
+    # compute_hnr kann intern ein RNN (GRU) triggern — in Unit-Tests mocken,
+    # damit kein PyTorch-Warmup-Timeout entsteht (§tests.instructions.md).
+    monkeypatch.setattr(_hnr_guard_mod, "compute_hnr", lambda *a, **kw: 5.0)
 
     phase = _make_phase()
     sr = 48000

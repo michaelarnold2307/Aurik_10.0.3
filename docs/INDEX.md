@@ -41,6 +41,8 @@ Bei Abweichungen zwischen Einzel-Dokumenten und Spezifikation gilt immer:
 - [Phasen-Ueberblick](architecture/PHASES_OVERVIEW.md)
 - [Pipeline-Analyse](architecture/PIPELINE_FLOW_ANALYSIS.md)
 - [CI/CD](CI_CD.md)
+- [Testing Guide (inkl. Gate-Runbook)](development/TESTING.md)
+- [Worldclass Change Acceptance Protocol](WORLDCLASS_CHANGE_ACCEPTANCE_PROTOCOL.md)
 - [Spec-Evidenzberichte](reports/spec_evidence/README.md)
 
 ## Kanonischer Vertragsfluss (Kurz)

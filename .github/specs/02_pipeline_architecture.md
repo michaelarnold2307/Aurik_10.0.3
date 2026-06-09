@@ -28,6 +28,42 @@
 - Rauschboden ≤ −72 dBFS (§0a)
 - HPI-Gate: PQS-Improvement dominant (§2.44)
 
+### §1.4b [RELEASE_MUST] Psychoakustische Anti-Maschinenklang-Invariante
+
+Ziel: Hoerbar natuerliche Musikwiedergabe vor technischer Ueberoptimierung.
+
+Pflichtregeln:
+
+1. Additive/Enhancement-Familien MUESSEN vor der finalen Phasenstaerke durch einen
+    psychoakustischen Naturalness-Guard skaliert werden.
+2. Der Guard MUSS maschinell klingende Muster explizit bestrafen:
+    `musical_noise`, `metallic_ringing`, `roughness_regression`,
+    kumulative `psycho_delta_penalty` und `rolling_risk`.
+3. Bei Vokal-Material (`panns_singing >= 0.35`) MUSS der Guard zusaetzlich
+    `breath_naturalness` und `spectral_color_preservation` auswerten.
+4. Bei aktivem Guard ist nur Daempfung erlaubt (`scalar <= 1.0`), kein Boost.
+
+Kanonischer Vertragsrahmen (UV3):
+
+```python
+naturalness_guard = _compute_naturalness_guard_scalar(
+     phase_family=...,
+     studio_mode=...,
+     panns_singing=...,
+     vocal_quality_check=...,            # inkl. breath_naturalness/spectral_color_preservation
+     phase_metadata_accumulator=...,     # inkl. n_musical_noise/n_metallic_ringing/
+                                                     # roughness_regression/_psycho_runtime_state
+)
+uq_scalar *= naturalness_guard["scalar"]
+```
+
+VERBOTEN:
+
+- Enhancement-Phasen ohne Naturalness-Guard-Skalierung.
+- Ignorieren von `rolling_risk` bei vorhandenen Laufzeit-Psycho-Deltas.
+- Akzeptieren von wiederkehrendem Musical-Noise/Metallic-Ringing ohne
+  konservative Staerkedaempfung.
+
 ### §1.4a [RELEASE_MUST] Fail-Fast-Kontrakt für kritische Qualitätsmodule (v9.10.130)
 
 Kritische Qualitätsmodule dürfen in `restoration` und `studio2026` nicht unbemerkt in
@@ -54,6 +90,85 @@ qualitativ schwache Platzhalterpfade fallen.
 
 **Invariante:** Ein Export darf nie allein deshalb passieren, weil ein kritischer
 Qualitätsdetektor nicht verfügbar war.
+
+### §1.4c [RELEASE_MUST] Disziplin-Parallelisierung via InnovationSuperiorityOrchestrator (v9.15.7)
+
+Ziel: Alle Kern-Disziplinen der Restaurierung (Defektbehebung, Vokalintegritaet,
+timbrale Treue, zeitliche Praezision, raeumliche Kohärenz, Zielkonvergenz)
+werden parallel im Closed Loop bewertet und als bounded Innovation-Hinweise
+fuer die §2.78-Nachsteuerung bereitgestellt.
+
+Pflichtregeln:
+
+1. Orchestrator laeuft pro Phase parallel zum Runtime-Reliability-Layer.
+2. Orchestrator ist advisory-only und darf harte Gates nicht ersetzen.
+3. Goal-Confidence-Uplifts muessen bounded bleiben (`<= 0.05` pro Goal).
+4. Endgueltige Goal-Konfidenzen bleiben auf `[0.20, 0.98]` begrenzt.
+5. Telemetrie muss mindestens enthalten:
+   `priority_goals`, `recovery_phase_hints`, `goal_confidence_uplift`,
+   `discipline_scores`, `innovation_intensity`.
+
+Kanonischer Integrationsrahmen (UV3):
+
+```python
+from backend.core.innovation_superiority_orchestrator import (
+    get_innovation_superiority_orchestrator,
+)
+
+orch = get_innovation_superiority_orchestrator()
+plan = orch.build_realtime_plan(...)
+
+for goal, uplift in plan.goal_confidence_uplift.items():
+    goal_confidence[goal] = clip(goal_confidence[goal] + uplift, 0.20, 0.98)
+```
+
+VERBOTEN:
+
+- direkte Phase-Injektion ohne bestehenden §2.78-Rescheduler-Vertrag,
+- ungebundene Konfidenz-Boosts,
+- Gate-Bypass durch Innovationslogik.
+
+### §1.4d [RELEASE_MUST] Kombinierte End-Gate-Weltspitzenmassnahmen (v9.12.16)
+
+Ziel: Geplante und ungeplante Qualitaetsmassnahmen muessen im End-Gate als
+ein gemeinsamer, widerspruchsfreier No-Harm-Entscheider laufen.
+
+Pflichtregeln:
+
+1. Candidate-Ranking bleibt primaer multi-goal-basiert (weighted-gap + critical drops).
+2. `spatial_depth` hat zusaetzliche Harddrop-Sensitivitaet im Ranking (frueher Schutz vor Raumkollaps).
+3. Bei `waerme`-Verletzung MUSS ein konservativer `waerme_focus_rescue`-Kandidat evaluiert werden.
+4. Der `waerme_focus_rescue` darf nur low-mid gezielt staerken und MUSS eine Stereo-Schutzkappe haben.
+5. Endentscheidung bleibt no-harm: Kandidat nur bei objektiver Rank-Verbesserung.
+6. Telemetrie MUSS den gesamten Pfad ausweisen (`candidate_ranking_*`, `waerme_focus_rescue*`).
+7. Material-Causal-Reconciliation MUSS in die source-penalties einfliessen:
+    niedrige Material-Konfidenz oder Material-Defect-Inkonsistenz reduzieren Original-Prior
+    und bevorzugen chain-kompatible Checkpoints.
+8. HPI-Referenzwahl darf bei Material-Causal-Reconciliation auf
+    `best_carrier_checkpoint` wechseln, auch wenn `carrier_chain_recovery_ratio <= 0.15`,
+    sofern eine analoge Stufe in der Transferkette vorliegt und Material-Defect-
+    Inkonsistenz aktiv ist.
+
+Kanonischer Ablauf (UV3 End-Gate):
+
+```python
+if "waerme" in remaining_violations:
+    waerme_candidate, waerme_meta = _build_waerme_focus_rescue_candidate(...)
+    if waerme_candidate is not None:
+        candidate_sources.append(("waerme_focus_rescue", waerme_candidate, penalty))
+
+rank_current = _rank_goal_recovery_candidate(...)
+rank_best = min(candidates, key=final_rank_key)
+
+if rank_best < rank_current:
+    apply(rank_best)
+```
+
+VERBOTEN:
+
+- Waerme-Rettung ohne Stereo-Schutzkappe.
+- Wechsel auf Kandidaten trotz verschlechtertem End-Gate-Rank.
+- Telemetrie-loser Kandidatwechsel.
 
 ---
 

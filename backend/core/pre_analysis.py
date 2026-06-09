@@ -189,6 +189,18 @@ def run_pre_analysis(
     _cb = progress_callback or (lambda pct, msg: None)
     _cb(0, "Voranalyse gestartet…")
 
+    _cached_parts: dict[str, object | None] = {}
+    # Fast-Path: Falls alle Voranalyse-Subresultate bereits im Bridge-Cache liegen,
+    # liefern wir deterministisch aus dem Cache statt die Analyzer erneut zu starten.
+    if store_in_bridge_cache and file_path:
+        _cached_parts = _load_cached_parts(file_path)
+        _cached_result = _build_result_from_cached_parts(_cached_parts, sr_native=sr_native, file_path=file_path)
+        if _cached_result is not None:
+            _cached_result.elapsed_seconds = time.monotonic() - t0
+            _cb(100, "Voranalyse aus Cache geladen.")
+            logger.info("pre_analysis: cache-hit for %s (%.3fs)", file_path, _cached_result.elapsed_seconds)
+            return _cached_result
+
     file_ext = os.path.splitext(file_path)[1].lower() if file_path else ""
 
     # Prepare 48 kHz audio for restorability if not supplied
@@ -203,22 +215,28 @@ def run_pre_analysis(
     # so material hint is available for restorability.
     # Steps 2-5 run in parallel after medium finishes.
     # ------------------------------------------------------------------
-    _medium_result = None
-    _medium_primary_error: str | None = None
-    try:
-        _get_md = cast(Callable[[], Any], _load_symbol("forensics.medium_detector", "get_medium_detector"))
-
-        _medium_result = _get_md().detect(audio_native, sr_native, file_ext=file_ext)
+    _medium_result = _cached_parts.get("medium")
+    if _medium_result is not None:
         result.medium = _medium_result
-        logger.info(
-            "pre_analysis: medium=%s conf=%.2f chain=%s",
-            _medium_result.primary_material,
-            _medium_result.confidence,
-            _medium_result.chain_label,
-        )
-    except Exception as exc:
-        _medium_primary_error = str(exc)
-        logger.warning("pre_analysis: primary medium detection failed (%s)", exc)
+        logger.debug("pre_analysis: medium aus Cache geladen")
+
+    _medium_primary_error: str | None = None
+    if _medium_result is None:
+        try:
+            _get_md = cast(Callable[[], Any], _load_symbol("forensics.medium_detector", "get_medium_detector"))
+
+            _medium_result = _get_md().detect(audio_native, sr_native, file_ext=file_ext)
+            result.medium = _medium_result
+            _medium_result_any = cast(Any, _medium_result)
+            logger.info(
+                "pre_analysis: medium=%s conf=%.2f chain=%s",
+                _medium_result_any.primary_material,
+                _medium_result_any.confidence,
+                _medium_result_any.chain_label,
+            )
+        except Exception as exc:
+            _medium_primary_error = str(exc)
+            logger.warning("pre_analysis: primary medium detection failed (%s)", exc)
 
     # Strict detector-only policy:
     # - Primary detector exactly once
@@ -277,39 +295,77 @@ def run_pre_analysis(
 
         return _er(audio_48k, 48_000, material=_material_str)
 
-    _step_fns = {
-        "era": _run_era,
-        "genre": _run_genre,
-        "defects": _run_defects,
-        "restorability": _run_restorability,
-    }
+    _step_fns: dict[str, Callable[[], object]] = {}
+    if _cached_parts.get("era") is not None:
+        result.era = _cached_parts["era"]
+        logger.debug("pre_analysis: step=era aus Cache geladen")
+    else:
+        _step_fns["era"] = _run_era
 
-    _pool = _cf.ThreadPoolExecutor(max_workers=4)
-    _had_substep_timeout = False
-    try:
-        _fut = {name: _pool.submit(fn) for name, fn in _step_fns.items()}
+    if _cached_parts.get("genre") is not None:
+        result.genre = _cached_parts["genre"]
+        logger.debug("pre_analysis: step=genre aus Cache geladen")
+    else:
+        _step_fns["genre"] = _run_genre
 
-        for name, fut in _fut.items():
+    if _cached_parts.get("defects") is not None:
+        result.defects = _cached_parts["defects"]
+        logger.debug("pre_analysis: step=defects aus Cache geladen")
+    else:
+        _step_fns["defects"] = _run_defects
+
+    if _cached_parts.get("restorability") is not None:
+        result.restorability = _cached_parts["restorability"]
+        logger.debug("pre_analysis: step=restorability aus Cache geladen")
+    else:
+        _step_fns["restorability"] = _run_restorability
+
+    if _step_fns:
+        if len(_step_fns) == 1:
+            name, fn = next(iter(_step_fns.items()))
+            logger.debug("pre_analysis: single step=%s runs inline (no pool overhead)", name)
             try:
-                sub = fut.result(timeout=_SUBSTEP_TIMEOUT_S)
-                setattr(result, name, sub)
+                setattr(result, name, fn())
                 logger.debug("pre_analysis: step=%s done", name)
-            except (TimeoutError, _cf.TimeoutError):  # Python 3.10: cf.TimeoutError != builtins.TimeoutError
-                _had_substep_timeout = True
-                result.errors[name] = f"timeout_after={_SUBSTEP_TIMEOUT_S:.1f}s"
-                fut.cancel()
-                logger.warning(
-                    "pre_analysis: step=%s timed out after %.1fs; degrading without this sub-result",
-                    name,
-                    _SUBSTEP_TIMEOUT_S,
-                )
             except Exception as exc:
                 result.errors[name] = str(exc)
                 logger.warning("pre_analysis: step=%s failed (%s)", name, exc)
-    finally:
-        # Die Futures wurden oben bereits konsumiert; hier wollen wir die Worker
-        # deterministisch beenden statt sie bis zum Interpreter-Exit offen zu lassen.
-        _pool.shutdown(wait=not _had_substep_timeout, cancel_futures=True)
+        else:
+            _worker_count = max(1, min(4, len(_step_fns)))
+            logger.debug(
+                "pre_analysis: parallel steps=%d cached=%d workers=%d",
+                len(_step_fns),
+                4 - len(_step_fns),
+                _worker_count,
+            )
+            _pool = _cf.ThreadPoolExecutor(max_workers=_worker_count)
+            _had_substep_timeout = False
+            try:
+                _fut = {name: _pool.submit(fn) for name, fn in _step_fns.items()}
+
+                for name, fut in _fut.items():
+                    try:
+                        sub = fut.result(timeout=_SUBSTEP_TIMEOUT_S)
+                        setattr(result, name, sub)
+                        logger.debug("pre_analysis: step=%s done", name)
+                    except (TimeoutError, _cf.TimeoutError):  # Python 3.10: cf.TimeoutError != builtins.TimeoutError
+                        _had_substep_timeout = True
+                        result.errors[name] = f"timeout_after={_SUBSTEP_TIMEOUT_S:.1f}s"
+                        fut.cancel()
+                        logger.warning(
+                            "pre_analysis: step=%s timed out after %.1fs; degrading without this sub-result",
+                            name,
+                            _SUBSTEP_TIMEOUT_S,
+                        )
+                    except Exception as exc:
+                        result.errors[name] = str(exc)
+                        logger.warning("pre_analysis: step=%s failed (%s)", name, exc)
+            finally:
+                # Die Futures wurden oben bereits konsumiert; hier wollen wir die Worker
+                # deterministisch beenden statt sie bis zum Interpreter-Exit offen zu lassen.
+                _pool.shutdown(wait=not _had_substep_timeout, cancel_futures=True)
+    else:
+        logger.debug("pre_analysis: steps 2-5 vollständig aus Cache geladen")
 
     _cb(90, "Analyse abgeschlossen — Ergebnisse werden gespeichert…")
 
@@ -371,3 +427,77 @@ def _store_in_cache(file_path: str, result: PreAnalysisResult) -> None:
         logger.debug("pre_analysis: bridge cache updated for %s", file_path)
     except Exception as exc:
         logger.warning("pre_analysis: bridge cache store failed (%s)", exc)
+
+
+def _load_cached_parts(file_path: str) -> dict[str, object | None]:
+    """Lädt verfügbare Bridge-Cache-Teilergebnisse best-effort."""
+    try:
+        get_cached_defect_result = cast(
+            Callable[[str], object | None],
+            _load_symbol("backend.api.bridge", "get_cached_defect_result"),
+        )
+        get_cached_era_genre_result = cast(
+            Callable[[str], dict[str, object] | None],
+            _load_symbol("backend.api.bridge", "get_cached_era_genre_result"),
+        )
+        get_cached_medium_result = cast(
+            Callable[[str], object | None],
+            _load_symbol("backend.api.bridge", "get_cached_medium_result"),
+        )
+        get_cached_restorability_result = cast(
+            Callable[[str], object | None],
+            _load_symbol("backend.api.bridge", "get_cached_restorability_result"),
+        )
+
+        era_genre = get_cached_era_genre_result(file_path)
+        era_result = era_genre.get("era_result") if isinstance(era_genre, dict) else None
+        genre_result = era_genre.get("genre_result") if isinstance(era_genre, dict) else None
+        return {
+            "medium": get_cached_medium_result(file_path),
+            "era": era_result,
+            "genre": genre_result,
+            "defects": get_cached_defect_result(file_path),
+            "restorability": get_cached_restorability_result(file_path),
+        }
+    except Exception as exc:
+        logger.debug("pre_analysis: cache part load non-blocking (%s)", exc)
+        return {}
+
+
+def _load_from_cache(file_path: str, sr_native: int) -> PreAnalysisResult | None:
+    """Lädt ein vollständiges PreAnalysisResult aus Bridge-Caches, falls vorhanden.
+
+    Returns ``None``, wenn mindestens ein Pflicht-Subresultat fehlt.
+    """
+    try:
+        _parts = _load_cached_parts(file_path)
+        return _build_result_from_cached_parts(_parts, sr_native=sr_native, file_path=file_path)
+    except Exception as exc:
+        logger.debug("pre_analysis: cache load non-blocking (%s)", exc)
+        return None
+
+
+def _build_result_from_cached_parts(
+    parts: dict[str, object | None],
+    *,
+    sr_native: int,
+    file_path: str,
+) -> PreAnalysisResult | None:
+    """Erzeugt ein vollständiges PreAnalysisResult nur bei vollständig belegten Cache-Parts."""
+    medium = parts.get("medium")
+    era = parts.get("era")
+    genre = parts.get("genre")
+    defects = parts.get("defects")
+    restorability = parts.get("restorability")
+    if medium is None or era is None or genre is None or defects is None or restorability is None:
+        return None
+
+    return PreAnalysisResult(
+        medium=medium,
+        era=era,
+        genre=genre,
+        defects=defects,
+        restorability=restorability,
+        native_sr=sr_native,
+        file_path=file_path,
+    )

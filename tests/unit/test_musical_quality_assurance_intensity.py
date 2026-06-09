@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import numpy as np
 import pytest
 
 from backend.core.musical_quality_assurance import (
@@ -32,6 +33,19 @@ def _quality(overall: float = 80.0) -> QualityEstimate:
     )
 
 
+def _quality_with_snr(snr_db: float, overall: float = 80.0) -> QualityEstimate:
+    q = _quality(overall=overall)
+    q.snr_db = float(snr_db)
+    # Alle anderen Gates bewusst sicher über Schwellwerten halten,
+    # damit nur das SNR-Gate bewertet wird.
+    q.clarity = 0.92
+    q.warmth = 0.78
+    q.brightness = 0.72
+    q.naturalness = 0.90
+    q.authenticity = 0.88
+    return q
+
+
 def _integrity_ok() -> IntegrityCheckResult:
     return IntegrityCheckResult(
         passed=True,
@@ -56,8 +70,8 @@ def test_validate_final_quality_uses_unique_modules_for_intensity(monkeypatch):
     monkeypatch.setattr(mqa, "check_musical_integrity", lambda *_args, **_kwargs: _integrity_ok())
 
     report = mqa.validate_final_quality(
-        original_audio=[0.0, 0.0],
-        processed_audio=[0.0, 0.0],
+        original_audio=np.zeros(2, dtype=np.float32),
+        processed_audio=np.zeros(2, dtype=np.float32),
         sample_rate=48000,
         medium_type=MediumType.VINYL_33,
         processing_mode=ProcessingMode.RESTORATION,
@@ -80,3 +94,61 @@ def test_validate_final_quality_uses_unique_modules_for_intensity(monkeypatch):
     assert report.processing_intensity == pytest.approx(2 / 50.0, abs=1e-6)
     assert report.overprocessed is False
     assert "OVERPROCESSED" not in report.verdict
+
+
+def test_quality_gate_snr_borderline_low_baseline_passes_with_tolerance(monkeypatch):
+    """Grenzfall um ~0.3 dB bei niedriger Baseline darf nicht als hard fail enden."""
+    mqa = MusicalQualityAssurance()
+    baseline = _quality_with_snr(28.2)
+
+    # Grenzfall: früher false fail bei 28.2 < 28.5.
+    monkeypatch.setattr(mqa.analyzer, "analyze_quality", lambda _audio, _sr: _quality_with_snr(28.2))
+
+    gate_ok, reason = mqa.check_quality_gate(
+        np.zeros(48000, dtype=np.float32),
+        48000,
+        baseline,
+        MediumType.VINYL_33,
+        ProcessingMode.RESTORATION,
+    )
+
+    assert gate_ok is True, f"Grenzfall muss passieren, erhielt: {reason}"
+
+
+def test_quality_gate_snr_clear_drop_still_fails(monkeypatch):
+    """Deutlicher SNR-Abfall muss weiterhin korrekt als fail erkannt werden."""
+    mqa = MusicalQualityAssurance()
+    baseline = _quality_with_snr(28.2)
+
+    monkeypatch.setattr(mqa.analyzer, "analyze_quality", lambda _audio, _sr: _quality_with_snr(26.5))
+
+    gate_ok, reason = mqa.check_quality_gate(
+        np.zeros(48000, dtype=np.float32),
+        48000,
+        baseline,
+        MediumType.VINYL_33,
+        ProcessingMode.RESTORATION,
+    )
+
+    assert gate_ok is False
+    assert "SNR too low" in reason
+
+
+def test_quality_gate_snr_high_baseline_remains_strict(monkeypatch):
+    """Bei hoher Baseline bleibt das SNR-Gate streng und verlangt echte Verbesserung."""
+    mqa = MusicalQualityAssurance()
+    baseline = _quality_with_snr(50.0)
+
+    # Für CD mit hoher Baseline reicht Stagnation nicht aus.
+    monkeypatch.setattr(mqa.analyzer, "analyze_quality", lambda _audio, _sr: _quality_with_snr(50.0, overall=90.0))
+
+    gate_ok, reason = mqa.check_quality_gate(
+        np.zeros(48000, dtype=np.float32),
+        48000,
+        baseline,
+        MediumType.CD,
+        ProcessingMode.RESTORATION,
+    )
+
+    assert gate_ok is False
+    assert "SNR too low" in reason

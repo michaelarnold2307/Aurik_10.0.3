@@ -133,6 +133,11 @@ def get_visqol_plugin() -> VisqolPlugin:
     return _inst
 
 
+def get_loaded_visqol_plugin() -> VisqolPlugin | None:
+    """Gibt nur eine bereits geladene ViSQOL-Instanz zurück, ohne Lazy-Load."""
+    return _inst
+
+
 def score_audio(reference: np.ndarray, degraded: np.ndarray, sr: int = 48000) -> float:
     """Convenience-Wrapper. Gibt MOS-Proxy in [1.0, 5.0] zurueck."""
     return get_visqol_plugin().score(reference, degraded, sr)

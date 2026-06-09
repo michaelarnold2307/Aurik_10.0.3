@@ -796,6 +796,7 @@ def _process_channel(
     goal_weights: dict[str, float] | None = None,
     restorability_score: float = 65.0,
     protected_zones: list[tuple[float, float, float]] | None = None,
+    base_strength: float = 1.0,
 ) -> tuple[np.ndarray, dict]:
     """Inpainting für einen Mono-Kanal. Returns (repaired, stats)."""
     result = channel.copy()
@@ -848,6 +849,17 @@ def _process_channel(
             break
 
         gap_ms = (end - start) / sample_rate * 1000
+        local_strength = DiffusionInpaintingPhase._compute_inpainting_local_strength(
+            channel,
+            start,
+            end,
+            sample_rate,
+            base_strength,
+            protected_zones,
+        )
+        local_ratio = (
+            float(np.clip(local_strength / max(base_strength, 1e-6), 0.0, 1.0)) if base_strength > 1e-6 else 0.0
+        )
 
         # §V38 VFA-Schutzzonen: ML-Inpainting in Vibrato/Frisson/Flüster/Passaggio-Zonen
         # → konservativer Boundary-Fill (ML-Synthese würde falschen Pitch-Verlauf erzeugen → VQI-Degradation)
@@ -986,6 +998,10 @@ def _process_channel(
             )
             candidate = _conservative_boundary_fill(channel, start, end)
 
+        if local_ratio < 0.999:
+            source_segment = channel[start:end]
+            candidate = source_segment + local_ratio * (candidate[: end - start] - source_segment)
+
         result[start:end] = np.clip(
             np.nan_to_num(candidate[: end - start], nan=0.0, posinf=0.0, neginf=0.0),
             -1.0,
@@ -1062,6 +1078,47 @@ class DiffusionInpaintingPhase(PhaseInterface):
         if _is_analog_sensitive and vocals_confidence >= 0.40:
             strength = min(strength, 0.58)
         return float(np.clip(strength, 0.0, 1.0))
+
+    @staticmethod
+    def _compute_inpainting_local_strength(
+        mono_ref: np.ndarray,
+        start: int,
+        end: int,
+        sr: int,
+        base_strength: float,
+        protected_zones: list[tuple[float, float, float]] | None,
+    ) -> float:
+        """Per-Gap-Strength-Orakel für Diffusions-Inpainting (§V38)."""
+        if base_strength < 1e-6:
+            return 0.0
+
+        context_samples = int(0.250 * sr)
+        left_context = mono_ref[max(0, start - context_samples) : start]
+        right_context = mono_ref[end : min(len(mono_ref), end + context_samples)]
+        gap_segment = mono_ref[start:end]
+
+        seg_rms = float(np.sqrt(np.mean(gap_segment * gap_segment) + 1e-12)) if len(gap_segment) > 0 else 0.0
+        ref_parts = [part for part in (left_context, right_context) if len(part) > 0]
+        if ref_parts:
+            reference = np.concatenate(ref_parts)
+            ref_rms = float(np.sqrt(np.mean(reference * reference) + 1e-12))
+        else:
+            ref_rms = seg_rms + 1e-9
+
+        dropout_severity = float(np.clip(1.0 - seg_rms / max(ref_rms, 1e-9), 0.0, 1.0))
+        duration_ms = float((end - start) / max(sr, 1) * 1000.0)
+        severity_factor = float(np.clip(0.45 + 0.55 * dropout_severity, 0.45, 1.0))
+        duration_factor = float(np.clip(0.60 + 0.40 * min(duration_ms / 120.0, 1.0), 0.60, 1.0))
+        local_strength = base_strength * severity_factor * duration_factor
+
+        if protected_zones:
+            start_s = start / sr
+            end_s = end / sr
+            for zone_start, zone_end, zone_cap in protected_zones:
+                if start_s < zone_end and end_s > zone_start:
+                    local_strength = min(local_strength, float(zone_cap))
+
+        return float(np.clip(local_strength, 0.0, base_strength))
 
     @staticmethod
     def _compute_inpainting_profile(
@@ -1381,6 +1438,7 @@ class DiffusionInpaintingPhase(PhaseInterface):
                     goal_weights=_goal_weights,
                     restorability_score=_restorability_score,
                     protected_zones=_p55_pz,
+                    base_strength=safe_strength,
                 )
             except Exception as _ch55_exc:
                 logger.warning("phase_55 mono channel processing failed, using passthrough candidate: %s", _ch55_exc)
@@ -1443,6 +1501,7 @@ class DiffusionInpaintingPhase(PhaseInterface):
                         goal_weights=_goal_weights,
                         restorability_score=_restorability_score,
                         protected_zones=_p55_pz,
+                        base_strength=safe_strength,
                     )
                 except Exception as _ch55_exc:
                     logger.warning(
@@ -1618,6 +1677,7 @@ class DiffusionInpaintingPhase(PhaseInterface):
                 "phase_locality_factor": phase_locality_factor,
                 "effective_strength": effective_strength,
                 "safe_strength": safe_strength,
+                "per_gap_local_strength_oracle": True,
                 "panns_vocals_confidence": _vocals_conf,
                 "bw_cap_hz": _bw_cap_hz,
                 "rms_drop_db": 0.0,

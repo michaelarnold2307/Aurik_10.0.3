@@ -98,7 +98,7 @@ class EnsembleProcessor:
         else:
             out = audio_f32.copy()
 
-        return np.clip(out, -1.0, 1.0)
+        return np.asarray(np.clip(out, -1.0, 1.0), dtype=np.float32)
 
 
 # ---------------------------------------------------------------------------

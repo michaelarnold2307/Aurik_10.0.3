@@ -385,6 +385,105 @@ class TestRunPreAnalysis:
         _m_eg.assert_called_once()
         _m_defect.assert_called_once()
 
+    def test_pre_analysis_uses_cache_shortcut_when_all_cached(self):
+        """Wenn alle Bridge-Subresultate vorhanden sind, dürfen Analyzer nicht erneut laufen."""
+        _cached_medium = MagicMock()
+        _cached_era = MagicMock()
+        _cached_genre = MagicMock()
+        _cached_defects = MagicMock()
+        _cached_rest = MagicMock()
+
+        with (
+            patch("backend.api.bridge.get_cached_medium_result", return_value=_cached_medium),
+            patch(
+                "backend.api.bridge.get_cached_era_genre_result",
+                return_value={"era_result": _cached_era, "genre_result": _cached_genre},
+            ),
+            patch("backend.api.bridge.get_cached_defect_result", return_value=_cached_defects),
+            patch("backend.api.bridge.get_cached_restorability_result", return_value=_cached_rest),
+            patch("forensics.medium_detector.get_medium_detector", side_effect=RuntimeError("should not run")),
+            patch("backend.core.era_classifier.get_era_classifier", side_effect=RuntimeError("should not run")),
+            patch("backend.core.genre_classifier.get_genre_classifier", side_effect=RuntimeError("should not run")),
+            patch("backend.core.defect_scanner.DefectScanner", side_effect=RuntimeError("should not run")),
+            patch(
+                "backend.core.restorability_estimator.estimate_restorability",
+                side_effect=RuntimeError("should not run"),
+            ),
+        ):
+            from backend.core.pre_analysis import run_pre_analysis
+
+            result = run_pre_analysis(
+                _silence(1.0),
+                44100,
+                file_path="/tmp/cache_hit_song.mp3",
+                store_in_bridge_cache=True,
+            )
+
+        assert result.medium is _cached_medium
+        assert result.era is _cached_era
+        assert result.genre is _cached_genre
+        assert result.defects is _cached_defects
+        assert result.restorability is _cached_rest
+
+    def test_pre_analysis_cache_shortcut_requires_complete_cache(self):
+        """Fehlt ein Pflicht-Subresultat im Cache, muss reguläre Analyse laufen."""
+        _cached_medium = MagicMock()
+        with (
+            patch("backend.api.bridge.get_cached_medium_result", return_value=_cached_medium),
+            patch("backend.api.bridge.get_cached_era_genre_result", return_value=None),
+            patch("backend.api.bridge.get_cached_defect_result", return_value=MagicMock()),
+            patch("backend.api.bridge.get_cached_restorability_result", return_value=MagicMock()),
+            patch("forensics.medium_detector.get_medium_detector", return_value=_make_mock_md()) as _md_patch,
+            patch("backend.core.era_classifier.get_era_classifier", return_value=_make_mock_era_cls()),
+            patch("backend.core.genre_classifier.get_genre_classifier", return_value=_make_mock_genre_cls()),
+            patch("backend.core.defect_scanner.DefectScanner", return_value=_make_mock_defect_scanner()),
+            patch("backend.core.restorability_estimator.estimate_restorability", side_effect=_make_mock_restorability),
+        ):
+            from backend.core.pre_analysis import run_pre_analysis
+
+            result = run_pre_analysis(
+                _silence(1.0),
+                44100,
+                file_path="/tmp/cache_miss_song.mp3",
+                store_in_bridge_cache=True,
+            )
+
+        assert result.medium is _cached_medium
+        assert _md_patch.return_value.detect.call_count == 0
+
+    def test_pre_analysis_reuses_cached_defects_without_rescan(self):
+        """Bei partiellem Cache darf DefectScanner nicht erneut laufen, fehlende Schritte aber schon."""
+        _cached_defects = MagicMock()
+        with (
+            patch("backend.api.bridge.get_cached_medium_result", return_value=MagicMock()),
+            patch("backend.api.bridge.get_cached_era_genre_result", return_value=None),
+            patch("backend.api.bridge.get_cached_defect_result", return_value=_cached_defects),
+            patch("backend.api.bridge.get_cached_restorability_result", return_value=None),
+            patch("forensics.medium_detector.get_medium_detector", return_value=_make_mock_md()),
+            patch("backend.core.era_classifier.get_era_classifier", return_value=_make_mock_era_cls()) as _era_patch,
+            patch(
+                "backend.core.genre_classifier.get_genre_classifier", return_value=_make_mock_genre_cls()
+            ) as _genre_patch,
+            patch("backend.core.defect_scanner.DefectScanner", side_effect=RuntimeError("should not run")),
+            patch(
+                "backend.core.restorability_estimator.estimate_restorability",
+                side_effect=_make_mock_restorability,
+            ) as _rest_patch,
+        ):
+            from backend.core.pre_analysis import run_pre_analysis
+
+            result = run_pre_analysis(
+                _silence(1.0),
+                44100,
+                file_path="/tmp/partial_cache_song.mp3",
+                store_in_bridge_cache=True,
+            )
+
+        assert result.defects is _cached_defects
+        assert _era_patch.return_value.classify.call_count == 1
+        assert _genre_patch.return_value.classify.call_count == 1
+        assert _rest_patch.call_count == 1
+
 
 # ---------------------------------------------------------------------------
 # UV3 pre_analysis_result kwarg unpacking

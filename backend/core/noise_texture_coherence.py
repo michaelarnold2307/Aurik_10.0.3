@@ -58,6 +58,9 @@ class NoiseTextureResult:
     is_compliant: bool
     """True wenn coherence ≥ 0.80 (Restoration-Pflicht)."""
 
+    min_required_coherence: float = 0.80
+    """Aktive End-of-Pipeline-Mindestschwelle (mode/material/duration-adaptiv)."""
+
 
 def _generate_reference_profile(
     freqs: np.ndarray,
@@ -87,7 +90,7 @@ def _generate_reference_profile(
     else:
         ref = ref - mean
 
-    return ref
+    return np.asarray(ref, dtype=np.float64)
 
 
 def compute_noise_texture_coherence(
@@ -188,8 +191,40 @@ def compute_noise_texture_coherence(
         material_type=material_type,
         reference_slope=slope,
         measured_slope=measured_slope,
+        min_required_coherence=0.80,
         is_compliant=coherence >= 0.80,
     )
+
+
+def _resolve_end_of_pipeline_min_coherence(material_type: str, quality_mode: str, duration_s: float) -> float:
+    """Liefert die adaptive End-of-Pipeline-Mindestschwelle für Noise-Texture-Coherence.
+
+    Prinzip:
+    - Studio 2026: keine harte Carrier-Texturpflicht (0.0).
+        - Digitale Carrier: kein Mindestwert (0.0), da keine analoge Trägertextur
+            erhalten werden muss.
+    - Analoge Carrier: 0.80 als Langform-Ziel; für sehr kurze Snippets wird die
+      Schwelle auf 0.35 abgesenkt und zwischen 3s..8s linear angehoben, um
+      statistische Instabilität der Residual-PSD nicht als Qualitätsfehler zu werten.
+    """
+    _qm = str(quality_mode or "restoration").strip().lower()
+    if _qm in {"studio_2026", "studio2026", "studio"}:
+        return 0.0
+
+    _mat = str(material_type or "unknown").strip().lower()
+    _is_digital = _mat in _DIGITAL_MATERIALS or "digital" in _mat or "stream" in _mat or "mp3" in _mat or "aac" in _mat
+    if _is_digital:
+        return 0.0
+
+    _dur = float(max(duration_s, 0.0))
+    if _dur <= 3.0:
+        return 0.35
+    if _dur >= 8.0:
+        return 0.80
+
+    # Linear ramp 3s..8s: 0.35 → 0.80
+    _t = (_dur - 3.0) / 5.0
+    return float(0.35 + _t * (0.80 - 0.35))
 
 
 class NoiseTextureCoherenceGuard:
@@ -263,12 +298,32 @@ class NoiseTextureCoherenceGuard:
         residual = original_audio - restored_audio
         result = compute_noise_texture_coherence(residual, sr, material_type)
 
+        # Dauer robust bestimmen (unterstützt Mono, [N,2] und [2,N]).
+        _arr = np.asarray(original_audio)
+        if _arr.ndim == 2:
+            _n_samples = int(max(_arr.shape))
+        else:
+            _n_samples = int(_arr.shape[0]) if _arr.size > 0 else 0
+        _duration_s = float(_n_samples / max(int(sr), 1)) if _n_samples > 0 else 0.0
+
+        _min_required = _resolve_end_of_pipeline_min_coherence(material_type, quality_mode, _duration_s)
+        result = NoiseTextureResult(
+            coherence=float(result.coherence),
+            material_type=str(result.material_type),
+            reference_slope=float(result.reference_slope),
+            measured_slope=float(result.measured_slope),
+            min_required_coherence=float(_min_required),
+            is_compliant=bool(float(result.coherence) >= float(_min_required)),
+        )
+
         if quality_mode == "restoration" and not result.is_compliant:
             logger.warning(
-                "§4.7 NoiseTexture End-Gate: coherence=%.2f < 0.80 (material=%s) "
+                "§4.7 NoiseTexture End-Gate: coherence=%.2f < %.2f (material=%s, duration=%.2fs) "
                 "→ recommendation: reduce denoising aggressiveness",
                 result.coherence,
+                result.min_required_coherence,
                 material_type,
+                _duration_s,
             )
 
         return result

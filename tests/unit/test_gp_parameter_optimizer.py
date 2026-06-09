@@ -905,3 +905,26 @@ class TestContextPriors:
 
         # Höhere kausale Konfidenz -> stärkeres Blending Richtung Prior (0.20)
         assert strong.parameters["noise_reduction_strength"] < weak.parameters["noise_reduction_strength"]
+
+    def test_85_coalition_learning_factor_increases_memory_blend(self, tmp_path, monkeypatch):
+        import backend.core.gp_parameter_optimizer as gp_mod
+
+        monkeypatch.setattr(gp_mod, "_MEMORY_DIR", tmp_path)
+        opt = GPParameterOptimizer(rng_seed=38)
+
+        weak = opt.propose(
+            material="tape",
+            memory_prior={"phase_params": {"noise_reduction_strength": 0.20}, "hpi_achieved": 0.8},
+        )
+        coalition = opt.propose(
+            material="tape",
+            memory_prior={
+                "phase_params": {
+                    "noise_reduction_strength": 0.20,
+                    "_coalition_learning_factor": 1.25,
+                },
+                "hpi_achieved": 0.8,
+            },
+        )
+
+        assert coalition.parameters["noise_reduction_strength"] < weak.parameters["noise_reduction_strength"]

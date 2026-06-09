@@ -181,3 +181,83 @@ class TestNoiseTextureWetReduction60To80Range:
         after = before * 0.85
         _, wet = guard.check_per_phase(before, after, 48000, "vinyl")
         assert abs(wet - 0.70) < 1e-6, f"Erwartete wet 0.70 bei coh=0.50, erhalten {wet}"
+
+
+class TestNoiseTextureEndGateAdaptiveCompliance:
+    """§4.7 v9.12.x — adaptive End-Gate-Schwelle (Dauer/Material/Mode)."""
+
+    def _patch_compute_with_coherence(self, monkeypatch, coherence: float):
+        import backend.core.noise_texture_coherence as _ntc_mod
+
+        def _fake_compute(residual, sr, material_type):
+            return NoiseTextureResult(
+                coherence=coherence,
+                material_type=material_type,
+                reference_slope=-3.0,
+                measured_slope=-1.5,
+                is_compliant=coherence >= 0.80,
+            )
+
+        monkeypatch.setattr(_ntc_mod, "compute_noise_texture_coherence", _fake_compute)
+
+    def test_short_analog_clip_relaxes_minimum(self, monkeypatch):
+        """Kurzer Analog-Clip erhält robustere Schwelle statt starrem 0.80-Fail."""
+        self._patch_compute_with_coherence(monkeypatch, coherence=0.39)
+        guard = NoiseTextureCoherenceGuard()
+        sr = 48000
+        n = sr * 3
+        original = np.zeros(n, dtype=np.float32)
+        restored = np.zeros(n, dtype=np.float32)
+
+        result = guard.check_end_of_pipeline(original, restored, sr, "vinyl", quality_mode="restoration")
+
+        assert result.min_required_coherence < 0.80
+        assert result.is_compliant is True
+
+    def test_long_analog_clip_keeps_strict_minimum(self, monkeypatch):
+        """Langer Analog-Clip bleibt bei strenger Schwelle nahe 0.80."""
+        self._patch_compute_with_coherence(monkeypatch, coherence=0.39)
+        guard = NoiseTextureCoherenceGuard()
+        sr = 48000
+        n = sr * 12
+        original = np.zeros(n, dtype=np.float32)
+        restored = np.zeros(n, dtype=np.float32)
+
+        result = guard.check_end_of_pipeline(original, restored, sr, "vinyl", quality_mode="restoration")
+
+        assert result.min_required_coherence >= 0.79
+        assert result.is_compliant is False
+
+    def test_studio_mode_disables_end_gate_enforcement(self, monkeypatch):
+        """Studio 2026: End-Gate markiert Noise-Texture nie als hard fail."""
+        self._patch_compute_with_coherence(monkeypatch, coherence=0.0)
+        guard = NoiseTextureCoherenceGuard()
+        sr = 48000
+        n = sr * 10
+        original = np.zeros(n, dtype=np.float32)
+        restored = np.zeros(n, dtype=np.float32)
+
+        result = guard.check_end_of_pipeline(original, restored, sr, "vinyl", quality_mode="studio_2026")
+
+        assert result.min_required_coherence == 0.0
+        assert result.is_compliant is True
+
+    def test_digital_carrier_allows_zero_coherence_in_restoration(self, monkeypatch):
+        """Digitale Carrier erzwingen keine analoge Noise-Texture-Kohärenz."""
+        self._patch_compute_with_coherence(monkeypatch, coherence=0.0)
+        guard = NoiseTextureCoherenceGuard()
+        sr = 48000
+        n = sr * 3
+        original = np.zeros(n, dtype=np.float32)
+        restored = np.zeros(n, dtype=np.float32)
+
+        result = guard.check_end_of_pipeline(
+            original,
+            restored,
+            sr,
+            "mp3_low",
+            quality_mode="restoration",
+        )
+
+        assert result.min_required_coherence == 0.0
+        assert result.is_compliant is True

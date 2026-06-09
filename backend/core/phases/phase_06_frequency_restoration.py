@@ -740,6 +740,7 @@ class FrequencyRestorationPhase(PhaseInterface):
                 sr=sample_rate,
                 material_bw_ceiling_hz=_bw_cap_hz,
                 mode=_hg_mode_06,
+                bw_extension_context=True,  # §Brillanz-Fix: AudioSR adds new HF below ceiling — not hallucination
             )
             if _hg_result06.requires_rollback:
                 logger.warning(

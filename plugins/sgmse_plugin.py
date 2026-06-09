@@ -933,6 +933,11 @@ def get_sgmse_plus_plugin() -> SGMSEPlusPlugin:
     return _instance_plus
 
 
+def get_loaded_sgmse_plus_plugin() -> SGMSEPlusPlugin | None:
+    """Gibt nur eine bereits geladene SGMSE+-Instanz zurück, ohne Lazy-Load."""
+    return _instance_plus
+
+
 def enhance_sgmse(audio: np.ndarray, sr: int, sigma: float = 0.5) -> SgmseResult:
     """Convenience-Wrapper für get_sgmse_plus_plugin().enhance()."""
     return get_sgmse_plus_plugin().enhance(audio, sr, sigma)

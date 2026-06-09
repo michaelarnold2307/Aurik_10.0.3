@@ -39,6 +39,7 @@ class ExecutionGateThresholds:
     min_export_contract_rate: float = 1.0
     max_forbidden_phase_executions: int = 0
     max_runtime_factor: float = 25.0
+    runtime_duration_floor_seconds: float = 4.0
 
 
 @dataclass(frozen=True)
@@ -121,6 +122,7 @@ def _thresholds_from_manifest(payload: dict[str, Any]) -> ExecutionGateThreshold
         min_export_contract_rate=float(raw.get("min_export_contract_rate", 1.0)),
         max_forbidden_phase_executions=int(raw.get("max_forbidden_phase_executions", 0)),
         max_runtime_factor=float(raw.get("max_runtime_factor", 25.0)),
+        runtime_duration_floor_seconds=float(raw.get("runtime_duration_floor_seconds", 4.0)),
     )
 
 
@@ -222,6 +224,9 @@ def _measure_manifest_vqi(
 ) -> tuple[float | None, float | None, str]:
     """Misst VQI for manifest-declared vocal cases independent of UV3 metadata."""
     try:
+        from backend.core.musical_goals.era_vocal_profile import (  # pylint: disable=import-outside-toplevel
+            get_era_vocal_profile,
+        )
         from backend.core.musical_goals.vocal_quality_index import (  # pylint: disable=import-outside-toplevel
             compute_vqi,
             get_vqi_material_floor,
@@ -233,11 +238,25 @@ def _measure_manifest_vqi(
                 str(raw_case.get("description", "") or ""),
             ]
         ).lower()
+        era_decade: int | None = None
+        for _era_key in ("era_decade", "decade", "era_year", "year"):
+            _raw = raw_case.get(_era_key)
+            if isinstance(_raw, (int, float)):
+                _val = int(_raw)
+                if _val >= 1000:
+                    era_decade = (_val // 10) * 10
+                    break
+                if 190 <= _val <= 210:
+                    era_decade = _val * 10
+                    break
+        era_profile = get_era_vocal_profile(era_decade) if isinstance(era_decade, int) and era_decade > 0 else None
+
         result = compute_vqi(
             audio_orig=audio_orig,
             audio_restored=audio_restored,
             sr=sr,
             skip_singer_identity=("choir" in case_text or "chor" in case_text),
+            era_profile=era_profile,
         )
         raw_vqi = result.get("vqi")
         material = str(raw_case.get("material_type", "unknown") or "unknown")
@@ -463,7 +482,11 @@ def _evaluate_execution_gate(
     export_rate = sum(1 for case in cases if case.export_contract_passed) / total_cases
     forbidden_total = sum(len(case.forbidden_executed) for case in cases)
     runtime = sum(case.runtime_seconds for case in cases)
-    duration = sum(max(case.duration_seconds, 1e-9) for case in cases)
+    # Kurze Clips (<4s) tragen fixe Init-/Model-Load-Overheads unverhältnismäßig stark,
+    # obwohl diese Kosten nicht proportional mit Programmlänge wachsen. Der Floor
+    # stabilisiert die Gate-Bewertung für kurze Real-Audio-Snippets.
+    duration_floor = max(float(thresholds.runtime_duration_floor_seconds), 1e-9)
+    duration = sum(max(case.duration_seconds, duration_floor, 1e-9) for case in cases)
     runtime_factor = runtime / duration
 
     fail_reasons: list[str] = []

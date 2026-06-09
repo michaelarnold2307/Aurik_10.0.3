@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Aurik 9.12.10 — Startskript mit venv-Python (.venv_aurik, Python 3.10.12)
+# Aurik 9.15.0 — Startskript mit venv-Python (.venv_aurik, Python 3.10.12)
 # GPU-Modus: ROCm-venv auf ext4 (~/.local/share/aurik/venv_rocm) + /dev/kfd vorhanden
 # Verwendung: ./run_aurik.sh [Argumente]
 #   AURIK_FORCE_CPU=1  ./run_aurik.sh  — erzwingt CPU-only (deaktiviert ROCm)

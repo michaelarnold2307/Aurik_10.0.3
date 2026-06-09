@@ -120,6 +120,7 @@ class CausalDefectGraph:
     def __init__(self) -> None:
         # Invertierter Graph: Symptom → [Ursachen]
         self._symptom_to_causes: dict[DefectType, list[DefectType]] = {}
+        self._incomplete_sort_warned = False
         for cause, effects in self.CAUSAL_EDGES.items():
             for effect in effects:
                 self._symptom_to_causes.setdefault(effect, []).append(cause)
@@ -201,7 +202,11 @@ class CausalDefectGraph:
         result = [score_lookup[dt] for dt in ordered if dt in score_lookup]
 
         if len(result) != len(detected_dedup):
-            logger.warning("Kausale Sortierung unvollständig — Fallback auf Schweregrad.")
+            if not self._incomplete_sort_warned:
+                logger.warning("Kausale Sortierung unvollständig — Fallback auf Schweregrad.")
+                self._incomplete_sort_warned = True
+            else:
+                logger.debug("Kausale Sortierung weiterhin unvollständig — Fallback auf Schweregrad.")
             return sorted(detected_dedup, key=lambda d: d.severity, reverse=True)
 
         logger.debug(

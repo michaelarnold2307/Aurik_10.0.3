@@ -401,9 +401,14 @@ class ObjectiveScorer:
 
         if enable_versa:
             try:
-                from plugins.versa_plugin import get_versa_plugin  # pylint: disable=import-outside-toplevel
+                from plugins.versa_plugin import (  # pylint: disable=import-outside-toplevel
+                    get_loaded_versa_plugin,
+                    get_versa_plugin,
+                )
 
-                self.versa_plugin = get_versa_plugin()
+                self.versa_plugin = get_loaded_versa_plugin()
+                if self.versa_plugin is None:
+                    self.versa_plugin = get_versa_plugin()
                 logger.info("✓ VERSA Plugin loaded (§4.4, non-reference MOS)")
             except Exception as e:
                 logger.warning("⚠ VERSA Plugin not available: %s", e)

@@ -15,6 +15,7 @@
 - [Übersicht](#übersicht)
 - [Test-Struktur](#test-struktur)
 - [Tests ausführen](#tests-ausführen)
+- [Gate-Runbook (gegen Mehrfachstarts)](#gate-runbook-gegen-mehrfachstarts)
 - [Tests schreiben](#tests-schreiben)
 - [Test-Coverage](#test-coverage)
 - [E2E-Testing](#e2e-testing)
@@ -183,6 +184,67 @@ pytest --maxfail=1 --disable-warnings --tb=short
 ```
 
 **VSCode:** Drücke `Ctrl+Shift+P` → "Tasks: Run Task" → "pytest aurik Testsuite"
+
+---
+
+## Gate-Runbook (gegen Mehrfachstarts)
+
+Ziel: AMRB/Competitive/Spec-Gates nur einmal starten und den Status danach aus Artefakten lesen,
+statt denselben Langlauf mehrfach parallel neu zu triggern.
+
+### Verbindliche Reihenfolge fuer Langlaeufer
+
+1. Gate starten (genau ein Start pro Profil)
+2. Nicht erneut starten, solange ein identischer Lauf aktiv ist
+3. Ergebnis aus Status-Artefakten lesen
+4. Nur bei geaendertem Profil bewusst neu starten (z. B. anderes Timeout)
+
+### Warum das wichtig ist
+
+- Doppelte Starts verbrauchen massiv Zeit und Ressourcen
+- Parallele identische Gatelaufe erschweren die Interpretation
+- Das Projekt hat bereits einen Duplicate-Run-Guard ueber Lock-Fingerprints
+
+### Aktivitaet pruefen (statt blind neu starten)
+
+- Prozesssicht:
+    - `ps -eo pid,etimes,pcpu,pmem,state,cmd | rg -i "test_amrb_ci_gate|test_competitive_ci_gate|run_tests_safe\.sh"`
+- Lock-Hinweis:
+    - `ls -lt logs/locks | head -n 20`
+
+Wenn ein identischer Lauf schon aktiv ist, blockt der Safe-Runner mit:
+`[safe-runner] Abbruch: identischer Testlauf ist bereits aktiv ...`
+
+### Ergebnisquelle (kanonisch)
+
+Nach Abschluss immer zuerst hier lesen:
+
+- `logs/pytest_safe.status`
+- `logs/pytest_safe.mini_report.txt`
+
+Statusdatei ist die primaere Quelle fuer:
+
+- `classification=PASS|FAIL|TIMEOUT|...`
+- `exit_code=...`
+- `args=...` (wichtig fuer Profilabgleich)
+
+### Profilabgleich vor Bewertung
+
+Vor einer Freigabe immer pruefen, ob das ausgewertete Ergebnis zum gewollten Profil passt:
+
+- identische Gate-Datei
+- identische Timeout-Parameter
+- identisches Memory-/Swap-Profil
+
+Nur wenn `args` in `pytest_safe.status` dem Zielprofil entspricht, gilt der Lauf als gueltiger Nachweis.
+
+### Empfohlene Praxis fuer Competitive
+
+1. Standardprofil aus Task laufen lassen
+2. Bei reinem Timeout-Fail: explizit ein zweites Profil mit hoeherem Zeitbudget fahren
+3. Ergebnis immer mit Profil kennzeichnen (z. B. "Standard" vs. "Erhoehtes Budget")
+
+Dadurch wird verhindert, dass ein alter FAIL oder PASS aus einem anderen Profil falsch interpretiert wird.
 
 ---
 

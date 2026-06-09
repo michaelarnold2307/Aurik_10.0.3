@@ -523,6 +523,37 @@ class ExzellenzDenker:
         _P1P2_BLEND_GOALS: frozenset[str] = frozenset(
             {"authentizitaet", "timbre_authentizitaet", "timbre", "tonal_center", "transient_energie"}
         )
+        # Modus-kritische Ziele für robuste Gesamtbalance über stark unterschiedliche Songs.
+        # Restoration priorisiert Klangwahrheit + Defektfreiheit, Studio 2026 priorisiert
+        # zusätzlich räumliche/moderne Präsenzziele.
+        _MODE_CORE_GOALS: frozenset[str] = (
+            frozenset(
+                {
+                    "natuerlichkeit",
+                    "authentizitaet",
+                    "timbre_authentizitaet",
+                    "tonal_center",
+                    "artikulation",
+                    "transient_energie",
+                    "spatial_depth",
+                }
+            )
+            if not _is_studio
+            else frozenset(
+                {
+                    "natuerlichkeit",
+                    "authentizitaet",
+                    "timbre_authentizitaet",
+                    "tonal_center",
+                    "artikulation",
+                    "transient_energie",
+                    "spatial_depth",
+                    "brillanz",
+                    "separation_fidelity",
+                    "micro_dynamics",
+                }
+            )
+        )
 
         # §2.32 Inapplicable-Filter: Goals die GAF als physikalisch nicht messbar
         # markiert hat (z.B. brillanz bei BW<8kHz ohne AudioSR, bass_kraft bei
@@ -541,9 +572,21 @@ class ExzellenzDenker:
         if not goals_initial:
             return audio, {}
 
-        _passed_initial = sum(
-            1 for k, v in goals_initial.items() if math.isfinite(v) and v >= _thresholds.get(k, _FALLBACK_MIN)
-        )
+        def _count_passed(goals: dict[str, float]) -> int:
+            return sum(1 for _k, _v in goals.items() if math.isfinite(_v) and _v >= _thresholds.get(_k, _FALLBACK_MIN))
+
+        def _deficit_sum(goals: dict[str, float], *, focus: frozenset[str] | None = None) -> float:
+            _acc = 0.0
+            for _k, _v in goals.items():
+                if focus is not None and _k not in focus:
+                    continue
+                if not math.isfinite(_v):
+                    continue
+                _thr = float(_thresholds.get(_k, _FALLBACK_MIN))
+                _acc += max(0.0, _thr - float(_v))
+            return float(_acc)
+
+        _passed_initial = _count_passed(goals_initial)
         _total = len(goals_initial)
 
         # P3-P5 violations with meaningful deficit (avoids micro-adjustments on borderline goals)
@@ -585,17 +628,46 @@ class ExzellenzDenker:
 
         def _is_improvement(candidate_goals: dict[str, float]) -> bool:
             """Accept only if goals_passed ≥ before AND no goal regresses > 0.02 (§0)."""
-            _cand_passed = sum(
-                1 for k, v in candidate_goals.items() if math.isfinite(v) and v >= _thresholds.get(k, _FALLBACK_MIN)
-            )
+            _cand_passed = _count_passed(candidate_goals)
             if _cand_passed < _best_passed:
                 return False
+
+            # Lokaler Intent-Guard (Roadmap Phase 2.1, kleiner Scope):
+            # authentizitaet darf spatial_depth nicht unverhältnismäßig "bezahlen".
+            # So verhindern wir häufige Raumtiefe-Einbrüche bei nur kleinem Authentizitätsgewinn.
+            _init_auth = float(goals_initial.get("authentizitaet", 1.0))
+            _cand_auth = float(candidate_goals.get("authentizitaet", _init_auth))
+            _init_spa = float(goals_initial.get("spatial_depth", 1.0))
+            _cand_spa = float(candidate_goals.get("spatial_depth", _init_spa))
+            if all(math.isfinite(x) for x in (_init_auth, _cand_auth, _init_spa, _cand_spa)):
+                _auth_gain = _cand_auth - _init_auth
+                _spa_drop = _init_spa - _cand_spa
+                if _spa_drop > 0.008 and _auth_gain < min(0.02, _spa_drop * 1.5):
+                    return False
+
             # Regression guard for ALL goals (not just P1/P2)
             for _g, _v_init in goals_initial.items():
                 if math.isfinite(_v_init):
                     _v_cand = candidate_goals.get(_g, _v_init)
-                    if math.isfinite(_v_cand) and _v_cand < _v_init - 0.02:
+                    _max_drop = 0.02
+                    if _g in _MODE_CORE_GOALS:
+                        _max_drop = 0.015
+                    if _g in _P1P2_BLEND_GOALS:
+                        _max_drop = 0.01
+                    if math.isfinite(_v_cand) and _v_cand < _v_init - _max_drop:
                         return False
+
+            # Bei gleicher Anzahl bestandener Goals muss der Kandidat die
+            # globale Defizitsumme (und speziell Kernziele) verbessern.
+            if _cand_passed == _best_passed:
+                _cand_def = _deficit_sum(candidate_goals)
+                _best_def = _deficit_sum(_best_goals)
+                if _cand_def > _best_def + 1e-6:
+                    return False
+                _cand_core_def = _deficit_sum(candidate_goals, focus=_MODE_CORE_GOALS)
+                _best_core_def = _deficit_sum(_best_goals, focus=_MODE_CORE_GOALS)
+                if _cand_core_def > _best_core_def + 1e-6:
+                    return False
             return True
 
         # Step 2: Zeit-Domain-Reparatur (micro_dynamics + ola_edges — kein STFT)
@@ -626,7 +698,7 @@ class ExzellenzDenker:
                 )
                 _td_goals = self.messe_ziele(_td_out, sr)
                 if _td_goals and _is_improvement(_td_goals):
-                    _td_passed = sum(1 for v in _td_goals.values() if math.isfinite(v) and v >= _FALLBACK_MIN)
+                    _td_passed = _count_passed(_td_goals)
                     _best_audio = _td_out
                     _best_goals = _td_goals
                     _best_passed = _td_passed
@@ -664,8 +736,8 @@ class ExzellenzDenker:
                     _blend_goals = self.messe_ziele(_blended, sr)
                     if not _blend_goals:
                         continue
-                    _blend_passed = sum(1 for v in _blend_goals.values() if math.isfinite(v) and v >= _FALLBACK_MIN)
-                    if _is_improvement(_blend_goals) and _blend_passed > _best_passed:
+                    _blend_passed = _count_passed(_blend_goals)
+                    if _is_improvement(_blend_goals) and _blend_passed >= _best_passed:
                         _best_audio = _blended
                         _best_goals = _blend_goals
                         _best_passed = _blend_passed
@@ -703,8 +775,8 @@ class ExzellenzDenker:
                     _p12_goals = self.messe_ziele(_p12_blended, sr)
                     if not _p12_goals:
                         continue
-                    _p12_passed = sum(1 for v in _p12_goals.values() if math.isfinite(v) and v >= _FALLBACK_MIN)
-                    if _is_improvement(_p12_goals) and _p12_passed > _best_passed:
+                    _p12_passed = _count_passed(_p12_goals)
+                    if _is_improvement(_p12_goals) and _p12_passed >= _best_passed:
                         _best_audio = _p12_blended
                         _best_goals = _p12_goals
                         _best_passed = _p12_passed
@@ -718,6 +790,67 @@ class ExzellenzDenker:
                         break
             except Exception as _p12_exc:
                 logger.debug("ExzellenzDenker P1/P2-Blend fehlgeschlagen: %s", _p12_exc)
+
+        # Step 5: Lokaler End-Gate-Backoff für spatial_depth/waerme
+        # Ziel: Restliche Defizite in Raumtiefe/Wärme glätten, ohne globale
+        # Kernziele zu verschlechtern. Akzeptanz nur wenn _is_improvement()
+        # AND lokaler Defizitvektor tatsächlich sinkt.
+        _LOCAL_RESCUE_GOALS: frozenset[str] = frozenset({"spatial_depth", "waerme"})
+        _needs_local_rescue = (
+            reference_audio is not None
+            and reference_audio.shape == _best_audio.shape
+            and str(material).lower() not in _HIGH_NOISE_MATERIALS
+        )
+        if _needs_local_rescue:
+            try:
+                _rescue_targets = {
+                    _g
+                    for _g in _LOCAL_RESCUE_GOALS
+                    if math.isfinite(float(_best_goals.get(_g, 1.0)))
+                    and float(_best_goals.get(_g, 1.0)) < float(_thresholds.get(_g, _FALLBACK_MIN))
+                }
+                if _rescue_targets:
+                    _ref_f32_local = np.nan_to_num(reference_audio.astype(np.float32), nan=0.0, posinf=0.0, neginf=0.0)
+                    _best_local_def = _deficit_sum(_best_goals, focus=frozenset(_rescue_targets))
+                    _waerme_focus = "waerme" in _rescue_targets
+                    _spa_now = float(_best_goals.get("spatial_depth", 1.0))
+                    _wae_now = float(_best_goals.get("waerme", 1.0))
+                    for _alpha_local in (0.985, 0.975, 0.965):
+                        _local_blended = np.clip(
+                            _alpha_local * _best_audio + (1.0 - _alpha_local) * _ref_f32_local,
+                            -1.0,
+                            1.0,
+                        )
+                        _local_goals = self.messe_ziele(_local_blended, sr)
+                        if not _local_goals:
+                            continue
+                        _spa_cand = float(_local_goals.get("spatial_depth", _spa_now))
+                        _wae_cand = float(_local_goals.get("waerme", _wae_now))
+                        _cand_local_def = _deficit_sum(_local_goals, focus=frozenset(_rescue_targets))
+                        _cand_passed = _count_passed(_local_goals)
+                        # Bei waerme-Rettung erlauben wir kleinen Spatial-Tradeoff,
+                        # aber nur wenn waerme spuerbar steigt und spatial_depth nicht kippt.
+                        if _waerme_focus:
+                            _spa_drop_local = _spa_now - _spa_cand
+                            _wae_gain_local = _wae_cand - _wae_now
+                            if _spa_drop_local > 0.02:
+                                continue
+                            if _wae_gain_local < 0.015:
+                                continue
+                        if _cand_local_def + 1e-6 < _best_local_def and _is_improvement(_local_goals):
+                            _best_audio = _local_blended
+                            _best_goals = _local_goals
+                            _best_passed = _cand_passed
+                            logger.info(
+                                "ExzellenzDenker Local-Rescue (α=%.3f): local_def %.4f→%.4f (%s)",
+                                _alpha_local,
+                                _best_local_def,
+                                _cand_local_def,
+                                ", ".join(sorted(_rescue_targets)),
+                            )
+                            break
+            except Exception as _local_exc:
+                logger.debug("ExzellenzDenker Local-Rescue fehlgeschlagen: %s", _local_exc)
 
         return _best_audio, _best_goals
 

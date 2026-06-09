@@ -1554,7 +1554,7 @@ def build_export_quality_gate_payload(result: object) -> dict[str, Any]:
     if _root_cause_l.startswith("pipeline_blocked:"):
         _root_cause = _root_cause.split(":", 1)[1].strip() or _root_cause
 
-    return {
+    payload = {
         "passed": bool(passed),
         "fail_reason": primary_fail_reason,
         "root_cause": _root_cause,
@@ -1621,6 +1621,32 @@ def build_export_quality_gate_payload(result: object) -> dict[str, Any]:
         },
         "warnings": [str(w) for w in warnings],
     }
+
+    try:
+        meta_obj = getattr(result, "metadata", None)
+        if isinstance(meta_obj, dict):
+            meta_obj.setdefault("fail_reason", primary_fail_reason)
+            meta_obj.setdefault("degradation_status", degradation_status)
+            if fail_reasons and not isinstance(meta_obj.get("fail_reasons"), list):
+                meta_obj["fail_reasons"] = list(fail_reasons)
+            meta_obj["quality_gate_payload"] = payload
+            meta_obj["export_quality_gate_payload"] = payload
+        elif meta_obj is None and hasattr(result, "metadata"):
+            setattr(
+                result,
+                "metadata",
+                {
+                    "fail_reason": primary_fail_reason,
+                    "degradation_status": degradation_status,
+                    "fail_reasons": list(fail_reasons),
+                    "quality_gate_payload": payload,
+                    "export_quality_gate_payload": payload,
+                },
+            )
+    except Exception as exc:
+        logger.debug("build_export_quality_gate_payload mirror skipped: %s", exc)
+
+    return payload
 
 
 def build_export_metadata(result: object, **tag_kwargs):

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from backend.core.defect_scanner import MaterialType
+from backend.core.defect_scanner import DefectAnalysisResult, DefectScore, DefectType, MaterialType
 from backend.core.phases.phase_interface import PhaseCategory, PhaseMetadata, create_phase_result
 from backend.core.quality_mode import QualityMode
 from backend.core.unified_restorer_v3 import UnifiedRestorerV3
@@ -101,6 +101,148 @@ def test_non_phase03_does_not_get_tdp_stem_aware_nr_injected():
 
     assert isinstance(phase.last_kwargs, dict)
     assert "tdp_stem_aware_nr" not in phase.last_kwargs
+
+
+def test_cht_warning_brakes_risky_enhancement_phases_more_aggressively():
+    base_brake = UnifiedRestorerV3._compute_cht_cascade_brake("tonal_enhancement", 0, 0)
+    warned_brake = UnifiedRestorerV3._compute_cht_cascade_brake("tonal_enhancement", 2, 1)
+    risky_brake = UnifiedRestorerV3._compute_cht_cascade_brake("stereo_enhancement", 2, 1)
+
+    assert warned_brake < base_brake
+    assert risky_brake <= warned_brake
+    assert 0.5 <= risky_brake < 1.0
+
+
+def test_naturalness_guard_damps_vocal_enhancement_when_voice_metrics_drop():
+    guard = UnifiedRestorerV3._compute_naturalness_guard_scalar(
+        phase_family="tonal_enhancement",
+        studio_mode=False,
+        panns_singing=0.52,
+        vocal_quality_check={
+            "noise_texture_authenticity": 0.10,
+            "micro_dynamic_correlation": 0.94,
+            "formant_integrity": 0.84,
+        },
+        phase_metadata_accumulator={
+            "phase_39_air_band_enhancement": {
+                "onset_shift_ms": 2.7,
+            }
+        },
+    )
+
+    assert bool(guard.get("enabled", False)) is True
+    assert float(guard.get("scalar", 1.0)) < 0.80
+    assert float(guard.get("risk_score", 0.0)) > 0.15
+    assert len(guard.get("signals", [])) >= 3
+
+
+def test_naturalness_guard_is_neutral_for_subtractive_family():
+    guard = UnifiedRestorerV3._compute_naturalness_guard_scalar(
+        phase_family="subtractive_cleanup",
+        studio_mode=False,
+        panns_singing=0.60,
+        vocal_quality_check={
+            "noise_texture_authenticity": 0.05,
+            "micro_dynamic_correlation": 0.92,
+            "formant_integrity": 0.82,
+        },
+        phase_metadata_accumulator={"x": {"onset_shift_ms": 8.0}},
+    )
+
+    assert bool(guard.get("enabled", True)) is False
+    assert float(guard.get("scalar", 0.0)) == 1.0
+
+
+def test_naturalness_guard_detects_machine_like_artifact_history():
+    guard = UnifiedRestorerV3._compute_naturalness_guard_scalar(
+        phase_family="source_enhancement",
+        studio_mode=False,
+        panns_singing=0.58,
+        vocal_quality_check={
+            "noise_texture_authenticity": 0.24,
+            "micro_dynamic_correlation": 0.975,
+            "breath_naturalness": 0.76,
+            "spectral_color_preservation": 0.91,
+        },
+        phase_metadata_accumulator={
+            "phase_23_spectral_repair": {
+                "n_musical_noise": 5,
+                "n_metallic_ringing": 2,
+                "roughness_regression": True,
+                "psycho_delta_penalty": 0.12,
+            }
+        },
+    )
+
+    assert bool(guard.get("enabled", False)) is True
+    assert float(guard.get("risk_score", 0.0)) > 0.18
+    assert float(guard.get("scalar", 1.0)) < 0.82
+    sig = set(guard.get("signals", []))
+    assert "musical_noise_history" in sig
+    assert "metallic_ringing_history" in sig
+    assert "breath_naturalness" in sig
+
+
+def test_naturalness_guard_uses_runtime_psycho_state():
+    guard = UnifiedRestorerV3._compute_naturalness_guard_scalar(
+        phase_family="harmonic_enhancement",
+        studio_mode=False,
+        panns_singing=0.44,
+        vocal_quality_check={
+            "noise_texture_authenticity": 0.26,
+            "micro_dynamic_correlation": 0.982,
+        },
+        phase_metadata_accumulator={
+            "_psycho_runtime_state": {
+                "rolling_risk": 0.26,
+                "last_delta_penalty": 0.17,
+            }
+        },
+    )
+
+    assert bool(guard.get("enabled", False)) is True
+    assert float(guard.get("risk_score", 0.0)) > 0.16
+    assert float(guard.get("scalar", 1.0)) < 0.85
+    sig = set(guard.get("signals", []))
+    assert "runtime_psycho_risk" in sig
+    assert "runtime_delta_recent" in sig
+
+
+def test_focus_defect_map_prefers_reliable_defects():
+    result = DefectAnalysisResult(
+        material_type=MaterialType.TAPE,
+        scores={
+            DefectType.DROPOUTS: DefectScore(DefectType.DROPOUTS, severity=0.60, confidence=0.95),
+            DefectType.PRE_ECHO: DefectScore(DefectType.PRE_ECHO, severity=0.80, confidence=0.20),
+            DefectType.HUM: DefectScore(DefectType.HUM, severity=0.40, confidence=0.85),
+        },
+        analysis_time_seconds=0.01,
+        sample_rate=48000,
+        duration_seconds=1.0,
+    )
+
+    focus = result.get_focus_defect_map(n=3)
+    assert "dropouts" in focus
+    assert "hum" in focus
+    assert float(focus["dropouts"]) > float(focus["hum"])
+    assert float(focus.get("pre_echo", 0.0)) < float(focus["dropouts"])
+
+
+def test_extract_defect_focus_scores_uses_metadata_when_present():
+    result = DefectAnalysisResult(
+        material_type=MaterialType.VINYL,
+        scores={
+            DefectType.CLICKS: DefectScore(DefectType.CLICKS, severity=0.4, confidence=0.9),
+        },
+        analysis_time_seconds=0.01,
+        sample_rate=48000,
+        duration_seconds=1.0,
+        metadata={"focus_defects": {"room_mode_resonance": 0.61, "clicks": 0.33}},
+    )
+
+    focus = UnifiedRestorerV3._extract_defect_focus_scores(result, max_items=2)
+    assert list(focus.keys())[0] == "room_mode_resonance"
+    assert float(focus["room_mode_resonance"]) == 0.61
 
 
 def test_wow_flutter_fingerprint_boosts_time_pitch_not_dynamics_eq():

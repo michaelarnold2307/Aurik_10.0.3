@@ -411,7 +411,9 @@ _PHASE_MAP: dict[DefectType, PhaseAssignment] = {
         ],
         secondary_phases=[
             "phase_54_transparent_dynamics",  # Transparente Dynamik-Restauration
-            "phase_35_multiband_compression",  # Ausgewogenes Multiband-Reamping
+            # §0a: phase_35_multiband_compression ist Studio-2026-only und darf hier
+            # nie stehen — wird in Restoration durch Runtime-Filter abgeblockt, aber
+            # §0a verlangt, dass §0a-verbotene Phasen gar nicht erst vorgeschlagen werden.
         ],
         description=(
             "Umkehrung von Dynamik-Überkompression via Upward Expansion. "
@@ -959,7 +961,11 @@ _PHASE_MAP: dict[DefectType, PhaseAssignment] = {
     DefectType.VOCAL_HARSHNESS: PhaseAssignment(
         defect_type=DefectType.VOCAL_HARSHNESS,
         primary_phases=[
-            "phase_42_vocal_enhancement",  # BSRoFormer: Vokal-Stem isolieren, Harshness-Band dämpfen
+            # §0a: phase_42_vocal_enhancement ist Studio-2026-only — in Restoration
+            # ist phase_65_vocal_naturalness_restoration der §0a-konforme Ersatz
+            # (HNR-Blend + Spektral-Tilt + Formant-Tilt). §0a: phase_42 darf hier
+            # nie stehen (V04-BUG-FIX v9.15.1).
+            "phase_65_vocal_naturalness_restoration",  # §0a-konformer Restoration-Ersatz (HNR-Blend, Formant-Tilt)
             "phase_19_de_esser",  # De-Essing / De-Harshness im 2–6 kHz Band
         ],
         secondary_phases=[
@@ -1998,9 +2004,36 @@ class DefectPhaseMapper:
         Returns:
             Geordnete Phase-ID-Liste (primary first, dann secondary, dann de-dup)
         """
+
+        def _sanitize_01(value: object | None, default: float) -> float:
+            try:
+                if value is None:
+                    return float(default)
+                v = float(value)
+                if v != v:  # NaN
+                    return float(default)
+                return max(0.0, min(1.0, v))
+            except Exception:
+                return float(default)
+
         seen: dict[str, float] = {}  # phase_id → max_severity
+        _confidences: list[float] = []
         for defect in defects:
-            severity = getattr(defect, "severity", 0.5)
+            severity = _sanitize_01(getattr(defect, "severity", 0.5), 0.5)
+            confidence = _sanitize_01(getattr(defect, "confidence", None), 0.65)
+            _confidences.append(confidence)
+            # Unsicherheitsbewusste Priorisierung: bei niedriger Defekt-Confidence
+            # werden Zusatzphasen zurückhaltender priorisiert (No-Harm).
+            confidence_gain = 0.55 + 0.45 * confidence
+            primary_weight = 1.00 if confidence >= 0.80 else 0.95
+            secondary_weight = 0.60
+            if confidence < 0.35:
+                secondary_weight = 0.35 if mode == "restoration" else 0.45
+            elif confidence < 0.60:
+                secondary_weight = 0.50
+            if confidence < 0.20 and mode == "restoration":
+                secondary_weight = 0.00
+
             dt = getattr(defect, "defect_type", None)
             if dt is None:
                 continue
@@ -2008,9 +2041,9 @@ class DefectPhaseMapper:
             if assignment is None:
                 continue
             for phase_id in assignment.primary_phases:
-                seen[phase_id] = max(seen.get(phase_id, 0.0), severity * 1.0)
+                seen[phase_id] = max(seen.get(phase_id, 0.0), severity * confidence_gain * primary_weight)
             for phase_id in assignment.secondary_phases:
-                seen[phase_id] = max(seen.get(phase_id, 0.0), severity * 0.6)
+                seen[phase_id] = max(seen.get(phase_id, 0.0), severity * confidence_gain * secondary_weight)
 
         # §0a: Verbotene Phasen im Restoration-Modus herausfiltern
         if mode == "restoration":
@@ -2036,8 +2069,17 @@ class DefectPhaseMapper:
                 seen[pid] = max(float(seen[pid]), coalition_floor)
 
         # Sortieren: primäre (severity×1.0) zuerst, sekundäre danach
+        seen = {phase_id: score for phase_id, score in seen.items() if float(score) > 0.0}
         sorted_phases = sorted(seen.items(), key=lambda kv: kv[1], reverse=True)
-        return [phase_id for phase_id, _ in sorted_phases[:max_phases]]
+        _effective_max_phases = int(max_phases)
+        if _confidences:
+            _avg_conf = sum(_confidences) / len(_confidences)
+            if _avg_conf < 0.35:
+                _effective_max_phases = max(3, int(max_phases * 0.5))
+            elif _avg_conf < 0.50:
+                _effective_max_phases = max(4, int(max_phases * 0.7))
+
+        return [phase_id for phase_id, _ in sorted_phases[:_effective_max_phases]]
 
     def describe(self, defect_type: DefectType) -> str:
         """Menschenlesbare Beschreibung der Strategie für einen Defekttyp."""

@@ -245,6 +245,57 @@ def resolve_effective_goal_targets(
 
 **Invariante**: `studio_goal_targets.estimate_song_goal_targets` ist die Pipeline-Referenz. Die Convenience-API darf nicht für PMGG-Integration oder Phase-Steering eingesetzt werden — dort fehlen Confidence, IBS und Chain-Depth-Pullback.
 
+### §09.2b Restoration-Prior-Payload (v9.15.4)
+
+Wenn `restoration_prior` an `estimate_song_goal_targets(...)` oder GP-Proposal-Pfade übergeben
+wird, ist die kanonische Struktur:
+
+- `phase_params`: numerische Best-Parameter aus dem erfolgreichen Vorlauf
+- `hpi_achieved`: HPI des Vorlaufs
+- optionale coalition-aware Felder in `phase_params`:
+    `_coalition_learning_factor`, `_dominant_phase_coalition_ratio`, `_phase_coalition_count`
+
+**Invarianten**:
+
+- Coalition-Felder sind advisory-only und dürfen die Zielwertberechnung nie außerhalb der
+    Material-/Era-/Restorability-Ceilings pushen.
+- Fehlende Coalition-Felder müssen auf neutrales Verhalten zurückfallen (`factor=1.0`).
+- PMGG/CIG/AFG/HPI bleiben normative Endinstanzen; restoration_prior darf nur initiale
+    Parametervorschläge und milde Gewichtung beeinflussen.
+
+### §09.2c Runtime-Metric-Reliability-Layer (v9.15.5)
+
+Der Closed-Loop-Stack darf Goal-Konfidenzen nicht nur aus statischen Proxys ableiten.
+Zusätzlich MUSS ein laufzeitnaher Reliability-Layer aus realen Phase-Deltas und PMGG-
+Metadaten gespeist werden.
+
+**Kanonische API**:
+
+```python
+from backend.core.metric_reliability_graph import get_metric_reliability_graph
+
+graph = get_metric_reliability_graph()
+graph.update_from_phase_delta(...)
+runtime_conf = graph.get_goal_reliability(...)
+base_w, runtime_w = graph.get_blend_weights(...)
+goal_conf = clip(base_w * base_conf + runtime_w * runtime_conf, 0.20, 0.98)
+```
+
+**Normative Quellen** (mindestens):
+
+- `phase_deltas[phase_id]["delta"]`
+- `pmgg_team_net_delta`
+- `pmgg_reconstruction_localized`
+- `pmgg_reconstruction_epistemic_confidence`
+
+**Sicherheitsgrenzen**:
+
+- Reliability-Layer ist advisory-only (kein Gate-Override).
+- Persistenz nur lokal/offline, atomar, non-blocking.
+- Kontext-Key umfasst `mode`, `material`, `era_bucket`, `tcci_bucket`.
+- Blend-Gewichte sind cross-run-adaptiv, normiert auf 1.0 und innerhalb
+    `base ∈ [0.40, 0.75]`, `runtime ∈ [0.25, 0.60]`.
+
 **Algorithmus**: `target[goal] = floor + kappa × bias + weight_shift`
 
 Wobei:
@@ -513,6 +564,27 @@ Zur Vermeidung scheinbarer Praezision ohne Quellenpflicht werden Kern-Schwellen 
 
 PMGG prüft nach jeder Phase, ob die 15 Goals den effektiven Zielwert halten.
 
+### §09.4c Rekonstruktive Konfidenz und Threshold-Multiplikator [RELEASE_MUST v9.15.3]
+
+Rekonstruktive Phasen (`phase_23`, `phase_24`, `phase_50`, `phase_55`) dürfen nicht nur
+gegen den defektzentrierten Zielbereich bewertet werden. Für `passed_reconstruction_localized`
+gilt zusätzlich eine lokal gestützte Entscheidungskonfidenz aus Zielabdeckung, Kontrollfenster-
+Leckage und Threshold-Sicherheitsmarge.
+
+**Normative Metadaten**: `PhaseGateLogEntry.metadata` MUSS für rekonstruktive Entscheidungen
+die Felder `pmgg_reconstruction_localized`, `pmgg_reconstruction_confidence`,
+`pmgg_reconstruction_reason`, `pmgg_reconstruction_retry_budget_bias`,
+`pmgg_reconstruction_retry_budget_bias_reason`, `pmgg_reconstruction_transfer_chain_tcci`,
+`pmgg_reconstruction_material_family`, `pmgg_reconstruction_threshold_multiplier`,
+`pmgg_reconstruction_threshold_multiplier_reason`, `pmgg_reconstruction_threshold_multiplier_tcci`,
+`pmgg_reconstruction_target_coverage`, `pmgg_reconstruction_control_coverage` und
+`pmgg_reconstruction_control_regression` enthalten.
+
+**Invariante**: Der Threshold-Multiplikator ist kein freischwebender UI-Wert, sondern Teil der
+kanonischen Rekonstruktions-Telemetrie. Ein lokales `threshold_multiplier <= 1.0` darf die
+Entscheidung nicht fälschlich neutralisieren; bei kontextuell erfolgreicher Rekonstruktion bleibt
+die Entscheidung als lokal gestützt markiert.
+
 ### §09.4a Restorability-adaptive Regression-Thresholds
 
 ```python
@@ -560,6 +632,19 @@ PRIORITY_MAX_RETRIES = {
 
 # Nur ein Ziel mit Priority P ≥ X triggert Retry-Pfad für diese Priority.
 # Sub-Threshold Deltas (JND-unterschwellig) werden akzeptiert ohne Retry.
+```
+
+### §09.4d Goal-Koalitionen bei Recovery-Prioritäten [RELEASE_MUST v9.15.3]
+
+Wenn mehrere offene Goals dieselbe Primär-Recovery-Phase teilen, darf die
+Reschedule-Priorisierung nicht nur den numerischen Gap betrachten. Recovery-Phasen,
+die mehrere offene Goals zugleich bedienen können, erhalten einen kleinen Koalitionsbonus
+gegenüber isolierten Einzelfall-Phasen.
+
+**Invariante**: Der Koalitionsbonus ist advisory für die Reihenfolge, nicht für die
+Injektionsberechtigung. §2.45 Minimal-Intervention, §0a-Guards und Session-Limits bleiben
+unverändert.
+
 ```
 
 ---

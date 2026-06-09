@@ -134,7 +134,15 @@ class _SpectralFingerprinter:
     def _to_mono(audio: np.ndarray) -> np.ndarray:
         arr = np.nan_to_num(np.asarray(audio, dtype=np.float32), nan=0.0, posinf=0.0, neginf=0.0)
         arr = np.clip(arr, -1.0, 1.0)
-        return arr.mean(axis=0) if arr.ndim == 2 else arr
+        if arr.ndim != 2:
+            return arr
+        # Aurik-Konvention: ``(samples, channels)``. Über die Kanal-Achse (die
+        # kleinere, da nur Mono/Stereo) mitteln — robust gegen beide Layouts.
+        # Spaltenvektoren ``(N, 1)`` als Mono behandeln.
+        if min(arr.shape) < 2:
+            return arr.reshape(-1)
+        ch_axis = 1 if arr.shape[1] <= arr.shape[0] else 0
+        return arr.mean(axis=ch_axis)
 
     @staticmethod
     def _null_features() -> dict[str, float]:
@@ -219,9 +227,12 @@ class _SpectralFingerprinter:
         """FCPE F₀ → modulation spectrum → IEC dominant frequency + depth."""
         if len(mono) < sr:  # at least 1 second
             raise ValueError("too short for FCPE wow/flutter")
-        from plugins.fcpe_plugin import get_fcpe_plugin  # type: ignore[import]
+        from plugins.fcpe_plugin import get_fcpe_plugin, get_loaded_fcpe_plugin  # type: ignore[import]
 
-        result = get_fcpe_plugin().analyze(mono, sr)
+        fcpe = get_loaded_fcpe_plugin()
+        if fcpe is None:
+            fcpe = get_fcpe_plugin()
+        result = fcpe.analyze(mono, sr)
         f0_hz = result.f0_hz
         times_s = result.times_s
         voiced = result.voiced_prob > 0.45

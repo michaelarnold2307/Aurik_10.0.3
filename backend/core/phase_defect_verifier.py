@@ -90,6 +90,7 @@ _PSYCHO_RELAX_FACTOR: float = 1.10
 _PSYCHO_AUDIBILITY_DELTA_TRIGGER: float = 0.05
 _PSYCHO_HARSHNESS_DELTA_TRIGGER: float = 0.05
 _PSYCHO_BURSTINESS_DELTA_TRIGGER: float = 0.04
+_PSYCHO_MODULATION_DELTA_TRIGGER: float = 0.04
 
 
 def _norm_goal_key(name: str) -> str:
@@ -333,6 +334,40 @@ def _compute_quasi_peak_burstiness(audio: np.ndarray, sr: int) -> float:
         med = float(np.percentile(qp, 50) + 1e-9)
         ratio = p95 / med
         return float(np.clip((ratio - 1.0) / 8.0, 0.0, 1.0))
+    except Exception:
+        return 0.0
+
+
+def _compute_modulation_roughness(audio: np.ndarray, sr: int) -> float:
+    """Schaetzt stoerende Modulationsrauhigkeit im Kurzzeitverlauf (0..1).
+
+    Hohe Werte deuten auf unruhige, pumpende Pegelmodulationen hin, die
+    psychoakustisch schnell als kuenstlich wahrgenommen werden.
+    """
+    try:
+        mono = _as_mono(audio)
+        frame = max(64, int(0.010 * sr))
+        hop = max(32, int(0.005 * sr))
+        if len(mono) < frame:
+            return 0.0
+
+        env: list[float] = []
+        for i in range(0, len(mono) - frame + 1, hop):
+            chunk = mono[i : i + frame]
+            env.append(float(np.sqrt(np.mean(chunk**2) + 1e-12)))
+
+        if len(env) < 4:
+            return 0.0
+
+        e = np.asarray(env, dtype=np.float32)
+        d = np.abs(np.diff(e))
+        if d.size == 0:
+            return 0.0
+
+        ref = float(np.percentile(e, 50) + 1e-9)
+        jitter = float(np.percentile(d, 90))
+        ratio = jitter / ref
+        return float(np.clip(ratio / 0.35, 0.0, 1.0))
     except Exception:
         return 0.0
 
@@ -713,6 +748,8 @@ class PhaseDefectVerifier:
                 _harsh_after = _compute_transient_harshness(candidate_audio, sr)
                 _burst_before = _compute_quasi_peak_burstiness(audio_before, sr)
                 _burst_after = _compute_quasi_peak_burstiness(candidate_audio, sr)
+                _mod_before = _compute_modulation_roughness(audio_before, sr)
+                _mod_after = _compute_modulation_roughness(candidate_audio, sr)
 
                 for dname, val_before in proxies_before.items():
                     val_after = _proxies_after.get(dname, val_before)
@@ -755,6 +792,12 @@ class PhaseDefectVerifier:
                         if (_burst_after - _burst_before) > _PSYCHO_BURSTINESS_DELTA_TRIGGER:
                             threshold *= _PSYCHO_STRICTEN_FACTOR
                         elif (_burst_before - _burst_after) > _PSYCHO_BURSTINESS_DELTA_TRIGGER:
+                            threshold *= _PSYCHO_RELAX_FACTOR
+
+                    if pname in {"impulse_ratio", "hf_noise_floor"}:
+                        if (_mod_after - _mod_before) > _PSYCHO_MODULATION_DELTA_TRIGGER:
+                            threshold *= _PSYCHO_STRICTEN_FACTOR
+                        elif (_mod_before - _mod_after) > _PSYCHO_MODULATION_DELTA_TRIGGER:
                             threshold *= _PSYCHO_RELAX_FACTOR
 
                     abs_delta = abs(float(val_after) - float(val_before))

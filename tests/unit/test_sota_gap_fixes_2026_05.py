@@ -665,20 +665,33 @@ class TestDefectPhaseMapperRestorationFilter:
                 f"§0a Verletzung: {forbidden_found} in all_phases für {defect_type.value} im Restoration-Modus"
             )
 
-    def test_get_all_phases_studio_2026_allows_forbidden(self):
-        """get_all_phases(mode='studio_2026') darf §0a-Phasen enthalten (Studio 2026)."""
+    def test_studio_2026_does_not_over_filter_vs_restoration(self):
+        """§0a Mode-Asymmetrie: Studio 2026 darf nie STRENGER filtern als Restoration.
+
+        Nach dem V04-Fix (v9.15.1) sind §0a-verbotene Phasen (phase_21/35/42) bewusst
+        komplett aus _PHASE_MAP entfernt — Defense-in-Depth zusätzlich zum Runtime-Filter.
+        Der korrekte §0a-Vertrag ist daher NICHT 'Studio enthält verbotene Phasen', sondern
+        'der mode-Gate restringiert ausschließlich in Restoration': für jeden DefectType
+        muss die Restoration-Phasenliste eine Teilmenge der Studio-2026-Liste sein, und
+        Restoration darf nie eine §0a-Phase enthalten (von den Geschwister-Tests gesichert).
+        """
         from backend.core.defect_phase_mapper import _RESTORATION_FORBIDDEN_PHASES, DefectPhaseMapper
         from backend.core.defect_scanner import DefectType
 
         mapper = DefectPhaseMapper()
-        # Prüfe: mindestens eine DefectType hat eine §0a-Phase in studio_2026
-        found_studio_phase = False
         for defect_type in DefectType:
-            phases_studio = mapper.get_all_phases(defect_type, mode="studio_2026")
-            if set(phases_studio) & _RESTORATION_FORBIDDEN_PHASES:
-                found_studio_phase = True
-                break
-        assert found_studio_phase, "Studio 2026 sollte mindestens eine §0a-Phase (phase_35/42) enthalten"
+            phases_restoration = set(mapper.get_all_phases(defect_type, mode="restoration"))
+            phases_studio = set(mapper.get_all_phases(defect_type, mode="studio_2026"))
+            # Studio 2026 ist Obermenge: der mode-Gate entfernt nur in Restoration.
+            assert phases_restoration <= phases_studio, (
+                f"§0a Mode-Asymmetrie verletzt: Studio 2026 filtert für {defect_type.value} "
+                f"strenger als Restoration (entfernt {phases_restoration - phases_studio})"
+            )
+            # Restoration darf §0a-Phasen nie enthalten (Defense-in-Depth + Filter).
+            assert not (phases_restoration & _RESTORATION_FORBIDDEN_PHASES), (
+                f"§0a Verletzung: {phases_restoration & _RESTORATION_FORBIDDEN_PHASES} "
+                f"in Restoration-Phasen für {defect_type.value}"
+            )
 
     def test_get_primary_phases_no_mode_defaults_to_restoration(self):
         """Kein mode-Argument → default 'restoration' → Filterung aktiv."""
@@ -2084,3 +2097,120 @@ class TestStyleIntentDetector:
         d = vfa.to_dict()
         assert "style_intent_zones" in d, "to_dict() fehlt 'style_intent_zones'"
         assert "style_confidence" in d, "to_dict() fehlt 'style_confidence'"
+
+
+# ===========================================================================
+# §0p Gap-Fix: PMGG-Primärpfad injiziert panns_singing in phase_kwargs
+# ===========================================================================
+
+
+class TestPmggPathPannsInjection:
+    """§0f/§0p RELEASE_MUST — kanonische Phase-Kontext-Injektion auf BEIDEN Pfaden.
+
+    Es existieren zwei Phasen-Ausführungspfade: (1) PMGG-Primärpfad
+    (_pmgg_gate.wrap_phase) und (2) Fallback _profiled_phase_call →
+    _prepare_profiled_phase_runtime_context. Beide MÜSSEN dieselben vokal-/
+    wahrnehmungsbezogenen Kontext-Keys injizieren, sonst sind §0p-Guards
+    (Vibrato/Frisson/Passaggio/Breath/soft_saturation/vocal_presence) und die
+    §9.1d Per-Event-Dosierung (defect_event_metadata) auf dem jeweils anderen
+    Pfad latent deaktiviert — stiller Qualitätsverlust ohne Fehler.
+
+    Single Source of Truth ist _canonical_phase_context_kwargs(); diese Tests
+    verhindern, dass ein Pfad daran vorbei eigene kwargs baut (Reintroduktion).
+    """
+
+    # Kanonischer Key-Satz, der auf BEIDEN Pfaden ankommen MUSS.
+    _CANONICAL_KEYS = (
+        "frisson_zones",
+        "passaggio_zones",
+        "vibrato_zones",
+        "breath_segments",
+        "soft_saturation_severity",
+        "soft_saturation_preserve",
+        "vocal_presence_active",
+        "vocal_presence_strength",
+        "panns_singing",
+        "panns_vocals_confidence",
+        "panns_tags",
+        "transfer_chain",
+        "defect_event_metadata",
+    )
+
+    def _wrap_phase_kwargs_window(self) -> str:
+        """Extrahiert das phase_kwargs-Fenster direkt nach _pmgg_gate.wrap_phase( in
+        _execute_pipeline. Datei-basiert für Robustheit gegen Method-Refactors."""
+        import inspect
+
+        from backend.core.unified_restorer_v3 import UnifiedRestorerV3
+
+        src = inspect.getsource(UnifiedRestorerV3._execute_pipeline)
+        marker = "_pmgg_gate.wrap_phase("
+        idx = src.find(marker)
+        assert idx != -1, "PMGG-Primärpfad _pmgg_gate.wrap_phase( nicht in _execute_pipeline gefunden"
+        # phase_kwargs-Dict folgt unmittelbar; ~3000 Zeichen Fenster deckt den Dict sicher ab.
+        return src[idx : idx + 3500]
+
+    def test_pmgg_wrap_phase_uses_canonical_context_helper(self):
+        """PMGG-Pfad merged _canonical_phase_context_kwargs() in seine phase_kwargs."""
+        window = self._wrap_phase_kwargs_window()
+        assert "_canonical_phase_context_kwargs()" in window, (
+            "§0f/§0p BUG: PMGG-Primärpfad nutzt _canonical_phase_context_kwargs() NICHT — "
+            "vokal-/wahrnehmungsbezogene Kontext-Keys fehlen, §0p-Guards latent deaktiviert"
+        )
+
+    def test_profiled_path_uses_canonical_context_helper(self):
+        """Fallback-Pfad _prepare_profiled_phase_runtime_context nutzt denselben Helper."""
+        import inspect
+
+        from backend.core.unified_restorer_v3 import UnifiedRestorerV3
+
+        src = inspect.getsource(UnifiedRestorerV3._prepare_profiled_phase_runtime_context)
+        assert "_canonical_phase_context_kwargs()" in src, (
+            "§0f/§0p BUG: Fallback-Pfad nutzt _canonical_phase_context_kwargs() NICHT — "
+            "die beiden Pfade injizieren divergierende Kontext-Keys"
+        )
+
+    def test_canonical_helper_returns_all_keys(self):
+        """_canonical_phase_context_kwargs() liefert den vollständigen §0p-Key-Satz."""
+        from types import SimpleNamespace
+
+        from backend.core.unified_restorer_v3 import UnifiedRestorerV3
+
+        stub = SimpleNamespace(_restoration_context={})
+        out = UnifiedRestorerV3._canonical_phase_context_kwargs(stub)
+        for key in self._CANONICAL_KEYS:
+            assert key in out, f"§0p: kanonischer Kontext-Key '{key}' fehlt im Helper-Output"
+
+    def test_canonical_helper_sources_from_restoration_context(self):
+        """Werte stammen aus _restoration_context (nicht hartkodiert/konstant, §0c)."""
+        from types import SimpleNamespace
+
+        from backend.core.unified_restorer_v3 import UnifiedRestorerV3
+
+        rctx = {
+            "panns_singing": 0.42,
+            "vocal_presence_active": True,
+            "vibrato_zones": [(1.0, 2.0)],
+            "transfer_chain": ["vinyl", "cassette"],
+        }
+        stub = SimpleNamespace(_restoration_context=rctx)
+        out = UnifiedRestorerV3._canonical_phase_context_kwargs(stub)
+        assert out["panns_singing"] == pytest.approx(0.42), "panns_singing nicht aus restoration_context gelesen"
+        assert out["vocal_presence_active"] is True
+        assert out["vibrato_zones"] == [(1.0, 2.0)]
+        assert out["transfer_chain"] == ["vinyl", "cassette"]
+
+    def test_canonical_helper_safe_defaults_on_empty_context(self):
+        """Leerer Kontext → sichere Defaults (keine None/Exception, §3.1)."""
+        from types import SimpleNamespace
+
+        from backend.core.unified_restorer_v3 import UnifiedRestorerV3
+
+        stub = SimpleNamespace(_restoration_context={})
+        out = UnifiedRestorerV3._canonical_phase_context_kwargs(stub)
+        assert out["panns_singing"] == 0.0
+        assert out["vocal_presence_active"] is False
+        assert out["soft_saturation_severity"] == 0.0
+        assert out["frisson_zones"] == []
+        assert out["panns_tags"] == {}
+        assert out["defect_event_metadata"] == {}

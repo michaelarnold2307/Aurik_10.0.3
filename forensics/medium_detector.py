@@ -1738,10 +1738,20 @@ class MediumDetector:
             if not _best_analog_set_by_physical_gate:
                 primary = _analog_in_chain[-1]
         is_multi = len(chain) > 1
-        # Weakest-link principle: a transfer chain is only as confident as its
-        # least certain component.  Using sum() caused multi-link chains (e.g.
-        # vinyl → mp3_low with 0.65 + 0.40 = 1.05) to always clip at 1.0 → 5 stars.
-        confidence = float(np.clip(min(chain_confidences) if chain_confidences else 0.0, 0.0, 1.0))
+        # Confidence wird aus Minimum, Mittelwert und Primärposterior geblendet:
+        # der schwächste Link bleibt wichtig, aber solide Mehrfach-Evidenz darf
+        # die Kette sichtbar stärken.
+        _chain_min = float(min(chain_confidences) if chain_confidences else 0.0)
+        _chain_mean = float(np.mean(chain_confidences)) if chain_confidences else 0.0
+        _chain_max = float(max(chain_confidences)) if chain_confidences else 0.0
+        _primary_post = float(posteriors.get(primary, _chain_mean)) if isinstance(posteriors, dict) else _chain_mean
+        confidence = float(
+            np.clip(
+                0.35 * _chain_min + 0.25 * _chain_mean + 0.20 * _chain_max + 0.20 * _primary_post,
+                0.0,
+                1.0,
+            )
+        )
 
         # ── ClassificationResult für Passthrough bauen ───────────────
         try:

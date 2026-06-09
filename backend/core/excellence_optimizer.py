@@ -299,6 +299,9 @@ if "ExcellenceResult" not in globals():
         micro_dynamic_injected: bool = False
         harmonic_reinforcement_db: float = 0.0
         ola_crossfades: int = 0
+        core_guard_triggered: bool = False
+        core_guard_regressions: list[str] = field(default_factory=list)
+        pareto_conflicts: list[str] = field(default_factory=list)
 
         def summary(self) -> str:
             return (
@@ -307,7 +310,8 @@ if "ExcellenceResult" not in globals():
                 f"continuity={self.continuity_smoothing_applied}, "
                 f"microdyn={self.micro_dynamic_injected}, "
                 f"harm={self.harmonic_reinforcement_db:+.2f}dB, "
-                f"ola_xfades={self.ola_crossfades}"
+                f"ola_xfades={self.ola_crossfades}, "
+                f"core_guard={self.core_guard_triggered}"
             )
 
 
@@ -840,15 +844,12 @@ class ExcellenceOptimizer:
         # Optional: MERT-Analyse verbessert die Context-Felder (harmonicity)  # v9.15-C3: dynamic_cv korrigiert (MertAnalysis hat kein dynamic_cv-Feld)
         if self.use_mert and context is None:
             try:
-                import os
-                import sys
+                from plugins.mert_plugin import get_loaded_mert_plugin, get_mert_plugin  # pylint: disable=import-outside-toplevel  # noqa: I001
 
-                _plugins_dir = os.path.join(os.path.dirname(__file__), "..", "..", "plugins")
-                if _plugins_dir not in sys.path:
-                    sys.path.insert(0, os.path.abspath(_plugins_dir))
-                from mert_plugin import MertPlugin
+                _mert = get_loaded_mert_plugin()
+                if _mert is None:
+                    _mert = get_mert_plugin()
 
-                _mert = MertPlugin()
                 _analysis = _mert.analyze(audio, self.sample_rate)
                 # MERT-Harmonizität überschreibt DSP-Schätzung (genauer)
                 ctx = ExcellenceContext(
@@ -940,11 +941,6 @@ class ExcellenceOptimizer:
             except Exception as exc:
                 logger.warning("ExcellenceOptimizer: ola_crossfade failed: %s", exc)
 
-        # RMS-Delta berechnen
-        rms_after = float(np.sqrt(np.mean(out.astype(np.float64) ** 2)) + 1e-10)
-        _raw_delta_rms_db = float(20 * np.log10(rms_after / rms_before))
-        result.delta_rms_db = float(np.clip(_raw_delta_rms_db, -6.0, 6.0))
-
         # §2.34 GoalPriorityProtocol: Pareto-Konflikt-Logging (MOO, §2.5)
         # Natürlichkeit/Authentizität (Stufe 1) dürfen nicht für Brillanz/Raumtiefe (Stufe 5) geopfert werden.
         try:
@@ -955,6 +951,16 @@ class ExcellenceOptimizer:
             _checker = MusicalGoalsChecker()
             _goals_before = _checker.measure_all(audio, self.sample_rate)
             _goals_after = _checker.measure_all(out.astype(audio.dtype), self.sample_rate)
+            _core_goals = {
+                "natuerlichkeit",
+                "authentizitaet",
+                "timbre_authentizitaet",
+                "tonal_center",
+                "artikulation",
+                "transient_energie",
+                "spatial_depth",
+            }
+            _core_drop_threshold = 0.015
             # Prüfe alle Paare auf Pareto-Konflikte (Stufe-1-Ziele besonders schützen)
             _priority_log: list[str] = []
             for _ga, _gb in [
@@ -971,11 +977,37 @@ class ExcellenceOptimizer:
                         f"→ {_conflict.winner} priorisiert (Stufe {_conflict.priority_winner})"
                     )
                     _priority_log.append(_entry)
+                    result.pareto_conflicts.append(_entry)
                     logger.warning("⚠ %s", _entry)
+
+            # Aktiver Core-Guard: Wenn Kernziele hörbar regressieren, dann
+            # wird der Optimizer-Schritt verworfen (Primum non nocere, §0).
+            _core_regressions: list[str] = []
+            for _g in _core_goals:
+                _before = float(_goals_before.get(_g, 1.0))
+                _after = float(_goals_after.get(_g, _before))
+                if np.isfinite(_before) and np.isfinite(_after) and (_after < _before - _core_drop_threshold):
+                    _core_regressions.append(f"{_g}:{_before:.3f}->{_after:.3f}")
+
+            if _core_regressions:
+                logger.warning(
+                    "ExcellenceOptimizer Core-Guard: Rollback wegen Kernziel-Regressionen (%s)",
+                    ", ".join(_core_regressions[:6]),
+                )
+                out = audio.astype(np.float64) if audio.dtype != np.float64 else audio.copy()
+                result.core_guard_triggered = True
+                result.core_guard_regressions = list(_core_regressions)
+                result.applied_steps.append("core_guard_rollback")
+
             if _priority_log:
                 result.applied_steps.extend(_priority_log)
         except Exception as _gpp_exc:
             logger.debug("GoalPriorityProtocol in ExcellenceOptimizer nicht verfügbar: %s", _gpp_exc)
+
+        # RMS-Delta auf dem finalen Output berechnen (auch nach Rollback korrekt).
+        rms_after = float(np.sqrt(np.mean(out.astype(np.float64) ** 2)) + 1e-10)
+        _raw_delta_rms_db = float(20 * np.log10(rms_after / rms_before))
+        result.delta_rms_db = float(np.clip(_raw_delta_rms_db, -6.0, 6.0))
 
         # Sicherheits-Clipping: niemals über 0 dBFS, NaN-safe
         out = np.clip(np.nan_to_num(out, nan=0.0, posinf=0.0, neginf=0.0), -1.0, 1.0)

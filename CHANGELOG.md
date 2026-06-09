@@ -4,6 +4,132 @@
 > Historische Qualitäts- und Marketingformulierungen bleiben zur Nachvollziehbarkeit erhalten
 > und sind nicht automatisch als aktueller, normativ bindender Außenclaim zu verstehen.
 
+## Version 9.15.2 — PMGG Counterfactual Confidence Guard (4. Juni 2026)
+
+### Code
+
+- `backend/core/per_phase_musical_goals_gate.py`
+  - Neue Funktion `_assess_reconstruction_localized_confidence(...)` für
+    kontextbewertete Freigaben bei rekonstruktiven Phasen (`phase_24`, `phase_55`).
+  - Localized-Acceptance (`passed_reconstruction_localized`) wird nicht mehr nur
+    über `control_regression <= threshold` entschieden, sondern zusätzlich über
+    Konfidenzsignal aus:
+    - Defektabdeckung im Zielfenster,
+    - Defektleckage im Kontrollfenster,
+    - Sicherheitsmarge zur Threshold-Grenze.
+  - Neue PMGG-Telemetrie im `PhaseGateLogEntry.metadata`:
+    - `pmgg_reconstruction_localized`
+    - `pmgg_reconstruction_confidence`
+    - `pmgg_reconstruction_reason`
+    - `pmgg_reconstruction_target_coverage`
+    - `pmgg_reconstruction_control_coverage`
+    - `pmgg_reconstruction_control_regression`
+  - Counterfactual-Scope erweitert auf zusätzliche rekonstruktive Prefixe
+    (`phase_23`, `phase_50`) und Defekt-Keys (`SPECTRAL_HOLES`, `DROPOUTS`).
+  - Unsicherheitsfälle ohne verwertbares Kontrollfenster sind jetzt explizit
+    telemetriert (`counterfactual_window_unavailable`,
+    `content_integrity_guard_active`) statt still in den Retry-Pfad zu fallen.
+
+### Tests
+
+- `tests/unit/test_pmgg_reconstruction_confidence.py`
+  - Unit-Tests für die neue Konfidenzfunktion (Accept/Reject-Fälle).
+  - Integrationsnaher PMGG-Test, der sicherstellt, dass
+    `passed_reconstruction_localized` nur mit ausreichender Konfidenz erfolgt und
+    die neue Telemetrie zuverlässig gesetzt wird.
+  - Zusätzlicher Test für Rekonstruktionspfade ohne Kontrollfenster
+    (`phase_50`): Unsicherheitsmetadaten werden korrekt gesetzt.
+
+## Version 9.15.1 — K-01/W-01/W-02/W-03: V04-Fix, §0a-Mapper-Bereinigung, V38-Tests, Versionsdrift (3. Juni 2026)
+
+### Korrekturen
+
+- `backend/core/phases/phase_42_vocal_enhancement.py` **(K-01 — CRITICAL)**
+  - `_apply_compression()`: `reference_for_gate` von `compressed` auf `audio` (Pre-Phase-Input)
+    korrigiert — V04-Regel-Verstoß behoben.
+  - Ohne Fix: Makeup-Gain konnte in Fade-out/Stille-Zonen ansteigen, weil der komprimierte
+    Pegel unter den Gate-Schwellwert fiel, während der Originalpegel darüber lag.
+
+- `backend/core/defect_phase_mapper.py` **(W-02 — §0a-Mapper-Bereinigung)**
+  - `COMPRESSION_ARTIFACTS.secondary_phases`: `phase_35_multiband_compression` entfernt
+    (§0a — in Restoration verboten).
+  - `VOCAL_HARSHNESS.primary_phases`: `phase_42_vocal_enhancement` durch
+    `phase_65_vocal_naturalness_restoration` ersetzt (§0a-konformer Restoration-Ersatz:
+    HNR-Blend + Spektral-Tilt + Formant-Tilt).
+  - `_RESTORATION_FORBIDDEN_PHASES`-Frozenset (Runtime-Guard, Zeilen 70–72) und
+    `_MATERIAL_PHASE_FACTORS`-Einträge für phase_35 bleiben intentional.
+
+### Tests
+
+- `tests/unit/test_verboten_linter_compliance.py` **(W-01 — V38-Testabdeckung)**
+  - `TestV38Phase12VfaZoneCaps` (6 Tests): Prüft `_compute_bump_local_strength()` in
+    `WowFlutterFix` — Vibrato-Cap ≤ 0.20, Frisson-Cap ≤ 0.30, Flüster-Cap ≤ 0.25,
+    Außerhalb-Zone kein Cap, Null-Stärke → 0.0, leere Zones kein Cap.
+  - `TestV38Phase64VfaZoneCaps` (7 Tests): Prüft `_compute_splice_local_strength()` in
+    `TapeSpliceRepairPhase` — Vibrato ≤ 0.20, Frisson ≤ 0.30, Passaggio ≤ 0.35,
+    Außerhalb-Zone kein Cap, Null-Stärke → 0.0, None-Zones kein Cap, process() mit VFA-Zones
+    kein Absturz. **Alle 13 Tests grün.**
+
+### Dokumentation
+
+- `.github/copilot-instructions.md` **(W-03 — Versionsdrift behoben)**
+  - Version: `9.12.8` → `9.15.1`, Stand: `Mai 2026` → `Juni 2026`.
+  - `instructions_version: 9.6` → `9.7`.
+  - v9.7-Changelog-Eintrag ergänzt: V04-Fix phase_42, §0a-Mapper-Bereinigung, V38-Testabdeckung
+    phase_12/phase_64.
+  - Testzahl: `~13.662` → `~14.402`.
+
+---
+
+## Version 9.15.0 — Defektfokus-Upgrade: präzisere Erkennung, zielgerichtetere Behebung (2. Juni 2026)
+
+### Code
+
+- `backend/core/defect_scanner.py`
+  - Neue confidence-gewichtete Focus-Defekt-Extraktion in `DefectAnalysisResult.get_focus_defect_map(...)`.
+  - `scan()` schreibt jetzt `focus_defects` als strukturierte Metadata in das Analyseergebnis,
+    inklusive `focus_defect_count` und Datenquelle.
+  - Wirkung: unsichere Near-Threshold-Treffer werden geringer gewichtet, robuste Defektsignale
+    werden priorisiert.
+
+- `backend/core/unified_restorer_v3.py`
+  - Neue Extraktion `UnifiedRestorerV3._extract_defect_focus_scores(...)` mit Metadata-First-
+    Fallback auf confidence-gewichtete Score-Ableitung.
+  - Pipeline-UQ (`estimate_pipeline_confidence`) nutzt nun Focus-Defekt-Scores statt
+    roher Top-Severities.
+  - Song-Kalibrierung erhält einen Defekt-Driver-Map, der Focus-Signale mit den
+    rohen Defekt-Severities zusammenführt (präzisere Behebungsdosierung pro Familie).
+
+### Tests
+
+- `tests/unit/test_unified_restorer_stability_guard.py`
+  - Neue Tests für Focus-Defekt-Mapping und UV3-Focus-Extraktion.
+
+---
+
+## Version 9.14.0 — Deutlich hörbarer Qualitätsgewinn mit Naturalness-Guard (2. Juni 2026)
+
+### Code
+
+- `backend/core/unified_restorer_v3.py`
+  - Neuer **Naturalness-Guard-Scalar** für additive/enhancement Familien im UQ-Drive.
+  - Guard dämpft gezielt bei frühen Natürlichkeits-Risikosignalen:
+    `noise_texture_authenticity`, `micro_dynamic_correlation`, `formant_integrity`,
+    transiente Onset-Verschiebungen und Mono-Kompatibilitätswarnungen.
+  - Vokal-Passagen (`panns_singing`) werden konservativer behandelt, um hörbare
+    Verbesserungen ohne klinischen Klangcharakter zu erzielen.
+  - UQ-Drive-Logging erweitert um `nat_risk` und Signalanzahl (`nat_sig`) zur
+    transparenten Laufzeit-Telemetrie.
+
+### Tests
+
+- `tests/unit/test_unified_restorer_stability_guard.py`
+  - Neue Regressionstests für den Naturalness-Guard:
+    - Dämpfung bei degradierenden Vocal-/Naturalness-Metriken
+    - Neutralverhalten für subtraktive Familien
+
+---
+
 ## Version 9.12.10-hotfix.3 — V44 SpatialDepthMetric: `spatial_depth_score` als primärer Proxy (30. Mai 2026)
 
 ### Code
@@ -1117,6 +1243,21 @@ Systematischer Scan aller Phasen mit ML-Inferenz hat 7 Stellen ohne `set_active(
 Emergency-Eviction hätte diese Modelle während aktiver Inferenz entladen können → Crash / OOM.
 
 - **`backend/core/phases/phase_01_click_removal.py`** — `_repair_clicks_ml()`: PLM-Guard
+
+## Version 9.11.43 — Phase 01 Linked-Stereo Sparse Patch Transfer (Jun 2026)
+
+### Fixes (§2.51 Stereo-Kohärenz + PMGG-Kollateralschutz)
+
+- **`backend/core/phases/phase_01_click_removal.py`** — Stereo-Pfad von globalem Mono-Gain-Transfer auf
+  linked-stereo sparse patch transfer umgestellt. Mono-Detektion bleibt kanalkohärent, aber die Reparatur
+  wird nur in den erkannten Ereignisfenstern kanalweise angewendet.
+- Neuer Channel-Guard `_channel_click_requires_repair()` verhindert, dass saubere Gegenkanäle im selben
+  Stereo-Fenster unnötig verändert werden, wenn der Click faktisch nur auf einem Kanal auftritt.
+- Neuer lokaler ML-Patch-Pfad `_repair_click_patch_ml()` für starke Einzelereignisse: DeepFilterNet wird
+  auf kleine Kontextfenster statt auf das Vollsignal angewendet; Ersatz erfolgt mit lokalem Crossfade.
+- `_remove_clicks_professional()` und der neue `_remove_clicks_linked_stereo()` nutzen denselben
+  Click-Repair-Plan (`_build_click_repair_plan()`), damit Mono- und Stereo-Pfad dieselben Event-Entscheidungen
+  teilen, aber unterschiedliche Reparaturmechanik verwenden.
 
   `set_active("DeepFilterNetV3", True/False)` um `plugin.process()` DeepFilterNet-Aufruf.
 

@@ -1355,7 +1355,11 @@ class VocalEnhancement(PhaseInterface):
                 except Exception:
                     _plm42_mdx = None
 
-                mdx = get_mdx23c_plugin()
+                from plugins.mdx23c_plugin import get_loaded_mdx23c_plugin
+
+                mdx = get_loaded_mdx23c_plugin()
+                if mdx is None:
+                    mdx = get_mdx23c_plugin()
                 if _plm42_mdx is not None:
                     try:
                         _plm42_mdx.touch_plugin("MDX23C_vocals")  # type: ignore[attr-defined]
@@ -2351,14 +2355,17 @@ class VocalEnhancement(PhaseInterface):
         if makeup_linear > 1.0005:
             from backend.core.audio_utils import apply_musical_gain_envelope  # pylint: disable=import-outside-toplevel
 
-            # §2.45a-II v9.12.2: reference_for_gate=compressed → signal-relative gate
+            # V04-Fix: reference_for_gate MUSS den Pre-Phase-Input (audio) nutzen, nicht
+            # das komprimierte Intermediat — sonst kann Makeup-Gain in Stille-Zonen
+            # durchgreifen, deren Pegel nur durch Kompression unter den Gate-Schwell
+            # gedrückt wurden, im Original aber höher lagen.
             compressed = apply_musical_gain_envelope(
                 compressed,
                 makeup_linear,
                 gate_dbfs=-36.0,
                 crossfade_ms=10.0,
                 sr=sample_rate,
-                reference_for_gate=compressed,
+                reference_for_gate=audio,
             )
         else:
             compressed = compressed * makeup_linear

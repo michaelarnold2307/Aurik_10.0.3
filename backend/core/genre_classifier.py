@@ -140,7 +140,10 @@ class GermanSchlagerClassifier:
         mono = self._resample(mono, sr, 22050)
         sr_a = 22050
 
-        # Tier-1: CLAP (optional)
+        # Tier-1: CLAP (optional). Das Verfügbarkeits-Flag wird vor dem Aufruf
+        # zurückgesetzt; nur die echte _compute_clap_score()-Methode setzt es auf
+        # True, wenn CLAP nicht geladen werden konnte (offline/Speicherbudget).
+        self._clap_score_is_fallback = False
         clap_score = self._compute_clap_score(mono, sr_a)
 
         # Tier-2: Akkordeon
@@ -177,7 +180,19 @@ class GermanSchlagerClassifier:
             + 0.15 * melodic_rep
             + 0.15 * hsi  # doppeltes Gewicht für HSI (wichtigstes DSP-Merkmal)
         ) / 1.0  # Normalisierung bereits 1.0
-        confidence = float(np.clip(0.30 * clap_score + 0.70 * weighted_mean, 0.0, 1.0))
+        if getattr(self, "_clap_score_is_fallback", False):
+            # CLAP nicht verfügbar (offline-Desktop/Speicherbudget/Plugin) → das für
+            # CLAP reservierte 0.30-Gewicht auf die tatsächlich GEMESSENE DSP-Evidenz
+            # umverteilen, statt einen neutralen Platzhalter (0.35) als echte Messung
+            # einzumischen. Fehlende OPTIONALE Evidenz darf die Konfidenz nicht unter
+            # das drücken, was die DSP-Merkmale belegen — sonst bleibt z. B. eindeutiges
+            # bandbegrenztes Schlager-Material künstlich unsicher (conf≈0.507 trotz
+            # konvergenter DSP-Tiers). WISSENSCHAFTLICHE INVARIANTE (§0g, §0c): rein
+            # materialunabhängig, keine Schwellwert-Absenkung, keine künstliche
+            # Inflation — die Konfidenz spiegelt exakt die verfügbare Evidenz.
+            confidence = float(np.clip(weighted_mean, 0.0, 1.0))
+        else:
+            confidence = float(np.clip(0.30 * clap_score + 0.70 * weighted_mean, 0.0, 1.0))
 
         # Sprach-Penalty: klar englischer Gesang (lang_de_score < 0.30) → confidence −15 %
         if lang_de_score < 0.30:
@@ -1824,18 +1839,28 @@ class GermanSchlagerClassifier:
         Lädt LAION-CLAP via ml_memory_budget.try_allocate() — identisches Muster
         wie alle anderen ML-Plugins (§2.47 ML-Failure-Degradationskaskade).
         Kein Env-Gate: CLAP wird geladen wenn Speicher verfügbar ist, sonst 0.35.
+
+        Setzt ``self._clap_score_is_fallback`` auf True, solange keine echte
+        positive CLAP-Messung vorliegt; erst eine erfolgreiche Tag-Inferenz setzt
+        das Flag auf False. Der Aufrufer nutzt das Flag, um das CLAP-Gewicht bei
+        Nichtverfügbarkeit auf die DSP-Evidenz umzuverteilen.
         """
+        # Standardannahme: kein genuiner CLAP-Score → Fallback. Erst eine
+        # erfolgreiche Tag-Inferenz (unten) setzt das Flag zurück auf False.
+        self._clap_score_is_fallback = True
         try:
             from backend.core.ml_memory_budget import release as _release_clap_genre
             from backend.core.ml_memory_budget import try_allocate as _alloc_clap_genre
-            from plugins.laion_clap_plugin import get_laion_clap as get_clap_plugin
+            from plugins.laion_clap_plugin import get_laion_clap, get_loaded_laion_clap
 
             if not _alloc_clap_genre("LAION_CLAP_genre", 2.2):
                 logger.debug("GenreClassifier CLAP: Speicherbudget nicht verfügbar — neutraler Prior 0.35")
                 return 0.35
 
             try:
-                clap = get_clap_plugin()
+                clap = get_loaded_laion_clap()
+                if clap is None:
+                    clap = get_laion_clap()
                 if clap is None:
                     logger.debug("GenreClassifier CLAP: Plugin nicht verfügbar — neutraler Prior 0.35")
                     return 0.35
@@ -1851,6 +1876,8 @@ class GermanSchlagerClassifier:
                         if key in genre_scores_dict:
                             proxy_score = max(proxy_score, genre_scores_dict[key])
                     clap_score = float(np.clip(proxy_score, 0.0, 1.0))
+                    # Genuine positive CLAP-Messung erhalten → kein Fallback.
+                    self._clap_score_is_fallback = False
                 except Exception:
                     clap_score = 0.35
 
@@ -1913,9 +1940,20 @@ class GermanSchlagerClassifier:
         return -a
 
     def _to_mono(self, audio: np.ndarray) -> np.ndarray:
-        """Konvertiert Stereo → Mono."""
+        """Konvertiert Stereo → Mono.
+
+        Aurik-Konvention: ``(samples, channels)`` (File-Import liefert z. B.
+        ``(1_323_000, 2)``). Der Downmix muss über die **Kanal-Achse** mitteln,
+        nicht über die Sample-Achse. Da nur Mono/Stereo unterstützt wird, ist die
+        Kanal-Achse stets die kleinere — robust gegen beide Layouts
+        (``(samples, channels)`` und ``(channels, samples)``). Spaltenvektoren
+        ``(N, 1)`` werden als Mono behandelt.
+        """
         if audio.ndim == 2:
-            return np.asarray(audio.mean(axis=0), dtype=np.float32)
+            if min(audio.shape) < 2:
+                return np.asarray(audio, dtype=np.float32).reshape(-1)
+            ch_axis = 1 if audio.shape[1] <= audio.shape[0] else 0
+            return np.asarray(audio.mean(axis=ch_axis), dtype=np.float32)
         return np.asarray(audio, dtype=np.float32)
 
     def _resample(self, audio: np.ndarray, sr_in: int, sr_out: int) -> np.ndarray:

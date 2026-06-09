@@ -1511,6 +1511,9 @@ _GOAL_TO_RECOVERY_PHASES_RESTORATION: dict[str, list[str]] = {
         "phase_23_spectral_repair",  # codec/pre-echo spectral smear recovery before harmonic lift
         "phase_07_harmonic_restoration",  # harmonic HF reconstruction for material where HF was
         # never captured (era guards handle 1900–1925 exclusion)
+        "phase_39_air_band_enhancement",  # DSP air band (>12 kHz psychoacoustic shimmer) — safe
+        # fallback when AudioSR/harmonic rollback leaves brillanz below floor;
+        # §0a: NOT forbidden in Restoration (only phase_21/35/42 are forbidden)
     ],
     "spatial_depth": [
         "phase_46_spatial_enhancement",  # low spatial_depth = INSUFFICIENT spatial cues;

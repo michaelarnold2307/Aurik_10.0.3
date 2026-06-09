@@ -156,3 +156,24 @@ Ein Patch gilt erst dann als wissenschaftlich freigabefaehig, wenn alle Punkte v
 2. Messprotokoll (Daten, Szenarien, Auswertung) reproduzierbar dokumentiert
 3. Mindestens ein Regressionstest pro neue Invariante
 4. Kein Konflikt mit Vocal-Supremacy und Artifact-Freedom-Veto
+
+## Zuversichtsdämpfer fuer den Weltspitzen-Nachweis (Stand 2026-06-04)
+
+Diese Punkte trueben die Zuversicht nicht wegen fehlender Architekturqualitaet,
+sondern wegen noch unvollstaendiger externer Evidenz oder begrenzter Gate-Repraesentanz.
+
+| Prioritaet | Zuversichtsdämpfer | Beobachtung im Repo | Warum das den Weltspitzen-Nachweis truebt | Schliesskriterium |
+| --- | --- | --- | --- | --- |
+| P1 | Kein vollstaendiger externer Head-to-Head-Nachweis als Dauer-Gate | Externe MUSHRA-/ABX-Protokolle sind vorbereitet, aber nicht als kontinuierlicher Pflicht-Release-Block fuer alle Kernaenderungen verankert | Aussage "qualitativ vor allen" bleibt ohne fortlaufende Vergleichsevidenz angreifbar | Jede Kernaenderung: externes Blindtest-Artefakt + Signifikanz + Effektstaerke als Pflicht-Gate |
+| P1 | UAT-Gate G6 prueft nur einen Minimalfall | Umgestellt auf `tests/test_uat_acceptance_criteria.py::test_amrb_stratified_multi_scenario_gate` mit stratifiziertem Mehrszenario-Profil | Restrisiko sinkt deutlich; verbleibend ist die Laufzeit-/CI-Operabilitaet schwerer Gates | Heavy-Gate-Lauf regelmaessig gruener Nachweis fuer das neue Profil |
+| P1 | Schwere Competitive-/AMRB-Gates laufen separat und teils manuell | Projekt- und Release-Dokumente weisen auf separate, langlaufende Gates hin | Risiko, dass lokale "gruen"-Laeufe die entscheidenden Konkurrenznachweise nicht enthalten | CI-Pflichtprofil mit verpflichtender Ausfuehrung beider Heavy-Gates vor Release-Tag |
+| P2 | Proxy-Metrik-Domain-Shift bleibt trotz starker Guards ein Restrisiko | Backlog und Statusdokumente benennen weiterhin Metrikvaliditaet als sensible Achse | Gute interne Steuerung kann externe Hoerwahrnehmung in Randdomänen partiell verfehlen | Regelmaessige Re-Kalibrierung gegen neue Blindtest-Daten je Materialklasse |
+| P2 | Langzeit-/Programmlaengen-Effekte sind in schnellen Gates unterreprasentiert | Mehrere Gate-Profile sind explizit runtime-begrenzt und deterministisch gehalten | Artefakte wie kumulative Ermuedung, Drift, Langform-Dynamik koennen spaet auftreten | Zusaetzliches Long-Form-Gate pro Release (mehrminuetige Real-Audio-Faelle) |
+| P2 | Transfer-Chain-Randfaelle sind nicht durchgaengig als externe Vergleichsmatrix dokumentiert | Chain-Logik ist intern stark, externe Matrix mit Signifikanz ueber seltene Ketten bleibt ausbaufaehig | Weltspitzenanspruch braucht belastbare Aussagen gerade fuer seltene, schwierige Ketten | Externe Benchmark-Matrix inkl. seltener Ketten (z. B. shellac->tape->mp3) |
+| P3 | Uneinheitliche Kommunikationslage in Alt-Reports | Historische Reports enthalten teils sehr starke Wettbewerbsbehauptungen ohne direkten Signifikanzblock | Erhoeht Reputationsrisiko und erschwert auditierbare Nachweisfuehrung | Alt-Reports mit Evidenzstatus taggen (`snapshot`, `claim-level`, `validated-by`) |
+
+### Harte Priorisierung fuer den naechsten Weltspitzen-Schritt
+
+1. P1-Luecken zuerst schliessen: externer Head-to-Head-Pflichtnachweis + G6-Ausbau + Heavy-Gate-Releasepflicht.
+2. Danach P2: Long-Form- und Transfer-Chain-Randfall-Evidenz systematisch erweitern.
+3. P3 parallel bereinigen: Claim-Hygiene in historischen Reports fuer klare Auditierbarkeit.

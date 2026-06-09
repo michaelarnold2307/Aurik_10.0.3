@@ -179,6 +179,45 @@ class TestVFAAnalyzeVocal:
         result = vfa.analyze(audio, SR, panns_singing=0.6)
         assert isinstance(result.formant_stable, bool)
 
+    def test_low_raw_panns_is_raised_by_vocal_tags_and_schlager_genre(self, vfa):
+        audio = _make_vocal_signal(3.0)
+        result = vfa.analyze(
+            audio,
+            SR,
+            panns_singing=0.05,
+            panns_tags={"Vocals": 0.12, "Music": 0.75},
+            genre_label="Deutscher Schlager",
+        )
+        assert result.panns_singing >= 0.35
+        assert result.vocal_present is True
+        assert result.vqi_gate_active is True
+
+    def test_strict_vocal_genre_activates_vqi_gate_without_panns(self, vfa):
+        audio = _make_vocal_signal(3.0)
+        result = vfa.analyze(
+            audio,
+            SR,
+            panns_singing=0.0,
+            panns_tags={},
+            genre_label="opera",
+        )
+        assert result.panns_singing >= 0.35
+        assert result.vocal_present is True
+        assert result.vqi_gate_active is True
+
+    def test_vocal_material_prior_activates_vqi_gate_without_tag_support(self, vfa):
+        audio = _make_vocal_signal(3.0)
+        result = vfa.analyze(
+            audio,
+            SR,
+            panns_singing=0.0,
+            panns_tags={},
+            vocal_material_prior=True,
+        )
+        assert result.panns_singing >= 0.35
+        assert result.vocal_present is True
+        assert result.vqi_gate_active is True
+
 
 # ---------------------------------------------------------------------------
 # analyze() — Kein Gesang (panns_singing < 0.25)
@@ -213,6 +252,19 @@ class TestVFAAnalyzeNoVocal:
         audio = _make_sine(440.0)
         result = vfa.analyze(audio, SR, panns_singing=0.0)
         assert result.frisson_zones == []
+
+    def test_music_and_speech_without_vocal_evidence_stays_inactive(self, vfa):
+        audio = _make_sine(440.0)
+        result = vfa.analyze(
+            audio,
+            SR,
+            panns_singing=0.05,
+            panns_tags={"Music": 0.75, "Speech": 0.45},
+            genre_label="Klassik",
+        )
+        assert result.panns_singing < 0.25
+        assert result.vocal_present is False
+        assert result.vqi_gate_active is False
 
 
 # ---------------------------------------------------------------------------

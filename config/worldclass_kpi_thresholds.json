@@ -1,0 +1,42 @@
+{
+  "description": "Harte KPI-Ziele fuer Weltspitzen-Autopilot (30-60-90 Operationalisierung)",
+  "targets": {
+    "artifact_freedom_min_samples": 5,
+    "artifact_freedom_pass_rate_min": 0.99,
+    "defect_confidence_coverage_rate_min": 0.95,
+    "defect_confidence_min_samples": 5,
+    "defect_confidence_pass_rate_min": 0.9,
+    "defect_confidence_value_min": 0.09,
+    "defect_detection_min_samples": 5,
+    "defect_detection_pass_rate_min": 0.95,
+    "defect_inaudible_min_samples": 5,
+    "defect_inaudible_or_max_reduction_pass_rate_min": 0.95,
+    "era_confidence_pass_rate_min": 0.8,
+    "era_confidence_value_min": 0.55,
+    "false_reject_rate_max": 0.08,
+    "genre_confidence_pass_rate_min": 0.8,
+    "genre_confidence_value_min": 0.55,
+    "material_confidence_pass_rate_min": 0.8,
+    "material_confidence_value_min": 0.45,
+    "pipeline_confidence_pass_rate_min": 0.9,
+    "pipeline_confidence_value_min": 0.6,
+    "runtime_min_samples": 5,
+    "runtime_p95_seconds_max": 600.0,
+    "uncertainty_coverage_rate_min": 0.7,
+    "vqi_margin_pass_rate_min": 0.95,
+    "vqi_min_samples": 5,
+    "wcs_min_samples": 5,
+    "wcs_pass_rate_min": 0.95
+  },
+  "version": "1.0",
+  "vqi_margin": {
+    "default_margin": 0.02,
+    "material_floors": {
+      "cd_digital": 0.82,
+      "mp3_low": 0.72,
+      "shellac": 0.62,
+      "tape": 0.74,
+      "vinyl": 0.72
+    }
+  }
+}

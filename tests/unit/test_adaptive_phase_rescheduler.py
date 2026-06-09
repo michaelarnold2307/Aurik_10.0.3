@@ -15,6 +15,8 @@ Prüft:
 - Non-blocking: kaputte Inputs liefern leeres RescheduleResult
 """
 
+from unittest.mock import patch
+
 import pytest
 
 
@@ -313,22 +315,22 @@ class TestAdaptiveGapThreshold:
         assert _adaptive_gap_threshold(100.0) == pytest.approx(0.05, abs=1e-6)
 
     def test_zero_restorability_returns_min_threshold(self):
-        """rest=0 → 0.025 (aggressivste Erkennung)."""
+        """rest=0 → 0.020 (aggressivste Erkennung, v9.12.9: abgesenkt für sensitivere Recovery)."""
         from backend.core.adaptive_phase_rescheduler import _adaptive_gap_threshold
 
-        assert _adaptive_gap_threshold(0.0) == pytest.approx(0.025, abs=1e-6)
+        assert _adaptive_gap_threshold(0.0) == pytest.approx(0.020, abs=1e-6)
 
     def test_midpoint_restorability(self):
-        """rest=50 → 0.0375 (lineare Mitte)."""
+        """rest=50 → 0.035 (lineare Mitte, v9.12.9: neue Formel 0.020+0.030×rest/100)."""
         from backend.core.adaptive_phase_rescheduler import _adaptive_gap_threshold
 
-        assert _adaptive_gap_threshold(50.0) == pytest.approx(0.0375, abs=1e-6)
+        assert _adaptive_gap_threshold(50.0) == pytest.approx(0.035, abs=1e-6)
 
     def test_clip_out_of_range(self):
         """Werte außerhalb [0, 100] werden geclippt."""
         from backend.core.adaptive_phase_rescheduler import _adaptive_gap_threshold
 
-        assert _adaptive_gap_threshold(-50.0) == pytest.approx(0.025, abs=1e-6)
+        assert _adaptive_gap_threshold(-50.0) == pytest.approx(0.020, abs=1e-6)  # geclippt auf min 0.020 (v9.12.9)
         assert _adaptive_gap_threshold(200.0) == pytest.approx(0.05, abs=1e-6)
 
     def test_monotone_increasing(self):
@@ -453,3 +455,202 @@ class TestRestorabilityAdaptiveBehavior:
             restorability_score=100.0,
         )
         assert result.new_phases_to_append == []
+
+
+class TestGoalConfidenceAdaptiveBehavior:
+    """Niedrige Goal-Konfidenz soll Injektionen konservativer machen."""
+
+    def test_low_confidence_blocks_borderline_gap(self):
+        r = _fresh_rescheduler()
+        result = r.reschedule(
+            current_goal_scores={"brillanz": 0.72},
+            song_goal_targets={"brillanz": 0.78},  # gap = 0.06
+            selected_phases=[],
+            executed=set(),
+            is_studio_2026=False,
+            restorability_score=100.0,  # Basis-Schwelle 0.05
+            goal_confidence={"brillanz": 0.20},
+        )
+        assert result.new_phases_to_append == []
+
+    def test_high_confidence_allows_same_gap(self):
+        r = _fresh_rescheduler()
+        result = r.reschedule(
+            current_goal_scores={"brillanz": 0.72},
+            song_goal_targets={"brillanz": 0.78},  # gap = 0.06
+            selected_phases=[],
+            executed=set(),
+            is_studio_2026=False,
+            restorability_score=100.0,
+            goal_confidence={"brillanz": 0.95},
+        )
+        assert "phase_06_frequency_restoration" in result.new_phases_to_append
+
+    def test_global_low_confidence_reduces_injection_budget(self):
+        r_low = _fresh_rescheduler()
+        r_high = _fresh_rescheduler()
+        goals = [
+            "brillanz",
+            "natuerlichkeit",
+            "authentizitaet",
+            "transparenz",
+            "micro_dynamics",
+            "groove",
+        ]
+        targets = dict.fromkeys(goals, 0.9)
+        scores = dict.fromkeys(goals, 0.5)
+
+        low_conf_injected: list[str] = []
+        high_conf_injected: list[str] = []
+
+        for _ in range(6):
+            low_res = r_low.reschedule(
+                current_goal_scores=scores,
+                song_goal_targets=targets,
+                selected_phases=list(low_conf_injected),
+                executed=set(),
+                is_studio_2026=False,
+                restorability_score=20.0,
+                goal_confidence=dict.fromkeys(goals, 0.2),
+            )
+            low_conf_injected.extend(low_res.new_phases_to_append)
+
+            high_res = r_high.reschedule(
+                current_goal_scores=scores,
+                song_goal_targets=targets,
+                selected_phases=list(high_conf_injected),
+                executed=set(),
+                is_studio_2026=False,
+                restorability_score=20.0,
+                goal_confidence=dict.fromkeys(goals, 0.95),
+            )
+            high_conf_injected.extend(high_res.new_phases_to_append)
+
+        assert len(low_conf_injected) <= len(high_conf_injected)
+
+    def test_higher_confidence_goal_wins_when_gap_is_equal(self):
+        """Bei gleichem Gap soll das verlässlichere Recovery-Goal zuerst kommen."""
+        r = _fresh_rescheduler()
+        result = r.reschedule(
+            current_goal_scores={"brillanz": 0.72, "spatial_depth": 0.72},
+            song_goal_targets={"brillanz": 0.82, "spatial_depth": 0.82},
+            selected_phases=[],
+            executed=set(),
+            is_studio_2026=False,
+            restorability_score=80.0,
+            transfer_chain=[],
+            material_type="vinyl",
+            goal_confidence={"brillanz": 0.20, "spatial_depth": 0.95},
+        )
+
+        assert result.new_phases_to_append
+        assert result.new_phases_to_append[0] == "phase_46_spatial_enhancement"
+
+
+class TestCoalitionPriority:
+    """Goals mit gemeinsamer Recovery-Phase sollen früher kommen."""
+
+    def test_shared_recovery_phase_boosts_predictive_priority(self):
+        r = _fresh_rescheduler()
+
+        def _fake_recovery(goal: str, is_studio_2026: bool = False, transfer_chain=None):
+            mapping = {
+                "brillanz": ["phase_brillanz"],
+                "spatial_depth": ["phase_spatial"],
+                "waerme": ["phase_warmup", "phase_spatial"],
+            }
+            return list(mapping.get(goal, []))
+
+        with patch("backend.core.adaptive_phase_rescheduler._get_goal_recovery_phases", side_effect=_fake_recovery):
+            result = r.reschedule(
+                current_goal_scores={"brillanz": 0.70, "spatial_depth": 0.70, "waerme": 0.70},
+                song_goal_targets={"brillanz": 0.80, "spatial_depth": 0.80, "waerme": 0.80},
+                selected_phases=["phase_warmup"],
+                executed=set(),
+                is_studio_2026=False,
+                restorability_score=80.0,
+                goal_confidence={"brillanz": 0.80, "spatial_depth": 0.80, "waerme": 0.80},
+            )
+
+        assert result.new_phases_to_append[:2] == ["phase_spatial", "phase_brillanz"]
+
+
+class TestUncertaintyBudgetAndRiskPricing:
+    """Geschlossener Regelkreis: Unsicherheit und Risiko steuern Injektionen."""
+
+    def test_high_uncertainty_budget_blocks_borderline_gap(self):
+        r = _fresh_rescheduler()
+        result = r.reschedule(
+            current_goal_scores={"brillanz": 0.72},
+            song_goal_targets={"brillanz": 0.77},  # gap = 0.05 (borderline)
+            selected_phases=[],
+            executed=set(),
+            is_studio_2026=False,
+            restorability_score=80.0,
+            goal_confidence={"brillanz": 0.95},
+            uncertainty_budget=0.92,
+        )
+        assert result.new_phases_to_append == []
+
+    def test_low_uncertainty_budget_allows_same_gap(self):
+        r = _fresh_rescheduler()
+        result = r.reschedule(
+            current_goal_scores={"brillanz": 0.72},
+            song_goal_targets={"brillanz": 0.77},
+            selected_phases=[],
+            executed=set(),
+            is_studio_2026=False,
+            restorability_score=80.0,
+            goal_confidence={"brillanz": 0.95},
+            uncertainty_budget=0.10,
+        )
+        assert "phase_06_frequency_restoration" in result.new_phases_to_append
+
+    def test_counterfactual_safe_phase_survives_risk_filter(self):
+        r = _fresh_rescheduler()
+
+        def _fake_recovery(goal: str, is_studio_2026: bool = False, transfer_chain=None):
+            if goal == "natuerlichkeit":
+                return ["phase_55_diffusion_inpainting"]
+            return []
+
+        with patch("backend.core.adaptive_phase_rescheduler._get_goal_recovery_phases", side_effect=_fake_recovery):
+            result = r.reschedule(
+                current_goal_scores={"natuerlichkeit": 0.60},
+                song_goal_targets={"natuerlichkeit": 0.76},
+                selected_phases=[],
+                executed=set(),
+                is_studio_2026=False,
+                transfer_chain=["vinyl", "mp3_low"],
+                material_type="vinyl",
+                restorability_score=60.0,
+                goal_confidence={"natuerlichkeit": 0.75},
+                uncertainty_budget=0.55,
+            )
+
+        assert "phase_55_diffusion_inpainting" in result.new_phases_to_append
+
+    def test_rare_chain_can_unlock_one_extra_injection_slot(self):
+        r = _fresh_rescheduler()
+
+        with patch("backend.core.adaptive_phase_rescheduler._adaptive_max_injections", return_value=3):
+            goals = ["brillanz", "natuerlichkeit", "authentizitaet", "transparenz", "micro_dynamics", "groove"]
+            targets = dict.fromkeys(goals, 0.90)
+            scores = dict.fromkeys(goals, 0.50)
+            injected: list[str] = []
+            for _ in range(4):
+                res = r.reschedule(
+                    current_goal_scores=scores,
+                    song_goal_targets=targets,
+                    selected_phases=list(injected),
+                    executed=set(),
+                    is_studio_2026=False,
+                    transfer_chain=["wire_recording", "cassette", "vinyl", "mp3_low"],
+                    material_type="wire_recording",
+                    restorability_score=30.0,
+                    goal_confidence=dict.fromkeys(goals, 0.85),
+                    uncertainty_budget=0.35,
+                )
+                injected.extend(res.new_phases_to_append)
+
+        assert len(injected) <= 4

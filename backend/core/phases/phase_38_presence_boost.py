@@ -163,6 +163,8 @@ class PresenceBoost(PhaseInterface):
         _effective_strength = float(np.clip(_pmgg_strength * phase_locality_factor, 0.0, 1.0))
 
         # §V41 ForwardMaskingGuard: Stärke in post-transienten Masking-Fenstern erhöhen.
+        # Optimierung v9.12.9: UV3 berechnet Zonen vor der Phase und übergibt sie via kwargs;
+        # nur wenn keine pre-computed Zonen vorhanden, werden sie neu berechnet (spart CPU).
         _panns_s_38 = float(kwargs.get("panns_singing", 0.0))
         if _panns_s_38 >= 0.25 and _effective_strength > 0.0:
             try:
@@ -170,8 +172,7 @@ class PresenceBoost(PhaseInterface):
                     get_forward_masking_guard as _fmg_fn_38,
                 )
 
-                _fmg_38 = _fmg_fn_38()
-                _fmz_38 = _fmg_38.compute_zones(audio, sample_rate)
+                _fmz_38 = kwargs.get("forward_masking_zones") or _fmg_fn_38().compute_zones(audio, sample_rate)
                 if _fmz_38:
                     _n_s_38 = audio.shape[-1] if audio.ndim > 1 else len(audio)
                     _zone_samples_38 = sum(z.end_sample - z.start_sample for z in _fmz_38)

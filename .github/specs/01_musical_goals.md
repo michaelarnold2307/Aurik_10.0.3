@@ -203,6 +203,32 @@ REGRESSION_EPSILON: float = 0.001
 # pro Phase (PMGG + PhaseConductor + SongCalibration).
 ```
 
+### §2.34b [RELEASE_MUST] Cross-Goal-Balancevertrag fuer Waerme und Raumtiefe (v9.12.16)
+
+Bei Goal-Recovery darf `waerme` nicht isoliert maximiert werden, wenn dadurch
+`spatial_depth` hoerbar kollabiert. Beide Goals sind als gekoppeltes Paar zu behandeln.
+
+Pflichtregeln:
+
+1. Waerme-Rettung nur bei nachweisbarer Defizitreduktion (`waerme_deficit` sinkt).
+2. `spatial_depth`-Einbruch ueber Guard-Cap ist ein Hard-Negativsignal fuer Candidate-Ranking.
+3. Bei Konflikt gilt Teamwork-Prinzip: kein Einzelziel darf die Endentscheidung dominieren.
+4. Ranking muss konservative Kandidaten bevorzugen, wenn kritische Goals nahe Baseline bleiben.
+
+Normativer Entscheidungsrahmen:
+
+```python
+if waerme_deficit_reduced and spatial_depth_drop <= cap:
+    candidate_allowed = True
+else:
+    candidate_allowed = False
+```
+
+VERBOTEN:
+
+- Waerme-Boost ohne gleichzeitige Raumtiefen-Pruefung.
+- Akzeptanz eines Kandidaten nur aufgrund eines Einzelgoal-Gewinns.
+
 **§2.29 Priority-Aware PMGG Retries (v9.10.77)**:
 
 **Ergänzung v9.11.5 (Team-Koordination):**

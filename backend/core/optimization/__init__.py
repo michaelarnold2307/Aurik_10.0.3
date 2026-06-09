@@ -132,4 +132,4 @@ from .priority5_bass import PhaseCoherentBassProcessor, ResonancePreserver
 from .priority6_parameters import GenreOptimizedParameters, OptimizedPresets
 from .profiling import PerformanceProfiler, QualityValidator
 
-__version__ = "9.12.10"
+__version__ = "9.15.0"

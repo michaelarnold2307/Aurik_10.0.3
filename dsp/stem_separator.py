@@ -336,9 +336,11 @@ class MLStemSeparator:
 
         # ── Tier-2: MDX23C ────────────────────────────────────────────────
         try:
-            from plugins.mdx23c_plugin import get_mdx23c_plugin
+            from plugins.mdx23c_plugin import get_loaded_mdx23c_plugin, get_mdx23c_plugin
 
-            mdx = get_mdx23c_plugin()
+            mdx = get_loaded_mdx23c_plugin()
+            if mdx is None:
+                mdx = get_mdx23c_plugin()
             all_stems = mdx.separate_all_stems(audio, sample_rate, stems=["vocals", "inst"])
             vocals = np.asarray(all_stems.get("vocals", np.zeros_like(audio)), dtype=orig_dtype)
             inst = np.asarray(all_stems.get("inst", np.zeros_like(audio)), dtype=orig_dtype)

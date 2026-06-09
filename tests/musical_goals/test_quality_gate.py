@@ -30,6 +30,13 @@ from backend.core.musical_goals.quality_gate import (
     QualityGateReport,
 )
 
+
+@pytest.fixture(autouse=True)
+def force_full_metric_path(monkeypatch: pytest.MonkeyPatch):
+    """Quality-Gate-Tests brauchen echte Goal-Deltas statt Fast-Validation-Proxies."""
+    monkeypatch.setattr("backend.core.musical_goals.musical_goals_metrics._is_fast_validation_context", lambda: False)
+
+
 # =============================================================================
 # Module-level CREPE pre-warm (verhindert, dass ONNX-Kaltladezeit ~30s in den
 # Performance-Test einfließt; der Singleton wird einmalig pro Prozess geladen)

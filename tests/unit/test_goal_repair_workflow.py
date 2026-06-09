@@ -154,6 +154,139 @@ class TestMesseUndRepariere:
         # Goals must reflect initial (not regressed candidate)
         assert out_goals.get("natuerlichkeit") == pytest.approx(0.91)
 
+    def test_equal_passcount_prefers_lower_core_deficit(self):
+        """Bei gleicher Pass-Anzahl wird der Kandidat mit niedrigerem Kernziel-Defizit gewählt."""
+        initial = {
+            "natuerlichkeit": 0.91,
+            "authentizitaet": 0.89,
+            "spatial_depth": 0.45,  # knapp unter kanonischer Schwelle (~0.46)
+            "micro_dynamics": 0.80,
+            "groove": 0.82,
+        }
+        candidate = {
+            "natuerlichkeit": 0.90,
+            "authentizitaet": 0.89,
+            "spatial_depth": 0.47,  # Kernziel verbessert, Passcount bleibt identisch
+            "micro_dynamics": 0.80,
+            "groove": 0.82,
+        }
+        denker = self._make_denker(initial)
+        denker.messe_ziele.side_effect = [dict(initial), dict(candidate)]
+
+        with mock.patch("backend.core.excellence_optimizer.ExcellenceOptimizer") as _mopt:
+            _mopt.return_value.optimize.return_value = (_sine(), mock.Mock(applied_steps=[]))
+            _mopt.return_value._modulation_strength = 0.3
+            out_audio, out_goals = denker.messe_und_repariere(_sine(), 48_000, reference_audio=_sine(freq=220.0))
+
+        assert denker.messe_ziele.call_count >= 2
+        assert out_goals.get("spatial_depth", 0.0) >= candidate["spatial_depth"] - 1e-6
+
+    def test_mode_core_guard_rejects_spatial_depth_drop(self):
+        """Restoration-Kernziel spatial_depth darf nicht über die Core-Drop-Grenze regressieren."""
+        initial = {
+            "natuerlichkeit": 0.92,
+            "authentizitaet": 0.90,
+            "spatial_depth": 0.72,
+            "micro_dynamics": 0.70,
+            "groove": 0.71,
+        }
+        regressed_candidate = {
+            "natuerlichkeit": 0.92,
+            "authentizitaet": 0.90,
+            "spatial_depth": 0.70,  # -0.02 > erlaubte -0.015 für Kernziele
+            "micro_dynamics": 0.79,
+            "groove": 0.79,
+        }
+        denker = self._make_denker(initial)
+        denker.messe_ziele.side_effect = [dict(initial), dict(regressed_candidate)]
+
+        with mock.patch("backend.core.excellence_optimizer.ExcellenceOptimizer") as _mopt:
+            _mopt.return_value.optimize.return_value = (_sine(), mock.Mock(applied_steps=[]))
+            _mopt.return_value._modulation_strength = 0.3
+            out_audio, out_goals = denker.messe_und_repariere(_sine(), 48_000)
+
+        np.testing.assert_array_equal(out_audio, _sine())
+        assert out_goals.get("spatial_depth") == pytest.approx(initial["spatial_depth"])
+
+    def test_local_intent_guard_rejects_unbalanced_auth_spatial_tradeoff(self):
+        """Kleiner Authentizitätsgewinn darf keinen disproportionalen Spatial-Depth-Drop rechtfertigen."""
+        initial = {
+            "natuerlichkeit": 0.92,
+            "authentizitaet": 0.90,
+            "spatial_depth": 0.72,
+            "micro_dynamics": 0.70,
+            "groove": 0.71,
+        }
+        regressed_candidate = {
+            "natuerlichkeit": 0.92,
+            "authentizitaet": 0.905,  # +0.005
+            "spatial_depth": 0.709,  # -0.011 (unter Core-Guard -0.015, aber disproportional)
+            "micro_dynamics": 0.79,
+            "groove": 0.79,
+        }
+        denker = self._make_denker(initial)
+        denker.messe_ziele.side_effect = [dict(initial), dict(regressed_candidate)]
+
+        with mock.patch("backend.core.excellence_optimizer.ExcellenceOptimizer") as _mopt:
+            _mopt.return_value.optimize.return_value = (_sine(), mock.Mock(applied_steps=[]))
+            _mopt.return_value._modulation_strength = 0.3
+            out_audio, out_goals = denker.messe_und_repariere(_sine(), 48_000)
+
+        np.testing.assert_array_equal(out_audio, _sine())
+        assert out_goals.get("authentizitaet") == pytest.approx(initial["authentizitaet"])
+        assert out_goals.get("spatial_depth") == pytest.approx(initial["spatial_depth"])
+
+    def test_local_rescue_improves_spatial_waerme_after_rejected_blends(self):
+        """Lokaler End-Gate-Rescue darf nach frühen Rejects Spatial/Wärme gezielt verbessern."""
+        initial = {
+            "natuerlichkeit": 0.92,
+            "authentizitaet": 0.90,
+            "spatial_depth": 0.44,
+            "waerme": 0.66,
+            "micro_dynamics": 0.80,
+            "groove": 0.82,
+        }
+        # Step-3 Blend-Kandidaten: wegen starker Authentizitäts-Regression abzulehnen.
+        step3_reject_1 = {
+            "natuerlichkeit": 0.92,
+            "authentizitaet": 0.87,
+            "spatial_depth": 0.45,
+            "waerme": 0.67,
+            "micro_dynamics": 0.80,
+            "groove": 0.82,
+        }
+        step3_reject_2 = {
+            "natuerlichkeit": 0.92,
+            "authentizitaet": 0.875,
+            "spatial_depth": 0.45,
+            "waerme": 0.67,
+            "micro_dynamics": 0.80,
+            "groove": 0.82,
+        }
+        # Step-5 Local-Rescue-Kandidat: lokale Defizite sinken bei akzeptabler Gesamtbilanz.
+        local_rescue = {
+            "natuerlichkeit": 0.92,
+            "authentizitaet": 0.895,
+            "spatial_depth": 0.46,
+            "waerme": 0.70,
+            "micro_dynamics": 0.80,
+            "groove": 0.82,
+        }
+
+        denker = self._make_denker(initial)
+        denker.messe_ziele.side_effect = [
+            dict(initial),
+            dict(step3_reject_1),
+            dict(step3_reject_2),
+            dict(local_rescue),
+        ]
+
+        ref = _sine(freq=220.0)
+        out_audio, out_goals = denker.messe_und_repariere(_sine(freq=440.0), 48_000, reference_audio=ref)
+
+        assert out_goals.get("spatial_depth", 0.0) >= local_rescue["spatial_depth"] - 1e-6
+        assert out_goals.get("waerme", 0.0) >= local_rescue["waerme"] - 1e-6
+
     def test_empty_audio_returns_empty_dict(self):
         """Empty audio input → safe fallback (no crash)."""
         from denker.exzellenz_denker import ExzellenzDenker

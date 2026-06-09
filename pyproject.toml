@@ -2,9 +2,13 @@
 # pyproject.toml — Aurik 9 Code-Qualitäts-Konfiguration (SOTA, März 2026)
 # =============================================================================
 
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "aurik9"
-version = "9.12.10"
+version = "9.15.0"
 description = "Intelligentes Musik-Restaurierungssystem — weltweite Erstimplementierung"
 readme = "README.md"
 license = { file = "LICENSE" }
@@ -29,6 +33,9 @@ classifiers = [
     "Topic :: Multimedia :: Sound/Audio :: Analysis",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
+
+[tool.setuptools]
+packages = ["backend", "cli", "dsp", "Aurik910", "plugins", "denker", "audit", "export", "usability", "benchmarks"]
 
 # =============================================================================
 # BLACK — Code-Formatierung
@@ -414,37 +421,6 @@ max-statements = 60
 min-similarity-lines = 10
 ignore-imports = true
 ignore-docstrings = true
-
-# =============================================================================
-# PYTEST — Test-Konfiguration
-# =============================================================================
-[tool.pytest.ini_options]
-minversion = "7.0"
-addopts = [
-    "--strict-markers",
-    "--import-mode=importlib",
-    "--timeout=30",
-    "-q",
-    "--tb=short",
-    "--disable-warnings",
-    "--no-header",
-]
-testpaths = ["tests"]
-python_files = ["test_*.py", "*_test.py"]
-python_classes = ["Test*"]
-python_functions = ["test_*"]
-markers = [
-    "e2e: End-to-End-Tests (aufwendig, langsam)",
-    "ml: Tests die ML-Modelle benötigen",
-    "slow: Langsame Tests (> 10 s)",
-    "gpu: Tests die GPU benötigen",
-    "network: Tests die Netzwerkzugang benötigen",
-]
-filterwarnings = [
-    "ignore::DeprecationWarning",
-    "ignore::PendingDeprecationWarning",
-    "ignore::UserWarning",
-]
 
 # =============================================================================
 # COVERAGE — Test-Abdeckung

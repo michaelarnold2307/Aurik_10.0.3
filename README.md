@@ -1,6 +1,6 @@
-# 🎵 Aurik 9.12.10 — Intelligentes Musik-Restaurierungs- und Rekonstruktionssystem
+# 🎵 Aurik 9.15.0 — Intelligentes Musik-Restaurierungs- und Rekonstruktionssystem
 
-**Version:** 9.12.10 | **Status:** ✅ Produktionsbereit | **Stand:** 22. Mai 2026
+**Version:** 9.15.0 | **Status:** ✅ Produktionsbereit | **Stand:** 22. Mai 2026
 
 > Normativer Ist-Stand: `.github/specs/01-08`, `.github/copilot-instructions.md`, `docs/CHANGELOG_HISTORY.md` und `CHANGELOG.md`.
 
@@ -32,7 +32,7 @@ vollständig offline, ohne Cloud- oder Netzwerkabhängigkeiten.
 - Endnutzer-Workflow: genau eine Entscheidung pro Datei, `Restoration` oder `Studio 2026`
 - Kanonischer Laufzeitpfad: Bridge -> `AurikDenker.denke(...)` -> `export_guard()`
 
-**Aktuelle Ergebnisse (v9.12.10):**
+**Aktuelle Ergebnisse (v9.15.0):**
 
 - ✅ **~13662 `def test_`-Funktionen** — grün (zzgl. weitere Test-Suites)
 - ✅ **64 Phasen** — Defect-First-Pipeline inkl. §0p Vocal-Supremacy, SSIP, GOAL_BASELINE_CHECK
@@ -239,7 +239,7 @@ print(result.metadata.get("quality_gate_payload", {}))
 
 ### 🎼 Restaurierungs-Pipeline (64 Phasen)
 
-**Pipeline-Reihenfolge (v9.12.10 — kanonisch):**
+**Pipeline-Reihenfolge (v9.15.0 — kanonisch):**
 
 ```text
 TransientDecoupledProcessing → RestorabilityEstimator → EraClassifier
@@ -266,7 +266,7 @@ TransientDecoupledProcessing → RestorabilityEstimator → EraClassifier
 - Phase 48: Stereo-Width · Phase 49: Advanced Dereverb (Blind-RIR)
 - Phase 55: DiffWave/Flow-Matching-Inpainting · + Instrumental- und Vocal-Phasen
 
-**Aktuelle Erweiterungen (v9.12.10):**
+**Aktuelle Erweiterungen (v9.15.0):**
 
 - §2.66 RecordingChainProfiler
 - §2.67 Phase-Koalitions-Evaluation
@@ -522,4 +522,4 @@ Aurik 9 steht unter der **Apache-2.0-Lizenz** — siehe [LICENSE](LICENSE).
 
 ---
 
-Aurik 9.12.10 — Mai 2026
+Aurik 9.15.0 — Mai 2026

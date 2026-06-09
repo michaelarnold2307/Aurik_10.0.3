@@ -198,6 +198,15 @@ class ProgressiveQualityMode:
         audio = np.asarray(audio, dtype=np.float32)
         audio = np.nan_to_num(audio, nan=0.0, posinf=0.0, neginf=0.0)
 
+        if preview_cache is not None:
+            logger.debug(
+                "Stage-2 nutzt Stage-1-Cache: preview_mos=%.2f, defects=%s",
+                float(getattr(preview_cache, "preview_mos", 0.0)),
+                list(getattr(preview_cache, "detected_defects", []) or []),
+            )
+            if progress_callback:
+                progress_callback(5.0, "Stage-1-Cache übernommen", 60.0)
+
         if restoration_fn is not None:
             try:
                 if progress_callback:

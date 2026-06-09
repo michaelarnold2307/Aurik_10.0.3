@@ -3112,19 +3112,27 @@ def _normalize_defect_scores(defect_scores: dict[str, float]) -> dict[str, float
             fv = float(np.clip(fv, 0.0, 1.0))
         norm[k] = fv
 
-    # Bidirectional aliases for legacy/new score names.
-    aliases = {
-        "clicks": "click_severity",
-        "dropouts": "dropout_severity",
-        "clipping": "clip_severity",
-        "wow": "wow_severity",
-        "flutter": "flutter_severity",
-    }
-    for new_key, legacy_key in aliases.items():
-        if new_key in norm and legacy_key not in norm:
-            norm[legacy_key] = norm[new_key]
-        if legacy_key in norm and new_key not in norm:
-            norm[new_key] = norm[legacy_key]
+    # Bidirectionale Alias-Gruppen (Spec-/Code-Drift-Resilienz):
+    # Scanner-Keys, Legacy-Keys und CAUSE-Namen werden auf denselben
+    # Evidenzstand harmonisiert, damit Erkennung und Behebung konsistent bleiben.
+    alias_groups = [
+        ("clicks", "click_severity"),
+        ("dropouts", "dropout_severity", "tape_dropout"),
+        ("clipping", "clip_severity", "digital_clip"),
+        ("wow", "wow_severity"),
+        ("flutter", "flutter_severity"),
+        ("tape_hiss", "high_freq_noise"),
+        ("electrical_hum", "hum"),
+        ("nr_breathing_artifact", "nr_breathing"),
+        ("azimuth_error", "head_misalignment", "cassette_azimuth_tolerance"),
+    ]
+    for group in alias_groups:
+        _vals = [float(norm[k]) for k in group if k in norm]
+        if not _vals:
+            continue
+        _merged = float(np.clip(max(_vals), 0.0, 1.0))
+        for k in group:
+            norm[k] = _merged
 
     # Derive combined wow/flutter if only components are present.
     if "wow_flutter" not in norm and ("wow" in norm or "flutter" in norm):
@@ -3237,7 +3245,40 @@ class CausalDefectReasoner:
         # Sortierung absteigend
         ranked = sorted(posteriors.items(), key=lambda kv: kv[1], reverse=True)
         primary_cause = ranked[0][0]
-        confidence = ranked[0][1]
+        # Kalibrierte Kausal-Konfidenz statt rohem Max-Posterior:
+        # Berücksichtigt Trennschärfe (Top-2-Margin), Entropie und Defekt-Evidenz,
+        # damit robuste Mehrfach-Evidenz nicht als "niedrige Konfidenz" kollabiert.
+        _top1 = float(ranked[0][1])
+        _top2 = float(ranked[1][1]) if len(ranked) > 1 else 0.0
+        _margin = max(0.0, _top1 - _top2)
+        _probs = np.asarray([float(v) for _, v in ranked], dtype=np.float64)
+        _probs = np.clip(_probs, 1e-12, 1.0)
+        _norm = float(np.sum(_probs))
+        if _norm > 0.0:
+            _probs /= _norm
+        _entropy = float(-np.sum(_probs * np.log(_probs)))
+        _entropy_norm = _entropy / max(math.log(float(len(_probs))), 1e-9)
+        _entropy_conf = float(np.clip(1.0 - _entropy_norm, 0.0, 1.0))
+
+        _sev_vals = [float(v) for v in defect_scores.values() if isinstance(v, (int, float)) and np.isfinite(v)]
+        if _sev_vals:
+            _sev_vals_sorted = sorted(_sev_vals, reverse=True)
+            _top3_mean = float(np.mean(_sev_vals_sorted[:3]))
+            _evidence_conf = float(np.clip(0.55 * _sev_vals_sorted[0] + 0.45 * _top3_mean, 0.0, 1.0))
+        else:
+            _evidence_conf = 0.5
+
+        _top_conf = float(np.clip(_top1 / 0.25, 0.0, 1.0))
+        _margin_conf = float(np.clip(_margin / 0.18, 0.0, 1.0))
+        confidence = float(
+            np.clip(
+                0.42 * _top_conf + 0.20 * _margin_conf + 0.18 * _entropy_conf + 0.20 * _evidence_conf,
+                0.0,
+                1.0,
+            )
+        )
+        if _top1 < 0.08 and _evidence_conf < 0.35:
+            confidence = min(confidence, 0.45)
 
         # Fusions-Plan: Phasen der Top-3 Ursachen zusammenführen
         seen_phases: set = set()

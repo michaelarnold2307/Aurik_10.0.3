@@ -61,6 +61,15 @@ class RestorationMemory:
         self._data: dict[str, Any] = {}
         self._dirty: bool = False
         self._internal_lock = threading.Lock()
+        self._stats: dict[str, int] = {
+            "prior_requests": 0,
+            "prior_hits": 0,
+            "prior_misses": 0,
+            "save_attempts": 0,
+            "save_success": 0,
+            "save_rejected_hpi": 0,
+            "save_rejected_not_better": 0,
+        }
         self._load()
 
     # ------------------------------------------------------------------
@@ -75,15 +84,25 @@ class RestorationMemory:
         """
         key_str = _make_key_str(key)
         with self._internal_lock:
+            self._stats["prior_requests"] += 1
             entry = self._data.get(key_str)
         if entry is None:
+            with self._internal_lock:
+                self._stats["prior_misses"] += 1
             return None
+        with self._internal_lock:
+            self._stats["prior_hits"] += 1
         # Zugriffszeit für LRU aktualisieren (in-memory only, kein sofortiger Schreibvorgang)
         entry["_last_access"] = time.time()
         return {
             "phase_params": entry.get("phase_params", {}),
             "hpi_achieved": float(entry.get("hpi_achieved", 0.0)),
         }
+
+    def get_stats(self) -> dict[str, int]:
+        """Liefert Laufzeit-Telemetrie zur Prior-Wirksamkeit (§2.70, non-blocking)."""
+        with self._internal_lock:
+            return dict(self._stats)
 
     def save_result(
         self,
@@ -100,7 +119,12 @@ class RestorationMemory:
             phase_params:  Phasen-Parameter-Dict aus GPOptimizer-Ergebnis.
             hpi_achieved:  HPI-Score dieses Laufs.
         """
+        with self._internal_lock:
+            self._stats["save_attempts"] += 1
+
         if hpi_achieved <= 0.0:
+            with self._internal_lock:
+                self._stats["save_rejected_hpi"] += 1
             logger.debug("RestorationMemory: HPI <= 0 → nicht gespeichert (key=%s)", key)
             return
 
@@ -116,6 +140,7 @@ class RestorationMemory:
             existing = self._data.get(key_str)
             # Nur überschreiben wenn neuer Score besser als gespeicherter
             if existing is not None and float(existing.get("hpi_achieved", 0.0)) >= hpi_achieved:
+                self._stats["save_rejected_not_better"] += 1
                 logger.debug(
                     "RestorationMemory: Vorhandener Prior HPI=%.3f >= %.3f → nicht überschrieben",
                     existing.get("hpi_achieved", 0.0),
@@ -124,6 +149,7 @@ class RestorationMemory:
                 return
             self._data[key_str] = entry
             self._dirty = True
+            self._stats["save_success"] += 1
 
         self._persist()
 

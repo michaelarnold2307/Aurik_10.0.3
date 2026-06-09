@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import csv
 import sys
+import time
 from pathlib import Path
 from typing import Any
 
@@ -42,8 +43,13 @@ def _read_csv(path: Path) -> list[dict[str, str]]:
 def _write_csv(path: Path, rows: list[dict[str, str]]) -> None:
     if not rows:
         return
+    fieldnames: list[str] = []
+    for row in rows:
+        for key in row.keys():
+            if key not in fieldnames:
+                fieldnames.append(key)
     with path.open("w", encoding="utf-8", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=list(rows[0].keys()))
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()
         writer.writerows(rows)
 
@@ -63,7 +69,20 @@ def _safe_result_metric(metadata: dict[str, Any], *keys: str) -> float | None:
         value = metadata.get(key)
         if isinstance(value, (float, int)):
             return float(value)
+        if isinstance(value, dict):
+            score = value.get("score")
+            if isinstance(score, (float, int)):
+                return float(score)
     return None
+
+
+def _nested_get(obj: Any, *path: str) -> Any:
+    cur = obj
+    for key in path:
+        if not isinstance(cur, dict):
+            return None
+        cur = cur.get(key)
+    return cur
 
 
 def _prepare_audio(audio: np.ndarray, sr: int) -> tuple[np.ndarray, int]:
@@ -123,12 +142,14 @@ def _execute_wp1_case(
             audio = audio[:max_n]
 
     restorer = UnifiedRestorerV3()
+    t0 = time.perf_counter()
     result = restorer.restore(
         audio.T,
         sample_rate=sr,
         mode="restoration",
         ml_runtime_budget_s=float(max(1.0, ml_runtime_budget_s)),
     )
+    elapsed_s = max(0.0, time.perf_counter() - t0)
 
     restored = np.asarray(result.audio, dtype=np.float32)
     if restored.ndim == 2 and restored.shape[0] in (1, 2) and restored.shape[1] > restored.shape[0]:
@@ -150,6 +171,27 @@ def _execute_wp1_case(
 
     metadata = getattr(result, "metadata", {}) or {}
 
+    _era_conf = _nested_get(metadata, "era", "confidence")
+    if isinstance(_era_conf, (float, int)):
+        out["era_confidence"] = f"{float(_era_conf):.6f}"
+
+    _genre_conf = _nested_get(metadata, "genre", "confidence")
+    if isinstance(_genre_conf, (float, int)):
+        out["genre_confidence"] = f"{float(_genre_conf):.6f}"
+
+    _pipeline_conf = _nested_get(metadata, "pipeline_confidence", "confidence")
+    if isinstance(_pipeline_conf, (float, int)):
+        out["pipeline_confidence"] = f"{float(_pipeline_conf):.6f}"
+
+    _material_conf = (
+        _nested_get(metadata, "song_calibration", "material_confidence")
+        or _nested_get(metadata, "song_calibration", "context", "material_confidence")
+        or _nested_get(metadata, "defect_scan_metadata", "material_confidence")
+        or metadata.get("material_confidence")
+    )
+    if isinstance(_material_conf, (float, int)):
+        out["material_confidence"] = f"{float(_material_conf):.6f}"
+
     out["artifact_freedom"] = str(_safe_result_metric(metadata, "artifact_freedom") or "")
     out["hpi"] = str(
         _safe_result_metric(
@@ -163,6 +205,58 @@ def _execute_wp1_case(
     out["vqi"] = f"{vqi:.6f}"
     out["mert_similarity"] = str(_safe_result_metric(metadata, "mert_similarity") or "")
     out["timbral_fidelity"] = str(_safe_result_metric(metadata, "timbral_fidelity") or "")
+    out["elapsed_s"] = f"{elapsed_s:.6f}"
+
+    defect_analysis = metadata.get("defect_analysis")
+    if isinstance(defect_analysis, dict):
+        top_defects = defect_analysis.get("top_defects")
+        post_top_defects = defect_analysis.get("post_restoration_top_defects")
+        causal_plan = defect_analysis.get("causal_plan")
+
+        if isinstance(top_defects, list):
+            out["top_defects_count"] = str(len(top_defects))
+        if isinstance(post_top_defects, list):
+            out["post_top_defects_count"] = str(len(post_top_defects))
+        if isinstance(causal_plan, dict):
+            conf = causal_plan.get("confidence")
+            if isinstance(conf, (float, int)):
+                out["causal_confidence"] = f"{float(conf):.6f}"
+
+    artifact_v2 = metadata.get("artifact_detection_v2")
+    if isinstance(artifact_v2, dict):
+        total_count = artifact_v2.get("total_count")
+        audible_count = artifact_v2.get("audible_count")
+        passes = artifact_v2.get("passes_aurik_standards")
+        if isinstance(total_count, int):
+            out["artifact_total_count"] = str(total_count)
+        if isinstance(audible_count, int):
+            out["artifact_audible_count"] = str(audible_count)
+        if isinstance(total_count, int) and total_count > 0 and isinstance(audible_count, int):
+            ratio = max(0.0, min(1.0, float(audible_count) / float(total_count)))
+            out["artifact_audible_ratio"] = f"{ratio:.6f}"
+        if isinstance(passes, bool):
+            out["artifact_passes_aurik_standards"] = "true" if passes else "false"
+
+    dqr = metadata.get("defect_quality_report")
+    if isinstance(dqr, dict):
+        repaired = dqr.get("defects_repaired")
+        mean_conf = dqr.get("mean_confidence")
+        if isinstance(repaired, int):
+            out["defects_repaired"] = str(repaired)
+        if isinstance(mean_conf, (float, int)):
+            out["defect_mean_confidence"] = f"{float(mean_conf):.6f}"
+
+    wcg = metadata.get("worldclass_composite_gate")
+    if isinstance(wcg, dict):
+        wcs_val = wcg.get("wcs")
+        wcs_thr = wcg.get("threshold")
+        wcs_passed = wcg.get("passed")
+        if isinstance(wcs_val, (int, float)):
+            out["wcs"] = f"{float(wcs_val):.6f}"
+        if isinstance(wcs_thr, (int, float)):
+            out["wcs_threshold"] = f"{float(wcs_thr):.6f}"
+        if isinstance(wcs_passed, bool):
+            out["wcs_passed"] = "true" if wcs_passed else "false"
 
     out["status"] = "recovered" if vqi >= effective_floor else "degraded"
     out["fail_reason"] = "vqi_below_effective_floor" if vqi < effective_floor else ""

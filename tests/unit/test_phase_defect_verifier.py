@@ -84,6 +84,13 @@ def _add_dropouts(audio: np.ndarray, n: int = 10, gap_ms: float = 5.0) -> np.nda
     return out
 
 
+def _add_slow_amplitude_modulation(audio: np.ndarray, rate_hz: float = 6.0, depth: float = 0.7) -> np.ndarray:
+    """Fügt hörbare Pegelmodulation hinzu (pumpender Eindruck)."""
+    t = np.linspace(0, len(audio) / SR, len(audio), endpoint=False, dtype=np.float32)
+    env = 1.0 + depth * np.sin(2.0 * np.pi * rate_hz * t)
+    return np.asarray(np.clip(audio * env, -1.0, 1.0), dtype=np.float32)
+
+
 # ---------------------------------------------------------------------------
 # 00 — Import and singleton
 # ---------------------------------------------------------------------------
@@ -229,6 +236,27 @@ def test_22c_psycho_quasi_peak_burstiness_clicks_vs_clean():
     assert 0.0 <= b_clean <= 1.0
     assert 0.0 <= b_clicked <= 1.0
     assert b_clicked >= b_clean
+
+
+def test_22f_psycho_modulation_roughness_modulated_vs_clean():
+    from backend.core.phase_defect_verifier import _compute_modulation_roughness
+
+    clean = _sine()
+    modulated = _add_slow_amplitude_modulation(clean, rate_hz=7.0, depth=0.8)
+    m_clean = _compute_modulation_roughness(clean, SR)
+    m_mod = _compute_modulation_roughness(modulated, SR)
+
+    assert 0.0 <= m_clean <= 1.0
+    assert 0.0 <= m_mod <= 1.0
+    assert m_mod >= m_clean
+
+
+def test_22g_psycho_modulation_roughness_short_audio_safe():
+    from backend.core.phase_defect_verifier import _compute_modulation_roughness
+
+    short = np.zeros(32, dtype=np.float32)
+    m = _compute_modulation_roughness(short, SR)
+    assert 0.0 <= m <= 1.0
 
 
 def test_22d_frequency_selective_blend_hum_keeps_low_band_closer_to_before():

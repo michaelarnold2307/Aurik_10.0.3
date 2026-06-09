@@ -7,11 +7,126 @@
 >
 > Historische Versions- und Metrikangaben in dieser Datei sind bewusst als Zeitstände erhalten.
 >
-> Stand: Mai 2026 — Aurik 9.12.8
+> Stand: Juni 2026 — Aurik 9.15.7
 
 ---
 
+## v9.15.7 (4. Juni 2026) — InnovationSuperiorityOrchestrator (Disziplin-Parallelisierung)
+
+- **Neues Kernmodul**: `backend/core/innovation_superiority_orchestrator.py` fuehrt
+  einen disziplinuebergreifenden Runtime-Orchestrator ein (Defektintelligenz,
+  Vokalintegritaet, timbrale Wahrhaftigkeit, zeitliche Praezision,
+  raeumliche Kohaerenz, Zielkonvergenz).
+- **UV3-Closed-Loop Integration**: Der Orchestrator laeuft parallel zum
+  `MetricReliabilityGraph` im §2.78-Pfad und erzeugt pro Phase
+  `priority_goals`, `recovery_phase_hints`, `goal_confidence_uplift`,
+  `discipline_scores`, `innovation_intensity`.
+- **Safety-Design**: Rein advisory, keine Gate-Ueberschreibung, gebundene
+  Confidence-Uplifts (`<= 0.05`) bei weiterhin unveraenderten Bounds
+  (`[0.20, 0.98]`) fuer die finalen Goal-Konfidenzen.
+- **Tests**: Neue Unit-Suite
+  `tests/unit/test_innovation_superiority_orchestrator.py`; UV3- und
+  Reliability-Slices weiterhin gruen.
+
+## v9.15.3 (4. Juni 2026) — PMGG Telemetry-Alignment + Coalition-Aware Rescheduler
+
+- **PMGG-Rekonstruktions-Telemetrie normiert**: Die Spezifikation dokumentiert jetzt
+  `pmgg_reconstruction_threshold_multiplier` und die zugehörigen Begleitfelder als
+  kanonische Metadaten für lokal gestützte Rekonstruktionsentscheidungen.
+- **Rekonstruktive Entscheidungen bleiben lokal gestützt**: `passed_reconstruction_localized`
+  ist als kontextgewichtete Entscheidung beschrieben; der Threshold-Multiplikator ist Teil
+  der Telemetrie und kein freistehender UI-Proxy.
+- **AdaptivePhaseRescheduler koalitionssensitiv**: §2.78 priorisiert jetzt nicht nur Gap,
+  Confidence, Chain und Material, sondern auch Recovery-Phasen, die mehrere offene Goals
+  gemeinsam bedienen können.
+- **Pipeline-Regelwerk nachgezogen**: Die UV3-/§2.78-Instruktion beschreibt nun den
+  Koalitionsbonus ausdrücklich als Reihenfolge-Hint bei unverändert harten Minimal-
+  Intervention-/Session-Guards.
+- **Tests**: Rescheduler-Unit-Suite und PMGG-Rekonstruktionssuiten decken die neuen
+  Metadaten- und Priorisierungsregeln ab.
+
+## v9.15.4 (4. Juni 2026) — Coalition-Aware RestorationMemory Feedback Loop
+
+- **UV3 prior propagation**: Geladene RestorationMemory-Priors werden zusätzlich in
+  `_restoration_context["restoration_memory_prior"]` gespiegelt, damit Downstream-Module und
+  Telemetrie denselben Prior-Kontext nutzen.
+- **Coalition-aware prior learning**: Erfolgreiche Runs persistieren nun Koalitions-Lernsignale
+  (`_coalition_learning_factor`, `_dominant_phase_coalition_ratio`, `_phase_coalition_count`)
+  als advisory Metadaten in `phase_params`.
+- **GPOptimizer context blend**: `_apply_context_priors(...)` nutzt den
+  `_coalition_learning_factor` als kleinen Zusatzhebel für das Prior-Weighting (begrenzt,
+  hard-gate-safe, ohne Überschreibung normativer Gates).
+- **Tests**: `tests/unit/test_gp_parameter_optimizer.py` enthält den neuen Regressionstest
+  `test_85_coalition_learning_factor_increases_memory_blend`; UV3- und GP-Slices grün.
+
+## v9.15.5 (4. Juni 2026) — Runtime-Metric-Reliability Graph im Closed Loop
+
+- **Neues Kernmodul**: `backend/core/metric_reliability_graph.py` führt einen
+  kontextsensitiven Reliability-Graph für Goal-Proxys ein (Modus/Material/Era/TCCI-Bucket,
+  EWMA-Update, lokale atomare Persistenz unter `~/.aurik/metric_reliability_graph.json`).
+- **UV3-Integration**: Vor jedem §2.78-Rescheduler-Aufruf werden aktuelle
+  Phase-Deltas + PMGG-Metadaten in den Graph geschrieben; die resultierende
+  Runtime-Reliability wird mit der bestehenden Goal-Confidence-Map geblendet
+  (`0.60 base + 0.40 runtime`).
+- **Zielwirkung**: Proxy-Verlässlichkeit wird jetzt pro Lauf und Kontext
+  nachkalibriert, wodurch Grenzfall-Entscheidungen stabiler und weniger
+  over-/under-conservative werden, ohne harte Gates zu überschreiben.
+- **Tests**: Neue Unit-Suite `tests/unit/test_metric_reliability_graph.py`.
+
+## v9.15.6 (4. Juni 2026) — Adaptive Cross-Run Blend Weights
+
+- **Gatekeeper-Ausbaustufe**: Runtime-Reliability wird nicht mehr mit fixen Gewichten
+  gemischt. `MetricReliabilityGraph.get_blend_weights(...)` liefert jetzt
+  evidenzadaptive Gewichte (`base`, `runtime`) pro Kontext.
+- **UV3-Integration**: §2.78 nutzt die adaptiven Gewichte direkt beim
+  Goal-Confidence-Blending vor dem Rescheduler-Entscheid.
+- **Safety-Bounds**: Blend-Gewichte bleiben normiert und gebunden
+  (`base ∈ [0.40, 0.75]`, `runtime ∈ [0.25, 0.60]`), advisory-only.
+- **Tests**: `tests/unit/test_metric_reliability_graph.py` enthält zusätzliche
+  Validierung für die support-abhängige Gewichtsverschiebung.
+
+## v9.15.2 (4. Juni 2026) — PMGG Localized-Counterfactual Confidence Gate
+
+- **PMGG localized reconstruction confidence**: `backend/core/per_phase_musical_goals_gate.py`
+  ergänzt `_assess_reconstruction_localized_confidence(...)` für rekonstruktive
+  Phasen (`phase_24`, `phase_55`).
+- **Counterfactual-Freigaben jetzt kontextgewichtet**:
+  `passed_reconstruction_localized` erfordert nicht mehr nur
+  `control_regression <= threshold`, sondern zusätzlich ausreichende
+  Entscheidungskonfidenz aus Zielabdeckung, Kontrollfenster-Leckage und
+  Threshold-Sicherheitsmarge.
+- **Scope-Erweiterung**: Counterfactual-Logik gilt jetzt konsistent für
+  rekonstruktive Prefixe `phase_23`, `phase_24`, `phase_50`, `phase_55`
+  (inkl. `SPECTRAL_HOLES`-/`DROPOUTS`-Key-Mapping).
+- **Neue PMGG-Telemetrie** in `PhaseGateLogEntry.metadata`:
+  `pmgg_reconstruction_localized`, `pmgg_reconstruction_confidence`,
+  `pmgg_reconstruction_reason`, `pmgg_reconstruction_target_coverage`,
+  `pmgg_reconstruction_control_coverage`, `pmgg_reconstruction_control_regression`.
+- **Unsicherheitsgründe explizit**: Bei fehlendem Counterfactual-Fenster oder
+  aktivem Content-Integrity-Guard werden die Gründe
+  `counterfactual_window_unavailable` bzw. `content_integrity_guard_active`
+  in der PMGG-Metadatenebene dokumentiert.
+- **Tests**: neue Unit-Suite
+  `tests/unit/test_pmgg_reconstruction_confidence.py` (Konfidenz-Logik +
+  Metadatenpropagation).
+
 ## v9.12.8 (14. Mai 2026) — §0p Vocal-Supremacy-Invarianten vollständig implementiert
+
+## v9.12.10 (4. Juni 2026) — PMGG Reconstruction-Collateral-Guard + Phase-01 Stereo-Lokalität
+
+- **PMGG rekonstruktive Kollateralprüfung**: `backend/core/per_phase_musical_goals_gate.py` bewertet
+  `phase_24_dropout_repair` und `phase_55_diffusion_inpainting` nicht mehr ausschließlich im defektzentrierten
+  Stichprobenfenster. Ein zusätzliches defektfernes Kontrollfenster erlaubt `passed_reconstruction_localized`,
+  wenn außerhalb der Rekonstruktionszone keine Regression vorliegt und der Content-Integrity-Guard sauber bleibt.
+- **Phase 55 Per-Gap-Orakel**: `backend/core/phases/phase_55_diffusion_inpainting.py` nutzt nun ein echtes
+  lokales Strength-Orakel pro Gap (250-ms-Kontext, Gap-Schwere, Gap-Dauer, VFA-Schutzzonen) statt rein globalem
+  `safe_strength`-Blend.
+- **Phase 01 Linked-Stereo Sparse Patch Transfer**: `backend/core/phases/phase_01_click_removal.py` ersetzt den
+  globalen Mono-Gain-Transfer durch mono-gekoppelte Ereignisdetektion und kanalweise lokale Patch-Reparatur.
+  Saubere Gegenkanäle bleiben außerhalb echter Click-Evidenz unverändert; starke Einzelereignisse nutzen einen
+  lokalen DeepFilterNet-Patchpfad mit kurzem Crossfade.
+- **Testabdeckung**: neue PMGG-/Phase-55-Unit-Tests plus Phase-01-Stereo-Regressionstest; fokussierte und schmale
+  Integrationsblöcke grün.
 
 - **§0p Vibrato-Schutz**: `VFAResult.vibrato_zones` + `VocalFocusAnalyzer._detect_vibrato()` (via
   `natural_performance_detector`); UV3 propagiert `vibrato_zones` als Phase-kwarg + cappt Strength

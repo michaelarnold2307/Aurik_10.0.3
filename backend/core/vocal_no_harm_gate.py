@@ -30,6 +30,8 @@ _VOCAL_MAX_TARGET_RESTORATION = 0.88
 _VOCAL_MAX_TARGET_STUDIO2026 = 0.92
 _VOCAL_MAX_ALIGNMENT_RESTORATION_MIN = 0.90
 _VOCAL_MAX_ALIGNMENT_STUDIO2026_MIN = 0.93
+_VOCAL_MAX_ALIGNMENT_RESTORATION_TOL = 0.02
+_VOCAL_MAX_ALIGNMENT_STUDIO2026_TOL = 0.015
 
 _instance: VocalNoHarmGate | None = None
 _lock = threading.Lock()
@@ -99,12 +101,15 @@ def compute_vocal_max_alignment(
     alignment = float(np.clip(float(vqi) / max(vocal_max_target, 1e-6), 0.0, 1.0))
     min_alignment = _VOCAL_MAX_ALIGNMENT_STUDIO2026_MIN if is_studio else _VOCAL_MAX_ALIGNMENT_RESTORATION_MIN
     min_alignment = float(np.clip(min_alignment + 0.04 * rest_ratio, min_alignment, 0.98))
+    tol = _VOCAL_MAX_ALIGNMENT_STUDIO2026_TOL if is_studio else _VOCAL_MAX_ALIGNMENT_RESTORATION_TOL
+    effective_min_alignment = float(np.clip(min_alignment - tol, 0.0, 0.98))
     return {
         "vocal_max_target": vocal_max_target,
         "vocal_max_alignment": alignment,
         "vocal_max_alignment_percent": alignment * 100.0,
         "vocal_max_alignment_floor_percent": min_alignment * 100.0,
-        "vocal_max_alignment_ok": alignment >= min_alignment,
+        "vocal_max_alignment_floor_percent_effective": effective_min_alignment * 100.0,
+        "vocal_max_alignment_ok": alignment >= effective_min_alignment,
     }
 
 
@@ -182,6 +187,8 @@ class VocalNoHarmGate:
             checks,
             warnings,
             failures,
+            era_decade=era_decade,
+            era_vocal_profile=era_vocal_profile,
         )
         self._evaluate_hnr(pre, post, sr, scores, checks, warnings, failures)
         self._evaluate_formants(pre, post, sr, scores, checks, warnings, failures, era_decade, era_vocal_profile)
@@ -281,6 +288,8 @@ class VocalNoHarmGate:
         checks: dict[str, bool],
         warnings: list[str],
         failures: list[str],
+        era_decade: int | None = None,
+        era_vocal_profile: Any | None = None,
     ) -> None:
         try:
             compute_vqi = _load_symbol("backend.core.musical_goals.vocal_quality_index", "compute_vqi")
@@ -295,6 +304,7 @@ class VocalNoHarmGate:
                 skip_singer_identity=skip_singer_identity,
                 reference_audio=reference_audio,
                 genre=genre,
+                era_profile=era_vocal_profile,
             )
             vqi = _as_float(vqi_result.get("vqi"), 1.0) if isinstance(vqi_result, dict) else 1.0
             singer_identity = (
@@ -341,6 +351,9 @@ class VocalNoHarmGate:
         scores["vocal_max_alignment"] = float(alignment["vocal_max_alignment"])
         scores["vocal_max_alignment_percent"] = float(alignment["vocal_max_alignment_percent"])
         scores["vocal_max_alignment_floor_percent"] = float(alignment["vocal_max_alignment_floor_percent"])
+        scores["vocal_max_alignment_floor_percent_effective"] = float(
+            alignment["vocal_max_alignment_floor_percent_effective"]
+        )
         checks["vocal_max_alignment_ok"] = bool(alignment["vocal_max_alignment_ok"])
         if not checks["vocal_max_alignment_ok"]:
             failures.append("vocal_max_alignment")

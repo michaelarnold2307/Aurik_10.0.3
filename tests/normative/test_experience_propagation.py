@@ -284,6 +284,22 @@ class TestBridgeExperienceInsights:
         assert "musiclover" in payload
         assert payload["musiclover"]["musical_goals"]["remaining_count"] == 0
 
+    def test_build_export_quality_gate_payload_mirrors_payload_into_result_metadata(self):
+        """Bridge must persist the final export gate payload on the result object."""
+        from backend.api.bridge import build_export_quality_gate_payload
+
+        class MockResult:
+            quality_estimate = 0.8
+            metadata = {
+                "degradation_status": "ok",
+            }
+
+        result = MockResult()
+        payload = build_export_quality_gate_payload(result)
+        assert result.metadata["quality_gate_payload"] is payload
+        assert result.metadata["export_quality_gate_payload"] is payload
+        assert result.metadata["degradation_status"] == "ok"
+
     def test_build_export_quality_gate_payload_carries_profile_details(self):
         """Export payload muss adaptives Gate-Profil für Reports bereitstellen."""
         from backend.api.bridge import build_export_quality_gate_payload

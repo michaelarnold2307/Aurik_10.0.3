@@ -44,6 +44,14 @@ This protocol guides PR reviewers through **hearing-test results evaluation** fo
 - [ ] Open-ended comments/artifacts reported: Any listener mentions "artifact," "unnatural," "synthetic" recorded verbatim
 - [ ] **Rejection Criteria**: Incomplete data (e.g., MOS missing for scenario) → Request remediation
 
+### D. Required External Evidence Pack (Head-to-Head)
+
+- [ ] Externes Blindtest-Artefakt vorhanden (MUSHRA/ABX), zugeordnet zu aktuellem Commit/PR
+- [ ] Head-to-Head gegen mindestens eine externe Referenz dokumentiert
+- [ ] Statistik vorhanden: Signifikanztest, Effektstaerke, 95 %-Konfidenzintervall
+- [ ] Pre-Registration/Analyseplan verlinkt (z. B. Studienordner unter docs/reports/studies/)
+- [ ] **Rejection Criteria**: Fehlendes Evidence-Pack bei kernaendernden Audio-PRs → NO-GO
+
 ---
 
 ## III. Restoration Mode Decision Flow
@@ -414,6 +422,12 @@ After completing both decision flows:
 - [GO | NO-GO | Conditional GO]
 - Blocking issue(s) if NO-GO: [List]
 - Conditional approval terms if Conditional GO: [List]
+
+### Required Evidence Pack
+- Blindtest-Artefakt: [Pfad]
+- Head-to-Head Referenz: [Tool/System]
+- Statistik: [p-Wert, Effektstaerke, 95 %-CI]
+- Commit/PR-Zuordnung: [SHA/PR]
 
 ### Listener Consensus (Highlights)
 - Restoration Mode: [Natürlichkeit ≥ 3.5/5: ✓; Artifact veto: ✓]

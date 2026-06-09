@@ -26,6 +26,7 @@ import logging
 import math
 import threading
 from pathlib import Path
+from typing import Any, cast
 
 import numpy as np
 
@@ -424,7 +425,7 @@ class PANNsPlugin:
         try:
             from backend.file_import import load_audio_file
 
-            _res = load_audio_file(str(input_wav), do_carrier_analysis=False)
+            _res = cast(dict[str, Any], load_audio_file(str(input_wav), do_carrier_analysis=False))
             audio = np.asarray(_res["audio"], dtype=np.float32)
             sr = int(_res["sr"])
         except Exception as exc:
@@ -457,6 +458,11 @@ def get_panns_plugin() -> PANNsPlugin:
     return _instance
 
 
+def get_loaded_panns_plugin() -> PANNsPlugin | None:
+    """Gibt nur eine bereits geladene PANNs-Instanz zurück, ohne Lazy-Load."""
+    return _instance
+
+
 # ---------------------------------------------------------------------------
 # Convenience-Funktion
 # ---------------------------------------------------------------------------
@@ -486,7 +492,7 @@ if __name__ == "__main__":
 
     from backend.file_import import load_audio_file
 
-    _res = load_audio_file(sys.argv[1])
+    _res = cast(dict[str, Any], load_audio_file(sys.argv[1]))
     _audio, _sr = _res["audio"], int(_res["sr"])
     _tags = classify_audio(_audio, _sr)
     logger.debug("PANNs CNN14 — %s", sys.argv[1])

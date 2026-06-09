@@ -643,7 +643,7 @@ class AdaptiveProcessingPipeline:
         Zeigt transparent welche Plugins/Module verfügbar sind.
         """
         # Version from backend-internal constant — avoids forbidden UI import (§11 VERBOTEN).
-        _aurik_version = "9.12.10"
+        _aurik_version = "9.15.0"
         self.logger.info("\n%s", "═" * 80)
         logger.info("  AURIK %s — SYSTEM-KOMPONENTEN STATUS", _aurik_version)
         self.logger.info("%s\n", "═" * 80)

@@ -30,6 +30,8 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from backend.core.audio_utils import safe_to_mono
+
 logger = logging.getLogger(__name__)
 
 
@@ -539,9 +541,13 @@ class EmotionalArcPreservationMetric:
         assert sr == 48000, f"SR muss 48000 Hz sein, erhalten: {sr}"
 
         def _to_mono(a: np.ndarray) -> np.ndarray:
-            arr = np.asarray(a, dtype=np.float32)
-            arr = np.nan_to_num(arr, nan=0.0, posinf=0.0, neginf=0.0)
-            return np.mean(arr, axis=0) if arr.ndim == 2 else arr
+            # Mono-Reduktion über zentralen safe_to_mono (Konsistenz statt lokalem
+            # mean(axis=0)). Kanonischer Kontrakt dieser Methode ist channels-first
+            # (C, N) — auf diesem Pfad verhaltensneutral; safe_to_mono ist zusätzlich
+            # layout-agnostisch für die RMS-Hüllkurven-Berechnung.
+            arr = np.nan_to_num(np.asarray(a, dtype=np.float32), nan=0.0, posinf=0.0, neginf=0.0)
+            mono = safe_to_mono(arr) if arr.ndim == 2 else arr
+            return np.asarray(mono, dtype=np.float32)
 
         orig_mono = _to_mono(original)
         rest_mono = _to_mono(restored)

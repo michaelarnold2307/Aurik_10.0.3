@@ -69,6 +69,30 @@ class TestRestorationMemoryBasic:
         assert result is not None
         assert result["hpi_achieved"] == pytest.approx(0.88, abs=1e-4)
 
+    def test_stats_track_prior_hits_and_misses(self, mem):
+        key = (1970, "vinyl", "stats0101")
+        mem.save_result(key, {"strength": 0.5}, hpi_achieved=0.81)
+
+        assert mem.get_prior(key) is not None
+        assert mem.get_prior((1970, "vinyl", "stats_missing")) is None
+
+        stats = mem.get_stats()
+        assert stats["prior_requests"] >= 2
+        assert stats["prior_hits"] >= 1
+        assert stats["prior_misses"] >= 1
+
+    def test_stats_track_save_rejections(self, mem):
+        key = (1970, "tape", "stats0202")
+        mem.save_result(key, {"strength": 0.5}, hpi_achieved=0.9)
+        mem.save_result(key, {"strength": 0.2}, hpi_achieved=0.7)  # schlechter als vorhandener Prior
+        mem.save_result((1971, "tape", "stats0303"), {}, hpi_achieved=0.0)
+
+        stats = mem.get_stats()
+        assert stats["save_attempts"] >= 3
+        assert stats["save_success"] >= 1
+        assert stats["save_rejected_not_better"] >= 1
+        assert stats["save_rejected_hpi"] >= 1
+
 
 class TestRestorationMemorySingleton:
     def test_singleton_returns_same_instance(self):

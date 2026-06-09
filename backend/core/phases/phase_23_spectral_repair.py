@@ -610,6 +610,34 @@ class SpectralRepair(PhaseInterface):
         _effective_strength = float(np.clip(_pmgg_strength * phase_locality_factor, 0.0, 1.0))
         repair_strength = float(np.clip(repair_strength * _effective_strength, 0.0, 1.0))
 
+        # §V41 ForwardMaskingGuard: Additive/Inpainting-Phase → Stärke in post-transienten
+        # Masking-Fenstern erhöhen (psychoakustische Maskierung schützt vor hörbaren Artefakten).
+        # Nur bei panns_singing ≥ 0.25 und tatsächlich aktivem Repair.
+        _panns_s_23 = float(kwargs.get("panns_singing", 0.0))
+        if _panns_s_23 >= 0.25 and repair_strength > 0.0:
+            try:
+                from backend.core.dsp.temporal_masking import (
+                    get_forward_masking_guard as _fmg_fn_23,
+                )
+
+                _fmg_23 = _fmg_fn_23()
+                _fmz_23 = _fmg_23.compute_zones(audio, sample_rate)
+                if _fmz_23:
+                    _n_s_23 = audio.shape[-1] if audio.ndim > 1 else len(audio)
+                    _zone_samples_23 = sum(z.end_sample - z.start_sample for z in _fmz_23)
+                    _zone_frac_23 = float(np.clip(_zone_samples_23 / max(1, _n_s_23), 0.0, 1.0))
+                    # Inpainting: konservativer Boost als BW-Erweiterungs-Phasen (max +0.10)
+                    _boost_23 = _zone_frac_23 * 0.10
+                    repair_strength = float(np.clip(repair_strength + _boost_23, 0.0, 1.0))
+                    logger.debug(
+                        "Phase23 §V41 ForwardMasking: zone_frac=%.2f boost=%.3f → repair_str=%.3f",
+                        _zone_frac_23,
+                        _boost_23,
+                        repair_strength,
+                    )
+            except Exception as _fmg_exc_23:
+                logger.debug("Phase23 §V41 ForwardMaskingGuard non-blocking: %s", _fmg_exc_23)
+
         if _effective_strength <= 0.0:
             passthrough = np.nan_to_num(audio.copy(), nan=0.0, posinf=0.0, neginf=0.0)
             passthrough = np.clip(passthrough, -1.0, 1.0)
@@ -1063,6 +1091,60 @@ class SpectralRepair(PhaseInterface):
                         repaired_audio[_npa_mask23] = audio[_npa_mask23]
         except Exception as _npa23_exc:
             logger.debug("§2.46f Phase23 NPA-Guard (non-blocking): %s", _npa23_exc)
+
+        # §V38/§0p VFA-Zonen-Blend-Back — VocalFocusAnalyzer-Zonen aus kwargs:
+        # Vibrato (cap 0.20), Frisson (cap 0.30), Flüster (cap 0.25), Passaggio (cap 0.35).
+        # repair_strength wird in geschützten Zonen effektiv gedeckelt — schützt vor
+        # unbeabsichtigter Veränderung vokal-kritischer Bereiche durch Spektralinpainting.
+        try:
+            _vfa_zones_p23: list[tuple[float, float, float]] = []
+            for _vz in kwargs.get("vibrato_zones") or []:
+                try:
+                    _vfa_zones_p23.append((float(_vz[0]), float(_vz[1]), 0.20))
+                except Exception:
+                    pass
+            for _fz in kwargs.get("frisson_zones") or []:
+                try:
+                    _vfa_zones_p23.append((float(_fz[0]), float(_fz[1]), 0.30))
+                except Exception:
+                    pass
+            for _wz in kwargs.get("whisper_zones") or []:
+                try:
+                    _vfa_zones_p23.append((float(_wz[0]), float(_wz[1]), 0.25))
+                except Exception:
+                    pass
+            for _pz in kwargs.get("passaggio_zones") or []:
+                try:
+                    _vfa_zones_p23.append((float(_pz[0]), float(_pz[1]), 0.35))
+                except Exception:
+                    pass
+            if _vfa_zones_p23:
+                _n_p23 = repaired_audio.shape[0] if repaired_audio.ndim == 1 else repaired_audio.shape[-1]
+                _blend_p23 = np.ones(_n_p23, dtype=np.float32) * float(repair_strength)
+                for _zs, _ze, _cap in _vfa_zones_p23:
+                    _ss_p23 = int(np.clip(round(_zs * sample_rate), 0, _n_p23))
+                    _se_p23 = int(np.clip(round(_ze * sample_rate), 0, _n_p23))
+                    if _se_p23 > _ss_p23:
+                        _blend_p23[_ss_p23:_se_p23] = np.minimum(_blend_p23[_ss_p23:_se_p23], float(_cap))
+                # Nur Zonen mit tatsächlich niedrigerem Cap als repair_strength korrigieren
+                if np.any(_blend_p23 < repair_strength - 1e-4):
+                    _audio_ref_p23 = audio  # Pre-Phase-Input
+                    if repaired_audio.ndim == 2:
+                        _b = _blend_p23[np.newaxis, :] if audio.shape[0] <= 2 else _blend_p23[:, np.newaxis]
+                        repaired_audio = np.clip(_b * repaired_audio + (1.0 - _b) * _audio_ref_p23, -1.0, 1.0).astype(
+                            np.float32
+                        )
+                    else:
+                        repaired_audio = np.clip(
+                            _blend_p23 * repaired_audio + (1.0 - _blend_p23) * _audio_ref_p23, -1.0, 1.0
+                        ).astype(np.float32)
+                    logger.debug(
+                        "phase_23 VFA-Blend-Back: %d Schutzzonen, repair_strength=%.2f",
+                        len(_vfa_zones_p23),
+                        repair_strength,
+                    )
+        except Exception as _vfa23_exc:
+            logger.debug("phase_23 VFA-Blend-Back (non-blocking): %s", _vfa23_exc)
 
         _mode23 = str(kwargs.get("mode", "restoration")).lower()
         _bw_ceiling_applied23 = False

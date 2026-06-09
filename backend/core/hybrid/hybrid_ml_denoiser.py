@@ -46,7 +46,11 @@ from typing import Any, cast
 import numpy as np
 
 from dsp.adaptive_omlsa import AdaptiveOMLSA
-from plugins.resemble_enhance_plugin import ResembleEnhancePlugin, get_resemble_enhance_plugin
+from plugins.resemble_enhance_plugin import (
+    ResembleEnhancePlugin,
+    get_loaded_resemble_enhance_plugin,
+    get_resemble_enhance_plugin,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -116,7 +120,8 @@ class HybridMLDenoiser:
         """Gibt the module-level Resemble Enhance singleton (avoids reloading 722 MB per batch file) zurück."""
         if self._resemble is None:
             try:
-                self._resemble = get_resemble_enhance_plugin()
+                loaded = get_loaded_resemble_enhance_plugin()
+                self._resemble = loaded if loaded is not None else get_resemble_enhance_plugin()
                 logger.info("Resemble Enhance plugin loaded successfully")
             except Exception as e:
                 logger.warning("Failed to load Resemble Enhance: %s", e)

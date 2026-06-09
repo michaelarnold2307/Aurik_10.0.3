@@ -220,11 +220,12 @@ def test_spatial_depth_metric_uses_spatial_depth_score_as_primary_proxy(monkeypa
     monkeypatch.setattr("backend.core.dsp.stereo_guard.compute_iacc", _fake_compute_iacc)
 
     # Identische L/R Kanäle: width_score=0, depth_score=0, center_score≈1.0
-    # => score = 0.40*iacc_score + 0.15. Bei iacc_score=0.05 ergibt das ≈ 0.17.
+    # Neue Gewichtung §V44: score = 0.55*iacc_score + 0.10*center_score.
+    # Bei iacc_score=0.05 (IACC=0.95): 0.55*0.05 + 0.10*1.0 ≈ 0.1275.
     mono = np.random.default_rng(123).standard_normal(SR).astype(np.float32)
     stereo = np.stack([mono, mono], axis=1)  # [N, 2]
 
     score = SpatialDepthMetric().measure(stereo, SR)
 
     assert calls["count"] >= 1
-    assert score == pytest.approx(0.17, abs=0.03)
+    assert score == pytest.approx(0.1275, abs=0.03)

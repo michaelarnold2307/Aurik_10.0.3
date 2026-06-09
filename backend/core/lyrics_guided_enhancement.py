@@ -917,41 +917,41 @@ class LyricsGuidedEnhancement:
         _assert_no_lyrics_in_log(transcription.words)
         saliency = self._build_sample_saliency(transcription, n_samples, sr)
 
-        # §LSM-1 Sentiment-Modulation: Emotionaler Kontext des Texts
-        # beeinflusst die Saliency-Kurve sanft.
-        # Traurige/intime Passagen → gedämpftere Dynamik-Bearbeitung (scale < 1.0)
-        # Triumphierende Passagen → stärkere Dynamik (scale > 1.0)
-        # Non-blocking: Exception → Saliency bleibt unverändert.
-        try:
-            from backend.core.lyrics_sentiment_analyzer import get_lyrics_sentiment_analyzer
+        # §LSM-1 Sentiment-Modulation: emotionaler Kontext des Texts beeinflusst
+        # die Saliency-Kurve sanft. Bei Fallback/leerem Transkript wird der
+        # Zusatzschritt vollständig übersprungen, weil er dann keinen Output-Effekt
+        # haben kann.
+        if not transcription.fallback_used and transcription.words:
+            try:
+                from backend.core.lyrics_sentiment_analyzer import get_lyrics_sentiment_analyzer
 
-            _sentiment = get_lyrics_sentiment_analyzer().analyze(transcription, dur)
-            if _sentiment.model_used != "neutral_fallback" and len(_sentiment.segments) > 1:
-                # Sentiment-Modulations-Array erstellen (sample-genau)
-                _sent_mod = np.ones(n_samples, dtype=np.float32)
-                for _seg in _sentiment.segments:
-                    _s_idx = int(np.clip(_seg.start_s * sr, 0, n_samples))
-                    _e_idx = int(np.clip(_seg.end_s * sr, 0, n_samples))
-                    _dscale = float(np.clip(_seg.dsp_params.get("dynamics_scale", 1.0), 0.60, 1.25))
-                    _sent_mod[_s_idx:_e_idx] = _dscale
-                # Sanfte Überblendung zwischen Segmenten (250ms Crossfade)
-                _xfade_samples = int(0.250 * sr)
-                if _xfade_samples > 2:
-                    _kernel = np.hanning(_xfade_samples * 2 + 1)
-                    _kernel /= _kernel.sum() + 1e-12
-                    _sent_mod = np.convolve(_sent_mod, _kernel, mode="same").astype(np.float32)
-                # Modulation mit 30 % Stärke auf Saliency anwenden
-                _sent_strength = 0.30
-                saliency = saliency * (1.0 + _sent_strength * (_sent_mod - 1.0))
-                saliency = np.clip(saliency, 0.70, 1.30)
-                logger.info(
-                    "§LSM-1: Sentiment-Modulation aktiv: dominant=%s V=%.2f A=%.2f",
-                    _sentiment.dominant_emotion,
-                    _sentiment.valence_mean,
-                    _sentiment.arousal_mean,
-                )
-        except Exception as _lsm_exc:
-            logger.debug("§LSM-1 Sentiment non-blocking: %s", _lsm_exc)
+                _sentiment = get_lyrics_sentiment_analyzer().analyze(transcription, dur)
+                if _sentiment.model_used != "neutral_fallback" and len(_sentiment.segments) > 1:
+                    # Sentiment-Modulations-Array erstellen (sample-genau)
+                    _sent_mod = np.ones(n_samples, dtype=np.float32)
+                    for _seg in _sentiment.segments:
+                        _s_idx = int(np.clip(_seg.start_s * sr, 0, n_samples))
+                        _e_idx = int(np.clip(_seg.end_s * sr, 0, n_samples))
+                        _dscale = float(np.clip(_seg.dsp_params.get("dynamics_scale", 1.0), 0.60, 1.25))
+                        _sent_mod[_s_idx:_e_idx] = _dscale
+                    # Sanfte Überblendung zwischen Segmenten (250ms Crossfade)
+                    _xfade_samples = int(0.250 * sr)
+                    if _xfade_samples > 2:
+                        _kernel = np.hanning(_xfade_samples * 2 + 1)
+                        _kernel /= _kernel.sum() + 1e-12
+                        _sent_mod = np.convolve(_sent_mod, _kernel, mode="same").astype(np.float32)
+                    # Modulation mit 30 % Stärke auf Saliency anwenden
+                    _sent_strength = 0.30
+                    saliency = saliency * (1.0 + _sent_strength * (_sent_mod - 1.0))
+                    saliency = np.clip(saliency, 0.70, 1.30)
+                    logger.info(
+                        "§LSM-1: Sentiment-Modulation aktiv: dominant=%s V=%.2f A=%.2f",
+                        _sentiment.dominant_emotion,
+                        _sentiment.valence_mean,
+                        _sentiment.arousal_mean,
+                    )
+            except Exception as _lsm_exc:
+                logger.debug("§LSM-1 Sentiment non-blocking: %s", _lsm_exc)
 
         audio_out = audio * saliency[np.newaxis, :] if audio.ndim == 2 else audio * saliency
 

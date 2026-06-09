@@ -94,9 +94,14 @@ class FeedbackChain:
                 logger.debug("FeedbackChain: PQS scorer unavailable, heuristic fallback active: %s", exc)
         if self.use_versa_in_loop:
             try:
-                from plugins.versa_plugin import get_versa_plugin  # pylint: disable=import-outside-toplevel
+                from plugins.versa_plugin import (  # pylint: disable=import-outside-toplevel
+                    get_loaded_versa_plugin,
+                    get_versa_plugin,
+                )
 
-                _versa_plugin = get_versa_plugin()
+                _versa_plugin = get_loaded_versa_plugin()
+                if _versa_plugin is None:
+                    _versa_plugin = get_versa_plugin()
                 if _versa_plugin is not None:
                     self._versa_score_fn = _versa_plugin.score
             except Exception as exc:

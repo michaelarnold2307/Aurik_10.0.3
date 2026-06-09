@@ -983,9 +983,12 @@ class SpeedPitchCorrectionPhase(PhaseInterface):
             read_pos += hop_analysis
             write_pos += hop_synthesis
 
-        # COLA normalization: divide by window-sum accumulation (avoids per-channel
-        # peak normalization that would destroy the L/R stereo balance in stereo calls)
-        output = np.where(ola_norm > 1e-8, output / ola_norm, output)
+        # COLA normalization: safe masked divide to avoid invalid-value warnings when
+        # ola_norm is zero while preserving the previous passthrough behavior.
+        _norm_mask = ola_norm > 1e-8
+        _output_norm = output.copy()
+        np.divide(output, ola_norm, out=_output_norm, where=_norm_mask)
+        output = _output_norm
 
         return output
 

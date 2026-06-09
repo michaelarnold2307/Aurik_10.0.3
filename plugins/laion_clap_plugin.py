@@ -892,6 +892,11 @@ def get_laion_clap() -> LAIONCLAPPlugin:
     return _instance  # type: ignore[return-value]  # never None after block above
 
 
+def get_loaded_laion_clap() -> LAIONCLAPPlugin | None:
+    """Gibt nur eine bereits geladene LAION-CLAP-Instanz zurück, ohne Lazy-Load."""
+    return _instance
+
+
 def unload_laion_clap() -> None:
     """Entlädt LAION-CLAP aus dem RAM und gibt das Budget frei.
 

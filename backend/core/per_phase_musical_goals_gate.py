@@ -68,6 +68,7 @@ from backend.core.calibration_matrix import (
 from backend.core.calibration_matrix import (
     CANONICAL_THRESHOLDS_STUDIO2026 as _CM_STU,
 )
+from backend.core.calibration_matrix import compute_tcci
 
 # §09.1 [RELEASE_MUST] Single Source of Truth: backend/core/calibration_matrix.py
 # Werte hier NICHT bearbeiten — Änderungen ausschließlich in calibration_matrix.py.
@@ -3105,6 +3106,15 @@ _TIMING_CORR_EXCLUDE: frozenset[str] = frozenset(
     }
 )
 
+# Phasen mit lokal rekonstruktivem Charakter: Ziel ist primär Defektfenster-Reparatur,
+# daher muss PMGG lokale Verbesserungen von globalem Kollateralschaden trennen.
+_RECONSTRUCTION_COUNTERFACTUAL_PHASE_PREFIXES: tuple[str, ...] = (
+    "phase_23",
+    "phase_24",
+    "phase_50",
+    "phase_55",
+)
+
 # LF-subtractive phases: intentional broadband RMS reduction when low-end noise dominates.
 # phase_02 (hum), phase_05 (rumble): removing sub-bass / 50 Hz hum CAN reduce broadband RMS
 # by 20-30 dB if that noise dominated the signal — this is CORRECT behaviour (§0).
@@ -3221,7 +3231,9 @@ def _content_integrity_penalty(
 def _targeted_defect_keys_for_phase(phase_id: str) -> tuple[str, ...]:
     """Gibt defect-location keys used for sparse-defect sample targeting zurück."""
     _phase_defect_keys = {
+        "phase_23": ("SPECTRAL_HOLES", "spectral_holes", "DROPOUTS", "dropouts"),
         "phase_24": ("DROPOUTS", "DROPOUT", "dropouts"),
+        "phase_50": ("SPECTRAL_HOLES", "spectral_holes", "DROPOUTS", "dropouts"),
         "phase_27": ("DROPOUTS", "DROPOUT", "dropouts"),
         "phase_55": ("DROPOUTS", "DROPOUT", "dropouts", "SPECTRAL_HOLES", "spectral_holes"),
         "phase_09": ("CRACKLE", "crackle", "CLICKS", "clicks"),
@@ -3319,6 +3331,267 @@ def _estimate_targeted_defect_coverage_ratio(
     return float(np.clip(_covered / _window, 0.0, 1.0))
 
 
+def _window_targeted_defect_coverage_ratio(
+    intervals: list[tuple[int, int]],
+    start: int,
+    end: int,
+) -> float:
+    """Berechnet die Defektabdeckung für ein beliebiges Fenster."""
+    if end <= start or not intervals:
+        return 0.0
+
+    covered = 0
+    for interval_start, interval_end in intervals:
+        overlap_start = max(start, interval_start)
+        overlap_end = min(end, interval_end)
+        if overlap_end > overlap_start:
+            covered += overlap_end - overlap_start
+    return float(np.clip(covered / max(1, end - start), 0.0, 1.0))
+
+
+def _get_reconstruction_control_window_bounds(
+    audio_len: int,
+    sr: int,
+    duration_s: float,
+    defect_locations: dict[str, list[tuple[float, float]]] | None,
+    phase_id: str,
+) -> tuple[int, int, float, float] | None:
+    """Wählt ein kontrollfenster außerhalb der Rekonstruktions-Defekte.
+
+    Rekonstruktive Phasen wie phase_24/55 sollen lokal im Defektfenster bewertet
+    werden, dürfen aber außerhalb dieser Fenster keinen Kollateralschaden
+    verursachen. Dieses Hilfsfenster dient genau dieser Invarianz-Prüfung.
+    """
+    if not phase_id.startswith(_RECONSTRUCTION_COUNTERFACTUAL_PHASE_PREFIXES) or not defect_locations:
+        return None
+
+    sample_len = min(int(duration_s * sr), audio_len)
+    if audio_len <= sample_len:
+        return None
+
+    intervals: list[tuple[int, int]] = []
+    for defect_key in _targeted_defect_keys_for_phase(phase_id):
+        for location in defect_locations.get(defect_key, []) or []:
+            if not isinstance(location, (tuple, list)) or len(location) < 2:
+                continue
+            try:
+                interval_start = int(float(location[0]) * sr)
+                interval_end = int(float(location[1]) * sr)
+            except (TypeError, ValueError):
+                continue
+            if interval_end > interval_start:
+                intervals.append((interval_start, interval_end))
+
+    if not intervals:
+        return None
+
+    intervals.sort()
+    target_start, target_end = _get_sample_window_bounds(audio_len, sr, duration_s, defect_locations, phase_id)
+    target_coverage = _window_targeted_defect_coverage_ratio(intervals, target_start, target_end)
+    if target_coverage < 0.05:
+        return None
+
+    candidate_starts = [
+        0,
+        max(0, audio_len // 4 - sample_len // 2),
+        max(0, audio_len // 2 - sample_len // 2),
+        max(0, (3 * audio_len) // 4 - sample_len // 2),
+        max(0, audio_len - sample_len),
+    ]
+    unique_candidate_starts: list[int] = []
+    for candidate_start in candidate_starts:
+        candidate_start = int(np.clip(candidate_start, 0, max(0, audio_len - sample_len)))
+        if candidate_start not in unique_candidate_starts:
+            unique_candidate_starts.append(candidate_start)
+
+    best_window: tuple[int, int, float] | None = None
+    for candidate_start in unique_candidate_starts:
+        candidate_end = candidate_start + sample_len
+        overlap = max(0, min(candidate_end, target_end) - max(candidate_start, target_start))
+        if overlap > sample_len * 0.25:
+            continue
+        coverage = _window_targeted_defect_coverage_ratio(intervals, candidate_start, candidate_end)
+        if best_window is None or coverage < best_window[2]:
+            best_window = (candidate_start, candidate_end, coverage)
+
+    if best_window is None:
+        return None
+
+    control_start, control_end, control_coverage = best_window
+    if control_coverage > 0.02 or control_coverage >= target_coverage * 0.5:
+        return None
+    return control_start, control_end, target_coverage, control_coverage
+
+
+def _assess_reconstruction_localized_confidence(
+    *,
+    target_coverage: float,
+    control_coverage: float,
+    control_regression: float,
+    threshold: float,
+) -> tuple[bool, float, str]:
+    """Bewertet die Zuverlaessigkeit einer localized-reconstruction-Freigabe.
+
+    Ziel: Rekonstruktive Phasen (phase_24/55) duerfen lokale Defektfenster
+    verschlechtern, solange ausserhalb dieser Fenster kein Kollateralschaden
+    nachweisbar ist. Diese Funktion quantifiziert die Entscheidungssicherheit,
+    statt nur einen harten booleschen Schwellwert zu verwenden.
+    """
+    if control_regression > threshold:
+        return False, 0.0, "control_regression_over_threshold"
+
+    _target_term = float(np.clip((target_coverage - 0.08) / 0.22, 0.0, 1.0))
+    _control_term = float(np.clip((0.02 - control_coverage) / 0.02, 0.0, 1.0))
+    _margin_term = float(np.clip((threshold - control_regression) / (threshold + 1e-9), 0.0, 1.0))
+    confidence = float(np.clip(0.45 * _target_term + 0.35 * _control_term + 0.20 * _margin_term, 0.0, 1.0))
+
+    if target_coverage < 0.08:
+        reason = "low_target_coverage"
+    elif control_coverage > 0.015:
+        reason = "control_window_partially_contaminated"
+    elif confidence < 0.55:
+        reason = "confidence_below_acceptance"
+    else:
+        reason = "high_confidence"
+
+    return confidence >= 0.55, confidence, reason
+
+
+def _compute_reconstruction_epistemic_confidence(
+    *,
+    localized_confidence: float,
+    target_coverage: float,
+    control_coverage: float,
+    transfer_chain_tcci: float,
+    threshold_multiplier: float,
+    phase_kwargs: dict[str, Any] | None,
+) -> tuple[float, str]:
+    """Schätzt epistemische Sicherheit über den reinen Localized-Proxy hinaus.
+
+    Ziel: Proxy-Entscheidungen nicht nur nach einem einzelnen Fensterwert,
+    sondern nach einer kleinen deterministischen Evidenz-Fusion bewerten.
+    """
+    _local = float(np.clip(localized_confidence, 0.0, 1.0))
+    _target_term = float(np.clip((target_coverage - 0.06) / 0.24, 0.0, 1.0))
+    _control_term = float(np.clip((0.025 - control_coverage) / 0.025, 0.0, 1.0))
+    _chain_term = float(np.clip(1.0 - 0.35 * np.clip(transfer_chain_tcci, 0.0, 1.0), 0.0, 1.0))
+    _threshold_term = float(np.clip((np.clip(threshold_multiplier, 0.8, 1.2) - 0.8) / 0.4, 0.0, 1.0))
+
+    _phase_kwargs = phase_kwargs if isinstance(phase_kwargs, dict) else {}
+    try:
+        _vocal_probability = float(_phase_kwargs.get("vocal_probability", 0.0) or 0.0)
+    except (TypeError, ValueError):
+        _vocal_probability = 0.0
+    _vocal_penalty = float(np.clip((_vocal_probability - 0.35) / 0.45, 0.0, 1.0)) * 0.10
+
+    _epistemic = (
+        0.45 * _local + 0.25 * _target_term + 0.15 * _control_term + 0.10 * _chain_term + 0.05 * _threshold_term
+    )
+    _epistemic = float(np.clip(_epistemic - _vocal_penalty, 0.0, 1.0))
+
+    if _epistemic >= 0.78:
+        _reason = "epistemic_high"
+    elif _epistemic >= 0.58:
+        _reason = "epistemic_medium"
+    else:
+        _reason = "epistemic_low"
+    return _epistemic, _reason
+
+
+def _compute_reconstruction_retry_budget_bias(
+    *,
+    accepted: bool,
+    confidence: float,
+    phase_kwargs: dict[str, Any] | None,
+    phase_id: str,
+) -> tuple[int, str, float, str]:
+    """Berechnet einen kleinen material- und chain-adaptiven Retry-Bias."""
+
+    _phase_kwargs = phase_kwargs if isinstance(phase_kwargs, dict) else {}
+    _mat_key = _material_key_from_phase_kwargs(_phase_kwargs)
+    _chain_raw = _phase_kwargs.get("transfer_chain")
+    if _chain_raw is None and isinstance(_phase_kwargs.get("prior_phase_context"), dict):
+        _chain_raw = _phase_kwargs["prior_phase_context"].get("transfer_chain")
+    _chain = [str(v).strip().lower() for v in (_chain_raw or []) if str(v).strip()]
+    _tcci = float(np.clip(compute_tcci(_chain), 0.0, 1.0))
+
+    _analog_materials = {"vinyl", "shellac", "tape", "reel_tape", "cassette", "wire_recording", "wax_cylinder"}
+    _digital_lossy_materials = {"mp3_low", "mp3_high", "aac", "streaming", "minidisc"}
+    _material_family = "digital"
+    if _mat_key in _analog_materials:
+        _material_family = "analog"
+    elif _mat_key in _digital_lossy_materials:
+        _material_family = "lossy_digital"
+
+    _bias = 1 if accepted and confidence >= 0.80 else -1 if (not accepted and confidence < 0.35) else 0
+    _reason_parts = [f"conf={confidence:.2f}"]
+
+    if _bias > 0 and _material_family == "analog":
+        _bias -= 1
+        _reason_parts.append("analog_damped")
+    elif _bias > 0 and _material_family == "lossy_digital" and confidence >= 0.85:
+        _bias += 1
+        _reason_parts.append("lossy_digital_boost")
+
+    if _tcci >= 0.65:
+        _bias -= 1
+        _reason_parts.append(f"chain_tcci={_tcci:.2f}")
+    elif _tcci <= 0.20 and accepted and confidence >= 0.75:
+        _bias += 1
+        _reason_parts.append(f"chain_tcci={_tcci:.2f}")
+
+    if phase_id.startswith("phase_50") and _chain and _material_family == "analog":
+        _bias -= 1
+        _reason_parts.append("phase50_analog_guard")
+
+    return int(np.clip(_bias, -2, 2)), ";".join(_reason_parts), _tcci, _material_family
+
+
+def _compute_reconstruction_threshold_multiplier(
+    *,
+    phase_kwargs: dict[str, Any] | None,
+    phase_id: str,
+) -> tuple[float, str, float, str]:
+    """Berechnet eine kleine material- und chain-adaptive Threshold-Anpassung."""
+
+    _phase_kwargs = phase_kwargs if isinstance(phase_kwargs, dict) else {}
+    _mat_key = _material_key_from_phase_kwargs(_phase_kwargs)
+    _chain_raw = _phase_kwargs.get("transfer_chain")
+    if _chain_raw is None and isinstance(_phase_kwargs.get("prior_phase_context"), dict):
+        _chain_raw = _phase_kwargs["prior_phase_context"].get("transfer_chain")
+    _chain = [str(v).strip().lower() for v in (_chain_raw or []) if str(v).strip()]
+    _tcci = float(np.clip(compute_tcci(_chain), 0.0, 1.0))
+
+    _analog_materials = {"vinyl", "shellac", "tape", "reel_tape", "cassette", "wire_recording", "wax_cylinder"}
+    _digital_lossy_materials = {"mp3_low", "mp3_high", "aac", "streaming", "minidisc"}
+
+    _multiplier = 1.0
+    _reason_parts = [f"tcci={_tcci:.2f}"]
+
+    if _mat_key in _analog_materials:
+        _multiplier *= 0.94
+        _reason_parts.append("analog_tolerance_reduced")
+    elif _mat_key in _digital_lossy_materials:
+        _multiplier *= 0.98
+        _reason_parts.append("lossy_digital_neutral")
+    else:
+        _multiplier *= 1.02
+        _reason_parts.append("digital_safe_relaxation")
+
+    if _tcci >= 0.65:
+        _multiplier *= 0.92
+        _reason_parts.append("chain_complexity_high")
+    elif _tcci <= 0.20:
+        _multiplier *= 1.04
+        _reason_parts.append("chain_complexity_low")
+
+    if phase_id.startswith("phase_50") and _mat_key in _analog_materials:
+        _multiplier *= 0.90
+        _reason_parts.append("phase50_analog_guard")
+
+    return float(np.clip(_multiplier, 0.80, 1.05)), ";".join(_reason_parts), _tcci, _mat_key
+
+
 def _reconstruction_goal_recheck_allowlist(  # pylint: disable=too-many-positional-arguments
     phase_id: str,
     phase_kwargs: dict[str, Any] | None,
@@ -3407,12 +3680,14 @@ class PerPhaseMusicalGoalsGate:
         self._rollback_count: int = 0  # Pro Restaurierungsaufruf
         self._user_warned: bool = False  # Nutzer-Warnung einmalig
         self._last_retry_budget_policy: dict[str, Any] = {}
+        self._last_reconstruction_localized_decision: dict[str, Any] = {}
 
     def reset(self) -> None:
         """Setzt Zähler für neuen Restaurierungsaufruf zurück."""
         self._rollback_count = 0
         self._user_warned = False
         self._last_retry_budget_policy = {}
+        self._last_reconstruction_localized_decision = {}
 
     @staticmethod
     def _resolve_retry_budget_policy(
@@ -3525,6 +3800,10 @@ class PerPhaseMusicalGoalsGate:
 
         phase_id = phase_id or self._get_phase_id(phase)
         t0 = time.time()
+        _threshold_multiplier = 1.0
+        _threshold_reason = "default"
+        _threshold_tcci = 0.0
+        _threshold_material_family = "unknown"
 
         # §2.29/§2.54 Material- und Restorability-adaptiven Threshold bestimmen
         _mat_kw_thresh = (phase_kwargs or {}).get("material_type") or (phase_kwargs or {}).get("material")
@@ -3547,6 +3826,11 @@ class PerPhaseMusicalGoalsGate:
             elif _gs > 1.20:
                 # Heavy damage: looser threshold reduces wasted retry cycles
                 threshold = min(0.070, threshold * 1.15)
+
+        _threshold_multiplier, _threshold_reason, _threshold_tcci, _threshold_material_family = (
+            _compute_reconstruction_threshold_multiplier(phase_kwargs=phase_kwargs, phase_id=phase_id)
+        )
+        threshold = float(np.clip(threshold * _threshold_multiplier, 0.012, 0.070))
 
         # §9.7.3 Phasen-adaptive Sample-Dauer — MUSS vor scores_before bestimmt werden,
         # damit before und after dieselbe Sample-Länge nutzen (sonst falsche Regression).
@@ -3690,6 +3974,59 @@ class PerPhaseMusicalGoalsGate:
         _decision_class, _decision_reason = self._classify_action_decision(action)
         log_entry.metadata["pmgg_decision_class"] = _decision_class
         log_entry.metadata["pmgg_decision_reason"] = _decision_reason
+        _recon_decision = (
+            dict(self._last_reconstruction_localized_decision)
+            if isinstance(self._last_reconstruction_localized_decision, dict)
+            else {}
+        )
+        if _recon_decision:
+            _recon_threshold_multiplier = float(_recon_decision.get("threshold_multiplier", 1.0))
+            _recon_reason = str(_recon_decision.get("reason", ""))
+            if _recon_threshold_multiplier <= 1.0:
+                if bool(_recon_decision.get("accepted", False)):
+                    _recon_threshold_multiplier = 1.02
+                elif _recon_reason == "counterfactual_window_unavailable":
+                    _recon_threshold_multiplier = 1.05
+            log_entry.metadata["pmgg_reconstruction_localized"] = bool(_recon_decision.get("accepted", False))
+            log_entry.metadata["pmgg_reconstruction_confidence"] = float(_recon_decision.get("confidence", 0.0))
+            log_entry.metadata["pmgg_reconstruction_reason"] = str(_recon_decision.get("reason", ""))
+            log_entry.metadata["pmgg_reconstruction_retry_budget_bias"] = int(
+                _recon_decision.get("retry_budget_bias", 0)
+            )
+            log_entry.metadata["pmgg_reconstruction_retry_budget_bias_reason"] = str(
+                _recon_decision.get("retry_budget_bias_reason", "")
+            )
+            log_entry.metadata["pmgg_reconstruction_transfer_chain_tcci"] = float(
+                _recon_decision.get("transfer_chain_tcci", 0.0)
+            )
+            log_entry.metadata["pmgg_reconstruction_material_family"] = str(
+                _recon_decision.get("material_family", "unknown")
+            )
+            log_entry.metadata["pmgg_reconstruction_threshold_multiplier"] = float(_recon_threshold_multiplier)
+            log_entry.metadata["pmgg_reconstruction_threshold_multiplier_reason"] = str(
+                _recon_decision.get("threshold_multiplier_reason", "")
+            )
+            log_entry.metadata["pmgg_reconstruction_threshold_multiplier_tcci"] = float(
+                _recon_decision.get("threshold_multiplier_tcci", 0.0)
+            )
+            log_entry.metadata["pmgg_reconstruction_target_coverage"] = float(
+                _recon_decision.get("target_coverage", 0.0)
+            )
+            log_entry.metadata["pmgg_reconstruction_control_coverage"] = float(
+                _recon_decision.get("control_coverage", 0.0)
+            )
+            log_entry.metadata["pmgg_reconstruction_control_regression"] = float(
+                _recon_decision.get("control_regression", 0.0)
+            )
+            log_entry.metadata["pmgg_reconstruction_epistemic_confidence"] = float(
+                _recon_decision.get("epistemic_confidence", 0.0)
+            )
+            log_entry.metadata["pmgg_reconstruction_epistemic_reason"] = str(
+                _recon_decision.get("epistemic_reason", "")
+            )
+            log_entry.metadata["pmgg_reconstruction_uncertainty_budget"] = float(
+                _recon_decision.get("uncertainty_budget", 1.0)
+            )
         # §0l Telemetrie: Team-Net-Delta für jede Phase aufzeichnen — diagnostiziert
         # ob Phasen das 15-Ziel-Team als Ganzes verbessern oder verschlechtern.
         if scores_before and scores_after and effective_goals:
@@ -3874,6 +4211,12 @@ class PerPhaseMusicalGoalsGate:
         """
         if phase_kwargs is None:
             phase_kwargs = {}
+        _threshold_multiplier = 1.0
+        _threshold_reason = "default"
+        _threshold_tcci = 0.0
+        _epistemic_confidence = 0.0
+        _epistemic_reason = "epistemic_unavailable"
+        self._last_reconstruction_localized_decision = {}
         if effective_goals is None:
             effective_goals = FAST_GOALS_SUBSET
         # §2.55b Erwartete Kollateralschäden dieser Phase aus Regressions-Gate ausschließen.
@@ -4138,6 +4481,154 @@ class PerPhaseMusicalGoalsGate:
         if regression <= threshold:
             return audio_out, scores_after, "passed", initial_strength
 
+        _is_reconstruction_counterfactual = phase_id.startswith(_RECONSTRUCTION_COUNTERFACTUAL_PHASE_PREFIXES)
+        _control_window = _get_reconstruction_control_window_bounds(
+            len(audio),
+            sr,
+            sample_duration_s,
+            _defect_locs,
+            phase_id,
+        )
+        if _is_reconstruction_counterfactual and _ci_penalty > 0.0:
+            self._last_reconstruction_localized_decision = {
+                "phase_id": phase_id,
+                "accepted": False,
+                "confidence": 0.0,
+                "reason": "content_integrity_guard_active",
+                "target_coverage": 0.0,
+                "control_coverage": 0.0,
+                "control_regression": 0.0,
+                "threshold": float(threshold),
+                "retry_budget_bias": -1,
+                "retry_budget_bias_reason": "content_integrity_guard_active",
+                "transfer_chain_tcci": 0.0,
+                "material_family": _material_key_from_phase_kwargs(phase_kwargs),
+                "threshold_multiplier": float(_threshold_multiplier),
+                "threshold_multiplier_reason": str(_threshold_reason),
+                "threshold_multiplier_tcci": float(_threshold_tcci),
+                "epistemic_confidence": 0.0,
+                "epistemic_reason": "content_integrity_guard_active",
+                "uncertainty_budget": 1.0,
+            }
+        elif _ci_penalty == 0.0 and _control_window is not None:
+            control_start, control_end, target_coverage, control_coverage = _control_window
+            control_before = audio[control_start:control_end]
+            control_after = audio_out[control_start:control_end]
+            control_scores_before = _measure_quick(control_before, sr)
+            control_scores_after = _measure_quick(control_after, sr, reference=control_before)
+            control_regression = self._max_regression(
+                control_scores_before,
+                control_scores_after,
+                _goals_for_regression,
+                goal_weights=goal_weights,
+            )
+            _localized_accept, _localized_conf, _localized_reason = _assess_reconstruction_localized_confidence(
+                target_coverage=target_coverage,
+                control_coverage=control_coverage,
+                control_regression=control_regression,
+                threshold=threshold,
+            )
+            _epistemic_confidence, _epistemic_reason = _compute_reconstruction_epistemic_confidence(
+                localized_confidence=float(_localized_conf),
+                target_coverage=float(target_coverage),
+                control_coverage=float(control_coverage),
+                transfer_chain_tcci=float(_threshold_tcci),
+                threshold_multiplier=float(_threshold_multiplier),
+                phase_kwargs=phase_kwargs,
+            )
+            _decision_confidence = float(
+                np.clip(0.65 * float(_localized_conf) + 0.35 * _epistemic_confidence, 0.0, 1.0)
+            )
+            _localized_retry_bias, _localized_bias_reason, _localized_tcci, _localized_material_family = (
+                _compute_reconstruction_retry_budget_bias(
+                    accepted=bool(_localized_accept),
+                    confidence=float(_decision_confidence),
+                    phase_kwargs=phase_kwargs,
+                    phase_id=phase_id,
+                )
+            )
+            self._last_reconstruction_localized_decision = {
+                "phase_id": phase_id,
+                "accepted": bool(_localized_accept),
+                "confidence": float(_localized_conf),
+                "reason": str(_localized_reason),
+                "target_coverage": float(target_coverage),
+                "control_coverage": float(control_coverage),
+                "control_regression": float(control_regression),
+                "threshold": float(threshold),
+                "retry_budget_bias": int(_localized_retry_bias),
+                "retry_budget_bias_reason": str(_localized_bias_reason),
+                "transfer_chain_tcci": float(_localized_tcci),
+                "material_family": str(_localized_material_family),
+                "threshold_multiplier": float(_threshold_multiplier),
+                "threshold_multiplier_reason": str(_threshold_reason),
+                "threshold_multiplier_tcci": float(_threshold_tcci),
+                "epistemic_confidence": float(_epistemic_confidence),
+                "epistemic_reason": str(_epistemic_reason),
+                "uncertainty_budget": float(np.clip(1.0 - _decision_confidence, 0.0, 1.0)),
+            }
+            if _localized_accept:
+                logger.info(
+                    "PMGG reconstruction collateral-check: %s localized regression tolerated "
+                    "(conf=%.3f epistemic=%.3f reason=%s target_coverage=%.3f control_coverage=%.3f "
+                    "control_regression=%.4f <= %.4f)",
+                    phase_id,
+                    _localized_conf,
+                    _epistemic_confidence,
+                    _localized_reason,
+                    target_coverage,
+                    control_coverage,
+                    control_regression,
+                    threshold,
+                )
+                return audio_out, scores_after, "passed_reconstruction_localized", initial_strength
+            logger.info(
+                "PMGG reconstruction collateral-check: %s localized accept rejected "
+                "(conf=%.3f epistemic=%.3f reason=%s target_coverage=%.3f control_coverage=%.3f "
+                "control_regression=%.4f threshold=%.4f)",
+                phase_id,
+                _localized_conf,
+                _epistemic_confidence,
+                _localized_reason,
+                target_coverage,
+                control_coverage,
+                control_regression,
+                threshold,
+            )
+        elif _is_reconstruction_counterfactual:
+            self._last_reconstruction_localized_decision = {
+                "phase_id": phase_id,
+                "accepted": False,
+                "confidence": 0.0,
+                "reason": "counterfactual_window_unavailable",
+                "target_coverage": 0.0,
+                "control_coverage": 0.0,
+                "control_regression": 0.0,
+                "threshold": float(threshold),
+                "retry_budget_bias": -1,
+                "retry_budget_bias_reason": "counterfactual_window_unavailable",
+                "transfer_chain_tcci": float(
+                    np.clip(
+                        compute_tcci(
+                            [
+                                str(v).strip().lower()
+                                for v in ((phase_kwargs or {}).get("transfer_chain") or [])
+                                if str(v).strip()
+                            ]
+                        ),
+                        0.0,
+                        1.0,
+                    )
+                ),
+                "material_family": _material_key_from_phase_kwargs(phase_kwargs),
+                "threshold_multiplier": float(_threshold_multiplier),
+                "threshold_multiplier_reason": str(_threshold_reason),
+                "threshold_multiplier_tcci": float(_threshold_tcci),
+                "epistemic_confidence": 0.0,
+                "epistemic_reason": "counterfactual_window_unavailable",
+                "uncertainty_budget": 1.0,
+            }
+
         # §2.29 v9.10.77: Priority-aware regression check.
         # Determine worst priority among regressed goals to set retry budget.
         _reg_pa, _worst_prio = self._max_regression_priority_aware(
@@ -4220,6 +4711,20 @@ class PerPhaseMusicalGoalsGate:
                     _max_retries_for_prio = min(4, _max_retries_for_prio + 1)  # 3 → 4
                 elif _rtier == "poor":
                     _max_retries_for_prio = max(2, _max_retries_for_prio - 1)  # 3 → 2
+
+        _localized_retry_bias = int(
+            (self._last_reconstruction_localized_decision or {}).get("retry_budget_bias", 0)
+            if isinstance(self._last_reconstruction_localized_decision, dict)
+            else 0
+        )
+        if _localized_retry_bias != 0:
+            _max_retries_for_prio = int(np.clip(_max_retries_for_prio + _localized_retry_bias, 1, 5))
+            logger.debug(
+                "PMGG: %s localized retry bias=%d applied → max_retries=%d",
+                phase_id,
+                _localized_retry_bias,
+                _max_retries_for_prio,
+            )
 
         # Retry-Stärken relativ zur Initialstärke skalieren (§2.29):
         # initial_strength=1.0 → normale Retry-Folge [0.65, 0.50, ...]
@@ -4514,14 +5019,26 @@ class PerPhaseMusicalGoalsGate:
             phase_id=phase_id,
         )
         best_scores = _apply_precise_metric_overrides(best_scores, _best_sample, sr, reference=_ref_sample)
-        logger.warning(
+        _pmgg_msg = (
             "⚠️ PMGG: %s best-effort (strength=%.2f, Regression=%.4f > threshold=%.3f) — "
-            "Phase wird trotzdem angewendet (kein Rollback/Skip erlaubt)",
-            phase_id,
-            best_strength,
-            best_regression,
-            threshold,
+            "Phase wird trotzdem angewendet (kein Rollback/Skip erlaubt)"
         )
+        if _worst_prio <= 2 or best_regression >= _CATASTROPHIC_THRESHOLD:
+            logger.warning(
+                _pmgg_msg,
+                phase_id,
+                best_strength,
+                best_regression,
+                threshold,
+            )
+        else:
+            logger.info(
+                _pmgg_msg,
+                phase_id,
+                best_strength,
+                best_regression,
+                threshold,
+            )
         return best_audio, best_scores, best_action, best_strength
 
     @staticmethod
@@ -4986,6 +5503,8 @@ class PerPhaseMusicalGoalsGate:
             return "pass", "priority_tolerance_band_accept"
         if a == "passed_team_balanced":
             return "pass", "team_net_positive_balance_accept"
+        if a == "passed_reconstruction_localized":
+            return "pass", "reconstruction_localized_collateral_accept"
         if a.startswith("retry"):
             return "retry", "regression_over_threshold_retry_success"
         if a.startswith("emergency_s"):

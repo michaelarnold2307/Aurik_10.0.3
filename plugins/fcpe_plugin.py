@@ -418,6 +418,11 @@ def get_fcpe_plugin() -> FcpePlugin:
     return plugin
 
 
+def get_loaded_fcpe_plugin() -> FcpePlugin | None:
+    """Gibt nur eine bereits geladene FCPE-Instanz zurück, ohne Lazy-Load."""
+    return _INSTANCE_HOLDER[0]
+
+
 def unload_fcpe() -> None:
     """Unload FCPE resources and release ML budget slot.
 

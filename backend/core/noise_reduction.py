@@ -20,6 +20,7 @@ logger = logging.getLogger(__name__)
 
 try:
     from plugins.deepfilternet_v3_ii_plugin import get_deepfilternet_plugin as _get_dfn
+    from plugins.deepfilternet_v3_ii_plugin import get_loaded_deepfilternet_plugin as _get_loaded_dfn
 
     _AVAILABLE = True
 except ImportError:
@@ -31,4 +32,7 @@ def get_noise_reducer() -> DeepFilterNetV3Plugin | None:
     """Gibt the DeepFilterNet v3.II singleton, or None if unavailable zurück."""
     if not _AVAILABLE:
         return None
+    _loaded = _get_loaded_dfn()
+    if _loaded is not None:
+        return _loaded
     return _get_dfn()

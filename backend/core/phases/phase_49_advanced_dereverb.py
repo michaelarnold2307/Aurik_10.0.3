@@ -1466,7 +1466,9 @@ class AdvancedDereverbPhase(PhaseInterface):
         gain = np.abs(enhanced) ** 2 / (np.abs(original) ** 2 + eps)
         gain = np.clip(gain, floor, 1.0)
         gain = median_filter(gain, size=(3, 1))
-        _wiener_out: np.ndarray = np.asarray(enhanced * gain, dtype=np.float64)
+        # STFT bleibt bis zur ISTFT komplex; ein fruehes Float-Cast wirft den
+        # Imaginaerteil weg und destabilisiert die Rueckprojektion unnoetig.
+        _wiener_out: np.ndarray = np.asarray(enhanced * gain, dtype=enhanced.dtype)
         return _wiener_out  # type: ignore[no-any-return]
 
     # ------------------------------------------------------------------

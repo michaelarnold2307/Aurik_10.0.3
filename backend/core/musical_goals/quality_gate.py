@@ -393,8 +393,16 @@ class MusicalGoalsQualityGate:
         _using_adaptive = bool(adaptive_thresholds) or bool(context and context.get("adaptive_thresholds"))
 
         for goal_name, threshold in thresholds.items():
-            achieved = float(np.nan_to_num(achieved_scores.get(goal_name, 0.0), nan=0.0))
-            baseline = float(np.nan_to_num(baseline_scores.get(goal_name, 0.0), nan=0.0))
+            # Kontrakt-Drift-Guard: einige Konfigurationen nutzen goal-keys mit Bindestrich
+            # (z.B. "bass-kraft"), während Metrik-Outputs Unterstriche verwenden
+            # ("bass_kraft"). Für Gate-Entscheidungen müssen beide Varianten gleichwertig sein.
+            _goal_alt = goal_name.replace("-", "_")
+            achieved = float(
+                np.nan_to_num(achieved_scores.get(goal_name, achieved_scores.get(_goal_alt, 0.0)), nan=0.0)
+            )
+            baseline = float(
+                np.nan_to_num(baseline_scores.get(goal_name, baseline_scores.get(_goal_alt, 0.0)), nan=0.0)
+            )
             delta = achieved - baseline
 
             # Check if goal achieved

@@ -349,9 +349,11 @@ class AestheticProxyCalculator:
                 _audio_mono = _audio_mono[_s : _s + _max_len]
 
             if int(sr) == 48000 and _audio_mono.size >= 2048:
-                from plugins.laion_clap_plugin import get_laion_clap
+                from plugins.laion_clap_plugin import get_laion_clap, get_loaded_laion_clap
 
-                _clap = get_laion_clap()
+                _clap = get_loaded_laion_clap()
+                if _clap is None:
+                    _clap = get_laion_clap()
                 _tag_res = _clap.tag(_audio_mono, sr)
 
                 _genre_map = {

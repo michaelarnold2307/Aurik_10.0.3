@@ -243,6 +243,7 @@ class QualityFeedbackLoop:
             True if feedback would be beneficial
         """
         metadata = phase.get_metadata()
+        phase_id = metadata.phase_id.lower()
 
         # High-impact phases benefit from feedback
         high_impact_phases = [
@@ -255,7 +256,7 @@ class QualityFeedbackLoop:
         ]
 
         for phase_name in high_impact_phases:
-            if phase_name in metadata.phase_id.lower():
+            if phase_name in phase_id:
                 return True
 
         # Check if audio has defects (quick heuristic)
@@ -318,14 +319,22 @@ class QualityGating:
         metadata = phase.get_metadata()
         self.metrics.sample_rate = sample_rate
 
+        phase_id = metadata.phase_id.lower()
+
+        # Tape/Hiss-Phasen können bei eindeutig nicht-tape Material sofort verworfen werden.
+        # Das ändert keine Qualitätsentscheidung, spart aber die teure Metrikberechnung.
+        if "tape" in phase_id or "hiss" in phase_id:
+            material = kwargs.get("material", "unknown")
+            if "tape" not in str(material).lower():
+                logger.info("⏭️  Skipping %s: Not tape material (%s)", metadata.name, material)
+                return False
+
         # Quick quality estimate
         try:
             quality = self.metrics.calculate_naturalness_score(audio)
             naturalness = quality["naturalness_overall"]
 
             # Phase-specific heuristics
-            phase_id = metadata.phase_id.lower()
-
             # Denoise: Skip if already clean (high SNR)
             if "denoise" in phase_id:
                 # Estimate SNR from noise floor
@@ -343,13 +352,6 @@ class QualityGating:
                         metadata.name,
                         temporal_smoothness,
                     )
-                    return False
-
-            # Tape hiss: Skip if not tape material or already bright
-            if "tape" in phase_id or "hiss" in phase_id:
-                material = kwargs.get("material", "unknown")
-                if "tape" not in str(material).lower():
-                    logger.info("⏭️  Skipping %s: Not tape material (%s)", metadata.name, material)
                     return False
 
             # General: Skip if quality already excellent

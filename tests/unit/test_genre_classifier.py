@@ -296,6 +296,50 @@ class TestEdgeCases:
         assert isinstance(r, SchlagerClassificationResult)
         assert math.isfinite(r.confidence)
 
+    def test_27a_to_mono_samples_first_preserves_length(self):
+        """Regression (Achsen-Bug 2026-06-08): Stereo (samples, channels) = (N, 2)
+        darf NICHT über die Sample-Achse gemittelt werden (sonst Kollaps auf 2 Samples).
+
+        File-Import liefert ``(N, 2)``. Ein ``mean(axis=0)`` ohne Layout-Check würde
+        ALLE DSP-Tiers mit Müll füttern → konstante Default-Konfidenz über alle Songs.
+        """
+        mono = _white_noise(secs=8.0)
+        stereo_nch = np.stack([mono, mono * 0.8], axis=1)  # (N, 2) samples-first
+        assert stereo_nch.shape == (mono.shape[0], 2)
+        out = self.clf._to_mono(stereo_nch)
+        assert out.shape[0] == mono.shape[0], (
+            f"Sample-Achse kollabiert: erwartet {mono.shape[0]}, erhielt {out.shape[0]}"
+        )
+        assert out.ndim == 1
+
+    def test_27b_to_mono_channels_first_preserves_length(self):
+        """Regression: auch Channel-first ``(2, N)`` muss volle Länge erhalten."""
+        mono = _white_noise(secs=8.0)
+        stereo_chn = np.stack([mono, mono * 0.8], axis=0)  # (2, N) channels-first
+        assert stereo_chn.shape == (2, mono.shape[0])
+        out = self.clf._to_mono(stereo_chn)
+        assert out.shape[0] == mono.shape[0]
+        assert out.ndim == 1
+
+    def test_27c_to_mono_column_vector_treated_as_mono(self):
+        """Spaltenvektor ``(N, 1)`` → Mono ``(N,)``, kein Kanal-Mittel."""
+        mono = _white_noise(secs=4.0)
+        col = mono.reshape(-1, 1)  # (N, 1)
+        out = self.clf._to_mono(col)
+        assert out.shape[0] == mono.shape[0]
+        assert out.ndim == 1
+
+    def test_27d_stereo_both_layouts_equivalent_result(self):
+        """Identischer Inhalt in ``(N, 2)`` und ``(2, N)`` → gleiche Klassifikation.
+
+        Beweist, dass der Downmix layout-robust ist und song-spezifische Evidenz
+        liefert (nicht den konstanten Default-Fallback des kollabierten Bugs).
+        """
+        mono = _am_signal(secs=8.0)
+        r_nch = self.clf.classify(np.stack([mono, mono], axis=1), sr=48000)
+        r_chn = self.clf.classify(np.stack([mono, mono], axis=0), sr=48000)
+        assert math.isclose(r_nch.confidence, r_chn.confidence, abs_tol=1e-6)
+
     def test_28_very_short_signal_no_crash(self):
         """Signal < 5 s darf nicht abstürzen."""
         audio = _sine(secs=2.0)

@@ -458,8 +458,14 @@ class TestRegressionPrevention:
     def checker(self):
         return MusicalGoalsChecker()
 
-    def test_reference_scores_stability(self, checker: MusicalGoalsChecker):
+    def test_reference_scores_stability(self, checker: MusicalGoalsChecker, monkeypatch: pytest.MonkeyPatch):
         """Test that reference audio has consistent scores over time."""
+        # Dieser Regressionstest muss den echten Metrikpfad prüfen;
+        # der pytest-Fast-Validation-Pfad verfälscht die Baseline-Scores.
+        monkeypatch.setattr(
+            "backend.core.musical_goals.musical_goals_metrics._is_fast_validation_context", lambda: False
+        )
+
         # Reference audio (stored baseline scores)
         sr = 48000
         t = np.linspace(0, 2.0, int(sr * 2))
@@ -1215,6 +1221,13 @@ class TestEmotionalitaetMetricMERTBlend:
     """
 
     SR = 48000
+
+    @pytest.fixture(autouse=True)
+    def _force_full_metric_path(self, monkeypatch: pytest.MonkeyPatch):
+        """MERT-Blend-Regressionen muessen den echten Metrikpfad testen."""
+        monkeypatch.setattr(
+            "backend.core.musical_goals.musical_goals_metrics._is_fast_validation_context", lambda: False
+        )
 
     def _dynamic_audio(self) -> np.ndarray:
         np.random.default_rng(7)

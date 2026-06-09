@@ -24,7 +24,7 @@ from dataclasses import asdict, dataclass, field
 from dataclasses import replace as dc_replace
 from functools import lru_cache
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 
@@ -282,7 +282,8 @@ def _bark_band_energies(audio_mono: np.ndarray, sr: int) -> np.ndarray:
     total = energies.sum()
     if total < 1e-12:
         return np.ones(24, dtype=np.float32) / 24.0
-    return np.nan_to_num(energies / total)
+    normalized: np.ndarray = np.nan_to_num(energies / total).astype(np.float32)
+    return normalized
 
 
 # ---------------------------------------------------------------------------
@@ -1020,6 +1021,35 @@ def _dsp_fingerprint_decade(
             agreement_count += 1
         conf = min(0.92, conf + agreement_count * 0.04)
 
+    # Confidence boost for pre-1950 acoustic/electrical-shellac material.
+    # Symmetrisch zum 1960–1980-Agreement-Boost oben: Pre-1950-Aufnahmen tragen
+    # mehrere UNABHÄNGIGE physikalische Signaturen, die — wenn sie konvergieren —
+    # eine eindeutige Era-Zuordnung belegen. Ohne diesen Zweig blieb der Classifier
+    # bei zweifelsfreiem Shellac-Material künstlich unsicher (z. B. conf≈0.42 trotz
+    # Mono + niedrigem SNR + hoher Oberflächen-Modulation + fehlendem Sub-Bass).
+    # WISSENSCHAFTLICHE INVARIANTE (§0g, §0c): Der Boost ändert NIEMALS die Dekade
+    # (nur die Konfidenz), ist vollständig materialgetrieben (keine song-spezifische
+    # Regel) und feuert nur bei echter Evidenz-Konvergenz — bleibt die Evidenz
+    # mehrdeutig, bleibt die Unsicherheit erhalten (ehrliche §0g-Unsicherheit).
+    elif decade <= 1940:
+        agreement_count = 0
+        # (1) Mono: kommerzielle Stereofonie erst ~1958 → starker Pre-1950-Indikator.
+        if not is_stereo:
+            agreement_count += 1
+        # (2) Shellac/akustische Oberflächen-/Trichter-Aufnahme → niedriger SNR.
+        if snr_db < 30.0:
+            agreement_count += 1
+        # (3) Mechanische Oberflächen-Modulation (Crackle/Rumble/Gleichlauf).
+        if noise_modulation > 0.20:
+            agreement_count += 1
+        # (4) Akustische/früh-elektrische Ketten ohne Sub-Bass-Energie.
+        if lf_presence < 0.30:
+            agreement_count += 1
+        # (5) Steiler HF-Roll-off konsistent mit bandbegrenztem Träger.
+        if spectral_tilt <= -5.0:
+            agreement_count += 1
+        conf = min(0.90, conf + agreement_count * 0.035)
+
     # Confidence fine-tuning for the 1960/1970 transition evidence.
     if decade in (1960, 1970):
         # Score certainty around the transition boundary:
@@ -1429,8 +1459,11 @@ class EraClassifier:
                 except Exception as _rs_exc:
                     logger.debug("EraClassifier Tier-1: resample failed (%s) — skip CLAP tier", _rs_exc)
                     return None
-            # CLAP-Embedding → Cosinus-Ähnlichkeit zu Ära-Ankern
-            embedding = self._clap_plugin.embed_audio(_audio_clap, _sr_clap)  # type: ignore[union-attr]
+            # CLAP-Embedding → Cosinus-Ähnlichkeit zu Ära-Ankern.
+            # _clap_plugin ist als object|None typisiert (lazy importiertes Plugin);
+            # embed_audio() existiert erst zur Laufzeit — cast(Any) statt type-ignore,
+            # damit mypy UND Pyright konsistent durchlaufen.
+            embedding = cast(Any, self._clap_plugin).embed_audio(_audio_clap, _sr_clap)
             decade, conf = self._clap_nearest_neighbor(embedding)
             if conf < 0.35:
                 return None

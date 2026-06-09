@@ -451,10 +451,13 @@ class MertMushraProxy:
         """
         # Try PANNs first (no model load — only if already in memory)
         try:
-            from plugins.panns_plugin import get_panns_plugin  # pylint: disable=import-outside-toplevel
+            from plugins.panns_plugin import (  # pylint: disable=import-outside-toplevel
+                get_loaded_panns_plugin,
+                get_panns_plugin,
+            )
 
-            panns = get_panns_plugin()
-            if panns._session is not None:  # pylint: disable=protected-access
+            panns = get_loaded_panns_plugin()
+            if panns is not None and panns._session is not None:  # pylint: disable=protected-access
                 tags = panns.get_tags(ref, sr)
                 return float(
                     max(
@@ -465,6 +468,25 @@ class MertMushraProxy:
                 )
         except Exception as _panns_exc:
             logger.debug("PANNs vocal detection unavailable, using spectral heuristic: %s", _panns_exc)
+
+        # Try FCPE next (no model load — only if already in memory)
+        try:
+            from plugins.fcpe_plugin import (  # pylint: disable=import-outside-toplevel
+                get_fcpe_plugin,
+                get_loaded_fcpe_plugin,
+            )
+
+            fcpe = get_loaded_fcpe_plugin()
+            if fcpe is not None:
+                pitch = fcpe.analyze(ref, sr)
+                voiced_prob = getattr(pitch, "voiced_prob", None)
+                if voiced_prob is not None:
+                    return float(np.clip(float(np.mean(np.asarray(voiced_prob, dtype=np.float32))), 0.0, 1.0))
+                f0_hz = np.asarray(getattr(pitch, "f0_hz", []), dtype=np.float32)
+                if f0_hz.size > 0:
+                    return float(np.clip(float(np.mean(f0_hz > 0.0)), 0.0, 1.0))
+        except Exception as _fcpe_exc:
+            logger.debug("FCPE vocal detection unavailable, using spectral heuristic: %s", _fcpe_exc)
 
         # Lightweight spectral heuristic fallback
         try:
@@ -865,9 +887,15 @@ class MertMushraProxy:
         Falls back to 3.0 (neutral MOS) on error.
         """
         try:
-            from plugins.visqol_plugin import get_visqol_plugin  # pylint: disable=import-outside-toplevel
+            from plugins.visqol_plugin import (  # pylint: disable=import-outside-toplevel
+                get_loaded_visqol_plugin,
+                get_visqol_plugin,
+            )
 
-            mos = get_visqol_plugin().score(ref, test, sr)
+            _visqol = get_loaded_visqol_plugin()
+            if _visqol is None:
+                _visqol = get_visqol_plugin()
+            mos = _visqol.score(ref, test, sr)
             return float(np.clip(mos, 1.0, 5.0))
         except Exception as exc:
             logger.debug("ViSQOL computation failed: %s", exc)

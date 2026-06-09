@@ -119,8 +119,11 @@ class MiipherPlugin:
         if self._model_loaded and self._model_session is not None:
             return True
         try:
+            get_loaded_sgmse_plus_plugin = _load_symbol("plugins.sgmse_plugin", "get_loaded_sgmse_plus_plugin")
             get_sgmse_plus_plugin = _load_symbol("plugins.sgmse_plugin", "get_sgmse_plus_plugin")
-            sgmse = get_sgmse_plus_plugin()
+            sgmse = get_loaded_sgmse_plus_plugin()
+            if sgmse is None:
+                sgmse = get_sgmse_plus_plugin()
             if sgmse is not None and bool(getattr(sgmse, "_model_loaded", False)):
                 return True
 
@@ -441,7 +444,11 @@ class MiipherPlugin:
 
         # --- 3. SGMSE+ nur auf Vocal-Stem ---
         sgmse_plugin = _load_module("plugins.sgmse_plugin")
-        getter = getattr(sgmse_plugin, "get_sgmse_plus_plugin", None) or getattr(sgmse_plugin, "get_sgmse_plugin", None)
+        getter = (
+            getattr(sgmse_plugin, "get_loaded_sgmse_plus_plugin", None)
+            or getattr(sgmse_plugin, "get_sgmse_plus_plugin", None)
+            or getattr(sgmse_plugin, "get_sgmse_plugin", None)
+        )
         if getter is None:
             raise RuntimeError("SGMSE+ accessor unavailable")
         sgmse = getter()
@@ -527,10 +534,10 @@ class MiipherPlugin:
         try:
             sgmse_plugin = _load_module("plugins.sgmse_plugin")
 
-            getter = getattr(sgmse_plugin, "get_sgmse_plus_plugin", None) or getattr(
-                sgmse_plugin,
-                "get_sgmse_plugin",
-                None,
+            getter = (
+                getattr(sgmse_plugin, "get_loaded_sgmse_plus_plugin", None)
+                or getattr(sgmse_plugin, "get_sgmse_plus_plugin", None)
+                or getattr(sgmse_plugin, "get_sgmse_plugin", None)
             )
             if getter is None:
                 raise RuntimeError("SGMSE+ accessor unavailable")

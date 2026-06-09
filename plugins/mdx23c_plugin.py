@@ -17,7 +17,7 @@ from __future__ import annotations
 import logging
 import threading
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 
@@ -574,7 +574,7 @@ class MDX23CPlugin:
 
             from backend.file_import import load_audio_file
 
-            _res = load_audio_file(input_wav, do_carrier_analysis=False)
+            _res = cast(dict[str, Any], load_audio_file(input_wav, do_carrier_analysis=False))
             audio = np.asarray(_res["audio"], dtype=np.float32)
             sr = int(_res["sr"])
             audio = audio[np.newaxis, :] if audio.ndim == 1 else audio.T
@@ -623,17 +623,28 @@ def get_mdx23c_plugin() -> MDX23CPlugin:
     return _plugin_instance
 
 
+def get_loaded_mdx23c_plugin() -> MDX23CPlugin | None:
+    """Gibt nur eine bereits geladene MDX23C-Instanz zurück, ohne Lazy-Load."""
+    return _plugin_instance
+
+
 # ---------------------------------------------------------------------------
 # Convenience-Funktionen
 # ---------------------------------------------------------------------------
 def separate_vocals(audio: np.ndarray, sr: int) -> np.ndarray:
     """Trenne Gesang aus dem Audio."""
-    return get_mdx23c_plugin().process(audio, sr, stem="vocals")
+    plugin = get_loaded_mdx23c_plugin()
+    if plugin is None:
+        plugin = get_mdx23c_plugin()
+    return plugin.process(audio, sr, stem="vocals")
 
 
 def separate_stems(audio: np.ndarray, sr: int, stems: list[str] | None = None) -> dict[str, np.ndarray]:
     """Trenne mehrere Stems aus dem Audio."""
-    return get_mdx23c_plugin().separate_all_stems(audio, sr, stems=stems)
+    plugin = get_loaded_mdx23c_plugin()
+    if plugin is None:
+        plugin = get_mdx23c_plugin()
+    return plugin.separate_all_stems(audio, sr, stems=stems)
 
 
 # ---------------------------------------------------------------------------

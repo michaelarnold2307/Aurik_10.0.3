@@ -29,7 +29,7 @@
   "reportMissingModuleSource": "none",
   "reportOperatorIssue": "none",
   "reportOptionalMemberAccess": "none",
-  "reportPossiblyUnbound": "none",
+  "reportPossiblyUnboundVariable": "none",
   "reportReturnType": "none",
   "reportUnknownArgumentType": "none",
   "reportUnknownMemberType": "none",

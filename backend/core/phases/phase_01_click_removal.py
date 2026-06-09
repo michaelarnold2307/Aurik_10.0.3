@@ -63,7 +63,7 @@ from scipy.interpolate import CubicSpline
 from scipy.ndimage import median_filter
 from scipy.signal import lfilter
 
-from backend.core.audio_utils import limit_quiet_edge_boost, safe_to_mono
+from backend.core.audio_utils import limit_quiet_edge_boost, restore_layout, safe_to_mono, to_channels_last
 from backend.core.dsp.silence_mask import apply_silence_preservation
 from backend.core.plugin_lifecycle_manager import get_plugin_lifecycle_manager
 
@@ -457,11 +457,14 @@ class ClickRemovalPhase(PhaseInterface):
             )
 
         # §2.51 Linked-Stereo: Click-Detektion auf Mono-Mix, Repair synchron auf L+R
+        # aber OHNE globalen Gain-Transfer. Stattdessen werden nur die erkannten
+        # Ereignisfenster kanalweise gepatcht. Saubere Gegenkanäle bleiben unverändert.
         is_stereo = audio.ndim == 2
         if is_stereo:
-            # Detect clicks on mono downmix for coherent L+R repair
-            mono_mix = safe_to_mono(audio)
-            _mono_repaired, stats_mono = self._remove_clicks_professional(
+            stereo_audio, was_transposed = to_channels_last(audio)
+            mono_mix = safe_to_mono(stereo_audio)
+            result_audio, stats_mono = self._remove_clicks_linked_stereo(
+                stereo_audio,
                 mono_mix,
                 sample_rate,
                 thresholds,
@@ -473,25 +476,7 @@ class ClickRemovalPhase(PhaseInterface):
                 panns_singing=_panns_singing,
                 protected_zones=_p01_protected_zones or None,
             )
-            # Compute gain envelope from mono repair
-            _eps_click = 1e-10
-            _gain_click = np.where(
-                np.abs(mono_mix) > _eps_click,
-                _mono_repaired / (mono_mix + _eps_click * np.sign(mono_mix + _eps_click)),
-                1.0,
-            )
-            _gain_click = np.clip(_gain_click, 0.0, 10.0)
-            # Apply identical gain to both channels
-            if audio.shape[0] == 2 and audio.shape[1] > 2:
-                left = audio[0] * _gain_click
-                right = audio[1] * _gain_click
-                result_audio = np.vstack([left, right])
-            else:
-                left = audio[:, 0] * _gain_click
-                right = audio[:, 1] * _gain_click
-                result_audio = np.column_stack([left, right])
-
-            # Statistics from mono detection
+            result_audio = restore_layout(result_audio, was_transposed)
             total_clicks = stats_mono["total"]
             ml_repaired_count = stats_mono.get("ml_repaired", 0)
             click_types = {
@@ -612,10 +597,285 @@ class ClickRemovalPhase(PhaseInterface):
                 "execution_time_seconds": execution_time,
                 "rms_drop_db": 0.0,
                 "loudness_makeup_db": 0.0,
+                "stereo_strategy": "linked_sparse_patch_transfer" if is_stereo else "mono_direct_repair",
                 "phase_locality_factor": phase_locality_factor,
                 "effective_strength": _effective_strength,
             },
         )
+
+    def _build_click_repair_plan(
+        self,
+        audio: np.ndarray,
+        sample_rate: int,
+        thresholds: dict[str, float],
+        preserve_transients: bool,
+        use_ml: bool,
+        silence_mask: np.ndarray | None = None,
+        protected_zones: list[tuple[float, float, float]] | None = None,
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, int]]:
+        """Erstellt einen deterministischen Reparaturplan für Click-Events."""
+        stats = {"short": 0, "medium": 0, "long": 0, "transients_preserved": 0, "ml_repaired": 0, "total": 0}
+        click_candidates = self._detect_clicks_multiscale(audio, thresholds)
+        classified_clicks = self._classify_clicks(audio, click_candidates, preserve_transients, thresholds)
+
+        severe_clicks: list[dict[str, Any]] = []
+        normal_clicks: list[dict[str, Any]] = []
+        for click in classified_clicks:
+            if self._click_overlaps_protected_silence(click["start"], click["end"], silence_mask, sample_rate):
+                stats["transients_preserved"] += 1
+                continue
+            if click["type"] == "transient":
+                stats["transients_preserved"] += 1
+                continue
+
+            severity = float(click.get("severity", 0.5))
+            if protected_zones:
+                _ck_s = click["start"] / sample_rate
+                _ck_e = (click["end"] + 1) / sample_rate
+                for _pz_s, _pz_e, _pz_cap in protected_zones:
+                    if _ck_s < _pz_e and _ck_e > _pz_s:
+                        severity = min(severity, _pz_cap)
+                        break
+
+            click_plan = dict(click)
+            click_plan["severity"] = severity
+            if use_ml and severity > self.ML_SEVERITY_THRESHOLD:
+                severe_clicks.append(click_plan)
+            else:
+                normal_clicks.append(click_plan)
+
+        return severe_clicks, normal_clicks, stats
+
+    def _channel_click_requires_repair(
+        self,
+        channel_audio: np.ndarray,
+        click: dict[str, Any],
+        thresholds: dict[str, float],
+    ) -> bool:
+        """Prüft, ob der konkrete Kanal im gekoppelten Stereo-Fenster wirklich einen Click trägt."""
+        start = int(click["start"])
+        end = int(click["end"])
+        duration = end - start + 1
+        if duration <= self.SHORT_CLICK_MAX:
+            base_threshold = float(thresholds["short"])
+        elif duration <= self.MEDIUM_CLICK_MAX:
+            base_threshold = float(thresholds["medium"])
+        else:
+            base_threshold = float(thresholds["long"])
+
+        local_start = max(1, start - 4)
+        local_end = min(len(channel_audio) - 1, end + 5)
+        if local_end <= local_start:
+            return False
+
+        local_diff = np.abs(np.diff(channel_audio[local_start - 1 : local_end + 1]))
+        local_peak = float(np.max(local_diff)) if local_diff.size else 0.0
+
+        ctx_radius = 48
+        before = channel_audio[max(0, start - ctx_radius) : start]
+        after = channel_audio[end + 1 : min(len(channel_audio), end + 1 + ctx_radius)]
+        context = (
+            np.concatenate([before, after]) if len(before) or len(after) else np.array([], dtype=channel_audio.dtype)
+        )
+        if context.size >= 4:
+            context_diff = np.abs(np.diff(context))
+            context_median = float(np.median(context_diff)) if context_diff.size else 0.0
+            context_mad = float(np.median(np.abs(context_diff - context_median))) if context_diff.size else 0.0
+            adaptive_gate = context_median + 3.5 * max(1.4826 * context_mad, 1e-8)
+        else:
+            adaptive_gate = base_threshold
+
+        absolute_region_peak = float(np.max(np.abs(channel_audio[start : end + 1]))) if end >= start else 0.0
+        context_peak = float(np.percentile(np.abs(context), 95)) if context.size else 0.0
+        return bool(
+            local_peak > max(base_threshold * 0.75, adaptive_gate)
+            or absolute_region_peak > context_peak + base_threshold * 0.5
+        )
+
+    def _repair_click_patch_ml(
+        self,
+        audio: np.ndarray,
+        sample_rate: int,
+        click: dict[str, Any],
+        *,
+        panns_singing: float = 0.0,
+    ) -> bool:
+        """Repariert einen einzelnen starken Click als lokales ML-Patch statt Vollsignal-Transfer."""
+        plugin = self._get_deepfilternet_plugin()
+        if plugin is None:
+            return False
+
+        start = int(click["start"])
+        end = int(click["end"])
+        duration = max(1, end - start + 1)
+        context = int(np.clip(duration * 32, 256, 2048))
+        patch_start = max(0, start - context)
+        patch_end = min(len(audio), end + context + 1)
+        if patch_end - patch_start < duration + 8:
+            return False
+
+        patch = audio[patch_start:patch_end].copy()
+        energy_bias = -6.0 if float(panns_singing) >= 0.4 else -9.0
+
+        _plm01_dfn = None
+        try:
+            _plm01_dfn = get_plugin_lifecycle_manager()
+            _plm01_dfn.set_active("DeepFilterNetV3", True)
+        except Exception:
+            _plm01_dfn = None
+
+        try:
+            repaired_patch = np.asarray(
+                plugin.enhance(patch, sr=sample_rate, energy_bias_db=energy_bias), dtype=np.float32
+            )
+            if len(repaired_patch) != len(patch):
+                return False
+            replace_start = max(patch_start, start - min(8, duration))
+            replace_end = min(patch_end, end + min(8, duration) + 1)
+            local_start = replace_start - patch_start
+            local_end = replace_end - patch_start
+            replacement = repaired_patch[local_start:local_end].copy()
+            fade = min(8, len(replacement) // 4)
+            if fade >= 2:
+                ramp = np.linspace(0.0, 1.0, fade, dtype=np.float32)
+                original = audio[replace_start:replace_end].copy()
+                replacement[:fade] = (1.0 - ramp) * original[:fade] + ramp * replacement[:fade]
+                replacement[-fade:] = ramp[::-1] * original[-fade:] + (1.0 - ramp[::-1]) * replacement[-fade:]
+            audio[replace_start:replace_end] = np.clip(replacement, -1.0, 1.0)
+            return True
+        except Exception as e:
+            logger.debug("Lokales ML-Click-Patch fehlgeschlagen: %s", e)
+            return False
+        finally:
+            if _plm01_dfn is not None:
+                try:
+                    _plm01_dfn.set_active("DeepFilterNetV3", False)
+                except Exception:
+                    pass
+
+    def _apply_click_plan_to_channel(
+        self,
+        audio: np.ndarray,
+        sample_rate: int,
+        severe_clicks: list[dict[str, Any]],
+        normal_clicks: list[dict[str, Any]],
+        thresholds: dict[str, float],
+        use_ml: bool,
+        *,
+        panns_singing: float = 0.0,
+    ) -> tuple[np.ndarray, int]:
+        """Wendet einen gekoppelten Reparaturplan kanalweise und ereignislokal an."""
+        repaired = audio.copy()
+        ml_repaired = 0
+
+        for click in severe_clicks:
+            if not self._channel_click_requires_repair(repaired, click, thresholds):
+                continue
+            if use_ml and self._repair_click_patch_ml(repaired, sample_rate, click, panns_singing=panns_singing):
+                ml_repaired += 1
+                continue
+            repaired = self._apply_click_repair_to_channel(repaired, click)
+
+        for click in normal_clicks:
+            if not self._channel_click_requires_repair(repaired, click, thresholds):
+                continue
+            repaired = self._apply_click_repair_to_channel(repaired, click)
+
+        return repaired, ml_repaired
+
+    def _apply_click_repair_to_channel(self, audio: np.ndarray, click: dict[str, Any]) -> np.ndarray:
+        """Wendet die passende lokale DSP-Reparatur für ein einzelnes Click-Event an."""
+        start_idx = int(click["start"])
+        end_idx = int(click["end"])
+        duration = end_idx - start_idx + 1
+        if duration <= self.SHORT_CLICK_MAX:
+            return self._interpolate_linear(audio, start_idx, end_idx)
+        if duration <= self.MEDIUM_CLICK_MAX:
+            _mask_rbme = np.zeros(len(audio), dtype=bool)
+            _mask_rbme[start_idx : end_idx + 1] = True
+            _rbme_out = self._rbme_interpolate(audio, _mask_rbme)
+            _gap_changed = not np.allclose(
+                _rbme_out[start_idx : end_idx + 1],
+                audio[start_idx : end_idx + 1],
+                atol=1e-7,
+            )
+            if _gap_changed:
+                return _rbme_out
+            return self._interpolate_cubic(audio, start_idx, end_idx)
+        return self._interpolate_spectral(audio, start_idx, end_idx)
+
+    def _remove_clicks_linked_stereo(
+        self,
+        stereo_audio: np.ndarray,
+        mono_mix: np.ndarray,
+        sample_rate: int,
+        thresholds: dict[str, float],
+        preserve_transients: bool,
+        use_ml: bool,
+        panns_singing: float = 0.0,
+        progress_callback: Any = None,
+        silence_mask: np.ndarray | None = None,
+        start_time: float | None = None,
+        protected_zones: list[tuple[float, float, float]] | None = None,
+    ) -> tuple[np.ndarray, dict[str, int]]:
+        """Linked-Stereo-Reparatur mit mono-gekoppelter Detektion und kanal-lokalen Patches."""
+        severe_clicks, normal_clicks, stats = self._build_click_repair_plan(
+            mono_mix,
+            sample_rate,
+            thresholds,
+            preserve_transients,
+            use_ml,
+            silence_mask=silence_mask,
+            protected_zones=protected_zones,
+        )
+        self._emit_progress(
+            progress_callback,
+            18.0,
+            "Knackser werden lokalisiert",
+            time.time() - (start_time or time.time()),
+        )
+        self._emit_progress(
+            progress_callback,
+            32.0,
+            "Knackser werden klassifiziert",
+            time.time() - (start_time or time.time()),
+        )
+
+        repaired = stereo_audio.copy()
+        total_channels = max(1, repaired.shape[1])
+        ml_used_any = False
+        for channel_idx in range(total_channels):
+            if channel_idx == 0:
+                self._emit_progress(
+                    progress_callback,
+                    45.0,
+                    "Knackser werden kanal-lokal repariert",
+                    time.time() - (start_time or time.time()),
+                )
+            channel_repaired, channel_ml = self._apply_click_plan_to_channel(
+                repaired[:, channel_idx],
+                sample_rate,
+                severe_clicks,
+                normal_clicks,
+                thresholds,
+                use_ml,
+                panns_singing=panns_singing,
+            )
+            repaired[:, channel_idx] = channel_repaired
+            ml_used_any = ml_used_any or channel_ml > 0
+
+        for click in severe_clicks + normal_clicks:
+            duration = int(click["end"]) - int(click["start"]) + 1
+            if duration <= self.SHORT_CLICK_MAX:
+                stats["short"] += 1
+            elif duration <= self.MEDIUM_CLICK_MAX:
+                stats["medium"] += 1
+            else:
+                stats["long"] += 1
+            stats["total"] += 1
+        if ml_used_any:
+            stats["ml_repaired"] = len(severe_clicks)
+        return repaired, stats
 
     def _remove_clicks_professional(
         self,
@@ -638,54 +898,27 @@ class ClickRemovalPhase(PhaseInterface):
         """
         audio_cleaned = audio.copy()
 
-        # Statistics
-        stats = {"short": 0, "medium": 0, "long": 0, "transients_preserved": 0, "ml_repaired": 0, "total": 0}
-
-        # Step 1: Detect click candidates (multi-scale)
-        click_candidates = self._detect_clicks_multiscale(audio, thresholds)
+        severe_clicks, normal_clicks, stats = self._build_click_repair_plan(
+            audio,
+            sample_rate,
+            thresholds,
+            preserve_transients,
+            use_ml,
+            silence_mask=silence_mask,
+            protected_zones=protected_zones,
+        )
         self._emit_progress(
             progress_callback,
             18.0,
             "Knackser werden lokalisiert",
             time.time() - (start_time or time.time()),
         )
-
-        # Step 2: Classify click types and calculate severity
-        classified_clicks = self._classify_clicks(audio, click_candidates, preserve_transients, thresholds)
         self._emit_progress(
             progress_callback,
             32.0,
             "Knackser werden klassifiziert",
             time.time() - (start_time or time.time()),
         )
-
-        # Step 3: Separate clicks by severity for ML routing
-        severe_clicks = []  # severity >0.6, use ML if available
-        normal_clicks = []  # severity <=0.6, use DSP
-
-        for click in classified_clicks:
-            if self._click_overlaps_protected_silence(click["start"], click["end"], silence_mask, sample_rate):
-                stats["transients_preserved"] += 1
-                continue
-            if click["type"] == "transient":
-                stats["transients_preserved"] += 1
-                continue  # Skip musical transients
-
-            severity = click.get("severity", 0.5)
-
-            # §V38 Schutzzonen-Cap: Click-Severity in VFA-Schutzzonen begrenzen → DSP statt ML.
-            if protected_zones:
-                _ck_s = click["start"] / sample_rate
-                _ck_e = (click["end"] + 1) / sample_rate
-                for _pz_s, _pz_e, _pz_cap in protected_zones:
-                    if _ck_s < _pz_e and _ck_e > _pz_s:
-                        severity = min(severity, _pz_cap)
-                        break
-
-            if use_ml and severity > self.ML_SEVERITY_THRESHOLD:
-                severe_clicks.append(click)
-            else:
-                normal_clicks.append(click)
 
         # Step 4: Process severe clicks with ML (if available and enabled)
         if severe_clicks and use_ml:
@@ -737,32 +970,12 @@ class ClickRemovalPhase(PhaseInterface):
             start_idx = click["start"]
             end_idx = click["end"]
             duration = end_idx - start_idx + 1
-
-            # Choose interpolation method based on click characteristics
+            audio_cleaned = self._apply_click_repair_to_channel(audio_cleaned, click)
             if duration <= self.SHORT_CLICK_MAX:
-                # Short clicks: Linear interpolation
-                audio_cleaned = self._interpolate_linear(audio_cleaned, start_idx, end_idx)
                 stats["short"] += 1
             elif duration <= self.MEDIUM_CLICK_MAX:
-                # Medium clicks: RBME (Roux & Bimbot 2014) primary → Cubic spline fallback
-                _mask_rbme = np.zeros(len(audio_cleaned), dtype=bool)
-                _mask_rbme[start_idx : end_idx + 1] = True
-                _rbme_out = self._rbme_interpolate(audio_cleaned, _mask_rbme)
-                # RBME returns unchanged copy when context is insufficient;
-                # detect by comparing gap region to fall back to cubic spline.
-                _gap_changed = not np.allclose(
-                    _rbme_out[start_idx : end_idx + 1],
-                    audio_cleaned[start_idx : end_idx + 1],
-                    atol=1e-7,
-                )
-                if _gap_changed:
-                    audio_cleaned = _rbme_out
-                else:
-                    audio_cleaned = self._interpolate_cubic(audio_cleaned, start_idx, end_idx)
                 stats["medium"] += 1
             else:
-                # Long clicks: Spectral interpolation (ARX-based)
-                audio_cleaned = self._interpolate_spectral(audio_cleaned, start_idx, end_idx)
                 stats["long"] += 1
 
             stats["total"] += 1

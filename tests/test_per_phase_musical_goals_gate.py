@@ -31,6 +31,7 @@ import pytest
 SR = 48_000
 
 # ── Imports ──────────────────────────────────────────────────────────────────
+import backend.core.per_phase_musical_goals_gate as ppmgg
 from backend.core.per_phase_musical_goals_gate import (
     FAST_GOALS_SUBSET,
     MAX_RETRIES,
@@ -561,7 +562,6 @@ class TestPreciseMetricOverrides:
     """Selected PMGG goals should be refinable via canonical metric overrides."""
 
     def test_49_measure_quick_applies_precise_metric_overrides(self, monkeypatch):
-        from backend.core import per_phase_musical_goals_gate as ppmgg
 
         class _FixedMetric:
             def __init__(self, value: float) -> None:
@@ -864,3 +864,33 @@ class TestDecisionReasonTelemetry:
 
         assert log_entry.metadata["pmgg_decision_class"] == "best_effort"
         assert log_entry.metadata["pmgg_decision_reason"] == "legacy_best_effort_accepted"
+
+    def test_60_wrap_phase_sets_decision_reason_for_reconstruction_localized_accept(self, monkeypatch):
+        audio = _tone(4.0)
+        gate = PerPhaseMusicalGoalsGate()
+
+        def _stub_run_with_retry(
+            self,
+            phase,
+            audio_in,
+            sr,
+            scores_before,
+            phase_id,
+            phase_kwargs=None,
+            **kwargs,
+        ):
+            scores_after = dict(scores_before)
+            scores_after["waerme"] = max(0.0, scores_after.get("waerme", 0.5) - 0.10)
+            return audio_in.copy(), scores_after, "passed_reconstruction_localized", 0.62
+
+        monkeypatch.setattr(PerPhaseMusicalGoalsGate, "_run_with_retry", _stub_run_with_retry)
+
+        _, _, log_entry = gate.wrap_phase(
+            _StrengthCapturingPhase(),
+            audio,
+            SR,
+            phase_id="phase_55_diffusion_inpainting",
+        )
+
+        assert log_entry.metadata["pmgg_decision_class"] == "pass"
+        assert log_entry.metadata["pmgg_decision_reason"] == "reconstruction_localized_collateral_accept"

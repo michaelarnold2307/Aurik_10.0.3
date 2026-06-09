@@ -1060,6 +1060,54 @@ if export_hpi > 0 and metadata.get("artifact_freedom", 0) >= 0.95:
 - Write ist atomic (write to `.tmp`, dann `os.replace`).
 - **VERBOTEN**: `RestorationMemory` auf Cloudspeicher oder Netzwerkpfade schreiben — rein lokal.
 
+**Coalition-aware Prior-Invariante (v9.15.4)**:
+
+- Erfolgreiche Läufe dürfen zusätzlich Koalitions-Lernsignale in `phase_params` persistieren:
+    `_coalition_learning_factor`, `_dominant_phase_coalition_ratio`, `_phase_coalition_count`.
+- Diese Felder sind advisory-only für den GP-Start und dürfen harte Gates (PMGG/CIG/AFG/HPI)
+    niemals überstimmen.
+- Beim Laden eines Priors MUSS UV3 den geladenen Prior in `_restoration_context` spiegeln
+    (`restoration_memory_prior`), damit Downstream-Module und Telemetrie dieselbe Referenz sehen.
+
+## §2.78b Runtime-Metric-Reliability-Graph [RELEASE_MUST v9.15.5]
+
+**Problem**: PMGG/Phase-Deltas liefern pro Phase reichhaltige Proxy-Telemetrie, aber ohne
+laufzeitnahe Reliability-Kalibrierung bleiben Goal-Konfidenzen in Grenzfällen zu statisch.
+
+**Lösung**: Ein kontextsensitiver `MetricReliabilityGraph` kalibriert Goal-Zuverlässigkeit
+online aus realen Phase-Deltas und PMGG-Metadaten (Team-Net-Delta,
+Reconstruction-Localized, epistemic confidence).
+
+```python
+# Vor AdaptivePhaseRescheduler.reschedule(...)
+from backend.core.metric_reliability_graph import get_metric_reliability_graph
+
+_mrg = get_metric_reliability_graph()
+_mrg.update_from_phase_delta(
+        phase_id=phase_id,
+        goal_deltas=self._phase_deltas.get(phase_id, {}).get("delta", {}),
+        phase_metadata=self._phase_metadata_accumulator.get(phase_id, {}),
+        material_type=material_key,
+        transfer_chain=transfer_chain,
+        is_studio_2026=self.is_studio_mode(),
+        era_decade=decade,
+)
+runtime_conf = _mrg.get_goal_reliability(...)
+base_w, runtime_w = _mrg.get_blend_weights(...)
+blended_conf = base_w * base_conf + runtime_w * runtime_conf
+```
+
+**Invarianten**:
+
+- Advisory-only: Der Graph darf harte Gates (PMGG/CIG/AFG/HPI/VQI) niemals ersetzen.
+- Offline-only: Persistenz ausschließlich lokal (`~/.aurik/metric_reliability_graph.json`,
+    atomarer Write, non-blocking Read/Write).
+- Gebundene Werte: Goal-Reliability immer in `[0.20, 0.98]`.
+- Kontextbindung Pflicht: Key muss mindestens Modus, Material, Era-Bucket und
+    Chain-Komplexitäts-Bucket enthalten.
+- Blend-Gewichte müssen adaptiv sein (cross-run Evidenz), normiert auf 1.0 und
+    in den Grenzen `base ∈ [0.40, 0.75]`, `runtime ∈ [0.25, 0.60]` liegen.
+
 > Datei-Pfad: `~/.aurik/restoration_memory.json`. Konfigurierbar via `AURIK_MEMORY_PATH`-Env-Variable (Desktop-Offline-Pflicht beachten).
 
 ## §2.71 Formant-Toleranz-Verscharfäung [RELEASE_MUST v9.5]
@@ -1223,9 +1271,14 @@ audio = apply_onset_protection_mask(
 
 > `cassette` → intern immer als `tape` in `_MATERIAL_PRIORITY_PHASES`
 
-## §2.78 AdaptivePhaseRescheduler — Geschlossener Regelkreis [RELEASE_MUST v9.12.9]
+## §2.78 AdaptivePhaseRescheduler — Geschlossener Regelkreis [RELEASE_MUST v9.15.3]
 
-**Funktion**: Nach jeder Phase werden Goal-Lücken (`song_goal_targets[g] − post_snap[g]`) berechnet. Für Goals mit `gap > 0.05` injiziert der Rescheduler die Primär-Recovery-Phase (aus `get_goal_recovery_phases()`) ans Ende von `selected_phases`. Python's `for`-Loop besucht neu angehängte Elemente — kein Loop-Refactoring nötig.
+**Funktion**: Nach jeder Phase werden Goal-Lücken (`song_goal_targets[g] − post_snap[g]`) berechnet. Für Goals mit signifikantem Gap injiziert der Rescheduler die Primär-Recovery-Phase (aus `get_goal_recovery_phases()`) ans Ende von `selected_phases`. Python's `for`-Loop besucht neu angehängte Elemente — kein Loop-Refactoring nötig.
+
+**Koalitionsregel**: Wenn die Primär-Recovery-Phase eines Goals auch in den Recovery-Listen
+anderer offener Goals auftaucht, bekommt dieses Goal einen kleinen Prioritätsbonus. Dadurch
+werden Phasen bevorzugt, die mehrere offene Defizite zusammen adressieren können, ohne dass
+§2.45 Minimal-Intervention oder die Ein-Phase-pro-Goal-Regel aufgeweicht werden.
 
 **Modul**: `backend/core/adaptive_phase_rescheduler.py` (Singleton `get_adaptive_phase_rescheduler()`)
 
@@ -1237,6 +1290,7 @@ audio = apply_onset_protection_mask(
 - §2.65 MAS: `_mas_fully_achieved=True` → Rescheduler nicht aufgerufen (UV3-Guard)
 - §_SELF_MANAGED_GOALS: `vocal_quality`, `formant_fidelity` haben eigene Recovery-Pfade (VQI-Gate §0p) → kein Rescheduler-Override
 - Max 3 Injektionen pro Song-Session (`MAX_INJECTIONS_PER_SESSION`); `reset_session()` nach Song
+- Koalitionsbonus ist nur Reihenfolge-Hint; Session-Grenzen, Executed/Plan-Guards und §0a bleiben bindend
 
 **Integration in UV3 (§Hebel-3 Block)**:
 

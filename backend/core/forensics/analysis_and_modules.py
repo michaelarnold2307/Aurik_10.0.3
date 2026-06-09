@@ -838,7 +838,11 @@ class AnalysisEngineAdapter:
             if genre_counter:
                 genre = genre_counter.most_common(1)[0][0]
                 # Average confidence of this genre across votes
-                genre_confidence = np.mean([conf for g, conf in genre_votes if g == genre])
+                genre_mean_conf = float(np.mean([conf for g, conf in genre_votes if g == genre]))
+                genre_consensus = float(genre_counter.get(genre, 0)) / float(max(len(genre_votes), 1))
+                # Konsens + Evidenzstärke: gleiche Votes sollen die Konfidenz spürbar
+                # erhöhen, aber nicht über die lokale Mittelung hinaus halluzinieren.
+                genre_confidence = max(genre_mean_conf, 0.5 * genre_mean_conf + 0.5 * genre_consensus)
 
                 # 🎯 CONFIDENCE THRESHOLD: Only report if >50% confident
                 if genre_confidence < 0.50:

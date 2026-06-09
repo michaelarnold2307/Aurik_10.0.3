@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Batch Processing System for Aurik 9.12.10
+Batch Processing System for Aurik 9.15.0
 ========================================
 
 Process multiple audio files in parallel with progress tracking.
@@ -431,7 +431,7 @@ class BatchProcessor:
 
 def main():
     """Parse CLI arguments and run batch processing."""
-    parser = argparse.ArgumentParser(description="Batch process audio files with Aurik 9.12.10")
+    parser = argparse.ArgumentParser(description="Batch process audio files with Aurik 9.15.0")
     parser.add_argument("inputs", nargs="+", help="Input files or directories")
     parser.add_argument("-o", "--output", required=True, help="Output directory")
     parser.add_argument(

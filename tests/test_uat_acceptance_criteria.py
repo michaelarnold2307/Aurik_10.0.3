@@ -9,15 +9,97 @@ Output is formatted for audit/uat_report_generator.py machine parsing.
 """
 
 import json
+import multiprocessing as mp
 import os
 import re
+import shutil
 import subprocess
 import sys
+import tempfile
+import traceback
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 import pytest
+
+
+def _run_real_audio_restore_child(
+    audio: np.ndarray,
+    sr: int,
+    ml_runtime_budget_s: float,
+    payload_path: str,
+    error_path: str,
+) -> None:
+    try:
+        os.environ.setdefault("AURIK_SAFE_VALIDATION_PROFILE", "1")
+        from backend.core.performance_guard import QualityMode
+        from backend.core.unified_restorer_v3 import RestorationConfig, UnifiedRestorerV3
+
+        cfg = RestorationConfig(
+            mode=QualityMode.FAST,
+            enable_performance_guard=True,
+            enable_phase_gate=True,
+            enable_phase_skipping=True,
+        )
+        restorer = UnifiedRestorerV3(config=cfg)
+        restored_result = restorer.restore(
+            audio,
+            sample_rate=sr,
+            mode="fast",
+            ml_runtime_budget_s=ml_runtime_budget_s,
+        )
+        np.savez(
+            payload_path,
+            audio=np.asarray(restored_result.audio, dtype=np.float32),
+            material_type=np.asarray(
+                [str(getattr(getattr(restored_result, "material_type", "unknown"), "value", "unknown"))],
+                dtype=object,
+            ),
+        )
+    except Exception:
+        Path(error_path).write_text(traceback.format_exc(), encoding="utf-8")
+
+
+def _run_real_audio_restore_with_timeout(
+    audio: np.ndarray,
+    sr: int,
+    ml_runtime_budget_s: float,
+    timeout_s: float,
+) -> dict[str, Any]:
+    ctx = mp.get_context("spawn")
+    tmp_dir = Path(tempfile.mkdtemp(prefix="aurik_real_audio_restore_"))
+    payload_path = tmp_dir / "payload.npz"
+    error_path = tmp_dir / "error.txt"
+    process = ctx.Process(
+        target=_run_real_audio_restore_child,
+        args=(audio, sr, ml_runtime_budget_s, str(payload_path), str(error_path)),
+        daemon=True,
+    )
+    try:
+        process.start()
+        process.join(max(0.0, float(timeout_s)))
+        if process.is_alive():
+            process.terminate()
+            process.join(10.0)
+            if process.is_alive():
+                process.kill()
+                process.join(5.0)
+            raise RuntimeError(f"real-audio fixture timeout after {float(timeout_s):.1f}s")
+
+        if error_path.exists():
+            raise RuntimeError(error_path.read_text(encoding="utf-8"))
+        if not payload_path.exists():
+            raise RuntimeError(f"real-audio fixture child exited without payload (exitcode={process.exitcode})")
+
+        with np.load(payload_path, allow_pickle=True) as payload_npz:
+            return {
+                "audio": np.asarray(payload_npz["audio"], dtype=np.float32),
+                "material_type": str(np.asarray(payload_npz["material_type"], dtype=object).reshape(-1)[0]),
+            }
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+
 
 # ============================================================================
 # CRITERIA DEFINITIONS
@@ -342,10 +424,10 @@ RELEASE_GATES = [
     },
     {
         "id": "G6",
-        "name": "OQS ≥ 80 auf ≥1 AMRB-Szenario",
-        "description": "AMRB-Benchmark: Aurik erreicht mindestens auf 1/10 Szenarien OQS 80+",
+        "name": "Stratifizierter AMRB-Gate",
+        "description": "AMRB-Benchmark: OQS ≥ 80 im stratifizierten Mehrszenario-Profil (Era/Material/Vokal)",
         "ko": False,
-        "test_id": "test_amrb_minimum_oqs_80",
+        "test_id": "test_amrb_stratified_multi_scenario_gate",
         "severity": "MAJOR",
     },
     {
@@ -606,6 +688,47 @@ def _compute_runtime_segments(
     return segments
 
 
+def _compute_runtime_stereo_segments(
+    original: np.ndarray,
+    restored: np.ndarray,
+    sr: int,
+) -> list[dict[str, Any]]:
+    """Leichte Segmentmetriken für reinen Stereo-Erhalt (R5-only Fastpath)."""
+    segments: list[dict[str, Any]] = []
+    for segment in _select_vocal_focus_segments(original, sr):
+        start = int(segment["start"])
+        end = int(segment["end"])
+        original_seg = original[start:end]
+        restored_seg = restored[start:end]
+        segments.append(
+            {
+                "index": int(segment["index"]),
+                "start": start,
+                "end": end,
+                "score": float(segment["score"]),
+                "side_before": _stereo_side_ratio(original_seg),
+                "side_after": _stereo_side_ratio(restored_seg),
+                "corr_before": (
+                    _safe_corr(original_seg[:, 0], original_seg[:, 1])
+                    if original_seg.ndim == 2 and original_seg.shape[1] >= 2
+                    else 1.0
+                ),
+                "corr_after": (
+                    _safe_corr(restored_seg[:, 0], restored_seg[:, 1])
+                    if restored_seg.ndim == 2 and restored_seg.shape[1] >= 2
+                    else 1.0
+                ),
+            }
+        )
+    return segments
+
+
+def _selected_uat_ids_from_argv() -> set[str]:
+    """Best-effort Auswahl der explizit angeforderten UAT-IDs aus der pytest-Kommandozeile."""
+    argv_text = " ".join(str(arg) for arg in sys.argv)
+    return {match.upper() for match in re.findall(r"\b[RS]\d{1,2}\b", argv_text, flags=re.IGNORECASE)}
+
+
 _UAT_RESULT_MARKER = "UAT_RESULT_JSON:"
 
 
@@ -693,78 +816,88 @@ def _write_json_dict(path: Path, payload: dict[str, Any]) -> None:
 @pytest.fixture(scope="module")
 def real_audio_runtime_case(real_audio_gate_case: dict[str, object]) -> dict[str, Any]:
     """Run one real-audio restoration pass and cache runtime metrics for R5-R12."""
-    from backend.core.musical_goals.musical_goals_metrics import MusicalGoalsChecker
-    from backend.core.performance_guard import QualityMode
-    from backend.core.unified_restorer_v3 import RestorationConfig, UnifiedRestorerV3
-
     original = _to_samples_first(np.asarray(real_audio_gate_case["audio"], dtype=np.float32))
     sr = int(real_audio_gate_case["sr"])
+    selected_ids = _selected_uat_ids_from_argv()
+    r5_only_fastpath = selected_ids == {"R5"}
 
     # Bound heavy real-audio runtime for R5-R12 gate checks.
-    # A representative 20 s window is sufficient for stereo/noise/LUFS/goal checks
-    # while preventing setup timeouts on long source files.
-    _max_gate_seconds = 20
+    # Default is intentionally tighter than the historical 20 s / 8 s ML budget,
+    # because serial Heavy-Gates should stay deterministic on workstation runners.
+    # Overrides remain possible for explicit deep runs.
+    _max_gate_seconds = int(float(os.environ.get("AURIK_R5_R12_MAX_SECONDS", "12") or 12))
+    _ml_runtime_budget_s = float(os.environ.get("AURIK_R5_R12_ML_RUNTIME_BUDGET_S", "3.0") or 3.0)
+    _restore_timeout_s = float(os.environ.get("AURIK_R5_R12_RESTORE_TIMEOUT_S", "120") or 120.0)
+    if r5_only_fastpath:
+        _max_gate_seconds = min(_max_gate_seconds, 4)
     _max_n = int(sr * _max_gate_seconds)
     if original.shape[0] > _max_n:
         _start = (original.shape[0] - _max_n) // 2
         original = original[_start : _start + _max_n]
 
-    cfg = RestorationConfig(
-        mode=QualityMode.FAST,
-        enable_performance_guard=True,
-        enable_phase_gate=True,
-        enable_phase_skipping=True,
-    )
-    restorer = UnifiedRestorerV3(config=cfg)
     restorer_input = original.T if original.ndim == 2 else original
-    restored_result = restorer.restore(
-        restorer_input,
-        sample_rate=sr,
-        mode="fast",
-        ml_runtime_budget_s=8.0,
-    )
-    restored = _to_samples_first(np.asarray(restored_result.audio, dtype=np.float32))
+    try:
+        restored_payload = _run_real_audio_restore_with_timeout(
+            restorer_input,
+            sr,
+            _ml_runtime_budget_s,
+            _restore_timeout_s,
+        )
+    except RuntimeError as exc:
+        pytest.fail(f"R5-R12 real-audio setup timed out: {exc}")
+    restored = _to_samples_first(np.asarray(restored_payload["audio"], dtype=np.float32))
 
     # Align lengths for metric deltas.
     n = min(original.shape[0], restored.shape[0])
     original = original[:n]
     restored = restored[:n]
 
-    checker = MusicalGoalsChecker(mode="restoration")
-    original_goals_input = _to_mono(original)
-    restored_goals_input = _to_mono(restored)
-    goals_before = checker.measure_all(original_goals_input, sr)
-    goals_after = checker.measure_all(restored_goals_input, sr, reference=original_goals_input)
-    segments = _compute_runtime_segments(original, restored, sr, checker)
+    goals_before: dict[str, float] = {}
+    goals_after: dict[str, float] = {}
+    if r5_only_fastpath:
+        segments = _compute_runtime_stereo_segments(original, restored, sr)
+    else:
+        from backend.core.musical_goals.musical_goals_metrics import MusicalGoalsChecker
+
+        checker = MusicalGoalsChecker(mode="restoration")
+        original_goals_input = _to_mono(original)
+        restored_goals_input = _to_mono(restored)
+        goals_before = checker.measure_all(original_goals_input, sr)
+        goals_after = checker.measure_all(restored_goals_input, sr, reference=original_goals_input)
+        segments = _compute_runtime_segments(original, restored, sr, checker)
 
     case_payload = {
         "path": str(real_audio_gate_case["path"]),
         "sr": sr,
-        "material_type": str(getattr(getattr(restored_result, "material_type", "unknown"), "value", "unknown")),
+        "material_type": str(restored_payload.get("material_type", "unknown")),
         "original": original,
         "restored": restored,
-        "result": restored_result,
         "goals_before": goals_before,
         "goals_after": goals_after,
         "segments": segments,
-        "lufs_before": _integrated_lufs_or_fallback(original, sr),
-        "lufs_after": _integrated_lufs_or_fallback(restored, sr),
-        "noise_before_dbfs": _noise_floor_dbfs(original),
-        "noise_after_dbfs": _noise_floor_dbfs(restored),
+        "lufs_before": _integrated_lufs_or_fallback(original, sr) if not r5_only_fastpath else float("nan"),
+        "lufs_after": _integrated_lufs_or_fallback(restored, sr) if not r5_only_fastpath else float("nan"),
+        "noise_before_dbfs": _noise_floor_dbfs(original) if not r5_only_fastpath else float("nan"),
+        "noise_after_dbfs": _noise_floor_dbfs(restored) if not r5_only_fastpath else float("nan"),
     }
 
     # R5-R12 Auto-Delta gegen letzte stabile Baseline (non-blocking).
     baseline_path = Path(os.environ.get("AURIK_R5_R12_BASELINE_PATH", "analysis_results/uat_r5_r12_baseline.json"))
-    current_summary = _build_r5_r12_summary(case_payload)
-    baseline_summary = _load_json_dict(baseline_path).get("summary", {})
     summary_delta: dict[str, float] = {}
-    if isinstance(baseline_summary, dict) and baseline_summary:
+    current_summary = _build_r5_r12_summary(case_payload) if not r5_only_fastpath else {}
+    baseline_summary = _load_json_dict(baseline_path).get("summary", {}) if not r5_only_fastpath else {}
+    if isinstance(baseline_summary, dict) and baseline_summary and current_summary:
         summary_delta = _compute_summary_delta(current_summary, baseline_summary)
     case_payload["r5_r12_summary"] = dict(current_summary)
     case_payload["r5_r12_delta_vs_baseline"] = dict(summary_delta)
     case_payload["r5_r12_baseline_path"] = str(baseline_path)
 
-    if os.environ.get("AURIK_UPDATE_R5_R12_BASELINE", "0").strip().lower() in {"1", "true", "yes", "on"}:
+    if current_summary and os.environ.get("AURIK_UPDATE_R5_R12_BASELINE", "0").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }:
         _write_json_dict(
             baseline_path,
             {
@@ -1382,23 +1515,34 @@ def test_pmgg_no_rollback_skipping():
 @pytest.mark.ml
 @pytest.mark.slow
 @pytest.mark.timeout(600)
-def test_amrb_minimum_oqs_80():
-    """Gate G6: AMRB achieves OQS >= 80 on at least one scenario.
+def test_amrb_stratified_multi_scenario_gate():
+    """Gate G6: Stratifizierter AMRB-Qualitaetsgate.
 
     This is intentionally classified as heavy (`ml` + `slow`), so default test
     runs deselect it via root `conftest.py`. In heavy runs it executes a real
     AMRB benchmark instead of using a hard skip.
+
+    Ziel: Nicht nur ein Minimalfall, sondern eine kleine stratifizierte
+    Mehrszenario-Abdeckung fuer robuste Qualitaetsaussagen.
     """
     from unittest.mock import patch
 
     from benchmarks.musical_restoration_benchmark import BenchmarkConfig, run_benchmark
 
+    gate_scenarios = [
+        "AMRB-01-TAPE",
+        "AMRB-02-VINYL",
+        "AMRB-04-DIGITAL",
+        "AMRB-06-VOCAL",
+        "AMRB-10-COMPOSITE",
+    ]
+
     def _aurik_restoration_fn(audio, sr):
         from backend.core.unified_restorer_v3 import get_restorer
 
         restorer = get_restorer()
-        # Gate G6 validates minimum AMRB behavior on one scenario, not max-quality throughput.
-        # Use explicit fast mode to keep this heavy UAT gate bounded and deterministic.
+        # Gate G6 ist stratifiziert, bleibt aber mit explizitem Fast-Mode
+        # fuer CI-Runtime begrenzt und deterministisch.
         result = restorer.restore(audio, sr, mode="fast")
         return result.audio
 
@@ -1414,19 +1558,27 @@ def test_amrb_minimum_oqs_80():
                 system_name="Aurik 9 UAT Gate G6",
                 n_items_per_scenario=1,
                 duration_s=5.0,
-                scenarios=["AMRB-04-DIGITAL"],
+                scenarios=gate_scenarios,
                 verbose=False,
-                # Lightweight gate profile: validate minimum OQS behavior on one
-                # representative AMRB scenario without full-suite runtime overhead.
+                # Stratifizierte Lightweight-Variante fuer stabile CI-Laufzeit.
                 enable_mushra_proxy=False,
                 enable_musical_goals=False,
                 enable_formal_session=False,
                 enforce_min_fragment_guard=False,
             )
         )
-    best_oqs = max((res.mushra_mean for res in report.scenario_results.values()), default=0.0)
-    assert best_oqs >= 80.0, (
-        f"Gate G6 failed: best scenario OQS={best_oqs:.1f} < 80.0 "
+    scores = [res.mushra_mean for res in report.scenario_results.values()]
+    assert scores, "Gate G6 failed: no scenario scores available"
+
+    min_oqs = min(scores)
+    mean_oqs = float(np.mean(scores))
+
+    assert min_oqs >= 80.0, (
+        f"Gate G6 failed: min scenario OQS={min_oqs:.1f} < 80.0 "
+        f"(overall={report.overall_score:.1f}, passed={report.n_passed}/{report.n_scenarios})"
+    )
+    assert mean_oqs >= 82.0, (
+        f"Gate G6 failed: mean scenario OQS={mean_oqs:.1f} < 82.0 "
         f"(overall={report.overall_score:.1f}, passed={report.n_passed}/{report.n_scenarios})"
     )
 

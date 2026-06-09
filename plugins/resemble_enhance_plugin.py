@@ -287,5 +287,10 @@ def get_resemble_enhance_plugin() -> ResembleEnhancePlugin:
     return _inst_holder[0]
 
 
+def get_loaded_resemble_enhance_plugin() -> ResembleEnhancePlugin | None:
+    """Gibt nur eine bereits geladene Resemble-Enhance-Instanz zurück, ohne Lazy-Load."""
+    return _inst_holder[0]
+
+
 def enhance_audio(audio: np.ndarray, sr: int) -> np.ndarray:
     return np.asarray(get_resemble_enhance_plugin().enhance(audio, sr))

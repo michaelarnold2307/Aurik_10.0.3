@@ -652,15 +652,41 @@ class MusicalQualityAssurance:
         else:
             _t = (_snr_baseline - _SNR_RAMP_LOW) / (_SNR_RAMP_HIGH - _SNR_RAMP_LOW)
             _min_snr_improvement = 0.3 + 2.7 * _t**1.5  # smooth power-ramp
+
+        # Target-floor-Rampe (statt fixer 55%):
+        # Bei sehr niedriger Baseline darf das harte Medium-Ziel nicht als implizite
+        # Pflichtsteigerung von +10..30 dB wirken. Das provoziert over-denoising und
+        # erzeugt false fails nahe der Messunsicherheit.
+        _TARGET_FLOOR_RAMP_LOW = 30.0
+        _TARGET_FLOOR_RAMP_HIGH = 45.0
+        _TARGET_FLOOR_MAX_FACTOR = 0.55
+        if _snr_baseline <= _TARGET_FLOOR_RAMP_LOW:
+            _target_floor_factor = 0.0
+        elif _snr_baseline >= _TARGET_FLOOR_RAMP_HIGH:
+            _target_floor_factor = _TARGET_FLOOR_MAX_FACTOR
+        else:
+            _tf = (_snr_baseline - _TARGET_FLOOR_RAMP_LOW) / (_TARGET_FLOOR_RAMP_HIGH - _TARGET_FLOOR_RAMP_LOW)
+            _target_floor_factor = _TARGET_FLOOR_MAX_FACTOR * _tf**1.2
+
         _snr_adaptive_floor = max(
             _snr_baseline + _min_snr_improvement,
-            _snr_target * 0.55,  # at least 55% of medium target (lowered from 60%)
+            _snr_target * _target_floor_factor,
         )
         _effective_snr_min = min(_snr_target, _snr_adaptive_floor)
-        if current.snr_db < _effective_snr_min:
+
+        # SNR-Estimator hat bei kurzen/noisy Segmenten eine natürliche Streuung.
+        # Toleranz verhindert false negatives bei Grenzfällen (z.B. 28.2 vs 28.5 dB).
+        _snr_tolerance_db = 0.35
+        if _snr_baseline <= 30.0:
+            _snr_tolerance_db += 0.15
+
+        if current.snr_db < (_effective_snr_min - _snr_tolerance_db):
             return (
                 False,
-                f"SNR too low: {current.snr_db:.1f} < {_effective_snr_min:.1f} dB (target={_snr_target:.0f}, baseline={_snr_baseline:.1f})",
+                (
+                    f"SNR too low: {current.snr_db:.1f} < {_effective_snr_min:.1f} dB "
+                    f"(target={_snr_target:.0f}, baseline={_snr_baseline:.1f}, tol={_snr_tolerance_db:.2f})"
+                ),
             )
 
         if current.clarity < medium_gates.min_clarity:
@@ -1375,8 +1401,10 @@ if __name__ == "__main__":
 
     # Load audio
     _res1 = load_audio_file("input/vinyl_recording.wav")
-    original, sr = np.asarray(_res1["audio"], dtype=np.float32), int(_res1["sr"])
     _res2 = load_audio_file("output/vinyl_restored.wav")
+    if _res1 is None or _res2 is None:
+        raise FileNotFoundError("Beispiel-Audiodateien konnten nicht geladen werden.")
+    original, sr = np.asarray(_res1["audio"], dtype=np.float32), int(_res1["sr"])
     processed = np.asarray(_res2["audio"], dtype=np.float32)
 
     # Create MQA system

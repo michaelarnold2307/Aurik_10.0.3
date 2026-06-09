@@ -215,6 +215,12 @@ class VocalFocusAnalyzer:
         audio: np.ndarray,
         sr: int,
         panns_singing: float = 0.0,
+        *,
+        panns_tags: dict[str, float] | None = None,
+        panns_vocals_confidence: float | None = None,
+        is_schlager: bool = False,
+        genre_label: str = "",
+        vocal_material_prior: bool = False,
     ) -> VFAResult:
         """Vollständige Vokal-Fokus-Analyse.
 
@@ -228,10 +234,19 @@ class VocalFocusAnalyzer:
         """
         _t0 = time.perf_counter()
 
+        effective_panns = self._resolve_vocal_presence_confidence(
+            panns_singing,
+            panns_tags=panns_tags,
+            panns_vocals_confidence=panns_vocals_confidence,
+            is_schlager=is_schlager,
+            genre_label=genre_label,
+            vocal_material_prior=vocal_material_prior,
+        )
+
         result = VFAResult(
-            panns_singing=float(panns_singing),
-            vocal_present=panns_singing >= 0.25,
-            vqi_gate_active=panns_singing >= 0.35,
+            panns_singing=effective_panns,
+            vocal_present=effective_panns >= 0.25,
+            vqi_gate_active=effective_panns >= 0.35,
         )
 
         # Mono-Segment für Analyse (Zentrum, max. _ANALYSIS_MAX_S)
@@ -249,7 +264,7 @@ class VocalFocusAnalyzer:
             return result
 
         # 1. Vokalregister + Energy-Bias
-        result.dominant_register, result.energy_bias_db = self._detect_register(mono_seg, sr, panns_singing)
+        result.dominant_register, result.energy_bias_db = self._detect_register(mono_seg, sr, effective_panns)
 
         # 2. Frisson-Zonen (non-blocking, max. 150 ms)
         result.frisson_zones = self._detect_frisson(audio, sr)
@@ -332,7 +347,7 @@ class VocalFocusAnalyzer:
             "frisson=%d formant_f1=%.0fHz stable=%s passaggio=%d vibrato=%d "
             "tension=%d release=%d whisper=%d climax=%s style_zones=%d style_conf=%.2f "
             "singer_school=%s phoneme_prot=%s in %.2fs",
-            panns_singing,
+            effective_panns,
             result.dominant_register,
             result.energy_bias_db,
             len(result.frisson_zones),
@@ -368,6 +383,98 @@ class VocalFocusAnalyzer:
             if audio.shape[0] == 1:
                 return audio[0].astype(np.float32)
         return audio.flatten().astype(np.float32)
+
+    @staticmethod
+    def _resolve_vocal_presence_confidence(
+        panns_singing: float,
+        *,
+        panns_tags: dict[str, float] | None = None,
+        panns_vocals_confidence: float | None = None,
+        is_schlager: bool = False,
+        genre_label: str = "",
+        vocal_material_prior: bool = False,
+    ) -> float:
+        """Normalisiert rohe PANNs-Singing-Werte mit vorhandenen Vokal-Hinweisen.
+
+        Ziel: VFA darf bei degradiertem Vokal-Material nicht auf reinem Rohwert
+        hängenbleiben, wenn bereits konsistente Musik-/Genre-/Vocal-Tags vorliegen.
+        """
+
+        confidence = float(np.clip(float(panns_singing), 0.0, 1.0))
+        tags = panns_tags if isinstance(panns_tags, dict) else {}
+
+        def _tag_value(*names: str) -> float:
+            values: list[float] = []
+            for name in names:
+                raw_value = tags.get(name, tags.get(name.lower(), 0.0))
+                try:
+                    values.append(float(raw_value or 0.0))
+                except (TypeError, ValueError):
+                    values.append(0.0)
+            return max(values) if values else 0.0
+
+        vocal_tag_conf = max(
+            _tag_value("Singing", "Singing voice"),
+            _tag_value("Vocals"),
+            _tag_value("Male singing", "Female singing"),
+            _tag_value("Choir", "Chant", "A cappella", "Gospel choir"),
+            _tag_value("Soprano", "Alto", "Tenor", "Baritone"),
+            _tag_value("Opera", "Aria"),
+            _tag_value("Yodeling", "Scat singing"),
+        )
+        speech_conf = _tag_value("Speech", "Narration", "Male speech", "Female speech")
+        music_conf = _tag_value("Music", "Musical instrument", "Pop music", "Music of Latin America")
+        raw_vocals = _tag_value("Vocals")
+
+        confidence = max(confidence, vocal_tag_conf)
+
+        if confidence < speech_conf:
+            confidence = max(confidence, speech_conf * 0.5)
+
+        if panns_vocals_confidence is not None:
+            try:
+                confidence = max(confidence, float(panns_vocals_confidence or 0.0))
+            except (TypeError, ValueError):
+                pass
+
+        if music_conf >= 0.40 and raw_vocals > 0.08 and speech_conf < 0.30:
+            confidence = max(confidence, 0.35)
+
+        genre_key = str(genre_label or "").strip().lower()
+        genre_key_norm = genre_key.replace("_", " ").replace("-", " ")
+        choir_like = any(
+            key in genre_key_norm
+            for key in ("choir", "choral", "chormusik", "chor", "kantate", "oratorium", "motette", "a cappella")
+        )
+        strict_vocal_genre = genre_key_norm in {
+            "opera",
+            "oper",
+            "aria",
+            "chanson",
+            "lied",
+            "art song",
+            "crooner",
+            "vocal",
+            "vocals only",
+            "vocal jazz",
+            "singer songwriter",
+        }
+        if choir_like or strict_vocal_genre:
+            confidence = max(confidence, 0.35)
+
+        schlager_like = bool(is_schlager) or any(
+            key in genre_key_norm for key in ("schlager", "chanson", "vocal", "folk", "gospel", "lied")
+        )
+        if schlager_like and (is_schlager or vocal_tag_conf >= 0.10):
+            confidence = max(confidence, 0.35)
+
+        # Expliziter Vocal-Prior aus Pre-Analysis/Bridge muss VFA auch ohne PANNs-Tags
+        # aktivieren; sonst bleibt der gesamte Vokal-Kontextpfad trotz bekannter
+        # Vokalmaterial-Markierung stumm.
+        if vocal_material_prior:
+            confidence = max(confidence, 0.35)
+
+        return float(np.clip(confidence, 0.0, 1.0))
 
     @staticmethod
     def _detect_register(mono: np.ndarray, sr: int, panns_singing: float) -> tuple[str, float]:

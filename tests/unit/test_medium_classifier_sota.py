@@ -631,3 +631,51 @@ class TestMaterialScorerIntegration:
             }
             result = scorer.score(f, None)
             assert result.codec_type == expected, f"codec_code={code}: expected '{expected}', got '{result.codec_type}'"
+
+
+# ============================================================================
+# Regression: Stereo-Downmix-Achsen-Bug (2026-06-08)
+# ============================================================================
+
+
+class TestSpectralFingerprinterDownmixAxis:
+    """Regression für den _to_mono-Achsen-Bug.
+
+    File-Import liefert Stereo als ``(samples, channels)`` = ``(N, 2)``.
+    Ein ``mean(axis=0)`` ohne Layout-Check kollabierte die Sample-Achse auf 2
+    Werte → ``mono.size < FRAME_SIZE`` → ``_null_features()`` (alles Null) →
+    Material-Fehlklassifikation bei JEDEM Stereo-Song.
+    """
+
+    def test_to_mono_samples_first_preserves_length(self):
+        mono = _make_unmodulated(duration_s=4.0)
+        stereo_nch = np.stack([mono, mono * 0.8], axis=1)  # (N, 2)
+        assert stereo_nch.shape == (mono.shape[0], 2)
+        out = _fp._to_mono(stereo_nch)
+        assert out.shape[0] == mono.shape[0], (
+            f"Sample-Achse kollabiert: erwartet {mono.shape[0]}, erhielt {out.shape[0]}"
+        )
+        assert out.ndim == 1
+
+    def test_to_mono_channels_first_preserves_length(self):
+        mono = _make_unmodulated(duration_s=4.0)
+        stereo_chn = np.stack([mono, mono * 0.8], axis=0)  # (2, N)
+        assert stereo_chn.shape == (2, mono.shape[0])
+        out = _fp._to_mono(stereo_chn)
+        assert out.shape[0] == mono.shape[0]
+        assert out.ndim == 1
+
+    def test_extract_stereo_yields_nonnull_features(self):
+        """Stereo ``(N, 2)`` darf NICHT in _null_features() laufen."""
+        mono = _make_mp3_signature(duration_s=4.0)
+        stereo_nch = np.stack([mono, mono], axis=1)  # (N, 2)
+        feats = _fp.extract(stereo_nch, SR)
+        # Bandbreite muss eine reale Messung (> 0) sein, kein Null-Fallback.
+        assert feats["bandwidth_hz"] > 0.0, "Stereo lief in _null_features() (Achsen-Bug)"
+
+    def test_extract_stereo_matches_mono_source(self):
+        """Identischer Inhalt mono vs. (N, 2)-Stereo → quasi gleiche Bandbreite."""
+        mono = _make_mp3_signature(duration_s=4.0)
+        feats_mono = _fp.extract(mono, SR)
+        feats_stereo = _fp.extract(np.stack([mono, mono], axis=1), SR)
+        assert math.isclose(feats_mono["bandwidth_hz"], feats_stereo["bandwidth_hz"], rel_tol=0.05)

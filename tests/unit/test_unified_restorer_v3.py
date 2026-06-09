@@ -219,6 +219,115 @@ class TestCentralGateArchitecture:
         assert "singer_identity_below_threshold" in payload["recovery_triggers"]
         assert "vqi_below_mode_target" in payload["advisories"]
 
+    def test_40zzj2_classify_quality_gate_events_honors_prior_activated_vocal_gate(self):
+        payload = UnifiedRestorerV3._classify_quality_gate_events(
+            artifact_freedom=0.98,
+            panns_singing=0.0,
+            vocal_gate_active=True,
+            mode="restoration",
+            vqi_score=0.68,
+            vqi_floor=0.72,
+            singer_identity_cosine=0.89,
+            multi_singer=False,
+        )
+
+        assert payload["hard_veto"] is False
+        assert "vqi_below_material_floor" in payload["recovery_triggers"]
+        assert "singer_identity_below_threshold" in payload["recovery_triggers"]
+        assert "vqi_below_mode_target" in payload["advisories"]
+
+
+class TestShortExcerptGoalFeasibilityCaps:
+    def test_40zzk_short_excerpt_caps_thresholds_to_original_plus_margin(self):
+        thresholds = {
+            "bass_kraft": 0.70,
+            "brillanz": 0.64,
+            "transparenz": 0.75,
+            "waerme": 0.74,
+            "transient_energie": 0.91,
+            "authentizitaet": 0.90,
+            "artikulation": 0.88,
+        }
+        original_scores = {
+            "bass_kraft": 0.09,
+            "brillanz": 0.00,
+            "transparenz": 0.53,
+            "waerme": 0.61,
+            "transient_energie": 0.66,
+            "authentizitaet": 0.81,
+            "artikulation": 0.90,
+        }
+
+        out = UnifiedRestorerV3._apply_short_excerpt_goal_feasibility_caps(
+            thresholds,
+            original_scores,
+            duration_s=8.0,
+        )
+
+        assert out["bass_kraft"] == pytest.approx(0.17, abs=1e-6)
+        assert out["brillanz"] == pytest.approx(0.10, abs=1e-6)
+        assert out["transparenz"] == pytest.approx(0.57, abs=1e-6)
+        assert out["waerme"] == pytest.approx(0.67, abs=1e-6)
+        assert out["transient_energie"] == pytest.approx(0.74, abs=1e-6)
+        assert out["authentizitaet"] == pytest.approx(0.86, abs=1e-6)
+        # Nicht im Cap-Mapping: unverändert.
+        assert out["artikulation"] == pytest.approx(0.88, abs=1e-6)
+
+    def test_40zzl_long_excerpt_keeps_thresholds_unchanged(self):
+        thresholds = {"bass_kraft": 0.70, "brillanz": 0.64, "transparenz": 0.75, "waerme": 0.74}
+        original_scores = {"bass_kraft": 0.09, "brillanz": 0.0, "transparenz": 0.53, "waerme": 0.61}
+
+        out = UnifiedRestorerV3._apply_short_excerpt_goal_feasibility_caps(
+            thresholds,
+            original_scores,
+            duration_s=20.0,
+        )
+
+        assert out == thresholds
+
+
+class TestPsychoNaturalnessShortExcerptFloor:
+    def test_40zzm_short_excerpt_keeps_strict_per_metric_floor(self):
+        vector = {
+            "noise_texture_authenticity": 0.74,
+            "micro_dynamic_correlation": 0.92,
+            "emotional_arc_preservation": 0.90,
+            "spectral_color_preservation": 0.91,
+        }
+
+        out = UnifiedRestorerV3._evaluate_psychoacoustic_naturalness_gate(
+            vector=vector,
+            panns_singing=0.0,
+            is_studio_mode=False,
+            duration_s=8.0,
+        )
+
+        assert out["score_pass"] is True
+        assert out["per_metric_floor"] == pytest.approx(0.76, abs=1e-6)
+        assert out["per_metric_floor_effective"] == pytest.approx(0.76, abs=1e-6)
+        assert out["floor_pass"] is False
+        assert out["passed"] is False
+
+    def test_40zzn_long_excerpt_keeps_strict_floor(self):
+        vector = {
+            "noise_texture_authenticity": 0.74,
+            "micro_dynamic_correlation": 0.92,
+            "emotional_arc_preservation": 0.90,
+            "spectral_color_preservation": 0.91,
+        }
+
+        out = UnifiedRestorerV3._evaluate_psychoacoustic_naturalness_gate(
+            vector=vector,
+            panns_singing=0.0,
+            is_studio_mode=False,
+            duration_s=20.0,
+        )
+
+        assert out["score_pass"] is True
+        assert out["per_metric_floor_effective"] == pytest.approx(0.76, abs=1e-6)
+        assert out["floor_pass"] is False
+        assert out["passed"] is False
+
 
 class TestQuietZoneReintroductionShield:
     def test_40zzn_phase34_passthrough_after_phase29_quiet_zone_alarm(self, monkeypatch):
@@ -633,6 +742,162 @@ class TestPreventFirstQuietEdges:
         assert original_alphas == (0.90, 0.82, 0.74, 0.64, 0.56, 0.48)
         assert carrier_alphas == (0.90, 0.82, 0.74, 0.66)
         assert default_alphas == (0.90, 0.82, 0.74)
+
+    def test_40dzc_goal_candidate_blend_alphas_expand_for_waerme_recovery(self):
+        waerme_alphas = _uv3_mod._goal_candidate_blend_alphas(
+            "original_audio",
+            recovery_goals={"waerme", "spatial_depth"},
+        )
+        assert waerme_alphas == (0.90, 0.82, 0.74, 0.64, 0.56, 0.48, 0.42, 0.36)
+
+    def test_40dzd_rank_goal_recovery_candidate_penalizes_spatial_depth_drop(self):
+        thresholds = {
+            "transparenz": 0.85,
+            "waerme": 0.75,
+            "spatial_depth": 0.70,
+            "brillanz": 0.78,
+        }
+        applicable = set(thresholds)
+        baseline = {
+            "transparenz": 0.90,
+            "waerme": 0.82,
+            "spatial_depth": 0.80,
+            "brillanz": 0.80,
+        }
+
+        mild_drop = {
+            "transparenz": 0.90,
+            "waerme": 0.82,
+            "spatial_depth": 0.78,
+            "brillanz": 0.80,
+        }
+        strong_drop = {
+            "transparenz": 0.90,
+            "waerme": 0.82,
+            "spatial_depth": 0.74,
+            "brillanz": 0.80,
+        }
+
+        rank_mild = _uv3_mod._rank_goal_recovery_candidate(
+            scores=mild_drop,
+            baseline_scores=baseline,
+            thresholds=thresholds,
+            applicable_goals=applicable,
+        )
+        rank_strong = _uv3_mod._rank_goal_recovery_candidate(
+            scores=strong_drop,
+            baseline_scores=baseline,
+            thresholds=thresholds,
+            applicable_goals=applicable,
+        )
+
+        assert rank_mild < rank_strong
+
+    def test_40dze_waerme_focus_rescue_candidate_raises_warm_band_energy(self):
+        from scipy.signal import butter, sosfiltfilt
+
+        t = np.linspace(0.0, 2.0, int(SR * 2.0), endpoint=False)
+        original = (0.11 * np.sin(2.0 * np.pi * 280.0 * t) + 0.05 * np.sin(2.0 * np.pi * 2400.0 * t)).astype(np.float32)
+        current = (0.03 * np.sin(2.0 * np.pi * 280.0 * t) + 0.05 * np.sin(2.0 * np.pi * 2400.0 * t)).astype(np.float32)
+
+        candidate, meta = _uv3_mod._build_waerme_focus_rescue_candidate(current, original, SR)
+
+        assert candidate is not None
+        assert bool(meta.get("waerme_rescue_used")) is True
+        sos = butter(2, [180.0 / (SR * 0.5), 900.0 / (SR * 0.5)], btype="band", output="sos")
+        warm_current = sosfiltfilt(sos, current)
+        warm_candidate = sosfiltfilt(sos, candidate)
+        rms_current = float(np.sqrt(np.mean(np.square(warm_current)) + 1e-9))
+        rms_candidate = float(np.sqrt(np.mean(np.square(warm_candidate)) + 1e-9))
+        assert rms_candidate > rms_current
+
+    def test_40dzf_waerme_focus_rescue_candidate_keeps_spatial_drop_below_cap(self):
+        t = np.linspace(0.0, 2.0, int(SR * 2.0), endpoint=False)
+        mid = 0.08 * np.sin(2.0 * np.pi * 330.0 * t)
+        side = 0.06 * np.sin(2.0 * np.pi * 2500.0 * t)
+        warm_orig = 0.08 * np.sin(2.0 * np.pi * 260.0 * t)
+
+        original_l = (mid + side + warm_orig).astype(np.float32)
+        original_r = (mid - side + warm_orig).astype(np.float32)
+        current_l = (mid + side + 0.02 * np.sin(2.0 * np.pi * 260.0 * t)).astype(np.float32)
+        current_r = (mid - side + 0.02 * np.sin(2.0 * np.pi * 260.0 * t)).astype(np.float32)
+
+        original = np.stack([original_l, original_r], axis=0)
+        current = np.stack([current_l, current_r], axis=0)
+
+        candidate, _meta = _uv3_mod._build_waerme_focus_rescue_candidate(
+            current,
+            original,
+            SR,
+            max_spatial_drop_db=0.20,
+        )
+
+        assert candidate is not None
+        side_before = (current[0] - current[1]) * 0.5
+        side_after = (candidate[0] - candidate[1]) * 0.5
+        sb = float(np.sqrt(np.mean(np.square(side_before)) + 1e-9))
+        sa = float(np.sqrt(np.mean(np.square(side_after)) + 1e-9))
+        drop_db = float(20.0 * np.log10((sb + 1e-9) / (sa + 1e-9)))
+        assert drop_db <= 0.21
+
+    def test_40dzg_goal_candidate_source_penalties_default_values(self):
+        hpi_p, carrier_p, orig_p = _uv3_mod._compute_goal_candidate_source_penalties({})
+        assert hpi_p == pytest.approx(0.010)
+        assert carrier_p == pytest.approx(0.015)
+        # Ohne explizite Material-Konfidenz greift konservativer Default-Pfad.
+        assert orig_p == pytest.approx(0.040)
+
+    def test_40dzh_goal_candidate_source_penalties_material_causal_reconciliation(self):
+        meta = {
+            "chain_threshold_override_count": 2,
+            "material_confidence": 0.42,
+            "chain_stage_materials": ["vinyl", "tape", "mp3_low"],
+            "material_defect_consistency_flag": True,
+            "material_defect_consistency_warning_count": 2,
+        }
+        hpi_p, carrier_p, orig_p = _uv3_mod._compute_goal_candidate_source_penalties(meta)
+
+        assert hpi_p < 0.010
+        assert carrier_p < 0.015
+        assert orig_p > 0.040
+
+    def test_40dzi_effective_self_comparison_true_for_identical_signal(self):
+        x = (_sine(secs=1.0, freq=440.0) * 0.2).astype(np.float32)
+        assert _uv3_mod._is_effective_self_comparison(x, x.copy()) is True
+
+    def test_40dzj_effective_self_comparison_false_when_only_intro_matches(self):
+        x = (_sine(secs=2.0, freq=440.0) * 0.2).astype(np.float32)
+        y = x.copy()
+        # Intro bleibt identisch, Tail wird veraendert — alter Head-Only-Check waere false-positive.
+        y[int(0.7 * x.size) :] *= 0.5
+        assert _uv3_mod._is_effective_self_comparison(x, y) is False
+
+    def test_40dzk_should_use_carrier_reference_for_hpi_by_ccr_ratio(self):
+        assert _uv3_mod._should_use_carrier_reference_for_hpi(0.20, {}) is True
+
+    def test_40dzl_should_use_carrier_reference_for_hpi_by_material_causal_reconciliation(self):
+        scan_meta = {
+            "material_defect_consistency_flag": True,
+            "material_defect_consistency_warning_count": 1,
+            "chain_stage_materials": ["vinyl", "tape", "mp3_low"],
+        }
+        assert _uv3_mod._should_use_carrier_reference_for_hpi(0.05, scan_meta) is True
+
+    def test_40dzm_should_use_carrier_reference_for_hpi_on_mdc_warning_without_chain(self):
+        scan_meta = {
+            "material_defect_consistency_flag": False,
+            "material_defect_consistency_warning_count": 1,
+            "chain_stage_materials": [],
+        }
+        assert _uv3_mod._should_use_carrier_reference_for_hpi(0.05, scan_meta) is True
+
+    def test_40dzn_should_not_use_carrier_reference_for_hpi_without_mdc_or_ccr(self):
+        scan_meta = {
+            "material_defect_consistency_flag": False,
+            "material_defect_consistency_warning_count": 0,
+            "chain_stage_materials": [],
+        }
+        assert _uv3_mod._should_use_carrier_reference_for_hpi(0.05, scan_meta) is False
 
     def test_40d_extract_transfer_chain_accepts_direct_string_and_list_inputs(self):
         assert UnifiedRestorerV3._extract_transfer_chain_from_forensics("vinyl -> tape -> mp3_low") == [
@@ -2709,6 +2974,105 @@ class TestStereoSafetyGuardBranching:
         assert "true_peak_gt_minus_1dbtp" in result["hard_fail_reasons"]
 
 
+class TestStereoContractEventRecorder:
+    def test_95_records_event_into_phase_metadata_and_context(self):
+        phase_meta: dict[str, Any] = {}
+        restoration_ctx: dict[str, Any] = {}
+
+        guard = {
+            "reason": "warning",
+            "hard_fail": False,
+            "warning": True,
+            "warning_reasons": ["interchannel_delay_0p5_to_1ms"],
+            "hard_fail_reasons": [],
+            "input": {"delay_ms": 0.10, "iacc": 0.62},
+            "output": {"delay_ms": 0.72, "iacc": 0.78, "spatial_depth_iacc": 0.22},
+            "delta": {"delay_ms": 0.62, "mono_compat": -0.03, "interchannel_corr": -0.08, "iacc": 0.16},
+        }
+
+        event = UnifiedRestorerV3._record_phase_stereo_contract_event(
+            phase_meta,
+            restoration_ctx,
+            phase_id="phase_48_stereo_width_enhancer",
+            guard_result=guard,
+            rolled_back=False,
+        )
+
+        assert event["phase_id"] == "phase_48_stereo_width_enhancer"
+        assert event["warning"] is True
+        assert event["rolled_back"] is False
+        assert event["delay_ms_delta"] > 0.5
+        assert event["iacc_delta"] > 0.1
+
+        assert "stereo_contract_events" in phase_meta
+        assert phase_meta["stereo_contract_events"]
+        assert phase_meta["phase_48_stereo_width_enhancer"]["stereo_contract"]["iacc_out"] == pytest.approx(0.78)
+
+        assert "stereo_contract_events" in restoration_ctx
+        assert restoration_ctx["stereo_contract_events"]
+
+    def test_96_event_list_is_capped_for_phase_metadata(self):
+        phase_meta: dict[str, Any] = {}
+        restoration_ctx: dict[str, Any] = {}
+        guard = {
+            "reason": "ok",
+            "hard_fail": False,
+            "warning": False,
+            "input": {"delay_ms": 0.0, "iacc": 0.5},
+            "output": {"delay_ms": 0.0, "iacc": 0.5, "spatial_depth_iacc": 0.5},
+            "delta": {"delay_ms": 0.0, "mono_compat": 0.0, "interchannel_corr": 0.0, "iacc": 0.0},
+        }
+
+        for idx in range(300):
+            UnifiedRestorerV3._record_phase_stereo_contract_event(
+                phase_meta,
+                restoration_ctx,
+                phase_id=f"phase_{idx:02d}",
+                guard_result=guard,
+                rolled_back=False,
+            )
+
+        assert len(phase_meta.get("stereo_contract_events", [])) == 256
+        assert len(restoration_ctx.get("stereo_contract_events", [])) == 128
+
+    def test_97_stereo_contract_multiplier_reduces_next_phase_strength_on_hard_fail(self):
+        guard = {
+            "reason": "iacc_collapse",
+            "hard_fail": True,
+            "warning": True,
+            "delta": {"iacc": 0.24, "delay_ms": 0.72, "interchannel_corr": -0.31, "mono_compat": -0.06},
+        }
+
+        multiplier = UnifiedRestorerV3._compute_stereo_contract_strength_multiplier(
+            "phase_48_stereo_width_enhancer",
+            guard,
+        )
+
+        assert 0.55 <= multiplier < 0.80
+
+    def test_98_stereo_contract_multiplier_is_stricter_for_analog_widening(self):
+        guard = {
+            "reason": "iacc_rising_towards_mono",
+            "hard_fail": False,
+            "warning": True,
+            "delta": {"iacc": 0.12, "delay_ms": 0.28, "interchannel_corr": -0.16, "mono_compat": -0.03},
+        }
+
+        analog_multiplier = UnifiedRestorerV3._compute_stereo_contract_strength_multiplier(
+            "phase_48_stereo_width_enhancer",
+            guard,
+            "vinyl",
+        )
+        digital_multiplier = UnifiedRestorerV3._compute_stereo_contract_strength_multiplier(
+            "phase_48_stereo_width_enhancer",
+            guard,
+            "cd",
+        )
+
+        assert analog_multiplier < digital_multiplier
+        assert analog_multiplier <= 0.80
+
+
 class TestSingleGainAuthorityPolicy:
     def test_95_hpf_notch_phase_locks_positive_makeup_authority(self):
         allow, reason = UnifiedRestorerV3._update_positive_makeup_authority(
@@ -3733,6 +4097,45 @@ class TestChoirVqiGateZeroPanns:
             genre_label="choir",
         )
         assert conf >= 0.35, f"Regressions-Guard §M1 fehlgeschlagen nach §0p v9.12.11-Patch: {conf:.3f}"
+
+
+class TestStrictVocalGenreZeroPanns:
+    """§0p v9.12.13 — exakte definitionsgemäß vokale Genres aktivieren den Vocal-Floor.
+
+    Regressions-Guard: Opera/Chanson/Vocal-Jazz können bei schwachen oder fehlenden
+    PANNs-Tags sonst unter die 0.35-Schwelle fallen, obwohl das Genre bereits klar
+    vokal ist. Breite Keyword-Genres wie 'folk' bleiben bewusst außerhalb dieses Floors.
+    """
+
+    def test_opera_zero_panns_activates_floor(self) -> None:
+        from backend.core.unified_restorer_v3 import UnifiedRestorerV3
+
+        conf = UnifiedRestorerV3._compute_vocal_presence_confidence(
+            {},
+            panns_vocals_confidence=0.0,
+            genre_label="opera",
+        )
+        assert conf >= 0.35, f"'opera' ohne PANNs-Signal muss floor 0.35 aktivieren: {conf:.3f}"
+
+    def test_chanson_zero_panns_activates_floor(self) -> None:
+        from backend.core.unified_restorer_v3 import UnifiedRestorerV3
+
+        conf = UnifiedRestorerV3._compute_vocal_presence_confidence(
+            {},
+            panns_vocals_confidence=0.0,
+            genre_label="chanson",
+        )
+        assert conf >= 0.35, f"'chanson' ohne PANNs-Signal muss floor 0.35 aktivieren: {conf:.3f}"
+
+    def test_vocal_jazz_zero_panns_activates_floor(self) -> None:
+        from backend.core.unified_restorer_v3 import UnifiedRestorerV3
+
+        conf = UnifiedRestorerV3._compute_vocal_presence_confidence(
+            {},
+            panns_vocals_confidence=0.0,
+            genre_label="vocal jazz",
+        )
+        assert conf >= 0.35, f"'vocal jazz' ohne PANNs-Signal muss floor 0.35 aktivieren: {conf:.3f}"
 
 
 class TestSection0aRestCauseGuards:

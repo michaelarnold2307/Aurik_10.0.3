@@ -38,12 +38,18 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
+# Lazy/optionale ML-Imports innerhalb von Methoden sind bewusste Aurik-Design-Entscheidung
+# (RELEASE_MUST: optionale ML-Dependencies immer per try/except eingebunden — §E402).
+# pylint: disable=import-outside-toplevel
+
 # ---------------------------------------------------------------------------
 # GPU Backend enum
 # ---------------------------------------------------------------------------
 
 
 class GPUBackend(enum.Enum):
+    """GPU-Beschleunigungsbackend — ROCm (Linux), DirectML (Windows) oder CPU-Only (§GPU-Mixed-Mode)."""
+
     ROCM = "rocm"  # Linux: ROCm 6.x via torch.cuda API (AMD GPU primary path)
     DIRECTML = "directml"  # Windows: DirectML via onnxruntime-directml (AMD Windows)
     NONE = "none"  # CPU-only (no AMD GPU or GPU suppressed)
@@ -453,7 +459,7 @@ _init_lock: threading.Lock = threading.Lock()
 
 def get_ml_device_manager() -> MLDeviceManager:
     """Gibt the process-wide MLDeviceManager singleton (thread-safe, lazy-init) zurück."""
-    global _instance
+    global _instance  # pylint: disable=global-statement
     if _instance is None:
         with _init_lock:
             if _instance is None:
@@ -761,7 +767,7 @@ class MLDeviceManager:
             # Optional: torch-directml enables PyTorch models on DirectML.
             # Without it, only ONNX models get DirectML acceleration.
             try:
-                import torch_directml  # type: ignore[import]
+                import torch_directml  # type: ignore[import]  # pylint: disable=unused-import  # Side-Effect-Import: registriert DML-Device in PyTorch
 
                 self._torch_gpu_device = "dml"
                 logger.info("MLDeviceManager: torch-directml available — PyTorch models can use DML device")
@@ -791,6 +797,7 @@ class MLDeviceManager:
                 capture_output=True,
                 text=True,
                 timeout=3,
+                check=False,  # WMIC-Probe: Fehlercode irrelevant, Ausgabe wird ausgewertet
             )
             for line in result.stdout.splitlines():
                 if "Caption" in line and "=" in line:
@@ -821,6 +828,7 @@ class MLDeviceManager:
                 capture_output=True,
                 text=True,
                 timeout=3,
+                check=False,  # WMIC-Probe: Fehlercode irrelevant, Ausgabe wird ausgewertet
             )
             for line in result.stdout.splitlines():
                 if "AdapterRAM" in line and "=" in line:
@@ -979,7 +987,8 @@ class MLDeviceManager:
 
             if already_used + size_gb > max_usable:
                 logger.warning(
-                    "MLDeviceManager: VRAM budget exceeded for %s (%.2f GB) — used %.2f / %.2f GB (tier=%s) → CPU fallback",
+                    "MLDeviceManager: VRAM budget exceeded for %s (%.2f GB)"
+                    " — used %.2f / %.2f GB (tier=%s) → CPU fallback",
                     plugin_name,
                     size_gb,
                     already_used,

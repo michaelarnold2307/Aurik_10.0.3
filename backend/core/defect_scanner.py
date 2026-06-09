@@ -268,6 +268,50 @@ class DefectAnalysisResult:
         """Gesamtschwere aller Defekte (gewichtet)."""
         return sum(score.severity * score.confidence for score in self.scores.values()) / len(self.scores)
 
+    def get_focus_defect_map(
+        self,
+        n: int = 12,
+        min_confidence: float = 0.25,
+        min_weighted_severity: float = 0.04,
+    ) -> dict[str, float]:
+        """Liefert confidence-gewichtete Top-Defekte für robuste Downstream-Steuerung.
+
+        Ziel: Defekte mit hoher Evidenz priorisieren, unsichere Near-Threshold-
+        Treffer nicht überbewerten. Ergebnis ist ein Mapping `defect_name -> score`
+        (0..1), sortiert nach Relevanz und auf `n` Einträge begrenzt.
+        """
+        _rows: list[tuple[str, float]] = []
+        _min_conf = float(np.clip(min_confidence, 0.0, 1.0))
+        _min_weight = float(np.clip(min_weighted_severity, 0.0, 1.0))
+
+        for _dt, _score in (self.scores or {}).items():
+            try:
+                _sev = float(np.clip(float(getattr(_score, "severity", 0.0)), 0.0, 1.0))
+                _conf = float(np.clip(float(getattr(_score, "confidence", 0.0)), 0.0, 1.0))
+            except Exception:
+                continue
+            if _sev <= 0.0:
+                continue
+
+            # Confidence-aware severity score:
+            # - hohe Konfidenz treibt den Score
+            # - starke, aber mittlere Konfidenz bleibt sichtbar
+            _weighted = float(np.clip(_sev * (0.55 + 0.45 * _conf), 0.0, 1.0))
+            if _conf < _min_conf and _weighted < (_min_weight * 1.5):
+                continue
+            if _weighted < _min_weight:
+                continue
+
+            _name = _dt.value if hasattr(_dt, "value") else str(_dt)
+            _rows.append((_name, _weighted))
+
+        if not _rows:
+            return {}
+
+        _rows.sort(key=lambda it: it[1], reverse=True)
+        _top = _rows[: max(1, int(n))]
+        return {k: float(v) for k, v in _top}
+
 
 class DefectScanner:
     """
@@ -2276,6 +2320,14 @@ class DefectScanner:
                 "chain_threshold_override_applied": bool(_chain_threshold_overrides),
             },
         )
+
+        try:
+            _focus_map = _scan_result.get_focus_defect_map(n=12)
+            _scan_result.metadata["focus_defects"] = dict(_focus_map)
+            _scan_result.metadata["focus_defect_count"] = int(len(_focus_map))
+            _scan_result.metadata["focus_defects_source"] = "severity_confidence_weighted"
+        except Exception as _focus_exc:
+            logger.debug("focus_defect_map generation failed: %s", _focus_exc)
 
         # §9.7.1 Cache-Write — Ergebnis für künftige identische Aufrufe sichern
         with _scan_cache_lock:
@@ -6797,8 +6849,96 @@ class DefectScanner:
             else:
                 raw_severity = 0.80 * sev_short + 0.20 * sev_long
 
+            # §4.11: Fusionspfad mit dediziertem Codec-Pre-Echo-Detektor.
+            # Der Heuristikpfad bleibt primär, der Codec-Detektor hebt False-Zero-Fälle
+            # bei lossy Material (MP3/AAC/Streaming) robust an.
+            codec_event_count = 0
+            codec_detector_severity = 0.0
+            codec_detector_confidence = 0.0
+            try:
+                from backend.core.dsp.pre_echo_detector import get_pre_echo_detector
+
+                codec_events = get_pre_echo_detector().detect(
+                    audio,
+                    int(self.sample_rate),
+                    material_key=mat_name or "unknown",
+                )
+                codec_event_count = int(len(codec_events))
+                if codec_event_count > 0:
+                    _sev_db = [
+                        float(max(0.0, evt.get("severity_db", 0.0))) for evt in codec_events if isinstance(evt, dict)
+                    ]
+                    _conf = [
+                        float(np.clip(evt.get("confidence", 0.0), 0.0, 1.0))
+                        for evt in codec_events
+                        if isinstance(evt, dict)
+                    ]
+                    if _sev_db:
+                        # 12 dB Überschuss ≈ klare Pre-Echo-Ausprägung.
+                        codec_detector_severity = float(np.clip(np.mean(_sev_db) / 12.0, 0.0, 1.0))
+                    if _conf:
+                        codec_detector_confidence = float(np.clip(np.mean(_conf), 0.0, 1.0))
+
+                    codec_bonus = float(np.clip(codec_event_count / 8.0, 0.0, 0.2))
+                    raw_severity = max(raw_severity, 0.75 * codec_detector_severity + codec_bonus)
+
+                    # Event-Locations aus Codec-Detektor mappen (sample → seconds).
+                    for evt in codec_events:
+                        if not isinstance(evt, dict):
+                            continue
+                        start_s = float(max(0, int(evt.get("pre_echo_start", 0)))) / self.sample_rate
+                        end_s = float(max(0, int(evt.get("pre_echo_end", 0)))) / self.sample_rate
+                        if end_s > start_s:
+                            pre_echo_locations.append((start_s, end_s))
+            except Exception:
+                # Non-blocking: Heuristikpfad bleibt voll funktionsfähig.
+                pass
+
             # Event count bonus: many pre-echoes = systematic problem
-            n_events = len(short_ratios) + len(long_ratios)
+            n_events = len(short_ratios) + len(long_ratios) + codec_event_count
+
+            # Fallback-Heuristik für "severity=0"-Fälle bei klaren Transienten mit
+            # leiser Vorenergie (typisches lossy Pre-Echo, wenn Envelope-Diff zu strikt ist).
+            fallback_events = 0
+            fallback_rel_mean = 0.0
+            if raw_severity <= 1e-10:
+                try:
+                    _peak_min_distance = int(0.120 * self.sample_rate)
+                    _peak_height = float(np.percentile(envelope, 95))
+                    _peaks, _ = signal.find_peaks(
+                        envelope,
+                        height=_peak_height,
+                        distance=max(1, _peak_min_distance),
+                        prominence=max(1e-8, 0.06 * peak_env),
+                    )
+                    _fallback_rel: list[float] = []
+                    _floor_rms = float(np.percentile(envelope, 12)) + 1e-12
+                    for idx in _peaks:
+                        pre_start = max(0, int(idx - 0.035 * self.sample_rate))
+                        pre_end = max(0, int(idx - 0.005 * self.sample_rate))
+                        on_start = int(idx)
+                        on_end = min(n, int(idx + 0.020 * self.sample_rate))
+                        if pre_end <= pre_start + 32 or on_end <= on_start + 32:
+                            continue
+                        pre_rms = float(np.sqrt(np.mean(np.square(audio[pre_start:pre_end])) + 1e-20))
+                        on_rms = float(np.sqrt(np.mean(np.square(audio[on_start:on_end])) + 1e-20))
+                        if on_rms <= max(5.0 * _floor_rms, 1e-8):
+                            continue
+                        rel = pre_rms / (on_rms + 1e-12)
+                        # Pre-Echo: klar über Grundrauschen, aber deutlich unter Haupttransient.
+                        if pre_rms > 1.8 * _floor_rms and 0.03 <= rel <= 0.8:
+                            _fallback_rel.append(float(rel))
+                            pre_echo_locations.append((pre_start / self.sample_rate, idx / self.sample_rate))
+
+                    if _fallback_rel:
+                        fallback_events = len(_fallback_rel)
+                        fallback_rel_mean = float(np.mean(_fallback_rel))
+                        fallback_sev = float(np.clip((fallback_rel_mean - 0.05) / 0.30, 0.0, 0.7))
+                        raw_severity = max(raw_severity, fallback_sev)
+                except Exception:
+                    pass
+
+            n_events += fallback_events
             event_bonus = float(np.clip(n_events / 10.0, 0.0, 0.3))
             raw_severity += event_bonus
 
@@ -6807,7 +6947,13 @@ class DefectScanner:
                 raw_severity = 0.0
             severity = float(np.clip(raw_severity, 0.0, 1.0))
 
-            confidence = float(np.clip(0.58 + 0.22 * min(1.0, n_events / 8.0), 0.45, 0.85))
+            confidence = float(
+                np.clip(
+                    0.58 + 0.18 * min(1.0, n_events / 8.0) + 0.10 * codec_detector_confidence,
+                    0.45,
+                    0.9,
+                )
+            )
 
             return DefectScore(
                 defect_type=DefectType.PRE_ECHO,
@@ -6822,6 +6968,11 @@ class DefectScanner:
                     ),
                     "n_short_events": len(short_ratios),
                     "n_long_events": len(long_ratios),
+                    "codec_pre_echo_events": int(codec_event_count),
+                    "codec_detector_severity": round(float(codec_detector_severity), 3),
+                    "codec_detector_confidence": round(float(codec_detector_confidence), 3),
+                    "fallback_pre_echo_events": int(fallback_events),
+                    "fallback_pre_echo_rel_mean": round(float(fallback_rel_mean), 3),
                     "is_tape": is_tape,
                 },
             )

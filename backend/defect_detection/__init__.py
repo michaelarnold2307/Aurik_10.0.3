@@ -35,7 +35,7 @@ from backend.defect_detection.registry import DefectDetectorRegistry
 from backend.defect_detection.treatment_recommender import TreatmentRecommender
 from backend.defect_detection.unified_detector import UnifiedDefectDetector
 
-__version__ = "9.12.10"
+__version__ = "9.15.0"
 
 __all__ = [
     "DefectDetector",

@@ -7,10 +7,83 @@ Blockiert Releases, wenn die Pipeline auf realem Audio
 
 from __future__ import annotations
 
+import multiprocessing as mp
+import os
+import shutil
+import tempfile
+import traceback
+from pathlib import Path
 from typing import Any
 
 import numpy as np
 import pytest
+
+
+def _run_real_audio_restore_child(
+    audio: np.ndarray,
+    sr: int,
+    ml_runtime_budget_s: float,
+    payload_path: str,
+    error_path: str,
+) -> None:
+    try:
+        os.environ.setdefault("AURIK_SAFE_VALIDATION_PROFILE", "1")
+        from backend.core.performance_guard import QualityMode
+        from backend.core.unified_restorer_v3 import RestorationConfig, UnifiedRestorerV3
+
+        cfg = RestorationConfig(
+            mode=QualityMode.FAST,
+            enable_performance_guard=True,
+            enable_phase_gate=True,
+            enable_phase_skipping=True,
+        )
+        restorer = UnifiedRestorerV3(config=cfg)
+        result = restorer.restore(
+            audio,
+            sample_rate=sr,
+            mode="fast",
+            ml_runtime_budget_s=ml_runtime_budget_s,
+        )
+        np.savez(payload_path, audio=np.asarray(result.audio, dtype=np.float32))
+    except Exception:
+        Path(error_path).write_text(traceback.format_exc(), encoding="utf-8")
+
+
+def _run_real_audio_restore_with_timeout(
+    audio: np.ndarray,
+    sr: int,
+    ml_runtime_budget_s: float,
+    timeout_s: float,
+) -> np.ndarray:
+    ctx = mp.get_context("spawn")
+    tmp_dir = Path(tempfile.mkdtemp(prefix="aurik_real_audio_restore_"))
+    payload_path = tmp_dir / "payload.npz"
+    error_path = tmp_dir / "error.txt"
+    process = ctx.Process(
+        target=_run_real_audio_restore_child,
+        args=(audio, sr, ml_runtime_budget_s, str(payload_path), str(error_path)),
+        daemon=True,
+    )
+    try:
+        process.start()
+        process.join(max(0.0, float(timeout_s)))
+        if process.is_alive():
+            process.terminate()
+            process.join(10.0)
+            if process.is_alive():
+                process.kill()
+                process.join(5.0)
+            raise RuntimeError(f"real-audio fixture timeout after {float(timeout_s):.1f}s")
+
+        if error_path.exists():
+            raise RuntimeError(error_path.read_text(encoding="utf-8"))
+        if not payload_path.exists():
+            raise RuntimeError(f"real-audio fixture child exited without payload (exitcode={process.exitcode})")
+
+        with np.load(payload_path, allow_pickle=False) as payload_npz:
+            return np.asarray(payload_npz["audio"], dtype=np.float32)
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
 def _to_samples_first(audio: np.ndarray) -> np.ndarray:
@@ -69,33 +142,28 @@ def _edge_peak_excess_db(audio_sf: np.ndarray, sr: int, edge_s: float = 0.5) -> 
 
 @pytest.fixture(scope="module")
 def real_audio_edge_lag_case(real_audio_gate_case: dict[str, object]) -> dict[str, Any]:
-    from backend.core.performance_guard import QualityMode
-    from backend.core.unified_restorer_v3 import RestorationConfig, UnifiedRestorerV3
-
     original = _to_samples_first(np.asarray(real_audio_gate_case["audio"], dtype=np.float32))
     sr = int(real_audio_gate_case["sr"])
 
     # Runtime-bounded real-audio window for deterministic gating.
-    max_n = int(sr * 20.0)
+    max_seconds = float(os.environ.get("AURIK_REAL_AUDIO_GATE_MAX_SECONDS", "12") or 12.0)
+    ml_runtime_budget_s = float(os.environ.get("AURIK_REAL_AUDIO_GATE_ML_RUNTIME_BUDGET_S", "3.0") or 3.0)
+    restore_timeout_s = float(os.environ.get("AURIK_REAL_AUDIO_GATE_RESTORE_TIMEOUT_S", "120") or 120.0)
+    max_n = int(sr * max_seconds)
     if original.shape[0] > max_n:
         start = (original.shape[0] - max_n) // 2
         original = original[start : start + max_n]
 
-    cfg = RestorationConfig(
-        mode=QualityMode.FAST,
-        enable_performance_guard=True,
-        enable_phase_gate=True,
-        enable_phase_skipping=True,
-    )
-    restorer = UnifiedRestorerV3(config=cfg)
-
-    result = restorer.restore(
-        original.T,
-        sample_rate=sr,
-        mode="fast",
-        ml_runtime_budget_s=8.0,
-    )
-    restored = _to_samples_first(np.asarray(result.audio, dtype=np.float32))
+    try:
+        restored_audio = _run_real_audio_restore_with_timeout(
+            original.T,
+            sr,
+            ml_runtime_budget_s,
+            restore_timeout_s,
+        )
+    except RuntimeError as exc:
+        pytest.fail(f"Real-audio edge/lag fixture timed out: {exc}")
+    restored = _to_samples_first(restored_audio)
 
     n = min(original.shape[0], restored.shape[0])
     original = original[:n]

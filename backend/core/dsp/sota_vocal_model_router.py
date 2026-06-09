@@ -167,9 +167,15 @@ class SotaVocalModelRouter:
                 )
                 return None
             try:
-                from plugins.mdx23c_plugin import get_mdx23c_plugin  # pylint: disable=import-outside-toplevel
+                from plugins.mdx23c_plugin import (  # pylint: disable=import-outside-toplevel
+                    get_loaded_mdx23c_plugin,
+                    get_mdx23c_plugin,
+                )
 
-                stems = get_mdx23c_plugin().separate_all_stems(reference, sr, stems=["vocals", "inst"])
+                mdx = get_loaded_mdx23c_plugin()
+                if mdx is None:
+                    mdx = get_mdx23c_plugin()
+                stems = mdx.separate_all_stems(reference, sr, stems=["vocals", "inst"])
                 if isinstance(stems, dict) and stems:
                     vocal = self._coerce_like(stems.get("vocals", np.zeros_like(reference)), reference)
                     instrumental = self._coerce_like(stems.get("inst", reference - vocal), reference)

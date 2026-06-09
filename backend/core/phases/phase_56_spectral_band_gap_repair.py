@@ -205,7 +205,7 @@ def _estimate_f0(mono: np.ndarray, sr: int) -> float | None:
     # Tier-3: PESTO
     try:
         _pesto_mod = importlib.import_module("plugins.pesto_plugin")
-        get_pesto_plugin = getattr(_pesto_mod, "get_pesto_plugin")
+        get_pesto_plugin = _pesto_mod.get_pesto_plugin
 
         result = get_pesto_plugin().analyze(mono, sr)
         voiced_mask = result.voiced_prob >= 0.55

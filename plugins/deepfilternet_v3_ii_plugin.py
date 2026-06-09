@@ -478,6 +478,11 @@ def get_deepfilternet_plugin() -> DeepFilterNetV3Plugin:
     return _inst
 
 
+def get_loaded_deepfilternet_plugin() -> DeepFilterNetV3Plugin | None:
+    """Gibt nur eine bereits geladene DeepFilterNet-Instanz zurück, ohne Lazy-Load."""
+    return _inst
+
+
 def enhance_audio(audio: np.ndarray, sr: int) -> np.ndarray:
     """Convenience-Wrapper für DeepFilterNet-Rauschunterdrückung."""
     return get_deepfilternet_plugin().enhance(audio, sr)

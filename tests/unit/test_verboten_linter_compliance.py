@@ -643,3 +643,364 @@ class TestV38Phase27VfaZoneCaps:
         audio = np.zeros(sr, dtype=np.float32)
         r = p.process(audio, sr, material_type="vinyl")
         assert r.audio.shape == audio.shape
+
+
+class TestV38Phase12VfaZoneCaps:
+    """§V38 Per-Event-Strength-Oracle in phase_12_wow_flutter_fix (_compute_bump_local_strength).
+
+    Bestätigt gemäß Spezifikation: "phase_12 (145 Kassetten-Bumps)" — Regressionsgefahr
+    dokumentiert, Testabsicherung war bisher nicht vorhanden.
+    """
+
+    def test_vibrato_zone_cap_applied(self):
+        """Transport-Bump in Vibrato-Zone (4–7 Hz F0) muss auf max 0.20 gecappt werden (§0p)."""
+        import numpy as np
+
+        from backend.core.phases.phase_12_wow_flutter_fix import WowFlutterFix
+
+        p = WowFlutterFix()
+        sr = 48000
+        audio = 0.5 * np.sin(2 * np.pi * 440 * np.arange(sr) / sr).astype(np.float32)
+        bump_start = int(0.04 * sr)
+        bump_end = int(0.07 * sr)
+        # Energie-Spike im Bump-Bereich simulieren (Kassetten-Bump-Typ)
+        audio[bump_start:bump_end] *= 2.5
+
+        local_s = p._compute_bump_local_strength(
+            audio, bump_start, bump_end, sr, base_strength=0.90, protected_zones=[(0.03, 0.10, 0.20)]
+        )
+        assert local_s <= 0.20 + 1e-6, f"Vibrato-Cap nicht aktiv: {local_s:.4f}"
+
+    def test_frisson_zone_cap_applied(self):
+        """Transport-Bump in Frisson-Zone muss auf max 0.30 gecappt werden."""
+        import numpy as np
+
+        from backend.core.phases.phase_12_wow_flutter_fix import WowFlutterFix
+
+        p = WowFlutterFix()
+        sr = 48000
+        audio = 0.4 * np.sin(2 * np.pi * 220 * np.arange(sr) / sr).astype(np.float32)
+        bump_start = int(0.50 * sr)
+        bump_end = int(0.53 * sr)
+        audio[bump_start:bump_end] *= 2.0  # Energie-Spike
+
+        local_s = p._compute_bump_local_strength(
+            audio, bump_start, bump_end, sr, base_strength=0.85, protected_zones=[(0.45, 0.60, 0.30)]
+        )
+        assert local_s <= 0.30 + 1e-6, f"Frisson-Cap nicht aktiv: {local_s:.4f}"
+
+    def test_whisper_zone_cap_applied(self):
+        """Transport-Bump in Flüsterpassage muss auf max 0.25 gecappt werden."""
+        import numpy as np
+
+        from backend.core.phases.phase_12_wow_flutter_fix import WowFlutterFix
+
+        p = WowFlutterFix()
+        sr = 48000
+        audio = 0.1 * np.ones(sr, dtype=np.float32)  # Flüsterlautstärke
+        bump_start = int(0.20 * sr)
+        bump_end = int(0.22 * sr)
+        audio[bump_start:bump_end] *= 3.0
+
+        local_s = p._compute_bump_local_strength(
+            audio, bump_start, bump_end, sr, base_strength=0.80, protected_zones=[(0.18, 0.30, 0.25)]
+        )
+        assert local_s <= 0.25 + 1e-6, f"Flüster-Cap nicht aktiv: {local_s:.4f}"
+
+    def test_outside_zone_no_cap(self):
+        """Bump ausserhalb aller Schutzzonen darf volle Basis-Stärke erhalten."""
+        import numpy as np
+
+        from backend.core.phases.phase_12_wow_flutter_fix import WowFlutterFix
+
+        p = WowFlutterFix()
+        sr = 48000
+        audio = 0.5 * np.ones(sr, dtype=np.float32)
+        bump_start = int(0.70 * sr)
+        bump_end = int(0.73 * sr)
+        # Starker Energie-Einbruch → hohe Severity → nahe base_strength
+        audio[bump_start:bump_end] = 0.01
+
+        local_s = p._compute_bump_local_strength(
+            audio,
+            bump_start,
+            bump_end,
+            sr,
+            base_strength=0.85,
+            protected_zones=[(0.03, 0.10, 0.20), (0.45, 0.60, 0.30)],
+        )
+        assert local_s > 0.20, f"Cap feuerte falsch-positiv ausserhalb Zone: {local_s:.4f}"
+
+    def test_zero_base_strength_returns_zero(self):
+        """base_strength < 1e-6 muss exakt 0.0 zurueckgeben (V38-Invariante)."""
+        import numpy as np
+
+        from backend.core.phases.phase_12_wow_flutter_fix import WowFlutterFix
+
+        p = WowFlutterFix()
+        audio = np.zeros(4800, dtype=np.float32)
+        result = p._compute_bump_local_strength(audio, 100, 200, 48000, 0.0, [])
+        assert result == 0.0, f"Erwartete 0.0 bei base_strength=0, erhalten: {result}"
+
+    def test_empty_protected_zones_no_cap(self):
+        """Leere protected_zones darf Stärke nicht reduzieren."""
+        import numpy as np
+
+        from backend.core.phases.phase_12_wow_flutter_fix import WowFlutterFix
+
+        p = WowFlutterFix()
+        sr = 48000
+        audio = 0.5 * np.ones(sr, dtype=np.float32)
+        bump_start = int(0.3 * sr)
+        bump_end = int(0.32 * sr)
+        audio[bump_start:bump_end] = 0.0  # Energie-Einbruch
+
+        local_s = p._compute_bump_local_strength(audio, bump_start, bump_end, sr, 0.80, [])
+        assert local_s > 0.0, "Leere Zonen geben 0 zurück — unerwarteter Fallback"
+
+
+class TestV38Phase64VfaZoneCaps:
+    """§V38 Per-Event-Strength-Oracle in phase_64_tape_splice_repair (_compute_splice_local_strength).
+
+    Bestätigt gemäß Spezifikation: "phase_64 (Mai 2026)" — Regressionsgefahr
+    dokumentiert, Testabsicherung war bisher nicht vorhanden.
+    """
+
+    def test_vibrato_zone_cap_applied(self):
+        """Spleißpunkt in Vibrato-Zone muss auf max 0.20 gecappt werden (§0p)."""
+        import numpy as np
+
+        from backend.core.phases.phase_64_tape_splice_repair import _compute_splice_local_strength
+
+        sr = 48000
+        # Realistische Signal: leichte Pegelsprung an Spleißpunkt
+        audio = 0.4 * np.ones(sr * 2, dtype=np.float64)
+        splice_idx = int(0.5 * sr)
+        audio[splice_idx:] *= 1.8  # Pegelsprung
+
+        local_s = _compute_splice_local_strength(
+            original=audio,
+            splice_idx=splice_idx,
+            sample_rate=sr,
+            crossfade_samples=256,
+            base_strength=0.90,
+            protected_zones=[(0.45, 0.60, 0.20)],
+        )
+        assert local_s <= 0.20 + 1e-6, f"Vibrato-Cap nicht aktiv: {local_s:.4f}"
+
+    def test_frisson_zone_cap_applied(self):
+        """Spleißpunkt in Frisson-Zone muss auf max 0.30 gecappt werden."""
+        import numpy as np
+
+        from backend.core.phases.phase_64_tape_splice_repair import _compute_splice_local_strength
+
+        sr = 48000
+        audio = 0.5 * np.ones(sr * 3, dtype=np.float64)
+        splice_idx = int(1.0 * sr)
+        audio[splice_idx:] *= 0.5  # Pegelabfall (leise nach laut)
+
+        local_s = _compute_splice_local_strength(
+            original=audio,
+            splice_idx=splice_idx,
+            sample_rate=sr,
+            crossfade_samples=256,
+            base_strength=0.85,
+            protected_zones=[(0.90, 1.10, 0.30)],
+        )
+        assert local_s <= 0.30 + 1e-6, f"Frisson-Cap nicht aktiv: {local_s:.4f}"
+
+    def test_passaggio_zone_cap_applied(self):
+        """Spleißpunkt in Passaggio-Zone muss auf max 0.35 gecappt werden."""
+        import numpy as np
+
+        from backend.core.phases.phase_64_tape_splice_repair import _compute_splice_local_strength
+
+        sr = 48000
+        audio = 0.3 * np.ones(sr * 2, dtype=np.float64)
+        splice_idx = int(0.8 * sr)
+        audio[splice_idx:] *= 2.5  # Energie-Sprung
+
+        local_s = _compute_splice_local_strength(
+            original=audio,
+            splice_idx=splice_idx,
+            sample_rate=sr,
+            crossfade_samples=256,
+            base_strength=0.90,
+            protected_zones=[(0.75, 0.90, 0.35)],
+        )
+        assert local_s <= 0.35 + 1e-6, f"Passaggio-Cap nicht aktiv: {local_s:.4f}"
+
+    def test_outside_zone_no_cap(self):
+        """Spleißpunkt ausserhalb aller Schutzzonen darf volle Stärke erhalten."""
+        import numpy as np
+
+        from backend.core.phases.phase_64_tape_splice_repair import _compute_splice_local_strength
+
+        sr = 48000
+        audio = 0.5 * np.ones(sr * 4, dtype=np.float64)
+        splice_idx = int(3.0 * sr)
+        audio[splice_idx:] *= 2.0
+
+        local_s = _compute_splice_local_strength(
+            original=audio,
+            splice_idx=splice_idx,
+            sample_rate=sr,
+            crossfade_samples=256,
+            base_strength=0.85,
+            protected_zones=[(0.1, 0.5, 0.20), (1.0, 1.5, 0.30)],
+        )
+        # Außerhalb Zone: kein Cap → Stärke > 0.35 erwartet
+        assert local_s > 0.30, f"Cap feuerte falsch-positiv: {local_s:.4f}"
+
+    def test_zero_base_strength_returns_zero(self):
+        """base_strength < 1e-6 muss exakt 0.0 zurueckgeben (V38-Invariante)."""
+        import numpy as np
+
+        from backend.core.phases.phase_64_tape_splice_repair import _compute_splice_local_strength
+
+        sr = 48000
+        audio = np.zeros(sr, dtype=np.float64)
+        result = _compute_splice_local_strength(
+            original=audio,
+            splice_idx=sr // 2,
+            sample_rate=sr,
+            crossfade_samples=256,
+            base_strength=0.0,
+            protected_zones=None,
+        )
+        assert result == 0.0, f"Erwartete 0.0 bei base_strength=0, erhalten: {result}"
+
+    def test_no_protected_zones_no_cap(self):
+        """protected_zones=None darf Stärke nicht reduzieren."""
+        import numpy as np
+
+        from backend.core.phases.phase_64_tape_splice_repair import _compute_splice_local_strength
+
+        sr = 48000
+        audio = 0.4 * np.ones(sr * 2, dtype=np.float64)
+        splice_idx = sr
+        audio[splice_idx:] *= 2.0
+
+        local_s = _compute_splice_local_strength(
+            original=audio,
+            splice_idx=splice_idx,
+            sample_rate=sr,
+            crossfade_samples=256,
+            base_strength=0.80,
+            protected_zones=None,
+        )
+        assert local_s > 0.0, "None-Zones führten zu 0-Stärke"
+
+    def test_process_with_vfa_zones_no_crash(self):
+        """process() mit VFA-Zones durchläuft ohne Exception."""
+        import numpy as np
+
+        from backend.core.phases.phase_64_tape_splice_repair import TapeSpliceRepairPhase
+
+        p = TapeSpliceRepairPhase()
+        sr = 48000
+        # Signal mit simuliertem Spleißpunkt (Pegelsprung)
+        audio = np.zeros(sr * 2, dtype=np.float32)
+        audio[:sr] = 0.3
+        audio[sr:] = 0.5
+        r = p.process(
+            audio,
+            sr,
+            material_type="tape",
+            vibrato_zones=[(0.4, 0.6, 0.20)],
+            frisson_zones=[(0.8, 1.2, 0.30)],
+            passaggio_zones=[(1.5, 1.7, 0.35)],
+        )
+        assert r.audio.shape == audio.shape
+
+
+class TestPhase23VfaBlendBack:
+    """§0p/§V38 VFA-Zonen-Blend-Back in phase_23_spectral_repair.
+
+    phase_23 (Spektral-Inpainting) ist eine maskenbasierte Phase — kein Event-Loop.
+    Stattdessen: VFA-Zonen aus kwargs deckeln die effektive repair_strength per Zone
+    durch Blend-Back auf den Pre-Phase-Input (vibrato 0.20, frisson 0.30,
+    flüster 0.25, passaggio 0.35).
+    """
+
+    def _make_phase23(self):
+        """Gibt eine SpectralRepairPhase-Instanz zurück (class-name unabhängig)."""
+        import importlib
+
+        mod = importlib.import_module("backend.core.phases.phase_23_spectral_repair")
+        # Suche die einzige PhaseInterface-Subklasse im Modul
+        import inspect
+
+        for _name, _cls in inspect.getmembers(mod, inspect.isclass):
+            if hasattr(_cls, "process") and hasattr(_cls, "REPAIR_STRENGTH"):
+                return _cls()
+        raise RuntimeError("Keine SpectralRepairPhase gefunden in phase_23")
+
+    def test_vfa_blend_code_present(self):
+        """Statischer AST-Test: VFA-Blend-Back-Block MUSS in phase_23 existieren."""
+        import ast
+        import pathlib
+
+        src = pathlib.Path("backend/core/phases/phase_23_spectral_repair.py").read_text(encoding="utf-8")
+        assert "vibrato_zones" in src, "vibrato_zones-Handling fehlt in phase_23"
+        assert "frisson_zones" in src, "frisson_zones-Handling fehlt in phase_23"
+        assert "passaggio_zones" in src, "passaggio_zones-Handling fehlt in phase_23"
+        assert "VFA-Blend-Back" in src or "VFA-Zonen" in src, (
+            "VFA-Blend-Back-Kommentar fehlt — Abschnitt nicht auffindbar"
+        )
+        # Syntaxcheck
+        ast.parse(src.encode("utf-8"))
+
+    def test_vibrato_zone_reduces_blend(self):
+        """In Vibrato-Zone muss der Output näher am Original liegen als ohne VFA-Zone."""
+        import numpy as np
+
+        p = self._make_phase23()
+        sr = 48000
+        n = sr * 2
+        np.random.default_rng(42)
+        # Synthetically clipped audio so phase_23 actually repairs something
+        audio = np.clip(0.9 * np.sin(2 * np.pi * 440 * np.arange(n) / sr), -0.5, 0.5).astype(np.float32)
+        # Vibrato zone covers the entire signal → blend capped at 0.20
+        res_with_zone = p.process(
+            audio.copy(),
+            sr,
+            material_type="vinyl",
+            vibrato_zones=[(0.0, 2.0, 0.20)],
+        )
+        res_without = p.process(audio.copy(), sr, material_type="vinyl")
+
+        # With VFA zone: output must be at least as close to original as without
+        diff_with = float(np.mean(np.abs(res_with_zone.audio - audio)))
+        diff_without = float(np.mean(np.abs(res_without.audio - audio)))
+        # Either equally close OR closer — never significantly further away
+        assert diff_with <= diff_without + 1e-4, (
+            f"VFA-Zone erhöhte Abweichung: with={diff_with:.5f} > without={diff_without:.5f}"
+        )
+
+    def test_empty_vfa_zones_no_crash(self):
+        """Leere VFA-Zonen dürfen nicht crashen und dürfen das Ergebnis nicht ändern."""
+        import numpy as np
+
+        p = self._make_phase23()
+        sr = 48000
+        audio = (0.3 * np.sin(2 * np.pi * 220 * np.arange(sr, dtype=np.float32) / sr)).astype(np.float32)
+        res = p.process(
+            audio.copy(),
+            sr,
+            material_type="cd",
+            vibrato_zones=[],
+            frisson_zones=[],
+            passaggio_zones=[],
+        )
+        assert res.audio.shape == audio.shape
+
+    def test_none_vfa_zones_no_crash(self):
+        """Wenn keine VFA-Zone-kwargs übergeben werden, kein Fehler."""
+        import numpy as np
+
+        p = self._make_phase23()
+        sr = 48000
+        audio = 0.3 * np.ones(sr, dtype=np.float32)
+        res = p.process(audio.copy(), sr, material_type="vinyl")
+        assert res.audio.shape == audio.shape

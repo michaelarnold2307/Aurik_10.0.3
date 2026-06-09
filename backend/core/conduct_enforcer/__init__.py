@@ -37,4 +37,4 @@ from .conduct_enforcer import ConductEnforcer, ValidationResult, Zone
 logger = logging.getLogger(__name__)
 
 __all__ = ["ConductEnforcer", "ValidationResult", "Zone"]
-__version__ = "9.12.10"
+__version__ = "9.15.0"
