@@ -30,6 +30,8 @@ logger = logging.getLogger("amrb_runner")
 def dsp_restore(audio: np.ndarray, sr: int) -> np.ndarray:
     """Adaptive DSP restoration for AMRB benchmark scenarios.
 
+    Shared CI-safe restoration path for AMRB benchmark scripts and tests.
+
     Automatically classifies the degradation type from signal properties
     and applies the optimal DSP chain:
 
