@@ -530,6 +530,9 @@ def test_uv3_runtime_context_injects_oracle_profile_for_pilot_phase():
         def _resolve_phase_strength_oracle_rollout_mode(self, kwargs):
             return UnifiedRestorerV3._resolve_phase_strength_oracle_rollout_mode(self, kwargs)
 
+        def _canonical_phase_context_kwargs(self):
+            return UnifiedRestorerV3._canonical_phase_context_kwargs(self)
+
     uv3 = _DummyUV3()
     phase_meta = SimpleNamespace(phase_id="phase_19_de_esser", name="De-Esser")
     audio = np.zeros(48_000, dtype=np.float32)
@@ -630,6 +633,9 @@ def _make_dummy_uv3_for_runtime_hook():
 
         def _resolve_phase_strength_oracle_rollout_mode(self, kwargs):
             return UnifiedRestorerV3._resolve_phase_strength_oracle_rollout_mode(self, kwargs)
+
+        def _canonical_phase_context_kwargs(self):
+            return UnifiedRestorerV3._canonical_phase_context_kwargs(self)
 
     return _DummyUV3()
 
