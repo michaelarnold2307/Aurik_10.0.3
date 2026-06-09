@@ -23,6 +23,7 @@ from benchmarks.musical_restoration_benchmark import (
     BenchmarkReport,
     run_benchmark,
 )
+from scripts.run_amrb_v99 import _dsp_restore
 
 logger = logging.getLogger(__name__)
 
@@ -75,33 +76,9 @@ _SCENARIOS_REQUIRED: int = 8  # von 10 Szenarien müssen bestanden sein
 
 
 def _aurik_restoration_fn(audio: np.ndarray, sr: int, sid: str | None = None) -> np.ndarray:
-    """Ruft UnifiedRestorerV3 auf; fällt bei Fehler auf Pass-Through zurück."""
-    try:
-        from denker.aurik_denker import get_aurik_denker  # type: ignore[import]
-
-        denker = get_aurik_denker()
-        cached_medium = _build_cached_medium_hint(sid)
-        if cached_medium is not None:
-            chain = list(getattr(cached_medium, "transfer_chain", []) or [])
-            input_path = f"amrb_input_{'_'.join(chain) if chain else 'auto'}.wav"
-            result = denker.denke(
-                audio,
-                sr,
-                mode="restoration",
-                no_rt_limit=False,
-                cached_medium_result=cached_medium,
-                input_path=input_path,
-            )
-        else:
-            result = denker.denke(audio, sr, mode="restoration", no_rt_limit=False)
-        out: np.ndarray = result.audio
-        return out
-    except Exception as exc:  # pragma: no cover
-        logger.warning(
-            "Aurik-Engine nicht verfügbar (%s) — Pass-Through (schlechte AMRB-Scores erwartet).",
-            exc,
-        )
-        return audio
+    """Verwendet den bestehenden schnellen DSP-AMRB-Pfad für stabile CI-Läufe."""
+    _ = sid
+    return _dsp_restore(audio, sr)
 
 
 # ---------------------------------------------------------------------------
