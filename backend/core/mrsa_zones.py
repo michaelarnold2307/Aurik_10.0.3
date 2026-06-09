@@ -85,9 +85,17 @@ def analyze_zones(
         win, hop = z["win"], z["hop"]
         hz_lo, hz_hi = z["hz"]
         # STFT mit Hann-Fenster (scipy)
-        # Clamp nperseg + noverlap wenn Signal kürzer als Fensterlänge
+        # Clamp nperseg + noverlap wenn Signal kürzer als Fensterlänge.
+        # §OOM-Guard: Das win/hop-Verhältnis MUSS beim Clamping erhalten bleiben.
+        # VERBOTEN: noverlap = effective_win - 1 (Hop=1) — bei sub_bass (win=65536)
+        # auf 1 s Audio entstünden ~48000 Frames × 24001 Bins ≈ 18 GB STFT → OOM-Kill.
         effective_win = min(win, len(audio_f32))
-        effective_noverlap = min(win - hop, effective_win - 1)
+        if effective_win < win:
+            # Hop proportional skalieren (Ratio-Erhalt, wie ZoneSTFT.eff_hop dokumentiert)
+            effective_hop = max(1, int(round(effective_win * (hop / float(win)))))
+        else:
+            effective_hop = hop
+        effective_noverlap = min(effective_win - effective_hop, effective_win - 1)
         freqs, times, Zxx = _signal.stft(
             audio_f32,
             fs=sr,
