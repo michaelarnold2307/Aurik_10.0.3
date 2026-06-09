@@ -27,7 +27,7 @@ logging.basicConfig(
 logger = logging.getLogger("amrb_runner")
 
 
-def _dsp_restore(audio: np.ndarray, sr: int) -> np.ndarray:
+def dsp_restore(audio: np.ndarray, sr: int) -> np.ndarray:
     """Adaptive DSP restoration for AMRB benchmark scenarios.
 
     Automatically classifies the degradation type from signal properties
@@ -247,13 +247,13 @@ def make_restoration_fn(mode: str = "quality"):
                 return result.audio if hasattr(result, "audio") else result
             except Exception as exc:
                 logger.debug("Restore-Fehler (DSP-Fallback): %s", exc)
-                return _dsp_restore(audio, sr)
+                return dsp_restore(audio, sr)
 
         return restore
 
     except ImportError as exc:
         logger.warning("UnifiedRestorerV3 nicht verfügbar (%s) — erweiterter DSP-Fallback", exc)
-        return _dsp_restore
+        return dsp_restore
 
 
 def main() -> int:
@@ -282,7 +282,7 @@ def main() -> int:
         MusicalRestorationBenchmark,
     )
 
-    restore_fn = _dsp_restore  # DSP-only benchmark — UV3 would be too slow for CI
+    restore_fn = dsp_restore  # DSP-only benchmark — UV3 would be too slow for CI
 
     config = BenchmarkConfig(
         restoration_fn=restore_fn,

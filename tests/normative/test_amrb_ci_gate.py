@@ -23,7 +23,7 @@ from benchmarks.musical_restoration_benchmark import (
     BenchmarkReport,
     run_benchmark,
 )
-from scripts.run_amrb_v99 import _dsp_restore
+from scripts.run_amrb_v99 import dsp_restore
 
 logger = logging.getLogger(__name__)
 
@@ -75,10 +75,9 @@ _SCENARIOS_REQUIRED: int = 8  # von 10 Szenarien müssen bestanden sein
 # ---------------------------------------------------------------------------
 
 
-def _aurik_restoration_fn(audio: np.ndarray, sr: int, sid: str | None = None) -> np.ndarray:
+def _aurik_restoration_fn(audio: np.ndarray, sr: int) -> np.ndarray:
     """Verwendet den bestehenden schnellen DSP-AMRB-Pfad für stabile CI-Läufe."""
-    _ = sid
-    return _dsp_restore(audio, sr)
+    return dsp_restore(audio, sr)
 
 
 # ---------------------------------------------------------------------------
