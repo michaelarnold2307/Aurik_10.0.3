@@ -6,6 +6,7 @@ Import -> Pre-Analysis -> AurikDenker.denke -> Bridge/Exporter-Export.
 
 from __future__ import annotations
 
+import ast
 from pathlib import Path
 
 import pytest
@@ -74,6 +75,7 @@ def test_cli_release_path_uses_full_canonical_contract() -> None:
 def test_frontend_release_path_uses_bridge_contract() -> None:
     """Frontend muss Bridge/Denker/Export-Gate statt direkter Core-Bypaesse nutzen."""
     src = _FRONTEND.read_text(encoding="utf-8")
+    tree = ast.parse(src)
     required_tokens = {
         "_bridge_run_pre_analysis": "Frontend muss die Bridge-Voranalyse nutzen.",
         "_bridge_get_load_audio_fn": "Frontend muss den Bridge-Loader nutzen.",
@@ -91,6 +93,24 @@ def test_frontend_release_path_uses_bridge_contract() -> None:
         "Frontend darf UV3 nicht direkt ueber get_restorer().restore() aufrufen."
     )
     assert "UnifiedRestorerV3.restore(" not in src, "Frontend darf UV3 nicht direkt aufrufen."
+
+    forbidden_import_calls: list[tuple[str, ast.expr]] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        func = node.func
+        if isinstance(func, ast.Attribute) and isinstance(func.value, ast.Name):
+            if (func.value.id, func.attr) in {("sf", "SoundFile"), ("librosa", "load")}:
+                forbidden_import_calls.append((f"{func.value.id}.{func.attr}", func))
+            if (func.value.id, func.attr) == ("_PydubAudioSegment", "from_file"):
+                forbidden_import_calls.append(("_PydubAudioSegment.from_file", func))
+        elif isinstance(func, ast.Name) and func.id == "_PedalboardAudioFile":
+            forbidden_import_calls.append((func.id, func))
+
+    assert not forbidden_import_calls, (
+        "Frontend darf keine eigene Audio-Import-Kaskade neben "
+        f"backend.api.bridge.get_load_audio_fn() pflegen: {forbidden_import_calls[:3]}"
+    )
 
 
 @pytest.mark.normative
