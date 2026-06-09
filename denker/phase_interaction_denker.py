@@ -590,7 +590,13 @@ class PhaseInteractionDenker:
                 "PhaseInteractionDenker: UV3-Selektion → %d Phasen (vor Semantic-Refine)",
                 len(optimized),
             )
-            return optimized
+            if not isinstance(optimized, (list, tuple)):
+                logger.warning(
+                    "PhaseInteractionDenker: UV3-Optimizer lieferte unerwarteten Typ %s — UV3 übernimmt Selektion.",
+                    type(optimized).__name__,
+                )
+                return []
+            return [str(phase_id) for phase_id in optimized]
 
         except Exception as exc:
             logger.warning(

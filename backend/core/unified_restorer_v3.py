@@ -35,7 +35,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from types import SimpleNamespace
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any, Optional, cast
 
 import numpy as np
 
@@ -946,7 +946,8 @@ def _build_waerme_focus_rescue_candidate(
         def _mono(x: np.ndarray) -> np.ndarray:
             if x.ndim == 1:
                 return x
-            return np.mean(x, axis=0).astype(np.float32)
+            _mono_avg = cast(np.ndarray, np.asarray(np.mean(x, axis=0), dtype=np.float32))
+            return _mono_avg
 
         _orig_warm = _sosfiltfilt(_sos, _mono(_orig)).astype(np.float32)
         _cur_warm = _sosfiltfilt(_sos, _mono(_cur)).astype(np.float32)
@@ -16647,14 +16648,17 @@ class UnifiedRestorerV3:
                         # zu verhindern und den Naturalness-Floor zu erreichen.
                         _psy_alphas.extend((0.40, 0.32, 0.24, 0.16))
 
-                    _psy_seen: set[float] = set()
-                    _psy_alphas = [
-                        float(_a)
-                        for _a in _psy_alphas
-                        if isinstance(_a, (int, float))
-                        and 0.0 <= float(_a) <= 1.0
-                        and not (float(_a) in _psy_seen or _psy_seen.add(float(_a)))
-                    ]
+                    _psy_unique_alphas: list[float] = []
+                    for _a in _psy_alphas:
+                        if not isinstance(_a, (int, float)):
+                            continue
+                        _alpha_val = float(_a)
+                        if not 0.0 <= _alpha_val <= 1.0:
+                            continue
+                        if _alpha_val in _psy_unique_alphas:
+                            continue
+                        _psy_unique_alphas.append(_alpha_val)
+                    _psy_alphas = _psy_unique_alphas
 
                     for _alpha in _psy_alphas:
                         _variant_audio = np.clip(
