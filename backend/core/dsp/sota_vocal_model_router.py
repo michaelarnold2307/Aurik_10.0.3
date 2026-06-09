@@ -51,7 +51,7 @@ class SotaVocalModelRouter:
     _SEPARATION_STEMS = ["vocals", "drums", "bass", "guitar", "piano", "other"]
     _ROFORMER_MIN_MEM_GB = 10.0
     _DEMUCS_MIN_MEM_GB = 5.0
-    _MDX_MIN_MEM_GB = 4.0
+    _MDX_MIN_MEM_GB = 3.0
 
     def separate_vocal_instrumental(
         self,
@@ -167,12 +167,11 @@ class SotaVocalModelRouter:
                 )
                 return None
             try:
-                from plugins.mdx23c_plugin import (  # pylint: disable=import-outside-toplevel
-                    get_loaded_mdx23c_plugin,
-                    get_mdx23c_plugin,
-                )
+                mdx_module = __import__("plugins.mdx23c_plugin", fromlist=["get_mdx23c_plugin"])
+                get_mdx23c_plugin = mdx_module.get_mdx23c_plugin
+                get_loaded_mdx23c_plugin = getattr(mdx_module, "get_loaded_mdx23c_plugin", None)
 
-                mdx = get_loaded_mdx23c_plugin()
+                mdx = get_loaded_mdx23c_plugin() if callable(get_loaded_mdx23c_plugin) else None
                 if mdx is None:
                     mdx = get_mdx23c_plugin()
                 stems = mdx.separate_all_stems(reference, sr, stems=["vocals", "inst"])
@@ -613,7 +612,7 @@ class SotaVocalModelRouter:
                 get_model_capability_gate,
             )
 
-            return get_model_capability_gate().build_report()
+            return dict(get_model_capability_gate().build_report())
         except Exception as exc:  # pylint: disable=broad-except
             logger.debug("§SMR-1 model capability report unavailable: %s", exc)
             return {}

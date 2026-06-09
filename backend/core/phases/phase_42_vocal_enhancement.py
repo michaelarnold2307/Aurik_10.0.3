@@ -1335,7 +1335,7 @@ class VocalEnhancement(PhaseInterface):
 
         # ── 3: MDX23C fallback (Kim_Vocal_2) ─────────────────────────────────
         _plm42_mdx = None
-        if _avail_gb is not None and _avail_gb < 4.0:
+        if _avail_gb is not None and _avail_gb < 3.0:
             logger.info(
                 "Phase42 Stem-Sep: mdx23c übersprungen (low_ram_%.1fGB) — Fallback auf NMF/HPSS",
                 _avail_gb,
@@ -1355,9 +1355,12 @@ class VocalEnhancement(PhaseInterface):
                 except Exception:
                     _plm42_mdx = None
 
-                from plugins.mdx23c_plugin import get_loaded_mdx23c_plugin
+                try:
+                    from plugins.mdx23c_plugin import get_loaded_mdx23c_plugin
+                except Exception:
+                    get_loaded_mdx23c_plugin = None
 
-                mdx = get_loaded_mdx23c_plugin()
+                mdx = get_loaded_mdx23c_plugin() if callable(get_loaded_mdx23c_plugin) else None
                 if mdx is None:
                     mdx = get_mdx23c_plugin()
                 if _plm42_mdx is not None:
