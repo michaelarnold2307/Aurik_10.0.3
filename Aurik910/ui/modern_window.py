@@ -13972,98 +13972,29 @@ class ModernMainWindow(QMainWindow):
         def _bg_load():
             """Läuft komplett im Hintergrundthread – kein Qt-Widget-Aufruf hier.
 
-            Audio-Lade-Kaskade (robuste Mehrstufen-Strategie):
-              1. soundfile.SoundFile   – WAV, FLAC, OGG, AIFF (chunk-basiert, Prozent-Feedback)
-              2. pedalboard.io.AudioFile – MP3, M4A, WMA, AAC (chunk-basiert)
-              3. librosa.load()        – Letzter Fallback (audioread-Backend)
+            Audio-Lade-Kaskade läuft ausschließlich über _load_audio_robust(),
+            also backend.api.bridge.get_load_audio_fn() → backend.file_import.
+            Damit bleibt der GUI-Release-Pfad im kanonischen Importvertrag;
+            direkte soundfile.SoundFile-/pedalboard-/librosa-Pfade gehören in
+            backend.file_import, nicht in die Oberfläche.
             """
-            audio: np.ndarray | None = None
-            sr: int = 48000
-            _load_errors: list[str] = []
 
             def _set_progress(pct: int) -> None:
                 """Fortschritt thread-sicher im Haupt-Thread setzen (via Signal)."""
                 self._load_progress.emit(pct)
 
-            # ── Stufe 1: soundfile (chunk-basiert, WAV / FLAC / OGG / AIFF) ──
+            audio: np.ndarray | None = None
+            sr: int = 48000
             try:
-                with sf.SoundFile(file_path) as _sf_file:
-                    _total = len(_sf_file)
-                    sr = _sf_file.samplerate
-                    _chunk = max(1, _total // 50)
-                    _chunks: list = []
-                    _read = 0
-                    while _read < _total:
-                        _block = _sf_file.read(min(_chunk, _total - _read))
-                        if len(_block) == 0:
-                            break  # Unexpected EOF – avoid infinite loop
-                        _chunks.append(_block)
-                        _read += len(_block)
-                        _pct = int(_read / _total * 100)
-                        _set_progress(_pct)
-                    logger.debug("soundfile loop done: _read=%d, _total=%d", _read, _total)
-                    if not _chunks:
-                        raise ValueError("soundfile: keine Frames gelesen (leere oder beschädigte Datei)")
-                    audio = np.concatenate(_chunks, axis=0) if len(_chunks) > 1 else _chunks[0]
-                    del _chunks  # Chunk-Liste sofort freigeben (OOM-Schutz)
-            except Exception as _e1:
-                _load_errors.append(f"soundfile: {_e1}")
-                audio = None
+                _set_progress(5)
+                _loaded_audio, _loaded_sr = _load_audio_robust(str(file_path))
+                audio = np.asarray(_loaded_audio, dtype=np.float32)
+                sr = int(_loaded_sr)
+                _set_progress(95)
+            except Exception as _load_exc:
+                _msg = str(_load_exc)[:200]
 
-            # ── Stufe 2: pedalboard (chunk-basiert, MP3 / M4A / WMA / AAC) ───
-            if audio is None:
-                try:
-                    if _PedalboardAudioFile is None:
-                        raise RuntimeError("pedalboard.io.AudioFile nicht verfügbar")
-                    with contextlib.closing(_PedalboardAudioFile(file_path)) as _f:
-                        sr = int(_f.samplerate)
-                        _frames = _f.frames
-                        _chunk_pb = max(1, _frames // 50)
-                        _clist: list = []
-                        _read2 = 0
-                        while _read2 < _frames:
-                            _block2 = _f.read(min(_chunk_pb, _frames - _read2))  # (ch, samples)
-                            _clist.append(_block2)
-                            _read2 += _block2.shape[-1]
-                            _set_progress(int(_read2 / _frames * 100))
-                        _raw = np.concatenate(_clist, axis=1)  # (ch, total)
-                        del _clist  # Chunk-Liste sofort freigeben (OOM-Schutz)
-                        audio = np.ascontiguousarray(_raw.T)  # (total, ch) – zusammenhängend
-                        del _raw  # Original sofort freigeben (OOM-Schutz)
-                        if audio.ndim == 1:
-                            pass
-                        elif audio.shape[1] == 1:
-                            audio = audio[:, 0]
-                except Exception as _e2:
-                    _load_errors.append(f"pedalboard: {_e2}")
-                    audio = None
-
-            # ── Stufe 3: pydub (FFmpeg-Subprocess, letzter Fallback) ────────
-            # Spec-Kaskade §11: soundfile → pedalboard/FFmpeg → pydub
-            # VERBOTEN: librosa.load(path) direkt für beliebige Audio-Formate
-            if audio is None:
-                try:
-                    _set_progress(20)
-                    if _PydubAudioSegment is None:
-                        raise RuntimeError("pydub.AudioSegment nicht verfügbar")
-                    _seg = _PydubAudioSegment.from_file(file_path)
-                    sr = int(_seg.frame_rate)
-                    _samples = np.array(_seg.get_array_of_samples(), dtype=np.float32)
-                    _bit_depth = _seg.sample_width * 8
-                    _samples /= float(2 ** (_bit_depth - 1))
-                    if _seg.channels > 1:
-                        _samples = _samples.reshape(-1, _seg.channels)
-                    audio = _samples
-                    del _seg, _samples
-                    _set_progress(90)
-                except Exception as _e3:
-                    _load_errors.append(f"pydub: {_e3}")
-
-            # ── Alle Stufen gescheitert ────────────────────────────────────────
-            if audio is None:
-                _msg = " | ".join(_load_errors)[:200]
-
-                def _err():
+                def _err() -> None:
                     if getattr(self, "_file_load_token", 0) != _load_token:
                         return
                     if str(getattr(self, "current_file_path", "") or "") != str(file_path):
@@ -14093,8 +14024,11 @@ class ModernMainWindow(QMainWindow):
                 QTimer.singleShot(0, _err)
                 return
 
+            if audio is None:
+                return
+
             # Laden vollständig — Balken auf 100 % (letzte Iteration ist bereits 100 %,
-            # explizites Setzen als Sicherheitsnetz für librosa-Pfad)
+            # explizites Setzen als Sicherheitsnetz für Bridge-/Fallback-Pfade)
             _set_progress(100)
             logger.debug("_bg_load: progress 100 emitted, dispatching _on_file_loaded")
 
