@@ -627,6 +627,19 @@ class WowFlutterFix(PhaseInterface):
                 },
             )
 
+        pitch_trajectory, _sinusoidal_wow_profile = self._fit_sinusoidal_wow_curve(
+            pitch_trajectory,
+            confidence,
+            sample_rate,
+        )
+        if _sinusoidal_wow_profile.get("applied", False):
+            logger.info(
+                "Phase 12 sinusförmiger Wow-Fit aktiv: freq=%.2f Hz amp=%.1f cents r2=%.2f",
+                float(_sinusoidal_wow_profile.get("frequency_hz", 0.0)),
+                float(_sinusoidal_wow_profile.get("amplitude_cents", 0.0)),
+                float(_sinusoidal_wow_profile.get("r2", 0.0)),
+            )
+
         # Step 1: Separate wow (<4 Hz) and flutter (4-100 Hz) components
         wow_component, flutter_component = self._separate_wow_flutter(pitch_trajectory, sample_rate)
 
@@ -646,6 +659,7 @@ class WowFlutterFix(PhaseInterface):
                 "version": "4.0_polyphonic" if _poly_applied else "3.0_ml_hybrid" if use_ml_hybrid else "3.0_pyin",
                 "ml_hybrid": use_ml_hybrid,
                 "polyphonic": _poly_applied,
+                "sinusoidal_wow_profile": _sinusoidal_wow_profile,
             }
 
             if use_ml_hybrid:
@@ -780,6 +794,16 @@ class WowFlutterFix(PhaseInterface):
         # Phase-Vocoder (hier: WSOLA/resample) für Instrumental-/Nicht-Vokal-Material.
         _report_progress(65.0, "Wow/Flutter: Zeitstreckung (PSOLA/Phase-Vocoder) läuft...")
         _stretch_fn = self._psola_timestretch if vocals_conf >= 0.4 else self._phase_vocoder_timestretch
+        # §DDSP-Harmonic: HPSS-Isolation aktiviert für Vokal + hochrauschige Medien.
+        # Zeitstreckung nur auf harmonischen Anteil → Rausch-Textur (Tape-Hiss, Crackle)
+        # bleibt zeitlich unverändert (physikalisch authentisch). Non-blocking — Fallback
+        # auf standard Phase-Vocoder wenn HPSS < Qualitäts-Gate.
+        _use_harm_iso = (
+            vocals_conf >= 0.25
+            and material in {MaterialType.TAPE, MaterialType.CASSETTE}
+            and len(stretch_factors) > 0
+            and float(np.max(np.abs(np.asarray(stretch_factors, dtype=np.float32) - 1.0))) < 0.08
+        )
         if vocals_conf >= 0.4:
             logger.debug(
                 "Phase 12: PSOLA aktiviert (PANNs Vocals-Konfidenz=%.2f ≥ 0.40)",
@@ -816,7 +840,11 @@ class WowFlutterFix(PhaseInterface):
             # Summanden → sichtbarer L/R Zeitversatz im Wellenformbild.
             # Fix: Phase-Vocoder für Mid UND Side im Stereo-M/S-Pfad.
             # PSOLA läuft ausschließlich im Mono-Pfad (where it was designed for).
-            _mid_stretched = self._phase_vocoder_timestretch(_mid_ch, stretch_factors, sample_rate)
+            _mid_stretched = (
+                self._harmonic_isolated_timestretch(_mid_ch, stretch_factors, sample_rate)
+                if _use_harm_iso
+                else self._phase_vocoder_timestretch(_mid_ch, stretch_factors, sample_rate)
+            )
             # Side: Phase-Vocoder — exakt dasselbe Algorithmus/Timing wie Mid
             _side_stretched = self._phase_vocoder_timestretch(_side_ch, stretch_factors, sample_rate)
             # §2.51 Amplitudenkorrektur: PSOLA ist NICHT amplitudenerhaltend.
@@ -847,7 +875,12 @@ class WowFlutterFix(PhaseInterface):
                 )
             restored = np.column_stack([restored_left[:_p12_n], restored_right[:_p12_n]])
         else:
-            restored = _stretch_fn(audio, stretch_factors, sample_rate)
+            if _use_harm_iso:
+                # §DDSP-Harmonic: Zeitstreckung nur auf harmonischen Anteil.
+                # Rausch-Residuum (Tape-Hiss, Crackle) bleibt zeitlich unverändert.
+                restored = self._harmonic_isolated_timestretch(audio, stretch_factors, sample_rate)
+            else:
+                restored = _stretch_fn(audio, stretch_factors, sample_rate)
 
         # §C3 Neural Phase Vocoder — post-stretch phase coherence restoration.
         # PSOLA/Phase-Vocoder time-stretching can introduce phase incoherence in
@@ -1036,6 +1069,7 @@ class WowFlutterFix(PhaseInterface):
             "timing_safe_strength": _timing_safe_strength,
             "timing_safe_strength_scale": _timing_safe_strength_scale,
             "max_stretch_delta": _max_stretch_delta,
+            "sinusoidal_wow_profile": _sinusoidal_wow_profile,
         }
 
         if use_ml_hybrid:
@@ -1109,6 +1143,116 @@ class WowFlutterFix(PhaseInterface):
                 "loudness_makeup_db": _makeup_db,
             },
         )
+
+    def _fit_sinusoidal_wow_curve(
+        self,
+        pitch_trajectory: np.ndarray,
+        confidence: np.ndarray,
+        sample_rate: int,
+    ) -> tuple[np.ndarray, dict[str, Any]]:
+        """Glättet dominante sinusförmige Wow-Modulationen in der Pitch-Kurve.
+
+        Der Fit ist absichtlich konservativ: Er greift nur bei kleiner Pitch-Spanne
+        (Transportfehler, keine Melodie) und einem klaren 0.1-3 Hz Peak.
+        """
+        profile: dict[str, Any] = {
+            "applied": False,
+            "frequency_hz": 0.0,
+            "amplitude_cents": 0.0,
+            "r2": 0.0,
+        }
+        pitch = np.asarray(pitch_trajectory, dtype=np.float64)
+        conf = np.asarray(confidence, dtype=np.float64)
+        if pitch.size < 32 or conf.size != pitch.size:
+            return pitch_trajectory, profile
+
+        confident_mask = (pitch > 0.0) & (conf > 0.5)
+        if int(np.sum(confident_mask)) < 24:
+            return pitch_trajectory, profile
+
+        confident_pitches = pitch[confident_mask]
+        p5 = float(np.percentile(confident_pitches, 5))
+        p95 = float(np.percentile(confident_pitches, 95))
+        if p5 <= 0.0 or p95 <= p5:
+            return pitch_trajectory, profile
+        span_cents = float(1200.0 * np.log2(p95 / p5))
+        if span_cents > 100.0:
+            return pitch_trajectory, profile
+
+        median_pitch = float(np.median(confident_pitches))
+        if median_pitch <= 0.0:
+            return pitch_trajectory, profile
+
+        residual_cents = np.zeros_like(pitch, dtype=np.float64)
+        valid_idx = np.flatnonzero(pitch > 0.0)
+        residual_cents[valid_idx] = 1200.0 * np.log2(np.maximum(pitch[valid_idx], 1e-8) / median_pitch)
+        conf_idx = np.flatnonzero(confident_mask)
+        if conf_idx.size < 24:
+            return pitch_trajectory, profile
+        residual_interp = np.interp(np.arange(pitch.size), conf_idx, residual_cents[conf_idx])
+        residual_interp = residual_interp - float(np.median(residual_interp))
+
+        window_samples = int(self.PITCH_WINDOW_MS * sample_rate / 1000)
+        hop_samples = max(1, window_samples // self.PITCH_HOP_FACTOR)
+        frame_rate = float(sample_rate) / float(hop_samples)
+        freqs = np.fft.rfftfreq(pitch.size, d=1.0 / frame_rate)
+        window = np.hanning(pitch.size)
+        spectrum = np.fft.rfft(residual_interp * window)
+        band_mask = (freqs >= 0.10) & (freqs <= 3.0)
+        if not np.any(band_mask):
+            return pitch_trajectory, profile
+        band_indices = np.flatnonzero(band_mask)
+        band_power = np.abs(spectrum[band_indices]) ** 2
+        if band_power.size == 0 or float(np.sum(band_power)) <= 1e-12:
+            return pitch_trajectory, profile
+        peak_local = int(np.argmax(band_power))
+        peak_index = int(band_indices[peak_local])
+        peak_freq = float(freqs[peak_index])
+        dominance = float(band_power[peak_local] / (np.sum(band_power) + 1e-12))
+        if dominance < 0.45:
+            return pitch_trajectory, profile
+
+        t = np.arange(pitch.size, dtype=np.float64) / frame_rate
+        omega_t = 2.0 * np.pi * peak_freq * t[confident_mask]
+        design = np.column_stack([np.sin(omega_t), np.cos(omega_t), np.ones(np.sum(confident_mask))])
+        y = residual_cents[confident_mask]
+        try:
+            coeffs, *_ = np.linalg.lstsq(design, y, rcond=None)
+        except Exception:
+            return pitch_trajectory, profile
+        amp_cents = float(np.hypot(coeffs[0], coeffs[1]))
+        if amp_cents < 4.0 or amp_cents > 60.0:
+            return pitch_trajectory, profile
+
+        fitted_conf = design @ coeffs
+        ss_res = float(np.sum((y - fitted_conf) ** 2))
+        ss_tot = float(np.sum((y - float(np.mean(y))) ** 2) + 1e-12)
+        r2 = float(np.clip(1.0 - ss_res / ss_tot, 0.0, 1.0))
+        if r2 < 0.45:
+            return pitch_trajectory, profile
+
+        full_design = np.column_stack(
+            [
+                np.sin(2.0 * np.pi * peak_freq * t),
+                np.cos(2.0 * np.pi * peak_freq * t),
+                np.ones(pitch.size),
+            ]
+        )
+        fitted_cents = full_design @ coeffs
+        fitted_pitch = median_pitch * np.power(2.0, fitted_cents / 1200.0)
+        smoothed = pitch.copy()
+        smoothed[pitch > 0.0] = fitted_pitch[pitch > 0.0]
+        profile.update(
+            {
+                "applied": True,
+                "frequency_hz": peak_freq,
+                "amplitude_cents": amp_cents,
+                "r2": r2,
+                "dominance": dominance,
+                "span_cents": span_cents,
+            }
+        )
+        return smoothed.astype(pitch_trajectory.dtype, copy=False), profile
 
     def _preserve_phase_loudness(
         self,
@@ -2495,6 +2639,62 @@ class WowFlutterFix(PhaseInterface):
 
         masked = np.where(active_mask, sf, 1.0).astype(np.float32)
         return masked, float(np.mean(active_mask.astype(np.float32)))
+
+    def _harmonic_isolated_timestretch(
+        self, audio: np.ndarray, stretch_factors: np.ndarray, sample_rate: int
+    ) -> np.ndarray:
+        """DDSP-inspirierte Zeitstreckung mit Harmonic-Residual-Trennung (§DDSP-Harmonic).
+
+        Trennt Signal in harmonische Komponente (Obertöne, Vokal) und Rausch-Residuum
+        (Tape-Hiss, Vinyl-Crackle). Zeitstreckung nur auf harmonische Komponente anwenden —
+        Rausch-Residuum bleibt zeitlich unverändert (physikalisch authentische Trägertextur).
+
+        Algorithmus:
+            1. HPSS (librosa.effects.hpss, margin=3.0): H=Harmonisch, R=Residuum
+            2. Qualitäts-Gate: harmonic_ratio < 0.15 → Fallback Phase-Vocoder
+            3. _phase_vocoder_timestretch NUR auf H → H_korrigiert
+            4. Rekombination: H_korrigiert + R (Längenangleichung)
+
+        Fallback auf standard Phase-Vocoder wenn:
+            - librosa nicht verfügbar
+            - HPSS-Trennqualität < threshold (harmonic_ratio < 0.15)
+            - beliebige Exception (non-blocking §0c)
+
+        Wissenschaftliche Grundlage: Engel et al. (2020) DDSP-Konzept der harmonischen
+        Sinusoid-Synthese. Hier rein DSP (HPSS = Medianfilter-basiert), kein ML.
+        """
+        try:
+            import librosa  # type: ignore[import-untyped]
+
+            audio_f = np.asarray(audio, dtype=np.float32)
+            _harmonic, _residual = librosa.effects.hpss(audio_f, margin=3.0)
+
+            # Trennungsqualität: harmonische Energie-Ratio
+            _total_rms = float(np.sqrt(np.mean(audio_f**2) + 1e-12))
+            if _total_rms < 1e-9:
+                return self._phase_vocoder_timestretch(audio, stretch_factors, sample_rate)
+            _harmonic_ratio = float(np.sqrt(np.mean(_harmonic**2) + 1e-12)) / _total_rms
+            if _harmonic_ratio < 0.15:
+                # Kaum harmonischer Inhalt → HPSS macht keinen Sinn
+                return self._phase_vocoder_timestretch(audio, stretch_factors, sample_rate)
+
+            # Zeitstreckung NUR auf harmonische Komponente
+            _h_corrected = self._phase_vocoder_timestretch(_harmonic, stretch_factors, sample_rate)
+
+            # Rekombination (Längenangleichung)
+            _n = min(len(_h_corrected), len(_residual), len(audio_f))
+            _result = _h_corrected[:_n] + _residual[:_n]
+            _result = np.nan_to_num(_result, nan=0.0, posinf=0.0, neginf=0.0)
+            _result = np.clip(_result, -1.0, 1.0)
+
+            logger.debug(
+                "phase_12: DDSP-Harmonic-Isolation: harmonic_ratio=%.2f → Trägertextur erhalten",
+                _harmonic_ratio,
+            )
+            return _result.astype(audio.dtype, copy=False)
+        except Exception as _hpss_exc:
+            logger.debug("phase_12: HPSS-Isolation Fallback auf Phase-Vocoder: %s", _hpss_exc)
+            return self._phase_vocoder_timestretch(audio, stretch_factors, sample_rate)
 
     def _phase_vocoder_timestretch(
         self, audio: np.ndarray, stretch_factors: np.ndarray, _sample_rate: int

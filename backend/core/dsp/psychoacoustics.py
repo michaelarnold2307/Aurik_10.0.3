@@ -36,6 +36,7 @@ import logging
 import threading
 import warnings
 from dataclasses import dataclass
+from typing import cast
 
 import numpy as np
 from scipy import signal as _sp_signal
@@ -1102,7 +1103,8 @@ def apply_psychoacoustic_masking_clamp(
                         # §2.62 G_floor≥0.10
                         blend = np.clip(scaled, 0.10, 1.0)
                         result[:, ch] = blend * ch_proc + (1.0 - blend) * ch_orig
-                return np.clip(result, -1.0, 1.0).astype(processed_audio.dtype)
+                result_arr = np.asarray(np.clip(result, -1.0, 1.0), dtype=processed_audio.dtype)
+                return result_arr
             else:
                 x = np.arange(len(proc_mono), dtype=np.float32)
                 gain_samples = np.interp(x, centers, gain_t).astype(np.float32)
@@ -1110,7 +1112,8 @@ def apply_psychoacoustic_masking_clamp(
                 # §2.62 G_floor≥0.10: verhindert klinisches Stille-Artefakt
                 blend = np.clip(scaled, 0.10, 1.0)
                 result = blend * proc_mono + (1.0 - blend) * orig_mono
-                return np.clip(result, -1.0, 1.0).astype(processed_audio.dtype)
+                result_arr = np.asarray(np.clip(result, -1.0, 1.0), dtype=processed_audio.dtype)
+                return cast(np.ndarray, result_arr)
 
         elif mode == "additive":
             # For additive phases: limit how much energy is ADDED in masked

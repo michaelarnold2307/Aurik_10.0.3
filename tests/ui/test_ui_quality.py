@@ -2,6 +2,7 @@ from pathlib import Path
 
 GUI_FILE = Path("Aurik910/ui/modern_window.py")
 I18N_FILE = Path("Aurik910/i18n/__init__.py")
+PROGNOSE_FILE = Path("Aurik910/ui/song_prognose_widget.py")
 DEFECT_SCANNER_FILE = Path("backend/core/defect_scanner.py")
 
 
@@ -65,3 +66,104 @@ def test_ui_i18n_contains_reassuring_processing_messages() -> None:
         '"status.processing_reassure_finalize": "Aurik finalisiert das Ergebnis und sichert alle Qualitätsprüfungen"'
         in src
     )
+
+
+def test_quality_meter_distinguishes_live_estimate_from_final_measurement() -> None:
+    src = GUI_FILE.read_text(encoding="utf-8")
+    assert 'def set_measurement_state(self, state: str, detail: str = "") -> None:' in src
+    assert '"Prognose"' in src
+    assert '"Live-Schätzung"' in src
+    assert '"Final gemessen"' in src
+    assert "self.batch_thread.quality_update.connect(self._set_live_quality_mos)" in src
+
+
+def test_ab_player_disabled_states_have_actionable_reasons() -> None:
+    src = GUI_FILE.read_text(encoding="utf-8")
+    assert "def _audio_output_ready(self) -> tuple[bool, str]:" in src
+    assert "def _set_button_enabled_with_reason(button, enabled: bool" in src
+    assert "Kein Audio-Ausgabegerät gefunden." in src
+    assert "Original-Audio ist noch nicht geladen." in src
+    assert "Restaurierter Export liegt noch nicht vor." in src
+    assert "Audio-Ausgabe nicht verfügbar" in src
+
+
+def test_ab_player_uses_loudness_matched_restored_playback() -> None:
+    src = GUI_FILE.read_text(encoding="utf-8")
+    assert "def _playback_gated_rms_db(audio: np.ndarray) -> float:" in src
+    assert "def _match_playback_loudness_to_reference(" in src
+    assert "loudness_match_ref=self._orig_audio" in src
+    assert "Pegelmatch" in src
+    assert "Export-Audio bleibt unverändert" in src
+
+
+def test_release_title_is_professional_not_personalized() -> None:
+    src = I18N_FILE.read_text(encoding="utf-8")
+    assert '"ui.app_title": "Aurik Professional v{version}"' in src
+    assert "für meinen lieben Freund" not in src
+    assert "my dear friend" not in src
+
+
+def test_gui_has_professional_offline_system_check_surface() -> None:
+    src = GUI_FILE.read_text(encoding="utf-8")
+    assert "def _collect_professional_system_status(self) -> list[tuple[str, str]]:" in src
+    assert "def _show_system_check_dialog(self) -> None:" in src
+    assert "Offline-Betrieb" in src
+    assert "Bridge-Vertrag" in src
+    assert "Audio-Ausgabe" in src
+    assert "Lokale Modelle" in src
+    assert "Aurik Systemcheck" in src
+
+
+def test_result_banner_starts_with_clear_professional_verdict() -> None:
+    src = GUI_FILE.read_text(encoding="utf-8")
+    assert "Haupturteil" in src
+    assert "FREIGEGEBEN" in src
+    assert "RECOVERED" in src
+    assert "DEGRADED" in src
+    assert "BLOCKIERT" in src
+    assert "Export freigegeben; technische Details folgen" in src
+
+
+def test_song_prognose_primary_visible_texts_are_i18n_controlled() -> None:
+    src = PROGNOSE_FILE.read_text(encoding="utf-8")
+    i18n = I18N_FILE.read_text(encoding="utf-8")
+    assert "from Aurik910.i18n import t" in src
+    for key in (
+        "prognose.header",
+        "prognose.section.score",
+        "prognose.status.detected",
+        "prognose.mode.restoration_recommended",
+        "prognose.mode.studio_recommended",
+    ):
+        assert f't("{key}")' in src
+        assert f'"{key}"' in i18n
+
+
+def test_primary_gui_controls_have_accessibility_metadata() -> None:
+    src = GUI_FILE.read_text(encoding="utf-8")
+    assert 'self.setAccessibleName("Klangqualitätsanzeige")' in src
+    assert 'self.btn_play_original.setAccessibleName("Original anhören")' in src
+    assert 'self.btn_play_restored.setAccessibleName("Restaurierte Fassung anhören")' in src
+    assert 'self.btn_ab_sync.setAccessibleName("Synchronisierter A/B-Loop")' in src
+    assert 'self.btn_stop_playback.setAccessibleName("Wiedergabe stoppen")' in src
+    assert 'self.btn_help.setAccessibleName("Hilfe und Systemcheck")' in src
+
+
+def test_gui_runtime_snapshot_centralizes_professional_state() -> None:
+    src = GUI_FILE.read_text(encoding="utf-8")
+    assert "class UiRuntimeSnapshot:" in src
+    assert "def _capture_runtime_snapshot(self) -> UiRuntimeSnapshot:" in src
+    assert "def _format_ab_source_status(snapshot: UiRuntimeSnapshot) -> str:" in src
+    assert "processing_active" in src
+    assert "quality_state" in src
+    assert "result_output_available" in src
+
+
+def test_result_banner_includes_recovery_diagnostic_center() -> None:
+    src = GUI_FILE.read_text(encoding="utf-8")
+    assert "def _build_recovery_diagnostic_line(" in src
+    assert "Recovery-Diagnose" in src
+    assert "Urteil={verdict}" in src
+    assert "Pipeline={_deg}" in src
+    assert "Export=vorhanden" in src
+    assert "A/B={self._format_ab_source_status(_snapshot)}" in src

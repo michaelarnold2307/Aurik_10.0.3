@@ -24,6 +24,8 @@ from PyQt5.QtWidgets import (  # pylint: disable=no-name-in-module
     QWidget,
 )
 
+from Aurik910.i18n import t
+
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
@@ -378,11 +380,11 @@ class SongPrognoseWidget(QWidget):
         # ── Header ────────────────────────────────────────────────────
         hdr_row = QHBoxLayout()
         hdr_row.setSpacing(8)
-        self._header_lbl = QLabel("🔍  Song-Analyse")
+        self._header_lbl = QLabel(t("prognose.header"))
         self._header_lbl.setStyleSheet(f"color:{_C_TEXT}; font-size:12pt; font-weight:bold; background:transparent;")
         hdr_row.addWidget(self._header_lbl)
         hdr_row.addStretch()
-        self._status_lbl = QLabel("Datei öffnen, um die Analyse zu starten")
+        self._status_lbl = QLabel(t("prognose.status.idle"))
         self._status_lbl.setStyleSheet(f"color:{_C_MUTED}; font-size:9pt; background:transparent;")
         hdr_row.addWidget(self._status_lbl)
         main_layout.addLayout(hdr_row)
@@ -397,14 +399,14 @@ class SongPrognoseWidget(QWidget):
         dial_inner = QVBoxLayout(dial_card)
         dial_inner.setContentsMargins(12, 10, 12, 10)
         dial_inner.setSpacing(4)
-        dial_inner.addWidget(_section_label("CHANCEN-SCORE"))
+        dial_inner.addWidget(_section_label(t("prognose.section.score")))
         dial_row = QHBoxLayout()
         self._dial = _ScoreDial()
         dial_row.addWidget(self._dial)
         dial_label_col = QVBoxLayout()
         self._grade_lbl = QLabel("—")
         self._grade_lbl.setStyleSheet(f"color:{_C_MUTED}; font-size:10pt; font-weight:bold; background:transparent;")
-        self._grade_sub_lbl = QLabel("— wird analysiert …")
+        self._grade_sub_lbl = QLabel(t("prognose.placeholder.analyzing"))
         self._grade_sub_lbl.setStyleSheet(f"color:{_C_MUTED}; font-size:8pt; background:transparent;")
         self._grade_sub_lbl.setWordWrap(True)
         dial_label_col.addWidget(self._grade_lbl)
@@ -421,15 +423,15 @@ class SongPrognoseWidget(QWidget):
         meta_inner = QVBoxLayout(meta_card)
         meta_inner.setContentsMargins(12, 10, 12, 10)
         meta_inner.setSpacing(6)
-        meta_inner.addWidget(_section_label("AUFNAHME-MERKMALE"))
+        meta_inner.addWidget(_section_label(t("prognose.section.metadata")))
 
         self._meta_rows: dict[str, QLabel] = {}
         for key, placeholder in [
-            ("material", "— wird erkannt …"),
-            ("era", "— wird erkannt …"),
-            ("genre", "— wird erkannt …"),
-            ("snr", "— wird gemessen …"),
-            ("bandwidth", "— wird gemessen …"),
+            ("material", t("prognose.placeholder.detecting")),
+            ("era", t("prognose.placeholder.detecting")),
+            ("genre", t("prognose.placeholder.detecting")),
+            ("snr", t("prognose.placeholder.measuring")),
+            ("bandwidth", t("prognose.placeholder.measuring")),
         ]:
             row_w = QHBoxLayout()
             row_w.setSpacing(6)
@@ -453,7 +455,7 @@ class SongPrognoseWidget(QWidget):
         mos_inner = QVBoxLayout(mos_card)
         mos_inner.setContentsMargins(12, 8, 12, 8)
         mos_inner.setSpacing(4)
-        mos_inner.addWidget(_section_label("ERWARTETE QUALITÄT NACH RESTAURIERUNG (MOS 1–5)"))
+        mos_inner.addWidget(_section_label(t("prognose.section.expected_quality")))
 
         mos_bar_row = QHBoxLayout()
         mos_bar_row.setSpacing(10)
@@ -490,12 +492,12 @@ class SongPrognoseWidget(QWidget):
         defect_inner = QVBoxLayout(defect_card)
         defect_inner.setContentsMargins(12, 8, 12, 8)
         defect_inner.setSpacing(6)
-        defect_inner.addWidget(_section_label("ERKANNTE SCHÄDEN"))
+        defect_inner.addWidget(_section_label(t("prognose.section.defects")))
 
         self._defect_pills_row = QHBoxLayout()
         self._defect_pills_row.setSpacing(6)
         self._defect_pills_row.setAlignment(Qt.AlignmentFlag.AlignLeft)
-        self._defect_placeholder = QLabel("— Scan läuft nach dem Start …")
+        self._defect_placeholder = QLabel(t("prognose.placeholder.scan_after_start"))
         self._defect_placeholder.setStyleSheet(f"color:{_C_MUTED}; font-size:9pt; background:transparent;")
         self._defect_pills_row.addWidget(self._defect_placeholder)
         defect_inner.addLayout(self._defect_pills_row)
@@ -512,7 +514,7 @@ class SongPrognoseWidget(QWidget):
         phase_inner = QVBoxLayout(phase_card)
         phase_inner.setContentsMargins(12, 8, 12, 8)
         phase_inner.setSpacing(4)
-        phase_inner.addWidget(_section_label("PHASENPROGNOSE"))
+        phase_inner.addWidget(_section_label(t("prognose.section.phase_forecast")))
 
         phase_row = QHBoxLayout()
         phase_row.setSpacing(16)
@@ -537,8 +539,8 @@ class SongPrognoseWidget(QWidget):
         rec_inner = QVBoxLayout(rec_card)
         rec_inner.setContentsMargins(12, 8, 12, 8)
         rec_inner.setSpacing(4)
-        rec_inner.addWidget(_section_label("EMPFEHLUNGEN"))
-        self._rec_lbl = QLabel("— Analyse läuft …")
+        rec_inner.addWidget(_section_label(t("prognose.section.recommendations")))
+        self._rec_lbl = QLabel(t("prognose.placeholder.analysis_running"))
         self._rec_lbl.setWordWrap(True)
         self._rec_lbl.setStyleSheet(f"color:{_C_TEXT}; font-size:9pt; background:transparent; line-height:160%;")
         rec_inner.addWidget(self._rec_lbl)
@@ -571,11 +573,11 @@ class SongPrognoseWidget(QWidget):
         self._dial.set_score(0.0, _C_MUTED)
         self._grade_lbl.setStyleSheet(f"color:{_C_MUTED}; font-size:10pt; font-weight:bold; background:transparent;")
         self._grade_lbl.setText("—")
-        self._grade_sub_lbl.setText("— wird analysiert …")
+        self._grade_sub_lbl.setText(t("prognose.placeholder.analyzing"))
         self.set_runtime_status("analyzing")
 
         for key in ("material", "era", "genre", "snr", "bandwidth"):
-            self._meta_rows[key].setText("— wird erkannt …")
+            self._meta_rows[key].setText(t("prognose.placeholder.detecting"))
 
         self._mos_bar.setValue(0)
         self._mos_val_lbl.setText("—")
@@ -585,11 +587,11 @@ class SongPrognoseWidget(QWidget):
         self._phase_desc_lbl.setText("—")
         self._mode_rec_lbl.setText("")
 
-        self._rec_lbl.setText("— Analyse läuft …")
+        self._rec_lbl.setText(t("prognose.placeholder.analysis_running"))
         self._preventive_lbl.setText("")
         self._defect_recs_lbl.setText("")
         self._clear_defect_pills()
-        self._defect_placeholder.setText("— Scan läuft nach dem Start …")
+        self._defect_placeholder.setText(t("prognose.placeholder.scan_after_start"))
         self._defect_placeholder.setVisible(True)
         self._pill_by_key = {}
         self._detected_scores = {}
@@ -779,15 +781,15 @@ class SongPrognoseWidget(QWidget):
         """Setzt den Laufzeit-Status der Analysekarte konsistent inkl. Farbcodierung."""
         _state = str(state or "").strip().lower()
         _map: dict[str, tuple[str, str]] = {
-            "idle": ("Datei öffnen, um die Analyse zu starten", _C_MUTED),
-            "analyzing": ("Analyse läuft …", _C_MUTED),
-            "ready": ("Analyse abgeschlossen", _C_GREEN),
-            "detected": ("Defekte erkannt — bereit für Restaurierung", _C_AMBER),
-            "correcting": ("Restaurierung läuft — Defekte werden korrigiert", _C_BLUE),
-            "completed": ("Restaurierung abgeschlossen", _C_GREEN),
-            "warning": ("Analyse mit Hinweisen abgeschlossen", _C_AMBER),
-            "error": ("Analysefehler — Datei erneut laden", _C_RED),
-            "cancelled": ("Restaurierung abgebrochen", _C_RED),
+            "idle": (t("prognose.status.idle"), _C_MUTED),
+            "analyzing": (t("prognose.status.analyzing"), _C_MUTED),
+            "ready": (t("prognose.status.ready"), _C_GREEN),
+            "detected": (t("prognose.status.detected"), _C_AMBER),
+            "correcting": (t("prognose.status.correcting"), _C_BLUE),
+            "completed": (t("prognose.status.completed"), _C_GREEN),
+            "warning": (t("prognose.status.warning"), _C_AMBER),
+            "error": (t("prognose.status.error"), _C_RED),
+            "cancelled": (t("prognose.status.cancelled"), _C_RED),
         }
         _text, _color = _map.get(_state, _map["idle"])
         self._status_lbl.setText(_text)
@@ -826,17 +828,17 @@ class SongPrognoseWidget(QWidget):
 
         # Mode recommendation
         if self._grade in ("excellent", "good"):
-            self._mode_rec_lbl.setText("✦ Studio 2026 empfohlen")
+            self._mode_rec_lbl.setText(t("prognose.mode.studio_recommended"))
             self._mode_rec_lbl.setStyleSheet(
                 f"color:{_C_GREEN}; font-size:9pt; font-weight:bold; background:transparent;"
             )
         elif self._grade in ("fair",):
-            self._mode_rec_lbl.setText("▶ Restoration empfohlen")
+            self._mode_rec_lbl.setText(t("prognose.mode.restoration_recommended"))
             self._mode_rec_lbl.setStyleSheet(
                 f"color:{_C_AMBER}; font-size:9pt; font-weight:bold; background:transparent;"
             )
         elif self._grade in ("poor", "critical"):
-            self._mode_rec_lbl.setText("▶ Restoration (maximale Verträglichkeit)")
+            self._mode_rec_lbl.setText(t("prognose.mode.restoration_safe"))
             self._mode_rec_lbl.setStyleSheet(
                 f"color:{_C_RED}; font-size:9pt; font-weight:bold; background:transparent;"
             )
@@ -847,18 +849,18 @@ class SongPrognoseWidget(QWidget):
         era, and genre in addition to the plain restorability grade).  Called by
         ModernMainWindow._apply_mode_recommendation_visuals() once pre-analysis is final."""
         if mode == "STUDIO_2026":
-            self._mode_rec_lbl.setText("\u2746 Studio 2026 empfohlen")
+            self._mode_rec_lbl.setText(t("prognose.mode.studio_recommended_alt"))
             self._mode_rec_lbl.setStyleSheet(
                 f"color:{_C_GREEN}; font-size:9pt; font-weight:bold; background:transparent;"
             )
         else:  # RESTORATION
             if self._grade in ("poor", "critical"):
-                self._mode_rec_lbl.setText("\u25b6 Restoration (maximale Vertr\u00e4glichkeit)")
+                self._mode_rec_lbl.setText(t("prognose.mode.restoration_safe"))
                 self._mode_rec_lbl.setStyleSheet(
                     f"color:{_C_RED}; font-size:9pt; font-weight:bold; background:transparent;"
                 )
             else:
-                self._mode_rec_lbl.setText("\u25b6 Restoration empfohlen")
+                self._mode_rec_lbl.setText(t("prognose.mode.restoration_recommended"))
                 self._mode_rec_lbl.setStyleSheet(
                     f"color:{_C_AMBER}; font-size:9pt; font-weight:bold; background:transparent;"
                 )

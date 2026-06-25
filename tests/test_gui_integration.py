@@ -47,6 +47,7 @@ def test_unified_restorer_v3_integration():
     assert hasattr(BatchProcessingThread, "item_progress")
     assert hasattr(BatchProcessingThread, "defect_update")
     assert hasattr(BatchProcessingThread, "phase_update")
+    assert hasattr(BatchProcessingThread, "quality_update")
 
     print("✓ BatchProcessingThread has correct pipeline signals")
 
@@ -152,8 +153,56 @@ def test_processing_thread_signals():
     assert hasattr(BatchProcessingThread, "phase_update")
     assert hasattr(BatchProcessingThread, "mode_update")
     assert hasattr(BatchProcessingThread, "ml_status_update")
+    assert hasattr(BatchProcessingThread, "quality_update")
 
     print("✓ BatchProcessingThread has all required signals")
+
+
+def test_live_quality_estimate_updates_during_pipeline():
+    """Test that GUI quality has a live estimate before final MOS calculation."""
+    pytest.importorskip("PyQt5")
+    from Aurik910.ui.modern_window import BatchProcessingThread
+
+    start = BatchProcessingThread._estimate_live_quality_mos(5.0, baseline_mos=3.4)
+    mid = BatchProcessingThread._estimate_live_quality_mos(45.0, baseline_mos=3.4, active_phase_count=4)
+    post = BatchProcessingThread._estimate_live_quality_mos(
+        92.0,
+        baseline_mos=3.4,
+        active_phase_count=8,
+        post_processing_started=True,
+    )
+
+    assert 1.0 <= start < 3.4
+    assert 3.4 < mid < post <= 4.9
+
+
+def test_main_window_layout_gate_keeps_primary_controls_visible():
+    """Offscreen layout smoke gate for desktop and compact professional widths."""
+    pytest.importorskip("PyQt5")
+    from PyQt5.QtCore import QSize
+    from PyQt5.QtWidgets import QApplication
+
+    from Aurik910.ui.modern_window import ModernMainWindow
+
+    app = QApplication.instance()
+    if app is None:
+        app = QApplication(sys.argv)
+
+    window = ModernMainWindow()
+    try:
+        for size in (QSize(1440, 900), QSize(1024, 720)):
+            window.resize(size)
+            window.show()
+            app.processEvents()
+            assert window.size().width() > 0
+            assert window.size().height() > 0
+            assert window.btn_magic_restoration.isVisible()
+            assert window.btn_magic_studio.isVisible()
+            assert window.quality_meter_widget.isVisible()
+            assert window.btn_play_original.accessibleName() == "Original anhören"
+            assert window._capture_runtime_snapshot().quality_state
+    finally:
+        window.close()
 
 
 if __name__ == "__main__":

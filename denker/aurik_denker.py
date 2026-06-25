@@ -94,6 +94,11 @@ _HISTORICAL_OR_FRAGILE_MATERIALS: frozenset[str] = frozenset(
         "vinyl",
         "tape",
         "reel_tape",
+        # v9.15.1: Kassette ist analoges Träger-Material — fehle bisher (Bug G1)
+        "cassette",
+        "cassette_dolby_b",
+        "cassette_dolby_c",
+        "cassette_dolby_s",
     }
 )
 
@@ -295,6 +300,8 @@ class AurikErgebnis:
     # §Dach: Musikalischer Globalplan — stilbewusstes Restaurierungsportrait
     global_plan: dict[str, Any] | None = field(default=None)
     metadata: dict[str, Any] = field(default_factory=dict)
+    # §S5 GAF-Propagation: True = applicable, False = inapplicable (§2.32)
+    goal_applicability: dict[str, bool] = field(default_factory=dict)
 
     def as_dict(self) -> dict:
         """Serialisierungsformat für Logging und Persistenz."""
@@ -499,16 +506,25 @@ class AurikDenker:
 
     @staticmethod
     def _resolve_excellence_material(material: str, chain_info: dict[str, Any] | None) -> str:
-        """Uses the final carrier stage for Excellence decisions when available."""
+        """Gibt das restaurierungsrelevante Material zurück (Ursprungs-Träger bevorzugt).
+
+        v9.15.1 Fix G2: Bei Transfer-Ketten (z.B. cassette→mp3_low) wird das erste
+        analoge Träger-Material zurückgegeben, nicht das finale Dateiformat.
+        Begründung: Oracle-, Budget- und Stärken-Entscheidungen müssen auf den
+        Original-Träger kalibriert sein (§0l, §2.47a), nicht auf das Dateiformat.
+        """
         if isinstance(chain_info, dict):
+            # Transfer-Kette: ersten analogen Träger bevorzugen (Ursprung)
+            chain = chain_info.get("chain")
+            if isinstance(chain, list) and chain:
+                for node in chain:
+                    node_str = str(node).strip().lower()
+                    if node_str in _HISTORICAL_OR_FRAGILE_MATERIALS:
+                        return node_str
+            # Kein analoger Ursprung → primary_medium als Fallback
             primary_medium = str(chain_info.get("primary_medium", "")).strip().lower()
             if primary_medium:
                 return primary_medium
-            chain = chain_info.get("chain")
-            if isinstance(chain, list) and chain:
-                last = str(chain[-1]).strip().lower()
-                if last:
-                    return last
         return str(material or "unknown").strip().lower()
 
     @classmethod
@@ -1574,6 +1590,8 @@ class AurikDenker:
         _rest_musical_goals: dict[str, float] = {}
         _rest_goals_passed: int = 0
         _rest_metadata: dict[str, Any] = {}
+        _rest_inapplicable_goals: frozenset[str] = frozenset()  # §S5: GAF-Inapplicable-Propagation
+        _goal_app_raw: dict[str, bool] = {}  # §S5: raw goal_applicability aus RestaurierErgebnis
         _gaps_found: int = 0
         _gaps_repaired: int = 0
         _gap_total_ms: float = 0.0
@@ -1882,6 +1900,9 @@ class AurikDenker:
                 _raw_goals = getattr(rest, "musical_goals", None)
                 _rest_musical_goals = dict(_raw_goals) if _raw_goals else {}
                 _rest_goals_passed = int(getattr(rest, "goals_passed", 0))
+                # §S5: GAF-Inapplicable-Ziele aus UV3-RestorationResult extrahieren
+                _goal_app_raw: dict[str, bool] = dict(getattr(rest, "goal_applicability", None) or {})
+                _rest_inapplicable_goals = frozenset(g for g, ok in _goal_app_raw.items() if not ok)
                 _meta_raw = getattr(rest, "metadata", None)
                 _rest_metadata = dict(_meta_raw) if isinstance(_meta_raw, dict) else {}
                 if _pid_runtime_hint:
@@ -2049,6 +2070,10 @@ class AurikDenker:
                         _repair_kwargs["mode"] = effective_mode
                     if "material" in _repair_sig.parameters:
                         _repair_kwargs["material"] = _exz_material
+                    if "inapplicable_goals" in _repair_sig.parameters and _rest_inapplicable_goals:
+                        # §S5: GAF-Inapplicable-Propagation — physikalisch unerreichbare Goals
+                        # aus Violations-Zählung und Reparaturlogik ausschließen (§2.32)
+                        _repair_kwargs["inapplicable_goals"] = _rest_inapplicable_goals
                     if "reference_audio" in _repair_sig.parameters:
                         _repair_out = _repair_call(
                             aktuelles_audio,
@@ -2094,7 +2119,9 @@ class AurikDenker:
                     goals_passed = sum(
                         1
                         for k, v in goals.items()
-                        if math.isfinite(v) and v >= _exz_thresholds.get(k, _FALLBACK_GOAL_MIN)
+                        if k not in _rest_inapplicable_goals  # §S5: physikalisch nicht erreichbare Goals ausschließen
+                        and math.isfinite(v)
+                        and v >= _exz_thresholds.get(k, _FALLBACK_GOAL_MIN)
                     )
                     musical_goals = _normalize_goal_scores(goals)
                 # VERSA MOS für Qualitätsentscheidung
@@ -2699,6 +2726,8 @@ class AurikDenker:
             fail_reason=_fail_reason,
             global_plan=_globalplan.as_dict() if _globalplan is not None else None,
             metadata=_rest_metadata,
+            # §S5: GAF-inapplicable Goals für UI/CLI-Reporting nach außen propagieren
+            goal_applicability=dict(_goal_app_raw) if _goal_app_raw else {},
         )
 
     # ── Fallback ─────────────────────────────────────────────────────────────

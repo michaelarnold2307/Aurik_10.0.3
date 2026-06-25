@@ -751,6 +751,42 @@ class DenoisePhase(PhaseInterface):
                 logger.debug("Phase 03 TDP recombine skipped (non-blocking): %s", _tdp_rec_exc)
             return processed_audio, False
 
+        def _recombine_bsrof_if_needed(processed_audio: np.ndarray) -> tuple[np.ndarray, bool]:
+            """Rekombiniert NR-verarbeiteten Vokal-Stem mit unverändertem Instrumental-Stem.
+            §0a Restoration: Instrumental-Stem bleibt unverändert (keine NR auf Begleitung)."""
+            if not _bsrof_stem_active or _bsrof_instrumental_stem is None:
+                return processed_audio, False
+            try:
+                _proc_v = np.nan_to_num(np.asarray(processed_audio, dtype=np.float32), nan=0.0, posinf=0.0, neginf=0.0)
+                _inst = _bsrof_instrumental_stem
+
+                def _ch_first(a: np.ndarray) -> bool:
+                    return a.ndim == 2 and a.shape[0] == 2 and a.shape[1] > 2
+
+                def _len_n(a: np.ndarray) -> int:
+                    if a.ndim == 1:
+                        return len(a)
+                    return a.shape[1] if _ch_first(a) else a.shape[0]
+
+                def _trim(a: np.ndarray, n: int) -> np.ndarray:
+                    if a.ndim == 1:
+                        return a[:n]
+                    if _ch_first(a):
+                        return a[:, :n]
+                    return a[:n]
+
+                _n_r = min(_len_n(_proc_v), _len_n(_inst))
+                _out = np.clip(_trim(_proc_v, _n_r) + _trim(_inst, _n_r), -1.0, 1.0).astype(np.float32)
+                logger.debug(
+                    "Phase 03 BS-RoFormer Remix: voc_rms=%.4f inst_rms=%.4f",
+                    float(np.sqrt(np.mean(_trim(_proc_v, _n_r) ** 2))),
+                    float(np.sqrt(np.mean(_trim(_inst, _n_r) ** 2))),
+                )
+                return _out, True
+            except Exception as _bsr_mix_exc:
+                logger.debug("Phase 03 BS-RoFormer Rekombination fehlgeschlagen (non-blocking): %s", _bsr_mix_exc)
+                return processed_audio, False
+
         # Build a robust vocal-evidence signal once and use it across all denoise tiers.
         _report_progress(5.0, "Entrauschung: Rauschanalyse")
         _vocal_genres = {"Klassik", "Oper", "Jazz", "Folk", "Blues", "Pop", "Soul/R&B", "Gospel"}
@@ -774,6 +810,86 @@ class DenoisePhase(PhaseInterface):
         # Pure orchestral "Klassik" (panns_singing ≈ 0.0) must NOT trigger vocal ML.
         _is_vocal_material = _panns_singing >= 0.25 or (_genre_is_vocal and _panns_singing >= 0.10)
         _is_non_digital = material_type not in ("cd_digital", "streaming", "mp3_high")
+
+        # ── BS-RoFormer Vocal-Stem-NR (§0a-konformer MIIPHER-Äquivalent, v9.15.2) ─────────────
+        # Bei stark vokalhaltigem Material (panns_singing ≥ 0.35) und SNR < 20 dB isoliert
+        # BS-RoFormer (SDR ≈ 12.45 dB) den Vokal-Stem vor der NR.  NR wird ausschließlich
+        # auf den Vokal-Stem angewendet; Instrumental-Stem bleibt unverändert (§0a Restoration).
+        # Wiener-Masking für Stereo-Phasenerhalt (§9.10.118).  SDRi-Gate < -1.0 dB → Fallback.
+        # §0a-Invariante: BS-RoFormer-Separation ist kein phase_42 — erlaubt in Restoration.
+        _bsrof_stem_active: bool = False
+        _bsrof_vocal_stem: np.ndarray | None = None
+        _bsrof_instrumental_stem: np.ndarray | None = None
+        _bsrof_original_audio: np.ndarray | None = None
+
+        _bsrof_gate = _panns_singing >= 0.35 and not use_lightweight and (_est_snr_db is None or _est_snr_db < 20.0)
+        if _bsrof_gate:
+            _bsrof_ram_ok = True
+            try:
+                import psutil as _psutil_bsr  # pylint: disable=import-outside-toplevel
+
+                _bsrof_ram_ok = float(_psutil_bsr.virtual_memory().available / (1024**3)) >= 8.0
+            except Exception:
+                pass
+            if _bsrof_ram_ok:
+                try:
+                    from plugins.bs_roformer_plugin import get_bs_roformer  # pylint: disable=import-outside-toplevel
+
+                    _bsr = get_bs_roformer()
+                    # Mono-Referenz für Separation
+                    if audio.ndim == 2:
+                        _bsr_chf = audio.shape[0] == 2 and audio.shape[1] > 2
+                        _audio_mono_bsr = audio.mean(axis=0 if _bsr_chf else 1).astype(np.float32)
+                    else:
+                        _audio_mono_bsr = np.asarray(audio, dtype=np.float32)
+                    _sep_bsr = _bsr.separate(_audio_mono_bsr, sample_rate, stems=["vocals"])
+                    if _sep_bsr is not None and "vocals" in _sep_bsr.stems:
+                        _sdri_bsr = float(getattr(_sep_bsr, "sdri_db", 0.0))
+                        if _sdri_bsr >= -1.0:
+                            _voc_mono_bsr = np.asarray(_sep_bsr.stems["vocals"], dtype=np.float32)
+                            _n_bsr = min(len(_audio_mono_bsr), len(_voc_mono_bsr))
+                            _inst_mono_bsr = np.clip(_audio_mono_bsr[:_n_bsr] - _voc_mono_bsr[:_n_bsr], -1.0, 1.0)
+                            if audio.ndim == 2:
+                                # Wiener-Masking für phasenkohärente Stereo-Rekonstruktion
+                                _bsr_chf2 = audio.shape[0] == 2 and audio.shape[1] > 2
+                                _aud_ct = audio[:_n_bsr].T if _bsr_chf2 else audio[:_n_bsr]
+                                _mask_v = _voc_mono_bsr[:_n_bsr] ** 2 / (
+                                    _voc_mono_bsr[:_n_bsr] ** 2 + _inst_mono_bsr**2 + 1e-9
+                                )
+                                _voc_stem_bsr = np.clip(
+                                    (_aud_ct * _mask_v[:, np.newaxis]).astype(np.float32), -1.0, 1.0
+                                )  # (N, 2)
+                                _inst_stem_bsr = np.clip(
+                                    (_aud_ct * (1.0 - _mask_v)[:, np.newaxis]).astype(np.float32), -1.0, 1.0
+                                )
+                                if _bsr_chf2:
+                                    _voc_stem_bsr = _voc_stem_bsr.T  # → (2, N)
+                                    _inst_stem_bsr = _inst_stem_bsr.T
+                            else:
+                                _voc_stem_bsr = _voc_mono_bsr[:_n_bsr]
+                                _inst_stem_bsr = _inst_mono_bsr[:_n_bsr]
+                            _bsrof_instrumental_stem = _inst_stem_bsr
+                            _bsrof_original_audio = np.asarray(audio, dtype=np.float32).copy()
+                            audio = _voc_stem_bsr  # NR verarbeitet nur Vokal-Stem
+                            _bsrof_stem_active = True
+                            logger.info(
+                                "Phase 03 BS-RoFormer Vokal-Stem-NR aktiv: panns=%.2f snr=%s sdri=%.1f dB model=%s",
+                                _panns_singing,
+                                f"{_est_snr_db:.1f}" if _est_snr_db is not None else "?",
+                                _sdri_bsr,
+                                getattr(_sep_bsr, "model_used", "melbandroformer"),
+                            )
+                        else:
+                            logger.info(
+                                "Phase 03 BS-RoFormer: SDRi=%.1f dB < -1.0 dB → Standard-NR",
+                                _sdri_bsr,
+                            )
+                except Exception as _bsr_exc:
+                    logger.debug(
+                        "Phase 03 BS-RoFormer Vokal-Stem-NR nicht verfügbar (non-blocking): %s",
+                        _bsr_exc,
+                    )
+        # ── Ende BS-RoFormer Vocal-Stem-NR ────────────────────────────────────────────────────
 
         # §4.4 SOTA Era-Aware ML-NR Routing (v9.12.x)
         _era_decade_p03 = int(decade) if decade is not None else 1970
@@ -1410,10 +1526,15 @@ class DenoisePhase(PhaseInterface):
                     ml_result.audio = np.nan_to_num(ml_result.audio, nan=0.0, posinf=0.0, neginf=0.0)
                     ml_result.audio = np.clip(ml_result.audio, -1.0, 1.0)
 
-                ml_result.audio, _tdp_recombined_ml = _recombine_tdp_if_needed(ml_result.audio)
+                ml_result.audio, _bsrof_recombined_ml = _recombine_bsrof_if_needed(ml_result.audio)
+                _tdp_recombined_ml: bool = False
+                if not _bsrof_recombined_ml:
+                    ml_result.audio, _tdp_recombined_ml = _recombine_tdp_if_needed(ml_result.audio)
 
                 _loudness_ref_audio = (
-                    _tdp_original_audio if (_tdp_active and _tdp_original_audio is not None) else audio
+                    _bsrof_original_audio
+                    if (_bsrof_stem_active and _bsrof_original_audio is not None)
+                    else (_tdp_original_audio if (_tdp_active and _tdp_original_audio is not None) else audio)
                 )
                 ml_result.audio, loudness_stats = self._apply_material_loudness_preservation(
                     _loudness_ref_audio,
@@ -1437,6 +1558,7 @@ class DenoisePhase(PhaseInterface):
                         "strategy": str(ml_result.strategy_used),
                         "quality_mode": quality_mode,
                         "tdp_stem_aware_nr": _tdp_active,
+                        "bsrof_stem_aware_nr": _bsrof_stem_active,
                         "rms_drop_db": loudness_stats["rms_drop_db"],
                         "loudness_makeup_db": loudness_stats["makeup_gain_db"],
                     },
@@ -1457,6 +1579,8 @@ class DenoisePhase(PhaseInterface):
                         "tdp_requested": _tdp_enabled,
                         "tdp_active": _tdp_active,
                         "tdp_recombined": _tdp_recombined_ml,
+                        "bsrof_stem_active": _bsrof_stem_active,
+                        "bsrof_recombined": _bsrof_recombined_ml,
                     },
                 )
 
@@ -1518,15 +1642,23 @@ class DenoisePhase(PhaseInterface):
         result_audio = np.nan_to_num(result_audio, nan=0.0, posinf=0.0, neginf=0.0)
 
         result_audio = np.clip(result_audio, -1.0, 1.0)
-        result_audio, _tdp_recombined_dsp = _recombine_tdp_if_needed(result_audio)
+        result_audio, _bsrof_recombined_dsp = _recombine_bsrof_if_needed(result_audio)
+        _tdp_recombined_dsp: bool = False
+        if not _bsrof_recombined_dsp:
+            result_audio, _tdp_recombined_dsp = _recombine_tdp_if_needed(result_audio)
 
-        _loudness_ref_audio = _tdp_original_audio if (_tdp_active and _tdp_original_audio is not None) else audio
+        _loudness_ref_audio = (
+            _bsrof_original_audio
+            if (_bsrof_stem_active and _bsrof_original_audio is not None)
+            else (_tdp_original_audio if (_tdp_active and _tdp_original_audio is not None) else audio)
+        )
         result_audio, loudness_stats = self._apply_material_loudness_preservation(
             _loudness_ref_audio,
             result_audio,
             material_type,
             quality_mode,
         )
+        _post_nr_guard_ref_audio = _loudness_ref_audio
 
         _report_progress(93.0, "Entrauschung: Lautheitskorrektur (DSP-Pfad)")
 
@@ -1603,7 +1735,7 @@ class DenoisePhase(PhaseInterface):
             from backend.core.dsp.psychoacoustics import apply_psychoacoustic_masking_clamp  # pylint: disable=import-outside-toplevel  # noqa: I001
 
             result_audio = apply_psychoacoustic_masking_clamp(
-                original_audio=audio,
+                original_audio=_post_nr_guard_ref_audio,
                 processed_audio=result_audio,
                 sr=sample_rate,
                 strength=effective_strength,
@@ -1620,15 +1752,18 @@ class DenoisePhase(PhaseInterface):
                 _npa_mask_03 = _npa_result_03.get_protected_mask(_npa_n_03, sample_rate)
                 if np.any(_npa_mask_03):
                     if _is_ch_first_03:
-                        if audio.ndim == 2 and audio.shape[0] == 2:
-                            result_audio[0, _npa_mask_03] = audio[0, _npa_mask_03]
-                            result_audio[1, _npa_mask_03] = audio[1, _npa_mask_03]
+                        if _post_nr_guard_ref_audio.ndim == 2 and _post_nr_guard_ref_audio.shape[0] == 2:
+                            result_audio[0, _npa_mask_03] = _post_nr_guard_ref_audio[0, _npa_mask_03]
+                            result_audio[1, _npa_mask_03] = _post_nr_guard_ref_audio[1, _npa_mask_03]
                     elif result_audio.ndim == 2:
-                        if audio.ndim == 2 and audio.shape[1] == result_audio.shape[1]:
-                            result_audio[_npa_mask_03] = audio[_npa_mask_03]
+                        if (
+                            _post_nr_guard_ref_audio.ndim == 2
+                            and _post_nr_guard_ref_audio.shape[1] == result_audio.shape[1]
+                        ):
+                            result_audio[_npa_mask_03] = _post_nr_guard_ref_audio[_npa_mask_03]
                     else:
-                        if audio.ndim == 1:
-                            result_audio[_npa_mask_03] = audio[_npa_mask_03]
+                        if _post_nr_guard_ref_audio.ndim == 1:
+                            result_audio[_npa_mask_03] = _post_nr_guard_ref_audio[_npa_mask_03]
                     logger.debug("§2.46f NPA phase03: restored %d protected samples", int(np.sum(_npa_mask_03)))
             except Exception as _npa_rest_03:
                 logger.debug("§2.46f NPA restoration non-blocking: %s", _npa_rest_03)
@@ -1643,7 +1778,7 @@ class DenoisePhase(PhaseInterface):
             _edge_fade_s = 0.5
             _edge_n = int(_edge_fade_s * sample_rate)
             _n_total = result_audio.shape[-1] if result_audio.ndim == 2 else len(result_audio)
-            _orig_edge = audio
+            _orig_edge = _post_nr_guard_ref_audio
             _SILENCE_EDGE_RMS = float(10 ** (-50.0 / 20.0))  # -50 dBFS ≈ 0.00316
             if _n_total >= _edge_n * 4:  # only if song is long enough
                 _fade = np.linspace(0.0, 1.0, _edge_n, dtype=np.float32)
@@ -1725,7 +1860,7 @@ class DenoisePhase(PhaseInterface):
             _ntr_strength_p03 = float(np.clip(effective_strength * 0.6, 0.0, 0.8))
             _mat_str_p03 = str(material_type).lower()
             result_audio = _restore_ntr_p03(
-                audio,
+                _post_nr_guard_ref_audio,
                 result_audio,
                 sample_rate,
                 material_type=_mat_str_p03,
@@ -1850,7 +1985,7 @@ class DenoisePhase(PhaseInterface):
                 from backend.core.musical_goals.vocal_quality_index import compute_vqi as _compute_vqi_p03
 
                 _vqi_result_p03 = _compute_vqi_p03(
-                    audio_orig=audio,
+                    audio_orig=_post_nr_guard_ref_audio,
                     audio_restored=result_audio,
                     sr=sample_rate,
                     era_profile=_gevp_p03(_era_decade_p03),
@@ -1862,7 +1997,7 @@ class DenoisePhase(PhaseInterface):
                         _vqi_p03,
                         _panns_singing,
                     )
-                    result_audio = audio.copy()
+                    result_audio = _post_nr_guard_ref_audio.copy()
             except Exception as _vqi_exc_p03:
                 logger.debug("VQI per-phase phase03 (non-blocking): %s", _vqi_exc_p03)
 
@@ -1882,9 +2017,11 @@ class DenoisePhase(PhaseInterface):
                         _rft_p03(era_decade=_era_decade_p03, era_profile=kwargs.get("era_vocal_profile")),
                     )
                 )
-                _fg_rollback_p03, _fg_shift_p03 = _cfs_p03(audio, result_audio, sample_rate, threshold_db=_fg_tol_p03)
+                _fg_rollback_p03, _fg_shift_p03 = _cfs_p03(
+                    _post_nr_guard_ref_audio, result_audio, sample_rate, threshold_db=_fg_tol_p03
+                )
                 if _fg_rollback_p03:
-                    result_audio = audio.copy()
+                    result_audio = _post_nr_guard_ref_audio.copy()
                     logger.warning(
                         "§G1 FormantGuard phase_03: max F-shift %.2f dB > %.1f dB → Rollback",
                         _fg_shift_p03,
@@ -1902,7 +2039,11 @@ class DenoisePhase(PhaseInterface):
         if _breath_segs_p03:
             try:
                 _n_out_p03 = result_audio.shape[-1] if result_audio.ndim == 2 else len(result_audio)
-                _n_in_p03 = audio.shape[-1] if audio.ndim == 2 else len(audio)
+                _n_in_p03 = (
+                    _post_nr_guard_ref_audio.shape[-1]
+                    if _post_nr_guard_ref_audio.ndim == 2
+                    else len(_post_nr_guard_ref_audio)
+                )
                 _n_blend_p03 = min(_n_out_p03, _n_in_p03)
                 _result_blend_p03 = np.array(result_audio, copy=True)
                 _blended_any_p03 = False
@@ -1923,13 +2064,15 @@ class DenoisePhase(PhaseInterface):
                     _ei_p03 = max(0, min(_ei_p03, _n_blend_p03))
                     if _si_p03 >= _ei_p03:
                         continue
-                    if _result_blend_p03.ndim == 2 and audio.ndim == 2:
+                    if _result_blend_p03.ndim == 2 and _post_nr_guard_ref_audio.ndim == 2:
                         _result_blend_p03[:, _si_p03:_ei_p03] = (
-                            _dry_p03 * audio[:, _si_p03:_ei_p03] + (1.0 - _dry_p03) * result_audio[:, _si_p03:_ei_p03]
+                            _dry_p03 * _post_nr_guard_ref_audio[:, _si_p03:_ei_p03]
+                            + (1.0 - _dry_p03) * result_audio[:, _si_p03:_ei_p03]
                         )
-                    elif _result_blend_p03.ndim == 1 and audio.ndim == 1:
+                    elif _result_blend_p03.ndim == 1 and _post_nr_guard_ref_audio.ndim == 1:
                         _result_blend_p03[_si_p03:_ei_p03] = (
-                            _dry_p03 * audio[_si_p03:_ei_p03] + (1.0 - _dry_p03) * result_audio[_si_p03:_ei_p03]
+                            _dry_p03 * _post_nr_guard_ref_audio[_si_p03:_ei_p03]
+                            + (1.0 - _dry_p03) * result_audio[_si_p03:_ei_p03]
                         )
                     _blended_any_p03 = True
                 if _blended_any_p03:
@@ -1945,16 +2088,24 @@ class DenoisePhase(PhaseInterface):
                 apply_phrase_boundary_taper as _apply_pbg_03,
             )
 
-            _pbg_bounds_03 = _detect_pbg_03(audio, sample_rate)
+            _pbg_bounds_03 = _detect_pbg_03(_post_nr_guard_ref_audio, sample_rate)
             if _pbg_bounds_03:
-                _pbg_env_03 = _apply_pbg_03(audio, _pbg_bounds_03, sample_rate, taper_ms=20.0).astype(np.float32)
+                _pbg_env_03 = _apply_pbg_03(
+                    _post_nr_guard_ref_audio, _pbg_bounds_03, sample_rate, taper_ms=20.0
+                ).astype(np.float32)
                 _is_chfirst_pbg03 = result_audio.ndim == 2 and result_audio.shape[0] == 2 and result_audio.shape[1] > 2
                 if _is_chfirst_pbg03:
-                    result_audio = audio + (result_audio - audio) * _pbg_env_03[np.newaxis, :]
+                    result_audio = (
+                        _post_nr_guard_ref_audio
+                        + (result_audio - _post_nr_guard_ref_audio) * _pbg_env_03[np.newaxis, :]
+                    )
                 elif result_audio.ndim == 2:
-                    result_audio = audio + (result_audio - audio) * _pbg_env_03[:, np.newaxis]
+                    result_audio = (
+                        _post_nr_guard_ref_audio
+                        + (result_audio - _post_nr_guard_ref_audio) * _pbg_env_03[:, np.newaxis]
+                    )
                 else:
-                    result_audio = audio + (result_audio - audio) * _pbg_env_03
+                    result_audio = _post_nr_guard_ref_audio + (result_audio - _post_nr_guard_ref_audio) * _pbg_env_03
                 result_audio = np.clip(np.nan_to_num(result_audio, nan=0.0), -1.0, 1.0).astype(np.float32)
                 logger.debug("§Gap3 PhraseBoundaryGuard phase_03: %d boundaries", len(_pbg_bounds_03))
         except Exception as _pbg_exc_03:
@@ -1968,10 +2119,10 @@ class DenoisePhase(PhaseInterface):
                 compute_noise_texture_distance as _nt03_dist_fn,
             )
 
-            _nt03_residual = audio.astype(np.float32) - result_audio.astype(np.float32)
+            _nt03_residual = _post_nr_guard_ref_audio.astype(np.float32) - result_audio.astype(np.float32)
             _nt03_dist = _nt03_dist_fn(_nt03_residual, _mat03_str, sr=sample_rate)
             if _nt03_dist > 0.25:
-                result_audio = (0.5 * result_audio + 0.5 * audio).astype(np.float32)
+                result_audio = (0.5 * result_audio + 0.5 * _post_nr_guard_ref_audio).astype(np.float32)
                 logger.warning(
                     "Phase03 V19 Noise-Textur-Dist=%.3f > 0.25 → 50%%-Blend (Träger-Textur bewahrt)",
                     _nt03_dist,
@@ -1987,10 +2138,12 @@ class DenoisePhase(PhaseInterface):
                     frame_energy_correlation as _fec03,
                 )
 
-                _corr03 = _fec03(audio, result_audio, sample_rate, frame_ms=10.0)
+                _corr03 = _fec03(_post_nr_guard_ref_audio, result_audio, sample_rate, frame_ms=10.0)
                 if _corr03 < 0.97:
                     _wet03 = min(1.0, (_corr03 - 0.90) / 0.07) if _corr03 > 0.90 else 0.0
-                    result_audio = (_wet03 * result_audio + (1.0 - _wet03) * audio).astype(np.float32)
+                    result_audio = (_wet03 * result_audio + (1.0 - _wet03) * _post_nr_guard_ref_audio).astype(
+                        np.float32
+                    )
                     logger.warning(
                         "Phase03 V20 Mikrodynamik-Korr=%.3f < 0.97 → wet=%.3f Blend",
                         _corr03,
@@ -2007,7 +2160,7 @@ class DenoisePhase(PhaseInterface):
                     apply_noise_floor_minimum as _nfg03,
                 )
 
-                result_audio = _nfg03(result_audio, sample_rate, _mat03_str, original_audio=audio)
+                result_audio = _nfg03(result_audio, sample_rate, _mat03_str, original_audio=_post_nr_guard_ref_audio)
             except Exception as _nf03_exc:
                 logger.debug("Phase03 V21 Noise-Floor-Guard (non-blocking): %s", _nf03_exc)
 
@@ -2017,10 +2170,12 @@ class DenoisePhase(PhaseInterface):
                 check_spectral_color_preservation as _scg_03,
             )
 
-            _sc_result_03 = _scg_03(audio, result_audio, sample_rate)
+            _sc_result_03 = _scg_03(_post_nr_guard_ref_audio, result_audio, sample_rate)
             if not _sc_result_03.ok:
                 _sc_wet_03 = 0.70  # Phase-Strength −30 % (§V24)
-                result_audio = (_sc_wet_03 * result_audio + (1.0 - _sc_wet_03) * audio).astype(np.float32)
+                result_audio = (_sc_wet_03 * result_audio + (1.0 - _sc_wet_03) * _post_nr_guard_ref_audio).astype(
+                    np.float32
+                )
         except Exception as _sc_exc_03:  # pylint: disable=broad-except
             logger.debug("§V24 phase_03 spectral_color non-blocking: %s", _sc_exc_03)
 
@@ -2031,7 +2186,7 @@ class DenoisePhase(PhaseInterface):
                 apply_onset_protection_mask as _opg03,
             )
 
-            result_audio = _opg03(audio, result_audio, None, max_delta_db=1.5)
+            result_audio = _opg03(_post_nr_guard_ref_audio, result_audio, None, max_delta_db=1.5)
         except Exception as _on03_exc:
             logger.debug("Phase03 V26 Onset-Guard (non-blocking): %s", _on03_exc)
 
@@ -2043,9 +2198,9 @@ class DenoisePhase(PhaseInterface):
                     check_vibrato_depth_preservation as _vib03,
                 )
 
-                _vib03_result = _vib03(audio, result_audio, sample_rate)
+                _vib03_result = _vib03(_post_nr_guard_ref_audio, result_audio, sample_rate)
                 if not _vib03_result.ok:
-                    result_audio = (0.5 * result_audio + 0.5 * audio).astype(np.float32)
+                    result_audio = (0.5 * result_audio + 0.5 * _post_nr_guard_ref_audio).astype(np.float32)
                     logger.warning(
                         "Phase03 §2.72 Vibrato-Tiefe: reduction=%.1f%% > 10%% → 50%%-Blend",
                         _vib03_result.depth_reduction_pct,
@@ -2059,12 +2214,12 @@ class DenoisePhase(PhaseInterface):
                 check_roughness_regression as _crr03,
             )
 
-            _zr03 = _crr03(audio, result_audio, sample_rate)
+            _zr03 = _crr03(_post_nr_guard_ref_audio, result_audio, sample_rate)
             if _zr03.roughness_regression:
-                result_audio = (0.90 * result_audio + 0.10 * audio).astype(np.float32)
+                result_audio = (0.90 * result_audio + 0.10 * _post_nr_guard_ref_audio).astype(np.float32)
                 logger.warning("Phase03 §V42 Rauigkeits-Regression → Blend ×0.90")
             if _zr03.pumping_detected:
-                result_audio = (0.80 * result_audio + 0.20 * audio).astype(np.float32)
+                result_audio = (0.80 * result_audio + 0.20 * _post_nr_guard_ref_audio).astype(np.float32)
                 logger.warning("Phase03 §V42 NR-Pumpen → Blend ×0.80")
         except Exception as _zr03_exc:  # pylint: disable=broad-except
             logger.debug("Phase03 §V42 Roughness-Check non-blocking: %s", _zr03_exc)
@@ -2079,6 +2234,7 @@ class DenoisePhase(PhaseInterface):
                 "material_type": material_type,
                 "bands": dsp_params["bands"],
                 "tdp_stem_aware_nr": _tdp_active,
+                "bsrof_stem_aware_nr": _bsrof_stem_active,
                 "rms_drop_db": loudness_stats["rms_drop_db"],
                 "loudness_makeup_db": loudness_stats["makeup_gain_db"],
             },
@@ -2098,6 +2254,9 @@ class DenoisePhase(PhaseInterface):
                 "tdp_requested": _tdp_enabled,
                 "tdp_active": _tdp_active,
                 "tdp_recombined": _tdp_recombined_dsp,
+                "bsrof_stem_active": _bsrof_stem_active,
+                "bsrof_recombined": _bsrof_recombined_dsp,
+                "miipher_tier0_applied": _miipher_applied,  # §P4 MIIPHER-Aktivierungs-Telemetrie
             },
         )
 

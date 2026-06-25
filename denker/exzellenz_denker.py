@@ -387,12 +387,15 @@ class ExzellenzDenker:
             mert_proxy_used=bool(_metadata.get("mert_proxy_used", False)),
         )
 
-    def messe_ziele(self, audio: np.ndarray, sr: int) -> dict[str, float]:
+    def messe_ziele(self, audio: np.ndarray, sr: int, reference: np.ndarray | None = None) -> dict[str, float]:
         """Misst alle 15 Musical Goals für das übergebene Audio.
 
         Args:
-            audio: Audio-Signal (mono/stereo, float32)
-            sr:    Sample-Rate in Hz
+            audio:     Audio-Signal (mono/stereo, float32)
+            sr:        Sample-Rate in Hz
+            reference: Optionales Original-Audio (vor Restaurierung) — verbessert
+                       Präzision von tonal_center, timbre_authentizitaet, authentizitaet,
+                       separation_fidelity und artikulation erheblich (§S6).
 
         Returns:
             Dict mit Goal-Namen → Score ∈ [0, 1].
@@ -412,7 +415,7 @@ class ExzellenzDenker:
             # in any metric from blocking the pipeline forever.  120 s covers
             # all 15 metrics even on long tracks; normal run < 30 s.
             with _cf_mz.ThreadPoolExecutor(max_workers=1) as _exec_mz:
-                _fut_mz = _exec_mz.submit(checker.measure_all, audio, sr)
+                _fut_mz = _exec_mz.submit(checker.measure_all, audio, sr, reference)
                 try:
                     raw = _fut_mz.result(timeout=120.0)
                 except _cf_mz.TimeoutError:
@@ -568,12 +571,18 @@ class ExzellenzDenker:
             return audio, {}
 
         # Step 1: Basis-Messung
-        goals_initial = self.messe_ziele(audio, sr)
+        goals_initial = self.messe_ziele(audio, sr, reference=reference_audio)
         if not goals_initial:
             return audio, {}
 
         def _count_passed(goals: dict[str, float]) -> int:
-            return sum(1 for _k, _v in goals.items() if math.isfinite(_v) and _v >= _thresholds.get(_k, _FALLBACK_MIN))
+            return sum(
+                1
+                for _k, _v in goals.items()
+                if _k not in _inappl  # §S5: inapplicable Goals nicht mitzählen
+                and math.isfinite(_v)
+                and _v >= _thresholds.get(_k, _FALLBACK_MIN)
+            )
 
         def _deficit_sum(goals: dict[str, float], *, focus: frozenset[str] | None = None) -> float:
             _acc = 0.0
@@ -587,7 +596,7 @@ class ExzellenzDenker:
             return float(_acc)
 
         _passed_initial = _count_passed(goals_initial)
-        _total = len(goals_initial)
+        _total = len(goals_initial) - len(_inappl)  # §S5: inapplicable aus Gesamtzahl herausrechnen
 
         # P3-P5 violations with meaningful deficit (avoids micro-adjustments on borderline goals)
         _p35_violations: set[str] = {
@@ -696,7 +705,7 @@ class ExzellenzDenker:
                     -1.0,
                     1.0,
                 )
-                _td_goals = self.messe_ziele(_td_out, sr)
+                _td_goals = self.messe_ziele(_td_out, sr, reference=reference_audio)
                 if _td_goals and _is_improvement(_td_goals):
                     _td_passed = _count_passed(_td_goals)
                     _best_audio = _td_out
@@ -733,7 +742,7 @@ class ExzellenzDenker:
                         -1.0,
                         1.0,
                     )
-                    _blend_goals = self.messe_ziele(_blended, sr)
+                    _blend_goals = self.messe_ziele(_blended, sr, reference=reference_audio)
                     if not _blend_goals:
                         continue
                     _blend_passed = _count_passed(_blend_goals)
@@ -772,7 +781,7 @@ class ExzellenzDenker:
                         -1.0,
                         1.0,
                     )
-                    _p12_goals = self.messe_ziele(_p12_blended, sr)
+                    _p12_goals = self.messe_ziele(_p12_blended, sr, reference=reference_audio)
                     if not _p12_goals:
                         continue
                     _p12_passed = _count_passed(_p12_goals)
@@ -821,7 +830,7 @@ class ExzellenzDenker:
                             -1.0,
                             1.0,
                         )
-                        _local_goals = self.messe_ziele(_local_blended, sr)
+                        _local_goals = self.messe_ziele(_local_blended, sr, reference=reference_audio)
                         if not _local_goals:
                             continue
                         _spa_cand = float(_local_goals.get("spatial_depth", _spa_now))

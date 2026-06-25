@@ -430,7 +430,7 @@ class DefectScanner:
             DefectType.CLICKS: 0.7,
             DefectType.CRACKLE: 0.8,
             DefectType.HUM: 0.4,  # AC hum häufig bei Tape
-            DefectType.WOW: 0.30,  # Capstan-Gleichlaufschwankung (< 0.5 Hz), sehr häufig!
+            DefectType.WOW: 0.22,  # Capstan-Gleichlaufschwankung (< 0.5 Hz); kalibriert v9.15.1 (war 0.30 → zu konservativ für 1980s Kassetten)
             DefectType.FLUTTER: 0.25,  # Andruckrolle, Führungsrollen-Vibration (0.5–200 Hz)
             DefectType.STEREO_IMBALANCE: 0.5,
             DefectType.DIGITAL_ARTIFACTS: 1.0,
@@ -483,7 +483,7 @@ class DefectScanner:
             DefectType.CLICKS: 0.7,
             DefectType.CRACKLE: 0.8,
             DefectType.HUM: 0.4,
-            DefectType.WOW: 0.30,
+            DefectType.WOW: 0.22,  # kalibriert v9.15.1 (physikalisch äquivalent zu TAPE; war 0.30)
             DefectType.FLUTTER: 0.25,
             DefectType.STEREO_IMBALANCE: 0.5,
             DefectType.DIGITAL_ARTIFACTS: 1.0,
@@ -2480,15 +2480,34 @@ class DefectScanner:
         tape_score += click_rate * 0.1  # Clicks schwach positive
         tape_score += 10.0  # Baseline-Bonus erhöht
 
+        # CASSETTE Score (Mono) — Compact Cassette IEC 60094-1 Type I/II/IV
+        # Diskriminatoren vs. TAPE/Reel-Tape:
+        #   - Höheres Flutter (4.75 cm/s → typisch 0.10–0.30 % WRMS; Reel: 0.02–0.08 %)
+        #   - Niedrigere BW (≤ 12 kHz Type I vs. 15 kHz Reel-Tape) → stärkerer HF-Abfall
+        #   - Kein/kaum Rumble (leichter Transportmechanismus)
+        cassette_score = 0.0
+        cassette_score += wow_flutter_score * 9.0  # Hauptmerkmal: Flutter höher als Reel-Tape
+        cassette_score -= high_freq_energy * 120.0  # BW ≤ 12 kHz → stärkerer HF-Abfall als Reel
+        cassette_score += crackle_score * 0.5  # Weniger Crackle als Vinyl
+        cassette_score -= rumble_energy * 3500.0  # Leichter Transport → kein/kaum Rumble
+        cassette_score += click_rate * 0.08  # Gelegentliche Dropout-Clicks möglich
+        cassette_score += 9.0  # Baseline (leicht über Reel-Tape, da häufiger als Reel)
+
         logger.debug(
-            "Mono material scores: shellac=%.2f, vinyl=%.2f, tape=%.2f",
+            "Mono material scores: shellac=%.2f, vinyl=%.2f, tape=%.2f, cassette=%.2f",
             shellac_score,
             vinyl_score,
             tape_score,
+            cassette_score,
         )
 
         # Select best match (minimum threshold 0.5)
-        scores = {MaterialType.SHELLAC: shellac_score, MaterialType.VINYL: vinyl_score, MaterialType.TAPE: tape_score}
+        scores = {
+            MaterialType.SHELLAC: shellac_score,
+            MaterialType.VINYL: vinyl_score,
+            MaterialType.TAPE: tape_score,
+            MaterialType.CASSETTE: cassette_score,
+        }
 
         best_material = max(scores, key=lambda k: scores[k])
         best_score = scores[best_material]
@@ -2671,6 +2690,24 @@ class DefectScanner:
         # Shellac aus Stereo sehr unwahrscheinlich
         shellac_score *= 0.3  # Penalty für Stereo-Context
         scores[MaterialType.SHELLAC] = max(0, shellac_score)
+
+        # CASSETTE (Compact Cassette IEC 60094-1) Score
+        # Hauptdiskriminator vs. Reel-Tape: stärkeres Flutter (4.75 cm/s → 0.2 % WRMS),
+        # höherer HF-Hiss (Type I schlechter als Reel), kein Rumble (leichter Transport),
+        # BW-Limit ≤ 12 kHz → hf_loss_indicator positiv.
+        cassette_score = 0.0
+        cassette_score += hf_noise_score * 3.5  # Cassette-Hiss (Type I > Reel-Tape)
+        cassette_score += wow_flutter_score * 3.0  # Hauptmerkmal: Flutter bei 4.75 cm/s > Reel
+        cassette_score += hf_loss_indicator * 2.0  # BW ≤ 12 kHz → HF-Abfall über 12 kHz
+        cassette_score += click_score * 0.3  # Dropout/Oxidflaking-Clicks möglich
+        cassette_score -= crackle_score * 0.3  # Cassette hat wenig Knistern (kein Vinyl)
+        cassette_score -= rumble_energy * 8.0  # Leichter Transport → kein Rumble
+        cassette_score -= compression_score * 2.0  # Analog — kein Codec
+        cassette_score -= digital_score * 2.0  # Analog
+        # Boost: hohe Flutter + HF-Hiss → eindeutiger Cassetten-Fingerabdruck
+        if wow_flutter_score > 0.2 and hf_noise_score > 0.15:
+            cassette_score += 1.5
+        scores[MaterialType.CASSETTE] = max(0, cassette_score)
 
         # Wähle Material mit höchstem Score
         if not scores or max(scores.values()) < 0.5:  # Minimaler Confidence-Threshold

@@ -127,6 +127,7 @@ class GoalApplicabilityFilter:
         audiosr_available: bool = False,
         mode: str = "restoration",
         panns_singing: float = 0.0,
+        transfer_chain: list[str] | None = None,
     ) -> GoalApplicabilityResult:
         """Spec §2.32: Wertet aus, welche Goals anwendbar sind.
 
@@ -148,6 +149,7 @@ class GoalApplicabilityFilter:
         duration_s = 0.0
         bw_hz = 20000.0
         is_mono_signal = False
+        corr: float = 0.0  # L/R-Korrelation; 0.0 = kein Stereo-Audio verfügbar
 
         if audio is not None:
             arr = np.nan_to_num(np.asarray(audio, dtype=np.float32))
@@ -206,6 +208,20 @@ class GoalApplicabilityFilter:
         mat_era_mono = mat_mono and (era_decade is not None and era_decade <= 1960)
         if era_mono or is_mono_signal or mat_mono or mat_era_mono:
             inapplicable["spatial_depth"] = "Mono-Aufnahme — Raumtiefe nicht messbar."
+        elif "spatial_depth" not in inapplicable:
+            # §S4 Near-Mono-Codec-Ausschluss: MP3/AAC/MiniDisc-Joint-Stereo zerstört Stereobreite
+            # irreversibel bei near-mono Quellen (IACC ≥ 0.88 → score ≤ 0.12).
+            # Restoration kann IACC nicht verbessern wenn das Codec-Bitstream kein Stereo
+            # enthielt — spatial_depth wäre ein permanentes False-Positive ohne Lösbarkeit.
+            _CODEC_JOINT_STEREO_MATS = frozenset({"mp3_low", "mp3_high", "aac", "streaming", "minidisc"})
+            _is_near_mono_codec = _mat_key in _CODEC_JOINT_STEREO_MATS or any(
+                str(s).strip().lower() in _CODEC_JOINT_STEREO_MATS for s in (transfer_chain or [])
+            )
+            if _is_near_mono_codec and not np.isnan(corr) and float(corr) >= 0.83:
+                inapplicable["spatial_depth"] = (
+                    f"Near-Mono-Codec ({_mat_key or 'codec'}, L/R-Korrelation={float(corr):.3f} ≥ 0.83) — "
+                    "Joint-Stereo hat Raumtiefe irreversibel reduziert; Restoration kann IACC nicht erhöhen."
+                )
 
         # REGEL: BrillanzMetric
         _mat_bw_ceiling = _MATERIAL_BW_CEILING_HZ.get(_mat_key, 22050.0)
@@ -247,6 +263,20 @@ class GoalApplicabilityFilter:
         # REGEL: SeparationFidelityMetric
         if is_mono_signal or mat_mono:
             inapplicable["separation_fidelity"] = "Mono-Quelle — kein mehrkanaliges Signal auflösbar."
+        elif "separation_fidelity" not in inapplicable:
+            # §S4 Near-Mono-Codec-Ausschluss: Joint-Stereo-Codecs (mp3_low, aac, streaming)
+            # zerstören Stereo-Separation irreversibel — SeparationFidelity-Threshold
+            # physikalisch unerreichbar in Restoration-Modus (keine additive Stereo-Synthese).
+            # Parallel zur spatial_depth-Regel (gleiche CODEC_JOINT_STEREO_MATS-Logik).
+            _CODEC_JOINT_STEREO_MATS = frozenset({"mp3_low", "mp3_high", "aac", "streaming", "minidisc"})
+            _is_codec_joint_stereo = _mat_key in _CODEC_JOINT_STEREO_MATS or any(
+                str(s).strip().lower() in _CODEC_JOINT_STEREO_MATS for s in (transfer_chain or [])
+            )
+            if _is_codec_joint_stereo and not np.isnan(corr) and float(corr) >= 0.83:
+                inapplicable["separation_fidelity"] = (
+                    f"Near-Mono-Codec ({_mat_key or 'codec'}, L/R-Korrelation={float(corr):.3f} ≥ 0.83) — "
+                    "Joint-Stereo hat Stereo-Separation irreversibel reduziert; Restoration kann diese nicht wiederherstellen."
+                )
 
         # REGEL: BassKraftMetric — physikalisch bassarmes Material in Restoration-Modus
         # §0c Universalitäts-Invariante: Regel basiert auf gemessener Spektraleigenschaft,
@@ -346,6 +376,7 @@ def evaluate_goal_applicability(
     audiosr_available: bool = False,
     mode: str = "restoration",
     panns_singing: float = 0.0,
+    transfer_chain: list[str] | None = None,
 ) -> GoalApplicabilityResult:
     """Convenience-Funktion."""
     return get_goal_filter().evaluate(
@@ -357,6 +388,7 @@ def evaluate_goal_applicability(
         audiosr_available=audiosr_available,
         mode=mode,
         panns_singing=panns_singing,
+        transfer_chain=transfer_chain,
     )
 
 

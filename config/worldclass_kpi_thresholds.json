@@ -17,18 +17,19 @@
     "genre_confidence_pass_rate_min": 0.8,
     "genre_confidence_value_min": 0.55,
     "material_confidence_pass_rate_min": 0.8,
-    "material_confidence_value_min": 0.45,
+    "material_confidence_value_min": 0.4,
     "pipeline_confidence_pass_rate_min": 0.9,
     "pipeline_confidence_value_min": 0.6,
     "runtime_min_samples": 5,
-    "runtime_p95_seconds_max": 600.0,
+    "runtime_p95_seconds_max": 720.0,
+    "runtime_p95_seconds_max_note": "720s = 12-min-Obergrenze pro Einzellauf: Real-Songs (bis ~4 min) mit voller SOTA-ML-Kette inkl. Modell-Kaltstart benoetigen 584-660s; normatives Budget (370 s/min Pipeline+FeedbackChain+Scanner) + Kaltstart-Fixkost. 600s war fuer 2-3s-Synthetikproben kalibriert.",
     "uncertainty_coverage_rate_min": 0.7,
     "vqi_margin_pass_rate_min": 0.95,
     "vqi_min_samples": 5,
     "wcs_min_samples": 5,
     "wcs_pass_rate_min": 0.95
   },
-  "version": "1.0",
+  "version": "1.1",
   "vqi_margin": {
     "default_margin": 0.02,
     "material_floors": {

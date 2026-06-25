@@ -142,11 +142,20 @@ def check_hallucination(
     score_penalty = 0.0
 
     # BW-extension context: carrier-inverse HF restoration is expected to add new
-    # spectral content below the material ceiling — raise rollback threshold to 0.20.
+    # spectral content below the material ceiling — raise rollback threshold.
     # harmonic_ceiling_violation (above-ceiling energy growth) veto remains absolute.
     _effective_rollback_threshold = _ROLLBACK_THRESHOLD
     if bw_extension_context:
-        _effective_rollback_threshold = 0.20
+        if material_bw_ceiling_hz is None:
+            # Codec-Material ohne BW-Ceiling (mp3_low, mp3_high, aac, streaming):
+            # HF-Rekonstruktion ist erwartete Carrier-Inversion des Codec-Verlustes —
+            # AudioSR/NVSR synthetisiert Inhalt, der durch Encoder verworfen wurde.
+            # Kein Ceiling-Veto möglich → Schwellwert auf 0.50 anheben (§S2-brillanz-fix).
+            _effective_rollback_threshold = 0.50
+        else:
+            # Analog-Material mit BW-Ceiling (Shellac, Vinyl, Kassette …):
+            # Moderater Anstieg auf 0.20 — Ceiling-Veto bleibt aktiv.
+            _effective_rollback_threshold = 0.20
         meta["bw_extension_context"] = True
         meta["effective_rollback_threshold"] = _effective_rollback_threshold
 

@@ -306,9 +306,24 @@ def check_formant_shift_db(
         pre_seg = pre_m[mid - win // 2 : mid - win // 2 + win].astype(np.float64)
         post_seg = post_m[mid - win // 2 : mid - win // 2 + win].astype(np.float64)
 
-        # Downsample to 16 kHz for LPC formant analysis
+        # Downsample to 16 kHz for LPC formant analysis — Anti-Aliasing-Filter
+        # VOR Dezimation verhindert Aliasing von 16–24 kHz auf 0–8 kHz.
+        # (resampy in lpc_formant_analyze enthält AA; einfache Stride-Dezimation hier nicht.)
         ds = max(1, sr // 16000)
-        pre_ds = pre_seg[::ds]
+        _pre_seg_lpc = pre_seg  # Referenz für FFT-Spektralmessung unverändert
+        if ds > 1:
+            try:
+                from scipy.signal import butter as _butter_lpc  # pylint: disable=import-outside-toplevel
+                from scipy.signal import sosfiltfilt as _sosfiltfilt_lpc
+
+                _aa_nyq = sr / (2.0 * ds) * 0.90  # 90 % der Nyquist-Frequenz nach Dezimation
+                _aa_sos = _butter_lpc(4, _aa_nyq, btype="low", fs=sr, output="sos")
+                # Kopien filtern — Original-Arrays pre_seg/post_seg für FFT intakt lassen
+                _pre_seg_lpc = _sosfiltfilt_lpc(_aa_sos, pre_seg.copy())
+                _sosfiltfilt_lpc(_aa_sos, post_seg.copy())
+            except Exception:
+                pass  # non-blocking — Dezimation ohne AA ist besser als Absturz
+        pre_ds = _pre_seg_lpc[::ds]
         sr_ds = sr // ds
 
         # Estimate LPC coefficients on the pre-segment and extract formants
@@ -388,7 +403,17 @@ class _LPCFormantTracker:
             mono_win = mono[start : start + max_win]
 
             ds = max(1, sr // 16000)
-            mono_ds = mono_win[::ds].astype(np.float64)
+            _mono_aa = mono_win
+            if ds > 1:
+                try:
+                    from scipy.signal import butter as _butter_t  # pylint: disable=import-outside-toplevel
+                    from scipy.signal import sosfiltfilt as _sosfiltfilt_t
+
+                    _aa_sos_t = _butter_t(4, (sr / (2.0 * ds)) * 0.90, btype="low", fs=sr, output="sos")
+                    _mono_aa = _sosfiltfilt_t(_aa_sos_t, mono_win.astype(np.float64))
+                except Exception:
+                    pass
+            mono_ds = _mono_aa[::ds].astype(np.float64)
             sr_ds = max(1, sr // ds)
             if mono_ds.size <= (_LPC_ORDER + 1):
                 return {"f1_mean": 0.0, "f2_mean": 0.0, "f3_mean": 0.0, "f4_mean": 0.0}

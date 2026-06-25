@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import threading
 import time
+from collections.abc import Callable
 
 import numpy as np
 
@@ -36,6 +37,7 @@ from backend.core.clipping_detection import (
     _flat_tops_pct,
     analyse_clipping,
     classify_clipping,
+    detect_sub_ceiling_clipping,
     get_clipping_classifier,
 )
 
@@ -50,7 +52,8 @@ SR = 48000
 def _sine(freq: float = 440.0, amp: float = 0.5, dur: float = 0.1) -> np.ndarray:
     """Generate a mono sine wave at 48 kHz."""
     t = np.arange(int(SR * dur)) / SR
-    return (amp * np.sin(2 * np.pi * freq * t)).astype(np.float32)
+    out: np.ndarray = (amp * np.sin(2 * np.pi * freq * t)).astype(np.float32)
+    return out
 
 
 def _hard_clip(audio: np.ndarray, threshold: float = 0.5) -> np.ndarray:
@@ -60,7 +63,8 @@ def _hard_clip(audio: np.ndarray, threshold: float = 0.5) -> np.ndarray:
 
 def _tanh_saturate(audio: np.ndarray, drive: float = 3.0) -> np.ndarray:
     """Apply tanh saturation (soft saturation — tube-like even harmonics)."""
-    return np.tanh(drive * audio).astype(np.float32)
+    out: np.ndarray = np.tanh(drive * audio).astype(np.float32)
+    return out
 
 
 def _make_hard_clipped_signal(amp: float = 0.95, freq: float = 440.0) -> np.ndarray:
@@ -70,8 +74,8 @@ def _make_hard_clipped_signal(amp: float = 0.95, freq: float = 440.0) -> np.ndar
     # Hard clip to 0.6 → creates flat tops and odd harmonics
     clipped = np.clip(raw, -0.6, 0.6)
     # Normalise to near-unity so flat_tops_pct registers
-    clipped = clipped / 0.60 * 0.9995
-    return clipped
+    result: np.ndarray = (clipped / 0.60 * 0.9995).astype(np.float32)
+    return result
 
 
 def _make_tanh_signal(freq: float = 440.0) -> np.ndarray:
@@ -84,7 +88,8 @@ def _make_tanh_signal(freq: float = 440.0) -> np.ndarray:
 def _make_clean_signal(amp: float = 0.3, freq: float = 440.0, dur: float = 0.5) -> np.ndarray:
     """Clean low-amplitude sine — no clipping at all."""
     t = np.arange(int(SR * dur)) / SR
-    return (amp * np.sin(2 * np.pi * freq * t)).astype(np.float32)
+    out: np.ndarray = (amp * np.sin(2 * np.pi * freq * t)).astype(np.float32)
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -213,7 +218,8 @@ class TestAnalyseClipping:
         assert result.thd_even >= 0.0
 
     def test_21_confidence_in_unit_interval(self):
-        for make in [_make_clean_signal, _make_hard_clipped_signal, _make_tanh_signal]:
+        factories: list[Callable[[], np.ndarray]] = [_make_clean_signal, _make_hard_clipped_signal, _make_tanh_signal]
+        for make in factories:
             result = analyse_clipping(make(), SR)
             assert 0.0 <= result.confidence <= 1.0, f"confidence={result.confidence}"
 
@@ -411,3 +417,110 @@ class TestEdgeCases:
         audio = (-0.3 * np.sin(2 * np.pi * 440 * t)).astype(np.float32)
         result = classify_clipping(audio, SR)
         assert result == ClippingType.SOFT_SATURATION
+
+    def test_46_polyphonic_near_ceiling_clipping_detected(self) -> None:
+        """Polyphonisches Musik-Signal mit near-ceiling Clipping → CLIPPING erkannt.
+
+        Sicherstellung des Fixes: Bei flat_tops_pct > FLAT_TOPS_STRONG_CLIP_PCT
+        gilt CLIPPING unabhängig vom THD-Verhältnis (polyphones Musik hat von Natur
+        aus viele gerade Harmonics → thd_even > thd_odd → ohne Fix fälschlich
+        SOFT_SATURATION, Bug §6.3 polyphon-sichere Erweiterung).
+        """
+        from backend.core.clipping_detection import FLAT_TOPS_STRONG_CLIP_PCT
+
+        np.random.default_rng(42)
+        t = np.arange(int(SR * 2.0)) / SR
+        # Polyphonisches Signal: viele Frequenzen (wie Musik), typischerweise thd_even > thd_odd
+        freqs = [110, 165, 220, 330, 440, 550, 660, 880, 1100, 1320]
+        _components = np.array([np.sin(2 * np.pi * float(f) * t) for f in freqs])
+        audio: np.ndarray = _components.mean(axis=0)
+        audio = (audio / (np.max(np.abs(audio)) + 1e-10)).astype(np.float32)
+
+        # Clipping bei 0.999 (near-ceiling Loudness-War): >> FLAT_TOPS_STRONG_CLIP_PCT
+        clip_val = float(np.percentile(np.abs(audio), 97.0))
+        audio = np.clip(audio, -clip_val, clip_val)
+        audio = (audio * (0.9995 / (clip_val + 1e-10))).astype(np.float32)
+
+        res = analyse_clipping(audio, SR)
+        # Die geclippten Samples müssen über FLAT_TOPS_STRONG_CLIP_PCT liegen
+        assert res.flat_tops_pct > FLAT_TOPS_STRONG_CLIP_PCT, (
+            f"flat_tops_pct={res.flat_tops_pct:.2f}% zu niedrig für Test-Voraussetzung"
+        )
+        assert res.clipping_type == ClippingType.CLIPPING, (
+            f"Polyphonisches near-ceiling Clipping muss CLIPPING sein, "
+            f"flat_tops={res.flat_tops_pct:.2f}%, thd_odd={res.thd_odd:.3f}, thd_even={res.thd_even:.3f}"
+        )
+
+    def test_47_sub_ceiling_clipping_detected(self) -> None:
+        """Hard-Clipping bei ±0.92 (sub-ceiling) wird als CLIPPING erkannt.
+
+        Sub-Ceiling-Clipping (abs_max < 0.999) entsteht z.B. durch Loudness-War
+        bei analogem Mastering oder DAW-Übersättigung. np.clip erzeugt identische
+        float32-Werte am Clip-Level → SUBCEIL_MIN_IDENTICAL-Kriterium greift.
+        """
+        t = np.linspace(0, 1.0, SR, endpoint=False)
+        # Polyphon: natürlich thd_even > thd_odd (falsches THD-Signal für alten Fix)
+        sig = sum(np.sin(2 * np.pi * f * t) for f in [220, 330, 440]) / 3.0
+        sig = (sig / np.max(np.abs(sig)) * 1.12).astype(np.float32)
+        # Hard-Clipping bei ±0.92 — abs_max weit unter 0.999
+        sig_clipped = np.clip(sig, -0.92, 0.92).astype(np.float32)
+        assert np.max(np.abs(sig_clipped)) < 0.999, "Voraussetzung: sub-ceiling"
+        res = analyse_clipping(sig_clipped, SR)
+        assert res.clipping_type == ClippingType.CLIPPING, (
+            f"Sub-Ceiling Hard-Clipping ±0.92 muss CLIPPING sein, "
+            f"flat_tops={res.flat_tops_pct:.4f}%, got={res.clipping_type.value}"
+        )
+        # flat_tops_pct darf noch 0 sein (sub-ceiling: echte flat_tops unter 0.999 = 0)
+        assert res.flat_tops_pct < 0.5, f"flat_tops_pct sollte sub-ceiling nahe 0 bleiben, got={res.flat_tops_pct:.4f}%"
+
+    def test_48_sub_ceiling_soft_saturation_no_false_positive(self) -> None:
+        """tanh-Saturation bei sub-ceiling Amplitude bleibt SOFT_SATURATION.
+
+        tanh(2.5×sin) erzeugt ~80 float32-identische Maximalwerte durch Plateau-
+        Rounding (0.17 %). Das liegt weit unter SUBCEIL_MIN_IDENTICAL_PCT (0.5 %).
+        """
+        t = np.linspace(0, 1.0, SR, endpoint=False)
+        sig = np.tanh(2.5 * np.sin(2 * np.pi * 440 * t)).astype(np.float32)
+        assert np.max(np.abs(sig)) < 0.999, "tanh-Plateau liegt unter 0.999"
+        res = analyse_clipping(sig, SR)
+        assert res.clipping_type == ClippingType.SOFT_SATURATION, (
+            f"tanh(2.5×sin) muss SOFT_SATURATION bleiben, got={res.clipping_type.value}"
+        )
+
+    def test_49_sub_ceiling_clipping_histogram_detected(self) -> None:
+        """Histogramm-basierte Sub-Ceiling-Erkennung: Hard-Clip bei ±0.88 wird erkannt.
+
+        detect_sub_ceiling_clipping() erkennt Loudness-War-Clipping (±0.80–0.998)
+        durch Amplitudenhistogramm-Analyse: signifikante Masse im Top-5% des
+        Amplitudenbereichs → (True, clip_level).
+        """
+        t = np.linspace(0, 2.0, SR * 2, endpoint=False)
+        # Sinusoidales Signal mit Amplitude > 0.88 → nach Clipping viel Masse bei 0.88
+        sig = (1.2 * np.sin(2 * np.pi * 440 * t)).astype(np.float32)
+        sig_clipped = np.clip(sig, -0.88, 0.88).astype(np.float32)
+        assert np.max(np.abs(sig_clipped)) < 0.999, "Voraussetzung: sub-ceiling"
+
+        is_clip, clip_level = detect_sub_ceiling_clipping(sig_clipped)
+        assert is_clip, (
+            f"detect_sub_ceiling_clipping: Hard-Clip ±0.88 muss True zurückgeben, "
+            f"got is_clip={is_clip}, clip_level={clip_level:.4f}"
+        )
+        assert clip_level > 0.0, f"clip_level muss > 0.0 sein, got={clip_level:.4f}"
+        assert 0.80 <= clip_level <= 0.999, f"clip_level muss im Sub-Ceiling-Bereich liegen, got={clip_level:.4f}"
+
+    def test_50_sub_ceiling_histogram_no_false_positive_sine(self) -> None:
+        """Reines Sinus-Signal ohne Clipping liefert (False, 0.0)."""
+        t = np.linspace(0, 1.0, SR, endpoint=False)
+        sig = (0.6 * np.sin(2 * np.pi * 440 * t)).astype(np.float32)
+        is_clip, clip_level = detect_sub_ceiling_clipping(sig)
+        assert not is_clip, (
+            f"Sauberes Sinus-Signal darf kein Sub-Ceiling-Clipping liefern, "
+            f"got is_clip={is_clip}, clip_level={clip_level:.4f}"
+        )
+        assert clip_level == 0.0
+
+    def test_51_analyse_clipping_sub_ceiling_level_field_exists(self) -> None:
+        """ClippingAnalysisResult hat sub_ceiling_level-Feld (immer >= 0.0)."""
+        result = analyse_clipping(_make_clean_signal(), SR)
+        assert hasattr(result, "sub_ceiling_level")
+        assert result.sub_ceiling_level >= 0.0

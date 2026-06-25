@@ -54,13 +54,13 @@ class PresetManager:
         ),
         Preset(
             "Vinyl-Schallplatte",
-            "Optimiert für Knistern, Verformungormung und Rillenpops von LP/Single.",
+            "Optimiert für Knistern, Verformungen und Rillenpops von LP/Single.",
             PresetCategory.FACTORY,
             {"mode": "RESTORATION", "material": "vinyl"},
         ),
         Preset(
             "Kassette / Tonband",
-            "Optimiert für Rauschen, Aussetzer und Gleichlaufschwankungenhlaufschwankungen von Magnetband.",
+            "Optimiert für Rauschen, Aussetzer und Gleichlaufschwankungen von Magnetband.",
             PresetCategory.FACTORY,
             {"mode": "RESTORATION", "material": "tape"},
         ),
@@ -72,7 +72,7 @@ class PresetManager:
         ),
         Preset(
             "Kassette Deutsch Schlager",
-            "Schlager-Profil: Akkordeon-Klangfarben bewahrt, Wärme betont, keine Tonart-VerschiebungVerschiebung.",
+            "Schlager-Profil: Akkordeon-Klangfarben bewahrt, Wärme betont, keine Tonart-Verschiebung.",
             PresetCategory.FACTORY,
             {"mode": "RESTORATION", "material": "tape", "genre": "schlager"},
         ),

@@ -358,6 +358,74 @@ class CrackleRemovalPhase(PhaseInterface):
         return float(np.clip(scalar, 0.82, 1.12))
 
     @staticmethod
+    def _compute_crackle_local_strength(
+        mono_ref: np.ndarray,
+        region_start: int,
+        region_end: int,
+        sample_rate: int,
+        base_strength: float,
+        protected_zones: list | None = None,
+    ) -> float:
+        """§V38 Per-Event-Strength-Oracle für einen einzelnen Crackle-Bereich.
+
+        Berechnet lokale Korrekturstärke anhand der Energie-Anomalie im Vergleich
+        zum 250ms-Kontext-Fenster. In VFA-Schutzzonen (Vibrato, Frisson, Flüster,
+        Passaggio) wird die Stärke auf das Zone-spezifische Cap begrenzt.
+
+        Args:
+            mono_ref:      Mono-Referenz-Signal (Pre-Phase-Input) für RMS-Messung
+            region_start:  Start-Sample der Crackle-Region
+            region_end:    End-Sample der Crackle-Region
+            sample_rate:   Sample-Rate in Hz
+            base_strength: Basis-Stärke (Material/Confidence-adaptiv)
+            protected_zones: [(start_s, end_s, max_cap), ...] — VFA-Schutzzonen
+
+        Returns:
+            Individuelle Korrekturstärke ∈ [0.10, 1.0]
+        """
+        ctx_pad = int(0.250 * max(sample_rate, 1))
+        n = len(mono_ref)
+        crackle_region = mono_ref[region_start:region_end]
+        if len(crackle_region) < 4:
+            return float(np.clip(base_strength, 0.10, 1.0))
+        ctx_pre = mono_ref[max(0, region_start - ctx_pad) : region_start]
+        ctx_post = mono_ref[region_end : min(n, region_end + ctx_pad)]
+        ctx_parts = [a for a in (ctx_pre, ctx_post) if len(a) >= 4]
+        if not ctx_parts:
+            return float(np.clip(base_strength, 0.10, 1.0))
+        ctx_audio = np.concatenate(ctx_parts)
+        crackle_rms_raw = float(np.sqrt(np.mean(crackle_region**2)))
+        ctx_rms_raw = float(np.sqrt(np.mean(ctx_audio**2)))
+        # Kein messbarer Energie-Kontext (Stille oder synthetisches Signal):
+        # → Base-Strength direkt verwenden — kein Ratio ohne Information.
+        if ctx_rms_raw < 1e-5:
+            local_strength = base_strength
+        else:
+            # Crackle-Spikes sind typischerweise deutlich energiereicher als der Kontext
+            energy_ratio = crackle_rms_raw / (ctx_rms_raw + 1e-12)
+            if energy_ratio > 1.0:
+                # Energie-Spike (Crackle/Knistern): proportionale Stärke zur Anomalie
+                local_severity = float(np.clip((energy_ratio - 1.0) / 3.0, 0.0, 1.0))
+            else:
+                # Energie-Einbruch (Dropout-ähnlich): mittel stark behandeln
+                local_severity = float(np.clip(1.0 - energy_ratio, 0.0, 0.6))
+            # Magnitude-Faktor: Mindest 0.35 — auch leichte Crackles werden repariert
+            mag_factor = float(np.clip(0.35 + 0.65 * local_severity, 0.35, 1.0))
+            local_strength = base_strength * mag_factor
+        # VFA-Schutzzonen: Stärke auf Zone-spezifisches Cap begrenzen (§0p)
+        if protected_zones:
+            center_s = float(region_start + region_end) * 0.5 / float(max(sample_rate, 1))
+            for _zone in protected_zones:
+                try:
+                    _zs, _ze, _cap = float(_zone[0]), float(_zone[1]), float(_zone[2])
+                    if _zs <= center_s <= _ze:
+                        local_strength = min(local_strength, _cap)
+                        break
+                except Exception:
+                    pass
+        return float(np.clip(local_strength, 0.10, 1.0))
+
+    @staticmethod
     def _apply_region_selective_strength_blend(
         dry_audio: np.ndarray,
         wet_audio: np.ndarray,
@@ -369,8 +437,8 @@ class CrackleRemovalPhase(PhaseInterface):
     ) -> np.ndarray:
         """Region-selektives Dry/Wet-Blending fuer Crackle-Processing.
 
-        Innerhalb erkannter Crackle-Regionen gilt die volle Wirksamkeit,
-        ausserhalb wird konservativer gemischt, um Musiktextur zu schonen.
+        §V38: Innerhalb erkannter Crackle-Regionen wird die Stärke per-Event
+        individuell via _compute_crackle_local_strength berechnet (250ms-Kontext-RMS).
         """
         eff = float(np.clip(effective_strength, 0.0, 1.0))
         dry = np.asarray(dry_audio, dtype=np.float32)
@@ -391,25 +459,28 @@ class CrackleRemovalPhase(PhaseInterface):
                 return np.clip(dry + eff * (wet - dry), -1.0, 1.0).astype(np.float32)
             return dry.copy()
 
+        # §V38: Mono-Referenz für lokale RMS-Proxy-Berechnung (Pre-Phase-Input)
+        _dry_mono_ref: np.ndarray
+        if dry.ndim == 2:
+            if dry.shape[1] == 2:
+                _dry_mono_ref = ((dry[:, 0] + dry[:, 1]) * 0.5).astype(np.float32)
+            elif dry.shape[0] == 2:
+                _dry_mono_ref = ((dry[0] + dry[1]) * 0.5).astype(np.float32)
+            else:
+                _dry_mono_ref = dry[:, 0].astype(np.float32)
+        else:
+            _dry_mono_ref = dry.astype(np.float32)
+
         outside_alpha = float(np.clip(eff * 0.35, 0.05, eff))
         alpha = np.full(n, outside_alpha, dtype=np.float32)
         for s, e in crackle_regions:
             ss = int(np.clip(s, 0, n))
             ee = int(np.clip(e, 0, n))
             if ee > ss:
-                # §V38 Per-Region VFA-Schutzzonen-Cap (Vibrato 0.20, Frisson 0.30 etc.)
-                _alpha_val = eff
-                if protected_zones:
-                    _start_s = ss / max(sample_rate, 1)
-                    _end_s = ee / max(sample_rate, 1)
-                    for _zone in protected_zones:
-                        try:
-                            _zs, _ze, _cap = float(_zone[0]), float(_zone[1]), float(_zone[2])
-                            if _start_s < _ze and _end_s > _zs:
-                                _alpha_val = min(_alpha_val, _cap)
-                                break
-                        except Exception:
-                            pass
+                # §V38 Per-Event-Strength-Oracle: lokale Stärke + VFA-Schutzzonen-Cap
+                _alpha_val = CrackleRemovalPhase._compute_crackle_local_strength(
+                    _dry_mono_ref, ss, ee, sample_rate, eff, protected_zones
+                )
                 alpha[ss:ee] = _alpha_val
 
         # Weiche Uebergaenge vermeiden Kantenartefakte an Regionsgrenzen.

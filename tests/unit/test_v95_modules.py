@@ -900,8 +900,13 @@ class TestMertPluginInit:
     def test_model_type_fairseq_with_pt_only(self):
         """Fairseq .pt vorhanden (ohne HF-Dateien) → _model_type == 'mert_fairseq'."""
         import pathlib
+        import sys
         import tempfile
         import unittest.mock
+
+        _plugins_dir = str(pathlib.Path(__file__).resolve().parent.parent.parent / "plugins")
+        if _plugins_dir not in sys.path:
+            sys.path.insert(0, _plugins_dir)
 
         try:
             import torch
@@ -920,7 +925,10 @@ class TestMertPluginInit:
         with (
             unittest.mock.patch("mert_plugin._MERT_330M_DIR", empty_330m),
             unittest.mock.patch("mert_plugin._MERT_95M_DIR", d),
+            unittest.mock.patch("mert_plugin.ml_budget_try_allocate", return_value=True),
+            unittest.mock.patch("mert_plugin.ml_budget_release", return_value=None),
             unittest.mock.patch("backend.core.ml_memory_budget.is_system_thrashing", return_value=False),
+            unittest.mock.patch.dict("os.environ", {"AURIK_SAFE_VALIDATION_PROFILE": "0"}),
         ):
             plugin = MertPlugin(model_dir=str(d))
         assert plugin._model_type == "mert_fairseq"

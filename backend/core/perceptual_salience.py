@@ -273,14 +273,31 @@ class PerceptualSalienceEstimator:
             ds.metadata["n_salient_events"] = sum(1 for a in type_annotations if a.salience >= 0.5)
             ds.metadata["n_masked_events"] = sum(1 for a in type_annotations if a.salience < 0.3)
 
+            # Timing-Defekte sind Lautstärken-unabhängig: Loudness-Masking gilt NICHT für
+            # Pitch-/Zeitmodulationen (Houtsma et al. 1980; Hartmann 1991 — JND für
+            # Frequenzmodulation ist signalpegel-unabhängig). v9.15.1
+            _TIMING_DEFECTS_NO_SALIENCE_SCALE = frozenset(
+                {
+                    DefectType.WOW,
+                    DefectType.FLUTTER,
+                    DefectType.MULTIBAND_WOW_FLUTTER,
+                    DefectType.PITCH_DRIFT,
+                }
+            )
+
             # Scale severity: masked defects get reduced priority
             old_sev = ds.severity
-            ds.severity = float(
-                np.nan_to_num(
-                    min(1.0, old_sev * (0.3 + 0.7 * mean_sal)),
-                    nan=0.0,
+            if dt in _TIMING_DEFECTS_NO_SALIENCE_SCALE:
+                # Timing-Defekte: Severity wird NICHT durch Lautstärkekontext skaliert.
+                # Nur Metadaten-Annotation, keine Severity-Reduktion.
+                ds.metadata["salience_scale_skipped"] = "timing_defect"
+            else:
+                ds.severity = float(
+                    np.nan_to_num(
+                        min(1.0, old_sev * (0.3 + 0.7 * mean_sal)),
+                        nan=0.0,
+                    )
                 )
-            )
             if abs(ds.severity - old_sev) > 0.01:
                 logger.debug(
                     "Salience adjustment: %s severity %.3f → %.3f (salience=%.3f)",

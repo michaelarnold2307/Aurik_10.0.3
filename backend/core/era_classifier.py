@@ -1696,6 +1696,22 @@ _CODEC_CONTAINERS: frozenset[str] = frozenset(
     }
 )
 
+# Analoge Material-Priors — eine Era-Zuweisung auf diese Träger ist bei reinen
+# Codec-Ketten (ohne analoge Vorstufe) mit hoher Wahrscheinlichkeit eine
+# Fehldeutung des Codec-Tiefpasses als historische Aufnahme-Bandbreite.
+_ANALOG_ERA_PRIORS: frozenset[str] = frozenset(
+    {
+        "shellac",
+        "wax_cylinder",
+        "vinyl",
+        "wire_recording",
+        "lacquer_disc",
+        "tape",
+        "reel_tape",
+        "cassette",
+    }
+)
+
 
 def constrain_era_to_medium(era_result: EraResult, medium: str) -> EraResult:
     """Applies a physical medium-based minimum decade floor to an EraResult.
@@ -1724,6 +1740,43 @@ def constrain_era_to_medium(era_result: EraResult, medium: str) -> EraResult:
     """
     medium_lower = medium.strip().lower()
     if medium_lower in _CODEC_CONTAINERS:
+        # §Fix9-Spiegelung (UV3-Pfad): Reine Codec-Klassifikation OHNE analoge
+        # Vorstufe + prä-digitale Dekade, die primär aus dem HF-Rolloff stammt,
+        # ist codec-kontaminiert — ein MP3/AAC-Tiefpass ist kein Aufnahme-Ära-
+        # Indikator. Ein echtes Analog-Original in einer Codec-Kette erreicht
+        # diese Funktion nie mit medium=codec, weil der MediumDetector dann den
+        # letzten Analog-Träger als primary meldet (§6.1b Letzter-Analog-Träger-
+        # Primärprinzip). Daher ist die Korrektur hier sicher und generisch (§0c).
+        _prior_lower = str(era_result.material_prior or "").lower()
+        if (
+            era_result.decade < 1975
+            and _prior_lower in _ANALOG_ERA_PRIORS
+            and 0.0 < float(era_result.hf_rolloff_hz) <= 16_500.0
+        ):
+            corrected_codec_decade = min(d for d in VALID_DECADES if d >= 1980)
+            codec_conf = float(np.clip(max(era_result.confidence * 0.65, 0.55), 0.25, 0.80))
+            logger.info(
+                "EraClassifier Lossy-Codec-Korrektur (§Fix9/UV3): %der → %der "
+                "(medium=%s, rolloff=%.0f Hz codec-bedingt, prior %s → %s, conf %.2f → %.2f)",
+                era_result.decade,
+                corrected_codec_decade,
+                medium,
+                era_result.hf_rolloff_hz,
+                _prior_lower,
+                medium_lower,
+                era_result.confidence,
+                codec_conf,
+            )
+            return EraResult(
+                decade=corrected_codec_decade,
+                era_label=f"{corrected_codec_decade}er",
+                confidence=codec_conf,
+                material_prior=medium_lower,
+                noise_profile=era_result.noise_profile,
+                tier_used=era_result.tier_used,
+                hf_rolloff_hz=era_result.hf_rolloff_hz,
+                is_remaster_suspected=era_result.is_remaster_suspected,
+            )
         return era_result
     floor = MEDIUM_DECADE_FLOOR.get(medium_lower, 0)
     if floor == 0 or era_result.decade >= floor:

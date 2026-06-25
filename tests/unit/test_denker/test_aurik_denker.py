@@ -663,7 +663,9 @@ class TestAurikDenkerDigitalExcellenceGuard:
         assert exz_real.repair_called, "ExzellenzDenker.messe_und_repariere() wurde nicht genutzt"
         assert not exz_real.legacy_called, "Legacy-Path messe_ziele() darf bei verfügbarem Repair-Pfad nicht laufen"
         assert exz_real.last_mode == "restoration"
-        assert exz_real.last_material in {"mp3_low", "mp3_high"}
+        # v9.15.1 Fix G2: _resolve_excellence_material() bevorzugt analogen Ursprungs-Träger
+        # aus der Transfer-Kette (chain=["tape", "mp3_low"]) → "tape" wird korrekt bevorzugt.
+        assert exz_real.last_material in {"tape", "mp3_low", "mp3_high"}
         assert exz_real.last_reference is not None
 
 

@@ -246,6 +246,23 @@ class TapeHissReductionPhase(PhaseInterface):
             cand_rms = float(np.sqrt(np.mean(cand_seg * cand_seg)) + 1e-12)
             ref_db = float(20.0 * np.log10(ref_rms))
             cand_db = float(20.0 * np.log10(cand_rms))
+            # v9.15.2 Fix C Korrektur: Digitale Stille (ref_db < -80 dBFS) würde
+            # unphysikalische delta_db-Werte (~215 dB) erzeugen → scale ≈ 2e-11 →
+            # klangliche Auslöschung. Aber §0h verlangt, dass Stille-Zonen sakrosankt
+            # sind: Wenn der Kandidat in einer digitalen Stille-Zone laut ist (Pegelexplosion),
+            # muss er auf 0 (Stille) zurückgesetzt werden. Nur wenn der Kandidat ebenfalls
+            # leise ist, kann der Frame sicher übersprungen werden.
+            if ref_db < -80.0:
+                if cand_db > gate_dbfs:
+                    # §0h Pegelexplosion in Stille-Zone → Hard-Reset auf 0
+                    if cand.ndim == 2 and cand.shape[0] == n_samples:
+                        cand[start:end, :] = 0.0
+                    elif cand.ndim == 2:
+                        cand[:, start:end] = 0.0
+                    else:
+                        cand[start:end] = 0.0
+                    limited_frames += 1
+                continue
             if ref_db > gate_dbfs:
                 continue
             delta_db = cand_db - ref_db

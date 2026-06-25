@@ -305,13 +305,19 @@ class MediumDetector:
     #           wow_depth, block_artifact, pre_echo_ms,
     #           rotation_strength, infrasonic_rms, codec_type_code
     _MATERIAL_MODELS: dict[str, dict[str, tuple[float, float]]] = {
+        # ── Analog-Materialien ────────────────────────────────────────────────────
+        # block_artifact σ=0.12 (statt 0.05): Schmalband-Rauschen und Hiss auf analogen
+        # Trägern kann MDCT-Block-Detektor aktivieren (false-positive ~0.10–0.15).
+        # σ=0.05 erzeugt exponentielle Strafe (–4.5) bei Score=0.15; σ=0.12 → –0.78.
+        # pre_echo_ms wird immer auf 0.0 gesetzt (Feature nicht implementiert) und ist
+        # daher im Bayesian-Scorer maskiert (→ _masked_features).
         "shellac": {
             "bandwidth_hz": (5500.0, 1500.0),
             "snr_db": (10.0, 5.0),
             "noise_color": (2.2, 0.5),
             "crackle_density": (0.02, 0.02),
             "wow_depth": (0.3, 0.3),
-            "block_artifact": (0.0, 0.05),
+            "block_artifact": (0.0, 0.12),
             "pre_echo_ms": (0.0, 2.0),
             "rotation_strength": (0.40, 0.20),
             "infrasonic_rms": (0.06, 0.04),
@@ -323,7 +329,7 @@ class MediumDetector:
             "noise_color": (2.8, 0.6),
             "crackle_density": (0.04, 0.03),
             "wow_depth": (1.0, 0.8),
-            "block_artifact": (0.0, 0.05),
+            "block_artifact": (0.0, 0.12),
             "pre_echo_ms": (0.0, 2.0),
             "rotation_strength": (0.0, 0.10),
             "infrasonic_rms": (0.02, 0.03),
@@ -335,7 +341,7 @@ class MediumDetector:
             "noise_color": (1.5, 0.4),
             "crackle_density": (0.004, 0.005),
             "wow_depth": (0.15, 0.15),
-            "block_artifact": (0.0, 0.05),
+            "block_artifact": (0.0, 0.12),
             "pre_echo_ms": (0.0, 2.0),
             "rotation_strength": (0.45, 0.20),
             "infrasonic_rms": (0.08, 0.05),
@@ -347,7 +353,7 @@ class MediumDetector:
             "noise_color": (1.6, 0.4),
             "crackle_density": (0.0, 0.001),
             "wow_depth": (1.2, 0.8),
-            "block_artifact": (0.0, 0.05),
+            "block_artifact": (0.0, 0.12),
             "pre_echo_ms": (0.0, 2.0),
             "rotation_strength": (0.0, 0.08),
             "infrasonic_rms": (0.01, 0.02),
@@ -359,7 +365,7 @@ class MediumDetector:
             "noise_color": (1.3, 0.3),
             "crackle_density": (0.0, 0.001),
             "wow_depth": (0.3, 0.3),
-            "block_artifact": (0.0, 0.05),
+            "block_artifact": (0.0, 0.12),
             "pre_echo_ms": (0.0, 2.0),
             "rotation_strength": (0.0, 0.08),
             "infrasonic_rms": (0.01, 0.02),
@@ -371,7 +377,7 @@ class MediumDetector:
             "noise_color": (2.0, 0.5),
             "crackle_density": (0.0001, 0.0002),
             "wow_depth": (3.0, 1.5),
-            "block_artifact": (0.0, 0.05),
+            "block_artifact": (0.0, 0.12),
             "pre_echo_ms": (0.0, 2.0),
             "rotation_strength": (0.0, 0.10),
             "infrasonic_rms": (0.01, 0.02),
@@ -383,19 +389,22 @@ class MediumDetector:
             "noise_color": (1.7, 0.4),
             "crackle_density": (0.008, 0.008),
             "wow_depth": (0.2, 0.2),
-            "block_artifact": (0.0, 0.05),
+            "block_artifact": (0.0, 0.12),
             "pre_echo_ms": (0.0, 2.0),
             "rotation_strength": (0.30, 0.20),
             "infrasonic_rms": (0.04, 0.04),
             "codec_type_code": (0.0, 0.3),
         },
+        # Compact Cassette IEC 60094-1 — kalibriert auf reale Digitalisierungen:
+        # SNR 14–26 dB (Type I schlechter als Reel-Tape, abhängig von Dekaufnahme),
+        # BW ≤ 12 kHz (Type I), wow/flutter 0.05–0.3 % WRMS @ 4.75 cm/s (variiert).
         "cassette": {
-            "bandwidth_hz": (10000.0, 3000.0),
-            "snr_db": (22.0, 7.0),
-            "noise_color": (1.5, 0.4),
+            "bandwidth_hz": (9500.0, 2500.0),
+            "snr_db": (18.0, 9.0),
+            "noise_color": (1.6, 0.4),
             "crackle_density": (0.0, 0.001),
-            "wow_depth": (1.5, 1.0),
-            "block_artifact": (0.0, 0.05),
+            "wow_depth": (0.8, 0.9),
+            "block_artifact": (0.0, 0.12),
             "pre_echo_ms": (0.0, 2.0),
             "rotation_strength": (0.0, 0.08),
             "infrasonic_rms": (0.01, 0.02),
@@ -1255,7 +1264,13 @@ class MediumDetector:
                 duration_s,
                 self._MIN_ROTATION_ANALYSIS_DURATION_S,
             )
-        _masked_features: frozenset[str] = frozenset({"rotation_strength"}) if _short_clip else frozenset()
+        # pre_echo_ms ist in _compute_fingerprint IMMER 0.0 (feature nicht implementiert).
+        # Wird es im Scorer mit 0.0 eingesetzt, erhalten mp3_low/mp3_high eine dauerhafte
+        # Strafe (μ=12/6 ms ≠ 0), während Analog-Materialien (μ=0) ungestraft bleiben.
+        # Das erzeugt einen systematischen Bias Richtung Analog → immer maskieren.
+        _masked_features: frozenset[str] = (
+            frozenset({"rotation_strength", "pre_echo_ms"}) if _short_clip else frozenset({"pre_echo_ms"})
+        )
 
         feature_vals = {
             "bandwidth_hz": fp.effective_bandwidth_hz,
@@ -1666,10 +1681,10 @@ class MediumDetector:
                     codec_conf = best_codec_score
                 elif fp.effective_bandwidth_hz < 14_000:
                     codec_name = "mp3_low"
-                    codec_conf = 0.40
+                    codec_conf = self._codec_stage_confidence(fp)
                 else:
                     codec_name = "mp3_high"
-                    codec_conf = 0.35
+                    codec_conf = self._codec_stage_confidence(fp)
 
                 # Conservative guard for analog transfer chains:
                 # If an analog source stage is present but HF bandwidth is limited,
@@ -1745,9 +1760,24 @@ class MediumDetector:
         _chain_mean = float(np.mean(chain_confidences)) if chain_confidences else 0.0
         _chain_max = float(max(chain_confidences)) if chain_confidences else 0.0
         _primary_post = float(posteriors.get(primary, _chain_mean)) if isinstance(posteriors, dict) else _chain_mean
+        # Codec-Primaries haben im analog-zentrierten Bayesian-Modell keinen
+        # Posterior (≈ 0.0) — der Posterior-Term darf direkte Codec-Evidenz
+        # (BW-Beschneidung, Artefakt-Score, Encoder-Signatur) nicht künstlich
+        # bestrafen. Stütze ihn dann auf die gemessene Codec-Stufen-Konfidenz.
+        if primary in self._CODEC_MATERIALS and primary in chain:
+            _primary_post = max(_primary_post, float(chain_confidences[chain.index(primary)]))
+        # Adaptives SNR-Gewicht: Bei niedrigem SNR (kurze/stark degradierte Clips) ist
+        # chain_min weniger zuverlässig (Detektor-Scores unstabil bei < 5 s oder SNR < 20 dB).
+        # → Reduziere chain_min-Einfluss und erhöhe primary_post-Gewicht.
+        # Übergang: SNR ≤ 10 dB → w_min=0.20, w_post=0.35
+        #           SNR ≥ 30 dB → w_min=0.35, w_post=0.20 (klassisches Verhalten)
+        _snr_fp = float(getattr(fp, "snr_db", 30.0) or 30.0)
+        _snr_factor = float(np.clip((_snr_fp - 10.0) / 20.0, 0.0, 1.0))
+        _w_min = 0.20 + 0.15 * _snr_factor
+        _w_post = 0.35 - 0.15 * _snr_factor
         confidence = float(
             np.clip(
-                0.35 * _chain_min + 0.25 * _chain_mean + 0.20 * _chain_max + 0.20 * _primary_post,
+                _w_min * _chain_min + 0.25 * _chain_mean + 0.20 * _chain_max + _w_post * _primary_post,
                 0.0,
                 1.0,
             )
@@ -1856,6 +1886,30 @@ class MediumDetector:
         return result
 
     # ── Hilfsmethoden ────────────────────────────────────────────────────
+
+    @staticmethod
+    def _codec_stage_confidence(fp: SpectralFingerprint) -> float:
+        """Evidenzbasierte Konfidenz für eine heuristisch erkannte Codec-Stufe.
+
+        Statt einer Platzhalterkonstante (historisch 0.40/0.35) wird die
+        Konfidenz aus drei messbaren Evidenzquellen abgeleitet (§0m
+        Maximal-Ausbaustufe Defektintelligenz — Kausalpräzision statt
+        Aggregat-Konstante):
+
+        1. **BW-Beschneidungs-Klarheit** — wie deutlich die effektive
+           Bandbreite unter der 17.5-kHz-Vollband-Schwelle liegt (je tiefer
+           der Codec-Tiefpass, desto eindeutiger die Lossy-Signatur),
+        2. **Codec-Artefakt-Score** — Spektralloch-/Blocking-Evidenz,
+        3. **Codec-Typ-Code** — direkte Encoder-Signatur.
+
+        Returns:
+            Konfidenz in [0.35, 0.90] — nie unter dem historischen Boden,
+            aber bei klarer Evidenz ehrlich höher.
+        """
+        _bw_cut = float(np.clip((17_500.0 - float(fp.effective_bandwidth_hz)) / 7_500.0, 0.0, 1.0))
+        _artifact = float(np.clip(float(fp.codec_artifact_score) / 0.30, 0.0, 1.0))
+        _type = float(np.clip(float(fp.codec_type_code), 0.0, 1.0))
+        return float(np.clip(0.35 + 0.30 * _bw_cut + 0.20 * _artifact + 0.15 * _type, 0.35, 0.90))
 
     @staticmethod
     def _normalize_material_key(key: str) -> str:

@@ -457,15 +457,19 @@ ALWAYS_APPLICABLE: frozenset[str] = frozenset({
 
 | Ziel | Deaktiviert wenn |
 | --- | --- |
-| `SpatialDepthMetric` | EraResult.decade ≤ 1950 UND M/S-Korrelation ≥ 0.95 (Mono-Aufnahme) |
+| `SpatialDepthMetric` | EraResult.decade ≤ 1950 UND M/S-Korrelation ≥ 0.95 (Mono-Aufnahme) **ODER** Transfer-Chain-Ende ist Lossy-Codec (`mp3_low`, `mp3_high`, `aac`, `streaming`) UND L/R-Korrelation ≥ **0.83** (Near-Mono-Codec: Joint-Stereo-Kompression kollabiert Raumcues physikalisch — bestätigt cassette+mp3_low corr=0.8507, v9.15.1) |
+| `SeparationFidelityMetric` | Mono-Quelle ODER PANNs < 2 Instrumente mit confidence ≥ 0.4 **ODER** Transfer-Chain-Ende ist Lossy-Codec UND L/R-Korrelation ≥ 0.83 (Joint-Stereo-Kodierung zerstört Stereo-Separation physikalisch — V52-Fix S7: parallele Regel zu `spatial_depth`; gleiches `_CODEC_JOINT_STEREO_MATS`-Set) |
 | `BrillanzMetric` | Quell-Bandbreite < 8 kHz UND AudioSR nicht geladen |
-| `TonalCenterMetric` | MaterialType = WAX_CYLINDER (Fix K, v9.10.100: SNR-Bedingung entfernt — K-S-Key-Detection ist SNR-invariant gemäß §9.7.11; Deaktivierung bei SNR < −5 dB war inkonsistent mit der K-S-Invarianz-Aussage und hätte tonal_center auf stark degradiertem Material blind abgeschaltet) |
+| `TonalCenterMetric` | MaterialType = WAX_CYLINDER (Fix K, v9.10.100: SNR-Bedingung entfernt — K-S-Key-Detection ist SNR-invariant gemäß §9.7.11) |
 | `GrooveMetric` | Dateilänge < 10 s ODER PANNs Percussion confidence < 0.15 |
 | `MicroDynamicsMetric` | Dateilänge < 20 s ODER Original-LUFS-Varianz < 0.5 LU |
-| `SeparationFidelityMetric` | Mono-Quelle ODER PANNs < 2 Instrumente mit confidence ≥ 0.4 |
 
 Filter läuft EINMAL pro Restaurierung (nach MediumClassifier + EraClassifier).
-Inapplicable Goals: im UI grau ausgeblendet, in RestorationResult.goal_applicability gespeichert.
+Inapplicable Goals: im UI grau ausgeblendet, in `RestorationResult.goal_applicability` gespeichert.
+
+**Chain-End-Codec-Ausschluss** (§2.32a, v9.15.1): `evaluate_goal_applicability()` empfängt `transfer_chain: list[str] | None`. Wenn das Ketten-Ende ein Lossy-Codec ist und der primäre Träger analog ist, gelten die erweiterten Deaktivierungs-Regeln. Schwellwert für Near-Mono-Erkennung: L/R-Korrelation ≥ **0.83** (nicht 0.88 — cassette/analoges Stereo-Tape hat typisch corr ≈ 0.85–0.87; mit 0.88 würde Ausschluss nie feuern). `evaluate_goal_applicability()` übergibt dazu `transfer_chain` auch an `calibration_matrix.get_material_floor()` für korrekte Bodenberechnung (§09.13).
+
+**Invariante (§2.32b)**: Inapplicable Goals aus UV3 (`RestorationResult.goal_applicability`) MÜSSEN über `RestaurierErgebnis.goal_applicability` (V51) vollständig an AurikDenker und weiter an `ExzellenzDenker.messe_und_repariere(inapplicable_goals=...)` propagiert werden — sonst zählen physikalisch unmögliche Scores als Violations und triggern Over-Processing (V49). `AurikErgebnis` muss ebenfalls `goal_applicability`-Feld für externe Caller besitzen (V51).
 
 ---
 

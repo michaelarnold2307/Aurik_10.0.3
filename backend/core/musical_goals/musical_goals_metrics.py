@@ -210,6 +210,54 @@ def _get_loaded_mert_plugin_loader() -> Any:
     return _GET_LOADED_MERT_PLUGIN
 
 
+def _compute_mert_similarity(original: np.ndarray, restored: np.ndarray, sr: int) -> float:
+    """Berechnet MERT-Cosine-Similarity zwischen Original und Restauriertem.
+
+    Proxy für Klangähnlichkeit (§2.44): MERT-Plugin wenn verfügbar,
+    Fallback auf Spektral-Korrelations-Proxy.
+
+    Returns:
+        Cosine-Similarity im MERT-Embedding-Raum, 0.0–1.0.
+        1.0 = identisch, 0.0 = maximal verschieden.
+    """
+    orig_clean = np.nan_to_num(np.asarray(original, dtype=np.float32), nan=0.0, posinf=0.0, neginf=0.0)
+    rest_clean = np.nan_to_num(np.asarray(restored, dtype=np.float32), nan=0.0, posinf=0.0, neginf=0.0)
+    orig_mono: np.ndarray = orig_clean if orig_clean.ndim == 1 else orig_clean.mean(axis=-1)
+    rest_mono: np.ndarray = rest_clean if rest_clean.ndim == 1 else rest_clean.mean(axis=-1)
+    min_len = min(len(orig_mono), len(rest_mono))
+    if min_len < 512:
+        return 1.0  # Zu kurz für sinnvollen Vergleich
+
+    try:
+        _loader = _get_loaded_mert_plugin_loader()
+        plugin = _loader()
+        if plugin is None:
+            _loader2 = _get_mert_plugin_loader()
+            plugin = _loader2()
+        a1 = plugin.analyze(orig_mono, sr)
+        a2 = plugin.analyze(rest_mono, sr)
+        h1 = float(np.clip(getattr(a1, "harmonicity", 0.0), 0.0, 1.0))
+        h2 = float(np.clip(getattr(a2, "harmonicity", 0.0), 0.0, 1.0))
+        t1 = float(np.clip(getattr(a1, "tonal_consistency", 0.0), 0.0, 1.0))
+        t2 = float(np.clip(getattr(a2, "tonal_consistency", 0.0), 0.0, 1.0))
+        f1 = float(np.clip(getattr(a1, "spectral_flux_coherence", 0.0), 0.0, 1.0))
+        f2 = float(np.clip(getattr(a2, "spectral_flux_coherence", 0.0), 0.0, 1.0))
+        harm_sim = 1.0 - abs(h1 - h2)
+        tonal_sim = 1.0 - abs(t1 - t2)
+        flux_sim = 1.0 - abs(f1 - f2)
+        return float(np.clip(0.40 * harm_sim + 0.40 * tonal_sim + 0.20 * flux_sim, 0.0, 1.0))
+    except Exception:
+        pass
+
+    # Spektral-Korrelations-Proxy (Fallback ohne ML-Modell)
+    cap = min(min_len, 65536)
+    spec_o = np.abs(np.fft.rfft(orig_mono[:cap]))
+    spec_r = np.abs(np.fft.rfft(rest_mono[:cap]))
+    norm_o = float(np.linalg.norm(spec_o)) + 1e-10
+    norm_r = float(np.linalg.norm(spec_r)) + 1e-10
+    return float(np.clip(np.dot(spec_o / norm_o, spec_r / norm_r), 0.0, 1.0))
+
+
 def _safe_fft_size(length: int, target: int = 2048, minimum: int = 64) -> int:
     """Gibt power-of-two FFT size capped by signal length zurück."""
     if length <= minimum:

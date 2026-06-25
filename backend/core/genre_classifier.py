@@ -37,6 +37,21 @@ class SchlagerClassificationResult:
     key: str = ""
     reasoning: str = ""
 
+    @property
+    def primary_genre_label(self) -> str:
+        """Primäres Genre-Label — genre-unabhängig (Schlager oder Nicht-Schlager)."""
+        return self.genre_label
+
+    @property
+    def primary_genre_confidence(self) -> float:
+        """Primäre Genre-Klassifikationssicherheit — maximaler verfügbarer Score.
+
+        Für Schlager-Material: confidence (Schlager-Wahrscheinlichkeit).
+        Für Nicht-Schlager-Material: genre_family_confidence (Genre-Family-Score).
+        Immer der semantisch richtige Wert für 'wie sicher ist das Genre-Ergebnis'.
+        """
+        return max(self.confidence, self.genre_family_confidence)
+
 
 #: Backward-compatible alias — UV3 and other callsites import as ``GenreResult``
 GenreResult = SchlagerClassificationResult
@@ -237,6 +252,14 @@ class GermanSchlagerClassifier:
             and alt_genre in {"Jazz", "Soul/R&B", "Gospel"}
             and (hsi >= 0.50 or lang_de_score >= 0.30)
         ):
+            is_schlager = True
+            confidence = float(max(confidence, self.SCHLAGER_CONFIDENCE_THRESHOLD))
+
+        # Latin/Reggae-Veto: Diese Genres sind bei deutschem Sprachmaterial (lang_de_score >= 0.30)
+        # und vorhandener Schlager-Evidenz (n_active >= 1) physikalisch ausgeschlossen.
+        # hsi >= 0.50 wird hier NICHT als Alternative akzeptiert, weil echte Latin-Musik
+        # ebenfalls moderate HSI-Werte aufweisen kann — nur Deutsch-Sprach-Evidenz ist sicher.
+        if not is_schlager and n_active >= 1 and alt_genre in {"Latin", "Reggae"} and lang_de_score >= 0.30:
             is_schlager = True
             confidence = float(max(confidence, self.SCHLAGER_CONFIDENCE_THRESHOLD))
 
@@ -1531,9 +1554,14 @@ class GermanSchlagerClassifier:
         pure tones, bass-heavy material) that happen to have high onset density.
         """
         score = 0.0
-        # Latin gate: brass/percussion brightness is mandatory.
-        # A dark centroid (< 1800 Hz) means no brass section → not Latin.
+        # Latin gate 1: brass/percussion brightness ist Pflicht.
+        # Ein dunkles Spektrum (< 1800 Hz) bedeutet keine Blechbläser → kein Latin.
         if centroid_hz < 1800:
+            return 0.0
+        # Latin gate 2: Latin erfordert dichte synkopierte Rhythmik (Clave-Muster).
+        # Schlager-typische Onset-Dichte liegt bei 1.5–3.0; echter Latin-Groove > 2.0.
+        # Ein onset_rate < 2.0 deutet auf ruhige Begleitung hin → kein Latin.
+        if onset_rate < 2.0:
             return 0.0
         # Dense, syncopated clave-based rhythms (congas, timbales, güiro)
         if onset_rate > 3.5:

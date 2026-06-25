@@ -1590,6 +1590,11 @@ _MATERIAL_PHASE_FACTORS: dict[str, dict[str, float]] = {
         "phase_02_hum_removal": 0.45,  # shellac motor rumble is character
         "phase_18_noise_gate": 0.20,  # gating destroys groove-noise character
         "phase_24_dropout_repair": 0.50,  # scratch-based dropouts need care
+        # v9.15.1: Shellac-spezifische Defekte vollständig abdecken
+        "phase_05_rumble_filter": 0.80,  # Schellack-Dreher Subsonic-Rumble
+        "phase_23_spectral_repair": 0.45,  # Spektrale Reparatur für IGD + Oberflächenlücken
+        "phase_29_tape_hiss_reduction": 0.60,  # Shellac-Oberflächenrauschen ähnelt Tape-Hiss
+        "phase_60_inner_groove_distortion_repair": 0.55,  # IGD tritt auch bei Schellack-Rillen auf
     },
     # LACQUER_DISC — similar to shellac, more substrate clicks
     "lacquer_disc": {
@@ -1661,6 +1666,14 @@ _MATERIAL_PHASE_FACTORS: dict[str, dict[str, float]] = {
         "phase_02_hum_removal": 0.40,  # turntable motor rumble + AC hum
         "phase_18_noise_gate": 0.25,  # vinyl surface noise is continuous — gating = artifacts
         "phase_24_dropout_repair": 0.60,  # vinyl scratches need careful fill
+        # v9.15.1: Vinyl-spezifische Defekte vollständig abdecken
+        "phase_05_rumble_filter": 0.80,  # Plattenteller-Subsonic-Rumble (<25 Hz)
+        "phase_12_wow_flutter_fix": 0.45,  # Vinyl-Warp → langsame Pitch-Schwankung
+        "phase_23_spectral_repair": 0.60,  # IGD-Reste, Groove-Echo-Reparatur
+        "phase_28_surface_noise_profiling": 0.80,  # Vinyl-Surface-Noise Profiler (primär)
+        "phase_31_speed_pitch_correction": 0.30,  # Plattenspieler-Geschwindigkeitsfehler
+        "phase_60_inner_groove_distortion_repair": 0.70,  # IGD: THD steigt mit kleinem Rillenradius
+        "phase_61_groove_echo_cancellation": 0.65,  # Groove-Echo (~1.8 s @33⅓) beseitigen
     },
     # ===================================================================
     # TAPE-BASED MATERIALS  (hiss priority, tape character preservation)
@@ -1688,6 +1701,14 @@ _MATERIAL_PHASE_FACTORS: dict[str, dict[str, float]] = {
         "phase_18_noise_gate": 0.20,  # tape hiss is continuous — gating = pumping artifacts
         "phase_24_dropout_repair": 0.55,  # oxide flaking dropouts need careful fill
         "phase_12_wow_flutter_fix": 0.75,  # capstan flutter is real but ML phase has no retry
+        # v9.15.1: Tape-spezifische Defekte vollständig abdecken
+        "phase_01_click_removal": 0.45,  # Tape-Dropouts erzeugen click-artige Impulse
+        "phase_23_spectral_repair": 0.55,  # Print-Through-Reste, Generation-Loss-Reparatur
+        "phase_31_speed_pitch_correction": 0.40,  # Reel-Tape-Motorgeschwindigkeitsfehler
+        "phase_40_loudness_normalization": 0.50,  # Pegelausgleich nach Hiss-Reduktion
+        "phase_55_diffusion_inpainting": 0.55,  # Tape-Dropout-Diffusions-Inpainting
+        "phase_57_print_through_reduction": 0.70,  # Print-Through primäres Reel-Tape-Problem
+        "phase_64_tape_splice_repair": 0.60,  # Splice-Stellen: Klick + Pegelsprung + Phase
     },
     # CASSETTE — compact cassette defects must be corrected, not treated as generic tape.
     "cassette": {
@@ -1704,6 +1725,21 @@ _MATERIAL_PHASE_FACTORS: dict[str, dict[str, float]] = {
         "phase_49_advanced_dereverb": 0.25,
         "phase_18_noise_gate": 0.15,  # gating cassette hiss creates pumping/echo illusion
         "phase_39_air_band_enhancement": 0.20,
+        # v9.15.1: Kassetten-spezifische Defekte vollständig abdecken
+        "phase_01_click_removal": 0.50,  # Oxide-Fehler + Head-Clog → click-artige Impulse
+        "phase_02_hum_removal": 0.45,  # Kassettenrekorder-Gleichstrommotor-Brummen
+        "phase_08_transient_preservation": 0.65,  # Transienten nach NR schützen (Dolby-Atmung)
+        "phase_14_phase_correction": 0.75,  # Azimuth-Fehler → Phasendrehung zwischen Kanälen
+        "phase_23_spectral_repair": 0.45,  # Print-Through-Reste, Generation-Loss
+        "phase_26_dynamic_range_expansion": 0.30,  # Vorsichtig — Dolby-Kompression bewahren
+        "phase_31_speed_pitch_correction": 0.45,  # Kassettenrekorder-Motorgeschwindigkeitsfehler
+        "phase_36_transient_shaper": 0.35,  # Moderate Transientenwiederherstellung
+        "phase_40_loudness_normalization": 0.55,  # Pegelausgleich nach Hiss-Reduktion
+        "phase_54_transparent_dynamics": 0.60,  # Dolby-NR-Pumpen beseitigen (nr_breathing)
+        "phase_55_diffusion_inpainting": 0.55,  # Oxide-/Head-Contact-Dropout-Inpainting
+        "phase_56_spectral_band_gap_repair": 0.60,  # Head-Wear → frequenzspezifische Band-Lücken
+        "phase_57_print_through_reduction": 0.45,  # Vorecho (weniger ausgeprägt als Reel-Tape)
+        "phase_64_tape_splice_repair": 0.45,  # Klick + Pegelsprung + Phasendiskontinuität
     },
     # REEL_TAPE — higher quality, print-through focus
     "reel_tape": {

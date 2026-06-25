@@ -156,6 +156,8 @@ def _write_result_template(path: Path, plan_rows: list[dict[str, Any]]) -> None:
         result_rows.append(
             {
                 **row,
+                "era": "",
+                "genre": "",
                 "artifact_freedom": "",
                 "vqi": "",
                 "mert_similarity": "",

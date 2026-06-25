@@ -14,6 +14,7 @@ Testet:
 import threading
 
 import numpy as np
+import pytest
 
 from forensics.medium_detector import (
     MediumDetectionResult,
@@ -701,3 +702,46 @@ class TestMediumDetector:
         assert result_with_dot.transfer_chain == result_without_dot.transfer_chain
         assert result_without_dot.transfer_chain[:2] == ["vinyl", "cassette"]
         assert result_without_dot.transfer_chain[-1] == "mp3_low"
+
+
+class TestCodecStageConfidence:
+    """Tests für die evidenzbasierte Codec-Stufen-Konfidenz (statt Platzhalter 0.40/0.35)."""
+
+    def test_floor_at_no_evidence(self):
+        """Ohne jede Evidenz (Vollband, kein Artefakt, kein Typ-Code) → Boden 0.35."""
+        fp = SpectralFingerprint(effective_bandwidth_hz=20_000.0, codec_artifact_score=0.0, codec_type_code=0.0)
+        assert MediumDetector._codec_stage_confidence(fp) == pytest.approx(0.35)
+
+    def test_ceiling_at_full_evidence(self):
+        """Volle Evidenz (BW ≤ 10 kHz, Artefakt ≥ 0.30, Typ-Code ≥ 1) → Deckel 0.90."""
+        fp = SpectralFingerprint(effective_bandwidth_hz=9_000.0, codec_artifact_score=0.5, codec_type_code=1.0)
+        assert MediumDetector._codec_stage_confidence(fp) == pytest.approx(0.90)
+
+    def test_real_schlager_mp3_low_above_kpi_threshold(self):
+        """Real-Song-Fingerprint (Elke Best, 13.7 kHz BW, Artefakt 0.086) → ≥ 0.45 KPI-Schwelle."""
+        fp = SpectralFingerprint(effective_bandwidth_hz=13_729.0, codec_artifact_score=0.086, codec_type_code=0.0)
+        conf = MediumDetector._codec_stage_confidence(fp)
+        assert conf >= 0.45
+        assert conf == pytest.approx(0.35 + 0.30 * ((17_500 - 13_729) / 7_500) + 0.20 * (0.086 / 0.30), abs=1e-6)
+
+    def test_monotonic_in_bandwidth_cut(self):
+        """Tieferer Codec-Tiefpass → höhere Konfidenz (Monotonie)."""
+        confs = [
+            MediumDetector._codec_stage_confidence(
+                SpectralFingerprint(effective_bandwidth_hz=bw, codec_artifact_score=0.1, codec_type_code=0.0)
+            )
+            for bw in (16_000.0, 14_000.0, 12_000.0, 10_000.0)
+        ]
+        assert confs == sorted(confs)
+
+    def test_above_digital_lock_threshold_for_clear_mp3(self):
+        """Klare MP3-Signatur (BW < 14 kHz) → Konfidenz ≥ 0.35 Digital-Lock-Schwelle."""
+        fp = SpectralFingerprint(effective_bandwidth_hz=12_931.0, codec_artifact_score=0.136, codec_type_code=0.0)
+        assert MediumDetector._codec_stage_confidence(fp) >= 0.35
+
+    def test_result_always_in_valid_range(self):
+        """Extremwerte (negativ/NaN-frei) bleiben im Intervall [0.35, 0.90]."""
+        for bw, art, code in ((0.0, 1.0, 3.0), (48_000.0, -0.5, -1.0), (17_500.0, 0.0, 0.0)):
+            fp = SpectralFingerprint(effective_bandwidth_hz=bw, codec_artifact_score=art, codec_type_code=code)
+            conf = MediumDetector._codec_stage_confidence(fp)
+            assert 0.35 <= conf <= 0.90

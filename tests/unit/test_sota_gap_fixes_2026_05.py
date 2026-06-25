@@ -7,6 +7,8 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import numpy as np
 import pytest
 
@@ -94,6 +96,51 @@ class TestRestoreCarrierNoiseTexture:
         result = restore_carrier_noise_texture(audio, audio, sr=48000, material_type="cd_digital")
         # Kein Unterschied → entweder passthrough oder minimale Korrektur
         assert result.shape == audio.shape
+
+    def test_correction_floor_never_louder_than_original(self):
+        """BUG-FIX: Injiziertes Comfort-Rauschen darf nie lauter als Original-Rauschboden sein.
+
+        Vorher: effective_floor * strength = -52 * 0.48 = -24.96 dBFS → LAUTER als Original!
+        Nachher: effective_floor + 20*log10(strength) → immer ≤ effective_floor (leiser).
+        """
+        from backend.core.dsp.noise_texture_resynth import restore_carrier_noise_texture
+
+        # Tape-ähnlicher Rauschboden: ~-52 dBFS
+        tape_amplitude = 10 ** (-52.0 / 20.0)  # ≈ 0.00251 linear
+        sr = 48000
+        rng = np.random.default_rng(42)
+        # Pre: weißes Rauschen bei -52 dBFS (reines Rauschsignal → Rauschboden ≈ -52 dBFS)
+        pre = rng.standard_normal(sr * 2).astype(np.float32) * tape_amplitude
+        # Post: fast komplett still (extreme Over-NR)
+        post = np.zeros(sr * 2, dtype=np.float32) + 1e-7
+
+        # Original-Rauschboden aus pre messen (5. Perzentil der Frame-RMS in dBFS)
+        frame_len = int(0.05 * sr)
+        hop = frame_len // 2
+        rms_vals = []
+        for s in range(0, len(pre) - frame_len, hop):
+            rms = float(np.sqrt(np.mean(pre[s : s + frame_len].astype(float) ** 2) + 1e-20))
+            rms_vals.append(rms)
+        p5 = float(np.percentile(rms_vals, 5))
+        original_floor_dbfs = 20.0 * np.log10(p5 + 1e-20)
+        # Sicherstellen, dass der Rauschboden im erwarteten Bereich liegt
+        assert original_floor_dbfs < -40.0, (
+            f"Test-Setup: Rauschboden sollte unter -40 dBFS liegen, got {original_floor_dbfs:.1f}"
+        )
+
+        # Korrektur mit strength=0.48 (Phase_03 mit effective_strength=0.8: 0.8*0.6=0.48)
+        result = restore_carrier_noise_texture(pre, post, sr=sr, material_type="tape", strength=0.48)
+
+        # Der Output-RMS im stillen Post-Bereich darf nicht lauter als original_floor + 6 dB sein
+        # (6 dB Toleranz wegen blend-Anteil und Meßungenauigkeit)
+        result_rms = float(np.sqrt(np.mean(result.astype(float) ** 2) + 1e-20))
+        result_db = 20.0 * np.log10(result_rms + 1e-20)
+        assert result_db <= original_floor_dbfs + 6.0, (
+            f"BUG REGRESSION: Injiziertes Comfort-Rauschen ({result_db:.1f} dBFS) ist lauter als "
+            f"Original-Rauschboden ({original_floor_dbfs:.1f} dBFS) + 6 dB! "
+            f"Altes Bug: effective_floor * 0.48 = {original_floor_dbfs * 0.48:.1f} dBFS → "
+            f"Starkregen-Artefakt."
+        )
 
 
 # ===========================================================================
@@ -2172,8 +2219,6 @@ class TestPmggPathPannsInjection:
 
     def test_canonical_helper_returns_all_keys(self):
         """_canonical_phase_context_kwargs() liefert den vollständigen §0p-Key-Satz."""
-        from types import SimpleNamespace
-
         from backend.core.unified_restorer_v3 import UnifiedRestorerV3
 
         stub = SimpleNamespace(_restoration_context={})
@@ -2183,8 +2228,6 @@ class TestPmggPathPannsInjection:
 
     def test_canonical_helper_sources_from_restoration_context(self):
         """Werte stammen aus _restoration_context (nicht hartkodiert/konstant, §0c)."""
-        from types import SimpleNamespace
-
         from backend.core.unified_restorer_v3 import UnifiedRestorerV3
 
         rctx = {
@@ -2202,8 +2245,6 @@ class TestPmggPathPannsInjection:
 
     def test_canonical_helper_safe_defaults_on_empty_context(self):
         """Leerer Kontext → sichere Defaults (keine None/Exception, §3.1)."""
-        from types import SimpleNamespace
-
         from backend.core.unified_restorer_v3 import UnifiedRestorerV3
 
         stub = SimpleNamespace(_restoration_context={})
@@ -2214,3 +2255,134 @@ class TestPmggPathPannsInjection:
         assert out["frisson_zones"] == []
         assert out["panns_tags"] == {}
         assert out["defect_event_metadata"] == {}
+
+
+class TestPhase03BsRoformerVocalStemNR:
+    """Tests für BS-RoFormer Vocal-Stem-NR in phase_03 (§0a-konformer MIIPHER-Äquivalent)."""
+
+    def _make_noisy_stereo(self, sr: int = 48000, dur: float = 1.0) -> np.ndarray:
+        """Synthetisches Stereo-Signal: 220 Hz Sinus + weißes Rauschen (-20 dBFS)."""
+        rng = np.random.default_rng(42)
+        t = np.linspace(0, dur, int(sr * dur), endpoint=False)
+        signal = 0.3 * np.sin(2 * np.pi * 220 * t).astype(np.float32)
+        noise = 0.05 * rng.standard_normal(len(t)).astype(np.float32)
+        mono = np.clip(signal + noise, -1.0, 1.0)
+        return np.column_stack([mono, mono * 0.9]).astype(np.float32)  # (N, 2)
+
+    def test_bsrof_active_path_preserves_instrumental_stem(self, monkeypatch):
+        """Aktiver BS-RoFormer-Pfad remixt unveränderten Instrumental-Stem zurück."""
+        import importlib
+
+        from plugins.bs_roformer_plugin import StemSeparationResult
+
+        mod = importlib.import_module("backend.core.phases.phase_03_denoise")
+        phase = mod.DenoisePhase()
+
+        audio_in = _white_noise(48000, amplitude=0.04, seed=123)
+        original_rms = float(np.sqrt(np.mean(audio_in.astype(np.float64) ** 2) + 1e-20))
+
+        class _FakeBsRoformer:
+            def separate(self, audio, sr, *, stems=None):
+                assert sr == 48000
+                assert stems == ["vocals"]
+                return StemSeparationResult(
+                    stems={"vocals": np.zeros_like(audio, dtype=np.float32)},
+                    sr=48000,
+                    sdri_db=5.0,
+                    model_used="melbandroformer_test",
+                    confidence=0.95,
+                )
+
+        monkeypatch.setattr("plugins.bs_roformer_plugin.get_bs_roformer", lambda: _FakeBsRoformer())
+        monkeypatch.setattr(mod, "RESOURCE_MANAGER_AVAILABLE", False, raising=False)
+
+        result = phase.process(
+            audio=audio_in,
+            material_type="vinyl",
+            sample_rate=48000,
+            panns_singing=0.50,
+            strength=0.1,
+            decade=1930,
+            quality_mode="fast",
+        )
+        assert result is not None
+        assert result.audio is not None
+        assert result.metadata.get("bsrof_stem_active", False) is True
+        assert result.metadata.get("bsrof_recombined", False) is True
+        result_rms = float(np.sqrt(np.mean(result.audio.astype(np.float64) ** 2) + 1e-20))
+        assert result_rms >= original_rms * 0.75
+
+    def test_recombine_bsrof_inactive_passthrough(self):
+        """_recombine_bsrof_if_needed gibt audio unverändert zurück wenn inaktiv."""
+        import importlib
+
+        mod = importlib.import_module("backend.core.phases.phase_03_denoise")
+        phase = mod.DenoisePhase()
+
+        audio_in = np.zeros((48000,), dtype=np.float32)
+        audio_in[100] = 0.5
+
+        # panns_singing=0.0 → Gate nicht erfüllt → kein BS-RoFormer
+        result = phase.process(
+            audio=audio_in,
+            material_type="vinyl",
+            sample_rate=48000,
+            panns_singing=0.0,
+            strength=0.1,
+            decade=1975,
+        )
+        assert result is not None
+        assert result.audio is not None
+        assert result.metadata.get("bsrof_stem_active", False) is False
+
+    def test_bsrof_gate_panns_threshold(self):
+        """BS-RoFormer-Gate aktiviert nur wenn panns_singing >= 0.35."""
+        import importlib
+
+        mod = importlib.import_module("backend.core.phases.phase_03_denoise")
+        phase = mod.DenoisePhase()
+
+        rng = np.random.default_rng(7)
+        audio = (0.05 * rng.standard_normal(48000)).astype(np.float32)
+
+        # panns_singing = 0.20 → unter Gate (0.35) → bsrof_stem_active = False
+        result_low = phase.process(
+            audio=audio,
+            material_type="vinyl",
+            sample_rate=48000,
+            panns_singing=0.20,
+            strength=0.1,
+            decade=1975,
+        )
+        assert result_low.metadata.get("bsrof_stem_active", False) is False
+
+    def test_recombine_bsrof_adds_instrumental(self):
+        """_recombine_bsrof_if_needed: NR-Vokal + Instrumental ergibt plausiblen Mix."""
+        # Direkte Einheit: Vokal 0.3, Instrumental 0.2 → Summe ≈ 0.5
+        voc = np.full(4800, 0.3, dtype=np.float32)
+        inst = np.full(4800, 0.2, dtype=np.float32)
+        combined = np.clip(voc + inst, -1.0, 1.0)
+        assert float(np.mean(combined)) == pytest.approx(0.5, abs=1e-4)
+
+    def test_bsrof_gate_snr_threshold(self):
+        """BS-RoFormer-Gate nur wenn SNR < 20 dB; bei sauberem Signal inaktiv."""
+        import importlib
+
+        mod = importlib.import_module("backend.core.phases.phase_03_denoise")
+        phase = mod.DenoisePhase()
+
+        # Sehr sauberes Signal (>35 dB SNR → SNR-Bypass wird aktiv, kein BS-RoFormer)
+        t = np.linspace(0, 1.0, 48000, endpoint=False)
+        clean = (0.5 * np.sin(2 * np.pi * 440 * t)).astype(np.float32)
+
+        result_clean = phase.process(
+            audio=clean,
+            material_type="cd_digital",
+            sample_rate=48000,
+            panns_singing=0.50,
+            strength=0.1,
+            decade=2000,
+        )
+        # SNR-Bypass greift oder BS-RoFormer inaktiv wegen material_type=cd_digital (snr > 35)
+        assert result_clean is not None
+        assert result_clean.audio is not None

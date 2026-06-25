@@ -55,6 +55,15 @@ def test_worldclass_threshold_config_exists_and_has_required_targets() -> None:
 
 @pytest.mark.normative
 @pytest.mark.timeout(20)
+def test_worldclass_vqi_margin_floors_keep_cd_digital_release_floor() -> None:
+    data = json.loads(_THRESHOLDS.read_text(encoding="utf-8"))
+    floors = data.get("vqi_margin", {}).get("material_floors", {})
+
+    assert floors.get("cd_digital") == 0.82, "CD-Digital-VQI-Floor darf nicht unter §0p/PMGG 0.82 fallen."
+
+
+@pytest.mark.normative
+@pytest.mark.timeout(20)
 def test_dashboard_script_collects_all_required_kpis() -> None:
     assert _DASHBOARD_SCRIPT.exists(), "scripts/worldclass_kpi_dashboard.py fehlt."
     text = _DASHBOARD_SCRIPT.read_text(encoding="utf-8")

@@ -92,6 +92,9 @@ class RestaurierErgebnis:
     metadata: dict[str, Any] = field(default_factory=dict)
     """Zusätzliche Pipeline-Metadaten."""
 
+    goal_applicability: dict[str, bool] = field(default_factory=dict)
+    """GAF-Ergebnis: True = applicable, False = inapplicable (§2.32, §S5)."""
+
     # ── Kompatibilitäts-Felder (Tests erwarten diese Benennung) ──────────
     quality_delta: float = 0.0
     """Qualitätsgewinn gegenüber Eingang (Alias/Compat)."""
@@ -693,6 +696,11 @@ class RestaurierDenker:
                 **(dict(raw.metadata or {}) if isinstance(getattr(raw, "metadata", None), dict) else {}),
                 "total_time_seconds": float(raw.total_time_seconds or 0.0),
             },
+            # §S5 Propagations-Fix: GAF-Ergebnis (inapplicable Goals) aus UV3-RestorationResult
+            # direkt weiterleiten — ohne dieses Feld bleibt _rest_inapplicable_goals in
+            # AurikDenker leer und ExzellenzDenker zählt physikalisch unmögliche Ziele als
+            # Violations statt sie auszuschließen.
+            goal_applicability=(dict(getattr(raw, "goal_applicability", None) or {})),
         )
 
     @staticmethod

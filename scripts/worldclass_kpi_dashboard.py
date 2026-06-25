@@ -119,6 +119,12 @@ def _collect_from_result_csvs(root: Path, cfg: dict[str, Any], run_dir: Path | N
     wcs_total = 0
     wcs_pass = 0
     runtimes: list[float] = []
+    # §P3 Corpus-Diversitäts-Tracking: Material, Ära und Genre-Verteilung.
+    # Ziel-Weltklasse-Anforderung: ≥50 Samples, ≥8 verschiedene Materialtypen,
+    # ≥5 verschiedene Ären, ≥4 verschiedene Genres.
+    corpus_material_dist: Counter[str] = Counter()
+    corpus_era_dist: Counter[str] = Counter()
+    corpus_genre_dist: Counter[str] = Counter()
 
     fail_reasons: Counter[str] = Counter()
 
@@ -132,6 +138,10 @@ def _collect_from_result_csvs(root: Path, cfg: dict[str, Any], run_dir: Path | N
                 total_rows += 1
                 material = str(row.get("material", "vinyl"))
                 status = str(row.get("status", "")).strip().lower()
+                # §P3 Corpus-Diversität
+                corpus_material_dist[material or "unknown"] += 1
+                corpus_era_dist[str(row.get("era", "unknown")).strip() or "unknown"] += 1
+                corpus_genre_dist[str(row.get("genre", "unknown")).strip() or "unknown"] += 1
 
                 afg = _to_float(row.get("artifact_freedom"))
                 if afg is not None:
@@ -220,8 +230,14 @@ def _collect_from_result_csvs(root: Path, cfg: dict[str, Any], run_dir: Path | N
                     pipeline_conf is not None,
                     causal_conf is not None,
                 ]
-                uncertainty_coverage_sum += float(sum(1 for flag in _domains if flag)) / float(len(_domains))
-                uncertainty_coverage_sample_count += 1
+                # Prä-Telemetrie-Zeilen (alle 5 Konfidenz-Domänen leer) stammen
+                # aus Läufen vor Einführung der Unsicherheits-Telemetrie und
+                # machen keine Aussage über die aktuelle Coverage-Fähigkeit —
+                # sie werden nicht in den Nenner aufgenommen. Partielle Lücken
+                # (≥ 1 Domäne befüllt) bleiben als echte Misses zählbar.
+                if any(_domains):
+                    uncertainty_coverage_sum += float(sum(1 for flag in _domains if flag)) / float(len(_domains))
+                    uncertainty_coverage_sample_count += 1
 
                 # Weltklasse-Unhörbarkeit/Maximalreduktion: artifact_detection_v2 pass oder sehr niedrige Hörbarkeit
                 pass_flag = str(row.get("artifact_passes_aurik_standards", "")).strip().lower()
@@ -296,6 +312,22 @@ def _collect_from_result_csvs(root: Path, cfg: dict[str, Any], run_dir: Path | N
         "wcs_pass_rate_from_csv": (wcs_pass / wcs_total) if wcs_total else None,
         "wcs_sample_count": wcs_total,
         "top_fail_reasons": fail_reasons.most_common(10),
+        # §P3 Corpus-Diversität: Verteilung und Weltklasse-Anforderungs-Check
+        "corpus_diversity": {
+            "material_distribution": dict(corpus_material_dist),
+            "era_distribution": dict(corpus_era_dist),
+            "genre_distribution": dict(corpus_genre_dist),
+            "unique_materials": len(corpus_material_dist),
+            "unique_eras": len(corpus_era_dist),
+            "unique_genres": len(corpus_genre_dist),
+            "total_samples": total_rows,
+            # Weltklasse-Anforderungen (Mindestwerte für valide KPI-Aussagen)
+            "worldclass_sample_count_ok": total_rows >= 50,
+            "worldclass_material_diversity_ok": len(corpus_material_dist) >= 8,
+            "worldclass_era_diversity_ok": len(corpus_era_dist) >= 5,
+            "worldclass_genre_diversity_ok": len(corpus_genre_dist) >= 4,
+            "min_samples_for_worldclass": 50,
+        },
     }
 
 

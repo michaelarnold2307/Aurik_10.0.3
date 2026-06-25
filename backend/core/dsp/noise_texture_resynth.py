@@ -24,6 +24,7 @@ Basierend auf:
 from __future__ import annotations
 
 import logging
+from typing import cast
 
 import numpy as np
 
@@ -151,9 +152,9 @@ def restore_carrier_noise_texture(
                 synthesize_comfort_noise,
             )
 
-        result = np.nan_to_num(result, nan=0.0, posinf=0.0, neginf=0.0)
-        result = np.clip(result, -1.0, 1.0)
-        return result.astype(audio_post_nr.dtype)
+        result_arr = np.asarray(np.nan_to_num(result, nan=0.0, posinf=0.0, neginf=0.0), dtype=np.float64)
+        result_arr = np.asarray(np.clip(result_arr, -1.0, 1.0), dtype=np.float64)
+        return cast(np.ndarray, result_arr.astype(np.asarray(audio_post_nr).dtype, copy=False))
 
     except Exception as _exc:
         logger.debug("noise_texture_resynth: Fehler (nicht-blockierend): %s", _exc)
@@ -201,7 +202,11 @@ def _restore_channel(
 
     # Begrenze Korrekturniveau auf max_correction_db (§TimbralCoherence: nie zu aggressiv)
     effective_floor = float(np.clip(rms_floor, -80.0, -20.0))
-    correction_floor = float(np.clip(effective_floor * strength, -75.0, -20.0))
+    # BUG-FIX: strength im linearen Bereich skalieren (NICHT als dBFS-Multiplikator!).
+    # Falsch: effective_floor * 0.48 = -24.96 dBFS → Rauschen LAUTER als Original.
+    # Korrekt: 20*log10(strength) addieren → Rauschen leiser als Original wenn strength < 1.
+    _str_db = 20.0 * np.log10(max(float(strength), 1e-6))
+    correction_floor = float(np.clip(effective_floor + _str_db, -75.0, effective_floor))
 
     corrected = synthesize_comfort_noise(
         post.astype(np.float64),
@@ -210,14 +215,14 @@ def _restore_channel(
         target_texture=target,
         noise_floor_dbfs=correction_floor,
     )
-    corrected = np.asarray(corrected, dtype=np.float64)
+    corrected_arr = np.asarray(corrected, dtype=np.float64)
     logger.info(
         "noise_texture_resynth: Over-NR-Korrektur angewandt (material=%s deviation=%.1f dB floor=%.1f dBFS)",
         material_type,
         deviation_db,
         correction_floor,
     )
-    return corrected
+    return cast(np.ndarray, corrected_arr)
 
 
 def _estimate_noise_floor_dbfs(audio: np.ndarray, sr: int) -> float:

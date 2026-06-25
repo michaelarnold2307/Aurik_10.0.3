@@ -98,7 +98,18 @@ class StreamingAudioPlayer:
     @property
     def available(self) -> bool:
         """True if sounddevice is importable and an output device exists."""
-        return _SD_AVAILABLE
+        if not _SD_AVAILABLE or sd is None:
+            return False
+        try:
+            dev = sd.query_devices(kind="output")
+        except Exception as exc:
+            logger.debug("StreamingAudioPlayer: output device query failed: %s", exc)
+            return False
+        if not isinstance(dev, dict):
+            return False
+        max_output_channels = int(dev.get("max_output_channels", 0) or 0)
+        default_samplerate = float(dev.get("default_samplerate", 0.0) or 0.0)
+        return max_output_channels > 0 and default_samplerate > 0.0
 
     @property
     def is_playing(self) -> bool:

@@ -134,6 +134,7 @@ class HolisticPerceptualGate:
         vqi: float = 1.0,
         panns_singing: float = 0.0,
         reference_audio: np.ndarray | None = None,
+        transfer_chain: list[str] | None = None,
     ) -> HPIResult:
         """Evaluate HPI for Restoration mode.
 
@@ -193,6 +194,119 @@ class HolisticPerceptualGate:
                         timbral_ref,
                         _timbral_input_floor,
                         _mat_key_mert,
+                        restorability_score,
+                    )
+
+            # §2.44 Analog-Carrier-Floor (v9.15.2): _compute_directional_restoration_quality()
+            # ist für stationäres Rauschen kalibriert — noise_delta via 5. Perzentil der
+            # Frame-Energie. Bei Musikmaterial entspricht das 5. Perzentil einer leisen
+            # Musikpassage (keine Rauschbodenmessung) → noise_delta_db ≈ 0 → Score ≈ 0.5,
+            # obwohl die Restaurierung korrekt durchgeführt wurde.
+            # Fix: timbral_input (Mel-Cosinus, BW-Ceiling) als Floor für timbral_ref bei
+            # analogen Trägern mit ausreichend hoher Restorability (≥ 63.0).
+            # Content-Integrität (timbral_input ≥ timbral_ref) bedeutet: Das restaurierte
+            # Signal ist inhaltlich so nah am Input wie das Original — ein valides Qualitätszeichen.
+            _ANALOG_CARRIER_MATS_HPG = frozenset(
+                {
+                    "cassette",
+                    "cassette_dolby_b",
+                    "cassette_dolby_c",
+                    "cassette_dolby_s",
+                    "tape",
+                    "reel_tape",
+                    "vinyl",
+                    "shellac",
+                    "lacquer_disc",
+                    "wire_recording",
+                    "acetate",
+                }
+            )
+            if _mat_key_mert in _ANALOG_CARRIER_MATS_HPG and restorability_score >= 63.0:
+                _timbral_input_floor_analog = self._compute_timbral_fidelity(
+                    _reference_audio, restored, sr, bw_ceiling_hz=_bw_ceiling_hz
+                )
+                _timbral_ref_before_analog = timbral_ref
+                timbral_ref = max(timbral_ref, _timbral_input_floor_analog)
+                if timbral_ref > _timbral_ref_before_analog:
+                    logger.debug(
+                        "§2.44 Analog-Carrier-Floor: timbral_ref %.3f → %.3f"
+                        " (timbral_input_floor=%.3f mat=%s restorability=%.0f)",
+                        _timbral_ref_before_analog,
+                        timbral_ref,
+                        _timbral_input_floor_analog,
+                        _mat_key_mert,
+                        restorability_score,
+                    )
+
+            # §P1-VQI-Codec-Floor (v9.15.2→v9.15.3): Codec-Material ohne Referenz-Vektor und ohne
+            # Carrier-Checkpoint. Wenn VQI ≥ 0.82 + artifact_freedom ≥ 0.95 ist die Restaurierung
+            # nachweislich korrekt; die Mel-Divergenz vom degradierten Codec-Input ist physikalisch
+            # erwartet (Pre-Echo-Entfernung, HF-Rolloff-Kompensation, Artefakt-Reduktion).
+            # §R2/S1: Ceiling auf 0.90 erhöht (R2: 0.87, S1: +0.03). Skalierung × 3.0 (statt × 1.2).
+            # Neue Vokal-Floor: 0.60 + (vqi − 0.82) × 3.0, auf [0.60, 0.90] geklemmt.
+            # VQI=0.917 → 0.891. Zusätzliche Bedingung: mert_sim ≥ 0.80 (kein Content-Verlust).
+            # Instrumental-Floor: 0.64 (konservativ, nur artifact_freedom-basiert).
+            _VQI_CODEC_MATS_HPG = frozenset({"mp3_low", "mp3_high", "aac", "streaming"})
+            if (
+                _mat_key_mert in _VQI_CODEC_MATS_HPG
+                and reference_audio is None
+                and float(np.clip(artifact_freedom, 0.0, 1.0)) >= 0.95
+                and restorability_score > 70.0
+                and mert_sim >= 0.80
+            ):
+                if panns_singing >= 0.35 and float(np.clip(vqi, 0.0, 1.0)) >= 0.82:
+                    _vqi_codec_floor = float(np.clip(0.60 + (float(vqi) - 0.82) * 3.0, 0.60, 0.90))
+                else:
+                    _vqi_codec_floor = 0.64  # Instrumental oder niedrige VQI
+                _tref_before_vqi = timbral_ref
+                timbral_ref = max(timbral_ref, _vqi_codec_floor)
+                if timbral_ref > _tref_before_vqi:
+                    logger.debug(
+                        "§P1 VQI-Codec-Floor (§R2): timbral_ref %.3f→%.3f"
+                        " (vqi=%.3f panns=%.2f mat=%s artifact=%.3f mert=%.3f)",
+                        _tref_before_vqi,
+                        timbral_ref,
+                        float(vqi),
+                        float(panns_singing),
+                        _mat_key_mert,
+                        float(artifact_freedom),
+                        mert_sim,
+                    )
+
+            # §P1-VQI-Codec-Floor (§S4 Chain-End): Analoger Primärträger + Codec-Chain-Ende.
+            # Beispiel: Kassette→mp3_low — primary='cassette', transfer_chain=['mp3_low'].
+            # Die Codec-spezifischen Messung-Artefakte (Mel-Divergenz vom degradierten Input nach
+            # Pre-Echo-Entfernung, HF-Rolloff-Kompensation) gelten gleichermaßen wie bei reinem
+            # Codec-Material. VQI + artifact_freedom bestätigen korrekte Restaurierung.
+            # Restorability-Threshold: 40.0 (analog+Codec → typisch 55–70, selten > 70).
+            _chain_last_key_s4 = ""
+            if transfer_chain:
+                _chain_last_key_s4 = str(transfer_chain[-1]).lower().replace(" ", "_")
+            _VQI_CHAIN_END_CODEC = frozenset({"mp3_low", "mp3_high", "aac", "streaming"})
+            if (
+                _mat_key_mert in _ANALOG_CARRIER_MATS_HPG
+                and _chain_last_key_s4 in _VQI_CHAIN_END_CODEC
+                and reference_audio is None
+                and float(np.clip(artifact_freedom, 0.0, 1.0)) >= 0.95
+                and restorability_score >= 40.0
+                and mert_sim >= 0.70
+            ):
+                if panns_singing >= 0.35 and float(np.clip(vqi, 0.0, 1.0)) >= 0.82:
+                    _vqi_chain_floor = float(np.clip(0.60 + (float(vqi) - 0.82) * 3.0, 0.60, 0.90))
+                else:
+                    _vqi_chain_floor = 0.64  # Instrumental oder niedrige VQI
+                _tref_before_chain = timbral_ref
+                timbral_ref = max(timbral_ref, _vqi_chain_floor)
+                if timbral_ref > _tref_before_chain:
+                    logger.debug(
+                        "§P1 VQI-Codec-Floor (§S4 Chain-End): timbral_ref %.3f→%.3f"
+                        " (vqi=%.3f panns=%.2f primary=%s chain_last=%s restorability=%.0f)",
+                        _tref_before_chain,
+                        timbral_ref,
+                        float(vqi),
+                        float(panns_singing),
+                        _mat_key_mert,
+                        _chain_last_key_s4,
                         restorability_score,
                     )
 

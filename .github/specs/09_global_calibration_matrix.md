@@ -1431,6 +1431,60 @@ if restorability_score < 30:
 
 ---
 
+## §09.13 [RELEASE_MUST] Chain-End-Codec-Floor-Override (v9.15.1)
+
+> **Problem**: `get_material_floor()` wird mit dem primären Träger aufgerufen (z.B. `cassette`).
+> Bei einer Transfer-Kette wie `cassette → mp3_low` ist der limitierende Faktor jedoch der
+> Codec am Kettenende — nicht der analoge Primärträger.
+> Resultat: `spatial_depth`-Boden für Kassette (~0.55) liegt über dem physikalisch erreichbaren
+> Wert für `mp3_low`-Joint-Stereo-komprimiertes Material (~0.38) → permanente false violations.
+
+### §09.13a Codec-Ceiling-Tabelle
+
+```python
+_CHAIN_END_GOAL_CEILINGS: dict[str, dict[str, float]] = {
+    "mp3_low":   {"spatial_depth": 0.38, "separation_fidelity": 0.68, "brillanz": 0.52, "transparenz": 0.75},
+    "mp3_high":  {"spatial_depth": 0.44, "separation_fidelity": 0.74, "brillanz": 0.62, "transparenz": 0.82},
+    "aac":       {"spatial_depth": 0.44, "separation_fidelity": 0.74, "brillanz": 0.60, "transparenz": 0.82},
+    "streaming": {"spatial_depth": 0.38, "separation_fidelity": 0.68, "brillanz": 0.50, "transparenz": 0.74},
+    "minidisc":  {"spatial_depth": 0.36, "separation_fidelity": 0.66, "brillanz": 0.48, "transparenz": 0.72},
+}
+```
+
+### §09.13b Algorithmus
+
+```python
+def get_material_floor(
+    material_type: str,
+    goal_name: str,
+    restorability_score: float | None = None,  # reserviert für §09.12-Kompatibilität
+    transfer_chain: list[str] | None = None,
+) -> float:
+    floor = _MATERIAL_GOAL_FLOORS.get(material_type, _DEFAULT_FLOORS).get(goal_name, 0.60)
+    # Chain-End-Codec-Override: Codec am Kettenende strenger als Primärträger?
+    if transfer_chain:
+        chain_last = transfer_chain[-1]
+        codec_floors = _CHAIN_END_GOAL_CEILINGS.get(chain_last, {})
+        codec_floor = codec_floors.get(goal_name)
+        if codec_floor is not None and codec_floor < floor:
+            floor = codec_floor
+    return float(floor)
+```
+
+### §09.13c Invarianten
+
+- **Chain-End-Override NUR wenn Codec strenger** (`codec_floor < primary_floor`): ein höherwertiger Codec (z.B. `mp3_high` auf Shellac-Basis) darf den Shellac-Boden nicht lockern.
+- **`transfer_chain=None` = kein Override**: bestehende Tests ohne Transfer-Chain schlagen nicht fehl (nicht-breaking).
+- **Cascading**: `get_effective_material_floor()` (§09.12) ruft `get_material_floor()` auf und erbt den Chain-End-Override automatisch.
+- **Zusammenspiel mit GAF §2.32a**: Beide Mechanismen sind orthogonal. §2.32a deaktiviert das Goal vollständig bei Near-Mono-Codec (corr ≥ 0.83). §09.13 setzt den Boden korrekt, wenn das Goal aktiv bleibt (corr < 0.83 oder Mono-Erkennung nicht greift).
+- **Test-Pflicht**: `test_get_material_floor_chain_end_codec_override()`:
+  - `('cassette', 'spatial_depth', None, ['mp3_low'])` → `0.38`
+  - `('cassette', 'spatial_depth', None, ['mp3_high'])` → `0.44`
+  - `('shellac', 'brillanz', None, ['mp3_low'])` → Shellac-Wert (Shellac bereits strenger)
+  - `('vinyl', 'spatial_depth', None, None)` → Vinyl-Standardboden
+
+---
+
 ## Referenzen
 
 - Spec §01: Musical Goals (15 Ziele)
@@ -1442,4 +1496,4 @@ if restorability_score < 30:
 
 ---
 
-**Version**: 1.0 | **Datum**: 18. April 2026 | **Status**: normativ
+**Version**: 1.1 | **Datum**: 25. Juni 2026 | **Status**: normativ

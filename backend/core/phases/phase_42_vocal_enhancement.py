@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Phase 43: Vocal Enhancement v2.0 - Professional.
+Phase 42: Vocal Enhancement v2.0 - Professional.
 Comprehensive vocal processing chain for clarity, presence, and polish.
 
 Algorithm Overview:
@@ -901,6 +901,40 @@ class VocalEnhancement(PhaseInterface):
                     )
             except Exception as _vai_err:
                 logger.debug("VocalAIEnhancement fehlgeschlagen (ignoriert): %s", _vai_err)
+
+        # §2.46e [RELEASE_MUST] Hallucination-Guard — nach allen additiven Operationen.
+        # Phase_42 fügt Presence-, Formant- und Chest-Energie hinzu (3–5 dB additive Boosts).
+        # Auf Shellac (BW ≤ 7 kHz) oder historischem Material kann das synthetische HF-Energie
+        # erzeugen, die im Original nie existierte. Restoration: spectral_novelty > 0.15 → Rollback.
+        # Studio 2026: spectral_novelty > 0.08 → Score-Penalty (kein Rollback, da Enhancement-Modus).
+        # Modus-Normalisierung: UV3 kann entweder den String "studio2026" ODER ein Enum
+        # RestoreMode.STUDIO_2026 übergeben → str(enum) = "RestoreMode.STUDIO_2026".
+        # .replace('.', '_') → "restoremode_studio_2026", dann "studio" und "2026" erkennbar.
+        _raw_p42_mode = kwargs.get("mode", kwargs.get("_mode", "restoration"))
+        _p42_mode = str(_raw_p42_mode).strip().lower().replace(".", "_").replace(" ", "")
+        try:
+            from backend.core.dsp.hallucination_guard import (  # pylint: disable=import-outside-toplevel
+                check_hallucination as _check_hallucination_p42,
+            )
+
+            _hg_result = _check_hallucination_p42(audio, enhanced_audio, sample_rate, mode=_p42_mode)
+            if _hg_result.requires_rollback:
+                logger.warning(
+                    "phase_42 §2.46e Hallucination-Guard: spectral_novelty=%.3f → Rollback (mode=%s, material=%s)",
+                    _hg_result.spectral_novelty,
+                    _p42_mode,
+                    material.value if hasattr(material, "value") else str(material),
+                )
+                enhanced_audio = audio.copy()
+            elif _hg_result.score_penalty > 0.0:
+                logger.info(
+                    "phase_42 §2.46e Hallucination-Guard: spectral_novelty=%.3f → Score-Penalty %.1f (mode=%s)",
+                    _hg_result.spectral_novelty,
+                    _hg_result.score_penalty,
+                    _p42_mode,
+                )
+        except Exception as _hg_exc_p42:
+            logger.debug("phase_42 Hallucination-Guard (non-blocking): %s", _hg_exc_p42)
 
         if 0.0 < _effective_strength < 1.0:
             enhanced_audio = audio + _effective_strength * (enhanced_audio - audio)

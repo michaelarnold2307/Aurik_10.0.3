@@ -660,6 +660,81 @@ def test_constrain_shellac_1890_unchanged():
     assert result.decade == 1900
 
 
+# ── Lossy-Codec-Korrektur (§Fix9/UV3-Spiegelung) ─────────────────────────────
+
+
+def _make_codec_contaminated_era(decade: int = 1940, conf: float = 0.89, rolloff: float = 13_500.0) -> EraResult:
+    """Helper: Codec-kontaminierte Era (Analog-Prior + prä-digitale Dekade)."""
+    return EraResult(
+        decade=decade,
+        era_label=f"{decade}er",
+        confidence=conf,
+        material_prior="shellac",
+        noise_profile=np.zeros(24),
+        tier_used=2,
+        hf_rolloff_hz=rolloff,
+    )
+
+
+def test_constrain_codec_lossy_correction_pre1975_analog_prior():
+    """MP3-Tiefpass als Shellac fehlgedeutet → Korrektur auf 1980/mp3_low."""
+    result = constrain_era_to_medium(_make_codec_contaminated_era(), "mp3_low")
+    assert result.decade == 1980
+    assert result.era_label == "1980er"
+    assert result.material_prior == "mp3_low"
+    assert 0.55 <= result.confidence <= 0.80
+
+
+def test_constrain_codec_lossy_correction_confidence_floor():
+    """Konfidenz nach Korrektur: max(conf×0.65, 0.55), clamped [0.25, 0.80]."""
+    result = constrain_era_to_medium(_make_codec_contaminated_era(conf=0.50), "mp3_low")
+    assert result.confidence == pytest.approx(0.55)
+    result_high = constrain_era_to_medium(_make_codec_contaminated_era(conf=1.0), "aac")
+    assert result_high.confidence == pytest.approx(0.65)
+
+
+def test_constrain_codec_no_correction_post1975():
+    """Dekade ≥ 1975 → kein Eingriff (Codec-Skip wie bisher)."""
+    result = constrain_era_to_medium(_make_era(1980), "mp3_low")
+    assert result.decade == 1980
+    assert result.material_prior == "wax_cylinder"  # unverändert
+
+
+def test_constrain_codec_no_correction_digital_prior():
+    """Nicht-analoger Prior (cd_digital) → kein Eingriff trotz prä-1975-Dekade."""
+    era = EraResult(
+        decade=1970,
+        era_label="1970er",
+        confidence=0.70,
+        material_prior="cd_digital",
+        noise_profile=np.zeros(24),
+        hf_rolloff_hz=13_000.0,
+    )
+    result = constrain_era_to_medium(era, "mp3_low")
+    assert result.decade == 1970
+    assert result.material_prior == "cd_digital"
+
+
+def test_constrain_codec_no_correction_fullband_rolloff():
+    """Rolloff > 16.5 kHz (Vollband) → BW-Argument entfällt, kein Eingriff."""
+    result = constrain_era_to_medium(_make_codec_contaminated_era(rolloff=20_000.0), "mp3_high")
+    assert result.decade == 1940
+
+
+def test_constrain_codec_no_correction_zero_rolloff():
+    """Rolloff = 0 (nicht gemessen, z. B. Tier-1) → kein Eingriff."""
+    result = constrain_era_to_medium(_make_codec_contaminated_era(rolloff=0.0), "mp3_low")
+    assert result.decade == 1940
+
+
+def test_constrain_codec_correction_all_codec_containers():
+    """Korrektur greift für alle vier Codec-Container."""
+    for codec in ("mp3_low", "mp3_high", "aac", "streaming"):
+        result = constrain_era_to_medium(_make_codec_contaminated_era(), codec)
+        assert result.decade == 1980, f"Codec {codec}: erwartete Korrektur auf 1980"
+        assert result.material_prior == codec
+
+
 def test_constrain_wax_cylinder_no_change():
     """Wax cylinder floor=1890: 1890er bleibt 1890er."""
     result = constrain_era_to_medium(_make_era(1890), "wax_cylinder")

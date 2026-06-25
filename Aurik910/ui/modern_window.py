@@ -21,6 +21,7 @@ import tkinter as _tk
 import traceback
 from collections import defaultdict
 from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 from tkinter import filedialog as _tk_filedialog
 from typing import Any, cast
@@ -569,6 +570,21 @@ except ImportError:
         SongPrognoseWidget = None  # type: ignore[assignment]
 
 
+@dataclass(frozen=True)
+class UiRuntimeSnapshot:
+    """Zentraler Schnappschuss der GUI-Runtime für Status, Diagnose und Tests."""
+
+    selected_mode: str
+    processing_active: bool
+    original_available: bool
+    restored_available: bool
+    live_preview_available: bool
+    audio_output_ready: bool
+    audio_output_reason: str
+    quality_state: str
+    result_output_available: bool
+
+
 # ── Quality Meter: circular arc gauge (MOS 0–5 → green/yellow/red) ──────────
 class QualityMeterWidget(QWidget):
     """Horizontal VU-style quality bar displaying MOS quality (0–5 scale).
@@ -581,11 +597,31 @@ class QualityMeterWidget(QWidget):
         super().__init__(parent)
         self.setFixedHeight(22)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.setAccessibleName("Klangqualitätsanzeige")
+        self.setAccessibleDescription("Zeigt Prognose, Live-Schätzung oder final gemessenen MOS-Wert an.")
         self._mos: float = 0.0
         self._max_mos: float = 5.0
-        self.setToolTip(
-            "Klangqualitäts-Anzeige\n1 = sehr schlecht · 2 = schlecht · 3 = akzeptabel · 4 = gut · 5 = exzellent"
+        self._measurement_state: str = "Noch nicht gemessen"
+        self._measurement_detail: str = ""
+        self._refresh_tooltip()
+
+    def _refresh_tooltip(self) -> None:
+        """Aktualisiert den erklärenden Tooltip passend zum Messzustand."""
+        tip = (
+            "Klangqualitäts-Anzeige\n"
+            f"Status: {self._measurement_state}\n"
+            "1 = sehr schlecht · 2 = schlecht · 3 = akzeptabel · 4 = gut · 5 = exzellent"
         )
+        if self._measurement_detail:
+            tip += f"\n{self._measurement_detail}"
+        self.setToolTip(tip)
+
+    def set_measurement_state(self, state: str, detail: str = "") -> None:
+        """Setzt sichtbar, ob der MOS Prognose, Live-Schätzung oder finale Messung ist."""
+        self._measurement_state = str(state or "Noch nicht gemessen")
+        self._measurement_detail = str(detail or "")
+        self._refresh_tooltip()
+        self.update()
 
     def set_mos(self, mos: float) -> None:
         """Aktualisiert meter to *mos* value (0–5) and repaint."""
@@ -595,6 +631,7 @@ class QualityMeterWidget(QWidget):
     def reset(self) -> None:
         """Setzt zurück: meter to empty state."""
         self._mos = 0.0
+        self.set_measurement_state("Noch nicht gemessen")
         self.update()
 
     def paintEvent(self, _event) -> None:
@@ -644,12 +681,12 @@ class QualityMeterWidget(QWidget):
             font.setBold(True)
             p.setFont(font)
             p.setPen(QPen(QColor(230, 235, 245)))
-            p.drawText(bg_rect, Qt.AlignmentFlag.AlignCenter, f"Klang  {self._mos:.1f} / 5.0")
+            p.drawText(bg_rect, Qt.AlignmentFlag.AlignCenter, f"{self._measurement_state}: {self._mos:.1f} / 5.0")
         else:
             font.setBold(False)
             p.setFont(font)
             p.setPen(QPen(QColor(75, 90, 115)))
-            p.drawText(bg_rect, Qt.AlignmentFlag.AlignCenter, "Klangqualität: Noch nicht gemessen")
+            p.drawText(bg_rect, Qt.AlignmentFlag.AlignCenter, f"Klangqualität: {self._measurement_state}")
 
         p.end()
 
@@ -1081,6 +1118,49 @@ def _normalize_audio(audio: np.ndarray) -> np.ndarray:
     return audio
 
 
+def _playback_gated_rms_db(audio: np.ndarray) -> float:
+    """Gated RMS für faire A/B-Wiedergabe; stille Frames verfälschen den Pegel nicht."""
+    arr = _normalize_audio(audio)
+    if arr.size == 0:
+        return -120.0
+    mono = arr.mean(axis=1) if arr.ndim == 2 else arr
+    frame = min(max(1024, int(0.02 * 48000)), max(1, mono.size))
+    n_frames = mono.size // frame
+    if n_frames <= 0:
+        rms = float(np.sqrt(np.mean(mono * mono) + 1e-12))
+        return 20.0 * math.log10(max(rms, 1e-10))
+    framed = mono[: n_frames * frame].reshape(n_frames, frame)
+    frame_rms = np.sqrt(np.mean(framed * framed, axis=1) + 1e-12)
+    active = frame_rms > (10 ** (-55.0 / 20.0))
+    if not np.any(active):
+        active = frame_rms > 1e-8
+    if not np.any(active):
+        return -120.0
+    gated = float(np.sqrt(np.mean(frame_rms[active] ** 2) + 1e-12))
+    return 20.0 * math.log10(max(gated, 1e-10))
+
+
+def _match_playback_loudness_to_reference(audio: np.ndarray, reference: np.ndarray | None) -> tuple[np.ndarray, float]:
+    """Pegelmatch nur für A/B-Playback; Export-Audio bleibt unverändert."""
+    prepared = _normalize_audio(audio)
+    if reference is None or prepared.size == 0:
+        return prepared, 0.0
+    target_db = _playback_gated_rms_db(reference)
+    source_db = _playback_gated_rms_db(prepared)
+    if target_db <= -110.0 or source_db <= -110.0:
+        return prepared, 0.0
+    gain_db = float(np.clip(target_db - source_db, -6.0, 6.0))
+    if abs(gain_db) < 0.05:
+        return prepared, 0.0
+    gain = 10.0 ** (gain_db / 20.0)
+    matched = np.asarray(prepared * gain, dtype=np.float32)
+    peak = float(np.max(np.abs(matched))) if matched.size else 0.0
+    if peak > 0.985:
+        matched = matched * (0.985 / peak)
+        gain_db = 20.0 * math.log10(max(0.985 / max(float(np.max(np.abs(prepared))), 1e-9), 1e-9))
+    return np.clip(matched, -1.0, 1.0).astype(np.float32, copy=False), gain_db
+
+
 def _resample_audio_poly(audio: np.ndarray, src_sr: int, dst_sr: int, *, axis: int) -> np.ndarray:
     """Resample audio with scipy when available, otherwise fail explicitly."""
     if int(src_sr) == int(dst_sr):
@@ -1372,6 +1452,33 @@ class BatchProcessingThread(QThread):
             return "studio2026"
         return "restoration"
 
+    @staticmethod
+    def _estimate_live_quality_mos(
+        progress_pct: float,
+        *,
+        baseline_mos: float = 2.5,
+        active_phase_count: int = 0,
+        post_processing_started: bool = False,
+    ) -> float:
+        """Schätzt einen laufenden GUI-MOS aus echtem Pipeline-Fortschritt.
+
+        Der Wert ist nur ein Live-Indikator; die finale Qualitätsmessung bleibt
+        `_compute_and_show_quality()` nach dem Export vorbehalten.
+        """
+        pct = float(np.clip(progress_pct, 0.0, 100.0))
+        base = float(np.clip(baseline_mos, 1.0, 5.0))
+        if pct < 20.0:
+            analysis_frac = pct / 20.0
+            return float(np.clip(1.0 + (base - 1.0) * analysis_frac, 1.0, 5.0))
+        if pct < 86.0 and not post_processing_started:
+            phase_frac = (pct - 20.0) / 66.0
+            phase_bonus = min(0.55, max(0, active_phase_count) * 0.025)
+            target = min(4.65, base + 0.75 + phase_bonus)
+            return float(np.clip(base + (target - base) * (1.0 - (1.0 - phase_frac) ** 2), 1.0, 4.75))
+        post_frac = max(0.0, min(1.0, (pct - 86.0) / 12.0))
+        target = min(4.85, max(base, base + 0.95))
+        return float(np.clip(base + (target - base) * (1.0 - (1.0 - post_frac) ** 3), 1.0, 4.9))
+
     def request_emergency_checkpoint(self) -> None:
         """§3.9.2 SIGTERM best-effort checkpoint save.
 
@@ -1590,13 +1697,36 @@ class BatchProcessingThread(QThread):
                 # Pre-compute expected processing time for user-facing ETA.
                 # RT factors measured on reference desktop (CPU-only, no GPU):
                 #   Restoration ≈12× RT (±2× by hardware), Studio 2026 ≈18× RT (±4×).
-                _rt_lo_eta = 10.0 if _aurik_mode == "restoration" else 14.0
-                _rt_hi_eta = 15.0 if _aurik_mode == "restoration" else 22.0
+                # Material-adaptiver Faktor: ältere analoge Materialien benötigen
+                # mehr Korrektur-Phasen → längere Laufzeit (Shellac +45 %, Tape +20 %).
+                _material_eta_factors: dict[str, float] = {
+                    "shellac": 1.45,
+                    "acoustic": 1.45,
+                    "vinyl": 1.10,
+                    "disc": 1.10,
+                    "tape": 1.20,
+                    "cassette": 1.15,
+                    "digital": 0.90,
+                    "mp3": 0.92,
+                    "cd": 0.90,
+                    "dat": 0.90,
+                    "streaming": 0.90,
+                }
+                _cached_med_eta = get_cached_medium_result(item.input_file)
+                _mat_key_eta = ""
+                if _cached_med_eta is not None:
+                    import contextlib as _cl_ctx
+
+                    with _cl_ctx.suppress(Exception):
+                        _mat_key_eta = str(getattr(_cached_med_eta, "primary_material", "") or "").lower()
+                _mat_factor = _material_eta_factors.get(_mat_key_eta, 1.0)
+                _rt_lo_eta = (10.0 if _aurik_mode == "restoration" else 14.0) * _mat_factor
+                _rt_hi_eta = (15.0 if _aurik_mode == "restoration" else 22.0) * _mat_factor
                 _eta_ovhd = 90.0  # analysis + DefectScanner overhead
                 self._expected_processing_s = _audio_dur_s_local * (_rt_lo_eta + _rt_hi_eta) / 2.0 + _eta_ovhd
                 _eta_lo_m = max(1, int((_audio_dur_s_local * _rt_lo_eta + _eta_ovhd) / 60))
                 _eta_hi_m = max(1, int((_audio_dur_s_local * _rt_hi_eta + _eta_ovhd) / 60) + 1)
-                self._eta_range_str = f"Geschätzte Dauer: {_eta_lo_m}–{_eta_hi_m} Minuten"
+                self._eta_range_str = t("progress.eta_range", lo=_eta_lo_m, hi=_eta_hi_m)
                 # Deadline-basierte Restzeit-Glättung initialisieren
                 self._eta_deadline = time.perf_counter() + self._expected_processing_s
 
@@ -2115,6 +2245,14 @@ class BatchProcessingThread(QThread):
                 _sp2_phase_reset: list[bool] = [False]  # set True to reset per-phase sub-bar to 0
                 _post_processing_started: list[bool] = [False]  # tracks first post-UV3 callback (pct≥86)
                 _last_pre_stage_bucket: list[int] = [-1]  # tracks PRE_STEPS stage (1..8) for sub-bar resets
+                _live_quality_last_emit: list[float] = [-1.0]
+                _live_quality_baseline_mos: list[float] = [2.5]
+                try:
+                    _cached_rest = get_cached_restorability_result(item.input_file)
+                    if _cached_rest is not None:
+                        _live_quality_baseline_mos[0] = float(getattr(_cached_rest, "predicted_mos", 2.5) or 2.5)
+                except Exception:
+                    _live_quality_baseline_mos[0] = 2.5
                 # Rate-limit for defect-correcting animations: prevents 11-defect burst when
                 # carrier-repair phases complete rapidly (short audio / fast DSP path).
                 # Two "correcting" updates within 350 ms are coalesced into one.
@@ -2641,10 +2779,16 @@ class BatchProcessingThread(QThread):
                             if _raw_pid and not _last_raw_phase_id[0]:
                                 _last_raw_phase_id[0] = _raw_pid
                         # No fallback nudge: sub-bar is now purely time-driven by the smooth emitter.
-                    # Scan-cursor is now driven by the 30 fps smooth-emitter (see below).
-                    # Quality meter is NOT updated here: fake linear interpolation would imply
-                    # measured improvement that hasn't been assessed yet. The real score is
-                    # emitted once by _animate_mos_gauge after denke() completes.
+                    _live_mos = self._estimate_live_quality_mos(
+                        pct,
+                        baseline_mos=_live_quality_baseline_mos[0],
+                        active_phase_count=_uv3_count[0],
+                        post_processing_started=_post_processing_started[0],
+                    )
+                    _live_mos_bucket = round(_live_mos, 1)
+                    if abs(_live_mos_bucket - _live_quality_last_emit[0]) >= 0.1:
+                        _live_quality_last_emit[0] = _live_mos_bucket
+                        self.quality_update.emit(_live_mos_bucket)
                     # Map denker pct to live pipeline step.
                     # PRE_STEPS (1–8) are fixed analysis macro-steps.
                     # Each UV3 phase gets its own sequential step number.
@@ -7924,7 +8068,7 @@ class ResourceStatusWidget(QWidget):
         self._phase_override: str | None = None
         self.cpu_usage: float = 0.0
         self.memory_usage: float = 0.0
-        self.quality_mode = "QUALITY"
+        self.quality_mode = "BALANCED"
         self.ml_mode_active = False
         self.active_ml_plugins: list[str] = []
 
@@ -8860,6 +9004,7 @@ class ModernTitleBar(QWidget):
         # ── Recent Files button ──────────────────────────────────────────
         self.btn_recent = QPushButton("📋")
         self.btn_recent.setFixedSize(40, 30)
+        self.btn_recent.setAccessibleName("Zuletzt geöffnete Dateien")
         self.btn_recent.setFont(QFont(self.font().family(), 12))
         self.btn_recent.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_recent.setObjectName("controlButton")
@@ -8876,9 +9021,11 @@ class ModernTitleBar(QWidget):
         # ── Settings ─────────────────────────────────────────────────────
         self.btn_settings = self._create_control_button("⚙", self.settings_clicked)
         self.btn_settings.setToolTip(t("settings.title"))
+        self.btn_settings.setAccessibleName("Einstellungen")
 
         # ── Help / Shortcut-Übersicht ────────────────────────────────────
         self.btn_help = self._create_control_button("?", self.help_clicked)
+        self.btn_help.setAccessibleName("Hilfe und Systemcheck")
 
         # Window Controls
         self.btn_minimize = self._create_control_button("−", self.minimize_clicked)
@@ -12041,6 +12188,8 @@ class ModernMainWindow(QMainWindow):
         )
 
         self.btn_play_original = ModernButton(f"▶  {t('action.listen_original')}")
+        self.btn_play_original.setAccessibleName("Original anhören")
+        self.btn_play_original.setAccessibleDescription("Spielt die geladene Originalaufnahme im A/B-Vergleich ab.")
         self.btn_play_original.setEnabled(False)
         self.btn_play_original.setFixedHeight(self._sp(38))
         self.btn_play_original.setStyleSheet(_ab_style_orig)
@@ -12050,6 +12199,10 @@ class ModernMainWindow(QMainWindow):
         ab_row_layout.addWidget(self.btn_play_original)
 
         self.btn_play_restored = ModernButton(f"▶  {t('action.listen_restored')}")
+        self.btn_play_restored.setAccessibleName("Restaurierte Fassung anhören")
+        self.btn_play_restored.setAccessibleDescription(
+            "Spielt den restaurierten Export oder während der Verarbeitung den letzten Zwischenstand ab."
+        )
         self.btn_play_restored.setEnabled(False)
         self.btn_play_restored.setFixedHeight(self._sp(38))
         self.btn_play_restored.setStyleSheet(_ab_style_rest)
@@ -12068,6 +12221,10 @@ class ModernMainWindow(QMainWindow):
             "QPushButton:disabled{background:rgba(80,80,80,0.30);color:#555;}"
         )
         self.btn_ab_sync = ModernButton("⟳  A/B-Sync-Loop")
+        self.btn_ab_sync.setAccessibleName("Synchronisierter A/B-Loop")
+        self.btn_ab_sync.setAccessibleDescription(
+            "Startet einen synchronisierten Vergleich von Original und restaurierter Fassung."
+        )
         self.btn_ab_sync.setEnabled(False)
         self.btn_ab_sync.setFixedHeight(self._sp(38))
         self.btn_ab_sync.setCheckable(True)
@@ -12093,6 +12250,8 @@ class ModernMainWindow(QMainWindow):
         self._ab_loop_start_frac: float = 0.0  # relative Startposition [0,1]
 
         self.btn_stop_playback = ModernButton("⏹  Song stoppen")
+        self.btn_stop_playback.setAccessibleName("Wiedergabe stoppen")
+        self.btn_stop_playback.setAccessibleDescription("Stoppt nur die A/B-Wiedergabe, nicht die Restaurierung.")
         self.btn_stop_playback.setFixedHeight(self._sp(38))
         self.btn_stop_playback.setStyleSheet(_ab_style_stop)
         self.btn_stop_playback.setEnabled(False)  # nur aktiv während Wiedergabe
@@ -12749,19 +12908,13 @@ class ModernMainWindow(QMainWindow):
                 logger.debug("prognose_widget.set_recommended_mode failed: %s", _prw_exc)
 
         if hasattr(self, "btn_magic_restoration"):
-            restoration_tip = (
-                "<b>Originalgetreue Restaurierung</b><br>"
-                "Sichere Standardwahl: entfernt Störungen und bewahrt den Originalcharakter."
-            )
+            restoration_tip = t("tooltip.btn_restoration")
             if recommended_mode == "RESTORATION":
                 restoration_tip += f"<br><b>Empfohlen für diese Quelle.</b><br><small>{text}</small>"
             self.btn_magic_restoration.setToolTip(restoration_tip)
 
         if hasattr(self, "btn_magic_studio"):
-            studio_tip = (
-                "<b>Highend-Studio-Klang 2026</b><br>"
-                "Für einen modernen, präsenten Klang mit mehr Eingriff in das Material."
-            )
+            studio_tip = t("tooltip.btn_studio")
             if recommended_mode == "STUDIO_2026":
                 studio_tip += f"<br><b>Empfohlen für diese Quelle.</b><br><small>{text}</small>"
             self.btn_magic_studio.setToolTip(studio_tip)
@@ -12868,10 +13021,7 @@ class ModernMainWindow(QMainWindow):
         )
         self.btn_magic_restoration.setFixedSize(_btn_d, _btn_d)
         self.btn_magic_restoration.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.btn_magic_restoration.setToolTip(
-            "<b>Originalgetreue Restaurierung</b><br>"
-            "Erhält den historischen Klang, entfernt Artefakte ohne Klangveränderung."
-        )
+        self.btn_magic_restoration.setToolTip(t("tooltip.btn_restoration"))
         self.btn_magic_restoration.clicked.connect(lambda: self._process_with_mode("RESTORATION"))
         if not _img_r.exists():
             _r_br = _btn_d // 2
@@ -12894,10 +13044,7 @@ class ModernMainWindow(QMainWindow):
         )
         self.btn_magic_studio.setFixedSize(_btn_d, _btn_d)
         self.btn_magic_studio.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.btn_magic_studio.setToolTip(
-            "<b>Highend-Studio-Klang 2026</b><br>"
-            "Modern, frisch, klar, kräftig — auf heutigen Referenzstandard gebracht."
-        )
+        self.btn_magic_studio.setToolTip(t("tooltip.btn_studio"))
         self.btn_magic_studio.clicked.connect(lambda: self._process_with_mode("STUDIO_2026"))
         if not _img_s.exists():
             _s_br = _btn_d // 2
@@ -12914,7 +13061,7 @@ class ModernMainWindow(QMainWindow):
         # Initial deaktiviert — werden nach Defektanalyse aktiviert
         self._set_magic_buttons_enabled(False)
         # Hinweis-Label: erscheint solange die Buttons noch deaktiviert sind
-        self._magic_hint_label = QLabel("⏳ Datei wird analysiert — bitte einen Moment warten …")
+        self._magic_hint_label = QLabel(t("ui.magic_hint_analyzing"))
         self._magic_hint_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._magic_hint_label.setStyleSheet(
             "color: #7A90B0; font-size: 9pt; background: transparent; padding: 4px 0 0 0;"
@@ -13398,7 +13545,7 @@ class ModernMainWindow(QMainWindow):
             return
         _files = _sm.recent_files()
         if not _files:
-            _empty = QAction("(keine)", self)
+            _empty = QAction(t("ui.no_recent_files"), self)
             _empty.setEnabled(False)
             _menu.addAction(_empty)
             return
@@ -13479,6 +13626,12 @@ class ModernMainWindow(QMainWindow):
 
         _menu.addSeparator()
 
+        _sys = QAction("✓  Systemcheck", self)
+        _sys.triggered.connect(self._show_system_check_dialog)
+        _menu.addAction(_sys)
+
+        _menu.addSeparator()
+
         _about = QAction(f"ℹ  Über Aurik  (v{QApplication.applicationVersion()})", self)
         _about.triggered.connect(self._show_about_dialog)
         _menu.addAction(_about)
@@ -13519,13 +13672,89 @@ class ModernMainWindow(QMainWindow):
 
     def _show_about_dialog(self) -> None:
         """Zeigt an: a simple About dialog."""
+        _status_lines = self._collect_professional_system_status()
+        _status_html = "".join(f"<li><b>{name}</b>: {state}</li>" for name, state in _status_lines)
         QMessageBox.about(
             self,
             "Über AURIK Professional",
             f"<h3>AURIK Professional</h3>"
             f"<p>Version {QApplication.applicationVersion()}</p>"
-            f"<p>Intelligentes Musik-Restaurierungssystem</p>"
+            f"<p>Intelligentes Musik-Restaurierungssystem für Offline-Restaurierung, Reparatur und Rekonstruktion.</p>"
+            f"<ul>{_status_html}</ul>"
             f"<p style='color:#8899bb;'>© 2026 AURIK</p>",
+        )
+
+    def _collect_professional_system_status(self) -> list[tuple[str, str]]:
+        """Sammelt produktrelevante GUI-/Runtime-Bereitschaft ohne Netzwerkzugriff."""
+        _snapshot = self._capture_runtime_snapshot()
+        _ram_state = "nicht prüfbar"
+        if _psutil is not None:
+            try:
+                _avail_gb = _psutil.virtual_memory().available / 1024**3
+                _ram_state = f"{_avail_gb:.1f} GB verfügbar"
+                if _avail_gb < 6.0:
+                    _ram_state += " · knapp"
+            except Exception:
+                _ram_state = "nicht prüfbar"
+        _models_dir = Path(__file__).parent.parent.parent / "models"
+        _model_state = "vorhanden" if _models_dir.exists() else "nicht gefunden"
+        _gpu_mode = "GPU/Mixed-Mode möglich" if os.getenv("AURIK_FORCE_CPU", "0") != "1" else "CPU erzwungen"
+        return [
+            ("Offline-Betrieb", "aktiv · keine Update-Netzwerkprüfung"),
+            ("Bridge-Vertrag", "verfügbar" if _BRIDGE_AVAILABLE else "nicht verfügbar"),
+            ("Audio-Ausgabe", "bereit" if _snapshot.audio_output_ready else _snapshot.audio_output_reason),
+            ("Arbeitsspeicher", _ram_state),
+            ("Lokale Modelle", _model_state),
+            ("Runtime", _gpu_mode),
+            ("Aktueller Modus", _snapshot.selected_mode),
+            ("Verarbeitung", "läuft" if _snapshot.processing_active else "bereit"),
+            ("Qualitätsanzeige", _snapshot.quality_state),
+            ("A/B-Quellen", self._format_ab_source_status(_snapshot)),
+        ]
+
+    def _capture_runtime_snapshot(self) -> UiRuntimeSnapshot:
+        """Bündelt GUI-Zustände in einem konsistenten, testbaren Snapshot."""
+        _audio_ready, _audio_reason = self._audio_output_ready()
+        _quality_widget = getattr(self, "quality_meter_widget", None)
+        _quality_state = str(getattr(_quality_widget, "_measurement_state", "Noch nicht gemessen") or "")
+        return UiRuntimeSnapshot(
+            selected_mode=str(getattr(self, "selected_mode", "") or "noch nicht gewählt"),
+            processing_active=bool(getattr(self, "batch_thread", None) and self.batch_thread.isRunning()),
+            original_available=getattr(self, "_orig_audio", None) is not None,
+            restored_available=getattr(self, "_rest_audio", None) is not None,
+            live_preview_available=getattr(self, "_live_preview_audio", None) is not None,
+            audio_output_ready=bool(_audio_ready),
+            audio_output_reason=str(_audio_reason or ""),
+            quality_state=_quality_state,
+            result_output_available=bool(getattr(self, "_last_result_output", "")),
+        )
+
+    @staticmethod
+    def _format_ab_source_status(snapshot: UiRuntimeSnapshot) -> str:
+        """Lesbare Kurzform der A/B-Quellenverfügbarkeit."""
+        parts: list[str] = []
+        if snapshot.original_available:
+            parts.append("Original")
+        if snapshot.restored_available:
+            parts.append("Restauriert")
+        elif snapshot.live_preview_available:
+            parts.append("Zwischenstand")
+        return ", ".join(parts) if parts else "noch keine Quelle geladen"
+
+    def _show_system_check_dialog(self) -> None:
+        """Zeigt einen kompakten professionellen Systemcheck für Support und UAT."""
+        _rows = self._collect_professional_system_status()
+        _html_rows = "".join(
+            "<tr>"
+            f"<td style='padding:4px 14px 4px 0;color:#AFC3DA;'>{name}</td>"
+            f"<td style='padding:4px 0;color:#E6EDF7;'>{state}</td>"
+            "</tr>"
+            for name, state in _rows
+        )
+        QMessageBox.information(
+            self,
+            "Aurik Systemcheck",
+            f"<h3>Aurik Systemcheck</h3><p>Lokale Bereitschaft der Desktop-Anwendung.</p><table>{_html_rows}</table>",
         )
 
     def _check_for_update_manual(self) -> None:
@@ -14100,6 +14329,40 @@ class ModernMainWindow(QMainWindow):
             fn()
         except Exception:
             logger.exception("Unhandled GUI callback exception was swallowed for stability")
+
+    def _initial_live_quality_mos(self) -> float:
+        """Gibt die beste verfügbare Start-Prognose für die Live-Qualitätsanzeige zurück."""
+        try:
+            if self.current_file_path:
+                cached = get_cached_restorability_result(self.current_file_path)
+                if cached is not None:
+                    return float(np.clip(float(getattr(cached, "predicted_mos", 2.5) or 2.5), 1.0, 5.0))
+        except Exception:
+            logger.debug("Live-Qualitätsstartwert konnte nicht aus Restorability-Cache gelesen werden", exc_info=True)
+        score = float(getattr(self, "_restorability_score", 50.0) or 50.0)
+        return float(np.clip(1.0 + np.clip(score, 0.0, 100.0) / 100.0 * 4.0, 1.0, 5.0))
+
+    def _prime_live_quality_meter(self) -> None:
+        """Initialisiert die Klangqualitätsanzeige für laufende Restaurierung."""
+        if getattr(self, "quality_meter_widget", None) is None:
+            return
+        mos = self._initial_live_quality_mos()
+        self._last_mos_displayed = mos
+        self.quality_meter_widget.set_measurement_state(
+            "Prognose",
+            "Aus Voranalyse und Restaurierbarkeitsmodell abgeleitet; noch kein finaler Export-Messwert.",
+        )
+        self.quality_meter_widget.set_mos(mos)
+
+    def _set_live_quality_mos(self, mos: float) -> None:
+        """Zeigt Pipeline-Fortschritt als explizite Live-Schätzung an."""
+        if getattr(self, "quality_meter_widget", None) is None:
+            return
+        self.quality_meter_widget.set_measurement_state(
+            "Live-Schätzung",
+            "Laufender Pipeline-Indikator; der finale Messwert ersetzt ihn nach dem Export.",
+        )
+        self.quality_meter_widget.set_mos(float(mos))
 
     def _on_load_progress_update(self, pct: float) -> None:
         """Aktualisiert load/pre-analysis progress bar with live percentage display."""
@@ -15160,8 +15423,20 @@ class ModernMainWindow(QMainWindow):
         except Exception:
             logger.debug("Playback: _sd.stop() fehlgeschlagen", exc_info=True)
 
-    def _play_audio(self, audio: np.ndarray, sr: int, start_pos_frac: float = 0.0):
+    def _play_audio(
+        self,
+        audio: np.ndarray,
+        sr: int,
+        start_pos_frac: float = 0.0,
+        *,
+        loudness_match_ref: np.ndarray | None = None,
+    ):
         """Audiodaten unterbrechungsfrei abspielen (gapless source-switch via StreamingAudioPlayer)."""
+        if loudness_match_ref is not None:
+            audio, _ab_gain_db = _match_playback_loudness_to_reference(audio, loudness_match_ref)
+            self._ab_loudness_match_gain_db = float(_ab_gain_db)
+        else:
+            self._ab_loudness_match_gain_db = 0.0
         # ── Streaming-Player-Pfad (bevorzugt — gapless, kein stop/restart) ───
         _sp = self._streaming_player
         if _sp is not None and _sp.available:
@@ -15417,37 +15692,95 @@ class ModernMainWindow(QMainWindow):
         auf getrennten Threads.
         """
         if self._rest_audio is not None:
-            self._play_audio(self._rest_audio, self._rest_sr)
+            self._play_audio(self._rest_audio, self._rest_sr, loudness_match_ref=self._orig_audio)
             return
         _preview = getattr(self, "_live_preview_audio", None)
         _preview_sr = int(getattr(self, "_live_preview_sr", 48000))
         if _preview is not None:
-            self._play_audio(_preview, _preview_sr)
+            self._play_audio(_preview, _preview_sr, loudness_match_ref=self._orig_audio)
+
+    def _audio_output_ready(self) -> tuple[bool, str]:
+        """Prüft, ob ein echtes Ausgabegerät für die A/B-Wiedergabe verfügbar ist."""
+        _sp = getattr(self, "_streaming_player", None)
+        if _sp is not None:
+            try:
+                if _sp.available:
+                    return True, ""
+            except Exception:
+                logger.debug("A/B-Player: Streaming-Ausgabegerät konnte nicht geprüft werden", exc_info=True)
+            return False, "Kein Audio-Ausgabegerät gefunden."
+        if not _SD_AVAILABLE or _sd is None:
+            return False, "Audio-Wiedergabe ist auf diesem System nicht verfügbar."
+        try:
+            _dev = _sd.query_devices(kind="output")
+            if isinstance(_dev, dict):
+                _channels = int(_dev.get("max_output_channels", 0) or 0)
+                _rate = float(_dev.get("default_samplerate", 0.0) or 0.0)
+                if _channels > 0 and _rate > 0.0:
+                    return True, ""
+        except Exception:
+            logger.debug("A/B-Player: sounddevice-Ausgabegerät konnte nicht geprüft werden", exc_info=True)
+        return False, "Kein Audio-Ausgabegerät gefunden."
+
+    @staticmethod
+    def _set_button_enabled_with_reason(button, enabled: bool, enabled_tooltip: str, disabled_reason: str) -> None:
+        """Setzt Button-Zustand mit verständlichem Grund für deaktivierte Bedienung."""
+        if button is None:
+            return
+        button.setEnabled(bool(enabled))
+        button.setToolTip(str(enabled_tooltip or "") if enabled else f"Nicht verfügbar: {disabled_reason}")
 
     def _update_ab_player_state(self):
         """A/B-Player Buttons je nach verfügbaren Audiodaten aktivieren."""
+        _output_ready, _output_reason = self._audio_output_ready()
         if hasattr(self, "btn_play_original"):
-            self.btn_play_original.setEnabled(self._orig_audio is not None)
+            _has_orig = self._orig_audio is not None
+            _reason = "Original-Audio ist noch nicht geladen." if not _has_orig else _output_reason
+            self._set_button_enabled_with_reason(
+                self.btn_play_original,
+                _has_orig and _output_ready,
+                "Originalaufnahme anhören.",
+                _reason,
+            )
         if hasattr(self, "btn_play_restored"):
             _processing = bool(getattr(self, "batch_thread", None) and self.batch_thread.isRunning())
             _has_preview = getattr(self, "_live_preview_audio", None) is not None
             _has_rest = self._rest_audio is not None
-            self.btn_play_restored.setEnabled(_has_rest or (_processing and _has_preview))
             # Live-Label während Restaurierung
             if _processing and _has_preview and not _has_rest:
                 self.btn_play_restored.setText("🎧  Zwischenstand hören")
-                self.btn_play_restored.setToolTip(
+                _tip = (
                     "Zwischenstand der Restaurierung anhören (Snapshot der letzten Phase).\n"
                     "Die Restaurierung läuft im Hintergrund weiter."
                 )
+                _reason = _output_reason if not _output_ready else "Noch kein Zwischenstand verfügbar."
+                self._set_button_enabled_with_reason(
+                    self.btn_play_restored,
+                    _output_ready,
+                    _tip,
+                    _reason,
+                )
             else:
                 self.btn_play_restored.setText(f"▶  {t('action.listen_restored')}")
-                self.btn_play_restored.setToolTip("")
+                _reason = "Restaurierter Export liegt noch nicht vor." if not _has_rest else _output_reason
+                self._set_button_enabled_with_reason(
+                    self.btn_play_restored,
+                    _has_rest and _output_ready,
+                    "Restaurierte Fassung anhören.",
+                    _reason,
+                )
         # A/B-Sync-Loop erfordert beide Versionen
         if hasattr(self, "btn_ab_sync"):
             _both = self._orig_audio is not None and self._rest_audio is not None
-            self.btn_ab_sync.setEnabled(_both)
-            if not _both and getattr(self.btn_ab_sync, "isChecked", lambda: False)():
+            _sync_ready = _both and _output_ready
+            _sync_reason = "Original und restaurierter Export werden beide benötigt." if not _both else _output_reason
+            self._set_button_enabled_with_reason(
+                self.btn_ab_sync,
+                _sync_ready,
+                "Synchronisierten A/B-Loop starten; A/B wechseln bei gleicher Position.",
+                _sync_reason,
+            )
+            if not _sync_ready and getattr(self.btn_ab_sync, "isChecked", lambda: False)():
                 self.btn_ab_sync.setChecked(False)
                 if hasattr(self, "_ab_source_label"):
                     self._ab_source_label.setVisible(False)
@@ -15460,7 +15793,30 @@ class ModernMainWindow(QMainWindow):
                 _playing = (
                     hasattr(self, "_play_thread") and self._play_thread is not None and self._play_thread.is_alive()
                 )
-            self.btn_stop_playback.setEnabled(_playing)
+            self._set_button_enabled_with_reason(
+                self.btn_stop_playback,
+                _playing,
+                t("tooltip.stop_playback"),
+                "Keine Wiedergabe aktiv.",
+            )
+        if hasattr(self, "_ab_source_label"):
+            _has_any_audio = (
+                self._orig_audio is not None
+                or self._rest_audio is not None
+                or getattr(self, "_live_preview_audio", None) is not None
+            )
+            _loop_checked = bool(
+                hasattr(self, "btn_ab_sync") and getattr(self.btn_ab_sync, "isChecked", lambda: False)()
+            )
+            if _has_any_audio and not _output_ready and not _loop_checked:
+                self._ab_source_label.setText(f"Audio-Ausgabe nicht verfügbar · {_output_reason}")
+                self._ab_source_label.setStyleSheet(
+                    f"color: rgba(208,139,139,0.92); font-size: {self._pt(8.5):.1f}pt; "
+                    "font-weight: bold; padding: 0 4px;"
+                )
+                self._ab_source_label.setVisible(True)
+            elif not _loop_checked:
+                self._ab_source_label.setVisible(False)
 
     def _ab_sync_toggle(self) -> None:
         """A/B-Sync-Loop starten oder stoppen (v9.10.111).
@@ -15498,8 +15854,10 @@ class ModernMainWindow(QMainWindow):
         _src = getattr(self, "_ab_loop_source", "original")
         _frac = float(getattr(self, "_ab_loop_start_frac", 0.0))
         if _src == "restored" and self._rest_audio is not None:
-            self._play_audio(self._rest_audio, self._rest_sr, start_pos_frac=_frac)
-            _lbl = "Quelle: ✦ Restauriert"
+            self._play_audio(self._rest_audio, self._rest_sr, start_pos_frac=_frac, loudness_match_ref=self._orig_audio)
+            _gain_db = float(getattr(self, "_ab_loudness_match_gain_db", 0.0) or 0.0)
+            _match_txt = f" · Pegelmatch {_gain_db:+.1f} dB" if abs(_gain_db) >= 0.1 else " · Pegelmatch aktiv"
+            _lbl = f"Quelle: ✦ Restauriert{_match_txt}"
             _col = "rgba(80,220,100,0.85)"
         else:
             if self._orig_audio is not None:
@@ -16214,7 +16572,7 @@ class ModernMainWindow(QMainWindow):
             )
         self.batch_thread.scan_progress.connect(self._on_scan_progress)
         if hasattr(self, "quality_meter_widget"):
-            self.batch_thread.quality_update.connect(self.quality_meter_widget.set_mos)
+            self.batch_thread.quality_update.connect(self._set_live_quality_mos)
         self.batch_thread.phase_step_update.connect(self._on_phase_step_update)
         self.batch_thread.carrier_chain_update.connect(self._apply_authoritative_chain_display)
         # §Watchdog-Extension: exakte Dateilänge nach Ladevorgang bekannt → Timer neu starten
@@ -16263,7 +16621,7 @@ class ModernMainWindow(QMainWindow):
         if hasattr(self, "_btn_preview_restored"):
             self._btn_preview_restored.setEnabled(False)
         if hasattr(self, "quality_meter_widget"):
-            self.quality_meter_widget.set_mos(2.5)
+            self._prime_live_quality_meter()
 
         # Watchdog-Timer: feuert wenn Verarbeitung zu lange hängt (z. B. blockierender ONNX-Call).
         # Budget muss großzügiger sein als PerformanceGuard (LIMIT_MAXIMUM=32×, plus
@@ -18184,6 +18542,34 @@ class ModernMainWindow(QMainWindow):
         """Erstellt info banner sections for post-processing quality UI."""
         banner_sections: list[str] = []
 
+        _deg_norm = str(degradation_status or "").strip().lower()
+        _fail_norm = str(fail_reason or "").strip()
+        _qg_passed = bool(xp_quality_gate.get("passed", True)) if isinstance(xp_quality_gate, dict) else True
+        if _fail_norm and _fail_norm not in {"None", "none"}:
+            _verdict = "BLOCKIERT"
+            _verdict_detail = _fail_norm
+        elif _deg_norm in {"blocked", "failed", "critical_degraded"} or not _qg_passed:
+            _verdict = "BLOCKIERT"
+            _verdict_detail = degradation_status or "Quality-Gate nicht freigegeben"
+        elif runtime_fallback_original or _deg_norm in {"degraded", "critical", "fallback_original"}:
+            _verdict = "DEGRADED"
+            _verdict_detail = "Sicherer Export/Fallback statt riskanter Bearbeitung"
+        elif _deg_norm in {"recovered", "recovery", "ok_recovered", "recovered_safe"} or feedback_retries > 0:
+            _verdict = "RECOVERED"
+            _verdict_detail = "Nachoptimiert und erneut freigegeben"
+        else:
+            _verdict = "FREIGEGEBEN"
+            _verdict_detail = "Export freigegeben; technische Details folgen"
+        banner_sections.append(f"🏁  Haupturteil: {_verdict}  ·  {_verdict_detail}")
+        banner_sections.append(
+            self._build_recovery_diagnostic_line(
+                verdict=_verdict,
+                degradation_status=degradation_status,
+                fail_reason=fail_reason,
+                primary_error_code=primary_error_code,
+            )
+        )
+
         if not is_sota_run:
             _reason = sota_warning_reason.strip() if isinstance(sota_warning_reason, str) else ""
             if _reason:
@@ -18574,6 +18960,27 @@ class ModernMainWindow(QMainWindow):
             banner_sections.append("🤝  Phasen-Koordination: " + "  ·  ".join(tc_parts))
 
         return banner_sections
+
+    def _build_recovery_diagnostic_line(
+        self,
+        *,
+        verdict: str,
+        degradation_status: str,
+        fail_reason: str,
+        primary_error_code: str,
+    ) -> str:
+        """Erstellt eine kompakte Recovery-/Diagnosezeile für Support und Nutzervertrauen."""
+        _snapshot = self._capture_runtime_snapshot()
+        _parts = [f"Urteil={verdict}"]
+        _deg = str(degradation_status or "ok").strip() or "ok"
+        _parts.append(f"Pipeline={_deg}")
+        if primary_error_code:
+            _parts.append(f"Code={primary_error_code}")
+        if fail_reason and fail_reason not in {"None", "none"}:
+            _parts.append(f"Grund={fail_reason}")
+        _parts.append("Export=vorhanden" if _snapshot.result_output_available else "Export=offen")
+        _parts.append(f"A/B={self._format_ab_source_status(_snapshot)}")
+        return "🧾  Recovery-Diagnose: " + "  ·  ".join(_parts)
 
     def _apply_quality_header_and_banner(
         self,
@@ -19073,15 +19480,12 @@ class ModernMainWindow(QMainWindow):
                         try:
                             _band = str((_xp_quality_scale or {}).get("band", "") or "").strip()
                             _headline = str((_xp_user_guidance or {}).get("headline", "") or "").strip()
-                            _meter_tip = (
-                                "Klangqualitäts-Anzeige\n"
-                                "1 = sehr schlecht · 2 = schlecht · 3 = akzeptabel · 4 = gut · 5 = exzellent"
-                            )
-                            if _band or _headline:
-                                _meter_tip += f"\nBand: {_band or 'mittel'}"
-                                if _headline:
-                                    _meter_tip += f"\nHinweis: {_headline}"
-                            self.quality_meter_widget.setToolTip(_meter_tip)
+                            _detail = "Nach Export und Qualitätsprüfung berechneter MOS-Wert."
+                            if _band:
+                                _detail += f" Band: {_band}."
+                            if _headline:
+                                _detail += f" Hinweis: {_headline}"
+                            self.quality_meter_widget.set_measurement_state("Final gemessen", _detail)
                         except Exception as _qm_exc:
                             logger.debug("quality meter tooltip update failed: %s", _qm_exc)
                     self._apply_quality_header_and_banner(
@@ -19147,11 +19551,19 @@ class ModernMainWindow(QMainWindow):
             _eased = 1.0 - (1.0 - _t_norm) ** 3
             _current = min(_start + _delta * _eased, 5.0)
             if hasattr(self, "quality_meter_widget"):
+                self.quality_meter_widget.set_measurement_state(
+                    "Final gemessen",
+                    "Nach Export und Qualitätsprüfung berechneter MOS-Wert.",
+                )
                 self.quality_meter_widget.set_mos(_current)
             if _step_ref[0] >= _STEPS:
                 _t.stop()
                 self._last_mos_displayed = target_mos
                 if hasattr(self, "quality_meter_widget"):
+                    self.quality_meter_widget.set_measurement_state(
+                        "Final gemessen",
+                        "Nach Export und Qualitätsprüfung berechneter MOS-Wert.",
+                    )
                     self.quality_meter_widget.set_mos(target_mos)
 
         _t.timeout.connect(_tick)

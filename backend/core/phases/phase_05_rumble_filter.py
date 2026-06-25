@@ -357,7 +357,7 @@ class RumbleFilterPhase(PhaseInterface):
         _vocal_detected_05 = bool(kwargs.get("vocal_detected", False)) or (_vocal_conf_05 >= 0.35)
         _vocal_guard_05 = False
         if _vocal_detected_05:
-            params["transient_preserve"] = float(max(params.get("transient_preserve", 0.7), 0.85))
+            params["transient_preserve"] = float(max(float(params.get("transient_preserve", 0.7)), 0.85))
             _old_cutoff_05 = int(adapted_cutoff)
             adapted_cutoff = int(min(adapted_cutoff, 24))
             _vocal_guard_05 = adapted_cutoff != _old_cutoff_05
@@ -420,6 +420,9 @@ class RumbleFilterPhase(PhaseInterface):
                     gate_dbfs=-50.0,
                     crossfade_ms=10.0,
                     sr=self.sample_rate,
+                    reference=np.asarray(
+                        audio, dtype=np.float32
+                    ),  # §V04: Gate auf Pre-Phase-Input, nicht auf gefiltertes Signal
                 )
                 filtered = np.nan_to_num(filtered, nan=0.0, posinf=0.0, neginf=0.0)
                 filtered = np.clip(filtered, -1.0, 1.0)
@@ -496,17 +499,33 @@ class RumbleFilterPhase(PhaseInterface):
         gate_dbfs: float = -50.0,
         crossfade_ms: float = 10.0,
         sr: int = 48000,
+        reference: np.ndarray | None = None,
     ) -> np.ndarray:
-        """§2.45a-II: Apply makeup gain only to musical frames, leaving silence untouched."""
+        """\u00a72.45a-II: Apply makeup gain only to musical frames, leaving silence untouched.
+
+        Args:
+            audio:     Das Signal, auf das der Gain angewendet wird (Post-HPF).
+            gain:      Makeup-Gain-Faktor.
+            gate_dbfs: Schwellwert in dBFS für Musical-Frame-Erkennung.
+            crossfade_ms: Übergangszeit für sanfte Gate-Übergänge.
+            sr:        Sample-Rate.
+            reference: \u00a7V04 Pre-Phase-Input für Gate-Berechnung (kein HPF-Einfluss).
+                       Falls None, wird 'audio' selbst als Referenz genutzt.
+        """
         if gain <= 1.0005:
             return audio
         _arr = np.asarray(audio, dtype=np.float32)
         _was_2d = _arr.ndim == 2
-        if _was_2d:
-            # (N, 2) → envelope from mean of channels
-            _mono_env = np.sqrt(np.mean(_arr**2, axis=1) + 1e-12)
+        # §V04: Gate-Berechnung auf Pre-Phase-Input (reference), nicht auf HPF-gefiltertes Signal.
+        # Nach dem Hochpass fehlt Sub-Bass-Energie — Gate würde sonst auf Shellac/Akustik-Material
+        # Stille-Frames als 'musikalisch' klassifizieren und Makeup-Gain irrtümlich anwenden.
+        _ref_arr = np.asarray(reference, dtype=np.float32) if reference is not None else _arr
+        if _ref_arr.shape[0] != _arr.shape[0]:
+            _ref_arr = _arr  # Längen-Schutz: Fallback auf audio wenn Reference-Länge abweicht
+        if _ref_arr.ndim == 2:
+            _mono_env = np.sqrt(np.mean(_ref_arr**2, axis=1) + 1e-12)
         else:
-            _mono_env = np.abs(_arr)
+            _mono_env = np.abs(_ref_arr)
         _frame_len = 2048
         _n_samples = len(_mono_env)
         _n_full_frames = max(1, _n_samples // _frame_len)

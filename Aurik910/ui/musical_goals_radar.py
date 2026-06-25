@@ -13,6 +13,8 @@ import copy
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
+from Aurik910.i18n import t
+
 if TYPE_CHECKING:
     # isort: skip
     # Type-only imports for static analysis
@@ -213,7 +215,7 @@ class MusicalGoalsRadarWidget(QWidget):
         painter.drawText(
             QRectF(10, h / 2 - 14, w - 20, 22),
             Qt.AlignmentFlag.AlignCenter,
-            "Noch nicht gemessen",
+            t("ui.not_measured"),
         )
 
         # Subtext
@@ -223,7 +225,7 @@ class MusicalGoalsRadarWidget(QWidget):
         painter.drawText(
             QRectF(10, h / 2 + 10, w - 20, 36),
             Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignTop,
-            "Nach der Restaurierung werden hier\nalle 15 Klangziele bewertet.",
+            t("ui.not_measured_sub"),
         )
 
         # Goal-Namen als gedimmte Vorschau

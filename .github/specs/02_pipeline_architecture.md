@@ -3172,14 +3172,20 @@ ins Frontend propagiert werden.
 - Fehler sind non-blocking: fehlende Experience-Telemetrie blockiert keinen Export,
     wird aber als Degrade-Hinweis protokolliert.
 
-## §2.53a [RELEASE_MUST] Exzellenz-API-Kompatibilitätsvertrag (v9.11.1)
+## §2.53a [RELEASE_MUST] Exzellenz-API-Kompatibilitätsvertrag (v9.11.1 / v9.15.1)
 
 ### Vertrag
 
 `AurikDenker` MUSS beide Exzellenz-Schnittstellen unterstützen:
 
-1. Primär: `ExzellenzDenker.messe_und_repariere(audio, sr, ...) -> (audio, goals)`
-2. Legacy-Fallback: `ExzellenzDenker.messe_ziele(audio, sr, ...)`
+1. Primär: `ExzellenzDenker.messe_und_repariere(audio, sr, reference_audio=..., inapplicable_goals=..., mode=..., material=...) -> (audio, goals)`
+2. Legacy-Fallback: `ExzellenzDenker.messe_ziele(audio, sr, reference=None)`
+
+### Signatur-Erweiterungen (v9.15.1)
+
+**`reference_audio`** (S6): Originales (prä-Restaurierung) Audio als `np.ndarray | None`. Wird an alle internen `messe_ziele()`-Aufrufe weitergegeben. Ohne `reference_audio` verwendet `TonalCenterMetric` intra-song Chroma-Stabilität (Score 0.50–0.60 für Verse/Chorus-Songs) statt ref-vs-restored Chroma-Korrelation (~0.92+). Bestätigt: tonal_center=0.5501 ohne reference, ~0.95 mit reference (V50). In AurikDenker: `reference_audio=audio` (das `audio`-Argument von `denke()`, vor Restaurierung, 48 kHz, float32).
+
+**`inapplicable_goals`** (S5): `frozenset[str]` mit physikalisch nicht erreichbaren Goal-Namen. Aus `RestorationResult.goal_applicability` des UV3-Runs extrahiert: `frozenset(g for g, ok in rest.goal_applicability.items() if not ok)`. `_count_passed()` und `goals_total` im ExzellenzDenker schließen diese Goals aus Zähler UND Nenner aus (V49). Nur übergeben wenn frozenset nicht leer.
 
 ### Invarianten
 
@@ -3187,6 +3193,27 @@ ins Frontend propagiert werden.
 - Bei Legacy-Fallback MUSS ein eindeutiger Stage-Note-Eintrag gesetzt werden:
     `Legacy-Goal-Messpfad`.
 - Fehlt die Primärmethode, darf die Pipeline nicht abbrechen, solange Legacy verfügbar ist.
+- `messe_ziele(audio, sr, reference=None)` ist die normative interne Mess-Funktion — immer mit `reference=reference_audio` aufrufen, wenn `reference_audio` vorhanden (V50).
+
+## §2.53c [RELEASE_MUST] GAF-Inapplicable-Propagationskette (v9.15.1, V51-Fix S7)
+
+```text
+GAF.evaluate_goal_applicability(audio, sr, material, era, ..., transfer_chain)
+    → RestorationResult.goal_applicability: dict[str, bool]   ← UV3
+    → RestaurierErgebnis.goal_applicability: dict[str, bool]   ← _konvertiere() propagiert (V51)
+    → AurikDenker._goal_app_raw: dict[str, bool]  ← initialisiert als {} VOR try-Block (V51)
+    → AurikDenker._rest_inapplicable_goals = frozenset(g for g, ok in ... if not ok)
+    → ExzellenzDenker.messe_und_repariere(..., inapplicable_goals=_rest_inapplicable_goals)
+    → _count_passed(): schließt _inappl aus (Zähler + Nenner)
+    → goals_passed recompute: sum(1 for k,v if k not in _inappl and v >= threshold)
+    → AurikErgebnis.goal_applicability: dict[str, bool]  ← für externe Caller (V51)
+```
+
+**V51-Invariante**: `RestaurierErgebnis` MUSS `goal_applicability: dict[str, bool]` als Dataclass-Feld haben (default `{}`). `_konvertiere()` MUSS `goal_applicability=dict(getattr(raw, "goal_applicability", None) or {})` setzen. `_goal_app_raw` MUSS vor dem try-Block als `{}` initialisiert werden — fehlt diese Initialisierung, wirft Python bei Exception im try-Block `UnboundLocalError` und blockiert die gesamte Pipeline. `AurikErgebnis` MUSS ebenfalls `goal_applicability`-Feld haben.
+
+**V52-Invariante**: `separation_fidelity` folgt der `spatial_depth`-Near-Mono-Codec-Regel (gleiche `_CODEC_JOINT_STEREO_MATS`, gleicher corr-Schwellwert ≥ 0.83). Fehlt die Parallelregel, bleibt `separation_fidelity` bei Joint-Stereo-Codec fälschlich applicable → false Violation.
+
+**Propagations-Vollständigkeitsinvariante**: Die Kette ist vollständig oder nicht vorhanden. Teilpropagation (GAF feuert, ExzellenzDenker ignoriert) erzeugt systematisch falsche Violation-Counts und Over-Processing. Leer-frozenset → kein Overhead.
 
 ## §2.53b [RELEASE_MUST] Denker-Plan-Determinismus in UV3 (v9.11.2)
 

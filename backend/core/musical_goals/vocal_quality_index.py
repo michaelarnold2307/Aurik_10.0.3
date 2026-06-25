@@ -98,6 +98,26 @@ _VQI_GENRE_WEIGHTS: dict[str, tuple[float, float, float, float, float]] = {
     "gospel": (0.30, 0.20, 0.20, 0.25, 0.05),
     "r_b": (0.30, 0.20, 0.20, 0.25, 0.05),
     "schlager": (0.30, 0.25, 0.20, 0.15, 0.10),
+    # Deutsche/europäische Genre-Varianten (Aurik-Kernmaterial)
+    "german_schlager": (0.30, 0.25, 0.20, 0.15, 0.10),
+    "german_pop": (0.28, 0.22, 0.22, 0.15, 0.13),
+    "neue_deutsche_welle": (0.30, 0.22, 0.25, 0.13, 0.10),
+    "ndw": (0.30, 0.22, 0.25, 0.13, 0.10),
+    "chanson": (0.35, 0.22, 0.20, 0.18, 0.05),
+    "volksmuziek": (0.30, 0.25, 0.20, 0.15, 0.10),
+    "volksmusik": (0.30, 0.25, 0.20, 0.15, 0.10),
+    "schlagerfolk": (0.30, 0.25, 0.20, 0.15, 0.10),
+    "evergeen": (0.32, 0.25, 0.18, 0.15, 0.10),  # Tippfehler-Variante
+    "evergreen": (0.32, 0.25, 0.18, 0.15, 0.10),
+    "deutschpop": (0.28, 0.22, 0.22, 0.15, 0.13),
+    "beatmusik": (0.28, 0.20, 0.22, 0.15, 0.15),
+    "krautrock": (0.25, 0.18, 0.25, 0.15, 0.17),
+    "operette": (0.27, 0.38, 0.15, 0.15, 0.05),
+    "operetta": (0.27, 0.38, 0.15, 0.15, 0.05),
+    "kabarett": (0.35, 0.20, 0.25, 0.12, 0.08),
+    "chansonniere": (0.35, 0.22, 0.20, 0.18, 0.05),
+    "bossa_nova": (0.35, 0.20, 0.18, 0.20, 0.07),
+    "tango": (0.35, 0.22, 0.18, 0.18, 0.07),
 }
 # fmt: on
 
@@ -110,7 +130,27 @@ def _get_vqi_weights(genre: str | None) -> tuple[float, float, float, float, flo
     """
     if not genre:
         return (_W_SINGER_ID, _W_FORMANT, _W_ARTICULATION, _W_PROXIMITY, _W_SIBILANCE)
-    key = str(genre).strip().lower().replace(" ", "_").replace("-", "_").replace("&", "")
+    # Normalisierung: Leerzeichen, Bindestriche, Sonderzeichen, Umlaute (DE/FR)
+    key = (
+        str(genre)
+        .strip()
+        .lower()
+        .replace(" ", "_")
+        .replace("-", "_")
+        .replace("&", "")
+        .replace("ä", "ae")
+        .replace("ö", "oe")
+        .replace("ü", "ue")
+        .replace("ß", "ss")
+        .replace("é", "e")
+        .replace("è", "e")
+        .replace("ê", "e")
+        .replace("à", "a")
+        .replace("â", "a")
+        .replace("ç", "c")
+        .replace("ñ", "n")
+        .replace("ô", "o")
+    )
     return _VQI_GENRE_WEIGHTS.get(key, (_W_SINGER_ID, _W_FORMANT, _W_ARTICULATION, _W_PROXIMITY, _W_SIBILANCE))
 
 
@@ -174,9 +214,11 @@ def _compute_singer_identity_dsp(
         vec_pre = mfcc_pre[:, :min_frames].mean(axis=1)
         vec_post = mfcc_post[:, :min_frames].mean(axis=1)
         cosine = _safe_cosine(vec_pre, vec_post)
-        # MFCC cosine typically [0.85, 1.0] for the same voice.
-        # Normalise to [0, 1] using 0.70 as baseline reference.
-        return float(np.clip((cosine - 0.70) / 0.30, 0.0, 1.0))
+        # MFCC cosine typically [0.93–0.97] für dieselbe Stimme nach NR-Verarbeitung.
+        # §R3 Kalibrierung: raw 0.93 → 0.920 (besteht 0.92-Rollback-Schwelle), raw 0.80 → 0.829.
+        # Formel: (8×cosine − 1) / 7 — raw 0.70 → 0.60 (Rollback); raw 0.96 → 0.954.
+        # Altes Formel (cosine − 0.70) / 0.30: raw 0.93 → 0.767 — falscher Rollback bei unveränderter Stimme.
+        return float(np.clip((cosine * 8.0 - 1.0) / 7.0, 0.0, 1.0))
     except Exception as exc:
         logger.debug("singer_identity_dsp failed: %s", exc)
         return 0.80  # conservatively neutral

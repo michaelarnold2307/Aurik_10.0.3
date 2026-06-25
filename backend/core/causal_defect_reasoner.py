@@ -139,6 +139,10 @@ CAUSES = [
     # Vokal-Naturalness-Degradierung: VQI-Abfall durch kumulative NR/Kompressor-Eingriffe →
     # DSP-Korrektiv (HNR-Blend + Spektral-Tilt + Formant-Tilt) via phase_65 (§0a-konform).
     "vocal_quality_degradation",
+    # ── v9.15.1: Stem-Targeted NR (phase_66) ────────────────────────────────
+    # Kombination aus Vokal-Rauschen + Begleitungs-Rauschen, die wideband-NR nicht
+    # sauber voneinander trennen kann → stem-spezifische NR via BSRoFormer-Separation.
+    "vocal_stem_noise",  # Vokal-Stem + Begleitung haben unterschiedliche Rauschprofile
 ]
 
 # Material-Typen — Priors für alle 34 Kausal-Ursachen (v9.10.77b)
@@ -1278,6 +1282,27 @@ for _mat, _prior in _VOCAL_QUALITY_DEGRADATION_MATERIAL_PRIORS.items():
 for _priors in MATERIAL_PRIORS.values():
     _priors.setdefault("vocal_quality_degradation", 0.04)
 
+# v9.15.1: vocal_stem_noise — Vokal-Stem + Begleitung haben unterschiedliche Rauschprofile.
+# Häufig bei Kassette/Tape (Hiss dominant) und MP3 (codec NR ungleichmäßig).
+_VOCAL_STEM_NOISE_MATERIAL_PRIORS: dict[str, float] = {
+    "tape": 0.14,  # Tape-Hiss im Begleit-Stem häufig dominanter als im Vokal-Stem
+    "cassette": 0.16,  # Kassetten-Hiss + Dolby-Inkonsistenz: Stems divergieren stark
+    "reel_tape": 0.12,  # Professionelle Aufnahme: geringerer Hiss-Unterschied
+    "shellac": 0.10,  # Oberflächenrauschen — beide Stems betroffen
+    "wax_cylinder": 0.09,
+    "vinyl": 0.08,  # Knistern beide Stems; weniger Stem-Divergenz
+    "mp3_low": 0.11,  # Codec NR erzeugt unterschiedliche Residuen je Stem
+    "aac": 0.09,
+    "digital": 0.04,
+    "cd_digital": 0.03,
+    "unknown": 0.08,
+}
+for _mat, _prior in _VOCAL_STEM_NOISE_MATERIAL_PRIORS.items():
+    if _mat in MATERIAL_PRIORS:
+        MATERIAL_PRIORS[_mat].setdefault("vocal_stem_noise", _prior)
+for _priors in MATERIAL_PRIORS.values():
+    _priors.setdefault("vocal_stem_noise", 0.05)
+
 # Phase-Empfehlungen pro Ursache (kanonische phase_id = Dateiname ohne .py)
 CAUSE_TO_PHASES: dict[str, list[str]] = {
     # ── Magnetband ────────────────────────────────────────────────────────────
@@ -1492,6 +1517,7 @@ CAUSE_TO_PHASES: dict[str, list[str]] = {
         "phase_06_frequency_restoration",  # Primary: AudioSR bandwidth extension
         "phase_23_spectral_repair",  # Spectral envelope reconstruction
         "phase_04_eq_correction",  # HF shelf compensation
+        "phase_24_dropout_repair",  # Sekundär: Oxid-Degradierung → Dropout-Risiko (physikalisch koppliert)
     ],
     "stylus_damage": [
         "phase_09_crackle_removal",  # Primary: broadband distortion removal
@@ -1604,6 +1630,16 @@ CAUSE_TO_PHASES: dict[str, list[str]] = {
         "phase_65_vocal_naturalness_restoration",  # Primary: §0a DSP-Korrektiv (§7.10)
         "phase_03_denoise",  # Sekundär: Rausch-Basis absenken → VQI stabilisieren
         "phase_19_de_esser",  # Tertiär: Sibilanten-Harshness als VQI-Treiber dämpfen
+    ],
+    # ── v9.15.1: Stem-Targeted NR (phase_66) ─────────────────────────────────
+    # Wenn Vokal + Begleitung unterschiedliche Rauschprofile haben, die wideband-NR
+    # (phase_03/phase_29) nicht sauber entkoppeln kann. BSRoFormer-Separation erlaubt
+    # stem-spezifische NR-Parameter (energy_bias −6 dB Vokal, −9 dB Instrumental).
+    # §0a: Erlaubt in Restoration UND Studio 2026 (kein §0a-Ausschluss).
+    "vocal_stem_noise": [
+        "phase_66_stem_targeted_nr",  # Primary: BSRoFormer + stem-spezifische DFN-NR
+        "phase_03_denoise",  # Sekundär: wideband-NR als Ergänzung
+        "phase_65_vocal_naturalness_restoration",  # Tertiär: VQI-Korrektiv wenn nötig
     ],
 }
 
@@ -2995,6 +3031,24 @@ def _likelihood_vocal_quality_degradation(sf: SpectralFeatures, defect_scores: d
     return float(np.clip(p, 0.0, 1.0))
 
 
+def _likelihood_vocal_stem_noise(sf: SpectralFeatures, defect_scores: dict[str, float]) -> float:
+    """P(Merkmale | vocal_stem_noise) — Vokal-Stem und Begleitung haben unterschiedliche
+    Rauschprofile; BSRoFormer-Stem-Trennung + stem-spezifische NR sinnvoll. v9.15.1"""
+    p = 0.0
+    # Primär: HF-Rauschen vorhanden (Stem-Trennung bringt Gewinn)
+    hf_noise = float(defect_scores.get("high_freq_noise", 0.0))
+    p += _sigmoid_score(hf_noise, k=8, x0=0.20) * 0.40
+    # Sekundär: Tape-Hiss (häufigste Trägerform für vocal_stem_noise) — Alias: tape_hiss oder high_freq_noise
+    tape_hiss_sev = float(defect_scores.get("tape_hiss", hf_noise))
+    p += _sigmoid_score(tape_hiss_sev, k=7, x0=0.25) * 0.30
+    # Tertiär: breites Rauschen (high_freq_noise als Proxy) + hoher Crest-Factor deutet auf klare Stimme hin
+    p += _sigmoid_score(hf_noise, k=6, x0=0.15) * 0.20
+    # Quartär: kein Knistern (das würde andere Phasen bevorzugen)
+    crackle_sev = float(defect_scores.get("crackle", 0.0))
+    p += float(np.clip(1.0 - crackle_sev * 2.0, 0.0, 1.0)) * 0.10
+    return float(np.clip(p, 0.0, 1.0))
+
+
 LIKELIHOOD_FNS = {
     # ── Original 12 ──────────────────────────────────────────────────────────
     "tape_dropout": _likelihood_tape_dropout,
@@ -3068,6 +3122,8 @@ LIKELIHOOD_FNS = {
     "wire_recording_specific": _likelihood_wire_recording_specific,
     # ── v9.12.10: vocal_quality_degradation ──────────────────────────────────
     "vocal_quality_degradation": _likelihood_vocal_quality_degradation,
+    # ── v9.15.1: vocal_stem_noise ─────────────────────────────────────────────
+    "vocal_stem_noise": _likelihood_vocal_stem_noise,
 }
 
 

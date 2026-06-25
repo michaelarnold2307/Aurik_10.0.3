@@ -175,6 +175,14 @@ def _execute_wp1_case(
     if isinstance(_era_conf, (float, int)):
         out["era_confidence"] = f"{float(_era_conf):.6f}"
 
+    # §R5: era_decade + genre_label in CSV schreiben → worldclass_kpi_dashboard corpus_diversity.
+    _era_decade = _nested_get(metadata, "era", "decade")
+    if _era_decade is not None:
+        out["era"] = str(int(_era_decade))
+    _genre_label = _nested_get(metadata, "genre", "genre_label")
+    if _genre_label and str(_genre_label).strip().lower() not in ("unbekannt", "unknown", ""):
+        out["genre"] = str(_genre_label).strip()
+
     _genre_conf = _nested_get(metadata, "genre", "confidence")
     if isinstance(_genre_conf, (float, int)):
         out["genre_confidence"] = f"{float(_genre_conf):.6f}"

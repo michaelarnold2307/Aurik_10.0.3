@@ -173,6 +173,19 @@ _MATERIAL_FACTORS = {
         "crackle_impulse_kurtosis": 2.0,  # Wachswalze: sehr hoher Impuls-Rauschboden
         "crackle_peak_rms_db": 1.3,
     },
+    # v9.15.1: cassette fehlte in _MATERIAL_FACTORS — _normalize_material() gab fälschlicherweise
+    # "digital" zurück (kein substring-Match für "cassette" in den anderen Keys).
+    # Kassette (IEC 60094-1 Type I): SNR ~52 dB, Flutter 0.2 % WRMS, BW 50–12.5 kHz.
+    # Werte: zwischen tape (1.25×) und vinyl (1.5×) — mehr Hiss als Tape, weniger Crackle als Vinyl.
+    "cassette": {
+        "musical_noise_peak_db": 1.3,  # Kassettenrauschen etwas höher als Tape
+        "pre_echo_rel_attack_db": 0.875,  # analog (wie tape)
+        "spectral_hole_hz": 1.5,  # Dropout-Toleranz wie tape
+        "phase_cancellation_corr": 0.667,  # Kassetten-Stereo analog zu Tape
+        "metallic_ringing_peak_db": 1.333,  # wie tape
+        "crackle_impulse_kurtosis": 1.2,  # leichter Impuls-Rauschboden
+        "crackle_peak_rms_db": 1.0,
+    },
 }
 
 # Artifact type weights (§2.49)
@@ -215,6 +228,7 @@ _ROUGHNESS_MATERIAL_TOLERANCE: dict[str, float] = {
     "streaming": 1.0,
     "tape": 1.25,
     "reel_tape": 1.25,
+    "cassette": 1.25,  # v9.15.1: analog wie tape
     "vinyl": 1.5,
     "minidisc": 1.5,
     "shellac": 2.0,
@@ -1687,6 +1701,11 @@ class ArtifactFreedomGate:
     def _normalize_material(material_type: str) -> str:
         """Map MaterialType string to normalized key."""
         mt = str(material_type).lower().strip()
+        # Exact-prefix / substring check — spezifischere Begriffe zuerst prüfen.
+        # "cassette" enthält keinen der anderen Keys (tape/vinyl/shellac/wax),
+        # daher muss es vor dem generischen Schleifendurchlauf explizit abgefangen werden.
+        if "cassette" in mt:
+            return "cassette"
         for key in _MATERIAL_FACTORS:
             if key in mt:
                 return key

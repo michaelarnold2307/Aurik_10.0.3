@@ -18,6 +18,7 @@ Spec Reference:
 """
 
 import logging
+from typing import Any
 
 import numpy as np
 
@@ -261,10 +262,17 @@ class AestheticProxyCalculator:
         Returns:
             Tuple of (transparency_score, proxy_details)
         """
-        details = {}
+        details: dict[str, Any] = {}
 
-        # 1. Spectral Flatness (already normalized 0-1)
-        spectral_flatness = profile.spectral.spectral_flatness if profile.spectral.spectral_flatness else 0.5
+        # 1. Spectral Flatness — aus Audio berechnen (SpectralAnalysis hat kein spectral_flatness-Feld)
+        try:
+            import librosa as _lr_sf
+
+            _audio_mono_sf = audio.flatten().astype(np.float32) if audio.ndim > 1 else audio.astype(np.float32)
+            _sf_vals = _lr_sf.feature.spectral_flatness(y=_audio_mono_sf)
+            spectral_flatness = float(np.mean(_sf_vals))
+        except Exception:
+            spectral_flatness = 0.5
         details["spectral_flatness"] = float(spectral_flatness)
 
         # 2. Inter-Source Masking Index via Spectral Contrast (Moore & Glasberg 1983)
@@ -303,24 +311,30 @@ class AestheticProxyCalculator:
         return float(transparency), details
 
     @staticmethod
-    def calculate_naturalness_score(audio: np.ndarray, sr: int, profile: AnalysisProfile) -> tuple[float, dict]:
+    def calculate_naturalness_score(
+        audio: np.ndarray,
+        sr: int,
+        profile: AnalysisProfile,
+        original_audio: np.ndarray | None = None,
+    ) -> tuple[float, dict]:
         """
         Calculate Naturalness score (Spec 1.2: Natürlichkeit).
 
         Proxies:
-        - Foundation Model Deviation Score (placeholder)
+        - Foundation Model Deviation Score (MERT-Cosine-Similarity, Fallback: CLAP)
         - Artifact Likelihood Estimator
         - Harmonic Distortion Profile
 
         Args:
-            audio: Audio signal
+            audio: Audio signal (restauriertes Audio)
             sr: Sample rate
             profile: Analysis profile
+            original_audio: Original-Audio für MERT-Similarity (optional)
 
         Returns:
             Tuple of (naturalness_score, proxy_details)
         """
-        details = {}
+        details: dict[str, Any] = {}
 
         # 1. Artifact Likelihood (inverted - lower=more natural)
         artifact_severity_sum = sum(d.severity for d in profile.detected_defects)
@@ -383,9 +397,29 @@ class AestheticProxyCalculator:
         except Exception as exc:
             logger.debug("Naturalness CLAP foundation deviation fallback active: %s", exc)
 
+        # Foundation Model Deviation Score: MERT-Cosine-Similarity als Proxy
+        # Berechne Ähnlichkeit zwischen Original und Restauriert im MERT-Embedding-Raum.
+        # Verbessert foundation_deviation wenn Original verfügbar (Blending 50/50 mit CLAP).
+        if original_audio is not None:
+            try:
+                from backend.core.musical_goals.musical_goals_metrics import (
+                    _compute_mert_similarity,  # pylint: disable=import-outside-toplevel
+                )
+
+                _fmds = float(_compute_mert_similarity(original_audio, audio, sr))
+                foundation_model_deviation_score = max(0.0, 1.0 - _fmds)  # Abweichung, nicht Ähnlichkeit
+                # Blend: 50 % CLAP-Abweichung + 50 % MERT-Abweichung
+                foundation_deviation = 0.5 * foundation_deviation + 0.5 * foundation_model_deviation_score
+                details["foundation_mert_deviation"] = float(foundation_model_deviation_score)
+                details["foundation_model_source"] = (
+                    str(details.get("foundation_model_source", _foundation_source)) + "+mert"
+                )
+            except Exception:
+                foundation_model_deviation_score = 0.0  # Graceful fallback
         naturalness_from_foundation = 1.0 - foundation_deviation
         details["foundation_model_deviation"] = float(foundation_deviation)
-        details["foundation_model_source"] = _foundation_source
+        if "foundation_model_source" not in details:
+            details["foundation_model_source"] = _foundation_source
 
         # 3. Harmonic Distortion Profile (from harmonicity if available)
         if profile.feature_vectors.harmonicity is not None:
@@ -777,7 +811,9 @@ class CompositeAestheticScoreCalculator:
         # Calculate all 7 proxy scores
         brilliance, brilliance_details = self.proxy_calculator.calculate_brilliance_score(audio, sr, profile)
         transparency, transparency_details = self.proxy_calculator.calculate_transparency_score(audio, sr, profile)
-        naturalness, naturalness_details = self.proxy_calculator.calculate_naturalness_score(audio, sr, profile)
+        naturalness, naturalness_details = self.proxy_calculator.calculate_naturalness_score(
+            audio, sr, profile, original_audio=original_audio
+        )
 
         if original_audio is not None:
             authenticity, authenticity_details = self.proxy_calculator.calculate_authenticity_score(
@@ -1013,11 +1049,7 @@ class AestheticJudgmentModel:
             cas_improvement=cas_improvement,
             aesthetic_scores_before=scores_before,
             aesthetic_scores_after=scores_after,
-            pesq_score=None,
-            visqol_score=None,
-            nisqa_score=None,
             dnsmos_score=None,
-            si_sdr_db=None,
             cdpam_score=None,
             constraints_satisfied=constraints_satisfied,
             constraint_checks=constraint_results,

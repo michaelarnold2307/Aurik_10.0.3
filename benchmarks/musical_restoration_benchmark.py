@@ -246,6 +246,15 @@ def _amrb_06_vocal(audio: np.ndarray, sr: int) -> np.ndarray:
 
     The drift is implemented as a sinusoidal pitch modulation (more realistic
     than linear drift) and keeps the resampled audio within the original length.
+
+    # NOTE (AMRB-06-VOCAL)
+    # Degradierung: Sinusoidale WOW ±1.5 % @ 0.5 Hz (typische Bandteller-Gleichlaufschwankung).
+    # Erwartete MUSHRA-Mindestpunkte nach Restaurierung: ≥ 80 (Aurik-Ziel: ≥ 84).
+    # Zuständige Aurik-Phasen (primär): phase_12_wow_flutter_fix + phase_25_pitch_stabilization.
+    # CausalDefectReasoner muss erkennen: WOW_FLUTTER + PITCH_INSTABILITY (aus DefectScanner).
+    # IEC 60094-3 Referenz: professionelle Bandmaschine ≤ 0.05 % WRMS → ±1.5 % ist extremes WOW.
+    # phase_12 DETECTION_THRESHOLD[TAPE] = 0.3 % (< 1.5 % → sensitiv genug) ✓
+    # phase_12 CORRECTION_STRENGTH[TAPE] = 0.80 (≥ 0.75 ✓)
     """
     rms = float(np.sqrt(np.mean(audio**2) + 1e-12))
     noise = np.random.randn(*audio.shape).astype(np.float32) * (rms * 0.12)

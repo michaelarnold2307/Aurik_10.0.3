@@ -347,6 +347,45 @@ class VocalNaturalnessRestorationPhase(PhaseInterface):
         effective_strength = float(_strength_ctx["effective_strength"])
         _p65_meta["effective_strength"] = round(effective_strength, 4)
 
+        # §M-2 §0p VFA-Schutzzonen: Vibrato-Passagen (4–7 Hz F0) auf max. 0.20 begrenzen.
+        # phase_65 greift via HNR-Blend und Spektral-Tilt aktiv ins Vokal-Signal ein —
+        # ohne Vibrato-Cap würde das die F0-Modulationstiefe reduzieren (§2.72).
+        _p65_vibrato_zones = kwargs.get("vibrato_zones") or []
+        _p65_passaggio_zones = kwargs.get("passaggio_zones") or []
+        if _p65_vibrato_zones or _p65_passaggio_zones:
+            # Prüfe ob die Signalmitte in einer Schutzzone liegt
+            _n65 = audio.shape[0]
+            _center_s = float(_n65 // 2) / float(max(sample_rate, 1))
+            _p65_vib_cap = 1.0
+            for _vz in _p65_vibrato_zones:
+                try:
+                    _vzs = float(getattr(_vz, "start_sample", 0)) / float(max(sample_rate, 1))
+                    _vze = float(getattr(_vz, "end_sample", 0)) / float(max(sample_rate, 1))
+                    if _vzs <= _center_s <= _vze:
+                        _p65_vib_cap = min(_p65_vib_cap, 0.20)
+                        break
+                except Exception:
+                    pass
+            for _pz in _p65_passaggio_zones:
+                try:
+                    _pzs = float(getattr(_pz, "start_sample", getattr(_pz, "start_s", 0)) or 0)
+                    _pze = float(getattr(_pz, "end_sample", getattr(_pz, "end_s", 0)) or 0)
+                    if _pzs > 1.0:  # Samples → Sekunden
+                        _pzs /= float(max(sample_rate, 1))
+                        _pze /= float(max(sample_rate, 1))
+                    if _pzs <= _center_s <= _pze:
+                        _p65_vib_cap = min(_p65_vib_cap, 0.35)
+                        break
+                except Exception:
+                    pass
+            if _p65_vib_cap < effective_strength:
+                effective_strength = _p65_vib_cap
+                _p65_meta["vibrato_zone_cap_applied"] = True
+                _p65_meta["effective_strength"] = round(effective_strength, 4)
+                logger.debug(
+                    "Phase65 §M-2 VFA-Cap: effective_strength → %.2f (Vibrato/Passaggio-Schutz)", effective_strength
+                )
+
         # ---- Stufe 1: Spektral-Tilt-Korrektur ----
         if abs(tilt_delta) > _TILT_DELTA_THRESHOLD:
             try:

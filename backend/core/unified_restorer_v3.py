@@ -6034,6 +6034,7 @@ class UnifiedRestorerV3:
         "phase_63_intermodulation_reduction": "distortion_repair",
         "phase_64_tape_splice_repair": "reconstruction_inpainting",
         "phase_65_vocal_naturalness_restoration": "vocal_enhancement",
+        "phase_66_stem_targeted_nr": "noise_reduction",  # v9.15.1: Stem-Targeted NR
     }
 
     # §2.56b Kontrollierter Rollout: Pilot nur auf stabilen, gut abgesicherten
@@ -8843,6 +8844,98 @@ class UnifiedRestorerV3:
                 if isinstance(getattr(self, "_restoration_context", None), dict):
                     self._restoration_context["material_defect_consistency_flag"] = True
                     self._restoration_context["material_defect_consistency_warning_count"] = int(len(_mdc_warnings))
+
+                # §2.47a [RELEASE_MUST] Autonome Material-Neuzuordnung (v9.15.1)
+                # "Was klingt wie eine Kassette, wird wie eine Kassette behandelt."
+                # Wenn MDC erkennt, dass digitales Format starke Analog-Defekte hat,
+                # inferiert Aurik autonom den physikalischen Träger aus dem Defekt-
+                # Fingerprint und korrigiert material_type + transfer_chain.
+                # Das eliminiert den "mp3_low mit Kassetten-Defekten → falsche Phasen"
+                # Fehler ohne manuellen Eingriff.
+                if _mat_val in _DIGITAL_MATERIALS:
+                    try:
+                        # Defekt-spezifische Analog-Vorfahren-Tabelle:
+                        # (defect_key, inferred_material, confidence)
+                        # Spezifischere Defekte (höhere Konfidenz) zuerst.
+                        _DEFECT_ANCESTOR_PRIORITY: list[tuple[str, str, float]] = [
+                            ("tape_head_level_dip", "cassette", 1.0),  # nur Magnetband
+                            ("print_through", "cassette", 0.9),  # magnetisches Durchkopieren
+                            ("flutter", "cassette", 0.85),  # HF-Gleichlauf = Kassette
+                            ("multiband_wow_flutter", "cassette", 0.80),
+                            ("riaa_curve_error", "vinyl", 1.0),  # RIAA = vinyl-exklusiv
+                            ("groove_echo", "vinyl", 1.0),  # Rillengeometrie = vinyl
+                            ("inner_groove_distortion", "vinyl", 0.95),
+                            ("low_freq_rumble", "vinyl", 0.80),  # Plattenspieler-Brumm
+                            ("wow", "cassette", 0.60),  # Gleichlaufschwankung
+                            ("crackle", "vinyl", 0.50),  # Knistern = vinyl-typisch
+                            ("soft_saturation", "tape", 0.50),  # Bandsättigung
+                        ]
+                        _ancestor_scores: dict[str, float] = {}
+                        for _defect_key, _ancestor_mat, _conf in _DEFECT_ANCESTOR_PRIORITY:
+                            _sev = _defect_sev_map.get(_defect_key, 0.0)
+                            if _sev >= 0.15:  # Mindestschwelle: nur deutliche Defekte zählen
+                                _ancestor_scores[_ancestor_mat] = (
+                                    _ancestor_scores.get(_ancestor_mat, 0.0) + _sev * _conf
+                                )
+
+                        if _ancestor_scores:
+                            _best_ancestor = max(_ancestor_scores, key=lambda k: _ancestor_scores[k])
+                            _best_score = _ancestor_scores[_best_ancestor]
+
+                            if _best_score >= 0.20:
+                                # MaterialType-Instanz für den inferierten Träger
+                                _ancestor_mat_type: object = None
+                                try:
+                                    _ancestor_mat_type = MaterialType(_best_ancestor)
+                                except (ValueError, KeyError):
+                                    _ancestor_mat_type = None
+
+                                if _ancestor_mat_type is not None:
+                                    _old_mat_str = _mat_val
+                                    material_type = _ancestor_mat_type  # type: ignore[assignment]
+                                    defect_result.material_type = _ancestor_mat_type  # type: ignore[assignment]
+
+                                    # transfer_chain: analog ancestor voranstellen
+                                    _ctx_chain: list[str] = (
+                                        list((self._restoration_context or {}).get("transfer_chain", []) or [])
+                                        if isinstance(getattr(self, "_restoration_context", None), dict)
+                                        else []
+                                    )
+                                    if _best_ancestor not in _ctx_chain:
+                                        _ctx_chain = [_best_ancestor, *_ctx_chain]
+                                    if isinstance(getattr(self, "_restoration_context", None), dict):
+                                        self._restoration_context["transfer_chain"] = _ctx_chain
+
+                                    # _active_chain_info nachführen (alle späteren Chain-Reads)
+                                    if self._active_chain_info is None:
+                                        self._active_chain_info = {"chain": list(_ctx_chain)}
+                                    elif isinstance(self._active_chain_info, dict):
+                                        self._active_chain_info["chain"] = list(_ctx_chain)  # type: ignore[index]
+
+                                    logger.warning(
+                                        "§2.47a Autonome Neuzuordnung: '%s' → '%s' "
+                                        "(ancestor_score=%.2f, chain=%s) — "
+                                        "Analog-Phasen werden aktiviert",
+                                        _old_mat_str,
+                                        _best_ancestor,
+                                        _best_score,
+                                        " → ".join(_ctx_chain),
+                                    )
+                                    if isinstance(getattr(self, "_restoration_context", None), dict):
+                                        self._restoration_context["mdc_reclassified_from"] = _old_mat_str
+                                        self._restoration_context["mdc_reclassified_to"] = _best_ancestor
+                                        self._restoration_context["mdc_reclassification_score"] = float(_best_score)
+                                        # primary_material aktualisieren damit alle nachgelagerten
+                                        # Phase-Skip-Guards und Budget-Logik das korrekte Material sehen
+                                        self._restoration_context["primary_material"] = _best_ancestor
+                        else:
+                            logger.debug(
+                                "§2.47a Keine spezifischen Analog-Defekte für Ancestor-Inferenz "
+                                "(analog_sev=%.2f, alle Defekte unter Mindestschwelle 0.15)",
+                                _analog_sev,
+                            )
+                    except Exception as _reclass_exc:
+                        logger.debug("§2.47a Autonome Neuzuordnung fehlgeschlagen (non-blocking): %s", _reclass_exc)
             else:
                 logger.debug("§2.47 Material-Defect Consistency: OK (material=%s)", _mat_val)
                 if isinstance(getattr(self, "_restoration_context", None), dict):
@@ -9081,6 +9174,10 @@ class UnifiedRestorerV3:
                 mode=str(getattr(getattr(self.config, "mode", None), "value", "restoration")).lower(),
                 # §0p P0-Goals: panns_singing >= 0.35 → vocal_quality + formant_fidelity applicable
                 panns_singing=float(getattr(self, "_panns_singing", 0.0)),
+                # §S4: Transfer-Chain für Near-Mono-Codec-Ausschluss von spatial_depth
+                transfer_chain=list(self._restoration_context.get("transfer_chain", []) or [])
+                if isinstance(getattr(self, "_restoration_context", None), dict)
+                else None,
             )
             _applicable_goals = set(_goal_applicability.applicable)
             _goal_applicability_result = _goal_applicability
@@ -12672,7 +12769,10 @@ class UnifiedRestorerV3:
             # stricter ceilings than the primary source material (e.g. vinyl→cassette→mp3_low:
             # primary=vinyl but codec destroys HF → brillanz ceiling from mp3_low applies).
             # Only HF-sensitive goals are chain-end-adjusted; P1/P2 goals remain primary-based.
-            _chain_end_hf_goals = {"brillanz", "transparenz", "separation_fidelity"}
+            # §S4: spatial_depth hinzugefügt (MP3/AAC-Joint-Stereo → IACC-Limit).
+            # §S4: len >= 1 statt >= 2 — Single-Stage-Ketten (cassette→mp3_low in chain=['mp3_low'])
+            #      wurden bisher übersprungen; Primary-Material-Ceiling wurde separat angewendet.
+            _chain_end_hf_goals = {"brillanz", "transparenz", "separation_fidelity", "spatial_depth"}
             try:
                 _chain_info_obj = getattr(self, "_active_chain_info", None)
                 _chain_list: list[str] = []
@@ -12686,7 +12786,7 @@ class UnifiedRestorerV3:
                         )
                     if isinstance(_cl, (list, tuple)):
                         _chain_list = [str(s).lower() for s in _cl]
-                if len(_chain_list) >= 2:
+                if len(_chain_list) >= 1:
                     _chain_end = _chain_list[-1]
                     _chain_end_map = _estimate_chain_ceiling(_chain_list)
                     _n_chain_capped = 0
@@ -14838,6 +14938,8 @@ class UnifiedRestorerV3:
             if material_type
             else "digital"
         )
+        # §S4: Transfer-Chain für HPG Chain-End-Codec-Floor (R2-Variante für Analog+Codec-Ketten).
+        _hpi_transfer_chain: list[str] = list(self._restoration_context.get("transfer_chain", []) or [])
         _hpi_era_decade = getattr(_era_result, "decade", 1990)
         _hpi_era = (
             ("pre-1950" if _hpi_era_decade < 1950 else "pre-1980" if _hpi_era_decade < 1980 else "post-1980")
@@ -14915,6 +15017,7 @@ class UnifiedRestorerV3:
                     vqi=_vqi_for_hpi,
                     panns_singing=_panns_singing_for_hpi,
                     reference_audio=_hpi_reference_audio,
+                    transfer_chain=_hpi_transfer_chain or None,
                 )
             if not _hpi_result.passed:
                 _fail_reasons.append(
@@ -15089,8 +15192,10 @@ class UnifiedRestorerV3:
                             counterfactual_payload=_voice_counterfactual_payload,
                         )
                         _rm_mgr_save = _get_rm_save()
-                        _rm_mgr_save.save_result(
+                        _rm_mgr_save.save_result_with_audio(
                             key=(_rm_era_key, _rm_material_key, _rm_cluster_hash),
+                            audio=restored_audio,
+                            sr=sample_rate,
                             phase_params=_rm_phase_params,
                             hpi_achieved=float(_hpi_result.hpi),
                         )
@@ -15447,6 +15552,7 @@ class UnifiedRestorerV3:
                     vqi=_vqi_for_hpi_final,
                     panns_singing=_panns_singing_final,
                     reference_audio=_hpi_reference_audio,
+                    transfer_chain=_hpi_transfer_chain or None,
                 )
             _hpi_result = _hpi_result_final
             if not _hpi_result_final.passed:
@@ -16970,6 +17076,17 @@ class UnifiedRestorerV3:
                 "fail_reason": _primary_fail_reason,
                 "ml_guard_events": list(getattr(self, "_pipeline_ml_guard_events", [])),
                 "ml_fallbacks_used": list(getattr(self, "_ml_fallbacks_used", [])),  # §2.47 [RELEASE_MUST]
+                # §P2 Wärme-Band-Diagnose: welche Phase hat das Wärmeband gedämpft
+                "warmth_band_phase_losses": (self._phase_metadata_accumulator or {}).get(
+                    "warmth_band_phase_losses", {}
+                ),
+                "warmth_band_loss_cumulative_db": float(
+                    (getattr(self, "_restoration_context", None) or {}).get("warmth_band_loss_db", 0.0)
+                ),
+                # §P4 MIIPHER-Aktivierungsstatus (True = W2v-BERT-2.0 war aktiv, False = DFN-Fallback)
+                "miipher_tier0_applied": bool(
+                    (self._phase_metadata_accumulator or {}).get("miipher_tier0_applied", False)
+                ),
                 "fallback_teamwork_controller": (self._phase_metadata_accumulator or {}).get(
                     "fallback_teamwork_controller"
                 ),
@@ -17057,7 +17174,7 @@ class UnifiedRestorerV3:
                 "genre": (
                     {
                         "is_schlager": _schlager_result.is_schlager,
-                        "confidence": round(_schlager_result.confidence, 4),
+                        "confidence": round(_schlager_result.primary_genre_confidence, 4),
                         "genre_label": _schlager_result.genre_label,
                         "subgenre": _schlager_result.subgenre,
                         "bpm": round(_schlager_result.bpm, 1),
@@ -22792,6 +22909,29 @@ class UnifiedRestorerV3:
                 # Restoration: nur De-Esser für Sibilanz-Kontrolle, kein Presence/Formant-Enhancement
                 if not _operatic_vibrato:
                     selected.append("phase_19_de_esser")  # Sibilant-Kontrolle (§0a-konform)
+
+            # §7.11 Phase_66: Stem-Targeted NR (v9.15.1) — Vokal+Begleitung getrennte NR.
+            # Aktiviert wenn Rausch-Defekte vorhanden + klares Stimmaterial + geeignetes Material.
+            # §0a-konform in BEIDEN Modi (Restoration + Studio 2026).
+            # Gate: panns_singing ≥ 0.40 (via vocals_detected) + Rausch-Schwelle.
+            _stem_nr_noise_sev = max(
+                sev(DefectType.HIGH_FREQ_NOISE),
+                sev(DefectType.BACKGROUND_NOISE) if hasattr(DefectType, "BACKGROUND_NOISE") else 0.0,
+                sev(DefectType.TAPE_HISS) if hasattr(DefectType, "TAPE_HISS") else 0.0,
+            )
+            _stem_nr_panns = float(
+                self._restoration_context.get("panns_singing", 0.0)
+                or self._restoration_context.get("vfa_result", {}).get("panns_singing", 0.0)
+                if isinstance(self._restoration_context, dict)
+                else 0.0
+            )
+            # Fallback: vocals_detected implies panns_singing ≥ 0.25; use material-gate instead
+            _stem_nr_eligible = material not in {
+                MaterialType.SHELLAC,
+                MaterialType.WAX_CYLINDER,
+            } and (_stem_nr_noise_sev > 0.15 or sev(DefectType.VINYL_CRACKLE) > 0.20)
+            if _stem_nr_eligible:
+                selected.append("phase_66_stem_targeted_nr")  # §7.11 Stem-Targeted NR
         if guitar_detected:
             selected.append("phase_44_guitar_enhancement")
         if brass_detected:
@@ -26221,6 +26361,7 @@ class UnifiedRestorerV3:
                 "phase_18_noise_gate",
                 "phase_20_reverb_reduction",
                 "phase_29_tape_hiss_reduction",
+                "phase_43_ml_deesser",  # §H-1: De-Esser ist Vokal-Reduktionsphase — FM-Guard
                 "phase_50_spectral_repair",
                 "phase_59_modulation_noise_reduction",
             }
@@ -26721,6 +26862,7 @@ class UnifiedRestorerV3:
                 "phase_20_reverb_reduction",
                 "phase_29_tape_hiss_reduction",
                 "phase_42_vocal_enhancement",
+                "phase_43_ml_deesser",  # §H-1: selektive HF-Dämpfung kann F3/F4 verschieben
                 "phase_49_advanced_dereverb",
             }
         )
@@ -27287,25 +27429,62 @@ class UnifiedRestorerV3:
                 _rctx_wbg = getattr(self, "_restoration_context", None)
                 if isinstance(_rctx_wbg, dict):
                     _rctx_wbg["warmth_band_loss_db"] = float(_wbg_new_cum)
-                # Wenn kumulativer Verlust > 2.5 dB → Warmth-Blend anwenden
-                if _wbg_cum > 2.5 and _wbg_result.warmth_blend_factor < 1.0:
-                    _wbg_blend = _wbg_result.warmth_blend_factor
+                # Wenn per-Phase Verlust > 1.0 dB (§R1 Proaktive Wärme-Kompensation) ODER
+                # kumulativer Verlust > 2.5 dB → Warmth-Blend anwenden.
+                # §R1: Proaktive Kompensation verhindert Akkumulation von NR-induziertem
+                # Wärme-Verlust (200–800 Hz). 15% Original-Blend pro dB Verlust (max 50% Original).
+                # Nur in Restoration-Modus; Studio 2026 darf Wärmeband intentional ändern.
+                _r1_comp = (
+                    _wbg_result.loss_db > 1.0
+                    and not self.is_studio_mode()
+                    and _wbg_cum <= 2.5  # kumulativer Guard noch nicht aktiv
+                )
+                if _r1_comp or (_wbg_cum > 2.5 and _wbg_result.warmth_blend_factor < 1.0):
+                    if _r1_comp:
+                        # Per-Phase-Blend: 15% Original pro dB Verlust, max. 50% Original-Anteil
+                        _wbg_blend = float(np.clip(1.0 - _wbg_result.loss_db * 0.15, 0.50, 0.95))
+                    else:
+                        _wbg_blend = _wbg_result.warmth_blend_factor
                     result.audio = np.clip(
                         (_wbg_blend * result.audio + (1.0 - _wbg_blend) * audio).astype(np.float32),
                         -1.0,
                         1.0,
                     )
                     logger.info(
-                        "§V25 WBG: %s warmth_cum=%.2f dB > 2.5 dB → blend=%.2f",
+                        "§V25 WBG: %s warmth_loss=%.2f dB warmth_cum=%.2f dB → blend=%.2f (r1_comp=%s)",
                         _pid_guards,
+                        _wbg_result.loss_db,
                         _wbg_cum,
                         _wbg_blend,
+                        _r1_comp,
                     )
                 if hasattr(result, "metadata") and isinstance(result.metadata, dict):
                     result.metadata["warmth_band_loss_db"] = round(_wbg_result.loss_db, 3)
                     result.metadata["warmth_band_loss_cumulative_db"] = round(float(_wbg_new_cum), 3)
+                # §P2: Per-Phase Warmth-Verlust-Tracker für Diagnose (welche Phase dämpft Wärmeband).
+                if _wbg_result.loss_db > 0.5:
+                    _wbg_pma = getattr(self, "_phase_metadata_accumulator", None)
+                    if isinstance(_wbg_pma, dict):
+                        _wbg_losses = _wbg_pma.get("warmth_band_phase_losses") or {}
+                        _wbg_losses[_pid_guards] = round(_wbg_result.loss_db, 3)
+                        _wbg_pma["warmth_band_phase_losses"] = _wbg_losses
             except Exception as _v25_exc:
                 logger.debug("§V25 WBG non-blocking: %s", _v25_exc)
+
+            # §P4 MIIPHER-Aktivierungs-Telemetrie: Akkumuliert aus phase_03-Ergebnis-Metadaten.
+            # Sichtbar in Analyse-JSON als 'miipher_tier0_applied' für Diagnose ob SOTA-Modell aktiv war.
+            try:
+                if (
+                    _pid_guards == "phase_03_denoise"
+                    and hasattr(result, "metadata")
+                    and isinstance(result.metadata, dict)
+                ):
+                    _m03_miipher = bool(result.metadata.get("miipher_tier0_applied", False))
+                    _pma_m4 = getattr(self, "_phase_metadata_accumulator", None)
+                    if isinstance(_pma_m4, dict):
+                        _pma_m4["miipher_tier0_applied"] = _m03_miipher
+            except Exception as _p4_exc:
+                logger.debug("§P4 MIIPHER-Telemetrie non-blocking: %s", _p4_exc)
 
             # §V26 Onset-Protection-Guard (§ATI) — nach NR/EQ-Phasen.
             # Transient-Onset-Fenster (0–20 ms nach Onset) max. 1.5 dB Energiedelta.
@@ -30211,6 +30390,7 @@ class UnifiedRestorerV3:
                 "phase_29",
                 "phase_49",
                 "phase_55",
+                "phase_64",  # v9.15.1: Bandschaden-Reparatur = Carrier-Phase (§0d)
             )
 
             # §Spec04 RELEASE_MUST: Pipeline-Wall-Time-Budget — verhindert 25:1-Ratio-Hänger.
@@ -30227,8 +30407,10 @@ class UnifiedRestorerV3:
                 "tape": 2700.0,
                 # v9.12.9c: 2400 → 3000 — Kassette braucht unter Swap-Druck (96 %) bis
                 # 2739 s non-exempt; alte 2400 ließ phase_65/54/55/43/49 überspringen.
-                # Effective budget mit Overhead-Formel: min(3000, 600+225×10)=2850 s.
-                "cassette": 3000.0,
+                # v9.15.1: 3000 → 4200 — non-exempt elapsed bis 3103 s bei 225 s-Songs
+                # unter Swap-Druck gemessen; 3000 s Budget ließ phase_25/26/27 überspringen.
+                # phase_29 + phase_64 jetzt EXEMPT → kein non-exempt Budget mehr nötig für diese.
+                "cassette": 4200.0,
                 "lacquer_disc": 2700.0,
                 "minidisc": 1800.0,
                 "mp3_low": 1800.0,
@@ -30248,8 +30430,10 @@ class UnifiedRestorerV3:
             # observed wall-time exhaustion on vinyl 225s (phase_42 fallback chain ~25 min).
             # v9.12.9c: Overhead 450 → 600 — erlaubt 225s Song 2850s Budget (statt 2700s).
             # Motivation: Kassette 225s brauchte 2739s unter Swap-Druck; 2700s-Cap war zu eng.
-            # Vinyl-Base=2700 bleibt durch das min() begrenzt (min(2700,2850)=2700), kein Impact.
-            _PIPELINE_BUDGET_OVERHEAD_S = 600.0
+            # v9.15.1: 600 → 1200 — Kassette/Shellac/Tape brauchen mehr Anlaufzeit für frühe
+            # Träger-Phasen; 225s-Song erhält min(4200, 1200+2250)=3450s (vs. früher 2850s).
+            # Vinyl-Base=2700 bleibt begrenzt: min(2700, 1200+2250)=2700, kein Vinyl-Impact.
+            _PIPELINE_BUDGET_OVERHEAD_S = 1200.0
             _PIPELINE_BUDGET_PER_SEC = 10.0
             _pipeline_wall_budget = min(
                 _pipeline_wall_budget_base,
@@ -30286,6 +30470,11 @@ class UnifiedRestorerV3:
                     # §2.63 Safety-Net: TruePeak-Limiter ist finale Fangschicht gegen
                     # Pegelexplosionen — darf NIEMALS durch Wall-Time-Budget übersprungen werden.
                     "phase_47_truepeak_limiter",
+                    # v9.15.1 [RELEASE_MUST]: Kassette/Tape Carrier-Defekt-Phasen — analog zu
+                    # phase_09 (Vinyl/Shellac) dürfen diese NICHT durch Wall-Budget übersprungen werden.
+                    # Bandschäden (phase_64) und Tape-Hiss (phase_29) sind physikalische Träger-Defekte.
+                    "phase_29_tape_hiss_reduction",  # Tape-Hiss = Analog-Carrier-Defekt (wie phase_09 bei Vinyl)
+                    "phase_64_tape_splice_repair",  # Bandschäden = physikalischer Träger-Defekt
                 }
             )
             _wall_budget_transfer_chain = (
@@ -30912,6 +31101,7 @@ class UnifiedRestorerV3:
                                     "phase_18_noise_gate",
                                     "phase_20_reverb_reduction",
                                     "phase_29_tape_hiss_reduction",
+                                    "phase_43_ml_deesser",  # §H-1: §0p Vibrato-Schutz — GR ≤ 0.20 in Vibrato-Zonen
                                     "phase_49_advanced_dereverb",
                                 }
                             )
