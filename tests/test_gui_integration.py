@@ -196,10 +196,10 @@ def test_main_window_layout_gate_keeps_primary_controls_visible():
             app.processEvents()
             assert window.size().width() > 0
             assert window.size().height() > 0
-            assert window.btn_magic_restoration.isVisible()
-            assert window.btn_magic_studio.isVisible()
-            assert window.quality_meter_widget.isVisible()
-            assert window.btn_play_original.accessibleName() == "Original anhören"
+            assert window.btn_magic_restoration.isVisible()  # type: ignore[union-attr]
+            assert window.btn_magic_studio.isVisible()  # type: ignore[union-attr]
+            assert window.quality_meter_widget.isVisible()  # type: ignore[union-attr]
+            assert window.btn_play_original.accessibleName() == "Original anhören"  # type: ignore[union-attr]
             assert window._capture_runtime_snapshot().quality_state
     finally:
         window.close()

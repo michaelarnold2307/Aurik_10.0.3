@@ -4,6 +4,42 @@
 > Historische Qualitäts- und Marketingformulierungen bleiben zur Nachvollziehbarkeit erhalten
 > und sind nicht automatisch als aktueller, normativ bindender Außenclaim zu verstehen.
 
+## Version 9.18.0 — Guard-Vollständigkeit Wave 3 + V55 WLPC + CCR-Timbral-Floor (Stand: 26. Juni 2026)
+
+### Neue Funktionen / Systemische Verbesserungen
+
+#### V55 WLPC — era_decade < 1960 aktiviert noise-robuste LPC-Schätzung (§Lücke3, §4.5g)
+
+- **`lpc_formant_tracker.py`**: `lpc_formant_enhance(audio, sr, era_decade=None)` — neuer Parameter. `era_decade < 1960` ODER `SNR < 15 dB` → Wiener-Gain Spectral Pre-Whitening vor Burg-LPC. Functions `_snr_estimate_db()`, `_wlpc_prewhiten_frame()` implementiert. Gain-Floor 0.10 verhindert Über-Subtraktion.
+- **`phase_42_vocal_enhancement.py`**: `_get_lfc().enhance(audio, sr, era_decade=int(_era_decade) if _era_decade is not None else None)` — V55 verdrahtet.
+- **`phase_65_vocal_naturalness_restoration.py`**: war bereits verdrahtet (bestätigt).
+
+#### §2.46e HallucinationGuard + V19 Noise-Textur in phase_65 (P1/P3)
+
+- **`phase_65_vocal_naturalness_restoration.py`**: §2.46e `check_hallucination()` + V19 `compute_noise_texture_distance()` nach V26 Onset-Guard eingebaut. channels-last-kompatibel (`mean(axis=1)` für Stereo [N,2]).
+
+#### V24 Spektralfarbe-Guard: 4 weitere Phasen nachgerüstet (P4)
+
+- **phase_22** (`tape_saturation`): V24 nach `np.clip(mixed, -1.0, 1.0)` — Sättigungs-EQ darf Spektralfarbe nicht driften.
+- **phase_23** (`spectral_repair`): V24 nach §V22-Block — Reparatur darf Spektralfarbe nicht verändern.
+- **phase_24** (`dropout_repair`): V24 nach §2.46e-Block.
+- **phase_26** (`dynamic_range_expansion`): V24 nach §2.46e-Block.
+- Alle Guards non-blocking, Blend 0.70 bei `.ok=False`, WARNING-Log.
+
+#### V19 + V24 in phase_55 (Diffusion-Inpainting, P4)
+
+- **phase_55** (`diffusion_inpainting`): V19 `compute_noise_texture_distance()` + V24 `check_spectral_color_preservation()` nach §2.46f/§2.46e-Guard-Block.
+- Material-Key `_mat_key_p55`, Singing-Gate `_vocals_conf >= 0.35` für strengeren NTI-Schwellenwert 0.18.
+
+#### CCR-Timbral-Floor + MiniDisc HPG-Coverage (P2)
+
+- **`holistic_perceptual_gate.py`**: `"minidisc"` zu `_CODEC_MATS_HPG`, `_VQI_CODEC_MATS_HPG`, `_VQI_CHAIN_END_CODEC` hinzugefügt — V52 HPG-Codec-Coverage-Lücke geschlossen.
+- CCR-Timbral-Floor: Wenn `mert_sim ≥ 0.74` und kein MERT-Proxy: `timbral_floor = clip(mert_sim × 0.90, 0.65, 0.95)` — Carrier-Chain-Recovery wird nicht als Timbral-Regression gewertet.
+
+### Tests
+
+- `TestWLPCFormantEnhance` (7 Tests): `era_decade` None/1930/1959/1960/1975/1925/stereo — alle 7 grün.
+
 ## Version 9.17.0 — Guard-Vollständigkeit Wave 2: V19/V24 + §2.46e HallucinationGuard (26. Juni 2026)
 
 ### Neue Funktionen / Systemische Verbesserungen

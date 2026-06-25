@@ -304,7 +304,7 @@ class VocalEnhancement(PhaseInterface):
             description="Comprehensive vocal processing chain for clarity and polish",
         )
 
-    def process(  # pylint: disable=arguments-renamed  # type: ignore[override]
+    def process(  # type: ignore  # pylint: disable=arguments-renamed
         self, audio: np.ndarray, sample_rate: int, material: MaterialType = MaterialType.CD_DIGITAL, **kwargs
     ) -> PhaseResult:
         """
@@ -818,7 +818,11 @@ class VocalEnhancement(PhaseInterface):
                         # pylint: disable-next=import-outside-toplevel
                         from backend.core.dsp.lpc_formant_tracker import get_lpc_formant_tracker as _get_lfc
 
-                        _lfc_result = _get_lfc().enhance(audio, sample_rate)
+                        _lfc_result = _get_lfc().enhance(
+                            audio,
+                            sample_rate,
+                            era_decade=int(_era_decade) if _era_decade is not None else None,
+                        )
                         if _lfc_result is not None and np.isfinite(_lfc_result).all():
                             enhanced_audio = np.clip(_lfc_result, -1.0, 1.0).astype(np.float32)
                             logger.debug(
@@ -917,7 +921,7 @@ class VocalEnhancement(PhaseInterface):
                 check_hallucination as _check_hallucination_p42,
             )
 
-            _hg_result = _check_hallucination_p42(audio, enhanced_audio, sample_rate, mode=_p42_mode)
+            _hg_result = _check_hallucination_p42(audio, enhanced_audio, sr=sample_rate, mode=_p42_mode)
             if _hg_result.requires_rollback:
                 logger.warning(
                     "phase_42 §2.46e Hallucination-Guard: spectral_novelty=%.3f → Rollback (mode=%s, material=%s)",
@@ -973,7 +977,7 @@ class VocalEnhancement(PhaseInterface):
                     apply_hnr_blend as _hnr_blend_p42,  # pylint: disable=import-outside-toplevel
                 )
 
-                enhanced_audio = _hnr_blend_p42(audio, enhanced_audio, sample_rate)
+                enhanced_audio, _ = _hnr_blend_p42(audio, enhanced_audio, sample_rate)
             except Exception as _hnr_exc_p42:
                 logger.debug("§0p HNR-Blend phase_42 (non-blocking): %s", _hnr_exc_p42)
 
@@ -1392,7 +1396,7 @@ class VocalEnhancement(PhaseInterface):
                 try:
                     from plugins.mdx23c_plugin import get_loaded_mdx23c_plugin
                 except Exception:
-                    get_loaded_mdx23c_plugin = None
+                    get_loaded_mdx23c_plugin = None  # type: ignore[assignment]
 
                 mdx = get_loaded_mdx23c_plugin() if callable(get_loaded_mdx23c_plugin) else None
                 if mdx is None:

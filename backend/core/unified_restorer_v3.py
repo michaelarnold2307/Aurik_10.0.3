@@ -12899,7 +12899,7 @@ class UnifiedRestorerV3:
             # HF-reduziert ist (MP3 ≤128 kbps → ~12 kHz). Ohne Reference-Shift misst separation_fidelity
             # restored (BW-extended) gegen original codec → hoher HF-Residual → sdr_db < 3 dB → 0.667.
             # Fix: Threshold 0.01 → CCR=0.0116 überschreitet Threshold → _mg_ref auf best_carrier_checkpoint.
-            if _ccr_mat_val in {"mp3_low", "mp3_high", "aac", "streaming"}:
+            if _ccr_mat_val in {"mp3_low", "mp3_high", "aac", "streaming", "minidisc"}:
                 _ccr_threshold = 0.01
             # §0d groove-Timing-Fix (v9.13): phase_12 Wow/Flutter-Korrekturen verbessern Timing
             # (nicht spektrale Form) → CCR spektral niedrig (~0.01–0.03), aber Reference-Shift
@@ -15209,6 +15209,25 @@ class UnifiedRestorerV3:
                             _rm_era_key,
                             _rm_material_key,
                         )
+                        # §2.44 [RELEASE_MUST] HPG Reference-Memory: update nach erfolgreichem HPI.
+                        # Füllt das Reference-Memory für zukünftige Läufe desselben
+                        # genre×material×era-Clusters — verhindert dass _get_reference_vector()
+                        # immer None zurückgibt und stets auf den degradierten Input als
+                        # Referenz zurückfällt. Ohne diesen Aufruf war das gesamte 5-Stufen-
+                        # Fallback-System toter Code (update_reference_memory() nie verdrahtet).
+                        try:
+                            _hg.update_reference_memory(
+                                restored=restored_audio,
+                                sr=sample_rate,
+                                hpi=float(_hpi_result.hpi),
+                                artifact_freedom=_af_save,
+                                p1_p2_passed=bool(_hpi_result.passed),
+                                genre=_hpi_genre,
+                                material=_hpi_material,
+                                era_bin=_hpi_era,
+                            )
+                        except Exception as _ref_mem_exc:
+                            logger.debug("§2.44 ReferenceMemory.update non-blocking: %s", _ref_mem_exc)
                 except Exception as _rm_save_exc:
                     logger.debug("RestorationMemory.save_result non-blocking: %s", _rm_save_exc)
         except Exception as _hpi_exc:
@@ -15324,10 +15343,14 @@ class UnifiedRestorerV3:
                     _vqi_prior_active,
                 )
                 # §0p Singer-ID-Rollback (RELEASE_MUST §0p): cosine < 0.92 → Rollback auf letzten Checkpoint
+                # §DSP-Fallback-Guard: singer_id_dsp_fallback=True bedeutet kein Resemblyzer verfügbar —
+                # DSP-Proxy (ZCR/Spektral) ist zu unzuverlässig für einen binären Rollback-Trigger.
+                # Bei unzuverlässiger Messung kein Rollback, da VQI-Gate (§2.35c) ausreichend schützt.
                 _singer_id_val = float(_vqi_result.get("singer_identity_cosine", 0.85))
                 _singer_identity_for_gate = _singer_id_val
                 _is_ms_rb = bool((self._phase_metadata_accumulator or {}).get("multi_singer", False))
-                if not _is_ms_rb and _singer_id_val < 0.92:
+                _singer_id_dsp_fb = bool(_vqi_result.get("singer_id_dsp_fallback", True))
+                if not _is_ms_rb and _singer_id_val < 0.92 and not _singer_id_dsp_fb:
                     _sid_rb = getattr(self, "_hpi_best_rollback_audio", None)
                     if _sid_rb is None:
                         _sid_rb = getattr(self, "_best_carrier_checkpoint", None)
@@ -15445,7 +15468,7 @@ class UnifiedRestorerV3:
                         _p65_result = _get_p65().process(
                             np.asarray(restored_audio, dtype=np.float32),
                             sample_rate,
-                            material=_p65_mat,
+                            str(getattr(_p65_mat, "value", _p65_mat)),
                             **_p65_kwargs,
                         )
                         if _p65_result is not None and getattr(_p65_result, "success", False):
@@ -22929,7 +22952,7 @@ class UnifiedRestorerV3:
             _stem_nr_eligible = material not in {
                 MaterialType.SHELLAC,
                 MaterialType.WAX_CYLINDER,
-            } and (_stem_nr_noise_sev > 0.15 or sev(DefectType.VINYL_CRACKLE) > 0.20)
+            } and (_stem_nr_noise_sev > 0.15 or sev(DefectType.CRACKLE) > 0.20)
             if _stem_nr_eligible:
                 selected.append("phase_66_stem_targeted_nr")  # §7.11 Stem-Targeted NR
         if guitar_detected:

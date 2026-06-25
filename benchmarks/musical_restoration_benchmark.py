@@ -142,7 +142,7 @@ def _amrb_01_tape(audio: np.ndarray, sr: int) -> np.ndarray:
         start = np.random.randint(0, max(1, len(audio) - int(0.03 * sr)))
         end = min(len(audio), start + int(0.03 * sr))
         degraded[start:end] = 0.0
-    return np.clip(degraded, -1.0, 1.0)
+    return np.clip(degraded, -1.0, 1.0)  # type: ignore[no-any-return]
 
 
 def _amrb_02_vinyl(audio: np.ndarray, sr: int) -> np.ndarray:
@@ -172,7 +172,7 @@ def _amrb_03_shellac(audio: np.ndarray, sr: int) -> np.ndarray:
     noise = np.random.randn(*audio.shape).astype(np.float32) * (rms * 0.18)  # ≈ 15 dB SNR
     sos = butter(8, 8000 / (sr / 2), btype="low", output="sos")
     audio_lp = sosfilt(sos, audio.astype(np.float64)).astype(np.float32)
-    return np.clip(audio_lp + noise, -1.0, 1.0)
+    return np.clip(audio_lp + noise, -1.0, 1.0)  # type: ignore[no-any-return]
 
 
 def _amrb_04_digital(audio: np.ndarray, _sr: int) -> np.ndarray:
@@ -182,7 +182,7 @@ def _amrb_04_digital(audio: np.ndarray, _sr: int) -> np.ndarray:
     degraded = np.clip(degraded, -clip_threshold, clip_threshold)
     # 8-bit Quantisierung
     degraded = np.round(degraded * 128.0) / 128.0
-    return np.clip(degraded, -1.0, 1.0)
+    return np.clip(degraded, -1.0, 1.0)  # type: ignore[no-any-return]
 
 
 def _amrb_05_codec(audio: np.ndarray, sr: int) -> np.ndarray:
@@ -233,7 +233,7 @@ def _amrb_05_codec(audio: np.ndarray, sr: int) -> np.ndarray:
             noise_burst = rng.standard_normal(pe_end - pe_start).astype(np.float32)
             audio_lp[pe_start:pe_end] += noise_burst * frame_rms * pre_echo_gain
 
-    return np.clip(audio_lp, -1.0, 1.0)
+    return np.clip(audio_lp, -1.0, 1.0)  # type: ignore[no-any-return]
 
 
 def _amrb_06_vocal(audio: np.ndarray, sr: int) -> np.ndarray:
@@ -270,7 +270,7 @@ def _amrb_06_vocal(audio: np.ndarray, sr: int) -> np.ndarray:
     # Clamp to valid range and use nearest-sample lookup (no interpolation for speed)
     read_idx = np.clip(read_pos.astype(np.int32), 0, len(audio) - 1)
     degraded = audio[read_idx] + noise
-    return np.clip(degraded, -1.0, 1.0)
+    return np.clip(degraded, -1.0, 1.0)  # type: ignore[no-any-return]
 
 
 def _amrb_07_reverb(audio: np.ndarray, sr: int) -> np.ndarray:
@@ -282,14 +282,14 @@ def _amrb_07_reverb(audio: np.ndarray, sr: int) -> np.ndarray:
     ir /= np.max(np.abs(ir) + 1e-12)
     reverbed = np.convolve(audio.astype(np.float32), ir * 0.3)[: len(audio)]
     degraded = audio + reverbed
-    return np.clip(degraded / (np.max(np.abs(degraded)) + 1e-12), -1.0, 1.0)
+    return np.clip(degraded / (np.max(np.abs(degraded)) + 1e-12), -1.0, 1.0)  # type: ignore[no-any-return]
 
 
 def _amrb_08_hum(audio: np.ndarray, sr: int) -> np.ndarray:
     """AMRB-08: 50-Hz-Brumm + Obertöne (100 Hz, 150 Hz) bei −20 dBFS."""
     t = np.linspace(0, len(audio) / sr, len(audio), dtype=np.float32)
     hum = 0.1 * np.sin(2 * np.pi * 50 * t) + 0.05 * np.sin(2 * np.pi * 100 * t) + 0.025 * np.sin(2 * np.pi * 150 * t)
-    return np.clip(audio + hum, -1.0, 1.0)
+    return np.clip(audio + hum, -1.0, 1.0)  # type: ignore[no-any-return]
 
 
 def _amrb_09_dropout(audio: np.ndarray, sr: int) -> np.ndarray:
@@ -316,7 +316,65 @@ def _amrb_10_composite(audio: np.ndarray, sr: int) -> np.ndarray:
     t = np.linspace(0, len(audio) / sr, len(audio), dtype=np.float32)
     hum = 0.02 * np.sin(2 * np.pi * 50 * t)
     degraded += hum
-    return np.clip(degraded, -1.0, 1.0)
+    return np.clip(degraded, -1.0, 1.0)  # type: ignore[no-any-return]
+
+
+def _amrb_11_cassette(audio: np.ndarray, sr: int) -> np.ndarray:
+    """AMRB-11: Kassette Typ I (IEC 60094-1) — Dolby-B-Rauschen + BW ≤ 12 kHz + Flutter.
+
+    Drei-Schicht-Degradierung, repräsentativ für IEC 60094-1 Typ-I-Kassetten
+    (z.B. Standard-Ferric, heimische Aufnahmen 1975–2000):
+
+    Layer 1 — Bandbegrenzung (12 kHz LP, 6. Ordnung Butterworth):
+        IEC 60094-1 Typ I: maximale Frequenzantwort ≤ 12 kHz bei 4,75 cm/s.
+        Höhenverlust ist das primäre Restaurierungsziel für phase_06/07.
+
+    Layer 2 — Rauschen (SNR ≈ 45 dB, repräsentativ für Dolby-B-Restschleifrauschen):
+        Typ-I ohne Dolby: SNR ~ 40 dB (breit). Mit Dolby B: ~ 50–55 dB effektiv.
+        Simulation: SNR 45 dB entspricht typischer Heimkassettenaufnahme mit Dolby B.
+        Hochpassgefiltertes (HF-betontes) Rauschen: Kassettenhiss ist HF-konzentriert.
+
+    Layer 3 — Leichte Flutter/Wow (0,15 % WRMS @ 4,75 cm/s, IEC-Spec):
+        Sinusoidale Pitch-Modulation 2,0 Hz (Flutter-Grundfrequente Bandgerät).
+        Amplitude 0,0015 (= 0,15 %) WRMS — gerade unterhalb IEC-Grenzwert 0,2 %.
+        Restaurierungsziel: phase_12 Wow-Flutter-Fix + PSOLA.
+    """
+    rng = np.random.default_rng(17)  # deterministisch
+
+    # --- Layer 1: Bandbegrenzung 12 kHz ---
+    sos_bw = butter(6, 12_000 / (sr / 2), btype="low", output="sos")
+    degraded = sosfilt(sos_bw, audio.astype(np.float64)).astype(np.float32)
+
+    # --- Layer 2: HF-betontes Kassettenrauschen (SNR ≈ 45 dB) ---
+    rms_sig = float(np.sqrt(np.mean(degraded**2) + 1e-12))
+    # SNR 45 dB: noise_rms = sig_rms / 10^(45/20) ≈ sig_rms * 0.00562
+    noise_rms_target = rms_sig * 10.0 ** (-45.0 / 20.0)
+    raw_noise = rng.standard_normal(len(degraded)).astype(np.float32)
+    # HF-Betonung: Hochpass ab 4 kHz (Dolby-B restliches Schleifrauschen)
+    sos_hp_noise = butter(2, 4_000 / (sr / 2), btype="high", output="sos")
+    hf_noise = sosfilt(sos_hp_noise, raw_noise.astype(np.float64)).astype(np.float32)
+    noise_rms_actual = float(np.sqrt(np.mean(hf_noise**2) + 1e-12))
+    hf_noise = hf_noise * (noise_rms_target / (noise_rms_actual + 1e-12))
+    degraded = degraded + hf_noise
+
+    # --- Layer 3: Flutter (0,15 % WRMS, sinusoidal 2,0 Hz) ---
+    # Zeitintegrierte Pitch-Modulation: Δv/v = flutter_depth * sin(2π * f_w * t)
+    # → Δt(t) = flutter_depth / (2π * f_w) * sin(2π * f_w * t)  [Sekunden]
+    # Peak-Zeitversatz: 0,0015 / (2π * 2 Hz) ≈ 0,12 ms = 5,7 Samples @ 48 kHz
+    flutter_rate_hz = 2.0
+    flutter_depth = 0.0015  # 0,15 % WRMS (IEC 60094-1 Typ I Spec ≤ 0,2 %)
+    t = np.arange(len(degraded), dtype=np.float64) / sr
+    # Fraktionaler Sample-Shift (integrierte Geschwindigkeitsschwankung)
+    peak_shift_samples = flutter_depth / (2.0 * np.pi * flutter_rate_hz) * sr
+    sample_offset = peak_shift_samples * np.sin(2.0 * np.pi * flutter_rate_hz * t)
+    src_idx = np.arange(len(degraded), dtype=np.float64) + sample_offset
+    src_idx = np.clip(src_idx, 0, len(degraded) - 1)
+    idx_floor = np.floor(src_idx).astype(np.int64)
+    idx_frac = src_idx - idx_floor
+    idx_ceil = np.clip(idx_floor + 1, 0, len(degraded) - 1)
+    degraded = (degraded[idx_floor] * (1.0 - idx_frac) + degraded[idx_ceil] * idx_frac).astype(np.float32)
+
+    return np.clip(degraded, -1.0, 1.0)  # type: ignore[no-any-return]
 
 
 # Szenario-Registry
@@ -331,6 +389,7 @@ _SCENARIOS: dict[str, tuple[str, Callable]] = {
     "AMRB-08-HUM": ("50-Hz-Brumm + Obertöne", _amrb_08_hum),
     "AMRB-09-DROPOUT": ("Tape-Dropout 50–200 ms", _amrb_09_dropout),
     "AMRB-10-COMPOSITE": ("Kombinierte Degradierung", _amrb_10_composite),
+    "AMRB-11-CASSETTE": ("Kassette Typ I — BW≤12kHz + Hiss + Flutter", _amrb_11_cassette),
 }
 
 # §9.12.8: Szenario→Material-Typ für material-adaptive Metriken (BrillanzMetric,
@@ -346,6 +405,7 @@ _SCENARIO_MATERIAL_TYPE: dict[str, str] = {
     "AMRB-08-HUM": "tape",
     "AMRB-09-DROPOUT": "tape",
     "AMRB-10-COMPOSITE": "tape",
+    "AMRB-11-CASSETTE": "cassette",
 }
 
 
@@ -839,7 +899,7 @@ class MusicalRestorationBenchmark:
         if self._mushra is None:
             from backend.core.mushra_evaluator import get_mushra_evaluator  # pylint: disable=import-outside-toplevel
 
-            self._mushra = get_mushra_evaluator()
+            self._mushra = get_mushra_evaluator()  # type: ignore[assignment]
         return self._mushra
 
     def run_formal_session(self):
@@ -1037,7 +1097,7 @@ class MusicalRestorationBenchmark:
         peak = float(np.max(np.abs(signal)) + 1e-12)
         signal = signal / peak * 0.80
 
-        return np.clip(signal, -1.0, 1.0)
+        return np.clip(signal, -1.0, 1.0)  # type: ignore[no-any-return]
 
     def _save_report(self, report: BenchmarkReport) -> None:
         """Speichert den JSON-Bericht inklusive SHA-256-Signatur."""

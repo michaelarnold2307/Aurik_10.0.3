@@ -567,6 +567,63 @@ class VocalNaturalnessRestorationPhase(PhaseInterface):
         except Exception as _on65_exc:
             logger.debug("Phase65 V26 Onset-Guard (non-blocking): %s", _on65_exc)
 
+        # §2.46e HallucinationGuard: Additive Phase darf kein halluziniertes Material einführen (VERBOTEN)
+        try:
+            from backend.core.dsp.hallucination_guard import (  # pylint: disable=import-outside-toplevel
+                check_hallucination as _chk_hg65,
+            )
+
+            _hg_mode_65 = str(kwargs.get("mode", "restoration"))
+            # channels-last [N,2] → mono
+            _pre65_mono = (
+                audio.mean(axis=1)
+                if (audio.ndim == 2 and audio.shape[1] == 2 and audio.shape[0] > 2)
+                else (audio.mean(axis=0) if audio.ndim == 2 else audio)
+            )
+            _post65_mono = (
+                result.mean(axis=1)
+                if (result.ndim == 2 and result.shape[1] == 2 and result.shape[0] > 2)
+                else (result.mean(axis=0) if result.ndim == 2 else result)
+            )
+            _hg65 = _chk_hg65(
+                _pre65_mono.astype(np.float32), _post65_mono.astype(np.float32), sr=sample_rate, mode=_hg_mode_65
+            )
+            if _hg65.requires_rollback:
+                result = audio.copy().astype(np.float32)
+                logger.warning("§2.46e phase_65 HallucinationGuard: rollback (spectral_novelty > 0.15)")
+        except Exception as _hg65_exc:
+            logger.debug("§2.46e phase_65 HallucinationGuard (non-blocking): %s", _hg65_exc)
+
+        # V19 Noise-Textur-Invariante (§NTI): Residual-Rauschen darf Material-Profil nicht ändern (non-blocking)
+        try:
+            from backend.core.dsp.noise_texture_guard import (  # pylint: disable=import-outside-toplevel
+                compute_noise_texture_distance as _nt65_fn,
+            )
+
+            # channels-last [N,2] → channels-first [2,N] für Guard
+            _a65cf = (
+                audio.T.astype(np.float32)
+                if (audio.ndim == 2 and audio.shape[1] == 2 and audio.shape[0] > 2)
+                else audio.astype(np.float32)
+            )
+            _r65cf = (
+                result.T.astype(np.float32)
+                if (result.ndim == 2 and result.shape[1] == 2 and result.shape[0] > 2)
+                else result.astype(np.float32)
+            )
+            _mat65_str = str(material_type) if material_type else "unknown"
+            _nt65_thr = 0.18 if panns_singing >= 0.35 else 0.25
+            _nt65_d = _nt65_fn(_a65cf - _r65cf, _mat65_str, sr=sample_rate)
+            if _nt65_d > _nt65_thr:
+                result = (0.5 * result + 0.5 * audio).astype(np.float32)
+                logger.warning(
+                    "§V19 phase_65 noise_texture_distance=%.3f > %.2f → 50%% Dry-Blend",
+                    _nt65_d,
+                    _nt65_thr,
+                )
+        except Exception as _nt65_exc:
+            logger.debug("§V19 phase_65 noise_texture (non-blocking): %s", _nt65_exc)
+
         if _p65_transposed:
             result = result.T
 

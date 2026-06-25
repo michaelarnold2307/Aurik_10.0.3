@@ -111,7 +111,7 @@ class RumbleFilterPhase(PhaseInterface):
     """
 
     # Material-adaptive Parameters (Professional-tuned)
-    MATERIAL_PARAMS = {
+    MATERIAL_PARAMS: dict[str, dict[str, Any]] = {
         "tape": {
             "cutoff_hz": 24,  # Conservative: preserve musical low-end, remove rumble only
             "filter_order": 6,  # Moderate slope (36 dB/oct)
@@ -288,7 +288,7 @@ class RumbleFilterPhase(PhaseInterface):
             return arr
 
         # Get material-specific parameters
-        params = dict(self.MATERIAL_PARAMS.get(material_type, self.MATERIAL_PARAMS["unknown"]))
+        params: dict[str, Any] = dict(self.MATERIAL_PARAMS.get(material_type, self.MATERIAL_PARAMS["unknown"]))
 
         # Locality-aware intensity control from UV3.
         phase_locality_factor = float(kwargs.get("phase_locality_factor", 1.0))
@@ -621,9 +621,7 @@ class RumbleFilterPhase(PhaseInterface):
         adapted_cutoff = base_cutoff + cutoff_adjustment
 
         # Clamp to reasonable range
-        adapted_cutoff = np.clip(adapted_cutoff, 8, 70)
-
-        return adapted_cutoff
+        return float(np.clip(adapted_cutoff, 8, 70))
 
     def _dc_blocker(self, audio: np.ndarray) -> np.ndarray:
         """
@@ -641,7 +639,8 @@ class RumbleFilterPhase(PhaseInterface):
             return np.column_stack([_filtfilt_dc(b, a, audio[:, ch]) for ch in range(audio.shape[1])]).astype(
                 audio.dtype
             )
-        return _filtfilt_dc(b, a, audio).astype(audio.dtype)
+        _result: np.ndarray = np.asarray(_filtfilt_dc(b, a, audio), dtype=audio.dtype)
+        return _result
 
     def _detect_transients_professional(self, audio: np.ndarray, sensitivity: float) -> np.ndarray:
         """

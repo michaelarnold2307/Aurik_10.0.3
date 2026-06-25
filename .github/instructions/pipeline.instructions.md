@@ -229,9 +229,11 @@ duerfen nicht als ungeordnete Sonderfaelle konkurrieren.
 #   - artifact_freedom < 0.95
 # Klasse B: RECOVERY_TRIGGER
 #   - vqi < material_vqi_floor
-#   - singer_identity_cosine < 0.92 (wenn multi_singer=False)
+#   - singer_identity_cosine < 0.92 (wenn multi_singer=False UND singer_id_dsp_fallback=False)
+#     §DSP-Fallback-Guard (v9.15.3): singer_id_dsp_fallback=True → Advisory only (Class C)
 # Klasse C: ADVISORY
 #   - vqi < mode_target (Restoration 0.82 / Studio 0.87)
+#   - singer_identity_cosine < 0.92 bei singer_id_dsp_fallback=True → singer_id_advisory_cosine
 
 quality_gate_registry = {
     "events": [...],
@@ -1408,13 +1410,20 @@ if panns_singing >= 0.35:
     vqi = result["vqi"]  # float [0, 1]
     metadata["vqi"] = vqi
     metadata["singer_identity_cosine"] = result.get("singer_identity_cosine", 0.85)
+    metadata["singer_id_dsp_fallback"] = result.get("singer_id_dsp_fallback", True)
     # singer_identity_cosine-Gate (Resemblyzer-Identitäts-Prüfung):
     # NUR aktiv wenn kein Multi-Singer-Track (Duette/Chorprojekte würden falsch-positiv)
+    # UND NUR wenn kein DSP-Fallback (ZCR/Spektral-Proxy zu unzuverlässig für Rollback-Trigger)
+    # §DSP-Fallback-Guard (v9.15.3): singer_id_dsp_fallback=True → Advisory only, kein Rollback
     if not metadata.get("multi_singer", False):
         sic = result.get("singer_identity_cosine", 0.85)
-        if sic < 0.92:
+        _sic_dsp_fb = bool(result.get("singer_id_dsp_fallback", True))
+        if sic < 0.92 and not _sic_dsp_fb:
             logger.warning("singer_identity_cosine=%.3f < 0.92 — rolling back last vocal phase", sic)
             audio_restored = _rollback_last_vocal_phase(audio_restored)
+        elif sic < 0.92 and _sic_dsp_fb:
+            logger.info("singer_identity_cosine=%.3f < 0.92 but singer_id_dsp_fallback=True — advisory only, no rollback", sic)
+            metadata["singer_id_advisory_cosine"] = sic
     # Dreistufige Recovery-Kaskade (kein harter Veto, §0p):
     # material_vqi_floor — KANONISCHE BERECHNUNG (VERBOTEN: Konstante 0.72 hardcoden!):
     material_vqi_floor = calibration_matrix.get_material_floor(material, "vqi")

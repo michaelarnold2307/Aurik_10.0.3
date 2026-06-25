@@ -521,3 +521,34 @@ audio_post = apply_onset_protection_mask(
 # Strength-Cap in Onset-Frames: 0.15 (absolut)
 # Non-blocking: Überschreitung blend-reduziert, kein Veto
 ```
+
+## §WLPC Noise-Robuste Formant-Extraktion (V55) [RELEASE_MUST v9.15.3]
+
+**Regel**: `lpc_formant_enhance()` und `_LPCFormantTracker.enhance()` MÜSSEN `era_decade` übergeben,
+wenn der Aufrufkontext das Era-Jahrzehnt kennt — insbesondere bei `era_decade < 1960`
+(Shellac, frühe elektrische Aufnahmen, Wachszylinder).
+
+**Hintergrund**: Standard-Burg-LPC erkennt Rauschspitzen als Formanten wenn SNR < 15 dB
+(typisch für pre-1960-Material). Das führt zu falschen Formant-Korrekturen und Stimm-Verfärbung.
+
+```python
+# PFLICHT-Aufruf in allen Phasen mit era_decade-Kontext:
+from backend.core.dsp.lpc_formant_tracker import get_lpc_formant_tracker
+
+# era_decade aus _restoration_context oder kwargs:
+_era = kwargs.get("era_decade") or (kwargs.get("_restoration_context") or {}).get("era_decade")
+
+audio_out = get_lpc_formant_tracker().enhance(
+    audio, sr,
+    era_decade=int(_era) if _era is not None else None,
+    # Optional: snr_hint_db für noch präzisere SNR-Schätzung
+)
+# WLPC-Pfad aktiviert sich automatisch wenn:
+#   era_decade < 1960  ODER  effective_snr < 15 dB
+# Pre-Whitening (Wiener-Gain) AUSSCHLIESSLICH für LPC-Koeffizienten-Schätzung.
+# Das Output-Audio wird NICHT modifiziert — §0 Primum non nocere.
+```
+
+**VERBOTEN**: `get_lpc_formant_tracker().enhance(audio, sr)` ohne `era_decade`
+wenn era_decade < 1960 bekannt ist (V55). Standard-Burg-LPC → Rausch-Formanten als
+Korrekturen angewendet → Stimm-Verfärbung in historischem Material.

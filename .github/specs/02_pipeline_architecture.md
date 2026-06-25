@@ -1680,6 +1680,7 @@ _TIMBRAL_FLOORS = {
     "shellac": 0.40, "wax_cylinder": 0.35, "lacquer_disc": 0.38,
     "vinyl": 0.55, "tape": 0.55, "reel_tape": 0.55, "cassette": 0.50,
     "cd_digital": 0.75, "dat": 0.70, "mp3_low": 0.60, "unknown": 0.55,
+    "minidisc": 0.60,   # ATRAC-Kompression — gleiche Floor-Klasse wie mp3_low (v9.15.3)
 }
 _tf_floor = _TIMBRAL_FLOORS.get(material, 0.55)
 # Restorability-Skalierung: sehr beschädigtes Material (< 40) hat niedrigeren erreichbaren timbral
@@ -1727,6 +1728,59 @@ Die HPI-Multiplikation ist **nicht** gleichgewichtet — die Faktoren operieren 
 | `emotional_arc` | [0.7, 1.0] | Dynamik-Bogen + Makrodynamik — Narrative Struktur erhalten |
 
 Ein Artefakt (`artifact_freedom` = 0.5) killt den HPI härter als eine leichte Timbre-Abweichung (`timbral_fidelity` = 0.95) — das ist beabsichtigt.
+
+### §0d CCR-Timbral-Floor (v9.15.3) [RELEASE_MUST]
+
+**Problem**: Wenn die Carrier-Chain-Inversion erfolgreich war (`carrier_chain_recovery_ratio > 0.15`),
+entfernt sich das restaurierte Signal intentional vom degradierten Input. In diesem Fall misst
+`timbral_fidelity` gegen den Input einen niedrigen Wert — obwohl das Ergebnis besser klingt.
+Das kann zu einem falschen HPI-Fail führen, obwohl MERT-Similarity hoch ist (musikalische Identität erhalten).
+
+**Lösung** (implementiert in `HolisticPerceptualGate`):
+
+```python
+# §0d CCR-Timbral-Floor: Verhindern, dass intentionelle Carrier-Inversion
+# einen falschen HPI-Fail erzeugt.
+if mert_sim >= 0.74 and carrier_checkpoint_used:
+    timbral_floor = float(np.clip(mert_sim * 0.90, 0.65, 0.95))
+    timbral_fidelity = max(timbral_fidelity, timbral_floor)
+    metadata["ccr_timbral_floor_applied"] = True
+    metadata["ccr_timbral_floor_value"] = timbral_floor
+```
+
+**Invariante**: Nur aktiv wenn `carrier_checkpoint_used=True` (UV3 setzt dieses Flag nach Carrier-Phasen)
+UND `mert_sim ≥ 0.74` (musikalische Identität ist erhalten). Kein Floor bei reinen Enhancement-Phasen.
+
+### §2.44b [RELEASE_MUST] HPG Reference-Memory — UV3-Wiring-Pflicht (v9.15.3)
+
+**Normative Pflicht**: UV3 MUSS `_hg.update_reference_memory()` nach jedem erfolgreichen HPI-Lauf aufrufen.
+Dieselbe Bedingung wie RestorationMemory-Save (`HPI > 0.0 AND artifact_freedom ≥ 0.95`).
+
+```python
+# In UV3._execute_pipeline(), nach RestorationMemory-Save (§2.70):
+# §2.44 [RELEASE_MUST] HPG Reference-Memory: update nach erfolgreichem HPI.
+if float(_hpi_result.hpi) > 0.0 and _af_save >= 0.95:
+    try:
+        _hg.update_reference_memory(
+            restored=restored_audio,
+            sr=sample_rate,
+            hpi=float(_hpi_result.hpi),
+            artifact_freedom=_af_save,
+            p1_p2_passed=bool(_hpi_result.passed),
+            genre=_hpi_genre,
+            material=_hpi_material,
+            era_bin=_hpi_era,
+        )
+    except Exception as _ref_mem_exc:
+        logger.debug("§2.44 ReferenceMemory.update non-blocking: %s", _ref_mem_exc)
+```
+
+**Kaltstart / Bootstrap**: `scripts/bootstrap_hpg_reference_memory.py` seeded
+`~/.aurik/hpg_reference_memory.json` aus `golden_samples/references/`. Pflicht nach Neuinstallation.
+
+**VERBOTEN**: `update_reference_memory()` nicht aufrufen → `_ref_memory` bleibt leer →
+alle 5 Fallback-Stufen liefern None → `timbral_fidelity` nutzt stets nur den degradierten Input
+→ Restaurierungsqualität systematisch unterschätzt → HPG-Lernkurve deaktiviert.
 
 ## §2.45 [RELEASE_MUST] Minimal-Intervention-Prinzip (v9.10.122, aktualisiert §2.54)
 

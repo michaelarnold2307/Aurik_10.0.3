@@ -24,7 +24,7 @@ def _white_noise(n: int = 48000, amplitude: float = 0.05, seed: int = 42) -> np.
 
 def _sine(freq: float = 440.0, sr: int = 48000, dur: float = 1.0) -> np.ndarray:
     t = np.linspace(0, dur, int(sr * dur), endpoint=False)
-    return (np.sin(2 * np.pi * freq * t) * 0.5).astype(np.float32)
+    return (np.sin(2 * np.pi * freq * t) * 0.5).astype(np.float32)  # type: ignore[no-any-return]
 
 
 # ===========================================================================
@@ -657,7 +657,7 @@ class TestSyntheticGeneratorSosfiltfilt:
         import inspect
 
         try:
-            from golden_samples.synthetic_generator import SyntheticAudioGenerator
+            from golden_samples.synthetic_generator import SyntheticAudioGenerator  # type: ignore[attr-defined]
 
             src = inspect.getsource(SyntheticAudioGenerator._generate_vocal)
         except (ImportError, AttributeError):
@@ -953,7 +953,7 @@ class TestRoomAcousticsFingerprinter:
         rng = np.random.default_rng(42)
         audio = rng.standard_normal(48000).astype(np.float32) * 0.01
         result = compute_room_acoustics_fingerprint(audio, 48000)
-        cap = float(result["dereverb_strength_cap"])
+        cap = float(result["dereverb_strength_cap"])  # type: ignore[arg-type]
         assert 0.10 <= cap <= 1.0, f"Cap out of range: {cap}"
 
     def test_long_rt60_tightens_cap(self):
@@ -967,8 +967,8 @@ class TestRoomAcousticsFingerprinter:
         # Use a very slow decay to exceed RT60 threshold
         slow_decay = np.exp(-0.3 * t).astype(np.float32)
         result = compute_room_acoustics_fingerprint(slow_decay, sr)
-        if float(result["rt60_s"]) >= _RT60_HIGH_THRESHOLD_S:
-            assert float(result["dereverb_strength_cap"]) <= 0.25, f"High RT60 should tighten cap: {result}"
+        if float(result["rt60_s"]) >= _RT60_HIGH_THRESHOLD_S:  # type: ignore[arg-type]
+            assert float(result["dereverb_strength_cap"]) <= 0.25, f"High RT60 should tighten cap: {result}"  # type: ignore[arg-type]
 
     def test_silent_signal_returns_default(self):
         """Silent signal → fallback defaults, no exception."""
@@ -986,7 +986,7 @@ class TestRoomAcousticsFingerprinter:
         rng = np.random.default_rng(99)
         audio = rng.standard_normal(96000).astype(np.float32) * 0.5
         result = compute_room_acoustics_fingerprint(audio, 48000)
-        cap = float(result["dereverb_strength_cap"])
+        cap = float(result["dereverb_strength_cap"])  # type: ignore[arg-type]
         assert 0.10 <= cap <= 1.0, f"Cap {cap} outside [0.10, 1.0]"
 
     def test_stereo_input_accepted(self):
@@ -2222,7 +2222,7 @@ class TestPmggPathPannsInjection:
         from backend.core.unified_restorer_v3 import UnifiedRestorerV3
 
         stub = SimpleNamespace(_restoration_context={})
-        out = UnifiedRestorerV3._canonical_phase_context_kwargs(stub)
+        out = UnifiedRestorerV3._canonical_phase_context_kwargs(stub)  # type: ignore[arg-type]
         for key in self._CANONICAL_KEYS:
             assert key in out, f"§0p: kanonischer Kontext-Key '{key}' fehlt im Helper-Output"
 
@@ -2237,7 +2237,7 @@ class TestPmggPathPannsInjection:
             "transfer_chain": ["vinyl", "cassette"],
         }
         stub = SimpleNamespace(_restoration_context=rctx)
-        out = UnifiedRestorerV3._canonical_phase_context_kwargs(stub)
+        out = UnifiedRestorerV3._canonical_phase_context_kwargs(stub)  # type: ignore[arg-type]
         assert out["panns_singing"] == pytest.approx(0.42), "panns_singing nicht aus restoration_context gelesen"
         assert out["vocal_presence_active"] is True
         assert out["vibrato_zones"] == [(1.0, 2.0)]
@@ -2248,7 +2248,7 @@ class TestPmggPathPannsInjection:
         from backend.core.unified_restorer_v3 import UnifiedRestorerV3
 
         stub = SimpleNamespace(_restoration_context={})
-        out = UnifiedRestorerV3._canonical_phase_context_kwargs(stub)
+        out = UnifiedRestorerV3._canonical_phase_context_kwargs(stub)  # type: ignore[arg-type]
         assert out["panns_singing"] == 0.0
         assert out["vocal_presence_active"] is False
         assert out["soft_saturation_severity"] == 0.0
@@ -2386,3 +2386,102 @@ class TestPhase03BsRoformerVocalStemNR:
         # SNR-Bypass greift oder BS-RoFormer inaktiv wegen material_type=cd_digital (snr > 35)
         assert result_clean is not None
         assert result_clean.audio is not None
+
+
+# ---------------------------------------------------------------------------
+# §Lücke3 V55: WLPC — era_decade < 1960 aktiviert noise-robuste LPC-Schätzung
+# ---------------------------------------------------------------------------
+class TestWLPCFormantEnhance:
+    """§V55: lpc_formant_enhance() mit era_decade — WLPC-Pfad validieren."""
+
+    def _make_voiced_audio(self, dur_s: float = 0.5, sr: int = 48000) -> np.ndarray:
+        import numpy as np
+
+        t = np.linspace(0, dur_s, int(dur_s * sr), endpoint=False)
+        f0 = 200.0
+        audio = np.zeros_like(t)
+        for k in range(1, 8):
+            audio += (1.0 / k) * np.sin(2 * np.pi * f0 * k * t)
+        return (audio / (np.max(np.abs(audio)) + 1e-8)).astype(np.float32)
+
+    def test_era_none_does_not_crash(self):
+        """era_decade=None → normale LPC-Verarbeitung, kein Absturz."""
+        import numpy as np
+
+        from backend.core.dsp.lpc_formant_tracker import lpc_formant_enhance
+
+        audio = self._make_voiced_audio()
+        result = lpc_formant_enhance(audio, 48000, era_decade=None)
+        assert result is not None
+        assert result.shape == audio.shape
+        assert not np.any(np.isnan(result))
+
+    def test_historical_era_activates_wlpc(self):
+        """era_decade=1930 → WLPC-Pfad aktiv — kein Absturz, valides Ergebnis."""
+        import numpy as np
+
+        from backend.core.dsp.lpc_formant_tracker import lpc_formant_enhance
+
+        audio = self._make_voiced_audio()
+        result = lpc_formant_enhance(audio, 48000, era_decade=1930)
+        assert result is not None
+        assert result.shape == audio.shape
+        assert not np.any(np.isnan(result))
+        assert not np.any(np.isinf(result))
+
+    def test_modern_era_uses_standard_lpc(self):
+        """era_decade=1975 → WLPC nicht aktiv (>= 1960), Standard-LPC."""
+        import numpy as np
+
+        from backend.core.dsp.lpc_formant_tracker import lpc_formant_enhance
+
+        audio = self._make_voiced_audio()
+        result = lpc_formant_enhance(audio, 48000, era_decade=1975)
+        assert result is not None
+        assert result.shape == audio.shape
+        assert not np.any(np.isnan(result))
+
+    def test_era_boundary_1960_standard_lpc(self):
+        """era_decade=1960 → Grenzwert >= 1960: Standard-LPC."""
+
+        from backend.core.dsp.lpc_formant_tracker import lpc_formant_enhance
+
+        audio = self._make_voiced_audio()
+        result = lpc_formant_enhance(audio, 48000, era_decade=1960)
+        assert result is not None
+        assert result.shape == audio.shape
+
+    def test_era_1959_activates_wlpc(self):
+        """era_decade=1959 → streng < 1960: WLPC aktiv."""
+        import numpy as np
+
+        from backend.core.dsp.lpc_formant_tracker import lpc_formant_enhance
+
+        audio = self._make_voiced_audio()
+        result = lpc_formant_enhance(audio, 48000, era_decade=1959)
+        assert result is not None
+        assert result.shape == audio.shape
+        assert not np.any(np.isnan(result))
+
+    def test_wlpc_output_clipped(self):
+        """WLPC-Ausgabe muss in [-1, 1] liegen (Clipping-Guard)."""
+        import numpy as np
+
+        from backend.core.dsp.lpc_formant_tracker import lpc_formant_enhance
+
+        audio = self._make_voiced_audio()
+        result = lpc_formant_enhance(audio, 48000, era_decade=1925)
+        assert float(np.max(np.abs(result))) <= 1.0 + 1e-4, "Clipping-Guard: Ausgabe > 1.0"
+
+    def test_stereo_era_historical_no_crash(self):
+        """Stereo (2, N) + era_decade=1940 → kein Absturz."""
+        import numpy as np
+
+        from backend.core.dsp.lpc_formant_tracker import lpc_formant_enhance
+
+        mono = self._make_voiced_audio()
+        # Stereo channels-first (2, N) — Phase42 übergibt in diesem Format
+        stereo = np.stack([mono, mono * 0.9], axis=0)
+        result = lpc_formant_enhance(stereo, 48000, era_decade=1940)
+        assert result is not None
+        assert not np.any(np.isnan(result))

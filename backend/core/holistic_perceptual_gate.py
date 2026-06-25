@@ -179,7 +179,7 @@ class HolisticPerceptualGate:
             # → direktionale Score ~0.5 (kein Rauschboden-Delta, kein HF-Crest-Gewinn) — obwohl
             # die Restaurierung korrekt war. Fix: timbral_input (Mel-BW-Ceiling=12kHz) als Floor.
             # timbral_input wird erst weiter unten berechnet — hier vorab für den Floor-Check.
-            _CODEC_MATS_HPG = frozenset({"mp3_low", "mp3_high", "aac", "streaming"})
+            _CODEC_MATS_HPG = frozenset({"mp3_low", "mp3_high", "aac", "streaming", "minidisc"})
             if _mat_key_mert in _CODEC_MATS_HPG and restorability_score > 70.0:
                 _timbral_input_floor = self._compute_timbral_fidelity(
                     _reference_audio, restored, sr, bw_ceiling_hz=_bw_ceiling_hz
@@ -246,7 +246,7 @@ class HolisticPerceptualGate:
             # Neue Vokal-Floor: 0.60 + (vqi − 0.82) × 3.0, auf [0.60, 0.90] geklemmt.
             # VQI=0.917 → 0.891. Zusätzliche Bedingung: mert_sim ≥ 0.80 (kein Content-Verlust).
             # Instrumental-Floor: 0.64 (konservativ, nur artifact_freedom-basiert).
-            _VQI_CODEC_MATS_HPG = frozenset({"mp3_low", "mp3_high", "aac", "streaming"})
+            _VQI_CODEC_MATS_HPG = frozenset({"mp3_low", "mp3_high", "aac", "streaming", "minidisc"})
             if (
                 _mat_key_mert in _VQI_CODEC_MATS_HPG
                 and reference_audio is None
@@ -282,7 +282,7 @@ class HolisticPerceptualGate:
             _chain_last_key_s4 = ""
             if transfer_chain:
                 _chain_last_key_s4 = str(transfer_chain[-1]).lower().replace(" ", "_")
-            _VQI_CHAIN_END_CODEC = frozenset({"mp3_low", "mp3_high", "aac", "streaming"})
+            _VQI_CHAIN_END_CODEC = frozenset({"mp3_low", "mp3_high", "aac", "streaming", "minidisc"})
             if (
                 _mat_key_mert in _ANALOG_CARRIER_MATS_HPG
                 and _chain_last_key_s4 in _VQI_CHAIN_END_CODEC
@@ -328,6 +328,26 @@ class HolisticPerceptualGate:
             input_weight, ref_weight = 0.2, 0.8
 
         timbral = input_weight * timbral_input + ref_weight * timbral_ref
+
+        # §0d CCR-Timbral-Floor (v9.15.x): Nach Carrier-Chain-Inversion legitimiert VERSA-Qualität
+        # die Spektral-Divergenz vom Carrier-Checkpoint. Wenn reference_audio gesetzt (CCR-Referenz-
+        # Shift aktiv per §0d) UND VERSA primär (kein Proxy-Fallback):
+        #   timbral-Floor = versa_sim × 0.90 (konservativ, auf [0.65, 0.95] geklippt).
+        # Begründung: VERSA-MOS ≥ 0.74 (≈ MOS 3.9) bestätigt, dass Enhancement-Phasen die
+        # Timbral-Integrität nicht beschädigt haben — die Spektral-Divergenz von checkpoint→final
+        # ist physikalisch legitimiert (BW-Extension, Harmonik, Vocal-Enhancement §0d, §2.46 Stufe 5).
+        # Ohne diesen Floor: mel-cosine(checkpoint, restored) ≈ 0.54 bestraft korrekte
+        # Restaurierungen (HPI 0.42 statt ≈0.65 bei VERSA-MOS 4.5 — §0d-Messzahl-Artefakt v9.15.1).
+        if reference_audio is not None and not self._mert_proxy_used and mert_sim >= 0.74:
+            _ccr_timbral_floor = float(np.clip(mert_sim * 0.90, 0.65, 0.95))
+            if timbral < _ccr_timbral_floor:
+                logger.debug(
+                    "§0d CCR-Timbral-Floor: timbral %.3f → %.3f (versa_sim=%.3f ccr-ref=active)",
+                    timbral,
+                    _ccr_timbral_floor,
+                    mert_sim,
+                )
+                timbral = _ccr_timbral_floor
 
         hpi = mert_sim * timbral * artifact_freedom * emotional_arc_score
 

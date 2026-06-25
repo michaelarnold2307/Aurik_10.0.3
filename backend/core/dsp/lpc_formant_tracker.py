@@ -33,6 +33,76 @@ _LPC_ORDER = 16  # Ordnung 16 bei 16 kHz (entspricht ~30 bei 48 kHz)
 # Analyse-Bandbreite für Shellac (BW ≤ 8 kHz Material-Ceiling)
 _SHELLAC_BW_HZ = 7000.0
 
+# §Lücke3 WLPC: SNR-Schwelle — unterhalb davon wird noise-robuster Pfad aktiviert
+_WLPC_SNR_THRESHOLD_DB = 15.0
+# §Lücke3 WLPC: Ära-Schwelle für historisches Vokal-Material
+_WLPC_ERA_THRESHOLD = 1960
+# §Lücke3 WLPC: Wiener-Gain-Floor (verhindert Übersubtraktions-Artefakte)
+_WLPC_GAIN_FLOOR = 0.10
+
+
+def _snr_estimate_db(frame_rms_list: list[float]) -> float:
+    """§Lücke3 WLPC: Schätzt Signal-Rausch-Abstand aus der Energie-Verteilung der Frames.
+
+    Nutzt den Abstand zwischen Signalpegel (75. Perzentile) und Rauschboden
+    (10. Perzentile) als SNR-Proxy — robust gegen kurze Stille-Lücken.
+
+    Returns:
+        Geschätzter SNR in dB (0 wenn zu wenig Frames vorhanden).
+    """
+    if len(frame_rms_list) < 4:
+        return 40.0  # Unbekannter SNR → Standard-Pfad annehmen
+    arr = np.asarray(frame_rms_list, dtype=np.float64)
+    arr = arr[arr > 1e-8]  # Stille-Frames herausfiltern
+    if len(arr) < 2:
+        return 40.0
+    signal_level = float(np.percentile(arr, 75))
+    noise_floor = float(np.percentile(arr, 10))
+    if noise_floor < 1e-10 or signal_level < 1e-10:
+        return 40.0
+    return float(20.0 * np.log10(max(signal_level / noise_floor, 1.0)))
+
+
+def _wlpc_prewhiten_frame(frame: np.ndarray, noise_psd: np.ndarray) -> np.ndarray:
+    """§Lücke3 WLPC: Spektrale Vorweißung eines Analyse-Frames für noise-robuste LPC-Schätzung.
+
+    Wiener-Filter im Frequenzbereich: W(f) = max(S(f) - N(f), floor) / (S(f) + eps)
+    Die Vorweißung wird NUR für die LPC-Polynomschätzung verwendet —
+    das Ausgabe-Audio bleibt unverändert (§0 Primum non nocere).
+
+    Args:
+        frame:     Analyse-Frame (float64, Länge NFFT)
+        noise_psd: Geschätztes Rausch-PSD (gleiche FFT-Länge wie Hälfte + 1)
+
+    Returns:
+        Vorgeweißter Frame (float64, gleiche Länge wie Input)
+    """
+    n = len(frame)
+    nfft = max(64, int(2 ** np.ceil(np.log2(n))))
+    # FFT des Frames (mit Hanning-Fenster bereits angewendet vom Aufrufer)
+    X = np.fft.rfft(frame, n=nfft)
+    signal_psd = np.abs(X) ** 2
+
+    # Längenanpassung noise_psd ↔ signal_psd (durch verschiedene NFFT möglich)
+    n_bins = len(signal_psd)
+    if len(noise_psd) != n_bins:
+        # Lineare Interpolation
+        old_bins = np.linspace(0, 1, len(noise_psd))
+        new_bins = np.linspace(0, 1, n_bins)
+        noise_interp = np.interp(new_bins, old_bins, noise_psd)
+    else:
+        noise_interp = noise_psd
+
+    # Wiener-Gain: spektrale Übersubtraktions-Methode mit Floor
+    gain = np.maximum(signal_psd - noise_interp, _WLPC_GAIN_FLOOR * signal_psd)
+    gain = gain / (signal_psd + 1e-12)
+    gain = np.clip(gain, _WLPC_GAIN_FLOOR, 1.0)
+
+    # Vorgeweißter Frame: nur Real-Anteil, gleiche Länge wie Input
+    X_white = X * gain
+    frame_white = np.fft.irfft(X_white, n=nfft)
+    return np.asarray(frame_white[:n], dtype=np.float64)
+
 
 def _burg_lpc(x: np.ndarray, order: int) -> np.ndarray:
     """
@@ -141,12 +211,19 @@ def lpc_formant_enhance(
     frame_len_ms: float = 30.0,
     hop_len_ms: float = 10.0,
     min_voiced_frames: int = 3,
+    era_decade: int | None = None,
+    snr_hint_db: float | None = None,
 ) -> np.ndarray[Any, Any]:
     """
     §2.35c LPC-Formant-Enhancement für Shellac (DSP-Fallback).
 
-    Schätzt F1–F3 über mehrere Frames (Burg-LPC Ordnung 12), mittelt stabile
+    Schätzt F1–F3 über mehrere Frames (Burg-LPC Ordnung 12/16), mittelt stabile
     Schätzungen, und boosted diese Frequenzbereiche sanft (max 3 dB).
+
+    §Lücke3 WLPC: Bei era_decade < 1960 oder snr_hint_db < 15 dB wird automatisch
+    der noise-robuste WLPC-Pfad (spektrale Vorweißung vor Burg-LPC) aktiviert.
+    Die Vorweißung betrifft nur die LPC-Polynomschätzung — das Ausgabe-Audio
+    wird unverändert durch _formant_boost_eq bearbeitet (§0 Primum non nocere).
 
     Args:
         audio:            Mono oder Stereo (float32)
@@ -155,6 +232,8 @@ def lpc_formant_enhance(
         frame_len_ms:     Framelänge für LPC-Analyse (Default: 30 ms)
         hop_len_ms:       Hop-Länge (Default: 10 ms)
         min_voiced_frames: Mindest-Frames für stabile Formant-Schätzung
+        era_decade:       Ära des Materials in Jahrzehnten (z.B. 1940). None = unbekannt.
+        snr_hint_db:      Vorgeschätzter SNR in dB. None = automatische Schätzung.
 
     Returns:
         audio mit Formant-Enhancement (gleiche Form/Länge wie Input)
@@ -222,6 +301,40 @@ def lpc_formant_enhance(
         mono_lp = mono_16k.copy()
 
     # Frame-weise LPC + Formant-Extraktion
+    # §Lücke3 WLPC: Noise-robuster Pfad für historisches Material oder niedriges SNR
+    _frame_rms_list: list[float] = []
+    for fi in range(0, n_16k - frame_len_16k, _hop_len_16k):
+        _frame_rms_list.append(float(np.sqrt(np.mean(mono_lp[fi : fi + frame_len_16k] ** 2))))
+
+    _use_wlpc = False
+    _effective_snr = snr_hint_db if snr_hint_db is not None else _snr_estimate_db(_frame_rms_list)
+    if (era_decade is not None and int(era_decade) < _WLPC_ERA_THRESHOLD) or _effective_snr < _WLPC_SNR_THRESHOLD_DB:
+        _use_wlpc = True
+
+    # §Lücke3 WLPC: Rausch-PSD aus den 20% leisen Frames schätzen
+    _noise_psd: np.ndarray | None = None
+    if _use_wlpc and len(_frame_rms_list) >= 4:
+        try:
+            _rms_arr = np.asarray(_frame_rms_list, dtype=np.float64)
+            _noise_threshold_rms = float(np.percentile(_rms_arr[_rms_arr > 1e-8], 20))
+            _noise_psds: list[np.ndarray] = []
+            for fi in range(0, n_16k - frame_len_16k, _hop_len_16k):
+                _nf = mono_lp[fi : fi + frame_len_16k]
+                if float(np.sqrt(np.mean(_nf**2))) <= _noise_threshold_rms * 1.5:
+                    _nfft_n = max(64, int(2 ** np.ceil(np.log2(frame_len_16k))))
+                    _noise_psds.append(np.abs(np.fft.rfft(_nf, n=_nfft_n)) ** 2)
+            if _noise_psds:
+                _noise_psd = np.mean(np.stack(_noise_psds, axis=0), axis=0)
+            logger.debug(
+                "§Lücke3 WLPC: era_decade=%s snr=%.1f dB noise_frames=%d",
+                era_decade,
+                _effective_snr,
+                len(_noise_psds),
+            )
+        except Exception as _wlpc_est_exc:
+            logger.debug("§Lücke3 WLPC Rausch-PSD-Schätzung fehlgeschlagen: %s", _wlpc_est_exc)
+            _use_wlpc = False
+
     all_formants: list[list[float]] = []
     for fi in range(0, n_16k - frame_len_16k, _hop_len_16k):
         frame = mono_lp[fi : fi + frame_len_16k]
@@ -230,7 +343,13 @@ def lpc_formant_enhance(
         if rms < 1e-4:
             continue
         try:
-            a = _burg_lpc(frame * np.hanning(len(frame)), _LPC_ORDER)
+            windowed = frame * np.hanning(len(frame))
+            # §Lücke3 WLPC: Vorgeweißter Frame für LPC-Schätzung bei verrauschtem Material
+            if _use_wlpc and _noise_psd is not None:
+                lpc_frame = _wlpc_prewhiten_frame(windowed, _noise_psd)
+            else:
+                lpc_frame = windowed
+            a = _burg_lpc(lpc_frame, _LPC_ORDER)
             frms = _lpc_to_formants(a, _analysis_sr)
             if len(frms) >= 2:
                 all_formants.append(frms)
@@ -257,9 +376,10 @@ def lpc_formant_enhance(
         return audio_in
 
     logger.debug(
-        "§2.35c LPC-Formant-Tracker: F1-F3 = %s (max_boost=%.1f dB)",
+        "§2.35c LPC-Formant-Tracker: F1-F3 = %s (max_boost=%.1f dB, wlpc=%s)",
         [f"{f:.0f} Hz" for f in stable_formants],
         max_boost_db,
+        _use_wlpc,
     )
 
     return _formant_boost_eq(audio_in, sr, stable_formants, boost_db=min(max_boost_db, _MAX_FORMANT_BOOST_DB))
@@ -378,10 +498,27 @@ class _LPCFormantTracker:
     def __init__(self) -> None:
         self._lock = threading.Lock()
 
-    def enhance(self, audio: np.ndarray, sr: int, max_boost_db: float = 2.5) -> np.ndarray:
-        """Wendet an: LPC formant enhancement to audio (thread-safe)."""
+    def enhance(
+        self,
+        audio: np.ndarray,
+        sr: int,
+        max_boost_db: float = 2.5,
+        era_decade: int | None = None,
+        snr_hint_db: float | None = None,
+    ) -> np.ndarray:
+        """Wendet LPC Formant Enhancement auf audio an (thread-safe).
+
+        §Lücke3 WLPC: era_decade < 1960 oder snr_hint_db < 15 dB aktiviert
+        den noise-robusten WLPC-Pfad automatisch.
+        """
         with self._lock:
-            return lpc_formant_enhance(audio, sr, max_boost_db=max_boost_db)
+            return lpc_formant_enhance(
+                audio,
+                sr,
+                max_boost_db=max_boost_db,
+                era_decade=era_decade,
+                snr_hint_db=snr_hint_db,
+            )
 
     def track(self, audio: np.ndarray, sr: int) -> dict:
         """Gibt formant frequencies from LPC analysis zurück.

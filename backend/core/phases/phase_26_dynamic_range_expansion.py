@@ -437,6 +437,20 @@ class DynamicRangeExpansion(PhaseInterface):
         except Exception as _hg26_exc:
             logger.debug("§2.46e phase_26 Hallucination-Guard (non-blocking): %s", _hg26_exc)
 
+        # §V24 Spektralfarbe-Prüfung (§2.74, non-blocking): Dynamic-Expansion darf Spektralfarbe nicht verändern
+        try:
+            from backend.core.dsp.spectral_color_guard import (  # pylint: disable=import-outside-toplevel
+                check_spectral_color_preservation as _scg26,
+            )
+
+            _sc26 = _scg26(audio, expanded_audio, sample_rate)
+            if not _sc26.ok:
+                _sc26_wet = 0.70
+                expanded_audio = (_sc26_wet * expanded_audio + (1.0 - _sc26_wet) * audio).astype(np.float32)
+                logger.warning("§V24 phase_26 spectral_color non-ok → strength −30%%")
+        except Exception as _sc26_exc:
+            logger.debug("§V24 phase_26 spectral_color (non-blocking): %s", _sc26_exc)
+
         return PhaseResult(
             success=True,
             audio=expanded_audio,

@@ -1,7 +1,7 @@
 """AMRB CI-Gate — blockiert Merge wenn OS-Führerschaft-Schwelle nicht erfüllt.
 
 Spec §8.1 (copilot-instructions.md):
-    AMRB-Gesamt-Score ≥ 84.0 UND ≥ 8/10 Szenarien bestanden.
+    AMRB-Gesamt-Score ≥ 84.0 UND ≥ 8/11 Szenarien bestanden.
     Baselines: iZotope RX 11 ≈ 71.0, Aurik 9.9 Restoration ≈ 84.0.
 
 Laufzeit:  ~60–180 s (n_items_per_scenario=1, synthetische Signale intern erzeugt).
@@ -74,7 +74,7 @@ def _build_cached_medium_hint(sid: str | None):
 _UNPROCESSED_MUSHRA: float = AMRB_BASELINES["Unbearbeitet (degradiert)"]["mushra_overall"]  # 32.0
 _IZOTOPE_MUSHRA: float = AMRB_BASELINES["iZotope RX 11 (commercial)"]["mushra_overall"]  # 71.0
 _AURIK_TARGET: float = 84.0  # OS-Führerschaft-Schwelle (§8.1)
-_SCENARIOS_REQUIRED: int = 8  # von 10 Szenarien müssen bestanden sein
+_SCENARIOS_REQUIRED: int = 8  # von 11 Szenarien müssen bestanden sein
 
 
 # ---------------------------------------------------------------------------
@@ -114,7 +114,7 @@ def _amrb_report_cached() -> BenchmarkReport:
 @pytest.mark.amrb
 @pytest.mark.timeout(1800)
 def test_amrb_os_leadership_threshold(_amrb_report_cached: BenchmarkReport) -> None:
-    """Aurik muss AMRB overall_score ≥ 84.0 UND n_passed ≥ 8/10 erreichen (§8.1).
+    """Aurik muss AMRB overall_score ≥ 84.0 UND n_passed ≥ 8/11 erreichen (§8.1).
 
     Dieser Test blockiert einen Merge, wenn Aurik die OS-Führerschaft-Schwelle
     unterschreitet. Laufzeit ca. 60–180 s (synthetische Signale, n=1 pro Szenario).
@@ -124,7 +124,7 @@ def test_amrb_os_leadership_threshold(_amrb_report_cached: BenchmarkReport) -> N
     assert report.passes_os_leadership_threshold(), (
         f"\nAMRB OS-Führerschaft NICHT ERREICHT:\n"
         f"  Gesamt-Score : {report.overall_score:.1f}/100  (Ziel: ≥ {_AURIK_TARGET:.1f})\n"
-        f"  Bestanden    : {report.n_passed}/10          (Ziel: ≥ {_SCENARIOS_REQUIRED})\n"
+        f"  Bestanden    : {report.n_passed}/11          (Ziel: ≥ {_SCENARIOS_REQUIRED})\n"
         f"  Schwächstes  : {report.worst_scenario}\n"
         f"\n"
         f"  Referenz iZotope RX 11 : {_IZOTOPE_MUSHRA:.1f}\n"
@@ -163,11 +163,11 @@ def test_amrb_score_far_above_unprocessed(_amrb_report_cached: BenchmarkReport) 
 @pytest.mark.amrb
 @pytest.mark.timeout(60)
 def test_amrb_at_least_8_scenarios_passed(_amrb_report_cached: BenchmarkReport) -> None:
-    """Genau ≥ 8/10 Szenarien müssen bestanden sein (MUSHRA ≥ 80 pro Szenario)."""
+    """Genau ≥ 8/11 Szenarien müssen bestanden sein (MUSHRA ≥ 80 pro Szenario)."""
     report = _amrb_report_cached
 
     assert report.n_passed >= _SCENARIOS_REQUIRED, (
-        f"Nur {report.n_passed}/10 Szenarien bestanden (Ziel: ≥ {_SCENARIOS_REQUIRED}).\n"
+        f"Nur {report.n_passed}/11 Szenarien bestanden (Ziel: ≥ {_SCENARIOS_REQUIRED}).\n"
         f"Schwächstes Szenario: {report.worst_scenario}\n"
         f"Gesamt-Score: {report.overall_score:.1f}/100"
     )
@@ -181,7 +181,7 @@ def test_amrb_report_fields_complete(_amrb_report_cached: BenchmarkReport) -> No
 
     # Numerische Grenzen
     assert 0.0 <= report.overall_score <= 100.0, "overall_score außerhalb [0, 100]"
-    assert report.n_scenarios == 10, f"Erwartet 10 Szenarien, erhalten: {report.n_scenarios}"
+    assert report.n_scenarios == 11, f"Erwartet 11 Szenarien, erhalten: {report.n_scenarios}"
     assert 0 <= report.n_passed <= report.n_scenarios
 
     # Felder nicht leer

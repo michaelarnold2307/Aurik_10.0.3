@@ -1214,7 +1214,7 @@ class WowFlutterFix(PhaseInterface):
 
         t = np.arange(pitch.size, dtype=np.float64) / frame_rate
         omega_t = 2.0 * np.pi * peak_freq * t[confident_mask]
-        design = np.column_stack([np.sin(omega_t), np.cos(omega_t), np.ones(np.sum(confident_mask))])
+        design = np.column_stack([np.sin(omega_t), np.cos(omega_t), np.ones(int(np.sum(confident_mask)))])
         y = residual_cents[confident_mask]
         try:
             coeffs, *_ = np.linalg.lstsq(design, y, rcond=None)
@@ -2586,7 +2586,7 @@ class WowFlutterFix(PhaseInterface):
             1.0 + max_stretch_delta,
         )
 
-        return stretch_factors
+        return stretch_factors  # type: ignore[no-any-return]
 
     @staticmethod
     def _apply_defect_locality_to_stretch_factors(
@@ -2691,7 +2691,8 @@ class WowFlutterFix(PhaseInterface):
                 "phase_12: DDSP-Harmonic-Isolation: harmonic_ratio=%.2f → Trägertextur erhalten",
                 _harmonic_ratio,
             )
-            return _result.astype(audio.dtype, copy=False)
+            _out: np.ndarray = np.asarray(_result, dtype=audio.dtype)
+            return _out
         except Exception as _hpss_exc:
             logger.debug("phase_12: HPSS-Isolation Fallback auf Phase-Vocoder: %s", _hpss_exc)
             return self._phase_vocoder_timestretch(audio, stretch_factors, sample_rate)
@@ -3114,7 +3115,7 @@ def _run_test() -> None:  # pragma: no cover
         logger.debug("")
 
         phase = WowFlutterFix()
-        result = phase.process(audio, sample_rate, material)
+        result = phase.process(audio, sample_rate, material.value)
 
         if result.metrics["wow_flutter_detected"]:
             logger.debug("✅ Professional Wow & Flutter Correction:")

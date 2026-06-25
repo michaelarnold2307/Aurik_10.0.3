@@ -146,13 +146,14 @@ in der MushraEvaluator-Gewichtungsmatrix bereits abgebildet und ist kein Ausschl
 | AMRB-08-HUM | 50-Hz-Brumm + Obertöne | OQS ≥ 80 | OQS ≥ 72 |
 | AMRB-09-DROPOUT | Tape-Dropout 50–200 ms | OQS ≥ 80 | OQS ≥ 72 |
 | AMRB-10-COMPOSITE | Kombinierte Degradierung | OQS ≥ 80 | OQS ≥ 70 |
+| AMRB-11-CASSETTE | IEC 60094-1 Typ I: BW ≤ 12 kHz + HF-Hiss + Flutter 0.15 % WRMS | OQS ≥ 72 | OQS ≥ 65 (analog Kassette) |
 
 **[RELEASE_MUST] Fragment-Mindestlänge**: Jedes AMRB-Stimulusfragment MUSS **≥ 30 s** lang sein.
 Fragmente < 30 s erzeugen OQS-Varianz von ±8 Punkten — ausreichend um einen 80-Punkt-Pass-Fail-Schwellwert
 unzuverlässig zu machen. `run_amrb_baseline.py` erzwingt diesen Guard automatisch (`_MIN_AMRB_FRAGMENT_S = 30.0`)
 und korrigiert kürzere `--duration`-Angaben mit einem Warn-Log. `n_items ≥ 5` bleibt Pflicht (Nightly-Config).
 
-**Interne Führungs-Schwelle**: Gesamt-Score ≥ **84.0** UND ≥ 8/10 Szenarien bestanden.
+**Interne Führungs-Schwelle**: Gesamt-Score ≥ **84.0** UND ≥ 8/11 Szenarien bestanden.
 
 ```python
 from benchmarks.musical_restoration_benchmark import run_benchmark, BenchmarkConfig

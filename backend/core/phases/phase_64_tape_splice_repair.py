@@ -480,6 +480,36 @@ class TapeSpliceRepairPhase(PhaseInterface):
             result_audio = np.clip(result_audio, -1.0, 1.0).astype(np.float32)
         elapsed = _time.perf_counter() - t0
 
+        # §V19 Noise-Textur-Invariante (VERBOTEN-V19): Residual bewahrt Materialcharakter
+        _mat64_str = str(material_type or "unknown").lower()
+        try:
+            from backend.core.dsp.noise_texture_guard import (  # pylint: disable=import-outside-toplevel
+                compute_noise_texture_distance as _nt64_fn,
+            )
+
+            if result_audio.shape == audio.shape:
+                _nt64_d = _nt64_fn(
+                    audio.astype(np.float32) - result_audio.astype(np.float32), _mat64_str, sr=sample_rate
+                )
+                if _nt64_d > 0.25:
+                    result_audio = (0.5 * result_audio + 0.5 * audio).astype(np.float32)
+                    logger.warning("§V19 phase_64 noise_texture dist=%.3f > 0.25 → 50%%-Blend", _nt64_d)
+        except Exception as _nt64_exc:
+            logger.debug("§V19 phase_64 noise_texture_guard (non-blocking): %s", _nt64_exc)
+
+        # §V24 Spektralfarbe-Prüfung (VERBOTEN-V24): 1/3-Oktav-Profil darf nicht verfärbt werden
+        try:
+            from backend.core.dsp.spectral_color_guard import (  # pylint: disable=import-outside-toplevel
+                check_spectral_color_preservation as _scg64,
+            )
+
+            if result_audio.shape == audio.shape:
+                _sc64 = _scg64(audio.astype(np.float32), result_audio.astype(np.float32), sample_rate)
+                if not _sc64.ok:
+                    result_audio = (0.70 * result_audio + 0.30 * audio).astype(np.float32)
+        except Exception as _sc64_exc:
+            logger.debug("§V24 phase_64 spectral_color_guard (non-blocking): %s", _sc64_exc)
+
         _rms_out_db = _rms_dbfs_gated(result_audio)
         _rms_drop = (_rms_out_db - _rms_in_db) if _rms_in_db > -80.0 else 0.0
         return PhaseResult(

@@ -1343,6 +1343,22 @@ class SpectralRepair(PhaseInterface):
         except Exception as _v22_23_exc:
             logger.debug("§V22 phase_23 transient_guard non-blocking: %s", _v22_23_exc)
 
+        # §V24 Spektralfarbe-Prüfung (§2.74, non-blocking): Reparatur darf Spektralfarbe nicht verändern
+        try:
+            from backend.core.dsp.spectral_color_guard import (  # pylint: disable=import-outside-toplevel
+                check_spectral_color_preservation as _scg23,
+            )
+
+            _orig23_v24 = audio.T if (_was_channels_first and audio.ndim == 2) else audio
+            _rep23_v24 = repaired_audio
+            _sc23 = _scg23(_orig23_v24, _rep23_v24, sample_rate)
+            if not _sc23.ok:
+                _sc23_wet = 0.70
+                repaired_audio = (_sc23_wet * repaired_audio + (1.0 - _sc23_wet) * _orig23_v24).astype(np.float32)
+                logger.warning("§V24 phase_23 spectral_color non-ok → strength −30%%")
+        except Exception as _sc23_exc:
+            logger.debug("§V24 phase_23 spectral_color (non-blocking): %s", _sc23_exc)
+
         _result = PhaseResult(
             success=True,
             audio=repaired_audio,

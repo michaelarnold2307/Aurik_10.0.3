@@ -1652,6 +1652,38 @@ class DiffusionInpaintingPhase(PhaseInterface):
         except Exception as _guard55_exc:
             logger.debug("§2.46f/§2.46e Phase55 guards (non-blocking): %s", _guard55_exc)
 
+        # §V19 Noise-Textur-Invariante (§NTI): Residual-Rauschen darf Material-Profil nicht ändern (non-blocking)
+        try:
+            from backend.core.dsp.noise_texture_guard import (  # pylint: disable=import-outside-toplevel
+                compute_noise_texture_distance as _nt55_fn,
+            )
+
+            _nt55_thr = 0.18 if _vocals_conf >= 0.35 else 0.25
+            _nt55_d = _nt55_fn(source_audio - repaired, _mat_key_p55, sr=sample_rate)
+            if _nt55_d > _nt55_thr:
+                repaired = (0.5 * repaired + 0.5 * source_audio).astype(np.float32)
+                logger.warning(
+                    "§V19 phase_55 noise_texture_distance=%.3f > %.2f → 50%% Dry-Blend",
+                    _nt55_d,
+                    _nt55_thr,
+                )
+        except Exception as _nt55_exc:
+            logger.debug("§V19 phase_55 noise_texture (non-blocking): %s", _nt55_exc)
+
+        # §V24 Spektralfarbe-Prüfung (§2.74, non-blocking): Inpainting darf Spektralfarbe nicht verändern
+        try:
+            from backend.core.dsp.spectral_color_guard import (  # pylint: disable=import-outside-toplevel
+                check_spectral_color_preservation as _scg55,
+            )
+
+            _sc55 = _scg55(source_audio, repaired, sample_rate)
+            if not _sc55.ok:
+                _sc55_wet = 0.70
+                repaired = (_sc55_wet * repaired + (1.0 - _sc55_wet) * source_audio).astype(np.float32)
+                logger.warning("§V24 phase_55 spectral_color non-ok → strength −30%%")
+        except Exception as _sc55_exc:
+            logger.debug("§V24 phase_55 spectral_color (non-blocking): %s", _sc55_exc)
+
         return PhaseResult(
             success=True,
             audio=repaired,

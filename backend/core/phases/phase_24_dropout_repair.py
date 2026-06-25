@@ -1240,6 +1240,20 @@ class DropoutRepairPhase(PhaseInterface):
         except Exception as _hg_exc_24:
             logger.debug("Phase24 §2.46e Hallucination-Guard (non-blocking): %s", _hg_exc_24)
 
+        # §V24 Spektralfarbe-Prüfung (§2.74, non-blocking): Dropout-Reparatur darf Spektralfarbe nicht verändern
+        try:
+            from backend.core.dsp.spectral_color_guard import (  # pylint: disable=import-outside-toplevel
+                check_spectral_color_preservation as _scg24,
+            )
+
+            _sc24 = _scg24(audio, repaired_audio, sample_rate)
+            if not _sc24.ok:
+                _sc24_wet = 0.70
+                repaired_audio = (_sc24_wet * repaired_audio + (1.0 - _sc24_wet) * audio).astype(np.float32)
+                logger.warning("§V24 phase_24 spectral_color non-ok → strength −30%%")
+        except Exception as _sc24_exc:
+            logger.debug("§V24 phase_24 spectral_color (non-blocking): %s", _sc24_exc)
+
         return create_phase_result(
             audio=repaired_audio,
             modifications={

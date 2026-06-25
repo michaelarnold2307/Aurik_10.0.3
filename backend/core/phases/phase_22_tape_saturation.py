@@ -438,6 +438,21 @@ class TapeSaturation(PhaseInterface):
 
         mixed = np.nan_to_num(mixed, nan=0.0, posinf=0.0, neginf=0.0)
         mixed = np.clip(mixed, -1.0, 1.0)
+
+        # §V24 Spektralfarbe-Prüfung (§2.74, non-blocking): EQ-ähnliche Sättigungs-Änderung muss Spektralfarbe bewahren
+        try:
+            from backend.core.dsp.spectral_color_guard import (  # pylint: disable=import-outside-toplevel
+                check_spectral_color_preservation as _scg22,
+            )
+
+            _sc22 = _scg22(audio, mixed, sample_rate)
+            if not _sc22.ok:
+                _sc22_wet = 0.70
+                mixed = (_sc22_wet * mixed + (1.0 - _sc22_wet) * audio).astype(np.float32)
+                logger.warning("§V24 phase_22 spectral_color non-ok → strength −30%%")
+        except Exception as _sc22_exc:
+            logger.debug("§V24 phase_22 spectral_color (non-blocking): %s", _sc22_exc)
+
         return PhaseResult(
             success=True,
             audio=mixed,
