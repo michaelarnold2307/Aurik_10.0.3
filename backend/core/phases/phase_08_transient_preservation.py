@@ -312,7 +312,7 @@ class TransientPreservationPhase(PhaseInterface):
             )
 
         # Get material-specific parameters
-        params = self.MATERIAL_PARAMS.get(material_type, self.MATERIAL_PARAMS["unknown"])
+        params: dict[str, Any] = self.MATERIAL_PARAMS.get(material_type, self.MATERIAL_PARAMS["unknown"])
 
         # Override attack boost if specified
         if attack_boost_db is not None:
