@@ -672,7 +672,7 @@ class TransparentDynamicsV1(PhaseInterface):
         # Apply gain reduction
         audio_compressed = audio * gain_smooth
 
-        return audio_compressed
+        return np.asarray(audio_compressed)
 
     def get_metadata(self) -> PhaseMetadata:
         """Gibt phase metadata zurück."""
@@ -751,7 +751,7 @@ if __name__ == "__main__":
 
     # Test first genre/material combination
     phase = TransparentDynamicsV1(sample_rate=sr, genre=genres[0])
-    result = phase.process(test_audio, material_type=materials[0])
+    result = phase.process(test_audio, material_type=str(materials[0].value))
 
     metadata = phase.get_metadata()
 
@@ -767,7 +767,7 @@ if __name__ == "__main__":
     for genre_name in genres:
         for material in materials:
             phase = TransparentDynamicsV1(sample_rate=sr, genre=genre_name)
-            result = phase.process(test_audio, material_type=material)
+            result = phase.process(test_audio, material_type=str(material.value))
 
             rt_factor = result.execution_time_seconds / duration
 

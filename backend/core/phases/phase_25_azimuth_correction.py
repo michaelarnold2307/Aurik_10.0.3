@@ -225,7 +225,7 @@ class AzimuthCorrectionPhaseV2(PhaseInterface):
             material_enum = material_type
         else:
             _mat_norm = str(material_type or "unknown").strip().upper().replace("-", "_").replace(" ", "_")
-            material_enum = getattr(MaterialType, _mat_norm, MaterialType.CD_DIGITAL)
+            material_enum = getattr(MaterialType, _mat_norm, MaterialType.CD_DIGITAL)  # type: ignore[arg-type]
         material_name = material_enum.name
 
         self.validate_input(audio)
@@ -322,7 +322,7 @@ class AzimuthCorrectionPhaseV2(PhaseInterface):
         for i, band_audio in enumerate(bands):
             azimuth_error = self._analyze_band_azimuth(band_audio, sample_rate, i)
             band_azimuth_errors.append(azimuth_error)
-            max_phase_shift = max(max_phase_shift, abs(azimuth_error.phase_shift_samples))
+            max_phase_shift = max(max_phase_shift, int(abs(azimuth_error.phase_shift_samples)))
 
         # Step 3: Measure HF loss (secondary indicator)
         hf_loss_db = self._measure_hf_loss(left, right, sample_rate)
@@ -392,7 +392,7 @@ class AzimuthCorrectionPhaseV2(PhaseInterface):
         for i, band_audio in enumerate(corrected_bands):
             azimuth_error = self._analyze_band_azimuth(band_audio, sample_rate, i)
             corrected_azimuth_errors.append(azimuth_error)
-            max_phase_shift_after = max(max_phase_shift_after, abs(azimuth_error.phase_shift_samples))
+            max_phase_shift_after = max(max_phase_shift_after, int(abs(azimuth_error.phase_shift_samples)))
 
         phase_shift_reduction = max_phase_shift - max_phase_shift_after
 
@@ -552,7 +552,7 @@ class AzimuthCorrectionPhaseV2(PhaseInterface):
         confidence = max_corr / (mean_corr + 1e-10)
 
         return BandAzimuthAnalysis(
-            band_index=band_index, phase_shift_samples=phase_shift_samples, confidence=float(confidence)
+            band_index=band_index, phase_shift_samples=int(phase_shift_samples), confidence=float(confidence)
         )
 
     def _correct_band_azimuth(
@@ -770,7 +770,7 @@ class AzimuthCorrectionPhaseV2(PhaseInterface):
         else:
             hf_loss_db = 0.0
 
-        return hf_loss_db
+        return float(hf_loss_db)
 
     def _restore_hf_content(
         self, corrected_audio: np.ndarray, original_audio: np.ndarray, sample_rate: int, hf_loss_db: float
@@ -816,7 +816,7 @@ class AzimuthCorrectionPhaseV2(PhaseInterface):
         """
         Recombine frequency bands (simple sum).
         """
-        return sum(bands)
+        return np.asarray(sum(bands))
 
     def get_metadata(self) -> PhaseMetadata:
         """Gibt zurück: phase metadata."""
@@ -887,7 +887,7 @@ def _run_standalone_test() -> None:
     logger.debug("Testing with material: TAPE")
     logger.debug("%s", "─" * 80)
 
-    result = phase.process(demo_audio, demo_sample_rate, MaterialType.TAPE)
+    result = phase.process(demo_audio, demo_sample_rate, MaterialType.TAPE)  # type: ignore[arg-type]
 
     if result.success:
         logger.debug("✅ Processing Complete!")
@@ -935,7 +935,7 @@ def _run_standalone_test() -> None:
     logger.debug("Testing with material: VINYL (should skip)")
     logger.debug("%s", "─" * 80)
 
-    result_vinyl = phase.process(demo_audio, demo_sample_rate, MaterialType.VINYL)
+    result_vinyl = phase.process(demo_audio, demo_sample_rate, MaterialType.VINYL)  # type: ignore[arg-type]
 
     if result_vinyl.success:
         logger.debug("✅ As expected: Azimuth Correction skipped for VINYL")

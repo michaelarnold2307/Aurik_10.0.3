@@ -320,7 +320,7 @@ class TransientPreservationPhase(PhaseInterface):
             params["attack_gain_db"] = [attack_boost_db] * 4
 
         # Step 1: Detect onsets (transients) using spectral flux
-        onset_times, onset_strengths = self._detect_onsets_spectral_flux(audio, params["detection_sensitivity"])
+        onset_times, onset_strengths = self._detect_onsets_spectral_flux(audio, float(params["detection_sensitivity"]))
 
         if len(onset_times) == 0:
             audio = np.nan_to_num(audio, nan=0.0, posinf=0.0, neginf=0.0)
@@ -582,7 +582,7 @@ class TransientPreservationPhase(PhaseInterface):
         # Simple sum (assumes linear-phase filters with minimal overlap)
         combined = np.sum(bands, axis=0)
 
-        return combined
+        return np.asarray(combined)
 
     def _shape_transients_per_band(
         self,
@@ -708,7 +708,7 @@ class TransientPreservationPhase(PhaseInterface):
         peak_samples = abs_audio[abs_audio >= threshold]
 
         if len(peak_samples) > 0:
-            return np.mean(peak_samples)
+            return float(np.mean(peak_samples))
         else:
             return 0.0
 

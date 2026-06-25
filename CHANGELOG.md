@@ -15,10 +15,12 @@ Spec 09 (`VERBOTEN.md`) normierten psychoakustischen Ausgabe-Guards nicht trugen
 Alle Lücken werden nun systemisch geschlossen (§0f — systemisch, ≥5 Stellen):
 
 **V19 Noise-Textur-Invariante (§NTI)** — nachgerüstet in:
+
 - `phase_43_ml_deesser.py` — Residual nach De-Essing auf material-konformes Spektralprofil prüfen
 - `phase_66_stem_targeted_nr.py` — Residual nach Stem-NR prüfen
 
 **V24 Spektralfarbe-Prüfung (§2.74)** — nachgerüstet in:
+
 - `phase_25_azimuth_correction.py` — nach Azimuth-Korrektur
 - `phase_31_speed_pitch_correction.py` — nach Pitch-/Speed-Korrektur
 - `phase_43_ml_deesser.py` — nach De-Essing
@@ -27,6 +29,7 @@ Alle Lücken werden nun systemisch geschlossen (§0f — systemisch, ≥5 Stelle
 - `phase_66_stem_targeted_nr.py` — nach Stem-NR
 
 **V26 Onset-Guard (§2.77)** — nachgerüstet in:
+
 - `phase_25_azimuth_correction.py` — Transients nach Azimuth-Korrektur schützen
 - `phase_31_speed_pitch_correction.py` — Transients nach Pitch-Korrektur schützen
 - `phase_43_ml_deesser.py` — Sibilanten-Transients schützen
@@ -35,6 +38,7 @@ Alle Lücken werden nun systemisch geschlossen (§0f — systemisch, ≥5 Stelle
 - `phase_66_stem_targeted_nr.py` — Transients nach Stem-NR schützen
 
 **§2.46e Hallucination-Guard** — nachgerüstet in:
+
 - `phase_08_transient_preservation.py` — Transient-Enhancement darf keine nicht-originären Spektralanteile einführen
 - `phase_24_dropout_repair.py` — Dropout-Reparatur nach SSIP-Audit
 - `phase_46_spatial_enhancement.py` — Räumliche Cues dürfen keine nicht-originären Spektralanteile einführen

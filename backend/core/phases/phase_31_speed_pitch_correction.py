@@ -1114,7 +1114,7 @@ class SpeedPitchCorrectionPhase(PhaseInterface):
         _peak = float(np.percentile(np.abs(audio_shifted), 99.9)) + 1e-10
         if _peak > 1.0:
             audio_shifted = audio_shifted / _peak
-        return audio_shifted.astype(audio.dtype, copy=False)
+        return np.asarray(audio_shifted.astype(audio.dtype, copy=False))
 
     def _istft_fallback_ola(
         self,

@@ -137,7 +137,7 @@ def _rms_envelope(signal: np.ndarray, sr: int, window_ms: float = 5.0) -> np.nda
     sq = signal**2
     kernel = np.ones(win) / win
     rms = np.sqrt(np.convolve(sq, kernel, mode="same") + 1e-12)
-    return rms
+    return np.asarray(rms)
 
 
 def _smooth_gain(gain_lin: np.ndarray, sr: int, attack_ms: float, release_ms: float) -> np.ndarray:
