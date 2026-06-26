@@ -142,7 +142,7 @@ class HybridSpeedPitch:
         try:
             from plugins.fcpe_plugin import get_fcpe_plugin
 
-            self.crepe = get_fcpe_plugin()
+            self.crepe = get_fcpe_plugin()  # type: ignore[assignment]
             logger.info("FCPE plugin loaded for Phase 31 speed/pitch detection (model=%s)", self.crepe.model_used)  # type: ignore[attr-defined]
             return
         except Exception as e:
@@ -169,7 +169,7 @@ class HybridSpeedPitch:
         try:
             from plugins.crepe_plugin import CREPEPlugin
 
-            self.crepe = CREPEPlugin()
+            self.crepe = CREPEPlugin()  # type: ignore[assignment]
             logger.info("CREPE plugin loaded for Phase 31 speed/pitch detection (§4.4 Tier-4 legacy)")
         except Exception as e:
             logger.warning("Kein Pitch-ML-Plugin verfügbar: %s", e)

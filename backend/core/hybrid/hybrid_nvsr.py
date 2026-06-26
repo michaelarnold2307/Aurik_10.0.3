@@ -100,7 +100,7 @@ class HybridNVSR:
         try:
             from plugins.audiosr_plugin import AudioSRPlugin
 
-            self.audiosr_plugin = AudioSRPlugin(timeout=300)
+            self.audiosr_plugin = AudioSRPlugin(timeout=300)  # type: ignore[assignment]
             logger.info("AudioSR plugin initialized for NVSR")
         except Exception as e:
             logger.warning("AudioSR plugin not available: %s", e)

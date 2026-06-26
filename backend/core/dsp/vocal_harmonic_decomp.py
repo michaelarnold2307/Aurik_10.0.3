@@ -105,10 +105,10 @@ def _estimate_f0_crepe(mono: np.ndarray, sr: int, hop: int) -> np.ndarray | None
         from plugins.crepe_plugin import get_crepe_plugin  # pylint: disable=import-outside-toplevel
 
         plugin = get_crepe_plugin()
-        if not plugin.is_available():
+        if not plugin.is_available():  # type: ignore[attr-defined]
             return None
 
-        result = plugin.estimate_f0(mono, sr=sr, hop_length=hop, model_capacity="tiny")
+        result = plugin.estimate_f0(mono, sr=sr, hop_length=hop, model_capacity="tiny")  # type: ignore[attr-defined]
         if result is None:
             return None
 

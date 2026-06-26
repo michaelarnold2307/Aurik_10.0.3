@@ -55,7 +55,7 @@ def _load_audio(path: str) -> tuple[np.ndarray, int]:
 
 
 def _normalize_mode(mode: str) -> str:
-    return normalize_user_mode(mode)
+    return normalize_user_mode(mode)  # type: ignore[no-any-return]
 
 
 def _normalize_phase_strength_oracle_rollout(mode: str | None) -> str | None:
@@ -244,14 +244,14 @@ def _resample_to_48k(audio: np.ndarray, sr: int) -> np.ndarray:
         try:
             # Frontend parity: soxr HQ for deterministic quality alignment.
             out = _soxr_rs.resample(audio, sr, _TARGET_SR, quality="HQ")
-            return np.asarray(out, dtype=np.float32)
+            return np.asarray(out, dtype=np.float32)  # type: ignore[no-any-return]
         except Exception:
             pass
     if _sig is not None:
         try:
             int(round(audio.shape[0] * _TARGET_SR / sr))
             out = _sig.resample_poly(audio, _TARGET_SR, sr, axis=0)
-            return np.asarray(out, dtype=np.float32)
+            return np.asarray(out, dtype=np.float32)  # type: ignore[no-any-return]
         except Exception as exc2:
             raise RuntimeError(
                 "Interne 48-kHz-Normierung fehlgeschlagen. Ursache: Resampling konnte nicht ausgefuehrt werden. "
@@ -268,7 +268,7 @@ def _as_samples_channels(audio: np.ndarray) -> np.ndarray:
     arr = np.asarray(audio, dtype=np.float32)
     if arr.ndim == 2 and arr.shape[0] <= 2 and arr.shape[1] > 2:
         arr = arr.T
-    return np.ascontiguousarray(arr)
+    return np.ascontiguousarray(arr)  # type: ignore[no-any-return]
 
 
 def _export_audio_frontend_parity(

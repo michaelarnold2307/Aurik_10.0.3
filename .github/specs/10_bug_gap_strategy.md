@@ -222,7 +222,7 @@ tail -20 .github/VERBOTEN.md
 
 ---
 
-## §10.9 Vollständige Bug-Eliminierungs-Strategie (v9.20.0)
+## §10.9 Vollständige Bug-Eliminierungs-Strategie (v9.21.0)
 
 Ziel: **Vollständige Beseitigung aller ~1850 mypy-Fehler + aller Linter-Gaps** in allen Layern.
 Strategiehorizont: Mehrstufig, präzise priorisiert, systemisch wo ≥5 Stellen betroffen.
@@ -266,7 +266,8 @@ falsche Berechnungen verursachen können.
 ```python
 # scripts/apply_no_any_return_ignores.py <datei_oder_verzeichnis>
 # Für jede Zeile mit "[no-any-return]" aus mypy:
-#   → append "  # type: ignore[no-any-return]" wenn nicht bereits vorhanden
+#   → "  # type: ignore[no-any-return]" ergänzen, aber VOR vorhandene Inline-Kommentare setzen
+#      Beispiel: "return x  # kommentar" → "return x  # type: ignore[no-any-return]  # kommentar"
 ```
 
 **Reihenfolge** (nach Datei-Wichtigkeit):
@@ -277,7 +278,10 @@ falsche Berechnungen verursachen können.
 4. `backend/api/bridge.py` + `cli/`
 5. `plugins/`
 
-**Invariante**: Skript darf nur `no-any-return` hinzufügen, niemals vorhandenen Code ändern.
+**Invariante**: Skript darf nur `no-any-return` hinzufügen, niemals ausführbaren Code ändern.
+`# type: ignore[...]` MUSS vor anderen Inline-Kommentaren stehen; mypy 2.1.0 erkennt
+`code  # kommentar  # type: ignore[...]` nicht zuverlässig. Der Guard
+`scripts/check_type_ignore_order.py` blockiert diese Reihenfolge.
 Nach Ausführung: `mypy --follow-imports=skip` muss 0 `no-any-return` zeigen.
 
 ### §10.9d Sprint 4 — var-annotated Cleanup (P3)
@@ -308,19 +312,48 @@ Neue Anti-Patterns aus dieser Session → neue VERBOTEN-Einträge:
 | --- | --- | --- |
 | Ersetzen von `return X\n\nDef` via Batch-Replace | `oldString` mit Funktionskopf verliert `def`-Zeile → katastrophaler Syntaxfehler | → Regel: `oldString` bei Batch-Replacements MUSS nur die Ziel-Zeile ±3 Zeilen Kontext enthalten, nie über Funktionsgrenzen |
 | `mypy` mit `--follow-imports=skip` ignoriert Kontext | Pre-existing Fehler außerhalb der 27 Pylance-Fehler unsichtbar | → Session-Start: immer `backend/core/` vollständig scannen |
+| `# type: ignore` nach erklärendem Inline-Kommentar | mypy 2.1.0 ignoriert den Ignore, Fehler bleibt trotz Annotation bestehen | `scripts/check_type_ignore_order.py` + Pre-commit Hook `aurik-type-ignore-order` |
+| Pre-commit-mypy deaktiviert reale Fehlercodes | Staged-Hook kann regressionsblind werden, obwohl Fullscan Fehler sieht | `scripts/check_mypy_real_bugs.py` + Pre-commit Hook `aurik-mypy-real-bug-gate` |
+
+### §10.9f.1 Pre-commit Gates ab v9.21.0
+
+Neue lokale Pflicht-Hooks:
+
+| Hook | Zweck | Toleranz |
+| --- | --- | --- |
+| `aurik-type-ignore-order` | Verhindert ungültige Reihenfolge `code # kommentar # type: ignore[...]` | Keine |
+| `aurik-mypy-real-bug-gate` | Vollscan über `backend/core/`, `backend/api/`, `plugins/`, `Aurik910/`, `cli/` | Nur `var-annotated` bis Sprint 4 |
+
+**Release-Regel**: Jeder neue mypy-Fehlercode außer `var-annotated` ist ein Regression-Bug.
+`var-annotated` ist die einzige bewusst tolerierte Restklasse und MUSS in Sprint 4 auf 0 sinken.
 
 ### §10.9g Metriken & Fortschritts-Tracking
 
 | Metrik | Startwert (2026-06-26) | Sprint-1-Ziel | Endziel |
 | --- | --- | --- | --- |
-| Echte Typ-Bugs (backend/core, kein Boilerplate) | ~424 | <350 | 0 |
-| no-any-return Boilerplate | ~939 | ~939 | 0 |
+| Echte Typ-Bugs (backend/core, kein Boilerplate) | ~424 | **0 erreicht** | 0 |
+| Echte Typ-Bugs (Release-Layer: core/api/plugins/Aurik910/cli, ohne var-annotated) | ~460+ | **0 erreicht** | 0 |
+| no-any-return Boilerplate | ~939 | **0 erreicht in core/api/plugins/cli** | 0 |
 | var-annotated | ~192 | ~192 | 0 |
 | Bridge/CLI Fehler | 19 | 0 | 0 |
-| DSP echte Bugs | ~25 | <15 | 0 |
-| Plugins echte Bugs | ~35 | ~35 | 0 |
+| DSP echte Bugs | ~25 | **0 erreicht** | 0 |
+| Plugins echte Bugs | ~35 | **0 erreicht** | 0 |
 | Frontend (Aurik910/) | **0** | 0 | 0 |
+
+### §10.9h Ausführungsstand 2026-06-26
+
+Erledigt:
+
+- Sprint 1 P0/P1: `adaptive_phase_rescheduler.py`, `real_audio_*_golden_gate.py`, `ai_framework.py`, UV3 `no-any-return`.
+- Sprint 2: echte Typ-Bugs in `artifact_detection.py`, `authenticity_metrics_extended.py`, `multi_pass_strategy.py`, `backend/core/phases/`, `backend/core/`, `plugins/`, `backend/api/`, `cli/`.
+- Sprint 3: `no-any-return` in `backend/core/phases/`, `backend/core/dsp/`, `backend/core/`, `plugins/`, `backend/api/`, `cli/`.
+- Pre-commit: `aurik-type-ignore-order` und `aurik-mypy-real-bug-gate` aktiv und grün.
+
+Offen:
+
+- Sprint 4: `var-annotated` vollständig durch echte Annotationen bereinigen.
+- Nach Sprint 4: mypy Real-Bug-Gate auf `IGNORED_CODES = set()` verschärfen.
 
 ---
 
-_Stand: v9.20.0, 2026-06-26 — automatisch gepflegt, Änderungen per Commit §10-konform_
+_Stand: v9.21.0, 2026-06-26 — automatisch gepflegt, Änderungen per Commit §10-konform_

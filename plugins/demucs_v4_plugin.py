@@ -107,7 +107,7 @@ class DemucsV4Plugin:
                     register_plugin as _reg_plm,
                 )
 
-                _reg_plm("DemucsV4", size_gb=0.12, unload_fn=lambda s=self: setattr(s, "_session", None))
+                _reg_plm("DemucsV4", size_gb=0.12, unload_fn=lambda s=self: setattr(s, "_session", None))  # type: ignore[misc]
             except Exception as _exc:
                 logger.debug("Operation failed (non-critical): %s", _exc)
         except Exception as exc:

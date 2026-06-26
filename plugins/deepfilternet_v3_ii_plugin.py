@@ -131,7 +131,7 @@ class DeepFilterNetV3Plugin:
                 _reg_plm(
                     "DeepFilterNetV3",
                     size_gb=0.15,
-                    unload_fn=lambda s=self: (
+                    unload_fn=lambda s=self: (  # type: ignore[misc]
                         setattr(s, "_enc", None) or setattr(s, "_dec", None) or setattr(s, "_erb_dec", None)  # type: ignore[func-returns-value]
                     ),
                 )

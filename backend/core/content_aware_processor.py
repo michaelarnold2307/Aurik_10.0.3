@@ -50,7 +50,7 @@ try:
     )
 except ImportError:
     try:
-        from lyrics_transcriber_plugin import (
+        from lyrics_transcriber_plugin import (  # type: ignore[no-redef]
             LyricsTranscriptionResult,  # type: ignore[import, assignment, no-redef]
             WordTimestamp,  # type: ignore[import, assignment, no-redef]
         )

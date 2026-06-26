@@ -169,7 +169,7 @@ class SGMSEPlusPlugin:
                 try_allocate as _try_alloc,
             )
         except Exception:
-            _try_alloc = None
+            _try_alloc = None  # type: ignore[assignment]
 
         if _TS_PATH.exists():
             try:

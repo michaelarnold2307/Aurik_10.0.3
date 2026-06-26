@@ -134,7 +134,7 @@ class HybridDereverb:
         try:
             from plugins.sgmse_plugin import get_sgmse_plus_plugin
 
-            self.dccrn = get_sgmse_plus_plugin()
+            self.dccrn = get_sgmse_plus_plugin()  # type: ignore[assignment]
             self._sgmse_active = True
             logger.info("✅ SGMSE+ geladen als Dereverb-Primärmodul (§4.4) — ResembleEnhance als Fallback bereit")
             return
@@ -147,7 +147,7 @@ class HybridDereverb:
         try:
             from plugins.resemble_enhance_plugin import ResembleEnhancePlugin
 
-            self.dccrn = ResembleEnhancePlugin()
+            self.dccrn = ResembleEnhancePlugin()  # type: ignore[assignment]
             self._sgmse_active = False
             logger.info("ResembleEnhance ML-Stufe für Dereverb geladen (§4.4 Fallback 1)")
         except ImportError as e:

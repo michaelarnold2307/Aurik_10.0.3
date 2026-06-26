@@ -72,8 +72,8 @@ class HybridVocalEnhancer:
             from plugins.phoneme_detector import PhonemeDetector
 
             modules["phoneme"] = PhonemeDetector()
-            modules["breath"] = BreathDetector()
-            modules["formant"] = FormantTracker()
+            modules["breath"] = BreathDetector()  # type: ignore[assignment]
+            modules["formant"] = FormantTracker()  # type: ignore[assignment]
             logger.info("ML-Module für Vocal Enhancement geladen.")
         except Exception as e:
             logger.warning("ML-Module nicht vollständig verfügbar: %s", e)

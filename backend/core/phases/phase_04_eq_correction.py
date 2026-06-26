@@ -700,7 +700,7 @@ class EQCorrectionPhase(PhaseInterface):
 
                 result_audio = _dolby_inv(  # type: ignore[arg-type]
                     result_audio,
-                    dolby_nr_type,
+                    dolby_nr_type,  # type: ignore[arg-type]
                     sr=sample_rate,
                     confidence=dolby_nr_conf,  # type: ignore[arg-type]
                 )

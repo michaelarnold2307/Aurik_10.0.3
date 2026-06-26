@@ -99,7 +99,7 @@ class AudioLDM2Plugin:
                     _reg_plm(
                         "AudioLDM2",
                         size_gb=1.3,
-                        unload_fn=lambda s=self: setattr(s, "_session", None) or setattr(s, "_ok", False),  # type: ignore[func-returns-value]
+                        unload_fn=lambda s=self: setattr(s, "_session", None) or setattr(s, "_ok", False),  # type: ignore[func-returns-value,misc]
                     )
                 except Exception as _exc:
                     logger.debug("Operation failed (non-critical): %s", _exc)

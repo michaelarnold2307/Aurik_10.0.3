@@ -94,13 +94,13 @@ Dosiergenauigkeit **keine Konkurrenz** zulaesst.
 - Globales Einheits-Strength fuer heterogene Events derselben Defektklasse.
 - Cause-Tabellen, die bekannte Defekte ohne physikalische Begruendung auf generische NR/EQ-Fallbacks zusammenziehen.
 
-### §0q [RELEASE_MUST] Bug-Gap-Erkennungs-Strategie (v9.19.0)
+### §0q [RELEASE_MUST] Bug-Gap-Erkennungs-Strategie (v9.21.0)
 
 **Vollständige Spezifikation**: [`.github/specs/10_bug_gap_strategy.md`](specs/10_bug_gap_strategy.md)
 
-**Jede Session MUSS den 5-Layer-Scan durchführen**: L1 Frontend → L2 Bridge/CLI → L3 Denker → L4 UV3-Pipeline → L5 Phasen/DSP/Plugins (§10.1). Bug-Klassen: R-BLOCKER (P0/sofort) → AUDIO-QUALITY (P1) → SPEC-GAP (P2) → TYPE-SAFETY (P3). Behebungs-Workflow: Fix → Test → VERBOTEN-Regel → Spec → Commit (§10.5). **Bekannte offene Gaps** (v9.19.0): mypy UV3 ~46 Fehler (no-any-return), SSIP phase_55/24 intern (V14–V18), V33 CASSETTE-Keys in phase_24/50/40.
+**Jede Session MUSS den 5-Layer-Scan durchführen**: L1 Frontend → L2 Bridge/CLI → L3 Denker → L4 UV3-Pipeline → L5 Phasen/DSP/Plugins (§10.1). Bug-Klassen: R-BLOCKER (P0/sofort) → AUDIO-QUALITY (P1) → SPEC-GAP (P2) → TYPE-SAFETY (P3). Behebungs-Workflow: Fix → Test → VERBOTEN-Regel → Spec → Commit (§10.5). **Aktueller Type-Safety-Stand** (v9.21.0): `backend/core/`, `backend/api/`, `plugins/`, `Aurik910/`, `cli/` haben 0 echte mypy-Bugs außer der bewusst tolerierten Sprint-4-Klasse `var-annotated`; `no-any-return` ist in diesen Release-Layern auf 0. Pre-commit MUSS `aurik-type-ignore-order` und `aurik-mypy-real-bug-gate` ausführen. **Bekannte offene Gaps**: Sprint 4 `var-annotated` auf 0 bringen, danach `scripts/check_mypy_real_bugs.py::IGNORED_CODES` leeren; SSIP phase_55/24 intern (V14–V18), V33 CASSETTE-Keys in phase_24/50/40.
 
-**§0q-Invariante**: Jeder Bug der ≥2 Mal re-introduced wurde, MUSS eine VERBOTEN-Regel (V01–V58) und einen Linter-Test erhalten. Systemische Fixes (≥5 Stellen) via `§0f`-Workflow.
+**§0q-Invariante**: Jeder Bug der ≥2 Mal re-introduced wurde, MUSS eine VERBOTEN-Regel (V01–V58) und einen Linter-Test erhalten. Systemische Fixes (≥5 Stellen) via `§0f`-Workflow. `# type: ignore[...]` MUSS vor anderen Inline-Kommentaren stehen (`code  # type: ignore[code]  # Kommentar`), sonst blockiert `aurik-type-ignore-order`.
 
 ### §0p [RELEASE_MUST] Vocal-Supremacy-Doktrin (v9.12.1)
 

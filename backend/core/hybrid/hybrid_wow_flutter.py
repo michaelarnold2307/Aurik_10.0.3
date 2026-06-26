@@ -130,7 +130,7 @@ class PolyphonicSpeedCurveEstimator:
         try:
             from plugins.basicpitch_plugin import get_basicpitch_plugin
 
-            self._bp = get_basicpitch_plugin()
+            self._bp = get_basicpitch_plugin()  # type: ignore[assignment]
             logger.info(
                 "PolyphonicSpeedCurveEstimator: BasicPitch geladen (model_loaded=%s)",
                 getattr(self._bp, "_model_loaded", False),
@@ -355,7 +355,7 @@ class HybridWowFlutter:
         try:
             from plugins.fcpe_plugin import get_fcpe_plugin
 
-            self.crepe = get_fcpe_plugin()
+            self.crepe = get_fcpe_plugin()  # type: ignore[assignment]
             logger.info("FCPE pitch plugin loaded for wow/flutter detection (model=%s)", self.crepe.model_used)  # type: ignore[attr-defined]
             return
         except Exception as e:
@@ -382,7 +382,7 @@ class HybridWowFlutter:
         try:
             from plugins.crepe_plugin import get_crepe_plugin
 
-            self.crepe = get_crepe_plugin()
+            self.crepe = get_crepe_plugin()  # type: ignore[assignment]
             logger.info("CREPE plugin geladen für wow/flutter-Detektion (§4.4 Tier-4 legacy)")
         except Exception as e:
             logger.warning("Kein Pitch-ML-Plugin verfügbar (%s) — pYIN-Fallback", e)

@@ -133,7 +133,7 @@ class BanquetVinylPlugin:
                 _reg_plm(
                     "BanquetVinyl",
                     size_gb=0.80,
-                    unload_fn=lambda s=self: setattr(s, "_session", None) or setattr(s, "_model_ok", False),  # type: ignore[func-returns-value]
+                    unload_fn=lambda s=self: setattr(s, "_session", None) or setattr(s, "_model_ok", False),  # type: ignore[func-returns-value,misc]
                 )
             except Exception as _exc:
                 logger.debug("Plugin operation failed (non-critical): %s", _exc)

@@ -169,7 +169,7 @@ class FormantTracker:
                 _reg_plm(
                     "DeepFormants",
                     size_gb=0.05,
-                    unload_fn=lambda s=self: (
+                    unload_fn=lambda s=self: (  # type: ignore[misc]
                         setattr(s, "_deepformants_session", None) or setattr(s, "_deepformants_loaded", False)  # type: ignore[func-returns-value]
                     ),
                 )

@@ -121,12 +121,12 @@ class HybridMLDenoiser:
         if self._resemble is None:
             try:
                 loaded = get_loaded_resemble_enhance_plugin()
-                self._resemble = loaded if loaded is not None else get_resemble_enhance_plugin()
+                self._resemble = loaded if loaded is not None else get_resemble_enhance_plugin()  # type: ignore[assignment]
                 logger.info("Resemble Enhance plugin loaded successfully")
             except Exception as e:
                 logger.warning("Failed to load Resemble Enhance: %s", e)
                 logger.warning("Falling back to OMLSA-only mode")
-        return self._resemble
+        return self._resemble  # type: ignore[return-value]
 
     def denoise(
         self, audio: np.ndarray, sample_rate: int = 48000, noise_profile: np.ndarray | None = None

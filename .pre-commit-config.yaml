@@ -1,5 +1,5 @@
 # =============================================================================
-# .pre-commit-config.yaml — Aurik 9 Code-Qualitäts-Hooks (SOTA, März 2026)
+# .pre-commit-config.yaml — Aurik 9 Code-Qualitäts-Hooks (SOTA, Juni 2026)
 # Installation: pre-commit install
 # Manuell ausführen: pre-commit run --all-files
 # =============================================================================
@@ -253,3 +253,17 @@ repos:
         language: system
         pass_filenames: false
         always_run: true
+
+      - id: aurik-type-ignore-order
+        name: "🧭 mypy type-ignore Reihenfolge (ignore vor Inline-Kommentar)"
+        entry: .venv_aurik/bin/python scripts/check_type_ignore_order.py backend plugins Aurik910 cli scripts
+        language: system
+        pass_filenames: false
+        files: ^(backend|plugins|Aurik910|cli|scripts)/.*\.py$
+
+      - id: aurik-mypy-real-bug-gate
+        name: "🧪 Aurik mypy Real-Bug-Gate (alle Layer, var-annotated Sprint 4 toleriert)"
+        entry: .venv_aurik/bin/python scripts/check_mypy_real_bugs.py
+        language: system
+        pass_filenames: false
+        files: ^(backend|plugins|Aurik910|cli)/.*\.py$

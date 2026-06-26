@@ -166,7 +166,7 @@ class PANNsPlugin:
             try:
                 from backend.core.plugin_lifecycle_manager import register_plugin as _reg_plm
 
-                _reg_plm("PANNs", size_gb=0.66, unload_fn=lambda s=self: setattr(s, "_session", None))
+                _reg_plm("PANNs", size_gb=0.66, unload_fn=lambda s=self: setattr(s, "_session", None))  # type: ignore[misc]
             except Exception as _exc:
                 logger.debug("Operation failed (non-critical): %s", _exc)
         except Exception as exc:

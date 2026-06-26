@@ -57,7 +57,7 @@ class ParameterOptimizer:
 
                 material = targets.get("material", "unknown")
                 proposal = get_optimizer().propose(str(material))
-                for k, v in proposal.items():
+                for k, v in proposal.items():  # type: ignore[attr-defined]
                     if k in optimized and isinstance(v, (int, float)) and math.isfinite(float(v)):
                         optimized[k] = v
                 _log.debug("ParameterOptimizer: GP-Proposal für material='%s' angewendet.", material)
@@ -95,7 +95,7 @@ class ParameterOptimizer:
             try:
                 from backend.core.gp_parameter_optimizer import get_optimizer
 
-                get_optimizer().update(str(material), params, float(score))
+                get_optimizer().update(str(material), params, float(score))  # type: ignore[arg-type]
                 _log.debug("ParameterOptimizer.feedback: GP-Gedächtnis aktualisiert (score=%.4f).", score)
             except Exception as _gp_err:
                 _log.debug("ParameterOptimizer.feedback: GP-Update nicht verfügbar (%s).", _gp_err)

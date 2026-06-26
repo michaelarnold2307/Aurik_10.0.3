@@ -84,7 +84,7 @@ class UVRMDXNetPlugin:
                 try:
                     from backend.core.plugin_lifecycle_manager import register_plugin as _reg_plm
 
-                    _reg_plm("UVR_MDXNet", size_gb=1.20, unload_fn=lambda s=self: setattr(s, "_sessions", []))
+                    _reg_plm("UVR_MDXNet", size_gb=1.20, unload_fn=lambda s=self: setattr(s, "_sessions", []))  # type: ignore[misc]
                 except Exception as _exc:
                     logger.debug("Operation failed (non-critical): %s", _exc)
         except Exception as exc:

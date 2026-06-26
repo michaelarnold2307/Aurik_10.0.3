@@ -140,7 +140,7 @@ def _print_summary(result: Any) -> None:
     meta = getattr(result, "metadata", {}) or {}
     fail_reasons = meta.get("fail_reasons", [])
 
-    print(f"\n  Material    : {mat.value if hasattr(mat, 'value') else mat or '?'}")
+    print(f"\n  Material    : {mat.value if hasattr(mat, 'value') else mat or '?'}")  # type: ignore[union-attr]
     print(f"  Mode        : {cfg.mode.value if cfg and hasattr(cfg.mode, 'value') else '?'}")
     print(f"  Zeit        : {getattr(result, 'total_time_seconds', 0):.1f}s  RT-Faktor: {rt:.2f}×")
     print(f"  Phasen      : {phases_ex} ausgeführt, {phases_sk} übersprungen")

@@ -928,7 +928,7 @@ class EnhancedQualityGate:
             try:
                 from plugins.visqol_plugin import ViSQOLPlugin
 
-                self._visqol_plugin = ViSQOLPlugin()
+                self._visqol_plugin = ViSQOLPlugin()  # type: ignore[assignment]
                 logger.info("ViSQOL plugin loaded")
             except Exception as e:
                 logger.warning("ViSQOL plugin unavailable: %s", e)
@@ -940,7 +940,7 @@ class EnhancedQualityGate:
             try:
                 from plugins.versa_plugin import get_versa_plugin
 
-                self._versa_plugin = get_versa_plugin()
+                self._versa_plugin = get_versa_plugin()  # type: ignore[assignment]
                 logger.info("VERSA plugin loaded (§4.4)")
             except Exception as e:
                 logger.warning("VERSA plugin unavailable: %s", e)

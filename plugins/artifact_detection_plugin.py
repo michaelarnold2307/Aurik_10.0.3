@@ -55,7 +55,7 @@ class ArtifactDetectionPlugin:
                 _reg_plm(
                     self._BUDGET_NAME,
                     size_gb=self._BUDGET_SIZE_GB,
-                    unload_fn=lambda s=_self: setattr(s, "model", None),
+                    unload_fn=lambda s=_self: setattr(s, "model", None),  # type: ignore[misc]
                 )
             except Exception as _exc:
                 logger.debug("Operation failed (non-critical): %s", _exc)

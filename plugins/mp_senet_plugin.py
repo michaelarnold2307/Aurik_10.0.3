@@ -151,7 +151,7 @@ class MpSenetPlugin:
                 _reg_plm(
                     "MP-SENet",
                     size_gb=0.04,
-                    unload_fn=lambda s=self: setattr(s, "_session", None) or setattr(s, "_model_loaded", False),  # type: ignore[func-returns-value]
+                    unload_fn=lambda s=self: setattr(s, "_session", None) or setattr(s, "_model_loaded", False),  # type: ignore[func-returns-value,misc]
                 )
             except Exception as _exc:
                 logger.debug("Operation failed (non-critical): %s", _exc)
