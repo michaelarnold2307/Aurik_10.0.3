@@ -137,7 +137,7 @@ def _rms_envelope(signal: np.ndarray, sr: int, window_ms: float = 5.0) -> np.nda
     sq = signal**2
     kernel = np.ones(win) / win
     rms = np.sqrt(np.convolve(sq, kernel, mode="same") + 1e-12)
-    return np.asarray(rms)
+    return np.asarray(rms)  # type: ignore[no-any-return]
 
 
 def _smooth_gain(gain_lin: np.ndarray, sr: int, attack_ms: float, release_ms: float) -> np.ndarray:
@@ -166,7 +166,7 @@ def _smooth_gain(gain_lin: np.ndarray, sr: int, attack_ms: float, release_ms: fl
     # smoothed[0] always 1.0 — preserve original initialisation semantics.
     smoothed = np.ones(n, dtype=np.float64)
     if n <= 1:
-        return smoothed.astype(gain_lin.dtype)
+        return smoothed.astype(gain_lin.dtype)  # type: ignore[no-any-return]
 
     b_att = np.array([1.0 - att])
     a_att = np.array([1.0, -att])
@@ -189,7 +189,7 @@ def _smooth_gain(gain_lin: np.ndarray, sr: int, attack_ms: float, release_ms: fl
         smoothed[start:end] = chunk_out
         state = float(chunk_out[-1])
 
-    return np.clip(smoothed, 0.0, 1.0).astype(gain_lin.dtype)
+    return np.clip(smoothed, 0.0, 1.0).astype(gain_lin.dtype)  # type: ignore[no-any-return]
 
 
 def _estimate_breathiness(audio: np.ndarray, sr: int) -> float:

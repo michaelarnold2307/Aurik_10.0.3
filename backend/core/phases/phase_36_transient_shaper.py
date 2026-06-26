@@ -320,7 +320,7 @@ class TransientShaper(PhaseInterface):
         MIN_AUDIO_SAMPLES = 512  # 10 ms @ 48 kHz
         if len(audio) < MIN_AUDIO_SAMPLES:
             logger.debug("phase_36: audio too short (%d < %d), passthrough", len(audio), MIN_AUDIO_SAMPLES)
-            return np.asarray(audio, dtype=np.float32).copy()
+            return np.asarray(audio, dtype=np.float32).copy()  # type: ignore[no-any-return]
 
         # Split into bands
         bands = self._split_into_bands(audio, sample_rate)
@@ -508,7 +508,7 @@ class TransientShaper(PhaseInterface):
         x_full = np.arange(n)
         envelope = np.interp(x_full, x_ds, envelope_ds)
 
-        return envelope
+        return envelope  # type: ignore[no-any-return]
 
     def _detect_transients(self, envelope: np.ndarray, attack_samples: int) -> np.ndarray:
         """Erkennt transients based on envelope slope."""
@@ -557,7 +557,7 @@ class TransientShaper(PhaseInterface):
         else:
             extended_mask = transient_mask
 
-        return extended_mask
+        return extended_mask  # type: ignore[no-any-return]
 
     def _combine_bands(self, bands: list) -> np.ndarray:
         """Kombiniert frequency bands."""

@@ -769,7 +769,7 @@ class SurfaceNoiseProfiling(PhaseInterface):
 
         # Bias-Korrektur + Wurzel → Rauschbetrag
         noise_mag = np.sqrt(np.maximum(b_min * noise_power, eps))
-        return np.asarray(np.nan_to_num(noise_mag, nan=eps, posinf=eps, neginf=eps), dtype=np.float32)
+        return np.asarray(np.nan_to_num(noise_mag, nan=eps, posinf=eps, neginf=eps), dtype=np.float32)  # type: ignore[no-any-return]
 
     def _compute_omlsa_gain(self, magnitude: np.ndarray, noise_mag: np.ndarray, config: dict[str, Any]) -> np.ndarray:
         """OMLSA-Gain: G(t,f) = G_floor^(1-p) * (xi/(1+xi))^p  (Cohen 2003).
@@ -811,4 +811,4 @@ class SurfaceNoiseProfiling(PhaseInterface):
         log_G = np.clip(log_G, np.log(G_floor), 0.0)
         G = np.exp(log_G)
         G = np.nan_to_num(G, nan=G_floor, posinf=1.0, neginf=G_floor)
-        return np.asarray(np.clip(G, G_floor, 1.0), dtype=np.float32)
+        return np.asarray(np.clip(G, G_floor, 1.0), dtype=np.float32)  # type: ignore[no-any-return]

@@ -82,7 +82,7 @@ def _apply_groove_echo_mono(
     peaks = deduped[:30]
 
     if not peaks:
-        return np.clip(x, -1.0, 1.0).astype(np.float32)
+        return np.clip(x, -1.0, 1.0).astype(np.float32)  # type: ignore[no-any-return]
 
     for delay_s in _REVOLUTION_DELAYS_S:
         delay_samples = int(delay_s * sr)
@@ -150,7 +150,7 @@ def _apply_groove_echo_mono(
             out[ghost_start : ghost_start + n_fft] = cleaned
 
     result = np.nan_to_num(out, nan=0.0, posinf=0.0, neginf=0.0)
-    return np.clip(result, -1.0, 1.0).astype(np.float32)
+    return np.clip(result, -1.0, 1.0).astype(np.float32)  # type: ignore[no-any-return]
 
 
 def apply(
@@ -169,7 +169,7 @@ def apply(
         ge_score = float(defect_scores.get("groove_echo", 0.0))
         if ge_score < min_groove_echo_score:
             logger.debug("Phase 61: groove_echo score %.3f < %.3f — skipped", ge_score, min_groove_echo_score)
-            return np.clip(audio, -1.0, 1.0)
+            return np.clip(audio, -1.0, 1.0)  # type: ignore[no-any-return]
 
     stereo = audio.ndim == 2
     if stereo:
@@ -196,7 +196,7 @@ def apply(
         left_out = (mid_clean + side_clean).astype(np.float32)
         right_out = (mid_clean - side_clean).astype(np.float32)
         result = np.clip(np.stack([left_out, right_out], axis=0), -1.0, 1.0).astype(np.float32)
-        return result
+        return result  # type: ignore[no-any-return]
 
     # Mono-Verarbeitung via Hilfsfunktion
     return _apply_groove_echo_mono(audio, sample_rate, strength, defect_scores, spectral_subtraction_floor_db)

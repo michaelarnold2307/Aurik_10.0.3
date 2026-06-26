@@ -356,7 +356,7 @@ class HumRemovalPhase(PhaseInterface):
         # Step 2: Track harmonics for each fundamental
         harmonic_data = []
         for fundamental_freq in detected_fundamentals:
-            harmonics = self._track_harmonics(audio, fundamental_freq, params["max_harmonics"], params["threshold_db"])
+            harmonics = self._track_harmonics(audio, fundamental_freq, params["max_harmonics"], params["threshold_db"])  # type: ignore[arg-type]
             harmonic_data.append({"fundamental": fundamental_freq, "harmonics": harmonics})
 
         # Step 3: Apply adaptive comb filters (DSP stage)
@@ -690,7 +690,7 @@ class HumRemovalPhase(PhaseInterface):
         initial_hum_energy = 0
         for hum_info in harmonic_data:
             for harmonic_freq in hum_info["harmonics"]:
-                initial_hum_energy += self._measure_hum_at_freq(audio, harmonic_freq)
+                initial_hum_energy += self._measure_hum_at_freq(audio, harmonic_freq)  # type: ignore[assignment]
 
         # Apply notch filter for each harmonic
         for hum_info in harmonic_data:
@@ -716,7 +716,7 @@ class HumRemovalPhase(PhaseInterface):
         final_hum_energy = 0
         for hum_info in harmonic_data:
             for harmonic_freq in hum_info["harmonics"]:
-                final_hum_energy += self._measure_hum_at_freq(result, harmonic_freq)
+                final_hum_energy += self._measure_hum_at_freq(result, harmonic_freq)  # type: ignore[assignment]
 
         # Calculate reduction
         reduction_db = 10 * np.log10((initial_hum_energy + 1e-10) / (final_hum_energy + 1e-10))
@@ -748,7 +748,7 @@ class HumRemovalPhase(PhaseInterface):
             # Fallback to forward filter if filtfilt fails
             filtered = signal.lfilter(b, a, audio)
 
-        return filtered
+        return filtered  # type: ignore[no-any-return]
 
     def _detect_musical_content(self, audio: np.ndarray, freq: float) -> bool:
         """

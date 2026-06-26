@@ -227,9 +227,9 @@ class StereoWidthLimiterPhaseV2(PhaseInterface):
         restorability_score = kwargs.get("restorability_score", 50.0)
         material_key = str(getattr(material, "value", material) or "unknown")
         width_limiter_profile = self._compute_width_limiter_profile(material_key, quality_mode, restorability_score)
-        self._attack_ms_current = float(width_limiter_profile["attack_ms"])
-        self._release_ms_current = float(width_limiter_profile["release_ms"])
-        self._transient_threshold_percentile_current = float(width_limiter_profile["transient_threshold_percentile"])
+        self._attack_ms_current = float(width_limiter_profile["attack_ms"])  # type: ignore[assignment]
+        self._release_ms_current = float(width_limiter_profile["release_ms"])  # type: ignore[assignment]
+        self._transient_threshold_percentile_current = float(width_limiter_profile["transient_threshold_percentile"])  # type: ignore[assignment]
         self._transient_width_preservation_current = float(width_limiter_profile["transient_width_preservation"])
 
         if _effective_strength <= 0.0:
@@ -380,7 +380,7 @@ class StereoWidthLimiterPhaseV2(PhaseInterface):
         left = mid + side
         right = mid - side
 
-        return stereo_like(left, right, template)
+        return stereo_like(left, right, template)  # type: ignore[no-any-return]
 
     def _split_multiband(self, signal_in: np.ndarray, sample_rate: int) -> list[np.ndarray]:
         """
@@ -423,7 +423,7 @@ class StereoWidthLimiterPhaseV2(PhaseInterface):
 
     def _recombine_multiband(self, bands: list[np.ndarray]) -> np.ndarray:
         """Recombine frequency bands (simple sum)."""
-        return sum(bands)
+        return sum(bands)  # type: ignore[return-value]
 
     def _detect_transients(self, mid: np.ndarray, sample_rate: int) -> np.ndarray:
         """
@@ -459,7 +459,7 @@ class StereoWidthLimiterPhaseV2(PhaseInterface):
         threshold = np.percentile(derivative_smooth, threshold_pct)
         transient_mask = derivative_smooth > threshold
 
-        return transient_mask
+        return transient_mask  # type: ignore[no-any-return]
 
     def _limit_band_width(
         self,
@@ -614,7 +614,7 @@ class StereoWidthLimiterPhaseV2(PhaseInterface):
                 # Mid-dominant (L ≈ R)
                 width = (1.0 - correlation) * 1.0  # 0.0 to 0.5
 
-        return width
+        return width  # type: ignore[no-any-return]
 
     def _check_mono_compatibility(self, audio: np.ndarray) -> float:
         """

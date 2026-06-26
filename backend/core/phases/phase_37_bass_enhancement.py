@@ -153,7 +153,7 @@ class BassEnhancement(PhaseInterface):
         )
 
     # pylint: disable-next=arguments-renamed
-    def process(
+    def process(  # type: ignore[override]
         self, audio: np.ndarray, sample_rate: int, material: MaterialType = MaterialType.CD_DIGITAL, **kwargs
     ) -> PhaseResult:
         """
@@ -391,7 +391,7 @@ class BassEnhancement(PhaseInterface):
         # §2.51 Anti-Zeitversatz: sosfiltfilt — Ausgabe wird nicht zu Original addiert (V11).
         enhanced = signal.sosfiltfilt(cached["hp"], enhanced)
 
-        return enhanced
+        return enhanced  # type: ignore[no-any-return]
 
     def _generate_harmonics(self, bass: np.ndarray, config: dict[str, float]) -> np.ndarray:
         """Generiert harmonic content from bass."""
@@ -411,13 +411,13 @@ class BassEnhancement(PhaseInterface):
         # Combine
         harmonics = harmonic_2 + harmonic_3 + sub_harmonic + saturated * 0.3
 
-        return harmonics
+        return harmonics  # type: ignore[no-any-return]
 
     def _generate_sub_harmonic(self, bass: np.ndarray) -> np.ndarray:
         """Generiert sub-harmonic (octave down)."""
         # Vectorized octave-down via sample-and-hold (avoids Python for-loop)
         sub = np.repeat(bass[::2], 2)[: len(bass)]
-        return sub
+        return sub  # type: ignore[no-any-return]
 
     def _virtual_pitch_bass(self, bass: np.ndarray, sr: int) -> np.ndarray:
         """Virtual Pitch / Missing Fundamental (Moore et al. 2006, JASA).
@@ -431,18 +431,18 @@ class BassEnhancement(PhaseInterface):
         Loudness, and Partial Loudness" — Virtual Pitch via Harmonic Template Matching.
         """
         if len(bass) < 1024:
-            return self._generate_sub_harmonic(bass) * 0.25
+            return self._generate_sub_harmonic(bass) * 0.25  # type: ignore[no-any-return]
 
         # Bandpass 120–500 Hz: Zone der Missing-Fundamental-Wahrnehmung
         try:
             sos_vp = signal.butter(4, [120.0 / (sr / 2), min(500.0 / (sr / 2), 0.99)], btype="band", output="sos")
             vp_band = signal.sosfiltfilt(sos_vp, bass)
         except Exception:
-            return self._generate_sub_harmonic(bass) * 0.25
+            return self._generate_sub_harmonic(bass) * 0.25  # type: ignore[no-any-return]
 
         _rms = float(np.sqrt(np.mean(vp_band.astype(np.float64) ** 2) + 1e-12))
         if _rms < 1e-5:
-            return np.zeros_like(bass)
+            return np.zeros_like(bass)  # type: ignore[no-any-return]
 
         # Moore-style harmonic template matching:
         # estimate virtual fundamental f0 from harmonics (2f0..5f0 in 120–500 Hz).
@@ -499,7 +499,7 @@ class BassEnhancement(PhaseInterface):
         sub_result = sub_result * _gain
         sub_result = np.nan_to_num(sub_result, nan=0.0, posinf=0.0, neginf=0.0)
         sub_result = np.clip(sub_result, -1.0, 1.0)
-        return sub_result
+        return sub_result  # type: ignore[no-any-return]
 
     def _measure_bass_energy(self, audio: np.ndarray, sample_rate: int) -> float:
         """Misst bass energy (20-250 Hz RMS)."""

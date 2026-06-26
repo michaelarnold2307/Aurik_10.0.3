@@ -128,12 +128,12 @@ def apply(
         xt_score = float(defect_scores.get("crosstalk", 0.0))
         if xt_score < min_crosstalk_score:
             logger.debug("Phase 62: crosstalk score %.3f < %.3f — skipped", xt_score, min_crosstalk_score)
-            return np.clip(audio, -1.0, 1.0)
+            return np.clip(audio, -1.0, 1.0)  # type: ignore[no-any-return]
 
     # Crosstalk cancellation only applies to stereo
     if audio.ndim != 2:
         logger.debug("Phase 62: mono input — skipped (no crosstalk possible)")
-        return np.clip(audio, -1.0, 1.0)
+        return np.clip(audio, -1.0, 1.0)  # type: ignore[no-any-return]
 
     # Normalise to [channels, samples] = (2, N)
     if audio.shape[0] == 2 and audio.shape[1] != 2:

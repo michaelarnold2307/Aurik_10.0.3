@@ -1893,7 +1893,7 @@ class WowFlutterFix(PhaseInterface):
             result[:fade_len] = segment[:fade_len] * (1.0 - fade_in) + result[:fade_len] * fade_in
             result[-fade_len:] = segment[-fade_len:] * (1.0 - fade_out) + result[-fade_len:] * fade_out
 
-        return np.clip(result, -1.0, 1.0)
+        return np.clip(result, -1.0, 1.0)  # type: ignore[no-any-return]
 
     @staticmethod
     def _spectral_context_blend(
@@ -1973,7 +1973,7 @@ class WowFlutterFix(PhaseInterface):
         # Blend with original using strength
         result = bump_audio * (1.0 - strength * 0.5) + result * (strength * 0.5)
 
-        return np.clip(result, -1.0, 1.0).astype(np.float32)
+        return np.clip(result, -1.0, 1.0).astype(np.float32)  # type: ignore[no-any-return]
 
     # ------------------------------------------------------------------
     # Step 6c: Tape Head Contact Level Stabilizer
@@ -2277,7 +2277,7 @@ class WowFlutterFix(PhaseInterface):
             y_out = np.zeros(n_samples, dtype=np.float64)
             n_trim = min(len(y), n_samples)
             y_out[:n_trim] = y[:n_trim]
-            return y_out
+            return y_out  # type: ignore[no-any-return]
 
         if is_stereo:
             L_out = _apply_gain_to_channel(audio[:, 0])
@@ -2363,7 +2363,7 @@ class WowFlutterFix(PhaseInterface):
             fade = max(1, n - len(resampled))
             result[len(resampled) :] = bump_audio[len(resampled) :] * np.linspace(1.0, 0.0, fade)[: n - len(resampled)]
 
-        return np.clip(result, -1.0, 1.0)
+        return np.clip(result, -1.0, 1.0)  # type: ignore[no-any-return]
 
     def _quick_pitch_estimate(self, audio: np.ndarray, sample_rate: int) -> float:
         """Fast autocorrelation-based pitch estimate for short segments.
@@ -2532,7 +2532,7 @@ class WowFlutterFix(PhaseInterface):
 
         if np.sum(confident_mask) < 10:
             # Not enough confident estimates, no correction
-            return np.ones_like(pitch_trajectory)
+            return np.ones_like(pitch_trajectory)  # type: ignore[no-any-return]
 
         confident_pitches = pitch_trajectory[confident_mask]
 
@@ -2555,7 +2555,7 @@ class WowFlutterFix(PhaseInterface):
                         _cp_p5,
                         _cp_p95,
                     )
-                    return np.ones_like(pitch_trajectory)
+                    return np.ones_like(pitch_trajectory)  # type: ignore[no-any-return]
 
         target_pitch = np.median(confident_pitches)
 
@@ -2667,7 +2667,7 @@ class WowFlutterFix(PhaseInterface):
             import librosa  # type: ignore[import-untyped]
 
             audio_f = np.asarray(audio, dtype=np.float32)
-            _harmonic, _residual = librosa.effects.hpss(audio_f, margin=3.0)
+            _harmonic, _residual = librosa.effects.hpss(audio_f, margin=3.0)  # type: ignore[attr-defined]
 
             # Trennungsqualität: harmonische Energie-Ratio
             _total_rms = float(np.sqrt(np.mean(audio_f**2) + 1e-12))
@@ -2758,7 +2758,7 @@ class WowFlutterFix(PhaseInterface):
 
         corrected = np.interp(src_pos, np.arange(n_samples, dtype=np.float32), audio_f)
         corrected = np.nan_to_num(corrected, nan=0.0, posinf=0.0, neginf=0.0)
-        return corrected.astype(audio.dtype, copy=False)
+        return corrected.astype(audio.dtype, copy=False)  # type: ignore[no-any-return]
 
     def _apply_neural_phase_coherence(
         self, audio: np.ndarray, sample_rate: int, reference: np.ndarray | None = None
@@ -2878,7 +2878,7 @@ class WowFlutterFix(PhaseInterface):
                 n_incoherent,
                 blend,
             )
-            return result.astype(audio.dtype)
+            return result.astype(audio.dtype)  # type: ignore[no-any-return]
 
         except Exception as _c3_exc:
             logger.debug("§C3 Neural Phase Coherence non-blocking: %s", _c3_exc)
@@ -2894,13 +2894,13 @@ class WowFlutterFix(PhaseInterface):
                 # Kurzsignal-Notfallpfad: leichte zeitliche Kohärenzglättung statt No-op.
                 audio_f = np.asarray(audio, dtype=np.float64)
                 if len(audio_f) < 3:
-                    return np.nan_to_num(audio_f, nan=0.0, posinf=0.0, neginf=0.0).astype(audio.dtype, copy=False)
+                    return np.nan_to_num(audio_f, nan=0.0, posinf=0.0, neginf=0.0).astype(audio.dtype, copy=False)  # type: ignore[no-any-return]
                 kernel = np.array([0.25, 0.5, 0.25], dtype=np.float64)
                 smooth = np.convolve(audio_f, kernel, mode="same")
                 blend = 0.12
                 result = (1.0 - blend) * audio_f + blend * smooth
                 result = np.clip(np.nan_to_num(result, nan=0.0, posinf=0.0, neginf=0.0), -1.0, 1.0)
-                return result.astype(audio.dtype, copy=False)
+                return result.astype(audio.dtype, copy=False)  # type: ignore[no-any-return]
 
             n_fft = 1024
             hop = n_fft // 4
@@ -2915,7 +2915,7 @@ class WowFlutterFix(PhaseInterface):
                 blend = 0.12
                 result = (1.0 - blend) * audio_f + blend * smooth
                 result = np.clip(np.nan_to_num(result, nan=0.0, posinf=0.0, neginf=0.0), -1.0, 1.0)
-                return result.astype(audio.dtype, copy=False)
+                return result.astype(audio.dtype, copy=False)  # type: ignore[no-any-return]
 
             frames = np.lib.stride_tricks.sliding_window_view(audio_f, n_fft)[::hop][:n_frames]
             stft = np.fft.rfft(frames * win, axis=1)
@@ -2941,7 +2941,7 @@ class WowFlutterFix(PhaseInterface):
             blend = 0.18
             result = (1.0 - blend) * audio_f + blend * out
             result = np.clip(result, -1.0, 1.0)
-            return result.astype(audio.dtype, copy=False)
+            return result.astype(audio.dtype, copy=False)  # type: ignore[no-any-return]
         except Exception as _c3_fallback_exc:
             logger.debug("§C3 emergency smoothing fallback failed: %s", _c3_fallback_exc)
             return audio.copy()

@@ -122,7 +122,7 @@ except ImportError:  # pragma: no cover
 
     def _exp1_p20_gain(nu: np.ndarray) -> np.ndarray:  # type: ignore[misc]
         """Fallback: identity = degenerate Wiener gain (scipy.special unavailable)."""
-        return np.ones_like(nu)
+        return np.ones_like(nu)  # type: ignore[no-any-return]
 
 
 logger = logging.getLogger(__name__)
@@ -1221,8 +1221,8 @@ class ReverbReduction(PhaseInterface):
             if _db > -50.0:
                 _env[_i : _i + _frame] = gain
         if _x.ndim == 2:
-            return (_x * _env[:, None]).astype(np.float32)
-        return (_x * _env).astype(np.float32)
+            return (_x * _env[:, None]).astype(np.float32)  # type: ignore[no-any-return]
+        return (_x * _env).astype(np.float32)  # type: ignore[no-any-return]
 
     def _apply_material_loudness_preservation(
         self,
@@ -1330,7 +1330,7 @@ class ReverbReduction(PhaseInterface):
         audio_out = audio_out * (1.0 - transient_up) + audio[: len(audio_out)] * transient_up
         audio_out = np.clip(audio_out, -1.0, 1.0)
 
-        return audio_out
+        return audio_out  # type: ignore[no-any-return]
 
     def _reduce_reverb_mrsa(self, audio: np.ndarray, sample_rate: int, strength: float, damping: float) -> np.ndarray:  # pylint: disable=unused-argument
         """MRSA 5-zone OMLSA/IMCRA reverb reduction with PGHI phase reconstruction.
@@ -1673,7 +1673,7 @@ class ReverbReduction(PhaseInterface):
                 extend_frames = int(0.02 * sample_rate / hop_samples)
                 transient_mask[i : min(i + extend_frames, num_windows)] = 1.0
 
-        return transient_mask
+        return transient_mask  # type: ignore[no-any-return]
 
 
 # Test

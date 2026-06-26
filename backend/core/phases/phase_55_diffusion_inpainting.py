@@ -143,24 +143,24 @@ def _burg_ar_predict(context: np.ndarray, order: int, n_samples: int) -> np.ndar
         Levinson (1947), Durbin (1960) — Toeplitz-Rekurrenz für AR-Schätzung
     """
     if len(context) < order + 1:
-        return np.zeros(n_samples)
+        return np.zeros(n_samples)  # type: ignore[no-any-return]
 
     # Autokorrelation schätzen — FFT-based O(N log N)
     from backend.core.core_utils import fft_autocorr  # pylint: disable=import-outside-toplevel
 
     ac = fft_autocorr(context, max_lag=order)
     if ac[0] < 1e-10:
-        return np.zeros(n_samples)
+        return np.zeros(n_samples)  # type: ignore[no-any-return]
 
     # Toeplitz-System lösen (Levinson-Durbin approx)
     try:
         R = np.array([ac[abs(i)] for i in range(order)])
         Rmat = np.array([[ac[abs(i - j)] for j in range(order)] for i in range(order)])
         if np.linalg.matrix_rank(Rmat) < order:
-            return np.zeros(n_samples)
+            return np.zeros(n_samples)  # type: ignore[no-any-return]
         ar_coeff = np.linalg.solve(Rmat, R)
     except np.linalg.LinAlgError:
-        return np.zeros(n_samples)
+        return np.zeros(n_samples)  # type: ignore[no-any-return]
 
     # Vorhersage iterativ berechnen
     buf = list(context[-order:])
@@ -171,7 +171,7 @@ def _burg_ar_predict(context: np.ndarray, order: int, n_samples: int) -> np.ndar
         predicted.append(val)
         buf.append(val)
 
-    return np.array(predicted)
+    return np.array(predicted)  # type: ignore[no-any-return]
 
 
 def _detect_gaps(audio: np.ndarray, sample_rate: int, min_gap_ms: float) -> list[tuple[int, int]]:
@@ -373,7 +373,7 @@ def _nmf_gap_fallback(
     n_bins, n_frames = mag_ctx.shape
     if n_frames < 4 or n_bins < 4:
         # Fallback: zeros
-        return np.zeros(gap_len, dtype=np.float32)
+        return np.zeros(gap_len, dtype=np.float32)  # type: ignore[no-any-return]
 
     # NMF-β (IS-Divergenz, β=0): multiplicative update rules (Févotte 2011)
     _rank = min(8, n_frames // 2)
@@ -442,7 +442,7 @@ def _nmf_gap_fallback(
     _gap_audio = _gap_audio * (ctx_border_rms / rec_rms)
 
     _gap_audio = np.nan_to_num(_gap_audio, nan=0.0, posinf=0.0, neginf=0.0)
-    return np.clip(_gap_audio, -1.0, 1.0).astype(np.float32)
+    return np.clip(_gap_audio, -1.0, 1.0).astype(np.float32)  # type: ignore[no-any-return]
 
 
 def _try_cqtdiff_plus_plugin(audio: np.ndarray, start: int, end: int, sample_rate: int) -> np.ndarray | None:
@@ -484,7 +484,7 @@ def _try_cqtdiff_plus_plugin(audio: np.ndarray, start: int, end: int, sample_rat
         # InpaintingResult.audio = volles Audio-Signal mit gefüllter Lücke
         repaired_segment = result.audio[start:end]
         if repaired_segment is not None and np.isfinite(repaired_segment).all():
-            return np.clip(repaired_segment.astype(np.float32), -1.0, 1.0)
+            return np.clip(repaired_segment.astype(np.float32), -1.0, 1.0)  # type: ignore[no-any-return]
         return None
     except Exception as _e:
         logger.debug("CQTdiff-Plugin nicht verfügbar: %s", _e)
@@ -731,7 +731,7 @@ def _conservative_boundary_fill(channel: np.ndarray, start: int, end: int) -> np
     """
     gap_len = max(0, end - start)
     if gap_len <= 0:
-        return np.zeros(0, dtype=np.float32)
+        return np.zeros(0, dtype=np.float32)  # type: ignore[no-any-return]
 
     left = float(channel[start - 1]) if start > 0 else 0.0
     # Trailing gap (end of audio): right boundary is silence (0.0), not left.
@@ -786,7 +786,7 @@ def _apply_shared_stereo_ratio(
     _ratio = mono_repaired / _den
     _ratio = np.clip(_ratio, -10.0, 10.0)
     _out = np.column_stack([audio_stereo[:, 0] * _ratio, audio_stereo[:, 1] * _ratio])
-    return np.clip(np.nan_to_num(_out, nan=0.0, posinf=0.0, neginf=0.0), -1.0, 1.0).astype(np.float32)
+    return np.clip(np.nan_to_num(_out, nan=0.0, posinf=0.0, neginf=0.0), -1.0, 1.0).astype(np.float32)  # type: ignore[no-any-return]
 
 
 def _process_channel(
@@ -1268,7 +1268,7 @@ class DiffusionInpaintingPhase(PhaseInterface):
         if _is_stereo:
             return _apply_shared_stereo_ratio(audio, _mono, _repaired_mono)
 
-        return _repaired_mono.astype(np.float32)
+        return _repaired_mono.astype(np.float32)  # type: ignore[no-any-return]
 
     def process(
         self,

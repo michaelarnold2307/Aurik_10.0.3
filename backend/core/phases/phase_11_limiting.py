@@ -246,7 +246,7 @@ class LimitingPhase(PhaseInterface):
         ceiling_linear = 10 ** (ceiling_db / 20)
 
         # True Peak Detection (mit Oversampling)
-        true_peak_db = self._measure_true_peak(audio, oversample_factor)
+        true_peak_db = self._measure_true_peak(audio, oversample_factor)  # type: ignore[arg-type]
 
         if true_peak_db <= ceiling_db:
             audio = np.nan_to_num(audio, nan=0.0, posinf=0.0, neginf=0.0)
@@ -279,7 +279,7 @@ class LimitingPhase(PhaseInterface):
             )
 
         # Metriken
-        true_peak_after_db = self._measure_true_peak(limited_audio, oversample_factor)
+        true_peak_after_db = self._measure_true_peak(limited_audio, oversample_factor)  # type: ignore[arg-type]
         peak_reduction_db = true_peak_db - true_peak_after_db
 
         # RMS-Analyse
@@ -355,7 +355,7 @@ class LimitingPhase(PhaseInterface):
         true_peak_linear = np.max(upsampled)
         true_peak_db = 20 * np.log10(true_peak_linear + 1e-10)
 
-        return true_peak_db
+        return true_peak_db  # type: ignore[no-any-return]
 
     def _split_bands(self, audio: np.ndarray, sample_rate: int) -> list:
         """

@@ -808,7 +808,7 @@ class AzimuthCorrectionPhaseV2(PhaseInterface):
             # Safety clip (no peak normalization)
             restored = np.clip(restored, -1.0, 1.0)
 
-            return restored
+            return restored  # type: ignore[no-any-return]
         except Exception:
             return corrected_audio
 
@@ -816,7 +816,7 @@ class AzimuthCorrectionPhaseV2(PhaseInterface):
         """
         Recombine frequency bands (simple sum).
         """
-        return np.asarray(sum(bands))
+        return np.asarray(sum(bands))  # type: ignore[no-any-return]
 
     def get_metadata(self) -> PhaseMetadata:
         """Gibt zurück: phase metadata."""

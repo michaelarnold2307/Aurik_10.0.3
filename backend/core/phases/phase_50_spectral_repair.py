@@ -296,7 +296,7 @@ class SpectralRepairPhase(PhaseInterface):
             "side_multiplier": float(np.clip(side_multiplier, 1.60, 2.40)),
         }
 
-    def process(self, audio: np.ndarray, sample_rate: int, **kwargs) -> PhaseResult:  # pylint: disable=arguments-differ  # type: ignore[override]
+    def process(self, audio: np.ndarray, sample_rate: int, **kwargs) -> PhaseResult:  # type: ignore[override]  # pylint: disable=arguments-differ
         """
         Repariert spektrale Artefakte via STFT Inpainting.
 

@@ -526,7 +526,11 @@ class EQCorrectionPhase(PhaseInterface):
         return {"analysis_fft_size": int(_fft)}
 
     def process(  # pylint: disable=arguments-renamed
-        self, audio: np.ndarray, material_type: str = "unknown", auto_analyze: bool = True, **kwargs
+        self,
+        audio: np.ndarray,
+        material_type: str = "unknown",
+        auto_analyze: bool = True,
+        **kwargs,  # type: ignore[override]
     ) -> PhaseResult:
         """
         Professional EQ correction with automatic spectrum analysis.
@@ -607,7 +611,7 @@ class EQCorrectionPhase(PhaseInterface):
             )
 
         # Check if EQ needed
-        needs_eq = any(abs(gain) > 0.1 for gain in params["eq_curve"].values())
+        needs_eq = any(abs(gain) > 0.1 for gain in params["eq_curve"].values())  # type: ignore[attr-defined]
 
         if not needs_eq and material_type in ["cd_digital", "streaming"]:
             audio = np.nan_to_num(audio, nan=0.0, posinf=0.0, neginf=0.0)
@@ -631,9 +635,9 @@ class EQCorrectionPhase(PhaseInterface):
         if auto_analyze:
             spectrum_deviation = self._analyze_spectrum(audio, params)
             # Adjust EQ curve based on analysis
-            adjusted_curve = self._adjust_eq_curve(params["eq_curve"], spectrum_deviation, params)
+            adjusted_curve = self._adjust_eq_curve(params["eq_curve"], spectrum_deviation, params)  # type: ignore[arg-type]
         else:
-            adjusted_curve = params["eq_curve"]
+            adjusted_curve = params["eq_curve"]  # type: ignore[assignment]
 
         # §Lücke-E MicrophoneSignature Protection-EQ: Authentischen Mic-Charakter schützen.
         # mic_signature ist via _restoration_context in kwargs → verhindert EQ-Überkorrektur
@@ -667,7 +671,7 @@ class EQCorrectionPhase(PhaseInterface):
         eq_audio = self._apply_parametric_eq_professional(audio, adjusted_curve, params)
 
         # Step 3: Parallel Blend (preserve character)
-        _blend = float(np.clip(params["blend"] * _effective_strength, 0.0, 1.0))
+        _blend = float(np.clip(params["blend"] * _effective_strength, 0.0, 1.0))  # type: ignore[operator]
         result_audio = self._parallel_blend(audio, eq_audio, _blend)
 
         # ── Head-Bump compensation (tape/reel_tape) ──────────────────────────
@@ -744,7 +748,11 @@ class EQCorrectionPhase(PhaseInterface):
             _sot_strength = float(np.clip(_effective_strength * 0.25, 0.0, 0.20))
             if _sot_strength > 0.01:
                 result_audio = self._apply_spectral_ot(
-                    result_audio, sample_rate, material_type, params.get("era", ""), _sot_strength
+                    result_audio,
+                    sample_rate,
+                    material_type,
+                    params.get("era", ""),
+                    _sot_strength,  # type: ignore[arg-type]
                 )
                 _sot_applied = True
         except Exception as _sot_exc:
@@ -924,7 +932,7 @@ class EQCorrectionPhase(PhaseInterface):
             return audio
 
         result = np.nan_to_num(result, nan=0.0, posinf=0.0, neginf=0.0)
-        return np.clip(result, -1.0, 1.0).astype(audio.dtype)
+        return np.clip(result, -1.0, 1.0).astype(audio.dtype)  # type: ignore[no-any-return]
 
     def _tau_to_eq_db(
         self,
@@ -1175,7 +1183,7 @@ class EQCorrectionPhase(PhaseInterface):
         MIN_AUDIO_SAMPLES = 512  # 10 ms @ 48 kHz
         if len(audio) < MIN_AUDIO_SAMPLES:
             logger.debug("phase_04: audio too short (%d < %d), skipping EQ", len(audio), MIN_AUDIO_SAMPLES)
-            return np.asarray(audio, dtype=np.float32).copy()
+            return np.asarray(audio, dtype=np.float32).copy()  # type: ignore[no-any-return]
 
         result = audio.copy()
 
@@ -1236,7 +1244,7 @@ class EQCorrectionPhase(PhaseInterface):
         else:
             filtered = signal.sosfiltfilt(sos, audio)
 
-        return filtered
+        return filtered  # type: ignore[no-any-return]
 
     def _parallel_blend(self, dry: np.ndarray, wet: np.ndarray, blend: float) -> np.ndarray:
         """
@@ -1250,7 +1258,7 @@ class EQCorrectionPhase(PhaseInterface):
         Returns:
             Blended audio
         """
-        return (1 - blend) * dry + blend * wet
+        return (1 - blend) * dry + blend * wet  # type: ignore[no-any-return]
 
     def supports_material(self, _material_type: str) -> bool:
         """All materials supported."""

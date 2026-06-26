@@ -416,7 +416,7 @@ class CompressionPhase(PhaseInterface):
 
     def _combine_bands(self, bands: list[np.ndarray]) -> np.ndarray:
         """Kombiniert frequency bands back together."""
-        return sum(bands)
+        return sum(bands)  # type: ignore[return-value]
 
     def _compress_band(
         self,

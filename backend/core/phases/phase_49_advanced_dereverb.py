@@ -1140,7 +1140,7 @@ class AdvancedDereverbPhase(PhaseInterface):
                 t60,
                 n_orig,
             )
-            return np.clip(audio.copy(), -1.0, 1.0)
+            return np.clip(audio.copy(), -1.0, 1.0)  # type: ignore[no-any-return]
 
         # §C2 Blind RIR: refine WPE delay D using predelay estimate
         _rir_params = self._estimate_blind_rir(audio, sample_rate)
@@ -1251,7 +1251,7 @@ class AdvancedDereverbPhase(PhaseInterface):
             if abs(_level_gain - 1.0) > 0.001:
                 output = output * _level_gain
 
-        return np.clip(output, -1.0, 1.0)
+        return np.clip(output, -1.0, 1.0)  # type: ignore[no-any-return]
 
     # ------------------------------------------------------------------
     # WPE-Hilfsmethoden
@@ -1414,7 +1414,7 @@ class AdvancedDereverbPhase(PhaseInterface):
         T = len(y)
         n_eq = T - D - K
         if n_eq < K:
-            return np.zeros_like(y)
+            return np.zeros_like(y)  # type: ignore[no-any-return]
 
         # Regressionsmatrix X (n_eq × K)
         X = np.zeros((n_eq, K), dtype=complex)
@@ -1433,7 +1433,7 @@ class AdvancedDereverbPhase(PhaseInterface):
             reg = 1e-4 * np.eye(K)
             g = np.linalg.solve(XhXw + reg, XhBw)
         except np.linalg.LinAlgError:
-            return np.zeros_like(y)
+            return np.zeros_like(y)  # type: ignore[no-any-return]
 
         # Vectorized reverb prediction: r(t) = Σ_k g_k · y(t-D-k-1)
         # np.convolve flips the kernel internally, so we pass g directly.
@@ -1448,7 +1448,7 @@ class AdvancedDereverbPhase(PhaseInterface):
         if src_end > src_start and src_end <= len(conv_result):
             reverb[valid_start:valid_end] = conv_result[src_start:src_end]
 
-        return reverb * strength
+        return reverb * strength  # type: ignore[no-any-return]
 
     @staticmethod
     def _apply_wiener_postfilter(
@@ -1560,4 +1560,4 @@ class AdvancedDereverbPhase(PhaseInterface):
                 hi = min(i + extend, n_frames)
                 mask[i:hi] = 1.0
 
-        return mask
+        return mask  # type: ignore[no-any-return]

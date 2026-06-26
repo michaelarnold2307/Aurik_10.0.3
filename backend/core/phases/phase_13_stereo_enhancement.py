@@ -496,7 +496,7 @@ class StereoEnhancementPhaseV2(PhaseInterface):
         # Mix original + delayed (0.7 original, 0.3 delayed for subtle effect)
         mixed = 0.7 * sig + 0.3 * delayed
 
-        return mixed
+        return mixed  # type: ignore[no-any-return]
 
     def _apply_allpass_decorrelation(self, sig: np.ndarray, sample_rate: int, order: int) -> np.ndarray:
         """
@@ -596,7 +596,7 @@ class StereoEnhancementPhaseV2(PhaseInterface):
         # Blend 50/50 to raise correlation
         blended = 0.5 * enhanced + 0.5 * original
 
-        return blended
+        return blended  # type: ignore[no-any-return]
 
     def get_metadata(self) -> PhaseMetadata:
         """Gibt phase metadata zurück."""

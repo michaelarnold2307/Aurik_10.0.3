@@ -1588,7 +1588,7 @@ class DeEsserPhase(PhaseInterface):
         else:
             envelope = envelope_ds
 
-        return envelope
+        return envelope  # type: ignore[no-any-return]
 
     def _compute_soft_knee_gain(
         self, envelope: np.ndarray, threshold: float, max_reduction_db: float, knee_db: float
@@ -1623,7 +1623,7 @@ class DeEsserPhase(PhaseInterface):
             gain_linear = 10 ** (max_reduction_db / 20)  # type: ignore[assignment]
             gain_curve[above_knee] = gain_linear
 
-        return gain_curve
+        return gain_curve  # type: ignore[no-any-return]
 
     def _apply_attack_release(
         self, gain_curve: np.ndarray, sample_rate: int, attack_ms: float, release_ms: float
@@ -1645,7 +1645,7 @@ class DeEsserPhase(PhaseInterface):
                 alpha = alpha_release
             smoothed[i] = alpha * gain_curve[i] + (1.0 - alpha) * smoothed[i - 1]
 
-        return smoothed
+        return smoothed  # type: ignore[no-any-return]
 
     def _estimate_sibilant_type(self, band_audio: np.ndarray, sample_rate: int, band_name: str) -> str | None:
         """
@@ -1691,7 +1691,7 @@ class DeEsserPhase(PhaseInterface):
             logger.warning("Intelligibility check failed: %s", e)
             loss_ratio = 0.0
 
-        return max(0.0, loss_ratio)
+        return max(0.0, loss_ratio)  # type: ignore[no-any-return]
 
     def _calculate_sibilance_energy(self, audio: np.ndarray, sample_rate: int) -> float:
         """
@@ -1877,7 +1877,7 @@ class DeEsserPhase(PhaseInterface):
                         confidence,
                         chars.fundamental_freq,
                     )
-                    return gender_str
+                    return gender_str  # type: ignore[no-any-return]
             except Exception as e:
                 logger.debug("Robust GenderDetector failed (%s) — simple fallback", e)
 

@@ -1388,7 +1388,7 @@ class FrequencyRestorationPhase(PhaseInterface):
         # Rolloff exists if >6 dB difference
         has_rolloff = rolloff_db > 6.0
 
-        return has_rolloff, rolloff_db, measured_rolloff_freq
+        return has_rolloff, rolloff_db, measured_rolloff_freq  # type: ignore[return-value]
 
     def _restore_highs_professional(self, audio: np.ndarray, params: dict[str, Any], enable_sbr: bool) -> np.ndarray:
         """
@@ -1627,7 +1627,7 @@ class FrequencyRestorationPhase(PhaseInterface):
         if len(audio_refined) < n:
             audio_refined = np.pad(audio_refined, (0, n - len(audio_refined)))
         audio_refined = np.nan_to_num(audio_refined, nan=0.0, posinf=0.0, neginf=0.0)
-        return np.clip(audio_refined, -1.0, 1.0).astype(np.float32)
+        return np.clip(audio_refined, -1.0, 1.0).astype(np.float32)  # type: ignore[no-any-return]
 
     def _restore_channel(
         self, channel: np.ndarray, params: dict[str, Any], enable_sbr: bool, hop_length: int, n_fft: int
@@ -1907,7 +1907,7 @@ class FrequencyRestorationPhase(PhaseInterface):
         n_tgt = len(target_freqs)
 
         if n_src < 2 or n_frames < 1:
-            return np.ones((n_tgt, n_frames), dtype=np.complex64)
+            return np.ones((n_tgt, n_frames), dtype=np.complex64)  # type: ignore[no-any-return]
 
         # Source bin float indices for each target bin (mirrors linspace used in
         # _apply_sbr when mapping source magnitudes to the target band).

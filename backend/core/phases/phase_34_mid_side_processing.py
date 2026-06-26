@@ -620,7 +620,7 @@ class MidSideProcessing(PhaseInterface):
 
     def _combine_bands(self, bands: list[np.ndarray]) -> np.ndarray:
         """Kombiniert frequency bands back together."""
-        return np.asarray(sum(bands), dtype=bands[0].dtype)
+        return np.asarray(sum(bands), dtype=bands[0].dtype)  # type: ignore[no-any-return]
 
     def _ms_decode(self, audio: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         """Dekodiert L/R to Mid/Side."""
@@ -637,10 +637,10 @@ class MidSideProcessing(PhaseInterface):
         """Kodiert Mid/Side to L/R."""
         if template.ndim == 1:
             # Mono-Zielsignal: L/R-Encoder auf Mid kollabieren, keine Stereo-Template-Erwartung.
-            return np.asarray(mid, dtype=template.dtype)
+            return np.asarray(mid, dtype=template.dtype)  # type: ignore[no-any-return]
         left = mid + side
         right = mid - side
-        return np.asarray(stereo_like(left, right, template), dtype=template.dtype)
+        return np.asarray(stereo_like(left, right, template), dtype=template.dtype)  # type: ignore[no-any-return]
 
     def _detect_transients(self, audio: np.ndarray) -> np.ndarray:
         """Erkennt transients using fast envelope follower."""
@@ -661,7 +661,7 @@ class MidSideProcessing(PhaseInterface):
         threshold = np.percentile(derivative, 85)
         transient_mask = derivative > threshold
 
-        return transient_mask
+        return transient_mask  # type: ignore[no-any-return]
 
     def _apply_dynamics(
         self, signal_in: np.ndarray, sr: int, params: list, transient_mask: np.ndarray

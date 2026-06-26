@@ -1500,7 +1500,7 @@ class VocalEnhancement(PhaseInterface):
                     _hpss_max_s,
                 )
             _t0_hpss = time.monotonic()
-            harmonic_mono, _ = librosa.effects.hpss(mono_in)
+            harmonic_mono, _ = librosa.effects.hpss(mono_in)  # type: ignore[attr-defined]
             _hpss_elapsed = time.monotonic() - _t0_hpss
             if _hpss_elapsed > _hpss_max_s:
                 logger.warning(
@@ -1542,7 +1542,7 @@ class VocalEnhancement(PhaseInterface):
         # If formant region has >20% of total energy, likely contains vocals
         if total_energy > 1e-10:
             formant_ratio = formant_energy / total_energy
-            return formant_ratio > 0.20  # type: ignore[no-any-return]
+            return formant_ratio > 0.20  # type: ignore[return-value]
         else:
             return False
 
@@ -1757,7 +1757,7 @@ class VocalEnhancement(PhaseInterface):
 
             result = np.nan_to_num(result, nan=0.0, posinf=0.0, neginf=0.0)
             result = np.clip(result, -1.0, 1.0)
-            return result.astype(audio.dtype)
+            return result.astype(audio.dtype)  # type: ignore[no-any-return]
 
         except Exception as _cfd_exc:
             logger.debug("§Hebel-4 _restore_carrier_formant_decay fehlgeschlagen (ignoriert): %s", _cfd_exc)
@@ -1946,7 +1946,7 @@ class VocalEnhancement(PhaseInterface):
     @staticmethod
     def _prefer_demucs_native(material: object) -> bool:
         """Aktiviert nativen HTDemucs nur fuer live/crowd-nahe Quellen."""
-        return prefer_demucs_native_from_material(material)
+        return prefer_demucs_native_from_material(material)  # type: ignore[no-any-return]
 
     def _apply_deessing(self, audio: np.ndarray, sample_rate: int, config: dict[str, Any]) -> np.ndarray:
         """Wendet De-Essing auf das Sibilanz-Band an."""
@@ -2094,7 +2094,7 @@ class VocalEnhancement(PhaseInterface):
                 except Exception as _pg_err:
                     logger.debug("phoneme_guided_enhance fehlgeschlagen (ignoriert): %s", _pg_err)
 
-                return enhanced.astype(audio.dtype)
+                return enhanced.astype(audio.dtype)  # type: ignore[no-any-return]
             except Exception as _fs_err:
                 logger.debug("FormantSystem fehlgeschlagen, Bell-EQ-Fallback: %s", _fs_err)
 
@@ -2150,7 +2150,7 @@ class VocalEnhancement(PhaseInterface):
                 enhanced = signal.lfilter(_b, _a, enhanced)
         enhanced = np.nan_to_num(enhanced, nan=0.0, posinf=0.0, neginf=0.0)
         enhanced = np.clip(enhanced, -1.0, 1.0)
-        return enhanced.astype(audio.dtype)
+        return enhanced.astype(audio.dtype)  # type: ignore[no-any-return]
 
     def _boost_presence(self, audio: np.ndarray, sample_rate: int, config: dict[str, Any]) -> np.ndarray:
         """Verstärkt presence region with ISO 226 loudness compensation.
@@ -2467,7 +2467,7 @@ class VocalEnhancement(PhaseInterface):
                 out[: morphed.shape[0]] = morphed
                 return out
             logger.debug("Phase42 Vocal-Stem MDEM: micro-dynamics recovered on vocal stem")
-            return morphed
+            return morphed  # type: ignore[no-any-return]
         except Exception as _mdem_err:
             logger.debug("Vocal-Stem MDEM nicht verfügbar (ignoriert): %s", _mdem_err)
             return enhanced_vocals

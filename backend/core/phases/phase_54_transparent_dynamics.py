@@ -527,7 +527,7 @@ class TransparentDynamicsV1(PhaseInterface):
         # Clip to 0-1 range
         masking_curve = np.clip(masking_curve, 0, 1)
 
-        return masking_curve
+        return masking_curve  # type: ignore[no-any-return]
 
     def _detect_transients(self, audio: np.ndarray) -> np.ndarray:
         """
@@ -577,7 +577,7 @@ class TransparentDynamicsV1(PhaseInterface):
         # Normalize mask
         transient_mask = np.clip(transient_mask, 0, 1)
 
-        return transient_mask
+        return transient_mask  # type: ignore[no-any-return]
 
     def _apply_compression(
         self,
@@ -672,7 +672,7 @@ class TransparentDynamicsV1(PhaseInterface):
         # Apply gain reduction
         audio_compressed = audio * gain_smooth
 
-        return np.asarray(audio_compressed)
+        return np.asarray(audio_compressed)  # type: ignore[no-any-return]
 
     def get_metadata(self) -> PhaseMetadata:
         """Gibt phase metadata zurück."""

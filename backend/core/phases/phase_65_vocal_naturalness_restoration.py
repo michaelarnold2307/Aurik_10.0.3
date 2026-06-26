@@ -65,13 +65,13 @@ def _to_mono_float64(audio: np.ndarray) -> np.ndarray:
     """Kanal-unabhängige Mono-Konvertierung nach float64."""
     a = np.asarray(audio, dtype=np.float64)
     if a.ndim == 1:
-        return a
+        return a  # type: ignore[no-any-return]
     if a.ndim == 2:
         if a.shape[0] <= 2 and a.shape[1] > a.shape[0]:
             # [C, T] Layout (nach to_channels_last)
             return a.mean(axis=0)  # type: ignore[no-any-return]
         return a.mean(axis=1)  # type: ignore[no-any-return]
-    return a.flatten()
+    return a.flatten()  # type: ignore[no-any-return]
 
 
 def _estimate_spectral_tilt_db(audio_mono: np.ndarray, sr: int) -> float:

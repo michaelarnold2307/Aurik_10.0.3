@@ -236,7 +236,7 @@ def apply(
         splice_score = float(defect_scores.get("tape_splice_artifact", 0.0))
         if splice_score < min_splice_score:
             logger.debug("Phase 64: splice score %.3f < %.3f — skipped", splice_score, min_splice_score)
-            return np.clip(audio, -1.0, 1.0)
+            return np.clip(audio, -1.0, 1.0)  # type: ignore[no-any-return]
 
     crossfade_samples = max(1, int(crossfade_ms * 0.001 * sample_rate))
 
@@ -248,7 +248,7 @@ def apply(
         mono64 = mono_mix.astype(np.float32)
         splice_points = _detect_splice_points(mono64, sample_rate, crossfade_samples)
         if not splice_points:
-            return np.asarray(np.clip(audio, -1.0, 1.0), dtype=np.float32)
+            return np.asarray(np.clip(audio, -1.0, 1.0), dtype=np.float32)  # type: ignore[no-any-return]
         left_out = _apply_splice_repair(
             audio[0].astype(np.float32),
             audio[0].astype(np.float32),
@@ -269,12 +269,12 @@ def apply(
         )
         left_out = np.nan_to_num(left_out, nan=0.0, posinf=0.0, neginf=0.0)
         right_out = np.nan_to_num(right_out, nan=0.0, posinf=0.0, neginf=0.0)
-        return np.asarray(np.clip(np.stack([left_out, right_out], axis=0), -1.0, 1.0), dtype=np.float32)
+        return np.asarray(np.clip(np.stack([left_out, right_out], axis=0), -1.0, 1.0), dtype=np.float32)  # type: ignore[no-any-return]
 
     x = audio.astype(np.float32)
     splice_points = _detect_splice_points(x, sample_rate, crossfade_samples)
     if not splice_points:
-        return np.asarray(np.clip(audio, -1.0, 1.0), dtype=np.float32)
+        return np.asarray(np.clip(audio, -1.0, 1.0), dtype=np.float32)  # type: ignore[no-any-return]
 
     out = _apply_splice_repair(
         np.copy(x),
@@ -286,7 +286,7 @@ def apply(
         sample_rate=sample_rate,
     )
     result = np.nan_to_num(out, nan=0.0, posinf=0.0, neginf=0.0)
-    return np.asarray(np.clip(result, -1.0, 1.0), dtype=np.float32)
+    return np.asarray(np.clip(result, -1.0, 1.0), dtype=np.float32)  # type: ignore[no-any-return]
 
 
 # ─── PhaseInterface ────────────────────────────────────────────────────────────

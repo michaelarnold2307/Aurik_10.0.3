@@ -140,7 +140,7 @@ _PGHI_ITERATIONS: int = 32
 def _to_mono(audio: np.ndarray) -> np.ndarray:
     """Stereo → Mono Mischung (float32). Handles both (N,2) and (2,N) layouts (§2.51)."""
     mono = safe_to_mono(audio) if audio.ndim == 2 else audio
-    return mono.astype(np.float32)
+    return mono.astype(np.float32)  # type: ignore[no-any-return]
 
 
 def _estimate_f0(mono: np.ndarray, sr: int) -> float | None:
@@ -449,7 +449,7 @@ def _pghi_phase_reconstruction(mag: np.ndarray, n_fft: int, hop: int) -> np.ndar
         d_mag_dt = mag[:, t] - mag[:, t - 1]
         phase[:, t] = phase[:, t - 1] + freq_per_bin * hop * np.arange(n_bins) + 0.01 * d_mag_dt
 
-    return phase.astype(np.float32)
+    return phase.astype(np.float32)  # type: ignore[no-any-return]
 
 
 def _nmf_beta_refine(
@@ -1164,4 +1164,4 @@ class SpectralBandGapRepairPhase(PhaseInterface):
         blend = float(np.clip(0.65 + 0.30 * _conf_norm, 0.65, 0.95))
         audio_out = blend * audio_out + (1.0 - blend) * mono.astype(np.float32)
 
-        return audio_out.astype(np.float32)
+        return audio_out.astype(np.float32)  # type: ignore[no-any-return]

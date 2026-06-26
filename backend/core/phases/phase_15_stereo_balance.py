@@ -423,7 +423,7 @@ class StereoBalancePhaseV2(PhaseInterface):
 
         imbalance_db = 20 * np.log10(left_rms / (right_rms + 1e-10))
 
-        return imbalance_db
+        return imbalance_db  # type: ignore[no-any-return]
 
     def _measure_global_imbalance(self, audio: np.ndarray) -> float:
         """
@@ -438,7 +438,7 @@ class StereoBalancePhaseV2(PhaseInterface):
         """
         Recombine frequency bands (simple sum).
         """
-        return sum(bands)
+        return sum(bands)  # type: ignore[return-value]
 
     def get_metadata(self) -> PhaseMetadata:
         """Gibt zurück: phase metadata."""

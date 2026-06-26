@@ -895,7 +895,7 @@ class SpeedPitchCorrectionPhase(PhaseInterface):
             cumw = np.cumsum(sorted_w)
             half = cumw[-1] * 0.5
             median_idx = np.searchsorted(cumw, half)
-            median_idx = int(np.clip(median_idx, 0, len(sorted_cents) - 1))
+            median_idx = int(np.clip(median_idx, 0, len(sorted_cents) - 1))  # type: ignore[assignment]
             tuning_offset_cents = float(sorted_cents[median_idx])
 
             # Guard: offsets outside ±50 cents are implausible (> half a semitone gap
@@ -966,7 +966,7 @@ class SpeedPitchCorrectionPhase(PhaseInterface):
             _peak = float(np.percentile(np.abs(result), 99.9)) + 1e-10
             if _peak > 1.0:
                 result = result / _peak
-            return np.clip(result, -1.0, 1.0)
+            return np.clip(result, -1.0, 1.0)  # type: ignore[no-any-return]
 
         mono = np.asarray(self._wsola_mono(audio, window_size, hop_analysis, hop_synthesis), dtype=np.float64)
         n_target = int(len(audio))
@@ -975,7 +975,7 @@ class SpeedPitchCorrectionPhase(PhaseInterface):
         elif len(mono) < n_target:
             mono = np.pad(mono, (0, n_target - len(mono)))
         mono = np.nan_to_num(mono, nan=0.0, posinf=0.0, neginf=0.0)
-        return np.clip(mono, -1.0, 1.0)
+        return np.clip(mono, -1.0, 1.0)  # type: ignore[no-any-return]
 
     def _wsola_mono(self, audio: np.ndarray, window_size: int, hop_analysis: int, hop_synthesis: int) -> np.ndarray:
         """WSOLA for mono signal.
@@ -1013,7 +1013,7 @@ class SpeedPitchCorrectionPhase(PhaseInterface):
         np.divide(output, ola_norm, out=_output_norm, where=_norm_mask)
         output = _output_norm
 
-        return output
+        return output  # type: ignore[no-any-return]
 
     def _correct_phase_vocoder(self, audio: np.ndarray, ratio: float, _params: dict[str, Any]) -> np.ndarray:
         """
@@ -1057,7 +1057,7 @@ class SpeedPitchCorrectionPhase(PhaseInterface):
             _peak = float(np.percentile(np.abs(stacked), 99.9)) + 1e-10
             if _peak > 1.0:
                 stacked = stacked / _peak
-            return np.clip(stacked, -1.0, 1.0)
+            return np.clip(stacked, -1.0, 1.0)  # type: ignore[no-any-return]
         else:
             return self._phase_vocoder_mono(audio, ratio, nperseg, noverlap)
 
@@ -1114,7 +1114,7 @@ class SpeedPitchCorrectionPhase(PhaseInterface):
         _peak = float(np.percentile(np.abs(audio_shifted), 99.9)) + 1e-10
         if _peak > 1.0:
             audio_shifted = audio_shifted / _peak
-        return np.asarray(audio_shifted.astype(audio.dtype, copy=False))
+        return np.asarray(audio_shifted.astype(audio.dtype, copy=False))  # type: ignore[no-any-return]
 
     def _istft_fallback_ola(
         self,
@@ -1127,8 +1127,8 @@ class SpeedPitchCorrectionPhase(PhaseInterface):
         hop = max(1, int(nperseg - noverlap))
         if zxx.ndim != 2 or zxx.shape[1] == 0:
             if isinstance(original_audio, np.ndarray) and original_audio.size > 0:
-                return np.nan_to_num(np.asarray(original_audio, dtype=np.float64), nan=0.0, posinf=0.0, neginf=0.0)
-            return np.zeros(max(nperseg, hop), dtype=np.float64)
+                return np.nan_to_num(np.asarray(original_audio, dtype=np.float64), nan=0.0, posinf=0.0, neginf=0.0)  # type: ignore[no-any-return]
+            return np.zeros(max(nperseg, hop), dtype=np.float64)  # type: ignore[no-any-return]
 
         try:
             frames = np.fft.irfft(zxx, n=nperseg, axis=0).astype(np.float64)
@@ -1148,12 +1148,12 @@ class SpeedPitchCorrectionPhase(PhaseInterface):
 
             norm = np.where(norm > 1e-10, norm, 1.0)
             output = output / norm
-            return np.nan_to_num(output, nan=0.0, posinf=0.0, neginf=0.0)
+            return np.nan_to_num(output, nan=0.0, posinf=0.0, neginf=0.0)  # type: ignore[no-any-return]
         except Exception as _ola_exc:
             logger.debug("phase_31 OLA fallback failed, returning original audio: %s", _ola_exc)
             if isinstance(original_audio, np.ndarray) and original_audio.size > 0:
-                return np.nan_to_num(np.asarray(original_audio, dtype=np.float64), nan=0.0, posinf=0.0, neginf=0.0)
-            return np.zeros(max(nperseg, hop), dtype=np.float64)
+                return np.nan_to_num(np.asarray(original_audio, dtype=np.float64), nan=0.0, posinf=0.0, neginf=0.0)  # type: ignore[no-any-return]
+            return np.zeros(max(nperseg, hop), dtype=np.float64)  # type: ignore[no-any-return]
 
     def _correct_psola(
         self,
@@ -1199,7 +1199,7 @@ class SpeedPitchCorrectionPhase(PhaseInterface):
                     np.clip(np.nan_to_num(right[:n], nan=0.0), -1.0, 1.0),
                 ]
             )
-            return stacked.astype(dtype)
+            return stacked.astype(dtype)  # type: ignore[no-any-return]
 
         y = audio.astype(np.float64)
         period_samps = self._psola_compute_periods_mono(y, sr)
@@ -1207,7 +1207,7 @@ class SpeedPitchCorrectionPhase(PhaseInterface):
             return self._correct_phase_vocoder(audio, ratio, params)
         result = self._psola_apply_mono(y, period_samps, ratio)
         result = np.nan_to_num(result, nan=0.0, posinf=0.0, neginf=0.0)
-        return np.clip(result, -1.0, 1.0).astype(dtype)
+        return np.clip(result, -1.0, 1.0).astype(dtype)  # type: ignore[no-any-return]
 
     def _psola_compute_periods_mono(self, y_1d: np.ndarray, sr: int) -> np.ndarray | None:
         """Berechnet PSOLA period array from a mono signal via pYIN.

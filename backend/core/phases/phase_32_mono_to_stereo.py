@@ -517,7 +517,7 @@ class MonoToStereoPhaseV2(PhaseInterface):
         left_out = mid + side
         right_out = mid - side
 
-        return np.column_stack([left_out, right_out])
+        return np.column_stack([left_out, right_out])  # type: ignore[no-any-return]
 
     def _apply_cascaded_allpass(self, signal_in: np.ndarray, _sample_rate: int, order: int, seed: int) -> np.ndarray:
         """
@@ -548,7 +548,7 @@ class MonoToStereoPhaseV2(PhaseInterface):
         """
         Recombine frequency bands (simple sum).
         """
-        return sum(stereo_bands)
+        return sum(stereo_bands)  # type: ignore[return-value]
 
     def _preserve_transients(self, mono: np.ndarray, pseudo_stereo: np.ndarray, sample_rate: int) -> np.ndarray:
         """
@@ -602,7 +602,7 @@ class MonoToStereoPhaseV2(PhaseInterface):
         left_out = mid + side
         right_out = mid - side
 
-        return np.column_stack([left_out, right_out])
+        return np.column_stack([left_out, right_out])  # type: ignore[no-any-return]
 
     def _enhance_hf_content(self, audio: np.ndarray, sample_rate: int, boost_db: float) -> np.ndarray:
         """
@@ -628,7 +628,7 @@ class MonoToStereoPhaseV2(PhaseInterface):
             # Safety clip (no peak normalization)
             enhanced = np.clip(enhanced, -1.0, 1.0)
 
-            return enhanced
+            return enhanced  # type: ignore[no-any-return]
         except Exception:
             return audio
 
@@ -653,7 +653,7 @@ class MonoToStereoPhaseV2(PhaseInterface):
         # (Too low = excessive phase cancellation)
         compatibility_ratio = mono_energy / (stereo_energy + 1e-10)
 
-        return compatibility_ratio > 0.6
+        return compatibility_ratio > 0.6  # type: ignore[no-any-return]
 
     def get_metadata(self) -> PhaseMetadata:
         """Gibt zurück: phase metadata."""

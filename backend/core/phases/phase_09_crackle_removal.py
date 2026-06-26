@@ -445,19 +445,19 @@ class CrackleRemovalPhase(PhaseInterface):
         wet = np.asarray(wet_audio, dtype=np.float32)
 
         if eff <= 0.0:
-            return dry.copy()
+            return dry.copy()  # type: ignore[no-any-return]
         if eff >= 1.0:
-            return np.clip(wet, -1.0, 1.0).astype(np.float32)
+            return np.clip(wet, -1.0, 1.0).astype(np.float32)  # type: ignore[no-any-return]
         if dry.shape != wet.shape:
-            return np.clip(dry + eff * (wet - dry), -1.0, 1.0).astype(np.float32)
+            return np.clip(dry + eff * (wet - dry), -1.0, 1.0).astype(np.float32)  # type: ignore[no-any-return]
 
         n = int(dry.shape[0])
         if n <= 0:
-            return dry.copy()
+            return dry.copy()  # type: ignore[no-any-return]
         if not crackle_regions:
             if fallback_to_global_when_no_regions:
-                return np.clip(dry + eff * (wet - dry), -1.0, 1.0).astype(np.float32)
-            return dry.copy()
+                return np.clip(dry + eff * (wet - dry), -1.0, 1.0).astype(np.float32)  # type: ignore[no-any-return]
+            return dry.copy()  # type: ignore[no-any-return]
 
         # §V38: Mono-Referenz für lokale RMS-Proxy-Berechnung (Pre-Phase-Input)
         _dry_mono_ref: np.ndarray
@@ -494,7 +494,7 @@ class CrackleRemovalPhase(PhaseInterface):
             out = alpha * wet + (1.0 - alpha) * dry
         else:
             out = alpha[:, np.newaxis] * wet + (1.0 - alpha)[:, np.newaxis] * dry
-        return np.clip(out, -1.0, 1.0).astype(np.float32)
+        return np.clip(out, -1.0, 1.0).astype(np.float32)  # type: ignore[no-any-return]
 
     def _apply_phoneme_protection_to_regions(
         self,
@@ -751,9 +751,9 @@ class CrackleRemovalPhase(PhaseInterface):
                     1.0,
                 ).astype(np.float32)
                 result = (audio * gain[:, np.newaxis]).astype(np.float32)
-            return np.asarray(np.clip(result, -1.0, 1.0), dtype=np.float32)
+            return np.asarray(np.clip(result, -1.0, 1.0), dtype=np.float32)  # type: ignore[no-any-return]
 
-        return np.clip(restored_mono, -1.0, 1.0)
+        return np.clip(restored_mono, -1.0, 1.0)  # type: ignore[no-any-return]
 
     def _remove_crackle_ml(self, audio: np.ndarray, banquet_plugin, params: dict[str, Any]) -> np.ndarray:
         """
@@ -800,7 +800,7 @@ class CrackleRemovalPhase(PhaseInterface):
                 blend_amount = 1 - texture_preserve
                 restored = audio * texture_preserve + restored * blend_amount
 
-                return np.asarray(restored[: len(audio)], dtype=np.float32)
+                return np.asarray(restored[: len(audio)], dtype=np.float32)  # type: ignore[no-any-return]
 
             finally:
                 # Cleanup
@@ -1476,7 +1476,7 @@ class CrackleRemovalPhase(PhaseInterface):
             _f, _t, Zxx = signal.stft(clean_audio, self.sample_rate, nperseg=nperseg, boundary="even")
             avg_spectrum = np.mean(np.abs(Zxx), axis=1)
 
-            return np.asarray(avg_spectrum, dtype=np.float32)
+            return np.asarray(avg_spectrum, dtype=np.float32)  # type: ignore[no-any-return]
 
         return None
 
@@ -1617,8 +1617,8 @@ class CrackleRemovalPhase(PhaseInterface):
                 result = np.zeros((gap_len, audio.shape[1]))
                 for ch in range(audio.shape[1]):
                     result[:, ch] = audio_fill
-                return result
-            return np.asarray(audio_fill, dtype=np.float32)
+                return result  # type: ignore[no-any-return]
+            return np.asarray(audio_fill, dtype=np.float32)  # type: ignore[no-any-return]
 
         except Exception as exc:
             logger.debug("Spectral interpolation failed (%s), using linear.", exc)
@@ -1646,7 +1646,7 @@ class CrackleRemovalPhase(PhaseInterface):
                 result = np.zeros((gap_len, audio.shape[1]), dtype=audio.dtype)
                 for ch in range(audio.shape[1]):
                     result[:, ch] = self._ar_fill_channel(audio[:, ch], gap_start, gap_end, before_start, after_end)
-                return result
+                return result  # type: ignore[no-any-return]
             return self._ar_fill_channel(audio, gap_start, gap_end, before_start, after_end)
         except Exception as exc:
             logger.debug("AR interpolation failed (%s), falling back to linear.", exc)
@@ -1687,7 +1687,7 @@ class CrackleRemovalPhase(PhaseInterface):
             blended[:_cf_len] = (1.0 - t_cf) * start_val + t_cf * blended[:_cf_len]
             blended[-_cf_len:] = (1.0 - t_cf[::-1]) * end_val + t_cf[::-1] * blended[-_cf_len:]
 
-        return np.asarray(blended, dtype=ch.dtype)
+        return np.asarray(blended, dtype=ch.dtype)  # type: ignore[no-any-return]
 
     def _ar_predict(self, context: np.ndarray, n_samples: int, order: int) -> np.ndarray:
         """One-step-ahead AR synthesis via Burg-LPC with Yule-Walker fallback.
@@ -1698,7 +1698,7 @@ class CrackleRemovalPhase(PhaseInterface):
         LPC order follows spec constraints: 30–40 @ 48 kHz (min 16).
         """
         if len(context) < order + 2:
-            return np.zeros(n_samples, dtype=np.float32)
+            return np.zeros(n_samples, dtype=np.float32)  # type: ignore[no-any-return]
         try:
             len(context)
             ctx_f64 = context.astype(np.float64)
@@ -1706,7 +1706,7 @@ class CrackleRemovalPhase(PhaseInterface):
             if a_coeffs is None:
                 a_coeffs = self._yule_walker_predictor_coeffs(ctx_f64, order)
             if a_coeffs is None:
-                return np.zeros(n_samples, dtype=np.float32)
+                return np.zeros(n_samples, dtype=np.float32)  # type: ignore[no-any-return]
 
             # ── Stability check: reflect poles inside unit circle (max |z| = 0.995) ──
             # AR polynomial: A(z) = 1 - a[0]z^{-1} - ... - a[p-1]z^{-p}
@@ -1739,11 +1739,11 @@ class CrackleRemovalPhase(PhaseInterface):
             result = out.astype(context.dtype)
             # Final NaN/Inf guard
             if not np.all(np.isfinite(result)):
-                return np.zeros(n_samples, dtype=np.float32)
-            return result
+                return np.zeros(n_samples, dtype=np.float32)  # type: ignore[no-any-return]
+            return result  # type: ignore[no-any-return]
         except Exception as exc:
             logger.debug("AR prediction failed (%s), returning zeros.", exc)
-            return np.zeros(n_samples, dtype=np.float32)
+            return np.zeros(n_samples, dtype=np.float32)  # type: ignore[no-any-return]
 
     def _burg_predictor_coeffs(self, context: np.ndarray, order: int) -> np.ndarray | None:
         """Schätzt predictor coeffs with Burg LPC (Rabiner & Schafer 1978).
@@ -1788,7 +1788,7 @@ class CrackleRemovalPhase(PhaseInterface):
             a_pred = np.pad(a_pred, (0, order - a_pred.size), mode="constant")
         if not np.isfinite(a_pred).all():
             return None
-        return a_pred.astype(np.float64)
+        return a_pred.astype(np.float64)  # type: ignore[no-any-return]
 
     @staticmethod
     def _yule_walker_predictor_coeffs(context: np.ndarray, order: int) -> np.ndarray | None:
@@ -1802,7 +1802,7 @@ class CrackleRemovalPhase(PhaseInterface):
             a_coeffs = solve_toeplitz(r[:order], -r[1 : order + 1])
             if not np.isfinite(a_coeffs).all():
                 return None
-            return np.asarray(a_coeffs, dtype=np.float64)
+            return np.asarray(a_coeffs, dtype=np.float64)  # type: ignore[no-any-return]
         except Exception:
             return None
 
@@ -1825,7 +1825,7 @@ class CrackleRemovalPhase(PhaseInterface):
             else:
                 interpolated = np.zeros(gap_length)
 
-        return interpolated
+        return interpolated  # type: ignore[no-any-return]
 
     def _measure_crackle_reduction(self, before: np.ndarray, after: np.ndarray) -> float:
         """

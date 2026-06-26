@@ -582,7 +582,7 @@ class TransientPreservationPhase(PhaseInterface):
         # Simple sum (assumes linear-phase filters with minimal overlap)
         combined = np.sum(bands, axis=0)
 
-        return np.asarray(combined)
+        return np.asarray(combined)  # type: ignore[no-any-return]
 
     def _shape_transients_per_band(
         self,
@@ -645,7 +645,7 @@ class TransientPreservationPhase(PhaseInterface):
         # Apply gain envelope
         shaped = band_audio * gain_envelope[:, np.newaxis] if band_audio.ndim == 2 else band_audio * gain_envelope
 
-        return shaped
+        return shaped  # type: ignore[no-any-return]
 
     def _multi_scale_adsr_envelope(
         self,

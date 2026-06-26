@@ -553,7 +553,7 @@ class RumbleFilterPhase(PhaseInterface):
             _result = _arr * _per_sample_gain[:, np.newaxis]
         else:
             _result = _arr * _per_sample_gain
-        return _result
+        return _result  # type: ignore[no-any-return]
 
     def _detect_rumble_professional(self, audio: np.ndarray, params: dict[str, Any]) -> tuple[bool, float, list[float]]:
         """
@@ -636,7 +636,7 @@ class RumbleFilterPhase(PhaseInterface):
         alpha = 0.9995  # 1 Hz cutoff @ 48 kHz
         b, a = [1.0, -1.0], [1.0, -alpha]
         if audio.ndim == 2:
-            return np.column_stack([_filtfilt_dc(b, a, audio[:, ch]) for ch in range(audio.shape[1])]).astype(
+            return np.column_stack([_filtfilt_dc(b, a, audio[:, ch]) for ch in range(audio.shape[1])]).astype(  # type: ignore[no-any-return]
                 audio.dtype
             )
         _result: np.ndarray = np.asarray(_filtfilt_dc(b, a, audio), dtype=audio.dtype)
@@ -736,7 +736,7 @@ class RumbleFilterPhase(PhaseInterface):
             onset_samples[:_edge_guard_samples] = False
             onset_samples[-_edge_guard_samples:] = False
 
-        return onset_samples
+        return onset_samples  # type: ignore[no-any-return]
 
     def _apply_iir_highpass_transient_preserving(
         self, audio: np.ndarray, cutoff_hz: float, order: int, transient_mask: np.ndarray
@@ -784,7 +784,7 @@ class RumbleFilterPhase(PhaseInterface):
                     filtered[:, ch] = signal.sosfiltfilt(sos, audio[:, ch], padlen=_padlen)
             else:
                 filtered = signal.sosfiltfilt(sos, audio, padlen=_padlen)
-            return filtered
+            return filtered  # type: ignore[no-any-return]
 
         # Build a soft bypass envelope instead of hard sample switches.
         # Hard np.where transitions can create boundary discontinuities at intro/outro,
@@ -808,7 +808,7 @@ class RumbleFilterPhase(PhaseInterface):
             filtered_audio = signal.sosfiltfilt(sos, audio, padlen=_padlen)
             filtered = _soft_mask * audio + (1.0 - _soft_mask) * filtered_audio
 
-        return filtered
+        return filtered  # type: ignore[no-any-return]
 
     def _apply_fir_highpass(self, audio: np.ndarray, cutoff_hz: float, order: int) -> np.ndarray:
         """
@@ -839,7 +839,7 @@ class RumbleFilterPhase(PhaseInterface):
         else:
             filtered = signal.filtfilt(fir_coeffs, 1.0, audio, padlen=_padlen_fir)
 
-        return filtered
+        return filtered  # type: ignore[no-any-return]
 
     def supports_material(self, material_type: str) -> bool:  # pylint: disable=unused-argument
         """All materials supported."""

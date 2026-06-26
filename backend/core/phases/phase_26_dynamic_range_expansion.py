@@ -580,7 +580,7 @@ class DynamicRangeExpansion(PhaseInterface):
         gain_linear = 10.0 ** (gain_db_smooth / 20.0)
         expanded_band = band * gain_linear
 
-        return np.asarray(expanded_band, dtype=np.float32)
+        return np.asarray(expanded_band, dtype=np.float32)  # type: ignore[no-any-return]
 
     def _compute_rms_envelope(self, audio: np.ndarray, window_samples: int) -> np.ndarray:
         """Berechnet RMS envelope."""
@@ -589,7 +589,7 @@ class DynamicRangeExpansion(PhaseInterface):
         from scipy.ndimage import uniform_filter1d
 
         rms = np.sqrt(uniform_filter1d(audio_squared, window_samples, mode="nearest"))
-        return np.asarray(rms, dtype=np.float32)
+        return np.asarray(rms, dtype=np.float32)  # type: ignore[no-any-return]
 
     def _smooth_gain(self, gain_db: np.ndarray, sample_rate: int, attack_ms: float, release_ms: float) -> np.ndarray:
         """
@@ -616,7 +616,7 @@ class DynamicRangeExpansion(PhaseInterface):
                     smoothed[i] = attack_coeff * smoothed[i - 1] + (1 - attack_coeff) * gain_db[i]
                 else:
                     smoothed[i] = release_coeff * smoothed[i - 1] + (1 - release_coeff) * gain_db[i]
-            return smoothed
+            return smoothed  # type: ignore[no-any-return]
 
         # Downsample: preserve dominant gain per block (max |gain|)
         n_blocks = n // DS
@@ -643,13 +643,13 @@ class DynamicRangeExpansion(PhaseInterface):
         x_full = np.arange(n)
         smoothed = np.interp(x_full, x_ds, smoothed_ds)
 
-        return smoothed
+        return smoothed  # type: ignore[no-any-return]
 
     def _combine_bands(self, bands: list) -> np.ndarray:
         """Kombiniert frequency bands."""
         # Simple sum (Linkwitz-Riley crossovers maintain flat magnitude response)
         combined = sum(bands)
-        return np.asarray(combined, dtype=np.float32)
+        return np.asarray(combined, dtype=np.float32)  # type: ignore[no-any-return]
 
     def _measure_dynamic_range(self, audio: np.ndarray) -> float:
         """Misst dynamic range (dB)."""

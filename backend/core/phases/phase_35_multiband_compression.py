@@ -471,7 +471,7 @@ class MultibandCompressionPhase(PhaseInterface):
             if env_frames[_fi] > smoothed_frames[_fi - 1]:
                 smoothed_frames[_fi] = _a_att * env_frames[_fi] + (1.0 - _a_att) * smoothed_frames[_fi - 1]
             else:
-                smoothed_frames[_fi] = _ar * env_frames[_fi] + (1.0 - _ar) * smoothed_frames[_fi - 1]
+                smoothed_frames[_fi] = _ar * env_frames[_fi] + (1.0 - _ar) * smoothed_frames[_fi - 1]  # type: ignore[operator]
         # Upsample back to sample rate via linear interpolation between frame centres
         _frame_centres = np.arange(n_frames) * _HOP + _HOP // 2
         smoothed_envelope = np.interp(np.arange(n_samp), _frame_centres, smoothed_frames).astype(np.float64)

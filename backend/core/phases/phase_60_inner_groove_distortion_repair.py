@@ -67,7 +67,7 @@ def apply(
         igd_score = float(defect_scores.get("inner_groove_distortion", 0.0))
         if igd_score < min_igd_score:
             logger.debug("Phase 60: IGD score %.3f < %.3f — skipped", igd_score, min_igd_score)
-            return np.clip(audio, -1.0, 1.0)
+            return np.clip(audio, -1.0, 1.0)  # type: ignore[no-any-return]
 
     stereo = audio.ndim == 2
     if stereo:
@@ -134,7 +134,7 @@ def apply(
 
     # Crossfade segments (10 ms Hanning)
     result = np.nan_to_num(out, nan=0.0, posinf=0.0, neginf=0.0)
-    return np.clip(result, -1.0, 1.0).astype(np.float32)
+    return np.clip(result, -1.0, 1.0).astype(np.float32)  # type: ignore[no-any-return]
 
 
 # ─── PhaseInterface ────────────────────────────────────────────────────────────

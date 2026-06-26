@@ -675,7 +675,7 @@ class ClickPopRemoval(PhaseInterface):
         x_repair = np.arange(start, end + 1)
         repaired = cs(x_repair)
 
-        return np.asarray(repaired, dtype=np.float32)
+        return np.asarray(repaired, dtype=np.float32)  # type: ignore[no-any-return]
 
     def _ar_prediction(self, audio: np.ndarray, start: int, end: int) -> np.ndarray:
         """AR prediction for medium pops (order ≥ 16 @ 48 kHz, §VERBOTEN: LPC < 16)."""
@@ -713,7 +713,7 @@ class ClickPopRemoval(PhaseInterface):
             repaired.append(pred)
             buffer.append(pred)
 
-        return np.array(repaired)
+        return np.array(repaired)  # type: ignore[no-any-return]
 
     def _crossfade_repair(self, audio: np.ndarray, start: int, end: int) -> np.ndarray:
         """Cross-fade repair for large bursts."""
@@ -728,4 +728,4 @@ class ClickPopRemoval(PhaseInterface):
 
         repaired = before_avg * fade + after_avg * (1 - fade)
 
-        return np.asarray(repaired, dtype=np.float32)
+        return np.asarray(repaired, dtype=np.float32)  # type: ignore[no-any-return]

@@ -1071,7 +1071,7 @@ class HarmonicRestorationPhase(PhaseInterface):
         # Zero out harmonics beyond the FFT grid
         valid = (harmonic_freqs <= freqs[-1]).astype(np.float64)
         mag_at_harmonics = magnitude[bin_indices] * valid  # (n_f0, n_harm)
-        return np.asarray(mag_at_harmonics @ weights)  # (n_f0,)
+        return np.asarray(mag_at_harmonics @ weights)  # type: ignore[no-any-return]  # (n_f0,)
 
     def _detect_multi_pitch_f0s_with_analysis(
         self, mono: np.ndarray, n_max: int = 4
@@ -1181,7 +1181,7 @@ class HarmonicRestorationPhase(PhaseInterface):
         n = len(mono)
         additive = np.zeros(n, dtype=np.float32)
         if not f0_info:
-            return additive
+            return additive  # type: ignore[no-any-return]
 
         sr = float(self.sample_rate)
         fft_size = min(32768, n)
@@ -1217,7 +1217,7 @@ class HarmonicRestorationPhase(PhaseInterface):
                 ).astype(np.float32)
 
         additive *= np.float32(params.get("strength", 0.5))
-        return additive.astype(mono.dtype, copy=False)
+        return additive.astype(mono.dtype, copy=False)  # type: ignore[no-any-return]
 
     def _apply_saturation_professional(self, audio: np.ndarray, params: dict[str, Any]) -> np.ndarray:
         """
@@ -1289,11 +1289,11 @@ class HarmonicRestorationPhase(PhaseInterface):
 
         def _log_cosh(x: np.ndarray) -> np.ndarray:
             ax = np.abs(x)
-            return np.asarray(ax + np.log1p(np.exp(-2.0 * ax)) - np.log(2.0))
+            return np.asarray(ax + np.log1p(np.exp(-2.0 * ax)) - np.log(2.0))  # type: ignore[no-any-return]
 
         midpoint = np.tanh(0.5 * (x0 + x1))  # fallback for near-identical samples
         adaa = (_log_cosh(x0) - _log_cosh(x1)) / np.where(close, 1.0, dX)
-        return np.where(close, midpoint, adaa)
+        return np.where(close, midpoint, adaa)  # type: ignore[no-any-return]
 
     def _tube_saturation(self, audio: np.ndarray, even_ratio: float) -> np.ndarray:
         """
@@ -1322,7 +1322,7 @@ class HarmonicRestorationPhase(PhaseInterface):
         adaa_neg = self._tanh_adaa(x0_neg, x1_neg) / negative_gain
 
         saturated = np.where(audio >= 0, adaa_pos, adaa_neg)
-        return saturated
+        return saturated  # type: ignore[no-any-return]
 
     def _tape_saturation(self, audio: np.ndarray, odd_ratio: float) -> np.ndarray:
         """
@@ -1337,7 +1337,7 @@ class HarmonicRestorationPhase(PhaseInterface):
         # Hard limit at ±1.0 — verhindert Übersteuerungsartefakte (§0h)
         saturated = np.clip(saturated, -1.0, 1.0)
 
-        return np.asarray(saturated)
+        return np.asarray(saturated)  # type: ignore[no-any-return]
 
     def _transformer_saturation(self, audio: np.ndarray) -> np.ndarray:
         """Transformatorsättigung (symmetrisch, ausgewogene Harmonik) mit ADAA.
@@ -1368,7 +1368,7 @@ class HarmonicRestorationPhase(PhaseInterface):
 
         # Ensure valid range
         if low_norm >= high_norm or low_norm >= 1.0:
-            return np.zeros_like(harmonics)  # Return silence
+            return np.zeros_like(harmonics)  # type: ignore[no-any-return]  # Return silence
 
         try:
             sos = signal.butter(4, [low_norm, high_norm], btype="band", output="sos")
@@ -1382,7 +1382,7 @@ class HarmonicRestorationPhase(PhaseInterface):
         except Exception:
             filtered = harmonics * 0.0
 
-        return np.asarray(filtered)
+        return np.asarray(filtered)  # type: ignore[no-any-return]
 
     def _measure_hf_energy(self, audio: np.ndarray, freq_range: list[int]) -> float:
         """
@@ -1485,7 +1485,7 @@ class HarmonicRestorationPhase(PhaseInterface):
             else:
                 return audio
             result = np.nan_to_num(result, nan=0.0, posinf=0.0, neginf=0.0)
-            return np.clip(result, -1.0, 1.0).astype(np.float32)
+            return np.clip(result, -1.0, 1.0).astype(np.float32)  # type: ignore[no-any-return]
         except Exception:
             return audio
 

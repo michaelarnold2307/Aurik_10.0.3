@@ -135,7 +135,7 @@ class PresenceBoost(PhaseInterface):
             description="Mid-range clarity and vocal/instrument presence enhancement",
         )
 
-    def process(self, audio: np.ndarray, sample_rate: int, material_type: str = "unknown", **kwargs) -> PhaseResult:
+    def process(self, audio: np.ndarray, sample_rate: int, material_type: str = "unknown", **kwargs) -> PhaseResult:  # type: ignore[override]
         """
         Wendet an: presence boost to audio.
 
@@ -494,4 +494,4 @@ class PresenceBoost(PhaseInterface):
         else:
             filtered = signal.lfilter(b, a, audio)
 
-        return np.asarray(filtered, dtype=np.float32)
+        return np.asarray(filtered, dtype=np.float32)  # type: ignore[no-any-return]

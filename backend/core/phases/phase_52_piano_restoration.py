@@ -597,7 +597,7 @@ class PianoRestorationV1(PhaseInterface):
         enhancement = audio.copy()
         enhancement = enhancement * (1.0 + (gain_linear - 1.0) * transient_mask * intensity)
 
-        return enhancement
+        return enhancement  # type: ignore[no-any-return]
 
     def _enhance_string_resonance(self, audio: np.ndarray, intensity: float, decay_factor: float) -> np.ndarray:
         """

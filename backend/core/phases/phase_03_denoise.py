@@ -766,7 +766,7 @@ class DenoisePhase(PhaseInterface):
                 def _len_n(a: np.ndarray) -> int:
                     if a.ndim == 1:
                         return len(a)
-                    return a.shape[1] if _ch_first(a) else a.shape[0]
+                    return a.shape[1] if _ch_first(a) else a.shape[0]  # type: ignore[no-any-return]
 
                 def _trim(a: np.ndarray, n: int) -> np.ndarray:
                     if a.ndim == 1:
@@ -2973,7 +2973,7 @@ class DenoisePhase(PhaseInterface):
         g_floor_vec = np.interp(t_stft, t_lufs, g_floor_smooth).astype(np.float32)
         # Clamp to [g_lo, g_hi] as defensive guard against convolution edge artefacts.
         g_floor_vec = np.clip(g_floor_vec, g_lo, g_hi).astype(np.float32)
-        return np.nan_to_num(g_floor_vec, nan=float(g_floor_base))
+        return np.nan_to_num(g_floor_vec, nan=float(g_floor_base))  # type: ignore[no-any-return]
 
     @staticmethod
     def _compute_adaptive_guard_profile(
@@ -3103,7 +3103,7 @@ class DenoisePhase(PhaseInterface):
         e_max = float(_hz_to_cam(np.array([float(sr) / 2.0]))[0])
         erb_edges = np.linspace(e_min, e_max, N_ERB + 1)
         band_idx = np.clip(np.searchsorted(erb_edges[1:], _hz_to_cam(freqs)), 0, N_ERB - 1).astype(np.int32)
-        return band_idx
+        return band_idx  # type: ignore[no-any-return]
 
     def _estimate_noise_profile_adaptive(  # pylint: disable=unused-argument
         self,
@@ -3246,7 +3246,7 @@ class DenoisePhase(PhaseInterface):
         gain_floor = 0.1  # Never reduce more than -20 dB
         gain_final = np.maximum(gain_final, gain_floor)
 
-        return gain_final
+        return gain_final  # type: ignore[no-any-return]
 
     def _preserve_transients(self, magnitude: np.ndarray, gain: np.ndarray, preserve_strength: float) -> np.ndarray:
         """

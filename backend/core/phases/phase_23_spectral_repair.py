@@ -1443,7 +1443,7 @@ class SpectralRepair(PhaseInterface):
             pywt = importlib.import_module("pywt")
         except ModuleNotFoundError:
             logger.warning("pywt not available — ADMM declipping skipped, returning original")
-            return np.asarray(audio, dtype=np.float32)
+            return np.asarray(audio, dtype=np.float32)  # type: ignore[no-any-return]
 
         # float32 throughout: 2× faster wavelet ops, 2× less RAM vs float64;
         # precision is > 140 dB below the noise floor even for 24-bit audio.
@@ -1497,13 +1497,13 @@ class SpectralRepair(PhaseInterface):
                 chunk_idx,
                 self._ADMM_CHUNK_S,
             )
-            return result
+            return result  # type: ignore[no-any-return]
 
         # --- Reliable vs clipped mask ---
         reliable_mask = np.abs(y) < clip_level * 0.99
         clipped_mask = ~reliable_mask
         if not np.any(clipped_mask):
-            return y.astype(np.float32)
+            return y.astype(np.float32)  # type: ignore[no-any-return]
 
         # --- Onset detection for TransientGuard (§4.5a) ---
         onset_win = max(1, int(sr * 0.005))  # ±5 ms
@@ -1602,7 +1602,7 @@ class SpectralRepair(PhaseInterface):
 
         # Hard-clamp residual excursions > clip_level as safety net
         x = np.clip(x, -1.0, 1.0)
-        return x.astype(np.float32)
+        return x.astype(np.float32)  # type: ignore[no-any-return]
 
     def _repair_channel(
         self,
@@ -2075,7 +2075,7 @@ class SpectralRepair(PhaseInterface):
                 _mrsa_gain_db,
                 _mrsa_gain_db - 3.0,
             )
-        return result
+        return result  # type: ignore[no-any-return]
 
     def _repair_with_audiosr(
         self,
@@ -2178,7 +2178,7 @@ class SpectralRepair(PhaseInterface):
                     channel_audio * (1 - repair_strength)
                     + repaired_channel.astype(channel_audio.dtype) * repair_strength
                 )
-                return audio_final[: len(channel_audio)]
+                return audio_final[: len(channel_audio)]  # type: ignore[no-any-return]
 
             audio_arr = np.asarray(audio)
             if audio_arr.ndim == 1:
@@ -2194,7 +2194,7 @@ class SpectralRepair(PhaseInterface):
                     mid_repaired = _repair_single_channel(mid)
                     l_out = np.clip(mid_repaired + side, -1.0, 1.0)
                     r_out = np.clip(mid_repaired - side, -1.0, 1.0)
-                    return np.stack([l_out, r_out], axis=0)
+                    return np.stack([l_out, r_out], axis=0)  # type: ignore[no-any-return]
 
                 # UV3 uses channels-first stereo (2, N). Preserve incoming orientation.
                 if audio_arr.shape[0] == 2 and audio_arr.shape[1] > 2:
@@ -2302,7 +2302,7 @@ class SpectralRepair(PhaseInterface):
         b_min = 1.66
         noise_floor = np.sqrt(np.maximum(b_min * min_smoothed, 1e-20))
         noise_floor = np.nan_to_num(noise_floor, nan=1e-10, posinf=1.0, neginf=1e-10)
-        return np.asarray(noise_floor, dtype=np.float32)
+        return np.asarray(noise_floor, dtype=np.float32)  # type: ignore[no-any-return]
 
     # §2.57 BW-Ceiling pro analogem Material (Hz): restaurierte HF über diesem
     # Schwellwert darf nicht als Codec-Spike erkannt werden (Phase_06-Restaurierung schützen).
@@ -2383,7 +2383,7 @@ class SpectralRepair(PhaseInterface):
         defect_mask = ndimage.binary_opening(defect_mask, structure=np.ones((3, 3)))
         defect_mask = ndimage.binary_closing(defect_mask, structure=np.ones((5, 3)))
 
-        return np.asarray(defect_mask)
+        return np.asarray(defect_mask)  # type: ignore[no-any-return]
 
     def _inpaint_magnitude(self, magnitude: np.ndarray, defect_mask: np.ndarray) -> np.ndarray:
         """Vektorisiertes Spectral Inpainting — O(F+T) statt O(F×T).
@@ -2446,7 +2446,7 @@ class SpectralRepair(PhaseInterface):
         blended = 0.6 * mag_h + 0.4 * mag_v
         repaired[defect_mask] = blended[defect_mask]
 
-        return np.maximum(repaired, 0.0)
+        return np.maximum(repaired, 0.0)  # type: ignore[no-any-return]
 
     def _inpaint_phase(self, phase: np.ndarray, defect_mask: np.ndarray) -> np.ndarray:
         """Phase-Inpainting via Phasen-Geschwindigkeits-Fortsetzung.
@@ -2489,7 +2489,7 @@ class SpectralRepair(PhaseInterface):
 
         reduction = max(0, min(1, (noise_orig - noise_rep) / noise_orig)) if noise_orig > 1e-10 else 0.0
 
-        return reduction
+        return reduction  # type: ignore[return-value]
 
     def _calculate_spectral_coherence(self, audio: np.ndarray, sample_rate: int) -> float:
         """Calculate spectral coherence (smoothness) score."""

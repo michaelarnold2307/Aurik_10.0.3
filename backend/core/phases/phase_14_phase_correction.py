@@ -408,7 +408,7 @@ class PhaseCorrection(PhaseInterface):
 
         # Sum bands
         reconstructed = np.sum(bands_trimmed, axis=0)
-        return reconstructed
+        return reconstructed  # type: ignore[no-any-return]
 
     def _analyze_phase(self, left: np.ndarray, right: np.ndarray, max_delay: int) -> tuple[float, float]:
         """
@@ -509,7 +509,7 @@ class PhaseCorrection(PhaseInterface):
             for m in range(N + 1):
                 if m != k:
                     h[k] *= (d - m) / (k - m)
-        return h
+        return h  # type: ignore[no-any-return]
 
     def _correct_band_phase(
         self, left: np.ndarray, right: np.ndarray, delay: float, strength: float

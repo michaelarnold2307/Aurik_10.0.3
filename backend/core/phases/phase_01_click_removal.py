@@ -294,7 +294,7 @@ class ClickRemovalPhase(PhaseInterface):
             resolved = np.asarray(mask, dtype=np.float32).ravel()
             if resolved.size < n_samples:
                 resolved = np.pad(resolved, (0, n_samples - resolved.size), mode="edge")
-            return resolved[:n_samples]
+            return resolved[:n_samples]  # type: ignore[no-any-return]
 
         zones = kwargs.get("structural_silence_zones")
         if zones is None:
@@ -311,7 +311,7 @@ class ClickRemovalPhase(PhaseInterface):
                 start = max(0, min(n_samples, start))
                 end = max(start, min(n_samples, end))
                 resolved[start:end] = 0.0
-            return resolved
+            return resolved  # type: ignore[no-any-return]
         return None
 
     @staticmethod
@@ -354,7 +354,7 @@ class ClickRemovalPhase(PhaseInterface):
             )
         except Exception as exc:
             logger.debug("§0h quiet-edge guard phase_01 skipped: %s", exc)
-        return np.clip(np.nan_to_num(guarded, nan=0.0, posinf=0.0, neginf=0.0), -1.0, 1.0).astype(np.float32)
+        return np.clip(np.nan_to_num(guarded, nan=0.0, posinf=0.0, neginf=0.0), -1.0, 1.0).astype(np.float32)  # type: ignore[no-any-return]
 
     @staticmethod
     def _emit_progress(progress_callback: Any, pct: float, label: str, elapsed_s: float) -> None:
@@ -1463,7 +1463,7 @@ class ClickRemovalPhase(PhaseInterface):
 
         result = np.nan_to_num(result, nan=0.0, posinf=0.0, neginf=0.0)
         result = np.clip(result, -1.0, 1.0)
-        return result
+        return result  # type: ignore[no-any-return]
 
     def supports_material(self, _material_type: str) -> bool:
         """All materials supported."""

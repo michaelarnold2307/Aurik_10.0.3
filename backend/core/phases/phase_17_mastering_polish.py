@@ -206,7 +206,7 @@ class MasteringPolishPhase(PhaseInterface):
         self.name = "Professional Mastering Polish"
 
     # pylint: disable-next=arguments-renamed
-    def process(self, audio: np.ndarray, sample_rate: int, material: MaterialType, **kwargs) -> PhaseResult:
+    def process(self, audio: np.ndarray, sample_rate: int, material: MaterialType, **kwargs) -> PhaseResult:  # type: ignore[override]
         """
         Wendet Professional Mastering Chain an.
 

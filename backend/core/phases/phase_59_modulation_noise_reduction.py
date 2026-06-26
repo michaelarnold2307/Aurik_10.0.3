@@ -86,7 +86,7 @@ def apply(
                 mn_score,
                 min_modulation_noise_score,
             )
-            return np.clip(audio, -1.0, 1.0)
+            return np.clip(audio, -1.0, 1.0)  # type: ignore[no-any-return]
 
     stereo = audio.ndim == 2
     if stereo:
@@ -100,7 +100,7 @@ def apply(
             1.0,
         )
         _gain_mn = np.clip(_gain_mn, 0.0, 10.0)
-        return np.clip(np.stack([audio[0] * _gain_mn, audio[1] * _gain_mn], axis=0), -1.0, 1.0).astype(np.float32)
+        return np.clip(np.stack([audio[0] * _gain_mn, audio[1] * _gain_mn], axis=0), -1.0, 1.0).astype(np.float32)  # type: ignore[no-any-return]
 
     x = np.asarray(audio, dtype=np.float32)
     n = len(x)
@@ -160,7 +160,7 @@ def apply(
     # Wet/dry blend
     result = x * (1.0 - strength) + out * strength
     result = np.nan_to_num(result, nan=0.0, posinf=0.0, neginf=0.0)
-    return np.clip(result, -1.0, 1.0).astype(np.float32)
+    return np.clip(result, -1.0, 1.0).astype(np.float32)  # type: ignore[no-any-return]
 
 
 class ModulationNoiseReductionPhase(PhaseInterface):

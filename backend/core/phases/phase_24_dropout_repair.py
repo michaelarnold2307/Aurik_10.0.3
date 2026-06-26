@@ -1345,17 +1345,17 @@ class DropoutRepairPhase(PhaseInterface):
         x = np.asarray(channel, dtype=np.float32)
         n = len(x)
         if n == 0 or shift_samples == 0:
-            return x.copy()
+            return x.copy()  # type: ignore[no-any-return]
         out = np.empty_like(x)
         if shift_samples > 0:
             shift = min(shift_samples, n - 1)
             out[:shift] = x[0]
             out[shift:] = x[:-shift]
-            return out
+            return out  # type: ignore[no-any-return]
         shift = min(-shift_samples, n - 1)
         out[:-shift] = x[shift:]
         out[-shift:] = x[-1]
-        return out
+        return out  # type: ignore[no-any-return]
 
     def _enforce_stereo_lag_safety(
         self,
@@ -2144,7 +2144,7 @@ class DropoutRepairPhase(PhaseInterface):
             mask_valid = weight_sum > 1e-9
             result = np.where(mask_valid, blended / np.where(mask_valid, weight_sum, 1.0), audio_fill)
 
-        return np.clip(np.nan_to_num(result), -1.0, 1.0)
+        return np.clip(np.nan_to_num(result), -1.0, 1.0)  # type: ignore[no-any-return]
 
     def _repair_tonal(self, before: np.ndarray, after: np.ndarray, gap_length: int) -> np.ndarray:
         """Sinusoidales Inpainting für tonalen Inhalt mit PGHI-Phasenkohärenz.
@@ -2168,7 +2168,7 @@ class DropoutRepairPhase(PhaseInterface):
             Rekonstruiertes Segment (1D, Float64)
         """
         if gap_length <= 0:
-            return np.zeros(0)
+            return np.zeros(0)  # type: ignore[no-any-return]
 
         nperseg, noverlap, hop = self._safe_stft_params(
             (len(before), len(after)),
@@ -2260,7 +2260,7 @@ class DropoutRepairPhase(PhaseInterface):
             Rekonstruiertes Segment (1D, Float64)
         """
         if gap_length <= 0:
-            return np.zeros(0)
+            return np.zeros(0)  # type: ignore[no-any-return]
 
         nperseg, noverlap, hop = self._safe_stft_params(
             (len(before), len(after), len(before) + len(after)),
@@ -2344,7 +2344,7 @@ class DropoutRepairPhase(PhaseInterface):
             _fb_seed = int(abs(float(np.sum(np.abs(context[: min(len(context), 64)])))) * 1e5 + gap_length) % (2**31)
             _rng_fb = np.random.default_rng(seed=_fb_seed)
             synthesized = noise_std * _rng_fb.standard_normal(gap_length)
-            return np.clip(synthesized, -1.0, 1.0)
+            return np.clip(synthesized, -1.0, 1.0)  # type: ignore[no-any-return]
 
     def _repair_hybrid(self, before: np.ndarray, after: np.ndarray, gap_length: int) -> np.ndarray:
         """Hybrid repair (tonal + atonal)."""
@@ -2353,7 +2353,7 @@ class DropoutRepairPhase(PhaseInterface):
         atonal = self._repair_atonal(before, after, gap_length)
 
         # 50/50 blend
-        return 0.5 * tonal + 0.5 * atonal
+        return 0.5 * tonal + 0.5 * atonal  # type: ignore[no-any-return]
 
     def supports_material(self, material_type: str) -> bool:  # pylint: disable=unused-argument
         """All materials supported."""

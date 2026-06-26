@@ -98,7 +98,7 @@ def _build_imd_notch_mask(
     peak_indices = [int(i) for i in np.where(peak_mask)[0]]
     if len(peak_indices) < 2:
         proc_freqs = np.fft.rfftfreq(_PROC_NFFT, 1.0 / sample_rate)
-        return np.ones(len(proc_freqs), dtype=np.float32)
+        return np.ones(len(proc_freqs), dtype=np.float32)  # type: ignore[no-any-return]
 
     # Cluster nearby peaks → fundamental frequencies
     clusters: list[int] = []
@@ -153,7 +153,7 @@ def _build_imd_notch_mask(
 
     if not imd_targets:
         proc_freqs = np.fft.rfftfreq(_PROC_NFFT, 1.0 / sample_rate)
-        return np.ones(len(proc_freqs), dtype=np.float32)
+        return np.ones(len(proc_freqs), dtype=np.float32)  # type: ignore[no-any-return]
 
     # Build notch mask at PROC_NFFT resolution
     proc_freqs = np.fft.rfftfreq(_PROC_NFFT, 1.0 / sample_rate)
@@ -172,7 +172,7 @@ def _build_imd_notch_mask(
             notch_depth = float(np.clip(1.0 - strength * (1.0 - dist**2), 0.15, 1.0))
             gain_mask[k] = min(gain_mask[k], notch_depth)
 
-    return gain_mask
+    return gain_mask  # type: ignore[no-any-return]
 
 
 def _apply_stft_mask(
@@ -190,7 +190,7 @@ def _apply_stft_mask(
     while n_frames > 0 and (n_frames - 1) * hop + n_fft > n:
         n_frames -= 1
     if n_frames == 0:
-        return x.astype(np.float32)
+        return x.astype(np.float32)  # type: ignore[no-any-return]
 
     # Batch STFT: stride_tricks framing + vectorised rfft
     x_f32 = np.asarray(x, dtype=np.float32)
@@ -209,7 +209,7 @@ def _apply_stft_mask(
 
     win_sum = np.maximum(win_sum, 1e-8)
     out /= win_sum
-    return out
+    return out  # type: ignore[no-any-return]
 
 
 def apply(
@@ -228,7 +228,7 @@ def apply(
         imd_score = float(defect_scores.get("intermodulation_distortion", 0.0))
         if imd_score < min_imd_score:
             logger.debug("Phase 63: IMD score %.3f < %.3f — skipped", imd_score, min_imd_score)
-            return np.clip(audio, -1.0, 1.0)
+            return np.clip(audio, -1.0, 1.0)  # type: ignore[no-any-return]
 
     stereo = audio.ndim == 2
     if stereo:
@@ -270,7 +270,7 @@ def apply(
     gain_mask = _build_imd_notch_mask(x, sample_rate, strength, notch_width_hz)
     out = _apply_stft_mask(x, gain_mask, sample_rate)
     result = np.nan_to_num(out, nan=0.0, posinf=0.0, neginf=0.0)
-    return np.clip(result, -1.0, 1.0).astype(np.float32)
+    return np.clip(result, -1.0, 1.0).astype(np.float32)  # type: ignore[no-any-return]
 
 
 # ─── PhaseInterface ────────────────────────────────────────────────────────────

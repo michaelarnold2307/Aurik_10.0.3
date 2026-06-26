@@ -572,7 +572,7 @@ class LoudnessNormalizationPhase(PhaseInterface):
         p10 = np.percentile(short_term_loudness, 10)
         lra = p95 - p10
 
-        return lra  # type: ignore[no-any-return]
+        return lra  # type: ignore[return-value]
 
     def _measure_momentary_max(self, audio_weighted: np.ndarray, sample_rate: int) -> float:
         """Maximum Momentary Loudness (400ms window)."""

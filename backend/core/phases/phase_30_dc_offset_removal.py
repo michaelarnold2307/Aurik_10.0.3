@@ -210,9 +210,9 @@ class DCOffsetRemoval(PhaseInterface):
                 execution_time_seconds=time.time() - start_time,
                 metadata={
                     "material": material.name,
-                    "hp_cutoff_hz": float(config["cutoff_hz"]),
+                    "hp_cutoff_hz": float(config["cutoff_hz"]),  # type: ignore[arg-type]
                     "filter_type": config["filter_type"],
-                    "filter_order": int(config["filter_order"]),
+                    "filter_order": int(config["filter_order"]),  # type: ignore[call-overload]
                     "phase_locality_factor": phase_locality_factor,
                     "effective_strength": _effective_strength,
                     "processing": "skipped_zero_strength",
@@ -228,7 +228,7 @@ class DCOffsetRemoval(PhaseInterface):
         dc_offset_before = [float(np.mean(audio[:, ch])) for ch in range(2)] if is_stereo else [float(np.mean(audio))]
 
         # Measure subsonic energy before removal
-        subsonic_energy_before = self._measure_subsonic_energy(audio, sample_rate, config["cutoff_hz"])
+        subsonic_energy_before = self._measure_subsonic_energy(audio, sample_rate, config["cutoff_hz"])  # type: ignore[arg-type]
 
         # Process each channel
         if is_stereo:
@@ -246,7 +246,7 @@ class DCOffsetRemoval(PhaseInterface):
             dc_offset_after = [float(np.mean(audio_processed))]
 
         # Measure subsonic energy after removal
-        subsonic_energy_after = self._measure_subsonic_energy(audio_processed, sample_rate, config["cutoff_hz"])
+        subsonic_energy_after = self._measure_subsonic_energy(audio_processed, sample_rate, config["cutoff_hz"])  # type: ignore[arg-type]
 
         # Calculate reduction
         dc_reduction = [abs(before - after) for before, after in zip(dc_offset_before, dc_offset_after)]
@@ -280,9 +280,9 @@ class DCOffsetRemoval(PhaseInterface):
             execution_time_seconds=execution_time,
             metadata={
                 "material": material.name,
-                "hp_cutoff_hz": float(config["cutoff_hz"]),
+                "hp_cutoff_hz": float(config["cutoff_hz"]),  # type: ignore[arg-type]
                 "filter_type": config["filter_type"],
-                "filter_order": int(config["filter_order"]),
+                "filter_order": int(config["filter_order"]),  # type: ignore[call-overload]
                 "dc_offset_before": [round(v, 6) for v in dc_offset_before],
                 "dc_offset_after": [round(v, 6) for v in dc_offset_after],
                 "dc_reduction": [round(v, 6) for v in dc_reduction],
@@ -308,7 +308,7 @@ class DCOffsetRemoval(PhaseInterface):
         MIN_AUDIO_SAMPLES = 512  # 10 ms @ 48 kHz — minimum safe for any filter
         if len(audio) < MIN_AUDIO_SAMPLES:
             logger.debug("phase_30: audio too short (%d < %d), passthrough", len(audio), MIN_AUDIO_SAMPLES)
-            return np.asarray(audio, dtype=np.float32)
+            return np.asarray(audio, dtype=np.float32)  # type: ignore[no-any-return]
 
         # Stage 1: always remove static DC bias directly.
         dc = float(np.mean(audio))
@@ -318,12 +318,12 @@ class DCOffsetRemoval(PhaseInterface):
         # Stage 2: remove residual near-DC drift with very low cutoff.
         # For tape/reel-tape we use the project-mandated zero-phase form.
         if cutoff_hz <= 0.0:
-            return np.asarray(audio, dtype=np.float32)
+            return np.asarray(audio, dtype=np.float32)  # type: ignore[no-any-return]
 
         if filter_type == "iir" and cutoff_hz <= 5.0:
             b = np.array([1.0, -1.0], dtype=np.float64)
             a = np.array([1.0, -0.9995], dtype=np.float64)
-            return signal.filtfilt(b, a, audio).astype(np.float32)
+            return signal.filtfilt(b, a, audio).astype(np.float32)  # type: ignore[no-any-return]
 
         if filter_type == "fir":
             # Phase-linear FIR filter
@@ -353,7 +353,7 @@ class DCOffsetRemoval(PhaseInterface):
             # Apply filter (forward-backward for zero-phase)
             processed = signal.sosfiltfilt(sos, audio)
 
-        return np.asarray(processed, dtype=np.float32)
+        return np.asarray(processed, dtype=np.float32)  # type: ignore[no-any-return]
 
     def _preserve_phase_loudness(
         self,
@@ -419,7 +419,7 @@ class DCOffsetRemoval(PhaseInterface):
 
         # RMS energy
         rms = np.sqrt(np.mean(subsonic_signal**2))
-        return rms
+        return rms  # type: ignore[no-any-return]
 
 
 # Test harness
