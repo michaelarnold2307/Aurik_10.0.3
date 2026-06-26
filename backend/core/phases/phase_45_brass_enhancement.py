@@ -188,7 +188,7 @@ class BrassEnhancementPhase(PhaseInterface):
                     _n_s_45 = audio.shape[-1] if audio.ndim > 1 else len(audio)
                     _zone_s_45 = sum(z.end_sample - z.start_sample for z in _fmz_45)
                     _zone_frac_45 = float(np.clip(_zone_s_45 / max(1, _n_s_45), 0.0, 1.0))
-                    _effective_strength = float(np.clip(_effective_strength + _zone_frac_45 * 0.15, 0.0, 1.0))
+                    _effective_strength = float(np.clip(_effective_strength + _zone_frac_45 * 0.15, 0.0, 1.0))  # type: ignore[no-redef]
             except Exception as _fmg_exc_45:
                 logger.debug("Phase45 §V41 ForwardMaskingGuard non-blocking: %s", _fmg_exc_45)
 

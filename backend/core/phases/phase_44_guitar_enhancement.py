@@ -174,7 +174,7 @@ class GuitarEnhancementPhase(PhaseInterface):
                     _n_s_44 = audio.shape[-1] if audio.ndim > 1 else len(audio)
                     _zone_s_44 = sum(z.end_sample - z.start_sample for z in _fmz_44)
                     _zone_frac_44 = float(np.clip(_zone_s_44 / max(1, _n_s_44), 0.0, 1.0))
-                    _effective_strength = float(np.clip(_effective_strength + _zone_frac_44 * 0.15, 0.0, 1.0))
+                    _effective_strength = float(np.clip(_effective_strength + _zone_frac_44 * 0.15, 0.0, 1.0))  # type: ignore[no-redef]
             except Exception as _fmg_exc_44:
                 logger.debug("Phase44 §V41 ForwardMaskingGuard non-blocking: %s", _fmg_exc_44)
 

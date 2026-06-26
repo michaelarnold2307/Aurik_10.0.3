@@ -112,7 +112,8 @@ class RealAudioExecutionGoldenGateReport:
 
 
 def _thresholds_from_manifest(payload: dict[str, Any]) -> ExecutionGateThresholds:
-    raw = payload.get("execution_thresholds") if isinstance(payload.get("execution_thresholds"), dict) else {}
+    raw = payload.get("execution_thresholds")
+    raw = raw if isinstance(raw, dict) else {}
     return ExecutionGateThresholds(
         min_phase_execution_recall=float(raw.get("min_phase_execution_recall", 0.90)),
         min_phase_delta_coverage=float(raw.get("min_phase_delta_coverage", 0.75)),
@@ -329,13 +330,15 @@ def _scan_execution_case(
         phase for phase in sorted(set(_RESTORATION_FORBIDDEN_PHASES)) if phase in set(executed_phases)
     )
 
-    phase_deltas = meta.get("phase_deltas") if isinstance(meta.get("phase_deltas"), dict) else {}
+    _pd = meta.get("phase_deltas")
+    phase_deltas = _pd if isinstance(_pd, dict) else {}
     phase_delta_phases = tuple(sorted(str(phase) for phase in phase_deltas.keys()))
     missing_phase_deltas = tuple(
         phase for phase in required_phases if phase in set(executed_phases) and phase not in phase_deltas
     )
 
-    artifact_meta = meta.get("artifact_freedom") if isinstance(meta.get("artifact_freedom"), dict) else {}
+    _am = meta.get("artifact_freedom")
+    artifact_meta = _am if isinstance(_am, dict) else {}
     artifact_score_raw = artifact_meta.get("score")
     artifact_score = float(artifact_score_raw) if isinstance(artifact_score_raw, (int, float)) else None
     artifact_passed = bool(artifact_meta.get("passed", artifact_score is not None and artifact_score >= 0.95))

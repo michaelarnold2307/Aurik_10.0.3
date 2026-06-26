@@ -60,7 +60,8 @@ def _load_manifest(path: Path) -> dict[str, Any]:
 
 
 def _thresholds_from_manifest(payload: dict[str, Any]) -> DefectDetectionGateThresholds:
-    raw = payload.get("thresholds") if isinstance(payload.get("thresholds"), dict) else {}
+    raw = payload.get("thresholds")
+    raw = raw if isinstance(raw, dict) else {}
     return DefectDetectionGateThresholds(
         min_recall=float(raw.get("min_recall", 0.95)),
         min_precision=float(raw.get("min_precision", 0.92)),

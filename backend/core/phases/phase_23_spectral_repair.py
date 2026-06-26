@@ -1881,7 +1881,7 @@ class SpectralRepair(PhaseInterface):
             audio_repaired = audio.astype(np.float64)  # passthrough
         _report(98.0, "Rekonstruktion")
 
-        return audio_repaired[: len(audio)]
+        return audio_repaired[: len(audio)]  # type: ignore[no-any-return]
 
     def _repair_channel_mrsa(
         self,

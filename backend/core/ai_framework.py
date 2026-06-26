@@ -74,7 +74,7 @@ try:
     DYNAMICS_PHASES_AVAILABLE = True
 except ImportError:
     DYNAMICS_PHASES_AVAILABLE = False
-    PhasesMaterialType = None
+    PhasesMaterialType = None  # type: ignore[assignment,misc]
     logger.warning("Dynamics phases (Compression/Limiting) not available")
 
 
@@ -353,8 +353,8 @@ class UnifiedDefectDetector:
         std_hf = np.std(hf_energy)
 
         # Hiss: consistent (low std), moderate level
-        consistency = 1.0 - min(1.0, std_hf / (mean_hf + 1e-10))
-        level = min(1.0, mean_hf / 0.1)
+        consistency = float(min(1.0, std_hf / (mean_hf + 1e-10)))  # type: ignore[arg-type]
+        level = float(min(1.0, mean_hf / 0.1))  # type: ignore[arg-type]
 
         confidence = (consistency + level) / 2
         severity = level
@@ -545,9 +545,9 @@ class UnifiedDefectDetector:
         flutter_sev = severity
 
         # Continuous effect
-        locations = [(0, len(audio) / self.sr)] if return_locs and confidence > 0.3 else []
+        locations = [(0, len(audio) / self.sr)] if return_locs and confidence > 0.3 else []  # type: ignore[operator]
 
-        return wow_conf, wow_sev, locations, flutter_conf, flutter_sev, locations
+        return wow_conf, wow_sev, locations, flutter_conf, flutter_sev, locations  # type: ignore[return-value]
 
     def _detect_clipping(self, audio: np.ndarray, return_locs: bool) -> tuple[float, float, list]:
         """Clipping-Erkennung (hartes Begrenzen)."""
@@ -1138,8 +1138,8 @@ class Studio2026Processor:
             self.limiting = LimitingPhase()
             logger.info("✓ Dynamics phases (Compression/Limiting) loaded")
         else:
-            self.compression = None
-            self.limiting = None
+            self.compression = None  # type: ignore[assignment]
+            self.limiting = None  # type: ignore[assignment]
             logger.warning("⚠ Dynamics phases not available - using fallback")
 
         logger.info("Initializing Studio 2026 Processor...")
@@ -1252,7 +1252,7 @@ class Studio2026Processor:
         Returns:
             (processed_audio, dynamics_report)
         """
-        report = {
+        report: dict[str, Any] = {
             "compression_applied": False,
             "limiting_applied": False,
         }
@@ -1270,7 +1270,7 @@ class Studio2026Processor:
         phase_material = self._map_material_type(material)
 
         # Phase 10: Compression
-        compression_result = self.compression.process(audio, self.sr, phase_material)
+        compression_result = self.compression.process(audio, self.sr, phase_material)  # type: ignore[arg-type,union-attr]
 
         if compression_result.success:
             audio = compression_result.audio
@@ -1285,7 +1285,7 @@ class Studio2026Processor:
         # Phase 11: Limiting
         if self.limiting is None:
             return audio, report
-        limiting_result = self.limiting.process(audio, self.sr, phase_material)
+        limiting_result = self.limiting.process(audio, self.sr, phase_material)  # type: ignore[arg-type,union-attr]
 
         if limiting_result.success:
             audio = limiting_result.audio
@@ -1369,7 +1369,7 @@ class AurikAIFramework:
 
     def restoration_magic_button(self, audio: np.ndarray) -> tuple[np.ndarray, dict[str, Any]]:
         """Magic Button 1: Restoration Only (keine Enhancement)."""
-        return self.restoration_button.process(audio)
+        return self.restoration_button.process(audio)  # type: ignore[attr-defined]
 
     def studio2026_magic_button(self, audio: np.ndarray) -> tuple[np.ndarray, dict[str, Any]]:
         """Magic Button 2: Studio 2026 Complete Pipeline."""

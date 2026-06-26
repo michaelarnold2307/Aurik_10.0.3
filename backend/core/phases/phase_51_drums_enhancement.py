@@ -336,7 +336,7 @@ class DrumsEnhancementV1(PhaseInterface):
                 )
 
             # Process audio
-            processed_audio, report = self.enhancer.process(audio, self.sample_rate)  # type: ignore[union-attr]
+            processed_audio, report = self.enhancer.process(audio, self.sample_rate)  # type: ignore[union-attr,attr-defined]
 
             # Mix with original (parallel processing)
             mix = float(np.clip(config["mix"], 0.0, 1.0)) * effective_strength

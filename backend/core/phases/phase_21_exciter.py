@@ -202,7 +202,7 @@ class Exciter(PhaseInterface):
         sample_rate: int = 48000,
         material_type: MaterialType = MaterialType.CD_DIGITAL,
         **kwargs,
-    ) -> PhaseResult:
+    ) -> PhaseResult:  # type: ignore[override]
         """
         Wendet an: multi-band harmonic excitation to audio.
 

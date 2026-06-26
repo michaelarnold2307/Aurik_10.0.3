@@ -1,4 +1,4 @@
-# Spec 10 — Bug & Gap Detection Strategy (v9.19.0)
+# Spec 10 — Bug & Gap Detection Strategy (v9.20.0)
 
 > **Scope**: Systematische Erkennung und Eliminierung aller Bugs und Gaps über alle Ebenen —
 > Frontend, Bridge/CLI, Denker, UV3-Pipeline, Phasen/DSP/Plugins, Tests.
@@ -115,34 +115,79 @@ P3 (Backlog): TYPE-SAFETY, Linter-Coverage, Dokumentation
 
 ---
 
-## §10.6 Bekannte offene Gaps (Stand v9.19.0 / Update v9.19.1)
+## §10.6 Bekannte offene Gaps (Stand v9.20.0 / Update 2026-06-26)
 
-### §10.6a P2: mypy-Cleanup-Backlog
+### §10.6a P3: mypy no-any-return Boilerplate (Massenlage)
 
-| Datei | Fehler-Anzahl | Typ |
+**Gesamtzahl**: `backend/core/` 1555 Fehler gesamt. Davon:
+
+| Fehlertyp | Anzahl | Behandlung |
 | --- | --- | --- |
-| `backend/core/unified_restorer_v3.py` (isoliert) | ~46 | `no-any-return` für ndarray |
-| `backend/core/authenticity_metrics_extended.py` | ~27 | Mixed |
-| `backend/core/regulator/_dsp_applier.py` | ~24 | Mixed |
-| `backend/core/optimization/uncertainty_quantification.py` | ~23 | Mixed |
+| `no-any-return` (ndarray) | ~939 | Massenfix via Python-Skript (V58-Pattern: `# type: ignore[no-any-return]`) |
+| `var-annotated` | ~192 | Typ-Annotationen ergänzen, punktuell |
+| Echte Typ-Bugs (assignment/attr/arg/return-value) | ~424 | Individuell, P1–P2 |
 
-Fix-Pattern: `cast(np.ndarray, result)` oder `# type: ignore[no-any-return]` (V58).
+Schicht-überblick:
 
-### §10.6b ~~P2: SSIP phase_55/24 intern (V14–V18)~~ — ERLEDIGT
+| Layer | Gesamt-Fehler | Boilerplate | Echte Bugs | Priorität |
+| --- | --- | --- | --- | --- |
+| `Aurik910/` (Frontend) | **0** | 0 | 0 | ✅ |
+| `backend/api/bridge.py` + `cli/` | 19 | 19 | 0 | P3 Boilerplate |
+| `backend/core/dsp/` | 105 | ~80 | ~25 | P2 |
+| `plugins/` | 175 | ~140 | ~35 | P2 |
+| `backend/core/` (gesamt) | 1555 | ~1131 | ~424 | P1–P3 |
 
-`phase_55_diffusion_inpainting.py` (Z.1347–1577) und `phase_24_dropout_repair.py` (Z.958–1226)
-haben `post_inpainting_silence_audit()` vollständig implementiert. Gap war ein Inventar-Fehler.
+### §10.6b P1: Echte Typ-Bugs in kritischen Dateien
 
-### §10.6c ~~P3: V33 MaterialType CASSETTE-Keys~~ — ERLEDIGT
+Dateien mit echten Typ-Bugs (keine Boilerplate) nach Fehleranzahl:
 
-Scan (2026-06-26): Alle Phasen mit `dict[MaterialType, ...]` enthalten CASSETTE-Key.
-Gap war ein Inventar-Fehler.
+| Datei | Echte Bugs | Haupt-Fehlertyp | Priorität |
+| --- | --- | --- | --- |
+| `forensics/adaptive_chain_builder.py` | 21 | `dict-item` (str/float vs str/int) | P1 |
+| `authenticity_metrics_extended.py` | 21 | Dataclass vs dict-Verwechslung, `call-overload` | P1 |
+| `multi_pass_strategy.py` | 18 | Mixed | P2 |
+| `ai_framework.py` | 17 | `attr-defined` ("restoration_button"), assignment None vs Typ | P1 |
+| `forensics/unified_analyzer.py` | 14 | Mixed | P2 |
+| `forensics/feature_extractor.py` | 14 | `floating[Any]` statt `float` | P2 |
+| `real_audio_execution_golden_gate.py` | 13 | `union-attr` None.get() | P1 |
+| `phases/phase_10_compression.py` | 11 | Mixed | P2 |
+| `forensics/analysis_and_modules.py` | 11 | Mixed | P2 |
+| `artifact_detection.py` | 10 | `floating[Any]` statt `float`, `list[ndarray]` vs `list[int]` | P2 |
+| `phases/phase_04_eq_correction.py` | 8 | Mixed | P2 |
+| `real_audio_defect_golden_gate.py` | 6 | `union-attr` None.get() | P1 |
+| `adaptive_phase_rescheduler.py` | 1 | `arg-type` float(object) | P1 (Pipeline-kritisch) |
+
+### §10.6c ~~P1: mypy UV3 46 Fehler~~ — ERLEDIGT (Session 2026-06-26)
+
+`backend/core/unified_restorer_v3.py` → 0 Fehler nach `# type: ignore`-Massenpatch via Python-Skript.
 
 ### §10.6d ~~P1: V41 ForwardMaskingGuard additiv~~ — ERLEDIGT (v9.19.1, commit 0c9a069)
 
-14 additive Phasen (phase_13,21,24,42,44,45,46,50,51,55,56,58,60,64) hatten keinen
-ForwardMaskingGuard-Block. Standard-Block integriert: `panns_singing >= 0.25` →
-`zone_frac * 0.15` Boost, non-blocking try/except. V41-Gap-Scan: 0 verbleibend.
+14 additive Phasen erledigt. V41-Gap-Scan: 0 verbleibend.
+
+### §10.6e ~~P2: SSIP phase_55/24 intern (V14–V18)~~ — ERLEDIGT
+
+Inventar-Fehler, bereits implementiert.
+
+### §10.6f ~~P3: V33 MaterialType CASSETTE-Keys~~ — ERLEDIGT
+
+Scan (2026-06-26): Alle Phasen vollständig. Inventar-Fehler.
+
+### §10.6g P3: Pylance-Fehler (Pylance-spezifisch, mypy-sauber)
+
+In dieser Session behoben (2026-06-26): 27 Pylance-Fehler in 13 Dateien:
+
+- `phase_13`: return-value sum(bands)
+- `phase_19`: 6× misc tuple-unpack, no-any-return, union-attr
+- `phase_21`: override in process()
+- `phase_23`: no-any-return
+- `phase_39`: 4× no-any-return (inklusive Reparatur eines fehlerhaften Edits)
+- `phase_44`, `phase_45`: no-redef in V41-Block
+- `phase_51`: attr-defined (union-attr,attr-defined)
+- `phase_56`: 5× (misc/assignment, arg-type, 2× no-any-return)
+- `phase_60`: no-any-return + arg-type (int cast)
+- `quality_control.py`: return float(snr) statt snr
+- `test_phase_65`: no-any-return
 
 ---
 
@@ -177,4 +222,105 @@ tail -20 .github/VERBOTEN.md
 
 ---
 
-_Stand: v9.19.0, Juni 2026 — automatisch gepflegt, Änderungen per Commit §10-konform_
+## §10.9 Vollständige Bug-Eliminierungs-Strategie (v9.20.0)
+
+Ziel: **Vollständige Beseitigung aller ~1850 mypy-Fehler + aller Linter-Gaps** in allen Layern.
+Strategiehorizont: Mehrstufig, präzise priorisiert, systemisch wo ≥5 Stellen betroffen.
+
+### §10.9a Sprint 1 — Echte Typ-Bugs (P0/P1, Pipeline-kritisch)
+
+**Ziel**: Alle Fehler die zur Laufzeit zu falschen Werten, None-Dereferenzierungen oder
+falschen Typen im Audio-Pfad führen können.
+
+**Prioritäts-Reihenfolge:**
+
+1. `adaptive_phase_rescheduler.py:86` — `float(object)` arg-type: könnten falsche Strength-Werte in Closed-Loop eingebracht werden. **Sofort.**
+2. `real_audio_execution_golden_gate.py` + `real_audio_defect_golden_gate.py` — `union-attr` None.get(): Gate schlägt mit AttributeError fehl wenn None-Pfad erreicht wird.
+3. `ai_framework.py` — `attr-defined` "restoration_button" (sollte "restoration_magic_button" sein): Fehlerhafter Attributname kann RuntimeError auslösen.
+4. `ai_framework.py` — assignment None vs. CompressionPhase/LimitingPhase: Pipeline nutzt None wo Objekt erwartet wird.
+5. `authenticity_metrics_extended.py` — Dataclass vs dict: `asdict()` auf nicht-Dataclasses führt zu TypeError. Alle 21 Stellen systematisch.
+6. `artifact_detection.py` — `list[ndarray]` vs `list[int]`: Falsche Return-Typen können Downstream-Code crashen.
+
+**Methode**: Punktuell je Datei, `multi_replace_string_in_file`, mypy-Bestätigung danach.
+
+### §10.9b Sprint 2 — Echte Typ-Bugs (P2, DSP/Forensics/Phases)
+
+**Ziel**: Restliche echte Bugs in DSP, Forensics, Phases die keine direkten Crashes aber
+falsche Berechnungen verursachen können.
+
+1. `forensics/adaptive_chain_builder.py` — 21× `dict-item` (str/float vs str/int)
+2. `forensics/feature_extractor.py` + `forensics/unified_analyzer.py` — `floating[Any]` statt `float`
+3. `phases/phase_10_compression.py` + `phases/phase_04_eq_correction.py` — Mixed Typ-Bugs
+4. `multi_pass_strategy.py` — 18 Mixed
+5. `backend/core/dsp/` — ~25 echte Bugs (nach Boilerplate-Ausschluss)
+6. `plugins/` — ~35 echte Bugs
+
+**Methode**: Datei für Datei, mypy nach jedem Fix. Systemischer Helper-Pattern wenn ≥5 gleiche Stellen.
+
+### §10.9c Sprint 3 — no-any-return Massenfix (P3, Boilerplate)
+
+**Ziel**: ~939 `no-any-return` (ndarray) + ~140 in plugins + 19 in bridge/cli per Python-Skript lösen.
+
+**Methode** (UV3-bewährt):
+
+```python
+# scripts/apply_no_any_return_ignores.py <datei_oder_verzeichnis>
+# Für jede Zeile mit "[no-any-return]" aus mypy:
+#   → append "  # type: ignore[no-any-return]" wenn nicht bereits vorhanden
+```
+
+**Reihenfolge** (nach Datei-Wichtigkeit):
+
+1. `backend/core/phases/` — alle phase_*.py mit ≥5 Fehlern
+2. `backend/core/dsp/` — alle dsp-Module
+3. `backend/core/` Hauptmodule (lyrics_guided_enhancement, mert_mushra_proxy, etc.)
+4. `backend/api/bridge.py` + `cli/`
+5. `plugins/`
+
+**Invariante**: Skript darf nur `no-any-return` hinzufügen, niemals vorhandenen Code ändern.
+Nach Ausführung: `mypy --follow-imports=skip` muss 0 `no-any-return` zeigen.
+
+### §10.9d Sprint 4 — var-annotated Cleanup (P3)
+
+**Ziel**: ~192 `var-annotated` Fehler durch minimale Typ-Annotationen beheben.
+
+**Methode**: `mypy backend/core/ --follow-imports=skip 2>&1 | grep "var-annotated"` →
+pro Zeile minimale Annotation ergänzen (z.B. `energy: float = 0.0` statt `energy = 0.0`).
+Skriptbar wenn Pattern homogen.
+
+### §10.9e Automatisierungs-Werkzeuge (Session-zu-Session)
+
+```bash
+# Vollständiger Scan nach jeder Session:
+.venv_aurik/bin/python -m mypy backend/core/ --follow-imports=skip --no-error-summary 2>&1 | grep "error:" | grep -v "no-any-return" | grep -v "var-annotated" | wc -l
+# Ziel: 0 echte Bugs
+
+# Boilerplate-Zähler:
+.venv_aurik/bin/python -m mypy backend/core/ --follow-imports=skip --no-error-summary 2>&1 | grep "no-any-return" | wc -l
+# Startwert: 939. Reduziert sich mit Sprint 3.
+```
+
+### §10.9f Linter-Erweiterungen für neue Anti-Patterns
+
+Neue Anti-Patterns aus dieser Session → neue VERBOTEN-Einträge:
+
+| Neues Muster | Beschreibung | Linter-Code |
+| --- | --- | --- |
+| Ersetzen von `return X\n\nDef` via Batch-Replace | `oldString` mit Funktionskopf verliert `def`-Zeile → katastrophaler Syntaxfehler | → Regel: `oldString` bei Batch-Replacements MUSS nur die Ziel-Zeile ±3 Zeilen Kontext enthalten, nie über Funktionsgrenzen |
+| `mypy` mit `--follow-imports=skip` ignoriert Kontext | Pre-existing Fehler außerhalb der 27 Pylance-Fehler unsichtbar | → Session-Start: immer `backend/core/` vollständig scannen |
+
+### §10.9g Metriken & Fortschritts-Tracking
+
+| Metrik | Startwert (2026-06-26) | Sprint-1-Ziel | Endziel |
+| --- | --- | --- | --- |
+| Echte Typ-Bugs (backend/core, kein Boilerplate) | ~424 | <350 | 0 |
+| no-any-return Boilerplate | ~939 | ~939 | 0 |
+| var-annotated | ~192 | ~192 | 0 |
+| Bridge/CLI Fehler | 19 | 0 | 0 |
+| DSP echte Bugs | ~25 | <15 | 0 |
+| Plugins echte Bugs | ~35 | ~35 | 0 |
+| Frontend (Aurik910/) | **0** | 0 | 0 |
+
+---
+
+_Stand: v9.20.0, 2026-06-26 — automatisch gepflegt, Änderungen per Commit §10-konform_

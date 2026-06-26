@@ -682,7 +682,7 @@ class DeEsserPhase(PhaseInterface):
                 logger.debug("SNR-Referenzmessung fehlgeschlagen, Skip: %s", _snr_ref_exc)
 
         band_weights = self.BAND_WEIGHTS.get(material, {"low": 0.6, "mid": 0.7, "high": 0.8})
-        _s_band_low, _s_band_high = self.vocal_profile.get("s_band", (5000.0, 10000.0))
+        _s_band_low, _s_band_high = self.vocal_profile.get("s_band", (5000.0, 10000.0))  # type: ignore[misc]
         _defect_scores_for_intensity = kwargs.get("defect_scores_raw", kwargs.get("defect_scores", {}))
         _ptl_19_hint = kwargs.get("phoneme_timeline")
 
@@ -1502,7 +1502,7 @@ class DeEsserPhase(PhaseInterface):
         elif len(audio_out) < n:
             audio_out = np.pad(audio_out, (0, n - len(audio_out)))
 
-        return audio_out
+        return np.asarray(audio_out)  # type: ignore[no-any-return]
 
     def _compute_rms_envelope(self, signal_data: np.ndarray, window_size: int) -> np.ndarray:
         """RMS-basierte Envelope-Detection (stabilere als Peak)."""
@@ -1736,7 +1736,7 @@ class DeEsserPhase(PhaseInterface):
         nyquist = sample_rate / 2.0
         total_energy = 0.0
 
-        for _, (f_low, f_high) in bands.items():
+        for _, (f_low, f_high) in (bands or {}).items():
             low = f_low / nyquist
             high = min(f_high, nyquist * 0.95) / nyquist
 
@@ -1777,7 +1777,7 @@ class DeEsserPhase(PhaseInterface):
         - Chest-Resonance-Protection (schützt chest_range bei MALE)
         """
         # Nutze gender-spezifische Sibilance-Band statt fixen Bändern
-        s_low, s_high = self.vocal_profile.get("s_band", (6000, 10000))
+        s_low, s_high = self.vocal_profile.get("s_band", (6000, 10000))  # type: ignore[misc]
 
         # NYQUIST-ADAPTATION: Clampe Bänder auf Sample-Rate
         nyquist = sample_rate / 2.0
@@ -1815,7 +1815,7 @@ class DeEsserPhase(PhaseInterface):
         }
 
         # Formant-Schutz: Bereich aus vocal_profile
-        formant_low, formant_high = self.vocal_profile.get("formant_range", (2000, 3000))
+        formant_low, formant_high = self.vocal_profile.get("formant_range", (2000, 3000))  # type: ignore[misc]
         formant_protect_factor = self.vocal_profile.get("formant_protect", 0.85)
 
         # Call original multi-band processing mit angepassten Bändern
@@ -1841,7 +1841,7 @@ class DeEsserPhase(PhaseInterface):
 
             # Chest-Resonance-Protection (speziell für MALE - Bass-Kraft-Ziel)
             if self.gender == VocalGender.MALE:
-                chest_low, chest_high = self.vocal_profile.get("chest_range", (100, 250))
+                chest_low, chest_high = self.vocal_profile.get("chest_range", (100, 250))  # type: ignore[misc]
                 result = self._apply_formant_preservation(
                     original=audio,
                     processed=result,

@@ -643,7 +643,7 @@ class AirBandEnhancement(PhaseInterface):
         hf_delta = excited - audio  # just the harmonic addition
         enhanced = shelved + hf_delta  # proper additive combination
 
-        return enhanced
+        return enhanced  # type: ignore[no-any-return]
 
     def _apply_high_shelf(self, audio: np.ndarray, sample_rate: int, freq_hz: float, gain_db: float) -> np.ndarray:
         """Wendet an: high-frequency shelving filter (biquad coefficients cached per key)."""
@@ -666,8 +666,8 @@ class AirBandEnhancement(PhaseInterface):
         # §2.51 Anti-Zeitversatz: filtfilt (Zero-Phase) statt lfilter — Shelf-EQ darf keine
         # Gruppenlatenz erzeugen (hörbar als Zeitversatz auf HF-Transienten/Vokaleinsätzen).
         if len(audio) >= 9:
-            return signal.filtfilt(b, a, audio)
-        return signal.lfilter(b, a, audio)
+            return signal.filtfilt(b, a, audio)  # type: ignore[no-any-return]
+        return signal.lfilter(b, a, audio)  # type: ignore[no-any-return]
 
     def _apply_exciter(self, audio: np.ndarray, sample_rate: int, mix: float, drive: float) -> np.ndarray:
         """Wendet an: harmonic exciter to HF region (SOS filter cached per sample_rate)."""
@@ -680,7 +680,7 @@ class AirBandEnhancement(PhaseInterface):
         # §2.51 Anti-Zeitversatz: sosfiltfilt (Zero-Phase) statt sosfilt — hf + audio werden gemischt.
         hf = signal.sosfiltfilt(sos, audio)
         excited_hf = np.tanh(hf * drive * 2) / (drive + 0.5)
-        return audio + excited_hf * mix
+        return audio + excited_hf * mix  # type: ignore[no-any-return]
 
     def _measure_hf_energy(self, audio: np.ndarray, sample_rate: int) -> float:
         """Misst high-frequency energy (12-20 kHz RMS, cached SOS filter)."""

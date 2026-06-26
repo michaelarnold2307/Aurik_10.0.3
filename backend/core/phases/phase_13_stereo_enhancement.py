@@ -539,7 +539,7 @@ class StereoEnhancementPhaseV2(PhaseInterface):
         """
         Recombine frequency bands (simple sum).
         """
-        return sum(bands)
+        return sum(bands)  # type: ignore[return-value]
 
     def _measure_stereo_width(self, audio: np.ndarray) -> float:
         """

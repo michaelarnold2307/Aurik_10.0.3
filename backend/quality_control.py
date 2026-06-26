@@ -41,7 +41,7 @@ class QualityControl:
             self.warnings.append("Warnung: Mögliche destruktive Bearbeitung (SNR < 30 dB)")
         if not np.isfinite(snr):
             return None
-        return snr
+        return float(snr)
 
     def ab_test(self, reference: np.ndarray, candidate: np.ndarray) -> float | None:
         """Simuliert einen A/B-Vergleich (z.B. Feature-Vergleich, Score)."""

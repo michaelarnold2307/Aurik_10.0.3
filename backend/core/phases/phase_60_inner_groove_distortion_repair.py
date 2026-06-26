@@ -81,7 +81,7 @@ def apply(
             1.0,
         )
         _gain_igd = np.clip(_gain_igd, 0.0, 10.0)
-        return np.clip(np.stack([audio[0] * _gain_igd, audio[1] * _gain_igd], axis=0), -1.0, 1.0).astype(np.float32)
+        return np.clip(np.stack([audio[0] * _gain_igd, audio[1] * _gain_igd], axis=0), -1.0, 1.0).astype(np.float32)  # type: ignore[no-any-return]
 
     x = np.asarray(audio, dtype=np.float32)
     n = len(x)
@@ -268,7 +268,7 @@ class InnerGrooveDistortionRepairPhase(PhaseInterface):
             strength=_effective_strength,
             defect_scores=_defect_scores,
             min_igd_score=_profile_60["min_igd_score"],
-            n_segments=_profile_60["n_segments"],
+            n_segments=int(_profile_60["n_segments"]),
         )
         elapsed = _time.perf_counter() - t0
 

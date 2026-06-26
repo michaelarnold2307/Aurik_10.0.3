@@ -74,7 +74,7 @@ try:
 
     _PGHI_AVAILABLE_P56 = True
 except ImportError:
-    _PGHIRec_P56 = None
+    _PGHIRec_P56 = None  # type: ignore[misc,assignment]
     _PGHI_AVAILABLE_P56 = False
 
 
@@ -188,7 +188,7 @@ def _estimate_f0(mono: np.ndarray, sr: int) -> float | None:
     try:
         from plugins.rmvpe_plugin import get_rmvpe_plugin
 
-        result = get_rmvpe_plugin().analyze(mono, sr)
+        result = get_rmvpe_plugin().analyze(mono, sr)  # type: ignore[assignment]
         voiced_mask = result.voiced_prob >= 0.55
         voiced = result.f0_hz[voiced_mask]
         if len(voiced) > 5:
@@ -221,7 +221,7 @@ def _estimate_f0(mono: np.ndarray, sr: int) -> float | None:
             f0, voiced_flag, _ = librosa.pyin(
                 mono,
                 fmin=50.0,  # ≥ 2 Perioden bei frame_length=2048 @48 kHz (min=46.875 Hz)
-                fmax=librosa.note_to_hz("C8"),
+                fmax=float(librosa.note_to_hz("C8")),
                 sr=sr,
             )
             voiced_f0 = f0[voiced_flag & np.isfinite(f0) & (f0 > 20.0)]
@@ -430,7 +430,7 @@ def _pghi_phase_reconstruction(mag: np.ndarray, n_fft: int, hop: int) -> np.ndar
         # Ensure shape matches input
         if _phase_out.shape == mag.shape:
             logger.debug("Phase 56: PGHI via PghiReconstructor (dsp/pghi.py) — n_fft=%d hop=%d", n_fft, hop)
-            return _phase_out
+            return _phase_out  # type: ignore[no-any-return]
         logger.debug("Phase 56: PGHI shape mismatch (%s vs %s), IF-Fallback", _phase_out.shape, mag.shape)
     except Exception as _pghi_import_exc:
         logger.debug("PghiReconstructor nicht verfügbar, IF-Fallback: %s", _pghi_import_exc)
@@ -1038,7 +1038,7 @@ class SpectralBandGapRepairPhase(PhaseInterface):
             result = np.pad(result, (0, n - len(result)))
         result = result[:n]
 
-        return np.clip(np.nan_to_num(result), -1.0, 1.0)
+        return np.clip(np.nan_to_num(result), -1.0, 1.0)  # type: ignore[no-any-return]
 
     def _process_channel(
         self,

@@ -12,7 +12,7 @@ import numpy as np
 def _make_vocal_audio(sr: int = 48000, duration: float = 1.0) -> np.ndarray:
     """Einfaches Sinus-Signal als Vokal-Dummy."""
     t = np.linspace(0, duration, int(sr * duration), dtype=np.float32)
-    return (0.25 * np.sin(2 * np.pi * 220 * t)).reshape(1, -1)  # (1, N) channels-first
+    return (0.25 * np.sin(2 * np.pi * 220 * t)).reshape(1, -1)  # type: ignore[no-any-return]  # (1, N) channels-first
 
 
 def _make_phase():

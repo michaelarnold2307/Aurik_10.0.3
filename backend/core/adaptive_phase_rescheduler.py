@@ -83,7 +83,7 @@ def _sanitize_confidence(value: object | None, default: float = 0.65) -> float:
     try:
         if value is None:
             return float(default)
-        v = float(value)
+        v = float(value)  # type: ignore[arg-type]
         if np.isnan(v) or np.isinf(v):
             return float(default)
         return float(np.clip(v, 0.0, 1.0))

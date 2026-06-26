@@ -1300,7 +1300,7 @@ class UnifiedRestorerV3:
 
     def _is_research_mode(self) -> bool:
         """Gibt True only for explicit RESEARCH deployment mode zurück."""
-        return getattr(self.config, "deployment_mode", DeploymentMode.PRODUCT) == DeploymentMode.RESEARCH
+        return getattr(self.config, "deployment_mode", DeploymentMode.PRODUCT) == DeploymentMode.RESEARCH  # type: ignore[no-any-return]
 
     def request_graceful_stop(self) -> None:
         """§0c: Signal the active phase pipeline to stop after the current phase.
@@ -1332,7 +1332,7 @@ class UnifiedRestorerV3:
         """
         from backend.core.audio_utils import apply_musical_gain_envelope as _amge
 
-        return _amge(
+        return _amge(  # type: ignore[no-any-return]
             audio,
             gain,
             gate_dbfs=gate_dbfs,
@@ -1378,11 +1378,11 @@ class UnifiedRestorerV3:
     ) -> np.ndarray:
         """Last-resort quiet-edge clamp after all late rescues and rollbacks."""
         if reference_audio is None:
-            return np.asarray(candidate_audio, dtype=np.float32)
+            return np.asarray(candidate_audio, dtype=np.float32)  # type: ignore[no-any-return]
         try:
             from backend.core.audio_utils import limit_quiet_edge_boost
 
-            return np.asarray(
+            return np.asarray(  # type: ignore[no-any-return]
                 limit_quiet_edge_boost(
                     reference_audio,
                     candidate_audio,
@@ -1393,7 +1393,7 @@ class UnifiedRestorerV3:
                 dtype=np.float32,
             )
         except Exception:
-            return np.asarray(candidate_audio, dtype=np.float32)
+            return np.asarray(candidate_audio, dtype=np.float32)  # type: ignore[no-any-return]
 
     @staticmethod
     def _update_positive_makeup_authority(phase_id: str, current_allowed: bool) -> tuple[bool, str | None]:
@@ -7302,7 +7302,7 @@ class UnifiedRestorerV3:
                 try:
                     from forensics.medium_detector import get_medium_detector as _get_md
 
-                    return _get_md().detect(a, sr, file_ext=_file_ext_for_scan)
+                    return _get_md().detect(a, sr, file_ext=_file_ext_for_scan)  # type: ignore[no-any-return]
                 except Exception as _e:
                     logger.warning(
                         "MediumDetector nicht verfügbar; setze Material auf unknown (legacy fallback deaktiviert): %s",
@@ -7314,7 +7314,7 @@ class UnifiedRestorerV3:
                 try:
                     from backend.core.era_classifier import classify_era
 
-                    return classify_era(a, sr)
+                    return classify_era(a, sr)  # type: ignore[no-any-return]
                 except Exception as _e:
                     logger.debug("EraClassifier nicht verfügbar: %s", _e)
                     return None
@@ -7323,7 +7323,7 @@ class UnifiedRestorerV3:
                 try:
                     from backend.core.genre_classifier import classify_genre
 
-                    return classify_genre(a, sr)
+                    return classify_genre(a, sr)  # type: ignore[no-any-return]
                 except Exception as _e:
                     logger.debug("GermanSchlagerClassifier nicht verfügbar: %s", _e)
                     return None
@@ -11990,7 +11990,7 @@ class UnifiedRestorerV3:
                         out = out * (1.0 - smooth * 0.15) + _smooth_out * (smooth * 0.15)
 
                 out = np.nan_to_num(out, nan=0.0, posinf=0.0, neginf=0.0)
-                return np.clip(out, -1.0, 1.0).astype(np.float32)
+                return np.clip(out, -1.0, 1.0).astype(np.float32)  # type: ignore[no-any-return]
 
             # Stereo: pro Kanal SAP anwenden
             if _sap_is_stereo:
@@ -14236,32 +14236,32 @@ class UnifiedRestorerV3:
                 """Liefert ein 1D-Monosignal entlang der Zeitachse (layout-robust)."""
                 _sig = np.asarray(_arr, dtype=np.float32)
                 if _sig.ndim <= 1:
-                    return _sig.reshape(-1)
+                    return _sig.reshape(-1)  # type: ignore[no-any-return]
                 if _sig.shape[0] <= 2 and _sig.shape[1] > 2:
-                    return np.asarray(np.mean(_sig, axis=0, dtype=np.float32), dtype=np.float32)
+                    return np.asarray(np.mean(_sig, axis=0, dtype=np.float32), dtype=np.float32)  # type: ignore[no-any-return]
                 if _sig.shape[1] <= 2 and _sig.shape[0] > 2:
-                    return np.asarray(np.mean(_sig, axis=1, dtype=np.float32), dtype=np.float32)
+                    return np.asarray(np.mean(_sig, axis=1, dtype=np.float32), dtype=np.float32)  # type: ignore[no-any-return]
                 if _sig.shape[0] >= _sig.shape[1]:
-                    return np.asarray(np.mean(_sig, axis=1, dtype=np.float32), dtype=np.float32)
-                return np.asarray(np.mean(_sig, axis=0, dtype=np.float32), dtype=np.float32)
+                    return np.asarray(np.mean(_sig, axis=1, dtype=np.float32), dtype=np.float32)  # type: ignore[no-any-return]
+                return np.asarray(np.mean(_sig, axis=0, dtype=np.float32), dtype=np.float32)  # type: ignore[no-any-return]
 
             def _pwg_apply_time_gain(_arr: np.ndarray, _gain: np.ndarray, _n: int) -> np.ndarray:
                 """Wendet sample-genauen Gain entlang der Zeitachse auf Mono/Stereo an."""
                 _sig = np.asarray(_arr, dtype=np.float32).copy()
                 if _sig.ndim <= 1:
                     _sig[:_n] *= _gain[:_n]
-                    return _sig
+                    return _sig  # type: ignore[no-any-return]
                 if _sig.shape[0] <= 2 and _sig.shape[1] >= _n:
                     _sig[:, :_n] *= _gain[:_n][None, :]
-                    return _sig
+                    return _sig  # type: ignore[no-any-return]
                 if _sig.shape[1] <= 2 and _sig.shape[0] >= _n:
                     _sig[:_n, :] *= _gain[:_n][:, None]
-                    return _sig
+                    return _sig  # type: ignore[no-any-return]
                 if _sig.shape[0] >= _sig.shape[1]:
                     _sig[:_n, :] *= _gain[:_n][:, None]
                 else:
                     _sig[:, :_n] *= _gain[:_n][None, :]
-                return _sig
+                return _sig  # type: ignore[no-any-return]
 
             def _pwg_hard_reset_regions(_cand: np.ndarray, _ref: np.ndarray, _mask: np.ndarray, _n: int) -> np.ndarray:
                 """Setzt kritische Fenster exakt auf Referenz zurueck (nur Attenuation)."""
@@ -14269,18 +14269,18 @@ class UnifiedRestorerV3:
                 _refa = np.asarray(_ref, dtype=np.float32)
                 if _out.ndim <= 1:
                     _out[:_n][_mask[:_n]] = _refa[:_n][_mask[:_n]]
-                    return _out
+                    return _out  # type: ignore[no-any-return]
                 if _out.shape[0] <= 2 and _out.shape[1] >= _n:
                     _out[:, :_n][:, _mask[:_n]] = _refa[:, :_n][:, _mask[:_n]]
-                    return _out
+                    return _out  # type: ignore[no-any-return]
                 if _out.shape[1] <= 2 and _out.shape[0] >= _n:
                     _out[:_n, :][_mask[:_n], :] = _refa[:_n, :][_mask[:_n], :]
-                    return _out
+                    return _out  # type: ignore[no-any-return]
                 if _out.shape[0] >= _out.shape[1]:
                     _out[:_n, :][_mask[:_n], :] = _refa[:_n, :][_mask[:_n], :]
                 else:
                     _out[:, :_n][:, _mask[:_n]] = _refa[:, :_n][:, _mask[:_n]]
-                return _out
+                return _out  # type: ignore[no-any-return]
 
             _pwg_ref = np.asarray(original_audio_for_goals, dtype=np.float32)
             _pwg_cand = np.asarray(restored_audio, dtype=np.float32)
@@ -16053,8 +16053,8 @@ class UnifiedRestorerV3:
                     def _samples_first(_x: np.ndarray) -> np.ndarray:
                         _arr = np.asarray(_x, dtype=np.float32)
                         if _arr.ndim == 2 and _arr.shape[0] == 2 and _arr.shape[1] != 2:
-                            return _arr.T
-                        return _arr
+                            return _arr.T  # type: ignore[no-any-return]
+                        return _arr  # type: ignore[no-any-return]
 
                     # Match UAT R8 semantics: baseline from original input audio after
                     # length alignment to current restored output.
@@ -16224,7 +16224,7 @@ class UnifiedRestorerV3:
                                     _gmin = float(10.0 ** (-_reduce / 20.0))
                                     _slope = np.clip(_abs / _thr, 0.0, 1.0)
                                     _gain = _gmin + (1.0 - _gmin) * _slope
-                                    return _arr * _gain.astype(np.float32, copy=False)
+                                    return _arr * _gain.astype(np.float32, copy=False)  # type: ignore[no-any-return]
 
                                 _combo_rescued = _attenuate_floor_for_lufs(_rescued_final, _reduce_db)
                                 _combo_rescued = np.clip(
@@ -16305,7 +16305,7 @@ class UnifiedRestorerV3:
                             _gmin = float(10.0 ** (-_reduce / 20.0))
                             _slope = np.clip(_abs / _thr, 0.0, 1.0)
                             _gain = _gmin + (1.0 - _gmin) * _slope
-                            return _arr * _gain.astype(np.float32, copy=False)
+                            return _arr * _gain.astype(np.float32, copy=False)  # type: ignore[no-any-return]
 
                         _noise_rescued = _attenuate_floor(restored_audio, _reduce_db)
                         _noise_rescued = np.clip(
@@ -16355,7 +16355,7 @@ class UnifiedRestorerV3:
                             _gmin = float(10.0 ** (-_reduce / 20.0))
                             _slope = np.clip(_abs / _thr, 0.0, 1.0)
                             _gain = _gmin + (1.0 - _gmin) * _slope
-                            return _arr * _gain.astype(np.float32, copy=False)
+                            return _arr * _gain.astype(np.float32, copy=False)  # type: ignore[no-any-return]
 
                         _joint_needed_db = float(np.clip(float(_lufs_orig_final - _joint_lufs_current), -12.0, 12.0))
                         for _scale in (1.00, 0.85, 0.70, 0.55, 0.40, 0.28):
@@ -18258,7 +18258,7 @@ class UnifiedRestorerV3:
                 _mpc_result.get("tempo_bpm", 0),
                 _mpc_result.get("n_beats", 0),
             )
-            return _mpc_result
+            return _mpc_result  # type: ignore[no-any-return]
         except Exception as _mpc_exc:
             logger.debug("MusicalPhraseContext nicht verfügbar: %s", _mpc_exc)
             return None
@@ -18719,7 +18719,7 @@ class UnifiedRestorerV3:
             )
             _cu_result = _cu_stats27(_cu_audio27)
             logger.debug("✅ core_utils.audio_stats: rms=%.4f", _cu_result.get("rms", 0))
-            return _cu_result
+            return _cu_result  # type: ignore[no-any-return]
         except Exception as _cu_exc:
             logger.debug("core_utils nicht verfügbar: %s", _cu_exc)
             return None
@@ -23913,7 +23913,7 @@ class UnifiedRestorerV3:
                 _thr_ppm,
                 float(np.mean(_blend_profile)),
             )
-            return np.asarray(_out, dtype=np.float32)
+            return np.asarray(_out, dtype=np.float32)  # type: ignore[no-any-return]
         except Exception as _jit_exc:
             logger.debug("Jitter-Spezialist non-blocking (%s): %s", phase_id, _jit_exc)
             return audio
@@ -24032,7 +24032,7 @@ class UnifiedRestorerV3:
             for _evt in _events_sorted:
                 _repaired = np.asarray(_ped.repair_region(_repaired, _evt, sample_rate), dtype=np.float32)
                 _es = int(_evt.get("pre_echo_start", 0))
-                _ee = int(_evt.get("pre_echo_end", _evt.get("onset_sample", 0)))
+                _ee = int(_evt.get("pre_echo_end", _evt.get("onset_sample", 0)))  # type: ignore[arg-type]
                 if _ee > _es:
                     _blend_profile[max(0, _es) : min(_n_samples, _ee)] = 1.0
 
@@ -24082,7 +24082,7 @@ class UnifiedRestorerV3:
                 len(_events_sorted),
                 float(np.mean(_blend_profile)),
             )
-            return np.asarray(_out, dtype=np.float32)
+            return np.asarray(_out, dtype=np.float32)  # type: ignore[no-any-return]
         except Exception as _pe_exc:
             logger.debug("Pre-Echo-Spezialist non-blocking (%s): %s", phase_id, _pe_exc)
             return audio
@@ -24206,7 +24206,7 @@ class UnifiedRestorerV3:
                 _blend,
                 float(np.mean(_blend_profile)),
             )
-            return np.asarray(_out, dtype=np.float32)
+            return np.asarray(_out, dtype=np.float32)  # type: ignore[no-any-return]
         except Exception as _al_exc:
             logger.debug("Aliasing-Spezialist non-blocking (%s): %s", phase_id, _al_exc)
             return audio
@@ -24332,7 +24332,7 @@ class UnifiedRestorerV3:
                 _blend,
                 float(np.mean(_blend_profile)),
             )
-            return np.asarray(_out, dtype=np.float32)
+            return np.asarray(_out, dtype=np.float32)  # type: ignore[no-any-return]
         except Exception as _comp_exc:
             logger.debug("Compression-Spezialist non-blocking (%s): %s", phase_id, _comp_exc)
             return audio
@@ -24463,7 +24463,7 @@ class UnifiedRestorerV3:
                 _ratio,
                 float(np.mean(_blend_profile)),
             )
-            return _out
+            return _out  # type: ignore[no-any-return]
         except Exception as _dyn_exc:
             logger.debug("Dynamics-Spezialist non-blocking (%s): %s", phase_id, _dyn_exc)
             return audio
@@ -26278,12 +26278,12 @@ class UnifiedRestorerV3:
                     try:
                         _r = phase.process(seg, **kw)
                         if hasattr(_r, "audio") and isinstance(_r.audio, np.ndarray):
-                            return np.asarray(_r.audio, dtype=np.float32)
+                            return np.asarray(_r.audio, dtype=np.float32)  # type: ignore[no-any-return]
                         if isinstance(_r, np.ndarray):
-                            return _r.astype(np.float32)
+                            return _r.astype(np.float32)  # type: ignore[no-any-return]
                     except Exception:
                         pass
-                    return np.asarray(seg, dtype=np.float32)
+                    return np.asarray(seg, dtype=np.float32)  # type: ignore[no-any-return]
 
                 _probe_result = _run_segment_probe(
                     audio=audio,
@@ -26913,8 +26913,8 @@ class UnifiedRestorerV3:
                         n2s = int(2.0 * _sr_fg)
                         if len(m) > n2s:
                             start2 = (len(m) - n2s) // 2
-                            return m[start2 : start2 + n2s].astype(np.float32)
-                        return m.astype(np.float32)
+                            return m[start2 : start2 + n2s].astype(np.float32)  # type: ignore[no-any-return]
+                        return m.astype(np.float32)  # type: ignore[no-any-return]
 
                     _pre_mono = _formant_mono(audio)
                     _post_mono = _formant_mono(result.audio)
@@ -28451,8 +28451,8 @@ class UnifiedRestorerV3:
                     mag_acc += np.abs(np.fft.rfft(seg * win))
                 mag_acc /= min(n_frames, 30)
                 log_mag = np.log1p(mag_acc)
-                p10, p90 = np.percentile(log_mag, [10, 90])
-                tonal_ratio = float(p90 / (p10 + 1e-12))
+                p10, p90 = np.percentile(log_mag, [10, 90])  # type: ignore[misc]
+                tonal_ratio = float(p90 / (p10 + 1e-12))  # type: ignore[has-type]
                 return float(np.clip(tonal_ratio / 6.0, 0.0, 1.0))
             except Exception:
                 return 0.5  # fail-open
@@ -29583,7 +29583,7 @@ class UnifiedRestorerV3:
                         _out_ni = _asp_ni(_pipeline_original_reference, _out_ni, _pipeline_silence_mask)
                     except Exception as _sm_ni_exc:
                         logger.debug("§silence-guarantee no-action: non-blocking: %s", _sm_ni_exc)
-                return _out_ni
+                return _out_ni  # type: ignore[no-any-return]
 
             _action_types = {str(a.get("type", "")) for a in _actions}
 
@@ -29856,7 +29856,7 @@ class UnifiedRestorerV3:
                     _best_sig = _asp_act(_pipeline_original_reference, _best_sig, _pipeline_silence_mask)
                 except Exception as _sm_act_exc:
                     logger.debug("§silence-guarantee action: non-blocking: %s", _sm_act_exc)
-            return _best_sig
+            return _best_sig  # type: ignore[no-any-return]
 
         # §Punkt3 Phasen-Regressionsprotokoll: RMS-Delta je Phase (sequentielle Ausführung)
         # Einheit: dBFS-Differenz nach - vor Phase. Positiv = Energie gestiegen, negativ = gesunken.
@@ -33688,7 +33688,7 @@ class UnifiedRestorerV3:
         full implementation.  Kept as a @staticmethod here for backward
         compatibility with call sites that reference UnifiedRestorerV3.
         """
-        return _resolve_adaptive_goal_thresholds_fn(adaptive_goals_payload)
+        return _resolve_adaptive_goal_thresholds_fn(adaptive_goals_payload)  # type: ignore[no-any-return]
 
     def _estimate_quality(
         self,
