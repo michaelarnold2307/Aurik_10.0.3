@@ -208,7 +208,7 @@ class KIQualityAnalyzer:
             for band_name, (f_low, f_high) in self.freq_bands.items():
                 idx = np.where((f >= f_low) & (f <= f_high))[0]
                 if len(idx) > 0:
-                    band_energy = np.sum(pxx[idx])
+                    band_energy: float = float(np.sum(pxx[idx]))
                     band_energies.append(band_energy)
 
             if len(band_energies) > 0:
@@ -349,13 +349,13 @@ class KIQualityAnalyzer:
                 frame = audio[start:end]
                 frame_rms.append(np.sqrt(np.mean(frame**2)))
 
-            frame_rms = np.array(frame_rms)
+            _frame_rms_arr = np.array(frame_rms)
 
             # Noise Floor = 20tes Perzentil (leise Frames)
-            noise_floor = np.percentile(frame_rms, 20)
+            noise_floor = np.percentile(_frame_rms_arr, 20)
 
             # Signal Level = 80tes Perzentil (laute Frames)
-            signal_level = np.percentile(frame_rms, 80)
+            signal_level = np.percentile(_frame_rms_arr, 80)
 
             if noise_floor == 0 or signal_level == 0:
                 return 0.7

@@ -152,7 +152,7 @@ class BarkSpectrum:
             Centroid in Bark units
         """
         bark_values = np.array([band.center_bark for band in self.bands])
-        return np.sum(bark_values * self.energies) / (np.sum(self.energies) + 1e-10)
+        return float(np.sum(bark_values * self.energies) / (np.sum(self.energies) + 1e-10))
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -283,7 +283,7 @@ class BarkScaleProcessor:
             mask = (freqs >= band.lower_hz) & (freqs <= band.upper_hz)
             energies[i] = np.sum(spectrum[mask])
 
-        total_energy = np.sum(energies)
+        total_energy: float = float(np.sum(energies))
 
         # Normalize if requested
         energies_normalized = energies / total_energy if normalize and total_energy > 1e-10 else energies

@@ -85,7 +85,7 @@ class KIHörbarkeitsAnalyzer:
                 audio_mono = audio
 
             # Normalisiere auf [-1, 1]
-            max_amp = np.max(np.abs(audio_mono))
+            max_amp: float = float(np.max(np.abs(audio_mono)))
             if max_amp > 0:
                 audio_mono = audio_mono / max_amp
             else:
@@ -191,11 +191,11 @@ class KIHörbarkeitsAnalyzer:
             if len(zcr_values) < 2:
                 return 0.0
 
-            zcr_values = np.array(zcr_values)
+            _zcr_arr = np.array(zcr_values)
 
             # Pitch Variation = Standardabweichung der ZCR
-            mean_zcr = np.mean(zcr_values)
-            pitch_variation = np.std(zcr_values) / mean_zcr if mean_zcr > 0 else 0.0
+            mean_zcr = float(np.mean(_zcr_arr))
+            pitch_variation = float(np.std(_zcr_arr)) / mean_zcr if mean_zcr > 0 else 0.0
 
             # Normalisiere (JND für Pitch ≈ 0.3%)
             # Variationen > 1% sind deutlich hörbar
@@ -275,7 +275,7 @@ class KIHörbarkeitsAnalyzer:
                 return 0.0
 
             # Zähle abnormale Transienten
-            abnormal_transients = np.sum(envelope_diff > threshold * 2)
+            abnormal_transients: int = int(np.sum(envelope_diff > threshold * 2))
 
             # Normalisiere auf Zeit (Clicks pro Sekunde)
             duration_sec = len(audio) / sr

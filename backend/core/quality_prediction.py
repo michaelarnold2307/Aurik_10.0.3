@@ -242,7 +242,7 @@ class QualityAnalyzer:
         """
         Misst dynamic range (peak to noise floor).
         """
-        peak = np.max(np.abs(audio))
+        peak: float = float(np.max(np.abs(audio)))
         noise_floor = np.percentile(np.abs(audio), 10)
 
         dr_db = 20 * np.log10(peak / noise_floor) if noise_floor > 1e-10 else 100.0
@@ -264,11 +264,11 @@ class QualityAnalyzer:
 
         # Fundamental (200-2000 Hz)
         fundamental_mask = (freqs >= 200) & (freqs <= 2000)
-        fundamental_power = np.sum(power[fundamental_mask])
+        fundamental_power: float = float(np.sum(power[fundamental_mask]))
 
         # Harmonics (2000-10000 Hz)
         harmonic_mask = (freqs > 2000) & (freqs <= 10000)
-        harmonic_power = np.sum(power[harmonic_mask])
+        harmonic_power: float = float(np.sum(power[harmonic_mask]))
 
         # THD
         thd = 100 * harmonic_power / fundamental_power if fundamental_power > 0 else 0.0
@@ -286,10 +286,10 @@ class QualityAnalyzer:
 
         # HF energy (4-16 kHz)
         hf_mask = (freqs >= 4000) & (freqs <= 16000)
-        hf_power = np.sum(power[hf_mask])
+        hf_power: float = float(np.sum(power[hf_mask]))
 
         # Total energy
-        total_power = np.sum(power)
+        total_power: float = float(np.sum(power))
 
         # Clarity = HF ratio (well-balanced).
         # The original formula  1 - |0.20 - r| / 0.20  goes negative whenever
@@ -327,9 +327,9 @@ class QualityAnalyzer:
 
         # LF energy (60-250 Hz)
         lf_mask = (freqs >= 60) & (freqs <= 250)
-        lf_power = np.sum(power[lf_mask])
+        lf_power: float = float(np.sum(power[lf_mask]))
 
-        total_power = np.sum(power)
+        total_power: float = float(np.sum(power))
 
         if total_power > 0:
             lf_ratio = lf_power / total_power
@@ -353,9 +353,9 @@ class QualityAnalyzer:
 
         # HF energy (8-16 kHz)
         hf_mask = (freqs >= 8000) & (freqs <= 16000)
-        hf_power = np.sum(power[hf_mask])
+        hf_power: float = float(np.sum(power[hf_mask]))
 
-        total_power = np.sum(power)
+        total_power: float = float(np.sum(power))
 
         if total_power > 0:
             hf_ratio = hf_power / total_power
@@ -397,12 +397,12 @@ class QualityAnalyzer:
             else:
                 band_powers.append(0.0)
 
-        band_powers = np.array(band_powers)
-        if np.sum(band_powers) <= 0:
+        _band_powers_arr = np.array(band_powers)
+        if np.sum(_band_powers_arr) <= 0:
             return 0.75
 
         # Log-domain (safe): natural spectra are roughly linear in log-power
-        log_powers = np.log10(band_powers + 1e-20)
+        log_powers = np.log10(_band_powers_arr + 1e-20)
 
         # Linear fit (1/f tilt removal): residual = deviations from expected slope
         x = np.arange(n_bands, dtype=np.float64)
