@@ -6,6 +6,43 @@
 
 ## Version 9.19.0 — DAW-Limiter-Erkennung, Kassetten-Goal-Kalibrierung, mypy-Cleanup (Stand: 2. Juli 2026)
 
+### Bug-Fixes / Patch (nachträglich in 9.19.0)
+
+#### BF1 — Export-Metadaten: Aurik-Version dynamisch aus `__version__` (V56-Invariante)
+
+- **`backend/exporter.py`**: `aurik_version="9.15.0"` war hartcodiert → alle exportierten
+  Audiodateien (WAV, FLAC, MP3, OGG, …) enthielten in ID3/Vorbis/FLAC-Tags den
+  falschen Provenance-Eintrag „Restored by Aurik 9.15.0" — 4 Versionen veraltet.
+- Fix: `_AURIK_VERSION` wird jetzt via `from Aurik910 import __version__` dynamisch
+  geladen; Fallback `"unknown"` wenn Import scheitert (V56-konform — keine Hardkodierung
+  einer Versionsnummer als Fallback).
+- Korrekte Provenance in allen Output-Dateien: „Restored by Aurik 9.19.0".
+
+#### BF2 — CLI: Neue Optionen `--bit-depth` und `--output-sr` für professionelle Exporte
+
+- **`cli/aurik_cli.py`**: Professionelle Nutzer hatten keine Möglichkeit, die
+  Ausgabe-Bittiefe oder Samplerate über die CLI zu steuern.
+  - `--bit-depth N` (16 / 24 / 32, Standard: 24) — ermöglicht CD-kompatible 16-bit-Exporte.
+  - `--output-sr HZ` (44100 / 48000, Standard: 48000) — ermöglicht DAW-kompatible 44.1 kHz-Exporte.
+  - Resampling via `soxr` HQ (Fallback: `scipy`); Subtype-Auswahl automatisch
+    (`PCM_16` / `PCM_24` / `FLOAT`).
+  - Beispiel: `aurik_cli --input song.wav --output song_restored.wav --bit-depth 16 --output-sr 44100`
+
+#### BF3 — Accessibility: CLITheme farblos ohne `colorama` (ANSI-Fallback)
+
+- **`usability/cli_accessibility.py`**: Wenn `colorama` nicht installiert ist, gab
+  `Fore.CYAN + Style.BRIGHT` leere Strings zurück → `CLITheme.colorful()` und
+  `.high_contrast()` hatten `header=""` → keine Farbausgabe trotz ANSI-fähigem Terminal.
+  Außerdem ignorierte `get_theme("auto")` die Env-Variable `AURIK_HIGH_CONTRAST` wenn
+  `HAS_COLORAMA=False` — Barrierefreiheits-Feature war faktisch deaktiviert.
+- Fix: Echter ANSI-Fallback `_AnsiBase`/`_AnsiBack`/`_AnsiStyle` mit direkten Escape-Codes
+  (`\033[36m`, `\033[32m`, …) — funktioniert auf Linux/macOS ohne `colorama`.
+  `HAS_COLORAMA`-Check aus `get_theme()` entfernt: `AURIK_HIGH_CONTRAST`-Env-Variable
+  wird jetzt korrekt ausgewertet, auch ohne `colorama`.
+- 44 Tests grün (vorher 6 rot).
+
+## Version 9.19.0 — DAW-Limiter-Erkennung, Kassetten-Goal-Kalibrierung, mypy-Cleanup (Stand: 2. Juli 2026)
+
 ### Neue Funktionen / Systemische Verbesserungen
 
 #### P0.1 — Sub-Ceiling DAW-Brickwall-Limiter-Erkennung (V47-Erweiterung)
