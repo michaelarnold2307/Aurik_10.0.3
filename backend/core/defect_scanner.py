@@ -1146,6 +1146,28 @@ class DefectScanner:
         )
 
         logger.info("DefectScanner initialisiert: SR=%s, Material=%s", sample_rate, material_type)
+        # Welch-PSD-Cache (P1): gültig für Dauer eines scan()-Calls — wird in scan() gesetzt.
+        self._scan_welch_cache: dict[tuple[int, int], tuple[np.ndarray, np.ndarray]] = {}
+
+    def _cached_welch(
+        self,
+        audio: np.ndarray,
+        sr: int,
+        nperseg: int,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """Gecachter signal.welch()-Aufruf für die Dauer eines scan()-Calls.
+
+        Cache-Key: (id(audio), nperseg) — stabil innerhalb eines scan()-Calls,
+        da audio_mono nach der Cap-Berechnung nicht erneut zugewiesen wird.
+        Sub-Segmente (seg, _fp_mono) haben andere id() → kein Cache-Hit → korrekt.
+        """
+        _key = (id(audio), nperseg)
+        _cached_result = self._scan_welch_cache.get(_key)
+        if _cached_result is not None:
+            return _cached_result
+        _result: tuple[np.ndarray, np.ndarray] = signal.welch(audio, sr, nperseg=nperseg)  # type: ignore[assignment]
+        self._scan_welch_cache[_key] = _result
+        return _result
 
     def scan(
         self,
@@ -1446,6 +1468,8 @@ class DefectScanner:
             _prog(_tail_start + _tail_span * _frac, name)
 
         # Alle 28 Defekttypen sequentiell — nach jedem Schritt Fortschritt melden
+        # Welch-PSD-Cache zurücksetzen: neuer scan()-Call, neues audio_mono-Objekt.
+        self._scan_welch_cache = {}
         scores = {}
 
         _prog(_lead_pct(5), "Clicks")
@@ -2335,6 +2359,8 @@ class DefectScanner:
             if len(_scan_cache) >= _SCAN_CACHE_MAX:
                 _scan_cache.pop(next(iter(_scan_cache)))  # FIFO-Trim
             _scan_cache[_cache_key] = _scan_result
+        # Welch-PSD-Cache leeren: gibt Speicher frei (audio_mono bleibt sonst im Cache)
+        self._scan_welch_cache = {}
         return _scan_result
 
     def _post_calibrate_scores(
@@ -2429,7 +2455,7 @@ class DefectScanner:
         click_rate = np.sum(diff > np.percentile(diff, 99.9)) / len(audio) * self.sample_rate
 
         # Spectral analysis
-        freqs, psd = signal.welch(audio, self.sample_rate, nperseg=max(1, min(2048, len(audio))))
+        freqs, psd = self._cached_welch(audio, self.sample_rate, max(1, min(2048, len(audio))))
         _psd_total = np.maximum(np.sum(psd), 1e-12)  # §3.1: Zero-Division-Guard bei Stille
 
         # High-freq energy (8kHz+)
@@ -2531,7 +2557,7 @@ class DefectScanner:
         # === Feature-Extraction ===
 
         # 1. Rumble-Detection (Vinyl-typisch)
-        freqs, psd = signal.welch(audio_mono, self.sample_rate, nperseg=max(1, min(4096, len(audio_mono))))
+        freqs, psd = self._cached_welch(audio_mono, self.sample_rate, max(1, min(4096, len(audio_mono))))
         _psd_tot = np.maximum(np.sum(psd), 1e-12)  # §3.1: Zero-Division-Guard bei Stille
         rumble_energy = np.sum(psd[freqs < 60]) / _psd_tot
 
@@ -3891,7 +3917,7 @@ class DefectScanner:
         # --- 3) Near-Nyquist-Spiegelenergie (codec/sampler chain residue) ---
         near_nyq_subscore = 0.0
         try:
-            freqs, psd = signal.welch(audio, self.sample_rate, nperseg=min(4096, n))
+            freqs, psd = self._cached_welch(audio, self.sample_rate, min(4096, n))
             nyq = self.sample_rate / 2.0
             near_mask = (freqs >= nyq * 0.85) & (freqs <= nyq * 0.98)
             mid_mask = (freqs >= 10000.0) & (freqs < nyq * 0.85)
@@ -4500,7 +4526,7 @@ class DefectScanner:
         nperseg = min(8192, len(audio) // 4)
         if nperseg < 512:
             nperseg = 512
-        freqs, psd = signal.welch(audio, self.sample_rate, nperseg=nperseg)
+        freqs, psd = self._cached_welch(audio, self.sample_rate, nperseg)
         psd_db = 10 * np.log10(psd + 1e-20)
 
         # --- Material-adaptive HF reference ---
@@ -5483,7 +5509,7 @@ class DefectScanner:
 
         try:
             nperseg = min(4096, n)
-            freqs, psd = signal.welch(audio, self.sample_rate, nperseg=nperseg)
+            freqs, psd = self._cached_welch(audio, self.sample_rate, nperseg)
             total_power = float(np.sum(psd) + 1e-20)
 
             # --- Sibilance band analysis ---
@@ -5688,7 +5714,7 @@ class DefectScanner:
                 flux_score = 0.0
 
             # --- Indicator 3: Odd-harmonic excess in presence band ---
-            freqs, psd = signal.welch(audio, self.sample_rate, nperseg=min(4096, n))
+            freqs, psd = self._cached_welch(audio, self.sample_rate, min(4096, n))
             pres_mask = (freqs >= 2000.0) & (freqs <= 6000.0)
             below_mask = (freqs >= 200.0) & (freqs < 2000.0)
             pres_energy = float(np.sum(psd[pres_mask]) + 1e-20)
@@ -5797,7 +5823,7 @@ class DefectScanner:
 
         try:
             nperseg = min(8192, n)
-            freqs, psd = signal.welch(audio, self.sample_rate, nperseg=nperseg)
+            freqs, psd = self._cached_welch(audio, self.sample_rate, nperseg)
 
             # --- Multi-band energy measurement (log-spaced 2–14 kHz) ---
             # Bands: 2-3 kHz, 3-5 kHz, 5-8 kHz, 8-14 kHz
@@ -5912,7 +5938,7 @@ class DefectScanner:
 
         try:
             nperseg = min(8192, n)
-            freqs, psd = signal.welch(audio, self.sample_rate, nperseg=nperseg)
+            freqs, psd = self._cached_welch(audio, self.sample_rate, nperseg)
 
             # --- Energy in three bands ---
             def _band_energy(lo: float, hi: float) -> float:
@@ -6482,7 +6508,7 @@ class DefectScanner:
             try:
                 n = len(audio)
                 if n >= self.sample_rate:
-                    freqs, psd = signal.welch(audio, self.sample_rate, nperseg=min(4096, n))
+                    freqs, psd = self._cached_welch(audio, self.sample_rate, min(4096, n))
                     bass_e = float(np.sum(psd[freqs < 300.0]) + 1e-20)
                     mid_e = float(np.sum(psd[(freqs >= 1000.0) & (freqs < 4000.0)]) + 1e-20)
                     _ratio = bass_e / mid_e
@@ -6513,7 +6539,7 @@ class DefectScanner:
             return DefectScore(DefectType.RIAA_CURVE_ERROR, 0.0, 0.3)
 
         try:
-            freqs, psd = signal.welch(audio, self.sample_rate, nperseg=min(4096, n))
+            freqs, psd = self._cached_welch(audio, self.sample_rate, min(4096, n))
             bass_e = float(np.sum(psd[freqs < 300.0]) + 1e-20)
             mid_e = float(np.sum(psd[(freqs >= 1000.0) & (freqs < 4000.0)]) + 1e-20)
             ratio = bass_e / mid_e
@@ -6562,7 +6588,7 @@ class DefectScanner:
 
         try:
             nperseg = min(8192, n)
-            freqs, psd = signal.welch(audio, self.sample_rate, nperseg=nperseg)
+            freqs, psd = self._cached_welch(audio, self.sample_rate, nperseg)
 
             # --- Multi-band energy: 5 bands from 2 kHz to 16 kHz (log-spaced) ---
             hw_bands = [
@@ -7071,7 +7097,7 @@ class DefectScanner:
             return DefectScore(DefectType.ALIASING, 0.0, 0.3)
 
         try:
-            freqs, psd = signal.welch(audio, self.sample_rate, nperseg=min(4096, n))
+            freqs, psd = self._cached_welch(audio, self.sample_rate, min(4096, n))
             nyquist = self.sample_rate / 2.0
 
             near_nyq_mask = (freqs >= nyquist * 0.85) & (freqs <= nyquist * 0.97)
