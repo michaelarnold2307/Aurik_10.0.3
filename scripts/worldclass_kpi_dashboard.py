@@ -125,6 +125,8 @@ def _collect_from_result_csvs(root: Path, cfg: dict[str, Any], run_dir: Path | N
     corpus_material_dist: Counter[str] = Counter()
     corpus_era_dist: Counter[str] = Counter()
     corpus_genre_dist: Counter[str] = Counter()
+    corpus_case_ids: Counter[str] = Counter()
+    corpus_vocal_focus_by_case: dict[str, bool] = {}
 
     fail_reasons: Counter[str] = Counter()
 
@@ -142,6 +144,11 @@ def _collect_from_result_csvs(root: Path, cfg: dict[str, Any], run_dir: Path | N
                 corpus_material_dist[material or "unknown"] += 1
                 corpus_era_dist[str(row.get("era", "unknown")).strip() or "unknown"] += 1
                 corpus_genre_dist[str(row.get("genre", "unknown")).strip() or "unknown"] += 1
+                case_id = str(row.get("case_id", "")).strip()
+                if case_id:
+                    corpus_case_ids[case_id] += 1
+                    vocal_focus = str(row.get("vocal_focus", "")).strip().lower()
+                    corpus_vocal_focus_by_case[case_id] = vocal_focus in {"1", "true", "yes", "ja"}
 
                 afg = _to_float(row.get("artifact_freedom"))
                 if afg is not None:
@@ -268,6 +275,21 @@ def _collect_from_result_csvs(root: Path, cfg: dict[str, Any], run_dir: Path | N
     elif len(runtimes) == 1:
         runtime_p95 = runtimes[0]
 
+    real_audio_cfg = cfg.get("real_audio_corpus", {}) if isinstance(cfg.get("real_audio_corpus"), dict) else {}
+    required_materials = [str(m) for m in real_audio_cfg.get("required_materials", [])]
+    required_case_ids = [str(c) for c in real_audio_cfg.get("required_case_ids", [])]
+    min_real_audio_cases = int(real_audio_cfg.get("min_cases", 0) or 0)
+    require_vocal_focus = bool(real_audio_cfg.get("all_required_cases_must_be_vocal_focus", False))
+    observed_materials = set(corpus_material_dist.keys())
+    observed_case_ids = set(corpus_case_ids.keys())
+    missing_materials = sorted(m for m in required_materials if m not in observed_materials)
+    missing_case_ids = sorted(c for c in required_case_ids if c not in observed_case_ids)
+    non_vocal_required_case_ids = sorted(
+        case_id
+        for case_id in required_case_ids
+        if case_id in observed_case_ids and not corpus_vocal_focus_by_case.get(case_id, False)
+    )
+
     return {
         "num_rows": total_rows,
         "artifact_freedom_sample_count": artifact_sample_count,
@@ -317,10 +339,20 @@ def _collect_from_result_csvs(root: Path, cfg: dict[str, Any], run_dir: Path | N
             "material_distribution": dict(corpus_material_dist),
             "era_distribution": dict(corpus_era_dist),
             "genre_distribution": dict(corpus_genre_dist),
+            "case_id_distribution": dict(corpus_case_ids),
             "unique_materials": len(corpus_material_dist),
             "unique_eras": len(corpus_era_dist),
             "unique_genres": len(corpus_genre_dist),
             "total_samples": total_rows,
+            "required_materials": required_materials,
+            "missing_required_materials": missing_materials,
+            "required_case_ids": required_case_ids,
+            "missing_required_case_ids": missing_case_ids,
+            "non_vocal_required_case_ids": non_vocal_required_case_ids,
+            "real_audio_min_cases_ok": total_rows >= min_real_audio_cases,
+            "real_audio_required_materials_ok": not missing_materials,
+            "real_audio_required_cases_ok": not missing_case_ids,
+            "real_audio_required_vocal_focus_ok": (not require_vocal_focus) or not non_vocal_required_case_ids,
             # Weltklasse-Anforderungen (Mindestwerte für valide KPI-Aussagen)
             "worldclass_sample_count_ok": total_rows >= 50,
             "worldclass_material_diversity_ok": len(corpus_material_dist) >= 8,
@@ -486,6 +518,8 @@ def main() -> None:
         "generated_at": datetime.now().isoformat(timespec="seconds"),
         "threshold_config": str(cfg_path),
         "targets": cfg["targets"],
+        "real_audio_corpus": cfg.get("real_audio_corpus", {}),
+        "trusted_vocal_restoration": cfg.get("trusted_vocal_restoration", {}),
         "kpis": kpis,
     }
 

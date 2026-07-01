@@ -41,6 +41,11 @@ def main() -> None:
         default="reports/worldclass/worldclass_kpi_dashboard.json",
         help="Pfad zum KPI-Dashboard JSON",
     )
+    parser.add_argument(
+        "--trusted-report-json",
+        default="",
+        help="Pfad zum Trusted Vocal Restoration Report JSON; default: neben Dashboard.",
+    )
     args = parser.parse_args()
 
     dashboard_path = Path(args.dashboard_json).resolve()
@@ -48,6 +53,8 @@ def main() -> None:
 
     kpis = data.get("kpis", {})
     targets = data.get("targets", {})
+    real_audio_corpus = data.get("real_audio_corpus", {})
+    trusted_vocal_restoration = data.get("trusted_vocal_restoration", {})
 
     violations: list[str] = []
 
@@ -83,6 +90,41 @@ def main() -> None:
         )
     if defect_inaudible_samples < min_defect_inaudible_samples:
         violations.append(f"defect_inaudible_sample_count: {defect_inaudible_samples} < {min_defect_inaudible_samples}")
+
+    corpus_diversity = kpis.get("corpus_diversity", {})
+    if isinstance(real_audio_corpus, dict) and real_audio_corpus:
+        if not isinstance(corpus_diversity, dict):
+            violations.append("corpus_diversity: fehlt")
+        else:
+            min_cases = int(real_audio_corpus.get("min_cases", 0) or 0)
+            total_samples = int(corpus_diversity.get("total_samples", 0) or 0)
+            if total_samples < min_cases:
+                violations.append(f"real_audio_total_samples: {total_samples} < {min_cases}")
+            for key in (
+                "missing_required_materials",
+                "missing_required_case_ids",
+                "non_vocal_required_case_ids",
+            ):
+                missing = corpus_diversity.get(key, [])
+                if isinstance(missing, list) and missing:
+                    violations.append(f"{key}: {missing}")
+
+    if isinstance(trusted_vocal_restoration, dict) and trusted_vocal_restoration:
+        trusted_path = (
+            Path(args.trusted_report_json).resolve()
+            if args.trusted_report_json
+            else dashboard_path.parent / "trusted_vocal_restoration_report.json"
+        )
+        if not trusted_path.exists():
+            violations.append(f"trusted_vocal_restoration_report: fehlt ({trusted_path})")
+        else:
+            trusted_report = json.loads(trusted_path.read_text(encoding="utf-8"))
+            best_possible = trusted_report.get("best_possible_restoration", {})
+            if not isinstance(best_possible, dict) or best_possible.get("best_possible_reached") is not True:
+                violations.append("trusted_vocal_restoration_report: best_possible_restoration fehlt")
+            user_confidence = trusted_report.get("user_confidence_summary", {})
+            if not isinstance(user_confidence, dict) or user_confidence.get("manual_action_required") is not False:
+                violations.append("trusted_vocal_restoration_report: user_confidence_summary fehlt")
 
     v = _check_min(
         _to_float(kpis.get("artifact_freedom_pass_rate")),

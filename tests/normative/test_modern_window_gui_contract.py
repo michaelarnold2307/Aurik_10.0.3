@@ -203,6 +203,19 @@ def test_musiclover_sota_metadata_forwarding_in_export_path() -> None:
 
 
 @pytest.mark.normative
+def test_user_confidence_summary_is_visible_in_gui_and_export_metadata() -> None:
+    src = _read_gui_source()
+    assert '"user_confidence_summary"' in src
+    assert '"_xp_user_confidence": {}' in src
+    assert "xp_user_confidence: dict" in src
+    assert "🤝  Nutzervertrauen:" in src
+    assert "quality_gate_user_confidence_level" in src
+    assert "quality_gate_user_confidence_message" in src
+    assert "quality_gate_user_confidence_export_policy" in src
+    assert "quality_gate_user_confidence_manual_action_required" in src
+
+
+@pytest.mark.normative
 def test_worldclass_gate_and_threshold_evidence_are_visible_in_quality_banner() -> None:
     src = _read_gui_source()
     assert '"_xp_threshold_evidence": {}' in src

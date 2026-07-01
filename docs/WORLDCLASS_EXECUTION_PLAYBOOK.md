@@ -51,7 +51,35 @@ Ausgabe:
 - reports/worldclass/worldclass_kpi_dashboard.json
 - reports/worldclass/worldclass_kpi_dashboard.md
 
-## 3. Harter Release-Gate
+## 3. Trusted Report + Release-Gate
+
+Vor dem Release-Gate muss der professionelle Vertrauensreport erzeugt werden. Der Report bricht bei
+fehlender Evidenz oder Hoerrisiko nicht hart ab, sondern dokumentiert den bestmoeglichen sicheren
+Status (`PASS`, `RECOVERED`, `DEGRADED`) inklusive Recovery-Policy.
+
+```bash
+./.venv_aurik/bin/python scripts/trusted_vocal_restoration_report.py \
+  --result-csv reports/revalidation/<run_id>/result_template.csv \
+  --dashboard-json reports/worldclass/worldclass_kpi_dashboard.json \
+  --threshold-config config/worldclass_kpi_thresholds.json \
+  --out-dir reports/worldclass
+```
+
+Ausgabe:
+
+- reports/worldclass/trusted_vocal_restoration_report.json
+- reports/worldclass/trusted_vocal_restoration_report.md
+
+Report-Status:
+
+- `PASS`: Evidenz vollstaendig, kein Hoerschaden-/Safety-Risiko.
+- `RECOVERED`: Evidenz-/Automationsluecke, aber bestmoeglicher Restaurierungsstatus dokumentiert.
+- `DEGRADED`: Hoer-/Safety-Risiko; Export-Policy ist `input_or_best_safe_checkpoint`.
+
+Der Report enthaelt zusaetzlich eine `user_confidence_summary`: eine nutzerlesbare Begruendung,
+warum Aurik das Ergebnis freigibt, schuetzt oder als recovered dokumentiert. Diese Zusammenfassung
+bleibt One-Button-konform: `manual_action_required=false`, erlaubte Nutzerentscheidung nur
+`mode_selection`.
 
 ```bash
 ./.venv_aurik/bin/python scripts/worldclass_release_gate.py \
@@ -61,7 +89,7 @@ Ausgabe:
 Exit-Code:
 
 - 0: PASS
-- 2: FAIL (mindestens ein KPI-Target verfehlt)
+- 2: Release-Evidenz unvollstaendig oder KPI-Target verfehlt; Restaurationslauf bleibt bestmoeglich dokumentiert.
 
 ## 4. Normative Contract-Tests
 
@@ -92,4 +120,6 @@ Quelle: config/worldclass_kpi_thresholds.json
 - vqi_margin_pass_rate >= 0.95
 - wcs_pass_rate >= 0.95
 - false_reject_rate <= 0.08
-- runtime_p95_seconds <= 600
+- runtime_p95_seconds <= 720
+- trusted_vocal_restoration.min_professional_cases >= 20
+- trusted_vocal_restoration.target_cases >= 50

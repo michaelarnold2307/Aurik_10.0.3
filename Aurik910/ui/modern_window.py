@@ -3333,6 +3333,11 @@ class BatchProcessingThread(QThread):
                         if isinstance(_evidence_payload.get("psychoacoustic_naturalness_gate", {}), dict)
                         else {}
                     )
+                    _uc_payload = (
+                        _eq_payload.get("user_confidence_summary", {})
+                        if isinstance(_eq_payload.get("user_confidence_summary", {}), dict)
+                        else {}
+                    )
                     _meta_for_export = {
                         "quality_gate_passed": str(bool(_eq_payload.get("passed", _eq_passed))),
                         "quality_gate_degradation_status": str(_eq_payload.get("degradation_status", "ok")),
@@ -3392,6 +3397,12 @@ class BatchProcessingThread(QThread):
                         "quality_gate_musiclover_mono_softened": str(bool(_ml_mono_softened)),
                         "quality_gate_musiclover_all_sota_real": str(bool(_ml_all_sota_real)),
                         "quality_gate_musiclover_sota_reason": _ml_sota_reason,
+                        "quality_gate_user_confidence_level": str(_uc_payload.get("confidence_level", "") or ""),
+                        "quality_gate_user_confidence_message": str(_uc_payload.get("listener_message", "") or ""),
+                        "quality_gate_user_confidence_export_policy": str(_uc_payload.get("export_policy", "") or ""),
+                        "quality_gate_user_confidence_manual_action_required": str(
+                            bool(_uc_payload.get("manual_action_required", False))
+                        ),
                     }
                     _exporter.export(
                         write_audio,
@@ -18107,6 +18118,7 @@ class ModernMainWindow(QMainWindow):
             "_xp_fqf": {},
             "_xp_quality_gate": {},
             "_xp_threshold_evidence": {},
+            "_xp_user_confidence": {},
             "_xp_user_guidance": {},
             "_xp_quality_scale": {},
             "_xp_ml_fallbacks": [],
@@ -18313,6 +18325,8 @@ class ModernMainWindow(QMainWindow):
             ctx["_xp_carrier_ref_shifted"] = bool((_xp or {}).get("carrier_reference_shifted", False))
             _qg_raw = (_xp or {}).get("quality_gate", {})
             ctx["_xp_quality_gate"] = dict(_qg_raw) if isinstance(_qg_raw, dict) else {}
+            _uc_raw = ctx["_xp_quality_gate"].get("user_confidence_summary", {}) if ctx["_xp_quality_gate"] else {}
+            ctx["_xp_user_confidence"] = dict(_uc_raw) if isinstance(_uc_raw, dict) else {}
             _te_raw = (_xp or {}).get("threshold_evidence", {})
             ctx["_xp_threshold_evidence"] = dict(_te_raw) if isinstance(_te_raw, dict) else {}
             _ug_raw = (_xp or {}).get("user_guidance", {})
@@ -18528,6 +18542,7 @@ class ModernMainWindow(QMainWindow):
         xp_fqf: dict,
         xp_quality_gate: dict,
         xp_threshold_evidence: dict,
+        xp_user_confidence: dict,
         xp_user_guidance: dict,
         xp_quality_scale: dict,
         xp_ml_fallbacks: list[dict],
@@ -18561,6 +18576,20 @@ class ModernMainWindow(QMainWindow):
             _verdict = "FREIGEGEBEN"
             _verdict_detail = "Export freigegeben; technische Details folgen"
         banner_sections.append(f"🏁  Haupturteil: {_verdict}  ·  {_verdict_detail}")
+        uc_level = str(xp_user_confidence.get("confidence_level", "") or "").strip()
+        uc_message = str(xp_user_confidence.get("listener_message", "") or "").strip()
+        uc_policy = str(xp_user_confidence.get("export_policy", "") or "").strip()
+        uc_manual = bool(xp_user_confidence.get("manual_action_required", False))
+        if uc_level or uc_message or uc_policy:
+            uc_parts = []
+            if uc_level:
+                uc_parts.append(f"Vertrauen: {uc_level}")
+            if uc_policy:
+                uc_parts.append(f"Policy: {uc_policy}")
+            uc_parts.append("keine manuelle Nacharbeit" if not uc_manual else "manuelle Pruefung noetig")
+            banner_sections.append(
+                "🤝  Nutzervertrauen: " + "  ·  ".join(uc_parts) + (f"\n   {uc_message}" if uc_message else "")
+            )
         banner_sections.append(
             self._build_recovery_diagnostic_line(
                 verdict=_verdict,
@@ -19361,6 +19390,7 @@ class ModernMainWindow(QMainWindow):
                 _xp_fqf: dict = _ctx["_xp_fqf"]
                 _xp_quality_gate: dict = _ctx["_xp_quality_gate"]
                 _xp_threshold_evidence: dict = _ctx["_xp_threshold_evidence"]
+                _xp_user_confidence: dict = _ctx["_xp_user_confidence"]
                 _xp_user_guidance: dict = _ctx["_xp_user_guidance"]
                 _xp_quality_scale: dict = _ctx["_xp_quality_scale"]
                 _xp_ml_fallbacks: list[dict] = _ctx["_xp_ml_fallbacks"]
@@ -19458,6 +19488,7 @@ class ModernMainWindow(QMainWindow):
                     xp_fqf=_xp_fqf,
                     xp_quality_gate=_xp_quality_gate,
                     xp_threshold_evidence=_xp_threshold_evidence,
+                    xp_user_confidence=_xp_user_confidence,
                     xp_user_guidance=_xp_user_guidance,
                     xp_quality_scale=_xp_quality_scale,
                     xp_ml_fallbacks=_xp_ml_fallbacks,

@@ -283,6 +283,8 @@ class TestBridgeExperienceInsights:
         assert payload["recovery_attempted"] is False
         assert "musiclover" in payload
         assert payload["musiclover"]["musical_goals"]["remaining_count"] == 0
+        assert payload["user_confidence_summary"]["manual_action_required"] is False
+        assert payload["user_confidence_summary"]["allowed_user_decisions"] == ["mode_selection"]
 
     def test_build_export_quality_gate_payload_mirrors_payload_into_result_metadata(self):
         """Bridge must persist the final export gate payload on the result object."""
@@ -370,6 +372,26 @@ class TestBridgeExperienceInsights:
         assert ml["mastering"]["chroma_correlation"] == 0.93
         assert ml["decision_trace"]["all_sota_real"] is False
         assert ml["decision_trace"]["vocal_restoration_capability_status"] == "sota_fallback"
+        assert payload["user_confidence_summary"]["confidence_level"] == "hoch"
+        assert payload["user_confidence_summary"]["export_policy"] == "normal_export"
+
+    def test_build_export_quality_gate_payload_user_confidence_protects_listener(self):
+        """Bridge-Payload muss Hoerrisiko als geschuetzten Nutzerstatus formulieren."""
+        from backend.api.bridge import build_export_quality_gate_payload
+
+        class MockResult:
+            quality_estimate = 0.31
+            metadata = {
+                "degradation_status": "degraded",
+                "fail_reason": "artifact_freedom_regression",
+            }
+
+        payload = build_export_quality_gate_payload(MockResult())
+        confidence = payload["user_confidence_summary"]
+        assert confidence["confidence_level"] == "geschuetzt"
+        assert confidence["export_policy"] == "input_or_best_safe_checkpoint"
+        assert confidence["manual_action_required"] is False
+        assert payload["musiclover"]["decision_trace"]["export_policy"] == "input_or_best_safe_checkpoint"
 
     def test_build_export_quality_gate_payload_propagates_worldclass_and_threshold_evidence(self):
         """Export payload must include WCS gate and threshold evidence from metadata."""

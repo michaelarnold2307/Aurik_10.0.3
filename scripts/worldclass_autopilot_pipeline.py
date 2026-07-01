@@ -6,7 +6,8 @@ Ablauf:
 2) WP1 laufen lassen (dry-run oder execute)
 3) Resultate zusammenfassen
 4) KPI-Dashboard erzeugen
-5) Harten Release-Gate ausfuehren
+5) Trusted Vocal Restoration Report erzeugen
+6) Harten Release-Gate ausfuehren
 """
 
 from __future__ import annotations
@@ -110,6 +111,22 @@ def main() -> None:
         cwd=repo_root,
     )
 
+    _run(
+        [
+            str(py),
+            "scripts/trusted_vocal_restoration_report.py",
+            "--result-csv",
+            str(run_dir / "result_template.csv"),
+            "--dashboard-json",
+            str((repo_root / args.worldclass_out / "worldclass_kpi_dashboard.json").resolve()),
+            "--threshold-config",
+            args.threshold_config,
+            "--out-dir",
+            args.worldclass_out,
+        ],
+        cwd=repo_root,
+    )
+
     # Release-Gate ist absichtlich der letzte harte Schritt.
     _run(
         [
@@ -117,6 +134,8 @@ def main() -> None:
             "scripts/worldclass_release_gate.py",
             "--dashboard-json",
             str((repo_root / args.worldclass_out / "worldclass_kpi_dashboard.json").resolve()),
+            "--trusted-report-json",
+            str((repo_root / args.worldclass_out / "trusted_vocal_restoration_report.json").resolve()),
         ],
         cwd=repo_root,
     )

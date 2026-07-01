@@ -47,6 +47,7 @@ Für jede `phase_*.py` mit additiver oder NR-Funktion prüfen:
 | `pytest tests/integration/` | Integration | Täglich, CI |
 | `pytest tests/normative/` | Spec-Gates (AMRB, MUSHRA) | Release-Gate |
 | `scripts/worldclass_kpi_dashboard.py` | KPI-Übersicht | Wöchentlich |
+| `scripts/trusted_vocal_restoration_report.py` | Profi-Evidenz: vokaler Real-Corpus, Baselines, Safety-Regressions, Restoration-Report | Vor Release |
 | `scripts/worldclass_release_gate.py` | Release-Blocker-Check | Vor Release |
 
 ### §10.2a VERBOTEN-Linter-Abdeckung (V01–V58)
@@ -124,7 +125,7 @@ P3 (Backlog): TYPE-SAFETY, Linter-Coverage, Dokumentation
 | Fehlertyp | Anzahl | Behandlung |
 | --- | --- | --- |
 | `no-any-return` (ndarray) | ~939 | Massenfix via Python-Skript (V58-Pattern: `# type: ignore[no-any-return]`) |
-| `var-annotated` | ~192 | Typ-Annotationen ergänzen, punktuell |
+| `var-annotated` | ~192 | **0 erreicht** — Typ-Annotationen ergänzt |
 | Echte Typ-Bugs (assignment/attr/arg/return-value) | ~424 | Individuell, P1–P2 |
 
 Schicht-überblick:
@@ -220,6 +221,29 @@ tail -20 .github/VERBOTEN.md
 | Wöchentlich | mypy-Vollscan + Layer-Scan L4–L5 + KPI-Dashboard |
 | Vor Release | Vollsuite + AMRB-Gate + Competitive-Gate + Worldclass-Release-Gate |
 
+### §10.8a Trusted Vocal Restoration Gate [RELEASE_MUST]
+
+Aurik darf keine Weltklasse- oder Profi-Tauglichkeitsbehauptung aus internen Metriken allein ableiten.
+Vor jedem Release MUSS `scripts/trusted_vocal_restoration_report.py` einen lesbaren JSON/Markdown-Report erzeugen.
+Der Report darf Restaurierungs-/Evidenzprobleme nicht als harten Audio-Abbruch modellieren, sondern MUSS
+`PASS`, `RECOVERED` oder `DEGRADED` mit `best_possible_restoration` und `user_confidence_summary` ausweisen.
+
+Pflicht-Evidenz:
+
+1. Mindestens 20 vokale Real-Audio-Cases als Release-Evidenzuntergrenze; Zielkorpus 50 Cases.
+2. Baseline-Familien: `input_passthrough`, `classical_dsp`, `sota_ml`, `commercial_reference`.
+3. Pro Aurik-Case: `artifact_freedom`, `hpi`, `vqi`, `timbral_fidelity`.
+4. Human-Hearing-Fokus: `naturalness`, `emotional_arc_preservation`, `micro_dynamic_correlation`, `formant_integrity`, `vibrato_depth_preservation`, `noise_texture_distance`.
+5. Vollautomatik: nur Moduswahl, keine manuellen Parameter, kanonischer Bridge-Vertrag, autonome Exportentscheidung.
+6. Keine Safety-Regression gegen die beste verfügbare Baseline bei `artifact_freedom`, `hpi`, `vqi`.
+7. Nutzer-Vertrauen: `user_confidence_summary` mit Hoer-Begruendung, `manual_action_required=false`, erlaubter Nutzerentscheidung nur `mode_selection`, Export-Policy und klarer Erwartungshaltung.
+8. Report-Sektionen: Executive Verdict, Corpus Coverage, Baseline Comparison, Human Hearing Focus, Fully Automated Operation, User Confidence Summary, Safety Regressions, Phase Hardening Actions, Professional Limitations.
+
+`scripts/worldclass_release_gate.py` MUSS den Trusted-Report laden und blockieren, wenn der Report fehlt oder keine
+`best_possible_restoration` mit `best_possible_reached=true` oder keine `user_confidence_summary` enthaelt. Ohne externe
+Baseline-Familien ist das Ergebnis `RECOVERED` statt Weltklasse-Evidenz; bei Hoer-/Safety-Risiko ist es `DEGRADED` mit
+Export-Policy `input_or_best_safe_checkpoint`.
+
 ---
 
 ## §10.9 Vollständige Bug-Eliminierungs-Strategie (v9.21.0)
@@ -284,9 +308,10 @@ falsche Berechnungen verursachen können.
 `scripts/check_type_ignore_order.py` blockiert diese Reihenfolge.
 Nach Ausführung: `mypy --follow-imports=skip` muss 0 `no-any-return` zeigen.
 
-### §10.9d Sprint 4 — var-annotated Cleanup (P3)
+### §10.9d Sprint 4 — var-annotated Cleanup (P3) — ERLEDIGT
 
-**Ziel**: ~192 `var-annotated` Fehler durch minimale Typ-Annotationen beheben.
+**Ziel**: ~192 `var-annotated` Fehler durch minimale Typ-Annotationen beheben. **Erreicht 2026-06-26**
+fuer die Release-Layer `backend/core/`, `backend/api/`, `plugins/`, `Aurik910/`, `cli/`.
 
 **Methode**: `mypy backend/core/ --follow-imports=skip 2>&1 | grep "var-annotated"` →
 pro Zeile minimale Annotation ergänzen (z.B. `energy: float = 0.0` statt `energy = 0.0`).
@@ -295,9 +320,9 @@ Skriptbar wenn Pattern homogen.
 ### §10.9e Automatisierungs-Werkzeuge (Session-zu-Session)
 
 ```bash
-# Vollständiger Scan nach jeder Session:
-.venv_aurik/bin/python -m mypy backend/core/ --follow-imports=skip --no-error-summary 2>&1 | grep "error:" | grep -v "no-any-return" | grep -v "var-annotated" | wc -l
-# Ziel: 0 echte Bugs
+# Vollständiger Release-Layer-Scan nach jeder Session:
+.venv_aurik/bin/python -m mypy backend/core/ backend/api/ plugins/ Aurik910/ cli/ --follow-imports=skip --no-error-summary --show-error-codes 2>&1 | grep "error:"
+# Ziel: keine Ausgabe
 
 # Boilerplate-Zähler:
 .venv_aurik/bin/python -m mypy backend/core/ --follow-imports=skip --no-error-summary 2>&1 | grep "no-any-return" | wc -l
@@ -322,10 +347,10 @@ Neue lokale Pflicht-Hooks:
 | Hook | Zweck | Toleranz |
 | --- | --- | --- |
 | `aurik-type-ignore-order` | Verhindert ungültige Reihenfolge `code # kommentar # type: ignore[...]` | Keine |
-| `aurik-mypy-real-bug-gate` | Vollscan über `backend/core/`, `backend/api/`, `plugins/`, `Aurik910/`, `cli/` | Nur `var-annotated` bis Sprint 4 |
+| `aurik-mypy-real-bug-gate` | Vollscan über `backend/core/`, `backend/api/`, `plugins/`, `Aurik910/`, `cli/` | Keine |
 
-**Release-Regel**: Jeder neue mypy-Fehlercode außer `var-annotated` ist ein Regression-Bug.
-`var-annotated` ist die einzige bewusst tolerierte Restklasse und MUSS in Sprint 4 auf 0 sinken.
+**Release-Regel**: Jeder neue mypy-Fehlercode in den Release-Layern ist ein Regression-Bug.
+Es gibt keine tolerierte Restklasse mehr; `scripts/check_mypy_real_bugs.py::IGNORED_CODES` MUSS leer bleiben.
 
 ### §10.9g Metriken & Fortschritts-Tracking
 
@@ -334,7 +359,7 @@ Neue lokale Pflicht-Hooks:
 | Echte Typ-Bugs (backend/core, kein Boilerplate) | ~424 | **0 erreicht** | 0 |
 | Echte Typ-Bugs (Release-Layer: core/api/plugins/Aurik910/cli, ohne var-annotated) | ~460+ | **0 erreicht** | 0 |
 | no-any-return Boilerplate | ~939 | **0 erreicht in core/api/plugins/cli** | 0 |
-| var-annotated | ~192 | ~192 | 0 |
+| var-annotated | ~192 | **0 erreicht** | 0 |
 | Bridge/CLI Fehler | 19 | 0 | 0 |
 | DSP echte Bugs | ~25 | **0 erreicht** | 0 |
 | Plugins echte Bugs | ~35 | **0 erreicht** | 0 |
@@ -347,13 +372,18 @@ Erledigt:
 - Sprint 1 P0/P1: `adaptive_phase_rescheduler.py`, `real_audio_*_golden_gate.py`, `ai_framework.py`, UV3 `no-any-return`.
 - Sprint 2: echte Typ-Bugs in `artifact_detection.py`, `authenticity_metrics_extended.py`, `multi_pass_strategy.py`, `backend/core/phases/`, `backend/core/`, `plugins/`, `backend/api/`, `cli/`.
 - Sprint 3: `no-any-return` in `backend/core/phases/`, `backend/core/dsp/`, `backend/core/`, `plugins/`, `backend/api/`, `cli/`.
+- Sprint 4: `var-annotated` in `backend/core/`, `backend/api/`, `plugins/`, `Aurik910/`, `cli/` vollständig bereinigt; `IGNORED_CODES = set()`.
 - Pre-commit: `aurik-type-ignore-order` und `aurik-mypy-real-bug-gate` aktiv und grün.
+- Weltklasse-Gates: `config/worldclass_kpi_thresholds.json::real_audio_corpus` erzwingt R5-R12-Real-Audio-Coverage fuer `shellac`, `vinyl`, `tape`, `cd_digital`, `mp3_low` mit vokalem Fokus; `worldclass_kpi_dashboard.py` propagiert fehlende Materialien/Cases, `worldclass_release_gate.py` blockiert diese Luecken.
+- Canonical Contract: normative Paritaetstests sichern GUI, CLI und Batch auf denselben Bridge-/Denker-/Export-Vertrag ab.
+- Klangschutz: normative Vocal-Contracts sichern `phase_65_vocal_naturalness_restoration`, HNR/Formant/Vibrato/Passaggio-Schutz und §2.67-Phase-Koalitionen als release-relevante Anker.
+- A/B-Counterfactual-Harness: `scripts/ab_plan_eval.py` bewertet Plan A/B mit Safety-Veto (`artifact_freedom`, HPI, VQI) und schreibt die Empfehlung in den JSON-Report; `--fail-on-unsafe-candidate` blockiert unsichere Kandidaten automatisiert.
+- Export-Hörschaden-Gate: `backend.exporter.validate_export_quality()` blockiert explizit gemeldete Structural-Silence-Lifts und schwere Vocal-Naturalness-Schäden (Formant/Vibrato), bevor ein Ergebnis als exportfähig gilt.
 
 Offen:
 
-- Sprint 4: `var-annotated` vollständig durch echte Annotationen bereinigen.
-- Nach Sprint 4: mypy Real-Bug-Gate auf `IGNORED_CODES = set()` verschärfen.
+- Keine tolerierten mypy-Fehlercodes in Release-Layern.
 
 ---
 
-_Stand: v9.21.0, 2026-06-26 — automatisch gepflegt, Änderungen per Commit §10-konform_
+_Stand: v9.21.2, 2026-06-26 — automatisch gepflegt, Änderungen per Commit §10-konform_

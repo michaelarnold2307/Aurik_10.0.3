@@ -1554,6 +1554,24 @@ def build_export_quality_gate_payload(result: object) -> dict[str, Any]:
     if _root_cause_l.startswith("pipeline_blocked:"):
         _root_cause = _root_cause.split(":", 1)[1].strip() or _root_cause
 
+    _manual_action_required = False
+    _allowed_user_decisions = ["mode_selection"]
+    _export_policy = "normal_export"
+    _confidence_level = "hoch"
+    _listener_message = "Aurik hat die Restaurierung autonom als gehoersicher freigegeben."
+    if degradation_status in {"blocked", "critical_degraded", "degraded"}:
+        _export_policy = "input_or_best_safe_checkpoint"
+        _confidence_level = "geschuetzt"
+        _listener_message = (
+            "Aurik hat ein Hoerrisiko erkannt und schuetzt den Nutzer mit dem besten sicheren Checkpoint."
+        )
+    elif degradation_status == "recovered" or fqf_status == "recovered":
+        _export_policy = "best_available_restoration"
+        _confidence_level = "begrenzt"
+        _listener_message = (
+            "Aurik hat die bestmoegliche Restaurierung erreicht und verbleibende Grenzen transparent markiert."
+        )
+
     payload = {
         "passed": bool(passed),
         "fail_reason": primary_fail_reason,
@@ -1586,6 +1604,18 @@ def build_export_quality_gate_payload(result: object) -> dict[str, Any]:
             "passed": bool(_wcs_gate.get("passed", False)),
         },
         "threshold_evidence": dict(_threshold_evidence) if _threshold_evidence else {},
+        "user_confidence_summary": {
+            "confidence_level": _confidence_level,
+            "listener_message": _listener_message,
+            "manual_action_required": _manual_action_required,
+            "allowed_user_decisions": list(_allowed_user_decisions),
+            "export_policy": _export_policy,
+            "why_user_can_trust": [
+                "Export-Gates pruefen Hoerschutz, Musical Goals und Fallback Quality Floor.",
+                "Aurik faellt bei Risiko auf den besten sicheren Zustand zurueck.",
+                "Der Nutzer muss keine Klangparameter setzen; nur die Moduswahl ist erlaubt.",
+            ],
+        },
         "musiclover": {
             "vocal_integrity": {
                 "vqi": _vqi_val,
@@ -1614,6 +1644,7 @@ def build_export_quality_gate_payload(result: object) -> dict[str, Any]:
                 "fail_reason": str(primary_fail_reason),
                 "fail_reason_count": int(len(fail_reasons)),
                 "recovery_attempted": bool(fqf_attempts > 0),
+                "export_policy": _export_policy,
                 "all_sota_real": bool(_all_sota_real),
                 "vocal_restoration_capability_status": _vocal_cap_status,
                 "degraded_capabilities": list(_degraded_caps) if isinstance(_degraded_caps, list) else [],
@@ -2222,7 +2253,7 @@ def get_pipeline_trace(result: Any) -> dict[str, Any]:
     try:
         from backend.api.debug_api import get_debug_summary, get_goal_fails, get_goals_timeline, get_worst_phases
 
-        summary = get_debug_summary(result)
+        summary = _coerce_dict_str_any(get_debug_summary(result))
         summary["goal_timeline"] = get_goals_timeline(result)
         summary["worst_phases"] = get_worst_phases(result, n=5)
         summary["goal_fails"] = get_goal_fails(result)
