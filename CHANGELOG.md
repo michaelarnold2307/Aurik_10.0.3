@@ -4,6 +4,38 @@
 > Historische Qualitäts- und Marketingformulierungen bleiben zur Nachvollziehbarkeit erhalten
 > und sind nicht automatisch als aktueller, normativ bindender Außenclaim zu verstehen.
 
+## Version 9.20.0 — HPG Reference Memory Bootstrap, Harmonische Direktionalität, V54/V38 Compliance (Stand: 3. Juli 2026)
+
+### Qualitätsverbesserungen
+
+#### HPG Reference Memory Bootstrap (§2.44)
+
+- **Bootstrap v9.20.0**: 3-phasiger Ablauf: Phase 0 (7 veraltete Einträge bereinigt),
+  Phase 1 (49 synthetische Prototypen, UV3-kompatible Ära-Formate `pre-1950`/`pre-1980`/`post-1980`),
+  Phase 2 (golden-samples) — 59 neue Embeddings in `~/.aurik/hpg_reference_memory.json`.
+- **V54-Gate**: `update_reference_memory()` Gate: `HPI > 0.0 AND artifact_freedom ≥ 0.95`
+  (vorher: `HPI > 0.5 AND p1_p2_passed`) — ermöglicht Kaltstart-Population nach jedem positiven Run.
+- **EMA-alpha qualitätsskaliert**: `α_eff = 0.15 × clamp(HPI/0.7, 0.33, 1.0)`, Floor 0.05.
+- **era_bin-Fallback**: `"post-1980"` (vorher `"post-1990"` — UV3-inkompatibel).
+
+#### Harmonische Direktionalität (§2.44 Timbral-Fallback)
+
+- Neue 4. Komponente in `_compute_directional_restoration_quality()`: Harmonische Kohärenz
+  (log-spektrale Kreuzkorrelation). Gewichtung: `0.35×Rauschen + 0.25×Klarheit + 0.40×Harmonik`.
+- Ergebnis: ~0.54+ für Musik (statt ~0.50 vorher) — schließt CCR-Floor-Lücke bei analogem Material.
+
+#### Phase_01 V38 per-event Strength-Oracle
+
+- `_compute_click_local_strength()`: 250ms RMS-Proxy + VFA-Schutzzonen-Cap
+  (Vibrato 0.20, Frisson 0.30, Flüster 0.25, Passaggio 0.35).
+- `_effective_strength` vor Stereo/Mono-Pfaden berechnet (UnboundLocalError-Fix).
+
+### Architektur
+
+- `backend/core/version.py`: `get_aurik_version()` ohne Frontend-Import (V09-Fix).
+- `backend/exporter.py`: importiert aus `backend.core.version` statt `Aurik910`.
+- `cli/aurik_cli.py`: `no-any-return` mypy-Fix via explizit getypte Variablen.
+
 ## Version 9.19.0 — DAW-Limiter-Erkennung, Kassetten-Goal-Kalibrierung, mypy-Cleanup (Stand: 2. Juli 2026)
 
 ### Bug-Fixes / Patch (nachträglich in 9.19.0)
