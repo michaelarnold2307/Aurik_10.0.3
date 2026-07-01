@@ -356,7 +356,16 @@ def _collect_from_result_csvs(root: Path, cfg: dict[str, Any], run_dir: Path | N
             # Weltklasse-Anforderungen (Mindestwerte für valide KPI-Aussagen)
             "worldclass_sample_count_ok": total_rows >= 50,
             "worldclass_material_diversity_ok": len(corpus_material_dist) >= 8,
-            "worldclass_era_diversity_ok": len(corpus_era_dist) >= 5,
+            # era_diversity: Nur bewertbar wenn ≥5 Proben mit bekannter Ära (nicht "unknown") vorhanden.
+            # Bei rein synthetischem Corpus (alle "unknown") → None (unzureichende Datenlage).
+            "worldclass_era_diversity_ok": (
+                None  # unzureichende Datenlage: Corpus enthält keine verifizierten Ären
+                if sum(
+                    v for k, v in corpus_era_dist.items()
+                    if k not in ("unknown", "", "none")
+                ) < 5
+                else len({k for k in corpus_era_dist if k not in ("unknown", "", "none")}) >= 5
+            ),
             "worldclass_genre_diversity_ok": len(corpus_genre_dist) >= 4,
             "min_samples_for_worldclass": 50,
         },

@@ -25343,6 +25343,37 @@ class UnifiedRestorerV3:
         except Exception as _vg_exc:
             logger.debug("§0p Vibrato-Guard (non-blocking): %s", _vg_exc)
 
+        # §V25-PRO WBG: Proaktiver Wärmeband-Strength-Cap für NR-Phasen (phase_03, phase_29).
+        # Wenn der kumulierte Wärmeband-Verlust > 1.5 dB ist, werden subtraktive NR-Phasen
+        # mit einem dynamischen Cap belegt BEVOR sie laufen — verhindert weitere Akkumulation.
+        # Nur Restoration-Modus; Studio 2026 darf Wärmeband intentional verändern. Non-blocking.
+        _WBG_NR_PROACTIVE_PHASES = frozenset({"phase_03_denoise", "phase_29_spectral_subtraction"})
+        if (
+            phase_metadata.phase_id in _WBG_NR_PROACTIVE_PHASES
+            and not self.is_studio_mode()
+            and isinstance(kwargs.get("strength"), (int, float))
+        ):
+            try:
+                _wbg_cum_pre = float(
+                    (getattr(self, "_restoration_context", None) or {}).get("warmth_band_loss_db", 0.0) or 0.0
+                )
+                if _wbg_cum_pre > 1.5:
+                    # cap = clip(1.0 − (loss − 1.5) × 0.20, 0.55, 0.90)
+                    # Beispiel: 2.0 dB → 0.90; 2.5 dB → 0.80; 3.5 dB → 0.60; ≥4.75 dB → 0.55
+                    _wbg_pro_cap = float(np.clip(1.0 - (_wbg_cum_pre - 1.5) * 0.20, 0.55, 0.90))
+                    _wbg_cur_s = float(kwargs["strength"])
+                    if _wbg_cur_s > _wbg_pro_cap:
+                        kwargs["strength"] = _wbg_pro_cap
+                        logger.info(
+                            "§V25-PRO WBG: %s warmth_cum=%.2f dB → proaktiver strength-cap %.2f (war: %.2f)",
+                            phase_metadata.phase_id,
+                            _wbg_cum_pre,
+                            _wbg_pro_cap,
+                            _wbg_cur_s,
+                        )
+            except Exception as _wbg_pro_exc:
+                logger.debug("§V25-PRO WBG non-blocking: %s", _wbg_pro_exc)
+
         _sev_wet_dry: float = 1.0
         _TIMING_PHASES_WD = frozenset(
             {
