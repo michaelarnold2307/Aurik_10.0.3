@@ -267,7 +267,7 @@ class FeatureExtractor:
         freqs, psd = scipy_signal.welch(audio, sr, nperseg=min(self.n_fft, len(audio) // 4))
 
         # 3dB Bandwidth
-        max_psd = np.max(psd)
+        max_psd: float = float(np.max(psd))
         threshold_3db = max_psd / 2.0  # -3 dB = half power
 
         above_threshold = psd > threshold_3db
@@ -277,7 +277,7 @@ class FeatureExtractor:
             features.bandwidth_3db_high = freqs[indices[-1]]
 
         # Dynamic Range
-        peak = np.max(np.abs(audio))
+        peak: float = float(np.max(np.abs(audio)))
         rms = np.sqrt(np.mean(audio**2))
         if rms > 0:
             features.dynamic_range_db = 20 * np.log10(peak / rms)
@@ -304,7 +304,7 @@ class FeatureExtractor:
         for hum_freq in hum_freqs:
             hum_idx = np.argmin(np.abs(freqs - hum_freq))
             hum_energy += psd[hum_idx]
-        total_energy = np.sum(psd)
+        total_energy: float = float(np.sum(psd))
         features.hum_presence = hum_energy / (total_energy + 1e-10)
 
         # Click Detection (impulse noise)
@@ -360,8 +360,8 @@ class FeatureExtractor:
         # Stereo Width (M/S ratio)
         mid = (left + right) / 2.0
         side = (left - right) / 2.0
-        mid_energy = np.sum(mid**2)
-        side_energy = np.sum(side**2)
+        mid_energy: float = float(np.sum(mid**2))
+        side_energy: float = float(np.sum(side**2))
         features.stereo_width = side_energy / (mid_energy + 1e-10)
 
         # Phase Correlation — guarded dot-product (§VERBOTEN: np.corrcoef on non-guarded signals)

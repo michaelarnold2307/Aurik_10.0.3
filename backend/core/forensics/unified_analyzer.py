@@ -342,7 +342,7 @@ class UnifiedForensicAnalyzer:
         if confidences:
             # Weighted average
             weights_norm = np.array(weights) / np.sum(weights)
-            base_confidence = np.sum(np.array(confidences) * weights_norm)
+            base_confidence: float = float(np.sum(np.array(confidences) * weights_norm))
 
             # Consistency bonus (+5% if consistent, -10% if inconsistent)
             consistency_bonus = (consistency_score - 0.5) * 0.15

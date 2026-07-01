@@ -108,7 +108,7 @@ class MLMediumDetector:
 
         # State
         self.is_trained = False
-        self.feature_names = []
+        self.feature_names: list[str] = []
         self.n_classes = 0
         self.training_accuracy = 0.0
         self.cv_accuracy = 0.0

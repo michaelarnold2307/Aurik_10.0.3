@@ -345,7 +345,7 @@ class AudioForensicsAnalyzer:
         frame_length = int(0.025 * sr)  # 25ms frames
         hop_length = frame_length // 2
 
-        flux_values = []
+        flux_values: list[float] = []
         for i in range(0, len(audio_array) - frame_length, hop_length):
             frame1 = audio_array[i : i + frame_length]
             frame2 = audio_array[i + hop_length : i + hop_length + frame_length]
@@ -354,17 +354,17 @@ class AudioForensicsAnalyzer:
             spec2 = np.abs(np.fft.fft(frame2))[: len(frame2) // 2]
 
             # Spectral flux
-            flux = np.sum(np.abs(spec2 - spec1))
+            flux: float = float(np.sum(np.abs(spec2 - spec1)))
             flux_values.append(flux)
 
         if len(flux_values) == 0:
             return 0.0
 
-        flux_values = np.array(flux_values)
+        flux_array = np.array(flux_values, dtype=np.float64)
 
         # Coefficient of variation
-        flux_mean = np.mean(flux_values)
-        flux_std = np.std(flux_values)
+        flux_mean = float(np.mean(flux_array))
+        flux_std = float(np.std(flux_array))
 
         cv = 0.0 if flux_mean == 0 else flux_std / flux_mean
 
@@ -505,7 +505,7 @@ class AudioForensicsAnalyzer:
 
         for low, high in bands:
             mask = (freqs >= low) & (freqs < high)
-            energy = np.sum(spectrum[mask])
+            energy: float = float(np.sum(spectrum[mask]))
             energy_per_band.append(energy)
 
         # Detect missing bands
@@ -527,24 +527,24 @@ class AudioForensicsAnalyzer:
         anomalies = []
 
         # Check for unnatural silence/noise transitions
-        rms_energy = []
+        rms_energy: list[float] = []
         frame_length = int(0.1 * sr)  # 100ms frames
 
         for i in range(0, len(audio) - frame_length, frame_length // 2):
             frame = audio[i : i + frame_length]
-            rms = np.sqrt(np.mean(frame**2))
+            rms = float(np.sqrt(np.mean(frame**2)))
             rms_energy.append(rms)
 
         if len(rms_energy) > 1:
-            rms_energy = np.array(rms_energy)
+            rms_energy_array = np.array(rms_energy, dtype=np.float64)
 
             # Check for abrupt changes
-            rms_diff = np.abs(np.diff(rms_energy))
-            threshold = 5 * np.median(rms_diff)
+            rms_diff = np.abs(np.diff(rms_energy_array))
+            threshold = float(5.0 * np.median(rms_diff))
 
-            abrupt_changes = np.sum(rms_diff > threshold)
+            abrupt_changes: int = int(np.sum(rms_diff > threshold))
 
-            if abrupt_changes > len(rms_energy) * 0.05:
+            if abrupt_changes > len(rms_energy_array) * 0.05:
                 anomalies.append(f"Excessive abrupt energy changes ({abrupt_changes})")
 
         return anomalies

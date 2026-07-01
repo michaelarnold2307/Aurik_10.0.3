@@ -169,13 +169,13 @@ class EraFeatureExtractor:
         era_features.loudness_range_lu = era_features.dynamic_range_db * 0.7  # Approximation
 
         # 4. Limiting detection
-        peak = np.max(np.abs(audio_mono))
+        peak: float = float(np.max(np.abs(audio_mono)))
         if peak > 0.95:
             era_features.peak_limiting_detected = True
             era_features.limiting_threshold_dbfs = 20 * np.log10(peak)
 
         # Check for brick-wall limiting (many samples near peak)
-        near_peak = np.sum(np.abs(audio_mono) > 0.95 * peak)
+        near_peak: int = int(np.sum(np.abs(audio_mono) > 0.95 * peak))
         if near_peak > len(audio_mono) * 0.001:  # >0.1% of samples
             era_features.brick_wall_limiting_detected = True
 
@@ -296,7 +296,7 @@ class MLEraDetector:
 
         # State
         self.is_trained = False
-        self.feature_names = []
+        self.feature_names: list[str] = []
         self.n_classes = 0
         self.training_accuracy = 0.0
         self.cv_accuracy = 0.0

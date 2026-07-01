@@ -632,7 +632,10 @@ class FeatureExtractor:
 
             # Extract pitch using pyin (more robust than crepe for modulation)
             f0, voiced_flag, _voiced_probs = librosa.pyin(
-                audio, fmin=librosa.note_to_hz("C2"), fmax=librosa.note_to_hz("C7"), sr=sr
+                audio,
+                fmin=float(librosa.note_to_hz("C2")),
+                fmax=float(librosa.note_to_hz("C7")),
+                sr=sr,
             )
 
             # Filter out unvoiced regions
@@ -748,6 +751,8 @@ class AnalysisEngineAdapter:
         # Import here to avoid circular dependency
         from backend.core.data_models import (
             AnalysisProfile,
+            DefectDetection,
+            DefectType,
             DynamicsAnalysis,
             FeatureVectors,
             FormatInfo,
@@ -971,8 +976,8 @@ class AnalysisEngineAdapter:
             right = audio_stereo[1]
             mid = (left + right) / 2
             side = (left - right) / 2
-            mid_energy = np.sum(mid**2)
-            side_energy = np.sum(side**2)
+            mid_energy: float = float(np.sum(mid**2))
+            side_energy: float = float(np.sum(side**2))
             mid_side_balance = side_energy / (mid_energy + 1e-10)
 
             # Guard: np.corrcoef on near-constant (silent) signals → RuntimeWarning
@@ -1003,8 +1008,56 @@ class AnalysisEngineAdapter:
                 mono_compatibility_score=1.0,
             )
 
-        # 6. Defect Detection (Spec 3.1.3) - Placeholder
-        detected_defects = []
+        # 6. Defect Detection (Spec 3.1.3) - strukturierte Defektobjekte aus den Feature-Detektoren.
+        detected_defects: list[DefectDetection] = []
+        _clipping_pct = float(features.get("clipping_percentage", 0.0) or 0.0)
+        if _clipping_pct > 0.1:
+            detected_defects.append(
+                DefectDetection(
+                    defect_type=DefectType.CLIPPING,
+                    severity=float(np.clip(_clipping_pct / 10.0, 0.0, 1.0)),
+                    confidence=0.85,
+                    affected_frequency_range=None,
+                    temporal_locations=[],
+                    classification_details={"clipping_percentage": _clipping_pct},
+                )
+            )
+        _crackle_density = float(features.get("crackle_density", 0.0) or 0.0)
+        if _crackle_density > 0.05:
+            detected_defects.append(
+                DefectDetection(
+                    defect_type=DefectType.CRACKLE_POPS,
+                    severity=float(np.clip(_crackle_density * 8.0, 0.0, 1.0)),
+                    confidence=0.75,
+                    affected_frequency_range=None,
+                    temporal_locations=[],
+                    classification_details={"crackle_density": _crackle_density},
+                )
+            )
+        _dropout_count = int(features.get("dropout_count", 0) or 0)
+        if _dropout_count > 0:
+            detected_defects.append(
+                DefectDetection(
+                    defect_type=DefectType.DROPOUT,
+                    severity=float(np.clip(_dropout_count / 10.0, 0.0, 1.0)),
+                    confidence=0.75,
+                    affected_frequency_range=None,
+                    temporal_locations=[],
+                    classification_details={"dropout_count": _dropout_count},
+                )
+            )
+        _hum_score = float(features.get("hum_score", 0.0) or 0.0)
+        if _hum_score > 0.05:
+            detected_defects.append(
+                DefectDetection(
+                    defect_type=DefectType.HUM,
+                    severity=float(np.clip(_hum_score, 0.0, 1.0)),
+                    confidence=0.70,
+                    affected_frequency_range=(40.0, 300.0),
+                    temporal_locations=[],
+                    classification_details={"hum_score": _hum_score},
+                )
+            )
 
         # 7. Musical Context (Spec 3.1.4) - PANNS-based
         musical_context = MusicalContext(

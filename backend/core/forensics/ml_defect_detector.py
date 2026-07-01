@@ -200,9 +200,10 @@ class DefectFeatureExtractor:
 
         # Impulsiveness = ratio of peak energy to mean energy
         if np.sum(peaks) > 0:
-            peak_energy = np.mean(envelope[peaks])
-            mean_energy = np.mean(envelope) + 1e-10
-            return peak_energy / mean_energy  # type: ignore[return-value]
+            peak_energy = float(np.mean(envelope[peaks]))
+            mean_energy = float(np.mean(envelope)) + 1e-10
+            impulsiveness = peak_energy / mean_energy
+            return float(impulsiveness)
         return 0.0
 
     def _zcr_variation(self, audio: np.ndarray, sr: int) -> float:
@@ -211,10 +212,10 @@ class DefectFeatureExtractor:
         frame_length = 2048
         hop_length = 512
 
-        zcr_values = []
+        zcr_values: list[float] = []
         for i in range(0, len(audio) - frame_length, hop_length):
             frame = audio[i : i + frame_length]
-            zcr = np.sum(np.abs(np.diff(np.sign(frame)))) / (2 * len(frame))
+            zcr = float(np.sum(np.abs(np.diff(np.sign(frame)))) / (2 * len(frame)))
             zcr_values.append(zcr)
 
         if len(zcr_values) > 0:
@@ -232,17 +233,17 @@ class DefectFeatureExtractor:
         frame_length = 2048
         hop_length = 512
 
-        energies = []
+        energies: list[float] = []
         for i in range(0, len(audio_hf) - frame_length, hop_length):
             frame = audio_hf[i : i + frame_length]
-            energy = np.sum(frame**2)
+            energy: float = float(np.sum(frame**2))
             energies.append(energy)
 
         if len(energies) > 0:
-            energies = np.array(energies)
-            threshold = np.mean(energies) + 3 * np.std(energies)
-            spikes = np.sum(energies > threshold)
-            return float(spikes) / len(energies)
+            energy_arr = np.asarray(energies, dtype=np.float64)
+            threshold = float(np.mean(energy_arr) + 3.0 * np.std(energy_arr))
+            spikes: int = int(np.sum(energy_arr > threshold))
+            return float(spikes) / len(energy_arr)
         return 0.0
 
     def _click_analysis(self, audio: np.ndarray, sr: int) -> tuple[float, float]:
@@ -320,7 +321,8 @@ class DefectFeatureExtractor:
 
         # Modulation = std of envelope / mean of envelope
         if np.mean(envelope) > 1e-10:
-            return np.std(envelope) / np.mean(envelope)  # type: ignore[return-value]
+            modulation = float(np.std(envelope)) / float(np.mean(envelope))
+            return float(modulation)
         return 0.0
 
     def _calculate_thd(self, audio: np.ndarray, sr: int) -> float:
@@ -361,7 +363,7 @@ class DefectFeatureExtractor:
             return 0.0
 
         # Count samples near ±1.0 (clipping threshold)
-        clipped = np.sum(np.abs(audio_norm) > 0.98)
+        clipped: int = int(np.sum(np.abs(audio_norm) > 0.98))
         clipping_percent = (clipped / len(audio)) * 100
 
         return clipping_percent  # type: ignore[no-any-return]
@@ -428,7 +430,7 @@ class DefectFeatureExtractor:
         # Silence threshold: -60 dBFS
         threshold = 0.001  # ~-60dB
 
-        silent_samples = np.sum(np.abs(audio) < threshold)
+        silent_samples: int = int(np.sum(np.abs(audio) < threshold))
         silence_ratio = silent_samples / len(audio)
 
         return silence_ratio  # type: ignore[no-any-return]
@@ -439,22 +441,22 @@ class DefectFeatureExtractor:
         frame_length = 2048
         hop_length = 512
 
-        rms_values = []
+        rms_values: list[float] = []
         for i in range(0, len(audio) - frame_length, hop_length):
             frame = audio[i : i + frame_length]
-            rms = np.sqrt(np.mean(frame**2))
+            rms = float(np.sqrt(np.mean(frame**2)))
             rms_values.append(rms)
 
         if len(rms_values) < 2:
             return 0, 0.0
 
-        rms_values = np.array(rms_values)
+        rms_arr = np.asarray(rms_values, dtype=np.float64)
 
         # Detect sudden drops (>20dB)
-        rms_db = 20 * np.log10(rms_values + 1e-10)
+        rms_db = 20.0 * np.log10(rms_arr + 1e-10)
         drops = np.diff(rms_db) < -20  # 20dB drop
 
-        dropout_count = np.sum(drops)
+        dropout_count: int = int(np.sum(drops))
 
         # Amplitude discontinuities (max drop)
         max_discontinuity = np.abs(np.min(np.diff(rms_db))) if dropout_count > 0 else 0.0
@@ -480,7 +482,7 @@ class DefectFeatureExtractor:
 
         # Max transient in dB
         if transient_count > 0:
-            max_transient = np.max(envelope_smooth[peaks])
+            max_transient: float = float(np.max(envelope_smooth[peaks]))
             max_transient_db = 20 * np.log10(max_transient + 1e-10)
         else:
             max_transient_db = -100.0
@@ -544,16 +546,16 @@ class MLDefectDetector:
         self.feature_extractor = DefectFeatureExtractor()
 
         # Scaling
-        self.scalers = {}  # One scaler per defect type
+        self.scalers: dict[str, Any] = {}  # One scaler per defect type
 
         # Models (one set per defect type)
-        self.rf_models = {}  # Random Forest models
-        self.gb_models = {}  # Gradient Boosting models
+        self.rf_models: dict[str, Any] = {}  # Random Forest models
+        self.gb_models: dict[str, Any] = {}  # Gradient Boosting models
 
         # Training state
         self.is_trained = dict.fromkeys(self.DEFECT_TYPES, False)
-        self.training_metrics = {}
-        self.cv_recalls = {}
+        self.training_metrics: dict[str, Any] = {}
+        self.cv_recalls: dict[str, dict[str, float]] = {}
 
     def train(self, X: np.ndarray, y: dict[str, np.ndarray], cv_folds: int = 5, verbose: bool = True) -> dict[str, Any]:
         """
@@ -809,7 +811,7 @@ def train_ml_defect_detector_from_dataset(
     # Extract features
     feature_extractor = DefectFeatureExtractor()
     X_list = []
-    y_dict = {defect: [] for defect in MLDefectDetector.DEFECT_TYPES}
+    y_dict: dict[str, list[int]] = {defect: [] for defect in MLDefectDetector.DEFECT_TYPES}
 
     for audio, sr, defect_labels in dataset:
         base_features, defect_features = feature_extractor.extract_defect_features(audio, sr, verbose=False)

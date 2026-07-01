@@ -108,7 +108,7 @@ class DatasetGenerator:
                     samples.append(synthetic_sample)
 
         # 3. Statistiken
-        medium_distribution = {}
+        medium_distribution: dict[str, int] = {}
         for sample in samples:
             medium_name = sample.medium_type.name
             medium_distribution[medium_name] = medium_distribution.get(medium_name, 0) + 1
@@ -145,7 +145,7 @@ class DatasetGenerator:
                 samples.append(synthetic_sample)
 
         # Statistiken
-        era_distribution = {}
+        era_distribution: dict[str, int] = {}
         for sample in samples:
             era_name = sample.era_type.value
             era_distribution[era_name] = era_distribution.get(era_name, 0) + 1
@@ -156,7 +156,7 @@ class DatasetGenerator:
         """
         Lädt echte Golden Samples aus golden_samples/ Verzeichnis.
         """
-        samples = []
+        samples: list[SyntheticSample] = []
 
         if not self.golden_samples_dir.exists():
             logger.debug("⚠️  Golden samples directory not found: %s", self.golden_samples_dir)

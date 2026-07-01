@@ -432,7 +432,7 @@ class DefectQuantifier:
             harmonic_spread = 0.0
 
         # THD+N (simplified: use RMS of full spectrum minus fundamental)
-        signal_power = np.sum(magnitudes**2)
+        signal_power: float = float(np.sum(magnitudes**2))
         thd_plus_noise_percent = (
             float(np.sqrt((signal_power - fundamental_power) / signal_power) * 100) if signal_power > 0 else 0.0
         )
@@ -576,9 +576,9 @@ class DefectQuantifier:
             # Average FFT of burst regions
             magnitudes, freqs = _rfft_magnitude(audio_hp, self.sample_rate)
 
-            low_energy = np.sum(magnitudes[freqs < 2000])
-            mid_energy = np.sum(magnitudes[(freqs >= 2000) & (freqs < 8000)])
-            high_energy = np.sum(magnitudes[freqs >= 8000])
+            low_energy: float = float(np.sum(magnitudes[freqs < 2000]))
+            mid_energy: float = float(np.sum(magnitudes[(freqs >= 2000) & (freqs < 8000)]))
+            high_energy: float = float(np.sum(magnitudes[freqs >= 8000]))
             total = low_energy + mid_energy + high_energy
 
             if total > 0:
