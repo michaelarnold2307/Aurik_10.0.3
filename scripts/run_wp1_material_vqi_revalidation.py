@@ -177,8 +177,13 @@ def _execute_wp1_case(
 
     # §R5: era_decade + genre_label in CSV schreiben → worldclass_kpi_dashboard corpus_diversity.
     _era_decade = _nested_get(metadata, "era", "decade")
+    _era_label = _nested_get(metadata, "era", "era_label")
     if _era_decade is not None:
         out["era"] = str(int(_era_decade))
+    elif _era_label and str(_era_label).strip().lower() not in ("", "none"):
+        out["era"] = str(_era_label).strip()
+    else:
+        out["era"] = "unknown"
     _genre_label = _nested_get(metadata, "genre", "genre_label")
     if _genre_label and str(_genre_label).strip().lower() not in ("unbekannt", "unknown", ""):
         out["genre"] = str(_genre_label).strip()
