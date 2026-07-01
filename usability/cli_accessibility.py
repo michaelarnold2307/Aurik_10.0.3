@@ -45,8 +45,29 @@ try:
     HAS_COLORAMA = True
 except ImportError:
     HAS_COLORAMA = False
-    Fore = Back = Style = type("MockColorama", (), {"__getattr__": lambda *args: ""})()
 
+    # Fallback: direkte ANSI-Escape-Codes (Linux/macOS ohne colorama)
+    class _AnsiBase:
+        """Minimal ANSI-Fallback; gibt leere Strings auf NO_COLOR-Systemen zurück."""
+        CYAN = "\033[36m"
+        WHITE = "\033[37m"
+        GREEN = "\033[32m"
+        RED = "\033[31m"
+        YELLOW = "\033[33m"
+        BLUE = "\033[34m"
+
+    class _AnsiBack:
+        BLUE = "\033[44m"
+        WHITE = "\033[47m"
+
+    class _AnsiStyle:
+        BRIGHT = "\033[1m"
+        DIM = "\033[2m"
+        RESET_ALL = "\033[0m"
+
+    Fore = _AnsiBase()  # type: ignore[assignment]
+    Back = _AnsiBack()  # type: ignore[assignment]
+    Style = _AnsiStyle()  # type: ignore[assignment]
 
 @dataclass
 class CLITheme:
@@ -74,10 +95,6 @@ class CLITheme:
 
         # NO_COLOR / NO_AURIK_COLOR: immer plain (Accessibility-Standard)
         if no_color:
-            return cls.plain()
-
-        # Ohne Colorama keine Farben möglich
-        if not HAS_COLORAMA:
             return cls.plain()
 
         # AURIK_HIGH_CONTRAST hat höchste Priorität bei auto-Auswahl (Barrierefreiheit).
