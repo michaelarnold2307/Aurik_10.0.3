@@ -61,6 +61,7 @@ from backend.core.material_canonical import canonical_material_key
 try:
     from backend.core.clipping_detection import ClippingType as _ClippingType
     from backend.core.clipping_detection import classify_clipping as _classify_clipping
+    from backend.core.clipping_detection import detect_sub_ceiling_clipping as _detect_sub_ceiling_clipping  # V47
 
     _CLIPPING_DETECTION_AVAILABLE = True
 except ImportError:
@@ -4306,6 +4307,32 @@ class DefectScanner:
                 _clip_type = _classify_clipping(audio, self.sample_rate)
                 hard_flat_top_override = hard_clip_ratio >= 0.001
                 if _clip_type == _ClippingType.SOFT_SATURATION and not hard_flat_top_override:
+                    # V47: Sub-Ceiling-Clipping-Check — Loudness-War-Material geclippt bei ±0.85–0.97
+                    # fälschlich als SOFT_SATURATION klassifiziert → adjacent_ratio-Methode Pflicht
+                    _sub_ceil_detected, _sub_ceil_level = _detect_sub_ceiling_clipping(audio)
+                    if _sub_ceil_detected:
+                        # Sub-Ceiling-Clipping überschreibt SOFT_SATURATION-Klassifikation
+                        threshold_factor = float(self.thresholds.get(DefectType.CLIPPING, 0.5))
+                        # Severity proportional zum Abstand vom Ceiling (näher = schwerer)
+                        _sub_sev = min(1.0, max(0.1, (1.0 - _sub_ceil_level) * 3.0) / max(threshold_factor, 1e-6))
+                        logger.info(
+                            "§6.3 V47 Sub-Ceiling-Clip erkannt (level=%.3f, severity=%.3f) — "
+                            "SOFT_SATURATION überschrieben → CLIPPING",
+                            _sub_ceil_level,
+                            _sub_sev,
+                        )
+                        return DefectScore(
+                            defect_type=DefectType.CLIPPING,
+                            severity=_sub_sev,
+                            confidence=0.88,
+                            locations=[],
+                            metadata={
+                                "clipping_type": "SUB_CEILING",
+                                "sub_ceiling_level": _sub_ceil_level,
+                                "thd_discriminated": True,
+                                "hard_clip_ratio": hard_clip_ratio,
+                            },
+                        )
                     # Tube/tape character — preserve, do NOT repair
                     logger.debug("§6.3 _detect_clipping: SOFT_SATURATION erkannt (even-harmonic profile) — kein Repair")
                     return DefectScore(
