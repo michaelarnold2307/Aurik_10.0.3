@@ -2518,13 +2518,16 @@ class BatchProcessingThread(QThread):
 
                 def _canonical_defect_key(defect_key: str) -> str:
                     """Normalisiert UI-Alias-Keys, damit Chips nicht doppelt erscheinen."""
-                    return {
-                        "noise": "noise_level",
+                    _dropout_aliases = {
                         "dropouts": "dropout",
                         "gap": "dropout",
                         "gaps": "dropout",
                         "tape_dropout": "dropout",
-                    }.get(str(defect_key).strip().lower(), str(defect_key))
+                    }
+                    _defect_key = str(defect_key)
+                    if _defect_key in _dropout_aliases:
+                        return _dropout_aliases[_defect_key]
+                    return {"noise": "noise_level"}.get(str(defect_key), str(defect_key))
 
                 _DEFECT_STATUS_NAMES: dict[str, str] = {
                     "azimuth_error": "Azimuth-Fehler",
@@ -8937,6 +8940,20 @@ class DefectStoryWidget(QFrame):
         lay.addWidget(self._body)
         self._body.setText(t("ui.defect_placeholder"))
 
+    @staticmethod
+    def _canonical_defect_key(defect_key: str) -> str:
+        """Normalisiert UI-Alias-Keys, damit Live-Defekte nicht doppelt erscheinen."""
+        _dropout_aliases = {
+            "dropouts": "dropout",
+            "gap": "dropout",
+            "gaps": "dropout",
+            "tape_dropout": "dropout",
+        }
+        _defect_key = str(defect_key)
+        if _defect_key in _dropout_aliases:
+            return _dropout_aliases[_defect_key]
+        return {"noise": "noise_level"}.get(_defect_key, _defect_key)
+
     def _normalize(self, key: str, raw: float) -> float:
         max_v = self._NORMALIZE_MAX.get(key, 100.0)
         if max_v <= 0.0:
@@ -9043,7 +9060,7 @@ class DefectStoryWidget(QFrame):
             _live_phase_id = str(_thread_state.get("phase_id", "") or "").strip().lower()
         _real_repair_phase = status == "correcting" and _live_phase_id.startswith("phase_")
         _active_defects_set: set[str] = (
-            {{"noise": "noise_level"}.get(str(k), str(k)) for k in (defects.get("_active_defects") or [])}
+            {self._canonical_defect_key(str(k)) for k in (defects.get("_active_defects") or [])}
             if _real_repair_phase
             else set()
         )
@@ -9064,14 +9081,18 @@ class DefectStoryWidget(QFrame):
             sev = self._normalize(key, float(raw))
             sev_f = sev * 100.0  # 0.00–100.00, 2-decimal precision
             impact = self._impact_score(key, sev)
-            if sev_f >= 0.01:
+            if sev_f >= 0.01 or bool(_active_defects_set):
                 n_active += 1
 
             title, what, why = self._DEFECT_META.get(key, (key, "Signalabweichung", "wahrnehmbare Klangabweichung"))
             where_txt = self._where_text(key, loc_map, ch_map)
             method_txt = self._METHODS.get(key, "adaptive Schadensbehandlung")
             prio = self._PRIORITY.get(key, "P5")
-            _is_active_now = key in _active_defects_set and status == "correcting" and sev_f >= 0.01
+            _is_active_now = key in _active_defects_set and status == "correcting"
+            if _is_active_now:
+                _active_level = 0.02
+                sev = max(sev, _active_level)
+                sev_f = max(sev_f, _active_level * 100.0)
             if _is_active_now:
                 method_txt = f"🔧 wird behoben · {method_txt}"
             elif active_tool and status == "correcting" and sev_f >= 0.01:
@@ -9137,6 +9158,11 @@ class DefectStoryWidget(QFrame):
 
         # Active defects float to the top inside the correcting phase.
         if status == "correcting" and _active_defects_set:
+            _active_keys: set[str] = set()
+            for _ak in sorted(_active_defects_set):
+                _canon = self._canonical_defect_key(_ak)
+                if _canon not in _active_keys:
+                    _active_keys.add(_canon)
             entries.sort(
                 key=lambda e: (
                     not e.get("is_active"),  # active entries first
@@ -12100,11 +12126,13 @@ class ModernMainWindow(QMainWindow):
         self.defect_summary_label.setWordWrap(True)
         self.defect_summary_label.setMinimumHeight(0)
         self.defect_summary_label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
-        self.defect_summary_label.setStyleSheet("""
+        self.defect_summary_label.setStyleSheet(
+            _sanitize_qss_colors("""
             color: #B0C4DE; font-size: 8pt; padding: 7px 9px;
             background: qlineargradient(x1:0,y1:0,x2:1,y2:0,stop:0 rgba(84,120,196,0.14),stop:1 rgba(102,126,234,0.10));
             border-radius: 10px; border: 1px solid rgba(118, 146, 214, 0.35);
         """)
+        )
         self._set_info_card_state(self.defect_summary_label, "neutral", animate=False)
 
         self.defect_summary_scroll = QScrollArea()
@@ -12219,14 +12247,18 @@ class ModernMainWindow(QMainWindow):
         self.quality_score_label = QLabel("—")
         self.quality_score_label.setWordWrap(True)
         self.quality_score_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.quality_score_label.setStyleSheet("color: #8894A8; font-size: 8pt; padding: 4px; background: transparent;")
+        self.quality_score_label.setStyleSheet(
+            _sanitize_qss_colors("color: #8894A8; font-size: 8pt; padding: 4px; background: transparent;")
+        )
         qi.addWidget(self.quality_score_label)
 
         self.info_banner = QLabel("")
         self.info_banner.setWordWrap(True)
         self.info_banner.setVisible(False)
         self.info_banner.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
-        self.info_banner.setStyleSheet("color: #B0BEC5; font-size: 8pt; padding: 8px; background: transparent;")
+        self.info_banner.setStyleSheet(
+            _sanitize_qss_colors("color: #B0BEC5; font-size: 8pt; padding: 8px; background: transparent;")
+        )
         self.info_banner.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         qi.addWidget(self.info_banner)
 

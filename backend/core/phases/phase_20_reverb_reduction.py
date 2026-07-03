@@ -75,6 +75,7 @@ from scipy.signal import lfilter as _lfilter_p20  # vectorised IIR smoothing
 from backend.core.audio_utils import compute_gated_rms_linear as _gated_rms_20
 from backend.core.audio_utils import to_channels_last
 from backend.core.defect_scanner import MaterialType
+from backend.core.restoration_policy import get_effective_song_goal_weights
 
 from .phase_interface import PhaseCategory, PhaseInterface, PhaseMetadata, PhaseResult
 
@@ -219,7 +220,7 @@ class ReverbReduction(PhaseInterface):
         §4.5c base guard semantics intact.
         Returns: (c80_down_limit_db, c80_soft_limit_db, c80_hard_limit_db, d50_limit)
         """
-        _gw = kwargs.get("song_goal_weights")
+        _gw = get_effective_song_goal_weights(kwargs)
         _w_nat = 1.0
         _w_auth = 1.0
         _w_timbre = 1.0
@@ -1091,10 +1092,14 @@ class ReverbReduction(PhaseInterface):
                 from backend.core.dsp.mikrodynamik_guard import (  # pylint: disable=import-outside-toplevel
                     frame_energy_correlation as _fec20,
                 )
+                from backend.core.dsp.mikrodynamik_guard import (
+                    recommend_mikrodynamik_wet as _recommend_mkk_wet,
+                )
 
                 _corr20 = _fec20(audio, reduced, sample_rate, frame_ms=10.0)
                 if _corr20 < 0.97:
-                    _wet20 = min(1.0, (_corr20 - 0.90) / 0.07) if _corr20 > 0.90 else 0.0
+                    _need20 = float(kwargs.get("mikrodynamik_global_need", kwargs.get("global_need", 0.0)) or 0.0)
+                    _wet20 = _recommend_mkk_wet(_corr20, _p20_panns, global_need=_need20)
                     reduced = (_wet20 * reduced + (1.0 - _wet20) * audio).astype(np.float32)
                     logger.warning(
                         "Phase20 V20 Mikrodynamik-Korr=%.3f < 0.97 → wet=%.3f Blend",

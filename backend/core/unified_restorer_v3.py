@@ -49,6 +49,12 @@ from backend.core.musical_goals.adaptive_goal_resolver import (
 from backend.core.performance_guard import DeploymentMode, PerformanceGuard, QualityMode
 from backend.core.phase_skipping import PhaseSkipper
 from backend.core.phases.phase_interface import PhaseInterface
+from backend.core.restoration_policy import (
+    blend_denker_policy_goal_weights,
+    get_effective_song_goal_weights,
+    get_human_hearing_comfort_profile,
+    synthesize_human_hearing_comfort_profile,
+)
 
 if TYPE_CHECKING:
     from backend.core.recovery_checkpoint import RecoveryCheckpoint
@@ -6950,6 +6956,9 @@ class UnifiedRestorerV3:
         # Per-Run Metadata zurücksetzen, damit keine Stale-Einträge aus Vorläufen
         # in Guard-/Export-Entscheidungen einfließen.
         self._metadata = {}
+        _denker_policy_input = kwargs.get("denker_policy_input")
+        if not isinstance(_denker_policy_input, dict):
+            _denker_policy_input = {}
 
         def _cb(pct: int, phase: str) -> None:
             """Sendet Progress-Update, falls Callback registriert."""
@@ -8109,6 +8118,7 @@ class UnifiedRestorerV3:
             # PANNs-Singing under-detects choir or heavily degraded vocals.
             "vocal_material_prior": _vocal_material_prior,
             "multi_singer_prior": _multi_singer_prior,
+            "denker_policy_input": dict(_denker_policy_input),
         }
         # §EraVocalProfile [RELEASE_MUST]: era-adaptierte Vokalprofile für VQI-Kalibrierung —
         # historisches Material (era_decade < 1960) benötigt andere Formant-Toleranzen, sonst
@@ -10049,6 +10059,93 @@ class UnifiedRestorerV3:
                 pipeline_confidence=_pipeline_confidence,
                 restorability_score=_pmgg_restorability_score,
             )
+
+        # §Preflight-Risk-Guard: problematische Phasen bereits vor der Ausführung
+        # entschärfen statt ihre Artefakte nachträglich zu kompensieren.
+        # Ziel: phase_07 (Echo/Novelty), phase_40 (Loudness-Jumps) und phase_50
+        # (Regression/Quiet-Zone-Instabilität) nur dann zulassen, wenn die
+        # Material-/Vokal-/Defektlage sie wirklich trägt.
+        try:
+            _rctx_prerisk = getattr(self, "_restoration_context", None)
+            if isinstance(_rctx_prerisk, dict):
+                _panns_prerisk = float(_rctx_prerisk.get("panns_singing", getattr(self, "_panns_singing", 0.0)) or 0.0)
+                _vocal_heavy = _panns_prerisk >= 0.25
+                _mat_key_prerisk = str(getattr(material_type, "value", material_type) or "unknown").strip().lower()
+                _analog_like = _mat_key_prerisk in {
+                    "cassette",
+                    "tape",
+                    "reel_tape",
+                    "vinyl",
+                    "shellac",
+                    "lacquer_disc",
+                    "wax_cylinder",
+                    "wire_recording",
+                }
+                _sel_set_prerisk = set(selected_phases)
+                _removed_risk_phases: list[str] = []
+
+                def _focus_score(*needle_parts: str) -> float:
+                    _focus = _rctx_prerisk.get("defect_focus_scores", {})
+                    if not isinstance(_focus, dict):
+                        return 0.0
+                    _vals: list[float] = []
+                    for _k, _v in _focus.items():
+                        try:
+                            _k_s = str(_k).lower()
+                            if any(_n in _k_s for _n in needle_parts):
+                                _vals.append(float(_v))
+                        except Exception:
+                            continue
+                    return float(max(_vals)) if _vals else 0.0
+
+                _aliasing = _focus_score("alias")
+                _pre_echo = _focus_score("pre_echo")
+                _compression = _focus_score("compression")
+                _spectral = _focus_score("spectral")
+                _hard_spectral_need = max(_aliasing, _pre_echo, _compression, _spectral)
+
+                if not self.is_studio_mode() and _analog_like and _vocal_heavy:
+                    # Harmonik-Restoration erzeugt in vocal-heavy cassette/tape-Runs
+                    # häufig Echo-/Novelty-Artefakte. Lieber die vorhandenen BW-/EQ-
+                    # Phasen nutzen als spektral künstliche Obertöne injizieren.
+                    if "phase_07_harmonic_restoration" in _sel_set_prerisk:
+                        _sel_set_prerisk.remove("phase_07_harmonic_restoration")
+                        _removed_risk_phases.append("phase_07_harmonic_restoration")
+
+                    # Loudness-Normalisierung wird im Export-/Limiter-Endschritt sicherer
+                    # behandelt; im Restaurierungsstrang erzeugt sie bei vocal-heavy
+                    # Analogmaterial unnötige Jump-Artefakte.
+                    if "phase_40_loudness_normalization" in _sel_set_prerisk:
+                        _sel_set_prerisk.remove("phase_40_loudness_normalization")
+                        _removed_risk_phases.append("phase_40_loudness_normalization")
+
+                    # Zweiter spektraler Pass ist auf vocal-heavy Analogmaterial in
+                    # Restoration zu riskant; dort bevorzugen wir die bereits
+                    # vorhandenen passiven/spektral konservativen Phasen.
+                    if "phase_50_spectral_repair" in _sel_set_prerisk:
+                        _sel_set_prerisk.remove("phase_50_spectral_repair")
+                        _removed_risk_phases.append("phase_50_spectral_repair")
+
+                if _removed_risk_phases:
+                    selected_phases = [p for p in selected_phases if p in _sel_set_prerisk]
+                    logger.info(
+                        "Preflight-Risk-Guard: %d Phase(n) entschärft (panns=%.2f material=%s evidence=%.2f): %s",
+                        len(_removed_risk_phases),
+                        _panns_prerisk,
+                        _mat_key_prerisk,
+                        _hard_spectral_need,
+                        _removed_risk_phases,
+                    )
+                    if isinstance(getattr(self, "_phase_metadata_accumulator", None), dict):
+                        self._phase_metadata_accumulator["preflight_risk_guard"] = {
+                            "panns_singing": round(_panns_prerisk, 3),
+                            "material": _mat_key_prerisk,
+                            "removed_phases": list(_removed_risk_phases),
+                            "spectral_evidence": round(_hard_spectral_need, 3),
+                        }
+        except Exception as _prerisk_exc:
+            logger.debug("Preflight-Risk-Guard non-blocking: %s", _prerisk_exc)
+
         logger.info("Selected %s phases based on defects", len(selected_phases))
         _runtime_never_skip_phases: list[str] = list(getattr(self, "_last_material_priority_phases", ()) or ())
 
@@ -13639,6 +13736,80 @@ class UnifiedRestorerV3:
         except Exception as _gpp_exc:
             logger.debug("GoalPriorityProtocol nicht verfügbar: %s", _gpp_exc)
 
+        # §V20 globaler Bedarf: songweite Mikrodynamik-Priorität aus Goal-Gaps ableiten.
+        _mikro_global_need = 0.0
+        _policy_gap = 0.0
+        _policy_violations = 0
+        _policy_profile: dict[str, Any] = {}
+        try:
+            _goal_keys = set(_musical_goal_scores.keys()) if _musical_goal_scores else set()
+            if _goal_keys and _effective_goal_thresholds:
+                _gw = blend_denker_policy_goal_weights(getattr(self, "_song_goal_weights", None), _denker_policy_input)
+                _policy_gap, _policy_violations = _compute_weighted_goal_gap(
+                    _musical_goal_scores,
+                    _effective_goal_thresholds,
+                    _goal_keys,
+                    _gw,
+                )
+                _goal_gap_norm = float(np.clip(_policy_gap / max(len(_goal_keys) * 0.15, 0.15), 0.0, 1.0))
+                _mikro_global_need = float(
+                    np.clip(
+                        0.35 * _goal_gap_norm + 0.65 * (_policy_violations / max(len(_goal_keys), 1)),
+                        0.0,
+                        1.0,
+                    )
+                )
+                _intervention_budget = float(
+                    np.clip(
+                        float((dict(_denker_policy_input.get("strategy", {}) or {})).get("intervention_budget", 0.5)),
+                        0.0,
+                        1.0,
+                    )
+                )
+                _comfort_profile = synthesize_human_hearing_comfort_profile(
+                    _denker_policy_input,
+                    mode="studio2026" if self.is_studio_mode() else "restoration",
+                    intervention_budget=_intervention_budget,
+                )
+                _policy_profile = {
+                    "goal_gap": float(_policy_gap),
+                    "goal_violations": int(_policy_violations),
+                    "goal_gap_norm": float(_goal_gap_norm),
+                    "mikrodynamik_global_need": float(_mikro_global_need),
+                    "goal_thresholds": {k: float(v) for k, v in _effective_goal_thresholds.items()},
+                    "goal_scores": {k: float(v) for k, v in _musical_goal_scores.items()},
+                    "goal_weights": {k: float(v) for k, v in (_gw or {}).items()} if isinstance(_gw, dict) else {},
+                    "denker_policy_input": dict(_denker_policy_input),
+                    "intervention_budget": float(_intervention_budget),
+                    "human_hearing_risk_map": dict(
+                        (dict(_denker_policy_input.get("strategy", {}) or {})).get("human_hearing_risk_map", {}) or {}
+                    ),
+                    "human_hearing_comfort_profile": dict(_comfort_profile),
+                    "repair_risk_profile": dict(_denker_policy_input.get("repair_risk_profile", {}) or {}),
+                    "reconstruction_risk_profile": dict(
+                        _denker_policy_input.get("reconstruction_risk_profile", {}) or {}
+                    ),
+                    "hard_veto": bool(
+                        getattr(self, "_restoration_context", {})
+                        .get("quality_gate_registry", {})
+                        .get("hard_veto", False)
+                    ),
+                    "mode": "studio2026" if self.is_studio_mode() else "restoration",
+                }
+        except Exception as _mikro_need_exc:
+            logger.debug("§V20 globaler Mikrodynamik-Bedarf non-blocking: %s", _mikro_need_exc)
+
+        if isinstance(getattr(self, "_restoration_context", None), dict):
+            self._restoration_context["mikrodynamik_global_need"] = _mikro_global_need
+            if _policy_profile:
+                self._restoration_context["restoration_policy_profile"] = dict(_policy_profile)
+                if isinstance(_policy_profile.get("goal_weights"), dict) and _policy_profile["goal_weights"]:
+                    self._song_goal_weights = dict(_policy_profile["goal_weights"])
+        if isinstance(getattr(self, "_phase_metadata_accumulator", None), dict):
+            self._phase_metadata_accumulator["mikrodynamik_global_need"] = _mikro_global_need
+            if _policy_profile:
+                self._phase_metadata_accumulator["restoration_policy_profile"] = dict(_policy_profile)
+
         # §8.2 EmotionalArcPreservationMetric — Emotionaler Dynamik-Bogen-Erhalt (Punkt 12)
         # §2.31d: < 10 s → EmotionalArcPreservation deaktivieren (kein repr. Arousal/Valence-Verlauf)
         _arc_result = None
@@ -14511,6 +14682,41 @@ class UnifiedRestorerV3:
                 )
             except Exception as _rcb_exc:
                 logger.debug("§2.36 reconstruct_consonant_bursts non-blocking: %s", _rcb_exc)
+
+        # Finaler Hoerkomfort-Guard: verhindert exportnahe Aurik-eigene Peak-Spitzen
+        # und korrigiert kleine HF-Verluste ohne Referenzmaterial zu kopieren.
+        hhc_policy: dict[str, float] = {}
+        try:
+            if isinstance(restored_audio, np.ndarray) and restored_audio.shape == original_audio_for_goals.shape:
+                from backend.core.dsp.human_hearing_comfort_guard import apply_human_hearing_comfort_guard
+
+                hhc_policy = get_human_hearing_comfort_profile(
+                    (getattr(self, "_restoration_context", None) or {}).get("restoration_policy_profile")
+                )
+                hhc_peak_cap_db = float(hhc_policy.get("peak_overshoot_cap_db", 3.0))
+                hhc_hf_loss_db = float(hhc_policy.get("hf_loss_tolerance_db", 0.75))
+                hhc_hf_lift_db = float(hhc_policy.get("hf_lift_cap_db", 1.2))
+                _hhc_result = apply_human_hearing_comfort_guard(
+                    original_audio_for_goals,
+                    restored_audio,
+                    sample_rate,
+                    max_peak_overshoot_db=hhc_peak_cap_db,
+                    max_hf_loss_db=hhc_hf_loss_db,
+                    max_hf_lift_db=hhc_hf_lift_db,
+                )
+                restored_audio = _hhc_result.audio
+                if isinstance(getattr(self, "_phase_metadata_accumulator", None), dict):
+                    self._phase_metadata_accumulator["human_hearing_comfort_guard"] = {
+                        "applied": bool(_hhc_result.applied),
+                        "policy": dict(hhc_policy),
+                        "peak_overshoot_frames": int(_hhc_result.peak_overshoot_frames),
+                        "max_peak_overshoot_db": float(_hhc_result.max_peak_overshoot_db),
+                        "hf_loss_db_before": float(_hhc_result.hf_loss_db_before),
+                        "hf_loss_db_after": float(_hhc_result.hf_loss_db_after),
+                        "hf_lift_db": float(_hhc_result.hf_lift_db),
+                    }
+        except Exception as _hhc_exc:
+            logger.debug("HumanHearingComfortGuard non-blocking: %s", _hhc_exc)
 
         # --- GP-Lernzyklus: update() NACH MDEM — Spec §2.5 (normativ: letzter Schritt) ---
         # Score basiert auf PQS + Musical Goals vor MDEM (korrekt: MDEM ist Hüllkurven-Morphing,
@@ -23860,6 +24066,7 @@ class UnifiedRestorerV3:
             "panns_tags": _rctx.get("panns_tags") or {},
             "transfer_chain": _rctx.get("transfer_chain", []),
             "defect_event_metadata": _rctx.get("defect_event_metadata", {}),
+            "mikrodynamik_global_need": float(_rctx.get("mikrodynamik_global_need", 0.0) or 0.0),
         }
 
     def _runtime_phase_parameter_kwargs(self, phase_id: str) -> dict[str, Any]:
@@ -24978,9 +25185,16 @@ class UnifiedRestorerV3:
         if isinstance(song_calibration, dict) and song_calibration:
             kwargs.setdefault("song_calibration_profile", dict(song_calibration))
 
-        song_goal_weights = getattr(self, "_song_goal_weights", None)
-        if isinstance(song_goal_weights, dict) and song_goal_weights:
-            kwargs.setdefault("song_goal_weights", dict(song_goal_weights))
+        restoration_policy_profile = getattr(self, "_restoration_context", {}).get("restoration_policy_profile", None)
+        if isinstance(restoration_policy_profile, dict) and restoration_policy_profile:
+            _policy_goal_weights = restoration_policy_profile.get("goal_weights")
+            if isinstance(_policy_goal_weights, dict) and _policy_goal_weights:
+                kwargs.setdefault("song_goal_weights", dict(_policy_goal_weights))
+            kwargs.setdefault("restoration_policy_profile", dict(restoration_policy_profile))
+
+        _effective_song_goal_weights = get_effective_song_goal_weights(kwargs)
+        if isinstance(_effective_song_goal_weights, dict) and _effective_song_goal_weights:
+            kwargs["song_goal_weights"] = dict(_effective_song_goal_weights)
 
         rest_ctx = getattr(self, "_last_restorability_score", None)
         if isinstance(rest_ctx, (int, float)):
@@ -24992,7 +25206,7 @@ class UnifiedRestorerV3:
             strength_explicit,
             team_context_enabled,
             song_calibration,
-            song_goal_weights,
+            _effective_song_goal_weights,
             rest_ctx,
         )
 
@@ -25535,9 +25749,7 @@ class UnifiedRestorerV3:
             _phase_family = self._PHASE_INTERVENTION_CLASS.get(phase_metadata.phase_id, "general")
             _mat_ctx = kwargs.get("material_type") or kwargs.get("material")
             _mat_ctx_s = getattr(_mat_ctx, "value", _mat_ctx)
-            _goal_weights_ctx = (
-                song_goal_weights if isinstance(song_goal_weights, dict) else kwargs.get("song_goal_weights")
-            )
+            _goal_weights_ctx = get_effective_song_goal_weights(kwargs)
 
             # §UQ-Drive [RELEASE_MUST]: Bei unsicherer Defektlage müssen Eingriffe
             # konservativer werden (ohne Phasen zu eliminieren). Additive Familien
@@ -25952,9 +26164,7 @@ class UnifiedRestorerV3:
                     phase_family=self._PHASE_INTERVENTION_CLASS.get(phase_metadata.phase_id, "general"),
                     current_strength=float(kwargs.get("strength", 1.0) or 1.0),
                     goal_gaps=_goal_gaps_orc,
-                    goal_weights=(
-                        song_goal_weights if isinstance(song_goal_weights, dict) else kwargs.get("song_goal_weights")
-                    ),
+                    goal_weights=get_effective_song_goal_weights(kwargs),
                     defect_scores=kwargs.get("defect_scores"),
                     locality_factor=float(kwargs.get("phase_locality_factor", 1.0) or 1.0),
                     restorability_score=float(rest_ctx if isinstance(rest_ctx, (int, float)) else 50.0),
@@ -26423,7 +26633,7 @@ class UnifiedRestorerV3:
                     base_kwargs=dict(kwargs),
                     oracle_strength=_probe_oracle_s,
                     goal_gaps=_probe_goal_gaps,
-                    goal_weights=kwargs.get("song_goal_weights") or None,
+                    goal_weights=get_effective_song_goal_weights(kwargs),
                     material_key=_probe_mat,
                 )
 
@@ -27222,7 +27432,7 @@ class UnifiedRestorerV3:
                                 "phase_35_multiband_compression",
                             }
                         ),
-                        goal_weights=kwargs.get("song_goal_weights") or getattr(self, "_song_goal_weights", None),
+                        goal_weights=get_effective_song_goal_weights(kwargs),
                         restorability_score=kwargs.get(
                             "restorability_score",
                             getattr(self, "_last_restorability_score", None),
@@ -27464,35 +27674,67 @@ class UnifiedRestorerV3:
                     _v20_panns = float(kwargs.get("panns_singing", kwargs.get("panns_singing_confidence", 0.0)) or 0.0)
                     if _v20_panns >= 0.25:
                         from backend.core.dsp.mikrodynamik_guard import frame_energy_correlation as _mkk_corr
+                        from backend.core.dsp.mikrodynamik_guard import recommend_mikrodynamik_wet as _mkk_recommend_wet
 
                         _mkk_corr_val = _mkk_corr(audio, result.audio, _sr_guards, frame_ms=10.0)
-                        # Strengeres Vocal-Profil: bei deutlich erkannter Stimme aggressiver
-                        # auf Dry zurückblenden, um "klinischen" Klang zu verhindern.
+                        _mkk_need = 0.5
+                        try:
+                            _gw = get_effective_song_goal_weights(kwargs)
+                            _mkk_rctx = getattr(self, "_restoration_context", {})
+                            _mkk_policy = {}
+                            if isinstance(_mkk_rctx, dict):
+                                _mkk_policy_raw = _mkk_rctx.get("restoration_policy_profile")
+                                _mkk_policy = _mkk_policy_raw if isinstance(_mkk_policy_raw, dict) else {}
+                            _mkk_scores_raw = _mkk_policy.get("goal_scores") if _mkk_policy else None
+                            _mkk_thresholds_raw = _mkk_policy.get("goal_thresholds") if _mkk_policy else None
+                            _mkk_scores = _mkk_scores_raw if isinstance(_mkk_scores_raw, dict) else {}
+                            _mkk_thresholds = _mkk_thresholds_raw if isinstance(_mkk_thresholds_raw, dict) else {}
+                            _applicable_goals = set(_mkk_scores.keys()) if _mkk_scores else set()
+                            if _mkk_scores and _mkk_thresholds and _applicable_goals:
+                                _mkk_gap, _mkk_violations = _compute_weighted_goal_gap(
+                                    _mkk_scores,
+                                    _mkk_thresholds,
+                                    _applicable_goals,
+                                    _gw,
+                                )
+                                _mkk_gap_norm = float(
+                                    np.clip(
+                                        _mkk_gap / max(len(_applicable_goals) * 0.15, 0.15),
+                                        0.0,
+                                        1.0,
+                                    )
+                                )
+                                _mkk_need = float(
+                                    np.clip(
+                                        0.35 * _mkk_gap_norm
+                                        + 0.65 * (_mkk_violations / max(len(_applicable_goals), 1)),
+                                        0.0,
+                                        1.0,
+                                    )
+                                )
+                        except Exception as _mkk_need_exc:
+                            logger.debug("§V20 MKK Bedarfsermittlung non-blocking: %s", _mkk_need_exc)
+
                         _mkk_target_corr = 0.985 if _v20_panns >= 0.35 else 0.97
                         _mkk_floor_corr = 0.93 if _v20_panns >= 0.35 else 0.90
                         if _mkk_corr_val < _mkk_target_corr:
-                            _mkk_wet = float(
-                                np.clip(
-                                    (_mkk_corr_val - _mkk_floor_corr) / max(_mkk_target_corr - _mkk_floor_corr, 1e-6),
-                                    0.0,
-                                    1.0,
-                                )
-                            )
+                            _mkk_wet = _mkk_recommend_wet(_mkk_corr_val, _v20_panns, global_need=_mkk_need)
                             result.audio = np.clip(
                                 (_mkk_wet * result.audio + (1.0 - _mkk_wet) * audio).astype(np.float32),
                                 -1.0,
                                 1.0,
                             )
                             logger.info(
-                                "§V20 MKK: %s corr=%.3f < %.3f auf Voiced-Frames → wet=%.2f",
+                                "§V20 MKK: %s corr=%.3f need=%.2f auf Voiced-Frames → wet=%.2f",
                                 _pid_guards,
                                 _mkk_corr_val,
-                                _mkk_target_corr,
+                                _mkk_need,
                                 _mkk_wet,
                             )
                         if hasattr(result, "metadata") and isinstance(result.metadata, dict):
                             result.metadata["mikrodynamik_correlation"] = round(float(_mkk_corr_val), 4)
-                            result.metadata["mikrodynamik_target_corr"] = round(float(_mkk_target_corr), 4)
+                            result.metadata["mikrodynamik_floor_corr"] = round(float(_mkk_floor_corr), 4)
+                            result.metadata["mikrodynamik_global_need"] = round(float(_mkk_need), 4)
                         _update_vocal_quality_metrics(micro_dynamic_correlation=_mkk_corr_val)
                 except Exception as _v20_exc:
                     logger.debug("§V20 MKK non-blocking: %s", _v20_exc)
@@ -28075,6 +28317,73 @@ class UnifiedRestorerV3:
                 _needs_tc_rescue = (
                     _tc_gain > 12.0 or (_tc_result.critical and _tc_gain > 3.0) or (_tc_var > 2.5 and _tc_gain > 2.5)
                 )
+                # If temporal continuity failed but the phase strength was not explicitly
+                # requested by the caller, attempt a conservative in-pipeline mitigation:
+                # reduce phase strength by 50% and re-run the phase once. This is a
+                # preventive measure to avoid post-hoc repairing and to keep the
+                # restoration decision inside Aurik's closed-loop controller.
+                try:
+                    if (
+                        not _tc_result.ok
+                        and not _strength_explicit
+                        and isinstance(kwargs.get("strength"), (int, float))
+                        and not _needs_tc_rescue
+                    ):
+                        _orig_strength = float(kwargs.get("strength", 0.0) or 0.0)
+                        _reduced_strength = float(np.clip(_orig_strength * 0.5, 0.05, 1.0))
+                        if _reduced_strength < _orig_strength:
+                            logger.info(
+                                "TemporalContinuityGuard: attempting conservative re-run of %s with reduced strength %.3f→%.3f",
+                                phase_metadata.phase_id,
+                                _orig_strength,
+                                _reduced_strength,
+                            )
+                            _re_kwargs = dict(kwargs)
+                            _re_kwargs["strength"] = _reduced_strength
+                            try:
+                                _re_result = phase.process(audio, **_re_kwargs)
+                                _re_post = getattr(
+                                    _re_result, "audio", _re_result if isinstance(_re_result, np.ndarray) else None
+                                )
+                                if isinstance(_re_post, np.ndarray) and _re_post.shape == audio.shape:
+                                    _re_tc = _tc_check(
+                                        pre=audio,
+                                        post=_re_post,
+                                        phase_id=phase_metadata.phase_id,
+                                        sr=int(kwargs.get("sample_rate", 48000) or 48000),
+                                    )
+                                    # Accept re-run if it reduces the variance_ratio or gain_step
+                                    if (_re_tc.variance_ratio < _tc_result.variance_ratio) or (
+                                        _re_tc.gain_step_db < _tc_result.gain_step_db
+                                    ):
+                                        result = _re_result
+                                        _tc_result = _re_tc
+                                        _tc_audio_post = _re_post
+                                        logger.info(
+                                            "TemporalContinuityGuard: re-run improved continuity for %s (var %.2f→%.2f, gain %.2f→%.2f)",
+                                            phase_metadata.phase_id,
+                                            float(_tc_var),
+                                            float(_re_tc.variance_ratio),
+                                            float(_tc_gain),
+                                            float(_re_tc.gain_step_db),
+                                        )
+                                        _tc_meta = getattr(self, "_phase_metadata_accumulator", None)
+                                        if isinstance(_tc_meta, dict):
+                                            _tc_meta.setdefault("temporal_continuity_rerun", {})[
+                                                phase_metadata.phase_id
+                                            ] = {
+                                                "applied": True,
+                                                "orig_strength": round(_orig_strength, 3),
+                                                "reduced_strength": round(_reduced_strength, 3),
+                                                "var_before": round(_tc_result.variance_ratio, 3),
+                                                "var_after": round(float(_re_tc.variance_ratio), 3),
+                                                "gain_before": round(_tc_result.gain_step_db, 3),
+                                                "gain_after": round(float(_re_tc.gain_step_db), 3),
+                                            }
+                            except Exception as _re_exc:
+                                logger.debug("TemporalContinuityGuard re-run failed (non-blocking): %s", _re_exc)
+                except Exception:
+                    logger.debug("TemporalContinuityGuard re-run wrapper failed (non-blocking)", exc_info=True)
                 if _needs_tc_rescue:
                     _excess = max(0.0, _tc_gain - 3.0)
                     _tc_rescue_wet = float(np.clip(1.0 - (_excess / 36.0), 0.10, 0.55))
@@ -31567,9 +31876,26 @@ class UnifiedRestorerV3:
                                         "pre_echo_events": list(
                                             getattr(self, "_restoration_context", {}).get("pre_echo_events") or []
                                         ),
-                                        "song_goal_weights": getattr(
-                                            self, "_song_goal_weights", None
-                                        ),  # §2.56 phase-local adaptive guards (phase_20/49/55)
+                                        "song_goal_weights": (
+                                            dict(
+                                                (
+                                                    (getattr(self, "_restoration_context", {}) or {}).get(
+                                                        "restoration_policy_profile", {}
+                                                    )
+                                                    or {}
+                                                ).get("goal_weights", {})
+                                            )
+                                            if isinstance(
+                                                (
+                                                    (getattr(self, "_restoration_context", {}) or {}).get(
+                                                        "restoration_policy_profile", {}
+                                                    )
+                                                    or {}
+                                                ).get("goal_weights", {}),
+                                                dict,
+                                            )
+                                            else getattr(self, "_song_goal_weights", None)
+                                        ),  # §2.56 zentral aus restoration_policy_profile abgeleitet
                                         "retry_budget_hint": self._pmgg_retry_budget_hint(
                                             phase_id,
                                             material_key=_mat_key_budget,

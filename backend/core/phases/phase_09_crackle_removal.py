@@ -85,6 +85,7 @@ from backend.core.audio_utils import compute_signal_relative_gate_dbfs as _sig_g
 from backend.core.audio_utils import to_channels_last
 from backend.core.ml_memory_budget import release as _ml_release
 from backend.core.ml_memory_budget import try_allocate as _try_allocate
+from backend.core.restoration_policy import get_effective_song_goal_weights
 
 from .phase_interface import PhaseCategory, PhaseInterface, PhaseMetadata, PhaseResult, create_phase_result
 
@@ -333,7 +334,7 @@ class CrackleRemovalPhase(PhaseInterface):
     @staticmethod
     def _goal_hint_strength_scalar(kwargs: dict[str, object]) -> float:
         """Berechnet a bounded advisory scalar from song goal weights (§2.56a)."""
-        goal_weights = kwargs.get("song_goal_weights")
+        goal_weights = get_effective_song_goal_weights(kwargs)
         if not isinstance(goal_weights, dict):
             return 1.0
 

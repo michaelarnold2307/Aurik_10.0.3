@@ -57,6 +57,8 @@ exports/
 logs/
 *.log
 *.ndjson
+*.export_metrics.json
+*.repair_report.json
 nohup.out
 
 # ── AMRB-Benchmark-Ergebnisse (Laufzeit-Artefakte) ───────────────────────────

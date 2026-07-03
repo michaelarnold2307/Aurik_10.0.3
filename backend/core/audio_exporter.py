@@ -492,6 +492,11 @@ class AudioExporter:
                 self._write_metadata(output_path, metadata)
 
             self.last_export_path = output_path
+            # Write export metrics sidecar (LUFS, TruePeak, LRA, sizes)
+            try:
+                self._write_export_metrics(output_path, audio, audio_export, sr, metadata)
+            except Exception as _metrics_exc:
+                logger.debug("Export-Metriken schreiben fehlgeschlagen (non-blocking): %s", _metrics_exc)
             return output_path
 
         except Exception as e:
@@ -594,6 +599,17 @@ class AudioExporter:
         """Listet auf: all supported export formats."""
         return list(self.FORMATS.keys())
 
+    def _write_export_metrics(
+        self,
+        file_path: Path,
+        input_audio: np.ndarray,
+        exported_audio: np.ndarray,
+        sr: int,
+        metadata: dict[str, str] | None,
+    ) -> Path:
+        """Instance wrapper that delegates to module-level implementation."""
+        return _write_export_metrics_impl(file_path, input_audio, exported_audio, sr, metadata)
+
 
 def export_audio(
     audio: np.ndarray,
@@ -637,6 +653,96 @@ def export_audio(
         translation_eq_strength=translation_eq_strength,
     )
     return str(result_path)
+
+
+def _approx_true_peak(audio: np.ndarray, sr: int, upsample: int = 4) -> float:
+    """Approximate true peak by simple linear upsampling and checking max abs sample.
+
+    Returns value in dBTP (dB relative to full scale, 0 dB = ±1.0).
+    """
+    try:
+        if audio.ndim == 2:
+            mono = 0.5 * (audio[:, 0] + audio[:, 1])
+        else:
+            mono = audio
+        n = mono.shape[0]
+        if n < 2:
+            peak = float(np.max(np.abs(mono)))
+            if peak <= 0:
+                return float("-inf")
+            return float(20.0 * np.log10(peak))
+        x = np.arange(n)
+        xu = np.linspace(0, n - 1, n * upsample)
+        yu = np.interp(xu, x, mono)
+        peak = float(np.max(np.abs(yu)))
+        if peak <= 0:
+            return float("-inf")
+        return float(20.0 * np.log10(peak))
+    except Exception:
+        peak = float(np.max(np.abs(audio)))
+        if peak <= 0:
+            return float("-inf")
+        return float(20.0 * np.log10(peak))
+
+
+def _write_export_metrics_impl(
+    file_path: Path, input_audio: np.ndarray, exported_audio: np.ndarray, sr: int, metadata: dict[str, str] | None
+) -> Path:
+    """Write export QA metrics sidecar (JSON).
+
+    Includes: input_lufs, output_lufs, output_true_peak_dbtp, lra, file_size, exporter_version
+    """
+    metrics: dict[str, Any] = {}
+    # Basic file info
+    metrics["file"] = str(file_path)
+    try:
+        metrics["file_size_bytes"] = file_path.stat().st_size
+    except Exception:
+        metrics["file_size_bytes"] = None
+
+    # Loudness measurements (using pyloudnorm if available)
+    if _pyln is not None:
+        try:
+            meter = _pyln.Meter(sr)
+            metrics["input_integrated_lufs"] = float(meter.integrated_loudness(input_audio))
+            metrics["output_integrated_lufs"] = float(meter.integrated_loudness(exported_audio))
+            try:
+                lr = _pyln.loudness_range(input_audio, sr)
+                metrics["input_lra"] = float(lr)
+            except Exception:
+                metrics["input_lra"] = None
+        except Exception:
+            metrics["input_integrated_lufs"] = None
+            metrics["output_integrated_lufs"] = None
+            metrics["input_lra"] = None
+    else:
+        metrics["input_integrated_lufs"] = None
+        metrics["output_integrated_lufs"] = None
+        metrics["input_lra"] = None
+
+    # Approximate true peak of exported audio
+    try:
+        metrics["output_true_peak_dbtp"] = float(_approx_true_peak(exported_audio, sr, upsample=4))
+    except Exception:
+        try:
+            metrics["output_true_peak_dbtp"] = float(20.0 * np.log10(float(np.max(np.abs(exported_audio)) + 1e-12)))
+        except Exception:
+            metrics["output_true_peak_dbtp"] = None
+
+    # Exporter metadata
+    metrics["exporter"] = {"module": "AudioExporter", "version": "auto"}
+    if metadata and isinstance(metadata, dict):
+        metrics["processing_metadata"] = dict(metadata)
+
+    sidecar = file_path.with_suffix(file_path.suffix + ".export_metrics.json")
+    try:
+        with open(sidecar, "w", encoding="utf-8") as f:
+            json.dump(metrics, f, indent=2, ensure_ascii=False)
+        logger.info("Export-Metriken geschrieben: %s", sidecar)
+    except Exception as e:
+        logger.debug("Export-Metriken schreiben fehlgeschlagen: %s", e)
+        raise
+    return sidecar
 
 
 def batch_export_audio(

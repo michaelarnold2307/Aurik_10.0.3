@@ -1802,6 +1802,16 @@ class AurikDenker:
                         )
                         _work_audio = rek.audio
                         _rek_result_box.append(rek)
+                        _strategie_as_dict = getattr(strategie, "as_dict", None)
+                        _denker_policy_input = {
+                            "strategy": _strategie_as_dict() if callable(_strategie_as_dict) else {},
+                            "phase_interaction": dict(getattr(_pid_plan, "policy_hints", {}) or {}),
+                            "phase_runtime_hint": dict(_pid_runtime_hint),
+                            "repair_risk_profile": dict(getattr(rep, "repair_risk_profile", {}) or {}),
+                            "reconstruction_risk_profile": dict(getattr(rek, "reconstruction_risk_profile", {}) or {}),
+                            "signal_signature": dict(_signal_signature),
+                            "source": "denker_policy_synthesis",
+                        }
                         # 4c: RestaurierDenker (UV3-Vollpipeline) auf vorgereinigtem Material
                         # Scaled inner progress: UV3 0–100 → AurikDenker 13–94
                         # UV3-intern: Analyse pct 1–19, Pipeline pct 20–85, Post pct 86–96.
@@ -1851,6 +1861,7 @@ class AurikDenker:
                                 # §PID: PhaseInteractionDenker-Plan — UV3 als reiner Executor
                                 precomputed_phase_plan=_pid_phase_plan,
                                 phase_strength_oracle_rollout=_effective_oracle_rollout,
+                                denker_policy_input=_denker_policy_input,
                             )
                         )
                     except Exception as _e:
@@ -1901,7 +1912,7 @@ class AurikDenker:
                 _rest_musical_goals = dict(_raw_goals) if _raw_goals else {}
                 _rest_goals_passed = int(getattr(rest, "goals_passed", 0))
                 # §S5: GAF-Inapplicable-Ziele aus UV3-RestorationResult extrahieren
-                _goal_app_raw: dict[str, bool] = dict(getattr(rest, "goal_applicability", None) or {})
+                _goal_app_raw = dict(getattr(rest, "goal_applicability", None) or {})
                 _rest_inapplicable_goals = frozenset(g for g, ok in _goal_app_raw.items() if not ok)
                 _meta_raw = getattr(rest, "metadata", None)
                 _rest_metadata = dict(_meta_raw) if isinstance(_meta_raw, dict) else {}

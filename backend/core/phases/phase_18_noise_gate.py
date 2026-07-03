@@ -592,10 +592,14 @@ class NoiseGate(PhaseInterface):
                 from backend.core.dsp.mikrodynamik_guard import (
                     frame_energy_correlation as _fec18,
                 )
+                from backend.core.dsp.mikrodynamik_guard import (
+                    recommend_mikrodynamik_wet as _recommend_mkk_wet,
+                )
 
                 _corr18 = _fec18(audio, gated_audio, sample_rate, frame_ms=10.0)
                 if _corr18 < 0.97:
-                    _wet18 = float(np.clip((_corr18 - 0.90) / 0.07, 0.0, 1.0))
+                    _need18 = float(kwargs.get("mikrodynamik_global_need", kwargs.get("global_need", 0.0)) or 0.0)
+                    _wet18 = _recommend_mkk_wet(_corr18, _p18_panns, global_need=_need18)
                     gated_audio = (_wet18 * gated_audio + (1.0 - _wet18) * audio).astype(np.float32)
                     logger.warning("§V20 phase_18: mikrodynamik_corr=%.4f < 0.97 → wet=%.3f", _corr18, _wet18)
             except Exception as _v20_18_exc:

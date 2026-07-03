@@ -19,11 +19,13 @@ import logging
 import math
 import threading
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from importlib import import_module
 from typing import Any
 
 import numpy as np
+
+from backend.core.restoration_policy import synthesize_human_hearing_comfort_profile
 
 logger = logging.getLogger(__name__)
 
@@ -67,6 +69,18 @@ class StrategiePlan:
     defect_severity: float = 0.0
     """Defekt-Schwere aus DefektDenker ∈ [0, 1]; steuert Chunk-Größe nach §7.6."""
 
+    intervention_budget: float = 0.5
+    """Songweites Eingriffsbudget ∈ [0, 1]; niedriger = konservativer, höher = mehr Reparaturbedarf."""
+
+    listening_experience_targets: dict[str, float] = field(default_factory=dict)
+    """Hörbezogene Zielprioritäten für das zentrale restoration_policy_profile."""
+
+    human_hearing_risk_map: dict[str, float] = field(default_factory=dict)
+    """Risikoabschätzung für hörkritische Eigenschaften wie Transienten, Wärme und Ermüdung."""
+
+    human_hearing_comfort_profile: dict[str, float] = field(default_factory=dict)
+    """Songindividuelle Hoerkomfort-Parameter fuer das zentrale restoration_policy_profile."""
+
     budget_note: str = ""
     """Hinweis auf Budget-Engpässe (Deutsch, laienverständlich)."""
 
@@ -79,6 +93,11 @@ class StrategiePlan:
             "enforce_limit": self.enforce_limit,
             "enable_adaptive_skipping": self.enable_adaptive_skipping,
             "recommended_chunk_s": self.recommended_chunk_s,
+            "defect_severity": self.defect_severity,
+            "intervention_budget": self.intervention_budget,
+            "listening_experience_targets": dict(self.listening_experience_targets),
+            "human_hearing_risk_map": dict(self.human_hearing_risk_map),
+            "human_hearing_comfort_profile": dict(self.human_hearing_comfort_profile),
             "budget_note": self.budget_note,
         }
 
@@ -271,6 +290,44 @@ class StrategieDenker:
         _effective_sev = _derive_effective_defect_severity(_sev, signal_signature)
         chunk_s = _adaptive_chunk(audio_dur, defect_severity=_effective_sev)
 
+        _sig = signal_signature or {}
+        _crest = float(_sig.get("crest_db", 0.0) or 0.0)
+        _hf_ratio = float(_sig.get("hf_ratio", 0.0) or 0.0)
+        _transient_ratio = float(_sig.get("transient_ratio", 0.0) or 0.0)
+        _micro_db = float(_sig.get("micro_dynamic_db", 0.0) or 0.0)
+        _intervention_budget = float(
+            np.clip(
+                0.18 + 0.62 * _effective_sev + 0.12 * min(max(_hf_ratio, 0.0), 1.0),
+                0.12,
+                0.88,
+            )
+        )
+        _listening_targets = {
+            "natuerlichkeit": float(np.clip(1.0 + max(0.0, 18.0 - _crest) / 60.0, 1.0, 1.35)),
+            "authentizitaet": 1.20,
+            "micro_dynamics": float(np.clip(1.0 + max(0.0, 10.0 - _micro_db) / 35.0, 1.0, 1.35)),
+            "artikulation": float(np.clip(1.0 + min(max(_transient_ratio, 0.0), 0.05) * 5.0, 1.0, 1.25)),
+            "waerme": 1.10,
+        }
+        _hearing_risks = {
+            "listening_fatigue": float(np.clip(_hf_ratio * 2.2 + _effective_sev * 0.25, 0.0, 1.0)),
+            "transient_smear": float(np.clip(max(0.0, 0.012 - _transient_ratio) * 45.0, 0.0, 1.0)),
+            "microdynamics_loss": float(np.clip(max(0.0, 9.0 - _micro_db) / 18.0, 0.0, 1.0)),
+            "overprocessing": float(np.clip((1.0 - _effective_sev) * 0.45 + max(0.0, _crest - 16.0) / 40.0, 0.0, 1.0)),
+        }
+        _comfort_profile = synthesize_human_hearing_comfort_profile(
+            {
+                "strategy": {
+                    "intervention_budget": _intervention_budget,
+                    "human_hearing_risk_map": _hearing_risks,
+                    "signal_signature": dict(_sig),
+                },
+                "signal_signature": dict(_sig),
+            },
+            mode=mode,
+            intervention_budget=_intervention_budget,
+        )
+
         note = ""
         if audio_dur > 300:
             note = (
@@ -288,6 +345,10 @@ class StrategieDenker:
             enable_adaptive_skipping=True,
             recommended_chunk_s=chunk_s,
             defect_severity=_effective_sev,
+            intervention_budget=_intervention_budget,
+            listening_experience_targets=_listening_targets,
+            human_hearing_risk_map=_hearing_risks,
+            human_hearing_comfort_profile=_comfort_profile,
             budget_note=note,
         )
         self._current_plan = plan

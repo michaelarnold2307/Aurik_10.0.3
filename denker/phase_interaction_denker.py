@@ -278,6 +278,9 @@ class PhasePlan:
     """Qualitäts-Tier pro Phase: 'maximum' | 'quality' | 'fast' (aus StrategieDenker).
     Advisory — wird von UV3 für zukünftige per-Phase-Algorithmus-Selektion genutzt."""
 
+    policy_hints: dict[str, Any] = field(default_factory=dict)
+    """Hörbezogene Hinweise für das zentrale restoration_policy_profile."""
+
     @property
     def is_valid(self) -> bool:
         """True wenn der Plan mindestens eine Phase enthält."""
@@ -508,6 +511,18 @@ class PhaseInteractionDenker:
             except Exception as _te:
                 logger.debug("PhaseInteractionDenker: schaetze_phasen_tier() fehlgeschlagen: %s", _te)
 
+        policy_hints: dict[str, Any] = {
+            "phase_count": len(ordered),
+            "suppressed_count": len(suppressed),
+            "injected_count": len(injected_notes),
+            "semantic_density": float(np.clip(len(ordered) / 24.0, 0.0, 1.0)),
+            "phase_quality_tiers": dict(phase_quality_tiers),
+        }
+        if goal_risk_map:
+            policy_hints["goal_risk_map"] = {str(k): float(v) for k, v in goal_risk_map.items()}
+        if signal_signature:
+            policy_hints["signal_signature"] = {str(k): float(v) for k, v in signal_signature.items()}
+
         logger.info(
             "PhaseInteractionDenker: %d→%d Phasen | "
             "+%d injiziert | %d supprimiert | "
@@ -530,6 +545,7 @@ class PhaseInteractionDenker:
             conflict_notes=conflict_notes + injected_notes,
             semantic_annotations={p: sorted(annotations.get(p, frozenset())) for p in ordered},
             phase_quality_tiers=phase_quality_tiers,
+            policy_hints=policy_hints,
             material=material,
             mode=mode,
         )

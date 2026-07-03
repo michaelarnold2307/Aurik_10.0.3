@@ -621,10 +621,14 @@ class SpectralRepairPhase(PhaseInterface):
                 from backend.core.dsp.mikrodynamik_guard import (  # pylint: disable=import-outside-toplevel
                     frame_energy_correlation as _fec50,
                 )
+                from backend.core.dsp.mikrodynamik_guard import (
+                    recommend_mikrodynamik_wet as _recommend_mkk_wet,
+                )
 
                 _corr50 = _fec50(audio, repaired_audio, sample_rate, frame_ms=10.0)
                 if _corr50 < 0.97:
-                    _wet50 = float(np.clip((_corr50 - 0.90) / 0.07, 0.0, 1.0))
+                    _need50 = float(kwargs.get("mikrodynamik_global_need", kwargs.get("global_need", 0.0)) or 0.0)
+                    _wet50 = _recommend_mkk_wet(_corr50, _p50_panns, global_need=_need50)
                     repaired_audio = (_wet50 * repaired_audio + (1.0 - _wet50) * audio).astype(np.float32)
                     logger.warning("§V20 phase_50: mikrodynamik_corr=%.4f < 0.97 → wet=%.3f", _corr50, _wet50)
             except Exception as _v20_50_exc:

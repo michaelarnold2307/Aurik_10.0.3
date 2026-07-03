@@ -3078,12 +3078,14 @@ if phase_id in _conductor_strength_hints and "strength" not in explicit_kwargs:
 
 ### §2.52a PhaseConductor × SongGoalImportance Integration (v9.11.14)
 
-`PhaseConductor.recommend()` erhält optional `goal_weights: dict[str, float]` (aus §2.56 `estimate_goal_importance()`).
+`PhaseConductor.recommend()` erhält optional `goal_weights: dict[str, float]`, die ausschließlich
+aus dem zentralen `restoration_policy_profile` abgeleitet werden. `song_goal_weights` ist nur ein
+Legacy-Fallback für Kompatibilität, nicht eine konkurrierende Primärquelle.
 
 **Workflow**:
 
-1. UV3 berechnet `goal_weights` einmalig in `restore()` (§2.56 Stufe 1–5)
-2. UV3 übergibt `goal_weights` an `_conductor.recommend(next_phase_id, state, material_type, goal_weights=goal_weights)`
+1. UV3 berechnet das `restoration_policy_profile` einmalig in `restore()` (§2.56 Stufe 1–5)
+2. UV3 übergibt daraus abgeleitete `goal_weights` an `_conductor.recommend(next_phase_id, state, material_type, goal_weights=goal_weights)`
 3. PhaseConductor berücksichtigt Gewichte bei der Strength-Empfehlung:
    - Hohe `transparenz`/`brillanz`-Gewichtung → ADDITIVE-Phasen bekommen leichten Strength-Boost
    - Hohe `natuerlichkeit`/`authentizitaet`-Gewichtung → konservativere Empfehlung (niedrigerer Strength)
@@ -3094,6 +3096,9 @@ if phase_id in _conductor_strength_hints and "strength" not in explicit_kwargs:
 - `goal_weights=None` → Fallback auf Uniform-Gewichtung (1.0 für alle Goals)
 - Fehler im goal_weights-Pfad → `logger.debug`, neutraler Strength (kein Crash)
 - PMGG-Strength hat weiterhin absoluten Vorrang (§2.52 Kein-§0-Verstoß-Invariante)
+
+**Invariante:** Kein Phase-Module oder Subsystem darf eigene songweite Zielgewichte parallel berechnen;
+die einzige normative Quelle ist `restoration_policy_profile`.
 
 ### Zusammenspiel mit §2.47 PhaseSkipper (Hebel 1 + Hebel 3 Synergie)
 
@@ -3297,12 +3302,44 @@ ist dieser Plan der **verbindliche Ausführungsplan**.
 Hybrid-Orchestrierung (Denker + UV3-Autoselektion im selben Lauf) erzeugt nicht-deterministische
 Planabweichungen und erschwert Reproduzierbarkeit, QA und Root-Cause-Analyse.
 
+**Ergänzung zur Entscheidungslogik:** Die Denker liefern die inhaltliche Intelligenz
+für Erkennung, Kontext und Priorisierung. Ihre Ergebnisse fließen in das zentrale
+`restoration_policy_profile` ein, das die normative songweite Steuerung bereitstellt.
+Die Denker dürfen damit die Qualität maximal verbessern, aber keine zweite, konkurrierende
+Song-Steuerquelle aufbauen.
+
+**Denker-Policy-Input:** Vor UV3 wird ein `denker_policy_input` gebildet. Pflichtfelder
+sind, sofern verfügbar: `strategy.intervention_budget`, `strategy.listening_experience_targets`,
+`strategy.human_hearing_risk_map`, `strategy.human_hearing_comfort_profile`,
+`phase_interaction.goal_risk_map`,
+`repair_risk_profile`, `reconstruction_risk_profile` und `signal_signature`. UV3 darf
+diese Signale nur über den zentralen Policy-Resolver in `restoration_policy_profile`
+übernehmen.
+
+**Human-Hearing-Comfort-Profil:** Der `StrategieDenker` MUSS aus der
+songindividuellen Signatur (`crest_db`, `hf_ratio`, `transient_ratio`,
+`micro_dynamic_db`), dem Eingriffsbudget und den Risiko-Maps ein
+`human_hearing_comfort_profile` ableiten. Das Profil steuert u. a.
+`peak_overshoot_cap_db`, `hf_loss_tolerance_db`, `hf_lift_cap_db`,
+`transient_protection`, `microdynamic_protection`, `fatigue_sensitivity` und
+`dynamic_smoothing_tolerance`. Der finale Hoerkomfort-Guard und alle zukuenftigen
+komfortbezogenen Phasen-/Post-Gates verwenden nur dieses zentrale Profil.
+
 ## §2.54 [RELEASE_MUST] Adaptives Phasen-Optimum — Messen-Handeln-Validieren (v9.11.2, erweitert v9.11.14)
 
 > Dieses Paradigma ist normativ übergeordnet gegenüber allen festen Schwellwerten in §2.48, §2.29d, §2.45.
 > Feste Schwellwerte sind **Notbremsen** (letztes Sicherheitsnetz), nicht die Steuerung.
 
 ### Grundprinzip
+
+Die Denker-Schicht ist die Intelligenzverstärkung vor UV3: Sie analysiert Material,
+Kontext, Defektlage und Rekonstruktionshinweise und verdichtet diese Informationen in
+eine bessere zentrale Policy. UV3 bleibt die einzige normative Ausführungs- und
+Exportinstanz; `restoration_policy_profile` bleibt die einzige songweite Steuerquelle.
+
+Die Denker optimieren damit nicht gegen technische Messwerte allein, sondern gegen das
+positive Klangerlebnis für das menschliche Gehör: Natürlichkeit, Ermüdungsfreiheit,
+Vokalnähe, Mikro-Dynamik, Wärme, glaubwürdige Raumanteile und Nicht-Halluzination.
 
 Jeder Song ist einzigartig. Feste Schwellwerte können die Vielfalt an Genre, Ära, Tonträgerkette und
 Defekten nicht abbilden. Stattdessen durchläuft jede Phase einen **Messen→Handeln→Validieren-Zyklus**:

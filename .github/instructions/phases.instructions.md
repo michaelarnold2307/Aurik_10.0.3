@@ -313,6 +313,10 @@ register_sequence = detect_vocal_register_temporal(audio, sr)
 Phasenmodule dürfen keine eigenen globalen Qualitäts-Gates etablieren.
 Sie liefern Signal + Telemetrie; die finale Exportentscheidung liegt ausschließlich bei UV3.
 
+Die normative songweite Steuerquelle ist `restoration_policy_profile`. Phasen dürfen
+`song_goal_weights` nur noch als daraus abgeleiteten Kompatibilitätswert lesen;
+eigene alternative Zielprofile oder parallel berechnete Song-Weights sind verboten.
+
 ```python
 # VERBOTEN in Phase-Dateien:
 # - Eigene globale Goal-Schwellen (z. B. natuerlichkeit >= 0.90 hardcoded)
@@ -330,6 +334,7 @@ Pflicht bei jeder Phase:
 ```python
 metadata["phase_decision_scope"] = "local_only"
 metadata["final_authority"] = "UV3"
+metadata["policy_source"] = "restoration_policy_profile"
 ```
 
 ## §PH-NAT Natürlichkeits-Priorität ohne Übersteuerung

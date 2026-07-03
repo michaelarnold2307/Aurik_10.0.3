@@ -299,6 +299,7 @@ class RestaurierDenker:
         no_rt_limit: bool = False,
         precomputed_phase_plan: list[str] | None = None,
         phase_strength_oracle_rollout: str | None = None,
+        denker_policy_input: dict[str, Any] | None = None,
     ) -> RestaurierErgebnis:
         """Restauriert Audio vollständig mit UnifiedRestorerV3.
 
@@ -430,6 +431,8 @@ class RestaurierDenker:
                 _uv3_kwargs["no_rt_limit"] = True
             if phase_strength_oracle_rollout is not None:
                 _uv3_kwargs["phase_strength_oracle_rollout"] = phase_strength_oracle_rollout
+            if denker_policy_input:
+                _uv3_kwargs["denker_policy_input"] = dict(denker_policy_input)
             try:
                 raw = restorer.restore(audio, **_uv3_kwargs)
                 return self._konvertiere(raw, material=material)
@@ -497,6 +500,8 @@ class RestaurierDenker:
                         _uv3_kwargs2["no_rt_limit"] = True
                     if phase_strength_oracle_rollout is not None:
                         _uv3_kwargs2["phase_strength_oracle_rollout"] = phase_strength_oracle_rollout
+                    if denker_policy_input:
+                        _uv3_kwargs2["denker_policy_input"] = dict(denker_policy_input)
                     try:
                         raw = restorer.restore(_are_audio, **_uv3_kwargs2)
                         return self._konvertiere(raw, material=material)
@@ -537,6 +542,8 @@ class RestaurierDenker:
                 _restore_kwargs["no_rt_limit"] = True
             if phase_strength_oracle_rollout is not None:
                 _restore_kwargs["phase_strength_oracle_rollout"] = phase_strength_oracle_rollout
+            if denker_policy_input:
+                _restore_kwargs["denker_policy_input"] = dict(denker_policy_input)
             raw = restorer.restore(audio, **_restore_kwargs)
         except Exception as exc:
             logger.warning("UnifiedRestorerV3.restore() fehlgeschlagen: %s — Fallback auf Original", exc)
@@ -727,14 +734,18 @@ class RestaurierDenker:
 # Thread-sicherer Singleton (Double-Checked Locking — §3.2)
 # ---------------------------------------------------------------------------
 
-_instance_holder: list = [None]  # [RestaurierDenker | None] — list-Container vermeidet global (W0603)
+_instance_holder: list[RestaurierDenker | None] = [None]  # list-Container vermeidet global (W0603)
 _lock: threading.Lock = threading.Lock()
 
 
 def get_restaurier_denker() -> RestaurierDenker:
     """Gibt den thread-sicheren Singleton-RestaurierDenker zurück."""
-    if _instance_holder[0] is None:
+    instance = _instance_holder[0]
+    if instance is None:
         with _lock:
-            if _instance_holder[0] is None:
-                _instance_holder[0] = RestaurierDenker()
-    return _instance_holder[0]
+            instance = _instance_holder[0]
+            if instance is None:
+                instance = RestaurierDenker()
+                _instance_holder[0] = instance
+    assert instance is not None
+    return instance

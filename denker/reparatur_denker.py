@@ -70,6 +70,9 @@ class ReparaturErgebnis:
     reasoning: str = ""
     """Begründung der Reparaturen (Compat-Alias für processing_note)."""
 
+    repair_risk_profile: dict[str, float] = field(default_factory=dict)
+    """Hörkritische Risiken der Reparatur für das zentrale Policy-Profil."""
+
     def as_dict(self) -> dict[str, object]:
         """Liefert alle Felder als serialisierbares Dict."""
         return {
@@ -79,6 +82,7 @@ class ReparaturErgebnis:
             "clipping_regions": self.clipping_regions,
             "processing_note": self.processing_note,
             "warnings": self.warnings,
+            "repair_risk_profile": dict(self.repair_risk_profile),
             "audio_shape": list(self.audio.shape),
         }
 
@@ -424,6 +428,23 @@ class ReparaturDenker:
         if clipping_repaired:
             _repairs_applied.append("phase_23_clipping_repair")
 
+        _repair_risk_profile = {
+            "transient_integrity": float(np.clip(clicks_removed / 400.0, 0.0, 1.0)),
+            "hum_notch_tonality": 0.18 if hum_removed else 0.0,
+            "declip_harmonic_plausibility": float(np.clip(clipping_regions / 40.0, 0.0, 1.0))
+            if clipping_repaired
+            else 0.0,
+            "overrepair": float(
+                np.clip(
+                    (0.22 if clicks_removed > 0 else 0.0)
+                    + (0.18 if hum_removed else 0.0)
+                    + (0.28 if clipping_repaired else 0.0),
+                    0.0,
+                    1.0,
+                )
+            ),
+        }
+
         return ReparaturErgebnis(
             audio=audio,
             clicks_removed=clicks_removed,
@@ -436,6 +457,7 @@ class ReparaturDenker:
             quality_delta=0.0,
             material=material,
             reasoning=note,
+            repair_risk_profile=_repair_risk_profile,
         )
 
     # ------------------------------------------------------------------

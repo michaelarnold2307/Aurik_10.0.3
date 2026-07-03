@@ -286,6 +286,25 @@ class TestMikrodynamikGuard:
         with pytest.raises(AssertionError):
             frame_energy_correlation(_sine(), _sine(), 44100)
 
+    def test_recommended_wet_never_collapses_to_zero_on_voiced_material(self):
+        from backend.core.dsp.mikrodynamik_guard import recommend_mikrodynamik_wet
+
+        wet = recommend_mikrodynamik_wet(0.88, 0.35)
+        assert 0.0 < wet < 0.3
+
+    def test_recommended_wet_reaches_full_blend_at_target(self):
+        from backend.core.dsp.mikrodynamik_guard import recommend_mikrodynamik_wet
+
+        wet = recommend_mikrodynamik_wet(0.99, 0.35)
+        assert wet == 1.0
+
+    def test_recommended_wet_scales_with_global_need(self):
+        from backend.core.dsp.mikrodynamik_guard import recommend_mikrodynamik_wet
+
+        low_need = recommend_mikrodynamik_wet(0.88, 0.35, global_need=0.1)
+        high_need = recommend_mikrodynamik_wet(0.88, 0.35, global_need=0.9)
+        assert high_need > low_need
+
     def teardown_method(self, _method):
         gc.collect(0)
 
@@ -624,6 +643,67 @@ class TestTemporalContinuityGuardGainStep:
         assert result.gain_step_db > 1.5, (
             f"Großer Gain-Sprung sollte gain_step_db > 1.5 dB haben, got {result.gain_step_db:.3f}"
         )
+
+    def teardown_method(self, _method):
+        gc.collect(0)
+
+
+# ─── Final: human_hearing_comfort_guard ─────────────────────────────────────
+
+
+class TestHumanHearingComfortGuard:
+    """Finaler Hoerkomfort-Guard gegen Aurik-eigene Peak-Spitzen und HF-Dunkelung."""
+
+    def test_introduced_peak_overshoot_is_attenuated(self):
+        """Ein isolierter, nur im Kandidaten vorhandener Peak wird abgesenkt."""
+        from backend.core.dsp.human_hearing_comfort_guard import apply_human_hearing_comfort_guard
+
+        n = SR * 2
+        reference = _sine(440.0, n=n, amp=0.10) + _white_noise(n=n, amp=0.003)
+        candidate = reference.copy()
+        spike_start = int(0.625 * SR)
+        candidate[spike_start : spike_start + 160] = 0.85
+
+        before_peak = float(np.max(np.abs(candidate[spike_start : spike_start + 160])))
+        result = apply_human_hearing_comfort_guard(reference, candidate, SR)
+        after_peak = float(np.max(np.abs(result.audio[spike_start : spike_start + 160])))
+
+        assert result.peak_overshoot_frames >= 1
+        assert result.applied is True
+        assert after_peak < before_peak * 0.80
+        assert np.max(np.abs(result.audio)) <= 1.0
+
+    def test_original_musical_loudness_jump_is_not_flattened(self):
+        """Dynamiksprung, der schon im Original existiert, bleibt unveraendert."""
+        from backend.core.dsp.human_hearing_comfort_guard import apply_human_hearing_comfort_guard
+
+        n = SR * 2
+        first = _sine(330.0, n=n // 2, amp=0.08)
+        second = _sine(330.0, n=n // 2, amp=0.28)
+        reference = np.concatenate([first, second]).astype(np.float32)
+        candidate = reference.copy()
+
+        result = apply_human_hearing_comfort_guard(reference, candidate, SR)
+
+        assert result.peak_overshoot_frames == 0
+        assert result.hf_lift_db == 0.0
+        assert np.allclose(result.audio, candidate, atol=1e-6)
+
+    def test_small_hf_loss_is_partially_restored_without_clipping(self):
+        """HF-Verlust wird nur konservativ angehoben und bleibt clip-sicher."""
+        from backend.core.dsp.human_hearing_comfort_guard import apply_human_hearing_comfort_guard
+
+        n = SR * 2
+        reference = _sine(1000.0, n=n, amp=0.16) + _sine(10000.0, n=n, amp=0.05)
+        candidate = _sine(1000.0, n=n, amp=0.16) + _sine(10000.0, n=n, amp=0.025)
+
+        result = apply_human_hearing_comfort_guard(reference, candidate.astype(np.float32), SR)
+
+        assert result.hf_loss_db_before < -0.75
+        assert result.hf_lift_db > 0.05
+        assert result.hf_loss_db_after > result.hf_loss_db_before
+        assert result.hf_lift_db <= 1.2
+        assert np.max(np.abs(result.audio)) <= 1.0
 
     def teardown_method(self, _method):
         gc.collect(0)

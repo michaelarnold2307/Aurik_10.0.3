@@ -46,6 +46,8 @@ from typing import Any
 
 import numpy as np
 
+from backend.core.restoration_policy import get_effective_song_goal_weights
+
 from .phase_interface import PhaseCategory, PhaseInterface, PhaseMetadata, PhaseResult
 
 logger = logging.getLogger(__name__)
@@ -1324,7 +1326,7 @@ class DiffusionInpaintingPhase(PhaseInterface):
                     effective_strength = float(np.clip(effective_strength + _zone_frac_55 * 0.15, 0.0, 1.0))
             except Exception as _fmg_exc_55:
                 logger.debug("Phase55 §V41 ForwardMaskingGuard non-blocking: %s", _fmg_exc_55)
-        _goal_weights = kwargs.get("song_goal_weights")
+        _goal_weights = get_effective_song_goal_weights(kwargs)
         if not isinstance(_goal_weights, dict):
             _goal_weights = None
         _restorability_score = float(kwargs.get("restorability_score", 50.0))

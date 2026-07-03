@@ -72,6 +72,7 @@ from backend.core.audio_utils import (
     to_channels_last,
 )
 from backend.core.defect_scanner import MaterialType
+from backend.core.restoration_policy import get_effective_song_goal_weights
 
 from .phase_interface import PhaseCategory, PhaseInterface, PhaseMetadata, PhaseResult
 
@@ -356,7 +357,7 @@ class TapeHissReductionPhase(PhaseInterface):
     @staticmethod
     def _goal_hint_strength_scalar(kwargs: dict[str, object]) -> float:
         """Berechnet bounded advisory strength scalar from song goal weights (§2.56a)."""
-        goal_weights = kwargs.get("song_goal_weights")
+        goal_weights = get_effective_song_goal_weights(kwargs)
         if not isinstance(goal_weights, dict):
             return 1.0
 
@@ -1113,10 +1114,14 @@ class TapeHissReductionPhase(PhaseInterface):
                 from backend.core.dsp.mikrodynamik_guard import (
                     frame_energy_correlation as _fec29,
                 )
+                from backend.core.dsp.mikrodynamik_guard import (
+                    recommend_mikrodynamik_wet as _recommend_mkk_wet,
+                )
 
                 _corr29 = _fec29(audio, audio_processed, sample_rate, frame_ms=10.0)
                 if _corr29 < 0.97:
-                    _wet29 = min(1.0, (_corr29 - 0.90) / 0.07) if _corr29 > 0.90 else 0.0
+                    _need29 = float(kwargs.get("mikrodynamik_global_need", kwargs.get("global_need", 0.0)) or 0.0)
+                    _wet29 = _recommend_mkk_wet(_corr29, _p29_panns, global_need=_need29)
                     audio_processed = (_wet29 * audio_processed + (1.0 - _wet29) * audio).astype(np.float32)
                     logger.warning(
                         "Phase29 V20 Mikrodynamik-Korr=%.3f < 0.97 → wet=%.3f Blend",
@@ -1775,9 +1780,10 @@ class TapeHissReductionPhase(PhaseInterface):
 
             _mask_ratio_p29 = _cmask_p29(_channel_for_masking, sample_rate, n_fft=2048, hop_length=512)
             _mask_arr_p29 = np.asarray(_mask_ratio_p29, dtype=np.float32)
-            _masking_floor_p29 = _mask_arr_p29.mean(axis=1)  # (n_freq_2048,)
+            _masking_floor_arr_p29 = _mask_arr_p29.mean(axis=1).astype(np.float32)  # (n_freq_2048,)
+            _masking_floor_p29 = _masking_floor_arr_p29
             _masking_freqs_p29 = np.linspace(0.0, sample_rate / 2.0, _mask_arr_p29.shape[0], dtype=np.float32)
-            logger.debug("§2.62 phase_29 Masking-Guard: mean_floor=%.3f", float(_masking_floor_p29.mean()))
+            logger.debug("§2.62 phase_29 Masking-Guard: mean_floor=%.3f", float(_masking_floor_arr_p29.mean()))
         except Exception as _msk_exc_p29:
             logger.debug("§2.62 phase_29 Masking-Guard nicht verfügbar (non-blocking): %s", _msk_exc_p29)
 

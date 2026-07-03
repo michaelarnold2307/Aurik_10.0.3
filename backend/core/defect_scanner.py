@@ -1147,7 +1147,7 @@ class DefectScanner:
 
         logger.info("DefectScanner initialisiert: SR=%s, Material=%s", sample_rate, material_type)
         # Welch-PSD-Cache (P1): gültig für Dauer eines scan()-Calls — wird in scan() gesetzt.
-        self._scan_welch_cache: dict[tuple[int, int], tuple[np.ndarray, np.ndarray]] = {}
+        self._scan_welch_cache: dict[tuple[object, ...], tuple[np.ndarray, np.ndarray]] = {}
 
     def _cached_welch(
         self,
@@ -1157,11 +1157,25 @@ class DefectScanner:
     ) -> tuple[np.ndarray, np.ndarray]:
         """Gecachter signal.welch()-Aufruf für die Dauer eines scan()-Calls.
 
-        Cache-Key: (id(audio), nperseg) — stabil innerhalb eines scan()-Calls,
-        da audio_mono nach der Cap-Berechnung nicht erneut zugewiesen wird.
-        Sub-Segmente (seg, _fp_mono) haben andere id() → kein Cache-Hit → korrekt.
+        Cache-Key: Objekt-ID plus billiger Signal-Fingerprint. Die ID ist innerhalb
+        eines scan()-Calls schnell; der Fingerprint verhindert stale Hits, wenn direkte
+        _detect_*-Tests nacheinander temporäre Arrays mit wiederverwendeter ID erzeugen.
         """
-        _key = (id(audio), nperseg)
+        _arr = np.asarray(audio)
+        _flat = _arr.reshape(-1)
+        if _flat.size:
+            _mid = _flat.size // 2
+            _fingerprint = (
+                _arr.shape,
+                str(_arr.dtype),
+                float(_flat[0]),
+                float(_flat[_mid]),
+                float(_flat[-1]),
+                float(np.mean(_flat[: min(_flat.size, 1024)])),
+            )
+        else:
+            _fingerprint = (_arr.shape, str(_arr.dtype), 0.0, 0.0, 0.0, 0.0)
+        _key = (id(audio), nperseg, _fingerprint)
         _cached_result = self._scan_welch_cache.get(_key)
         if _cached_result is not None:
             return _cached_result

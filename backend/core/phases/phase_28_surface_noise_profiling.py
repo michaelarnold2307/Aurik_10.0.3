@@ -58,6 +58,7 @@ from scipy.signal import lfilter_zi as _lfilter_zi
 
 from backend.core.audio_utils import safe_to_mono, to_channels_last
 from backend.core.defect_scanner import MaterialType
+from backend.core.restoration_policy import get_effective_song_goal_weights
 
 from .phase_interface import PhaseCategory, PhaseInterface, PhaseMetadata, PhaseResult
 
@@ -206,7 +207,7 @@ class SurfaceNoiseProfiling(PhaseInterface):
     @staticmethod
     def _goal_hint_strength_scalar(kwargs: dict[str, object]) -> float:
         """Berechnet bounded advisory strength scalar from song goal weights (§2.56a)."""
-        goal_weights = kwargs.get("song_goal_weights")
+        goal_weights = get_effective_song_goal_weights(kwargs)
         if not isinstance(goal_weights, dict):
             return 1.0
 
@@ -459,10 +460,14 @@ class SurfaceNoiseProfiling(PhaseInterface):
                 from backend.core.dsp.mikrodynamik_guard import (
                     frame_energy_correlation as _fec28,
                 )
+                from backend.core.dsp.mikrodynamik_guard import (
+                    recommend_mikrodynamik_wet as _recommend_mkk_wet,
+                )
 
                 _corr28 = _fec28(audio, denoised_audio, sample_rate, frame_ms=10.0)
                 if _corr28 < 0.97:
-                    _wet28 = float(np.clip((_corr28 - 0.90) / 0.07, 0.0, 1.0))
+                    _need28 = float(kwargs.get("mikrodynamik_global_need", kwargs.get("global_need", 0.0)) or 0.0)
+                    _wet28 = _recommend_mkk_wet(_corr28, _p28_panns, global_need=_need28)
                     denoised_audio = (_wet28 * denoised_audio + (1.0 - _wet28) * audio).astype(np.float32)
                     logger.warning("§V20 phase_28: mikrodynamik_corr=%.4f < 0.97 → wet=%.3f", _corr28, _wet28)
             except Exception as _v20_28_exc:

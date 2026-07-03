@@ -63,10 +63,12 @@ kontinuierlichen und semi-kontinuierlichen Phasenparameter (`strength`, `wet`, `
 4. Das Oracle darf harte Safety-Gates nie aufweichen; es steuert nur die beste lokale Intervention.
 5. Das Oracle MUSS `transfer_chain` + `material_confidence` direkt in die Staerkeberechnung einbeziehen
     (`chain_factor` fuer Driver + Hard-Caps); rein indirekte Material-Defaults reichen nicht.
+6. Alle per-song Weights, Gaps und Prioritäten werden aus `restoration_policy_profile` abgeleitet; `song_goal_weights`
+   ist nur ein kompatibler Fallback und darf nie als konkurrierende Primärquelle dienen.
 
 **VERBOTEN:** feste Universal-Staerken als Primaerlogik, Single-Goal-Maximierung, voneinander
 isolierte Per-Phase-Heuristiken ohne Zugriff auf `goal_gaps`, `goal_weights` und
-`effective_goal_targets`.
+`effective_goal_targets`; alternative songweite Steuerquellen neben `restoration_policy_profile`.
 
 ### §0m [RELEASE_MUST] Maximal-Ausbaustufe Defektintelligenz (beide Modi)
 

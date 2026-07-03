@@ -193,6 +193,10 @@ Diese werden als `adaptive_goal_thresholds` an **jeden** `wrap_phase()`-Aufruf, 
 
 Für jedes Importstück MUSS ein vollständiger Target-Vektor für alle **15** anwendbaren Musical Goals berechnet werden. Dieser Vektor ist die einzige normative Vergleichsgrundlage für `§GOAL_BASELINE_CHECK`, PMGG, FeedbackChain, End-Gate, UI und Analyse-Reports.
 
+Die songweiten Zielgewichte, die in diese Berechnung einfließen, stammen normativ aus
+`restoration_policy_profile`. `song_goal_weights` ist nur ein Kompatibilitäts-Fallback und darf
+nicht als konkurrierende Quelle gepflegt werden.
+
 ```python
 def resolve_effective_goal_targets(
     *,

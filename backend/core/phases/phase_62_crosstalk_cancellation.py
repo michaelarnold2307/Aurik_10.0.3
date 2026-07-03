@@ -337,11 +337,13 @@ class CrosstalkCancellationPhase(PhaseInterface):
             try:
                 from backend.core.dsp.mikrodynamik_guard import (
                     frame_energy_correlation,  # pylint: disable=import-outside-toplevel
+                    recommend_mikrodynamik_wet,
                 )
 
                 _corr62 = frame_energy_correlation(audio, result_audio, sample_rate, frame_ms=10.0)
                 if _corr62 < 0.97:
-                    _wet62 = min(1.0, (_corr62 - 0.90) / 0.07) if _corr62 > 0.90 else 0.0
+                    _need62 = float(kwargs.get("mikrodynamik_global_need", kwargs.get("global_need", 0.0)) or 0.0)
+                    _wet62 = recommend_mikrodynamik_wet(_corr62, _panns62, global_need=_need62)
                     result_audio = (_wet62 * result_audio + (1.0 - _wet62) * audio).astype(np.float32)
                     logger.warning(
                         "Phase62 V20 Mikrodynamik-Korr=%.3f < 0.97 → wet=%.3f Blend",

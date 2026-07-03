@@ -424,10 +424,14 @@ class ModulationNoiseReductionPhase(PhaseInterface):
                 from backend.core.dsp.mikrodynamik_guard import (  # pylint: disable=import-outside-toplevel
                     frame_energy_correlation as _fec59,
                 )
+                from backend.core.dsp.mikrodynamik_guard import (
+                    recommend_mikrodynamik_wet as _recommend_mkk_wet,
+                )
 
                 _corr59 = _fec59(audio, result_audio, sample_rate, frame_ms=10.0)
                 if _corr59 < 0.97:
-                    _wet59 = float(np.clip((_corr59 - 0.90) / 0.07, 0.0, 1.0))
+                    _need59 = float(kwargs.get("mikrodynamik_global_need", kwargs.get("global_need", 0.0)) or 0.0)
+                    _wet59 = _recommend_mkk_wet(_corr59, _p59_panns, global_need=_need59)
                     result_audio = (_wet59 * result_audio + (1.0 - _wet59) * audio).astype(np.float32)
                     logger.warning("§V20 phase_59: mikrodynamik_corr=%.4f < 0.97 → wet=%.3f", _corr59, _wet59)
             except Exception as _v20_59_exc:

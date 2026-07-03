@@ -6,6 +6,21 @@
 
 ## Version 9.20.3 — Live-Defektzähler, Fortschrittsreserve und Real-Audio-Typfix (Stand: 2. Juli 2026)
 
+### Backend / Human-Hearing-Comfort-Policy
+
+- `denker/strategie_denker.py`
+  - StrategieDenker erzeugt nun pro Song ein `human_hearing_comfort_profile`
+    aus Signal-Signatur, Eingriffsbudget und Human-Hearing-Risiken.
+- `backend/core/restoration_policy.py`
+  - Neuer zentraler Resolver fuer Human-Hearing-Comfort-Parameter; Denker-Signale
+    werden in `restoration_policy_profile` verdichtet statt als Parallelsteuerung
+    an Phasen vorbeizulaufen.
+- `backend/core/unified_restorer_v3.py`
+  - Der finale Human-Hearing-Comfort-Guard liest Peak-/HF-Caps aus dem zentralen
+    Policy-Profil und protokolliert die verwendete Policy in den Metadaten.
+- `tests/unit/test_adaptive_pipeline_canonical_policy_guard.py`
+  - Neue Regressionstests fuer Policy-Synthese und StrategieDenker-Propagation.
+
 ### Frontend / Live-Status
 
 - `Aurik910/ui/modern_window.py`

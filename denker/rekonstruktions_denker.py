@@ -18,6 +18,7 @@ from __future__ import annotations
 import logging
 import math
 import threading
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -77,6 +78,9 @@ class RekonstruktionsErgebnis:
 
     estimated_original_bandwidth_hz: float = 0.0
     """Estimated original bandwidth before degradation (Hz)."""
+
+    reconstruction_risk_profile: dict[str, float] = field(default_factory=dict)
+    """Plausibilitäts-/Halluzinationsrisiko der Rekonstruktion für die zentrale Policy."""
 
     def as_dict(self) -> dict[str, object]:
         """Liefert alle Felder als serialisierbares Dict."""
@@ -204,6 +208,7 @@ class RekonstruktionsDenker:
                 total_repaired_ms=0.0,
                 processing_time_ms=0.0,
                 detail_note="Kein Gap-Scan für digitales Material (§6.4b).",
+                reconstruction_risk_profile={"hallucination": 0.0, "boundary_artifact": 0.0, "plausibility": 1.0},
             )
             return _no_op
 
@@ -261,7 +266,15 @@ class RekonstruktionsDenker:
         if reconstructor is None:
             return []
         try:
-            return reconstructor.detect_only(audio, sr)
+            detected_raw: object = reconstructor.detect_only(audio, sr)
+            if detected_raw is None:
+                return []
+            if isinstance(detected_raw, list):
+                return detected_raw
+            if isinstance(detected_raw, Iterable):
+                return list(detected_raw)
+            logger.debug("detect_only lieferte unerwarteten Typ: %s", type(detected_raw).__name__)
+            return []
         except Exception as exc:
             logger.debug("detect_only fehlgeschlagen: %s", exc)
             return []
@@ -415,6 +428,12 @@ class RekonstruktionsDenker:
             gaps_filled=repaired,
             reconstruction_quality=quality,
             phases_applied=phases,
+            reconstruction_risk_profile={
+                "hallucination": float(max(0.0, 1.0 - quality)),
+                "boundary_artifact": float(min(1.0, skipped / max(found, 1))),
+                "plausibility": float(quality),
+                "bandwidth_uncertainty": 0.25 if total_ms > 0.0 else 0.0,
+            },
         )
 
     def _dsp_fallback(
@@ -479,6 +498,11 @@ class RekonstruktionsDenker:
             gaps_filled=gap_count,
             reconstruction_quality=quality,
             phases_applied=["dsp_linear_interpolation"],
+            reconstruction_risk_profile={
+                "hallucination": 0.0,
+                "boundary_artifact": 0.35 if gap_count else 0.0,
+                "plausibility": float(quality),
+            },
         )
 
 

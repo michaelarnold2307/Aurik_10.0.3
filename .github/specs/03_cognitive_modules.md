@@ -826,6 +826,25 @@ class ReconstructionContext:
 - RestaurierDenker MUSS `reconstruction_context` akzeptieren und an UV3 weitergeben
 - AurikDenker._run_rest() MUSS den Kontext zwischen den Stufen durchreichen
 
+**Policy-Synergie:** Die Denker-Schicht darf das zentrale `restoration_policy_profile`
+inhaltlich anreichern, indem sie bessere Defekt-, Material-, Vocal- und Kontextsignale
+liefert. Sie darf es jedoch nicht ersetzen oder parallel eine zweite songweite
+Steuerlogik etablieren. Das Profil bleibt die normative Schnittstelle zwischen Denker
+und UV3.
+
+Zusätzliche Pflichtaufgaben:
+
+- `StrategieDenker` berechnet ein hörbezogenes Eingriffsbudget, Listening-Experience-Ziele
+    und eine Human-Hearing-Risk-Map.
+- `PhaseInteractionDenker` liefert Policy-Hinweise zu Goal-Risiken, Phasendichte,
+    Konflikten und Qualitäts-Tiers.
+- `ReparaturDenker` liefert ein Repair-Risk-Profil, damit spätere Phasen Click-/Hum-/Declip-
+    Eingriffe nicht überkompensieren.
+- `RekonstruktionsDenker` liefert Plausibilitäts- und Halluzinationsrisiko für rekonstruierte
+    Lücken und Bandbreitenhinweise.
+- `RestaurierDenker` reicht alle Signale als `denker_policy_input` an UV3 weiter; UV3
+    verdichtet sie ausschließlich in `restoration_policy_profile`.
+
 ---
 
 ## §2.44 [RELEASE_MUST] IntentionalArtifactClassifier (v9.12.0)

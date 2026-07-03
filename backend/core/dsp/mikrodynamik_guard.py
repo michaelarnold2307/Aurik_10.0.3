@@ -26,6 +26,43 @@ MIKRODYNAMIK_THRESHOLD = 0.97
 _VOICED_ENERGY_PERCENTILE = 25.0
 
 
+def recommend_mikrodynamik_wet(
+    corr: float,
+    panns_singing: float = 0.0,
+    *,
+    global_need: float = 0.0,
+) -> float:
+    """Empfiehlt einen bedarfsorientierten Dry-Wet-Blend für V20-Mikrodynamik.
+
+    Der Blend berücksichtigt sowohl die lokale Korrelation als auch den globalen
+    Restaurierungsbedarf des Songs. So bleibt Aurik bedarfsorientiert: hohe
+    Korrelation allein erzwingt nicht automatisch mehr Wet, und hoher Song-Bedarf
+    kann eine vorsichtige Phase stärker erhalten.
+    """
+
+    vocal_material = panns_singing >= 0.35
+    target_corr = 0.985 if vocal_material else 0.97
+    floor_corr = 0.93 if vocal_material else 0.90
+    base_min_wet = 0.20 if vocal_material else 0.15
+    need = float(np.clip(global_need, 0.0, 1.0))
+
+    if corr >= target_corr:
+        return 1.0
+
+    if corr <= 0.0:
+        return 0.0
+
+    if corr < floor_corr:
+        base_wet = float(np.clip(base_min_wet * (corr / max(floor_corr, 1e-6)), 0.0, 1.0))
+    else:
+        base_wet = float(np.clip((corr - floor_corr) / max(target_corr - floor_corr, 1e-6), 0.0, 1.0))
+        base_wet = float(np.clip(max(base_wet, base_min_wet), 0.0, 1.0))
+
+    need_gain = 0.45 if vocal_material else 0.30
+    wet = base_wet + need_gain * need * (1.0 - base_wet)
+    return float(np.clip(wet, 0.0, 1.0))
+
+
 def frame_energy_correlation(
     pre: np.ndarray,
     post: np.ndarray,

@@ -2172,10 +2172,14 @@ class DenoisePhase(PhaseInterface):
                 from backend.core.dsp.mikrodynamik_guard import (  # pylint: disable=import-outside-toplevel
                     frame_energy_correlation as _fec03,
                 )
+                from backend.core.dsp.mikrodynamik_guard import (
+                    recommend_mikrodynamik_wet as _recommend_mkk_wet,
+                )
 
                 _corr03 = _fec03(_post_nr_guard_ref_audio, result_audio, sample_rate, frame_ms=10.0)
                 if _corr03 < 0.97:
-                    _wet03 = min(1.0, (_corr03 - 0.90) / 0.07) if _corr03 > 0.90 else 0.0
+                    _need03 = float(kwargs.get("mikrodynamik_global_need", kwargs.get("global_need", 0.0)) or 0.0)
+                    _wet03 = _recommend_mkk_wet(_corr03, _panns_singing, global_need=_need03)
                     result_audio = (_wet03 * result_audio + (1.0 - _wet03) * _post_nr_guard_ref_audio).astype(
                         np.float32
                     )

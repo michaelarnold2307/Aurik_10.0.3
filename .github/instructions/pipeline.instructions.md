@@ -617,6 +617,26 @@ _NEVER_SKIP = {
 # Diese Phasen laufen immer — auch bei hoher Restorability und bei MAS-Early-Stop
 ```
 
+Die adaptive Steuerung aller PhaseConductor-Entscheidungen, inklusive Gewichtung
+für Strength-/Wet-Parameter, wird ausschließlich aus `restoration_policy_profile`
+abgeleitet. `song_goal_weights` ist ein abgeleiteter Kompatibilitätswert, keine
+eigenständige Normquelle.
+
+Die Denker dürfen diese zentrale Policy ausdrücklich anreichern: `StrategieDenker`
+liefert Eingriffsbudget, Hörziele und Human-Hearing-Risiken; `PhaseInteractionDenker`
+liefert Goal-Risiken, Phasen-Dichte und Qualitäts-Tiers; `ReparaturDenker` und
+`RekonstruktionsDenker` liefern Reparatur-/Plausibilitätsrisiken. Diese Signale
+fließen als `denker_policy_input` in UV3 ein und werden dort in
+`restoration_policy_profile` verdichtet. Sie dürfen nie als parallele Steuerquelle
+neben dem Profil genutzt werden.
+
+`StrategieDenker` MUSS zusätzlich ein songindividuelles
+`human_hearing_comfort_profile` beitragen. Dieses Profil bündelt Peak-Komfort,
+HF-/Air-Toleranz, Müdigkeitsrisiko, Transientenschutz, Mikrodynamikschutz und
+Overprocessing-Risiko. UV3 und finale Guards dürfen diese Werte ausschließlich
+aus `restoration_policy_profile["human_hearing_comfort_profile"]` lesen; direkte
+Denker-Bypässe oder phasenlokale Zweitprofile sind verboten.
+
 ## §2.53b Determinismus
 
 ```python

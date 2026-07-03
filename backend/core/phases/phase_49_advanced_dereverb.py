@@ -56,6 +56,7 @@ import scipy.signal as sig
 from scipy.ndimage import median_filter
 
 from backend.core.audio_utils import restore_layout, to_channels_last
+from backend.core.restoration_policy import get_effective_song_goal_weights
 
 from .phase_interface import (
     PhaseCategory,
@@ -121,7 +122,7 @@ class AdvancedDereverbPhase(PhaseInterface):
         Keeps §4.5c behavior but adapts limits with §2.56 goal-importance context.
         Returns: (c80_down_limit_db, c80_soft_limit_db, c80_hard_limit_db, d50_limit)
         """
-        _gw = kwargs.get("song_goal_weights")
+        _gw = get_effective_song_goal_weights(kwargs)
         _w_nat = 1.0
         _w_auth = 1.0
         _w_timbre = 1.0
@@ -962,10 +963,14 @@ class AdvancedDereverbPhase(PhaseInterface):
                 from backend.core.dsp.mikrodynamik_guard import (  # pylint: disable=import-outside-toplevel
                     frame_energy_correlation as _fec49,
                 )
+                from backend.core.dsp.mikrodynamik_guard import (
+                    recommend_mikrodynamik_wet as _recommend_mkk_wet,
+                )
 
                 _corr49 = _fec49(audio, processed, sample_rate, frame_ms=10.0)
                 if _corr49 < 0.97:
-                    _wet49 = float(np.clip((_corr49 - 0.90) / 0.07, 0.0, 1.0))
+                    _need49 = float(kwargs.get("mikrodynamik_global_need", kwargs.get("global_need", 0.0)) or 0.0)
+                    _wet49 = _recommend_mkk_wet(_corr49, _p49_panns, global_need=_need49)
                     processed = (_wet49 * processed + (1.0 - _wet49) * audio).astype(np.float32)
                     logger.warning("§V20 phase_49: mikrodynamik_corr=%.4f < 0.97 → wet=%.3f", _corr49, _wet49)
             except Exception as _v20_49_exc:
