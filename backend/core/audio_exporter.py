@@ -442,7 +442,18 @@ class AudioExporter:
                 audio_export = audio_export.astype(np.float32)
 
         # Determine subtype
-        subtype = format_info["subtype"] if format_info["lossy"] else self.BIT_DEPTHS.get(bit_depth, "PCM_16")
+        subtype = str(format_info["subtype"] if format_info["lossy"] else self.BIT_DEPTHS.get(bit_depth, "PCM_16"))
+        audio_export = np.asarray(np.nan_to_num(audio_export, nan=0.0, posinf=0.0, neginf=0.0), dtype=np.float32)
+        audio_export = np.clip(audio_export, -1.0, 1.0)
+
+        def _atomic_write_audio(path: Path, data: np.ndarray, *, format_name: str, subtype_name: str) -> None:
+            tmp_path = path.with_name(path.name + ".tmp")
+            try:
+                sf.write(tmp_path, data, sr, format=format_name, subtype=subtype_name)
+                tmp_path.replace(path)
+            finally:
+                if tmp_path.exists():
+                    tmp_path.unlink(missing_ok=True)
 
         # Export based on format
         try:
@@ -453,7 +464,7 @@ class AudioExporter:
 
                 # soundfile doesn't support quality parameter for OGG
                 # We use default quality
-                sf.write(output_path, audio_export, sr, format="OGG", subtype=subtype)
+                _atomic_write_audio(output_path, audio_export, format_name="OGG", subtype_name=subtype)
 
             elif ext == ".opus":
                 # Opus
@@ -462,30 +473,31 @@ class AudioExporter:
 
                 # Note: soundfile may not support Opus on all systems
                 try:
-                    sf.write(output_path, audio_export, sr, format="OPUS", subtype=subtype)
+                    _atomic_write_audio(output_path, audio_export, format_name="OPUS", subtype_name=subtype)
                 except RuntimeError as e:
                     logger.warning(
                         "Opus export failed (%s). Falling back to FLAC. Install libopusenc for Opus support.", e
                     )
                     # Fallback to FLAC
                     fallback_path = output_path.with_suffix(".flac")
-                    sf.write(fallback_path, audio_export, sr, subtype="PCM_16")
+                    _atomic_write_audio(fallback_path, audio_export, format_name="FLAC", subtype_name="PCM_16")
                     output_path = fallback_path
 
             elif ext == ".caf":
                 # Core Audio Format
                 try:
-                    sf.write(output_path, audio_export, sr, format="CAF", subtype=subtype)
+                    _atomic_write_audio(output_path, audio_export, format_name="CAF", subtype_name=subtype)
                 except RuntimeError as e:
                     logger.warning("CAF export failed (%s). Falling back to AIFF.", e)
                     # Fallback to AIFF
                     fallback_path = output_path.with_suffix(".aiff")
-                    sf.write(fallback_path, audio_export, sr, subtype=subtype)
+                    _atomic_write_audio(fallback_path, audio_export, format_name="AIFF", subtype_name=subtype)
                     output_path = fallback_path
 
             else:
                 # WAV, FLAC, AIFF
-                sf.write(output_path, audio_export, sr, subtype=subtype)
+                _format_name = "AIFF" if ext in {".aif", ".aiff"} else ext.lstrip(".").upper()
+                _atomic_write_audio(output_path, audio_export, format_name=_format_name, subtype_name=subtype)
 
             # Add metadata if supported and provided
             if metadata and format_info["supports_metadata"]:

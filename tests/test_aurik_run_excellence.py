@@ -50,3 +50,19 @@ def test_main_aborts_export_when_quality_gate_fails(monkeypatch, tmp_path):
 
     assert rc == 2
     assert exporter_called["value"] is False
+
+
+def test_excellence_runner_prefers_bridge_loader_and_guards_fallback_export() -> None:
+    src = Path(__file__).resolve().parents[1].joinpath("_aurik_run_excellence.py").read_text(encoding="utf-8")
+
+    load_idx = src.index('_bridge_module: Any = _optional_import("backend.api.bridge")')
+    bridge_load_idx = src.index("_load_fn = _get_load_audio_fn()")
+    sf_read_idx = src.index("_sf.read(str(path)")
+    guard_import_idx = src.index('_export_guard: Any = getattr(_bridge_module, "export_guard", None)')
+    fallback_idx = src.index("AudioExporter fehlgeschlagen")
+    write_idx = src.index("_sf.write(str(tmp_wav)", fallback_idx)
+    guard_idx = src.index("_export_guard(audio_out)", write_idx)
+    replace_idx = src.index("tmp_wav.replace(out_wav)", guard_idx)
+
+    assert load_idx < bridge_load_idx < sf_read_idx
+    assert guard_import_idx < fallback_idx < write_idx < guard_idx < replace_idx

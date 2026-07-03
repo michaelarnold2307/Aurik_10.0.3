@@ -1,6 +1,9 @@
 """
 Aurik 6.0 – SOTA-End-to-End-Restaurierungsskript
 
+LEGACY_NON_RELEASE: Historischer Aurik-6-E2E-Pfad. Desktop-/CLI-/Batch-Release
+muss den Canonical Contract über backend.api.bridge + AurikDenker.denke() nutzen.
+
 Dieses Skript verarbeitet ein Importfile (Audio + optionale Metadaten) nach dem dokumentierten, SOTA-konformen Workflow:
 1. Analyse
 2. Policy-Engine
@@ -17,7 +20,7 @@ import json
 import logging
 import os
 import sys
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 
@@ -37,6 +40,27 @@ from plugins.deepfilternet_v3_ii_plugin import enhance_audio
 from plugins.diffwave_plugin import DiffwavePlugin
 from plugins.mdx23c_plugin import MDX23CPlugin
 from plugins.utmos_plugin import estimate_mos
+
+
+def _mos_payload(mos_result: Any) -> dict[str, Any]:
+    """Normalisiert Legacy-MOS-Resultate auf ein serialisierbares Dict."""
+    as_dict = getattr(mos_result, "as_dict", None)
+    if callable(as_dict):
+        payload = as_dict()
+        return dict(payload) if isinstance(payload, dict) else {"mos": 0.0, "raw": payload}
+    try:
+        return {"mos": float(mos_result)}
+    except (TypeError, ValueError):
+        return {"mos": 0.0, "raw": str(mos_result)}
+
+
+def _mos_score(mos_result: Any) -> float:
+    """Extrahiert einen numerischen MOS-Score ohne Annahmen über Plugin-Rückgabetypen."""
+    payload = _mos_payload(mos_result)
+    try:
+        return float(payload.get("mos", 0.0) or 0.0)
+    except (TypeError, ValueError):
+        return 0.0
 
 
 def load_importfile(importfile_path: str) -> tuple[np.ndarray, int, dict[str, Any]]:
@@ -93,22 +117,22 @@ def analyse(audio: np.ndarray, sr: int) -> dict[str, Any]:
     logger.info("[1] Analyse läuft...")
     from backend.core.forensics.detector import MediaForensicsEngine
 
-    engine = MediaForensicsEngine()
+    engine = cast(Any, MediaForensicsEngine())
     # Versuche, den audio_path zu setzen, falls bekannt
-    if hasattr(audio, "audio_path"):
-        engine.audio_path = audio.audio_path
-    elif hasattr(audio, "name"):
-        engine.audio_path = audio.name
-    else:
+    audio_obj = cast(Any, audio)
+    audio_path = getattr(audio_obj, "audio_path", None) or getattr(audio_obj, "name", None)
+    if audio_path is None:
         # Fallback: Hole aus globalem Kontext, falls Importfile bekannt
         import inspect
 
         frame = inspect.currentframe()
         while frame:
             if "importfile_path" in frame.f_locals:
-                engine.audio_path = frame.f_locals["importfile_path"]
+                audio_path = frame.f_locals["importfile_path"]
                 break
             frame = frame.f_back
+    if audio_path is not None:
+        engine.audio_path = str(audio_path)
     forensic_report = engine.analyze(audio, sr)
 
     # MaterialChainAnalysis-Objekt simulieren (oder erweitern, falls vorhanden)
@@ -128,16 +152,20 @@ def analyse(audio: np.ndarray, sr: int) -> dict[str, Any]:
     }
 
 
-def policy_engine(analysis_result: dict[str, Any]) -> list[dict[str, Any]]:
+def policy_engine(analysis_result: dict[str, Any]) -> list[Any]:
     """Gibt die Verarbeitungskette basierend auf Analyse zurück."""
     try:
         from policy.ml_policy_engine import MLModelPolicyEngine
 
         engine = MLModelPolicyEngine()
-        return engine.select_processing_chain(analysis_result)
+        selector = getattr(cast(Any, engine), "select_processing_chain", None)
+        if callable(selector):
+            selected = selector(analysis_result)
+            if isinstance(selected, list) and selected:
+                return selected
     except Exception as exc:
         logger.warning("ML-Policy-Engine nicht verfügbar: %s — Fallback-Kette", exc)
-        return [{"phase": "restaurierung"}, {"phase": "reparatur"}, {"phase": "remastering"}]
+    return [{"phase": "restaurierung"}, {"phase": "reparatur"}, {"phase": "remastering"}]
 
 
 def restaurierung(audio: np.ndarray, sr: int) -> tuple[np.ndarray, int]:
@@ -213,7 +241,7 @@ def quality_gates(audio: np.ndarray, sr: int) -> bool:
     audio, sr = ensure_sr(audio, sr, 48000)
 
     passed = True
-    results = {}
+    results: dict[str, Any] = {}
     # 1. Audio temporär speichern
     with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp_wav:
         sf.write(tmp_wav.name, audio, sr)
@@ -247,8 +275,8 @@ def quality_gates(audio: np.ndarray, sr: int) -> bool:
     except Exception as e:
         logger.error("[GACELA] Exception: %s", e)
     mos_result = estimate_mos(audio, sr)
-    results["UTMOS"] = mos_result.as_dict() if hasattr(mos_result, "as_dict") else float(mos_result)
-    mos_score = results["UTMOS"] if isinstance(results["UTMOS"], float) else results["UTMOS"].get("mos", 0.0)
+    results["UTMOS"] = _mos_payload(mos_result)
+    mos_score = _mos_score(mos_result)
     if mos_score < 3.5:
         passed = False
     logger.info("        [Quality-Gate] GACELA_MSE: %s", results.get("GACELA_MSE", "n/a"))
@@ -269,7 +297,13 @@ def export(audio: np.ndarray, sr: int, out_path: str) -> None:
     # Falls (channels, samples), transponieren zu (samples, channels)
     if isinstance(audio, np.ndarray) and audio.ndim == 2 and audio.shape[0] < audio.shape[1]:
         audio = audio.T
-    sf.write(out_path, audio, sr)
+    tmp_path = out_path + ".tmp"
+    try:
+        sf.write(tmp_path, audio, sr)
+        os.replace(tmp_path, out_path)
+    finally:
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
     logger.info("[Export] Datei gespeichert: %s", out_path)
 
 
@@ -308,12 +342,13 @@ def main(importfile_path: str, out_path: str) -> None:
 
         # Führe vollständige Analyse durch, um AnalysisProfile zu erhalten
         analysis_engine = AnalysisEngineAdapter()
-        profile = analysis_engine.analyze(audio, sr)
-        va = profile.vocal_analysis
+        profile_obj: Any = analysis_engine.analyze(audio, sr)
+        va = profile_obj.vocal_analysis
         logger.info("[VocalAnalysis]")
         logger.info("    Vocals erkannt: %s (Konfidenz: %.2f)", va.has_vocals, va.vocal_confidence)
         # PANNS-Tags für Gender-Transparenz
-        raw_tags = profile.raw_features.get("panns_tags", {})
+        raw_features = getattr(profile_obj, "raw_features", {}) or {}
+        raw_tags = raw_features.get("panns_tags", {}) if isinstance(raw_features, dict) else {}
         # Frauen-, Männer-, Kindergesang
         female = raw_tags.get("Female voice", 0.0)
         male = raw_tags.get("Male voice", 0.0)
@@ -406,12 +441,12 @@ def main(importfile_path: str, out_path: str) -> None:
             else:
                 logger.info("        KI-Modell: -")
     else:
-        logger.info("    (Maßnahmenkette: " + ", ".join([m.capitalize() for m in chain]) + ")")
+        logger.info("    (Maßnahmenkette: " + ", ".join(str(m).capitalize() for m in chain) + ")")
     step_idx = 0
     max_iterations = 5
-    feedback_log = []
-    audit_trail = []
-    intermediate_exports = []
+    feedback_log: list[dict[str, Any]] = []
+    audit_trail: list[dict[str, Any]] = []
+    intermediate_exports: list[str] = []
     # Test- und Feinjustierungs-Workflow für echte Audiodaten
     logger.info("\nTest & Feinjustierung\n─────────────────────")
     logger.info("[Vorab-Test] Qualitäts- und Policy-Gates werden mit echten Audiodaten geprüft …")
@@ -429,14 +464,14 @@ def main(importfile_path: str, out_path: str) -> None:
     while step_idx < len(chain):
         # Wenn chain Dicts enthält, nutze Phase, DSPs und Modelle
         if isinstance(chain[step_idx], dict):
-            step = chain[step_idx].get("phase", f"Schritt {step_idx + 1}")
-            dsps = chain[step_idx].get("dsps", [])
-            models = chain[step_idx].get("models", [])
+            step = str(chain[step_idx].get("phase", f"Schritt {step_idx + 1}"))
+            dsps = [str(dsp) for dsp in chain[step_idx].get("dsps", [])]
+            models = [str(model) for model in chain[step_idx].get("models", [])]
             logger.info(
                 f"    • Maßnahme: {step} (DSP: {', '.join(dsps) if dsps else '-'} | KI: {', '.join(models) if models else '-'}) …"
             )
         else:
-            step = chain[step_idx]
+            step = str(chain[step_idx])
             logger.info("    • Maßnahme: %s …", step.capitalize())
         # --- Audit-Trail: Schrittstart ---
         audit_entry = {"step": step, "index": step_idx, "status": "started"}
@@ -449,11 +484,11 @@ def main(importfile_path: str, out_path: str) -> None:
         while step_idx < len(chain):
             # Wenn chain Dicts enthält, nutze Phase, DSPs und Modelle
             if isinstance(chain[step_idx], dict):
-                step = chain[step_idx].get("phase", f"Schritt {step_idx + 1}")
-                dsps = chain[step_idx].get("dsps", [])
-                models = chain[step_idx].get("models", [])
+                step = str(chain[step_idx].get("phase", f"Schritt {step_idx + 1}"))
+                dsps = [str(dsp) for dsp in chain[step_idx].get("dsps", [])]
+                models = [str(model) for model in chain[step_idx].get("models", [])]
             else:
-                step = chain[step_idx]
+                step = str(chain[step_idx])
                 dsps = []
                 models = []
                 logger.info("    • Maßnahme: %s …", step.capitalize())
@@ -477,10 +512,8 @@ def main(importfile_path: str, out_path: str) -> None:
                 # Artefakterkennung nach Remastering
                 artifacts = SpectralArtifactDetector().detect(audio)
                 logger.info("        Artefakterkennung: %s", artifacts)
-                mos_result = estimate_mos(audio, sr)
-                mos_score = (
-                    mos_result.as_dict().get("mos", 0.0) if hasattr(mos_result, "as_dict") else float(mos_result)
-                )
+                remaster_mos_result = estimate_mos(audio, sr)
+                mos_score = _mos_score(remaster_mos_result)
                 logger.info("        Quality Gate: UTMOS=%.3f", mos_score)
             # --- Export Zwischenergebnis ---
             interm_path = f"intermediate_{step_idx + 1}_{step}.wav"

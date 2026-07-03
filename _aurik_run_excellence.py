@@ -12,42 +12,35 @@ Aufruf: .venv_aurik/bin/python _aurik_run_excellence.py [datei.mp3]
 
 from __future__ import annotations
 
+import importlib
 import logging
 import sys
 import time
 from pathlib import Path
+from typing import Any, cast
 
 import numpy as np
 
-try:
-    import soundfile as _sf
-except Exception:  # optional dependency
-    _sf = None
 
-try:
-    from pedalboard.io import AudioFile as _PedalboardAudioFile
-except Exception:  # optional dependency
-    _PedalboardAudioFile = None
+def _optional_import(module_name: str) -> Any:
+    """Lädt optionale Module ohne statische Rebinding-Diagnosen."""
+    try:
+        return importlib.import_module(module_name)
+    except Exception:
+        return None
 
-try:
-    import librosa as _librosa
-except Exception:  # optional dependency
-    _librosa = None
 
-try:
-    import soxr as _soxr
-except Exception:  # optional dependency
-    _soxr = None
-
-try:
-    from denker.aurik_denker import get_aurik_denker as _get_aurik_denker
-except Exception:  # optional dependency
-    _get_aurik_denker = None
-
-try:
-    from backend.core.audio_exporter import AudioExporter as _AudioExporter
-except Exception:  # optional dependency
-    _AudioExporter = None
+_sf: Any = _optional_import("soundfile")
+_PedalboardAudioFile: Any = getattr(_optional_import("pedalboard.io"), "AudioFile", None)
+_librosa: Any = _optional_import("librosa")
+_soxr: Any = _optional_import("soxr")
+_denker_module: Any = _optional_import("denker.aurik_denker")
+_get_aurik_denker: Any = getattr(_denker_module, "get_aurik_denker", None)
+_bridge_module: Any = _optional_import("backend.api.bridge")
+_export_guard: Any = getattr(_bridge_module, "export_guard", None)
+_get_load_audio_fn: Any = getattr(_bridge_module, "get_load_audio_fn", None)
+_audio_exporter_module: Any = _optional_import("backend.core.audio_exporter")
+_AudioExporter: Any = getattr(_audio_exporter_module, "AudioExporter", None)
 
 # ─── Logging konfigurieren ───────────────────────────────────────────────────
 logging.basicConfig(
@@ -69,6 +62,25 @@ OUTPUT_DIR.mkdir(exist_ok=True)
 
 def _load_audio(path: Path) -> tuple[np.ndarray, int]:
     """Dreistufige Audio-Lade-Kaskade (Spec §11.4)."""
+    try:
+        if _get_load_audio_fn is not None:
+            _load_fn = _get_load_audio_fn()
+            _loaded = _load_fn(str(path), target_sr=None, mono=False, do_carrier_analysis=False)
+            if _loaded is not None and not _loaded.get("error") and _loaded.get("audio") is not None:
+                audio = np.asarray(_loaded["audio"], dtype=np.float32)
+                sr = int(_loaded["sr"])
+                if audio.ndim == 2 and audio.shape[0] > audio.shape[1] and audio.shape[1] <= 2:
+                    audio = audio.T
+                logger.info(
+                    "Audio geladen via Bridge: %s Hz, %d Kanäle, %.2f s",
+                    sr,
+                    audio.shape[0] if audio.ndim == 2 else 1,
+                    audio.shape[-1] / sr,
+                )
+                return audio, sr
+    except Exception as bridge_exc:
+        logger.debug("Bridge-Loader fehlgeschlagen: %s", bridge_exc)
+
     # Stufe 1: soundfile
     try:
         if _sf is None:
@@ -99,7 +111,8 @@ def _load_audio(path: Path) -> tuple[np.ndarray, int]:
     if _librosa is None:
         raise RuntimeError("Kein Loader verfügbar: soundfile, pedalboard und librosa fehlen.")
 
-    audio_mono, sr = _librosa.load(str(path), sr=None, mono=False, dtype=np.float32)
+    audio_mono, sr_raw = _librosa.load(str(path), sr=None, mono=False, dtype=np.float32)
+    sr = int(sr_raw)
     if audio_mono.ndim == 1:
         audio_mono = audio_mono[np.newaxis, :]
     logger.info(
@@ -121,7 +134,7 @@ def _resample_to_48k(audio: np.ndarray, sr: int) -> np.ndarray:
         else:
             resampled = np.stack([_soxr.resample(ch, sr, TARGET_SR, quality="VHQ") for ch in audio])
         logger.info("Resampling %d → %d Hz via soxr VHQ", sr, TARGET_SR)
-        return resampled
+        return cast(np.ndarray, resampled)
     except ImportError:
         pass
     if _librosa is None:
@@ -134,7 +147,7 @@ def _resample_to_48k(audio: np.ndarray, sr: int) -> np.ndarray:
             [_librosa.resample(ch, orig_sr=sr, target_sr=TARGET_SR, res_type="kaiser_best") for ch in audio]
         )
     logger.info("Resampling %d → %d Hz via librosa", sr, TARGET_SR)
-    return resampled
+    return cast(np.ndarray, resampled)
 
 
 def _to_pipeline_format(audio: np.ndarray) -> np.ndarray:
@@ -311,9 +324,18 @@ def main() -> int:
         if _sf is None:
             logger.error("Fallback fehlgeschlagen: soundfile ist nicht verfügbar.")
             return 4
+        if _export_guard is None:
+            logger.error("Fallback fehlgeschlagen: Bridge export_guard ist nicht verfügbar.")
+            return 4
 
         # (samples, channels) oder (samples,) für soundfile
-        _sf.write(str(out_wav), audio_out, TARGET_SR, subtype="PCM_24")
+        tmp_wav = out_wav.with_suffix(out_wav.suffix + ".tmp")
+        try:
+            _sf.write(str(tmp_wav), _export_guard(audio_out), TARGET_SR, subtype="PCM_24")
+            tmp_wav.replace(out_wav)
+        finally:
+            if tmp_wav.exists():
+                tmp_wav.unlink(missing_ok=True)
         logger.info("✓ WAV exportiert (soundfile-Fallback): %s", out_wav)
 
     logger.info("═" * 70)

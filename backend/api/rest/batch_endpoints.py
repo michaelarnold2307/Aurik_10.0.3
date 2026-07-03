@@ -17,6 +17,7 @@ import numpy as _np
 import soundfile as _sf
 from fastapi import APIRouter, BackgroundTasks, HTTPException, UploadFile
 
+from backend.api.bridge import export_guard as _export_guard
 from backend.file_import import load_audio_file
 from denker.aurik_denker import get_aurik_denker
 
@@ -64,18 +65,31 @@ def batch_worker(batch_id: str, input_files: list[str]):
                 audio = _np.asarray(_loaded["audio"], dtype=_np.float32)
                 sr = int(_loaded["sr"])
 
-                result = denker.denke(audio, sr, mode="restoration")
+                denker_result: Any = denker.denke(audio, sr, mode="restoration")
+                result_sr = int(getattr(denker_result, "sample_rate", sr) or sr)
+                result_audio = _np.asarray(denker_result.audio, dtype=_np.float32)
+                result_quality = float(getattr(denker_result, "quality_estimate", 0.0) or 0.0)
+                result_material = str(
+                    getattr(denker_result, "material", "") or getattr(denker_result, "material_type", "")
+                )
+                result_deferred = list(getattr(denker_result, "deferred_phases", []) or [])
 
-                _sf.write(str(out_path), result.audio, result.sample_rate)
+                tmp_path = out_path.with_suffix(out_path.suffix + ".tmp")
+                try:
+                    _sf.write(str(tmp_path), _export_guard(result_audio), result_sr)
+                    tmp_path.replace(out_path)
+                finally:
+                    if tmp_path.exists():
+                        tmp_path.unlink(missing_ok=True)
 
                 audit_path = out_path.with_suffix(".json")
                 with open(audit_path, "w", encoding="utf-8") as f:
                     json.dump(
                         {
                             "filename": fname,
-                            "quality_estimate": result.quality_estimate,
-                            "material": str(result.material_type),
-                            "deferred_phases": result.deferred_phases,
+                            "quality_estimate": result_quality,
+                            "material": result_material,
+                            "deferred_phases": result_deferred,
                         },
                         f,
                         indent=2,

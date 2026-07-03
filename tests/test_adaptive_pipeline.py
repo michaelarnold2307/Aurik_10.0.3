@@ -2,6 +2,7 @@ import os
 import sys
 from io import BytesIO
 from types import SimpleNamespace
+from typing import Any, cast
 
 import numpy as np
 import pytest
@@ -99,9 +100,10 @@ def test_separate_vocals_v8_forces_safety_wrapper_even_when_disabled() -> None:
 
     sep = _DummySeparator()
     safety = _DummySafety()
-    pipeline.vocal_separator_v8 = sep
-    pipeline.vocal_safety_wrapper = safety
-    pipeline.audio_monitor = SimpleNamespace(track_operation=lambda *args, **kwargs: None)
+    pipeline_test_double = cast(Any, pipeline)
+    pipeline_test_double.vocal_separator_v8 = sep
+    pipeline_test_double.vocal_safety_wrapper = safety
+    pipeline_test_double.audio_monitor = SimpleNamespace(track_operation=lambda *_args, **_kwargs: None)
 
     stems = pipeline.separate_vocals_v8(audio, sr, use_safety_wrapper=False)
 
@@ -116,8 +118,9 @@ def test_correct_pitch_v8_fails_closed_without_safety_wrapper() -> None:
     pipeline = AdaptiveProcessingPipeline()
 
     audio = np.zeros(1024, dtype=np.float32)
-    pipeline.pitch_corrector_v8 = object()
-    pipeline.pitch_corrector_safety = None
+    pipeline_test_double = cast(Any, pipeline)
+    pipeline_test_double.pitch_corrector_v8 = object()
+    pipeline_test_double.pitch_corrector_safety = None
 
     corrected, metadata = pipeline.correct_pitch_v8(audio, 44100, use_safety_wrapper=False)
 

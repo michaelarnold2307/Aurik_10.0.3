@@ -3734,6 +3734,7 @@ class BatchProcessingThread(QThread):
                         logger.debug("Fallback quiet-edge guard skipped: %s", _fb_edge_exc)
                         _fallback_audio = write_audio  # sicher: Originalzustand
                     try:
+                        _fallback_audio = _export_guard(_fallback_audio)
                         sf.write(_tmp_path, _fallback_audio, write_sr, format="WAV", subtype="PCM_24")
                         os.replace(_tmp_path, item.output_file)
                     finally:

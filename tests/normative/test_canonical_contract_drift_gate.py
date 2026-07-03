@@ -19,6 +19,9 @@ _CLI = _ROOT / "cli" / "aurik_cli.py"
 _CLI_DEBUG = _ROOT / "cli" / "aurik_debug.py"
 _FRONTEND = _ROOT / "Aurik910" / "ui" / "modern_window.py"
 _BATCH = _ROOT / "batch_processor.py"
+_AUDIO_EXPORTER = _ROOT / "backend" / "core" / "audio_exporter.py"
+_EXPORT_WORKFLOW = _ROOT / "backend" / "core" / "export_workflow.py"
+_AURIK_RESTORE_LEGACY = _ROOT / "backend" / "aurik_restore.py"
 _REST_LEGACY = [
     _ROOT / "backend" / "api" / "rest" / "batch_api.py",
     _ROOT / "backend" / "api" / "rest" / "batch_endpoints.py",
@@ -180,6 +183,28 @@ def test_legacy_rest_server_paths_are_explicitly_non_release() -> None:
 
 @pytest.mark.normative
 @pytest.mark.timeout(20)
+def test_legacy_rest_exports_still_use_bridge_export_guard() -> None:
+    """Auch LEGACY_NON_RELEASE-Batchpfade duerfen keine ungeguardeten Audiodateien schreiben."""
+    for path in _REST_LEGACY:
+        src = path.read_text(encoding="utf-8")
+        assert "export_guard" in src, f"{path} muss export_guard vor sf.write nutzen."
+        assert ".tmp" in src and ".replace(out_path)" in src, f"{path} muss atomic schreiben."
+
+
+@pytest.mark.normative
+@pytest.mark.timeout(20)
+def test_fastapi_legacy_batch_uses_aurik_ergebnis_contract_safely() -> None:
+    """FastAPI-Legacy-Batch darf keine nicht existierenden AurikErgebnis-Felder voraussetzen."""
+    src = (_ROOT / "backend" / "api" / "rest" / "batch_endpoints.py").read_text(encoding="utf-8")
+
+    assert "denker_result: Any = denker.denke" in src
+    assert 'getattr(denker_result, "sample_rate", sr)' in src
+    assert 'getattr(denker_result, "material", "")' in src
+    assert 'getattr(denker_result, "deferred_phases", [])' in src
+
+
+@pytest.mark.normative
+@pytest.mark.timeout(20)
 def test_legacy_debug_paths_are_explicitly_non_release() -> None:
     """Debug-Bypasspfade muessen klar als LEGACY_NON_RELEASE markiert bleiben."""
     for path in _DEBUG_LEGACY:
@@ -189,6 +214,64 @@ def test_legacy_debug_paths_are_explicitly_non_release() -> None:
             f"{path} ist ein Debug-/Bypasspfad und muss als LEGACY_NON_RELEASE markiert sein, "
             "damit keine Release-Parallelwelt entsteht."
         )
+
+
+@pytest.mark.normative
+@pytest.mark.timeout(20)
+def test_legacy_debug_audio_output_uses_bridge_export_guard() -> None:
+    """Debug --out darf trotz LEGACY_NON_RELEASE keine ungeguardete Audiodatei schreiben."""
+    debug_src = _CLI_DEBUG.read_text(encoding="utf-8")
+
+    out_idx = debug_src.index("if args.out and not args.no_audio:")
+    guard_idx = debug_src.index("from backend.api.bridge import export_guard", out_idx)
+    write_idx = debug_src.index("sf.write(tmp_path, export_guard(_audio_out), 48000)", guard_idx)
+    replace_idx = debug_src.index("tmp_path.replace(out_path)", write_idx)
+
+    assert out_idx < guard_idx < write_idx < replace_idx
+
+
+@pytest.mark.normative
+@pytest.mark.timeout(20)
+def test_aurik6_restore_legacy_path_is_marked_and_atomic() -> None:
+    """Der historische Aurik-6-E2E-Pfad darf nicht als Release-Parallelwelt driften."""
+    src = _AURIK_RESTORE_LEGACY.read_text(encoding="utf-8")
+
+    assert "LEGACY_NON_RELEASE" in src
+    export_idx = src.index("def export(")
+    guard_idx = src.index("np.nan_to_num", export_idx)
+    tmp_idx = src.index('tmp_path = out_path + ".tmp"', guard_idx)
+    replace_idx = src.index("os.replace(tmp_path, out_path)", tmp_idx)
+
+    assert export_idx < guard_idx < tmp_idx < replace_idx
+
+
+@pytest.mark.normative
+@pytest.mark.timeout(20)
+def test_core_export_workflow_sanitizes_and_writes_atomically() -> None:
+    """Core-Exportworkflow muss final numerisch guard-railed und atomic schreiben."""
+    src = _EXPORT_WORKFLOW.read_text(encoding="utf-8")
+
+    fn_idx = src.index("def export_audio(")
+    guard_idx = src.index("np.nan_to_num", fn_idx)
+    write_idx = src.index("sf.write(tmp_export_path", guard_idx)
+    replace_idx = src.index("os.replace(tmp_export_path, export_path)", write_idx)
+
+    assert fn_idx < guard_idx < write_idx < replace_idx
+
+
+@pytest.mark.normative
+@pytest.mark.timeout(20)
+def test_audio_exporter_sanitizes_and_writes_atomically() -> None:
+    """AudioExporter ist der Release-Primärpfad und muss unmittelbar vor Disk-Write sichern."""
+    src = _AUDIO_EXPORTER.read_text(encoding="utf-8")
+
+    fn_idx = src.index("def export(")
+    guard_idx = src.index("np.nan_to_num(audio_export", fn_idx)
+    atomic_fn_idx = src.index("def _atomic_write_audio(", guard_idx)
+    write_idx = src.index("sf.write(tmp_path", atomic_fn_idx)
+    replace_idx = src.index("tmp_path.replace(path)", write_idx)
+
+    assert fn_idx < guard_idx < atomic_fn_idx < write_idx < replace_idx
 
 
 @pytest.mark.normative

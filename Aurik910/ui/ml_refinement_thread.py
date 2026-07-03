@@ -364,6 +364,7 @@ def _extract_audio(result: object) -> np.ndarray | None:
 
 def _write_audio(audio: np.ndarray, sr: int, path: str) -> None:
     """Schreibt audio to file — tries soundfile, falls back to scipy.io.wavfile."""
+    audio = np.clip(np.nan_to_num(np.asarray(audio, dtype=np.float32), nan=0.0, posinf=0.0, neginf=0.0), -1.0, 1.0)
     try:
         import soundfile as sf  # pylint: disable=import-outside-toplevel
 

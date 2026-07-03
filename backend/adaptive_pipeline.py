@@ -6,10 +6,12 @@
 # ---------------------------------------------------------------------------
 # pylint: disable=wrong-import-position,import-outside-toplevel,too-many-positional-arguments
 
+import importlib
 import io
 import logging as _logging
 import os
 import tempfile
+from typing import Any, cast
 
 import numpy as np
 import soundfile as sf
@@ -204,107 +206,39 @@ class _PluginStub:
 # Stub entfernt; flow_matching_plugin ist der Nachfolger für generatives Inpainting.
 
 
-# Jetzt die echten Imports versuchen — direkt auf Modulebene, kein globals()-Trick,
-# damit --import-mode=importlib (pytest) keine Namespace-Probleme verursacht.
-# Jeder try/except-Block ist eigenständig: ein Fehler blockiert keine anderen.
-try:
-    from plugins.deepfilternet_v3_ii_plugin import DeepFilterNetV3IIPlugin as _DeepFilterNetV3IIPlugin
-except Exception as _e:
-    _log.warning("DeepFilterNetV3IIPlugin nicht verfügbar: %s", _e)
-    _DeepFilterNetV3IIPlugin = _PluginStub
+# Jetzt die echten Imports versuchen — dynamisch auf Modulebene, damit optionale
+# Plugin-Klassen nicht als konkurrierende statische Typen gegen den Stub gebunden werden.
+def _optional_plugin_class(module_name: str, class_name: str) -> Any:
+    try:
+        module = importlib.import_module(module_name)
+        return getattr(module, class_name)
+    except Exception as exc:
+        _log.warning("%s nicht verfügbar: %s", class_name, exc)
+        return _PluginStub
 
-DeepFilterNetV3IIPlugin = _DeepFilterNetV3IIPlugin
 
-try:
-    from plugins.resemble_enhance_plugin import ResembleEnhancePlugin as _ResembleEnhancePlugin
-except Exception as _e:
-    _log.warning("ResembleEnhancePlugin nicht verfügbar: %s", _e)
-    _ResembleEnhancePlugin = _PluginStub
-
-ResembleEnhancePlugin = _ResembleEnhancePlugin
-
-try:
-    from plugins.demucs_v4_plugin import DemucsV4Plugin as _DemucsV4Plugin
-except Exception as _e:
-    _log.warning("DemucsV4Plugin nicht verfügbar: %s", _e)
-    _DemucsV4Plugin = _PluginStub
-
-DemucsV4Plugin = _DemucsV4Plugin
-
-try:
-    from plugins.mdx23c_plugin import MDX23CPlugin as _MDX23CPlugin
-except Exception as _e:
-    _log.warning("MDX23CPlugin nicht verfügbar: %s", _e)
-    _MDX23CPlugin = _PluginStub
-
-MDX23CPlugin = _MDX23CPlugin
-
-try:
-    from plugins.wpe_plugin import SGMSEPlugin as _SGMSEPlugin
-    from plugins.wpe_plugin import WpePlugin as _WpePlugin
-except Exception as _e:
-    _log.warning("wpe_plugin (WpePlugin/SGMSEPlugin) nicht verfügbar: %s", _e)
-    _SGMSEPlugin = _PluginStub
-    _WpePlugin = _PluginStub
-
-SGMSEPlugin = _SGMSEPlugin
-WpePlugin = _WpePlugin
+DeepFilterNetV3IIPlugin: Any = _optional_plugin_class("plugins.deepfilternet_v3_ii_plugin", "DeepFilterNetV3IIPlugin")
+ResembleEnhancePlugin: Any = _optional_plugin_class("plugins.resemble_enhance_plugin", "ResembleEnhancePlugin")
+DemucsV4Plugin: Any = _optional_plugin_class("plugins.demucs_v4_plugin", "DemucsV4Plugin")
+MDX23CPlugin: Any = _optional_plugin_class("plugins.mdx23c_plugin", "MDX23CPlugin")
+SGMSEPlugin: Any = _optional_plugin_class("plugins.wpe_plugin", "SGMSEPlugin")
+WpePlugin: Any = _optional_plugin_class("plugins.wpe_plugin", "WpePlugin")
 
 # FullSubNetPlusPlugin: Import entfernt — 16 kHz-Sprach-NR, nicht in §11.3
 # SpleeterPlugin: Import entfernt — veraltetes 2019er Modell, nicht in §11.3
 
-try:
-    # §4.4: MP-SENet 2023 ersetzt DCCRN (§4.4 verboten)
-    from plugins.mp_senet_plugin import MpSenetPlugin as _MpSenetPlugin
-except Exception as _e:
-    _log.warning("MpSenetPlugin (DCCRN-Nachfolger) nicht verfügbar: %s", _e)
-    _MpSenetPlugin = _PluginStub
-
-MpSenetPlugin = _MpSenetPlugin
-
-try:
-    from plugins.uvr_mdxnet_plugin import UVRMDXNetPlugin as _UVRMDXNetPlugin
-except Exception as _e:
-    _log.warning("UVRMDXNetPlugin nicht verfügbar: %s", _e)
-    _UVRMDXNetPlugin = _PluginStub
-
-UVRMDXNetPlugin = _UVRMDXNetPlugin
-
-try:
-    from plugins.banquet_vinyl_plugin import BanquetVinylPlugin as _BanquetVinylPlugin
-except Exception as _e:
-    _log.warning("BanquetVinylPlugin nicht verfügbar: %s", _e)
-    _BanquetVinylPlugin = _PluginStub
-
-BanquetVinylPlugin = _BanquetVinylPlugin
-
-try:
-    from plugins.hifigan_plugin import HiFiGANPlugin as _HiFiGANPlugin
-except Exception as _e:
-    _log.warning("HiFiGANPlugin nicht verfügbar: %s", _e)
-    _HiFiGANPlugin = _PluginStub
-
-HiFiGANPlugin = _HiFiGANPlugin
+MpSenetPlugin: Any = _optional_plugin_class("plugins.mp_senet_plugin", "MpSenetPlugin")
+UVRMDXNetPlugin: Any = _optional_plugin_class("plugins.uvr_mdxnet_plugin", "UVRMDXNetPlugin")
+BanquetVinylPlugin: Any = _optional_plugin_class("plugins.banquet_vinyl_plugin", "BanquetVinylPlugin")
+HiFiGANPlugin: Any = _optional_plugin_class("plugins.hifigan_plugin", "HiFiGANPlugin")
 
 # ConvTasNetPlugin: Import entfernt — Sprach-Separation (Luo 2019), nicht in §11.3
 
-try:
-    from plugins.diffwave_plugin import DiffWavePlugin as _DiffWavePlugin
-except Exception as _e:
-    _log.warning("DiffWavePlugin nicht verfügbar: %s", _e)
-    _DiffWavePlugin = _PluginStub
-
-DiffWavePlugin = _DiffWavePlugin
+DiffWavePlugin: Any = _optional_plugin_class("plugins.diffwave_plugin", "DiffWavePlugin")
 
 # WaveUNetPlugin: Import entfernt — Sprach-Separation (Stoller 2018), nicht in §11.3
 
-try:
-    from plugins.crepe_plugin import CREPEPlugin as _CREPEPlugin
-except Exception as _e:
-    _log.warning("CREPEPlugin nicht verfügbar: %s", _e)
-    _CREPEPlugin = _PluginStub
-
-CREPEPlugin = _CREPEPlugin
+CREPEPlugin: Any = _optional_plugin_class("plugins.crepe_plugin", "CREPEPlugin")
 
 # SOTAUniversalEnhancer: Import entfernt — orchestriert Sprach-NR (FullSubNetPlus), nicht §11.3
 # DNSMOSPlugin: Import entfernt — explizit verboten §4.4+§10.2 (Sprach-MOS)
@@ -313,64 +247,23 @@ CREPEPlugin = _CREPEPlugin
 
 # ViSQOLPlugin: Import entfernt — explizit verboten §4.4+§10.2 (Sprach-Qualitätsmetrik)
 
-try:
-    from plugins.audioldm2_plugin import AudioLDM2Plugin as _AudioLDM2Plugin
-except Exception as _e:
-    _log.warning("AudioLDM2Plugin nicht verfügbar: %s", _e)
-    _AudioLDM2Plugin = _PluginStub
-
-AudioLDM2Plugin = _AudioLDM2Plugin
-
-try:
-    from plugins.audiosr_plugin import AudioSRPlugin as _AudioSRPlugin
-except Exception as _e:
-    _log.warning("AudioSRPlugin nicht verfügbar: %s", _e)
-    _AudioSRPlugin = _PluginStub
-
-AudioSRPlugin = _AudioSRPlugin
+AudioLDM2Plugin: Any = _optional_plugin_class("plugins.audioldm2_plugin", "AudioLDM2Plugin")
+AudioSRPlugin: Any = _optional_plugin_class("plugins.audiosr_plugin", "AudioSRPlugin")
 
 # CDPAMPlugin: Import entfernt — explizit verboten §4.4+§10.2 (Speech-perceptual metric)
 
-try:
-    from plugins.gacela_plugin import GACELAPlugin as _GACELAPlugin
-except Exception as _e:
-    _log.warning("GACELAPlugin nicht verfügbar: %s", _e)
-    _GACELAPlugin = _PluginStub
-
-GACELAPlugin = _GACELAPlugin
-
-try:
-    from plugins.matchering_plugin import MatcheringPlugin as _MatcheringPlugin
-except Exception as _e:
-    _log.warning("MatcheringPlugin nicht verfügbar: %s", _e)
-    _MatcheringPlugin = _PluginStub
-
-MatcheringPlugin = _MatcheringPlugin
-
-try:
-    from plugins.panns_plugin import PANNSPlugin  # type: ignore[no-redef]
-except Exception as _e:
-    _log.warning("PANNSPlugin nicht verfügbar: %s", _e)
-
-try:
-    from plugins.silero_plugin import SileroPlugin as _SileroPlugin
-except Exception as _e:
-    _log.warning("SileroPlugin nicht verfügbar: %s", _e)
-    _SileroPlugin = _PluginStub
-
-SileroPlugin = _SileroPlugin
-
-try:
-    from plugins.bs_roformer_plugin import BSRoFormerPlugin as _BSRoFormerPlugin
-except Exception as _e:
-    _log.warning("BSRoFormerPlugin nicht verfügbar: %s", _e)
-    _BSRoFormerPlugin = _PluginStub
-
-BSRoFormerPlugin = _BSRoFormerPlugin
+GACELAPlugin: Any = _optional_plugin_class("plugins.gacela_plugin", "GACELAPlugin")
+MatcheringPlugin: Any = _optional_plugin_class("plugins.matchering_plugin", "MatcheringPlugin")
+PANNSPlugin: Any = _optional_plugin_class("plugins.panns_plugin", "PANNSPlugin")
+SileroPlugin: Any = _optional_plugin_class("plugins.silero_plugin", "SileroPlugin")
+BSRoFormerPlugin: Any = _optional_plugin_class("plugins.bs_roformer_plugin", "BSRoFormerPlugin")
 
 from .sota_maximum_analyzer import SOTAMaximumAnalyzer
 
 # v8.1: Advanced Vocal Separation (Feature #1 - Phase 1)
+HybridVocalSeparator: Any = None
+VocalSeparationSafetyWrapper: Any = None
+HIPSViolationError: Any = RuntimeError
 try:
     from .ml.inference_only.vocal_separation import HybridVocalSeparator
     from .ml.safety_wrappers.vocal_separation_safety import HIPSViolationError, VocalSeparationSafetyWrapper
@@ -381,6 +274,8 @@ except ImportError as e:
     VOCAL_SEPARATION_V8_AVAILABLE = False
 
 # v8.2: Conservative Pitch Correction (Feature #2 - Phase 1)
+ConservativePitchCorrector: Any = None
+PitchCorrectionSafetyWrapper: Any = None
 try:
     from .ml.inference_only.pitch_correction import ConservativePitchCorrector
     from .ml.safety_wrappers.pitch_correction_safety import PitchCorrectionSafetyWrapper
@@ -391,6 +286,7 @@ except ImportError as e:
     PITCH_CORRECTION_V8_AVAILABLE = False
 
 # v8.2: Unified Defect Detection (Feature #3 - Phase 1, Week 3-4)
+UnifiedDefectDetector: Any = None
 try:
     from .defect_detection import UnifiedDefectDetector
 
@@ -772,11 +668,12 @@ class AdaptiveProcessingPipeline:
 
         # Audio monitor tracking (if available)
         if hasattr(self, "audio_monitor"):
-            self.audio_monitor.track_operation(
-                "vocal_separation_v8", {"model": "hybrid_mdx_demucs_v5", "metrics": metrics}
-            )
+            track_operation = getattr(cast(Any, self.audio_monitor), "track_operation", None)
+            if callable(track_operation):
+                track_operation("vocal_separation_v8", {"model": "hybrid_mdx_demucs_v5", "metrics": metrics})
 
-        return stems
+        stems_dict: dict[str, np.ndarray] = cast(dict[str, np.ndarray], stems)
+        return stems_dict
 
     def correct_pitch_v8(
         self, audio: np.ndarray, sr: int, use_safety_wrapper: bool = True, **kwargs
@@ -862,18 +759,20 @@ class AdaptiveProcessingPipeline:
 
         # Audio monitor tracking (if available)
         if hasattr(self, "audio_monitor"):
-            self.audio_monitor.track_operation(
-                "pitch_correction_v8",
-                {
-                    "corrected": metadata.get("corrected", False),
-                    "dcs": metadata.get("dcs", 0.0),
-                    "epistemic_confidence": metadata.get("epistemic_confidence", 0.0),
-                },
-            )
+            track_operation = getattr(cast(Any, self.audio_monitor), "track_operation", None)
+            if callable(track_operation):
+                track_operation(
+                    "pitch_correction_v8",
+                    {
+                        "corrected": metadata.get("corrected", False),
+                        "dcs": metadata.get("dcs", 0.0),
+                        "epistemic_confidence": metadata.get("epistemic_confidence", 0.0),
+                    },
+                )
 
         return audio_corrected, metadata
 
-    def analyze_defects_v8(self, audio: np.ndarray, sr: int, quick_scan: bool = False) -> dict:
+    def analyze_defects_v8(self, audio: np.ndarray, sr: int, quick_scan: bool = False) -> dict[str, Any]:
         """
         v8.2: Unified defect detection and treatment recommendation
 
@@ -938,7 +837,8 @@ class AdaptiveProcessingPipeline:
             report = self.defect_detector_v8.analyze(audio, sr)
 
             # Convert to serializable dictionary
-            return report.to_dict()
+            report_dict: dict[str, Any] = cast(dict[str, Any], report.to_dict())
+            return report_dict
 
         except Exception as e:
             logger.error("Defect analysis failed: %s", e, exc_info=True)
@@ -1010,7 +910,7 @@ class AdaptiveProcessingPipeline:
         self.log.append({"step": "media_chain_detection", "media_chain": media_chain})
 
         # --- Materialklassifikations-Konfliktregel nach copilot-instructions.md ---
-        def resolve_material_conflict(era_result, medium_result, defect_results, conflict_logger):
+        def resolve_material_conflict(era_result, medium_result, defect_results, conflict_logger) -> dict[str, Any]:
             # 1. Höhere Konfidenz gewinnt
             era_type = _result_field(era_result, "material_type", "primary_material")
             era_conf = float(_result_field(era_result, "confidence", default=0.0) or 0.0)
@@ -1099,7 +999,7 @@ class AdaptiveProcessingPipeline:
         # Defekt- und Störungserkennung direkt nach Medienkette/Analyse
         # (Hier ggf. eigene Methode oder Modul für Defekterkennung einbinden)
         try:
-            defect_results = self.defect_detector.detect(audio_np, sr_audio, features)
+            defect_results = self.analyze_defects_v8(audio_np, sr_audio, quick_scan=True)
             self.log.append({"step": "defect_detection", "defects": defect_results})
             logger.info("Defekt-/Störungserkennung abgeschlossen: %s", defect_results)
             # Defektergebnisse in Features/Maßnahmenkette übernehmen
@@ -1131,7 +1031,9 @@ class AdaptiveProcessingPipeline:
         logger.info("Ethics Decision: %s - %s", ethics_report.decision.value, ethics_report.reasoning)
 
         # Ergebnis-Container für ALLE Ethics-Pfade (muss vor dem Ethics-Gate stehen)
-        results = {"steps": [], "quality": [], "log": [], "ethics_decision": None}
+        steps: list[dict[str, Any]] = []
+        quality_results: list[Any] = []
+        results: dict[str, Any] = {"steps": steps, "quality": quality_results, "log": [], "ethics_decision": None}
         phase_count = 0
         total_phases = 4
         current_audio = audio_bytes
@@ -1171,7 +1073,7 @@ class AdaptiveProcessingPipeline:
             self.audio_monitor.start_module("restoration")
 
             res = self._restoration(current_audio, features, policy or goal, context)
-            results["steps"].append(res)
+            steps.append(res)
             current_audio = res["audio"]  # Output wird Input für nächste Phase
 
             # Monitor: End module
@@ -1200,7 +1102,7 @@ class AdaptiveProcessingPipeline:
             self.audio_monitor.start_module("repair")
 
             res = self._repair(current_audio, features, policy or goal, context)
-            results["steps"].append(res)
+            steps.append(res)
             current_audio = res["audio"]  # Output wird Input für nächste Phase
 
             # Monitor: End module
@@ -1229,7 +1131,7 @@ class AdaptiveProcessingPipeline:
             self.audio_monitor.start_module("reconstruction")
 
             res = self._reconstruction(current_audio, features, policy or goal, context)
-            results["steps"].append(res)
+            steps.append(res)
             current_audio = res["audio"]  # Output wird Input für nächste Phase
 
             # Monitor: End module
@@ -1258,7 +1160,7 @@ class AdaptiveProcessingPipeline:
             self.audio_monitor.start_module("remastering")
 
             res = self._remastering(current_audio, features, policy or goal, context)
-            results["steps"].append(res)
+            steps.append(res)
             current_audio = res["audio"]  # Output wird Input für nächste Phase
 
             # Monitor: End module
@@ -1276,15 +1178,15 @@ class AdaptiveProcessingPipeline:
             self.logger.info("✅ Remastering abgeschlossen.")
 
         # 4. Qualitätskontrolle nach jedem Schritt
-        for step in results["steps"]:
+        for step in steps:
             qc_result = self.quality_control.psychoacoustic_score(step["audio"], features.get("sr", 44100))
-            results["quality"].append(qc_result)
+            quality_results.append(qc_result)
             self.log.append({"step": step["name"], "quality": qc_result})
             self.logger.info("Qualitätskontrolle für %s: %s", step["name"], qc_result)
 
         # 5. Mastering/Postprocessing (immer am Ende, vor Export)
-        if results["steps"]:
-            last = results["steps"][-1]
+        if steps:
+            last = steps[-1]
             # Audio-Bytes in numpy-Array
             audio, sr = _decode_audio_bytes_canonical(last["audio"])
             # Sicherstellen, dass mastering_chain importiert ist
@@ -1833,7 +1735,7 @@ class AdaptiveProcessingPipeline:
 # ==============================================================================
 
 
-class AdaptiveProcessingPipelineV2:
+class AdaptiveProcessingPipelineV2(AdaptiveProcessingPipeline):
     """
     Aktualisierte Pipeline mit formalen RestaurationJob-Datenstrukturen.
 
@@ -1916,7 +1818,7 @@ class AdaptiveProcessingPipelineV2:
         from pathlib import Path
         from uuid import uuid4
 
-        from backend.core.data_models import AudioFile, ResturationJob
+        from backend.core.data_models import AnalysisProfile, AudioFile, ResturationJob
         from backend.file_import import load_audio_file
 
         # 1. Create ResturationJob with UUID
@@ -1945,7 +1847,7 @@ class AdaptiveProcessingPipelineV2:
 
         # 2. Run analysis → create AnalysisProfile
         self.logger.info("Running audio analysis...")
-        analysis_profile = self.analysis_engine.analyze(audio, sr, input_audio_path)
+        analysis_profile = cast(AnalysisProfile, self.analysis_engine.analyze(audio, sr, input_audio_path))
 
         # 3. Create ResturationJob
         job = ResturationJob(
@@ -2028,7 +1930,7 @@ class AdaptiveProcessingPipelineV2:
 
         # 6. Final analysis and quality report
         self.logger.info("Calculating final CAS...")
-        final_analysis = self.analysis_engine.analyze(current_audio, sr)
+        final_analysis = cast(AnalysisProfile, self.analysis_engine.analyze(current_audio, sr))
 
         final_cas, _final_scores = self.ajm.cas_calculator.calculate_cas(
             current_audio,
@@ -2105,7 +2007,9 @@ class AdaptiveProcessingPipelineV2:
             os.remove(tmp_in.name)
 
         # Calculate CAS before
-        analysis_before = self.analysis_engine.analyze(audio, sr)
+        from backend.core.data_models import AnalysisProfile
+
+        analysis_before = cast(AnalysisProfile, self.analysis_engine.analyze(audio, sr))
         cas_before, _ = self.ajm.cas_calculator.calculate_cas(
             audio, sr, analysis_before, genre=job.analysis_profile.musical_context.genre
         )
@@ -2120,13 +2024,13 @@ class AdaptiveProcessingPipelineV2:
 
         # Call appropriate processing method
         if operation == "restoration":
-            result = self._restoration(audio_bytes, {"sr": sr}, goal)
+            result = self._restoration(audio_bytes, {"sr": sr}, goal, context)
         elif operation == "repair":
-            result = self._repair(audio_bytes, {"sr": sr}, goal)
+            result = self._repair(audio_bytes, {"sr": sr}, goal, context)
         elif operation == "reconstruction":
-            result = self._reconstruction(audio_bytes, {"sr": sr}, goal)
+            result = self._reconstruction(audio_bytes, {"sr": sr}, goal, context)
         elif operation == "remastering":
-            result = self._remastering(audio_bytes, {"sr": sr, "audio": audio}, goal)
+            result = self._remastering(audio_bytes, {"sr": sr, "audio": audio}, goal, context)
         else:
             # Pass-through
             result = {"audio": audio_bytes}
@@ -2143,7 +2047,7 @@ class AdaptiveProcessingPipelineV2:
             os.remove(tmp_out.name)
 
         # Calculate CAS after
-        analysis_after = self.analysis_engine.analyze(processed_audio, sr)
+        analysis_after = cast(AnalysisProfile, self.analysis_engine.analyze(processed_audio, sr))
         cas_after, _ = self.ajm.cas_calculator.calculate_cas(
             processed_audio,
             sr,
@@ -2191,12 +2095,6 @@ class AdaptiveProcessingPipelineV2:
     def _needs_remastering(self, context, goal):
         del context
         return goal.get("quality_level") == "maximal"
-
-    # Copy processing methods from AdaptiveProcessingPipeline (for backward compat)
-    def _restoration(self, audio_bytes, features, goal):
-        # Delegate to original pipeline
-        pipeline = AdaptiveProcessingPipeline()
-        return pipeline.restoration(audio_bytes, features, goal)
 
     # === VERALTET: Alte Stub-Methoden entfernt ===
     # Context wird jetzt korrekt aus Phase 1 durchgereicht

@@ -284,9 +284,18 @@ Exit-Codes: 0=OK, 1=Goal-Fails, 2=Pipeline-Fehler, 3=Import-Fehler
         try:
             import soundfile as sf
 
+            from backend.api.bridge import export_guard
+
             _audio_out = getattr(result, "audio", None)
             if _audio_out is not None:
-                sf.write(args.out, _audio_out, 48000)
+                out_path = Path(args.out)
+                tmp_path = out_path.with_suffix(out_path.suffix + ".tmp")
+                try:
+                    sf.write(tmp_path, export_guard(_audio_out), 48000)
+                    tmp_path.replace(out_path)
+                finally:
+                    if tmp_path.exists():
+                        tmp_path.unlink(missing_ok=True)
                 print(f"\n✓ Audio gespeichert: {args.out}", file=sys.stderr)
             else:
                 print("\n⚠ Kein Audio in Result — --out ignoriert", file=sys.stderr)

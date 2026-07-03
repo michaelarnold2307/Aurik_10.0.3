@@ -69,6 +69,30 @@ def test_uv3_final_export_exception_normalizes_and_reapplies_human_hearing_guard
     assert exception_idx < normalize_idx < hhc_idx < fail_reason_idx < result_idx
 
 
+def test_gui_fallback_export_reapplies_export_guard_after_final_audio_mutations() -> None:
+    """GUI-Fallback-WAV muss unmittelbar vor sf.write erneut export_guard nutzen."""
+    repo_root = Path(__file__).resolve().parents[2]
+    src = (repo_root / "Aurik910" / "ui" / "modern_window.py").read_text(encoding="utf-8")
+
+    quiet_edge_idx = src.index("Fallback quiet-edge guard skipped")
+    guard_idx = src.index("_fallback_audio = _export_guard(_fallback_audio)", quiet_edge_idx)
+    write_idx = src.index('sf.write(_tmp_path, _fallback_audio, write_sr, format="WAV", subtype="PCM_24")', guard_idx)
+
+    assert quiet_edge_idx < guard_idx < write_idx
+
+
+def test_kmv_stage2_write_audio_sanitizes_before_disk_write() -> None:
+    """KMV-Stufe-2 darf keine NaN/Inf/Out-of-range-Samples in den Temp-Export schreiben."""
+    repo_root = Path(__file__).resolve().parents[2]
+    src = (repo_root / "Aurik910" / "ui" / "ml_refinement_thread.py").read_text(encoding="utf-8")
+
+    fn_idx = src.index("def _write_audio(")
+    guard_idx = src.index("np.nan_to_num", fn_idx)
+    write_idx = src.index("sf.write(path, mono_or_stereo", guard_idx)
+
+    assert fn_idx < guard_idx < write_idx
+
+
 # ─── Hilfs-Generatoren ───────────────────────────────────────────────────────
 
 

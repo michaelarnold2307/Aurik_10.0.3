@@ -15,6 +15,7 @@ import numpy as np
 import soundfile as sf
 from flask import Flask, jsonify
 
+from backend.api.bridge import export_guard
 from backend.file_import import load_audio_file
 
 try:
@@ -68,7 +69,13 @@ def batch_worker() -> None:
             audio, sr = _loaded["audio"], int(_loaded["sr"])
             object.__setattr__(logic, "output_path_hint", out_path)
             result = logic.process(audio, sr)
-            sf.write(out_path, result, sr)
+            tmp_path = out_path.with_suffix(out_path.suffix + ".tmp")
+            try:
+                sf.write(tmp_path, export_guard(result), sr)
+                tmp_path.replace(out_path)
+            finally:
+                if tmp_path.exists():
+                    tmp_path.unlink(missing_ok=True)
         except Exception as e:
             logger.error("[BatchAPI] Fehler bei %s: %s", in_path, e)
         BATCH_STATUS["progress"] = idx + 1

@@ -263,8 +263,18 @@ def export_audio(
     metadata.export_strategy = export_strategy
 
     try:
+        audio = np.asarray(audio, dtype=np.float32)
+        audio = np.nan_to_num(audio, nan=0.0, posinf=0.0, neginf=0.0)
+        audio = np.clip(audio, -1.0, 1.0)
+
         # Write audio file
-        sf.write(export_path, audio, sr, format=format.upper(), subtype=fmt_info["subtype"])
+        tmp_export_path = export_path + ".tmp"
+        try:
+            sf.write(tmp_export_path, audio, sr, format=format.upper(), subtype=fmt_info["subtype"])
+            os.replace(tmp_export_path, export_path)
+        finally:
+            if os.path.exists(tmp_export_path):
+                os.remove(tmp_export_path)
 
         # Write sidecar metadata (JSON) for formats that don't support embedded tags
         if metadata:
