@@ -193,6 +193,11 @@ def synthesize_human_hearing_comfort_profile(
         "hf_lift_cap_db": _clamp(
             0.65 + 0.75 * dullness_risk - 0.25 * fatigue + (0.15 if mode_is_studio else 0.0), 0.35, 1.35
         ),
+        "noise_floor_relative_cap_db": _clamp(
+            0.65 - 0.25 * fatigue - 0.20 * overprocessing_risk - 0.10 * vocal_priority + 0.10 * budget,
+            0.20,
+            1.20,
+        ),
         "warmth_presence_balance": _clamp(0.45 + 0.30 * dullness_risk + 0.20 * fatigue, 0.0, 1.0),
         "dynamic_smoothing_tolerance": _clamp(
             0.25 - 0.18 * transient_protection - 0.20 * overprocessing_risk, 0.0, 0.35
@@ -205,8 +210,12 @@ def synthesize_human_hearing_comfort_profile(
         for key, value in explicit.items():
             if key in profile:
                 if key.endswith("_db"):
-                    upper = 3.0 if key == "peak_overshoot_cap_db" else 1.35
-                    lower = 2.2 if key == "peak_overshoot_cap_db" else 0.0
+                    if key == "peak_overshoot_cap_db":
+                        lower, upper = 2.2, 3.0
+                    elif key == "noise_floor_relative_cap_db":
+                        lower, upper = 0.20, 1.20
+                    else:
+                        lower, upper = 0.0, 1.35
                     profile[key] = _clamp(value, lower, upper, profile[key])
                 else:
                     profile[key] = _clamp(value, 0.0, 1.0, profile[key])

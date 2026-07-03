@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 from typing import Any
@@ -14,8 +15,41 @@ from tests.test_uat_acceptance_criteria import (
     _noise_floor_dbfs,
     _run_real_audio_restore_with_timeout,
     _safe_corr,
+    _to_mono,
     _to_samples_first,
 )
+
+_TRACKED_PERCEPTUAL_GOALS = (
+    "tonal_center",
+    "micro_dynamics",
+    "transparenz",
+    "waerme",
+    "brillanz",
+    "vocal_quality",
+)
+
+
+def _comfort_delta_score(
+    *,
+    floor_before: float,
+    floor_after_cmp: float,
+    lufs_before: float,
+    lufs_after: float,
+    corr_before: float,
+    corr_after: float,
+) -> float:
+    noise_delta = float(np.clip((floor_before - floor_after_cmp) / 6.0, -1.0, 1.0))
+    loudness_stability = float(np.clip((0.75 - abs(lufs_after - lufs_before)) / 3.0, -1.0, 1.0))
+    stereo_delta = float(np.clip((corr_before - corr_after) / 2.0, -1.0, 1.0))
+    return float(np.clip(0.55 * noise_delta + 0.30 * loudness_stability + 0.15 * stereo_delta, -1.0, 1.0))
+
+
+def _write_worldclass_corpus_report(report: dict[str, Any]) -> None:
+    out_path = Path(os.environ.get("AURIK_REAL_AUDIO_CORPUS_REPORT", "reports/worldclass/real_audio_corpus_gate.json"))
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = out_path.with_suffix(out_path.suffix + ".tmp")
+    tmp_path.write_text(json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8")
+    tmp_path.replace(out_path)
 
 
 @pytest.mark.normative
@@ -55,7 +89,13 @@ def test_real_audio_corpus_restore_no_harm_gate(
     ml_budget_s = float(os.environ.get("AURIK_REAL_AUDIO_CORPUS_ML_RUNTIME_BUDGET_S", "2.0") or 2.0)
     timeout_s = float(os.environ.get("AURIK_REAL_AUDIO_CORPUS_RESTORE_TIMEOUT_S", "300") or 300.0)
 
+    from backend.core.musical_goals.musical_goals_metrics import MusicalGoalsChecker
+
+    checker = MusicalGoalsChecker(mode="restoration")
     checked: list[str] = []
+    report_cases: list[dict[str, Any]] = []
+    comfort_delta_scores: list[float] = []
+    best_goal_deltas: list[float] = []
     for case in real_audio_corpus_cases[:limit]:
         sr = int(case["sr"])
         original = _to_samples_first(np.asarray(case["audio"], dtype=np.float32))
@@ -104,6 +144,82 @@ def test_real_audio_corpus_restore_no_harm_gate(
             f"Rauschboden-Korpusregression: {case['path']} {floor_before:.2f}->{floor_after_cmp:.2f} "
             f"material={material_key} limit=+{allowance_db:.1f}dB"
         )
+
+        original_mono = _to_mono(original)
+        restored_mono = _to_mono(restored)
+        goals_before = checker.measure_all(original_mono, sr)
+        goals_after = checker.measure_all(restored_mono, sr, reference=original_mono)
+        goal_deltas = {
+            goal: float(goals_after.get(goal, 0.0) - goals_before.get(goal, 0.0))
+            for goal in _TRACKED_PERCEPTUAL_GOALS
+            if goal in goals_before or goal in goals_after
+        }
+        priority_deltas = {
+            goal: delta
+            for goal, delta in goal_deltas.items()
+            if goal in {"tonal_center", "micro_dynamics", "vocal_quality"}
+        }
+        worst_priority_delta = min(priority_deltas.values(), default=0.0)
+        best_delta = max(goal_deltas.values(), default=0.0)
+        comfort_delta = _comfort_delta_score(
+            floor_before=floor_before,
+            floor_after_cmp=floor_after_cmp,
+            lufs_before=lufs_before,
+            lufs_after=lufs_after,
+            corr_before=corr_before,
+            corr_after=corr_after,
+        )
+        assert worst_priority_delta >= -0.18, (
+            f"Perzeptuelle P0/P2-Regression im Korpusfall: {case['path']} "
+            f"worst={worst_priority_delta:.3f} deltas={goal_deltas}"
+        )
+        assert best_delta >= -0.02, (
+            f"Kein stabiler perzeptueller Zielvektor im Korpusfall: {case['path']} deltas={goal_deltas}"
+        )
+        assert comfort_delta > 0.0, (
+            f"Human-Hearing-Comfort-Regression im Korpusfall: {case['path']} "
+            f"comfort_delta={comfort_delta:.3f} floor={floor_before:.2f}->{floor_after_cmp:.2f} "
+            f"lufs={lufs_before:.2f}->{lufs_after:.2f} corr={corr_before:.3f}->{corr_after:.3f}"
+        )
+
+        comfort_delta_scores.append(comfort_delta)
+        best_goal_deltas.append(best_delta)
+
+        report_cases.append(
+            {
+                "path": str(case["path"]),
+                "material_type": material_key,
+                "samples": int(n),
+                "sr": int(sr),
+                "stereo_corr_before": round(float(corr_before), 6),
+                "stereo_corr_after": round(float(corr_after), 6),
+                "noise_floor_before_dbfs": round(float(floor_before), 3),
+                "noise_floor_after_cmp_dbfs": round(float(floor_after_cmp), 3),
+                "lufs_before": round(float(lufs_before), 3),
+                "lufs_after": round(float(lufs_after), 3),
+                "goal_deltas": {key: round(float(value), 6) for key, value in sorted(goal_deltas.items())},
+                "best_goal_delta": round(float(best_delta), 6),
+                "human_hearing_comfort_delta": round(float(comfort_delta), 6),
+                "worst_priority_delta": round(float(worst_priority_delta), 6),
+                "verdict": "PASS",
+            }
+        )
         checked.append(str(case["path"]))
 
     assert len(checked) == min(limit, len(real_audio_corpus_cases))
+    mean_comfort_delta = float(np.mean(comfort_delta_scores)) if comfort_delta_scores else 0.0
+    mean_best_goal_delta = float(np.mean(best_goal_deltas)) if best_goal_deltas else 0.0
+    assert mean_comfort_delta > 0.0, f"Korpus-Comfort-Gesamtdelta nicht positiv: {mean_comfort_delta:.3f}"
+    _write_worldclass_corpus_report(
+        {
+            "gate": "real_audio_corpus_positive_comfort_delta",
+            "case_count": len(report_cases),
+            "cases": report_cases,
+            "summary": {
+                "mean_best_goal_delta": round(mean_best_goal_delta, 6),
+                "mean_human_hearing_comfort_delta": round(mean_comfort_delta, 6),
+                "min_human_hearing_comfort_delta": round(float(min(comfort_delta_scores, default=0.0)), 6),
+            },
+            "verdict": "PASS",
+        }
+    )

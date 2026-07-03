@@ -91,6 +91,7 @@ def test_human_hearing_comfort_profile_is_synthesized_from_denker_policy() -> No
     assert 2.2 <= profile["peak_overshoot_cap_db"] <= 3.0
     assert 0.45 <= profile["hf_loss_tolerance_db"] <= 1.05
     assert 0.35 <= profile["hf_lift_cap_db"] <= 1.35
+    assert 0.20 <= profile["noise_floor_relative_cap_db"] <= 1.20
     assert profile["fatigue_sensitivity"] > 0.4
     assert profile["dullness_risk"] > 0.5
     assert profile["dynamic_smoothing_tolerance"] < 0.25
@@ -118,6 +119,7 @@ def test_strategie_denker_exports_human_hearing_comfort_profile() -> None:
     assert "human_hearing_comfort_profile" in serialized
     assert serialized["human_hearing_comfort_profile"]["peak_overshoot_cap_db"] <= 3.0
     assert serialized["human_hearing_comfort_profile"]["hf_lift_cap_db"] > 0.0
+    assert serialized["human_hearing_comfort_profile"]["noise_floor_relative_cap_db"] <= 1.20
 
 
 def test_phases_do_not_read_song_goal_weights_directly() -> None:

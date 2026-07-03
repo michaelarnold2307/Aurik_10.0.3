@@ -14730,7 +14730,11 @@ class UnifiedRestorerV3:
                 hhc_hf_loss_db = float(hhc_policy.get("hf_loss_tolerance_db", 0.75))
                 hhc_hf_lift_db = float(hhc_policy.get("hf_lift_cap_db", 1.2))
                 _hhc_mat = str(getattr(material_type, "value", material_type) or "unknown").lower()
-                hhc_noise_floor_db = 1.2 if _hhc_mat in {"mp3_low", "mp3_high", "aac", "streaming"} else 1.7
+                _hhc_material_floor_cap_db = 0.25 if _hhc_mat in {"mp3_low", "mp3_high", "aac", "streaming"} else 0.80
+                hhc_noise_floor_db = min(
+                    _hhc_material_floor_cap_db,
+                    float(hhc_policy.get("noise_floor_relative_cap_db", _hhc_material_floor_cap_db)),
+                )
                 _hhc_result = apply_human_hearing_comfort_guard(
                     original_audio_for_goals,
                     restored_audio,
@@ -14750,6 +14754,7 @@ class UnifiedRestorerV3:
                         "hf_loss_db_before": float(_hhc_result.hf_loss_db_before),
                         "hf_loss_db_after": float(_hhc_result.hf_loss_db_after),
                         "hf_lift_db": float(_hhc_result.hf_lift_db),
+                        "noise_floor_relative_cap_db": float(hhc_noise_floor_db),
                         "noise_floor_clamp_db": float(_hhc_result.noise_floor_clamp_db),
                     }
         except Exception as _hhc_exc:
@@ -17479,15 +17484,29 @@ class UnifiedRestorerV3:
         try:
             from backend.core.dsp.human_hearing_comfort_guard import apply_human_hearing_comfort_guard as _hhc_final
 
+            _hhc_final_policy = get_human_hearing_comfort_profile(
+                (getattr(self, "_restoration_context", None) or {}).get("restoration_policy_profile")
+            )
+            _hhc_final_mat = str(getattr(material_type, "value", material_type) or "unknown").lower()
+            _hhc_final_material_cap_db = 0.25 if _hhc_final_mat in {"mp3_low", "mp3_high", "aac", "streaming"} else 0.80
+            _hhc_final_noise_cap_db = min(
+                _hhc_final_material_cap_db,
+                float(_hhc_final_policy.get("noise_floor_relative_cap_db", _hhc_final_material_cap_db)),
+            )
             _hhc_final_result = _hhc_final(
                 analysis_audio,
                 restored_audio,
                 int(original_sample_rate),
-                max_relative_noise_floor_db=1.2,
+                max_peak_overshoot_db=float(_hhc_final_policy.get("peak_overshoot_cap_db", 3.0)),
+                max_hf_loss_db=float(_hhc_final_policy.get("hf_loss_tolerance_db", 0.75)),
+                max_hf_lift_db=float(_hhc_final_policy.get("hf_lift_cap_db", 1.2)),
+                max_relative_noise_floor_db=_hhc_final_noise_cap_db,
             )
             restored_audio = _hhc_final_result.audio
             _final_output_layout_meta["human_hearing_comfort_guard"] = {
                 "applied": bool(_hhc_final_result.applied),
+                "policy": dict(_hhc_final_policy),
+                "noise_floor_relative_cap_db": float(_hhc_final_noise_cap_db),
                 "noise_floor_clamp_db": float(_hhc_final_result.noise_floor_clamp_db),
             }
         except Exception as _hhc_final_exc:
