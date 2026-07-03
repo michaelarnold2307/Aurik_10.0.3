@@ -56,9 +56,9 @@ Export (backend/exporter.py)
 - **Formatierung:** Black 120er Zeilenlänge
 - **Namensgebung:** snake_case (PEP8), Math-Variablen (N, X, sr)
 
-## 🔄 CI/CD-Pipeline (fix/lint-perf-lpc-v9-12-10)
+## 🔄 CI/CD-Pipeline (Aurik 9.20.3)
 
-**Status:** 49 Dateien in aktiver Verbesserung
+**Status:** aktiver 9.20.3-Qualitaetsbranch
 
 - DSP-Verbesserungen (LPC, NMR, Formanten-Tracking)
 - Backend-Optimierungen (Phasenmapper, Kalibrierung)
