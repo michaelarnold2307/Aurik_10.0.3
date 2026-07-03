@@ -184,6 +184,7 @@ def load_audio_file(
         "duration": None,
         "meta": {},
         "carrier": None,
+        "input_channels": None,
         "error": None,
     }
     try:
@@ -219,7 +220,8 @@ def load_audio_file(
                 result["channels"] = _info.channels
                 result["sr"] = _info.samplerate
                 result["duration"] = _info.duration
-                result["meta"] = dict(getattr(_info, "extra_info", {}) or {})
+                _extra_info = getattr(_info, "extra_info", "") or ""
+                result["meta"] = {"extra_info": str(_extra_info)} if _extra_info else {}
             except Exception:
                 result["format"] = _ext[1:].upper()
         else:
@@ -355,6 +357,7 @@ def load_audio_file(
             result["error"] = "Audio read error: kein Audio dekodiert"
             return result
         audio_work: np.ndarray = _require_audio_array(audio)
+        _input_channels = int(result.get("channels") or (1 if audio_work.ndim == 1 else audio_work.shape[-1]))
 
         # ── Post-processing ──────────────────────────────────────────────────
         # Spec §2.47: nur Mono und Stereo unterstützt. > 2 Kanäle → gewichteter Downmix.
@@ -446,9 +449,10 @@ def load_audio_file(
 
         result["audio"] = audio_work
         result["sr"] = sr
+        result["input_channels"] = _input_channels
         result["channels"] = 1 if audio_work.ndim == 1 else audio_work.shape[-1]
         result["format"] = result["format"] or _ext[1:].upper()
-        result["duration"] = result["duration"] or (len(audio_work) / sr)
+        result["duration"] = float(audio_work.shape[0] / sr)
         result["interchannel_lag_samples_before"] = int(_import_lag_before)
         result["interchannel_lag_samples_after"] = int(_import_lag_after)
         # Carrier detection (heuristic + forensics)
