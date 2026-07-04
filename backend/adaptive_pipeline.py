@@ -1908,47 +1908,48 @@ class AdaptiveProcessingPipelineV2(AdaptiveProcessingPipeline):
         context = self.context_analyzer.analyze(audio)
         goal = self.goal_engine.define_goal(context)
 
-        # Process each step and track
-        if self._needs_restoration(context, goal):
-            current_audio, step_counter = self._process_step_with_tracking(
-                job,
-                current_audio,
-                sr,
-                "restoration",
-                "denoise+declick",
-                step_counter,
-                context,
-                goal,
-            )
-
-        if self._needs_repair(context, goal):
-            current_audio, step_counter = self._process_step_with_tracking(
-                job, current_audio, sr, "repair", "declip", step_counter, context, goal
-            )
-
-        if self._needs_reconstruction(context, goal):
-            current_audio, step_counter = self._process_step_with_tracking(
-                job,
-                current_audio,
-                sr,
-                "reconstruction",
-                "source_separation",
-                step_counter,
-                context,
-                goal,
-            )
-
-        if self._needs_remastering(context, goal):
-            current_audio, step_counter = self._process_step_with_tracking(
-                job,
-                current_audio,
-                sr,
-                "remastering",
-                "mastering_chain",
-                step_counter,
-                context,
-                goal,
-            )
+        # ── §v10 STEERING-AWARE STEP PROCESSING ──
+        from backend.core.quality_feedback_loop import steer_pipeline, SteerAction, reset_steer_state
+        reset_steer_state()
+        best_audio = current_audio.copy()
+        step_types = [
+            ("restoration", "denoise+declick", self._needs_restoration(context, goal)),
+            ("repair", "declip", self._needs_repair(context, goal)),
+            ("reconstruction", "source_separation", self._needs_reconstruction(context, goal)),
+            ("remastering", "mastering_chain", self._needs_remastering(context, goal)),
+        ]
+        total_steps = sum(1 for _, _, n in step_types if n)
+        action = SteerAction.CONTINUE
+        for op, model, needed in step_types:
+            if not needed: continue
+            pre = current_audio.copy()
+            for retry in range(3):
+                current_audio, step_counter = self._process_step_with_tracking(
+                    job, current_audio, sr, op, model, step_counter, context, goal)
+                hpe_delta = 0.0
+                try:
+                    from backend.core.human_pleasantness_estimator import compare_pleasantness
+                    c = compare_pleasantness(np.asarray(pre,dtype=np.float32),np.asarray(current_audio,dtype=np.float32),sr)
+                    hpe_delta = float(c.get("delta_score",0.0))
+                except Exception: pass
+                action, reason = steer_pipeline(0.0, hpe_delta, op, step_counter, total_steps)
+                if action == SteerAction.CONTINUE:
+                    if hpe_delta > 0: best_audio = current_audio.copy()
+                    self.logger.info("Steering %s: %+.3f CONTINUE", op, hpe_delta)
+                    break
+                elif action == SteerAction.RETRY_LIGHTER and retry < 2:
+                    self.logger.warning("Steering %s: %+.3f RETRY %d", op, hpe_delta, retry+1)
+                    current_audio = pre.copy()
+                elif action == SteerAction.SKIP:
+                    self.logger.warning("Steering %s: %+.3f SKIP", op, hpe_delta)
+                    current_audio = pre; break
+                elif action == SteerAction.ROLLBACK:
+                    self.logger.error("Steering %s: %+.3f ROLLBACK", op, hpe_delta)
+                    current_audio = best_audio; break
+                elif action == SteerAction.STOP_GRACEFUL:
+                    self.logger.info("Steering %s: %+.3f STOP", op, hpe_delta); break
+                else: break
+            if action in (SteerAction.ROLLBACK, SteerAction.STOP_GRACEFUL): break
 
         # 6. Final analysis and quality report
         self.logger.info("Calculating final CAS...")
