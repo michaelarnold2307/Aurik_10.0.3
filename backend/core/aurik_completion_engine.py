@@ -462,12 +462,12 @@ def apply_dynamic_eq(
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# 8. EARLY_STOP — Genug-ist-genug
+# 8. EARLY_STOP — Adaptiv, kein fixes Prozent-Limit
 # ═══════════════════════════════════════════════════════════════════════════
 
-EARLY_STOP_THRESHOLD = 0.045  # HPE-Verbesserung unter diesem Wert → Stopp
-EARLY_STOP_LOOKBACK = 3  # So viele Phasen rückwärts prüfen
-EARLY_STOP_AFTER_PHASE_RATIO = 0.6  # Frühestens nach 60% der Phasen
+EARLY_STOP_THRESHOLD = 0.008   # HPE < 0.008 = nahezu unhörbar
+EARLY_STOP_LOOKBACK = 4         # So viele Phasen rückwärts prüfen
+EARLY_STOP_MIN_PHASES = 8       # Mindestens 8 Phasen bevor Stop erlaubt
 
 
 def should_early_stop(
@@ -475,30 +475,31 @@ def should_early_stop(
     total_phases: int,
     completed_phases: int,
 ) -> tuple[bool, str]:
-    """Prüft ob weitere Phasen noch nennenswerte Verbesserung bringen.
+    """Adaptiver Early-Stop: Nur wenn Verbesserung nahezu unhörbar.
 
-    Args:
-        hpe_history: Liste der HPE-Werte nach jeder Phase
-        total_phases: Gesamtzahl der Phasen
-        completed_phases: Bereits abgeschlossene Phasen
-
-    Returns:
-        (should_stop, reason)
+    KEIN fixes Prozent-Limit. Phase 35 mit +0.05 HPE läuft weiter.
+    Nur wenn die letzten LOOKBACK Phasen ALLE < THRESHOLD brachten,
+    ist das Plateau erreicht und weitere Phasen sind unhörbar.
     """
-    if completed_phases < total_phases * EARLY_STOP_AFTER_PHASE_RATIO:
-        return False, ""
-
     if len(hpe_history) < EARLY_STOP_LOOKBACK + 1:
+        return False, ""
+    if completed_phases < EARLY_STOP_MIN_PHASES:
         return False, ""
 
     recent = hpe_history[-EARLY_STOP_LOOKBACK:]
     improvements = [recent[i] - recent[i-1] for i in range(1, len(recent))]
+    max_imp = max(abs(imp) for imp in improvements)
 
-    if all(abs(imp) < EARLY_STOP_THRESHOLD for imp in improvements):
+    # Wenn eine der letzten Phasen noch > 0.05 brachte → definitiv weitermachen
+    if any(imp > 0.05 for imp in improvements):
+        return False, ""
+
+    # Alle Verbesserungen < 0.008 → Plateau, unhörbar
+    if max_imp < EARLY_STOP_THRESHOLD:
         return True, (
             f"Genug-ist-genug: Letzte {EARLY_STOP_LOOKBACK} Phasen brachten "
-            f"< {EARLY_STOP_THRESHOLD:.3f} HPE-Verbesserung. "
-            f"({completed_phases}/{total_phases} Phasen, Stopp bei {int(EARLY_STOP_AFTER_PHASE_RATIO*100)}%)"
+            f"max {max_imp:.4f} HPE — unterhalb der Hörschwelle "
+            f"({EARLY_STOP_THRESHOLD:.3f}). {completed_phases}/{total_phases} Phasen"
         )
 
     return False, ""
