@@ -67,20 +67,20 @@ def steer_pipeline(pmgg_delta: float, pleasantness_delta: float, phase_id: str,
         _BEST_PLEASANTNESS = max(_BEST_PLEASANTNESS, pleasantness_delta)
 
     # ── Angenehmheit STEIGT → weitermachen ──
-    if pleasantness_delta > 0.02:
+    if pleasantness_delta > 0.015:
         _PLEASANTNESS_DECLINING_COUNT = max(0, _PLEASANTNESS_DECLINING_COUNT - 1)
         _PMGG_CONSECUTIVE_NO_IMPROVEMENT = 0
         return SteerAction.CONTINUE, f"HPE ↑ (ΔP=+{pleasantness_delta:.3f})"
 
     # ── Angenehmheit fällt LEICHT → RETRY_LIGHTER ──
-    if -0.05 < pleasantness_delta <= -0.02:
+    if -0.04 < pleasantness_delta <= -0.015:
         _PLEASANTNESS_DECLINING_COUNT += 1
         return SteerAction.RETRY_LIGHTER, (
             f"HPE ↓ (ΔP={pleasantness_delta:+.3f}) — versuche reduzierte Intensität"
         )
 
     # ── Angenehmheit fällt STARK → SKIP ──
-    if pleasantness_delta <= -0.05:
+    if pleasantness_delta <= -0.04:
         _PLEASANTNESS_DECLINING_COUNT += 1
         if _PLEASANTNESS_DECLINING_COUNT >= max_pleasantness_drops:
             return SteerAction.ROLLBACK, (

@@ -58,10 +58,10 @@ class SweetSpotResult:
 
 # Grünzone: Schwellwerte für „das Ohr legt sich hinein"
 GREEN_ZONE = {
-    "hpe": 0.65,
-    "inviting": 0.70,
-    "transparency": 0.65,
-    "goosebumps": 0.40,
+    "hpe": 0.55,
+    "inviting": 0.65,
+    "transparency": 0.60,
+    "goosebumps": 0.20,
     "comb_filter": 0.80,
     "musical_compression": 0.60,
     "masking_health": 0.70,

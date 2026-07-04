@@ -101,23 +101,23 @@ def compute_pleasantness(
 
     # ── Label & Issues ──
     issues = []
-    if sharpness > 3.0:
+    if sharpness > 3.5:
         issues.append(f"Zu scharf ({sharpness:.1f} acum) — Höhen abdämpfen")
-    elif sharpness < 1.0:
+    elif sharpness < 0.8:
         issues.append(f"Zu dumpf ({sharpness:.1f} acum) — Höhen anheben")
-    if roughness > 1.5:
+    if roughness > 2.0:
         issues.append(f"Zu rau ({roughness:.1f} asper) — Modulation glätten")
     if loudness_sone > 30:
         issues.append(f"Zu laut ({loudness_sone:.0f} sone) — Pegel senken")
-    elif loudness_sone < 8:
+    elif loudness_sone < 5:
         issues.append(f"Zu leise ({loudness_sone:.0f} sone) — Pegel anheben")
-    if tonalness < 0.3:
+    if tonalness < 0.25:
         issues.append(f"Zu rauschhaft ({tonalness:.2f}) — mehr tonale Anteile erwünscht")
 
-    if score >= 0.75:
+    if score >= 0.70:
         label = "Sehr angenehm"
         rec = "Keine Änderungen nötig — für menschliche Ohren optimiert."
-    elif score >= 0.55:
+    elif score >= 0.50:
         label = "Angenehm"
         rec = "Leichte Optimierungen möglich — " + (issues[0] if issues else "insgesamt gut.")
     elif score >= 0.35:
@@ -182,12 +182,13 @@ def _compute_zwicker_sharpness(mono: np.ndarray, sr: int) -> float:
 
 
 def _compute_roughness(mono: np.ndarray, sr: int) -> float:
-    """Roughness (asper): Modulation 15-300 Hz im Signal.
+    """Roughness (asper): RMS-Varianz in 50ms-Fenstern.
 
-    Vereinfacht: RMS-Varianz in 25ms-Fenstern als Proxy für Rauigkeit.
+    Wahrgenommene Rauigkeit korreliert mit der Variation des Signalpegels
+    im Bereich 15-300 Hz (Zwicker & Fastl 2007). Einfacher, robuster Proxy.
     """
-    win = int(0.025 * sr)  # 25ms
-    if len(mono) < 2 * win:
+    win = int(0.05 * sr)  # 50ms
+    if len(mono) < 4 * win:
         return 0.5
 
     rms_vals = []
@@ -196,13 +197,18 @@ def _compute_roughness(mono: np.ndarray, sr: int) -> float:
         rms_vals.append(float(np.sqrt(np.mean(chunk ** 2))))
 
     rms_vals = np.array(rms_vals)
-    if len(rms_vals) < 4:
-        return 0.5
+    rms_db = 20.0 * np.log10(rms_vals + 1e-12)
+    rms_range = float(np.max(rms_db) - np.min(rms_db))
 
-    # Roughness ≈ Varianz der RMS / mittlere RMS
-    rms_mean = np.mean(rms_vals) + 1e-12
-    rms_var = np.var(rms_vals)
-    roughness = float(np.clip(rms_var / (rms_mean ** 2) * 10.0, 0.1, 5.0))
+    # Dynamik > 20dB = sehr lebendig, > 10dB = normal, < 3dB = flach
+    # Flache Signale mit schneller Variation = rau
+    # Berechne Mikro-Variation: RMS der Differenzen
+    diffs = np.abs(np.diff(rms_db))
+    micro_var = float(np.mean(diffs))
+
+    # Kombiniere: hohe Mikro-Variation + flaches Signal = rau
+    #              niedrige Mikro-Variation + dynamisch = glatt
+    roughness = float(np.clip(micro_var * (1.0 + max(0, 15 - rms_range) / 15.0) * 0.25, 0.1, 5.0))
     return roughness
 
 
