@@ -1920,6 +1920,15 @@ class AdaptiveProcessingPipelineV2(AdaptiveProcessingPipeline):
         ]
         total_steps = sum(1 for _, _, n in step_types if n)
         action = SteerAction.CONTINUE
+
+        # §v10 Integration: Grenzwert-Optimizer für initiale Intensität
+        _material = analysis_profile.musical_context.genre if analysis_profile else "unknown"
+        try:
+            from backend.core.pleasantness_integration import compute_step_intensity
+            _opt_intensity = compute_step_intensity(current_audio, sr, str(_material), "pipeline")
+            goal["intensity_multiplier"] = _opt_intensity
+        except Exception: pass
+
         for op, model, needed in step_types:
             if not needed: continue
             pre = current_audio.copy()
@@ -2079,6 +2088,18 @@ class AdaptiveProcessingPipelineV2(AdaptiveProcessingPipeline):
             quality_report["team_inviting_score"] = _inv_final.score
             quality_report["team_inviting_label"] = _inv_final.label
             quality_report["team_active_modules"] = list(_status.active_modules)
+
+            # §v10 Integration: Frequenzspezifische Inviting-Daten
+            try:
+                from backend.core.inviting_sound_checker import check_inviting_sound_per_band
+                from backend.core.pleasantness_integration import get_frequency_corrections
+                _band_data = check_inviting_sound_per_band(current_audio, sr)
+                _freq_corrections = get_frequency_corrections(current_audio, sr)
+                quality_report["team_band_scores"] = {
+                    k: {"score": v[0], "issue": v[1]} for k, v in _band_data.items()
+                }
+                quality_report["team_freq_corrections"] = _freq_corrections
+            except Exception: pass
 
             self.logger.info("Team-Verdict: %s", _status.global_verdict)
             self.logger.info("Team Inviting: %.3f (%s)", _inv_final.score, _inv_final.label)
