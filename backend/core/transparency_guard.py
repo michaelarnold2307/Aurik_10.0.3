@@ -42,6 +42,7 @@ class TransparencyResult:
     transient_smear: float  # 0=stark verschmiert, 1=kristallklar
     noise_breathing: float  # 0=starkes Atmen, 1=konstanter Rauschboden
     phase_warp: float  # 0=stark verzerrt, 1=natürliche Phase
+    sterility: float = 1.0  # §v10: 0=steril/leblos, 1=natürlich lebendig
 
     label: str = ""
     recommendation: str = ""
@@ -71,9 +72,10 @@ def check_transparency(audio: np.ndarray, sr: int,
     smear = _check_transient_smear(mono, sr)
     breath = _check_noise_breathing(mono, sr)
     warp = _check_phase_warp(arr, sr) if arr.ndim == 2 else 1.0
+    sterile = _check_sterility(mono, sr, reference)
 
     score = float(np.clip(
-        water * 0.30 + smear * 0.25 + breath * 0.25 + warp * 0.20,
+        water * 0.25 + smear * 0.20 + breath * 0.20 + warp * 0.15 + sterile * 0.20,
         0.0, 1.0))
 
     artifacts = []
@@ -81,6 +83,7 @@ def check_transparency(audio: np.ndarray, sr: int,
     if smear < 0.5: artifacts.append("verschmiert/matt")
     if breath < 0.4: artifacts.append("atmender Rauschboden")
     if warp < 0.5: artifacts.append("Phasen-Artefakte")
+    if sterile < 0.3: artifacts.append("steril/leblos")
 
     if score >= 0.85:
         label = "Transparent"
@@ -244,3 +247,23 @@ def _check_phase_warp(arr: np.ndarray, sr: int) -> float:
     elif mean_phase_var < 1.5: return 0.60
     elif mean_phase_var < 3.0: return 0.35
     return 0.15
+
+
+def _check_sterility(mono: np.ndarray, sr: int,
+                     reference: np.ndarray | None = None) -> float:
+    """§v10: Erkennt sterilen/leblosen Klang — wenn zu viel bereinigt wurde."""
+    win = int(0.05 * sr)
+    if len(mono) < 20 * win: return 0.7
+
+    rms_vals = [float(np.sqrt(np.mean(mono[i:i+win]**2))) for i in range(0, len(mono)-win, win)]
+    rms_db = 20.0 * np.log10(np.array(rms_vals) + 1e-12)
+    noise_floor_db = float(np.percentile(rms_db, 15))
+    peak_db = float(np.max(rms_db))
+    dr = peak_db - noise_floor_db
+
+    score_dr = 0.15 if dr<10 else 0.40 if dr<20 else 0.70 if dr<35 else 0.90
+    score_nf = 0.10 if noise_floor_db<-90 else 0.35 if noise_floor_db<-75 else 0.60 if noise_floor_db<-60 else 0.85
+    diffs = np.abs(np.diff(rms_db))
+    md = float(np.median(diffs[diffs>0.5])) if np.any(diffs>0.5) else 0.0
+    score_micro = 0.10 if md<0.5 else 0.40 if md<1.5 else 0.70 if md<3.0 else 0.95
+    return float(np.clip(score_dr*0.35 + score_nf*0.40 + score_micro*0.25, 0.0, 1.0))

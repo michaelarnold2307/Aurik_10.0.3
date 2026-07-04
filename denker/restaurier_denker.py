@@ -477,25 +477,42 @@ class RestaurierDenker:
                         if _failed_hpe: _reasons.append(f"HPE {_delta:+.3f}")
                         if _failed_inv: _reasons.append(f"Inviting {_inv_delta:+.3f}")
 
-                        # §v10 STUFE 1: Gezielte Band-Korrektur statt Alles-Verwerfen
-                        _band_fixed = self._apply_targeted_band_correction(
-                            audio, _restored_f32, sr, result)
-                        if _band_fixed is not None:
-                            logger.info("RestaurierDenker: Band-Korrektur erfolgreich — Inviting wiederhergestellt")
-                            return _band_fixed
+                        # §v10 STUFE 0: Transparency Guard — klingt es natürlich?
+                        _failed_transparency = False
+                        try:
+                            from backend.core.transparency_guard import check_transparency
+                            _trans = check_transparency(_restored_f32, sr)
+                            if _trans.score < 0.50:
+                                _failed_transparency = True
+                                _reasons.append(f"Transparenz {_trans.score:.2f} ({_trans.label})")
+                                if _trans.artifacts:
+                                    _reasons[-1] += f": {', '.join(_trans.artifacts)}"
+                                logger.warning("RestaurierDenker: Transparenz UNNATÜRLICH: T=%.3f %s",
+                                             _trans.score, _trans.artifacts)
+                        except Exception: pass
 
-                        # §v10 STUFE 2: RETRY_LIGHTER
-                        _fail_msg = f"AURIK GESCHEITERT: {', '.join(_reasons)}"
-                        logger.warning("RestaurierDenker: %s — versuche RETRY_LIGHTER", _fail_msg)
-                        _retry = self._retry_lighter(audio, sr, restorer, _uv3_kwargs, material)
-                        if _retry is not None:
-                            return _retry
+                        if not _failed_transparency and not _failed_hpe and not _failed_inv:
+                            logger.info("RestaurierDenker: ALLE CHECKS BESTANDEN — Ergebnis ist natürlich und angenehm")
+                        else:
+                            # §v10 STUFE 1: Gezielte Band-Korrektur
+                            _band_fixed = self._apply_targeted_band_correction(
+                                audio, _restored_f32, sr, result)
+                            if _band_fixed is not None:
+                                logger.info("RestaurierDenker: Band-Korrektur erfolgreich")
+                                return _band_fixed
 
-                        # §v10 STUFE 3: Original zurück
-                        logger.error("RestaurierDenker: Alle Rettungsversuche gescheitert — Original unverändert")
-                        fallback = self._fallback(audio, material or "unknown", _fail_msg)
-                        fallback.audio = audio.copy()
-                        return fallback
+                            # §v10 STUFE 2: RETRY_LIGHTER
+                            _fail_msg = f"AURIK GESCHEITERT: {', '.join(_reasons)}"
+                            logger.warning("RestaurierDenker: %s — versuche RETRY_LIGHTER", _fail_msg)
+                            _retry = self._retry_lighter(audio, sr, restorer, _uv3_kwargs, material)
+                            if _retry is not None:
+                                return _retry
+
+                            # §v10 STUFE 3: Original zurück
+                            logger.error("RestaurierDenker: Alle Rettungsversuche gescheitert — Original unverändert")
+                            fallback = self._fallback(audio, material or "unknown", _fail_msg)
+                            fallback.audio = audio.copy()
+                            return fallback
                     else:
                         logger.info("RestaurierDenker: HPE %.3f->%.3f (%+.3f) Inviting %.3f->%.3f (%+.3f) %s",
                                    _hpe_pre, _hpe_post, _delta, _inv_pre, _inv_post, _inv_delta,
