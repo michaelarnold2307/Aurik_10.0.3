@@ -189,18 +189,24 @@ def audit_phase_pleasantness(
                 "Phase %s: HPE %+.3f — KEINE Verbesserung!", phase_name, delta,
             )
 
+        # Extrahiere Scores aus nested dicts
+        orig_data = hpe.get("original", {})
+        rest_data = hpe.get("restored", {})
+        before_score = float(orig_data.get("score", 0.5)) if isinstance(orig_data, dict) else 0.5
+        after_score = float(rest_data.get("score", 0.5)) if isinstance(rest_data, dict) else 0.5
+
         # Registry-Update
         try:
             reg = get_pleasantness_registry()
-            reg.report_post(phase_name, hpe.get("restored", 0.5), delta=delta)
+            reg.report_post(phase_name, after_score, delta=delta)
         except Exception:
             pass
 
         return {
             "improved": improved,
             "delta": delta,
-            "before": float(hpe.get("original", 0.0)),
-            "after": float(hpe.get("restored", 0.0)),
+            "before": before_score,
+            "after": after_score,
             "verdict": hpe.get("verdict", ""),
         }
 
