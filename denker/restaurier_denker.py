@@ -903,8 +903,13 @@ class RestaurierDenker:
                 if gap < 0.05: break
 
                 logger.info("SweetSpot Iter %d: worst=%s (%.2f gap=%.3f)", iteration+1, worst, m[worst], gap)
-                # Sanfte Korrektur
-                current = np.clip(current * 0.98, -1, 1).astype(np.float64)
+                # §v10 Gezielte Korrektur via Band-Korrektur
+                _fixed = RestaurierDenker._apply_targeted_band_correction(
+                    original.astype(np.float64), current, sr, result)
+                if _fixed is not None:
+                    current = _fixed.audio.astype(np.float64) if hasattr(_fixed, 'audio') else current * 0.98
+                else:
+                    current = np.clip(current * 0.98, -1, 1).astype(np.float64)
 
             except Exception as e:
                 logger.debug("SweetSpot Iter %d: %s", iteration+1, e)
