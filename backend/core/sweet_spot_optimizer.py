@@ -48,6 +48,8 @@ class SweetSpotResult:
     comb_filter: float = 1.0  # 0=starker Kammfilter, 1=kein Kammfilter
     musical_compression: float = 1.0  # 0=bösartig komprimiert, 1=musikalisch
     masking_health: float = 1.0  # 0=starke Maskierung, 1=klare Trennung
+    spectral_color: float = 1.0  # 0=Klangfarbe zerstoert, 1=perfekt erhalten
+    microdynamics: float = 1.0   # 0=Dynamik platt, 1=natuerlich
 
     green_count: int = 0
     total_metrics: int = 20
@@ -65,6 +67,8 @@ GREEN_ZONE = {
     "comb_filter": 0.80,
     "musical_compression": 0.60,
     "masking_health": 0.70,
+    "spectral_color": 0.85,
+    "microdynamics": 0.80,
 }
 
 
@@ -93,6 +97,8 @@ def find_sweet_spot(
     inviting = _get_inviting(mono, sr)
     transparency = _get_transparency(mono, sr, arr)
     goosebumps = _get_goosebumps(mono, sr)
+    spectral_color = _check_spectral_color(mono, sr)
+    microdynamics = _check_microdynamics(mono, sr)
 
     # ── 3 Lücken-Schließer ──
     comb_filter = _check_comb_filter(mono, sr)
@@ -108,6 +114,8 @@ def find_sweet_spot(
         "comb_filter": comb_filter >= GREEN_ZONE["comb_filter"],
         "musical_compression": musical_comp >= GREEN_ZONE["musical_compression"],
         "masking_health": masking >= GREEN_ZONE["masking_health"],
+        "spectral_color": spectral_color >= GREEN_ZONE["spectral_color"],
+        "microdynamics": microdynamics >= GREEN_ZONE["microdynamics"],
     }
     green_count = sum(1 for v in greens.values() if v)
     all_green = all(greens.values())
@@ -117,7 +125,8 @@ def find_sweet_spot(
     # ob das Ohr BLEIBT oder geht.
     score = float(np.clip(
         hpe * 0.25 + inviting * 0.20 + transparency * 0.15 + goosebumps * 0.10
-        + comb_filter * 0.10 + musical_comp * 0.10 + masking * 0.10,
+        + comb_filter * 0.10 + musical_comp * 0.10 + masking * 0.10
+        + spectral_color * 0.05 + microdynamics * 0.05,
         0.0, 1.0))
 
     # ── Label & Empfehlung ──
@@ -129,6 +138,8 @@ def find_sweet_spot(
     if not greens["comb_filter"]: warnings.append(f"Kammfilter-Artefakte ({comb_filter:.2f})")
     if not greens["musical_compression"]: warnings.append(f"Bösartige Kompression ({musical_comp:.2f})")
     if not greens["masking_health"]: warnings.append(f"Frequenz-Maskierung ({masking:.2f})")
+    if not greens["spectral_color"]: warnings.append(f"Klangfarbe veraendert ({spectral_color:.2f})")
+    if not greens["microdynamics"]: warnings.append(f"Mikrodynamik verloren ({microdynamics:.2f})")
 
     if all_green:
         label = "Sweet Spot"
@@ -149,7 +160,8 @@ def find_sweet_spot(
         transparency_score=transparency, goosebumps_score=goosebumps,
         comb_filter=comb_filter, musical_compression=musical_comp,
         masking_health=masking,
-        green_count=green_count, total_metrics=7,
+        spectral_color=spectral_color, microdynamics=microdynamics,
+        green_count=green_count, total_metrics=9,
         label=label, recommendation=rec, warnings=warnings,
     )
 
@@ -329,3 +341,27 @@ def _get_goosebumps(mono: np.ndarray, sr: int) -> float:
         return float(compute_goosebumps(mono, sr).score)
     except Exception:
         return 0.5
+
+def _check_spectral_color(mono, sr):
+    """Klangfarben-Erhalt via frame-to-frame Spektral-Korrelation."""
+    n_fft=2048; hop=n_fft//2
+    if len(mono)<4*n_fft: return 0.8
+    specs=[np.abs(np.fft.rfft(mono[i:i+n_fft]*np.hanning(n_fft))) for i in range(0,len(mono)-n_fft,hop)]
+    specs=[s/(np.sum(s)+1e-12) for s in specs]
+    if len(specs)<3: return 0.8
+    corrs=[np.corrcoef(specs[i-1],specs[i])[0,1] for i in range(1,len(specs))]
+    corrs=[c for c in corrs if np.isfinite(c)]
+    return float(np.clip(np.mean(corrs) if corrs else 0.5, 0.0, 1.0))
+
+def _check_microdynamics(mono, sr):
+    """Mikrodynamik via RMS-Differenzen in 50ms-Fenstern."""
+    win=int(0.05*sr)
+    if len(mono)<20*win: return 0.7
+    rms=[np.sqrt(np.mean(mono[i:i+win]**2)) for i in range(0,len(mono)-win,win)]
+    rms_db=20*np.log10(np.array(rms)+1e-12)
+    diffs=np.abs(np.diff(rms_db))
+    md=float(np.median(diffs[diffs>0.3])) if np.any(diffs>0.3) else 0.0
+    if md>3.0: return 0.95
+    elif md>1.5: return 0.75
+    elif md>0.5: return 0.45
+    return 0.15
