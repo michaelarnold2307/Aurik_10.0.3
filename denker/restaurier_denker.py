@@ -449,6 +449,17 @@ class RestaurierDenker:
                                _profile.optimal_nr_strength, _profile.optimal_eq_presence)
             except Exception: pass
 
+            # §v10 Bitrate-Erkennung
+            try:
+                from backend.core.bitrate_estimator import estimate_lossy_bitrate, get_bitrate_aware_limits
+                _mat_lower = str(material or "").lower()
+                if "mp3" in _mat_lower or "aac" in _mat_lower:
+                    _kbps, _conf = estimate_lossy_bitrate(audio, sr)
+                    _uv3_kwargs["estimated_bitrate_kbps"] = _kbps
+                    _uv3_kwargs["bitrate_aware_limits"] = get_bitrate_aware_limits(str(material), audio, sr)
+                    logger.info("RestaurierDenker: Bitrate ~%d kbps (conf=%.2f)", _kbps, _conf)
+            except Exception: pass
+
             try:
                 # §v10 HPE Baseline + Inviting VOR UV3
                 _hpe_pre = 0.5
