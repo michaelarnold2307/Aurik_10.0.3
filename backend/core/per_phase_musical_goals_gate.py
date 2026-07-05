@@ -5050,7 +5050,7 @@ class PerPhaseMusicalGoalsGate:
         best_scores = _apply_precise_metric_overrides(best_scores, _best_sample, sr, reference=_ref_sample)
         _pmgg_msg = (
             "⚠️ PMGG: %s best-effort (strength=%.2f, Regression=%.4f > threshold=%.3f) — "
-            "Phase wird trotzdem angewendet (kein Rollback/Skip erlaubt)"
+            "HPE-Gate prüft ob Phase für menschliche Ohren akzeptabel ist"
         )
         if _worst_prio <= 2 or best_regression >= _CATASTROPHIC_THRESHOLD:
             logger.warning(
