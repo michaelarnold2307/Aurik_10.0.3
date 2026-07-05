@@ -26,18 +26,21 @@ Pro Phase (wrap_phase()):
          Retry-3: Phase mit strength × 0.35
          Retry-4: Phase mit strength × 0.20
          Retry-5 (Last-Resort): Phase mit strength × 0.10
-         Falls immer noch: Best-Effort — Versuch mit geringster Regression wird
-         angewendet. KEIN Rollback/Skip erlaubt (§2.29 v9.10.64).
+         Falls immer noch: HPE-Check — wenn Phase für menschliche Ohren
+         VERSCHLECHTERT hat, wird sie ÜBERSPRUNGEN (§v10 Pleasantness-First).
+         Nur wenn HPE neutral/positiv: Best-Effort mit geringster Regression.
 
-WICHTIG (§2.29 v9.10.64):
+§v10 PLEASANTNESS-FIRST (§2.29 v10):
 -----------
-PMGG darf Phasen NIEMALS überspringen (kein Rollback auf Original-Audio).
-CausalDefectReasoner hat die Phase als notwendig bestimmt — sie MUSS angewendet
-werden, ggf. mit reduzierter Stärke (best-effort).
+PMGG darf Phasen überspringen, wenn sie den Klang für MENSCHLICHE OHREN
+verschlechtern. HPE-Delta < -0.02 → Phase wird verworfen, Pre-Phase-Audio
+wiederhergestellt. Der CausalDefectReasoner kann irren — das Ohr nicht.
+Technische Regression < 0.05 wird toleriert, wenn HPE sich verbessert.
 
 KONSTANTEN:
 -----------
 REGRESSION_THRESHOLD = 0.025  (adaptiv: 0.012 / 0.040 / 0.060 je Restorability)
+HPE_SKIP_THRESHOLD   = -0.02  (§v10: HPE-Delta unter diesem Wert → Phase überspringen)
 SAMPLE_DURATION_S    = 5.0
 MAX_RETRIES          = 5  (v9.15-B3: 5 Retries mit sanftem Stärkegradienten)
 
@@ -4759,6 +4762,25 @@ class PerPhaseMusicalGoalsGate:
         best_regression = regression
         best_strength = initial_strength
         best_action = "best_effort"
+
+        # §v10 HPE-GATE: Wenn Phase den Klang für menschliche Ohren verschlechtert,
+        # überspringe sie — auch wenn CausalDefectReasoner sie für notwendig hielt.
+        try:
+            from backend.core.human_pleasantness_estimator import compare_pleasantness
+            _hpe_cmp = compare_pleasantness(
+                np.asarray(audio_in, dtype=np.float32),
+                np.asarray(best_audio, dtype=np.float32),
+                48000)
+            _hpe_delta = float(_hpe_cmp.get("delta_score", 0.0))
+            if _hpe_delta < -0.02:
+                logger.warning(
+                    "§v10 HPE-GATE: Phase %s HPE %+.3f < -0.02 — ÜBERSPRUNGEN. "
+                    "Pre-Phase-Audio wiederhergestellt.",
+                    phase_id, _hpe_delta)
+                return audio_in, effective_scores_before, "hpe_skip", 0.0
+        except Exception:
+            pass
+
         # §0l Team-Net-Delta-Tracking: Besten Versuch anhand von Team-Score UND
         # max-Regression wählen. Wenn max-Regression ähnlich, besseres Team erhalten.
         _best_team_net = sum(
@@ -5522,6 +5544,8 @@ class PerPhaseMusicalGoalsGate:
             return "best_effort", "legacy_best_effort_accepted"
         if a.startswith("best_effort"):
             return "best_effort", "retry_exhausted_best_effort"
+        if a == "hpe_skip":
+            return "skip", "hpe_pleasantness_decline_skip"  # §v10
         return "other", "unclassified_action"
 
 
