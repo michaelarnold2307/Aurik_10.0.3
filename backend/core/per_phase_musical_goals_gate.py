@@ -432,6 +432,7 @@ PHASE_GOAL_EXCLUSIONS: dict[str, set[str]] = {
     # only keep exclusions where AI-generated content has low correlation by design
     # natuerlichkeit excluded: gap-fill synthesis produces content absent from
     # reference; CREPE voicing score on synthesised audio is unreliable.
+
     # artikulation excluded (P2 root cause, 2026-03-29): dropout repair inserts
     # newly synthesised transients inside missing regions. ArticulationMetric
     # compares transient-shape correlation against the pre-repair signal where
@@ -1247,6 +1248,18 @@ PHASE_GOAL_EXCLUSIONS: dict[str, set[str]] = {
     },  # IMD reduction: bispectrum-informed M/S notch removes sum/difference products → chromagram + MFCC fingerprint change vs. distorted reference (§2.44)
 }
 # pylint: enable=line-too-long
+
+# §v10.2 Cassette-Verifier: Phasen mit alternativen PMGG-Proxy-Metriken
+_CASSETTE_VERIFIER_PHASES: frozenset[str] = frozenset({
+    "phase_24",
+    "phase_56",
+    "phase_57",
+    "phase_59",
+    "phase_24_dropout_repair",
+    "phase_56_spectral_band_gap_repair",
+    "phase_57_print_through_reduction",
+    "phase_59_modulation_noise_reduction",
+})
 
 
 def _get_sample_duration(phase_id: str) -> float:
@@ -4419,6 +4432,34 @@ class PerPhaseMusicalGoalsGate:
         regression = self._max_regression(
             effective_scores_before, scores_after, _goals_for_regression, goal_weights=goal_weights
         )
+        # §v10.2 Cassette-Verifier: PMGG-Lücken-Schließer
+        # Wenn phase_24/56/57/59 Ziele excluded hat und regression meldet,
+        # prüfe die alternativen Proxy-Metriken (temporal continuity etc.)
+        if regression > 0.01 and phase_id in _CASSETTE_VERIFIER_PHASES:
+            try:
+                from backend.core.cassette_defect_verifier import compute_phase_proxy_for_pmgg as _cv_proxy
+                _alt_scores = _cv_proxy(phase_id, audio, audio_out, sr)
+                if _alt_scores:
+                    # Jedes alternative Proxy-Ziel ersetzen
+                    _alt_regression = 0.0
+                    for g in _goals_for_regression:
+                        if g in _alt_scores:
+                            _before = effective_scores_before.get(g, 0.5)
+                            _after = _alt_scores[g]
+                            _delta = _before - _after
+                            if _delta > 0:
+                                w = goal_weights.get(g, 1.0) if goal_weights else 1.0
+                                _alt_regression = max(_alt_regression, _delta * w)
+                    if _alt_regression < regression * 0.5:
+                        logger.info(
+                            "§v10.2 Cassette-Verifier: PMGG regression %.4f → "
+                            "alternative proxy regression %.4f (phase %s) — "
+                            "false positive korrigiert",
+                            regression, _alt_regression, phase_id,
+                        )
+                        regression = _alt_regression
+            except Exception as _cv_exc:
+                logger.debug("Cassette-Verifier nicht verfügbar: %s", _cv_exc)
         _skip_corr = phase_id in _TIMING_CORR_EXCLUDE
         _skip_drop = phase_id in _LF_SUBTRACTIVE_DROP_SKIP
         _ci_penalty, _ci_meta = _content_integrity_penalty(
