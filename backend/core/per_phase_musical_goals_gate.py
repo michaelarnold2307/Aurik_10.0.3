@@ -4451,60 +4451,41 @@ class PerPhaseMusicalGoalsGate:
         regression = self._max_regression(
             effective_scores_before, scores_after, _goals_for_regression, goal_weights=goal_weights
         )
-        # §v10.3 Media-Defect-Verifier: PMGG-Lücken-Schließer für ALLE 62 Phasen
-        # Kategorie-basierte alternative Proxy-Metriken via cassette_defect_verifier
-        _verifier_phases = _get_all_verifier_phases()
-        if regression > 0.01 and (phase_id in _verifier_phases or phase_id in _CASSETTE_VERIFIER_PHASES):
-            try:
-                from backend.core.cassette_defect_verifier import compute_phase_proxy_for_pmgg as _cv_proxy
-                _alt_scores = _cv_proxy(phase_id, audio, audio_out, sr)
-                if _alt_scores:
-                    # Jedes alternative Proxy-Ziel ersetzen
-                    _alt_regression = 0.0
-                    for g in _goals_for_regression:
-                        if g in _alt_scores:
-                            _before = effective_scores_before.get(g, 0.5)
-                            _after = _alt_scores[g]
-                            _delta = _before - _after
-                            if _delta > 0:
-                                w = goal_weights.get(g, 1.0) if goal_weights else 1.0
-                                _alt_regression = max(_alt_regression, _delta * w)
-                    if _alt_regression < regression * 0.5:
-                        logger.info(
-                            "§v10.2 Cassette-Verifier: PMGG regression %.4f → "
-                            "alternative proxy regression %.4f (phase %s) — "
-                            "false positive korrigiert",
-                            regression, _alt_regression, phase_id,
-                        )
-                        regression = _alt_regression
-            except Exception as _cv_exc:
-                logger.debug("Cassette-Verifier nicht verfügbar: %s", _cv_exc)
-        # §v10.4 Pipeline Provenance: Undo-Erkennung + Net-Delta-Budget
+        # §v10.6 RESTAURIER-DENKER: Zentrale Entscheidungs-Intelligenz
         try:
-            from backend.core.pipeline_provenance_tracker import get_provenance_tracker as _get_pt
-            _pt = _get_pt()
-            _prov_result = _pt.track_phase(
-                phase_id, effective_scores_before, scores_after, audio_out,
-                effective_goals=_goals_for_regression,
+            from backend.core.restaurier_denker import (
+                get_restaurier_denker, DenkerContext,
             )
-            if _prov_result.get("undo_detected"):
-                _undo_count = len(_prov_result.get("undo_events", []))
-                logger.warning(
-                    "§v10.4 Provenance: %s hat %dUndo-Ereignisse: %s",
-                    phase_id, _undo_count,
-                    [(e["goal"], e["contributing_phase"]) for e in _prov_result["undo_events"][:3]],
-                )
-                # UNDO verschärft Regression → Retry-Kaskade triggern
-                regression = max(regression, threshold + 0.002 * _undo_count)
-            if _prov_result.get("net_delta_warning"):
-                logger.warning(
-                    "§v10.4 Provenance: %s Net-Delta-Warnung — "
-                    "kumulative Pipeline verschlechtert: %s",
-                    phase_id, {k: f'{v:+.3f}' for k, v in _prov_result.get("net_deltas", {}).items()
-                              if abs(v) > 0.02},
-                )
-        except Exception as _prov_exc:
-            logger.debug("Provenance-Tracker nicht verfügbar: %s", _prov_exc)
+            _rd = get_restaurier_denker()
+            _ctx = DenkerContext(
+                phase_id=phase_id,
+                mode="studio_2026" if is_studio_2026 else "restoration",
+                restorability=restorability_score,
+                initial_strength=initial_strength,
+                current_strength=1.0,
+                retry_count=0,
+                best_effort_count=self._best_effort_count,
+                total_phases_run=self._phase_count if hasattr(self, '_phase_count') else 0,
+                scores_before=effective_scores_before,
+                scores_after=scores_after,
+                effective_goals=_goals_for_regression,
+                regression=regression,
+                audio_before=audio,
+                audio_after=audio_out,
+                sr=sr,
+            )
+            _decision = _rd.decide(_ctx)
+            if _decision.verdict.value in ("override_guard",):
+                regression = max(0.0, regression * 0.3)
+                logger.info("§v10.6 Denker: Guard-Override %s — %s", phase_id, _decision.reason)
+            if _decision.undo_detected:
+                regression = max(regression, threshold + 0.002)
+                logger.warning("§v10.6 Denker: UNDO in %s — %s", phase_id, _decision.reason)
+            if _decision.paralysis_detected:
+                logger.warning("§v10.6 Denker: Paralysis %s — %s",
+                               phase_id, _decision.reason)
+        except Exception as _rd_exc:
+            logger.debug("RestaurierDenker nicht verfuegbar: %s", _rd_exc)
         _skip_corr = phase_id in _TIMING_CORR_EXCLUDE
         _skip_drop = phase_id in _LF_SUBTRACTIVE_DROP_SKIP
         _ci_penalty, _ci_meta = _content_integrity_penalty(
