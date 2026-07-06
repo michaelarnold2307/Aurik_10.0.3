@@ -62,8 +62,9 @@ _COLDSTART_MIN_SECONDS: float = 1800.0
 # Absolutes Gesamtlimit (§9.5): eine Stufe-1-Restaurierung endet spätestens nach 90 min.
 # Begründung: 20-min Vinyl (1200s) × 4× DSP-RT = 4800s; 90 min = komfortabler Puffer.
 # KMV Stufe 2 (MLRefinementThread) übernimmt danach ohne Zeitlimit.
-# Alter Wert: 1800s (30 min) — zu eng für Aufnahmen > 10 min mit schweren Defekten.
-_MAX_TOTAL_SECONDS: float = 5400.0  # 90 Minuten
+# Alter Wert: 1800s (30 min), dann 5400s (90 min) — beides zu eng für
+# 39-Phasen-Pipeline auf 225s Audio mit schweren ML-Modellen (NVSR-SBR, MelBandRoformer).
+_MAX_TOTAL_SECONDS: float = 14400.0  # 240 Minuten (4h, §K 64×RT-aligned)
 _MIN_AUDIO_SAMPLES: int = 64  # Mindestsignallänge
 
 # Material-adaptive MOS-Mindestziele (§6.2)
@@ -2507,6 +2508,57 @@ class AurikDenker:
                 f"VERSA MOS={_versa_mos:.2f} < Material-Ziel {_mos_gate_target:.1f} "
                 f"({_exz_material}) — physikalische Grenze des Quellmaterials"
             )
+
+        # ── §v10.5 PerceptualQualityCouncil: SOTA holistische Bewertung ──
+        try:
+            from backend.core.perceptual_quality_council import get_perceptual_council
+            _pqc = get_perceptual_council()
+            _pqc_verdict = _pqc.evaluate(
+                versa_mos=_versa_mos,
+                musical_goals=musical_goals,
+                material=_exz_material,
+                defect_severity=_defect_sev_final,
+                excellence_score=excellence_score,
+                genre_label=str(getattr(cached_genre_result, "primary_genre", "")) if cached_genre_result else "",
+            )
+            quality_estimate = _pqc_verdict.holistic_score
+            logger.info(
+                "PerceptualQualityCouncil: holistic=%.3f recommendation=%s method=%s",
+                _pqc_verdict.holistic_score,
+                _pqc_verdict.recommendation,
+                _pqc_verdict.scoring_method,
+            )
+        except Exception as _pqc_err:
+            logger.debug("PerceptualQualityCouncil fehlgeschlagen: %s", _pqc_err)
+
+        # ── §G Feedback-Rückkopplung: Council → UV3 ────────────────────────
+        _fb_retries = 0
+        _FB_MAX = 2
+        _FB_GOALS = {"waerme", "brillanz", "emotionalitaet", "stimmklarheit"}
+        while _fb_retries < _FB_MAX and musical_goals:
+            _below = [g for g in _FB_GOALS if musical_goals.get(g, 1.0) < 0.70]
+            if not _below:
+                break
+            _fb_retries += 1
+            _fb_s = 0.55 - 0.15 * (_fb_retries - 1)
+            logger.info("§G Feedback %d/%d: %d Goals unter 0.70, Stärke=%.2f", _fb_retries, _FB_MAX, len(_below), _fb_s)
+            try:
+                _fb = get_restaurier_denker().restauriere(
+                    aktuelles_audio, sr, material=material, mode=effective_mode,
+                    progress_callback=progress_callback,
+                    cached_era_result=cached_era_result,
+                    cached_genre_result=cached_genre_result,
+                    cached_defect_result=cached_defect_result or (getattr(defekt, "raw_scan_result", None) if defekt is not None else None),
+                    cached_medium_result=cached_medium_result,
+                    denker_policy_input={"feedback_strength": _fb_s},
+                )
+                if hasattr(_fb, "audio") and _fb.audio is not None:
+                    aktuelles_audio = _fb.audio
+                    if hasattr(_fb, "musical_goals") and _fb.musical_goals:
+                        for g, v in _fb.musical_goals.items():
+                            musical_goals[g] = max(musical_goals.get(g, 0.0), v)
+            except Exception as _fb_exc:
+                logger.warning("§G Feedback %d fehlgeschlagen: %s", _fb_retries, _fb_exc)
 
         # ── RAM-Cleanup nach Pipeline ────────────────────────────────────────
         # PluginLifecycleManager entlädt inaktive ML-Modelle wenn RAM knapp ist.

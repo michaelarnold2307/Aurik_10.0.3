@@ -635,7 +635,11 @@ class SurfaceNoiseProfiling(PhaseInterface):
         """
         # Step 1: STFT (75% Overlap)
         nperseg = self.FRAME_SIZE
-        noverlap = nperseg - self.HOP_SIZE
+        noverlap = max(0, nperseg - self.HOP_SIZE)
+        if noverlap >= nperseg:
+            noverlap = nperseg // 2  # Fallback: 50% Overlap
+        if len(audio.shape) == 0 or audio.shape[0] < nperseg:
+            return composite  # Audio too short for STFT
         _, t_arr, stft = signal.stft(
             audio, fs=sample_rate, nperseg=nperseg, noverlap=noverlap, window="hann", boundary="even"
         )

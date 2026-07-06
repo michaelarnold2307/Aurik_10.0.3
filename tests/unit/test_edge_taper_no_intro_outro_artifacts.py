@@ -339,7 +339,7 @@ class TestPsychoacousticMetricsNpersegGuard:
     @pytest.mark.parametrize("n_samples", [2, 16, 64, 128, 1024])
     def test_sharpness_short_segment_no_warning(self, n_samples, recwarn):
         """calculate_sharpness auf sehr kurzem Audio darf kein nperseg-Warning auslösen."""
-        from backend.core.psychoacoustic_metrics import PsychoAcousticMetrics
+        from backend.core.comprehensive_metrics import PsychoAcousticMetrics
 
         metrics = PsychoAcousticMetrics(sample_rate=48000)
         audio = np.zeros(n_samples, dtype=np.float32)
@@ -357,7 +357,7 @@ class TestPsychoacousticMetricsNpersegGuard:
     @pytest.mark.parametrize("n_samples", [2, 16, 64])
     def test_flatness_short_segment_no_warning(self, n_samples, recwarn):
         """calculate_spectral_flatness auf kurzem Audio ohne nperseg-Warning."""
-        from backend.core.psychoacoustic_metrics import PsychoAcousticMetrics
+        from backend.core.comprehensive_metrics import PsychoAcousticMetrics
 
         metrics = PsychoAcousticMetrics(sample_rate=48000)
         audio = np.ones(n_samples, dtype=np.float32) * 0.05
@@ -371,7 +371,7 @@ class TestPsychoacousticMetricsNpersegGuard:
     @pytest.mark.parametrize("n_samples", [2, 16, 64])
     def test_harmonic_coherence_short_segment_no_warning(self, n_samples, recwarn):
         """calculate_harmonic_coherence auf kurzem Audio ohne nperseg-Warning."""
-        from backend.core.psychoacoustic_metrics import PsychoAcousticMetrics
+        from backend.core.comprehensive_metrics import PsychoAcousticMetrics
 
         metrics = PsychoAcousticMetrics(sample_rate=48000)
         audio = np.zeros(n_samples, dtype=np.float32)

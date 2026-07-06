@@ -44,6 +44,11 @@ class SourceMedium(Enum):
     AAC = "aac"  # AAC/M4A (efficient compression, better than MP3)
     MINIDISC = "minidisc"  # MiniDisc ATRAC (90s/2000s, aggressive compression)
     STREAMING = "streaming"  # Streaming (glitches, packet loss)
+    WAX_CYLINDER = "wax_cylinder"  # Wachszylinder
+    WIRE_RECORDING = "wire_recording"  # Drahtaufnahme
+    LACQUER_DISC = "lacquer_disc"  # Lackfolien-Disc
+    TAPE = "tape"  # Generic tape
+    CD_DIGITAL = "cd_digital"  # Compact Disc
 
 
 @dataclass

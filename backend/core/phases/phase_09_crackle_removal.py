@@ -939,9 +939,12 @@ class CrackleRemovalPhase(PhaseInterface):
             )
         _p09_pz = _p09_protected_zones or None
 
+        passthrough = np.nan_to_num(audio.copy(), nan=0.0, posinf=0.0, neginf=0.0)
+        passthrough = np.clip(passthrough, -1.0, 1.0)
+
         if _effective_strength <= 0.0:
-            passthrough = np.nan_to_num(audio.copy(), nan=0.0, posinf=0.0, neginf=0.0)
-            passthrough = np.clip(passthrough, -1.0, 1.0)
+            # Passthrough bereits initialisiert — keine weitere Verarbeitung nötig
+            pass
             
         # ── §v10 Per-Band-Maske NACH crackle anwenden ──
         if _per_band_mask is not None:

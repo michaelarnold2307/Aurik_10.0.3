@@ -3703,6 +3703,7 @@ class PerPhaseMusicalGoalsGate:
         self._user_warned: bool = False  # Nutzer-Warnung einmalig
         self._last_retry_budget_policy: dict[str, Any] = {}
         self._last_reconstruction_localized_decision: dict[str, Any] = {}
+        self._genre_goal_weights: dict[str, float] = {}  # §H: Genre-abhängige Goal-Gewichte
 
     def reset(self) -> None:
         """Setzt Zähler für neuen Restaurierungsaufruf zurück."""
@@ -3711,6 +3712,7 @@ class PerPhaseMusicalGoalsGate:
         self._user_warned = False
         self._last_retry_budget_policy = {}
         self._last_reconstruction_localized_decision = {}
+        self._genre_goal_weights = {}  # §H
 
     @staticmethod
     def _resolve_retry_budget_policy(
@@ -3820,6 +3822,10 @@ class PerPhaseMusicalGoalsGate:
 
         if phase_kwargs is None:
             phase_kwargs = {}
+
+        # §H: Genre-Goal-Weights als Default, wenn keine explizit übergeben wurden
+        if goal_weights is None and self._genre_goal_weights:
+            goal_weights = dict(self._genre_goal_weights)
 
         phase_id = phase_id or self._get_phase_id(phase)
         t0 = time.time()
@@ -4453,7 +4459,7 @@ class PerPhaseMusicalGoalsGate:
         )
         # §v10.6 RESTAURIER-DENKER: Zentrale Entscheidungs-Intelligenz
         try:
-            from backend.core.restaurier_denker import (
+            from denker.restaurier_denker import (
                 get_restaurier_denker, DenkerContext,
             )
             _rd = get_restaurier_denker()

@@ -499,12 +499,12 @@ class TestIntrinsicAudioQualityScorer:
 
     @pytest.fixture
     def scorer(self):
-        from backend.core.intrinsic_audio_quality_scorer import IntrinsicAudioQualityScorer
+        from backend.core.multi_pass_strategy import IntrinsicAudioQualityScorer
 
         return IntrinsicAudioQualityScorer()
 
     def test_01_score_returns_result(self, scorer):
-        from backend.core.intrinsic_audio_quality_scorer import IntrinsicQualityScore
+        from backend.core.multi_pass_strategy import IntrinsicQualityScore
 
         r = scorer.score(_sine(), SR)
         assert isinstance(r, IntrinsicQualityScore)
@@ -854,7 +854,7 @@ class TestPsychoAcousticMetrics:
 
     @pytest.fixture
     def metrics(self):
-        from backend.core.psychoacoustic_metrics import PsychoAcousticMetrics
+        from backend.core.comprehensive_metrics import PsychoAcousticMetrics
 
         return PsychoAcousticMetrics(sample_rate=SR)
 
@@ -921,7 +921,7 @@ class TestPsychoAcousticMetrics:
         assert math.isfinite(val) and val >= 0.0
 
     def test_13_measure_quality_improvement(self):
-        from backend.core.psychoacoustic_metrics import measure_quality_improvement
+        from backend.core.comprehensive_metrics import measure_quality_improvement
 
         ref = _sine(440.0, 1.0)
         test = ref + _noise(1.0, amp=0.05)

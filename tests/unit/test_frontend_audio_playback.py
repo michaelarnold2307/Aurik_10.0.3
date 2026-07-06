@@ -46,6 +46,8 @@ class _DummyWindow:
         self.title_bar = _DummyTitleBar()
         self.status_text = _DummyStatusText()
         self._play_thread = None
+        self._streaming_player = None
+        self._playhead_timer = None
 
     def _dispatch_to_gui(self, fn) -> None:
         fn()
@@ -58,6 +60,11 @@ class _DummyWindow:
 
     def _stop_sd_playback_locked(self) -> None:
         pass
+
+    def _ensure_playhead_timer(self):
+        if self._playhead_timer is None:
+            self._playhead_timer = _DummyTimer()
+        return self._playhead_timer
 
 
 class _ImmediateThread:
@@ -139,7 +146,7 @@ def test_play_audio_normalizes_before_sounddevice(monkeypatch: pytest.MonkeyPatc
         def query_devices(self, kind: str | None = None) -> dict:  # type: ignore[override]
             return {}
 
-        def play(self, data: np.ndarray, samplerate: int, blocking: bool = True) -> None:
+        def play(self, data: np.ndarray, samplerate: int, blocking: bool = True, latency: str = "high") -> None:
             captured["data"] = np.array(data, copy=True)
             captured["samplerate"] = samplerate
 

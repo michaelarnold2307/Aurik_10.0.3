@@ -27,13 +27,20 @@ from typing import Any
 
 import numpy as np
 
-from backend.core.intrinsic_audio_quality_scorer import IntrinsicAudioQualityScorer
 from backend.core.processing_modes import ProcessingConfig, ProcessingMode, get_processing_config
 
 logger = logging.getLogger(__name__)
 
 # Singleton IAQS-Instanz (kein State, daher Thread-safe)
-_iaqs = IntrinsicAudioQualityScorer()
+# _iaqs is lazily initialized via _get_iaqs() below after IntrinsicAudioQualityScorer is defined
+_iaqs = None
+
+
+def _get_iaqs():
+    global _iaqs
+    if _iaqs is None:
+        _iaqs = IntrinsicAudioQualityScorer()
+    return _iaqs
 
 
 class VariantStrategy(Enum):
@@ -554,7 +561,7 @@ class ObjectiveScorer:
             if not _mg_loaded:
                 # Intrinsischer Fallback: IAQS liefert psychoakustisch fundierte Scores
                 try:
-                    iaqs = _iaqs.score(audio, sample_rate)
+                    iaqs = _get_iaqs().score(audio, sample_rate)
                     # harmonicity + bark_balance + spectral_regularity ≈ musikalische Güte
                     mg_approx = (iaqs.harmonicity + iaqs.bark_balance + iaqs.spectral_regularity) / 3.0
                     score.musical_goals_avg = float(np.clip(mg_approx, 0.0, 1.0))
@@ -567,7 +574,7 @@ class ObjectiveScorer:
 
         # === 4. Signal Statistics + IAQS Holistic (primär, keine externen Deps) ===
         try:
-            iaqs_stats = _iaqs.score(audio, sample_rate)
+            iaqs_stats = _get_iaqs().score(audio, sample_rate)
             score.snr_db = float(iaqs_stats.snr_estimate)
             score.thd_percent = float(iaqs_stats.thd_estimate_pct)
             # IAQS gesamt Score direkt aus bereits berechnetem Objekt (kein Doppel-Call)

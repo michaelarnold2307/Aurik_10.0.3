@@ -139,3 +139,38 @@ rlp_result = rlp.listen_and_refine(current_audio, sr,
 if rlp_result.overall_improved:
     current_audio = rlp_result.audio
 ```
+
+## §11.5 RestaurierDenker — Vereinigung (§v10.6)
+
+Der RestaurierDenker ist seit v10.6 in EINER Datei (`denker/restaurier_denker.py`)
+vereint. Die frühere Duplizierung in `backend/core/restaurier_denker.py` wurde
+eliminiert. Der Denker vereint jetzt:
+
+- **Pipeline-Orchestrierung:** `restauriere()` — vollständige UV3-Pipeline
+- **Decision Intelligence:** `decide(ctx)` — zentrale Phase-Entscheidung
+- **Session-Management:** `start_session()`, `end_session()`, `get_history()`
+- **Entscheidungs-Hierarchie:** Content Integrity → Undo Detection → Paralysis Check → Proxy Alternative → Mode-Adaptive Steering → Standard Regression
+
+## §11.6 PerceptualQualityCouncil (§v10.5)
+
+Der PQC (`backend/core/perceptual_quality_council.py`) bewertet jede Restaurierung
+mit einem 5-Dimensionen-Modell:
+
+1. **VERSA MOS** (25 %): Objektive Sprach-/Musikqualität
+2. **Musical Goals** (30 %): 15 Goals, psychoakustisch gewichtet
+3. **Temporal Consistency** (15 %): Qualitäts-Schwankungen über den Song
+4. **Restoration Gain** (15 %): Delta zum Original (MOS + Goals)
+5. **Defect Residual** (15 %): Verbleibende Defektschwere + Exzellenz
+
+Ausgabe: `PerceptualVerdict` mit:
+- `holistic_score` (0–1), `recommendation` (keep/retry_lighter/retry_stronger)
+- `confidence_interval` (95 % CI), `dimensions` (5 QualityDimension-Objekte)
+- `material_baseline`, `genre_expected`, `restoration_gain_pct`
+
+## §11.7 Feedback Loop (§G)
+
+Nach PQC-Bewertung kann Aurik die Pipeline erneut durchlaufen:
+
+- **Trigger:** ≥1 Goal unter Material-Schwellwert (z.B. Wärme < 0.70)
+- **Max. Retries:** 2, mit abnehmender Stärke (0.55 → 0.40)
+- **Integration:** `AurikDenker._orchestriere()` nach VERSA-MOS-Gate

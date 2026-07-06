@@ -282,6 +282,33 @@ class PhasePlan:
     policy_hints: dict[str, Any] = field(default_factory=dict)
     """Hörbezogene Hinweise für das zentrale restoration_policy_profile."""
 
+    # ── §v10.2 Repair-Policy (zentrale Entscheidung, vom AurikDenker konsumiert) ──
+    repair_policy: dict[str, str] = field(default_factory=dict)
+    """Reparatur-Entscheidungen für den AurikDenker._run_rest()-Closure.
+
+    Von PhaseInteractionDenker._determine_repair_policy() befüllt, basierend auf
+    defect_scores, material, era, signal_signature und transfer_chain.
+
+    Jeder Key bezeichnet eine Reparatur-Operation, der Value den Eingriffsgrad:
+
+        clicks:   "off" | "mild" | "aggressive"
+        hum:      "off" | "mild" | "aggressive"
+        clipping: "off" | "mild" | "aggressive"
+
+    Der AurikDenker konsumiert diese Policy deterministisch — keine eigenen
+    Schwellen-Entscheidungen mehr im Closure.  Der ReparaturDenker erhält
+    pro Operation einen booleschen Schalter (True/False) plus ggf. den
+    Eingriffsgrad als severity-proportionalen Parameter.
+
+    Aus der Policy werden im AurikDenker die booleschen Flags abgeleitet:
+        remove_clicks    = policy != "off"
+        remove_hum       = policy != "off"
+        repair_clipping  = policy != "off"
+
+    Der Eingriffsgrad ("mild" vs "aggressive") wird als separater Hinweis
+    an den ReparaturDenker durchgereicht (z. B. defect_scores-Skalierung).
+    """
+
     @property
     def is_valid(self) -> bool:
         """True wenn der Plan mindestens eine Phase enthält."""
@@ -439,6 +466,44 @@ class PhaseInteractionDenker:
             except Exception as _ce:
                 logger.debug("PhaseInteractionDenker: leite_phasen_ab() fehlgeschlagen: %s", _ce)
 
+        # §2.5a Material-Kritische-Phasen-Injektion
+        # Erzwingt Reparatur-Phasen für Bandmaterial (Cassette/Tape/Reel)
+        # unabhängig von Defekt-Confidence — Bandkopfdefekte sind inhärent.
+        _MATERIAL_CRITICAL: dict[str, list[str]] = {
+            "cassette": [
+                "phase_14_phase_correction",
+                "phase_25_azimuth_correction",
+                "phase_56_spectral_band_gap_repair",
+                "phase_24_dropout_repair",
+            ],
+            "tape": [
+                "phase_14_phase_correction",
+                "phase_25_azimuth_correction",
+                "phase_56_spectral_band_gap_repair",
+                "phase_24_dropout_repair",
+            ],
+            "reel_tape": [
+                "phase_14_phase_correction",
+                "phase_25_azimuth_correction",
+                "phase_56_spectral_band_gap_repair",
+            ],
+            "vinyl": [
+                "phase_09_crackle_removal",
+                "phase_28_surface_noise_profiling",
+            ],
+            "shellac": [
+                "phase_09_crackle_removal",
+                "phase_28_surface_noise_profiling",
+            ],
+        }
+        _mat_critical = _MATERIAL_CRITICAL.get(str(material or "").lower(), [])
+        for _mc_phase in _mat_critical:
+            if _mc_phase not in merged_phases:
+                merged_phases.append(_mc_phase)
+                note = f"§2.5a Material-Kritisch [{material}]: {_mc_phase}"
+                injected_notes.append(note)
+                logger.info("PhaseInteractionDenker %s", note)
+
         # 3. Goal-Risk-Injektion (§GoalRisk Feature 2: ExzellenzDenker.prognostiziere())
         # Injiziert schützende Phasen wenn ein Musical Goal mit Risiko >= Schwelle bedroht ist.
         if goal_risk_map:
@@ -524,6 +589,22 @@ class PhaseInteractionDenker:
         if signal_signature:
             policy_hints["signal_signature"] = {str(k): float(v) for k, v in signal_signature.items()}
 
+        # ── 8. Repair-Policy (zentral statt inline im AurikDenker) ────────────
+        repair_policy = self._determine_repair_policy(
+            material=material,
+            defekt_hint=defekt_hint,
+            defect_result=defect_result,
+            signal_signature=signal_signature,
+            chain_info=chain_info,
+            mode=mode,
+        )
+        logger.info(
+            "PhaseInteractionDenker Repair-Policy: clicks=%s hum=%s clipping=%s",
+            repair_policy.get("clicks", "?"),
+            repair_policy.get("hum", "?"),
+            repair_policy.get("clipping", "?"),
+        )
+
         logger.info(
             "PhaseInteractionDenker: %d→%d Phasen | "
             "+%d injiziert | %d supprimiert | "
@@ -539,6 +620,27 @@ class PhaseInteractionDenker:
         for note in conflict_notes:
             logger.info("§2.48 Konflikt-Guard: %s", note)
 
+        # §U: Phase-Ordering-Intelligence — akustische Kopplungen optimieren
+        try:
+            from backend.core.phase_intelligence import PhaseOrderIntelligence
+            _poi = PhaseOrderIntelligence()
+            _order_result = _poi.optimize(list(ordered))
+            if _order_result.changes:
+                ordered = _order_result.optimized_order
+                logger.info(
+                    "§U Phase-Ordering: %d Änderungen (score=%.2f)",
+                    len(_order_result.changes), _order_result.score,
+                )
+                for _ch in _order_result.changes[:5]:
+                    logger.debug("  §U %s: Pos %s→%s — %s",
+                                 _ch["phase"], _ch["from_pos"], _ch["to_pos"], _ch["reason"])
+                conflict_notes.append(
+                    f"§U PhaseOrder: {len(_order_result.changes)} akustische "
+                    f"Kopplungen optimiert (score={_order_result.score:.2f})"
+                )
+        except Exception as _u_exc:
+            logger.debug("§U Phase-Ordering nicht verfügbar: %s", _u_exc)
+
         return PhasePlan(
             phases=ordered,
             suppressed=suppressed,
@@ -547,9 +649,136 @@ class PhaseInteractionDenker:
             semantic_annotations={p: sorted(annotations.get(p, frozenset())) for p in ordered},
             phase_quality_tiers=phase_quality_tiers,
             policy_hints=policy_hints,
+            repair_policy=repair_policy,
             material=material,
             mode=mode,
         )
+
+    @staticmethod
+    def _determine_repair_policy(
+        *,
+        material: str,
+        defekt_hint: Any | None,
+        defect_result: Any,
+        signal_signature: dict[str, float] | None,
+        chain_info: Any | None,
+        mode: str,
+    ) -> dict[str, str]:
+        """Zentrale Repair-Policy: clicks / hum / clipping → "off" | "mild" | "aggressive".
+
+        Ersetzt die bisherige inline-Heuristik im AurikDenker._run_rest()-Closure
+        (drei separate boolesche Entscheidungen mit Hardcoded-Schwellen 0.3/0.3/0.4).
+
+        Entscheidungskriterien (nach Wichtigkeit):
+          1. recommended_phases aus DefektDenker (ph01/ph09/ph27 → clicks, ph02 → hum, ph23/ph06 → clipping)
+          2. overall_severity (material-adaptive Schwelle)
+          3. Material-Historie (historische/fragile Materialien sensibler)
+          4. signal_signature (transient_ratio > 1% → clicks sensibler)
+          5. Mode (studio2026 → konservativer)
+          6. Codec-Chain (mp3/aac → mildere click_iqr)
+        """
+        # ── recommended_phases aus defekt_hint extrahieren ──────────────
+        _ph: set[str] = set()
+        if defekt_hint is not None:
+            try:
+                _ph = set(defekt_hint.get("recommended_phases", []) or [])
+            except Exception:
+                pass
+        # Fallback: aus defect_result extrahieren
+        if not _ph and defect_result is not None:
+            try:
+                _ph = set(getattr(defect_result, "recommended_phases", None) or [])
+            except Exception:
+                pass
+
+        # ── overall_severity ────────────────────────────────────────────
+        _sev: float = 1.0
+        if defect_result is not None:
+            try:
+                _sev = float(getattr(defect_result, "overall_severity", 1.0))
+            except Exception:
+                _sev = 1.0
+
+        # ── Material-adaptive Schwellen ─────────────────────────────────
+        _historical_or_fragile = material.lower() in {
+            "wax_cylinder", "shellac", "lacquer_disc", "wire_recording",
+            "vinyl", "tape", "reel_tape", "cassette",
+            "cassette_dolby_b", "cassette_dolby_c", "cassette_dolby_s",
+        }
+        _modern_digital = material.lower() in {
+            "cd_digital", "dat", "aac", "mp3_high", "streaming",
+        }
+        # Historische Materialien: niedrigere Schwellen (früherer Eingriff)
+        _click_threshold = 0.25 if _historical_or_fragile else 0.30
+        _hum_threshold = 0.25 if _historical_or_fragile else 0.30
+        _clip_threshold = 0.35 if _historical_or_fragile else 0.40
+        # Studio 2026: konservativer (höhere Schwellen)
+        if mode in ("studio2026", "maximum"):
+            _click_threshold += 0.05
+            _hum_threshold += 0.05
+            _clip_threshold += 0.05
+        # Digitale Quellen: nur bei explizitem Phasen-Hinweis
+        if _modern_digital and not _ph:
+            return {"clicks": "off", "hum": "off", "clipping": "off"}
+
+        # ── Signal-Signatur-Fehlerjustage ───────────────────────────────
+        if signal_signature:
+            _tr = float(signal_signature.get("transient_ratio", 0.0))
+            _cr = float(signal_signature.get("crest_db", 0.0))
+            if _tr >= 0.01:
+                _click_threshold -= 0.03  # Viele Transienten → clicks früher behandeln
+            if _cr >= 18.0:
+                _click_threshold -= 0.02  # Hoher Crest-Faktor → clicks hörbarer
+
+        # ── Einzelentscheidungen ────────────────────────────────────────
+        _has_click_phases = bool(_ph & {
+            "phase_01_click_removal", "phase_09_crackle_removal",
+            "phase_27_click_pop_removal",
+        })
+        _has_hum_phases = bool(_ph & {"phase_02_hum_removal"})
+        _has_clip_phases = bool(_ph & {
+            "phase_23_spectral_repair", "phase_06_frequency_restoration",
+        })
+
+        def _decide(
+            has_phase_hint: bool,
+            severity: float,
+            threshold: float,
+        ) -> str:
+            if has_phase_hint and severity >= threshold * 1.5:
+                return "aggressive"
+            if has_phase_hint or severity >= threshold:
+                return "mild"
+            if severity >= threshold * 0.8:
+                return "mild"
+            return "off"
+
+        policy = {
+            "clicks": _decide(_has_click_phases, _sev, _click_threshold),
+            "hum": _decide(_has_hum_phases, _sev, _hum_threshold),
+            "clipping": _decide(_has_clip_phases, _sev, _clip_threshold),
+        }
+
+        # ── Codec-Chain-IQR-Floor: Terminal-Codec → clicks nur "mild" ──
+        # (Brandenburg 1999: mp3/aac-Klick-Statistik nicht mit analog
+        #  identisch; zu aggressiver click_iqr schadet der Transparenz)
+        if policy["clicks"] == "aggressive" and chain_info is not None:
+            try:
+                _chain: list[str] = list(
+                    chain_info.get("transfer_chain")
+                    or chain_info.get("chain")
+                    or []
+                )
+                _terminal_codec = any(
+                    str(n).strip().lower() in {"mp3_low", "mp3_high", "aac"}
+                    for n in _chain[-2:]  # letztes Glied + Vorletztes
+                )
+                if _terminal_codec:
+                    policy["clicks"] = "mild"
+            except Exception:
+                pass
+
+        return policy
 
     def _select_via_uv3(
         self,
@@ -767,3 +996,116 @@ class PhaseInteractionDenker:
             else:
                 kept.append(p)
         return kept, removed
+
+    @staticmethod
+    def get_adaptive_post_processing_order(
+        material: str = "unknown",
+        defect_types: list[str] | None = None,
+        era_decade: int = 1970,
+    ) -> list[str]:
+        """Adaptive 8-stage post-processing order based on material/defect profile.
+
+        Static order: Breitband→Impulsiv→Rauschen→Spektral→Räumlich→Dynamik→Enhancement→Ausgabe
+
+        Material-specific reordering:
+        - cassette/tape: Breitband AFTER Impulsiv (preserve noise profile for Stage 3)
+        - reel_tape: Räumlich BEFORE Dynamik (azimuth correction before compression)
+        - vinyl/shellac: static order (noise is broadband, needs Stage 1 first)
+        """
+        stages = [
+            "breitband",   # 1: Hum, Rumpel, DC
+            "impulsiv",    # 2: Clicks, Kratzer, Dropouts
+            "rauschen",    # 3: Phase 03, 29
+            "spektral",    # 4: AntiMuffling
+            "raeumlich",   # 5: SmartTapeRepair, EchoRemoval
+            "dynamik",     # 6: Phase 10, 26, 54
+            "enhancement", # 7: SibilanceMax, VocalClarity
+            "ausgabe",     # 8: Humanization, PerceptualOptimizer
+        ]
+
+        mat = str(material).lower()
+
+        if mat in ("cassette", "tape"):
+            # Move Breitband AFTER Impulsiv — preserve noise profile
+            stages.remove("breitband")
+            impulsiv_idx = stages.index("impulsiv")
+            stages.insert(impulsiv_idx + 1, "breitband")
+
+        elif mat == "reel_tape":
+            # Move Räumlich BEFORE Spektral — azimuth correction before spectral cleanup
+            stages.remove("raeumlich")
+            spektral_idx = stages.index("spektral")
+            stages.insert(spektral_idx, "raeumlich")
+
+        # vinyl, shellac, digital: static order
+
+        return stages
+
+    # ── Guard-Modulation (zentrale Entscheidungs-Intelligenz) ─────────────
+
+    _CRITICAL_PHASES: frozenset[str] = frozenset({
+        "phase_14_phase_correction", "phase_25_azimuth_correction",
+        "phase_56_spectral_band_gap_repair", "phase_24_dropout_repair",
+        "phase_01_click_removal", "phase_09_crackle_removal",
+        "phase_27_click_pop_removal", "phase_03_denoise",
+        "phase_02_hum_removal", "phase_05_rumble_filter",
+    })
+
+    @staticmethod
+    def resolve_guard_modulation(
+        base_strength: float,
+        *,
+        goal_budget: Any = None,
+        guard_wisdom: Any = None,
+        cross_guard_results: dict[str, Any] | None = None,
+        phase_id: str = "",
+        material: str = "unknown",
+    ) -> float:
+        """Zentrale Guard-Modulation — eine Stimme, gewichtete Entscheidung.
+
+        Ersetzt die blinde Multiplikation dreier Guards in _profiled_phase_call.
+        Gewichtet die Guard-Einflüsse statt sie zu multiplizieren:
+          - GoalBudget:  40 % Gewicht (Budget-Erschöpfung)
+          - GuardWisdom: 50 % Gewicht (Lern-Historie)
+          - CrossGuard:  10 % Gewicht (phasenübergreifende Konflikte)
+
+        Returns modulierte Stärke ∈ [0.0, 1.0], nie unter Material-Floor.
+        """
+        penalties: list[tuple[float, float]] = []  # (faktor, gewicht)
+
+        # ── GoalBudget (40 %) ──
+        if goal_budget is not None and hasattr(goal_budget, "fraction_left"):
+            try:
+                wf = min(goal_budget.fraction_left(g) for g in ("waerme", "brillanz", "punch"))
+                if wf < 0.5:
+                    penalties.append((max(0.5, wf), 0.40))
+            except Exception:
+                pass
+
+        # ── GuardWisdom (50 %) ──
+        if guard_wisdom is not None and hasattr(guard_wisdom, "get_strength_mod"):
+            sm = guard_wisdom.get_strength_mod()
+            if sm < 1.0:
+                penalties.append((sm, 0.50))
+
+        # ── CrossGuard (10 %) ──
+        if isinstance(cross_guard_results, dict) and cross_guard_results.get("verdict") == "degraded":
+            penalties.append((0.85, 0.10))
+
+        # ── Gewichtete Modulation (nicht multiplikativ) ──
+        if penalties:
+            total_weight = sum(w for _, w in penalties)
+            if total_weight > 0:
+                weighted_factor = sum(f * w for f, w in penalties) / total_weight
+                base_strength *= weighted_factor
+
+        # ── Material-adaptive Mindest-Stärke ──
+        mat = str(material).lower()
+        _min = 0.30
+        if phase_id in PhaseInteractionDenker._CRITICAL_PHASES:
+            if mat in ("cassette", "tape", "reel_tape"):
+                _min = 0.40
+            elif mat in ("vinyl", "shellac"):
+                _min = 0.35
+
+        return max(_min, min(1.0, base_strength))

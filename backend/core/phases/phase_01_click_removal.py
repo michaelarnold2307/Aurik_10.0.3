@@ -220,7 +220,7 @@ class ClickRemovalPhase(PhaseInterface):
             "vinyl": 0.55,
             "tape": 0.62,
             "reel_tape": 0.60,
-            "cassette": 0.58,
+            "cassette": 0.50,  # §ML-Lowering: cassette clicks benefit from ML even at moderate severity
             "cd_digital": 0.70,
             "mp3_low": 0.65,
         }

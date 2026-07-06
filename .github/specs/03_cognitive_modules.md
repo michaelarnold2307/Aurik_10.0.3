@@ -589,6 +589,238 @@ Ende des LUFS-Morphings erfahren. `gain_envelope[…] = 1.0` ist ein impliziter 
 
 ---
 
+## §AF-MAX RepairDynamicsGuard — Maximaler Dynamik-Schutz bei Defektreparaturen
+
+**Datei**: `backend/core/repair_dynamics_guard.py`
+
+```python
+DEFAULT_BANDS: tuple = (250.0, 4000.0)  # Low-Crossover, High-Crossover
+MAX_GAIN_DB: float = 6.0               # Maximale Gain-Anpassung pro Band
+MIN_GAIN_DB: float = -6.0
+CROSSFADE_MS: float = 12.0             # Standard Cross-fade-Dauer
+LUFS_GATE_DB: float = -10.0            # ITU-R BS.1770-4 relativer Gate-Threshold
+ADAPTIVE_CONTEXT_MS: float = 50.0      # Kontext-Fenster für Envelope-Messung
+STEREO_DRIFT_THRESHOLD_DB: float = 0.3 # Max. L/R-Pegel-Drift
+MIN_PHASE_CORRELATION: float = 0.85    # Min. Inter-Channel-Korrelation
+TRANSIENT_RATIO_THRESHOLD: float = 4.0 # Onset-Detektion (Energie-Verhältnis)
+```
+
+### Architektur — Sechs Säulen
+
+| Säule | Methode | Norm | Zweck |
+| --- | --- | --- | --- |
+| **1. LUFS-Matching** | `measure_lufs()` | ITU-R BS.1770-4 | Lautheit statt RMS — menschliche Wahrnehmung |
+| **2. Multi-Band-Envelope** | `measure_band_envelope()` | 3 Bänder: <250 Hz / 250–4000 Hz / >4000 Hz | Jedes Band bekommt eigene Gain-Kurve |
+| **3. Transienten-Schutz** | `detect_transients()` | Energie-Ratio > 4:1 | Onsets/Attacken werden nie von Reparatur weichgebügelt |
+| **4. Stereo-Balance** | `measure_stereo_balance()` | L/R-Drift ≤ 0.3 dB | Panning bleibt exakt erhalten |
+| **5. Phasen-Kohärenz** | `measure_phase_coherence()` | Pearson L/R ≥ 0.85 | Kein Kammfilter-Effekt durch Reparatur |
+| **6. Adaptiver Schwellwert** | `inject_guard_wisdom()` | GuardWisdom-Integration | Material + Genre + Lernhistorie bestimmen Toleranz |
+
+### Teamwork-Integration
+
+```text
+RepairDynamicsGuard
+    │
+    ├── ▶ GuardWisdom.record(phase_id, "dynamics_guard", metrics, verdict)
+    │   → Lernfähigkeit: Strength-Modulation über Reparaturen hinweg
+    │
+    ├── ▶ GoalBudget.record_delta("brillanz"/"punch", delta)
+    │   → Dynamics-Budget-Tracking pro Phase
+    │
+    ├── ▶ CrossGuardCoordinator.record("dynamics_arc", phase_id, metrics)
+    │   → Kompromiss-Entscheidung bei Guard-Konflikten
+    │
+    ├── ▶ EmotionalArcPreserver._measure()
+    │   → Arousal/Valence-Korrelation vor/nach Reparatur
+    │
+    ├── ▶ PMGG-Scoring
+    │   → Dynamics-Metriken fließen in Gesamtbewertung (0.0–1.0)
+    │
+    └── ▶ restoration_context["_dynamics_guard_report"]
+        → Für alle Denker downstream verfügbar
+```
+
+### Brücke: `DynamicsGuardIntegration`
+
+**Datei**: `backend/core/dynamics_guard_integration.py`
+
+- `integrate_phase_result()` → nach jeder Reparatur-Phase (UV3 Phase-Loop)
+- `integrate_post_pipeline()` → nach der gesamten Pipeline (vor STCG post)
+- Injiziert `_dynamics_guard_report` + `_dynamics_guard_final` in `_restoration_context`
+
+### Qualitätsmetriken
+
+| Metrik | Ziel | Messung |
+| --- | --- | --- |
+| Envelope-Kontinuität | |Δ| ≤ 1.5 dB | RMS-Sprung an Reparaturgrenzen |
+| Stereo-Drift | |Δ| ≤ 0.3 dB | L/R-Balance vor/nach |
+| Phasen-Korrelation | r ≥ 0.85 | Pearson L/R |
+| Crest-Faktor-Änderung | ≤ 5 % | Peak/RMS vor/nach |
+| LUFS-Drift | ≤ 1.0 LU | ITU-R BS.1770-4 integrated |
+| Transienten-Erhalt | ≤ 10 % Verlust | Onset-Detektion vor/nach |
+
+### AD + AE Integration
+
+- **DefectPrecisionEnhancer (AD)**: `apply_repairs()` ruft `match_envelope()` nach jeder Einzelreparatur
+- **CrossChannelRepair (AE)**: `repair_dropout()` und `repair_click()` rufen `match_envelope()` + `verify_continuity()`
+- Beide Module nutzen `RepairDynamicsGuard` als `self._dynamics`
+
+---
+
+## §AL PrecisionDefectLocator — Sub-Sample Edge Refinement
+
+**Datei**: `backend/core/precision_defect_locator.py`
+
+Sub-Sample-Präzision (±5ms, Zero-Crossing + Envelope). Overlap-Resolution (10 Prioritätsstufen). Sub-Type-Klassifikation: Clicks→impulse/tick/pop/scratch, Crackle→vinyl/tape, Hum→50/60/100/120Hz. Confidence-Kalibrierung via Crest+SNR.
+
+## §AM PerDefectRepairVerifier — Single-Defekt Before/After + Auto-Retry
+
+**Datei**: `backend/core/per_defect_repair_verifier.py`
+
+Verifiziert JEDE Defektreparatur: RMS/Peak vor/nach, Auto-Retry (max 3), Over-Repair-Schutz (max 30dB), §AF Continuity-Check. Batch-Report (repaired_ok/retried/failed).
+
+---
+
+## §AG SibilanceMaxRepair — Sibilanten-Präzisionsreparatur
+
+**Datei**: `backend/core/sibilance_max_repair.py`
+
+```python
+FORMANT_PROTECT_BANDS: list = [(250,850),(850,2500),(2500,3500),(3500,4500)]  # F1-F4
+SIBILANCE_BANDS: list = [(5000,8000),(6000,10000),(7000,12000)]  # Gender-adaptiv
+MAX_ATTENUATION_DB: float = 12.0   # Maximale Sibilance-Reduktion
+MIN_STRENGTH: float = 0.3           # Minimal, nie komplett entfernen
+STEREO_SAFE: bool = True            # L/R unabhängig
+```
+
+Koordiniert `phase_19_de_esser` (DSP v4.0) und `phase_43_ml_deesser` (Hybrid v2.2)
+als präzises Team. Nach jeder De-Ess-Operation:
+- §AF DynamicsGuard: Envelope-Matching + Stereo-Balance-Check
+- §M VocalFormantGuard: F1-F4-Drift-Prüfung
+- Gender-adaptive Sibilance-Bänder (5-12 kHz)
+
+---
+
+## §AH VocalClarityMax — Gesangs-Klarheit + Natürlichkeit
+
+**Datei**: `backend/core/vocal_clarity_max.py`
+
+```python
+PRESENCE_BAND: tuple = (2000, 6000)   # Hz
+FORMANT_BOOST_MAX_DB: float = 1.5    # Max Formant-Anhebung
+BREATH_BAND: tuple = (8000, 12000)   # Atem-Bereich
+CONSONANT_BAND: tuple = (3000, 8000) # Konsonanten-Transienten
+VQI_TOLERANCE: float = 0.02          # Max VQI-Verlust
+```
+
+5-stufige Pipeline nur auf Vocal-Material (PANNS > 0.25):
+1. Presence Recovery (2-6 kHz dynamischer EQ)
+2. Formant Enhancement (F1-F4, max 1.5 dB)
+3. Breath Intelligence (Atemgeräusche bewahren)
+4. Consonant Preservation (Transienten in 3-8 kHz)
+5. VQI Naturalness Verification (vor/nach)
+
+---
+
+## §AJ AntiMufflingPass — Dumpfheit-Entfernung
+
+**Datei**: `backend/core/anti_muffling_pass.py`
+
+```python
+MUFFLED_HF_RATIO: float = 0.08     # HF < 8% = dumpf
+MAX_HF_BOOST_DB: float = 3.0      # Nie mehr als +3 dB
+BRIGHTNESS_TARGET: float = 0.12   # Ziel-HF-Ratio
+OVER_BRIGHT_CEILING: float = 0.30 # HF > 30% = zu hell
+BLOCK_MS: int = 200               # Chirurgie-Blockgröße
+```
+
+Chirurgische Dumpfheit-Entfernung:
+1. Block-basierte Muffling-Detektion (200 ms)
+2. Nur dumpfe Blöcke werden behandelt
+3. Graduelle High-Shelf-Anhebung ab 8 kHz
+4. Sanfter Übergang 4-8 kHz
+5. Over-Bright-Schutz (max +6 dB RMS)
+6. Warmth-Erhalt (Bass < 500 Hz unverändert)
+
+### UV3 Post-Pipeline Reihenfolge
+
+```text
+_finalize_klang_guards()
+  → DynamicsGuardIntegration (integrate_post_pipeline)
+  → HumanizationPass (gegen Hörermüdigkeit)
+  → §AG SibilanceMaxRepair (Sibilanten-Präzision)
+  → §AH VocalClarityMax (Gesang-Klarheit)
+  → §AJ AntiMufflingPass (Dumpfheit-Entfernung)
+  → §Q Listening-Mode EQ
+```
+
+---
+
+## §AK AuraPreserver — Klangliche Aura-Bewahrung
+
+**Datei**: `backend/core/aura_preserver.py`
+
+```python
+AURA_DRIFT_THRESHOLD: float = 0.3    # Max 30% Drift = preserved
+WARMTH_DRIFT_MAX_DB: float = 3.0     # Max ±3 dB
+BRILLIANCE_DRIFT_MAX_DB: float = 3.0 # Max ±3 dB
+CREST_DRIFT_MAX_PCT: float = 20.0    # Max ±20%
+ERA_AUTHENTICITY_MIN: float = 0.70   # Min 70% Era-Match
+```
+
+Ein Aura-Fingerabdruck wird zu Beginn jeder Restauration genommen.
+Nach der Pipeline wird die Drift gemessen. Der Aura-Score (0.0–1.0)
+fließt in den finalen Qualitätsreport ein.
+
+### Aura-Komponenten
+
+| Komponente | Messung | Gewicht |
+|---|---|---|
+| Wärme-Drift | 100-500 Hz RMS vor/nach | 1/6 |
+| Brillanz-Drift | 8-16 kHz RMS vor/nach | 1/6 |
+| Crest-Drift | Peak/RMS vor/nach | 1/6 |
+| Emotional-Arc | Pearson-Korrelation Arousal/Valence | 1/6 |
+| Character-Erhalt | musical_quality_assurance Char.-Score | 1/6 |
+| Era-Authenticity | HF-Rolloff-Stabilität | 1/6 |
+
+---
+
+## §DENKER Entscheidungs-Intelligenz — Defekt→Phase→Stärke
+
+**Zentrale Denker-Dateien**:
+- `denker/phase_interaction_denker.py` — Phasen-Orchestrierung
+- `backend/core/vocal_no_harm_gate.py` — Gesangs-Schutz mit Material-Adaption
+
+### Material-adaptive Vocal-No-Harm-Schwellen
+
+```python
+_VOCAL_GATE_MATERIAL_FLOOR = {
+    "cassette":      0.55,  # Defekte + Gesang untrennbar → höhere Toleranz
+    "tape":          0.55,
+    "reel_tape":     0.50,
+    "vinyl":         0.45,  # Oberflächengeräusche → mittlere Toleranz
+    "shellac":       0.45,
+    "wax_cylinder":  0.50,
+    "wire_recording":0.50,
+}
+```
+
+### Denker-Entscheidungskette
+
+Für jeden erkannten Defekt:
+1. **DefectScanner** → DefectType + Severity + Confidence
+2. **DefectPhaseMapper** → Primary + Secondary Phases
+3. **PhaseInteractionDenker** → Material-adaptive Selektion
+4. **VocalNoHarmGate** → Material-spezifische PANNS-Schwelle
+5. **StrictConflictDecay** → Stärke-Drosselung bei Rollback
+6. **Post-Processing** → 8-stufige wissenschaftliche Pipeline
+
+### Prinzip
+
+**Niemals einen erkannten Defekt unbehandelt lassen.** Wenn ein Defekt erkannt wird (Severity > 0), MUSS mindestens eine Reparatur-Phase laufen. Material-Confidence beeinflusst die Stärke, nicht die Selektion.
+
+---
+
 ## §2.26 RestorabilityEstimator
 
 ```python

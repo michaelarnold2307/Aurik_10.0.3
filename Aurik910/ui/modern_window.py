@@ -17,13 +17,17 @@ import sys
 import tempfile
 import threading
 import time
-import tkinter as _tk
+try:
+    import tkinter as _tk
+    from tkinter import filedialog as _tk_filedialog
+except ImportError:
+    _tk = None
+    _tk_filedialog = None
 import traceback
 from collections import defaultdict
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from tkinter import filedialog as _tk_filedialog
 from typing import Any, cast
 
 import numpy as np
@@ -1681,22 +1685,23 @@ class BatchProcessingThread(QThread):
             try:
                 # Mark as processing
                 item.status = "processing"
+                # Check ML model availability and warn user
+                _ml_warnings = []
+                for _mod, _name in [("panns_plugin", "PANNs (Instrument-Erkennung)"), ("plugins.versa_plugin", "VERSA MOS (Qualitaetsbewertung)")]:
+                    try:
+                        __import__(_mod, fromlist=["dummy"])
+                    except Exception:
+                        _ml_warnings.append(_name)
+                if _ml_warnings and hasattr(self, "_on_ml_failure"):
+                    self._on_ml_failure(_ml_warnings)
+                elif _ml_warnings:
+                    logger.warning("ML-Modelle nicht verfuegbar: %s", ", ".join(_ml_warnings))
                 item.progress = 0
                 self._last_phase_state = None  # reset live-time state for new item
                 self._pid_live_hint = {}
                 self.item_started.emit(item.id)
                 self.phase_step_update.emit(1, 0, "Audio wird geladen")
                 self.phase_update.emit(f"Restaurierung startet: {Path(item.input_file).name}")
-                # Sanfte Ramp 0,0 % → 2,0 % vor Audio-Loading (40 Schritte × 40 ms = 1,6 s).
-                # Ohne Animation bleibt die Bar bei 0,00 % für die gesamte
-                # Ladedauer (bei großen MP3s bis zu 30 s) — visuell eingefroren.
-                for _pre_v in range(5, 205, 5):  # 5, 10, 15, …, 200  (40 Schritte)
-                    if self.isInterruptionRequested():
-                        break
-                    self.item_progress.emit(item.id, _pre_v)
-                    time.sleep(0.04)
-                item.progress = 2
-
                 # Ticker: hält die Bar während des Audio-Ladens in Bewegung (2 % → max 3,9 %).
                 # Wird gestoppt, sobald der echte 4%-Emit folgt.
                 _load_ticker_active = [True]
@@ -1786,14 +1791,7 @@ class BatchProcessingThread(QThread):
                 # §Watchdog-Extension: jetzt bekannte Dateilänge an ModernMainWindow melden,
                 # damit der Watchdog-Timer pro Datei korrekt neu berechnet werden kann.
                 self.watchdog_extend.emit(_audio_dur_s_local)
-                # Ramp 2 % → 4 % in 0,1%-Schritten (20 Schritte × 30 ms = 600 ms)
-                for _rv in range(210, 410, 10):
-                    if self.isInterruptionRequested():
-                        break
-                    self.item_progress.emit(item.id, _rv)
-                    time.sleep(0.03)
-                item.progress = 4
-                self.item_progress.emit(item.id, 400)
+
 
                 # Map GUI modes to Denker modes (§2.2 Spec)
                 mode = item.settings.get("mode", "RESTORATION")
@@ -1846,14 +1844,7 @@ class BatchProcessingThread(QThread):
                 # ML-Plugins: Lokale ONNX-Modelle (kein Docker)
                 self.ml_status_update.emit(False, [])
 
-                # Ramp 4 % → 6 % in 0,1%-Schritten (20 Schritte × 30 ms = 600 ms)
-                for _rv in range(410, 610, 10):
-                    if self.isInterruptionRequested():
-                        break
-                    self.item_progress.emit(item.id, _rv)
-                    time.sleep(0.03)
-                item.progress = 6
-                self.item_progress.emit(item.id, 600)
+
 
                 # Race Condition Guard: Hintergrundanalysen (Carrier, Ära, Genre) laufen
                 # als Daemon-Threads nach dem Import. DefectScan wurde bereits oben (vor dem
@@ -1968,14 +1959,7 @@ class BatchProcessingThread(QThread):
                     self.item_finished.emit(item.id)
                     break
 
-                # Ramp 6 % → 9 % in 0,1%-Schritten (30 Schritte × 30 ms = 900 ms)
-                for _rv in range(610, 910, 10):
-                    if self.isInterruptionRequested():
-                        break
-                    self.item_progress.emit(item.id, _rv)
-                    time.sleep(0.03)
-                item.progress = 9
-                self.item_progress.emit(item.id, 900)
+
 
                 # Process
                 self.phase_step_update.emit(3, 0, "Restaurierung startet")
@@ -2069,13 +2053,13 @@ class BatchProcessingThread(QThread):
                 _SP_MAX_STEP = 0.6  # max step per frame for catch-up easing
                 _SP_MIN_VELOCITY = 0.020  # min pts/frame ≈ 0.60 pts/s — bar visibly moves
                 _sp: dict = {
-                    "current": 9.0,  # sync with last hardcoded emit (900 = 9 %)
-                    "target": 9.0,
+                    "current": 0.0,  # start at 0 (fake ramps removed)
+                    "target": 1.0,  # creep immediately to show life
                     "alive": True,
                     "export_stage_started": False,
                     "phase_stage_cap": 96.0,
                     "last_target_time": time.perf_counter(),
-                    "last_jump": 3.0,  # initial estimate (display pts)
+                    "last_jump": 1.0,  # initial estimate (display pts)
                     "avg_phase_dur": 4.0,  # initial estimate (seconds/phase) — self-calibrates
                 }
                 # Sub-progress bar state: 0–100 within the current phase step
@@ -2106,9 +2090,10 @@ class BatchProcessingThread(QThread):
                     _last_phase_bp: int = -1
                     _last_scan_int: int = -1  # int(frac * 500) for ~0.2 % granularity
                     _last_main_emit_ts: float = time.perf_counter()
-                    try:
-                        while True:
+                    while True:
+                        try:
                             time.sleep(_SP_INTERVAL)
+                            QApplication.processEvents(QEventLoop.ExcludeUserInputEvents, 5)
                             with _sp_lock:
                                 if not _sp["alive"]:
                                     return
@@ -2125,6 +2110,8 @@ class BatchProcessingThread(QThread):
 
                             gap = tgt - cur
                             elapsed_since_tgt = time.perf_counter() - last_tgt_time
+                            all_phases_done = False
+                            _overshoot_cap = 96.0  # default, updated below
 
                             # ── Main bar: unified velocity model ──────────────────
                             if gap > 0.3:
@@ -2166,7 +2153,7 @@ class BatchProcessingThread(QThread):
                                 #      deckt Songs ab, bei denen die pct-86-Meldung ausbleibt.
                                 # Hinweis: _sp2_done (✓-basiert) war früher Bedingung 1, ist entfallen
                                 # weil UV3 kein ✓-Präfix sendet (immer 0).
-                                all_phases_done = False
+                                # all_phases_done initialized above
                                 with _sp_lock:
                                     _post_proc = _post_processing_started[0]
                                 if _post_proc or tgt >= 83.0:
@@ -2314,6 +2301,8 @@ class BatchProcessingThread(QThread):
                                 _last_emit_val = emit_val
                                 _last_main_emit_ts = time.perf_counter()
                                 self.item_progress.emit(_item.id, emit_val)
+                            if emit_val % 500 == 0:
+                                QApplication.processEvents()
                             _phase_bp = min(10000, int(sub_new * 100.0))
 
                             # Konsistenz-Guard: In deterministischen Segmenten muss
@@ -2347,24 +2336,12 @@ class BatchProcessingThread(QThread):
                                 _last_scan_int = _scan_int
                                 self.scan_progress.emit(_scan_frac)
 
-                    except RuntimeError:
-                        # BatchProcessingThread C++ object deleted by Qt GC (normal on run
-                        # completion or window close) — exit emitter thread silently.
-                        logger.debug(
-                            "aurik-smooth-progress: emitter stopping — Qt object deleted at %.1f%%",
-                            _last_emit_val / 100.0,
-                        )
-                    except Exception as _sp_exc:
-                        # Unhandled exception in the smooth-progress emitter.
-                        # Without this catch the thread dies silently and the
-                        # progress bar freezes at whatever value the pre-ramp
-                        # last emitted (e.g. 3.9 % when the 2→4 % ramp is mid-way).
-                        logger.exception(
-                            "aurik-smooth-progress FATAL — bar frozen at %d (%.1f%%): %s",
-                            _last_emit_val,
-                            _last_emit_val / 100.0,
-                            _sp_exc,
-                        )
+                        except RuntimeError:
+                            logger.debug("aurik-smooth-progress: Qt deleted, stopping")
+                            break
+                        except Exception as _sp_exc:
+                            logger.warning("aurik-smooth-progress: recovered from: %s: %s",
+                                         type(_sp_exc).__name__, _sp_exc)
 
                 # ── Closure state for real-time UX feedback ─────────────────────────────
                 # Tracks phase label for sub-bar reset on phase transitions
@@ -2765,10 +2742,14 @@ class BatchProcessingThread(QThread):
                     # BEVOR die Pipeline startet → Total von Anfang an korrekt.
                     if msg.startswith("__total_uv3_phases__:"):
                         try:
-                            _uv3_total_known[0] = int(msg.split(":")[1])
+                            _total = int(msg.split(":")[1])
+                            _uv3_total_known[0] = _total
+                            _uv3s2 = getattr(self, "_uv3", None)
+                            if _uv3s2 is not None:
+                                _uv3s2["count"] = _total  # §K
                         except (ValueError, IndexError):
                             pass
-                        return  # Keine UI-Aktualisierung für Metadaten-Nachricht
+                        return
                     if msg.startswith("__carrier_chain__:"):
                         _payload = msg.split(":", 1)[1]
                         _chain_keys = [
@@ -2805,8 +2786,26 @@ class BatchProcessingThread(QThread):
                     _early_pid = _early_pid_match.group(1) if _early_pid_match else ""
                     # Hauptbalken: aus dem realen, ausgewählten Stufenplan ableiten.
                     # Der rohe UV3-pct bleibt nur Fallback/Voranalyse/Post-Processing.
-                    _new_tgt, _stage_cap = _selected_stage_ui_target(pct, _early_pid)
+                    # Progress use pct directly - already stage-mapped
+                    _new_tgt = float(pct)
+                    _stage_cap = min(90.0, float(pct) + 5.0)
                     _item.progress = int(_new_tgt)
+
+                    # §K: Einfache UV3-Progress-Engine füttern (shared state)
+                    _msg_has_phase = bool(_early_pid and _early_pid.startswith("phase_"))
+                    _uv3s = getattr(self, "_uv3", None)
+                    if _uv3s is None and hasattr(self, "batch_thread"):
+                        _uv3s = getattr(self.batch_thread, "_uv3", None)
+                    if _uv3s is not None:
+                        if _msg_has_phase and not _uv3s["active"]:
+                            _uv3s["active"] = True
+                            _uv3s["started_at"] = time.perf_counter()
+                        if _msg_has_phase and _uv3s["active"]:
+                            _np = int(_early_pid.split("_")[1]) - 1 if _early_pid.count("_") >= 2 else _uv3s["idx"]
+                            if _np > _uv3s["idx"]:
+                                _uv3s["idx"] = _np
+                                _uv3s["started_at"] = time.perf_counter()
+
                     # Update smooth-emitter target + calibrate phase-timing stats
                     # MONOTONIC: target darf nie sinken (verhindert Rücksprung bei
                     # verschachtelten UV3-Aufrufen in ARE multi-pass full-pass)
@@ -2841,6 +2840,10 @@ class BatchProcessingThread(QThread):
                         if _target_advanced:
                             _sp["last_target_time"] = _now
                             _sp["target"] = _new_tgt
+                    if _new_tgt > 2.0 and _new_tgt < 98.0:
+                        self.set_buttons_enabled(False)
+                    elif _new_tgt >= 98.0:
+                        self.set_buttons_enabled(True)
                     # Live ML-Plugin-Erkennung aus progress-Meldung (voller msg incl. [phase_id])
                     _msg_lower = msg.lower()
                     _msg_underscored = _msg_lower.replace(" ", "_")
@@ -6408,7 +6411,7 @@ class WaveformWidget(QWidget):
         margin_left = 50
         margin_right = 20
         margin_top = 10
-        margin_bottom = 30
+        margin_bottom = 15
 
         plot_width = self.width() - margin_left - margin_right
         plot_height = self.height() - margin_top - margin_bottom
@@ -9823,7 +9826,7 @@ class ModernTitleBar(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setFixedHeight(50)
+        self.setFixedHeight(38)
         self.drag_position = None
         self.is_maximized = False
 
@@ -9996,8 +9999,8 @@ class ModernButton(QPushButton):
     def __init__(self, text, _icon=None, primary=False, parent=None):
         super().__init__(text, parent)
         self.primary = primary
-        self.setMinimumHeight(45)
-        self.setFont(QFont(QApplication.font().family(), 10, QFont.Weight.Medium))
+        self.setMinimumHeight(30)
+        self.setFont(QFont(QApplication.font().family(), 9, QFont.Weight.Medium))
         self.setCursor(Qt.CursorShape.PointingHandCursor)
 
         # Shadow effect
@@ -11689,6 +11692,10 @@ class ModernMainWindow(QMainWindow):
         self._heartbeat_phase_progress_key: str = ""
         self._heartbeat_phase_progress_started_at: float = 0.0
         self._heartbeat_phase_progress_bp: int = 0
+        # §K: Vereinfachte UV3-Progress-Engine — eine Formel, ein Timer
+        # §K: UV3 shared state (dict, von beiden Threads gelesen/geschrieben)
+        self._uv3: dict[str, Any] = {"active": False, "count": 0, "idx": 0, "started_at": 0.0, "pct": 0.0}
+        self._uv3_lock = threading.Lock()
         self._watchdog_timer = None
         self._last_item_progress_done: int = 0
         self._latest_experience_insights: dict[str, Any] = {}
@@ -12230,7 +12237,18 @@ class ModernMainWindow(QMainWindow):
             self.refinement_progress_bar.setFixedHeight(self._sp(3))
 
         if hasattr(self, "title_bar"):
-            self.title_bar.setFixedHeight(self._sp(50))
+            self.title_bar.setFixedHeight(self._sp(38))
+
+    def set_buttons_enabled(self, enabled: bool) -> None:
+        """Aktiviert/deaktiviert Play/Stop-Buttons während der Verarbeitung."""
+        for btn_name in ("play_original_btn", "play_restored_btn", "compare_btn", "stop_btn"):
+            btn = getattr(self, btn_name, None)
+            if btn is not None:
+                btn.setEnabled(enabled)
+                btn.setVisible(enabled or not enabled)  # immer sichtbar, nur deaktiviert
+        # Also disable the batch start button
+        if hasattr(self, "start_batch_btn"):
+            self.start_batch_btn.setEnabled(enabled)
 
         # Restore current card tones after scale updates.
         for _lbl_name in (
@@ -12784,11 +12802,16 @@ class ModernMainWindow(QMainWindow):
         self._defect_story_section = _section("Defektanalyse:", _story_scroll)
         self._defect_story_section.setVisible(False)
 
-        # Interne Widgets (verborgen, nur für Datenverarbeitung)
+        # Defekt-Zähler (verborgen, nur für Datenverarbeitung)
         self.defect_counter_widget = DefectCounterWidget()
         self.defect_counter_widget.setVisible(False)
+
+        # Verarbeitungsmodus-Anzeige: DSP- oder ML/KI-Status (live sichtbar)
         self.resource_status_widget = ResourceStatusWidget()
-        # ResourceStatusWidget kept as data source; no longer shown as panel
+        # Sichtbar unterhalb des Defekt-Containers als kompakter Chip
+        _dc_layout = _defect_container.layout()
+        if _dc_layout is not None:
+            _dc_layout.addWidget(self.resource_status_widget)
 
         # ── Musikalische Ziele ────────────────────────────────────────
         quality_frame = QFrame()
@@ -14697,7 +14720,7 @@ class ModernMainWindow(QMainWindow):
 
         _menu.addSeparator()
 
-        _about = QAction(f"ℹ  Über Aurik  (v{QApplication.applicationVersion()})", self)
+        _about = QAction(f"ℹ  Über Aurik  (v{_AURIK_VERSION})", self)
         _about.triggered.connect(self._show_about_dialog)
         _menu.addAction(_about)
 
@@ -14736,18 +14759,332 @@ class ModernMainWindow(QMainWindow):
             self.status_text.setText(t("status.help_not_found", file=filename))
 
     def _show_about_dialog(self) -> None:
-        """Zeigt an: a simple About dialog."""
-        _status_lines = self._collect_professional_system_status()
-        _status_html = "".join(f"<li><b>{name}</b>: {state}</li>" for name, state in _status_lines)
-        QMessageBox.about(
-            self,
-            "Über AURIK Professional",
-            f"<h3>AURIK Professional</h3>"
-            f"<p>Version {QApplication.applicationVersion()}</p>"
-            f"<p>Intelligentes Musik-Restaurierungssystem für Offline-Restaurierung, Reparatur und Rekonstruktion.</p>"
-            f"<ul>{_status_html}</ul>"
-            f"<p style='color:#8899bb;'>© 2026 AURIK</p>",
+        """Zeigt reichhaltigen Über-Aurik-Dialog mit strukturierten Informationen."""
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Über AURIK Professional")
+        dlg.setMinimumWidth(580)
+        dlg.setMaximumWidth(640)
+        dlg.setMinimumHeight(520)
+        dlg.setMaximumHeight(720)
+        dlg.setStyleSheet(
+            "QDialog { background: #0d0d1f; border: 1px solid rgba(102,126,234,0.5);"
+            " border-radius: 10px; }"
+            " QLabel { color: #d0d8ff; font-family: 'Segoe UI', sans-serif; }"
+            " QScrollArea { background: transparent; border: none; }"
+            " QScrollBar:vertical { background: rgba(102,126,234,0.08); width: 6px; border-radius: 3px; }"
+            " QScrollBar::handle:vertical { background: rgba(102,126,234,0.3); border-radius: 3px; min-height: 30px; }"
+            " QScrollBar::handle:vertical:hover { background: rgba(102,126,234,0.5); }"
+            " QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }"
+            " QPushButton { background: rgba(102,126,234,0.25); color: #fff;"
+            " border: 1px solid rgba(102,126,234,0.6); border-radius: 6px;"
+            " padding: 8px 24px; font-size: 10pt; font-weight: 600; }"
+            " QPushButton:hover { background: rgba(102,126,234,0.50); }"
         )
+
+        layout = QVBoxLayout(dlg)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+
+        # ── Scroll-Bereich ──────────────────────────────────────────
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll_widget = QWidget()
+        scroll_widget.setStyleSheet("background: transparent;")
+        inner = QVBoxLayout(scroll_widget)
+        inner.setContentsMargins(28, 20, 28, 16)
+        inner.setSpacing(10)
+
+        # ── Header ──────────────────────────────────────────────────
+        header = QLabel(
+            f"<b style='font-size:16pt; color:#E8ECFF;'>🎵 AURIK Professional</b>"
+        )
+        header.setTextFormat(QtCore.Qt.TextFormat.RichText)
+        inner.addWidget(header)
+
+        subheader = QLabel(
+            f"<span style='font-size:10pt; color:#8899bb;'>"
+            f"Version <b style='color:#AFC3DA;'>{_AURIK_VERSION}</b>"
+            f"&nbsp;&nbsp;·&nbsp;&nbsp;<span style='color:#6ebf6e;'>Produktionsbereit</span>"
+            f"&nbsp;&nbsp;·&nbsp;&nbsp;Juli 2026</span>"
+        )
+        subheader.setTextFormat(QtCore.Qt.TextFormat.RichText)
+        inner.addWidget(subheader)
+
+        inner.addSpacing(2)
+
+        # ── Trennlinie ──────────────────────────────────────────────
+        sep = QLabel()
+        sep.setFixedHeight(1)
+        sep.setStyleSheet("background: rgba(102,126,234,0.25);")
+        inner.addWidget(sep)
+        inner.addSpacing(4)
+
+        # ── Was ist Aurik? ──────────────────────────────────────────
+        what_label = QLabel(
+            "<b style='font-size:11pt; color:#C8D8FF;'>Was ist Aurik?</b>"
+        )
+        what_label.setTextFormat(QtCore.Qt.TextFormat.RichText)
+        inner.addWidget(what_label)
+
+        what_text = QLabel(
+            "<span style='font-size:9pt; color:#b0bdd0;'>"
+            "Aurik ist ein <b style='color:#d0d8ff;'>intelligentes, kontextbewusstes Musik- und "
+            "Gesangs-Restaurations-, Reparatur- und Rekonstruktionssystem</b>. "
+            "Es kombiniert <b style='color:#d0d8ff;'>psychoakustisch fundierte DSP</b>, "
+            "<b style='color:#d0d8ff;'>Bayesianische Kausalinferenz</b>, "
+            "<b style='color:#d0d8ff;'>Gaussianische Prozess-Optimierung</b> "
+            "und <b style='color:#d0d8ff;'>perzeptuelle Qualitätsbewertung</b> zu einer kognitiven "
+            "Restaurierungs-Intelligenz.<br><br>"
+            "<b style='color:#AFC3DA;'>Desktop-only</b> · "
+            "<b style='color:#AFC3DA;'>100 % offline</b> nach Installation · "
+            "<b style='color:#AFC3DA;'>Linux &amp; Windows 10/11</b> · "
+            "<b style='color:#AFC3DA;'>CPU + optionale AMD-GPU</b></span>"
+        )
+        what_text.setTextFormat(QtCore.Qt.TextFormat.RichText)
+        what_text.setWordWrap(True)
+        inner.addWidget(what_text)
+
+        inner.addSpacing(6)
+
+        # ── Kern-Fähigkeiten ────────────────────────────────────────
+        caps_label = QLabel(
+            "<b style='font-size:11pt; color:#C8D8FF;'>Kern-Fähigkeiten</b>"
+        )
+        caps_label.setTextFormat(QtCore.Qt.TextFormat.RichText)
+        inner.addWidget(caps_label)
+
+        caps_html = (
+            "<table cellspacing='4' style='font-size:9pt;'>"
+            "<tr>"
+            "<td style='color:#b0bdd0; padding-right:16px;'>Restaurierungs-Pipeline</td>"
+            "<td style='color:#d0d8ff;'><b>66 Phasen</b></td>"
+            "<td style='color:#8899bb; padding-left:12px;'>Defektkorrektur · Enhancement · Guard-Policy</td>"
+            "</tr>"
+            "<tr>"
+            "<td style='color:#b0bdd0;'>Defekttypen</td>"
+            "<td style='color:#d0d8ff;'><b>62/62 erkannt</b></td>"
+            "<td style='color:#8899bb; padding-left:12px;'>vollständig auf Phasen gemappt</td>"
+            "</tr>"
+            "<tr>"
+            "<td style='color:#b0bdd0;'>Materialien</td>"
+            "<td style='color:#d0d8ff;'><b>16 Typen</b></td>"
+            "<td style='color:#8899bb; padding-left:12px;'>auto-erkannt mit Transfer-Chain-Analyse</td>"
+            "</tr>"
+            "<tr>"
+            "<td style='color:#b0bdd0;'>Source-Medien</td>"
+            "<td style='color:#d0d8ff;'><b>17 Typen</b></td>"
+            "<td style='color:#8899bb; padding-left:12px;'>Wax Cylinder, Wire Recording, Lacquer Disc …</td>"
+            "</tr>"
+            "<tr>"
+            "<td style='color:#b0bdd0;'>Genre-Profile</td>"
+            "<td style='color:#d0d8ff;'><b>19 Profile</b></td>"
+            "<td style='color:#8899bb; padding-left:12px;'>inkl. Reggae, Latin, Gospel, Country, Funk, World</td>"
+            "</tr>"
+            "<tr>"
+            "<td style='color:#b0bdd0;'>Kognitive Module</td>"
+            "<td style='color:#d0d8ff;'><b>41 Kernmodule</b></td>"
+            "<td style='color:#8899bb; padding-left:12px;'>Bayesian · GP-Optimierung · PQS · MOO Pareto</td>"
+            "</tr>"
+            "<tr>"
+            "<td style='color:#b0bdd0;'>Tests</td>"
+            "<td style='color:#d0d8ff;'><b>285+ Denker · 15.000+ gesamt</b></td>"
+            "<td style='color:#8899bb; padding-left:12px;'>grün, CI-geprüft</td>"
+            "</tr>"
+            "</table>"
+        )
+        caps_table = QLabel(caps_html)
+        caps_table.setTextFormat(QtCore.Qt.TextFormat.RichText)
+        caps_table.setWordWrap(True)
+        inner.addWidget(caps_table)
+
+        inner.addSpacing(6)
+
+        # ── Denker-Intelligenz ──────────────────────────────────────
+        thinker_label = QLabel(
+            "<b style='font-size:11pt; color:#C8D8FF;'>🧠 Denker-Intelligenz — Autonome Entscheidungskette</b>"
+        )
+        thinker_label.setTextFormat(QtCore.Qt.TextFormat.RichText)
+        inner.addWidget(thinker_label)
+
+        thinker_text = QLabel(
+            "<span style='font-size:9pt; color:#8899bb; font-family:Courier New,monospace;'>"
+            "DefectScanner(62 Typen) → DefectPhaseMapper → PhaseInteractionDenker "
+            "→ VocalNoHarmGate → _profiled_phase_call → Post-Processing(8 Stufen) → EXPORT</span>"
+        )
+        thinker_text.setTextFormat(QtCore.Qt.TextFormat.RichText)
+        thinker_text.setWordWrap(True)
+        inner.addWidget(thinker_text)
+
+        thinker_detail = QLabel(
+            "<span style='font-size:9pt; color:#b0bdd0;'>"
+            "<b style='color:#d0d8ff;'>Prinzip:</b> "
+            "<i>Niemals einen erkannten Defekt unbehandelt lassen.</i> "
+            "Material-adaptive Mindest-Stärke (30–40 %), "
+            "PANNS-Schwellen pro Material, "
+            "8-stufige wissenschaftliche Post-Processing-Pipeline.<br>"
+            "<b style='color:#d0d8ff;'>10 Denker-Agenten</b> orchestrieren die gesamte Kette: "
+            "Tonträger · Defekt · Strategie · Restaurier · Reparatur · Rekonstruktion · Exzellenz · PhaseInteraction</span>"
+        )
+        thinker_detail.setTextFormat(QtCore.Qt.TextFormat.RichText)
+        thinker_detail.setWordWrap(True)
+        inner.addWidget(thinker_detail)
+
+        inner.addSpacing(6)
+
+        # ── Über-SOTA DSP ───────────────────────────────────────────
+        dsp_label = QLabel(
+            "<b style='font-size:11pt; color:#C8D8FF;'>Über-SOTA DSP-Algorithmen</b>"
+        )
+        dsp_label.setTextFormat(QtCore.Qt.TextFormat.RichText)
+        inner.addWidget(dsp_label)
+
+        dsp_text = QLabel(
+            "<span style='font-size:9pt; color:#b0bdd0;'>"
+            "<b style='color:#d0d8ff;'>Denoise:</b> OMLSA + IMCRA (Cohen 2002/2003) · "
+            "<b style='color:#d0d8ff;'>Crackle:</b> RBME + Sparse Bayes (Cemgil 2006) · "
+            "<b style='color:#d0d8ff;'>Wow/Flutter:</b> pYIN probabilistisch + DTW · "
+            "<b style='color:#d0d8ff;'>Dropout:</b> NMF-β + PGHI · "
+            "<b style='color:#d0d8ff;'>Inpainting:</b> Flow Matching / DiffWave<br>"
+            "<b style='color:#d0d8ff;'>Psychoakustik:</b> ATH (ISO 226:2023) · "
+            "Moore/Glasberg DLM · BMLD · PEAQ (ITU-R BS.1387) · Forward Masking</span>"
+        )
+        dsp_text.setTextFormat(QtCore.Qt.TextFormat.RichText)
+        dsp_text.setWordWrap(True)
+        inner.addWidget(dsp_text)
+
+        inner.addSpacing(6)
+
+        # ── Technische Eckdaten ─────────────────────────────────────
+        tech_label = QLabel(
+            "<b style='font-size:11pt; color:#C8D8FF;'>Technische Eckdaten</b>"
+        )
+        tech_label.setTextFormat(QtCore.Qt.TextFormat.RichText)
+        inner.addWidget(tech_label)
+
+        tech_html = (
+            "<table cellspacing='3' style='font-size:9pt;'>"
+            "<tr><td style='color:#8899bb; padding-right:20px;'>Interne SR</td>"
+            "<td style='color:#d0d8ff;'>48 kHz</td>"
+            "<td style='color:#8899bb; padding-left:12px;'>float32, [−1, 1]</td></tr>"
+            "<tr><td style='color:#8899bb;'>Export-Lautheit</td>"
+            "<td style='color:#d0d8ff;'>EBU R128</td>"
+            "<td style='color:#8899bb; padding-left:12px;'>−14 LUFS (Streaming) / −18 LUFS (Archiv)</td></tr>"
+            "<tr><td style='color:#8899bb;'>True-Peak-Limit</td>"
+            "<td style='color:#d0d8ff;'>−1.0 dBTP</td>"
+            "<td style='color:#8899bb; padding-left:12px;'>ITU-R BS.1770-5</td></tr>"
+            "<tr><td style='color:#8899bb;'>Resampling</td>"
+            "<td style='color:#d0d8ff;'>Lanczos-4</td>"
+            "<td style='color:#8899bb; padding-left:12px;'>Kaiser β=14</td></tr>"
+            "<tr><td style='color:#8899bb;'>Dithering</td>"
+            "<td style='color:#d0d8ff;'>POW-r Typ 3</td>"
+            "<td style='color:#8899bb; padding-left:12px;'>Fallback TPDF</td></tr>"
+            "<tr><td style='color:#8899bb;'>Chunk-Verarbeitung</td>"
+            "<td style='color:#d0d8ff;'>5/15/60/120 s</td>"
+            "<td style='color:#8899bb; padding-left:12px;'>defektdichte-adaptiv</td></tr>"
+            "<tr><td style='color:#8899bb;'>ML-Hybrid</td>"
+            "<td style='color:#d0d8ff;'>DeepFilterNet · Demucs · AudioSR</td>"
+            "<td style='color:#8899bb; padding-left:12px;'>RAM-abhängig, CPU-fallback</td></tr>"
+            "</table>"
+        )
+        tech_table = QLabel(tech_html)
+        tech_table.setTextFormat(QtCore.Qt.TextFormat.RichText)
+        tech_table.setWordWrap(True)
+        inner.addWidget(tech_table)
+
+        inner.addSpacing(6)
+
+        # ── ML-Hybrid-Architektur ───────────────────────────────────
+        ml_label = QLabel(
+            "<b style='font-size:11pt; color:#C8D8FF;'>🤖 ML-Hybrid-Architektur — DSP-Fundament + ML-Erweiterung</b>"
+        )
+        ml_label.setTextFormat(QtCore.Qt.TextFormat.RichText)
+        inner.addWidget(ml_label)
+
+        ml_text = QLabel(
+            "<span style='font-size:9pt; color:#b0bdd0;'>"
+            "<b style='color:#d0d8ff;'>Prinzip:</b> "
+            "<i>Jedes ML-Plugin hat einen DSP-Fallback — keine Abhängigkeit von GPU oder Cloud.</i><br><br>"
+            "<b style='color:#d0d8ff;'>Aktive ML-Modelle:</b><br>"
+            "· <b style='color:#AFC3DA;'>DeepFilterNet v3.II</b> (ONNX 37 MB) — Rauschunterdrückung<br>"
+            "· <b style='color:#AFC3DA;'>Apollo</b> (ONNX 65 MB) — Codec-Artefakt-Restaurierung<br>"
+            "· <b style='color:#AFC3DA;'>MDX23C</b> (Kim Vocal 64 MB / Kim Inst 64 MB) — Stem-Separation<br>"
+            "· <b style='color:#AFC3DA;'>CQTdiff+</b> — Dropout-Inpainting (50–999 ms)<br>"
+            "· <b style='color:#AFC3DA;'>Flow Matching / DiffWave</b> — Lückenschließung (≥1 s)<br>"
+            "· <b style='color:#AFC3DA;'>AudioSR</b> (5,9 GB, lazy load) — Bandbreiten-Erweiterung<br>"
+            "· <b style='color:#AFC3DA;'>Vocos 24 kHz</b> (ONNX 52 MB) — neuronaler Vocoder<br>"
+            "· <b style='color:#AFC3DA;'>ECAPA-TDNN</b> (192-dim) — Speaker Identity Guard<br>"
+            "· <b style='color:#AFC3DA;'>PANNs CNN14</b> (81 KB) — Audio-Tagging / Genre-Erkennung<br>"
+            "· <b style='color:#AFC3DA;'>CREPE / BasicPitch</b> — Pitch-Tracking (mono / polyphon)<br>"
+            "· <b style='color:#AFC3DA;'>MERT-v1-330M</b> (3,9 GB, lazy) — Music Understanding<br>"
+            "· <b style='color:#AFC3DA;'>CDPAM / ViSQOL v3</b> — MOS-Referenz-Qualitätsbewertung<br><br>"
+            "<b style='color:#d0d8ff;'>Fallback-Strategie:</b> "
+            "Jedes Plugin via <span style='font-family:Courier New,monospace;color:#8899bb;'>try/except ImportError</span> — "
+            "fällt Modell aus, übernimmt DSP (OMLSA, NMF-β, pYIN, PGHI-ISTFT, Gammatone-PQS).<br>"
+            "<b style='color:#d0d8ff;'>Hardware:</b> "
+            "CPU-first · AMD-GPU optional (ROCm/DirectML) · alle Primärmodelle lokal gebündelt.</span>"
+        )
+        ml_text.setTextFormat(QtCore.Qt.TextFormat.RichText)
+        ml_text.setWordWrap(True)
+        inner.addWidget(ml_text)
+
+        inner.addSpacing(6)
+
+        # ── Systemstatus ────────────────────────────────────────────
+        sys_label = QLabel(
+            "<b style='font-size:11pt; color:#C8D8FF;'>Aktueller Systemstatus</b>"
+        )
+        sys_label.setTextFormat(QtCore.Qt.TextFormat.RichText)
+        inner.addWidget(sys_label)
+
+        _status_lines = self._collect_professional_system_status()
+        _status_html = "".join(
+            "<tr>"
+            f"<td style='padding:2px 14px 2px 0;color:#8899bb;font-size:9pt;'>{name}</td>"
+            f"<td style='padding:2px 0;color:#d0d8ff;font-size:9pt;'>{state}</td>"
+            "</tr>"
+            for name, state in _status_lines
+        )
+        status_table = QLabel(
+            f"<table cellspacing='0'>{_status_html}</table>"
+        )
+        status_table.setTextFormat(QtCore.Qt.TextFormat.RichText)
+        inner.addWidget(status_table)
+
+        # ── Trennlinie ──────────────────────────────────────────────
+        sep2 = QLabel()
+        sep2.setFixedHeight(1)
+        sep2.setStyleSheet("background: rgba(102,126,234,0.25);")
+        inner.addWidget(sep2)
+
+        # ── Copyright ───────────────────────────────────────────────
+        copyright_lbl = QLabel(
+            "<span style='font-size:9pt; color:#667799;'>© 2026 AURIK — Apache-2.0-Lizenz</span>"
+        )
+        copyright_lbl.setTextFormat(QtCore.Qt.TextFormat.RichText)
+        inner.addWidget(copyright_lbl)
+
+        # ── Widmung ─────────────────────────────────────────────────
+        widmung_lbl = QLabel(
+            "<span style='font-size:10pt; color:#9988cc; font-style:italic;'>"
+            "Gewidmet meinem Freund Dieter Schönemann</span>"
+        )
+        widmung_lbl.setTextFormat(QtCore.Qt.TextFormat.RichText)
+        inner.addWidget(widmung_lbl)
+
+        inner.addSpacing(4)
+
+        # ── Schließen-Button ────────────────────────────────────────
+        btn_close = QPushButton("Schließen")
+        btn_close.clicked.connect(dlg.accept)
+        inner.addWidget(btn_close, alignment=QtCore.Qt.AlignmentFlag.AlignCenter)
+
+        inner.addStretch()
+
+        scroll.setWidget(scroll_widget)
+
+        layout.addWidget(scroll)
+        dlg.exec_()
 
     def _collect_professional_system_status(self) -> list[tuple[str, str]]:
         """Sammelt produktrelevante GUI-/Runtime-Bereitschaft ohne Netzwerkzugriff."""
@@ -15010,6 +15347,7 @@ class ModernMainWindow(QMainWindow):
                 self.refinement_progress_bar.setVisible(False)
             if self._heartbeat_timer is not None and self._heartbeat_timer.isActive():
                 self._heartbeat_timer.stop()
+            self._uv3 = {"active": False, "count": 0, "idx": 0, "started_at": 0.0, "pct": 0.0}  # §K
             # GIL-Switch-Intervall auf Normalwert zurücksetzen
             _prev = getattr(self, "_prev_switchinterval", 0.005)
             sys.setswitchinterval(_prev)
@@ -15620,7 +15958,7 @@ class ModernMainWindow(QMainWindow):
         # Fortschrittsbalken: 100 % sichtbar anzeigen
         if hasattr(self, "progress_bar"):
             self.progress_bar.setValue(10000)
-            self.progress_bar.setFormat(t("status.import_done"))
+            self.progress_bar.setFormat("100,00 % - " + t("status.import_done"))
 
         # Export-Dialog jetzt MODAL und BLOCKIEREND vor jeglicher Verarbeitung
         logger.debug("_on_file_loaded: opening ExportConfigDialog (modal)")
@@ -15775,7 +16113,7 @@ class ModernMainWindow(QMainWindow):
                 if hasattr(self, "progress_bar"):
                     self.progress_bar.setRange(0, 10000)
                     self.progress_bar.setValue(10000)
-                    self.progress_bar.setFormat(t("status.defect_scan_done"))
+                    self.progress_bar.setFormat("100,00 % - " + t("status.defect_scan_done"))
 
                     def _reset_progress_if_idle() -> None:
                         if self.batch_thread and self.batch_thread.isRunning():
@@ -15907,7 +16245,7 @@ class ModernMainWindow(QMainWindow):
             if hasattr(self, "progress_bar"):
                 self.progress_bar.setRange(0, 10000)
                 self.progress_bar.setValue(0)
-                self.progress_bar.setFormat(t("status.defects_progress"))
+                self.progress_bar.setFormat("0,00 % - " + t("status.defects_progress"))
                 self.progress_bar.setVisible(True)
             if hasattr(self, "status_text"):
                 self.status_text.setText(t("status.defects_analyzing"))
@@ -17605,7 +17943,8 @@ class ModernMainWindow(QMainWindow):
             self._heartbeat_timer = QTimer(self)
             self._heartbeat_timer.timeout.connect(self._tick_heartbeat)
         if not self._heartbeat_timer.isActive():
-            self._heartbeat_timer.start(33)  # 30 Hz sync mit Smooth-Emitter für feingranulares Feedback
+            self._heartbeat_timer.start(33)
+        self._uv3 = {"active": False, "count": 0, "idx": 0, "started_at": 0.0, "pct": 0.0}  # §K Reset
 
         # GIL-Switch-Intervall senken: Standard 5 ms → 1 ms während Batch.
         # Schwere ML-Ops (torch.load, gc.collect) halten die GIL für Sekunden.
@@ -17702,7 +18041,7 @@ class ModernMainWindow(QMainWindow):
         if _ww is not None and getattr(_ww, "audio_data", None) is not None:
             _sr = max(1, getattr(_ww, "sample_rate", 48000))
             _audio_dur_s = _ww.audio_data.shape[0] / _sr
-        _per_file_ms = max(5_400_000, int(_audio_dur_s * 32_000) + 1_800_000)
+        _per_file_ms = max(5_400_000, int(_audio_dur_s * 64_000) + 3_600_000)  # 64xRT + 60min overhead
         _watchdog_ms = max(5_400_000, stats["pending"] * _per_file_ms)
         if self._watchdog_timer is None:
             self._watchdog_timer = QTimer(self)
@@ -17736,7 +18075,7 @@ class ModernMainWindow(QMainWindow):
             return  # Watchdog nicht aktiv (Batch bereits abgeschlossen oder gestoppt)
         # Noch verbleibende ausstehende Dateien (aktuelle Datei + noch nicht gestartete)
         _pending = max(1, self.batch_queue.get_stats().get("pending", 1))
-        _per_file_ms = max(5_400_000, int(audio_duration_s * 32_000) + 1_800_000)
+        _per_file_ms = max(5_400_000, int(audio_duration_s * 64_000) + 3_600_000)
         _watchdog_ms = max(5_400_000, _pending * _per_file_ms)
         self._watchdog_timer.start(_watchdog_ms)
         logger.debug(
@@ -17893,6 +18232,74 @@ class ModernMainWindow(QMainWindow):
             if hasattr(self, "waveform_widget_rest_ab"):
                 self.waveform_widget_rest_ab.set_stage_progress(phase_target_bp / 10000.0)
 
+    # ── §K Einfache UV3-Progress-Engine: eine Formel, ein Timer ──────────────
+    def _tick_uv3_simple_progress(self) -> None:
+        """Vereinfachte Fortschrittsformel für UV3-Phasenausführung.
+
+        Formel: progress = 55 + 30 × (phase_idx + heartbeat_frac) / phase_count / 100
+
+        Der orange Phasenbalken läuft linear über max 90 s pro Phase (0→88 %),
+        danach asymptotisch → 98 %. Kein Monotonie-Guard, kein Smooth-Emitter-Creep,
+        kein ARE-vs-UV3-Konflikt.
+        """
+        _uv3s3 = self._uv3 if hasattr(self, "_uv3") else getattr(getattr(self, "batch_thread", None), "_uv3", None)
+        if _uv3s3 is None or not _uv3s3.get("active") or _uv3s3.get("count", 0) <= 0:
+            return
+        _now_mono = time.perf_counter()
+        _phase_elapsed = _now_mono - _uv3s3.get("started_at", _now_mono)
+
+        # Heartbeat: lineare Füllung 0→88 % über 90 s, dann asymptotisch → 98 %
+        if _phase_elapsed <= 90.0:
+            _hb_frac = _phase_elapsed / 90.0 * 0.88
+        else:
+            _tail = 0.10 * (1.0 - math.exp(-(_phase_elapsed - 90.0) / 40.0))
+            _hb_frac = 0.88 + _tail
+
+        _uv3_raw = 20.0 + (_uv3s3["idx"] + _hb_frac) / _uv3s3["count"] * 65.0
+        _overall = 55.0 + 30.0 * _uv3_raw / 100.0
+        _overall = max(55.0, min(85.0, _overall))
+        _uv3s3["pct"] = _overall
+
+        # Hauptbalken (grün)
+        _bp = int(round(_overall * 100.0))
+        if hasattr(self, "progress_bar") and self.progress_bar.maximum() > 0:
+            self.progress_bar.setRange(0, 10000)
+            self.progress_bar.setValue(min(10000, _bp))
+            self.progress_bar.setFormat(f"{_overall:.1f} %")
+            self.progress_bar.setVisible(True)
+
+        # Phasenbalken (orange): _hb_frac als Prozent
+        _phase_bp = int(round(_hb_frac * 10000.0))
+        if hasattr(self, "phase_progress_bar"):
+            self.phase_progress_bar.setValue(min(9800, _phase_bp))
+            self.phase_progress_bar.setVisible(True)
+
+        # ── Status-Text + Schritt-Anzeige synchronisieren ────
+        _phase_name = str(getattr(self, "_latest_phase_text", "") or "").strip()
+        _clean = re.sub(r"\s*\[[a-z0-9_]+\]\s*$", "", _phase_name) if _phase_name else ""
+        _ph_cur = _uv3s3["idx"] + 1
+        _ph_tot = _uv3s3["count"]
+        # Fallback: wenn kein externer Callback kam
+        if not _clean and _ph_cur > 0:
+            _clean = f"Phase {_ph_cur}/{_ph_tot}"
+            self._latest_phase_text = _clean
+
+        if hasattr(self, "status_text"):
+            _el_m, _el_s = divmod(int(_phase_elapsed), 60)
+            self.status_text.setText(f"Phase {_ph_cur}/{_ph_tot}: {_clean}  ·  {_el_m}:{_el_s:02d}")
+
+        if hasattr(self, "_phase_step_label"):
+            self._phase_step_label.setText(f"Stufe {_ph_cur}/{_ph_tot}  ·  {_clean}")
+
+        # _last_phase_state für alte Heartbeat-Kompatibilität
+        _bt = getattr(self, "batch_thread", None)
+        _st = getattr(_bt, "_last_phase_state", None) if _bt else None
+        if isinstance(_st, dict):
+            _st["phase_id"] = f"phase_{_ph_cur:02d}"
+            _st["base"] = _clean
+            _st["ui_pct"] = _overall
+            _st["wall_time"] = _now_mono
+
     def _tick_heartbeat(self):
         """Animierter Spinner + Progress-Polling alle 200 ms.
 
@@ -17922,6 +18329,9 @@ class ModernMainWindow(QMainWindow):
         spinners = ["◐", "◓", "◑", "◒"]
         spin = spinners[self._heartbeat_dots]
         self.title_bar.set_status(t("status.processing_running_spinner", spin=spin), "#B8A068")
+
+        # §K: Einfache UV3-Progress-Engine — eine Formel, ein Timer
+        self._tick_uv3_simple_progress()
 
         # Progress-Bar über Queue-Status pollen — unabhängig von Signals.
         if self.batch_thread and self.batch_thread.isRunning():
@@ -18211,7 +18621,7 @@ class ModernMainWindow(QMainWindow):
         self._heartbeat_phase_progress_bp = 0
         # Initialen Format-String setzen, bevor der erste Backend-Callback
         # _last_phase_state befüllt (Heartbeat schreibt erst danach).
-        self.progress_bar.setFormat(t("progress.planning"))
+        self.progress_bar.setFormat("0,00 % - " + t("progress.planning"))
         self.progress_bar.setVisible(True)
 
     def _on_item_progress(self, item_id, progress):
@@ -18244,7 +18654,9 @@ class ModernMainWindow(QMainWindow):
             return
         self._last_item_progress_done = _done
         self.progress_bar.setValue(val)
-        # Format-String wird AUSSCHLIESSLICH von _tick_heartbeat geschrieben (200 ms Takt).
+        # Always show decimal percentage
+        _pct_de = f"{_overall_pct:.2f}".replace(".", ",")
+        self.progress_bar.setFormat(f"{_pct_de} %")
         # Begründung: _tick_heartbeat hat Zugriff auf _eta_deadline UND _defect_progress_state
         # und berechnet _overall_pct konsistent aus dem tatsächlichen Bar-Wert.
         # Ohne Single-Writer flackert der Text zwischen zwei Formaten (Bug: B2).
@@ -21136,6 +21548,21 @@ class ModernMainWindow(QMainWindow):
                 "bias_error": ("Vormagnetisierung", 5.0, 30.0),
                 "transport_bump": ("Bandhopser", 5.0, 30.0),
                 "vocal_harshness": ("Vocal-Härte", 5.0, 30.0),
+                # Rare/vinyl-specific types
+                "low_freq_rumble": ("Tiefton-Rumpeln", 5.0, 30.0),
+                "vinyl_crackle": ("Vinyl-Knistern", 5.0, 30.0),
+                "vinyl_warp": ("Vinyl-Verzug", 5.0, 30.0),
+                "groove_echo": ("Rillen-Echo", 5.0, 30.0),
+                "stylus_damage": ("Nadelschaden", 5.0, 30.0),
+                "inner_groove_distortion": ("Innenrillen-Verzerrung", 5.0, 30.0),
+                "modulation_noise": ("Modulationsrauschen", 5.0, 30.0),
+                "crosstalk": ("Ubersprechen", 5.0, 30.0),
+                "overload_distortion": ("Ubersteuerungs-Verzerrung", 5.0, 30.0),
+                "intermodulation_distortion": ("Intermodulation", 5.0, 30.0),
+                "flutter_spectral_sidebands": ("Flutter-Seitenbander", 5.0, 30.0),
+                "speed_calibration_error": ("Geschwindigkeitsfehler", 5.0, 30.0),
+                "generation_loss": ("Generationenverlust", 5.0, 30.0),
+                "hf_remanence_loss": ("HF-Remanenzverlust", 5.0, 30.0),
             }
 
             def _event_count_from_payload(_key: str, _payload: dict[str, Any]) -> int:
@@ -21587,6 +22014,14 @@ class ModernMainWindow(QMainWindow):
                     "bandwidth_loss",
                     "dropout",
                     "print_through",
+                    "riaa_curve_error",
+                    "bias_error",
+                    "stylus_damage",
+                    "groove_echo",
+                    "inner_groove_distortion",
+                    "crosstalk",
+                    "vinyl_crackle",
+                    "vinyl_warp",
                     "head_wear",
                     "azimuth_error",
                     "head_misalignment",
@@ -21599,7 +22034,7 @@ class ModernMainWindow(QMainWindow):
                     # Deshalb in der Übersicht unter „Bandschäden" statt generisch „Rauschen".
                     _band_damage_keys.extend(["noise_level", "noise"])
 
-                _noise_keys = ["noise_level", "noise", "rumble", "hum", "soft_saturation"]
+                _noise_keys = ["noise_level", "noise", "rumble", "hum", "soft_saturation", "modulation_noise", "low_freq_rumble"]
                 if _is_tape_family:
                     _noise_keys = [k for k in _noise_keys if k not in {"noise_level", "noise"}]
 
@@ -21625,11 +22060,16 @@ class ModernMainWindow(QMainWindow):
                             "compression_artifacts",
                             "dynamic_compression_excess",
                             "pre_echo",
+                            "overload_distortion",
+                            "intermodulation_distortion",
+                            "generation_loss",
+                            "hf_remanence_loss",
                         ],
                     ),
                     (
                         "4 Tonhoehe & Stereo",
-                        ["wow", "flutter", "pitch_drift", "phase_issues", "stereo_imbalance"],
+                        ["wow", "flutter", "pitch_drift", "phase_issues", "stereo_imbalance",
+                         "flutter_spectral_sidebands", "speed_calibration_error"],
                     ),
                     (
                         "5 Gesang",

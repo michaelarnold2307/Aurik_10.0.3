@@ -32,7 +32,12 @@ try:
 except Exception:
     sf = None  # type: ignore[assignment]
 
-from tqdm import tqdm
+try:
+    from tqdm import tqdm
+except ImportError:
+    def tqdm(iterable, **kw):
+        """Fallback if tqdm is not installed."""
+        return iterable
 
 _bridge = importlib.import_module("backend.api.bridge")
 _build_export_quality_gate_payload = _bridge.build_export_quality_gate_payload

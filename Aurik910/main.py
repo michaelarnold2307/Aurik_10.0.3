@@ -43,6 +43,18 @@ warnings.filterwarnings(
     category=UserWarning,
 )
 
+# ── NumPy: Mean of empty slice + divide-by-zero bei Stille/Silence-Passagen ───
+# Diese RuntimeWarnings sind harmlos (betreffen nur leere Arrays in Phasen mit
+# 0-Energy-Segmenten). Sie werden korrekt per np.clip / np.nan_to_num behandelt.
+warnings.filterwarnings("ignore", message="Mean of empty slice")
+warnings.filterwarnings("ignore", message="invalid value encountered in divide")
+warnings.filterwarnings("ignore", message="invalid value encountered in scalar divide")
+
+# ── HuggingFace/MERT: Harmlose Weight-Mismatch-Warnung beim Laden von Checkpoints ──
+warnings.filterwarnings("ignore", message="Some weights of the model checkpoint.*were not used")
+warnings.filterwarnings("ignore", message="Some weights of.*were not initialized from the model checkpoint")
+warnings.filterwarnings("ignore", message="You should probably TRAIN this model")
+
 # ── PyTorch global thread-pool — must be set once at startup (§VERBOTEN) ─────
 try:
     import torch as _torch
@@ -51,8 +63,9 @@ try:
 except Exception:  # torch not installed / import error on first run
     pass
 
-# Add parent directory to path
+# Add parent + plugins directory to path (für PANNs, VERSA, Bridge-Plugins)
 sys.path.insert(0, str(Path(__file__).parent.parent))
+sys.path.insert(0, str(Path(__file__).parent.parent / "plugins"))
 
 # ── Logging setup: file + console ─────────────────────────────────────────────
 _LOG_DIR = Path(__file__).parent.parent / "logs"
@@ -125,16 +138,14 @@ if _DEBUG_MODE:
     ):
         logging.getLogger(_noisy_logger).setLevel(logging.WARNING)
 
-# Console handler (WARNING+ in normal mode; DEBUG in debug mode → live output)
+# Console handler (INFO+ für Live-Phasen-Status in Normalmodus)
 _ch = logging.StreamHandler(sys.stderr)
-_ch.setLevel(logging.DEBUG if _DEBUG_MODE else logging.WARNING)
+_ch.setLevel(logging.INFO)
 _ch.setFormatter(
     logging.Formatter(
-        "[%(asctime)s.%(msecs)03d] %(levelname)-8s %(name)s: %(message)s",
+        "[%(asctime)s] %(levelname)-8s %(name)s: %(message)s",
         datefmt="%H:%M:%S",
     )
-    if _DEBUG_MODE
-    else logging.Formatter("%(levelname)s %(name)s: %(message)s")
 )
 _root_logger.addHandler(_ch)
 # ──────────────────────────────────────────────────────────────────────────────

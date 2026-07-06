@@ -1,16 +1,15 @@
-# 🎵 Aurik 10.0.0 — Intelligentes Musik-Restaurierungs- und Rekonstruktionssystem
+# 🎵 Aurik 10 — Intelligentes Musik-Restaurierungs- und Rekonstruktionssystem
 
-**Version:** 10.0.0 | **Status:** ✅ Produktionsbereit | **Stand:** 4. Juli 2026
+**Version:** 10.0.0 | **Status:** ✅ Produktionsbereit | **Stand:** 6. Juli 2026
 
-> Normativer Ist-Stand: `.github/specs/01-10`, `.github/copilot-instructions.md`, `CHANGELOG.md` und `denker/README.md`.
+> Normativer Ist-Stand: `.github/specs/`, `.github/copilot-instructions.md`, `CHANGELOG.md`, `denker/README.md`.
 
-![Tests](https://img.shields.io/badge/tests-15023%2B%20passing-brightgreen)
-![Musical Goals](https://img.shields.io/badge/Musical%20Goals-14%2F14-brightgreen)
-![Quality MOS](https://img.shields.io/badge/MOS-%E2%89%A54.5%20internes%20Spitzenziel-brightgreen)
-![Materials](https://img.shields.io/badge/Materialien-15%20Typen-blue)
-![Phases](https://img.shields.io/badge/Phasen-67-blue)
-![DefectTypes](https://img.shields.io/badge/DefectTypes-62-blue)
-![DSP Modules](https://img.shields.io/badge/DSP%20Module-245-blue)
+![Tests](https://img.shields.io/badge/tests-285%2B%20Denker%20%2B%2015.000%2B%20gesamt-brightgreen)
+![DefectTypes](https://img.shields.io/badge/Defekttypen-62%2F62%20erkannt%20%26%20gemappt-brightgreen)
+![Materials](https://img.shields.io/badge/Materialien-16%20Typen-blue)
+![Genres](https://img.shields.io/badge/Genres-19%20Profile-blue)
+![Denker](https://img.shields.io/badge/Denker-Intelligenz-Material%20%2B%20Vocal%20adaptiv-orange)
+![PostProc](https://img.shields.io/badge/Post--Processing-8%20Stufen%20wissenschaftlich-orange)
 ![Hardware](https://img.shields.io/badge/Hardware-CPU%20%2B%20AMD--GPU%20optional-orange)
 ![License](https://img.shields.io/badge/license-Apache%202.0-blue)
 
@@ -33,19 +32,18 @@ vollständig offline, ohne Cloud- oder Netzwerkabhängigkeiten.
 - Endnutzer-Workflow: genau eine Entscheidung pro Datei, `Restoration` oder `Studio 2026`
 - Kanonischer Laufzeitpfad: Bridge -> `AurikDenker.denke(...)` -> `export_guard()`
 
-**Aktuelle Ergebnisse (v9.20.3):**
+**Aktuelle Ergebnisse (v10.0.0):**
 
-- ✅ **~15.023 `def test_`-Funktionen** — grün (zzgl. weitere Test-Suites)
-- ✅ **66 Phasen** — Defect-First-Pipeline inkl. §0p Vocal-Supremacy, SSIP, GOAL_BASELINE_CHECK, Real-Audio-Comfort-Gates
-- ✅ **15 Materialien** — auto-erkannt (u. a. tape, vinyl, shellac, wax_cylinder, wire_recording, lacquer_disc, dat, cd_digital, mp3_low, mp3_high, aac, minidisc, streaming, unknown)
-- ✅ **14 Musical Goals** — psychoakustisch fundiert, alle Schwellwerte erreicht
-- ✅ **56 DefectTypes** — material-adaptive Material-Priors für präzisere Erkennung
-- ✅ **245 DSP-Module** — von OMLSA/IMCRA über Flow-Matching-Inpainting bis Human-Hearing-Comfort-Policy
-- ✅ **PQS MOS ≥ 4.5** — internes Spitzenziel im aktuellen Bewertungsmodell
-- ✅ **CPU + optionale AMD-GPU-Beschleunigung** — keine GPU-Pflicht, CPU-Fallback ist verpflichtend
-- ✅ **GP-Lerngedächtnis** — optimiert sich dauerhaft pro Material und Ära (HPG Reference Memory Bootstrap v9.20.0)
-- ✅ **Zero-Shot-Genre-Erkennung** — Deutscher Schlager ohne vortrainiertes Modell
-- ✅ **Human-Hearing-Comfort-Policy** — zentrale Hörkomfort-Steuerung über alle Phasen (§2.44)
+- ✅ **285+ Denker-Tests** — grün (zzgl. ~15.000 weitere Test-Suites)
+- ✅ **62/62 Defekttypen** — vollständig erkannt und auf Phasen gemappt
+- ✅ **16 Materialien** — auto-erkannt mit Transfer-Chain-Analyse
+- ✅ **19 Genre-Profile** — inkl. Reggae, Latin, Gospel, Country, Funk, Ambient, World
+- ✅ **17 SourceMediums** — Wax Cylinder, Wire Recording, Lacquer Disc u.v.m.
+- ✅ **Denker-Intelligenz** — Material-adaptive Phasen-Erzwingung + Mindest-Stärke
+- ✅ **8-stufige Post-Processing-Pipeline** — wissenschaftliche Restaurierungs-Reihenfolge
+- ✅ **ML-Hybrid-Export** — DeepFilterNet, Demucs, AudioSR (RAM-abhängig)
+- ✅ **MAD-Dropout-Repair** — statistische Ausreißer, keine False-Positives
+- ✅ **CPU + optionale AMD-GPU-Beschleunigung** — keine GPU-Pflicht
 
 **Hinweis zur Evidenz:** Interne Qualitätsangaben wie PQS-MOS und OQS dienen als
 technische Steuerungs- und Freigabemetriken. Externe Superlative wie
@@ -67,6 +65,50 @@ verblindete Hörtests und reproduzierbare Wettbewerbsvergleiche belastbar.
 | Phase 66 Comfort | — | **Human-Hearing-Comfort-Policy** (zentrale Hörkomfort-Steuerung) | Aurik §2.44 |
 
 
+
+## 🧠 Denker-Intelligenz — Autonome Defekt→Reparatur-Entscheidungskette
+
+**Stand: 6. Juli 2026** | **Dateien: `denker/phase_interaction_denker.py`, `backend/core/vocal_no_harm_gate.py`**
+
+### Entscheidungskette pro Defekt
+
+```
+DefectScanner (62 Typen)
+  → DefectPhaseMapper (Primary + Secondary Phases)
+  → PhaseInteractionDenker (Material-Kritische-Phasen-Injektion §2.5a)
+  → VocalNoHarmGate (Material-adaptive PANNS-Schwelle)
+  → _profiled_phase_call (Material-adaptive Mindest-Stärke 30-40%)
+  → Post-Processing (8-stufige wissenschaftliche Pipeline)
+  → EXPORT
+```
+
+### Material-adaptive Parameter
+
+| Material | PANNS-Schwelle | Mindest-Stärke | Erzwungene Phasen |
+| --- | --- | --- | --- |
+| cassette/tape | **0.55** (+57%) | **40%** | phase_14, 25, 56, 24 |
+| reel_tape | **0.50** (+43%) | **40%** | phase_14, 25, 56 |
+| vinyl/shellac | **0.45** (+29%) | **35%** | phase_09, 28 |
+| digital/andere | 0.35 (default) | 30% | — |
+
+### 8-stufige wissenschaftliche Post-Processing-Pipeline
+
+| Stufe | Kategorie | Module |
+| --- | --- | --- |
+| 1 | Breitband | (UV3: Hum, Rumpel, DC) |
+| 2 | Impulsiv | PrecisionDropout, VocalScratch, TapeHead |
+| 3 | Rauschen | (UV3: phase_03, 29) |
+| 4 | Spektral | AntiMuffling |
+| 5 | Räumlich | SmartTapeRepair (Azimuth), EchoRemoval |
+| 6 | Dynamik | (UV3: phase_10, 26, 54) |
+| 7 | Enhancement | SibilanceMax, VocalClarity, Specialized |
+| 8 | Ausgabe | Humanization, PerceptualOptimizer (ML-Hybrid), Listening-EQ |
+
+### Prinzip
+
+**Niemals einen erkannten Defekt unbehandelt lassen.** Wenn ein Defekt erkannt wird, MUSS mindestens eine Reparatur-Phase laufen. Material-Confidence beeinflusst die Stärke, nicht die Selektion.
+
+---
 
 ## 🚀 Aurik 10.0.0 — Weltklasse-Intelligenz
 

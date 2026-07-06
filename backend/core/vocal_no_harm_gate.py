@@ -27,6 +27,20 @@ _BREATH_EMOTIONAL_ATTENUATION_MAX_DB = 3.0
 _BREATH_MIN_RMS_DB = -70.0
 _VOCAL_GATE_PANNS_FLOOR = 0.35
 _VOCAL_MAX_TARGET_RESTORATION = 0.88
+
+# §DENKER: Material-spezifische Vocal-No-Harm-Toleranzen
+# Cassette/Band: höhere Toleranz (0.55) weil Defekte und Gesang untrennbar verwoben sind
+# Vinyl/Shellac: mittlere Toleranz (0.45) wegen Oberflächengeräuschen
+# Digital: strenge Toleranz (0.35) — saubere Quelle erwartet
+_VOCAL_GATE_MATERIAL_FLOOR: dict[str, float] = {
+    "cassette": 0.55,
+    "tape": 0.55,
+    "reel_tape": 0.50,
+    "vinyl": 0.45,
+    "shellac": 0.45,
+    "wax_cylinder": 0.50,
+    "wire_recording": 0.50,
+}
 _VOCAL_MAX_TARGET_STUDIO2026 = 0.92
 _VOCAL_MAX_ALIGNMENT_RESTORATION_MIN = 0.90
 _VOCAL_MAX_ALIGNMENT_STUDIO2026_MIN = 0.93
@@ -142,7 +156,8 @@ class VocalNoHarmGate:
         metrics.
         """
         panns = float(np.clip(panns_singing, 0.0, 1.0))
-        if panns < _VOCAL_GATE_PANNS_FLOOR:
+        _mat_floor = _VOCAL_GATE_MATERIAL_FLOOR.get(str(material_type or "").lower(), _VOCAL_GATE_PANNS_FLOOR)
+        if panns < _mat_floor:
             return VocalNoHarmResult(active=False, passed=True, requires_rollback=False, reason="not_vocal")
 
         pre = np.nan_to_num(np.asarray(audio_pre, dtype=np.float32), nan=0.0, posinf=0.0, neginf=0.0)

@@ -1,12 +1,19 @@
 from __future__ import annotations
 
-from types import SimpleNamespace
+from unittest.mock import MagicMock
 
 import pytest
 
 pytest.importorskip("PyQt5")
 
 from Aurik910.ui.modern_window import ModernMainWindow
+
+
+def _mock_window():
+    """Create a mock window with the methods _build_quality_banner_sections needs."""
+    m = MagicMock()
+    m._build_recovery_diagnostic_line.return_value = "🧾  Recovery-Diagnose: Urteil=UPGRADE  ·  Pipeline=ok  ·  Export=vorhanden  ·  A/B=—"
+    return m
 
 
 def _base_kwargs() -> dict:
@@ -59,6 +66,7 @@ def _base_kwargs() -> dict:
         "xp_quality_scale": {},
         "xp_ml_fallbacks": [],
         "xp_team_coord": {},
+        "xp_user_confidence": {},
         "preventive_actions": [],
         "spec_upgrade": False,
         "goal_upgrade_decision": {},
@@ -86,7 +94,7 @@ def test_spec_upgrade_banner_promoted_is_visible() -> None:
         }
     )
 
-    banner = ModernMainWindow._build_quality_banner_sections(SimpleNamespace(), **args)
+    banner = ModernMainWindow._build_quality_banner_sections(_mock_window(), **args)
     joined = "\n".join(banner)
 
     assert "Spec-Upgrade: Upgrade freigegeben" in joined
@@ -110,7 +118,7 @@ def test_spec_upgrade_banner_rejection_reason_is_visible() -> None:
         }
     )
 
-    banner = ModernMainWindow._build_quality_banner_sections(SimpleNamespace(), **args)
+    banner = ModernMainWindow._build_quality_banner_sections(_mock_window(), **args)
     joined = "\n".join(banner)
 
     assert "Spec-Upgrade: abgelehnt (VQI fehlt/Regression)" in joined
@@ -119,7 +127,7 @@ def test_spec_upgrade_banner_rejection_reason_is_visible() -> None:
 @pytest.mark.unit
 def test_quality_score_header_shows_green_spec_upgrade_ampel() -> None:
     txt = ModernMainWindow._build_quality_score_text(
-        SimpleNamespace(),
+        _mock_window(),
         is_sota_run=True,
         sota_warning_reason="",
         spec_upgrade=True,
@@ -146,7 +154,7 @@ def test_quality_score_header_shows_green_spec_upgrade_ampel() -> None:
 @pytest.mark.unit
 def test_quality_score_header_hides_ampel_when_not_evaluated() -> None:
     txt = ModernMainWindow._build_quality_score_text(
-        SimpleNamespace(),
+        _mock_window(),
         is_sota_run=True,
         sota_warning_reason="",
         spec_upgrade=False,

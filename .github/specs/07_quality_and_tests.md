@@ -399,7 +399,7 @@ automatisch geprüft werden.
 | RestorabilityEstimator | ≤ **5 s** |
 | Export (FLAC 24-bit) | ≤ 10 s |
 
-**Absolutes Zeitlimit Stufe 1:** `MAX_ABSOLUTE_SECONDS = 5400.0` (90 Minuten).
+**Absolutes Zeitlimit Stufe 1:** `_MAX_TOTAL_SECONDS = 14400.0` (240 Minuten, §K 64×RT-aligned)
 Nach Überschreitung: KMV Stufe 2 (`MLRefinementThread`) übernimmt automatisch.
 
 **FeedbackChain-Abbruch (Fix M, v9.10.100 — MOS-Metrik präzisiert, harmonisiert v9.12.0):**

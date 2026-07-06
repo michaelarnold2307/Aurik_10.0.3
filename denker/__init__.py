@@ -18,11 +18,18 @@ Domänen:
     RekonstruktionsDenker   – Lückenerkennung + Inpainting (§2.12)
     ExzellenzDenker         – Musical-Goals + GP-Exzellenz (§2.5 / §1.2)
     AurikDenker             – Orchestrator (Haupt-Entry-Point)
+    PerceptualQualityCouncil – Zentrale Qualitätsbewertung (§v10.3)
 """
 
 from .aurik_denker import AurikDenker, get_aurik_denker, restauriere
 from .defekt_denker import DefektDenker, get_defekt_denker
 from .exzellenz_denker import ExzellenzDenker, get_exzellenz_denker
+from .perceptual_council import (
+    PerceptualQualityCouncil,
+    PerceptualQualityVerdict,
+    assess_quality,
+    get_perceptual_council,
+)
 from .rekonstruktions_denker import RekonstruktionsDenker, get_rekonstruktions_denker
 from .reparatur_denker import ReparaturDenker, get_reparatur_denker
 from .restaurier_denker import RestaurierDenker, get_restaurier_denker
@@ -35,15 +42,19 @@ __all__ = [
     "DefektDenker",
     "ExzellenzDenker",
     "KettenErgebnis",
+    "PerceptualQualityCouncil",
+    "PerceptualQualityVerdict",
     "RekonstruktionsDenker",
     "ReparaturDenker",
     "RestaurierDenker",
     "StrategieDenker",
     "TontraegerDenker",
     "TontraegerketteDenker",
+    "assess_quality",
     "get_aurik_denker",
     "get_defekt_denker",
     "get_exzellenz_denker",
+    "get_perceptual_council",
     "get_rekonstruktions_denker",
     "get_reparatur_denker",
     "get_restaurier_denker",

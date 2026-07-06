@@ -646,7 +646,7 @@ class TestIntrinsicAudioQualityScorer:
 
     def test_returns_intrinsic_quality_score(self):
         """score() gibt IntrinsicQualityScore mit allen Feldern zurück."""
-        from backend.core.intrinsic_audio_quality_scorer import IntrinsicAudioQualityScorer, IntrinsicQualityScore
+        from backend.core.multi_pass_strategy import IntrinsicAudioQualityScorer, IntrinsicQualityScore
 
         scorer = IntrinsicAudioQualityScorer()
         audio = self._make_signal()
@@ -657,7 +657,7 @@ class TestIntrinsicAudioQualityScorer:
 
     def test_clean_scores_higher_than_noisy(self):
         """Sauberes Signal muss besser bewertet werden als verrauschtes."""
-        from backend.core.intrinsic_audio_quality_scorer import IntrinsicAudioQualityScorer
+        from backend.core.multi_pass_strategy import IntrinsicAudioQualityScorer
 
         scorer = IntrinsicAudioQualityScorer()
         sr = 44100
@@ -667,7 +667,7 @@ class TestIntrinsicAudioQualityScorer:
 
     def test_snr_higher_for_clean(self):
         """SNR-Schätzung muss für sauberes Signal größer sein."""
-        from backend.core.intrinsic_audio_quality_scorer import IntrinsicAudioQualityScorer
+        from backend.core.multi_pass_strategy import IntrinsicAudioQualityScorer
 
         scorer = IntrinsicAudioQualityScorer()
         sr = 44100
@@ -677,7 +677,7 @@ class TestIntrinsicAudioQualityScorer:
 
     def test_clipping_score_detects_clipped_signal(self):
         """Geklipptes Signal muss niedrigeren clipping_score haben."""
-        from backend.core.intrinsic_audio_quality_scorer import IntrinsicAudioQualityScorer
+        from backend.core.multi_pass_strategy import IntrinsicAudioQualityScorer
 
         scorer = IntrinsicAudioQualityScorer()
         sr = 44100
@@ -695,7 +695,7 @@ class TestIntrinsicAudioQualityScorer:
 
     def test_stereo_input_handled(self):
         """Stereo-Input (2D-Array) muss ohne Fehler verarbeitet werden."""
-        from backend.core.intrinsic_audio_quality_scorer import IntrinsicAudioQualityScorer
+        from backend.core.multi_pass_strategy import IntrinsicAudioQualityScorer
 
         scorer = IntrinsicAudioQualityScorer()
         mono = self._make_signal()
@@ -706,7 +706,7 @@ class TestIntrinsicAudioQualityScorer:
 
     def test_very_short_signal_returns_neutral(self):
         """Zu kurzes Signal (< FFT-Größe) muss 0.5 zurückgeben, kein Crash."""
-        from backend.core.intrinsic_audio_quality_scorer import IntrinsicAudioQualityScorer
+        from backend.core.multi_pass_strategy import IntrinsicAudioQualityScorer
 
         scorer = IntrinsicAudioQualityScorer()
         tiny = np.zeros(16, dtype=np.float32)
@@ -716,7 +716,7 @@ class TestIntrinsicAudioQualityScorer:
 
     def test_score_as_float_consistent_with_score_overall(self):
         """score_as_float() muss identisch zu score().overall sein."""
-        from backend.core.intrinsic_audio_quality_scorer import IntrinsicAudioQualityScorer
+        from backend.core.multi_pass_strategy import IntrinsicAudioQualityScorer
 
         scorer = IntrinsicAudioQualityScorer()
         audio = self._make_signal()

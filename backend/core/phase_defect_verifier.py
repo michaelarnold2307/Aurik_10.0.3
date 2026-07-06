@@ -588,35 +588,8 @@ def _compute_proxy(proxy_name: str, audio: np.ndarray, sr: int) -> float:
 # ---------------------------------------------------------------------------
 
 
-@dataclass
-class DefectVerificationResult:
-    """Result of one phase's post-defect check."""
-
-    phase_id: str
-    """Phase that was verified."""
-
-    targeted_defects: list[str]
-    """DefectType names for which a proxy was available."""
-
-    proxies_before: dict[str, float]
-    """Proxy values measured before the phase."""
-
-    proxies_after: dict[str, float]
-    """Proxy values measured after the phase."""
-
-    worst_defect: str
-    """DefectType name with the worst relative change (worsening)."""
-
-    worst_relative_change: float
-    """Relative change of the worst defect.
-    Positive = worsening (proxy increased for lower-is-better, or decreased for higher).
-    """
-
-    rollback_triggered: bool
-    """True if current_audio was reverted to pre-phase state."""
-
-    skipped_defects: list[str] = field(default_factory=list)
-    """DefectTypes that had no proxy and were skipped."""
+# canonical import — keep for backward compatibility
+from backend.core.cassette_defect_verifier import DefectVerificationResult
 
 
 # ---------------------------------------------------------------------------

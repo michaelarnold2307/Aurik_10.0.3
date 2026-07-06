@@ -26,7 +26,7 @@ from typing import Any
 import numpy as np
 
 from backend.core.phases.phase_interface import PhaseCategory, PhaseInterface, PhaseMetadata, PhaseResult
-from backend.core.psychoacoustic_metrics import PsychoAcousticMetrics
+from backend.core.comprehensive_metrics import PsychoAcousticMetrics
 
 logger = logging.getLogger(__name__)
 

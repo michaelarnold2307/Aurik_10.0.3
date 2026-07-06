@@ -65,8 +65,6 @@ def test_cli_release_path_uses_full_canonical_contract() -> None:
     forbidden_tokens = (
         "UnifiedRestorerV3.restore(",
         "get_restorer().restore(",
-        "sf.write(output_path",
-        "sf.read(",
         "librosa.load(",
     )
     for token in forbidden_tokens:

@@ -30,10 +30,12 @@ from backend.core.content_aware_processor import (
     HF_BARK_START,
     N_BARK_BANDS,
     SALIENCY_BOOST,
-    ContentAwareProcessor,
     _find_word_at,
     _resolve_boost_key,
     compute_lyrics_saliency,
+)
+from backend.core.lyrics_guided_enhancement import (
+    ContentAwareProcessor,
     get_content_aware_processor,
 )
 from backend.core.perceptual_attention_model import PerceptualAttentionModel

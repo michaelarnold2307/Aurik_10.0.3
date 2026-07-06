@@ -582,7 +582,8 @@ class MLDeviceManager:
             import torch  # type: ignore[import]
 
             if not torch.cuda.is_available():
-                logger.debug("MLDeviceManager: torch.cuda unavailable — ROCm not present")
+                logger.debug("MLDeviceManager: torch.cuda unavailable — checking ONNX ROCm fallback")
+                self._detect_rocm_onnx_only()
                 return
 
             device_name = torch.cuda.get_device_name(0)
@@ -601,6 +602,33 @@ class MLDeviceManager:
             # AMD architecture & tier detection
             self._gpu_architecture = _detect_amd_architecture(device_name)
             self._gpu_tier = _compute_gpu_tier(self._gpu_architecture, self._vram_total_gb, self._backend)
+
+        except Exception as exc:
+            logger.debug("MLDeviceManager: ROCm detection failed: %s — trying ONNX-only", exc)
+            self._detect_rocm_onnx_only()
+
+    def _detect_rocm_onnx_only(self) -> None:
+        """Fallback: detect ROCm via ONNX Runtime providers (no torch needed)."""
+        try:
+            import onnxruntime as ort  # type: ignore[import]
+            providers = ort.get_available_providers()
+            if "ROCMExecutionProvider" in providers:
+                self._backend = GPUBackend.ROCM
+                self._torch_gpu_device = "cpu"
+                self._ort_gpu_providers = ["ROCMExecutionProvider", "CPUExecutionProvider"]
+                self._gpu_available = True
+                self._gpu_name = "AMD GPU (ONNX ROCm, no torch)"
+                self._vram_total_gb = 4.0  # conservative estimate
+                self._vram_free_gb = 4.0
+                logger.info(
+                    "MLDeviceManager: ONNX ROCm provider detected — ONNX models will use GPU"
+                )
+            else:
+                logger.debug("MLDeviceManager: ONNX ROCm provider not available")
+        except ImportError:
+            logger.debug("MLDeviceManager: onnxruntime not installed")
+        except Exception as exc:
+            logger.debug("MLDeviceManager: ONNX ROCm detection error: %s", exc)
 
             logger.info(
                 "MLDeviceManager: AMD GPU arch=%s tier=%s name=%s VRAM=%.1f GB",

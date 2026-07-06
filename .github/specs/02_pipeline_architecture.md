@@ -1571,7 +1571,7 @@ Zusammenfassung aller Stabilitäts-Invarianten. Jede Verletzung einer dieser Reg
 | S-07 | Audio-Buffer-RAM-Guard | §3.9.7 spec 08 | OOM durch sehr große Audio-Dateien |
 | S-08 | Lock-Acquisition-Order (ARM→PLM→MLBudget) | §3.9.8 spec 08 | Deadlock zwischen ARM und PLM |
 | S-09 | MLRefinementThread Buffer-Release in finally | §3.9.9 spec 08 | RAM-Leak bei KMV-Abbruch |
-| S-10 | watchdog + requestInterruption → terminate() | §11.4 spec 08 | Freeze > 90 min (Desktop-Watchdog) |
+| S-10 | watchdog + requestInterruption → terminate() | §11.4 spec 08 | Freeze > 90–300 min (Desktop-Watchdog, §K 64×RT) |
 | S-11 | OOM-Recovery-Checkpoint (MemoryError-Pfad) | §2.39 | Python MemoryError → kein Totalverlust |
 | S-12 | §2.38 KMV Stufe 2 mit 4 GB RAM-Guard | §2.38 | OOM bei Hintergrund-ML-Veredelung |
 | S-13 | §2.38a ML-Headroom-Guard vor ML-Load | §2.38a | OOM während Modell-Laden |

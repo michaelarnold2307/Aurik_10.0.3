@@ -1196,8 +1196,8 @@ Timeout: `QTimer.singleShot(15_000, _preanalysis_timeout)`.
 ### Watchdog-Timer
 
 ```python
-_per_file_ms = max(5_400_000, int(audio_dur_s * 32_000) + 1_800_000)
-_watchdog_ms = max(5_400_000, n_files * _per_file_ms)  # Min 90 Min
+_per_file_ms = max(5_400_000, int(audio_dur_s * 64_000) + 3_600_000)  # 64×RT + 60min (vgl. §K)
+_watchdog_ms = max(5_400_000, n_files * _per_file_ms)  # Min 90 Min, bis 300 Min pro File
 ```
 
 ### Bridge-Fallback (`_BRIDGE_AVAILABLE`)
@@ -1320,8 +1320,8 @@ Timeout: `QTimer.singleShot(15_000, _preanalysis_timeout)`.
 ### Watchdog-Timer
 
 ```python
-_per_file_ms = max(5_400_000, int(audio_dur_s * 32_000) + 1_800_000)
-_watchdog_ms = max(5_400_000, n_files * _per_file_ms)  # Min 90 Min
+_per_file_ms = max(5_400_000, int(audio_dur_s * 64_000) + 3_600_000)  # 64×RT + 60min (vgl. §K)
+_watchdog_ms = max(5_400_000, n_files * _per_file_ms)  # Min 90 Min, bis 300 Min pro File
 ```
 
 ### Bridge-Fallback (`_BRIDGE_AVAILABLE`)

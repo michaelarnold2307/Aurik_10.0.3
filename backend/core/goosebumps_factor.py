@@ -45,26 +45,14 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 
+from backend.core.goosebumps_factor import GoosebumpsResult  # canonical (§dedup)
+
 import numpy as np
 
 logger = logging.getLogger(__name__)
 
 
 @dataclass
-class GoosebumpsResult:
-    """Ergebnis der Gänsehaut-Analyse."""
-
-    score: float  # 0.0 = keine emotionale Wirkung, 1.0 = maximale Gänsehaut
-    dynamic_contrast: float  # 0-1
-    harmonic_surprise: float  # 0-1
-    spectral_shimmer: float  # 0-1
-    temporal_breath: float  # 0-1
-    frequency_warmth: float  # 0-1
-
-    label: str = ""
-    recommendation: str = ""
-    issues: list[str] = field(default_factory=list)
-
 
 def compute_goosebumps(
     audio: np.ndarray,

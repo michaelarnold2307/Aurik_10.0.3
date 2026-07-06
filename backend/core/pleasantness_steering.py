@@ -38,49 +38,6 @@ logger = logging.getLogger(__name__)
 # Steering-Aktionen
 # ═══════════════════════════════════════════════════════════════════════════
 
-class SteerAction(Enum):
-    """Was soll die Pipeline als nächstes tun?"""
-
-    CONTINUE = auto()          # Alles gut, nächster Schritt
-    RETRY_LIGHTER = auto()     # Gleicher Schritt, reduzierte Intensität
-    SKIP_AND_REVERT = auto()   # Schritt überspringen, Audio zurücksetzen
-    ROLLBACK_TO_BEST = auto()  # Zurück zum besten Zwischenstand
-    STOP_WITH_BEST = auto()    # Keine Verbesserung mehr möglich, bestes Ergebnis ausgeben
-    ADAPT_STRATEGY = auto()    # Strategie ändern (z.B. andere Phase priorisieren)
-
-
-@dataclass
-class SteerDecision:
-    """Ergebnis der Steering-Prüfung nach einem Schritt."""
-
-    action: SteerAction
-    reason: str = ""
-    delta_pleasantness: float = 0.0
-
-    # Für RETRY_LIGHTER: Um wie viel Prozent die Intensität reduzieren?
-    intensity_reduction: float = 0.0  # 0.3 = 30% weniger
-
-    # Für SKIP_AND_REVERT / ROLLBACK: Welches Audio verwenden?
-    fallback_audio: np.ndarray | None = None
-
-    # Für ADAPT_STRATEGY: Welche Parameter ändern?
-    adapted_params: dict[str, Any] | None = None
-
-
-# ═══════════════════════════════════════════════════════════════════════════
-# Pleasantness Steering
-# ═══════════════════════════════════════════════════════════════════════════
-
-@dataclass
-class StepSnapshot:
-    """Snapshot eines Pipeline-Schritts für Rollback."""
-
-    step_id: int
-    audio: np.ndarray
-    pleasantness: float
-    label: str = ""
-
-
 class PleasantnessSteering:
     """Steuert die Pipeline anhand psychoakustischer Angenehmheit.
 

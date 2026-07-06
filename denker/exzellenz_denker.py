@@ -36,6 +36,68 @@ except Exception:  # ImportError, AttributeError, etc.
 _3X_RT_LIMIT: float = 32.0  # Maximaler RT-Faktor (Spec §9.5)
 
 
+# ─── Goal-Risk-Assessment (Muster D: gemeinsame Basis für prognostiziere + optimiere) ──
+# Zentral definierte Goal-Thresholds: beide Pfade nutzen dieselben Werte.
+
+
+_GOAL_THRESHOLDS: dict[str, float] = {
+    "authentizitaet": 0.70,
+    "natuerlichkeit": 0.70,  # naturalness
+    "brillanz": 0.65,
+    "timbre": 0.65,
+    "groove": 0.60,
+    "micro_dynamics": 0.60,
+    "artikulation": 0.65,
+    "waerme": 0.70,
+    "tiefe": 0.65,  # depth / räumliche Tiefe
+    "durchsetzung": 0.65,  # presence / Durchsetzung
+    "transparenz": 0.65,
+    "kohaerenz": 0.65,  # coherence
+    "fokus": 0.60,
+    "balance": 0.65,
+    "stimmung": 0.60,  # emotional mood
+}
+"""Zentrale Bestehensgrenzen für alle 15 Musical Goals.
+
+Ein Goal gilt als bestanden wenn sein Score ≥ diesem Wert liegt.
+Ein Goal gilt als risikobehaftet (repair-würdig) wenn sein Score < Wert × 0.85.
+"""
+
+
+@dataclass
+class GoalRiskAssessment:
+    """Einheitliche Risikobewertung eines Musical Goals.
+
+    Von ExzellenzDenker.bewerte_zielrisiko() erzeugt, sowohl von
+    prognostiziere() (DSP-Proxy) als auch optimiere() (full measurement) genutzt.
+    """
+
+    goal_name: str
+    """Name des Musical Goals (z. B. 'waerme', 'authentizitaet')."""
+
+    current_score: float
+    """Gemessener oder prognostizierter Score ∈ [0, 1]."""
+
+    threshold: float
+    """Bestehensgrenze aus _GOAL_THRESHOLDS."""
+
+    risk: float
+    """Risiko ∈ [0, 1]: 0 = sicher bestanden, 1 = sicher verletzt.
+    Berechnet als norm(threshold - score) mit Sigmoid-Charakter.
+    """
+
+    needs_protection: bool
+    """True wenn prophylaktische Phase injiziert werden sollte (risk ≥ 0.50)."""
+
+    needs_repair: bool
+    """True wenn reaktive Reparatur nötig ist (score < threshold × 0.85)."""
+
+    @property
+    def passed(self) -> bool:
+        """True wenn der Score über der Bestehensgrenze liegt."""
+        return self.current_score >= self.threshold
+
+
 # ─── Ergebnis-Datenklasse ────────────────────────────────────────────────────
 
 
@@ -979,6 +1041,58 @@ class ExzellenzDenker:
         except Exception as exc:
             logger.debug("ExzellenzDenker.prognostiziere() fehlgeschlagen: %s", exc)
             return {}
+
+    def bewerte_zielrisiko(
+        self,
+        current_scores: dict[str, float],
+    ) -> dict[str, GoalRiskAssessment]:
+        """Einheitliche Risikobewertung aller Goals aus gemessenen/prognostizierten Scores.
+
+        Verwendet von:
+          - prognostiziere() für die prophylaktische Risikovorhersage (Stufe 5b)
+          - optimiere() für die reaktive Reparaturentscheidung (Stufe 9)
+
+        Beide Pfade nutzen DIESELBEN _GOAL_THRESHOLDS — keine abweichenden
+        Schwellen mehr zwischen Vorhersage und Messung.
+
+        Args:
+            current_scores: dict goal_name → Score ∈ [0, 1].
+                            Kann aus prognostiziere() (DSP-Proxy) oder
+                            messe_ziele() (full ML) stammen.
+
+        Returns:
+            dict goal_name → GoalRiskAssessment mit risk, needs_protection,
+            needs_repair und passed.
+        """
+        assessments: dict[str, GoalRiskAssessment] = {}
+        for goal_name, score in current_scores.items():
+            if not isinstance(score, (int, float)) or not math.isfinite(score):
+                continue
+            score = float(np.clip(score, 0.0, 1.0))
+            threshold = _GOAL_THRESHOLDS.get(goal_name, 0.65)
+
+            # Risiko mit logistischer Sigmoid-Charakteristik:
+            # Bei score = threshold → risk ≈ 0.50
+            # Bei score = 0 → risk ≈ 0.95
+            # Bei score = 1 → risk ≈ 0.01
+            deficit = threshold - score
+            if deficit <= 0:
+                risk = 0.05 * abs(deficit)  # minimal risk bei Überschreitung
+            else:
+                risk = float(np.clip(deficit / threshold, 0.0, 0.95))
+
+            risk = float(np.clip(risk, 0.0, 1.0))
+            repair_threshold = threshold * 0.85
+
+            assessments[goal_name] = GoalRiskAssessment(
+                goal_name=goal_name,
+                current_score=score,
+                threshold=threshold,
+                risk=risk,
+                needs_protection=risk >= 0.50,
+                needs_repair=score < repair_threshold,
+            )
+        return assessments
 
     # ── Interne Hilfsmethoden ────────────────────────────────────────────────
 

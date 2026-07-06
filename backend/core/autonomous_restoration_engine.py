@@ -40,7 +40,7 @@ from backend.core.defect_phase_mapper import DefectPhaseMapper
 from backend.core.defect_quality_report import DefectQualityReport, DefectQualityReporter
 from backend.core.defect_scanner import DefectAnalysisResult, DefectScanner, DefectType, MaterialType
 from backend.core.gap_reconstructor import GapReconstructor
-from backend.core.intrinsic_audio_quality_scorer import IntrinsicAudioQualityScorer
+from backend.core.multi_pass_strategy import IntrinsicAudioQualityScorer
 from backend.core.medium_chain_model import PhysicalMediumChainModel
 from backend.core.multi_pass_strategy import (
     ProcessingVariant,
@@ -110,6 +110,13 @@ class AutonomousRestorationResult:
     """Kausal geordnete Reparaturreihenfolge (Root causes zuerst)."""
     causal_explanation: str = ""
     """Prosaerklärung der kausalen Defektabhängigkeiten."""
+
+    # --- ARE-Transparenz (§v10.4): Alle Varianten-Scores für PerceptualQualityCouncil ---
+    variant_scores: dict[str, float] = field(default_factory=dict)
+    """IAQS-Scores aller evaluierten Varianten {name → score}.
+    Ermöglicht dem AurikDenker/PerceptualQualityCouncil die perzeptive
+    Nachbewertung — nicht nur den technischen Gewinner zu sehen."""
+
     chain_corrections: list[str] = field(default_factory=list)
     """Angewendete physikalische Ketteninversions-Korrekturen."""
     chain_spectral_change_db: float = 0.0
@@ -436,7 +443,7 @@ class AutonomousRestorationEngine:
             len(variants),
             [v.name for v in variants],
         )
-        best_audio, best_variant_name, pass_scores = self._multi_pass(
+        best_audio, best_variant_name, pass_scores, _variant_all_scores = self._multi_pass(
             audio=audio,
             sample_rate=sample_rate,
             variants=variants,
@@ -579,6 +586,7 @@ class AutonomousRestorationEngine:
             defect_profile=defect_result,
             goal_profile=goal_profile,
             winning_variant=best_variant_name,
+            variant_scores=_variant_all_scores,
             quality_before=round(quality_before, 2),
             quality_after=round(quality_after, 2),
             improvement_db=float(np.nan_to_num(round(improvement_db, 2), nan=0.0)),
@@ -812,7 +820,7 @@ class AutonomousRestorationEngine:
 
                 # Rufe UV3 auf dem Exzerpt mit Varianten-Parametern auf
                 # (nutzt self._uv3_restore falls verfügbar, sonst Mini-Pass)
-                _restored = self._run_mini_restore(_excerpt, sample_rate, _variant, goal_profile)
+                _restored = self._run_mini_restore(_excerpt, sample_rate, _variant, goal_profile, progress_callback=progress_callback)
 
                 # Score das Ergebnis
                 _score = scorer.score(_excerpt, _restored, sample_rate)
@@ -847,7 +855,8 @@ class AutonomousRestorationEngine:
                 pass
 
         # Audio unverändert zurückgeben (Parameter werden downstream angewandt)
-        return audio, best_variant.name, _winner_params
+        _all_scores: dict[str, float] = {name: score for name, score in results}
+        return audio, best_variant.name, _winner_params, _all_scores
 
     def _run_mini_restore(
         self,
@@ -855,6 +864,7 @@ class AutonomousRestorationEngine:
         sample_rate: int,
         variant: Any,
         goal_profile: Any,
+        **kwargs: Any,
     ) -> np.ndarray:
         """Führt einen Mini-Restore auf einem Exzerpt mit Varianten-Parametern aus."""
         try:
@@ -864,6 +874,7 @@ class AutonomousRestorationEngine:
             _kwargs: dict[str, Any] = {
                 'quality_mode': str(_mode),
                 'material_type': getattr(self, '_detected_material', 'unknown'),
+                'progress_callback': kwargs.get('progress_callback'),
             }
             if hasattr(variant, 'parameters') and variant.parameters:
                 _kwargs['variant_params'] = dict(variant.parameters)

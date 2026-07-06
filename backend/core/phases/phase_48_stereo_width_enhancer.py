@@ -102,12 +102,17 @@ def _freq_dependent_ms_width(
     w_profile = np.ones(len(freqs)) * width
     w_profile[freqs < f_lo] = width * _LF_WIDTH_FACTOR
     w_profile[freqs > f_hi] = width * _HF_WIDTH_FACTOR
+    # §AO Guard: STFT params must be valid
+    if n_fft <= hop:
+        n_fft = hop * 2  # Ensure nperseg > hop for valid noverlap
+    if len(S) < n_fft:
+        return S  # Audio too short for STFT
     _, _, Z = sig.stft(
         S,
         fs=sr,
         window="hann",
         nperseg=n_fft,
-        noverlap=n_fft - hop,
+        noverlap=max(0, n_fft - hop),
         boundary="zeros",
         padded=True,
     )
@@ -117,7 +122,7 @@ def _freq_dependent_ms_width(
         fs=sr,
         window="hann",
         nperseg=n_fft,
-        noverlap=n_fft - hop,
+        noverlap=max(0, n_fft - hop),
         input_onesided=True,
         boundary=True,
     )
