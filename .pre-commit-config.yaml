@@ -290,6 +290,12 @@ repos:
         pass_filenames: true
         files: ^backend/core/(quality_mode|defect_manifest|phase_pruner|safe_dict|periodic_health)\.py$
 
+      - id: aurik-anti-regression
+        name: "🛡️ Anti-Regression-Gate (alle 9 Bug-Muster)"
+        entry: .venv_aurik/bin/python scripts/compliance/anti_regression_gate.py
+        language: system
+        pass_filenames: true
+
       - id: aurik-version-consistency
         name: "🏷️ Version-Consistency (kein Aurik 8.0/9.x in Logs)"
         entry: "bash -c '! grep -rn \"Aurik [0-9]\\.[0-9]\" backend/ Aurik10/ --include=\"*.py\" | grep -v \"10\\.\" | grep -v \"# \" | grep -v \"CLAUDE\" | grep -v \"CHANGELOG\" | grep -v \"specs/\"'"
